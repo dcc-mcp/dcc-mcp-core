@@ -1,7 +1,7 @@
 """Tests for the exceptions module."""
 
-import pytest
 
+# Import local modules
 from dcc_mcp_core import exceptions
 
 
@@ -43,7 +43,7 @@ def test_validation_error():
     assert error.code == "MCP-E-CUSTOM-VALIDATION"
     assert error.param_name == "age"
     assert error.param_value == "thirty"
-    assert error.expected == int
+    assert error.expected is int
     assert str(error) == "[MCP-E-CUSTOM-VALIDATION] Validation failed"
 
 

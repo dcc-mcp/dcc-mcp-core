@@ -14,6 +14,7 @@ class MCPError(Exception):
     Attributes:
         code (str): A unique error code for machine-readable error identification.
         message (str): A human-readable error message.
+
     """
 
     def __init__(self, message, code=None):
@@ -23,6 +24,7 @@ class MCPError(Exception):
             message (str): A human-readable error message.
             code (str, optional): A unique error code for machine-readable error identification.
                 Defaults to None.
+
         """
         self.message = message
         self.code = code or "MCP-E-GENERIC"
@@ -33,6 +35,7 @@ class MCPError(Exception):
 
         Returns:
             str: A string representation of the error, including the error code if available.
+
         """
         if self.code:
             return f"[{self.code}] {self.message}"
@@ -49,6 +52,7 @@ class ValidationError(MCPError):
         param_name (str): The name of the parameter that failed validation.
         param_value: The value of the parameter that failed validation.
         expected: The expected type or value of the parameter.
+
     """
 
     def __init__(self, message, param_name=None, param_value=None, expected=None, code=None):
@@ -64,6 +68,7 @@ class ValidationError(MCPError):
                 Defaults to None.
             code (str, optional): A unique error code for machine-readable error identification.
                 Defaults to None.
+
         """
         self.param_name = param_name
         self.param_value = param_value
@@ -79,6 +84,7 @@ class ConfigurationError(MCPError):
 
     Attributes:
         config_key (str): The key in the configuration that caused the error.
+
     """
 
     def __init__(self, message, config_key=None, code=None):
@@ -90,6 +96,7 @@ class ConfigurationError(MCPError):
                 Defaults to None.
             code (str, optional): A unique error code for machine-readable error identification.
                 Defaults to None.
+
         """
         self.config_key = config_key
         super().__init__(message, code or "MCP-E-CONFIG")
@@ -103,6 +110,7 @@ class ConnectionError(MCPError):
 
     Attributes:
         service_name (str): The name of the service that could not be connected to.
+
     """
 
     def __init__(self, message, service_name=None, code=None):
@@ -114,6 +122,7 @@ class ConnectionError(MCPError):
                 Defaults to None.
             code (str, optional): A unique error code for machine-readable error identification.
                 Defaults to None.
+
         """
         self.service_name = service_name
         super().__init__(message, code or "MCP-E-CONNECTION")
@@ -127,6 +136,7 @@ class OperationError(MCPError):
 
     Attributes:
         operation_name (str): The name of the operation that failed.
+
     """
 
     def __init__(self, message, operation_name=None, code=None):
@@ -138,6 +148,7 @@ class OperationError(MCPError):
                 Defaults to None.
             code (str, optional): A unique error code for machine-readable error identification.
                 Defaults to None.
+
         """
         self.operation_name = operation_name
         super().__init__(message, code or "MCP-E-OPERATION")
@@ -153,6 +164,7 @@ class VersionError(MCPError):
         component (str): The component with the version issue.
         current_version (str): The current version of the component.
         required_version (str): The required version of the component.
+
     """
 
     def __init__(
@@ -170,6 +182,7 @@ class VersionError(MCPError):
                 Defaults to None.
             code (str, optional): A unique error code for machine-readable error identification.
                 Defaults to None.
+
         """
         self.component = component
         self.current_version = current_version

@@ -1,5 +1,9 @@
 # Byte-compiled / optimized / DLL files
 *.py[cod]
+__pycache__/
+*.so
+*.dll
+*.dylib
 
 # PyCharm project files
 .idea/
@@ -21,3 +25,13 @@ target/*
 /coverage.xml
 /.zip/
 run-ide.bat
+
+# Poetry
+/.venv/
+dist/
+
+# Python cache
+*.pyc
+*.pyo
+*.pyd
+.Python
