@@ -16,10 +16,10 @@ To use DCC-MCP-Core in your project, you first need to create a plugin manager f
 .. code-block:: python
 
     from dcc_mcp_core.plugin_manager import create_dcc_plugin_manager
-    
+
     # Create a plugin manager for Maya
     maya_pm = create_dcc_plugin_manager("maya")
-    
+
     # Or for Houdini
     houdini_pm = create_dcc_plugin_manager("houdini")
 
@@ -32,7 +32,7 @@ Once you have a plugin manager, you can use it to load and execute plugins:
 
     # Load a plugin
     plugin = maya_pm.load_plugin("/path/to/my_plugin.py")
-    
+
     # Call a plugin function
     result = maya_pm.func_call("my_plugin", {
         "parameters": {
@@ -40,7 +40,7 @@ Once you have a plugin manager, you can use it to load and execute plugins:
             "name": "test"
         }
     })
-    
+
     print(result)
 
 DCC Commands and Scripts
@@ -52,10 +52,10 @@ You can also execute DCC-specific commands and scripts:
 
     # Execute a Maya command
     maya_pm.execute_command("ls", "-l")
-    
+
     # Execute a MEL script in Maya
     maya_pm.execute_script("sphere -name mySphere;")
-    
+
     # Execute a Python script in Houdini
     houdini_pm.execute_script("hou.node('/obj').createNode('geo', 'myGeo')")
 
@@ -69,7 +69,7 @@ To get information about the current scene:
     # Get Maya scene info
     maya_scene = maya_pm.get_scene_info()
     print(maya_scene)
-    
+
     # Get Houdini scene info
     houdini_scene = houdini_pm.get_scene_info()
     print(houdini_scene)
@@ -82,21 +82,21 @@ One of the main benefits of DCC-MCP-Core is the ability to write code that works
 .. code-block:: python
 
     from dcc_mcp_core.plugin_manager import create_dcc_plugin_manager, get_supported_dccs
-    
+
     def process_scene(dcc_name):
         # Create a plugin manager for the specified DCC
         pm = create_dcc_plugin_manager(dcc_name)
-        
+
         # Get scene information (works with any DCC)
         scene_info = pm.get_scene_info()
         print(f"Scene info for {dcc_name}: {scene_info}")
-        
+
         # Execute a command (implementation differs by DCC)
         pm.execute_command("help")
-        
+
         # Call a plugin (would work if the plugin exists)
         pm.func_call("process_scene", {"parameters": {"operation": "cleanup"}})
-    
+
     # Run the function with all supported DCCs
     for dcc in get_supported_dccs():
         process_scene(dcc)

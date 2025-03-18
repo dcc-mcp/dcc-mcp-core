@@ -214,5 +214,5 @@ dcc_mcp_core.version.check_compatibility(version1, version2)
 
 ---
 
-*Document Version: 1.0.0*  
+*Document Version: 1.0.0*
 *Last Updated: 2025-03-18*

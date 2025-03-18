@@ -3,6 +3,8 @@ import os
 
 # Import third-party modules
 import nox
+
+# Import local modules
 from nox_actions.utils import PACKAGE_NAME
 from nox_actions.utils import THIS_ROOT
 

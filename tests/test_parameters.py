@@ -1,17 +1,17 @@
 """Tests for the parameters module."""
 
+# Import built-in modules
 import json
-import ast
+
+# Import third-party modules
 import pytest
 
-from dcc_mcp_core import exceptions
-from dcc_mcp_core.parameters import (
-    process_parameters,
-    parse_kwargs_string,
-    parse_json,
-    parse_ast_literal,
-    parse_key_value_pairs,
-)
+# Import local modules
+from dcc_mcp_core.parameters import parse_ast_literal
+from dcc_mcp_core.parameters import parse_json
+from dcc_mcp_core.parameters import parse_key_value_pairs
+from dcc_mcp_core.parameters import parse_kwargs_string
+from dcc_mcp_core.parameters import process_parameters
 
 
 def test_process_parameters():
@@ -20,17 +20,17 @@ def test_process_parameters():
     params = {"name": "John", "age": 30, "is_active": True}
     result = process_parameters(params)
     assert result == params
-    
+
     # Test with string parameters
     params_str = '{"name": "John", "age": 30, "is_active": true}'
     result = process_parameters(params_str)
     assert result == {"name": "John", "age": 30, "is_active": True}
-    
+
     # Test with key=value string parameters
     params_str = 'name=John age=30 is_active=True'
     result = process_parameters(params_str)
     assert result == {"name": "John", "age": 30, "is_active": True}
-    
+
     # Test boolean conversion
     params = {"query": 1, "edit": 0, "normal_value": 1}
     result = process_parameters(params)
@@ -43,17 +43,17 @@ def test_parse_kwargs_string():
     kwargs_str = '{"name": "John", "age": 30}'
     result = parse_kwargs_string(kwargs_str)
     assert result == {"name": "John", "age": 30}
-    
+
     # Test with Python dict literal format
     kwargs_str = "{'name': 'John', 'age': 30}"
     result = parse_kwargs_string(kwargs_str)
     assert result == {"name": "John", "age": 30}
-    
+
     # Test with key=value format
     kwargs_str = "name=John age=30"
     result = parse_kwargs_string(kwargs_str)
     assert result == {"name": "John", "age": 30}
-    
+
     # Test with invalid format
     kwargs_str = "invalid format"
     result = parse_kwargs_string(kwargs_str)
@@ -66,7 +66,7 @@ def test_parse_json():
     kwargs_str = '{"name": "John", "age": 30, "is_active": true}'
     result = parse_json(kwargs_str)
     assert result == {"name": "John", "age": 30, "is_active": True}
-    
+
     # Test with invalid JSON
     kwargs_str = '{name: John}'
     with pytest.raises(json.JSONDecodeError):
@@ -79,12 +79,12 @@ def test_parse_ast_literal():
     kwargs_str = "{'name': 'John', 'age': 30, 'is_active': True}"
     result = parse_ast_literal(kwargs_str)
     assert result == {"name": "John", "age": 30, "is_active": True}
-    
+
     # Test with invalid Python dict literal
     kwargs_str = "{name: 'John'}"
     with pytest.raises(SyntaxError):
         parse_ast_literal(kwargs_str)
-    
+
     # Test with non-dict result
     kwargs_str = "[1, 2, 3]"
     with pytest.raises(ValueError):
@@ -97,27 +97,27 @@ def test_parse_key_value_pairs():
     kwargs_str = "name=John age=30 is_active=True"
     result = parse_key_value_pairs(kwargs_str)
     assert result == {"name": "John", "age": 30, "is_active": True}
-    
+
     # Test with quoted values
     kwargs_str = 'name="John Doe" age=30'
     result = parse_key_value_pairs(kwargs_str)
     assert result == {"name": "John Doe", "age": 30}
-    
+
     # Test with boolean values
     kwargs_str = "is_active=True is_admin=False"
     result = parse_key_value_pairs(kwargs_str)
     assert result == {"is_active": True, "is_admin": False}
-    
+
     # Test with None value
     kwargs_str = "name=None age=30"
     result = parse_key_value_pairs(kwargs_str)
     assert result == {"name": None, "age": 30}
-    
+
     # Test with numeric values
     kwargs_str = "int_val=42 float_val=3.14"
     result = parse_key_value_pairs(kwargs_str)
     assert result == {"int_val": 42, "float_val": 3.14}
-    
+
     # Test with boolean flags
     kwargs_str = "query=1 edit=0"
     result = parse_key_value_pairs(kwargs_str)

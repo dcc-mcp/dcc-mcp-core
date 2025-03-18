@@ -23,7 +23,8 @@ classifiers = [
 ]
 dependencies = [
     "loguru (>=0.7.3,<0.8.0)",
-    "platformdirs (>=3,<4.0.0)"
+    "platformdirs (>=3,<4.0.0)",
+    "pydantic (>=2,<3.0.0)"
 ]
 
 [project.urls]
@@ -31,20 +32,157 @@ Homepage = "https://github.com/loonghao/dcc-mcp-core"
 Issues = "https://github.com/loonghao/dcc-mcp-core/issues"
 
 [build-system]
-requires = ["poetry-core>=2.0.0,<3.0.0"]
+requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
 
-[tool.ruff]
-line-length = 120
-target-version = "py37"
-select = ["E", "F", "W", "I"]
-ignore = []
-
-[tool.ruff.isort]
-known-first-party = ["dcc_mcp_core"]
+[tool.commitizen]
+name = "cz_conventional_commits"
+version = "0.0.1"
+tag_format = "v$version"
+version_files = [
+    "pyproject.toml:version",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
+
+[tool.coverage.run]
+source = ["dcc_mcp_core"]
+branch = true
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+]
+
+[tool.mypy]
+python_version = "3.7"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+ignore_missing_imports = true
+disable_error_code = ["type-arg", "misc", "no-any-return"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py37"
+src = ["dcc_mcp_core", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", # pycodestyle
+    "F", # pyflakes
+    "D", # pydocstyle
+    "UP", # pyupgrade
+    "RUF", # ruff-specific rules
+]
+ignore = ["D203", "D213", "ARG001", "D107", "D105", "D102", "F811", "I001"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"tests/*.py" = ["ARG001", "F401", "F811", "D107", "D105", "D102", "E501", "I001"]
+"nox_actions/*.py" = ["D100", "D103", "D104", "E402"]
+"noxfile.py" = ["D100", "E402", "D401", "D400"]
+"examples/*.py" = ["D401", "D415", "RUF013", "E722", "D400"]
+"docs/examples/**/*.py" = ["D401", "RUF013"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.isort]
+# Enforce import section headers.
+import_heading_future = "Import future modules"
+import_heading_stdlib = "Import built-in modules"
+import_heading_thirdparty = "Import third-party modules"
+import_heading_firstparty = "Import local modules"
+
+profile = "black"
+line_length = 120
+force_sort_within_sections = true
+force_single_line = true
+sections = ["FUTURE", "STDLIB", "THIRDPARTY", "FIRSTPARTY", "LOCALFOLDER"]
+known_first_party = ["dcc_mcp_core"]
+
+[tool.nox]
+sessions = ["lint", "pytest"]
+python = ["3.7", "3.8", "3.9", "3.10", "3.11"]
+reuse_venv = true
+
+[tool.nox.session.lint]
+deps = ["ruff", "mypy", "isort"]
+commands = [
+    "mypy --install-types --non-interactive",
+    "ruff check .",
+    "ruff format --check .",
+    "isort --check-only .",
+    "mypy dcc_mcp_core --strict"
+]
+
+[tool.nox.session.lint_fix]
+deps = ["ruff", "mypy", "isort"]
+commands = [
+    "ruff check --fix .",
+    "ruff format .",
+    "isort ."
+]
+
+[tool.nox.session.pytest]
+deps = ["pytest", "pytest-cov"]
+commands = [
+    "pytest tests/ --cov=dcc_mcp_core --cov-report=xml:coverage.xml --cov-report=term-missing"
+]
+
+[tool.poetry]
+name = "dcc-mcp-core"
+version = "0.0.1"
+description = "Foundational library for the DCC Model Context Protocol (MCP) ecosystem"
+authors = ["longhao <hal.long@outlook.com>"]
+readme = "README.md"
+packages = [{include = "dcc_mcp_core"}]
+license = "MIT"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Multimedia :: Graphics :: 3D Modeling",
+]
+
+[tool.poetry.dependencies]
+python = ">=3.7,<4.0"
+loguru = ">=0.7.3,<0.8.0"
+platformdirs = ">=3,<4.0.0"
+pydantic = ">=2,<3.0.0"
+
+[tool.poetry.urls]
+Homepage = "https://github.com/loonghao/dcc-mcp-core"
+Repository = "https://github.com/loonghao/dcc-mcp-core"
+Issues = "https://github.com/loonghao/dcc-mcp-core/issues"
+
+[tool.poetry.group.dev.dependencies]
+pyfakefs = "^5.8.0"
