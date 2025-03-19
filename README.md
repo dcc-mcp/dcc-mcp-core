@@ -16,6 +16,9 @@ DCC-MCP-Core is a plugin management system designed for Digital Content Creation
 
 ```mermaid
 graph LR
+    %% 增加图表宽度
+    classDef default width:120px,height:60px
+    
     AI[AI Assistant] -->|"1. Send Request"| MCP[MCP Server]
     MCP -->|"2. Forward Request"| DCCMCP[DCC-MCP]
     DCCMCP -->|"3. Discover & Load"| Plugins[DCC Plugins]
@@ -27,15 +30,16 @@ graph LR
     DCCMCP -->|"9. Structured Result"| MCP
     MCP -->|"10. Return Result"| AI
 
-    classDef ai fill:#f9d,stroke:#333,stroke-width:2px;
-    classDef mcp fill:#bbf,stroke:#333,stroke-width:2px;
-    classDef dcc fill:#bfb,stroke:#333,stroke-width:2px;
-    classDef plugin fill:#fbb,stroke:#333,stroke-width:2px;
+    %% 使用更鲜明的颜色和更大的节点
+    classDef ai fill:#f9d,stroke:#333,stroke-width:4px,color:#000,font-weight:bold
+    classDef mcp fill:#bbf,stroke:#333,stroke-width:4px,color:#000,font-weight:bold
+    classDef dcc fill:#bfb,stroke:#333,stroke-width:4px,color:#000,font-weight:bold
+    classDef plugin fill:#fbb,stroke:#333,stroke-width:4px,color:#000,font-weight:bold
 
-    class AI ai;
-    class MCP,DCCMCP mcp;
-    class DCC dcc;
-    class Plugins plugin;
+    class AI ai
+    class MCP,DCCMCP mcp
+    class DCC dcc
+    class Plugins plugin
 ```
 
 ### Plugin Design

@@ -16,6 +16,9 @@ DCC-MCP-Core 是一个为数字内容创建(DCC)应用程序设计的插件管�
 
 ```mermaid
 graph LR
+    %% 添加了图表样式
+    classDef default width:120px,height:60px
+    
     AI[AI 助手] -->|"1. 发送请求"| MCP[MCP 服务器]
     MCP -->|"2. 转发请求"| DCCMCP[DCC-MCP]
     DCCMCP -->|"3. 发现与加载"| Plugins[DCC 插件]
@@ -27,15 +30,16 @@ graph LR
     DCCMCP -->|"9. 结构化结果"| MCP
     MCP -->|"10. 返回结果"| AI
     
-    classDef ai fill:#f9d,stroke:#333,stroke-width:2px;
-    classDef mcp fill:#bbf,stroke:#333,stroke-width:2px;
-    classDef dcc fill:#bfb,stroke:#333,stroke-width:2px;
-    classDef plugin fill:#fbb,stroke:#333,stroke-width:2px;
+    %% 使用了更大的字体和粗体的边框
+    classDef ai fill:#f9d,stroke:#333,stroke-width:4px,color:#000,font-weight:bold
+    classDef mcp fill:#bbf,stroke:#333,stroke-width:4px,color:#000,font-weight:bold
+    classDef dcc fill:#bfb,stroke:#333,stroke-width:4px,color:#000,font-weight:bold
+    classDef plugin fill:#fbb,stroke:#333,stroke-width:4px,color:#000,font-weight:bold
     
-    class AI ai;
-    class MCP,DCCMCP mcp;
-    class DCC dcc;
-    class Plugins plugin;
+    class AI ai
+    class MCP,DCCMCP mcp
+    class DCC dcc
+    class Plugins plugin
 ```
 
 ### 插件设计
