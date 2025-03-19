@@ -18,7 +18,7 @@ DCC-MCP-Core 是一个为数字内容创建(DCC)应用程序设计的插件管�
 graph LR
     %% 添加了图表样式
     classDef default width:120px,height:60px
-    
+
     AI[AI 助手] -->|"1. 发送请求"| MCP[MCP 服务器]
     MCP -->|"2. 转发请求"| DCCMCP[DCC-MCP]
     DCCMCP -->|"3. 发现与加载"| Plugins[DCC 插件]
@@ -29,13 +29,13 @@ graph LR
     DCC -->|"8. 操作结果"| DCCMCP
     DCCMCP -->|"9. 结构化结果"| MCP
     MCP -->|"10. 返回结果"| AI
-    
+
     %% 使用了更大的字体和粗体的边框
     classDef ai fill:#f9d,stroke:#333,stroke-width:4px,color:#000,font-weight:bold
     classDef mcp fill:#bbf,stroke:#333,stroke-width:4px,color:#000,font-weight:bold
     classDef dcc fill:#bfb,stroke:#333,stroke-width:4px,color:#000,font-weight:bold
     classDef plugin fill:#fbb,stroke:#333,stroke-width:4px,color:#000,font-weight:bold
-    
+
     class AI ai
     class MCP,DCCMCP mcp
     class DCC dcc
@@ -126,7 +126,7 @@ print(f"Loaded plugins: {list(plugins_info.keys())}")
 plugins_info = manager.get_plugins_info()
 
 # 调用特定插件的函数
-result = manager.call_plugin_function('maya_scene_tools', 'create_primitive', 
+result = manager.call_plugin_function('maya_scene_tools', 'create_primitive',
                                     context=context, primitive_type="cube", size=2.0)
 ```
 
@@ -155,7 +155,7 @@ def maya_tool(func):
         maya_client = context.get("maya_client")
         if not maya_client:
             return {"error": "Maya client not found"}
-            
+
         # 调用原始函数
         try:
             return func(context, *args, **kwargs)
@@ -168,14 +168,14 @@ def maya_tool(func):
 def create_cube(context, size=1.0, position=None):
     """在 Maya 中创建一个立方体。"""
     cmds = context.get("maya_client").cmds
-    
+
     if position is None:
         position = [0, 0, 0]
-        
+
     # 创建立方体
     cube = cmds.polyCube(w=size, h=size, d=size)[0]
     cmds.move(position[0], position[1], position[2], cube)
-    
+
     return {
         "status": "success",
         "result": {

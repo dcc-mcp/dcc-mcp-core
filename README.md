@@ -18,7 +18,7 @@ DCC-MCP-Core is a plugin management system designed for Digital Content Creation
 graph LR
     %% 增加图表宽度
     classDef default width:120px,height:60px
-    
+
     AI[AI Assistant] -->|"1. Send Request"| MCP[MCP Server]
     MCP -->|"2. Forward Request"| DCCMCP[DCC-MCP]
     DCCMCP -->|"3. Discover & Load"| Plugins[DCC Plugins]

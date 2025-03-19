@@ -24,12 +24,12 @@ __plugin_requires__ = ["maya"]  # Specify the DCC environment this plugin depend
 
 def create_sphere(context: Dict[str, Any], radius: float = 1.0, position: List[float] = None) -> Dict[str, Any]:
     """Create a sphere.
-    
+
     Args:
         context: Context object provided by the MCP server
         radius: Radius of the sphere
         position: Position of the sphere [x, y, z]
-        
+
     Returns:
         Dictionary containing creation result
 
@@ -38,23 +38,23 @@ def create_sphere(context: Dict[str, Any], radius: float = 1.0, position: List[f
     maya_client = context.get("maya_client", None)
     if not maya_client:
         return {"error": "Maya client not found in context"}
-    
+
     # Get Maya commands interface
     cmds = maya_client.cmds
     if not cmds:
         return {"error": "Maya commands interface not found in client"}
-    
+
     # Set default position
     if position is None:
         position = [0.0, 0.0, 0.0]
-    
+
     try:
         # Create sphere
         sphere = cmds.polySphere(r=radius)[0]
-        
+
         # Set position
         cmds.move(position[0], position[1], position[2], sphere)
-        
+
         return {
             "status": "success",
             "result": {
@@ -71,19 +71,19 @@ def create_sphere(context: Dict[str, Any], radius: float = 1.0, position: List[f
             "message": str(e)
         }
 
-def create_random_spheres(context: Dict[str, Any], count: int = 5, 
-                         min_radius: float = 0.5, 
+def create_random_spheres(context: Dict[str, Any], count: int = 5,
+                         min_radius: float = 0.5,
                          max_radius: float = 2.0,
                          area_size: float = 10.0) -> Dict[str, Any]:
     """Create multiple random spheres.
-    
+
     Args:
         context: Context object provided by the MCP server
         count: Number of spheres to create
         min_radius: Minimum radius
         max_radius: Maximum radius
         area_size: Area size for sphere distribution
-        
+
     Returns:
         Dictionary containing all creation results
 
@@ -92,21 +92,21 @@ def create_random_spheres(context: Dict[str, Any], count: int = 5,
     maya_client = context.get("maya_client", None)
     if not maya_client:
         return {"error": "Maya client not found in context"}
-    
+
     # Get Maya commands interface
     cmds = maya_client.cmds
     if not cmds:
         return {"error": "Maya commands interface not found in client"}
-    
+
     # Get logger (if available)
     logger = context.get("logger", None)
     if logger:
         logger.debug(f"Creating {count} random spheres")
-    
+
     try:
         # Import built-in modules
         import random  # Import random module
-        
+
         results = []
         for i in range(count):
             # Generate random parameters
@@ -116,18 +116,18 @@ def create_random_spheres(context: Dict[str, Any], count: int = 5,
                 random.uniform(-area_size/2, area_size/2),
                 random.uniform(-area_size/2, area_size/2)
             ]
-            
+
             # Create sphere
             sphere = cmds.polySphere(r=radius, name=f"random_sphere_{i+1}")[0]
             cmds.move(position[0], position[1], position[2], sphere)
-            
+
             # Collect results
             results.append({
                 "name": sphere,
                 "radius": radius,
                 "position": position
             })
-        
+
         return {
             "status": "success",
             "message": f"Created {count} random spheres",
@@ -143,10 +143,10 @@ def create_random_spheres(context: Dict[str, Any], count: int = 5,
 
 def clear_all_spheres(context: Dict[str, Any]) -> Dict[str, Any]:
     """Clear all created spheres.
-    
+
     Args:
         context: Context object provided by the MCP server
-        
+
     Returns:
         Dictionary containing operation result
 
@@ -155,21 +155,21 @@ def clear_all_spheres(context: Dict[str, Any]) -> Dict[str, Any]:
     maya_client = context.get("maya_client", None)
     if not maya_client:
         return {"error": "Maya client not found in context"}
-    
+
     # Get Maya commands interface
     cmds = maya_client.cmds
     if not cmds:
         return {"error": "Maya commands interface not found in client"}
-    
+
     try:
         # Find all spheres
         spheres = cmds.ls("random_sphere_*")
         count = len(spheres)
-        
+
         # If there are spheres, delete them
         if spheres:
             cmds.delete(spheres)
-        
+
         return {
             "status": "success",
             "message": f"Removed {count} spheres"
