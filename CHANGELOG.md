@@ -1,3 +1,15 @@
+## v0.2.0 (2025-03-19)
+
+### Feat
+
+- Add various test plugins and utilities for plugin management system
+
+### Refactor
+
+- Improve imports and replace hardcoded constants
+- Improve code quality and functionality in multiple modules
+- Update platformdirs handling in config paths
+
 ## v0.1.0 (2025-03-19)
 
 ### Feat

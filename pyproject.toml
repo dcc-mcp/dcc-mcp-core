@@ -1,6 +1,6 @@
 [project]
 name = "dcc-mcp-core"
-version = "0.1.0"
+version = "0.2.0"
 description = "Foundational library for the DCC Model Context Protocol (MCP) ecosystem"
 authors = [
     {name = "longhao",email = "hal.long@outlook.com"}
@@ -38,7 +38,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.commitizen]
 name = "cz_conventional_commits"
-version = "0.1.0"
+version = "0.2.0"
 tag_format = "v$version"
 version_files = [
     "pyproject.toml:version",
@@ -155,7 +155,7 @@ commands = [
 
 [tool.poetry]
 name = "dcc-mcp-core"
-version = "0.1.0"
+version = "0.2.0"
 description = "Foundational library for the DCC Model Context Protocol (MCP) ecosystem"
 authors = ["longhao <hal.long@outlook.com>"]
 readme = "README.md"
