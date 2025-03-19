@@ -87,21 +87,33 @@ pip install dcc-mcp-core
 ### Basic Usage
 
 ```python
-from dcc_mcp_core import logging, parameters, exceptions
+from dcc_mcp_core.plugin_manager import create_plugin_manager
+from dcc_mcp_core import filesystem
 
-# Configure logging
-logger = logging.get_logger("my_module")
-logger.info("Starting operation")
+# Initialize a plugin manager for a specific DCC application
+plugin_manager = create_plugin_manager("maya")
 
-# Process parameters
-params = parameters.validate({"value": 10}, {"value": {"type": int, "required": True}})
+# Discover and load all available plugins
+plugin_manager.discover_plugins()
 
-# Handle exceptions
-try:
-    # Your code here
-    pass
-except exceptions.MCPError as e:
-    logger.error(f"Error occurred: {e}")
+# Get information about all loaded plugins (AI-friendly structured data)
+plugins_info = plugin_manager.get_all_plugins_info()
+for name, info in plugins_info.items():
+    print(f"Plugin: {name}")
+    print(f"  Version: {info['version']}")
+    print(f"  Description: {info['description']}")
+    print(f"  Functions: {len(info['functions'])}")
+
+# Call a specific plugin function
+result = plugin_manager.call_plugin_function(
+    "maya_plugin",           # Plugin name
+    "create_cube",           # Function name
+    size=2.0,                # Function arguments
+    context={"maya": True}   # Context for DCC integration
+)
+
+# Get custom plugin paths
+plugin_paths = filesystem.get_plugin_paths()
 ```
 
 ### Plugin Management

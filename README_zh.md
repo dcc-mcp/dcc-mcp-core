@@ -87,21 +87,33 @@ pip install dcc-mcp-core
 ### 基本用法
 
 ```python
-from dcc_mcp_core import logging, parameters, exceptions
+from dcc_mcp_core.plugin_manager import create_plugin_manager
+from dcc_mcp_core import filesystem
 
-# 配置日志
-logger = logging.get_logger("my_module")
-logger.info("Starting operation")
+# 为特定的 DCC 应用程序初始化插件管理器
+plugin_manager = create_plugin_manager("maya")
 
-# 处理参数
-params = parameters.validate({"value": 10}, {"value": {"type": int, "required": True}})
+# 发现并加载所有可用插件
+plugin_manager.discover_plugins()
 
-# 处理异常
-try:
-    # 你的代码
-    pass
-except exceptions.MCPError as e:
-    logger.error(f"Error occurred: {e}")
+# 获取所有已加载插件的信息（AI友好的结构化数据）
+plugins_info = plugin_manager.get_all_plugins_info()
+for name, info in plugins_info.items():
+    print(f"插件: {name}")
+    print(f"  版本: {info['version']}")
+    print(f"  描述: {info['description']}")
+    print(f"  函数数量: {len(info['functions'])}")
+
+# 调用特定的插件函数
+result = plugin_manager.call_plugin_function(
+    "maya_plugin",           # 插件名称
+    "create_cube",           # 函数名称
+    size=2.0,                # 函数参数
+    context={"maya": True}   # DCC集成的上下文
+)
+
+# 获取自定义插件路径
+plugin_paths = filesystem.get_plugin_paths()
 ```
 
 ### 插件管理
