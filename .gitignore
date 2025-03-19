@@ -35,3 +35,4 @@ dist/
 *.pyo
 *.pyd
 .Python
+*PRD.md
