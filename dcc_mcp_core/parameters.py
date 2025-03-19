@@ -13,6 +13,7 @@ from typing import Dict
 from typing import Union
 
 # Import local modules
+from dcc_mcp_core.constants import BOOLEAN_FLAG_KEYS
 from dcc_mcp_core.logg_config import setup_logging
 
 logger = setup_logging("parameters")
@@ -56,7 +57,7 @@ def process_parameters(params: Union[Dict[str, Any], str]) -> Dict[str, Any]:
     for key, value in params.items():
         if isinstance(value, (int, float)) and (value == 0 or value == 1):
             # Check if the parameter name suggests it's a boolean flag
-            if key in ['query', 'q', 'edit', 'e', 'select', 'sl', 'selection', 'visible', 'v', 'hidden', 'h']:
+            if key in BOOLEAN_FLAG_KEYS:
                 processed_params[key] = bool(value)
             else:
                 processed_params[key] = value
@@ -236,11 +237,7 @@ def parse_key_value_pairs(kwargs_str: str) -> Dict[str, Any]:
                 else:
                     # If it's 0 or 1, and the key suggests it's a boolean flag, convert to boolean
                     int_value = int(value)
-                    boolean_flag_keys = [
-                        'query', 'q', 'edit', 'e', 'select', 'sl', 'selection',
-                        'visible', 'v', 'hidden', 'h'
-                    ]
-                    if int_value in [0, 1] and key in boolean_flag_keys:
+                    if int_value in [0, 1] and key in BOOLEAN_FLAG_KEYS:
                         value = bool(int_value)
                     else:
                         value = int_value

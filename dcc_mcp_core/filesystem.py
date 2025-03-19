@@ -6,39 +6,38 @@ particularly focused on plugin path management for different DCCs.
 
 # Import built-in modules
 import json
+
+# Use standard logging instead of custom setup_logging
+import logging
 import os
 from typing import Dict
 from typing import List
 from typing import Optional
 from typing import Union
 
-# Import third-party modules
-# Third-party imports
-import platformdirs
-
 # Import local modules
+from dcc_mcp_core.constants import ENV_PLUGIN_PATH_PREFIX
+from dcc_mcp_core.constants import PLUGIN_PATHS_CONFIG
+
 # Configure logging
-from dcc_mcp_core.logg_config import setup_logging
+from dcc_mcp_core.platform_utils import get_config_dir
+from dcc_mcp_core.platform_utils import get_plugin_dir
 
-logger = setup_logging("filesystem")
+# Third-party imports
 
-# Default config path using platformdirs
-try:
-    # Try using the new version API
-    config_dir = platformdirs.user_config_path("dcc_mcp", ensure_exists=True)
-except AttributeError:
-    # Fallback to old version API
-    config_dir = platformdirs.user_config_dir("dcc_mcp")
-    # Ensure directory exists
-    os.makedirs(config_dir, exist_ok=True)
+
+logger = logging.getLogger(__name__)
+
+# Default config path using platform_utils
+config_dir = get_config_dir()
 
 DEFAULT_CONFIG_PATH = os.path.join(
     config_dir,
-    "plugin_paths.json"
+    PLUGIN_PATHS_CONFIG
 )
 
 # Environment variable prefixes for plugin paths
-ENV_VAR_PREFIX = "DCC_MCP_PLUGIN_PATH_"
+ENV_VAR_PREFIX = ENV_PLUGIN_PATH_PREFIX
 
 # Cache for plugin paths
 _dcc_plugin_paths_cache = {}
@@ -457,23 +456,8 @@ def get_user_plugin_directory(dcc_name: str) -> str:
     # Normalize DCC name
     dcc_name = dcc_name.lower()
 
-    # Get user's plugin directory using platformdirs
-    try:
-        # 尝试使用新版本 API
-        plugin_dir = os.path.join(
-            platformdirs.user_data_path("dcc_mcp", ensure_exists=True),
-            "plugins",
-            dcc_name
-        )
-    except AttributeError:
-        # 回退到旧版本 API
-        plugin_dir = os.path.join(
-            platformdirs.user_data_dir("dcc_mcp"),
-            "plugins",
-            dcc_name
-        )
-        # 确保目录存在
-        os.makedirs(plugin_dir, exist_ok=True)
+    # Get user's plugin directory using platform_utils
+    plugin_dir = get_plugin_dir(dcc_name)
 
     # Ensure the directory exists
     ensure_directory_exists(plugin_dir)

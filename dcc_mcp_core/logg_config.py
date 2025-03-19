@@ -16,19 +16,19 @@ from typing import Optional
 
 # Import third-party modules
 from loguru import logger
-import platformdirs
+
+# Import local modules
+from dcc_mcp_core.constants import DEFAULT_LOG_LEVEL
+from dcc_mcp_core.constants import ENV_LOG_LEVEL
+from dcc_mcp_core.constants import LOG_APP_NAME
+from dcc_mcp_core.platform_utils import get_log_dir
 
 # Constants
-APP_NAME = "dcc-mcp-core"
-LOG_LEVEL = os.getenv("MCP_LOG_LEVEL", "DEBUG")
+APP_NAME = LOG_APP_NAME
+LOG_LEVEL = os.getenv(ENV_LOG_LEVEL, DEFAULT_LOG_LEVEL)
 
 # Get platform-specific log directory
-try:
-    log_dir_str = platformdirs.user_log_path(APP_NAME, appauthor="dcc-mcp")
-except AttributeError:
-    log_dir_str = platformdirs.user_log_dir(APP_NAME, appauthor="dcc-mcp")
-
-LOG_DIR = Path(log_dir_str)
+LOG_DIR = Path(get_log_dir())
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 # Define log format with colors and structure

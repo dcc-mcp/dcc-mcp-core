@@ -10,7 +10,6 @@ import importlib
 import os
 import sys
 from typing import Any
-from typing import Callable
 from typing import Dict
 from typing import List
 from typing import Optional
@@ -20,6 +19,8 @@ from dcc_mcp_core import filesystem
 
 # Configure logging
 from dcc_mcp_core.logg_config import setup_logging
+from dcc_mcp_core.utils import extract_function_info
+from dcc_mcp_core.utils import extract_module_metadata
 
 logger = setup_logging("plugin_manager")
 
@@ -189,106 +190,16 @@ class PluginManager:
         plugin_functions = self._plugins.get(plugin_name, {})
 
         # Extract plugin metadata
-        plugin_info = {
-            "name": getattr(plugin_module, "__plugin_name__", plugin_name),
-            "version": getattr(plugin_module, "__plugin_version__", "unknown"),
-            "description": getattr(plugin_module, "__plugin_description__", ""),
-            "author": getattr(plugin_module, "__plugin_author__", "unknown"),
-            "requires": getattr(plugin_module, "__plugin_requires__", []),
-            "functions": {}
-        }
+        plugin_info = extract_module_metadata(plugin_module, plugin_name)
+        plugin_info["functions"] = {}
 
         # Extract function information
         if isinstance(plugin_functions, dict):
             for func_name, func in plugin_functions.items():
                 if callable(func):
-                    plugin_info["functions"][func_name] = self._get_function_info(func)
+                    plugin_info["functions"][func_name] = extract_function_info(func)
 
         return plugin_info
-
-    def _get_function_info(self, func: Callable) -> Dict[str, Any]:
-        """Extract detailed information about a function.
-
-        Args:
-            func: The function to extract information from
-
-        Returns:
-            Dictionary with function information
-
-        """
-        # Import built-in modules
-        import inspect
-
-        # Get function docstring
-        func_doc = func.__doc__ or ""
-
-        # Get function signature
-        sig = inspect.signature(func)
-
-        # Extract parameters with their types, default values, and descriptions
-        parameters = []
-        for name, param in sig.parameters.items():
-            param_info = {
-                "name": name,
-                "type": str(param.annotation) if param.annotation != inspect.Parameter.empty else "Any",
-                "default": None if param.default == inspect.Parameter.empty else param.default,
-                "required": param.default == inspect.Parameter.empty and param.kind not in
-                           (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
-            }
-            parameters.append(param_info)
-
-        # Extract return type
-        return_type = str(sig.return_annotation) if sig.return_annotation != inspect.Signature.empty else "Any"
-
-        # Generate a simple usage example
-        example = self._generate_example(func, parameters)
-
-        return {
-            "docstring": func_doc,
-            "parameters": parameters,
-            "return_type": return_type,
-            "example": example
-        }
-
-    def _generate_example(self, func: Callable, parameters: List[Dict[str, Any]]) -> str:
-        """Generate a simple usage example for a function.
-
-        Args:
-            func: The function to generate an example for
-            parameters: List of parameter information dictionaries
-
-        Returns:
-            A string containing a usage example
-
-        """
-        func_name = func.__name__
-        args = []
-
-        for param in parameters:
-            if not param["required"]:
-                # Skip optional parameters in the example
-                continue
-
-            name = param["name"]
-            param_type = param["type"]
-
-            # Generate appropriate example values based on parameter type
-            if "int" in param_type.lower():
-                args.append(f"{name}=1")
-            elif "float" in param_type.lower():
-                args.append(f"{name}=1.0")
-            elif "str" in param_type.lower():
-                args.append(f"{name}='example'")
-            elif "bool" in param_type.lower():
-                args.append(f"{name}=True")
-            elif "list" in param_type.lower() or "tuple" in param_type.lower():
-                args.append(f"{name}=[]")
-            elif "dict" in param_type.lower():
-                args.append(f"{name}={{}}")
-            else:
-                args.append(f"{name}=...")
-
-        return f"{func_name}({', '.join(args)})"
 
     def get_plugins_info(self) -> Dict[str, Dict[str, Any]]:
         """Get AI-friendly structured information about all loaded plugins.
