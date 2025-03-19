@@ -44,32 +44,20 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-nox-${{ matrix.python-version }}-
 
-      - name: Install uv
-        shell: bash
-        run: |
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          # Add uv to PATH - different locations based on OS
-          if [ "$RUNNER_OS" == "Linux" ] || [ "$RUNNER_OS" == "macOS" ]; then
-            echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-          else
-            echo "$USERPROFILE\.cargo\bin" >> $GITHUB_PATH
-          fi
-          # Verify installation
-          echo "Verifying uv installation..."
-          which uv || echo "uv not found in PATH"
-
-      - name: Update Poetry lock file
-        run: |
-          uvx poetry lock
-
+      # 安装依赖
       - name: Install dependencies
         run: |
+          python -m pip install --upgrade pip
+          python -m pip install uv
+          uvx poetry lock
           uvx poetry install
 
+      # 运行 lint
       - name: Lint
         run: |
           uvx nox -s lint
 
+      # 运行测试
       - name: Test
         run: |
           uvx nox -s pytest
