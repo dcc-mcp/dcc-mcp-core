@@ -23,8 +23,17 @@ from dcc_mcp_core.logg_config import setup_logging
 logger = setup_logging("filesystem")
 
 # Default config path using platformdirs
+try:
+    # Try using the new version API
+    config_dir = platformdirs.user_config_path("dcc_mcp", ensure_exists=True)
+except AttributeError:
+    # Fallback to old version API
+    config_dir = platformdirs.user_config_dir("dcc_mcp")
+    # Ensure directory exists
+    os.makedirs(config_dir, exist_ok=True)
+
 DEFAULT_CONFIG_PATH = os.path.join(
-    platformdirs.user_config_path("dcc_mcp", ensure_exists=True),
+    config_dir,
     "plugin_paths.json"
 )
 
@@ -449,11 +458,22 @@ def get_user_plugin_directory(dcc_name: str) -> str:
     dcc_name = dcc_name.lower()
 
     # Get user's plugin directory using platformdirs
-    plugin_dir = os.path.join(
-        platformdirs.user_data_path("dcc_mcp", ensure_exists=True),
-        "plugins",
-        dcc_name
-    )
+    try:
+        # 尝试使用新版本 API
+        plugin_dir = os.path.join(
+            platformdirs.user_data_path("dcc_mcp", ensure_exists=True),
+            "plugins",
+            dcc_name
+        )
+    except AttributeError:
+        # 回退到旧版本 API
+        plugin_dir = os.path.join(
+            platformdirs.user_data_dir("dcc_mcp"),
+            "plugins",
+            dcc_name
+        )
+        # 确保目录存在
+        os.makedirs(plugin_dir, exist_ok=True)
 
     # Ensure the directory exists
     ensure_directory_exists(plugin_dir)
