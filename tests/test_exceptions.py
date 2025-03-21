@@ -2,7 +2,7 @@
 
 
 # Import local modules
-from dcc_mcp_core import exceptions
+from dcc_mcp_core.utils import exceptions
 
 
 def test_mcp_error():

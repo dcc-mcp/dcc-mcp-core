@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 import pytest
 
 # Import local modules
-from dcc_mcp_core.plugin_manager import PluginManager
+from dcc_mcp_core.actions.manager import ActionManager
 
 
 @pytest.fixture
@@ -28,7 +28,7 @@ def dcc_name():
 
 
 @pytest.fixture
-def plugin_manager(dcc_name):
-    """Fixture to create a plugin manager for testing."""
-    manager = PluginManager(dcc_name)
+def action_manager(dcc_name):
+    """Fixture to create an action manager for testing."""
+    manager = ActionManager(dcc_name)
     return manager

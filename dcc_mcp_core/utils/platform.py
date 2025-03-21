@@ -13,8 +13,7 @@ from typing import Union
 import platformdirs
 
 # Import local modules
-from dcc_mcp_core.constants import APP_AUTHOR
-from dcc_mcp_core.constants import APP_NAME
+from dcc_mcp_core.utils.constants import APP_AUTHOR, APP_NAME
 
 
 def get_platform_dir(dir_type: str, app_name: str = APP_NAME, app_author: str = APP_AUTHOR, 
@@ -103,27 +102,27 @@ def get_log_dir(ensure_exists: bool = True) -> Union[str, Path]:
     return get_platform_dir('log', ensure_exists=ensure_exists)
 
 
-def get_plugin_dir(dcc_name: str, ensure_exists: bool = True) -> Union[str, Path]:
-    """Get the platform-specific plugin directory for a specific DCC.
+def get_actions_dir(dcc_name: str, ensure_exists: bool = True) -> Union[str, Path]:
+    """Get the platform-specific actions directory for a specific DCC.
     
     Args:
         dcc_name: Name of the DCC (e.g., 'maya', 'houdini')
         ensure_exists: Whether to ensure the directory exists
         
     Returns:
-        Path to the plugin directory
+        Path to the actions directory
 
     """
     data_dir = get_data_dir(ensure_exists=False)
     
     # Handle both Path and string types
     if isinstance(data_dir, Path):
-        plugin_dir = data_dir / "plugins" / dcc_name
+        actions_dir = data_dir / "actions" / dcc_name
         if ensure_exists:
-            plugin_dir.mkdir(parents=True, exist_ok=True)
+            actions_dir.mkdir(parents=True, exist_ok=True)
     else:  # string type
-        plugin_dir = os.path.join(data_dir, "plugins", dcc_name)
+        actions_dir = os.path.join(data_dir, "actions", dcc_name)
         if ensure_exists:
-            os.makedirs(plugin_dir, exist_ok=True)
+            os.makedirs(actions_dir, exist_ok=True)
             
-    return plugin_dir
+    return actions_dir

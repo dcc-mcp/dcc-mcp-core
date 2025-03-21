@@ -5,17 +5,17 @@ This plugin demonstrates how to use the context parameter to access Maya functio
 
 # Import built-in modules
 # Import typing modules for annotations
-from typing import Optional
+from typing import Optional, Dict, Any
 
 # Plugin metadata
-__plugin_name__ = "maya_plugin"
-__plugin_version__ = "1.0.0"
-__plugin_description__ = "Maya integration plugin for testing"
-__plugin_author__ = "Test Author"
-__plugin_requires__ = ["maya"]
+__action_name__ = "maya_plugin"
+__action_version__ = "1.0.0"
+__action_description__ = "Maya integration plugin for testing"
+__action_author__ = "Test Author"
+__action_requires__ = ["maya"]
 
 
-def create_cube(size: float = 1.0, context: Optional[dict] = None) -> dict:
+def create_cube(size: float = 1.0, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Create a cube in Maya.
     
     Args:
@@ -46,7 +46,7 @@ def create_cube(size: float = 1.0, context: Optional[dict] = None) -> dict:
     }
 
 
-def list_objects(type_filter: Optional[str] = None, context: Optional[dict] = None) -> dict:
+def list_objects(type_filter: Optional[str] = None, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """List objects in the Maya scene.
     
     Args:

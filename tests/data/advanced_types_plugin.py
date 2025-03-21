@@ -6,24 +6,24 @@ This plugin demonstrates the use of complex type annotations.
 # Import built-in modules
 # Import typing modules for annotations
 from typing import Any
-from typing import Dict
 from typing import List
 from typing import Optional
 from typing import Tuple
 from typing import Union
+from typing import Callable
 
 # Plugin metadata
-__plugin_name__ = "advanced_types_plugin"
-__plugin_version__ = "1.0.0"
-__plugin_description__ = "Plugin with advanced type annotations"
-__plugin_author__ = "Test Author"
+__action_name__ = "advanced_types_plugin"
+__action_version__ = "1.0.0"
+__action_description__ = "Plugin with advanced type annotations"
+__action_author__ = "Test Author"
 
 
 def process_complex_data(
-    data: List[Dict[str, Any]],
-    options: Optional[Dict[str, Union[str, int, bool]]] = None,
-    callback: Optional[callable] = None
-) -> Tuple[bool, Dict[str, Any]]:
+    data: List[dict],
+    options: Optional[dict] = None,
+    callback: Optional[Callable] = None
+) -> Tuple[bool, dict]:
     """Process complex data with various options.
     
     Args:
@@ -55,7 +55,7 @@ def process_complex_data(
     return True, result
 
 
-async def async_operation(task_id: str) -> Dict[str, Any]:
+async def async_operation(task_id: str) -> dict:
     """Perform an asynchronous operation (for testing async function handling).
 
     Args:

@@ -4,10 +4,10 @@ This plugin demonstrates how internal helper functions are not auto-registered.
 """
 
 # Plugin metadata
-__plugin_name__ = "internal_helpers_plugin"
-__plugin_version__ = "1.0.0"
-__plugin_description__ = "Plugin with internal helper functions"
-__plugin_author__ = "Test Author"
+__action_name__ = "internal_helpers_plugin"
+__action_version__ = "1.0.0"
+__action_description__ = "Plugin with internal helper functions"
+__action_author__ = "Test Author"
 
 
 # Internal helper function (should not be auto-registered)

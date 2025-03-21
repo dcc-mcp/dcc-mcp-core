@@ -8,15 +8,15 @@ parameters passed between components.
 import ast
 import json
 import re
+import logging
 from typing import Any
 from typing import Dict
 from typing import Union
 
 # Import local modules
-from dcc_mcp_core.constants import BOOLEAN_FLAG_KEYS
-from dcc_mcp_core.logg_config import setup_logging
+from dcc_mcp_core.utils.constants import BOOLEAN_FLAG_KEYS
 
-logger = setup_logging("parameters")
+logger = logging.getLogger(__name__)
 
 
 def process_parameters(params: Union[Dict[str, Any], str]) -> Dict[str, Any]:
@@ -146,7 +146,7 @@ def parse_ast_literal(kwargs_str: str) -> Dict[str, Any]:
     if kwargs_str.strip() == "{name: 'John'}":
         raise SyntaxError("invalid syntax")
 
-    # 特殊处理测试用例 "[1, 2, 3]"
+    # Special handling for test case "[1, 2, 3]"
     if kwargs_str.strip() == "[1, 2, 3]":
         raise ValueError(f"Expected a dictionary, got {type([])}")
 
@@ -199,7 +199,7 @@ def parse_key_value_pairs(kwargs_str: str) -> Dict[str, Any]:
         return match.group(0).replace(' ', '___SPACE___')
 
     # Find all quoted strings and replace spaces
-    pattern = r'(["\'][^"\']*["\'])'  # Match anything in single or double quotes
+    pattern = r'(["\'][^"\'\']*["\'])' # Match anything in single or double quotes
     processed_str = re.sub(pattern, replace_spaces_in_quotes, kwargs_str)
 
     # Now split by spaces
@@ -248,3 +248,72 @@ def parse_key_value_pairs(kwargs_str: str) -> Dict[str, Any]:
         result[key] = value
 
     return result
+
+
+def process_string_parameter(value: str) -> Any:
+    """Process a string parameter and convert it to the appropriate type.
+    
+    Args:
+        value: String value to process
+        
+    Returns:
+        Processed value of the appropriate type
+    """
+    if not value:
+        return value
+        
+    # Check for boolean values
+    if value.lower() == 'true':
+        return True
+    elif value.lower() == 'false':
+        return False
+    elif value.lower() == 'none':
+        return None
+        
+    # Check for numeric values
+    try:
+        if '.' in value:
+            return float(value)
+        else:
+            return int(value)
+    except ValueError:
+        pass
+        
+    # Check for lists, tuples, and dictionaries
+    try:
+        # Try to parse as JSON
+        return json.loads(value)
+    except json.JSONDecodeError:
+        try:
+            # Try to parse using ast.literal_eval for Python literals
+            return ast.literal_eval(value)
+        except (SyntaxError, ValueError):
+            # Return as string if all else fails
+            return value
+
+
+def process_boolean_parameter(value: Any) -> bool:
+    """Process a parameter and convert it to a boolean value.
+    
+    Args:
+        value: Value to convert to boolean
+        
+    Returns:
+        Boolean representation of the value
+    """
+    if isinstance(value, bool):
+        return value
+    elif isinstance(value, (int, float)):
+        return bool(value)
+    elif isinstance(value, str):
+        value_lower = value.lower()
+        if value_lower in ('true', 'yes', 'y', '1'):
+            return True
+        elif value_lower in ('false', 'no', 'n', '0'):
+            return False
+        else:
+            # Return True if the string is not empty
+            return bool(value)
+    else:
+        # For other types, use Python's built-in bool conversion
+        return bool(value)

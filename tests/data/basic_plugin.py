@@ -4,11 +4,11 @@ This plugin demonstrates the basic structure of a plugin with all metadata field
 """
 
 # Plugin metadata
-__plugin_name__ = "basic_plugin"
-__plugin_version__ = "1.0.0"
-__plugin_description__ = "A basic test plugin with complete metadata"
-__plugin_author__ = "Test Author"
-__plugin_requires__ = ["dependency1", "dependency2"]
+__action_name__ = "basic_plugin"
+__action_version__ = "1.0.0"
+__action_description__ = "A basic test plugin with complete metadata"
+__action_author__ = "Test Author"
+__action_requires__ = ["dependency1", "dependency2"]
 
 
 def hello_world() -> str:

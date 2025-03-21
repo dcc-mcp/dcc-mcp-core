@@ -6,18 +6,18 @@ This document provides a reference for the DCC-MCP-Core API.
 Plugin Manager
 -------------
 
-.. autoclass:: dcc_mcp_core.plugin_manager.PluginManager
+.. autoclass:: dcc_mcp_core.action_manager.PluginManager
    :members:
    :undoc-members:
    :show-inheritance:
 
-.. autofunction:: dcc_mcp_core.plugin_manager.get_plugin_manager
+.. autofunction:: dcc_mcp_core.action_manager.get_action_manager
 
-.. autofunction:: dcc_mcp_core.plugin_manager.create_dcc_plugin_manager
+.. autofunction:: dcc_mcp_core.action_manager.create_dcc_action_manager
 
-.. autofunction:: dcc_mcp_core.plugin_manager.get_supported_dccs
+.. autofunction:: dcc_mcp_core.action_manager.get_supported_dccs
 
-.. autofunction:: dcc_mcp_core.plugin_manager.is_dcc_supported
+.. autofunction:: dcc_mcp_core.action_manager.is_dcc_supported
 
 Filesystem Utilities
 -------------------

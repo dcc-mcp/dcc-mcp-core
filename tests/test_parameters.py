@@ -7,11 +7,11 @@ import json
 import pytest
 
 # Import local modules
-from dcc_mcp_core.parameters import parse_ast_literal
-from dcc_mcp_core.parameters import parse_json
-from dcc_mcp_core.parameters import parse_key_value_pairs
-from dcc_mcp_core.parameters import parse_kwargs_string
-from dcc_mcp_core.parameters import process_parameters
+from dcc_mcp_core.parameters.processor import parse_ast_literal
+from dcc_mcp_core.parameters.processor import parse_json
+from dcc_mcp_core.parameters.processor import parse_key_value_pairs
+from dcc_mcp_core.parameters.processor import parse_kwargs_string
+from dcc_mcp_core.parameters.processor import process_parameters
 
 
 def test_process_parameters():

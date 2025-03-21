@@ -59,6 +59,34 @@ DCC-MCP-Core uses RPyC to implement remote procedure calls, allowing DCC operati
 - **Transparent Access**: Plugin code can access remote DCC APIs as if they were local
 - **Error Handling**: Unified error handling mechanism ensures stable operation
 
+## Package Structure
+
+DCC-MCP-Core is organized into several subpackages:
+
+- **actions**: Action management and generation
+  - `generator.py`: Generates action templates
+  - `manager.py`: Manages action discovery and loading
+  - `metadata.py`: Defines action metadata structures
+
+- **models**: Data models for the MCP ecosystem
+  - `action_result.py`: Structured result model for actions
+
+- **parameters**: Parameter handling and validation
+  - `groups.py`: Parameter grouping and dependencies
+  - `models.py`: Parameter data models
+  - `processor.py`: Parameter processing utilities
+  - `validation.py`: Parameter validation logic
+
+- **templates**: Template handling
+  - `utils.py`: Template rendering with Jinja2
+
+- **utils**: Utility functions and helpers
+  - `constants.py`: Common constants
+  - `decorators.py`: Function decorators for error handling and result formatting
+  - `exceptions.py`: Exception hierarchy
+  - `platform.py`: Platform-specific utilities
+  - `template.py`: Template utilities
+
 ## Features
 
 - Parameter processing and validation
@@ -87,96 +115,81 @@ pip install dcc-mcp-core
 ### Basic Usage
 
 ```python
-from dcc_mcp_core.plugin_manager import create_plugin_manager
+from dcc_mcp_core.actions.manager import ActionManager
 from dcc_mcp_core import filesystem
 
-# Initialize a plugin manager for a specific DCC application
-plugin_manager = create_plugin_manager("maya")
+# Initialize an action manager for a specific DCC application
+action_manager = ActionManager("maya")
 
-# Discover and load all available plugins
-plugin_manager.discover_plugins()
+# Discover and load all available actions
+action_manager.discover_actions()
 
-# Get information about all loaded plugins (AI-friendly structured data)
-plugins_info = plugin_manager.get_all_plugins_info()
-for name, info in plugins_info.items():
-    print(f"Plugin: {name}")
+# Get information about all loaded actions (AI-friendly structured data)
+actions_info = action_manager.get_all_actions_info()
+for name, info in actions_info.items():
+    print(f"Action: {name}")
     print(f"  Version: {info['version']}")
     print(f"  Description: {info['description']}")
     print(f"  Functions: {len(info['functions'])}")
 
-# Call a specific plugin function
-result = plugin_manager.call_plugin_function(
-    "maya_plugin",           # Plugin name
+# Call a specific action function
+result = action_manager.call_action_function(
+    "maya_action",           # Action name
     "create_cube",           # Function name
     size=2.0,                # Function arguments
     context={"maya": True}   # Context for DCC integration
 )
 
-# Get custom plugin paths
-plugin_paths = filesystem.get_plugin_paths()
+# Get custom action paths
+action_paths = filesystem.get_action_paths()
 ```
 
-### Plugin Management
+### Action Management
 
-The plugin management system allows you to discover, load, and interact with DCC-specific plugins:
+The action management system allows you to discover, load, and interact with DCC-specific actions:
 
 ```python
-from dcc_mcp_core.plugin_manager import PluginManager
+from dcc_mcp_core.actions.manager import ActionManager
 
-# Create a plugin manager for a specific DCC
-manager = PluginManager('maya')
+# Create an action manager for a specific DCC
+manager = ActionManager('maya')
 
-# Discover available plugins
-plugin_paths = manager.discover_plugins()
-print(f"Found {len(plugin_paths)} plugins for Maya")
+# Discover available actions
+action_paths = manager.discover_actions()
+print(f"Found {len(action_paths)} actions for Maya")
 
-# Load all discovered plugins
-plugins_info = manager.load_plugins(plugin_paths)
-print(f"Loaded plugins: {list(plugins_info.keys())}")
+# Load all discovered actions
+actions_info = manager.load_actions(action_paths)
+print(f"Loaded actions: {list(actions_info.keys())}")
 
-# Get structured information about plugins (AI-friendly format)
-plugins_info = manager.get_plugins_info()
+# Get structured information about actions (AI-friendly format)
+actions_info = manager.get_actions_info()
 
-# Call a function from a specific plugin
-result = manager.call_plugin_function('maya_scene_tools', 'create_primitive',
+# Call a function from a specific action
+result = manager.call_action_function('maya_scene_tools', 'create_primitive',
                                     context=context, primitive_type="cube", size=2.0)
 ```
 
-### Creating Custom Plugins
+### Creating Custom Actions
 
-Create a Python file with the following structure to make it discoverable by the plugin system:
+Create a Python file with the following structure to make it discoverable by the action system:
 
 ```python
-# my_maya_plugin.py
+# my_maya_action.py
 
-# Plugin metadata
-__plugin_name__ = "My Maya Plugin"
-__plugin_version__ = "1.0.0"
-__plugin_description__ = "A custom plugin for Maya"
-__plugin_author__ = "Your Name"
-__plugin_requires__ = ["maya"]
+# Action metadata
+__action_name__ = "My Maya Action"
+__action_version__ = "1.0.0"
+__action_description__ = "A custom action for Maya"
+__action_author__ = "Your Name"
+__action_requires__ = ["maya"]
 
-# Using decorators to simplify plugin function development
-from functools import wraps
+# Using decorators to simplify action function development
+from dcc_mcp_core.utils.decorators import error_handler, format_result
 
-def maya_tool(func):
-    """Mark a function as a Maya tool, automatically handling the context parameter."""
-    @wraps(func)
-    def wrapper(context, *args, **kwargs):
-        # Extract Maya client from context
-        maya_client = context.get("maya_client")
-        if not maya_client:
-            return {"error": "Maya client not found"}
-
-        # Call the original function
-        try:
-            return func(context, *args, **kwargs)
-        except Exception as e:
-            return {"status": "error", "message": str(e)}
-    return wrapper
-
-# Plugin functions
-@maya_tool
+# Action functions
+@error_handler
+@format_result
 def create_cube(context, size=1.0, position=None):
     """Create a cube in Maya."""
     cmds = context.get("maya_client").cmds
@@ -189,8 +202,9 @@ def create_cube(context, size=1.0, position=None):
     cmds.move(position[0], position[1], position[2], cube)
 
     return {
-        "status": "success",
-        "result": {
+        "success": True,
+        "message": "Successfully created cube",
+        "context": {
             "name": cube,
             "type": "cube",
             "size": size,

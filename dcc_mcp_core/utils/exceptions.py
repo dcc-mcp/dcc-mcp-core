@@ -188,3 +188,8 @@ class VersionError(MCPError):
         self.current_version = current_version
         self.required_version = required_version
         super().__init__(message, code or "MCP-E-VERSION")
+
+
+class ParameterValidationError(Exception):
+    """Exception raised when parameter validation fails."""
+    pass

@@ -13,10 +13,11 @@ DEFAULT_LOG_LEVEL = "DEBUG"
 
 # Environment variables
 ENV_LOG_LEVEL = "MCP_LOG_LEVEL"
-ENV_PLUGIN_PATH_PREFIX = "DCC_MCP_PLUGIN_PATH_"
+ENV_ACTION_PATH_PREFIX = "DCC_MCP_ACTION_PATH_"
+ENV_ACTIONS_DIR = "DCC_MCP_ACTIONS_DIR"
 
 # File names
-PLUGIN_PATHS_CONFIG = "plugin_paths.json"
+ACTION_PATHS_CONFIG = "action_paths.json"
 
 # Boolean flag keys for parameter processing
 BOOLEAN_FLAG_KEYS = [
@@ -24,26 +25,26 @@ BOOLEAN_FLAG_KEYS = [
     'visible', 'v', 'hidden', 'h'
 ]
 
-# Plugin metadata configuration
-PLUGIN_METADATA = {
+# Action metadata configuration
+ACTION_METADATA = {
     "name": {
-        "attr": "__plugin_name__",
-        "default": None  # Will use plugin_name as default
+        "attr": "__action_name__",
+        "default": None  # Will use action_name as default
     },
     "version": {
-        "attr": "__plugin_version__",
+        "attr": "__action_version__",
         "default": "unknown"
     },
     "description": {
-        "attr": "__plugin_description__",
-        "default": ""
+        "attr": "__action_description__",
+        "default": "A minimal test plugin with only required functionality."
     },
     "author": {
-        "attr": "__plugin_author__",
+        "attr": "__action_author__",
         "default": "unknown"
     },
     "requires": {
-        "attr": "__plugin_requires__",
+        "attr": "__action_requires__",
         "default": []
     }
 }

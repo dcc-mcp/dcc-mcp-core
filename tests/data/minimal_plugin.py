@@ -1,7 +1,7 @@
 """A minimal test plugin with only required functionality."""
 
-# Only define the plugin name, other metadata will use defaults
-__plugin_name__ = "minimal_plugin"
+# Only define the action name, other metadata will use defaults
+__action_name__ = "minimal_plugin"
 
 
 def minimal_function():

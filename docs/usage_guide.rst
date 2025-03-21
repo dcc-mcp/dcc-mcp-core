@@ -6,7 +6,7 @@ This guide explains how to use the DCC-MCP-Core library to create DCC-agnostic p
 Overview
 --------
 
-DCC-MCP-Core provides a flexible abstraction layer for working with different Digital Content Creation (DCC) applications such as Maya, Houdini, and others. The core of this abstraction is the ``DCCPluginInterface`` which defines a standard set of methods that all DCC implementations must provide.
+DCC-MCP-Core provides a flexible abstraction layer for working with different Digital Content Creation (DCC) applications such as Maya, Houdini, and others. The core of this abstraction is the ``PluginManager`` which defines a standard set of methods that all DCC implementations must provide.
 
 Getting Started
 --------------
@@ -15,13 +15,13 @@ To use DCC-MCP-Core in your project, you first need to create a plugin manager f
 
 .. code-block:: python
 
-    from dcc_mcp_core.plugin_manager import create_dcc_plugin_manager
+    from dcc_mcp_core.action_manager import create_dcc_action_manager
 
     # Create a plugin manager for Maya
-    maya_pm = create_dcc_plugin_manager("maya")
+    maya_pm = create_dcc_action_manager("maya")
 
     # Or for Houdini
-    houdini_pm = create_dcc_plugin_manager("houdini")
+    houdini_pm = create_dcc_action_manager("houdini")
 
 Working with Plugins
 ------------------
@@ -81,11 +81,11 @@ One of the main benefits of DCC-MCP-Core is the ability to write code that works
 
 .. code-block:: python
 
-    from dcc_mcp_core.plugin_manager import create_dcc_plugin_manager, get_supported_dccs
+    from dcc_mcp_core.action_manager import create_dcc_action_manager, get_supported_dccs
 
     def process_scene(dcc_name):
         # Create a plugin manager for the specified DCC
-        pm = create_dcc_plugin_manager(dcc_name)
+        pm = create_dcc_action_manager(dcc_name)
 
         # Get scene information (works with any DCC)
         scene_info = pm.get_scene_info()
@@ -110,6 +110,6 @@ The basic steps are:
 
 1. Create a new class that inherits from ``PluginManager``
 2. Override the necessary methods to provide DCC-specific functionality
-3. Register your implementation in the ``get_plugin_manager`` function
+3. Register your implementation in the ``get_action_manager`` function
 
 See the :doc:`api_reference` for more details on the available methods and classes.

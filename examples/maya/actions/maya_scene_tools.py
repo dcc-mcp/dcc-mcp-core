@@ -17,11 +17,11 @@ from typing import get_type_hints
 # -------------------------------------------------------------------
 # Plugin metadata - Just fill in these basic information
 # -------------------------------------------------------------------
-__plugin_name__ = "Maya Scene Tools"
-__plugin_version__ = "1.0.0"
-__plugin_description__ = "Useful tools for Maya scene management"
-__plugin_author__ = "DCC-MCP-Core Team"
-__plugin_requires__ = ["maya"]  # Specify the DCC environment this plugin depends on
+__action_name__ = "Maya Scene Tools"
+__action_version__ = "1.0.0"
+__action_description__ = "Useful tools for Maya scene management"
+__action_author__ = "DCC-MCP-Core Team"
+__action_requires__ = ["maya"]  # Specify the DCC environment this plugin depends on
 
 # -------------------------------------------------------------------
 # Plugin entry function decorator - Used to automatically handle context and provide function information
@@ -413,11 +413,11 @@ def register() -> Dict[str, Any]:
     # Return plugin information and functions
     return {
         "info": {
-            "name": __plugin_name__,
-            "version": __plugin_version__,
-            "description": __plugin_description__,
-            "author": __plugin_author__,
-            "requires": __plugin_requires__,
+            "name": __action_name__,
+            "version": __action_version__,
+            "description": __action_description__,
+            "author": __action_author__,
+            "requires": __action_requires__,
             "tools_info": get_tools_info()
         },
         "functions": functions

@@ -18,13 +18,11 @@ from typing import Optional
 from loguru import logger
 
 # Import local modules
-from dcc_mcp_core.constants import DEFAULT_LOG_LEVEL
-from dcc_mcp_core.constants import ENV_LOG_LEVEL
-from dcc_mcp_core.constants import LOG_APP_NAME
-from dcc_mcp_core.platform_utils import get_log_dir
+from dcc_mcp_core.utils.constants import DEFAULT_LOG_LEVEL
+from dcc_mcp_core.utils.constants import ENV_LOG_LEVEL
+from dcc_mcp_core.utils.platform import get_log_dir
 
 # Constants
-APP_NAME = LOG_APP_NAME
 LOG_LEVEL = os.getenv(ENV_LOG_LEVEL, DEFAULT_LOG_LEVEL)
 
 # Get platform-specific log directory
@@ -65,57 +63,34 @@ def setup_logging(name: str = "dcc_mcp", dcc_type: Optional[str] = None) -> Any:
 
     log_file = log_file_dir / f"{name}.log"
 
-    # Configure logger with both console and file handlers in one call
-    logger_config = {
-        "handlers": [
-            # Console handler
-            {
-                "sink": sys.stdout,
-                "format": LOG_FORMAT,
-                "level": LOG_LEVEL,
-                "enqueue": True,
-                "backtrace": True,
-                "diagnose": True,
-            },
-            # File handler
-            {
-                "sink": str(log_file),
-                "rotation": "10 MB",
-                "retention": "1 week",
-                "compression": "zip",
-                "format": LOG_FORMAT,
-                "level": LOG_LEVEL,
-                "enqueue": True,
-                "backtrace": True,
-                "diagnose": True,
-            }
-        ],
+    # Configure handlers
+    console_handler = {
+        "sink": sys.stdout,
+        "format": LOG_FORMAT,
+        "level": LOG_LEVEL,
+        "enqueue": True,
+        "backtrace": True,
+        "diagnose": True,
+    }
+    
+    file_handler = {
+        "sink": str(log_file),
+        "rotation": "10 MB",
+        "retention": "1 week",
+        "compression": "zip",
+        "format": LOG_FORMAT,
+        "level": LOG_LEVEL,
+        "enqueue": True,
+        "backtrace": True,
+        "diagnose": True,
     }
 
-    # Apply configuration
-    logger.configure(**logger_config)
-
-    # Add handlers individually to get their IDs for the test compatibility
-    console_handler_id = logger.add(
-        sys.stdout,
-        format=LOG_FORMAT,
-        level=LOG_LEVEL,
-        enqueue=True,
-        backtrace=True,
-        diagnose=True,
-    )
-
-    file_handler_id = logger.add(
-        str(log_file),
-        rotation="10 MB",
-        retention="1 week",
-        compression="zip",
-        format=LOG_FORMAT,
-        level=LOG_LEVEL,
-        enqueue=True,
-        backtrace=True,
-        diagnose=True,
-    )
+    # Remove existing handlers to avoid duplication
+    logger.remove()
+    
+    # Add handlers and store their IDs
+    console_handler_id = logger.add(**console_handler)
+    file_handler_id = logger.add(**file_handler)
 
     # Store the logger info with handler IDs for test compatibility
     _dcc_loggers[logger_id] = {
