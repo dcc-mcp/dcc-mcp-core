@@ -23,11 +23,11 @@ def hello_world() -> str:
 
 def add_numbers(a: int, b: int) -> int:
     """Add two numbers together.
-    
+
     Args:
         a: First number
         b: Second number
-        
+
     Returns:
         Sum of the two numbers
 
@@ -37,19 +37,19 @@ def add_numbers(a: int, b: int) -> int:
 
 def process_data(data: dict, verbose: bool = False) -> dict:
     """Process some data.
-    
+
     Args:
         data: The data to process
         verbose: Whether to be verbose
-        
+
     Returns:
         The processed data
 
     """
     result = {"processed": True}
     result.update(data)
-    
+
     if verbose:
         result["log"] = "Processing completed successfully"
-        
+
     return result

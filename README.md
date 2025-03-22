@@ -5,7 +5,7 @@
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
 [![Tests](https://img.shields.io/badge/Tests-Passing-brightgreen)](https://github.com/loonghao/dcc-mcp-core/actions)
 
-[中文文档](README_zh.md)
+[中文文档](README_zh.md) | [English](README.md)
 
 Foundational library for the DCC Model Context Protocol (MCP) ecosystem. It provides common utilities, base classes, and shared functionality that are used across all other DCC-MCP packages.
 
@@ -24,7 +24,7 @@ DCC-MCP-Core is an action management system designed for Digital Content Creatio
 5. **Function Calls and Result Return**: MCP server calls the corresponding action functions and returns the results to AI
 
 ```mermaid
-graph LR
+flowchart LR
     %% Increase chart width
     classDef default width:120px,height:60px
 

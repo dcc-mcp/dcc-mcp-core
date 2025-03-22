@@ -15,6 +15,7 @@ from typing import List
 from typing import TypeVar
 from typing import Union
 from typing import get_type_hints
+import weakref
 
 # Import third-party modules
 from pydantic import Field
@@ -29,6 +30,9 @@ logger = logging.getLogger(__name__)
 
 # Type variable for function return type
 T = TypeVar('T')
+
+# Dictionary to store parameter models for methods
+_method_parameter_models = weakref.WeakKeyDictionary()
 
 
 def create_parameter_model_from_function(func: Callable) -> Any:
@@ -119,17 +123,31 @@ def validate_function_parameters(func: Callable, *args, **kwargs) -> Dict[str, A
         ParameterValidationError: If parameter validation fails
 
     """
-    # Create parameter model if it doesn't exist
-    if not hasattr(func, "__parameter_model__"):
-        try:
-            func.__parameter_model__ = create_parameter_model_from_function(func)
-            logger.debug(f"Created parameter model for {func.__name__}")
-        except Exception as e:
-            logger.error(f"Failed to create parameter model for {func.__name__}: {e!s}")
-            raise ParameterValidationError(f"Failed to create parameter model: {e!s}")
+    # For methods, we need special handling
+    is_method = inspect.ismethod(func)
 
-    # Get the parameter model
-    param_model = func.__parameter_model__
+    # Create parameter model if it doesn't exist
+    if is_method:
+        # For methods, use the function object ID as key in our dictionary
+        if func not in _method_parameter_models:
+            try:
+                # Store the model in our dictionary instead of as an attribute
+                _method_parameter_models[func] = create_parameter_model_from_function(func)
+                logger.debug(f"Created parameter model for method {func.__name__}")
+            except Exception as e:
+                logger.error(f"Failed to create parameter model for method {func.__name__}: {e!s}")
+                raise ParameterValidationError(f"Failed to create parameter model: {e!s}")
+        param_model = _method_parameter_models[func]
+    else:
+        # For regular functions, continue with the original approach
+        if not hasattr(func, "__parameter_model__"):
+            try:
+                func.__parameter_model__ = create_parameter_model_from_function(func)
+                logger.debug(f"Created parameter model for {func.__name__}")
+            except Exception as e:
+                logger.error(f"Failed to create parameter model for {func.__name__}: {e!s}")
+                raise ParameterValidationError(f"Failed to create parameter model: {e!s}")
+        param_model = func.__parameter_model__
 
     # Get function signature
     sig = inspect.signature(func)
@@ -141,7 +159,11 @@ def validate_function_parameters(func: Callable, *args, **kwargs) -> Dict[str, A
 
     # Convert args to kwargs
     args_dict = {}
-    for i, arg in enumerate(args):
+
+    # For methods, skip the first argument (self/instance)
+    args_to_process = args[1:] if is_method else args
+
+    for i, arg in enumerate(args_to_process):
         if i < len(param_names):
             args_dict[param_names[i]] = arg
         else:
@@ -170,8 +192,9 @@ def validate_function_parameters(func: Callable, *args, **kwargs) -> Dict[str, A
 def with_parameter_validation(func: Callable[..., T]) -> Callable[..., Union[T, ActionResultModel]]:
     """Add parameter validation to a function.
 
-    This decorator creates a Pydantic model for the function's parameters
-    and validates all inputs against this model before calling the function.
+    This decorator validates parameters using Pydantic models and parameter constraints
+    before calling the function. If validation fails, it returns an ActionResultModel
+    with error details instead of calling the function.
 
     Args:
         func: The function to add parameter validation to
@@ -180,43 +203,110 @@ def with_parameter_validation(func: Callable[..., T]) -> Callable[..., Union[T, 
         Decorated function with parameter validation
 
     """
-    # Create parameter model
-    try:
-        func.__parameter_model__ = create_parameter_model_from_function(func)
-    except Exception as e:
-        logger.error(f"Failed to create parameter model for {func.__name__}: {e!s}")
-        # We'll create it on first call if it fails here
+    # Get function signature
+    sig = inspect.signature(func)
+    parameters = list(sig.parameters.values())
 
+    # Create Pydantic model for parameters
+    model_fields = {}
+    for param in parameters:
+        # Skip 'self' parameter for methods
+        if param.name == 'self':
+            continue
+
+        # Get annotation (type hint) for the parameter
+        annotation = param.annotation
+        if annotation is inspect.Parameter.empty:
+            annotation = Any
+
+        # Get default value for the parameter
+        default = ...
+        if param.default is not inspect.Parameter.empty:
+            default = param.default
+
+        # Add field to model
+        model_fields[param.name] = (annotation, Field(default=default))
+
+    # Create model class dynamically
+    model_name = f"{func.__name__}Parameters"
+    model_class = create_model(model_name, **model_fields)
+
+    # Define wrapper function
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
-        # Validate parameters
-        try:
-            validated_params = validate_function_parameters(func, *args, **kwargs)
+        # Check if this is a method call (first arg is self)
+        is_method = False
+        if args and parameters and parameters[0].name == 'self':
+            is_method = True
+            self_arg = args[0]
+            args = args[1:]
 
-            # Call the function with validated parameters
-            # Note: We need to handle 'self' for methods
-            if args and inspect.ismethod(func):
-                return func(args[0], **validated_params)
+        try:
+            # Convert args to kwargs
+            args_as_kwargs = {}
+            for i, arg in enumerate(args):
+                param_idx = i
+                if is_method:
+                    param_idx += 1
+                if param_idx < len(parameters):
+                    args_as_kwargs[parameters[param_idx].name] = arg
+
+            # Merge args and kwargs
+            all_kwargs = {**args_as_kwargs, **kwargs}
+
+            # Validate parameters using Pydantic model
+            try:
+                validated_params = model_class(**all_kwargs).model_dump()
+                logger.debug(f"Parameters validated for {func.__name__}: {validated_params}")
+            except ValidationError as e:
+                logger.error(f"Parameter validation failed for {func.__name__}: {e}")
+                return ActionResultModel(
+                    success=False,
+                    message="Parameter validation failed",
+                    error=str(e),
+                    prompt="Please check the parameter values and try again."
+                )
+
+            # Validate parameter constraints (groups and dependencies)
+            # Import local modules
+            from dcc_mcp_core.parameters.groups import validate_parameter_constraints
+
+            # Use empty tuple as args parameter, and validated_params as kwargs parameter
+            constraints_valid, constraint_errors = validate_parameter_constraints(func, (), validated_params)
+            if not constraints_valid:
+                error_str = "; ".join(constraint_errors)
+                logger.error(f"Parameter constraint validation failed for {func.__name__}: {error_str}")
+                return ActionResultModel(
+                    success=False,
+                    message="Parameter validation failed",
+                    error=error_str,
+                    prompt="Please check the parameter values and try again."
+                )
+
+            # Call function with validated parameters
+            if is_method:
+                result = func(self_arg, **validated_params)
             else:
-                return func(**validated_params)
-        except ParameterValidationError as e:
-            # Return a structured error response
+                result = func(**validated_params)
+
+            # If the result is already an ActionResultModel, return it as is
+            if isinstance(result, ActionResultModel):
+                return result
+
+            # Otherwise, wrap the result in an ActionResultModel
             return ActionResultModel(
-                success=False,
-                message="Parameter validation failed",
-                error=str(e),
-                prompt="Please check the parameter values and try again.",
-                context={"validation_error": str(e)}
+                success=True,
+                message=f"Successfully executed {func.__name__}",
+                context={"result": result}
             )
+
         except Exception as e:
-            # Catch any other exceptions during function execution
-            logger.exception(f"Error executing {func.__name__}: {e!s}")
+            logger.exception(f"Error in parameter validation for {func.__name__}: {e}")
             return ActionResultModel(
                 success=False,
-                message=f"Error executing {func.__name__}",
+                message="Error in parameter validation",
                 error=str(e),
-                prompt="An unexpected error occurred. Please check the error details.",
-                context={"error_type": type(e).__name__, "error_details": str(e)}
+                prompt="An unexpected error occurred during parameter validation."
             )
 
     return wrapper

@@ -17,7 +17,7 @@ def _calculate_value(base: int, multiplier: int) -> int:
     Args:
         base: Base value
         multiplier: Multiplier
-        
+
     Returns:
         Calculated value
 
@@ -28,17 +28,17 @@ def _calculate_value(base: int, multiplier: int) -> int:
 # Public function that uses the internal helper
 def get_calculated_value(base: int, multiplier: int = 2) -> dict:
     """Get a calculated value using internal helpers.
-    
+
     Args:
         base: Base value
         multiplier: Multiplier (default: 2)
-        
+
     Returns:
         Dictionary with the calculated value
 
     """
     result = _calculate_value(base, multiplier)
-    
+
     return {
         "base": base,
         "multiplier": multiplier,
@@ -49,10 +49,10 @@ def get_calculated_value(base: int, multiplier: int = 2) -> dict:
 # Another internal helper (should not be auto-registered)
 def _format_result(value: int) -> str:
     """Format a result value.
-    
+
     Args:
         value: The value to format
-        
+
     Returns:
         Formatted string
 
@@ -63,18 +63,18 @@ def _format_result(value: int) -> str:
 # Public function that uses both internal helpers
 def get_formatted_calculation(base: int, multiplier: int = 2) -> dict:
     """Get a formatted calculation result.
-    
+
     Args:
         base: Base value
         multiplier: Multiplier (default: 2)
-        
+
     Returns:
         Dictionary with the calculation and formatted result
 
     """
     value = _calculate_value(base, multiplier)
     formatted = _format_result(value)
-    
+
     return {
         "calculation": f"{base} * {multiplier} = {value}",
         "formatted": formatted

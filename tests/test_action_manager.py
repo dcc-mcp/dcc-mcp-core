@@ -18,8 +18,6 @@ from dcc_mcp_core.actions.manager import ActionManager
 from dcc_mcp_core.models import ActionModel
 from dcc_mcp_core.models import ActionResultModel
 from dcc_mcp_core.models import ActionsInfoModel
-from dcc_mcp_core.models import FunctionModel
-from dcc_mcp_core.models import ParameterModel
 
 
 def test_action_manager_load_actions_fixed(test_data_dir):

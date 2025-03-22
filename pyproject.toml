@@ -19,6 +19,7 @@ classifiers = [
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Topic :: Software Development :: Libraries",
     "Topic :: Multimedia :: Graphics :: 3D Modeling",
 ]
@@ -29,8 +30,6 @@ loguru = ">=0.7.3,<0.8.0"
 platformdirs = ">=3,<4.0.0"
 pydantic = ">=2.0.0,<3.0.0"
 jinja2 = ">=3.0.0"
-rpyc = ">=5.0.0"
-pywin32 = "==308"
 
 [tool.poetry.urls]
 Homepage = "https://github.com/loonghao/dcc-mcp-core"
@@ -48,25 +47,6 @@ version = "0.2.0"
 tag_format = "v$version"
 version_files = [
     "pyproject.toml:version",
-]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = "test_*.py"
-python_classes = "Test*"
-python_functions = "test_*"
-
-[tool.coverage.run]
-source = ["dcc_mcp_core"]
-branch = true
-
-[tool.coverage.report]
-exclude_lines = [
-    "pragma: no cover",
-    "def __repr__",
-    "if __name__ == .__main__.:",
-    "raise NotImplementedError",
-    "if TYPE_CHECKING:",
 ]
 
 [tool.mypy]
@@ -151,10 +131,4 @@ commands = [
     "ruff check --fix .",
     "ruff format .",
     "isort ."
-]
-
-[tool.nox.session.pytest]
-deps = ["pytest", "pytest-cov"]
-commands = [
-    "pytest tests/ --cov=dcc_mcp_core --cov-report=xml:coverage.xml --cov-report=term-missing"
 ]

@@ -5,7 +5,7 @@
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
 [![Tests](https://img.shields.io/badge/Tests-Passing-brightgreen)](https://github.com/loonghao/dcc-mcp-core/actions)
 
-[English](README.md)
+[English](README.md) | [中文文档](README_zh.md)
 
 DCC 模型上下文协议（Model Context Protocol，MCP）生态系统的基础库。它提供了在所有其他 DCC-MCP 包中使用的通用工具、基类和共享功能。
 
@@ -24,7 +24,7 @@ DCC-MCP-Core 是一个为数字内容创建(DCC)应用程序设计的动作管�
 5. **函数调用与结果返回**：MCP 服务器调用相应的动作函数，并将结果返回给 AI
 
 ```mermaid
-graph LR
+flowchart LR
     %% 增加图表宽度
     classDef default width:120px,height:60px
 
