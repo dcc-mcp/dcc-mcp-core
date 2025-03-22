@@ -7,10 +7,11 @@ parameters passed between components.
 # Import built-in modules
 import ast
 import json
-import re
 import logging
+import re
 from typing import Any
 from typing import Dict
+from typing import Type
 from typing import Union
 
 # Import local modules
@@ -36,6 +37,10 @@ def process_parameters(params: Union[Dict[str, Any], str]) -> Dict[str, Any]:
     if isinstance(params, str):
         return parse_kwargs_string(params)
 
+    if not isinstance(params, dict):
+        logger.warning(f"Expected dict or string for params, got {type(params)}. Returning empty dict.")
+        return {}
+
     processed_params = {}
 
     # Handle special 'kwargs' parameter if present
@@ -53,18 +58,50 @@ def process_parameters(params: Union[Dict[str, Any], str]) -> Dict[str, Any]:
             logger.debug(f"Processed parameters: {processed_params}")
             return processed_params
 
-    # Ensure boolean parameters use native Python boolean values
+    # Process each parameter
     for key, value in params.items():
-        if isinstance(value, (int, float)) and (value == 0 or value == 1):
-            # Check if the parameter name suggests it's a boolean flag
-            if key in BOOLEAN_FLAG_KEYS:
-                processed_params[key] = bool(value)
-            else:
-                processed_params[key] = value
-        else:
-            processed_params[key] = value
+        processed_params[key] = process_parameter_value(key, value)
 
     return processed_params
+
+
+def process_parameter_value(key: str, value: Any) -> Any:
+    """Process a single parameter value based on its name and value.
+
+    Args:
+        key: Parameter name
+        value: Parameter value
+
+    Returns:
+        Processed parameter value
+
+    """
+    # Handle boolean values
+    if key in BOOLEAN_FLAG_KEYS:
+        if isinstance(value, (int, float)) and (value == 0 or value == 1):
+            return bool(value)
+        elif isinstance(value, str):
+            return process_boolean_parameter(value)
+
+    # Handle string values that might need conversion
+    if isinstance(value, str):
+        # Try to convert strings that look like lists or dicts
+        if (value.startswith('[') and value.endswith(']')) or \
+           (value.startswith('{') and value.endswith('}')):
+            try:
+                return json.loads(value)
+            except json.JSONDecodeError:
+                try:
+                    return ast.literal_eval(value)
+                except (SyntaxError, ValueError):
+                    # Keep as string if conversion fails
+                    pass
+        else:
+            # Try simple type conversion for strings
+            return process_string_parameter(value)
+
+    # Return the value as is for other types
+    return value
 
 
 def parse_kwargs_string(kwargs_str: str) -> Dict[str, Any]:
@@ -84,166 +121,132 @@ def parse_kwargs_string(kwargs_str: str) -> Dict[str, Any]:
     if not kwargs_str or not isinstance(kwargs_str, str):
         return {}
 
-    # Try different parsing methods in order of preference
-    # Use tuple instead of list to avoid 'unhashable type: list' error
-    parsing_functions = (parse_json, parse_ast_literal, parse_key_value_pairs)
+    # Clean up the string
+    kwargs_str = kwargs_str.strip()
 
-    for parser in parsing_functions:
+    # Try JSON parsing first
+    try:
+        # Try to parse as a JSON object directly
+        return parse_json(kwargs_str)
+    except json.JSONDecodeError:
+        # If that fails, try to wrap it in curly braces
         try:
-            result = parser(kwargs_str)
-            if result:  # Only return non-empty results
-                logger.debug(f"Successfully parsed kwargs using {parser.__name__}: {result}")
-                return result
-        except Exception as e:
-            logger.debug(f"Parser {parser.__name__} failed: {e}")
+            if not kwargs_str.startswith('{'):
+                modified_str = '{' + kwargs_str + '}'
+                return parse_json(modified_str)
+        except json.JSONDecodeError:
+            pass
 
-    logger.warning(f"All parsers failed for kwargs string: {kwargs_str}")
-    return {}
+    # Try ast.literal_eval
+    try:
+        # Try to convert the string to a valid Python dictionary expression
+        if not kwargs_str.startswith('{'):
+            # Replace equals with colons for key-value pairs
+            modified_str = '{' + kwargs_str.replace('=', ':') + '}'
+        else:
+            modified_str = kwargs_str
+
+        # Use ast.literal_eval for safe evaluation
+        return parse_ast_literal(modified_str)
+    except (SyntaxError, ValueError):
+        pass
+
+    # Simple key=value parsing as last resort
+    return parse_key_value_pairs(kwargs_str)
 
 
 def parse_json(kwargs_str: str) -> Dict[str, Any]:
-    """Parse kwargs string as JSON.
+    """Parse a JSON string into a dictionary.
 
     Args:
-        kwargs_str: String representation of kwargs
+        kwargs_str: JSON string to parse
 
     Returns:
-        Dictionary of parsed kwargs
+        Dictionary parsed from JSON string
 
     Raises:
-        json.JSONDecodeError: If parsing fails
+        json.JSONDecodeError: If the string is not valid JSON
 
     """
-    # Try to parse as a JSON object directly
-    try:
-        return json.loads(kwargs_str)
-    except json.JSONDecodeError:
-        # If that fails, try to wrap it in curly braces
-        if not kwargs_str.strip().startswith('{'):
-            modified_str = '{' + kwargs_str + '}'
-            return json.loads(modified_str)
-        raise
+    return json.loads(kwargs_str)
 
 
 def parse_ast_literal(kwargs_str: str) -> Dict[str, Any]:
-    """Parse a string using ast.literal_eval.
+    """Parse a string of key=value pairs into a dictionary using ast.literal_eval.
 
     Args:
-        kwargs_str (str): String to parse
+        kwargs_str: String to parse
 
     Returns:
-        dict: Parsed dictionary
+        Parsed dictionary
 
     Raises:
-        ValueError, SyntaxError: If parsing fails
+        SyntaxError: If the string is not a valid Python literal
+        ValueError: If the parsed result is not a dictionary
 
     """
-    # Validate input
-    if not kwargs_str or not isinstance(kwargs_str, str):
-        return {}
-
-    # Test for specific test case pattern
-    if kwargs_str.strip() == "{name: 'John'}":
-        raise SyntaxError("invalid syntax")
-
-    # Special handling for test case "[1, 2, 3]"
-    if kwargs_str.strip() == "[1, 2, 3]":
-        raise ValueError(f"Expected a dictionary, got {type([])}")
-
-    # Try to convert the string to a valid Python dictionary expression
-    if not kwargs_str.strip().startswith('{'):
-        # Replace equals with colons for key-value pairs
-        modified_str = '{' + kwargs_str.replace('=', ':') + '}'
-    else:
-        modified_str = kwargs_str
-
-    # Use ast.literal_eval for safe evaluation
     try:
-        result = ast.literal_eval(modified_str)
-    except SyntaxError as e:
-        # Provide a more helpful error message
-        error_msg = (
-            f"Failed to parse using ast.literal_eval: malformed node or string on "
-            f"line {e.lineno}, column {e.offset}"
-        )
-        raise ValueError(error_msg)
-
-    # Ensure the result is a dictionary
-    if not isinstance(result, dict):
-        raise ValueError(f"Expected a dictionary, got {type(result)}")
-
-    return result
+        # First try to parse as a standard Python literal
+        result = ast.literal_eval(kwargs_str)
+        if isinstance(result, dict):
+            return result
+        raise ValueError(f"Parsed result is not a dictionary: {result}")
+    except (ValueError, SyntaxError) as e:
+        # If it's a SyntaxError, re-raise it directly
+        if isinstance(e, SyntaxError):
+            raise
+        # If it's a ValueError from ast.literal_eval, check if it's due to invalid syntax
+        if kwargs_str.startswith('{') and kwargs_str.endswith('}') and ':' in kwargs_str:
+            # This looks like it was trying to be a dict but had invalid syntax
+            raise SyntaxError(f"Invalid Python literal: {kwargs_str}") from e
+        # Otherwise, re-raise the original error
+        raise
 
 
 def parse_key_value_pairs(kwargs_str: str) -> Dict[str, Any]:
-    """Parse kwargs string as key=value pairs.
+    """Parse a string of key=value pairs into a dictionary.
 
     Args:
-        kwargs_str: String representation of kwargs
+        kwargs_str: String of key=value pairs
 
     Returns:
-        Dictionary of parsed kwargs
-
-    Raises:
-        ValueError: If parsing fails
+        Dictionary parsed from key=value pairs
 
     """
     result = {}
+    # Use regex to handle quoted values with spaces
+    # Match patterns like: key="value with spaces" or key=value
+    pattern = r'(\w+)=(["\']([^"\']*)["\'](\s+|$)|[^\s]+)'
+    matches = re.findall(pattern, kwargs_str)
 
-    # Split by spaces instead of commas for key=value pairs
-    # We need to handle quoted values that may contain spaces
-    # First, find all quoted segments and replace spaces with a temporary marker
-
-    # Replace spaces in quoted strings with a temporary marker
-    def replace_spaces_in_quotes(match):
-        return match.group(0).replace(' ', '___SPACE___')
-
-    # Find all quoted strings and replace spaces
-    pattern = r'(["\'][^"\'\']*["\'])' # Match anything in single or double quotes
-    processed_str = re.sub(pattern, replace_spaces_in_quotes, kwargs_str)
-
-    # Now split by spaces
-    pairs = processed_str.split()
-
-    # Process each key=value pair
-    for pair in pairs:
-        if '=' not in pair:
-            continue
-
-        key, value = pair.strip().split('=', 1)
-        key = key.strip()
-        value = value.strip()
-
-        # Restore spaces in quoted values
-        value = value.replace('___SPACE___', ' ')
-
-        # Handle quoted values (both single and double quotes)
-        if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
-            # String: remove quotes
-            value = value[1:-1]
-        elif value.lower() == 'true':
-            # Ensure use of native Python boolean value
-            value = True
-        elif value.lower() == 'false':
-            # Ensure use of native Python boolean value
-            value = False
-        elif value.lower() == 'none':
-            value = None
-        else:
-            # Try to convert to number
-            try:
-                if '.' in value:
-                    value = float(value)
-                else:
-                    # If it's 0 or 1, and the key suggests it's a boolean flag, convert to boolean
-                    int_value = int(value)
-                    if int_value in [0, 1] and key in BOOLEAN_FLAG_KEYS:
-                        value = bool(int_value)
-                    else:
-                        value = int_value
-            except ValueError:
-                # Keep as string if conversion fails
-                pass
+    for match in matches:
+        key = match[0]
+        # If value is quoted, use the content inside quotes
+        if match[2]:  # This is the group inside quotes
+            value = match[2]
+        else:  # This is the non-quoted value
+            value = match[1]
+            # Handle quoted values that weren't captured by the regex group
+            if value.startswith('"') and value.endswith('"'):
+                value = value[1:-1]
+            elif value.startswith("'") and value.endswith("'"):
+                value = value[1:-1]
+            # Handle None
+            elif value == "None":
+                value = None
+            # Handle booleans
+            elif value.lower() == "true":
+                value = True
+            elif value.lower() == "false":
+                value = False
+            # Handle numeric values
+            elif value.isdigit():
+                value = int(value)
+            elif value.replace(".", "", 1).isdigit() and value.count(".") == 1:
+                value = float(value)
+            # Handle boolean flags (0/1 for common flags)
+            elif key in BOOLEAN_FLAG_KEYS:
+                value = value == "1"
 
         result[key] = value
 
@@ -252,54 +255,43 @@ def parse_key_value_pairs(kwargs_str: str) -> Dict[str, Any]:
 
 def process_string_parameter(value: str) -> Any:
     """Process a string parameter and convert it to the appropriate type.
-    
+
     Args:
         value: String value to process
-        
+
     Returns:
         Processed value of the appropriate type
+
     """
-    if not value:
-        return value
-        
-    # Check for boolean values
-    if value.lower() == 'true':
+    # Remove quotes if present
+    if (value.startswith('"') and value.endswith('"')) or \
+       (value.startswith('\'') and value.endswith('\'')):
+        value = value[1:-1]
+
+    # Try to convert to appropriate type
+    if value.lower() in ('true', 'yes', 'y', 'on'):
         return True
-    elif value.lower() == 'false':
+    elif value.lower() in ('false', 'no', 'n', 'off'):
         return False
-    elif value.lower() == 'none':
+    elif value.isdigit():
+        return int(value)
+    elif value.replace('.', '', 1).isdigit() and value.count('.') == 1:
+        return float(value)
+    elif value.lower() == 'none' or value.lower() == 'null':
         return None
-        
-    # Check for numeric values
-    try:
-        if '.' in value:
-            return float(value)
-        else:
-            return int(value)
-    except ValueError:
-        pass
-        
-    # Check for lists, tuples, and dictionaries
-    try:
-        # Try to parse as JSON
-        return json.loads(value)
-    except json.JSONDecodeError:
-        try:
-            # Try to parse using ast.literal_eval for Python literals
-            return ast.literal_eval(value)
-        except (SyntaxError, ValueError):
-            # Return as string if all else fails
-            return value
+    else:
+        return value
 
 
 def process_boolean_parameter(value: Any) -> bool:
     """Process a parameter and convert it to a boolean value.
-    
+
     Args:
         value: Value to convert to boolean
-        
+
     Returns:
         Boolean representation of the value
+
     """
     if isinstance(value, bool):
         return value
@@ -307,13 +299,63 @@ def process_boolean_parameter(value: Any) -> bool:
         return bool(value)
     elif isinstance(value, str):
         value_lower = value.lower()
-        if value_lower in ('true', 'yes', 'y', '1'):
+        if value_lower in ('true', 'yes', 'y', 'on', '1'):
             return True
-        elif value_lower in ('false', 'no', 'n', '0'):
+        elif value_lower in ('false', 'no', 'n', 'off', '0'):
             return False
+    # Default to False for anything else
+    return False
+
+
+def safe_convert_type(value: Any, target_type: Type) -> Any:
+    """Safely convert a value to the target type.
+
+    This function attempts to convert a value to the specified type,
+    falling back to the original value if conversion fails.
+
+    Args:
+        value: The value to convert
+        target_type: The type to convert to
+
+    Returns:
+        The converted value or the original value if conversion fails
+
+    """
+    if value is None:
+        return None
+
+    # If the value is already of the target type, return it
+    if isinstance(value, target_type):
+        return value
+
+    try:
+        # Handle common type conversions
+        if isinstance(target_type, type) and target_type is bool:
+            return process_boolean_parameter(value)
+        elif isinstance(target_type, type) and target_type is int:
+            return int(float(value)) if isinstance(value, str) else int(value)
+        elif isinstance(target_type, type) and target_type is float:
+            return float(value)
+        elif isinstance(target_type, type) and target_type is str:
+            return str(value)
+        elif isinstance(target_type, type) and target_type is list:
+            if isinstance(value, str):
+                if value.startswith('[') and value.endswith(']'):
+                    return json.loads(value)
+                else:
+                    return [item.strip() for item in value.split(',')]
+            elif isinstance(value, (tuple, set)):
+                return list(value)
+            else:
+                return [value]
+        elif isinstance(target_type, type) and target_type is dict:
+            if isinstance(value, str):
+                return parse_kwargs_string(value)
+            else:
+                return dict(value)
         else:
-            # Return True if the string is not empty
-            return bool(value)
-    else:
-        # For other types, use Python's built-in bool conversion
-        return bool(value)
+            # For other types, try direct conversion
+            return target_type(value)
+    except (ValueError, TypeError, json.JSONDecodeError) as e:
+        logger.debug(f"Failed to convert {value} to {target_type.__name__}: {e}")
+        return value

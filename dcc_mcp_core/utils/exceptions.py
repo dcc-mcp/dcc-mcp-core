@@ -192,4 +192,5 @@ class VersionError(MCPError):
 
 class ParameterValidationError(Exception):
     """Exception raised when parameter validation fails."""
+
     pass

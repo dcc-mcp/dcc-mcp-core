@@ -5,21 +5,22 @@ through RPyC remote execution.
 """
 
 # Import built-in modules
+import random
 from typing import Any
 from typing import Dict
 from typing import List
 from typing import Optional
 
 # Import local modules
-from dcc_mcp_core.decorators import error_handler
-from dcc_mcp_core.parameter_groups import ParameterGroup, with_parameter_groups
+from dcc_mcp_core.actions.manager import ActionResultModel
+from dcc_mcp_core.utils.decorators import error_handler
 
 # -------------------------------------------------------------------
 # Plugin Metadata - Just fill in these basic information
 # -------------------------------------------------------------------
 __action_name__ = "Random Spheres Generator"
 __action_version__ = "1.0.0"
-__action_description__ = "A plugin for creating random spheres in Maya"
+__action_description__ = "Create random spheres in Maya scene"
 __action_author__ = "DCC-MCP-Core Team"
 __action_requires__ = ["maya"]  # Specify the DCC environment this plugin depends on
 
@@ -28,7 +29,8 @@ __action_requires__ = ["maya"]  # Specify the DCC environment this plugin depend
 # -------------------------------------------------------------------
 
 @error_handler
-def create_sphere(context: Dict[str, Any], radius: float = 1.0, position: Optional[List[float]] = None) -> Dict[str, Any]:
+def create_sphere(context: Dict[str, Any], radius: float = 1.0,
+position: Optional[List[float]] = None) -> Dict[str, Any]:
     """Create a sphere.
 
     Args:
@@ -59,32 +61,26 @@ def create_sphere(context: Dict[str, Any], radius: float = 1.0, position: Option
         sphere = cmds.polySphere(r=radius, name="sphere")[0]
         cmds.move(position[0], position[1], position[2], sphere)
 
-        return {
-            "success": True,
-            "message": f"Created sphere with radius {radius} at position {position}",
-            "prompt": "You can now modify the sphere or create more objects",
-            "context": {
+        return ActionResultModel(
+            success=True,
+            message=f"Created sphere with radius {radius} at position {position}",
+            prompt="You can now modify the sphere or create more objects",
+            context={
                 "object_name": sphere,
                 "radius": radius,
                 "position": position
             }
-        }
+        )
     except Exception as e:
-        return {
-            "success": False,
-            "message": "Failed to create sphere",
-            "error": str(e)
-        }
+        return ActionResultModel(
+            success=False,
+            message="Failed to create sphere",
+            error=str(e)
+        )
 
 
 @error_handler
-@with_parameter_groups(
-    ParameterGroup("size", "Size parameters", ["min_radius", "max_radius"], required=True),
-    ParameterGroup("distribution", "Distribution parameters", ["area_size", "distribution_type"], required=False),
-    # Define parameter dependencies
-    distribution_type=("area_size", None, "Distribution type requires area_size parameter")
-)
-def create_random_spheres(context: Dict[str, Any], 
+def create_random_spheres(context: Dict[str, Any],
                          count: int = 5,
                          min_radius: float = 0.5,
                          max_radius: float = 2.0,
@@ -109,20 +105,20 @@ def create_random_spheres(context: Dict[str, Any],
     # Get Maya client from context
     maya_client = context.get("maya_client", None)
     if not maya_client:
-        return {
-            "success": False, 
-            "message": "Failed to create spheres", 
-            "error": "Maya client not found in context"
-        }
+        return ActionResultModel(
+            success=False,
+            message="Failed to create spheres",
+            error="Maya client not found in context"
+        )
 
     # Get Maya commands interface
     cmds = maya_client.cmds
     if not cmds:
-        return {
-            "success": False, 
-            "message": "Failed to create spheres", 
-            "error": "Maya commands interface not found in client"
-        }
+        return ActionResultModel(
+            success=False,
+            message="Failed to create spheres",
+            error="Maya commands interface not found in client"
+        )
 
     # Get logger (if available)
     logger = context.get("logger", None)
@@ -131,11 +127,10 @@ def create_random_spheres(context: Dict[str, Any],
 
     try:
         # Import built-in modules
-        import random  # Import random module
         import math
 
         results = []
-        
+
         # Generate positions based on distribution type
         positions = []
         if distribution_type == "uniform":
@@ -186,17 +181,17 @@ def create_random_spheres(context: Dict[str, Any],
             # Create sphere
             sphere = cmds.polySphere(r=radius, name=f"random_sphere_{i+1}")[0]
             cmds.move(position[0], position[1], position[2], sphere)
-            
+
             # Add random material if requested
             if with_materials:
                 # Create a new Phong material
                 material = cmds.shadingNode("phong", asShader=True, name=f"sphere_material_{i+1}")
                 sg = cmds.sets(renderable=True, noSurfaceShader=True, empty=True, name=f"{material}SG")
                 cmds.connectAttr(f"{material}.outColor", f"{sg}.surfaceShader")
-                
+
                 # Set random color
                 cmds.setAttr(f"{material}.color", random.random(), random.random(), random.random(), type="double3")
-                
+
                 # Assign material to sphere
                 cmds.sets(sphere, edit=True, forceElement=sg)
 
@@ -207,24 +202,24 @@ def create_random_spheres(context: Dict[str, Any],
                 "position": position
             })
 
-        return {
-            "success": True,
-            "message": f"Created {count} random spheres",
-            "prompt": "If you want to modify these spheres, you can use the modify_spheres function",
-            "context": {
+        return ActionResultModel(
+            success=True,
+            message=f"Created {count} random spheres",
+            prompt="If you want to modify these spheres, you can use the modify_spheres function",
+            context={
                 "created_objects": [result["name"] for result in results],
                 "total_count": len(results),
                 "distribution_type": distribution_type
             }
-        }
+        )
     except Exception as e:
         if logger:
             logger.error(f"Error creating spheres: {e}")
-        return {
-            "success": False,
-            "message": "Failed to create random spheres",
-            "error": str(e),
-            "context": {
+        return ActionResultModel(
+            success=False,
+            message="Failed to create random spheres",
+            error=str(e),
+            context={
                 "error_details": {
                     "count": count,
                     "min_radius": min_radius,
@@ -233,7 +228,7 @@ def create_random_spheres(context: Dict[str, Any],
                     "distribution_type": distribution_type
                 }
             }
-        }
+        )
 
 
 @error_handler
@@ -250,59 +245,54 @@ def clear_all_spheres(context: Dict[str, Any]) -> Dict[str, Any]:
     # Get Maya client from context
     maya_client = context.get("maya_client", None)
     if not maya_client:
-        return {
-            "success": False, 
-            "message": "Failed to clear spheres", 
-            "error": "Maya client not found in context"
-        }
+        return ActionResultModel(
+            success=False,
+            message="Failed to clear spheres",
+            error="Maya client not found in context"
+        )
 
     # Get Maya commands interface
     cmds = maya_client.cmds
     if not cmds:
-        return {
-            "success": False, 
-            "message": "Failed to clear spheres", 
-            "error": "Maya commands interface not found in client"
-        }
+        return ActionResultModel(
+            success=False,
+            message="Failed to clear spheres",
+            error="Maya commands interface not found in client"
+        )
 
     try:
         # Find all objects with name matching random_sphere_*
         spheres = cmds.ls("random_sphere_*")
-        
+
         # Delete all found spheres
         if spheres:
             cmds.delete(spheres)
-            
+
             # Also delete materials
             materials = cmds.ls("sphere_material_*")
             if materials:
                 cmds.delete(materials)
-                
+
             # And material groups
             sgs = cmds.ls("sphere_material_*SG")
             if sgs:
                 cmds.delete(sgs)
-            
-            return {
-                "success": True,
-                "message": f"Cleared {len(spheres)} spheres",
-                "context": {
+
+            return ActionResultModel(
+                success=True,
+                message=f"Cleared {len(spheres)} spheres",
+                context={
                     "deleted_count": len(spheres)
                 }
-            }
+            )
         else:
-            return {
-                "success": True,
-                "message": "No spheres found to clear"
-            }
+            return ActionResultModel(
+                success=True,
+                message="No spheres found to clear"
+            )
     except Exception as e:
-        return {
-            "success": False,
-            "message": "Failed to clear spheres",
-            "error": str(e)
-        }
-
-
-# -------------------------------------------------------------------
-# Note: No need to write register function, plugin manager will automatically discover and register all public functions
-# -------------------------------------------------------------------
+        return ActionResultModel(
+            success=False,
+            message="Failed to clear spheres",
+            error=str(e)
+        )

@@ -4,13 +4,10 @@ This plugin demonstrates the use of complex type annotations.
 """
 
 # Import built-in modules
-# Import typing modules for annotations
-from typing import Any
+from typing import Callable
 from typing import List
 from typing import Optional
 from typing import Tuple
-from typing import Union
-from typing import Callable
 
 # Plugin metadata
 __action_name__ = "advanced_types_plugin"
@@ -25,12 +22,12 @@ def process_complex_data(
     callback: Optional[Callable] = None
 ) -> Tuple[bool, dict]:
     """Process complex data with various options.
-    
+
     Args:
         data: A list of dictionaries to process
         options: Optional processing options
         callback: Optional callback function to call after processing
-        
+
     Returns:
         A tuple containing success status and result data
 
@@ -39,11 +36,11 @@ def process_complex_data(
         "processed_items": len(data),
         "items": data
     }
-    
+
     # Apply options if provided
     if options:
         result["options_applied"] = list(options.keys())
-    
+
     # Call callback if provided
     if callback and callable(callback):
         try:
@@ -51,7 +48,7 @@ def process_complex_data(
             result["callback_result"] = callback_result
         except Exception as e:
             result["callback_error"] = str(e)
-    
+
     return True, result
 
 
@@ -60,7 +57,7 @@ async def async_operation(task_id: str) -> dict:
 
     Args:
         task_id: ID of the task to process
-        
+
     Returns:
         Result of the async operation
 

@@ -33,15 +33,15 @@ ACTION_METADATA = {
     },
     "version": {
         "attr": "__action_version__",
-        "default": "unknown"
+        "default": "0.1.0"
     },
     "description": {
         "attr": "__action_description__",
-        "default": "A minimal test plugin with only required functionality."
+        "default": "No description provided."
     },
     "author": {
         "attr": "__action_author__",
-        "default": "unknown"
+        "default": "mcp"
     },
     "requires": {
         "attr": "__action_requires__",
