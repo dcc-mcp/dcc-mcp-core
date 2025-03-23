@@ -1,3 +1,14 @@
+## v0.3.0 (2025-03-23)
+
+### Feat
+
+- Improve imports and module interface in dcc_mcp_core
+- Improve imports and module interface in dcc_mcp_core
+
+### Refactor
+
+- **dcc_mcp_core**: Replace plugin manager with action manager across the codebase Update references from plugin manager to action manager in imports, documentation, and tests.
+
 ## v0.2.0 (2025-03-19)
 
 ### Feat
