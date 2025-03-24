@@ -1,3 +1,10 @@
+## v0.3.1 (2025-03-24)
+
+### Refactor
+
+- Standardize string quotation usage across the codebase
+- Improve action path handling and code clarity
+
 ## v0.3.0 (2025-03-23)
 
 ### Feat
