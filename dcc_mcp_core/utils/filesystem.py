@@ -65,7 +65,7 @@ class ActionPathsConfig(BaseModel):
         """
         for env_var, value in os.environ.items():
             if env_var.startswith(ENV_ACTION_PATH_PREFIX):
-                dcc_name = env_var[len(ENV_ACTION_PATH_PREFIX):].lower()
+                dcc_name = env_var[len(ENV_ACTION_PATH_PREFIX) :].lower()
 
                 # Split paths by system path separator and normalize
                 paths = [str(Path(path).resolve()) for path in value.split(os.pathsep) if path]
@@ -222,7 +222,7 @@ def save_actions_paths_config(config_path: Optional[Union[str, Path]] = None) ->
         config_data = _config.model_dump()
 
         # Write to file
-        with open(config_path, 'w') as f:
+        with open(config_path, "w") as f:
             json.dump(config_data, f, indent=4)
 
         logger.info(f"Saved action paths configuration to {config_path}")
@@ -287,7 +287,7 @@ def get_actions_paths_from_env(dcc_name: Optional[str] = None) -> Dict[str, List
     # Process environment variables
     for env_var, value in os.environ.items():
         if env_var.startswith(ENV_ACTION_PATH_PREFIX):
-            key = env_var[len(ENV_ACTION_PATH_PREFIX):].lower()
+            key = env_var[len(ENV_ACTION_PATH_PREFIX) :].lower()
 
             if dcc_name is not None and key != dcc_name.lower():
                 continue
@@ -309,12 +309,15 @@ def _load_config_if_needed() -> None:
         # Environment variables are already loaded in the ActionPathsConfig constructor
 
 
-def discover_actions(dcc_name: Optional[str] = None, extension: str = ".py") -> Dict[str, List[str]]:
+def discover_actions(
+    dcc_name: Optional[str] = None, extension: str = ".py", additional_paths: Optional[Dict[str, List[str]]] = None
+) -> Dict[str, List[str]]:
     """Discover actions in registered action paths.
 
     Args:
         dcc_name: Name of the DCC to discover actions for. If None, discovers for all DCCs.
         extension: File extension to filter actions (default: '.py')
+        additional_paths: Optional dictionary mapping DCC names to additional paths to search
 
     Returns:
         Dictionary mapping DCC names to lists of discovered action paths
@@ -328,11 +331,19 @@ def discover_actions(dcc_name: Optional[str] = None, extension: str = ".py") -> 
         # Get paths for a specific DCC
         dcc_name = dcc_name.lower()
         paths = _config.dcc_actions_paths.get(dcc_name, [])
+
+        # Add additional paths for this DCC if provided
+        if additional_paths and dcc_name in additional_paths:
+            paths.extend(additional_paths[dcc_name])
+
         return {dcc_name: _discover_actions_in_paths(paths, extension)}
     else:
         # Get paths for all DCCs
         result = {}
         for dcc, paths in _config.dcc_actions_paths.items():
+            # Add additional paths for this DCC if provided
+            if additional_paths and dcc in additional_paths:
+                paths = paths + additional_paths[dcc]
             result[dcc] = _discover_actions_in_paths(paths, extension)
         return result
 
@@ -361,7 +372,7 @@ def _discover_actions_in_paths(action_paths: List[str], extension: str) -> List[
             for action_file in action_dir_path.glob(f"**/*{extension}"):
                 # Skip files that start with underscore and __init__.py
                 file_name = action_file.name
-                if file_name.startswith('_') or file_name == '__init__.py':
+                if file_name.startswith("_") or file_name == "__init__.py":
                     continue
 
                 discovered_actions.append(str(action_file))
@@ -459,7 +470,7 @@ def convert_path_to_module(file_path: str) -> str:
     file_name = path.stem
 
     # Remove any invalid characters for module names
-    module_path = file_name.replace('-', '_')
+    module_path = file_name.replace("-", "_")
 
     return module_path
 
@@ -561,9 +572,7 @@ def clear_dcc_actions_paths(dcc_name: Optional[str] = None, keep_paths: Optional
 
 
 def load_module_from_path(
-    file_path: str,
-    module_name: Optional[str] = None,
-    dependencies: Optional[Dict[str, Any]] = None
+    file_path: str, module_name: Optional[str] = None, dependencies: Optional[Dict[str, Any]] = None
 ) -> ModuleType:
     """Load a Python module directly from a file path and inject dependencies.
 
@@ -605,6 +614,7 @@ def load_module_from_path(
     # Inject default dependency
     # Import local modules
     import dcc_mcp_core
+
     module.dcc_mcp_core = dcc_mcp_core
 
     # Inject additional dependencies

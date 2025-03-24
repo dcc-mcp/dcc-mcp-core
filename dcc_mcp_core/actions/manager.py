@@ -79,13 +79,27 @@ class ActionManager:
         # Dependencies to inject into action modules
         self._dependencies = dependencies or {}
 
+        self._action_search_paths = []
+
+    def set_action_search_paths(self, paths: List[str]) -> None:
+        """Set the search path for actions.
+
+        Args:
+            paths: List of paths to search for actions
+
+        """
+        self._action_search_paths = paths
+
     @method_error_handler
-    def discover_actions(self, extension: str = ".py", force_refresh: bool = False) -> ActionResultModel:
+    def discover_actions(
+        self, extension: str = ".py", force_refresh: bool = False, additional_paths: Optional[List[str]] = None
+    ) -> ActionResultModel:
         """Discover actions for this DCC with caching support.
 
         Args:
             extension: File extension to look for
             force_refresh: Whether to force refresh the cache
+            additional_paths: Optional list of additional paths to search for actions
 
         Returns:
             ActionResultModel containing the result of the discovery
@@ -95,15 +109,30 @@ class ActionManager:
             current_time = time.time()
 
             # If cache is valid and no force refresh, return cached result
-            if not force_refresh and (current_time - self._last_discovery_time) < self._cache_ttl:
+            if (
+                not force_refresh
+                and (current_time - self._last_discovery_time) < self._cache_ttl
+                and not additional_paths
+            ):
                 return ActionResultModel(
                     success=True,
                     message="Actions discovered (from cache)",
-                    context={'paths': list(self._action_paths_cache.values())}
+                    context={"paths": list(self._action_paths_cache.values())},
                 )
 
+            # Add configured search paths
+            if additional_paths:
+                additional_paths.extend(self._action_search_paths)
+
+            # Prepare additional paths dictionary for fs_discover_actions
+            additional_paths_dict = None
+            if additional_paths:
+                additional_paths_dict = {self.dcc_name.lower(): additional_paths}
+
             # Use the filesystem utility to discover actions
-            action_paths = fs_discover_actions(self.dcc_name, extension=extension)
+            action_paths = fs_discover_actions(
+                self.dcc_name, extension=extension, additional_paths=additional_paths_dict
+            )
             paths = action_paths.get(self.dcc_name, [])
 
             # Update cache timestamp
@@ -122,10 +151,11 @@ class ActionManager:
                     file_mtime = os.path.getmtime(path)
 
                     # If new action or modified action
-                    if (action_name not in self._action_paths_cache or
-                        path != self._action_paths_cache[action_name] or
-                        file_mtime > self._file_timestamps.get(path, 0)):
-
+                    if (
+                        action_name not in self._action_paths_cache
+                        or path != self._action_paths_cache[action_name]
+                        or file_mtime > self._file_timestamps.get(path, 0)
+                    ):
                         # Update cache
                         self._action_paths_cache[action_name] = path
                         self._file_timestamps[path] = file_mtime
@@ -137,7 +167,7 @@ class ActionManager:
             return ActionResultModel(
                 success=True,
                 message="Actions discovered and updated",
-                context={'paths': valid_paths if valid_paths else paths}
+                context={"paths": valid_paths if valid_paths else paths},
             )
 
     @method_error_handler
@@ -159,7 +189,7 @@ class ActionManager:
                 return ActionResultModel(
                     success=False,
                     message=f"Action file not found: {action_path}",
-                    error=f"File does not exist: {action_path}"
+                    error=f"File does not exist: {action_path}",
                 )
 
             # Get the action name from the file path
@@ -167,18 +197,19 @@ class ActionManager:
 
             # Check timestamp, if file is unchanged and already loaded, return directly
             current_mtime = os.path.getmtime(action_path)
-            if (not force_reload and
-                action_name in self._action_modules and
-                self._file_timestamps.get(action_path) == current_mtime):
-
+            if (
+                not force_reload
+                and action_name in self._action_modules
+                and self._file_timestamps.get(action_path) == current_mtime
+            ):
                 return ActionResultModel(
                     success=True,
                     message=f"Action '{action_name}' already loaded (unchanged)",
                     context={
-                        'action_name': action_name,
-                        'paths': [action_path],
-                        'module': self._action_modules[action_name]
-                    }
+                        "action_name": action_name,
+                        "paths": [action_path],
+                        "module": self._action_modules[action_name],
+                    },
                 )
 
             # Update timestamp cache
@@ -195,9 +226,7 @@ class ActionManager:
 
                     # Load the module and pass the DCC name
                     action_module = load_module_from_path(
-                        file_path=action_path,
-                        dependencies=dependencies,
-                        dcc_name=self.dcc_name
+                        file_path=action_path, dependencies=dependencies, dcc_name=self.dcc_name
                     )
 
                     # Register the action module
@@ -212,11 +241,7 @@ class ActionManager:
                     return ActionResultModel(
                         success=True,
                         message=f"Action '{action_name}' loaded successfully",
-                        context={
-                            'action_name': action_name,
-                            'paths': [action_path],
-                            'module': action_module
-                        }
+                        context={"action_name": action_name, "paths": [action_path], "module": action_module},
                     )
                 except Exception as e:
                     # get traceback
@@ -231,11 +256,11 @@ class ActionManager:
                         message=f"Failed to load action '{action_name}'",
                         error=f"{e!s}\n{error_traceback}",
                         context={
-                            'action_name': action_name,
-                            'paths': [action_path],
-                            'error_type': type(e).__name__,
-                            'error_details': error_traceback
-                        }
+                            "action_name": action_name,
+                            "paths": [action_path],
+                            "error_type": type(e).__name__,
+                            "error_details": error_traceback,
+                        },
                     )
 
     def _auto_register_functions(self, action_module: Any, action_name: str) -> Dict[str, Any]:
@@ -254,7 +279,7 @@ class ActionManager:
         # Get all attributes from the module
         for attr_name in dir(action_module):
             # Skip private attributes (those starting with an underscore)
-            if attr_name.startswith('_'):
+            if attr_name.startswith("_"):
                 continue
 
             # Get the attribute
@@ -287,7 +312,7 @@ class ActionManager:
             if action_paths is None:
                 discover_result = self.discover_actions()
                 if discover_result.success:
-                    action_paths = discover_result.context.get('paths', [])
+                    action_paths = discover_result.context.get("paths", [])
                 else:
                     # Return empty actions info if discovery failed
                     return ActionsInfoModel(dcc_name=self.dcc_name, actions={})
@@ -318,7 +343,7 @@ class ActionManager:
             if action_paths is None:
                 discover_result = self.discover_actions()
                 if discover_result.success:
-                    action_paths = discover_result.context.get('paths', [])
+                    action_paths = discover_result.context.get("paths", [])
                 else:
                     # Return empty actions info if discovery failed
                     return ActionsInfoModel(dcc_name=self.dcc_name, actions={})
@@ -357,12 +382,10 @@ class ActionManager:
             if action_paths is None:
                 discover_result = self.discover_actions()
                 if discover_result.success:
-                    action_paths = discover_result.context.get('paths', [])
+                    action_paths = discover_result.context.get("paths", [])
                 else:
                     # Return empty actions info if discovery failed
                     return ActionsInfoModel(dcc_name=self.dcc_name, actions={})
-
-
 
         async def load_single_action(path):
             # Run the synchronous load_action method in a thread pool executor
@@ -449,17 +472,13 @@ class ActionManager:
                 return ActionResultModel(
                     success=True,
                     message=f"Action '{action_name}' found",
-                    context={
-                        'action_name': action_name,
-                        'module': action_module,
-                        'functions': action_functions
-                    }
+                    context={"action_name": action_name, "module": action_module, "functions": action_functions},
                 )
             else:
                 return ActionResultModel(
                     success=False,
                     message=f"Action '{action_name}' not found",
-                    error=f"Action '{action_name}' is not loaded or does not exist"
+                    error=f"Action '{action_name}' is not loaded or does not exist",
                 )
 
     @method_error_handler
@@ -473,15 +492,11 @@ class ActionManager:
         with self._lock:
             if not self._actions:
                 return ActionResultModel(
-                    success=False,
-                    message="No actions loaded",
-                    error="No actions have been loaded yet"
+                    success=False, message="No actions loaded", error="No actions have been loaded yet"
                 )
 
             return ActionResultModel(
-                success=True,
-                message=f"Found {len(self._actions)} loaded actions",
-                context=self._actions
+                success=True, message=f"Found {len(self._actions)} loaded actions", context=self._actions
             )
 
     @method_error_handler
@@ -520,7 +535,7 @@ class ActionManager:
                 return ActionResultModel(
                     success=False,
                     message=f"Action '{action_name}' not found",
-                    error=f"Action '{action_name}' is not loaded or does not exist"
+                    error=f"Action '{action_name}' is not loaded or does not exist",
                 )
 
             # Get the action module and functions
@@ -530,9 +545,7 @@ class ActionManager:
             # Create and return an ActionModel instance
             action_model = create_action_model(action_name, action_module, action_functions, dcc_name=self.dcc_name)
             return ActionResultModel(
-                success=True,
-                message=f"Action '{action_name}' found",
-                context={'result': action_model}
+                success=True, message=f"Action '{action_name}' found", context={"result": action_model}
             )
 
     @functools.lru_cache(maxsize=128)
@@ -606,15 +619,11 @@ class ActionManager:
             for action_name in self._action_modules.keys():
                 action_model = self.get_action_info_cached(action_name)
                 if action_model and action_model.success:
-                    action_models[action_name] = action_model.context['result']
+                    action_models[action_name] = action_model.context["result"]
 
             # Create an ActionsInfoModel with all action models
             actions_info = create_actions_info_model(self.dcc_name, action_models)
-            return ActionResultModel(
-                success=True,
-                message="Actions info retrieved",
-                context={'result': actions_info}
-            )
+            return ActionResultModel(success=True, message="Actions info retrieved", context={"result": actions_info})
 
     @method_error_handler
     def call_action_function(self, action_name: str, function_name: str, *args, **kwargs) -> ActionResultModel:
@@ -636,9 +645,7 @@ class ActionManager:
                 error_msg = f"Action not found: {action_name}"
                 logger.error(error_msg)
                 return ActionResultModel(
-                    success=False,
-                    message=f"Failed to call {action_name}.{function_name}",
-                    error=error_msg
+                    success=False, message=f"Failed to call {action_name}.{function_name}", error=error_msg
                 )
 
             # Get the action module
@@ -649,9 +656,7 @@ class ActionManager:
                 error_msg = f"Function not found: {function_name} in action {action_name}"
                 logger.error(error_msg)
                 return ActionResultModel(
-                    success=False,
-                    message=f"Failed to call {action_name}.{function_name}",
-                    error=error_msg
+                    success=False, message=f"Failed to call {action_name}.{function_name}", error=error_msg
                 )
 
             # Get the function
@@ -665,20 +670,18 @@ class ActionManager:
                     return ActionResultModel(
                         success=True,
                         message=f"Successfully called {action_name}.{function_name}",
-                        context={'result': result}
+                        context={"result": result},
                     )
                 except Exception as e:
                     logger.error(f"Error calling {action_name}.{function_name}: {e}")
                     return ActionResultModel(
-                        success=False,
-                        message=f"Failed to call {action_name}.{function_name}",
-                        error=str(e)
+                        success=False, message=f"Failed to call {action_name}.{function_name}", error=str(e)
                     )
 
             # Process parameters
             try:
                 # Process and normalize parameters
-                if kwargs and 'kwargs' in kwargs and isinstance(kwargs['kwargs'], str):
+                if kwargs and "kwargs" in kwargs and isinstance(kwargs["kwargs"], str):
                     # Handle special case of string kwargs
                     processed_kwargs = process_parameters(kwargs)
                 else:
@@ -699,7 +702,7 @@ class ActionManager:
                 return ActionResultModel(
                     success=True,
                     message=f"Successfully called {action_name}.{function_name}",
-                    context={"result": result}
+                    context={"result": result},
                 )
 
             except ParameterValidationError as e:
@@ -710,7 +713,7 @@ class ActionManager:
                     success=False,
                     message=f"Failed to call {action_name}.{function_name} due to parameter validation error",
                     error=error_msg,
-                    prompt="Please check the parameters and try again with valid values."
+                    prompt="Please check the parameters and try again with valid values.",
                 )
 
             except Exception as e:
@@ -718,9 +721,7 @@ class ActionManager:
                 error_msg = str(e)
                 logger.error(f"Error calling {action_name}.{function_name}: {error_msg}")
                 return ActionResultModel(
-                    success=False,
-                    message=f"Failed to call {action_name}.{function_name}",
-                    error=error_msg
+                    success=False, message=f"Failed to call {action_name}.{function_name}", error=error_msg
                 )
 
 
@@ -734,7 +735,7 @@ def create_action_manager(
     auto_refresh: bool = True,
     refresh_interval: int = 60,
     dependencies: Optional[Dict[str, Any]] = None,
-    cache_ttl: int = 120
+    cache_ttl: int = 120,
 ) -> ActionManager:
     """Create an action manager for a specific DCC.
 
@@ -767,10 +768,7 @@ def create_action_manager(
 
 
 def get_action_manager(
-    dcc_name: str,
-    auto_refresh: bool = True,
-    refresh_interval: int = 60,
-    dependencies: Optional[Dict[str, Any]] = None
+    dcc_name: str, auto_refresh: bool = True, refresh_interval: int = 60, dependencies: Optional[Dict[str, Any]] = None
 ) -> ActionManager:
     """Get an action manager for a specific DCC.
 
@@ -794,10 +792,7 @@ def get_action_manager(
 
         # Create a new action manager
         return create_action_manager(
-            dcc_name,
-            auto_refresh=auto_refresh,
-            refresh_interval=refresh_interval,
-            dependencies=dependencies
+            dcc_name, auto_refresh=auto_refresh, refresh_interval=refresh_interval, dependencies=dependencies
         )
 
 
@@ -806,7 +801,7 @@ def create_action_template(
     action_name: str,
     description: str,
     functions: List[Dict[str, Any]],
-    author: str = "DCC-MCP-Core User"
+    author: str = "DCC-MCP-Core User",
 ) -> Dict[str, Any]:
     """Create a new action template file for a specific DCC.
 
@@ -832,10 +827,7 @@ def create_action_template(
 
 
 def generate_action_for_ai(
-    dcc_name: str,
-    action_name: str,
-    description: str,
-    functions_description: str
+    dcc_name: str, action_name: str, description: str, functions_description: str
 ) -> Dict[str, Any]:
     """Generate new actions based on natural language descriptions.
 
