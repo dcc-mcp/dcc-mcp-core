@@ -33,10 +33,10 @@ class TestModuleLoader:
         file_path = tmp_path / "test_module.py"
         with open(file_path, "w") as f:
             f.write('"""Test module for testing module_loader."""\n')
-            f.write('\n')
+            f.write("\n")
             f.write('TEST_VARIABLE = "test_value"\n')
-            f.write('\n')
-            f.write('def test_function():\n')
+            f.write("\n")
+            f.write("def test_function():\n")
             f.write('    """Test function."""\n')
             f.write('    return "test_result"\n')
         return file_path
@@ -59,7 +59,9 @@ class TestModuleLoader:
     @patch("importlib.util.spec_from_file_location")
     @patch("importlib.util.module_from_spec")
     @patch("dcc_mcp_core.utils.module_loader.inject_dependencies")
-    def test_load_module_from_path_exec_failure(self, mock_inject, mock_module_from_spec, mock_spec_from_file, mock_module):
+    def test_load_module_from_path_exec_failure(
+        self, mock_inject, mock_module_from_spec, mock_spec_from_file, mock_module
+    ):
         """Test loading a module that fails during execution."""
         # Set up mocks
         mock_spec = MagicMock()
@@ -79,7 +81,9 @@ class TestModuleLoader:
     @patch("importlib.util.spec_from_file_location")
     @patch("importlib.util.module_from_spec")
     @patch("dcc_mcp_core.utils.module_loader.inject_dependencies")
-    def test_load_module_from_path_success(self, mock_inject, mock_module_from_spec, mock_spec_from_file, mock_isfile, mock_module):
+    def test_load_module_from_path_success(
+        self, mock_inject, mock_module_from_spec, mock_spec_from_file, mock_isfile, mock_module
+    ):
         """Test successfully loading a module from a file path."""
         # Set up mocks
         mock_spec = MagicMock()
@@ -94,9 +98,7 @@ class TestModuleLoader:
         assert sys.modules[mock_module.__name__] == mock_module
 
         # Verify dependencies were injected
-        mock_inject.assert_called_once_with(
-            mock_module, None, inject_core_modules=True, dcc_name=None
-        )
+        mock_inject.assert_called_once_with(mock_module, None, inject_core_modules=True, dcc_name=None)
 
         # Verify the module was executed
         mock_spec.loader.exec_module.assert_called_once_with(mock_module)
@@ -105,7 +107,9 @@ class TestModuleLoader:
     @patch("importlib.util.spec_from_file_location")
     @patch("importlib.util.module_from_spec")
     @patch("dcc_mcp_core.utils.module_loader.inject_dependencies")
-    def test_load_module_from_path_with_custom_name(self, mock_inject, mock_module_from_spec, mock_spec_from_file, mock_isfile, mock_module):
+    def test_load_module_from_path_with_custom_name(
+        self, mock_inject, mock_module_from_spec, mock_spec_from_file, mock_isfile, mock_module
+    ):
         """Test loading a module with a custom module name."""
         # Set up mocks
         mock_spec = MagicMock()
@@ -123,7 +127,9 @@ class TestModuleLoader:
     @patch("importlib.util.spec_from_file_location")
     @patch("importlib.util.module_from_spec")
     @patch("dcc_mcp_core.utils.module_loader.inject_dependencies")
-    def test_load_module_from_path_with_dependencies(self, mock_inject, mock_module_from_spec, mock_spec_from_file, mock_isfile, mock_module):
+    def test_load_module_from_path_with_dependencies(
+        self, mock_inject, mock_module_from_spec, mock_spec_from_file, mock_isfile, mock_module
+    ):
         """Test loading a module with dependencies."""
         # Set up mocks
         mock_spec = MagicMock()
@@ -137,15 +143,15 @@ class TestModuleLoader:
         load_module_from_path("/path/to/test_module.py", dependencies=dependencies)
 
         # Verify dependencies were injected
-        mock_inject.assert_called_once_with(
-            mock_module, dependencies, inject_core_modules=True, dcc_name=None
-        )
+        mock_inject.assert_called_once_with(mock_module, dependencies, inject_core_modules=True, dcc_name=None)
 
     @patch("os.path.isfile", return_value=True)
     @patch("importlib.util.spec_from_file_location")
     @patch("importlib.util.module_from_spec")
     @patch("dcc_mcp_core.utils.module_loader.inject_dependencies")
-    def test_load_module_from_path_with_dcc_name(self, mock_inject, mock_module_from_spec, mock_spec_from_file, mock_isfile, mock_module):
+    def test_load_module_from_path_with_dcc_name(
+        self, mock_inject, mock_module_from_spec, mock_spec_from_file, mock_isfile, mock_module
+    ):
         """Test loading a module with a DCC name."""
         # Set up mocks
         mock_spec = MagicMock()
@@ -156,9 +162,7 @@ class TestModuleLoader:
         load_module_from_path("/path/to/test_module.py", dcc_name="maya")
 
         # Verify DCC name was passed to inject_dependencies
-        mock_inject.assert_called_once_with(
-            mock_module, None, inject_core_modules=True, dcc_name="maya"
-        )
+        mock_inject.assert_called_once_with(mock_module, None, inject_core_modules=True, dcc_name="maya")
 
     def test_load_module_from_path_integration(self, temp_python_file):
         """Integration test for loading a real module from a file path."""

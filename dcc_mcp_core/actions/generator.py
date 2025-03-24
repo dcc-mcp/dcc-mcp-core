@@ -3,6 +3,7 @@
 This module provides functionality for generating action templates and new actions
 based on user requirements and natural language descriptions.
 """
+
 # Import built-in modules
 from datetime import datetime
 import logging
@@ -20,8 +21,13 @@ from dcc_mcp_core.utils.template import render_template
 logger = logging.getLogger(__name__)
 
 
-def create_action_template(dcc_name: str, action_name: str, description: str,
-                          functions: List[Dict[str, Any]], author: str = "DCC-MCP-Core User") -> ActionResultModel:
+def create_action_template(
+    dcc_name: str,
+    action_name: str,
+    description: str,
+    functions: List[Dict[str, Any]],
+    author: str = "DCC-MCP-Core User",
+) -> ActionResultModel:
     """Create a new action template file.
 
     Args:
@@ -50,32 +56,31 @@ def create_action_template(dcc_name: str, action_name: str, description: str,
             return ActionResultModel(
                 success=False,
                 message=f"Action file already exists: {action_file_path}",
-                context={"file_path": action_file_path}
+                context={"file_path": action_file_path},
             )
 
         # Generate the action file content
         content = _generate_action_content(action_name, description, functions, author, dcc_name)
 
         # Write the content to the file
-        with open(action_file_path, 'w') as f:
+        with open(action_file_path, "w") as f:
             f.write(content)
 
         return ActionResultModel(
-            success=True,
-            message=f"Created action file: {action_file_path}",
-            context={"file_path": action_file_path}
+            success=True, message=f"Created action file: {action_file_path}", context={"file_path": action_file_path}
         )
     except Exception as e:
         logger.error(f"Failed to create action template: {e}")
         return ActionResultModel(
             success=False,
             message=f"Failed to create action file: {e!s}",
-            context={"file_path": action_file_path if 'action_file_path' in locals() else None, "error": str(e)}
+            context={"file_path": action_file_path if "action_file_path" in locals() else None, "error": str(e)},
         )
 
 
-def _generate_action_content(action_name: str, description: str, functions: List[Dict[str, Any]],
-                         author: str, dcc_name: str) -> str:
+def _generate_action_content(
+    action_name: str, description: str, functions: List[Dict[str, Any]], author: str, dcc_name: str
+) -> str:
     """Generate the content for an action file.
 
     Args:
@@ -91,20 +96,21 @@ def _generate_action_content(action_name: str, description: str, functions: List
     """
     # Create the context data for the template
     context_data = {
-        'action_name': action_name,
-        'description': description,
-        'functions': functions,
-        'author': author,
-        'dcc_name': dcc_name,
-        'date': datetime.now().strftime('%Y-%m-%d')
+        "action_name": action_name,
+        "description": description,
+        "functions": functions,
+        "author": author,
+        "dcc_name": dcc_name,
+        "date": datetime.now().strftime("%Y-%m-%d"),
     }
 
     # Render the template with the context data
-    return render_template('action.template', context_data)
+    return render_template("action.template", context_data)
 
 
-def generate_action_for_ai(dcc_name: str, action_name: str, description: str,
-                          functions_description: str) -> ActionResultModel:
+def generate_action_for_ai(
+    dcc_name: str, action_name: str, description: str, functions_description: str
+) -> ActionResultModel:
     """Generate an action template from a natural language description of functions.
 
     Args:
@@ -133,8 +139,8 @@ def generate_action_for_ai(dcc_name: str, action_name: str, description: str,
                 context={
                     "file_path": result.context.get("file_path"),
                     "action_name": action_name,
-                    "functions": functions
-                }
+                    "functions": functions,
+                },
             )
         else:
             error_message = result.message
@@ -142,17 +148,11 @@ def generate_action_for_ai(dcc_name: str, action_name: str, description: str,
                 success=False,
                 message=f"Failed to create action template for {action_name}",
                 error=error_message,
-                context={
-                    "file_path": result.context.get("file_path"),
-                    "error": result.context.get("error")
-                }
+                context={"file_path": result.context.get("file_path"), "error": result.context.get("error")},
             )
     except Exception as e:
         return ActionResultModel(
-            success=False,
-            message=f"Error generating action template: {e!s}",
-            error=str(e),
-            context={"error": str(e)}
+            success=False, message=f"Error generating action template: {e!s}", error=str(e), context={"error": str(e)}
         )
 
 
@@ -171,10 +171,10 @@ def _parse_functions_description(functions_description: str) -> List[Dict[str, A
     functions = []
 
     # Split by function indicators
-    function_blocks = re.split(r'\n\s*Function\s*\d*\s*:', functions_description)
+    function_blocks = re.split(r"\n\s*Function\s*\d*\s*:", functions_description)
     if len(function_blocks) <= 1:
         # Try alternative splitting patterns
-        function_blocks = re.split(r'\n\s*\d+\.\s*', functions_description)
+        function_blocks = re.split(r"\n\s*\d+\.\s*", functions_description)
 
     # Process each function block
     for block in function_blocks:
@@ -182,23 +182,25 @@ def _parse_functions_description(functions_description: str) -> List[Dict[str, A
             continue
 
         # Extract function name
-        name_match = re.search(r'([a-zA-Z][a-zA-Z0-9_]*)', block)
+        name_match = re.search(r"([a-zA-Z][a-zA-Z0-9_]*)", block)
         if not name_match:
             continue
 
         function_name = name_match.group(1)
 
         # Extract function description - get the full description from the block
-        lines = [line.strip() for line in block.split('\n') if line.strip()]
+        lines = [line.strip() for line in block.split("\n") if line.strip()]
         description = ""
 
         # Find the first line after the function name that looks like a description
         for line in lines:
             # Check if line is not a function name or parameter line
-            if (function_name not in line and
-                not line.startswith('Parameter:') and
-                not line.startswith('param:') and
-                not line.startswith('arg:')):
+            if (
+                function_name not in line
+                and not line.startswith("Parameter:")
+                and not line.startswith("param:")
+                and not line.startswith("arg:")
+            ):
                 description = line
                 break
 
@@ -210,14 +212,14 @@ def _parse_functions_description(functions_description: str) -> List[Dict[str, A
             "name": function_name,
             "description": description,
             "parameters": [],
-            "return_description": "Returns an ActionResultModel with success status, message, and context data."
+            "return_description": "Returns an ActionResultModel with success status, message, and context data.",
         }
 
         # Try to extract parameters - improved pattern to catch more parameter formats
         param_matches = re.findall(
-            r'(?:parameter|param|arg|Parameter)\s*:?\s*([a-zA-Z][a-zA-Z0-9_]*)\s*(?:\(([^\)]*)\))?\s*-?\s*(.*)?',
+            r"(?:parameter|param|arg|Parameter)\s*:?\s*([a-zA-Z][a-zA-Z0-9_]*)\s*(?:\(([^\)]*)\))?\s*-?\s*(.*)?",
             block,
-            re.IGNORECASE
+            re.IGNORECASE,
         )
 
         for param_match in param_matches:
@@ -228,27 +230,27 @@ def _parse_functions_description(functions_description: str) -> List[Dict[str, A
             # Try to determine parameter type
             if len(param_match) > 1 and param_match[1]:
                 type_desc = param_match[1].lower()
-                if 'int' in type_desc or 'number' in type_desc:
+                if "int" in type_desc or "number" in type_desc:
                     param_type = "int"
                     if not param_desc:
                         param_desc = "Integer parameter"
-                elif 'float' in type_desc or 'decimal' in type_desc:
+                elif "float" in type_desc or "decimal" in type_desc:
                     param_type = "float"
                     if not param_desc:
                         param_desc = "Float parameter"
-                elif 'bool' in type_desc:
+                elif "bool" in type_desc:
                     param_type = "bool"
                     if not param_desc:
                         param_desc = "Boolean parameter"
-                elif 'str' in type_desc or 'string' in type_desc or 'text' in type_desc:
+                elif "str" in type_desc or "string" in type_desc or "text" in type_desc:
                     param_type = "str"
                     if not param_desc:
                         param_desc = "String parameter"
-                elif 'list' in type_desc or 'array' in type_desc:
+                elif "list" in type_desc or "array" in type_desc:
                     param_type = "List[Any]"
                     if not param_desc:
                         param_desc = "List parameter"
-                elif 'dict' in type_desc or 'map' in type_desc:
+                elif "dict" in type_desc or "map" in type_desc:
                     param_type = "Dict[str, Any]"
                     if not param_desc:
                         param_desc = "Dictionary parameter"
@@ -256,22 +258,21 @@ def _parse_functions_description(functions_description: str) -> List[Dict[str, A
                     if not param_desc:
                         param_desc = type_desc.capitalize()
 
-            function_def["parameters"].append({
-                "name": param_name,
-                "type": param_type,
-                "description": param_desc,
-                "default": None
-            })
+            function_def["parameters"].append(
+                {"name": param_name, "type": param_type, "description": param_desc, "default": None}
+            )
 
         functions.append(function_def)
 
     # If no functions were parsed, create a default one
     if not functions:
-        functions.append({
-            "name": "execute_action",
-            "description": "Execute the main action functionality.",
-            "parameters": [],
-            "return_description": "Returns an ActionResultModel with success status, message, and context data."
-        })
+        functions.append(
+            {
+                "name": "execute_action",
+                "description": "Execute the main action functionality.",
+                "parameters": [],
+                "return_description": "Returns an ActionResultModel with success status, message, and context data.",
+            }
+        )
 
     return functions

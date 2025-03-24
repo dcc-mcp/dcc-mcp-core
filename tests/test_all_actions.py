@@ -67,10 +67,10 @@ def mock_action_manager():
 
     """
     # Create a mock action manager
-    manager = ActionManager('test')
+    manager = ActionManager("test")
 
     # Patch os.path.isfile to return True for any path
-    with patch('os.path.isfile', return_value=True):
+    with patch("os.path.isfile", return_value=True):
         yield manager
 
 
@@ -102,20 +102,20 @@ def test_action_loading(action_info, mock_action_manager):
         # Verify action info is an ActionResultModel and contains an ActionModel in context['result']
         assert isinstance(action_info, ActionResultModel)
         assert action_info.success
-        assert 'result' in action_info.context
+        assert "result" in action_info.context
 
         # Get the actual ActionModel from the result
-        action_model = action_info.context['result']
+        action_model = action_info.context["result"]
         assert isinstance(action_model, ActionModel)
 
         # Verify basic metadata
         assert action_model.name == action_name
-        assert hasattr(action_model, 'version')
-        assert hasattr(action_model, 'description')
-        assert hasattr(action_model, 'author')
+        assert hasattr(action_model, "version")
+        assert hasattr(action_model, "description")
+        assert hasattr(action_model, "author")
 
         # Verify functions
-        assert hasattr(action_model, 'functions')
+        assert hasattr(action_model, "functions")
         assert len(action_model.functions) > 0, f"Action {action_name} has no functions"
 
         # Test specific features based on action name

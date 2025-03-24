@@ -27,7 +27,7 @@ def test_process_parameters():
     assert result == {"name": "John", "age": 30, "is_active": True}
 
     # Test with key=value string parameters
-    params_str = 'name=John age=30 is_active=True'
+    params_str = "name=John age=30 is_active=True"
     result = process_parameters(params_str)
     assert result == {"name": "John", "age": 30, "is_active": True}
 
@@ -68,7 +68,7 @@ def test_parse_json():
     assert result == {"name": "John", "age": 30, "is_active": True}
 
     # Test with invalid JSON
-    kwargs_str = '{name: John}'
+    kwargs_str = "{name: John}"
     with pytest.raises(json.JSONDecodeError):
         parse_json(kwargs_str)
 

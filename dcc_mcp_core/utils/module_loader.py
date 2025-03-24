@@ -22,7 +22,7 @@ def load_module_from_path(
     file_path: str,
     module_name: Optional[str] = None,
     dependencies: Optional[Dict[str, Any]] = None,
-    dcc_name: Optional[str] = None
+    dcc_name: Optional[str] = None,
 ) -> ModuleType:
     """Load Python module from file path and inject dependencies.
 

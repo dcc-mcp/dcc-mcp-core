@@ -24,8 +24,9 @@ def _get_module_name_from_path(file_path: str) -> str:
     """Generate a module name from a file path."""
     # Import built-in modules
     import os
+
     module_name = os.path.basename(file_path)
-    if module_name.endswith('.py'):
+    if module_name.endswith(".py"):
         module_name = module_name[:-3]
     return module_name
 
@@ -75,6 +76,7 @@ def _get_all_submodules(module: ModuleType, visited: Optional[Set[str]] = None) 
         # If __file__ attribute exists, use filename (without extension) as module name
         # Import built-in modules
         import os
+
         module_name = os.path.splitext(os.path.basename(module.__file__))[0]
     else:
         # If no available identifier, use module object id as unique identifier
@@ -89,22 +91,22 @@ def _get_all_submodules(module: ModuleType, visited: Optional[Set[str]] = None) 
     # Get all attributes of the module
     for attr_name, attr_value in inspect.getmembers(module):
         # Skip private and special attributes
-        if attr_name.startswith('_'):
+        if attr_name.startswith("_"):
             continue
 
         # If it's a module, add it to the result
         if inspect.ismodule(attr_value):
             # Make sure it's a submodule
-            if hasattr(attr_value, '__name__') and attr_value.__name__.startswith(module_name + '.'):
-                submodule_name = attr_value.__name__.split('.')[-1]
+            if hasattr(attr_value, "__name__") and attr_value.__name__.startswith(module_name + "."):
+                submodule_name = attr_value.__name__.split(".")[-1]
                 result[submodule_name] = attr_value
 
     return result
 
 
-def inject_dependencies(module: ModuleType, dependencies: Dict[str, Any],
-                     inject_core_modules: bool = False,
-                     dcc_name: Optional[str] = None) -> None:
+def inject_dependencies(
+    module: ModuleType, dependencies: Dict[str, Any], inject_core_modules: bool = False, dcc_name: Optional[str] = None
+) -> None:
     """Inject dependencies into a module.
 
     This function injects dependencies into a module, making them available as attributes.
@@ -138,9 +140,7 @@ def inject_dependencies(module: ModuleType, dependencies: Dict[str, Any],
                 setattr(module, "dcc_mcp_core", dcc_mcp_core)
 
                 # Inject common submodules
-                core_submodules = [
-                    "decorators", "actions", "models", "utils", "parameters"
-                ]
+                core_submodules = ["decorators", "actions", "models", "utils", "parameters"]
 
                 # Inject all submodules
                 for submodule_name in core_submodules:
@@ -167,8 +167,9 @@ def inject_dependencies(module: ModuleType, dependencies: Dict[str, Any],
             pass
 
 
-def inject_submodules(module: ModuleType, parent_module_name: str,
-                     submodule_names: List[str], recursive: bool = False) -> None:
+def inject_submodules(
+    module: ModuleType, parent_module_name: str, submodule_names: List[str], recursive: bool = False
+) -> None:
     """Inject specified submodules into a module.
 
     Args:

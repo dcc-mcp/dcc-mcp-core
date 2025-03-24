@@ -34,18 +34,9 @@ def create_cube(size: float = 1.0, context: Optional[Dict[str, Any]] = None) -> 
         return {"error": "Context is required for Maya operations"}
 
     # Simulate Maya cube creation
-    cube_info = {
-        "type": "cube",
-        "size": size,
-        "transform": "cube1",
-        "shape": "cubeShape1"
-    }
+    cube_info = {"type": "cube", "size": size, "transform": "cube1", "shape": "cubeShape1"}
 
-    return {
-        "status": "success",
-        "message": f"Created cube with size {size}",
-        "data": cube_info
-    }
+    return {"status": "success", "message": f"Created cube with size {size}", "data": cube_info}
 
 
 def list_objects(type_filter: Optional[str] = None, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -68,15 +59,11 @@ def list_objects(type_filter: Optional[str] = None, context: Optional[Dict[str, 
         {"name": "top", "type": "camera"},
         {"name": "front", "type": "camera"},
         {"name": "side", "type": "camera"},
-        {"name": "cube1", "type": "transform"}
+        {"name": "cube1", "type": "transform"},
     ]
 
     # Apply type filter if specified
     if type_filter:
         objects = [obj for obj in objects if obj["type"] == type_filter]
 
-    return {
-        "status": "success",
-        "count": len(objects),
-        "objects": objects
-    }
+    return {"status": "success", "count": len(objects), "objects": objects}

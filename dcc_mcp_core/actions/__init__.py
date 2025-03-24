@@ -12,9 +12,9 @@ from dcc_mcp_core.actions.manager import get_action_manager
 from dcc_mcp_core.actions.metadata import extract_action_metadata
 
 __all__ = [
-    'ActionManager',
-    'create_action_manager',
-    'extract_action_metadata',
-    'generate_action_for_ai',
-    'get_action_manager',
+    "ActionManager",
+    "create_action_manager",
+    "extract_action_metadata",
+    "generate_action_for_ai",
+    "get_action_manager",
 ]

@@ -14,6 +14,7 @@ __action_description__ = "Print information about the current DCC application"
 __action_author__ = "DCC-MCP-Core Team"
 __action_requires__ = ["python"]
 
+
 def print_info(context: Dict[str, Any]) -> Dict[str, Any]:
     """Print information about the current DCC application.
 

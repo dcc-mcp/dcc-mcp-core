@@ -34,6 +34,7 @@ _configured_loggers: Dict[str, Any] = {}
 try:
     # Import third-party modules
     from loguru import logger as loguru_logger
+
     LOGURU_AVAILABLE = True
 except ImportError:
     LOGURU_AVAILABLE = False
@@ -50,8 +51,7 @@ LOGURU_FORMAT = (
 )
 
 
-def get_logger(name: str, dcc_type: Optional[str] = None,
-              use_loguru: bool = False) -> Union[logging.Logger, Any]:
+def get_logger(name: str, dcc_type: Optional[str] = None, use_loguru: bool = False) -> Union[logging.Logger, Any]:
     """Get a configured logger.
 
     This is the main entry point for getting a logger. It will return either a standard
@@ -132,7 +132,7 @@ def setup_standard_logger(name: str, dcc_type: Optional[str] = None) -> logging.
             "log_file": str(log_file),
             "dcc_type": dcc_type,
             "handlers": [console_handler, file_handler],
-            "type": "standard"
+            "type": "standard",
         }
 
         # Log startup information
@@ -199,7 +199,7 @@ def setup_loguru_logger(name: str, dcc_type: Optional[str] = None) -> Any:
         "log_file": str(log_file),
         "dcc_type": dcc_type,
         "handlers": [console_id, file_id],
-        "type": "loguru"
+        "type": "loguru",
     }
 
     # Log startup information
@@ -210,8 +210,7 @@ def setup_loguru_logger(name: str, dcc_type: Optional[str] = None) -> Any:
     return logger
 
 
-def integrate_with_dcc_logger(dcc_logger: Any, name: str,
-                            dcc_type: str) -> Union[logging.Logger, Any]:
+def integrate_with_dcc_logger(dcc_logger: Any, name: str, dcc_type: str) -> Union[logging.Logger, Any]:
     """Provide a basic interface for integrating with DCC loggers.
 
     This function provides a minimal interface for integrating with DCC logging systems.
@@ -246,6 +245,7 @@ def integrate_with_dcc_logger(dcc_logger: Any, name: str,
 
         # Also forward DCC logs to our logger if using loguru
         if logger_info and logger_info["type"] == "loguru":
+
             class LoguruHandler(logging.Handler):
                 def emit(self, record):
                     # Get corresponding level
@@ -255,9 +255,7 @@ def integrate_with_dcc_logger(dcc_logger: Any, name: str,
                         level = record.levelno
 
                     # Forward to loguru
-                    loguru_logger.opt(depth=0, exception=record.exc_info).log(
-                        level, record.getMessage()
-                    )
+                    loguru_logger.opt(depth=0, exception=record.exc_info).log(level, record.getMessage())
 
             # Add our handler to DCC's logger
             dcc_logger.addHandler(LoguruHandler())

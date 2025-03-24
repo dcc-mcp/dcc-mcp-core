@@ -47,10 +47,7 @@ def test_format_result_with_action_result_model():
     """Test formatting an existing ActionResultModel."""
     # Create an ActionResultModel
     original = ActionResultModel(
-        success=True,
-        message="Original message",
-        prompt="Original prompt",
-        context={"original": "data"}
+        success=True, message="Original message", prompt="Original prompt", context={"original": "data"}
     )
 
     # Format the result
@@ -67,13 +64,7 @@ def test_format_result_with_action_result_model():
 def test_format_result_with_other_types():
     """Test formatting non-ActionResultModel results."""
     # Test with different result types
-    test_cases = [
-        ("string result", str),
-        (123, int),
-        ({"key": "value"}, dict),
-        ([1, 2, 3], list),
-        (None, type(None))
-    ]
+    test_cases = [("string result", str), (123, int), ({"key": "value"}, dict), ([1, 2, 3], list), (None, type(None))]
 
     for result_value, result_type in test_cases:
         # Format the result
@@ -91,6 +82,7 @@ def test_format_result_with_other_types():
 
 def test_error_handler_success():
     """Test error_handler decorator with successful function execution."""
+
     # Define a test function
     @error_handler
     def test_function(x, y):
@@ -108,14 +100,12 @@ def test_error_handler_success():
 
 def test_error_handler_with_action_result_model():
     """Test error_handler with a function that returns ActionResultModel."""
+
     # Define a test function that returns ActionResultModel
     @error_handler
     def test_function():
         return ActionResultModel(
-            success=True,
-            message="Custom message",
-            prompt="Custom prompt",
-            context={"custom": "data"}
+            success=True, message="Custom message", prompt="Custom prompt", context={"custom": "data"}
         )
 
     # Call the function
@@ -131,6 +121,7 @@ def test_error_handler_with_action_result_model():
 
 def test_error_handler_exception():
     """Test error_handler decorator with function that raises an exception."""
+
     # Define a test function that raises an exception
     @error_handler
     def test_function():
@@ -151,6 +142,7 @@ def test_error_handler_exception():
 
 def test_method_error_handler_success():
     """Test method_error_handler decorator with successful method execution."""
+
     # Define a test class with a decorated method
     class TestClass:
         @method_error_handler
@@ -170,6 +162,7 @@ def test_method_error_handler_success():
 
 def test_method_error_handler_exception():
     """Test method_error_handler decorator with method that raises an exception."""
+
     # Define a test class with a decorated method that raises an exception
     class TestClass:
         @method_error_handler
@@ -192,6 +185,7 @@ def test_method_error_handler_exception():
 
 def test_with_context_decorator_explicit_context():
     """Test with_context decorator when context is explicitly provided."""
+
     # Define a test function with context parameter
     @with_context()
     def test_function(x, y, context):
@@ -208,6 +202,7 @@ def test_with_context_decorator_explicit_context():
 
 def test_with_context_decorator_default_context():
     """Test with_context decorator when context is not provided."""
+
     # Define a test function with context parameter
     @with_context()
     def test_function(x, y, context):
@@ -223,6 +218,7 @@ def test_with_context_decorator_default_context():
 
 def test_with_context_decorator_positional_args():
     """Test with_context decorator with positional arguments."""
+
     # Define a test function with context parameter
     @with_context()
     def test_function(x, y, context):
@@ -239,6 +235,7 @@ def test_with_context_decorator_positional_args():
 
 def test_with_context_decorator_custom_param_name():
     """Test with_context decorator with custom parameter name."""
+
     # Define a test function with custom context parameter name
     @with_context(context_param="ctx")
     def test_function(x, y, ctx):
@@ -262,6 +259,7 @@ def test_with_context_decorator_custom_param_name():
 
 def test_with_context_decorator_no_context_param():
     """Test with_context decorator with function that has no context parameter."""
+
     # Define a test function without context parameter
     @with_context()
     def test_function(x, y):
@@ -277,6 +275,7 @@ def test_with_context_decorator_no_context_param():
 # Integration tests
 def test_integration_error_handler_with_context():
     """Test integration of error_handler and with_context decorators."""
+
     # Define a test function with both decorators
     @error_handler
     @with_context()
@@ -304,6 +303,7 @@ def test_integration_error_handler_with_context():
 
 def test_integration_method_error_handler_with_context():
     """Test integration of method_error_handler and with_context decorators."""
+
     # Define a test class with a decorated method
     class TestClass:
         @method_error_handler

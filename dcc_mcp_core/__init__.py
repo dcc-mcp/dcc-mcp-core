@@ -38,5 +38,5 @@ __all__ = [
     "process_parameters",
     "setup_dcc_logging",
     "setup_logging",
-    "setup_rpyc_logging"
+    "setup_rpyc_logging",
 ]

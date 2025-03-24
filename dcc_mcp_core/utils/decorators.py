@@ -16,7 +16,7 @@ from typing import cast
 # Import local modules
 from dcc_mcp_core.models import ActionResultModel
 
-F = TypeVar('F', bound=Callable[..., Any])
+F = TypeVar("F", bound=Callable[..., Any])
 
 
 def format_exception(e: Exception, function_name: str, args: tuple, kwargs: dict) -> ActionResultModel:
@@ -46,8 +46,8 @@ def format_exception(e: Exception, function_name: str, args: tuple, kwargs: dict
             "error_type": type(e).__name__,
             "error_details": error_traceback,
             "function_args": args,
-            "function_kwargs": kwargs
-        }
+            "function_kwargs": kwargs,
+        },
     )
 
 
@@ -72,11 +72,7 @@ def format_result(result: Any, source: str) -> ActionResultModel:
         return result
 
     # Otherwise, wrap it in an ActionResultModel
-    return ActionResultModel(
-        success=True,
-        message=f"{source} completed successfully",
-        context={"result": result}
-    )
+    return ActionResultModel(success=True, message=f"{source} completed successfully", context={"result": result})
 
 
 def error_handler(func: F) -> F:
@@ -93,6 +89,7 @@ def error_handler(func: F) -> F:
         Decorated function that returns an ActionResultModel
 
     """
+
     @functools.wraps(func)
     def wrapper(*args: Any, **kwargs: Any) -> ActionResultModel:
         try:
@@ -130,6 +127,7 @@ def method_error_handler(method: F) -> F:
         Decorated method that returns ActionResultModel
 
     """
+
     @functools.wraps(method)
     def wrapper(self, *args, **kwargs) -> ActionResultModel:
         try:
@@ -153,6 +151,7 @@ def with_context(context_param: str = "context"):
         Decorator function
 
     """
+
     def decorator(func: F) -> F:
         sig = inspect.signature(func)
         has_context_param = context_param in sig.parameters

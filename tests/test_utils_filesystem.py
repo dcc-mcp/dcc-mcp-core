@@ -105,8 +105,12 @@ class TestPathRegistration:
 
         result_paths = get_action_paths("maya")
         assert len(result_paths) >= 2, f"Expected at least 2 paths, got {len(result_paths)}"
-        assert any(p.endswith("actions1") for p in result_paths), f"Path ending with 'actions1' not found in {result_paths}"
-        assert any(p.endswith("actions2") for p in result_paths), f"Path ending with 'actions2' not found in {result_paths}"
+        assert any(p.endswith("actions1") for p in result_paths), (
+            f"Path ending with 'actions1' not found in {result_paths}"
+        )
+        assert any(p.endswith("actions2") for p in result_paths), (
+            f"Path ending with 'actions2' not found in {result_paths}"
+        )
         assert mock_save.call_count == 2
 
     def test_get_action_paths_with_dcc(self, reset_config):
@@ -131,7 +135,9 @@ class TestPathRegistration:
         assert "maya" in all_paths
         assert "houdini" in all_paths
         assert any(p.endswith("actions") for p in all_paths["maya"]), f"Expected path not found in {all_paths['maya']}"
-        assert any(p.endswith("actions") for p in all_paths["houdini"]), f"Expected path not found in {all_paths['houdini']}"
+        assert any(p.endswith("actions") for p in all_paths["houdini"]), (
+            f"Expected path not found in {all_paths['houdini']}"
+        )
 
     @patch("dcc_mcp_core.utils.filesystem.save_actions_paths_config")
     def test_set_default_action_paths(self, mock_save, reset_config):
@@ -144,6 +150,7 @@ class TestPathRegistration:
         # Import _config directly here to check internal state
         # Import local modules
         from dcc_mcp_core.utils.filesystem import _config
+
         assert "maya" in _config.default_actions_paths
         assert len(_config.default_actions_paths["maya"]) == 2
         mock_save.assert_called_once()
@@ -178,14 +185,15 @@ class TestConfigIO:
         config_path = "/path/to/config.json"
 
         # Use multiple patches to isolate function behavior
-        with patch("builtins.open", new_callable=mock_open) as mock_open_file, \
-             patch("pathlib.Path.mkdir") as mock_mkdir, \
-             patch("json.dump") as mock_json_dump, \
-             patch("dcc_mcp_core.utils.filesystem._load_config_if_needed"):  # Prevent loading configuration
-
+        with patch("builtins.open", new_callable=mock_open) as mock_open_file, patch(
+            "pathlib.Path.mkdir"
+        ) as mock_mkdir, patch("json.dump") as mock_json_dump, patch(
+            "dcc_mcp_core.utils.filesystem._load_config_if_needed"
+        ):  # Prevent loading configuration
             # Call the function to be tested
             # Import local modules
             from dcc_mcp_core.utils.filesystem import save_actions_paths_config
+
             result = save_actions_paths_config(config_path)
 
             # Verify results
@@ -200,15 +208,24 @@ class TestConfigIO:
             # Using pathlib.Path to handle path separators
             # Import built-in modules
             from pathlib import Path
-            assert Path(str(call_args[0])) == Path(config_path), f"Expected path to be equivalent to '{config_path}', got '{call_args[0]}'"
+
+            assert Path(str(call_args[0])) == Path(config_path), (
+                f"Expected path to be equivalent to '{config_path}', got '{call_args[0]}'"
+            )
             assert call_args[1] == "w", f"Expected mode to be 'w', got '{call_args[1]}'"
 
             mock_json_dump.assert_called_once()
 
-    @patch("builtins.open", new_callable=mock_open, read_data=json.dumps({
-        "dcc_actions_paths": {"maya": ["/path/to/maya/actions"]},
-        "default_actions_paths": {"maya": ["/path/to/maya/default"]}
-    }))
+    @patch(
+        "builtins.open",
+        new_callable=mock_open,
+        read_data=json.dumps(
+            {
+                "dcc_actions_paths": {"maya": ["/path/to/maya/actions"]},
+                "default_actions_paths": {"maya": ["/path/to/maya/default"]},
+            }
+        ),
+    )
     @patch("pathlib.Path.exists", return_value=True)
     def test_load_actions_paths_config(self, mock_exists, mock_file, reset_config):
         """Test loading action paths configuration."""
@@ -225,7 +242,10 @@ class TestConfigIO:
         # Using pathlib.Path to compare paths, ignoring path separator differences
         # Import built-in modules
         from pathlib import Path
-        assert Path(str(call_args[0])) == Path(config_path), f"Expected path to be equivalent to '{config_path}', got '{call_args[0]}'"
+
+        assert Path(str(call_args[0])) == Path(config_path), (
+            f"Expected path to be equivalent to '{config_path}', got '{call_args[0]}'"
+        )
 
         # Check if the configuration has been updated
         paths = get_action_paths("maya")
@@ -242,10 +262,13 @@ class TestConfigIO:
 class TestEnvironmentVariables:
     """Tests for environment variable handling."""
 
-    @patch.dict(os.environ, {
-        f"{ENV_ACTION_PATH_PREFIX}maya": "/path/to/maya/env",
-        f"{ENV_ACTION_PATH_PREFIX}houdini": "/path/to/houdini/env"
-    })
+    @patch.dict(
+        os.environ,
+        {
+            f"{ENV_ACTION_PATH_PREFIX}maya": "/path/to/maya/env",
+            f"{ENV_ACTION_PATH_PREFIX}houdini": "/path/to/houdini/env",
+        },
+    )
     def test_get_actions_paths_from_env_all(self):
         """Test getting action paths from environment variables for all DCCs."""
         paths = get_actions_paths_from_env()
@@ -253,20 +276,29 @@ class TestEnvironmentVariables:
         assert "maya" in paths
         assert "houdini" in paths
         # Using os.path.normpath or os.sep to handle different path separators
-        assert any(os.path.basename(p) == "env" and "maya" in p for p in paths["maya"]), f"Expected path not found in {paths['maya']}"
-        assert any(os.path.basename(p) == "env" and "houdini" in p for p in paths["houdini"]), f"Expected path not found in {paths['houdini']}"
+        assert any(os.path.basename(p) == "env" and "maya" in p for p in paths["maya"]), (
+            f"Expected path not found in {paths['maya']}"
+        )
+        assert any(os.path.basename(p) == "env" and "houdini" in p for p in paths["houdini"]), (
+            f"Expected path not found in {paths['houdini']}"
+        )
 
-    @patch.dict(os.environ, {
-        f"{ENV_ACTION_PATH_PREFIX}maya": "/path/to/maya/env",
-        f"{ENV_ACTION_PATH_PREFIX}houdini": "/path/to/houdini/env"
-    })
+    @patch.dict(
+        os.environ,
+        {
+            f"{ENV_ACTION_PATH_PREFIX}maya": "/path/to/maya/env",
+            f"{ENV_ACTION_PATH_PREFIX}houdini": "/path/to/houdini/env",
+        },
+    )
     def test_get_actions_paths_from_env_specific(self):
         """Test getting action paths from environment variables for a specific DCC."""
         paths = get_actions_paths_from_env("maya")
 
         assert "maya" in paths
         # Using os.path.basename and partial path matching for cross-platform compatibility
-        assert any(os.path.basename(p) == "env" and "maya" in p for p in paths["maya"]), f"Expected path not found in {paths['maya']}"
+        assert any(os.path.basename(p) == "env" and "maya" in p for p in paths["maya"]), (
+            f"Expected path not found in {paths['maya']}"
+        )
         assert "houdini" not in paths
 
     @patch.dict(os.environ, {ENV_ACTIONS_DIR: "/path/to/actions"})
@@ -299,7 +331,9 @@ class TestDiscovery:
         paths, extension = args
 
         # Check if the paths list contains a path that includes "path/to/maya/actions" or "path\to\maya\actions"
-        assert any("path/to/maya/actions" in p or "path\\to\\maya\\actions" in p for p in paths), f"Expected path not found in {paths}"
+        assert any("path/to/maya/actions" in p or "path\\to\\maya\\actions" in p for p in paths), (
+            f"Expected path not found in {paths}"
+        )
         assert extension == ".py"
 
     @patch("dcc_mcp_core.utils.filesystem._discover_actions_in_paths")
@@ -341,7 +375,7 @@ class TestDiscovery:
         mock_glob.return_value = [
             Path("/path/to/actions/action1.py"),
             Path("/path/to/actions/_private.py"),  # Should be skipped
-            Path("/path/to/actions/__init__.py")   # Should be skipped
+            Path("/path/to/actions/__init__.py"),  # Should be skipped
         ]
 
         actions = _discover_actions_in_paths(["/path/to/actions"], ".py")
@@ -350,6 +384,59 @@ class TestDiscovery:
         # Using Path to handle path separators
         assert Path(actions[0]).name == "action1.py"
         assert "actions" in str(Path(actions[0]))
+
+    @patch("dcc_mcp_core.utils.filesystem._discover_actions_in_paths")
+    def test_discover_actions_with_additional_paths(self, mock_discover, reset_config):
+        """Test discovering actions with additional paths."""
+        # Register a default path
+        register_dcc_actions_path("maya", "/path/to/maya/actions")
+
+        # Set up the mock to return different values for different paths
+        def side_effect(paths, extension):
+            if any("additional" in p for p in paths):
+                return ["/path/to/maya/additional/action2.py"]
+            return ["/path/to/maya/actions/action1.py"]
+
+        mock_discover.side_effect = side_effect
+
+        # Define additional paths
+        additional_paths = {"maya": ["/path/to/maya/additional"]}
+
+        # Call discover_actions with additional_paths
+        actions = discover_actions("maya", additional_paths=additional_paths)
+
+        # Verify results
+        assert "maya" in actions
+        assert len(mock_discover.call_args_list) == 1
+
+        # Check that both the registered path and additional path were used
+        args, kwargs = mock_discover.call_args
+        paths, extension = args
+
+        assert any(("maya/actions" in p.replace("\\", "/") or "maya\\actions" in p) for p in paths), (
+            "Registered path not found"
+        )
+        assert any(("maya/additional" in p.replace("\\", "/") or "maya\\additional" in p) for p in paths), (
+            "Additional path not found"
+        )
+
+        # Test with multiple DCCs
+        mock_discover.reset_mock()
+        mock_discover.side_effect = side_effect
+
+        # Register another DCC
+        register_dcc_actions_path("houdini", "/path/to/houdini/actions")
+
+        # Define additional paths for multiple DCCs
+        additional_paths = {"maya": ["/path/to/maya/additional"], "houdini": ["/path/to/houdini/additional"]}
+
+        # Call discover_actions without specifying DCC (should discover for all DCCs)
+        actions = discover_actions(additional_paths=additional_paths)
+
+        # Verify results
+        assert "maya" in actions
+        assert "houdini" in actions
+        assert mock_discover.call_count >= 2
 
 
 class TestDirectoryOperations:

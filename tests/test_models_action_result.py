@@ -23,10 +23,7 @@ class TestActionResultModel:
             success=True,
             message="Successfully created 3 spheres",
             prompt="You can now modify these spheres using the modify_spheres function",
-            context={
-                "created_objects": ["sphere1", "sphere2", "sphere3"],
-                "total_count": 3
-            }
+            context={"created_objects": ["sphere1", "sphere2", "sphere3"], "total_count": 3},
         )
 
         # Verify the result
@@ -49,17 +46,14 @@ class TestActionResultModel:
             context={
                 "error_details": {
                     "code": "MEM_LIMIT",
-                    "scene_stats": {
-                        "available_memory": "1.2MB",
-                        "required_memory": "5.0MB"
-                    }
+                    "scene_stats": {"available_memory": "1.2MB", "required_memory": "5.0MB"},
                 },
                 "possible_solutions": [
                     "Reduce the number of objects",
                     "Close other scenes",
-                    "Increase memory allocation"
-                ]
-            }
+                    "Increase memory allocation",
+                ],
+            },
         )
 
         # Verify the result
@@ -87,12 +81,7 @@ class TestActionResultModel:
     def test_json_serialization(self):
         """Test JSON serialization of ActionResultModel."""
         # Create a result
-        result = ActionResultModel(
-            success=True,
-            message="Test message",
-            prompt="Test prompt",
-            context={"key": "value"}
-        )
+        result = ActionResultModel(success=True, message="Test message", prompt="Test prompt", context={"key": "value"})
 
         # Convert to JSON and back
         json_data = result.model_dump_json()
@@ -124,36 +113,22 @@ class TestActionResultModel:
         # Create a complex context
         context = {
             "scene_info": {
-                "objects": {
-                    "spheres": ["sphere1", "sphere2"],
-                    "cubes": ["cube1"]
-                },
+                "objects": {"spheres": ["sphere1", "sphere2"], "cubes": ["cube1"]},
                 "stats": {
                     "total_objects": 3,
                     "memory_usage": "1.5MB",
-                    "performance": {
-                        "fps": 60,
-                        "render_time": "0.2s"
-                    }
-                }
+                    "performance": {"fps": 60, "render_time": "0.2s"},
+                },
             },
-            "user_settings": {
-                "preferences": {
-                    "auto_save": True,
-                    "theme": "dark"
-                }
-            },
+            "user_settings": {"preferences": {"auto_save": True, "theme": "dark"}},
             "history": [
                 {"action": "create", "time": "2023-01-01T12:00:00"},
-                {"action": "modify", "time": "2023-01-01T12:05:00"}
-            ]
+                {"action": "modify", "time": "2023-01-01T12:05:00"},
+            ],
         }
 
         # Create a result with complex context
-        result = ActionResultModel(
-            message="Operation completed",
-            context=context
-        )
+        result = ActionResultModel(message="Operation completed", context=context)
 
         # Verify the context was stored correctly
         assert result.context["scene_info"]["objects"]["spheres"] == ["sphere1", "sphere2"]
@@ -165,10 +140,7 @@ class TestActionResultModel:
         """Test updating an existing result."""
         # Create an initial result
         result = ActionResultModel(
-            success=True,
-            message="Initial message",
-            prompt="Initial prompt",
-            context={"initial": "value"}
+            success=True, message="Initial message", prompt="Initial prompt", context={"initial": "value"}
         )
 
         # Update the result

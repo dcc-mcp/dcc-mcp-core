@@ -30,6 +30,7 @@ from dcc_mcp_core.parameters.validation import validate_parameters_with_constrai
 
 def test_validate_and_convert_parameters():
     """Test validating and converting parameters."""
+
     # Define a test function with type hints
     def test_func(name: str, age: int = 30, is_active: bool = True):
         return name, age, is_active
@@ -51,10 +52,11 @@ def test_validate_and_convert_parameters():
         validate_and_convert_parameters(test_func, (), {})
 
 
-@patch('dcc_mcp_core.parameters.validation.validate_function_parameters')
-@patch('dcc_mcp_core.parameters.validation.validate_parameter_constraints')
+@patch("dcc_mcp_core.parameters.validation.validate_function_parameters")
+@patch("dcc_mcp_core.parameters.validation.validate_parameter_constraints")
 def test_validate_parameters_with_constraints(mock_validate_constraints, mock_validate_params):
     """Test validating parameters with constraints."""
+
     # Define a test function
     def test_func(name: str, age: int = 30):
         return name, age
@@ -110,10 +112,11 @@ def test_create_validation_decorator_with_constraints():
     # The decorator should be the same as with_parameter_validation
     # Import local modules
     from dcc_mcp_core.parameters.groups import with_parameter_validation as original_decorator
+
     assert decorator == original_decorator
 
 
-@patch('dcc_mcp_core.parameters.validation.validate_function_parameters')
+@patch("dcc_mcp_core.parameters.validation.validate_function_parameters")
 def test_create_validation_decorator_without_constraints(mock_validate_params):
     """Test creating a validation decorator without constraints."""
     # Create the decorator
@@ -166,6 +169,7 @@ def test_validate_parameters_alias():
     """Test that validate_parameters is an alias for validate_parameter_constraints."""
     # Import local modules
     from dcc_mcp_core.parameters.groups import validate_parameter_constraints
+
     assert validate_parameters == validate_parameter_constraints
 
 
@@ -184,7 +188,9 @@ def test_simple_parameter_validation():
     result = simple_func(name="John")
     print(f"DEBUG - Result: {result}")
     assert result.success is True, f"Expected success=True, got {result.success}"
-    assert result.context['result'] == "Success", f"Expected context['result']='Success', got {result.context['result']}"
+    assert result.context["result"] == "Success", (
+        f"Expected context['result']='Success', got {result.context['result']}"
+    )
 
     # Test with invalid parameters (missing required parameter)
     print("\nDEBUG - Testing simple_func with invalid parameters")

@@ -28,9 +28,11 @@ __action_requires__ = ["maya"]  # Specify the DCC environment this plugin depend
 # Plugin Function Implementation - Write your functions directly, no need to care about registration process
 # -------------------------------------------------------------------
 
+
 @error_handler
-def create_sphere(context: Dict[str, Any], radius: float = 1.0,
-position: Optional[List[float]] = None) -> Dict[str, Any]:
+def create_sphere(
+    context: Dict[str, Any], radius: float = 1.0, position: Optional[List[float]] = None
+) -> Dict[str, Any]:
     """Create a sphere.
 
     Args:
@@ -65,28 +67,22 @@ position: Optional[List[float]] = None) -> Dict[str, Any]:
             success=True,
             message=f"Created sphere with radius {radius} at position {position}",
             prompt="You can now modify the sphere or create more objects",
-            context={
-                "object_name": sphere,
-                "radius": radius,
-                "position": position
-            }
+            context={"object_name": sphere, "radius": radius, "position": position},
         )
     except Exception as e:
-        return ActionResultModel(
-            success=False,
-            message="Failed to create sphere",
-            error=str(e)
-        )
+        return ActionResultModel(success=False, message="Failed to create sphere", error=str(e))
 
 
 @error_handler
-def create_random_spheres(context: Dict[str, Any],
-                         count: int = 5,
-                         min_radius: float = 0.5,
-                         max_radius: float = 2.0,
-                         area_size: float = 10.0,
-                         distribution_type: str = "uniform",
-                         with_materials: bool = False) -> Dict[str, Any]:
+def create_random_spheres(
+    context: Dict[str, Any],
+    count: int = 5,
+    min_radius: float = 0.5,
+    max_radius: float = 2.0,
+    area_size: float = 10.0,
+    distribution_type: str = "uniform",
+    with_materials: bool = False,
+) -> Dict[str, Any]:
     """Create multiple random spheres.
 
     Args:
@@ -106,18 +102,14 @@ def create_random_spheres(context: Dict[str, Any],
     maya_client = context.get("maya_client", None)
     if not maya_client:
         return ActionResultModel(
-            success=False,
-            message="Failed to create spheres",
-            error="Maya client not found in context"
+            success=False, message="Failed to create spheres", error="Maya client not found in context"
         )
 
     # Get Maya commands interface
     cmds = maya_client.cmds
     if not cmds:
         return ActionResultModel(
-            success=False,
-            message="Failed to create spheres",
-            error="Maya commands interface not found in client"
+            success=False, message="Failed to create spheres", error="Maya commands interface not found in client"
         )
 
     # Get logger (if available)
@@ -136,42 +128,46 @@ def create_random_spheres(context: Dict[str, Any],
         if distribution_type == "uniform":
             # Uniform random distribution
             for i in range(count):
-                positions.append([
-                    random.uniform(-area_size/2, area_size/2),
-                    random.uniform(-area_size/2, area_size/2),
-                    random.uniform(-area_size/2, area_size/2)
-                ])
+                positions.append(
+                    [
+                        random.uniform(-area_size / 2, area_size / 2),
+                        random.uniform(-area_size / 2, area_size / 2),
+                        random.uniform(-area_size / 2, area_size / 2),
+                    ]
+                )
         elif distribution_type == "gaussian":
             # Gaussian distribution centered at origin
             for i in range(count):
-                positions.append([
-                    random.gauss(0, area_size/4),
-                    random.gauss(0, area_size/4),
-                    random.gauss(0, area_size/4)
-                ])
+                positions.append(
+                    [random.gauss(0, area_size / 4), random.gauss(0, area_size / 4), random.gauss(0, area_size / 4)]
+                )
         elif distribution_type == "grid":
             # Grid distribution
-            grid_size = math.ceil(math.pow(count, 1/3))  # Cube root to get grid dimensions
+            grid_size = math.ceil(math.pow(count, 1 / 3))  # Cube root to get grid dimensions
             spacing = area_size / grid_size
             index = 0
             for x in range(grid_size):
                 for y in range(grid_size):
                     for z in range(grid_size):
                         if index < count:
-                            positions.append([
-                                (x - grid_size/2 + 0.5) * spacing,
-                                (y - grid_size/2 + 0.5) * spacing,
-                                (z - grid_size/2 + 0.5) * spacing
-                            ])
+                            positions.append(
+                                [
+                                    (x - grid_size / 2 + 0.5) * spacing,
+                                    (y - grid_size / 2 + 0.5) * spacing,
+                                    (z - grid_size / 2 + 0.5) * spacing,
+                                ]
+                            )
                             index += 1
         else:
             # Default to uniform if invalid distribution type
             for i in range(count):
-                positions.append([
-                    random.uniform(-area_size/2, area_size/2),
-                    random.uniform(-area_size/2, area_size/2),
-                    random.uniform(-area_size/2, area_size/2)
-                ])
+                positions.append(
+                    [
+                        random.uniform(-area_size / 2, area_size / 2),
+                        random.uniform(-area_size / 2, area_size / 2),
+                        random.uniform(-area_size / 2, area_size / 2),
+                    ]
+                )
 
         for i in range(count):
             # Generate random radius
@@ -179,13 +175,13 @@ def create_random_spheres(context: Dict[str, Any],
             position = positions[i]
 
             # Create sphere
-            sphere = cmds.polySphere(r=radius, name=f"random_sphere_{i+1}")[0]
+            sphere = cmds.polySphere(r=radius, name=f"random_sphere_{i + 1}")[0]
             cmds.move(position[0], position[1], position[2], sphere)
 
             # Add random material if requested
             if with_materials:
                 # Create a new Phong material
-                material = cmds.shadingNode("phong", asShader=True, name=f"sphere_material_{i+1}")
+                material = cmds.shadingNode("phong", asShader=True, name=f"sphere_material_{i + 1}")
                 sg = cmds.sets(renderable=True, noSurfaceShader=True, empty=True, name=f"{material}SG")
                 cmds.connectAttr(f"{material}.outColor", f"{sg}.surfaceShader")
 
@@ -196,11 +192,7 @@ def create_random_spheres(context: Dict[str, Any],
                 cmds.sets(sphere, edit=True, forceElement=sg)
 
             # Collect results
-            results.append({
-                "name": sphere,
-                "radius": radius,
-                "position": position
-            })
+            results.append({"name": sphere, "radius": radius, "position": position})
 
         return ActionResultModel(
             success=True,
@@ -209,8 +201,8 @@ def create_random_spheres(context: Dict[str, Any],
             context={
                 "created_objects": [result["name"] for result in results],
                 "total_count": len(results),
-                "distribution_type": distribution_type
-            }
+                "distribution_type": distribution_type,
+            },
         )
     except Exception as e:
         if logger:
@@ -225,9 +217,9 @@ def create_random_spheres(context: Dict[str, Any],
                     "min_radius": min_radius,
                     "max_radius": max_radius,
                     "area_size": area_size,
-                    "distribution_type": distribution_type
+                    "distribution_type": distribution_type,
                 }
-            }
+            },
         )
 
 
@@ -246,18 +238,14 @@ def clear_all_spheres(context: Dict[str, Any]) -> Dict[str, Any]:
     maya_client = context.get("maya_client", None)
     if not maya_client:
         return ActionResultModel(
-            success=False,
-            message="Failed to clear spheres",
-            error="Maya client not found in context"
+            success=False, message="Failed to clear spheres", error="Maya client not found in context"
         )
 
     # Get Maya commands interface
     cmds = maya_client.cmds
     if not cmds:
         return ActionResultModel(
-            success=False,
-            message="Failed to clear spheres",
-            error="Maya commands interface not found in client"
+            success=False, message="Failed to clear spheres", error="Maya commands interface not found in client"
         )
 
     try:
@@ -279,20 +267,9 @@ def clear_all_spheres(context: Dict[str, Any]) -> Dict[str, Any]:
                 cmds.delete(sgs)
 
             return ActionResultModel(
-                success=True,
-                message=f"Cleared {len(spheres)} spheres",
-                context={
-                    "deleted_count": len(spheres)
-                }
+                success=True, message=f"Cleared {len(spheres)} spheres", context={"deleted_count": len(spheres)}
             )
         else:
-            return ActionResultModel(
-                success=True,
-                message="No spheres found to clear"
-            )
+            return ActionResultModel(success=True, message="No spheres found to clear")
     except Exception as e:
-        return ActionResultModel(
-            success=False,
-            message="Failed to clear spheres",
-            error=str(e)
-        )
+        return ActionResultModel(success=False, message="Failed to clear spheres", error=str(e))

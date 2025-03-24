@@ -36,7 +36,7 @@ def test_basic_action_metadata(action_manager, test_data_dir):
     action_result = action_manager.load_action(action_path)
 
     assert action_result.success is True
-    action_module = action_result.context['module']
+    action_module = action_result.context["module"]
     assert action_module is not None
 
     # Get action info
@@ -47,7 +47,7 @@ def test_basic_action_metadata(action_manager, test_data_dir):
     assert action_result.success is True
 
     # Get the actual ActionModel from the context
-    action_info = action_result.context['result']
+    action_info = action_result.context["result"]
     assert isinstance(action_info, ActionModel)
 
     # Verify metadata
@@ -95,7 +95,7 @@ def test_minimal_action_metadata(action_manager, test_data_dir):
     assert action_result.success is True
 
     # Get the actual ActionModel from the context
-    action_info = action_result.context['result']
+    action_info = action_result.context["result"]
     assert isinstance(action_info, ActionModel)
 
     # Verify metadata (with defaults)
@@ -129,7 +129,7 @@ def test_maya_action_metadata(action_manager, test_data_dir):
     assert action_result.success is True
 
     # Get the actual ActionModel from the context
-    action_info = action_result.context['result']
+    action_info = action_result.context["result"]
     assert isinstance(action_info, ActionModel)
 
     # Verify metadata
@@ -165,7 +165,7 @@ def test_advanced_types_action_metadata(action_manager, test_data_dir):
     assert action_result.success is True
 
     # Get the actual ActionModel from the context
-    action_info = action_result.context['result']
+    action_info = action_result.context["result"]
     assert isinstance(action_info, ActionModel)
 
     # Verify functions
@@ -177,8 +177,7 @@ def test_advanced_types_action_metadata(action_manager, test_data_dir):
     assert len(complex_func.parameters) == 3
 
     # Check return type (should contain "Tuple" or "tuple")
-    assert ("Tuple" in complex_func.return_type or
-            "tuple" in complex_func.return_type.lower())
+    assert "Tuple" in complex_func.return_type or "tuple" in complex_func.return_type.lower()
 
 
 def test_internal_helpers_action_metadata(action_manager, test_data_dir):
@@ -197,7 +196,7 @@ def test_internal_helpers_action_metadata(action_manager, test_data_dir):
     assert action_result.success is True
 
     # Get the actual ActionModel from the context
-    action_info = action_result.context['result']
+    action_info = action_result.context["result"]
     assert isinstance(action_info, ActionModel)
 
     # Verify only public functions are registered
@@ -213,7 +212,6 @@ def test_extract_action_metadata_function(test_data_dir):
     """Test the extract_action_metadata utility function directly."""
     # Create a mock module with metadata
     # Import built-in modules
-
 
     class MockModule:
         __action_name__ = "mock_plugin"
@@ -249,6 +247,7 @@ def test_extract_action_metadata_function(test_data_dir):
 
 def test_create_action_model():
     """Test the create_action_model function."""
+
     # Create mock functions dictionary with a test function
     def test_function(param1: str) -> str:
         """A test function.
@@ -274,10 +273,7 @@ def test_create_action_model():
 
     # Create action model
     action_model = create_action_model(
-        action_name="test_action",
-        action_module=test_module,
-        action_functions=functions,
-        dcc_name="test_dcc"
+        action_name="test_action", action_module=test_module, action_functions=functions, dcc_name="test_dcc"
     )
 
     # Verify action model
@@ -320,17 +316,10 @@ def test_create_actions_info_model():
         requires=[],
         dcc="test_dcc",
         file_path="/path/to/action1.py",
-        functions={
-            "func1": FunctionModel(
-                name="func1",
-                description="Function 1",
-                return_type="int",
-                parameters=[]
-            )
-        },
+        functions={"func1": FunctionModel(name="func1", description="Function 1", return_type="int", parameters=[])},
         documentation_url=None,
         tags=[],
-        capabilities=[]
+        capabilities=[],
     )
 
     action2 = ActionModel(
@@ -353,14 +342,14 @@ def test_create_actions_info_model():
                         type="string",
                         required=True,
                         default=None,
-                        description="Argument 1"
+                        description="Argument 1",
                     )
-                ]
+                ],
             )
         },
         documentation_url=None,
         tags=[],
-        capabilities=[]
+        capabilities=[],
     )
 
     actions: Dict[str, ActionModel] = {"action1": action1, "action2": action2}

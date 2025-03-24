@@ -17,17 +17,18 @@ from dcc_mcp_core.utils.constants import APP_NAME
 
 # Map of directory types to platformdirs functions
 DIR_FUNCTIONS: Dict[str, str] = {
-    'config': 'user_config_dir',
-    'data': 'user_data_dir',
-    'log': 'user_log_dir',
-    'cache': 'user_cache_dir',
-    'state': 'user_state_dir',
-    'documents': 'user_documents_dir',
+    "config": "user_config_dir",
+    "data": "user_data_dir",
+    "log": "user_log_dir",
+    "cache": "user_cache_dir",
+    "state": "user_state_dir",
+    "documents": "user_documents_dir",
 }
 
 
-def get_platform_dir(dir_type: str, app_name: str = APP_NAME, app_author: str = APP_AUTHOR,
-                     ensure_exists: bool = True) -> str:
+def get_platform_dir(
+    dir_type: str, app_name: str = APP_NAME, app_author: str = APP_AUTHOR, ensure_exists: bool = True
+) -> str:
     """Get a platform-specific directory path.
 
     Args:
@@ -41,8 +42,7 @@ def get_platform_dir(dir_type: str, app_name: str = APP_NAME, app_author: str = 
 
     """
     if dir_type not in DIR_FUNCTIONS:
-        raise ValueError(f"Unknown directory type: {dir_type}. "
-                         f"Valid types are: {', '.join(DIR_FUNCTIONS.keys())}")
+        raise ValueError(f"Unknown directory type: {dir_type}. Valid types are: {', '.join(DIR_FUNCTIONS.keys())}")
 
     # Get the appropriate function for this directory type
     func_name = DIR_FUNCTIONS[dir_type]
@@ -68,7 +68,7 @@ def get_config_dir(ensure_exists: bool = True) -> str:
         Path to the configuration directory
 
     """
-    return get_platform_dir('config', ensure_exists=ensure_exists)
+    return get_platform_dir("config", ensure_exists=ensure_exists)
 
 
 def get_data_dir(ensure_exists: bool = True) -> str:
@@ -81,7 +81,7 @@ def get_data_dir(ensure_exists: bool = True) -> str:
         Path to the data directory
 
     """
-    return get_platform_dir('data', ensure_exists=ensure_exists)
+    return get_platform_dir("data", ensure_exists=ensure_exists)
 
 
 def get_log_dir(ensure_exists: bool = True) -> str:
@@ -94,7 +94,7 @@ def get_log_dir(ensure_exists: bool = True) -> str:
         Path to the log directory
 
     """
-    return get_platform_dir('log', ensure_exists=ensure_exists)
+    return get_platform_dir("log", ensure_exists=ensure_exists)
 
 
 def get_actions_dir(dcc_name: str, ensure_exists: bool = True) -> str:

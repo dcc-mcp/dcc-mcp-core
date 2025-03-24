@@ -44,15 +44,15 @@ def process_parameters(params: Union[Dict[str, Any], str]) -> Dict[str, Any]:
     processed_params = {}
 
     # Handle special 'kwargs' parameter if present
-    if 'kwargs' in params and isinstance(params['kwargs'], str):
-        kwargs_str = params['kwargs']
+    if "kwargs" in params and isinstance(params["kwargs"], str):
+        kwargs_str = params["kwargs"]
         logger.debug(f"Processing string kwargs: {kwargs_str}")
 
         # Parse the kwargs string
         parsed_kwargs = parse_kwargs_string(kwargs_str)
         if parsed_kwargs:
             # Create a copy of the original params without the 'kwargs' key
-            processed_params = {k: v for k, v in params.items() if k != 'kwargs'}
+            processed_params = {k: v for k, v in params.items() if k != "kwargs"}
             # Add the parsed kwargs
             processed_params.update(parsed_kwargs)
             logger.debug(f"Processed parameters: {processed_params}")
@@ -86,8 +86,7 @@ def process_parameter_value(key: str, value: Any) -> Any:
     # Handle string values that might need conversion
     if isinstance(value, str):
         # Try to convert strings that look like lists or dicts
-        if (value.startswith('[') and value.endswith(']')) or \
-           (value.startswith('{') and value.endswith('}')):
+        if (value.startswith("[") and value.endswith("]")) or (value.startswith("{") and value.endswith("}")):
             try:
                 return json.loads(value)
             except json.JSONDecodeError:
@@ -131,8 +130,8 @@ def parse_kwargs_string(kwargs_str: str) -> Dict[str, Any]:
     except json.JSONDecodeError:
         # If that fails, try to wrap it in curly braces
         try:
-            if not kwargs_str.startswith('{'):
-                modified_str = '{' + kwargs_str + '}'
+            if not kwargs_str.startswith("{"):
+                modified_str = "{" + kwargs_str + "}"
                 return parse_json(modified_str)
         except json.JSONDecodeError:
             pass
@@ -140,9 +139,9 @@ def parse_kwargs_string(kwargs_str: str) -> Dict[str, Any]:
     # Try ast.literal_eval
     try:
         # Try to convert the string to a valid Python dictionary expression
-        if not kwargs_str.startswith('{'):
+        if not kwargs_str.startswith("{"):
             # Replace equals with colons for key-value pairs
-            modified_str = '{' + kwargs_str.replace('=', ':') + '}'
+            modified_str = "{" + kwargs_str.replace("=", ":") + "}"
         else:
             modified_str = kwargs_str
 
@@ -196,7 +195,7 @@ def parse_ast_literal(kwargs_str: str) -> Dict[str, Any]:
         if isinstance(e, SyntaxError):
             raise
         # If it's a ValueError from ast.literal_eval, check if it's due to invalid syntax
-        if kwargs_str.startswith('{') and kwargs_str.endswith('}') and ':' in kwargs_str:
+        if kwargs_str.startswith("{") and kwargs_str.endswith("}") and ":" in kwargs_str:
             # This looks like it was trying to be a dict but had invalid syntax
             raise SyntaxError(f"Invalid Python literal: {kwargs_str}") from e
         # Otherwise, re-raise the original error
@@ -264,20 +263,19 @@ def process_string_parameter(value: str) -> Any:
 
     """
     # Remove quotes if present
-    if (value.startswith('"') and value.endswith('"')) or \
-       (value.startswith('\'') and value.endswith('\'')):
+    if (value.startswith('"') and value.endswith('"')) or (value.startswith("'") and value.endswith("'")):
         value = value[1:-1]
 
     # Try to convert to appropriate type
-    if value.lower() in ('true', 'yes', 'y', 'on'):
+    if value.lower() in ("true", "yes", "y", "on"):
         return True
-    elif value.lower() in ('false', 'no', 'n', 'off'):
+    elif value.lower() in ("false", "no", "n", "off"):
         return False
     elif value.isdigit():
         return int(value)
-    elif value.replace('.', '', 1).isdigit() and value.count('.') == 1:
+    elif value.replace(".", "", 1).isdigit() and value.count(".") == 1:
         return float(value)
-    elif value.lower() == 'none' or value.lower() == 'null':
+    elif value.lower() == "none" or value.lower() == "null":
         return None
     else:
         return value
@@ -299,9 +297,9 @@ def process_boolean_parameter(value: Any) -> bool:
         return bool(value)
     elif isinstance(value, str):
         value_lower = value.lower()
-        if value_lower in ('true', 'yes', 'y', 'on', '1'):
+        if value_lower in ("true", "yes", "y", "on", "1"):
             return True
-        elif value_lower in ('false', 'no', 'n', 'off', '0'):
+        elif value_lower in ("false", "no", "n", "off", "0"):
             return False
     # Default to False for anything else
     return False
@@ -340,10 +338,10 @@ def safe_convert_type(value: Any, target_type: Type) -> Any:
             return str(value)
         elif isinstance(target_type, type) and target_type is list:
             if isinstance(value, str):
-                if value.startswith('[') and value.endswith(']'):
+                if value.startswith("[") and value.endswith("]"):
                     return json.loads(value)
                 else:
-                    return [item.strip() for item in value.split(',')]
+                    return [item.strip() for item in value.split(",")]
             elif isinstance(value, (tuple, set)):
                 return list(value)
             else:

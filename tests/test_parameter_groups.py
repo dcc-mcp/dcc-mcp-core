@@ -23,11 +23,7 @@ def test_parameter_group_init():
     """Test initialization of ParameterGroup."""
     # Test with basic parameters
     group = ParameterGroup(
-        name="test_group",
-        description="Test group",
-        parameters=["param1", "param2"],
-        required=True,
-        exclusive=True
+        name="test_group", description="Test group", parameters=["param1", "param2"], required=True, exclusive=True
     )
 
     assert group.name == "test_group"
@@ -41,10 +37,7 @@ def test_parameter_group_validate():
     """Test validation of parameters against group constraints."""
     # Test required group with no parameters provided
     group = ParameterGroup(
-        name="required_group",
-        description="Required group",
-        parameters=["param1", "param2"],
-        required=True
+        name="required_group", description="Required group", parameters=["param1", "param2"], required=True
     )
     is_valid, error = group.validate({})
     assert is_valid is False
@@ -57,10 +50,7 @@ def test_parameter_group_validate():
 
     # Test exclusive group with multiple parameters provided
     group = ParameterGroup(
-        name="exclusive_group",
-        description="Exclusive group",
-        parameters=["param1", "param2"],
-        exclusive=True
+        name="exclusive_group", description="Exclusive group", parameters=["param1", "param2"], exclusive=True
     )
     is_valid, error = group.validate({"param1": "value1", "param2": "value2"})
     assert is_valid is False
@@ -72,11 +62,7 @@ def test_parameter_group_validate():
     assert error is None
 
     # Test non-required, non-exclusive group
-    group = ParameterGroup(
-        name="optional_group",
-        description="Optional group",
-        parameters=["param1", "param2"]
-    )
+    group = ParameterGroup(name="optional_group", description="Optional group", parameters=["param1", "param2"])
     is_valid, error = group.validate({})
     assert is_valid is True
     assert error is None
@@ -85,11 +71,7 @@ def test_parameter_group_validate():
 def test_parameter_group_to_dict():
     """Test conversion of ParameterGroup to dictionary."""
     group = ParameterGroup(
-        name="test_group",
-        description="Test group",
-        parameters=["param1", "param2"],
-        required=True,
-        exclusive=True
+        name="test_group", description="Test group", parameters=["param1", "param2"], required=True, exclusive=True
     )
 
     group_dict = group.to_dict()
@@ -104,10 +86,7 @@ def test_parameter_dependency_init():
     """Test initialization of ParameterDependency."""
     # Test with string depends_on
     dependency = ParameterDependency(
-        parameter="param1",
-        depends_on="param2",
-        dependency_type=DependencyType.REQUIRES,
-        error_message="Custom error"
+        parameter="param1", depends_on="param2", dependency_type=DependencyType.REQUIRES, error_message="Custom error"
     )
 
     assert dependency.parameter == "param1"
@@ -117,9 +96,7 @@ def test_parameter_dependency_init():
 
     # Test with list depends_on
     dependency = ParameterDependency(
-        parameter="param1",
-        depends_on=["param2", "param3"],
-        dependency_type=DependencyType.CONFLICTS
+        parameter="param1", depends_on=["param2", "param3"], dependency_type=DependencyType.CONFLICTS
     )
 
     assert dependency.parameter == "param1"
@@ -131,9 +108,7 @@ def test_parameter_dependency_init():
 def test_parameter_dependency_validate_requires():
     """Test validation of 'requires' dependency."""
     dependency = ParameterDependency(
-        parameter="param1",
-        depends_on=["param2", "param3"],
-        dependency_type=DependencyType.REQUIRES
+        parameter="param1", depends_on=["param2", "param3"], dependency_type=DependencyType.REQUIRES
     )
 
     # Test when parameter is not provided
@@ -161,7 +136,7 @@ def test_parameter_dependency_validate_requires():
         parameter="param1",
         depends_on="param2",
         dependency_type=DependencyType.REQUIRES,
-        error_message="Custom error message"
+        error_message="Custom error message",
     )
     is_valid, error = dependency.validate({"param1": "value1"})
     assert is_valid is False
@@ -171,9 +146,7 @@ def test_parameter_dependency_validate_requires():
 def test_parameter_dependency_validate_conflicts():
     """Test validation of 'conflicts' dependency."""
     dependency = ParameterDependency(
-        parameter="param1",
-        depends_on=["param2", "param3"],
-        dependency_type=DependencyType.CONFLICTS
+        parameter="param1", depends_on=["param2", "param3"], dependency_type=DependencyType.CONFLICTS
     )
 
     # Test when parameter is not provided
@@ -196,7 +169,7 @@ def test_parameter_dependency_validate_conflicts():
         parameter="param1",
         depends_on="param2",
         dependency_type=DependencyType.CONFLICTS,
-        error_message="Custom error message"
+        error_message="Custom error message",
     )
     is_valid, error = dependency.validate({"param1": "value1", "param2": "value2"})
     assert is_valid is False
@@ -206,9 +179,7 @@ def test_parameter_dependency_validate_conflicts():
 def test_parameter_dependency_validate_one_of():
     """Test validation of 'one_of' dependency."""
     dependency = ParameterDependency(
-        parameter="param1",
-        depends_on=["param2", "param3"],
-        dependency_type=DependencyType.ONE_OF
+        parameter="param1", depends_on=["param2", "param3"], dependency_type=DependencyType.ONE_OF
     )
 
     # Test when no parameters are provided
@@ -230,9 +201,7 @@ def test_parameter_dependency_validate_one_of():
 def test_parameter_dependency_validate_at_least_one():
     """Test validation of 'at_least_one' dependency."""
     dependency = ParameterDependency(
-        parameter="param1",
-        depends_on=["param2", "param3"],
-        dependency_type=DependencyType.AT_LEAST_ONE
+        parameter="param1", depends_on=["param2", "param3"], dependency_type=DependencyType.AT_LEAST_ONE
     )
 
     # Test when no parameters are provided
@@ -254,9 +223,7 @@ def test_parameter_dependency_validate_at_least_one():
 def test_parameter_dependency_validate_mutually_exclusive():
     """Test validation of 'mutually_exclusive' dependency."""
     dependency = ParameterDependency(
-        parameter="param1",
-        depends_on=["param2", "param3"],
-        dependency_type=DependencyType.MUTUALLY_EXCLUSIVE
+        parameter="param1", depends_on=["param2", "param3"], dependency_type=DependencyType.MUTUALLY_EXCLUSIVE
     )
 
     # Test when no parameters are provided
@@ -281,7 +248,7 @@ def test_parameter_dependency_to_dict():
         parameter="param1",
         depends_on=["param2", "param3"],
         dependency_type=DependencyType.REQUIRES,
-        error_message="Custom error"
+        error_message="Custom error",
     )
 
     dependency_dict = dependency.to_dict()
@@ -293,11 +260,7 @@ def test_parameter_dependency_to_dict():
 
 def test_with_parameter_groups():
     """Test with_parameter_groups decorator."""
-    group = ParameterGroup(
-        name="test_group",
-        description="Test group",
-        parameters=["param1", "param2"]
-    )
+    group = ParameterGroup(name="test_group", description="Test group", parameters=["param1", "param2"])
 
     @with_parameter_groups(group)
     def test_func(param1=None, param2=None):
@@ -309,11 +272,7 @@ def test_with_parameter_groups():
 
 def test_with_parameter_dependencies():
     """Test with_parameter_dependencies decorator."""
-    dependency = ParameterDependency(
-        parameter="param1",
-        depends_on="param2",
-        dependency_type=DependencyType.REQUIRES
-    )
+    dependency = ParameterDependency(parameter="param1", depends_on="param2", dependency_type=DependencyType.REQUIRES)
 
     @with_parameter_dependencies(dependency)
     def test_func(param1=None, param2=None):
@@ -325,6 +284,7 @@ def test_with_parameter_dependencies():
 
 def test_validate_parameter_constraints():
     """Test validate_parameter_constraints function."""
+
     # Test function with no constraints
     def func_no_constraints(param1=None, param2=None):
         return param1, param2
@@ -335,10 +295,7 @@ def test_validate_parameter_constraints():
 
     # Test function with parameter groups
     group = ParameterGroup(
-        name="exclusive_group",
-        description="Exclusive group",
-        parameters=["param1", "param2"],
-        exclusive=True
+        name="exclusive_group", description="Exclusive group", parameters=["param1", "param2"], exclusive=True
     )
 
     @with_parameter_groups(group)
@@ -357,18 +314,16 @@ def test_validate_parameter_constraints():
     assert "only one parameter" in errors[0].lower()
 
     # Test function with parameter dependencies
-    dependency = ParameterDependency(
-        parameter="param1",
-        depends_on="param2",
-        dependency_type=DependencyType.REQUIRES
-    )
+    dependency = ParameterDependency(parameter="param1", depends_on="param2", dependency_type=DependencyType.REQUIRES)
 
     @with_parameter_dependencies(dependency)
     def func_with_dependencies(param1=None, param2=None):
         return param1, param2
 
     # Test valid parameters
-    is_valid, errors = validate_parameter_constraints(func_with_dependencies, (), {"param1": "value1", "param2": "value2"})
+    is_valid, errors = validate_parameter_constraints(
+        func_with_dependencies, (), {"param1": "value1", "param2": "value2"}
+    )
     assert is_valid is True
     assert errors == []
 
@@ -383,10 +338,7 @@ def test_with_parameter_validation():
     """Test with_parameter_validation decorator."""
     # Test function with parameter groups
     group = ParameterGroup(
-        name="exclusive_group",
-        description="Exclusive group",
-        parameters=["param1", "param2"],
-        exclusive=True
+        name="exclusive_group", description="Exclusive group", parameters=["param1", "param2"], exclusive=True
     )
 
     @with_parameter_validation
@@ -406,11 +358,7 @@ def test_with_parameter_validation():
     assert "only one parameter" in result.error.lower()
 
     # Test function with parameter dependencies
-    dependency = ParameterDependency(
-        parameter="param1",
-        depends_on="param2",
-        dependency_type=DependencyType.REQUIRES
-    )
+    dependency = ParameterDependency(parameter="param1", depends_on="param2", dependency_type=DependencyType.REQUIRES)
 
     @with_parameter_validation
     @with_parameter_dependencies(dependency)

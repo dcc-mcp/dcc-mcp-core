@@ -111,12 +111,7 @@ def discover_and_load_actions(dcc_name):
 
     """
     # Initialize statistics
-    stats = {
-        "discovered_paths": 0,
-        "loaded_actions": 0,
-        "failed_actions": 0,
-        "successful_actions": 0
-    }
+    stats = {"discovered_paths": 0, "loaded_actions": 0, "failed_actions": 0, "successful_actions": 0}
 
     # Register example actions first
     register_example_actions(dcc_name)
@@ -137,11 +132,11 @@ def discover_and_load_actions(dcc_name):
         return manager
 
     # Get discovered paths
-    if 'paths' not in result_model.context:
+    if "paths" not in result_model.context:
         logger.error("No 'paths' found in result_model.context")
         return manager
 
-    action_paths = result_model.context['paths']
+    action_paths = result_model.context["paths"]
     stats["discovered_paths"] = len(action_paths)
     logger.info(f"Discovered {len(action_paths)} action paths for {dcc_name}")
 
@@ -156,14 +151,14 @@ def discover_and_load_actions(dcc_name):
         return manager
 
     # Get loaded actions information
-    if 'result' not in loaded_result.context:
+    if "result" not in loaded_result.context:
         logger.error("No 'result' found in loaded_result.context")
         return manager
 
-    actions_info = loaded_result.context['result']
+    actions_info = loaded_result.context["result"]
 
     # Ensure actions_info has actions attribute
-    if not hasattr(actions_info, 'actions'):
+    if not hasattr(actions_info, "actions"):
         logger.error("actions_info does not have 'actions' attribute")
         return manager
 
@@ -183,13 +178,13 @@ def discover_and_load_actions(dcc_name):
             stats["failed_actions"] += 1
             continue
 
-        if 'result' not in action_info_result.context:
+        if "result" not in action_info_result.context:
             logger.warning(f"No 'result' found in context for action '{action_name}'")
             stats["failed_actions"] += 1
             continue
 
         # Get ActionModel from context['result']
-        action_model = action_info_result.context['result']
+        action_model = action_info_result.context["result"]
         stats["successful_actions"] += 1
 
         # Display action information
@@ -229,11 +224,11 @@ def test_get_actions_info(manager):
         logger.error(f"Failed to get actions info: {result.error}")
         return
 
-    if 'result' not in result.context:
+    if "result" not in result.context:
         logger.error("No 'result' found in context")
         return
 
-    actions_info = result.context['result']
+    actions_info = result.context["result"]
     logger.info(f"Got information about {len(actions_info.actions)} actions")
 
     # Display information about each action
@@ -266,11 +261,11 @@ def test_get_action_info(manager, action_name):
         logger.error(f"Failed to get action info: {result.error}")
         return
 
-    if 'result' not in result.context:
+    if "result" not in result.context:
         logger.error("No 'result' found in context")
         return
 
-    action_model = result.context['result']
+    action_model = result.context["result"]
     logger.info(f"Action: {action_model.name} (v{action_model.version})")
     logger.info(f"Description: {action_model.description}")
     logger.info(f"Author: {action_model.author}")
@@ -301,7 +296,7 @@ def test_create_sphere(manager, radius=1.5, position=None):
     actions_info = manager.get_actions_info()
 
     # Convert ActionsInfoModel to dictionary if needed
-    if hasattr(actions_info, 'actions'):
+    if hasattr(actions_info, "actions"):
         actions_dict = actions_info.actions
     else:
         actions_dict = actions_info
@@ -311,7 +306,7 @@ def test_create_sphere(manager, radius=1.5, position=None):
         return
 
     # Check if the Random Spheres Generator action is loaded
-    if 'Random Spheres Generator' not in actions_dict:
+    if "Random Spheres Generator" not in actions_dict:
         logger.error("Random Spheres Generator action not loaded")
         logger.info(f"Available actions: {list(actions_dict.keys() if hasattr(actions_dict, 'keys') else [])}")
         return
@@ -327,17 +322,13 @@ def test_create_sphere(manager, radius=1.5, position=None):
 
     # Call the function using call_action_function method
     result = manager.call_action_function(
-        'Random Spheres Generator',
-        'create_sphere',
-        context=context,
-        radius=radius,
-        position=position
+        "Random Spheres Generator", "create_sphere", context=context, radius=radius, position=position
     )
     logger.info(f"create_sphere result: {result}")
-    if hasattr(result, 'success'):
+    if hasattr(result, "success"):
         logger.info(f"Success: {result.success}")
         logger.info(f"Message: {result.message}")
-        if hasattr(result, 'error') and result.error:
+        if hasattr(result, "error") and result.error:
             logger.error(f"Error: {result.error}")
     else:
         logger.info(f"Raw result: {result}")
@@ -438,12 +429,12 @@ def main():
             logger.info("Testing Python action function call:")
             try:
                 context = {}
-                result = python_manager.call_action_function(action_name, 'print_info', context=context)
+                result = python_manager.call_action_function(action_name, "print_info", context=context)
                 logger.info(f"print_info result: {result}")
-                if hasattr(result, 'success'):
+                if hasattr(result, "success"):
                     logger.info(f"Success: {result.success}")
                     logger.info(f"Message: {result.message}")
-                    if hasattr(result, 'error') and result.error:
+                    if hasattr(result, "error") and result.error:
                         logger.error(f"Error: {result.error}")
                 else:
                     logger.info(f"Raw result: {result}")
@@ -459,6 +450,7 @@ def main():
         logger.error(f"Error in example: {e}")
         # Import built-in modules
         import traceback
+
         traceback.print_exc()
 
 

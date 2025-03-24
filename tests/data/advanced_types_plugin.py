@@ -17,9 +17,7 @@ __action_author__ = "Test Author"
 
 
 def process_complex_data(
-    data: List[dict],
-    options: Optional[dict] = None,
-    callback: Optional[Callable] = None
+    data: List[dict], options: Optional[dict] = None, callback: Optional[Callable] = None
 ) -> Tuple[bool, dict]:
     """Process complex data with various options.
 
@@ -32,10 +30,7 @@ def process_complex_data(
         A tuple containing success status and result data
 
     """
-    result = {
-        "processed_items": len(data),
-        "items": data
-    }
+    result = {"processed_items": len(data), "items": data}
 
     # Apply options if provided
     if options:
@@ -63,7 +58,4 @@ async def async_operation(task_id: str) -> dict:
 
     """
     # This is just for testing async function signatures
-    return {
-        "task_id": task_id,
-        "status": "completed"
-    }
+    return {"task_id": task_id, "status": "completed"}

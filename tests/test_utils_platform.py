@@ -20,12 +20,12 @@ from dcc_mcp_core.utils.platform import get_platform_dir
 def test_get_platform_dir():
     """Test the get_platform_dir function."""
     # Test with a valid directory type
-    config_dir = get_platform_dir('config', ensure_exists=True)
+    config_dir = get_platform_dir("config", ensure_exists=True)
     assert config_dir is not None
 
     # Test with an invalid directory type
     with pytest.raises(ValueError):
-        get_platform_dir('invalid_type')
+        get_platform_dir("invalid_type")
 
 
 def test_get_config_dir():
@@ -67,13 +67,13 @@ def test_get_log_dir():
 def test_get_actions_dir():
     """Test the get_actions_dir function."""
     # Test with a DCC name
-    maya_actions_dir = get_actions_dir('maya')
+    maya_actions_dir = get_actions_dir("maya")
     assert maya_actions_dir is not None
 
     # If it's a Path object
     if isinstance(maya_actions_dir, Path):
         assert maya_actions_dir.exists()
-        assert 'maya' in str(maya_actions_dir)
+        assert "maya" in str(maya_actions_dir)
     else:  # If it's a string
         assert os.path.exists(maya_actions_dir)
-        assert 'maya' in maya_actions_dir
+        assert "maya" in maya_actions_dir

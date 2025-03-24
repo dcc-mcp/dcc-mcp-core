@@ -24,6 +24,7 @@ __action_requires__ = ["maya"]  # Specify the DCC environment this plugin depend
 # Plugin entry function decorator - Used to automatically handle context and provide function information
 # -------------------------------------------------------------------
 
+
 def maya_tool(func):
     """Decorator: Mark a function as a Maya tool, automatically handle context parameters.
 
@@ -51,16 +52,15 @@ def maya_tool(func):
         try:
             return func(context, *args, **kwargs)
         except Exception as e:
-            return {
-                "status": "error",
-                "message": str(e)
-            }
+            return {"status": "error", "message": str(e)}
 
     return wrapper
+
 
 # -------------------------------------------------------------------
 # Plugin functionality implementation - Use @maya_tool decorator to mark functions
 # -------------------------------------------------------------------
+
 
 @maya_tool
 def get_scene_stats(context: Dict[str, Any]):
@@ -85,7 +85,7 @@ def get_scene_stats(context: Dict[str, Any]):
         "camera_count": 0,
         "light_count": 0,
         "polygon_count": 0,
-        "vertex_count": 0
+        "vertex_count": 0,
     }
 
     # Get scene name
@@ -113,18 +113,17 @@ def get_scene_stats(context: Dict[str, Any]):
     except:
         pass
 
-    return {
-        "status": "success",
-        "message": "Scene statistics retrieved",
-        "data": stats
-    }
+    return {"status": "success", "message": "Scene statistics retrieved", "data": stats}
+
 
 @maya_tool
-def create_primitive(context: Dict[str, Any],
-                    primitive_type: str,
-                    size: float = 1.0,
-                    position: Optional[List[float]] = None,
-                    name: Optional[str] = None):
+def create_primitive(
+    context: Dict[str, Any],
+    primitive_type: str,
+    size: float = 1.0,
+    position: Optional[List[float]] = None,
+    name: Optional[str] = None,
+):
     """Create a basic geometric shape.
 
     Args:
@@ -158,13 +157,13 @@ def create_primitive(context: Dict[str, Any],
     elif primitive_type == "sphere":
         result = cmds.polySphere(r=size, name=name)[0]
     elif primitive_type == "cylinder":
-        result = cmds.polyCylinder(r=size, h=size*2, name=name)[0]
+        result = cmds.polyCylinder(r=size, h=size * 2, name=name)[0]
     elif primitive_type == "cone":
-        result = cmds.polyCone(r=size, h=size*2, name=name)[0]
+        result = cmds.polyCone(r=size, h=size * 2, name=name)[0]
     elif primitive_type == "plane":
         result = cmds.polyPlane(w=size, h=size, name=name)[0]
     elif primitive_type == "torus":
-        result = cmds.polyTorus(r=size, sr=size/4, name=name)[0]
+        result = cmds.polyTorus(r=size, sr=size / 4, name=name)[0]
 
     # Set position
     cmds.move(position[0], position[1], position[2], result)
@@ -172,17 +171,14 @@ def create_primitive(context: Dict[str, Any],
     return {
         "status": "success",
         "message": f"Created {primitive_type} at position {position}",
-        "data": {
-            "name": result,
-            "type": primitive_type,
-            "size": size,
-            "position": position
-        }
+        "data": {"name": result, "type": primitive_type, "size": size, "position": position},
     }
+
 
 # -------------------------------------------------------------------
 # Register function - Plugin manager entry point
 # -------------------------------------------------------------------
+
 
 def register():
     """Register plugin functions.
@@ -197,11 +193,11 @@ def register():
     # Use globals() to get all objects in this module
     for name, obj in globals().items():
         # Skip non-functions and special names
-        if not callable(obj) or name.startswith('_'):
+        if not callable(obj) or name.startswith("_"):
             continue
 
         # Check if this function is marked as a Maya tool
-        if hasattr(obj, '__maya_tool__') and obj.__maya_tool__:
+        if hasattr(obj, "__maya_tool__") and obj.__maya_tool__:
             tools[name] = obj
 
     # Return plugin information and tools
@@ -210,5 +206,5 @@ def register():
         "version": __action_version__,
         "description": __action_description__,
         "author": __action_author__,
-        "functions": tools
+        "functions": tools,
     }

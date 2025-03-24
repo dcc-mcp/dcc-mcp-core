@@ -1,6 +1,5 @@
 """Tests for the exceptions module."""
 
-
 # Import local modules
 from dcc_mcp_core.utils import exceptions
 
@@ -57,9 +56,7 @@ def test_configuration_error():
     assert str(error) == "[MCP-E-CONFIG] Configuration error"
 
     # Test with custom values
-    error = exceptions.ConfigurationError(
-        "Configuration error", config_key="api_key", code="MCP-E-CUSTOM-CONFIG"
-    )
+    error = exceptions.ConfigurationError("Configuration error", config_key="api_key", code="MCP-E-CUSTOM-CONFIG")
     assert error.message == "Configuration error"
     assert error.code == "MCP-E-CUSTOM-CONFIG"
     assert error.config_key == "api_key"
@@ -76,9 +73,7 @@ def test_connection_error():
     assert str(error) == "[MCP-E-CONNECTION] Connection error"
 
     # Test with custom values
-    error = exceptions.ConnectionError(
-        "Connection error", service_name="Maya", code="MCP-E-CUSTOM-CONNECTION"
-    )
+    error = exceptions.ConnectionError("Connection error", service_name="Maya", code="MCP-E-CUSTOM-CONNECTION")
     assert error.message == "Connection error"
     assert error.code == "MCP-E-CUSTOM-CONNECTION"
     assert error.service_name == "Maya"
@@ -95,9 +90,7 @@ def test_operation_error():
     assert str(error) == "[MCP-E-OPERATION] Operation error"
 
     # Test with custom values
-    error = exceptions.OperationError(
-        "Operation error", operation_name="file_copy", code="MCP-E-CUSTOM-OPERATION"
-    )
+    error = exceptions.OperationError("Operation error", operation_name="file_copy", code="MCP-E-CUSTOM-OPERATION")
     assert error.message == "Operation error"
     assert error.code == "MCP-E-CUSTOM-OPERATION"
     assert error.operation_name == "file_copy"

@@ -104,10 +104,18 @@ def mock_action_dirs(temp_dir, test_data_dir):
     maya_sub_action = os.path.join(maya_sub_dir, "advanced_tool.py")
 
     # Write content to files
-    for file_path in [maya_action1, maya_action2, maya_init, maya_hidden,
-                      houdini_action1, houdini_action2, houdini_init, houdini_hidden,
-                      maya_sub_action]:
-        with open(file_path, 'w') as f:
+    for file_path in [
+        maya_action1,
+        maya_action2,
+        maya_init,
+        maya_hidden,
+        houdini_action1,
+        houdini_action2,
+        houdini_init,
+        houdini_hidden,
+        maya_sub_action,
+    ]:
+        with open(file_path, "w") as f:
             f.write("# Test action file\n")
 
     return {
@@ -117,7 +125,7 @@ def mock_action_dirs(temp_dir, test_data_dir):
         "maya_actions": [maya_action1, maya_action2, maya_sub_action],
         "houdini_actions": [houdini_action1, houdini_action2],
         "hidden_files": [maya_hidden, houdini_hidden],
-        "init_files": [maya_init, houdini_init]
+        "init_files": [maya_init, houdini_init],
     }
 
 
@@ -155,11 +163,7 @@ def test_register_dcc_actions_path(reset_action_paths, env_vars_cleanup):
 def test_register_dcc_actions_paths(reset_action_paths, env_vars_cleanup):
     """Test registering multiple plugin paths for a DCC."""
     # Register multiple paths
-    paths = [
-        "path/to/maya/plugins",
-        "another/path",
-        "third/path"
-    ]
+    paths = ["path/to/maya/plugins", "another/path", "third/path"]
     resolved_paths = [str(Path(path).resolve()) for path in paths]
     register_dcc_actions_paths("maya", paths)
 

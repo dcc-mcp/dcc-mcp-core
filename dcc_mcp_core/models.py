@@ -43,7 +43,7 @@ class ParameterModel(BaseModel):
                 "type": "str",
                 "description": "Path to the file to process",
                 "required": True,
-                "default": None
+                "default": None,
             }
         }
     )
@@ -59,8 +59,9 @@ class FunctionModel(BaseModel):
     name: str = Field(description="Name of the function")
     description: str = Field("", description="Description of the function")
     parameters: List[ParameterModel] = Field(default_factory=list, description="Parameters of the function")
-    return_type: str = Field("None", description="Return type of the function (e.g., 'str', 'int', "
-                                                "'ActionResultModel')")
+    return_type: str = Field(
+        "None", description="Return type of the function (e.g., 'str', 'int', 'ActionResultModel')"
+    )
     return_description: str = Field("", description="Description of the return value")
     examples: List[Dict[str, Any]] = Field(default_factory=list, description="Usage examples")
     tags: List[str] = Field(default_factory=list, description="Tags for categorizing the function")
@@ -77,25 +78,23 @@ class FunctionModel(BaseModel):
                         "type": "float",
                         "description": "Radius of the sphere",
                         "required": False,
-                        "default": 1.0
+                        "default": 1.0,
                     }
                 ],
                 "return_type": "ActionResultModel",
-                "return_description": "Structured result with message, prompt for next steps, "
-                                     "and context data",
+                "return_description": "Structured result with message, prompt for next steps, and context data",
                 "examples": [
                     {
                         "input": {"radius": 2.0},
                         "output": {
                             "message": "Successfully created sphere at origin",
-                            "prompt": "You can now modify the sphere's properties or create "
-                                      "more objects",
-                            "context": {"object_name": "sphere1", "scene_stats": {"total_objects": 5}}
+                            "prompt": "You can now modify the sphere's properties or create more objects",
+                            "context": {"object_name": "sphere1", "scene_stats": {"total_objects": 5}},
                         },
-                        "description": "Create a sphere with radius 2.0 at the origin"
+                        "description": "Create a sphere with radius 2.0 at the origin",
                     }
                 ],
-                "tags": ["geometry", "creation"]
+                "tags": ["geometry", "creation"],
             }
         }
     )
@@ -140,31 +139,29 @@ class ActionModel(BaseModel):
                                 "type": "float",
                                 "description": "Radius of the sphere",
                                 "required": False,
-                                "default": 1.0
+                                "default": 1.0,
                             }
                         ],
                         "return_type": "ActionResultModel",
-                        "return_description": "Structured result with message, prompt for next steps, "
-                                             "and context data",
+                        "return_description": "Structured result with message, prompt for next steps, and context data",
                         "examples": [
                             {
                                 "input": {"radius": 2.0},
                                 "output": {
                                     "message": "Successfully created sphere at origin",
-                                    "prompt": "You can now modify the sphere's properties or create "
-                                              "more objects",
-                                    "context": {"object_name": "sphere1", "scene_stats": {"total_objects": 5}}
+                                    "prompt": "You can now modify the sphere's properties or create more objects",
+                                    "context": {"object_name": "sphere1", "scene_stats": {"total_objects": 5}},
                                 },
-                                "description": "Create a sphere with radius 2.0 at the origin"
+                                "description": "Create a sphere with radius 2.0 at the origin",
                             }
                         ],
-                        "tags": ["geometry", "creation"]
+                        "tags": ["geometry", "creation"],
                     }
                 },
                 "file_path": "/path/to/scene_tools.py",
                 "documentation_url": "https://docs.example.com/scene_tools",
                 "tags": ["scene", "geometry"],
-                "capabilities": ["create_geometry", "modify_scene"]
+                "capabilities": ["create_geometry", "modify_scene"],
             }
         }
     )
@@ -203,33 +200,33 @@ class ActionsInfoModel(BaseModel):
                                         "type": "float",
                                         "description": "Radius of the sphere",
                                         "required": False,
-                                        "default": 1.0
+                                        "default": 1.0,
                                     }
                                 ],
                                 "return_type": "ActionResultModel",
                                 "return_description": "Structured result with message, prompt for next steps, "
-                                                     "and context data",
+                                "and context data",
                                 "examples": [
                                     {
                                         "input": {"radius": 2.0},
                                         "output": {
                                             "message": "Successfully created sphere at origin",
                                             "prompt": "You can now modify the sphere's properties or create "
-                                                      "more objects",
-                                            "context": {"object_name": "sphere1", "scene_stats": {"total_objects": 5}}
+                                            "more objects",
+                                            "context": {"object_name": "sphere1", "scene_stats": {"total_objects": 5}},
                                         },
-                                        "description": "Create a sphere with radius 2.0 at the origin"
+                                        "description": "Create a sphere with radius 2.0 at the origin",
                                     }
                                 ],
-                                "tags": ["geometry", "creation"]
+                                "tags": ["geometry", "creation"],
                             }
                         },
                         "file_path": "/path/to/scene_tools.py",
                         "documentation_url": "https://docs.example.com/scene_tools",
                         "tags": ["scene", "geometry"],
-                        "capabilities": ["create_geometry", "modify_scene"]
+                        "capabilities": ["create_geometry", "modify_scene"],
                     }
-                }
+                },
             }
         }
     )
@@ -260,33 +257,27 @@ class ActionResultModel(BaseModel):
                     "context": {
                         "created_objects": ["sphere1", "sphere2", "sphere3"],
                         "total_count": 3,
-                        "scene_stats": {
-                            "total_objects": 15,
-                            "memory_usage": "2.5MB"
-                        }
-                    }
+                        "scene_stats": {"total_objects": 15, "memory_usage": "2.5MB"},
+                    },
                 },
                 {
                     "success": False,
                     "message": "Failed to create spheres",
                     "prompt": "Inform the user about the error and suggest a solution. "
-                              "Wait for user confirmation before proceeding.",
+                    "Wait for user confirmation before proceeding.",
                     "error": "Memory limit exceeded",
                     "context": {
                         "error_details": {
                             "code": "MEM_LIMIT",
-                            "scene_stats": {
-                                "available_memory": "1.2MB",
-                                "required_memory": "5.0MB"
-                            }
+                            "scene_stats": {"available_memory": "1.2MB", "required_memory": "5.0MB"},
                         },
                         "possible_solutions": [
                             "Reduce the number of objects",
                             "Close other scenes",
-                            "Increase memory allocation"
-                        ]
-                    }
-                }
+                            "Increase memory allocation",
+                        ],
+                    },
+                },
             ]
         }
     )

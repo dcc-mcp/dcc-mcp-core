@@ -119,7 +119,7 @@ def test_set_log_level(cleanup_loggers):
 
     # Log messages at different levels
     test_logger.debug("Debug message")  # Should not be logged
-    test_logger.info("Info message")    # Should be logged
+    test_logger.info("Info message")  # Should be logged
 
     # Set log level to DEBUG
     set_log_level("DEBUG")

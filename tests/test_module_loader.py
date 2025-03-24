@@ -64,10 +64,7 @@ def test_load_module_from_path_with_dependencies(temp_module_file):
     test_dep = {"key": "value"}
 
     # Load module and inject dependency
-    module = load_module_from_path(
-        temp_module_file,
-        dependencies={"test_dep": test_dep}
-    )
+    module = load_module_from_path(temp_module_file, dependencies={"test_dep": test_dep})
 
     # Verify dependency is injected
     assert hasattr(module, "test_dep")

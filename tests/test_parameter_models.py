@@ -21,6 +21,7 @@ from dcc_mcp_core.utils.exceptions import ParameterValidationError
 
 def test_create_parameter_model_from_function():
     """Test creating a Pydantic model from a function's signature."""
+
     # Test with a simple function
     def simple_func(name: str, age: int = 30, is_active: bool = True):
         return name, age, is_active
@@ -72,6 +73,7 @@ def test_create_parameter_model_from_function():
 
 def test_validate_function_parameters():
     """Test validating and converting function parameters."""
+
     # Test with a simple function
     def simple_func(name: str, age: int = 30, is_active: bool = True):
         return name, age, is_active
@@ -107,11 +109,14 @@ def test_validate_function_parameters():
 
     # verify parameter validation failure
     with pytest.raises(ParameterValidationError):
-        validate_function_parameters(instance.test_method, instance, 123, age=25)  # name should be a string, but an integer was passed
+        validate_function_parameters(
+            instance.test_method, instance, 123, age=25
+        )  # name should be a string, but an integer was passed
 
 
 def test_with_parameter_validation():
     """Test the with_parameter_validation decorator."""
+
     # Test with a simple function
     @with_parameter_validation
     def simple_func(name: str, age: int = 30, is_active: bool = True):
@@ -121,19 +126,19 @@ def test_with_parameter_validation():
     result = simple_func(name="John", age=25, is_active=False)
     print(f"Result 1: {result}")
     assert result.success is True
-    assert result.context['result'] == "John, 25, False"
+    assert result.context["result"] == "John, 25, False"
 
     # Test with positional arguments
     result = simple_func("John", 25, False)
     print(f"Result 2: {result}")
     assert result.success is True
-    assert result.context['result'] == "John, 25, False"
+    assert result.context["result"] == "John, 25, False"
 
     # Test with default values
     result = simple_func("John")
     print(f"Result 3: {result}")
     assert result.success is True
-    assert result.context['result'] == "John, 30, True"
+    assert result.context["result"] == "John, 30, True"
 
     # Test with invalid parameters
     result = simple_func()
@@ -158,7 +163,7 @@ def test_with_parameter_validation():
     result = instance.test_method("John", age=25)
     print(f"Result 6: {result}")
     assert result.success is True
-    assert result.context['result'] == "John, 25"
+    assert result.context["result"] == "John, 25"
 
     # Test parameter validation failure
     result = instance.test_method()
@@ -182,7 +187,7 @@ def test_with_parameter_validation():
     result = complex_func(names=["John", "Jane"], data={"key": "value"}, optional=42)
     print(f"Result 9: {result}")
     assert result.success is True
-    assert result.context['result'] == (2, 1, 42)
+    assert result.context["result"] == (2, 1, 42)
 
     result = complex_func(names="not a list", data={"key": "value"})
     print(f"Result 10: {result}")

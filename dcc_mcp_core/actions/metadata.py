@@ -21,8 +21,6 @@ from dcc_mcp_core.utils.constants import ACTION_METADATA
 logger = logging.getLogger(__name__)
 
 
-
-
 def extract_action_metadata(action_module: Any) -> Dict[str, Any]:
     """Extract metadata from an action module.
 
@@ -35,20 +33,20 @@ def extract_action_metadata(action_module: Any) -> Dict[str, Any]:
     """
     # Default metadata
     metadata = {
-        'name': getattr(action_module, '__action_name__', ''),
-        'version': getattr(action_module, '__action_version__', ACTION_METADATA["version"]["default"]),
-        'description': getattr(action_module, '__action_description__', ACTION_METADATA["description"]["default"]),
-        'author': getattr(action_module, '__action_author__', ACTION_METADATA["author"]["default"]),
-        'requires': getattr(action_module, '__action_requires__', []),
-        'documentation_url': getattr(action_module, '__action_documentation_url__', ''),
-        'tags': getattr(action_module, '__action_tags__', []),
-        'capabilities': getattr(action_module, '__action_capabilities__', []),
-        'file_path': getattr(action_module, '__file__', ''),
+        "name": getattr(action_module, "__action_name__", ""),
+        "version": getattr(action_module, "__action_version__", ACTION_METADATA["version"]["default"]),
+        "description": getattr(action_module, "__action_description__", ACTION_METADATA["description"]["default"]),
+        "author": getattr(action_module, "__action_author__", ACTION_METADATA["author"]["default"]),
+        "requires": getattr(action_module, "__action_requires__", []),
+        "documentation_url": getattr(action_module, "__action_documentation_url__", ""),
+        "tags": getattr(action_module, "__action_tags__", []),
+        "capabilities": getattr(action_module, "__action_capabilities__", []),
+        "file_path": getattr(action_module, "__file__", ""),
     }
 
     # Extract docstring if available
-    if not metadata['description'] and action_module.__doc__:
-        metadata['description'] = inspect.cleandoc(action_module.__doc__)
+    if not metadata["description"] and action_module.__doc__:
+        metadata["description"] = inspect.cleandoc(action_module.__doc__)
 
     return metadata
 
@@ -66,19 +64,19 @@ def extract_function_metadata(func_name: str, func: Callable) -> Dict[str, Any]:
     """
     # Default metadata
     metadata = {
-        'name': func_name,
-        'description': '',
-        'parameters': [],
-        'return_type': 'None',
-        'return_description': '',
-        'examples': [],
-        'tags': [],
+        "name": func_name,
+        "description": "",
+        "parameters": [],
+        "return_type": "None",
+        "return_description": "",
+        "examples": [],
+        "tags": [],
     }
 
     # Extract docstring
     if func.__doc__:
         doc = inspect.cleandoc(func.__doc__)
-        metadata['description'] = doc
+        metadata["description"] = doc
 
     # Extract signature
     try:
@@ -87,13 +85,13 @@ def extract_function_metadata(func_name: str, func: Callable) -> Dict[str, Any]:
         # Extract parameters
         for param_name, param in sig.parameters.items():
             # Skip self parameter for methods
-            if param_name == 'self':
+            if param_name == "self":
                 continue
 
             # Get parameter type hint
-            type_hint = 'Any'
+            type_hint = "Any"
             if param.annotation is not param.empty:
-                type_hint = str(param.annotation).replace('typing.', '')
+                type_hint = str(param.annotation).replace("typing.", "")
 
             # Get parameter default value
             default = None
@@ -103,18 +101,20 @@ def extract_function_metadata(func_name: str, func: Callable) -> Dict[str, Any]:
                 required = False
 
             # Create parameter metadata
-            metadata['parameters'].append({
-                'name': param_name,
-                'type_hint': type_hint,
-                'type': param.kind.name.lower(),  # Simplified type handling
-                'description': '',  # Will be extracted from docstring
-                'required': required,
-                'default': default,
-            })
+            metadata["parameters"].append(
+                {
+                    "name": param_name,
+                    "type_hint": type_hint,
+                    "type": param.kind.name.lower(),  # Simplified type handling
+                    "description": "",  # Will be extracted from docstring
+                    "required": required,
+                    "default": default,
+                }
+            )
 
         # Extract return type
         if sig.return_annotation is not sig.empty:
-            metadata['return_type'] = str(sig.return_annotation).replace('typing.', '')
+            metadata["return_type"] = str(sig.return_annotation).replace("typing.", "")
     except (ValueError, TypeError):
         # If we can't get the signature, just continue with default metadata
         pass
@@ -122,11 +122,11 @@ def extract_function_metadata(func_name: str, func: Callable) -> Dict[str, Any]:
     # Extract parameter descriptions and return description from docstring
     if func.__doc__:
         # Simple docstring parsing
-        docstring_lines = inspect.cleandoc(func.__doc__).split('\n')
+        docstring_lines = inspect.cleandoc(func.__doc__).split("\n")
 
         # Initialize sections
-        current_section = 'description'
-        sections = {'description': [], 'Args': [], 'Returns': [], 'Examples': []}
+        current_section = "description"
+        sections = {"description": [], "Args": [], "Returns": [], "Examples": []}
         param_descriptions = {}
 
         # Parse docstring sections
@@ -134,7 +134,7 @@ def extract_function_metadata(func_name: str, func: Callable) -> Dict[str, Any]:
             line = line.strip()
 
             # Check if this is a section header
-            if line.endswith(':') and line[:-1] in sections:
+            if line.endswith(":") and line[:-1] in sections:
                 current_section = line[:-1]
                 continue
 
@@ -143,34 +143,31 @@ def extract_function_metadata(func_name: str, func: Callable) -> Dict[str, Any]:
                 sections[current_section].append(line)
 
                 # Extract parameter descriptions
-                if current_section == 'Args' and ':' in line:
-                    parts = line.split(':', 1)
+                if current_section == "Args" and ":" in line:
+                    parts = line.split(":", 1)
                     if len(parts) == 2:
                         param_name = parts[0].strip()
                         param_desc = parts[1].strip()
                         param_descriptions[param_name] = param_desc
 
         # Update parameter descriptions
-        for param in metadata['parameters']:
-            if param['name'] in param_descriptions:
-                param['description'] = param_descriptions[param['name']]
+        for param in metadata["parameters"]:
+            if param["name"] in param_descriptions:
+                param["description"] = param_descriptions[param["name"]]
 
         # Update return description
-        if sections['Returns']:
-            metadata['return_description'] = ' '.join(sections['Returns'])
+        if sections["Returns"]:
+            metadata["return_description"] = " ".join(sections["Returns"])
 
         # Update examples
-        if sections['Examples']:
-            metadata['examples'] = [' '.join(sections['Examples'])]
+        if sections["Examples"]:
+            metadata["examples"] = [" ".join(sections["Examples"])]
 
     return metadata
 
 
 def create_action_model(
-    action_name: str,
-    action_module: Any,
-    action_functions: Dict[str, Callable],
-    dcc_name: str = ""
+    action_name: str, action_module: Any, action_functions: Dict[str, Callable], dcc_name: str = ""
 ) -> ActionModel:
     """Create an ActionModel instance with comprehensive information about an action.
 
@@ -195,33 +192,33 @@ def create_action_model(
 
         # Create parameter models
         parameter_models = []
-        for param_data in func_metadata.get('parameters', []):
+        for param_data in func_metadata.get("parameters", []):
             parameter_models.append(ParameterModel(**param_data))
 
         # Create function model
         function_models[func_name] = FunctionModel(
-            name=func_metadata.get('name', ''),
-            description=func_metadata.get('description', ''),
+            name=func_metadata.get("name", ""),
+            description=func_metadata.get("description", ""),
             parameters=parameter_models,
-            return_type=func_metadata.get('return_type', 'None'),
-            return_description=func_metadata.get('return_description', ''),
-            examples=func_metadata.get('examples', []),
-            tags=func_metadata.get('tags', []),
+            return_type=func_metadata.get("return_type", "None"),
+            return_description=func_metadata.get("return_description", ""),
+            examples=func_metadata.get("examples", []),
+            tags=func_metadata.get("tags", []),
         )
 
     # Create action model
     return ActionModel(
-        name=metadata.get('name', action_name),
-        version=metadata.get('version', ACTION_METADATA['version']['default']),
-        description=metadata.get('description', ACTION_METADATA['description']['default']),
-        author=metadata.get('author', ACTION_METADATA['author']['default']),
-        requires=metadata.get('requires', ACTION_METADATA['requires']['default']),
+        name=metadata.get("name", action_name),
+        version=metadata.get("version", ACTION_METADATA["version"]["default"]),
+        description=metadata.get("description", ACTION_METADATA["description"]["default"]),
+        author=metadata.get("author", ACTION_METADATA["author"]["default"]),
+        requires=metadata.get("requires", ACTION_METADATA["requires"]["default"]),
         dcc=dcc_name,
         functions=function_models,
-        file_path=metadata.get('file_path', ''),
-        documentation_url=metadata.get('documentation_url', None),
-        tags=metadata.get('tags', []),
-        capabilities=metadata.get('capabilities', []),
+        file_path=metadata.get("file_path", ""),
+        documentation_url=metadata.get("documentation_url", None),
+        tags=metadata.get("tags", []),
+        capabilities=metadata.get("capabilities", []),
     )
 
 

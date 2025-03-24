@@ -167,9 +167,7 @@ class VersionError(MCPError):
 
     """
 
-    def __init__(
-        self, message, component=None, current_version=None, required_version=None, code=None
-    ):
+    def __init__(self, message, component=None, current_version=None, required_version=None, code=None):
         """Initialize a new VersionError instance.
 
         Args:

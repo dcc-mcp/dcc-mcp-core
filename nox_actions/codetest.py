@@ -39,9 +39,4 @@ def pytest(session: nox.Session) -> None:
     ]
 
     # Run pytest with all arguments
-    session.run(
-        "pytest",
-        *default_args,
-        *pytest_args,
-        env={"PYTHONPATH": THIS_ROOT.as_posix()}
-    )
+    session.run("pytest", *default_args, *pytest_args, env={"PYTHONPATH": THIS_ROOT.as_posix()})

@@ -16,8 +16,7 @@ import jinja2
 from dcc_mcp_core.utils.filesystem import get_templates_directory
 
 
-def render_template(template_name: str, context_data: Dict[str, Any],
-                  template_dir: Optional[str] = None) -> str:
+def render_template(template_name: str, context_data: Dict[str, Any], template_dir: Optional[str] = None) -> str:
     """Render a template with the given context data.
 
     Args:
@@ -35,11 +34,7 @@ def render_template(template_name: str, context_data: Dict[str, Any],
         template_dir = get_templates_directory()
 
     # Set up Jinja2 environment
-    env = jinja2.Environment(
-        loader=jinja2.FileSystemLoader(template_dir),
-        trim_blocks=True,
-        lstrip_blocks=True
-    )
+    env = jinja2.Environment(loader=jinja2.FileSystemLoader(template_dir), trim_blocks=True, lstrip_blocks=True)
 
     # Load the template
     template = env.get_template(template_name)

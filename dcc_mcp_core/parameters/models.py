@@ -29,7 +29,7 @@ from dcc_mcp_core.utils.exceptions import ParameterValidationError
 logger = logging.getLogger(__name__)
 
 # Type variable for function return type
-T = TypeVar('T')
+T = TypeVar("T")
 
 # Dictionary to store parameter models for methods
 _method_parameter_models = weakref.WeakKeyDictionary()
@@ -56,20 +56,20 @@ def create_parameter_model_from_function(func: Callable) -> Any:
         type_hints = get_type_hints(func)
     except (NameError, TypeError):
         # Fall back to annotations if get_type_hints fails
-        type_hints = getattr(func, '__annotations__', {})
+        type_hints = getattr(func, "__annotations__", {})
 
     # Create field definitions for the model
     fields = {}
     for name, param in sig.parameters.items():
         # Skip 'self' parameter for methods
-        if name == 'self':
+        if name == "self":
             continue
 
         # Get type hint
         type_hint = type_hints.get(name, Any)
 
         # Skip return type hint
-        if name == 'return':
+        if name == "return":
             continue
 
         # Check if parameter has a default value
@@ -80,19 +80,13 @@ def create_parameter_model_from_function(func: Callable) -> Any:
             # *args parameter
             fields[name] = (
                 List[Any],
-                Field(
-                    default_factory=list,
-                    description=f"Variable positional arguments (*{name})"
-                )
+                Field(default_factory=list, description=f"Variable positional arguments (*{name})"),
             )
         elif param.kind == inspect.Parameter.VAR_KEYWORD:
             # **kwargs parameter
             fields[name] = (
                 Dict[str, Any],
-                Field(
-                    default_factory=dict,
-                    description=f"Variable keyword arguments (**{name})"
-                )
+                Field(default_factory=dict, description=f"Variable keyword arguments (**{name})"),
             )
         else:
             # Required parameter
@@ -154,7 +148,7 @@ def validate_function_parameters(func: Callable, *args, **kwargs) -> Dict[str, A
     param_names = list(sig.parameters.keys())
 
     # Skip 'self' parameter for methods
-    if param_names and param_names[0] == 'self':
+    if param_names and param_names[0] == "self":
         param_names = param_names[1:]
 
     # Convert args to kwargs
@@ -180,8 +174,8 @@ def validate_function_parameters(func: Callable, *args, **kwargs) -> Dict[str, A
         # Convert Pydantic validation error to a more user-friendly message
         error_messages = []
         for error in e.errors():
-            loc = '.'.join(str(location_part) for location_part in error['loc'])
-            msg = error['msg']
+            loc = ".".join(str(location_part) for location_part in error["loc"])
+            msg = error["msg"]
             error_messages.append(f"{loc}: {msg}")
 
         error_str = "; ".join(error_messages)
@@ -211,7 +205,7 @@ def with_parameter_validation(func: Callable[..., T]) -> Callable[..., Union[T, 
     model_fields = {}
     for param in parameters:
         # Skip 'self' parameter for methods
-        if param.name == 'self':
+        if param.name == "self":
             continue
 
         # Get annotation (type hint) for the parameter
@@ -236,7 +230,7 @@ def with_parameter_validation(func: Callable[..., T]) -> Callable[..., Union[T, 
     def wrapper(*args, **kwargs):
         # Check if this is a method call (first arg is self)
         is_method = False
-        if args and parameters and parameters[0].name == 'self':
+        if args and parameters and parameters[0].name == "self":
             is_method = True
             self_arg = args[0]
             args = args[1:]
@@ -264,7 +258,7 @@ def with_parameter_validation(func: Callable[..., T]) -> Callable[..., Union[T, 
                     success=False,
                     message="Parameter validation failed",
                     error=str(e),
-                    prompt="Please check the parameter values and try again."
+                    prompt="Please check the parameter values and try again.",
                 )
 
             # Validate parameter constraints (groups and dependencies)
@@ -280,7 +274,7 @@ def with_parameter_validation(func: Callable[..., T]) -> Callable[..., Union[T, 
                     success=False,
                     message="Parameter validation failed",
                     error=error_str,
-                    prompt="Please check the parameter values and try again."
+                    prompt="Please check the parameter values and try again.",
                 )
 
             # Call function with validated parameters
@@ -295,9 +289,7 @@ def with_parameter_validation(func: Callable[..., T]) -> Callable[..., Union[T, 
 
             # Otherwise, wrap the result in an ActionResultModel
             return ActionResultModel(
-                success=True,
-                message=f"Successfully executed {func.__name__}",
-                context={"result": result}
+                success=True, message=f"Successfully executed {func.__name__}", context={"result": result}
             )
 
         except Exception as e:
@@ -306,7 +298,7 @@ def with_parameter_validation(func: Callable[..., T]) -> Callable[..., Union[T, 
                 success=False,
                 message="Error in parameter validation",
                 error=str(e),
-                prompt="An unexpected error occurred during parameter validation."
+                prompt="An unexpected error occurred during parameter validation.",
             )
 
     return wrapper

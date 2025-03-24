@@ -56,6 +56,7 @@ class TestHelperFunctions:
         # Reset the global _dcc_modules dictionary
         # Import local modules
         from dcc_mcp_core.utils.dependency_injector import _dcc_modules
+
         original_dcc_modules = _dcc_modules.copy()
         _dcc_modules.clear()
 
@@ -86,6 +87,7 @@ class TestHelperFunctions:
         # Reset the global _dcc_modules dictionary
         # Import local modules
         from dcc_mcp_core.utils.dependency_injector import _dcc_modules
+
         original_dcc_modules = _dcc_modules.copy()
         _dcc_modules.clear()
 
@@ -118,6 +120,7 @@ class TestHelperFunctions:
         # Reset the global _dcc_modules dictionary
         # Import local modules
         from dcc_mcp_core.utils.dependency_injector import _dcc_modules
+
         original_dcc_modules = _dcc_modules.copy()
         _dcc_modules.clear()
 
@@ -153,6 +156,7 @@ class TestHelperFunctions:
         # Reset the global _dcc_modules dictionary
         # Import local modules
         from dcc_mcp_core.utils.dependency_injector import _dcc_modules
+
         original_dcc_modules = _dcc_modules.copy()
         _dcc_modules.clear()
 
@@ -256,11 +260,7 @@ class TestDependencyInjection:
         module = ModuleType("test_module")
 
         # Define dependencies
-        dependencies = {
-            "dep1": "value1",
-            "dep2": 42,
-            "dep3": lambda x: x * 2
-        }
+        dependencies = {"dep1": "value1", "dep2": 42, "dep3": lambda x: x * 2}
 
         # Inject dependencies
         inject_dependencies(module, dependencies)
@@ -354,11 +354,13 @@ class TestDependencyInjection:
         mock_import_module.side_effect = side_effect
 
         with patch("dcc_mcp_core.utils.dependency_injector._get_all_submodules", create=True) as mock_get_submodules:
-            mock_get_submodules.side_effect = lambda mod, visited=None: {
-                "submodule1": mock_submodule1
-            } if mod is mock_decorators else {
-                "submodule2": mock_submodule2
-            } if mod is mock_models else {}
+            mock_get_submodules.side_effect = (
+                lambda mod, visited=None: {"submodule1": mock_submodule1}
+                if mod is mock_decorators
+                else {"submodule2": mock_submodule2}
+                if mod is mock_models
+                else {}
+            )
 
             inject_dependencies(module, None, inject_core_modules=True)
 

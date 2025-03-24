@@ -40,6 +40,7 @@ def cleanup_action_managers():
     # Store the original action managers
     # Import local modules
     from dcc_mcp_core.actions.manager import _action_managers
+
     original_managers = _action_managers.copy()
 
     # Run the test

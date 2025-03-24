@@ -30,6 +30,7 @@ __action_requires__ = ["maya"]  # Specify the DCC environment this plugin depend
 # Plugin Function Implementation
 # -------------------------------------------------------------------
 
+
 @error_handler
 def launch_maya(context: Dict[str, Any], version: str = "", project_path: Optional[str] = None) -> Dict[str, Any]:
     """Launch Maya software.
@@ -62,12 +63,7 @@ def launch_maya(context: Dict[str, Any], version: str = "", project_path: Option
             cmd_args.extend(["-proj", project_path])
 
         # Launch Maya as a separate process
-        process = subprocess.Popen(
-            cmd_args,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            shell=True
-        )
+        process = subprocess.Popen(cmd_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
 
         # Wait a bit to check if process started successfully
         try:
@@ -75,9 +71,7 @@ def launch_maya(context: Dict[str, Any], version: str = "", project_path: Option
             if return_code != 0:
                 stderr = process.stderr.read().decode("utf-8")
                 return ActionResultModel(
-                    success=False,
-                    message=f"Maya failed to start with return code {return_code}",
-                    error=stderr
+                    success=False, message=f"Maya failed to start with return code {return_code}", error=stderr
                 )
         except subprocess.TimeoutExpired:
             # Process is still running, which is good
@@ -87,24 +81,16 @@ def launch_maya(context: Dict[str, Any], version: str = "", project_path: Option
             success=True,
             message=f"Maya{' ' + version if version else ''} launched successfully",
             prompt="Maya is now running. You can perform operations in the Maya environment.",
-            context={
-                "process_id": process.pid,
-                "version": version,
-                "project_path": project_path
-            }
+            context={"process_id": process.pid, "version": version, "project_path": project_path},
         )
     except Exception as e:
-        return ActionResultModel(
-            success=False,
-            message="Failed to launch Maya",
-            error=str(e)
-        )
+        return ActionResultModel(success=False, message="Failed to launch Maya", error=str(e))
 
 
 @error_handler
-def write_to_maya_script(context: Dict[str, Any], script_content: str,
-                        file_name: Optional[str] = None,
-                        script_type: str = "python") -> Dict[str, Any]:
+def write_to_maya_script(
+    context: Dict[str, Any], script_content: str, file_name: Optional[str] = None, script_type: str = "python"
+) -> Dict[str, Any]:
     """Write content to a Maya script file.
 
     Args:
@@ -121,9 +107,7 @@ def write_to_maya_script(context: Dict[str, Any], script_content: str,
     maya_client = context.get("maya_client", None)
     if not maya_client:
         return ActionResultModel(
-            success=False,
-            message="Cannot write script file",
-            error="Maya client not found in context"
+            success=False, message="Cannot write script file", error="Maya client not found in context"
         )
 
     try:
@@ -164,18 +148,10 @@ def write_to_maya_script(context: Dict[str, Any], script_content: str,
             success=True,
             message=f"Script written to {full_path}",
             prompt="You can now source this script in Maya or run it with the execute_script function.",
-            context={
-                "file_path": full_path,
-                "file_name": file_name,
-                "script_type": script_type
-            }
+            context={"file_path": full_path, "file_name": file_name, "script_type": script_type},
         )
     except Exception as e:
-        return ActionResultModel(
-            success=False,
-            message="Failed to write script file",
-            error=str(e)
-        )
+        return ActionResultModel(success=False, message="Failed to write script file", error=str(e))
 
 
 @error_handler
@@ -195,27 +171,21 @@ def execute_script(context: Dict[str, Any], script_path: str, script_type: Optio
     maya_client = context.get("maya_client", None)
     if not maya_client:
         return ActionResultModel(
-            success=False,
-            message="Cannot execute script",
-            error="Maya client not found in context"
+            success=False, message="Cannot execute script", error="Maya client not found in context"
         )
 
     # Get Maya commands interface
     cmds = maya_client.cmds
     if not cmds:
         return ActionResultModel(
-            success=False,
-            message="Cannot execute script",
-            error="Maya commands interface not found in client"
+            success=False, message="Cannot execute script", error="Maya commands interface not found in client"
         )
 
     try:
         # Check if file exists
         if not os.path.isfile(script_path):
             return ActionResultModel(
-                success=False,
-                message=f"Script file not found: {script_path}",
-                error="File does not exist"
+                success=False, message=f"Script file not found: {script_path}", error="File does not exist"
             )
 
         # Determine script type from extension if not specified
@@ -240,18 +210,10 @@ def execute_script(context: Dict[str, Any], script_path: str, script_type: Optio
             success=True,
             message=f"Script executed successfully: {script_path}",
             prompt="Check the Maya console for any output from the script.",
-            context={
-                "script_path": script_path,
-                "script_type": script_type,
-                "execution_result": result
-            }
+            context={"script_path": script_path, "script_type": script_type, "execution_result": result},
         )
     except Exception as e:
-        return ActionResultModel(
-            success=False,
-            message=f"Failed to execute script: {script_path}",
-            error=str(e)
-        )
+        return ActionResultModel(success=False, message=f"Failed to execute script: {script_path}", error=str(e))
 
 
 @error_handler
@@ -271,18 +233,14 @@ def save_maya_file(context: Dict[str, Any], file_path: str, file_type: str = "ma
     maya_client = context.get("maya_client", None)
     if not maya_client:
         return ActionResultModel(
-            success=False,
-            message="Cannot save Maya file",
-            error="Maya client not found in context"
+            success=False, message="Cannot save Maya file", error="Maya client not found in context"
         )
 
     # Get Maya commands interface
     cmds = maya_client.cmds
     if not cmds:
         return ActionResultModel(
-            success=False,
-            message="Cannot save Maya file",
-            error="Maya commands interface not found in client"
+            success=False, message="Cannot save Maya file", error="Maya commands interface not found in client"
         )
 
     try:
@@ -304,14 +262,7 @@ def save_maya_file(context: Dict[str, Any], file_path: str, file_type: str = "ma
             success=True,
             message=f"Maya scene saved to {file_path}",
             prompt="The scene has been saved successfully.",
-            context={
-                "file_path": file_path,
-                "file_type": file_type
-            }
+            context={"file_path": file_path, "file_type": file_type},
         )
     except Exception as e:
-        return ActionResultModel(
-            success=False,
-            message="Failed to save Maya file",
-            error=str(e)
-        )
+        return ActionResultModel(success=False, message="Failed to save Maya file", error=str(e))

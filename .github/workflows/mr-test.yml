@@ -4,7 +4,7 @@ on: [ pull_request ]
 jobs:
   python-check:
     strategy:
-      max-parallel: 3
+      max-parallel: 30
       matrix:
         os: [ubuntu-20.04, ubuntu-latest, windows-2019, windows-latest, macos-11, macos-latest]
         python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]

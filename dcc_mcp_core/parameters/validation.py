@@ -48,9 +48,7 @@ def validate_and_convert_parameters(func: Callable, args: Tuple[Any, ...], kwarg
 
 
 def validate_parameters_with_constraints(
-    func: Callable,
-    args: Tuple[Any, ...],
-    kwargs: Dict[str, Any]
+    func: Callable, args: Tuple[Any, ...], kwargs: Dict[str, Any]
 ) -> Union[Dict[str, Any], ActionResultModel]:
     """Validate and convert function parameters using both Pydantic and parameter constraints.
 
@@ -79,7 +77,7 @@ def validate_parameters_with_constraints(
                 message="Parameter validation failed",
                 error="\n".join(errors),
                 prompt="Please check the parameter values and try again.",
-                context={"validation_errors": errors}
+                context={"validation_errors": errors},
             )
 
         return validated_params
@@ -90,7 +88,7 @@ def validate_parameters_with_constraints(
             message="Parameter validation failed",
             error=str(e),
             prompt="Please check the parameter values and try again.",
-            context={"exception": str(e)}
+            context={"exception": str(e)},
         )
 
 
@@ -107,6 +105,7 @@ def create_validation_decorator(with_constraints: bool = True) -> Callable:
     if with_constraints:
         return with_parameter_validation
     else:
+
         def decorator(func):
             def wrapper(*args, **kwargs):
                 try:
@@ -118,7 +117,7 @@ def create_validation_decorator(with_constraints: bool = True) -> Callable:
                     param_names = list(sig.parameters.keys())
 
                     # Skip 'self' parameter for methods
-                    if param_names and param_names[0] == 'self':
+                    if param_names and param_names[0] == "self":
                         # Call with self and validated parameters
                         return func(args[0], **validated_params)
                     else:
@@ -131,7 +130,7 @@ def create_validation_decorator(with_constraints: bool = True) -> Callable:
                         message="Parameter validation failed",
                         error=str(e),
                         prompt="Please check the parameter values and try again.",
-                        context={"exception": str(e)}
+                        context={"exception": str(e)},
                     )
 
             # Copy function metadata

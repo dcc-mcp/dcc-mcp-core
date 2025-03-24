@@ -48,12 +48,7 @@ class ParameterGroup:
     """
 
     def __init__(
-        self,
-        name: str,
-        description: str,
-        parameters: List[str],
-        required: bool = False,
-        exclusive: bool = False
+        self, name: str, description: str, parameters: List[str], required: bool = False, exclusive: bool = False
     ):
         """Initialize a parameter group.
 
@@ -110,7 +105,7 @@ class ParameterGroup:
             "description": self.description,
             "parameters": self.parameters,
             "required": self.required,
-            "exclusive": self.exclusive
+            "exclusive": self.exclusive,
         }
 
 
@@ -129,11 +124,13 @@ class ParameterDependency:
 
     """
 
-    def __init__(self,
-                 parameter: str,
-                 depends_on: Union[str, List[str]],
-                 dependency_type: DependencyType = DependencyType.REQUIRES,
-                 error_message: Optional[str] = None):
+    def __init__(
+        self,
+        parameter: str,
+        depends_on: Union[str, List[str]],
+        dependency_type: DependencyType = DependencyType.REQUIRES,
+        error_message: Optional[str] = None,
+    ):
         """Initialize a parameter dependency.
 
         Args:
@@ -266,7 +263,7 @@ class ParameterDependency:
             "parameter": self.parameter,
             "depends_on": self.depends_on,
             "dependency_type": self.dependency_type.value,
-            "error_message": self.error_message
+            "error_message": self.error_message,
         }
 
 
@@ -284,6 +281,7 @@ def with_parameter_groups(*groups: ParameterGroup):
         Decorated function with parameter groups
 
     """
+
     def decorator(func):
         # Store parameter groups on the function
         func.__parameter_groups__ = groups
@@ -306,6 +304,7 @@ def with_parameter_dependencies(*dependencies: ParameterDependency):
         Decorated function with parameter dependencies
 
     """
+
     def decorator(func):
         # Store parameter dependencies on the function
         func.__parameter_dependencies__ = dependencies
@@ -316,9 +315,7 @@ def with_parameter_dependencies(*dependencies: ParameterDependency):
 
 
 def validate_parameter_constraints(
-    func: Callable,
-    args: Tuple[Any, ...],
-    kwargs: Dict[str, Any]
+    func: Callable, args: Tuple[Any, ...], kwargs: Dict[str, Any]
 ) -> Tuple[bool, List[str]]:
     """Validate parameters for a function with parameter groups and dependencies.
 
@@ -343,7 +340,7 @@ def validate_parameter_constraints(
     param_names = list(sig.parameters.keys())
 
     # Skip 'self' parameter for methods
-    if param_names and param_names[0] == 'self':
+    if param_names and param_names[0] == "self":
         param_names = param_names[1:]
 
     # Convert args to kwargs
@@ -389,6 +386,7 @@ def with_parameter_validation(func):
         Decorated function with parameter validation
 
     """
+
     def wrapper(*args, **kwargs):
         # Validate parameters
         is_valid, errors = validate_parameter_constraints(func, args, kwargs)
@@ -400,7 +398,7 @@ def with_parameter_validation(func):
                 message="Parameter validation failed",
                 error="\n".join(errors),
                 prompt="Please check the parameter values and try again.",
-                context={"validation_errors": errors}
+                context={"validation_errors": errors},
             )
 
         # Call the function with the original parameters

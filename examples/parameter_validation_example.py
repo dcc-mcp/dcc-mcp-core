@@ -41,33 +41,33 @@ def create_user(name: str, age: int, email: str, is_active: bool = True) -> Dict
         "name": name,
         "age": age,
         "email": email,
-        "is_active": is_active
+        "is_active": is_active,
     }
 
     return ActionResultModel(
         success=True,
         message=f"Created user {name}",
         prompt="You can now add roles or permissions to this user",
-        context={"user": user}
+        context={"user": user},
     )
 
 
 # Example 2: Parameter groups and dependencies
 @with_parameter_validation
 @with_parameter_groups(
-    ParameterGroup("identification", "User identification parameters",
-                   ["username", "email"], required=True, exclusive=True),
-    ParameterGroup("authentication", "Authentication parameters",
-                   ["password", "token"], required=True, exclusive=True),
+    ParameterGroup(
+        "identification", "User identification parameters", ["username", "email"], required=True, exclusive=True
+    ),
+    ParameterGroup("authentication", "Authentication parameters", ["password", "token"], required=True, exclusive=True),
     # Define parameter dependencies
-    password=("username", None, "Password requires a username")
+    password=("username", None, "Password requires a username"),
 )
 def authenticate_user(
     username: Optional[str] = None,
     email: Optional[str] = None,
     password: Optional[str] = None,
     token: Optional[str] = None,
-    remember_me: bool = False
+    remember_me: bool = False,
 ) -> Dict[str, Any]:
     """Authenticate a user with either username/password or email/token.
 
@@ -97,8 +97,8 @@ def authenticate_user(
         context={
             "auth_method": auth_method,
             "user_id": 12345,
-            "session_expires": "2023-12-31T23:59:59Z" if remember_me else "2023-12-01T23:59:59Z"
-        }
+            "session_expires": "2023-12-31T23:59:59Z" if remember_me else "2023-12-01T23:59:59Z",
+        },
     )
 
 
@@ -110,7 +110,7 @@ def search_products(
     price_range: Optional[Dict[str, float]] = None,
     sort_by: str = "relevance",
     page: int = 1,
-    page_size: int = 20
+    page_size: int = 20,
 ) -> Dict[str, Any]:
     """Search for products matching the given criteria.
 
@@ -134,7 +134,7 @@ def search_products(
     results = [
         {"id": 1, "name": "Product 1", "price": 19.99, "category": "Electronics"},
         {"id": 2, "name": "Product 2", "price": 29.99, "category": "Home & Kitchen"},
-        {"id": 3, "name": "Product 3", "price": 9.99, "category": "Books"}
+        {"id": 3, "name": "Product 3", "price": 9.99, "category": "Books"},
     ]
 
     # Filter by categories if provided
@@ -156,12 +156,8 @@ def search_products(
             "total": len(results),
             "page": page,
             "page_size": page_size,
-            "filters_applied": {
-                "categories": categories,
-                "price_range": price_range,
-                "sort_by": sort_by
-            }
-        }
+            "filters_applied": {"categories": categories, "price_range": price_range, "sort_by": sort_by},
+        },
     )
 
 
@@ -206,18 +202,13 @@ def run_examples():
 
     # Valid parameters with complex types
     result8 = search_products(
-        query="laptop",
-        categories=["Electronics", "Computers"],
-        price_range={"min": 500, "max": 2000},
-        sort_by="price"
+        query="laptop", categories=["Electronics", "Computers"], price_range={"min": 500, "max": 2000}, sort_by="price"
     )
     print(f"Result 8 (complex types): {result8}\n")
 
     # String to list conversion
     result9 = search_products(
-        query="furniture",
-        categories="Home & Kitchen, Furniture",
-        price_range="{\"min\": 100, \"max\": 500}"
+        query="furniture", categories="Home & Kitchen, Furniture", price_range='{"min": 100, "max": 500}'
     )
     print(f"Result 9 (string to complex types): {result9}\n")
 
