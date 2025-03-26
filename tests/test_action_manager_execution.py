@@ -5,6 +5,8 @@ This module contains tests for the action execution methods of the ActionManager
 
 # Import built-in modules
 import os
+from typing import ClassVar
+from typing import List
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
@@ -14,210 +16,79 @@ import pytest
 # Import local modules
 # Import DCC-MCP-Core modules
 from dcc_mcp_core.actions.manager import ActionManager
-from dcc_mcp_core.models import ActionModel
 from dcc_mcp_core.models import ActionResultModel
-from dcc_mcp_core.models import FunctionModel
-from dcc_mcp_core.models import ParameterModel
 
 
 def test_action_manager_execute_action():
-    """Test ActionManager.call_action_function method."""
+    """Test ActionManager.call_action method."""
     # Create a new ActionManager instance
     manager = ActionManager("maya")
 
-    # Create a mock module with a test function
-    mock_module = MagicMock()
-    mock_module.test_function = MagicMock(return_value="Test result")
+    # Create a mock Action class
+    class MockAction:
+        name = "test_action"
+        dcc = "maya"
 
-    # Add the mock module to the manager
-    manager._action_modules["test_action"] = mock_module
-    manager._actions["test_action"] = {"test_function": mock_module.test_function}
+        def __init__(self, context=None):
+            self.context = context or {}
 
-    # Execute the function
-    result = manager.call_action_function("test_action", "test_function")
+        def setup(self, **kwargs):
+            pass
 
-    # Check that the result is an ActionResultModel
-    assert isinstance(result, ActionResultModel)
+        def process(self):
+            return ActionResultModel(
+                success=True, message="Successfully executed test_action", context={"result": "Test result"}
+            )
 
-    # Check that the result indicates success
-    assert result.success is True
+    # Mock the registry to return our mock Action class
+    with patch.object(manager.registry, "get_action", return_value=MockAction):
+        # Execute the action
+        result = manager.call_action("test_action")
 
-    # Check that the message indicates success
-    assert "Successfully called" in result.message
+        # Check that the result is an ActionResultModel
+        assert isinstance(result, ActionResultModel)
 
-    # Check that the context contains the result
-    assert result.context["result"] == "Test result"
+        # Check that the result indicates success
+        assert result.success is True
 
-    # Check that the function was called
-    mock_module.test_function.assert_called_once()
+        # Check that the message indicates success
+        assert "Successfully executed test_action" in result.message
+
+        # Check that the context contains the result
+        assert result.context["result"] == "Test result"
 
 
 def test_action_manager_execute_action_with_args():
-    """Test ActionManager.call_action_function method with arguments."""
+    """Test ActionManager.call_action method with arguments."""
     # Create a new ActionManager instance
     manager = ActionManager("maya")
 
-    # Create a mock module with a test function
-    mock_module = MagicMock()
-    mock_module.test_function = MagicMock(return_value="Test result with args")
+    # Create a mock Action class
+    class MockAction:
+        name = "test_action"
+        dcc = "maya"
 
-    # Add the mock module to the manager
-    manager._action_modules["test_action"] = mock_module
-    manager._actions["test_action"] = {"test_function": mock_module.test_function}
+        def __init__(self, context=None):
+            self.context = context or {}
+            self.args = None
+
+        def setup(self, **kwargs):
+            self.args = kwargs
+
+        def process(self):
+            return ActionResultModel(
+                success=True,
+                message="Successfully executed test_action",
+                context={"result": "Test result with args", "args": self.args},
+            )
 
     # Define arguments
     args = {"arg1": "value1", "arg2": "value2"}
 
-    # Execute the function with arguments
-    result = manager.call_action_function("test_action", "test_function", **args)
-
-    # Check that the result is an ActionResultModel
-    assert isinstance(result, ActionResultModel)
-
-    # Check that the result indicates success
-    assert result.success is True
-
-    # Check that the message indicates success
-    assert "Successfully called" in result.message
-
-    # Check that the context contains the result
-    assert result.context["result"] == "Test result with args"
-
-    # Check that the function was called with the correct arguments
-    mock_module.test_function.assert_called_once_with(**args)
-
-
-def test_action_manager_execute_action_nonexistent_action():
-    """Test ActionManager.call_action_function method with a nonexistent action."""
-    # Create a new ActionManager instance
-    manager = ActionManager("maya")
-
-    # Execute a nonexistent action
-    result = manager.call_action_function("non_existent_action", "test_function")
-
-    # Check that the result is an ActionResultModel
-    assert isinstance(result, ActionResultModel)
-
-    # Check that the result indicates failure
-    assert result.success is False
-
-    # Check that the message indicates an error occurred
-    assert "Failed to call" in result.message
-
-    # Check that the error contains the action name
-    assert "non_existent_action" in result.error
-
-
-def test_action_manager_execute_action_nonexistent_function():
-    """Test ActionManager.call_action_function method with a nonexistent function."""
-    # Create a new ActionManager instance
-    manager = ActionManager("maya")
-
-    # Create a mock module without the non_existent_function
-    mock_module = MagicMock(spec=["test_function"])  # Only test_function is allowed
-    mock_module.test_function = MagicMock(return_value="Test result")
-
-    # Add the mock module to the manager
-    manager._action_modules["test_action"] = mock_module
-    manager._actions["test_action"] = {"test_function": mock_module.test_function}
-
-    # Execute a nonexistent function
-    result = manager.call_action_function("test_action", "non_existent_function")
-
-    # Print result for debugging
-    print(f"Result: {result}")
-    print(f"Success: {result.success}")
-    print(f"Message: {result.message}")
-    print(f"Error: {result.error}")
-
-    # Check that the result is an ActionResultModel
-    assert isinstance(result, ActionResultModel)
-
-    # Check that the result indicates failure
-    assert result.success is False
-
-    # Check that the message indicates an error occurred
-    assert "Failed to call" in result.message
-
-    # Check that the error contains the function name
-    assert "non_existent_function" in result.error
-
-
-def test_action_manager_execute_action_exception():
-    """Test ActionManager.call_action_function method with a function that raises an exception."""
-    # Create a new ActionManager instance
-    manager = ActionManager("maya")
-
-    # Create a mock module with a function that raises an exception
-    mock_module = MagicMock()
-    mock_module.test_function = MagicMock(side_effect=Exception("Test exception"))
-
-    # Add the mock module to the manager
-    manager._action_modules["test_action"] = mock_module
-    manager._actions["test_action"] = {"test_function": mock_module.test_function}
-
-    # Execute the function
-    result = manager.call_action_function("test_action", "test_function")
-
-    # Check that the result is an ActionResultModel
-    assert isinstance(result, ActionResultModel)
-
-    # Check that the result indicates failure
-    assert result.success is False
-
-    # Check that the message indicates an error occurred
-    assert "Failed to call" in result.message
-
-    # Check that the error contains the exception message
-    assert "Test exception" in result.error
-
-
-def test_get_action_info_result_structure():
-    """Test the structure of the ActionResultModel returned by get_action_info."""
-    # Create a new ActionManager instance
-    manager = ActionManager("maya")
-
-    # Create a mock action model
-    action_model = ActionModel(
-        name="test_action",
-        version="1.0.0",
-        description="Test action for testing",
-        author="DCC-MCP-Core",
-        dcc="maya",  # Add required dcc field
-        file_path="/path/to/test_action.py",  # Add required file_path field
-        functions={
-            "test_function": FunctionModel(
-                name="test_function",
-                description="Test function",
-                parameters=[
-                    ParameterModel(
-                        name="param1",
-                        description="Test parameter",
-                        type="str",
-                        type_hint="str",  # Add required type_hint field
-                        default="default",
-                    )
-                ],
-            )
-        },
-    )
-
-    # Create a mock module with a test function
-    mock_module = MagicMock()
-    mock_module.__action_name__ = "test_action"
-    mock_module.__action_version__ = "1.0.0"
-    mock_module.__action_description__ = "Test action for testing"
-    mock_module.__action_author__ = "DCC-MCP-Core"
-    mock_module.test_function = MagicMock(return_value="Test result")
-
-    # Set internal attributes directly
-    manager._action_modules = {"test_action": mock_module}
-    manager._actions = {"test_action": {"test_function": mock_module.test_function}}
-
-    # Mock the create_action_model function
-    with patch("dcc_mcp_core.actions.manager.create_action_model", return_value=action_model):
-        # Call the get_action_info method
-        result = manager.get_action_info("test_action")
+    # Mock the registry to return our mock Action class
+    with patch.object(manager.registry, "get_action", return_value=MockAction):
+        # Execute the action with arguments
+        result = manager.call_action("test_action", **args)
 
         # Check that the result is an ActionResultModel
         assert isinstance(result, ActionResultModel)
@@ -226,254 +97,232 @@ def test_get_action_info_result_structure():
         assert result.success is True
 
         # Check that the message indicates success
-        assert "found" in result.message
+        assert "Successfully executed test_action" in result.message
 
-        # Check that the context contains the result
-        assert "result" in result.context
-
-        # Check that the result in the context is an ActionModel
-        assert isinstance(result.context["result"], ActionModel)
-
-        # Check the attributes of the ActionModel
-        action_result = result.context["result"]
-        assert action_result.name == "test_action"
-        assert action_result.version == "1.0.0"
-        assert action_result.description == "Test action for testing"
-        assert action_result.author == "DCC-MCP-Core"
-        assert "test_function" in action_result.functions
+        # Check that the context contains the result and arguments
+        assert result.context["result"] == "Test result with args"
+        assert result.context["args"] == args
 
 
-def test_get_actions_info_result_structure():
-    """Test the structure of the ActionResultModel returned by get_actions_info."""
+def test_action_manager_execute_action_nonexistent_action():
+    """Test ActionManager.call_action method with a nonexistent action."""
     # Create a new ActionManager instance
     manager = ActionManager("maya")
 
-    # Create a mock action model
-    action_model = ActionModel(
-        name="test_action",
-        version="1.0.0",
-        description="Test action for testing",
-        author="DCC-MCP-Core",
-        dcc="maya",
-        file_path="/path/to/test_action.py",
-        functions={},
-    )
+    # Mock the registry to return None for nonexistent action
+    with patch.object(manager.registry, "get_action", return_value=None):
+        # Execute a nonexistent action
+        result = manager.call_action("non_existent_action")
 
-    # Create a mock module with a test function
-    mock_module = MagicMock()
-    mock_module.__action_name__ = "test_action"
-    mock_module.__action_version__ = "1.0.0"
-    mock_module.__action_description__ = "Test action for testing"
-    mock_module.__action_author__ = "DCC-MCP-Core"
+        # Check that the result is an ActionResultModel
+        assert isinstance(result, ActionResultModel)
 
-    # Set internal attributes directly
-    manager._action_modules = {"test_action": mock_module}
-    manager._actions = {"test_action": {}}
+        # Check that the result indicates failure
+        assert result.success is False
 
-    # Mock the get_action_info_cached method
-    mock_result = ActionResultModel(
-        success=True, message="Action 'test_action' found", context={"result": action_model}
-    )
-    with patch.object(manager, "get_action_info_cached", return_value=mock_result):
-        # Mock the create_actions_info_model function
-        # Import local modules
-        from dcc_mcp_core.models import ActionsInfoModel
+        # Check that the message indicates an error occurred
+        assert "not found" in result.message
 
-        actions_info_model = ActionsInfoModel(dcc_name="maya", actions={"test_action": action_model})
-        with patch("dcc_mcp_core.actions.manager.create_actions_info_model", return_value=actions_info_model):
-            # Call the get_actions_info method
-            result = manager.get_actions_info()
+        # Check that the error contains the action name
+        assert "non_existent_action" in result.message
 
-            # Check that the result is an ActionResultModel
-            assert isinstance(result, ActionResultModel)
 
-            # Check that the result indicates success
-            assert result.success is True
+def test_action_manager_execute_action_exception():
+    """Test ActionManager.call_action method with an action that raises an exception."""
+    # Create a new ActionManager instance
+    manager = ActionManager("maya")
 
-            # Check that the message indicates success
-            assert "Actions info retrieved" in result.message
+    # Create a mock Action class that raises an exception
+    class MockActionWithException:
+        name = "test_action"
+        dcc = "maya"
 
-            # Check that the context contains the result
-            assert "result" in result.context
+        def __init__(self, context=None):
+            self.context = context or {}
 
-            # Check that the result in the context has an actions attribute
-            assert hasattr(result.context["result"], "actions")
+        def setup(self, **kwargs):
+            self.kwargs = kwargs
 
-            # Check that the actions attribute is a dictionary containing the action
-            actions = result.context["result"].actions
-            assert "test_action" in actions
+        def process(self):
+            # Simulate an exception during processing
+            raise Exception("Test exception")
 
-            # Check the attributes of the action
-            action_result = actions["test_action"]
-            assert action_result.name == "test_action"
-            assert action_result.version == "1.0.0"
-            assert action_result.description == "Test action for testing"
-            assert action_result.author == "DCC-MCP-Core"
+    # Mock the registry to return our mock Action class
+    with patch.object(manager.registry, "get_action", return_value=MockActionWithException):
+        # Execute the action
+        result = manager.call_action("test_action")
+
+        # Check that the result is an ActionResultModel
+        assert isinstance(result, ActionResultModel)
+
+        # Check that the result indicates failure
+        assert result.success is False
+
+        # Check that the message indicates an error occurred
+        assert "Action test_action execution failed" in result.message
+
+        # Check that the error contains the exception message
+        assert "Test exception" in result.error
+
+
+def test_action_manager_execute_action_validation_error():
+    """Test ActionManager.call_action method with input validation error."""
+    # Create a new ActionManager instance
+    manager = ActionManager("maya")
+
+    # Create a mock Action class with validation error
+    class MockActionWithValidation:
+        name = "test_action"
+        dcc = "maya"
+
+        def __init__(self, context=None):
+            self.context = context or {}
+
+        def setup(self, **kwargs):
+            # Simulate validation error
+            raise ValueError("Validation error: required parameter missing")
+
+        def process(self):
+            # This should not be called due to validation error
+            return ActionResultModel(success=True, message="This should not be reached")
+
+    # Mock the registry to return our mock Action class
+    with patch.object(manager.registry, "get_action", return_value=MockActionWithValidation):
+        # Execute the action
+        result = manager.call_action("test_action")
+
+        # Check that the result is an ActionResultModel
+        assert isinstance(result, ActionResultModel)
+
+        # Check that the result indicates failure
+        assert result.success is False
+
+        # Check that the message indicates a validation error
+        assert "Action test_action execution failed" in result.message
+
+        # Check that the error contains validation information
+        assert "Validation error" in result.error
 
 
 def test_action_result_model_error_handling():
     """Test the error handling in ActionResultModel."""
-    manager = ActionManager("maya")
-
-    result = manager.get_action_info("nonexistent_action")
-
-    assert isinstance(result, ActionResultModel)
-
-    assert result.success is False
-
-    assert "not loaded or does not exist" in result.error
-
-    assert "not found" in result.message
-
-
-def test_get_action_info_nonexistent_action():
-    """Test get_action_info method with a nonexistent action."""
-    manager = ActionManager("maya")
-
-    manager._action_modules = {}
-    manager._actions = {}
-
-    result = manager.get_action_info("nonexistent_action")
-
-    assert isinstance(result, ActionResultModel)
-
-    assert result.success is False
-
-    assert "not found" in result.message
-    assert result.error is not None
-    assert "not loaded or does not exist" in result.error
-
-    assert result.context is None or "result" not in result.context
-
-
-def test_get_action_info_cached():
-    """Test the caching functionality of get_action_info_cached method."""
-    # Create a new ActionManager instance
-    manager = ActionManager("maya")
-
-    # Create a mock module with a test function
-    mock_module = MagicMock()
-    mock_module.__action_name__ = "test_action"
-    mock_module.__action_version__ = "1.0.0"
-    mock_module.__action_description__ = "Test action for testing"
-    mock_module.__action_author__ = "DCC-MCP-Core"
-    mock_module.test_function = MagicMock(return_value="Test result")
-
-    # Set internal attributes directly
-    manager._action_modules = {"test_action": mock_module}
-    manager._actions = {"test_action": {"test_function": mock_module.test_function}}
-
-    # Create a mock ActionModel
-    action_model = ActionModel(
-        name="test_action",
-        version="1.0.0",
-        description="Test action for testing",
-        author="DCC-MCP-Core",
-        functions={},
-        dcc="maya",
-        file_path="/path/to/test_action.py",
+    # Create a new ActionResultModel with error
+    result = ActionResultModel(
+        success=False, message="Error occurred", error="This is an error message", context={"error_code": 404}
     )
 
-    # Mock the create_action_model function
-    with patch("dcc_mcp_core.actions.manager.create_action_model", return_value=action_model) as mock_create_model:
-        # First call to get_action_info_cached
-        result1 = manager.get_action_info_cached("test_action")
+    # Check basic properties
+    assert result.success is False
+    assert result.message == "Error occurred"
+    assert result.error == "This is an error message"
+    assert result.context["error_code"] == 404
 
-        # Second call to get_action_info_cached
-        result2 = manager.get_action_info_cached("test_action")
-
-        # Verify create_action_model is called only once
-        mock_create_model.assert_called_once()
-
-        # Verify both calls return the same result
-        assert result1 is result2
-
-        # Verify the result is an ActionResultModel
-        assert isinstance(result1, ActionResultModel)
-        assert result1.success is True
+    # Test string representation
+    str_repr = str(result)
+    assert "success=False" in str_repr
+    assert "Error occurred" in str_repr
 
 
-def test_invalidate_action_cache():
-    """Test the invalidate_action_cache method."""
+def test_get_actions_info_with_registered_actions():
+    """Test get_actions_info method with registered actions."""
     # Create a new ActionManager instance
     manager = ActionManager("maya")
 
-    # Create a mock module with a test function
-    mock_module = MagicMock()
-    mock_module.__action_name__ = "test_action"
-    mock_module.__action_version__ = "1.0.0"
-    mock_module.__action_description__ = "Test action for testing"
-    mock_module.__action_author__ = "DCC-MCP-Core"
+    # Create mock Action classes
+    class TestAction1:
+        name = "test_action1"
+        description = "Test action 1"
+        tags: ClassVar[List[str]] = ["test", "example"]
+        dcc = "maya"
+        order = 0
 
-    # Set internal attributes directly
-    manager._action_modules = {"test_action": mock_module}
-    manager._actions = {"test_action": {}}
+    class TestAction2:
+        name = "test_action2"
+        description = "Test action 2"
+        tags: ClassVar[List[str]] = ["test", "advanced"]
+        dcc = "maya"
+        order = 1
 
-    # Create a mock ActionModel
-    action_model = ActionModel(
-        name="test_action",
-        version="1.0.0",
-        description="Test action for testing",
-        author="DCC-MCP-Core",
-        functions={},
-        dcc="maya",
-        file_path="/path/to/test_action.py",
+    # Mock the registry's list_actions and get_action methods
+    with patch.object(manager.registry, "list_actions") as mock_list_actions:
+        mock_list_actions.return_value = [{"name": "test_action1"}, {"name": "test_action2"}]
+
+        with patch.object(manager.registry, "get_action") as mock_get_action:
+            # Define side effect to return different Action classes based on name
+            def side_effect(action_name):
+                if action_name == "test_action1":
+                    return TestAction1
+                elif action_name == "test_action2":
+                    return TestAction2
+                return None
+
+            mock_get_action.side_effect = side_effect
+
+            # Call get_actions_info
+            result = manager.get_actions_info()
+
+            # Verify result
+            assert isinstance(result, ActionResultModel)
+            assert result.success is True
+            assert "Actions info retrieved" in result.message
+
+            # Verify actions info
+            actions_info = result.context["actions"]
+            assert len(actions_info) == 2
+
+            # Verify action 1 info
+            assert "test_action1" in actions_info
+            assert actions_info["test_action1"]["name"] == "test_action1"
+            assert actions_info["test_action1"]["description"] == "Test action 1"
+            assert "test" in actions_info["test_action1"]["tags"]
+
+            # Verify action 2 info
+            assert "test_action2" in actions_info
+            assert actions_info["test_action2"]["name"] == "test_action2"
+            assert actions_info["test_action2"]["description"] == "Test action 2"
+            assert "advanced" in actions_info["test_action2"]["tags"]
+
+
+def test_middleware_integration():
+    """Test integration with middleware."""
+    # Create a new ActionManager instance
+    manager = ActionManager("maya")
+
+    # Create a mock middleware
+    mock_middleware = MagicMock()
+    mock_middleware.process.return_value = ActionResultModel(
+        success=True, message="Processed by middleware", context={"middleware_processed": True}
     )
 
-    # Mock the create_action_model function
-    with patch("dcc_mcp_core.actions.manager.create_action_model", return_value=action_model) as mock_create_model:
-        # First call to get_action_info_cached
-        result1 = manager.get_action_info_cached("test_action")
+    # Set the middleware
+    manager.middleware = mock_middleware
 
-        # Verify create_action_model is called once
-        assert mock_create_model.call_count == 1
+    # Create a mock Action class
+    class MockAction:
+        name = "test_action"
+        dcc = "maya"
 
-        # Invalidate the cache
-        manager.invalidate_action_cache()
+        def __init__(self, context=None):
+            self.context = context or {}
 
-        # Second call to get_action_info_cached
-        result2 = manager.get_action_info_cached("test_action")
+        def setup(self, **kwargs):
+            pass
 
-        # Verify create_action_model is called twice
-        assert mock_create_model.call_count == 2
+        def process(self):
+            # This should not be called because middleware is used
+            return ActionResultModel(success=True, message="This should not be reached")
 
-        # Verify both results are successful
-        assert result1.success is True
-        assert result2.success is True
+    # Mock the registry to return our mock Action class
+    with patch.object(manager.registry, "get_action", return_value=MockAction):
+        # Execute the action
+        result = manager.call_action("test_action")
 
-
-def test_get_actions_info_empty():
-    """Test get_actions_info method when no actions are loaded."""
-    # Create a new ActionManager instance
-    manager = ActionManager("maya")
-
-    # Ensure internal dictionaries are empty
-    manager._action_modules = {}
-    manager._actions = {}
-
-    # Mock the create_actions_info_model function
-    # Import local modules
-    from dcc_mcp_core.models import ActionsInfoModel
-
-    empty_model = ActionsInfoModel(dcc_name="maya", actions={})
-    with patch("dcc_mcp_core.actions.metadata.create_actions_info_model", return_value=empty_model):
-        # Call the get_actions_info method
-        result = manager.get_actions_info()
-
-        # Check that the result is an ActionResultModel
-        assert isinstance(result, ActionResultModel)
-
-        # Check that the result indicates success
+        # Verify that middleware was used
         assert result.success is True
+        assert "Processed by middleware" in result.message
+        assert result.context["middleware_processed"] is True
 
-        # Check that the message indicates success
-        assert "retrieved" in result.message
-
-        # Check that the context contains the result
-        assert "result" in result.context
-
-        # Check that the result in the context is an ActionsInfoModel
-        assert isinstance(result.context["result"], ActionsInfoModel)
-
-        # Check that the ActionsInfoModel is empty
-        assert len(result.context["result"].actions) == 0
+        # Verify that middleware.process was called with an Action instance
+        mock_middleware.process.assert_called_once()
+        action_arg = mock_middleware.process.call_args[0][0]
+        assert isinstance(action_arg, MockAction)

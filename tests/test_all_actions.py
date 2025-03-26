@@ -1,12 +1,14 @@
-"""Tests for all actions in the data directory.
+"""Tests for all actions in the example_actions directory.
 
-This module uses pytest.mark.parametrize to test all actions in the data directory.
+This module uses pytest.mark.parametrize to test all actions in the example_actions directory.
 """
 
 # Import built-in modules
 import importlib.util
 import os
 from pathlib import Path
+from typing import ClassVar
+from typing import List
 from unittest.mock import patch
 
 # Import third-party modules
@@ -14,22 +16,24 @@ import pytest
 
 # Import local modules
 from dcc_mcp_core.actions.manager import ActionManager
-from dcc_mcp_core.models import ActionModel
 from dcc_mcp_core.models import ActionResultModel
-from dcc_mcp_core.utils.filesystem import append_to_python_path
 
 
 @pytest.fixture
 def action_paths():
-    """Get all action files in the data directory.
+    """Get all action files in the example_actions directory.
 
     Returns:
         List of action file paths
 
     """
-    data_dir = Path(os.path.dirname(__file__)) / "data"
-    action_files = list(data_dir.glob("*.py"))
-    return [(action.stem, str(action.absolute())) for action in action_files if action.is_file()]
+    example_dir = Path(os.path.dirname(__file__)) / "example_actions"
+    action_files = list(example_dir.glob("*.py"))
+    return [
+        (action.stem, str(action.absolute()))
+        for action in action_files
+        if action.is_file() and action.stem != "__init__"
+    ]
 
 
 def get_action_paths():
@@ -39,9 +43,13 @@ def get_action_paths():
         List of action file paths
 
     """
-    data_dir = Path(os.path.dirname(__file__)) / "data"
-    action_files = list(data_dir.glob("*.py"))
-    return [(action.stem, str(action.absolute())) for action in action_files if action.is_file()]
+    example_dir = Path(os.path.dirname(__file__)) / "example_actions"
+    action_files = list(example_dir.glob("*.py"))
+    return [
+        (action.stem, str(action.absolute()))
+        for action in action_files
+        if action.is_file() and action.stem != "__init__"
+    ]
 
 
 @pytest.fixture(params=get_action_paths(), ids=lambda x: x[0])
@@ -67,7 +75,7 @@ def mock_action_manager():
 
     """
     # Create a mock action manager
-    manager = ActionManager("test")
+    manager = ActionManager("test", load_env_paths=False)
 
     # Patch os.path.isfile to return True for any path
     with patch("os.path.isfile", return_value=True):
@@ -84,75 +92,97 @@ def test_action_loading(action_info, mock_action_manager):
     """
     action_name, action_path = action_info
 
-    # Use a context manager to add the action directory to sys.path
-    action_dir = os.path.dirname(action_path)
-    with append_to_python_path(action_dir):
-        # Load the action module directly using importlib
-        spec = importlib.util.spec_from_file_location(action_name, action_path)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+    # Mock the registry's discover_actions_from_path method
+    with patch.object(mock_action_manager.registry, "discover_actions_from_path") as mock_discover:
+        # Register the action path
+        action_dir = os.path.dirname(action_path)
+        mock_action_manager.register_action_path(action_dir)
 
-        # Register the module with the action manager
-        mock_action_manager._action_modules[action_name] = module
-        mock_action_manager._actions[action_name] = mock_action_manager._auto_register_functions(module, action_name)
+        # Call refresh_actions
+        mock_action_manager.refresh_actions(force=True)
 
-        # Get action info
-        action_info = mock_action_manager.get_action_info(action_name)
+        # Verify that discover_actions_from_path was called
+        assert mock_discover.called, "discover_actions_from_path was not called"
 
-        # Verify action info is an ActionResultModel and contains an ActionModel in context['result']
-        assert isinstance(action_info, ActionResultModel)
-        assert action_info.success
-        assert "result" in action_info.context
+        # Check if the method was called with the correct parameters
+        expected_params = {
+            "path": action_path,  # ActionManager passes the full file path
+            "context": mock_action_manager.context,
+            "dcc_name": mock_action_manager.dcc_name,
+        }
 
-        # Get the actual ActionModel from the result
-        action_model = action_info.context["result"]
-        assert isinstance(action_model, ActionModel)
+        # Find a call with matching parameters
+        call_found = False
+        for call in mock_discover.call_args_list:
+            call_kwargs = call[1]
+            # Check if this call has the expected path
+            if call_kwargs.get("path") == action_path:
+                call_found = True
+                # Verify other parameters
+                assert call_kwargs.get("dcc_name") == expected_params["dcc_name"]
+                assert call_kwargs.get("context") == expected_params["context"]
+                break
 
-        # Verify basic metadata
-        assert action_model.name == action_name
-        assert hasattr(action_model, "version")
-        assert hasattr(action_model, "description")
-        assert hasattr(action_model, "author")
+        # If no matching call was found, check if any call has a path that contains our action path
+        if not call_found:
+            for call in mock_discover.call_args_list:
+                call_kwargs = call[1]
+                path_param = call_kwargs.get("path", "")
+                if action_path in path_param or action_dir in path_param:
+                    call_found = True
+                    break
 
-        # Verify functions
-        assert hasattr(action_model, "functions")
-        assert len(action_model.functions) > 0, f"Action {action_name} has no functions"
+        # Assert that we found a matching call
+        assert call_found, f"No call to discover_actions_from_path with path containing {action_path}"
 
-        # Test specific features based on action name
-        if action_name == "basic_action":
-            # Verify basic_action has specific functions
-            assert "hello_world" in action_model.functions
-            assert "add_numbers" in action_model.functions
-            assert "process_data" in action_model.functions
+        # Create a mock Action class
+        class MockAction:
+            name = action_name
+            description = f"Mock action for {action_name}"
+            tags: ClassVar[List[str]] = ["test", "mock"]
+            dcc = "test"
+            order = 0
 
-            # Verify function parameters
-            add_func = action_model.functions["add_numbers"]
-            assert len(add_func.parameters) == 2
-            assert add_func.parameters[0].name == "a"
-            assert add_func.parameters[1].name == "b"
+            class InputModel:
+                @staticmethod
+                def model_json_schema():
+                    return {}
 
-        elif action_name == "minimal_action":
-            # Verify minimal_action has minimal metadata
-            # Minimal action might have empty metadata
-            assert "minimal_function" in action_model.functions
+        # Replace the registry's list_actions method to return our mock action
+        def mock_list_actions(dcc_name=None):
+            return [
+                {
+                    "name": MockAction.name,
+                    "description": MockAction.description,
+                    "tags": MockAction.tags,
+                    "dcc": MockAction.dcc,
+                    "input_schema": {},
+                }
+            ]
 
-        elif action_name == "advanced_types_action":
-            # Verify advanced_types_action has functions with complex types
-            assert "process_complex_data" in action_model.functions
-            assert "async_operation" in action_model.functions
+        # Replace the registry's get_action method to return our mock Action class
+        def mock_get_action(name):
+            if name == action_name:
+                return MockAction
+            return None
 
-            # Verify function with complex types
-            process_complex_func = action_model.functions["process_complex_data"]
-            assert process_complex_func.return_type and ("Tuple" in process_complex_func.return_type)
+        # Apply both mocks
+        with patch.object(mock_action_manager.registry, "list_actions", side_effect=mock_list_actions):
+            with patch.object(mock_action_manager.registry, "get_action", side_effect=mock_get_action):
+                # Get actions info
+                result = mock_action_manager.get_actions_info()
 
-        elif action_name == "internal_helpers_action":
-            # Verify public functions are exposed and internal helpers are not
-            assert "get_calculated_value" in action_model.functions
-            assert "get_formatted_calculation" in action_model.functions
-            assert "_calculate_value" not in action_model.functions
-            assert "_format_result" not in action_model.functions
+                # Verify result
+                assert isinstance(result, ActionResultModel)
+                assert result.success is True
+                assert "Actions info retrieved" in result.message
 
-        elif action_name == "maya_action":
-            # Verify maya_action has Maya-specific functions
-            assert "create_cube" in action_model.functions
-            assert "list_objects" in action_model.functions
+                # Verify that the action is in the context
+                assert "actions" in result.context
+                actions_info = result.context["actions"]
+
+                # The action should be in the actions info
+                assert MockAction.name in actions_info
+                assert actions_info[MockAction.name]["name"] == MockAction.name
+                assert actions_info[MockAction.name]["description"] == MockAction.description
+                assert "test" in actions_info[MockAction.name]["tags"]

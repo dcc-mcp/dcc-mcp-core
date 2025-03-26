@@ -15,7 +15,7 @@ from typing import List
 
 # Import local modules
 from dcc_mcp_core.models import ActionResultModel
-from dcc_mcp_core.utils.platform import get_actions_dir
+from dcc_mcp_core.utils.filesystem import get_actions_dir
 from dcc_mcp_core.utils.template import render_template
 
 logger = logging.getLogger(__name__)
@@ -28,13 +28,17 @@ def create_action_template(
     functions: List[Dict[str, Any]],
     author: str = "DCC-MCP-Core User",
 ) -> ActionResultModel:
-    """Create a new action template file.
+    """Create a new Action class template file.
+
+    This function generates a new Python file containing one or more Action classes
+    based on the provided specifications. Each Action class follows the new class-based
+    design pattern with Pydantic models for input validation and structured output.
 
     Args:
         dcc_name: Name of the DCC tool (e.g., 'maya', 'nuke')
         action_name: Name of the action
         description: Description of the action
-        functions: List of function definitions
+        functions: List of Action class definitions
         author: Author of the action
 
     Returns:
@@ -55,7 +59,7 @@ def create_action_template(
         if os.path.exists(action_file_path):
             return ActionResultModel(
                 success=False,
-                message=f"Action file already exists: {action_file_path}",
+                message=f"Action class file already exists: {action_file_path}",
                 context={"file_path": action_file_path},
             )
 
@@ -67,13 +71,15 @@ def create_action_template(
             f.write(content)
 
         return ActionResultModel(
-            success=True, message=f"Created action file: {action_file_path}", context={"file_path": action_file_path}
+            success=True,
+            message=f"Created Action class file: {action_file_path}",
+            context={"file_path": action_file_path},
         )
     except Exception as e:
-        logger.error(f"Failed to create action template: {e}")
+        logger.error(f"Failed to create Action class template: {e}")
         return ActionResultModel(
             success=False,
-            message=f"Failed to create action file: {e!s}",
+            message=f"Failed to create Action class file: {e!s}",
             context={"file_path": action_file_path if "action_file_path" in locals() else None, "error": str(e)},
         )
 
@@ -86,12 +92,12 @@ def _generate_action_content(
     Args:
         action_name: Name of the action
         description: Description of the action
-        functions: List of function definitions
+        functions: List of Action class definitions
         author: Author of the action
         dcc_name: Name of the DCC tool
 
     Returns:
-        Generated content for the action file
+        Generated content for the action file with Action classes
 
     """
     # Create the context data for the template
@@ -111,7 +117,11 @@ def _generate_action_content(
 def generate_action_for_ai(
     dcc_name: str, action_name: str, description: str, functions_description: str
 ) -> ActionResultModel:
-    """Generate an action template from a natural language description of functions.
+    """Generate an Action class template from a natural language description of functions.
+
+    This function creates a new Action class template file based on a natural language
+    description of the functionality. It uses a simple parsing approach to extract
+    function names, descriptions, and parameters from the text description.
 
     Args:
         dcc_name: Name of the DCC tool (e.g., 'maya', 'nuke')
@@ -134,8 +144,8 @@ def generate_action_for_ai(
         if result.success:
             return ActionResultModel(
                 success=True,
-                message=f"Successfully created action template for {action_name}",
-                prompt="You can now implement the action functions in the generated file.",
+                message=f"Successfully created Action class template for {action_name}",
+                prompt="You can now implement the Action classes in the generated file.",
                 context={
                     "file_path": result.context.get("file_path"),
                     "action_name": action_name,
@@ -146,24 +156,31 @@ def generate_action_for_ai(
             error_message = result.message
             return ActionResultModel(
                 success=False,
-                message=f"Failed to create action template for {action_name}",
+                message=f"Failed to create Action class template for {action_name}",
                 error=error_message,
                 context={"file_path": result.context.get("file_path"), "error": result.context.get("error")},
             )
     except Exception as e:
         return ActionResultModel(
-            success=False, message=f"Error generating action template: {e!s}", error=str(e), context={"error": str(e)}
+            success=False,
+            message=f"Error generating Action class template: {e!s}",
+            error=str(e),
+            context={"error": str(e)},
         )
 
 
 def _parse_functions_description(functions_description: str) -> List[Dict[str, Any]]:
-    """Parse a natural language description of functions into structured function definitions.
+    """Parse a natural language description of functions into structured Action class definitions.
+
+    This method extracts information about Action classes from a natural language description,
+    identifying class names, descriptions, and parameters. The resulting structure is used to
+    generate Action class templates with proper input validation and output models.
 
     Args:
-        functions_description: Natural language description of functions
+        functions_description: Natural language description of functions or Action classes
 
     Returns:
-        List of function definitions
+        List of Action class definitions with parameters and metadata
 
     """
     # Simple parsing for demonstration purposes
@@ -181,7 +198,7 @@ def _parse_functions_description(functions_description: str) -> List[Dict[str, A
         if not block.strip():
             continue
 
-        # Extract function name
+        # Extract function name (will be used as Action class name)
         name_match = re.search(r"([a-zA-Z][a-zA-Z0-9_]*)", block)
         if not name_match:
             continue
@@ -207,7 +224,7 @@ def _parse_functions_description(functions_description: str) -> List[Dict[str, A
         if not description and len(lines) > 0:
             description = lines[0]
 
-        # Create basic function definition
+        # Create basic Action class definition
         function_def = {
             "name": function_name,
             "description": description,
@@ -217,7 +234,7 @@ def _parse_functions_description(functions_description: str) -> List[Dict[str, A
 
         # Try to extract parameters - improved pattern to catch more parameter formats
         param_matches = re.findall(
-            r"(?:parameter|param|arg|Parameter)\s*:?\s*([a-zA-Z][a-zA-Z0-9_]*)\s*(?:\(([^\)]*)\))?\s*-?\s*(.*)?",
+            r"(?:parameter|param|arg|Parameter)\s*:?\s*([a-zA-Z][a-zA-Z0-9_]*)\s*(?:\(([^\)]*)\))?\s*-?\s*(.*)??",
             block,
             re.IGNORECASE,
         )
@@ -268,7 +285,7 @@ def _parse_functions_description(functions_description: str) -> List[Dict[str, A
     if not functions:
         functions.append(
             {
-                "name": "execute_action",
+                "name": "Execute",
                 "description": "Execute the main action functionality.",
                 "parameters": [],
                 "return_description": "Returns an ActionResultModel with success status, message, and context data.",

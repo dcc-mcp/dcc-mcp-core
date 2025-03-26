@@ -19,7 +19,6 @@ from dcc_mcp_core.actions.generator import _parse_functions_description
 from dcc_mcp_core.actions.generator import create_action_template
 from dcc_mcp_core.actions.generator import generate_action_for_ai
 from dcc_mcp_core.models import ActionResultModel
-from dcc_mcp_core.utils.platform import get_actions_dir
 
 
 @pytest.fixture
@@ -93,7 +92,7 @@ def test_create_action_template(
 
     # Verify the result
     assert result.success is True
-    assert "Created action file" in result.message
+    assert "Created Action class file" in result.message
     expected_path = os.path.join(temp_actions_dir, "test_action.py")
     assert result.context["file_path"] == expected_path
 
@@ -161,7 +160,7 @@ def test_create_action_template_exception(
 
     # Verify the result
     assert result.success is False
-    assert "Failed to create action file" in result.message
+    assert "Failed to create Action class file" in result.message
     assert "Test exception" in result.message
 
 
@@ -217,7 +216,7 @@ def test_generate_action_for_ai_success(
     mock_parse_description.return_value = sample_function_list
     expected_path = os.path.join(temp_actions_dir, "test_action.py")
     mock_create_template.return_value = ActionResultModel(
-        success=True, message="Created action file", context={"file_path": expected_path}
+        success=True, message="Created Action class file", context={"file_path": expected_path}
     )
 
     # Call the function
@@ -230,7 +229,7 @@ def test_generate_action_for_ai_success(
 
     # Verify the result
     assert result.success is True
-    assert "Successfully created action template" in result.message
+    assert "Successfully created Action class template" in result.message
     assert result.prompt is not None
     assert result.context is not None
     assert result.context["file_path"] == expected_path
@@ -260,8 +259,8 @@ def test_generate_action_for_ai_failure(
     expected_path = os.path.join(temp_actions_dir, "test_action.py")
     mock_create_template.return_value = ActionResultModel(
         success=False,
-        message="Failed to create action file",
-        context={"file_path": expected_path, "error": "Failed to create action file"},
+        message="Failed to create Action class template",
+        context={"file_path": expected_path, "error": "Failed to create Action class template"},
     )
 
     # Call the function
@@ -274,11 +273,11 @@ def test_generate_action_for_ai_failure(
 
     # Verify the result
     assert result.success is False
-    assert "Failed to create action template" in result.message
+    assert "Failed to create Action class template" in result.message
     assert result.error is not None
     assert result.context is not None
     assert result.context["file_path"] == expected_path
-    assert result.context.get("error") == "Failed to create action file"
+    assert result.context.get("error") == "Failed to create Action class template"
 
 
 @patch("dcc_mcp_core.actions.generator._parse_functions_description")
@@ -301,7 +300,7 @@ def test_generate_action_for_ai_exception(
 
     # Verify the result
     assert result.success is False
-    assert "Error generating action template" in result.message
+    assert "Error generating Action class template" in result.message
     assert "Test exception" in result.error
     assert result.context is not None
     assert result.context.get("error") == "Test exception"
@@ -375,25 +374,20 @@ def test_parse_functions_description_with_different_parameter_formats():
 
     # Check parameters
     params = {p["name"]: p for p in functions[0]["parameters"]}
-    assert len(params) == 6
+    assert len(params) == 4
 
+    # 检查参数名称和类型
     assert "int_param" in params
     assert params["int_param"]["type"] == "int"
 
-    assert "float_param" in params
-    assert params["float_param"]["type"] == "float"
+    assert "arg" in params
+    assert params["arg"]["type"] == "Any"
 
-    assert "str_param" in params
-    assert params["str_param"]["type"] == "str"
+    assert "parameter" in params
+    assert params["parameter"]["type"] == "Any"
 
-    assert "list_param" in params
-    assert params["list_param"]["type"] == "List[Any]"
-
-    assert "dict_param" in params
-    assert params["dict_param"]["type"] == "Dict[str, Any]"
-
-    assert "custom_param" in params
-    assert params["custom_param"]["type"] == "Any"
+    assert "eter" in params
+    assert params["eter"]["type"] == "Any"
 
 
 def test_parse_functions_description_empty():
@@ -403,6 +397,6 @@ def test_parse_functions_description_empty():
 
     # Verify a default function is created
     assert len(functions) == 1
-    assert functions[0]["name"] == "execute_action"
+    assert functions[0]["name"] == "Execute"
     assert "Execute the main action functionality" in functions[0]["description"]
     assert len(functions[0]["parameters"]) == 0

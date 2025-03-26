@@ -5,8 +5,10 @@ This module contains tests for the action loading methods of the ActionManager c
 
 # Import built-in modules
 import os
-import types
-from types import ModuleType
+from pathlib import Path
+import sys
+from typing import ClassVar
+from typing import List
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
@@ -14,165 +16,129 @@ from unittest.mock import patch
 import pytest
 
 # Import local modules
+from dcc_mcp_core.actions.base import Action
 from dcc_mcp_core.actions.manager import ActionManager
 from dcc_mcp_core.models import ActionResultModel
 
 
 @pytest.fixture
-def mock_import_module():
-    """Fixture to mock the importlib.import_module function."""
-    with patch("importlib.import_module") as mock:
-        yield mock
+def test_actions_dir(tmp_path):
+    """Fixture to create a temporary directory with test action files."""
+    # Create a test directory structure
+    actions_dir = tmp_path / "actions"
+    actions_dir.mkdir()
+
+    # Create a test action file
+    action_file = actions_dir / "test_action.py"
+    action_file.write_text('''
+# Import local modules
+from dcc_mcp_core.actions.base import Action
+from dcc_mcp_core.models import ActionResultModel
+
+class TestAction(Action):
+    """Test action class."""
+
+    name = "test_action"
+    description = "A test action"
+    version = "1.0.0"
+    author = "Test Author"
+    requires = ["dependency1", "dependency2"]
+    tags = ["test", "example"]
+    dcc = "maya"
+
+    class InputModel(Action.InputModel):
+        """Input model for TestAction."""
+        pass
+
+    def _execute(self) -> None:
+        """Execute the action."""
+        self.output = self.OutputModel()
+''')
+
+    # Return the path to the actions directory
+    return actions_dir
 
 
-@pytest.fixture
-def test_data_dir():
-    """Fixture to provide the path to the test data directory."""
-    return os.path.join(os.path.dirname(__file__), "data")
+def test_action_manager_discover_actions(test_actions_dir):
+    """Test ActionManager's ability to discover actions from a path."""
+    # Create a new ActionManager instance
+    manager = ActionManager("maya", load_env_paths=False)
+
+    # Register the test actions directory
+    manager.register_action_path(str(test_actions_dir))
+
+    # Mock the registry's discover_actions_from_path method
+    with patch.object(manager.registry, "discover_actions_from_path") as mock_discover:
+        # Call refresh_actions to discover actions
+        manager.refresh_actions(force=True)
+
+        # Verify that discover_actions_from_path was called
+        assert mock_discover.called
+        # 检查是否使用了正确的路径参数
+        call_args = mock_discover.call_args[1]
+        assert "path" in call_args
+        assert str(test_actions_dir) in call_args["path"]
 
 
-def test_action_manager_load_action(mock_import_module, test_data_dir):
-    """Test ActionManager.load_action method."""
-    manager = ActionManager("maya")
+def test_action_manager_get_actions_info(test_actions_dir):
+    """Test ActionManager's get_actions_info method."""
+    # Create a new ActionManager instance
+    manager = ActionManager("maya", load_env_paths=False)
 
-    # Use an actual existing test file path
-    action_path = os.path.abspath(os.path.join(test_data_dir, "basic_plugin.py"))
-    print(f"Action path: {action_path}")
-    # Ensure the file exists
-    assert os.path.isfile(action_path), f"test file does not exist: {action_path}"
+    # Create a mock Action class
+    class MockAction:
+        name = "mock_action"
+        description = "A mock action"
+        tags: ClassVar[List[str]] = ["mock", "test"]
+        dcc = "maya"
+        order = 0
 
-    # Create a mock module with all necessary metadata
-    mock_module = types.ModuleType("basic_plugin")
-    mock_module.__file__ = action_path
-    mock_module.__action_name__ = "basic_plugin"
-    mock_module.__action_version__ = "1.0.0"
-    mock_module.__action_description__ = "A basic test plugin with complete metadata"
-    mock_module.__action_author__ = "Test Author"
-    mock_module.__action_requires__ = ["dependency1", "dependency2"]
+    # Mock the registry's list_actions and get_action methods
+    with patch.object(manager.registry, "list_actions") as mock_list_actions:
+        mock_list_actions.return_value = [{"name": "mock_action"}]
 
-    # Add some test functions to the mock module
-    def hello_world():
-        return "Hello, World!"
+        with patch.object(manager.registry, "get_action") as mock_get_action:
+            mock_get_action.return_value = MockAction
 
-    def add_numbers(a, b):
-        return a + b
-
-    mock_module.hello_world = hello_world
-    mock_module.add_numbers = add_numbers
-
-    # Mock the load_module_from_path function to return our mock module
-    with patch("dcc_mcp_core.utils.module_loader.load_module_from_path", return_value=mock_module):
-        # Mock os.path.getmtime to avoid file not found errors
-        with patch("os.path.getmtime", return_value=12345):
-            # Load action
-            result = manager.load_action(action_path)
-
-            # Print detailed result information for debugging
-            print(f"\nLoad action result: {result}")
-            print(f"Success: {result.success}")
-            print(f"Message: {result.message}")
-            print(f"Error: {result.error}")
-            print(f"Context: {result.context}")
-
-            if not result.success and "error_details" in result.context:
-                print(f"Error details: {result.context['error_details']}")
+            # Call get_actions_info
+            result = manager.get_actions_info()
 
             # Verify result
             assert isinstance(result, ActionResultModel)
-            assert result.success is True, (
-                f"Loading failed, error: {result.error}\nDetails: {result.context.get('error_details', '')}"
-            )
-            assert "loaded successfully" in result.message
-            assert result.context["action_name"] == "basic_plugin"
+            assert result.success is True
+            assert "Actions info retrieved" in result.message
 
-            # Verify the module has been correctly loaded into the manager
-            assert "basic_plugin" in manager._action_modules
-            # Compare module attributes instead of identity
-            loaded_module = manager._action_modules["basic_plugin"]
-            assert loaded_module.__action_name__ == mock_module.__action_name__
-            assert loaded_module.__action_version__ == mock_module.__action_version__
-            assert loaded_module.__action_description__ == mock_module.__action_description__
+            # Verify actions info
+            actions_info = result.context["actions"]
+            assert len(actions_info) == 1
+            assert "mock_action" in actions_info
+            assert actions_info["mock_action"]["name"] == "mock_action"
+            assert actions_info["mock_action"]["description"] == "A mock action"
+            assert "mock" in actions_info["mock_action"]["tags"]
 
 
-def test_load_action_missing_file():
-    """Test loading an action from a non-existent file."""
-    manager = ActionManager("maya")
+def test_action_manager_load_module_exception():
+    """Test ActionManager's handling of exceptions during module loading."""
+    # Create a new ActionManager instance
+    manager = ActionManager("maya", load_env_paths=False)
 
-    # Use a non-existent file path
-    action_path = "/path/to/non_existent_file.py"
+    # Create a test action path
+    action_path = "/path/to/nonexistent/action.py"
 
-    # Mock os.path.isfile to return False
-    with patch("os.path.isfile", return_value=False):
-        # Load the action
-        result = manager.load_action(action_path)
+    # Register the action path
+    manager.register_action_path(os.path.dirname(action_path))
 
-        # Verify the result
-        assert isinstance(result, ActionResultModel)
-        assert result.success is False
-        assert "Action file not found" in result.message
-        assert result.error is not None
+    # Mock the registry's discover_actions_from_path method to raise an exception
+    with patch.object(manager.registry, "discover_actions_from_path", side_effect=Exception("Test exception")):
+        # Call refresh_actions - this should not raise an exception
+        # even though discover_actions_from_path raises one
+        try:
+            manager.refresh_actions(force=True)
+            # If we get here, the exception was handled properly
+            exception_handled = True
+        except Exception:
+            # If we get here, the exception was not handled properly
+            exception_handled = False
 
-
-def test_load_action_invalid_module():
-    """Test loading an action from an invalid module."""
-    manager = ActionManager("maya")
-
-    # Use a valid file path
-    action_path = "/path/to/valid_file.py"
-
-    # Mock os.path.isfile to return True
-    with patch("os.path.isfile", return_value=True), patch(
-        "dcc_mcp_core.utils.module_loader.load_module_from_path"
-    ) as mock_load_module, patch(
-        "dcc_mcp_core.actions.manager.append_to_python_path"
-    ) as mock_append_to_python_path, patch(
-        "os.path.getmtime", return_value=12345
-    ):  # Mock getmtime to avoid FileNotFoundError
-        # Set up context manager behavior
-        mock_append_to_python_path.return_value.__enter__.return_value = None
-        mock_append_to_python_path.return_value.__exit__.return_value = None
-
-        # Configure mock_load_module to raise an exception
-        mock_load_module.side_effect = ImportError("Module could not be imported")
-
-        # Load the action
-        result = manager.load_action(action_path)
-
-        # Verify the result
-        assert isinstance(result, ActionResultModel)
-        assert result.success is False
-        assert "Failed to load action 'valid_file'" == result.message
-        assert result.error is not None
-
-
-def test_load_action_missing_metadata():
-    """Test loading an action with missing metadata."""
-    manager = ActionManager("maya")
-
-    # Use a valid file path
-    action_path = "/path/to/valid_file.py"
-
-    # Mock os.path.isfile to return True and os.path.getmtime to return a fixed timestamp
-    with patch("os.path.isfile", return_value=True), patch("os.path.getmtime", return_value=1000), patch(
-        "dcc_mcp_core.utils.module_loader.load_module_from_path"
-    ) as mock_load_module, patch("dcc_mcp_core.actions.manager.append_to_python_path") as mock_append_to_python_path:
-        # Set up context manager behavior
-        mock_append_to_python_path.return_value.__enter__.return_value = None
-        mock_append_to_python_path.return_value.__exit__.return_value = None
-
-        # Create a mock module without required metadata
-        mock_module = types.ModuleType("invalid_module")
-        mock_module.__file__ = action_path
-        # Missing __action_name__, __action_version__, etc.
-
-        # Configure mock_load_module to return the invalid module
-        mock_load_module.return_value = mock_module
-
-        # Load the action
-        result = manager.load_action(action_path)
-
-        # Verify the result
-        assert isinstance(result, ActionResultModel)
-        assert result.success is False
-        assert "Missing required metadata" in result.message or "Failed to load" in result.message
-        assert result.error is not None
+        # Verify that the exception was handled properly
+        assert exception_handled, "Exception was not handled properly by ActionManager.refresh_actions"

@@ -1,10 +1,7 @@
 """Tests for the utils.decorators module."""
 
 # Import built-in modules
-from typing import Any
-from typing import Dict
 from typing import Optional
-from unittest.mock import MagicMock
 from unittest.mock import patch
 
 # Import third-party modules

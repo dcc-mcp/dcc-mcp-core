@@ -16,9 +16,9 @@ from typing import Optional
 from typing import Union
 
 # Import local modules
-from dcc_mcp_core.utils.constants import DEFAULT_LOG_LEVEL
-from dcc_mcp_core.utils.constants import ENV_LOG_LEVEL
-from dcc_mcp_core.utils.platform import get_log_dir
+from dcc_mcp_core.constants import DEFAULT_LOG_LEVEL
+from dcc_mcp_core.constants import ENV_LOG_LEVEL
+from dcc_mcp_core.utils.filesystem import get_log_dir
 
 # Constants
 LOG_LEVEL = os.getenv(ENV_LOG_LEVEL, DEFAULT_LOG_LEVEL)

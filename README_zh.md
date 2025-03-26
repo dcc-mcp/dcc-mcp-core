@@ -1,9 +1,13 @@
 # DCC-MCP-Core
 
-[![Python](https://img.shields.io/badge/Python-3.7%2B-blue)](https://www.python.org/)
+[![PyPI](https://img.shields.io/pypi/v/dcc-mcp-core)](https://pypi.org/project/dcc-mcp-core/)
+[![Python](https://img.shields.io/pypi/pyversions/dcc-mcp-core)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
+[![Downloads](https://static.pepy.tech/badge/dcc-mcp-core)](https://pepy.tech/project/dcc-mcp-core)
+[![Coverage](https://img.shields.io/codecov/c/github/loonghao/dcc-mcp-core)](https://codecov.io/gh/loonghao/dcc-mcp-core)
+[![Tests](https://img.shields.io/github/actions/workflow/status/loonghao/dcc-mcp-core/tests.yml?branch=main&label=Tests)](https://github.com/loonghao/dcc-mcp-core/actions)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
-[![Tests](https://img.shields.io/badge/Tests-Passing-brightgreen)](https://github.com/loonghao/dcc-mcp-core/actions)
+[![Latest Version](https://img.shields.io/github/v/tag/loonghao/dcc-mcp-core?label=Latest%20Version)](https://github.com/loonghao/dcc-mcp-core/releases)
 
 [English](README.md) | [中文文档](README_zh.md)
 
@@ -24,10 +28,7 @@ DCC-MCP-Core 是一个为数字内容创建(DCC)应用程序设计的动作管�
 5. **函数调用与结果返回**：MCP 服务器调用相应的动作函数，并将结果返回给 AI
 
 ```mermaid
-flowchart LR
-    %% 增加图表宽度
-    classDef default width:120px,height:60px
-
+graph LR
     AI[AI 助手] -->|"1. 发送请求"| MCP[MCP 服务器]
     MCP -->|"2. 转发请求"| DCCMCP[DCC-MCP]
     DCCMCP -->|"3. 发现与加载"| Actions[DCC 动作]
@@ -39,16 +40,11 @@ flowchart LR
     DCCMCP -->|"9. 结构化结果"| MCP
     MCP -->|"10. 返回结果"| AI
 
-    %% 使用更鲜明的颜色和更大的节点
-    classDef ai fill:#f9d,stroke:#333,stroke-width:4px,color:#000,font-weight:bold
-    classDef mcp fill:#bbf,stroke:#333,stroke-width:4px,color:#000,font-weight:bold
-    classDef dcc fill:#bfb,stroke:#333,stroke-width:4px,color:#000,font-weight:bold
-    classDef action fill:#fbb,stroke:#333,stroke-width:4px,color:#000,font-weight:bold
-
-    class AI ai
-    class MCP,DCCMCP mcp
-    class DCC dcc
-    class Actions action
+    style AI fill:#f9d,stroke:#333,stroke-width:4px
+    style MCP fill:#bbf,stroke:#333,stroke-width:4px
+    style DCCMCP fill:#bbf,stroke:#333,stroke-width:4px
+    style DCC fill:#bfb,stroke:#333,stroke-width:4px
+    style Actions fill:#fbb,stroke:#333,stroke-width:4px
 ```
 
 ### 动作设计
@@ -72,45 +68,43 @@ DCC-MCP-Core 使用 RPyC 实现远程过程调用，允许在不同进程甚至�
 
 DCC-MCP-Core 组织为几个子包：
 
-- **actions**：动作管理和生成
-  - `generator.py`：生成动作模板
-  - `manager.py`：管理动作发现和加载
-  - `metadata.py`：定义动作元数据结构
+- **actions**：动作管理和执行
+  - `base.py`：基础 Action 类定义
+  - `manager.py`：用于动作发现和执行的 ActionManager
+  - `registry.py`：用于注册和检索动作的 ActionRegistry
+  - `middleware.py`：用于横切关注点的中间件
+  - `events.py`：用于动作通信的事件系统
 
 - **models**：MCP 生态系统的数据模型
   - `action_result.py`：动作的结构化结果模型
 
-- **parameters**：参数处理和验证
-  - `groups.py`：参数分组和依赖关系
-  - `models.py`：参数数据模型
-  - `processor.py`：参数处理工具
-  - `validation.py`：参数验证逻辑
-
-- **templates**：模板处理
-  - `utils.py`：使用 Jinja2 进行模板渲染
-
 - **utils**：实用函数和辅助工具
-  - `constants.py`：通用常量
-  - `decorators.py`：用于错误处理和结果格式化的函数装饰器
-  - `exceptions.py`：异常层次结构
+  - `module_loader.py`：模块加载工具
+  - `filesystem.py`：文件系统操作
+  - `decorators.py`：用于错误处理的函数装饰器
   - `platform.py`：平台特定工具
-  - `template.py`：模板工具
 
 ## 功能特性
 
-- 参数处理和验证
-- 标准化日志系统
-- 通用异常层次结构
-- DCC 集成的实用函数
-- 版本兼容性检查
-- 用于 DCC 特定功能的动作管理系统
-- AI 友好的结构化数据接口
-- 通过 RPyC 支持远程过程调用
+- 基于类的 Action 设计，使用 Pydantic 模型
+- 参数验证和类型检查
+- 带有上下文和提示的结构化结果格式
+- 动态动作发现和加载
+- 用于横切关注点的中间件支持
+- 用于动作通信的事件系统
+- 异步动作执行
+- 全面的错误处理
 
 ## 安装
 
 ```bash
+# 从 PyPI 安装
 pip install dcc-mcp-core
+
+# 或从源代码安装
+git clone https://github.com/loonghao/dcc-mcp-core.git
+cd dcc-mcp-core
+pip install -e .
 ```
 
 ## 开发环境设置
@@ -122,55 +116,68 @@ cd dcc-mcp-core
 
 # 创建并激活虚拟环境
 python -m venv venv
-source venv/bin/activate  # Windows 上使用: venv\Scripts\activate
+source venv/bin/activate  # Windows 系统: venv\Scripts\activate
 
 # 安装开发依赖
 pip install -e .
 pip install pytest pytest-cov pytest-mock pyfakefs
+
+# 安装开发工具
+pip install uvx nox ruff isort pre-commit
 ```
 
 ## 运行测试
 
 ```bash
-# 运行带覆盖率的测试
+# 运行测试并生成覆盖率报告
 uvx nox -s pytest
 
 # 运行特定测试
-python -m pytest tests/test_action_manager.py -v
+uvx nox -s pytest -- tests/test_action_manager.py -v
+
+# 运行代码风格检查
+uvx nox -s lint-fix
 ```
 
-## 使用示例
+## 示例使用
 
 ### 发现和加载动作
 
 ```python
 from dcc_mcp_core.actions.manager import ActionManager
 
-# 为 Maya 创建一个动作管理器
-manager = ActionManager('maya')
+# 创建一个 Maya 的动作管理器（不从环境变量加载路径）
+manager = ActionManager('maya', load_env_paths=False)
 
-# 发现可用的动作
+# 注册动作路径
+manager.register_action_path('/path/to/actions')
+
+# 刷新动作（发现并加载）
+manager.refresh_actions()
+
+# 获取所有已注册动作的信息
 actions_info = manager.get_actions_info()
 
 # 打印可用动作的信息
-for name, info in actions_info.items():
-    print(f"动作: {name}")
-    print(f"  版本: {info['version']}")
-    print(f"  描述: {info['description']}")
-    print(f"  函数: {len(info['functions'])}")
+for action_name, action_info in actions_info.items():
+    print(f"动作: {action_name}")
+    print(f"  描述: {action_info['description']}")
+    print(f"  标签: {', '.join(action_info['tags'])}")
 
-# 加载特定的动作
-result = manager.load_action('/path/to/my_action.py')
-if result.success:
-    print(f"已加载动作: {result.context['action_name']}")
-else:
-    print(f"加载动作失败: {result.error}")
+# 调用动作并传递参数
+result = manager.call_action(
+    'create_sphere',
+    radius=2.0,
+    position=[0, 1, 0],
+    name='my_sphere'
+)
 
-# 调用动作中的函数
-result = manager.call_action_function('my_action', 'create_sphere', radius=2.0)
+# 访问结果
 if result.success:
     print(f"成功: {result.message}")
-    print(f"创建的对象: {result.context['object_name']}")
+    print(f"创建的对象: {result.context.get('object_name')}")
+    if result.prompt:
+        print(f"下一步建议: {result.prompt}")
 else:
     print(f"错误: {result.error}")
 ```
@@ -179,44 +186,59 @@ else:
 
 ```python
 # my_maya_action.py
-__action_name__ = "my_maya_action"
-__action_version__ = "1.0.0"
-__action_description__ = "自定义 Maya 操作"
-__action_author__ = "您的名字"
+from dcc_mcp_core.actions.base import Action
+from pydantic import Field, field_validator
 
-from dcc_mcp_core.models import ActionResultModel
+class CreateSphereAction(Action):
+    # 动作元数据
+    name = "create_sphere"
+    description = "在 Maya 中创建一个球体"
+    tags = ["几何体", "创建"]
+    dcc = "maya"
+    order = 0
 
-def create_sphere(context, radius=1.0, name="sphere"):
-    """在 Maya 中创建一个球体。
+    # 带验证的输入参数模型
+    class InputModel(Action.InputModel):
+        radius: float = Field(1.0, description="球体的半径")
+        position: list[float] = Field([0, 0, 0], description="球体的位置")
+        name: str = Field(None, description="球体的名称")
 
-    参数:
-        context: DCC 上下文对象
-        radius: 球体的半径
-        name: 球体的名称
+        # 参数验证
+        @field_validator('radius')
+        def validate_radius(cls, v):
+            if v <= 0:
+                raise ValueError("半径必须为正数")
+            return v
 
-    返回:
-        包含结果信息的 ActionResultModel
-    """
-    try:
-        # 通过上下文执行 Maya 命令
-        sphere_name = context.cmds.sphere(radius=radius, name=name)[0]
+    # 输出数据模型
+    class OutputModel(Action.OutputModel):
+        object_name: str = Field(description="创建的对象名称")
+        position: list[float] = Field(description="对象的最终位置")
 
-        return ActionResultModel(
-            success=True,
-            message=f"成功创建球体 '{sphere_name}'",
-            prompt="您现在可以修改球体的属性或创建更多对象",
-            context={
-                'object_name': sphere_name,
-                'object_type': 'sphere',
-                'properties': {'radius': radius}
-            }
-        )
-    except Exception as e:
-        return ActionResultModel(
-            success=False,
-            message="创建球体失败",
-            error=str(e)
-        )
+    def _execute(self) -> None:
+        # 访问经过验证的输入参数
+        radius = self.input.radius
+        position = self.input.position
+        name = self.input.name or f"sphere_{radius}"
+
+        # 访问 DCC 上下文（例如，Maya cmds）
+        cmds = self.context.get("cmds")
+
+        try:
+            # 执行 DCC 特定的操作
+            sphere = cmds.polySphere(r=radius, n=name)[0]
+            cmds.move(*position, sphere)
+
+            # 设置结构化输出
+            self.output = self.OutputModel(
+                object_name=sphere,
+                position=position,
+                prompt="现在您可以修改球体的属性或添加材质"
+            )
+        except Exception as e:
+            # 异常将被 Action.process 方法捕获
+            # 并转换为适当的 ActionResultModel
+            raise Exception(f"创建球体失败: {str(e)}") from e
 ```
 
 ## 贡献

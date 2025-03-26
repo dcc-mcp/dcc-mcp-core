@@ -1,4 +1,4 @@
-"""Tests for the logg_config module."""
+"""Tests for the log_config module."""
 
 # Import built-in modules
 import logging
@@ -9,11 +9,11 @@ from loguru import logger
 import pytest
 
 # Import local modules
-from dcc_mcp_core.logg_config import get_logger_info
-from dcc_mcp_core.logg_config import set_log_level
-from dcc_mcp_core.logg_config import setup_dcc_logging
-from dcc_mcp_core.logg_config import setup_logging
-from dcc_mcp_core.logg_config import setup_rpyc_logging
+from dcc_mcp_core.log_config import get_logger_info
+from dcc_mcp_core.log_config import set_log_level
+from dcc_mcp_core.log_config import setup_dcc_logging
+from dcc_mcp_core.log_config import setup_logging
+from dcc_mcp_core.log_config import setup_rpyc_logging
 
 
 @pytest.fixture

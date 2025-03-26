@@ -1,10 +1,7 @@
 """Tests for module_loader.py."""
 
-# Import standard modules
 # Import built-in modules
 import os
-from pathlib import Path
-import sys
 import tempfile
 
 # Import third-party modules

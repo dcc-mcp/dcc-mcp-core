@@ -5,6 +5,7 @@ This file contains shared fixtures and configuration for pytest tests.
 
 # Import built-in modules
 import os
+from pathlib import Path
 import sys
 from unittest.mock import MagicMock
 
@@ -50,7 +51,24 @@ def cleanup_action_managers():
     _action_managers.clear()
     _action_managers.update(original_managers)
 
-    # Clear action modules and actions for each manager
-    for manager in _action_managers.values():
-        manager._action_modules = {}
-        manager._actions = {}
+
+def pytest_collect_file(file_path, parent):
+    """Determine if a file should be collected.
+
+    Args:
+        file_path: Path to the file being considered for collection (pathlib.Path)
+        parent: Parent collector
+
+    """
+    return None
+
+
+def pytest_pycollect_makeitem(collector, name, obj):
+    """Determine if an object should be collected as a test item.
+
+    This hook is called for each Python object in a module that pytest is considering
+    for collection as a test item. We use it to skip any class that inherits from Action.
+    """
+    # If the object is a class and is a subclass of Action, skip collection
+    if hasattr(obj, "__bases__") and any(base.__name__ == "Action" for base in obj.__bases__):
+        return None

@@ -1,11 +1,12 @@
-"""Tests for the ActionManager.load_actions functionality with fixes.
+"""Tests for the ActionManager class with class-based Actions.
 
-This module contains a fixed version of the test_action_manager_load_actions test.
+This module contains tests for the ActionManager's load_actions functionality with class-based Actions.
 """
 
 # Import built-in modules
 import os
-from types import ModuleType
+from typing import ClassVar
+from typing import List
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
@@ -13,86 +14,136 @@ from unittest.mock import patch
 import pytest
 
 # Import local modules
-# Import DCC-MCP-Core modules
+from dcc_mcp_core.actions.base import Action
 from dcc_mcp_core.actions.manager import ActionManager
-from dcc_mcp_core.models import ActionModel
 from dcc_mcp_core.models import ActionResultModel
-from dcc_mcp_core.models import ActionsInfoModel
 
 
-def test_action_manager_load_actions_fixed(test_data_dir):
-    """Fixed test for ActionManager.load_actions method."""
+class TestAction(Action):
+    """Test Action implementation."""
+
+    name = "test_action"
+    description = "A test action"
+    version = "1.0.0"
+    author = "Test Author"
+    requires: ClassVar[List[str]] = ["test_dependency"]
+    tags: ClassVar[List[str]] = ["test", "example"]
+    dcc = "test"
+
+    class InputModel(Action.InputModel):
+        """Test input model."""
+
+        pass
+
+    def _execute(self) -> None:
+        """Test execution implementation."""
+        pass
+
+
+class AdvancedAction(Action):
+    """Advanced Action implementation."""
+
+    name = "advanced_action"
+    description = "An advanced test action"
+    version = "2.0.0"
+    author = "Advanced Author"
+    requires: ClassVar[List[str]] = ["advanced_dependency"]
+    tags: ClassVar[List[str]] = ["advanced", "example"]
+    dcc = "test"
+
+    class InputModel(Action.InputModel):
+        """Advanced input model."""
+
+        pass
+
+    def _execute(self) -> None:
+        """Advanced execution implementation."""
+        pass
+
+
+def test_action_manager_get_actions_info():
+    """Test ActionManager.get_actions_info method with class-based Actions."""
     # Create ActionManager instance
-    manager = ActionManager("maya")
+    manager = ActionManager("test")
 
-    # Set up test data paths
-    basic_plugin_path = os.path.abspath(os.path.join(test_data_dir, "basic_plugin.py"))
-    advanced_plugin_path = os.path.abspath(os.path.join(test_data_dir, "advanced_types_plugin.py"))
+    # Mock the registry with test actions
+    with patch.object(manager.registry, "list_actions") as mock_list_actions:
+        mock_list_actions.return_value = [{"name": "test_action"}, {"name": "advanced_action"}]
 
-    # Ensure test files exist
-    assert os.path.isfile(basic_plugin_path), f"Test file not found: {basic_plugin_path}"
-    assert os.path.isfile(advanced_plugin_path), f"Test file not found: {advanced_plugin_path}"
+        with patch.object(manager.registry, "get_action") as mock_get_action:
 
-    # Create expected action models for verification
-    basic_action_info = ActionModel(
-        name="basic_plugin",
-        version="1.0.0",
-        description="A basic test plugin with complete metadata",
-        author="Test Author",
-        requires=["dependency1", "dependency2"],
-        dcc="maya",
-        file_path=basic_plugin_path,
-        functions={},
-    )
+            def side_effect(action_name):
+                if action_name == "test_action":
+                    return TestAction
+                elif action_name == "advanced_action":
+                    return AdvancedAction
+                return None
 
-    advanced_action_info = ActionModel(
-        name="advanced_types_plugin",
-        version="2.0.0",
-        description="A plugin demonstrating advanced type annotations",
-        author="Test Author",
-        dcc="maya",
-        file_path=advanced_plugin_path,
-        functions={},
-    )
+            mock_get_action.side_effect = side_effect
 
-    # Create expected actions info model
-    expected_actions_info = ActionsInfoModel(
-        dcc_name="maya", actions={"basic_plugin": basic_action_info, "advanced_types_plugin": advanced_action_info}
-    )
+            # Call get_actions_info method
+            result = manager.get_actions_info()
 
-    # get_actions_info method returns expected ActionsInfoModel
-    with patch.object(manager, "get_actions_info", return_value=expected_actions_info):
-        # discover_actions method returns results containing test file paths
-        with patch.object(manager, "discover_actions") as mock_discover_actions:
-            action_result = ActionResultModel(
-                success=True, message="Found 2 actions", context={"paths": [basic_plugin_path, advanced_plugin_path]}
+            # Verify result
+            assert isinstance(result, ActionResultModel)
+            assert result.success is True
+            assert "Actions info retrieved for test" in result.message
+
+            # Verify actions_info structure
+            actions_info = result.context.get("actions")
+            assert isinstance(actions_info, dict)
+            assert len(actions_info) == 2
+
+            # Verify action information
+            assert "test_action" in actions_info
+            assert actions_info["test_action"]["name"] == "test_action"
+            assert actions_info["test_action"]["description"] == "A test action"
+
+            assert "advanced_action" in actions_info
+            assert actions_info["advanced_action"]["name"] == "advanced_action"
+            assert actions_info["advanced_action"]["description"] == "An advanced test action"
+
+
+def test_action_manager_call_action():
+    """Test ActionManager.call_action method with class-based Actions."""
+    # Create ActionManager instance
+    manager = ActionManager("test")
+
+    # Mock the registry with test actions
+    with patch.object(manager.registry, "get_action") as mock_get_action:
+        mock_get_action.return_value = TestAction
+
+        # Mock the action instance
+        with patch("dcc_mcp_core.actions.base.Action.process") as mock_process:
+            mock_process.return_value = ActionResultModel(
+                success=True, message="Action executed successfully", context={"test": True}
             )
-            mock_discover_actions.return_value = action_result
 
-            # mock load_action method to avoid actual module loading
-            with patch.object(manager, "load_action") as mock_load_action:
-                mock_load_action.return_value = ActionResultModel(
-                    success=True, message="Action loaded successfully", context={}
-                )
+            # Call action
+            result = manager.call_action("test_action", param1="value1")
 
-                # call load_actions method
-                result = manager.load_actions()
+            # Verify result
+            assert isinstance(result, ActionResultModel)
+            assert result.success is True
+            assert "executed successfully" in result.message
+            assert result.context["test"] is True
 
-                # verify result
-                assert isinstance(result, ActionResultModel)
-                assert result.success is True
-                assert "completed successfully" in result.message
+            # Verify mock calls
+            mock_get_action.assert_called_once_with("test_action")
+            mock_process.assert_called_once()
 
-                # verify actions_info model
-                actions_info = result.context.get("result")
-                assert isinstance(actions_info, ActionsInfoModel)
-                assert len(actions_info.actions) == 2
 
-                # verify action information
-                assert "basic_plugin" in actions_info.actions
-                assert actions_info.actions["basic_plugin"].name == "basic_plugin"
-                assert actions_info.actions["basic_plugin"].version == "1.0.0"
+def test_action_manager_call_nonexistent_action():
+    """Test ActionManager.call_action method with a nonexistent action."""
+    # Create ActionManager instance
+    manager = ActionManager("test")
 
-                assert "advanced_types_plugin" in actions_info.actions
-                assert actions_info.actions["advanced_types_plugin"].name == "advanced_types_plugin"
-                assert actions_info.actions["advanced_types_plugin"].version == "2.0.0"
+    # Mock the registry to return None for nonexistent action
+    with patch.object(manager.registry, "get_action", return_value=None):
+        # Call nonexistent action
+        result = manager.call_action("nonexistent_action")
+
+        # Verify result
+        assert isinstance(result, ActionResultModel)
+        assert result.success is False
+        assert "not found" in result.message

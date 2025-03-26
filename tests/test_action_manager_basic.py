@@ -16,27 +16,27 @@ import pytest
 from dcc_mcp_core.actions.manager import ActionManager
 from dcc_mcp_core.actions.manager import create_action_manager
 from dcc_mcp_core.actions.manager import get_action_manager
-from dcc_mcp_core.models import ActionModel
 from dcc_mcp_core.models import ActionResultModel
 
 
 def test_action_manager_init():
     """Test ActionManager initialization."""
     # Create a new ActionManager instance
-    manager = ActionManager("maya")
+    manager = ActionManager("maya", load_env_paths=False)
 
     # Check that the manager has the correct DCC name
     assert manager.dcc_name == "maya"
 
-    # Check that the manager has empty action modules and actions
-    assert manager._action_modules == {}
-    assert manager._actions == {}
+    # Check that the manager has initialized registry and action paths
+    assert hasattr(manager, "registry")
+    assert isinstance(manager._action_paths, list)
+    assert len(manager._action_paths) == 0
 
 
 def test_create_action_manager():
     """Test create_action_manager function."""
     # Create a new ActionManager instance
-    manager = create_action_manager("maya")
+    manager = create_action_manager("maya", load_env_paths=False)
 
     # Check that the manager has the correct DCC name
     assert manager.dcc_name == "maya"
@@ -52,7 +52,7 @@ def test_create_action_manager():
 def test_get_action_manager():
     """Test get_action_manager function."""
     # Create a new ActionManager instance
-    create_manager = create_action_manager("maya")
+    create_manager = create_action_manager("maya", load_env_paths=False)
 
     # Get the manager using get_action_manager
     get_manager = get_action_manager("maya")
@@ -60,96 +60,146 @@ def test_get_action_manager():
     # Check that the managers are the same
     assert create_manager == get_manager
 
-    # Check that get_action_manager returns None for non-existent DCC
-    assert get_action_manager("non_existent_dcc").get_actions().success is False
+    # Check that get_action_manager creates a new manager for non-existent DCC
+    non_existent_manager = get_action_manager("non_existent_dcc")
+    assert non_existent_manager.dcc_name == "non_existent_dcc"
 
 
-def test_get_actions_empty(cleanup_action_managers):
-    """Test get_actions method when no actions are loaded."""
+def test_get_actions_info_empty(cleanup_action_managers):
+    """Test get_actions_info method when no actions are loaded."""
     # Create a new ActionManager instance
-    manager = ActionManager("maya")
+    manager = ActionManager("maya", load_env_paths=False)
 
-    # Get actions
-    result = manager.get_actions()
+    # Get actions info
+    result = manager.get_actions_info()
 
     # Check that the result is an ActionResultModel
     assert isinstance(result, ActionResultModel)
 
-    # Check that the result indicates failure since no actions are loaded
-    assert result.success is False
-
-    # Check that the message indicates no actions are loaded
-    assert "No actions loaded" in result.message
-
-    # Check that the error message is set
-    assert "No actions have been loaded yet" in result.error
-
-    # Check that the context is empty
-    assert result.context == {}
-
-
-def test_set_action_search_paths():
-    """Test set_action_search_paths method."""
-    # Create a new ActionManager instance
-    manager = ActionManager("maya")
-
-    # Check that the initial search paths list is empty
-    assert manager._action_search_paths == []
-
-    # Set search paths
-    test_paths = ["/path/to/actions1", "/path/to/actions2"]
-    manager.set_action_search_paths(test_paths)
-
-    # Check that the search paths are set correctly
-    assert manager._action_search_paths == test_paths
-
-    # Test with empty list
-    manager.set_action_search_paths([])
-    assert manager._action_search_paths == []
-
-
-@patch("dcc_mcp_core.actions.manager.fs_discover_actions")
-def test_discover_actions_with_additional_paths(mock_discover_actions):
-    """Test discover_actions method with additional_paths parameter."""
-    # Setup mock return value
-    mock_discover_actions.return_value = {"maya": ["/path/to/maya/actions/action1.py"]}
-
-    # Create a new ActionManager instance
-    manager = ActionManager("maya")
-
-    # Test with no additional paths
-    result = manager.discover_actions()
+    # Check that the result indicates success
     assert result.success is True
-    assert "paths" in result.context
 
-    # Test with additional paths
-    additional_paths = ["/path/to/additional/actions/action2.py"]
+    # Check that the message indicates actions info retrieved
+    assert "Actions info retrieved" in result.message
 
-    # Reset the mock to track new calls
-    mock_discover_actions.reset_mock()
-    mock_discover_actions.return_value = {"maya": ["/path/to/maya/actions/action1.py"]}
+    # Check that the context contains the DCC name and empty actions dictionary
+    assert result.context["dcc_name"] == "maya"
+    assert isinstance(result.context["actions"], dict)
+    assert len(result.context["actions"]) == 0
 
-    result = manager.discover_actions(additional_paths=additional_paths)
+
+def test_register_action_path():
+    """Test register_action_path method."""
+    # Create a new ActionManager instance
+    manager = ActionManager("maya", load_env_paths=False)
+
+    # Check that the initial action paths list is empty
+    assert manager._action_paths == []
+
+    # Register action paths
+    test_paths = ["/path/to/actions1", "/path/to/actions2"]
+    for path in test_paths:
+        manager.register_action_path(path)
+
+    # Check that the action paths are set correctly
+    assert manager._action_paths == test_paths
+
+    # Test registering a duplicate path (should not add it again)
+    manager.register_action_path(test_paths[0])
+    assert manager._action_paths == test_paths
+
+
+@patch("dcc_mcp_core.actions.manager.ActionManager._discover_actions_from_path")
+def test_refresh_actions(mock_discover_actions):
+    """Test refresh_actions method."""
+    # Create a new ActionManager instance
+    manager = ActionManager("maya", auto_refresh=False, load_env_paths=False)
+
+    # Register action paths
+    test_paths = ["/path/to/actions1", "/path/to/actions2"]
+    for path in test_paths:
+        manager.register_action_path(path)
+
+    # Call refresh_actions
+    manager.refresh_actions(force=True)
+
+    # Verify that _discover_actions_from_path was called for each path
+    assert mock_discover_actions.call_count == len(test_paths)
+    for path in test_paths:
+        mock_discover_actions.assert_any_call(path)
+
+
+def test_call_action():
+    """Test call_action method."""
+
+    # Create a mock Action class
+    class MockAction:
+        name = "test_action"
+        dcc = "maya"
+
+        def __init__(self, context=None):
+            self.context = context or {}
+
+        def setup(self, **kwargs):
+            self.kwargs = kwargs
+            return self
+
+        def process(self):
+            return ActionResultModel(
+                success=True, message="Successfully executed test_action", context={"args": self.kwargs}
+            )
+
+    # Create a new ActionManager instance
+    manager = ActionManager("maya", load_env_paths=False)
+
+    # Mock the registry's get_action method
+    manager.registry.get_action = MagicMock(return_value=MockAction)
+
+    # Call action with arguments
+    result = manager.call_action("test_action", param1="value1", param2=42)
 
     # Verify the result
     assert result.success is True
-    assert "paths" in result.context
+    assert "Successfully executed test_action" in result.message
+    assert result.context["args"] == {"param1": "value1", "param2": 42}
 
-    # Verify that fs_discover_actions was called with the correct parameters
-    mock_discover_actions.assert_called_once()
-    args, kwargs = mock_discover_actions.call_args
-    assert args[0] == "maya"
-    assert "additional_paths" in kwargs
-    assert kwargs["additional_paths"] == {"maya": additional_paths}
+    # Verify that get_action was called correctly
+    manager.registry.get_action.assert_called_once_with("test_action")
 
-    # Verify that additional_paths are included in the cache invalidation check
-    # If additional_paths is provided, cache should not be used
-    manager._last_discovery_time = float("inf")  # Set to future time to ensure cache would be used
 
-    mock_discover_actions.reset_mock()
-    mock_discover_actions.return_value = {"maya": ["/path/to/maya/actions/action1.py"]}
+def test_call_action_with_registry_get_action_returning_none():
+    """Test call_action method when registry.get_action returns None."""
 
-    result = manager.discover_actions(additional_paths=additional_paths)
+    # Create a mock Action class
+    class MockAction:
+        name = "test_action"
+        dcc = "maya"
 
-    # Verify that fs_discover_actions was called despite cache being valid
-    mock_discover_actions.assert_called_once()
+        def __init__(self, context=None):
+            self.context = context or {}
+
+        def setup(self, **kwargs):
+            self.kwargs = kwargs
+            return self
+
+        def process(self):
+            return ActionResultModel(
+                success=True, message="Successfully executed test_action", context={"args": self.kwargs}
+            )
+
+    # Create a new ActionManager instance
+    manager = ActionManager("maya", load_env_paths=False)
+
+    # Mock the registry's get_action method
+    manager.registry.get_action = MagicMock(return_value=None)
+
+    # Call action with arguments
+    result = manager.call_action("test_action", param1="value1", param2=42)
+
+    # Verify the result
+    assert result.success is False
+    assert "Action test_action not found" in result.message
+    assert result.context == {}
+
+    # Verify that get_action was called correctly
+    manager.registry.get_action.assert_called_once_with("test_action")

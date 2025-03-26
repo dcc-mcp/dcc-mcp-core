@@ -24,7 +24,7 @@ def pytest(session: nox.Session) -> None:
 
     """
     session.install(".")
-    session.install("pytest", "pytest_cov", "pytest_mock", "pyfakefs")
+    session.install("pytest", "pytest_cov", "pytest_mock", "pyfakefs", "pytest-asyncio")
     test_root = os.path.join(THIS_ROOT, "tests")
 
     # Get any additional arguments passed after --
