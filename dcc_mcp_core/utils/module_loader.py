@@ -5,14 +5,19 @@ Provides utility functions for dynamically loading Python modules.
 """
 
 # Import built-in modules
+from contextlib import contextmanager
+
 # Import standard modules
 import importlib.util
 import os
+from pathlib import Path
 import sys
 from types import ModuleType
 from typing import Any
 from typing import Dict
+from typing import Generator
 from typing import Optional
+from typing import Union
 
 # Import local modules
 from dcc_mcp_core.utils.dependency_injector import inject_dependencies
@@ -83,3 +88,71 @@ def load_module_from_path(
     # This is important for modules that import each other
 
     return module
+
+
+def convert_path_to_module(file_path: str) -> str:
+    """Convert a file path to a Python module path.
+
+    This function converts a file path (e.g., 'path/to/module.py') to a
+    Python module path that can be used with importlib. For simplicity and to avoid
+    issues with absolute paths, it returns only the filename without extension.
+
+    Args:
+        file_path: Path to the Python file
+
+    Returns:
+        Python module path suitable for importlib.import_module
+
+    """
+    # Convert to Path object
+    path = Path(file_path)
+
+    # Get the file name without extension
+    file_name = path.stem
+
+    # Remove any invalid characters for module names
+    module_path = file_name.replace("-", "_")
+
+    return module_path
+
+
+@contextmanager
+def append_to_python_path(script: Union[str, Path]) -> Generator[None, None, None]:
+    """Temporarily append a directory to sys.path within a context.
+
+    This context manager adds the directory containing the specified script
+    to sys.path and removes it when exiting the context.
+
+    Args:
+        script: The absolute path to a script file.
+
+    Yields:
+        None
+
+    Example:
+        >>> with append_to_python_path('/path/to/script.py'):
+        ...     import some_module  # module in script's directory
+
+    """
+    script_path = Path(script)
+    if script_path.is_file():
+        script_dir = script_path.parent
+    else:
+        script_dir = script_path
+
+    # Convert to string representation for sys.path
+    script_dir_str = str(script_dir)
+
+    # Check if the path is already in sys.path
+    if script_dir_str not in sys.path:
+        sys.path.insert(0, script_dir_str)
+        path_added = True
+    else:
+        path_added = False
+
+    try:
+        yield
+    finally:
+        # Only remove the path if we added it
+        if path_added and script_dir_str in sys.path:
+            sys.path.remove(script_dir_str)
