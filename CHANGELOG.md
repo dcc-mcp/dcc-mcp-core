@@ -1,3 +1,13 @@
+## v0.4.0 (2025-03-27)
+
+### Feat
+
+- Restructure imports, remove unused code, and update templates
+
+### Refactor
+
+- Remove unused modules and add path conversion functions
+
 ## v0.3.1 (2025-03-24)
 
 ### Refactor
