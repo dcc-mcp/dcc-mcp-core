@@ -3,16 +3,8 @@
 # Import built-in modules
 import sys
 from types import ModuleType
-from typing import Any
-from typing import Dict
-from typing import List
-from typing import Optional
-from typing import Set
 from unittest.mock import MagicMock
 from unittest.mock import patch
-
-# Import third-party modules
-import pytest
 
 # Import local modules
 from dcc_mcp_core.utils.dependency_injector import _get_all_submodules

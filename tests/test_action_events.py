@@ -6,7 +6,6 @@ This module contains tests for the Event and EventBus classes.
 # Import built-in modules
 import asyncio
 from unittest.mock import MagicMock
-from unittest.mock import patch
 
 # Import third-party modules
 import pytest

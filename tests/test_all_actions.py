@@ -4,7 +4,6 @@ This module uses pytest.mark.parametrize to test all actions in the example_acti
 """
 
 # Import built-in modules
-import importlib.util
 import os
 from pathlib import Path
 from typing import ClassVar

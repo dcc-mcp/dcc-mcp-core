@@ -6,20 +6,14 @@ including registration, discovery, and retrieval of Action classes.
 
 # Import built-in modules
 import os
-from pathlib import Path
 import sys
-from typing import Any
-from typing import Dict
-from typing import List
 
 # Import third-party modules
-from pydantic import Field
 import pytest
 
 # Import local modules
 from dcc_mcp_core.actions.base import Action
 from dcc_mcp_core.actions.registry import ActionRegistry
-from dcc_mcp_core.models import ActionResultModel
 
 
 # Define test Action classes
@@ -85,17 +79,16 @@ class MayaAction(Action):
 @pytest.fixture
 def clean_registry():
     """Fixture to provide a clean ActionRegistry for each test."""
-    # Save the original actions dictionary
-    registry = ActionRegistry()
-    original_actions = registry._actions.copy()
+    # Reset ActionRegistry singleton instance
+    ActionRegistry._reset_instance()
 
-    # Clear the registry for the test
-    registry._actions = {}
+    # Get new instance
+    registry = ActionRegistry()
 
     yield registry
 
-    # Restore the original actions after the test
-    registry._actions = original_actions
+    # Reset singleton instance after test
+    ActionRegistry._reset_instance()
 
 
 def test_action_registry_singleton():
@@ -253,3 +246,184 @@ def test_action_registry_discover_actions(clean_registry, setup_test_package):
     subpackage = next(a for a in actions if a["name"] == "subpackage_action")
     assert subpackage["description"] == "Action in a subpackage"
     assert subpackage["dcc"] == "maya"
+
+
+def test_action_registry_dcc_specific_registry(clean_registry):
+    """Test DCC-specific action registry."""
+    registry = clean_registry
+
+    # Register test actions
+    registry.register(TestAction1)  # dcc = "test"
+    registry.register(TestAction2)  # dcc = "maya"
+    registry.register(TestAction)  # dcc = "test"
+    registry.register(MayaAction)  # dcc = "maya"
+
+    assert len(registry._actions) == 4
+    assert "test_action1" in registry._actions
+    assert "test_action2" in registry._actions
+    assert "test_action" in registry._actions
+    assert "maya_action" in registry._actions
+
+    # Check DCC-specific registry
+    assert len(registry._dcc_actions) == 2
+    assert "test" in registry._dcc_actions
+    assert "maya" in registry._dcc_actions
+
+    # Check test DCC registry
+    assert len(registry._dcc_actions["test"]) == 2
+    assert "test_action1" in registry._dcc_actions["test"]
+    assert "test_action" in registry._dcc_actions["test"]
+
+    # Check maya DCC registry
+    assert len(registry._dcc_actions["maya"]) == 2
+    assert "test_action2" in registry._dcc_actions["maya"]
+    assert "maya_action" in registry._dcc_actions["maya"]
+
+
+def test_action_registry_get_action_with_dcc(clean_registry):
+    """Test getting action by DCC name."""
+    registry = clean_registry
+
+    # Register test actions
+    registry.register(TestAction1)  # dcc = "test"
+    registry.register(TestAction2)  # dcc = "maya"
+
+    # Get action without DCC name
+    action1 = registry.get_action("test_action1")
+    assert action1 is TestAction1
+
+    action2 = registry.get_action("test_action2")
+    assert action2 is TestAction2
+
+    # Specify correct DCC name
+    action1_test = registry.get_action("test_action1", dcc_name="test")
+    assert action1_test is TestAction1
+
+    action2_maya = registry.get_action("test_action2", dcc_name="maya")
+    assert action2_maya is TestAction2
+
+    # Specify incorrect DCC name, should return None
+    action1_maya = registry.get_action("test_action1", dcc_name="maya")
+    assert action1_maya is None
+
+    action2_test = registry.get_action("test_action2", dcc_name="test")
+    assert action2_test is None
+
+    # Specify non-existent DCC name, should return action from main registry
+    action1_houdini = registry.get_action("test_action1", dcc_name="houdini")
+    assert action1_houdini is TestAction1
+
+
+def test_action_registry_get_actions_by_dcc(clean_registry):
+    """Test getting all actions for a specific DCC."""
+    registry = clean_registry
+
+    # Register test actions
+    registry.register(TestAction1)  # dcc = "test"
+    registry.register(TestAction2)  # dcc = "maya"
+    registry.register(TestAction)  # dcc = "test"
+    registry.register(MayaAction)  # dcc = "maya"
+
+    # Get all actions for a specific DCC
+    test_actions = registry.get_actions_by_dcc("test")
+    assert len(test_actions) == 2
+    assert "test_action1" in test_actions
+    assert "test_action" in test_actions
+    assert test_actions["test_action1"] is TestAction1
+    assert test_actions["test_action"] is TestAction
+
+    maya_actions = registry.get_actions_by_dcc("maya")
+    assert len(maya_actions) == 2
+    assert "test_action2" in maya_actions
+    assert "maya_action" in maya_actions
+    assert maya_actions["test_action2"] is TestAction2
+    assert maya_actions["maya_action"] is MayaAction
+
+    # Get actions for non-existent DCC
+    houdini_actions = registry.get_actions_by_dcc("houdini")
+    assert len(houdini_actions) == 0
+
+
+def test_action_registry_get_all_dccs(clean_registry):
+    """Test getting all DCCs."""
+    registry = clean_registry
+
+    # Initial state should have no DCCs
+    assert len(registry.get_all_dccs()) == 0
+
+    # Register test actions
+    registry.register(TestAction1)  # dcc = "test"
+    registry.register(TestAction2)  # dcc = "maya"
+
+    # Check DCC list
+    dccs = registry.get_all_dccs()
+    assert len(dccs) == 2
+    assert "test" in dccs
+    assert "maya" in dccs
+
+    # Register more actions
+    registry.register(TestAction)  # dcc = "test", already exists
+    registry.register(MayaAction)  # dcc = "maya", already exists
+
+    # DCC list should remain unchanged
+    dccs = registry.get_all_dccs()
+    assert len(dccs) == 2
+    assert "test" in dccs
+    assert "maya" in dccs
+
+
+@pytest.mark.skipif(os.environ.get("CI") == "true", reason="Skip in CI environment")
+def test_action_registry_discover_actions_return_value(clean_registry, setup_test_package):
+    """Test action discovery mechanism return value."""
+    registry = clean_registry
+    pkg_name = setup_test_package
+
+    # Discover actions and get return value
+    discovered_actions = registry.discover_actions(pkg_name)
+
+    # Check return value
+    assert len(discovered_actions) == 2
+    assert any(a.__name__ == "DiscoveredAction" for a in discovered_actions)
+    assert any(a.__name__ == "SubpackageAction" for a in discovered_actions)
+
+    # Check registry
+    assert "discovered_action" in registry._actions
+    assert "subpackage_action" in registry._actions
+
+    # Check DCC-specific registry
+    assert "test" in registry._dcc_actions
+    assert "maya" in registry._dcc_actions
+    assert "discovered_action" in registry._dcc_actions["test"]
+    assert "subpackage_action" in registry._dcc_actions["maya"]
+
+
+@pytest.mark.skipif(os.environ.get("CI") == "true", reason="Skip in CI environment")
+def test_action_registry_discover_actions_with_dcc(clean_registry, setup_test_package):
+    """Test action discovery mechanism with DCC name."""
+    registry = clean_registry
+    pkg_name = setup_test_package
+
+    # Discover actions and specify DCC name
+    discovered_actions = registry.discover_actions(pkg_name, dcc_name="custom_dcc")
+
+    # Check return value
+    assert len(discovered_actions) == 2
+    assert any(a.__name__ == "DiscoveredAction" for a in discovered_actions)
+    assert any(a.__name__ == "SubpackageAction" for a in discovered_actions)
+
+    # Check registry
+    assert "discovered_action" in registry._actions
+    assert "subpackage_action" in registry._actions
+
+    # Check DCC-specific registry
+    assert "test" in registry._dcc_actions  # DiscoveredAction already has dcc = "test"
+    assert "maya" in registry._dcc_actions  # SubpackageAction already has dcc = "maya"
+
+    # Check action DCC name is not overwritten
+    discovered_action = registry._actions.get("discovered_action")
+    assert discovered_action is not None
+    assert discovered_action.dcc == "test"
+
+    subpackage_action = registry._actions.get("subpackage_action")
+    assert subpackage_action is not None
+    assert subpackage_action.dcc == "maya"

@@ -5,8 +5,6 @@ to callable functions compatible with function-based APIs.
 """
 
 # Import built-in modules
-from typing import Any
-from typing import Dict
 
 # Import third-party modules
 from pydantic import Field
@@ -17,7 +15,6 @@ from dcc_mcp_core.actions.adapter import create_function_adapter
 from dcc_mcp_core.actions.adapter import create_function_adapters
 from dcc_mcp_core.actions.base import Action
 from dcc_mcp_core.actions.registry import ActionRegistry
-from dcc_mcp_core.models import ActionResultModel
 
 
 # Define test Action classes

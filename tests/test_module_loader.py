@@ -5,7 +5,6 @@ import os
 import tempfile
 
 # Import third-party modules
-from pyfakefs.fake_filesystem_unittest import Patcher
 import pytest
 
 # Import local modules

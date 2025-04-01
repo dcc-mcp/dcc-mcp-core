@@ -4,13 +4,9 @@ This module contains additional tests for the Action base class to improve code 
 """
 
 # Import built-in modules
-from typing import Any
 from typing import ClassVar
-from typing import Dict
 from typing import List
 from typing import Optional
-from unittest.mock import MagicMock
-from unittest.mock import patch
 
 # Import third-party modules
 from pydantic import Field
@@ -19,7 +15,6 @@ import pytest
 
 # Import local modules
 from dcc_mcp_core.actions.base import Action
-from dcc_mcp_core.models import ActionResultModel
 
 
 class TestActionWithValidation(Action):
@@ -84,12 +79,8 @@ class TestActionWithError(Action):
     class InputModel(Action.InputModel):
         """Input model."""
 
-        pass
-
     class OutputModel(Action.OutputModel):
         """Output model."""
-
-        pass
 
     def _execute(self) -> None:
         """Execute the action and raise an error."""

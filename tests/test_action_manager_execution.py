@@ -4,14 +4,10 @@ This module contains tests for the action execution methods of the ActionManager
 """
 
 # Import built-in modules
-import os
 from typing import ClassVar
 from typing import List
 from unittest.mock import MagicMock
 from unittest.mock import patch
-
-# Import third-party modules
-import pytest
 
 # Import local modules
 # Import DCC-MCP-Core modules

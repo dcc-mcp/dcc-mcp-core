@@ -5,9 +5,6 @@ This file contains shared fixtures and configuration for pytest tests.
 
 # Import built-in modules
 import os
-from pathlib import Path
-import sys
-from unittest.mock import MagicMock
 
 # Import third-party modules
 import pytest

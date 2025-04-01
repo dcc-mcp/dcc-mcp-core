@@ -80,7 +80,6 @@ class Action:
 
         """
 
-        pass
 
     # Output context model (using Pydantic)
     class OutputModel(BaseModel):
@@ -146,7 +145,6 @@ class Action:
         context or dependencies that are needed for the action to execute.
         By default, it does nothing.
         """
-        pass
 
     def validate_input(self, **kwargs) -> InputModel:
         """Validate input parameters using the InputModel.

@@ -5,9 +5,7 @@ including input validation, execution, and error handling.
 """
 
 # Import built-in modules
-from typing import Any
 from typing import ClassVar
-from typing import Dict
 from typing import List
 
 # Import third-party modules
@@ -16,7 +14,6 @@ import pytest
 
 # Import local modules
 from dcc_mcp_core.actions.base import Action
-from dcc_mcp_core.models import ActionResultModel
 
 
 class TestAction(Action):

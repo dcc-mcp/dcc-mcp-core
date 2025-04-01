@@ -1,9 +1,6 @@
 """Tests for the ActionResultModel in models.py."""
 
 # Import built-in modules
-from typing import Any
-from typing import Dict
-from typing import Optional
 
 # Import third-party modules
 from pydantic import ValidationError

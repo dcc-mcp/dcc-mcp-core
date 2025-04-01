@@ -4,12 +4,8 @@ This module contains tests for the initialization and core functionality of the 
 """
 
 # Import built-in modules
-import os
 from unittest.mock import MagicMock
 from unittest.mock import patch
-
-# Import third-party modules
-import pytest
 
 # Import local modules
 # Import DCC-MCP-Core modules

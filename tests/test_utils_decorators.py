@@ -1,11 +1,8 @@
 """Tests for the utils.decorators module."""
 
 # Import built-in modules
-from typing import Optional
-from unittest.mock import patch
 
 # Import third-party modules
-import pytest
 
 # Import local modules
 from dcc_mcp_core.models import ActionResultModel

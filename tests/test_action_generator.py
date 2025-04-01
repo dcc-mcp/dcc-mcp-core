@@ -3,10 +3,6 @@
 # Import built-in modules
 from datetime import datetime
 import os
-from typing import Any
-from typing import Dict
-from typing import List
-from unittest.mock import MagicMock
 from unittest.mock import mock_open
 from unittest.mock import patch
 

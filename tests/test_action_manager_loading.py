@@ -5,18 +5,14 @@ This module contains tests for the action loading methods of the ActionManager c
 
 # Import built-in modules
 import os
-from pathlib import Path
-import sys
 from typing import ClassVar
 from typing import List
-from unittest.mock import MagicMock
 from unittest.mock import patch
 
 # Import third-party modules
 import pytest
 
 # Import local modules
-from dcc_mcp_core.actions.base import Action
 from dcc_mcp_core.actions.manager import ActionManager
 from dcc_mcp_core.models import ActionResultModel
 

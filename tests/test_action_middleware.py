@@ -7,9 +7,6 @@ This module contains tests for the Middleware and MiddlewareChain classes.
 from unittest.mock import MagicMock
 from unittest.mock import patch
 
-# Import third-party modules
-import pytest
-
 # Import local modules
 from dcc_mcp_core.actions.base import Action
 from dcc_mcp_core.actions.middleware import LoggingMiddleware

@@ -4,14 +4,9 @@ This module contains tests for the ActionManager's load_actions functionality wi
 """
 
 # Import built-in modules
-import os
 from typing import ClassVar
 from typing import List
-from unittest.mock import MagicMock
 from unittest.mock import patch
-
-# Import third-party modules
-import pytest
 
 # Import local modules
 from dcc_mcp_core.actions.base import Action
@@ -33,11 +28,8 @@ class TestAction(Action):
     class InputModel(Action.InputModel):
         """Test input model."""
 
-        pass
-
     def _execute(self) -> None:
         """Test execution implementation."""
-        pass
 
 
 class AdvancedAction(Action):
@@ -54,11 +46,8 @@ class AdvancedAction(Action):
     class InputModel(Action.InputModel):
         """Advanced input model."""
 
-        pass
-
     def _execute(self) -> None:
         """Advanced execution implementation."""
-        pass
 
 
 def test_action_manager_get_actions_info():
