@@ -1,3 +1,9 @@
+## v0.5.0 (2025-04-01)
+
+### Feat
+
+- Enhance ActionRegistry with DCC-specific features
+
 ## v0.4.0 (2025-03-27)
 
 ### Feat
