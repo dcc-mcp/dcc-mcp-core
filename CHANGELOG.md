@@ -1,3 +1,9 @@
+## v0.6.0 (2025-04-03)
+
+### Feat
+
+- Enhance action management and DCC support
+
 ## v0.5.0 (2025-04-01)
 
 ### Feat
