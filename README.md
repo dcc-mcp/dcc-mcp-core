@@ -28,23 +28,47 @@ DCC-MCP-Core is an action management system designed for Digital Content Creatio
 5. **Function Calls and Result Return**: MCP server calls the corresponding action functions and returns the results to AI
 
 ```mermaid
-graph LR
-    AI[AI Assistant] -->|1. Send Request| MCP[MCP Server]
-    MCP -->|2. Forward Request| DCCMCP[DCC-MCP]
-    DCCMCP -->|3. Discover & Load| Actions[DCC Actions]
-    Actions -->|4. Return Info| DCCMCP
-    DCCMCP -->|5. Structured Data| MCP
-    MCP -->|6. Call Function| DCCMCP
-    DCCMCP -->|7. Execute| DCC[DCC Software]
-    DCC -->|8. Operation Result| DCCMCP
-    DCCMCP -->|9. Structured Result| MCP
-    MCP -->|10. Return Result| AI
+%%{init: {
+  'flowchart': {
+    'nodeSpacing': 50,
+    'rankSpacing': 80,
+    'curve': 'basis',
+    'useMaxWidth': false
+  },
+  'themeVariables': {
+    'fontSize': '16px',
+    'fontFamily': 'arial',
+    'lineWidth': 2
+  }
+} }%%
 
-    style AI fill:#f9d,stroke:#333,stroke-width:2px
-    style MCP fill:#bbf,stroke:#333,stroke-width:2px
-    style DCCMCP fill:#bbf,stroke:#333,stroke-width:2px
-    style DCC fill:#bfb,stroke:#333,stroke-width:2px
-    style Actions fill:#fbb,stroke:#333,stroke-width:2px
+flowchart LR
+    %% Node definitions with custom styling
+    AI([<b>AI Assistant</b>]):::aiNode
+    MCP{{<b>MCP Server</b>}}:::serverNode
+    DCCMCP{{<b>DCC-MCP</b>}}:::serverNode
+    Actions[(
+<b>DCC Actions</b>
+)]:::actionsNode
+    DCC[/<b>DCC Software</b>/]:::dccNode
+    
+    %% Connections and workflow
+    AI -->|<b>1. Send Request</b>| MCP
+    MCP -->|<b>2. Forward Request</b>| DCCMCP
+    DCCMCP -->|<b>3. Discover & Load</b>| Actions
+    Actions -->|<b>4. Return Info</b>| DCCMCP
+    DCCMCP -->|<b>5. Structured Data</b>| MCP
+    MCP -->|<b>6. Call Function</b>| DCCMCP
+    DCCMCP -->|<b>7. Execute</b>| DCC
+    DCC -->|<b>8. Operation Result</b>| DCCMCP
+    DCCMCP -->|<b>9. Structured Result</b>| MCP
+    MCP -->|<b>10. Return Result</b>| AI
+    
+    %% Style definitions
+    classDef aiNode fill:#f9d,stroke:#f06,stroke-width:3px,color:#333,padding:15px,margin:10px
+    classDef serverNode fill:#bbf,stroke:#66f,stroke-width:3px,color:#333,padding:15px,margin:10px
+    classDef dccNode fill:#bfb,stroke:#6b6,stroke-width:3px,color:#333,padding:15px,margin:10px
+    classDef actionsNode fill:#fbb,stroke:#f66,stroke-width:3px,color:#333,padding:15px,margin:10px
 ```
 
 ## Class-Based Action Design
@@ -58,7 +82,8 @@ Actions inherit from the `Action` base class, which provides a standardized stru
 ```python
 from dcc_mcp_core.actions.base import Action
 from dcc_mcp_core.models import ActionResultModel
-from pydantic import Field
+from pydantic import Field, field_validator, model_validator
+from typing import List, Optional
 
 class CreateSphereAction(Action):
     # Metadata as class attributes
@@ -70,9 +95,9 @@ class CreateSphereAction(Action):
 
     # Input parameters model with validation
     class InputModel(Action.InputModel):
-        radius: float = Field(1.0, description="Radius of the sphere")
-        position: list[float] = Field([0, 0, 0], description="Position of the sphere")
-        name: str = Field(None, description="Name of the sphere")
+        radius: float = Field(default=1.0, description="Radius of the sphere")
+        position: List[float] = Field(default=[0, 0, 0], description="Position of the sphere")
+        name: Optional[str] = Field(default=None, description="Name of the sphere")
 
         # Parameter validation example
         @field_validator('radius')
@@ -80,11 +105,21 @@ class CreateSphereAction(Action):
             if v <= 0:
                 raise ValueError("Radius must be positive")
             return v
+            
+        # Model-level validation example
+        @model_validator(mode='after')
+        def validate_model(self):
+            # Example: if name is provided, position must not be origin
+            if self.name and self.position == [0, 0, 0]:
+                raise ValueError("Position must not be origin when name is specified")
+            return self
 
     # Output data model
     class OutputModel(Action.OutputModel):
         object_name: str = Field(description="Name of the created object")
-        position: list[float] = Field(description="Final position of the object")
+        position: List[float] = Field(description="Final position of the object")
+        # Inherited from base OutputModel
+        prompt: Optional[str] = Field(default=None, description="Suggestion for AI about next steps")
 
     def _execute(self) -> None:
         # Access validated input parameters
@@ -105,6 +140,15 @@ class CreateSphereAction(Action):
             position=position,
             prompt="You can now modify the sphere's attributes or add materials"
         )
+        
+    # Optional: Override async execution for native async support
+    async def _execute_async(self) -> None:
+        # By default, this runs _execute in a thread pool
+        # You can override for native async implementation
+        import asyncio
+        # Example of async operation
+        await asyncio.sleep(0.1)  # Simulate async work
+        # Then perform the same operations as in _execute
 ```
 
 ### Key Features
@@ -139,6 +183,35 @@ ActionResultModel(
 - **prompt**: Suggestion for AI about next steps or actions
 - **error**: Error message when success is False
 - **context**: Dictionary containing additional context data
+
+### Methods
+
+- **to_dict()**: Converts the model to a dictionary, with version-independent compatibility between Pydantic v1 and v2
+- **model_dump()** / **dict()**: Native Pydantic serialization methods (version dependent)
+
+### Usage Example
+
+```python
+# Create a result model
+result = ActionResultModel(
+    success=True,
+    message="Operation completed",
+    prompt="Next step suggestion",
+    context={"key": "value"}
+)
+
+# Convert to dictionary (version-independent)
+result_dict = result.to_dict()
+
+# Access fields
+if result.success:
+    print(f"Success: {result.message}")
+    if result.prompt:
+        print(f"Next step: {result.prompt}")
+    print(f"Context data: {result.context}")
+else:
+    print(f"Error: {result.error}")
+```
 
 ## ActionManager
 
@@ -182,24 +255,85 @@ else:
 - **Middleware Support**: Supports middleware for cross-cutting concerns like logging and performance monitoring
 - **Asynchronous Execution**: Supports both synchronous and asynchronous action execution
 
-## Package Structure
+## Middleware System
+
+DCC-MCP-Core includes a middleware system for inserting custom logic before and after action execution:
+
+```python
+from dcc_mcp_core.actions.middleware import LoggingMiddleware, PerformanceMiddleware, MiddlewareChain
+from dcc_mcp_core.actions.manager import ActionManager
+
+# Create a middleware chain
+chain = MiddlewareChain()
+
+# Add middleware (order matters - first added is executed first)
+chain.add(LoggingMiddleware)  # Logs action execution details
+chain.add(PerformanceMiddleware, threshold=0.5)  # Monitors execution time
+
+# Create an action manager with the middleware chain
+manager = ActionManager("maya", middleware=chain.build())
+
+# Execute actions through the middleware chain
+result = manager.call_action("create_sphere", radius=2.0)
+
+# The result will include performance data added by the middleware
+print(f"Execution time: {result.context['performance']['execution_time']:.2f}s")
+```
+
+### Built-in Middleware
+
+- **LoggingMiddleware**: Logs action execution details and timing
+- **PerformanceMiddleware**: Monitors execution time and warns about slow actions
+
+### Custom Middleware
+
+You can create custom middleware by inheriting from the `Middleware` base class:
+
+```python
+from dcc_mcp_core.actions.middleware import Middleware
+from dcc_mcp_core.actions.base import Action
+from dcc_mcp_core.models import ActionResultModel
+
+class CustomMiddleware(Middleware):
+    def process(self, action: Action, **kwargs) -> ActionResultModel:
+        # Pre-processing logic
+        print(f"Before executing {action.name}")
+        
+        # Call the next middleware in the chain (or the action itself)
+        result = super().process(action, **kwargs)
+        
+        # Post-processing logic
+        print(f"After executing {action.name}: {'Success' if result.success else 'Failed'}")
+        
+        # You can modify the result if needed
+        if result.success:
+            result.context["custom_data"] = "Added by middleware"
+            
+        return result
+```
+
+## Project Structure
 
 DCC-MCP-Core is organized into several subpackages:
 
 - **actions**: Action management and execution
-  - `base.py`: Base Action class definition
+  - `base.py`: Base Action class definition with Pydantic models
   - `manager.py`: ActionManager for action discovery and execution
   - `registry.py`: ActionRegistry for registering and retrieving actions
-  - `middleware.py`: Middleware for cross-cutting concerns
+  - `middleware.py`: Middleware system for cross-cutting concerns
   - `events.py`: Event system for action communication
+  - `generator.py`: Utilities for generating action templates
+  - `adapter.py`: Adapters for legacy action functions
 
 - **models**: Data models for the MCP ecosystem
-  - `action_result.py`: Structured result model for actions
+  - `models.py`: Structured result model and other data models
 
 - **utils**: Utility functions and helpers
   - `module_loader.py`: Module loading utilities
   - `filesystem.py`: File system operations
   - `decorators.py`: Function decorators for error handling
+  - `dependency_injector.py`: Dependency injection utilities
+  - `template.py`: Template rendering utilities
   - `platform.py`: Platform-specific utilities
 
 ## Features

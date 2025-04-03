@@ -28,23 +28,47 @@ DCC-MCP-Core 是一个为数字内容创建(DCC)应用程序设计的动作管�
 5. **函数调用与结果返回**：MCP 服务器调用相应的动作函数，并将结果返回给 AI
 
 ```mermaid
-graph LR
-    AI[AI 助手] -->|"1. 发送请求"| MCP[MCP 服务器]
-    MCP -->|"2. 转发请求"| DCCMCP[DCC-MCP]
-    DCCMCP -->|"3. 发现与加载"| Actions[DCC 动作]
-    Actions -->|"4. 返回信息"| DCCMCP
-    DCCMCP -->|"5. 结构化数据"| MCP
-    MCP -->|"6. 调用函数"| DCCMCP
-    DCCMCP -->|"7. 执行"| DCC[DCC 软件]
-    DCC -->|"8. 操作结果"| DCCMCP
-    DCCMCP -->|"9. 结构化结果"| MCP
-    MCP -->|"10. 返回结果"| AI
+%%{init: {
+  'flowchart': {
+    'nodeSpacing': 50,
+    'rankSpacing': 80,
+    'curve': 'basis',
+    'useMaxWidth': false
+  },
+  'themeVariables': {
+    'fontSize': '16px',
+    'fontFamily': 'arial',
+    'lineWidth': 2
+  }
+} }%%
 
-    style AI fill:#f9d,stroke:#333,stroke-width:4px
-    style MCP fill:#bbf,stroke:#333,stroke-width:4px
-    style DCCMCP fill:#bbf,stroke:#333,stroke-width:4px
-    style DCC fill:#bfb,stroke:#333,stroke-width:4px
-    style Actions fill:#fbb,stroke:#333,stroke-width:4px
+flowchart LR
+    %% 节点定义
+    AI([<b>AI 助手</b>]):::aiNode
+    MCP{{<b>MCP 服务器</b>}}:::serverNode
+    DCCMCP{{<b>DCC-MCP</b>}}:::serverNode
+    Actions[(
+<b>DCC 动作</b>
+)]:::actionsNode
+    DCC[/<b>DCC 软件</b>/]:::dccNode
+    
+    %% 连接和流程
+    AI -->|<b>1. 发送请求</b>| MCP
+    MCP -->|<b>2. 转发请求</b>| DCCMCP
+    DCCMCP -->|<b>3. 发现与加载</b>| Actions
+    Actions -->|<b>4. 返回信息</b>| DCCMCP
+    DCCMCP -->|<b>5. 结构化数据</b>| MCP
+    MCP -->|<b>6. 调用函数</b>| DCCMCP
+    DCCMCP -->|<b>7. 执行操作</b>| DCC
+    DCC -->|<b>8. 操作结果</b>| DCCMCP
+    DCCMCP -->|<b>9. 结构化结果</b>| MCP
+    MCP -->|<b>10. 返回结果</b>| AI
+    
+    %% 样式设置
+    classDef aiNode fill:#f9d,stroke:#f06,stroke-width:3px,color:#333,padding:15px,margin:10px
+    classDef serverNode fill:#bbf,stroke:#66f,stroke-width:3px,color:#333,padding:15px,margin:10px
+    classDef dccNode fill:#bfb,stroke:#6b6,stroke-width:3px,color:#333,padding:15px,margin:10px
+    classDef actionsNode fill:#fbb,stroke:#f66,stroke-width:3px,color:#333,padding:15px,margin:10px
 ```
 
 ### 动作设计
@@ -82,7 +106,120 @@ DCC-MCP-Core 组织为几个子包：
   - `module_loader.py`：模块加载工具
   - `filesystem.py`：文件系统操作
   - `decorators.py`：用于错误处理的函数装饰器
+  - `dependency_injector.py`：依赖注入工具
+  - `template.py`：模板渲染工具
   - `platform.py`：平台特定工具
+
+## 中间件系统
+
+DCC-MCP-Core 包含一个中间件系统，用于在动作执行前后插入自定义逻辑：
+
+```python
+from dcc_mcp_core.actions.middleware import LoggingMiddleware, PerformanceMiddleware, MiddlewareChain
+from dcc_mcp_core.actions.manager import ActionManager
+
+# 创建中间件链
+chain = MiddlewareChain()
+
+# 添加中间件（顺序很重要 - 先添加的先执行）
+chain.add(LoggingMiddleware)  # 记录动作执行详情
+chain.add(PerformanceMiddleware, threshold=0.5)  # 监控执行时间
+
+# 使用中间件链创建动作管理器
+manager = ActionManager("maya", middleware=chain.build())
+
+# 通过中间件链执行动作
+result = manager.call_action("create_sphere", radius=2.0)
+
+# 结果中将包含中间件添加的性能数据
+print(f"执行时间：{result.context['performance']['execution_time']:.2f}秒")
+```
+
+### 内置中间件
+
+- **LoggingMiddleware**：记录动作执行详情和计时
+- **PerformanceMiddleware**：监控执行时间并警告慢动作
+
+### 自定义中间件
+
+您可以通过继承 `Middleware` 基类来创建自定义中间件：
+
+```python
+from dcc_mcp_core.actions.middleware import Middleware
+from dcc_mcp_core.actions.base import Action
+from dcc_mcp_core.models import ActionResultModel
+
+class CustomMiddleware(Middleware):
+    def process(self, action: Action, **kwargs) -> ActionResultModel:
+        # 预处理逻辑
+        print(f"执行 {action.name} 之前")
+        
+        # 调用链中的下一个中间件（或动作本身）
+        result = super().process(action, **kwargs)
+        
+        # 后处理逻辑
+        print(f"执行 {action.name} 之后：{'成功' if result.success else '失败'}")
+        
+        # 您可以根据需要修改结果
+        if result.success:
+            result.context["custom_data"] = "由中间件添加"
+            
+        return result
+```
+
+## ActionResultModel
+
+`ActionResultModel` 提供了一个结构化的动作结果格式，使 AI 更容易理解和处理执行结果：
+
+```python
+ActionResultModel(
+    success=True,
+    message="成功创建球体",
+    prompt="现在您可以修改球体的属性或添加材质",
+    error=None,
+    context={
+        "object_name": "sphere_1.0",
+        "position": [0, 0, 0]
+    }
+)
+```
+
+### 字段
+
+- **success**：布尔值，表示动作是否成功
+- **message**：人类可读的结果消息
+- **prompt**：关于下一步操作的建议
+- **error**：当 success 为 False 时的错误消息
+- **context**：包含额外上下文数据的字典
+
+### 方法
+
+- **to_dict()**：将模型转换为字典，具有版本无关的兼容性（兼容 Pydantic v1 和 v2）
+- **model_dump()** / **dict()**：原生 Pydantic 序列化方法（版本相关）
+
+### 使用示例
+
+```python
+# 创建结果模型
+result = ActionResultModel(
+    success=True,
+    message="操作完成",
+    prompt="下一步建议",
+    context={"key": "value"}
+)
+
+# 转换为字典（版本无关）
+result_dict = result.to_dict()
+
+# 访问字段
+if result.success:
+    print(f"成功：{result.message}")
+    if result.prompt:
+        print(f"下一步：{result.prompt}")
+    print(f"上下文数据：{result.context}")
+else:
+    print(f"错误：{result.error}")
+```
 
 ## 功能特性
 
@@ -182,10 +319,11 @@ else:
     print(f"错误: {result.error}")
 ```
 
-### 创建自定义动作
+### Action 设计
+
+DCC-MCP-Core 使用基于类的 Action 设计，使用 Pydantic 模型。每个 Action 都有自己的元数据声明、函数定义、上下文传递和结构化返回。
 
 ```python
-# my_maya_action.py
 from dcc_mcp_core.actions.base import Action
 from pydantic import Field, field_validator
 

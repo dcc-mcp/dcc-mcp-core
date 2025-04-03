@@ -149,6 +149,35 @@ class ActionManager:
         finally:
             loop.close()
 
+    def _discover_actions_from_path_sync(self, path: str) -> None:
+        """Discover actions from a path synchronously (for testing).
+
+        Args:
+            path: Path to discover actions from
+
+        """
+        # Find Python files in the path
+        action_files = []
+        for root, _, files in os.walk(path):
+            for file in files:
+                if file.endswith(".py") and not file.startswith("__"):
+                    action_files.append(os.path.join(root, file))
+
+        # Load action modules synchronously
+        for file_path in action_files:
+            try:
+                # Add the directory to Python path
+                dir_path = os.path.dirname(file_path)
+                append_to_python_path(dir_path)
+
+                # Load the module
+                module_name = os.path.basename(file_path).replace(".py", "")
+                module_path = os.path.join(dir_path, module_name)
+                self.registry.discover_actions_from_module(module_name, module_path, self.dcc_name)
+            except Exception as e:
+                logger.error(f"Error loading action module {file_path}: {e}")
+                logger.debug(traceback.format_exc())
+
     async def _load_action_module(self, file_path: str) -> None:
         """Load an action module asynchronously.
 
@@ -440,6 +469,19 @@ class ActionManager:
             message=f"Actions info retrieved for {self.dcc_name}",
             context={"dcc_name": self.dcc_name, "actions": actions_info},
         )
+
+    def list_available_actions(self) -> List[str]:
+        """List all available actions for this DCC.
+
+        Returns:
+            A list of available action names
+
+        """
+        # Ensure actions are refreshed
+        self.refresh_actions()
+
+        # Get all actions from the registry for this DCC
+        return self.registry.list_actions_for_dcc(self.dcc_name)
 
 
 # Cache for action managers

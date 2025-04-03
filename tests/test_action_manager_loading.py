@@ -70,7 +70,7 @@ def test_action_manager_discover_actions(test_actions_dir):
 
         # Verify that discover_actions_from_path was called
         assert mock_discover.called
-        # 检查是否使用了正确的路径参数
+        # Check if the path parameter is correct
         call_args = mock_discover.call_args[1]
         assert "path" in call_args
         assert str(test_actions_dir) in call_args["path"]

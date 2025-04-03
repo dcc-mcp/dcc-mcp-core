@@ -80,7 +80,6 @@ class Action:
 
         """
 
-
     # Output context model (using Pydantic)
     class OutputModel(BaseModel):
         """Output context model.

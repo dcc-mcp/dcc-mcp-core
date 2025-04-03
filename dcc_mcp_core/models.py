@@ -29,6 +29,32 @@ class ActionResultModel(BaseModel):
     error: Optional[str] = Field(None, description="Error message if execution failed")
     context: Dict[str, Any] = Field(default_factory=dict, description="Additional context or data from the execution")
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert the model to a dictionary representation.
+
+        This method provides a version-independent way to convert the model to a dictionary,
+        compatible with both Pydantic v1 and v2.
+
+        Returns:
+            Dict[str, Any]: Dictionary representation of the model
+
+        """
+        try:
+            # Try Pydantic v2 method first
+            if hasattr(self, "model_dump"):
+                return self.model_dump()
+            # Fall back to Pydantic v1 method
+            return self.dict()
+        except Exception:
+            # If all else fails, manually create a dictionary
+            return {
+                "success": self.success,
+                "message": self.message,
+                "prompt": self.prompt,
+                "error": self.error,
+                "context": self.context,
+            }
+
     model_config = ConfigDict(
         json_schema_extra={
             "examples": [

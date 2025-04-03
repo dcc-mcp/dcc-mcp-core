@@ -36,3 +36,4 @@ dist/
 *.pyd
 .Python
 *PRD.md
+*.isorted

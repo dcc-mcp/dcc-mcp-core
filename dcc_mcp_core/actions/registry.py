@@ -62,8 +62,31 @@ class ActionRegistry:
         if not issubclass(action_class, Action):
             raise TypeError(f"{action_class.__name__} must be a subclass of Action")
 
+        # Get action name and DCC type
         name = action_class.name or action_class.__name__
         dcc = action_class.dcc
+
+        # Check if source file information is available
+        source_file = getattr(action_class, "_source_file", None)
+
+        # Create a unique key for the action if source file is available
+        # This allows multiple actions with the same name from different files
+        if source_file:
+            # Create a unique identifier based on the class name and source file
+            # Use only the filename part, not the full path
+            # Import built-in modules
+            import os
+
+            filename = os.path.basename(source_file)
+            unique_name = f"{name}@{filename}"
+
+            # Store the original name for reference
+            setattr(action_class, "_original_name", name)
+
+            # Use the unique name for registration
+            name = unique_name
+
+            self._logger.debug(f"Using unique name '{name}' for action from {source_file}")
 
         # Register in the main registry
         self._actions[name] = action_class
@@ -73,7 +96,7 @@ class ActionRegistry:
             self._dcc_actions[dcc] = {}
         self._dcc_actions[dcc][name] = action_class
 
-        self._logger.debug(f"Registered action '{name}' for DCC '{dcc}'")
+        self._logger.debug(f"Registered action '{name}' for DCC '{dcc}' from {source_file or 'unknown source'}")
 
     def get_action(self, name: str, dcc_name: Optional[str] = None) -> Optional[Type[Action]]:
         """Get an Action class by name.
@@ -86,20 +109,44 @@ class ActionRegistry:
             Optional[Type[Action]]: The Action class or None if not found
 
         """
+        # First, try to get the action directly by name
+        action = None
+
         if dcc_name:
             # If DCC name is specified
             if dcc_name in self._dcc_actions:
                 # Look in that DCC's registry
                 action = self._dcc_actions[dcc_name].get(name)
-                # If found in DCC registry, return it; otherwise return None
-                # This means if we specify a DCC, we ONLY look in that DCC's registry
-                return action
             else:
                 # If the specified DCC doesn't exist, fall back to main registry
-                return self._actions.get(name)
+                action = self._actions.get(name)
         else:
             # If no DCC specified, look in main registry
-            return self._actions.get(name)
+            action = self._actions.get(name)
+
+        # If action is found, return it
+        if action:
+            return action
+
+        # If action is not found, try to find it by original name
+        # This handles the case where the action was registered with a unique name
+        if dcc_name and dcc_name in self._dcc_actions:
+            # Search through DCC-specific actions
+            for action_name, action_class in self._dcc_actions[dcc_name].items():
+                original_name = getattr(action_class, "_original_name", None)
+                if original_name == name:
+                    self._logger.debug(f"Found action '{name}' by original name, registered as '{action_name}'")
+                    return action_class
+        else:
+            # Search through all actions
+            for action_name, action_class in self._actions.items():
+                original_name = getattr(action_class, "_original_name", None)
+                if original_name == name:
+                    self._logger.debug(f"Found action '{name}' by original name, registered as '{action_name}'")
+                    return action_class
+
+        # If still not found, return None
+        return None
 
     def list_actions(self, dcc_name: Optional[str] = None) -> List[Dict[str, Any]]:
         """List all registered Actions and their metadata.
@@ -133,9 +180,16 @@ class ActionRegistry:
             if hasattr(action_class, "OutputModel") and action_class.OutputModel:
                 output_schema = action_class.OutputModel.model_json_schema()
 
+            # Get original name if available (for uniquely named actions)
+            display_name = getattr(action_class, "_original_name", name)
+
+            # Get source file if available
+            source_file = getattr(action_class, "_source_file", None)
+
             result.append(
                 {
-                    "name": name,
+                    "name": display_name,  # Use display name for user-facing information
+                    "internal_name": name,  # Include internal name for reference
                     "description": action_class.description,
                     "tags": action_class.tags,
                     "dcc": action_class.dcc,
@@ -144,9 +198,25 @@ class ActionRegistry:
                     "version": getattr(action_class, "version", "1.0.0"),
                     "author": getattr(action_class, "author", None),
                     "examples": getattr(action_class, "examples", None),
+                    "source_file": source_file,  # Include source file for reference
                 }
             )
         return result
+
+    def list_actions_for_dcc(self, dcc_name: str) -> List[str]:
+        """List all action names for a specific DCC.
+
+        Args:
+            dcc_name: Name of the DCC to list actions for
+
+        Returns:
+            A list of action names for the specified DCC
+
+        """
+        if dcc_name not in self._dcc_actions:
+            return []
+
+        return list(self._dcc_actions[dcc_name].keys())
 
     def discover_actions(self, package_name: str, dcc_name: Optional[str] = None) -> List[Type[Action]]:
         """Discover and register Action classes from a package.
@@ -221,10 +291,13 @@ class ActionRegistry:
                     if dcc_name and not obj.dcc:
                         obj.dcc = dcc_name
 
+                    # Set source file path for the action class
+                    setattr(obj, "_source_file", path)
+
                     # Register the action class
                     self.register(obj)
                     discovered_actions.append(obj)
-                    self._logger.debug(f"Discovered action '{obj.__name__}' from path '{path}'")
+                    self._logger.debug(f"Discovered action '{obj.__name__}' from path '{path}')")
         except (ImportError, AttributeError) as e:
             # Log error but continue processing
             self._logger.warning(f"Error discovering actions from {path}: {e}")
