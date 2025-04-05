@@ -381,7 +381,7 @@ def test_parse_functions_description_with_different_parameter_formats():
     assert params["str_param"]["type"] == "str"
     assert params["list_param"]["type"] == "List[Any]"
     assert params["dict_param"]["type"] == "Dict[str, Any]"
-    # custom_param 应该使用 Any 类型
+    # custom_param should use Any type
     assert params["custom_param"]["type"] == "Any"
 
 
