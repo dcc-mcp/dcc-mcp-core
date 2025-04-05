@@ -109,6 +109,7 @@ class TestActionResultModelToDict:
         # Verify we got a valid dictionary
         assert isinstance(result_dict, dict)
         assert result_dict["message"] == "Compatibility test"
+        # Use Dictionary Indexing Instead of Attribute Access to Avoid Conflict with Class Methods
         assert result_dict["success"] is True
         assert result_dict["prompt"] is None
         assert result_dict["error"] is None

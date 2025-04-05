@@ -23,14 +23,15 @@ class TestActionResultModel:
             context={"created_objects": ["sphere1", "sphere2", "sphere3"], "total_count": 3},
         )
 
-        # Verify the result
-        assert result.success is True
-        assert result.message == "Successfully created 3 spheres"
-        assert result.prompt == "You can now modify these spheres using the modify_spheres function"
-        assert result.error is None
-        assert "created_objects" in result.context
-        assert result.context["created_objects"] == ["sphere1", "sphere2", "sphere3"]
-        assert result.context["total_count"] == 3
+        # Use to_dict() method to get dictionary form of model data, avoid attribute and method conflict
+        result_dict = result.to_dict()
+        assert result_dict["success"] is True
+        assert result_dict["message"] == "Successfully created 3 spheres"
+        assert result_dict["prompt"] == "You can now modify these spheres using the modify_spheres function"
+        assert result_dict["error"] is None
+        assert "created_objects" in result_dict["context"]
+        assert result_dict["context"]["created_objects"] == ["sphere1", "sphere2", "sphere3"]
+        assert result_dict["context"]["total_count"] == 3
 
     def test_create_failure_result(self):
         """Test creating a failure result model."""
@@ -53,15 +54,16 @@ class TestActionResultModel:
             },
         )
 
-        # Verify the result
-        assert result.success is False
-        assert result.message == "Failed to create spheres"
-        assert result.prompt == "Try reducing the number of objects or closing other scenes"
-        assert result.error == "Memory limit exceeded"
-        assert "error_details" in result.context
-        assert result.context["error_details"]["code"] == "MEM_LIMIT"
-        assert "possible_solutions" in result.context
-        assert len(result.context["possible_solutions"]) == 3
+        # Use to_dict() method to get dictionary form of model data, avoid attribute and method conflict
+        result_dict = result.to_dict()
+        assert result_dict["success"] is False
+        assert result_dict["message"] == "Failed to create spheres"
+        assert result_dict["prompt"] == "Try reducing the number of objects or closing other scenes"
+        assert result_dict["error"] == "Memory limit exceeded"
+        assert "error_details" in result_dict["context"]
+        assert result_dict["context"]["error_details"]["code"] == "MEM_LIMIT"
+        assert "possible_solutions" in result_dict["context"]
+        assert len(result_dict["context"]["possible_solutions"]) == 3
 
     def test_default_values(self):
         """Test default values for ActionResultModel."""
@@ -69,11 +71,13 @@ class TestActionResultModel:
         result = ActionResultModel(message="Test message")
 
         # Verify default values
-        assert result.success is True
-        assert result.message == "Test message"
-        assert result.prompt is None
-        assert result.error is None
-        assert result.context == {}
+        # Use model_dump() to get dictionary form of model data, avoid attribute and method conflict
+        result_dict = result.model_dump()
+        assert result_dict["success"] is True
+        assert result_dict["message"] == "Test message"
+        assert result_dict["prompt"] is None
+        assert result_dict["error"] is None
+        assert result_dict["context"] == {}
 
     def test_json_serialization(self):
         """Test JSON serialization of ActionResultModel."""
@@ -93,7 +97,8 @@ class TestActionResultModel:
 
     def test_required_fields(self):
         """Test required fields validation."""
-        # Try to create a result without required fields
+        # message is required, but success has a default value
+        # Try creating a result without message
         with pytest.raises(ValidationError):
             ActionResultModel()
 
@@ -103,7 +108,9 @@ class TestActionResultModel:
 
         # success is not required (has default)
         result = ActionResultModel(message="Test message")
-        assert result.success is True
+        # Use model_dump() to get dictionary form of model data, avoid attribute and method conflict
+        result_dict = result.model_dump()
+        assert result_dict["success"] is True
 
     def test_complex_context(self):
         """Test with a complex context structure."""

@@ -1,15 +1,10 @@
 """Tests for the utils.decorators module."""
 
-# Import built-in modules
-
-# Import third-party modules
-
 # Import local modules
 from dcc_mcp_core.models import ActionResultModel
 from dcc_mcp_core.utils.decorators import error_handler
 from dcc_mcp_core.utils.decorators import format_exception
 from dcc_mcp_core.utils.decorators import format_result
-from dcc_mcp_core.utils.decorators import method_error_handler
 from dcc_mcp_core.utils.decorators import with_context
 
 
@@ -134,32 +129,32 @@ def test_error_handler_exception():
     assert "error_details" in result.context
 
 
-def test_method_error_handler_success():
-    """Test method_error_handler decorator with successful method execution."""
+def test_class_method_with_error_handler():
+    """Test error_handler decorator with class method."""
 
     # Define a test class with a decorated method
     class TestClass:
-        @method_error_handler
-        def test_method(self, x, y):
-            return x + y
+        @error_handler
+        def test_method(self, arg1, arg2=None):
+            return f"Result: {arg1}, {arg2}"
 
     # Create an instance and call the method
     instance = TestClass()
-    result = instance.test_method(2, 3)
+    result = instance.test_method("value1", arg2="value2")
 
     # Verify the result
     assert isinstance(result, ActionResultModel)
     assert result.success is True
     assert "TestClass.test_method completed successfully" in result.message
-    assert result.context["result"] == 5
+    assert result.context["result"] == "Result: value1, value2"
 
 
-def test_method_error_handler_exception():
-    """Test method_error_handler decorator with method that raises an exception."""
+def test_class_method_with_error_handler_exception():
+    """Test error_handler decorator with class method that raises an exception."""
 
     # Define a test class with a decorated method that raises an exception
     class TestClass:
-        @method_error_handler
+        @error_handler
         def test_method(self):
             raise ValueError("Test error")
 
@@ -295,22 +290,24 @@ def test_integration_error_handler_with_context():
     assert result.context["result"] == {"initial": "value", "computed": 5}
 
 
-def test_integration_method_error_handler_with_context():
-    """Test integration of method_error_handler and with_context decorators."""
+def test_integration_error_handler_with_context_for_class_method():
+    """Test integration of error_handler and with_context decorators for class methods."""
 
-    # Define a test class with a decorated method
+    # Define a test class with decorated methods
     class TestClass:
-        @method_error_handler
         @with_context()
-        def test_method(self, x, y, context=None):
-            context["computed"] = x + y
-            return context
+        @error_handler
+        def test_method(self, arg1, context=None):
+            context["processed"] = True
+            return f"Result: {arg1}, context: {context}"
 
     # Create an instance and call the method
     instance = TestClass()
-    result = instance.test_method(2, 3)
+    result = instance.test_method("value1")
 
     # Verify the result
     assert isinstance(result, ActionResultModel)
     assert result.success is True
-    assert result.context["result"] == {"computed": 5}
+    assert "TestClass.test_method completed successfully" in result.message
+    assert "Result: value1, context: {" in result.context["result"]
+    assert "'processed': True" in result.context["result"]

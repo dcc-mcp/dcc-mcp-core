@@ -370,20 +370,19 @@ def test_parse_functions_description_with_different_parameter_formats():
 
     # Check parameters
     params = {p["name"]: p for p in functions[0]["parameters"]}
-    assert len(params) == 4
+    # We should expect all parameters to be correctly parsed, including custom_param
+    expected_params = ["int_param", "float_param", "str_param", "list_param", "dict_param", "custom_param"]
+    for param in expected_params:
+        assert param in params, f"Parameter {param} not found in parsed parameters"
 
-    # 检查参数名称和类型
-    assert "int_param" in params
+    # Check specific parameter types
     assert params["int_param"]["type"] == "int"
-
-    assert "arg" in params
-    assert params["arg"]["type"] == "Any"
-
-    assert "parameter" in params
-    assert params["parameter"]["type"] == "Any"
-
-    assert "eter" in params
-    assert params["eter"]["type"] == "Any"
+    assert params["float_param"]["type"] == "float"
+    assert params["str_param"]["type"] == "str"
+    assert params["list_param"]["type"] == "List[Any]"
+    assert params["dict_param"]["type"] == "Dict[str, Any]"
+    # custom_param 应该使用 Any 类型
+    assert params["custom_param"]["type"] == "Any"
 
 
 def test_parse_functions_description_empty():

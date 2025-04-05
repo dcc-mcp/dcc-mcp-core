@@ -172,13 +172,37 @@ class ActionRegistry:
             if dcc_name and action_class.dcc != dcc_name:
                 continue
 
-            # Extract input schema
-            input_schema = action_class.InputModel.model_json_schema()
+            # Do not generate JSON Schema, instead return a simplified model description
+            # This avoids Pydantic's issue with UUID type handling in JSON Schema generation
 
-            # Extract output schema if available
+            # Extract input model fields
+            input_schema = {"title": "InputModel", "type": "object", "properties": {}}
+            try:
+                if hasattr(action_class, "InputModel") and action_class.InputModel:
+                    # Get model fields
+                    for field_name, field_info in action_class.InputModel.model_fields.items():
+                        input_schema["properties"][field_name] = {
+                            "title": field_name,
+                            "type": "string",
+                            "description": field_info.description or "",
+                        }
+            except Exception as e:
+                self._logger.warning(f"Error extracting input model fields for {name}: {e}")
+
+            # Extract output model fields
             output_schema = None
-            if hasattr(action_class, "OutputModel") and action_class.OutputModel:
-                output_schema = action_class.OutputModel.model_json_schema()
+            try:
+                if hasattr(action_class, "OutputModel") and action_class.OutputModel:
+                    output_schema = {"title": "OutputModel", "type": "object", "properties": {}}
+                    # Get model fields
+                    for field_name, field_info in action_class.OutputModel.model_fields.items():
+                        output_schema["properties"][field_name] = {
+                            "title": field_name,
+                            "type": "string",
+                            "description": field_info.description or "",
+                        }
+            except Exception as e:
+                self._logger.warning(f"Error extracting output model fields for {name}: {e}")
 
             # Get original name if available (for uniquely named actions)
             display_name = getattr(action_class, "_original_name", name)

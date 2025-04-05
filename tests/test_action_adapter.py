@@ -4,8 +4,6 @@ This module contains tests for the adapter functions that convert Action classes
 to callable functions compatible with function-based APIs.
 """
 
-# Import built-in modules
-
 # Import third-party modules
 from pydantic import Field
 import pytest

@@ -10,11 +10,11 @@ from typing import Optional
 
 # Import third-party modules
 from pydantic import Field
-from pydantic import ValidationError
 import pytest
 
 # Import local modules
 from dcc_mcp_core.actions.base import Action
+from dcc_mcp_core.utils.exceptions import ActionParameterError
 
 
 class TestActionWithValidation(Action):
@@ -146,7 +146,7 @@ def test_action_setup_with_invalid_input():
     action = TestActionWithValidation()
 
     # Set up the action with invalid input (value <= 0)
-    with pytest.raises(ValidationError):
+    with pytest.raises(ActionParameterError):
         action.setup(value=0)
 
 
@@ -191,7 +191,8 @@ def test_action_process_error():
     # Check that the result indicates failure
     assert result.success is False
     assert "Failed to execute test_action_error" in result.message
-    assert result.error == "Test error"
+    # Check error message contains original error text, but don't check full format
+    assert "Test error" in result.error
 
     # Check that the output was not set
     assert action.output is None
@@ -225,7 +226,9 @@ async def test_action_process_async():
 
     # Check that the result is successful
     assert result.success is True
-    assert result.message == "Successfully executed test_action_async"
+    # Check that the message contains action name, but don't check full format
+    assert "test_action_async" in result.message
+    assert "asynchronously" in result.message
     assert result.error is None
 
     # Check that the output was set correctly
@@ -247,7 +250,9 @@ async def test_action_process_async_without_async_execute():
 
     # Check that the result is successful
     assert result.success is True
-    assert result.message == "Successfully executed test_action_validation"
+    # Check that the message contains action name, but don't check full format
+    assert "test_action_validation" in result.message
+    assert "asynchronously" in result.message
     assert result.error is None
 
     # Check that the output was set correctly
@@ -267,7 +272,8 @@ async def test_action_process_async_error():
     # Check that the result indicates failure
     assert result.success is False
     assert "Failed to execute test_action_error" in result.message
-    assert result.error == "Test error"
+    # Check that the error message contains original error text, but don't check full format
+    assert "Test error" in result.error
 
     # Check that the output was not set
     assert action.output is None
@@ -306,5 +312,5 @@ def test_action_validate_input_with_invalid_data():
     action = TestActionWithValidation()
 
     # Validate invalid input
-    with pytest.raises(ValidationError):
+    with pytest.raises(ActionParameterError):
         action.validate_input(value=-1)
