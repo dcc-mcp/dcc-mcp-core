@@ -28,7 +28,7 @@ from dcc_mcp_core.actions.middleware import Middleware
 from dcc_mcp_core.actions.middleware import MiddlewareChain
 from dcc_mcp_core.actions.registry import ActionRegistry
 from dcc_mcp_core.models import ActionResultModel
-from dcc_mcp_core.utils.decorators import method_error_handler
+from dcc_mcp_core.utils.decorators import error_handler
 from dcc_mcp_core.utils.filesystem import get_actions_paths_from_env
 from dcc_mcp_core.utils.module_loader import append_to_python_path
 
@@ -243,7 +243,7 @@ class ActionManager:
             # Sleep until next refresh
             self._stop_refresh.wait(self.refresh_interval)
 
-    @method_error_handler
+    @error_handler
     def call_action(self, action_name: str, context: Optional[Dict[str, Any]] = None, **kwargs) -> ActionResultModel:
         """Call an action by name.
 
@@ -309,7 +309,7 @@ class ActionManager:
                 context={"traceback": tb},
             )
 
-    @method_error_handler
+    @error_handler
     async def call_action_async(
         self, action_name: str, context: Optional[Dict[str, Any]] = None, **kwargs
     ) -> ActionResultModel:

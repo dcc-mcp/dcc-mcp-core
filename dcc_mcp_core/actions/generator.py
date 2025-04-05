@@ -232,12 +232,32 @@ def _parse_functions_description(functions_description: str) -> List[Dict[str, A
             "return_description": "Returns an ActionResultModel with success status, message, and context data.",
         }
 
-        # Try to extract parameters - improved pattern to catch more parameter formats
+        # Try to extract all possible parameter formats
+        # First try matching parameter lines with prefix (param:, parameter:, arg:)
         param_matches = re.findall(
-            r"(?:parameter|param|arg|Parameter)\s*:?\s*([a-zA-Z][a-zA-Z0-9_]*)\s*(?:\(([^\)]*)\))?\s*-?\s*(.*)??",
+            r"(?:parameter|param|arg|Parameter)\s*:?\s*([a-zA-Z][a-zA-Z0-9_]*)\s*(?:\(([^\)]*)\))?\s*-?\s*(.*)?",
             block,
             re.IGNORECASE,
         )
+
+        # Try to match parameters in the format "param_name (type) - description"
+        additional_matches = re.findall(
+            r"\b([a-zA-Z][a-zA-Z0-9_]*)\s*\(([^\)]*)\)\s*-\s*(.*)",
+            block,
+            re.IGNORECASE,
+        )
+
+        # Merge all matching results, ensure no duplicates
+        seen_params = set()
+        all_matches = []
+
+        for match in param_matches + additional_matches:
+            param_name = match[0]
+            if param_name not in seen_params:
+                seen_params.add(param_name)
+                all_matches.append(match)
+
+        param_matches = all_matches
 
         for param_match in param_matches:
             param_name = param_match[0]

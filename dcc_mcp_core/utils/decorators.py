@@ -7,16 +7,18 @@ error handling and result formatting for AI-friendly communication.
 # Import built-in modules
 import functools
 import inspect
-import traceback
 from typing import Any
 from typing import Callable
 from typing import TypeVar
-from typing import cast
 
 # Import local modules
 from dcc_mcp_core.models import ActionResultModel
+from dcc_mcp_core.utils.result_factory import from_exception
+from dcc_mcp_core.utils.result_factory import success_result
 
-F = TypeVar("F", bound=Callable[..., Any])
+# Define more specific type variables for better type checking
+T = TypeVar("T")  # Return type of the original function
+F = TypeVar("F", bound=Callable[..., Any])  # General callable
 
 
 def format_exception(e: Exception, function_name: str, args: tuple, kwargs: dict) -> ActionResultModel:
@@ -32,22 +34,21 @@ def format_exception(e: Exception, function_name: str, args: tuple, kwargs: dict
         ActionResultModel with formatted exception details
 
     """
-    error_traceback = traceback.format_exc()
+    # Create context with function call information
+    context = {
+        "function_name": function_name,
+        "function_args": args,
+        "function_kwargs": kwargs,
+        "error_details": str(e),
+    }
 
-    return ActionResultModel(
-        success=False,
+    # Use the factory function for consistent error handling
+    return from_exception(
+        e,
         message=f"Error executing {function_name}: {e!s}",
-        error=str(e),
-        prompt=(
-            "An error occurred during execution. Please review the error details "
-            "and try again with different parameters if needed."
-        ),
-        context={
-            "error_type": type(e).__name__,
-            "error_details": error_traceback,
-            "function_args": args,
-            "function_kwargs": kwargs,
-        },
+        prompt="""An error occurred during execution.
+Please review the error details and try again.""",
+        **context,
     )
 
 
@@ -71,49 +72,34 @@ def format_result(result: Any, source: str) -> ActionResultModel:
     if isinstance(result, ActionResultModel):
         return result
 
-    # Otherwise, wrap it in an ActionResultModel
-    return ActionResultModel(success=True, message=f"{source} completed successfully", context={"result": result})
+    # Create a successful result with the original result in context
+    return success_result(message=f"{source} completed successfully", result=result)
 
 
-def error_handler(func: F) -> F:
+def error_handler(func: Callable[..., T]) -> Callable[..., ActionResultModel]:
     """Handle errors and format results into structured ActionResultModel.
 
-    This decorator wraps a function to catch any exceptions and format the result
+    This decorator wraps a function or method to catch any exceptions and format the result
     into an ActionResultModel, which provides a structured format for AI to understand
     the outcome of the function call.
 
-    Args:
-        func: The function to decorate
+    This works with both regular functions and class methods. For class methods, it automatically
+    detects the 'self' parameter and includes the class name in error messages.
 
-    Returns:
-        Decorated function that returns an ActionResultModel
-
-    """
-
-    @functools.wraps(func)
-    def wrapper(*args: Any, **kwargs: Any) -> ActionResultModel:
-        try:
-            result = func(*args, **kwargs)
-            return format_result(result, func.__name__)
-        except Exception as e:
-            return format_exception(e, func.__name__, args, kwargs)
-
-    return cast(F, wrapper)
-
-
-def method_error_handler(method: F) -> F:
-    """Handle method errors and return structured results.
-
-    This decorator wraps the method's return value in an ActionResultModel:
-    - If the method returns normally, the result is placed in context['result']
-    - If the method raises an exception, error details are captured in the ActionResultModel
-
-    Important: Methods decorated with this will ALWAYS return ActionResultModel,
+    Important: Functions/methods decorated with this will ALWAYS return ActionResultModel,
     regardless of their declared return type. The original return value will be
     available in the context['result'] field of the ActionResultModel if successful.
 
-    Example:
-        @method_error_handler
+    Example for function:
+        @error_handler
+        def get_data(param: str) -> Dict[str, Any]:
+            # This function declares it returns Dict[str, Any]
+            # But due to the decorator, it actually returns ActionResultModel
+            # with the Dict in context['result']
+            return {"data": param}
+
+    Example for method:
+        @error_handler
         def get_action_info(self, action_name: str) -> ActionModel:
             # This method declares it returns ActionModel
             # But due to the decorator, it actually returns ActionResultModel
@@ -121,52 +107,100 @@ def method_error_handler(method: F) -> F:
             return create_action_model(...)
 
     Args:
-        method: The method to decorate
+        func: The function or method to decorate
 
     Returns:
-        Decorated method that returns ActionResultModel
+        Decorated function/method that returns ActionResultModel
 
     """
+    is_method = inspect.ismethod(func) or (
+        inspect.isfunction(func) and func.__code__.co_varnames and func.__code__.co_varnames[0] == "self"
+    )
 
-    @functools.wraps(method)
-    def wrapper(self, *args, **kwargs) -> ActionResultModel:
+    @functools.wraps(func)
+    def wrapper(*args: Any, **kwargs: Any) -> ActionResultModel:
         try:
-            result = method(self, *args, **kwargs)
-            return format_result(result, f"{self.__class__.__name__}.{method.__name__}")
-        except Exception as e:
-            return format_exception(e, f"{self.__class__.__name__}.{method.__name__}", args, kwargs)
+            result = func(*args, **kwargs)
 
-    return cast(F, wrapper)
+            # Determine the source name for better error messages
+            if is_method and args:
+                # For methods, include class name
+                instance = args[0]
+                source = f"{instance.__class__.__name__}.{func.__name__}"
+            else:
+                # For regular functions
+                source = func.__name__
+
+            return format_result(result, source)
+        except Exception as e:
+            # Determine function name for error messages
+            if is_method and args:
+                instance = args[0]
+                func_name = f"{instance.__class__.__name__}.{func.__name__}"
+            else:
+                func_name = func.__name__
+
+            return format_exception(e, func_name, args, kwargs)
+
+    return wrapper  # Type checking will be handled by the return type annotation
 
 
 def with_context(context_param: str = "context"):
     """Ensure a function has a context parameter.
 
     If the function is called without a context, this decorator will add an empty context.
+    This simplifies functions that need an optional context parameter without requiring
+    default values in every function definition.
+
+    Example:
+        @with_context()  # Default parameter name is 'context'
+        def process_data(data: Dict[str, Any], context: Dict[str, Any]) -> Any:
+            # context will always be available, even if not provided by the caller
+            context['processed'] = True
+            return data
+
+        # Can be called without providing context
+        process_data({"key": "value"})  # context will be {} automatically
+
+        # Or with an explicit context
+        process_data({"key": "value"}, {"user_id": 123})
 
     Args:
         context_param: Name of the context parameter (default: "context")
 
     Returns:
-        Decorator function
+        Decorator function that ensures the context parameter is available
 
     """
 
-    def decorator(func: F) -> F:
+    def decorator(func: Callable[..., T]) -> Callable[..., T]:
+        # Get the function signature to check parameters
         sig = inspect.signature(func)
-        has_context_param = context_param in sig.parameters
+
+        # Check if the function has the context parameter
+        if context_param not in sig.parameters:
+            # If the function doesn't have the context parameter, just return it unchanged
+            return func
 
         @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
-            if has_context_param and context_param not in kwargs:
-                # Check if it was passed as a positional argument
-                context_pos = list(sig.parameters.keys()).index(context_param)
-                if len(args) <= context_pos:
-                    # Not passed as positional, add it as a keyword argument
-                    kwargs[context_param] = {}
+            # If context is already provided in kwargs, use it as is
+            if context_param in kwargs:
+                return func(*args, **kwargs)
 
+            # Get the position of the context parameter
+            param_names = list(sig.parameters.keys())
+            context_position = param_names.index(context_param)
+
+            # Check if context was provided as a positional argument
+            if len(args) > context_position:
+                # Context is already provided as positional argument
+                return func(*args, **kwargs)
+
+            # Add empty context as a keyword argument
+            kwargs[context_param] = {}
             return func(*args, **kwargs)
 
-        return cast(F, wrapper)
+        return wrapper  # Type checking handled by return type annotation
 
     return decorator

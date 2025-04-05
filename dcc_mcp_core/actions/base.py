@@ -20,11 +20,16 @@ from typing import Union
 # Import third-party modules
 from pydantic import BaseModel
 from pydantic import Field
+from pydantic import ValidationError as PydanticValidationError
 from pydantic import create_model
 
 # Import local modules
 from dcc_mcp_core.constants import DEFAULT_DCC
 from dcc_mcp_core.models import ActionResultModel
+from dcc_mcp_core.utils.exceptions import ActionExecutionError
+from dcc_mcp_core.utils.exceptions import ActionParameterError
+from dcc_mcp_core.utils.result_factory import from_exception
+from dcc_mcp_core.utils.result_factory import success_result
 
 
 class Action:
@@ -46,6 +51,7 @@ class Action:
     description: ClassVar[str] = ""
     order: ClassVar[int] = 0
     tags: ClassVar[List[str]] = []
+    category: ClassVar[str] = ""  # Category for classification and organization of Actions
     dcc: ClassVar[str] = DEFAULT_DCC
 
     # Input parameters model (using Pydantic)
@@ -158,15 +164,43 @@ class Action:
             InputModel: Validated input model instance
 
         Raises:
-            ValidationError: If the input parameters are invalid
+            ActionParameterError: If the input parameters are invalid
 
         """
         try:
             return self.InputModel(**kwargs)
-        except Exception as e:
-            # Log validation error and re-raise
-            logging.getLogger(__name__).error(f"Input validation error: {e}")
-            raise
+        except PydanticValidationError as e:
+            # Get detailed information about the validation error
+            logger = logging.getLogger(__name__)
+            logger.error(f"Input validation error in {self.__class__.__name__}: {e}")
+
+            # Extract parameter information from the exception if possible
+            parameter_name = None
+            parameter_value = None
+            validation_error = str(e)
+
+            if e.errors():
+                # Get the first error for simplicity
+                first_error = e.errors()[0]
+                # Extract field path (e.g., ['field1', 'nested_field'])
+                if first_error.get("loc"):
+                    parameter_name = ".".join(str(loc) for loc in first_error["loc"])
+                # Extract the error message
+                if "msg" in first_error:
+                    validation_error = first_error["msg"]
+                # Try to extract the input value that caused the error
+                if "input" in first_error:
+                    parameter_value = first_error["input"]
+
+            # Raise a more specific error with detailed information
+            raise ActionParameterError(
+                message=f"Invalid parameter for action '{self.name}'",
+                action_name=self.name,
+                action_class=self.__class__.__name__,
+                parameter_name=parameter_name,
+                parameter_value=parameter_value,
+                validation_error=validation_error,
+            ) from e
 
     def process(self) -> ActionResultModel:
         """Process the action with the given parameters.
@@ -190,22 +224,53 @@ class Action:
                 context_data = {}
                 prompt = None
 
-            # Create and return the result
-            return ActionResultModel(
-                success=True, message=f"Successfully executed {self.name}", prompt=prompt, context=context_data
+            # Create and return the success result with detailed context
+            return success_result(
+                message=f"Successfully executed {self.name}",
+                prompt=prompt,
+                action_name=self.name,
+                action_class=self.__class__.__name__,
+                **context_data,
+            )
+        except ActionExecutionError as e:
+            # Already a specific action error, just log and return it
+            logger = logging.getLogger(__name__)
+            logger.error(f"Action execution error in {self.name}: {e}")
+
+            # Convert to ActionResultModel with all the details
+            return from_exception(
+                e,
+                message=f"Failed to execute {self.name}: {e.message}",
+                include_traceback=True,
+                action_name=self.name,
+                action_class=self.__class__.__name__,
+                execution_phase=e.execution_phase,
             )
         except Exception as e:
             # Log the error
             logger = logging.getLogger(__name__)
             logger.error(f"Error executing {self.name}: {e}")
-            logger.debug(traceback.format_exc())
+            error_traceback = traceback.format_exc()
+            logger.debug(error_traceback)
 
-            # Create and return the error result
-            return ActionResultModel(
-                success=False,
+            # Wrap in ActionExecutionError for more context
+            action_error = ActionExecutionError(
+                message=str(e),
+                action_name=self.name,
+                action_class=self.__class__.__name__,
+                execution_phase="_execute",
+                traceback=error_traceback,
+            )
+
+            # Create and return the error result with detailed context
+            return from_exception(
+                action_error,
                 message=f"Failed to execute {self.name}",
-                error=str(e),
-                context={"traceback": traceback.format_exc()},
+                include_traceback=True,
+                possible_solutions=[
+                    "Check parameters are correct Confirm DCC software environment is normal",
+                    "View logs for detailed error information",
+                ],
             )
 
     def _execute(self) -> None:
@@ -246,22 +311,58 @@ class Action:
                 context_data = {}
                 prompt = None
 
-            # Create and return the result
-            return ActionResultModel(
-                success=True, message=f"Successfully executed {self.name}", prompt=prompt, context=context_data
+            # Create and return the success result with detailed context
+            return success_result(
+                message=f"Successfully executed {self.name} asynchronously",
+                prompt=prompt,
+                action_name=self.name,
+                action_class=self.__class__.__name__,
+                execution_mode="async",
+                **context_data,
+            )
+        except ActionExecutionError as e:
+            # Already a specific action error, just log and return it
+            logger = logging.getLogger(__name__)
+            logger.error(f"Action execution error in {self.name} (async): {e}")
+
+            # Convert to ActionResultModel with all the details
+            return from_exception(
+                e,
+                message=f"Failed to execute {self.name} asynchronously: {e.message}",
+                include_traceback=True,
+                action_name=self.name,
+                action_class=self.__class__.__name__,
+                execution_phase=e.execution_phase,
+                execution_mode="async",
             )
         except Exception as e:
             # Log the error
             logger = logging.getLogger(__name__)
             logger.error(f"Error executing {self.name} asynchronously: {e}")
-            logger.debug(traceback.format_exc())
+            error_traceback = traceback.format_exc()
+            logger.debug(error_traceback)
 
-            # Create and return the error result
-            return ActionResultModel(
-                success=False,
+            # Wrap in ActionExecutionError for more context
+            action_error = ActionExecutionError(
+                message=str(e),
+                action_name=self.name,
+                action_class=self.__class__.__name__,
+                execution_phase="_execute_async",
+                traceback=error_traceback,
+            )
+
+            # Create and return the error result with detailed context
+            return from_exception(
+                action_error,
                 message=f"Failed to execute {self.name} asynchronously",
-                error=str(e),
-                context={"traceback": traceback.format_exc()},
+                include_traceback=True,
+                execution_mode="async",
+                possible_solutions=[
+                    "Check parameters are correct",
+                    "Confirm DCC software environment is normal",
+                    "View logs for detailed error information",
+                    "Consider using synchronous mode to execute this action",
+                ],
             )
 
     async def _execute_async(self) -> None:

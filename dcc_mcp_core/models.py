@@ -29,6 +29,43 @@ class ActionResultModel(BaseModel):
     error: Optional[str] = Field(None, description="Error message if execution failed")
     context: Dict[str, Any] = Field(default_factory=dict, description="Additional context or data from the execution")
 
+    # Note: For creating instances, use the factory functions in result_factory.py
+    # Examples:
+    #   from dcc_mcp_core.utils.result_factory import success_result, error_result, from_exception
+    #   result = success_result("Operation completed", "Next, you can...", data=value)
+    #   error = error_result("Operation failed", "Error details", "Try again with...")
+    #   exception = from_exception(e, "Failed to process", include_traceback=True)
+
+    def with_error(self, error: str) -> "ActionResultModel":
+        """Create a new instance with error information.
+
+        Args:
+            error: Error message
+
+        Returns:
+            New ActionResultModel instance
+
+        """
+        return self.__class__(
+            success=False, message=self.message, prompt=self.prompt, error=error, context=self.context
+        )
+
+    def with_context(self, **kwargs) -> "ActionResultModel":
+        """Create a new instance with updated context.
+
+        Args:
+            **kwargs: Key-value pairs to add to context
+
+        Returns:
+            New ActionResultModel instance
+
+        """
+        new_context = dict(self.context)
+        new_context.update(kwargs)
+        return self.__class__(
+            success=self.success, message=self.message, prompt=self.prompt, error=self.error, context=new_context
+        )
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert the model to a dictionary representation.
 
