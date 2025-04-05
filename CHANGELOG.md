@@ -1,3 +1,14 @@
+## v0.7.0 (2025-04-05)
+
+### Feat
+
+- Add Pydantic extensions and update related modules
+
+### Refactor
+
+- Improve test methods and update comments
+- Enhance error handling and parameter management
+
 ## v0.6.0 (2025-04-03)
 
 ### Feat
