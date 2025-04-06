@@ -53,6 +53,7 @@ class Action:
     tags: ClassVar[List[str]] = []
     category: ClassVar[str] = ""  # Category for classification and organization of Actions
     dcc: ClassVar[str] = DEFAULT_DCC
+    abstract: ClassVar[bool] = False
 
     # Input parameters model (using Pydantic)
     class InputModel(BaseModel):

@@ -7,6 +7,7 @@ This module provides the ActionRegistry class for registering and discovering Ac
 import importlib
 import inspect
 import logging
+import os
 from pathlib import Path
 import pkgutil
 from typing import Any
@@ -57,14 +58,28 @@ class ActionRegistry:
 
         Raises:
             TypeError: If action_class is not a subclass of Action
+            ValueError: If action_class is abstract or does not implement _execute method
 
         """
         if not issubclass(action_class, Action):
             raise TypeError(f"{action_class.__name__} must be a subclass of Action")
 
+        # Check if the action is abstract
+        if getattr(action_class, "abstract", False):
+            self._logger.debug(f"Skipping registration of abstract action class: {action_class.__name__}")
+            return
+
+        # Check if the action implements _execute method
+        if not hasattr(action_class, "_execute") or action_class._execute is Action._execute:
+            self._logger.debug(
+                f"Skipping registration of action class without _execute implementation: {action_class.__name__}"
+            )
+            return
+
         # Get action name and DCC type
         name = action_class.name or action_class.__name__
         dcc = action_class.dcc
+        category = action_class.category
 
         # Check if source file information is available
         source_file = getattr(action_class, "_source_file", None)
@@ -72,13 +87,8 @@ class ActionRegistry:
         # Create a unique key for the action if source file is available
         # This allows multiple actions with the same name from different files
         if source_file:
-            # Create a unique identifier based on the class name and source file
-            # Use only the filename part, not the full path
-            # Import built-in modules
-            import os
-
             filename = os.path.basename(source_file)
-            unique_name = f"{name}@{filename}"
+            unique_name = f"{dcc}/{category}/{name}@{filename}"
 
             # Store the original name for reference
             setattr(action_class, "_original_name", name)
