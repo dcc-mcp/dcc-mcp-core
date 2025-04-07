@@ -89,7 +89,7 @@ class MayaAction(Action):
 def clean_registry():
     """Fixture to provide a clean ActionRegistry for each test."""
     # Reset ActionRegistry singleton instance
-    ActionRegistry._reset_instance()
+    ActionRegistry.reset(full_reset=True)
 
     # Get new instance
     registry = ActionRegistry()
@@ -97,7 +97,7 @@ def clean_registry():
     yield registry
 
     # Reset singleton instance after test
-    ActionRegistry._reset_instance()
+    ActionRegistry.reset(full_reset=True)
 
 
 def test_action_registry_singleton():
@@ -328,9 +328,9 @@ def test_action_registry_get_action_with_dcc(clean_registry):
     action2_test = registry.get_action("test_action2", dcc_name="test")
     assert action2_test is None
 
-    # Specify non-existent DCC name, should return action from main registry
+    # Specify non-existent DCC name, should return None
     action1_houdini = registry.get_action("test_action1", dcc_name="houdini")
-    assert action1_houdini is TestAction1
+    assert action1_houdini is None  # Action should not be found when DCC doesn't exist
 
 
 def test_action_registry_get_actions_by_dcc(clean_registry):

@@ -9,11 +9,11 @@ from pydantic import Field
 import pytest
 
 # Import local modules
-from dcc_mcp_core.actions.adapter import create_function_adapter
-from dcc_mcp_core.actions.adapter import create_function_adapters
+from dcc_mcp_core.actions.function_adapter import create_function_adapter
+from dcc_mcp_core.actions.function_adapter import create_function_adapters
 from dcc_mcp_core.actions.base import Action
 from dcc_mcp_core.actions.registry import ActionRegistry
-
+from dcc_mcp_core.models import ActionResultModel
 
 # Define test Action classes
 class AdapterTestAction(Action):
@@ -98,12 +98,13 @@ def test_create_function_adapter_invalid_params(clean_registry):
     # Create adapter for the test action
     adapter = create_function_adapter("adapter_test_action")
 
-    # Call the adapter with invalid parameters should raise a validation error
-    with pytest.raises(Exception) as excinfo:
-        adapter(value="not_an_int")
+    # Call the adapter with invalid parameters should return a failed result
+    result = adapter(value="not_an_int")
 
-    # Check that the error is a validation error
-    assert "validation error" in str(excinfo.value).lower() or "invalid" in str(excinfo.value).lower()
+    # Check that the result indicates failure
+    assert isinstance(result, ActionResultModel)
+    assert result.success is False
+    assert "failed" in result.message.lower() or "error" in result.error.lower()
 
 
 def test_create_function_adapters(clean_registry):

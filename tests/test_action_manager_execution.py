@@ -18,7 +18,7 @@ from dcc_mcp_core.models import ActionResultModel
 def test_action_manager_execute_action():
     """Test ActionManager.call_action method."""
     # Create a new ActionManager instance
-    manager = ActionManager("maya")
+    manager = ActionManager("test", "maya")
 
     # Create a mock Action class
     class MockAction:
@@ -57,7 +57,7 @@ def test_action_manager_execute_action():
 def test_action_manager_execute_action_with_args():
     """Test ActionManager.call_action method with arguments."""
     # Create a new ActionManager instance
-    manager = ActionManager("maya")
+    manager = ActionManager("test", "maya")
 
     # Create a mock Action class
     class MockAction:
@@ -103,7 +103,7 @@ def test_action_manager_execute_action_with_args():
 def test_action_manager_execute_action_nonexistent_action():
     """Test ActionManager.call_action method with a nonexistent action."""
     # Create a new ActionManager instance
-    manager = ActionManager("maya")
+    manager = ActionManager("test", "maya")
 
     # Mock the registry to return None for nonexistent action
     with patch.object(manager.registry, "get_action", return_value=None):
@@ -126,7 +126,7 @@ def test_action_manager_execute_action_nonexistent_action():
 def test_action_manager_execute_action_exception():
     """Test ActionManager.call_action method with an action that raises an exception."""
     # Create a new ActionManager instance
-    manager = ActionManager("maya")
+    manager = ActionManager("test", "maya")
 
     # Create a mock Action class that raises an exception
     class MockActionWithException:
@@ -164,7 +164,7 @@ def test_action_manager_execute_action_exception():
 def test_action_manager_execute_action_validation_error():
     """Test ActionManager.call_action method with input validation error."""
     # Create a new ActionManager instance
-    manager = ActionManager("maya")
+    manager = ActionManager("test", "maya")
 
     # Create a mock Action class with validation error
     class MockActionWithValidation:
@@ -222,7 +222,7 @@ def test_action_result_model_error_handling():
 def test_get_actions_info_with_registered_actions():
     """Test get_actions_info method with registered actions."""
     # Create a new ActionManager instance
-    manager = ActionManager("maya")
+    manager = ActionManager("test", "maya")
 
     # Create mock Action classes
     class TestAction1:
@@ -241,7 +241,24 @@ def test_get_actions_info_with_registered_actions():
 
     # Mock the registry's list_actions and get_action methods
     with patch.object(manager.registry, "list_actions") as mock_list_actions:
-        mock_list_actions.return_value = [{"name": "test_action1"}, {"name": "test_action2"}]
+        mock_list_actions.return_value = [
+            {
+                "name": "test_action1", 
+                "internal_name": "test_action1",
+                "description": "Test action 1",
+                "tags": ["test", "example"],
+                "dcc": "maya",
+                "version": "1.0.0"
+            }, 
+            {
+                "name": "test_action2", 
+                "internal_name": "test_action2",
+                "description": "Test action 2",
+                "tags": ["test", "advanced"],
+                "dcc": "maya",
+                "version": "1.0.0"
+            }
+        ]
 
         with patch.object(manager.registry, "get_action") as mock_get_action:
             # Define side effect to return different Action classes based on name
@@ -260,7 +277,8 @@ def test_get_actions_info_with_registered_actions():
             # Verify result
             assert isinstance(result, ActionResultModel)
             assert result.success is True
-            assert "Actions info retrieved" in result.message
+            assert "Found" in result.message
+            assert "actions for maya" in result.message
 
             # Verify actions info
             actions_info = result.context["actions"]
@@ -282,7 +300,7 @@ def test_get_actions_info_with_registered_actions():
 def test_middleware_integration():
     """Test integration with middleware."""
     # Create a new ActionManager instance
-    manager = ActionManager("maya")
+    manager = ActionManager("test", "maya")
 
     # Create a mock middleware
     mock_middleware = MagicMock()

@@ -366,22 +366,22 @@ def unwrap_parameters(params: Dict[str, Any]) -> Dict[str, Any]:
 
     result = {}
     for key, value in params.items():
-        # 处理包装器类型
+        # Handle wrapper types
         if hasattr(value, "__class__") and "Wrapper" in value.__class__.__name__:
             result[key] = value.value
-        # 递归处理字典
+        # Recursively process dictionaries
         elif isinstance(value, dict):
             result[key] = unwrap_parameters(value)
-        # 处理列表
+        # Handle lists
         elif isinstance(value, list):
             result[key] = [unwrap_value(item) for item in value]
-        # 处理元组
+        # Handle tuples
         elif isinstance(value, tuple):
             result[key] = tuple(unwrap_value(item) for item in value)
-        # 处理集合
+        # Handle sets
         elif isinstance(value, set):
             result[key] = set(unwrap_value(item) for item in value)
-        # 其他类型直接保留
+        # Other types remain unchanged
         else:
             result[key] = value
     return result
