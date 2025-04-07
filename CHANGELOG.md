@@ -1,3 +1,13 @@
+## v0.8.0 (2025-04-07)
+
+### Feat
+
+- Enhance action registration and classification
+
+### Refactor
+
+- Enhance ActionRegistry and add hooks
+
 ## v0.7.0 (2025-04-05)
 
 ### Feat
