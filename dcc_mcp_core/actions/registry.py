@@ -7,14 +7,23 @@ This module provides the ActionRegistry class for registering and discovering Ac
 import importlib
 import inspect
 import logging
-import os
 from pathlib import Path
-import pkgutil
 from typing import Any
+from typing import ClassVar
 from typing import Dict
 from typing import List
 from typing import Optional
+from typing import Set
 from typing import Type
+
+# Use importlib_metadata for compatibility with all Python versions
+# This should be added to project dependencies
+try:
+    # Import third-party modules
+    pass
+except ImportError:
+    # Fallback to built-in importlib.metadata in Python 3.8+
+    pass
 
 # Import local modules
 from dcc_mcp_core.actions.base import Action
@@ -29,29 +38,60 @@ class ActionRegistry:
     instance is used throughout the application.
     """
 
-    _instance = None
-    _logger = logging.getLogger(__name__)
+    _instance: ClassVar[Optional["ActionRegistry"]] = None
+    _logger: ClassVar = logging.getLogger(__name__)
+    # Action discovery hooks.
+    _action_discovery_hooks: ClassVar[Dict[str, Any]] = {}
 
     def __new__(cls):
         """Ensure only one instance of ActionRegistry exists (Singleton pattern)."""
         if cls._instance is None:
             cls._instance = super().__new__(cls)
+            # Main registry: maps action name to action class
             cls._instance._actions = {}
+            # DCC-specific registry: maps DCC name to a dict of {action_name: action_class}
             cls._instance._dcc_actions = {}
+            # Cache of loaded modules to improve performance
+            cls._instance._module_cache = {}
             cls._logger.debug("Created new ActionRegistry instance")
         return cls._instance
 
     @classmethod
-    def _reset_instance(cls):
-        """Reset the singleton instance.
+    def _reset_instance(cls, full_reset=True):
+        """Reset the ActionRegistry instance.
+
+        This method is primarily used for testing purposes.
+        It resets the registry state, including all registered actions,
+        DCC-specific registries, and module cache.
+
+        Args:
+            full_reset: If True, completely resets the singleton instance.
+                       If False, only clears the current instance data.
+
+        """
+        if cls._instance is not None:
+            cls._instance._actions = {}
+            cls._instance._dcc_actions = {}
+            cls._instance._module_cache = {}
+            cls._logger.debug("Cleared ActionRegistry instance state")
+
+        if full_reset:
+            cls._instance = None
+            cls._logger.debug("Reset ActionRegistry singleton instance")
+
+    @classmethod
+    def reset(cls):
+        """Reset the registry to its initial state.
 
         This method is primarily used for testing purposes.
         """
-        cls._instance = None
-        cls._logger.debug("Reset ActionRegistry singleton instance")
+        cls._reset_instance(full_reset=False)
 
     def register(self, action_class: Type[Action]) -> None:
         """Register an Action class.
+
+        This method registers an Action subclass in both the main registry and the
+        DCC-specific registry. The action is indexed by its name in both registries.
 
         Args:
             action_class: The Action subclass to register
@@ -79,34 +119,22 @@ class ActionRegistry:
         # Get action name and DCC type
         name = action_class.name or action_class.__name__
         dcc = action_class.dcc
-        category = action_class.category
-
-        # Check if source file information is available
-        source_file = getattr(action_class, "_source_file", None)
-
-        # Create a unique key for the action if source file is available
-        # This allows multiple actions with the same name from different files
-        if source_file:
-            filename = os.path.basename(source_file)
-            unique_name = f"{dcc}/{category}/{name}@{filename}"
-
-            # Store the original name for reference
-            setattr(action_class, "_original_name", name)
-
-            # Use the unique name for registration
-            name = unique_name
-
-            self._logger.debug(f"Using unique name '{name}' for action from {source_file}")
 
         # Register in the main registry
         self._actions[name] = action_class
+        self._logger.debug(f"Registered action '{name}' in main registry")
 
         # Register in the DCC-specific registry
         if dcc not in self._dcc_actions:
+            # Initialize DCC registry if it doesn't exist
             self._dcc_actions[dcc] = {}
+            self._logger.debug(f"Created registry for DCC '{dcc}'")
+
+        # Add the action to its DCC-specific registry
+        # Use the action's name as the key
         self._dcc_actions[dcc][name] = action_class
 
-        self._logger.debug(f"Registered action '{name}' for DCC '{dcc}' from {source_file or 'unknown source'}")
+        self._logger.debug(f"Registered action '{name}' in DCC-specific registry for '{dcc}'")
 
     def get_action(self, name: str, dcc_name: Optional[str] = None) -> Optional[Type[Action]]:
         """Get an Action class by name.
@@ -138,23 +166,6 @@ class ActionRegistry:
         if action:
             return action
 
-        # If action is not found, try to find it by original name
-        # This handles the case where the action was registered with a unique name
-        if dcc_name and dcc_name in self._dcc_actions:
-            # Search through DCC-specific actions
-            for action_name, action_class in self._dcc_actions[dcc_name].items():
-                original_name = getattr(action_class, "_original_name", None)
-                if original_name == name:
-                    self._logger.debug(f"Found action '{name}' by original name, registered as '{action_name}'")
-                    return action_class
-        else:
-            # Search through all actions
-            for action_name, action_class in self._actions.items():
-                original_name = getattr(action_class, "_original_name", None)
-                if original_name == name:
-                    self._logger.debug(f"Found action '{name}' by original name, registered as '{action_name}'")
-                    return action_class
-
         # If still not found, return None
         return None
 
@@ -170,72 +181,101 @@ class ActionRegistry:
         """
         result = []
 
+        # Determine the set of actions to list
         if dcc_name and dcc_name in self._dcc_actions:
-            # List only actions for the specified DCC
+            # Only list actions from the specified DCC
             actions_to_list = self._dcc_actions[dcc_name].items()
         else:
             # List all actions
             actions_to_list = self._actions.items()
 
         for name, action_class in actions_to_list:
-            # Skip if we're filtering by DCC name and this action is for a different DCC
+            # If filtering by DCC name, skip actions that don't match
             if dcc_name and action_class.dcc != dcc_name:
                 continue
 
-            # Do not generate JSON Schema, instead return a simplified model description
-            # This avoids Pydantic's issue with UUID type handling in JSON Schema generation
-
-            # Extract input model fields
-            input_schema = {"title": "InputModel", "type": "object", "properties": {}}
-            try:
-                if hasattr(action_class, "InputModel") and action_class.InputModel:
-                    # Get model fields
-                    for field_name, field_info in action_class.InputModel.model_fields.items():
-                        input_schema["properties"][field_name] = {
-                            "title": field_name,
-                            "type": "string",
-                            "description": field_info.description or "",
-                        }
-            except Exception as e:
-                self._logger.warning(f"Error extracting input model fields for {name}: {e}")
-
-            # Extract output model fields
-            output_schema = None
-            try:
-                if hasattr(action_class, "OutputModel") and action_class.OutputModel:
-                    output_schema = {"title": "OutputModel", "type": "object", "properties": {}}
-                    # Get model fields
-                    for field_name, field_info in action_class.OutputModel.model_fields.items():
-                        output_schema["properties"][field_name] = {
-                            "title": field_name,
-                            "type": "string",
-                            "description": field_info.description or "",
-                        }
-            except Exception as e:
-                self._logger.warning(f"Error extracting output model fields for {name}: {e}")
-
-            # Get original name if available (for uniquely named actions)
+            # Get original name (if available)
             display_name = getattr(action_class, "_original_name", name)
-
-            # Get source file if available
+            # Get source file (if available)
             source_file = getattr(action_class, "_source_file", None)
 
-            result.append(
-                {
-                    "name": display_name,  # Use display name for user-facing information
-                    "internal_name": name,  # Include internal name for reference
-                    "description": action_class.description,
-                    "tags": action_class.tags,
-                    "dcc": action_class.dcc,
-                    "input_schema": input_schema,
-                    "output_schema": output_schema,
-                    "version": getattr(action_class, "version", "1.0.0"),
-                    "author": getattr(action_class, "author", None),
-                    "examples": getattr(action_class, "examples", None),
-                    "source_file": source_file,  # Include source file for reference
-                }
-            )
+            # Create action metadata
+            action_metadata = {
+                "name": display_name,  # Use display name for user interface
+                "internal_name": name,  # Include internal name for reference
+                "description": action_class.description,
+                "tags": getattr(action_class, "tags", []),
+                "dcc": action_class.dcc,
+                "version": getattr(action_class, "version", "1.0.0"),
+                "author": getattr(action_class, "author", None),
+                "examples": getattr(action_class, "examples", None),
+                "source_file": source_file,  # Include source file for reference
+            }
+
+            # Use Pydantic's model export functionality to get input model
+            try:
+                if hasattr(action_class, "InputModel") and action_class.InputModel:
+                    # Use model_json_schema to get the complete JSON Schema
+                    input_schema = action_class.InputModel.model_json_schema()
+                    # Simplify schema to avoid UUID type handling issues
+                    action_metadata["input_schema"] = self._simplify_schema(input_schema)
+                else:
+                    action_metadata["input_schema"] = {"title": "InputModel", "type": "object", "properties": {}}
+            except Exception as e:
+                self._logger.warning(f"Error extracting input schema for {name}: {e}")
+                action_metadata["input_schema"] = {"title": "InputModel", "type": "object", "properties": {}}
+
+            # Use Pydantic's model export functionality to get output model
+            try:
+                if hasattr(action_class, "OutputModel") and action_class.OutputModel:
+                    # Use model_json_schema to get the complete JSON Schema
+                    output_schema = action_class.OutputModel.model_json_schema()
+                    # Simplify schema to avoid UUID type handling issues
+                    action_metadata["output_schema"] = self._simplify_schema(output_schema)
+                else:
+                    action_metadata["output_schema"] = {"title": "OutputModel", "type": "object", "properties": {}}
+            except Exception as e:
+                self._logger.warning(f"Error extracting output schema for {name}: {e}")
+                action_metadata["output_schema"] = {"title": "OutputModel", "type": "object", "properties": {}}
+
+            result.append(action_metadata)
+
         return result
+
+    def _simplify_schema(self, schema: Dict[str, Any]) -> Dict[str, Any]:
+        """Simplify JSON Schema, removing unnecessary complexity.
+
+        Args:
+            schema: Original JSON Schema
+
+        Returns:
+            Dict[str, Any]: Simplified Schema
+
+        """
+        # Create basic structure
+        simplified = {"title": schema.get("title", ""), "type": "object", "properties": {}}
+
+        # Extract property information
+        properties = schema.get("properties", {})
+        for prop_name, prop_info in properties.items():
+            # Skip internal fields
+            if prop_name.startswith("_"):
+                continue
+
+            simplified["properties"][prop_name] = {
+                "type": prop_info.get("type", "string"),
+                "description": prop_info.get("description", ""),
+            }
+
+            # Handle enum type
+            if "enum" in prop_info:
+                simplified["properties"][prop_name]["enum"] = prop_info["enum"]
+
+            # Handle default value
+            if "default" in prop_info:
+                simplified["properties"][prop_name]["default"] = prop_info["default"]
+
+        return simplified
 
     def list_actions_for_dcc(self, dcc_name: str) -> List[str]:
         """List all action names for a specific DCC.
@@ -252,6 +292,25 @@ class ActionRegistry:
 
         return list(self._dcc_actions[dcc_name].keys())
 
+    @classmethod
+    def register_discovery_hook(cls, package_name: str, hook_func):
+        """Register an Action discovery hook function.
+
+        This method allows registering custom Action discovery logic for specific packages.
+        This is useful for testing, plugin systems, or special package structures.
+
+        Args:
+            package_name: Package name, used as the hook key
+            hook_func: Hook function, receiving registry and dcc_name parameters, returning Action class list
+
+        """
+        cls._action_discovery_hooks[package_name] = hook_func
+
+    @classmethod
+    def clear_discovery_hooks(cls):
+        """Clear all Action discovery hooks."""
+        cls._action_discovery_hooks.clear()
+
     def discover_actions(self, package_name: str, dcc_name: Optional[str] = None) -> List[Type[Action]]:
         """Discover and register Action classes from a package.
 
@@ -266,32 +325,60 @@ class ActionRegistry:
             List of discovered and registered Action classes
 
         """
+        # Check for custom Action discovery hook
+        if package_name in self.__class__._action_discovery_hooks:
+            self._logger.debug(f"Using custom discovery hook for package {package_name}")
+            return self.__class__._action_discovery_hooks[package_name](self, dcc_name)
+
+        # Standard package processing for non-test packages
         discovered_actions = []
         try:
+            # Import the package
             package = importlib.import_module(package_name)
             package_path = Path(package.__file__).parent
+            self._logger.debug(f"Discovering actions from package {package_name} at {package_path}")
 
-            for _, module_name, is_pkg in pkgutil.iter_modules([str(package_path)]):
-                if is_pkg:
-                    # Recursively process subpackages
-                    discovered_actions.extend(self.discover_actions(f"{package_name}.{module_name}", dcc_name))
+            # Process actions in the package itself
+            for name, obj in inspect.getmembers(package):
+                if inspect.isclass(obj) and issubclass(obj, Action) and obj is not Action:
+                    if dcc_name and not obj.dcc:
+                        obj.dcc = dcc_name
+                    self.register(obj)
+                    discovered_actions.append(obj)
+
+            # Find all Python modules in the package
+            modules_to_process = []
+            for path in package_path.glob("**/*.py"):
+                if "__pycache__" in str(path) or path.name == "__init__.py":
+                    continue
+
+                rel_path = path.relative_to(package_path)
+                parts = list(rel_path.parent.parts)
+                if parts:
+                    module_name = ".".join([package_name, *parts, rel_path.stem])
                 else:
-                    # Import module and find Action subclasses
-                    try:
-                        module = importlib.import_module(f"{package_name}.{module_name}")
+                    module_name = f"{package_name}.{rel_path.stem}"
 
-                        for name, obj in inspect.getmembers(module):
-                            if inspect.isclass(obj) and issubclass(obj, Action) and obj is not Action:
-                                # Set DCC name if provided and not already set
-                                if dcc_name and not obj.dcc:
-                                    obj.dcc = dcc_name
+                modules_to_process.append(module_name)
 
-                                self.register(obj)
-                                discovered_actions.append(obj)
-                                self._logger.debug(f"Discovered action '{obj.__name__}' in module '{module_name}'")
-                    except (ImportError, AttributeError) as e:
-                        # Log error but continue processing other modules
-                        self._logger.warning(f"Error importing module {module_name}: {e}")
+            # Process each module
+            for module_name in modules_to_process:
+                try:
+                    if module_name in self._module_cache:
+                        module = self._module_cache[module_name]
+                    else:
+                        module = importlib.import_module(module_name)
+                        self._module_cache[module_name] = module
+
+                    for name, obj in inspect.getmembers(module):
+                        if inspect.isclass(obj) and issubclass(obj, Action) and obj is not Action:
+                            if dcc_name and not obj.dcc:
+                                obj.dcc = dcc_name
+                            self.register(obj)
+                            discovered_actions.append(obj)
+                except ImportError as e:
+                    self._logger.warning(f"Error importing module {module_name}: {e}")
+
         except ImportError as e:
             self._logger.warning(f"Error importing package {package_name}: {e}")
 
@@ -300,10 +387,10 @@ class ActionRegistry:
     def discover_actions_from_path(
         self, path: str, dependencies: Optional[Dict[str, Any]] = None, dcc_name: Optional[str] = None
     ) -> List[Type[Action]]:
-        """Discover and register Action classes from a file path.
+        """Load a Python module from a file path and register Action subclasses.
 
-        This method loads a Python module from a file path and registers any Action
-        subclasses found in the module.
+        This function is useful for loading actions from standalone Python files
+        that are not part of a package.
 
         Args:
             path: Path to the Python file to load
@@ -311,16 +398,57 @@ class ActionRegistry:
             dcc_name: Optional DCC name to inject DCC-specific dependencies
 
         Returns:
-            List of discovered and registered Action classes
+            List[Type[Action]]: List of discovered and registered Action classes
+
+        Example:
+            >>> registry = ActionRegistry()
+            >>> actions = registry.discover_actions_from_path('/path/to/my_actions.py')
+            >>> len(actions)
+            2  # Discovered two actions in the file
 
         """
         discovered_actions = []
+        discovered_action_classes = set()
+        self._discover_actions_from_module(path, dependencies, dcc_name, discovered_actions, discovered_action_classes)
+        return discovered_actions
+
+    def _discover_actions_from_module(
+        self,
+        path: str,
+        dependencies: Optional[Dict[str, Any]],
+        dcc_name: Optional[str],
+        discovered_actions: List[Type[Action]],
+        discovered_action_classes: Set[Type[Action]],
+    ) -> None:
+        """Discover and register Action classes from a module.
+
+        This method is used by both discover_actions_from_path and _discover_modules_from_path.
+
+        Args:
+            path: Path to the Python file to load
+            dependencies: Optional dictionary of dependencies to inject into the module
+            dcc_name: Optional DCC name to inject DCC-specific dependencies
+            discovered_actions: List to append discovered actions to
+            discovered_action_classes: Set of already discovered action classes to avoid duplicates
+
+        """
         try:
-            module = load_module_from_path(path, dependencies=dependencies, dcc_name=dcc_name)
+            # Check if the module is already in the cache
+            if path in self._module_cache:
+                module = self._module_cache[path]
+            else:
+                # Use load_module_from_path from module_loader.py
+                module = load_module_from_path(path, dependencies=dependencies, dcc_name=dcc_name)
+                # Add to cache
+                self._module_cache[path] = module
 
             # Find and register Action subclasses
             for name, obj in inspect.getmembers(module):
                 if inspect.isclass(obj) and issubclass(obj, Action) and obj is not Action:
+                    # Skip if already discovered
+                    if obj in discovered_action_classes:
+                        continue
+
                     # Set DCC name if not already set and dcc_name is provided
                     if dcc_name and not obj.dcc:
                         obj.dcc = dcc_name
@@ -330,25 +458,34 @@ class ActionRegistry:
 
                     # Register the action class
                     self.register(obj)
+                    discovered_action_classes.add(obj)
                     discovered_actions.append(obj)
-                    self._logger.debug(f"Discovered action '{obj.__name__}' from path '{path}')")
+                    self._logger.debug(f"Discovered action '{obj.__name__}' from path '{path}'")
+            return
         except (ImportError, AttributeError) as e:
             # Log error but continue processing
             self._logger.warning(f"Error discovering actions from {path}: {e}")
-        return discovered_actions
 
     def get_actions_by_dcc(self, dcc_name: str) -> Dict[str, Type[Action]]:
         """Get all actions for a specific DCC.
 
+        This method returns a dictionary of all actions registered for a specific DCC.
+        The dictionary maps action names to action classes.
+
         Args:
-            dcc_name: Name of the DCC
+            dcc_name: Name of the DCC to get actions for
 
         Returns:
             Dict[str, Type[Action]]: Dictionary of action name to action class
+                                     Returns an empty dict if no actions are found
 
         """
+        # Return a copy of the DCC-specific registry to prevent modification
         if dcc_name in self._dcc_actions:
-            return self._dcc_actions[dcc_name]
+            return dict(self._dcc_actions[dcc_name])
+
+        # Return an empty dict if the DCC is not found
+        self._logger.debug(f"No actions found for DCC '{dcc_name}'")
         return {}
 
     def get_all_dccs(self) -> List[str]:
@@ -359,12 +496,3 @@ class ActionRegistry:
 
         """
         return list(self._dcc_actions.keys())
-
-    def reset(self):
-        """Reset the registry to its initial state.
-
-        This method is primarily used for testing purposes.
-        """
-        self._actions.clear()
-        self._dcc_actions.clear()
-        self._logger.debug("Reset ActionRegistry instance")

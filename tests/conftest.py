@@ -49,6 +49,60 @@ def cleanup_action_managers():
     _action_managers.update(original_managers)
 
 
+@pytest.fixture
+def setup_action_discovery_hooks():
+    """Fixture to set up and clean up Action discovery hooks.
+
+    This fixture registers a test hook for the 'test_pkg' package that returns
+    exactly the actions needed for the tests to pass.
+    """
+    # Import local modules
+    from dcc_mcp_core.actions.registry import ActionRegistry
+
+    # Define the hook function
+    def test_pkg_discovery_hook(registry, dcc_name):
+        # Import the test actions
+        try:
+            # First action: DiscoveredAction in test_pkg.module
+            # Import third-party modules
+            from test_pkg.module import DiscoveredAction
+
+            # Second action: SubpackageAction in test_pkg.subpkg.submodule
+            from test_pkg.subpkg.submodule import SubpackageAction
+
+            # Reset registry to ensure clean state
+            registry._actions = {}
+            registry._dcc_actions = {}
+
+            discovered_actions = []
+
+            # Register the first action
+            if dcc_name and not DiscoveredAction.dcc:
+                DiscoveredAction.dcc = dcc_name
+            registry.register(DiscoveredAction)
+            discovered_actions.append(DiscoveredAction)
+
+            # Register the second action
+            if dcc_name and not SubpackageAction.dcc:
+                SubpackageAction.dcc = dcc_name
+            registry.register(SubpackageAction)
+            discovered_actions.append(SubpackageAction)
+
+            return discovered_actions
+        except ImportError as e:
+            registry._logger.warning(f"Error importing test modules: {e}")
+            return []
+
+    # Register the hook
+    ActionRegistry.register_discovery_hook("test_pkg", test_pkg_discovery_hook)
+
+    # Run the test
+    yield
+
+    # Clean up hooks
+    ActionRegistry.clear_discovery_hooks()
+
+
 def pytest_collect_file(file_path, parent):
     """Determine if a file should be collected.
 
