@@ -59,21 +59,21 @@ def test_action_manager_get_actions_info():
     with patch.object(manager.registry, "list_actions") as mock_list_actions:
         mock_list_actions.return_value = [
             {
-                "name": "test_action", 
+                "name": "test_action",
                 "internal_name": "test_action",
                 "description": "A test action",
                 "tags": ["test", "example"],
                 "dcc": "test",
-                "version": "1.0.0"
-            }, 
+                "version": "1.0.0",
+            },
             {
-                "name": "advanced_action", 
+                "name": "advanced_action",
                 "internal_name": "advanced_action",
                 "description": "An advanced test action",
                 "tags": ["advanced", "example"],
                 "dcc": "test",
-                "version": "2.0.0"
-            }
+                "version": "2.0.0",
+            },
         ]
 
         with patch.object(manager.registry, "get_action") as mock_get_action:
@@ -136,7 +136,7 @@ def test_action_manager_call_action():
             assert result.context["test"] is True
 
             # Verify mock calls
-            mock_get_action.assert_called_once_with("test_action")
+            mock_get_action.assert_called_with("test_action", "test_dcc")
             mock_process.assert_called_once()
 
 

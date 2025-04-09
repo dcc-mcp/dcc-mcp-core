@@ -4,16 +4,20 @@ This module contains tests for the adapter functions that convert Action classes
 to callable functions compatible with function-based APIs.
 """
 
+# Import built-in modules
+
 # Import third-party modules
 from pydantic import Field
 import pytest
 
 # Import local modules
+from dcc_mcp_core.actions.base import Action
 from dcc_mcp_core.actions.function_adapter import create_function_adapter
 from dcc_mcp_core.actions.function_adapter import create_function_adapters
-from dcc_mcp_core.actions.base import Action
+from dcc_mcp_core.actions.manager import ActionManager
 from dcc_mcp_core.actions.registry import ActionRegistry
 from dcc_mcp_core.models import ActionResultModel
+
 
 # Define test Action classes
 class AdapterTestAction(Action):
@@ -142,3 +146,84 @@ def test_create_function_adapters(clean_registry):
     result2 = adapters["another_action"](text="test")
     assert result2.success is True
     assert "Successfully executed another_action" in result2.message
+
+
+def test_create_function_adapter_with_manager():
+    """Test creating a function adapter using an ActionManager."""
+    # Create an ActionManager
+    manager = ActionManager("test_manager", "test_dcc")
+
+    # Register the test action
+    registry = ActionRegistry()
+    registry.register(AdapterTestAction)
+
+    # Create adapter using the manager
+    adapter = create_function_adapter("adapter_test_action", manager=manager)
+
+    # Verify the adapter
+    assert callable(adapter)
+
+    # Test calling the adapter
+    # The behavior has changed - now it will use _prepare_action_for_execution which will
+    # look for the action in the registry and return a proper error result
+    # But since we've registered the action in the registry, it will succeed
+    result = adapter(value=42)
+    assert result.success
+    assert result.context["result"] == 84
+
+    # Now register the action with the manager's registry
+    manager.registry.register(AdapterTestAction)
+
+    # Test calling the adapter again
+    result = adapter(value=42)
+    assert result.success
+    assert result.context["result"] == 84
+
+
+def test_create_function_adapters_with_manager():
+    """Test creating function adapters using an ActionManager."""
+    # Create an ActionManager
+    manager = ActionManager("test_manager", "test_dcc")
+
+    # Register the test action
+    manager.registry.register(AdapterTestAction)
+
+    # Create adapters using the manager
+    adapters = create_function_adapters(manager=manager)
+
+    # Verify the adapters - behavior has changed, now manager.list_available_actions() is used
+    # which returns an empty list because we haven't refreshed the manager
+    assert isinstance(adapters, dict)
+
+    # The behavior has changed - we need to use action_names parameter to specify which actions to create adapters for
+    adapters = create_function_adapters(manager=manager, action_names=["adapter_test_action"])
+
+    # Verify the adapters
+    assert "adapter_test_action" in adapters
+    assert callable(adapters["adapter_test_action"])
+
+    # Test calling the adapter
+    # The input model expects 'value', not 'x' and 'y'
+    result = adapters["adapter_test_action"](value=42)
+    assert result.success
+    assert result.context["result"] == 84
+
+
+def test_create_function_adapters_with_specific_actions():
+    """Test creating function adapters for specific actions."""
+    # Register the test action
+    registry = ActionRegistry()
+    registry.register(AdapterTestAction)
+
+    # Create adapters for specific actions
+    adapters = create_function_adapters(action_names=["adapter_test_action"])
+
+    # Verify the adapters
+    assert "adapter_test_action" in adapters
+    assert callable(adapters["adapter_test_action"])
+
+    # Test calling the adapter
+    # The input model expects 'value', not 'x' and 'y'
+    result = adapters["adapter_test_action"](value=42)
+    assert result.success
+    assert result.context["result"] == 84

@@ -17,7 +17,8 @@ from typing import List
 from dcc_mcp_core.models import ActionResultModel
 from dcc_mcp_core.utils.filesystem import get_actions_dir
 from dcc_mcp_core.utils.template import render_template
-# 注意：如果需要在生成的 Action 中使用 RPyCActionBridge，请在实现中导入:
+
+# Note: If you need to use RPyCActionBridge in the generated Action, import it in the implementation:
 # from dcc_mcp_rpyc.action_bridge import RPyCActionBridge
 
 logger = logging.getLogger(__name__)
@@ -64,8 +65,6 @@ def create_action_template(
                 message=f"Action class file already exists: {action_file_path}",
                 context={"file_path": action_file_path},
             )
-
-
 
         # Generate the action file content
         content = _generate_action_content(action_name, description, functions, author, dcc_name)

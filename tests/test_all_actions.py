@@ -94,11 +94,9 @@ def test_action_loading(action_info, mock_action_manager):
     # Mock the registry's discover_actions_from_path method
     with patch.object(mock_action_manager.registry, "discover_actions_from_path") as mock_discover:
         action_dir = os.path.dirname(action_path)
-        
+
         mock_action_manager.registry.discover_actions_from_path(
-            path=action_path,
-            context=mock_action_manager.context,
-            dcc_name=mock_action_manager.dcc_name
+            path=action_path, context=mock_action_manager.context, dcc_name=mock_action_manager.dcc_name
         )
 
         # Verify that discover_actions_from_path was called
@@ -153,7 +151,7 @@ def test_action_loading(action_info, mock_action_manager):
             return [
                 {
                     "name": MockAction.name,
-                    "internal_name": MockAction.name,  # 添加 internal_name 键
+                    "internal_name": MockAction.name,
                     "description": MockAction.description,
                     "tags": MockAction.tags,
                     "dcc": MockAction.dcc,
@@ -176,7 +174,7 @@ def test_action_loading(action_info, mock_action_manager):
                 # Verify result
                 assert isinstance(result, ActionResultModel)
                 assert result.success is True
-                # 新的消息格式是 "Found X actions for DCC"
+                # The new message format is "Found X actions for DCC"
                 assert "Found" in result.message
                 assert "actions for test_dcc" in result.message
 

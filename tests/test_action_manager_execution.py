@@ -194,7 +194,7 @@ def test_action_manager_execute_action_validation_error():
         assert result.success is False
 
         # Check that the message indicates a validation error
-        assert "Action test_action execution failed" in result.message
+        assert "Error preparing action test_action" in result.message
 
         # Check that the error contains validation information
         assert "Validation error" in result.error
@@ -243,21 +243,21 @@ def test_get_actions_info_with_registered_actions():
     with patch.object(manager.registry, "list_actions") as mock_list_actions:
         mock_list_actions.return_value = [
             {
-                "name": "test_action1", 
+                "name": "test_action1",
                 "internal_name": "test_action1",
                 "description": "Test action 1",
                 "tags": ["test", "example"],
                 "dcc": "maya",
-                "version": "1.0.0"
-            }, 
+                "version": "1.0.0",
+            },
             {
-                "name": "test_action2", 
+                "name": "test_action2",
                 "internal_name": "test_action2",
                 "description": "Test action 2",
                 "tags": ["test", "advanced"],
                 "dcc": "maya",
-                "version": "1.0.0"
-            }
+                "version": "1.0.0",
+            },
         ]
 
         with patch.object(manager.registry, "get_action") as mock_get_action:
