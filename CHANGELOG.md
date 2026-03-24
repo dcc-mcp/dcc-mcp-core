@@ -1,3 +1,15 @@
+## v0.9.0 (2026-03-24)
+
+### Feat
+
+- Add function adapters for Action classes
+
+### Refactor
+
+- Improve action manager and registry implementation
+- Improve dependency injector module
+- Refactor action manager and adapters
+
 ## v0.8.0 (2025-04-07)
 
 ### Feat
