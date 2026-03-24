@@ -1,13 +1,31 @@
 """Dependency Injector.
 
 Provides utility functions for injecting dependencies into dynamically loaded modules.
+This is particularly useful for plugin systems where dependencies need to be provided
+at runtime, such as when loading action modules from external files.
+
+The main functions are:
+- inject_dependencies: Inject dependencies into a module
+- inject_submodules: Inject specified submodules into a module
+
+Example:
+    >>> import types
+    >>> # Create a new module
+    >>> my_module = types.ModuleType('my_module')
+    >>> # Inject dependencies
+    >>> inject_dependencies(my_module, {'my_dependency': 'value'}, dcc_name='maya')
+    >>> # Now the module has the dependencies as attributes
+    >>> my_module.my_dependency
+    'value'
+    >>> my_module.DCC_NAME
+    'maya'
+
 """
 
 # Import built-in modules
-# Import standard modules
 import importlib
 import inspect
-import sys
+import os
 from types import ModuleType
 from typing import Any
 from typing import Dict
@@ -15,55 +33,21 @@ from typing import List
 from typing import Optional
 from typing import Set
 
-# Global variables
-_dcc_modules = {}
-
-
-# Helper functions
-def _get_module_name_from_path(file_path: str) -> str:
-    """Generate a module name from a file path."""
-    # Import built-in modules
-    import os
-
-    module_name = os.path.basename(file_path)
-    if module_name.endswith(".py"):
-        module_name = module_name[:-3]
-    return module_name
-
-
-def _try_import_module(module_name: str) -> Optional[ModuleType]:
-    """Try to import a module, return None if it fails."""
-    try:
-        return importlib.import_module(module_name)
-    except (ImportError, ModuleNotFoundError):
-        return None
-
-
-def _get_dcc_module(dcc_name: str) -> Optional[ModuleType]:
-    """Get a DCC module if it exists."""
-    global _dcc_modules
-    dcc_name = dcc_name.lower()
-
-    # If the module has already been loaded, return it directly
-    if dcc_name in _dcc_modules and _dcc_modules[dcc_name] is not None:
-        return _dcc_modules[dcc_name]
-
-    # Try to load the DCC module
-    module = _try_import_module(dcc_name)
-    if module is not None:
-        _dcc_modules[dcc_name] = module
-        return module
-
-    # If it exists in sys.modules, use it
-    if dcc_name in sys.modules:
-        _dcc_modules[dcc_name] = sys.modules[dcc_name]
-        return sys.modules[dcc_name]
-
-    return None
-
 
 def _get_all_submodules(module: ModuleType, visited: Optional[Set[str]] = None) -> Dict[str, ModuleType]:
-    """Recursively get all submodules of a module."""
+    """Recursively get all submodules of a module.
+
+    This function recursively gets all submodules of a module, avoiding circular references.
+    It handles modules that may not have a __name__ attribute by using __file__ or a unique ID.
+
+    Args:
+        module: The module to get submodules from
+        visited: Set of module names that have already been visited (to prevent circular references)
+
+    Returns:
+        Dict[str, ModuleType]: Dictionary mapping submodule names to submodule objects
+
+    """
     if visited is None:
         visited = set()
 
@@ -74,9 +58,6 @@ def _get_all_submodules(module: ModuleType, visited: Optional[Set[str]] = None) 
         module_name = module.__name__
     elif hasattr(module, "__file__"):
         # If __file__ attribute exists, use filename (without extension) as module name
-        # Import built-in modules
-        import os
-
         module_name = os.path.splitext(os.path.basename(module.__file__))[0]
     else:
         # If no available identifier, use module object id as unique identifier
@@ -105,7 +86,10 @@ def _get_all_submodules(module: ModuleType, visited: Optional[Set[str]] = None) 
 
 
 def inject_dependencies(
-    module: ModuleType, dependencies: Dict[str, Any], inject_core_modules: bool = False, dcc_name: Optional[str] = None
+    module: ModuleType,
+    dependencies: Optional[Dict[str, Any]] = None,
+    inject_core_modules: bool = False,
+    dcc_name: Optional[str] = None,
 ) -> None:
     """Inject dependencies into a module.
 
@@ -119,6 +103,22 @@ def inject_dependencies(
         inject_core_modules: If True, also inject the dcc_mcp_core module and its submodules
         dcc_name: Name of the DCC to inject as a module attribute
 
+    Example:
+        >>> import types
+        >>> my_module = types.ModuleType('my_module')
+        >>> inject_dependencies(
+        ...     my_module,
+        ...     {'my_dependency': 'value'},
+        ...     inject_core_modules=True,
+        ...     dcc_name='maya'
+        ... )
+        >>> my_module.my_dependency
+        'value'
+        >>> my_module.DCC_NAME
+        'maya'
+        >>> hasattr(my_module, 'dcc_mcp_core')
+        True
+
     """
     # Inject direct dependencies
     if dependencies is not None:
@@ -129,42 +129,57 @@ def inject_dependencies(
     if dcc_name is not None:
         setattr(module, "DCC_NAME", dcc_name)
 
+    # Inject core modules if requested
     if inject_core_modules:
+        _inject_core_modules(module)
+
+
+def _inject_core_modules(module: ModuleType) -> None:
+    """Inject dcc_mcp_core module and its submodules into a module.
+
+    This function injects the dcc_mcp_core module and its common submodules into
+    the target module, making them available as attributes.
+
+    Args:
+        module: The module to inject core modules into
+
+    """
+    try:
+        # Import the core module
         try:
-            # Import the core module
-            try:
-                # Import local modules
-                import dcc_mcp_core
+            # Import local modules
+            import dcc_mcp_core
 
-                # Inject main module
-                setattr(module, "dcc_mcp_core", dcc_mcp_core)
+            # Inject main module
+            setattr(module, "dcc_mcp_core", dcc_mcp_core)
 
-                # Inject common submodules
-                core_submodules = ["decorators", "actions", "models", "utils", "parameters"]
+            # Inject common submodules
+            core_submodules = ["decorators", "actions", "models", "utils", "parameters"]
 
-                # Inject all submodules
-                for submodule_name in core_submodules:
-                    full_module_name = f"dcc_mcp_core.{submodule_name}"
-                    try:
-                        submodule = importlib.import_module(full_module_name)
-                        setattr(module, submodule_name, submodule)
+            # Inject all submodules
+            for submodule_name in core_submodules:
+                full_module_name = f"dcc_mcp_core.{submodule_name}"
+                try:
+                    submodule = importlib.import_module(full_module_name)
+                    setattr(module, submodule_name, submodule)
 
-                        # For key modules, also inject their submodules
-                        if submodule_name in ["decorators", "models"]:
-                            try:
-                                sub_submodules = _get_all_submodules(submodule)
-                                for sub_name, sub_module in sub_submodules.items():
-                                    setattr(module, sub_name, sub_module)
-                            except Exception:
-                                pass
-                    except ImportError:
-                        # Skip if submodule does not exist
-                        pass
-            except ImportError:
-                # Skip if core module cannot be imported
-                pass
-        except Exception:
+                    # For key modules, also inject their submodules
+                    if submodule_name in ["decorators", "models"]:
+                        try:
+                            sub_submodules = _get_all_submodules(submodule)
+                            for sub_name, sub_module in sub_submodules.items():
+                                setattr(module, sub_name, sub_module)
+                        except Exception:
+                            pass
+                except ImportError:
+                    # Skip if submodule does not exist
+                    pass
+        except ImportError:
+            # Skip if core module cannot be imported
             pass
+    except Exception:
+        # Catch all exceptions to prevent failure
+        pass
 
 
 def inject_submodules(
@@ -172,11 +187,23 @@ def inject_submodules(
 ) -> None:
     """Inject specified submodules into a module.
 
+    This function injects specified submodules from a parent module into a target module,
+    making them available as attributes. It can optionally inject submodules recursively.
+
     Args:
         module: The module to inject submodules into
         parent_module_name: The parent module name
         submodule_names: List of submodule names to inject
         recursive: Whether to recursively inject submodules of submodules
+
+    Example:
+        >>> import types
+        >>> my_module = types.ModuleType('my_module')
+        >>> inject_submodules(my_module, 'dcc_mcp_core', ['actions', 'models'])
+        >>> hasattr(my_module, 'actions')
+        True
+        >>> hasattr(my_module, 'models')
+        True
 
     """
     for submodule_name in submodule_names:

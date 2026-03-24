@@ -58,9 +58,9 @@ class TestActionTwo(Action):
 @pytest.fixture
 def reset_registry():
     """Reset the ActionRegistry singleton before and after each test."""
-    ActionRegistry._reset_instance()
+    ActionRegistry.reset(full_reset=True)
     yield
-    ActionRegistry._reset_instance()
+    ActionRegistry.reset(full_reset=True)
 
 
 def test_registry_singleton(reset_registry):
@@ -101,9 +101,8 @@ def test_register_and_get_action(reset_registry):
     assert action1_dcc is TestActionOne
     assert action2_dcc is TestActionTwo
 
-    # Get action from non-existent DCC (should fall back to main registry)
     action1_nonexistent = registry.get_action("test_action_one", "nonexistent_dcc")
-    assert action1_nonexistent is TestActionOne
+    assert action1_nonexistent is None
 
     # Get non-existent action
     nonexistent_action = registry.get_action("nonexistent_action")

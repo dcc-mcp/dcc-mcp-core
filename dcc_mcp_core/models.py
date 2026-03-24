@@ -77,11 +77,7 @@ class ActionResultModel(BaseModel):
 
         """
         try:
-            # Try Pydantic v2 method first
-            if hasattr(self, "model_dump"):
-                return self.model_dump()
-            # Fall back to Pydantic v1 method
-            return self.dict()
+            return self.model_dump()
         except Exception:
             # If all else fails, manually create a dictionary
             return {

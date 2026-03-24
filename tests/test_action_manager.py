@@ -53,11 +53,28 @@ class AdvancedAction(Action):
 def test_action_manager_get_actions_info():
     """Test ActionManager.get_actions_info method with class-based Actions."""
     # Create ActionManager instance
-    manager = ActionManager("test")
+    manager = ActionManager("test", "test_dcc")
 
     # Mock the registry with test actions
     with patch.object(manager.registry, "list_actions") as mock_list_actions:
-        mock_list_actions.return_value = [{"name": "test_action"}, {"name": "advanced_action"}]
+        mock_list_actions.return_value = [
+            {
+                "name": "test_action",
+                "internal_name": "test_action",
+                "description": "A test action",
+                "tags": ["test", "example"],
+                "dcc": "test",
+                "version": "1.0.0",
+            },
+            {
+                "name": "advanced_action",
+                "internal_name": "advanced_action",
+                "description": "An advanced test action",
+                "tags": ["advanced", "example"],
+                "dcc": "test",
+                "version": "2.0.0",
+            },
+        ]
 
         with patch.object(manager.registry, "get_action") as mock_get_action:
 
@@ -76,7 +93,8 @@ def test_action_manager_get_actions_info():
             # Verify result
             assert isinstance(result, ActionResultModel)
             assert result.success is True
-            assert "Actions info retrieved for test" in result.message
+            assert "Found" in result.message
+            assert "actions for test_dcc" in result.message
 
             # Verify actions_info structure
             actions_info = result.context.get("actions")
@@ -96,7 +114,7 @@ def test_action_manager_get_actions_info():
 def test_action_manager_call_action():
     """Test ActionManager.call_action method with class-based Actions."""
     # Create ActionManager instance
-    manager = ActionManager("test")
+    manager = ActionManager("test", "test_dcc")
 
     # Mock the registry with test actions
     with patch.object(manager.registry, "get_action") as mock_get_action:
@@ -118,14 +136,14 @@ def test_action_manager_call_action():
             assert result.context["test"] is True
 
             # Verify mock calls
-            mock_get_action.assert_called_once_with("test_action")
+            mock_get_action.assert_called_with("test_action", "test_dcc")
             mock_process.assert_called_once()
 
 
 def test_action_manager_call_nonexistent_action():
     """Test ActionManager.call_action method with a nonexistent action."""
     # Create ActionManager instance
-    manager = ActionManager("test")
+    manager = ActionManager("test", "test_dcc")
 
     # Mock the registry to return None for nonexistent action
     with patch.object(manager.registry, "get_action", return_value=None):

@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 # Import DCC-MCP-Core modules
 from dcc_mcp_core.actions.base import Action
 from dcc_mcp_core.models import ActionResultModel
+from dcc_mcp_core.utils.type_wrappers import BaseWrapper
 
 
 {% for func in functions %}
@@ -27,8 +28,8 @@ class {{ func.name|capitalize }}Action(Action):
     version: ClassVar[str] = "0.1.0"
     author: ClassVar[str] = "{{ author }}"
     order: ClassVar[int] = 0
-    tags: ClassVar[List[str]] = ["{{ dcc_name }}", "{{ func.name }}"]
-    dcc: ClassVar[str] = "{{ dcc_name }}"
+    tags: ClassVar[List[str]] = ["{{ func.name }}"]
+    dcc: ClassVar[str] = "{{ dcc_name }}" 
 
     # Input parameters model
     class InputModel(Action.InputModel):
@@ -71,10 +72,20 @@ class {{ func.name|capitalize }}Action(Action):
         This method is called during the setup phase to prepare any
         resources or dependencies needed for execution.
         """
-        # Example: Get DCC client from context
+        # Get DCC client in multiple ways
+        
+        # 1. Directly from context
         self.dcc_client = self.context.get("{{ dcc_name }}_client")
+        
+        # 2. Try from action_bridge
         if not self.dcc_client:
-            raise ValueError("{{ dcc_name|capitalize }} client not found in context")
+            action_bridge = self.context.get("action_bridge")
+            if action_bridge:
+                self.dcc_client = getattr(action_bridge, "{{ dcc_name }}_client", None)
+        
+        # 3. Log warning instead of directly raising an exception, add flexibility
+        if not self.dcc_client:
+            self.logger.warning("{{ dcc_name|capitalize }} client not found in context, some functionality may be limited")
 
     def _execute(self) -> None:
         """Execute the action with validated parameters.
@@ -87,9 +98,13 @@ class {{ func.name|capitalize }}Action(Action):
             # TODO: Implement your action logic here
             # Example implementation:
 
-            # Access input parameters
+            # Access and process input parameters
             {% for param in func.parameters %}
             {{ param.name }} = self.input.{{ param.name }}
+            # Process parameter value if needed (useful for string to native type conversion)
+            {{ param.name }} = self.process_parameter_value({{ param.name }})
+            # Wrap value for RPyC transmission if needed
+            # {{ param.name }}_wrapped = BaseWrapper({{ param.name }})
             {% endfor %}
 
             # Perform the action using the DCC client

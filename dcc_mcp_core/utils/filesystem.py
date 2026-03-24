@@ -20,6 +20,7 @@ import platformdirs
 from dcc_mcp_core.constants import APP_AUTHOR
 from dcc_mcp_core.constants import APP_NAME
 from dcc_mcp_core.constants import DIR_FUNCTIONS
+from dcc_mcp_core.constants import ENV_ACTIONS_DIR
 from dcc_mcp_core.constants import ENV_ACTION_PATH_PREFIX
 
 # Configure logging
@@ -68,7 +69,7 @@ def get_config_dir(ensure_exists: bool = True) -> str:
         Path to the configuration directory
 
     """
-    return get_platform_dir("config", ensure_exists=ensure_exists)
+    return get_platform_dir("config", APP_NAME, APP_AUTHOR, ensure_exists)
 
 
 def get_data_dir(ensure_exists: bool = True) -> str:
@@ -81,7 +82,7 @@ def get_data_dir(ensure_exists: bool = True) -> str:
         Path to the data directory
 
     """
-    return get_platform_dir("data", ensure_exists=ensure_exists)
+    return get_platform_dir("data", APP_NAME, APP_AUTHOR, ensure_exists)
 
 
 def get_log_dir(ensure_exists: bool = True) -> str:
@@ -94,7 +95,7 @@ def get_log_dir(ensure_exists: bool = True) -> str:
         Path to the log directory
 
     """
-    return get_platform_dir("log", ensure_exists=ensure_exists)
+    return get_platform_dir("log", APP_NAME, APP_AUTHOR, ensure_exists)
 
 
 def get_actions_dir(dcc_name: str, ensure_exists: bool = True) -> str:
@@ -122,7 +123,7 @@ def get_actions_paths_from_env(dcc_name: Optional[str] = None) -> List[str]:
     """Get action paths from environment variables for a specific DCC.
 
     The environment variables should be in the format:
-    ENV_ACTION_PATH_PREFIX + DCC_NAME (e.g. MCP_ACTION_PATH_MAYA)
+    ENV_ACTION_PATH_PREFIX + DCC_NAME (e.g. DCC_MCP_ACTION_PATH_MAYA)
 
     Args:
         dcc_name: Name of the DCC to get action paths for. If None, returns an empty list.
@@ -133,20 +134,39 @@ def get_actions_paths_from_env(dcc_name: Optional[str] = None) -> List[str]:
     """
     if dcc_name is None:
         return []
-    paths = [get_user_actions_directory(dcc_name)]
+
+    paths = []
+    # Add user actions directory
+    try:
+        user_dir = get_user_actions_directory(dcc_name)
+        paths.append(str(user_dir))
+    except Exception:
+        pass
 
     try:
+        # Add paths from environment variable
         env_var = f"{ENV_ACTION_PATH_PREFIX}{dcc_name.upper()}"
         value = os.environ.get(env_var, "")
 
-        if not value:
-            return paths
+        if value:
+            # Add each path from the environment variable
+            # On Windows, the path separator is semicolon (;)
+            separator = os.pathsep
+            env_paths = [path for path in value.split(separator) if path]
+            paths.extend(env_paths)
 
-        paths.extend([Path(path).resolve().as_posix() for path in value.split(os.pathsep) if path])
+        # Also check the generic actions directory environment variable
+        generic_env_var = ENV_ACTIONS_DIR
+        generic_value = os.environ.get(generic_env_var, "")
+
+        if generic_value:
+            # Add each path from the generic environment variable
+            generic_paths = [path for path in generic_value.split(separator) if path]
+            paths.extend(generic_paths)
 
         return paths
     except Exception:
-        return []
+        return paths
 
 
 def ensure_directory_exists(directory_path: Union[str, Path]) -> bool:
@@ -192,14 +212,15 @@ def get_user_actions_directory(dcc_name: str) -> Path:
     return action_dir
 
 
-def get_templates_directory() -> Path:
+def get_templates_directory() -> str:
     """Get the path to the templates directory.
 
     Returns:
         Path to the templates directory
 
     """
-    return (Path(__file__).parent / "template").resolve()
+    template_dir = (Path(__file__).parent / "template").resolve()
+    return str(template_dir)
 
 
 def get_user_data_dir():

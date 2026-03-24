@@ -18,6 +18,9 @@ from dcc_mcp_core.models import ActionResultModel
 from dcc_mcp_core.utils.filesystem import get_actions_dir
 from dcc_mcp_core.utils.template import render_template
 
+# Note: If you need to use RPyCActionBridge in the generated Action, import it in the implementation:
+# from dcc_mcp_rpyc.action_bridge import RPyCActionBridge
+
 logger = logging.getLogger(__name__)
 
 
