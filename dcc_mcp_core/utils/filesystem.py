@@ -22,6 +22,7 @@ from dcc_mcp_core.constants import APP_NAME
 from dcc_mcp_core.constants import DIR_FUNCTIONS
 from dcc_mcp_core.constants import ENV_ACTIONS_DIR
 from dcc_mcp_core.constants import ENV_ACTION_PATH_PREFIX
+from dcc_mcp_core.constants import ENV_SKILL_PATHS
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -231,3 +232,52 @@ def get_user_data_dir():
 
     """
     return platformdirs.user_data_dir(APP_NAME, APP_AUTHOR)
+
+
+def get_skills_dir(dcc_name: Optional[str] = None, ensure_exists: bool = True) -> str:
+    """Get the platform-specific skills directory.
+
+    Args:
+        dcc_name: Optional DCC name for DCC-specific skills subdirectory
+        ensure_exists: Whether to ensure the directory exists
+
+    Returns:
+        Path to the skills directory
+
+    """
+    data_dir = get_data_dir(ensure_exists=False)
+    if dcc_name:
+        skills_dir = os.path.join(data_dir, "skills", dcc_name.lower())
+    else:
+        skills_dir = os.path.join(data_dir, "skills")
+
+    if ensure_exists:
+        os.makedirs(skills_dir, exist_ok=True)
+
+    return skills_dir
+
+
+def get_skill_paths_from_env() -> List[str]:
+    """Get skill search paths from the DCC_MCP_SKILL_PATHS environment variable.
+
+    The environment variable should contain paths separated by the platform
+    path separator (';' on Windows, ':' on Unix).
+
+    Returns:
+        List of valid skill search paths from the environment variable
+
+    """
+    paths = []
+    try:
+        value = os.environ.get(ENV_SKILL_PATHS, "")
+        if value:
+            for path in value.split(os.pathsep):
+                path = path.strip()
+                if path and os.path.isdir(path):
+                    paths.append(os.path.abspath(path))
+                elif path:
+                    logger.debug(f"Skill path does not exist or is not a directory: {path}")
+    except Exception as e:
+        logger.warning(f"Error reading skill paths from environment: {e}")
+
+    return paths

@@ -18,6 +18,25 @@ ENV_ACTIONS_DIR = "DCC_MCP_ACTIONS_DIR"
 
 # File names
 ACTION_PATHS_CONFIG = "action_paths.json"
+SKILL_METADATA_FILE = "SKILL.md"
+
+# Skill system
+ENV_SKILL_PATHS = "DCC_MCP_SKILL_PATHS"
+SKILL_SCRIPTS_DIR = "scripts"
+SKILL_REFERENCES_DIR = "references"
+SUPPORTED_SCRIPT_EXTENSIONS = {
+    ".py": "python",
+    ".mel": "mel",
+    ".ms": "maxscript",
+    ".bat": "batch",
+    ".cmd": "batch",
+    ".sh": "shell",
+    ".bash": "shell",
+    ".ps1": "powershell",
+    ".vbs": "vbscript",
+    ".jsx": "javascript",
+    ".js": "javascript",
+}
 
 # Boolean flag keys for parameter processing
 BOOLEAN_FLAG_KEYS = ["query", "q", "edit", "e", "select", "sl", "selection", "visible", "v", "hidden", "h"]

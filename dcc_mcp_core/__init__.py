@@ -10,6 +10,7 @@ from dcc_mcp_core.log_config import setup_dcc_logging
 from dcc_mcp_core.log_config import setup_logging
 from dcc_mcp_core.log_config import setup_rpyc_logging
 from dcc_mcp_core.models import ActionResultModel
+from dcc_mcp_core.models import SkillMetadata
 from dcc_mcp_core.utils import pydantic_extensions
 from dcc_mcp_core.utils.dependency_injector import inject_dependencies
 from dcc_mcp_core.utils.module_loader import convert_path_to_module
@@ -29,6 +30,8 @@ from dcc_mcp_core.utils.type_wrappers import unwrap_value
 __all__ = [
     # Action result models and factories
     "ActionResultModel",
+    # Skill system
+    "SkillMetadata",
     # Type wrappers
     "BaseWrapper",
     "BooleanWrapper",

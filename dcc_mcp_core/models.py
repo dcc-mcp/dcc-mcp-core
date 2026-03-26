@@ -7,6 +7,7 @@ All other models have been moved to the new Action system.
 # Import built-in modules
 from typing import Any
 from typing import Dict
+from typing import List
 from typing import Optional
 
 # Import third-party modules
@@ -123,3 +124,20 @@ class ActionResultModel(BaseModel):
             ]
         }
     )
+
+
+class SkillMetadata(BaseModel):
+    """Metadata parsed from a SKILL.md frontmatter.
+
+    This model represents the metadata of an OpenClaw-compatible Skill,
+    extracted from the YAML frontmatter of a SKILL.md file.
+    """
+
+    name: str = Field(description="Skill name (unique identifier)")
+    description: str = Field(default="", description="Human-readable skill description")
+    tools: List[str] = Field(default_factory=list, description="Required tool permissions (OpenClaw format)")
+    dcc: str = Field(default="python", description="Target DCC application")
+    tags: List[str] = Field(default_factory=list, description="Tags for categorization and filtering")
+    scripts: List[str] = Field(default_factory=list, description="Discovered script file paths")
+    skill_path: str = Field(default="", description="Absolute path to the skill directory")
+    version: str = Field(default="1.0.0", description="Skill version")

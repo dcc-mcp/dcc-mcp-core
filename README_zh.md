@@ -102,6 +102,11 @@ DCC-MCP-Core 组织为几个子包：
 - **models**：MCP 生态系统的数据模型
   - `action_result.py`：动作的结构化结果模型
 
+- **skills**：Skills 技能包系统，零代码脚本注册
+  - `scanner.py`：SkillScanner 目录扫描，发现 SKILL.md 文件
+  - `loader.py`：SKILL.md 解析器和脚本枚举
+  - `script_action.py`：ScriptAction 工厂，动态生成 Action 子类
+
 - **utils**：实用函数和辅助工具
   - `module_loader.py`：模块加载工具
   - `filesystem.py`：文件系统操作
@@ -231,6 +236,84 @@ else:
 - 用于动作通信的事件系统
 - 异步动作执行
 - 全面的错误处理
+- **Skills 技能包系统**：零代码将脚本（MEL、MaxScript、BAT、Shell、Python）注册为 MCP 工具
+- **兼容 OpenClaw**：直接复用 OpenClaw Skills 生态格式（SKILL.md + scripts/）
+
+## Skills 技能包系统
+
+Skills 系统允许你将任何脚本（Python、MEL、MaxScript、BAT、Shell 等）零代码注册为 MCP 可发现的工具。直接复用 [OpenClaw Skills](https://docs.openclaw.ai/tools) 生态格式。
+
+### 快速上手
+
+1. **创建 Skill 目录**，包含 `SKILL.md` 和 `scripts/` 文件夹：
+
+```
+maya-geometry/
+├── SKILL.md
+└── scripts/
+    ├── create_sphere.py
+    ├── batch_rename.mel
+    └── export_fbx.bat
+```
+
+2. **编写 SKILL.md**（标准 OpenClaw 格式）：
+
+```yaml
+---
+name: maya-geometry
+description: "Maya 几何体创建和修改工具"
+tools: ["Bash", "Read"]
+tags: ["maya", "geometry"]
+---
+# Maya Geometry Skill
+
+使用这些工具在 Maya 中创建和修改几何体。
+```
+
+3. **设置环境变量**指向 Skills 目录：
+
+```bash
+# Linux/macOS
+export DCC_MCP_SKILL_PATHS="/path/to/my-skills"
+
+# Windows
+set DCC_MCP_SKILL_PATHS=C:\path\to\my-skills
+
+# 多路径（使用平台路径分隔符）
+export DCC_MCP_SKILL_PATHS="/path/skills1:/path/skills2"
+```
+
+4. **完成！** 脚本自动被发现并注册为 MCP 工具：
+
+```python
+from dcc_mcp_core import create_action_manager
+
+manager = create_action_manager("maya")
+# DCC_MCP_SKILL_PATHS 中的 Skills 自动加载
+
+# 调用 Skill Action
+result = manager.call_action("maya_geometry__create_sphere", radius=2.0)
+```
+
+### 支持的脚本类型
+
+| 扩展名 | 类型 | 执行方式 |
+|--------|------|---------|
+| `.py` | Python | 通过系统 Python `subprocess` 执行 |
+| `.mel` | MEL (Maya) | 通过 context 中的 DCC 适配器执行 |
+| `.ms` | MaxScript | 通过 context 中的 DCC 适配器执行 |
+| `.bat`, `.cmd` | Batch | `cmd /c` |
+| `.sh`, `.bash` | Shell | `bash` |
+| `.ps1` | PowerShell | `powershell -File` |
+| `.js`, `.jsx` | JavaScript | `node` |
+
+### 工作原理
+
+1. **SkillScanner** 扫描目录寻找 `SKILL.md` 文件
+2. **SkillLoader** 解析 YAML frontmatter 并枚举 `scripts/` 目录
+3. **ScriptAction 工厂** 为每个脚本动态生成 Action 子类
+4. Action 注册到现有的 **ActionRegistry**
+5. MCP Server 层可通过 **EventBus** 订阅 `skill.loaded` 事件
 
 ## 安装
 

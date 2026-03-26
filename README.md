@@ -328,6 +328,11 @@ DCC-MCP-Core is organized into several subpackages:
 - **models**: Data models for the MCP ecosystem
   - `models.py`: Structured result model and other data models
 
+- **skills**: Skills system for zero-code script registration
+  - `scanner.py`: SkillScanner for discovering SKILL.md files
+  - `loader.py`: SKILL.md parser and script enumerator
+  - `script_action.py`: ScriptAction factory for dynamic Action generation
+
 - **utils**: Utility functions and helpers
   - `module_loader.py`: Module loading utilities
   - `filesystem.py`: File system operations
@@ -346,6 +351,84 @@ DCC-MCP-Core is organized into several subpackages:
 - Event system for action communication
 - Asynchronous action execution
 - Comprehensive error handling
+- **Skills system**: Zero-code registration of scripts (MEL, MaxScript, BAT, Shell, Python) as MCP tools
+- **OpenClaw compatible**: Direct reuse of the OpenClaw Skills ecosystem format (SKILL.md + scripts/)
+
+## Skills System
+
+The Skills system allows you to register any script (Python, MEL, MaxScript, BAT, Shell, etc.) as an MCP-discoverable tool with zero Python code. It directly reuses the [OpenClaw Skills](https://docs.openclaw.ai/tools) ecosystem format.
+
+### Quick Start
+
+1. **Create a Skill directory** with a `SKILL.md` and `scripts/` folder:
+
+```
+maya-geometry/
+├── SKILL.md
+└── scripts/
+    ├── create_sphere.py
+    ├── batch_rename.mel
+    └── export_fbx.bat
+```
+
+2. **Write the SKILL.md** (standard OpenClaw format):
+
+```yaml
+---
+name: maya-geometry
+description: "Maya geometry creation and modification tools"
+tools: ["Bash", "Read"]
+tags: ["maya", "geometry"]
+---
+# Maya Geometry Skill
+
+Use these tools to create and modify geometry in Maya.
+```
+
+3. **Set the environment variable** to point to your skills directory:
+
+```bash
+# Linux/macOS
+export DCC_MCP_SKILL_PATHS="/path/to/my-skills"
+
+# Windows
+set DCC_MCP_SKILL_PATHS=C:\path\to\my-skills
+
+# Multiple paths (use platform path separator)
+export DCC_MCP_SKILL_PATHS="/path/skills1:/path/skills2"
+```
+
+4. **Done!** Scripts are auto-discovered and registered as MCP tools:
+
+```python
+from dcc_mcp_core import create_action_manager
+
+manager = create_action_manager("maya")
+# Skills from DCC_MCP_SKILL_PATHS are automatically loaded
+
+# Call a skill action
+result = manager.call_action("maya_geometry__create_sphere", radius=2.0)
+```
+
+### Supported Script Types
+
+| Extension | Type | Execution |
+|-----------|------|-----------|
+| `.py` | Python | `subprocess` with system Python |
+| `.mel` | MEL (Maya) | Via DCC adapter in context |
+| `.ms` | MaxScript | Via DCC adapter in context |
+| `.bat`, `.cmd` | Batch | `cmd /c` |
+| `.sh`, `.bash` | Shell | `bash` |
+| `.ps1` | PowerShell | `powershell -File` |
+| `.js`, `.jsx` | JavaScript | `node` |
+
+### How It Works
+
+1. **SkillScanner** scans directories for `SKILL.md` files
+2. **SkillLoader** parses the YAML frontmatter and enumerates `scripts/`
+3. **ScriptAction factory** generates Action subclasses for each script
+4. Actions are registered in the existing **ActionRegistry**
+5. MCP Server layer can subscribe to `skill.loaded` events via **EventBus**
 
 ## Installation
 

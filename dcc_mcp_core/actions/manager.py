@@ -643,12 +643,14 @@ def create_action_manager(
     context: Optional[Dict[str, Any]] = None,
     load_env_paths: bool = True,
     registry: Optional[ActionRegistry] = None,
+    load_skill_paths: bool = True,
+    extra_skill_paths: Optional[List[str]] = None,
 ) -> ActionManager:
     """Create an action manager for a specific DCC.
 
     This function creates a new ActionManager instance for the specified DCC.
     It also sets up auto-refresh and loads action paths from environment variables
-    if requested.
+    if requested. Optionally loads Skills from DCC_MCP_SKILL_PATHS.
 
     Args:
         dcc_name: Name of the DCC to create an action manager for
@@ -658,6 +660,8 @@ def create_action_manager(
         context: Optional dictionary of context data to inject into action modules
         load_env_paths: Whether to load action paths from environment variables
         registry: Optional ActionRegistry instance to use (creates a new one if not provided)
+        load_skill_paths: Whether to scan and load Skills from DCC_MCP_SKILL_PATHS
+        extra_skill_paths: Additional skill search paths to scan
 
     Returns:
         ActionManager: A new action manager instance for the specified DCC
@@ -689,6 +693,13 @@ def create_action_manager(
                     logger.debug(f"Loading actions from environment path: {path}")
                     manager.discover_actions_from_path(path)
 
+    # Load skills from environment variable and extra paths
+    if load_skill_paths:
+        try:
+            _load_skills_for_manager(manager, dcc_name, extra_skill_paths)
+        except Exception as e:
+            logger.warning(f"Error loading skills for '{name}' manager: {e}")
+
     return manager
 
 
@@ -701,6 +712,8 @@ def get_action_manager(
     load_env_paths: bool = True,
     registry: Optional[ActionRegistry] = None,
     force_new: bool = False,
+    load_skill_paths: bool = True,
+    extra_skill_paths: Optional[List[str]] = None,
 ) -> ActionManager:
     """Get an action manager for a specific DCC.
 
@@ -721,6 +734,8 @@ def get_action_manager(
         load_env_paths: Whether to load action paths from environment variables
         registry: Optional ActionRegistry instance to use (creates a new one if not provided)
         force_new: If True, always creates a new instance even if one exists in the cache
+        load_skill_paths: Whether to scan and load Skills from DCC_MCP_SKILL_PATHS
+        extra_skill_paths: Additional skill search paths to scan
 
     Returns:
         ActionManager: An action manager instance for the specified DCC
@@ -753,6 +768,8 @@ def get_action_manager(
             context=context,
             load_env_paths=load_env_paths,
             registry=registry,
+            load_skill_paths=load_skill_paths,
+            extra_skill_paths=extra_skill_paths,
         )
 
         # Add new instance to cache (unless force_new is True)
@@ -761,6 +778,49 @@ def get_action_manager(
             logger.info(f"Cached ActionManager '{name}' for DCC '{dcc_name}'...")
 
         return manager
+
+
+def _load_skills_for_manager(
+    manager: ActionManager,
+    dcc_name: str,
+    extra_skill_paths: Optional[List[str]] = None,
+) -> None:
+    """Load skills into an ActionManager from environment and extra paths.
+
+    Args:
+        manager: The ActionManager instance to load skills into.
+        dcc_name: DCC name for DCC-specific skill directories.
+        extra_skill_paths: Additional skill search paths.
+
+    """
+    from dcc_mcp_core.skills.loader import load_skill
+    from dcc_mcp_core.skills.scanner import SkillScanner
+
+    scanner = SkillScanner()
+    skill_dirs = scanner.scan(extra_paths=extra_skill_paths, dcc_name=dcc_name)
+
+    total_actions = 0
+    for skill_dir in skill_dirs:
+        try:
+            registered = load_skill(skill_dir, registry=manager.registry, dcc_name=dcc_name)
+            total_actions += len(registered)
+
+            # Publish skill loaded event
+            if registered:
+                manager.event_bus.publish(
+                    "skill.loaded",
+                    {
+                        "manager": manager,
+                        "skill_dir": skill_dir,
+                        "action_count": len(registered),
+                        "actions": [a.name for a in registered],
+                    },
+                )
+        except Exception as e:
+            logger.warning(f"Error loading skill from {skill_dir}: {e}")
+
+    if total_actions > 0:
+        logger.info(f"Loaded {total_actions} skill action(s) from {len(skill_dirs)} skill(s) for '{dcc_name}'")
 
 
 # Helper functions for preparing actions and handling results
