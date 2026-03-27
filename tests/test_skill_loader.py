@@ -1,12 +1,14 @@
 """Tests for Skill loader (parse_skill_md and load_skill)."""
+# Import built-in modules
 import os
 
+# Import third-party modules
 import pytest
 
+# Import local modules
 from dcc_mcp_core.actions.registry import ActionRegistry
 from dcc_mcp_core.skills.loader import load_skill
 from dcc_mcp_core.skills.loader import parse_skill_md
-
 
 EXAMPLE_SKILLS_DIR = os.path.join(os.path.dirname(__file__), "example_skills", "test_skill")
 

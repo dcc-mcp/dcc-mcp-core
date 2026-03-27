@@ -793,6 +793,7 @@ def _load_skills_for_manager(
         extra_skill_paths: Additional skill search paths.
 
     """
+    # Import local modules
     from dcc_mcp_core.skills.loader import load_skill
     from dcc_mcp_core.skills.scanner import SkillScanner
 

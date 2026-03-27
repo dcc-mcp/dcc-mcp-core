@@ -1,5 +1,7 @@
 """A simple test script for Skill system testing."""
+# Import built-in modules
 import sys
+
 
 def main():
     args = sys.argv[1:]

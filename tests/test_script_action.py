@@ -1,16 +1,18 @@
 """Tests for ScriptAction factory."""
+# Import built-in modules
 import os
 import sys
 
+# Import third-party modules
 import pytest
 
+# Import local modules
 from dcc_mcp_core.actions.base import Action
 from dcc_mcp_core.actions.registry import ActionRegistry
 from dcc_mcp_core.models import SkillMetadata
-from dcc_mcp_core.skills.script_action import create_script_action
-from dcc_mcp_core.skills.script_action import _make_action_name
 from dcc_mcp_core.skills.script_action import _get_script_type
-
+from dcc_mcp_core.skills.script_action import _make_action_name
+from dcc_mcp_core.skills.script_action import create_script_action
 
 EXAMPLE_SCRIPT = os.path.join(
     os.path.dirname(__file__), "example_skills", "test_skill", "scripts", "hello.py"

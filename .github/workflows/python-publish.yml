@@ -14,37 +14,26 @@ jobs:
       contents: write
 
     steps:
-    - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+    - uses: actions/checkout@v4
       with:
         token: "${{ secrets.GITHUB_TOKEN }}"
         fetch-depth: 0
         ref: main
+
     - uses: olegtarasov/get-tag@v2.1.4
       id: get_tag_name
       with:
         tagRegex: "v(?<version>.*)"
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.10'
 
-    #
-    - name: Cache Poetry dependencies
-      uses: actions/cache@v4
+    - name: Setup vx
+      uses: loonghao/vx@main
       with:
-        path: ~/.cache/pypoetry
-        key: ${{ runner.os }}-poetry-${{ hashFiles('**/poetry.lock') }}
-        restore-keys: |
-          ${{ runner.os }}-poetry-
+        github-token: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Install dependencies
+    - name: Install and build
       run: |
-        python -m pip install --upgrade pip
-        # 安装 uv
-        python -m pip install uv
-        uvx poetry lock
-        uvx poetry install
-        uvx poetry build
+        vx uv sync
+        vx uv build
 
     # Note that we don't need credentials.
     # We rely on https://docs.pypi.org/trusted-publishers/.

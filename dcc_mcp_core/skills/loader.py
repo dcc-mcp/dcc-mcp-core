@@ -49,6 +49,7 @@ def _try_yaml_parse(frontmatter_text: str) -> Optional[Dict[str, Any]]:
 
     """
     try:
+        # Import third-party modules
         import yaml  # type: ignore[import-untyped]
         return yaml.safe_load(frontmatter_text)
     except ImportError:

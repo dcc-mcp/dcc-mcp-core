@@ -1,9 +1,12 @@
 """Tests for SkillScanner."""
+# Import built-in modules
 import os
 import tempfile
 
+# Import third-party modules
 import pytest
 
+# Import local modules
 from dcc_mcp_core.skills.scanner import SkillScanner
 from dcc_mcp_core.skills.scanner import scan_skill_paths
 
