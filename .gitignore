@@ -37,3 +37,16 @@ dist/
 .Python
 *PRD.md
 *.isorted
+
+# AI IDE directories
+.agents/
+.claude/
+.cline/
+.codebuddy/
+.cursor/
+.kiro/
+.opencode/
+.roo/
+.trae/
+.windsurf/
+CODEBUDDY.md

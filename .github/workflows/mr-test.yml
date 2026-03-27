@@ -29,6 +29,10 @@ jobs:
         run: |
           vx uv sync --python ${{ matrix.python-version }}
 
+      - name: Pre-commit (prek)
+        run: |
+          vx prek --all-files
+
       - name: Lint
         run: |
           vx uvx nox -s lint

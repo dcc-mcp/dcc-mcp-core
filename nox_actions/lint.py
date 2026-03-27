@@ -9,7 +9,7 @@ def lint(session: nox.Session) -> None:
 
 
 def lint_fix(session: nox.Session) -> None:
-    session.install("isort", "ruff", "pre-commit", "autoflake")
+    session.install("isort", "ruff", "autoflake")
     session.run("ruff", "format", "dcc_mcp_core", "tests", "nox_actions")
     session.run("ruff", "check", "--fix", "--unsafe-fixes", success_codes=[0, 1])
     session.run("isort", "dcc_mcp_core", "tests", "nox_actions")

@@ -1,0 +1,18 @@
+[tools]
+python = "3.12"
+just = "latest"
+
+[settings]
+# Automatically install missing tools when entering dev environment
+auto_install = true
+# Cache duration for version checks
+cache_duration = "7d"
+
+[scripts]
+lint = "uvx nox -s lint"
+lint-fix = "uvx nox -s lint-fix"
+nox = "uvx nox"
+test = "uvx nox -s pytest"
+prek = "prek"
+prek-install = "prek install"
+prek-all = "prek --all-files"

@@ -342,21 +342,28 @@ source venv/bin/activate  # Windows 系统: venv\Scripts\activate
 pip install -e .
 pip install pytest pytest-cov pytest-mock pyfakefs
 
-# 安装开发工具
-pip install uvx nox ruff isort pre-commit
+# 安装开发工具（推荐使用 vx）
+# 请参阅 https://github.com/loonghao/vx 安装 vx
+vx just install  # 通过 vx 安装项目依赖
 ```
 
 ## 运行测试
 
 ```bash
 # 运行测试并生成覆盖率报告
-uvx nox -s pytest
+vx just test
 
 # 运行特定测试
-uvx nox -s pytest -- tests/test_action_manager.py -v
+vx uvx nox -s pytest -- tests/test_action_manager.py -v
 
 # 运行代码风格检查
-uvx nox -s lint-fix
+vx just lint
+
+# 运行代码风格检查并自动修复
+vx just lint-fix
+
+# 运行 pre-commit 检查
+vx just prek-all
 ```
 
 ## 示例使用

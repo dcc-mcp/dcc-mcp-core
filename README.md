@@ -457,21 +457,28 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -e .
 pip install pytest pytest-cov pytest-mock pyfakefs
 
-# Install development tools
-pip install uvx nox ruff isort pre-commit
+# Install development tools (recommended: use vx)
+# See https://github.com/loonghao/vx for vx installation
+vx just install  # Install project dependencies via vx
 ```
 
 ## Running Tests
 
 ```bash
 # Run tests with coverage
-uvx nox -s pytest
+vx just test
 
 # Run specific tests
-uvx nox -s pytest -- tests/test_action_manager.py -v
+vx uvx nox -s pytest -- tests/test_action_manager.py -v
 
 # Run linting checks
-uvx nox -s lint-fix
+vx just lint
+
+# Run linting with auto-fix
+vx just lint-fix
+
+# Run pre-commit hooks
+vx just prek-all
 ```
 
 ## Example Usage
