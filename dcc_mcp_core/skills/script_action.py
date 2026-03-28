@@ -11,7 +11,6 @@ import os
 import subprocess
 import sys
 from typing import Any
-from typing import ClassVar
 from typing import Dict
 from typing import List
 from typing import Optional
@@ -24,10 +23,7 @@ from pydantic import Field
 from dcc_mcp_core.actions.base import Action
 from dcc_mcp_core.constants import DEFAULT_DCC
 from dcc_mcp_core.constants import SUPPORTED_SCRIPT_EXTENSIONS
-from dcc_mcp_core.models import ActionResultModel
 from dcc_mcp_core.models import SkillMetadata
-from dcc_mcp_core.utils.result_factory import error_result
-from dcc_mcp_core.utils.result_factory import success_result
 
 logger = logging.getLogger(__name__)
 
@@ -121,7 +117,7 @@ def create_script_action(
         # Class metadata
         "name": action_name,
         "description": description,
-        "tags": list(skill_metadata.tags) + [script_type, "skill", skill_name],
+        "tags": [*list(skill_metadata.tags), script_type, "skill", skill_name],
         "category": f"skill:{skill_name}",
         "dcc": dcc_name,
         "abstract": False,
@@ -171,19 +167,19 @@ def _make_execute_method(script_path: str, script_type: str):
 
         # Build command based on script type
         if script_type == "python":
-            cmd = [sys.executable, script_path] + args
+            cmd = [sys.executable, script_path, *args]
         elif script_type in ("shell", "bash"):
-            cmd = ["bash", script_path] + args
+            cmd = ["bash", script_path, *args]
         elif script_type == "batch":
-            cmd = ["cmd", "/c", script_path] + args
+            cmd = ["cmd", "/c", script_path, *args]
         elif script_type == "powershell":
-            cmd = ["powershell", "-ExecutionPolicy", "Bypass", "-File", script_path] + args
+            cmd = ["powershell", "-ExecutionPolicy", "Bypass", "-File", script_path, *args]
         elif script_type in ("mel", "maxscript"):
             # MEL/MaxScript need DCC adapter from context
             dcc_adapter = self.context.get("dcc_adapter")
             if dcc_adapter and hasattr(dcc_adapter, "execute"):
                 try:
-                    with open(script_path, "r", encoding="utf-8") as f:
+                    with open(script_path, encoding="utf-8") as f:
                         script_content = f.read()
                     result = dcc_adapter.execute(script_content, script_type=script_type)
                     self.output = self.OutputModel(
@@ -214,9 +210,9 @@ def _make_execute_method(script_path: str, script_type: str):
                 )
                 return
         elif script_type == "javascript":
-            cmd = ["node", script_path] + args
+            cmd = ["node", script_path, *args]
         else:
-            cmd = [script_path] + args
+            cmd = [script_path, *args]
 
         # Prepare environment
         env = os.environ.copy()

@@ -175,7 +175,7 @@ def scan_skill_paths(
     extra_paths: Optional[List[str]] = None,
     dcc_name: Optional[str] = None,
 ) -> List[str]:
-    """Convenience function to scan for skills using a fresh scanner.
+    """Scan for skills using a fresh scanner.
 
     Args:
         extra_paths: Additional paths to scan.

@@ -115,7 +115,7 @@ def parse_skill_md(skill_dir: str) -> Optional[SkillMetadata]:
         return None
 
     try:
-        with open(skill_md_path, "r", encoding="utf-8") as f:
+        with open(skill_md_path, encoding="utf-8") as f:
             content = f.read()
     except (OSError, UnicodeDecodeError) as e:
         logger.warning(f"Error reading {skill_md_path}: {e}")

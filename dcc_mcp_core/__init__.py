@@ -28,17 +28,13 @@ from dcc_mcp_core.utils.type_wrappers import unwrap_parameters
 from dcc_mcp_core.utils.type_wrappers import unwrap_value
 
 __all__ = [
-    # Action result models and factories
     "ActionResultModel",
-    # Skill system
-    "SkillMetadata",
-    # Type wrappers
     "BaseWrapper",
     "BooleanWrapper",
     "FloatWrapper",
     "IntWrapper",
+    "SkillMetadata",
     "StringWrapper",
-    # Core functionality
     "convert_path_to_module",
     "create_action_manager",
     "error_result",
