@@ -53,7 +53,7 @@ jobs:
   # ── Python 3.7 builds (non-abi3, separate wheel per platform) ──
 
   linux-py37:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/build-wheel
