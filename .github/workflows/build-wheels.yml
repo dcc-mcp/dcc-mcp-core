@@ -65,7 +65,7 @@ jobs:
           use-sccache: 'false'
 
   windows-py37:
-    runs-on: windows-2019
+    runs-on: windows-2025
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/build-wheel
