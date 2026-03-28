@@ -22,6 +22,9 @@ Cargo.lock
 # Documentation build folders.
 docs/_*
 docs/src/*
+docs/.vitepress/dist
+docs/.vitepress/cache
+docs/node_modules
 /venv/
 /run_pycharm.bat
 /.nox/
