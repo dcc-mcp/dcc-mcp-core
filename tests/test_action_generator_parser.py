@@ -69,12 +69,12 @@ def test_parse_functions_with_mixed_parameter_formats():
 def test_parse_functions_with_unusual_formatting():
     """Test parsing functions with unusual formatting and spacing."""
     description = """
-    Function:   render_scene    
+    Function:   render_scene
       This function renders the current scene with specified settings.
-      
+
     Parameter:   output_path    (str)   -    Path to save the rendered image
     Parameter:quality(int)-Render quality (1-100)
-    Parameter:   use_gpu    (bool)   
+    Parameter:   use_gpu    (bool)
     """
 
     result = _parse_functions_description(description)
@@ -102,9 +102,9 @@ def test_parse_functions_with_markdown_style():
     """Test parsing functions with markdown-style formatting."""
     description = """
     ## export_model
-    
+
     Exports the current model to various file formats.
-    
+
     * **file_path** (str): Path to save the exported file
     * **format** (str): Export format (obj, fbx, gltf)
     * **include_materials** (bool): Whether to include materials
@@ -171,7 +171,7 @@ def test_parse_functions_with_multiple_functions_no_numbering():
     Function: create_cube
     Creates a cube in the scene.
     Parameter: size (float) - Size of the cube
-    
+
     Function: create_cylinder
     Creates a cylinder in the scene.
     Parameter: radius (float) - Radius of the cylinder

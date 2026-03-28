@@ -51,7 +51,7 @@ flowchart LR
 <b>DCC 动作</b>
 )]:::actionsNode
     DCC[/<b>DCC 软件</b>/]:::dccNode
-    
+
     %% 连接和流程
     AI -->|<b>1. 发送请求</b>| MCP
     MCP -->|<b>2. 转发请求</b>| DCCMCP
@@ -63,7 +63,7 @@ flowchart LR
     DCC -->|<b>8. 操作结果</b>| DCCMCP
     DCCMCP -->|<b>9. 结构化结果</b>| MCP
     MCP -->|<b>10. 返回结果</b>| AI
-    
+
     %% 样式设置
     classDef aiNode fill:#f9d,stroke:#f06,stroke-width:3px,color:#333,padding:15px,margin:10px
     classDef serverNode fill:#bbf,stroke:#66f,stroke-width:3px,color:#333,padding:15px,margin:10px
@@ -158,17 +158,17 @@ class CustomMiddleware(Middleware):
     def process(self, action: Action, **kwargs) -> ActionResultModel:
         # 预处理逻辑
         print(f"执行 {action.name} 之前")
-        
+
         # 调用链中的下一个中间件（或动作本身）
         result = super().process(action, **kwargs)
-        
+
         # 后处理逻辑
         print(f"执行 {action.name} 之后：{'成功' if result.success else '失败'}")
-        
+
         # 您可以根据需要修改结果
         if result.success:
             result.context["custom_data"] = "由中间件添加"
-            
+
         return result
 ```
 

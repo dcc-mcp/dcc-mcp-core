@@ -51,7 +51,7 @@ flowchart LR
 <b>DCC Actions</b>
 )]:::actionsNode
     DCC[/<b>DCC Software</b>/]:::dccNode
-    
+
     %% Connections and workflow
     AI -->|<b>1. Send Request</b>| MCP
     MCP -->|<b>2. Forward Request</b>| DCCMCP
@@ -63,7 +63,7 @@ flowchart LR
     DCC -->|<b>8. Operation Result</b>| DCCMCP
     DCCMCP -->|<b>9. Structured Result</b>| MCP
     MCP -->|<b>10. Return Result</b>| AI
-    
+
     %% Style definitions
     classDef aiNode fill:#f9d,stroke:#f06,stroke-width:3px,color:#333,padding:15px,margin:10px
     classDef serverNode fill:#bbf,stroke:#66f,stroke-width:3px,color:#333,padding:15px,margin:10px
@@ -105,7 +105,7 @@ class CreateSphereAction(Action):
             if v <= 0:
                 raise ValueError("Radius must be positive")
             return v
-            
+
         # Model-level validation example
         @model_validator(mode='after')
         def validate_model(self):
@@ -140,7 +140,7 @@ class CreateSphereAction(Action):
             position=position,
             prompt="You can now modify the sphere's attributes or add materials"
         )
-        
+
     # Optional: Override async execution for native async support
     async def _execute_async(self) -> None:
         # By default, this runs _execute in a thread pool
@@ -298,17 +298,17 @@ class CustomMiddleware(Middleware):
     def process(self, action: Action, **kwargs) -> ActionResultModel:
         # Pre-processing logic
         print(f"Before executing {action.name}")
-        
+
         # Call the next middleware in the chain (or the action itself)
         result = super().process(action, **kwargs)
-        
+
         # Post-processing logic
         print(f"After executing {action.name}: {'Success' if result.success else 'Failed'}")
-        
+
         # You can modify the result if needed
         if result.success:
             result.context["custom_data"] = "Added by middleware"
-            
+
         return result
 ```
 

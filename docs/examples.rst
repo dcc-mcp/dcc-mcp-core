@@ -14,7 +14,7 @@ ActionResultModel 是一个结构化的返回值模型，用于提供函数执�
 .. code-block:: python
 
     from dcc_mcp_core.models import ActionResultModel
-    
+
     # 创建一个表示成功的结果
     result = ActionResultModel(
         success=True,
@@ -25,7 +25,7 @@ ActionResultModel 是一个结构化的返回值模型，用于提供函数执�
             "total_count": 3
         }
     )
-    
+
     # 创建一个表示失败的结果
     result = ActionResultModel(
         success=False,
@@ -54,7 +54,7 @@ ActionResultModel 是一个结构化的返回值模型，用于提供函数执�
 .. code-block:: python
 
     from dcc_mcp_core.utils.result_factory import success_result, error_result, from_exception
-    
+
     # 创建成功结果
     result = success_result(
         "操作成功完成",
@@ -62,7 +62,7 @@ ActionResultModel 是一个结构化的返回值模型，用于提供函数执�
         created_items=["item1", "item2"],
         total_count=2
     )
-    
+
     # 创建错误结果
     result = error_result(
         "操作失败",
@@ -75,7 +75,7 @@ ActionResultModel 是一个结构化的返回值模型，用于提供函数执�
         ],
         file_path="/path/to/file.txt"
     )
-    
+
     # 从异常创建结果
     try:
         # 可能引发异常的代码
@@ -95,13 +95,13 @@ ActionResultModel 是一个结构化的返回值模型，用于提供函数执�
 .. code-block:: python
 
     from dcc_mcp_core.utils.result_factory import validate_action_result
-    
+
     # 验证并确保结果是 ActionResultModel
     def process_data(data):
         # 处理数据的代码
         processed_data = {"key": "value"}
         return processed_data
-    
+
     result = process_data({"input": "test"})
     # 确保结果是 ActionResultModel
     validated_result = validate_action_result(result)
@@ -120,21 +120,21 @@ ActionResultModel 是一个结构化的返回值模型，用于提供函数执�
     from dcc_mcp_core.utils.type_wrappers import (
         BooleanWrapper, IntWrapper, FloatWrapper, StringWrapper
     )
-    
+
     # 包装布尔值
     bool_wrapper = BooleanWrapper(True)
     # 支持多种输入格式
     bool_wrapper = BooleanWrapper("true")  # 也是 True
     bool_wrapper = BooleanWrapper(1)      # 也是 True
-    
+
     # 包装整数
     int_wrapper = IntWrapper(42)
     int_wrapper = IntWrapper("42")  # 也是 42
-    
+
     # 包装浮点数
     float_wrapper = FloatWrapper(3.14)
     float_wrapper = FloatWrapper("3.14")  # 也是 3.14
-    
+
     # 包装字符串
     string_wrapper = StringWrapper("hello")
     string_wrapper = StringWrapper(42)  # 转换为 "42"
@@ -147,13 +147,13 @@ ActionResultModel 是一个结构化的返回值模型，用于提供函数执�
     from dcc_mcp_core.utils.type_wrappers import (
         wrap_value, wrap_boolean_parameters, unwrap_value, unwrap_parameters
     )
-    
+
     # 根据值类型自动选择合适的包装器
     wrapped_value = wrap_value(True)    # BooleanWrapper
     wrapped_value = wrap_value(42)      # IntWrapper
     wrapped_value = wrap_value(3.14)    # FloatWrapper
     wrapped_value = wrap_value("hello") # StringWrapper
-    
+
     # 包装字典中的布尔参数
     params = {
         "enabled": True,
@@ -164,10 +164,10 @@ ActionResultModel 是一个结构化的返回值模型，用于提供函数执�
     }
     wrapped_params = wrap_boolean_parameters(params)
     # 结果: {"enabled": BooleanWrapper(True), "count": 42, "nested": {"visible": BooleanWrapper(False)}}
-    
+
     # 解包单个值
     original_value = unwrap_value(wrapped_value)
-    
+
     # 解包字典中的所有包装值
     original_params = unwrap_parameters(wrapped_params)
     # 结果: {"enabled": True, "count": 42, "nested": {"visible": False}}
@@ -179,16 +179,16 @@ ActionResultModel 是一个结构化的返回值模型，用于提供函数执�
 
     from dcc_mcp_core.utils.type_wrappers import unwrap_parameters
     from dcc_mcp_core.utils.result_factory import success_result, from_exception
-    
+
     def create_spheres(count=1, radius=1.0, visible=True, **kwargs):
         """创建多个球体。
-        
+
         Args:
             count: 球体数量
             radius: 球体半径
             visible: 是否可见
             **kwargs: 其他参数
-            
+
         Returns:
             ActionResultModel 实例
         """
@@ -200,15 +200,15 @@ ActionResultModel 是一个结构化的返回值模型，用于提供函数执�
                 "visible": visible,
                 **kwargs
             })
-            
+
             # 使用解包后的参数
             count = params["count"]
             radius = params["radius"]
             visible = params["visible"]
-            
+
             # 创建球体的代码...
             created_spheres = [f"sphere{i+1}" for i in range(count)]
-            
+
             # 返回成功结果
             return success_result(
                 f"成功创建了{count}个球体",

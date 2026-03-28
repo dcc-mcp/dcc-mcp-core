@@ -214,7 +214,7 @@ class PathTestAction(Action):
     name = "path_test_action"
     description = "A test action from path"
     dcc = "test_dcc"
-    
+
     def _execute(self):
         pass
 """)

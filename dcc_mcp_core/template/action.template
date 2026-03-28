@@ -29,7 +29,7 @@ class {{ func.name|capitalize }}Action(Action):
     author: ClassVar[str] = "{{ author }}"
     order: ClassVar[int] = 0
     tags: ClassVar[List[str]] = ["{{ func.name }}"]
-    dcc: ClassVar[str] = "{{ dcc_name }}" 
+    dcc: ClassVar[str] = "{{ dcc_name }}"
 
     # Input parameters model
     class InputModel(Action.InputModel):
@@ -73,16 +73,16 @@ class {{ func.name|capitalize }}Action(Action):
         resources or dependencies needed for execution.
         """
         # Get DCC client in multiple ways
-        
+
         # 1. Directly from context
         self.dcc_client = self.context.get("{{ dcc_name }}_client")
-        
+
         # 2. Try from action_bridge
         if not self.dcc_client:
             action_bridge = self.context.get("action_bridge")
             if action_bridge:
                 self.dcc_client = getattr(action_bridge, "{{ dcc_name }}_client", None)
-        
+
         # 3. Log warning instead of directly raising an exception, add flexibility
         if not self.dcc_client:
             self.logger.warning("{{ dcc_name|capitalize }} client not found in context, some functionality may be limited")
