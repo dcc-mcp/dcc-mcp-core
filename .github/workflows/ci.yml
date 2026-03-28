@@ -42,37 +42,86 @@ jobs:
       - name: Preflight (check + clippy + fmt + test)
         run: just preflight
 
-  # ── Python lint + test ──
-  python-check:
-    name: Python (${{ matrix.os }}, ${{ matrix.python-version }})
+  # ── Build ABI3 wheel once per OS ──
+  build-wheel:
+    name: Build wheel (${{ matrix.os }})
     needs: [rust-check]
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ["3.11", "3.12", "3.13"]
+      fail-fast: false
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install just + maturin
+        run: |
+          pip install maturin
+        shell: bash
+
+      - name: Install just
+        uses: extractions/setup-just@v2
+
+      - name: Build wheel
+        run: just build
+
+      - name: Upload wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.os }}
+          path: target/wheels/*.whl
+
+  # ── Test wheel on multiple Python versions ──
+  python-test:
+    name: Test (${{ matrix.os }}, py${{ matrix.python-version }})
+    needs: [build-wheel]
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
       fail-fast: false
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
 
-      - uses: dtolnay/rust-toolchain@stable
-
-      - name: Setup Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+
+      - name: Download wheel
+        uses: actions/download-artifact@v4
+        with:
+          name: wheel-${{ matrix.os }}
+          path: dist/
+
+      - name: Install wheel + test deps
+        run: |
+          pip install dist/*.whl
+          pip install pytest pytest-cov
+        shell: bash
 
       - name: Install just
         uses: extractions/setup-just@v2
 
-      - name: Install dependencies
-        run: pip install maturin pytest pytest-cov pytest-mock pytest-asyncio pyfakefs ruff isort
-
-      - name: Build and install wheel
-        run: just install
-
       - name: Test
         run: just test
 
-      - name: Lint Python
+  # ── Lint Python source ──
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install just
+        uses: extractions/setup-just@v2
+      - name: Install linters
+        run: pip install ruff isort
+      - name: Lint
         run: just lint-py
