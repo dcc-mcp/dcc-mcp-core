@@ -1,4 +1,4 @@
-FROM rust:1.90-bookworm
+FROM rust:1.94-bookworm
 
 # Install Python 3.11 + pip
 RUN apt-get update && apt-get install -y --no-install-recommends \
