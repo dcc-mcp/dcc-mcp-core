@@ -4,15 +4,15 @@ import nox
 
 def lint(session: nox.Session) -> None:
     session.install("isort", "ruff")
-    session.run("isort", "--check-only", "dcc_mcp_core", "tests", "nox_actions")
-    session.run("ruff", "check", "dcc_mcp_core", "tests", "nox_actions")
+    session.run("isort", "--check-only", "python/dcc_mcp_core", "tests", "nox_actions")
+    session.run("ruff", "check", "python/dcc_mcp_core", "tests", "nox_actions")
 
 
 def lint_fix(session: nox.Session) -> None:
     session.install("isort", "ruff", "autoflake")
-    session.run("ruff", "format", "dcc_mcp_core", "tests", "nox_actions")
+    session.run("ruff", "format", "python/dcc_mcp_core", "tests", "nox_actions")
     session.run("ruff", "check", "--fix", "--unsafe-fixes", success_codes=[0, 1])
-    session.run("isort", "dcc_mcp_core", "tests", "nox_actions")
+    session.run("isort", "python/dcc_mcp_core", "tests", "nox_actions")
     session.run(
         "autoflake",
         "--in-place",
@@ -22,7 +22,7 @@ def lint_fix(session: nox.Session) -> None:
         "--expand-star-imports",
         "--exclude",
         "__init__.py",
-        "dcc_mcp_core",
+        "python/dcc_mcp_core",
         "tests",
         "nox_actions",
     )

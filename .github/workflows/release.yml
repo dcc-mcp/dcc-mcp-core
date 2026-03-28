@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     branches: [main]
-    tags: ['dcc-mcp-core-v*']
+    tags: ['v*']
   workflow_dispatch:
 
 concurrency:
@@ -40,7 +40,7 @@ jobs:
     if: |
       always() &&
       (needs.release-please.outputs.release_created == 'true' ||
-       startsWith(github.ref, 'refs/tags/dcc-mcp-core-v'))
+       startsWith(github.ref, 'refs/tags/v'))
     uses: ./.github/workflows/build-wheels.yml
     with:
       test-wheel: 'true'

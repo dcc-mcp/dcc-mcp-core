@@ -2,14 +2,17 @@
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
   "packages": {
     ".": {
-      "release-type": "python",
+      "release-type": "rust",
       "package-name": "dcc-mcp-core",
       "include-component-in-tag": false,
       "changelog-path": "CHANGELOG.md",
       "bump-minor-pre-major": true,
       "bump-patch-for-minor-pre-major": true,
       "extra-files": [
-        "pyproject.toml"
+        {
+          "type": "generic",
+          "path": "pyproject.toml"
+        }
       ]
     }
   }
