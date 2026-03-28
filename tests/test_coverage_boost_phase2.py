@@ -8,10 +8,10 @@ function_adapter (80%), log_config (85%), scanner (83%), loader (81%).
 import asyncio
 import logging
 import os
+from pathlib import Path
 import subprocess
 import sys
 import tempfile
-from pathlib import Path
 from types import ModuleType
 from typing import Any
 from typing import ClassVar
@@ -423,6 +423,7 @@ class TestLogConfigLoguru:
 
     def test_setup_loguru_logger_when_unavailable(self):
         """Test setup_loguru_logger falls back when loguru unavailable."""
+        # Import local modules
         from dcc_mcp_core.log_config import setup_loguru_logger
 
         with patch("dcc_mcp_core.log_config.LOGURU_AVAILABLE", False):
@@ -431,6 +432,7 @@ class TestLogConfigLoguru:
 
     def test_set_log_level_with_loguru_configured(self):
         """Test set_log_level updates loguru loggers."""
+        # Import local modules
         from dcc_mcp_core.log_config import _configured_loggers
         from dcc_mcp_core.log_config import set_log_level
 
@@ -448,6 +450,7 @@ class TestLogConfigLoguru:
 
     def test_get_logger_info_loguru_handlers(self):
         """Test get_logger_info with handlers that have baseFilename."""
+        # Import local modules
         from dcc_mcp_core.log_config import _configured_loggers
         from dcc_mcp_core.log_config import get_logger_info
 
@@ -664,6 +667,7 @@ class TestMiddlewareAsyncErrors:
     @pytest.mark.asyncio
     async def test_middleware_chain_async(self):
         """Test middleware chain async processing."""
+        # Import local modules
         from dcc_mcp_core.actions.middleware import MiddlewareChain
 
         chain = MiddlewareChain()
@@ -746,6 +750,7 @@ class TestFilesystemSkills:
 
     def test_get_skills_dir_with_dcc(self):
         """Test get_skills_dir with DCC name."""
+        # Import local modules
         from dcc_mcp_core.utils.filesystem import get_skills_dir
 
         with patch("dcc_mcp_core.utils.filesystem.get_data_dir", return_value="/test/data"):
@@ -755,6 +760,7 @@ class TestFilesystemSkills:
 
     def test_get_skills_dir_without_dcc(self):
         """Test get_skills_dir without DCC name."""
+        # Import local modules
         from dcc_mcp_core.utils.filesystem import get_skills_dir
 
         with patch("dcc_mcp_core.utils.filesystem.get_data_dir", return_value="/test/data"):
@@ -764,6 +770,7 @@ class TestFilesystemSkills:
 
     def test_get_skill_paths_from_env(self, tmp_path):
         """Test get_skill_paths_from_env with valid paths."""
+        # Import local modules
         from dcc_mcp_core.utils.filesystem import get_skill_paths_from_env
 
         with patch.dict(os.environ, {"DCC_MCP_SKILL_PATHS": str(tmp_path)}, clear=False):
@@ -772,6 +779,7 @@ class TestFilesystemSkills:
 
     def test_get_skill_paths_from_env_invalid(self):
         """Test get_skill_paths_from_env with invalid paths."""
+        # Import local modules
         from dcc_mcp_core.utils.filesystem import get_skill_paths_from_env
 
         with patch.dict(os.environ, {"DCC_MCP_SKILL_PATHS": "/nonexistent/path/xyz"}, clear=False):

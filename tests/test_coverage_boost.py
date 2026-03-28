@@ -7,9 +7,9 @@ This module targets uncovered lines across all modules on the main branch.
 import asyncio
 import logging
 import os
+from pathlib import Path
 import sys
 import tempfile
-from pathlib import Path
 from types import ModuleType
 from typing import Any
 from typing import ClassVar
@@ -59,10 +59,10 @@ from dcc_mcp_core.utils.result_factory import error_result
 from dcc_mcp_core.utils.result_factory import from_exception
 from dcc_mcp_core.utils.result_factory import success_result
 
-
 # ============================================================================
 # Test Action classes
 # ============================================================================
+
 
 class SimpleTestAction(Action):
     """Simple test action."""
@@ -237,6 +237,7 @@ class TestManagerCov:
 
     def test_get_action_manager_caching(self):
         """Test get_action_manager caching behavior."""
+        # Import local modules
         from dcc_mcp_core.actions.manager import _action_managers
         from dcc_mcp_core.actions.manager import _action_managers_lock
 
@@ -255,6 +256,7 @@ class TestManagerCov:
 
     def test_call_action_async_sync_wrapper(self):
         """Test call_action_async via asyncio.run."""
+        # Import built-in modules
         import asyncio
 
         manager = ActionManager("test", "test_dcc")
@@ -329,6 +331,7 @@ class TestManagerCov:
 
     def test_refresh_actions_skipped(self):
         """Test refresh_actions when refresh is not needed."""
+        # Import built-in modules
         import time
 
         manager = ActionManager("test", "test_dcc")
@@ -560,12 +563,14 @@ class TestLogConfigCov:
 
     def test_set_log_level_invalid(self):
         """Test set_log_level with invalid level."""
+        # Import local modules
         from dcc_mcp_core.log_config import set_log_level
 
         set_log_level("INVALID_LEVEL")
 
     def test_get_logger_cached(self):
         """Test get_logger returns cached logger."""
+        # Import local modules
         from dcc_mcp_core.log_config import get_logger
 
         logger1 = get_logger("cache_test_logger_x")
@@ -574,6 +579,7 @@ class TestLogConfigCov:
 
     def test_get_logger_with_dcc_type(self):
         """Test get_logger with DCC type."""
+        # Import local modules
         from dcc_mcp_core.log_config import get_logger
 
         logger = get_logger("dcc_test_logger_x", dcc_type="maya")
@@ -581,6 +587,7 @@ class TestLogConfigCov:
 
     def test_integrate_with_dcc_logger_none(self):
         """Test integrate_with_dcc_logger with None DCC logger."""
+        # Import local modules
         from dcc_mcp_core.log_config import integrate_with_dcc_logger
 
         result = integrate_with_dcc_logger(None, "test_x", "test_dcc_x")
@@ -588,6 +595,7 @@ class TestLogConfigCov:
 
     def test_get_logger_info_unconfigured(self):
         """Test get_logger_info for unconfigured logger."""
+        # Import local modules
         from dcc_mcp_core.log_config import get_logger_info
 
         info = get_logger_info("nonexistent_logger_xyz_abc")
@@ -689,9 +697,7 @@ class TestResultFactoryCov:
 
     def test_error_result_with_solutions(self):
         """Test error_result with possible_solutions."""
-        result = error_result(
-            "Failed", "err", possible_solutions=["Fix A", "Fix B"]
-        )
+        result = error_result("Failed", "err", possible_solutions=["Fix A", "Fix B"])
         assert "possible_solutions" in result.context
         assert len(result.context["possible_solutions"]) == 2
 
@@ -731,6 +737,7 @@ class TestPydanticExtCov:
 
     def test_apply_patches_with_auto_apply_false(self):
         """Test apply_patches with auto_apply=False."""
+        # Import local modules
         from dcc_mcp_core.utils.pydantic_extensions import apply_patches
 
         result = apply_patches(auto_apply=False)
@@ -738,6 +745,7 @@ class TestPydanticExtCov:
 
     def test_generate_uuid_schema_with_none(self):
         """Test generate_uuid_schema with None input."""
+        # Import local modules
         from dcc_mcp_core.utils.pydantic_extensions import generate_uuid_schema
 
         result = generate_uuid_schema(None)
@@ -755,6 +763,7 @@ class TestTemplateCov:
 
     def test_render_template_default_dir(self):
         """Test render_template with default template directory."""
+        # Import local modules
         from dcc_mcp_core.utils.filesystem import get_templates_directory
         from dcc_mcp_core.utils.template import render_template
 
@@ -778,6 +787,7 @@ class TestTemplateCov:
 
     def test_get_template_default_dir(self):
         """Test get_template with default template directory."""
+        # Import local modules
         from dcc_mcp_core.utils.filesystem import get_templates_directory
         from dcc_mcp_core.utils.template import get_template
 
