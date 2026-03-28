@@ -7,7 +7,6 @@ use pyo3::prelude::*;
 #[cfg_attr(feature = "python-bindings", pyclass(name = "BooleanWrapper"))]
 #[derive(Debug, Clone)]
 pub struct BooleanWrapper {
-    #[cfg_attr(feature = "python-bindings", pyo3(get))]
     pub value: bool,
 }
 
@@ -17,6 +16,10 @@ impl BooleanWrapper {
     #[new]
     fn new(value: bool) -> Self {
         Self { value }
+    }
+    #[getter]
+    fn get_value(&self) -> bool {
+        self.value
     }
     fn __bool__(&self) -> bool {
         self.value
@@ -36,7 +39,6 @@ impl BooleanWrapper {
 #[cfg_attr(feature = "python-bindings", pyclass(name = "IntWrapper"))]
 #[derive(Debug, Clone)]
 pub struct IntWrapper {
-    #[cfg_attr(feature = "python-bindings", pyo3(get))]
     pub value: i64,
 }
 
@@ -46,6 +48,10 @@ impl IntWrapper {
     #[new]
     fn new(value: i64) -> Self {
         Self { value }
+    }
+    #[getter]
+    fn get_value(&self) -> i64 {
+        self.value
     }
     fn __int__(&self) -> i64 {
         self.value
@@ -62,7 +68,6 @@ impl IntWrapper {
 #[cfg_attr(feature = "python-bindings", pyclass(name = "FloatWrapper"))]
 #[derive(Debug, Clone)]
 pub struct FloatWrapper {
-    #[cfg_attr(feature = "python-bindings", pyo3(get))]
     pub value: f64,
 }
 
@@ -72,6 +77,10 @@ impl FloatWrapper {
     #[new]
     fn new(value: f64) -> Self {
         Self { value }
+    }
+    #[getter]
+    fn get_value(&self) -> f64 {
+        self.value
     }
     fn __float__(&self) -> f64 {
         self.value
@@ -85,7 +94,6 @@ impl FloatWrapper {
 #[cfg_attr(feature = "python-bindings", pyclass(name = "StringWrapper"))]
 #[derive(Debug, Clone)]
 pub struct StringWrapper {
-    #[cfg_attr(feature = "python-bindings", pyo3(get))]
     pub value: String,
 }
 
@@ -95,6 +103,10 @@ impl StringWrapper {
     #[new]
     fn new(value: String) -> Self {
         Self { value }
+    }
+    #[getter]
+    fn get_value(&self) -> &str {
+        &self.value
     }
     fn __str__(&self) -> &str {
         &self.value
@@ -109,19 +121,19 @@ impl StringWrapper {
 #[cfg(feature = "python-bindings")]
 #[pyfunction]
 #[pyo3(name = "unwrap_value")]
-pub fn py_unwrap_value(value: &Bound<'_, PyAny>) -> PyResult<PyObject> {
-    let py = value.py();
+pub fn py_unwrap_value(py: Python, value: &Bound<'_, PyAny>) -> PyResult<PyObject> {
     if let Ok(w) = value.extract::<BooleanWrapper>() {
-        return Ok(w.value.into_pyobject(py)?.into_any().unbind());
+        let obj = pyo3::types::PyBool::new(py, w.value);
+        return Ok(obj.to_owned().into_any().unbind());
     }
     if let Ok(w) = value.extract::<IntWrapper>() {
-        return Ok(w.value.into_pyobject(py)?.into_any().unbind());
+        return Ok(w.value.into_pyobject(py)?.clone().into_any().unbind());
     }
     if let Ok(w) = value.extract::<FloatWrapper>() {
-        return Ok(w.value.into_pyobject(py)?.into_any().unbind());
+        return Ok(w.value.into_pyobject(py)?.clone().into_any().unbind());
     }
     if let Ok(w) = value.extract::<StringWrapper>() {
-        return Ok(w.value.into_pyobject(py)?.into_any().unbind());
+        return Ok(w.value.into_pyobject(py)?.clone().into_any().unbind());
     }
     Ok(value.clone().unbind())
 }
@@ -135,7 +147,7 @@ pub fn py_unwrap_parameters(
 ) -> PyResult<PyObject> {
     let result = pyo3::types::PyDict::new(py);
     for (k, v) in params.iter() {
-        let unwrapped = py_unwrap_value(&v)?;
+        let unwrapped = py_unwrap_value(py, &v)?;
         result.set_item(k, unwrapped)?;
     }
     Ok(result.into())

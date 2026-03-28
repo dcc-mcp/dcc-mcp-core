@@ -376,12 +376,15 @@ fn py_any_to_json(obj: &Bound<'_, PyAny>) -> PyResult<serde_json::Value> {
 fn json_value_to_py<'py>(py: Python<'py>, val: &serde_json::Value) -> PyResult<Bound<'py, PyAny>> {
     match val {
         serde_json::Value::Null => Ok(py.None().into_bound(py)),
-        serde_json::Value::Bool(b) => Ok(b.into_pyobject(py)?.into_any()),
+        serde_json::Value::Bool(b) => {
+            let obj = pyo3::types::PyBool::new(py, *b);
+            Ok(obj.to_owned().into_any())
+        }
         serde_json::Value::Number(n) => {
             if let Some(i) = n.as_i64() {
-                Ok(i.into_pyobject(py)?.into_any())
+                Ok(i.into_pyobject(py)?.clone().into_any())
             } else if let Some(f) = n.as_f64() {
-                Ok(f.into_pyobject(py)?.into_any())
+                Ok(f.into_pyobject(py)?.clone().into_any())
             } else {
                 Ok(py.None().into_bound(py))
             }

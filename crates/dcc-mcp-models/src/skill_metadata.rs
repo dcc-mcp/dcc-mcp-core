@@ -9,34 +9,26 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "python-bindings", pyclass(name = "SkillMetadata"))]
 pub struct SkillMetadata {
-    #[cfg_attr(feature = "python-bindings", pyo3(get, set))]
     pub name: String,
 
-    #[cfg_attr(feature = "python-bindings", pyo3(get, set))]
     #[serde(default)]
     pub description: String,
 
-    #[cfg_attr(feature = "python-bindings", pyo3(get, set))]
     #[serde(default)]
     pub tools: Vec<String>,
 
-    #[cfg_attr(feature = "python-bindings", pyo3(get, set))]
     #[serde(default = "default_dcc")]
     pub dcc: String,
 
-    #[cfg_attr(feature = "python-bindings", pyo3(get, set))]
     #[serde(default)]
     pub tags: Vec<String>,
 
-    #[cfg_attr(feature = "python-bindings", pyo3(get, set))]
     #[serde(default)]
     pub scripts: Vec<String>,
 
-    #[cfg_attr(feature = "python-bindings", pyo3(get, set))]
     #[serde(default)]
     pub skill_path: String,
 
-    #[cfg_attr(feature = "python-bindings", pyo3(get, set))]
     #[serde(default = "default_version")]
     pub version: String,
 }
@@ -74,6 +66,71 @@ impl SkillMetadata {
             skill_path,
             version,
         }
+    }
+
+    #[getter]
+    fn get_name(&self) -> &str {
+        &self.name
+    }
+    #[setter]
+    fn set_name(&mut self, v: String) {
+        self.name = v;
+    }
+    #[getter]
+    fn get_description(&self) -> &str {
+        &self.description
+    }
+    #[setter]
+    fn set_description(&mut self, v: String) {
+        self.description = v;
+    }
+    #[getter]
+    fn get_tools(&self) -> Vec<String> {
+        self.tools.clone()
+    }
+    #[setter]
+    fn set_tools(&mut self, v: Vec<String>) {
+        self.tools = v;
+    }
+    #[getter]
+    fn get_dcc(&self) -> &str {
+        &self.dcc
+    }
+    #[setter]
+    fn set_dcc(&mut self, v: String) {
+        self.dcc = v;
+    }
+    #[getter]
+    fn get_tags(&self) -> Vec<String> {
+        self.tags.clone()
+    }
+    #[setter]
+    fn set_tags(&mut self, v: Vec<String>) {
+        self.tags = v;
+    }
+    #[getter]
+    fn get_scripts(&self) -> Vec<String> {
+        self.scripts.clone()
+    }
+    #[setter]
+    fn set_scripts(&mut self, v: Vec<String>) {
+        self.scripts = v;
+    }
+    #[getter]
+    fn get_skill_path(&self) -> &str {
+        &self.skill_path
+    }
+    #[setter]
+    fn set_skill_path(&mut self, v: String) {
+        self.skill_path = v;
+    }
+    #[getter]
+    fn get_version(&self) -> &str {
+        &self.version
+    }
+    #[setter]
+    fn set_version(&mut self, v: String) {
+        self.version = v;
     }
 
     fn __repr__(&self) -> String {
