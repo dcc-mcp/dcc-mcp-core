@@ -47,14 +47,6 @@ pyfakefs = "^5.8.0"
 pytest = "^7.0.0"
 pytest-cov = "^4.0.0"
 
-[tool.commitizen]
-name = "cz_conventional_commits"
-version = "0.10.0"
-tag_format = "v$version"
-version_files = [
-    "pyproject.toml:version",
-]
-
 [tool.mypy]
 python_version = "3.7"
 strict = true

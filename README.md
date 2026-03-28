@@ -583,9 +583,75 @@ class CreateSphereAction(Action):
             raise Exception(f"Failed to create sphere: {str(e)}") from e
 ```
 
+## Release Process
+
+This project uses [Release Please](https://github.com/googleapis/release-please) to automate versioning and releases. The workflow is:
+
+1. **Develop**: Create a branch from `main`, make changes using [Conventional Commits](https://www.conventionalcommits.org/)
+2. **Merge**: Open a PR and merge to `main`
+3. **Release PR**: Release Please automatically creates/updates a release PR that bumps the version and updates `CHANGELOG.md`
+4. **Publish**: When the release PR is merged, a GitHub Release is created and the package is published to PyPI
+
+### Commit Message Format
+
+This project follows [Conventional Commits](https://www.conventionalcommits.org/):
+
+| Prefix | Description | Version Bump |
+|--------|-------------|--------------|
+| `feat:` | New feature | Minor (`0.x.0`) |
+| `fix:` | Bug fix | Patch (`0.0.x`) |
+| `feat!:` or `BREAKING CHANGE:` | Breaking change | Major (`x.0.0`) |
+| `docs:` | Documentation only | No release |
+| `chore:` | Maintenance | No release |
+| `ci:` | CI/CD changes | No release |
+| `refactor:` | Code refactoring | No release |
+| `test:` | Adding tests | No release |
+
+### Examples
+
+```bash
+# Feature (bumps minor version)
+git commit -m "feat: add batch action execution support"
+
+# Bug fix (bumps patch version)
+git commit -m "fix: resolve middleware chain ordering issue"
+
+# Breaking change (bumps major version)
+git commit -m "feat!: redesign Action base class API"
+
+# Scoped commit
+git commit -m "feat(skills): add PowerShell script support"
+
+# No release trigger
+git commit -m "docs: update API reference"
+git commit -m "ci: add Python 3.14 to test matrix"
+```
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
+
+### Development Workflow
+
+1. Fork the repository and clone your fork
+2. Create a feature branch: `git checkout -b feat/my-feature`
+3. Make your changes following the coding standards below
+4. Run tests and linting:
+   ```bash
+   vx just lint       # Check code style
+   vx just test       # Run tests
+   vx just prek-all   # Run all pre-commit hooks
+   ```
+5. Commit using [Conventional Commits](https://www.conventionalcommits.org/) format
+6. Push and open a Pull Request against `main`
+
+### Coding Standards
+
+- **Style**: Code is formatted with `ruff` and `isort` (line length: 120)
+- **Type hints**: All public APIs must have type annotations
+- **Docstrings**: Google-style docstrings for all public modules, classes, and functions
+- **Testing**: New features must include tests; maintain or improve coverage
+- **Imports**: Use section headers (`Import built-in modules`, `Import third-party modules`, `Import local modules`)
 
 ## License
 

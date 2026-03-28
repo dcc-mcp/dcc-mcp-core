@@ -469,9 +469,75 @@ class CreateSphereAction(Action):
             raise Exception(f"创建球体失败: {str(e)}") from e
 ```
 
+## 版本发布流程
+
+本项目使用 [Release Please](https://github.com/googleapis/release-please) 自动化版本管理和发布。工作流程：
+
+1. **开发**：从 `main` 创建分支，使用 [Conventional Commits](https://www.conventionalcommits.org/) 提交代码
+2. **合并**：提交 PR 并合并到 `main`
+3. **发布 PR**：Release Please 自动创建/更新发布 PR，包含版本号更新和 `CHANGELOG.md` 更新
+4. **发布**：合并发布 PR 后，自动创建 GitHub Release 并发布到 PyPI
+
+### 提交信息格式
+
+本项目遵循 [Conventional Commits](https://www.conventionalcommits.org/) 规范：
+
+| 前缀 | 描述 | 版本变更 |
+|------|------|---------|
+| `feat:` | 新功能 | Minor（`0.x.0`） |
+| `fix:` | Bug 修复 | Patch（`0.0.x`） |
+| `feat!:` 或 `BREAKING CHANGE:` | 破坏性变更 | Major（`x.0.0`） |
+| `docs:` | 仅文档 | 不触发发布 |
+| `chore:` | 维护 | 不触发发布 |
+| `ci:` | CI/CD 变更 | 不触发发布 |
+| `refactor:` | 代码重构 | 不触发发布 |
+| `test:` | 添加测试 | 不触发发布 |
+
+### 示例
+
+```bash
+# 新功能（升级次版本号）
+git commit -m "feat: add batch action execution support"
+
+# Bug 修复（升级补丁版本号）
+git commit -m "fix: resolve middleware chain ordering issue"
+
+# 破坏性变更（升级主版本号）
+git commit -m "feat!: redesign Action base class API"
+
+# 带作用域的提交
+git commit -m "feat(skills): add PowerShell script support"
+
+# 不触发发布
+git commit -m "docs: update API reference"
+git commit -m "ci: add Python 3.14 to test matrix"
+```
+
 ## 贡献
 
 欢迎贡献！请随时提交 Pull Request。
+
+### 开发工作流
+
+1. Fork 仓库并克隆你的 fork
+2. 创建功能分支：`git checkout -b feat/my-feature`
+3. 按照以下编码规范进行开发
+4. 运行测试和代码检查：
+   ```bash
+   vx just lint       # 代码风格检查
+   vx just test       # 运行测试
+   vx just prek-all   # 运行所有 pre-commit hooks
+   ```
+5. 使用 [Conventional Commits](https://www.conventionalcommits.org/) 格式提交
+6. 推送并向 `main` 提交 Pull Request
+
+### 编码规范
+
+- **风格**：使用 `ruff` 和 `isort` 格式化代码（行长度：120）
+- **类型注解**：所有公开 API 必须有类型注解
+- **文档字符串**：所有公开模块、类和函数使用 Google 风格的 docstring
+- **测试**：新功能必须包含测试；保持或提高覆盖率
+- **导入**：使用分区注释（`Import built-in modules`、`Import third-party modules`、`Import local modules`）
 
 ## 许可证
 
