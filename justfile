@@ -31,11 +31,33 @@ test-rust:
 
 # ── Python ──
 
-# Build and install wheel in dev mode
+# Build and install wheel in dev mode (requires virtualenv or CI env)
+[unix]
 dev:
+    #!/usr/bin/env sh
+    set -eu
+    if [ -z "${VIRTUAL_ENV:-}" ] && [ -z "${CONDA_PREFIX:-}" ] && [ -z "${CI:-}" ]; then \
+        if [ ! -d .venv ]; then python -m venv .venv; fi; \
+        . .venv/bin/activate; \
+    fi
+    pip install maturin 2>/dev/null || true
     maturin develop --features python-bindings,ext-module
 
-# Run Python tests (requires `just dev` first)
+[windows]
+dev:
+    if (-not $env:VIRTUAL_ENV -and -not $env:CONDA_PREFIX -and -not $env:CI) { \
+        if (-not (Test-Path .venv)) { python -m venv .venv }; \
+        & .\.venv\Scripts\Activate.ps1; \
+    }
+    pip install maturin -q 2>$null
+    maturin develop --features python-bindings,ext-module
+
+# Build wheel + pip install (CI-friendly, no virtualenv required)
+install:
+    maturin build --release --out dist --features python-bindings,ext-module,abi3-py38
+    pip install --force-reinstall --no-index --find-links dist dcc_mcp_core
+
+# Run Python tests (requires `just dev` or `just install` first)
 test:
     pytest tests/ -v --tb=short
 
@@ -66,7 +88,7 @@ lint-fix: fmt lint-py-fix
 preflight: check clippy fmt-check test-rust
 
 # Full CI pipeline (Rust + Python)
-ci: preflight dev test lint-py
+ci: preflight install test lint-py
 
 # Build release wheel
 build:

@@ -42,7 +42,7 @@ jobs:
       - name: Preflight (check + clippy + fmt + test)
         run: just preflight
 
-  # ── Python lint + test (uses built wheel) ──
+  # ── Python lint + test ──
   python-check:
     name: Python (${{ matrix.os }}, ${{ matrix.python-version }})
     needs: [rust-check]
@@ -65,18 +65,14 @@ jobs:
       - name: Install just
         uses: extractions/setup-just@v2
 
-      - name: Build wheel (maturin develop)
-        run: |
-          pip install maturin
-          just dev
+      - name: Install dependencies
+        run: pip install maturin pytest pytest-cov pytest-mock pytest-asyncio pyfakefs ruff isort
 
-      - name: Install test dependencies
-        run: pip install pytest pytest-cov pytest-mock pytest-asyncio pyfakefs
+      - name: Build and install wheel
+        run: just install
 
       - name: Test
         run: just test
 
-      - name: Lint (ruff + isort)
-        run: |
-          pip install ruff isort
-          just lint-py
+      - name: Lint Python
+        run: just lint-py
