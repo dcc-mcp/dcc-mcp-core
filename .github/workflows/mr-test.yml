@@ -7,7 +7,9 @@ jobs:
       max-parallel: 30
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
+        # Code targets Python >=3.7, but CI tests 3.10+ due to
+        # dev/test dependency constraints (e.g. pydantic >=2.x requires >=3.9).
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
       fail-fast: false
     runs-on: ${{ matrix.os }}
     steps:
