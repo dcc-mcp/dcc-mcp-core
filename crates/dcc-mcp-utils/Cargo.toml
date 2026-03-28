@@ -1,0 +1,21 @@
+[package]
+name = "dcc-mcp-utils"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Utilities for the DCC-MCP ecosystem (filesystem, logging, constants, type wrappers)"
+
+[dependencies]
+pyo3 = { workspace = true, optional = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+dirs = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+thiserror = { workspace = true }
+
+[features]
+default = []
+python-bindings = ["pyo3"]

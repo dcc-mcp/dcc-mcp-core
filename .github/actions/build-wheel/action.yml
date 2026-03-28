@@ -1,0 +1,99 @@
+name: 'Build Wheel'
+description: 'Build dcc-mcp-core wheel with maturin'
+
+inputs:
+  target:
+    description: 'Target platform'
+    required: false
+    default: ''
+  python-version:
+    description: 'Python version'
+    required: false
+    default: '3.11'
+  rust-version:
+    description: 'Rust toolchain version'
+    required: false
+    default: '1.90.0'
+  maturin-args:
+    description: 'maturin build arguments'
+    required: false
+    default: '--release --out dist --find-interpreter --features python-bindings,ext-module,abi3-py38'
+  test-wheel:
+    description: 'Test the built wheel'
+    required: false
+    default: 'true'
+  artifact-name:
+    description: 'Artifact name'
+    required: false
+    default: 'wheels'
+  use-sccache:
+    description: 'Use sccache'
+    required: false
+    default: 'true'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Setup Rust
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ inputs.rust-version }}
+
+    - name: Cache Cargo
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-${{ inputs.target || 'default' }}-py${{ inputs.python-version }}-cargo-wheel-${{ hashFiles('Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ inputs.target || 'default' }}-cargo-wheel-
+
+    - name: Build wheel
+      uses: PyO3/maturin-action@v1
+      with:
+        target: ${{ inputs.target }}
+        args: ${{ inputs.maturin-args }}
+        rust-toolchain: ${{ inputs.rust-version }}
+        sccache: ${{ inputs.use-sccache == 'true' }}
+        manylinux: auto
+
+    - name: Test wheel
+      if: inputs.test-wheel == 'true'
+      shell: bash
+      run: |
+        python -m venv test-env
+        if [ "${{ runner.os }}" = "Windows" ]; then
+          source test-env/Scripts/activate
+        else
+          source test-env/bin/activate
+        fi
+
+        wheel_file=$(ls dist/*.whl | head -1)
+        echo "Installing: $wheel_file"
+        pip install "$wheel_file" --force-reinstall --no-deps
+
+        python -c "
+        import dcc_mcp_core
+        print(f'Version: {dcc_mcp_core.__version__}')
+        from dcc_mcp_core._core import ActionResultModel, ActionRegistry, SkillScanner
+        result = ActionResultModel(success=True, message='Wheel test passed')
+        print(f'Result: {result}')
+        reg = ActionRegistry()
+        print(f'Registry: {reg}')
+        print('All imports OK!')
+        "
+
+    - name: Upload wheel
+      uses: actions/upload-artifact@v5
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: dist/
+        retention-days: 30

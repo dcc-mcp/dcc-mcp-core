@@ -1,67 +1,78 @@
 # dcc-mcp-core development commands
 # Usage: vx just <recipe>
 
-# Cross-platform shell configuration
 set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
 set shell := ["sh", "-cu"]
 
-# Default recipe - show available commands
 default:
     @just --list
 
-# Run linter checks
-lint:
-    vx uvx nox -s lint
+# ── Rust ──
 
-# Run linter with auto-fix
-lint-fix:
-    vx uvx nox -s lint-fix
+# Check all Rust crates
+check:
+    cargo check --workspace
 
-# Run tests
+# Run Rust tests
+test-rust:
+    cargo test --workspace
+
+# Run clippy
+clippy:
+    cargo clippy --workspace -- -D warnings
+
+# Format Rust code
+fmt:
+    cargo fmt --all
+
+# Format check
+fmt-check:
+    cargo fmt --all -- --check
+
+# ── Python ──
+
+# Build and install wheel in dev mode
+dev:
+    maturin develop --features python-bindings,ext-module
+
+# Run Python tests (requires `just dev` first)
 test:
-    vx uvx nox -s pytest
+    pytest tests/ -v --tb=short
 
-# Run tests with verbose output
-test-v:
-    vx uvx nox -s pytest -- -xvs
+# Run Python tests with coverage
+test-cov:
+    pytest tests/ -v --cov=dcc_mcp_core --cov-report=term --cov-report=xml:coverage.xml
 
-# Run a specific test file
-test-file file:
-    vx uvx nox -s pytest -- {{ file }} -v
+# Lint Python code
+lint:
+    ruff check python/dcc_mcp_core/ tests/
+    isort --check-only python/dcc_mcp_core/ tests/
 
-# Install pre-commit hooks via prek
-prek-install:
-    vx prek install
+# Fix Python lint issues
+lint-fix:
+    ruff check --fix python/dcc_mcp_core/ tests/
+    ruff format python/dcc_mcp_core/ tests/
+    isort python/dcc_mcp_core/ tests/
 
-# Run pre-commit hooks on all files
-prek-all:
-    vx prek --all-files
+# ── Full CI ──
 
-# Run pre-commit hooks on staged files
-prek:
-    vx prek
+# Run all checks (Rust + Python)
+ci: check clippy fmt-check test-rust dev test lint
 
-# Validate pre-commit config
-prek-validate:
-    vx prek validate-config
-
-# Install project dependencies
-install:
-    vx uv sync
-
-# Build the project
+# Build release wheel
 build:
-    vx uv build
+    maturin build --release --features python-bindings,ext-module,abi3-py38
 
-# Clean build artifacts
+# ── Clean ──
+
 [unix]
 clean:
-    rm -rf dist build *.egg-info .nox .coverage coverage.xml
+    rm -rf dist build target *.egg-info .nox .coverage coverage.xml
 
 [windows]
 clean:
     if (Test-Path dist) { Remove-Item -Recurse -Force dist }
     if (Test-Path build) { Remove-Item -Recurse -Force build }
-    if (Test-Path .nox) { Remove-Item -Recurse -Force .nox }
-    Get-ChildItem -Filter *.egg-info -Directory | Remove-Item -Recurse -Force
+    if (Test-Path target) { Remove-Item -Recurse -Force target }
+    Get-ChildItem -Filter *.egg-info -Directory -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
     Remove-Item -ErrorAction SilentlyContinue -Force .coverage, coverage.xml

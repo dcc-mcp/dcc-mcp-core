@@ -1,0 +1,19 @@
+[package]
+name = "dcc-mcp-skills"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Skills system for the DCC-MCP ecosystem (SKILL.md scanning and loading)"
+
+[dependencies]
+pyo3 = { workspace = true, optional = true }
+dcc-mcp-models = { workspace = true }
+dcc-mcp-utils = { workspace = true }
+serde_yaml = { workspace = true }
+tracing = { workspace = true }
+
+[features]
+default = []
+python-bindings = ["pyo3", "dcc-mcp-models/python-bindings", "dcc-mcp-utils/python-bindings"]

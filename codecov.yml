@@ -7,3 +7,6 @@ github_checks:
 
 ignore:
   - "noxfile.py"
+  - "nox_actions/"
+  - "target/"
+  - "crates/"

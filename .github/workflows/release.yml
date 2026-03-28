@@ -1,0 +1,81 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+    tags: ['dcc-mcp-core-v*']
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+  attestations: write
+  actions: read
+
+jobs:
+  # ── Release Please (only on main branch push) ──
+  release-please:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  # ── Build wheels when release is created or tag is pushed ──
+  build-wheels:
+    needs: [release-please]
+    if: |
+      always() &&
+      (needs.release-please.outputs.release_created == 'true' ||
+       startsWith(github.ref, 'refs/tags/dcc-mcp-core-v'))
+    uses: ./.github/workflows/build-wheels.yml
+    with:
+      test-wheel: 'true'
+
+  # ── Publish to PyPI ──
+  publish:
+    needs: [build-wheels]
+    if: |
+      always() &&
+      needs.build-wheels.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: write
+    steps:
+      - name: Download all wheel artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wheels-*
+          path: dist
+          merge-multiple: true
+
+      - name: List wheels
+        run: ls -la dist/
+
+      # Trusted Publishers — no credentials needed
+      - name: Upload to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
+          verbose: true
+          print-hash: true
+
+      - name: Upload wheels to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*

@@ -5,6 +5,11 @@ __pycache__/
 *.dll
 *.dylib
 
+# Rust / Cargo
+/target/
+**/*.rs.bk
+Cargo.lock
+
 # PyCharm project files
 .idea/
 
@@ -17,7 +22,6 @@ __pycache__/
 # Documentation build folders.
 docs/_*
 docs/src/*
-target/*
 /venv/
 /run_pycharm.bat
 /.nox/
@@ -26,7 +30,7 @@ target/*
 /.zip/
 run-ide.bat
 
-# Poetry
+# Virtual environments
 /.venv/
 dist/
 
@@ -50,3 +54,4 @@ dist/
 .trae/
 .windsurf/
 CODEBUDDY.md
+tasks/

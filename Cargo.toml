@@ -1,0 +1,90 @@
+# dcc-mcp-core Workspace
+# Rust-powered core for the DCC MCP ecosystem
+
+[workspace]
+members = [
+    "crates/dcc-mcp-models",
+    "crates/dcc-mcp-actions",
+    "crates/dcc-mcp-skills",
+    "crates/dcc-mcp-protocols",
+    "crates/dcc-mcp-utils",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.11.0" # x-release-please-version
+edition = "2021"
+rust-version = "1.75"
+authors = ["Hal Long <hal.long@outlook.com>"]
+license = "MIT"
+repository = "https://github.com/loonghao/dcc-mcp-core"
+
+[workspace.dependencies]
+# Internal crates
+dcc-mcp-models = { path = "crates/dcc-mcp-models" }
+dcc-mcp-actions = { path = "crates/dcc-mcp-actions" }
+dcc-mcp-skills = { path = "crates/dcc-mcp-skills" }
+dcc-mcp-protocols = { path = "crates/dcc-mcp-protocols" }
+dcc-mcp-utils = { path = "crates/dcc-mcp-utils" }
+
+# Shared dependencies (single version across workspace)
+pyo3 = { version = "0.23", features = ["multiple-pymethods"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
+dashmap = "6.1"
+parking_lot = "0.12"
+dirs = "6.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+thiserror = "2.0"
+walkdir = "2.5"
+uuid = { version = "1.0", features = ["v4", "serde"] }
+
+# Root package — Python bindings entry point
+# Compiles to `_core.pyd` / `_core.so`, exposed as `dcc_mcp_core._core`
+[package]
+name = "dcc-mcp-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Foundational library for the DCC Model Context Protocol (MCP) ecosystem"
+keywords = ["dcc", "mcp", "maya", "blender", "houdini", "pyo3"]
+
+[lib]
+name = "_core"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# Internal crates
+dcc-mcp-models.workspace = true
+dcc-mcp-actions.workspace = true
+dcc-mcp-skills.workspace = true
+dcc-mcp-protocols.workspace = true
+dcc-mcp-utils.workspace = true
+
+# PyO3 (optional — only for wheel builds)
+pyo3 = { workspace = true, optional = true }
+
+# Re-export for bindings
+serde_json.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+rstest = "0.26"
+tempfile = "3.14"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+
+[features]
+default = []
+python-bindings = ["pyo3", "dcc-mcp-models/python-bindings", "dcc-mcp-actions/python-bindings", "dcc-mcp-skills/python-bindings", "dcc-mcp-protocols/python-bindings", "dcc-mcp-utils/python-bindings"]
+abi3-py38 = ["pyo3/abi3-py38"]
+ext-module = ["pyo3/extension-module"]

@@ -8,12 +8,18 @@ allowing duck typing while maintaining type safety.
 """
 
 # Import built-in modules
+import sys
 from typing import Any
 from typing import Dict
 from typing import List
 from typing import Optional
-from typing import Protocol
-from typing import runtime_checkable
+
+if sys.version_info >= (3, 8):
+    from typing import Protocol
+    from typing import runtime_checkable
+else:
+    from typing_extensions import Protocol
+    from typing_extensions import runtime_checkable
 
 # Import local modules
 from dcc_mcp_core.models import ActionResultModel
