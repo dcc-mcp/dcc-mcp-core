@@ -26,7 +26,10 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(dcc_mcp_models::py_success_result, m)?)?;
     m.add_function(wrap_pyfunction!(dcc_mcp_models::py_error_result, m)?)?;
     m.add_function(wrap_pyfunction!(dcc_mcp_models::py_from_exception, m)?)?;
-    m.add_function(wrap_pyfunction!(dcc_mcp_models::py_validate_action_result, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        dcc_mcp_models::py_validate_action_result,
+        m
+    )?)?;
 
     // ── Actions ──
     m.add_class::<dcc_mcp_actions::ActionRegistry>()?;
@@ -46,32 +49,71 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(dcc_mcp_skills::py_scan_skill_paths, m)?)?;
 
     // ── Utils: filesystem ──
-    m.add_function(wrap_pyfunction!(dcc_mcp_utils::filesystem::py_get_platform_dir, m)?)?;
-    m.add_function(wrap_pyfunction!(dcc_mcp_utils::filesystem::py_get_config_dir, m)?)?;
-    m.add_function(wrap_pyfunction!(dcc_mcp_utils::filesystem::py_get_data_dir, m)?)?;
-    m.add_function(wrap_pyfunction!(dcc_mcp_utils::filesystem::py_get_log_dir, m)?)?;
-    m.add_function(wrap_pyfunction!(dcc_mcp_utils::filesystem::py_get_actions_dir, m)?)?;
-    m.add_function(wrap_pyfunction!(dcc_mcp_utils::filesystem::py_get_skills_dir, m)?)?;
-    m.add_function(wrap_pyfunction!(dcc_mcp_utils::filesystem::py_get_skill_paths_from_env, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        dcc_mcp_utils::filesystem::py_get_platform_dir,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        dcc_mcp_utils::filesystem::py_get_config_dir,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        dcc_mcp_utils::filesystem::py_get_data_dir,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        dcc_mcp_utils::filesystem::py_get_log_dir,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        dcc_mcp_utils::filesystem::py_get_actions_dir,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        dcc_mcp_utils::filesystem::py_get_skills_dir,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        dcc_mcp_utils::filesystem::py_get_skill_paths_from_env,
+        m
+    )?)?;
 
     // ── Utils: type wrappers ──
     m.add_class::<dcc_mcp_utils::type_wrappers::BooleanWrapper>()?;
     m.add_class::<dcc_mcp_utils::type_wrappers::IntWrapper>()?;
     m.add_class::<dcc_mcp_utils::type_wrappers::FloatWrapper>()?;
     m.add_class::<dcc_mcp_utils::type_wrappers::StringWrapper>()?;
-    m.add_function(wrap_pyfunction!(dcc_mcp_utils::type_wrappers::py_unwrap_value, m)?)?;
-    m.add_function(wrap_pyfunction!(dcc_mcp_utils::type_wrappers::py_unwrap_parameters, m)?)?;
-    m.add_function(wrap_pyfunction!(dcc_mcp_utils::type_wrappers::py_wrap_value, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        dcc_mcp_utils::type_wrappers::py_unwrap_value,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        dcc_mcp_utils::type_wrappers::py_unwrap_parameters,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        dcc_mcp_utils::type_wrappers::py_wrap_value,
+        m
+    )?)?;
 
     // ── Constants ──
     m.add("APP_NAME", dcc_mcp_utils::constants::APP_NAME)?;
     m.add("APP_AUTHOR", dcc_mcp_utils::constants::APP_AUTHOR)?;
     m.add("DEFAULT_DCC", dcc_mcp_utils::constants::DEFAULT_DCC)?;
-    m.add("SKILL_METADATA_FILE", dcc_mcp_utils::constants::SKILL_METADATA_FILE)?;
-    m.add("SKILL_SCRIPTS_DIR", dcc_mcp_utils::constants::SKILL_SCRIPTS_DIR)?;
+    m.add(
+        "SKILL_METADATA_FILE",
+        dcc_mcp_utils::constants::SKILL_METADATA_FILE,
+    )?;
+    m.add(
+        "SKILL_SCRIPTS_DIR",
+        dcc_mcp_utils::constants::SKILL_SCRIPTS_DIR,
+    )?;
     m.add("ENV_SKILL_PATHS", dcc_mcp_utils::constants::ENV_SKILL_PATHS)?;
     m.add("ENV_LOG_LEVEL", dcc_mcp_utils::constants::ENV_LOG_LEVEL)?;
-    m.add("DEFAULT_LOG_LEVEL", dcc_mcp_utils::constants::DEFAULT_LOG_LEVEL)?;
+    m.add(
+        "DEFAULT_LOG_LEVEL",
+        dcc_mcp_utils::constants::DEFAULT_LOG_LEVEL,
+    )?;
 
     // ── Metadata ──
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;

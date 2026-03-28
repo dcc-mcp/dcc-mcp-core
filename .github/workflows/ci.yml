@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # ── Rust checks ──
+  # ── Rust checks (same as `just preflight`) ──
   rust-check:
     name: Rust (${{ matrix.os }})
     strategy:
@@ -33,20 +33,14 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-
 
-      - name: Check
-        run: cargo check --workspace
+      - name: Install just
+        uses: extractions/setup-just@v2
 
-      - name: Clippy
-        run: cargo clippy --workspace -- -D warnings
-
-      - name: Format
-        run: cargo fmt --all -- --check
-
-      - name: Test
-        run: cargo test --workspace
+      - name: Preflight (check + clippy + fmt + test)
+        run: just preflight
 
   # ── Python lint + test (uses built wheel) ──
   python-check:
@@ -68,19 +62,21 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Build and install wheel (maturin develop)
+      - name: Install just
+        uses: extractions/setup-just@v2
+
+      - name: Build wheel (maturin develop)
         run: |
           pip install maturin
-          maturin develop --features python-bindings,ext-module
+          just dev
 
       - name: Install test dependencies
         run: pip install pytest pytest-cov pytest-mock pytest-asyncio pyfakefs
 
       - name: Test
-        run: pytest tests/ -v --tb=short
+        run: just test
 
-      - name: Lint (ruff)
+      - name: Lint (ruff + isort)
         run: |
           pip install ruff isort
-          ruff check python/dcc_mcp_core/
-          isort --check-only python/dcc_mcp_core/
+          just lint-py

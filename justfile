@@ -1,5 +1,5 @@
 # dcc-mcp-core development commands
-# Usage: vx just <recipe>
+# Usage: just <recipe>  (or: vx just <recipe>)
 
 set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
 set shell := ["sh", "-cu"]
@@ -13,11 +13,7 @@ default:
 check:
     cargo check --workspace
 
-# Run Rust tests
-test-rust:
-    cargo test --workspace
-
-# Run clippy
+# Run clippy with CI-identical flags
 clippy:
     cargo clippy --workspace -- -D warnings
 
@@ -25,9 +21,13 @@ clippy:
 fmt:
     cargo fmt --all
 
-# Format check
+# Format check (CI mode)
 fmt-check:
     cargo fmt --all -- --check
+
+# Run Rust tests
+test-rust:
+    cargo test --workspace
 
 # ── Python ──
 
@@ -44,20 +44,29 @@ test-cov:
     pytest tests/ -v --cov=dcc_mcp_core --cov-report=term --cov-report=xml:coverage.xml
 
 # Lint Python code
-lint:
+lint-py:
     ruff check python/dcc_mcp_core/ tests/
     isort --check-only python/dcc_mcp_core/ tests/
 
 # Fix Python lint issues
-lint-fix:
+lint-py-fix:
     ruff check --fix python/dcc_mcp_core/ tests/
     ruff format python/dcc_mcp_core/ tests/
     isort python/dcc_mcp_core/ tests/
 
-# ── Full CI ──
+# ── Unified commands (CI + local) ──
 
-# Run all checks (Rust + Python)
-ci: check clippy fmt-check test-rust dev test lint
+# Lint all (Rust + Python) — same checks as CI
+lint: clippy fmt-check lint-py
+
+# Fix all lint issues
+lint-fix: fmt lint-py-fix
+
+# Pre-flight check — run before committing (same as CI)
+preflight: check clippy fmt-check test-rust
+
+# Full CI pipeline (Rust + Python)
+ci: preflight dev test lint-py
 
 # Build release wheel
 build:

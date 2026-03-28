@@ -1,7 +1,8 @@
 //! Constants for the DCC-MCP ecosystem.
 
 use std::collections::HashMap;
-use std::sync::LazyLock;
+
+use once_cell::sync::Lazy;
 
 pub const APP_NAME: &str = "dcc-mcp";
 pub const APP_AUTHOR: &str = "dcc-mcp";
@@ -16,23 +17,34 @@ pub const SKILL_SCRIPTS_DIR: &str = "scripts";
 pub const DEFAULT_DCC: &str = "python";
 
 /// Supported script extensions → script type name.
-pub static SUPPORTED_SCRIPT_EXTENSIONS: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| {
-    let mut m = HashMap::new();
-    m.insert(".py", "python");
-    m.insert(".mel", "mel");
-    m.insert(".ms", "maxscript");
-    m.insert(".bat", "batch");
-    m.insert(".cmd", "batch");
-    m.insert(".sh", "shell");
-    m.insert(".bash", "shell");
-    m.insert(".ps1", "powershell");
-    m.insert(".vbs", "vbscript");
-    m.insert(".jsx", "javascript");
-    m.insert(".js", "javascript");
-    m
-});
+pub static SUPPORTED_SCRIPT_EXTENSIONS: Lazy<HashMap<&'static str, &'static str>> =
+    Lazy::new(|| {
+        let mut m = HashMap::new();
+        m.insert(".py", "python");
+        m.insert(".mel", "mel");
+        m.insert(".ms", "maxscript");
+        m.insert(".bat", "batch");
+        m.insert(".cmd", "batch");
+        m.insert(".sh", "shell");
+        m.insert(".bash", "shell");
+        m.insert(".ps1", "powershell");
+        m.insert(".vbs", "vbscript");
+        m.insert(".jsx", "javascript");
+        m.insert(".js", "javascript");
+        m
+    });
 
 /// Boolean flag keys for parameter processing.
 pub const BOOLEAN_FLAG_KEYS: &[&str] = &[
-    "query", "q", "edit", "e", "select", "sl", "selection", "visible", "v", "hidden", "h",
+    "query",
+    "q",
+    "edit",
+    "e",
+    "select",
+    "sl",
+    "selection",
+    "visible",
+    "v",
+    "hidden",
+    "h",
 ];

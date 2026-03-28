@@ -6,7 +6,6 @@
 use pyo3::prelude::*;
 
 use dashmap::DashMap;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Metadata about a registered Action (stored in Rust).
@@ -59,10 +58,7 @@ impl ActionRegistry {
         self.actions.insert(name.clone(), meta.clone());
 
         // Register in DCC-specific registry
-        self.dcc_actions
-            .entry(dcc)
-            .or_insert_with(DashMap::new)
-            .insert(name, meta);
+        self.dcc_actions.entry(dcc).or_default().insert(name, meta);
 
         true
     }
@@ -166,8 +162,15 @@ impl ActionRegistry {
 
     /// Get action metadata as dict.
     #[pyo3(name = "get_action")]
-    fn py_get_action(&self, py: Python, name: &str, dcc_name: Option<&str>) -> PyResult<Option<PyObject>> {
-        Ok(self.get_action(name, dcc_name).map(|meta| action_meta_to_py(py, &meta)))
+    fn py_get_action(
+        &self,
+        py: Python,
+        name: &str,
+        dcc_name: Option<&str>,
+    ) -> PyResult<Option<PyObject>> {
+        Ok(self
+            .get_action(name, dcc_name)
+            .map(|meta| action_meta_to_py(py, &meta)))
     }
 
     /// List all action names for a DCC.

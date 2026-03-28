@@ -194,7 +194,10 @@ impl SkillScanner {
 #[pyfunction]
 #[pyo3(name = "scan_skill_paths")]
 #[pyo3(signature = (extra_paths=None, dcc_name=None))]
-pub fn py_scan_skill_paths(extra_paths: Option<Vec<String>>, dcc_name: Option<&str>) -> Vec<String> {
+pub fn py_scan_skill_paths(
+    extra_paths: Option<Vec<String>>,
+    dcc_name: Option<&str>,
+) -> Vec<String> {
     let mut scanner = SkillScanner::new();
     scanner.scan(extra_paths.as_deref(), dcc_name, false)
 }

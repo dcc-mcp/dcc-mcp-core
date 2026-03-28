@@ -4,8 +4,10 @@
 use pyo3::prelude::*;
 
 use dcc_mcp_models::SkillMetadata;
-use dcc_mcp_utils::constants::{SKILL_METADATA_FILE, SKILL_SCRIPTS_DIR, SUPPORTED_SCRIPT_EXTENSIONS};
-use std::path::{Path, PathBuf};
+use dcc_mcp_utils::constants::{
+    SKILL_METADATA_FILE, SKILL_SCRIPTS_DIR, SUPPORTED_SCRIPT_EXTENSIONS,
+};
+use std::path::Path;
 
 /// Parse a SKILL.md file from a skill directory.
 pub fn parse_skill_md(skill_dir: &Path) -> Option<SkillMetadata> {
@@ -30,7 +32,11 @@ pub fn parse_skill_md(skill_dir: &Path) -> Option<SkillMetadata> {
     let mut meta: SkillMetadata = match serde_yaml::from_str(&frontmatter) {
         Ok(m) => m,
         Err(e) => {
-            tracing::warn!("Error parsing frontmatter in {}: {}", skill_md_path.display(), e);
+            tracing::warn!(
+                "Error parsing frontmatter in {}: {}",
+                skill_md_path.display(),
+                e
+            );
             return None;
         }
     };

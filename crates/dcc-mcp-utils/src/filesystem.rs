@@ -3,7 +3,7 @@
 #[cfg(feature = "python-bindings")]
 use pyo3::prelude::*;
 
-use crate::constants::{APP_AUTHOR, APP_NAME, ENV_SKILL_PATHS};
+use crate::constants::{APP_NAME, ENV_SKILL_PATHS};
 use std::env;
 use std::path::{Path, PathBuf};
 
@@ -36,8 +36,8 @@ pub fn get_data_dir() -> Result<String, String> {
 
 /// Get log directory.
 pub fn get_log_dir() -> Result<String, String> {
-    let base = dirs::data_local_dir()
-        .ok_or_else(|| "Cannot determine log directory".to_string())?;
+    let base =
+        dirs::data_local_dir().ok_or_else(|| "Cannot determine log directory".to_string())?;
     let dir = base.join(APP_NAME).join("log");
     std::fs::create_dir_all(&dir).map_err(|e| format!("Cannot create log directory: {}", e))?;
     Ok(dir.to_string_lossy().to_string())
@@ -55,7 +55,9 @@ pub fn get_actions_dir(dcc_name: &str) -> Result<String, String> {
 pub fn get_skills_dir(dcc_name: Option<&str>) -> Result<String, String> {
     let data_dir = get_data_dir()?;
     let dir = if let Some(dcc) = dcc_name {
-        PathBuf::from(&data_dir).join("skills").join(dcc.to_lowercase())
+        PathBuf::from(&data_dir)
+            .join("skills")
+            .join(dcc.to_lowercase())
     } else {
         PathBuf::from(&data_dir).join("skills")
     };

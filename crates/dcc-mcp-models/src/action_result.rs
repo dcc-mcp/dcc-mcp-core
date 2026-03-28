@@ -147,7 +147,10 @@ impl ActionResultModel {
         if self.inner.success {
             format!("Success: {}", self.inner.message)
         } else {
-            format!("Error: {}", self.inner.error.as_deref().unwrap_or(&self.inner.message))
+            format!(
+                "Error: {}",
+                self.inner.error.as_deref().unwrap_or(&self.inner.message)
+            )
         }
     }
 }
@@ -208,7 +211,12 @@ pub fn py_error_result(
     if let Some(solutions) = possible_solutions {
         ctx.insert(
             "possible_solutions".to_string(),
-            serde_json::Value::Array(solutions.into_iter().map(serde_json::Value::String).collect()),
+            serde_json::Value::Array(
+                solutions
+                    .into_iter()
+                    .map(serde_json::Value::String)
+                    .collect(),
+            ),
         );
     }
     Ok(ActionResultModel {
@@ -239,14 +247,25 @@ pub fn py_from_exception(
     } else {
         HashMap::new()
     };
-    ctx.insert("error_type".to_string(), serde_json::Value::String("Exception".to_string()));
+    ctx.insert(
+        "error_type".to_string(),
+        serde_json::Value::String("Exception".to_string()),
+    );
     if include_traceback {
-        ctx.insert("traceback".to_string(), serde_json::Value::String("(traceback from Rust)".to_string()));
+        ctx.insert(
+            "traceback".to_string(),
+            serde_json::Value::String("(traceback from Rust)".to_string()),
+        );
     }
     if let Some(solutions) = possible_solutions {
         ctx.insert(
             "possible_solutions".to_string(),
-            serde_json::Value::Array(solutions.into_iter().map(serde_json::Value::String).collect()),
+            serde_json::Value::Array(
+                solutions
+                    .into_iter()
+                    .map(serde_json::Value::String)
+                    .collect(),
+            ),
         );
     }
     let msg = message.unwrap_or_else(|| format!("Error: {}", error_message));
@@ -265,17 +284,30 @@ pub fn py_from_exception(
 #[cfg(feature = "python-bindings")]
 #[pyfunction]
 #[pyo3(name = "validate_action_result")]
-pub fn py_validate_action_result(py: Python, result: &Bound<'_, PyAny>) -> PyResult<ActionResultModel> {
+pub fn py_validate_action_result(
+    py: Python,
+    result: &Bound<'_, PyAny>,
+) -> PyResult<ActionResultModel> {
     // If already ActionResultModel, clone it
     if let Ok(arm) = result.extract::<ActionResultModel>() {
         return Ok(arm);
     }
     // If dict, try to convert
     if let Ok(dict) = result.downcast::<PyDict>() {
-        let success = dict.get_item("success")?.map(|v| v.extract::<bool>().unwrap_or(true)).unwrap_or(true);
-        let message = dict.get_item("message")?.map(|v| v.extract::<String>().unwrap_or_default()).unwrap_or_default();
-        let prompt = dict.get_item("prompt")?.and_then(|v| v.extract::<String>().ok());
-        let error = dict.get_item("error")?.and_then(|v| v.extract::<String>().ok());
+        let success = dict
+            .get_item("success")?
+            .map(|v| v.extract::<bool>().unwrap_or(true))
+            .unwrap_or(true);
+        let message = dict
+            .get_item("message")?
+            .map(|v| v.extract::<String>().unwrap_or_default())
+            .unwrap_or_default();
+        let prompt = dict
+            .get_item("prompt")?
+            .and_then(|v| v.extract::<String>().ok());
+        let error = dict
+            .get_item("error")?
+            .and_then(|v| v.extract::<String>().ok());
         return ActionResultModel::new(success, message, prompt, error, Some(dict));
     }
     // Wrap as success

@@ -40,7 +40,13 @@ impl ToolAnnotations {
         idempotent_hint: Option<bool>,
         open_world_hint: Option<bool>,
     ) -> Self {
-        Self { title, read_only_hint, destructive_hint, idempotent_hint, open_world_hint }
+        Self {
+            title,
+            read_only_hint,
+            destructive_hint,
+            idempotent_hint,
+            open_world_hint,
+        }
     }
 }
 
@@ -65,8 +71,18 @@ pub struct ToolDefinition {
 impl ToolDefinition {
     #[new]
     #[pyo3(signature = (name, description, input_schema, output_schema=None))]
-    fn new(name: String, description: String, input_schema: String, output_schema: Option<String>) -> Self {
-        Self { name, description, input_schema, output_schema }
+    fn new(
+        name: String,
+        description: String,
+        input_schema: String,
+        output_schema: Option<String>,
+    ) -> Self {
+        Self {
+            name,
+            description,
+            input_schema,
+            output_schema,
+        }
     }
 
     fn __repr__(&self) -> String {
@@ -95,13 +111,21 @@ impl ResourceDefinition {
     #[new]
     #[pyo3(signature = (uri, name, description, mime_type="text/plain".to_string()))]
     fn new(uri: String, name: String, description: String, mime_type: String) -> Self {
-        Self { uri, name, description, mime_type }
+        Self {
+            uri,
+            name,
+            description,
+            mime_type,
+        }
     }
 }
 
 /// MCP Resource Template definition.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "python-bindings", pyclass(name = "ResourceTemplateDefinition"))]
+#[cfg_attr(
+    feature = "python-bindings",
+    pyclass(name = "ResourceTemplateDefinition")
+)]
 pub struct ResourceTemplateDefinition {
     #[cfg_attr(feature = "python-bindings", pyo3(get, set))]
     #[serde(rename = "uriTemplate")]
@@ -121,7 +145,12 @@ impl ResourceTemplateDefinition {
     #[new]
     #[pyo3(signature = (uri_template, name, description, mime_type="text/plain".to_string()))]
     fn new(uri_template: String, name: String, description: String, mime_type: String) -> Self {
-        Self { uri_template, name, description, mime_type }
+        Self {
+            uri_template,
+            name,
+            description,
+            mime_type,
+        }
     }
 }
 
@@ -143,7 +172,11 @@ impl PromptArgument {
     #[new]
     #[pyo3(signature = (name, description, required=false))]
     fn new(name: String, description: String, required: bool) -> Self {
-        Self { name, description, required }
+        Self {
+            name,
+            description,
+            required,
+        }
     }
 }
 
