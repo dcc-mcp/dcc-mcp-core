@@ -1,8 +1,10 @@
 """Tests for SkillScanner, SkillMetadata, and parse_skill_md."""
 
+# Import built-in modules
 import os
 import tempfile
 
+# Import local modules
 import dcc_mcp_core
 
 

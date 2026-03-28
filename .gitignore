@@ -41,9 +41,14 @@ dist/
 *.pyc
 *.pyo
 *.pyd
+*.pdb
 .Python
 *PRD.md
 *.isorted
+
+# Rust / maturin build artifacts
+*.exp
+*.lib
 
 # AI IDE directories
 .agents/

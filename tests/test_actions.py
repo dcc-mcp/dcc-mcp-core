@@ -1,5 +1,6 @@
 """Tests for ActionRegistry and EventBus."""
 
+# Import local modules
 import dcc_mcp_core
 
 

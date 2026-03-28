@@ -1,5 +1,6 @@
 """Tests for MCP protocol types — full getter/setter coverage."""
 
+# Import local modules
 import dcc_mcp_core
 
 

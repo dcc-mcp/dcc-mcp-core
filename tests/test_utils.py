@@ -1,8 +1,10 @@
 """Tests for utility functions: filesystem, type wrappers, constants."""
 
+# Import built-in modules
 import os
 import tempfile
 
+# Import local modules
 import dcc_mcp_core
 
 
@@ -67,10 +69,17 @@ class TestFilesystem:
         assert "dcc-mcp" in path
 
     def test_get_platform_dir_documents(self):
-        path = dcc_mcp_core.get_platform_dir("documents")
+        # Import third-party modules
+        import pytest
+
+        try:
+            path = dcc_mcp_core.get_platform_dir("documents")
+        except ValueError:
+            pytest.skip("documents directory not available on this platform")
         assert "dcc-mcp" in path
 
     def test_get_platform_dir_invalid(self):
+        # Import third-party modules
         import pytest
 
         with pytest.raises(ValueError):

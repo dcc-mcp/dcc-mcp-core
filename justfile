@@ -67,13 +67,13 @@ test-cov:
 
 # Lint Python code
 lint-py:
-    ruff check python/dcc_mcp_core/ tests/
+    ruff check python/dcc_mcp_core/ tests/ examples/
     isort --check-only python/dcc_mcp_core/ tests/
 
 # Fix Python lint issues
 lint-py-fix:
-    ruff check --fix python/dcc_mcp_core/ tests/
-    ruff format python/dcc_mcp_core/ tests/
+    ruff check --fix python/dcc_mcp_core/ tests/ examples/
+    ruff format python/dcc_mcp_core/ tests/ examples/
     isort python/dcc_mcp_core/ tests/
 
 # ── Unified commands (CI + local) ──

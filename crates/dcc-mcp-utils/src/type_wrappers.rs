@@ -25,7 +25,10 @@ impl BooleanWrapper {
         self.value
     }
     fn __repr__(&self) -> String {
-        format!("BooleanWrapper({})", self.value)
+        format!(
+            "BooleanWrapper({})",
+            if self.value { "True" } else { "False" }
+        )
     }
     fn __eq__(&self, other: &Bound<'_, PyAny>) -> bool {
         other

@@ -1,11 +1,11 @@
-//! SKILL.md loader — parse YAML frontmatter and enumerate scripts.
+//! SKILL.md loader — parse YAML frontmatter, enumerate scripts, and discover metadata/.
 
 #[cfg(feature = "python-bindings")]
 use pyo3::prelude::*;
 
 use dcc_mcp_models::SkillMetadata;
 use dcc_mcp_utils::constants::{
-    SKILL_METADATA_FILE, SKILL_SCRIPTS_DIR, SUPPORTED_SCRIPT_EXTENSIONS,
+    SKILL_METADATA_DIR, SKILL_METADATA_FILE, SKILL_SCRIPTS_DIR, SUPPORTED_SCRIPT_EXTENSIONS,
 };
 use std::path::Path;
 
@@ -53,6 +53,12 @@ pub fn parse_skill_md(skill_dir: &Path) -> Option<SkillMetadata> {
     meta.scripts = enumerate_scripts(skill_dir);
     meta.skill_path = skill_dir.to_string_lossy().to_string();
 
+    // Discover metadata/ directory files
+    meta.metadata_files = enumerate_metadata_files(skill_dir);
+
+    // Merge depends from metadata/depends.md if present
+    merge_depends_from_metadata(skill_dir, &mut meta);
+
     Some(meta)
 }
 
@@ -89,6 +95,58 @@ fn enumerate_scripts(skill_dir: &Path) -> Vec<String> {
     }
     scripts.sort();
     scripts
+}
+
+/// Enumerate .md files in the metadata/ subdirectory.
+fn enumerate_metadata_files(skill_dir: &Path) -> Vec<String> {
+    let metadata_dir = skill_dir.join(SKILL_METADATA_DIR);
+    if !metadata_dir.is_dir() {
+        return vec![];
+    }
+
+    let mut files = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&metadata_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() {
+                if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                    if ext.to_lowercase() == "md" {
+                        files.push(path.to_string_lossy().to_string());
+                    }
+                }
+            }
+        }
+    }
+    files.sort();
+    files
+}
+
+/// Parse metadata/depends.md and merge dependency names into meta.depends.
+///
+/// depends.md format: one dependency name per line (ignoring blank lines and # comments).
+fn merge_depends_from_metadata(skill_dir: &Path, meta: &mut SkillMetadata) {
+    let depends_path = skill_dir.join(SKILL_METADATA_DIR).join("depends.md");
+    if !depends_path.is_file() {
+        return;
+    }
+
+    let content = match std::fs::read_to_string(&depends_path) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        // Skip blank lines and comments
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        // Strip leading "- " for YAML-style lists
+        let dep_name = trimmed.strip_prefix("- ").unwrap_or(trimmed).trim();
+        if !dep_name.is_empty() && !meta.depends.contains(&dep_name.to_string()) {
+            meta.depends.push(dep_name.to_string());
+        }
+    }
 }
 
 /// Python wrapper for parse_skill_md.

@@ -31,6 +31,14 @@ pub struct SkillMetadata {
 
     #[serde(default = "default_version")]
     pub version: String,
+
+    /// Skill dependencies — names of other skills this skill requires.
+    #[serde(default)]
+    pub depends: Vec<String>,
+
+    /// Files discovered under the metadata/ directory (e.g. help.md, install.md).
+    #[serde(default)]
+    pub metadata_files: Vec<String>,
 }
 
 fn default_dcc() -> String {
@@ -45,7 +53,7 @@ fn default_version() -> String {
 #[pymethods]
 impl SkillMetadata {
     #[new]
-    #[pyo3(signature = (name, description="".to_string(), tools=vec![], dcc="python".to_string(), tags=vec![], scripts=vec![], skill_path="".to_string(), version="1.0.0".to_string()))]
+    #[pyo3(signature = (name, description="".to_string(), tools=vec![], dcc="python".to_string(), tags=vec![], scripts=vec![], skill_path="".to_string(), version="1.0.0".to_string(), depends=vec![], metadata_files=vec![]))]
     fn new(
         name: String,
         description: String,
@@ -55,6 +63,8 @@ impl SkillMetadata {
         scripts: Vec<String>,
         skill_path: String,
         version: String,
+        depends: Vec<String>,
+        metadata_files: Vec<String>,
     ) -> Self {
         Self {
             name,
@@ -65,6 +75,8 @@ impl SkillMetadata {
             scripts,
             skill_path,
             version,
+            depends,
+            metadata_files,
         }
     }
 
@@ -132,6 +144,22 @@ impl SkillMetadata {
     fn set_version(&mut self, v: String) {
         self.version = v;
     }
+    #[getter]
+    fn get_depends(&self) -> Vec<String> {
+        self.depends.clone()
+    }
+    #[setter]
+    fn set_depends(&mut self, v: Vec<String>) {
+        self.depends = v;
+    }
+    #[getter]
+    fn get_metadata_files(&self) -> Vec<String> {
+        self.metadata_files.clone()
+    }
+    #[setter]
+    fn set_metadata_files(&mut self, v: Vec<String>) {
+        self.metadata_files = v;
+    }
 
     fn __repr__(&self) -> String {
         format!("SkillMetadata(name={:?}, dcc={:?})", self.name, self.dcc)
@@ -157,5 +185,19 @@ tags:
         assert_eq!(meta.dcc, "maya");
         assert_eq!(meta.tags, vec!["geometry", "creation"]);
         assert_eq!(meta.version, "1.0.0"); // default
+        assert!(meta.depends.is_empty());
+        assert!(meta.metadata_files.is_empty());
+    }
+
+    #[test]
+    fn test_skill_metadata_with_depends() {
+        let yaml = r#"
+name: pipeline
+depends:
+  - geometry-tools
+  - usd-tools
+"#;
+        let meta: SkillMetadata = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(meta.depends, vec!["geometry-tools", "usd-tools"]);
     }
 }

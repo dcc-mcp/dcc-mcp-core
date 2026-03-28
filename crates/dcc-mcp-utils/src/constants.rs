@@ -14,6 +14,7 @@ pub const ENV_ACTIONS_DIR: &str = "DCC_MCP_ACTIONS_DIR";
 pub const SKILL_METADATA_FILE: &str = "SKILL.md";
 pub const ENV_SKILL_PATHS: &str = "DCC_MCP_SKILL_PATHS";
 pub const SKILL_SCRIPTS_DIR: &str = "scripts";
+pub const SKILL_METADATA_DIR: &str = "metadata";
 pub const DEFAULT_DCC: &str = "python";
 
 /// Supported script extensions → script type name.
