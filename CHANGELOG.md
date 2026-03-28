@@ -1,3 +1,16 @@
+## v0.10.0 (2026-03-28)
+
+### Feat
+
+- replace pre-commit with vx prek and add justfile
+- add Skills system for zero-code script registration as MCP tools
+
+### Fix
+
+- resolve lint errors in test files (isort, ruff format, D106/F841)
+- add cross-platform shell support to justfile
+- resolve isort issues and migrate CI to vx
+
 ## v0.9.0 (2026-03-24)
 
 ### Feat
