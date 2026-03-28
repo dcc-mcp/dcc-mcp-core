@@ -118,7 +118,7 @@ known_first_party = ["dcc_mcp_core"]
 
 [tool.nox]
 sessions = ["lint", "pytest"]
-python = ["3.10", "3.11", "3.12", "3.13"]
+python = ["3.11", "3.12", "3.13"]
 reuse_venv = true
 
 [tool.nox.session.lint]
