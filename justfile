@@ -1,6 +1,10 @@
 # dcc-mcp-core development commands
 # Usage: vx just <recipe>
 
+# Cross-platform shell configuration
+set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
+set shell := ["sh", "-cu"]
+
 # Default recipe - show available commands
 default:
     @just --list
@@ -50,5 +54,14 @@ build:
     vx uv build
 
 # Clean build artifacts
+[unix]
 clean:
     rm -rf dist build *.egg-info .nox .coverage coverage.xml
+
+[windows]
+clean:
+    if (Test-Path dist) { Remove-Item -Recurse -Force dist }
+    if (Test-Path build) { Remove-Item -Recurse -Force build }
+    if (Test-Path .nox) { Remove-Item -Recurse -Force .nox }
+    Get-ChildItem -Filter *.egg-info -Directory | Remove-Item -Recurse -Force
+    Remove-Item -ErrorAction SilentlyContinue -Force .coverage, coverage.xml
