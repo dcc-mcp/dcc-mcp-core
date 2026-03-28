@@ -40,7 +40,7 @@ jobs:
           restore-keys: ${{ runner.os }}-cargo-
 
       - name: Install just
-        uses: extractions/setup-just@v2
+        uses: extractions/setup-just@v3
 
       - name: Preflight (check + clippy + fmt + test)
         run: just preflight
@@ -67,7 +67,7 @@ jobs:
         shell: bash
 
       - name: Install just
-        uses: extractions/setup-just@v2
+        uses: extractions/setup-just@v3
 
       - name: Build wheel
         run: just build
@@ -108,7 +108,7 @@ jobs:
         shell: bash
 
       - name: Install just
-        uses: extractions/setup-just@v2
+        uses: extractions/setup-just@v3
 
       - name: Test
         run: just test
@@ -123,7 +123,7 @@ jobs:
         with:
           python-version: "3.14"
       - name: Install just
-        uses: extractions/setup-just@v2
+        uses: extractions/setup-just@v3
       - name: Install linters
         run: pip install ruff isort
       - name: Lint
