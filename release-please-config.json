@@ -5,7 +5,7 @@
   "packages": {
     ".": {
       "package-name": "dcc-mcp-core",
-      "component": "dcc-mcp-core",
+      "include-component-in-tag": false,
       "release-type": "python",
       "changelog-path": "CHANGELOG.md",
       "bump-minor-pre-major": true,
