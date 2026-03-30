@@ -62,3 +62,6 @@ dist/
 .trae/
 .windsurf/
 CODEBUDDY.md
+
+# Harbor tasks (local only, not committed)
+tasks/
