@@ -6,10 +6,11 @@ use std::time::SystemTime;
 use uuid::Uuid;
 
 /// Status of a discovered DCC service instance.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ServiceStatus {
     /// Service is available and accepting connections.
+    #[default]
     Available,
     /// Service is busy (processing a request).
     Busy,
@@ -17,12 +18,6 @@ pub enum ServiceStatus {
     Unreachable,
     /// Service is shutting down.
     ShuttingDown,
-}
-
-impl Default for ServiceStatus {
-    fn default() -> Self {
-        Self::Available
-    }
 }
 
 impl std::fmt::Display for ServiceStatus {
