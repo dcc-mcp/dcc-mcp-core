@@ -1,0 +1,29 @@
+[package]
+name = "dcc-mcp-transport"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Async transport layer for the DCC-MCP ecosystem (connection pool, service discovery)"
+
+[dependencies]
+pyo3 = { workspace = true, optional = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+dashmap = { workspace = true }
+parking_lot = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+tokio = { workspace = true }
+rmp-serde = { workspace = true }
+
+[dev-dependencies]
+rstest = "0.26"
+tempfile = "3.14"
+tokio = { workspace = true, features = ["test-util"] }
+
+[features]
+default = []
+python-bindings = ["pyo3"]

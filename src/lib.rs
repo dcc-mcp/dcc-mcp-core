@@ -11,6 +11,7 @@ pub use dcc_mcp_actions as actions;
 pub use dcc_mcp_models as models;
 pub use dcc_mcp_protocols as protocols;
 pub use dcc_mcp_skills as skills;
+pub use dcc_mcp_transport as transport;
 pub use dcc_mcp_utils as utils;
 
 /// Python module initialization — `dcc_mcp_core._core`
@@ -47,6 +48,9 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<dcc_mcp_skills::SkillScanner>()?;
     m.add_function(wrap_pyfunction!(dcc_mcp_skills::py_parse_skill_md, m)?)?;
     m.add_function(wrap_pyfunction!(dcc_mcp_skills::py_scan_skill_paths, m)?)?;
+
+    // ── Transport ──
+    m.add_class::<dcc_mcp_transport::PyTransportManager>()?;
 
     // ── Utils: filesystem ──
     m.add_function(wrap_pyfunction!(

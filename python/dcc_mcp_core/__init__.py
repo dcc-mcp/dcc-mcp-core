@@ -29,6 +29,7 @@ from dcc_mcp_core._core import SkillScanner
 from dcc_mcp_core._core import StringWrapper
 from dcc_mcp_core._core import ToolAnnotations
 from dcc_mcp_core._core import ToolDefinition
+from dcc_mcp_core._core import TransportManager
 from dcc_mcp_core._core import error_result
 from dcc_mcp_core._core import from_exception
 from dcc_mcp_core._core import get_actions_dir
@@ -75,6 +76,7 @@ __all__ = [
     "StringWrapper",
     "ToolAnnotations",
     "ToolDefinition",
+    "TransportManager",
     "error_result",
     "from_exception",
     "get_actions_dir",
