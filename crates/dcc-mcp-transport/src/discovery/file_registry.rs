@@ -99,24 +99,32 @@ impl FileRegistry {
 
     /// Update heartbeat for a service.
     pub fn heartbeat(&self, key: &ServiceKey) -> TransportResult<bool> {
-        if let Some(mut entry) = self.services.get_mut(key) {
+        let found = if let Some(mut entry) = self.services.get_mut(key) {
             entry.value_mut().touch();
-            self.flush_to_file()?;
-            Ok(true)
+            true
         } else {
-            Ok(false)
+            false
+        };
+        // flush_to_file calls list_all which iterates the DashMap;
+        // the write guard from get_mut must be dropped first to avoid deadlock.
+        if found {
+            self.flush_to_file()?;
         }
+        Ok(found)
     }
 
     /// Update status for a service.
     pub fn update_status(&self, key: &ServiceKey, status: ServiceStatus) -> TransportResult<bool> {
-        if let Some(mut entry) = self.services.get_mut(key) {
+        let found = if let Some(mut entry) = self.services.get_mut(key) {
             entry.value_mut().status = status;
-            self.flush_to_file()?;
-            Ok(true)
+            true
         } else {
-            Ok(false)
+            false
+        };
+        if found {
+            self.flush_to_file()?;
         }
+        Ok(found)
     }
 
     /// Remove stale services (no heartbeat within timeout).
