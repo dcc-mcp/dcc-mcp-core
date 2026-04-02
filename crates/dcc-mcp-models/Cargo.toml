@@ -9,10 +9,10 @@ description = "Core data models for the DCC-MCP ecosystem (ActionResultModel, Sk
 
 [dependencies]
 pyo3 = { workspace = true, optional = true }
+dcc-mcp-utils = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-serde_yaml = { workspace = true }
 
 [features]
 default = []
-python-bindings = ["pyo3"]
+python-bindings = ["pyo3", "dcc-mcp-utils/python-bindings"]

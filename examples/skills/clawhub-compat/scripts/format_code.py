@@ -1,51 +1,57 @@
 """Format code using prettier — demonstrates wrapping a Node.js CLI tool."""
 
+from __future__ import annotations
+
+import argparse
 import json
 import subprocess
 import sys
 
 
-def main():
+def main() -> None:
     """Format a file using prettier."""
-    input_file = None
-    write = False
-
-    args = sys.argv[1:]
-    for i, arg in enumerate(args):
-        if arg == "--input" and i + 1 < len(args):
-            input_file = args[i + 1]
-        elif arg == "--write":
-            write = True
-
-    if not input_file:
-        print(json.dumps({"success": False, "message": "Missing --input <file>"}))
-        sys.exit(1)
+    parser = argparse.ArgumentParser(description="Format code using prettier.")
+    parser.add_argument("--input", required=True, dest="input_file")
+    parser.add_argument("--write", action="store_true")
+    args = parser.parse_args()
 
     cmd = ["prettier"]
-    if write:
+    if args.write:
         cmd.append("--write")
-    cmd.append(input_file)
+    cmd.append(args.input_file)
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(cmd, capture_output=True, timeout=30, encoding="utf-8")
         if result.returncode != 0:
-            print(json.dumps({
-                "success": False,
-                "message": f"prettier failed: {result.stderr.strip()}",
-            }))
+            print(
+                json.dumps(
+                    {
+                        "success": False,
+                        "message": f"prettier failed: {result.stderr.strip()}",
+                    }
+                )
+            )
             sys.exit(1)
 
-        print(json.dumps({
-            "success": True,
-            "message": f"Formatted {input_file}" + (" (written)" if write else " (dry-run)"),
-            "context": {"file": input_file, "written": write},
-        }))
+        print(
+            json.dumps(
+                {
+                    "success": True,
+                    "message": f"Formatted {args.input_file}" + (" (written)" if args.write else " (dry-run)"),
+                    "context": {"file": args.input_file, "written": args.write},
+                }
+            )
+        )
 
     except FileNotFoundError:
-        print(json.dumps({
-            "success": False,
-            "message": "prettier not found. Install: npm install -g prettier",
-        }))
+        print(
+            json.dumps(
+                {
+                    "success": False,
+                    "message": "prettier not found. Install: npm install -g prettier",
+                }
+            )
+        )
         sys.exit(1)
 
 

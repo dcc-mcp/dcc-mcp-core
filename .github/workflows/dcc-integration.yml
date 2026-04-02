@@ -1,0 +1,246 @@
+﻿name: DCC Integration
+
+# Runs DCC-specific headless integration tests.
+# Each job installs the corresponding open-source DCC and runs the
+# relevant subset of tests/test_integration_dcc.py.
+#
+# Triggered by:
+#   - Push / PR to main (same as core CI, but independent)
+#   - Manual dispatch (useful for running a subset via workflow_dispatch)
+#   - workflow_call (invoked from release.yml or other workflows)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      dcc:
+        description: "DCC to test (blender/openscad/inkscape/godot/cross/all)"
+        required: false
+        default: "all"
+  workflow_call:
+
+concurrency:
+  group: dcc-integration-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ── Shared: build the Linux wheel (reused by all DCC jobs) ──
+  build-wheel:
+    name: Build Wheel (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - uses: extractions/setup-just@v3
+      - name: Cache Cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ubuntu-cargo-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: ubuntu-cargo-
+      - name: Install maturin
+        run: pip install maturin
+        shell: bash
+      - name: Build wheel
+        run: just build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-dcc-integration
+          path: target/wheels/*.whl
+          retention-days: 1
+
+  # ── Blender (headless --background) ──
+  # Tests against multiple Blender versions to cover different embedded Python versions:
+  #   Blender 2.83 LTS → Python 3.7 (oldest supported)
+  #   Blender 3.6 LTS  → Python 3.10
+  #   apt latest       → current stable
+  blender:
+    name: Blender ${{ matrix.blender-version }}
+    needs: [build-wheel]
+    if: github.event.inputs.dcc == '' || github.event.inputs.dcc == 'all' || github.event.inputs.dcc == 'blender'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          # Blender 2.83.20 LTS — embeds Python 3.7.7
+          - blender-version: "2.83.20"
+            blender-url: "https://download.blender.org/release/Blender2.83/blender-2.83.20-linux-x64.tar.xz"
+            blender-dir: "blender-2.83.20-linux-x64"
+          # Blender 3.6.21 LTS — embeds Python 3.10.13
+          - blender-version: "3.6.21"
+            blender-url: "https://download.blender.org/release/Blender3.6/blender-3.6.21-linux-x64.tar.xz"
+            blender-dir: "blender-3.6.21-linux-x64"
+          # Blender from apt (latest available in Ubuntu repos)
+          - blender-version: "apt-latest"
+            blender-url: ""
+            blender-dir: ""
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Install Blender from tarball
+        if: matrix.blender-url != ''
+        run: |
+          wget -q "${{ matrix.blender-url }}" -O /tmp/blender.tar.xz
+          tar -xf /tmp/blender.tar.xz -C /opt
+          sudo ln -sf /opt/${{ matrix.blender-dir }}/blender /usr/local/bin/blender
+        shell: bash
+
+      - name: Install Blender from apt
+        if: matrix.blender-url == ''
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y blender
+        shell: bash
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheel-dcc-integration
+          path: dist/
+      - name: Install wheel + pytest
+        run: pip install --no-index --find-links dist dcc-mcp-core && pip install pytest
+        shell: bash
+      - name: Verify Blender
+        run: blender --version
+      - name: Test
+        run: pytest tests/test_integration_dcc.py -v --tb=short -k "Blender"
+
+
+
+  # ── FreeCAD (headless --console) ──
+  # TODO: disabled — FreeCAD snap crashes in GitHub Actions (core dumped).
+  # Re-enable once a stable CI install method is found (AppImage or PPA).
+  # freecad:
+  #   name: FreeCAD
+  #   needs: [build-wheel]
+  #   if: github.event.inputs.dcc == 'freecad'
+  #   ...
+
+
+
+  # ── OpenSCAD (CLI geometry compiler) ──
+  openscad:
+    name: OpenSCAD
+    needs: [build-wheel]
+    if: github.event.inputs.dcc == '' || github.event.inputs.dcc == 'all' || github.event.inputs.dcc == 'openscad'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Install OpenSCAD + Xvfb
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y openscad xvfb
+        shell: bash
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheel-dcc-integration
+          path: dist/
+      - name: Install wheel + pytest
+        run: pip install --no-index --find-links dist dcc-mcp-core; pip install pytest
+        shell: bash
+      - name: Verify OpenSCAD
+        run: openscad --version
+      - name: Test (with virtual display for PNG tests)
+        run: xvfb-run -a pytest tests/test_integration_dcc.py -v --tb=short -k "OpenSCAD"
+
+  # ── Inkscape (headless --actions) ──
+  inkscape:
+    name: Inkscape
+    needs: [build-wheel]
+    if: github.event.inputs.dcc == '' || github.event.inputs.dcc == 'all' || github.event.inputs.dcc == 'inkscape'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Install Inkscape
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y inkscape
+        shell: bash
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheel-dcc-integration
+          path: dist/
+      - name: Install wheel + pytest
+        run: pip install --no-index --find-links dist dcc-mcp-core; pip install pytest
+        shell: bash
+      - name: Verify Inkscape
+        run: inkscape --version
+      - name: Test
+        run: pytest tests/test_integration_dcc.py -v --tb=short -k "Inkscape"
+
+  # ── Godot 4 (headless --headless --script) ──
+  godot:
+    name: Godot
+    needs: [build-wheel]
+    if: github.event.inputs.dcc == '' || github.event.inputs.dcc == 'all' || github.event.inputs.dcc == 'godot'
+    runs-on: ubuntu-latest
+    env:
+      GODOT_VERSION: "4.4.1"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Install Godot (headless)
+        run: |
+          wget -q \
+            "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}-stable/Godot_v${GODOT_VERSION}-stable_linux.x86_64.zip" \
+            -O /tmp/godot.zip
+          unzip -q /tmp/godot.zip -d /tmp/godot
+          sudo mv /tmp/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64 /usr/local/bin/godot
+          sudo chmod +x /usr/local/bin/godot
+        shell: bash
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheel-dcc-integration
+          path: dist/
+      - name: Install wheel + pytest
+        run: pip install --no-index --find-links dist dcc-mcp-core; pip install pytest
+        shell: bash
+      - name: Verify Godot
+        run: godot --version
+      - name: Test
+        run: pytest tests/test_integration_dcc.py -v --tb=short -k "Godot"
+
+  # ── Cross-DCC pipeline (no DCC binary required) ──
+  cross-dcc:
+    name: Cross-DCC Pipeline
+    needs: [build-wheel]
+    if: github.event.inputs.dcc == '' || github.event.inputs.dcc == 'all' || github.event.inputs.dcc == 'cross'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - uses: actions/download-artifact@v4
+        with:
+          name: wheel-dcc-integration
+          path: dist/
+      - name: Install wheel + pytest
+        run: pip install --no-index --find-links dist dcc-mcp-core; pip install pytest
+        shell: bash
+      - name: Test
+        run: pytest tests/test_integration_dcc.py::TestCrossDCCPipeline -v --tb=short

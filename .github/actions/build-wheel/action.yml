@@ -1,4 +1,4 @@
-name: 'Build Wheel'
+﻿name: 'Build Wheel'
 description: 'Build dcc-mcp-core wheel with maturin'
 
 inputs:
@@ -52,7 +52,7 @@ runs:
           ~/.cargo/registry/cache/
           ~/.cargo/git/db/
           target/
-        key: ${{ runner.os }}-${{ inputs.target || 'default' }}-py${{ inputs.python-version }}-cargo-wheel-${{ hashFiles('Cargo.lock') }}
+        key: ${{ runner.os }}-${{ inputs.target || 'default' }}-py${{ inputs.python-version }}-cargo-wheel-${{ hashFiles('**/Cargo.toml') }}
         restore-keys: |
           ${{ runner.os }}-${{ inputs.target || 'default' }}-cargo-wheel-
 
@@ -76,9 +76,7 @@ runs:
           source test-env/bin/activate
         fi
 
-        wheel_file=$(ls dist/*.whl | head -1)
-        echo "Installing: $wheel_file"
-        pip install "$wheel_file" --force-reinstall --no-deps
+        pip install --no-index --find-links dist dcc-mcp-core --force-reinstall --no-deps
 
         python -c "
         import dcc_mcp_core
@@ -92,7 +90,7 @@ runs:
         "
 
     - name: Upload wheel
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@v4
       with:
         name: ${{ inputs.artifact-name }}
         path: dist/

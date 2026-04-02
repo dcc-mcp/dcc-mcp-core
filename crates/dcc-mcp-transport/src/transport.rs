@@ -1,14 +1,14 @@
 //! TransportManager — main entry point for the transport layer.
 
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use uuid::Uuid;
 
 use crate::config::TransportConfig;
-use crate::discovery::types::{ServiceEntry, ServiceKey, ServiceStatus};
 use crate::discovery::ServiceRegistry;
+use crate::discovery::types::{ServiceEntry, ServiceKey, ServiceStatus};
 use crate::error::{TransportError, TransportResult};
 use crate::pool::ConnectionPool;
 use crate::session::{Session, SessionManager};

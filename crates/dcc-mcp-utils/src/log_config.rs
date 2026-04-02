@@ -1,14 +1,18 @@
 //! Logging configuration using Rust `tracing` — replaces loguru.
 
+use crate::constants::{DEFAULT_LOG_LEVEL, ENV_LOG_LEVEL};
 use tracing_subscriber::EnvFilter;
 
 static INIT: std::sync::Once = std::sync::Once::new();
 
 /// Initialize the tracing subscriber (called once from Python module init).
+///
+/// Falls back to [`DEFAULT_LOG_LEVEL`] when the `ENV_LOG_LEVEL` environment
+/// variable is not set or cannot be parsed.
 pub fn init_logging() {
     INIT.call_once(|| {
-        let filter =
-            EnvFilter::try_from_env("MCP_LOG_LEVEL").unwrap_or_else(|_| EnvFilter::new("warn"));
+        let filter = EnvFilter::try_from_env(ENV_LOG_LEVEL)
+            .unwrap_or_else(|_| EnvFilter::new(DEFAULT_LOG_LEVEL));
 
         tracing_subscriber::fmt()
             .with_env_filter(filter)

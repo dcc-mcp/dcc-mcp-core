@@ -11,14 +11,13 @@ authors = [
 ]
 readme = "README.md"
 license = {text = "MIT"}
-requires-python = ">=3.7"
+requires-python = ">=3.8"
 keywords = ["dcc", "mcp", "maya", "blender", "houdini", "rust", "pyo3"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.7",
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
@@ -30,24 +29,17 @@ classifiers = [
     "Topic :: Multimedia :: Graphics :: 3D Modeling",
 ]
 
-# ZERO Python dependencies for 3.8+!
-dependencies = [
-    "typing_extensions>=4.0.0; python_version<'3.8'"
-]
+dependencies = []
 
 [project.optional-dependencies]
 test = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
-    "pytest-mock>=3.0",
-    "pytest-asyncio>=0.21.0",
-    "pyfakefs>=5.0",
 ]
 dev = [
     "dcc-mcp-core[test]",
     "ruff>=0.8.0",
     "mypy>=1.0",
-    "isort>=5.0",
     "maturin>=1.0",
 ]
 
@@ -59,30 +51,18 @@ Issues = "https://github.com/loonghao/dcc-mcp-core/issues"
 [tool.maturin]
 python-source = "python"
 module-name = "dcc_mcp_core._core"
-# Note: abi3-py38 for Python 3.8+, Python 3.7 requires separate non-abi3 build
-features = ["python-bindings", "pyo3/extension-module", "abi3-py38"]
+features = ["python-bindings", "ext-module", "abi3-py38"]
 bindings = "pyo3"
 
 [tool.mypy]
-python_version = "3.7"
+python_version = "3.8"
 strict = true
-warn_return_any = true
-warn_unused_configs = true
-disallow_untyped_defs = true
-disallow_incomplete_defs = true
-check_untyped_defs = true
-disallow_untyped_decorators = true
-no_implicit_optional = true
-warn_redundant_casts = true
-warn_unused_ignores = true
-warn_no_return = true
-warn_unreachable = true
 ignore_missing_imports = true
 disable_error_code = ["type-arg", "misc", "no-any-return"]
 
 [tool.ruff]
 line-length = 120
-target-version = "py37"
+target-version = "py38"
 src = ["python/dcc_mcp_core", "tests", "examples"]
 
 [tool.ruff.lint]
@@ -90,17 +70,24 @@ select = [
     "E", # pycodestyle
     "F", # pyflakes
     "D", # pydocstyle
+    "I", # isort (replaces standalone isort)
     "UP", # pyupgrade
     "RUF", # ruff-specific rules
+    "PTH", # pathlib migration hints
+    "SIM", # simplification
+    "B", # bugbear
 ]
-ignore = ["D203", "D213", "ARG001", "D107", "D105", "D102", "F811", "I001"]
+ignore = ["D203", "D213", "D107", "D105", "D102"]
+
+[tool.ruff.lint.isort]
+force-single-line = true
+force-sort-within-sections = true
+known-first-party = ["dcc_mcp_core"]
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
-"tests/*.py" = ["ARG001", "F401", "F811", "D100", "D101", "D103", "D105", "D106", "D107", "D102", "E501", "F841", "I001"]
+"tests/*.py" = ["F401", "F811", "D100", "D101", "D103", "D106", "E501"]
 "examples/**/*.py" = ["D100", "D101", "D103", "D104", "E402", "INP001"]
-"nox_actions/*.py" = ["D100", "D103", "D104", "E402"]
-"noxfile.py" = ["D100", "E402", "D401", "D400"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -108,24 +95,10 @@ indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "auto"
 
-[tool.isort]
-import_heading_future = "Import future modules"
-import_heading_stdlib = "Import built-in modules"
-import_heading_thirdparty = "Import third-party modules"
-import_heading_firstparty = "Import local modules"
-profile = "black"
-line_length = 120
-force_sort_within_sections = true
-force_single_line = true
-sections = ["FUTURE", "STDLIB", "THIRDPARTY", "FIRSTPARTY", "LOCALFOLDER"]
-known_first_party = ["dcc_mcp_core"]
-
 [tool.pytest.ini_options]
 minversion = "7.0"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
-
-[tool.nox]
-sessions = ["lint", "pytest"]
-python = ["3.11", "3.12", "3.13"]
-reuse_venv = true
+markers = [
+    "dcc: marks tests that require a DCC application (e.g., Blender)",
+]

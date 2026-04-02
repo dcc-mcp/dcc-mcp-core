@@ -4,33 +4,27 @@ This script demonstrates a typical DCC action that creates geometry.
 In a real Maya environment, it would use `maya.cmds.polySphere`.
 """
 
+from __future__ import annotations
+
+import argparse
 import json
-import sys
 
 
-def main():
+def main() -> None:
     """Create a polygon sphere with configurable parameters."""
-    radius = 1.0
-    subdivisions = 20
-    name = "pSphere1"
-
-    # Parse arguments (simplified for example)
-    args = sys.argv[1:]
-    for i, arg in enumerate(args):
-        if arg == "--radius" and i + 1 < len(args):
-            radius = float(args[i + 1])
-        elif arg == "--subdivisions" and i + 1 < len(args):
-            subdivisions = int(args[i + 1])
-        elif arg == "--name" and i + 1 < len(args):
-            name = args[i + 1]
+    parser = argparse.ArgumentParser(description="Create a polygon sphere.")
+    parser.add_argument("--radius", type=float, default=1.0)
+    parser.add_argument("--subdivisions", type=int, default=20)
+    parser.add_argument("--name", default="pSphere1")
+    args = parser.parse_args()
 
     result = {
         "success": True,
-        "message": f"Created sphere '{name}' with radius={radius}, subdivisions={subdivisions}",
+        "message": f"Created sphere '{args.name}' with radius={args.radius}, subdivisions={args.subdivisions}",
         "context": {
-            "object_name": name,
-            "radius": radius,
-            "subdivisions": subdivisions,
+            "object_name": args.name,
+            "radius": args.radius,
+            "subdivisions": args.subdivisions,
         },
     }
     print(json.dumps(result))

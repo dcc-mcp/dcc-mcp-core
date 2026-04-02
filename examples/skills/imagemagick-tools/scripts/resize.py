@@ -1,71 +1,76 @@
 """Resize images using ImageMagick."""
 
+from __future__ import annotations
+
+import argparse
 import json
+from pathlib import Path
 import subprocess
 import sys
 
 
-def main():
+def main() -> None:
     """Resize an image with configurable dimensions and fit mode."""
-    input_file = None
-    output_file = None
-    width = 1024
-    height = 1024
-    fit = "contain"  # contain, cover, exact
+    parser = argparse.ArgumentParser(description="Resize images using ImageMagick.")
+    parser.add_argument("--input", required=True, dest="input_file")
+    parser.add_argument("--output", default=None, dest="output_file")
+    parser.add_argument("--width", type=int, default=1024)
+    parser.add_argument("--height", type=int, default=1024)
+    parser.add_argument("--fit", default="contain", choices=["contain", "cover", "exact"])
+    args = parser.parse_args()
 
-    args = sys.argv[1:]
-    for i, arg in enumerate(args):
-        if arg == "--input" and i + 1 < len(args):
-            input_file = args[i + 1]
-        elif arg == "--output" and i + 1 < len(args):
-            output_file = args[i + 1]
-        elif arg == "--width" and i + 1 < len(args):
-            width = int(args[i + 1])
-        elif arg == "--height" and i + 1 < len(args):
-            height = int(args[i + 1])
-        elif arg == "--fit" and i + 1 < len(args):
-            fit = args[i + 1]
-
-    if not input_file:
-        print(json.dumps({"success": False, "message": "Missing --input"}))
-        sys.exit(1)
-
+    output_file = args.output_file
     if not output_file:
-        output_file = input_file.rsplit(".", 1)[0] + f"_{width}x{height}." + input_file.rsplit(".", 1)[-1]
+        p = Path(args.input_file)
+        output_file = str(p.with_name(f"{p.stem}_{args.width}x{args.height}{p.suffix}"))
 
-    # ImageMagick geometry flags
     geometry_map = {
-        "contain": f"{width}x{height}",       # fit within, preserve aspect ratio
-        "cover": f"{width}x{height}^",         # fill area, may crop
-        "exact": f"{width}x{height}!",         # exact size, ignore aspect ratio
+        "contain": f"{args.width}x{args.height}",
+        "cover": f"{args.width}x{args.height}^",
+        "exact": f"{args.width}x{args.height}!",
     }
-    geometry = geometry_map.get(fit, f"{width}x{height}")
+    geometry = geometry_map[args.fit]
 
-    cmd = ["magick", input_file, "-resize", geometry, output_file]
+    cmd = ["magick", args.input_file, "-resize", geometry, output_file]
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        result = subprocess.run(cmd, capture_output=True, timeout=60, encoding="utf-8")
         if result.returncode != 0:
-            print(json.dumps({
-                "success": False,
-                "message": f"Resize failed: {result.stderr.strip()}",
-            }))
+            print(
+                json.dumps(
+                    {
+                        "success": False,
+                        "message": f"Resize failed: {result.stderr.strip()}",
+                    }
+                )
+            )
             sys.exit(1)
 
-        print(json.dumps({
-            "success": True,
-            "message": f"Resized {input_file} -> {output_file} ({width}x{height}, {fit})",
-            "context": {
-                "input": input_file, "output": output_file,
-                "width": width, "height": height, "fit": fit,
-            },
-        }))
+        print(
+            json.dumps(
+                {
+                    "success": True,
+                    "message": f"Resized {args.input_file} -> {output_file} ({args.width}x{args.height}, {args.fit})",
+                    "context": {
+                        "input": args.input_file,
+                        "output": output_file,
+                        "width": args.width,
+                        "height": args.height,
+                        "fit": args.fit,
+                    },
+                }
+            )
+        )
 
     except FileNotFoundError:
-        print(json.dumps({
-            "success": False,
-            "message": "ImageMagick not found. Install with: brew install imagemagick",
-        }))
+        print(
+            json.dumps(
+                {
+                    "success": False,
+                    "message": "ImageMagick not found. Install with: brew install imagemagick",
+                }
+            )
+        )
         sys.exit(1)
 
 

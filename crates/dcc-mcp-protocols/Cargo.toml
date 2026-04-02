@@ -9,9 +9,12 @@ description = "MCP protocol type definitions for the DCC-MCP ecosystem"
 
 [dependencies]
 pyo3 = { workspace = true, optional = true }
+dcc-mcp-utils = { workspace = true }
 serde = { workspace = true }
-serde_json = { workspace = true }
 
 [features]
 default = []
-python-bindings = ["pyo3"]
+python-bindings = ["pyo3", "dcc-mcp-utils/python-bindings"]
+
+[dev-dependencies]
+serde_json = { workspace = true }

@@ -1,10 +1,12 @@
 """Hello World skill script — prints a greeting message."""
 
+from __future__ import annotations
+
 import json
 import sys
 
 
-def main():
+def main() -> None:
     """Entry point for the greet action."""
     name = "World"
     if len(sys.argv) > 1:

@@ -1,35 +1,28 @@
 """Validate USD files using usdchecker compliance rules."""
 
+from __future__ import annotations
+
+import argparse
 import json
 import subprocess
 import sys
 
 
-def main():
+def main() -> None:
     """Run usdchecker on a USD file."""
-    input_file = None
-    strict = False
-
-    args = sys.argv[1:]
-    for i, arg in enumerate(args):
-        if arg == "--input" and i + 1 < len(args):
-            input_file = args[i + 1]
-        elif arg == "--strict":
-            strict = True
-
-    if not input_file:
-        print(json.dumps({"success": False, "message": "Missing --input <usd_file>"}))
-        sys.exit(1)
+    parser = argparse.ArgumentParser(description="Validate USD files.")
+    parser.add_argument("--input", required=True, dest="input_file")
+    parser.add_argument("--strict", action="store_true")
+    args = parser.parse_args()
 
     cmd = ["usdchecker"]
-    if strict:
+    if args.strict:
         cmd.append("--strict")
-    cmd.append(input_file)
+    cmd.append(args.input_file)
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        result = subprocess.run(cmd, capture_output=True, timeout=120, encoding="utf-8")
 
-        # usdchecker returns 0 for valid, non-zero for issues
         issues = []
         for line in result.stdout.splitlines() + result.stderr.splitlines():
             line = line.strip()
@@ -38,23 +31,31 @@ def main():
 
         is_valid = result.returncode == 0 and len(issues) == 0
 
-        print(json.dumps({
-            "success": True,
-            "message": f"{'Valid' if is_valid else 'Issues found'}: {input_file} ({len(issues)} issues)",
-            "context": {
-                "file": input_file,
-                "valid": is_valid,
-                "issue_count": len(issues),
-                "issues": issues[:20],
-                "strict_mode": strict,
-            },
-        }))
+        print(
+            json.dumps(
+                {
+                    "success": True,
+                    "message": f"{'Valid' if is_valid else 'Issues found'}: {args.input_file} ({len(issues)} issues)",
+                    "context": {
+                        "file": args.input_file,
+                        "valid": is_valid,
+                        "issue_count": len(issues),
+                        "issues": issues[:20],
+                        "strict_mode": args.strict,
+                    },
+                }
+            )
+        )
 
     except FileNotFoundError:
-        print(json.dumps({
-            "success": False,
-            "message": "usdchecker not found. Install OpenUSD: pip install usd-core",
-        }))
+        print(
+            json.dumps(
+                {
+                    "success": False,
+                    "message": "usdchecker not found. Install OpenUSD: pip install usd-core",
+                }
+            )
+        )
         sys.exit(1)
 
 

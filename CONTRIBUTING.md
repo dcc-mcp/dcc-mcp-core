@@ -30,7 +30,7 @@ vx just test
    vx just lint       # Check code style
    vx just lint-fix   # Auto-fix code style issues
    vx just test       # Run tests with coverage
-   vx just prek-all   # Run all pre-commit hooks
+   vx just preflight  # Run pre-flight checks (Rust check + clippy + fmt + test)
    ```
 
 4. **Commit** using [Conventional Commits](https://www.conventionalcommits.org/):
@@ -47,8 +47,8 @@ vx just test
 ### Python Style
 
 - **Formatter**: `ruff format` (line length: 120)
-- **Linter**: `ruff check` + `isort`
-- **Target**: Python 3.7+ (but CI tests 3.11+)
+- **Linter**: `ruff check` (includes import sorting via `I` rules)
+- **Target**: Python 3.9+ (CI tests 3.9–3.13)
 - **Quotes**: Double quotes (`"`)
 - **Docstrings**: Google-style
 
@@ -61,14 +61,13 @@ All files must use section headers for imports:
 from __future__ import annotations
 
 # Import built-in modules
-import os
 from pathlib import Path
 
 # Import third-party modules
-from pydantic import BaseModel
+import pytest
 
 # Import local modules
-from dcc_mcp_core.models import ActionResultModel
+from dcc_mcp_core import ActionResultModel
 ```
 
 ### Type Hints
@@ -76,18 +75,12 @@ from dcc_mcp_core.models import ActionResultModel
 All public APIs must have type annotations:
 
 ```python
-def call_action(self, name: str, **kwargs: Any) -> ActionResultModel:
-    """Execute an action by name.
+def register_action(self, name: str, **kwargs: Any) -> None:
+    """Register an action by name.
 
     Args:
-        name: The action name to execute.
-        **kwargs: Parameters to pass to the action.
-
-    Returns:
-        Structured result containing success status, message, and context.
-
-    Raises:
-        ActionNotFoundError: If the action name is not registered.
+        name: The action name to register.
+        **kwargs: Action metadata fields (description, dcc, tags, etc.).
     """
 ```
 
@@ -95,39 +88,28 @@ def call_action(self, name: str, **kwargs: Any) -> ActionResultModel:
 
 - Test files: `tests/test_<module>.py`
 - Test functions: `test_<description>`
-- Use `pyfakefs` for filesystem mocking
-- Use `pytest-asyncio` for async tests
+- Use `tmp_path` fixture for temporary directories
+- Use `monkeypatch` for environment variable mocking
 - Aim for high coverage on new code
 
 ## Project Architecture
 
 ```
-dcc_mcp_core/
-├── __init__.py              # Public API exports
-├── models.py                # Pydantic data models (ActionResultModel)
-├── actions/                 # Action system
-│   ├── base.py              # Action base class with InputModel/OutputModel
-│   ├── manager.py           # ActionManager: discover, load, execute actions
-│   ├── registry.py          # ActionRegistry: register and retrieve actions
-│   ├── middleware.py         # Middleware chain for cross-cutting concerns
-│   ├── events.py            # EventBus for action lifecycle events
-│   ├── adapter.py           # Adapters for legacy function-based actions
-│   └── generator.py         # Action template generation
-├── skills/                  # Skills system (zero-code script registration)
-│   ├── scanner.py           # SkillScanner: discover SKILL.md files
-│   ├── loader.py            # SkillLoader: parse YAML frontmatter
-│   └── script_action.py     # ScriptAction factory
-├── utils/                   # Shared utilities
-│   ├── filesystem.py        # File discovery and path operations
-│   ├── module_loader.py     # Dynamic Python module loading
-│   ├── decorators.py        # Error handling decorators
-│   ├── dependency_injector.py # DI container for action contexts
-│   ├── template.py          # Jinja2 template rendering
-│   ├── platform.py          # Platform detection utilities
-│   ├── type_wrappers.py     # RPyC-safe type wrappers
-│   └── result_factory.py    # Helper functions for ActionResultModel
-└── protocols/               # Protocol/interface definitions
-    └── __init__.py
+crates/                      # Rust workspace crates (core logic)
+├── dcc-mcp-models/          # ActionResultModel, SkillMetadata
+├── dcc-mcp-actions/         # ActionRegistry, EventBus
+├── dcc-mcp-skills/          # SkillScanner, SKILL.md loader
+├── dcc-mcp-protocols/       # MCP protocol types (Tool, Resource, Prompt)
+└── dcc-mcp-utils/           # Filesystem, constants, type wrappers, JSON conversion
+src/
+└── lib.rs                   # PyO3 module entry point (_core)
+python/
+└── dcc_mcp_core/
+    ├── __init__.py           # Public API re-exports from _core
+    └── py.typed              # PEP 561 marker
+tests/                       # Python integration tests
+examples/
+└── skills/                  # Example SKILL.md packages
 ```
 
 ## Release Process
@@ -145,13 +127,12 @@ This project uses [Release Please](https://github.com/googleapis/release-please)
 | Command | Description |
 |---------|-------------|
 | `vx just install` | Install project dependencies |
-| `vx just test` | Run tests with coverage |
-| `vx just test-v` | Run tests with verbose output |
-| `vx just test-file <path>` | Run a specific test file |
-| `vx just lint` | Run linter checks |
+| `vx just test` | Run tests |
+| `vx just test-cov` | Run tests with coverage report |
+| `vx just lint` | Run linter checks (Rust + Python) |
 | `vx just lint-fix` | Auto-fix lint issues |
-| `vx just prek` | Run pre-commit on staged files |
-| `vx just prek-all` | Run pre-commit on all files |
+| `vx just preflight` | Pre-flight check (Rust check + clippy + fmt + test) |
+| `vx just ci` | Full CI pipeline (Rust + Python) |
 | `vx just build` | Build the package |
 | `vx just clean` | Clean build artifacts |
 

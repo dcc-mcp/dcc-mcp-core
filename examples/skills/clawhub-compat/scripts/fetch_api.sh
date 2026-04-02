@@ -6,7 +6,6 @@ URL="${1:-https://httpbin.org/get}"
 
 result=$(curl -s -w '\n%{http_code}' "$URL")
 http_code=$(echo "$result" | tail -1)
-body=$(echo "$result" | sed '$d')
 
 if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
     echo "{\"success\": true, \"message\": \"Fetched $URL (HTTP $http_code)\", \"context\": {\"status\": $http_code}}"

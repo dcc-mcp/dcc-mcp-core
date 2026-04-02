@@ -1,30 +1,29 @@
 """Generate a changelog from git log between two refs."""
 
+from __future__ import annotations
+
+import argparse
 import json
 import subprocess
 import sys
 
 
-def main():
+def main() -> None:
     """Generate changelog between two git refs."""
-    repo = "."
-    from_ref = None
-    to_ref = "HEAD"
+    parser = argparse.ArgumentParser(description="Generate a changelog from git log.")
+    parser.add_argument("--repo", default=".")
+    parser.add_argument("--from", default=None, dest="from_ref")
+    parser.add_argument("--to", default="HEAD", dest="to_ref")
+    args = parser.parse_args()
 
-    args = sys.argv[1:]
-    for i, arg in enumerate(args):
-        if arg == "--repo" and i + 1 < len(args):
-            repo = args[i + 1]
-        elif arg == "--from" and i + 1 < len(args):
-            from_ref = args[i + 1]
-        elif arg == "--to" and i + 1 < len(args):
-            to_ref = args[i + 1]
-
+    from_ref = args.from_ref
     if not from_ref:
-        # Default: from latest tag
         result = subprocess.run(
             ["git", "describe", "--tags", "--abbrev=0"],
-            capture_output=True, text=True, cwd=repo,
+            capture_output=True,
+            timeout=30,
+            cwd=args.repo,
+            encoding="utf-8",
         )
         from_ref = result.stdout.strip() if result.returncode == 0 else None
 
@@ -32,10 +31,13 @@ def main():
         print(json.dumps({"success": False, "message": "No --from ref and no tags found."}))
         sys.exit(1)
 
-    git_range = f"{from_ref}..{to_ref}"
+    git_range = f"{from_ref}..{args.to_ref}"
     result = subprocess.run(
         ["git", "log", git_range, "--pretty=format:%h %s (%an)", "--no-merges"],
-        capture_output=True, text=True, timeout=30, cwd=repo,
+        capture_output=True,
+        timeout=30,
+        cwd=args.repo,
+        encoding="utf-8",
     )
 
     if result.returncode != 0:
@@ -43,15 +45,18 @@ def main():
         sys.exit(1)
 
     lines = result.stdout.strip().splitlines()
-    changelog = f"## Changes ({git_range})\n\n"
-    for line in lines:
-        changelog += f"- {line}\n"
+    entries = [f"- {line}" for line in lines]
+    changelog = f"## Changes ({git_range})\n\n" + "\n".join(entries) + "\n"
 
-    print(json.dumps({
-        "success": True,
-        "message": f"Generated changelog: {len(lines)} entries ({git_range})",
-        "context": {"from": from_ref, "to": to_ref, "entries": len(lines), "changelog": changelog},
-    }))
+    print(
+        json.dumps(
+            {
+                "success": True,
+                "message": f"Generated changelog: {len(lines)} entries ({git_range})",
+                "context": {"from": from_ref, "to": args.to_ref, "entries": len(lines), "changelog": changelog},
+            }
+        )
+    )
 
 
 if __name__ == "__main__":

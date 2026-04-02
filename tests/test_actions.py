@@ -1,15 +1,18 @@
 """Tests for ActionRegistry and EventBus."""
 
+# Import future modules
+from __future__ import annotations
+
 # Import local modules
 import dcc_mcp_core
 
 
 class TestActionRegistry:
-    def test_create(self):
+    def test_create(self) -> None:
         reg = dcc_mcp_core.ActionRegistry()
         assert len(reg) == 0
 
-    def test_register_and_get(self):
+    def test_register_and_get(self) -> None:
         reg = dcc_mcp_core.ActionRegistry()
         reg.register(name="create_sphere", description="Create a sphere", dcc="maya")
         assert len(reg) == 1
@@ -19,7 +22,7 @@ class TestActionRegistry:
         assert meta["description"] == "Create a sphere"
         assert meta["dcc"] == "maya"
 
-    def test_register_with_all_params(self):
+    def test_register_with_all_params(self) -> None:
         reg = dcc_mcp_core.ActionRegistry()
         reg.register(
             name="my_action",
@@ -37,9 +40,9 @@ class TestActionRegistry:
         assert meta["tags"] == ["geo", "create"]
         assert meta["version"] == "2.0.0"
         assert meta["source_file"] == "/path/to/action.py"
-        assert "radius" in meta["input_schema"]
+        assert "radius" in meta["input_schema"]["properties"]
 
-    def test_register_defaults(self):
+    def test_register_defaults(self) -> None:
         reg = dcc_mcp_core.ActionRegistry()
         reg.register(name="default_action")
         meta = reg.get_action("default_action")
@@ -49,23 +52,23 @@ class TestActionRegistry:
         assert meta["tags"] == []
         assert meta["source_file"] is None
 
-    def test_get_action_none(self):
+    def test_get_action_none(self) -> None:
         reg = dcc_mcp_core.ActionRegistry()
         assert reg.get_action("nonexistent") is None
 
-    def test_get_action_by_dcc(self):
+    def test_get_action_by_dcc(self) -> None:
         reg = dcc_mcp_core.ActionRegistry()
         reg.register(name="action1", dcc="maya")
         reg.register(name="action2", dcc="blender")
         assert reg.get_action("action1", dcc_name="maya") is not None
         assert reg.get_action("action1", dcc_name="blender") is None
 
-    def test_get_action_nonexistent_dcc(self):
+    def test_get_action_nonexistent_dcc(self) -> None:
         reg = dcc_mcp_core.ActionRegistry()
         reg.register(name="a1", dcc="maya")
         assert reg.get_action("a1", dcc_name="nonexistent") is None
 
-    def test_list_actions_for_dcc(self):
+    def test_list_actions_for_dcc(self) -> None:
         reg = dcc_mcp_core.ActionRegistry()
         reg.register(name="a1", dcc="maya")
         reg.register(name="a2", dcc="maya")
@@ -73,11 +76,11 @@ class TestActionRegistry:
         names = reg.list_actions_for_dcc("maya")
         assert sorted(names) == ["a1", "a2"]
 
-    def test_list_actions_for_dcc_empty(self):
+    def test_list_actions_for_dcc_empty(self) -> None:
         reg = dcc_mcp_core.ActionRegistry()
         assert reg.list_actions_for_dcc("nonexistent") == []
 
-    def test_list_actions_all(self):
+    def test_list_actions_all(self) -> None:
         reg = dcc_mcp_core.ActionRegistry()
         reg.register(name="a1", dcc="maya")
         reg.register(name="a2", dcc="blender")
@@ -86,7 +89,7 @@ class TestActionRegistry:
         names = {a["name"] for a in actions}
         assert names == {"a1", "a2"}
 
-    def test_list_actions_filtered_by_dcc(self):
+    def test_list_actions_filtered_by_dcc(self) -> None:
         reg = dcc_mcp_core.ActionRegistry()
         reg.register(name="a1", dcc="maya")
         reg.register(name="a2", dcc="blender")
@@ -94,22 +97,22 @@ class TestActionRegistry:
         assert len(actions) == 1
         assert actions[0]["name"] == "a1"
 
-    def test_list_actions_empty_dcc(self):
+    def test_list_actions_empty_dcc(self) -> None:
         reg = dcc_mcp_core.ActionRegistry()
         assert reg.list_actions(dcc_name="nonexistent") == []
 
-    def test_get_all_dccs(self):
+    def test_get_all_dccs(self) -> None:
         reg = dcc_mcp_core.ActionRegistry()
         reg.register(name="a1", dcc="maya")
         reg.register(name="a2", dcc="blender")
         dccs = sorted(reg.get_all_dccs())
         assert dccs == ["blender", "maya"]
 
-    def test_get_all_dccs_empty(self):
+    def test_get_all_dccs_empty(self) -> None:
         reg = dcc_mcp_core.ActionRegistry()
         assert reg.get_all_dccs() == []
 
-    def test_reset(self):
+    def test_reset(self) -> None:
         reg = dcc_mcp_core.ActionRegistry()
         reg.register(name="a1", dcc="maya")
         assert len(reg) == 1
@@ -117,14 +120,14 @@ class TestActionRegistry:
         assert len(reg) == 0
         assert reg.get_all_dccs() == []
 
-    def test_overwrite_action(self):
+    def test_overwrite_action(self) -> None:
         reg = dcc_mcp_core.ActionRegistry()
         reg.register(name="a1", description="v1", dcc="maya")
         reg.register(name="a1", description="v2", dcc="maya")
         meta = reg.get_action("a1")
         assert meta["description"] == "v2"
 
-    def test_repr(self):
+    def test_repr(self) -> None:
         reg = dcc_mcp_core.ActionRegistry()
         reg.register(name="a1")
         assert "ActionRegistry" in repr(reg)
@@ -132,12 +135,12 @@ class TestActionRegistry:
 
 
 class TestEventBus:
-    def test_create(self):
+    def test_create(self) -> None:
         bus = dcc_mcp_core.EventBus()
         assert "EventBus" in repr(bus)
         assert "0" in repr(bus)
 
-    def test_subscribe_and_publish(self):
+    def test_subscribe_and_publish(self) -> None:
         bus = dcc_mcp_core.EventBus()
         results = []
         sub_id = bus.subscribe("test_event", lambda: results.append("called"))
@@ -146,7 +149,7 @@ class TestEventBus:
         bus.publish("test_event")
         assert results == ["called"]
 
-    def test_subscribe_multiple(self):
+    def test_subscribe_multiple(self) -> None:
         bus = dcc_mcp_core.EventBus()
         results = []
         bus.subscribe("evt", lambda: results.append("a"))
@@ -154,18 +157,18 @@ class TestEventBus:
         bus.publish("evt")
         assert sorted(results) == ["a", "b"]
 
-    def test_publish_with_kwargs(self):
+    def test_publish_with_kwargs(self) -> None:
         bus = dcc_mcp_core.EventBus()
         results = []
         bus.subscribe("evt", lambda **kw: results.append(kw))
         bus.publish("evt", x=1, y="hello")
         assert results[0] == {"x": 1, "y": "hello"}
 
-    def test_publish_no_subscribers(self):
+    def test_publish_no_subscribers(self) -> None:
         bus = dcc_mcp_core.EventBus()
         bus.publish("nonexistent")  # should not error
 
-    def test_unsubscribe(self):
+    def test_unsubscribe(self) -> None:
         bus = dcc_mcp_core.EventBus()
         results = []
         sub_id = bus.subscribe("evt", lambda: results.append("x"))
@@ -174,20 +177,20 @@ class TestEventBus:
         bus.publish("evt")
         assert results == []
 
-    def test_unsubscribe_nonexistent_id(self):
+    def test_unsubscribe_nonexistent_id(self) -> None:
         bus = dcc_mcp_core.EventBus()
         bus.subscribe("evt", lambda: None)
         removed = bus.unsubscribe("evt", 9999)
         assert removed is False
 
-    def test_unsubscribe_nonexistent_event(self):
+    def test_unsubscribe_nonexistent_event(self) -> None:
         bus = dcc_mcp_core.EventBus()
         removed = bus.unsubscribe("nonexistent", 1)
         assert removed is False
 
-    def test_subscribe_returns_unique_ids(self):
+    def test_subscribe_returns_unique_ids(self) -> None:
         bus = dcc_mcp_core.EventBus()
         id1 = bus.subscribe("a", lambda: None)
         id2 = bus.subscribe("b", lambda: None)
         id3 = bus.subscribe("a", lambda: None)
-        assert id1 != id2 != id3
+        assert len({id1, id2, id3}) == 3

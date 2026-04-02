@@ -4,62 +4,68 @@ Displays prim hierarchy, layer composition, and metadata for USD files.
 Works with .usd, .usda, .usdc, .usdz formats.
 """
 
+from __future__ import annotations
+
+import argparse
 import json
 import subprocess
 import sys
 
 
-def main():
+def main() -> None:
     """Inspect a USD file and report its structure."""
-    input_file = None
-    flatten = False
-
-    args = sys.argv[1:]
-    for i, arg in enumerate(args):
-        if arg == "--input" and i + 1 < len(args):
-            input_file = args[i + 1]
-        elif arg == "--flatten":
-            flatten = True
-
-    if not input_file:
-        print(json.dumps({"success": False, "message": "Missing --input <usd_file>"}))
-        sys.exit(1)
+    parser = argparse.ArgumentParser(description="Inspect USD stage structure.")
+    parser.add_argument("--input", required=True, dest="input_file")
+    parser.add_argument("--flatten", action="store_true")
+    args = parser.parse_args()
 
     cmd = ["usdcat"]
-    if flatten:
+    if args.flatten:
         cmd.append("--flatten")
-    cmd.append(input_file)
+    cmd.append(args.input_file)
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        result = subprocess.run(cmd, capture_output=True, timeout=60, encoding="utf-8")
         if result.returncode != 0:
-            print(json.dumps({
-                "success": False,
-                "message": f"usdcat failed: {result.stderr.strip()}",
-            }))
+            print(
+                json.dumps(
+                    {
+                        "success": False,
+                        "message": f"usdcat failed: {result.stderr.strip()}",
+                    }
+                )
+            )
             sys.exit(1)
 
         content = result.stdout
         prim_count = content.count("def ")
         layer_count = content.count("subLayers") + content.count("references") + content.count("payload")
 
-        print(json.dumps({
-            "success": True,
-            "message": f"Inspected {input_file}: ~{prim_count} prims",
-            "context": {
-                "file": input_file,
-                "prim_count": prim_count,
-                "composition_arcs": layer_count,
-                "flattened": flatten,
-                "preview": content[:2000],
-            },
-        }))
+        print(
+            json.dumps(
+                {
+                    "success": True,
+                    "message": f"Inspected {args.input_file}: ~{prim_count} prims",
+                    "context": {
+                        "file": args.input_file,
+                        "prim_count": prim_count,
+                        "composition_arcs": layer_count,
+                        "flattened": args.flatten,
+                        "preview": content[:2000],
+                    },
+                }
+            )
+        )
 
     except FileNotFoundError:
-        print(json.dumps({
-            "success": False,
-            "message": "usdcat not found. Install OpenUSD: pip install usd-core",
-        }))
+        print(
+            json.dumps(
+                {
+                    "success": False,
+                    "message": "usdcat not found. Install OpenUSD: pip install usd-core",
+                }
+            )
+        )
         sys.exit(1)
 
 

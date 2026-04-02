@@ -1,4 +1,4 @@
-name: Build Wheels
+﻿name: Build Wheels
 
 on:
   workflow_dispatch:
@@ -10,14 +10,14 @@ on:
         default: 'true'
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: build-wheels-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
-  # ── ABI3 builds (Python 3.8+) — one wheel works for all 3.8+ ──
+  # ── ABI3 builds (Python 3.9+) — one wheel works for all 3.9+ ──
 
   linux:
     runs-on: ubuntu-latest
@@ -49,29 +49,3 @@ jobs:
           python-version: '3.11'
           maturin-args: '--release --out dist --sdist --find-interpreter --features python-bindings,ext-module,abi3-py38'
           artifact-name: wheels-macos-universal2
-
-  # ── Python 3.7 builds (non-abi3, separate wheel per platform) ──
-
-  linux-py37:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v6
-      - uses: ./.github/actions/build-wheel
-        with:
-          target: x86_64
-          python-version: '3.7'
-          maturin-args: '--release --out dist -i python3.7 --features python-bindings,ext-module'
-          artifact-name: wheels-linux-x86_64-py37
-          use-sccache: 'false'
-
-  windows-py37:
-    runs-on: windows-2025
-    steps:
-      - uses: actions/checkout@v6
-      - uses: ./.github/actions/build-wheel
-        with:
-          target: x64
-          python-version: '3.7'
-          maturin-args: '--release --out dist -i python3.7 --features python-bindings,ext-module'
-          artifact-name: wheels-windows-x64-py37
-          use-sccache: 'false'

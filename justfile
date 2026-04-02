@@ -1,4 +1,4 @@
-# dcc-mcp-core development commands
+﻿# dcc-mcp-core development commands
 # Usage: just <recipe>  (or: vx just <recipe>)
 
 set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
@@ -55,7 +55,7 @@ dev:
 # Build wheel + pip install (CI-friendly, no virtualenv required)
 install:
     maturin build --release --out dist --features python-bindings,ext-module,abi3-py38
-    pip install --force-reinstall --no-index --find-links dist dcc_mcp_core
+    pip install --force-reinstall --no-index --find-links dist dcc-mcp-core
 
 # Run Python tests (requires `just dev` or `just install` first)
 test:
@@ -68,13 +68,11 @@ test-cov:
 # Lint Python code
 lint-py:
     ruff check python/dcc_mcp_core/ tests/ examples/
-    isort --check-only python/dcc_mcp_core/ tests/
 
 # Fix Python lint issues
 lint-py-fix:
     ruff check --fix python/dcc_mcp_core/ tests/ examples/
     ruff format python/dcc_mcp_core/ tests/ examples/
-    isort python/dcc_mcp_core/ tests/
 
 # ── Unified commands (CI + local) ──
 
@@ -98,12 +96,11 @@ build:
 
 [unix]
 clean:
-    rm -rf dist build target *.egg-info .nox .coverage coverage.xml
+    rm -rf dist build target .coverage coverage.xml
 
 [windows]
 clean:
     if (Test-Path dist) { Remove-Item -Recurse -Force dist }
     if (Test-Path build) { Remove-Item -Recurse -Force build }
     if (Test-Path target) { Remove-Item -Recurse -Force target }
-    Get-ChildItem -Filter *.egg-info -Directory -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
     Remove-Item -ErrorAction SilentlyContinue -Force .coverage, coverage.xml

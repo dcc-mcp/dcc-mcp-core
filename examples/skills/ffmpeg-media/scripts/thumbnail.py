@@ -1,53 +1,61 @@
 """Generate a thumbnail image from a video file."""
 
+from __future__ import annotations
+
+import argparse
 import json
 import subprocess
 import sys
 
 
-def main():
+def main() -> None:
     """Extract a single frame as a thumbnail."""
-    input_file = None
-    output_file = "thumbnail.jpg"
-    time = "00:00:05"
+    parser = argparse.ArgumentParser(description="Generate a video thumbnail.")
+    parser.add_argument("--input", required=True, dest="input_file")
+    parser.add_argument("--output", default="thumbnail.jpg", dest="output_file")
+    parser.add_argument("--time", default="00:00:05", dest="timestamp")
+    args = parser.parse_args()
 
-    args = sys.argv[1:]
-    for i, arg in enumerate(args):
-        if arg == "--input" and i + 1 < len(args):
-            input_file = args[i + 1]
-        elif arg == "--output" and i + 1 < len(args):
-            output_file = args[i + 1]
-        elif arg == "--time" and i + 1 < len(args):
-            t = args[i + 1]
-            time = t if ":" in t else f"00:00:{int(t):02d}"
-
-    if not input_file:
-        print(json.dumps({"success": False, "message": "Missing --input"}))
-        sys.exit(1)
+    timestamp = args.timestamp
+    if ":" not in timestamp:
+        timestamp = f"00:00:{int(timestamp):02d}"
 
     cmd = [
-        "ffmpeg", "-y",
-        "-ss", time,
-        "-i", input_file,
-        "-frames:v", "1",
-        "-q:v", "2",
-        output_file,
+        "ffmpeg",
+        "-y",
+        "-ss",
+        timestamp,
+        "-i",
+        args.input_file,
+        "-frames:v",
+        "1",
+        "-q:v",
+        "2",
+        args.output_file,
     ]
 
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(cmd, capture_output=True, timeout=30, encoding="utf-8")
         if result.returncode != 0:
-            print(json.dumps({
-                "success": False,
-                "message": f"Thumbnail failed: {result.stderr[-200:]}",
-            }))
+            print(
+                json.dumps(
+                    {
+                        "success": False,
+                        "message": f"Thumbnail failed: {result.stderr[-200:]}",
+                    }
+                )
+            )
             sys.exit(1)
 
-        print(json.dumps({
-            "success": True,
-            "message": f"Thumbnail saved to {output_file} (at {time})",
-            "context": {"input": input_file, "output": output_file, "timestamp": time},
-        }))
+        print(
+            json.dumps(
+                {
+                    "success": True,
+                    "message": f"Thumbnail saved to {args.output_file} (at {timestamp})",
+                    "context": {"input": args.input_file, "output": args.output_file, "timestamp": timestamp},
+                }
+            )
+        )
 
     except FileNotFoundError:
         print(json.dumps({"success": False, "message": "ffmpeg not found."}))

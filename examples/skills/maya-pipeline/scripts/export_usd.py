@@ -3,40 +3,30 @@
 Demonstrates a script that depends on another skill (usd-tools) for validation.
 """
 
+from __future__ import annotations
+
+import argparse
 import json
-import os
-import sys
+from pathlib import Path
 
 
-def main():
+def main() -> None:
     """Simulate USD export and optionally validate."""
-    input_file = None
-    output_file = None
-    validate = False
+    parser = argparse.ArgumentParser(description="Export scene to USD format.")
+    parser.add_argument("--input", required=True, dest="input_file")
+    parser.add_argument("--output", default=None, dest="output_file")
+    parser.add_argument("--validate", action="store_true")
+    args = parser.parse_args()
 
-    args = sys.argv[1:]
-    for i, arg in enumerate(args):
-        if arg == "--input" and i + 1 < len(args):
-            input_file = args[i + 1]
-        elif arg == "--output" and i + 1 < len(args):
-            output_file = args[i + 1]
-        elif arg == "--validate":
-            validate = True
-
-    if not input_file:
-        print(json.dumps({"success": False, "message": "Missing --input"}))
-        sys.exit(1)
-
+    output_file = args.output_file
     if not output_file:
-        base = os.path.splitext(input_file)[0]
-        output_file = base + ".usda"
+        output_file = str(Path(args.input_file).with_suffix(".usda"))
 
-    # Simulate USD export (in real Maya, this would use maya.cmds)
-    usda_content = f'''\
+    usda_content = f"""\
 #usda 1.0
 (
     defaultPrim = "World"
-    doc = "Exported from {input_file}"
+    doc = "Exported from {args.input_file}"
 )
 
 def Xform "World"
@@ -45,26 +35,22 @@ def Xform "World"
     {{
     }}
 }}
-'''
-    # Write simulated USD file
-    with open(output_file, "w") as f:
-        f.write(usda_content)
+"""
+    Path(output_file).write_text(usda_content, encoding="utf-8")
 
     result = {
         "success": True,
-        "message": f"Exported {input_file} -> {output_file}",
+        "message": f"Exported {args.input_file} -> {output_file}",
         "context": {
-            "input": input_file,
+            "input": args.input_file,
             "output": output_file,
             "format": "usda",
-            "validated": validate,
+            "validated": args.validate,
         },
     }
 
-    if validate:
-        result["context"]["validation_note"] = (
-            "In production, this calls usd-tools/scripts/validate.py"
-        )
+    if args.validate:
+        result["context"]["validation_note"] = "In production, this calls usd-tools/scripts/validate.py"
 
     print(json.dumps(result))
 

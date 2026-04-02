@@ -4,49 +4,50 @@ Extracts resolution, codec, duration, bitrate, and other metadata
 from any media file supported by FFmpeg.
 """
 
+from __future__ import annotations
+
+import argparse
 import json
 import subprocess
 import sys
 
 
-def main():
+def main() -> None:
     """Extract media metadata via ffprobe."""
-    input_file = None
-
-    args = sys.argv[1:]
-    for i, arg in enumerate(args):
-        if arg == "--input" and i + 1 < len(args):
-            input_file = args[i + 1]
-
-    if not input_file:
-        print(json.dumps({"success": False, "message": "Missing --input argument"}))
-        sys.exit(1)
+    parser = argparse.ArgumentParser(description="Probe media file metadata.")
+    parser.add_argument("--input", required=True, dest="input_file")
+    args = parser.parse_args()
 
     try:
         result = subprocess.run(
             [
                 "ffprobe",
-                "-v", "quiet",
-                "-print_format", "json",
+                "-v",
+                "quiet",
+                "-print_format",
+                "json",
                 "-show_format",
                 "-show_streams",
-                input_file,
+                args.input_file,
             ],
             capture_output=True,
-            text=True,
             timeout=30,
+            encoding="utf-8",
         )
 
         if result.returncode != 0:
-            print(json.dumps({
-                "success": False,
-                "message": f"ffprobe failed: {result.stderr.strip()}",
-            }))
+            print(
+                json.dumps(
+                    {
+                        "success": False,
+                        "message": f"ffprobe failed: {result.stderr.strip()}",
+                    }
+                )
+            )
             sys.exit(1)
 
         probe_data = json.loads(result.stdout)
 
-        # Extract key information
         streams = probe_data.get("streams", [])
         fmt = probe_data.get("format", {})
         video_stream = next((s for s in streams if s.get("codec_type") == "video"), None)
@@ -75,18 +76,26 @@ def main():
                 "channels": audio_stream.get("channels"),
             }
 
-        print(json.dumps({
-            "success": True,
-            "message": f"Probed {input_file}: {info.get('duration', 0):.1f}s",
-            "context": info,
-        }))
+        print(
+            json.dumps(
+                {
+                    "success": True,
+                    "message": f"Probed {args.input_file}: {info.get('duration', 0):.1f}s",
+                    "context": info,
+                }
+            )
+        )
 
     except FileNotFoundError:
-        print(json.dumps({
-            "success": False,
-            "message": "ffprobe not found. Install FFmpeg first.",
-            "context": {"possible_solutions": ["brew install ffmpeg", "apt install ffmpeg"]},
-        }))
+        print(
+            json.dumps(
+                {
+                    "success": False,
+                    "message": "ffprobe not found. Install FFmpeg first.",
+                    "context": {"possible_solutions": ["brew install ffmpeg", "apt install ffmpeg"]},
+                }
+            )
+        )
         sys.exit(1)
 
 

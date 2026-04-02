@@ -5,21 +5,40 @@
 #[cfg(feature = "python-bindings")]
 use pyo3::prelude::*;
 
+#[cfg(feature = "python-bindings")]
+use dcc_mcp_utils::py_json::json_value_to_pyobject;
+
 use dashmap::DashMap;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+#[cfg(feature = "python-bindings")]
+use dcc_mcp_utils::constants::{DEFAULT_DCC, DEFAULT_VERSION};
+
+#[cfg(feature = "python-bindings")]
+use dcc_mcp_utils::constants::default_schema;
+
 /// Metadata about a registered Action (stored in Rust).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ActionMeta {
+    /// Unique action identifier.
     pub name: String,
-    pub internal_name: String,
+    /// Human-readable action description.
     pub description: String,
+    /// Action category for grouping (e.g. "geometry", "pipeline").
     pub category: String,
+    /// Searchable tags for discovery.
     pub tags: Vec<String>,
+    /// Target DCC application (e.g. "maya", "blender").
     pub dcc: String,
+    /// Semantic version string.
     pub version: String,
+    /// JSON Schema for action input parameters.
     pub input_schema: serde_json::Value,
+    /// JSON Schema for action output.
     pub output_schema: serde_json::Value,
+    /// Optional path to the Python source file defining this action.
     pub source_file: Option<String>,
 }
 
@@ -28,6 +47,7 @@ pub struct ActionMeta {
 /// Unlike the Python singleton, each ActionManager can own its own registry,
 /// eliminating cross-DCC pollution.
 #[cfg_attr(feature = "python-bindings", pyclass(name = "ActionRegistry"))]
+#[derive(Debug, Clone)]
 pub struct ActionRegistry {
     /// Main registry: action_name → ActionMeta
     actions: Arc<DashMap<String, ActionMeta>>,
@@ -42,6 +62,7 @@ impl Default for ActionRegistry {
 }
 
 impl ActionRegistry {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             actions: Arc::new(DashMap::new()),
@@ -50,20 +71,22 @@ impl ActionRegistry {
     }
 
     /// Register an action with metadata.
-    pub fn register_action(&self, meta: ActionMeta) -> bool {
+    pub fn register_action(&self, meta: ActionMeta) {
         let name = meta.name.clone();
         let dcc = meta.dcc.clone();
-
-        // Register in main registry
-        self.actions.insert(name.clone(), meta.clone());
-
-        // Register in DCC-specific registry
-        self.dcc_actions.entry(dcc).or_default().insert(name, meta);
-
-        true
+        // Clone meta for the DCC map before moving it into `actions`.
+        // This avoids a get-after-insert race where another thread could
+        // overwrite the entry between insert and get.
+        let meta_for_dcc = meta.clone();
+        self.actions.insert(name.clone(), meta);
+        self.dcc_actions
+            .entry(dcc)
+            .or_default()
+            .insert(name, meta_for_dcc);
     }
 
     /// Get action metadata by name.
+    #[must_use]
     pub fn get_action(&self, name: &str, dcc_name: Option<&str>) -> Option<ActionMeta> {
         if let Some(dcc) = dcc_name {
             if let Some(dcc_map) = self.dcc_actions.get(dcc) {
@@ -75,6 +98,7 @@ impl ActionRegistry {
     }
 
     /// List all actions for a DCC.
+    #[must_use]
     pub fn list_actions_for_dcc(&self, dcc_name: &str) -> Vec<String> {
         self.dcc_actions
             .get(dcc_name)
@@ -83,11 +107,13 @@ impl ActionRegistry {
     }
 
     /// List all registered DCC names.
+    #[must_use]
     pub fn get_all_dccs(&self) -> Vec<String> {
         self.dcc_actions.iter().map(|r| r.key().clone()).collect()
     }
 
     /// Get all actions as metadata list.
+    #[must_use]
     pub fn list_actions(&self, dcc_name: Option<&str>) -> Vec<ActionMeta> {
         if let Some(dcc) = dcc_name {
             return self
@@ -106,10 +132,13 @@ impl ActionRegistry {
     }
 
     /// Get number of registered actions.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.actions.len()
     }
 
+    /// Returns `true` if no actions are registered.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.actions.is_empty()
     }
@@ -126,7 +155,8 @@ impl ActionRegistry {
     }
 
     /// Register an action. Called from Python ActionManager.
-    #[pyo3(signature = (name, description="".to_string(), category="".to_string(), tags=vec![], dcc="python".to_string(), version="1.0.0".to_string(), input_schema=None, output_schema=None, source_file=None))]
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (name, description="".to_string(), category="".to_string(), tags=vec![], dcc=DEFAULT_DCC.to_string(), version=DEFAULT_VERSION.to_string(), input_schema=None, output_schema=None, source_file=None))]
     fn register(
         &self,
         name: String,
@@ -138,17 +168,13 @@ impl ActionRegistry {
         input_schema: Option<String>,
         output_schema: Option<String>,
         source_file: Option<String>,
-    ) -> bool {
-        let input_schema = input_schema
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or(serde_json::json!({"type": "object", "properties": {}}));
-        let output_schema = output_schema
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or(serde_json::json!({"type": "object", "properties": {}}));
+    ) {
+        let input_schema = parse_schema_or_default(input_schema.as_deref(), "input_schema", &name);
+        let output_schema =
+            parse_schema_or_default(output_schema.as_deref(), "output_schema", &name);
 
         self.register_action(ActionMeta {
-            name: name.clone(),
-            internal_name: name,
+            name,
             description,
             category,
             tags,
@@ -157,20 +183,21 @@ impl ActionRegistry {
             input_schema,
             output_schema,
             source_file,
-        })
+        });
     }
 
     /// Get action metadata as dict.
     #[pyo3(name = "get_action")]
+    #[pyo3(signature = (name, dcc_name=None))]
     fn py_get_action(
         &self,
         py: Python,
         name: &str,
         dcc_name: Option<&str>,
     ) -> PyResult<Option<PyObject>> {
-        Ok(self
-            .get_action(name, dcc_name)
-            .map(|meta| action_meta_to_py(py, &meta)))
+        self.get_action(name, dcc_name)
+            .map(|meta| action_meta_to_py(py, &meta))
+            .transpose()
     }
 
     /// List all action names for a DCC.
@@ -181,7 +208,8 @@ impl ActionRegistry {
 
     /// List all actions with metadata.
     #[pyo3(name = "list_actions")]
-    fn py_list_actions(&self, py: Python, dcc_name: Option<&str>) -> Vec<PyObject> {
+    #[pyo3(signature = (dcc_name=None))]
+    fn py_list_actions(&self, py: Python, dcc_name: Option<&str>) -> PyResult<Vec<PyObject>> {
         self.list_actions(dcc_name)
             .iter()
             .map(|meta| action_meta_to_py(py, meta))
@@ -204,27 +232,40 @@ impl ActionRegistry {
         self.len()
     }
 
+    fn __contains__(&self, name: &str) -> bool {
+        self.actions.contains_key(name)
+    }
+
     fn __repr__(&self) -> String {
         format!("ActionRegistry(actions={})", self.len())
     }
 }
 
+/// Parse a JSON schema string, falling back to [`default_schema`] on `None` or invalid JSON.
 #[cfg(feature = "python-bindings")]
-fn action_meta_to_py(py: Python, meta: &ActionMeta) -> PyObject {
-    use pyo3::types::PyDict;
-    let dict = PyDict::new(py);
-    let _ = dict.set_item("name", &meta.name);
-    let _ = dict.set_item("internal_name", &meta.internal_name);
-    let _ = dict.set_item("description", &meta.description);
-    let _ = dict.set_item("category", &meta.category);
-    let _ = dict.set_item("tags", &meta.tags);
-    let _ = dict.set_item("dcc", &meta.dcc);
-    let _ = dict.set_item("version", &meta.version);
-    let _ = dict.set_item("source_file", meta.source_file.as_deref());
-    // Serialize schemas as JSON strings for Python to parse
-    let _ = dict.set_item("input_schema", meta.input_schema.to_string());
-    let _ = dict.set_item("output_schema", meta.output_schema.to_string());
-    dict.into()
+fn parse_schema_or_default(
+    json: Option<&str>,
+    field_name: &str,
+    action_name: &str,
+) -> serde_json::Value {
+    match json {
+        Some(s) => serde_json::from_str(s).unwrap_or_else(|e| {
+            tracing::warn!("Invalid {field_name} JSON for '{action_name}': {e} — using default");
+            default_schema().clone()
+        }),
+        None => default_schema().clone(),
+    }
+}
+
+/// Convert [`ActionMeta`] to a Python dict via serde serialization.
+///
+/// This leverages the existing `#[derive(Serialize)]` on `ActionMeta` to avoid
+/// manually enumerating every field — new fields are automatically included.
+#[cfg(feature = "python-bindings")]
+fn action_meta_to_py(py: Python, meta: &ActionMeta) -> PyResult<PyObject> {
+    let json_val = serde_json::to_value(meta)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+    json_value_to_pyobject(py, &json_val)
 }
 
 #[cfg(test)]
@@ -235,16 +276,13 @@ mod tests {
     fn test_registry_register_and_get() {
         let reg = ActionRegistry::new();
         reg.register_action(ActionMeta {
-            name: "create_sphere".to_string(),
-            internal_name: "create_sphere".to_string(),
-            description: "Create a sphere".to_string(),
-            category: "geometry".to_string(),
-            tags: vec!["geometry".to_string()],
-            dcc: "maya".to_string(),
-            version: "1.0.0".to_string(),
-            input_schema: serde_json::json!({}),
-            output_schema: serde_json::json!({}),
-            source_file: None,
+            name: "create_sphere".into(),
+            description: "Create a sphere".into(),
+            category: "geometry".into(),
+            tags: vec!["geometry".into()],
+            dcc: "maya".into(),
+            version: "1.0.0".into(),
+            ..Default::default()
         });
 
         assert_eq!(reg.len(), 1);
@@ -265,16 +303,10 @@ mod tests {
             let reg = Arc::clone(&reg);
             handles.push(thread::spawn(move || {
                 reg.register_action(ActionMeta {
-                    name: format!("action_{}", i),
-                    internal_name: format!("action_{}", i),
-                    description: format!("Action {}", i),
-                    category: "test".to_string(),
-                    tags: vec![],
-                    dcc: "test".to_string(),
-                    version: "1.0.0".to_string(),
-                    input_schema: serde_json::json!({}),
-                    output_schema: serde_json::json!({}),
-                    source_file: None,
+                    name: format!("action_{i}"),
+                    description: format!("Action {i}"),
+                    dcc: "test".into(),
+                    ..Default::default()
                 });
             }));
         }

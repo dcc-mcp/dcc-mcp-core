@@ -6,11 +6,16 @@
 #[cfg(feature = "python-bindings")]
 use pyo3::prelude::*;
 
+#[cfg(feature = "python-bindings")]
+use dcc_mcp_utils::constants::DEFAULT_MIME_TYPE;
 use serde::{Deserialize, Serialize};
 
 /// Annotations for MCP Tool behavior hints.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[cfg_attr(feature = "python-bindings", pyclass(name = "ToolAnnotations"))]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "python-bindings",
+    pyclass(name = "ToolAnnotations", eq, get_all, set_all)
+)]
 pub struct ToolAnnotations {
     pub title: Option<String>,
     #[serde(rename = "readOnlyHint")]
@@ -44,51 +49,24 @@ impl ToolAnnotations {
         }
     }
 
-    #[getter]
-    fn get_title(&self) -> Option<String> {
-        self.title.clone()
-    }
-    #[setter]
-    fn set_title(&mut self, v: Option<String>) {
-        self.title = v;
-    }
-    #[getter]
-    fn get_read_only_hint(&self) -> Option<bool> {
-        self.read_only_hint
-    }
-    #[setter]
-    fn set_read_only_hint(&mut self, v: Option<bool>) {
-        self.read_only_hint = v;
-    }
-    #[getter]
-    fn get_destructive_hint(&self) -> Option<bool> {
-        self.destructive_hint
-    }
-    #[setter]
-    fn set_destructive_hint(&mut self, v: Option<bool>) {
-        self.destructive_hint = v;
-    }
-    #[getter]
-    fn get_idempotent_hint(&self) -> Option<bool> {
-        self.idempotent_hint
-    }
-    #[setter]
-    fn set_idempotent_hint(&mut self, v: Option<bool>) {
-        self.idempotent_hint = v;
-    }
-    #[getter]
-    fn get_open_world_hint(&self) -> Option<bool> {
-        self.open_world_hint
-    }
-    #[setter]
-    fn set_open_world_hint(&mut self, v: Option<bool>) {
-        self.open_world_hint = v;
+    fn __repr__(&self) -> String {
+        format!(
+            "ToolAnnotations(title={:?}, read_only={:?}, destructive={:?}, idempotent={:?}, open_world={:?})",
+            self.title,
+            self.read_only_hint,
+            self.destructive_hint,
+            self.idempotent_hint,
+            self.open_world_hint
+        )
     }
 }
 
 /// MCP Tool definition schema.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "python-bindings", pyclass(name = "ToolDefinition"))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "python-bindings",
+    pyclass(name = "ToolDefinition", eq, get_all, set_all)
+)]
 pub struct ToolDefinition {
     pub name: String,
     pub description: String,
@@ -117,39 +95,17 @@ impl ToolDefinition {
         }
     }
 
-    #[getter]
-    fn get_name(&self) -> &str {
-        &self.name
-    }
-    #[setter]
-    fn set_name(&mut self, v: String) {
-        self.name = v;
-    }
-    #[getter]
-    fn get_description(&self) -> &str {
-        &self.description
-    }
-    #[setter]
-    fn set_description(&mut self, v: String) {
-        self.description = v;
-    }
-    #[getter]
-    fn get_input_schema(&self) -> &str {
-        &self.input_schema
-    }
-    #[getter]
-    fn get_output_schema(&self) -> Option<&str> {
-        self.output_schema.as_deref()
-    }
-
     fn __repr__(&self) -> String {
         format!("ToolDefinition(name={:?})", self.name)
     }
 }
 
 /// MCP Resource definition.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "python-bindings", pyclass(name = "ResourceDefinition"))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "python-bindings",
+    pyclass(name = "ResourceDefinition", eq, get_all, set_all)
+)]
 pub struct ResourceDefinition {
     pub uri: String,
     pub name: String,
@@ -162,7 +118,7 @@ pub struct ResourceDefinition {
 #[pymethods]
 impl ResourceDefinition {
     #[new]
-    #[pyo3(signature = (uri, name, description, mime_type="text/plain".to_string()))]
+    #[pyo3(signature = (uri, name, description, mime_type=DEFAULT_MIME_TYPE.to_string()))]
     fn new(uri: String, name: String, description: String, mime_type: String) -> Self {
         Self {
             uri,
@@ -172,45 +128,19 @@ impl ResourceDefinition {
         }
     }
 
-    #[getter]
-    fn get_uri(&self) -> &str {
-        &self.uri
-    }
-    #[setter]
-    fn set_uri(&mut self, v: String) {
-        self.uri = v;
-    }
-    #[getter]
-    fn get_name(&self) -> &str {
-        &self.name
-    }
-    #[setter]
-    fn set_name(&mut self, v: String) {
-        self.name = v;
-    }
-    #[getter]
-    fn get_description(&self) -> &str {
-        &self.description
-    }
-    #[setter]
-    fn set_description(&mut self, v: String) {
-        self.description = v;
-    }
-    #[getter]
-    fn get_mime_type(&self) -> &str {
-        &self.mime_type
-    }
-    #[setter]
-    fn set_mime_type(&mut self, v: String) {
-        self.mime_type = v;
+    fn __repr__(&self) -> String {
+        format!(
+            "ResourceDefinition(name={:?}, uri={:?})",
+            self.name, self.uri
+        )
     }
 }
 
 /// MCP Resource Template definition.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(
     feature = "python-bindings",
-    pyclass(name = "ResourceTemplateDefinition")
+    pyclass(name = "ResourceTemplateDefinition", eq, get_all, set_all)
 )]
 pub struct ResourceTemplateDefinition {
     #[serde(rename = "uriTemplate")]
@@ -225,7 +155,7 @@ pub struct ResourceTemplateDefinition {
 #[pymethods]
 impl ResourceTemplateDefinition {
     #[new]
-    #[pyo3(signature = (uri_template, name, description, mime_type="text/plain".to_string()))]
+    #[pyo3(signature = (uri_template, name, description, mime_type=DEFAULT_MIME_TYPE.to_string()))]
     fn new(uri_template: String, name: String, description: String, mime_type: String) -> Self {
         Self {
             uri_template,
@@ -235,43 +165,20 @@ impl ResourceTemplateDefinition {
         }
     }
 
-    #[getter]
-    fn get_uri_template(&self) -> &str {
-        &self.uri_template
-    }
-    #[setter]
-    fn set_uri_template(&mut self, v: String) {
-        self.uri_template = v;
-    }
-    #[getter]
-    fn get_name(&self) -> &str {
-        &self.name
-    }
-    #[setter]
-    fn set_name(&mut self, v: String) {
-        self.name = v;
-    }
-    #[getter]
-    fn get_description(&self) -> &str {
-        &self.description
-    }
-    #[setter]
-    fn set_description(&mut self, v: String) {
-        self.description = v;
-    }
-    #[getter]
-    fn get_mime_type(&self) -> &str {
-        &self.mime_type
-    }
-    #[setter]
-    fn set_mime_type(&mut self, v: String) {
-        self.mime_type = v;
+    fn __repr__(&self) -> String {
+        format!(
+            "ResourceTemplateDefinition(name={:?}, uri_template={:?})",
+            self.name, self.uri_template
+        )
     }
 }
 
 /// MCP Prompt argument.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "python-bindings", pyclass(name = "PromptArgument"))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "python-bindings",
+    pyclass(name = "PromptArgument", eq, get_all, set_all)
+)]
 pub struct PromptArgument {
     pub name: String,
     pub description: String,
@@ -291,35 +198,20 @@ impl PromptArgument {
         }
     }
 
-    #[getter]
-    fn get_name(&self) -> &str {
-        &self.name
-    }
-    #[setter]
-    fn set_name(&mut self, v: String) {
-        self.name = v;
-    }
-    #[getter]
-    fn get_description(&self) -> &str {
-        &self.description
-    }
-    #[setter]
-    fn set_description(&mut self, v: String) {
-        self.description = v;
-    }
-    #[getter]
-    fn get_required(&self) -> bool {
-        self.required
-    }
-    #[setter]
-    fn set_required(&mut self, v: bool) {
-        self.required = v;
+    fn __repr__(&self) -> String {
+        format!(
+            "PromptArgument(name={:?}, required={})",
+            self.name, self.required
+        )
     }
 }
 
 /// MCP Prompt definition.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(feature = "python-bindings", pyclass(name = "PromptDefinition"))]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "python-bindings",
+    pyclass(name = "PromptDefinition", eq, get_all, set_all)
+)]
 pub struct PromptDefinition {
     pub name: String,
     pub description: String,
@@ -333,21 +225,8 @@ impl PromptDefinition {
         Self { name, description }
     }
 
-    #[getter]
-    fn get_name(&self) -> &str {
-        &self.name
-    }
-    #[setter]
-    fn set_name(&mut self, v: String) {
-        self.name = v;
-    }
-    #[getter]
-    fn get_description(&self) -> &str {
-        &self.description
-    }
-    #[setter]
-    fn set_description(&mut self, v: String) {
-        self.description = v;
+    fn __repr__(&self) -> String {
+        format!("PromptDefinition(name={:?})", self.name)
     }
 }
 

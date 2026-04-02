@@ -9,13 +9,10 @@ description = "Utilities for the DCC-MCP ecosystem (filesystem, logging, constan
 
 [dependencies]
 pyo3 = { workspace = true, optional = true }
-serde = { workspace = true }
 serde_json = { workspace = true }
 dirs = { workspace = true }
-once_cell = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
-thiserror = { workspace = true }
 
 [features]
 default = []

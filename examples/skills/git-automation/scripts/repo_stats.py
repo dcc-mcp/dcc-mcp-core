@@ -1,48 +1,47 @@
 """Analyze repository statistics using git."""
 
+from __future__ import annotations
+
+import argparse
 import json
 import subprocess
 import sys
 
 
-def run_git(args, cwd=None):
+def run_git(args: list[str], cwd: str | None = None) -> str:
     """Run a git command and return stdout."""
     result = subprocess.run(
         ["git", *args],
-        capture_output=True, text=True, timeout=30, cwd=cwd,
+        capture_output=True,
+        timeout=30,
+        cwd=cwd,
+        encoding="utf-8",
     )
     return result.stdout.strip() if result.returncode == 0 else ""
 
 
-def main():
+def main() -> None:
     """Gather repository statistics."""
-    repo = "."
-    args = sys.argv[1:]
-    for i, arg in enumerate(args):
-        if arg == "--repo" and i + 1 < len(args):
-            repo = args[i + 1]
+    parser = argparse.ArgumentParser(description="Analyze repository statistics.")
+    parser.add_argument("--repo", default=".")
+    args = parser.parse_args()
 
     try:
-        # Total commits
-        commit_count = run_git(["rev-list", "--count", "HEAD"], cwd=repo)
+        commit_count = run_git(["rev-list", "--count", "HEAD"], cwd=args.repo)
 
-        # Contributors
-        contributors_raw = run_git(["shortlog", "-sn", "--no-merges", "HEAD"], cwd=repo)
+        contributors_raw = run_git(["shortlog", "-sn", "--no-merges", "HEAD"], cwd=args.repo)
         contributors = []
         for line in contributors_raw.splitlines():
             parts = line.strip().split("\t", 1)
             if len(parts) == 2:
                 contributors.append({"commits": int(parts[0].strip()), "name": parts[1].strip()})
 
-        # Tracked files
-        files_raw = run_git(["ls-files"], cwd=repo)
+        files_raw = run_git(["ls-files"], cwd=args.repo)
         file_count = len(files_raw.splitlines()) if files_raw else 0
 
-        # Current branch
-        branch = run_git(["rev-parse", "--abbrev-ref", "HEAD"], cwd=repo)
+        branch = run_git(["rev-parse", "--abbrev-ref", "HEAD"], cwd=args.repo)
 
-        # Latest tag
-        latest_tag = run_git(["describe", "--tags", "--abbrev=0"], cwd=repo) or None
+        latest_tag = run_git(["describe", "--tags", "--abbrev=0"], cwd=args.repo) or None
 
         stats = {
             "branch": branch,
@@ -53,13 +52,17 @@ def main():
             "latest_tag": latest_tag,
         }
 
-        print(json.dumps({
-            "success": True,
-            "message": f"Repository: {stats['total_commits']} commits, "
-                       f"{stats['tracked_files']} files, "
-                       f"{stats['contributors']} contributors",
-            "context": stats,
-        }))
+        print(
+            json.dumps(
+                {
+                    "success": True,
+                    "message": f"Repository: {stats['total_commits']} commits, "
+                    f"{stats['tracked_files']} files, "
+                    f"{stats['contributors']} contributors",
+                    "context": stats,
+                }
+            )
+        )
 
     except FileNotFoundError:
         print(json.dumps({"success": False, "message": "git not found."}))

@@ -3,26 +3,22 @@
 Demonstrates a multi-parameter action script.
 """
 
+from __future__ import annotations
+
+import argparse
 import json
-import sys
 
 
-def main():
+def main() -> None:
     """Batch rename objects."""
-    prefix = ""
-    suffix = ""
-    objects = []
+    parser = argparse.ArgumentParser(description="Batch rename objects.")
+    parser.add_argument("--prefix", default="")
+    parser.add_argument("--suffix", default="")
+    parser.add_argument("--objects", default="", help="Comma-separated list of objects")
+    args = parser.parse_args()
 
-    args = sys.argv[1:]
-    for i, arg in enumerate(args):
-        if arg == "--prefix" and i + 1 < len(args):
-            prefix = args[i + 1]
-        elif arg == "--suffix" and i + 1 < len(args):
-            suffix = args[i + 1]
-        elif arg == "--objects" and i + 1 < len(args):
-            objects = args[i + 1].split(",")
-
-    renamed = [f"{prefix}{obj}{suffix}" for obj in objects]
+    objects = args.objects.split(",") if args.objects else []
+    renamed = [f"{args.prefix}{obj}{args.suffix}" for obj in objects]
 
     result = {
         "success": True,

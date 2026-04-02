@@ -1,11 +1,14 @@
 """Tests for MCP protocol types — full getter/setter coverage."""
 
+# Import future modules
+from __future__ import annotations
+
 # Import local modules
 import dcc_mcp_core
 
 
 class TestToolDefinition:
-    def test_create(self):
+    def test_create(self) -> None:
         td = dcc_mcp_core.ToolDefinition(
             name="create_sphere",
             description="Create a sphere",
@@ -16,7 +19,7 @@ class TestToolDefinition:
         assert td.input_schema == '{"type": "object"}'
         assert td.output_schema is None
 
-    def test_create_with_output_schema(self):
+    def test_create_with_output_schema(self) -> None:
         td = dcc_mcp_core.ToolDefinition(
             name="t",
             description="d",
@@ -25,20 +28,20 @@ class TestToolDefinition:
         )
         assert td.output_schema == '{"type": "object"}'
 
-    def test_setters(self):
+    def test_setters(self) -> None:
         td = dcc_mcp_core.ToolDefinition(name="old", description="old", input_schema="{}")
         td.name = "new_name"
         td.description = "new_desc"
         assert td.name == "new_name"
         assert td.description == "new_desc"
 
-    def test_repr(self):
+    def test_repr(self) -> None:
         td = dcc_mcp_core.ToolDefinition(name="test", description="d", input_schema="{}")
         assert "test" in repr(td)
 
 
 class TestToolAnnotations:
-    def test_defaults(self):
+    def test_defaults(self) -> None:
         ann = dcc_mcp_core.ToolAnnotations()
         assert ann.title is None
         assert ann.read_only_hint is None
@@ -46,7 +49,7 @@ class TestToolAnnotations:
         assert ann.idempotent_hint is None
         assert ann.open_world_hint is None
 
-    def test_all_values(self):
+    def test_all_values(self) -> None:
         ann = dcc_mcp_core.ToolAnnotations(
             title="Tool",
             read_only_hint=True,
@@ -60,7 +63,7 @@ class TestToolAnnotations:
         assert ann.idempotent_hint is True
         assert ann.open_world_hint is False
 
-    def test_setters(self):
+    def test_setters(self) -> None:
         ann = dcc_mcp_core.ToolAnnotations()
         ann.title = "New Title"
         ann.read_only_hint = True
@@ -73,29 +76,25 @@ class TestToolAnnotations:
         assert ann.idempotent_hint is True
         assert ann.open_world_hint is False
 
-    def test_set_none(self):
+    def test_set_none(self) -> None:
         ann = dcc_mcp_core.ToolAnnotations(title="x")
         ann.title = None
         assert ann.title is None
 
 
 class TestResourceDefinition:
-    def test_create(self):
-        rd = dcc_mcp_core.ResourceDefinition(
-            uri="file:///test.txt", name="test", description="A test"
-        )
+    def test_create(self) -> None:
+        rd = dcc_mcp_core.ResourceDefinition(uri="file:///test.txt", name="test", description="A test")
         assert rd.uri == "file:///test.txt"
         assert rd.name == "test"
         assert rd.description == "A test"
         assert rd.mime_type == "text/plain"
 
-    def test_custom_mime_type(self):
-        rd = dcc_mcp_core.ResourceDefinition(
-            uri="u", name="n", description="d", mime_type="application/json"
-        )
+    def test_custom_mime_type(self) -> None:
+        rd = dcc_mcp_core.ResourceDefinition(uri="u", name="n", description="d", mime_type="application/json")
         assert rd.mime_type == "application/json"
 
-    def test_setters(self):
+    def test_setters(self) -> None:
         rd = dcc_mcp_core.ResourceDefinition(uri="old", name="old", description="old")
         rd.uri = "new_uri"
         rd.name = "new_name"
@@ -108,7 +107,7 @@ class TestResourceDefinition:
 
 
 class TestResourceTemplateDefinition:
-    def test_create(self):
+    def test_create(self) -> None:
         rtd = dcc_mcp_core.ResourceTemplateDefinition(
             uri_template="file:///{path}",
             name="template",
@@ -119,10 +118,8 @@ class TestResourceTemplateDefinition:
         assert rtd.description == "A template"
         assert rtd.mime_type == "text/plain"
 
-    def test_setters(self):
-        rtd = dcc_mcp_core.ResourceTemplateDefinition(
-            uri_template="old", name="old", description="old"
-        )
+    def test_setters(self) -> None:
+        rtd = dcc_mcp_core.ResourceTemplateDefinition(uri_template="old", name="old", description="old")
         rtd.uri_template = "new/{id}"
         rtd.name = "new"
         rtd.description = "new desc"
@@ -134,17 +131,17 @@ class TestResourceTemplateDefinition:
 
 
 class TestPromptArgument:
-    def test_create_default(self):
+    def test_create_default(self) -> None:
         pa = dcc_mcp_core.PromptArgument(name="arg1", description="An argument")
         assert pa.name == "arg1"
         assert pa.description == "An argument"
         assert pa.required is False
 
-    def test_required(self):
+    def test_required(self) -> None:
         pa = dcc_mcp_core.PromptArgument(name="arg1", description="Req", required=True)
         assert pa.required is True
 
-    def test_setters(self):
+    def test_setters(self) -> None:
         pa = dcc_mcp_core.PromptArgument(name="old", description="old")
         pa.name = "new"
         pa.description = "new desc"
@@ -155,12 +152,12 @@ class TestPromptArgument:
 
 
 class TestPromptDefinition:
-    def test_create(self):
+    def test_create(self) -> None:
         pd = dcc_mcp_core.PromptDefinition(name="my_prompt", description="A prompt")
         assert pd.name == "my_prompt"
         assert pd.description == "A prompt"
 
-    def test_setters(self):
+    def test_setters(self) -> None:
         pd = dcc_mcp_core.PromptDefinition(name="old", description="old")
         pd.name = "new"
         pd.description = "new desc"

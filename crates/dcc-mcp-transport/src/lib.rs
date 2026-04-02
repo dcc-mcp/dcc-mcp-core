@@ -14,8 +14,8 @@ pub mod transport;
 
 // Re-export primary types
 pub use config::{PoolConfig, SessionConfig, TransportConfig};
-pub use discovery::types::{ServiceEntry, ServiceKey, ServiceStatus};
 pub use discovery::ServiceRegistry;
+pub use discovery::types::{ServiceEntry, ServiceKey, ServiceStatus};
 pub use error::{TransportError, TransportResult};
 pub use message::{Request, Response};
 pub use pool::{ConnectionPool, ConnectionState, PooledConnection};

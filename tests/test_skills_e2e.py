@@ -11,22 +11,22 @@ Covers:
 - Full scan → parse → execute round-trip
 """
 
+# Import future modules
+from __future__ import annotations
+
 # Import built-in modules
+import ast
 import json
-import os
+from pathlib import Path
 import subprocess
 import sys
 import tempfile
-
-# Import third-party modules
-import pytest
+from typing import Any
 
 # Import local modules
+from conftest import REPO_ROOT
+from conftest import scan_and_find
 import dcc_mcp_core
-
-# Resolve examples/skills relative to repo root
-REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-EXAMPLES_SKILLS_DIR = os.path.join(REPO_ROOT, "examples", "skills")
 
 # All expected example skills
 ALL_EXAMPLE_SKILLS = {
@@ -42,41 +42,33 @@ ALL_EXAMPLE_SKILLS = {
 }
 
 
-@pytest.fixture()
-def examples_dir():
-    """Return the path to the examples/skills directory, skipping if absent."""
-    if not os.path.isdir(EXAMPLES_SKILLS_DIR):
-        pytest.skip("examples/skills directory not found")
-    return EXAMPLES_SKILLS_DIR
-
-
 # ── Scanning ──
 
 
 class TestSkillScanningE2E:
-    def test_scan_discovers_all_example_skills(self, examples_dir):
+    def test_scan_discovers_all_example_skills(self, examples_dir: str) -> None:
         scanner = dcc_mcp_core.SkillScanner()
         dirs = scanner.scan(extra_paths=[examples_dir])
-        names = {os.path.basename(d) for d in dirs}
+        names = {Path(d).name for d in dirs}
         for expected in ALL_EXAMPLE_SKILLS:
             assert expected in names, f"Missing skill: {expected}"
 
-    def test_scan_with_dcc_filter_still_returns_extra_paths(self, examples_dir):
+    def test_scan_with_dcc_filter_still_returns_extra_paths(self, examples_dir: str) -> None:
         scanner = dcc_mcp_core.SkillScanner()
         dirs = scanner.scan(extra_paths=[examples_dir], dcc_name="maya")
         assert len(dirs) >= len(ALL_EXAMPLE_SKILLS)
 
-    def test_scan_force_refresh(self, examples_dir):
+    def test_scan_force_refresh(self, examples_dir: str) -> None:
         scanner = dcc_mcp_core.SkillScanner()
         r1 = scanner.scan(extra_paths=[examples_dir])
         r2 = scanner.scan(extra_paths=[examples_dir], force_refresh=True)
         assert set(r1) == set(r2)
 
-    def test_scan_skill_paths_convenience(self, examples_dir):
+    def test_scan_skill_paths_convenience(self, examples_dir: str) -> None:
         dirs = dcc_mcp_core.scan_skill_paths(extra_paths=[examples_dir])
         assert len(dirs) >= len(ALL_EXAMPLE_SKILLS)
 
-    def test_discovered_skills_property(self, examples_dir):
+    def test_discovered_skills_property(self, examples_dir: str) -> None:
         scanner = dcc_mcp_core.SkillScanner()
         scanner.scan(extra_paths=[examples_dir])
         assert len(scanner.discovered_skills) >= len(ALL_EXAMPLE_SKILLS)
@@ -86,9 +78,9 @@ class TestSkillScanningE2E:
 
 
 class TestSkillParsingE2E:
-    def test_parse_hello_world(self, examples_dir):
-        skill_dir = os.path.join(examples_dir, "hello-world")
-        meta = dcc_mcp_core._core.parse_skill_md(skill_dir)
+    def test_parse_hello_world(self, examples_dir: str) -> None:
+        skill_dir = str(Path(examples_dir) / "hello-world")
+        meta = dcc_mcp_core.parse_skill_md(skill_dir)
         assert meta is not None
         assert meta.name == "hello-world"
         assert meta.dcc == "python"
@@ -97,40 +89,40 @@ class TestSkillParsingE2E:
         assert len(meta.scripts) == 1
         assert any("greet.py" in s for s in meta.scripts)
 
-    def test_parse_maya_geometry(self, examples_dir):
-        skill_dir = os.path.join(examples_dir, "maya-geometry")
-        meta = dcc_mcp_core._core.parse_skill_md(skill_dir)
+    def test_parse_maya_geometry(self, examples_dir: str) -> None:
+        skill_dir = str(Path(examples_dir) / "maya-geometry")
+        meta = dcc_mcp_core.parse_skill_md(skill_dir)
         assert meta is not None
         assert meta.name == "maya-geometry"
         assert meta.dcc == "maya"
         assert "geometry" in meta.tags
         assert len(meta.scripts) == 2
-        script_names = [os.path.basename(s) for s in meta.scripts]
+        script_names = [Path(s).name for s in meta.scripts]
         assert "create_sphere.py" in script_names
         assert "batch_rename.py" in script_names
 
-    def test_parse_multi_script(self, examples_dir):
-        skill_dir = os.path.join(examples_dir, "multi-script")
-        meta = dcc_mcp_core._core.parse_skill_md(skill_dir)
+    def test_parse_multi_script(self, examples_dir: str) -> None:
+        skill_dir = str(Path(examples_dir) / "multi-script")
+        meta = dcc_mcp_core.parse_skill_md(skill_dir)
         assert meta is not None
         assert meta.name == "multi-script"
         assert len(meta.scripts) == 3
-        extensions = {os.path.splitext(s)[1] for s in meta.scripts}
+        extensions = {Path(s).suffix for s in meta.scripts}
         assert ".py" in extensions
         assert ".sh" in extensions
         assert ".bat" in extensions
 
-    def test_skill_metadata_fields(self, examples_dir):
-        skill_dir = os.path.join(examples_dir, "hello-world")
-        meta = dcc_mcp_core._core.parse_skill_md(skill_dir)
+    def test_skill_metadata_fields(self, examples_dir: str) -> None:
+        skill_dir = str(Path(examples_dir) / "hello-world")
+        meta = dcc_mcp_core.parse_skill_md(skill_dir)
         assert meta.skill_path == skill_dir
         assert isinstance(meta.tools, list)
         assert "Bash" in meta.tools
         assert "Read" in meta.tools
 
-    def test_skill_metadata_is_mutable(self, examples_dir):
-        skill_dir = os.path.join(examples_dir, "hello-world")
-        meta = dcc_mcp_core._core.parse_skill_md(skill_dir)
+    def test_skill_metadata_is_mutable(self, examples_dir: str) -> None:
+        skill_dir = str(Path(examples_dir) / "hello-world")
+        meta = dcc_mcp_core.parse_skill_md(skill_dir)
         meta.name = "renamed"
         assert meta.name == "renamed"
         meta.tags = ["custom"]
@@ -141,38 +133,38 @@ class TestSkillParsingE2E:
 
 
 class TestOpenSourceToolSkills:
-    def test_parse_ffmpeg_media(self, examples_dir):
-        skill_dir = os.path.join(examples_dir, "ffmpeg-media")
-        meta = dcc_mcp_core._core.parse_skill_md(skill_dir)
+    def test_parse_ffmpeg_media(self, examples_dir: str) -> None:
+        skill_dir = str(Path(examples_dir) / "ffmpeg-media")
+        meta = dcc_mcp_core.parse_skill_md(skill_dir)
         assert meta is not None
         assert meta.name == "ffmpeg-media"
         assert "ffmpeg" in meta.tags
         assert "video" in meta.tags
         assert len(meta.scripts) == 3
-        script_names = {os.path.basename(s) for s in meta.scripts}
+        script_names = {Path(s).name for s in meta.scripts}
         assert "probe.py" in script_names
         assert "convert.py" in script_names
         assert "thumbnail.py" in script_names
 
-    def test_parse_imagemagick_tools(self, examples_dir):
-        skill_dir = os.path.join(examples_dir, "imagemagick-tools")
-        meta = dcc_mcp_core._core.parse_skill_md(skill_dir)
+    def test_parse_imagemagick_tools(self, examples_dir: str) -> None:
+        skill_dir = str(Path(examples_dir) / "imagemagick-tools")
+        meta = dcc_mcp_core.parse_skill_md(skill_dir)
         assert meta is not None
         assert meta.name == "imagemagick-tools"
         assert "image" in meta.tags
         assert len(meta.scripts) == 2
 
-    def test_parse_git_automation(self, examples_dir):
-        skill_dir = os.path.join(examples_dir, "git-automation")
-        meta = dcc_mcp_core._core.parse_skill_md(skill_dir)
+    def test_parse_git_automation(self, examples_dir: str) -> None:
+        skill_dir = str(Path(examples_dir) / "git-automation")
+        meta = dcc_mcp_core.parse_skill_md(skill_dir)
         assert meta is not None
         assert meta.name == "git-automation"
         assert "git" in meta.tags
         assert len(meta.scripts) == 2
 
-    def test_parse_usd_tools(self, examples_dir):
-        skill_dir = os.path.join(examples_dir, "usd-tools")
-        meta = dcc_mcp_core._core.parse_skill_md(skill_dir)
+    def test_parse_usd_tools(self, examples_dir: str) -> None:
+        skill_dir = str(Path(examples_dir) / "usd-tools")
+        meta = dcc_mcp_core.parse_skill_md(skill_dir)
         assert meta is not None
         assert meta.name == "usd-tools"
         assert "usd" in meta.tags
@@ -183,26 +175,26 @@ class TestOpenSourceToolSkills:
 
 
 class TestClawHubCompat:
-    def test_parse_clawhub_compat_skill(self, examples_dir):
-        skill_dir = os.path.join(examples_dir, "clawhub-compat")
-        meta = dcc_mcp_core._core.parse_skill_md(skill_dir)
+    def test_parse_clawhub_compat_skill(self, examples_dir: str) -> None:
+        skill_dir = str(Path(examples_dir) / "clawhub-compat")
+        meta = dcc_mcp_core.parse_skill_md(skill_dir)
         assert meta is not None
         assert meta.name == "clawhub-compat"
         assert meta.version == "1.0.0"
 
-    def test_clawhub_compat_has_scripts(self, examples_dir):
-        skill_dir = os.path.join(examples_dir, "clawhub-compat")
-        meta = dcc_mcp_core._core.parse_skill_md(skill_dir)
+    def test_clawhub_compat_has_scripts(self, examples_dir: str) -> None:
+        skill_dir = str(Path(examples_dir) / "clawhub-compat")
+        meta = dcc_mcp_core.parse_skill_md(skill_dir)
         assert meta is not None
         assert len(meta.scripts) >= 1
-        extensions = {os.path.splitext(s)[1] for s in meta.scripts}
+        extensions = {Path(s).suffix for s in meta.scripts}
         assert ".py" in extensions
         assert ".sh" in extensions
 
-    def test_clawhub_skill_scannable(self, examples_dir):
+    def test_clawhub_skill_scannable(self, examples_dir: str) -> None:
         scanner = dcc_mcp_core.SkillScanner()
         dirs = scanner.scan(extra_paths=[examples_dir])
-        names = {os.path.basename(d) for d in dirs}
+        names = {Path(d).name for d in dirs}
         assert "clawhub-compat" in names
 
 
@@ -210,9 +202,9 @@ class TestClawHubCompat:
 
 
 class TestAdvancedSkillLayout:
-    def test_parse_maya_pipeline(self, examples_dir):
-        skill_dir = os.path.join(examples_dir, "maya-pipeline")
-        meta = dcc_mcp_core._core.parse_skill_md(skill_dir)
+    def test_parse_maya_pipeline(self, examples_dir: str) -> None:
+        skill_dir = str(Path(examples_dir) / "maya-pipeline")
+        meta = dcc_mcp_core.parse_skill_md(skill_dir)
         assert meta is not None
         assert meta.name == "maya-pipeline"
         assert meta.dcc == "maya"
@@ -220,93 +212,96 @@ class TestAdvancedSkillLayout:
         assert "advanced" in meta.tags
         assert "composable" in meta.tags
 
-    def test_maya_pipeline_has_scripts(self, examples_dir):
-        skill_dir = os.path.join(examples_dir, "maya-pipeline")
-        meta = dcc_mcp_core._core.parse_skill_md(skill_dir)
+    def test_maya_pipeline_has_scripts(self, examples_dir: str) -> None:
+        skill_dir = str(Path(examples_dir) / "maya-pipeline")
+        meta = dcc_mcp_core.parse_skill_md(skill_dir)
         assert meta is not None
         assert len(meta.scripts) == 2
-        script_names = {os.path.basename(s) for s in meta.scripts}
+        script_names = {Path(s).name for s in meta.scripts}
         assert "setup_project.py" in script_names
         assert "export_usd.py" in script_names
 
-    def test_metadata_directory_exists(self, examples_dir):
-        skill_dir = os.path.join(examples_dir, "maya-pipeline")
-        metadata_dir = os.path.join(skill_dir, "metadata")
-        assert os.path.isdir(metadata_dir)
+    def test_metadata_directory_exists(self, examples_dir: str) -> None:
+        metadata_dir = Path(examples_dir) / "maya-pipeline" / "metadata"
+        assert metadata_dir.is_dir()
 
-    def test_metadata_files_enumerated(self, examples_dir):
+    def test_metadata_files_enumerated(self, examples_dir: str) -> None:
         """Verify the Rust loader discovers all .md files under metadata/."""
-        skill_dir = os.path.join(examples_dir, "maya-pipeline")
-        meta = dcc_mcp_core._core.parse_skill_md(skill_dir)
+        skill_dir = str(Path(examples_dir) / "maya-pipeline")
+        meta = dcc_mcp_core.parse_skill_md(skill_dir)
         assert meta is not None
-        md_basenames = {os.path.basename(f) for f in meta.metadata_files}
+        md_basenames = {Path(f).name for f in meta.metadata_files}
         assert "help.md" in md_basenames
         assert "install.md" in md_basenames
         assert "uninstall.md" in md_basenames
         assert "depends.md" in md_basenames
         assert len(meta.metadata_files) == 4
 
-    def test_depends_parsed_from_metadata_dir(self, examples_dir):
+    def test_depends_parsed_from_metadata_dir(self, examples_dir: str) -> None:
         """Verify depends are parsed from metadata/depends.md."""
-        skill_dir = os.path.join(examples_dir, "maya-pipeline")
-        meta = dcc_mcp_core._core.parse_skill_md(skill_dir)
+        skill_dir = str(Path(examples_dir) / "maya-pipeline")
+        meta = dcc_mcp_core.parse_skill_md(skill_dir)
         assert meta is not None
         assert "maya-geometry" in meta.depends
         assert "usd-tools" in meta.depends
         assert len(meta.depends) == 2
 
-    def test_depends_empty_for_basic_skill(self, examples_dir):
+    def test_depends_empty_for_basic_skill(self, examples_dir: str) -> None:
         """Basic skills without metadata/depends.md should have empty depends."""
-        skill_dir = os.path.join(examples_dir, "hello-world")
-        meta = dcc_mcp_core._core.parse_skill_md(skill_dir)
+        skill_dir = str(Path(examples_dir) / "hello-world")
+        meta = dcc_mcp_core.parse_skill_md(skill_dir)
         assert meta is not None
         assert meta.depends == []
 
-    def test_metadata_files_empty_for_basic_skill(self, examples_dir):
+    def test_metadata_files_empty_for_basic_skill(self, examples_dir: str) -> None:
         """Basic skills without metadata/ dir should have empty metadata_files."""
-        skill_dir = os.path.join(examples_dir, "hello-world")
-        meta = dcc_mcp_core._core.parse_skill_md(skill_dir)
+        skill_dir = str(Path(examples_dir) / "hello-world")
+        meta = dcc_mcp_core.parse_skill_md(skill_dir)
         assert meta is not None
         assert meta.metadata_files == []
 
-    def test_metadata_help_md_content(self, examples_dir):
-        help_path = os.path.join(examples_dir, "maya-pipeline", "metadata", "help.md")
-        assert os.path.isfile(help_path)
-        with open(help_path) as f:
-            content = f.read()
+    def test_metadata_help_md_content(self, examples_dir: str) -> None:
+        help_path = Path(examples_dir) / "maya-pipeline" / "metadata" / "help.md"
+        assert help_path.is_file()
+        content = help_path.read_text(encoding="utf-8")
         assert "setup_project.py" in content
         assert "export_usd.py" in content
 
-    def test_metadata_install_md_content(self, examples_dir):
-        install_path = os.path.join(examples_dir, "maya-pipeline", "metadata", "install.md")
-        assert os.path.isfile(install_path)
-        with open(install_path) as f:
-            content = f.read()
+    def test_metadata_install_md_content(self, examples_dir: str) -> None:
+        install_path = Path(examples_dir) / "maya-pipeline" / "metadata" / "install.md"
+        assert install_path.is_file()
+        content = install_path.read_text(encoding="utf-8")
         assert "Prerequisites" in content
 
-    def test_metadata_uninstall_md_content(self, examples_dir):
-        uninstall_path = os.path.join(examples_dir, "maya-pipeline", "metadata", "uninstall.md")
-        assert os.path.isfile(uninstall_path)
-        with open(uninstall_path) as f:
-            content = f.read()
+    def test_metadata_uninstall_md_content(self, examples_dir: str) -> None:
+        uninstall_path = Path(examples_dir) / "maya-pipeline" / "metadata" / "uninstall.md"
+        assert uninstall_path.is_file()
+        content = uninstall_path.read_text(encoding="utf-8")
         assert "Cleanup" in content
 
-    def test_depends_md_content(self, examples_dir):
-        depends_path = os.path.join(examples_dir, "maya-pipeline", "metadata", "depends.md")
-        assert os.path.isfile(depends_path)
-        with open(depends_path) as f:
-            content = f.read()
+    def test_depends_md_content(self, examples_dir: str) -> None:
+        depends_path = Path(examples_dir) / "maya-pipeline" / "metadata" / "depends.md"
+        assert depends_path.is_file()
+        content = depends_path.read_text(encoding="utf-8")
         assert "maya-geometry" in content
         assert "usd-tools" in content
 
 
 # ── Scan → Parse → Execute: full pipeline ──
 
+# Default timeouts (seconds) for subprocess-based script execution in tests.
+SCRIPT_TIMEOUT_DEFAULT = 15
+SCRIPT_TIMEOUT_LONG = 30
 
-def _run_script(script_path, args=None, timeout=15):
+
+def _run_script(
+    script_path: str,
+    args: list[str] | None = None,
+    timeout: int = SCRIPT_TIMEOUT_DEFAULT,
+) -> dict[str, Any]:
     """Run a Python script and return parsed JSON output."""
     cmd = [sys.executable, script_path, *(args or [])]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    result = subprocess.run(cmd, capture_output=True, timeout=timeout, encoding="utf-8")
     assert result.returncode == 0, f"Script failed: {result.stderr}"
     return json.loads(result.stdout)
 
@@ -314,25 +309,15 @@ def _run_script(script_path, args=None, timeout=15):
 class TestScanParseExecutePipeline:
     """Full pipeline: scan → find skill → parse metadata → pick script → execute → validate output."""
 
-    def test_hello_world_pipeline(self, examples_dir):
-        scanner = dcc_mcp_core.SkillScanner()
-        dirs = scanner.scan(extra_paths=[examples_dir])
-        # Find hello-world by name
-        skill_dir = next(d for d in dirs if os.path.basename(d) == "hello-world")
-        meta = dcc_mcp_core._core.parse_skill_md(skill_dir)
-        assert meta is not None
-        # Find and execute the greet script
+    def test_hello_world_pipeline(self, examples_dir: str) -> None:
+        meta = scan_and_find(examples_dir, "hello-world")
         greet_script = next(s for s in meta.scripts if "greet" in s)
         output = _run_script(greet_script, ["MCP"])
         assert output["success"] is True
         assert "Hello, MCP!" in output["message"]
 
-    def test_maya_geometry_pipeline(self, examples_dir):
-        scanner = dcc_mcp_core.SkillScanner()
-        dirs = scanner.scan(extra_paths=[examples_dir])
-        skill_dir = next(d for d in dirs if os.path.basename(d) == "maya-geometry")
-        meta = dcc_mcp_core._core.parse_skill_md(skill_dir)
-        assert meta is not None
+    def test_maya_geometry_pipeline(self, examples_dir: str) -> None:
+        meta = scan_and_find(examples_dir, "maya-geometry")
         assert meta.dcc == "maya"
         # Execute create_sphere
         sphere_script = next(s for s in meta.scripts if "create_sphere" in s)
@@ -346,51 +331,36 @@ class TestScanParseExecutePipeline:
         assert output["success"] is True
         assert output["context"]["renamed"] == ["X_a", "X_b", "X_c"]
 
-    def test_git_automation_pipeline(self, examples_dir):
-        scanner = dcc_mcp_core.SkillScanner()
-        dirs = scanner.scan(extra_paths=[examples_dir])
-        skill_dir = next(d for d in dirs if os.path.basename(d) == "git-automation")
-        meta = dcc_mcp_core._core.parse_skill_md(skill_dir)
-        # Execute repo_stats on this repo
+    def test_git_automation_pipeline(self, examples_dir: str) -> None:
+        meta = scan_and_find(examples_dir, "git-automation")
         stats_script = next(s for s in meta.scripts if "repo_stats" in s)
-        output = _run_script(stats_script, ["--repo", REPO_ROOT], timeout=30)
+        output = _run_script(stats_script, ["--repo", str(REPO_ROOT)], timeout=SCRIPT_TIMEOUT_LONG)
         assert output["success"] is True
         assert output["context"]["total_commits"] > 0
         assert output["context"]["tracked_files"] > 0
         assert len(output["context"]["top_contributors"]) > 0
 
-    def test_maya_pipeline_setup_project(self, examples_dir):
+    def test_maya_pipeline_setup_project(self, examples_dir: str) -> None:
         """Advanced skill: scan → parse → execute setup_project → verify output."""
-        scanner = dcc_mcp_core.SkillScanner()
-        dirs = scanner.scan(extra_paths=[examples_dir])
-        skill_dir = next(d for d in dirs if os.path.basename(d) == "maya-pipeline")
-        meta = dcc_mcp_core._core.parse_skill_md(skill_dir)
+        meta = scan_and_find(examples_dir, "maya-pipeline")
         assert meta.dcc == "maya"
-
         setup_script = next(s for s in meta.scripts if "setup_project" in s)
         with tempfile.TemporaryDirectory() as tmpdir:
             output = _run_script(setup_script, ["--name", "TestProj", "--root", tmpdir])
             assert output["success"] is True
-            # Verify directories were actually created
-            project_dir = os.path.join(tmpdir, "TestProj")
-            assert os.path.isdir(project_dir)
+            project_dir = Path(tmpdir) / "TestProj"
+            assert project_dir.is_dir()
             for sub in ["scenes", "textures", "cache", "renders", "exports"]:
-                assert os.path.isdir(os.path.join(project_dir, sub))
+                assert (project_dir / sub).is_dir()
 
-    def test_maya_pipeline_export_usd(self, examples_dir):
+    def test_maya_pipeline_export_usd(self, examples_dir: str) -> None:
         """Advanced skill: execute export_usd → verify .usda file is produced."""
-        scanner = dcc_mcp_core.SkillScanner()
-        dirs = scanner.scan(extra_paths=[examples_dir])
-        skill_dir = next(d for d in dirs if os.path.basename(d) == "maya-pipeline")
-        meta = dcc_mcp_core._core.parse_skill_md(skill_dir)
-
+        meta = scan_and_find(examples_dir, "maya-pipeline")
         export_script = next(s for s in meta.scripts if "export_usd" in s)
         with tempfile.TemporaryDirectory() as tmpdir:
-            input_file = os.path.join(tmpdir, "scene.ma")
-            output_file = os.path.join(tmpdir, "scene.usda")
-            # Create a dummy input file
-            with open(input_file, "w") as f:
-                f.write("// dummy maya file")
+            input_file = str(Path(tmpdir) / "scene.ma")
+            output_file = str(Path(tmpdir) / "scene.usda")
+            Path(input_file).write_text("// dummy maya file", encoding="utf-8")
             output = _run_script(
                 export_script,
                 ["--input", input_file, "--output", output_file, "--validate"],
@@ -398,10 +368,8 @@ class TestScanParseExecutePipeline:
             assert output["success"] is True
             assert output["context"]["format"] == "usda"
             assert output["context"]["validated"] is True
-            # Verify .usda file was created
-            assert os.path.isfile(output_file)
-            with open(output_file) as f:
-                content = f.read()
+            assert Path(output_file).is_file()
+            content = Path(output_file).read_text(encoding="utf-8")
             assert "#usda 1.0" in content
 
 
@@ -409,56 +377,31 @@ class TestScanParseExecutePipeline:
 
 
 class TestScanAndParseRoundTrip:
-    def test_scan_then_parse_all(self, examples_dir):
-        scanner = dcc_mcp_core.SkillScanner()
-        dirs = scanner.scan(extra_paths=[examples_dir])
-        parsed = []
-        for d in dirs:
-            meta = dcc_mcp_core._core.parse_skill_md(d)
-            assert meta is not None, f"Failed to parse {d}"
-            parsed.append(meta)
-        assert len(parsed) >= len(ALL_EXAMPLE_SKILLS)
-        names = {m.name for m in parsed}
+    def test_scan_then_parse_all(self, scanned_metas: list[dcc_mcp_core.SkillMetadata]) -> None:
+        assert len(scanned_metas) >= len(ALL_EXAMPLE_SKILLS)
+        names = {m.name for m in scanned_metas}
         for expected in ALL_EXAMPLE_SKILLS:
             assert expected in names, f"Missing after parse: {expected}"
 
-    def test_all_skills_have_scripts(self, examples_dir):
-        scanner = dcc_mcp_core.SkillScanner()
-        dirs = scanner.scan(extra_paths=[examples_dir])
-        for d in dirs:
-            meta = dcc_mcp_core._core.parse_skill_md(d)
-            assert meta is not None
+    def test_all_skills_have_scripts(self, scanned_metas: list[dcc_mcp_core.SkillMetadata]) -> None:
+        for meta in scanned_metas:
             assert len(meta.scripts) > 0, f"Skill {meta.name} has no scripts"
 
-    def test_version_field_populated(self, examples_dir):
-        scanner = dcc_mcp_core.SkillScanner()
-        dirs = scanner.scan(extra_paths=[examples_dir])
-        for d in dirs:
-            meta = dcc_mcp_core._core.parse_skill_md(d)
-            assert meta is not None
+    def test_version_field_populated(self, scanned_metas: list[dcc_mcp_core.SkillMetadata]) -> None:
+        for meta in scanned_metas:
             assert meta.version, f"Skill {meta.name} missing version"
 
-    def test_description_field_populated(self, examples_dir):
-        scanner = dcc_mcp_core.SkillScanner()
-        dirs = scanner.scan(extra_paths=[examples_dir])
-        for d in dirs:
-            meta = dcc_mcp_core._core.parse_skill_md(d)
-            assert meta is not None
+    def test_description_field_populated(
+        self,
+        scanned_metas: list[dcc_mcp_core.SkillMetadata],
+    ) -> None:
+        for meta in scanned_metas:
             assert meta.description, f"Skill {meta.name} missing description"
 
-    def test_all_python_scripts_executable(self, examples_dir):
-        """Verify all .py scripts at least import without crashing."""
-        scanner = dcc_mcp_core.SkillScanner()
-        dirs = scanner.scan(extra_paths=[examples_dir])
-        for d in dirs:
-            meta = dcc_mcp_core._core.parse_skill_md(d)
-            assert meta is not None
+    def test_all_python_scripts_have_valid_syntax(self, scanned_metas: list[dcc_mcp_core.SkillMetadata]) -> None:
+        """Verify all .py scripts have valid Python syntax via ast.parse."""
+        for meta in scanned_metas:
             for script in meta.scripts:
                 if script.endswith(".py"):
-                    result = subprocess.run(
-                        [sys.executable, "-c", f"import ast; ast.parse(open(r'{script}').read())"],
-                        capture_output=True,
-                        text=True,
-                        timeout=5,
-                    )
-                    assert result.returncode == 0, f"Syntax error in {script}: {result.stderr}"
+                    content = Path(script).read_text(encoding="utf-8")
+                    ast.parse(content, filename=script)

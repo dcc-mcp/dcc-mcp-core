@@ -1,8 +1,8 @@
 default_language_version:
-  python: python3.10
+  python: python3.12
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.3.0
+    rev: v5.0.0
     hooks:
       - id: no-commit-to-branch # prevent direct commits to main branch
       - id: check-yaml
@@ -10,6 +10,14 @@ repos:
       - id: check-toml
       - id: end-of-file-fixer
       - id: trailing-whitespace
+
+  # Python lint (ruff)
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.8
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
 
   # Rust checks
   - repo: local

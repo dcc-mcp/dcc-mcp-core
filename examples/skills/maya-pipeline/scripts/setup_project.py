@@ -1,39 +1,40 @@
 """Set up a standardized Maya project directory structure."""
 
+from __future__ import annotations
+
+import argparse
 import json
-import os
-import sys
+from pathlib import Path
 
 
-def main():
+def main() -> None:
     """Create Maya project directory structure."""
-    name = "UntitledProject"
-    root = "."
+    parser = argparse.ArgumentParser(description="Set up a Maya project structure.")
+    parser.add_argument("--name", default="UntitledProject")
+    parser.add_argument("--root", default=".")
+    args = parser.parse_args()
 
-    args = sys.argv[1:]
-    for i, arg in enumerate(args):
-        if arg == "--name" and i + 1 < len(args):
-            name = args[i + 1]
-        elif arg == "--root" and i + 1 < len(args):
-            root = args[i + 1]
-
-    project_dir = os.path.join(root, name)
+    project_dir = Path(args.root) / args.name
     subdirs = ["scenes", "textures", "cache", "renders", "exports"]
     created = []
 
     for sub in subdirs:
-        d = os.path.join(project_dir, sub)
-        os.makedirs(d, exist_ok=True)
-        created.append(d)
+        d = project_dir / sub
+        d.mkdir(parents=True, exist_ok=True)
+        created.append(str(d))
 
-    print(json.dumps({
-        "success": True,
-        "message": f"Created project '{name}' with {len(subdirs)} directories",
-        "context": {
-            "project_dir": project_dir,
-            "directories": created,
-        },
-    }))
+    print(
+        json.dumps(
+            {
+                "success": True,
+                "message": f"Created project '{args.name}' with {len(subdirs)} directories",
+                "context": {
+                    "project_dir": str(project_dir),
+                    "directories": created,
+                },
+            }
+        )
+    )
 
 
 if __name__ == "__main__":

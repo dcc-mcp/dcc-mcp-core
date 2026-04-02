@@ -677,8 +677,8 @@ mod tests {
 
         // Now exhaust retries
         let _ = manager.begin_reconnect(&session_id); // attempt 1: 100ms
-                                                      // Session is Reconnecting, we need to simulate failure:
-                                                      // transition back and try again (in real code, reconnect_success or begin_reconnect again)
+        // Session is Reconnecting, we need to simulate failure:
+        // transition back and try again (in real code, reconnect_success or begin_reconnect again)
     }
 
     #[test]
