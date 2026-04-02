@@ -87,7 +87,7 @@ pub fn json_value_to_bound_py<'py>(
 /// Convert a `serde_json::Value` to an unbound `PyObject`.
 ///
 /// Convenience wrapper around [`json_value_to_bound_py`] that calls `.unbind()`.
-pub fn json_value_to_pyobject(py: Python, val: &serde_json::Value) -> PyResult<PyObject> {
+pub fn json_value_to_pyobject(py: Python, val: &serde_json::Value) -> PyResult<Py<PyAny>> {
     Ok(json_value_to_bound_py(py, val)?.unbind())
 }
 

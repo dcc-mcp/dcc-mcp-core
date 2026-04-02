@@ -187,7 +187,7 @@ impl StringWrapper {
 #[cfg(feature = "python-bindings")]
 #[pyfunction]
 #[pyo3(name = "unwrap_value")]
-pub fn py_unwrap_value(py: Python, value: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+pub fn py_unwrap_value(py: Python, value: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
     if let Ok(w) = value.extract::<BooleanWrapper>() {
         let obj = pyo3::types::PyBool::new(py, w.value);
         return Ok(obj.to_owned().into_any().unbind());
@@ -212,13 +212,13 @@ pub fn py_unwrap_value(py: Python, value: &Bound<'_, PyAny>) -> PyResult<PyObjec
 pub fn py_unwrap_parameters(
     py: Python,
     params: &Bound<'_, pyo3::types::PyDict>,
-) -> PyResult<PyObject> {
+) -> PyResult<Py<PyAny>> {
     let result = pyo3::types::PyDict::new(py);
     for (k, v) in params.iter() {
         let unwrapped = py_unwrap_value(py, &v)?;
         result.set_item(k, unwrapped)?;
     }
-    Ok(result.into())
+    Ok(result.unbind().into_any())
 }
 
 /// Wrap a native Python value (`bool`, `int`, `float`, `str`) into the
@@ -229,7 +229,7 @@ pub fn py_unwrap_parameters(
 #[cfg(feature = "python-bindings")]
 #[pyfunction]
 #[pyo3(name = "wrap_value")]
-pub fn py_wrap_value(py: Python, value: &Bound<'_, PyAny>) -> PyResult<PyObject> {
+pub fn py_wrap_value(py: Python, value: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
     // IMPORTANT: Extraction order matters — Python `bool` is a subclass of `int`,
     // and `int` can be extracted as `f64`. So: bool → int → float → string.
     if let Ok(b) = value.extract::<bool>() {

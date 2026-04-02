@@ -52,6 +52,9 @@ jobs:
       !cancelled() &&
       needs.build-wheels.result == 'success'
     runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/dcc-mcp-core
     permissions:
       id-token: write
       contents: write

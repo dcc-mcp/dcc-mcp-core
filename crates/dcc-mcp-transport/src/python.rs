@@ -127,7 +127,7 @@ impl PyServiceEntry {
     }
 
     /// Convert to a dictionary for backward compatibility.
-    fn to_dict(&self, py: Python) -> PyResult<PyObject> {
+    fn to_dict(&self, py: Python) -> PyResult<Py<PyAny>> {
         let dict = PyDict::new(py);
         dict.set_item("dcc_type", &self.dcc_type)?;
         dict.set_item("instance_id", &self.instance_id)?;
@@ -137,7 +137,7 @@ impl PyServiceEntry {
         dict.set_item("scene", &self.scene)?;
         dict.set_item("metadata", &self.metadata)?;
         dict.set_item("status", self.status.__str__())?;
-        Ok(dict.into())
+        Ok(dict.unbind().into_any())
     }
 }
 
@@ -392,7 +392,7 @@ impl PyTransportManager {
     /// Returns:
     ///     Dict with session info, or None if not found.
     #[pyo3(name = "get_session")]
-    fn py_get_session(&self, py: Python, session_id: &str) -> PyResult<Option<PyObject>> {
+    fn py_get_session(&self, py: Python, session_id: &str) -> PyResult<Option<Py<PyAny>>> {
         let uuid = parse_uuid(session_id)?;
         Ok(self.inner.get_session(&uuid).map(|s| session_to_py(py, &s)))
     }
@@ -448,7 +448,7 @@ impl PyTransportManager {
 
     /// List all active sessions.
     #[pyo3(name = "list_sessions")]
-    fn py_list_sessions(&self, py: Python) -> Vec<PyObject> {
+    fn py_list_sessions(&self, py: Python) -> Vec<Py<PyAny>> {
         self.inner
             .list_sessions()
             .iter()
@@ -464,7 +464,7 @@ impl PyTransportManager {
     /// Returns:
     ///     List of session info dicts for the given DCC type.
     #[pyo3(name = "list_sessions_for_dcc")]
-    fn py_list_sessions_for_dcc(&self, py: Python, dcc_type: &str) -> Vec<PyObject> {
+    fn py_list_sessions_for_dcc(&self, py: Python, dcc_type: &str) -> Vec<Py<PyAny>> {
         self.inner
             .list_sessions_for_dcc(dcc_type)
             .iter()
@@ -570,7 +570,7 @@ fn parse_uuid(s: &str) -> PyResult<uuid::Uuid> {
 }
 
 #[cfg(feature = "python-bindings")]
-fn session_to_py(py: Python, session: &crate::session::Session) -> PyObject {
+fn session_to_py(py: Python, session: &crate::session::Session) -> Py<PyAny> {
     let dict = PyDict::new(py);
     let _ = dict.set_item("id", session.id.to_string());
     let _ = dict.set_item("dcc_type", &session.dcc_type);
@@ -583,5 +583,5 @@ fn session_to_py(py: Python, session: &crate::session::Session) -> PyObject {
     let _ = dict.set_item("avg_latency_ms", session.metrics.avg_latency_ms());
     let _ = dict.set_item("error_rate", session.metrics.error_rate());
     let _ = dict.set_item("reconnect_attempts", session.reconnect_attempts);
-    dict.into()
+    dict.unbind().into_any()
 }

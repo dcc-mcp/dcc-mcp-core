@@ -194,7 +194,7 @@ impl ActionRegistry {
         py: Python,
         name: &str,
         dcc_name: Option<&str>,
-    ) -> PyResult<Option<PyObject>> {
+    ) -> PyResult<Option<Py<PyAny>>> {
         self.get_action(name, dcc_name)
             .map(|meta| action_meta_to_py(py, &meta))
             .transpose()
@@ -209,7 +209,7 @@ impl ActionRegistry {
     /// List all actions with metadata.
     #[pyo3(name = "list_actions")]
     #[pyo3(signature = (dcc_name=None))]
-    fn py_list_actions(&self, py: Python, dcc_name: Option<&str>) -> PyResult<Vec<PyObject>> {
+    fn py_list_actions(&self, py: Python, dcc_name: Option<&str>) -> PyResult<Vec<Py<PyAny>>> {
         self.list_actions(dcc_name)
             .iter()
             .map(|meta| action_meta_to_py(py, meta))
@@ -262,7 +262,7 @@ fn parse_schema_or_default(
 /// This leverages the existing `#[derive(Serialize)]` on `ActionMeta` to avoid
 /// manually enumerating every field — new fields are automatically included.
 #[cfg(feature = "python-bindings")]
-fn action_meta_to_py(py: Python, meta: &ActionMeta) -> PyResult<PyObject> {
+fn action_meta_to_py(py: Python, meta: &ActionMeta) -> PyResult<Py<PyAny>> {
     let json_val = serde_json::to_value(meta)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
     json_value_to_pyobject(py, &json_val)
