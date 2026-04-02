@@ -24,4 +24,4 @@ pub use transport::TransportManager;
 
 // Re-export Python bindings
 #[cfg(feature = "python-bindings")]
-pub use python::PyTransportManager;
+pub use python::{PyServiceEntry, PyServiceStatus, PyTransportManager};

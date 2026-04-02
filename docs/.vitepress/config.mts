@@ -20,7 +20,7 @@ export default defineConfig({
           { text: 'Guide', link: '/guide/getting-started' },
           { text: 'API', link: '/api/models' },
           {
-            text: 'v0.11.0',
+            text: 'v0.12.0',
             items: [
               { text: 'Changelog', link: 'https://github.com/loonghao/dcc-mcp-core/blob/main/CHANGELOG.md' },
               { text: 'PyPI', link: 'https://pypi.org/project/dcc-mcp-core/' },
@@ -39,19 +39,17 @@ export default defineConfig({
             {
               text: 'Core Concepts',
               items: [
-                { text: 'Actions', link: '/guide/actions' },
-                { text: 'Action Manager', link: '/guide/action-manager' },
-                { text: 'Middleware', link: '/guide/middleware' },
+                { text: 'Actions & Registry', link: '/guide/actions' },
                 { text: 'Event System', link: '/guide/events' },
                 { text: 'Skills System', link: '/guide/skills' },
                 { text: 'MCP Protocols', link: '/guide/protocols' },
+                { text: 'Transport Layer', link: '/guide/transport' },
               ]
             },
             {
               text: 'Advanced',
               items: [
                 { text: 'Custom Actions', link: '/guide/custom-actions' },
-                { text: 'Function Adapters', link: '/guide/function-adapters' },
               ]
             },
           ],
@@ -61,10 +59,10 @@ export default defineConfig({
               items: [
                 { text: 'Models', link: '/api/models' },
                 { text: 'Actions', link: '/api/actions' },
-                { text: 'Middleware', link: '/api/middleware' },
                 { text: 'Events', link: '/api/events' },
                 { text: 'Skills', link: '/api/skills' },
                 { text: 'Protocols', link: '/api/protocols' },
+                { text: 'Transport', link: '/api/transport' },
                 { text: 'Utilities', link: '/api/utilities' },
               ]
             }
@@ -81,7 +79,7 @@ export default defineConfig({
           { text: '指南', link: '/zh/guide/getting-started' },
           { text: 'API', link: '/zh/api/models' },
           {
-            text: 'v0.11.0',
+            text: 'v0.12.0',
             items: [
               { text: '更新日志', link: 'https://github.com/loonghao/dcc-mcp-core/blob/main/CHANGELOG.md' },
               { text: 'PyPI', link: 'https://pypi.org/project/dcc-mcp-core/' },
@@ -101,18 +99,16 @@ export default defineConfig({
               text: '核心概念',
               items: [
                 { text: 'Actions 动作', link: '/zh/guide/actions' },
-                { text: 'Action Manager', link: '/zh/guide/action-manager' },
-                { text: '中间件', link: '/zh/guide/middleware' },
                 { text: '事件系统', link: '/zh/guide/events' },
                 { text: 'Skills 技能包', link: '/zh/guide/skills' },
                 { text: 'MCP 协议', link: '/zh/guide/protocols' },
+                { text: '传输层', link: '/zh/guide/transport' },
               ]
             },
             {
               text: '进阶',
               items: [
                 { text: '自定义 Action', link: '/zh/guide/custom-actions' },
-                { text: '函数适配器', link: '/zh/guide/function-adapters' },
               ]
             },
           ],
@@ -122,10 +118,10 @@ export default defineConfig({
               items: [
                 { text: '数据模型', link: '/zh/api/models' },
                 { text: 'Actions', link: '/zh/api/actions' },
-                { text: '中间件', link: '/zh/api/middleware' },
                 { text: '事件', link: '/zh/api/events' },
                 { text: 'Skills', link: '/zh/api/skills' },
                 { text: '协议', link: '/zh/api/protocols' },
+                { text: '传输层', link: '/zh/api/transport' },
                 { text: '工具函数', link: '/zh/api/utilities' },
               ]
             }

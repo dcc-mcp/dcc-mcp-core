@@ -1,6 +1,6 @@
 //! Python bindings for the transport layer via PyO3.
 //!
-//! Exposes `PyTransportManager` and `PyServiceEntry` as Python classes.
+//! Exposes `PyTransportManager`, `PyServiceEntry`, and `PyServiceStatus` as Python classes.
 //! Async operations are bridged to synchronous calls via an internal Tokio runtime.
 
 #[cfg(feature = "python-bindings")]
@@ -14,9 +14,148 @@ use std::collections::HashMap;
 #[cfg(feature = "python-bindings")]
 use crate::config::{PoolConfig, SessionConfig, TransportConfig};
 #[cfg(feature = "python-bindings")]
-use crate::discovery::types::{ServiceEntry, ServiceKey};
+use crate::discovery::types::{ServiceEntry, ServiceKey, ServiceStatus};
 #[cfg(feature = "python-bindings")]
 use crate::transport::TransportManager;
+
+// ── PyServiceStatus ──
+
+/// Python-facing enum for DCC service status.
+///
+/// ```python
+/// from dcc_mcp_core import ServiceStatus
+///
+/// status = ServiceStatus.AVAILABLE
+/// print(status)  # "AVAILABLE"
+/// ```
+#[cfg(feature = "python-bindings")]
+#[pyclass(name = "ServiceStatus", eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PyServiceStatus {
+    /// Service is available and accepting connections.
+    #[pyo3(name = "AVAILABLE")]
+    Available,
+    /// Service is busy (processing a request).
+    #[pyo3(name = "BUSY")]
+    Busy,
+    /// Service is unreachable (health check failed).
+    #[pyo3(name = "UNREACHABLE")]
+    Unreachable,
+    /// Service is shutting down.
+    #[pyo3(name = "SHUTTING_DOWN")]
+    ShuttingDown,
+}
+
+#[cfg(feature = "python-bindings")]
+#[pymethods]
+impl PyServiceStatus {
+    fn __repr__(&self) -> String {
+        format!("ServiceStatus.{}", self.__str__())
+    }
+
+    fn __str__(&self) -> &'static str {
+        match self {
+            Self::Available => "AVAILABLE",
+            Self::Busy => "BUSY",
+            Self::Unreachable => "UNREACHABLE",
+            Self::ShuttingDown => "SHUTTING_DOWN",
+        }
+    }
+}
+
+#[cfg(feature = "python-bindings")]
+impl From<ServiceStatus> for PyServiceStatus {
+    fn from(s: ServiceStatus) -> Self {
+        match s {
+            ServiceStatus::Available => PyServiceStatus::Available,
+            ServiceStatus::Busy => PyServiceStatus::Busy,
+            ServiceStatus::Unreachable => PyServiceStatus::Unreachable,
+            ServiceStatus::ShuttingDown => PyServiceStatus::ShuttingDown,
+        }
+    }
+}
+
+// ── PyServiceEntry ──
+
+/// Python-facing service entry representing a discovered DCC instance.
+///
+/// ```python
+/// from dcc_mcp_core import TransportManager
+///
+/// transport = TransportManager("/path/to/registry")
+/// instance_id = transport.register_service("maya", "127.0.0.1", 18812)
+/// entry = transport.get_service("maya", instance_id)
+/// print(entry.dcc_type)      # "maya"
+/// print(entry.host)          # "127.0.0.1"
+/// print(entry.port)          # 18812
+/// print(entry.status)        # ServiceStatus.AVAILABLE
+/// ```
+#[cfg(feature = "python-bindings")]
+#[pyclass(name = "ServiceEntry", get_all)]
+#[derive(Debug, Clone)]
+pub struct PyServiceEntry {
+    /// DCC application type (e.g. "maya", "houdini", "blender").
+    pub dcc_type: String,
+    /// Unique instance identifier (UUID string).
+    pub instance_id: String,
+    /// Host address.
+    pub host: String,
+    /// Port number.
+    pub port: u16,
+    /// DCC application version (e.g. "2024.2").
+    pub version: Option<String>,
+    /// Currently open scene/file.
+    pub scene: Option<String>,
+    /// Arbitrary metadata.
+    pub metadata: HashMap<String, String>,
+    /// Current service status.
+    pub status: PyServiceStatus,
+}
+
+#[cfg(feature = "python-bindings")]
+#[pymethods]
+impl PyServiceEntry {
+    fn __repr__(&self) -> String {
+        format!(
+            "ServiceEntry(dcc_type={:?}, host={:?}, port={}, instance_id={:?}, status={})",
+            self.dcc_type,
+            self.host,
+            self.port,
+            self.instance_id,
+            self.status.__str__()
+        )
+    }
+
+    /// Convert to a dictionary for backward compatibility.
+    fn to_dict(&self, py: Python) -> PyResult<PyObject> {
+        let dict = PyDict::new(py);
+        dict.set_item("dcc_type", &self.dcc_type)?;
+        dict.set_item("instance_id", &self.instance_id)?;
+        dict.set_item("host", &self.host)?;
+        dict.set_item("port", self.port)?;
+        dict.set_item("version", &self.version)?;
+        dict.set_item("scene", &self.scene)?;
+        dict.set_item("metadata", &self.metadata)?;
+        dict.set_item("status", self.status.__str__())?;
+        Ok(dict.into())
+    }
+}
+
+#[cfg(feature = "python-bindings")]
+impl From<&ServiceEntry> for PyServiceEntry {
+    fn from(entry: &ServiceEntry) -> Self {
+        Self {
+            dcc_type: entry.dcc_type.clone(),
+            instance_id: entry.instance_id.to_string(),
+            host: entry.host.clone(),
+            port: entry.port,
+            version: entry.version.clone(),
+            scene: entry.scene.clone(),
+            metadata: entry.metadata.clone(),
+            status: entry.status.into(),
+        }
+    }
+}
 
 // ── PyTransportManager ──
 
@@ -161,18 +300,53 @@ impl PyTransportManager {
     /// List all instances for a given DCC type.
     ///
     /// Returns:
-    ///     List of dicts with service info.
+    ///     List of ServiceEntry objects.
     #[pyo3(name = "list_instances")]
-    fn py_list_instances(&self, py: Python, dcc_type: &str) -> PyResult<Vec<PyObject>> {
-        let entries = self.inner.list_instances(dcc_type);
-        entries.iter().map(|e| service_entry_to_py(py, e)).collect()
+    fn py_list_instances(&self, dcc_type: &str) -> Vec<PyServiceEntry> {
+        self.inner
+            .list_instances(dcc_type)
+            .iter()
+            .map(PyServiceEntry::from)
+            .collect()
     }
 
     /// List all registered services.
+    ///
+    /// Returns:
+    ///     List of ServiceEntry objects.
     #[pyo3(name = "list_all_services")]
-    fn py_list_all_services(&self, py: Python) -> PyResult<Vec<PyObject>> {
-        let entries = self.inner.list_all_services();
-        entries.iter().map(|e| service_entry_to_py(py, e)).collect()
+    fn py_list_all_services(&self) -> Vec<PyServiceEntry> {
+        self.inner
+            .list_all_services()
+            .iter()
+            .map(PyServiceEntry::from)
+            .collect()
+    }
+
+    /// Get a specific service entry by DCC type and instance ID.
+    ///
+    /// Args:
+    ///     dcc_type: DCC application type.
+    ///     instance_id: Instance UUID string.
+    ///
+    /// Returns:
+    ///     ServiceEntry if found, None otherwise.
+    #[pyo3(name = "get_service")]
+    fn py_get_service(
+        &self,
+        dcc_type: &str,
+        instance_id: &str,
+    ) -> PyResult<Option<PyServiceEntry>> {
+        let uuid = parse_uuid(instance_id)?;
+        let key = ServiceKey {
+            dcc_type: dcc_type.to_string(),
+            instance_id: uuid,
+        };
+        Ok(self
+            .inner
+            .get_service(&key)
+            .as_ref()
+            .map(PyServiceEntry::from))
     }
 
     /// Update heartbeat for a service.
@@ -282,6 +456,22 @@ impl PyTransportManager {
             .collect()
     }
 
+    /// List sessions for a specific DCC type.
+    ///
+    /// Args:
+    ///     dcc_type: DCC application type.
+    ///
+    /// Returns:
+    ///     List of session info dicts for the given DCC type.
+    #[pyo3(name = "list_sessions_for_dcc")]
+    fn py_list_sessions_for_dcc(&self, py: Python, dcc_type: &str) -> Vec<PyObject> {
+        self.inner
+            .list_sessions_for_dcc(dcc_type)
+            .iter()
+            .map(|s| session_to_py(py, s))
+            .collect()
+    }
+
     /// Get the number of active sessions.
     #[pyo3(name = "session_count")]
     fn py_session_count(&self) -> usize {
@@ -318,6 +508,18 @@ impl PyTransportManager {
     #[pyo3(name = "pool_size")]
     fn py_pool_size(&self) -> usize {
         self.inner.pool_size()
+    }
+
+    /// Get the number of connections for a specific DCC type.
+    ///
+    /// Args:
+    ///     dcc_type: DCC application type.
+    ///
+    /// Returns:
+    ///     Number of pooled connections for the given DCC type.
+    #[pyo3(name = "pool_count_for_dcc")]
+    fn py_pool_count_for_dcc(&self, dcc_type: &str) -> usize {
+        self.inner.pool_count_for_dcc(dcc_type)
     }
 
     // ── Lifecycle ──
@@ -365,20 +567,6 @@ impl PyTransportManager {
 fn parse_uuid(s: &str) -> PyResult<uuid::Uuid> {
     uuid::Uuid::parse_str(s)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("invalid UUID: {}", e)))
-}
-
-#[cfg(feature = "python-bindings")]
-fn service_entry_to_py(py: Python, entry: &ServiceEntry) -> PyResult<PyObject> {
-    let dict = PyDict::new(py);
-    dict.set_item("dcc_type", &entry.dcc_type)?;
-    dict.set_item("instance_id", entry.instance_id.to_string())?;
-    dict.set_item("host", &entry.host)?;
-    dict.set_item("port", entry.port)?;
-    dict.set_item("version", entry.version.as_deref())?;
-    dict.set_item("scene", entry.scene.as_deref())?;
-    dict.set_item("metadata", &entry.metadata)?;
-    dict.set_item("status", entry.status.to_string())?;
-    Ok(dict.into())
 }
 
 #[cfg(feature = "python-bindings")]

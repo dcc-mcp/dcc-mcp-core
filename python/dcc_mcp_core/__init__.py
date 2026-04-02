@@ -27,6 +27,8 @@ from dcc_mcp_core._core import PromptArgument
 from dcc_mcp_core._core import PromptDefinition
 from dcc_mcp_core._core import ResourceDefinition
 from dcc_mcp_core._core import ResourceTemplateDefinition
+from dcc_mcp_core._core import ServiceEntry
+from dcc_mcp_core._core import ServiceStatus
 from dcc_mcp_core._core import SkillMetadata
 from dcc_mcp_core._core import SkillScanner
 from dcc_mcp_core._core import StringWrapper
@@ -75,6 +77,8 @@ __all__ = [
     "PromptDefinition",
     "ResourceDefinition",
     "ResourceTemplateDefinition",
+    "ServiceEntry",
+    "ServiceStatus",
     "SkillMetadata",
     "SkillScanner",
     "StringWrapper",

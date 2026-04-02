@@ -8,7 +8,7 @@
 pip install dcc-mcp-core
 ```
 
-### From Source
+### From Source (requires Rust toolchain)
 
 ```bash
 git clone https://github.com/loonghao/dcc-mcp-core.git
@@ -16,64 +16,89 @@ cd dcc-mcp-core
 pip install -e .
 ```
 
+::: tip
+Building from source requires the Rust toolchain. Install it from [rustup.rs](https://rustup.rs/).
+The build is handled by [maturin](https://www.maturin.rs/) which compiles the Rust core and installs the Python package.
+:::
+
 ## Requirements
 
-- **Python**: >= 3.7 (CI tests 3.11, 3.12, 3.13)
+- **Python**: >= 3.11 (CI tests 3.11, 3.12, 3.13)
+- **Rust**: >= 1.85 (for building from source)
 - **License**: MIT
-- **Dependencies**: Zero for Python 3.8+
+- **Python Dependencies**: Zero — everything is in the compiled Rust extension
 
 ## Quick Start
 
+### Action Registry
+
 ```python
-from dcc_mcp_core import create_action_manager
+from dcc_mcp_core import ActionRegistry
 
-# Create an action manager for a specific DCC
-manager = create_action_manager("maya")
+registry = ActionRegistry()
+registry.register(
+    name="create_sphere",
+    description="Creates a sphere in the scene",
+    category="geometry",
+    tags=["geometry", "creation"],
+    dcc="maya",
+)
 
-# Execute an action
-result = manager.call_action("create_sphere", radius=2.0)
+action = registry.get_action("create_sphere")
+print(action)  # dict with action metadata
 
-# Check the result
-print(result.success, result.message, result.context)
+maya_actions = registry.list_actions(dcc_name="maya")
+```
+
+### Action Results
+
+```python
+from dcc_mcp_core import success_result, error_result
+
+result = success_result("Created 5 spheres", prompt="Use modify next", count=5)
+print(result.success)  # True
+print(result.message)  # "Created 5 spheres"
+print(result.context)  # {"count": 5}
+
+err = error_result("Failed", "File not found", prompt="Check path")
+print(err.success)  # False
+```
+
+### Event Bus
+
+```python
+from dcc_mcp_core import EventBus
+
+bus = EventBus()
+sid = bus.subscribe("scene.changed", lambda: print("Scene updated!"))
+bus.publish("scene.changed")
+bus.unsubscribe("scene.changed", sid)
 ```
 
 ## Development Setup
 
 ```bash
-# Clone the repository
 git clone https://github.com/loonghao/dcc-mcp-core.git
 cd dcc-mcp-core
 
-# Create and activate virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install development dependencies
-pip install -e .
-pip install pytest pytest-cov pytest-mock pyfakefs
-
-# Or use vx (recommended)
+# Install with vx (recommended)
 vx just install
+
+# Or manual setup
+pip install maturin
+maturin develop
 ```
 
 ## Running Tests
 
 ```bash
-# Run tests with coverage
 vx just test
-
-# Run specific tests
-vx uvx nox -s pytest -- tests/test_action_manager.py -v
-
-# Run linting
 vx just lint
-
-# Run linting with auto-fix
-vx just lint-fix
 ```
 
 ## Next Steps
 
-- Learn about [Actions](/guide/actions) — the core building block
-- Explore the [Action Manager](/guide/action-manager) for lifecycle management
+- Learn about [Actions & Registry](/guide/actions) — the core building block
+- Explore the [Event System](/guide/events) for lifecycle hooks
 - Check out the [Skills System](/guide/skills) for zero-code script registration
+- See the [Transport Layer](/guide/transport) for DCC communication

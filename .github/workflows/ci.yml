@@ -71,23 +71,13 @@ jobs:
           path: target/wheels/*.whl
 
   # ── Python tests: matrix over OS × Python versions ──
-  # Python 3.8 uses ubuntu-20.04 (ubuntu-latest=24.04 doesn't ship 3.8).
-  # Windows/macOS runners provide Python 3.8 natively.
   python-test:
     name: Test (${{ matrix.os }}, py${{ matrix.python-version }})
     needs: [build-wheel]
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]
-        include:
-          # Python 3.8 on Linux needs an older Ubuntu that ships it
-          - os: ubuntu-20.04
-            python-version: "3.8"
-        exclude:
-          # Exclude ubuntu-latest + 3.8 (not available); ubuntu-20.04 above covers it
-          - os: ubuntu-latest
-            python-version: "3.8"
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
       fail-fast: false
     runs-on: ${{ matrix.os }}
     steps:
@@ -99,7 +89,7 @@ jobs:
       - name: Download wheel
         uses: actions/download-artifact@v4
         with:
-          name: wheel-${{ matrix.os == 'ubuntu-20.04' && 'ubuntu-latest' || matrix.os }}
+          name: wheel-${{ matrix.os }}
           path: dist/
       - name: Install wheel + test deps
         run: pip install --no-index --find-links dist dcc-mcp-core && pip install pytest pytest-cov

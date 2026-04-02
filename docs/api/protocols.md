@@ -1,85 +1,99 @@
 # Protocols API
 
-`dcc_mcp_core.protocols`
+`dcc_mcp_core.protocols` types — MCP specification-compliant type definitions.
 
-## Type Definitions
-
-### ToolDefinition
+## ToolDefinition
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `name` | `str` | Tool name |
 | `description` | `str` | Tool description |
-| `inputSchema` | `dict` | JSON Schema for input |
-| `annotations` | `ToolAnnotations` | Optional annotations |
+| `input_schema` | `str` | JSON Schema string for input (serde: `inputSchema`) |
+| `output_schema` | `Optional[str]` | JSON Schema string for output (serde: `outputSchema`) |
 
-### ResourceDefinition
+```python
+from dcc_mcp_core import ToolDefinition
+
+tool = ToolDefinition(
+    name="create_sphere",
+    description="Creates a sphere",
+    input_schema='{"type": "object"}',
+)
+```
+
+## ToolAnnotations
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `uri` | `str` | Resource URI |
-| `name` | `str` | Resource name |
-| `description` | `str` | Description |
-| `mimeType` | `str` | MIME type |
+| `title` | `Optional[str]` | Human-readable title |
+| `read_only_hint` | `Optional[bool]` | serde: `readOnlyHint` |
+| `destructive_hint` | `Optional[bool]` | serde: `destructiveHint` |
+| `idempotent_hint` | `Optional[bool]` | serde: `idempotentHint` |
+| `open_world_hint` | `Optional[bool]` | serde: `openWorldHint` |
 
-### PromptDefinition
+```python
+from dcc_mcp_core import ToolAnnotations
+
+ann = ToolAnnotations(read_only_hint=True)
+```
+
+## ResourceDefinition
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `uri` | `str` | — | Resource URI |
+| `name` | `str` | — | Resource name |
+| `description` | `str` | — | Description |
+| `mime_type` | `str` | `"text/plain"` | MIME type (serde: `mimeType`) |
+
+```python
+from dcc_mcp_core import ResourceDefinition
+
+res = ResourceDefinition(uri="scene://objects", name="Objects", description="Scene objects")
+```
+
+## ResourceTemplateDefinition
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `uri_template` | `str` | — | URI template (serde: `uriTemplate`) |
+| `name` | `str` | — | Template name |
+| `description` | `str` | — | Description |
+| `mime_type` | `str` | `"text/plain"` | MIME type (serde: `mimeType`) |
+
+```python
+from dcc_mcp_core import ResourceTemplateDefinition
+
+tmpl = ResourceTemplateDefinition(
+    uri_template="scene://objects/{name}",
+    name="Object",
+    description="A scene object",
+)
+```
+
+## PromptArgument
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `name` | `str` | — | Argument name |
+| `description` | `str` | — | Description |
+| `required` | `bool` | `False` | Whether required |
+
+```python
+from dcc_mcp_core import PromptArgument
+
+arg = PromptArgument(name="object_name", description="Object to review", required=True)
+```
+
+## PromptDefinition
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `name` | `str` | Prompt name |
 | `description` | `str` | Description |
-| `arguments` | `List[PromptArgument]` | Arguments |
-
-## Abstract Base Classes
-
-### Resource
 
 ```python
-class Resource(ABC):
-    uri: str
-    name: str
-    description: str
-    mime_type: str
-    dcc: str
+from dcc_mcp_core import PromptDefinition
 
-    @abstractmethod
-    def read(self, **params) -> str: ...
-```
-
-### Prompt
-
-```python
-class Prompt(ABC):
-    name: str
-    description: str
-
-    class ArgumentsModel(BaseModel): ...
-
-    @abstractmethod
-    def render(self, **kwargs) -> str: ...
-```
-
-## MCPAdapter
-
-| Method | Description |
-|--------|-------------|
-| `action_to_tool(action_class)` | Convert Action to ToolDefinition |
-| `resource_to_definition(resource_class)` | Convert Resource to ResourceDefinition |
-| `prompt_to_definition(prompt_class)` | Convert Prompt to PromptDefinition |
-| `parse_uri_template_params(template)` | Extract params from URI template |
-| `match_uri_to_template(uri, template)` | Match URI against template |
-
-## MCPServerProtocol
-
-```python
-class MCPServerProtocol:
-    name: str
-    version: str
-
-    async def list_tools() -> List[ToolDefinition]
-    async def call_tool(name, arguments) -> Any
-    async def list_resources() -> List[ResourceDefinition]
-    async def read_resource(uri) -> str
-    async def list_prompts() -> List[PromptDefinition]
-    async def get_prompt(name, arguments=None) -> str
+prompt = PromptDefinition(name="review", description="Review a model")
 ```

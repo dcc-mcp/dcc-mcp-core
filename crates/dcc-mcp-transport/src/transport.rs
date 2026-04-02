@@ -344,7 +344,7 @@ mod tests {
             .unwrap();
 
         // Should auto-pick the available instance
-        let session_id = manager.get_or_create_session("maya", None).unwrap();
+        let _session_id = manager.get_or_create_session("maya", None).unwrap();
         assert_eq!(manager.session_count(), 1);
     }
 
@@ -406,7 +406,7 @@ mod tests {
             .unwrap();
 
         assert!(!manager.is_shutdown());
-        let (sessions, connections) = manager.shutdown();
+        let (sessions, _connections) = manager.shutdown();
         assert!(manager.is_shutdown());
         assert_eq!(sessions.len(), 1);
 

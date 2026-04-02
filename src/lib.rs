@@ -117,7 +117,12 @@ fn register_skills(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
 #[cfg(feature = "python-bindings")]
 fn register_transport(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    add_classes!(m, dcc_mcp_transport::PyTransportManager);
+    add_classes!(
+        m,
+        dcc_mcp_transport::PyTransportManager,
+        dcc_mcp_transport::PyServiceEntry,
+        dcc_mcp_transport::PyServiceStatus,
+    );
     Ok(())
 }
 
