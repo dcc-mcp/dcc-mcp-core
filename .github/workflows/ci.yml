@@ -65,7 +65,7 @@ jobs:
         shell: bash
       - name: Build wheel
         run: just build
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: wheel-${{ matrix.os }}
           path: target/wheels/*.whl
@@ -87,7 +87,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - uses: extractions/setup-just@v3
       - name: Download wheel
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: wheel-${{ matrix.os }}
           path: dist/
@@ -98,7 +98,7 @@ jobs:
         run: just test-cov
       - name: Upload coverage
         if: matrix.python-version == '3.13' && matrix.os == 'ubuntu-latest'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-report
           path: coverage.xml
