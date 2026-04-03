@@ -75,5 +75,5 @@ vx just lint-fix
 ## 下一步
 
 - 了解 [Actions 动作](/zh/guide/actions) — 核心构建块
-- 探索 [Action Manager](/zh/guide/action-manager) 的生命周期管理
+- 探索 [Events 事件](/zh/guide/events) 的生命周期钩子
 - 查看 [Skills 技能包](/zh/guide/skills) 的零代码脚本注册

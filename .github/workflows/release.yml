@@ -38,6 +38,7 @@ jobs:
   build-wheels:
     needs: [release-please]
     if: |
+      always() &&
       !cancelled() &&
       (needs.release-please.outputs.release_created == 'true' ||
        startsWith(github.ref, 'refs/tags/v'))
@@ -49,6 +50,7 @@ jobs:
   publish:
     needs: [build-wheels]
     if: |
+      always() &&
       !cancelled() &&
       needs.build-wheels.result == 'success'
     runs-on: ubuntu-latest
