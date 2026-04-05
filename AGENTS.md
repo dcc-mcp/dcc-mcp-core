@@ -1,18 +1,19 @@
 # AGENTS.md — dcc-mcp-core AI Agent Guide
 
-> **Purpose**: This file helps AI coding agents (Claude, Copilot, Cursor, Codex, etc.) understand, navigate, and contribute to this project effectively.
+> **Purpose**: This file helps AI coding agents (Claude, Copilot, Cursor, Codex, Gemini, Devin, etc.) understand, navigate, and contribute to this project effectively. Read this before writing any code.
 
 ## Project Overview
 
-**dcc-mcp-core** is the foundational library for the DCC (Digital Content Creation) Model Context Protocol (MCP) ecosystem. It provides a Rust-powered core with Python bindings (PyO3/maturin) that enables AI assistants to interact with DCC software (Maya, Blender, Houdini, etc.).
+**dcc-mcp-core** is the foundational library for the DCC (Digital Content Creation) Model Context Protocol (MCP) ecosystem. It provides a **Rust-powered core with Python bindings (PyO3/maturin)** that enables AI assistants to interact with DCC software (Maya, Blender, Houdini, 3ds Max, etc.).
 
 ### Key Architecture Facts
 
 - **Language**: Rust core (11 crates workspace) + Python bindings via PyO3
 - **Build system**: `cargo` (Rust) + `maturin` (Python wheels)
-- **Python package**: `dcc_mcp_core` with ~105 public symbols re-exported from `_core` native extension
+- **Python package**: `dcc_mcp_core` with ~120 public symbols re-exported from `_core` native extension
 - **Zero runtime Python dependencies** — everything is compiled into the Rust core
 - **Version**: 0.12.x (use Release Please for versioning — never manually bump)
+- **Python support**: 3.7–3.13 (CI tests 3.7–3.13; abi3-py38 wheel for 3.8+)
 
 ## Repository Structure
 
@@ -38,15 +39,17 @@ dcc-mcp-core/
 │   └── dcc-mcp-utils/          # Filesystem, type wrappers, constants, JSON helpers
 │
 ├── python/dcc_mcp_core/
-│   ├── __init__.py             # Public API re-exports (~105 symbols)
-│   ├── _core.pyi               # Type stubs (75 KB, auto-generated-ish)
+│   ├── __init__.py             # Public API re-exports (~120 symbols) — ALWAYS read this first
+│   ├── _core.pyi               # Type stubs (auto-generated-ish) — ground truth for parameter names
 │   └── py.typed                # PEP 561 marker
 │
 ├── tests/                      # Python integration tests (19 files)
-├── examples/skills/            # 10 example SKILL.md packages
+├── examples/skills/            # 9 example SKILL.md packages (hello-world, maya-*, git-*, etc.)
 ├── docs/                       # VitePress documentation site (EN + ZH)
 │   ├── api/                    # API reference per module
 │   └── guide/                  # User guides & tutorials
+├── llms.txt                    # Concise API reference for LLMs
+├── llms-full.txt               # Complete API reference for LLMs
 └── .agents/skills/             # VX toolchain skills (IDE-agnostic)
 ```
 
@@ -55,7 +58,7 @@ dcc-mcp-core/
 ### Prerequisites
 
 ```bash
-# Install vx (recommended): https://github.com/loonghao/vx
+# Install vx (recommended universal tool manager): https://github.com/loonghao/vx
 # Or ensure you have: Rust 1.85+, Python 3.8+, maturin
 ```
 
@@ -85,10 +88,13 @@ dcc-mcp-core/
 
 ```bash
 # Run a single test file
-vx uvx nox -s pytest -- tests/test_skills.py -v
+vx just test -- tests/test_skills.py -v
 
 # Run with coverage for a specific module
-pytest tests/test_actions.py -v --cov=dcc_mcp_core --cov-report=term-missing
+vx just test-cov -- tests/test_actions.py -v
+
+# Run Rust tests for a specific crate
+cargo test -p dcc-mcp-actions --workspace
 ```
 
 ## Code Style & Conventions
@@ -105,7 +111,7 @@ pytest tests/test_actions.py -v --cov=dcc_mcp_core --cov-report=term-missing
 
 - Formatter: `ruff format` (line length: 120, double quotes)
 - Linter: `ruff check` (includes isort via `I` rules)
-- Target: Python 3.8+ (CI tests 3.9–3.13)
+- Target: Python 3.7+ (CI tests 3.7–3.13)
 - Docstrings: Google-style
 - All public APIs must have type annotations
 
@@ -127,90 +133,442 @@ from dcc_mcp_core import ActionResultModel
 
 ## API Reference (What AI Agents Should Know)
 
+> **IMPORTANT**: Always prefer `python/dcc_mcp_core/__init__.py` over guessing imports.
+> That file lists every public symbol. Never import from internal paths like `dcc_mcp_core._core.*` directly.
+
 ### Current Public API (Rust-backed, v0.12+)
 
 The public API is in `python/dcc_mcp_core/__init__.py`. Key domains:
 
 #### Actions System
-- `ActionRegistry` — Register/dispatch/invoke actions
-- `ActionDispatcher` — Typed action dispatch with validation
-- `ActionValidator` — Input parameter validation
-- `EventBus` — Pub/sub event system for action lifecycle
-- `ActionResultModel` / `success_result()` / `error_result()`
+
+```python
+from dcc_mcp_core import (
+    ActionRegistry,       # Thread-safe registry: register/get/list actions
+    ActionDispatcher,     # Typed dispatch with validation
+    ActionValidator,      # Input parameter validation before execution
+    ActionPipeline,       # Middleware-style processing pipeline
+    ActionMetrics,        # Performance/execution metrics
+    ActionRecorder,       # Record/replay action executions
+    EventBus,             # Pub/sub lifecycle events
+    ActionResultModel,    # Structured result model
+    success_result,       # Factory: ActionResultModel(success=True, ...)
+    error_result,         # Factory: ActionResultModel(success=False, ...)
+    from_exception,       # Factory: wrap Python exception as result
+    validate_action_result,  # Normalize dict/str/None → ActionResultModel
+)
+```
+
+**ActionRegistry patterns:**
+
+```python
+reg = ActionRegistry()
+
+# Register an action
+reg.register(
+    name="create_sphere",
+    description="Create a polygon sphere",
+    category="geometry",
+    tags=["geo", "create"],
+    dcc="maya",
+    version="1.0.0",
+    input_schema='{"type": "object", "properties": {"radius": {"type": "number"}}}',
+)
+
+# Look up
+meta = reg.get_action("create_sphere")
+meta = reg.get_action("create_sphere", dcc_name="maya")  # scoped
+names = reg.list_actions_for_dcc("maya")
+all_actions = reg.list_actions()
+dccs = reg.get_all_dccs()
+
+# Version-aware registry
+from dcc_mcp_core import SemVer, VersionedRegistry, VersionConstraint
+vreg = VersionedRegistry()
+vreg.register("my_action", version=SemVer(1, 2, 0), handler=my_fn)
+handler = vreg.get("my_action", constraint=VersionConstraint.parse(">=1.0.0"))
+```
+
+**ActionResultModel fields:**
+
+```python
+result = success_result(
+    message="Sphere created",
+    prompt="Consider adding materials or adjusting UVs",  # AI next-step hint
+    context={"object_name": "sphere1", "position": [0, 0, 0]}
+)
+result.success   # bool
+result.message   # str
+result.prompt    # Optional[str] — guidance for AI's next step
+result.error     # Optional[str] — error details (set when success=False)
+result.context   # dict — arbitrary structured data
+
+# Copy variants
+result.with_error("something failed")   # new result with success=False
+result.with_context(count=5, done=True) # new result with updated context
+result.to_dict()                        # -> dict
+```
 
 #### Skills System
-- `SkillScanner` — Scan directories for `SKILL.md` files
-- `SkillWatcher` — File-watching auto-reload for skills
-- `SkillMetadata` — Parsed skill metadata model
-- `parse_skill_md()` / `scan_skill_paths()` / `scan_and_load()` / `scan_and_load_lenient()`
-- `resolve_dependencies()` / `expand_transitive_dependencies()` / `validate_dependencies()`
+
+```python
+from dcc_mcp_core import (
+    SkillScanner,                    # Discovers SKILL.md directories (mtime-cached)
+    SkillWatcher,                    # File-watching auto-reload for live development
+    SkillMetadata,                   # Parsed skill metadata model
+    parse_skill_md,                  # Parse one skill directory → SkillMetadata
+    scan_skill_paths,                # Scan + return discovered paths
+    scan_and_load,                   # Scan + parse all → List[SkillMetadata]
+    scan_and_load_lenient,           # Same, but silently skip errors
+    resolve_dependencies,            # Resolve skill dependency graph
+    expand_transitive_dependencies,  # Full transitive closure
+    validate_dependencies,           # Validate dependency graph is acyclic
+)
+```
+
+**Full skills pipeline:**
+
+```python
+import os
+os.environ["DCC_MCP_SKILL_PATHS"] = "/path/to/skills"
+
+# Simple one-shot
+skills = scan_and_load(dcc_name="maya")           # raises on error
+skills = scan_and_load_lenient(dcc_name="maya")   # silently skips bad skills
+for s in skills:
+    print(f"{s.name}: {len(s.scripts)} scripts @ {s.skill_path}")
+
+# SkillMetadata fields:
+# s.name, s.description, s.dcc, s.version, s.tags, s.tools,
+# s.scripts (List[str] - absolute paths), s.skill_path, s.depends
+
+# Low-level scanner
+scanner = SkillScanner()
+dirs = scanner.scan(extra_paths=["/my/skills"], dcc_name="maya")
+meta = parse_skill_md(dirs[0])  # -> SkillMetadata or None
+
+# Action naming convention: {skill_name}__{script_stem}
+# e.g. "maya_geometry__create_sphere" for create_sphere.py in maya-geometry skill
+```
 
 #### MCP Protocol Types
-- `ToolDefinition`, `ToolAnnotations` — MCP Tool schema
-- `ResourceDefinition`, `ResourceAnnotations` — MCP Resource schema
-- `PromptDefinition`, `PromptArgument` — MCP Prompt schema
-- `DccInfo`, `DccCapabilities`, `DccError`, `DccErrorCode` — DCC adapter types
+
+```python
+from dcc_mcp_core import (
+    ToolDefinition, ToolAnnotations,
+    ResourceDefinition, ResourceAnnotations, ResourceTemplateDefinition,
+    PromptDefinition, PromptArgument,
+    DccInfo, DccCapabilities, DccError, DccErrorCode,
+)
+
+# Build MCP tool definition
+tool = ToolDefinition(
+    name="create_sphere",
+    description="Create a polygon sphere in the DCC scene",
+    input_schema='{"type": "object", "properties": {"radius": {"type": "number"}}, "required": ["radius"]}',
+    annotations=ToolAnnotations(
+        title="Create Sphere",
+        read_only_hint=False,
+        destructive_hint=False,
+        idempotent_hint=False,
+    ),
+)
+```
 
 #### Transport Layer
-- `TransportManager` — Manage IPC connections
-- `TransportAddress`, `TransportScheme`, `RoutingStrategy` — Addressing
-- `IpcListener`, `ListenerHandle`, `FramedChannel` — IPC primitives
-- `connect_ipc()` — Connect to an IPC server
+
+```python
+from dcc_mcp_core import (
+    TransportManager,    # Connection pool manager
+    TransportAddress, TransportScheme, RoutingStrategy,
+    IpcListener,         # Server-side IPC listener
+    ListenerHandle,      # Handle returned by IpcListener.start()
+    FramedChannel,       # Message-framed IPC channel
+    connect_ipc,         # Client: connect to IPC server
+)
+
+# Server
+listener = IpcListener.new("/tmp/dcc-mcp.sock")
+handle = listener.start(handler_fn=my_handler)
+
+# Client
+channel = connect_ipc("/tmp/dcc-mcp.sock")
+response = channel.call({"method": "ping", "params": {}})
+
+# Production: pooled + circuit breaker
+mgr = TransportManager()
+mgr.configure_pool(min_size=2, max_size=10)
+mgr.set_circuit_breaker(threshold=5, reset_timeout=30)
+```
 
 #### Process Management
-- `PyDccLauncher` — Launch DCC processes
-- `PyProcessMonitor` — Track running processes
-- `PyProcessWatcher` — Auto-restart crashed processes
-- `PyCrashRecoveryPolicy` — Crash recovery configuration
-- `ScriptResult`, `ScriptLanguage` — Script execution results
+
+```python
+from dcc_mcp_core import (
+    PyDccLauncher,           # Launch DCC processes
+    PyProcessMonitor,        # Track running DCC processes
+    PyProcessWatcher,        # Auto-restart on crash
+    PyCrashRecoveryPolicy,   # Crash recovery configuration
+    ScriptResult,            # Result of a script execution
+    ScriptLanguage,          # Enum: Python, MEL, MaxScript, etc.
+)
+
+launcher = PyDccLauncher(dcc_type="maya", version="2025")
+process = launcher.launch(script_path="/startup.py", working_dir="/project")
+
+watcher = PyProcessWatcher(
+    recovery_policy=PyCrashRecoveryPolicy(max_restarts=3, cooldown_sec=10)
+)
+watcher.watch(process)
+```
 
 #### Other Modules
-- **Sandbox**: `SandboxContext`, `SandboxPolicy`, `InputValidator`, `AuditEntry`, `AuditLog`
-- **Shared Memory**: `PyBufferPool`, `PySharedBuffer`, `PySharedSceneBuffer`
-- **Capture**: `Capturer`, `CaptureFrame`, `CaptureResult`
-- **Telemetry**: `TelemetryConfig`, `RecordingGuard`
-- **USD**: `UsdStage`, `UsdPrim`, `SdfPath`, `VtValue`, `scene_info_json_to_stage()`, `stage_to_scene_info_json()`
+
+```python
+# Sandbox security
+from dcc_mcp_core import SandboxContext, SandboxPolicy, InputValidator, AuditEntry, AuditLog
+
+# Shared memory (LZ4 compressed)
+from dcc_mcp_core import PyBufferPool, PySharedBuffer, PySharedSceneBuffer, PySceneDataKind
+
+# Screen capture
+from dcc_mcp_core import Capturer, CaptureFrame, CaptureResult
+
+# Telemetry
+from dcc_mcp_core import TelemetryConfig, RecordingGuard, ActionMetrics, ActionRecorder
+from dcc_mcp_core import is_telemetry_initialized, shutdown_telemetry
+
+# USD bridge
+from dcc_mcp_core import UsdStage, UsdPrim, SdfPath, VtValue, SceneInfo, SceneStatistics
+from dcc_mcp_core import scene_info_json_to_stage, stage_to_scene_info_json
+
+# Type wrappers (for RPyC safe serialization)
+from dcc_mcp_core import wrap_value, unwrap_value, unwrap_parameters
+from dcc_mcp_core import BooleanWrapper, FloatWrapper, IntWrapper, StringWrapper
+
+# Platform utilities
+from dcc_mcp_core import (
+    get_config_dir, get_data_dir, get_log_dir, get_platform_dir,
+    get_actions_dir, get_skills_dir, get_skill_paths_from_env, mpu_to_units, units_to_mpu,
+)
+
+# Service registry
+from dcc_mcp_core import ServiceEntry, ServiceStatus
+```
+
+#### Constants
+
+```python
+from dcc_mcp_core import (
+    APP_NAME,            # "dcc-mcp"
+    APP_AUTHOR,          # "dcc-mcp"
+    DEFAULT_DCC,         # "python"
+    DEFAULT_LOG_LEVEL,   # "DEBUG"
+    DEFAULT_MIME_TYPE,   # "text/plain"
+    DEFAULT_VERSION,     # "1.0.0"
+    ENV_SKILL_PATHS,     # "DCC_MCP_SKILL_PATHS"
+    ENV_LOG_LEVEL,       # "MCP_LOG_LEVEL"
+    SKILL_METADATA_FILE, # "SKILL.md"
+    SKILL_METADATA_DIR,  # "metadata"
+    SKILL_SCRIPTS_DIR,   # "scripts"
+)
+```
 
 ### Legacy APIs (DO NOT USE in new code)
 
-The README still references legacy Python-only APIs that were removed in v0.12+:
+These APIs were removed in v0.12+:
 - ~~`ActionManager`~~ → Use `ActionRegistry` + `ActionDispatcher`
-- ~~`Action` base class~~ → Actions are now registered via `ActionRegistry`
+- ~~`Action` base class~~ → Actions are registered via `ActionRegistry`
 - ~~`Middleware` / `MiddlewareChain`~~ → Use `ActionPipeline` with middleware context
 - ~~`create_action_manager()`~~ → Use `ActionRegistry()` directly
+- ~~`LoggingMiddleware` / `PerformanceMiddleware`~~ → Use `ActionMetrics` + `EventBus`
 
-## Skills System (How It Works)
+## Skills System (Deep Dive)
 
-Skills allow zero-code registration of scripts as MCP tools:
+Skills allow zero-code registration of scripts as MCP tools.
 
-1. Create a directory with `SKILL.md` (YAML frontmatter + markdown body) and `scripts/` folder
-2. Set `DCC_MCP_SKILL_PATHS` env var to point to skill directories
-3. Call `scan_and_load()` or use `ActionRegistry` which auto-loads from env
-4. Each script becomes an invocable action with `{skill_name}__{script_name}` naming
+### Directory Layout
 
-See `examples/skills/` for 10 complete examples covering Python, MEL, Shell, Batch, JavaScript.
+```
+my-skill/
+├── SKILL.md          # Required: YAML frontmatter + markdown description
+├── scripts/          # Required: one file per action
+│   ├── create_sphere.py
+│   ├── batch_rename.mel
+│   └── export_fbx.bat
+└── metadata/         # Optional
+    ├── help.md
+    ├── install.md
+    └── depends.md    # Dependency declarations (YAML list of skill names)
+```
+
+### SKILL.md Format
+
+```yaml
+---
+name: maya-geometry           # Required: unique identifier (used in action names)
+description: "Maya geometry creation and modification tools"
+tools: ["Bash", "Read"]       # OpenClaw tool permissions
+tags: ["maya", "geometry"]    # Classification tags
+dcc: maya                     # Target DCC application
+version: "1.0.0"              # Semantic version
+depends: ["other-skill"]      # Names of required skills
+---
+# Human-readable description (markdown body)
+```
+
+### Action Naming
+
+Each script in `scripts/` becomes an action named `{skill_name}__{script_stem}`:
+- `maya-geometry/scripts/create_sphere.py` → `maya_geometry__create_sphere`
+- `maya-geometry/scripts/batch_rename.mel` → `maya_geometry__batch_rename`
+
+Note: hyphens in skill names are replaced by underscores.
+
+### Environment Variable
+
+```bash
+# Unix/macOS
+export DCC_MCP_SKILL_PATHS="/path/to/skills1:/path/to/skills2"
+
+# Windows
+set DCC_MCP_SKILL_PATHS=C:\path\skills1;C:\path\skills2
+```
+
+### Supported Script Types
+
+| Extension | Type | Execution |
+|-----------|------|-----------|
+| `.py` | Python | `subprocess` with system Python |
+| `.mel` | MEL (Maya) | Via DCC adapter |
+| `.ms` | MaxScript | Via DCC adapter |
+| `.bat`, `.cmd` | Batch | `cmd /c` |
+| `.sh`, `.bash` | Shell | `bash` |
+| `.ps1` | PowerShell | `powershell -File` |
+| `.js`, `.jsx` | JavaScript | `node` |
+
+See `examples/skills/` for **9 complete examples**: hello-world, maya-geometry, maya-pipeline, git-automation, ffmpeg-media, imagemagick-tools, usd-tools, clawhub-compat, multi-script.
+
+## Adding New Python-Accessible Functions/Classes
+
+When adding a new public API (function or class exposed to Python):
+
+1. **Implement in Rust**: Add to the appropriate `crates/dcc-mcp-*/src/` crate
+2. **Add PyO3 bindings**: Create/update the crate's `python.rs` module with `#[pymethods]` / `#[pyclass]`
+3. **Register in entry point**: Add to `src/lib.rs` in the corresponding `register_*()` function
+4. **Re-export in Python**: Add to `python/dcc_mcp_core/__init__.py` and `__all__`
+5. **Update type stubs**: If needed, update `python/dcc_mcp_core/_core.pyi`
+6. **Add tests**: Create/update `tests/test_<module>.py`
+
+Example PyO3 binding pattern:
+
+```rust
+// crates/dcc-mcp-actions/src/python.rs
+use pyo3::prelude::*;
+
+#[pyclass]
+pub struct ActionRegistry { /* ... */ }
+
+#[pymethods]
+impl ActionRegistry {
+    #[new]
+    fn new() -> Self { ActionRegistry { /* ... */ } }
+
+    fn register(&self, name: String, description: String) -> PyResult<()> {
+        // ...
+    }
+}
+
+pub fn register_actions(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<ActionRegistry>()?;
+    Ok(())
+}
+```
 
 ## Commit & PR Guidelines
 
 - Use [Conventional Commits](https://www.conventionalcommits.org/)
 - Prefixes: `feat:`, `fix:`, `docs:`, `chore:`, `ci:`, `refactor:`, `test:`
 - Breaking changes: `feat!:` or add `BREAKING CHANGE:` footer
-- Never manually bump version or edit CHANGELOG.md (Release Please handles this)
+- **Never manually bump version or edit CHANGELOG.md** — Release Please handles this
 - Always run `vx just preflight` before committing
-- PR title format: follow Conventional Commits
+- PR title format: follow Conventional Commits (e.g., `docs: enhance AI agent guidance`)
 
 ## Common Pitfalls for AI Agents
 
-1. **Don't import from internal paths** like `dcc_mcp_core.actions.base` — these don't exist anymore. Use the public API from `dcc_mcp_core`.
-2. **Don't manually edit version numbers** — handled by Release Please.
-3. **Don't add runtime Python dependencies** — this project has zero runtime deps by design.
-4. **Rust changes need Python binding updates** — if you modify a Rust struct that's exposed via PyO3, update the corresponding `python.rs` file and potentially `_core.pyi` stubs.
-5. **Test with `--features python-bindings` when testing Rust-Python integration**.
-6. **Use `vx` prefix for all commands** in this project (e.g., `vx just test` not `pytest`).
+1. **Don't import from internal paths**: `dcc_mcp_core.actions.base`, `dcc_mcp_core._core.*` directly — these are implementation details. Always use the public API from `dcc_mcp_core`.
+
+2. **Don't manually bump version numbers** — handled exclusively by Release Please via `release-please-config.json`.
+
+3. **Don't add runtime Python dependencies** — this project has zero runtime deps by design. Everything is in Rust.
+
+4. **Rust changes need Python binding updates**: If you modify a Rust struct exposed via PyO3, update the crate's `python.rs`, register it in `src/lib.rs`, re-export in `__init__.py`, and update `_core.pyi` stubs.
+
+5. **Test with Python bindings feature flag**: `cargo test --workspace --features python-bindings`
+
+6. **Always use `vx` prefix**: `vx just test` not `pytest`, `vx just lint` not `ruff check`.
+
+7. **Don't use legacy APIs**: `ActionManager`, `Action` base class, `create_action_manager()`, `MiddlewareChain` — all removed in v0.12+.
+
+8. **Skills directory convention**: The env var is `DCC_MCP_SKILL_PATHS` (not `SKILL_PATHS`, not `DCC_SKILL_PATHS`).
+
+9. **Action naming**: When building tools on top of this library, use the `{skill_name}__{script_stem}` naming pattern (double underscore separator).
+
+10. **`_core.pyi` is the authoritative stub**: When unsure of parameter names or types, read `python/dcc_mcp_core/_core.pyi` rather than guessing.
+
+## Debugging & Diagnostics
+
+### Build Issues
+
+```bash
+# Check all crates compile
+vx just check
+
+# Verbose Rust build
+cargo build --workspace --features python-bindings 2>&1 | head -50
+
+# Python import check after build
+vx just dev
+python -c "import dcc_mcp_core; print(dcc_mcp_core.__version__)"
+```
+
+### Test Failures
+
+```bash
+# Verbose test output
+vx just test -- -v -s
+
+# Run a specific test by name
+vx just test -- -k "test_scan_and_load" -v
+
+# Check test coverage gaps
+vx just test-cov
+```
+
+### Type Stub Issues
+
+If Python type checkers report errors about `_core`:
+```bash
+# Stubs are in python/dcc_mcp_core/_core.pyi
+# They're manually maintained — check if your new symbol is listed
+grep "SkillMetadata" python/dcc_mcp_core/_core.pyi
+```
 
 ## CI/CD
 
 - Main branch is protected; all PRs must pass CI
 - CI runs: `preflight` → `install` → `test` → `lint-py`
+- CI matrix: Python 3.7, 3.9, 3.11, 3.13 on Linux/macOS/Windows
 - PyPI publishing uses Trusted Publishing (no tokens needed)
 - Documentation deploys to GitHub Pages via VitePress
+- `.agents/` directory is gitignored — use `git add -f` for skill files there
+
+## External References
+
+- [AGENTS.md specification](https://agents.md/) — open standard for AI agent guidance files
+- [llms.txt specification](https://llmstxt.org/) — AI-optimized documentation format
+- [Model Context Protocol](https://modelcontextprotocol.io/) — the underlying MCP standard
+- [PyO3 documentation](https://pyo3.rs/) — Rust-Python bindings used in this project
+- [maturin documentation](https://www.maturin.rs/) — Python wheel builder used for release
+- [OpenClaw Skills format](https://docs.openclaw.ai/tools) — SKILL.md ecosystem compatibility
+- [vx tool manager](https://github.com/loonghao/vx) — universal dev tool manager used in this project

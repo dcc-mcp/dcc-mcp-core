@@ -1,6 +1,6 @@
 # dcc-mcp-core
 
-> Foundational library for the DCC Model Context Protocol (MCP) ecosystem. Rust-powered core (via PyO3) providing action registry, structured results, event bus, skills/script registration, and MCP protocol type definitions for Digital Content Creation applications (Maya, Blender, Houdini, etc.).
+> Foundational library for the DCC Model Context Protocol (MCP) ecosystem. Rust-powered core (via PyO3) providing action registry, structured results, event bus, skills/script registration, MCP protocol types, IPC transport, process management, sandbox security, shared memory, screen capture, USD bridge, and telemetry for Digital Content Creation applications (Maya, Blender, Houdini, 3ds Max, etc.).
 
 ## Quick Start
 
@@ -13,7 +13,7 @@ reg.register(name="create_sphere", description="Create a sphere", dcc="maya")
 meta = reg.get_action("create_sphere")
 
 # Structured results
-result = dcc_mcp_core.success_result("Created sphere", count=1)
+result = dcc_mcp_core.success_result("Created sphere", prompt="Add materials next", count=1)
 error = dcc_mcp_core.error_result("Failed", "File not found")
 
 # Event bus
@@ -21,75 +21,164 @@ bus = dcc_mcp_core.EventBus()
 bus.subscribe("evt", lambda **kw: print(kw))
 bus.publish("evt", x=1)
 
-# Skill scanning
+# Skill scanning + loading
+skills = dcc_mcp_core.scan_and_load(dcc_name="maya")  # raises on parse errors
+skills = dcc_mcp_core.scan_and_load_lenient(dcc_name="maya")  # silently skips bad skills
+for s in skills:
+    print(f"{s.name}: {len(s.scripts)} scripts")
+
+# Low-level scan
 scanner = dcc_mcp_core.SkillScanner()
 dirs = scanner.scan(extra_paths=["/path/to/skills"], dcc_name="maya")
-meta = dcc_mcp_core.parse_skill_md(dirs[0])
+meta = dcc_mcp_core.parse_skill_md(dirs[0])  # -> SkillMetadata or None
 ```
 
 ## Installation
 
 - PyPI: `pip install dcc-mcp-core`
 - Build from source: `maturin develop --features python-bindings,ext-module`
-- Python: >=3.9 (CI tests 3.9–3.13)
-- Build: maturin (Rust + PyO3)
+- Python: >=3.7 (CI tests 3.7–3.13; abi3-py38 wheel for 3.8+)
+- Build: maturin (Rust 1.85+ + PyO3)
+- Version: 0.12.x
 - License: MIT
 
 ## Architecture
 
-Rust workspace with PyO3 bindings. All logic in Rust sub-crates; Python gets a single `dcc_mcp_core._core` extension module.
+Rust workspace (11 crates) with PyO3 bindings. All logic in Rust sub-crates; Python gets a single `dcc_mcp_core._core` extension module. The `dcc_mcp_core` package re-exports all ~120 public symbols from `_core`.
 
 ```
 crates/
 ├── dcc-mcp-models/      # ActionResultModel, SkillMetadata
-├── dcc-mcp-actions/     # ActionRegistry, EventBus
-├── dcc-mcp-skills/      # SkillScanner, parse_skill_md
-├── dcc-mcp-protocols/   # MCP type definitions (Tool, Resource, Prompt)
-└── dcc-mcp-utils/       # Filesystem, constants, type wrappers, logging
+├── dcc-mcp-actions/     # ActionRegistry, ActionDispatcher, ActionValidator, EventBus, ActionPipeline
+├── dcc-mcp-skills/      # SkillScanner, SkillWatcher, parse_skill_md, dependency resolver
+├── dcc-mcp-protocols/   # MCP type definitions (Tool, Resource, Prompt, DccAdapter)
+├── dcc-mcp-transport/   # IPC transport, ConnectionPool, CircuitBreaker, FramedChannel
+├── dcc-mcp-process/     # PyDccLauncher, ProcessMonitor, ProcessWatcher, CrashRecovery
+├── dcc-mcp-telemetry/   # TelemetryConfig, RecordingGuard, ActionMetrics, ActionRecorder
+├── dcc-mcp-sandbox/     # SandboxPolicy, InputValidator, AuditLog
+├── dcc-mcp-shm/         # PyBufferPool, PySharedBuffer, LZ4 compression
+├── dcc-mcp-capture/     # Capturer, CaptureFrame, CaptureResult
+├── dcc-mcp-usd/         # UsdStage, UsdPrim, SdfPath, scene info bridge
+└── dcc-mcp-utils/       # Filesystem, constants, type wrappers, JSON conversion
 ```
 
 ## Core Concepts
 
-- **ActionRegistry**: Thread-safe registry for action metadata (name, description, dcc, tags, schemas)
-- **ActionResultModel**: Structured result (success, message, prompt, error, context dict)
+- **ActionRegistry**: Thread-safe registry for action metadata (name, description, dcc, tags, schemas, version)
+- **ActionResultModel**: Structured result (success, message, prompt, error, context dict) — AI-friendly with next-step hints
 - **EventBus**: Thread-safe publish/subscribe system with per-event subscriber lists
 - **SkillScanner**: Discovers SKILL.md files in directories with mtime-based caching
-- **SkillMetadata**: Parsed from SKILL.md YAML frontmatter (name, dcc, tags, scripts, depends)
+- **SkillMetadata**: Parsed from SKILL.md YAML frontmatter (name, dcc, tags, scripts, depends, version)
 - **MCP Protocol Types**: ToolDefinition, ResourceDefinition, PromptDefinition, ToolAnnotations
+- **ActionDispatcher**: Typed dispatch with validation via ActionValidator
+- **VersionedRegistry**: SemVer-aware action registry with constraint-based lookup
 
 ## Key APIs
 
 ### Top-level exports (`dcc_mcp_core`)
-- `ActionRegistry` — Thread-safe registry; `.register(name, ...)`, `.get_action(name)`, `.list_actions()`
-- `ActionResultModel` — Structured result: success, message, prompt, error, context
+
+**Actions:**
+- `ActionRegistry` — Thread-safe registry; `.register(name, ...)`, `.get_action(name)`, `.list_actions()`, `.list_actions_for_dcc(dcc)`, `.get_all_dccs()`, `.reset()`
+- `ActionDispatcher` — Validated dispatch; `.call(name, **kwargs) -> ActionResultModel`
+- `ActionValidator` — Input validation before action execution
+- `ActionPipeline` — Middleware-style processing pipeline
+- `ActionMetrics` — Performance and execution metrics collection
+- `ActionRecorder` — Record/replay action executions
+- `EventBus` — `.subscribe(event, callback) -> id`, `.unsubscribe(event, id)`, `.publish(event, **kwargs)`
+- `VersionedRegistry` — SemVer-aware registry with constraint lookup
+- `SemVer(major, minor, patch)` — Semantic version value object
+- `VersionConstraint.parse(">=1.0.0")` — Version constraint expression
+
+**Result Factories:**
 - `success_result(message, prompt=None, **context) -> ActionResultModel`
 - `error_result(message, error, prompt=None, possible_solutions=None, **context) -> ActionResultModel`
-- `from_exception(error_message, message=None, ...) -> ActionResultModel`
-- `validate_action_result(result) -> ActionResultModel`
-- `EventBus` — `.subscribe(event, callback)`, `.unsubscribe(event, id)`, `.publish(event, **kwargs)`
+- `from_exception(error_message, message=None, include_traceback=False, ...) -> ActionResultModel`
+- `validate_action_result(result) -> ActionResultModel` — normalize dict/str/None → ActionResultModel
+
+**ActionResultModel fields:** `.success`, `.message`, `.prompt`, `.error`, `.context`, `.to_dict()`, `.with_error(err)`, `.with_context(**kw)`
+
+**Skills:**
 - `SkillScanner` — `.scan(extra_paths=None, dcc_name=None, force_refresh=False) -> List[str]`
+- `SkillWatcher` — File-watching auto-reload for live development
 - `parse_skill_md(skill_dir) -> Optional[SkillMetadata]`
 - `scan_skill_paths(extra_paths=None, dcc_name=None) -> List[str]`
+- `scan_and_load(dcc_name=None, extra_paths=None) -> List[SkillMetadata]`
+- `scan_and_load_lenient(dcc_name=None, extra_paths=None) -> List[SkillMetadata]`
+- `resolve_dependencies(skills) -> List[SkillMetadata]`
+- `expand_transitive_dependencies(skills) -> List[SkillMetadata]`
+- `validate_dependencies(skills) -> bool`
+
+**SkillMetadata fields:** `.name`, `.description`, `.dcc`, `.version`, `.tags`, `.tools`, `.scripts` (List[str] absolute paths), `.skill_path`, `.depends`, `.metadata_files`
+
+**Action naming**: `{skill_name}__{script_stem}` — hyphens in skill names replaced by underscores
 
 ### MCP Protocol Types (`dcc_mcp_core`)
+
 - `ToolDefinition(name, description, input_schema, output_schema=None, annotations=None)`
-- `ToolAnnotations(title=None, read_only_hint=None, destructive_hint=None, ...)`
+- `ToolAnnotations(title=None, read_only_hint=None, destructive_hint=None, idempotent_hint=None, open_world_hint=None)`
 - `ResourceDefinition(uri, name, description, mime_type="text/plain")`
 - `ResourceTemplateDefinition(uri_template, name, description, mime_type="text/plain")`
 - `PromptDefinition(name, description, arguments=None)`
 - `PromptArgument(name, description, required=False)`
+- `DccInfo`, `DccCapabilities`, `DccError`, `DccErrorCode`
+
+### Transport (`dcc_mcp_core`)
+
+- `IpcListener.new(address)` → `.start(handler_fn) -> ListenerHandle`
+- `connect_ipc(address) -> FramedChannel`
+- `TransportManager` — connection pool + circuit breaker
+- `TransportAddress`, `TransportScheme`, `RoutingStrategy`
+
+### Process Management (`dcc_mcp_core`)
+
+- `PyDccLauncher(dcc_type, version)` → `.launch(script_path, working_dir, env_vars) -> process`
+- `PyProcessMonitor()` → `.track(process)`, `.stats(process)`
+- `PyProcessWatcher(recovery_policy)` → `.watch(process)`
+- `PyCrashRecoveryPolicy(max_restarts, cooldown_sec)`
+- `ScriptResult`, `ScriptLanguage`
+
+### Sandbox (`dcc_mcp_core`)
+
+- `SandboxPolicy.builder().allow_read([...]).allow_write([...]).deny_pattern([...]).build()`
+- `SandboxContext(policy)`, `InputValidator(ctx)`, `AuditLog.load()`, `AuditEntry`
+
+### Telemetry (`dcc_mcp_core`)
+
+- `TelemetryConfig`, `RecordingGuard`, `ActionMetrics`, `ActionRecorder`
+- `is_telemetry_initialized() -> bool`, `shutdown_telemetry()`
+
+### Shared Memory (`dcc_mcp_core`)
+
+- `PyBufferPool`, `PySharedBuffer`, `PySharedSceneBuffer`, `PySceneDataKind`
+
+### Capture (`dcc_mcp_core`)
+
+- `Capturer`, `CaptureFrame`, `CaptureResult`
+
+### USD (`dcc_mcp_core`)
+
+- `UsdStage`, `UsdPrim`, `SdfPath`, `VtValue`, `SceneInfo`, `SceneStatistics`
+- `scene_info_json_to_stage(json_str) -> UsdStage`
+- `stage_to_scene_info_json(stage) -> str`
+- `mpu_to_units(value)`, `units_to_mpu(value)`
+
+### Type Wrappers (`dcc_mcp_core`)
+
+- `wrap_value(v)` / `unwrap_value(v)` — RPyC-safe type wrappers
+- `unwrap_parameters(params_dict)` — unwrap all wrapper values in a dict
+- `BooleanWrapper`, `FloatWrapper`, `IntWrapper`, `StringWrapper`
 
 ### Utility Functions (`dcc_mcp_core`)
+
 - `get_config_dir()`, `get_data_dir()`, `get_log_dir()`, `get_platform_dir(dir_type)`
 - `get_actions_dir(dcc_name)`, `get_skills_dir(dcc_name=None)`
-- `get_skill_paths_from_env() -> List[str]`
-- `wrap_value(value)` / `unwrap_value(value)` — RPyC type safety wrappers
-- `unwrap_parameters(params_dict)` — Unwrap all wrapper values in a dict
+- `get_skill_paths_from_env() -> List[str]` — reads `DCC_MCP_SKILL_PATHS`
 
 ### Constants (`dcc_mcp_core`)
+
 - `APP_NAME = "dcc-mcp"`, `APP_AUTHOR = "dcc-mcp"`
-- `DEFAULT_DCC = "python"`, `DEFAULT_LOG_LEVEL = "DEBUG"`
-- `SKILL_METADATA_FILE = "SKILL.md"`, `SKILL_SCRIPTS_DIR = "scripts"`
+- `DEFAULT_DCC = "python"`, `DEFAULT_LOG_LEVEL = "DEBUG"`, `DEFAULT_MIME_TYPE = "text/plain"`, `DEFAULT_VERSION = "1.0.0"`
+- `SKILL_METADATA_FILE = "SKILL.md"`, `SKILL_SCRIPTS_DIR = "scripts"`, `SKILL_METADATA_DIR = "metadata"`
 - `ENV_SKILL_PATHS = "DCC_MCP_SKILL_PATHS"`, `ENV_LOG_LEVEL = "MCP_LOG_LEVEL"`
 
 ## Skills System
@@ -97,16 +186,36 @@ crates/
 Register scripts as MCP tools with zero Python code via SKILL.md.
 
 ### Directory Structure
+
 ```
 maya-geometry/
 ├── SKILL.md          # YAML frontmatter + description
 ├── scripts/
 │   ├── create_sphere.py
-│   └── batch_rename.py
-└── metadata/         # Optional: help.md, install.md, depends.md
+│   └── batch_rename.mel
+└── metadata/         # Optional
+    ├── help.md
+    ├── install.md
+    └── depends.md    # YAML list of dependency skill names
+```
+
+### SKILL.md Format
+
+```yaml
+---
+name: maya-geometry
+description: "Maya geometry creation tools"
+tools: ["Bash", "Read"]
+tags: ["maya", "geometry"]
+dcc: maya
+version: "1.0.0"
+depends: ["other-skill"]  # optional
+---
+# Markdown description body
 ```
 
 ### Supported Script Types
+
 | Extension | Type |
 |-----------|------|
 | `.py` | Python |
@@ -118,17 +227,21 @@ maya-geometry/
 | `.js`, `.jsx` | JavaScript |
 
 ### Environment Variable
+
 ```bash
 export DCC_MCP_SKILL_PATHS="/path/to/skills1:/path/to/skills2"
+# Windows: set DCC_MCP_SKILL_PATHS=C:\skills1;C:\skills2
 ```
 
 ## Documentation
 
 - [README (English)](https://github.com/loonghao/dcc-mcp-core/blob/main/README.md)
 - [README (中文)](https://github.com/loonghao/dcc-mcp-core/blob/main/README_zh.md)
+- [AI Agent Guide (AGENTS.md)](https://github.com/loonghao/dcc-mcp-core/blob/main/AGENTS.md)
 - [Contributing Guide](https://github.com/loonghao/dcc-mcp-core/blob/main/CONTRIBUTING.md)
 - [Changelog](https://github.com/loonghao/dcc-mcp-core/blob/main/CHANGELOG.md)
 - [Full API Reference](https://github.com/loonghao/dcc-mcp-core/blob/main/llms-full.txt)
+- [VitePress Docs](https://loonghao.github.io/dcc-mcp-core/)
 
 ## Development
 

@@ -11,7 +11,7 @@
 
 [中文文档](README_zh.md) | [English](README.md)
 
-Foundational library for the DCC Model Context Protocol (MCP) ecosystem. It provides a **Rust-powered core with Python bindings (PyO3)** that delivers high-performance action management, skills discovery, transport, sandbox security, shared memory, screen capture, USD support, and telemetry — all with **zero runtime Python dependencies**.
+Foundational library for the DCC Model Context Protocol (MCP) ecosystem. It provides a **Rust-powered core with Python bindings (PyO3)** that delivers high-performance action management, skills discovery, transport, sandbox security, shared memory, screen capture, USD support, and telemetry — all with **zero runtime Python dependencies**. Supports Python 3.7–3.13.
 
 > **Note**: This project is in active development (v0.12+). APIs may evolve; see CHANGELOG.md for version history.
 
@@ -20,7 +20,7 @@ Foundational library for the DCC Model Context Protocol (MCP) ecosystem. It prov
 | Feature | Description |
 |---------|-------------|
 | **Performance** | Rust core with zero-copy serialization via rmp-serde & LZ4 compression |
-| **Type Safety** | Full PyO3 bindings with comprehensive `.pyi` type stubs (~105 public symbols) |
+| **Type Safety** | Full PyO3 bindings with comprehensive `.pyi` type stubs (~120 public symbols) |
 | **Skills System** | Zero-code script registration as MCP tools (SKILL.md + scripts/) |
 | **Resilient Transport** | IPC with connection pooling, circuit breaker, retry policies |
 | **Process Management** | Launch, monitor, auto-recover DCC processes |
@@ -34,7 +34,7 @@ AI-friendly docs: [AGENTS.md](AGENTS.md) | [CLAUDE.md](CLAUDE.md) | [`.agents/sk
 ### Installation
 
 ```bash
-# From PyPI (pre-built wheels for Python 3.8+)
+# From PyPI (pre-built wheels for Python 3.7+)
 pip install dcc-mcp-core
 
 # Or from source (requires Rust toolchain)
@@ -210,7 +210,7 @@ result = registry.call("my_tool__list", some_param="value")
 | `.ps1` | PowerShell | `powershell -File` |
 | `.js`, `.jsx` | JavaScript | `node` |
 
-See `examples/skills/` for **10 complete examples**: hello-world, maya-geometry, maya-pipeline, git-automation, ffmpeg-media, imagemagick-tools, usd-tools, clawhub-compat, multi-script.
+See `examples/skills/` for **9 complete examples**: hello-world, maya-geometry, maya-pipeline, git-automation, ffmpeg-media, imagemagick-tools, usd-tools, clawhub-compat, multi-script.
 
 ## Architecture Overview
 
@@ -243,7 +243,7 @@ dcc-mcp-core is organized as a **Rust workspace of 11 crates**, compiled into a 
 - **Screen capture**: Cross-platform DCC viewport capture for AI visual feedback
 - **USD integration**: Universal Scene Description read/write bridge
 - **Structured telemetry**: Tracing & recording for observability
-- **~105 public Python symbols** with full type stubs (`.pyi`)
+- **~120 public Python symbols** with full type stubs (`.pyi`)
 - **OpenClaw Skills compatible**: Reuse existing ecosystem format
 
 ## Installation
@@ -461,7 +461,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 If you're an AI coding agent, also see:
 - **[AGENTS.md](AGENTS.md)** — Comprehensive guide for all AI agents (architecture, commands, API reference, pitfalls)
-- **[CLAUDE.md](CLAUDE.md)** — Claude Code specific instructions
+- **[CLAUDE.md](CLAUDE.md)** — Claude-specific instructions and workflows
 - **[.agents/skills/dcc-mcp-core/SKILL.md](.agents/skills/dcc-mcp-core/SKILL.md)** — Complete API skill definition for learning and using this library
-- **[python/dcc_mcp_core/__init__.py](python/dcc_mcp_core/__init__.py)** — Full public API surface (~105 symbols)
+- **[python/dcc_mcp_core/__init__.py](python/dcc_mcp_core/__init__.py)** — Full public API surface (~120 symbols)
+- **[llms.txt](llms.txt)** — Concise API reference optimized for LLMs
+- **[llms-full.txt](llms-full.txt)** — Complete API reference optimized for LLMs
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** — Development workflow and coding standards

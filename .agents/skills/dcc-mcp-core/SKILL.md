@@ -3,7 +3,7 @@ name: dcc-mcp-core
 description: "Foundation library for the DCC Model Context Protocol (MCP) ecosystem. Provides Rust-powered action management, skills system, transport layer, sandbox security, shared memory, screen capture, USD scene support, and telemetry for AI-assisted DCC workflows."
 tools: ["Bash", "Read", "Write", "Edit"]
 tags: ["mcp", "dcc", "rust", "pyo3", "maya", "blender", "houdini", "ai", "skills", "actions"]
-version: "0.12.3"
+version: "0.12.4"
 ---
 
 # dcc-mcp-core — DCC MCP Ecosystem Foundation
@@ -60,7 +60,7 @@ result = dispatcher.call("maya_geometry__create_sphere", radius=2.0)
 if result.success:
     print(f"Created: {result.context.get('object_name')}")
 else:
-    print(f"Error: result.error}")
+    print(f"Error: {result.error}")
 ```
 
 ### Creating a Custom Skill (Zero Python Code)
@@ -115,7 +115,7 @@ print(f'Discovered {len(skills)} skills')
 ┌─────────────────────────────────────────────────────┐
 │                   Python Layer                       │
 │  dcc_mcp_core/__init__.py  →  _core (PyO3 cdyll)   │
-│  ~105 public symbols re-exported from Rust core      │
+│  ~120 public symbols re-exported from Rust core      │
 └──────────────────────┬──────────────────────────────┘
                        │ PyO3 bindings
 ┌──────────────────────▼──────────────────────────────┐
@@ -299,7 +299,7 @@ pytest tests/test_transport.py -v
 ## Learning Resources
 
 - **Full docs site**: https://loonghao.github.io/dcc-mcp-core/
-- **Examples**: See `examples/skills/` for 10 complete skill packages
+- **Examples**: See `examples/skills/` for 9 complete skill packages
 - **Type stubs**: `python/dcc_mcp_core/_core.pyi` (complete API signature reference)
 - **CHANGELOG**: `CHANGELOG.md` for version history
 - **Contributing**: `CONTRIBUTING.md` for development workflow

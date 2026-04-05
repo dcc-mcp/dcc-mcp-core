@@ -1,6 +1,7 @@
-# CLAUDE.md — dcc-mcp-core Instructions for Claude Code
+# CLAUDE.md — dcc-mcp-core Instructions for Claude
 
-> **Purpose**: Claude Code specific instructions. Complements AGENTS.md with Claude-specific guidance.
+> **Purpose**: Claude-specific instructions. Complements AGENTS.md with Claude-specific guidance.
+> Read AGENTS.md first for full project context, then this file.
 
 ## Project Identity
 
@@ -11,8 +12,10 @@ You are working on **dcc-mcp-core**, a Rust-powered MCP (Model Context Protocol)
 ### Before Making Changes
 
 1. Read `AGENTS.md` for full project context
-2. Current branch convention: `feat/`, `fix/`, `docs/`, `refactor/`
-3. Always run commands with `vx` prefix
+2. Read `python/dcc_mcp_core/__init__.py` for the complete public API surface
+3. Read `python/dcc_mcp_core/_core.pyi` for parameter names/types when unsure
+4. Current branch convention: `feat/`, `fix/`, `docs/`, `refactor/`, `chore/`
+5. Always run commands with `vx` prefix
 
 ### Essential Commands
 
@@ -21,39 +24,111 @@ vx just preflight     # Before committing (Rust check + clippy + fmt + test)
 vx just test          # Python tests
 vx just lint          # Full lint (Rust + Python)
 vx just dev           # Build dev wheel (needed before running Python tests)
+vx just lint-fix      # Auto-fix all lint issues
+vx just test-cov      # Coverage report to find gaps
 ```
 
 ### Architecture Summary
 
 - **11 Rust crates** under `crates/`, compiled into `_core` native extension
-- **~105 public Python symbols** exported from `python/dcc_mcp_core/__init__.py`
+- **~120 public Python symbols** exported from `python/dcc_mcp_core/__init__.py`
 - **Zero runtime Python deps** — all logic in Rust
 - Key entry point: `src/lib.rs` (PyO3 `#[pymodule]`)
+- Python 3.7–3.13 supported (CI tests 3.7–3.13)
 
-### When Working With This Codebase
+## Claude-Specific Workflows
 
-**Adding a new Python-accessible function/class:**
+### When Adding a New Python-Accessible Symbol
+
 1. Implement in the appropriate `crates/dcc-mcp-*/src/` Rust crate
-2. Add PyO3 bindings in the crate's `python.rs` module
-3. Register in `src/lib.rs` corresponding `register_*()` function
-4. Re-export in `python/dcc_mcp_core/__init__.py`
-5. Update type stubs if needed (`_core.pyi`)
-6. Add pytest tests in `tests/`
+2. Add PyO3 bindings in the crate's `python.rs` module (`#[pyclass]` / `#[pymethods]`)
+3. Register in `src/lib.rs` in the corresponding `register_*()` function
+4. Re-export in `python/dcc_mcp_core/__init__.py` (both import and `__all__`)
+5. Update `python/dcc_mcp_core/_core.pyi` stubs
+6. Add pytest tests in `tests/test_<module>.py`
 
-**Working with Skills:**
+### When Working With Skills
+
 - Skills are discovered via `SKILL.md` files in directories listed in `DCC_MCP_SKILL_PATHS`
 - Each skill's scripts become automatically registered actions
-- See `examples/skills/` for reference implementations
+- Action naming: `{skill_name}__{script_stem}` (double underscore, hyphens→underscores)
+- Use `scan_and_load()` or `scan_and_load_lenient()` — not the old `scan_and_load_skills()`
+- See `examples/skills/` for 9 reference implementations
 
-**Understanding the Transport layer:**
+### When Understanding the Transport Layer
+
 - Uses IPC (Unix socket / named pipe) for process communication
 - `TransportManager` manages connection pools with `CircuitBreaker` resilience
-- `FramedMessage` protocol for reliable message delivery
+- `FramedChannel` for reliable message delivery with message framing
+- Connect: `connect_ipc(address)` → `FramedChannel`
+- Listen: `IpcListener.new(address).start(handler_fn)` → `ListenerHandle`
+
+### When Exploring Unknown Symbols
+
+```bash
+# Check what's available in the public API
+grep -n "from dcc_mcp_core._core import" python/dcc_mcp_core/__init__.py
+
+# Find parameter signatures
+grep -A5 "class SkillMetadata" python/dcc_mcp_core/_core.pyi
+
+# Find Rust implementation
+grep -rn "SkillMetadata" crates/ --include="*.rs" | grep "pub struct\|pyclass"
+```
+
+### When Debugging Build/Import Issues
+
+```bash
+# Rebuild dev wheel
+vx just dev
+
+# Verify import works
+python -c "import dcc_mcp_core; print(dir(dcc_mcp_core))"
+
+# Check for PyO3 registration gaps (symbol in Rust but missing from Python)
+python -c "import dcc_mcp_core; print(hasattr(dcc_mcp_core, 'MyNewSymbol'))"
+
+# Verbose cargo build
+cargo build --workspace --features python-bindings 2>&1 | grep -E "error|warning" | head -30
+```
+
+### When Writing Tests
+
+```python
+# Import pattern for tests
+from __future__ import annotations
+import pytest
+from dcc_mcp_core import ActionResultModel, success_result, error_result
+
+# Skill tests: use tmp_path fixture + create minimal SKILL.md
+def test_skill_scan(tmp_path):
+    skill_dir = tmp_path / "my-skill"
+    (skill_dir / "scripts").mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text("---\nname: my-skill\ndcc: python\n---\n")
+    (skill_dir / "scripts" / "do_thing.py").write_text("print('hello')")
+
+    from dcc_mcp_core import parse_skill_md
+    meta = parse_skill_md(str(skill_dir))
+    assert meta is not None
+    assert meta.name == "my-skill"
+```
 
 ## Claude-Specific Tips
 
-- Prefer reading `__init__.py` over guessing imports — it has the complete public API surface
-- For large refactors across crates, use `cargo check --workspace` early to catch errors
-- The `justfile` has cross-platform recipes (Windows PowerShell + Unix sh)
-- When debugging Python-Rust binding issues, check `_core.pyi` stubs match actual PyO3 registrations
-- Use `vx just test-cov` to see coverage gaps before adding new features
+- **Prefer reading `__init__.py`** over guessing imports — it has the complete public API surface
+- **`_core.pyi` is the ground truth** for parameter names and types
+- **For large refactors**, use `cargo check --workspace` early to catch errors before building the full wheel
+- **The `justfile` is cross-platform**: recipes work on both Windows PowerShell and Unix sh
+- **When debugging Python-Rust binding issues**: check that the symbol is registered in `src/lib.rs` AND re-exported in `__init__.py` AND listed in `_core.pyi`
+- **Use `vx just test-cov`** to see coverage gaps before adding new features
+- **Don't use legacy APIs**: `ActionManager`, `create_action_manager()`, `MiddlewareChain`, `LoggingMiddleware` — all removed in v0.12+
+- **The project has zero runtime Python dependencies by design** — never add `dependencies = [...]` to `pyproject.toml`
+
+## Key Files to Read First (Priority Order)
+
+1. `python/dcc_mcp_core/__init__.py` — Complete public API (~120 symbols)
+2. `python/dcc_mcp_core/_core.pyi` — Type stubs with parameter names
+3. `AGENTS.md` — Full architecture, commands, pitfalls
+4. `crates/*/src/python.rs` — PyO3 binding implementations
+5. `src/lib.rs` — Module registration entry point
+6. `tests/` — Usage examples in test form
