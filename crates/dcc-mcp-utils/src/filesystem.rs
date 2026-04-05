@@ -214,11 +214,37 @@ pub use py_bindings::*;
 mod tests {
     use super::*;
 
+    // ── platform_dir ────────────────────────────────────────────────────────────
+
     #[test]
-    fn test_get_platform_dir() {
+    fn test_get_platform_dir_config() {
         let result = get_platform_dir("config");
         assert!(result.is_ok());
         assert!(result.unwrap().contains("dcc-mcp"));
+    }
+
+    #[test]
+    fn test_get_platform_dir_data() {
+        let result = get_platform_dir("data");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_get_platform_dir_cache() {
+        let result = get_platform_dir("cache");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_get_platform_dir_log() {
+        let result = get_platform_dir("log");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_get_platform_dir_state() {
+        let result = get_platform_dir("state");
+        assert!(result.is_ok());
     }
 
     #[test]
@@ -232,6 +258,96 @@ mod tests {
     }
 
     #[test]
+    fn test_get_platform_dir_empty_type() {
+        let result = get_platform_dir("");
+        assert!(result.is_err());
+    }
+
+    // ── convenience wrappers ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_get_config_dir() {
+        assert!(get_config_dir().is_ok());
+    }
+
+    #[test]
+    fn test_get_data_dir() {
+        assert!(get_data_dir().is_ok());
+    }
+
+    #[test]
+    fn test_get_log_dir() {
+        let result = get_log_dir();
+        assert!(result.is_ok());
+        let path = result.unwrap();
+        assert!(path.contains("log"));
+    }
+
+    #[test]
+    fn test_get_actions_dir() {
+        let result = get_actions_dir("maya");
+        assert!(result.is_ok());
+        let path = result.unwrap();
+        assert!(path.contains("maya"));
+        assert!(path.contains("actions"));
+    }
+
+    #[test]
+    fn test_get_actions_dir_different_dccs() {
+        for dcc in &["blender", "houdini", "3dsmax", "unreal"] {
+            let result = get_actions_dir(dcc);
+            assert!(result.is_ok(), "Failed for dcc={dcc}");
+            assert!(result.unwrap().contains(dcc));
+        }
+    }
+
+    // ── skills dir ──────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_get_skills_dir_no_dcc() {
+        let result = get_skills_dir(None);
+        assert!(result.is_ok());
+        assert!(result.unwrap().contains("skills"));
+    }
+
+    #[test]
+    fn test_get_skills_dir_with_dcc() {
+        let result = get_skills_dir(Some("maya"));
+        assert!(result.is_ok());
+        let path = result.unwrap();
+        assert!(path.contains("maya"));
+        assert!(path.contains("skills"));
+    }
+
+    #[test]
+    fn test_get_skills_dir_dcc_is_lowercase() {
+        let lower = get_skills_dir(Some("blender")).unwrap();
+        let upper = get_skills_dir(Some("BLENDER")).unwrap();
+        // Both should produce lowercase dcc in path
+        assert!(lower.contains("blender"));
+        assert!(upper.contains("blender"));
+    }
+
+    // ── path_to_string ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_path_to_string_basic() {
+        let p = PathBuf::from("/some/path");
+        let s = path_to_string(&p);
+        assert!(s.contains("some"));
+        assert!(s.contains("path"));
+    }
+
+    #[test]
+    fn test_path_to_string_empty() {
+        let p = PathBuf::from("");
+        let s = path_to_string(&p);
+        assert_eq!(s, "");
+    }
+
+    // ── FilesystemError ─────────────────────────────────────────────────────────
+
+    #[test]
     fn test_filesystem_error_display() {
         let err = FilesystemError::UnknownDirType("foo".to_string());
         assert_eq!(err.to_string(), "Unknown directory type: foo");
@@ -241,10 +357,66 @@ mod tests {
     }
 
     #[test]
+    fn test_filesystem_error_io_display() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "file missing");
+        let fs_err = FilesystemError::Io(io_err);
+        assert!(fs_err.to_string().contains("Filesystem I/O error"));
+    }
+
+    #[test]
+    fn test_filesystem_error_source() {
+        use std::error::Error;
+
+        let io_err = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied");
+        let fs_err = FilesystemError::Io(io_err);
+        assert!(fs_err.source().is_some());
+
+        let no_source = FilesystemError::UnknownDirType("x".to_string());
+        assert!(no_source.source().is_none());
+    }
+
+    #[test]
+    fn test_filesystem_error_from_io() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::Other, "other");
+        let fs_err: FilesystemError = io_err.into();
+        assert!(matches!(fs_err, FilesystemError::Io(_)));
+    }
+
+    // ── get_skill_paths_from_env ────────────────────────────────────────────────
+
+    #[test]
     fn test_get_skill_paths_from_env_returns_vec() {
         let paths = get_skill_paths_from_env();
         // Without DCC_MCP_SKILL_PATHS set, result should be empty.
         // If the env var happens to be set in CI, just verify the type.
         assert!(paths.iter().all(|p| !p.is_empty()));
+    }
+
+    #[test]
+    fn test_get_skill_paths_from_env_with_temp_dir() {
+        use std::env;
+        use std::fs;
+        // Create a real temp dir so is_dir() returns true
+        let tmp = env::temp_dir().join("dcc_mcp_test_skill_path");
+        let _ = fs::create_dir_all(&tmp);
+        let tmp_str = tmp.to_string_lossy().to_string();
+
+        let sep = if cfg!(windows) { ';' } else { ':' };
+        // SAFETY: single-threaded test, no other thread reads this env var.
+        unsafe {
+            env::set_var(ENV_SKILL_PATHS, &tmp_str);
+        }
+        let paths = get_skill_paths_from_env();
+        // SAFETY: restore env to avoid leaking state.
+        unsafe {
+            env::remove_var(ENV_SKILL_PATHS);
+        }
+        let _ = fs::remove_dir(&tmp);
+
+        // The temp dir should appear in the returned paths
+        assert!(
+            paths.iter().any(|p| p.contains("dcc_mcp_test_skill_path")),
+            "Expected temp dir in paths (sep={sep:?}), got: {paths:?}"
+        );
     }
 }

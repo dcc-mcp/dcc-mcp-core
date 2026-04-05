@@ -20,7 +20,7 @@ export default defineConfig({
           { text: 'Guide', link: '/guide/getting-started' },
           { text: 'API', link: '/api/models' },
           {
-            text: 'v0.12.0',
+            text: 'v0.12.2',
             items: [
               { text: 'Changelog', link: 'https://github.com/loonghao/dcc-mcp-core/blob/main/CHANGELOG.md' },
               { text: 'PyPI', link: 'https://pypi.org/project/dcc-mcp-core/' },
@@ -50,6 +50,8 @@ export default defineConfig({
               text: 'Advanced',
               items: [
                 { text: 'Custom Actions', link: '/guide/custom-actions' },
+                { text: 'Architecture', link: '/guide/architecture' },
+                { text: 'FAQ', link: '/guide/faq' },
               ]
             },
           ],
@@ -79,7 +81,7 @@ export default defineConfig({
           { text: '指南', link: '/zh/guide/getting-started' },
           { text: 'API', link: '/zh/api/models' },
           {
-            text: 'v0.12.0',
+            text: 'v0.12.2',
             items: [
               { text: '更新日志', link: 'https://github.com/loonghao/dcc-mcp-core/blob/main/CHANGELOG.md' },
               { text: 'PyPI', link: 'https://pypi.org/project/dcc-mcp-core/' },
@@ -109,6 +111,8 @@ export default defineConfig({
               text: '进阶',
               items: [
                 { text: '自定义 Action', link: '/zh/guide/custom-actions' },
+                { text: '架构设计', link: '/zh/guide/architecture' },
+                { text: '常见问题', link: '/zh/guide/faq' },
               ]
             },
           ],

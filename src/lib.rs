@@ -8,10 +8,16 @@ use pyo3::prelude::*;
 
 // Re-export sub-crates for Rust consumers
 pub use dcc_mcp_actions as actions;
+pub use dcc_mcp_capture as capture;
 pub use dcc_mcp_models as models;
+pub use dcc_mcp_process as process;
 pub use dcc_mcp_protocols as protocols;
+pub use dcc_mcp_sandbox as sandbox;
+pub use dcc_mcp_shm as shm;
 pub use dcc_mcp_skills as skills;
+pub use dcc_mcp_telemetry as telemetry;
 pub use dcc_mcp_transport as transport;
+pub use dcc_mcp_usd as usd;
 pub use dcc_mcp_utils as utils;
 
 // ── Helper macros (defined before use for readability) ──
@@ -53,6 +59,12 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     register_protocols(m)?;
     register_skills(m)?;
     register_transport(m)?;
+    register_process(m)?;
+    register_telemetry(m)?;
+    register_sandbox(m)?;
+    register_shm(m)?;
+    register_capture(m)?;
+    register_usd(m)?;
     register_utils(m)?;
     register_constants(m)?;
 
@@ -86,7 +98,11 @@ fn register_actions(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m,
         dcc_mcp_actions::ActionRegistry,
         dcc_mcp_actions::EventBus,
+        dcc_mcp_actions::SemVer,
+        dcc_mcp_actions::versioned::PyVersionConstraint,
+        dcc_mcp_actions::VersionedRegistry,
     );
+    dcc_mcp_actions::python::register_classes(m)?;
     Ok(())
 }
 
@@ -94,23 +110,44 @@ fn register_actions(m: &Bound<'_, PyModule>) -> PyResult<()> {
 fn register_protocols(m: &Bound<'_, PyModule>) -> PyResult<()> {
     add_classes!(
         m,
+        // MCP protocol types
         dcc_mcp_protocols::ToolDefinition,
         dcc_mcp_protocols::ToolAnnotations,
+        dcc_mcp_protocols::ResourceAnnotations,
         dcc_mcp_protocols::ResourceDefinition,
         dcc_mcp_protocols::ResourceTemplateDefinition,
         dcc_mcp_protocols::PromptArgument,
         dcc_mcp_protocols::PromptDefinition,
+        // DCC adapter types
+        dcc_mcp_protocols::PyDccInfo,
+        dcc_mcp_protocols::PyScriptResult,
+        dcc_mcp_protocols::PyScriptLanguage,
+        dcc_mcp_protocols::PySceneInfo,
+        dcc_mcp_protocols::PySceneStatistics,
+        dcc_mcp_protocols::PyDccCapabilities,
+        dcc_mcp_protocols::PyDccError,
+        dcc_mcp_protocols::PyDccErrorCode,
+        dcc_mcp_protocols::PyCaptureResult,
     );
     Ok(())
 }
 
 #[cfg(feature = "python-bindings")]
 fn register_skills(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    add_classes!(m, dcc_mcp_skills::SkillScanner);
+    add_classes!(
+        m,
+        dcc_mcp_skills::SkillScanner,
+        dcc_mcp_skills::PySkillWatcher
+    );
     add_functions!(
         m,
         dcc_mcp_skills::py_parse_skill_md,
         dcc_mcp_skills::py_scan_skill_paths,
+        dcc_mcp_skills::py_resolve_dependencies,
+        dcc_mcp_skills::py_validate_dependencies,
+        dcc_mcp_skills::py_expand_transitive_dependencies,
+        dcc_mcp_skills::py_scan_and_load,
+        dcc_mcp_skills::py_scan_and_load_lenient,
     );
     Ok(())
 }
@@ -122,7 +159,14 @@ fn register_transport(m: &Bound<'_, PyModule>) -> PyResult<()> {
         dcc_mcp_transport::PyTransportManager,
         dcc_mcp_transport::PyServiceEntry,
         dcc_mcp_transport::PyServiceStatus,
+        dcc_mcp_transport::PyRoutingStrategy,
+        dcc_mcp_transport::PyTransportAddress,
+        dcc_mcp_transport::PyTransportScheme,
+        dcc_mcp_transport::PyIpcListener,
+        dcc_mcp_transport::PyListenerHandle,
+        dcc_mcp_transport::PyFramedChannel,
     );
+    add_functions!(m, dcc_mcp_transport::py_connect_ipc,);
     Ok(())
 }
 
@@ -152,6 +196,36 @@ fn register_utils(m: &Bound<'_, PyModule>) -> PyResult<()> {
 }
 
 #[cfg(feature = "python-bindings")]
+fn register_process(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    dcc_mcp_process::python::register_classes(m)
+}
+
+#[cfg(feature = "python-bindings")]
+fn register_telemetry(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    dcc_mcp_telemetry::python::register_classes(m)
+}
+
+#[cfg(feature = "python-bindings")]
+fn register_sandbox(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    dcc_mcp_sandbox::python::register_classes(m)
+}
+
+#[cfg(feature = "python-bindings")]
+fn register_shm(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    dcc_mcp_shm::python::register_classes(m)
+}
+
+#[cfg(feature = "python-bindings")]
+fn register_capture(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    dcc_mcp_capture::python::register_classes(m)
+}
+
+#[cfg(feature = "python-bindings")]
+fn register_usd(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    dcc_mcp_usd::python::register_classes(m)
+}
+
+#[cfg(feature = "python-bindings")]
 fn register_constants(m: &Bound<'_, PyModule>) -> PyResult<()> {
     use dcc_mcp_utils::constants;
     add_constants!(
@@ -178,5 +252,26 @@ mod tests {
         let _ = dcc_mcp_models::ActionResultModelData::default();
         let reg = dcc_mcp_actions::ActionRegistry::new();
         assert!(reg.is_empty());
+        let monitor = dcc_mcp_process::ProcessMonitor::new();
+        assert_eq!(monitor.tracked_count(), 0);
+        // Verify telemetry types are accessible
+        let cfg = dcc_mcp_telemetry::TelemetryConfig::builder("test").build();
+        assert_eq!(cfg.service_name, "test");
+        // Verify sandbox types are accessible
+        let policy = dcc_mcp_sandbox::SandboxPolicy::default();
+        assert!(policy.check_action("anything").is_ok());
+        // Verify shm types are accessible
+        let buf = dcc_mcp_shm::SharedBuffer::create(256).unwrap();
+        assert_eq!(buf.capacity(), 256);
+        // Verify capture types are accessible
+        let capturer = dcc_mcp_capture::Capturer::new_auto();
+        let (count, _, _) = capturer.stats().snapshot();
+        assert_eq!(count, 0);
+        // Verify USD types are accessible
+        let mut stage = dcc_mcp_usd::UsdStage::new("test");
+        stage.define_prim(dcc_mcp_usd::SdfPath::new("/World").unwrap(), "Xform");
+        assert!(stage.has_prim("/World"));
+        let m = stage.metrics();
+        assert_eq!(m.xform_count, 1);
     }
 }

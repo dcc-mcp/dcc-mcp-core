@@ -1,0 +1,521 @@
+//! Python-facing type definitions for the transport layer.
+//!
+//! Contains `PyServiceStatus`, `PyRoutingStrategy`, `PyTransportAddress`,
+//! `PyTransportScheme`, and `PyServiceEntry`.
+
+#[cfg(feature = "python-bindings")]
+use pyo3::prelude::*;
+#[cfg(feature = "python-bindings")]
+use pyo3::types::PyDict;
+#[cfg(feature = "python-bindings")]
+use std::collections::HashMap;
+
+#[cfg(feature = "python-bindings")]
+use crate::discovery::types::{ServiceEntry, ServiceStatus};
+#[cfg(feature = "python-bindings")]
+use crate::ipc::{TransportAddress, TransportScheme};
+#[cfg(feature = "python-bindings")]
+use crate::routing::RoutingStrategy;
+
+// ── PyServiceStatus ──
+
+/// Python-facing enum for DCC service status.
+///
+/// ```python
+/// from dcc_mcp_core import ServiceStatus
+///
+/// status = ServiceStatus.AVAILABLE
+/// print(status)  # "AVAILABLE"
+/// ```
+#[cfg(feature = "python-bindings")]
+#[pyclass(name = "ServiceStatus", eq, from_py_object)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PyServiceStatus {
+    /// Service is available and accepting connections.
+    #[pyo3(name = "AVAILABLE")]
+    Available,
+    /// Service is busy (processing a request).
+    #[pyo3(name = "BUSY")]
+    Busy,
+    /// Service is unreachable (health check failed).
+    #[pyo3(name = "UNREACHABLE")]
+    Unreachable,
+    /// Service is shutting down.
+    #[pyo3(name = "SHUTTING_DOWN")]
+    ShuttingDown,
+}
+
+#[cfg(feature = "python-bindings")]
+#[pymethods]
+impl PyServiceStatus {
+    fn __repr__(&self) -> String {
+        format!("ServiceStatus.{}", self.__str__())
+    }
+
+    fn __str__(&self) -> &'static str {
+        match self {
+            Self::Available => "AVAILABLE",
+            Self::Busy => "BUSY",
+            Self::Unreachable => "UNREACHABLE",
+            Self::ShuttingDown => "SHUTTING_DOWN",
+        }
+    }
+}
+
+#[cfg(feature = "python-bindings")]
+impl From<ServiceStatus> for PyServiceStatus {
+    fn from(s: ServiceStatus) -> Self {
+        match s {
+            ServiceStatus::Available => PyServiceStatus::Available,
+            ServiceStatus::Busy => PyServiceStatus::Busy,
+            ServiceStatus::Unreachable => PyServiceStatus::Unreachable,
+            ServiceStatus::ShuttingDown => PyServiceStatus::ShuttingDown,
+        }
+    }
+}
+
+// ── PyRoutingStrategy ──
+
+/// Python-facing enum for DCC instance routing strategy.
+///
+/// ```python
+/// from dcc_mcp_core import RoutingStrategy, TransportManager
+///
+/// transport = TransportManager("/path/to/registry")
+/// session_id = transport.get_or_create_session_routed(
+///     "maya",
+///     strategy=RoutingStrategy.ROUND_ROBIN,
+/// )
+/// ```
+#[cfg(feature = "python-bindings")]
+#[pyclass(name = "RoutingStrategy", eq, from_py_object)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PyRoutingStrategy {
+    /// Route to the first available (healthy) instance.
+    #[pyo3(name = "FIRST_AVAILABLE")]
+    FirstAvailable,
+    /// Distribute requests evenly across instances (round-robin).
+    #[pyo3(name = "ROUND_ROBIN")]
+    RoundRobin,
+    /// Route to the instance with the fewest active requests.
+    #[pyo3(name = "LEAST_BUSY")]
+    LeastBusy,
+    /// Route to a specific instance identified by hint.
+    #[pyo3(name = "SPECIFIC")]
+    Specific,
+    /// Route to the instance whose scene matches the given hint.
+    #[pyo3(name = "SCENE_MATCH")]
+    SceneMatch,
+    /// Route to a random available instance.
+    #[pyo3(name = "RANDOM")]
+    Random,
+}
+
+#[cfg(feature = "python-bindings")]
+#[pymethods]
+impl PyRoutingStrategy {
+    fn __repr__(&self) -> String {
+        format!("RoutingStrategy.{}", self.__str__())
+    }
+
+    fn __str__(&self) -> &'static str {
+        match self {
+            Self::FirstAvailable => "FIRST_AVAILABLE",
+            Self::RoundRobin => "ROUND_ROBIN",
+            Self::LeastBusy => "LEAST_BUSY",
+            Self::Specific => "SPECIFIC",
+            Self::SceneMatch => "SCENE_MATCH",
+            Self::Random => "RANDOM",
+        }
+    }
+}
+
+#[cfg(feature = "python-bindings")]
+impl From<&PyRoutingStrategy> for RoutingStrategy {
+    fn from(s: &PyRoutingStrategy) -> Self {
+        match s {
+            PyRoutingStrategy::FirstAvailable => RoutingStrategy::FirstAvailable,
+            PyRoutingStrategy::RoundRobin => RoutingStrategy::RoundRobin,
+            PyRoutingStrategy::LeastBusy => RoutingStrategy::LeastBusy,
+            PyRoutingStrategy::Specific => RoutingStrategy::Specific,
+            PyRoutingStrategy::SceneMatch => RoutingStrategy::SceneMatch,
+            PyRoutingStrategy::Random => RoutingStrategy::Random,
+        }
+    }
+}
+
+// ── PyTransportAddress ──
+
+/// Python-facing transport address for DCC communication.
+///
+/// Represents a protocol-agnostic endpoint: TCP, Named Pipe, or Unix Socket.
+///
+/// ```python
+/// from dcc_mcp_core import TransportAddress
+///
+/// # TCP address
+/// addr = TransportAddress.tcp("127.0.0.1", 18812)
+///
+/// # Named Pipe (Windows)
+/// addr = TransportAddress.named_pipe("dcc-mcp-maya-12345")
+///
+/// # Unix Socket (macOS/Linux)
+/// addr = TransportAddress.unix_socket("/tmp/dcc-mcp-maya.sock")
+///
+/// # Auto-detect best local transport
+/// addr = TransportAddress.default_local("maya", 12345)
+///
+/// # Parse from URI string
+/// addr = TransportAddress.parse("tcp://127.0.0.1:9000")
+///
+/// print(addr.scheme)      # "tcp", "pipe", or "unix"
+/// print(addr.is_local)    # True/False
+/// print(str(addr))        # "tcp://127.0.0.1:18812"
+/// ```
+#[cfg(feature = "python-bindings")]
+#[pyclass(name = "TransportAddress", from_py_object)]
+#[derive(Debug, Clone)]
+pub struct PyTransportAddress {
+    pub(super) inner: TransportAddress,
+}
+
+#[cfg(feature = "python-bindings")]
+#[pymethods]
+impl PyTransportAddress {
+    /// Create a TCP transport address.
+    #[staticmethod]
+    fn tcp(host: &str, port: u16) -> Self {
+        Self {
+            inner: TransportAddress::tcp(host, port),
+        }
+    }
+
+    /// Create a Named Pipe transport address (Windows).
+    ///
+    /// Automatically prepends `\\.\pipe\` if not already present.
+    #[staticmethod]
+    fn named_pipe(name: &str) -> Self {
+        Self {
+            inner: TransportAddress::named_pipe(name),
+        }
+    }
+
+    /// Create a Unix Domain Socket transport address (macOS/Linux).
+    #[staticmethod]
+    fn unix_socket(path: &str) -> Self {
+        Self {
+            inner: TransportAddress::unix_socket(path),
+        }
+    }
+
+    /// Generate the optimal local transport for the current platform.
+    ///
+    /// Windows → Named Pipe, macOS/Linux → Unix Socket.
+    #[staticmethod]
+    fn default_local(dcc_type: &str, pid: u32) -> Self {
+        Self {
+            inner: TransportAddress::default_local(dcc_type, pid),
+        }
+    }
+
+    /// Generate a default Named Pipe name for a DCC instance.
+    #[staticmethod]
+    fn default_pipe_name(dcc_type: &str, pid: u32) -> Self {
+        Self {
+            inner: TransportAddress::default_pipe_name(dcc_type, pid),
+        }
+    }
+
+    /// Generate a default Unix Socket path for a DCC instance.
+    #[staticmethod]
+    fn default_unix_socket(dcc_type: &str, pid: u32) -> Self {
+        Self {
+            inner: TransportAddress::default_unix_socket(dcc_type, pid),
+        }
+    }
+
+    /// Parse a transport address from a URI string.
+    ///
+    /// Supports ``tcp://host:port``, ``pipe://name``, and ``unix://path`` schemes.
+    ///
+    /// # Examples (Python)
+    ///
+    /// ```python
+    /// addr = TransportAddress.parse("tcp://127.0.0.1:9000")
+    /// assert addr.is_tcp
+    ///
+    /// addr2 = TransportAddress.parse("pipe://dcc-mcp-maya")
+    /// assert addr2.is_named_pipe
+    /// ```
+    #[staticmethod]
+    fn parse(s: &str) -> pyo3::PyResult<Self> {
+        TransportAddress::parse(s)
+            .map(|inner| Self { inner })
+            .map_err(pyo3::exceptions::PyValueError::new_err)
+    }
+
+    /// Get the transport scheme name ("tcp", "pipe", or "unix").
+    #[getter]
+    fn scheme(&self) -> &str {
+        self.inner.scheme()
+    }
+
+    /// Check if this is a local (same-machine) transport.
+    #[getter]
+    fn is_local(&self) -> bool {
+        self.inner.is_local()
+    }
+
+    /// Check if this is a TCP address.
+    #[getter]
+    fn is_tcp(&self) -> bool {
+        self.inner.is_tcp()
+    }
+
+    /// Check if this is a Named Pipe address.
+    #[getter]
+    fn is_named_pipe(&self) -> bool {
+        self.inner.is_named_pipe()
+    }
+
+    /// Check if this is a Unix Domain Socket address.
+    #[getter]
+    fn is_unix_socket(&self) -> bool {
+        self.inner.is_unix_socket()
+    }
+
+    /// Get the connection string (e.g. "tcp://127.0.0.1:18812").
+    fn to_connection_string(&self) -> String {
+        self.inner.to_connection_string()
+    }
+
+    fn __repr__(&self) -> String {
+        format!("TransportAddress({})", self.inner.to_connection_string())
+    }
+
+    fn __str__(&self) -> String {
+        self.inner.to_string()
+    }
+
+    fn __eq__(&self, other: &Self) -> bool {
+        self.inner == other.inner
+    }
+
+    fn __hash__(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.inner.to_connection_string().hash(&mut hasher);
+        hasher.finish()
+    }
+}
+
+#[cfg(feature = "python-bindings")]
+impl From<&TransportAddress> for PyTransportAddress {
+    fn from(addr: &TransportAddress) -> Self {
+        Self {
+            inner: addr.clone(),
+        }
+    }
+}
+
+#[cfg(feature = "python-bindings")]
+impl From<&PyTransportAddress> for TransportAddress {
+    fn from(addr: &PyTransportAddress) -> Self {
+        addr.inner.clone()
+    }
+}
+
+// ── PyTransportScheme ──
+
+/// Python-facing transport selection strategy.
+///
+/// ```python
+/// from dcc_mcp_core import TransportScheme
+///
+/// scheme = TransportScheme.AUTO          # Auto-detect best transport
+/// scheme = TransportScheme.TCP_ONLY      # Always use TCP
+/// scheme = TransportScheme.PREFER_IPC    # Prefer IPC, fallback to TCP
+/// ```
+#[cfg(feature = "python-bindings")]
+#[pyclass(name = "TransportScheme", eq, from_py_object)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PyTransportScheme {
+    /// Automatically select the best transport based on locality.
+    #[pyo3(name = "AUTO")]
+    Auto,
+    /// Always use TCP.
+    #[pyo3(name = "TCP_ONLY")]
+    TcpOnly,
+    /// Prefer Named Pipe on Windows, fall back to TCP.
+    #[pyo3(name = "PREFER_NAMED_PIPE")]
+    PreferNamedPipe,
+    /// Prefer Unix Domain Socket, fall back to TCP.
+    #[pyo3(name = "PREFER_UNIX_SOCKET")]
+    PreferUnixSocket,
+    /// Prefer any IPC, fall back to TCP.
+    #[pyo3(name = "PREFER_IPC")]
+    PreferIpc,
+}
+
+#[cfg(feature = "python-bindings")]
+#[pymethods]
+impl PyTransportScheme {
+    /// Select the optimal transport address for a connection.
+    ///
+    /// Args:
+    ///     dcc_type: DCC application type (e.g. "maya").
+    ///     host: Target host address.
+    ///     port: Target port.
+    ///     pid: Optional DCC process PID (needed for IPC naming).
+    ///
+    /// Returns:
+    ///     TransportAddress — the selected transport endpoint.
+    #[pyo3(signature = (dcc_type, host, port, pid=None))]
+    fn select_address(
+        &self,
+        dcc_type: &str,
+        host: &str,
+        port: u16,
+        pid: Option<u32>,
+    ) -> PyTransportAddress {
+        let scheme: TransportScheme = self.into();
+        PyTransportAddress {
+            inner: scheme.select_address(dcc_type, host, port, pid),
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        format!("TransportScheme.{}", self.__str__())
+    }
+
+    fn __str__(&self) -> &'static str {
+        match self {
+            Self::Auto => "AUTO",
+            Self::TcpOnly => "TCP_ONLY",
+            Self::PreferNamedPipe => "PREFER_NAMED_PIPE",
+            Self::PreferUnixSocket => "PREFER_UNIX_SOCKET",
+            Self::PreferIpc => "PREFER_IPC",
+        }
+    }
+}
+
+#[cfg(feature = "python-bindings")]
+impl From<&PyTransportScheme> for TransportScheme {
+    fn from(s: &PyTransportScheme) -> Self {
+        match s {
+            PyTransportScheme::Auto => TransportScheme::Auto,
+            PyTransportScheme::TcpOnly => TransportScheme::TcpOnly,
+            PyTransportScheme::PreferNamedPipe => TransportScheme::PreferNamedPipe,
+            PyTransportScheme::PreferUnixSocket => TransportScheme::PreferUnixSocket,
+            PyTransportScheme::PreferIpc => TransportScheme::PreferIpc,
+        }
+    }
+}
+
+// ── PyServiceEntry ──
+
+/// Python-facing service entry representing a discovered DCC instance.
+///
+/// ```python
+/// from dcc_mcp_core import TransportManager
+///
+/// transport = TransportManager("/path/to/registry")
+/// instance_id = transport.register_service("maya", "127.0.0.1", 18812)
+/// entry = transport.get_service("maya", instance_id)
+/// print(entry.dcc_type)      # "maya"
+/// print(entry.host)          # "127.0.0.1"
+/// print(entry.port)          # 18812
+/// print(entry.status)        # ServiceStatus.AVAILABLE
+/// ```
+#[cfg(feature = "python-bindings")]
+#[pyclass(name = "ServiceEntry", get_all, from_py_object)]
+#[derive(Debug, Clone)]
+pub struct PyServiceEntry {
+    /// DCC application type (e.g. "maya", "houdini", "blender").
+    pub dcc_type: String,
+    /// Unique instance identifier (UUID string).
+    pub instance_id: String,
+    /// Host address.
+    pub host: String,
+    /// Port number.
+    pub port: u16,
+    /// DCC application version (e.g. "2024.2").
+    pub version: Option<String>,
+    /// Currently open scene/file.
+    pub scene: Option<String>,
+    /// Arbitrary metadata.
+    pub metadata: HashMap<String, String>,
+    /// Current service status.
+    pub status: PyServiceStatus,
+    /// Transport address (None = TCP host:port).
+    pub transport_address: Option<PyTransportAddress>,
+}
+
+#[cfg(feature = "python-bindings")]
+#[pymethods]
+impl PyServiceEntry {
+    fn __repr__(&self) -> String {
+        format!(
+            "ServiceEntry(dcc_type={:?}, host={:?}, port={}, instance_id={:?}, status={})",
+            self.dcc_type,
+            self.host,
+            self.port,
+            self.instance_id,
+            self.status.__str__()
+        )
+    }
+
+    /// Check if this service uses an IPC transport.
+    #[getter]
+    fn is_ipc(&self) -> bool {
+        self.transport_address
+            .as_ref()
+            .is_some_and(|addr| !addr.inner.is_tcp())
+    }
+
+    /// Get the effective transport address.
+    fn effective_address(&self) -> PyTransportAddress {
+        self.transport_address
+            .clone()
+            .unwrap_or_else(|| PyTransportAddress {
+                inner: TransportAddress::tcp(&self.host, self.port),
+            })
+    }
+
+    /// Convert to a dictionary for backward compatibility.
+    fn to_dict(&self, py: Python) -> PyResult<Py<PyAny>> {
+        let dict = PyDict::new(py);
+        dict.set_item("dcc_type", &self.dcc_type)?;
+        dict.set_item("instance_id", &self.instance_id)?;
+        dict.set_item("host", &self.host)?;
+        dict.set_item("port", self.port)?;
+        dict.set_item("version", &self.version)?;
+        dict.set_item("scene", &self.scene)?;
+        dict.set_item("metadata", &self.metadata)?;
+        dict.set_item("status", self.status.__str__())?;
+        if let Some(addr) = &self.transport_address {
+            dict.set_item("transport_address", addr.to_connection_string())?;
+        }
+        Ok(dict.unbind().into_any())
+    }
+}
+
+#[cfg(feature = "python-bindings")]
+impl From<&ServiceEntry> for PyServiceEntry {
+    fn from(entry: &ServiceEntry) -> Self {
+        Self {
+            dcc_type: entry.dcc_type.clone(),
+            instance_id: entry.instance_id.to_string(),
+            host: entry.host.clone(),
+            port: entry.port,
+            version: entry.version.clone(),
+            scene: entry.scene.clone(),
+            metadata: entry.metadata.clone(),
+            status: entry.status.into(),
+            transport_address: entry
+                .transport_address
+                .as_ref()
+                .map(PyTransportAddress::from),
+        }
+    }
+}

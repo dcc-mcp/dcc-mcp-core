@@ -2,75 +2,69 @@
 
 DCC-MCP-Core 是一个为数字内容创建（DCC）应用程序设计的**动作管理系统**，提供统一的接口，使 AI 能够与各种 DCC 软件（如 Maya、Blender、Houdini 等）进行交互。
 
+基于 **Rust 核心**，通过 [PyO3](https://pyo3.rs/) 暴露给 Python，将 Rust 的性能和线程安全与 Python 的易用性相结合。
+
 ## 核心工作流程
 
 ```mermaid
 flowchart LR
     AI([AI 助手]):::aiNode
     MCP{{MCP 服务器}}:::serverNode
-    DCCMCP{{DCC-MCP}}:::serverNode
-    Actions[(DCC 动作)]:::actionsNode
+    Core{{DCC-MCP-Core}}:::coreNode
     DCC[/DCC 软件/]:::dccNode
 
-    AI -->|1. 发送请求| MCP
-    MCP -->|2. 转发请求| DCCMCP
-    DCCMCP -->|3. 发现与加载| Actions
-    Actions -->|4. 返回信息| DCCMCP
-    DCCMCP -->|5. 结构化数据| MCP
-    MCP -->|6. 调用函数| DCCMCP
-    DCCMCP -->|7. 执行操作| DCC
-    DCC -->|8. 操作结果| DCCMCP
-    DCCMCP -->|9. 结构化结果| MCP
-    MCP -->|10. 返回结果| AI
+    AI -->|1. 请求| MCP
+    MCP -->|2. 发现 Actions| Core
+    Core -->|3. 在 DCC 中执行| DCC
+    DCC -->|4. 结果| Core
+    Core -->|5. 结构化结果| MCP
+    MCP -->|6. 响应| AI
 
     classDef aiNode fill:#f9d,stroke:#f06,stroke-width:2px,color:#333
     classDef serverNode fill:#bbf,stroke:#66f,stroke-width:2px,color:#333
+    classDef coreNode fill:#fbb,stroke:#f66,stroke-width:2px,color:#333
     classDef dccNode fill:#bfb,stroke:#6b6,stroke-width:2px,color:#333
-    classDef actionsNode fill:#fbb,stroke:#f66,stroke-width:2px,color:#333
 ```
 
 ## 核心特性
 
-- **基于类的 Action 设计** — 使用 Pydantic 模型，提供强类型检查和输入验证
-- **ActionManager** — 动作生命周期协调器，负责发现、加载和执行
-- **中间件系统** — 责任链模式，支持日志记录、性能监控等
-- **事件系统** — 发布/订阅 EventBus，用于动作生命周期事件
-- **Skills 技能包** — 零代码将脚本注册为 MCP 工具
-- **MCP 协议层** — 完整的 Tools、Resources 和 Prompts 抽象
-- **零依赖** — Python 3.8+ 无第三方 Python 依赖
-- **Rust 核心** — 通过 PyO3 提供 Rust 编写的高性能模块
+- **ActionRegistry** — 基于 DashMap 的线程安全、无锁 Action 注册与查找
+- **EventBus** — 发布/订阅系统，用于解耦的 Action 生命周期事件
+- **Skills 技能包** — 零代码将脚本注册为 MCP 工具（通过 SKILL.md）
+- **MCP 协议类型** — Tools、Resources 和 Prompts 的类型安全定义
+- **传输层** — 连接池、服务发现、会话管理，用于 DCC 通信
+- **类型包装器** — RPyC 安全包装器（BooleanWrapper、IntWrapper、FloatWrapper、StringWrapper）
+- **零 Python 依赖** — 纯 Rust 核心编译为原生 Python 扩展
+- **线程安全** — 所有核心类型使用 DashMap 实现无锁并发访问
 
-## 项目结构
+## 架构
+
+DCC-MCP-Core 是一个 Rust workspace，包含 6 个子 crate，通过 maturin 编译为单个 Python 扩展模块：
 
 ```
-dcc_mcp_core/
-├── __init__.py              # 公共 API 导出
-├── models.py                # ActionResultModel, SkillMetadata
-├── actions/
-│   ├── base.py              # Action 基类
-│   ├── manager.py           # ActionManager
-│   ├── registry.py          # ActionRegistry（单例）
-│   ├── middleware.py         # 中间件系统
-│   ├── events.py            # EventBus
-│   ├── function_adapter.py  # Action 转函数适配器
-│   └── generator.py         # Action 模板生成
-├── skills/
-│   ├── scanner.py           # SkillScanner
-│   ├── loader.py            # SKILL.md 解析器
-│   └── script_action.py     # ScriptAction 工厂
-├── protocols/
-│   ├── types.py             # MCP 类型定义
-│   ├── base.py              # Resource, Prompt 抽象基类
-│   ├── server.py            # MCPServerProtocol
-│   └── adapter.py           # MCPAdapter
-└── utils/
-    ├── filesystem.py         # 平台目录、环境路径
-    ├── module_loader.py      # 动态模块加载
-    ├── decorators.py         # error_handler, with_context
-    ├── dependency_injector.py
-    ├── template.py           # Jinja2 渲染
-    ├── type_wrappers.py      # RPyC 安全类型包装器
-    └── result_factory.py     # 工厂函数
+dcc-mcp-core/
+├── src/lib.rs                  # PyO3 模块入口 (_core)
+├── crates/
+│   ├── dcc-mcp-actions/        # ActionRegistry、EventBus
+│   ├── dcc-mcp-models/         # ActionResultModel、SkillMetadata
+│   ├── dcc-mcp-protocols/      # MCP 类型定义 (Tool, Resource, Prompt)
+│   ├── dcc-mcp-skills/         # SKILL.md 扫描器和加载器
+│   ├── dcc-mcp-transport/      # 连接池、服务发现、会话管理
+│   └── dcc-mcp-utils/          # 文件系统、常量、类型包装器、日志
+└── python/
+    └── dcc_mcp_core/
+        └── __init__.py          # 从 _core 扩展重新导出
+```
+
+## Python API 概览
+
+所有公共 API 均可从顶层 `dcc_mcp_core` 包导入：
+
+```python
+import dcc_mcp_core
+
+# 16 个类、14 个函数、8 个常量
+# 详见 API 参考获取完整文档
 ```
 
 ## 相关项目

@@ -8,7 +8,6 @@ and unusual inputs that stress the Rust↔Python bridge.
 from __future__ import annotations
 
 # Import built-in modules
-import copy
 from pathlib import Path
 import threading
 

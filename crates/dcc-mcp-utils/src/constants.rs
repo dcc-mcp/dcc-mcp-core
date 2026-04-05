@@ -120,6 +120,8 @@ pub fn get_script_type(ext: &str) -> Option<&'static str> {
 mod tests {
     use super::*;
 
+    // ── is_supported_extension ──────────────────────────────────────────────────
+
     #[test]
     fn test_is_supported_extension_valid() {
         // Both dotted and bare forms work
@@ -132,27 +134,37 @@ mod tests {
     }
 
     #[test]
+    fn test_is_supported_extension_all_supported() {
+        for (ext, _) in SUPPORTED_SCRIPT_EXTENSIONS {
+            assert!(
+                is_supported_extension(ext),
+                "expected {ext} to be supported"
+            );
+            // bare form (strip leading dot)
+            let bare = ext.strip_prefix('.').unwrap_or(ext);
+            assert!(is_supported_extension(bare), "bare form {bare} should work");
+        }
+    }
+
+    #[test]
     fn test_is_supported_extension_invalid() {
         assert!(!is_supported_extension(".txt"));
         assert!(!is_supported_extension(".rs"));
         assert!(!is_supported_extension("txt"));
+        assert!(!is_supported_extension(""));
+        assert!(!is_supported_extension("toml"));
+        assert!(!is_supported_extension(".json"));
     }
 
     #[test]
-    fn test_default_schema() {
-        let schema = default_schema();
-        assert_eq!(schema["type"], "object");
-        assert!(schema["properties"].is_object());
+    fn test_is_supported_extension_case_insensitive() {
+        assert!(is_supported_extension("PY"));
+        assert!(is_supported_extension(".MEL"));
+        assert!(is_supported_extension("MS"));
+        assert!(is_supported_extension(".PS1"));
     }
 
-    #[test]
-    fn test_action_result_known_keys() {
-        assert!(ACTION_RESULT_KNOWN_KEYS.contains(&"success"));
-        assert!(ACTION_RESULT_KNOWN_KEYS.contains(&"message"));
-        assert!(ACTION_RESULT_KNOWN_KEYS.contains(&"prompt"));
-        assert!(ACTION_RESULT_KNOWN_KEYS.contains(&"error"));
-        assert!(!ACTION_RESULT_KNOWN_KEYS.contains(&"context"));
-    }
+    // ── get_script_type ─────────────────────────────────────────────────────────
 
     #[test]
     fn test_get_script_type() {
@@ -165,5 +177,120 @@ mod tests {
         assert_eq!(get_script_type(".mel"), Some("mel"));
         assert_eq!(get_script_type(".txt"), None);
         assert_eq!(get_script_type("PY"), Some("python")); // case-insensitive
+    }
+
+    #[test]
+    fn test_get_script_type_all_supported() {
+        for (ext, expected_type) in SUPPORTED_SCRIPT_EXTENSIONS {
+            let result = get_script_type(ext);
+            assert_eq!(
+                result,
+                Some(*expected_type),
+                "ext={ext} should map to {expected_type}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_get_script_type_unknown_returns_none() {
+        assert!(get_script_type(".rs").is_none());
+        assert!(get_script_type(".md").is_none());
+        assert!(get_script_type("").is_none());
+    }
+
+    #[test]
+    fn test_get_script_type_batch_variants() {
+        // Both .bat and .cmd map to "batch"
+        assert_eq!(get_script_type(".bat"), Some("batch"));
+        assert_eq!(get_script_type(".cmd"), Some("batch"));
+    }
+
+    #[test]
+    fn test_get_script_type_shell_variants() {
+        // Both .sh and .bash map to "shell"
+        assert_eq!(get_script_type(".sh"), Some("shell"));
+        assert_eq!(get_script_type(".bash"), Some("shell"));
+    }
+
+    #[test]
+    fn test_get_script_type_jsx_is_javascript() {
+        assert_eq!(get_script_type(".jsx"), Some("javascript"));
+        assert_eq!(get_script_type(".js"), Some("javascript"));
+    }
+
+    // ── default_schema ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_default_schema() {
+        let schema = default_schema();
+        assert_eq!(schema["type"], "object");
+        assert!(schema["properties"].is_object());
+    }
+
+    #[test]
+    fn test_default_schema_is_same_instance() {
+        // LazyLock should return the same pointer
+        let a = default_schema() as *const _;
+        let b = default_schema() as *const _;
+        assert_eq!(a, b);
+    }
+
+    // ── ACTION_RESULT_KNOWN_KEYS ─────────────────────────────────────────────────
+
+    #[test]
+    fn test_action_result_known_keys() {
+        assert!(ACTION_RESULT_KNOWN_KEYS.contains(&"success"));
+        assert!(ACTION_RESULT_KNOWN_KEYS.contains(&"message"));
+        assert!(ACTION_RESULT_KNOWN_KEYS.contains(&"prompt"));
+        assert!(ACTION_RESULT_KNOWN_KEYS.contains(&"error"));
+        assert!(!ACTION_RESULT_KNOWN_KEYS.contains(&"context"));
+        assert!(!ACTION_RESULT_KNOWN_KEYS.contains(&""));
+    }
+
+    // ── String constants ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_app_name_not_empty() {
+        assert!(!APP_NAME.is_empty());
+    }
+
+    #[test]
+    fn test_default_dcc_not_empty() {
+        assert!(!DEFAULT_DCC.is_empty());
+    }
+
+    #[test]
+    fn test_default_version_semver_like() {
+        let parts: Vec<&str> = DEFAULT_VERSION.split('.').collect();
+        assert!(
+            parts.len() >= 2,
+            "DEFAULT_VERSION should be semver-like, got: {DEFAULT_VERSION}"
+        );
+    }
+
+    #[test]
+    fn test_mtime_epsilon_positive() {
+        assert!(MTIME_EPSILON_SECS > 0.0);
+        assert!(MTIME_EPSILON_SECS < 1.0); // should be sub-second
+    }
+
+    #[test]
+    fn test_skill_metadata_file_constant() {
+        assert!(!SKILL_METADATA_FILE.is_empty());
+        assert!(SKILL_METADATA_FILE.ends_with(".md"));
+    }
+
+    #[test]
+    fn test_env_var_constants_not_empty() {
+        assert!(!ENV_SKILL_PATHS.is_empty());
+        assert!(!ENV_LOG_LEVEL.is_empty());
+    }
+
+    #[test]
+    fn test_ctx_key_constants_not_empty() {
+        assert!(!CTX_KEY_ERROR_TYPE.is_empty());
+        assert!(!CTX_KEY_TRACEBACK.is_empty());
+        assert!(!CTX_KEY_VALUE.is_empty());
+        assert!(!CTX_KEY_POSSIBLE_SOLUTIONS.is_empty());
     }
 }

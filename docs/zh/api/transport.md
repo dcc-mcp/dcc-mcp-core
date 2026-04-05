@@ -58,3 +58,90 @@ TransportManager(
 | `cleanup()` | `(int, int, int)` | 返回 (过期服务数, 关闭会话数, 驱逐连接数) |
 | `shutdown()` | — | 优雅关闭 |
 | `is_shutdown()` | `bool` | 检查是否已关闭 |
+
+### Dunder 方法
+
+| 方法 | 说明 |
+|------|------|
+| `__repr__` | `TransportManager(services=N, sessions=N, pool=N)` |
+| `__len__` | 返回会话数量 |
+
+## 仅 Rust 类型
+
+以下类型在 Rust 中可用，但不直接暴露给 Python：
+
+### TransportConfig
+
+| 字段 | 类型 | 默认值 |
+|------|------|--------|
+| `pool` | `PoolConfig` | — |
+| `session` | `SessionConfig` | — |
+| `connect_timeout` | `Duration` | 10 秒 |
+| `heartbeat_interval` | `Duration` | 5 秒 |
+
+### PoolConfig
+
+| 字段 | 类型 | 默认值 |
+|------|------|--------|
+| `max_connections_per_type` | `usize` | 10 |
+| `max_idle_time` | `Duration` | 300 秒 |
+| `max_lifetime` | `Duration` | 3600 秒 |
+| `acquire_timeout` | `Duration` | 30 秒 |
+
+### SessionConfig
+
+| 字段 | 类型 | 默认值 |
+|------|------|--------|
+| `idle_timeout` | `Duration` | 300 秒 |
+| `reconnect_max_retries` | `u32` | 3 |
+| `reconnect_backoff_base` | `Duration` | 1 秒 |
+| `max_session_lifetime` | `Duration` | 3600 秒 |
+| `heartbeat_interval` | `Duration` | 5 秒 |
+
+### TransportError
+
+| 变体 | 说明 |
+|------|------|
+| `ConnectionFailed` | TCP 连接失败 |
+| `ConnectionTimeout` | 连接超时 |
+| `PoolExhausted` | 所有连接都在使用中 |
+| `AcquireTimeout` | 等待池化连接超时 |
+| `ServiceNotFound` | 服务未在注册表中找到 |
+| `ServiceAlreadyRegistered` | 重复注册 |
+| `Serialization` | MessagePack 序列化错误 |
+| `Io` | IO 错误 |
+| `RegistryFile` | 注册表文件错误 |
+| `Shutdown` | 传输层已关闭 |
+| `SessionNotFound` | 会话未找到 |
+| `InvalidSessionState` | 无效的状态转换 |
+| `ReconnectionFailed` | 超过最大重试次数 |
+| `Internal` | 通用内部错误 |
+
+### ServiceStatus
+
+| 值 | 说明 |
+|----|------|
+| `Available` | 接受连接（默认） |
+| `Busy` | 正在处理请求 |
+| `Unreachable` | 健康检查失败 |
+| `ShuttingDown` | 正在关闭 |
+
+### SessionState
+
+| 值 | 说明 |
+|----|------|
+| `Connected` | 可接受请求 |
+| `Idle` | 超过空闲超时，仍然有效 |
+| `Reconnecting` | 失败后正在重连 |
+| `Closed` | 终态 |
+
+### 线协议
+
+消息使用 MessagePack 序列化，带 4 字节大端序长度前缀：
+
+```
+[4 字节长度][MessagePack 载荷]
+```
+
+- **请求**: `{ id: UUID, method: String, params: Vec<u8> }`
+- **响应**: `{ id: UUID, success: bool, payload: Vec<u8>, error: Option<String> }`

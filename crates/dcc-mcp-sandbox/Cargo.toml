@@ -1,0 +1,28 @@
+[package]
+name = "dcc-mcp-sandbox"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Script execution sandbox with API whitelist, audit logging, and input validation for dcc-mcp-core"
+
+[dependencies]
+# Workspace shared
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tokio = { workspace = true, features = ["rt", "time", "sync"] }
+
+# PyO3 (optional)
+pyo3 = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde_json.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+
+[features]
+default = []
+python-bindings = ["pyo3"]

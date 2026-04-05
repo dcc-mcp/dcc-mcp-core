@@ -10,7 +10,10 @@ use std::path::{Path, PathBuf};
 
 /// Scanner for discovering Skill packages in directories.
 #[derive(Debug, Clone)]
-#[cfg_attr(feature = "python-bindings", pyclass(name = "SkillScanner"))]
+#[cfg_attr(
+    feature = "python-bindings",
+    pyclass(name = "SkillScanner", from_py_object)
+)]
 pub struct SkillScanner {
     cache: HashMap<String, f64>,
     skill_dirs: Vec<String>,

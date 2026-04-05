@@ -7,6 +7,7 @@ __pycache__/
 
 # Rust / Cargo
 /target/
+/target2/
 **/*.rs.bk
 Cargo.lock
 
@@ -43,6 +44,7 @@ dist/
 *.pyd
 *.pdb
 .Python
+.ruff_cache/
 *PRD.md
 *.isorted
 
@@ -65,3 +67,9 @@ CODEBUDDY.md
 
 # Harbor tasks (local only, not committed)
 tasks/
+
+# Local test output files
+test_output.txt
+test_rust_out.txt
+test_rust_err.txt
+test_result.txt

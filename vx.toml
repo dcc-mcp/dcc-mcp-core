@@ -6,8 +6,8 @@ rust = "1.90"
 uv = "latest"
 
 [settings]
-auto_install = true
 cache_duration = "7d"
+auto_install = true
 
 [scripts]
 build = "just build"
@@ -31,3 +31,4 @@ preflight = "just preflight"
 test = "just test"
 test-cov = "just test-cov"
 test-rust = "just test-rust"
+typecheck = "uv run mypy ."

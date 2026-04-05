@@ -14,6 +14,8 @@
 DCC 模型上下文协议（Model Context Protocol，MCP）生态系统的基础库。它提供了在所有其他 DCC-MCP 包中使用的通用工具、基类和共享功能。
 
 > **注意**：本项目处于早期开发阶段。API 可能会随时变化，我们不会提前发出通知。
+>
+> **架构迁移通知 (v0.12+)**: 项目已从纯 Python 架构迁移到 **Rust 核心 + PyO3 绑定** 模型。下方文档仍引用旧版 Python API（`ActionManager`、`Action` 基类、`Middleware` 等），这些已被基于 Rust 的类型（`ActionRegistry`、`EventBus`、`SkillScanner` 等）取代。当前公开 API 请参阅 [`python/dcc_mcp_core/__init__.py`](python/dcc_mcp_core/__init__.py)。完整的文档重写工作在 [CLEANUP_TODO.md](CLEANUP_TODO.md) 中追踪。
 
 ## 设计理念与工作流程
 

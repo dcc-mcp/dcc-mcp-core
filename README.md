@@ -14,6 +14,8 @@
 Foundational library for the DCC Model Context Protocol (MCP) ecosystem. It provides common utilities, base classes, and shared functionality that are used across all other DCC-MCP packages.
 
 > **Note**: This project is in early development stage. The API may change at any time without prior notice.
+>
+> **Architecture Migration Notice (v0.12+)**: The project has migrated from a pure Python architecture to a **Rust core + PyO3 bindings** model. The documentation below still references the legacy Python API (`ActionManager`, `Action` base class, `Middleware`, etc.) which has been superseded by Rust-backed types (`ActionRegistry`, `EventBus`, `SkillScanner`, etc.). See [`python/dcc_mcp_core/__init__.py`](python/dcc_mcp_core/__init__.py) for the current public API surface. A full documentation rewrite is tracked in [CLEANUP_TODO.md](CLEANUP_TODO.md).
 
 ## Design Philosophy and Workflow
 

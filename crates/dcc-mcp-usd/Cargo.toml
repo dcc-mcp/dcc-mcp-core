@@ -1,0 +1,28 @@
+[package]
+name = "dcc-mcp-usd"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "USD (Universal Scene Description) support for dcc-mcp-core — cross-DCC scene interoperability"
+keywords = ["dcc", "usd", "openusd", "scene", "pyo3"]
+
+[dependencies]
+dcc-mcp-protocols = { workspace = true }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+
+# Optional Python bindings
+pyo3 = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde_json.workspace = true
+
+[features]
+default = []
+python-bindings = ["pyo3"]

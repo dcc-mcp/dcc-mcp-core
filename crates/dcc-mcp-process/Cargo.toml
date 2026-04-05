@@ -1,0 +1,27 @@
+[package]
+name = "dcc-mcp-process"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "DCC process monitoring, lifecycle management, and crash recovery for the DCC-MCP ecosystem"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["process", "rt-multi-thread", "sync", "time", "macros"] }
+pyo3 = { workspace = true, optional = true }
+
+# Cross-platform system/process information
+sysinfo = { workspace = true }
+
+[dev-dependencies]
+rstest = "0.26"
+tokio = { workspace = true, features = ["test-util"] }
+
+[features]
+default = []
+python-bindings = ["pyo3"]

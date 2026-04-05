@@ -10,13 +10,17 @@ use crate::config::TransportConfig;
 use crate::discovery::ServiceRegistry;
 use crate::discovery::types::{ServiceEntry, ServiceKey, ServiceStatus};
 use crate::error::{TransportError, TransportResult};
-use crate::pool::ConnectionPool;
+use crate::framed::FramedIo;
+use crate::ipc::TransportAddress;
+use crate::listener::IpcListener;
+use crate::pool::{ActiveConnection, ConnectionPool};
+use crate::routing::{InstanceRouter, RoutingStrategy};
 use crate::session::{Session, SessionManager};
 
 /// Main entry point for the transport layer.
 ///
 /// Manages the connection pool, service registry, session manager,
-/// and provides a unified API for communicating with DCC applications.
+/// instance router, and provides a unified API for communicating with DCC applications.
 pub struct TransportManager {
     /// Connection pool.
     pool: ConnectionPool,
@@ -24,6 +28,8 @@ pub struct TransportManager {
     registry: ServiceRegistry,
     /// Session manager.
     sessions: SessionManager,
+    /// Instance router for smart DCC instance selection.
+    router: InstanceRouter,
     /// Transport configuration.
     config: TransportConfig,
     /// Whether the transport is shut down.
@@ -39,6 +45,7 @@ impl TransportManager {
             pool: ConnectionPool::new(config.pool.clone()),
             registry,
             sessions,
+            router: InstanceRouter::default(),
             config,
             shutdown: Arc::new(AtomicBool::new(false)),
         })
@@ -51,9 +58,20 @@ impl TransportManager {
             pool: ConnectionPool::new(config.pool.clone()),
             registry,
             sessions,
+            router: InstanceRouter::default(),
             config,
             shutdown: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    /// Get the instance router for configuration.
+    pub fn router(&self) -> &InstanceRouter {
+        &self.router
+    }
+
+    /// Get a mutable reference to the instance router.
+    pub fn router_mut(&mut self) -> &mut InstanceRouter {
+        &mut self.router
     }
 
     // ── Service Discovery ──
@@ -95,11 +113,21 @@ impl TransportManager {
         self.registry.heartbeat(key)
     }
 
+    /// Update the status of a registered service.
+    pub fn update_service_status(
+        &self,
+        key: &ServiceKey,
+        status: ServiceStatus,
+    ) -> TransportResult<bool> {
+        self.check_shutdown()?;
+        self.registry.update_status(key, status)
+    }
+
     // ── Session Management ──
 
     /// Get or create a session for a DCC instance (lazy creation).
     ///
-    /// If no instance_id is specified, picks the first available instance.
+    /// If no instance_id is specified, uses the router to select an instance.
     pub fn get_or_create_session(
         &self,
         dcc_type: &str,
@@ -107,9 +135,27 @@ impl TransportManager {
     ) -> TransportResult<Uuid> {
         self.check_shutdown()?;
 
-        let entry = self.resolve_instance(dcc_type, instance_id)?;
+        let entry = self.resolve_instance(dcc_type, instance_id, None, None)?;
+        let address = entry.effective_address();
         self.sessions
-            .get_or_create(&entry.dcc_type, entry.instance_id, &entry.host, entry.port)
+            .get_or_create_with_address(&entry.dcc_type, entry.instance_id, &address)
+    }
+
+    /// Get or create a session with routing strategy and hint.
+    ///
+    /// This is the advanced API that supports smart instance selection.
+    pub fn get_or_create_session_routed(
+        &self,
+        dcc_type: &str,
+        strategy: Option<RoutingStrategy>,
+        hint: Option<&str>,
+    ) -> TransportResult<Uuid> {
+        self.check_shutdown()?;
+
+        let entry = self.resolve_instance(dcc_type, None, strategy, hint)?;
+        let address = entry.effective_address();
+        self.sessions
+            .get_or_create_with_address(&entry.dcc_type, entry.instance_id, &address)
     }
 
     /// Get session info by ID.
@@ -166,7 +212,7 @@ impl TransportManager {
 
     /// Acquire a connection to a service instance.
     ///
-    /// If no instance_id is specified, picks the first available instance.
+    /// If no instance_id is specified, uses the router to select an instance.
     pub async fn acquire_connection(
         &self,
         dcc_type: &str,
@@ -174,14 +220,107 @@ impl TransportManager {
     ) -> TransportResult<Uuid> {
         self.check_shutdown()?;
 
-        let entry = self.resolve_instance(dcc_type, instance_id)?;
+        let entry = self.resolve_instance(dcc_type, instance_id, None, None)?;
         let key = entry.key();
-        self.pool.acquire(&key, &entry.host, entry.port).await
+        let address = entry.effective_address();
+        self.pool.acquire_with_address(&key, &address).await
+    }
+
+    /// Acquire a connection with routing strategy and hint.
+    pub async fn acquire_connection_routed(
+        &self,
+        dcc_type: &str,
+        strategy: Option<RoutingStrategy>,
+        hint: Option<&str>,
+    ) -> TransportResult<Uuid> {
+        self.check_shutdown()?;
+
+        let entry = self.resolve_instance(dcc_type, None, strategy, hint)?;
+        let key = entry.key();
+        let address = entry.effective_address();
+        self.pool.acquire_with_address(&key, &address).await
     }
 
     /// Release a connection back to the pool.
     pub fn release_connection(&self, key: &ServiceKey) {
         self.pool.release(key);
+    }
+
+    /// Accept a single incoming connection from a listener and insert it into the pool.
+    ///
+    /// This is the server-side counterpart to `acquire_connection`. A DCC plugin
+    /// calls this after accepting a connection from an [`IpcListener`]:
+    ///
+    /// ```ignore
+    /// let listener = IpcListener::bind(&addr).await?;
+    /// let key = ServiceKey { dcc_type: "maya".into(), instance_id: Uuid::new_v4() };
+    /// let conn_id = manager.accept_into_pool(&listener, key, addr).await?;
+    /// ```
+    ///
+    /// The accepted stream is wrapped in a [`FramedIo`] and stored as an
+    /// [`ActiveConnection`] in the pool, ready for bidirectional message exchange.
+    pub async fn accept_into_pool(
+        &self,
+        listener: &IpcListener,
+        service_key: ServiceKey,
+        address: TransportAddress,
+    ) -> TransportResult<Uuid> {
+        self.check_shutdown()?;
+
+        let stream = listener.accept().await?;
+        let framed = FramedIo::new(stream);
+        let active = ActiveConnection::from_framed(service_key.clone(), address, framed);
+        let id = active.id;
+        self.pool.insert_active(service_key, active);
+        Ok(id)
+    }
+
+    /// Spawn a background task that continuously accepts connections from the listener
+    /// and inserts them into the pool.
+    ///
+    /// Returns a [`tokio::task::JoinHandle`] for the accept loop. Call `.abort()` on it
+    /// to stop accepting new connections.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let addr = TransportAddress::tcp("127.0.0.1", 0);
+    /// let listener = IpcListener::bind(&addr).await?;
+    /// let key = ServiceKey { dcc_type: "maya".into(), instance_id: Uuid::new_v4() };
+    /// let handle = manager.serve(listener, key);
+    /// // ... later ...
+    /// handle.abort();
+    /// ```
+    pub fn serve(
+        self: Arc<Self>,
+        listener: IpcListener,
+        service_key: ServiceKey,
+    ) -> tokio::task::JoinHandle<()> {
+        let manager = self;
+        tokio::spawn(async move {
+            loop {
+                match listener.accept().await {
+                    Ok(stream) => {
+                        let addr = listener
+                            .local_address()
+                            .unwrap_or_else(|_| TransportAddress::tcp("127.0.0.1", 0));
+                        let framed = FramedIo::new(stream);
+                        let active =
+                            ActiveConnection::from_framed(service_key.clone(), addr, framed);
+                        manager.pool.insert_active(service_key.clone(), active);
+                        tracing::debug!(dcc_type = %service_key.dcc_type, "accepted incoming connection");
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "accept error; stopping serve loop");
+                        break;
+                    }
+                }
+
+                if manager.is_shutdown() {
+                    break;
+                }
+            }
+        })
     }
 
     /// Get pool statistics.
@@ -192,6 +331,102 @@ impl TransportManager {
     /// Get the number of connections for a specific DCC type.
     pub fn pool_count_for_dcc(&self, dcc_type: &str) -> usize {
         self.pool.count_for_dcc(dcc_type)
+    }
+
+    /// Get the underlying active connection from the pool.
+    ///
+    /// Returns `None` if no connection exists for the given key. The caller can lock the
+    /// returned `Arc<Mutex<ActiveConnection>>` and call `framed_mut()` to send/receive messages.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let arc = manager.get_active_connection(&key).unwrap();
+    /// let mut guard = arc.lock().unwrap();
+    /// let framed = guard.framed_mut().unwrap();
+    /// framed.send(&my_request).await?;
+    /// ```
+    pub fn get_active_connection(
+        &self,
+        key: &ServiceKey,
+    ) -> Option<Arc<std::sync::Mutex<ActiveConnection>>> {
+        self.pool.get_active(key)
+    }
+
+    /// Reconnect an active connection with exponential backoff.
+    ///
+    /// Combines the session-layer backoff configuration with the pool-layer reconnection
+    /// logic. The manager will:
+    ///
+    /// 1. Look up the session for `service_key` and use its `reconnect_max_retries` /
+    ///    `reconnect_backoff_base` settings from [`SessionConfig`].
+    /// 2. Delegate to [`ConnectionPool::reconnect_active_with_backoff`] using those settings.
+    /// 3. On success, record the session reconnect success via [`SessionManager::reconnect_success`].
+    ///
+    /// Falls back to default backoff settings (3 retries, 1 s base) when no session exists.
+    ///
+    /// # Arguments
+    ///
+    /// * `service_key` — identifies the DCC instance to reconnect.
+    /// * `address` — the transport address to reconnect to.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TransportError::ReconnectFailed`] if all retries are exhausted,
+    /// or the usual connection errors on transport failure.
+    pub async fn reconnect_active(
+        &self,
+        service_key: &ServiceKey,
+        address: &TransportAddress,
+    ) -> TransportResult<Arc<std::sync::Mutex<ActiveConnection>>> {
+        // Backoff settings always come from the transport config's session section.
+        let max_retries = self.config.session.reconnect_max_retries;
+        let backoff_base = self.config.session.reconnect_backoff_base;
+
+        let result = self
+            .pool
+            .reconnect_active_with_backoff(
+                service_key,
+                address,
+                self.config.connect_timeout,
+                backoff_base,
+                max_retries,
+            )
+            .await;
+
+        // On success, update the session state
+        if result.is_ok() {
+            if let Some(session) = self.sessions.get_by_service(service_key) {
+                let _ = self.sessions.reconnect_success(&session.id);
+            }
+        }
+
+        result
+    }
+
+    /// Bind an [`IpcListener`] using the `listen_address` from [`TransportConfig`].
+    ///
+    /// Returns an error if `config.listen_address` is not set or the address is invalid.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let mut config = TransportConfig::default();
+    /// config.listen_address = Some("tcp://127.0.0.1:9000".to_string());
+    /// let manager = TransportManager::new(config, dir.path())?;
+    /// let listener = manager.listen().await?;
+    /// ```
+    pub async fn listen(&self) -> TransportResult<IpcListener> {
+        let addr_str =
+            self.config.listen_address.as_deref().ok_or_else(|| {
+                TransportError::Internal("listen_address not configured".to_string())
+            })?;
+
+        let addr = TransportAddress::parse(addr_str).map_err(|e| {
+            TransportError::Internal(format!("invalid listen_address '{addr_str}': {e}"))
+        })?;
+
+        IpcListener::bind(&addr).await
     }
 
     // ── Lifecycle ──
@@ -243,28 +478,43 @@ impl TransportManager {
         &self,
         dcc_type: &str,
         instance_id: Option<Uuid>,
+        strategy: Option<RoutingStrategy>,
+        hint: Option<&str>,
     ) -> TransportResult<ServiceEntry> {
+        // If a specific instance_id is given, look it up directly
         if let Some(id) = instance_id {
             let key = ServiceKey {
                 dcc_type: dcc_type.to_string(),
                 instance_id: id,
             };
-            self.registry
+            return self
+                .registry
                 .get(&key)
                 .ok_or_else(|| TransportError::ServiceNotFound {
                     dcc_type: dcc_type.to_string(),
                     instance_id: id.to_string(),
-                })
-        } else {
-            let instances = self.registry.list_instances(dcc_type);
-            instances
-                .into_iter()
-                .find(|e| e.status == ServiceStatus::Available)
-                .ok_or_else(|| TransportError::ServiceNotFound {
-                    dcc_type: dcc_type.to_string(),
-                    instance_id: "any".to_string(),
-                })
+                });
         }
+
+        // Use the router to select an instance
+        let instances = self.registry.list_instances(dcc_type);
+        if instances.is_empty() {
+            return Err(TransportError::ServiceNotFound {
+                dcc_type: dcc_type.to_string(),
+                instance_id: "any".to_string(),
+            });
+        }
+
+        self.router.select(&instances, strategy, hint).map_err(|_| {
+            TransportError::ServiceNotFound {
+                dcc_type: dcc_type.to_string(),
+                instance_id: format!(
+                    "strategy={}, hint={:?}",
+                    strategy.unwrap_or(self.router.default_strategy()),
+                    hint
+                ),
+            }
+        })
     }
 }
 
@@ -272,6 +522,8 @@ impl TransportManager {
 mod tests {
     use super::*;
     use crate::config::TransportConfig;
+    use crate::ipc::TransportAddress;
+    use crate::listener::IpcListener;
 
     fn setup() -> (tempfile::TempDir, TransportManager) {
         let dir = tempfile::tempdir().unwrap();
@@ -350,12 +602,25 @@ mod tests {
 
     #[tokio::test]
     async fn test_transport_manager_acquire_connection() {
-        let (_dir, manager) = setup();
+        // Bind a listener on a dynamic port so no real external service is needed.
+        let listen_addr = TransportAddress::tcp("127.0.0.1", 0);
+        let listener = IpcListener::bind(&listen_addr).await.unwrap();
+        let local_addr = listener.local_address().unwrap();
+        let port = match &local_addr {
+            TransportAddress::Tcp { port, .. } => *port,
+            _ => panic!("expected TCP address"),
+        };
 
-        let entry = ServiceEntry::new("maya", "127.0.0.1", 18812);
+        let (_dir, manager) = setup();
+        let entry = ServiceEntry::new("maya", "127.0.0.1", port);
         let key = entry.key();
         let instance_id = entry.instance_id;
         manager.register_service(entry).unwrap();
+
+        // Accept in the background so that acquire_connection has a peer to connect to.
+        let accept_handle = tokio::spawn(async move {
+            listener.accept().await.unwrap();
+        });
 
         let _conn_id = manager
             .acquire_connection("maya", Some(instance_id))
@@ -364,21 +629,78 @@ mod tests {
         assert_eq!(manager.pool_size(), 1);
 
         manager.release_connection(&key);
+        let _ = accept_handle.await;
     }
 
     #[tokio::test]
     async fn test_transport_manager_acquire_any_instance() {
-        let (_dir, manager) = setup();
+        // Two listeners on dynamic ports.
+        let addr1 = TransportAddress::tcp("127.0.0.1", 0);
+        let listener1 = IpcListener::bind(&addr1).await.unwrap();
+        let port1 = match listener1.local_address().unwrap() {
+            TransportAddress::Tcp { port, .. } => port,
+            _ => panic!("expected TCP"),
+        };
 
+        let addr2 = TransportAddress::tcp("127.0.0.1", 0);
+        let listener2 = IpcListener::bind(&addr2).await.unwrap();
+        let port2 = match listener2.local_address().unwrap() {
+            TransportAddress::Tcp { port, .. } => port,
+            _ => panic!("expected TCP"),
+        };
+
+        let (_dir, manager) = setup();
         manager
-            .register_service(ServiceEntry::new("maya", "127.0.0.1", 18812))
+            .register_service(ServiceEntry::new("maya", "127.0.0.1", port1))
             .unwrap();
         manager
-            .register_service(ServiceEntry::new("maya", "127.0.0.1", 18813))
+            .register_service(ServiceEntry::new("maya", "127.0.0.1", port2))
             .unwrap();
+
+        // Accept on both so the pool can pick either.
+        let accept1 = tokio::spawn(async move { listener1.accept().await });
+        let accept2 = tokio::spawn(async move { listener2.accept().await });
 
         let _conn_id = manager.acquire_connection("maya", None).await.unwrap();
         assert_eq!(manager.pool_size(), 1);
+
+        // One of the two accept handles will have succeeded; abort the other.
+        accept1.abort();
+        accept2.abort();
+    }
+
+    #[tokio::test]
+    async fn test_transport_manager_accept_into_pool() {
+        // Start a listener on a dynamic port.
+        let listen_addr = TransportAddress::tcp("127.0.0.1", 0);
+        let listener = IpcListener::bind(&listen_addr).await.unwrap();
+        let local_addr = listener.local_address().unwrap();
+        let port = match &local_addr {
+            TransportAddress::Tcp { port, .. } => *port,
+            _ => panic!("expected TCP address"),
+        };
+
+        let (_dir, manager) = setup();
+        let service_key = ServiceKey {
+            dcc_type: "maya".to_string(),
+            instance_id: Uuid::new_v4(),
+        };
+        let addr = TransportAddress::tcp("127.0.0.1", port);
+
+        // Connect a client in background so accept doesn't block forever.
+        tokio::spawn(async move {
+            let _ = crate::connector::connect(&addr, std::time::Duration::from_secs(5)).await;
+        });
+
+        let conn_id = manager
+            .accept_into_pool(&listener, service_key.clone(), local_addr)
+            .await
+            .unwrap();
+
+        // Verify the connection landed in the pool.
+        assert!(manager.pool.get_active(&service_key).is_some());
+        let active = manager.pool.get_active(&service_key).unwrap();
+        assert_eq!(active.lock().unwrap().id, conn_id);
     }
 
     #[tokio::test]
@@ -446,5 +768,132 @@ mod tests {
         // Deregistering should also close the session
         manager.deregister_service(&key).unwrap();
         assert_eq!(manager.session_count(), 0);
+    }
+
+    #[test]
+    fn test_transport_manager_update_service_status() {
+        let (_dir, manager) = setup();
+
+        let entry = ServiceEntry::new("maya", "127.0.0.1", 18812);
+        let key = entry.key();
+        manager.register_service(entry).unwrap();
+
+        // Verify initial status
+        let service = manager.get_service(&key).unwrap();
+        assert_eq!(service.status, ServiceStatus::Available);
+
+        // Update to Busy
+        let updated = manager
+            .update_service_status(&key, ServiceStatus::Busy)
+            .unwrap();
+        assert!(updated);
+
+        let service = manager.get_service(&key).unwrap();
+        assert_eq!(service.status, ServiceStatus::Busy);
+
+        // Update to Unreachable
+        manager
+            .update_service_status(&key, ServiceStatus::Unreachable)
+            .unwrap();
+        let service = manager.get_service(&key).unwrap();
+        assert_eq!(service.status, ServiceStatus::Unreachable);
+    }
+
+    #[test]
+    fn test_transport_manager_update_status_nonexistent() {
+        let (_dir, manager) = setup();
+
+        let key = ServiceKey {
+            dcc_type: "maya".to_string(),
+            instance_id: uuid::Uuid::new_v4(),
+        };
+        let updated = manager
+            .update_service_status(&key, ServiceStatus::Busy)
+            .unwrap();
+        assert!(!updated);
+    }
+
+    #[test]
+    fn test_transport_manager_update_status_after_shutdown() {
+        let (_dir, manager) = setup();
+
+        let entry = ServiceEntry::new("maya", "127.0.0.1", 18812);
+        let key = entry.key();
+        manager.register_service(entry).unwrap();
+
+        manager.shutdown();
+
+        let result = manager.update_service_status(&key, ServiceStatus::Busy);
+        assert!(matches!(result, Err(TransportError::Shutdown)));
+    }
+
+    #[test]
+    fn test_transport_manager_listen_no_address_configured() {
+        let (_dir, manager) = setup();
+        // No listen_address in default config → should error
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let result = rt.block_on(manager.listen());
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("listen_address not configured"));
+    }
+
+    #[tokio::test]
+    async fn test_transport_manager_listen_with_address() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut config = TransportConfig::default();
+        config.listen_address = Some("tcp://127.0.0.1:0".to_string());
+        let manager = TransportManager::new(config, dir.path()).unwrap();
+
+        let listener = manager.listen().await.unwrap();
+        let local = listener.local_address().unwrap();
+        // The OS assigns a real port > 0
+        match local {
+            TransportAddress::Tcp { port, .. } => assert!(port > 0),
+            _ => panic!("expected TCP address"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_transport_manager_get_active_connection_none() {
+        let (_dir, manager) = setup();
+        let key = ServiceKey {
+            dcc_type: "maya".to_string(),
+            instance_id: Uuid::new_v4(),
+        };
+        assert!(manager.get_active_connection(&key).is_none());
+    }
+
+    #[tokio::test]
+    async fn test_transport_manager_get_active_connection_after_accept() {
+        let listen_addr = TransportAddress::tcp("127.0.0.1", 0);
+        let listener = IpcListener::bind(&listen_addr).await.unwrap();
+        let local_addr = listener.local_address().unwrap();
+        let port = match &local_addr {
+            TransportAddress::Tcp { port, .. } => *port,
+            _ => panic!("expected TCP address"),
+        };
+
+        let (_dir, manager) = setup();
+        let service_key = ServiceKey {
+            dcc_type: "maya".to_string(),
+            instance_id: Uuid::new_v4(),
+        };
+        let addr = TransportAddress::tcp("127.0.0.1", port);
+
+        tokio::spawn(async move {
+            let _ = crate::connector::connect(&addr, std::time::Duration::from_secs(5)).await;
+        });
+
+        let _conn_id = manager
+            .accept_into_pool(&listener, service_key.clone(), local_addr)
+            .await
+            .unwrap();
+
+        let arc = manager.get_active_connection(&service_key);
+        assert!(arc.is_some());
+        let guard = arc.unwrap();
+        let conn = guard.lock().unwrap();
+        assert!(conn.framed().is_some());
     }
 }

@@ -1,0 +1,38 @@
+[package]
+name = "dcc-mcp-telemetry"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "OpenTelemetry tracing, metrics, and structured logging for the DCC-MCP ecosystem"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt", "json"] }
+pyo3 = { workspace = true, optional = true }
+
+# OpenTelemetry core
+opentelemetry = { version = "0.31", features = ["trace", "metrics"] }
+opentelemetry_sdk = { version = "0.31", features = ["trace", "metrics", "rt-tokio"] }
+opentelemetry-stdout = { version = "0.31", features = ["trace", "metrics"] }
+tracing-opentelemetry = { version = "0.32" }
+
+# OTLP exporter (optional — only for production export to Jaeger/Tempo/etc.)
+opentelemetry-otlp = { version = "0.31", features = ["grpc-tonic", "trace", "metrics"], optional = true }
+
+# Tokio runtime
+tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time", "macros"] }
+
+[dev-dependencies]
+rstest = "0.26"
+tokio = { workspace = true, features = ["test-util"] }
+
+[features]
+default = []
+python-bindings = ["pyo3"]
+# Enable OTLP export to Jaeger / Grafana Tempo / Prometheus
+otlp-exporter = ["opentelemetry-otlp"]

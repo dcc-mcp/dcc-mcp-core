@@ -8,7 +8,7 @@
 pip install dcc-mcp-core
 ```
 
-### 从源代码安装
+### 从源代码安装（需要 Rust 工具链）
 
 ```bash
 git clone https://github.com/loonghao/dcc-mcp-core.git
@@ -16,60 +16,84 @@ cd dcc-mcp-core
 pip install -e .
 ```
 
+::: tip
+从源代码构建需要 Rust 工具链，可从 [rustup.rs](https://rustup.rs/) 安装。
+构建由 [maturin](https://www.maturin.rs/) 处理，它会编译 Rust 核心并安装 Python 包。
+:::
+
 ## 环境要求
 
-- **Python**: >= 3.7（CI 测试 3.11、3.12、3.13）
+- **Python**: >= 3.11（CI 测试 3.11、3.12、3.13）
+- **Rust**: >= 1.85（从源代码构建时需要）
 - **许可证**: MIT
-- **依赖**: Python 3.8+ 零第三方依赖
+- **Python 依赖**: 零 — 所有功能都在编译的 Rust 扩展中
 
 ## 快速上手
 
+### Action 注册表
+
 ```python
-from dcc_mcp_core import create_action_manager
+from dcc_mcp_core import ActionRegistry
 
-# 为特定 DCC 创建动作管理器
-manager = create_action_manager("maya")
+registry = ActionRegistry()
+registry.register(
+    name="create_sphere",
+    description="Creates a sphere in the scene",
+    category="geometry",
+    tags=["geometry", "creation"],
+    dcc="maya",
+)
 
-# 执行动作
-result = manager.call_action("create_sphere", radius=2.0)
+action = registry.get_action("create_sphere")
+print(action)  # 包含 Action 元数据的字典
 
-# 检查结果
-print(result.success, result.message, result.context)
+maya_actions = registry.list_actions(dcc_name="maya")
+```
+
+### Action 结果
+
+```python
+from dcc_mcp_core import success_result, error_result
+
+result = success_result("创建了 5 个球体", prompt="接下来使用 modify", count=5)
+print(result.success)  # True
+print(result.message)  # "创建了 5 个球体"
+print(result.context)  # {"count": 5}
+
+err = error_result("失败", "文件未找到", prompt="检查路径")
+print(err.success)  # False
+```
+
+### 事件总线
+
+```python
+from dcc_mcp_core import EventBus
+
+bus = EventBus()
+sid = bus.subscribe("scene.changed", lambda: print("场景已更新!"))
+bus.publish("scene.changed")
+bus.unsubscribe("scene.changed", sid)
 ```
 
 ## 开发环境设置
 
 ```bash
-# 克隆仓库
 git clone https://github.com/loonghao/dcc-mcp-core.git
 cd dcc-mcp-core
 
-# 创建并激活虚拟环境
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-
-# 安装开发依赖
-pip install -e .
-pip install pytest pytest-cov pytest-mock pyfakefs
-
-# 或使用 vx（推荐）
+# 使用 vx 安装（推荐）
 vx just install
+
+# 或手动设置
+pip install maturin
+maturin develop
 ```
 
 ## 运行测试
 
 ```bash
-# 运行测试并生成覆盖率
 vx just test
-
-# 运行特定测试
-vx uvx nox -s pytest -- tests/test_action_manager.py -v
-
-# 代码风格检查
 vx just lint
-
-# 自动修复代码风格
-vx just lint-fix
 ```
 
 ## 下一步
@@ -77,3 +101,4 @@ vx just lint-fix
 - 了解 [Actions 动作](/zh/guide/actions) — 核心构建块
 - 探索 [Events 事件](/zh/guide/events) 的生命周期钩子
 - 查看 [Skills 技能包](/zh/guide/skills) 的零代码脚本注册
+- 查看 [传输层](/zh/guide/transport) 的 DCC 通信

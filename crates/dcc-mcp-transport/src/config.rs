@@ -13,6 +13,13 @@ pub struct TransportConfig {
     pub connect_timeout: Duration,
     /// Heartbeat interval for health checks.
     pub heartbeat_interval: Duration,
+    /// Optional listen address for server-side IPC.
+    ///
+    /// When set, callers can use [`TransportManager::listen`] to bind an
+    /// [`IpcListener`](crate::listener::IpcListener) without specifying the address again.
+    ///
+    /// Encoded as `"tcp://host:port"`, `"pipe://name"`, or `"unix:///path"`.
+    pub listen_address: Option<String>,
 }
 
 impl Default for TransportConfig {
@@ -22,6 +29,7 @@ impl Default for TransportConfig {
             session: SessionConfig::default(),
             connect_timeout: Duration::from_secs(10),
             heartbeat_interval: Duration::from_secs(5),
+            listen_address: None,
         }
     }
 }
@@ -86,6 +94,17 @@ mod tests {
         let config = TransportConfig::default();
         assert_eq!(config.connect_timeout, Duration::from_secs(10));
         assert_eq!(config.heartbeat_interval, Duration::from_secs(5));
+        assert!(config.listen_address.is_none());
+    }
+
+    #[test]
+    fn test_transport_config_with_listen_address() {
+        let mut config = TransportConfig::default();
+        config.listen_address = Some("tcp://127.0.0.1:9000".to_string());
+        assert_eq!(
+            config.listen_address.as_deref(),
+            Some("tcp://127.0.0.1:9000")
+        );
     }
 
     #[test]

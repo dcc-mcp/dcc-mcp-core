@@ -1,0 +1,47 @@
+[package]
+name = "dcc-mcp-capture"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "GPU framebuffer capture for DCC applications — cross-platform screenshot backend for dcc-mcp-core"
+
+[dependencies]
+# Workspace shared
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+# PyO3 (optional)
+pyo3 = { workspace = true, optional = true }
+
+# Image encoding (PNG / JPEG)
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp"] }
+
+[target.'cfg(windows)'.dependencies]
+# Windows DXGI Desktop Duplication API
+windows = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_System_Com",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_System_Threading",
+    "Win32_Graphics_Gdi",
+] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+tempfile = "3"
+
+[features]
+default = []
+python-bindings = ["pyo3"]

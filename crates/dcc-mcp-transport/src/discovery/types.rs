@@ -5,6 +5,8 @@ use std::collections::HashMap;
 use std::time::SystemTime;
 use uuid::Uuid;
 
+use crate::ipc::TransportAddress;
+
 /// Status of a discovered DCC service instance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -34,16 +36,32 @@ impl std::fmt::Display for ServiceStatus {
 /// A discovered DCC service instance.
 ///
 /// Keyed by `(dcc_type, instance_id)` — supports multiple instances of the same DCC type.
+///
+/// ## Transport address
+///
+/// The `transport_address` field specifies the preferred communication channel:
+/// - **TCP** (default): `host:port` — works cross-machine
+/// - **Named Pipe** (Windows): sub-millisecond latency for same-machine
+/// - **Unix Socket** (macOS/Linux): sub-0.1ms latency for same-machine
+///
+/// The legacy `host` and `port` fields are always populated for backward compatibility.
+/// When `transport_address` is set, it takes precedence over `host:port`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServiceEntry {
     /// DCC application type (e.g. "maya", "houdini", "blender").
     pub dcc_type: String,
     /// Unique ID for this running instance.
     pub instance_id: Uuid,
-    /// Host address.
+    /// Host address (kept for backward compatibility).
     pub host: String,
-    /// Port number.
+    /// Port number (kept for backward compatibility).
     pub port: u16,
+    /// Transport address — preferred communication channel.
+    ///
+    /// When `None`, falls back to `host:port` TCP connection.
+    /// When `Some`, this address takes precedence over `host:port`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transport_address: Option<TransportAddress>,
     /// DCC application version (e.g. "2024.2").
     pub version: Option<String>,
     /// Currently open scene/file.
@@ -61,7 +79,7 @@ pub struct ServiceEntry {
 }
 
 impl ServiceEntry {
-    /// Create a new service entry with sensible defaults.
+    /// Create a new service entry with TCP transport (sensible defaults).
     pub fn new(dcc_type: impl Into<String>, host: impl Into<String>, port: u16) -> Self {
         let now = SystemTime::now();
         Self {
@@ -69,6 +87,7 @@ impl ServiceEntry {
             instance_id: Uuid::new_v4(),
             host: host.into(),
             port,
+            transport_address: None,
             version: None,
             scene: None,
             metadata: HashMap::new(),
@@ -76,6 +95,47 @@ impl ServiceEntry {
             last_heartbeat: now,
             status: ServiceStatus::Available,
         }
+    }
+
+    /// Create a new service entry with a specific transport address.
+    pub fn with_address(dcc_type: impl Into<String>, address: TransportAddress) -> Self {
+        let (host, port) = match &address {
+            TransportAddress::Tcp { host, port } => (host.clone(), *port),
+            // For IPC transports, use placeholder host/port for backward compat
+            TransportAddress::NamedPipe { .. } => ("127.0.0.1".to_string(), 0),
+            TransportAddress::UnixSocket { .. } => ("127.0.0.1".to_string(), 0),
+        };
+        let now = SystemTime::now();
+        Self {
+            dcc_type: dcc_type.into(),
+            instance_id: Uuid::new_v4(),
+            host,
+            port,
+            transport_address: Some(address),
+            version: None,
+            scene: None,
+            metadata: HashMap::new(),
+            registered_at: now,
+            last_heartbeat: now,
+            status: ServiceStatus::Available,
+        }
+    }
+
+    /// Get the effective transport address.
+    ///
+    /// Returns the `transport_address` if set, otherwise constructs a TCP address
+    /// from `host` and `port`.
+    pub fn effective_address(&self) -> TransportAddress {
+        self.transport_address
+            .clone()
+            .unwrap_or_else(|| TransportAddress::tcp(&self.host, self.port))
+    }
+
+    /// Check if this service uses an IPC transport (Named Pipe or Unix Socket).
+    pub fn is_ipc(&self) -> bool {
+        self.transport_address
+            .as_ref()
+            .is_some_and(|addr| !addr.is_tcp())
     }
 
     /// Composite key for registry lookups.
@@ -127,6 +187,64 @@ mod tests {
         assert_eq!(entry.status, ServiceStatus::Available);
         assert!(entry.version.is_none());
         assert!(entry.scene.is_none());
+        assert!(entry.transport_address.is_none());
+    }
+
+    #[test]
+    fn test_service_entry_with_address_tcp() {
+        let addr = TransportAddress::tcp("10.0.0.1", 9090);
+        let entry = ServiceEntry::with_address("blender", addr.clone());
+        assert_eq!(entry.dcc_type, "blender");
+        assert_eq!(entry.host, "10.0.0.1");
+        assert_eq!(entry.port, 9090);
+        assert_eq!(entry.transport_address, Some(addr));
+    }
+
+    #[test]
+    fn test_service_entry_with_address_named_pipe() {
+        let addr = TransportAddress::named_pipe("dcc-mcp-maya-12345");
+        let entry = ServiceEntry::with_address("maya", addr.clone());
+        assert_eq!(entry.host, "127.0.0.1");
+        assert_eq!(entry.port, 0);
+        assert_eq!(entry.transport_address, Some(addr));
+        assert!(entry.is_ipc());
+    }
+
+    #[test]
+    fn test_service_entry_with_address_unix_socket() {
+        let addr = TransportAddress::unix_socket("/tmp/dcc-mcp-maya.sock");
+        let entry = ServiceEntry::with_address("maya", addr.clone());
+        assert_eq!(entry.host, "127.0.0.1");
+        assert_eq!(entry.port, 0);
+        assert!(entry.is_ipc());
+    }
+
+    #[test]
+    fn test_effective_address_with_transport() {
+        let addr = TransportAddress::named_pipe("test-pipe");
+        let entry = ServiceEntry::with_address("maya", addr.clone());
+        assert_eq!(entry.effective_address(), addr);
+    }
+
+    #[test]
+    fn test_effective_address_fallback_tcp() {
+        let entry = ServiceEntry::new("maya", "127.0.0.1", 18812);
+        let effective = entry.effective_address();
+        assert!(effective.is_tcp());
+        assert_eq!(effective.tcp_parts(), Some(("127.0.0.1", 18812)));
+    }
+
+    #[test]
+    fn test_is_ipc_false_for_tcp() {
+        let entry = ServiceEntry::new("maya", "127.0.0.1", 18812);
+        assert!(!entry.is_ipc());
+    }
+
+    #[test]
+    fn test_is_ipc_false_for_tcp_transport_address() {
+        let addr = TransportAddress::tcp("10.0.0.1", 9090);
+        let entry = ServiceEntry::with_address("maya", addr);
+        assert!(!entry.is_ipc());
     }
 
     #[test]
@@ -161,5 +279,42 @@ mod tests {
         let deserialized: ServiceEntry = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.dcc_type, "blender");
         assert_eq!(deserialized.instance_id, entry.instance_id);
+        // transport_address should be None and not serialized
+        assert!(deserialized.transport_address.is_none());
+    }
+
+    #[test]
+    fn test_service_entry_serialization_with_address() {
+        let addr = TransportAddress::named_pipe("test");
+        let entry = ServiceEntry::with_address("maya", addr.clone());
+        let json = serde_json::to_string(&entry).unwrap();
+        let deserialized: ServiceEntry = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.transport_address, Some(addr));
+        assert!(deserialized.is_ipc());
+    }
+
+    #[test]
+    fn test_service_entry_backward_compat_deserialization() {
+        // Simulate old JSON without transport_address field
+        let json = r#"{
+            "dcc_type": "maya",
+            "instance_id": "00000000-0000-0000-0000-000000000001",
+            "host": "127.0.0.1",
+            "port": 18812,
+            "version": null,
+            "scene": null,
+            "metadata": {},
+            "registered_at": {"secs_since_epoch": 1700000000, "nanos_since_epoch": 0},
+            "last_heartbeat": {"secs_since_epoch": 1700000000, "nanos_since_epoch": 0},
+            "status": "available"
+        }"#;
+        let entry: ServiceEntry = serde_json::from_str(json).unwrap();
+        assert_eq!(entry.dcc_type, "maya");
+        assert!(entry.transport_address.is_none());
+        assert!(!entry.is_ipc());
+        assert_eq!(
+            entry.effective_address(),
+            TransportAddress::tcp("127.0.0.1", 18812)
+        );
     }
 }

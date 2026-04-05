@@ -32,14 +32,14 @@ pub fn py_any_to_json_value(obj: &Bound<'_, PyAny>) -> PyResult<serde_json::Valu
     if let Ok(s) = obj.extract::<String>() {
         return Ok(serde_json::Value::String(s));
     }
-    if let Ok(list) = obj.downcast::<PyList>() {
+    if let Ok(list) = obj.cast::<PyList>() {
         let arr: Vec<serde_json::Value> = list
             .iter()
             .map(|item| py_any_to_json_value(&item))
             .collect::<PyResult<Vec<_>>>()?;
         return Ok(serde_json::Value::Array(arr));
     }
-    if let Ok(dict) = obj.downcast::<PyDict>() {
+    if let Ok(dict) = obj.cast::<PyDict>() {
         return Ok(serde_json::Value::Object(py_dict_to_json_object(dict)?));
     }
     // Fallback: convert to string

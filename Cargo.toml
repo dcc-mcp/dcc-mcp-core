@@ -9,6 +9,12 @@ members = [
     "crates/dcc-mcp-protocols",
     "crates/dcc-mcp-utils",
     "crates/dcc-mcp-transport",
+    "crates/dcc-mcp-process",
+    "crates/dcc-mcp-telemetry",
+    "crates/dcc-mcp-sandbox",
+    "crates/dcc-mcp-shm",
+    "crates/dcc-mcp-capture",
+    "crates/dcc-mcp-usd",
 ]
 resolver = "2"
 
@@ -28,6 +34,12 @@ dcc-mcp-skills = { path = "crates/dcc-mcp-skills" }
 dcc-mcp-protocols = { path = "crates/dcc-mcp-protocols" }
 dcc-mcp-utils = { path = "crates/dcc-mcp-utils" }
 dcc-mcp-transport = { path = "crates/dcc-mcp-transport" }
+dcc-mcp-process = { path = "crates/dcc-mcp-process" }
+dcc-mcp-telemetry = { path = "crates/dcc-mcp-telemetry" }
+dcc-mcp-sandbox = { path = "crates/dcc-mcp-sandbox" }
+dcc-mcp-shm = { path = "crates/dcc-mcp-shm" }
+dcc-mcp-capture = { path = "crates/dcc-mcp-capture" }
+dcc-mcp-usd = { path = "crates/dcc-mcp-usd" }
 
 # Shared dependencies (single version across workspace)
 pyo3 = { version = "0.28", features = ["multiple-pymethods"] }
@@ -40,10 +52,14 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 parking_lot = "0.12"
 thiserror = "2.0"
-walkdir = "2.5"
 uuid = { version = "1.0", features = ["v4", "serde"] }
-tokio = { version = "1.0", features = ["net", "rt-multi-thread", "sync", "time", "macros"] }
+tokio = { version = "1.0", features = ["net", "rt-multi-thread", "sync", "time", "macros", "io-util"] }
 rmp-serde = "1.3"
+sysinfo = "0.33"
+memmap2 = "0.9"
+lz4_flex = { version = "0.11", default-features = false, features = ["frame"] }
+libc = "0.2"
+notify = "6.1"
 
 # Root package — Python bindings entry point
 # Compiles to `_core.pyd` / `_core.so`, exposed as `dcc_mcp_core._core`
@@ -70,6 +86,12 @@ dcc-mcp-skills.workspace = true
 dcc-mcp-protocols.workspace = true
 dcc-mcp-utils.workspace = true
 dcc-mcp-transport.workspace = true
+dcc-mcp-process.workspace = true
+dcc-mcp-telemetry.workspace = true
+dcc-mcp-sandbox.workspace = true
+dcc-mcp-shm.workspace = true
+dcc-mcp-capture.workspace = true
+dcc-mcp-usd.workspace = true
 
 # PyO3 (optional — only for wheel builds)
 pyo3 = { workspace = true, optional = true }
@@ -85,6 +107,6 @@ strip = true
 
 [features]
 default = []
-python-bindings = ["pyo3", "dcc-mcp-models/python-bindings", "dcc-mcp-actions/python-bindings", "dcc-mcp-skills/python-bindings", "dcc-mcp-protocols/python-bindings", "dcc-mcp-utils/python-bindings", "dcc-mcp-transport/python-bindings"]
+python-bindings = ["pyo3", "dcc-mcp-models/python-bindings", "dcc-mcp-actions/python-bindings", "dcc-mcp-skills/python-bindings", "dcc-mcp-protocols/python-bindings", "dcc-mcp-utils/python-bindings", "dcc-mcp-transport/python-bindings", "dcc-mcp-process/python-bindings", "dcc-mcp-telemetry/python-bindings", "dcc-mcp-sandbox/python-bindings", "dcc-mcp-shm/python-bindings", "dcc-mcp-capture/python-bindings", "dcc-mcp-usd/python-bindings"]
 abi3-py38 = ["pyo3/abi3-py38"]
 ext-module = ["pyo3/extension-module"]

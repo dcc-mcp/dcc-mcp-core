@@ -15,6 +15,7 @@ use uuid::Uuid;
 use crate::config::SessionConfig;
 use crate::discovery::types::ServiceKey;
 use crate::error::{TransportError, TransportResult};
+use crate::ipc::TransportAddress;
 
 /// Session lifecycle states.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -99,9 +100,11 @@ pub struct Session {
     pub dcc_type: String,
     /// Target instance ID.
     pub instance_id: Uuid,
-    /// Host address.
+    /// Transport address (TCP, Named Pipe, or Unix Socket).
+    pub address: TransportAddress,
+    /// Host address (backward compatibility — derived from address).
     pub host: String,
-    /// Port number.
+    /// Port number (backward compatibility — derived from address).
     pub port: u16,
     /// Current session state.
     pub state: SessionState,
@@ -116,19 +119,25 @@ pub struct Session {
 }
 
 impl Session {
-    /// Create a new session in the Connected state.
-    pub fn new(
+    /// Create a new session with a transport address.
+    pub fn with_address(
         dcc_type: impl Into<String>,
         instance_id: Uuid,
-        host: impl Into<String>,
-        port: u16,
+        address: TransportAddress,
     ) -> Self {
+        let (host, port) = match &address {
+            TransportAddress::Tcp { host, port } => (host.clone(), *port),
+            TransportAddress::NamedPipe { .. } | TransportAddress::UnixSocket { .. } => {
+                ("127.0.0.1".to_string(), 0)
+            }
+        };
         let now = Instant::now();
         Self {
             id: Uuid::new_v4(),
             dcc_type: dcc_type.into(),
             instance_id,
-            host: host.into(),
+            address,
+            host,
             port,
             state: SessionState::Connected,
             created_at: now,
@@ -136,6 +145,21 @@ impl Session {
             metrics: SessionMetrics::default(),
             reconnect_attempts: 0,
         }
+    }
+
+    /// Create a new session in the Connected state (backward compatibility).
+    pub fn new(
+        dcc_type: impl Into<String>,
+        instance_id: Uuid,
+        host: impl Into<String>,
+        port: u16,
+    ) -> Self {
+        let host_str = host.into();
+        Self::with_address(
+            dcc_type,
+            instance_id,
+            TransportAddress::tcp(&host_str, port),
+        )
     }
 
     /// Get the service key for this session.
@@ -241,6 +265,18 @@ impl SessionManager {
         host: &str,
         port: u16,
     ) -> TransportResult<Uuid> {
+        self.get_or_create_with_address(dcc_type, instance_id, &TransportAddress::tcp(host, port))
+    }
+
+    /// Get or create a session with a specific transport address.
+    ///
+    /// Supports TCP, Named Pipe, and Unix Socket addresses.
+    pub fn get_or_create_with_address(
+        &self,
+        dcc_type: &str,
+        instance_id: Uuid,
+        address: &TransportAddress,
+    ) -> TransportResult<Uuid> {
         let key = ServiceKey {
             dcc_type: dcc_type.to_string(),
             instance_id,
@@ -279,15 +315,14 @@ impl SessionManager {
         }
 
         // Create new session
-        let session = Session::new(dcc_type, instance_id, host, port);
+        let session = Session::with_address(dcc_type, instance_id, address.clone());
         let session_id = session.id;
 
         tracing::info!(
             session_id = %session_id,
             dcc_type = %dcc_type,
             instance_id = %instance_id,
-            host = %host,
-            port = port,
+            address = %address,
             "created new session"
         );
 
