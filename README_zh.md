@@ -11,84 +11,73 @@
 
 [English](README.md) | [中文文档](README_zh.md)
 
-DCC 模型上下文协议（Model Context Protocol，MCP）生态系统的基础库。它提供了在所有其他 DCC-MCP 包中使用的通用工具、基类和共享功能。
+DCC 模型上下文协议（Model Context Protocol，MCP）生态系统的基础库。它提供 **Rust 核心引擎 + PyO3 Python 绑定**，交付高性能动作管理、技能发现、传输层、沙箱安全、共享内存、屏幕捕获、USD 支持和遥测 —— 所有这些均 **零运行时 Python 依赖**。
 
-> **注意**：本项目处于早期开发阶段。API 可能会随时变化，我们不会提前发出通知。
->
-> **架构迁移通知 (v0.12+)**: 项目已从纯 Python 架构迁移到 **Rust 核心 + PyO3 绑定** 模型。下方文档仍引用旧版 Python API（`ActionManager`、`Action` 基类、`Middleware` 等），这些已被基于 Rust 的类型（`ActionRegistry`、`EventBus`、`SkillScanner` 等）取代。当前公开 API 请参阅 [`python/dcc_mcp_core/__init__.py`](python/dcc_mcp_core/__init__.py)。完整的文档重写工作在 [CLEANUP_TODO.md](CLEANUP_TODO.md) 中追踪。
+> **注意**：本项目处于积极开发中（v0.12+）。API 可能会演进；版本历史请参阅 CHANGELOG.md。
 
-## 设计理念与工作流程
+## 为什么选择 dcc-mcp-core？
 
-DCC-MCP-Core 是一个为数字内容创建(DCC)应用程序设计的动作管理系统，旨在提供一个统一的接口，使 AI 能够与各种 DCC 软件（如 Maya、Blender、Houdini 等）进行交互。
+| 特性 | 描述 |
+|------|------|
+| **高性能** | Rust 核心，rmp-serde 零拷贝序列化 & LZ4 压缩 |
+| **类型安全** | 完整的 PyO3 绑定 + 全面 `.pyi` 类型存根（约 105 个公共符号） |
+| **Skills 系统** | 零代码脚本注册为 MCP 工具（SKILL.md + scripts/） |
+| **弹性传输** | IPC + 连接池、熔断器、重试策略 |
+| **进程管理** | 启动/监控/自动恢复 DCC 进程 |
+| **沙箱安全** | 基于策略的访问控制 + 审计日志 |
+| **跨平台** | Windows、macOS、Linux 三平台测试 |
 
-### 核心工作流程
+AI 友好文档：[AGENTS.md](AGENTS.md) | [CLAUDE.md](CLAUDE.md) | [`.agents/skills/dcc-mcp-core/SKILL.md`](.agents/skills/dcc-mcp-core/SKILL.md)
 
-1. **MCP 服务器**：作为中央协调器，接收来自 AI 的请求
-2. **DCC-MCP**：连接 MCP 服务器和具体的 DCC 软件
-3. **动作发现与加载**：DCC-MCP-Core 负责发现、加载和管理动作
-4. **结构化信息返回**：以 AI 友好的结构化格式将动作信息返回给 MCP 服务器
-5. **函数调用与结果返回**：MCP 服务器调用相应的动作函数，并将结果返回给 AI
+## 快速开始
 
-```mermaid
-%%{init: {
-  'flowchart': {
-    'nodeSpacing': 50,
-    'rankSpacing': 80,
-    'curve': 'basis',
-    'useMaxWidth': false
-  },
-  'themeVariables': {
-    'fontSize': '16px',
-    'fontFamily': 'arial',
-    'lineWidth': 2
-  }
-} }%%
+### 安装
 
-flowchart LR
-    %% 节点定义
-    AI([<b>AI 助手</b>]):::aiNode
-    MCP{{<b>MCP 服务器</b>}}:::serverNode
-    DCCMCP{{<b>DCC-MCP</b>}}:::serverNode
-    Actions[(
-<b>DCC 动作</b>
-)]:::actionsNode
-    DCC[/<b>DCC 软件</b>/]:::dccNode
+```bash
+# 从 PyPI 安装（预编译 wheel，支持 Python 3.8+）
+pip install dcc-mcp-core
 
-    %% 连接和流程
-    AI -->|<b>1. 发送请求</b>| MCP
-    MCP -->|<b>2. 转发请求</b>| DCCMCP
-    DCCMCP -->|<b>3. 发现与加载</b>| Actions
-    Actions -->|<b>4. 返回信息</b>| DCCMCP
-    DCCMCP -->|<b>5. 结构化数据</b>| MCP
-    MCP -->|<b>6. 调用函数</b>| DCCMCP
-    DCCMCP -->|<b>7. 执行操作</b>| DCC
-    DCC -->|<b>8. 操作结果</b>| DCCMCP
-    DCCMCP -->|<b>9. 结构化结果</b>| MCP
-    MCP -->|<b>10. 返回结果</b>| AI
-
-    %% 样式设置
-    classDef aiNode fill:#f9d,stroke:#f06,stroke-width:3px,color:#333,padding:15px,margin:10px
-    classDef serverNode fill:#bbf,stroke:#66f,stroke-width:3px,color:#333,padding:15px,margin:10px
-    classDef dccNode fill:#bfb,stroke:#6b6,stroke-width:3px,color:#333,padding:15px,margin:10px
-    classDef actionsNode fill:#fbb,stroke:#f66,stroke-width:3px,color:#333,padding:15px,margin:10px
+# 或从源码安装（需要 Rust 工具链）
+git clone https://github.com/loonghao/dcc-mcp-core.git
+cd dcc-mcp-core
+pip install -e .
 ```
 
-### 动作设计
+### 基本用法
 
-动作采用简单直观的设计，使开发者能够轻松创建新的 DCC 功能：
+```python
+from dcc_mcp_core import (
+    ActionRegistry, ActionDispatcher, ActionValidator,
+    EventBus, ActionResultModel, success_result, scan_and_load
+)
 
-- **元数据声明**：通过简单的变量定义动作的基本信息
-- **函数定义**：实现特定的 DCC 操作功能
-- **上下文传递**：通过上下文参数访问 DCC 软件的远程接口
-- **结构化返回**：所有函数返回标准化的结构化数据
+# 1. 创建动作注册表并从环境变量加载 Skills
+registry = ActionRegistry()
+skills = scan_and_load(dcc_name="maya")
+print(f"已加载 {len(skills)} 个技能包")
 
-### 远程调用架构
+# 2. 设置带验证的调度器
+validator = ActionValidator()
+dispatcher = ActionDispatcher(registry, validator)
 
-DCC-MCP-Core 使用 RPyC 实现远程过程调用，允许在不同进程甚至不同机器上执行 DCC 操作：
+# 3. 订阅生命周期事件
+bus = EventBus()
+bus.subscribe("action.after_execute", lambda e: print(f"✓ {e.action_name}: {e.result.success}"))
 
-- **上下文对象**：包含远程 DCC 客户端和命令接口
-- **透明访问**：动作代码可以像访问本地 API 一样访问远程 DCC API
-- **错误处理**：统一的错误处理机制确保稳定运行
+# 4. 调用动作（自动验证参数）
+result = dispatcher.call(
+    "maya_geometry__create_sphere",
+    radius=2.0,
+    position=[1, 0, 0]
+)
+
+if result.success:
+    print(f"已创建: {result.context.get('object_name')}")
+    if result.prompt:
+        print(f"建议: {result.prompt}")
+else:
+    print(f"错误: {result.error}")
+```
 
 ## 包结构
 
@@ -174,9 +163,110 @@ class CustomMiddleware(Middleware):
         return result
 ```
 
-## ActionResultModel
+## 核心概念
 
-`ActionResultModel` 提供了一个结构化的动作结果格式，使 AI 更容易理解和处理执行结果：
+### ActionResultModel — AI 友好的结构化结果
+
+所有动作结果使用 `ActionResultModel`，专为 AI 设计，带有结构化上下文和下一步建议：
+
+```python
+from dcc_mcp_core import ActionResultModel, success_result, error_result
+
+# 工厂函数（推荐）
+ok = success_result(
+    message="球体已创建",
+    prompt="考虑添加材质或调整 UV",
+    context={"object_name": "sphere1", "position": [0, 1, 0]}
+)
+
+err = error_result(
+    message="创建球体失败",
+    error="半径必须为正数"
+)
+```
+
+### ActionRegistry 与调度器 — 动作系统
+
+```python
+from dcc_mcp_core import (
+    ActionRegistry, ActionDispatcher, ActionValidator,
+    EventBus, SemVer
+)
+
+registry = ActionRegistry()
+dispatcher = ActionDispatcher(registry, ActionValidator())
+
+# 事件驱动架构
+bus = EventBus()
+bus.subscribe("action.after_execute", lambda e: print(f"✓ {e.action_name}: {e.result.success}"))
+```
+
+## Skills 技能包系统 — 零代码 MCP 工具注册
+
+**Skills 系统**是 dcc-mcp-core 最独特的功能：让你将任何脚本**零代码**注册为 MCP 可发现工具。复用 [OpenClaw Skills](https://docs.openclaw.ai/tools) 生态格式。
+
+### 快速示例
+
+**1. 创建 Skill 目录：**
+
+```
+my-tool/
+├── SKILL.md          # 元数据 + 描述
+└── scripts/
+    └── list.py      # 你的脚本
+```
+
+**2. 编写 `SKILL.md`：**
+
+```yaml
+---
+name: my-tool
+description: "我的自定义 DCC 自动化工具"
+tools: ["Bash"]
+tags: ["automation"]
+dcc: maya
+---
+# 我的工具
+```
+
+**3. 使用：**
+
+```python
+import os; os.environ["DCC_MCP_SKILL_PATHS"] = "/path/to/my-tool"
+from dcc_mcp_core import scan_and_load
+skills = scan_and_load(dcc_name="maya")
+print(f"已加载 {len(skills)} 个技能包")
+```
+
+### 支持的脚本类型
+
+| 扩展名 | 类型 | 执行方式 |
+|--------|------|---------|
+| `.py` | Python | `subprocess` |
+| `.mel` | MEL (Maya) | DCC 适配器 |
+| `.ms` | MaxScript | DCC 适配器 |
+| `.bat`, `.cmd` | Batch | `cmd /c` |
+| `.sh`, `.bash` | Shell | `bash` |
+| `.ps1` | PowerShell | `powershell -File` |
+| `.js`, `.jsx` | JavaScript | `node` |
+
+查看 `examples/skills/` 获取 **10 个完整示例**。
+
+## 架构概览 — 11 个 Rust Crate 工作区
+
+| Crate | 职责 | 关键类型 |
+|----------------------|-----------|------------------|
+| `dcc-mcp-models` | 数据模型 | `ActionResultModel`, `SkillMetadata` |
+| `dcc-mcp-actions` | 动作生命周期 | `ActionRegistry`, `EventBus`, `ActionDispatcher`, `ActionPipeline` |
+| `dcc-mcp-skills` | 技能发现 | `SkillScanner`, `SkillWatcher`, 依赖解析器 |
+| `dcc-mcp-protocols` | MCP 协议 | `ToolDefinition`, `ResourceDefinition`, `DccAdapter` |
+| `dcc-mcp-transport` | IPC 通信 | `TransportManager`, `ConnectionPool`, `CircuitBreaker`, `FramedChannel` |
+| `dcc-mcp-process` | 进程管理 | `PyDccLauncher`, `ProcessMonitor`, `CrashRecoveryPolicy` |
+| `dcc-mcp-sandbox` | 安全沙箱 | `SandboxPolicy`, `InputValidator`, `AuditLog` |
+| `dcc-mcp-shm` | 共享内存 | `SharedBuffer`, LZ4 压缩 |
+| `dcc-mcp-capture` | 屏幕捕获 | `Capturer`, 跨平台后端 |
+| `dcc-mcp-telemetry` | 可观测性 | `TelemetryConfig`, tracing |
+| `dcc-mcp-usd` | USD 场景 | `UsdStage`, `UsdPrim` |
 
 ```python
 ActionResultModel(
@@ -317,13 +407,28 @@ result = manager.call_action("maya_geometry__create_sphere", radius=2.0)
 4. Action 注册到现有的 **ActionRegistry**
 5. MCP Server 层可通过 **EventBus** 订阅 `skill.loaded` 事件
 
+## 主要特性
+
+- **Rust 高性能引擎**：rmp-serde 零拷贝序列化、LZ4 共享内存、无锁并发结构
+- **零运行时 Python 依赖**：全部编译进原生扩展
+- **Skills 系统**：零代码 MCP 工具注册（SKILL.md + scripts/）
+- **验证调度**：执行前输入参数验证管道
+- **弹性 IPC**：连接池、熔断器、自动重试
+- **进程管理**：启动/监控/自动恢复 DCC 进程
+- **沙箱安全**：基于策略的访问控制 + 审计日志
+- **屏幕捕获**：跨平台 DCC 视口捕获，AI 视觉反馈
+- **USD 集成**：通用场景描述读写桥接
+- **结构化遥测**：Tracing & 录制可观测性
+- **~105 个 Python 公共符号** + 完整 `.pyi` 类型存根
+- **兼容 OpenClaw Skills**：直接复用生态格式
+
 ## 安装
 
 ```bash
-# 从 PyPI 安装
+# 从 PyPI 安装（预编译 wheel，支持 Python 3.8+）
 pip install dcc-mcp-core
 
-# 或从源代码安装
+# 或从源码安装（需要 Rust 1.85+ 工具链）
 git clone https://github.com/loonghao/dcc-mcp-core.git
 cd dcc-mcp-core
 pip install -e .
@@ -336,211 +441,158 @@ pip install -e .
 git clone https://github.com/loonghao/dcc-mcp-core.git
 cd dcc-mcp-core
 
-# 创建并激活虚拟环境
+# 推荐：使用 vx（通用开发工具管理器）
+# 安装: https://github.com/loonghao/vx
+vx just install     # 安装所有项目依赖
+vx just dev         # 构建安装开发 wheel
+vx just test       # 运行 Python 测试
+vx just lint       # 全量 lint（Rust + Python）
+```
+
+### 不使用 vx
+
+```bash
 python -m venv venv
-source venv/bin/activate  # Windows 系统: venv\Scripts\activate
-
-# 安装开发依赖
-pip install -e .
-pip install pytest pytest-cov pytest-mock pyfakefs
-
-# 安装开发工具（推荐使用 vx）
-# 请参阅 https://github.com/loonghao/vx 安装 vx
-vx just install  # 通过 vx 安装项目依赖
+source venv/bin/activate   # Windows: venv\Scripts\activate
+pip install maturin pytest pytest-cov ruff mypy
+maturin develop --features python-bindings,ext-module
+pytest tests/ -v
+ruff check python/ tests/ examples/
+cargo clippy --workspace -- -D warnings
 ```
 
 ## 运行测试
 
 ```bash
-# 运行测试并生成覆盖率报告
-vx just test
-
-# 运行特定测试
-vx uvx nox -s pytest -- tests/test_action_manager.py -v
-
-# 运行代码风格检查
-vx just lint
-
-# 运行代码风格检查并自动修复
-vx just lint-fix
-
-# 运行 pre-commit 检查
-vx just prek-all
+vx just test           # 所有 Python 测试
+vx just test-rust       # 所有 Rust 单元测试
+vx just test-cov        # 带覆盖率报告
+vx just ci              # 完整 CI 流水线
+vx just preflight       # 仅 pre-commit 检查
 ```
 
-## 示例使用
+### 传输层 — IPC 进程通信
 
-### 发现和加载动作
+dcc-mcp-core 提供生产级 IPC 传输层：
 
 ```python
-from dcc_mcp_core.actions.manager import ActionManager
-
-# 创建一个 Maya 的动作管理器（不从环境变量加载路径）
-manager = ActionManager('maya', load_env_paths=False)
-
-# 注册动作路径
-manager.register_action_path('/path/to/actions')
-
-# 刷新动作（发现并加载）
-manager.refresh_actions()
-
-# 获取所有已注册动作的信息
-actions_info = manager.get_actions_info()
-
-# 打印可用动作的信息
-for action_name, action_info in actions_info.items():
-    print(f"动作: {action_name}")
-    print(f"  描述: {action_info['description']}")
-    print(f"  标签: {', '.join(action_info['tags'])}")
-
-# 调用动作并传递参数
-result = manager.call_action(
-    'create_sphere',
-    radius=2.0,
-    position=[0, 1, 0],
-    name='my_sphere'
+from dcc_mcp_core import (
+    TransportManager, TransportAddress, TransportScheme,
+    RoutingStrategy, IpcListener, connect_ipc,
+    FramedChannel
 )
 
-# 访问结果
-if result.success:
-    print(f"成功: {result.message}")
-    print(f"创建的对象: {result.context.get('object_name')}")
-    if result.prompt:
-        print(f"下一步建议: {result.prompt}")
-else:
-    print(f"错误: {result.error}")
+# 服务端：监听连接
+listener = IpcListener.new("/tmp/dcc-mcp-server.sock")
+handle = listener.start(handler_fn=my_message_handler)
+
+# 客户端：连接服务器
+channel = connect_ipc("/tmp/dcc-mcp-server.sock")
+response = channel.call({"method": "ping", "params": {}})
+
+# 高级：连接池 + 弹性
+mgr = TransportManager()
+mgr.configure_pool(min_size=2, max_size=10)
+mgr.set_circuit_breaker(threshold=5, reset_timeout=30)
 ```
 
-### Action 设计
-
-DCC-MCP-Core 使用基于类的 Action 设计，使用 Pydantic 模型。每个 Action 都有自己的元数据声明、函数定义、上下文传递和结构化返回。
+### 进程管理 — DCC 生命周期控制
 
 ```python
-from dcc_mcp_core.actions.base import Action
-from pydantic import Field, field_validator
+from dcc_mcp_core import (
+    PyDccLauncher, PyProcessMonitor, PyProcessWatcher,
+    PyCrashRecoveryPolicy
+)
 
-class CreateSphereAction(Action):
-    # 动作元数据
-    name = "create_sphere"
-    description = "在 Maya 中创建一个球体"
-    tags = ["几何体", "创建"]
-    dcc = "maya"
-    order = 0
+# 启动 DCC 应用程序
+launcher = PyDccLauncher(dcc_type="maya", version="2025")
+process = launcher.launch(
+    script_path="/path/to/startup.py",
+    working_dir="/project",
+    env_vars={"MAYA_RENDER_THREADS": "4"}
+)
 
-    # 带验证的输入参数模型
-    class InputModel(Action.InputModel):
-        radius: float = Field(1.0, description="球体的半径")
-        position: list[float] = Field([0, 0, 0], description="球体的位置")
-        name: str = Field(None, description="球体的名称")
+# 监控健康状态
+monitor = PyProcessMonitor()
+monitor.track(process)
+stats = monitor.stats(process)
 
-        # 参数验证
-        @field_validator('radius')
-        def validate_radius(cls, v):
-            if v <= 0:
-                raise ValueError("半径必须为正数")
-            return v
-
-    # 输出数据模型
-    class OutputModel(Action.OutputModel):
-        object_name: str = Field(description="创建的对象名称")
-        position: list[float] = Field(description="对象的最终位置")
-
-    def _execute(self) -> None:
-        # 访问经过验证的输入参数
-        radius = self.input.radius
-        position = self.input.position
-        name = self.input.name or f"sphere_{radius}"
-
-        # 访问 DCC 上下文（例如，Maya cmds）
-        cmds = self.context.get("cmds")
-
-        try:
-            # 执行 DCC 特定的操作
-            sphere = cmds.polySphere(r=radius, n=name)[0]
-            cmds.move(*position, sphere)
-
-            # 设置结构化输出
-            self.output = self.OutputModel(
-                object_name=sphere,
-                position=position,
-                prompt="现在您可以修改球体的属性或添加材质"
-            )
-        except Exception as e:
-            # 异常将被 Action.process 方法捕获
-            # 并转换为适当的 ActionResultModel
-            raise Exception(f"创建球体失败: {str(e)}") from e
+# 崩溃后自动重启
+watcher = PyProcessWatcher(
+    recovery_policy=PyCrashRecoveryPolicy(max_restarts=3, cooldown_sec=10)
+)
+watcher.watch(process)
 ```
+
+### 沙箱安全 — 基于策略的访问控制
+
+```python
+from dcc_mcp_core import SandboxContext, SandboxPolicy, InputValidator, AuditLog
+
+policy = (
+    SandboxPolicy.builder()
+    .allow_read(["/safe/paths/*"])
+    .allow_write(["/temp/*"])
+    .deny_pattern(["*.critical"])
+    .require_approval_for("delete_*")
+    .build()
+)
+
+ctx = SandboxContext(policy=policy)
+validator = InputValidator(ctx)
+
+if not validator.validate_action("delete_all_files"):
+    print("被策略阻止！")
+else:
+    print("允许执行")
+
+# 审计追踪
+audit = AuditLog.load()
+for entry in audit.entries:
+    print(f"{entry.timestamp} [{entry.action}] {entry.decision} → {entry.details}")
+```
+
+## 更多示例
+
+查看 [`examples/skills/`](examples/skills/) 目录获取 **10 个完整技能包示例**，以及 [VitePress 文档站](https://loonghao.github.io/dcc-mcp-core/) 获取各模块完整指南。
 
 ## 版本发布流程
 
-本项目使用 [Release Please](https://github.com/googleapis/release-please) 自动化版本管理和发布。工作流程：
+本项目使用 [Release Please](https://github.com/googleapis/release-please) 自动化版本管理：
 
-1. **开发**：从 `main` 创建分支，使用 [Conventional Commits](https://www.conventionalcommits.org/) 提交代码
-2. **合并**：提交 PR 并合并到 `main`
-3. **发布 PR**：Release Please 自动创建/更新发布 PR，包含版本号更新和 `CHANGELOG.md` 更新
-4. **发布**：合并发布 PR 后，自动创建 GitHub Release 并发布到 PyPI
+1. **开发**：从 `main` 创建分支，使用 Conventional Commits 提交
+2. **合并**：提交 PR 到 `main`
+3. **发布 PR**：Release Please 自动创建/更新发布 PR（含版本号 + CHANGELOG）
+4. **发布**：合并后自动创建 GitHub Release 并发布到 PyPI
 
 ### 提交信息格式
 
-本项目遵循 [Conventional Commits](https://www.conventionalcommits.org/) 规范：
-
 | 前缀 | 描述 | 版本变更 |
 |------|------|---------|
-| `feat:` | 新功能 | Minor（`0.x.0`） |
-| `fix:` | Bug 修复 | Patch（`0.0.x`） |
-| `feat!:` 或 `BREAKING CHANGE:` | 破坏性变更 | Major（`x.0.0`） |
-| `docs:` | 仅文档 | 不触发发布 |
-| `chore:` | 维护 | 不触发发布 |
-| `ci:` | CI/CD 变更 | 不触发发布 |
-| `refactor:` | 代码重构 | 不触发发布 |
-| `test:` | 添加测试 | 不触发发布 |
-
-### 示例
-
-```bash
-# 新功能（升级次版本号）
-git commit -m "feat: add batch action execution support"
-
-# Bug 修复（升级补丁版本号）
-git commit -m "fix: resolve middleware chain ordering issue"
-
-# 破坏性变更（升级主版本号）
-git commit -m "feat!: redesign Action base class API"
-
-# 带作用域的提交
-git commit -m "feat(skills): add PowerShell script support"
-
-# 不触发发布
-git commit -m "docs: update API reference"
-git commit -m "ci: add Python 3.14 to test matrix"
-```
+| `feat:` | 新功能 | Minor (`0.x.0`) |
+| `fix:` | Bug 修复 | Patch (`0.0.x`) |
+| `feat!:` | 破坏性变更 | Major (`x.0.0`) |
+| `docs:` / `chore:` / `ci:` / `refactor:` / `test:` | 不触发发布 |
 
 ## 贡献
 
-欢迎贡献！请随时提交 Pull Request。
+欢迎贡献！详见 [CONTRIBUTING.md](CONTRIBUTING.md)。快速开始：
 
-### 开发工作流
-
-1. Fork 仓库并克隆你的 fork
-2. 创建功能分支：`git checkout -b feat/my-feature`
-3. 按照以下编码规范进行开发
-4. 运行测试和代码检查：
-   ```bash
-   vx just lint       # 代码风格检查
-   vx just test       # 运行测试
-   vx just prek-all   # 运行所有 pre-commit hooks
-   ```
-5. 使用 [Conventional Commits](https://www.conventionalcommits.org/) 格式提交
-6. 推送并向 `main` 提交 Pull Request
-
-### 编码规范
-
-- **风格**：使用 `ruff` 和 `isort` 格式化代码（行长度：120）
-- **类型注解**：所有公开 API 必须有类型注解
-- **文档字符串**：所有公开模块、类和函数使用 Google 风格的 docstring
-- **测试**：新功能必须包含测试；保持或提高覆盖率
-- **导入**：使用分区注释（`Import built-in modules`、`Import third-party modules`、`Import local modules`）
+1. Fork 并克隆仓库
+2. 创建分支：`git checkout -b feat/my-feature`
+3. 开发（遵循编码规范）
+4. 运行检查：`vx just preflight && vx just test`
+5. Conventional Commits 格式提交
+6. Push 并提 PR 到 `main`
 
 ## 许可证
 
-本项目采用 MIT 许可证 - 详情请参阅 LICENSE 文件。
+本项目采用 MIT 许可证 — 详见 [LICENSE](LICENSE) 文件。
+
+## AI Agent 资源
+
+如果你是 AI 编码代理，请同时参考：
+- **[AGENTS.md](AGENTS.md)** — 所 AI 代理综合指南（架构、命令、API 参考、陷阱规避）
+- **[CLAUDE.md](CLAUDE.md)** — Claude Code 专用指令
+- **[.agents/skills/dcc-mcp-core/SKILL.md](.agents/skills/dcc-mcp-core/SKILL.md)** — 完整 API 技能定义，用于学习与使用此库
+- **[python/dcc_mcp_core/__init__.py](python/dcc_mcp_core/__init__.py)** — 完整公共 API 表面（约 105 个符号）
