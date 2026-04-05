@@ -59,7 +59,7 @@ sysinfo = "0.38"
 memmap2 = "0.9"
 lz4_flex = { version = "0.13", default-features = false, features = ["frame"] }
 libc = "0.2"
-notify = "6.1"
+notify = "8.0"
 
 # Root package — Python bindings entry point
 # Compiles to `_core.pyd` / `_core.so`, exposed as `dcc_mcp_core._core`
