@@ -23,7 +23,7 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 
 [target.'cfg(windows)'.dependencies]
 # Windows DXGI Desktop Duplication API
-windows = { version = "0.61", features = [
+windows = { version = "0.62", features = [
     "Win32_Foundation",
     "Win32_Graphics_Direct3D",
     "Win32_Graphics_Direct3D11",
