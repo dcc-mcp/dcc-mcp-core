@@ -56,11 +56,27 @@ runs:
         restore-keys: |
           ${{ runner.os }}-${{ inputs.target || 'default' }}-cargo-wheel-
 
+    - name: Resolve maturin args
+      id: resolve-maturin-args
+      shell: bash
+      run: |
+        resolved_args="${{ inputs.maturin-args }}"
+
+        # Python 3.7 must not use abi3-py38 (PyO3 requires interpreter >= 3.8 for that feature)
+        if [[ "${{ inputs.python-version }}" == "3.7" ]]; then
+          resolved_args="${resolved_args//abi3-py38,/}"
+          resolved_args="${resolved_args//,abi3-py38/}"
+          resolved_args="${resolved_args//abi3-py38/}"
+        fi
+
+        echo "Resolved maturin args: ${resolved_args}"
+        echo "value=${resolved_args}" >> "$GITHUB_OUTPUT"
+
     - name: Build wheel
       uses: PyO3/maturin-action@v1
       with:
         target: ${{ inputs.target }}
-        args: ${{ inputs.maturin-args }}
+        args: ${{ steps.resolve-maturin-args.outputs.value }}
         rust-toolchain: ${{ inputs.rust-version }}
         sccache: ${{ inputs.use-sccache == 'true' }}
         manylinux: auto
@@ -69,6 +85,7 @@ runs:
       if: inputs.test-wheel == 'true'
       shell: bash
       run: |
+        # Use python -m venv for Python 3.7 (uv does not support 3.7)
         python -m venv test-env
         if [ "${{ runner.os }}" = "Windows" ]; then
           source test-env/Scripts/activate

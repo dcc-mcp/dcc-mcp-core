@@ -67,7 +67,6 @@ jobs:
           pattern: wheels-*
           path: dist
           merge-multiple: true
-
       - name: List wheels
         run: ls -la dist/
 

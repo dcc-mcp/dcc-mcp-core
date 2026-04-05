@@ -77,7 +77,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]
       fail-fast: false
     runs-on: ${{ matrix.os }}
     steps:
@@ -102,6 +102,55 @@ jobs:
         with:
           name: coverage-report
           path: coverage.xml
+
+  # ── Python 3.7 build + test (non-abi3 wheel) ──
+  build-wheel-py37:
+    name: Build wheel (py3.7, ${{ matrix.os }})
+    needs: [rust-check]
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            target: x86_64
+          - os: windows-2022
+            target: x64
+      fail-fast: false
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.7"
+      - uses: extractions/setup-just@v4
+      - name: Install maturin
+        run: pip install maturin
+        shell: bash
+      - name: Build Python 3.7 wheel (non-abi3)
+        run: maturin build --release --out dist --features python-bindings,ext-module
+        shell: bash
+      - name: Test Python 3.7 wheel
+        shell: bash
+        run: |
+          python -m venv test-env
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            source test-env/Scripts/activate
+          else
+            source test-env/bin/activate
+          fi
+          pip install --no-index --find-links dist dcc-mcp-core --force-reinstall --no-deps
+          python -c "
+          import dcc_mcp_core
+          print(f'Version: {dcc_mcp_core.__version__}')
+          from dcc_mcp_core._core import ActionResultModel, ActionRegistry, SkillScanner
+          result = ActionResultModel(success=True, message='Wheel test passed')
+          print(f'Result: {result}')
+          print('All imports OK!')
+          "
+      - uses: actions/upload-artifact@v7
+        with:
+          name: wheel-py37-${{ matrix.os }}
+          path: dist/*.whl
 
   # ── Lint Python source ──
   lint:
