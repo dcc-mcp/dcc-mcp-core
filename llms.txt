@@ -2,6 +2,20 @@
 
 > Foundational library for the DCC Model Context Protocol (MCP) ecosystem. Rust-powered core (via PyO3) providing action registry, structured results, event bus, skills/script registration, MCP protocol types, IPC transport, process management, sandbox security, shared memory, screen capture, USD bridge, and telemetry for Digital Content Creation applications (Maya, Blender, Houdini, 3ds Max, etc.).
 
+## Quick Decision Guide
+
+| Task | Use this API |
+|------|--------------|
+| Return DCC action result | `success_result()` / `error_result()` |
+| Register scripts as MCP tools | `ActionRegistry.register()` |
+| Discover skills from directories | `scan_and_load()` → returns `(skills, skipped)` tuple |
+| Validate action params | `ActionValidator.from_schema_json()` |
+| Connect to running DCC | `connect_ipc(TransportAddress.default_local(...))` |
+| Define MCP tool for LLM | `ToolDefinition` + `ToolAnnotations` |
+| Monitor DCC process | `PyProcessWatcher` + `PyCrashRecoveryPolicy` |
+| Sandbox AI actions | `SandboxPolicy` + `SandboxContext` |
+| Share large data zero-copy | `PySharedSceneBuffer.write()` with LZ4 compression |
+
 ## Quick Start
 
 ```python
@@ -12,7 +26,7 @@ reg = dcc_mcp_core.ActionRegistry()
 reg.register(name="create_sphere", description="Create a sphere", dcc="maya")
 meta = reg.get_action("create_sphere")
 
-# Structured results
+# Structured results (always use factories, never raw dicts)
 result = dcc_mcp_core.success_result("Created sphere", prompt="Add materials next", count=1)
 error = dcc_mcp_core.error_result("Failed", "File not found")
 
@@ -22,8 +36,9 @@ bus.subscribe("evt", lambda **kw: print(kw))
 bus.publish("evt", x=1)
 
 # Skill scanning + loading
-skills = dcc_mcp_core.scan_and_load(dcc_name="maya")  # raises on parse errors
-skills = dcc_mcp_core.scan_and_load_lenient(dcc_name="maya")  # silently skips bad skills
+# IMPORTANT: scan_and_load returns (List[SkillMetadata], List[str] skipped_dirs)
+skills, skipped = dcc_mcp_core.scan_and_load(dcc_name="maya")
+skills, skipped = dcc_mcp_core.scan_and_load_lenient(dcc_name="maya")
 for s in skills:
     print(f"{s.name}: {len(s.scripts)} scripts")
 
@@ -32,6 +47,8 @@ scanner = dcc_mcp_core.SkillScanner()
 dirs = scanner.scan(extra_paths=["/path/to/skills"], dcc_name="maya")
 meta = dcc_mcp_core.parse_skill_md(dirs[0])  # -> SkillMetadata or None
 ```
+
+
 
 ## Installation
 
@@ -99,14 +116,14 @@ crates/
 
 **Skills:**
 - `SkillScanner` — `.scan(extra_paths=None, dcc_name=None, force_refresh=False) -> List[str]`
-- `SkillWatcher` — File-watching auto-reload for live development
+- `SkillWatcher` — File-watching auto-reload; `.watch(path)`, `.skills() -> List[SkillMetadata]`
 - `parse_skill_md(skill_dir) -> Optional[SkillMetadata]`
 - `scan_skill_paths(extra_paths=None, dcc_name=None) -> List[str]`
-- `scan_and_load(dcc_name=None, extra_paths=None) -> List[SkillMetadata]`
-- `scan_and_load_lenient(dcc_name=None, extra_paths=None) -> List[SkillMetadata]`
+- `scan_and_load(dcc_name=None, extra_paths=None) -> tuple[List[SkillMetadata], List[str]]` — **(skills, skipped_dirs)**
+- `scan_and_load_lenient(dcc_name=None, extra_paths=None) -> tuple[List[SkillMetadata], List[str]]` — same, skips errors
 - `resolve_dependencies(skills) -> List[SkillMetadata]`
-- `expand_transitive_dependencies(skills) -> List[SkillMetadata]`
-- `validate_dependencies(skills) -> bool`
+- `expand_transitive_dependencies(skills, skill_name) -> List[str]`
+- `validate_dependencies(skills) -> List[str]` — returns error messages
 
 **SkillMetadata fields:** `.name`, `.description`, `.dcc`, `.version`, `.tags`, `.tools`, `.scripts` (List[str] absolute paths), `.skill_path`, `.depends`, `.metadata_files`
 
@@ -238,6 +255,8 @@ export DCC_MCP_SKILL_PATHS="/path/to/skills1:/path/to/skills2"
 - [README (English)](https://github.com/loonghao/dcc-mcp-core/blob/main/README.md)
 - [README (中文)](https://github.com/loonghao/dcc-mcp-core/blob/main/README_zh.md)
 - [AI Agent Guide (AGENTS.md)](https://github.com/loonghao/dcc-mcp-core/blob/main/AGENTS.md)
+- [Claude Guide (CLAUDE.md)](https://github.com/loonghao/dcc-mcp-core/blob/main/CLAUDE.md)
+- [Gemini Guide (GEMINI.md)](https://github.com/loonghao/dcc-mcp-core/blob/main/GEMINI.md)
 - [Contributing Guide](https://github.com/loonghao/dcc-mcp-core/blob/main/CONTRIBUTING.md)
 - [Changelog](https://github.com/loonghao/dcc-mcp-core/blob/main/CHANGELOG.md)
 - [Full API Reference](https://github.com/loonghao/dcc-mcp-core/blob/main/llms-full.txt)

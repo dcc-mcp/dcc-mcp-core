@@ -27,7 +27,7 @@ Foundational library for the DCC Model Context Protocol (MCP) ecosystem. It prov
 | **Sandbox Security** | Policy-based access control with audit logging |
 | **Cross-Platform** | Windows, macOS, Linux — tested on all three |
 
-AI-friendly docs: [AGENTS.md](AGENTS.md) | [CLAUDE.md](CLAUDE.md) | [`.agents/skills/dcc-mcp-core/SKILL.md`](.agents/skills/dcc-mcp-core/SKILL.md)
+AI-friendly docs: [AGENTS.md](AGENTS.md) | [CLAUDE.md](CLAUDE.md) | [GEMINI.md](GEMINI.md) | [`.agents/skills/dcc-mcp-core/SKILL.md`](.agents/skills/dcc-mcp-core/SKILL.md)
 
 ## Quick Start
 
@@ -462,6 +462,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 If you're an AI coding agent, also see:
 - **[AGENTS.md](AGENTS.md)** — Comprehensive guide for all AI agents (architecture, commands, API reference, pitfalls)
 - **[CLAUDE.md](CLAUDE.md)** — Claude-specific instructions and workflows
+- **[GEMINI.md](GEMINI.md)** — Gemini-specific instructions and workflows
 - **[.agents/skills/dcc-mcp-core/SKILL.md](.agents/skills/dcc-mcp-core/SKILL.md)** — Complete API skill definition for learning and using this library
 - **[python/dcc_mcp_core/__init__.py](python/dcc_mcp_core/__init__.py)** — Full public API surface (~120 symbols)
 - **[llms.txt](llms.txt)** — Concise API reference optimized for LLMs

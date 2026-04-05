@@ -27,7 +27,7 @@ DCC 模型上下文协议（Model Context Protocol，MCP）生态系统的基础
 | **沙箱安全** | 基于策略的访问控制 + 审计日志 |
 | **跨平台** | Windows、macOS、Linux 三平台测试 |
 
-AI 友好文档：[AGENTS.md](AGENTS.md) | [CLAUDE.md](CLAUDE.md) | [`.agents/skills/dcc-mcp-core/SKILL.md`](.agents/skills/dcc-mcp-core/SKILL.md)
+AI 友好文档：[AGENTS.md](AGENTS.md) | [CLAUDE.md](CLAUDE.md) | [GEMINI.md](GEMINI.md) | [`.agents/skills/dcc-mcp-core/SKILL.md`](.agents/skills/dcc-mcp-core/SKILL.md)
 
 ## 快速开始
 
@@ -445,7 +445,8 @@ vx just preflight      # 仅 pre-commit 检查
 
 如果你是 AI 编码代理，请同时参考：
 - **[AGENTS.md](AGENTS.md)** — 所有 AI 代理综合指南（架构、命令、API 参考、陷阱规避）
-- **[CLAUDE.md](CLAUDE.md)** — Claude 专用指令
+- **[CLAUDE.md](CLAUDE.md)** — Claude 专用指令与工作流
+- **[GEMINI.md](GEMINI.md)** — Gemini 专用指令与工作流
 - **[.agents/skills/dcc-mcp-core/SKILL.md](.agents/skills/dcc-mcp-core/SKILL.md)** — 完整 API 技能定义，用于学习与使用此库
 - **[python/dcc_mcp_core/__init__.py](python/dcc_mcp_core/__init__.py)** — 完整公共 API 表面（约 120 个符号）
 - **[llms.txt](llms.txt)** — 精简 API 参考（LLM 优化格式）

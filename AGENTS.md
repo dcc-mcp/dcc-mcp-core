@@ -2,6 +2,27 @@
 
 > **Purpose**: This file helps AI coding agents (Claude, Copilot, Cursor, Codex, Gemini, Devin, etc.) understand, navigate, and contribute to this project effectively. Read this before writing any code.
 
+## Quick Decision Guide — Use the Right API
+
+> **AI agents**: When implementing features, ALWAYS check if dcc-mcp-core already provides what you need before writing custom code.
+
+| Task | Prefer this API (not custom code) |
+|------|----------------------------------|
+| Return action result | `success_result()` / `error_result()` — never return raw dicts |
+| Register a callable as DCC tool | `ActionRegistry.register()` + `ActionDispatcher` |
+| Discover/load skill packages | `scan_and_load()` or `scan_and_load_lenient()` — not manual file scanning |
+| Validate JSON input params | `ActionValidator.from_schema_json()` — not manual isinstance checks |
+| Connect to running DCC process | `connect_ipc(TransportAddress.default_local(...))` |
+| Define MCP tool for LLM | `ToolDefinition` + `ToolAnnotations` — not raw JSON dicts |
+| Share large data zero-copy | `PySharedSceneBuffer.write()` — not pickle/JSON for large data |
+| Monitor process health | `PyProcessWatcher` + `PyCrashRecoveryPolicy` |
+| Enforce security on AI actions | `SandboxPolicy` + `SandboxContext` |
+| Measure action performance | `ActionRecorder` + `ActionMetrics` |
+| Capture DCC viewport | `Capturer.new_auto().capture()` |
+| Exchange scene as USD | `UsdStage` + `scene_info_json_to_stage()` |
+| Safe RPyC value transport | `wrap_value()` / `unwrap_value()` |
+| Multi-version action lookup | `VersionedRegistry` + `VersionConstraint.parse()` |
+
 ## Project Overview
 
 **dcc-mcp-core** is the foundational library for the DCC (Digital Content Creation) Model Context Protocol (MCP) ecosystem. It provides a **Rust-powered core with Python bindings (PyO3/maturin)** that enables AI assistants to interact with DCC software (Maya, Blender, Houdini, 3ds Max, etc.).
@@ -563,11 +584,133 @@ grep "SkillMetadata" python/dcc_mcp_core/_core.pyi
 - Documentation deploys to GitHub Pages via VitePress
 - `.agents/` directory is gitignored — use `git add -f` for skill files there
 
+## AI Integration Patterns
+
+These patterns show how AI agents should use this library. Copy and adapt them.
+
+### Pattern 1: Skill discovery → MCP tool registration
+
+```python
+import os
+from dcc_mcp_core import scan_and_load, ActionRegistry, ToolDefinition, ToolAnnotations
+from pathlib import Path
+
+os.environ["DCC_MCP_SKILL_PATHS"] = "/opt/my-skills"
+skills, skipped = scan_and_load(dcc_name="maya")
+
+reg = ActionRegistry()
+tools: list[ToolDefinition] = []
+
+for skill in skills:
+    for script_path in skill.scripts:
+        stem = Path(script_path).stem
+        action_name = f"{skill.name.replace('-', '_')}__{stem}"
+        reg.register(
+            name=action_name,
+            description=f"[{skill.name}] {skill.description}",
+            dcc=skill.dcc,
+            tags=skill.tags,
+        )
+        tools.append(ToolDefinition(
+            name=action_name,
+            description=f"[{skill.name}] {skill.description}",
+            input_schema='{"type": "object"}',
+            annotations=ToolAnnotations(read_only_hint=False),
+        ))
+```
+
+### Pattern 2: Call a DCC action and return structured result
+
+```python
+from dcc_mcp_core import (
+    connect_ipc, TransportAddress,
+    success_result, error_result, from_exception,
+)
+
+def call_maya_command(pid: int, python_code: str):
+    addr = TransportAddress.default_local("maya", pid)
+    channel = connect_ipc(addr, timeout_ms=10000)
+    try:
+        result = channel.call("execute_python", params=python_code.encode())
+        if result["success"]:
+            return success_result(
+                result["payload"].decode(),
+                prompt="Command executed. Check result and decide next step.",
+            )
+        else:
+            return error_result(
+                "DCC script failed",
+                result["error"] or "unknown error",
+                possible_solutions=["Check Maya is running", "Verify syntax"],
+            )
+    except Exception as e:
+        return from_exception(str(e), message="IPC call failed", include_traceback=True)
+    finally:
+        channel.shutdown()
+```
+
+### Pattern 3: Validate action inputs before dispatch
+
+```python
+import json
+from dcc_mcp_core import ActionRegistry, ActionValidator, ActionDispatcher, error_result
+
+schema = json.dumps({
+    "type": "object",
+    "required": ["name", "radius"],
+    "properties": {
+        "name": {"type": "string", "maxLength": 64},
+        "radius": {"type": "number", "minimum": 0.001, "maximum": 1000.0},
+    },
+})
+validator = ActionValidator.from_schema_json(schema)
+ok, errors = validator.validate(json.dumps({"name": "sphere1", "radius": 1.0}))
+if not ok:
+    return error_result("Invalid parameters", "; ".join(errors))
+```
+
+### Pattern 4: Watch skills directory for live development
+
+```python
+from dcc_mcp_core import SkillWatcher
+
+watcher = SkillWatcher(debounce_ms=300)
+watcher.watch("/my/dev/skills")  # immediate load + start watching
+
+# In your main loop or callback:
+current_skills = watcher.skills()  # always up-to-date snapshot
+```
+
+### Pattern 5: Sandbox AI-generated actions
+
+```python
+from dcc_mcp_core import SandboxPolicy, SandboxContext, InputValidator
+
+policy = SandboxPolicy()
+policy.allow_actions(["get_scene_info", "list_objects", "create_sphere"])
+policy.deny_actions(["delete_all", "save_to"])
+policy.set_timeout_ms(10000)
+policy.set_max_actions(20)
+
+ctx = SandboxContext(policy)
+ctx.set_actor("ai-assistant")
+
+try:
+    result_json = ctx.execute_json("create_sphere", '{"radius": 1.5}')
+except RuntimeError as e:
+    print(f"Denied: {e}")
+
+# Inspect audit trail
+for entry in ctx.audit_log.entries():
+    print(f"{entry.action}: {entry.outcome}")
+```
+
 ## External References
 
-- [AGENTS.md specification](https://agents.md/) — open standard for AI agent guidance files
-- [llms.txt specification](https://llmstxt.org/) — AI-optimized documentation format
-- [Model Context Protocol](https://modelcontextprotocol.io/) — the underlying MCP standard
+- [AGENTS.md specification](https://agents.md/) — open standard for AI agent guidance files (Linux Foundation / Agentic AI Foundation)
+- [llms.txt specification](https://llmstxt.org/) — AI-optimized documentation format by Answer.AI
+- [Model Context Protocol](https://modelcontextprotocol.io/) — the underlying MCP standard (Anthropic)
+- [MCP Agent Skills](https://modelcontextprotocol.io/docs/develop/build-with-agent-skills) — SKILL.md ecosystem and agent skills spec
 - [PyO3 documentation](https://pyo3.rs/) — Rust-Python bindings used in this project
 - [maturin documentation](https://www.maturin.rs/) — Python wheel builder used for release
 - [OpenClaw Skills format](https://docs.openclaw.ai/tools) — SKILL.md ecosystem compatibility

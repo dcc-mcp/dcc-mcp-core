@@ -53,7 +53,14 @@ vx just test-cov      # Coverage report to find gaps
 - Each skill's scripts become automatically registered actions
 - Action naming: `{skill_name}__{script_stem}` (double underscore, hyphens→underscores)
 - Use `scan_and_load()` or `scan_and_load_lenient()` — not the old `scan_and_load_skills()`
+- **`scan_and_load` returns a 2-tuple**: `(List[SkillMetadata], List[str])` — always unpack both
 - See `examples/skills/` for 9 reference implementations
+
+```python
+# Correct usage:
+skills, skipped = scan_and_load(dcc_name="maya")
+# NOT: skills = scan_and_load(dcc_name="maya")  ← returns tuple, iterating gives wrong results
+```
 
 ### When Understanding the Transport Layer
 
