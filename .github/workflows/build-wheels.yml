@@ -71,7 +71,7 @@ jobs:
           use-sccache: 'false'
 
   windows-py37:
-    runs-on: windows-2022  # Use Windows 2022 for Python 3.7 availability
+    runs-on: windows-2025  # Use Windows 2022 for Python 3.7 availability
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/build-wheel
