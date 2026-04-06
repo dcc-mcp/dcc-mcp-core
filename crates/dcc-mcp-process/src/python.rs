@@ -526,54 +526,61 @@ impl PyProcessWatcher {
             return Ok(()); // already running
         }
 
-        let (mut rx, watcher_handle) = self.watcher.spawn_watch_loop();
-
-        let queue_clone = Arc::clone(&self.event_queue);
         let rt = runtime()?;
 
-        // Spawn a drain task that reads from the event channel and fills the queue.
-        let drain_task = rt.spawn(async move {
-            while let Some(event) = rx.recv().await {
-                use crate::watcher::ProcessEvent;
-                let py_event = match event {
-                    ProcessEvent::Heartbeat { info } => PyWatcherEvent {
-                        kind: "heartbeat".into(),
-                        pid: info.pid,
-                        name: info.name.clone(),
-                        old_status: None,
-                        new_status: Some(status_to_str(info.status).to_string()),
-                        cpu_usage_percent: Some(info.cpu_usage_percent),
-                        memory_bytes: Some(info.memory_bytes),
-                    },
-                    ProcessEvent::StatusChanged {
-                        pid,
-                        name,
-                        old_status,
-                        new_status,
-                    } => PyWatcherEvent {
-                        kind: "status_changed".into(),
-                        pid,
-                        name,
-                        old_status: Some(status_to_str(old_status).to_string()),
-                        new_status: Some(status_to_str(new_status).to_string()),
-                        cpu_usage_percent: None,
-                        memory_bytes: None,
-                    },
-                    ProcessEvent::Exited { pid, name } => PyWatcherEvent {
-                        kind: "exited".into(),
-                        pid,
-                        name,
-                        old_status: None,
-                        new_status: None,
-                        cpu_usage_percent: None,
-                        memory_bytes: None,
-                    },
-                    ProcessEvent::Shutdown => break,
-                };
-                if let Ok(mut q) = queue_clone.lock() {
-                    q.push(py_event);
+        // `spawn_watch_loop` calls `tokio::spawn` internally, which requires a
+        // Tokio runtime context. Use `block_on` to enter the runtime and run
+        // an async block that calls `spawn_watch_loop` from inside it.
+        let queue_clone = Arc::clone(&self.event_queue);
+        let watcher_clone = self.watcher.clone();
+
+        let (watcher_handle, drain_task) = rt.block_on(async move {
+            let (mut rx, watcher_handle) = watcher_clone.spawn_watch_loop();
+
+            use crate::watcher::ProcessEvent;
+            let drain_task = tokio::spawn(async move {
+                while let Some(event) = rx.recv().await {
+                    let py_event = match event {
+                        ProcessEvent::Heartbeat { info } => PyWatcherEvent {
+                            kind: "heartbeat".into(),
+                            pid: info.pid,
+                            name: info.name.clone(),
+                            old_status: None,
+                            new_status: Some(status_to_str(info.status).to_string()),
+                            cpu_usage_percent: Some(info.cpu_usage_percent),
+                            memory_bytes: Some(info.memory_bytes),
+                        },
+                        ProcessEvent::StatusChanged {
+                            pid,
+                            name,
+                            old_status,
+                            new_status,
+                        } => PyWatcherEvent {
+                            kind: "status_changed".into(),
+                            pid,
+                            name,
+                            old_status: Some(status_to_str(old_status).to_string()),
+                            new_status: Some(status_to_str(new_status).to_string()),
+                            cpu_usage_percent: None,
+                            memory_bytes: None,
+                        },
+                        ProcessEvent::Exited { pid, name } => PyWatcherEvent {
+                            kind: "exited".into(),
+                            pid,
+                            name,
+                            old_status: None,
+                            new_status: None,
+                            cpu_usage_percent: None,
+                            memory_bytes: None,
+                        },
+                        ProcessEvent::Shutdown => return,
+                    };
+                    if let Ok(mut q) = queue_clone.lock() {
+                        q.push(py_event);
+                    }
                 }
-            }
+            });
+            (watcher_handle, drain_task)
         });
 
         *cell = Some(BackgroundHandle {
