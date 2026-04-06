@@ -703,5 +703,145 @@ mod tests {
             assert_eq!(back.frames_per_second, Some(24.0));
             assert!(back.get_prim("/World").is_some());
         }
+
+        #[test]
+        fn test_get_prim_mut() {
+            let mut layer = UsdLayer::new("test.usda");
+            layer.define_prim(UsdPrim::new(SdfPath::new("/Root").unwrap(), "Xform"));
+            {
+                let prim = layer.get_prim_mut("/Root").unwrap();
+                prim.kind = "assembly".to_string();
+            }
+            let prim = layer.get_prim("/Root").unwrap();
+            assert_eq!(prim.kind, "assembly");
+        }
+
+        #[test]
+        fn test_get_prim_mut_nonexistent() {
+            let mut layer = UsdLayer::new("test.usda");
+            assert!(layer.get_prim_mut("/NonExistent").is_none());
+        }
+    }
+
+    mod test_vt_value_additional {
+        use super::*;
+
+        #[test]
+        fn test_type_names_all_variants() {
+            assert_eq!(VtValue::Int64(100).type_name(), "int64");
+            assert_eq!(VtValue::Vec2f(1.0, 2.0).type_name(), "float2");
+            assert_eq!(VtValue::Vec4f(1.0, 2.0, 3.0, 4.0).type_name(), "float4");
+            assert_eq!(VtValue::IntArray(vec![1, 2, 3]).type_name(), "int[]");
+            assert_eq!(
+                VtValue::Vec3fArray(vec![[1.0, 2.0, 3.0]]).type_name(),
+                "float3[]"
+            );
+            assert_eq!(
+                VtValue::StringArray(vec!["a".to_string()]).type_name(),
+                "string[]"
+            );
+        }
+
+        #[test]
+        fn test_as_float_promotes_double() {
+            let v = VtValue::Double(2.5_f64);
+            let f = v.as_float().unwrap();
+            assert!((f - 2.5_f32).abs() < 1e-4);
+        }
+
+        #[test]
+        fn test_as_float_promotes_int() {
+            let v = VtValue::Int(7);
+            let f = v.as_float().unwrap();
+            assert!((f - 7.0_f32).abs() < 1e-6);
+        }
+
+        #[test]
+        fn test_as_float_none_for_non_numeric() {
+            assert!(VtValue::Bool(true).as_float().is_none());
+            assert!(VtValue::Token("foo".into()).as_float().is_none());
+        }
+
+        #[test]
+        fn test_as_str_none_for_non_string() {
+            assert!(VtValue::Float(1.0).as_str().is_none());
+            assert!(VtValue::Bool(false).as_str().is_none());
+        }
+
+        #[test]
+        fn test_matrix4d_serialization() {
+            let m = VtValue::Matrix4d([1.0; 16]);
+            let json = serde_json::to_string(&m).unwrap();
+            let back: VtValue = serde_json::from_str(&json).unwrap();
+            assert!(matches!(back, VtValue::Matrix4d(_)));
+        }
+    }
+
+    mod test_sdf_path_additional {
+        use super::*;
+
+        #[test]
+        fn test_child_on_root_slash() {
+            // Root path ends with '/' — child should not double-slash
+            let root = SdfPath::root();
+            let child = root.child("World").unwrap();
+            assert_eq!(child.as_str(), "/World");
+        }
+
+        #[test]
+        fn test_parent_of_deep_path() {
+            let p = SdfPath::new("/A/B/C/D").unwrap();
+            let parent = p.parent().unwrap();
+            assert_eq!(parent.as_str(), "/A/B/C");
+        }
+    }
+
+    mod test_usd_stage_metrics {
+        use super::*;
+
+        #[test]
+        fn test_default_is_all_zero() {
+            let m = UsdStageMetrics::default();
+            assert_eq!(m.prim_count, 0);
+            assert_eq!(m.mesh_count, 0);
+            assert_eq!(m.camera_count, 0);
+            assert_eq!(m.light_count, 0);
+            assert_eq!(m.material_count, 0);
+            assert_eq!(m.xform_count, 0);
+        }
+
+        #[test]
+        fn test_populated_metrics() {
+            let m = UsdStageMetrics {
+                prim_count: 100,
+                mesh_count: 50,
+                camera_count: 2,
+                light_count: 5,
+                material_count: 20,
+                xform_count: 23,
+            };
+            assert_eq!(m.prim_count, 100);
+            assert_eq!(
+                m.mesh_count + m.camera_count + m.light_count + m.material_count + m.xform_count,
+                100
+            );
+        }
+
+        #[test]
+        fn test_serialization_roundtrip() {
+            let m = UsdStageMetrics {
+                prim_count: 42,
+                mesh_count: 10,
+                camera_count: 1,
+                light_count: 3,
+                material_count: 8,
+                xform_count: 20,
+            };
+            let json = serde_json::to_string(&m).unwrap();
+            let back: UsdStageMetrics = serde_json::from_str(&json).unwrap();
+            assert_eq!(back.prim_count, 42);
+            assert_eq!(back.mesh_count, 10);
+            assert_eq!(back.camera_count, 1);
+        }
     }
 }

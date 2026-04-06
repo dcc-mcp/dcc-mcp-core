@@ -685,4 +685,57 @@ mod tests {
         assert_eq!(capture.height, 1080);
         assert_eq!(capture.viewport.as_deref(), Some("persp"));
     }
+
+    #[test]
+    fn test_dcc_info_no_python_version() {
+        let info = DccInfo {
+            dcc_type: "unity".to_string(),
+            version: "2022.3".to_string(),
+            python_version: None,
+            platform: "windows".to_string(),
+            pid: 99999,
+            metadata: HashMap::new(),
+        };
+        let json = serde_json::to_string(&info).unwrap();
+        let back: DccInfo = serde_json::from_str(&json).unwrap();
+        assert!(back.python_version.is_none());
+        assert_eq!(back.dcc_type, "unity");
+    }
+
+    #[test]
+    fn test_script_result_context_field() {
+        let mut result = ScriptResult::success("done", 10);
+        result
+            .context
+            .insert("node".to_string(), "pSphere1".to_string());
+        assert_eq!(result.context["node"], "pSphere1");
+        let json = serde_json::to_string(&result).unwrap();
+        let back: ScriptResult = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.context["node"], "pSphere1");
+    }
+
+    #[test]
+    fn test_capture_result_no_viewport() {
+        let capture = CaptureResult {
+            data: vec![1, 2, 3],
+            width: 640,
+            height: 480,
+            format: "jpeg".to_string(),
+            viewport: None,
+        };
+        assert!(capture.viewport.is_none());
+    }
+
+    #[test]
+    fn test_dcc_error_not_recoverable() {
+        let err = DccError {
+            code: DccErrorCode::Internal,
+            message: "Fatal error".to_string(),
+            details: None,
+            recoverable: false,
+        };
+        assert!(!err.recoverable);
+        assert!(err.details.is_none());
+        assert!(err.to_string().contains("INTERNAL"));
+    }
 }
