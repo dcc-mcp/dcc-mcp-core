@@ -67,8 +67,36 @@ skills, skipped = scan_and_load(dcc_name="maya")
 - Uses IPC (Unix socket / named pipe) for process communication
 - `TransportManager` manages connection pools with `CircuitBreaker` resilience
 - `FramedChannel` for reliable message delivery with message framing
-- Connect: `connect_ipc(address)` → `FramedChannel`
-- Listen: `IpcListener.new(address).start(handler_fn)` → `ListenerHandle`
+- Connect (client): `connect_ipc(address) -> FramedChannel`
+- Listen (server): `IpcListener.new(address)` → `.start(handler_fn) -> ListenerHandle`
+  - Note: `start()` is the method name (not `.bind()` + `.accept()`)
+
+### Quick Lookup: Common Method Signatures
+
+```python
+# ActionDispatcher — only .dispatch(), never .call()
+dispatcher = ActionDispatcher(registry)   # takes ONE arg; no validator param
+result = dispatcher.dispatch("action_name", json.dumps({"key": "value"}))
+# result keys: "action", "output", "validation_skipped"
+
+# scan_and_load — ALWAYS returns a 2-TUPLE
+skills, skipped = scan_and_load(dcc_name="maya")   # never: skills = scan_and_load(...)
+
+# success_result — extra kwargs go into context, NOT "context=" keyword arg
+result = success_result("message", prompt="hint", count=5)
+# result.context == {"count": 5}
+
+# error_result — positional args
+result = error_result("Failed", "specific error string")
+
+# EventBus.subscribe returns int ID
+sub_id = bus.subscribe("event_name", handler_fn)
+bus.unsubscribe("event_name", sub_id)
+
+# ActionRegistry.register — takes keyword args, NOT handler=
+registry.register(name="action", description="...", dcc="maya", version="1.0.0")
+# Use dispatcher.register_handler() to attach a Python callable
+```
 
 ### When Exploring Unknown Symbols
 

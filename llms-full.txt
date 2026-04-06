@@ -1487,12 +1487,15 @@ from dcc_mcp_core import TransportAddress, connect_ipc, success_result, error_re
 addr = TransportAddress.default_local("maya", pid=12345)
 channel = connect_ipc(addr)
 try:
-    result = channel.call("execute_python", params=b'import maya.cmds; print(maya.cmds.ls())')
-    if result["success"]:
-        output = result["payload"].decode()
+    # FramedChannel API: send_request() + recv(); there is no .call() method
+    req_id = channel.send_request("execute_python", params=b'import maya.cmds; print(maya.cmds.ls())')
+    msg = channel.recv(timeout_ms=10000)
+    if msg and msg.get("type") == "response":
+        payload = msg.get("payload", b"")
+        output = payload.decode() if isinstance(payload, bytes) else str(payload)
         r = success_result(output, prompt="Objects listed. You can now select one to modify.")
     else:
-        r = error_result("DCC script failed", result["error"] or "unknown")
+        r = error_result("DCC script failed", "No response or unexpected message type")
 finally:
     channel.shutdown()
 ```

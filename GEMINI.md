@@ -34,7 +34,7 @@ vx just lint-fix     # Auto-fix all lint issues
 - **~120 public Python symbols** exported from `python/dcc_mcp_core/__init__.py`
 - **Zero runtime Python deps** — all logic in Rust, no `dependencies = [...]` in pyproject.toml
 - Python 3.7–3.13 supported (abi3-py38 wheel; separate non-abi3 wheel for 3.7)
-- Version: 0.12.x — managed by Release Please, never manually bump
+- Version: **0.12.6** — managed by Release Please, never manually bump
 
 ## Gemini-Specific Workflows
 
@@ -128,9 +128,13 @@ Action naming: `{skill_name}__{script_stem}` (hyphens → underscores, `__` sepa
 5. **Build before testing**: `vx just dev` before `vx just test`
 6. **Use vx prefix**: `vx just test` not `pytest`, `vx just lint` not `ruff check`
 7. **Legacy APIs removed in v0.12+**: `ActionManager`, `Action` base class, `create_action_manager()`, `MiddlewareChain`
-8. **scan_and_load returns tuple**: `(List[SkillMetadata], List[str])` — unpack both
+8. **scan_and_load returns tuple**: `(List[SkillMetadata], List[str])` — unpack both — `skills = scan_and_load(...)` is WRONG
 9. **`_core.pyi` is authoritative**: When unsure of param names/types, read stubs first
 10. **`.agents/` is gitignored**: Use `git add -f` for files there
+11. **`ActionDispatcher` takes ONE arg**: `ActionDispatcher(registry)` — no `validator=` param; method is `.dispatch(name, json_str)` not `.call()`
+12. **`success_result` kwargs → context**: `success_result("msg", count=5)` → `context={"count":5}` — do NOT use `context=` keyword
+13. **`error_result` positional args**: `error_result("msg", "error string")` — not `error_result(message=..., error=...)`
+14. **`EventBus.subscribe` returns int**: Store the return value to unsubscribe later: `sub_id = bus.subscribe(...)`
 
 ## CI/CD Summary
 

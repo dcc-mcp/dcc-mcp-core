@@ -46,37 +46,43 @@ pip install -e .
 ### 基本用法
 
 ```python
+import json
 from dcc_mcp_core import (
-    ActionRegistry, ActionDispatcher, ActionValidator,
-    EventBus, ActionResultModel, success_result, scan_and_load
+    ActionRegistry, ActionDispatcher,
+    EventBus, success_result, scan_and_load
 )
 
-# 1. 创建动作注册表并从环境变量加载 Skills
-registry = ActionRegistry()
-skills = scan_and_load(dcc_name="maya")
+# 1. 加载 Skills；scan_and_load 返回 2-tuple (skills, skipped_dirs)
+skills, skipped = scan_and_load(dcc_name="maya")
 print(f"已加载 {len(skills)} 个技能包")
 
-# 2. 设置带验证的调度器
-validator = ActionValidator()
-dispatcher = ActionDispatcher(registry, validator)
+# 2. 将发现的 Skills 注册到 ActionRegistry
+registry = ActionRegistry()
+from pathlib import Path
+for skill in skills:
+    for script_path in skill.scripts:
+        stem = Path(script_path).stem
+        action_name = f"{skill.name.replace('-', '_')}__{stem}"
+        registry.register(name=action_name, description=skill.description, dcc=skill.dcc)
 
-# 3. 订阅生命周期事件
-bus = EventBus()
-bus.subscribe("action.after_execute", lambda e: print(f"✓ {e.action_name}: {e.result.success}"))
-
-# 4. 调用动作（自动验证参数）
-result = dispatcher.call(
+# 3. 创建调度器并注册处理函数
+dispatcher = ActionDispatcher(registry)
+dispatcher.register_handler(
     "maya_geometry__create_sphere",
-    radius=2.0,
-    position=[1, 0, 0]
+    lambda params: {"object_name": "pSphere1", "radius": params.get("radius", 1.0)},
 )
 
-if result.success:
-    print(f"已创建: {result.context.get('object_name')}")
-    if result.prompt:
-        print(f"建议: {result.prompt}")
-else:
-    print(f"错误: {result.error}")
+# 4. 订阅生命周期事件
+bus = EventBus()
+bus.subscribe("action.after_execute", lambda **kw: print(f"事件: {kw}"))
+
+# 5. 调度动作
+result = dispatcher.dispatch(
+    "maya_geometry__create_sphere",
+    json.dumps({"radius": 2.0}),
+)
+output = result["output"]
+print(f"已创建: {output.get('object_name')}")
 ```
 
 ## 核心概念
@@ -90,14 +96,15 @@ from dcc_mcp_core import ActionResultModel, success_result, error_result
 
 # 工厂函数（推荐）
 ok = success_result(
-    message="球体已创建",
+    "球体已创建",
     prompt="考虑添加材质或调整 UV",
-    context={"object_name": "sphere1", "position": [0, 1, 0]}
+    object_name="sphere1", position=[0, 1, 0]
 )
+# ok.context == {"object_name": "sphere1", "position": [0, 1, 0]}
 
 err = error_result(
-    message="创建球体失败",
-    error="半径必须为正数"
+    "创建球体失败",
+    "半径必须为正数"
 )
 
 # 直接构造
@@ -123,8 +130,9 @@ result.to_dict()                        # -> dict
 ### ActionRegistry 与调度器 — 动作系统
 
 ```python
+import json
 from dcc_mcp_core import (
-    ActionRegistry, ActionDispatcher, ActionValidator,
+    ActionRegistry, ActionDispatcher,
     EventBus, SemVer, VersionedRegistry, VersionConstraint
 )
 
@@ -145,20 +153,25 @@ names = registry.list_actions_for_dcc("maya")
 all_actions = registry.list_actions()
 dccs = registry.get_all_dccs()
 
-# 带验证的调度器
-dispatcher = ActionDispatcher(registry, ActionValidator())
-result = dispatcher.call("my_action", param="value")
+# 带验证的调度器（ActionDispatcher 只接受 registry）
+dispatcher = ActionDispatcher(registry)
+dispatcher.register_handler("my_action", lambda params: {"done": True, "param": params.get("param")})
+result = dispatcher.dispatch("my_action", json.dumps({"param": "value"}))
+# result == {"action": "my_action", "output": {"done": True, "param": "value"}, "validation_skipped": False}
 
 # 事件驱动架构
 bus = EventBus()
-bus.subscribe("action.before_execute", my_pre_hook)
-bus.subscribe("action.after_execute", my_post_hook)
+sub_id = bus.subscribe("action.before_execute", lambda **kw: print(f"before: {kw}"))
 bus.publish("action.before_execute", action_name="test")
+bus.unsubscribe("action.before_execute", sub_id)
 
 # 版本感知注册表
 vreg = VersionedRegistry()
-vreg.register("my_action", version=SemVer(1, 2, 0), handler=my_fn)
-handler = vreg.get("my_action", constraint=VersionConstraint.parse(">=1.0.0"))
+vreg.register_versioned("my_action", dcc="maya", version="1.2.0")
+vreg.register_versioned("my_action", dcc="maya", version="2.0.0")
+result_v = vreg.resolve("my_action", dcc="maya", constraint=">=1.0.0")   # → version "2.0.0"
+result_v1 = vreg.resolve("my_action", dcc="maya", constraint="^1.0.0")  # → version "1.2.0"
+latest = vreg.latest_version("my_action", dcc="maya")                    # → "2.0.0"
 ```
 
 ## Skills 技能包系统 — 零代码 MCP 工具注册

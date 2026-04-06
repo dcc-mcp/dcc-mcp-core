@@ -46,37 +46,43 @@ pip install -e .
 ### Basic Usage
 
 ```python
+import json
 from dcc_mcp_core import (
-    ActionRegistry, ActionDispatcher, ActionValidator,
-    EventBus, ActionResultModel, success_result, scan_and_load
+    ActionRegistry, ActionDispatcher,
+    EventBus, success_result, scan_and_load
 )
 
-# 1. Create action registry and load skills from environment
-registry = ActionRegistry()
-skills = scan_and_load(dcc_name="maya")
+# 1. Load skills; scan_and_load returns a 2-tuple (skills, skipped_dirs)
+skills, skipped = scan_and_load(dcc_name="maya")
 print(f"Loaded {len(skills)} skills")
 
-# 2. Set up validated dispatch
-validator = ActionValidator()
-dispatcher = ActionDispatcher(registry, validator)
+# 2. Register actions from discovered skills
+registry = ActionRegistry()
+from pathlib import Path
+for skill in skills:
+    for script_path in skill.scripts:
+        stem = Path(script_path).stem
+        action_name = f"{skill.name.replace('-', '_')}__{stem}"
+        registry.register(name=action_name, description=skill.description, dcc=skill.dcc)
 
-# 3. Subscribe to lifecycle events
-bus = EventBus()
-bus.subscribe("action.after_execute", lambda e: print(f"✓ {e.action_name}: {e.result.success}"))
-
-# 4. Call an action with automatic validation
-result = dispatcher.call(
+# 3. Set up dispatcher and register a handler
+dispatcher = ActionDispatcher(registry)
+dispatcher.register_handler(
     "maya_geometry__create_sphere",
-    radius=2.0,
-    position=[1, 0, 0]
+    lambda params: {"object_name": "pSphere1", "radius": params.get("radius", 1.0)},
 )
 
-if result.success:
-    print(f"Created: {result.context.get('object_name')}")
-    if result.prompt:
-        print(f"Suggestion: {result.prompt}")
-else:
-    print(f"Error: {result.error}")
+# 4. Subscribe to lifecycle events
+bus = EventBus()
+bus.subscribe("action.after_execute", lambda **kw: print(f"event: {kw}"))
+
+# 5. Dispatch an action
+result = dispatcher.dispatch(
+    "maya_geometry__create_sphere",
+    json.dumps({"radius": 2.0}),
+)
+output = result["output"]
+print(f"Created: {output.get('object_name')}")
 ```
 
 ## Core Concepts
@@ -90,14 +96,15 @@ from dcc_mcp_core import ActionResultModel, success_result, error_result
 
 # Factory functions (recommended)
 ok = success_result(
-    message="Sphere created",
+    "Sphere created",
     prompt="Consider adding materials or adjusting UVs",
-    context={"object_name": "sphere1", "position": [0, 1, 0]}
+    object_name="sphere1", position=[0, 1, 0]
 )
+# ok.context == {"object_name": "sphere1", "position": [0, 1, 0]}
 
 err = error_result(
-    message="Failed to create sphere",
-    error="Radius must be positive"
+    "Failed to create sphere",
+    "Radius must be positive"
 )
 
 # Direct construction
@@ -118,24 +125,27 @@ result.context      # dict — arbitrary structured data
 ### ActionRegistry & Dispatcher — The Action System
 
 ```python
+import json
 from dcc_mcp_core import (
     ActionRegistry, ActionDispatcher, ActionValidator,
     EventBus, SemVer, VersionedRegistry
 )
 
-# Registry with version support
+# Registry with search support
 registry = ActionRegistry()
-registry.register("my_action", version=SemVer(0, 1, 0), handler=my_handler)
+registry.register("my_action", description="My action", category="tools", version="1.0.0")
 
-# Validated dispatcher
-dispatcher = ActionDispatcher(registry, ActionValidator())
-result = dispatcher.call("my_action", param1="value")
+# Validated dispatcher (takes only registry; validate separately with ActionValidator)
+dispatcher = ActionDispatcher(registry)
+dispatcher.register_handler("my_action", lambda params: {"done": True})
+result = dispatcher.dispatch("my_action", json.dumps({}))
+# result == {"action": "my_action", "output": {"done": True}, "validation_skipped": True}
 
 # Event-driven architecture
 bus = EventBus()
-bus.subscribe("action.before_execute", my_pre_hook)
-bus.subscribe("action.after_execute", my_post_hook)
+sub_id = bus.subscribe("action.before_execute", lambda **kw: print(f"before: {kw}"))
 bus.publish("action.before_execute", action_name="test")
+bus.unsubscribe("action.before_execute", sub_id)
 ```
 
 ## Skills System — Zero-Code MCP Tool Registration

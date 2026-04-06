@@ -56,7 +56,7 @@ meta = dcc_mcp_core.parse_skill_md(dirs[0])  # -> SkillMetadata or None
 - Build from source: `maturin develop --features python-bindings,ext-module`
 - Python: >=3.7 (CI tests 3.7–3.13; abi3-py38 wheel for 3.8+)
 - Build: maturin (Rust 1.85+ + PyO3)
-- Version: 0.12.x
+- Version: 0.12.6
 - License: MIT
 
 ## Architecture
@@ -145,8 +145,9 @@ crates/
 
 ### Transport (`dcc_mcp_core`)
 
-- `IpcListener.new(address)` → `.start(handler_fn) -> ListenerHandle`
-- `connect_ipc(address) -> FramedChannel`
+- `IpcListener.bind(address) -> IpcListener` → `.accept() -> FramedChannel` (server-side)
+- `connect_ipc(address) -> FramedChannel` (client-side)
+- `FramedChannel` — `.send_request(method, params=None) -> req_id`, `.recv(timeout_ms=None) -> dict|None`, `.ping() -> int`, `.shutdown()`
 - `TransportManager` — connection pool + circuit breaker
 - `TransportAddress`, `TransportScheme`, `RoutingStrategy`
 

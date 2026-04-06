@@ -33,7 +33,7 @@
 - **Build system**: `cargo` (Rust) + `maturin` (Python wheels)
 - **Python package**: `dcc_mcp_core` with ~120 public symbols re-exported from `_core` native extension
 - **Zero runtime Python dependencies** — everything is compiled into the Rust core
-- **Version**: 0.12.x (use Release Please for versioning — never manually bump)
+- **Version**: 0.12.6 (use Release Please for versioning — never manually bump)
 - **Python support**: 3.7–3.13 (CI tests 3.7–3.13; abi3-py38 wheel for 3.8+)
 
 ## Repository Structure
@@ -64,7 +64,7 @@ dcc-mcp-core/
 │   ├── _core.pyi               # Type stubs (auto-generated-ish) — ground truth for parameter names
 │   └── py.typed                # PEP 561 marker
 │
-├── tests/                      # Python integration tests (19 files)
+├── tests/                      # Python integration tests (26 files)
 ├── examples/skills/            # 9 example SKILL.md packages (hello-world, maya-*, git-*, etc.)
 ├── docs/                       # VitePress documentation site (EN + ZH)
 │   ├── api/                    # API reference per module
@@ -704,18 +704,22 @@ from dcc_mcp_core import (
 
 def call_maya_command(pid: int, python_code: str):
     addr = TransportAddress.default_local("maya", pid)
-    channel = connect_ipc(addr, timeout_ms=10000)
+    channel = connect_ipc(addr)
     try:
-        result = channel.call("execute_python", params=python_code.encode())
-        if result["success"]:
+        # FramedChannel: use send_request() + recv(); there is no .call() method
+        req_id = channel.send_request("execute_python", params=python_code.encode())
+        msg = channel.recv(timeout_ms=10000)
+        if msg and msg.get("type") == "response":
+            payload = msg.get("payload", b"")
+            decoded = payload.decode() if isinstance(payload, bytes) else str(payload)
             return success_result(
-                result["payload"].decode(),
+                decoded,
                 prompt="Command executed. Check result and decide next step.",
             )
         else:
             return error_result(
                 "DCC script failed",
-                result["error"] or "unknown error",
+                "No response or unexpected message type",
                 possible_solutions=["Check Maya is running", "Verify syntax"],
             )
     except Exception as e:
@@ -786,7 +790,54 @@ for entry in ctx.audit_log.entries():
 - [llms.txt specification](https://llmstxt.org/) — AI-optimized documentation format by Answer.AI
 - [Model Context Protocol](https://modelcontextprotocol.io/) — the underlying MCP standard (Anthropic)
 - [MCP Agent Skills](https://modelcontextprotocol.io/docs/develop/build-with-agent-skills) — SKILL.md ecosystem and agent skills spec
+- [Agent Skills Specification](https://agentskills.io/specification) — official SKILL.md frontmatter format and best practices
 - [PyO3 documentation](https://pyo3.rs/) — Rust-Python bindings used in this project
 - [maturin documentation](https://www.maturin.rs/) — Python wheel builder used for release
 - [OpenClaw Skills format](https://docs.openclaw.ai/tools) — SKILL.md ecosystem compatibility
 - [vx tool manager](https://github.com/loonghao/vx) — universal dev tool manager used in this project
+
+## When Stuck
+
+If you are uncertain about how to proceed, follow these steps **in order** — do NOT make large speculative changes:
+
+1. **Read the type stubs first**: `python/dcc_mcp_core/_core.pyi` has authoritative parameter names, types, and docstrings with inline examples.
+2. **Read the public API**: `python/dcc_mcp_core/__init__.py` lists every public symbol — if it's not there, it doesn't exist.
+3. **Check the tests**: `tests/` directory contains executable usage examples for every major API. Run `vx just test -- -k "test_your_keyword" -v` to see a specific example.
+4. **Ask clarifying questions** rather than guessing: e.g., "Does `ActionDispatcher` have a `.call()` method?" — answer: No, use `.dispatch(action_name, params_json)`.
+5. **Run `cargo check --workspace`** early when adding Rust code to catch errors before a full build.
+6. **Do not** hallucinate method names — every public method is documented in `_core.pyi`.
+
+### Quick Lookup: Common Method Signatures
+
+```python
+# ActionDispatcher — only .dispatch(), never .call()
+dispatcher = ActionDispatcher(registry)   # takes ONE arg (no validator)
+result = dispatcher.dispatch("action_name", json.dumps({"key": "value"}))
+
+# scan_and_load — always returns a 2-TUPLE
+skills, skipped = scan_and_load(dcc_name="maya")   # unpack both
+
+# success_result — kwargs become context, NOT "context=" keyword
+result = success_result("message", prompt="hint", count=5, name="sphere1")
+# result.context == {"count": 5, "name": "sphere1"}
+
+# error_result — positional args (message, error), NOT keyword "message=" / "error="
+result = error_result("Failed", "specific error details")
+
+# EventBus.subscribe returns an int ID for unsubscribe
+sub_id = bus.subscribe("event_name", handler_fn)
+bus.unsubscribe("event_name", sub_id)
+```
+
+## PR Checklist
+
+Before opening a PR, verify:
+
+- [ ] `vx just preflight` passes (Rust check + clippy + fmt + test-rust)
+- [ ] `vx just test` passes (all Python tests)
+- [ ] `vx just lint` passes (clippy + fmt-check + ruff)
+- [ ] No new runtime Python dependencies added to `pyproject.toml`
+- [ ] If Rust structs changed: updated `python.rs`, `src/lib.rs`, `__init__.py`, `_core.pyi`
+- [ ] PR title follows Conventional Commits format (`docs:`, `feat:`, `fix:`, etc.)
+- [ ] No manual version bumps (Release Please handles this)
+- [ ] `.agents/` skill files added with `git add -f` (they are gitignored)

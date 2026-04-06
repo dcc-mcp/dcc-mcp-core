@@ -1,9 +1,9 @@
 ---
 name: dcc-mcp-core
-description: "Foundation library for the DCC Model Context Protocol (MCP) ecosystem. Provides Rust-powered action management, skills system, transport layer, sandbox security, shared memory, screen capture, USD scene support, and telemetry for AI-assisted DCC workflows."
-tools: ["Bash", "Read", "Write", "Edit"]
-tags: ["mcp", "dcc", "rust", "pyo3", "maya", "blender", "houdini", "ai", "skills", "actions"]
-version: "0.12.5"
+description: "Foundation library for the DCC Model Context Protocol (MCP) ecosystem. Provides Rust-powered action management, skills system, transport layer, sandbox security, shared memory, screen capture, USD scene support, and telemetry for AI-assisted DCC workflows. Use when working with Maya, Blender, Houdini, 3ds Max, or any DCC MCP integration."
+allowed-tools: ["Bash", "Read", "Write", "Edit"]
+compatibility: "Python 3.7-3.13; Rust 1.85+ required to build from source; zero runtime Python dependencies"
+version: "0.12.6"
 ---
 
 # dcc-mcp-core — DCC MCP Ecosystem Foundation
@@ -120,13 +120,16 @@ if not ok:
 from dcc_mcp_core import TransportAddress, connect_ipc, success_result, error_result
 
 addr = TransportAddress.default_local("maya", pid=12345)
-channel = connect_ipc(addr, timeout_ms=10000)
+channel = connect_ipc(addr)
 try:
-    result = channel.call("execute_python", params=b'import maya.cmds; cmds.sphere()')
-    if result["success"]:
-        return success_result(result["payload"].decode())
+    # FramedChannel uses send_request() + recv(); there is no .call() method
+    req_id = channel.send_request("execute_python", params=b'import maya.cmds; cmds.sphere()')
+    msg = channel.recv(timeout_ms=10000)  # blocks until response
+    if msg and msg.get("type") == "response":
+        payload = msg.get("payload", b"")
+        return success_result(payload.decode() if isinstance(payload, bytes) else str(payload))
     else:
-        return error_result("DCC call failed", result["error"] or "")
+        return error_result("DCC call failed", "No response received")
 finally:
     channel.shutdown()
 ```
