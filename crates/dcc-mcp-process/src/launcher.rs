@@ -320,7 +320,7 @@ mod tests {
                 }
                 Err(e) => {
                     // On some CI environments the command may not exist; skip gracefully
-                    eprintln!("skipping launch_real_process: {e}");
+                    tracing::warn!("skipping launch_real_process: {e}");
                 }
             }
         }
