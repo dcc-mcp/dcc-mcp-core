@@ -1,80 +1,160 @@
 # 自定义 Action
 
-学习如何为 DCC 应用创建自定义 Action。
+学习如何使用基于注册表的 API 为 DCC 应用程序创建自定义 Action。
 
 ## 完整示例
 
 ```python
-from dcc_mcp_core.actions.base import Action
-from pydantic import Field, field_validator
+import json
+from dcc_mcp_core import ActionRegistry, ActionDispatcher
 
-class CreateSphereAction(Action):
-    # Action 元数据
-    name = "create_sphere"
-    description = "在 Maya 中创建球体"
-    tags = ["几何体", "创建"]
-    dcc = "maya"
-    order = 0
+# 1. 使用 JSON Schema 注册 action 元数据
+reg = ActionRegistry()
+reg.register(
+    name="create_sphere",
+    description="在 Maya 中创建多边形球体",
+    category="geometry",
+    tags=["geo", "create", "mesh"],
+    dcc="maya",
+    version="1.0.0",
+    input_schema=json.dumps({
+        "type": "object",
+        "required": ["radius"],
+        "properties": {
+            "radius": {
+                "type": "number",
+                "minimum": 0.1,
+                "description": "球体半径"
+            },
+            "segments": {
+                "type": "integer",
+                "minimum": 4,
+                "default": 16,
+                "description": "细分段数"
+            },
+            "name": {
+                "type": "string",
+                "description": "可选的球体名称"
+            }
+        }
+    }),
+)
 
-    # 带验证的输入参数模型
-    class InputModel(Action.InputModel):
-        radius: float = Field(1.0, description="球体半径")
-        position: list[float] = Field([0, 0, 0], description="位置")
-        name: str = Field(None, description="球体名称")
+# 2. 创建 dispatcher 并注册处理器
+dispatcher = ActionDispatcher(reg)
 
-        @field_validator('radius')
-        def validate_radius(cls, v):
-            if v <= 0:
-                raise ValueError("半径必须为正数")
-            return v
+def handle_create_sphere(params):
+    radius = params.get("radius", 1.0)
+    segments = params.get("segments", 16)
+    name = params.get("name")
 
-    # 输出数据模型
-    class OutputModel(Action.OutputModel):
-        object_name: str = Field(description="创建的对象名称")
-        position: list[float] = Field(description="最终位置")
+    # 调用 Maya API（使用 maya.cmds 的示例）
+    import maya.cmds as cmds
+    sphere_name = cmds.polySphere(r=radius, sx=segments, sy=segments, n=name)[0]
 
-    def _execute(self) -> None:
-        radius = self.input.radius
-        cmds = self.context.get("cmds")
+    return {
+        "created": True,
+        "object_name": sphere_name,
+        "radius": radius,
+        "segments": segments,
+    }
 
-        try:
-            sphere = cmds.polySphere(r=radius, n=self.input.name)[0]
-            cmds.move(*self.input.position, sphere)
+dispatcher.register_handler("create_sphere", handle_create_sphere)
 
-            self.output = self.OutputModel(
-                object_name=sphere,
-                position=self.input.position,
-                prompt="现在可以修改球体属性或添加材质"
-            )
-        except Exception as e:
-            raise Exception(f"创建球体失败: {str(e)}") from e
+# 3. 使用 JSON 分派（wire format）
+import json
+result = dispatcher.dispatch("create_sphere", json.dumps({"radius": 2.0, "segments": 32}))
+print(result["output"]["object_name"])  # "pSphere1"
 ```
 
 ## 关键要点
 
-1. **始终定义 `InputModel`** — 使用 Pydantic `Field` 为每个参数提供描述
-2. **始终定义 `OutputModel`** — 提供结构化输出
-3. **实现 `_execute()`** — 通过 `self.input`、`self.context` 访问数据，设置 `self.output`
-4. **使用验证器** — `@field_validator`、`@model_validator` 进行参数验证
-5. **让异常自然传播** — 框架会自动将其转换为 `ActionResultModel`
+1. **使用 `ActionRegistry.register()` 注册** —— 传入 name、description、tags、DCC、version 和 JSON Schema
+2. **实现处理器函数** —— 接收 `params: dict`，返回结果字典
+3. **使用 `ActionDispatcher` 注册处理器** —— 将 action 名称连接到 Python 可调用对象
+4. **使用 JSON Schema 进行验证** —— `ActionDispatcher` 在调用处理器之前验证 JSON 输入
+5. **使用 JSON 字符串分派** —— wire format 使用 JSON，而非 Python 字典
 
-## 注册 Action
-
-Action 放置在已注册的路径中时会被自动发现：
+## 处理器函数签名
 
 ```python
-from dcc_mcp_core.actions.manager import ActionManager
-
-manager = ActionManager("maya", load_env_paths=False)
-manager.register_action_path("/path/to/my_actions/")
-manager.refresh_actions()
+def my_handler(params: dict) -> Any:
+    """
+    Args:
+        params: 验证后的参数（已从 JSON 输入解析）
+    Returns:
+        一个字典，作为 action 结果（可序列化为 JSON）
+    """
+    pass
 ```
 
-也可以通过注册表手动注册：
+## 使用 ActionValidator 进行验证
+
+在分派前验证输入：
 
 ```python
-from dcc_mcp_core.actions.registry import ActionRegistry
+from dcc_mcp_core import ActionValidator
 
-registry = ActionRegistry()
-registry.register(CreateSphereAction)
+validator = ActionValidator.from_action_registry(reg, "create_sphere", dcc_name="maya")
+ok, errors = validator.validate('{"radius": 1.5}')
+if not ok:
+    print(f"Validation failed: {errors}")
+    # 处理错误
+```
+
+## 版本化 Action
+
+使用 `VersionedRegistry` 保持向后兼容：
+
+```python
+from dcc_mcp_core import VersionedRegistry
+
+vr = VersionedRegistry()
+
+# v1: 基础球体
+vr.register_versioned(
+    "create_sphere", dcc="maya", version="1.0.0",
+    description="Basic sphere creation",
+)
+
+# v2: 添加细分参数
+vr.register_versioned(
+    "create_sphere", dcc="maya", version="2.0.0",
+    description="Sphere with subdivision control",
+)
+
+# 自动解析最佳版本
+result = vr.resolve("create_sphere", "maya", "^1.0.0")
+print(result["version"])  # "2.0.0"
+```
+
+## JSON Schema 技巧
+
+- 使用 `$ref` 可重用 schema（ActionValidator 不支持 —— 请内联所有定义）
+- `"default"` 字段在输入中缺少 key 时设置默认值
+- 使用 `"minimum"`/`maximum` 进行数值约束
+- 使用 `"minLength"`/`maxLength` 进行字符串长度约束
+- 使用 `"enum"` 限制字符串选择
+
+```python
+input_schema = json.dumps({
+    "type": "object",
+    "required": ["radius"],
+    "properties": {
+        "radius": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 1000.0,
+        },
+        "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+        },
+        "align_to_world": {
+            "type": "boolean",
+            "default": False,
+        }
+    }
+})
 ```

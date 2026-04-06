@@ -29,7 +29,7 @@ use super::types::{PyRoutingStrategy, PyServiceEntry, PyServiceStatus};
 ///
 /// Wraps the Rust `TransportManager` with a Tokio runtime for async→sync bridging.
 ///
-/// ```python
+/// ```python,ignore
 /// from dcc_mcp_core import TransportManager
 ///
 /// transport = TransportManager("/path/to/registry")
@@ -114,11 +114,15 @@ impl PyTransportManager {
     ///     version: DCC version string (optional).
     ///     scene: Currently open scene/file (optional).
     ///     metadata: Arbitrary metadata dict (optional).
+    ///     transport_address: Preferred transport address (optional). When provided,
+    ///         enables IPC registration (Named Pipe / Unix Socket) for lower latency.
+    ///         Use TransportAddress.default_local(dcc_type, pid) to auto-select the
+    ///         optimal IPC transport for the current platform.
     ///
     /// Returns:
     ///     The instance_id (UUID string) of the registered service.
     #[pyo3(name = "register_service")]
-    #[pyo3(signature = (dcc_type, host, port, version=None, scene=None, metadata=None))]
+    #[pyo3(signature = (dcc_type, host, port, version=None, scene=None, metadata=None, transport_address=None))]
     fn py_register_service(
         &self,
         dcc_type: &str,
@@ -127,12 +131,16 @@ impl PyTransportManager {
         version: Option<String>,
         scene: Option<String>,
         metadata: Option<HashMap<String, String>>,
+        transport_address: Option<PyRef<'_, super::types::PyTransportAddress>>,
     ) -> PyResult<String> {
         let mut entry = ServiceEntry::new(dcc_type, host, port);
         entry.version = version;
         entry.scene = scene;
         if let Some(md) = metadata {
             entry.metadata = md;
+        }
+        if let Some(addr) = transport_address {
+            entry.transport_address = Some(addr.inner.clone());
         }
         let instance_id = entry.instance_id.to_string();
         self.inner
@@ -183,6 +191,32 @@ impl PyTransportManager {
     ///     List of ServiceEntry objects.
     #[pyo3(name = "list_all_services")]
     fn py_list_all_services(&self) -> Vec<PyServiceEntry> {
+        self.inner
+            .list_all_services()
+            .iter()
+            .map(PyServiceEntry::from)
+            .collect()
+    }
+
+    /// List all registered instances across all DCC types.
+    ///
+    /// Alias for `list_all_services()` using the naming convention expected
+    /// by smart-routing integrations (see dcc-mcp-ipc #27).
+    ///
+    /// Returns:
+    ///     List of ServiceEntry objects for all registered DCC instances.
+    ///
+    /// Example:
+    ///
+    /// ```text
+    /// from dcc_mcp_core import TransportManager
+    /// mgr = TransportManager("/tmp/dcc-mcp")
+    /// all_instances = mgr.list_all_instances()
+    /// for entry in all_instances:
+    ///     print(entry.dcc_type, entry.instance_id, entry.status)
+    /// ```
+    #[pyo3(name = "list_all_instances")]
+    fn py_list_all_instances(&self) -> Vec<PyServiceEntry> {
         self.inner
             .list_all_services()
             .iter()

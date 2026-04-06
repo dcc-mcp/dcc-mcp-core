@@ -1,83 +1,160 @@
 # Custom Actions
 
-Learn how to create your own actions for DCC applications.
+Learn how to create custom actions for DCC applications using the registry-based API.
 
 ## Complete Example
 
 ```python
-from dcc_mcp_core.actions.base import Action
-from pydantic import Field, field_validator
+import json
+from dcc_mcp_core import ActionRegistry, ActionDispatcher
 
-class CreateSphereAction(Action):
-    # Action metadata
-    name = "create_sphere"
-    description = "Creates a sphere in Maya"
-    tags = ["geometry", "creation"]
-    dcc = "maya"
-    order = 0
+# 1. Register action metadata with a JSON Schema
+reg = ActionRegistry()
+reg.register(
+    name="create_sphere",
+    description="Create a polygon sphere in Maya",
+    category="geometry",
+    tags=["geo", "create", "mesh"],
+    dcc="maya",
+    version="1.0.0",
+    input_schema=json.dumps({
+        "type": "object",
+        "required": ["radius"],
+        "properties": {
+            "radius": {
+                "type": "number",
+                "minimum": 0.1,
+                "description": "Radius of the sphere"
+            },
+            "segments": {
+                "type": "integer",
+                "minimum": 4,
+                "default": 16,
+                "description": "Number of subdivisions"
+            },
+            "name": {
+                "type": "string",
+                "description": "Optional name for the sphere"
+            }
+        }
+    }),
+)
 
-    # Input parameters model with validation
-    class InputModel(Action.InputModel):
-        radius: float = Field(1.0, description="Radius of the sphere")
-        position: list[float] = Field([0, 0, 0], description="Position")
-        name: str = Field(None, description="Name of the sphere")
+# 2. Create dispatcher and register the handler
+dispatcher = ActionDispatcher(reg)
 
-        @field_validator('radius')
-        def validate_radius(cls, v):
-            if v <= 0:
-                raise ValueError("Radius must be positive")
-            return v
+def handle_create_sphere(params):
+    radius = params.get("radius", 1.0)
+    segments = params.get("segments", 16)
+    name = params.get("name")
 
-    # Output data model
-    class OutputModel(Action.OutputModel):
-        object_name: str = Field(description="Name of the created object")
-        position: list[float] = Field(description="Final position")
+    # Call Maya API (example using maya.cmds)
+    import maya.cmds as cmds
+    sphere_name = cmds.polySphere(r=radius, sx=segments, sy=segments, n=name)[0]
 
-    def _execute(self) -> None:
-        radius = self.input.radius
-        position = self.input.position
-        name = self.input.name or f"sphere_{radius}"
+    return {
+        "created": True,
+        "object_name": sphere_name,
+        "radius": radius,
+        "segments": segments,
+    }
 
-        cmds = self.context.get("cmds")
+dispatcher.register_handler("create_sphere", handle_create_sphere)
 
-        try:
-            sphere = cmds.polySphere(r=radius, n=name)[0]
-            cmds.move(*position, sphere)
-
-            self.output = self.OutputModel(
-                object_name=sphere,
-                position=position,
-                prompt="You can now modify the sphere's attributes or add materials"
-            )
-        except Exception as e:
-            raise Exception(f"Failed to create sphere: {str(e)}") from e
+# 3. Dispatch from JSON (wire format)
+import json
+result = dispatcher.dispatch("create_sphere", json.dumps({"radius": 2.0, "segments": 32}))
+print(result["output"]["object_name"])  # "pSphere1"
 ```
 
 ## Key Points
 
-1. **Always define `InputModel`** with Pydantic `Field` for each parameter
-2. **Always define `OutputModel`** for structured output
-3. **Implement `_execute()`** — access `self.input`, `self.context`, set `self.output`
-4. **Use validators** for parameter validation (`@field_validator`, `@model_validator`)
-5. **Let exceptions propagate** — the framework converts them to `ActionResultModel`
+1. **Register with `ActionRegistry.register()`** — pass name, description, tags, DCC, version, and a JSON Schema
+2. **Implement a handler function** — takes `params: dict`, returns a result dict
+3. **Register handler with `ActionDispatcher`** — connects the action name to your Python callable
+4. **Use JSON Schema for validation** — `ActionDispatcher` validates JSON input before calling your handler
+5. **Dispatch with JSON strings** — the wire format uses JSON, not Python dicts
 
-## Registering Actions
-
-Actions are automatically discovered when placed in registered action paths:
+## Handler Function Signature
 
 ```python
-from dcc_mcp_core.actions.manager import ActionManager
-
-manager = ActionManager("maya", load_env_paths=False)
-manager.register_action_path("/path/to/my_actions/")
-manager.refresh_actions()
+def my_handler(params: dict) -> Any:
+    """
+    Args:
+        params: Validated parameters from the JSON input (already parsed)
+    Returns:
+        A dict with the action result (serializable to JSON)
+    """
+    pass
 ```
 
-Or register manually via the registry:
+## Validation with ActionValidator
+
+Validate input before dispatching:
 
 ```python
-from dcc_mcp_core.actions.registry import ActionRegistry
+from dcc_mcp_core import ActionValidator
 
-registry = ActionRegistry()
-registry.register(CreateSphereAction)
+validator = ActionValidator.from_action_registry(reg, "create_sphere", dcc_name="maya")
+ok, errors = validator.validate('{"radius": 1.5}')
+if not ok:
+    print(f"Validation failed: {errors}")
+    # Handle error
+```
+
+## Versioned Actions
+
+Maintain backward compatibility with `VersionedRegistry`:
+
+```python
+from dcc_mcp_core import VersionedRegistry
+
+vr = VersionedRegistry()
+
+# v1: Basic sphere
+vr.register_versioned(
+    "create_sphere", dcc="maya", version="1.0.0",
+    description="Basic sphere creation",
+)
+
+# v2: Adds segments parameter
+vr.register_versioned(
+    "create_sphere", dcc="maya", version="2.0.0",
+    description="Sphere with subdivision control",
+)
+
+# Auto-resolve best version
+result = vr.resolve("create_sphere", "maya", "^1.0.0")
+print(result["version"])  # "2.0.0"
+```
+
+## JSON Schema Tips
+
+- Use `$ref` for reusable schemas (not supported in ActionValidator — inline all definitions)
+- `"default"` field sets default values when key is missing in input
+- Use `"minimum"`/`maximum` for numeric constraints
+- Use `"minLength"`/`maxLength` for string length
+- Use `"enum"` for restricted string choices
+
+```python
+input_schema = json.dumps({
+    "type": "object",
+    "required": ["radius"],
+    "properties": {
+        "radius": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 1000.0,
+        },
+        "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+        },
+        "align_to_world": {
+            "type": "boolean",
+            "default": False,
+        }
+    }
+})
 ```

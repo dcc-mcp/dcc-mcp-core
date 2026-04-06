@@ -2,7 +2,8 @@
 //!
 //! Exposes `PyTransportManager`, `PyServiceEntry`, `PyServiceStatus`,
 //! `PyRoutingStrategy`, `PyTransportAddress`, `PyTransportScheme`,
-//! `PyIpcListener`, `PyListenerHandle`, and `PyFramedChannel` as Python classes.
+//! `PyIpcListener`, `PyListenerHandle`, `PyFramedChannel`, and message
+//! codec functions as Python classes/functions.
 //!
 //! Async operations are bridged to synchronous calls via an internal Tokio runtime.
 //!
@@ -12,12 +13,14 @@
 //! - [`manager`] — `PyTransportManager` implementation
 //! - [`listener`] — `PyIpcListener` and `PyListenerHandle` implementation
 //! - [`channel`] — `PyFramedChannel` implementation and `connect_ipc()` function
+//! - [`message`] — `encode_request`, `encode_response`, `encode_notify`, `decode_envelope`
 //! - [`helpers`] — internal conversion helpers
 
 pub mod channel;
 pub mod helpers;
 pub mod listener;
 pub mod manager;
+pub mod message;
 pub mod types;
 
 // Re-export everything for backward compatibility with the flat `python::*` path.

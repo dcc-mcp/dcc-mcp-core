@@ -99,7 +99,7 @@ mod tests {
     #[cfg(not(target_os = "linux"))]
     #[test]
     fn test_x11_capture_returns_not_supported_on_non_linux() {
-        let b = X11Backend::default();
+        let b = X11Backend;
         let result = b.capture(&CaptureConfig::default());
         assert!(matches!(
             result.unwrap_err(),

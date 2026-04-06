@@ -5,7 +5,7 @@
 //!
 //! ## DCC-side usage (Python)
 //!
-//! ```python
+//! ```python,ignore
 //! from dcc_mcp_core import IpcListener, TransportAddress
 //!
 //! # Bind a TCP listener on an ephemeral port
@@ -39,7 +39,7 @@ use super::types::PyTransportAddress;
 /// Wraps [`IpcListener`] with a Tokio runtime for async→sync bridging.
 /// Supports TCP, Windows Named Pipes, and Unix Domain Sockets.
 ///
-/// ```python
+/// ```python,ignore
 /// from dcc_mcp_core import IpcListener, TransportAddress
 ///
 /// # TCP listener on ephemeral port
@@ -221,7 +221,7 @@ impl PyIpcListener {
 ///
 /// Wraps [`ListenerHandle`] with a Tokio runtime for async→sync bridging.
 ///
-/// ```python
+/// ```python,ignore
 /// from dcc_mcp_core import IpcListener, TransportAddress
 ///
 /// addr = TransportAddress.tcp("127.0.0.1", 0)

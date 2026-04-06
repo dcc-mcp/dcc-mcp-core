@@ -302,7 +302,7 @@ mod tests {
             let executable = "sh";
 
             #[cfg(windows)]
-            let args = vec!["/C", "timeout /T 5 /NOBREAK > nul"];
+            let args = ["/C", "timeout /T 5 /NOBREAK > nul"];
             #[cfg(not(windows))]
             let args = vec!["-c", "sleep 5"];
 

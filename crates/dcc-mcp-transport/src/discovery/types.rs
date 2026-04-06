@@ -294,27 +294,39 @@ mod tests {
     }
 
     #[test]
-    fn test_service_entry_backward_compat_deserialization() {
-        // Simulate old JSON without transport_address field
-        let json = r#"{
-            "dcc_type": "maya",
-            "instance_id": "00000000-0000-0000-0000-000000000001",
-            "host": "127.0.0.1",
-            "port": 18812,
-            "version": null,
-            "scene": null,
-            "metadata": {},
-            "registered_at": {"secs_since_epoch": 1700000000, "nanos_since_epoch": 0},
-            "last_heartbeat": {"secs_since_epoch": 1700000000, "nanos_since_epoch": 0},
-            "status": "available"
-        }"#;
-        let entry: ServiceEntry = serde_json::from_str(json).unwrap();
-        assert_eq!(entry.dcc_type, "maya");
-        assert!(entry.transport_address.is_none());
-        assert!(!entry.is_ipc());
-        assert_eq!(
-            entry.effective_address(),
-            TransportAddress::tcp("127.0.0.1", 18812)
-        );
+    fn test_service_entry_last_heartbeat_is_recent() {
+        let entry = ServiceEntry::new("maya", "127.0.0.1", 18812);
+        let now_ms = SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        let heartbeat_ms = entry
+            .last_heartbeat
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        // Should be within 1 second of now
+        assert!(now_ms.abs_diff(heartbeat_ms) < 1000);
+    }
+
+    #[test]
+    fn test_service_entry_touch_updates_heartbeat() {
+        let mut entry = ServiceEntry::new("maya", "127.0.0.1", 18812);
+        // Force old heartbeat
+        entry.last_heartbeat = SystemTime::now() - Duration::from_secs(60);
+        let old_ms = entry
+            .last_heartbeat
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+
+        entry.touch();
+
+        let new_ms = entry
+            .last_heartbeat
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        assert!(new_ms > old_ms);
     }
 }

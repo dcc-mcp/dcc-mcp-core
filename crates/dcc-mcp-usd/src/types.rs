@@ -565,7 +565,7 @@ mod tests {
 
         #[test]
         fn test_as_float() {
-            assert_eq!(VtValue::Float(3.14).as_float(), Some(3.14));
+            assert_eq!(VtValue::Float(1.5).as_float(), Some(1.5));
             assert!(VtValue::String("x".into()).as_float().is_none());
         }
 

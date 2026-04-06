@@ -1,6 +1,6 @@
 # Actions API
 
-`dcc_mcp_core` — ActionRegistry, EventBus, ActionDispatcher, ActionValidator, VersionedRegistry.
+`dcc_mcp_core` — ActionRegistry, EventBus, ActionDispatcher, ActionValidator, SemVer, VersionConstraint, VersionedRegistry.
 
 ## ActionRegistry
 
@@ -22,6 +22,10 @@ registry = ActionRegistry()
 | `list_actions(dcc_name=None)` | `List[dict]` | List all actions as metadata dicts |
 | `list_actions_for_dcc(dcc_name)` | `List[str]` | List action names for a DCC |
 | `get_all_dccs()` | `List[str]` | List all registered DCC names |
+| `search_actions(category=None, tags=[], dcc_name=None)` | `List[dict]` | Search with AND-ed filters |
+| `get_categories(dcc_name=None)` | `List[str]` | Sorted unique categories |
+| `get_tags(dcc_name=None)` | `List[str]` | Sorted unique tags |
+| `count_actions(category=None, tags=[], dcc_name=None)` | `int` | Count matching actions |
 | `reset()` | — | Clear all registered actions |
 
 ### Dunder Methods
@@ -29,12 +33,12 @@ registry = ActionRegistry()
 | Method | Description |
 |--------|-------------|
 | `__len__` | Number of registered actions |
-| `__contains__(name)` | Check if action is registered |
+| `__contains__(name)` | Check if action name is registered (scoped to "python" dcc) |
 | `__repr__` | `ActionRegistry(actions=N)` |
 
 ### Action Metadata Dict
 
-When retrieved via `get_action()` or `list_actions()`, each action is a dict:
+When retrieved via `get_action()`, `list_actions()`, or `search_actions()`, each action is a dict:
 
 ```python
 {
@@ -50,88 +54,100 @@ When retrieved via `get_action()` or `list_actions()`, each action is a dict:
 }
 ```
 
+### Example
+
+```python
+reg = ActionRegistry()
+reg.register(
+    "create_sphere",
+    description="Create a polygon sphere",
+    category="geometry",
+    tags=["geo", "create"],
+    dcc="maya",
+    input_schema='{"type": "object", "properties": {"radius": {"type": "number"}}}',
+)
+
+# Get it back
+meta = reg.get_action("create_sphere", dcc_name="maya")
+print(meta["version"])  # "1.0.0"
+
+# Search
+results = reg.search_actions(category="geometry", tags=["create"])
+```
+
 ## ActionValidator
 
-JSON Schema-based input validation for actions.
+Validates JSON-encoded action parameters against a JSON Schema. Created from a schema string or from an `ActionRegistry` action.
 
-### Constructor
+### Static Factory Methods
 
 ```python
 from dcc_mcp_core import ActionValidator
-validator = ActionValidator()
-```
 
-### Registering Schemas
-
-```python
-# Register a JSON Schema for an action
-validator.register_schema(
-    "create_sphere",
-    {
-        "type": "object",
-        "properties": {
-            "radius": {"type": "number", "minimum": 0},
-            "name": {"type": "string"}
-        },
-        "required": ["radius"]
-    }
+# From a JSON Schema string
+validator = ActionValidator.from_schema_json(
+    '{"type": "object", "required": ["radius"], '
+    '"properties": {"radius": {"type": "number", "minimum": 0.0}}}'
 )
+
+# From an ActionRegistry action
+from dcc_mcp_core import ActionRegistry
+reg = ActionRegistry()
+reg.register("create_sphere", input_schema='{"type": "object", "properties": {"radius": {"type": "number"}}}')
+validator = ActionValidator.from_action_registry(reg, "create_sphere")
 ```
 
 ### Validating Input
 
 ```python
-from dcc_mcp_core import ValidationResult
+# Valid input — returns (True, [])
+ok, errors = validator.validate('{"radius": 1.0}')
+print(ok)      # True
+print(errors)  # []
 
-# Valid input
-result = validator.validate("create_sphere", {"radius": 1.0, "name": "sphere1"})
-print(result.valid)       # True
-print(result.action_name) # "create_sphere"
+# Invalid input — returns (False, [error1, ...])
+ok, errors = validator.validate('{"radius": -1.0}')
+print(ok)      # False
+print(errors)  # ["radius must be >= 0"]
 
-# Invalid input
-result = validator.validate("create_sphere", {"radius": -1.0})
-print(result.valid)       # False
-print(result.errors)      # ["radius must be >= 0"]
+# Missing required field
+ok, errors = validator.validate("{}")
+print(ok)      # False
+print(errors)  # ["radius is required"]
 ```
-
-### ValidationResult
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `valid` | `bool` | Whether validation passed |
-| `action_name` | `str` | Action that was validated |
-| `errors` | `List[str]` | List of validation errors |
-| `validated_input` | `dict` | Sanitized input dict |
 
 ### Error Handling
 
 ```python
-from dcc_mcp_core import ValidationError
-
 try:
-    validator.validate("nonexistent", {})
-except ValidationError as e:
-    print(f"No schema for action: {e}")
+    validator.validate('not json at all')
+except ValueError as e:
+    print(f"Invalid JSON: {e}")
 ```
+
+::: tip
+`validate()` accepts a **JSON string** (`'{"radius": 1.0}'`), not a Python dict. This matches the wire-format used by the MCP protocol.
+:::
 
 ## ActionDispatcher
 
-Route actions to handler functions with version compatibility.
+Routes action calls to registered Python callables with automatic validation.
 
 ### Constructor
 
 ```python
-from dcc_mcp_core import ActionDispatcher
+from dcc_mcp_core import ActionRegistry, ActionDispatcher
 
-dispatcher = ActionDispatcher()
+reg = ActionRegistry()
+dispatcher = ActionDispatcher(reg)
 ```
 
 ### Registering Handlers
 
 ```python
-def handle_create_sphere(ctx, input):
-    # Handle the action
-    return {"success": True, "sphere": input.get("name", "sphere")}
+def handle_create_sphere(params):
+    # params is a dict deserialised from the JSON input
+    return {"created": True, "radius": params.get("radius", 1.0)}
 
 dispatcher.register_handler("create_sphere", handle_create_sphere)
 ```
@@ -139,29 +155,46 @@ dispatcher.register_handler("create_sphere", handle_create_sphere)
 ### Dispatching Actions
 
 ```python
-result = dispatcher.dispatch("create_sphere", context={}, input={"radius": 1.0})
-print(result)  # {"success": True, "sphere": "sphere"}
+import json
+
+result = dispatcher.dispatch("create_sphere", json.dumps({"radius": 2.0}))
+# result = {"action": "create_sphere", "output": {"created": True, "radius": 2.0}, "validation_skipped": False}
+print(result["output"]["created"])  # True
 ```
 
 ### Handler Function Signature
 
 ```python
-def handler(context: dict, input: dict) -> dict:
-    """
-    Args:
-        context: DCC context information
-        input: Validated action input
-    Returns:
-        Action result dict
-    """
+def handler(params: dict) -> Any:
+    """Receive validated JSON params as a Python dict."""
     pass
 ```
 
+### Other Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `register_handler(action_name, handler)` | — | Register a Python callable |
+| `remove_handler(action_name)` | `bool` | Remove handler, return True if existed |
+| `has_handler(action_name)` | `bool` | Check if handler is registered |
+| `handler_count()` | `int` | Number of registered handlers |
+| `handler_names()` | `List[str]` | Alphabetically sorted handler names |
+| `skip_empty_schema_validation` | `bool` | Property: skip validation when schema is `{}` |
+
 ## SemVer
 
-Semantic versioning utilities.
+Semantic versioning with major.minor.patch components. Pre-release labels (`-alpha`, `-beta`) are **stripped and ignored** for all comparisons.
 
-### Parsing Versions
+### Constructor
+
+```python
+from dcc_mcp_core import SemVer
+
+v = SemVer(1, 2, 3)
+print(str(v))  # "1.2.3"
+```
+
+### Parsing
 
 ```python
 from dcc_mcp_core import SemVer
@@ -170,8 +203,10 @@ v = SemVer.parse("1.2.3")
 print(v.major)  # 1
 print(v.minor)  # 2
 print(v.patch)  # 3
-print(v.prerelease)  # None or "alpha", "beta", "rc.1"
-print(v.build_metadata)  # None or "build.123"
+
+# Leading "v" is accepted
+v2 = SemVer.parse("v2.0")
+print(v2.major)  # 2
 ```
 
 ### Version Comparison
@@ -181,20 +216,16 @@ v1 = SemVer.parse("1.2.3")
 v2 = SemVer.parse("1.2.4")
 v3 = SemVer.parse("2.0.0")
 
-print(v1 < v2)  # True
-print(v2 > v1)  # True
-print(v3 > v1)  # True
-print(v1 == v1)  # True
+print(v1 < v2)   # True
+print(v2 > v1)   # True
+print(v3 > v1)   # True
+print(v1 == SemVer.parse("1.2.3"))  # True
 ```
 
 ### Version Sorting
 
 ```python
-versions = [
-    SemVer.parse("2.0.0"),
-    SemVer.parse("1.0.0"),
-    SemVer.parse("1.2.3"),
-]
+versions = [SemVer.parse("2.0.0"), SemVer.parse("1.0.0"), SemVer.parse("1.2.3")]
 sorted_versions = sorted(versions)
 print([str(v) for v in sorted_versions])  # ["1.0.0", "1.2.3", "2.0.0"]
 ```
@@ -210,9 +241,13 @@ except VersionParseError as e:
     print(f"Invalid version: {e}")
 ```
 
+::: tip
+`SemVer` only has three numeric components (`major`, `minor`, `patch`). Pre-release labels and build metadata are stripped and ignored.
+:::
+
 ## VersionConstraint
 
-Version requirement specification.
+Version requirement specification for matching against registered action versions.
 
 ### Creating Constraints
 
@@ -222,16 +257,18 @@ from dcc_mcp_core import VersionConstraint
 # Various constraint types
 constraint1 = VersionConstraint.parse(">=1.0.0,<2.0.0")
 constraint2 = VersionConstraint.parse("^1.2.3")  # Compatible with 1.x.x
-constraint3 = VersionConstraint.parse("~1.2.0")  # Roughly equivalent to 1.2.x
+constraint3 = VersionConstraint.parse("~1.2.3")  # Patch compatible (1.2.x)
 constraint4 = VersionConstraint.parse("1.2.3")   # Exact version
+constraint5 = VersionConstraint.parse("*")       # Any version
 ```
 
 ### Checking Constraints
 
 ```python
+from dcc_mcp_core import SemVer, VersionConstraint
+
 v = SemVer.parse("1.5.0")
 constraint = VersionConstraint.parse(">=1.0.0,<2.0.0")
-
 print(constraint.matches(v))  # True
 ```
 
@@ -240,15 +277,15 @@ print(constraint.matches(v))  # True
 | Format | Example | Description |
 |--------|---------|-------------|
 | Exact | `1.2.3` | Must match exactly |
-| Greater than | `>1.2.3` | Must be greater |
+| Greater than | `>1.2.3` | Must be strictly greater |
 | Range | `>=1.0.0,<2.0.0` | Within range |
-| Caret | `^1.2.3` | Compatible (1.x.x) |
-| Tilde | `~1.2.3` | Patch compatible (1.2.x) |
-| OR | `^1.0.0\|\|^2.0.0` | Either OR |
+| Caret | `^1.2.3` | Same major (1.x.x) |
+| Tilde | `~1.2.3` | Same major.minor (1.2.x) |
+| Wildcard | `*` | Any version |
 
 ## VersionedRegistry
 
-Registry with semantic version support for backward compatibility.
+Multi-version action registry. Allows multiple versions of the same `(action_name, dcc_name)` pair to coexist. Provides resolution of the best-matching version given a constraint.
 
 ### Constructor
 
@@ -257,123 +294,86 @@ from dcc_mcp_core import VersionedRegistry
 registry = VersionedRegistry()
 ```
 
-### Registering Versioned Actions
+### Registering Versions
 
 ```python
-# Register multiple versions of the same action
-registry.register(
-    name="create_sphere",
+registry.register_versioned(
+    "create_sphere",
+    dcc="maya",
     version="1.0.0",
-    handler=handle_v1,
-    input_schema={"type": "object", "properties": {"radius": {"type": "number"}}}
+    description="Create a sphere",
+    category="geometry",
+    tags=["geo", "create"],
 )
 
-registry.register(
-    name="create_sphere",
+registry.register_versioned(
+    "create_sphere",
+    dcc="maya",
     version="2.0.0",
-    handler=handle_v2,
-    input_schema={"type": "object", "properties": {"radius": {"type": "number"}, "segments": {"type": "integer"}}}
+    description="Create a sphere with segments",
+    category="geometry",
+    tags=["geo", "create"],
+)
+
+registry.register_versioned(
+    "create_sphere",
+    dcc="blender",
+    version="1.0.0",
+    description="Blender sphere creation",
 )
 ```
 
-### Looking Up Actions
+### Resolving Versions
 
 ```python
-# Get latest version
-action = registry.get_latest("create_sphere")
+# Get all registered versions for (name, dcc)
+versions = registry.versions("create_sphere", "maya")
+print(versions)  # ["1.0.0", "2.0.0"]
 
-# Get specific version
-action = registry.get_version("create_sphere", "1.0.0")
+# Get the latest version string
+latest = registry.latest_version("create_sphere", "maya")
+print(latest)  # "2.0.0"
 
-# Find compatible version
-action = registry.find_compatible("create_sphere", ">=1.0.0,<2.0.0")
+# Resolve best match for a constraint — returns metadata dict or None
+result = registry.resolve("create_sphere", "maya", "^1.0.0")
+if result:
+    print(result["version"])   # "2.0.0"
+    print(result["category"])  # "geometry"
+
+# Resolve all versions matching a constraint
+all_matches = registry.resolve_all("create_sphere", "maya", ">=1.0.0,<3.0.0")
+for m in all_matches:
+    print(m["version"])  # ["1.0.0", "2.0.0"]
+```
+
+### Registry Introspection
+
+```python
+# All registered (name, dcc) keys
+keys = registry.keys()
+print(keys)  # [("create_sphere", "maya"), ("create_sphere", "blender")]
+
+# Total number of versioned entries
+print(registry.total_entries())  # 3
+
+# Remove versions by constraint
+removed = registry.remove("create_sphere", "maya", "^1.0.0")
+print(removed)  # 2 (removed 1.0.0 and 2.0.0)
 ```
 
 ### Methods
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `register(name, version, handler, input_schema=None)` | — | Register a versioned action |
-| `get_latest(name)` | `dict?` | Get latest version of an action |
-| `get_version(name, version)` | `dict?` | Get specific version |
-| `find_compatible(name, constraint)` | `dict?` | Find version matching constraint |
-| `list_versions(name)` | `List[str]` | List all versions of an action |
+| `register_versioned(name, dcc, version, description, category, tags)` | — | Register an action version |
+| `versions(name, dcc)` | `List[str]` | All versions sorted ascending |
+| `latest_version(name, dcc)` | `str?` | Highest version string or None |
+| `resolve(name, dcc, constraint)` | `dict?` | Best match metadata dict or None |
+| `resolve_all(name, dcc, constraint)` | `List[dict]` | All matching metadata dicts |
+| `keys()` | `List[tuple]` | All `(name, dcc)` pairs |
+| `total_entries()` | `int` | Total entry count across all |
+| `remove(name, dcc, constraint)` | `int` | Remove count (by constraint) |
 
-## CompatibilityRouter
-
-Route actions to handlers based on version constraints.
-
-### Constructor
-
-```python
-from dcc_mcp_core import CompatibilityRouter
-
-router = CompatibilityRouter()
-```
-
-### Registering Routes
-
-```python
-router.add_route(
-    action="create_sphere",
-    constraint=">=1.0.0,<2.0.0",
-    handler=handle_v1
-)
-router.add_route(
-    action="create_sphere",
-    constraint=">=2.0.0",
-    handler=handle_v2
-)
-```
-
-### Routing Requests
-
-```python
-# Route based on client version header
-result = router.route(
-    action="create_sphere",
-    client_version="1.5.0",
-    context={},
-    input={}
-)
-
-# Route based on explicit constraint
-result = router.route(
-    action="create_sphere",
-    constraint=">=1.0.0,<2.0.0",
-    context={},
-    input={}
-)
-```
-
-### Fallback Handling
-
-```python
-router.add_fallback_handler("create_sphere", fallback_handler)
-
-# If no route matches, fallback is used
-result = router.route(action="create_sphere", ...)
-```
-
-## DispatchResult
-
-Return type for dispatch operations.
-
-```python
-result = dispatcher.dispatch("create_sphere", context, input)
-
-print(result.success)      # True
-print(result.action_name)   # "create_sphere"
-print(result.version)       # "1.0.0"
-print(result.output)        # Handler output
-print(result.duration_ms)   # Execution time
-```
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `success` | `bool` | Whether dispatch succeeded |
-| `action_name` | `str` | Action that was dispatched |
-| `version` | `str?` | Handler version used |
-| `output` | `dict` | Handler output |
-| `error` | `str?` | Error message if failed |
-| `duration_ms` | `int` | Execution time |
+::: tip
+`resolve()` and `resolve_all()` use `VersionConstraint.parse()` internally — pass a constraint string like `"^1.0.0"` or `">=1.0.0,<2.0.0"`.
+:::

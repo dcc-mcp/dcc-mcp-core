@@ -21,7 +21,7 @@ use crate::routing::RoutingStrategy;
 
 /// Python-facing enum for DCC service status.
 ///
-/// ```python
+/// ```python,ignore
 /// from dcc_mcp_core import ServiceStatus
 ///
 /// status = ServiceStatus.AVAILABLE
@@ -78,7 +78,7 @@ impl From<ServiceStatus> for PyServiceStatus {
 
 /// Python-facing enum for DCC instance routing strategy.
 ///
-/// ```python
+/// ```python,ignore
 /// from dcc_mcp_core import RoutingStrategy, TransportManager
 ///
 /// transport = TransportManager("/path/to/registry")
@@ -150,7 +150,7 @@ impl From<&PyRoutingStrategy> for RoutingStrategy {
 ///
 /// Represents a protocol-agnostic endpoint: TCP, Named Pipe, or Unix Socket.
 ///
-/// ```python
+/// ```python,ignore
 /// from dcc_mcp_core import TransportAddress
 ///
 /// # TCP address
@@ -240,7 +240,7 @@ impl PyTransportAddress {
     ///
     /// # Examples (Python)
     ///
-    /// ```python
+    /// ```python,ignore
     /// addr = TransportAddress.parse("tcp://127.0.0.1:9000")
     /// assert addr.is_tcp
     ///
@@ -329,7 +329,7 @@ impl From<&PyTransportAddress> for TransportAddress {
 
 /// Python-facing transport selection strategy.
 ///
-/// ```python
+/// ```python,ignore
 /// from dcc_mcp_core import TransportScheme
 ///
 /// scheme = TransportScheme.AUTO          # Auto-detect best transport
@@ -416,7 +416,7 @@ impl From<&PyTransportScheme> for TransportScheme {
 
 /// Python-facing service entry representing a discovered DCC instance.
 ///
-/// ```python
+/// ```python,ignore
 /// from dcc_mcp_core import TransportManager
 ///
 /// transport = TransportManager("/path/to/registry")
@@ -449,6 +449,12 @@ pub struct PyServiceEntry {
     pub status: PyServiceStatus,
     /// Transport address (None = TCP host:port).
     pub transport_address: Option<PyTransportAddress>,
+    /// Last heartbeat timestamp in milliseconds since Unix epoch.
+    ///
+    /// Useful for `LazySessionPool` implementations to determine if a session
+    /// has been idle too long and should be evicted.  Updated by
+    /// :meth:`TransportManager.heartbeat`.
+    pub last_heartbeat_ms: u64,
 }
 
 #[cfg(feature = "python-bindings")]
@@ -493,6 +499,7 @@ impl PyServiceEntry {
         dict.set_item("scene", &self.scene)?;
         dict.set_item("metadata", &self.metadata)?;
         dict.set_item("status", self.status.__str__())?;
+        dict.set_item("last_heartbeat_ms", self.last_heartbeat_ms)?;
         if let Some(addr) = &self.transport_address {
             dict.set_item("transport_address", addr.to_connection_string())?;
         }
@@ -503,6 +510,11 @@ impl PyServiceEntry {
 #[cfg(feature = "python-bindings")]
 impl From<&ServiceEntry> for PyServiceEntry {
     fn from(entry: &ServiceEntry) -> Self {
+        let last_heartbeat_ms = entry
+            .last_heartbeat
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
         Self {
             dcc_type: entry.dcc_type.clone(),
             instance_id: entry.instance_id.to_string(),
@@ -516,6 +528,73 @@ impl From<&ServiceEntry> for PyServiceEntry {
                 .transport_address
                 .as_ref()
                 .map(PyTransportAddress::from),
+            last_heartbeat_ms,
+        }
+    }
+}
+
+#[cfg(feature = "python-bindings")]
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::discovery::types::ServiceEntry;
+
+    mod test_py_service_entry {
+        use super::*;
+
+        #[test]
+        fn test_last_heartbeat_ms_is_recent() {
+            let rust_entry = ServiceEntry::new("maya", "127.0.0.1", 18812);
+            let py_entry = PyServiceEntry::from(&rust_entry);
+
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64;
+
+            // last_heartbeat_ms must be a valid Unix epoch ms (within 2 seconds of now)
+            assert!(py_entry.last_heartbeat_ms > 0);
+            assert!(now_ms.abs_diff(py_entry.last_heartbeat_ms) < 2000);
+        }
+
+        #[test]
+        fn test_last_heartbeat_ms_reflects_touch() {
+            let mut rust_entry = ServiceEntry::new("houdini", "127.0.0.1", 9090);
+            // Force old heartbeat
+            rust_entry.last_heartbeat =
+                std::time::SystemTime::now() - std::time::Duration::from_secs(60);
+
+            let py_before = PyServiceEntry::from(&rust_entry);
+
+            // Touch updates heartbeat
+            rust_entry.touch();
+            let py_after = PyServiceEntry::from(&rust_entry);
+
+            assert!(py_after.last_heartbeat_ms > py_before.last_heartbeat_ms);
+        }
+
+        #[test]
+        fn test_is_ipc_false_for_tcp_entry() {
+            let rust_entry = ServiceEntry::new("blender", "127.0.0.1", 8080);
+            let py_entry = PyServiceEntry::from(&rust_entry);
+            assert!(!py_entry.is_ipc());
+        }
+
+        #[test]
+        fn test_is_ipc_true_for_named_pipe() {
+            use crate::ipc::TransportAddress;
+            let addr = TransportAddress::named_pipe("test-pipe");
+            let rust_entry = ServiceEntry::with_address("maya", addr);
+            let py_entry = PyServiceEntry::from(&rust_entry);
+            assert!(py_entry.is_ipc());
+        }
+
+        #[test]
+        fn test_effective_address_falls_back_to_tcp() {
+            let rust_entry = ServiceEntry::new("maya", "10.0.0.1", 18812);
+            let py_entry = PyServiceEntry::from(&rust_entry);
+            let addr = py_entry.effective_address();
+            assert!(addr.inner.is_tcp());
         }
     }
 }

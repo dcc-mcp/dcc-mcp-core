@@ -251,12 +251,12 @@ mod tests {
 
     #[test]
     fn test_app_name_not_empty() {
-        assert!(!APP_NAME.is_empty());
+        assert_eq!(APP_NAME, "dcc-mcp");
     }
 
     #[test]
     fn test_default_dcc_not_empty() {
-        assert!(!DEFAULT_DCC.is_empty());
+        assert_eq!(DEFAULT_DCC, "python");
     }
 
     #[test]
@@ -270,27 +270,26 @@ mod tests {
 
     #[test]
     fn test_mtime_epsilon_positive() {
-        assert!(MTIME_EPSILON_SECS > 0.0);
-        assert!(MTIME_EPSILON_SECS < 1.0); // should be sub-second
+        assert_eq!(MTIME_EPSILON_SECS, 0.001);
     }
 
     #[test]
     fn test_skill_metadata_file_constant() {
-        assert!(!SKILL_METADATA_FILE.is_empty());
+        assert_eq!(SKILL_METADATA_FILE, "SKILL.md");
         assert!(SKILL_METADATA_FILE.ends_with(".md"));
     }
 
     #[test]
     fn test_env_var_constants_not_empty() {
-        assert!(!ENV_SKILL_PATHS.is_empty());
-        assert!(!ENV_LOG_LEVEL.is_empty());
+        assert_eq!(ENV_SKILL_PATHS, "DCC_MCP_SKILL_PATHS");
+        assert_eq!(ENV_LOG_LEVEL, "MCP_LOG_LEVEL");
     }
 
     #[test]
     fn test_ctx_key_constants_not_empty() {
-        assert!(!CTX_KEY_ERROR_TYPE.is_empty());
-        assert!(!CTX_KEY_TRACEBACK.is_empty());
-        assert!(!CTX_KEY_VALUE.is_empty());
-        assert!(!CTX_KEY_POSSIBLE_SOLUTIONS.is_empty());
+        assert_eq!(CTX_KEY_ERROR_TYPE, "error_type");
+        assert_eq!(CTX_KEY_TRACEBACK, "traceback");
+        assert_eq!(CTX_KEY_VALUE, "value");
+        assert_eq!(CTX_KEY_POSSIBLE_SOLUTIONS, "possible_solutions");
     }
 }

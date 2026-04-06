@@ -95,10 +95,14 @@ crates/
 ### Top-level exports (`dcc_mcp_core`)
 
 **Actions:**
-- `ActionRegistry` — Thread-safe registry; `.register(name, ...)`, `.get_action(name)`, `.list_actions()`, `.list_actions_for_dcc(dcc)`, `.get_all_dccs()`, `.reset()`
+- `ActionRegistry` — Thread-safe registry; `.register(name, ...)`, `.register_batch([{...}, ...])`, `.unregister(name, dcc_name=None)`, `.get_action(name)`, `.list_actions()`, `.list_actions_for_dcc(dcc)`, `.get_all_dccs()`, `.search_actions(category, tags, dcc_name)`, `.get_categories()`, `.get_tags()`, `.reset()`
 - `ActionDispatcher` — Validated dispatch; `.call(name, **kwargs) -> ActionResultModel`
 - `ActionValidator` — Input validation before action execution
-- `ActionPipeline` — Middleware-style processing pipeline
+- `ActionPipeline(dispatcher)` — Middleware-style processing pipeline; `.add_logging(log_params=False)`, `.add_timing() -> TimingMiddleware`, `.add_audit(record_params=True) -> AuditMiddleware`, `.add_rate_limit(max_calls, window_ms) -> RateLimitMiddleware`, `.add_callable(before_fn=None, after_fn=None)`, `.dispatch(action_name, params_json="null") -> dict`, `.register_handler(name, fn)`, `.middleware_count()`, `.middleware_names()`, `.handler_count()`
+- `LoggingMiddleware(log_params=False)` — emits tracing log lines before/after each action
+- `TimingMiddleware()` — measures per-action latency; `.last_elapsed_ms(action) -> int|None`
+- `AuditMiddleware(record_params=True)` — in-memory audit log; `.records()`, `.records_for_action(action)`, `.record_count()`, `.clear()`
+- `RateLimitMiddleware(max_calls, window_ms)` — fixed-window rate limiter; `.call_count(action)`, `.max_calls`, `.window_ms`
 - `ActionMetrics` — Performance and execution metrics collection
 - `ActionRecorder` — Record/replay action executions
 - `EventBus` — `.subscribe(event, callback) -> id`, `.unsubscribe(event, id)`, `.publish(event, **kwargs)`

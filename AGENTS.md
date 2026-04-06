@@ -203,11 +203,79 @@ names = reg.list_actions_for_dcc("maya")
 all_actions = reg.list_actions()
 dccs = reg.get_all_dccs()
 
+# Batch registration (preferred over repeated register() calls for large sets)
+reg.register_batch([
+    {"name": "create_sphere", "category": "geometry", "dcc": "maya", "tags": ["create"]},
+    {"name": "delete_mesh",   "category": "edit",     "dcc": "maya", "tags": ["delete"]},
+    {"name": "create_cube",   "category": "geometry", "dcc": "blender"},
+])
+
+# Unregister (global removes from all DCCs; scoped removes only one DCC's entry)
+removed = reg.unregister("create_sphere")                  # global: True if found
+removed = reg.unregister("create_sphere", dcc_name="maya") # scoped to maya only
+
+# Search & discovery (all filters AND-ed; None / [] = no filter)
+results = reg.search_actions(category="geometry")                  # by category
+results = reg.search_actions(tags=["create", "mesh"])              # must have ALL tags
+results = reg.search_actions(category="geometry", dcc_name="maya") # category + DCC
+categories = reg.get_categories()                                  # sorted unique categories
+tags = reg.get_tags(dcc_name="maya")                               # sorted unique tags
+
 # Version-aware registry
 from dcc_mcp_core import SemVer, VersionedRegistry, VersionConstraint
 vreg = VersionedRegistry()
 vreg.register("my_action", version=SemVer(1, 2, 0), handler=my_fn)
 handler = vreg.get("my_action", constraint=VersionConstraint.parse(">=1.0.0"))
+```
+
+**ActionPipeline patterns:**
+
+```python
+from dcc_mcp_core import ActionRegistry, ActionDispatcher, ActionPipeline
+
+reg = ActionRegistry()
+reg.register("create_sphere", description="Create sphere", category="geometry")
+
+dispatcher = ActionDispatcher(reg)
+dispatcher.register_handler("create_sphere", lambda params: {"name": "sphere1"})
+
+pipeline = ActionPipeline(dispatcher)
+
+# Built-in middleware (add in desired order)
+pipeline.add_logging(log_params=True)         # tracing log before/after each action
+timing = pipeline.add_timing()                # measure per-action latency
+audit = pipeline.add_audit(record_params=True) # in-memory audit log
+rl = pipeline.add_rate_limit(max_calls=10, window_ms=1000)  # fixed-window rate limiter
+
+# Python callable hooks (flexible custom middleware)
+pipeline.add_callable(
+    before_fn=lambda action: print(f"before: {action}"),
+    after_fn=lambda action, success: print(f"after: {action} ok={success}"),
+)
+
+# Dispatch
+result = pipeline.dispatch("create_sphere", '{"radius": 1.0}')
+result["output"]          # {"name": "sphere1"}
+result["action"]          # "create_sphere"
+result["validation_skipped"]  # bool
+
+# Register handler directly on pipeline (mirrors ActionDispatcher)
+pipeline.register_handler("delete_sphere", lambda params: True)
+
+# Introspect middleware
+pipeline.middleware_count()   # int
+pipeline.middleware_names()   # ["logging", "timing", "audit", "rate_limit", "python_callable"]
+pipeline.handler_count()      # int
+
+# Query middleware state
+timing.last_elapsed_ms("create_sphere")  # int | None (milliseconds)
+audit.records()                           # list[dict] with action/success/error/timestamp_ms
+audit.records_for_action("create_sphere") # filtered records
+audit.record_count()                      # int
+audit.clear()                             # reset
+rl.call_count("create_sphere")            # int (calls in current window)
+rl.max_calls                              # int
+rl.window_ms                              # int
 ```
 
 **ActionResultModel fields:**

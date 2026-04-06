@@ -342,7 +342,7 @@ mod tests {
             ..Default::default()
         });
         let dispatcher = ActionDispatcher::new(reg);
-        dispatcher.register_handler("echo", |params| Ok(params));
+        dispatcher.register_handler("echo", Ok);
 
         let result = dispatcher
             .dispatch("echo", json!({"msg": "hello"}))

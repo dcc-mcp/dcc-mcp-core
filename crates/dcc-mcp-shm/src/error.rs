@@ -217,7 +217,7 @@ mod tests {
                 },
                 ShmError::CompressionError("c".to_string()),
                 ShmError::DecompressionError("d".to_string()),
-                ShmError::Io(std::io::Error::new(std::io::ErrorKind::Other, "e")),
+                ShmError::Io(std::io::Error::other("e")),
                 ShmError::Mmap("m".to_string()),
                 ShmError::PoolExhausted { capacity: 4 },
                 ShmError::InvalidArgument("a".to_string()),

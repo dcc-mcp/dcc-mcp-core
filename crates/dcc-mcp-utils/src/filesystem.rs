@@ -377,7 +377,7 @@ mod tests {
 
     #[test]
     fn test_filesystem_error_from_io() {
-        let io_err = std::io::Error::new(std::io::ErrorKind::Other, "other");
+        let io_err = std::io::Error::other("other");
         let fs_err: FilesystemError = io_err.into();
         assert!(matches!(fs_err, FilesystemError::Io(_)));
     }

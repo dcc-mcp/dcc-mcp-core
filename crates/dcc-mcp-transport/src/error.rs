@@ -431,7 +431,7 @@ mod tests {
                     instance_id: "i".to_string(),
                 },
                 TransportError::Serialization("e".to_string()),
-                TransportError::Io(std::io::Error::new(std::io::ErrorKind::Other, "test")),
+                TransportError::Io(std::io::Error::other("test")),
                 TransportError::RegistryFile("f".to_string()),
                 TransportError::Shutdown,
                 TransportError::SessionNotFound {

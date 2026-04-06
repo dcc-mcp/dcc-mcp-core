@@ -103,6 +103,7 @@ fn register_actions(m: &Bound<'_, PyModule>) -> PyResult<()> {
         dcc_mcp_actions::VersionedRegistry,
     );
     dcc_mcp_actions::python::register_classes(m)?;
+    dcc_mcp_actions::pipeline::python::register_classes(m)?;
     Ok(())
 }
 
@@ -166,7 +167,14 @@ fn register_transport(m: &Bound<'_, PyModule>) -> PyResult<()> {
         dcc_mcp_transport::PyListenerHandle,
         dcc_mcp_transport::PyFramedChannel,
     );
-    add_functions!(m, dcc_mcp_transport::py_connect_ipc,);
+    add_functions!(
+        m,
+        dcc_mcp_transport::py_connect_ipc,
+        dcc_mcp_transport::python::message::py_encode_request,
+        dcc_mcp_transport::python::message::py_encode_response,
+        dcc_mcp_transport::python::message::py_encode_notify,
+        dcc_mcp_transport::python::message::py_decode_envelope,
+    );
     Ok(())
 }
 

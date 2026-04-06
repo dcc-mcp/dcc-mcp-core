@@ -106,7 +106,90 @@ class ActionRegistry:
     def list_actions(self, dcc_name: str | None = None) -> list[dict[str, Any]]: ...
     def list_actions_for_dcc(self, dcc_name: str) -> list[str]: ...
     def get_all_dccs(self) -> list[str]: ...
+    def search_actions(
+        self,
+        category: str | None = None,
+        tags: list[str] = [],
+        dcc_name: str | None = None,
+    ) -> list[dict[str, Any]]:
+        """Search actions by category, tags, and/or DCC name.
+
+        All filters are AND-ed:
+
+        - ``category``: exact match (``None`` / empty = no filter)
+        - ``tags``: action must contain **all** requested tags (empty = no filter)
+        - ``dcc_name``: limit to a specific DCC (``None`` = all DCCs)
+
+        Example::
+
+            reg.register(name="create_sphere", category="geometry",
+                         tags=["create", "mesh"], dcc="maya")
+            results = reg.search_actions(category="geometry", tags=["create"])
+        """
+        ...
+    def get_categories(self, dcc_name: str | None = None) -> list[str]:
+        """Return all unique action categories in sorted order.
+
+        Optionally scoped to a specific DCC.
+        """
+        ...
+    def get_tags(self, dcc_name: str | None = None) -> list[str]:
+        """Return all unique action tags in sorted order.
+
+        Optionally scoped to a specific DCC.
+        """
+        ...
+    def count_actions(
+        self,
+        category: str | None = None,
+        tags: list[str] = [],
+        dcc_name: str | None = None,
+    ) -> int:
+        """Count actions matching the given search criteria.
+
+        Convenience wrapper around :meth:`search_actions` that returns the count
+        rather than the full list of matching actions.
+
+        Example::
+
+            reg.register(name="create_sphere", category="geometry", dcc="maya")
+            assert reg.count_actions(category="geometry") == 1
+            assert reg.count_actions(category="export") == 0
+        """
+        ...
     def reset(self) -> None: ...
+    def register_batch(self, actions: list[dict[str, Any]]) -> None:
+        """Register multiple actions at once from a list of dicts.
+
+        Each dict may contain the same keys as :meth:`register`.
+        Entries without a ``"name"`` key (or empty name) are silently skipped.
+
+        Example::
+
+            reg.register_batch([
+                {"name": "create_sphere", "category": "geometry", "dcc": "maya"},
+                {"name": "delete_object", "category": "edit",     "dcc": "maya"},
+            ])
+        """
+        ...
+    def unregister(self, name: str, dcc_name: str | None = None) -> bool:
+        """Remove an action from the registry.
+
+        If ``dcc_name`` is ``None`` (default), the action is removed from the
+        global registry and every per-DCC map.
+
+        If ``dcc_name`` is provided, only that DCC's entry is removed; the
+        global entry is cleared only when no other DCC still references it.
+
+        Returns ``True`` if the action was found and removed, ``False`` otherwise.
+
+        Example::
+
+            reg.register(name="create_sphere", dcc="maya")
+            assert reg.unregister("create_sphere") is True
+            assert reg.unregister("create_sphere") is False  # already gone
+        """
+        ...
     def __len__(self) -> int: ...
     def __repr__(self) -> str: ...
 
@@ -939,6 +1022,21 @@ class ServiceEntry:
     metadata: dict[str, str]
     status: ServiceStatus
     transport_address: TransportAddress | None
+    last_heartbeat_ms: int
+    """Last heartbeat timestamp in milliseconds since Unix epoch.
+
+    Useful for ``LazySessionPool`` implementations to evict idle sessions:
+
+    .. code-block:: python
+
+        import time
+        entry = mgr.get_service("maya", instance_id)
+        idle_sec = (time.time() * 1000 - entry.last_heartbeat_ms) / 1000
+        if idle_sec > 300:
+            mgr.deregister_service("maya", instance_id)
+
+    Updated by :meth:`TransportManager.heartbeat`.
+    """
 
     @property
     def is_ipc(self) -> bool:
@@ -972,10 +1070,60 @@ class TransportManager:
         version: str | None = None,
         scene: str | None = None,
         metadata: dict[str, str] | None = None,
-    ) -> str: ...
+        transport_address: TransportAddress | None = None,
+    ) -> str:
+        """Register a DCC service instance.
+
+        Args:
+            dcc_type:           DCC application type (e.g. "maya").
+            host:               Host address (e.g. "127.0.0.1").
+            port:               TCP port number.
+            version:            DCC version string (optional).
+            scene:              Currently open scene/file (optional).
+            metadata:           Arbitrary metadata dict (optional).
+            transport_address:  Preferred IPC transport address (optional).
+                                When provided, enables Named Pipe or Unix Socket
+                                for lower latency same-machine communication.
+                                Use ``TransportAddress.default_local(dcc_type, pid)``
+                                to auto-select the optimal IPC transport.
+
+        Returns:
+            The instance_id (UUID string) of the registered service.
+
+        Example::
+
+            import os
+            from dcc_mcp_core import TransportManager, TransportAddress
+
+            mgr = TransportManager(registry_dir="/tmp/dcc-mcp")
+            addr = TransportAddress.default_local("maya", os.getpid())
+            instance_id = mgr.register_service(
+                "maya", "127.0.0.1", 18812,
+                transport_address=addr,
+            )
+
+        """
+        ...
     def deregister_service(self, dcc_type: str, instance_id: str) -> bool: ...
     def list_instances(self, dcc_type: str) -> list[ServiceEntry]: ...
     def list_all_services(self) -> list[ServiceEntry]: ...
+    def list_all_instances(self) -> list[ServiceEntry]:
+        """List all registered instances across all DCC types.
+
+        Alias for :meth:`list_all_services` using the naming convention expected
+        by smart-routing integrations.
+
+        Returns:
+            List of ServiceEntry objects for all registered DCC instances.
+
+        Example::
+
+            mgr = TransportManager("/tmp/dcc-mcp")
+            for entry in mgr.list_all_instances():
+                print(entry.dcc_type, entry.instance_id, entry.status)
+
+        """
+        ...
     def get_service(self, dcc_type: str, instance_id: str) -> ServiceEntry | None: ...
     def heartbeat(self, dcc_type: str, instance_id: str) -> bool: ...
     def update_service_status(self, dcc_type: str, instance_id: str, status: ServiceStatus) -> bool: ...
@@ -1330,6 +1478,141 @@ class StringWrapper:
     def __eq__(self, other: object) -> bool: ...
     def __hash__(self) -> int: ...
 
+# ── Action Pipeline ──
+
+class LoggingMiddleware:
+    """Logging middleware — emits tracing log lines before/after each action."""
+
+    def __init__(self, log_params: bool = False) -> None: ...
+    @property
+    def log_params(self) -> bool: ...
+    def __repr__(self) -> str: ...
+
+class TimingMiddleware:
+    """Timing middleware — measures per-action latency."""
+
+    def __init__(self) -> None: ...
+    def last_elapsed_ms(self, action: str) -> int | None:
+        """Return last elapsed time in ms for ``action``, or ``None`` if not dispatched yet."""
+        ...
+    def __repr__(self) -> str: ...
+
+class AuditMiddleware:
+    """Audit middleware — accumulates an in-memory log of all dispatched actions.
+
+    Example::
+
+        pipeline = ActionPipeline(dispatcher)
+        audit = pipeline.add_audit()
+        pipeline.dispatch("create_sphere", "{}")
+        for r in audit.records():
+            print(r["action"], r["success"], r["timestamp_ms"])
+
+    """
+
+    def __init__(self, record_params: bool = True) -> None: ...
+    def records(self) -> list[dict[str, Any]]:
+        """Return all audit records as dicts with keys: action, success, error, output_preview, timestamp_ms."""
+        ...
+    def records_for_action(self, action: str) -> list[dict[str, Any]]: ...
+    def record_count(self) -> int: ...
+    def clear(self) -> None: ...
+    def __repr__(self) -> str: ...
+
+class RateLimitMiddleware:
+    """Rate limiting middleware — limits calls per action per time window.
+
+    Example::
+
+        rl = pipeline.add_rate_limit(max_calls=10, window_ms=1000)
+        print(rl.call_count("create_sphere"))
+
+    """
+
+    def __init__(self, max_calls: int, window_ms: int) -> None: ...
+    def call_count(self, action: str) -> int: ...
+    @property
+    def max_calls(self) -> int: ...
+    @property
+    def window_ms(self) -> int: ...
+    def __repr__(self) -> str: ...
+
+class ActionPipeline:
+    """Middleware-wrapped ActionDispatcher.
+
+    Example::
+
+        from dcc_mcp_core import ActionRegistry, ActionDispatcher, ActionPipeline
+
+        reg = ActionRegistry()
+        reg.register("ping", category="util")
+        dispatcher = ActionDispatcher(reg)
+        dispatcher.register_handler("ping", lambda params: "pong")
+
+        pipeline = ActionPipeline(dispatcher)
+        pipeline.add_logging()
+        audit = pipeline.add_audit()
+        timing = pipeline.add_timing()
+
+        result = pipeline.dispatch("ping", "{}")
+        assert result["output"] == "pong"
+
+    """
+
+    def __init__(self, dispatcher: ActionDispatcher) -> None: ...
+    def add_logging(self, log_params: bool = False) -> None:
+        """Add a LoggingMiddleware to the pipeline."""
+        ...
+    def add_timing(self) -> TimingMiddleware:
+        """Add a TimingMiddleware and return the instance."""
+        ...
+    def add_audit(self, record_params: bool = True) -> AuditMiddleware:
+        """Add an AuditMiddleware and return the instance."""
+        ...
+    def add_rate_limit(self, max_calls: int, window_ms: int) -> RateLimitMiddleware:
+        """Add a RateLimitMiddleware and return the instance."""
+        ...
+    def add_callable(
+        self,
+        before_fn: Any | None = None,
+        after_fn: Any | None = None,
+    ) -> None:
+        """Add a custom Python callable middleware.
+
+        Args:
+            before_fn: Optional ``(action_name: str) -> None``.
+            after_fn:  Optional ``(action_name: str, success: bool) -> None``.
+
+        Raises:
+            TypeError: If before_fn or after_fn is not callable.
+
+        """
+        ...
+    def register_handler(self, action_name: str, handler: Any) -> None:
+        """Register a Python callable handler for action_name."""
+        ...
+    def dispatch(
+        self,
+        action_name: str,
+        params_json: str = "null",
+    ) -> dict[str, Any]:
+        """Dispatch an action through the middleware pipeline.
+
+        Returns:
+            Dict with ``"action"``, ``"output"``, ``"validation_skipped"``.
+
+        Raises:
+            KeyError: No handler for action_name.
+            ValueError: Invalid JSON or schema validation failure.
+            RuntimeError: Handler error or rate-limit exceeded.
+
+        """
+        ...
+    def middleware_count(self) -> int: ...
+    def middleware_names(self) -> list[str]: ...
+    def handler_count(self) -> int: ...
+    def __repr__(self) -> str: ...
+
 # ── Factory Functions ──
 
 def success_result(
@@ -1464,6 +1747,115 @@ def connect_ipc(
         >>> channel = connect_ipc(addr)
         >>> rtt = channel.ping()
         >>> channel.shutdown()
+
+    """
+    ...
+
+def encode_request(method: str, params: bytes | None = None) -> bytes:
+    """Encode a Request message into a length-prefixed frame.
+
+    Returns ``bytes`` in the format ``[4-byte BE length][MessagePack payload]``
+    ready to write directly to a socket.
+
+    Args:
+        method: Method name (e.g. ``"execute_python"``).
+        params: Serialised parameters as bytes. Defaults to empty bytes.
+
+    Returns:
+        ``bytes`` — the framed message.
+
+    Raises:
+        RuntimeError: If serialisation fails.
+
+    Example:
+        >>> frame = encode_request("execute_python", b'cmds.sphere()')
+        >>> len(frame) >= 4
+        True
+
+    """
+    ...
+
+def encode_response(
+    request_id: str,
+    success: bool,
+    payload: bytes | None = None,
+    error: str | None = None,
+) -> bytes:
+    """Encode a Response message into a length-prefixed frame.
+
+    Args:
+        request_id: UUID string of the correlated request.
+        success:    Whether the request succeeded.
+        payload:    Serialised result bytes. Defaults to empty bytes.
+        error:      Optional error message (use when ``success=False``).
+
+    Returns:
+        ``bytes`` — the framed message.
+
+    Raises:
+        RuntimeError: If serialisation fails.
+        ValueError:   If ``request_id`` is not a valid UUID string.
+
+    Example:
+        >>> frame = encode_response("00000000-0000-0000-0000-000000000000", True, b"ok")
+        >>> len(frame) >= 4
+        True
+
+    """
+    ...
+
+def encode_notify(topic: str, data: bytes | None = None) -> bytes:
+    """Encode a Notify (one-way event) message into a length-prefixed frame.
+
+    Args:
+        topic: Event topic string (e.g. ``"scene_changed"``).
+        data:  Serialised event data bytes. Defaults to empty bytes.
+
+    Returns:
+        ``bytes`` — the framed message.
+
+    Raises:
+        RuntimeError: If serialisation fails.
+
+    Example:
+        >>> frame = encode_notify("render_complete", b"")
+        >>> len(frame) >= 4
+        True
+
+    """
+    ...
+
+def decode_envelope(data: bytes) -> dict[str, object]:
+    """Decode a MessagePack payload (WITHOUT length prefix) into a message dict.
+
+    The caller must strip the 4-byte length prefix before passing data here.
+
+    The returned dict always has a ``"type"`` key. Additional fields depend on
+    the variant:
+
+    - ``"request"``:  ``"id"`` (str), ``"method"`` (str), ``"params"`` (bytes)
+    - ``"response"``: ``"id"`` (str), ``"success"`` (bool), ``"payload"`` (bytes), ``"error"`` (str|None)
+    - ``"notify"``:   ``"id"`` (str|None), ``"topic"`` (str), ``"data"`` (bytes)
+    - ``"ping"``:     ``"id"`` (str), ``"timestamp_ms"`` (int)
+    - ``"pong"``:     ``"id"`` (str), ``"timestamp_ms"`` (int)
+    - ``"shutdown"``: ``"reason"`` (str|None)
+
+    Args:
+        data: Raw MessagePack bytes (length prefix already stripped).
+
+    Returns:
+        ``dict`` with ``"type"`` and variant-specific fields.
+
+    Raises:
+        RuntimeError: If ``data`` cannot be decoded as a valid envelope.
+
+    Example:
+        >>> frame = encode_request("ping", b"")
+        >>> msg = decode_envelope(frame[4:])  # strip 4-byte prefix
+        >>> msg["type"]
+        'request'
+        >>> msg["method"]
+        'ping'
 
     """
     ...

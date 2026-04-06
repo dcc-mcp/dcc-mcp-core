@@ -99,8 +99,10 @@ mod tests {
 
     #[test]
     fn test_transport_config_with_listen_address() {
-        let mut config = TransportConfig::default();
-        config.listen_address = Some("tcp://127.0.0.1:9000".to_string());
+        let config = TransportConfig {
+            listen_address: Some("tcp://127.0.0.1:9000".to_string()),
+            ..Default::default()
+        };
         assert_eq!(
             config.listen_address.as_deref(),
             Some("tcp://127.0.0.1:9000")

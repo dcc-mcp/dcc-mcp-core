@@ -494,3 +494,296 @@ class TestListenerHandle:
         assert "ListenerHandle" in r
         assert "tcp" in r
         assert "accept_count" in r
+
+
+class TestConnectIpc:
+    """Tests for connect_ipc() Python function."""
+
+    def test_connect_to_listener(self) -> None:
+        """connect_ipc() should successfully connect to a listening IpcListener."""
+        addr = dcc_mcp_core.TransportAddress.tcp("127.0.0.1", 0)
+        listener = dcc_mcp_core.IpcListener.bind(addr)
+        local = listener.local_address()
+
+        channel = dcc_mcp_core.connect_ipc(local)
+        assert channel is not None
+
+    def test_connect_returns_framed_channel(self) -> None:
+        """connect_ipc() should return a FramedChannel instance."""
+        addr = dcc_mcp_core.TransportAddress.tcp("127.0.0.1", 0)
+        listener = dcc_mcp_core.IpcListener.bind(addr)
+        local = listener.local_address()
+
+        channel = dcc_mcp_core.connect_ipc(local)
+        assert isinstance(channel, dcc_mcp_core.FramedChannel)
+
+    def test_connect_invalid_address_raises(self) -> None:
+        """connect_ipc() should raise RuntimeError for unreachable addresses."""
+        # Use a port that should be unreachable (not listening)
+        addr = dcc_mcp_core.TransportAddress.tcp("127.0.0.1", 1)
+        with pytest.raises(RuntimeError):
+            dcc_mcp_core.connect_ipc(addr)
+
+
+class TestFramedChannel:
+    """Tests for FramedChannel Python bindings.
+
+    Tests that require no active peer use a standalone listener (bind only, no accept).
+    Tests that require an active peer use a ListenerHandle to keep the server alive.
+    """
+
+    def _bind_and_connect(self) -> tuple[dcc_mcp_core.ListenerHandle, dcc_mcp_core.FramedChannel]:
+        """Create an IpcListener, get its handle (keeps it alive), and connect a client channel."""
+        addr = dcc_mcp_core.TransportAddress.tcp("127.0.0.1", 0)
+        listener = dcc_mcp_core.IpcListener.bind(addr)
+        local = listener.local_address()
+        handle = listener.into_handle()
+        channel = dcc_mcp_core.connect_ipc(local)
+        return handle, channel
+
+    def test_is_running_initially_true(self) -> None:
+        """A freshly connected channel should be running."""
+        _handle, channel = self._bind_and_connect()
+        assert channel.is_running is True
+
+    def test_shutdown_stops_channel(self) -> None:
+        """shutdown() should stop the channel background reader."""
+        _handle, channel = self._bind_and_connect()
+        channel.shutdown()
+        assert channel.is_running is False
+
+    def test_shutdown_idempotent(self) -> None:
+        """Calling shutdown() multiple times should not raise."""
+        _handle, channel = self._bind_and_connect()
+        channel.shutdown()
+        channel.shutdown()
+        assert channel.is_running is False
+
+    def test_send_request_returns_string(self) -> None:
+        """send_request() should return a UUID string."""
+        _handle, channel = self._bind_and_connect()
+        req_id = channel.send_request("ping", b"")
+        assert isinstance(req_id, str)
+        assert len(req_id) == 36  # UUID format: 8-4-4-4-12
+
+    def test_send_request_different_ids(self) -> None:
+        """Each call to send_request() should return a unique ID."""
+        _handle, channel = self._bind_and_connect()
+        id1 = channel.send_request("method_a", b"params1")
+        id2 = channel.send_request("method_b", b"params2")
+        assert id1 != id2
+
+    def test_try_recv_empty_returns_none(self) -> None:
+        """try_recv() on a channel with no pending messages should return None."""
+        _handle, channel = self._bind_and_connect()
+        result = channel.try_recv()
+        assert result is None
+
+    def test_send_notify(self) -> None:
+        """send_notify() should not raise for valid topic and data."""
+        _handle, channel = self._bind_and_connect()
+        # Should not raise
+        channel.send_notify("scene_changed", b"scene_data")
+
+    def test_send_response(self) -> None:
+        """send_response() should not raise for valid arguments."""
+        _handle, channel = self._bind_and_connect()
+        req_id = channel.send_request("test_method", b"params")
+        # Server-side: send back a response (in practice the server does this)
+        channel.send_response(req_id, success=True, payload=b"result")
+
+    def test_repr_contains_class_name(self) -> None:
+        """repr() should contain 'FramedChannel'."""
+        _handle, channel = self._bind_and_connect()
+        r = repr(channel)
+        assert "FramedChannel" in r
+
+    def test_ping_timeout_raises_runtime_error(self) -> None:
+        """ping() raises RuntimeError when peer does not send Pong (no Pong handler)."""
+        # The listener handle does not process pings (no Pong handler), so ping times out.
+        # This verifies the ping mechanism exists and raises the correct exception on timeout.
+        _handle, channel = self._bind_and_connect()
+        with pytest.raises(RuntimeError, match="ping"):
+            channel.ping()
+
+
+class TestRoutingStrategy:
+    """Tests for RoutingStrategy Python enum bindings."""
+
+    def test_first_available_exists(self) -> None:
+        """FIRST_AVAILABLE enum variant should be accessible."""
+        assert dcc_mcp_core.RoutingStrategy.FIRST_AVAILABLE is not None
+
+    def test_round_robin_exists(self) -> None:
+        """ROUND_ROBIN enum variant should be accessible."""
+        assert dcc_mcp_core.RoutingStrategy.ROUND_ROBIN is not None
+
+    def test_least_busy_exists(self) -> None:
+        """LEAST_BUSY enum variant should be accessible."""
+        assert dcc_mcp_core.RoutingStrategy.LEAST_BUSY is not None
+
+    def test_specific_exists(self) -> None:
+        """SPECIFIC enum variant should be accessible."""
+        assert dcc_mcp_core.RoutingStrategy.SPECIFIC is not None
+
+    def test_scene_match_exists(self) -> None:
+        """SCENE_MATCH enum variant should be accessible."""
+        assert dcc_mcp_core.RoutingStrategy.SCENE_MATCH is not None
+
+    def test_random_exists(self) -> None:
+        """RANDOM enum variant should be accessible."""
+        assert dcc_mcp_core.RoutingStrategy.RANDOM is not None
+
+    def test_str_first_available(self) -> None:
+        """str() of FIRST_AVAILABLE should return 'FIRST_AVAILABLE'."""
+        assert str(dcc_mcp_core.RoutingStrategy.FIRST_AVAILABLE) == "FIRST_AVAILABLE"
+
+    def test_str_round_robin(self) -> None:
+        """str() of ROUND_ROBIN should return 'ROUND_ROBIN'."""
+        assert str(dcc_mcp_core.RoutingStrategy.ROUND_ROBIN) == "ROUND_ROBIN"
+
+    def test_str_least_busy(self) -> None:
+        """str() of LEAST_BUSY should return 'LEAST_BUSY'."""
+        assert str(dcc_mcp_core.RoutingStrategy.LEAST_BUSY) == "LEAST_BUSY"
+
+    def test_str_specific(self) -> None:
+        """str() of SPECIFIC should return 'SPECIFIC'."""
+        assert str(dcc_mcp_core.RoutingStrategy.SPECIFIC) == "SPECIFIC"
+
+    def test_str_scene_match(self) -> None:
+        """str() of SCENE_MATCH should return 'SCENE_MATCH'."""
+        assert str(dcc_mcp_core.RoutingStrategy.SCENE_MATCH) == "SCENE_MATCH"
+
+    def test_str_random(self) -> None:
+        """str() of RANDOM should return 'RANDOM'."""
+        assert str(dcc_mcp_core.RoutingStrategy.RANDOM) == "RANDOM"
+
+    def test_repr_contains_class_and_variant(self) -> None:
+        """repr() should contain 'RoutingStrategy.' prefix."""
+        r = repr(dcc_mcp_core.RoutingStrategy.ROUND_ROBIN)
+        assert "RoutingStrategy." in r
+        assert "ROUND_ROBIN" in r
+
+    def test_equality_same_variant(self) -> None:
+        """Same variants should be equal."""
+        assert dcc_mcp_core.RoutingStrategy.FIRST_AVAILABLE == dcc_mcp_core.RoutingStrategy.FIRST_AVAILABLE
+
+    def test_inequality_different_variants(self) -> None:
+        """Different variants should not be equal."""
+        assert dcc_mcp_core.RoutingStrategy.FIRST_AVAILABLE != dcc_mcp_core.RoutingStrategy.ROUND_ROBIN
+
+    def test_all_variants_are_distinct(self) -> None:
+        """All six variants must be distinct from each other."""
+        variants = [
+            dcc_mcp_core.RoutingStrategy.FIRST_AVAILABLE,
+            dcc_mcp_core.RoutingStrategy.ROUND_ROBIN,
+            dcc_mcp_core.RoutingStrategy.LEAST_BUSY,
+            dcc_mcp_core.RoutingStrategy.SPECIFIC,
+            dcc_mcp_core.RoutingStrategy.SCENE_MATCH,
+            dcc_mcp_core.RoutingStrategy.RANDOM,
+        ]
+        # All 6 variants must be pairwise distinct.
+        for i, a in enumerate(variants):
+            for j, b in enumerate(variants):
+                if i != j:
+                    assert a != b, f"variants[{i}] == variants[{j}] unexpectedly"
+
+
+class TestMessageCodec:
+    """Tests for encode_request / encode_response / encode_notify / decode_envelope.
+
+    These functions provide low-level framed message codec support for DCC-side
+    Python servers (e.g. dcc-mcp-rpyc lightweight server).
+    """
+
+    def test_encode_request_returns_bytes(self) -> None:
+        """encode_request() should return bytes."""
+        frame = dcc_mcp_core.encode_request("execute_python", b"params")
+        assert isinstance(frame, bytes)
+
+    def test_encode_request_has_length_prefix(self) -> None:
+        """encode_request() result must be at least 4 bytes (length prefix)."""
+        frame = dcc_mcp_core.encode_request("ping")
+        assert len(frame) >= 4
+
+    def test_encode_request_length_prefix_matches_payload(self) -> None:
+        """The 4-byte length prefix must match the actual payload size."""
+        frame = dcc_mcp_core.encode_request("test", b"hello")
+        length = int.from_bytes(frame[:4], "big")
+        assert length == len(frame) - 4
+
+    def test_encode_request_default_params_empty(self) -> None:
+        """encode_request() with no params should produce a valid frame."""
+        frame = dcc_mcp_core.encode_request("ping")
+        msg = dcc_mcp_core.decode_envelope(frame[4:])
+        assert msg["type"] == "request"
+        assert msg["method"] == "ping"
+        assert msg["params"] == b""
+
+    def test_decode_envelope_request_roundtrip(self) -> None:
+        """encode_request() + decode_envelope() should roundtrip cleanly."""
+        frame = dcc_mcp_core.encode_request("execute_python", b"cmds.sphere()")
+        msg = dcc_mcp_core.decode_envelope(frame[4:])
+        assert msg["type"] == "request"
+        assert msg["method"] == "execute_python"
+        assert msg["params"] == b"cmds.sphere()"
+        assert isinstance(msg["id"], str)
+        assert len(msg["id"]) == 36  # UUID format
+
+    def test_encode_response_success_roundtrip(self) -> None:
+        """encode_response(success=True) + decode_envelope() should roundtrip cleanly."""
+        req_frame = dcc_mcp_core.encode_request("test")
+        req_id = dcc_mcp_core.decode_envelope(req_frame[4:])["id"]
+
+        resp_frame = dcc_mcp_core.encode_response(req_id, success=True, payload=b"result")
+        msg = dcc_mcp_core.decode_envelope(resp_frame[4:])
+        assert msg["type"] == "response"
+        assert msg["id"] == req_id
+        assert msg["success"] is True
+        assert msg["payload"] == b"result"
+        assert msg["error"] is None
+
+    def test_encode_response_error_roundtrip(self) -> None:
+        """encode_response(success=False) + decode_envelope() should include error string."""
+        req_frame = dcc_mcp_core.encode_request("bad_method")
+        req_id = dcc_mcp_core.decode_envelope(req_frame[4:])["id"]
+
+        resp_frame = dcc_mcp_core.encode_response(req_id, success=False, error="unknown method")
+        msg = dcc_mcp_core.decode_envelope(resp_frame[4:])
+        assert msg["type"] == "response"
+        assert msg["success"] is False
+        assert msg["error"] == "unknown method"
+
+    def test_encode_response_invalid_uuid_raises(self) -> None:
+        """encode_response() should raise ValueError for invalid UUID strings."""
+        with pytest.raises((ValueError, RuntimeError)):
+            dcc_mcp_core.encode_response("not-a-uuid", success=True)
+
+    def test_encode_notify_roundtrip(self) -> None:
+        """encode_notify() + decode_envelope() should roundtrip cleanly."""
+        frame = dcc_mcp_core.encode_notify("scene_changed", b"event_data")
+        msg = dcc_mcp_core.decode_envelope(frame[4:])
+        assert msg["type"] == "notify"
+        assert msg["topic"] == "scene_changed"
+        assert msg["data"] == b"event_data"
+
+    def test_encode_notify_no_data(self) -> None:
+        """encode_notify() with no data should produce a valid frame."""
+        frame = dcc_mcp_core.encode_notify("render_complete")
+        msg = dcc_mcp_core.decode_envelope(frame[4:])
+        assert msg["type"] == "notify"
+        assert msg["topic"] == "render_complete"
+        assert msg["data"] == b""
+
+    def test_decode_envelope_invalid_bytes_raises(self) -> None:
+        """decode_envelope() should raise RuntimeError for invalid MessagePack data."""
+        with pytest.raises(RuntimeError):
+            dcc_mcp_core.decode_envelope(b"not valid msgpack data at all")
+
+    def test_encode_request_unique_ids(self) -> None:
+        """Each encode_request() call should produce a unique message ID."""
+        f1 = dcc_mcp_core.encode_request("method")
+        f2 = dcc_mcp_core.encode_request("method")
+        id1 = dcc_mcp_core.decode_envelope(f1[4:])["id"]
+        id2 = dcc_mcp_core.decode_envelope(f2[4:])["id"]
+        assert id1 != id2

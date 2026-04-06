@@ -368,11 +368,11 @@ impl PyFramedChannel {
     ///
     /// This is the recommended way to invoke DCC commands from the Agent side:
     ///
-    /// .. code-block:: text
-    ///
-    ///     # Simple synchronous RPC call (blocks until DCC replies)
-    ///     result = channel.call("execute_python", b'print("hello")')
-    ///     # result is a dict: {"id": "...", "success": True, "payload": b"", "error": None}
+    /// ```text
+    /// # Simple synchronous RPC call (blocks until DCC replies)
+    /// result = channel.call("execute_python", b'print("hello")')
+    /// # result is a dict: {"id": "...", "success": True, "payload": b"", "error": None}
+    /// ```
     ///
     /// Args:
     ///     method:     Method name string (e.g. ``"execute_python"``).
@@ -384,12 +384,10 @@ impl PyFramedChannel {
     ///     ``"payload"`` (bytes), and ``"error"`` (str or ``None``).
     ///
     /// Raises:
-    ///     RuntimeError: On timeout, connection failure, or if the channel is
-    ///         shut down. The error message indicates the cause:
-    ///
-    ///         - ``"call '<method>' timed out after <N>ms"``
-    ///         - ``"call '<method>' failed: <reason>"`` (peer returned error response)
-    ///         - ``"connection closed by peer"``
+    ///     RuntimeError: On timeout, connection failure, or if the channel is shut down.
+    ///     Error messages: `"call '<method>' timed out after <N>ms"`,
+    ///     `"call '<method>' failed: <reason>"` (peer returned error response),
+    ///     or `"connection closed by peer"`.
     #[pyo3(signature = (method, params=None, timeout_ms=30000))]
     fn call(
         &self,
@@ -489,14 +487,15 @@ pub fn framed_io_to_py_channel(
 ///     RuntimeError: If the connection cannot be established within the timeout.
 ///
 /// Example:
-///     ```text
-///     from dcc_mcp_core import connect_ipc, TransportAddress
 ///
-///     addr = TransportAddress.tcp("127.0.0.1", 18812)
-///     channel = connect_ipc(addr)
-///     rtt = channel.ping()
-///     channel.shutdown()
-///     ```
+/// ```text
+/// from dcc_mcp_core import connect_ipc, TransportAddress
+///
+/// addr = TransportAddress.tcp("127.0.0.1", 18812)
+/// channel = connect_ipc(addr)
+/// rtt = channel.ping()
+/// channel.shutdown()
+/// ```
 #[cfg(feature = "python-bindings")]
 #[pyfunction]
 #[pyo3(name = "connect_ipc", signature = (addr, timeout_ms=10000))]

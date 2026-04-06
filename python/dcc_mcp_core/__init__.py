@@ -24,6 +24,7 @@ from dcc_mcp_core._core import SKILL_SCRIPTS_DIR
 # Telemetry
 from dcc_mcp_core._core import ActionDispatcher
 from dcc_mcp_core._core import ActionMetrics
+from dcc_mcp_core._core import ActionPipeline
 from dcc_mcp_core._core import ActionRecorder
 from dcc_mcp_core._core import ActionRegistry
 from dcc_mcp_core._core import ActionResultModel
@@ -32,6 +33,7 @@ from dcc_mcp_core._core import ActionValidator
 # Sandbox
 from dcc_mcp_core._core import AuditEntry
 from dcc_mcp_core._core import AuditLog
+from dcc_mcp_core._core import AuditMiddleware
 from dcc_mcp_core._core import BooleanWrapper
 from dcc_mcp_core._core import CaptureFrame
 from dcc_mcp_core._core import Capturer
@@ -47,6 +49,7 @@ from dcc_mcp_core._core import InputValidator
 from dcc_mcp_core._core import IntWrapper
 from dcc_mcp_core._core import IpcListener
 from dcc_mcp_core._core import ListenerHandle
+from dcc_mcp_core._core import LoggingMiddleware
 from dcc_mcp_core._core import PromptArgument
 from dcc_mcp_core._core import PromptDefinition
 
@@ -61,6 +64,7 @@ from dcc_mcp_core._core import PyProcessWatcher
 from dcc_mcp_core._core import PySceneDataKind
 from dcc_mcp_core._core import PySharedBuffer
 from dcc_mcp_core._core import PySharedSceneBuffer
+from dcc_mcp_core._core import RateLimitMiddleware
 from dcc_mcp_core._core import RecordingGuard
 from dcc_mcp_core._core import ResourceAnnotations
 from dcc_mcp_core._core import ResourceDefinition
@@ -85,6 +89,7 @@ from dcc_mcp_core._core import SkillScanner
 from dcc_mcp_core._core import SkillWatcher
 from dcc_mcp_core._core import StringWrapper
 from dcc_mcp_core._core import TelemetryConfig
+from dcc_mcp_core._core import TimingMiddleware
 from dcc_mcp_core._core import ToolAnnotations
 from dcc_mcp_core._core import ToolDefinition
 from dcc_mcp_core._core import TransportAddress
@@ -96,6 +101,10 @@ from dcc_mcp_core._core import VersionConstraint
 from dcc_mcp_core._core import VersionedRegistry
 from dcc_mcp_core._core import VtValue
 from dcc_mcp_core._core import connect_ipc
+from dcc_mcp_core._core import decode_envelope
+from dcc_mcp_core._core import encode_notify
+from dcc_mcp_core._core import encode_request
+from dcc_mcp_core._core import encode_response
 from dcc_mcp_core._core import error_result
 from dcc_mcp_core._core import expand_transitive_dependencies
 from dcc_mcp_core._core import from_exception
@@ -152,12 +161,14 @@ __all__ = [
     "SKILL_SCRIPTS_DIR",
     "ActionDispatcher",
     "ActionMetrics",
+    "ActionPipeline",
     "ActionRecorder",
     "ActionRegistry",
     "ActionResultModel",
     "ActionValidator",
     "AuditEntry",
     "AuditLog",
+    "AuditMiddleware",
     "BooleanWrapper",
     "CaptureFrame",
     "CaptureResult",
@@ -173,6 +184,7 @@ __all__ = [
     "IntWrapper",
     "IpcListener",
     "ListenerHandle",
+    "LoggingMiddleware",
     "PromptArgument",
     "PromptDefinition",
     "PyBufferPool",
@@ -183,6 +195,7 @@ __all__ = [
     "PySceneDataKind",
     "PySharedBuffer",
     "PySharedSceneBuffer",
+    "RateLimitMiddleware",
     "RecordingGuard",
     "ResourceAnnotations",
     "ResourceDefinition",
@@ -203,6 +216,7 @@ __all__ = [
     "SkillWatcher",
     "StringWrapper",
     "TelemetryConfig",
+    "TimingMiddleware",
     "ToolAnnotations",
     "ToolDefinition",
     "TransportAddress",
@@ -216,6 +230,10 @@ __all__ = [
     "__author__",
     "__version__",
     "connect_ipc",
+    "decode_envelope",
+    "encode_notify",
+    "encode_request",
+    "encode_response",
     "error_result",
     "expand_transitive_dependencies",
     "from_exception",

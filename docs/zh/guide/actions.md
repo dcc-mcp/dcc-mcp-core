@@ -1,105 +1,228 @@
 # Actions 动作
 
-Actions 是 DCC-MCP-Core 的核心构建块。每个 Action 代表一个可以在 DCC 应用程序中执行的离散操作。
+Actions 是 DCC-MCP-Core 的核心构建块。每个 Action 代表一个可以在 DCC 应用程序（Maya、Blender、Houdini 等）中执行的离散操作。
 
-## Action 基类
+## 架构
 
-Actions 继承自 `Action` 基类，使用 Pydantic 模型提供标准化结构：
+DCC-MCP-Core 采用基于注册表的 action 模型，后端使用 Rust 的 DashMap 实现线程安全并发访问：
 
-```python
-from dcc_mcp_core.actions.base import Action
-from dcc_mcp_core.models import ActionResultModel
-from pydantic import Field, field_validator, model_validator
-from typing import List, Optional
+- **`ActionRegistry`** — 线程安全的 action 元数据存储（name、description、tags、DCC、version、JSON schemas）
+- **`ActionDispatcher`** — 将验证后的调用路由到注册的 Python 处理器
+- **`ActionValidator`** — 基于 JSON Schema 的输入验证
+- **`VersionedRegistry`** — 支持语义版本解析的多版本 action 管理
 
-class CreateSphereAction(Action):
-    # 元数据
-    name = "create_sphere"
-    description = "在场景中创建球体"
-    tags = ["几何体", "创建"]
-    dcc = "maya"
-    order = 0  # 执行优先级
+所有 action 在运行时被发现和注册。**没有基类或 Pydantic 模型** —— action 是通过元数据注册的普通 Python 函数。
 
-    # 带验证的输入参数模型
-    class InputModel(Action.InputModel):
-        radius: float = Field(default=1.0, description="球体半径")
-        position: List[float] = Field(default=[0, 0, 0], description="位置")
-        name: Optional[str] = Field(default=None, description="球体名称")
+## ActionRegistry
 
-        @field_validator('radius')
-        def validate_radius(cls, v):
-            if v <= 0:
-                raise ValueError("半径必须为正数")
-            return v
-
-        @model_validator(mode='after')
-        def validate_model(self):
-            if self.name and self.position == [0, 0, 0]:
-                raise ValueError("指定名称时位置不能为原点")
-            return self
-
-    # 输出数据模型
-    class OutputModel(Action.OutputModel):
-        object_name: str = Field(description="创建的对象名称")
-        position: List[float] = Field(description="最终位置")
-
-    def _execute(self) -> None:
-        radius = self.input.radius
-        position = self.input.position
-        name = self.input.name or f"sphere_{radius}"
-
-        cmds = self.context.get("cmds")
-        sphere = cmds.polySphere(r=radius, n=name)[0]
-        cmds.move(*position, sphere)
-
-        self.output = self.OutputModel(
-            object_name=sphere,
-            position=position,
-            prompt="现在可以修改球体属性或添加材质"
-        )
-```
-
-## 类属性
-
-| 属性 | 类型 | 说明 |
-|------|------|------|
-| `name` | `str` | 动作名称（用于注册和查找） |
-| `description` | `str` | 动作描述 |
-| `tags` | `List[str]` | 分类标签 |
-| `dcc` | `str` | 目标 DCC（`"maya"`、`"blender"`、`"houdini"` 等） |
-| `order` | `int` | 执行优先级（越小越先） |
-| `category` | `str` | 组织分类 |
-| `abstract` | `bool` | 为 `True` 时不注册 |
-
-## 生命周期
-
-```
-__init__(context) → setup(**kwargs) → process() → ActionResultModel
-```
-
-1. **`__init__(context)`** — 使用 DCC 上下文初始化
-2. **`setup(**kwargs)`** — 验证输入，支持链式调用
-3. **`process()`** — 同步执行，自动错误处理
-4. **`process_async()`** — 异步执行（默认使用线程池）
-
-## 关键方法
-
-| 方法 | 说明 |
-|------|------|
-| `setup(**kwargs)` | 验证输入，返回 self（支持链式调用） |
-| `validate_input(**kwargs)` | Pydantic 验证 |
-| `process()` | 同步执行 → `ActionResultModel` |
-| `process_async()` | 异步执行 → `ActionResultModel` |
-| `_execute()` | **必须实现** — 核心逻辑 |
-| `_execute_async()` | 重写以支持原生异步 |
-
-## 异步支持
-
-默认情况下，`_execute_async()` 会在线程池中运行 `_execute()`。可重写以支持原生异步：
+`ActionRegistry` 是所有 DCC 操作的中央注册表。使用 JSON Schema 注册 action 进行输入验证：
 
 ```python
-async def _execute_async(self) -> None:
-    import asyncio
-    await asyncio.sleep(0.1)  # 模拟异步操作
-    # ... 异步操作
+import json
+from dcc_mcp_core import ActionRegistry
+
+reg = ActionRegistry()
+
+reg.register(
+    name="create_sphere",
+    description="在 DCC 场景中创建多边形球体",
+    category="geometry",
+    tags=["geo", "create", "mesh"],
+    dcc="maya",
+    version="1.0.0",
+    input_schema=json.dumps({
+        "type": "object",
+        "required": ["radius"],
+        "properties": {
+            "radius": {"type": "number", "minimum": 0.1, "description": "球体半径"},
+            "segments": {"type": "integer", "minimum": 4, "default": 16},
+            "name": {"type": "string", "description": "可选的球体名称"}
+        }
+    }),
+)
+```
+
+### 发现和查询
+
+```python
+# 获取所有注册了 action 的 DCC
+dccs = reg.get_all_dccs()
+print(dccs)  # ["maya", "blender", "houdini"]
+
+# 列出 Maya 的所有 action
+maya_actions = reg.list_actions_for_dcc("maya")
+print(maya_actions)  # ["create_sphere", "create_cube", ...]
+
+# 获取完整元数据
+meta = reg.get_action("create_sphere", dcc_name="maya")
+print(meta["version"])  # "1.0.0"
+
+# 按类别和标签搜索
+results = reg.search_actions(category="geometry", tags=["create"])
+for r in results:
+    print(r["name"], r["dcc"])
+
+# 所有类别和标签
+categories = reg.get_categories()
+tags = reg.get_tags(dcc_name="maya")
+```
+
+### Dunder 访问
+
+```python
+reg.register("echo", dcc="python")
+print("echo" in reg)  # True
+print(len(reg))        # 已注册 action 的数量
+```
+
+## ActionDispatcher
+
+`ActionDispatcher` 与 `ActionRegistry` 配对，提供验证后的 action 执行路由：
+
+```python
+import json
+from dcc_mcp_core import ActionRegistry, ActionDispatcher
+
+reg = ActionRegistry()
+reg.register(
+    "create_sphere",
+    dcc="maya",
+    input_schema=json.dumps({
+        "type": "object",
+        "required": ["radius"],
+        "properties": {"radius": {"type": "number"}}
+    }),
+)
+dispatcher = ActionDispatcher(reg)
+
+def handle_create_sphere(params):
+    radius = params["radius"]
+    # 在此调用 Maya API（例如通过 pymel 或 maya.cmds）
+    return {"created": True, "radius": radius}
+
+dispatcher.register_handler("create_sphere", handle_create_sphere)
+
+# 使用 JSON 字符串分派（wire format）
+result = dispatcher.dispatch("create_sphere", json.dumps({"radius": 2.0}))
+# result = {"action": "create_sphere", "output": {"created": True, "radius": 2.0}, "validation_skipped": False}
+```
+
+## ActionValidator
+
+独立的验证器，用于根据 schema 检查 JSON 参数：
+
+```python
+from dcc_mcp_core import ActionValidator
+
+validator = ActionValidator.from_schema_json(
+    '{"type": "object", "required": ["radius"], '
+    '"properties": {"radius": {"type": "number", "minimum": 0}}}'
+)
+
+ok, errors = validator.validate('{"radius": 1.5}')
+print(ok, errors)  # True, []
+
+ok, errors = validator.validate('{"radius": -1}')
+print(ok, errors)  # False, ["radius must be >= 0"]
+```
+
+或从已存在的 `ActionRegistry` action 创建：
+
+```python
+from dcc_mcp_core import ActionRegistry, ActionValidator
+
+reg = ActionRegistry()
+reg.register("create_sphere", dcc="maya", input_schema='{"type": "object", "properties": {"radius": {"type": "number"}}}')
+
+validator = ActionValidator.from_action_registry(reg, "create_sphere", dcc_name="maya")
+```
+
+## 结果模型
+
+所有 action 结果都规范化为 `ActionResultModel`：
+
+```python
+from dcc_mcp_core import success_result, error_result, from_exception
+
+# 成功
+result = success_result(
+    message="Sphere created",
+    prompt="Consider adding materials",  # AI 指导
+    object_name="sphere1",
+    position=[0, 0, 0],
+)
+print(result.success)    # True
+print(result.prompt)    # "Consider adding materials"
+print(result.context)   # {"object_name": "sphere1", "position": [0, 0, 0]}
+
+# 错误
+result = error_result(
+    message="Failed to create sphere",
+    error="Maya API error: object already exists",
+    object_name="sphere1",
+)
+print(result.success)  # False
+print(result.error)    # "Maya API error: object already exists"
+
+# 从异常创建
+try:
+    raise RuntimeError("connection refused")
+except Exception:
+    result = from_exception("Connection to Maya lost")
+    print(result.success)  # False
+```
+
+## VersionedRegistry
+
+对于需要在多个版本间保持向后兼容的 API：
+
+```python
+from dcc_mcp_core import VersionedRegistry, VersionConstraint
+
+vr = VersionedRegistry()
+
+# 注册同一 action 的多个版本
+vr.register_versioned("create_sphere", dcc="maya", version="1.0.0",
+    description="Basic sphere creation", category="geometry", tags=["geo"])
+vr.register_versioned("create_sphere", dcc="maya", version="2.0.0",
+    description="Sphere with UV support", category="geometry", tags=["geo", "uv"])
+
+# 解析最佳版本
+result = vr.resolve("create_sphere", "maya", "^1.0.0")
+print(result["version"])   # "2.0.0"
+
+# 所有匹配的版本
+all_v = vr.resolve_all("create_sphere", "maya", ">=1.0.0")
+print([v["version"] for v in all_v])  # ["1.0.0", "2.0.0"]
+
+# 最新版本
+print(vr.latest_version("create_sphere", "maya"))  # "2.0.0"
+```
+
+## EventBus
+
+订阅 action 生命周期事件，用于监控、日志或链式调用：
+
+```python
+from dcc_mcp_core import EventBus
+
+bus = EventBus()
+
+def on_before_execute(event, **kwargs):
+    print(f"Executing {event} with {kwargs}")
+
+def on_after_execute(event, **kwargs):
+    print(f"Completed {event}")
+
+# 订阅所有 "before_execute" 事件（通配符）
+id1 = bus.subscribe("action.before_execute.*", on_before_execute)
+
+# 订阅特定 action
+id2 = bus.subscribe("action.after_execute.create_sphere", on_after_execute)
+
+# 取消订阅
+bus.unsubscribe("action.before_execute.*", id1)
+
+# 手动发布
+bus.publish("custom.event", custom_data="value")
 ```

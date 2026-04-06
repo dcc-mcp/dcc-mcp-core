@@ -5,49 +5,71 @@ DCC-MCP-Core provides a publish/subscribe event system via the `EventBus` for de
 ## Usage
 
 ```python
-from dcc_mcp_core.actions.events import event_bus
+from dcc_mcp_core import EventBus
 
-def on_action_done(data):
-    print(f"Action {data['action_name']} completed: {data['result'].success}")
+bus = EventBus()
 
-# Subscribe to events
-event_bus.subscribe("action.after_execute.create_sphere", on_action_done)
+def on_sphere_done(event, **kwargs):
+    print(f"Event: {event}")
+    # kwargs contains event-specific data
 
-# Unsubscribe when done
-event_bus.unsubscribe("action.after_execute.create_sphere", on_action_done)
+# Subscribe to an event — returns an integer subscriber ID
+sub_id = bus.subscribe("action.after_execute.create_sphere", on_sphere_done)
+
+# Unsubscribe using the event name and subscriber ID
+bus.unsubscribe("action.after_execute.create_sphere", sub_id)
+
+# Publish manually
+bus.publish("my_custom_event", data="value")
 ```
 
-## Built-in Events
+::: tip
+`subscribe()` returns a **subscriber ID** (integer), not the callback. Pass that ID to `unsubscribe()`, not the callback.
+:::
 
-Events published automatically by ActionManager:
+## Event Discovery
 
-| Event | Description |
-|-------|-------------|
-| `action_manager.created` | Manager instance created |
-| `action_manager.before_discover_path` | Before discovering actions from a path |
-| `action_manager.after_discover_path` | After discovering actions from a path |
-| `action_manager.before_refresh` | Before refreshing all actions |
-| `action_manager.after_refresh` | After refreshing all actions |
+The `EventBus` is a generic pub/sub system. What events are published depends on the DCC adapter or service that uses it. Consult your DCC-specific adapter documentation for the full list of events it publishes.
+
+Common patterns:
+
+| Event Pattern | Description |
+|---------------|-------------|
 | `action.before_execute.{name}` | Before executing a specific action |
-| `action.after_execute.{name}` | After executing a specific action |
-| `action.error.{name}` | When an action raises an error |
-| `skill.loaded` | When a skill package is loaded |
+| `action.after_execute.{name}` | After a specific action completes |
+| `action.error.{name}` | When a specific action raises an error |
 
-## Event Data
+## Wildcard Subscriptions
 
-Event handlers receive a `data` dictionary containing relevant information:
+The event bus supports `*` as a wildcard in event names:
 
 ```python
-def on_before_execute(data):
-    action_name = data["action_name"]
-    kwargs = data.get("kwargs", {})
-    print(f"About to execute {action_name} with {kwargs}")
+bus = EventBus()
 
-def on_after_execute(data):
-    action_name = data["action_name"]
-    result = data["result"]  # ActionResultModel
-    print(f"{action_name}: {'OK' if result.success else 'FAIL'}")
+def on_any_after_execute(event, **kwargs):
+    print(f"Action completed: {event}")
 
-event_bus.subscribe("action.before_execute.create_sphere", on_before_execute)
-event_bus.subscribe("action.after_execute.create_sphere", on_after_execute)
+# Subscribe to all "after_execute" events
+id1 = bus.subscribe("action.after_execute.*", on_any_after_execute)
+
+# Subscribe to all events
+id2 = bus.subscribe("*", on_any_event)
 ```
+
+## Publishing Events
+
+Publish custom events for decoupled communication:
+
+```python
+bus = EventBus()
+
+# Publish with keyword arguments
+bus.publish("scene.saved", file_path="/tmp/scene.usda", size_kb=1024)
+bus.publish("scene.opened", file_path="/tmp/scene.usda")
+```
+
+## Dunder Methods
+
+| Method | Description |
+|--------|-------------|
+| `__repr__` | `EventBus(subscribers=N)` |

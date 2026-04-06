@@ -398,9 +398,9 @@ mod tests {
 
         #[test]
         fn keys_are_non_empty() {
-            assert!(!span_keys::DCC_NAME.is_empty());
-            assert!(!span_keys::ACTION_NAME.is_empty());
-            assert!(!span_keys::TRANSPORT_PROTOCOL.is_empty());
+            assert_eq!(span_keys::DCC_NAME, "dcc.name");
+            assert_eq!(span_keys::ACTION_NAME, "action.name");
+            assert_eq!(span_keys::TRANSPORT_PROTOCOL, "transport.protocol");
         }
     }
 }

@@ -278,8 +278,8 @@ mod tests {
 
     #[test]
     fn test_float_wrapper_basic() {
-        let w = FloatWrapper { value: 3.14 };
-        assert!((w.value - 3.14).abs() < 1e-10);
+        let w = FloatWrapper { value: 1.5 };
+        assert!((w.value - 1.5).abs() < 1e-10);
     }
 
     #[test]
@@ -290,7 +290,7 @@ mod tests {
 
     #[test]
     fn test_float_wrapper_clone() {
-        let a = FloatWrapper { value: 2.718 };
+        let a = FloatWrapper { value: 1.618 };
         let b = a.clone();
         assert_eq!(a, b);
     }

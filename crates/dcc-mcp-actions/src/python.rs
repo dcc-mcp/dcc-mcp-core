@@ -291,6 +291,27 @@ impl PyActionDispatcher {
     }
 }
 
+// ── Internal helpers for PyActionPipeline ────────────────────────────────────
+
+impl PyActionDispatcher {
+    /// Return a clone of the underlying Rust registry (for pipeline construction).
+    pub fn registry(&self) -> ActionRegistry {
+        self.inner.registry().clone()
+    }
+    /// Return a clone of the Python handler map (for pipeline dispatch).
+    ///
+    /// Each `Py<PyAny>` is cloned via `clone_ref` which requires the GIL.
+    pub fn handler_map_clone(&self) -> HashMap<String, Py<PyAny>> {
+        Python::try_attach(|py| {
+            self.handler_map
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone_ref(py)))
+                .collect::<HashMap<_, _>>()
+        })
+        .unwrap_or_default()
+    }
+}
+
 // ── Registration helper ───────────────────────────────────────────────────────
 
 /// Register `PyActionValidator` and `PyActionDispatcher` on the given Python module.

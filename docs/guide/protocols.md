@@ -1,108 +1,195 @@
 # MCP Protocols
 
-DCC-MCP-Core provides a full MCP (Model Context Protocol) abstraction layer with type definitions, abstract base classes, and adapters.
+DCC-MCP-Core provides MCP (Model Context Protocol) type definitions for Tools, Resources, and Prompts. All types are exported directly from `dcc_mcp_core`.
 
-## Type Definitions
+## ToolDefinition
+
+Define an MCP tool:
 
 ```python
-from dcc_mcp_core.protocols import (
-    ToolDefinition, ToolAnnotations,
-    ResourceDefinition, ResourceTemplateDefinition,
-    PromptDefinition, PromptArgument,
-)
+import json
+from dcc_mcp_core import ToolDefinition, ToolAnnotations
 
 tool = ToolDefinition(
     name="create_sphere",
-    description="Creates a sphere",
-    inputSchema={"type": "object", "properties": {"radius": {"type": "number"}}},
-    annotations=ToolAnnotations(readOnlyHint=False),
+    description="Create a polygon sphere in the DCC scene",
+    input_schema=json.dumps({
+        "type": "object",
+        "required": ["radius"],
+        "properties": {
+            "radius": {"type": "number", "minimum": 0.1},
+            "segments": {"type": "integer", "minimum": 4, "default": 16},
+        }
+    }),
+    output_schema=json.dumps({
+        "type": "object",
+        "properties": {
+            "object_name": {"type": "string"},
+            "radius": {"type": "number"},
+        }
+    }),
+    annotations=ToolAnnotations(
+        title="Create Sphere",
+        read_only_hint=False,
+        destructive_hint=False,
+        idempotent_hint=False,
+    ),
 )
 ```
 
-## Resource Base Class
+### ToolAnnotations
+
+Optional behavioral hints for the LLM:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `title` | `str?` | Human-readable display name |
+| `read_only_hint` | `bool?` | True if tool does not modify state |
+| `destructive_hint` | `bool?` | True if tool may be destructive |
+| `idempotent_hint` | `bool?` | True if repeated calls are safe |
+| `open_world_hint` | `bool?` | True if tool accesses external world |
+
+## ResourceDefinition
+
+Define an MCP resource:
 
 ```python
-from dcc_mcp_core.protocols import Resource
-from pydantic import Field
+from dcc_mcp_core import ResourceDefinition, ResourceAnnotations
 
-class SceneObjectsResource(Resource):
-    uri = "scene://objects"
-    name = "Scene Objects"
-    description = "All objects in the current scene"
-    mime_type = "application/json"
-    dcc = "maya"
-
-    def read(self, **params) -> str:
-        import json
-        objects = self.context["cmds"].ls(dag=True)
-        return json.dumps(objects)
-```
-
-## Prompt Base Class
-
-```python
-from dcc_mcp_core.protocols import Prompt
-from pydantic import Field
-
-class ReviewPrompt(Prompt):
-    name = "model_review"
-    description = "Review a 3D model"
-
-    class ArgumentsModel(Prompt.ArgumentsModel):
-        object_name: str = Field(description="Object to review")
-
-    def render(self, **kwargs) -> str:
-        args = self.ArgumentsModel(**kwargs)
-        return f"Review the 3D model '{args.object_name}'"
-```
-
-## MCPAdapter
-
-Convert Action classes and protocol objects to MCP-compatible type definitions:
-
-```python
-from dcc_mcp_core.protocols import MCPAdapter
-
-# Convert Action to Tool definition
-tool_def = MCPAdapter.action_to_tool(CreateSphereAction)
-
-# Convert Resource to definition
-resource_def = MCPAdapter.resource_to_definition(SceneObjectsResource)
-
-# Convert Prompt to definition
-prompt_def = MCPAdapter.prompt_to_definition(ReviewPrompt)
-
-# URI template helpers
-params = MCPAdapter.parse_uri_template_params("scene://objects/{category}/{name}")
-# ["category", "name"]
-
-matched = MCPAdapter.match_uri_to_template(
-    "scene://objects/mesh/cube1",
-    "scene://objects/{category}/{name}"
+resource = ResourceDefinition(
+    uri="scene://objects",
+    name="Scene Objects",
+    description="All objects in the current DCC scene",
+    mime_type="application/json",
+    annotations=ResourceAnnotations(
+        audience=["agent"],
+        priority=0.8,
+    ),
 )
-# {"category": "mesh", "name": "cube1"}
 ```
 
-## Server Protocol
+## ResourceTemplateDefinition
 
-Implement the full MCP server interface:
+URI template for parameterized resources:
 
 ```python
-from dcc_mcp_core.protocols import MCPServerProtocol
+from dcc_mcp_core import ResourceTemplateDefinition
 
-class MyMCPServer:  # implements MCPServerProtocol
-    @property
-    def name(self) -> str: return "my-server"
-    @property
-    def version(self) -> str: return "1.0.0"
-
-    async def list_tools(self): ...
-    async def call_tool(self, name, arguments): ...
-    async def list_resources(self): ...
-    async def read_resource(self, uri): ...
-    async def list_prompts(self): ...
-    async def get_prompt(self, name, arguments=None): ...
-
-# Runtime type checking
-assert isinstance(my_server, MCPServerProtocol)
+template = ResourceTemplateDefinition(
+    uri_template="scene://objects/{category}/{name}",
+    name="Scoped Object",
+    description="Object by category and name",
+    mime_type="application/json",
+)
 ```
+
+## PromptDefinition
+
+Define an MCP prompt:
+
+```python
+from dcc_mcp_core import PromptDefinition, PromptArgument
+
+prompt = PromptDefinition(
+    name="review_scene",
+    description="Review the current DCC scene state",
+    arguments=[
+        PromptArgument(
+            name="focus_area",
+            description="Area to focus review on",
+            required=False,
+        ),
+    ],
+)
+```
+
+## DCC Info Types
+
+```python
+from dcc_mcp_core import (
+    DccInfo, DccCapabilities, DccError, DccErrorCode,
+    ScriptLanguage, ScriptResult, SceneInfo, SceneStatistics,
+)
+
+# DCC application info
+info = DccInfo(
+    dcc_type="maya",
+    version="2025",
+    platform="win64",
+    pid=12345,
+    python_version="3.11.7",
+)
+
+# DCC capabilities
+caps = DccCapabilities(
+    script_languages=[ScriptLanguage.PYTHON, ScriptLanguage.MEL],
+    scene_info=True,
+    snapshot=True,
+    undo_redo=True,
+    progress_reporting=True,
+    file_operations=True,
+    selection=True,
+)
+
+# DCC error
+err = DccError(
+    code=DccErrorCode.SCRIPT_ERROR,
+    message="Maya command failed",
+    details="polySphere: object 'pSphere1' already exists",
+    recoverable=True,
+)
+
+# Script execution result
+result = ScriptResult(
+    success=False,
+    execution_time_ms=150,
+    output=None,
+    error="Name conflict",
+)
+
+# Scene info
+stats = SceneStatistics(
+    object_count=42,
+    vertex_count=100000,
+    polygon_count=5000,
+)
+scene = SceneInfo(
+    file_path="/project/scene.usda",
+    name="scene",
+    modified=True,
+    format="usda",
+    frame_range=(1.0, 240.0),
+    current_frame=1.0,
+    fps=24.0,
+    up_axis="Y",
+    units="cm",
+    statistics=stats,
+)
+```
+
+### DccErrorCode Enum
+
+| Value | Description |
+|-------|-------------|
+| `CONNECTION_FAILED` | Cannot connect to DCC |
+| `TIMEOUT` | Operation timed out |
+| `SCRIPT_ERROR` | Script execution error |
+| `NOT_RESPONDING` | DCC is not responding |
+| `UNSUPPORTED` | Operation not supported |
+| `PERMISSION_DENIED` | Permission denied |
+| `INVALID_INPUT` | Invalid input parameters |
+| `SCENE_ERROR` | Scene operation error |
+| `INTERNAL` | Internal error |
+
+### ScriptLanguage Enum
+
+| Value | Description |
+|-------|-------------|
+| `PYTHON` | Python scripts |
+| `MEL` | MEL scripts (Maya) |
+| `MAXSCRIPT` | 3ds Max MaxScript |
+| `HSCRIPT` | Houdini scripts |
+| `VEX` | VEX snippets |
+| `LUA` | Lua scripts |
+| `CSHARP` | C# scripts |
+| `BLUEPRINT` | Visual scripting |
