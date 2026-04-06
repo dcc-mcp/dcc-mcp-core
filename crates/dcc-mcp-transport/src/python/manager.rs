@@ -570,6 +570,61 @@ impl PyTransportManager {
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
     }
 
+    /// Return all live instances for `dcc_type`, sorted by connection preference.
+    ///
+    /// This is the list-form companion to :meth:`find_best_service`. Use it when
+    /// you need to iterate over all viable options — for example to implement custom
+    /// fallback logic, display a picker UI, or handle the multi-instance case where
+    /// you want to talk to **all** running Maya instances in parallel.
+    ///
+    /// Ordering (lower = more preferred):
+    ///
+    /// +-------+-----------------------------------+
+    /// | Score | Tier                              |
+    /// +=======+===================================+
+    /// | 0     | Local IPC, AVAILABLE              |
+    /// +-------+-----------------------------------+
+    /// | 1     | Local IPC, BUSY                   |
+    /// +-------+-----------------------------------+
+    /// | 2     | Local TCP, AVAILABLE              |
+    /// +-------+-----------------------------------+
+    /// | 3     | Local TCP, BUSY                   |
+    /// +-------+-----------------------------------+
+    /// | 4     | Remote TCP, AVAILABLE             |
+    /// +-------+-----------------------------------+
+    /// | 5     | Remote TCP, BUSY                  |
+    /// +-------+-----------------------------------+
+    ///
+    /// ``UNREACHABLE`` and ``SHUTTING_DOWN`` instances are excluded.
+    ///
+    /// Args:
+    ///     dcc_type: DCC application type (e.g. ``"maya"``).
+    ///
+    /// Returns:
+    ///     List of :class:`ServiceEntry` sorted by preference (best first).
+    ///
+    /// Raises:
+    ///     RuntimeError: If no live instances are registered.
+    ///
+    /// Example — talk to all local Maya instances::
+    ///
+    ///     from dcc_mcp_core import TransportManager
+    ///
+    ///     mgr = TransportManager("/tmp/dcc-mcp")
+    ///
+    ///     # 3 Maya instances running locally
+    ///     for entry in mgr.rank_services("maya"):
+    ///         print(entry.instance_id, entry.status, entry.effective_address())
+    ///         session_id = mgr.get_or_create_session("maya", entry.instance_id)
+    ///         # ... dispatch work to each instance
+    #[pyo3(name = "rank_services")]
+    fn py_rank_services(&self, dcc_type: &str) -> PyResult<Vec<PyServiceEntry>> {
+        self.inner
+            .rank_services(dcc_type)
+            .map(|v| v.iter().map(PyServiceEntry::from).collect())
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+    }
+
     // ── Lifecycle ──
 
     /// Cleanup stale services, idle sessions, and evict idle connections.

@@ -1185,6 +1185,10 @@ class TransportManager:
         Within the same tier, ``AVAILABLE`` instances are preferred over ``BUSY``.
         ``UNREACHABLE`` and ``SHUTTING_DOWN`` instances are excluded.
 
+        When **multiple instances share the same best score** (e.g. two local AVAILABLE
+        IPC Maya instances), selection is **round-robin** across successive calls —
+        load is automatically spread across all equivalent instances.
+
         Args:
             dcc_type: DCC application type (e.g. ``"maya"``).
 
@@ -1201,10 +1205,62 @@ class TransportManager:
             mgr = TransportManager("/tmp/dcc-mcp")
 
             # Works whether maya is local (IPC) or remote (TCP)
-            entry = mgr.find_best_service("maya")
-            print(entry.dcc_type, entry.status, entry.effective_address())
+            # With 3 local Maya instances open, successive calls round-robin:
+            entry1 = mgr.find_best_service("maya")  # → instance A
+            entry2 = mgr.find_best_service("maya")  # → instance B
+            entry3 = mgr.find_best_service("maya")  # → instance C
+            session_id = mgr.get_or_create_session("maya", entry1.instance_id)
 
-            session_id = mgr.get_or_create_session("maya", entry.instance_id)
+        """
+        ...
+
+    def rank_services(self, dcc_type: str) -> list[ServiceEntry]:
+        """Return all live instances for `dcc_type`, sorted by connection preference.
+
+        List-form companion to :meth:`find_best_service`. Use when you need all
+        viable candidates — e.g. to dispatch work to every running Maya instance,
+        implement a fallback chain, or show an instance picker in a UI.
+
+        Sort order (lower score = more preferred):
+
+        +-------+-----------------------------------+
+        | Score | Tier                              |
+        +=======+===================================+
+        | 0     | Local IPC, AVAILABLE              |
+        +-------+-----------------------------------+
+        | 1     | Local IPC, BUSY                   |
+        +-------+-----------------------------------+
+        | 2     | Local TCP, AVAILABLE              |
+        +-------+-----------------------------------+
+        | 3     | Local TCP, BUSY                   |
+        +-------+-----------------------------------+
+        | 4     | Remote TCP, AVAILABLE             |
+        +-------+-----------------------------------+
+        | 5     | Remote TCP, BUSY                  |
+        +-------+-----------------------------------+
+
+        ``UNREACHABLE`` and ``SHUTTING_DOWN`` instances are excluded.
+
+        Args:
+            dcc_type: DCC application type (e.g. ``"maya"``).
+
+        Returns:
+            List of :class:`ServiceEntry` sorted by preference (best first).
+
+        Raises:
+            RuntimeError: If no live instances are registered.
+
+        Example — broadcast a command to all open Maya instances::
+
+            from dcc_mcp_core import TransportManager
+
+            mgr = TransportManager("/tmp/dcc-mcp")
+
+            # 3 Maya instances open locally
+            for entry in mgr.rank_services("maya"):
+                print(entry.instance_id, entry.status, entry.effective_address())
+                sid = mgr.get_or_create_session("maya", entry.instance_id)
+                # dispatch work to this specific instance via session sid
 
         """
         ...

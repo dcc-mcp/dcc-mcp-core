@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 use uuid::Uuid;
 
@@ -34,6 +34,8 @@ pub struct TransportManager {
     config: TransportConfig,
     /// Whether the transport is shut down.
     shutdown: Arc<AtomicBool>,
+    /// Round-robin counter for same-tier load balancing in find_best_service.
+    round_robin_counter: Arc<AtomicUsize>,
 }
 
 impl TransportManager {
@@ -48,6 +50,7 @@ impl TransportManager {
             router: InstanceRouter::default(),
             config,
             shutdown: Arc::new(AtomicBool::new(false)),
+            round_robin_counter: Arc::new(AtomicUsize::new(0)),
         })
     }
 
@@ -61,6 +64,7 @@ impl TransportManager {
             router: InstanceRouter::default(),
             config,
             shutdown: Arc::new(AtomicBool::new(false)),
+            round_robin_counter: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -545,21 +549,61 @@ impl TransportManager {
 
     /// Discover the best available service instance for the given DCC type.
     ///
-    /// **Client / MCP server usage** — returns the highest-priority live instance:
+    /// Returns the highest-priority *live* [`ServiceEntry`] using the following
+    /// priority order:
     ///
-    /// ```ignore
-    /// let entry = manager.find_best_service("maya")?;
-    /// let session_id = manager.get_or_create_session("maya", Some(entry.instance_id))?;
-    /// ```
+    /// 1. **Local IPC** (Named Pipe / Unix Socket) — lowest latency, same machine
+    /// 2. **Local TCP** (`127.0.0.1` / `localhost`) — same machine
+    /// 3. **Remote TCP** — cross-machine
     ///
-    /// Priority order (lower index = preferred):
-    /// 1. Local IPC (Named Pipe / Unix Socket) — same machine, lowest latency
-    /// 2. Local TCP (`127.0.0.1` / `localhost`) — same machine, TCP
-    /// 3. Remote TCP — cross-machine
+    /// Within the same tier, `AVAILABLE` instances are preferred over `BUSY`.
+    /// `UNREACHABLE` and `SHUTTING_DOWN` instances are excluded.
     ///
-    /// Within the same tier, `ServiceStatus::Available` instances are preferred over `Busy`.
-    /// Stale / `Unreachable` / `ShuttingDown` instances are excluded.
+    /// When multiple instances share the same best score (e.g. two local AVAILABLE IPC
+    /// instances of Maya are both running), round-robin selection distributes load evenly
+    /// across calls.
     pub fn find_best_service(&self, dcc_type: &str) -> TransportResult<ServiceEntry> {
+        let ranked = self.rank_services(dcc_type)?;
+        // All entries in ranked are sorted by score. Pick the best score bucket
+        // and round-robin within it.
+        let best_score = self.score_entry(&ranked[0]);
+        let best_tier: Vec<&ServiceEntry> = ranked
+            .iter()
+            .take_while(|e| self.score_entry(e) == best_score)
+            .collect();
+
+        let idx = self.round_robin_counter.fetch_add(1, Ordering::Relaxed) % best_tier.len();
+
+        tracing::debug!(
+            dcc_type,
+            candidates = best_tier.len(),
+            selected = idx,
+            score = best_score,
+            "find_best_service selected instance"
+        );
+
+        Ok(best_tier[idx].clone())
+    }
+
+    /// Return all live instances for `dcc_type`, sorted by connection preference.
+    ///
+    /// This is the list-form companion to [`find_best_service`]. Use it when the
+    /// caller needs to iterate over all viable options — for example to implement
+    /// custom fallback logic or display all available instances to the user.
+    ///
+    /// Ordering (lower score = more preferred):
+    ///
+    /// | Score | Tier |
+    /// |-------|------|
+    /// | 0 | Local IPC, AVAILABLE |
+    /// | 1 | Local IPC, BUSY |
+    /// | 2 | Local TCP, AVAILABLE |
+    /// | 3 | Local TCP, BUSY |
+    /// | 4 | Remote TCP, AVAILABLE |
+    /// | 5 | Remote TCP, BUSY |
+    ///
+    /// `UNREACHABLE` and `SHUTTING_DOWN` instances are excluded.
+    pub fn rank_services(&self, dcc_type: &str) -> TransportResult<Vec<ServiceEntry>> {
         let instances = self.registry.list_instances(dcc_type);
         if instances.is_empty() {
             return Err(TransportError::ServiceNotFound {
@@ -568,16 +612,9 @@ impl TransportManager {
             });
         }
 
-        // Exclude dead/shutting-down instances
-        let live: Vec<&ServiceEntry> = instances
-            .iter()
-            .filter(|e| {
-                matches!(
-                    e.status,
-                    crate::discovery::types::ServiceStatus::Available
-                        | crate::discovery::types::ServiceStatus::Busy
-                )
-            })
+        let mut live: Vec<ServiceEntry> = instances
+            .into_iter()
+            .filter(|e| matches!(e.status, ServiceStatus::Available | ServiceStatus::Busy))
             .collect();
 
         if live.is_empty() {
@@ -587,27 +624,24 @@ impl TransportManager {
             });
         }
 
-        // Score: lower = more preferred
-        // 0 = local IPC (pipe/socket), available
-        // 1 = local IPC, busy
-        // 2 = local TCP, available
-        // 3 = local TCP, busy
-        // 4 = remote TCP, available
-        // 5 = remote TCP, busy
-        let score = |e: &&ServiceEntry| -> u8 {
-            let is_available = e.status == crate::discovery::types::ServiceStatus::Available;
-            let busy_penalty: u8 = if is_available { 0 } else { 1 };
-            if e.is_ipc() {
-                busy_penalty
-            } else if e.effective_address().is_local() {
-                2 + busy_penalty
-            } else {
-                4 + busy_penalty
-            }
-        };
+        live.sort_by_key(|e| self.score_entry(e));
+        Ok(live)
+    }
 
-        let best = live.into_iter().min_by_key(score).expect("non-empty");
-        Ok(best.clone())
+    /// Compute the preference score for a service entry (lower = more preferred).
+    fn score_entry(&self, e: &ServiceEntry) -> u8 {
+        let busy_penalty: u8 = if e.status == ServiceStatus::Available {
+            0
+        } else {
+            1
+        };
+        if e.is_ipc() {
+            busy_penalty
+        } else if e.effective_address().is_local() {
+            2 + busy_penalty
+        } else {
+            4 + busy_penalty
+        }
     }
 
     fn resolve_instance(
