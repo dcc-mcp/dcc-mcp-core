@@ -1,29 +1,3 @@
-## [0.12.6](https://github.com/loonghao/dcc-mcp-core/compare/v0.12.5...v0.12.6) (2026-04-06)
-
-
-### Features
-
-* add ActionRegistry.register_batch + unregister APIs
-* add ActionPipeline Python bindings with LoggingMiddleware/TimingMiddleware/AuditMiddleware/RateLimitMiddleware
-* fix VersionedRegistry Python bindings to match .pyi stub API
-* add transport message codec Python bindings (encode_request/encode_response/encode_notify/decode_envelope)
-* expose ServiceEntry.last_heartbeat_ms + add list_all_instances()
-* add transport_address param to register_service for IPC support
-* add count_actions Python binding + validator edge case tests
-* add search_actions/get_categories/get_tags to ActionRegistry
-
-
-### Code Refactoring
-
-* split large Rust source files into submodules (pipeline, registry, validator, versioned, circuit_breaker, framed, ipc, listener, pool, session, transport, loader, mock)
-* split test_integration_dcc.py into 5 focused files (blender, freecad, godot, openscad_inkscape, cross)
-
-
-### Documentation
-
-* add ActionPipeline usage guide to AGENTS.md + llms.txt + llms-full.txt
-* add decision tables and integration patterns to AI agent guides
-
 ## v0.10.0 (2026-03-28)
 
 ### Feat
