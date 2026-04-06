@@ -57,7 +57,7 @@ jobs:
   # Users needing Python 3.7 on macOS should install from source distribution
 
   linux-py37:
-    runs-on: ubuntu-22.04  # Use Ubuntu 22.04 for Python 3.7 availability
+    runs-on: ubuntu-24.04  # Use Ubuntu 22.04 for Python 3.7 availability
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/build-wheel
