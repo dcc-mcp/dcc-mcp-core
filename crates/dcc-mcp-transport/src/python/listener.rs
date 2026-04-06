@@ -60,8 +60,20 @@ use super::types::PyTransportAddress;
 #[cfg(feature = "python-bindings")]
 #[pyclass(name = "IpcListener")]
 pub struct PyIpcListener {
-    inner: Option<IpcListener>,
+    pub(crate) inner: Option<IpcListener>,
     _runtime: tokio::runtime::Runtime,
+}
+
+#[cfg(feature = "python-bindings")]
+impl PyIpcListener {
+    /// Internal constructor: wrap an existing [`IpcListener`] with a runtime.
+    /// Used by [`PyTransportManager::py_bind_and_register`].
+    pub fn from_listener(listener: IpcListener, runtime: tokio::runtime::Runtime) -> Self {
+        Self {
+            inner: Some(listener),
+            _runtime: runtime,
+        }
+    }
 }
 
 #[cfg(feature = "python-bindings")]

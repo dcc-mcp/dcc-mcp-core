@@ -1128,6 +1128,87 @@ class TransportManager:
     def heartbeat(self, dcc_type: str, instance_id: str) -> bool: ...
     def update_service_status(self, dcc_type: str, instance_id: str, status: ServiceStatus) -> bool: ...
 
+    # High-level auto-registration & discovery
+
+    def bind_and_register(
+        self,
+        dcc_type: str,
+        version: str | None = None,
+        metadata: dict[str, str] | None = None,
+    ) -> tuple[str, IpcListener]:
+        """Bind a listener on the optimal transport and register this DCC instance.
+
+        One-call replacement for the manual ``IpcListener.bind`` →
+        ``local_address`` → ``register_service`` sequence.
+
+        Transport selection (in priority order):
+
+        1. **Named Pipe** (Windows) / **Unix Socket** (macOS/Linux) — PID-unique,
+           zero-config, sub-millisecond latency.
+        2. **TCP on ephemeral port** (``:0``) — OS assigns a free port; falls back
+           to TCP when IPC is unavailable.
+
+        Args:
+            dcc_type: DCC application type (e.g. ``"maya"``).
+            version:  DCC version string (optional).
+            metadata: Arbitrary metadata dict (optional).
+
+        Returns:
+            ``(instance_id, listener)`` — the UUID string of the registered
+            instance and the bound :class:`IpcListener` ready to accept
+            connections.
+
+        Example::
+
+            from dcc_mcp_core import TransportManager
+
+            mgr = TransportManager("/tmp/dcc-mcp")
+            instance_id, listener = mgr.bind_and_register("maya", version="2025")
+            local_addr = listener.local_address()
+            print(f"Listening on {local_addr}")  # e.g. unix:///tmp/dcc-mcp-maya-12345.sock
+
+            # Hand the listener to a serve loop (DCC plugin thread)
+            channel = listener.accept()
+
+        """
+        ...
+
+    def find_best_service(self, dcc_type: str) -> ServiceEntry:
+        """Discover the best available service instance for the given DCC type.
+
+        Returns the highest-priority *live* ``ServiceEntry`` based on:
+
+        1. **Local IPC** (Named Pipe / Unix Socket) — lowest latency, same machine
+        2. **Local TCP** (``127.0.0.1`` / ``localhost``) — same machine
+        3. **Remote TCP** — cross-machine
+
+        Within the same tier, ``AVAILABLE`` instances are preferred over ``BUSY``.
+        ``UNREACHABLE`` and ``SHUTTING_DOWN`` instances are excluded.
+
+        Args:
+            dcc_type: DCC application type (e.g. ``"maya"``).
+
+        Returns:
+            Best :class:`ServiceEntry`.
+
+        Raises:
+            RuntimeError: If no live instances are registered.
+
+        Example::
+
+            from dcc_mcp_core import TransportManager
+
+            mgr = TransportManager("/tmp/dcc-mcp")
+
+            # Works whether maya is local (IPC) or remote (TCP)
+            entry = mgr.find_best_service("maya")
+            print(entry.dcc_type, entry.status, entry.effective_address())
+
+            session_id = mgr.get_or_create_session("maya", entry.instance_id)
+
+        """
+        ...
+
     # Session Management
     def get_or_create_session(self, dcc_type: str, instance_id: str | None = None) -> str: ...
     def get_or_create_session_routed(

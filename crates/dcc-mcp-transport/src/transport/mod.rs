@@ -474,6 +474,142 @@ impl TransportManager {
         }
     }
 
+    // ── High-level service auto-registration & discovery ──
+
+    /// Bind a listener on the optimal transport for this machine, register the
+    /// service in the registry, and return the `(instance_id, listener)` pair.
+    ///
+    /// **DCC plugin usage** — one call replaces the manual bind → local_address → register flow:
+    ///
+    /// ```ignore
+    /// let (instance_id, listener) = manager
+    ///     .bind_and_register("maya", Some("2025"), None)
+    ///     .await?;
+    ///
+    /// // listener is ready; start serving connections
+    /// manager.serve(Arc::new(manager), listener, ServiceKey {
+    ///     dcc_type: "maya".into(),
+    ///     instance_id,
+    /// });
+    /// ```
+    ///
+    /// Transport selection priority:
+    /// 1. Named Pipe (Windows) / Unix Socket (macOS/Linux) — zero-config, PID-unique
+    /// 2. TCP on ephemeral port (`:0`) — OS assigns a free port automatically
+    pub async fn bind_and_register(
+        &self,
+        dcc_type: &str,
+        version: Option<String>,
+        metadata: Option<std::collections::HashMap<String, String>>,
+    ) -> TransportResult<(uuid::Uuid, IpcListener)> {
+        self.check_shutdown()?;
+
+        let pid = std::process::id();
+        let addr = TransportAddress::default_local(dcc_type, pid);
+
+        // Bind the listener — for IPC addresses this is immediate;
+        // for TCP :0 the OS assigns a free port.
+        let listener = IpcListener::bind(&addr).await?;
+
+        // Read back the actual bound address (important for TCP :0 → real port)
+        let bound_addr = listener.local_address()?;
+
+        let mut entry = ServiceEntry::new(
+            dcc_type,
+            match &bound_addr {
+                TransportAddress::Tcp { host, .. } => host.as_str(),
+                _ => "127.0.0.1",
+            },
+            match &bound_addr {
+                TransportAddress::Tcp { port, .. } => *port,
+                _ => 0,
+            },
+        );
+        entry.version = version;
+        if let Some(md) = metadata {
+            entry.metadata = md;
+        }
+        entry.transport_address = Some(bound_addr);
+        let instance_id = entry.instance_id;
+
+        tracing::info!(
+            dcc_type,
+            %instance_id,
+            transport = %listener.transport_name(),
+            "auto-registered DCC service"
+        );
+
+        self.registry.register(entry)?;
+        Ok((instance_id, listener))
+    }
+
+    /// Discover the best available service instance for the given DCC type.
+    ///
+    /// **Client / MCP server usage** — returns the highest-priority live instance:
+    ///
+    /// ```ignore
+    /// let entry = manager.find_best_service("maya")?;
+    /// let session_id = manager.get_or_create_session("maya", Some(entry.instance_id))?;
+    /// ```
+    ///
+    /// Priority order (lower index = preferred):
+    /// 1. Local IPC (Named Pipe / Unix Socket) — same machine, lowest latency
+    /// 2. Local TCP (`127.0.0.1` / `localhost`) — same machine, TCP
+    /// 3. Remote TCP — cross-machine
+    ///
+    /// Within the same tier, `ServiceStatus::Available` instances are preferred over `Busy`.
+    /// Stale / `Unreachable` / `ShuttingDown` instances are excluded.
+    pub fn find_best_service(&self, dcc_type: &str) -> TransportResult<ServiceEntry> {
+        let instances = self.registry.list_instances(dcc_type);
+        if instances.is_empty() {
+            return Err(TransportError::ServiceNotFound {
+                dcc_type: dcc_type.to_string(),
+                instance_id: "any".to_string(),
+            });
+        }
+
+        // Exclude dead/shutting-down instances
+        let live: Vec<&ServiceEntry> = instances
+            .iter()
+            .filter(|e| {
+                matches!(
+                    e.status,
+                    crate::discovery::types::ServiceStatus::Available
+                        | crate::discovery::types::ServiceStatus::Busy
+                )
+            })
+            .collect();
+
+        if live.is_empty() {
+            return Err(TransportError::ServiceNotFound {
+                dcc_type: dcc_type.to_string(),
+                instance_id: "all instances are unreachable or shutting down".to_string(),
+            });
+        }
+
+        // Score: lower = more preferred
+        // 0 = local IPC (pipe/socket), available
+        // 1 = local IPC, busy
+        // 2 = local TCP, available
+        // 3 = local TCP, busy
+        // 4 = remote TCP, available
+        // 5 = remote TCP, busy
+        let score = |e: &&ServiceEntry| -> u8 {
+            let is_available = e.status == crate::discovery::types::ServiceStatus::Available;
+            let busy_penalty: u8 = if is_available { 0 } else { 1 };
+            if e.is_ipc() {
+                busy_penalty
+            } else if e.effective_address().is_local() {
+                2 + busy_penalty
+            } else {
+                4 + busy_penalty
+            }
+        };
+
+        let best = live.into_iter().min_by_key(score).expect("non-empty");
+        Ok(best.clone())
+    }
+
     fn resolve_instance(
         &self,
         dcc_type: &str,

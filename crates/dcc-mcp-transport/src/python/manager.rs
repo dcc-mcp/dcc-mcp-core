@@ -480,6 +480,96 @@ impl PyTransportManager {
         self.inner.pool_count_for_dcc(dcc_type)
     }
 
+    // ── High-level auto-registration & discovery ──
+
+    /// Bind a listener on the optimal transport for this machine, register the
+    /// service, and return `(instance_id, listener)`.
+    ///
+    /// This is the recommended DCC plugin startup call. It replaces the manual
+    /// ``IpcListener.bind`` → ``local_address`` → ``register_service`` sequence.
+    ///
+    /// Transport priority:
+    ///
+    /// 1. Named Pipe (Windows) / Unix Socket (macOS/Linux) — zero-config, PID-unique
+    /// 2. TCP on ephemeral port — OS assigns a free port automatically
+    ///
+    /// Args:
+    ///     dcc_type: DCC application type (e.g. ``"maya"``).
+    ///     version:  DCC version string (optional).
+    ///     metadata: Arbitrary metadata dict (optional).
+    ///
+    /// Returns:
+    ///     Tuple of ``(instance_id: str, listener: IpcListener)``.
+    ///
+    /// Example::
+    ///
+    ///     import os
+    ///     from dcc_mcp_core import TransportManager
+    ///
+    ///     mgr = TransportManager("/tmp/dcc-mcp")
+    ///     instance_id, listener = mgr.bind_and_register("maya", version="2025")
+    ///     local_addr = listener.local_address()
+    ///     print(f"Maya listening on {local_addr}")
+    #[pyo3(name = "bind_and_register")]
+    #[pyo3(signature = (dcc_type, version=None, metadata=None))]
+    fn py_bind_and_register(
+        &self,
+        dcc_type: &str,
+        version: Option<String>,
+        metadata: Option<HashMap<String, String>>,
+    ) -> PyResult<(String, super::listener::PyIpcListener)> {
+        let (instance_id, listener) = self
+            .runtime
+            .block_on(self.inner.bind_and_register(dcc_type, version, metadata))
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+
+        let runtime = tokio::runtime::Runtime::new().map_err(|e| {
+            pyo3::exceptions::PyRuntimeError::new_err(format!(
+                "failed to create tokio runtime for listener: {e}"
+            ))
+        })?;
+
+        let py_listener = super::listener::PyIpcListener::from_listener(listener, runtime);
+        Ok((instance_id.to_string(), py_listener))
+    }
+
+    /// Discover the best available service instance for the given DCC type.
+    ///
+    /// Returns the highest-priority live ``ServiceEntry`` using the following
+    /// priority order:
+    ///
+    /// 1. **Local IPC** (Named Pipe / Unix Socket) — same machine, lowest latency
+    /// 2. **Local TCP** (``127.0.0.1`` / ``localhost``) — same machine
+    /// 3. **Remote TCP** — cross-machine
+    ///
+    /// Within each tier, ``AVAILABLE`` instances are preferred over ``BUSY``.
+    /// ``UNREACHABLE`` and ``SHUTTING_DOWN`` instances are excluded.
+    ///
+    /// Args:
+    ///     dcc_type: DCC application type (e.g. ``"maya"``).
+    ///
+    /// Returns:
+    ///     The best :class:`ServiceEntry`.
+    ///
+    /// Raises:
+    ///     RuntimeError: If no live instances are registered for the given DCC type.
+    ///
+    /// Example::
+    ///
+    ///     from dcc_mcp_core import TransportManager
+    ///
+    ///     mgr = TransportManager("/tmp/dcc-mcp")
+    ///     entry = mgr.find_best_service("maya")
+    ///     print(entry.dcc_type, entry.status, entry.effective_address())
+    ///     session_id = mgr.get_or_create_session("maya", entry.instance_id)
+    #[pyo3(name = "find_best_service")]
+    fn py_find_best_service(&self, dcc_type: &str) -> PyResult<PyServiceEntry> {
+        self.inner
+            .find_best_service(dcc_type)
+            .map(|e| PyServiceEntry::from(&e))
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+    }
+
     // ── Lifecycle ──
 
     /// Cleanup stale services, idle sessions, and evict idle connections.
