@@ -474,8 +474,11 @@ impl VersionedRegistry {
     ///
     /// Returns the number of versions removed.
     #[pyo3(name = "remove")]
-    fn py_remove(&mut self, name: &str, dcc: &str, constraint: &PyVersionConstraint) -> usize {
-        self.remove(name, dcc, &constraint.inner)
+    fn py_remove(&mut self, name: &str, dcc: &str, constraint: &str) -> PyResult<usize> {
+        let c = constraint
+            .parse::<VersionConstraint>()
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        Ok(self.remove(name, dcc, &c))
     }
 
     /// Return all registered versions for ``(name, dcc)``, sorted ascending.

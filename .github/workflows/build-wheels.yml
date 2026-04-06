@@ -22,7 +22,7 @@ jobs:
   linux:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
       - uses: ./.github/actions/build-wheel
         with:
           target: x86_64
@@ -32,7 +32,7 @@ jobs:
   windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
       - uses: ./.github/actions/build-wheel
         with:
           target: x64
@@ -42,7 +42,7 @@ jobs:
   macos:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
       - uses: ./.github/actions/build-wheel
         with:
           target: universal2-apple-darwin
@@ -57,9 +57,9 @@ jobs:
   # Users needing Python 3.7 on macOS should install from source distribution
 
   linux-py37:
-    runs-on: ubuntu-24.04  # Use Ubuntu 22.04 for Python 3.7 availability
+    runs-on: ubuntu-22.04  # Ubuntu 24.04 dropped Python 3.7 support; must use 22.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
       - uses: ./.github/actions/build-wheel
         with:
           target: x86_64
@@ -71,9 +71,9 @@ jobs:
           use-sccache: 'false'
 
   windows-py37:
-    runs-on: windows-2025  # Use Windows 2022 for Python 3.7 availability
+    runs-on: windows-2022  # Use Windows 2022 for Python 3.7 availability
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
       - uses: ./.github/actions/build-wheel
         with:
           target: x64

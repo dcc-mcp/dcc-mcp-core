@@ -373,6 +373,11 @@ all_v1 = vr.resolve_all("create_sphere", "maya", "^1.0.0")
 vr.versions("create_sphere", "maya")         # -> ["1.0.0", "1.5.0", "2.0.0"]
 vr.latest_version("create_sphere", "maya")   # -> "2.0.0"
 vr.total_entries()                            # -> 3
+vr.keys()                                     # -> [("create_sphere", "maya")]
+
+# Remove (returns count of versions removed)
+removed = vr.remove("create_sphere", "maya", "^1.0.0")   # removes 1.0.0 and 1.5.0 -> 2
+removed = vr.remove("create_sphere", "maya", "*")         # removes all -> remaining count
 ```
 
 ### SemVer

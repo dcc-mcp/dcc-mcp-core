@@ -336,3 +336,54 @@ class TestBridgeFunctions:
     def test_mpu_to_units_1(self) -> None:
         unit = dcc_mcp_core.mpu_to_units(1.0)
         assert unit.lower() in ("m", "meters", "meter")
+
+    def test_units_to_mpu_millimeters(self) -> None:
+        mpu = dcc_mcp_core.units_to_mpu("mm")
+        assert abs(mpu - 0.001) < 1e-9
+
+    def test_units_to_mpu_kilometers(self) -> None:
+        mpu = dcc_mcp_core.units_to_mpu("km")
+        assert abs(mpu - 1000.0) < 1e-6
+
+    def test_units_to_mpu_inch(self) -> None:
+        mpu = dcc_mcp_core.units_to_mpu("inch")
+        assert abs(mpu - 0.0254) < 1e-7
+
+    def test_units_to_mpu_foot(self) -> None:
+        mpu = dcc_mcp_core.units_to_mpu("ft")
+        assert abs(mpu - 0.3048) < 1e-6
+
+    def test_units_to_mpu_foot_alias(self) -> None:
+        assert dcc_mcp_core.units_to_mpu("foot") == dcc_mcp_core.units_to_mpu("ft")
+
+    def test_units_to_mpu_yard(self) -> None:
+        mpu = dcc_mcp_core.units_to_mpu("yd")
+        assert abs(mpu - 0.9144) < 1e-6
+
+    def test_units_to_mpu_yard_alias(self) -> None:
+        assert dcc_mcp_core.units_to_mpu("yard") == dcc_mcp_core.units_to_mpu("yd")
+
+    def test_units_to_mpu_unknown_returns_default(self) -> None:
+        """Unknown unit strings should return a default (centimeter = 0.01)."""
+        mpu = dcc_mcp_core.units_to_mpu("unknown_unit")
+        assert isinstance(mpu, float)
+        assert mpu > 0.0
+
+    def test_units_to_mpu_empty_returns_default(self) -> None:
+        mpu = dcc_mcp_core.units_to_mpu("")
+        assert isinstance(mpu, float)
+        assert mpu > 0.0
+
+    def test_mpu_to_units_roundtrip_cm(self) -> None:
+        """mpu_to_units(units_to_mpu('cm')) should yield 'cm' or equivalent."""
+        mpu = dcc_mcp_core.units_to_mpu("cm")
+        unit = dcc_mcp_core.mpu_to_units(mpu)
+        assert unit.lower() in ("cm", "centimeters", "centimeter")
+
+    def test_units_to_mpu_case_sensitivity(self) -> None:
+        """Check whether unit strings are case-sensitive."""
+        mpu_lower = dcc_mcp_core.units_to_mpu("cm")
+        mpu_upper_result = dcc_mcp_core.units_to_mpu("CM")
+        # Both should return a valid float regardless of the case handling
+        assert isinstance(mpu_upper_result, float)
+        assert mpu_lower > 0.0

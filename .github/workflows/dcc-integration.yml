@@ -35,9 +35,9 @@ jobs:
     name: Build Wheel (Linux)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
       - uses: extractions/setup-just@v4
@@ -56,7 +56,7 @@ jobs:
         shell: bash
       - name: Build wheel
         run: just build
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@v4
         with:
           name: wheel-dcc-integration
           path: target/wheels/*.whl
@@ -89,8 +89,8 @@ jobs:
             blender-dir: ""
       fail-fast: false
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
 
@@ -109,7 +109,7 @@ jobs:
           sudo apt-get install -y blender
         shell: bash
 
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@v4
         with:
           name: wheel-dcc-integration
           path: dist/
@@ -141,8 +141,8 @@ jobs:
     if: github.event.inputs.dcc == '' || github.event.inputs.dcc == 'all' || github.event.inputs.dcc == 'openscad'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
       - name: Install OpenSCAD + Xvfb
@@ -150,7 +150,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y openscad xvfb
         shell: bash
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@v4
         with:
           name: wheel-dcc-integration
           path: dist/
@@ -169,8 +169,8 @@ jobs:
     if: github.event.inputs.dcc == '' || github.event.inputs.dcc == 'all' || github.event.inputs.dcc == 'inkscape'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
       - name: Install Inkscape
@@ -178,7 +178,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y inkscape
         shell: bash
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@v4
         with:
           name: wheel-dcc-integration
           path: dist/
@@ -199,8 +199,8 @@ jobs:
     env:
       GODOT_VERSION: "4.4.1"
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
       - name: Install Godot (headless)
@@ -212,7 +212,7 @@ jobs:
           sudo mv /tmp/godot/Godot_v${GODOT_VERSION}-stable_linux.x86_64 /usr/local/bin/godot
           sudo chmod +x /usr/local/bin/godot
         shell: bash
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@v4
         with:
           name: wheel-dcc-integration
           path: dist/
@@ -231,11 +231,11 @@ jobs:
     if: github.event.inputs.dcc == '' || github.event.inputs.dcc == 'all' || github.event.inputs.dcc == 'cross'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@v4
         with:
           name: wheel-dcc-integration
           path: dist/

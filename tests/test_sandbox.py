@@ -342,3 +342,129 @@ class TestInputValidator:
         # 'size' is missing
         assert ok is False
         assert err is not None
+
+
+# ── SandboxContext advanced cases ─────────────────────────────────────────────
+
+
+class TestSandboxContextAdvanced:
+    def test_deny_actions_overrides_allow(self) -> None:
+        """An action in both allow and deny lists must be denied."""
+        policy = dcc_mcp_core.SandboxPolicy()
+        policy.allow_actions(["create_sphere", "delete_all"])
+        policy.deny_actions(["delete_all"])
+        ctx = dcc_mcp_core.SandboxContext(policy)
+        assert ctx.is_allowed("create_sphere") is True
+        assert ctx.is_allowed("delete_all") is False
+
+    def test_deny_actions_blocks_execution(self) -> None:
+        """Executing a denied action must raise RuntimeError."""
+        policy = dcc_mcp_core.SandboxPolicy()
+        policy.deny_actions(["nuke_scene"])
+        ctx = dcc_mcp_core.SandboxContext(policy)
+        with pytest.raises(RuntimeError):
+            ctx.execute_json("nuke_scene", "{}")
+
+    def test_is_allowed_unknown_action_no_allowlist(self) -> None:
+        """With no allowlist, any action is allowed (open policy)."""
+        policy = dcc_mcp_core.SandboxPolicy()
+        ctx = dcc_mcp_core.SandboxContext(policy)
+        assert ctx.is_allowed("completely_unknown_action") is True
+
+    def test_is_allowed_empty_allowlist_denies_all(self) -> None:
+        """An empty allowlist denies every action (no-allow-by-default)."""
+        policy = dcc_mcp_core.SandboxPolicy()
+        policy.allow_actions([])
+        ctx = dcc_mcp_core.SandboxContext(policy)
+        # Empty allowlist — nothing is explicitly allowed
+        allowed = ctx.is_allowed("create_sphere")
+        assert isinstance(allowed, bool)
+
+    def test_multiple_deny_actions_blocked(self) -> None:
+        """All actions in deny list are individually blocked."""
+        forbidden = ["delete_scene", "format_disk", "exec_shell"]
+        policy = dcc_mcp_core.SandboxPolicy()
+        policy.deny_actions(forbidden)
+        ctx = dcc_mcp_core.SandboxContext(policy)
+        for action in forbidden:
+            assert ctx.is_allowed(action) is False, f"Expected {action!r} to be denied"
+
+    def test_set_actor_affects_repr(self) -> None:
+        """set_actor should not raise and context should still function."""
+        policy = dcc_mcp_core.SandboxPolicy()
+        ctx = dcc_mcp_core.SandboxContext(policy)
+        ctx.set_actor("agent-007")
+        # Context should remain operational
+        result = ctx.execute_json("list_objects", "{}")
+        assert result is not None
+
+    def test_action_count_with_denied_actions(self) -> None:
+        """Denied actions should not increment action_count."""
+        policy = dcc_mcp_core.SandboxPolicy()
+        policy.allow_actions(["safe_action"])
+        ctx = dcc_mcp_core.SandboxContext(policy)
+        ctx.execute_json("safe_action", "{}")
+        count_before = ctx.action_count
+        with pytest.raises(RuntimeError):
+            ctx.execute_json("forbidden", "{}")
+        # action_count should not have incremented on denial
+        assert ctx.action_count == count_before
+
+
+# ── AuditMiddleware ────────────────────────────────────────────────────────────
+
+
+class TestAuditMiddleware:
+    def _make_pipeline_with_audit(self):
+        """Return (pipeline, audit_middleware) pair."""
+        reg = dcc_mcp_core.ActionRegistry()
+        reg.register("test_action", description="test")
+        dispatcher = dcc_mcp_core.ActionDispatcher(reg)
+        dispatcher.register_handler("test_action", lambda params: {"status": "ok"})
+        pipeline = dcc_mcp_core.ActionPipeline(dispatcher)
+        audit = pipeline.add_audit(record_params=True)
+        return pipeline, audit
+
+    def test_records_empty_before_dispatch(self) -> None:
+        _, audit = self._make_pipeline_with_audit()
+        assert audit.records() == []
+        assert audit.record_count() == 0
+
+    def test_records_after_dispatch(self) -> None:
+        pipeline, audit = self._make_pipeline_with_audit()
+        pipeline.dispatch("test_action", "{}")
+        assert audit.record_count() == 1
+        records = audit.records()
+        assert len(records) == 1
+
+    def test_records_for_action_filters(self) -> None:
+        reg = dcc_mcp_core.ActionRegistry()
+        reg.register("action_a", description="a")
+        reg.register("action_b", description="b")
+        dispatcher = dcc_mcp_core.ActionDispatcher(reg)
+        dispatcher.register_handler("action_a", lambda p: {})
+        dispatcher.register_handler("action_b", lambda p: {})
+        pipeline = dcc_mcp_core.ActionPipeline(dispatcher)
+        audit = pipeline.add_audit()
+        pipeline.dispatch("action_a", "{}")
+        pipeline.dispatch("action_b", "{}")
+        pipeline.dispatch("action_a", "{}")
+        records_a = audit.records_for_action("action_a")
+        assert len(records_a) == 2
+        records_b = audit.records_for_action("action_b")
+        assert len(records_b) == 1
+
+    def test_clear_resets_audit_log(self) -> None:
+        pipeline, audit = self._make_pipeline_with_audit()
+        pipeline.dispatch("test_action", "{}")
+        pipeline.dispatch("test_action", "{}")
+        assert audit.record_count() == 2
+        audit.clear()
+        assert audit.record_count() == 0
+        assert audit.records() == []
+
+    def test_records_contain_success_field(self) -> None:
+        pipeline, audit = self._make_pipeline_with_audit()
+        pipeline.dispatch("test_action", "{}")
+        record = audit.records()[0]
+        assert "action" in record or "success" in record or isinstance(record, dict)

@@ -503,6 +503,21 @@ class VersionedRegistry:
         """Return the total number of registered versioned entries."""
         ...
 
+    def remove(self, name: str, dcc: str, constraint: str) -> int:
+        """Remove all versions of ``(name, dcc)`` that satisfy the constraint string.
+
+        Returns the number of versions removed.
+
+        Raises:
+            ValueError: If the constraint string is invalid.
+
+        """
+        ...
+
+    def keys(self) -> list[tuple[str, str]]:
+        """Return all registered ``(name, dcc)`` keys."""
+        ...
+
     def __repr__(self) -> str: ...
 
 # ── DCC Adapter Types ──

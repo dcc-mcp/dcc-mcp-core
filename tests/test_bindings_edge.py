@@ -441,3 +441,398 @@ class TestConcurrentRegistry:
             t.join(timeout=15)
         assert not errors, f"Concurrent access errors: {errors}"
         assert len(reg) == 200
+
+    def test_concurrent_unregister(self) -> None:
+        """Concurrent register + unregister must not crash."""
+        reg = dcc_mcp_core.ActionRegistry()
+        # Pre-populate
+        for i in range(100):
+            reg.register(name=f"action_{i}", dcc="maya")
+
+        errors: list[Exception] = []
+        barrier = threading.Barrier(2)
+
+        def remover() -> None:
+            try:
+                barrier.wait()
+                for i in range(100):
+                    reg.unregister(f"action_{i}", dcc_name="maya")
+            except Exception as e:
+                errors.append(e)
+
+        def adder() -> None:
+            try:
+                barrier.wait()
+                for i in range(100, 200):
+                    reg.register(name=f"action_{i}", dcc="blender")
+            except Exception as e:
+                errors.append(e)
+
+        t1 = threading.Thread(target=remover)
+        t2 = threading.Thread(target=adder)
+        t1.start()
+        t2.start()
+        t1.join(timeout=10)
+        t2.join(timeout=10)
+        assert not errors, f"Concurrent unregister errors: {errors}"
+
+    def test_concurrent_search_actions(self) -> None:
+        """Multiple threads can search while others write."""
+        reg = dcc_mcp_core.ActionRegistry()
+        for i in range(50):
+            reg.register(name=f"geo_{i}", category="geometry", dcc="maya")
+
+        errors: list[Exception] = []
+        barrier = threading.Barrier(4)
+
+        def searcher() -> None:
+            try:
+                barrier.wait()
+                for _ in range(100):
+                    results = reg.search_actions(category="geometry")
+                    assert isinstance(results, list)
+            except Exception as e:
+                errors.append(e)
+
+        def writer() -> None:
+            try:
+                barrier.wait()
+                for i in range(50, 100):
+                    reg.register(name=f"anim_{i}", category="animation", dcc="maya")
+            except Exception as e:
+                errors.append(e)
+
+        threads = [
+            threading.Thread(target=searcher),
+            threading.Thread(target=searcher),
+            threading.Thread(target=writer),
+            threading.Thread(target=writer),
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=15)
+        assert not errors, f"Concurrent search errors: {errors}"
+
+    def test_concurrent_register_batch(self) -> None:
+        """Concurrent register_batch calls must be race-free."""
+        reg = dcc_mcp_core.ActionRegistry()
+        errors: list[Exception] = []
+        barrier = threading.Barrier(3)
+
+        def batch_writer(dcc: str, start: int) -> None:
+            try:
+                barrier.wait()
+                actions = [{"name": f"act_{dcc}_{i}", "dcc": dcc, "category": "geo"} for i in range(start, start + 50)]
+                reg.register_batch(actions)
+            except Exception as e:
+                errors.append(e)
+
+        threads = [
+            threading.Thread(target=batch_writer, args=("maya", 0)),
+            threading.Thread(target=batch_writer, args=("blender", 50)),
+            threading.Thread(target=batch_writer, args=("houdini", 100)),
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=15)
+        assert not errors, f"Concurrent batch register errors: {errors}"
+        assert len(reg) == 150
+
+
+# ── VersionedRegistry concurrent access ──
+
+
+class TestConcurrentVersionedRegistry:
+    def test_concurrent_register_and_resolve(self) -> None:
+        """Concurrent register_versioned + resolve must be thread-safe."""
+        vr = dcc_mcp_core.VersionedRegistry()
+        errors: list[Exception] = []
+        barrier = threading.Barrier(4)
+
+        def writer(dcc: str) -> None:
+            try:
+                barrier.wait()
+                for minor in range(10):
+                    vr.register_versioned("action_concurrent", dcc=dcc, version=f"1.{minor}.0")
+            except Exception as e:
+                errors.append(e)
+
+        def resolver() -> None:
+            try:
+                barrier.wait()
+                for _ in range(50):
+                    vr.resolve("action_concurrent", dcc="maya", constraint="*")
+            except Exception as e:
+                errors.append(e)
+
+        threads = [
+            threading.Thread(target=writer, args=("maya",)),
+            threading.Thread(target=writer, args=("blender",)),
+            threading.Thread(target=resolver),
+            threading.Thread(target=resolver),
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=15)
+        assert not errors, f"Concurrent versioned registry errors: {errors}"
+
+    def test_concurrent_resolve_all_and_remove(self) -> None:
+        """Concurrent resolve_all + remove must not crash."""
+        vr = dcc_mcp_core.VersionedRegistry()
+        for minor in range(10):
+            vr.register_versioned("my_action", dcc="maya", version=f"1.{minor}.0")
+
+        errors: list[Exception] = []
+        barrier = threading.Barrier(3)
+
+        def resolver() -> None:
+            try:
+                barrier.wait()
+                for _ in range(100):
+                    results = vr.resolve_all("my_action", dcc="maya", constraint="*")
+                    assert isinstance(results, list)
+            except Exception as e:
+                errors.append(e)
+
+        def remover() -> None:
+            try:
+                barrier.wait()
+                for minor in range(5):
+                    vr.remove("my_action", dcc="maya", constraint=f"=1.{minor}.0")
+            except Exception as e:
+                errors.append(e)
+
+        threads = [
+            threading.Thread(target=resolver),
+            threading.Thread(target=resolver),
+            threading.Thread(target=remover),
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=15)
+        assert not errors, f"Concurrent resolve_all/remove errors: {errors}"
+
+    def test_concurrent_keys_and_latest_version(self) -> None:
+        """keys() and latest_version() are safe under concurrent write."""
+        vr = dcc_mcp_core.VersionedRegistry()
+        errors: list[Exception] = []
+        barrier = threading.Barrier(3)
+
+        def writer() -> None:
+            try:
+                barrier.wait()
+                for i in range(20):
+                    vr.register_versioned(f"tool_{i}", dcc="maya", version="1.0.0")
+            except Exception as e:
+                errors.append(e)
+
+        def reader() -> None:
+            try:
+                barrier.wait()
+                for _ in range(100):
+                    keys = vr.keys()
+                    assert isinstance(keys, list)
+                    # Check latest_version for any existing keys
+                    for name, dcc in keys[:5]:
+                        lv = vr.latest_version(name, dcc=dcc)
+                        assert lv is None or isinstance(lv, str)
+            except Exception as e:
+                errors.append(e)
+
+        threads = [
+            threading.Thread(target=writer),
+            threading.Thread(target=reader),
+            threading.Thread(target=reader),
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=15)
+        assert not errors, f"Concurrent keys/latest_version errors: {errors}"
+
+
+# ── ActionRecorder concurrent access ──
+
+
+class TestConcurrentActionRecorder:
+    def test_concurrent_start_and_finish(self) -> None:
+        """Multiple threads recording distinct actions must not corrupt state."""
+        recorder = dcc_mcp_core.ActionRecorder("concurrent_scope")
+        errors: list[Exception] = []
+        barrier = threading.Barrier(4)
+
+        def record_actions(action_name: str) -> None:
+            try:
+                barrier.wait()
+                for _ in range(20):
+                    guard = recorder.start(action_name, "maya")
+                    guard.finish(True)
+            except Exception as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=record_actions, args=(f"action_{i}",)) for i in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=15)
+        assert not errors, f"Concurrent recorder errors: {errors}"
+        # Each of 4 actions had 20 invocations
+        for i in range(4):
+            m = recorder.metrics(f"action_{i}")
+            assert m is not None
+            assert m.invocation_count == 20
+            assert m.success_count == 20
+
+    def test_concurrent_success_and_failure(self) -> None:
+        """Mix of successes and failures recorded from multiple threads."""
+        recorder = dcc_mcp_core.ActionRecorder("mixed_scope")
+        errors: list[Exception] = []
+        barrier = threading.Barrier(3)
+
+        def record_success() -> None:
+            try:
+                barrier.wait()
+                for _ in range(30):
+                    guard = recorder.start("shared_action", "maya")
+                    guard.finish(True)
+            except Exception as e:
+                errors.append(e)
+
+        def record_failure() -> None:
+            try:
+                barrier.wait()
+                for _ in range(30):
+                    guard = recorder.start("shared_action", "maya")
+                    guard.finish(False)
+            except Exception as e:
+                errors.append(e)
+
+        threads = [
+            threading.Thread(target=record_success),
+            threading.Thread(target=record_success),
+            threading.Thread(target=record_failure),
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=15)
+        assert not errors, f"Concurrent success/failure recorder errors: {errors}"
+        m = recorder.metrics("shared_action")
+        assert m is not None
+        # 2 success threads x 30 + 1 failure thread x 30 = 90 total
+        assert m.invocation_count == 90
+        assert m.success_count == 60
+        assert m.failure_count == 30
+
+    def test_concurrent_reset_and_record(self) -> None:
+        """reset() during active recording must not crash."""
+        import time
+
+        recorder = dcc_mcp_core.ActionRecorder("reset_scope")
+        errors: list[Exception] = []
+        barrier = threading.Barrier(2)
+
+        def recorder_thread() -> None:
+            try:
+                barrier.wait()
+                for _ in range(50):
+                    guard = recorder.start("act", "maya")
+                    guard.finish(True)
+            except Exception as e:
+                errors.append(e)
+
+        def resetter_thread() -> None:
+            try:
+                barrier.wait()
+                for _ in range(5):
+                    time.sleep(0.001)
+                    recorder.reset()
+            except Exception as e:
+                errors.append(e)
+
+        t1 = threading.Thread(target=recorder_thread)
+        t2 = threading.Thread(target=resetter_thread)
+        t1.start()
+        t2.start()
+        t1.join(timeout=10)
+        t2.join(timeout=10)
+        assert not errors, f"Concurrent reset/record errors: {errors}"
+
+
+# ── TransportManager concurrent access ──
+
+
+class TestConcurrentTransportManager:
+    def test_concurrent_register_and_list(self, tmp_path) -> None:
+        """Concurrent register_service + list_all_services must be race-free."""
+        tm = dcc_mcp_core.TransportManager(str(tmp_path))
+        errors: list[Exception] = []
+        barrier = threading.Barrier(3)
+
+        def register_services(dcc: str, base_port: int) -> None:
+            try:
+                barrier.wait()
+                for i in range(20):
+                    tm.register_service(dcc, "127.0.0.1", base_port + i, version="1.0.0")
+            except Exception as e:
+                errors.append(e)
+
+        def lister() -> None:
+            try:
+                barrier.wait()
+                for _ in range(100):
+                    services = tm.list_all_services()
+                    assert isinstance(services, list)
+            except Exception as e:
+                errors.append(e)
+
+        threads = [
+            threading.Thread(target=register_services, args=("maya", 10000)),
+            threading.Thread(target=register_services, args=("blender", 10100)),
+            threading.Thread(target=lister),
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=15)
+        assert not errors, f"Concurrent TransportManager register/list errors: {errors}"
+
+    def test_concurrent_heartbeat_and_list_instances(self, tmp_path) -> None:
+        """Concurrent heartbeat + list_instances must be thread-safe."""
+        tm = dcc_mcp_core.TransportManager(str(tmp_path))
+        instance_id = tm.register_service("maya", "127.0.0.1", 19999, version="1.0.0")
+
+        errors: list[Exception] = []
+        barrier = threading.Barrier(3)
+
+        def heartbeater() -> None:
+            try:
+                barrier.wait()
+                for _ in range(50):
+                    tm.heartbeat("maya", instance_id)
+            except Exception as e:
+                errors.append(e)
+
+        def lister() -> None:
+            try:
+                barrier.wait()
+                for _ in range(100):
+                    instances = tm.list_instances("maya")
+                    assert isinstance(instances, list)
+            except Exception as e:
+                errors.append(e)
+
+        threads = [
+            threading.Thread(target=heartbeater),
+            threading.Thread(target=heartbeater),
+            threading.Thread(target=lister),
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=15)
+        assert not errors, f"Concurrent heartbeat/list_instances errors: {errors}"

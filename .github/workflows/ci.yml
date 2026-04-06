@@ -26,7 +26,7 @@ jobs:
       fail-fast: false
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
@@ -54,9 +54,9 @@ jobs:
       fail-fast: false
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
       - uses: extractions/setup-just@v4
@@ -65,7 +65,7 @@ jobs:
         shell: bash
       - name: Build wheel
         run: just build
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@v4
         with:
           name: wheel-${{ matrix.os }}
           path: target/wheels/*.whl
@@ -81,13 +81,13 @@ jobs:
       fail-fast: false
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
       - uses: extractions/setup-just@v4
       - name: Download wheel
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v4
         with:
           name: wheel-${{ matrix.os }}
           path: dist/
@@ -98,28 +98,29 @@ jobs:
         run: just test-cov
       - name: Upload coverage
         if: matrix.python-version == '3.13' && matrix.os == 'ubuntu-latest'
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: coverage-report
           path: coverage.xml
 
   # ── Python 3.7 build + test (non-abi3 wheel) ──
+  # Note: Must use older OS runners where Python 3.7 is still available via setup-python
   build-wheel-py37:
     name: Build wheel (py3.7, ${{ matrix.os }})
     needs: [rust-check]
     strategy:
       matrix:
         include:
-          - os: ubuntu-22.04
+          - os: ubuntu-22.04  # Ubuntu 24.04 dropped Python 3.7 support
             target: x86_64
-          - os: windows-2022
+          - os: windows-2022  # Use Windows 2022 for Python 3.7 availability
             target: x64
       fail-fast: false
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.7"
       - uses: extractions/setup-just@v4
@@ -147,7 +148,7 @@ jobs:
           print(f'Result: {result}')
           print('All imports OK!')
           "
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@v4
         with:
           name: wheel-py37-${{ matrix.os }}
           path: dist/*.whl
@@ -157,8 +158,8 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
       - uses: extractions/setup-just@v4

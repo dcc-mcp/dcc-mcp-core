@@ -106,7 +106,7 @@ crates/
 - `ActionMetrics` — Performance and execution metrics collection
 - `ActionRecorder` — Record/replay action executions
 - `EventBus` — `.subscribe(event, callback) -> id`, `.unsubscribe(event, id)`, `.publish(event, **kwargs)`
-- `VersionedRegistry` — SemVer-aware registry with constraint lookup
+- `VersionedRegistry` — SemVer-aware registry; `.register_versioned(name, dcc, version)`, `.resolve(name, dcc, constraint) -> Optional[dict]`, `.resolve_all(name, dcc, constraint) -> List[dict]`, `.latest_version(name, dcc) -> Optional[str]`, `.versions(name, dcc) -> List[str]`, `.remove(name, dcc, constraint) -> int`, `.keys() -> List[Tuple[str, str]]`, `.total_entries() -> int`
 - `SemVer(major, minor, patch)` — Semantic version value object
 - `VersionConstraint.parse(">=1.0.0")` — Version constraint expression
 

@@ -224,8 +224,15 @@ tags = reg.get_tags(dcc_name="maya")                               # sorted uniq
 # Version-aware registry
 from dcc_mcp_core import SemVer, VersionedRegistry, VersionConstraint
 vreg = VersionedRegistry()
-vreg.register("my_action", version=SemVer(1, 2, 0), handler=my_fn)
-handler = vreg.get("my_action", constraint=VersionConstraint.parse(">=1.0.0"))
+vreg.register_versioned("my_action", dcc="maya", version="1.2.0")
+vreg.register_versioned("my_action", dcc="maya", version="2.0.0")
+result = vreg.resolve("my_action", dcc="maya", constraint=">=1.0.0")   # → version "2.0.0"
+result = vreg.resolve("my_action", dcc="maya", constraint="^1.0.0")    # → version "1.2.0"
+all_results = vreg.resolve_all("my_action", dcc="maya", constraint="*")  # all versions sorted
+latest = vreg.latest_version("my_action", dcc="maya")                  # → "2.0.0"
+versions = vreg.versions("my_action", dcc="maya")                      # → ["1.2.0", "2.0.0"]
+keys = vreg.keys()                                                      # → [("my_action", "maya")]
+removed = vreg.remove("my_action", dcc="maya", constraint="^1.0.0")    # → 1 (versions removed)
 ```
 
 **ActionPipeline patterns:**

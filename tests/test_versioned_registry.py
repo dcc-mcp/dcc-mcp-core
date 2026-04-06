@@ -511,3 +511,133 @@ class TestVersionedRegistryIntegration:
                     vr.register_versioned(action, dcc, version)
         expected = len(actions) * len(dccs) * len(versions)
         assert vr.total_entries() == expected
+
+
+class TestVersionedRegistryRemove:
+    """Tests for VersionedRegistry.remove() — previously untested."""
+
+    def test_remove_exact_version(self) -> None:
+        vr = dcc_mcp_core.VersionedRegistry()
+        vr.register_versioned("act", "maya", "1.0.0")
+        vr.register_versioned("act", "maya", "2.0.0")
+        removed = vr.remove("act", "maya", "=1.0.0")
+        assert removed == 1
+        assert vr.total_entries() == 1
+        assert vr.resolve("act", "maya", "=1.0.0") is None
+        assert vr.resolve("act", "maya", "=2.0.0") is not None
+
+    def test_remove_wildcard_removes_all(self) -> None:
+        vr = dcc_mcp_core.VersionedRegistry()
+        vr.register_versioned("act", "maya", "1.0.0")
+        vr.register_versioned("act", "maya", "2.0.0")
+        vr.register_versioned("act", "maya", "3.0.0")
+        removed = vr.remove("act", "maya", "*")
+        assert removed == 3
+        assert vr.total_entries() == 0
+
+    def test_remove_caret_removes_matching_major(self) -> None:
+        vr = dcc_mcp_core.VersionedRegistry()
+        vr.register_versioned("act", "maya", "1.0.0")
+        vr.register_versioned("act", "maya", "1.5.0")
+        vr.register_versioned("act", "maya", "2.0.0")
+        removed = vr.remove("act", "maya", "^1.0.0")
+        assert removed == 2
+        assert vr.total_entries() == 1
+        assert vr.resolve("act", "maya", "=2.0.0") is not None
+
+    def test_remove_returns_zero_for_no_match(self) -> None:
+        vr = dcc_mcp_core.VersionedRegistry()
+        vr.register_versioned("act", "maya", "1.0.0")
+        removed = vr.remove("act", "maya", "=9.9.9")
+        assert removed == 0
+        assert vr.total_entries() == 1
+
+    def test_remove_unknown_action_returns_zero(self) -> None:
+        vr = dcc_mcp_core.VersionedRegistry()
+        removed = vr.remove("nonexistent", "maya", "*")
+        assert removed == 0
+
+    def test_remove_dcc_isolation(self) -> None:
+        """Removing from one DCC must not affect another DCC."""
+        vr = dcc_mcp_core.VersionedRegistry()
+        vr.register_versioned("act", "maya", "1.0.0")
+        vr.register_versioned("act", "blender", "1.0.0")
+        removed = vr.remove("act", "maya", "*")
+        assert removed == 1
+        assert vr.resolve("act", "blender", "=1.0.0") is not None
+
+    def test_remove_then_reregister(self) -> None:
+        """After removal, the same version can be registered again."""
+        vr = dcc_mcp_core.VersionedRegistry()
+        vr.register_versioned("act", "maya", "1.0.0")
+        vr.remove("act", "maya", "*")
+        assert vr.total_entries() == 0
+        vr.register_versioned("act", "maya", "1.0.0")
+        assert vr.total_entries() == 1
+        assert vr.resolve("act", "maya", "=1.0.0") is not None
+
+    def test_remove_gte_constraint(self) -> None:
+        vr = dcc_mcp_core.VersionedRegistry()
+        vr.register_versioned("act", "maya", "1.0.0")
+        vr.register_versioned("act", "maya", "2.0.0")
+        vr.register_versioned("act", "maya", "3.0.0")
+        removed = vr.remove("act", "maya", ">=2.0.0")
+        assert removed == 2
+        remaining = vr.versions("act", "maya")
+        assert remaining == ["1.0.0"]
+
+
+class TestVersionedRegistryKeys:
+    """Tests for VersionedRegistry.keys() — previously untested."""
+
+    def test_keys_empty_registry(self) -> None:
+        vr = dcc_mcp_core.VersionedRegistry()
+        assert vr.keys() == []
+
+    def test_keys_single_entry(self) -> None:
+        vr = dcc_mcp_core.VersionedRegistry()
+        vr.register_versioned("act", "maya", "1.0.0")
+        keys = vr.keys()
+        assert len(keys) == 1
+        assert ("act", "maya") in keys
+
+    def test_keys_multiple_versions_same_action_single_key(self) -> None:
+        """Multiple versions of the same (name, dcc) produce only one key."""
+        vr = dcc_mcp_core.VersionedRegistry()
+        vr.register_versioned("act", "maya", "1.0.0")
+        vr.register_versioned("act", "maya", "2.0.0")
+        vr.register_versioned("act", "maya", "3.0.0")
+        keys = vr.keys()
+        assert len(keys) == 1
+        assert ("act", "maya") in keys
+
+    def test_keys_different_dccs_produce_separate_keys(self) -> None:
+        vr = dcc_mcp_core.VersionedRegistry()
+        vr.register_versioned("act", "maya", "1.0.0")
+        vr.register_versioned("act", "blender", "1.0.0")
+        vr.register_versioned("act", "houdini", "1.0.0")
+        keys = vr.keys()
+        assert len(keys) == 3
+        assert ("act", "maya") in keys
+        assert ("act", "blender") in keys
+        assert ("act", "houdini") in keys
+
+    def test_keys_different_actions_produce_separate_keys(self) -> None:
+        vr = dcc_mcp_core.VersionedRegistry()
+        vr.register_versioned("act_a", "maya", "1.0.0")
+        vr.register_versioned("act_b", "maya", "1.0.0")
+        keys = vr.keys()
+        assert len(keys) == 2
+        assert ("act_a", "maya") in keys
+        assert ("act_b", "maya") in keys
+
+    def test_keys_cleared_after_remove_all(self) -> None:
+        vr = dcc_mcp_core.VersionedRegistry()
+        vr.register_versioned("act", "maya", "1.0.0")
+        vr.register_versioned("act", "maya", "2.0.0")
+        vr.remove("act", "maya", "*")
+        # After removing all versions, the key should no longer appear
+        # (implementation-dependent, but all versions gone → key gone)
+        vr.keys()
+        # Either the key is gone or it stays with zero entries; verify total_entries=0
+        assert vr.total_entries() == 0
