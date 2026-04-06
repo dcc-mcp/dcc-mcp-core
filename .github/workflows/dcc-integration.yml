@@ -2,7 +2,7 @@
 
 # Runs DCC-specific headless integration tests.
 # Each job installs the corresponding open-source DCC and runs the
-# relevant subset of tests/test_integration_dcc.py.
+# relevant test file (split from the original test_integration_dcc.py).
 #
 # Triggered by:
 #   - Push / PR to main (same as core CI, but independent)
@@ -119,7 +119,7 @@ jobs:
       - name: Verify Blender
         run: blender --version
       - name: Test
-        run: pytest tests/test_integration_dcc.py -v --tb=short -k "Blender"
+        run: pytest tests/test_integration_dcc_blender.py -v --tb=short
 
 
 
@@ -160,7 +160,7 @@ jobs:
       - name: Verify OpenSCAD
         run: openscad --version
       - name: Test (with virtual display for PNG tests)
-        run: xvfb-run -a pytest tests/test_integration_dcc.py -v --tb=short -k "OpenSCAD"
+        run: xvfb-run -a pytest tests/test_integration_dcc_openscad_inkscape.py -v --tb=short -k "OpenSCAD"
 
   # ── Inkscape (headless --actions) ──
   inkscape:
@@ -188,7 +188,7 @@ jobs:
       - name: Verify Inkscape
         run: inkscape --version
       - name: Test
-        run: pytest tests/test_integration_dcc.py -v --tb=short -k "Inkscape"
+        run: pytest tests/test_integration_dcc_openscad_inkscape.py -v --tb=short -k "Inkscape"
 
   # ── Godot 4 (headless --headless --script) ──
   godot:
@@ -222,7 +222,7 @@ jobs:
       - name: Verify Godot
         run: godot --version
       - name: Test
-        run: pytest tests/test_integration_dcc.py -v --tb=short -k "Godot"
+        run: pytest tests/test_integration_dcc_godot.py -v --tb=short
 
   # ── Cross-DCC pipeline (no DCC binary required) ──
   cross-dcc:
@@ -243,4 +243,4 @@ jobs:
         run: pip install --no-index --find-links dist dcc-mcp-core; pip install pytest
         shell: bash
       - name: Test
-        run: pytest tests/test_integration_dcc.py::TestCrossDCCPipeline -v --tb=short
+        run: pytest tests/test_integration_dcc_cross.py -v --tb=short
