@@ -381,7 +381,7 @@ for entry in audit.entries:
 
 ## More Examples
 
-See the [`examples/skills/`](examples/skills/) directory for **10 complete skill packages**, and the [VitePress docs site](https://loonghao.github.io/dcc-mcp-core/) for comprehensive guides per module.
+See the [`examples/skills/`](examples/skills/) directory for **9 complete skill packages**, and the [VitePress docs site](https://loonghao.github.io/dcc-mcp-core/) for comprehensive guides per module.
 
 ## Release Process
 
