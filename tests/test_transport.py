@@ -244,6 +244,156 @@ class TestTransportManager:
         assert transport is not None
         transport.shutdown()
 
+    def test_session_count(self, tmp_path: Path) -> None:
+        transport = dcc_mcp_core.TransportManager(str(tmp_path / "registry"))
+        assert transport.session_count() == 0
+        transport.register_service("maya", "127.0.0.1", 18812)
+        transport.get_or_create_session("maya")
+        assert transport.session_count() == 1
+        transport.shutdown()
+
+    def test_list_all_instances(self, tmp_path: Path) -> None:
+        transport = dcc_mcp_core.TransportManager(str(tmp_path / "registry"))
+        transport.register_service("maya", "127.0.0.1", 18812)
+        transport.register_service("houdini", "127.0.0.1", 19100)
+        all_inst = transport.list_all_instances()
+        assert len(all_inst) == 2
+        dcc_types = {e.dcc_type for e in all_inst}
+        assert dcc_types == {"maya", "houdini"}
+        transport.shutdown()
+
+    def test_begin_reconnect_returns_backoff_ms(self, tmp_path: Path) -> None:
+        transport = dcc_mcp_core.TransportManager(str(tmp_path / "registry"))
+        transport.register_service("maya", "127.0.0.1", 18812)
+        session_id = transport.get_or_create_session("maya")
+        backoff_ms = transport.begin_reconnect(session_id)
+        assert isinstance(backoff_ms, int)
+        assert backoff_ms > 0
+        transport.shutdown()
+
+    def test_reconnect_success_after_begin_reconnect(self, tmp_path: Path) -> None:
+        transport = dcc_mcp_core.TransportManager(str(tmp_path / "registry"))
+        transport.register_service("maya", "127.0.0.1", 18812)
+        session_id = transport.get_or_create_session("maya")
+        transport.begin_reconnect(session_id)
+        # Should not raise
+        transport.reconnect_success(session_id)
+        session = transport.get_session(session_id)
+        assert session is not None
+        transport.shutdown()
+
+    def test_get_or_create_session_routed_first_available(self, tmp_path: Path) -> None:
+        transport = dcc_mcp_core.TransportManager(str(tmp_path / "registry"))
+        transport.register_service("blender", "127.0.0.1", 19000)
+        session_id = transport.get_or_create_session_routed("blender", dcc_mcp_core.RoutingStrategy.FIRST_AVAILABLE)
+        assert isinstance(session_id, str)
+        assert len(session_id) > 0
+        transport.shutdown()
+
+    def test_get_or_create_session_routed_round_robin(self, tmp_path: Path) -> None:
+        transport = dcc_mcp_core.TransportManager(str(tmp_path / "registry"))
+        transport.register_service("maya", "127.0.0.1", 18812)
+        sid1 = transport.get_or_create_session_routed("maya", dcc_mcp_core.RoutingStrategy.ROUND_ROBIN)
+        sid2 = transport.get_or_create_session_routed("maya", dcc_mcp_core.RoutingStrategy.ROUND_ROBIN)
+        # Both sessions belong to the same (only) instance so may be the same session
+        assert isinstance(sid1, str)
+        assert isinstance(sid2, str)
+        transport.shutdown()
+
+    def test_get_or_create_session_routed_no_strategy(self, tmp_path: Path) -> None:
+        transport = dcc_mcp_core.TransportManager(str(tmp_path / "registry"))
+        transport.register_service("maya", "127.0.0.1", 18812)
+        session_id = transport.get_or_create_session_routed("maya")
+        assert isinstance(session_id, str)
+        transport.shutdown()
+
+    def test_find_best_service_returns_entry(self, tmp_path: Path) -> None:
+        transport = dcc_mcp_core.TransportManager(str(tmp_path / "registry"))
+        transport.register_service("maya", "127.0.0.1", 18812)
+        best = transport.find_best_service("maya")
+        assert best is not None
+        assert best.dcc_type == "maya"
+        assert best.host == "127.0.0.1"
+        assert best.port == 18812
+        transport.shutdown()
+
+    def test_find_best_service_no_instances_raises(self, tmp_path: Path) -> None:
+        transport = dcc_mcp_core.TransportManager(str(tmp_path / "registry"))
+        with pytest.raises(RuntimeError):
+            transport.find_best_service("nonexistent-dcc")
+        transport.shutdown()
+
+    def test_rank_services_returns_sorted_list(self, tmp_path: Path) -> None:
+        transport = dcc_mcp_core.TransportManager(str(tmp_path / "registry"))
+        transport.register_service("maya", "127.0.0.1", 18812)
+        ranked = transport.rank_services("maya")
+        assert isinstance(ranked, list)
+        assert len(ranked) == 1
+        assert ranked[0].dcc_type == "maya"
+        transport.shutdown()
+
+    def test_rank_services_no_instances_raises(self, tmp_path: Path) -> None:
+        transport = dcc_mcp_core.TransportManager(str(tmp_path / "registry"))
+        with pytest.raises(RuntimeError):
+            transport.rank_services("nonexistent")
+        transport.shutdown()
+
+    def test_rank_services_excludes_unreachable(self, tmp_path: Path) -> None:
+        transport = dcc_mcp_core.TransportManager(str(tmp_path / "registry"))
+        iid = transport.register_service("maya", "127.0.0.1", 18812)
+        transport.update_service_status("maya", iid, dcc_mcp_core.ServiceStatus.UNREACHABLE)
+        with pytest.raises(RuntimeError):
+            transport.rank_services("maya")
+        transport.shutdown()
+
+    def test_find_best_service_prefer_available_over_busy(self, tmp_path: Path) -> None:
+        transport = dcc_mcp_core.TransportManager(str(tmp_path / "registry"))
+        busy_id = transport.register_service("maya", "127.0.0.1", 18812)
+        available_id = transport.register_service("maya", "127.0.0.1", 18813)
+        transport.update_service_status("maya", busy_id, dcc_mcp_core.ServiceStatus.BUSY)
+        best = transport.find_best_service("maya")
+        # The AVAILABLE instance should be preferred
+        assert best.instance_id == available_id
+        transport.shutdown()
+
+    def test_begin_reconnect_invalid_session_raises(self, tmp_path: Path) -> None:
+        transport = dcc_mcp_core.TransportManager(str(tmp_path / "registry"))
+        with pytest.raises((RuntimeError, ValueError)):
+            transport.begin_reconnect("00000000-0000-0000-0000-000000000000")
+        transport.shutdown()
+
+    def test_reconnect_success_invalid_session_raises(self, tmp_path: Path) -> None:
+        transport = dcc_mcp_core.TransportManager(str(tmp_path / "registry"))
+        with pytest.raises((RuntimeError, ValueError)):
+            transport.reconnect_success("00000000-0000-0000-0000-000000000000")
+        transport.shutdown()
+
+    def test_bind_and_register_returns_instance_and_listener(self, tmp_path: Path) -> None:
+        transport = dcc_mcp_core.TransportManager(str(tmp_path / "registry"))
+        result = transport.bind_and_register("maya")
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+        instance_id, listener = result
+        assert isinstance(instance_id, str)
+        assert len(instance_id) > 0
+        # Instance should be registered
+        instances = transport.list_instances("maya")
+        assert len(instances) == 1
+        # listener has local_address and transport_name but no shutdown
+        addr = listener.local_address()
+        assert addr is not None
+        transport.shutdown()
+
+    def test_bind_and_register_with_version_and_metadata(self, tmp_path: Path) -> None:
+        transport = dcc_mcp_core.TransportManager(str(tmp_path / "registry"))
+        instance_id, listener = transport.bind_and_register("houdini", version="20.5", metadata={"pid": "9999"})
+        entry = transport.get_service("houdini", instance_id)
+        assert entry is not None
+        assert entry.version == "20.5"
+        assert entry.metadata["pid"] == "9999"
+        assert listener.transport_name is not None
+        transport.shutdown()
+
 
 class TestServiceEntry:
     def test_attributes(self, tmp_path: Path) -> None:
