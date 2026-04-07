@@ -50,6 +50,8 @@ from dcc_mcp_core._core import IntWrapper
 from dcc_mcp_core._core import IpcListener
 from dcc_mcp_core._core import ListenerHandle
 from dcc_mcp_core._core import LoggingMiddleware
+from dcc_mcp_core._core import McpHttpConfig
+from dcc_mcp_core._core import McpHttpServer
 from dcc_mcp_core._core import PromptArgument
 from dcc_mcp_core._core import PromptDefinition
 
@@ -82,6 +84,7 @@ from dcc_mcp_core._core import SdfPath
 
 # Action Version Management
 from dcc_mcp_core._core import SemVer
+from dcc_mcp_core._core import ServerHandle as McpServerHandle
 from dcc_mcp_core._core import ServiceEntry
 from dcc_mcp_core._core import ServiceStatus
 from dcc_mcp_core._core import SkillMetadata
@@ -185,6 +188,9 @@ __all__ = [
     "IpcListener",
     "ListenerHandle",
     "LoggingMiddleware",
+    "McpHttpConfig",
+    "McpHttpServer",
+    "McpServerHandle",
     "PromptArgument",
     "PromptDefinition",
     "PyBufferPool",

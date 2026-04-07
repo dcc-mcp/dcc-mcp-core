@@ -15,6 +15,7 @@ members = [
     "crates/dcc-mcp-shm",
     "crates/dcc-mcp-capture",
     "crates/dcc-mcp-usd",
+    "crates/dcc-mcp-http",
 ]
 resolver = "2"
 
@@ -40,6 +41,7 @@ dcc-mcp-sandbox = { path = "crates/dcc-mcp-sandbox" }
 dcc-mcp-shm = { path = "crates/dcc-mcp-shm" }
 dcc-mcp-capture = { path = "crates/dcc-mcp-capture" }
 dcc-mcp-usd = { path = "crates/dcc-mcp-usd" }
+dcc-mcp-http = { path = "crates/dcc-mcp-http" }
 
 # Shared dependencies (single version across workspace)
 pyo3 = { version = "0.28", features = ["multiple-pymethods"] }
@@ -92,6 +94,7 @@ dcc-mcp-sandbox.workspace = true
 dcc-mcp-shm.workspace = true
 dcc-mcp-capture.workspace = true
 dcc-mcp-usd.workspace = true
+dcc-mcp-http.workspace = true
 
 # PyO3 (optional — only for wheel builds)
 pyo3 = { workspace = true, optional = true }
@@ -107,7 +110,7 @@ strip = true
 
 [features]
 default = []
-python-bindings = ["pyo3", "dcc-mcp-models/python-bindings", "dcc-mcp-actions/python-bindings", "dcc-mcp-skills/python-bindings", "dcc-mcp-protocols/python-bindings", "dcc-mcp-utils/python-bindings", "dcc-mcp-transport/python-bindings", "dcc-mcp-process/python-bindings", "dcc-mcp-telemetry/python-bindings", "dcc-mcp-sandbox/python-bindings", "dcc-mcp-shm/python-bindings", "dcc-mcp-capture/python-bindings", "dcc-mcp-usd/python-bindings"]
+python-bindings = ["pyo3", "dcc-mcp-models/python-bindings", "dcc-mcp-actions/python-bindings", "dcc-mcp-skills/python-bindings", "dcc-mcp-protocols/python-bindings", "dcc-mcp-utils/python-bindings", "dcc-mcp-transport/python-bindings", "dcc-mcp-process/python-bindings", "dcc-mcp-telemetry/python-bindings", "dcc-mcp-sandbox/python-bindings", "dcc-mcp-shm/python-bindings", "dcc-mcp-capture/python-bindings", "dcc-mcp-usd/python-bindings", "dcc-mcp-http/python-bindings"]
 abi3-py38 = ["pyo3/abi3-py38"]
 # Python 3.7 wheel: non-abi3 build, no abi3-py38 feature
 ext-module = ["pyo3/extension-module"]

@@ -3060,3 +3060,101 @@ def units_to_mpu(units: str) -> float:
 def mpu_to_units(mpu: float) -> str:
     """Convert ``metersPerUnit`` to a unit string (e.g. 0.01 → ``"cm"``)."""
     ...
+
+# ── MCP HTTP Server ──
+
+class McpHttpConfig:
+    """Configuration for the MCP Streamable HTTP server.
+
+    Args:
+        port: TCP port to listen on. Use ``0`` for a random available port.
+        server_name: Name reported in MCP ``initialize`` response.
+        server_version: Version reported in MCP ``initialize`` response.
+        enable_cors: Enable CORS headers (for browser clients).
+        request_timeout_ms: Request timeout in milliseconds.
+
+    Example::
+
+        from dcc_mcp_core import McpHttpConfig
+        cfg = McpHttpConfig(port=8765, server_name="maya-mcp")
+
+    """
+
+    def __init__(
+        self,
+        port: int = 8765,
+        server_name: str | None = None,
+        server_version: str | None = None,
+        enable_cors: bool = False,
+        request_timeout_ms: int = 30000,
+    ) -> None: ...
+    @property
+    def port(self) -> int: ...
+    @property
+    def server_name(self) -> str: ...
+    @property
+    def server_version(self) -> str: ...
+    def __repr__(self) -> str: ...
+
+class ServerHandle:
+    """Handle returned by :meth:`McpHttpServer.start`.
+
+    Example::
+
+        handle = server.start()
+        print(handle.mcp_url())   # http://127.0.0.1:8765/mcp
+        handle.shutdown()
+    """
+
+    @property
+    def port(self) -> int:
+        """The actual port the server is listening on."""
+        ...
+    @property
+    def bind_addr(self) -> str:
+        """The bind address, e.g. ``127.0.0.1:8765``."""
+        ...
+    def mcp_url(self) -> str:
+        """Full MCP endpoint URL, e.g. ``http://127.0.0.1:8765/mcp``."""
+        ...
+    def shutdown(self) -> None:
+        """Gracefully shut down the server (blocks until stopped)."""
+        ...
+    def signal_shutdown(self) -> None:
+        """Signal shutdown without blocking."""
+        ...
+    def __repr__(self) -> str: ...
+
+class McpHttpServer:
+    """MCP Streamable HTTP server (2025-03-26 spec).
+
+    Embeds an axum/Tokio HTTP server. Safe to call from DCC main threads —
+    the server runs in a background thread and never blocks the caller.
+
+    Example::
+
+        from dcc_mcp_core import ActionRegistry, McpHttpServer, McpHttpConfig
+
+        registry = ActionRegistry()
+        registry.register("get_scene_info", description="Get scene info",
+                          category="scene", tags=[], dcc="maya",
+                          version="1.0.0")
+
+        server = McpHttpServer(registry, McpHttpConfig(port=8765))
+        handle = server.start()
+        # MCP host connects to handle.mcp_url()
+        handle.shutdown()
+    """
+
+    def __init__(
+        self,
+        registry: ActionRegistry,
+        config: McpHttpConfig | None = None,
+    ) -> None: ...
+    def start(self) -> ServerHandle:
+        """Start the server and return a :class:`ServerHandle`.
+
+        Returns immediately; the server runs in a background thread.
+        """
+        ...
+    def __repr__(self) -> str: ...

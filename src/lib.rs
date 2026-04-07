@@ -9,6 +9,7 @@ use pyo3::prelude::*;
 // Re-export sub-crates for Rust consumers
 pub use dcc_mcp_actions as actions;
 pub use dcc_mcp_capture as capture;
+pub use dcc_mcp_http as http;
 pub use dcc_mcp_models as models;
 pub use dcc_mcp_process as process;
 pub use dcc_mcp_protocols as protocols;
@@ -66,6 +67,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     register_capture(m)?;
     register_usd(m)?;
     register_utils(m)?;
+    register_http(m)?;
     register_constants(m)?;
 
     // ── Metadata ──
@@ -231,6 +233,11 @@ fn register_capture(m: &Bound<'_, PyModule>) -> PyResult<()> {
 #[cfg(feature = "python-bindings")]
 fn register_usd(m: &Bound<'_, PyModule>) -> PyResult<()> {
     dcc_mcp_usd::python::register_classes(m)
+}
+
+#[cfg(feature = "python-bindings")]
+fn register_http(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    dcc_mcp_http::python::register_classes(m)
 }
 
 #[cfg(feature = "python-bindings")]
