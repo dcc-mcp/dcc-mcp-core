@@ -67,9 +67,28 @@ skills, skipped = scan_and_load(dcc_name="maya")
 - Uses IPC (Unix socket / named pipe) for process communication
 - `TransportManager` manages connection pools with `CircuitBreaker` resilience
 - `FramedChannel` for reliable message delivery with message framing
-- Connect (client): `connect_ipc(address) -> FramedChannel`
-- Listen (server): `IpcListener.new(address)` → `.start(handler_fn) -> ListenerHandle`
-  - Note: `start()` is the method name (not `.bind()` + `.accept()`)
+- Connect (client): `connect_ipc(address, timeout_ms=10000) -> FramedChannel`
+- Listen (server): `IpcListener.bind(address)` → `.accept(timeout_ms=None) -> FramedChannel`
+  - Note: the method is `.bind()` (static) + `.accept()` (blocking) — not `.new()` + `.start()`
+- **`FramedChannel.call(method, params, timeout_ms)` — primary RPC helper** (added v0.12.7):
+  sends a Request and waits for the correlated Response atomically.
+  - `result = channel.call("execute_python", b'cmds.sphere()')` → `{"id", "success", "payload", "error"}`
+  - Use `send_request()` + `recv()` only when you need async/multiplexed patterns
+
+### When Using MCP HTTP Server
+
+```python
+from dcc_mcp_core import ActionRegistry, McpHttpServer, McpHttpConfig, McpServerHandle
+
+registry = ActionRegistry()
+registry.register("get_scene", description="Get scene", category="scene", dcc="maya")
+
+server = McpHttpServer(registry, McpHttpConfig(port=8765, server_name="maya-mcp"))
+handle = server.start()   # returns McpServerHandle (alias for ServerHandle)
+print(handle.mcp_url())   # "http://127.0.0.1:8765/mcp"
+handle.shutdown()
+# Note: register ALL actions BEFORE calling server.start()
+```
 
 ### Quick Lookup: Common Method Signatures
 
@@ -96,6 +115,17 @@ bus.unsubscribe("event_name", sub_id)
 # ActionRegistry.register — takes keyword args, NOT handler=
 registry.register(name="action", description="...", dcc="maya", version="1.0.0")
 # Use dispatcher.register_handler() to attach a Python callable
+
+# FramedChannel.call() — primary RPC helper (v0.12.7+)
+channel = connect_ipc(TransportAddress.default_local("maya", pid))
+result = channel.call("execute_python", b'cmds.sphere()', timeout_ms=30000)
+# result: {"id": str, "success": bool, "payload": bytes, "error": str|None}
+# Alternative (async): req_id = channel.send_request(...); msg = channel.recv(timeout_ms=...)
+
+# McpHttpServer — expose registry over HTTP/MCP
+server = McpHttpServer(registry, McpHttpConfig(port=8765))
+handle = server.start()   # McpServerHandle
+print(handle.mcp_url())   # "http://127.0.0.1:8765/mcp"
 ```
 
 ### When Exploring Unknown Symbols
@@ -156,7 +186,7 @@ def test_skill_scan(tmp_path):
 - **The `justfile` is cross-platform**: recipes work on both Windows PowerShell and Unix sh
 - **When debugging Python-Rust binding issues**: check that the symbol is registered in `src/lib.rs` AND re-exported in `__init__.py` AND listed in `_core.pyi`
 - **Use `vx just test-cov`** to see coverage gaps before adding new features
-- **Don't use legacy APIs**: `ActionManager`, `create_action_manager()`, `MiddlewareChain`, `LoggingMiddleware` — all removed in v0.12+
+- **Don't use legacy APIs**: `ActionManager`, `create_action_manager()`, `MiddlewareChain`, `Action` base class — all removed in v0.12+. Note: `LoggingMiddleware` IS still available (use via `pipeline.add_logging()`).
 - **The project has zero runtime Python dependencies by design** — never add `dependencies = [...]` to `pyproject.toml`
 
 ## Key Files to Read First (Priority Order)

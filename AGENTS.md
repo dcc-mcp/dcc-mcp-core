@@ -22,6 +22,7 @@
 | Exchange scene as USD | `UsdStage` + `scene_info_json_to_stage()` |
 | Safe RPyC value transport | `wrap_value()` / `unwrap_value()` |
 | Multi-version action lookup | `VersionedRegistry` + `VersionConstraint.parse()` |
+| Expose DCC tools over HTTP/MCP | `McpHttpServer(registry, McpHttpConfig(port=8765))` — not a raw HTTP server |
 
 ## Project Overview
 
@@ -29,11 +30,11 @@
 
 ### Key Architecture Facts
 
-- **Language**: Rust core (11 crates workspace) + Python bindings via PyO3
+- **Language**: Rust core (12 crates workspace) + Python bindings via PyO3
 - **Build system**: `cargo` (Rust) + `maturin` (Python wheels)
-- **Python package**: `dcc_mcp_core` with ~120 public symbols re-exported from `_core` native extension
+- **Python package**: `dcc_mcp_core` with ~130 public symbols re-exported from `_core` native extension
 - **Zero runtime Python dependencies** — everything is compiled into the Rust core
-- **Version**: 0.12.6 (use Release Please for versioning — never manually bump)
+- **Version**: 0.12.7 (use Release Please for versioning — never manually bump)
 - **Python support**: 3.7–3.13 (CI tests 3.7–3.13; abi3-py38 wheel for 3.8+)
 
 ## Repository Structure
@@ -41,7 +42,7 @@
 ```
 dcc-mcp-core/
 ├── src/lib.rs                  # PyO3 entry point (_core module)
-├── Cargo.toml                  # Workspace definition (11 crates)
+├── Cargo.toml                  # Workspace definition (12 crates)
 ├── pyproject.toml              # Python package metadata
 ├── justfile                    # Development commands (use: vx just <recipe>)
 │
@@ -57,6 +58,7 @@ dcc-mcp-core/
 │   ├── dcc-mcp-shm/            # Shared memory buffers (LZ4 compressed)
 │   ├── dcc-mcp-capture/        # Screen/window capture backend
 │   ├── dcc-mcp-usd/            # USD scene description bridge
+│   ├── dcc-mcp-http/           # MCP Streamable HTTP server (2025-03-26 spec, McpHttpServer)
 │   └── dcc-mcp-utils/          # Filesystem, type wrappers, constants, JSON helpers
 │
 ├── python/dcc_mcp_core/
@@ -378,23 +380,82 @@ from dcc_mcp_core import (
     TransportManager,    # Connection pool manager
     TransportAddress, TransportScheme, RoutingStrategy,
     IpcListener,         # Server-side IPC listener
-    ListenerHandle,      # Handle returned by IpcListener.start()
+    ListenerHandle,      # Handle returned by IpcListener.into_handle()
     FramedChannel,       # Message-framed IPC channel
     connect_ipc,         # Client: connect to IPC server
 )
 
-# Server
-listener = IpcListener.new("/tmp/dcc-mcp.sock")
-handle = listener.start(handler_fn=my_handler)
+# Server — bind + accept pattern
+addr = TransportAddress.tcp("127.0.0.1", 0)
+listener = IpcListener.bind(addr)
+local_addr = listener.local_address()   # get assigned port
+channel = listener.accept()             # blocks until client connects
 
 # Client
-channel = connect_ipc("/tmp/dcc-mcp.sock")
-response = channel.call({"method": "ping", "params": {}})
+channel = connect_ipc(local_addr, timeout_ms=10000)
 
-# Production: pooled + circuit breaker
-mgr = TransportManager()
-mgr.configure_pool(min_size=2, max_size=10)
-mgr.set_circuit_breaker(threshold=5, reset_timeout=30)
+# FramedChannel RPC — use .call() for synchronous request/reply
+result = channel.call("execute_python", b'cmds.sphere()')
+# result keys: "id", "success" (bool), "payload" (bytes), "error" (str|None)
+if result["success"]:
+    print(result["payload"].decode())
+else:
+    raise RuntimeError(result["error"])
+
+# Low-level: send_request + recv for async/multiplexed patterns
+req_id = channel.send_request("execute_python", params=b'cmds.sphere()')
+msg = channel.recv(timeout_ms=10000)   # {"type": "response", "id": req_id, ...}
+
+# One-way notifications
+channel.send_notify("scene_changed", data=b'{"scene": "shot01.ma"}')
+
+# Heartbeat check
+rtt_ms = channel.ping()                 # round-trip time in ms
+channel.shutdown()                      # graceful close
+
+# Production: pooled + circuit breaker + auto-registration
+mgr = TransportManager("/tmp/dcc-mcp")
+instance_id, listener = mgr.bind_and_register("maya", version="2025")
+entry = mgr.find_best_service("maya")   # best available Maya instance
+session_id = mgr.get_or_create_session("maya", entry.instance_id)
+```
+
+#### MCP HTTP Server
+
+```python
+from dcc_mcp_core import ActionRegistry, McpHttpServer, McpHttpConfig, McpServerHandle
+
+# Build an action registry
+registry = ActionRegistry()
+registry.register(
+    "get_scene_info",
+    description="Get information about the current DCC scene",
+    category="scene", tags=["query"], dcc="maya", version="1.0.0",
+)
+
+# Start MCP Streamable HTTP server (2025-03-26 spec)
+# Runs in background thread — safe to call from DCC main thread
+config = McpHttpConfig(
+    port=8765,              # use 0 for random available port
+    server_name="maya-mcp",
+    server_version="1.0.0",
+    enable_cors=False,      # set True for browser-based MCP clients
+    request_timeout_ms=30000,
+)
+server = McpHttpServer(registry, config)
+handle = server.start()
+
+# MCP host (e.g. Claude Desktop) connects to:
+print(handle.mcp_url())    # "http://127.0.0.1:8765/mcp"
+print(handle.port)         # actual port (useful when port=0)
+print(handle.bind_addr)    # "127.0.0.1:8765"
+
+# Shutdown
+handle.shutdown()          # blocks until stopped
+# handle.signal_shutdown() # non-blocking alternative
+
+# McpServerHandle is an alias for ServerHandle in __init__.py
+from dcc_mcp_core import McpServerHandle  # same type
 ```
 
 #### Process Management
@@ -612,6 +673,14 @@ pub fn register_actions(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
 10. **`_core.pyi` is the authoritative stub**: When unsure of parameter names or types, read `python/dcc_mcp_core/_core.pyi` rather than guessing.
 
+11. **`IpcListener.bind(addr)`** creates the listener (not `.new()`); `.accept()` returns a `FramedChannel`. Use `into_handle()` for `ListenerHandle` with tracking.
+
+12. **`FramedChannel.call()` is the primary RPC helper**: `channel.call(method, params_bytes, timeout_ms)` sends a request and waits for the matching response atomically. Use `send_request()` + `recv()` only for multiplexed async patterns.
+
+13. **`McpServerHandle` vs `ServerHandle`**: `server.start()` returns a `ServerHandle`; it is re-exported as `McpServerHandle` in `__init__.py`. Both refer to the same class.
+
+14. **`McpHttpServer` requires an `ActionRegistry`**: The HTTP server reads tool names/descriptions from the registry. Register all actions before calling `server.start()`.
+
 ## Debugging & Diagnostics
 
 ### Build Issues
@@ -706,11 +775,10 @@ def call_maya_command(pid: int, python_code: str):
     addr = TransportAddress.default_local("maya", pid)
     channel = connect_ipc(addr)
     try:
-        # FramedChannel: use send_request() + recv(); there is no .call() method
-        req_id = channel.send_request("execute_python", params=python_code.encode())
-        msg = channel.recv(timeout_ms=10000)
-        if msg and msg.get("type") == "response":
-            payload = msg.get("payload", b"")
+        # Primary RPC pattern: .call() handles request/response atomically
+        result = channel.call("execute_python", python_code.encode(), timeout_ms=10000)
+        if result["success"]:
+            payload = result.get("payload", b"")
             decoded = payload.decode() if isinstance(payload, bytes) else str(payload)
             return success_result(
                 decoded,
@@ -719,7 +787,7 @@ def call_maya_command(pid: int, python_code: str):
         else:
             return error_result(
                 "DCC script failed",
-                "No response or unexpected message type",
+                result.get("error", "Unknown error"),
                 possible_solutions=["Check Maya is running", "Verify syntax"],
             )
     except Exception as e:
@@ -784,6 +852,53 @@ for entry in ctx.audit_log.entries():
     print(f"{entry.action}: {entry.outcome}")
 ```
 
+### Pattern 6: Expose DCC actions over MCP Streamable HTTP
+
+```python
+import os
+from dcc_mcp_core import (
+    scan_and_load, ActionRegistry, ActionDispatcher,
+    McpHttpServer, McpHttpConfig,
+    success_result, error_result, from_exception,
+)
+from pathlib import Path
+
+# 1. Discover skill scripts and populate registry
+os.environ["DCC_MCP_SKILL_PATHS"] = "/opt/maya-skills"
+skills, skipped = scan_and_load(dcc_name="maya")
+
+registry = ActionRegistry()
+dispatcher = ActionDispatcher(registry)
+
+for skill in skills:
+    for script_path in skill.scripts:
+        stem = Path(script_path).stem
+        action_name = f"{skill.name.replace('-', '_')}__{stem}"
+        registry.register(
+            name=action_name,
+            description=f"[{skill.name}] {skill.description}",
+            dcc=skill.dcc, tags=skill.tags, version=skill.version,
+        )
+        # Bind handler that executes the script
+        def make_handler(sp):
+            def handler(params):
+                import subprocess
+                proc = subprocess.run(["python", sp], capture_output=True, text=True)
+                if proc.returncode == 0:
+                    return success_result(proc.stdout.strip())
+                return error_result("Script failed", proc.stderr.strip())
+            return handler
+        dispatcher.register_handler(action_name, make_handler(script_path))
+
+# 2. Serve via MCP Streamable HTTP (2025-03-26 spec)
+server = McpHttpServer(registry, McpHttpConfig(port=8765, server_name="maya-mcp"))
+handle = server.start()
+print(f"MCP server ready at {handle.mcp_url()}")
+
+# Claude Desktop / MCP host connects to handle.mcp_url()
+# handle.shutdown() when done
+```
+
 ## External References
 
 - [AGENTS.md specification](https://agents.md/) — open standard for AI agent guidance files (Linux Foundation / Agentic AI Foundation)
@@ -827,6 +942,20 @@ result = error_result("Failed", "specific error details")
 # EventBus.subscribe returns an int ID for unsubscribe
 sub_id = bus.subscribe("event_name", handler_fn)
 bus.unsubscribe("event_name", sub_id)
+
+# FramedChannel — .call() is the primary RPC method (added v0.12.7)
+channel = connect_ipc(TransportAddress.default_local("maya", pid))
+result = channel.call("execute_python", b'cmds.sphere()')
+# result: {"id": str, "success": bool, "payload": bytes, "error": str|None}
+# send_request+recv for async/multiplexed:
+req_id = channel.send_request("execute_python", params=b'cmds.sphere()')
+msg = channel.recv(timeout_ms=10000)   # {"type": "response", ...}
+
+# McpHttpServer — expose actions over HTTP/MCP
+server = McpHttpServer(registry, McpHttpConfig(port=8765, server_name="maya-mcp"))
+handle = server.start()          # returns McpServerHandle (alias: McpServerHandle)
+print(handle.mcp_url())          # "http://127.0.0.1:8765/mcp"
+handle.shutdown()                # or handle.signal_shutdown() (non-blocking)
 ```
 
 ## PR Checklist

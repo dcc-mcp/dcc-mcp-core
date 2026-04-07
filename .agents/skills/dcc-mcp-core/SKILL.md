@@ -1,9 +1,9 @@
 ---
 name: dcc-mcp-core
-description: "Foundation library for the DCC Model Context Protocol (MCP) ecosystem. Provides Rust-powered action management, skills system, transport layer, sandbox security, shared memory, screen capture, USD scene support, and telemetry for AI-assisted DCC workflows. Use when working with Maya, Blender, Houdini, 3ds Max, or any DCC MCP integration."
+description: "Foundation library for the DCC Model Context Protocol (MCP) ecosystem. Provides Rust-powered action management, skills system, IPC transport, MCP Streamable HTTP server, sandbox security, shared memory, screen capture, USD scene support, and telemetry for AI-assisted DCC workflows. Use when working with Maya, Blender, Houdini, 3ds Max, or any DCC MCP integration."
 allowed-tools: ["Bash", "Read", "Write", "Edit"]
 compatibility: "Python 3.7-3.13; Rust 1.85+ required to build from source; zero runtime Python dependencies"
-version: "0.12.6"
+version: "0.12.7"
 ---
 
 # dcc-mcp-core — DCC MCP Ecosystem Foundation
@@ -19,6 +19,7 @@ The foundational library enabling AI assistants to interact with Digital Content
 | Validate params | `ActionValidator.from_schema_json()` | isinstance checks |
 | Connect to DCC | `connect_ipc(TransportAddress.default_local(...))` | raw sockets |
 | Define MCP tool | `ToolDefinition` + `ToolAnnotations` | raw JSON |
+| Serve MCP over HTTP | `McpHttpServer(registry, McpHttpConfig(port=8765))` | raw HTTP server |
 
 ## What This Library Does
 
@@ -27,6 +28,7 @@ The foundational library enabling AI assistants to interact with Digital Content
 | **Action Management** | Register, validate, dispatch, and execute actions with typed inputs/outputs |
 | **Skills System** | Zero-code script registration (Python/MEL/Batch/Shell/JS) as MCP tools via `SKILL.md` |
 | **Transport Layer** | High-performance IPC with connection pooling, circuit breaker, retry policies |
+| **MCP HTTP Server** | MCP Streamable HTTP (2025-03-26 spec) powered by axum/Tokio, runs in background thread |
 | **Process Management** | Launch, monitor, auto-recover DCC processes (Maya, Blender, Houdini, etc.) |
 | **Sandbox Security** | Policy-based access control, input validation, audit logging |
 | **Shared Memory** | LZ4-compressed inter-process data exchange for large scenes |
@@ -122,19 +124,35 @@ from dcc_mcp_core import TransportAddress, connect_ipc, success_result, error_re
 addr = TransportAddress.default_local("maya", pid=12345)
 channel = connect_ipc(addr)
 try:
-    # FramedChannel uses send_request() + recv(); there is no .call() method
-    req_id = channel.send_request("execute_python", params=b'import maya.cmds; cmds.sphere()')
-    msg = channel.recv(timeout_ms=10000)  # blocks until response
-    if msg and msg.get("type") == "response":
-        payload = msg.get("payload", b"")
+    # Primary RPC: .call() sends request + waits for correlated response (v0.12.7+)
+    result = channel.call("execute_python", b'import maya.cmds; cmds.sphere()', timeout_ms=10000)
+    if result["success"]:
+        payload = result.get("payload", b"")
         return success_result(payload.decode() if isinstance(payload, bytes) else str(payload))
     else:
-        return error_result("DCC call failed", "No response received")
+        return error_result("DCC call failed", result.get("error", "Unknown error"))
 finally:
     channel.shutdown()
 ```
 
-### Pattern 5: Watch skills for live reload
+### Pattern 5: Expose actions via MCP Streamable HTTP
+
+```python
+from dcc_mcp_core import ActionRegistry, McpHttpServer, McpHttpConfig
+
+registry = ActionRegistry()
+registry.register("get_scene_info", description="Get DCC scene info",
+                  category="scene", dcc="maya", version="1.0.0")
+
+# Runs in background thread — safe to call from DCC main thread
+server = McpHttpServer(registry, McpHttpConfig(port=8765, server_name="maya-mcp"))
+handle = server.start()
+print(f"MCP server: {handle.mcp_url()}")  # http://127.0.0.1:8765/mcp
+# Claude Desktop / MCP host connects to handle.mcp_url()
+# handle.shutdown() when done
+```
+
+### Pattern 6: Watch skills for live reload
 
 ```python
 from dcc_mcp_core import SkillWatcher
@@ -146,7 +164,7 @@ watcher.watch("/my/dev/skills")  # immediate load + start watching
 current_skills = watcher.skills()  # -> List[SkillMetadata]
 ```
 
-### Pattern 6: ActionDispatcher with handlers
+### Pattern 7: ActionDispatcher with handlers
 
 ```python
 import json
@@ -174,7 +192,7 @@ cat > my-tool/SKILL.md << 'EOF'
 ---
 name: my-tool
 description: "My custom DCC automation tools"
-tools: ["Bash"]
+allowed-tools: ["Bash"]
 tags: ["automation", "custom"]
 dcc: maya
 version: "1.0.0"
@@ -211,14 +229,14 @@ print(f'Loaded: {[s.name for s in skills]}')
 ┌─────────────────────────────────────────────────────┐
 │                   Python Layer                       │
 │  dcc_mcp_core/__init__.py  →  _core (PyO3 cdyll)   │
-│  ~120 public symbols re-exported from Rust core      │
+│  ~130 public symbols re-exported from Rust core      │
 └──────────────────────┬──────────────────────────────┘
                        │ PyO3 bindings
 ┌──────────────────────▼──────────────────────────────┐
-│              Rust Core (11 Crates)                   │
+│              Rust Core (12 Crates)                   │
 │                                                      │
 │  models → actions → skills → protocols              │
-│  transport → process → sandbox → telemetry          │
+│  transport → http → process → sandbox → telemetry   │
 │  shm → capture → usd → utils                        │
 └─────────────────────────────────────────────────────┘
 ```

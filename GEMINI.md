@@ -31,10 +31,10 @@ vx just lint-fix     # Auto-fix all lint issues
 ## Key Architecture Facts
 
 - **11 Rust crates** under `crates/`, compiled into `dcc_mcp_core._core` native extension
-- **~120 public Python symbols** exported from `python/dcc_mcp_core/__init__.py`
+- **~130 public Python symbols** exported from `python/dcc_mcp_core/__init__.py`
 - **Zero runtime Python deps** — all logic in Rust, no `dependencies = [...]` in pyproject.toml
 - Python 3.7–3.13 supported (abi3-py38 wheel; separate non-abi3 wheel for 3.7)
-- Version: **0.12.6** — managed by Release Please, never manually bump
+- Version: **0.12.7** — managed by Release Please, never manually bump
 
 ## Gemini-Specific Workflows
 
@@ -135,6 +135,10 @@ Action naming: `{skill_name}__{script_stem}` (hyphens → underscores, `__` sepa
 12. **`success_result` kwargs → context**: `success_result("msg", count=5)` → `context={"count":5}` — do NOT use `context=` keyword
 13. **`error_result` positional args**: `error_result("msg", "error string")` — not `error_result(message=..., error=...)`
 14. **`EventBus.subscribe` returns int**: Store the return value to unsubscribe later: `sub_id = bus.subscribe(...)`
+15. **`FramedChannel.call()` IS available** (v0.12.7+): Use `channel.call(method, params_bytes, timeout_ms)` for synchronous RPC. Use `send_request()` + `recv()` only for async/multiplexed patterns.
+16. **`IpcListener.bind(addr)`** creates listener (static method); `.accept()` blocks until client connects. There is no `.new()` or `.start()` method.
+17. **`McpServerHandle` is an alias**: `server.start()` returns `ServerHandle`; it is re-exported as `McpServerHandle` in `__init__.py`. Import as `from dcc_mcp_core import McpServerHandle`.
+18. **`McpHttpServer` registry population**: All actions must be registered in `ActionRegistry` BEFORE calling `server.start()`. The server reads metadata from the registry at startup.
 
 ## CI/CD Summary
 
