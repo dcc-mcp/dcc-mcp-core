@@ -30,11 +30,12 @@ vx just test-cov      # Coverage report to find gaps
 
 ### Architecture Summary
 
-- **11 Rust crates** under `crates/`, compiled into `_core` native extension
-- **~120 public Python symbols** exported from `python/dcc_mcp_core/__init__.py`
+- **12 Rust crates** under `crates/`, compiled into `_core` native extension
+- **~130 public Python symbols** exported from `python/dcc_mcp_core/__init__.py`
 - **Zero runtime Python deps** — all logic in Rust
 - Key entry point: `src/lib.rs` (PyO3 `#[pymodule]`)
 - Python 3.7–3.13 supported (CI tests 3.7–3.13)
+- Version: **0.12.9** — never manually bump (Release Please manages)
 
 ## Claude-Specific Workflows
 
@@ -188,6 +189,8 @@ def test_skill_scan(tmp_path):
 - **Use `vx just test-cov`** to see coverage gaps before adding new features
 - **Don't use legacy APIs**: `ActionManager`, `create_action_manager()`, `MiddlewareChain`, `Action` base class — all removed in v0.12+. Note: `LoggingMiddleware` IS still available (use via `pipeline.add_logging()`).
 - **The project has zero runtime Python dependencies by design** — never add `dependencies = [...]` to `pyproject.toml`
+- **`DeferredExecutor` is not in public `__init__.py`**: import via `from dcc_mcp_core._core import DeferredExecutor` until it is promoted to the public API
+- **MCP spec**: `McpHttpServer` implements 2025-03-26 spec. The upcoming 2025-11-05 draft adds JSON-RPC batching and resource links in tool results — do not implement these manually
 
 ## Key Files to Read First (Priority Order)
 

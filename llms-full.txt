@@ -38,7 +38,7 @@ dcc-mcp-core is a **Rust workspace** with Python bindings via PyO3. All logic li
 sub-crates; the root crate re-exports everything into a single `dcc_mcp_core._core` Python
 extension module. The Python package `dcc_mcp_core` re-exports all public APIs from `_core`.
 
-**Zero runtime Python dependencies** — install with just `pip install dcc-mcp-core`.
+**12 crates** — **Zero runtime Python dependencies** — install with just `pip install dcc-mcp-core`.
 
 ```
 crates/
@@ -1539,9 +1539,18 @@ channel.send_notify("mesh_ready", data=desc.encode())
 
 ## MCP HTTP Server (`dcc_mcp_core`)
 
-The `dcc-mcp-http` crate provides a **MCP Streamable HTTP server** compliant with the 2025-03-26 MCP
-specification. It uses axum + Tokio and runs in a background thread, making it safe to call from any
+The `dcc-mcp-http` crate provides a **MCP Streamable HTTP server** compliant with the **2025-03-26 MCP
+specification**. It uses axum + Tokio and runs in a background thread, making it safe to call from any
 DCC main thread.
+
+> **MCP Spec Roadmap**: The 2025-11-05 draft spec introduces:
+> - **JSON-RPC Batching** — multiple tool calls in one round-trip
+> - **Resource Links in Tool Results** — tools can return resource links for dynamic discovery
+> - **Event Streams** — server-initiated push notifications
+> - **Improved Error Taxonomy** — finer-grained error codes
+>
+> When these features land in `dcc-mcp-core`, they will be exposed via `McpHttpServer` —
+> do NOT implement these manually.
 
 ### McpHttpConfig
 

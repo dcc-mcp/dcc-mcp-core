@@ -30,11 +30,11 @@ vx just lint-fix     # Auto-fix all lint issues
 
 ## Key Architecture Facts
 
-- **11 Rust crates** under `crates/`, compiled into `dcc_mcp_core._core` native extension
+- **12 Rust crates** under `crates/`, compiled into `dcc_mcp_core._core` native extension
 - **~130 public Python symbols** exported from `python/dcc_mcp_core/__init__.py`
 - **Zero runtime Python deps** — all logic in Rust, no `dependencies = [...]` in pyproject.toml
 - Python 3.7–3.13 supported (abi3-py38 wheel; separate non-abi3 wheel for 3.7)
-- Version: **0.12.7** — managed by Release Please, never manually bump
+- Version: **0.12.9** — managed by Release Please, never manually bump
 
 ## Gemini-Specific Workflows
 
@@ -139,6 +139,12 @@ Action naming: `{skill_name}__{script_stem}` (hyphens → underscores, `__` sepa
 16. **`IpcListener.bind(addr)`** creates listener (static method); `.accept()` blocks until client connects. There is no `.new()` or `.start()` method.
 17. **`McpServerHandle` is an alias**: `server.start()` returns `ServerHandle`; it is re-exported as `McpServerHandle` in `__init__.py`. Import as `from dcc_mcp_core import McpServerHandle`.
 18. **`McpHttpServer` registry population**: All actions must be registered in `ActionRegistry` BEFORE calling `server.start()`. The server reads metadata from the registry at startup.
+
+19. **MCP spec version awareness**: `McpHttpServer` implements 2025-03-26 spec. The 2025-11-05 draft adds JSON-RPC batching and resource links in tool results. Do NOT implement these manually — wait for the library to add support.
+
+20. **`scan_and_load` keyword args only**: Both `extra_paths` and `dcc_name` must be passed as keyword arguments: `scan_and_load(dcc_name="maya", extra_paths=["/path"])` — never as positionals.
+
+21. **`DeferredExecutor` import path**: `DeferredExecutor` is Rust-backed and must be imported via `from dcc_mcp_core._core import DeferredExecutor` until it is added to the public `__init__.py` exports. Always check `__init__.py` first.
 
 ## CI/CD Summary
 

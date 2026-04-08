@@ -32,9 +32,9 @@
 
 - **Language**: Rust core (12 crates workspace) + Python bindings via PyO3
 - **Build system**: `cargo` (Rust) + `maturin` (Python wheels)
-- **Python package**: `dcc_mcp_core` with ~130 public symbols re-exported from `_core` native extension
+- **Python package**: `dcc_mcp_core` with ~130 public symbols re-exported from `_core` native extension (see `python/dcc_mcp_core/__init__.py`)
 - **Zero runtime Python dependencies** — everything is compiled into the Rust core
-- **Version**: 0.12.7 (use Release Please for versioning — never manually bump)
+- **Version**: 0.12.9 (use Release Please for versioning — never manually bump)
 - **Python support**: 3.7–3.13 (CI tests 3.7–3.13; abi3-py38 wheel for 3.8+)
 
 ## Repository Structure
@@ -783,6 +783,10 @@ pub fn register_actions(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
 16. **Do NOT use `dcc-mcp-ipc` in new code**: That project is superseded by `dcc-mcp-core`. All IPC transport, routing, and HTTP serving is provided by this library. New DCC integrations should only depend on `dcc-mcp-core`.
 
+17. **MCP specification version awareness**: `McpHttpServer` implements the 2025-03-26 MCP spec (Streamable HTTP). The 2025-11-05 draft spec introduces JSON-RPC batching, resource links in tool results, and event streams — watch for these capabilities in future `dcc-mcp-core` releases. Do NOT implement these from scratch; wait for API additions to `McpHttpServer`.
+
+18. **`scan_and_load` with `extra_paths`**: When calling `scan_and_load(extra_paths=[...], dcc_name="maya")`, both arguments are keyword-only. Do not pass `extra_paths` as a positional argument — use `extra_paths=["/path"]` explicitly.
+
 ## Debugging & Diagnostics
 
 ### Build Issues
@@ -1052,6 +1056,8 @@ def poll():
 - [AGENTS.md specification](https://agents.md/) — open standard for AI agent guidance files (Linux Foundation / Agentic AI Foundation)
 - [llms.txt specification](https://llmstxt.org/) — AI-optimized documentation format by Answer.AI
 - [Model Context Protocol](https://modelcontextprotocol.io/) — the underlying MCP standard (Anthropic)
+- [MCP Specification 2025-03-26](https://modelcontextprotocol.io/specification/2025-03-26) — current stable spec (Streamable HTTP, OAuth 2.1, Tool Annotations)
+- [MCP Specification 2025-11-05 (draft)](https://modelcontextprotocol.io/specification/draft) — upcoming spec (JSON-RPC batching, resource links in tool results, event streams, improved error taxonomy)
 - [MCP Agent Skills](https://modelcontextprotocol.io/docs/develop/build-with-agent-skills) — SKILL.md ecosystem and agent skills spec
 - [Agent Skills Specification](https://agentskills.io/specification) — official SKILL.md frontmatter format and best practices
 - [PyO3 documentation](https://pyo3.rs/) — Rust-Python bindings used in this project

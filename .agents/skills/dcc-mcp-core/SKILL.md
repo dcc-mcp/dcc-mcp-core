@@ -1,9 +1,9 @@
 ---
 name: dcc-mcp-core
-description: "Foundation library for the DCC Model Context Protocol (MCP) ecosystem. Provides Rust-powered action management, skills system, IPC transport, MCP Streamable HTTP server, sandbox security, shared memory, screen capture, USD scene support, and telemetry for AI-assisted DCC workflows. Use when working with Maya, Blender, Houdini, 3ds Max, or any DCC MCP integration."
+description: "Foundation library for the DCC Model Context Protocol (MCP) ecosystem. Provides Rust-powered action management, skills system, IPC transport, MCP Streamable HTTP server (2025-03-26 spec), sandbox security, shared memory, screen capture, USD scene support, and telemetry for AI-assisted DCC workflows. Use when working with Maya, Blender, Houdini, 3ds Max, or any DCC MCP integration."
 allowed-tools: ["Bash", "Read", "Write", "Edit"]
 compatibility: "Python 3.7-3.13; Rust 1.85+ required to build from source; zero runtime Python dependencies"
-version: "0.12.7"
+version: "0.12.9"
 ---
 
 # dcc-mcp-core — DCC MCP Ecosystem Foundation
@@ -28,7 +28,7 @@ The foundational library enabling AI assistants to interact with Digital Content
 | **Action Management** | Register, validate, dispatch, and execute actions with typed inputs/outputs |
 | **Skills System** | Zero-code script registration (Python/MEL/Batch/Shell/JS) as MCP tools via `SKILL.md` |
 | **Transport Layer** | High-performance IPC with connection pooling, circuit breaker, retry policies |
-| **MCP HTTP Server** | MCP Streamable HTTP (2025-03-26 spec) powered by axum/Tokio, runs in background thread |
+| **MCP HTTP Server** | MCP Streamable HTTP (**2025-03-26 spec**) powered by axum/Tokio, runs in background thread. 2025-11-05 draft will add JSON-RPC batching + resource links |
 | **Process Management** | Launch, monitor, auto-recover DCC processes (Maya, Blender, Houdini, etc.) |
 | **Sandbox Security** | Policy-based access control, input validation, audit logging |
 | **Shared Memory** | LZ4-compressed inter-process data exchange for large scenes |
@@ -181,6 +181,30 @@ result = dispatcher.dispatch("create_sphere", json.dumps({"radius": 2.0}))
 # result == {"action": "create_sphere", "output": {"created": True, "r": 2.0}, "validation_skipped": False}
 ```
 
+### Pattern 8: DCC main-thread safety with DeferredExecutor
+
+Most DCC applications (Maya, Blender, Houdini) require scene API calls on their **main thread**.
+McpHttpServer runs on Tokio worker threads — use `DeferredExecutor` to bridge:
+
+```python
+# DeferredExecutor is Rust-backed; import directly until added to public API
+from dcc_mcp_core._core import DeferredExecutor
+from dcc_mcp_core import ActionRegistry, McpHttpServer, McpHttpConfig
+
+executor = DeferredExecutor(queue_depth=64)
+# In DCC main event loop / timer callback:
+def poll():
+    executor.poll_pending()  # runs queued tasks on main thread
+
+# Maya: maya.utils.executeDeferred(poll)
+# Blender: bpy.app.timers.register(poll, persistent=True)
+# Houdini: hou.ui.addEventLoopCallback(poll)
+
+registry = ActionRegistry()
+server = McpHttpServer(registry, McpHttpConfig(port=0, server_name="maya-mcp"))
+handle = server.start()
+```
+
 ## Creating a Custom Skill (Zero Python Code)
 
 ```bash
@@ -274,3 +298,25 @@ print(f'Loaded: {[s.name for s in skills]}')
 
 - [dcc-mcp-rpyc](https://github.com/loonghao/dcc-mcp-rpyc) — RPyC bridge for remote DCC operations
 - [dcc-mcp-maya](https://github.com/loonghao/dcc-mcp-maya) — Maya MCP server implementation
+
+## MCP Specification Roadmap
+
+The library currently implements **MCP 2025-03-26** (Streamable HTTP). The **2025-11-05 draft** introduces:
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| JSON-RPC Batching | Draft | Multiple tool calls per round-trip; reduces latency for bulk ops |
+| Resource Links in Tool Results | Draft | Tools can return resource URIs for dynamic discovery |
+| Event Streams | Draft | Server-initiated push notifications for state changes |
+| Improved Error Taxonomy | Draft | Finer-grained error codes for better client handling |
+
+**AI Agents**: Do NOT implement these features manually. Wait for `dcc-mcp-core` to expose them via `McpHttpServer`. Track progress at the GitHub repository.
+
+## Common Pitfalls
+
+1. `scan_and_load` returns `(List[SkillMetadata], List[str])` — always unpack: `skills, skipped = scan_and_load(...)`
+2. `DeferredExecutor` not in public API yet — use `from dcc_mcp_core._core import DeferredExecutor`
+3. Register ALL actions before `server.start()` — server reads from registry at startup only
+4. Use `FramedChannel.call()` for sync RPC — not `send_request()` + `recv()` (those are for async/multiplex)
+5. `ActionDispatcher(registry)` takes ONE arg — no `validator=` parameter
+6. Action naming: `{skill_name.replace('-','_')}__{script_stem}` (double underscore)
