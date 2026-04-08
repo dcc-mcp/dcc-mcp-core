@@ -540,6 +540,104 @@ These APIs were removed in v0.12+:
 - ~~`create_action_manager()`~~ → Use `ActionRegistry()` directly
 - ~~`LoggingMiddleware` / `PerformanceMiddleware`~~ → Use `ActionMetrics` + `EventBus`
 
+## DCC Ecosystem Architecture
+
+> **Key insight**: `dcc-mcp-core` is the **only** dependency a DCC-specific package needs.
+> There is no need for `dcc-mcp-ipc` or any other separate IPC library.
+
+### Full Stack (from DCC process to AI agent)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  MCP Host (Claude Desktop / OpenClaw / any MCP-compatible agent) │
+│  Connects via:  http://localhost:8765/mcp  (Streamable HTTP)     │
+└────────────────────────────┬────────────────────────────────────┘
+                             │ MCP 2025-03-26 Streamable HTTP
+┌────────────────────────────▼────────────────────────────────────┐
+│  DCC application process (Maya / Blender / Houdini / 3ds Max)   │
+│                                                                  │
+│  # Python code running inside DCC:                              │
+│  from dcc_mcp_core import ActionRegistry, McpHttpServer          │
+│  from dcc_mcp_core import McpHttpConfig, DeferredExecutor        │
+│                                                                  │
+│  registry = ActionRegistry()                                     │
+│  # register skills/actions ...                                   │
+│                                                                  │
+│  server = McpHttpServer(registry, McpHttpConfig(port=8765))      │
+│  handle = server.start()   # non-blocking                       │
+│  # → handle.mcp_url() == "http://127.0.0.1:8765/mcp"           │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Why `dcc-mcp-ipc` is no longer needed
+
+`dcc-mcp-ipc` was a separate Python project that provided IPC transport between a
+DCC process and an external MCP gateway. **Everything it provided is now in `dcc-mcp-core`:**
+
+| dcc-mcp-ipc feature | dcc-mcp-core equivalent |
+|---------------------|------------------------|
+| IPC Named Pipe / Unix Socket | `IpcListener` + `FramedChannel` in `dcc-mcp-transport` |
+| TCP transport | `TransportAddress.tcp()` + `connect_ipc()` |
+| Instance routing / load balancing | `InstanceRouter` + `RoutingStrategy` in `dcc-mcp-transport` |
+| Service discovery | `ServiceRegistry` + `TransportManager` |
+| MCP HTTP gateway | `McpHttpServer` in `dcc-mcp-http` ← **new in v0.12.7** |
+
+With `McpHttpServer`, the DCC process **is** the MCP server — no external gateway needed.
+
+### DCC-specific packages (`dcc-mcp-maya`, `dcc-mcp-blender`, etc.)
+
+Upper-layer DCC packages only need to:
+
+1. **Import `dcc_mcp_core`** — no other dependency
+2. **Register DCC-specific actions** via `ActionRegistry.register()` or SKILL.md
+3. **Start `McpHttpServer`** — MCP host connects directly
+4. **Optionally use `DeferredExecutor`** for main-thread safety (see below)
+
+```python
+# dcc-mcp-maya minimal example
+from dcc_mcp_core import ActionRegistry, McpHttpServer, McpHttpConfig
+import maya.utils  # DCC-specific
+
+registry = ActionRegistry()
+# Load skills via DCC_MCP_SKILL_PATHS env var or register manually
+
+server = McpHttpServer(registry, McpHttpConfig(port=8765, server_name="maya-mcp"))
+handle = server.start()
+# Claude Desktop connects to http://127.0.0.1:8765/mcp
+```
+
+### DCC Main-Thread Safety (`DeferredExecutor`)
+
+All major DCC applications require scene API calls on their **main thread**.
+HTTP requests arrive on Tokio worker threads. Use `DeferredExecutor` to bridge:
+
+```python
+from dcc_mcp_core._core import DeferredExecutor  # Rust-backed
+import maya.utils
+
+# Create executor (on DCC main thread at startup)
+executor = DeferredExecutor(queue_depth=64)
+dcc_handle = executor.handle()  # cloneable, Send+Sync
+
+# In your DCC event loop / timer callback:
+def maya_tick():
+    executor.poll_pending()   # runs queued tasks on main thread
+    maya.utils.executeDeferred(maya_tick)  # reschedule
+
+maya.utils.executeDeferred(maya_tick)
+
+# Pass dcc_handle to McpHttpServer for thread-safe dispatch:
+server = McpHttpServer(registry, config).with_executor(dcc_handle)
+handle = server.start()
+```
+
+> **When is `DeferredExecutor` needed?**
+> - Maya: always (cmds, OpenMaya require main thread)
+> - Blender: always (bpy requires main thread)
+> - Houdini: most API calls require main thread
+> - 3ds Max: most API calls require main thread
+> - Testing / non-DCC Python: not needed (omit `.with_executor()`)
+
 ## Skills System (Deep Dive)
 
 Skills allow zero-code registration of scripts as MCP tools.
@@ -680,6 +778,10 @@ pub fn register_actions(m: &Bound<'_, PyModule>) -> PyResult<()> {
 13. **`McpServerHandle` vs `ServerHandle`**: `server.start()` returns a `ServerHandle`; it is re-exported as `McpServerHandle` in `__init__.py`. Both refer to the same class.
 
 14. **`McpHttpServer` requires an `ActionRegistry`**: The HTTP server reads tool names/descriptions from the registry. Register all actions before calling `server.start()`.
+
+15. **DCC main-thread safety with `McpHttpServer`**: By default, tool handlers run on Tokio worker threads. If your DCC requires main-thread execution (Maya, Blender, Houdini), attach a `DeferredExecutor` via `McpHttpServer.with_executor(handle)` and call `executor.poll_pending()` from your DCC event loop. Omitting this in Maya/Blender **will crash** the DCC.
+
+16. **Do NOT use `dcc-mcp-ipc` in new code**: That project is superseded by `dcc-mcp-core`. All IPC transport, routing, and HTTP serving is provided by this library. New DCC integrations should only depend on `dcc-mcp-core`.
 
 ## Debugging & Diagnostics
 
@@ -897,6 +999,52 @@ print(f"MCP server ready at {handle.mcp_url()}")
 
 # Claude Desktop / MCP host connects to handle.mcp_url()
 # handle.shutdown() when done
+```
+
+### Pattern 7: Thread-safe DCC tool execution (Maya / Blender / Houdini)
+
+```python
+"""
+DCC main-thread dispatch pattern.
+
+Applicable when the DCC restricts scene API calls to its main thread.
+McpHttpServer runs on a Tokio worker thread; DeferredExecutor bridges the gap.
+"""
+import threading
+from dcc_mcp_core import ActionRegistry, McpHttpServer, McpHttpConfig
+# DeferredExecutor is a Rust type; import via _core directly for now
+from dcc_mcp_core._core import DeferredExecutor
+
+# ── 1. Create executor on main thread ───────────────────────────────────────
+executor = DeferredExecutor(queue_depth=64)
+dcc_handle = executor.handle()  # cloneable handle for worker threads
+
+# ── 2. Register your DCC actions ───────────────────────────────────────────
+registry = ActionRegistry()
+registry.register(
+    "create_sphere",
+    description="Create a polygon sphere on the active layer",
+    category="geometry", tags=["create", "mesh"],
+    dcc="maya", version="1.0.0",
+    input_schema='{"type":"object","properties":{"radius":{"type":"number"}}}'
+)
+
+# ── 3. Start HTTP server (non-blocking) ────────────────────────────────────
+server = McpHttpServer(registry, McpHttpConfig(port=0, server_name="maya-mcp"))
+# NOTE: .with_executor() is implemented in Rust — available when McpHttpServer
+# gains executor support. Until then, run tools without DCC-specific APIs.
+handle = server.start()
+print(f"MCP server at {handle.mcp_url()}")
+
+# ── 4. Poll executor from DCC main thread ──────────────────────────────────
+# Maya: maya.utils.executeDeferred(poll)
+# Blender: bpy.app.timers.register(poll, persistent=True)
+# Houdini: hou.ui.addEventLoopCallback(poll)
+def poll():
+    executor.poll_pending()
+
+# ── 5. Shutdown ────────────────────────────────────────────────────────────
+# handle.shutdown()
 ```
 
 ## External References
