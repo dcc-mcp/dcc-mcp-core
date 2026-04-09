@@ -107,6 +107,7 @@ from dcc_mcp_core._core import VersionConstraint
 from dcc_mcp_core._core import VersionedRegistry
 from dcc_mcp_core._core import VtValue
 from dcc_mcp_core._core import connect_ipc
+from dcc_mcp_core._core import create_skill_manager
 from dcc_mcp_core._core import decode_envelope
 from dcc_mcp_core._core import encode_notify
 from dcc_mcp_core._core import encode_request
@@ -115,6 +116,7 @@ from dcc_mcp_core._core import error_result
 from dcc_mcp_core._core import expand_transitive_dependencies
 from dcc_mcp_core._core import from_exception
 from dcc_mcp_core._core import get_actions_dir
+from dcc_mcp_core._core import get_app_skill_paths_from_env
 from dcc_mcp_core._core import get_config_dir
 from dcc_mcp_core._core import get_data_dir
 from dcc_mcp_core._core import get_log_dir
@@ -242,6 +244,7 @@ __all__ = [
     "__author__",
     "__version__",
     "connect_ipc",
+    "create_skill_manager",
     "decode_envelope",
     "encode_notify",
     "encode_request",
@@ -250,6 +253,7 @@ __all__ = [
     "expand_transitive_dependencies",
     "from_exception",
     "get_actions_dir",
+    "get_app_skill_paths_from_env",
     "get_config_dir",
     "get_data_dir",
     "get_log_dir",

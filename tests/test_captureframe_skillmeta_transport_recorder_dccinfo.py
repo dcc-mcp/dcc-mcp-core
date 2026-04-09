@@ -36,6 +36,7 @@ from dcc_mcp_core import ServiceStatus
 from dcc_mcp_core import SkillMetadata
 from dcc_mcp_core import StringWrapper
 from dcc_mcp_core import TimingMiddleware
+from dcc_mcp_core import ToolDeclaration
 from dcc_mcp_core import TransportManager
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -188,7 +189,7 @@ class TestSkillMetadataFields:
         return SkillMetadata(
             name="render-scene",
             description="Render current scene to disk",
-            tools=["render", "preview"],
+            tools=[ToolDeclaration(name="render"), ToolDeclaration(name="preview")],
             dcc="maya",
             tags=["render", "output"],
             scripts=["render_scene.py"],
@@ -208,7 +209,7 @@ class TestSkillMetadataFields:
 
     def test_tools_list(self) -> None:
         sm = self._make_full()
-        assert sm.tools == ["render", "preview"]
+        assert [t.name for t in sm.tools] == ["render", "preview"]
 
     def test_dcc_field(self) -> None:
         sm = self._make_full()

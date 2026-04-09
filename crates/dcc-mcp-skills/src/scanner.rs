@@ -60,7 +60,12 @@ impl SkillScanner {
 
     /// Collect and deduplicate all skill search paths from various sources.
     ///
-    /// Priority order: extra_paths > env var > platform-specific > global.
+    /// Priority order (highest → lowest):
+    /// 1. `extra_paths` — caller-provided explicit paths
+    /// 2. `DCC_MCP_{APP}_SKILL_PATHS` — per-app env var (when dcc_name is given)
+    /// 3. `DCC_MCP_SKILL_PATHS` — global env var
+    /// 4. Platform-specific skills directory for this DCC
+    /// 5. Global skills directory
     fn collect_search_paths(extra_paths: Option<&[String]>, dcc_name: Option<&str>) -> Vec<String> {
         let mut search_paths = Vec::new();
 
@@ -69,8 +74,13 @@ impl SkillScanner {
             search_paths.extend(extra.iter().cloned());
         }
 
-        // 2. Environment variable paths
-        search_paths.extend(filesystem::get_skill_paths_from_env());
+        // 2. Per-app env var paths (DCC_MCP_{APP}_SKILL_PATHS) + global fallback
+        if let Some(dcc) = dcc_name {
+            search_paths.extend(filesystem::get_app_skill_paths_from_env(dcc));
+        } else {
+            // No dcc_name — only global env var
+            search_paths.extend(filesystem::get_skill_paths_from_env());
+        }
 
         // 3. Platform-specific skills directory
         if let Ok(platform_dir) = filesystem::get_skills_dir(dcc_name) {

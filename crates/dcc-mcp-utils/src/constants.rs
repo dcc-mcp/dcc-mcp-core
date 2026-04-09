@@ -15,6 +15,21 @@ pub const ENV_LOG_LEVEL: &str = "MCP_LOG_LEVEL";
 pub const SKILL_METADATA_FILE: &str = "SKILL.md";
 /// Environment variable containing additional skill search paths.
 pub const ENV_SKILL_PATHS: &str = "DCC_MCP_SKILL_PATHS";
+/// Template for per-app skill search paths: `DCC_MCP_{APP}_SKILL_PATHS`.
+/// Substitute `{APP}` with the uppercase DCC app name.
+/// Example: `DCC_MCP_MAYA_SKILL_PATHS`, `DCC_MCP_BLENDER_SKILL_PATHS`.
+pub const ENV_APP_SKILL_PATHS_TEMPLATE: &str = "DCC_MCP_{APP}_SKILL_PATHS";
+
+/// Build the per-app env var name for a given app/DCC name.
+///
+/// `app_name = "maya"` → `"DCC_MCP_MAYA_SKILL_PATHS"`
+#[must_use]
+pub fn app_skill_paths_env_key(app_name: &str) -> String {
+    format!(
+        "DCC_MCP_{}_SKILL_PATHS",
+        app_name.to_uppercase().replace('-', "_")
+    )
+}
 /// Subdirectory inside a skill package that holds executable scripts.
 pub const SKILL_SCRIPTS_DIR: &str = "scripts";
 /// Subdirectory inside a skill package that holds auxiliary metadata files.

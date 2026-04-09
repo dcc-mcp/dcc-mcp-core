@@ -391,5 +391,94 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyMcpHttpConfig>()?;
     m.add_class::<PyMcpHttpServer>()?;
     m.add_class::<PyServerHandle>()?;
+    m.add_function(wrap_pyfunction!(py_create_skill_manager, m)?)?;
     Ok(())
+}
+
+/// Create a pre-configured `McpHttpServer` for a specific DCC application.
+///
+/// This is the recommended entry-point for the **Skills-First** workflow.
+/// It automatically:
+///
+/// 1. Creates an `ActionRegistry` and `ActionDispatcher`.
+/// 2. Creates a `SkillCatalog` wired to the dispatcher.
+/// 3. Discovers skills from **both** env vars (per-app + global):
+///    - ``DCC_MCP_{APP}_SKILL_PATHS`` — e.g. ``DCC_MCP_MAYA_SKILL_PATHS``
+///    - ``DCC_MCP_SKILL_PATHS`` — global fallback
+/// 4. Returns a ready-to-start ``McpHttpServer``.
+///
+/// Args:
+///     app_name: DCC application name (e.g. ``"maya"``, ``"blender"``).
+///               Used to derive the per-app env var and as the MCP server name.
+///     config:   Optional ``McpHttpConfig``; defaults to port 8765.
+///     extra_paths: Extra skill directories to scan in addition to env var paths.
+///     dcc_name: Override the DCC filter for skill scanning (defaults to ``app_name``).
+///
+/// Example::
+///
+///     import os
+///     os.environ["DCC_MCP_MAYA_SKILL_PATHS"] = "/studio/maya-skills"
+///
+///     from dcc_mcp_core import create_skill_manager, McpHttpConfig
+///
+///     server = create_skill_manager("maya", McpHttpConfig(port=8765))
+///     handle = server.start()
+///     print(f"Maya MCP server at {handle.mcp_url()}")
+///     # Agents connect, call find_skills() and load_skill() to discover tools.
+///
+/// .. note::
+///
+///     The returned server's ``SkillCatalog`` is pre-populated with discovered
+///     skills but none are *loaded* yet. Use ``server.load_skill(name)`` or
+///     the ``load_skill`` MCP tool to load skills on demand.
+#[pyfunction]
+#[pyo3(name = "create_skill_manager")]
+#[pyo3(signature = (app_name, config=None, extra_paths=None, dcc_name=None))]
+pub fn py_create_skill_manager(
+    app_name: &str,
+    config: Option<&PyMcpHttpConfig>,
+    extra_paths: Option<Vec<String>>,
+    dcc_name: Option<&str>,
+) -> PyResult<PyMcpHttpServer> {
+    use dcc_mcp_utils::filesystem::get_app_skill_paths_from_env;
+
+    // Determine DCC filter — default to app_name
+    let effective_dcc = dcc_name.unwrap_or(app_name);
+
+    // Build config with app_name as default server name
+    let mut cfg = config.map(|c| c.inner.clone()).unwrap_or_default();
+    if cfg.server_name == "dcc-mcp-server" || cfg.server_name.is_empty() {
+        cfg.server_name = format!("{app_name}-mcp");
+    }
+
+    let runtime =
+        Runtime::new().map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+
+    let reg = Arc::new(ActionRegistry::new());
+    let dispatcher = Arc::new(ActionDispatcher::new((*reg).clone()));
+    let catalog = Arc::new(SkillCatalog::new_with_dispatcher(
+        reg.clone(),
+        dispatcher.clone(),
+    ));
+
+    // Collect paths: explicit extra_paths + per-app env var + global env var
+    let mut all_paths: Vec<String> = extra_paths.unwrap_or_default();
+    all_paths.extend(get_app_skill_paths_from_env(app_name));
+    let discover_paths = if all_paths.is_empty() {
+        None
+    } else {
+        Some(all_paths)
+    };
+
+    // Discover skills (lenient — missing deps are skipped, not errors)
+    let discovered = catalog.discover(discover_paths.as_deref(), Some(effective_dcc));
+    tracing::info!("create_skill_manager({app_name}): discovered {discovered} skill(s)");
+
+    Ok(PyMcpHttpServer {
+        registry: reg,
+        dispatcher,
+        catalog,
+        config: cfg,
+        runtime: Arc::new(runtime),
+    })
 }

@@ -679,6 +679,10 @@ impl SkillMetadata {
         self.to_string()
     }
 
+    fn __eq__(&self, other: &SkillMetadata) -> bool {
+        self == other
+    }
+
     // ── Simple field getters/setters ───────────────────────────────────
 
     #[getter]

@@ -194,6 +194,7 @@ fn register_utils(m: &Bound<'_, PyModule>) -> PyResult<()> {
         dcc_mcp_utils::filesystem::py_get_actions_dir,
         dcc_mcp_utils::filesystem::py_get_skills_dir,
         dcc_mcp_utils::filesystem::py_get_skill_paths_from_env,
+        dcc_mcp_utils::filesystem::py_get_app_skill_paths_from_env,
         dcc_mcp_utils::type_wrappers::py_unwrap_value,
         dcc_mcp_utils::type_wrappers::py_unwrap_parameters,
         dcc_mcp_utils::type_wrappers::py_wrap_value,

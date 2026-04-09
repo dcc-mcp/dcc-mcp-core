@@ -20,6 +20,7 @@ from pathlib import Path
 import pytest
 
 from dcc_mcp_core import SkillMetadata
+from dcc_mcp_core import ToolDeclaration
 from dcc_mcp_core import parse_skill_md
 from dcc_mcp_core import scan_and_load
 
@@ -73,7 +74,7 @@ class TestParseSkillMdHelloWorld:
 
     def test_tools_contain_bash(self):
         meta = parse_skill_md(_HELLO_WORLD_DIR)
-        assert "Bash" in meta.tools
+        assert "Bash" in meta.allowed_tools
 
     def test_scripts_is_list(self):
         meta = parse_skill_md(_HELLO_WORLD_DIR)
@@ -221,7 +222,7 @@ class TestSkillMetadataConstructor:
         m = SkillMetadata(
             name="full-skill",
             description="A complete skill",
-            tools=["Bash", "Read"],
+            tools=[ToolDeclaration(name="Bash"), ToolDeclaration(name="Read")],
             dcc="maya",
             tags=["maya", "test"],
             scripts=["/path/to/script.py"],
@@ -237,7 +238,7 @@ class TestSkillMetadataConstructor:
         assert "maya" in m.tags
         assert "/path/to/script.py" in m.scripts
         assert "other-skill" in m.depends
-        assert "Bash" in m.tools
+        assert any(t.name == "Bash" for t in m.tools)
 
     def test_equality_same_values(self):
         m1 = SkillMetadata(name="skill-a", dcc="maya")

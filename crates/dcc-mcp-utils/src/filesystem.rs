@@ -147,6 +147,9 @@ pub fn get_skills_dir(dcc_name: Option<&str>) -> Result<String, FilesystemError>
 }
 
 /// Get skill search paths from environment variable.
+///
+/// Reads `DCC_MCP_SKILL_PATHS` (colon-separated on Unix, semicolon on Windows).
+/// Only returns paths that exist on the filesystem.
 #[must_use]
 pub fn get_skill_paths_from_env() -> Vec<String> {
     let mut paths = Vec::new();
@@ -158,6 +161,56 @@ pub fn get_skill_paths_from_env() -> Vec<String> {
             }
         }
     }
+    paths
+}
+
+/// Get skill search paths for a specific app from environment variables.
+///
+/// Reads **both** paths in priority order (most specific first):
+/// 1. `DCC_MCP_{APP}_SKILL_PATHS` — per-app paths (e.g. `DCC_MCP_MAYA_SKILL_PATHS`)
+/// 2. `DCC_MCP_SKILL_PATHS` — global fallback
+///
+/// Paths are deduplicated while preserving order. Only existing directories
+/// are returned.
+///
+/// # Examples
+///
+/// ```no_run
+/// use dcc_mcp_utils::filesystem::get_app_skill_paths_from_env;
+///
+/// // With DCC_MCP_MAYA_SKILL_PATHS=/studio/maya-skills
+/// // and  DCC_MCP_SKILL_PATHS=/shared/skills
+/// let paths = get_app_skill_paths_from_env("maya");
+/// // → ["/studio/maya-skills", "/shared/skills"]  (deduped, existing only)
+/// ```
+#[must_use]
+pub fn get_app_skill_paths_from_env(app_name: &str) -> Vec<String> {
+    use crate::constants::app_skill_paths_env_key;
+
+    let sep = if cfg!(windows) { ';' } else { ':' };
+    let mut seen = std::collections::HashSet::new();
+    let mut paths = Vec::new();
+
+    let mut add = |value: &str| {
+        for p in value.split(sep) {
+            let p = p.trim();
+            if !p.is_empty() && Path::new(p).is_dir() && seen.insert(p.to_string()) {
+                paths.push(p.to_string());
+            }
+        }
+    };
+
+    // 1. Per-app paths (highest priority)
+    let app_key = app_skill_paths_env_key(app_name);
+    if let Ok(v) = env::var(&app_key) {
+        add(&v);
+    }
+
+    // 2. Global fallback
+    if let Ok(v) = env::var(ENV_SKILL_PATHS) {
+        add(&v);
+    }
+
     paths
 }
 
@@ -204,6 +257,12 @@ mod py_bindings {
     #[pyo3(name = "get_skill_paths_from_env")]
     pub fn py_get_skill_paths_from_env() -> Vec<String> {
         get_skill_paths_from_env()
+    }
+
+    #[pyfunction]
+    #[pyo3(name = "get_app_skill_paths_from_env")]
+    pub fn py_get_app_skill_paths_from_env(app_name: &str) -> Vec<String> {
+        get_app_skill_paths_from_env(app_name)
     }
 }
 

@@ -696,7 +696,7 @@ class TestSkillMetadataDeepAttrs:
 
     def test_hello_world_tools_contains_bash(self):
         meta = parse_skill_md(str(Path(EXAMPLES_DIR) / "hello-world"))
-        assert "Bash" in meta.tools
+        assert "Bash" in meta.allowed_tools
 
     def test_maya_pipeline_depends_populated(self):
         """maya-pipeline has non-empty depends list."""

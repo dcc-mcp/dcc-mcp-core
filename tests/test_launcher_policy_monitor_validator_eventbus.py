@@ -23,8 +23,8 @@ from dcc_mcp_core import PyCrashRecoveryPolicy
 from dcc_mcp_core import PyDccLauncher
 from dcc_mcp_core import PyProcessMonitor
 from dcc_mcp_core import SkillMetadata
+from dcc_mcp_core import ToolDeclaration
 
-# ---------------------------------------------------------------------------
 # PyDccLauncher
 # ---------------------------------------------------------------------------
 
@@ -614,8 +614,8 @@ class TestSkillMetadataConstructor:
         assert sm.description == "A test skill"
 
     def test_tools(self):
-        sm = SkillMetadata("skill", tools=["tool_a", "tool_b"])
-        assert sm.tools == ["tool_a", "tool_b"]
+        sm = SkillMetadata("skill", tools=[ToolDeclaration(name="tool_a"), ToolDeclaration(name="tool_b")])
+        assert [t.name for t in sm.tools] == ["tool_a", "tool_b"]
 
     def test_tags(self):
         sm = SkillMetadata("skill", tags=["geometry", "create"])
@@ -686,7 +686,7 @@ class TestSkillMetadataConstructor:
         sm = SkillMetadata(
             "full-skill",
             description="Complete skill",
-            tools=["t1", "t2"],
+            tools=[ToolDeclaration(name="t1"), ToolDeclaration(name="t2")],
             dcc="houdini",
             tags=["vfx", "sim"],
             scripts=["run.py", "setup.py"],
@@ -697,7 +697,7 @@ class TestSkillMetadataConstructor:
         )
         assert sm.name == "full-skill"
         assert sm.description == "Complete skill"
-        assert sm.tools == ["t1", "t2"]
+        assert [t.name for t in sm.tools] == ["t1", "t2"]
         assert sm.dcc == "houdini"
         assert sm.tags == ["vfx", "sim"]
         assert sm.scripts == ["run.py", "setup.py"]
