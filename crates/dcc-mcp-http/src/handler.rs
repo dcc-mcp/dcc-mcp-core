@@ -29,13 +29,14 @@ use crate::{
     },
     session::SessionManager,
 };
-use dcc_mcp_actions::ActionRegistry;
+use dcc_mcp_actions::{ActionDispatcher, ActionRegistry};
 use dcc_mcp_skills::SkillCatalog;
 
 /// Shared application state passed to all axum handlers.
 #[derive(Clone)]
 pub struct AppState {
     pub registry: Arc<ActionRegistry>,
+    pub dispatcher: Arc<ActionDispatcher>,
     pub catalog: Arc<SkillCatalog>,
     pub sessions: SessionManager,
     pub executor: Option<DccExecutorHandle>,
@@ -317,13 +318,10 @@ async fn handle_tools_call(
         _ => {}
     }
 
-    // Regular action dispatch
-    let args_json = params
-        .arguments
-        .map(|v| serde_json::to_string(&v).unwrap_or_default())
-        .unwrap_or_else(|| "{}".to_string());
+    // Resolve action params (default to empty object)
+    let call_params = params.arguments.unwrap_or(json!({}));
 
-    // Check action exists
+    // Check action exists in registry before dispatch
     if state.registry.get_action(&tool_name, None).is_none() {
         return Ok(JsonRpcResponse::success(
             req.id.clone(),
@@ -331,65 +329,72 @@ async fn handle_tools_call(
         ));
     }
 
-    // If executor is available, run on DCC main thread
-    let result_json = if let Some(exec) = &state.executor {
-        let registry = state.registry.clone();
+    // Dispatch via ActionDispatcher
+    let dispatch_outcome = if let Some(exec) = &state.executor {
+        // DCC main-thread path: run synchronous dispatch inside DeferredExecutor
+        let dispatcher = state.dispatcher.clone();
         let name = tool_name.clone();
-        let args = args_json.clone();
+        let p = call_params.clone();
         exec.execute(Box::new(move || {
-            // Dispatch through the registry — handlers registered by DCC adapter
-            match registry.get_action(&name, None) {
-                Some(_) => {
-                    // Return args as pass-through for now; DCC adapter overrides
-                    format!(
-                        r#"{{"success":true,"message":"dispatched","context":{}}}"#,
-                        args
-                    )
+            match dispatcher.dispatch(&name, p) {
+                Ok(r) => serde_json::to_string(&r.output).unwrap_or_else(|_| "null".to_string()),
+                Err(e) => {
+                    // Encode error in a sentinel JSON object
+                    let err_obj = json!({"__dispatch_error": e.to_string()});
+                    serde_json::to_string(&err_obj).unwrap_or_default()
                 }
-                None => format!(r#"{{"success":false,"error":"tool not found: {name}"}}"#),
             }
         }))
-        .await?
-    } else {
-        // No executor — direct dispatch (non-DCC mode / testing)
-        match state.registry.get_action(&tool_name, None) {
-            Some(_) => {
-                format!(
-                    r#"{{"success":true,"message":"ok","context":{}}}"#,
-                    args_json
-                )
+        .await
+        .map(|json_str| {
+            let v: Value = serde_json::from_str(&json_str).unwrap_or(json!({}));
+            if let Some(err) = v.get("__dispatch_error") {
+                Err(err.as_str().unwrap_or("dispatch error").to_string())
+            } else {
+                Ok(v)
             }
-            None => {
-                format!(r#"{{"success":false,"error":"tool not found: {tool_name}"}}"#)
+        })
+        .unwrap_or_else(|e| Err(e.to_string()))
+    } else {
+        // Non-DCC path: use spawn_blocking so we don't block the async runtime
+        let dispatcher = state.dispatcher.clone();
+        let name = tool_name.clone();
+        let p = call_params.clone();
+        tokio::task::spawn_blocking(move || dispatcher.dispatch(&name, p))
+            .await
+            .map_err(|e| e.to_string())
+            .and_then(|r| r.map(|d| d.output).map_err(|e| e.to_string()))
+    };
+
+    // Build MCP CallToolResult from dispatch outcome
+    let call_result = match dispatch_outcome {
+        Ok(output) => {
+            let text = match &output {
+                Value::String(s) => s.clone(),
+                Value::Null => String::new(),
+                other => serde_json::to_string_pretty(other).unwrap_or_else(|_| other.to_string()),
+            };
+            CallToolResult {
+                content: vec![protocol::ToolContent::Text { text }],
+                is_error: false,
             }
         }
-    };
-
-    // Parse result and wrap as CallToolResult
-    let result_value: Value = serde_json::from_str(&result_json).unwrap_or(json!({}));
-    let is_error = result_value
-        .get("success")
-        .and_then(Value::as_bool)
-        .map(|s| !s)
-        .unwrap_or(false);
-
-    let text = if is_error {
-        result_value
-            .get("error")
-            .and_then(Value::as_str)
-            .unwrap_or("unknown error")
-            .to_string()
-    } else {
-        result_value
-            .get("message")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string()
-    };
-
-    let call_result = CallToolResult {
-        content: vec![protocol::ToolContent::Text { text }],
-        is_error,
+        Err(err_msg) => {
+            // "no handler registered" means tool exists in registry but has no
+            // callable handler — guide the user to register one.
+            let text = if err_msg.contains("no handler registered") {
+                format!(
+                    "Tool '{tool_name}' is registered but has no handler. \
+                     Register a handler via ActionDispatcher.register_handler()."
+                )
+            } else {
+                err_msg
+            };
+            CallToolResult {
+                content: vec![protocol::ToolContent::Text { text }],
+                is_error: true,
+            }
+        }
     };
 
     Ok(JsonRpcResponse::success(

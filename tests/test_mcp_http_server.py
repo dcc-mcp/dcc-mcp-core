@@ -85,6 +85,10 @@ def running_server():
     reg = _make_registry()
     config = McpHttpConfig(port=0, server_name="e2e-test-server")  # port=0 → random
     server = McpHttpServer(reg, config)
+    # Register handlers so tools/call actually executes (Skills-First architecture:
+    # metadata is in registry, handlers are registered separately for custom logic)
+    server.register_handler("get_scene_info", lambda params: {"scene": "test_scene", "objects": []})
+    server.register_handler("list_objects", lambda params: {"objects": ["cube", "sphere"]})
     handle = server.start()
     url = handle.mcp_url()
     yield server, handle, url
@@ -159,9 +163,13 @@ class TestMcpHttpProtocol:
         )
         assert code == 200
         result = body["result"]
+        # With Skills-First architecture, registered handlers execute properly
         assert result["isError"] is False
         assert len(result["content"]) > 0
         assert result["content"][0]["type"] == "text"
+        # Handler returned a dict with scene info
+        content_text = result["content"][0]["text"]
+        assert "scene" in content_text or "test_scene" in content_text
 
     def test_tools_call_unknown(self, running_server):
         _, _, url = running_server

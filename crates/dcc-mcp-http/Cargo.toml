@@ -45,4 +45,4 @@ rstest = "0.26"
 
 [features]
 default = []
-python-bindings = ["pyo3"]
+python-bindings = ["pyo3", "dcc-mcp-utils/python-bindings", "dcc-mcp-actions/python-bindings", "dcc-mcp-skills/python-bindings"]

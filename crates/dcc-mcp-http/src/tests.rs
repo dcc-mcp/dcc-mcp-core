@@ -10,7 +10,7 @@ mod tests {
     use crate::{
         config::McpHttpConfig, handler::AppState, server::McpHttpServer, session::SessionManager,
     };
-    use dcc_mcp_actions::{ActionMeta, ActionRegistry};
+    use dcc_mcp_actions::{ActionDispatcher, ActionMeta, ActionRegistry};
     use dcc_mcp_models::{SkillMetadata, ToolDeclaration};
     use dcc_mcp_skills::SkillCatalog;
 
@@ -40,8 +40,10 @@ mod tests {
     fn make_app_state() -> AppState {
         let registry = Arc::new(make_registry());
         let catalog = Arc::new(SkillCatalog::new(registry.clone()));
+        let dispatcher = Arc::new(ActionDispatcher::new((*registry).clone()));
         AppState {
             registry,
+            dispatcher,
             catalog,
             sessions: SessionManager::new(),
             executor: None,
@@ -132,7 +134,7 @@ mod tests {
         assert!(names.contains(&"load_skill"));
     }
 
-    // ── tools/call known ──────────────────────────────────────────────────
+    // ── tools/call known (no handler registered) ──────────────────────────
 
     #[tokio::test]
     async fn test_tools_call_known_tool() {
@@ -157,8 +159,10 @@ mod tests {
 
         resp.assert_status_ok();
         let body: Value = resp.json();
-        assert_eq!(body["result"]["isError"], false);
-        assert!(body["result"]["content"].as_array().unwrap().len() > 0);
+        // No handler registered for get_scene_info → is_error=true with guidance message
+        assert_eq!(body["result"]["isError"], true);
+        let text = body["result"]["content"][0]["text"].as_str().unwrap_or("");
+        assert!(text.contains("no handler") || text.contains("register"));
     }
 
     // ── tools/call unknown ─────────────────────────────────────────────────
@@ -403,7 +407,8 @@ mod tests {
         });
 
         AppState {
-            registry,
+            registry: registry.clone(),
+            dispatcher: Arc::new(ActionDispatcher::new((*registry).clone())),
             catalog,
             sessions: SessionManager::new(),
             executor: None,
@@ -658,5 +663,164 @@ mod tests {
 
         let body: Value = resp.json();
         assert_eq!(body["result"]["capabilities"]["tools"]["listChanged"], true);
+    }
+
+    // ── Real ActionDispatcher dispatch tests ──────────────────────────────
+
+    /// Helper: build an AppState with a dispatcher that has a real handler registered.
+    fn make_app_state_with_handler() -> AppState {
+        let registry = Arc::new(make_registry());
+        let catalog = Arc::new(SkillCatalog::new(registry.clone()));
+        let dispatcher = Arc::new(ActionDispatcher::new((*registry).clone()));
+        // Register a real handler for get_scene_info
+        dispatcher.register_handler("get_scene_info", |_params| {
+            Ok(serde_json::json!({"scene": "test_scene", "objects": 3}))
+        });
+        AppState {
+            registry,
+            dispatcher,
+            catalog,
+            sessions: SessionManager::new(),
+            executor: None,
+            server_name: "test-dcc".to_string(),
+            server_version: "0.1.0".to_string(),
+        }
+    }
+
+    fn make_router_with_handler() -> axum::Router {
+        use crate::handler::{handle_delete, handle_get, handle_post};
+        use axum::{Router, routing};
+
+        let state = make_app_state_with_handler();
+        Router::new()
+            .route(
+                "/mcp",
+                routing::post(handle_post)
+                    .get(handle_get)
+                    .delete(handle_delete),
+            )
+            .with_state(state)
+    }
+
+    #[tokio::test]
+    async fn test_tools_call_with_registered_handler() {
+        let server = TestServer::new(make_router_with_handler()).unwrap();
+
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::ACCEPT,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&json!({
+                "jsonrpc": "2.0",
+                "id": 40,
+                "method": "tools/call",
+                "params": {
+                    "name": "get_scene_info",
+                    "arguments": {}
+                }
+            }))
+            .await;
+
+        resp.assert_status_ok();
+        let body: Value = resp.json();
+        // Handler is registered — should succeed
+        assert_eq!(body["result"]["isError"], false);
+        let text = body["result"]["content"][0]["text"].as_str().unwrap_or("");
+        // The JSON output from the handler should be present
+        assert!(text.contains("test_scene") || text.contains("objects"));
+    }
+
+    #[tokio::test]
+    async fn test_tools_call_no_handler() {
+        // Uses the default make_router() where no handlers are registered
+        let server = TestServer::new(make_router()).unwrap();
+
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::ACCEPT,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&json!({
+                "jsonrpc": "2.0",
+                "id": 41,
+                "method": "tools/call",
+                "params": {
+                    "name": "list_objects",
+                    "arguments": {}
+                }
+            }))
+            .await;
+
+        resp.assert_status_ok();
+        let body: Value = resp.json();
+        // Tool is in registry but has no handler
+        assert_eq!(body["result"]["isError"], true);
+        let text = body["result"]["content"][0]["text"].as_str().unwrap_or("");
+        assert!(
+            text.contains("no handler") || text.contains("register"),
+            "Expected helpful no-handler message, got: {text}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_tools_call_handler_error() {
+        let registry = Arc::new(make_registry());
+        let catalog = Arc::new(SkillCatalog::new(registry.clone()));
+        let dispatcher = Arc::new(ActionDispatcher::new((*registry).clone()));
+        // Register a handler that always fails
+        dispatcher.register_handler("get_scene_info", |_params| {
+            Err("simulated DCC error: scene not available".to_string())
+        });
+        let state = AppState {
+            registry,
+            dispatcher,
+            catalog,
+            sessions: SessionManager::new(),
+            executor: None,
+            server_name: "test-dcc".to_string(),
+            server_version: "0.1.0".to_string(),
+        };
+
+        use crate::handler::{handle_delete, handle_get, handle_post};
+        use axum::{Router, routing};
+        let router = Router::new()
+            .route(
+                "/mcp",
+                routing::post(handle_post)
+                    .get(handle_get)
+                    .delete(handle_delete),
+            )
+            .with_state(state);
+
+        let server = TestServer::new(router).unwrap();
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::ACCEPT,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&json!({
+                "jsonrpc": "2.0",
+                "id": 42,
+                "method": "tools/call",
+                "params": {
+                    "name": "get_scene_info",
+                    "arguments": {}
+                }
+            }))
+            .await;
+
+        resp.assert_status_ok();
+        let body: Value = resp.json();
+        // Handler returned Err — should be is_error=true
+        assert_eq!(body["result"]["isError"], true);
+        let text = body["result"]["content"][0]["text"].as_str().unwrap_or("");
+        assert!(
+            text.contains("simulated DCC error") || text.contains("handler error"),
+            "Expected handler error message, got: {text}"
+        );
     }
 }

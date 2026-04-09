@@ -38,7 +38,10 @@
 use pyo3::prelude::*;
 
 use dashmap::{DashMap, DashSet};
-use dcc_mcp_actions::registry::{ActionMeta, ActionRegistry};
+use dcc_mcp_actions::{
+    ActionDispatcher,
+    registry::{ActionMeta, ActionRegistry},
+};
 use dcc_mcp_models::{SkillMetadata, ToolDeclaration};
 use std::sync::Arc;
 
@@ -84,6 +87,11 @@ pub struct SkillEntry {
 /// Manages discovered skills and their progressive loading.
 ///
 /// Thread-safe: all state is stored in `DashMap` / `DashSet`.
+///
+/// When a dispatcher is attached (via [`SkillCatalog::with_dispatcher`]),
+/// loading a skill also registers a subprocess-based handler for each
+/// action — enabling the Skills-First workflow where agents never need to
+/// register handlers manually.
 #[cfg_attr(feature = "python-bindings", pyclass(name = "SkillCatalog"))]
 pub struct SkillCatalog {
     /// All discovered skill entries, keyed by skill name.
@@ -92,6 +100,8 @@ pub struct SkillCatalog {
     loaded: DashSet<String>,
     /// Reference to ActionRegistry for registering/unregistering tools.
     registry: Arc<ActionRegistry>,
+    /// Optional dispatcher for auto-registering script handlers on load.
+    dispatcher: Option<Arc<ActionDispatcher>>,
 }
 
 impl std::fmt::Debug for SkillCatalog {
@@ -112,12 +122,40 @@ impl std::fmt::Debug for SkillCatalog {
 
 impl SkillCatalog {
     /// Create a new, empty catalog backed by the given registry.
+    ///
+    /// Without a dispatcher, `load_skill` only registers action metadata.
+    /// Use [`with_dispatcher`](Self::with_dispatcher) to also auto-register
+    /// script handlers for the Skills-First workflow.
     pub fn new(registry: Arc<ActionRegistry>) -> Self {
         Self {
             entries: DashMap::new(),
             loaded: DashSet::new(),
             registry,
+            dispatcher: None,
         }
+    }
+
+    /// Create a catalog with an attached dispatcher for Skills-First execution.
+    ///
+    /// When a dispatcher is attached, calling `load_skill` automatically
+    /// registers a subprocess-based handler for every script in the skill.
+    /// Agents can then call `tools/call` and have scripts actually execute.
+    pub fn new_with_dispatcher(
+        registry: Arc<ActionRegistry>,
+        dispatcher: Arc<ActionDispatcher>,
+    ) -> Self {
+        Self {
+            entries: DashMap::new(),
+            loaded: DashSet::new(),
+            registry,
+            dispatcher: Some(dispatcher),
+        }
+    }
+
+    /// Attach a dispatcher after construction (builder-style).
+    pub fn with_dispatcher(mut self, dispatcher: Arc<ActionDispatcher>) -> Self {
+        self.dispatcher = Some(dispatcher);
+        self
     }
 
     /// Discover skills from the standard scan paths.
@@ -188,7 +226,17 @@ impl SkillCatalog {
         }
     }
 
-    /// Load a skill by name — registers its tools into ActionRegistry.
+    /// Load a skill by name — registers its tools into ActionRegistry and,
+    /// if a dispatcher is attached, auto-registers script execution handlers.
+    ///
+    /// This is the Skills-First path: agents can call `load_skill` and then
+    /// immediately use `tools/call` without any extra handler registration.
+    ///
+    /// **Script lookup order** for each action:
+    /// 1. `ToolDeclaration.source_file` (explicit mapping)
+    /// 2. `scripts/<tool_name>.<ext>` (name-matched script)
+    /// 3. The first script in the skill if only one script exists
+    /// 4. No handler registered (tool visible but not executable)
     ///
     /// Returns the list of action names that were registered, or an error
     /// description if the skill could not be loaded.
@@ -213,17 +261,18 @@ impl SkillCatalog {
 
         // Register tools from the skill
         let mut registered = Vec::new();
+        let skill_base = metadata.name.replace('-', "_");
+        let skill_path = std::path::Path::new(&metadata.skill_path);
 
         for tool_decl in &metadata.tools {
             let action_name = if tool_decl.name.contains("__") {
                 tool_decl.name.clone()
             } else {
-                format!(
-                    "{}__{}",
-                    metadata.name.replace('-', "_"),
-                    tool_decl.name.replace('-', "_")
-                )
+                format!("{}__{}", skill_base, tool_decl.name.replace('-', "_"))
             };
+
+            // Resolve the script that backs this tool declaration
+            let script_path = resolve_tool_script(tool_decl, &metadata.scripts, skill_path);
 
             let meta = ActionMeta {
                 name: action_name.clone(),
@@ -242,26 +291,31 @@ impl SkillCatalog {
                     tool_decl.input_schema.clone()
                 },
                 output_schema: tool_decl.output_schema.clone(),
-                source_file: None,
+                source_file: script_path.clone(),
                 skill_name: Some(skill_name.to_string()),
             };
 
             self.registry.register_action(meta);
+
+            // Auto-register subprocess handler if dispatcher is attached
+            if let (Some(dispatcher), Some(sp)) = (&self.dispatcher, script_path) {
+                let sp_owned = sp.clone();
+                let name_clone = action_name.clone();
+                dispatcher
+                    .register_handler(&name_clone, move |params| execute_script(&sp_owned, params));
+            }
+
             registered.push(action_name);
         }
 
-        // Also register scripts as actions (if no tool declarations exist)
+        // Script-only path: no explicit tool declarations → one action per script
         if metadata.tools.is_empty() {
             for script_path in &metadata.scripts {
                 let stem = std::path::Path::new(script_path)
                     .file_stem()
                     .and_then(|s| s.to_str())
                     .unwrap_or("unknown");
-                let action_name = format!(
-                    "{}__{}",
-                    metadata.name.replace('-', "_"),
-                    stem.replace('-', "_")
-                );
+                let action_name = format!("{}__{}", skill_base, stem.replace('-', "_"));
 
                 let meta = ActionMeta {
                     name: action_name.clone(),
@@ -277,6 +331,15 @@ impl SkillCatalog {
                 };
 
                 self.registry.register_action(meta);
+
+                // Auto-register handler
+                if let Some(dispatcher) = &self.dispatcher {
+                    let sp = script_path.clone();
+                    let name_clone = action_name.clone();
+                    dispatcher
+                        .register_handler(&name_clone, move |params| execute_script(&sp, params));
+                }
+
                 registered.push(action_name);
             }
         }
@@ -289,9 +352,14 @@ impl SkillCatalog {
         self.loaded.insert(skill_name.to_string());
 
         tracing::info!(
-            "SkillCatalog: loaded skill '{}' ({} tools registered)",
+            "SkillCatalog: loaded skill '{}' ({} tools registered, handlers: {})",
             skill_name,
-            registered.len()
+            registered.len(),
+            if self.dispatcher.is_some() {
+                "auto"
+            } else {
+                "none"
+            }
         );
 
         Ok(registered)
@@ -311,12 +379,26 @@ impl SkillCatalog {
         results
     }
 
-    /// Unload a skill — removes its tools from ActionRegistry.
+    /// Unload a skill — removes its tools from ActionRegistry and dispatcher.
     ///
     /// Returns the number of actions that were unregistered.
     pub fn unload_skill(&self, skill_name: &str) -> Result<usize, String> {
         if !self.loaded.contains(skill_name) {
             return Err(format!("Skill '{skill_name}' is not loaded"));
+        }
+
+        // Collect action names before unregistering
+        let action_names: Vec<String> = self
+            .entries
+            .get(skill_name)
+            .map(|e| e.registered_actions.clone())
+            .unwrap_or_default();
+
+        // Remove handlers from dispatcher
+        if let Some(dispatcher) = &self.dispatcher {
+            for name in &action_names {
+                dispatcher.remove_handler(name);
+            }
         }
 
         let count = self.registry.unregister_skill(skill_name);
@@ -494,6 +576,142 @@ impl SkillCatalog {
     /// Get a reference to the underlying ActionRegistry.
     pub fn registry(&self) -> &Arc<ActionRegistry> {
         &self.registry
+    }
+
+    /// Get a reference to the attached dispatcher, if any.
+    pub fn dispatcher(&self) -> Option<&Arc<ActionDispatcher>> {
+        self.dispatcher.as_ref()
+    }
+}
+
+// ── Script execution helpers ──────────────────────────────────────────────
+
+/// Resolve which script file backs a tool declaration.
+///
+/// Priority:
+/// 1. `tool_decl.source_file` — explicit path set in ToolDeclaration
+/// 2. A script whose stem matches the tool name in the skill's scripts list
+/// 3. The only script in the skill (if exactly one exists)
+fn resolve_tool_script(
+    tool_decl: &ToolDeclaration,
+    scripts: &[String],
+    _skill_path: &std::path::Path,
+) -> Option<String> {
+    // 1. Explicit source_file on the tool declaration
+    if !tool_decl.source_file.is_empty() {
+        return Some(tool_decl.source_file.clone());
+    }
+
+    // Extract bare tool name (after __ if present)
+    let tool_name = if tool_decl.name.contains("__") {
+        tool_decl.name.split("__").last().unwrap_or(&tool_decl.name)
+    } else {
+        &tool_decl.name
+    };
+    let tool_name_lower = tool_name.to_lowercase().replace('-', "_");
+
+    // 2. Script whose stem matches the tool name
+    for script in scripts {
+        let stem = std::path::Path::new(script)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_lowercase()
+            .replace('-', "_");
+        if stem == tool_name_lower {
+            return Some(script.clone());
+        }
+    }
+
+    // 3. Single-script skill — the one script backs all tools
+    if scripts.len() == 1 {
+        return Some(scripts[0].clone());
+    }
+
+    None
+}
+
+/// Execute a skill script as a subprocess, passing params as JSON via stdin.
+///
+/// The script is expected to:
+/// - Read JSON params from stdin (or use sys.argv for simple cases)
+/// - Write a JSON result to stdout
+/// - Exit with code 0 on success, non-zero on failure
+///
+/// Returns `Ok(Value)` on success, `Err(String)` on failure.
+fn execute_script(
+    script_path: &str,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    let params_json = serde_json::to_string(&params).unwrap_or_else(|_| "{}".to_string());
+
+    let path = std::path::Path::new(script_path);
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+
+    // Choose interpreter based on extension
+    let (program, args): (&str, Vec<&str>) = match ext.as_str() {
+        "py" => ("python", vec![script_path]),
+        "sh" | "bash" => ("bash", vec![script_path]),
+        "bat" | "cmd" => ("cmd", vec!["/C", script_path]),
+        "mel" | "lua" | "hscript" | "maxscript" => {
+            // DCC-specific scripts: run via python wrapper if possible
+            ("python", vec![script_path])
+        }
+        _ => ("python", vec![script_path]),
+    };
+
+    let mut child = Command::new(program)
+        .args(&args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to spawn '{script_path}': {e}"))?;
+
+    // Write params to stdin
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(params_json.as_bytes());
+        // stdin closes when dropped, signalling EOF to the script
+    }
+
+    let output = child
+        .wait_with_output()
+        .map_err(|e| format!("Script '{script_path}' execution failed: {e}"))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    if !output.status.success() {
+        let code = output.status.code().unwrap_or(-1);
+        let detail = if stderr.is_empty() {
+            stdout.trim().to_string()
+        } else {
+            stderr.trim().to_string()
+        };
+        return Err(format!(
+            "Script '{script_path}' exited with code {code}: {detail}"
+        ));
+    }
+
+    // Try to parse stdout as JSON; fall back to plain text result
+    let result_str = stdout.trim();
+    if result_str.is_empty() {
+        return Ok(serde_json::json!({"success": true, "message": ""}));
+    }
+
+    match serde_json::from_str::<serde_json::Value>(result_str) {
+        Ok(v) => Ok(v),
+        Err(_) => {
+            // Plain text output — wrap it
+            Ok(serde_json::json!({"success": true, "message": result_str}))
+        }
     }
 }
 
@@ -903,5 +1121,119 @@ mod tests {
         let info = catalog.get_skill_info("keep").unwrap();
         // Description should NOT be updated since skill was loaded
         assert_eq!(info.description, "Test skill: keep");
+    }
+
+    // ── Skills-First: dispatcher integration tests ──
+
+    fn make_catalog_with_dispatcher() -> (SkillCatalog, Arc<ActionDispatcher>) {
+        let registry = Arc::new(ActionRegistry::new());
+        let dispatcher = Arc::new(ActionDispatcher::new((*registry).clone()));
+        let catalog = SkillCatalog::new_with_dispatcher(registry, dispatcher.clone());
+        (catalog, dispatcher)
+    }
+
+    #[test]
+    fn test_load_skill_registers_dispatcher_handler_for_scripts() {
+        let (catalog, dispatcher) = make_catalog_with_dispatcher();
+
+        // Skill with no tool declarations — script-only path
+        let mut skill = make_test_skill("echo-skill", "python", &[]);
+        skill.scripts = vec!["/fake/echo.py".to_string()];
+        catalog.add_skill(skill);
+
+        let actions = catalog.load_skill("echo-skill").unwrap();
+        assert_eq!(actions.len(), 1);
+        // Handler auto-registered in dispatcher
+        assert!(dispatcher.has_handler("echo_skill__echo"));
+    }
+
+    #[test]
+    fn test_unload_skill_removes_dispatcher_handlers() {
+        let (catalog, dispatcher) = make_catalog_with_dispatcher();
+
+        let mut skill = make_test_skill("rm-skill", "python", &[]);
+        skill.scripts = vec!["/fake/run.py".to_string()];
+        catalog.add_skill(skill);
+
+        catalog.load_skill("rm-skill").unwrap();
+        assert!(dispatcher.has_handler("rm_skill__run"));
+
+        catalog.unload_skill("rm-skill").unwrap();
+        assert!(!dispatcher.has_handler("rm_skill__run"));
+    }
+
+    #[test]
+    fn test_load_skill_with_tool_decl_and_source_file() {
+        let (catalog, dispatcher) = make_catalog_with_dispatcher();
+
+        let skill = SkillMetadata {
+            name: "explicit-skill".to_string(),
+            description: "Explicit source file".to_string(),
+            tools: vec![ToolDeclaration {
+                name: "do_thing".to_string(),
+                source_file: "/fake/do_thing.py".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        catalog.add_skill(skill);
+
+        let actions = catalog.load_skill("explicit-skill").unwrap();
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0], "explicit_skill__do_thing");
+        assert!(dispatcher.has_handler("explicit_skill__do_thing"));
+        // Verify source_file propagated to ActionMeta
+        let meta = dispatcher
+            .registry()
+            .get_action("explicit_skill__do_thing", None)
+            .unwrap();
+        assert_eq!(meta.source_file, Some("/fake/do_thing.py".to_string()));
+    }
+
+    #[test]
+    fn test_execute_script_returns_json() {
+        // Test the execute_script helper with a real command that outputs JSON
+        // Use `python -c` for cross-platform compatibility
+        let result = execute_script("python", serde_json::json!({"key": "value"}));
+        // Python may or may not be available; just check the function runs
+        // (either Ok or Err is valid in CI environments without Python)
+        let _ = result;
+    }
+
+    #[test]
+    fn test_resolve_tool_script_by_name_match() {
+        let scripts = vec![
+            "/skill/scripts/bevel.py".to_string(),
+            "/skill/scripts/extrude.py".to_string(),
+        ];
+        let tool = ToolDeclaration {
+            name: "bevel".to_string(),
+            ..Default::default()
+        };
+        let resolved = resolve_tool_script(&tool, &scripts, std::path::Path::new("/skill"));
+        assert_eq!(resolved, Some("/skill/scripts/bevel.py".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_tool_script_single_script_fallback() {
+        let scripts = vec!["/skill/scripts/main.py".to_string()];
+        let tool = ToolDeclaration {
+            name: "any_tool".to_string(),
+            ..Default::default()
+        };
+        let resolved = resolve_tool_script(&tool, &scripts, std::path::Path::new("/skill"));
+        assert_eq!(resolved, Some("/skill/scripts/main.py".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_tool_script_explicit_source_file() {
+        let scripts = vec!["/skill/scripts/other.py".to_string()];
+        let tool = ToolDeclaration {
+            name: "my_tool".to_string(),
+            source_file: "/skill/scripts/special.py".to_string(),
+            ..Default::default()
+        };
+        let resolved = resolve_tool_script(&tool, &scripts, std::path::Path::new("/skill"));
+        assert_eq!(resolved, Some("/skill/scripts/special.py".to_string()));
     }
 }

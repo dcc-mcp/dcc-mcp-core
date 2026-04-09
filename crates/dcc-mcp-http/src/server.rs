@@ -13,7 +13,7 @@ use crate::{
     handler::{AppState, handle_delete, handle_get, handle_post},
     session::SessionManager,
 };
-use dcc_mcp_actions::ActionRegistry;
+use dcc_mcp_actions::{ActionDispatcher, ActionRegistry};
 use dcc_mcp_skills::SkillCatalog;
 
 /// Handle returned by [`McpHttpServer::start`].
@@ -46,6 +46,7 @@ impl ServerHandle {
 /// Safe to use from DCC main threads — the server never blocks the caller.
 pub struct McpHttpServer {
     registry: Arc<ActionRegistry>,
+    dispatcher: Arc<ActionDispatcher>,
     catalog: Option<Arc<SkillCatalog>>,
     config: McpHttpConfig,
     executor: Option<DccExecutorHandle>,
@@ -54,11 +55,19 @@ pub struct McpHttpServer {
 impl McpHttpServer {
     /// Create a new server with the given registry and config.
     ///
-    /// The SkillCatalog is created automatically, backed by the same registry.
+    /// A `SkillCatalog` and `ActionDispatcher` are created automatically,
+    /// both backed by the same registry. The catalog is pre-wired to the
+    /// dispatcher so that `load_skill` auto-registers script handlers.
     pub fn new(registry: Arc<ActionRegistry>, config: McpHttpConfig) -> Self {
+        let dispatcher = Arc::new(ActionDispatcher::new((*registry).clone()));
+        let catalog = Arc::new(SkillCatalog::new_with_dispatcher(
+            registry.clone(),
+            dispatcher.clone(),
+        ));
         Self {
             registry: registry.clone(),
-            catalog: Some(Arc::new(SkillCatalog::new(registry))),
+            dispatcher,
+            catalog: Some(catalog),
             config,
             executor: None,
         }
@@ -70,8 +79,13 @@ impl McpHttpServer {
         catalog: Arc<SkillCatalog>,
         config: McpHttpConfig,
     ) -> Self {
+        let dispatcher = catalog
+            .dispatcher()
+            .cloned()
+            .unwrap_or_else(|| Arc::new(ActionDispatcher::new((*registry).clone())));
         Self {
             registry,
+            dispatcher,
             catalog: Some(catalog),
             config,
             executor: None,
@@ -80,8 +94,10 @@ impl McpHttpServer {
 
     /// Create a server without a SkillCatalog (legacy mode — all tools visible).
     pub fn without_catalog(registry: Arc<ActionRegistry>, config: McpHttpConfig) -> Self {
+        let dispatcher = Arc::new(ActionDispatcher::new((*registry).clone()));
         Self {
             registry,
+            dispatcher,
             catalog: None,
             config,
             executor: None,
@@ -99,6 +115,15 @@ impl McpHttpServer {
         self
     }
 
+    /// Attach an [`ActionDispatcher`] with pre-registered handlers.
+    ///
+    /// Use this when handlers are registered before starting the server.
+    /// The dispatcher should be backed by the same [`ActionRegistry`].
+    pub fn with_dispatcher(mut self, dispatcher: Arc<ActionDispatcher>) -> Self {
+        self.dispatcher = dispatcher;
+        self
+    }
+
     /// Start the HTTP server in a background Tokio task.
     ///
     /// Returns a [`ServerHandle`] for controlling the server lifecycle.
@@ -111,6 +136,7 @@ impl McpHttpServer {
 
         let state = AppState {
             registry: self.registry,
+            dispatcher: self.dispatcher,
             catalog,
             sessions: SessionManager::new(),
             executor: self.executor,

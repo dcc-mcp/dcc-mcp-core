@@ -44,6 +44,22 @@ pub struct ToolDeclaration {
     /// Whether calling this tool with the same args always produces the same result.
     #[serde(default)]
     pub idempotent: bool,
+
+    /// Explicit path to the script that implements this tool.
+    ///
+    /// If empty, the catalog will try to find a matching script by name.
+    /// Useful when a single skill has multiple tools backed by different scripts.
+    ///
+    /// Example in SKILL.md:
+    /// ```yaml
+    /// tools:
+    ///   - name: create_mesh
+    ///     source_file: scripts/create.py
+    ///   - name: delete_mesh
+    ///     source_file: scripts/delete.py
+    /// ```
+    #[serde(default)]
+    pub source_file: String,
 }
 
 fn is_null_value(v: &serde_json::Value) -> bool {
@@ -54,7 +70,7 @@ fn is_null_value(v: &serde_json::Value) -> bool {
 #[pymethods]
 impl ToolDeclaration {
     #[new]
-    #[pyo3(signature = (name, description="".to_string(), input_schema=None, output_schema=None, read_only=false, destructive=false, idempotent=false))]
+    #[pyo3(signature = (name, description="".to_string(), input_schema=None, output_schema=None, read_only=false, destructive=false, idempotent=false, source_file="".to_string()))]
     #[allow(clippy::too_many_arguments)]
     fn new(
         name: String,
@@ -64,6 +80,7 @@ impl ToolDeclaration {
         read_only: bool,
         destructive: bool,
         idempotent: bool,
+        source_file: String,
     ) -> Self {
         let input_schema = input_schema
             .and_then(|s| serde_json::from_str(&s).ok())
@@ -79,6 +96,7 @@ impl ToolDeclaration {
             read_only,
             destructive,
             idempotent,
+            source_file,
         }
     }
 
@@ -167,6 +185,16 @@ impl ToolDeclaration {
     #[setter]
     fn set_idempotent(&mut self, value: bool) {
         self.idempotent = value;
+    }
+
+    #[getter]
+    fn source_file(&self) -> &str {
+        &self.source_file
+    }
+
+    #[setter]
+    fn set_source_file(&mut self, value: String) {
+        self.source_file = value;
     }
 }
 
