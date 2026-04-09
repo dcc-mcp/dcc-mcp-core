@@ -67,7 +67,7 @@ jobs:
       - name: Run Rust coverage
         run: cargo tarpaulin --workspace --out Xml --output-dir coverage/ --timeout 300
       - name: Upload Rust coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           files: coverage/cobertura.xml
           flags: rust
@@ -128,7 +128,7 @@ jobs:
         run: just test-cov
       - name: Upload Python coverage to Codecov
         if: matrix.python-version == '3.13' && matrix.os == 'ubuntu-latest'
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         with:
           files: coverage.xml
           flags: python
