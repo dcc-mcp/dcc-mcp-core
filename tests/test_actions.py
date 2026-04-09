@@ -528,3 +528,149 @@ class TestEventBus:
         id2 = bus.subscribe("b", lambda: None)
         id3 = bus.subscribe("a", lambda: None)
         assert len({id1, id2, id3}) == 3
+
+
+class TestListActionsDict:
+    """Validate the structure of dicts returned by ActionRegistry.list_actions()."""
+
+    def test_dict_has_all_required_keys(self) -> None:
+        """Each element from list_actions() has all standard keys."""
+        reg = dcc_mcp_core.ActionRegistry()
+        reg.register(name="my_action", dcc="maya")
+        actions = reg.list_actions()
+        item = actions[0]
+        required = {
+            "name",
+            "description",
+            "category",
+            "tags",
+            "dcc",
+            "version",
+            "input_schema",
+            "output_schema",
+            "source_file",
+        }
+        assert required.issubset(item.keys())
+
+    def test_input_schema_default_is_object(self) -> None:
+        """Default input_schema is a JSON-object schema dict."""
+        reg = dcc_mcp_core.ActionRegistry()
+        reg.register(name="act", dcc="maya")
+        item = reg.list_actions()[0]
+        assert isinstance(item["input_schema"], dict)
+        assert item["input_schema"].get("type") == "object"
+
+    def test_output_schema_default_is_object(self) -> None:
+        """Default output_schema is a JSON-object schema dict."""
+        reg = dcc_mcp_core.ActionRegistry()
+        reg.register(name="act", dcc="maya")
+        item = reg.list_actions()[0]
+        assert isinstance(item["output_schema"], dict)
+
+    def test_input_schema_custom_preserved(self) -> None:
+        """Custom input_schema JSON is parsed into the dict and preserved."""
+        schema = '{"type": "object", "properties": {"radius": {"type": "number"}}, "required": ["radius"]}'
+        reg = dcc_mcp_core.ActionRegistry()
+        reg.register(name="create_sphere", dcc="maya", input_schema=schema)
+        item = reg.list_actions()[0]
+        assert "radius" in item["input_schema"]["properties"]
+        assert "radius" in item["input_schema"].get("required", [])
+
+    def test_source_file_none_by_default(self) -> None:
+        """source_file is None when not specified at registration."""
+        reg = dcc_mcp_core.ActionRegistry()
+        reg.register(name="act", dcc="maya")
+        item = reg.list_actions()[0]
+        assert item["source_file"] is None
+
+    def test_source_file_preserved(self) -> None:
+        """source_file is stored and returned correctly."""
+        reg = dcc_mcp_core.ActionRegistry()
+        reg.register(name="act", dcc="maya", source_file="/scripts/act.py")
+        item = reg.list_actions()[0]
+        assert item["source_file"] == "/scripts/act.py"
+
+    def test_tags_are_list(self) -> None:
+        """Tags field is always a list."""
+        reg = dcc_mcp_core.ActionRegistry()
+        reg.register(name="act", dcc="maya", tags=["a", "b"])
+        item = reg.list_actions()[0]
+        assert isinstance(item["tags"], list)
+        assert "a" in item["tags"]
+        assert "b" in item["tags"]
+
+    def test_tags_empty_by_default(self) -> None:
+        """Tags is an empty list when not specified."""
+        reg = dcc_mcp_core.ActionRegistry()
+        reg.register(name="act", dcc="maya")
+        item = reg.list_actions()[0]
+        assert item["tags"] == []
+
+    def test_version_default_1_0_0(self) -> None:
+        """Default version is '1.0.0'."""
+        reg = dcc_mcp_core.ActionRegistry()
+        reg.register(name="act", dcc="maya")
+        item = reg.list_actions()[0]
+        assert item["version"] == "1.0.0"
+
+    def test_version_custom_preserved(self) -> None:
+        """Custom version is stored and returned correctly."""
+        reg = dcc_mcp_core.ActionRegistry()
+        reg.register(name="act", dcc="maya", version="3.2.1")
+        item = reg.list_actions()[0]
+        assert item["version"] == "3.2.1"
+
+    def test_subscribe_and_publish(self) -> None:
+        bus = dcc_mcp_core.EventBus()
+        results = []
+        sub_id = bus.subscribe("test_event", lambda: results.append("called"))
+        assert isinstance(sub_id, int)
+        assert sub_id > 0
+        bus.publish("test_event")
+        assert results == ["called"]
+
+    def test_subscribe_multiple(self) -> None:
+        bus = dcc_mcp_core.EventBus()
+        results = []
+        bus.subscribe("evt", lambda: results.append("a"))
+        bus.subscribe("evt", lambda: results.append("b"))
+        bus.publish("evt")
+        assert sorted(results) == ["a", "b"]
+
+    def test_publish_with_kwargs(self) -> None:
+        bus = dcc_mcp_core.EventBus()
+        results = []
+        bus.subscribe("evt", lambda **kw: results.append(kw))
+        bus.publish("evt", x=1, y="hello")
+        assert results[0] == {"x": 1, "y": "hello"}
+
+    def test_publish_no_subscribers(self) -> None:
+        bus = dcc_mcp_core.EventBus()
+        bus.publish("nonexistent")  # should not error
+
+    def test_unsubscribe(self) -> None:
+        bus = dcc_mcp_core.EventBus()
+        results = []
+        sub_id = bus.subscribe("evt", lambda: results.append("x"))
+        removed = bus.unsubscribe("evt", sub_id)
+        assert removed is True
+        bus.publish("evt")
+        assert results == []
+
+    def test_unsubscribe_nonexistent_id(self) -> None:
+        bus = dcc_mcp_core.EventBus()
+        bus.subscribe("evt", lambda: None)
+        removed = bus.unsubscribe("evt", 9999)
+        assert removed is False
+
+    def test_unsubscribe_nonexistent_event(self) -> None:
+        bus = dcc_mcp_core.EventBus()
+        removed = bus.unsubscribe("nonexistent", 1)
+        assert removed is False
+
+    def test_subscribe_returns_unique_ids(self) -> None:
+        bus = dcc_mcp_core.EventBus()
+        id1 = bus.subscribe("a", lambda: None)
+        id2 = bus.subscribe("b", lambda: None)
+        id3 = bus.subscribe("a", lambda: None)
+        assert len({id1, id2, id3}) == 3

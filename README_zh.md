@@ -205,7 +205,7 @@ my-tool/
 ---
 name: my-tool
 description: "我的自定义 DCC 自动化工具"
-tools: ["Bash"]
+allowed-tools: ["Bash"]
 tags: ["automation", "custom"]
 dcc: maya
 version: "1.0.0"

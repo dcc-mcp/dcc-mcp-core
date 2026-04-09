@@ -6,165 +6,116 @@ USD (Universal Scene Description) support for DCC-MCP-Core.
 
 Provides:
 
-- **Core USD types**: `SdfPath`, `VtValue`, `UsdAttribute`, `UsdPrim`, `UsdLayer`, `UsdStage`
+- **Core USD types**: `SdfPath`, `VtValue`, `UsdPrim`, `UsdStage`
 - **USDA serialization**: Export stages as human-readable `.usda` text
 - **JSON transport**: Serialize/deserialize stages for MCP IPC
-- **DCC bridge**: Convert between `dcc-mcp-protocols` `SceneInfo` and `UsdStage`
+- **DCC bridge**: Convert between `SceneInfo` JSON and `UsdStage`
 - **Pure Rust**: No dependency on OpenUSD C++ library
 
 ::: warning
-This crate does not link against the OpenUSD C++ library. It provides a compatible data model and serialization format for lightweight scene description exchange in the DCC-MCP ecosystem.
+This crate provides a compatible data model and serialization format for lightweight scene description exchange. It does not link against the OpenUSD C++ library.
 :::
-
-## Quick Start
-
-### Creating a Stage
-
-```python
-from dcc_mcp_core import UsdStage, SdfPath, VtValue
-
-# Create a new stage
-stage = UsdStage.new("my_scene")
-
-# Define primitives
-stage.define_prim(SdfPath.new("/World"), "Xform")
-stage.define_prim(SdfPath.new("/World/Cube"), "Mesh")
-stage.define_prim(SdfPath.new("/World/Lights"), "Scope")
-
-# Set attributes
-stage.set_attribute("/World/Cube", "extent", VtValue.vec3f([1.0, 1.0, 1.0]))
-```
-
-### Exporting
-
-```python
-# Export to USDA text
-usda = stage.export_usda()
-print(usda)
-
-# Export to JSON (for IPC)
-json_str = stage.to_json()
-```
 
 ## SdfPath
 
-USD scene graph path.
+USD scene graph path (e.g. `/World/Cube`).
 
 ### Creating Paths
 
 ```python
 from dcc_mcp_core import SdfPath
 
-# Valid path
-path = SdfPath.new("/World/Cube")
-print(path)  # "/World/Cube"
+# Create from string
+path = SdfPath("/World")
+print(path)  # /World
 
-# Check validity
-print(path.is_valid())  # True
+# Child path
+child = path.child("Cube")
+print(child)  # /World/Cube
+print(child.name)  # Cube
+print(child.is_absolute)  # True
 
-# Path components
-print(path.prim_path)    # "/World"
-print(path.name)        # "Cube"
-print(path.parent_path)  # "/World"
+# Parent path
+parent = child.parent()
+print(parent)  # /World
 ```
 
-### Path Operations
+### Path Properties
 
 ```python
-# Append child
-child = path.append_child("Material")
-print(child)  # "/World/Cube/Material"
+path = SdfPath("/World/Cube")
 
-# Absolute path
-abs_path = path.make_absolute()
+print(path.is_absolute)  # True
+print(path.name)         # Cube
+print(path.parent())     # SdfPath("/World")
 ```
-
-### Path Validation Rules
-
-- Must start with `/`
-- Cannot contain empty components
-- Cannot end with `/` (except for root `/`)
-- Special characters must be escaped
 
 ## VtValue
 
-USD value container.
+USD variant value container (bool, int, float, string, vec3f, etc.).
 
-### Supported Types
-
-| Python Type | VtValue Constructor | USD Type |
-|-------------|---------------------|----------|
-| `int` | `VtValue.int()` | `int` |
-| `float` | `VtValue.float()` | `float` |
-| `float` | `VtValue.double()` | `double` |
-| `bool` | `VtValue.bool()` | `bool` |
-| `str` | `VtValue.string()` | `string` |
-| `[float, float, float]` | `VtValue.vec3f()` | `float3` |
-| `[float, float, float]` | `VtValue.vec3d()` | `double3` |
-| `[[float, float, float], ...]` | `VtValue.vec3f_array()` | `float3[]` |
-| `[int, ...]` | `VtValue.int_array()` | `int[]` |
-| `[str, ...]` | `VtValue.string_array()` | `string[]` |
-
-### Creating Values
+### Factory Methods
 
 ```python
+from dcc_mcp_core import VtValue
+
 # Scalars
-v_int = VtValue.int(42)
-v_float = VtValue.float(3.14)
-v_bool = VtValue.bool(True)
-v_string = VtValue.string("hello")
+v_bool   = VtValue.from_bool(True)
+v_int    = VtValue.from_int(42)
+v_float  = VtValue.from_float(3.14)
+v_string = VtValue.from_string("hello")
+v_token  = VtValue.from_token("normal")
+v_asset  = VtValue.from_asset("/path/to/texture.png")
 
-# Vectors
-v_vec3 = VtValue.vec3f([1.0, 2.0, 3.0])
-
-# Arrays
-v_array = VtValue.int_array([1, 2, 3, 4, 5])
-v_points = VtValue.vec3f_array([
-    [0, 0, 0],
-    [1, 0, 0],
-    [0, 1, 0]
-])
+# Vectors (x, y, z as separate floats)
+v_vec3 = VtValue.from_vec3f(1.0, 2.0, 3.0)
 ```
 
 ### Getting Values
 
 ```python
-value = vt_value.get()
-print(vt_value.type_name())  # e.g., "float3"
+# Convert back to Python primitive
+print(v_bool.to_python())    # True
+print(v_int.to_python())     # 42
+print(v_float.to_python())   # 3.14
+print(v_vec3.to_python())    # (1.0, 2.0, 3.0)
+
+# Type name
+print(v_vec3.type_name)  # float3
 ```
 
 ## UsdStage
 
-Main stage container.
+Main stage container for USD scene description.
 
 ### Creating Stages
 
 ```python
-# New stage
-stage = UsdStage.new("my_scene")
+from dcc_mcp_core import UsdStage, SdfPath, VtValue
 
-# From USDA text
-stage = UsdStage.parse_usda(usda_text)
+# New stage with name
+stage = UsdStage("my_scene")
+print(stage.name)  # my_scene
+print(stage.id)    # UUID
 ```
 
 ### Defining Primitives
 
 ```python
-# Define prims
-stage.define_prim(SdfPath.new("/World"), "Xform")
-stage.define_prim(SdfPath.new("/World/Cube"), "Mesh")
-stage.define_prim(SdfPath.new("/World/Sphere"), "Mesh")
-stage.define_prim(SdfPath.new("/World/Lights"), "Scope")
+# Define prims with path string
+stage.define_prim("/World", "Xform")
+stage.define_prim("/World/Cube", "Mesh")
+stage.define_prim("/World/Sphere", "Mesh")
+stage.define_prim("/World/Lights", "Scope")
 ```
 
 ### Setting Attributes
 
 ```python
 # Set various attribute types
-stage.set_attribute("/World/Cube", "extent", VtValue.vec3f([1.0, 1.0, 1.0]))
-stage.set_attribute("/World/Cube", "faceConnects", VtValue.int_array([0, 1, 2, 3, 4, 5]))
-stage.set_attribute("/World", "timeCodesPerSecond", VtValue.double(24.0))
-stage.set_attribute("/World", "name", VtValue.string("World"))
+stage.set_attribute("/World/Cube", "extent", VtValue.from_vec3f(1, 1, 1))
+stage.set_attribute("/World", "timeCodesPerSecond", VtValue.from_float(24.0))
+stage.set_attribute("/World", "name", VtValue.from_string("World"))
 ```
 
 ### Querying Stage
@@ -175,23 +126,75 @@ print(stage.has_prim("/World/Cube"))  # True
 
 # Get prim
 prim = stage.get_prim("/World/Cube")
-print(prim.path)        # SdfPath
-print(prim.type_name)   # "Mesh"
-print(prim.attributes)  # List[UsdAttribute]
+if prim:
+    print(f"Path: {prim.path}")
+    print(f"Type: {prim.type_name}")
+    print(f"Active: {prim.active}")
+    print(f"Name: {prim.name}")
 
-# Iterate all prims
-for prim in stage.iter_prims():
+# Get attribute
+val = stage.get_attribute("/World/Cube", "extent")
+if val:
+    print(val.to_python())
+```
+
+### Traverse Primitives
+
+```python
+# Traverse all prims
+for prim in stage.traverse():
     print(f"{prim.path} ({prim.type_name})")
+
+# Get prims of specific type
+for mesh in stage.prims_of_type("Mesh"):
+    print(f"Mesh: {mesh.path}")
+```
+
+### Stage Properties
+
+```python
+# Default prim
+stage.default_prim = "World"
+print(stage.default_prim)  # World
+
+# Up axis
+stage.up_axis = "Y"
+print(stage.up_axis)  # Y
+
+# Units
+stage.meters_per_unit = 0.01  # cm
+print(stage.meters_per_unit)  # 0.01
+
+# FPS
+stage.fps = 24.0
+print(stage.fps)  # 24.0
+
+# Time range
+stage.start_time_code = 1001.0
+stage.end_time_code = 1050.0
+```
+
+### Remove Primitives
+
+```python
+stage.remove_prim("/World/Sphere")  # True if removed
+print(stage.has_prim("/World/Sphere"))  # False
+```
+
+### Metrics
+
+```python
+metrics = stage.metrics()
+print(f"Prim count: {metrics.get('prim_count', 0)}")
 ```
 
 ## Serialization
 
-### USDA Format
+### Export to USDA
 
-USDA is the human-readable text format for USD:
+USDA is the human-readable text format:
 
 ```python
-# Export to USDA
 usda = stage.export_usda()
 print(usda)
 ```
@@ -207,14 +210,14 @@ def Xform "World"
 {
     def Mesh "Cube"
     {
-        float3[] extent = [(1, 1, 1)]
+        float3 extent = [(1, 1, 1)]
     }
 }
 ```
 
 ### JSON Format
 
-JSON is compact and efficient for IPC:
+JSON is compact for IPC:
 
 ```python
 # Export to JSON
@@ -226,31 +229,41 @@ stage2 = UsdStage.from_json(json_str)
 
 ## DCC Bridge
 
-Convert between `dcc-mcp-protocols` `SceneInfo` and `UsdStage`.
+Convert between `dcc-mcp-protocols` `SceneInfo` JSON and `UsdStage`.
 
 ### SceneInfo to UsdStage
 
 ```python
-from dcc_mcp_core import UsdStage
-from dcc_mcp_protocols import SceneInfo
+from dcc_mcp_core import scene_info_json_to_stage
 
-# From protocol scene info
-scene_info = SceneInfo(
-    name="my_scene",
-    prim_count=100,
-    active_layer="session"
-)
-
-usd_stage = UsdStage.from_scene_info(scene_info)
+# From protocol scene info JSON
+scene_info_json = '{"name": "my_scene", "prim_count": 100}'
+usd_stage = scene_info_json_to_stage(scene_info_json, "maya")
 ```
 
 ### UsdStage to SceneInfo
 
 ```python
-# Convert USD stage to protocol scene info
-scene_info = usd_stage.to_scene_info()
-print(f"Name: {scene_info.name}")
-print(f"Prims: {scene_info.prim_count}")
+from dcc_mcp_core import stage_to_scene_info_json
+
+# Convert USD stage to protocol scene info JSON
+scene_info_json = stage_to_scene_info_json(stage)
+print(scene_info_json)  # {"name": "my_scene", ...}
+```
+
+### Unit Conversion
+
+```python
+from dcc_mcp_core import units_to_mpu, mpu_to_units
+
+# Convert unit string to metersPerUnit
+print(units_to_mpu("cm"))   # 0.01
+print(units_to_mpu("m"))    # 1.0
+print(units_to_mpu("inch")) # 0.0254
+
+# Convert metersPerUnit to unit string
+print(mpu_to_units(0.01))   # cm
+print(mpu_to_units(1.0))    # m
 ```
 
 ## Complete Example
@@ -258,44 +271,37 @@ print(f"Prims: {scene_info.prim_count}")
 ### Creating a Simple Scene
 
 ```python
-from dcc_mcp_core import UsdStage, SdfPath, VtValue
+from dcc_mcp_core import UsdStage, VtValue
 
 # Create stage
-stage = UsdStage.new("sample_scene")
+stage = UsdStage("sample_scene")
+stage.default_prim = "World"
 
 # Define scene structure
-stage.define_prim(SdfPath.new("/World"), "Xform")
-stage.define_prim(SdfPath.new("/World/Geometries"), "Scope")
-stage.define_prim(SdfPath.new("/World/Geometries/Cube"), "Mesh")
-stage.define_prim(SdfPath.new("/World/Geometries/Sphere"), "Mesh")
-stage.define_prim(SdfPath.new("/World/Lights"), "Scope")
+stage.define_prim("/World", "Xform")
+stage.define_prim("/World/Geometries", "Scope")
+stage.define_prim("/World/Geometries/Cube", "Mesh")
+stage.define_prim("/World/Geometries/Sphere", "Mesh")
+stage.define_prim("/World/Lights", "Scope")
 
 # Set cube attributes
-stage.set_attribute("/World/Geometries/Cube", "extent", VtValue.vec3f([1, 1, 1]))
-stage.set_attribute("/World/Geometries/Cube", "points", VtValue.vec3f_array([
-    [0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0]
-]))
-
-# Set sphere attributes
-stage.set_attribute("/World/Geometries/Sphere", "extent", VtValue.vec3f([1, 1, 1]))
+stage.set_attribute("/World/Geometries/Cube", "extent", VtValue.from_vec3f(1, 1, 1))
 
 # Export
 usda = stage.export_usda()
 print(usda)
 ```
 
-### Loading from File
+### Loading from JSON
 
 ```python
-from dcc_mcp_core import UsdStage
+# Export
+json_str = stage.to_json()
 
-# Read USDA file
-with open("scene.usda", "r") as f:
-    usda_text = f.read()
-
-stage = UsdStage.parse_usda(usda_text)
-print(f"Loaded: {stage.name}")
-print(f"Prims: {len(list(stage.iter_prims()))}")
+# Load back
+restored = UsdStage.from_json(json_str)
+print(f"Restored: {restored.name}")
+print(f"Prims: {len(restored.traverse())}")
 ```
 
 ## Best Practices
@@ -303,32 +309,33 @@ print(f"Prims: {len(list(stage.iter_prims()))}")
 ### 1. Validate Paths
 
 ```python
-from dcc_mcp_core import SdfPath
-
-# Always validate before use
-path = SdfPath.new("/World/Cube")
-if path.is_valid():
-    stage.define_prim(path, "Mesh")
+# Always check prim exists
+if stage.has_prim("/World/Cube"):
+    prim = stage.get_prim("/World/Cube")
+    print(prim.type_name)
 ```
 
 ### 2. Use Appropriate Value Types
 
 ```python
-# Use float3 for positions
-position = VtValue.vec3f([1.0, 2.0, 3.0])
+# Use from_vec3f for positions (takes x, y, z separately)
+position = VtValue.from_vec3f(1.0, 2.0, 3.0)
 
-# Use int arrays for connectivity
-faces = VtValue.int_array([0, 1, 2, 3, 4, 5])
+# Use from_int for counts
+count = VtValue.from_int(42)
+
+# Use from_string for names
+name = VtValue.from_string("Sphere")
 ```
 
 ### 3. Batch Operations
 
 ```python
-# Define multiple prims at once
+# Define multiple prims
 prims = [
-    (SdfPath.new("/World/Cube"), "Mesh"),
-    (SdfPath.new("/World/Sphere"), "Mesh"),
-    (SdfPath.new("/World/Cylinder"), "Mesh"),
+    ("/World/Cube", "Mesh"),
+    ("/World/Sphere", "Mesh"),
+    ("/World/Cylinder", "Mesh"),
 ]
 
 for path, type_name in prims:
@@ -349,7 +356,6 @@ save_to_file(usda)
 
 ## Limitations
 
-- This is a pure Rust/USD-compatible data model, not a full OpenUSD implementation
+- Pure Rust/USD-compatible data model, not a full OpenUSD implementation
 - No C++ USD library dependency required
-- When `usd-rs` stabilizes, this crate can be extended with direct C++ bridging
 - Some advanced USD features may not be available

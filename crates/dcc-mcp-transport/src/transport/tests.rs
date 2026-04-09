@@ -181,7 +181,7 @@ async fn test_transport_manager_accept_into_pool() {
     // Verify the connection landed in the pool.
     assert!(manager.pool.get_active(&service_key).is_some());
     let active = manager.pool.get_active(&service_key).unwrap();
-    assert_eq!(active.lock().unwrap().id, conn_id);
+    assert_eq!(active.lock().id, conn_id);
 }
 
 #[tokio::test]
@@ -376,6 +376,6 @@ async fn test_transport_manager_get_active_connection_after_accept() {
     let arc = manager.get_active_connection(&service_key);
     assert!(arc.is_some());
     let guard = arc.unwrap();
-    let conn = guard.lock().unwrap();
+    let conn = guard.lock();
     assert!(conn.framed().is_some());
 }

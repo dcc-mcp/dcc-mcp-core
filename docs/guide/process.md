@@ -6,345 +6,328 @@ Cross-platform DCC process monitoring, lifecycle management, and crash recovery.
 
 Provides:
 
-- **Process Monitoring** — Live resource usage snapshots (CPU, memory)
-- **DCC Launching** — Async spawn/terminate/kill of DCC applications
-- **Crash Recovery** — Automatic restart policy with backoff strategies
-- **Background Watching** — Event-driven process state monitoring
+- **Process Monitoring** — Live resource usage via `PyProcessMonitor` (CPU, memory, status)
+- **DCC Launching** — Async spawn/terminate/kill via `PyDccLauncher`
+- **Crash Recovery** — Restart policy with exponential/fixed backoff via `PyCrashRecoveryPolicy`
+- **Background Watching** — Event polling via `PyProcessWatcher`
 
-## Quick Start
+## PyProcessMonitor
 
-### Monitoring a Process
+Track and query process resource usage using `sysinfo`.
+
+### Basic Usage
 
 ```python
-from dcc_mcp_core import ProcessMonitor
+import os
+from dcc_mcp_core import PyProcessMonitor
 
-monitor = ProcessMonitor()
+monitor = PyProcessMonitor()
 
-# Track a process by PID
-monitor.track(pid=1234, name="maya")
+# Track current process
+monitor.track(os.getpid(), "self")
 
-# Refresh and query
+# Refresh before querying
 monitor.refresh()
-info = monitor.query(pid=1234)
 
+# Query specific PID
+info = monitor.query(os.getpid())
 if info:
-    print(f"CPU: {info.cpu_usage_percent:.1f}%")
-    print(f"Memory: {info.memory_bytes / 1024 / 1024:.1f} MB")
-    print(f"Status: {info.status}")
+    print(f"Status: {info['status']}")
+    print(f"CPU: {info['cpu_usage_percent']:.1f}%")
+    print(f"Memory: {info['memory_bytes'] / 1024 / 1024:.1f} MB")
 ```
 
-### Launching a DCC
+### Track/Untrack
 
 ```python
-from dcc_mcp_core import DccLauncher, DccProcessConfig
-
-launcher = DccLauncher()
-
-config = DccProcessConfig(
-    executable="/usr/bin/maya",
-    args=["-prompt"],
-    cwd="/project",
-    timeout_ms=30000,
-)
-
-future = launcher.launch(config)
-process_info = future.await_result()
-print(f"Launched PID: {process_info.pid}")
-```
-
-## ProcessMonitor
-
-Track and query process resource usage.
-
-### Tracking Processes
-
-```python
-monitor = ProcessMonitor()
+monitor = PyProcessMonitor()
 
 # Track by PID
 monitor.track(pid=1234, name="maya")
 
-# Track by name pattern
-monitor.track_by_name("maya")
-
-# Track current process
-monitor.track_current("self")
-
-# Untrack
+# Stop tracking
 monitor.untrack(pid=1234)
 ```
 
-### Querying Resources
+### Query Methods
 
 ```python
-# Refresh all tracked processes
 monitor.refresh()
 
-# Query specific process
+# Query single process
 info = monitor.query(pid=1234)
 
 # Query all tracked processes
-all_info = monitor.query_all()
-for pid, info in all_info.items():
-    print(f"{pid}: {info.name} - {info.cpu_usage_percent}% CPU")
+all_info = monitor.list_all()
+for info in all_info:
+    print(f"{info['name']}: {info['cpu_usage_percent']}% CPU")
+
+# Check if alive
+if monitor.is_alive(pid=1234):
+    print("Process is running")
+
+# Count tracked
+print(f"Tracking {monitor.tracked_count()} processes")
 ```
 
-### ProcessInfo Fields
+### Returned Dict Keys
 
-| Field | Type | Description |
-|-------|------|-------------|
+| Key | Type | Description |
+|-----|------|-------------|
 | `pid` | `int` | Process ID |
-| `name` | `str` | Process name |
+| `name` | `str` | User-defined name |
+| `status` | `str` | OS status string |
 | `cpu_usage_percent` | `float` | CPU usage (0-100) |
 | `memory_bytes` | `int` | Memory usage in bytes |
-| `status` | `ProcessStatus` | Current status |
-| `start_time` | `datetime` | Start time |
+| `restart_count` | `int` | Restart count |
 
-### ProcessStatus Values
+## PyDccLauncher
 
-| Status | Description |
-|--------|-------------|
-| `Running` | Process is running normally |
-| `Sleeping` | Process is sleeping |
-| `Stopped` | Process is stopped |
-| `Zombie` | Process is zombie |
-| `Crashed` | Process has crashed |
-| `Unknown` | Status could not be determined |
-
-## DccLauncher
-
-Launch and manage DCC processes.
+Launch and manage DCC processes asynchronously.
 
 ### Basic Launch
 
 ```python
-launcher = DccLauncher()
+from dcc_mcp_core import PyDccLauncher
 
-config = DccProcessConfig(
-    executable="/usr/bin/maya",
-    args=["-prompt"],
+launcher = PyDccLauncher()
+
+# Launch a DCC
+info = launcher.launch(
+    name="maya",
+    executable="/usr/autodesk/maya/bin/maya",
+    args=["-prompt", "-batch"],
+    launch_timeout_ms=30000,
 )
 
-process_info = launcher.launch(config).await_result()
+print(f"Launched PID: {info['pid']}")
 ```
 
-### Configuration Options
+### Launch with Environment
 
 ```python
-config = DccProcessConfig(
-    executable="/usr/bin/maya",
-    args=[
-        "-prompt",           # Run in batch mode
-        "-script", "init.py" # Run startup script
-    ],
-    cwd="/project",                    # Working directory
-    env={                             # Environment variables
-        "MAYA_APP_DIR": "/tmp/maya",
-        "PYTHONPATH": "/project/python"
-    },
-    timeout_ms=30000,                 # Launch timeout
-    detach=True                        # Run detached
+info = launcher.launch(
+    name="maya",
+    executable="/usr/autodesk/maya/bin/maya",
+    args=["-prompt", "-script", "init.py"],
+    launch_timeout_ms=60000,
 )
 ```
 
 ### Process Lifecycle
 
 ```python
-# Terminate gracefully (SIGTERM on Unix, WM_CLOSE on Windows)
-launcher.terminate(pid=1234, timeout_ms=5000)
+# Terminate gracefully
+launcher.terminate("maya", timeout_ms=5000)
 
-# Kill immediately
-launcher.kill(pid=1234)
+# Kill forcefully
+launcher.kill("maya")
 
-# Wait for exit
-exit_code = launcher.wait(pid=1234, timeout_ms=60000)
+# Get PID by name
+pid = launcher.pid_of("maya")
+if pid:
+    print(f"Maya running as PID {pid}")
+
+# Check running count
+print(f"Running: {launcher.running_count()} processes")
+
+# Check restart count
+print(f"Restart count: {launcher.restart_count('maya')}")
 ```
 
-### Maya Launch Example
+### Maya Example
 
 ```python
-maya_config = DccProcessConfig(
-    executable="/usr/bin/maya",
+launcher = PyDccLauncher()
+
+maya_info = launcher.launch(
+    name="maya-2025",
+    executable="/usr/autodesk/maya/bin/maya",
     args=["-prompt", "-batch"],
-    cwd="/project/scenes",
-    env={
-        "MAYA_APP_DIR": "/tmp/maya",
-        "MAYA_SCRIPT_PATH": "/project/scripts"
-    },
-    timeout_ms=60000
+    launch_timeout_ms=60000,
 )
 
-launcher = DccLauncher()
-future = launcher.launch(maya_config)
+print(f"Maya running as PID {maya_info['pid']}")
 
-# Wait for launch
-maya_info = future.await_result()
-print(f"Maya running as PID {maya_info.pid}")
+# ... do work ...
+
+launcher.terminate("maya-2025")
 ```
 
-## CrashRecoveryPolicy
+## PyCrashRecoveryPolicy
 
-Automatic restart policy engine.
+Automatic restart policy with backoff strategies.
 
 ### Basic Policy
 
 ```python
-from dcc_mcp_core import CrashRecoveryPolicy, BackoffStrategy
+from dcc_mcp_core import PyCrashRecoveryPolicy
 
-policy = CrashRecoveryPolicy(
-    max_restarts=3,
-    backoff=BackoffStrategy.EXPONENTIAL
-)
+policy = PyCrashRecoveryPolicy(max_restarts=3)
+policy.use_exponential_backoff(initial_ms=1000, max_delay_ms=30000)
 
 # Check if should restart
-if policy.should_restart(ProcessStatus.Crashed):
-    delay = policy.next_restart_delay(attempt=1)
-    time.sleep(delay / 1000)
-    launch_maya()
+if policy.should_restart("crashed"):
+    delay = policy.next_delay_ms("maya", attempt=0)
+    print(f"Restarting in {delay}ms...")
 ```
 
-### Builder Pattern
+### Fixed Backoff
 
 ```python
-policy = CrashRecoveryPolicy.builder() \
-    .max_restarts(5) \
-    .backoff(BackoffStrategy.EXPONENTIAL) \
-    .initial_delay_ms(1000) \
-    .max_delay_ms(60000) \
-    .build()
+policy = PyCrashRecoveryPolicy(max_restarts=5)
+policy.use_fixed_backoff(delay_ms=2000)
+
+if policy.should_restart("unresponsive"):
+    delay = policy.next_delay_ms("maya", attempt=0)
+    print(f"Retrying in {delay}ms...")
 ```
 
-### Backoff Strategies
-
-| Strategy | Description | Example Delay Sequence |
-|----------|-------------|------------------------|
-| `NONE` | Immediate restart | 0, 0, 0... |
-| `LINEAR` | Add fixed delay | 1s, 2s, 3s... |
-| `EXPONENTIAL` | Double delay | 1s, 2s, 4s, 8s... |
-| `FIBONACCI` | Fibonacci backoff | 1s, 1s, 2s, 3s, 5s... |
-
-### Managing Restarts
+### Exponential Backoff
 
 ```python
-# Record successful run (resets policy)
+policy = PyCrashRecoveryPolicy(max_restarts=3)
+policy.use_exponential_backoff(initial_ms=1000, max_delay_ms=30000)
+
+# Attempt 0 -> 1000ms, Attempt 1 -> 2000ms, Attempt 2 -> 4000ms
+for attempt in range(3):
+    if policy.should_restart("crashed"):
+        delay = policy.next_delay_ms("maya", attempt=attempt)
+        print(f"Attempt {attempt}: waiting {delay}ms")
+```
+
+### Managing Policy State
+
+```python
+policy = PyCrashRecoveryPolicy(max_restarts=3)
+
+# Successful run - reset
 policy.reset()
 
-# Record a restart attempt
-policy.record_restart(attempt=1)
-
-# Check if max restarts exceeded
-if policy.should_restart(ProcessStatus.Crashed):
+# Check restart eligibility
+if policy.should_restart("crashed"):
     # Attempt restart
     pass
-else:
-    # Give up
-    alert_operator("Maya keeps crashing")
 ```
 
-## ProcessWatcher
+## PyProcessWatcher
 
-Async background watch loop with event notifications.
+Async background process watcher with event polling.
 
 ### Basic Watch
 
 ```python
-from dcc_mcp_core import ProcessWatcher
+import os
+import time
+from dcc_mcp_core import PyProcessWatcher
 
-watcher = ProcessWatcher()
+watcher = PyProcessWatcher(poll_interval_ms=200)
+watcher.track(os.getpid(), "self")
+watcher.start()
 
-def on_event(event):
-    print(f"Event: {event.type}")
-    print(f"PID: {event.pid}")
-    print(f"Timestamp: {event.timestamp}")
+time.sleep(0.5)
 
-handle = watcher.watch(
-    pid=1234,
-    events=["started", "stopped", "crashed"],
-    callback=on_event
-)
+# Poll for events
+for event in watcher.poll_events():
+    print(f"Event: {event['type']} - {event['name']}")
+
+watcher.stop()
 ```
 
 ### Event Types
 
-| Event | Description |
-|-------|-------------|
-| `Started` | Process was started |
-| `Stopped` | Process stopped normally |
-| `Crashed` | Process crashed |
-| `OOM` | Process was killed by OOM |
-| `Respawned` | Process was automatically respawned |
+Event dicts contain: `type`, `pid`, `name`
 
-### Managing Watchers
+| Event Type | Additional Fields |
+|------------|-------------------|
+| `heartbeat` | `new_status`, `cpu_usage_percent`, `memory_bytes` |
+| `status_changed` | `old_status`, `new_status` |
+| `exited` | — |
 
-```python
-# Pause watching
-handle.pause()
-
-# Resume watching
-handle.resume()
-
-# Stop and cleanup
-handle.stop()
-
-# Unwatch by handle
-watcher.unwatch(handle)
-```
-
-## Auto-Restart Example
+### Polling Pattern
 
 ```python
-from dcc_mcp_core import (
-    DccLauncher, ProcessWatcher, CrashRecoveryPolicy,
-    ProcessMonitor, BackoffStrategy
-)
-
-launcher = DccLauncher()
-monitor = ProcessMonitor()
-watcher = ProcessWatcher()
-
-policy = CrashRecoveryPolicy.builder() \
-    .max_restarts(5) \
-    .backoff(BackoffStrategy.EXPONENTIAL) \
-    .build()
-
-maya_config = DccProcessConfig(
-    executable="/usr/bin/maya",
-    args=["-prompt"]
-)
-
-def on_crash(event):
-    if not policy.should_restart(event.status):
-        alert_operator("Maya crashed 5 times, giving up")
-        return
-
-    delay = policy.next_restart_delay(event.attempt)
-    print(f"Restarting Maya in {delay}ms...")
-    time.sleep(delay / 1000)
-
-    launcher.launch(maya_config)
-    policy.record_restart(event.attempt)
-
-# Start watching for crashes
-watcher.watch(pid=maya_pid, events=["crashed"], callback=on_crash)
-
-# Also watch for normal stop (in case we want to respawn)
-watcher.watch(pid=maya_pid, events=["stopped"], callback=on_crash)
-```
-
-## Error Handling
-
-```python
-from dcc_mcp_core import ProcessError
+watcher = PyProcessWatcher(poll_interval_ms=500)
+watcher.track(pid=1234, name="maya")
+watcher.start()
 
 try:
-    info = monitor.query(pid=999999)
-except ProcessError as e:
-    print(f"Process error: {e}")
+    while True:
+        events = watcher.poll_events()
+        for event in events:
+            if event["type"] == "exited":
+                print(f"{event['name']} exited")
+            elif event["type"] == "heartbeat":
+                print(f"CPU: {event['cpu_usage_percent']}%")
+        time.sleep(0.1)
+finally:
+    watcher.stop()
+```
 
-try:
-    launcher.launch(invalid_config)
-except ProcessError as e:
-    print(f"Launch failed: {e}")
+### Start/Stop
+
+```python
+watcher = PyProcessWatcher()
+
+watcher.track(pid=1234, name="maya")
+watcher.start()
+
+# ... do work ...
+
+watcher.stop()
+
+# Check status
+print(f"Watcher running: {watcher.is_running()}")
+print(f"Tracked: {watcher.tracked_count()}")
+```
+
+## Complete Example
+
+### Auto-Restart DCC
+
+```python
+import time
+from dcc_mcp_core import PyDccLauncher, PyProcessWatcher, PyCrashRecoveryPolicy
+
+launcher = PyDccLauncher()
+watcher = PyProcessWatcher(poll_interval_ms=500)
+policy = PyCrashRecoveryPolicy(max_restarts=5)
+policy.use_exponential_backoff(initial_ms=1000, max_delay_ms=30000)
+
+# Launch Maya
+info = launcher.launch(
+    name="maya",
+    executable="/usr/autodesk/maya/bin/maya",
+    args=["-prompt"],
+)
+print(f"Launched Maya PID {info['pid']}")
+
+watcher.track(info["pid"], "maya")
+watcher.start()
+
+attempt = 0
+while True:
+    events = watcher.poll_events()
+    for event in events:
+        if event["type"] == "exited":
+            print("Maya exited")
+            if policy.should_restart("crashed") and attempt < 5:
+                delay = policy.next_delay_ms("maya", attempt=attempt)
+                print(f"Restarting in {delay}ms...")
+                time.sleep(delay / 1000)
+                info = launcher.launch(
+                    name="maya",
+                    executable="/usr/autodesk/maya/bin/maya",
+                    args=["-prompt"],
+                )
+                watcher.track(info["pid"], "maya")
+                attempt += 1
+            else:
+                print("Max restarts exceeded")
+                watcher.stop()
+                exit(1)
+
+    time.sleep(0.1)
 ```
 
 ## Best Practices
@@ -363,17 +346,17 @@ info = monitor.query(pid=1234)
 if info is None:
     print("Process not found")
 else:
-    print(f"CPU: {info.cpu_usage_percent}%")
+    print(f"CPU: {info['cpu_usage_percent']}%")
 ```
 
 ### 3. Use Appropriate Timeouts
 
 ```python
 # Short timeout for quick operations
-launcher.terminate(pid=1234, timeout_ms=2000)
+launcher.terminate("quick_proc", timeout_ms=2000)
 
 # Longer timeout for DCC apps
-launcher.terminate(pid=maya_pid, timeout_ms=10000)
+launcher.terminate("maya", timeout_ms=10000)
 ```
 
 ### 4. Monitor Resource Usage
@@ -381,9 +364,9 @@ launcher.terminate(pid=maya_pid, timeout_ms=10000)
 ```python
 def check_resources():
     monitor.refresh()
-    for pid, info in monitor.query_all().items():
-        if info.cpu_usage_percent > 90:
-            alert(f"High CPU: {info.name} ({info.cpu_usage_percent}%)")
-        if info.memory_bytes > 10 * 1024 * 1024 * 1024:
-            alert(f"High memory: {info.name} ({info.memory_bytes / 1024 / 1024 / 1024:.1f} GB)")
+    for info in monitor.list_all():
+        if info["cpu_usage_percent"] > 90:
+            print(f"High CPU: {info['name']}")
+        if info["memory_bytes"] > 10 * 1024 * 1024 * 1024:
+            print(f"High memory: {info['name']}")
 ```

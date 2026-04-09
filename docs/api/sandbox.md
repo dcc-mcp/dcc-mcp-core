@@ -8,12 +8,40 @@ Script execution sandbox with API whitelist, audit logging, and input validation
 
 Enterprise users (game studios, VFX facilities) have strong security requirements that vanilla Python-based DCC MCP integrations cannot satisfy. The sandbox crate provides:
 
-- **API whitelist / deny list** — restrict which DCC actions an Agent may invoke
-- **Audit log** — tamper-evident, structured record of every action invocation
+- **API whitelist** — restrict which DCC actions an Agent may invoke
+- **Audit log** — structured record of every action invocation
 - **Input validation** — schema-based validation of Agent-supplied parameters
 - **Read-only mode** — Agent can query but not mutate the scene
-- **Action rate limiting** — cap the number of actions per session
-- **Path allowlist** — restrict file-system access to project directories
+
+## SandboxPolicy
+
+Security policy configuration.
+
+### Constructor
+
+```python
+from dcc_mcp_core import SandboxPolicy
+
+policy = SandboxPolicy()
+```
+
+### Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `allow_actions(actions)` | `None` | Set list of allowed actions |
+| `deny_actions(actions)` | `None` | Set list of denied actions |
+| `set_read_only(read_only)` | `None` | Enable read-only mode |
+| `set_timeout_ms(timeout_ms)` | `None` | Set execution timeout |
+
+### Example
+
+```python
+policy = SandboxPolicy()
+policy.allow_actions(["get_scene_info", "list_objects"])
+policy.set_read_only(True)
+policy.set_timeout_ms(5000)
+```
 
 ## SandboxContext
 
@@ -23,167 +51,86 @@ Main sandbox execution context.
 
 ```python
 from dcc_mcp_core import SandboxPolicy, SandboxContext
-import json
 
-policy = SandboxPolicy.builder() \
-    .allow_actions(["get_scene_info", "list_objects"]) \
-    .timeout_ms(5000) \
-    .build()
+policy = SandboxPolicy()
+policy.allow_actions(["get_scene_info", "list_objects"])
 
 ctx = SandboxContext(policy)
-ctx = ctx.with_actor("my-agent")
 ```
 
 ### Methods
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `with_actor(name)` | `SandboxContext` | Set the actor name for audit |
-| `execute(action, params, validator, handler)` | `ExecutionResult` | Execute an action |
-| `action_count()` | `int` | Number of actions executed |
-| `audit_log()` | `AuditLog` | Get the audit log |
-| `reset()` | — | Reset the context |
+| `set_actor(name)` | `None` | Set the actor name for audit |
+| `execute_json(action, params_json, validator=None)` | `str` | Execute an action with JSON params |
+| `audit_log()` | `list[dict]` | Get the audit log |
 
 ### Execution
 
 ```python
-result = ctx.execute(
-    "get_scene_info",
-    json.dumps({}),
-    None,  # No custom validator
-    None   # No custom handler
-)
+ctx.set_actor("my-agent")
 
-print(result.outcome)     # "success" or "denied"
-print(result.duration_ms) # Execution time
-print(result.error)       # Error message if failed
+# Execute with JSON params
+result = ctx.execute_json("get_scene_info", "{}")
+print(result)
+
+# With custom validator
+result = ctx.execute_json("run_script", '{"script": "print(1)"}', validator=validator)
 ```
 
-## SandboxPolicy
-
-Security policy configuration.
-
-### Builder
-
-```python
-policy = SandboxPolicy.builder() \
-    .allow_actions(["get_info", "list_objects"]) \
-    .deny_actions(["delete_all", "format_disk"]) \
-    .max_actions(10) \
-    .timeout_ms(5000) \
-    .read_only(True) \
-    .build()
-```
-
-### Policy Options
-
-| Option | Type | Description |
-|--------|------|-------------|
-| `allow_actions` | `List[str]` | Whitelist of allowed actions |
-| `deny_actions` | `List[str]` | Blacklist of denied actions |
-| `max_actions` | `int` | Maximum actions per session |
-| `timeout_ms` | `int` | Maximum execution time per action |
-| `read_only` | `bool` | If True, deny all write operations |
-| `allowed_paths` | `List[str]` | Allowed file system paths |
-| `rate_limit` | `int` | Maximum actions per minute |
-
-## AuditLog
-
-Tamper-evident audit trail.
-
-### Methods
+### Audit Log
 
 ```python
 log = ctx.audit_log()
 
-print(f"Total entries: {len(log)}")
-print(f"Successes: {len(log.successes())}")
-print(f"Denials: {len(log.denials())}")
-print(f"Failures: {len(log.failures())}")
-
-for entry in log.entries:
-    print(f"{entry.timestamp}: {entry.action} - {entry.outcome}")
+for entry in log:
+    print(f"Actor: {entry['actor']}")
+    print(f"Action: {entry['action']}")
+    print(f"Outcome: {entry['outcome']}")
 ```
-
-### AuditEntry
-
-Each entry contains:
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `timestamp` | `datetime` | When the action was attempted |
-| `actor` | `str` | Who initiated the action |
-| `action` | `str` | Action name |
-| `params` | `dict` | Action parameters |
-| `outcome` | `AuditOutcome` | success/denied/failed |
-| `duration_ms` | `int` | Execution duration |
-| `error` | `str?` | Error message if failed |
 
 ## InputValidator
 
 Schema-based input validation before action execution.
 
-### Creating a Validator
+### Constructor
 
 ```python
-from dcc_mcp_core import InputValidator, FieldSchema, ValidationRule
+from dcc_mcp_core import InputValidator
 
-validator = InputValidator().register(
-    "script",
-    FieldSchema.new()
-        .rule(ValidationRule.IS_STRING)
-        .rule(ValidationRule.FORBIDDEN_SUBSTRINGS, ["__import__", "exec(", "eval("])
-)
+validator = InputValidator()
 ```
 
-### Validation Rules
+### Methods
 
-| Rule | Description |
-|------|-------------|
-| `IS_STRING` | Value must be a string |
-| `IS_NUMBER` | Value must be a number |
-| `IS_BOOL` | Value must be a boolean |
-| `MIN_LENGTH` | String minimum length |
-| `MAX_LENGTH` | String maximum length |
-| `PATTERN` | Regex pattern match |
-| `FORBIDDEN_SUBSTRINGS` | Block listed substrings |
-| `ALLOWED_VALUES` | Enum-like restriction |
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `set_rules(rules)` | `None` | Set validation rules per action |
+| `add_forbidden_patterns(action, patterns)` | `None` | Add forbidden patterns |
 
-### Using a Validator
+### Example
 
 ```python
-malicious = {"script": "__import__('os').system('rm -rf /')"}
-
-try:
-    result = ctx.execute("run_script", malicious, validator, None)
-except SandboxError as e:
-    print(f"Validation failed: {e}")
+validator = InputValidator()
+validator.set_rules([
+    {"action": "run_script", "max_length": 10000},
+])
+validator.add_forbidden_patterns("run_script", [
+    "__import__",
+    "exec(",
+    "eval(",
+])
 ```
 
-## ExecutionResult
-
-Result of a sandboxed action execution.
+### Using Validator
 
 ```python
-result = ctx.execute("list_objects", {}, None, None)
+# Safe input
+result = ctx.execute_json("run_script", '{"script": "print(1)"}', validator=validator)
 
-# Attributes
-result.outcome    # AuditOutcome enum
-result.error       # Error message if failed
-result.duration_ms # Execution time in milliseconds
-result.output      # Action output data
-```
-
-## Error Handling
-
-```python
-from dcc_mcp_core import SandboxError
-
-try:
-    ctx.execute("forbidden_action", {}, None, None)
-except SandboxError as e:
-    print(f"Sandbox error: {e}")
-    # e.g., "Action 'forbidden_action' is not allowed by policy"
+# Malicious input (blocked)
+result = ctx.execute_json("run_script", '{"script": "__import__"}', validator=validator)
 ```
 
 ## Best Practices

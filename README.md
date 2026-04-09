@@ -179,7 +179,7 @@ my-tool/
 ---
 name: my-tool
 description: "My custom DCC automation tools"
-tools: ["Bash"]
+allowed-tools: ["Bash"]
 tags: ["automation", "custom"]
 dcc: maya
 version: "1.0.0"

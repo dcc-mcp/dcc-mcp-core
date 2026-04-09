@@ -1,8 +1,8 @@
 # What is DCC-MCP-Core?
 
-DCC-MCP-Core is an **action management system** designed for Digital Content Creation (DCC) applications, providing a unified interface that allows AI to interact with various DCC software such as Maya, Blender, Houdini, and more.
+DCC-MCP-Core is a **foundational Rust library with Python bindings** for the DCC (Digital Content Creation) Model Context Protocol (MCP) ecosystem. It enables AI assistants to interact with DCC software (Maya, Blender, Houdini, 3ds Max, etc.) through a unified, high-performance interface.
 
-Built with a **Rust core** exposed to Python via [PyO3](https://pyo3.rs/), it combines the performance and thread safety of Rust with the accessibility of Python.
+Built with a **Rust core** exposed to Python via [PyO3](https://pyo3.rs/) and compiled by [maturin](https://github.com/PyO3/maturin), it combines the performance and thread safety of Rust with the accessibility of Python.
 
 ## Core Workflow
 
@@ -28,44 +28,100 @@ flowchart LR
 
 ## Key Features
 
-- **ActionRegistry** — Thread-safe, lock-free action registration and lookup via DashMap
-- **EventBus** — Publish/subscribe system for decoupled action lifecycle events
-- **Skills System** — Zero-code registration of scripts as MCP tools via SKILL.md
-- **MCP Protocol Types** — Type-safe definitions for Tools, Resources, and Prompts
-- **Transport Layer** — Connection pooling, service discovery, and session management for DCC communication
+- **ActionRegistry** — Thread-safe action registration, search, and versioning
+- **SkillCatalog** — Progressive skill discovery and loading; scripts auto-registered as MCP tools via SKILL.md (Skills-First architecture since v0.12.10)
+- **EventBus** — Publish/subscribe system for DCC lifecycle events
+- **MCP HTTP Server** — Streamable HTTP server (2025-03-26 spec) for serving MCP tools to AI clients
+- **MCP Protocol Types** — Type-safe definitions for Tools, Resources, Prompts, and Annotations
+- **Transport Layer** — Connection pooling, service discovery, and session management for DCC communication (TCP, Named Pipes, Unix Sockets)
+- **Shared Memory** — Zero-copy scene data transfer between DCC and agent processes
+- **Process Management** — DCC process launch, monitoring, and crash recovery
+- **Telemetry** — Tracing and metrics infrastructure via OpenTelemetry
+- **Sandbox** — Security policy, input validation, and audit logging for AI actions
+- **Capture** — DCC viewport screenshot capture
+- **USD Bridge** — Scene exchange via OpenUSD stage representation
 - **Type Wrappers** — RPyC-safe wrappers (BooleanWrapper, IntWrapper, FloatWrapper, StringWrapper)
 - **Zero Python Dependencies** — Pure Rust core compiled to a native Python extension
-- **Thread Safety** — All core types use DashMap for lock-free concurrent access
 
 ## Architecture
 
-DCC-MCP-Core is a Rust workspace with 6 sub-crates, compiled into a single Python extension module via maturin:
+DCC-MCP-Core is a Rust workspace with **13 sub-crates**, compiled into a single Python extension module `dcc_mcp_core._core` via maturin:
 
 ```
 dcc-mcp-core/
 ├── src/lib.rs                  # PyO3 module entry point (_core)
 ├── crates/
-│   ├── dcc-mcp-actions/        # ActionRegistry, EventBus
-│   ├── dcc-mcp-models/         # ActionResultModel, SkillMetadata
-│   ├── dcc-mcp-protocols/      # MCP type definitions (Tool, Resource, Prompt)
-│   ├── dcc-mcp-skills/         # SKILL.md scanner and loader
-│   ├── dcc-mcp-transport/      # Connection pool, service discovery, sessions
-│   └── dcc-mcp-utils/          # Filesystem, constants, type wrappers, logging
+│   ├── dcc-mcp-models/         # ActionResultModel, SkillMetadata, ToolDeclaration
+│   ├── dcc-mcp-actions/        # ActionRegistry, EventBus, Pipeline, Dispatcher, Validator
+│   ├── dcc-mcp-skills/         # SkillScanner, SkillCatalog, SkillWatcher, Resolver
+│   ├── dcc-mcp-protocols/      # MCP types: ToolDefinition, ResourceDefinition, Prompt, DccAdapter
+│   ├── dcc-mcp-transport/      # IPC, ConnectionPool, SessionManager, FramedChannel
+│   ├── dcc-mcp-process/        # PyDccLauncher, ProcessMonitor, CrashRecovery
+│   ├── dcc-mcp-telemetry/      # ActionRecorder, ActionMetrics, TelemetryConfig
+│   ├── dcc-mcp-sandbox/        # SandboxPolicy, SandboxContext, AuditLog, InputValidator
+│   ├── dcc-mcp-shm/            # PySharedBuffer, PyBufferPool, PySharedSceneBuffer
+│   ├── dcc-mcp-capture/        # Capturer, CaptureFrame
+│   ├── dcc-mcp-usd/            # UsdStage, UsdPrim, VtValue, SdfPath
+│   ├── dcc-mcp-http/           # McpHttpServer, McpHttpConfig, ServerHandle
+│   └── dcc-mcp-utils/          # Filesystem, constants, type wrappers, JSON helpers
 └── python/
     └── dcc_mcp_core/
-        └── __init__.py          # Re-exports from _core extension
+        ├── __init__.py          # Re-exports ~130 public symbols from _core
+        └── _core.pyi            # Type stubs for all public APIs
 ```
 
 ## Python API Surface
 
-All public APIs are available from the top-level `dcc_mcp_core` package:
+All public APIs are available from the top-level `dcc_mcp_core` package. The library exports ~130 public symbols across 13 domains:
 
 ```python
-import dcc_mcp_core
+from dcc_mcp_core import (
+    # Actions
+    ActionRegistry, ActionDispatcher, ActionPipeline, ActionValidator,
+    ActionRecorder, ActionMetrics, EventBus,
+    ActionResultModel, success_result, error_result,
 
-# 16 classes, 14 functions, 8 constants
-# See the API Reference for complete documentation
+    # Skills — Skills-First architecture
+    SkillCatalog, SkillSummary, SkillMetadata, ToolDeclaration,
+    SkillScanner, SkillWatcher, scan_and_load,
+
+    # MCP HTTP Server
+    McpHttpServer, McpHttpConfig,
+
+    # Transport
+    TransportManager, TransportAddress, IpcListener, FramedChannel, connect_ipc,
+
+    # Protocols
+    ToolDefinition, ToolAnnotations, ResourceDefinition, PromptDefinition,
+
+    # Shared Memory
+    PySharedSceneBuffer, PySharedBuffer, PyBufferPool,
+
+    # Process
+    PyDccLauncher, PyProcessWatcher, PyCrashRecoveryPolicy,
+
+    # Telemetry
+    TelemetryConfig, is_telemetry_initialized,
+
+    # Sandbox
+    SandboxPolicy, SandboxContext, InputValidator, AuditLog,
+
+    # Capture
+    Capturer, CaptureFrame,
+
+    # USD
+    UsdStage, UsdPrim, VtValue, SdfPath,
+)
 ```
+
+See the [API Reference](/api/actions) for complete documentation of every symbol.
+
+## Version & Python Support
+
+- **Current version**: 0.12.10
+- **Python**: 3.7–3.13 (abi3-py38 wheel, tested in CI across all versions)
+- **Rust**: Edition 2024, MSRV 1.85
+- **Build**: maturin + PyO3; zero runtime Python dependencies
 
 ## Related Projects
 

@@ -238,6 +238,154 @@ class TestUsdStage:
         assert retrieved is not None
         assert abs(retrieved.to_python() - 2.5) < 1e-4
 
+    # ── fps ──────────────────────────────────────────────────────────────────
+
+    def test_fps_default_none(self) -> None:
+        stage = dcc_mcp_core.UsdStage("scene")
+        assert stage.fps is None
+
+    def test_fps_setter(self) -> None:
+        stage = dcc_mcp_core.UsdStage("scene")
+        stage.fps = 24.0
+        assert abs(stage.fps - 24.0) < 1e-6
+
+    def test_fps_setter_60(self) -> None:
+        stage = dcc_mcp_core.UsdStage("scene")
+        stage.fps = 60.0
+        assert abs(stage.fps - 60.0) < 1e-6
+
+    def test_fps_setter_25(self) -> None:
+        stage = dcc_mcp_core.UsdStage("scene")
+        stage.fps = 25.0
+        assert abs(stage.fps - 25.0) < 1e-6
+
+    # ── up_axis ───────────────────────────────────────────────────────────────
+
+    def test_up_axis_default_y(self) -> None:
+        stage = dcc_mcp_core.UsdStage("scene")
+        assert stage.up_axis == "Y"
+
+    def test_up_axis_setter_z(self) -> None:
+        stage = dcc_mcp_core.UsdStage("scene")
+        stage.up_axis = "Z"
+        assert stage.up_axis == "Z"
+
+    def test_up_axis_setter_y(self) -> None:
+        stage = dcc_mcp_core.UsdStage("scene")
+        stage.up_axis = "Y"
+        assert stage.up_axis == "Y"
+
+    # ── traverse ─────────────────────────────────────────────────────────────
+
+    def test_traverse_returns_list(self) -> None:
+        stage = dcc_mcp_core.UsdStage("scene")
+        result = stage.traverse()
+        assert isinstance(result, list)
+
+    def test_traverse_empty_stage(self) -> None:
+        stage = dcc_mcp_core.UsdStage("scene")
+        assert stage.traverse() == []
+
+    def test_traverse_includes_defined_prims(self) -> None:
+        stage = dcc_mcp_core.UsdStage("scene")
+        stage.define_prim("/A", "Xform")
+        stage.define_prim("/B", "Mesh")
+        traversed = stage.traverse()
+        paths = {str(p.path) for p in traversed}
+        assert "/A" in paths
+        assert "/B" in paths
+
+    # ── has_prim ──────────────────────────────────────────────────────────────
+
+    def test_has_prim_existing(self) -> None:
+        stage = dcc_mcp_core.UsdStage("scene")
+        stage.define_prim("/World", "Xform")
+        assert stage.has_prim("/World") is True
+
+    def test_has_prim_missing(self) -> None:
+        stage = dcc_mcp_core.UsdStage("scene")
+        assert stage.has_prim("/NonExistent") is False
+
+    def test_has_prim_after_remove(self) -> None:
+        stage = dcc_mcp_core.UsdStage("scene")
+        stage.define_prim("/Cube", "Mesh")
+        assert stage.has_prim("/Cube") is True
+        stage.remove_prim("/Cube")
+        assert stage.has_prim("/Cube") is False
+
+    # ── remove_prim ───────────────────────────────────────────────────────────
+
+    def test_remove_prim_returns_true(self) -> None:
+        stage = dcc_mcp_core.UsdStage("scene")
+        stage.define_prim("/ToRemove", "Xform")
+        result = stage.remove_prim("/ToRemove")
+        assert result is True
+
+    def test_remove_prim_reduces_count(self) -> None:
+        stage = dcc_mcp_core.UsdStage("scene")
+        stage.define_prim("/A", "Xform")
+        stage.define_prim("/B", "Xform")
+        count_before = stage.prim_count()
+        stage.remove_prim("/A")
+        assert stage.prim_count() < count_before
+
+    def test_remove_prim_nonexistent_returns_false(self) -> None:
+        stage = dcc_mcp_core.UsdStage("scene")
+        result = stage.remove_prim("/DoesNotExist")
+        assert result is False
+
+    # ── prims_of_type ─────────────────────────────────────────────────────────
+
+    def test_prims_of_type_returns_list(self) -> None:
+        stage = dcc_mcp_core.UsdStage("scene")
+        result = stage.prims_of_type("Mesh")
+        assert isinstance(result, list)
+
+    def test_prims_of_type_empty_for_unknown(self) -> None:
+        stage = dcc_mcp_core.UsdStage("scene")
+        assert stage.prims_of_type("UnknownType") == []
+
+    def test_prims_of_type_finds_matching(self) -> None:
+        stage = dcc_mcp_core.UsdStage("scene")
+        stage.define_prim("/Mesh1", "Mesh")
+        stage.define_prim("/Mesh2", "Mesh")
+        stage.define_prim("/Xf1", "Xform")
+        meshes = stage.prims_of_type("Mesh")
+        assert len(meshes) == 2
+        for prim in meshes:
+            assert prim.type_name == "Mesh"
+
+    def test_prims_of_type_does_not_include_other_types(self) -> None:
+        stage = dcc_mcp_core.UsdStage("scene")
+        stage.define_prim("/Mesh1", "Mesh")
+        stage.define_prim("/Xf1", "Xform")
+        xforms = stage.prims_of_type("Xform")
+        assert len(xforms) == 1
+        assert xforms[0].type_name == "Xform"
+
+    # ── to_json ───────────────────────────────────────────────────────────────
+
+    def test_to_json_returns_string(self) -> None:
+        stage = dcc_mcp_core.UsdStage("scene")
+        result = stage.to_json()
+        assert isinstance(result, str)
+
+    def test_to_json_is_valid_json(self) -> None:
+        stage = dcc_mcp_core.UsdStage("json_test")
+        json_str = stage.to_json()
+        parsed = json.loads(json_str)
+        assert isinstance(parsed, dict)
+
+    def test_to_json_contains_id(self) -> None:
+        stage = dcc_mcp_core.UsdStage("scene")
+        parsed = json.loads(stage.to_json())
+        assert "id" in parsed
+
+    def test_to_json_name_matches(self) -> None:
+        stage = dcc_mcp_core.UsdStage("my_unique_scene")
+        parsed = json.loads(stage.to_json())
+        assert parsed.get("name") == "my_unique_scene"
+
 
 # ── UsdPrim ───────────────────────────────────────────────────────────────────
 
@@ -387,3 +535,109 @@ class TestBridgeFunctions:
         # Both should return a valid float regardless of the case handling
         assert isinstance(mpu_upper_result, float)
         assert mpu_lower > 0.0
+
+
+# ── VtValue edge cases ────────────────────────────────────────────────────────
+
+
+class TestVtValueEdgeCases:
+    def test_from_bool_false_to_python(self) -> None:
+        v = dcc_mcp_core.VtValue.from_bool(False)
+        assert v.to_python() is False
+        assert v.type_name == "bool"
+
+    def test_from_int_zero(self) -> None:
+        v = dcc_mcp_core.VtValue.from_int(0)
+        assert v.to_python() == 0
+        assert v.type_name == "int"
+
+    def test_from_int_negative(self) -> None:
+        v = dcc_mcp_core.VtValue.from_int(-999)
+        assert v.to_python() == -999
+
+    def test_from_int_max_int32(self) -> None:
+        v = dcc_mcp_core.VtValue.from_int(2**31 - 1)
+        assert v.to_python() == 2**31 - 1
+
+    def test_from_float_negative(self) -> None:
+        v = dcc_mcp_core.VtValue.from_float(-3.14)
+        assert v.to_python() < 0.0
+
+    def test_from_float_zero(self) -> None:
+        v = dcc_mcp_core.VtValue.from_float(0.0)
+        assert abs(v.to_python()) < 1e-9
+
+    def test_from_string_empty(self) -> None:
+        v = dcc_mcp_core.VtValue.from_string("")
+        assert v.to_python() == ""
+        assert v.type_name == "string"
+
+    def test_from_token_empty(self) -> None:
+        v = dcc_mcp_core.VtValue.from_token("")
+        assert v.to_python() == ""
+        assert v.type_name == "token"
+
+    def test_from_vec3f_zero(self) -> None:
+        v = dcc_mcp_core.VtValue.from_vec3f(0.0, 0.0, 0.0)
+        result = v.to_python()
+        assert isinstance(result, tuple)
+        assert all(abs(x) < 1e-9 for x in result)
+
+    def test_from_vec3f_negative(self) -> None:
+        v = dcc_mcp_core.VtValue.from_vec3f(-1.0, -2.0, -3.0)
+        result = v.to_python()
+        assert result[0] < 0 and result[1] < 0 and result[2] < 0
+
+    def test_from_asset_empty(self) -> None:
+        v = dcc_mcp_core.VtValue.from_asset("")
+        assert v.to_python() == ""
+        assert v.type_name == "asset"
+
+
+# ── SdfPath edge cases ────────────────────────────────────────────────────────
+
+
+class TestSdfPathEdgeCases:
+    def test_deep_path_name(self) -> None:
+        p = dcc_mcp_core.SdfPath("/A/B/C")
+        assert p.name == "C"
+
+    def test_deep_path_parent_chain(self) -> None:
+        p = dcc_mcp_core.SdfPath("/A/B/C")
+        assert str(p.parent()) == "/A/B"
+        assert str(p.parent().parent()) == "/A"
+
+    def test_parent_of_parent_name(self) -> None:
+        p = dcc_mcp_core.SdfPath("/World/geo")
+        parent = p.parent()
+        assert parent.name == "World"
+
+    def test_child_creates_deeper_path(self) -> None:
+        p = dcc_mcp_core.SdfPath("/World")
+        child = p.child("Cube")
+        grand = child.child("mesh")
+        assert str(grand) == "/World/Cube/mesh"
+
+    def test_is_absolute_single_component(self) -> None:
+        p = dcc_mcp_core.SdfPath("/World")
+        assert p.is_absolute is True
+
+    def test_relative_path_is_not_absolute(self) -> None:
+        try:
+            p = dcc_mcp_core.SdfPath("relative")
+            assert p.is_absolute is False
+        except (ValueError, RuntimeError):
+            pass  # Some implementations may reject relative paths
+
+    def test_equality_after_child_parent_roundtrip(self) -> None:
+        p = dcc_mcp_core.SdfPath("/World")
+        child = p.child("Cube")
+        back = child.parent()
+        assert back == p
+
+    def test_hash_stability(self) -> None:
+        p1 = dcc_mcp_core.SdfPath("/World/geo/mesh")
+        p2 = dcc_mcp_core.SdfPath("/World/geo/mesh")
+        assert hash(p1) == hash(p2)
+        d = {p1: "value"}
+        assert d[p2] == "value"

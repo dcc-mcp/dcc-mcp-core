@@ -1,9 +1,9 @@
 //! Timing middleware — measures and records action execution latency.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+use parking_lot::Mutex;
 use serde_json::Value;
 
 use crate::dispatcher::{DispatchError, DispatchResult};
@@ -35,7 +35,7 @@ impl TimingMiddleware {
     /// Get the last recorded elapsed time for an action (for test assertions).
     #[must_use]
     pub fn last_elapsed(&self, action: &str) -> Option<Duration> {
-        let timers = self.timers.lock().expect("timing lock poisoned");
+        let timers = self.timers.lock();
         timers.get(action).map(|start| start.elapsed())
     }
 }
@@ -49,7 +49,7 @@ impl Default for TimingMiddleware {
 impl ActionMiddleware for TimingMiddleware {
     fn before_dispatch(&self, ctx: &mut MiddlewareContext) -> Result<(), DispatchError> {
         let start = Instant::now();
-        let mut timers = self.timers.lock().expect("timing lock poisoned");
+        let mut timers = self.timers.lock();
         timers.insert(ctx.action.clone(), start);
         // Record start time in extensions as epoch milliseconds (u64)
         let start_ms = std::time::SystemTime::now()
@@ -66,7 +66,7 @@ impl ActionMiddleware for TimingMiddleware {
         _result: Result<&DispatchResult, &DispatchError>,
     ) {
         let elapsed_ms = {
-            let timers = self.timers.lock().expect("timing lock poisoned");
+            let timers = self.timers.lock();
             timers
                 .get(&ctx.action)
                 .map(|start| start.elapsed().as_millis() as u64)

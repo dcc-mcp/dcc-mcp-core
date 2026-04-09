@@ -25,13 +25,20 @@ Capturer (高级 API)
 ### 捕获屏幕
 
 ```python
-from dcc_mcp_core import PyCapturer
+from dcc_mcp_core import Capturer
 
 # 使用最佳可用后端创建捕获器
-capturer = PyCapturer.new_auto()
+capturer = Capturer.new_auto()
 
 # 捕获一帧
-frame = capturer.capture()
+frame = capturer.capture(
+    format="png",          # 输出格式: "png", "jpeg", "rgba"
+    jpeg_quality=85,       # JPEG 质量 (1-100)
+    scale=1.0,             # 缩放因子
+    timeout_ms=5000,       # 超时时间
+    process_id=None,       # 按进程 ID 捕获
+    window_title=None       # 按窗口标题捕获
+)
 
 # 保存到文件
 with open("screenshot.png", "wb") as f:
@@ -41,65 +48,21 @@ with open("screenshot.png", "wb") as f:
 ### 捕获特定窗口
 
 ```python
-from dcc_mcp_core import PyCapturer, CaptureTarget
+from dcc_mcp_core import Capturer
 
-capturer = PyCapturer.new_auto()
+capturer = Capturer.new_auto()
 
-# 按标题捕获特定窗口
-target = CaptureTarget.window("Maya")
-frame = capturer.capture(target=target, format="png")
+# 按进程 ID 捕获
+frame = capturer.capture(process_id=1234)
 
-# 按进程名捕获
-target = CaptureTarget.process("maya")
-frame = capturer.capture(target=target)
+# 按窗口标题捕获
+frame = capturer.capture(window_title="Maya")
 
-# 捕获主显示器
-frame = capturer.capture_primary_monitor()
-```
+# 缩放捕获
+frame = capturer.capture(scale=0.5)  # 50% 分辨率
 
-## 查找窗口
-
-```python
-from dcc_mcp_core import WindowFinder
-
-finder = WindowFinder()
-
-# 按标题查找窗口（部分匹配）
-windows = finder.find_windows("Maya")
-for win in windows:
-    print(f"标题: {win.title}")
-    print(f"句柄: {win.window_id}")
-    print(f"边界: {win.rect}")
-
-# 按进程名查找
-maya_windows = finder.find_by_process("maya")
-
-# 获取当前焦点窗口
-foreground = finder.get_foreground()
-```
-
-## 捕获格式
-
-### PNG（无损）
-
-```python
-# 最佳质量，文件较大
-frame = capturer.capture(format="png")
-```
-
-### JPEG（有损）
-
-```python
-# 文件较小，有质量损失
-frame = capturer.capture(format="jpg")
-```
-
-### 原始 RGBA
-
-```python
-# 用于处理的原始像素数据
-frame = capturer.capture(format="rgba")
-print(f"尺寸: {frame.width}x{frame.height}x{frame.bytes_per_pixel}")
+# JPEG 格式
+frame = capturer.capture(format="jpeg", jpeg_quality=90)
 ```
 
 ## CaptureFrame 属性
@@ -123,10 +86,10 @@ print(f"数据长度: {len(frame.data)} 字节")
 ### AI 分析截图
 
 ```python
-from dcc_mcp_core import PyCapturer
+from dcc_mcp_core import Capturer
 
 def capture_for_ai():
-    capturer = PyCapturer.new_auto()
+    capturer = Capturer.new_auto()
     frame = capturer.capture(format="png")
 
     # 发送到 AI 服务分析
@@ -138,10 +101,10 @@ def capture_for_ai():
 
 ```python
 import time
-from dcc_mcp_core import PyCapturer
+from dcc_mcp_core import Capturer
 
 def preview_stream(fps=30):
-    capturer = PyCapturer.new_auto()
+    capturer = Capturer.new_auto()
     interval = 1.0 / fps
 
     while True:
@@ -155,7 +118,7 @@ def preview_stream(fps=30):
 1. **使用适当格式** — PNG 质量优先，JPEG 速度优先
 2. **针对特定窗口** — 尽可能避免全屏捕获
 3. **处理使用 RGBA** — 避免格式转换开销
-4. **缓存 WindowFinder 结果** — 窗口枚举开销较大
+4. **使用 process_id/window_title** — 避免捕获不需要的内容
 
 ## 后端选择
 
@@ -177,7 +140,7 @@ def preview_stream(fps=30):
 from dcc_mcp_core import CaptureError
 
 try:
-    frame = capturer.capture()
+    frame = capturer.capture(timeout_ms=1000)
 except CaptureError as e:
     print(f"捕获失败: {e}")
 ```

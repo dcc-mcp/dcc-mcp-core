@@ -16,11 +16,12 @@
 //!        │
 //!        └─── Not found? → connect() → create ActiveConnection → insert → return
 //!
-//!  Caller uses: active.lock().unwrap().framed_mut().unwrap().send(&req).await?
+//!  Caller uses: active.lock().framed_mut().unwrap().send(&req).await?
 //! ```
 
 use dashmap::DashMap;
-use std::sync::{Arc, Mutex};
+use parking_lot::Mutex;
+use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::Semaphore;
 use uuid::Uuid;
@@ -283,7 +284,7 @@ impl PooledConnection {
 
 // ── ConnectionPool ────────────────────────────────────────────────────────
 
-/// Thread-safe connection pool using DashMap and std::sync::Mutex.
+/// Thread-safe connection pool using DashMap and parking_lot Mutex.
 ///
 /// Stores [`ActiveConnection`] instances that hold real [`FramedIo`] channels.
 /// Acquiring a connection returns an `Arc<Mutex<ActiveConnection>>` that can
@@ -294,7 +295,7 @@ impl PooledConnection {
 /// - Per-DCC-type connection limiting via Tokio `Semaphore`
 /// - Automatic eviction of idle/expired connections
 /// - Real I/O connections (not just metadata)
-/// - Sync-safe: all mutation methods use `std::sync::Mutex`, no `block_on` needed
+/// - Sync-safe: all mutation methods use `parking_lot::Mutex`, no `block_on` needed
 pub struct ConnectionPool {
     /// `(dcc_type, instance_id)` -> `Arc<Mutex<ActiveConnection>>`
     connections: Arc<DashMap<ServiceKey, Arc<Mutex<ActiveConnection>>>>,
@@ -350,7 +351,7 @@ impl ConnectionPool {
             let conn = entry.value().clone();
             drop(entry); // Release DashMap ref before locking
             {
-                let mut guard = conn.lock().unwrap();
+                let mut guard = conn.lock();
                 if guard.state == ConnectionState::Available && guard.is_alive() {
                     guard.state = ConnectionState::InUse;
                     guard.touch();
@@ -428,7 +429,7 @@ impl ConnectionPool {
         // Check if we already have an active connection
         if let Some(conn) = self.connections.get(service_key) {
             let conn = conn.value().clone();
-            let mut guard = conn.lock().unwrap();
+            let mut guard = conn.lock();
             if guard.state == ConnectionState::Available {
                 guard.state = ConnectionState::InUse;
                 guard.touch();
@@ -478,11 +479,10 @@ impl ConnectionPool {
     /// Release a connection back to the pool.
     pub fn release(&self, service_key: &ServiceKey) {
         if let Some(conn) = self.connections.get(service_key) {
-            if let Ok(mut guard) = conn.lock() {
-                if guard.state == ConnectionState::InUse {
-                    guard.state = ConnectionState::Available;
-                    guard.last_used = Instant::now();
-                }
+            let mut guard = conn.lock();
+            if guard.state == ConnectionState::InUse {
+                guard.state = ConnectionState::Available;
+                guard.last_used = Instant::now();
             }
         }
     }
@@ -495,7 +495,7 @@ impl ConnectionPool {
     /// Remove a connection and return metadata only.
     pub fn remove_metadata(&self, service_key: &ServiceKey) -> Option<PooledConnection> {
         self.connections.remove(service_key).map(|(_, conn)| {
-            let guard = conn.lock().unwrap();
+            let guard = conn.lock();
             PooledConnection::from_active(&guard)
         })
     }
@@ -547,9 +547,8 @@ impl ConnectionPool {
     ) -> TransportResult<Arc<Mutex<ActiveConnection>>> {
         // Mark the existing entry as Reconnecting so callers see the intent.
         if let Some(entry) = self.connections.get(service_key) {
-            if let Ok(mut guard) = entry.value().lock() {
-                guard.state = ConnectionState::Reconnecting;
-            }
+            let mut guard = entry.value().lock();
+            guard.state = ConnectionState::Reconnecting;
         }
 
         const MAX_BACKOFF: std::time::Duration = std::time::Duration::from_secs(30);
@@ -623,13 +622,10 @@ impl ConnectionPool {
             .connections
             .iter()
             .filter(|r| {
-                if let Ok(guard) = r.value().lock() {
-                    guard.state == ConnectionState::Available
-                        && (guard.is_idle(self.config.max_idle_time)
-                            || guard.is_expired(self.config.max_lifetime))
-                } else {
-                    false
-                }
+                let guard = r.value().lock();
+                guard.state == ConnectionState::Available
+                    && (guard.is_idle(self.config.max_idle_time)
+                        || guard.is_expired(self.config.max_lifetime))
             })
             .map(|r| r.key().clone())
             .collect();
@@ -637,9 +633,8 @@ impl ConnectionPool {
         let mut evicted = 0;
         for key in keys_to_remove {
             if let Some((_, conn)) = self.connections.remove(&key) {
-                if let Ok(mut guard) = conn.lock() {
-                    guard.take_framed(); // drop the FramedIo
-                }
+                let mut guard = conn.lock();
+                guard.take_framed(); // drop the FramedIo
                 evicted += 1;
             }
         }
@@ -650,19 +645,17 @@ impl ConnectionPool {
     pub fn drain(&self) -> Vec<PooledConnection> {
         // Mark all as draining
         for entry in self.connections.iter() {
-            if let Ok(mut guard) = entry.value().lock() {
-                guard.state = ConnectionState::Draining;
-            }
+            let mut guard = entry.value().lock();
+            guard.state = ConnectionState::Draining;
         }
 
         let keys: Vec<ServiceKey> = self.connections.iter().map(|r| r.key().clone()).collect();
         let mut drained = Vec::with_capacity(keys.len());
         for key in keys {
             if let Some((_, conn)) = self.connections.remove(&key) {
-                if let Ok(mut guard) = conn.lock() {
-                    guard.take_framed();
-                    drained.push(PooledConnection::from_active(&guard));
-                }
+                let mut guard = conn.lock();
+                guard.take_framed();
+                drained.push(PooledConnection::from_active(&guard));
             }
         }
         drained
@@ -672,12 +665,7 @@ impl ConnectionPool {
     pub fn list_connections(&self) -> Vec<PooledConnection> {
         self.connections
             .iter()
-            .filter_map(|r| {
-                r.value()
-                    .lock()
-                    .ok()
-                    .map(|g| PooledConnection::from_active(&g))
-            })
+            .map(|r| PooledConnection::from_active(&r.value().lock()))
             .collect()
     }
 }

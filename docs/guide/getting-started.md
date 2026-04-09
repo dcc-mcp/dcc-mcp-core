@@ -23,7 +23,7 @@ The build is handled by [maturin](https://www.maturin.rs/) which compiles the Ru
 
 ## Requirements
 
-- **Python**: >= 3.11 (CI tests 3.11, 3.12, 3.13)
+- **Python**: >= 3.7 (CI tests 3.7, 3.8, 3.9, 3.10, 3.11, 3.12, 3.13)
 - **Rust**: >= 1.85 (for building from source)
 - **License**: MIT
 - **Python Dependencies**: Zero — everything is in the compiled Rust extension

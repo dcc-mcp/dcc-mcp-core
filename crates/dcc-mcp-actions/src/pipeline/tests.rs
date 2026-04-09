@@ -1,8 +1,10 @@
 //! Tests for the action middleware pipeline.
 
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+use parking_lot::Mutex;
 
 use serde_json::json;
 
@@ -477,10 +479,7 @@ mod custom {
 
         impl ActionMiddleware for OrderMiddleware {
             fn before_dispatch(&self, _ctx: &mut MiddlewareContext) -> Result<(), DispatchError> {
-                self.calls
-                    .lock()
-                    .unwrap()
-                    .push(format!("before:{}", self.id));
+                self.calls.lock().push(format!("before:{}", self.id));
                 Ok(())
             }
 
@@ -489,10 +488,7 @@ mod custom {
                 _ctx: &MiddlewareContext,
                 _result: Result<&DispatchResult, &DispatchError>,
             ) {
-                self.calls
-                    .lock()
-                    .unwrap()
-                    .push(format!("after:{}", self.id));
+                self.calls.lock().push(format!("after:{}", self.id));
             }
 
             fn name(&self) -> &'static str {
@@ -512,7 +508,7 @@ mod custom {
 
         pipeline.dispatch("echo", json!({})).unwrap();
 
-        let log = calls.lock().unwrap().clone();
+        let log = calls.lock().clone();
         assert_eq!(
             log,
             vec![

@@ -45,8 +45,9 @@
 //! ```
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
+use parking_lot::Mutex;
 use serde_json::Value;
 
 use crate::registry::{ActionMeta, ActionRegistry};
@@ -108,7 +109,7 @@ pub struct DispatchResult {
 /// Routes action calls to registered handlers with automatic validation.
 ///
 /// Thread-safe: handlers are wrapped in `Arc`, and the handler map is
-/// protected by a `Mutex`.
+/// protected by a `parking_lot::Mutex`.
 ///
 /// # Example
 ///
@@ -164,7 +165,7 @@ impl ActionDispatcher {
     where
         F: Fn(Value) -> Result<Value, String> + Send + Sync + 'static,
     {
-        let mut map = self.handlers.lock().expect("dispatcher lock poisoned");
+        let mut map = self.handlers.lock();
         map.insert(action_name.to_string(), Arc::new(f));
     }
 
@@ -174,7 +175,7 @@ impl ActionDispatcher {
         I: IntoIterator<Item = (&'static str, F)>,
         F: Fn(Value) -> Result<Value, String> + Send + Sync + 'static,
     {
-        let mut map = self.handlers.lock().expect("dispatcher lock poisoned");
+        let mut map = self.handlers.lock();
         for (name, f) in iter {
             map.insert(name.to_string(), Arc::new(f));
         }
@@ -182,28 +183,28 @@ impl ActionDispatcher {
 
     /// Remove the handler for `action_name`. Returns `true` if one existed.
     pub fn remove_handler(&self, action_name: &str) -> bool {
-        let mut map = self.handlers.lock().expect("dispatcher lock poisoned");
+        let mut map = self.handlers.lock();
         map.remove(action_name).is_some()
     }
 
     /// Return `true` if a handler is registered for `action_name`.
     #[must_use]
     pub fn has_handler(&self, action_name: &str) -> bool {
-        let map = self.handlers.lock().expect("dispatcher lock poisoned");
+        let map = self.handlers.lock();
         map.contains_key(action_name)
     }
 
     /// Number of registered handlers.
     #[must_use]
     pub fn handler_count(&self) -> usize {
-        let map = self.handlers.lock().expect("dispatcher lock poisoned");
+        let map = self.handlers.lock();
         map.len()
     }
 
     /// List all registered handler names.
     #[must_use]
     pub fn handler_names(&self) -> Vec<String> {
-        let map = self.handlers.lock().expect("dispatcher lock poisoned");
+        let map = self.handlers.lock();
         let mut names: Vec<String> = map.keys().cloned().collect();
         names.sort();
         names
@@ -230,7 +231,7 @@ impl ActionDispatcher {
     ) -> Result<DispatchResult, DispatchError> {
         // 1. Look up handler
         let handler = {
-            let map = self.handlers.lock().expect("dispatcher lock poisoned");
+            let map = self.handlers.lock();
             map.get(action_name).cloned()
         };
         let handler =

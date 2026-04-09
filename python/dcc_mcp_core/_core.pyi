@@ -53,12 +53,44 @@ class ActionResultModel:
     def __str__(self) -> str: ...
     def __eq__(self, other: object) -> bool: ...
 
-class SkillMetadata:
-    """Metadata parsed from a SKILL.md frontmatter."""
+class ToolDeclaration:
+    """Declaration of a tool provided by a skill, parsed from SKILL.md frontmatter.
+
+    Lightweight declaration for agent-side discovery without loading the skill.
+    """
 
     name: str
     description: str
-    tools: list[str]
+    input_schema: str
+    output_schema: str
+    read_only: bool
+    destructive: bool
+    idempotent: bool
+    source_file: str
+
+    def __init__(
+        self,
+        name: str,
+        description: str = "",
+        input_schema: str | None = None,
+        output_schema: str | None = None,
+        read_only: bool = False,
+        destructive: bool = False,
+        idempotent: bool = False,
+        source_file: str = "",
+    ) -> None: ...
+    def __repr__(self) -> str: ...
+
+class SkillMetadata:
+    """Metadata parsed from a SKILL.md frontmatter.
+
+    Supports agentskills.io / Anthropic Skills, ClawHub / OpenClaw, and
+    dcc-mcp-core extension fields simultaneously.
+    """
+
+    name: str
+    description: str
+    tools: list[ToolDeclaration]
     dcc: str
     tags: list[str]
     scripts: list[str]
@@ -66,12 +98,15 @@ class SkillMetadata:
     version: str
     depends: list[str]
     metadata_files: list[str]
+    license: str
+    compatibility: str
+    allowed_tools: list[str]
 
     def __init__(
         self,
         name: str,
         description: str = "",
-        tools: list[str] | None = None,
+        tools: list[ToolDeclaration] | None = None,
         dcc: str = "python",
         tags: list[str] | None = None,
         scripts: list[str] | None = None,
@@ -79,6 +114,9 @@ class SkillMetadata:
         version: str = "1.0.0",
         depends: list[str] | None = None,
         metadata_files: list[str] | None = None,
+        license: str = "",
+        compatibility: str = "",
+        allowed_tools: list[str] | None = None,
     ) -> None: ...
     def __repr__(self) -> str: ...
     def __str__(self) -> str: ...

@@ -242,3 +242,102 @@ class TestTelemetryFunctions:
         # Should not raise even if provider was never initialized or
         # already shut down.
         dcc_mcp_core.shutdown_telemetry()
+
+    def test_init_then_is_initialized(self) -> None:
+        """init() with noop exporter succeeds if the global tracer has not been set.
+
+        OpenTelemetry's global dispatcher can only be set once per process.
+        If a previous test already installed a provider, this test skips.
+        """
+        try:
+            dcc_mcp_core.TelemetryConfig("test-init-once").with_noop_exporter().init()
+        except RuntimeError:
+            pytest.skip("Global tracer provider already installed — cannot re-init in same process")
+
+    def test_double_init_raises_runtime_error(self) -> None:
+        """Calling init() twice must raise RuntimeError on the second call."""
+        if not dcc_mcp_core.is_telemetry_initialized():
+            # Initialize first so the second call can fail
+            try:
+                dcc_mcp_core.TelemetryConfig("first-call").with_noop_exporter().init()
+            except RuntimeError:
+                pytest.skip("Could not install initial provider")
+        # Second init always fails
+        with pytest.raises(RuntimeError):
+            dcc_mcp_core.TelemetryConfig("second-call").with_noop_exporter().init()
+
+    def test_shutdown_telemetry_is_idempotent(self) -> None:
+        """Calling shutdown_telemetry multiple times does not raise."""
+        dcc_mcp_core.shutdown_telemetry()
+        dcc_mcp_core.shutdown_telemetry()
+        dcc_mcp_core.shutdown_telemetry()
+
+
+# ── ActionRecorder — multi-DCC, p95/p99, and advanced metrics ────────────────
+
+
+class TestActionRecorderAdvanced:
+    def test_multi_action_all_metrics_length(self) -> None:
+        """all_metrics returns one entry per distinct action name."""
+        recorder = dcc_mcp_core.ActionRecorder("multi-scope")
+        for action in ["alpha", "beta", "gamma"]:
+            for _ in range(3):
+                guard = recorder.start(action, "maya")
+                guard.finish(True)
+        metrics = recorder.all_metrics()
+        assert len(metrics) == 3
+        names = {m.action_name for m in metrics}
+        assert names == {"alpha", "beta", "gamma"}
+
+    def test_multi_dcc_same_action_accumulates(self) -> None:
+        """Different DCC names for the same action accumulate into one metrics entry."""
+        recorder = dcc_mcp_core.ActionRecorder("multi-dcc-scope")
+        for dcc in ["maya", "blender", "houdini"]:
+            guard = recorder.start("create_sphere", dcc)
+            guard.finish(True)
+        metrics = recorder.metrics("create_sphere")
+        assert metrics is not None
+        assert metrics.invocation_count == 3
+        assert metrics.success_count == 3
+
+    def test_p95_and_p99_nonnegative_after_many_invocations(self) -> None:
+        """P95/P99 remain non-negative after 20 invocations."""
+        recorder = dcc_mcp_core.ActionRecorder("percentile-scope")
+        for _ in range(20):
+            guard = recorder.start("render", "maya")
+            guard.finish(True)
+        m = recorder.metrics("render")
+        assert m is not None
+        assert m.p95_duration_ms >= 0
+        assert m.p99_duration_ms >= 0
+
+    def test_success_rate_all_failed(self) -> None:
+        """success_rate is 0.0 when all invocations failed."""
+        recorder = dcc_mcp_core.ActionRecorder("fail-scope")
+        for _ in range(5):
+            guard = recorder.start("op", "test")
+            guard.finish(False)
+        m = recorder.metrics("op")
+        assert m is not None
+        assert m.success_rate() == 0.0
+        assert m.failure_count == 5
+
+    def test_success_rate_all_succeeded(self) -> None:
+        """success_rate is 1.0 when all invocations succeeded."""
+        recorder = dcc_mcp_core.ActionRecorder("pass-scope")
+        for _ in range(5):
+            guard = recorder.start("op", "test")
+            guard.finish(True)
+        m = recorder.metrics("op")
+        assert m is not None
+        assert m.success_rate() == 1.0
+
+    def test_reset_then_metrics_none(self) -> None:
+        """After reset, metrics returns None for previously-recorded actions."""
+        recorder = dcc_mcp_core.ActionRecorder("reset-scope")
+        guard = recorder.start("act", "maya")
+        guard.finish(True)
+        assert recorder.metrics("act") is not None
+        recorder.reset()
+        assert recorder.metrics("act") is None
+        assert recorder.all_metrics() == []

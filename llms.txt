@@ -254,7 +254,7 @@ maya-geometry/
 ---
 name: maya-geometry
 description: "Maya geometry creation tools"
-tools: ["Bash", "Read"]
+allowed-tools: ["Bash", "Read"]
 tags: ["maya", "geometry"]
 dcc: maya
 version: "1.0.0"

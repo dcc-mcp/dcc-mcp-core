@@ -46,12 +46,13 @@ transport.deregister_service("maya", id1)
 Sessions track connections to DCC instances with lifecycle state management and metrics:
 
 ```python
-session_id = transport.get_or_create_session("maya", instance_id=id1)
+session_id = transport.get_or_create_session("maya", id1)
 
 session = transport.get_session(session_id)
+# session is a dict with keys: id, dcc_type, instance_id, state, request_count, error_count, last_error, created_at, last_request_at
 
-transport.record_success(session_id, latency_ms=50)
-transport.record_error(session_id, latency_ms=100, error="timeout")
+transport.record_success(session_id, 50)
+transport.record_error(session_id, 100, "timeout")
 
 backoff_ms = transport.begin_reconnect(session_id)
 transport.reconnect_success(session_id)

@@ -6,275 +6,328 @@
 
 提供：
 
-- **进程监控** — 实时资源使用快照（CPU、内存）
-- **DCC 启动** — DCC 应用程序的异步启动/终止/kill
-- **崩溃恢复** — 带退避策略的自动重启策略
-- **后台监视** — 事件驱动的进程状态监控
+- **进程监控** — 通过 `PyProcessMonitor` 实时资源使用（CPU、内存、状态）
+- **DCC 启动** — 通过 `PyDccLauncher` 异步启动/终止/kill
+- **崩溃恢复** — 通过 `PyCrashRecoveryPolicy` 实现指数/固定退避重启策略
+- **后台监视** — 通过 `PyProcessWatcher` 事件轮询
 
-## 快速开始
+## PyProcessMonitor
 
-### 监控进程
+使用 `sysinfo` 跟踪和查询进程资源使用。
+
+### 基础用法
 
 ```python
-from dcc_mcp_core import ProcessMonitor
+import os
+from dcc_mcp_core import PyProcessMonitor
 
-monitor = ProcessMonitor()
+monitor = PyProcessMonitor()
 
-# 按 PID 跟踪进程
-monitor.track(pid=1234, name="maya")
+# 跟踪当前进程
+monitor.track(os.getpid(), "self")
 
-# 刷新和查询
+# 查询前先刷新
 monitor.refresh()
-info = monitor.query(pid=1234)
 
+# 查询特定 PID
+info = monitor.query(os.getpid())
 if info:
-    print(f"CPU: {info.cpu_usage_percent:.1f}%")
-    print(f"内存: {info.memory_bytes / 1024 / 1024:.1f} MB")
-    print(f"状态: {info.status}")
+    print(f"状态: {info['status']}")
+    print(f"CPU: {info['cpu_usage_percent']:.1f}%")
+    print(f"内存: {info['memory_bytes'] / 1024 / 1024:.1f} MB")
 ```
 
-### 启动 DCC
+### 跟踪/取消跟踪
 
 ```python
-from dcc_mcp_core import DccLauncher, DccProcessConfig
-
-launcher = DccLauncher()
-
-config = DccProcessConfig(
-    executable="/usr/bin/maya",
-    args=["-prompt"],
-    cwd="/project",
-    timeout_ms=30000,
-)
-
-future = launcher.launch(config)
-process_info = future.await_result()
-print(f"已启动 PID: {process_info.pid}")
-```
-
-## ProcessMonitor
-
-跟踪和查询进程资源使用。
-
-### 跟踪进程
-
-```python
-monitor = ProcessMonitor()
+monitor = PyProcessMonitor()
 
 # 按 PID 跟踪
 monitor.track(pid=1234, name="maya")
 
-# 按名称模式跟踪
-monitor.track_by_name("maya")
-
-# 跟踪当前进程
-monitor.track_current("self")
-
-# 取消跟踪
+# 停止跟踪
 monitor.untrack(pid=1234)
 ```
 
-### 查询资源
+### 查询方法
 
 ```python
-# 刷新所有跟踪的进程
 monitor.refresh()
 
-# 查询特定进程
+# 查询单个进程
 info = monitor.query(pid=1234)
 
 # 查询所有跟踪的进程
-all_info = monitor.query_all()
-for pid, info in all_info.items():
-    print(f"{pid}: {info.name} - {info.cpu_usage_percent}% CPU")
+all_info = monitor.list_all()
+for info in all_info:
+    print(f"{info['name']}: {info['cpu_usage_percent']}% CPU")
+
+# 检查是否存活
+if monitor.is_alive(pid=1234):
+    print("进程正在运行")
+
+# 跟踪计数
+print(f"正在跟踪 {monitor.tracked_count()} 个进程")
 ```
 
-### ProcessInfo 字段
+### 返回字典的键
 
-| 字段 | 类型 | 描述 |
-|------|------|------|
+| 键 | 类型 | 描述 |
+|-----|------|------|
 | `pid` | `int` | 进程 ID |
-| `name` | `str` | 进程名称 |
+| `name` | `str` | 用户定义的名称 |
+| `status` | `str` | 操作系统状态字符串 |
 | `cpu_usage_percent` | `float` | CPU 使用率 (0-100) |
 | `memory_bytes` | `int` | 内存使用（字节） |
-| `status` | `ProcessStatus` | 当前状态 |
-| `start_time` | `datetime` | 启动时间 |
+| `restart_count` | `int` | 重启计数 |
 
-## DccLauncher
+## PyDccLauncher
 
-启动和管理 DCC 进程。
+异步启动和管理 DCC 进程。
 
 ### 基础启动
 
 ```python
-launcher = DccLauncher()
+from dcc_mcp_core import PyDccLauncher
 
-config = DccProcessConfig(
-    executable="/usr/bin/maya",
-    args=["-prompt"],
+launcher = PyDccLauncher()
+
+# 启动 DCC
+info = launcher.launch(
+    name="maya",
+    executable="/usr/autodesk/maya/bin/maya",
+    args=["-prompt", "-batch"],
+    launch_timeout_ms=30000,
 )
 
-process_info = launcher.launch(config).await_result()
+print(f"已启动 PID: {info['pid']}")
 ```
 
-### 配置选项
+### 带环境的启动
 
 ```python
-config = DccProcessConfig(
-    executable="/usr/bin/maya",
-    args=[
-        "-prompt",           # 批处理模式运行
-        "-script", "init.py" # 运行启动脚本
-    ],
-    cwd="/project/scenes",              # 工作目录
-    env={                               # 环境变量
-        "MAYA_APP_DIR": "/tmp/maya",
-        "PYTHONPATH": "/project/python"
-    },
-    timeout_ms=30000,                  # 启动超时
-    detach=True                        # 分离运行
+info = launcher.launch(
+    name="maya",
+    executable="/usr/autodesk/maya/bin/maya",
+    args=["-prompt", "-script", "init.py"],
+    launch_timeout_ms=60000,
 )
 ```
 
 ### 进程生命周期
 
 ```python
-# 优雅终止 (Unix SIGTERM, Windows WM_CLOSE)
-launcher.terminate(pid=1234, timeout_ms=5000)
+# 优雅终止
+launcher.terminate("maya", timeout_ms=5000)
 
-# 立即杀死
-launcher.kill(pid=1234)
+# 强制杀死
+launcher.kill("maya")
 
-# 等待退出
-exit_code = launcher.wait(pid=1234, timeout_ms=60000)
+# 按名称获取 PID
+pid = launcher.pid_of("maya")
+if pid:
+    print(f"Maya 运行在 PID {pid}")
+
+# 检查运行计数
+print(f"运行中: {launcher.running_count()} 个进程")
+
+# 检查重启计数
+print(f"重启计数: {launcher.restart_count('maya')}")
 ```
 
-## CrashRecoveryPolicy
+### Maya 示例
 
-自动重启策略引擎。
+```python
+launcher = PyDccLauncher()
+
+maya_info = launcher.launch(
+    name="maya-2025",
+    executable="/usr/autodesk/maya/bin/maya",
+    args=["-prompt", "-batch"],
+    launch_timeout_ms=60000,
+)
+
+print(f"Maya 运行在 PID {maya_info['pid']}")
+
+# ... 工作 ...
+
+launcher.terminate("maya-2025")
+```
+
+## PyCrashRecoveryPolicy
+
+带退避策略的自动重启策略。
 
 ### 基础策略
 
 ```python
-from dcc_mcp_core import CrashRecoveryPolicy, BackoffStrategy
+from dcc_mcp_core import PyCrashRecoveryPolicy
 
-policy = CrashRecoveryPolicy(
-    max_restarts=3,
-    backoff=BackoffStrategy.EXPONENTIAL
-)
+policy = PyCrashRecoveryPolicy(max_restarts=3)
+policy.use_exponential_backoff(initial_ms=1000, max_delay_ms=30000)
 
 # 检查是否应重启
-if policy.should_restart(ProcessStatus.Crashed):
-    delay = policy.next_restart_delay(attempt=1)
-    time.sleep(delay / 1000)
-    launch_maya()
+if policy.should_restart("crashed"):
+    delay = policy.next_delay_ms("maya", attempt=0)
+    print(f"在 {delay}ms 后重启...")
 ```
 
-### Builder 模式
+### 固定退避
 
 ```python
-policy = CrashRecoveryPolicy.builder() \
-    .max_restarts(5) \
-    .backoff(BackoffStrategy.EXPONENTIAL) \
-    .initial_delay_ms(1000) \
-    .max_delay_ms(60000) \
-    .build()
+policy = PyCrashRecoveryPolicy(max_restarts=5)
+policy.use_fixed_backoff(delay_ms=2000)
+
+if policy.should_restart("unresponsive"):
+    delay = policy.next_delay_ms("maya", attempt=0)
+    print(f"在 {delay}ms 后重试...")
 ```
 
-### 退避策略
+### 指数退避
 
-| 策略 | 描述 | 示例延迟序列 |
-|------|------|--------------|
-| `NONE` | 立即重启 | 0, 0, 0... |
-| `LINEAR` | 增加固定延迟 | 1s, 2s, 3s... |
-| `EXPONENTIAL` | 双倍延迟 | 1s, 2s, 4s, 8s... |
-| `FIBONACCI` | 斐波那契退避 | 1s, 1s, 2s, 3s, 5s... |
+```python
+policy = PyCrashRecoveryPolicy(max_restarts=3)
+policy.use_exponential_backoff(initial_ms=1000, max_delay_ms=30000)
 
-## ProcessWatcher
+# 尝试 0 -> 1000ms, 尝试 1 -> 2000ms, 尝试 2 -> 4000ms
+for attempt in range(3):
+    if policy.should_restart("crashed"):
+        delay = policy.next_delay_ms("maya", attempt=attempt)
+        print(f"尝试 {attempt}: 等待 {delay}ms")
+```
 
-带事件通知的异步后台监视循环。
+### 管理策略状态
+
+```python
+policy = PyCrashRecoveryPolicy(max_restarts=3)
+
+# 成功运行 - 重置
+policy.reset()
+
+# 检查重启资格
+if policy.should_restart("crashed"):
+    # 尝试重启
+    pass
+```
+
+## PyProcessWatcher
+
+带事件轮询的异步后台进程监视器。
 
 ### 基础监视
 
 ```python
-from dcc_mcp_core import ProcessWatcher
+import os
+import time
+from dcc_mcp_core import PyProcessWatcher
 
-watcher = ProcessWatcher()
+watcher = PyProcessWatcher(poll_interval_ms=200)
+watcher.track(os.getpid(), "self")
+watcher.start()
 
-def on_event(event):
-    print(f"事件: {event.type}")
-    print(f"PID: {event.pid}")
-    print(f"时间戳: {event.timestamp}")
+time.sleep(0.5)
 
-handle = watcher.watch(
-    pid=1234,
-    events=["started", "stopped", "crashed"],
-    callback=on_event
-)
+# 轮询事件
+for event in watcher.poll_events():
+    print(f"事件: {event['type']} - {event['name']}")
+
+watcher.stop()
 ```
 
 ### 事件类型
 
-| 事件 | 描述 |
-|------|------|
-| `Started` | 进程已启动 |
-| `Stopped` | 进程正常停止 |
-| `Crashed` | 进程已崩溃 |
-| `OOM` | 进程被 OOM killer 杀死 |
-| `Respawned` | 进程已自动重启 |
+事件字典包含: `type`, `pid`, `name`
 
-## 自动重启示例
+| 事件类型 | 额外字段 |
+|----------|----------|
+| `heartbeat` | `new_status`, `cpu_usage_percent`, `memory_bytes` |
+| `status_changed` | `old_status`, `new_status` |
+| `exited` | — |
+
+### 轮询模式
 
 ```python
-from dcc_mcp_core import (
-    DccLauncher, ProcessWatcher, CrashRecoveryPolicy,
-    ProcessMonitor, BackoffStrategy
-)
+watcher = PyProcessWatcher(poll_interval_ms=500)
+watcher.track(pid=1234, name="maya")
+watcher.start()
 
-launcher = DccLauncher()
-monitor = ProcessMonitor()
-watcher = ProcessWatcher()
-
-policy = CrashRecoveryPolicy.builder() \
-    .max_restarts(5) \
-    .backoff(BackoffStrategy.EXPONENTIAL) \
-    .build()
-
-maya_config = DccProcessConfig(
-    executable="/usr/bin/maya",
-    args=["-prompt"]
-)
-
-def on_crash(event):
-    if not policy.should_restart(event.status):
-        alert_operator("Maya 崩溃 5 次，放弃")
-        return
-
-    delay = policy.next_restart_delay(event.attempt)
-    print(f"在 {delay}ms 后重启 Maya...")
-    time.sleep(delay / 1000)
-
-    launcher.launch(maya_config)
-    policy.record_restart(event.attempt)
-
-# 开始监视崩溃
-watcher.watch(pid=maya_pid, events=["crashed"], callback=on_crash)
+try:
+    while True:
+        events = watcher.poll_events()
+        for event in events:
+            if event["type"] == "exited":
+                print(f"{event['name']} 已退出")
+            elif event["type"] == "heartbeat":
+                print(f"CPU: {event['cpu_usage_percent']}%")
+        time.sleep(0.1)
+finally:
+    watcher.stop()
 ```
 
-## 错误处理
+### 启动/停止
 
 ```python
-from dcc_mcp_core import ProcessError
+watcher = PyProcessWatcher()
 
-try:
-    info = monitor.query(pid=999999)
-except ProcessError as e:
-    print(f"进程错误: {e}")
+watcher.track(pid=1234, name="maya")
+watcher.start()
 
-try:
-    launcher.launch(invalid_config)
-except ProcessError as e:
-    print(f"启动失败: {e}")
+# ... 工作 ...
+
+watcher.stop()
+
+# 检查状态
+print(f"监视器运行中: {watcher.is_running()}")
+print(f"已跟踪: {watcher.tracked_count()}")
+```
+
+## 完整示例
+
+### 自动重启 DCC
+
+```python
+import time
+from dcc_mcp_core import PyDccLauncher, PyProcessWatcher, PyCrashRecoveryPolicy
+
+launcher = PyDccLauncher()
+watcher = PyProcessWatcher(poll_interval_ms=500)
+policy = PyCrashRecoveryPolicy(max_restarts=5)
+policy.use_exponential_backoff(initial_ms=1000, max_delay_ms=30000)
+
+# 启动 Maya
+info = launcher.launch(
+    name="maya",
+    executable="/usr/autodesk/maya/bin/maya",
+    args=["-prompt"],
+)
+print(f"已启动 Maya PID {info['pid']}")
+
+watcher.track(info["pid"], "maya")
+watcher.start()
+
+attempt = 0
+while True:
+    events = watcher.poll_events()
+    for event in events:
+        if event["type"] == "exited":
+            print("Maya 已退出")
+            if policy.should_restart("crashed") and attempt < 5:
+                delay = policy.next_delay_ms("maya", attempt=attempt)
+                print(f"在 {delay}ms 后重启...")
+                time.sleep(delay / 1000)
+                info = launcher.launch(
+                    name="maya",
+                    executable="/usr/autodesk/maya/bin/maya",
+                    args=["-prompt"],
+                )
+                watcher.track(info["pid"], "maya")
+                attempt += 1
+            else:
+                print("超过最大重启次数")
+                watcher.stop()
+                exit(1)
+
+    time.sleep(0.1)
 ```
 
 ## 最佳实践
@@ -293,15 +346,27 @@ info = monitor.query(pid=1234)
 if info is None:
     print("进程未找到")
 else:
-    print(f"CPU: {info.cpu_usage_percent}%")
+    print(f"CPU: {info['cpu_usage_percent']}%")
 ```
 
 ### 3. 使用适当的超时
 
 ```python
 # 快速操作短超时
-launcher.terminate(pid=1234, timeout_ms=2000)
+launcher.terminate("quick_proc", timeout_ms=2000)
 
 # DCC 应用更长超时
-launcher.terminate(pid=maya_pid, timeout_ms=10000)
+launcher.terminate("maya", timeout_ms=10000)
+```
+
+### 4. 监控资源使用
+
+```python
+def check_resources():
+    monitor.refresh()
+    for info in monitor.list_all():
+        if info["cpu_usage_percent"] > 90:
+            print(f"高 CPU: {info['name']}")
+        if info["memory_bytes"] > 10 * 1024 * 1024 * 1024:
+            print(f"高内存: {info['name']}")
 ```

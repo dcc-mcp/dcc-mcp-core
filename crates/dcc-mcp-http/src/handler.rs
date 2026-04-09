@@ -180,7 +180,10 @@ pub async fn handle_get(State(state): State<AppState>, headers: HeaderMap) -> Re
     } else {
         // No session — create an ephemeral one
         let id = state.sessions.create();
-        state.sessions.subscribe(&id).unwrap()
+        state
+            .sessions
+            .subscribe(&id)
+            .expect("subscribe on a freshly created session cannot fail")
     };
 
     let sse_stream = BroadcastStream::new(rx)

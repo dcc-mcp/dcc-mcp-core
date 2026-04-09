@@ -7,8 +7,10 @@
 //! an OTLP backend.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+use parking_lot::Mutex;
 
 use opentelemetry::metrics::{Counter, Histogram};
 use opentelemetry::{KeyValue, global};
@@ -129,7 +131,7 @@ impl ActionRecorder {
         self.invocation_counter.add(1, &attrs);
 
         {
-            let mut state = self.state.lock().expect("action state lock poisoned");
+            let mut state = self.state.lock();
             let entry = state.entry(action_name.to_string()).or_default();
             entry.invocation_count += 1;
         }
@@ -168,7 +170,7 @@ impl ActionRecorder {
             self.failure_counter.add(1, &attrs);
         }
 
-        let mut state = self.state.lock().expect("action state lock poisoned");
+        let mut state = self.state.lock();
         let entry = state.entry(action_name.to_string()).or_default();
         if success {
             entry.success_count += 1;
@@ -182,7 +184,7 @@ impl ActionRecorder {
     ///
     /// Returns `None` if no invocations have been recorded for that action.
     pub fn metrics(&self, action_name: &str) -> Option<ActionMetrics> {
-        let state = self.state.lock().expect("action state lock poisoned");
+        let state = self.state.lock();
         state.get(action_name).map(|s| ActionMetrics {
             action_name: action_name.to_string(),
             invocation_count: s.invocation_count,
@@ -196,7 +198,7 @@ impl ActionRecorder {
 
     /// Get aggregated metrics for all recorded actions.
     pub fn all_metrics(&self) -> Vec<ActionMetrics> {
-        let state = self.state.lock().expect("action state lock poisoned");
+        let state = self.state.lock();
         state
             .iter()
             .map(|(name, s)| ActionMetrics {
@@ -213,7 +215,7 @@ impl ActionRecorder {
 
     /// Reset all in-memory statistics (does not affect OpenTelemetry counters).
     pub fn reset(&self) {
-        let mut state = self.state.lock().expect("action state lock poisoned");
+        let mut state = self.state.lock();
         state.clear();
     }
 }

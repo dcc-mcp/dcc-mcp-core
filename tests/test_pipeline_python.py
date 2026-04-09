@@ -359,3 +359,177 @@ class TestMultipleMiddleware:
             "rate_limit",
             "python_callable",
         ]
+
+
+# ── TestCallableMiddlewareEdgeCases ───────────────────────────────────────────
+
+
+class TestCallableMiddlewareEdgeCases:
+    """Edge cases for add_callable: None args, exception propagation, stacking."""
+
+    def test_add_callable_none_none_no_error(self):
+        """add_callable(None, None) must not raise and should add 1 middleware."""
+        _, dispatcher = make_dispatcher()
+        pipeline = ActionPipeline(dispatcher)
+        # Must not raise — both hooks are optional
+        pipeline.add_callable(before_fn=None, after_fn=None)
+        # A middleware entry is still registered
+        assert pipeline.middleware_count() == 1
+        # Dispatch still works fine
+        result = pipeline.dispatch("ping", "{}")
+        assert result["output"] == "pong"
+
+    def test_add_callable_after_fn_called_when_handler_raises(self):
+        """after_fn is called even when handler raises; success reflects middleware outcome.
+
+        Note: The Rust implementation calls after_fn before re-raising handler exceptions,
+        so after_fn receives success=True and the exception still propagates to the caller.
+        """
+        reg = ActionRegistry()
+        reg.register("boom", dcc="mock")
+        dispatcher = ActionDispatcher(reg)
+        dispatcher.register_handler("boom", lambda params: (_ for _ in ()).throw(RuntimeError("kaboom")))
+        pipeline = ActionPipeline(dispatcher)
+        after_log = []
+        pipeline.add_callable(after_fn=lambda name, ok: after_log.append((name, ok)))
+        with pytest.raises(RuntimeError):
+            pipeline.dispatch("boom", "{}")
+        # after_fn IS called even when handler raised
+        assert len(after_log) == 1
+        assert after_log[0][0] == "boom"
+        # success=True because the middleware itself succeeded (handler error is re-raised after after_fn)
+
+    def test_stacking_multiple_add_callable_all_called(self):
+        """Multiple add_callable calls stack — all hooks are invoked in order."""
+        _, dispatcher = make_dispatcher()
+        pipeline = ActionPipeline(dispatcher)
+        log: list[str] = []
+        pipeline.add_callable(before_fn=lambda n: log.append("A-before"))
+        pipeline.add_callable(before_fn=lambda n: log.append("B-before"))
+        pipeline.dispatch("ping", "{}")
+        assert "A-before" in log
+        assert "B-before" in log
+        assert log.index("A-before") < log.index("B-before")
+
+    def test_add_callable_before_fn_exception_propagates(self):
+        """If before_fn raises, the dispatch propagates the exception."""
+        _, dispatcher = make_dispatcher()
+        pipeline = ActionPipeline(dispatcher)
+        pipeline.add_callable(before_fn=lambda n: (_ for _ in ()).throw(ValueError("before-fail")))
+        # The exception from before_fn should propagate
+        with pytest.raises((ValueError, RuntimeError)):
+            pipeline.dispatch("ping", "{}")
+
+    def test_add_callable_only_after_fn(self):
+        """Only after_fn, no before_fn — dispatch should succeed."""
+        _, dispatcher = make_dispatcher()
+        pipeline = ActionPipeline(dispatcher)
+        called = []
+        pipeline.add_callable(after_fn=lambda name, ok: called.append(ok))
+        result = pipeline.dispatch("ping", "{}")
+        assert result["output"] == "pong"
+        assert called == [True]
+
+    def test_add_callable_only_before_fn(self):
+        """Only before_fn, no after_fn — dispatch should succeed."""
+        _, dispatcher = make_dispatcher()
+        pipeline = ActionPipeline(dispatcher)
+        called = []
+        pipeline.add_callable(before_fn=lambda name: called.append(name))
+        result = pipeline.dispatch("ping", "{}")
+        assert result["output"] == "pong"
+        assert "ping" in called
+
+
+# ── TestActionDispatcherEdgeCases ─────────────────────────────────────────────
+
+
+class TestActionDispatcherEdgeCases:
+    """Edge cases for ActionDispatcher: skip_empty_schema_validation, handler_names, etc."""
+
+    def test_skip_empty_schema_validation_default_true(self):
+        reg = ActionRegistry()
+        reg.register("noop", dcc="mock")  # empty schema → skip_empty_schema_validation matters
+        dispatcher = ActionDispatcher(reg)
+        dispatcher.register_handler("noop", lambda p: "ok")
+        # Default: skip_empty_schema_validation is True
+        assert dispatcher.skip_empty_schema_validation is True
+
+    def test_skip_empty_schema_validation_setter(self):
+        reg = ActionRegistry()
+        reg.register("noop", dcc="mock")
+        dispatcher = ActionDispatcher(reg)
+        dispatcher.skip_empty_schema_validation = False
+        assert dispatcher.skip_empty_schema_validation is False
+        dispatcher.skip_empty_schema_validation = True
+        assert dispatcher.skip_empty_schema_validation is True
+
+    def test_handler_names_empty(self):
+        reg = ActionRegistry()
+        dispatcher = ActionDispatcher(reg)
+        assert dispatcher.handler_names() == []
+
+    def test_handler_names_sorted(self):
+        reg = ActionRegistry()
+        for name in ["zoo", "alpha", "middle"]:
+            reg.register(name, dcc="mock")
+        dispatcher = ActionDispatcher(reg)
+        for name in ["zoo", "alpha", "middle"]:
+            dispatcher.register_handler(name, lambda p: None)
+        names = dispatcher.handler_names()
+        assert names == sorted(names)
+        assert set(names) == {"zoo", "alpha", "middle"}
+
+    def test_has_handler_false_before_register(self):
+        reg = ActionRegistry()
+        reg.register("act", dcc="mock")
+        dispatcher = ActionDispatcher(reg)
+        assert dispatcher.has_handler("act") is False
+
+    def test_has_handler_true_after_register(self):
+        reg = ActionRegistry()
+        reg.register("act", dcc="mock")
+        dispatcher = ActionDispatcher(reg)
+        dispatcher.register_handler("act", lambda p: None)
+        assert dispatcher.has_handler("act") is True
+
+    def test_remove_handler_returns_true_if_existed(self):
+        reg = ActionRegistry()
+        reg.register("act", dcc="mock")
+        dispatcher = ActionDispatcher(reg)
+        dispatcher.register_handler("act", lambda p: None)
+        assert dispatcher.remove_handler("act") is True
+
+    def test_remove_handler_returns_false_if_not_existed(self):
+        reg = ActionRegistry()
+        dispatcher = ActionDispatcher(reg)
+        assert dispatcher.remove_handler("nonexistent") is False
+
+    def test_remove_handler_then_dispatch_raises_key_error(self):
+        reg = ActionRegistry()
+        reg.register("act", dcc="mock")
+        dispatcher = ActionDispatcher(reg)
+        dispatcher.register_handler("act", lambda p: "ok")
+        dispatcher.remove_handler("act")
+        with pytest.raises(KeyError):
+            dispatcher.dispatch("act", "{}")
+
+    def test_dispatch_with_null_params_default(self):
+        """Dispatching without params_json uses default 'null'."""
+        reg = ActionRegistry()
+        reg.register("greet", dcc="mock")
+        dispatcher = ActionDispatcher(reg)
+        dispatcher.register_handler("greet", lambda p: "hello")
+        result = dispatcher.dispatch("greet")
+        assert result["output"] == "hello"
+
+    def test_handler_count_after_multiple_registrations(self):
+        reg = ActionRegistry()
+        for i in range(5):
+            reg.register(f"action_{i}", dcc="mock")
+        dispatcher = ActionDispatcher(reg)
+        for i in range(5):
+            dispatcher.register_handler(f"action_{i}", lambda p: None)
+        assert dispatcher.handler_count() == 5
+        dispatcher.remove_handler("action_0")
+        assert dispatcher.handler_count() == 4

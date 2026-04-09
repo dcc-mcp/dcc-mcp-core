@@ -25,6 +25,9 @@ class TestConstants:
             ("ENV_SKILL_PATHS", "DCC_MCP_SKILL_PATHS"),
             ("ENV_LOG_LEVEL", "MCP_LOG_LEVEL"),
             ("DEFAULT_LOG_LEVEL", "DEBUG"),
+            ("DEFAULT_MIME_TYPE", "text/plain"),
+            ("DEFAULT_VERSION", "1.0.0"),
+            ("SKILL_METADATA_DIR", "metadata"),
         ],
     )
     def test_constant_values(self, attr: str, expected: str) -> None:

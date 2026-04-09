@@ -8,6 +8,7 @@ license.workspace = true
 description = "DCC process monitoring, lifecycle management, and crash recovery for the DCC-MCP ecosystem"
 
 [dependencies]
+parking_lot = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tracing = { workspace = true }

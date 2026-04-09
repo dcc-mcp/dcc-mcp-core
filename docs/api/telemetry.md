@@ -2,207 +2,158 @@
 
 `dcc_mcp_core` (telemetry module)
 
-OpenTelemetry tracing, metrics, and structured logging.
+Action performance recording and optional OpenTelemetry tracing/metrics.
 
 ## Overview
 
-Provides observability for the DCC-MCP ecosystem:
+Provides:
 
-- **Tracing** — Distributed tracing for action execution
-- **Metrics** — Per-action timing and success-rate metrics
-- **Logging** — Structured logging with OpenTelemetry integration
-- **Exporters** — Support for OTLP gRPC (Jaeger, Grafana Tempo, Prometheus)
-
-## TelemetryConfig
-
-Configuration for the telemetry provider.
-
-### Constructor
-
-```python
-from dcc_mcp_core import TelemetryConfig, ExporterBackend, LogFormat
-
-config = TelemetryConfig.builder("my-dcc-service") \
-    .with_exporter(ExporterBackend.CONSOLE) \
-    .with_log_format(LogFormat.JSON) \
-    .with_service_version("1.0.0") \
-    .build()
-```
-
-### Exporter Backends
-
-| Backend | Description |
-|---------|-------------|
-| `NOOP` | No-op exporter (for testing) |
-| `CONSOLE` | Print to stdout |
-| `OTLP_GRPC` | Export to OTLP gRPC endpoint |
-
-### Log Formats
-
-| Format | Description |
-|--------|-------------|
-| `JSON` | Structured JSON logs |
-| `PRETTY` | Human-readable format |
-
-## Initialization
-
-```python
-from dcc_mcp_core import init_telemetry, is_telemetry_initialized, shutdown_telemetry
-
-# Initialize at startup
-init_telemetry(config)
-
-# Check if initialized
-if is_telemetry_initialized():
-    print("Telemetry is active")
-
-# Shutdown at exit
-shutdown_telemetry()
-```
+- **Action Recording** — Per-action timing and success/failure counters via `ActionRecorder`
+- **Metrics** — `ActionMetrics` snapshot with latency percentiles (p95/p99) and success rate
+- **Optional OpenTelemetry** — stdout exporter, JSON/text logs, resource attributes (opt-in)
 
 ## ActionRecorder
 
-Record metrics for action invocations.
+Record execution time and outcomes for any action.
 
 ### Constructor
 
 ```python
 from dcc_mcp_core import ActionRecorder
 
-recorder = ActionRecorder("my-dcc-service")
+recorder = ActionRecorder("my-service")
 ```
 
-### Recording Actions
+### Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `start(action_name, dcc_name)` | `RecordingGuard` | Start timing an action |
+| `metrics(action_name)` | `ActionMetrics \| None` | Get metrics for an action |
+| `all_metrics()` | `list[ActionMetrics]` | Get all action metrics |
+| `reset()` | `None` | Reset all statistics |
+
+### Recording with Guard
 
 ```python
-# Start a recording
 guard = recorder.start("create_sphere", "maya")
-
-# ... perform action work ...
-
-# Finish with success or failure
+# ... perform work ...
 guard.finish(success=True)
 ```
 
-### Recording with Context Manager
+### Context Manager Usage
 
 ```python
-with recorder.record("list_objects", "blender") as metrics:
+with recorder.start("create_sphere", "maya") as guard:
     # ... perform work ...
-    pass  # Automatically finishes with success=True
-
-# Or with explicit result
-guard = recorder.record("delete_mesh", "houdini")
-# ... work ...
-guard.finish(success=False, error="Object not found")
+# guard.finish(success=True) called automatically on success
+# guard.finish(success=False) called on exception
 ```
 
-### Querying Metrics
+## ActionMetrics
 
-```python
-metrics = recorder.metrics("create_sphere")
-print(f"Invocations: {metrics.invocation_count}")
-print(f"Success rate: {metrics.success_rate():.2%}")
-print(f"P50 latency: {metrics.latency_p50_ms}ms")
-print(f"P95 latency: {metrics.latency_p95_ms}ms")
-print(f"P99 latency: {metrics.latency_p99_ms}ms")
-```
+Read-only snapshot of per-Action performance metrics.
 
-### ActionMetrics
+### Properties
 
-| Field | Type | Description |
-|-------|------|-------------|
+| Property | Type | Description |
+|----------|------|-------------|
 | `action_name` | `str` | Name of the action |
 | `invocation_count` | `int` | Total invocations |
 | `success_count` | `int` | Successful invocations |
 | `failure_count` | `int` | Failed invocations |
-| `success_rate()` | `float` | Success ratio (0-1) |
-| `latency_p50_ms` | `float` | 50th percentile latency |
-| `latency_p95_ms` | `float` | 95th percentile latency |
-| `latency_p99_ms` | `float` | 99th percentile latency |
+| `avg_duration_ms` | `float` | Average duration in ms |
+| `p95_duration_ms` | `float` | 95th percentile duration |
+| `p99_duration_ms` | `float` | 99th percentile duration |
 
-## Tracing Spans
+### Methods
 
-Create custom spans for detailed tracing.
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `success_rate()` | `float` | Success ratio (0.0-1.0) |
 
-### Python Tracing
-
-```python
-from dcc_mcp_core import tracer, action_span
-
-# Get a tracer
-t = tracer("my-component")
-
-# Create a span manually
-with t.start_as_current_span("my_operation") as span:
-    span.set_attribute("key", "value")
-    span.add_event("event_name", {"attr": "value"})
-    # ... work ...
-
-# Using the action_span helper
-with action_span("create_sphere", dcc="maya") as span:
-    span.set_attribute("radius", 1.0)
-```
-
-### Span Attributes
-
-| Attribute | Type | Description |
-|-----------|------|-------------|
-| `dcc.name` | `str` | DCC application name |
-| `dcc.version` | `str` | DCC version |
-| `action.name` | `str` | Action name |
-| `action.category` | `str` | Action category |
-
-## Error Handling
+### Example
 
 ```python
-from dcc_mcp_core import TelemetryError
-
-try:
-    init_telemetry(config)
-except TelemetryError as e:
-    print(f"Telemetry initialization failed: {e}")
+metrics = recorder.metrics("create_sphere")
+if metrics:
+    print(f"Invocations: {metrics.invocation_count}")
+    print(f"Success rate: {metrics.success_rate():.2%}")
+    print(f"P95: {metrics.p95_duration_ms:.2f}ms")
 ```
 
-## OTLP Export
+## RecordingGuard
 
-### OTLP gRPC Configuration
+RAII guard returned by `ActionRecorder.start()`.
+
+### Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `finish(success)` | `None` | Finish recording with success flag |
+| `__enter__()` | `RecordingGuard` | Context manager entry |
+| `__exit__()` | `None` | Context manager exit (sets success=False on exception) |
+
+## TelemetryConfig
+
+Optional OpenTelemetry configuration.
+
+### Constructor
 
 ```python
-config = TelemetryConfig.builder("my-service") \
-    .with_exporter(ExporterBackend.OTLP_GRPC) \
-    .with_otlp_endpoint("http://localhost:4317") \
-    .with_otlp_headers({"Authorization": "Bearer token"}) \
-    .build()
+from dcc_mcp_core import TelemetryConfig
+
+cfg = TelemetryConfig("my-dcc-service")
 ```
 
-## Integration Examples
+### Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `with_stdout_exporter()` | `TelemetryConfig` | Use stdout exporter |
+| `with_noop_exporter()` | `TelemetryConfig` | Use no-op exporter (testing) |
+| `with_json_logs()` | `TelemetryConfig` | Use JSON log format |
+| `with_text_logs()` | `TelemetryConfig` | Use text log format |
+| `with_attribute(key, value)` | `TelemetryConfig` | Add resource attribute |
+| `with_service_version(version)` | `TelemetryConfig` | Set service version |
+| `set_enable_metrics(enabled)` | `TelemetryConfig` | Enable/disable metrics |
+| `set_enable_tracing(enabled)` | `TelemetryConfig` | Enable/disable tracing |
+| `init()` | `None` | Install as global provider |
+
+### Example
+
+```python
+cfg = TelemetryConfig("my-dcc-service")
+cfg.with_stdout_exporter()
+cfg.with_json_logs()
+cfg.with_service_version("1.0.0")
+cfg.init()
+```
+
+## is_telemetry_initialized()
+
+Check if global telemetry provider is installed.
+
+```python
+from dcc_mcp_core import is_telemetry_initialized
+
+if is_telemetry_initialized():
+    print("Telemetry is active")
+```
+
+## Integration Example
 
 ### Maya Integration
 
 ```python
-from dcc_mcp_core import init_telemetry, ActionRecorder
+from dcc_mcp_core import ActionRecorder
+import maya.cmds as cmds
 
-# Initialize when Maya starts
-init_telemetry(config)
-
-# Record each action
 recorder = ActionRecorder("maya")
 
-def execute_action(action_name, params):
-    with recorder.record(action_name, "maya") as metrics:
-        # Call Maya API
-        result = maya_cmds.sphere(radius=params.get("radius", 1.0))
-        return result
-```
-
-### Decorator Usage
-
-```python
-from dcc_mcp_core import traced
-
-@traced(action_name="create_sphere", dcc="maya")
-def create_sphere(radius=1.0, name=None):
-    # This function is automatically traced
-    return maya_cmds.sphere(r=radius, n=name)
+def traced_create_sphere(radius=1.0, name=None):
+    with recorder.start("create_sphere", "maya") as guard:
+        sphere = cmds.polySphere(r=radius, n=name)[0]
+        guard.finish(success=True)
+        return sphere
 ```

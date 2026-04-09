@@ -1,8 +1,9 @@
 //! Rate limiting middleware — limits calls per action per time window.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
 use std::time::{Duration, Instant};
+
+use parking_lot::Mutex;
 
 use crate::dispatcher::DispatchError;
 
@@ -35,14 +36,14 @@ impl RateLimitMiddleware {
     /// Get the current call count for an action (for testing).
     #[must_use]
     pub fn call_count(&self, action: &str) -> u64 {
-        let state = self.state.lock().expect("rate limit lock poisoned");
+        let state = self.state.lock();
         state.get(action).map(|(count, _)| *count).unwrap_or(0)
     }
 }
 
 impl ActionMiddleware for RateLimitMiddleware {
     fn before_dispatch(&self, ctx: &mut MiddlewareContext) -> Result<(), DispatchError> {
-        let mut state = self.state.lock().expect("rate limit lock poisoned");
+        let mut state = self.state.lock();
         let now = Instant::now();
 
         let entry = state.entry(ctx.action.clone()).or_insert_with(|| (0, now));

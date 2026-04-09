@@ -222,3 +222,65 @@ class TestCaptureResult:
         capturer = dcc_mcp_core.Capturer.new_mock(width=64, height=64)
         frame = capturer.capture()
         assert frame is not None
+
+
+# ── TestCapturerEdgeCases ─────────────────────────────────────────────────────
+
+
+class TestCapturerEdgeCases:
+    """Edge cases: minimal resolution, scale factor, multi-capture, invalid format."""
+
+    def test_new_mock_minimal_resolution(self) -> None:
+        """Capturer.new_mock(1, 1) should work without errors."""
+        capturer = dcc_mcp_core.Capturer.new_mock(width=1, height=1)
+        frame = capturer.capture(format="raw_bgra")
+        assert frame.width == 1
+        assert frame.height == 1
+        assert frame.byte_len() == 4  # 1 * 1 * 4 bytes for BGRA
+
+    def test_scale_quarter_reduces_to_quarter_dimensions(self) -> None:
+        """scale=0.25 reduces width/height to 1/4 of the original."""
+        capturer = dcc_mcp_core.Capturer.new_mock(width=400, height=200)
+        frame = capturer.capture(format="raw_bgra", scale=0.25)
+        assert frame.width == 100
+        assert frame.height == 50
+
+    def test_multiple_captures_accumulate_stats(self) -> None:
+        """Successive capture() calls accumulate the stats counter."""
+        capturer = dcc_mcp_core.Capturer.new_mock(width=32, height=32)
+        for _ in range(5):
+            capturer.capture(format="raw_bgra")
+        count, total_bytes, errors = capturer.stats()
+        assert count == 5
+        assert errors == 0
+        assert total_bytes > 0
+
+    def test_capture_invalid_format_falls_back_to_png(self) -> None:
+        """Requesting an unsupported format silently falls back to PNG.
+
+        The mock backend does not validate the format string; unknown values
+        are treated as PNG (the default).
+        """
+        capturer = dcc_mcp_core.Capturer.new_mock(width=64, height=64)
+        frame = capturer.capture(format="bmp")
+        # Falls back to PNG
+        assert frame.format == "png"
+        assert frame.byte_len() > 0
+
+    def test_frame_data_bytes_type(self) -> None:
+        """CaptureFrame.data is always of type bytes."""
+        capturer = dcc_mcp_core.Capturer.new_mock(width=64, height=64)
+        frame = capturer.capture(format="png")
+        assert isinstance(frame.data, bytes)
+
+    def test_different_resolutions_scale_correctly(self) -> None:
+        """Raw BGRA bytes for 8x4 capture = 8 * 4 * 4 = 128 bytes."""
+        capturer = dcc_mcp_core.Capturer.new_mock(width=8, height=4)
+        frame = capturer.capture(format="raw_bgra")
+        assert frame.byte_len() == 8 * 4 * 4
+
+    def test_repr_format(self) -> None:
+        """Capturer repr should contain some identifier."""
+        capturer = dcc_mcp_core.Capturer.new_mock()
+        r = repr(capturer)
+        assert len(r) > 0

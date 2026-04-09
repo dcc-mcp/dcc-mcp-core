@@ -1,6 +1,6 @@
 # Capture API
 
-`dcc_mcp_core.PyCapturer`
+`dcc_mcp_core` (capture module)
 
 Screen capture for DCC applications using platform-specific backends.
 
@@ -11,19 +11,17 @@ High-level capturer wrapper with automatic backend selection.
 ### Constructor
 
 ```python
-from dcc_mcp_core import PyCapturer
-capturer = PyCapturer.new_auto()
+from dcc_mcp_core import Capturer
+
+capturer = Capturer.new_auto()
 ```
 
 ### Methods
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `new_auto()` | `PyCapturer` | Create capturer with best available backend |
-| `capture(target=None, format="png")` | `PyCaptureFrame` | Capture a frame from the target |
-| `capture_window(window_id, format="png")` | `PyCaptureFrame` | Capture a specific window |
-| `capture_primary_monitor(format="png")` | `PyCaptureFrame` | Capture the primary monitor |
-| `stats()` | `dict` | Get capture statistics |
+| `new_auto()` | `Capturer` | Create capturer with best available backend |
+| `capture(format="png", jpeg_quality=85, scale=1.0, timeout_ms=5000, process_id=None, window_title=None)` | `CaptureFrame` | Capture a frame |
 
 ### CaptureFrame
 
@@ -34,52 +32,33 @@ print(frame.bytes_per_pixel)      # Bytes per pixel
 print(frame.data)                # Raw frame data as bytes
 ```
 
+### CaptureFrame Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `width` | `int` | Frame width in pixels |
+| `height` | `int` | Frame height in pixels |
+| `bytes_per_pixel` | `int` | Bytes per pixel |
+| `data` | `bytes` | Raw frame data |
+
 ### CaptureFormat
 
 | Format | Description |
 |--------|-------------|
 | `png` | PNG image format (lossless, larger) |
-| `jpg` | JPEG image format (lossy, smaller) |
+| `jpeg` / `jpg` | JPEG image format (lossy, smaller) |
 | `rgba` | Raw RGBA bytes |
 
-### CaptureTarget
+### Capture Parameters
 
-```python
-from dcc_mcp_core import CaptureTarget
-
-# Capture by window title (partial match)
-target = CaptureTarget.window("Maya")
-
-# Capture by process name
-target = CaptureTarget.process("maya")
-
-# Capture a specific monitor
-target = CaptureTarget.monitor(index=0)
-```
-
-## WindowFinder
-
-Find windows for capture targeting.
-
-### Methods
-
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `find_windows(title_contains)` | `List[WindowInfo]` | Find windows by title |
-| `find_by_process(name)` | `List[WindowInfo]` | Find windows by process name |
-| `get_foreground()` | `WindowInfo` | Get the currently focused window |
-
-### WindowInfo
-
-```python
-finder = WindowFinder()
-windows = finder.find_windows("Maya")
-for win in windows:
-    print(win.window_id)      # Platform-specific window ID
-    print(win.title)          # Window title
-    print(win.process_name)   # Process name
-    print(win.rect)           # Window bounds (x, y, width, height)
-```
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `format` | `str` | `"png"` | Output format |
+| `jpeg_quality` | `int` | `85` | JPEG quality (1-100) |
+| `scale` | `float` | `1.0` | Scale factor |
+| `timeout_ms` | `int` | `5000` | Capture timeout |
+| `process_id` | `int` | `None` | Capture specific process |
+| `window_title` | `str` | `None` | Capture specific window |
 
 ## Backends
 
@@ -89,13 +68,15 @@ for win in windows:
 | `x11` | Linux | X11 XShmGetImage |
 | `mock` | All | Synthetic checkerboard for testing |
 
+Backend selection is automatic via `new_auto()`.
+
 ## Error Handling
 
 ```python
 from dcc_mcp_core import CaptureError
 
 try:
-    frame = capturer.capture()
+    frame = capturer.capture(timeout_ms=1000)
 except CaptureError as e:
     print(f"Capture failed: {e}")
 ```

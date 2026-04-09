@@ -119,7 +119,10 @@ Metadata parsed from SKILL.md frontmatter. All fields are get/set.
 **Fields:**
 - `name: str` — Unique identifier (used in action naming)
 - `description: str` — Human-readable description (default: "")
-- `tools: List[str]` — Required tool permissions (default: [])
+- `tools: List[ToolDeclaration]` — MCP tool declarations (name, source_file, schemas); default: []
+- `allowed_tools: List[str]` — Agent permission list, e.g. ["Bash", "Read"] (Anthropic/OpenClaw); default: []
+- `license: str` — License identifier, e.g. "MIT" (Anthropic Skills standard); default: ""
+- `compatibility: str` — Runtime compatibility string, e.g. "Python>=3.9" (Anthropic Skills); default: ""
 - `dcc: str` — Target DCC application (default: "python")
 - `tags: List[str]` — Classification tags (default: [])
 - `scripts: List[str]` — Discovered script file paths (populated by loader; absolute paths)
@@ -513,10 +516,11 @@ all_deps = expand_transitive_dependencies(skills, "my-skill")  # -> List[str] na
 ---
 name: maya-geometry          # Required: unique identifier
 description: "Maya geometry creation and modification tools"
-tools: ["Bash", "Read"]      # OpenClaw tool permissions (Bash=run scripts, Read=read files)
+allowed-tools: ["Bash", "Read"]  # Agent permission list (Bash=run scripts, Read=read files)
 tags: ["maya", "geometry"]   # Classification tags
 dcc: maya                    # Target DCC: maya, blender, houdini, 3dsmax, python
 version: "1.0.0"             # Semantic version
+license: "MIT"               # License (Anthropic Skills standard)
 depends: ["other-skill"]     # Names of required skills (optional)
 ---
 # Human-readable description (markdown body)

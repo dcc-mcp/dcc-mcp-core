@@ -49,8 +49,10 @@
 //! assert!(!cb.allow_request());
 //! ```
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+use parking_lot::Mutex;
 
 use crate::error::{TransportError, TransportResult};
 
@@ -224,7 +226,7 @@ impl CircuitBreaker {
     /// Get the current circuit state.
     #[must_use]
     pub fn state(&self) -> CircuitState {
-        let mut inner = self.inner.lock().expect("circuit breaker lock poisoned");
+        let mut inner = self.inner.lock();
         self.maybe_transition_to_half_open(&mut inner);
         inner.state
     }
@@ -238,7 +240,7 @@ impl CircuitBreaker {
     /// when `recovery_timeout` has elapsed.
     #[must_use]
     pub fn allow_request(&self) -> bool {
-        let mut inner = self.inner.lock().expect("circuit breaker lock poisoned");
+        let mut inner = self.inner.lock();
         self.maybe_transition_to_half_open(&mut inner);
 
         match inner.state {
@@ -262,7 +264,7 @@ impl CircuitBreaker {
     ///
     /// In HalfOpen state, enough successes will close the circuit.
     pub fn record_success(&self) {
-        let mut inner = self.inner.lock().expect("circuit breaker lock poisoned");
+        let mut inner = self.inner.lock();
         inner.stats.total_successes += 1;
         inner.consecutive_failures = 0;
 
@@ -293,7 +295,7 @@ impl CircuitBreaker {
     /// If the failure threshold is reached in Closed state, the circuit opens.
     /// In HalfOpen state, any failure immediately re-opens the circuit.
     pub fn record_failure(&self) {
-        let mut inner = self.inner.lock().expect("circuit breaker lock poisoned");
+        let mut inner = self.inner.lock();
         inner.stats.total_failures += 1;
         inner.stats.total_requests += 1;
         inner.last_failure_at = Some(Instant::now());
@@ -345,7 +347,7 @@ impl CircuitBreaker {
 
     /// Forcibly reset the circuit to Closed state (e.g. after manual DCC restart).
     pub fn reset(&self) {
-        let mut inner = self.inner.lock().expect("circuit breaker lock poisoned");
+        let mut inner = self.inner.lock();
         tracing::info!(name = %self.name, "circuit breaker manually reset");
         inner.state = CircuitState::Closed;
         inner.consecutive_failures = 0;
@@ -357,11 +359,7 @@ impl CircuitBreaker {
     /// Get a snapshot of current statistics.
     #[must_use]
     pub fn stats(&self) -> CircuitBreakerStats {
-        self.inner
-            .lock()
-            .expect("circuit breaker lock poisoned")
-            .stats
-            .clone()
+        self.inner.lock().stats.clone()
     }
 
     /// Get the name/identifier of this circuit breaker.
@@ -373,10 +371,7 @@ impl CircuitBreaker {
     /// Get the number of consecutive failures in Closed state.
     #[must_use]
     pub fn consecutive_failures(&self) -> u32 {
-        self.inner
-            .lock()
-            .expect("circuit breaker lock poisoned")
-            .consecutive_failures
+        self.inner.lock().consecutive_failures
     }
 
     /// Execute a closure through the circuit breaker.

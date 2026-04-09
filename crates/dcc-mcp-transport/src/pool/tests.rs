@@ -95,7 +95,7 @@ async fn test_acquire_active_tcp_connection() {
         .unwrap();
     assert_eq!(pool.len(), 1);
 
-    let guard = conn.lock().unwrap();
+    let guard = conn.lock();
     assert!(guard.is_alive());
     assert_eq!(guard.state, ConnectionState::InUse);
     assert_eq!(guard.transport_name(), "tcp");
@@ -120,13 +120,13 @@ async fn test_acquire_reuses_available_connection() {
         .acquire_active(&key, &addr, Duration::from_secs(5))
         .await
         .unwrap();
-    let id1 = c1.lock().unwrap().id;
+    let id1 = c1.lock().id;
     pool.release(&key);
     let c2 = pool
         .acquire_active(&key, &addr, Duration::from_secs(5))
         .await
         .unwrap();
-    let id2 = c2.lock().unwrap().id;
+    let id2 = c2.lock().id;
 
     assert_eq!(id1, id2); // Same connection reused
     assert_eq!(pool.len(), 1);
@@ -172,12 +172,12 @@ async fn test_reconnect_active_with_backoff_success() {
         .acquire_active(&key, &addr, Duration::from_secs(5))
         .await
         .unwrap();
-    let first_id = conn.lock().unwrap().id;
+    let first_id = conn.lock().id;
     pool.release(&key);
 
     // Simulate dead connection by taking the FramedIo
     {
-        let mut guard = conn.lock().unwrap();
+        let mut guard = conn.lock();
         guard.take_framed();
     }
 
@@ -193,7 +193,7 @@ async fn test_reconnect_active_with_backoff_success() {
         .await
         .unwrap();
 
-    let second_id = reconnected.lock().unwrap().id;
+    let second_id = reconnected.lock().id;
     assert_ne!(first_id, second_id, "should be a new connection");
     assert_eq!(pool.len(), 1, "pool should still have exactly 1 entry");
 }

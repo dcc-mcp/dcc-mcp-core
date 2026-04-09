@@ -125,6 +125,71 @@ class TestPyProcessMonitor:
         count = mon.tracked_count()
         assert count >= 1
 
+    def test_query_returns_dict(self) -> None:
+        """PyProcessMonitor.query() returns a dict (not a PyObject)."""
+        mon = dcc_mcp_core.PyProcessMonitor()
+        pid = os.getpid()
+        mon.track(pid, "proc")
+        mon.refresh()
+        info = mon.query(pid)
+        assert isinstance(info, dict)
+
+    def test_query_dict_has_all_required_keys(self) -> None:
+        """query() dict contains all expected keys."""
+        mon = dcc_mcp_core.PyProcessMonitor()
+        pid = os.getpid()
+        mon.track(pid, "proc")
+        mon.refresh()
+        info = mon.query(pid)
+        required = {"pid", "name", "status", "cpu_usage_percent", "memory_bytes", "restart_count"}
+        assert required.issubset(info.keys())
+
+    def test_query_pid_matches_tracked(self) -> None:
+        """The 'pid' value in the result matches the tracked pid."""
+        mon = dcc_mcp_core.PyProcessMonitor()
+        pid = os.getpid()
+        mon.track(pid, "proc")
+        mon.refresh()
+        info = mon.query(pid)
+        assert info["pid"] == pid
+
+    def test_query_name_matches_tracked_name(self) -> None:
+        """The 'name' value in query result matches the name passed to track()."""
+        mon = dcc_mcp_core.PyProcessMonitor()
+        pid = os.getpid()
+        mon.track(pid, "my-label")
+        mon.refresh()
+        info = mon.query(pid)
+        assert info["name"] == "my-label"
+
+    def test_query_restart_count_initial_zero(self) -> None:
+        """restart_count starts at zero for a freshly-tracked process."""
+        mon = dcc_mcp_core.PyProcessMonitor()
+        pid = os.getpid()
+        mon.track(pid, "proc")
+        mon.refresh()
+        info = mon.query(pid)
+        assert info["restart_count"] == 0
+
+    def test_list_all_returns_list_of_dicts(self) -> None:
+        """list_all() returns a list where each element is a dict."""
+        mon = dcc_mcp_core.PyProcessMonitor()
+        pid = os.getpid()
+        mon.track(pid, "proc")
+        mon.refresh()
+        all_infos = mon.list_all()
+        assert isinstance(all_infos, list)
+        assert all(isinstance(i, dict) for i in all_infos)
+
+    def test_list_all_each_item_has_pid(self) -> None:
+        """Each item in list_all() has a 'pid' key."""
+        mon = dcc_mcp_core.PyProcessMonitor()
+        pid = os.getpid()
+        mon.track(pid, "proc")
+        mon.refresh()
+        all_infos = mon.list_all()
+        assert all("pid" in item for item in all_infos)
+
 
 # ── PyDccLauncher ─────────────────────────────────────────────────────────────
 

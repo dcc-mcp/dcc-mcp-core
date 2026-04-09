@@ -1,6 +1,6 @@
 # Skills 技能包系统
 
-Skills 系统允许你将任何脚本零代码注册为 MCP 可发现的工具，直接复用 [OpenClaw Skills](https://docs.openclaw.ai/tools) 生态格式。
+Skills 系统允许你将任何脚本（Python、MEL、MaxScript、BAT、Shell 等）零代码注册为 MCP 可发现的工具，直接复用 [OpenClaw Skills](https://docs.openclaw.ai/tools) / Anthropic Skills 生态格式。
 
 ## 快速上手
 
@@ -21,9 +21,17 @@ maya-geometry/
 ---
 name: maya-geometry
 description: "Maya 几何体创建和修改工具"
-tools: ["Bash", "Read"]
-tags: ["maya", "geometry"]
+version: "1.0.0"
 dcc: maya
+tags: ["geometry", "create"]
+tools:
+  - name: create_sphere
+    description: "根据给定半径创建多边形球体"
+    source_file: scripts/create_sphere.py
+    read_only: false
+  - name: export_fbx
+    description: "将选中对象导出为 FBX"
+    source_file: scripts/export_fbx.bat
 ---
 # Maya Geometry Skill
 
@@ -39,58 +47,260 @@ export DCC_MCP_SKILL_PATHS="/path/to/my-skills"
 # Windows
 set DCC_MCP_SKILL_PATHS=C:\path\to\my-skills
 
-# 多路径（使用平台路径分隔符）
+# 多个路径（使用平台路径分隔符）
 export DCC_MCP_SKILL_PATHS="/path/skills1:/path/skills2"
 ```
 
-### 4. 使用
+### 4. 发现并加载
 
-脚本会被自动发现并注册为 MCP 工具：
+推荐使用 `SkillCatalog` 进行完整的渐进式加载，也可使用低级扫描函数进行一次性操作：
 
 ```python
-from dcc_mcp_core import create_action_manager
+from dcc_mcp_core import ActionRegistry, SkillCatalog
 
-manager = create_action_manager("maya")
-# DCC_MCP_SKILL_PATHS 中的 Skills 会被自动加载
+# 创建注册表和目录
+registry = ActionRegistry()
+catalog = SkillCatalog(registry)
 
-# 调用 Skill Action
-result = manager.call_action("maya_geometry__create_sphere", radius=2.0)
+# 发现 DCC_MCP_SKILL_PATHS 中的所有 Skill
+count = catalog.discover(dcc_name="maya")
+print(f"发现 {count} 个 Skill")
+
+# 列出可用 Skill
+for skill in catalog.list_skills():
+    print(f"  {skill.name} v{skill.version}: {skill.description} (已加载={skill.loaded})")
+
+# 加载 Skill — 将工具注册到 ActionRegistry
+actions = catalog.load_skill("maya-geometry")
+print(f"已注册的 Action：{actions}")
+# ['maya_geometry__create_sphere', 'maya_geometry__export_fbx']
 ```
+
+## Skill 目录（推荐 API）
+
+`SkillCatalog` 管理完整生命周期：发现 → 渐进式加载 → 卸载。
+
+```python
+from dcc_mcp_core import ActionRegistry, ActionDispatcher, SkillCatalog
+
+registry = ActionRegistry()
+dispatcher = ActionDispatcher(registry)
+catalog = SkillCatalog(registry)
+
+# 发现
+count = catalog.discover(extra_paths=["/my/skills"], dcc_name="maya")
+
+# 搜索
+results = catalog.find_skills(query="geometry", tags=["create"], dcc="maya")
+for s in results:
+    print(f"{s.name}: {s.tool_count} 个工具 {s.tool_names}")
+
+# 加载/卸载
+actions = catalog.load_skill("maya-geometry")  # 返回 List[str]（Action 名称列表）
+catalog.is_loaded("maya-geometry")             # True
+n_removed = catalog.unload_skill("maya-geometry")
+
+# 状态查询
+catalog.loaded_count()      # int
+len(catalog)                # 目录中的 Skill 总数
+catalog.list_skills()                  # 所有 Skill（SkillSummary 列表）
+catalog.list_skills("loaded")          # 仅已加载的
+catalog.list_skills("discovered")      # 仅未加载的
+
+# 详细信息
+info = catalog.get_skill_info("maya-geometry")  # dict 或 None
+```
+
+### SkillSummary 字段
+
+`find_skills()` 和 `list_skills()` 返回 `SkillSummary` 对象：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `name` | `str` | Skill 名称 |
+| `description` | `str` | 简短描述 |
+| `tags` | `List[str]` | Skill 标签 |
+| `dcc` | `str` | 目标 DCC（如 `"maya"`）|
+| `version` | `str` | Skill 版本 |
+| `tool_count` | `int` | 声明的工具数量 |
+| `tool_names` | `List[str]` | 声明的工具名称列表 |
+| `loaded` | `bool` | 当前是否已加载 |
+
+## ToolDeclaration
+
+`ToolDeclaration` 描述 Skill 中的单个工具，从 SKILL.md frontmatter 的 `tools:` 列表中解析：
+
+```yaml
+tools:
+  - name: create_sphere
+    description: "创建多边形球体"
+    input_schema: '{"type":"object","properties":{"radius":{"type":"number"}}}'
+    read_only: false
+    destructive: false
+    idempotent: false
+    source_file: scripts/create_sphere.py
+```
+
+```python
+from dcc_mcp_core import ToolDeclaration
+
+decl = ToolDeclaration(
+    name="create_sphere",
+    description="创建多边形球体",
+    input_schema='{"type":"object","properties":{"radius":{"type":"number"}}}',
+    read_only=False,
+    destructive=False,
+    idempotent=False,
+    source_file="scripts/create_sphere.py",
+)
+```
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `name` | `str` | 必填 | 工具名称（在 Skill 内唯一）|
+| `description` | `str` | `""` | 人类可读的描述 |
+| `input_schema` | `str`（JSON）| `None` | 输入参数的 JSON Schema |
+| `output_schema` | `str`（JSON）| `None` | 输出的 JSON Schema |
+| `read_only` | `bool` | `False` | 仅读取数据（无副作用）|
+| `destructive` | `bool` | `False` | 可能导致破坏性修改 |
+| `idempotent` | `bool` | `False` | 相同参数始终产生相同结果 |
+| `source_file` | `str` | `""` | 脚本的显式路径（相对于 Skill 目录）|
+
+## 脚本查找优先级
+
+加载 Skill 时，目录按以下优先级解析每个 ToolDeclaration 对应的脚本：
+
+1. `ToolDeclaration.source_file` — 显式路径优先
+2. `scripts/` 中文件名（去扩展名）与工具名匹配的脚本
+3. 如果 Skill 只有一个脚本，则该脚本服务所有工具
+4. 无脚本可匹配 — 工具在注册表中可见但无法执行
+
+## 低级技能函数
+
+如需简单的一次性扫描（不使用渐进式加载）：
+
+```python
+import os
+from dcc_mcp_core import (
+    SkillScanner,
+    SkillWatcher,
+    SkillMetadata,
+    parse_skill_md,
+    scan_skill_paths,
+    scan_and_load,
+    scan_and_load_lenient,
+)
+
+os.environ["DCC_MCP_SKILL_PATHS"] = "/path/to/skills"
+
+# 一次性扫描 + 加载 + 依赖排序 → 返回 (skills, skipped_dirs)
+skills, skipped = scan_and_load(extra_paths=["/my/skills"], dcc_name="maya")
+skills_lenient, skipped = scan_and_load_lenient(dcc_name="maya")  # 跳过错误
+
+# 扫描目录中的 SKILL.md 文件
+scanner = SkillScanner()
+skill_dirs = scanner.scan(extra_paths=["/my/skills"], dcc_name="maya")
+
+# 解析单个 Skill 目录
+metadata = parse_skill_md("/path/to/maya-geometry")
+
+# 获取原始 Skill 目录路径列表
+paths = scan_skill_paths(extra_paths=["/my/skills"], dcc_name="maya")
+```
+
+## 使用 SkillWatcher 实现热重载
+
+`SkillWatcher` 监控文件系统，当 `SKILL.md` 文件更改时自动重新加载技能：
+
+```python
+from dcc_mcp_core import SkillWatcher
+
+watcher = SkillWatcher(debounce_ms=300)
+watcher.watch("/path/to/skills")
+
+# 获取当前技能（快照）
+skills = watcher.skills()          # List[SkillMetadata]
+count = watcher.skill_count()      # int
+
+# 手动重载
+watcher.reload()
+
+# 停止监控
+watcher.unwatch("/path/to/skills")
+
+# 查看已监控的路径
+paths = watcher.watched_paths()    # List[str]
+```
+
+## 依赖管理
+
+Skill 可通过 SKILL.md 中的 `depends:` 字段声明对其他 Skill 的依赖：
+
+```yaml
+---
+name: maya-animation
+depends: ["maya-geometry"]
+---
+```
+
+```python
+from dcc_mcp_core import (
+    resolve_dependencies,
+    validate_dependencies,
+    expand_transitive_dependencies,
+)
+
+skills, _ = scan_and_load()
+
+# 拓扑排序（每个 Skill 在其依赖项之后出现）
+ordered = resolve_dependencies(skills)
+
+# 验证 — 返回错误消息列表
+errors = validate_dependencies(skills)
+
+# 指定 Skill 的所有传递依赖
+deps = expand_transitive_dependencies(skills, "maya-animation")
+# ["maya-geometry"]
+```
+
+## SkillMetadata 字段
+
+从 SKILL.md frontmatter 解析。同时支持 Anthropic Skills、ClawHub/OpenClaw 和 dcc-mcp-core 扩展格式。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `name` | `str` | 唯一 Skill 名称 |
+| `description` | `str` | 简短描述 |
+| `tools` | `List[str]` | frontmatter 中列出的工具名称 |
+| `dcc` | `str` | 目标 DCC 应用（默认：`"python"`）|
+| `tags` | `List[str]` | 分类标签 |
+| `scripts` | `List[str]` | 发现的脚本文件路径 |
+| `skill_path` | `str` | Skill 目录的绝对路径 |
+| `version` | `str` | Skill 版本（默认：`"1.0.0"`）|
+| `depends` | `List[str]` | 依赖的 Skill 名称 |
+| `metadata_files` | `List[str]` | `metadata/` 目录中的 `.md` 文件路径 |
+
+## 环境变量
+
+| 变量 | 说明 |
+|------|------|
+| `DCC_MCP_SKILL_PATHS` | Skill 搜索路径（Windows 用 `;`，Unix 用 `:`）|
 
 ## 支持的脚本类型
 
 | 扩展名 | 类型 | 执行方式 |
-|--------|------|---------|
-| `.py` | Python | `subprocess` 使用系统 Python |
-| `.mel` | MEL (Maya) | 通过上下文中的 DCC 适配器 |
-| `.ms` | MaxScript | 通过上下文中的 DCC 适配器 |
-| `.bat`, `.cmd` | Batch | `cmd /c` |
+|--------|------|----------|
+| `.py` | Python | `python` 解释器 |
 | `.sh`, `.bash` | Shell | `bash` |
-| `.ps1` | PowerShell | `powershell -File` |
-| `.js`, `.jsx` | JavaScript | `node` |
+| `.bat`, `.cmd` | Batch | `cmd /C` |
+| `.mel` | MEL（Maya）| `python` 包装器 |
+| `.ms` | MaxScript（3ds Max）| `python` 包装器 |
+| `.lua`, `.hscript` | Lua / Houdini | `python` 包装器 |
 
-## 工作原理
+::: tip Skills-First 架构
+从 v0.12.10 起，`SkillCatalog` 支持自动脚本执行处理器。当附加了 dispatcher 时，加载 Skill 同时也会注册基于子进程的处理器 — Agent 无需任何手动处理器注册即可通过 `tools/call` 调用工具。
+:::
 
-1. **SkillScanner** 扫描目录查找 `SKILL.md` 文件
-2. **SkillLoader** 解析 YAML 前置元数据并枚举 `scripts/` 目录
-3. **ScriptAction 工厂** 为每个脚本生成 Action 子类
-4. Action 注册到现有的 **ActionRegistry** 中
-5. MCP Server 层可通过 **EventBus** 订阅 `skill.loaded` 事件
-
-## 编程式用法
-
-```python
-from dcc_mcp_core.skills import SkillScanner, load_skill, scan_skill_paths
-from dcc_mcp_core.actions.registry import ActionRegistry
-
-# 扫描技能包
-scanner = SkillScanner()
-skill_dirs = scanner.scan(extra_paths=["/my/skills"], dcc_name="maya")
-
-# 加载特定技能包
-registry = ActionRegistry()
-actions = load_skill("/path/to/maya-geometry", registry=registry, dcc_name="maya")
-
-# 便捷函数
-dirs = scan_skill_paths(extra_paths=["/my/skills"])
-```
+::: warning 脚本执行
+所有脚本作为子进程运行。输入参数通过 stdin 以 JSON 格式传入。脚本应将 JSON 结果写入 stdout，成功时退出码为 0。
+:::

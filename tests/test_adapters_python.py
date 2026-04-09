@@ -567,3 +567,192 @@ class TestAdaptersIntegration:
         assert scene.statistics.vertex_count == 1_000_000
         assert scene.fps == 24.0
         assert scene.frame_range == (1001.0, 1100.0)
+
+
+# ── SceneInfo optional field edge cases ──
+
+
+class TestSceneInfoOptionalFields:
+    def test_default_optional_fields_are_none(self) -> None:
+        scene = dcc_mcp_core.SceneInfo()
+        assert scene.frame_range is None
+        assert scene.current_frame is None
+        assert scene.fps is None
+        assert scene.up_axis is None
+        assert scene.units is None
+
+    def test_frame_range_tuple_type(self) -> None:
+        scene = dcc_mcp_core.SceneInfo(frame_range=(1.0, 250.0))
+        assert isinstance(scene.frame_range, tuple)
+        assert len(scene.frame_range) == 2
+        assert scene.frame_range[0] == 1.0
+        assert scene.frame_range[1] == 250.0
+
+    def test_current_frame_float(self) -> None:
+        scene = dcc_mcp_core.SceneInfo(current_frame=42.5)
+        assert abs(scene.current_frame - 42.5) < 1e-6
+
+    def test_fps_common_values(self) -> None:
+        for fps in (24.0, 25.0, 30.0, 60.0):
+            scene = dcc_mcp_core.SceneInfo(fps=fps)
+            assert abs(scene.fps - fps) < 1e-6
+
+    def test_up_axis_y(self) -> None:
+        scene = dcc_mcp_core.SceneInfo(up_axis="Y")
+        assert scene.up_axis == "Y"
+
+    def test_up_axis_z(self) -> None:
+        scene = dcc_mcp_core.SceneInfo(up_axis="Z")
+        assert scene.up_axis == "Z"
+
+    def test_file_path_empty_default(self) -> None:
+        scene = dcc_mcp_core.SceneInfo()
+        assert scene.file_path == ""
+
+    def test_name_default(self) -> None:
+        scene = dcc_mcp_core.SceneInfo()
+        assert scene.name == "untitled"
+
+    def test_modified_false_default(self) -> None:
+        scene = dcc_mcp_core.SceneInfo()
+        assert scene.modified is False
+
+    def test_format_empty_default(self) -> None:
+        scene = dcc_mcp_core.SceneInfo()
+        assert scene.format == ""
+
+
+# ── DccInfo to_dict edge cases ──
+
+
+class TestDccInfoToDict:
+    def test_to_dict_keys(self) -> None:
+        info = dcc_mcp_core.DccInfo("maya", "2024.2", "windows", 12345)
+        d = info.to_dict()
+        assert set(d.keys()) == {"dcc_type", "version", "python_version", "platform", "pid", "metadata"}
+
+    def test_to_dict_python_version_none_when_not_set(self) -> None:
+        info = dcc_mcp_core.DccInfo("blender", "4.2", "linux", 999)
+        d = info.to_dict()
+        assert d["python_version"] is None
+
+    def test_to_dict_python_version_set(self) -> None:
+        info = dcc_mcp_core.DccInfo("houdini", "20.5", "linux", 777, python_version="3.11.4")
+        d = info.to_dict()
+        assert d["python_version"] == "3.11.4"
+
+    def test_to_dict_metadata_preserved(self) -> None:
+        info = dcc_mcp_core.DccInfo(
+            "unreal", "5.3", "windows", 56789, metadata={"project": "shooter", "level": "map_01"}
+        )
+        d = info.to_dict()
+        assert d["metadata"]["project"] == "shooter"
+        assert d["metadata"]["level"] == "map_01"
+
+    def test_to_dict_empty_metadata(self) -> None:
+        info = dcc_mcp_core.DccInfo("unity", "2023.2", "windows", 11111)
+        d = info.to_dict()
+        assert d["metadata"] == {}
+
+    def test_to_dict_pid_type(self) -> None:
+        info = dcc_mcp_core.DccInfo("maya", "2024", "windows", 42)
+        d = info.to_dict()
+        assert isinstance(d["pid"], int)
+
+
+# ── DccError str/repr and field access ──
+
+
+class TestDccErrorFields:
+    def test_str_contains_code_and_message(self) -> None:
+        err = dcc_mcp_core.DccError(dcc_mcp_core.DccErrorCode.TIMEOUT, "request timed out")
+        s = str(err)
+        assert "TIMEOUT" in s
+        assert "request timed out" in s
+
+    def test_details_none_by_default(self) -> None:
+        err = dcc_mcp_core.DccError(dcc_mcp_core.DccErrorCode.INTERNAL, "internal error")
+        assert err.details is None
+
+    def test_details_set(self) -> None:
+        err = dcc_mcp_core.DccError(
+            dcc_mcp_core.DccErrorCode.CONNECTION_FAILED, "cannot connect", details="refused by port 18812"
+        )
+        assert err.details == "refused by port 18812"
+
+    def test_recoverable_false_by_default(self) -> None:
+        err = dcc_mcp_core.DccError(dcc_mcp_core.DccErrorCode.SCRIPT_ERROR, "syntax error")
+        assert err.recoverable is False
+
+    def test_recoverable_true(self) -> None:
+        err = dcc_mcp_core.DccError(dcc_mcp_core.DccErrorCode.TIMEOUT, "timeout", recoverable=True)
+        assert err.recoverable is True
+
+    def test_all_error_codes_str(self) -> None:
+        codes = [
+            (dcc_mcp_core.DccErrorCode.CONNECTION_FAILED, "CONNECTION_FAILED"),
+            (dcc_mcp_core.DccErrorCode.TIMEOUT, "TIMEOUT"),
+            (dcc_mcp_core.DccErrorCode.SCRIPT_ERROR, "SCRIPT_ERROR"),
+            (dcc_mcp_core.DccErrorCode.NOT_RESPONDING, "NOT_RESPONDING"),
+            (dcc_mcp_core.DccErrorCode.UNSUPPORTED, "UNSUPPORTED"),
+            (dcc_mcp_core.DccErrorCode.PERMISSION_DENIED, "PERMISSION_DENIED"),
+            (dcc_mcp_core.DccErrorCode.INVALID_INPUT, "INVALID_INPUT"),
+            (dcc_mcp_core.DccErrorCode.SCENE_ERROR, "SCENE_ERROR"),
+            (dcc_mcp_core.DccErrorCode.INTERNAL, "INTERNAL"),
+        ]
+        for code, expected_str in codes:
+            assert str(code) == expected_str
+
+
+# ── SceneStatistics repr format ──
+
+
+class TestSceneStatisticsRepr:
+    def test_repr_contains_object_count(self) -> None:
+        stats = dcc_mcp_core.SceneStatistics(object_count=42)
+        r = repr(stats)
+        assert "42" in r
+
+    def test_repr_format_known_structure(self) -> None:
+        stats = dcc_mcp_core.SceneStatistics(object_count=5, vertex_count=100, polygon_count=50)
+        r = repr(stats)
+        # Format: SceneStatistics(objects=5, verts=100, polys=50)
+        assert "objects=5" in r
+        assert "verts=100" in r
+        assert "polys=50" in r
+
+    def test_all_fields_set(self) -> None:
+        stats = dcc_mcp_core.SceneStatistics(
+            object_count=10,
+            vertex_count=2000,
+            polygon_count=1000,
+            material_count=5,
+            texture_count=8,
+            light_count=3,
+            camera_count=2,
+        )
+        assert stats.object_count == 10
+        assert stats.vertex_count == 2000
+        assert stats.polygon_count == 1000
+        assert stats.material_count == 5
+        assert stats.texture_count == 8
+        assert stats.light_count == 3
+        assert stats.camera_count == 2
+
+    def test_zero_values_default(self) -> None:
+        stats = dcc_mcp_core.SceneStatistics()
+        for field in (
+            "object_count",
+            "vertex_count",
+            "polygon_count",
+            "material_count",
+            "texture_count",
+            "light_count",
+            "camera_count",
+        ):
+            assert getattr(stats, field) == 0
+
+    def test_large_values(self) -> None:
+        stats = dcc_mcp_core.SceneStatistics(vertex_count=10_000_000, polygon_count=5_000_000)
+        assert stats.vertex_count == 10_000_000
+        assert stats.polygon_count == 5_000_000

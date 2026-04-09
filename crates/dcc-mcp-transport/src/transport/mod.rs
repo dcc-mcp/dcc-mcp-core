@@ -346,14 +346,14 @@ impl TransportManager {
     ///
     /// ```ignore
     /// let arc = manager.get_active_connection(&key).unwrap();
-    /// let mut guard = arc.lock().unwrap();
+    /// let mut guard = arc.lock();
     /// let framed = guard.framed_mut().unwrap();
     /// framed.send(&my_request).await?;
     /// ```
     pub fn get_active_connection(
         &self,
         key: &ServiceKey,
-    ) -> Option<Arc<std::sync::Mutex<ActiveConnection>>> {
+    ) -> Option<Arc<parking_lot::Mutex<ActiveConnection>>> {
         self.pool.get_active(key)
     }
 
@@ -382,7 +382,7 @@ impl TransportManager {
         &self,
         service_key: &ServiceKey,
         address: &TransportAddress,
-    ) -> TransportResult<Arc<std::sync::Mutex<ActiveConnection>>> {
+    ) -> TransportResult<Arc<parking_lot::Mutex<ActiveConnection>>> {
         // Backoff settings always come from the transport config's session section.
         let max_retries = self.config.session.reconnect_max_retries;
         let backoff_base = self.config.session.reconnect_backoff_base;

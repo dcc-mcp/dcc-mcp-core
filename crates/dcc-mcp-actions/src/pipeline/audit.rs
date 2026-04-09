@@ -1,7 +1,6 @@
 //! Audit middleware — records all dispatched actions to an in-memory log.
 
-use std::sync::Mutex;
-
+use parking_lot::Mutex;
 use serde_json::Value;
 
 use crate::dispatcher::{DispatchError, DispatchResult};
@@ -49,18 +48,18 @@ impl AuditMiddleware {
     /// Get a snapshot of all audit records.
     #[must_use]
     pub fn records(&self) -> Vec<AuditRecord> {
-        self.records.lock().expect("audit lock poisoned").clone()
+        self.records.lock().clone()
     }
 
     /// Get the number of recorded entries.
     #[must_use]
     pub fn record_count(&self) -> usize {
-        self.records.lock().expect("audit lock poisoned").len()
+        self.records.lock().len()
     }
 
     /// Clear all audit records.
     pub fn clear(&self) {
-        self.records.lock().expect("audit lock poisoned").clear();
+        self.records.lock().clear();
     }
 
     /// Get audit records for a specific action.
@@ -68,7 +67,6 @@ impl AuditMiddleware {
     pub fn records_for_action(&self, action: &str) -> Vec<AuditRecord> {
         self.records
             .lock()
-            .expect("audit lock poisoned")
             .iter()
             .filter(|r| r.action == action)
             .cloned()
@@ -108,10 +106,7 @@ impl ActionMiddleware for AuditMiddleware {
             }),
         };
 
-        self.records
-            .lock()
-            .expect("audit lock poisoned")
-            .push(record);
+        self.records.lock().push(record);
     }
 
     fn name(&self) -> &'static str {

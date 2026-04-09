@@ -24,13 +24,14 @@
 //! ```
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
+use parking_lot::Mutex;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio::time::interval;
-use tracing::{debug, info, warn};
+use tracing::{debug, info};
 
 use crate::monitor::ProcessMonitor;
 use crate::types::{ProcessInfo, ProcessStatus};
@@ -125,41 +126,27 @@ impl ProcessWatcher {
     /// Register a PID to monitor.
     pub fn track(&self, pid: u32, name: impl Into<String>) {
         let name = name.into();
-        if let Ok(mut m) = self.inner.monitor.lock() {
-            m.track(pid, name.clone());
-        }
+        self.inner.monitor.lock().track(pid, name.clone());
         debug!(pid, name, "watcher: tracking pid");
     }
 
     /// Stop monitoring a PID.
     pub fn untrack(&self, pid: u32) {
-        if let Ok(mut m) = self.inner.monitor.lock() {
-            m.untrack(pid);
-        }
-        if let Ok(mut s) = self.inner.last_status.lock() {
-            s.remove(&pid);
-        }
+        self.inner.monitor.lock().untrack(pid);
+        self.inner.last_status.lock().remove(&pid);
         debug!(pid, "watcher: stopped tracking pid");
     }
 
     /// Return the number of currently tracked PIDs.
     #[must_use]
     pub fn tracked_count(&self) -> usize {
-        self.inner
-            .monitor
-            .lock()
-            .map(|m| m.tracked_count())
-            .unwrap_or(0)
+        self.inner.monitor.lock().tracked_count()
     }
 
     /// Return `true` if the given PID is currently being watched.
     #[must_use]
     pub fn is_tracked(&self, pid: u32) -> bool {
-        self.inner
-            .monitor
-            .lock()
-            .map(|m| m.is_tracked(pid))
-            .unwrap_or(false)
+        self.inner.monitor.lock().is_tracked(pid)
     }
 
     /// Query the latest snapshot for a specific PID (may be slightly stale).
@@ -167,7 +154,7 @@ impl ProcessWatcher {
     /// Returns `None` if the PID is not tracked or the process has already exited.
     #[must_use]
     pub fn query(&self, pid: u32) -> Option<ProcessInfo> {
-        self.inner.monitor.lock().ok()?.query(pid)
+        self.inner.monitor.lock().query(pid)
     }
 
     /// Spawn the background watch loop.
@@ -228,10 +215,7 @@ async fn watch_loop(
 async fn poll_once(inner: &WatcherInner, event_tx: &mpsc::Sender<ProcessEvent>) {
     // Refresh synchronously (sysinfo is not async)
     let all_info: Vec<ProcessInfo> = {
-        let Ok(mut monitor) = inner.monitor.lock() else {
-            warn!("process monitor lock poisoned — skipping poll cycle");
-            return;
-        };
+        let mut monitor = inner.monitor.lock();
         monitor.refresh();
         monitor.list_all()
         // MutexGuard dropped here
@@ -241,10 +225,7 @@ async fn poll_once(inner: &WatcherInner, event_tx: &mpsc::Sender<ProcessEvent>) 
     // We snapshot last_status, mutate it locally, then write back.
     let mut status_updates: Vec<(u32, ProcessStatus, Option<ProcessStatus>)> = Vec::new();
     {
-        let Ok(mut last) = inner.last_status.lock() else {
-            warn!("last_status lock poisoned — skipping event emission");
-            return;
-        };
+        let mut last = inner.last_status.lock();
 
         for info in &all_info {
             let old = last.get(&info.pid).copied();
@@ -341,7 +322,7 @@ mod tests {
 
             // Manually trigger a refresh through the inner monitor
             {
-                let mut m = watcher.inner.monitor.lock().unwrap();
+                let mut m = watcher.inner.monitor.lock();
                 m.refresh();
             }
 

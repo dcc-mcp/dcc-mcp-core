@@ -343,6 +343,63 @@ class TestInputValidator:
         assert ok is False
         assert err is not None
 
+    def test_require_string_min_length_rejects_too_short(self) -> None:
+        """require_string with min_length rejects strings shorter than the minimum."""
+        v = dcc_mcp_core.InputValidator()
+        v.require_string("token", max_length=None, min_length=8)
+        ok, err = v.validate('{"token": "abc"}')
+        assert ok is False
+        assert err is not None
+
+    def test_require_string_min_length_accepts_exactly_at_minimum(self) -> None:
+        v = dcc_mcp_core.InputValidator()
+        v.require_string("token", max_length=None, min_length=3)
+        ok, err = v.validate('{"token": "abc"}')
+        assert ok is True
+        assert err is None
+
+    def test_require_number_no_bounds_accepts_any_number(self) -> None:
+        """require_number without bounds should accept any finite number."""
+        v = dcc_mcp_core.InputValidator()
+        v.require_number("value", min_value=None, max_value=None)
+        for n in ["-99999", "0", "3.14"]:
+            ok, err = v.validate(f'{{"value": {n}}}')
+            assert ok is True, f"Expected ok for value={n}, got err={err}"
+
+    def test_forbid_substrings_multiple_patterns_one_triggers(self) -> None:
+        """Only one of the forbidden substrings needs to match for rejection."""
+        v = dcc_mcp_core.InputValidator()
+        v.forbid_substrings("code", ["exec(", "eval(", "__import__"])
+        # 'eval(' triggers
+        ok, err = v.validate('{"code": "result = eval(x)"}')
+        assert ok is False
+        assert err is not None
+
+    def test_forbid_substrings_none_match_accepted(self) -> None:
+        v = dcc_mcp_core.InputValidator()
+        v.forbid_substrings("code", ["exec(", "eval(", "__import__"])
+        ok, _ = v.validate('{"code": "print(hello)"}')
+        assert ok is True
+
+    def test_combined_string_number_and_forbid(self) -> None:
+        """All rules pass for a valid payload."""
+        v = dcc_mcp_core.InputValidator()
+        v.require_string("name", max_length=50, min_length=None)
+        v.require_number("radius", min_value=0.0, max_value=1000.0)
+        v.forbid_substrings("name", ["__", "exec"])
+        ok, err = v.validate('{"name": "sphere_01", "radius": 5.0}')
+        assert ok is True
+        assert err is None
+
+    def test_combined_string_number_and_forbid_injection_fails(self) -> None:
+        """All rules fail if the injection guard triggers."""
+        v = dcc_mcp_core.InputValidator()
+        v.require_string("name", max_length=50, min_length=None)
+        v.require_number("radius", min_value=0.0, max_value=1000.0)
+        v.forbid_substrings("name", ["exec"])
+        ok, _ = v.validate('{"name": "exec(rm -rf /)", "radius": 5.0}')
+        assert ok is False
+
 
 # ── SandboxContext advanced cases ─────────────────────────────────────────────
 

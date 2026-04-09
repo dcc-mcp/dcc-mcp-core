@@ -8,26 +8,26 @@ Zero-copy shared memory transport for large DCC scene data.
 
 DCC scene data (geometry, animation caches, framebuffers) can easily reach gigabytes. `dcc-mcp-shm` provides a **zero-copy** alternative: the DCC side writes data directly into a memory-mapped file; the consumer reads from the same mapped region without any copying or serialization.
 
-## SharedSceneBuffer
+## PySharedSceneBuffer
 
 High-level wrapper for shared scene data.
 
-### Writing Data
+### write()
 
 ```python
-from dcc_mcp_core import PySharedSceneBuffer, SceneDataKind
+from dcc_mcp_core import PySharedSceneBuffer, PySceneDataKind
 
 # DCC side: write scene data
 vertices = bytes(1024 * 1024)  # 1 MiB of vertex data
 ssb = PySharedSceneBuffer.write(
-    vertices,
-    SceneDataKind.GEOMETRY,
-    "Maya",  # DCC name
-    True     # LZ4 compression
+    data=vertices,
+    kind=PySceneDataKind.Geometry,
+    source_dcc="Maya",
+    use_compression=True
 )
 ```
 
-### Reading Data
+### read()
 
 ```python
 # Agent side: read back the original bytes
@@ -35,114 +35,104 @@ recovered = ssb.read()
 assert recovered == vertices
 ```
 
-### Serialization
+### descriptor_json()
 
 ```python
 # Send JSON descriptor to the Agent side via IPC
-json_descriptor = ssb.to_descriptor_json()
+json_descriptor = ssb.descriptor_json()
 print(json_descriptor)
 ```
 
-## SceneDataKind
+### from_descriptor_json()
+
+```python
+# Reconstruct from JSON descriptor
+ssb = PySharedSceneBuffer.from_descriptor_json(json_descriptor)
+data = ssb.read()
+```
+
+### Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `kind` | `PySceneDataKind` | Data type enum |
+| `source_dcc` | `str` | Source DCC name |
+| `use_compression` | `bool` | Whether LZ4 compression is used |
+| `size_bytes` | `int` | Size in bytes |
+
+## PySceneDataKind
+
+Enum for classifying data:
 
 | Kind | Description |
 |------|-------------|
-| `GEOMETRY` | Mesh/vertex data |
-| `TEXTURE` | Image/texture data |
-| `ANIMATION` | Animation curves |
-| `SCENE` | Full scene state |
-| `METADATA` | Scene metadata |
+| `Geometry` | Mesh/vertex data |
+| `Texture` | Image/texture data |
+| `Animation` | Animation curves |
+| `Scene` | Full scene state |
+| `Metadata` | Scene metadata |
 
-## BufferPool
+## PyBufferPool
 
 Pre-allocated buffer pool for high-performance scenarios.
 
+### Constructor
+
 ```python
-from dcc_mcp_core import PyBufferPool, BufferDescriptor
+from dcc_mcp_core import PyBufferPool
 
-# Create a pool with 4 buffers of 256 MiB each
-pool = PyBufferPool(capacity=4, buffer_size=256 * 1024 * 1024)
+pool = PyBufferPool(capacity=4, size_bytes=256 * 1024 * 1024)
+```
 
+### Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `acquire()` | `PySharedBuffer` | Get a buffer from the pool |
+| `release(buffer)` | `None` | Return buffer to the pool |
+
+### Example
+
+```python
 # Acquire a buffer from the pool
 buffer = pool.acquire()
 
 # Write data to the buffer
-buffer.write(data)
+buffer.write(b"data")
 
 # Release back to the pool
 pool.release(buffer)
 ```
 
-### BufferDescriptor
-
-```python
-# Get information about a shared buffer
-desc = buffer.descriptor()
-print(desc.size)       # Buffer size in bytes
-print(desc.path)       # Memory-mapped file path
-print(desc.offset)     # Offset within the buffer
-```
-
-## Chunked Transfer
-
-For data larger than 256 MiB, chunked transfer is used automatically.
-
-```python
-from dcc_mcp_core import ChunkManifest, DEFAULT_CHUNK_SIZE
-
-# Large data is automatically chunked
-ssb = PySharedSceneBuffer.write(large_data, SceneDataKind.SCENE)
-
-# Get the chunk manifest for transmission
-manifest = ssb.chunk_manifest()
-for chunk in manifest.chunks:
-    print(f"Chunk {chunk.index}: offset={chunk.offset}, size={chunk.size}")
-```
-
-## SharedBuffer (Low-Level)
+## PySharedBuffer
 
 Direct access to memory-mapped shared buffers.
 
-### Creating a SharedBuffer
+### create()
 
 ```python
-from dcc_mcp_core import SharedBuffer
+from dcc_mcp_core import PySharedBuffer
 
-# Create a new shared buffer
-buffer = SharedBuffer.create(size=1024 * 1024)
-
-# Open an existing buffer by path
-buffer = SharedBuffer.open("/path/to/mmap/file")
+buffer = PySharedBuffer.create(size_bytes=1024 * 1024)
+buffer_id = buffer.buffer_id()
 ```
 
-### Reading and Writing
+### Methods
 
-```python
-# Write bytes to the buffer
-buffer.write(b"data", offset=0)
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `write(data)` | `None` | Write bytes to buffer |
+| `read()` | `bytes` | Read all buffer data |
 
-# Read bytes from the buffer
-data = buffer.read(offset=0, size=1024)
+### Properties
 
-# Get buffer metadata
-print(buffer.size)
-print(buffer.path)
-```
-
-## Error Handling
-
-```python
-from dcc_mcp_core import ShmError
-
-try:
-    buffer = SharedBuffer.create(size=-1)  # Invalid size
-except ShmError as e:
-    print(f"SHM error: {e}")
-```
+| Property | Type | Description |
+|----------|------|-------------|
+| `size_bytes` | `int` | Buffer size |
+| `buffer_id()` | `str` | Unique buffer identifier |
 
 ## Performance Notes
 
 - Zero-copy: Data is never copied when using memory-mapped files
 - LZ4 compression: Optional compression reduces transfer time at CPU cost
-- Chunked transfer: Large data is split into 256 MiB chunks automatically
 - Pool reuse: Buffer pools eliminate allocation overhead for repeated transfers

@@ -288,3 +288,192 @@ class TestPromptDefinition:
     def test_repr(self) -> None:
         pd = dcc_mcp_core.PromptDefinition(name="render_prompt", description="Render")
         assert "render_prompt" in repr(pd)
+
+
+class TestEncodeDecodeEnvelope:
+    """Tests for the framed MessagePack transport helpers.
+
+    All encode_* functions return bytes in the format:
+        [4-byte big-endian length][MessagePack payload]
+
+    decode_envelope() takes the payload WITHOUT the 4-byte prefix.
+    """
+
+    # ── encode_request ──────────────────────────────────────────────────────
+
+    def test_encode_request_returns_bytes(self) -> None:
+        frame = dcc_mcp_core.encode_request("ping")
+        assert isinstance(frame, bytes)
+        assert len(frame) >= 4
+
+    def test_encode_request_length_prefix_correct(self) -> None:
+        import struct
+
+        frame = dcc_mcp_core.encode_request("ping")
+        length = struct.unpack(">I", frame[:4])[0]
+        assert length == len(frame) - 4
+
+    def test_encode_request_no_params_roundtrip(self) -> None:
+        frame = dcc_mcp_core.encode_request("ping")
+        msg = dcc_mcp_core.decode_envelope(frame[4:])
+        assert msg["type"] == "request"
+        assert msg["method"] == "ping"
+        assert isinstance(msg["id"], str)
+        assert len(msg["id"]) > 0
+        assert msg["params"] == b""
+
+    def test_encode_request_with_bytes_params_roundtrip(self) -> None:
+        payload = b'{"radius": 1.0}'
+        frame = dcc_mcp_core.encode_request("create_sphere", payload)
+        msg = dcc_mcp_core.decode_envelope(frame[4:])
+        assert msg["type"] == "request"
+        assert msg["method"] == "create_sphere"
+        assert msg["params"] == payload
+
+    def test_encode_request_empty_method_allowed(self) -> None:
+        frame = dcc_mcp_core.encode_request("")
+        msg = dcc_mcp_core.decode_envelope(frame[4:])
+        assert msg["method"] == ""
+
+    def test_encode_request_generates_unique_ids(self) -> None:
+        frame1 = dcc_mcp_core.encode_request("ping")
+        frame2 = dcc_mcp_core.encode_request("ping")
+        msg1 = dcc_mcp_core.decode_envelope(frame1[4:])
+        msg2 = dcc_mcp_core.decode_envelope(frame2[4:])
+        assert msg1["id"] != msg2["id"]
+
+    def test_encode_request_id_is_valid_uuid_format(self) -> None:
+        import re
+
+        frame = dcc_mcp_core.encode_request("test")
+        msg = dcc_mcp_core.decode_envelope(frame[4:])
+        uuid_pattern = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+        assert uuid_pattern.match(msg["id"]), f"Not a UUID: {msg['id']}"
+
+    # ── encode_response ─────────────────────────────────────────────────────
+
+    def test_encode_response_success_roundtrip(self) -> None:
+        import uuid
+
+        req_id = str(uuid.uuid4())
+        frame = dcc_mcp_core.encode_response(req_id, True, b'{"name": "sphere1"}')
+        msg = dcc_mcp_core.decode_envelope(frame[4:])
+        assert msg["type"] == "response"
+        assert msg["id"] == req_id
+        assert msg["success"] is True
+        assert msg["payload"] == b'{"name": "sphere1"}'
+        assert msg["error"] is None
+
+    def test_encode_response_error_roundtrip(self) -> None:
+        import uuid
+
+        req_id = str(uuid.uuid4())
+        frame = dcc_mcp_core.encode_response(req_id, False, error="object not found")
+        msg = dcc_mcp_core.decode_envelope(frame[4:])
+        assert msg["type"] == "response"
+        assert msg["success"] is False
+        assert msg["error"] == "object not found"
+        assert msg["payload"] == b""
+
+    def test_encode_response_no_payload_roundtrip(self) -> None:
+        import uuid
+
+        req_id = str(uuid.uuid4())
+        frame = dcc_mcp_core.encode_response(req_id, True)
+        msg = dcc_mcp_core.decode_envelope(frame[4:])
+        assert msg["success"] is True
+        assert msg["payload"] == b""
+
+    def test_encode_response_invalid_uuid_raises_value_error(self) -> None:
+        import pytest
+
+        with pytest.raises(ValueError, match="invalid UUID"):
+            dcc_mcp_core.encode_response("not-a-uuid", True)
+
+    def test_encode_response_preserves_request_id(self) -> None:
+        import uuid
+
+        req_id = "00000000-0000-0000-0000-000000000000"
+        frame = dcc_mcp_core.encode_response(req_id, True)
+        msg = dcc_mcp_core.decode_envelope(frame[4:])
+        assert msg["id"] == req_id
+
+    # ── encode_notify ────────────────────────────────────────────────────────
+
+    def test_encode_notify_returns_bytes(self) -> None:
+        frame = dcc_mcp_core.encode_notify("heartbeat")
+        assert isinstance(frame, bytes)
+        assert len(frame) >= 4
+
+    def test_encode_notify_no_data_roundtrip(self) -> None:
+        frame = dcc_mcp_core.encode_notify("heartbeat")
+        msg = dcc_mcp_core.decode_envelope(frame[4:])
+        assert msg["type"] == "notify"
+        assert msg["topic"] == "heartbeat"
+        assert msg["data"] == b""
+
+    def test_encode_notify_with_data_roundtrip(self) -> None:
+        data = b'{"scene": "test.mb", "frame": 1}'
+        frame = dcc_mcp_core.encode_notify("scene_changed", data)
+        msg = dcc_mcp_core.decode_envelope(frame[4:])
+        assert msg["type"] == "notify"
+        assert msg["topic"] == "scene_changed"
+        assert msg["data"] == data
+
+    def test_encode_notify_id_is_none(self) -> None:
+        frame = dcc_mcp_core.encode_notify("render_complete", b"done")
+        msg = dcc_mcp_core.decode_envelope(frame[4:])
+        assert msg["id"] is None
+
+    def test_encode_notify_length_prefix_correct(self) -> None:
+        import struct
+
+        frame = dcc_mcp_core.encode_notify("test", b"payload")
+        length = struct.unpack(">I", frame[:4])[0]
+        assert length == len(frame) - 4
+
+    # ── decode_envelope error paths ─────────────────────────────────────────
+
+    def test_decode_envelope_invalid_msgpack_raises_runtime_error(self) -> None:
+        import pytest
+
+        with pytest.raises(RuntimeError):
+            dcc_mcp_core.decode_envelope(b"not-msgpack")
+
+    def test_decode_envelope_empty_bytes_raises_runtime_error(self) -> None:
+        import pytest
+
+        with pytest.raises(RuntimeError):
+            dcc_mcp_core.decode_envelope(b"")
+
+    def test_decode_envelope_returns_dict(self) -> None:
+        frame = dcc_mcp_core.encode_request("test")
+        result = dcc_mcp_core.decode_envelope(frame[4:])
+        assert isinstance(result, dict)
+
+    def test_decode_envelope_request_has_expected_keys(self) -> None:
+        frame = dcc_mcp_core.encode_request("execute_python", b"cmds.sphere()")
+        msg = dcc_mcp_core.decode_envelope(frame[4:])
+        assert "type" in msg
+        assert "id" in msg
+        assert "method" in msg
+        assert "params" in msg
+
+    def test_decode_envelope_response_has_expected_keys(self) -> None:
+        import uuid
+
+        frame = dcc_mcp_core.encode_response(str(uuid.uuid4()), True, b"ok")
+        msg = dcc_mcp_core.decode_envelope(frame[4:])
+        assert "type" in msg
+        assert "id" in msg
+        assert "success" in msg
+        assert "payload" in msg
+        assert "error" in msg
+
+    def test_decode_envelope_notify_has_expected_keys(self) -> None:
+        frame = dcc_mcp_core.encode_notify("status", b"running")
+        msg = dcc_mcp_core.decode_envelope(frame[4:])
+        assert "type" in msg
+        assert "id" in msg
+        assert "topic" in msg
+        assert "data" in msg

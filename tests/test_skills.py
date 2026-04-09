@@ -24,12 +24,10 @@ class TestSkillMetadata:
         assert sm.skill_path == ""
 
     def test_create_full(self) -> None:
-        read_tool = dcc_mcp_core.ToolDeclaration(name="read")
-        write_tool = dcc_mcp_core.ToolDeclaration(name="write")
         sm = dcc_mcp_core.SkillMetadata(
             name="maya-tool",
             description="A Maya tool",
-            tools=[read_tool, write_tool],
+            tools=["read", "write"],
             dcc="maya",
             tags=["geometry"],
             scripts=["hello.py"],
@@ -38,9 +36,8 @@ class TestSkillMetadata:
         )
         assert sm.dcc == "maya"
         assert sm.description == "A Maya tool"
-        tool_names = [t.name for t in sm.tools]
-        assert "read" in tool_names
-        assert "write" in tool_names
+        assert "read" in sm.tools
+        assert "write" in sm.tools
         assert sm.tags == ["geometry"]
         assert sm.scripts == ["hello.py"]
         assert sm.skill_path == "/path/to/skill"
@@ -50,7 +47,7 @@ class TestSkillMetadata:
         sm = dcc_mcp_core.SkillMetadata(name="old")
         sm.name = "new"
         sm.description = "new desc"
-        sm.tools = [dcc_mcp_core.ToolDeclaration(name="tool1")]
+        sm.tools = ["tool1"]
         sm.dcc = "houdini"
         sm.tags = ["tag1", "tag2"]
         sm.scripts = ["s.py"]
@@ -58,7 +55,7 @@ class TestSkillMetadata:
         sm.version = "3.0.0"
         assert sm.name == "new"
         assert sm.description == "new desc"
-        assert [t.name for t in sm.tools] == ["tool1"]
+        assert sm.tools == ["tool1"]
         assert sm.dcc == "houdini"
         assert sm.tags == ["tag1", "tag2"]
         assert sm.scripts == ["s.py"]
@@ -191,3 +188,113 @@ class TestParseSkillMd:
         (tmp_path / "SKILL.md").write_text("# No frontmatter\nJust body text.", encoding="utf-8")
         result = dcc_mcp_core.parse_skill_md(str(tmp_path))
         assert result is None
+
+    def test_parse_depends_single(self, tmp_path: Path) -> None:
+        """A single-item depends list is parsed into SkillMetadata.depends."""
+        (tmp_path / "SKILL.md").write_text(
+            "---\nname: child\ndcc: maya\ndepends:\n  - parent-skill\n---\n",
+            encoding="utf-8",
+        )
+        meta = dcc_mcp_core.parse_skill_md(str(tmp_path))
+        assert meta is not None
+        assert "parent-skill" in meta.depends
+
+    def test_parse_depends_multiple(self, tmp_path: Path) -> None:
+        """Multiple items in depends are all present in SkillMetadata.depends."""
+        (tmp_path / "SKILL.md").write_text(
+            "---\nname: child\ndepends:\n  - dep-a\n  - dep-b\n  - dep-c\n---\n",
+            encoding="utf-8",
+        )
+        meta = dcc_mcp_core.parse_skill_md(str(tmp_path))
+        assert meta is not None
+        assert set(meta.depends) == {"dep-a", "dep-b", "dep-c"}
+
+    def test_parse_depends_empty_by_default(self, tmp_path: Path) -> None:
+        """A SKILL.md without depends field gives an empty list."""
+        (tmp_path / "SKILL.md").write_text(
+            "---\nname: no-deps\n---\n",
+            encoding="utf-8",
+        )
+        meta = dcc_mcp_core.parse_skill_md(str(tmp_path))
+        assert meta is not None
+        assert meta.depends == []
+
+    def test_parse_tags_multiple(self, tmp_path: Path) -> None:
+        """Tags field with multiple values is parsed into meta.tags list."""
+        (tmp_path / "SKILL.md").write_text(
+            "---\nname: tagged\ntags:\n  - geo\n  - render\n  - shading\n---\n",
+            encoding="utf-8",
+        )
+        meta = dcc_mcp_core.parse_skill_md(str(tmp_path))
+        assert meta is not None
+        assert "geo" in meta.tags
+        assert "render" in meta.tags
+        assert "shading" in meta.tags
+
+    def test_parse_tools_multiple(self, tmp_path: Path) -> None:
+        """Tools field with multiple values is parsed into meta.tools list."""
+        (tmp_path / "SKILL.md").write_text(
+            "---\nname: tooled\ntools:\n  - Bash\n  - Read\n  - Write\n---\n",
+            encoding="utf-8",
+        )
+        meta = dcc_mcp_core.parse_skill_md(str(tmp_path))
+        assert meta is not None
+        assert "Bash" in meta.tools
+        assert "Read" in meta.tools
+        assert "Write" in meta.tools
+
+    def test_parse_tools_empty_by_default(self, tmp_path: Path) -> None:
+        """A SKILL.md without tools field gives an empty list."""
+        (tmp_path / "SKILL.md").write_text(
+            "---\nname: no-tools\n---\n",
+            encoding="utf-8",
+        )
+        meta = dcc_mcp_core.parse_skill_md(str(tmp_path))
+        assert meta is not None
+        assert meta.tools == []
+
+    def test_parse_metadata_files_empty_default(self, tmp_path: Path) -> None:
+        """metadata_files should be an empty list when no additional files present."""
+        (tmp_path / "SKILL.md").write_text(
+            "---\nname: no-extra-files\n---\n",
+            encoding="utf-8",
+        )
+        meta = dcc_mcp_core.parse_skill_md(str(tmp_path))
+        assert meta is not None
+        assert isinstance(meta.metadata_files, list)
+
+
+class TestSkillMetadataDepends:
+    """Unit tests for SkillMetadata.depends field construction and mutation."""
+
+    def test_default_depends_empty(self) -> None:
+        sm = dcc_mcp_core.SkillMetadata(name="test")
+        assert sm.depends == []
+
+    def test_construct_with_depends(self) -> None:
+        sm = dcc_mcp_core.SkillMetadata(name="child", depends=["base-skill"])
+        assert "base-skill" in sm.depends
+
+    def test_construct_with_multiple_depends(self) -> None:
+        sm = dcc_mcp_core.SkillMetadata(name="child", depends=["dep-a", "dep-b"])
+        assert set(sm.depends) == {"dep-a", "dep-b"}
+
+    def test_depends_setter(self) -> None:
+        sm = dcc_mcp_core.SkillMetadata(name="skill")
+        sm.depends = ["new-dep"]
+        assert sm.depends == ["new-dep"]
+
+    def test_depends_setter_empty(self) -> None:
+        sm = dcc_mcp_core.SkillMetadata(name="skill", depends=["old"])
+        sm.depends = []
+        assert sm.depends == []
+
+    def test_depends_is_list(self) -> None:
+        sm = dcc_mcp_core.SkillMetadata(name="skill", depends=["x"])
+        assert isinstance(sm.depends, list)
+
+    def test_depends_present_in_repr(self) -> None:
+        """Depends values appear somewhere in the repr (useful for debugging)."""
+        sm = dcc_mcp_core.SkillMetadata(name="dep-skill", depends=["base"])
+        # repr should at minimum contain the skill name
+        assert "dep-skill" in repr(sm)

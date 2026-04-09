@@ -38,7 +38,9 @@ fn runtime() -> PyResult<Arc<Runtime>> {
                 .expect("failed to build process tokio runtime"),
         )
     });
-    Ok(Arc::clone(RT.get().unwrap()))
+    Ok(Arc::clone(
+        RT.get().expect("OnceLock initialized by get_or_init above"),
+    ))
 }
 
 fn map_process_err(e: ProcessError) -> PyErr {

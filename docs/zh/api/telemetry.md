@@ -1,177 +1,159 @@
-# Telemetry API
+# 遥测 API
 
 `dcc_mcp_core` (telemetry 模块)
 
-OpenTelemetry 追踪、指标和结构化日志。
+操作性能记录和可选的 OpenTelemetry 追踪/指标。
 
 ## 概述
 
-为 DCC-MCP 生态系统提供可观测性：
+提供：
 
-- **追踪** — 操作执行的分布式追踪
-- **指标** — 每个操作的耗时和成功率指标
-- **日志** — 带 OpenTelemetry 集成的结构化日志
-- **导出器** — 支持 OTLP gRPC（Jaeger、Grafana Tempo、Prometheus）
-
-## TelemetryConfig
-
-遥测提供者的配置。
-
-### 构造函数
-
-```python
-from dcc_mcp_core import TelemetryConfig, ExporterBackend, LogFormat
-
-config = TelemetryConfig.builder("my-dcc-service") \
-    .with_exporter(ExporterBackend.CONSOLE) \
-    .with_log_format(LogFormat.JSON) \
-    .with_service_version("1.0.0") \
-    .build()
-```
-
-### 导出器后端
-
-| 后端 | 描述 |
-|------|------|
-| `NOOP` | 无操作导出器（用于测试） |
-| `CONSOLE` | 打印到 stdout |
-| `OTLP_GRPC` | 导出到 OTLP gRPC 端点 |
-
-### 日志格式
-
-| 格式 | 描述 |
-|------|------|
-| `JSON` | 结构化 JSON 日志 |
-| `PRETTY` | 人类可读格式 |
-
-## 初始化
-
-```python
-from dcc_mcp_core import init_telemetry, is_telemetry_initialized, shutdown_telemetry
-
-# 启动时初始化
-init_telemetry(config)
-
-# 检查是否已初始化
-if is_telemetry_initialized():
-    print("遥测已激活")
-
-# 退出时关闭
-shutdown_telemetry()
-```
+- **操作记录** — 通过 `ActionRecorder` 记录每个操作的耗时和成功/失败计数
+- **指标** — `ActionMetrics` 快照，包含延迟百分位数（p95/p99）和成功率
+- **可选 OpenTelemetry** — stdout 导出器、JSON/文本日志、资源属性（可选）
 
 ## ActionRecorder
 
-记录操作调用的指标。
+记录任何操作执行时间和结果。
 
 ### 构造函数
 
 ```python
 from dcc_mcp_core import ActionRecorder
 
-recorder = ActionRecorder("my-dcc-service")
+recorder = ActionRecorder("my-service")
 ```
 
-### 记录操作
+### 方法
+
+| 方法 | 返回 | 描述 |
+|------|------|------|
+| `start(action_name, dcc_name)` | `RecordingGuard` | 开始计时操作 |
+| `metrics(action_name)` | `ActionMetrics \| None` | 获取操作指标 |
+| `all_metrics()` | `list[ActionMetrics]` | 获取所有操作指标 |
+| `reset()` | `None` | 重置所有统计数据 |
+
+### 使用 Guard 记录
 
 ```python
-# 开始记录
 guard = recorder.start("create_sphere", "maya")
-
-# ... 执行操作工作 ...
-
-# 带成功或失败结束
+# ... 执行工作 ...
 guard.finish(success=True)
 ```
 
-### 上下文管理器记录
+### 上下文管理器用法
 
 ```python
-with recorder.record("list_objects", "blender") as metrics:
+with recorder.start("create_sphere", "maya") as guard:
     # ... 执行工作 ...
-    pass  # 自动以 success=True 结束
-
-# 或显式结果
-guard = recorder.record("delete_mesh", "houdini")
-# ... 工作 ...
-guard.finish(success=False, error="对象未找到")
+# guard.finish(success=True) 在成功时自动调用
+# guard.finish(success=False) 在异常时自动调用
 ```
 
-### 查询指标
+## ActionMetrics
 
-```python
-metrics = recorder.metrics("create_sphere")
-print(f"调用次数: {metrics.invocation_count}")
-print(f"成功率: {metrics.success_rate():.2%}")
-print(f"P50 延迟: {metrics.latency_p50_ms}ms")
-print(f"P95 延迟: {metrics.latency_p95_ms}ms")
-print(f"P99 延迟: {metrics.latency_p99_ms}ms")
-```
+每个操作性能指标的只读快照。
 
-### ActionMetrics
+### 属性
 
-| 字段 | 类型 | 描述 |
+| 属性 | 类型 | 描述 |
 |------|------|------|
 | `action_name` | `str` | 操作名称 |
 | `invocation_count` | `int` | 总调用次数 |
 | `success_count` | `int` | 成功调用次数 |
 | `failure_count` | `int` | 失败调用次数 |
-| `success_rate()` | `float` | 成功比率 (0-1) |
-| `latency_p50_ms` | `float` | 50 百分位延迟 |
-| `latency_p95_ms` | `float` | 95 百分位延迟 |
-| `latency_p99_ms` | `float` | 99 百分位延迟 |
+| `avg_duration_ms` | `float` | 平均耗时（毫秒） |
+| `p95_duration_ms` | `float` | P95 耗时 |
+| `p99_duration_ms` | `float` | P99 耗时 |
 
-## 追踪跨度
+### 方法
 
-为详细追踪创建自定义跨度。
-
-### Python 追踪
-
-```python
-from dcc_mcp_core import tracer, action_span
-
-# 获取追踪器
-t = tracer("my-component")
-
-# 手动创建跨度
-with t.start_as_current_span("my_operation") as span:
-    span.set_attribute("key", "value")
-    span.add_event("event_name", {"attr": "value"})
-    # ... 工作 ...
-
-# 使用 action_span 辅助函数
-with action_span("create_sphere", dcc="maya") as span:
-    span.set_attribute("radius", 1.0)
-```
-
-### 跨度属性
-
-| 属性 | 类型 | 描述 |
+| 方法 | 返回 | 描述 |
 |------|------|------|
-| `dcc.name` | `str` | DCC 应用程序名称 |
-| `dcc.version` | `str` | DCC 版本 |
-| `action.name` | `str` | 操作名称 |
-| `action.category` | `str` | 操作类别 |
+| `success_rate()` | `float` | 成功率 (0.0-1.0) |
 
-## 错误处理
+### 示例
 
 ```python
-from dcc_mcp_core import TelemetryError
-
-try:
-    init_telemetry(config)
-except TelemetryError as e:
-    print(f"遥测初始化失败: {e}")
+metrics = recorder.metrics("create_sphere")
+if metrics:
+    print(f"调用次数: {metrics.invocation_count}")
+    print(f"成功率: {metrics.success_rate():.2%}")
+    print(f"P95: {metrics.p95_duration_ms:.2f}ms")
 ```
 
-## OTLP 导出
+## RecordingGuard
 
-### OTLP gRPC 配置
+`ActionRecorder.start()` 返回的 RAII guard。
+
+### 方法
+
+| 方法 | 返回 | 描述 |
+|------|------|------|
+| `finish(success)` | `None` | 以成功标志结束记录 |
+| `__enter__()` | `RecordingGuard` | 上下文管理器入口 |
+| `__exit__()` | `None` | 上下文管理器出口（在异常时设置 success=False） |
+
+## TelemetryConfig
+
+可选的 OpenTelemetry 配置。
+
+### 构造函数
 
 ```python
-config = TelemetryConfig.builder("my-service") \
-    .with_exporter(ExporterBackend.OTLP_GRPC) \
-    .with_otlp_endpoint("http://localhost:4317") \
-    .with_otlp_headers({"Authorization": "Bearer token"}) \
-    .build()
+from dcc_mcp_core import TelemetryConfig
+
+cfg = TelemetryConfig("my-dcc-service")
+```
+
+### 方法
+
+| 方法 | 返回 | 描述 |
+|------|------|------|
+| `with_stdout_exporter()` | `TelemetryConfig` | 使用 stdout 导出器 |
+| `with_noop_exporter()` | `TelemetryConfig` | 使用 no-op 导出器（测试） |
+| `with_json_logs()` | `TelemetryConfig` | 使用 JSON 日志格式 |
+| `with_text_logs()` | `TelemetryConfig` | 使用文本日志格式 |
+| `with_attribute(key, value)` | `TelemetryConfig` | 添加资源属性 |
+| `with_service_version(version)` | `TelemetryConfig` | 设置服务版本 |
+| `set_enable_metrics(enabled)` | `TelemetryConfig` | 启用/禁用指标 |
+| `set_enable_tracing(enabled)` | `TelemetryConfig` | 启用/禁用追踪 |
+| `init()` | `None` | 安装为全局提供者 |
+
+### 示例
+
+```python
+cfg = TelemetryConfig("my-dcc-service")
+cfg.with_stdout_exporter()
+cfg.with_json_logs()
+cfg.with_service_version("1.0.0")
+cfg.init()
+```
+
+## is_telemetry_initialized()
+
+检查全局遥测提供者是否已安装。
+
+```python
+from dcc_mcp_core import is_telemetry_initialized
+
+if is_telemetry_initialized():
+    print("遥测已激活")
+```
+
+## 集成示例
+
+### Maya 集成
+
+```python
+from dcc_mcp_core import ActionRecorder
+import maya.cmds as cmds
+
+recorder = ActionRecorder("maya")
+
+def traced_create_sphere(radius=1.0, name=None):
+    with recorder.start("create_sphere", "maya") as guard:
+        sphere = cmds.polySphere(r=radius, n=name)[0]
+        guard.finish(success=True)
+        return sphere
 ```

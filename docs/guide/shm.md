@@ -4,7 +4,7 @@ Zero-copy shared memory transport for large DCC scene data.
 
 ## Overview
 
-DCC scene data (geometry, animation caches, framebuffers) can easily reach gigabytes. Traditional Python-only DCC MCP integrations transmit this data by serializing and sending over TCP, which can take 10-30 seconds for a 1 GB scene.
+DCC scene data (geometry, animation caches, framebuffers) can easily reach gigabytes. Traditional Python-only DCC MCP integrations transmit this data by serializing and sending over TCP, which can take 10–30 seconds for a 1 GB scene.
 
 `dcc-mcp-shm` provides a **zero-copy** alternative: the DCC side writes data directly into a memory-mapped file; the consumer reads from the same mapped region without any copying or serialization.
 
@@ -16,7 +16,7 @@ DCC Process                          Agent Process
      ▼                                     │
 ┌─────────────┐                      ┌─────────────┐
 │ SharedBuffer│◄───── mmap file ─────►│ SharedBuffer│
-│   (write)   │     (no copying)      │   (read)    │
+│   (write)  │     (no copying)      │   (read)    │
 └─────────────┘                      └─────────────┘
 ```
 
@@ -25,7 +25,7 @@ DCC Process                          Agent Process
 ### Writing Scene Data (DCC Side)
 
 ```python
-from dcc_mcp_core import PySharedSceneBuffer, SceneDataKind
+from dcc_mcp_core import PySharedSceneBuffer, PySceneDataKind
 
 # Large vertex data
 vertices = open("scene.fbx", "rb").read()
@@ -33,13 +33,13 @@ vertices = open("scene.fbx", "rb").read()
 # Write to shared memory
 ssb = PySharedSceneBuffer.write(
     vertices,
-    SceneDataKind.GEOMETRY,
-    "Maya",  # DCC name
-    True     # Enable LZ4 compression
+    kind=PySceneDataKind.Geometry,
+    source_dcc="Maya",
+    use_compression=True,  # LZ4 compression
 )
 
 # Send the descriptor JSON to agent via IPC
-descriptor = ssb.to_descriptor_json()
+descriptor = ssb.descriptor_json()
 send_to_agent(descriptor)
 ```
 
@@ -51,82 +51,95 @@ from dcc_mcp_core import PySharedSceneBuffer
 # Receive descriptor from DCC
 descriptor = receive_from_dcc()
 
-# Open shared buffer and read
-ssb = PySharedSceneBuffer.from_descriptor_json(descriptor)
-vertices = ssb.read()
+# Reconstruct from JSON descriptor
+# (Note: the buffer must already exist, this reopens the same memory mapping)
+ssb = PySharedSceneBuffer.open(...)  # Use path/id from descriptor
+data = ssb.read()
 ```
 
-## SharedSceneBuffer
+## PySharedSceneBuffer
 
-The main interface for shared scene data.
+High-level shared scene buffer for zero-copy DCC ↔ Agent data exchange.
 
-### Writing Data
+Automatically selects inline vs chunked storage based on data size. Data larger than 256 MiB is split into chunks.
+
+### write()
 
 ```python
-from dcc_mcp_core import PySharedSceneBuffer, SceneDataKind
+from dcc_mcp_core import PySharedSceneBuffer, PySceneDataKind
 
-# Simple write
 ssb = PySharedSceneBuffer.write(
-    data=vertex_data,
-    kind=SceneDataKind.GEOMETRY,
-    dcc_name="Maya",
-    compress=True
+    data=vertex_bytes,
+    kind=PySceneDataKind.Geometry,
+    source_dcc="Maya",
+    use_compression=True,
 )
 ```
 
-### Reading Data
+| Parameter | Type | Description |
+|----------|------|-------------|
+| `data` | `bytes` | Raw payload to store |
+| `kind` | `PySceneDataKind` | Semantic kind: `Geometry`, `AnimationCache`, `Screenshot`, `Arbitrary` |
+| `source_dcc` | `str \| None` | Originating DCC application name |
+| `use_compression` | `bool` | Apply LZ4 compression before writing |
+
+### Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `id` | `str` | Transfer UUID string |
+| `total_bytes` | `int` | Total original byte count |
+| `is_inline` | `bool` | `True` if data is in a single buffer |
+| `is_chunked` | `bool` | `True` if data spans multiple chunks |
+
+### descriptor_json()
+
+Returns a JSON descriptor string for cross-process handoff:
 
 ```python
-# Read all data
+desc = ssb.descriptor_json()
+# Send desc to consumer via IPC
+```
+
+### read()
+
+Reads stored data back (decompresses automatically if needed):
+
+```python
 data = ssb.read()
-
-# Get metadata
-print(f"Kind: {ssb.kind}")
-print(f"DCC: {ssb.dcc_name}")
-print(f"Compressed: {ssb.compressed}")
-print(f"Size: {ssb.size_bytes} bytes")
+assert data == original_bytes
 ```
 
-### Serialization for IPC
-
-```python
-# Export descriptor for IPC transmission
-json_str = ssb.to_descriptor_json()
-
-# Reconstruct from descriptor
-ssb = PySharedSceneBuffer.from_descriptor_json(json_str)
-```
-
-## SceneDataKind
+## PySceneDataKind
 
 Categorize data for appropriate handling:
 
-| Kind | Use Case | Typical Size |
-|------|----------|--------------|
-| `GEOMETRY` | Mesh/vertex data | 1 MB - 1 GB |
-| `TEXTURE` | Images/textures | 1 MB - 100 MB |
-| `ANIMATION` | Animation curves | 100 KB - 100 MB |
-| `SCENE` | Full scene state | 10 MB - 1 GB |
-| `METADATA` | Scene metadata | 1 KB - 1 MB |
+| Kind | Use Case |
+|------|---------|
+| `Geometry` | Mesh/vertex data |
+| `AnimationCache` | Animation curves |
+| `Screenshot` | Captured framebuffers |
+| `Arbitrary` | Any other data (default) |
 
 ## Chunked Transfer
 
-For data larger than 256 MiB, automatic chunking is used.
+For data larger than 256 MiB, automatic chunking is used:
 
 ```python
 # Large scene is automatically chunked
-ssb = PySharedSceneBuffer.write(large_scene_data, SceneDataKind.SCENE)
+ssb = PySharedSceneBuffer.write(
+    large_scene_data,
+    kind=PySceneDataKind.Geometry,
+)
 
-# Get chunk manifest
-manifest = ssb.chunk_manifest()
-print(f"Chunks: {len(manifest.chunks)}")
-for chunk in manifest.chunks:
-    print(f"  [{chunk.index}] offset={chunk.offset}, size={chunk.size}")
+# Check if chunked
+print(f"Inline: {ssb.is_inline}, Chunked: {ssb.is_chunked}")
+print(f"Total bytes: {ssb.total_bytes}")
 ```
 
-## BufferPool
+## PyBufferPool
 
-Pre-allocated buffer pool for high-performance scenarios.
+Pre-allocated buffer pool for high-performance scenarios (e.g. 30 fps scene snapshots).
 
 ### Creating a Pool
 
@@ -140,67 +153,120 @@ pool = PyBufferPool(capacity=4, buffer_size=256 * 1024 * 1024)
 ### Using Buffers
 
 ```python
-# Acquire a buffer from the pool
-buffer = pool.acquire()
-
-# Write data
-buffer.write(large_data)
+# Acquire a buffer
+buf = pool.acquire()
+buf.write(b"scene snapshot")
 
 # ... use buffer ...
 
-# Release back to pool (don't destroy)
-pool.release(buffer)
+# Release back to pool (GC calls __del__ automatically)
+# Note: no explicit release() needed — buf is returned when garbage-collected
 ```
 
-### Buffer Reuse
+### Pool Properties
 
 ```python
-# Acquire, use, release, acquire again
-for i in range(10):
-    buffer = pool.acquire()
-    buffer.write(process_data(i))
-    send_to_agent(buffer)
-    pool.release(buffer)
+print(f"Available: {pool.available()}")
+print(f"Total capacity: {pool.capacity()}")
+print(f"Buffer size: {pool.buffer_size()}")
+```
+
+## PySharedBuffer (Low-Level)
+
+Direct access to memory-mapped shared buffers.
+
+### Creating a Buffer
+
+```python
+from dcc_mcp_core import PySharedBuffer
+
+# Create a new shared buffer
+buf = PySharedBuffer.create(capacity=1024 * 1024)  # 1 MiB
+
+# Open an existing buffer by path and id
+buf2 = PySharedBuffer.open(path="/path/to/mmap/file", id="buffer-uuid")
+```
+
+### Reading and Writing
+
+```python
+# Write bytes
+n = buf.write(b"vertex data")
+assert n == len(b"vertex data")
+
+# Read back
+data = buf.read()
+assert data == b"vertex data"
+
+# Check data length
+print(f"Data length: {buf.data_len()} bytes")
+print(f"Capacity: {buf.capacity()} bytes")
+
+# Clear
+buf.clear()
+assert buf.data_len() == 0
+```
+
+### Properties
+
+```python
+print(f"ID: {buf.id}")
+print(f"Path: {buf.path()}")  # Memory-mapped file path
+print(f"Descriptor: {buf.descriptor_json()}")
 ```
 
 ## Compression
 
-LZ4 compression is optional for reducing transfer time.
+LZ4 compression is optional. Reduces transfer time at CPU cost.
 
 ```python
-# With compression (slower write, faster transfer for large data)
-ssb = PySharedSceneBuffer.write(data, SceneDataKind.GEOMETRY, compress=True)
+# With compression (slower write, faster network transfer for large data)
+ssb = PySharedSceneBuffer.write(
+    data, PySceneDataKind.Geometry, use_compression=True
+)
 
-# Without compression (faster write, slower transfer)
-ssb = PySharedSceneBuffer.write(data, SceneDataKind.GEOMETRY, compress=False)
+# Without compression (faster write, slower network transfer)
+ssb = PySharedSceneBuffer.write(
+    data, PySceneDataKind.Geometry, use_compression=False
+)
 ```
 
 ### When to Use Compression
 
 | Scenario | Recommendation |
-|----------|-----------------|
+|----------|----------------|
 | Large geometry (>100 MB) | Use compression |
-| Already compressed data | Skip compression |
+| Already compressed data (images, etc.) | Skip compression |
 | Time-critical capture | Skip compression |
 | Low-bandwidth links | Use compression |
 
 ## Performance Comparison
 
 | Method | 100 MB Transfer | 1 GB Transfer |
-|--------|-----------------|---------------|
-| TCP serialization | ~10-15s | ~100-300s |
-| Shared memory | ~0.1s | ~0.5-2s |
+|--------|-----------------|----------------|
+| TCP serialization | ~10–15s | ~100–300s |
+| Shared memory | ~0.1s | ~0.5–2s |
+
+## Error Handling
+
+```python
+from dcc_mcp_core import PySharedBuffer
+
+try:
+    buf = PySharedBuffer.create(capacity=-1)  # Invalid
+except RuntimeError as e:
+    print(f"Shared memory error: {e}")
+```
 
 ## Use Cases
 
 ### Maya Geometry Export
 
 ```python
-from dcc_mcp_core import PySharedSceneBuffer, SceneDataKind
+from dcc_mcp_core import PySharedSceneBuffer, PySceneDataKind
+import maya.cmds as cmds
 
 def export_selection_to_agent():
-    import maya.cmds as cmds
-
     # Get selected geometry
     selection = cmds.ls(selection=True, type="mesh")
     if not selection:
@@ -212,48 +278,31 @@ def export_selection_to_agent():
     # Write to shared memory
     ssb = PySharedSceneBuffer.write(
         data,
-        SceneDataKind.GEOMETRY,
-        "Maya",
-        compress=True
+        kind=PySceneDataKind.Geometry,
+        source_dcc="Maya",
+        use_compression=True,
     )
 
-    return ssb.to_descriptor_json()
+    return ssb.descriptor_json()
 ```
 
 ### Houdini Scene Transfer
 
 ```python
-from dcc_mcp_core import PySharedSceneBuffer, SceneDataKind
+from dcc_mcp_core import PySharedSceneBuffer, PySceneDataKind
+import hou
 
 def share_houdini_scene():
-    import hou
-
-    # Export scene to binary
     scene_data = hou.exportScene("/tmp/scene.bin", binary=True)
 
-    # Share via SHM
     ssb = PySharedSceneBuffer.write(
         scene_data,
-        SceneDataKind.SCENE,
-        "Houdini",
-        compress=False
+        kind=PySceneDataKind.Geometry,
+        source_dcc="Houdini",
+        use_compression=False,
     )
 
-    return ssb.to_descriptor_json()
-```
-
-## Error Handling
-
-```python
-from dcc_mcp_core import ShmError
-
-try:
-    # Try to create a massive buffer
-    ssb = PySharedSceneBuffer.write(huge_data, SceneDataKind.SCENE)
-except ShmError as e:
-    print(f"Shared memory error: {e}")
-    # Fallback to TCP transfer
-    fallback_transfer(huge_data)
+    return ssb.descriptor_json()
 ```
 
 ## Platform Notes

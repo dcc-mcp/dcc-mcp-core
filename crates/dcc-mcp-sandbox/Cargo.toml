@@ -10,6 +10,7 @@ description = "Script execution sandbox with API whitelist, audit logging, and i
 
 [dependencies]
 # Workspace shared
+parking_lot = { workspace = true }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

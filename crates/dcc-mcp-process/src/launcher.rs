@@ -6,9 +6,10 @@
 //! - `kill()` — forceful SIGKILL / TerminateProcess.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
+use parking_lot::Mutex;
 use tokio::process::{Child, Command};
 use tokio::time;
 use tracing::{debug, info, warn};
@@ -71,10 +72,7 @@ impl DccLauncher {
         debug!(pid, name = %config.name, "DCC process spawned");
 
         {
-            let mut children = self
-                .children
-                .lock()
-                .map_err(|_| ProcessError::internal("children lock poisoned"))?;
+            let mut children = self.children.lock();
             children.insert(config.name.clone(), child);
         }
 
@@ -93,10 +91,7 @@ impl DccLauncher {
         // Remove the child from the map before any await so the MutexGuard is
         // dropped before we yield.
         let mut child = {
-            let mut children = self
-                .children
-                .lock()
-                .map_err(|_| ProcessError::internal("children lock poisoned"))?;
+            let mut children = self.children.lock();
             match children.remove(name) {
                 Some(c) => c,
                 None => {
@@ -142,10 +137,7 @@ impl DccLauncher {
         // Remove the child from the map before any await so the MutexGuard is
         // dropped before we yield.
         let mut child = {
-            let mut children = self
-                .children
-                .lock()
-                .map_err(|_| ProcessError::internal("children lock poisoned"))?;
+            let mut children = self.children.lock();
             match children.remove(name) {
                 Some(c) => c,
                 None => {
@@ -172,22 +164,18 @@ impl DccLauncher {
     /// Returns the PID of the named running child, or `None` if not tracked.
     #[must_use]
     pub fn pid_of(&self, name: &str) -> Option<u32> {
-        let children = self.children.lock().ok()?;
-        children.get(name).and_then(|c| c.id())
+        self.children.lock().get(name).and_then(|c| c.id())
     }
 
     /// Returns the number of currently tracked live children.
     #[must_use]
     pub fn running_count(&self) -> usize {
-        self.children.lock().map(|c| c.len()).unwrap_or(0)
+        self.children.lock().len()
     }
 
     /// Increment and return the restart counter for `name`.
     pub fn increment_restart_count(&self, name: &str) -> u32 {
-        let mut counts = self
-            .restart_counts
-            .lock()
-            .expect("restart_counts lock poisoned");
+        let mut counts = self.restart_counts.lock();
         let entry = counts.entry(name.to_string()).or_insert(0);
         *entry += 1;
         *entry
@@ -196,10 +184,7 @@ impl DccLauncher {
     /// Return the current restart count for `name` (0 if never restarted).
     #[must_use]
     pub fn restart_count(&self, name: &str) -> u32 {
-        self.restart_counts
-            .lock()
-            .map(|c| *c.get(name).unwrap_or(&0))
-            .unwrap_or(0)
+        self.restart_counts.lock().get(name).copied().unwrap_or(0)
     }
 }
 

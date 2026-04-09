@@ -287,6 +287,56 @@ rl.max_calls                              # int
 rl.window_ms                              # int
 ```
 
+**ActionPipeline patterns:**
+
+```python
+from dcc_mcp_core import ActionRegistry, ActionDispatcher, ActionPipeline
+
+reg = ActionRegistry()
+reg.register("create_sphere", description="Create sphere", category="geometry")
+
+dispatcher = ActionDispatcher(reg)
+dispatcher.register_handler("create_sphere", lambda params: {"name": "sphere1"})
+
+pipeline = ActionPipeline(dispatcher)
+
+# Built-in middleware (add in desired order)
+pipeline.add_logging(log_params=True)         # tracing log before/after each action
+timing = pipeline.add_timing()                # measure per-action latency
+audit = pipeline.add_audit(record_params=True) # in-memory audit log
+rl = pipeline.add_rate_limit(max_calls=10, window_ms=1000)  # fixed-window rate limiter
+
+# Python callable hooks (flexible custom middleware)
+pipeline.add_callable(
+    before_fn=lambda action: print(f"before: {action}"),
+    after_fn=lambda action, success: print(f"after: {action} ok={success}"),
+)
+
+# Dispatch
+result = pipeline.dispatch("create_sphere", '{"radius": 1.0}')
+result["output"]          # {"name": "sphere1"}
+result["action"]          # "create_sphere"
+result["validation_skipped"]  # bool
+
+# Register handler directly on pipeline (mirrors ActionDispatcher)
+pipeline.register_handler("delete_sphere", lambda params: True)
+
+# Introspect middleware
+pipeline.middleware_count()   # int
+pipeline.middleware_names()   # ["logging", "timing", "audit", "rate_limit", "python_callable"]
+pipeline.handler_count()      # int
+
+# Query middleware state
+timing.last_elapsed_ms("create_sphere")  # int | None (milliseconds)
+audit.records()                           # list[dict] with action/success/error/timestamp_ms
+audit.records_for_action("create_sphere") # filtered records
+audit.record_count()                      # int
+audit.clear()                             # reset
+rl.call_count("create_sphere")            # int (calls in current window)
+rl.max_calls                              # int
+rl.window_ms                              # int
+```
+
 **ActionResultModel fields:**
 
 ```python

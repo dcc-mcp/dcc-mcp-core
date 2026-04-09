@@ -5,9 +5,10 @@
 //! in-memory and allows filtering / export.  For production use the caller
 //! can flush entries to a persistent store at any time.
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
 // ── Outcome ───────────────────────────────────────────────────────────────────
@@ -103,21 +104,18 @@ impl AuditLog {
 
     /// Append a new audit entry.
     pub fn record(&self, entry: AuditEntry) {
-        let mut guard = self.entries.lock().expect("audit log mutex poisoned");
+        let mut guard = self.entries.lock();
         guard.push(entry);
     }
 
     /// Return all recorded entries (cloned).
     pub fn entries(&self) -> Vec<AuditEntry> {
-        self.entries
-            .lock()
-            .expect("audit log mutex poisoned")
-            .clone()
+        self.entries.lock().clone()
     }
 
     /// Return the total number of recorded entries.
     pub fn len(&self) -> usize {
-        self.entries.lock().expect("audit log mutex poisoned").len()
+        self.entries.lock().len()
     }
 
     /// Return `true` when no entries have been recorded.
@@ -127,7 +125,7 @@ impl AuditLog {
 
     /// Drain and return all entries, leaving the log empty.
     pub fn drain(&self) -> Vec<AuditEntry> {
-        let mut guard = self.entries.lock().expect("audit log mutex poisoned");
+        let mut guard = self.entries.lock();
         std::mem::take(&mut *guard)
     }
 
