@@ -10,7 +10,9 @@
 |------|----------------------------------|
 | Return action result | `success_result()` / `error_result()` — never return raw dicts |
 | Register a callable as DCC tool | `ActionRegistry.register()` + `ActionDispatcher` |
-| Discover/load skill packages | `scan_and_load()` or `scan_and_load_lenient()` — not manual file scanning |
+| Start a DCC skill server (Skills-First) | `create_skill_manager("maya")` — one call, auto-discovers from `DCC_MCP_MAYA_SKILL_PATHS` |
+| Discover/load skill packages | `create_skill_manager()` or `scan_and_load()` — not manual file scanning |
+| Set app-specific skill paths | `DCC_MCP_{APP}_SKILL_PATHS` env var (e.g. `DCC_MCP_MAYA_SKILL_PATHS`) |
 | Validate JSON input params | `ActionValidator.from_schema_json()` — not manual isinstance checks |
 | Connect to running DCC process | `connect_ipc(TransportAddress.default_local(...))` |
 | Define MCP tool for LLM | `ToolDefinition` + `ToolAnnotations` — not raw JSON dicts |
@@ -22,7 +24,7 @@
 | Exchange scene as USD | `UsdStage` + `scene_info_json_to_stage()` |
 | Safe RPyC value transport | `wrap_value()` / `unwrap_value()` |
 | Multi-version action lookup | `VersionedRegistry` + `VersionConstraint.parse()` |
-| Expose DCC tools over HTTP/MCP | `McpHttpServer(registry, McpHttpConfig(port=8765))` — not a raw HTTP server |
+| Expose DCC tools over HTTP/MCP | `create_skill_manager("maya", McpHttpConfig(port=8765))` — one-call Skills-First setup |
 
 ## Project Overview
 
@@ -374,29 +376,56 @@ from dcc_mcp_core import (
 )
 ```
 
+```python
+from dcc_mcp_core import (
+    # Progressive loading (Skills-First)
+    SkillCatalog,                    # Manage discovered vs loaded skills
+    SkillSummary,                    # Lightweight skill summary for search results
+    create_skill_manager,            # One-call factory: env vars → server
+    get_app_skill_paths_from_env,    # Read DCC_MCP_{APP}_SKILL_PATHS + global
+    # SkillMetadata new fields
+    ToolDeclaration,                 # Tool declaration with input_schema, annotations
+)
+```
+
 **Full skills pipeline:**
 
 ```python
+# ─────────────────────────────────────────────────────────────
+# Skills-First (recommended): one-call setup
+# ─────────────────────────────────────────────────────────────
 import os
-os.environ["DCC_MCP_SKILL_PATHS"] = "/path/to/skills"
+os.environ["DCC_MCP_MAYA_SKILL_PATHS"] = "/studio/maya-skills"  # or DCC_MCP_SKILL_PATHS
 
-# Simple one-shot
-skills = scan_and_load(dcc_name="maya")           # raises on error
-skills = scan_and_load_lenient(dcc_name="maya")   # silently skips bad skills
-for s in skills:
-    print(f"{s.name}: {len(s.scripts)} scripts @ {s.skill_path}")
+from dcc_mcp_core import create_skill_manager, McpHttpConfig
 
-# SkillMetadata fields:
-# s.name, s.description, s.dcc, s.version, s.tags, s.tools,
-# s.scripts (List[str] - absolute paths), s.skill_path, s.depends
+server = create_skill_manager("maya", McpHttpConfig(port=8765))
+handle = server.start()
+# Agents connect → find_skills → load_skill → tools/call
 
-# Low-level scanner
-scanner = SkillScanner()
-dirs = scanner.scan(extra_paths=["/my/skills"], dcc_name="maya")
-meta = parse_skill_md(dirs[0])  # -> SkillMetadata or None
+# Progressive discovery (agent-driven):
+# 1. tools/list → 5 core tools (find_skills, list_skills, get_skill_info, load_skill, unload_skill)
+# 2. find_skills(dcc="maya", query="modeling") → [{name, description, tags, loaded: false}]
+# 3. load_skill("maya-bevel") → registers tools + handlers, sends tools/list_changed
+# 4. tools/list → new skill tools visible
+# 5. tools/call maya_bevel__bevel {offset: 0.1} → runs scripts/bevel.py
 
-# Action naming convention: {skill_name}__{script_stem}
-# e.g. "maya_geometry__create_sphere" for create_sphere.py in maya-geometry skill
+# ─────────────────────────────────────────────────────────────
+# SkillMetadata fields (v0.12.10+)
+# ─────────────────────────────────────────────────────────────
+# s.name, s.description, s.dcc, s.version, s.tags
+# s.license, s.compatibility    # agentskills.io standard
+# s.allowed_tools               # agent permission list (e.g. ["Bash", "Read"])
+# s.metadata                    # arbitrary KV + ClawHub openclaw.*
+# s.tools (List[ToolDeclaration]) # MCP tool declarations with schemas
+# s.scripts (List[str])         # auto-discovered script paths
+# s.skill_path, s.depends, s.metadata_files
+
+# ─────────────────────────────────────────────────────────────
+# Manual setup (advanced / custom handlers)
+# ─────────────────────────────────────────────────────────────
+paths = get_app_skill_paths_from_env("maya")  # DCC_MCP_MAYA_SKILL_PATHS + DCC_MCP_SKILL_PATHS
+skills, _ = scan_and_load_lenient(extra_paths=paths, dcc_name="maya")
 ```
 
 #### MCP Protocol Types
@@ -588,6 +617,7 @@ These APIs were removed in v0.12+:
 - ~~`Action` base class~~ → Actions are registered via `ActionRegistry`
 - ~~`Middleware` / `MiddlewareChain`~~ → Use `ActionPipeline` with middleware context
 - ~~`create_action_manager()`~~ → Use `ActionRegistry()` directly
+- ~~`create_action_manager()`~~ → Use `create_skill_manager(app_name)` (Skills-First) or `ActionRegistry()` directly
 - ~~`LoggingMiddleware` / `PerformanceMiddleware`~~ → Use `ActionMetrics` + `EventBus`
 
 ## DCC Ecosystem Architecture
@@ -888,35 +918,29 @@ grep "SkillMetadata" python/dcc_mcp_core/_core.pyi
 
 These patterns show how AI agents should use this library. Copy and adapt them.
 
-### Pattern 1: Skill discovery → MCP tool registration
+### Pattern 1: Skills-First — one call setup (recommended)
 
 ```python
 import os
-from dcc_mcp_core import scan_and_load, ActionRegistry, ToolDefinition, ToolAnnotations
-from pathlib import Path
+from dcc_mcp_core import create_skill_manager, McpHttpConfig
 
-os.environ["DCC_MCP_SKILL_PATHS"] = "/opt/my-skills"
-skills, skipped = scan_and_load(dcc_name="maya")
+# Set per-app skill paths (or use global DCC_MCP_SKILL_PATHS)
+os.environ["DCC_MCP_MAYA_SKILL_PATHS"] = "/opt/maya-skills"
 
-reg = ActionRegistry()
-tools: list[ToolDefinition] = []
+# One call: creates registry + dispatcher + catalog + discovers skills + server
+server = create_skill_manager(
+    "maya",                           # app name (used for env var, server name)
+    McpHttpConfig(port=8765),         # optional config
+    extra_paths=["/extra/skills"],    # optional extra paths
+)
+handle = server.start()
+print(f"Maya MCP server: {handle.mcp_url()}")
 
-for skill in skills:
-    for script_path in skill.scripts:
-        stem = Path(script_path).stem
-        action_name = f"{skill.name.replace('-', '_')}__{stem}"
-        reg.register(
-            name=action_name,
-            description=f"[{skill.name}] {skill.description}",
-            dcc=skill.dcc,
-            tags=skill.tags,
-        )
-        tools.append(ToolDefinition(
-            name=action_name,
-            description=f"[{skill.name}] {skill.description}",
-            input_schema='{"type": "object"}',
-            annotations=ToolAnnotations(read_only_hint=False),
-        ))
+# Agents connect and use progressive loading:
+# → find_skills(dcc="maya") to discover
+# → load_skill("maya-bevel") to activate
+# → tools/call maya_bevel__bevel to execute
+handle.shutdown()
 ```
 
 ### Pattern 2: Call a DCC action and return structured result
@@ -1011,47 +1035,38 @@ for entry in ctx.audit_log.entries():
 ### Pattern 6: Expose DCC actions over MCP Streamable HTTP
 
 ```python
+# ── Approach A: Skills-First (recommended) ──────────────────────────────────
+import os
+from dcc_mcp_core import create_skill_manager, McpHttpConfig
+
+os.environ["DCC_MCP_MAYA_SKILL_PATHS"] = "/opt/maya-skills"
+
+server = create_skill_manager("maya", McpHttpConfig(port=8765, server_name="maya-mcp"))
+handle = server.start()
+print(f"MCP server ready at {handle.mcp_url()}")
+# Agents use find_skills/load_skill to discover and activate tools progressively.
+# handle.shutdown() when done
+
+
+# ── Approach B: Manual setup (custom handlers) ───────────────────────────────
 import os
 from dcc_mcp_core import (
-    scan_and_load, ActionRegistry, ActionDispatcher,
-    McpHttpServer, McpHttpConfig,
-    success_result, error_result, from_exception,
+    ActionRegistry, ActionDispatcher, McpHttpServer, McpHttpConfig,
+    success_result, error_result,
 )
 from pathlib import Path
 
-# 1. Discover skill scripts and populate registry
 os.environ["DCC_MCP_SKILL_PATHS"] = "/opt/maya-skills"
-skills, skipped = scan_and_load(dcc_name="maya")
 
 registry = ActionRegistry()
-dispatcher = ActionDispatcher(registry)
-
-for skill in skills:
-    for script_path in skill.scripts:
-        stem = Path(script_path).stem
-        action_name = f"{skill.name.replace('-', '_')}__{stem}"
-        registry.register(
-            name=action_name,
-            description=f"[{skill.name}] {skill.description}",
-            dcc=skill.dcc, tags=skill.tags, version=skill.version,
-        )
-        # Bind handler that executes the script
-        def make_handler(sp):
-            def handler(params):
-                import subprocess
-                proc = subprocess.run(["python", sp], capture_output=True, text=True)
-                if proc.returncode == 0:
-                    return success_result(proc.stdout.strip())
-                return error_result("Script failed", proc.stderr.strip())
-            return handler
-        dispatcher.register_handler(action_name, make_handler(script_path))
-
-# 2. Serve via MCP Streamable HTTP (2025-03-26 spec)
 server = McpHttpServer(registry, McpHttpConfig(port=8765, server_name="maya-mcp"))
+
+# Register custom handlers (bypasses script auto-execution)
+registry.register("get_scene_info", description="Return current scene info", dcc="maya")
+server.register_handler("get_scene_info", lambda params: {"scene": "untitled", "objects": 0})
+
 handle = server.start()
 print(f"MCP server ready at {handle.mcp_url()}")
-
-# Claude Desktop / MCP host connects to handle.mcp_url()
 # handle.shutdown() when done
 ```
 
@@ -1099,6 +1114,26 @@ def poll():
 
 # ── 5. Shutdown ────────────────────────────────────────────────────────────
 # handle.shutdown()
+```
+
+### Pattern 8: Per-app skill path configuration
+
+```python
+import os
+from dcc_mcp_core import get_app_skill_paths_from_env, create_skill_manager, McpHttpConfig
+
+# Set paths per DCC — different studios/users can have different skill sets
+os.environ["DCC_MCP_MAYA_SKILL_PATHS"] = "/studio/maya:/home/user/.skills/maya"
+os.environ["DCC_MCP_BLENDER_SKILL_PATHS"] = "/studio/blender"
+os.environ["DCC_MCP_SKILL_PATHS"] = "/shared/common-skills"  # global fallback
+
+# Query resolved paths for a specific app (per-app + global, deduplicated)
+maya_paths = get_app_skill_paths_from_env("maya")
+# → ["/studio/maya", "/home/user/.skills/maya", "/shared/common-skills"]
+
+# create_skill_manager automatically picks up the right env vars
+maya_server = create_skill_manager("maya", McpHttpConfig(port=8765))
+blender_server = create_skill_manager("blender", McpHttpConfig(port=8766))
 ```
 
 ## External References

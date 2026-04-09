@@ -44,6 +44,36 @@ jobs:
       - name: Preflight (check + clippy + fmt + test)
         run: just preflight
 
+  # ── Rust code coverage (tarpaulin, Linux only) ──
+  rust-coverage:
+    name: Rust coverage
+    needs: [rust-check]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache Cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ubuntu-cargo-tarpaulin-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: ubuntu-cargo-
+      - name: Install cargo-tarpaulin
+        run: cargo install cargo-tarpaulin --locked
+      - name: Run Rust coverage
+        run: cargo tarpaulin --workspace --out Xml --output-dir coverage/ --timeout 300
+      - name: Upload Rust coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage/cobertura.xml
+          flags: rust
+          name: rust-coverage
+          fail_ci_if_error: false
+
   # ── Build ABI3 wheel (one per OS, reused by python-test) ──
   build-wheel:
     name: Build wheel (${{ matrix.os }})
@@ -96,12 +126,14 @@ jobs:
         shell: bash
       - name: Test with coverage
         run: just test-cov
-      - name: Upload coverage
+      - name: Upload Python coverage to Codecov
         if: matrix.python-version == '3.13' && matrix.os == 'ubuntu-latest'
-        uses: actions/upload-artifact@v7
+        uses: codecov/codecov-action@v5
         with:
-          name: coverage-report
-          path: coverage.xml
+          files: coverage.xml
+          flags: python
+          name: python-coverage
+          fail_ci_if_error: false
 
   # ── Python 3.7 build + test (non-abi3 wheel) ──
   # Note: Must use older OS runners where Python 3.7 is still available via setup-python

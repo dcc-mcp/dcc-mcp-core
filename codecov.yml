@@ -1,0 +1,51 @@
+# Codecov configuration for dcc-mcp-core
+# https://docs.codecov.com/docs/codecov-yaml
+
+coverage:
+  # Overall project coverage requirements
+  status:
+    project:
+      default:
+        target: 80%           # Require 80% overall coverage
+        threshold: 2%         # Allow 2% drop before failing
+        if_not_found: success # Don't fail if no report found (first run)
+    patch:
+      default:
+        target: 70%           # New code in PRs requires 70% coverage
+        threshold: 5%
+        if_not_found: success
+
+  # Per-flag requirements
+  flags:
+    python:
+      target: 80%
+      threshold: 2%
+      if_not_found: success
+    rust:
+      target: 80%
+      threshold: 2%
+      if_not_found: success
+
+  precision: 2
+  round: down
+  range: "70...100"           # Color range: red below 70, green at 100
+
+# What to include/exclude
+ignore:
+  - "docs/**"
+  - "examples/**"
+  - "**/*.md"
+  - ".agents/**"
+  - "tests/**"                # Test code excluded from coverage target
+
+comment:
+  layout: "reach,diff,flags,components"
+  behavior: default
+  require_changes: true       # Only post comment if coverage changes
+  require_base: true          # Only post comment if base report exists
+  show_carryforward_flags: true
+
+# Parse flags from CI uploads
+flag_management:
+  default_rules:
+    carryforward: true        # Carry forward coverage if job didn't run

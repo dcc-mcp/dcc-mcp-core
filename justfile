@@ -65,6 +65,10 @@ test:
 test-cov:
     pytest tests/ -v --cov=dcc_mcp_core --cov-report=term --cov-report=xml:coverage.xml
 
+# Run Rust tests with coverage (requires cargo-tarpaulin)
+rust-cov:
+    cargo tarpaulin --workspace --out Html --out Xml --output-dir coverage/ --timeout 300
+
 # Lint Python code
 lint-py:
     ruff check python/dcc_mcp_core/ tests/ examples/
