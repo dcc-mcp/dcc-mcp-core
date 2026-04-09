@@ -1,10 +1,12 @@
-//! dcc-mcp-skills: SKILL.md scanning, loading, dependency resolution, and hot-reload.
+//! dcc-mcp-skills: SKILL.md scanning, loading, dependency resolution, hot-reload, and progressive discovery.
 
+pub mod catalog;
 mod loader;
 pub mod resolver;
 mod scanner;
 pub mod watcher;
 
+pub use catalog::{SkillCatalog, SkillDetail, SkillState, SkillSummary};
 pub use loader::{LoadResult, parse_skill_md, scan_and_load, scan_and_load_lenient};
 pub use resolver::{
     ResolveError, ResolvedSkills, expand_transitive_dependencies, resolve_dependencies,

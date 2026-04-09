@@ -40,6 +40,9 @@ pub struct ActionMeta {
     pub output_schema: serde_json::Value,
     /// Optional path to the Python source file defining this action.
     pub source_file: Option<String>,
+    /// Name of the skill this action belongs to (if registered from a skill).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skill_name: Option<String>,
 }
 
 /// Thread-safe Action registry.
@@ -274,6 +277,45 @@ impl ActionRegistry {
         }
     }
 
+    /// List all actions belonging to a specific skill.
+    #[must_use]
+    pub fn list_actions_by_skill(&self, skill_name: &str) -> Vec<ActionMeta> {
+        self.actions
+            .iter()
+            .filter(|entry| {
+                entry
+                    .value()
+                    .skill_name
+                    .as_ref()
+                    .is_some_and(|sn| sn == skill_name)
+            })
+            .map(|entry| entry.value().clone())
+            .collect()
+    }
+
+    /// Unregister all actions belonging to a specific skill.
+    ///
+    /// Returns the number of actions removed.
+    pub fn unregister_skill(&self, skill_name: &str) -> usize {
+        let action_names: Vec<String> = self
+            .actions
+            .iter()
+            .filter(|entry| {
+                entry
+                    .value()
+                    .skill_name
+                    .as_ref()
+                    .is_some_and(|sn| sn == skill_name)
+            })
+            .map(|entry| entry.key().clone())
+            .collect();
+        let count = action_names.len();
+        for name in action_names {
+            self.unregister(&name, None);
+        }
+        count
+    }
+
     /// Clear all registered actions.
     pub fn reset(&self) {
         self.actions.clear();
@@ -375,6 +417,11 @@ impl ActionRegistry {
                 .ok()
                 .flatten()
                 .and_then(|v| v.extract().ok());
+            let skill_name: Option<String> = dict
+                .get_item("skill_name")
+                .ok()
+                .flatten()
+                .and_then(|v| v.extract().ok());
 
             let input_schema =
                 parse_schema_or_default(input_schema_str.as_deref(), "input_schema", &name);
@@ -391,6 +438,7 @@ impl ActionRegistry {
                 input_schema,
                 output_schema,
                 source_file,
+                skill_name,
             });
         }
     }
@@ -418,7 +466,7 @@ impl ActionRegistry {
 
     /// Register an action. Called from Python ActionManager.
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (name, description="".to_string(), category="".to_string(), tags=vec![], dcc=DEFAULT_DCC.to_string(), version=DEFAULT_VERSION.to_string(), input_schema=None, output_schema=None, source_file=None))]
+    #[pyo3(signature = (name, description="".to_string(), category="".to_string(), tags=vec![], dcc=DEFAULT_DCC.to_string(), version=DEFAULT_VERSION.to_string(), input_schema=None, output_schema=None, source_file=None, skill_name=None))]
     fn register(
         &self,
         name: String,
@@ -430,6 +478,7 @@ impl ActionRegistry {
         input_schema: Option<String>,
         output_schema: Option<String>,
         source_file: Option<String>,
+        skill_name: Option<String>,
     ) {
         let input_schema = parse_schema_or_default(input_schema.as_deref(), "input_schema", &name);
         let output_schema =
@@ -445,6 +494,7 @@ impl ActionRegistry {
             input_schema,
             output_schema,
             source_file,
+            skill_name,
         });
     }
 

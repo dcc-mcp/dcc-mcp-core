@@ -198,6 +198,7 @@ fn test_action_meta_serde_round_trip() {
         input_schema: serde_json::json!({"type": "object"}),
         output_schema: serde_json::json!({"type": "string"}),
         source_file: Some("render.py".into()),
+        skill_name: None,
     };
     let json = serde_json::to_string(&meta).unwrap();
     let back: ActionMeta = serde_json::from_str(&json).unwrap();

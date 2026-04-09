@@ -30,11 +30,13 @@ use crate::{
     session::SessionManager,
 };
 use dcc_mcp_actions::ActionRegistry;
+use dcc_mcp_skills::SkillCatalog;
 
 /// Shared application state passed to all axum handlers.
 #[derive(Clone)]
 pub struct AppState {
     pub registry: Arc<ActionRegistry>,
+    pub catalog: Arc<SkillCatalog>,
     pub sessions: SessionManager,
     pub executor: Option<DccExecutorHandle>,
     pub server_name: String,
@@ -219,7 +221,7 @@ async fn dispatch_request(
         "initialize" => handle_initialize(state, req, session_id).await,
         "notifications/initialized" => Ok(JsonRpcResponse::success(req.id.clone(), json!({}))),
         "tools/list" => handle_tools_list(state, req).await,
-        "tools/call" => handle_tools_call(state, req).await,
+        "tools/call" => handle_tools_call(state, req, session_id).await,
         "ping" => Ok(JsonRpcResponse::success(req.id.clone(), json!({}))),
         other => Ok(JsonRpcResponse::method_not_found(req.id.clone(), other)),
     }
@@ -243,9 +245,7 @@ async fn handle_initialize(
     let result = InitializeResult {
         protocol_version: MCP_PROTOCOL_VERSION.to_string(),
         capabilities: ServerCapabilities {
-            tools: Some(ToolsCapability {
-                list_changed: false,
-            }),
+            tools: Some(ToolsCapability { list_changed: true }),
             resources: None,
             prompts: None,
         },
@@ -254,7 +254,9 @@ async fn handle_initialize(
             version: state.server_version.clone(),
         },
         instructions: Some(
-            "DCC MCP Server — use tools/list to discover available DCC actions.".to_string(),
+            "DCC MCP Server — use find_skills to discover available skills, \
+             load_skill to activate them, then tools/list to see their tools."
+                .to_string(),
         ),
     };
 
@@ -273,29 +275,14 @@ async fn handle_tools_list(
     state: &AppState,
     req: &JsonRpcRequest,
 ) -> Result<JsonRpcResponse, HttpError> {
+    // Build core discovery tools
+    let mut tools: Vec<McpTool> = build_core_tools();
+
+    // Add all actions from the registry (includes dynamically loaded skill tools)
     let actions = state.registry.list_actions(None);
-    let tools: Vec<McpTool> = actions
-        .iter()
-        .map(|meta| McpTool {
-            name: meta.name.clone(),
-            description: meta.description.clone(),
-            input_schema: {
-                let s = &meta.input_schema;
-                if s.is_null() {
-                    json!({"type": "object"})
-                } else {
-                    s.clone()
-                }
-            },
-            annotations: Some(McpToolAnnotations {
-                title: Some(meta.name.clone()),
-                read_only_hint: false,
-                destructive_hint: false,
-                idempotent_hint: false,
-                open_world_hint: false,
-            }),
-        })
-        .collect();
+    for meta in &actions {
+        tools.push(action_meta_to_mcp_tool(meta));
+    }
 
     let result = ListToolsResult {
         tools,
@@ -310,6 +297,7 @@ async fn handle_tools_list(
 async fn handle_tools_call(
     state: &AppState,
     req: &JsonRpcRequest,
+    session_id: Option<&str>,
 ) -> Result<JsonRpcResponse, HttpError> {
     let params: CallToolParams = req
         .params
@@ -318,6 +306,18 @@ async fn handle_tools_call(
         .ok_or_else(|| HttpError::Internal("invalid tools/call params".to_string()))?;
 
     let tool_name = params.name.clone();
+
+    // Route core discovery tools
+    match tool_name.as_str() {
+        "find_skills" => return handle_find_skills(state, req, &params).await,
+        "list_skills" => return handle_list_skills(state, req, &params).await,
+        "get_skill_info" => return handle_get_skill_info(state, req, &params).await,
+        "load_skill" => return handle_load_skill(state, req, &params, session_id).await,
+        "unload_skill" => return handle_unload_skill(state, req, &params, session_id).await,
+        _ => {}
+    }
+
+    // Regular action dispatch
     let args_json = params
         .arguments
         .map(|v| serde_json::to_string(&v).unwrap_or_default())
@@ -396,6 +396,399 @@ async fn handle_tools_call(
         req.id.clone(),
         serde_json::to_value(call_result)?,
     ))
+}
+
+// ── Core discovery tool handlers ──────────────────────────────────────────
+
+async fn handle_find_skills(
+    state: &AppState,
+    req: &JsonRpcRequest,
+    params: &CallToolParams,
+) -> Result<JsonRpcResponse, HttpError> {
+    let args = params.arguments.as_ref();
+
+    let query = args.and_then(|a| a.get("query")).and_then(Value::as_str);
+    let tags: Vec<&str> = args
+        .and_then(|a| a.get("tags"))
+        .and_then(|t| t.as_array())
+        .map(|arr| arr.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    let dcc = args.and_then(|a| a.get("dcc")).and_then(Value::as_str);
+
+    let results = state.catalog.find_skills(query, &tags, dcc);
+
+    let text = serde_json::to_string_pretty(&json!({
+        "skills": results,
+        "total": results.len()
+    }))
+    .unwrap_or_default();
+
+    Ok(JsonRpcResponse::success(
+        req.id.clone(),
+        serde_json::to_value(CallToolResult::text(text))?,
+    ))
+}
+
+async fn handle_list_skills(
+    state: &AppState,
+    req: &JsonRpcRequest,
+    params: &CallToolParams,
+) -> Result<JsonRpcResponse, HttpError> {
+    let status = params
+        .arguments
+        .as_ref()
+        .and_then(|a| a.get("status"))
+        .and_then(Value::as_str);
+
+    let results = state.catalog.list_skills(status);
+
+    let text = serde_json::to_string_pretty(&json!({
+        "skills": results,
+        "total": results.len()
+    }))
+    .unwrap_or_default();
+
+    Ok(JsonRpcResponse::success(
+        req.id.clone(),
+        serde_json::to_value(CallToolResult::text(text))?,
+    ))
+}
+
+async fn handle_get_skill_info(
+    state: &AppState,
+    req: &JsonRpcRequest,
+    params: &CallToolParams,
+) -> Result<JsonRpcResponse, HttpError> {
+    let skill_name = params
+        .arguments
+        .as_ref()
+        .and_then(|a| a.get("skill_name"))
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+
+    if skill_name.is_empty() {
+        return Ok(JsonRpcResponse::success(
+            req.id.clone(),
+            serde_json::to_value(CallToolResult::error(
+                "Missing required parameter: skill_name",
+            ))?,
+        ));
+    }
+
+    match state.catalog.get_skill_info(skill_name) {
+        Some(info) => {
+            let text = serde_json::to_string_pretty(&info).unwrap_or_default();
+            Ok(JsonRpcResponse::success(
+                req.id.clone(),
+                serde_json::to_value(CallToolResult::text(text))?,
+            ))
+        }
+        None => Ok(JsonRpcResponse::success(
+            req.id.clone(),
+            serde_json::to_value(CallToolResult::error(format!(
+                "Skill '{skill_name}' not found"
+            )))?,
+        )),
+    }
+}
+
+async fn handle_load_skill(
+    state: &AppState,
+    req: &JsonRpcRequest,
+    params: &CallToolParams,
+    session_id: Option<&str>,
+) -> Result<JsonRpcResponse, HttpError> {
+    let skill_name = params
+        .arguments
+        .as_ref()
+        .and_then(|a| a.get("skill_name"))
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+
+    let skill_names: Vec<String> = params
+        .arguments
+        .as_ref()
+        .and_then(|a| a.get("skill_names"))
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(Value::as_str)
+                .map(String::from)
+                .collect()
+        })
+        .unwrap_or_default();
+
+    if skill_name.is_empty() && skill_names.is_empty() {
+        return Ok(JsonRpcResponse::success(
+            req.id.clone(),
+            serde_json::to_value(CallToolResult::error(
+                "Missing required parameter: skill_name or skill_names",
+            ))?,
+        ));
+    }
+
+    let mut all_registered = Vec::new();
+    let mut errors = Vec::new();
+
+    // Load single skill
+    if !skill_name.is_empty() {
+        match state.catalog.load_skill(skill_name) {
+            Ok(actions) => all_registered.extend(actions),
+            Err(e) => errors.push(format!("{skill_name}: {e}")),
+        }
+    }
+
+    // Load multiple skills
+    for name in &skill_names {
+        match state.catalog.load_skill(name) {
+            Ok(actions) => all_registered.extend(actions),
+            Err(e) => errors.push(format!("{name}: {e}")),
+        }
+    }
+
+    // Send tools/list_changed notification to session if tools were loaded
+    if !all_registered.is_empty() {
+        if let Some(sid) = session_id {
+            notify_tools_list_changed(&state.sessions, sid);
+        }
+    }
+
+    let text = if errors.is_empty() {
+        serde_json::to_string_pretty(&json!({
+            "loaded": true,
+            "registered_actions": all_registered,
+            "action_count": all_registered.len()
+        }))
+        .unwrap_or_default()
+    } else {
+        serde_json::to_string_pretty(&json!({
+            "loaded": errors.is_empty(),
+            "registered_actions": all_registered,
+            "action_count": all_registered.len(),
+            "errors": errors
+        }))
+        .unwrap_or_default()
+    };
+
+    Ok(JsonRpcResponse::success(
+        req.id.clone(),
+        serde_json::to_value(CallToolResult::text(text))?,
+    ))
+}
+
+async fn handle_unload_skill(
+    state: &AppState,
+    req: &JsonRpcRequest,
+    params: &CallToolParams,
+    session_id: Option<&str>,
+) -> Result<JsonRpcResponse, HttpError> {
+    let skill_name = params
+        .arguments
+        .as_ref()
+        .and_then(|a| a.get("skill_name"))
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+
+    if skill_name.is_empty() {
+        return Ok(JsonRpcResponse::success(
+            req.id.clone(),
+            serde_json::to_value(CallToolResult::error(
+                "Missing required parameter: skill_name",
+            ))?,
+        ));
+    }
+
+    match state.catalog.unload_skill(skill_name) {
+        Ok(count) => {
+            // Send tools/list_changed notification
+            if let Some(sid) = session_id {
+                notify_tools_list_changed(&state.sessions, sid);
+            }
+
+            let text = serde_json::to_string_pretty(&json!({
+                "unloaded": true,
+                "actions_removed": count
+            }))
+            .unwrap_or_default();
+
+            Ok(JsonRpcResponse::success(
+                req.id.clone(),
+                serde_json::to_value(CallToolResult::text(text))?,
+            ))
+        }
+        Err(e) => Ok(JsonRpcResponse::success(
+            req.id.clone(),
+            serde_json::to_value(CallToolResult::error(e))?,
+        )),
+    }
+}
+
+// ── Core tool definitions ─────────────────────────────────────────────────
+
+/// Build the core discovery tools that are always visible.
+fn build_core_tools() -> Vec<McpTool> {
+    vec![
+        McpTool {
+            name: "find_skills".to_string(),
+            description: "Search available skills by keyword, tags, or DCC type. \
+                          Returns matching skills with metadata but does NOT load them."
+                .to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search in skill name and description"
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Filter by tags (all must match)"
+                    },
+                    "dcc": {
+                        "type": "string",
+                        "description": "Filter by DCC type (maya, blender, houdini, etc.)"
+                    }
+                }
+            }),
+            annotations: Some(McpToolAnnotations {
+                title: Some("Find Skills".to_string()),
+                read_only_hint: true,
+                destructive_hint: false,
+                idempotent_hint: true,
+                open_world_hint: false,
+            }),
+        },
+        McpTool {
+            name: "list_skills".to_string(),
+            description: "List all discovered skills with their load status (loaded/unloaded)."
+                .to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "enum": ["all", "loaded", "unloaded", "error"],
+                        "default": "all",
+                        "description": "Filter by load status"
+                    }
+                }
+            }),
+            annotations: Some(McpToolAnnotations {
+                title: Some("List Skills".to_string()),
+                read_only_hint: true,
+                destructive_hint: false,
+                idempotent_hint: true,
+                open_world_hint: false,
+            }),
+        },
+        McpTool {
+            name: "get_skill_info".to_string(),
+            description: "Get detailed info about a specific skill including its tools and their input schemas."
+                .to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "skill_name": {
+                        "type": "string",
+                        "description": "Name of the skill to inspect"
+                    }
+                },
+                "required": ["skill_name"]
+            }),
+            annotations: Some(McpToolAnnotations {
+                title: Some("Get Skill Info".to_string()),
+                read_only_hint: true,
+                destructive_hint: false,
+                idempotent_hint: true,
+                open_world_hint: false,
+            }),
+        },
+        McpTool {
+            name: "load_skill".to_string(),
+            description: "Load a skill and register its tools. After loading, the tools become available via tools/list. \
+                          A tools/list_changed notification is sent to connected clients."
+                .to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "skill_name": {
+                        "type": "string",
+                        "description": "Name of the skill to load"
+                    },
+                    "skill_names": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Load multiple skills at once"
+                    }
+                }
+            }),
+            annotations: Some(McpToolAnnotations {
+                title: Some("Load Skill".to_string()),
+                read_only_hint: false,
+                destructive_hint: false,
+                idempotent_hint: true,
+                open_world_hint: false,
+            }),
+        },
+        McpTool {
+            name: "unload_skill".to_string(),
+            description: "Unload a skill and unregister its tools. Sends a tools/list_changed notification."
+                .to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "skill_name": {
+                        "type": "string",
+                        "description": "Name of the skill to unload"
+                    }
+                },
+                "required": ["skill_name"]
+            }),
+            annotations: Some(McpToolAnnotations {
+                title: Some("Unload Skill".to_string()),
+                read_only_hint: false,
+                destructive_hint: false,
+                idempotent_hint: true,
+                open_world_hint: false,
+            }),
+        },
+    ]
+}
+
+/// Convert an ActionMeta to an McpTool, respecting annotations from the skill.
+fn action_meta_to_mcp_tool(meta: &dcc_mcp_actions::registry::ActionMeta) -> McpTool {
+    let input_schema = if meta.input_schema.is_null() {
+        json!({"type": "object"})
+    } else {
+        meta.input_schema.clone()
+    };
+
+    McpTool {
+        name: meta.name.clone(),
+        description: meta.description.clone(),
+        input_schema,
+        annotations: Some(McpToolAnnotations {
+            title: Some(meta.name.clone()),
+            // Actions from skills get sensible defaults; standalone actions default to false
+            read_only_hint: false,
+            destructive_hint: false,
+            idempotent_hint: false,
+            open_world_hint: false,
+        }),
+    }
+}
+
+/// Send a `notifications/tools/list_changed` event to a session's SSE subscribers.
+fn notify_tools_list_changed(sessions: &SessionManager, session_id: &str) {
+    let notification = json!({
+        "jsonrpc": "2.0",
+        "method": "notifications/tools/list_changed",
+        "params": {}
+    });
+    let event = format_sse_event(&notification, None);
+    sessions.push_event(session_id, event);
+    tracing::debug!("Sent tools/list_changed notification to session {session_id}");
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────

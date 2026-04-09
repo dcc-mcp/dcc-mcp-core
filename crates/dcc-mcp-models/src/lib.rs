@@ -4,7 +4,7 @@ mod action_result;
 mod skill_metadata;
 
 pub use action_result::{ActionResultModel, ActionResultModelData};
-pub use skill_metadata::SkillMetadata;
+pub use skill_metadata::{SkillMetadata, ToolDeclaration};
 
 #[cfg(feature = "python-bindings")]
 pub use action_result::{

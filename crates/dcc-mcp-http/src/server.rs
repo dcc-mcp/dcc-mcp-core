@@ -14,6 +14,7 @@ use crate::{
     session::SessionManager,
 };
 use dcc_mcp_actions::ActionRegistry;
+use dcc_mcp_skills::SkillCatalog;
 
 /// Handle returned by [`McpHttpServer::start`].
 ///
@@ -45,18 +46,51 @@ impl ServerHandle {
 /// Safe to use from DCC main threads — the server never blocks the caller.
 pub struct McpHttpServer {
     registry: Arc<ActionRegistry>,
+    catalog: Option<Arc<SkillCatalog>>,
     config: McpHttpConfig,
     executor: Option<DccExecutorHandle>,
 }
 
 impl McpHttpServer {
     /// Create a new server with the given registry and config.
+    ///
+    /// The SkillCatalog is created automatically, backed by the same registry.
     pub fn new(registry: Arc<ActionRegistry>, config: McpHttpConfig) -> Self {
         Self {
-            registry,
+            registry: registry.clone(),
+            catalog: Some(Arc::new(SkillCatalog::new(registry))),
             config,
             executor: None,
         }
+    }
+
+    /// Create a server with an explicit SkillCatalog.
+    pub fn with_catalog(
+        registry: Arc<ActionRegistry>,
+        catalog: Arc<SkillCatalog>,
+        config: McpHttpConfig,
+    ) -> Self {
+        Self {
+            registry,
+            catalog: Some(catalog),
+            config,
+            executor: None,
+        }
+    }
+
+    /// Create a server without a SkillCatalog (legacy mode — all tools visible).
+    pub fn without_catalog(registry: Arc<ActionRegistry>, config: McpHttpConfig) -> Self {
+        Self {
+            registry,
+            catalog: None,
+            config,
+            executor: None,
+        }
+    }
+
+    /// Get a reference to the server's SkillCatalog (if configured).
+    pub fn catalog(&self) -> Option<&Arc<SkillCatalog>> {
+        self.catalog.as_ref()
     }
 
     /// Attach a DCC main-thread executor for thread-safe DCC API calls.
@@ -70,8 +104,14 @@ impl McpHttpServer {
     /// Returns a [`ServerHandle`] for controlling the server lifecycle.
     /// This method is `async` but returns immediately after binding the port.
     pub async fn start(self) -> HttpResult<ServerHandle> {
+        // If no catalog was provided, create a default one
+        let catalog = self
+            .catalog
+            .unwrap_or_else(|| Arc::new(SkillCatalog::new(self.registry.clone())));
+
         let state = AppState {
             registry: self.registry,
+            catalog,
             sessions: SessionManager::new(),
             executor: self.executor,
             server_name: self.config.server_name.clone(),

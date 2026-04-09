@@ -24,10 +24,12 @@ class TestSkillMetadata:
         assert sm.skill_path == ""
 
     def test_create_full(self) -> None:
+        read_tool = dcc_mcp_core.ToolDeclaration(name="read")
+        write_tool = dcc_mcp_core.ToolDeclaration(name="write")
         sm = dcc_mcp_core.SkillMetadata(
             name="maya-tool",
             description="A Maya tool",
-            tools=["read", "write"],
+            tools=[read_tool, write_tool],
             dcc="maya",
             tags=["geometry"],
             scripts=["hello.py"],
@@ -36,7 +38,9 @@ class TestSkillMetadata:
         )
         assert sm.dcc == "maya"
         assert sm.description == "A Maya tool"
-        assert sm.tools == ["read", "write"]
+        tool_names = [t.name for t in sm.tools]
+        assert "read" in tool_names
+        assert "write" in tool_names
         assert sm.tags == ["geometry"]
         assert sm.scripts == ["hello.py"]
         assert sm.skill_path == "/path/to/skill"
@@ -46,7 +50,7 @@ class TestSkillMetadata:
         sm = dcc_mcp_core.SkillMetadata(name="old")
         sm.name = "new"
         sm.description = "new desc"
-        sm.tools = ["tool1"]
+        sm.tools = [dcc_mcp_core.ToolDeclaration(name="tool1")]
         sm.dcc = "houdini"
         sm.tags = ["tag1", "tag2"]
         sm.scripts = ["s.py"]
@@ -54,7 +58,7 @@ class TestSkillMetadata:
         sm.version = "3.0.0"
         assert sm.name == "new"
         assert sm.description == "new desc"
-        assert sm.tools == ["tool1"]
+        assert [t.name for t in sm.tools] == ["tool1"]
         assert sm.dcc == "houdini"
         assert sm.tags == ["tag1", "tag2"]
         assert sm.scripts == ["s.py"]

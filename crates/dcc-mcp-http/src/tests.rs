@@ -11,6 +11,8 @@ mod tests {
         config::McpHttpConfig, handler::AppState, server::McpHttpServer, session::SessionManager,
     };
     use dcc_mcp_actions::{ActionMeta, ActionRegistry};
+    use dcc_mcp_models::{SkillMetadata, ToolDeclaration};
+    use dcc_mcp_skills::SkillCatalog;
 
     fn make_registry() -> ActionRegistry {
         let reg = ActionRegistry::new();
@@ -36,8 +38,11 @@ mod tests {
     }
 
     fn make_app_state() -> AppState {
+        let registry = Arc::new(make_registry());
+        let catalog = Arc::new(SkillCatalog::new(registry.clone()));
         AppState {
-            registry: Arc::new(make_registry()),
+            registry,
+            catalog,
             sessions: SessionManager::new(),
             executor: None,
             server_name: "test-dcc".to_string(),
@@ -118,10 +123,13 @@ mod tests {
         resp.assert_status_ok();
         let body: Value = resp.json();
         let tools = body["result"]["tools"].as_array().unwrap();
-        assert_eq!(tools.len(), 2);
+        // 5 core discovery tools + 2 registered actions = 7
+        assert_eq!(tools.len(), 7);
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert!(names.contains(&"get_scene_info"));
         assert!(names.contains(&"list_objects"));
+        assert!(names.contains(&"find_skills"));
+        assert!(names.contains(&"load_skill"));
     }
 
     // ── tools/call known ──────────────────────────────────────────────────
@@ -357,5 +365,298 @@ mod tests {
 
         let result = task_handle.await.unwrap();
         assert_eq!(result, "hello from main thread");
+    }
+
+    // ── Core discovery tools ──────────────────────────────────────────────
+
+    fn make_app_state_with_skill() -> AppState {
+        let registry = Arc::new(ActionRegistry::new());
+        let catalog = Arc::new(SkillCatalog::new(registry.clone()));
+
+        // Add a test skill to the catalog
+        catalog.add_skill(SkillMetadata {
+            name: "modeling-bevel".to_string(),
+            description: "Advanced bevel operations for polygon modeling".to_string(),
+            tools: vec![
+                ToolDeclaration {
+                    name: "bevel".to_string(),
+                    description: "Apply bevel to selected edges".to_string(),
+                    input_schema: serde_json::json!({
+                        "type": "object",
+                        "properties": {
+                            "offset": {"type": "number"},
+                            "segments": {"type": "integer"}
+                        }
+                    }),
+                    ..Default::default()
+                },
+                ToolDeclaration {
+                    name: "chamfer".to_string(),
+                    description: "Apply chamfer bevel".to_string(),
+                    ..Default::default()
+                },
+            ],
+            dcc: "maya".to_string(),
+            tags: vec!["modeling".to_string(), "polygon".to_string()],
+            version: "1.0.0".to_string(),
+            ..Default::default()
+        });
+
+        AppState {
+            registry,
+            catalog,
+            sessions: SessionManager::new(),
+            executor: None,
+            server_name: "test-dcc".to_string(),
+            server_version: "0.1.0".to_string(),
+        }
+    }
+
+    fn make_router_with_skill() -> axum::Router {
+        use crate::handler::{handle_delete, handle_get, handle_post};
+        use axum::{Router, routing};
+
+        let state = make_app_state_with_skill();
+        Router::new()
+            .route(
+                "/mcp",
+                routing::post(handle_post)
+                    .get(handle_get)
+                    .delete(handle_delete),
+            )
+            .with_state(state)
+    }
+
+    #[tokio::test]
+    async fn test_find_skills_returns_discovered_skills() {
+        let server = TestServer::new(make_router_with_skill()).unwrap();
+
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::ACCEPT,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&json!({
+                "jsonrpc": "2.0",
+                "id": 10,
+                "method": "tools/call",
+                "params": {
+                    "name": "find_skills",
+                    "arguments": {"query": "bevel"}
+                }
+            }))
+            .await;
+
+        resp.assert_status_ok();
+        let body: Value = resp.json();
+        assert_eq!(body["result"]["isError"], false);
+        let content_text = body["result"]["content"][0]["text"].as_str().unwrap();
+        let result: Value = serde_json::from_str(content_text).unwrap();
+        assert_eq!(result["total"], 1);
+        assert_eq!(result["skills"][0]["name"], "modeling-bevel");
+        assert_eq!(result["skills"][0]["loaded"], false);
+    }
+
+    #[tokio::test]
+    async fn test_list_skills_shows_all() {
+        let server = TestServer::new(make_router_with_skill()).unwrap();
+
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::ACCEPT,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&json!({
+                "jsonrpc": "2.0",
+                "id": 11,
+                "method": "tools/call",
+                "params": {
+                    "name": "list_skills"
+                }
+            }))
+            .await;
+
+        resp.assert_status_ok();
+        let body: Value = resp.json();
+        let content_text = body["result"]["content"][0]["text"].as_str().unwrap();
+        let result: Value = serde_json::from_str(content_text).unwrap();
+        assert_eq!(result["total"], 1);
+    }
+
+    #[tokio::test]
+    async fn test_get_skill_info() {
+        let server = TestServer::new(make_router_with_skill()).unwrap();
+
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::ACCEPT,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&json!({
+                "jsonrpc": "2.0",
+                "id": 12,
+                "method": "tools/call",
+                "params": {
+                    "name": "get_skill_info",
+                    "arguments": {"skill_name": "modeling-bevel"}
+                }
+            }))
+            .await;
+
+        resp.assert_status_ok();
+        let body: Value = resp.json();
+        let content_text = body["result"]["content"][0]["text"].as_str().unwrap();
+        let info: Value = serde_json::from_str(content_text).unwrap();
+        assert_eq!(info["name"], "modeling-bevel");
+        assert_eq!(info["tools"].as_array().unwrap().len(), 2);
+        assert_eq!(info["state"], "discovered");
+    }
+
+    #[tokio::test]
+    async fn test_load_skill_registers_tools() {
+        let server = TestServer::new(make_router_with_skill()).unwrap();
+
+        // Load the skill
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::ACCEPT,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&json!({
+                "jsonrpc": "2.0",
+                "id": 13,
+                "method": "tools/call",
+                "params": {
+                    "name": "load_skill",
+                    "arguments": {"skill_name": "modeling-bevel"}
+                }
+            }))
+            .await;
+
+        resp.assert_status_ok();
+        let body: Value = resp.json();
+        let content_text = body["result"]["content"][0]["text"].as_str().unwrap();
+        let result: Value = serde_json::from_str(content_text).unwrap();
+        assert_eq!(result["loaded"], true);
+        assert_eq!(result["action_count"], 2);
+
+        // Verify tools are now in tools/list
+        let resp2 = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::ACCEPT,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&json!({
+                "jsonrpc": "2.0",
+                "id": 14,
+                "method": "tools/list"
+            }))
+            .await;
+
+        let body2: Value = resp2.json();
+        let tools = body2["result"]["tools"].as_array().unwrap();
+        // 5 core tools + 2 skill tools = 7
+        assert_eq!(tools.len(), 7);
+        let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
+        assert!(names.contains(&"modeling_bevel__bevel"));
+        assert!(names.contains(&"modeling_bevel__chamfer"));
+    }
+
+    #[tokio::test]
+    async fn test_unload_skill_removes_tools() {
+        let server = TestServer::new(make_router_with_skill()).unwrap();
+
+        // Load first
+        server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::ACCEPT,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&json!({
+                "jsonrpc": "2.0",
+                "id": 20,
+                "method": "tools/call",
+                "params": {
+                    "name": "load_skill",
+                    "arguments": {"skill_name": "modeling-bevel"}
+                }
+            }))
+            .await;
+
+        // Unload
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::ACCEPT,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&json!({
+                "jsonrpc": "2.0",
+                "id": 21,
+                "method": "tools/call",
+                "params": {
+                    "name": "unload_skill",
+                    "arguments": {"skill_name": "modeling-bevel"}
+                }
+            }))
+            .await;
+
+        resp.assert_status_ok();
+        let body: Value = resp.json();
+        let content_text = body["result"]["content"][0]["text"].as_str().unwrap();
+        let result: Value = serde_json::from_str(content_text).unwrap();
+        assert_eq!(result["unloaded"], true);
+        assert_eq!(result["actions_removed"], 2);
+
+        // Verify tools are gone from tools/list
+        let resp2 = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::ACCEPT,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&json!({
+                "jsonrpc": "2.0",
+                "id": 22,
+                "method": "tools/list"
+            }))
+            .await;
+
+        let body2: Value = resp2.json();
+        let tools = body2["result"]["tools"].as_array().unwrap();
+        // Back to just 5 core tools
+        assert_eq!(tools.len(), 5);
+    }
+
+    #[tokio::test]
+    async fn test_initialize_reports_list_changed_true() {
+        let server = TestServer::new(make_router()).unwrap();
+
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::ACCEPT,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&json!({
+                "jsonrpc": "2.0",
+                "id": 30,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-03-26",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "1.0"}
+                }
+            }))
+            .await;
+
+        let body: Value = resp.json();
+        assert_eq!(body["result"]["capabilities"]["tools"]["listChanged"], true);
     }
 }

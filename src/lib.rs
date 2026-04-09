@@ -140,7 +140,10 @@ fn register_skills(m: &Bound<'_, PyModule>) -> PyResult<()> {
     add_classes!(
         m,
         dcc_mcp_skills::SkillScanner,
-        dcc_mcp_skills::PySkillWatcher
+        dcc_mcp_skills::PySkillWatcher,
+        dcc_mcp_skills::SkillCatalog,
+        dcc_mcp_skills::SkillSummary,
+        dcc_mcp_models::ToolDeclaration,
     );
     add_functions!(
         m,

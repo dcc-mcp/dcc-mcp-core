@@ -6,11 +6,181 @@ use pyo3::prelude::*;
 use dcc_mcp_utils::constants::{DEFAULT_DCC, DEFAULT_VERSION};
 use serde::{Deserialize, Serialize};
 
-/// Metadata parsed from a SKILL.md frontmatter.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+/// Declaration of a tool provided by a skill, parsed from SKILL.md frontmatter.
+///
+/// Unlike `ActionMeta`, this is a lightweight declaration that can be discovered
+/// without loading the skill's scripts. It carries enough information for agents
+/// to decide whether to load a skill.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(
     feature = "python-bindings",
-    pyclass(name = "SkillMetadata", eq, get_all, set_all, from_py_object)
+    pyclass(name = "ToolDeclaration", eq, from_py_object)
+)]
+pub struct ToolDeclaration {
+    /// Tool name (unique within the skill).
+    #[serde(default)]
+    pub name: String,
+
+    /// Human-readable description.
+    #[serde(default)]
+    pub description: String,
+
+    /// JSON Schema for input parameters (as serde_json::Value).
+    #[serde(default)]
+    pub input_schema: serde_json::Value,
+
+    /// JSON Schema for output (as serde_json::Value).
+    #[serde(default, skip_serializing_if = "is_null_value")]
+    pub output_schema: serde_json::Value,
+
+    /// Whether this tool only reads data (no side effects).
+    #[serde(default)]
+    pub read_only: bool,
+
+    /// Whether this tool may cause destructive changes.
+    #[serde(default)]
+    pub destructive: bool,
+
+    /// Whether calling this tool with the same args always produces the same result.
+    #[serde(default)]
+    pub idempotent: bool,
+}
+
+fn is_null_value(v: &serde_json::Value) -> bool {
+    v.is_null()
+}
+
+#[cfg(feature = "python-bindings")]
+#[pymethods]
+impl ToolDeclaration {
+    #[new]
+    #[pyo3(signature = (name, description="".to_string(), input_schema=None, output_schema=None, read_only=false, destructive=false, idempotent=false))]
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        name: String,
+        description: String,
+        input_schema: Option<String>,
+        output_schema: Option<String>,
+        read_only: bool,
+        destructive: bool,
+        idempotent: bool,
+    ) -> Self {
+        let input_schema = input_schema
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or(serde_json::json!({"type": "object"}));
+        let output_schema = output_schema
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or(serde_json::Value::Null);
+        Self {
+            name,
+            description,
+            input_schema,
+            output_schema,
+            read_only,
+            destructive,
+            idempotent,
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        format!("ToolDeclaration(name={:?})", self.name)
+    }
+
+    #[getter]
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    #[setter]
+    fn set_name(&mut self, value: String) {
+        self.name = value;
+    }
+
+    #[getter]
+    fn description(&self) -> &str {
+        &self.description
+    }
+
+    #[setter]
+    fn set_description(&mut self, value: String) {
+        self.description = value;
+    }
+
+    /// Returns input_schema as a JSON string.
+    #[getter]
+    fn input_schema(&self) -> String {
+        self.input_schema.to_string()
+    }
+
+    /// Set input_schema from a JSON string.
+    #[setter]
+    fn set_input_schema(&mut self, value: String) {
+        self.input_schema =
+            serde_json::from_str(&value).unwrap_or(serde_json::json!({"type": "object"}));
+    }
+
+    /// Returns output_schema as a JSON string (empty string if null).
+    #[getter]
+    fn output_schema(&self) -> String {
+        if self.output_schema.is_null() {
+            String::new()
+        } else {
+            self.output_schema.to_string()
+        }
+    }
+
+    /// Set output_schema from a JSON string.
+    #[setter]
+    fn set_output_schema(&mut self, value: String) {
+        self.output_schema = if value.is_empty() {
+            serde_json::Value::Null
+        } else {
+            serde_json::from_str(&value).unwrap_or(serde_json::Value::Null)
+        };
+    }
+
+    #[getter]
+    fn read_only(&self) -> bool {
+        self.read_only
+    }
+
+    #[setter]
+    fn set_read_only(&mut self, value: bool) {
+        self.read_only = value;
+    }
+
+    #[getter]
+    fn destructive(&self) -> bool {
+        self.destructive
+    }
+
+    #[setter]
+    fn set_destructive(&mut self, value: bool) {
+        self.destructive = value;
+    }
+
+    #[getter]
+    fn idempotent(&self) -> bool {
+        self.idempotent
+    }
+
+    #[setter]
+    fn set_idempotent(&mut self, value: bool) {
+        self.idempotent = value;
+    }
+}
+
+impl std::fmt::Display for ToolDeclaration {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ToolDeclaration({})", self.name)
+    }
+}
+
+/// Metadata parsed from a SKILL.md frontmatter.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "python-bindings",
+    pyclass(name = "SkillMetadata", get_all, set_all, from_py_object)
 )]
 pub struct SkillMetadata {
     pub name: String,
@@ -18,8 +188,13 @@ pub struct SkillMetadata {
     #[serde(default)]
     pub description: String,
 
-    #[serde(default)]
-    pub tools: Vec<String>,
+    /// Tool declarations from SKILL.md frontmatter.
+    ///
+    /// In SKILL.md, tools can be declared as either:
+    /// - Simple string names: `tools: ["bevel", "extrude"]`  (becomes ToolDeclaration with name only)
+    /// - Full declarations: `tools: [{name: "bevel", description: "...", ...}]`
+    #[serde(default, deserialize_with = "deserialize_tool_declarations")]
+    pub tools: Vec<ToolDeclaration>,
 
     #[serde(default = "default_dcc")]
     pub dcc: String,
@@ -45,6 +220,59 @@ pub struct SkillMetadata {
     pub metadata_files: Vec<String>,
 }
 
+/// Custom deserializer that accepts both `tools: ["name1", "name2"]` (simple strings)
+/// and `tools: [{name: "bevel", description: "..."}]` (full declarations).
+fn deserialize_tool_declarations<'de, D>(deserializer: D) -> Result<Vec<ToolDeclaration>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::{self, SeqAccess, Visitor};
+    use std::fmt;
+
+    struct ToolDeclarationsVisitor;
+
+    impl<'de> Visitor<'de> for ToolDeclarationsVisitor {
+        type Value = Vec<ToolDeclaration>;
+
+        fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            write!(
+                f,
+                "a sequence of tool name strings or tool declaration objects"
+            )
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+        where
+            A: SeqAccess<'de>,
+        {
+            let mut tools = Vec::new();
+            while let Some(value) = seq.next_element::<serde_json::Value>()? {
+                match &value {
+                    serde_json::Value::String(s) => {
+                        tools.push(ToolDeclaration {
+                            name: s.clone(),
+                            ..Default::default()
+                        });
+                    }
+                    serde_json::Value::Object(_) => {
+                        let decl: ToolDeclaration =
+                            serde_json::from_value(value).map_err(de::Error::custom)?;
+                        tools.push(decl);
+                    }
+                    _ => {
+                        return Err(de::Error::custom(
+                            "each tool must be a string name or a declaration object",
+                        ));
+                    }
+                }
+            }
+            Ok(tools)
+        }
+    }
+
+    deserializer.deserialize_seq(ToolDeclarationsVisitor)
+}
+
 fn default_dcc() -> String {
     DEFAULT_DCC.to_string()
 }
@@ -62,7 +290,7 @@ impl SkillMetadata {
     fn new(
         name: String,
         description: String,
-        tools: Vec<String>,
+        tools: Vec<ToolDeclaration>,
         dcc: String,
         tags: Vec<String>,
         scripts: Vec<String>,
@@ -162,7 +390,16 @@ mod tests {
         let meta = SkillMetadata {
             name: "full-skill".to_string(),
             description: "A full skill".to_string(),
-            tools: vec!["create_mesh".to_string(), "delete_mesh".to_string()],
+            tools: vec![
+                ToolDeclaration {
+                    name: "create_mesh".to_string(),
+                    ..Default::default()
+                },
+                ToolDeclaration {
+                    name: "delete_mesh".to_string(),
+                    ..Default::default()
+                },
+            ],
             dcc: "blender".to_string(),
             tags: vec!["modeling".to_string()],
             scripts: vec!["init.py".to_string()],
@@ -207,7 +444,21 @@ mod tests {
             r#"{"name": "tools-skill", "tools": ["mesh_bevel", "mesh_extrude", "mesh_inset"]}"#;
         let meta: SkillMetadata = serde_json::from_str(json).unwrap();
         assert_eq!(meta.tools.len(), 3);
-        assert!(meta.tools.contains(&"mesh_bevel".to_string()));
+        assert_eq!(meta.tools[0].name, "mesh_bevel");
+        assert_eq!(meta.tools[1].name, "mesh_extrude");
+        assert_eq!(meta.tools[2].name, "mesh_inset");
+    }
+
+    #[test]
+    fn test_tool_declaration_full_object() {
+        let json = r#"{"name": "tools-skill", "tools": [{"name": "bevel", "description": "Bevel edges", "read_only": false, "destructive": true, "idempotent": true}]}"#;
+        let meta: SkillMetadata = serde_json::from_str(json).unwrap();
+        assert_eq!(meta.tools.len(), 1);
+        assert_eq!(meta.tools[0].name, "bevel");
+        assert_eq!(meta.tools[0].description, "Bevel edges");
+        assert!(!meta.tools[0].read_only);
+        assert!(meta.tools[0].destructive);
+        assert!(meta.tools[0].idempotent);
     }
 
     #[test]

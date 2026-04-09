@@ -135,7 +135,8 @@ class TestMcpHttpProtocol:
         assert code == 200
         tools = body["result"]["tools"]
         assert isinstance(tools, list)
-        assert len(tools) == 2
+        # tools/list now always includes 5 core discovery tools plus registered actions
+        assert len(tools) >= 2
         names = {t["name"] for t in tools}
         assert "get_scene_info" in names
         assert "list_objects" in names
@@ -268,7 +269,8 @@ class TestMcpHttpProtocol:
             headers={"Mcp-Session-Id": session_id},
         )
         assert code == 200
-        assert len(body["result"]["tools"]) == 2
+        # tools/list includes core discovery tools plus registered actions
+        assert len(body["result"]["tools"]) >= 2
 
         # 3. Delete session
         req = urllib.request.Request(
