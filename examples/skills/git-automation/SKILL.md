@@ -1,29 +1,66 @@
 ---
 name: git-automation
-description: "Git repository analysis and automation tools"
-tools: ["Bash", "Read"]
-tags: ["git", "vcs", "automation", "devops"]
-dcc: python
-version: "1.0.0"
+description: "Git repository analysis and automation — inspect commits, branches, diffs, and file history. Use when analysing a codebase, reviewing changes, or automating version control workflows."
+license: MIT
+compatibility: Requires git on PATH
+allowed-tools: Bash Read
 metadata:
+  category: devops
   openclaw:
     requires:
       bins:
         - git
+    emoji: "🔀"
+    homepage: https://git-scm.com
+tags: [git, vcs, automation, devops]
+dcc: python
+version: "1.0.0"
+tools:
+  - name: log
+    description: Show recent commit history
+    input_schema:
+      type: object
+      properties:
+        limit:
+          type: integer
+          description: Number of commits to show
+          default: 20
+        format:
+          type: string
+          description: Log format (oneline, short, full)
+          default: oneline
+    read_only: true
+    idempotent: true
+    source_file: scripts/log.py
+
+  - name: diff
+    description: Show changes between commits or working tree
+    input_schema:
+      type: object
+      properties:
+        from_ref:
+          type: string
+          description: Base commit/branch (default HEAD)
+        to_ref:
+          type: string
+          description: Target commit/branch
+    read_only: true
+    idempotent: true
+    source_file: scripts/diff.py
 ---
 
-# Git Automation Skill
+# Git Automation Tools
 
-Provides Git repository analysis and automation tools as MCP-discoverable actions.
-Demonstrates that `dcc-mcp-core` skills extend beyond DCC applications — any
-developer workflow tool can be wrapped as a skill.
+Analyse and automate Git repositories from within an AI agent workflow.
 
-## Scripts
+## Tools
 
-- **repo_stats.py** — Analyze repository statistics (commits, contributors, file counts)
-- **changelog_gen.py** — Generate changelog from git log between two refs
+### `git_automation__log`
+Show commit history with configurable depth and format.
 
-## Why This Matters
+### `git_automation__diff`
+Show the diff between commits, branches, or the working tree.
 
-DCC pipelines often involve version-controlled assets. This skill shows how
-`dcc-mcp-core` can bridge the gap between creative tools and developer workflows.
+## Prerequisites
+
+Git must be installed and the working directory must be inside a Git repository.

@@ -1,55 +1,39 @@
 ---
 name: hello-world
-description: "A minimal example skill that prints a greeting message"
-tools: ["Bash", "Read"]
-tags: ["example", "beginner"]
+description: "A minimal example skill that prints a greeting message. Use when demonstrating the dcc-mcp-core skill system or testing a new skill installation."
+license: MIT
+compatibility: Python 3.7+
+allowed-tools: Bash Read
+tags: [example, beginner]
 dcc: python
 version: "1.0.0"
 ---
 
-# Hello World Skill
+# Hello World
 
-The simplest possible skill — demonstrates the minimum required structure for a dcc-mcp-core skill.
+A minimal demonstration skill for the dcc-mcp-core Skills system.
 
-## Purpose
+## Usage
 
-Use this skill to:
-1. **Verify** that the skill scanning and loading pipeline works correctly
-2. **Learn** the minimum structure required for any skill (SKILL.md + scripts/ directory)
-3. **Test** your `DCC_MCP_SKILL_PATHS` configuration
+After loading this skill with `load_skill("hello-world")`, the following tool becomes available:
 
-## Scripts
+- `hello_world__greet` — Print a greeting message
 
-- **greet.py** — Prints a greeting message; demonstrates the simplest possible action body
-
-## Action Name (auto-derived)
-
-- `hello_world__greet` — from `scripts/greet.py`
-
-## Quick Test
+## Example
 
 ```python
-import os
-from dcc_mcp_core import scan_and_load, parse_skill_md
-
-# Test direct parse
-meta = parse_skill_md("examples/skills/hello-world")
-assert meta.name == "hello-world"
-assert meta.dcc == "python"
-assert len(meta.scripts) == 1
-
-# Or load via env var
-os.environ["DCC_MCP_SKILL_PATHS"] = "examples/skills"
-skills, skipped = scan_and_load()
-hello = next(s for s in skills if s.name == "hello-world")
-print(f"Loaded: {hello.name} with {len(hello.scripts)} scripts")
+# Via MCP tools/call
+{"name": "hello_world__greet", "arguments": {"name": "Maya"}}
+# → {"success": true, "message": "Hello, Maya!"}
 ```
 
-## Minimum Skill Structure
+## Script convention
 
-```
-hello-world/
-├── SKILL.md          ← Required: YAML frontmatter (name, dcc required)
-└── scripts/
-    └── greet.py      ← Required: at least one script
+Scripts in this skill read JSON parameters from stdin and write JSON results to stdout:
+
+```python
+import json, sys
+params = json.load(sys.stdin)
+name = params.get("name", "World")
+print(json.dumps({"success": True, "message": f"Hello, {name}!"}))
 ```

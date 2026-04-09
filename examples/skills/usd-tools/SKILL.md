@@ -1,71 +1,62 @@
 ---
 name: usd-tools
-description: "OpenUSD scene inspection and validation tools"
-tools: ["Bash", "Read"]
-tags: ["usd", "openusd", "pipeline", "scene", "validation"]
-dcc: python
-version: "1.0.0"
+description: "OpenUSD scene inspection and validation tools — read layer stacks, traverse prims, validate USD files. Use when working with USD assets, pipelines, or scene description."
+license: Apache-2.0
+compatibility: Requires usdcat and usdchecker from the OpenUSD distribution
+allowed-tools: Bash Read
 metadata:
+  category: pipeline
   openclaw:
     requires:
       bins:
         - usdcat
         - usdchecker
+    emoji: "🎬"
+    homepage: https://openusd.org
+tags: [usd, openusd, pipeline, scene, validation]
+dcc: python
+version: "1.0.0"
+tools:
+  - name: inspect
+    description: Print the contents of a USD file in human-readable form
+    input_schema:
+      type: object
+      required: [file]
+      properties:
+        file: {type: string, description: Path to the USD file}
+        flatten: {type: boolean, description: Flatten all layers, default false}
+    read_only: true
+    idempotent: true
+    source_file: scripts/inspect.py
+
+  - name: validate
+    description: Run USD compliance checks on a file
+    input_schema:
+      type: object
+      required: [file]
+      properties:
+        file: {type: string, description: Path to the USD file to validate}
+    read_only: true
+    idempotent: true
+    source_file: scripts/validate.py
 ---
 
-# OpenUSD Tools Skill
+# OpenUSD Tools
 
-Integrates [OpenUSD](https://openusd.org/) command-line tools for scene
-inspection, validation, and conversion. OpenUSD is the industry standard for
-3D scene interchange used across Maya, Houdini, Blender, Unreal Engine, and more.
+Inspect and validate Universal Scene Description (USD) files.
 
-This skill is a prime example of `dcc-mcp-core`'s mission: bridging DCC
-applications through MCP.
+## Tools
 
-## Scripts
+### `usd_tools__inspect`
+Print the contents of a `.usd`, `.usda`, `.usdc`, or `.usdz` file.
 
-- **inspect.py** — Inspect USD stage structure (prims, layers, composition arcs)
-- **validate.py** — Validate USD files using usdchecker compliance rules
-
-## Action Names (auto-derived)
-
-- `usd_tools__inspect` — from `scripts/inspect.py`
-- `usd_tools__validate` — from `scripts/validate.py`
-
-## Integration with dcc-mcp-core USD API
-
-This skill works alongside the built-in `UsdStage` API in `dcc-mcp-core`:
-
-```python
-from dcc_mcp_core import UsdStage, SdfPath, VtValue, scene_info_json_to_stage
-
-# Build a USD stage programmatically
-stage = UsdStage("my_scene")
-stage.define_prim("/World", "Xform")
-prim = stage.define_prim("/World/Cube", "Mesh")
-prim.set_attribute("extent", VtValue.from_vec3f(1.0, 1.0, 1.0))
-
-# Export to USDA (ASCII format) — then pass to usd-tools scripts
-usda_content = stage.export_usda()
-
-# Convert a DCC SceneInfo (from Maya/Blender adapter) to UsdStage
-stage2 = scene_info_json_to_stage(scene_info_json_str, dcc_type="maya")
-```
-
-## Pipeline Integration
-
-```python
-# In a DCC MCP server, skills are auto-registered
-from dcc_mcp_core import scan_and_load
-
-skills, _ = scan_and_load(
-    extra_paths=["/studio/pipeline/skills"],
-    dcc_name="python",  # usd-tools targets generic python DCC
-)
-# Registers usd_tools__inspect and usd_tools__validate as MCP tools
-```
+### `usd_tools__validate`
+Run `usdchecker` compliance validation and return the report.
 
 ## Prerequisites
 
-- Python 3.7+
-- OpenUSD tools installed: `usdcat`, `usdchecker` (from `pip install usd-core` or USD distribution)
+Install the OpenUSD Python bindings:
+```bash
+pip install usd-core
+```
+Or install the full distribution from https://openusd.org.

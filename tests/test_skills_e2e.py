@@ -117,9 +117,12 @@ class TestSkillParsingE2E:
         meta = dcc_mcp_core.parse_skill_md(skill_dir)
         assert meta.skill_path == skill_dir
         assert isinstance(meta.tools, list)
-        tool_names = [t.name for t in meta.tools]
-        assert "Bash" in tool_names
-        assert "Read" in tool_names
+        # hello-world uses allowed-tools (agent permission list), not tools (MCP declarations)
+        assert "Bash" in meta.allowed_tools
+        assert "Read" in meta.allowed_tools
+        # New standard fields should be present
+        assert meta.license == "MIT"
+        assert "Python" in meta.compatibility
 
     def test_skill_metadata_is_mutable(self, examples_dir: str) -> None:
         skill_dir = str(Path(examples_dir) / "hello-world")

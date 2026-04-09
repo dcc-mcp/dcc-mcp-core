@@ -1,11 +1,11 @@
 ---
 name: ffmpeg-media
-description: "Media conversion and processing tools powered by FFmpeg"
-tools: ["Bash", "Read", "Write"]
-tags: ["media", "video", "audio", "ffmpeg", "conversion"]
-dcc: python
-version: "1.0.0"
+description: "Media conversion and processing powered by FFmpeg — convert video/audio formats, extract frames, resize, and transcode. Use when working with video, audio, or image sequences."
+license: MIT
+compatibility: Requires ffmpeg and ffprobe binaries on PATH
+allowed-tools: Bash Read Write
 metadata:
+  category: media
   openclaw:
     requires:
       bins:
@@ -15,40 +15,52 @@ metadata:
       - kind: brew
         formula: ffmpeg
         bins: [ffmpeg, ffprobe]
+    emoji: "🎬"
+    homepage: https://ffmpeg.org
+tags: [media, video, audio, ffmpeg, conversion]
+dcc: python
+version: "1.0.0"
+tools:
+  - name: convert
+    description: Convert a media file to a different format
+    input_schema:
+      type: object
+      required: [input, output]
+      properties:
+        input: {type: string, description: Input file path}
+        output: {type: string, description: Output file path}
+        codec: {type: string, description: Output codec (e.g. h264, vp9)}
+    source_file: scripts/convert.py
+
+  - name: extract_frames
+    description: Extract video frames as image files
+    input_schema:
+      type: object
+      required: [input, output_dir]
+      properties:
+        input: {type: string, description: Input video path}
+        output_dir: {type: string, description: Directory to save frames}
+        fps: {type: number, description: Frames per second to extract, default 1}
+    source_file: scripts/extract_frames.py
 ---
 
-# FFmpeg Media Skill
+# FFmpeg Media Tools
 
-Integrates [FFmpeg](https://ffmpeg.org/) — the industry-standard open-source
-multimedia framework — as MCP-discoverable tools.
+Cross-platform media conversion and processing tools powered by FFmpeg.
 
-This skill demonstrates how `dcc-mcp-core` can wrap **any CLI tool** as a skill,
-making it available to AI agents via the MCP protocol.
+## Tools
 
-## Scripts
+### `ffmpeg_media__convert`
+Convert between video and audio formats.
 
-- **probe.py** — Extract media file metadata (resolution, codec, duration, etc.)
-- **convert.py** — Convert media files between formats (e.g. MP4 → WebM)
-- **thumbnail.py** — Generate thumbnail images from video files
+### `ffmpeg_media__extract_frames`
+Extract individual frames from a video file.
 
-## Example
+## Prerequisites
 
-```bash
-# Probe a video file
-python scripts/probe.py --input video.mp4
+Install FFmpeg:
+- **macOS**: `brew install ffmpeg`
+- **Linux**: `apt install ffmpeg` or `yum install ffmpeg`
+- **Windows**: Download from https://ffmpeg.org/download.html
 
-# Convert to WebM
-python scripts/convert.py --input video.mp4 --output video.webm --codec libvpx-vp9
-
-# Generate thumbnail at 5 seconds
-python scripts/thumbnail.py --input video.mp4 --time 5 --output thumb.jpg
-```
-
-## ClawHub Compatibility
-
-This skill follows the [ClawHub](https://clawhub.ai) format and can be published
-directly:
-
-```bash
-clawhub publish ./ffmpeg-media --slug ffmpeg-media --version 1.0.0
-```
+Verify installation: `ffmpeg -version`

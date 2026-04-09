@@ -1,8 +1,11 @@
 ---
 name: clawhub-compat
-description: "Demonstrates full compatibility with the ClawHub/OpenClaw skill format"
-version: "1.0.0"
+description: "Demonstrates full compatibility with the ClawHub/OpenClaw skill format. Use as a reference when creating skills for both the dcc-mcp-core ecosystem and ClawHub marketplace."
+license: MIT
+compatibility: Requires curl binary on PATH
+allowed-tools: Bash Read
 metadata:
+  category: example
   openclaw:
     requires:
       env:
@@ -10,12 +13,15 @@ metadata:
       bins:
         - curl
     primaryEnv: EXAMPLE_API_KEY
-    emoji: "\U0001F980"
+    emoji: "🦀"
     homepage: https://github.com/loonghao/dcc-mcp-core
     install:
       - kind: node
         package: prettier
         bins: [prettier]
+tags: [example, clawhub, openclaw, compatibility]
+dcc: python
+version: "1.0.0"
 ---
 
 # ClawHub Compatible Skill
@@ -24,34 +30,26 @@ This skill demonstrates that `dcc-mcp-core` skills are **fully compatible**
 with the [ClawHub](https://clawhub.ai/) / [OpenClaw](https://openclaw.ai/)
 ecosystem format.
 
-## What This Proves
+## Three-Standard Compatibility
 
-1. **Same SKILL.md format** — Our YAML frontmatter parser handles all ClawHub
-   fields including `metadata.openclaw.requires`, `install`, `primaryEnv`, etc.
-
-2. **Bidirectional reuse** — Skills created for ClawHub can be used directly
-   with `dcc-mcp-core`, and vice versa.
-
-3. **Extended fields** — We support additional fields like `dcc` and `tools`
-   that are specific to the DCC ecosystem while remaining backward-compatible.
-
-## ClawHub ↔ dcc-mcp-core Field Mapping
-
-| ClawHub Field | dcc-mcp-core Field | Notes |
-|---|---|---|
-| `name` | `name` | Identical |
-| `description` | `description` | Identical |
-| `version` | `version` | Identical |
-| `metadata.openclaw.requires.bins` | (parsed as metadata) | Available via SkillMetadata |
-| `metadata.openclaw.requires.env` | (parsed as metadata) | Available via SkillMetadata |
-| — | `dcc` | DCC-specific extension |
-| — | `tools` | OpenClaw tools annotation |
-| — | `tags` | Tag-based discovery |
+| Field | agentskills.io | ClawHub | dcc-mcp-core | This Skill |
+|-------|---------------|---------|--------------|------------|
+| `name` | ✅ Required | ✅ Required | ✅ Required | ✅ |
+| `description` | ✅ Required | ✅ Required | ✅ Required | ✅ |
+| `license` | ✅ Optional | MIT-0 only | ✅ Optional | ✅ MIT |
+| `compatibility` | ✅ Optional | — | ✅ Optional | ✅ |
+| `allowed-tools` | ✅ Optional | — | ✅ Optional | ✅ |
+| `metadata` | KV strings | `openclaw.*` | `serde_json::Value` | ✅ |
+| `metadata.openclaw.requires` | — | ✅ | ✅ Parsed | ✅ |
+| `metadata.openclaw.primaryEnv` | — | ✅ | ✅ Parsed | ✅ |
+| `version` | — | ✅ Required | ✅ Optional | ✅ |
+| `dcc` | — | — | ✅ Extension | ✅ |
+| `tags` | — | — | ✅ Extension | ✅ |
 
 ## Publishing to ClawHub
 
 ```bash
-# This skill can be published as-is
+# This skill can be published as-is to ClawHub
 clawhub publish ./clawhub-compat --slug clawhub-compat --version 1.0.0
 ```
 
@@ -60,11 +58,12 @@ clawhub publish ./clawhub-compat --slug clawhub-compat --version 1.0.0
 ```python
 import dcc_mcp_core
 
-# Install a skill from ClawHub
-# $ clawhub install some-skill
+# Skills installed via ClawHub are discoverable automatically
+catalog = dcc_mcp_core.SkillCatalog(dcc_mcp_core.ActionRegistry())
+catalog.discover(extra_paths=["~/.openclaw/skills"])
 
-# Point the scanner at your ClawHub skills directory
-scanner = dcc_mcp_core.SkillScanner()
-skills = scanner.scan(extra_paths=["~/.openclaw/skills"])
-# All ClawHub-installed skills are now discoverable!
+# Access ClawHub-specific metadata
+for skill in catalog.list_skills():
+    info = catalog.get_skill_info(skill["name"])
+    # info["required_bins"], info["emoji"], info["homepage"]
 ```
