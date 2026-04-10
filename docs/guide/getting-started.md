@@ -30,6 +30,45 @@ The build is handled by [maturin](https://www.maturin.rs/) which compiles the Ru
 
 ## Quick Start
 
+### Skills-First: `create_skill_manager` (recommended since v0.12.12)
+
+The fastest way to expose scripts as MCP tools. Create a `SKILL.md` in your script folder, then use `create_skill_manager` to wire everything in one call:
+
+```python
+import os
+from dcc_mcp_core import create_skill_manager, McpHttpConfig
+
+# Point to your skill directories (per-app env var)
+os.environ["DCC_MCP_MAYA_SKILL_PATHS"] = "/path/to/my-skills"
+
+# One call: discover skills + start MCP HTTP server
+server = create_skill_manager("maya", McpHttpConfig(port=8765))
+handle = server.start()
+print(f"Maya MCP server at {handle.mcp_url()}")
+# AI clients (Claude Desktop, etc.) connect to http://127.0.0.1:8765/mcp
+```
+
+Or use `SkillCatalog` directly for more control:
+
+```python
+import os
+from dcc_mcp_core import ActionRegistry, SkillCatalog
+
+os.environ["DCC_MCP_SKILL_PATHS"] = "/path/to/my-skills"
+
+registry = ActionRegistry()
+catalog = SkillCatalog(registry)
+
+count = catalog.discover(dcc_name="maya")
+print(f"Discovered {count} skills")
+
+actions = catalog.load_skill("maya-geometry")
+print(f"Registered actions: {actions}")
+# e.g. ['maya_geometry__create_sphere', 'maya_geometry__export_fbx']
+```
+
+See the [Skills System guide](/guide/skills) for writing `SKILL.md` files and advanced options.
+
 ### Action Registry
 
 ```python
@@ -75,6 +114,24 @@ bus.publish("scene.changed")
 bus.unsubscribe("scene.changed", sid)
 ```
 
+### MCP HTTP Server
+
+Expose your registry to AI clients (Claude Desktop, etc.) over HTTP in one call:
+
+```python
+from dcc_mcp_core import ActionRegistry, McpHttpServer, McpHttpConfig
+
+registry = ActionRegistry()
+# ... register actions or load skills ...
+
+config = McpHttpConfig(port=8765, host="127.0.0.1")
+server = McpHttpServer(registry, config)
+handle = server.start()
+
+print(f"MCP server running at http://127.0.0.1:8765/mcp")
+# handle.stop() to shut down
+```
+
 ## Development Setup
 
 ```bash
@@ -101,4 +158,6 @@ vx just lint
 - Learn about [Actions & Registry](/guide/actions) — the core building block
 - Explore the [Event System](/guide/events) for lifecycle hooks
 - Check out the [Skills System](/guide/skills) for zero-code script registration
+- Expose tools with [MCP HTTP Server](/api/http)
 - See the [Transport Layer](/guide/transport) for DCC communication
+- Understand the [Architecture](/guide/architecture) of the 13-crate Rust workspace

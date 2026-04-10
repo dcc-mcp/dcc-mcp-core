@@ -352,15 +352,72 @@ Return names of all skills that `skill_name` transitively depends on. Raises `Va
 ## Search Path Priority
 
 1. `extra_paths` parameter (highest priority)
-2. `DCC_MCP_SKILL_PATHS` environment variable
-3. Platform-specific skills directory (DCC-specific, via `get_skills_dir(dcc_name)`)
-4. Platform-specific skills directory (global, via `get_skills_dir()`)
+2. `DCC_MCP_{APP}_SKILL_PATHS` environment variable (per-app, e.g. `DCC_MCP_MAYA_SKILL_PATHS`)
+3. `DCC_MCP_SKILL_PATHS` environment variable (global fallback)
+4. Platform-specific skills directory (DCC-specific, via `get_skills_dir(dcc_name)`)
+5. Platform-specific skills directory (global, via `get_skills_dir()`)
 
 ## Environment Variables
 
 | Variable | Description |
 |----------|-------------|
-| `DCC_MCP_SKILL_PATHS` | Skill search paths (`;` on Windows, `:` on Unix) |
+| `DCC_MCP_{APP}_SKILL_PATHS` | Per-app skill paths, e.g. `DCC_MCP_MAYA_SKILL_PATHS` (`;` on Windows, `:` on Unix) |
+| `DCC_MCP_SKILL_PATHS` | Global fallback skill paths |
+
+### create_skill_manager
+
+```python
+create_skill_manager(
+    app_name: str,
+    config: McpHttpConfig | None = None,
+    extra_paths: list[str] | None = None,
+    dcc_name: str | None = None,
+) -> McpHttpServer
+```
+
+**Recommended entry-point for the Skills-First workflow** (v0.12.12+).
+
+Creates a fully wired `McpHttpServer` for a specific DCC application in one call. Automatically:
+1. Creates `ActionRegistry` + `ActionDispatcher`
+2. Creates `SkillCatalog` wired to the dispatcher
+3. Discovers skills from `DCC_MCP_{APP}_SKILL_PATHS` and `DCC_MCP_SKILL_PATHS`
+4. Returns a ready-to-start `McpHttpServer`
+
+**Parameters:**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `app_name` | `str` | DCC name (e.g. `"maya"`, `"blender"`) — derives env var and MCP server name |
+| `config` | `McpHttpConfig \| None` | HTTP server config; defaults to port 8765 |
+| `extra_paths` | `list[str] \| None` | Extra skill dirs in addition to env vars |
+| `dcc_name` | `str \| None` | Override DCC filter for scanning (defaults to `app_name`) |
+
+**Returns:** `McpHttpServer` — call `.start()` to begin serving.
+
+**Example:**
+
+```python
+import os
+from dcc_mcp_core import create_skill_manager, McpHttpConfig
+
+os.environ["DCC_MCP_MAYA_SKILL_PATHS"] = "/studio/maya-skills"
+
+server = create_skill_manager("maya", McpHttpConfig(port=8765))
+handle = server.start()
+print(f"Serving at {handle.mcp_url()}")
+```
+
+### get_app_skill_paths_from_env
+
+```python
+get_app_skill_paths_from_env(app_name: str) -> list[str]
+```
+
+Return skill paths from the `DCC_MCP_{APP_NAME}_SKILL_PATHS` environment variable.
+
+The lookup is case-insensitive; the actual env var key is upper-cased automatically (e.g. `DCC_MCP_MAYA_SKILL_PATHS` for `app_name="maya"`).
+
+Returns `[]` if the env var is not set.
 
 ## Action Naming Convention
 

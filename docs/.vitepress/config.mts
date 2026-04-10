@@ -20,7 +20,7 @@ export default defineConfig({
           { text: 'Guide', link: '/guide/getting-started' },
           { text: 'API', link: '/api/models' },
           {
-            text: 'v0.12.2',
+            text: 'v0.12.12',
             items: [
               { text: 'Changelog', link: 'https://github.com/loonghao/dcc-mcp-core/blob/main/CHANGELOG.md' },
               { text: 'PyPI', link: 'https://pypi.org/project/dcc-mcp-core/' },
@@ -51,6 +51,12 @@ export default defineConfig({
               items: [
                 { text: 'Custom Actions', link: '/guide/custom-actions' },
                 { text: 'Architecture', link: '/guide/architecture' },
+                { text: 'Process Management', link: '/guide/process' },
+                { text: 'Sandbox & Security', link: '/guide/sandbox' },
+                { text: 'Shared Memory', link: '/guide/shm' },
+                { text: 'Telemetry', link: '/guide/telemetry' },
+                { text: 'Capture', link: '/guide/capture' },
+                { text: 'USD Bridge', link: '/guide/usd' },
                 { text: 'FAQ', link: '/guide/faq' },
               ]
             },
@@ -65,6 +71,13 @@ export default defineConfig({
                 { text: 'Skills', link: '/api/skills' },
                 { text: 'Protocols', link: '/api/protocols' },
                 { text: 'Transport', link: '/api/transport' },
+                { text: 'HTTP Server', link: '/api/http' },
+                { text: 'Process', link: '/api/process' },
+                { text: 'Sandbox', link: '/api/sandbox' },
+                { text: 'Shared Memory', link: '/api/shm' },
+                { text: 'Telemetry', link: '/api/telemetry' },
+                { text: 'Capture', link: '/api/capture' },
+                { text: 'USD', link: '/api/usd' },
                 { text: 'Utilities', link: '/api/utilities' },
               ]
             }
@@ -81,7 +94,7 @@ export default defineConfig({
           { text: '指南', link: '/zh/guide/getting-started' },
           { text: 'API', link: '/zh/api/models' },
           {
-            text: 'v0.12.2',
+            text: 'v0.12.12',
             items: [
               { text: '更新日志', link: 'https://github.com/loonghao/dcc-mcp-core/blob/main/CHANGELOG.md' },
               { text: 'PyPI', link: 'https://pypi.org/project/dcc-mcp-core/' },
@@ -112,6 +125,12 @@ export default defineConfig({
               items: [
                 { text: '自定义 Action', link: '/zh/guide/custom-actions' },
                 { text: '架构设计', link: '/zh/guide/architecture' },
+                { text: '进程管理', link: '/zh/guide/process' },
+                { text: '沙箱与安全', link: '/zh/guide/sandbox' },
+                { text: '共享内存', link: '/zh/guide/shm' },
+                { text: '遥测', link: '/zh/guide/telemetry' },
+                { text: '画面捕获', link: '/zh/guide/capture' },
+                { text: 'USD 桥接', link: '/zh/guide/usd' },
                 { text: '常见问题', link: '/zh/guide/faq' },
               ]
             },
@@ -126,6 +145,13 @@ export default defineConfig({
                 { text: 'Skills', link: '/zh/api/skills' },
                 { text: '协议', link: '/zh/api/protocols' },
                 { text: '传输层', link: '/zh/api/transport' },
+                { text: 'HTTP 服务器', link: '/zh/api/http' },
+                { text: '进程管理', link: '/zh/api/process' },
+                { text: '沙箱', link: '/zh/api/sandbox' },
+                { text: '共享内存', link: '/zh/api/shm' },
+                { text: '遥测', link: '/zh/api/telemetry' },
+                { text: '画面捕获', link: '/zh/api/capture' },
+                { text: 'USD', link: '/zh/api/usd' },
                 { text: '工具函数', link: '/zh/api/utilities' },
               ]
             }

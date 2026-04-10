@@ -118,7 +118,7 @@ from dcc_mcp_core import (
 
 ## 版本与 Python 支持
 
-- **当前版本**：0.12.10
+- **当前版本**：0.12.12
 - **Python**：3.7–3.13（abi3-py38 wheel，CI 全版本测试）
 - **Rust**：Edition 2024，MSRV 1.85
 - **构建**：maturin + PyO3；零运行时 Python 依赖

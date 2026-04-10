@@ -40,6 +40,14 @@ cfg = McpHttpConfig(
 
 由 `McpHttpServer.start()` 返回。用于获取 MCP 端点 URL 并优雅关闭。
 
+::: tip 别名
+`ServerHandle` 在 `dcc_mcp_core` 中也以 `McpServerHandle` 别名导出，两者指向同一个类。
+
+```python
+from dcc_mcp_core import McpServerHandle  # ServerHandle 的别名
+```
+:::
+
 ### 属性
 
 | 属性 | 类型 | 说明 |

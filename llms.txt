@@ -15,7 +15,7 @@
 | Monitor DCC process | `PyProcessWatcher` + `PyCrashRecoveryPolicy` |
 | Sandbox AI actions | `SandboxPolicy` + `SandboxContext` |
 | Share large data zero-copy | `PySharedSceneBuffer.write()` with LZ4 compression |
-| Expose DCC tools over HTTP/MCP | `McpHttpServer(registry, McpHttpConfig(port=8765))` |
+| Expose DCC tools over HTTP/MCP | `create_skill_manager("maya", McpHttpConfig(port=8765))` — Skills-First setup; falls back to `McpHttpServer(registry, config)` for manual registry wiring |
 
 ## Quick Start
 
@@ -130,6 +130,19 @@ crates/
 - `resolve_dependencies(skills) -> List[SkillMetadata]`
 - `expand_transitive_dependencies(skills, skill_name) -> List[str]`
 - `validate_dependencies(skills) -> List[str]` — returns error messages
+- `get_skill_paths_from_env() -> List[str]` — reads `DCC_MCP_SKILL_PATHS` env var
+- `get_app_skill_paths_from_env(app_name: str) -> List[str]` — reads `DCC_MCP_{APP}_SKILL_PATHS` env var
+
+**SkillCatalog** — progressive skill loading with thread-safe state:
+- `SkillCatalog(scanner)` — construct with a `SkillScanner`
+- `.discover(extra_paths=None, dcc_name=None)` — scan and populate catalog
+- `.list_skills(status=None) -> List[SkillSummary]` — filter by `"loaded"` / `"unloaded"` / `None`
+- `.find_skills(query=None, tags=None, dcc=None) -> List[SkillSummary]`
+- `.load_skill(skill_name) -> bool` / `.unload_skill(skill_name) -> bool`
+- `.get_skill_info(skill_name) -> Optional[SkillMetadata]`
+- `.is_loaded(skill_name) -> bool` / `.loaded_count() -> int`
+
+**SkillSummary fields:** `.name`, `.description`, `.version`, `.dcc`, `.tags`, `.tool_count`, `.tool_names`, `.loaded`
 
 **SkillMetadata fields:** `.name`, `.description`, `.dcc`, `.version`, `.tags`, `.tools`, `.scripts` (List[str] absolute paths), `.skill_path`, `.depends`, `.metadata_files`
 

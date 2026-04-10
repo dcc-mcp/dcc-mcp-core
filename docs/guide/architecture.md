@@ -218,6 +218,43 @@ dcc-mcp-http ← dcc-mcp-transport, dcc-mcp-protocols
 
 **Dependencies**: `dirs`
 
+## Skills-First Architecture
+
+The recommended entry-point for exposing DCC tools over MCP is the **Skills-First** pattern using `create_skill_manager`. A single call wires together the full stack:
+
+```
+create_skill_manager("maya")
+        │
+        ├─ ActionRegistry  (thread-safe action store)
+        ├─ ActionDispatcher (routes calls to Python handlers)
+        ├─ SkillCatalog    (discovers + loads SKILL.md packages)
+        │       └─ scans DCC_MCP_MAYA_SKILL_PATHS + DCC_MCP_SKILL_PATHS
+        └─ McpHttpServer   (returns ready-to-start HTTP server)
+```
+
+```python
+import os
+os.environ["DCC_MCP_MAYA_SKILL_PATHS"] = "/studio/maya-skills"
+
+from dcc_mcp_core import create_skill_manager, McpHttpConfig
+
+server = create_skill_manager("maya", McpHttpConfig(port=8765))
+handle = server.start()
+print(f"Maya MCP server: {handle.mcp_url()}")
+# handle.shutdown() when done
+```
+
+**Skill path resolution order** (first found wins):
+1. `DCC_MCP_{APP}_SKILL_PATHS` — per-app env var (e.g. `DCC_MCP_MAYA_SKILL_PATHS`)
+2. `DCC_MCP_SKILL_PATHS` — global fallback
+3. Platform data dir: `~/.local/share/dcc-mcp/skills/{app}/`
+4. `extra_paths` argument
+
+::: tip Manual Assembly
+If you need custom middleware or fine-grained control, assemble the stack manually:
+`ActionRegistry` → `ActionDispatcher` → `SkillCatalog` → `McpHttpServer`.
+:::
+
 ## Python Bindings
 
 All 13 crates are compiled into a single PyO3 native extension (`dcc_mcp_core._core`) via `maturin`.

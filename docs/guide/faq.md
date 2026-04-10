@@ -144,6 +144,22 @@ The EventBus does not natively support `async def` callbacks. Wrap async logic i
 
 ## Skills
 
+### What is the quickest way to expose scripts as MCP tools?
+
+Use `create_skill_manager` (v0.12.12+) — one call does everything:
+
+```python
+import os
+from dcc_mcp_core import create_skill_manager, McpHttpConfig
+
+os.environ["DCC_MCP_MAYA_SKILL_PATHS"] = "/path/to/skills"
+server = create_skill_manager("maya", McpHttpConfig(port=8765))
+handle = server.start()
+print(handle.mcp_url())  # http://127.0.0.1:8765/mcp
+```
+
+This automatically creates an `ActionRegistry`, `ActionDispatcher`, `SkillCatalog`, and `McpHttpServer`, and discovers skills from `DCC_MCP_MAYA_SKILL_PATHS` and `DCC_MCP_SKILL_PATHS`.
+
 ### What is the Skills system?
 
 The Skills system allows zero-code script registration. Place scripts in a directory with a `SKILL.md` file and they are automatically discovered and registered as MCP tools:

@@ -40,6 +40,14 @@ cfg = McpHttpConfig(
 
 Returned by `McpHttpServer.start()`. Use it to get the MCP endpoint URL and shut down gracefully.
 
+::: tip Alias
+`ServerHandle` is also exported as `McpServerHandle` from `dcc_mcp_core`. Both names refer to the same class.
+
+```python
+from dcc_mcp_core import McpServerHandle  # alias for ServerHandle
+```
+:::
+
 ### Properties
 
 | Property | Type | Description |

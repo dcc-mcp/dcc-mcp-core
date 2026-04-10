@@ -97,3 +97,233 @@ stale, sessions, evicted = transport.cleanup()
 transport.shutdown()
 transport.is_shutdown()
 ```
+
+---
+
+## 低级 IPC API
+
+对于需要充当服务端或直接通过 IPC 通信（绕过 `TransportManager`）的 DCC 插件，可使用低级类。
+
+### TransportAddress
+
+协议无关的端点描述符，支持 TCP、Windows 命名管道和 Unix Domain Socket。
+
+```python
+from dcc_mcp_core import TransportAddress
+
+# 工厂构造函数
+addr = TransportAddress.tcp("127.0.0.1", 18812)
+addr = TransportAddress.named_pipe("maya-mcp")          # Windows
+addr = TransportAddress.unix_socket("/tmp/maya.sock")   # macOS/Linux
+
+# 平台最优本地地址（以 PID 为唯一标识）
+addr = TransportAddress.default_local("maya", pid=12345)
+
+# 从 URI 字符串解析
+addr = TransportAddress.parse("tcp://127.0.0.1:18812")
+```
+
+| 属性/方法 | 返回值 | 说明 |
+|-----------|--------|------|
+| `scheme` | `str` | `"tcp"`、`"pipe"` 或 `"unix"` |
+| `is_local` | `bool` | 是否为本机传输 |
+| `is_tcp` | `bool` | 是否为 TCP |
+| `is_named_pipe` | `bool` | 是否为命名管道 |
+| `is_unix_socket` | `bool` | 是否为 Unix Socket |
+| `to_connection_string()` | `str` | URI 字符串，如 `"tcp://127.0.0.1:18812"` |
+
+### TransportScheme
+
+选择最优传输类型的策略枚举：
+
+| 变体 | 说明 |
+|------|------|
+| `TransportScheme.AUTO` | 平台最优：Windows 用命名管道，Linux/macOS 用 Unix Socket |
+| `TransportScheme.TCP_ONLY` | 始终使用 TCP |
+| `TransportScheme.PREFER_NAMED_PIPE` | 同机用命名管道，否则用 TCP |
+| `TransportScheme.PREFER_UNIX_SOCKET` | 同机用 Unix Socket，否则用 TCP |
+| `TransportScheme.PREFER_IPC` | 任意本地 IPC 传输 |
+
+```python
+from dcc_mcp_core import TransportScheme, TransportAddress
+
+scheme = TransportScheme.AUTO
+addr = scheme.select_address("maya", "127.0.0.1", 18812, pid=12345)
+```
+
+### IpcListener
+
+服务端监听器，用于 DCC 插件内部接受传入连接。
+
+```python
+from dcc_mcp_core import IpcListener, TransportAddress
+
+# 绑定到传输地址（port=0 表示 OS 自动分配端口）
+addr = TransportAddress.tcp("127.0.0.1", 0)
+listener = IpcListener.bind(addr)
+
+# 获取实际绑定地址（port=0 时尤为有用）
+local_addr = listener.local_address()
+print(f"监听地址: {local_addr}")   # tcp://127.0.0.1:54321
+
+# 接受连接（阻塞）
+channel = listener.accept(timeout_ms=5000)  # → FramedChannel
+
+# 或转换为 ListenerHandle 以追踪连接数
+handle = listener.into_handle()   # 消费 listener，只能调用一次
+```
+
+| 方法 | 返回值 | 说明 |
+|------|--------|------|
+| `IpcListener.bind(addr)` | `IpcListener` | 绑定地址，端口占用时抛出 `RuntimeError` |
+| `local_address()` | `TransportAddress` | 实际绑定地址 |
+| `transport_name` | `str` | `"tcp"`、`"named_pipe"` 或 `"unix_socket"` |
+| `accept(timeout_ms=None)` | `FramedChannel` | 接受下一个连接，阻塞直到客户端连入 |
+| `into_handle()` | `ListenerHandle` | 包装为带连接追踪的 handle（消费 `self`） |
+
+### ListenerHandle
+
+包装 `IpcListener`，提供连接计数和关闭控制。
+
+```python
+from dcc_mcp_core import IpcListener, TransportAddress
+
+addr = TransportAddress.default_local("maya", pid=12345)
+listener = IpcListener.bind(addr)
+handle = listener.into_handle()
+
+print(handle.accept_count)   # 0
+print(handle.is_shutdown)    # False
+
+# 请求停止接受新连接
+handle.shutdown()
+```
+
+| 属性/方法 | 返回值 | 说明 |
+|-----------|--------|------|
+| `accept_count` | `int` | 已接受的连接数 |
+| `is_shutdown` | `bool` | 是否已请求关闭 |
+| `transport_name` | `str` | 传输类型名称 |
+| `local_address()` | `TransportAddress` | 绑定地址 |
+| `shutdown()` | `None` | 停止接受新连接（幂等） |
+
+### FramedChannel
+
+全双工帧通道，后台读取循环自动处理 Ping/Pong 心跳。通过 `IpcListener.accept()`（服务端）或 `connect_ipc()`（客户端）获取。
+
+```python
+from dcc_mcp_core import connect_ipc, TransportAddress
+
+# 客户端：连接到运行中的 DCC 服务器
+addr = TransportAddress.tcp("127.0.0.1", 18812)
+channel = connect_ipc(addr, timeout_ms=10000)
+
+# 存活检测
+rtt_ms = channel.ping()          # int，往返时间（毫秒）
+
+# 阻塞接收
+msg = channel.recv(timeout_ms=5000)
+# msg: 含 "type" 字段的字典 → "request"、"response" 或 "notify"
+
+# 非阻塞接收
+msg = channel.try_recv()         # 缓冲区为空时返回 None
+
+# 发送
+req_id = channel.send_request("execute_python", params=b'{"code":"..."}')
+channel.send_response(req_id, success=True, payload=b'{"result":1}')
+channel.send_notify("scene_changed", data=b'{"scene":"untitled"}')
+
+# 关闭
+channel.shutdown()
+print(channel.is_running)        # False
+```
+
+| 方法 | 返回值 | 说明 |
+|------|--------|------|
+| `recv(timeout_ms=None)` | `dict \| None` | 阻塞接收，超时或连接关闭时返回 `None` |
+| `try_recv()` | `dict \| None` | 非阻塞接收，缓冲区为空时返回 `None` |
+| `ping(timeout_ms=5000)` | `int` | 心跳 ping，返回 RTT 毫秒数；数据消息不会丢失 |
+| `send_request(method, params=None)` | `str` | 发送请求，返回 UUID 请求 ID |
+| `send_response(request_id, success, payload=None, error=None)` | `None` | 发送请求的响应 |
+| `send_notify(topic, data=None)` | `None` | 发送单向通知 |
+| `shutdown()` | `None` | 优雅关闭（幂等） |
+| `is_running` | `bool` | 后台读取器是否仍在运行 |
+
+### connect_ipc
+
+客户端连接工厂函数：
+
+```python
+from dcc_mcp_core import connect_ipc, TransportAddress
+
+channel = connect_ipc(
+    addr=TransportAddress.tcp("127.0.0.1", 18812),
+    timeout_ms=10000,    # 默认 10000 毫秒
+)
+```
+
+无法在超时时间内建立连接时抛出 `RuntimeError`。
+
+### RoutingStrategy
+
+选择 DCC 实例的策略（有多个实例注册时）：
+
+| 变体 | 说明 |
+|------|------|
+| `FIRST_AVAILABLE` | 选择第一个可达实例 |
+| `ROUND_ROBIN` | 轮询所有实例 |
+| `LEAST_BUSY` | 会话请求数最少的实例 |
+| `SPECIFIC` | 需要显式指定 `instance_id` |
+| `SCENE_MATCH` | 按打开的场景名称匹配 |
+| `RANDOM` | 随机选择实例 |
+
+### ServiceStatus
+
+DCC 服务健康状态枚举：
+
+| 变体 | 含义 |
+|------|------|
+| `AVAILABLE` | 就绪，可接受请求 |
+| `BUSY` | 处理中，可能接受更多请求 |
+| `UNREACHABLE` | 心跳无响应 |
+| `SHUTTING_DOWN` | 正在优雅关闭 |
+
+---
+
+## 端到端示例：DCC 插件服务端
+
+```python
+# Maya 插件内部（服务端）
+import maya.cmds as cmds
+from dcc_mcp_core import IpcListener, TransportAddress
+import threading, os
+
+addr = TransportAddress.default_local("maya", os.getpid())
+listener = IpcListener.bind(addr)
+print(f"Maya IPC 服务器: {listener.local_address()}")
+
+def serve():
+    channel = listener.accept()
+    while True:
+        msg = channel.recv(timeout_ms=1000)
+        if msg is None:
+            break
+        if msg["type"] == "request":
+            result = cmds.ls()
+            channel.send_response(msg["id"], success=True,
+                                  payload=str(result).encode())
+
+threading.Thread(target=serve, daemon=True).start()
+```
+
+```python
+# 客户端（MCP Agent）
+from dcc_mcp_core import connect_ipc, TransportAddress
+
+addr = TransportAddress.default_local("maya", pid=12345)
+channel = connect_ipc(addr)
+req_id = channel.send_request("ls")
+response = channel.recv()
+# response["type"] == "response", response["payload"] == b"[...]"
+channel.shutdown()
+```

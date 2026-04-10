@@ -30,6 +30,45 @@ pip install -e .
 
 ## 快速上手
 
+### Skills-First：`create_skill_manager`（v0.12.12+ 推荐）
+
+将脚本暴露为 MCP 工具最快捷的方式。在脚本目录创建 `SKILL.md`，然后一键完成所有配置：
+
+```python
+import os
+from dcc_mcp_core import create_skill_manager, McpHttpConfig
+
+# 设置应用专属 Skill 路径
+os.environ["DCC_MCP_MAYA_SKILL_PATHS"] = "/path/to/my-skills"
+
+# 一键：发现 Skills + 启动 MCP HTTP 服务器
+server = create_skill_manager("maya", McpHttpConfig(port=8765))
+handle = server.start()
+print(f"Maya MCP 服务器地址：{handle.mcp_url()}")
+# AI 客户端（Claude Desktop 等）连接到 http://127.0.0.1:8765/mcp
+```
+
+如需更多控制，可直接使用 `SkillCatalog`：
+
+```python
+import os
+from dcc_mcp_core import ActionRegistry, SkillCatalog
+
+os.environ["DCC_MCP_SKILL_PATHS"] = "/path/to/my-skills"
+
+registry = ActionRegistry()
+catalog = SkillCatalog(registry)
+
+count = catalog.discover(dcc_name="maya")
+print(f"发现 {count} 个 Skills")
+
+actions = catalog.load_skill("maya-geometry")
+print(f"已注册 Actions: {actions}")
+# 例如 ['maya_geometry__create_sphere', 'maya_geometry__export_fbx']
+```
+
+参见 [Skills 系统指南](/zh/guide/skills) 了解 `SKILL.md` 的编写方式和更多选项。
+
 ### Action 注册表
 
 ```python
@@ -75,6 +114,24 @@ bus.publish("scene.changed")
 bus.unsubscribe("scene.changed", sid)
 ```
 
+### MCP HTTP 服务器
+
+一行代码将注册表暴露给 AI 客户端（Claude Desktop 等）：
+
+```python
+from dcc_mcp_core import ActionRegistry, McpHttpServer, McpHttpConfig
+
+registry = ActionRegistry()
+# ... 注册 Actions 或加载 Skills ...
+
+config = McpHttpConfig(port=8765, host="127.0.0.1")
+server = McpHttpServer(registry, config)
+handle = server.start()
+
+print(f"MCP 服务器运行在 http://127.0.0.1:8765/mcp")
+# handle.stop() 停止服务器
+```
+
 ## 开发环境设置
 
 ```bash
@@ -101,4 +158,6 @@ vx just lint
 - 了解 [Actions 动作](/zh/guide/actions) — 核心构建块
 - 探索 [Events 事件](/zh/guide/events) 的生命周期钩子
 - 查看 [Skills 技能包](/zh/guide/skills) 的零代码脚本注册
+- 使用 [MCP HTTP 服务器](/zh/api/http) 暴露工具给 AI 客户端
 - 查看 [传输层](/zh/guide/transport) 的 DCC 通信
+- 了解 [架构设计](/zh/guide/architecture) — 13 个 Rust crate 的工作区结构

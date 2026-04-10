@@ -19,20 +19,29 @@ hero:
 features:
   - icon: 🦀
     title: Rust-Powered Core
-    details: Performance-critical modules in Rust via PyO3. Thread-safe, lock-free data structures with DashMap. Zero Python dependencies.
+    details: Performance-critical modules in Rust via PyO3. Thread-safe data structures with parking_lot. Zero Python runtime dependencies.
   - icon: 🎯
     title: Action Registry
     details: Thread-safe action registration and lookup. Store metadata, JSON schemas, and source paths for each DCC operation.
   - icon: 🔌
-    title: Skills System
-    details: Register any script (Python, MEL, MaxScript, BAT, Shell) as MCP tools with zero code via SKILL.md.
+    title: Skills-First Architecture
+    details: One call to create_skill_manager("maya") auto-discovers scripts via SKILL.md, registers MCP tools, and starts an HTTP server. Zero boilerplate.
+  - icon: 🌐
+    title: MCP HTTP Server
+    details: Built-in Streamable HTTP server (2025-03-26 spec). LLM clients (Claude Desktop, etc.) connect directly over HTTP. Runs in background, never blocks DCC.
   - icon: ⚡
     title: Event Bus
     details: Publish/subscribe event system for decoupled action lifecycle communication. Panic-safe and thread-safe.
-  - icon: 🌐
-    title: MCP Protocol Types
-    details: Type-safe definitions for MCP Tools, Resources, Prompts, and Annotations following the official specification.
   - icon: 🔄
     title: Transport Layer
     details: Connection pooling, file-based service discovery, session management with auto-reconnection for DCC communication.
+  - icon: 🛡️
+    title: Sandbox & Security
+    details: API whitelist, input validation, and in-memory audit logging for safe AI action execution.
+  - icon: 📊
+    title: Telemetry
+    details: OpenTelemetry-compatible tracing, per-action metrics, and execution recorder for production observability.
+  - icon: 🎬
+    title: Process Management
+    details: Cross-platform DCC process launch, health monitoring, and crash recovery with configurable policies.
 ---

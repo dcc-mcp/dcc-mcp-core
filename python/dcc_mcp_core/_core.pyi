@@ -894,6 +894,111 @@ class SkillScanner:
     def clear_cache(self) -> None: ...
     def __repr__(self) -> str: ...
 
+class SkillSummary:
+    """Lightweight summary of a skill for search/list results."""
+
+    name: str
+    description: str
+    version: str
+    dcc: str
+    tags: list[str]
+    tool_count: int
+    tool_names: list[str]
+    loaded: bool
+
+    def __repr__(self) -> str: ...
+
+class SkillCatalog:
+    """Manages discovered skills and their progressive loading.
+
+    Thread-safe: all state is stored in DashMap / DashSet.
+
+    When a dispatcher is attached (via ``with_dispatcher``), loading a skill
+    also registers a subprocess-based handler for each action — enabling the
+    Skills-First workflow where agents never need to register handlers manually.
+
+    Args:
+        scanner: A :class:`SkillScanner` instance to use for discovery.
+
+    Example:
+        >>> scanner = SkillScanner()
+        >>> catalog = SkillCatalog(scanner)
+        >>> catalog.discover()
+        >>> skills = catalog.list_skills()
+
+    """
+
+    def __init__(self, scanner: SkillScanner) -> None: ...
+    def discover(
+        self,
+        extra_paths: list[str] | None = None,
+        dcc_name: str | None = None,
+    ) -> None:
+        """Scan for skills and populate the catalog.
+
+        Args:
+            extra_paths: Additional directories to scan beyond the scanner's
+                         configured paths.
+            dcc_name:    If given, filter discovery to skills for this DCC.
+
+        """
+        ...
+    def find_skills(
+        self,
+        query: str | None = None,
+        tags: list[str] | None = None,
+        dcc: str | None = None,
+    ) -> list[SkillSummary]:
+        """Search the catalog by name, tags, or DCC.
+
+        Args:
+            query: Case-insensitive substring match on skill name/description.
+            tags:  Return only skills that have ALL of the given tags.
+            dcc:   Return only skills targeting this DCC.
+
+        Returns:
+            List of :class:`SkillSummary` matching all supplied filters.
+
+        """
+        ...
+    def get_skill_info(self, skill_name: str) -> SkillMetadata | None:
+        """Return the full :class:`SkillMetadata` for *skill_name*, or ``None``."""
+        ...
+    def is_loaded(self, skill_name: str) -> bool:
+        """Return ``True`` if *skill_name* has been loaded."""
+        ...
+    def list_skills(self, status: str | None = None) -> list[SkillSummary]:
+        """List all skills in the catalog.
+
+        Args:
+            status: Optional filter — ``"loaded"`` or ``"unloaded"``.
+
+        Returns:
+            List of :class:`SkillSummary`.
+
+        """
+        ...
+    def load_skill(self, skill_name: str) -> bool:
+        """Load a skill by name.
+
+        Returns:
+            ``True`` on success, ``False`` if already loaded or not found.
+
+        """
+        ...
+    def loaded_count(self) -> int:
+        """Return the number of currently loaded skills."""
+        ...
+    def unload_skill(self, skill_name: str) -> bool:
+        """Unload a skill by name.
+
+        Returns:
+            ``True`` on success, ``False`` if not loaded.
+
+        """
+        ...
+    def __repr__(self) -> str: ...
+
 class SkillWatcher:
     """Hot-reload watcher for skill directories.
 
@@ -1902,6 +2007,19 @@ def get_platform_dir(dir_type: str) -> str: ...
 def get_actions_dir(dcc_name: str) -> str: ...
 def get_skills_dir(dcc_name: str | None = None) -> str: ...
 def get_skill_paths_from_env() -> list[str]: ...
+def get_app_skill_paths_from_env(app_name: str) -> list[str]:
+    """Return skill paths from the ``DCC_MCP_{APP_NAME}_SKILL_PATHS`` environment variable.
+
+    Args:
+        app_name: DCC application name, e.g. ``"maya"``, ``"blender"``.
+                  The lookup is case-insensitive; the actual env var key is
+                  upper-cased automatically (e.g. ``DCC_MCP_MAYA_SKILL_PATHS``).
+
+    Returns:
+        List of directory paths extracted from the env var, or ``[]`` if not set.
+
+    """
+    ...
 
 # ── Type Wrapper Functions ──
 
@@ -3195,4 +3313,133 @@ class McpHttpServer:
         Returns immediately; the server runs in a background thread.
         """
         ...
+    def register_handler(self, action_name: str, handler: object) -> None:
+        """Register a Python callable as the handler for ``action_name``.
+
+        The callable receives a single JSON string argument (serialised params dict).
+        It must return a JSON-serialisable value.
+
+        Raises:
+            TypeError: If ``handler`` is not callable.
+
+        """
+        ...
+    def has_handler(self, action_name: str) -> bool:
+        """Return ``True`` if a handler is registered for ``action_name``."""
+        ...
+    @property
+    def catalog(self) -> str:
+        """Debug representation of the SkillCatalog state (total/loaded counts)."""
+        ...
+    def discover(
+        self,
+        extra_paths: list[str] | None = None,
+        dcc_name: str | None = None,
+    ) -> int:
+        """Discover skills from standard scan paths.
+
+        Args:
+            extra_paths: Additional directories to scan.
+            dcc_name: DCC name filter (e.g. ``"maya"``).
+
+        Returns:
+            Number of newly discovered skills.
+
+        """
+        ...
+    def load_skill(self, skill_name: str) -> list[str]:
+        """Load a skill by name — registers its tools in the ActionRegistry.
+
+        Returns the list of registered action names.
+
+        Raises:
+            ValueError: If the skill is not found.
+
+        """
+        ...
+    def unload_skill(self, skill_name: str) -> int:
+        """Unload a skill — removes its tools from the ActionRegistry.
+
+        Returns the number of actions removed.
+
+        Raises:
+            ValueError: If the skill is not loaded.
+
+        """
+        ...
+    def find_skills(
+        self,
+        query: str | None = None,
+        tags: list[str] | None = None,
+        dcc: str | None = None,
+    ) -> list[object]:
+        """Search for skills matching the given criteria.
+
+        Returns a list of dicts with skill metadata.
+        """
+        ...
+    def list_skills(self, status: str | None = None) -> list[object]:
+        """List all skills with their load status.
+
+        Args:
+            status: Optional filter — ``"loaded"`` or ``"unloaded"``.
+
+        Returns a list of dicts with skill status info.
+
+        """
+        ...
+    def get_skill_info(self, skill_name: str) -> object | None:
+        """Get detailed info about a specific skill as a Python dict.
+
+        Returns ``None`` if the skill is not found.
+        """
+        ...
+    def is_loaded(self, skill_name: str) -> bool:
+        """Check if a skill is loaded."""
+        ...
+    def loaded_count(self) -> int:
+        """Return the number of loaded skills."""
+        ...
     def __repr__(self) -> str: ...
+
+def create_skill_manager(
+    app_name: str,
+    config: McpHttpConfig | None = None,
+    extra_paths: list[str] | None = None,
+    dcc_name: str | None = None,
+) -> McpHttpServer:
+    """Create a pre-configured ``McpHttpServer`` for a specific DCC application.
+
+    This is the recommended entry-point for the **Skills-First** workflow.
+    It automatically:
+
+    1. Creates an ``ActionRegistry`` and ``ActionDispatcher``.
+    2. Creates a ``SkillCatalog`` wired to the dispatcher.
+    3. Discovers skills from **both** env vars (per-app + global):
+       - ``DCC_MCP_{APP}_SKILL_PATHS`` — e.g. ``DCC_MCP_MAYA_SKILL_PATHS``
+       - ``DCC_MCP_SKILL_PATHS`` — global fallback
+    4. Returns a ready-to-start ``McpHttpServer``.
+
+    Args:
+        app_name: DCC application name (e.g. ``"maya"``, ``"blender"``).
+                  Used to derive the per-app env var and as the MCP server name.
+        config:   Optional ``McpHttpConfig``; defaults to port 8765.
+        extra_paths: Extra skill directories to scan in addition to env var paths.
+        dcc_name: Override the DCC filter for skill scanning (defaults to ``app_name``).
+
+    Example::
+
+        import os
+        os.environ["DCC_MCP_MAYA_SKILL_PATHS"] = "/studio/maya-skills"
+
+        from dcc_mcp_core import create_skill_manager, McpHttpConfig
+
+        server = create_skill_manager("maya", McpHttpConfig(port=8765))
+        handle = server.start()
+        print(f"Maya MCP server at {handle.mcp_url()}")
+
+    """
+    ...
+
+# Alias: ServerHandle is exported as McpServerHandle in dcc_mcp_core.__init__
+McpServerHandle = ServerHandle

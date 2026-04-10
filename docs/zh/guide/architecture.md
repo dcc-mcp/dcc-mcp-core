@@ -216,49 +216,51 @@ Edition 2024 提供：
 - 快速序列化/反序列化
 - 语言无关
 
-## 内存模型
+## Skills-First 架构
 
-### ActionRegistry
+推荐通过 `create_skill_manager` 以 **Skills-First** 模式将 DCC 工具暴露到 MCP。一次调用即可串联完整的技术栈：
 
-`ActionRegistry` 使用 `DashMap` 实现线程安全的动作存储：
-
-```rust
-struct ActionRegistry {
-    actions: DashMap<String, Arc<dyn Action>>,
-}
+```
+create_skill_manager("maya")
+        │
+        ├─ ActionRegistry   （线程安全 Action 注册表）
+        ├─ ActionDispatcher （将调用路由到 Python 处理函数）
+        ├─ SkillCatalog     （发现 + 加载 SKILL.md 技能包）
+        │       └─ 扫描 DCC_MCP_MAYA_SKILL_PATHS + DCC_MCP_SKILL_PATHS
+        └─ McpHttpServer    （返回可立即启动的 HTTP 服务器）
 ```
 
-### EventBus
+```python
+import os
+os.environ["DCC_MCP_MAYA_SKILL_PATHS"] = "/studio/maya-skills"
 
-`EventBus` 同时支持同步和异步处理程序：
+from dcc_mcp_core import create_skill_manager, McpHttpConfig
 
-```rust
-struct EventBus {
-    sync_handlers: DashMap<String, Vec<HandlerFn>>,
-    async_handlers: DashMap<String, Vec<AsyncHandlerFn>>,
-}
+server = create_skill_manager("maya", McpHttpConfig(port=8765))
+handle = server.start()
+print(f"Maya MCP server: {handle.mcp_url()}")
+# 完成后调用 handle.shutdown()
 ```
 
-### TransportPool
+**技能路径解析顺序**（先找到的优先）：
+1. 应用专属环境变量：`DCC_MCP_{APP}_SKILL_PATHS`（如 `DCC_MCP_MAYA_SKILL_PATHS`）
+2. 全局环境变量：`DCC_MCP_SKILL_PATHS`
+3. 平台数据目录：`~/.local/share/dcc-mcp/skills/{app}/`
+4. `extra_paths` 参数传入的额外路径
 
-连接池实现高效资源利用：
-
-```rust
-struct TransportPool {
-    config: TransportConfig,
-    connections: DashMap<SessionId, Connection>,
-    semaphore: Semaphore,
-}
-```
+::: tip 手动组装
+如果需要自定义中间件或更精细的控制，可手动组装：
+`ActionRegistry` → `ActionDispatcher` → `SkillCatalog` → `McpHttpServer`。
+:::
 
 ## 线程安全
 
 所有内部状态使用：
 - `parking_lot::Mutex` 用于短期临界区
-- `DashMap` 用于并发哈希映射
+- `parking_lot::RwLock` 用于读写模式
 - `Arc` 用于共享所有权
 
-不使用 `std::sync::Mutex` - `parking_lot` 更快且不会在 panic 时中毒。
+不使用 `std::sync::Mutex` — `parking_lot` 更快且不会在 panic 时中毒。
 
 ## 错误处理
 
@@ -272,9 +274,6 @@ pub enum TransportError {
 
     #[error("连接被拒绝: {0}")]
     ConnectionRefused(String),
-
-    #[error("Ping 超时 {0}s 后")]
-    PingTimeout(u64),
 }
 ```
 
@@ -282,23 +281,15 @@ pub enum TransportError {
 
 - **单元测试**：每个 crate 有内联 `#[cfg(test)]` 模块
 - **集成测试**：`tests/` 目录包含 Python 和 Rust 测试
-- **属性测试**：`proptest` 用于随机化测试
-- **模糊测试**：`cargo-fuzz` 用于协议解析
+- **覆盖率追踪**：`cargo-llvm-cov` + `pytest --cov`
 
-## 构建优化
+## 构建命令
 
-Release 配置针对最佳性能：
-
-```toml
-[profile.release]
-opt-level = 3      # 最大优化
-lto = true         # 链接时优化
-codegen-units = 1  # 单代码生成单元以获得更好优化
-strip = true       # 从二进制文件中剥离符号
-```
-
-## 未来考虑
-
-- **WebAssembly 支持**：浏览器端 DCC 通信潜力
-- **gRPC 传输**：自定义线协议的替代方案
-- **GraphQL 订阅支持**：DCC 状态实时更新
+| 命令 | 工具 | 用途 |
+|------|------|------|
+| `cargo check` | cargo | 快速语法/类型检查 |
+| `cargo clippy` | clippy | 使用 `-D warnings` 静态分析 |
+| `cargo fmt --check` | rustfmt | 格式检查 |
+| `maturin develop` | maturin | 以开发模式安装 wheel |
+| `cargo test --workspace` | cargo | 运行所有 Rust 测试 |
+| `pytest tests/` | pytest | 运行 Python 集成测试 |

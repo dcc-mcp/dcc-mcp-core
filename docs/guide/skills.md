@@ -284,7 +284,52 @@ Parsed from SKILL.md frontmatter. Supports Anthropic Skills, ClawHub/OpenClaw, a
 
 | Variable | Description |
 |----------|-------------|
-| `DCC_MCP_SKILL_PATHS` | Skill search paths (`;` on Windows, `:` on Unix) |
+| `DCC_MCP_{APP}_SKILL_PATHS` | Per-app skill paths, e.g. `DCC_MCP_MAYA_SKILL_PATHS` (`;` on Windows, `:` on Unix) |
+| `DCC_MCP_SKILL_PATHS` | Global fallback skill paths (used when per-app var is not set) |
+
+::: tip Per-app paths take priority
+`DCC_MCP_MAYA_SKILL_PATHS` is checked first for `app_name="maya"`. `DCC_MCP_SKILL_PATHS` is the global fallback.
+:::
+
+## one-call Skills-First Setup: `create_skill_manager`
+
+For the fastest possible setup, use `create_skill_manager` (v0.12.12+). It wires together `ActionRegistry`, `ActionDispatcher`, `SkillCatalog`, and `McpHttpServer` in one call:
+
+```python
+import os
+from dcc_mcp_core import create_skill_manager, McpHttpConfig
+
+# Set per-app skill paths
+os.environ["DCC_MCP_MAYA_SKILL_PATHS"] = "/studio/maya-skills"
+
+# One call: discover skills + start MCP HTTP server
+server = create_skill_manager("maya", McpHttpConfig(port=8765))
+handle = server.start()
+print(f"Maya MCP server at {handle.mcp_url()}")
+# AI clients connect to http://127.0.0.1:8765/mcp
+```
+
+`create_skill_manager` automatically:
+1. Creates an `ActionRegistry` and `ActionDispatcher`
+2. Creates a `SkillCatalog` wired to the dispatcher
+3. Discovers skills from `DCC_MCP_MAYA_SKILL_PATHS` and `DCC_MCP_SKILL_PATHS`
+4. Returns a ready-to-start `McpHttpServer`
+
+```python
+def create_skill_manager(
+    app_name: str,
+    config: McpHttpConfig | None = None,
+    extra_paths: list[str] | None = None,
+    dcc_name: str | None = None,
+) -> McpHttpServer: ...
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `app_name` | `str` | DCC application name (`"maya"`, `"blender"`, etc.) — derives env var and server name |
+| `config` | `McpHttpConfig \| None` | HTTP config; defaults to port 8765 |
+| `extra_paths` | `list[str] \| None` | Extra skill dirs to scan in addition to env vars |
+| `dcc_name` | `str \| None` | Override DCC filter for skill scanning (defaults to `app_name`) |
 
 ## Supported Script Types
 
@@ -298,7 +343,7 @@ Parsed from SKILL.md frontmatter. Supports Anthropic Skills, ClawHub/OpenClaw, a
 | `.lua`, `.hscript` | Lua / Houdini | `python` wrapper |
 
 ::: tip Skills-First Architecture
-Starting with v0.12.10, `SkillCatalog` supports automatic script execution handlers. When a dispatcher is attached, loading a skill also registers subprocess-based handlers — agents can call tools via `tools/call` without any manual handler registration.
+`create_skill_manager` is the recommended entry-point since v0.12.12. It combines `SkillCatalog` automatic script execution with MCP HTTP serving — agents can call tools via `tools/call` with zero manual handler registration.
 :::
 
 ::: warning script execution

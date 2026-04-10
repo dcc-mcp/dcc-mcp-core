@@ -284,7 +284,52 @@ deps = expand_transitive_dependencies(skills, "maya-animation")
 
 | 变量 | 说明 |
 |------|------|
-| `DCC_MCP_SKILL_PATHS` | Skill 搜索路径（Windows 用 `;`，Unix 用 `:`）|
+| `DCC_MCP_{APP}_SKILL_PATHS` | 应用专属 Skill 路径，如 `DCC_MCP_MAYA_SKILL_PATHS`（Windows 用 `;`，Unix 用 `:`）|
+| `DCC_MCP_SKILL_PATHS` | 全局兜底 Skill 路径（应用专属变量未设置时使用）|
+
+::: tip 应用专属路径优先级更高
+对于 `app_name="maya"`，`DCC_MCP_MAYA_SKILL_PATHS` 优先检查，`DCC_MCP_SKILL_PATHS` 作为全局兜底。
+:::
+
+## 一键 Skills-First 启动：`create_skill_manager`
+
+使用 `create_skill_manager`（v0.12.12+）可以一键完成所有配置，将 `ActionRegistry`、`ActionDispatcher`、`SkillCatalog` 和 `McpHttpServer` 组合在一起：
+
+```python
+import os
+from dcc_mcp_core import create_skill_manager, McpHttpConfig
+
+# 设置应用专属 Skill 路径
+os.environ["DCC_MCP_MAYA_SKILL_PATHS"] = "/studio/maya-skills"
+
+# 一键：发现 Skills + 启动 MCP HTTP 服务器
+server = create_skill_manager("maya", McpHttpConfig(port=8765))
+handle = server.start()
+print(f"Maya MCP 服务器地址：{handle.mcp_url()}")
+# AI 客户端连接到 http://127.0.0.1:8765/mcp
+```
+
+`create_skill_manager` 自动完成：
+1. 创建 `ActionRegistry` 和 `ActionDispatcher`
+2. 创建连接到 dispatcher 的 `SkillCatalog`
+3. 从 `DCC_MCP_MAYA_SKILL_PATHS` 和 `DCC_MCP_SKILL_PATHS` 发现 Skills
+4. 返回已配置好的 `McpHttpServer`
+
+```python
+def create_skill_manager(
+    app_name: str,
+    config: McpHttpConfig | None = None,
+    extra_paths: list[str] | None = None,
+    dcc_name: str | None = None,
+) -> McpHttpServer: ...
+```
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `app_name` | `str` | DCC 应用名（`"maya"`、`"blender"` 等）— 用于推导环境变量名和服务器名 |
+| `config` | `McpHttpConfig \| None` | HTTP 配置；默认端口 8765 |
+| `extra_paths` | `list[str] \| None` | 额外扫描的 Skill 目录 |
+| `dcc_name` | `str \| None` | 覆盖 Skill 扫描的 DCC 过滤条件（默认与 `app_name` 相同）|
 
 ## 支持的脚本类型
 
@@ -298,7 +343,7 @@ deps = expand_transitive_dependencies(skills, "maya-animation")
 | `.lua`, `.hscript` | Lua / Houdini | `python` 包装器 |
 
 ::: tip Skills-First 架构
-从 v0.12.10 起，`SkillCatalog` 支持自动脚本执行处理器。当附加了 dispatcher 时，加载 Skill 同时也会注册基于子进程的处理器 — Agent 无需任何手动处理器注册即可通过 `tools/call` 调用工具。
+推荐使用 `create_skill_manager` 作为 v0.12.12+ 的首选入口。它将 `SkillCatalog` 自动脚本执行与 MCP HTTP 服务集成，Agent 无需任何手动处理器注册即可通过 `tools/call` 调用工具。
 :::
 
 ::: warning 脚本执行

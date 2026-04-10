@@ -320,15 +320,72 @@ expand_transitive_dependencies(
 ## 搜索路径优先级
 
 1. `extra_paths` 参数（最高优先级）
-2. `DCC_MCP_SKILL_PATHS` 环境变量
-3. 平台特定 Skill 目录（DCC 特定，通过 `get_skills_dir(dcc_name)`）
-4. 平台特定 Skill 目录（全局，通过 `get_skills_dir()`）
+2. `DCC_MCP_{APP}_SKILL_PATHS` 环境变量（应用专属，如 `DCC_MCP_MAYA_SKILL_PATHS`）
+3. `DCC_MCP_SKILL_PATHS` 环境变量（全局兜底）
+4. 平台特定 Skill 目录（DCC 特定，通过 `get_skills_dir(dcc_name)`）
+5. 平台特定 Skill 目录（全局，通过 `get_skills_dir()`）
 
 ## 环境变量
 
 | 变量 | 说明 |
 |------|------|
-| `DCC_MCP_SKILL_PATHS` | Skill 搜索路径（Windows 用 `;`，Unix 用 `:`）|
+| `DCC_MCP_{APP}_SKILL_PATHS` | 应用专属 Skill 路径，如 `DCC_MCP_MAYA_SKILL_PATHS`（Windows 用 `;`，Unix 用 `:`）|
+| `DCC_MCP_SKILL_PATHS` | 全局兜底 Skill 路径 |
+
+### create_skill_manager
+
+```python
+create_skill_manager(
+    app_name: str,
+    config: McpHttpConfig | None = None,
+    extra_paths: list[str] | None = None,
+    dcc_name: str | None = None,
+) -> McpHttpServer
+```
+
+**Skills-First 工作流的推荐入口**（v0.12.12+）。
+
+一次调用即可为指定 DCC 应用创建完整配置的 `McpHttpServer`，自动完成：
+1. 创建 `ActionRegistry` + `ActionDispatcher`
+2. 创建与 dispatcher 连接的 `SkillCatalog`
+3. 从 `DCC_MCP_{APP}_SKILL_PATHS` 和 `DCC_MCP_SKILL_PATHS` 发现 Skills
+4. 返回已配置好的 `McpHttpServer`
+
+**参数：**
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `app_name` | `str` | DCC 名称（如 `"maya"`、`"blender"`）— 用于推导环境变量名和 MCP 服务器名 |
+| `config` | `McpHttpConfig \| None` | HTTP 服务器配置；默认端口 8765 |
+| `extra_paths` | `list[str] \| None` | 除环境变量外的额外 Skill 目录 |
+| `dcc_name` | `str \| None` | 覆盖扫描的 DCC 过滤条件（默认与 `app_name` 相同）|
+
+**返回值：** `McpHttpServer` — 调用 `.start()` 开始服务。
+
+**示例：**
+
+```python
+import os
+from dcc_mcp_core import create_skill_manager, McpHttpConfig
+
+os.environ["DCC_MCP_MAYA_SKILL_PATHS"] = "/studio/maya-skills"
+
+server = create_skill_manager("maya", McpHttpConfig(port=8765))
+handle = server.start()
+print(f"服务地址：{handle.mcp_url()}")
+```
+
+### get_app_skill_paths_from_env
+
+```python
+get_app_skill_paths_from_env(app_name: str) -> list[str]
+```
+
+从 `DCC_MCP_{APP_NAME}_SKILL_PATHS` 环境变量中返回 Skill 路径列表。
+
+查找时不区分大小写，实际环境变量键名自动转换为大写（如 `app_name="maya"` 对应 `DCC_MCP_MAYA_SKILL_PATHS`）。
+
+若环境变量未设置，返回 `[]`。
 
 ## Action 命名规则
 

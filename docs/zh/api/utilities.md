@@ -45,6 +45,7 @@ native = unwrap_parameters(params)  # {"visible": True, "count": 5}
 from dcc_mcp_core import (
     get_platform_dir, get_config_dir, get_data_dir, get_log_dir,
     get_actions_dir, get_skills_dir, get_skill_paths_from_env,
+    get_app_skill_paths_from_env,
 )
 
 config = get_config_dir()           # ~/.config/dcc-mcp (Linux)
@@ -57,13 +58,44 @@ skills = get_skills_dir()           # {data}/skills/ (全局)
 # 通用平台目录（config、data、cache、log、documents）
 dir = get_platform_dir("cache")
 
-# 从环境变量获取
+# 从全局环境变量获取
 paths = get_skill_paths_from_env()  # 分割 DCC_MCP_SKILL_PATHS
+
+# 从应用专属环境变量获取
+paths = get_app_skill_paths_from_env("maya")     # 读取 DCC_MCP_MAYA_SKILL_PATHS
+paths = get_app_skill_paths_from_env("blender")  # 读取 DCC_MCP_BLENDER_SKILL_PATHS
 ```
 
 ::: tip
 所有 `get_*_dir()` 函数在目录不存在时会自动创建（`get_skills_dir` 除外，仅返回路径）。
 :::
+
+### `get_app_skill_paths_from_env`
+
+```python
+def get_app_skill_paths_from_env(app_name: str) -> list[str]: ...
+```
+
+从 `DCC_MCP_{APP_NAME}_SKILL_PATHS` 环境变量中返回技能路径列表。
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `app_name` | `str` | DCC 应用名称，如 `"maya"`、`"blender"`。大小写不敏感——自动转为大写形成环境变量名。 |
+
+**返回值**：`list[str]` — 从环境变量中解析的目录路径，未设置时返回 `[]`。
+
+```python
+import os
+os.environ["DCC_MCP_MAYA_SKILL_PATHS"] = "/studio/maya-skills;/home/user/skills"
+
+from dcc_mcp_core import get_app_skill_paths_from_env
+
+paths = get_app_skill_paths_from_env("maya")
+# ["/studio/maya-skills", "/home/user/skills"]
+
+# 大小写不敏感："Maya"、"MAYA"、"maya" 均读取 DCC_MCP_MAYA_SKILL_PATHS
+paths = get_app_skill_paths_from_env("Maya")  # 同上
+```
 
 ## 常量
 
@@ -76,7 +108,8 @@ paths = get_skill_paths_from_env()  # 分割 DCC_MCP_SKILL_PATHS
 | `DEFAULT_DCC` | `"python"` | 默认 DCC 名称 |
 | `DEFAULT_LOG_LEVEL` | `"DEBUG"` | 默认日志级别 |
 | `ENV_LOG_LEVEL` | `"MCP_LOG_LEVEL"` | 日志级别环境变量 |
-| `ENV_SKILL_PATHS` | `"DCC_MCP_SKILL_PATHS"` | 技能路径环境变量 |
+| `ENV_SKILL_PATHS` | `"DCC_MCP_SKILL_PATHS"` | 全局技能路径环境变量 |
+| `ENV_APP_SKILL_PATHS` | `"DCC_MCP_{APP}_SKILL_PATHS"` | 应用专属技能路径环境变量模板 |
 | `SKILL_METADATA_FILE` | `"SKILL.md"` | 技能元数据文件名 |
 | `SKILL_SCRIPTS_DIR` | `"scripts"` | 脚本子目录名 |
 
@@ -84,5 +117,14 @@ paths = get_skill_paths_from_env()  # 分割 DCC_MCP_SKILL_PATHS
 
 | 变量 | 说明 |
 |------|------|
-| `DCC_MCP_SKILL_PATHS` | 技能搜索路径（Windows 使用 `;`，Unix 使用 `:` 分隔） |
+| `DCC_MCP_SKILL_PATHS` | 全局技能搜索路径（Windows 使用 `;`，Unix 使用 `:` 分隔） |
+| `DCC_MCP_{APP}_SKILL_PATHS` | 应用专属技能路径，如 Maya 使用 `DCC_MCP_MAYA_SKILL_PATHS` |
 | `MCP_LOG_LEVEL` | 日志级别覆盖（DEBUG、INFO、WARN、ERROR） |
+
+::: tip 搜索路径优先级
+调用 `create_skill_manager("maya")` 时，技能目录按以下顺序解析：
+1. `extra_paths` 参数传入的额外路径（最高优先级）
+2. 应用专属环境变量：`DCC_MCP_MAYA_SKILL_PATHS`
+3. 全局环境变量：`DCC_MCP_SKILL_PATHS`
+4. 平台数据目录：`~/.local/share/dcc-mcp/skills/maya/`
+:::

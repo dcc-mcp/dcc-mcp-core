@@ -28,7 +28,7 @@
 | Exchange scene data via USD format | `UsdStage` + `scene_info_json_to_stage()` |
 | Wrap values for safe RPyC transport | `wrap_value()` / `unwrap_value()` |
 | Handle multiple versions of an action | `VersionedRegistry` + `VersionConstraint` |
-| Expose DCC tools over HTTP/MCP | `McpHttpServer(registry, McpHttpConfig(port=8765))` |
+| Expose DCC tools over HTTP/MCP | `create_skill_manager("maya", McpHttpConfig(port=8765))` — Skills-First one-call setup; falls back to `McpHttpServer(registry, config)` for manual registry wiring |
 
 ---
 
@@ -541,7 +541,51 @@ export DCC_MCP_SKILL_PATHS="/path/to/skills1:/path/to/skills2"
 
 # Windows
 set DCC_MCP_SKILL_PATHS=C:\skills1;C:\skills2
+
+# DCC-specific paths (set by DCC integration plugins or manually)
+export DCC_MCP_MAYA_SKILL_PATHS="/maya/skills1:/maya/skills2"
+export DCC_MCP_BLENDER_SKILL_PATHS="/blender/skills"
 ```
+
+```python
+# Read DCC-specific paths programmatically
+from dcc_mcp_core import get_app_skill_paths_from_env
+maya_paths = get_app_skill_paths_from_env("maya")    # reads DCC_MCP_MAYA_SKILL_PATHS
+blender_paths = get_app_skill_paths_from_env("blender")
+```
+
+### SkillCatalog (Progressive Loading)
+
+`SkillCatalog` wraps a `SkillScanner` with progressive skill loading and thread-safe state.
+
+```python
+from dcc_mcp_core import SkillCatalog, SkillScanner, SkillSummary
+
+# Create catalog (preferred: use create_skill_manager for Skills-First)
+scanner = SkillScanner()
+catalog = SkillCatalog(scanner)
+
+# Discover available skills
+catalog.discover(extra_paths=["/my/skills"], dcc_name="maya")
+
+# List skills
+all_skills: list[SkillSummary] = catalog.list_skills()
+loaded_skills = catalog.list_skills(status="loaded")
+
+# Search
+results = catalog.find_skills(query="geometry", tags=["maya"], dcc="maya")
+
+# Load / unload individual skills
+catalog.load_skill("maya-geometry")      # -> bool
+catalog.unload_skill("maya-geometry")    # -> bool
+catalog.is_loaded("maya-geometry")       # -> bool
+catalog.loaded_count()                   # -> int
+
+# Get full metadata
+meta = catalog.get_skill_info("maya-geometry")  # -> Optional[SkillMetadata]
+```
+
+**SkillSummary fields:** `.name`, `.description`, `.version`, `.dcc`, `.tags`, `.tool_count`, `.tool_names`, `.loaded`
 
 ### Action Naming Convention
 
@@ -1418,6 +1462,7 @@ StringWrapper("hi").value     # "hi"; also supports __str__
 from dcc_mcp_core import (
     get_config_dir, get_data_dir, get_log_dir, get_platform_dir,
     get_actions_dir, get_skills_dir, get_skill_paths_from_env,
+    get_app_skill_paths_from_env,
 )
 
 get_config_dir()              # Platform-specific config dir (e.g. %APPDATA%/dcc-mcp on Windows)
@@ -1428,6 +1473,8 @@ get_actions_dir("maya")       # -> .../data/actions/maya/
 get_skills_dir("maya")        # -> .../data/skills/maya/
 get_skills_dir()              # -> .../data/skills/
 get_skill_paths_from_env()    # -> List[str] from DCC_MCP_SKILL_PATHS env var
+get_app_skill_paths_from_env("maya")   # -> List[str] from DCC_MCP_MAYA_SKILL_PATHS env var
+get_app_skill_paths_from_env("blender") # -> List[str] from DCC_MCP_BLENDER_SKILL_PATHS env var
 ```
 
 ---
@@ -1610,7 +1657,28 @@ handle.shutdown()            # blocks until server stops
 handle.signal_shutdown()     # non-blocking shutdown signal
 ```
 
-### Full Example: Skills → HTTP/MCP Server
+### create_skill_manager (Skills-First, recommended)
+
+```python
+import os
+os.environ["DCC_MCP_MAYA_SKILL_PATHS"] = "/studio/maya-skills"
+
+from dcc_mcp_core import create_skill_manager, McpHttpConfig
+
+# One call: creates registry, dispatcher, SkillCatalog, discovers skills from env vars
+server = create_skill_manager("maya", McpHttpConfig(port=8765))
+handle = server.start()
+print(f"Maya MCP server at {handle.mcp_url()}")
+# Claude Desktop config: {"mcpServers": {"maya": {"url": "<handle.mcp_url()>"}}}
+
+# Skills are discovered but not loaded — agents call load_skill on demand:
+count = server.discover()               # scan again (optional)
+skills = server.list_skills()           # list all with status
+server.load_skill("hello-world")        # registers skill tools into ActionRegistry
+handle.shutdown()
+```
+
+### Full Example: Manual Registry Wiring (low-level)
 
 ```python
 import os
