@@ -218,7 +218,7 @@ jobs:
       # Node.js 20 ships npx; mcporter is fetched via npx --yes at runtime
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
 
       - name: Download wheel
         uses: actions/download-artifact@v8
