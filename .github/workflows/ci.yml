@@ -230,9 +230,14 @@ jobs:
         run: pip install --no-index --find-links dist dcc-mcp-core && pip install pytest anyio
         shell: bash
 
-      # Pre-fetch mcporter so the actual test run does not hit network timeouts
-      - name: Pre-fetch mcporter
-        run: npx --yes mcporter --version
+      # Install mcporter globally to avoid per-test npx download timeouts.
+      # The global binary is detected by the test suite and used directly.
+      - name: Install mcporter globally
+        run: npm install -g mcporter
+        shell: bash
+
+      - name: Verify mcporter
+        run: mcporter --version
         shell: bash
 
       - name: Run mcporter e2e tests

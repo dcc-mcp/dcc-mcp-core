@@ -23,6 +23,7 @@ from __future__ import annotations
 
 # Import built-in modules
 import json
+import os
 from pathlib import Path
 import platform
 import subprocess
@@ -43,18 +44,62 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 EXAMPLES_SKILLS_DIR = str(REPO_ROOT / "examples" / "skills")
 
 # ---------------------------------------------------------------------------
-# Platform-aware npx invocation
+# Platform-aware mcporter invocation
 # ---------------------------------------------------------------------------
 
-# On Windows, npx is a .cmd script that requires shell=True or the .cmd suffix.
+# On Windows, .cmd wrappers are required for npm-installed executables.
 _IS_WINDOWS = platform.system() == "Windows"
 _NPX_CMD = "npx.cmd" if _IS_WINDOWS else "npx"
+# mcporter may be installed globally via ``npm install -g mcporter``; when
+# available the global binary is used directly to avoid per-call npm
+# network round-trips (which can timeout on slow CI runners).
+_MCPORTER_GLOBAL = "mcporter.cmd" if _IS_WINDOWS else "mcporter"
+
+# Timeout budget per mcporter invocation.
+# The first call may download the package on slow runners; subsequent ones
+# hit the npm cache. 120 s is generous but prevents hanging forever.
+_MCPORTER_TIMEOUT = int(os.environ.get("MCPORTER_TIMEOUT", "120"))
 
 
+def _probe_cmd(cmd: str, timeout: int = 10) -> bool:
+    """Return True if ``cmd --version`` succeeds within *timeout* seconds."""
+    try:
+        r = subprocess.run(
+            [cmd, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        return r.returncode == 0
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return False
+
+
+# Prefer a globally-installed mcporter (CI installs it via npm install -g).
+# Fall back to npx --yes (fetches on first call, caches afterward).
+_MCPORTER_USE_GLOBAL = _probe_cmd(_MCPORTER_GLOBAL)
+
+
+def _run_mcporter(*args: str, timeout: int | None = None) -> subprocess.CompletedProcess:
+    """Run mcporter portably, preferring the global install over npx.
+
+    When ``mcporter`` is installed globally (``npm install -g mcporter``) it
+    starts instantly. When it is not, we fall back to ``npx --yes mcporter``
+    which downloads the package on the first call and caches it afterward.
+    """
+    t = timeout if timeout is not None else _MCPORTER_TIMEOUT
+    cmd = [_MCPORTER_GLOBAL, *args] if _MCPORTER_USE_GLOBAL else [_NPX_CMD, "--yes", "mcporter", *args]
+    return subprocess.run(cmd, capture_output=True, text=True, timeout=t)
+
+
+# Keep backward-compatible alias used inside helpers.
 def _run_npx(*args: str, timeout: int = 60) -> subprocess.CompletedProcess:
-    """Run ``npx <args>`` portably on Windows and Unix."""
-    cmd = [_NPX_CMD, *args]
-    return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    """Alias for _run_mcporter; preserved for call-sites that pass --yes mcporter."""
+    # Strip the "--yes" "mcporter" prefix if present (legacy callers pass it).
+    stripped = list(args)
+    if stripped[:2] == ["--yes", "mcporter"]:
+        stripped = stripped[2:]
+    return _run_mcporter(*stripped, timeout=max(timeout, _MCPORTER_TIMEOUT))
 
 
 # ---------------------------------------------------------------------------
@@ -63,10 +108,18 @@ def _run_npx(*args: str, timeout: int = 60) -> subprocess.CompletedProcess:
 
 
 def _npx_available() -> bool:
+    """Return True if mcporter is reachable (global or via npx)."""
+    if _MCPORTER_USE_GLOBAL:
+        return True
     try:
-        r = _run_npx("--version", timeout=10)
+        r = subprocess.run(
+            [_NPX_CMD, "--yes", "mcporter", "--version"],
+            capture_output=True,
+            text=True,
+            timeout=_MCPORTER_TIMEOUT,
+        )
         return r.returncode == 0
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         return False
 
 
@@ -155,7 +208,7 @@ def _parse_mcporter_json(stdout: str) -> Any:
 
 
 def _mcporter_call(server_url: str, server_name: str, tool: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Invoke ``npx mcporter call --server <name> --tool <tool>`` against a local server.
+    """Invoke ``mcporter call --server <name> --tool <tool>`` against a local server.
 
     Uses ``--server``/``--tool`` flags instead of the ``server.tool`` dot-notation,
     which avoids mcporter prepending the server name to the tool call.
@@ -163,8 +216,6 @@ def _mcporter_call(server_url: str, server_name: str, tool: str, args: dict[str,
     Returns the parsed JSON output dict.
     """
     argv = [
-        "--yes",
-        "mcporter",
         "call",
         "--http-url",
         server_url,
@@ -187,17 +238,15 @@ def _mcporter_call(server_url: str, server_name: str, tool: str, args: dict[str,
             else:
                 argv.append(f"{key}:{val}")
 
-    result = _run_npx(*argv, timeout=60)
+    result = _run_mcporter(*argv)
     if result.returncode != 0 and not _is_benign_windows_exit(result):
         raise RuntimeError(f"mcporter call failed: {result.stderr}\nstdout: {result.stdout}")
     return _parse_mcporter_json(result.stdout)
 
 
 def _mcporter_list_tools(server_url: str, server_name: str) -> list[dict[str, Any]]:
-    """Return tools list via ``npx mcporter list --json``."""
+    """Return tools list via ``mcporter list --json``."""
     argv = [
-        "--yes",
-        "mcporter",
         "list",
         "--http-url",
         server_url,
@@ -206,7 +255,7 @@ def _mcporter_list_tools(server_url: str, server_name: str) -> list[dict[str, An
         server_name,
         "--json",
     ]
-    result = _run_npx(*argv, timeout=60)
+    result = _run_mcporter(*argv)
     if result.returncode != 0 and not _is_benign_windows_exit(result):
         raise RuntimeError(f"mcporter list failed: {result.stderr}")
     data = _parse_mcporter_json(result.stdout)
@@ -562,3 +611,242 @@ class TestMcporterAvailability:
             assert resp.status == 200
             body = json.loads(resp.read())
             assert body["id"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Multiple server instances (isolation + concurrent connections)
+# ---------------------------------------------------------------------------
+
+
+class TestMultipleServerInstances:
+    """Verify that multiple McpHttpServer instances run independently.
+
+    Each server gets its own port, own ActionRegistry, and own catalog state.
+    Requests to one server must not affect the other.
+    """
+
+    @staticmethod
+    def _ping(url: str) -> dict:
+        import urllib.request
+
+        req = urllib.request.Request(
+            url,
+            data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "ping"}).encode(),
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return json.loads(resp.read())
+
+    @staticmethod
+    def _tools_list(url: str) -> list[str]:
+        import urllib.request
+
+        req = urllib.request.Request(
+            url,
+            data=json.dumps({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}).encode(),
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            body = json.loads(resp.read())
+            return [t["name"] for t in body["result"]["tools"]]
+
+    @staticmethod
+    def _call_tool(url: str, tool: str, arguments: dict | None = None) -> dict:
+        import urllib.request
+
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 3,
+                    "method": "tools/call",
+                    "params": {"name": tool, "arguments": arguments or {}},
+                }
+            ).encode(),
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return json.loads(resp.read())
+
+    def test_two_servers_bind_different_ports(self):
+        """Each server gets its own random port; they coexist without conflict."""
+        reg_a = ActionRegistry()
+        reg_b = ActionRegistry()
+
+        srv_a = McpHttpServer(reg_a, McpHttpConfig(port=0, server_name="srv-a"))
+        srv_b = McpHttpServer(reg_b, McpHttpConfig(port=0, server_name="srv-b"))
+
+        h_a = srv_a.start()
+        h_b = srv_b.start()
+        try:
+            assert h_a.port != h_b.port, "Both servers must bind to distinct ports"
+            assert h_a.port > 0
+            assert h_b.port > 0
+            # Both respond to ping
+            self._ping(h_a.mcp_url())
+            self._ping(h_b.mcp_url())
+        finally:
+            h_a.shutdown()
+            h_b.shutdown()
+
+    def test_registries_are_isolated(self):
+        """Tools registered on server A are not visible on server B."""
+        reg_a = ActionRegistry()
+        reg_a.register("tool_only_in_a", description="Only in A", category="test", tags=[], dcc="test", version="1.0")
+
+        reg_b = ActionRegistry()
+        reg_b.register("tool_only_in_b", description="Only in B", category="test", tags=[], dcc="test", version="1.0")
+
+        srv_a = McpHttpServer(reg_a, McpHttpConfig(port=0, server_name="iso-a"))
+        srv_b = McpHttpServer(reg_b, McpHttpConfig(port=0, server_name="iso-b"))
+
+        h_a = srv_a.start()
+        h_b = srv_b.start()
+        try:
+            names_a = self._tools_list(h_a.mcp_url())
+            names_b = self._tools_list(h_b.mcp_url())
+
+            assert "tool_only_in_a" in names_a
+            assert "tool_only_in_a" not in names_b
+
+            assert "tool_only_in_b" in names_b
+            assert "tool_only_in_b" not in names_a
+        finally:
+            h_a.shutdown()
+            h_b.shutdown()
+
+    def test_handlers_are_isolated(self):
+        """Calling a tool on server A does not invoke server B's handler."""
+        reg_a = ActionRegistry()
+        reg_a.register("echo", description="Echo A", category="test", tags=[], dcc="test", version="1.0")
+
+        reg_b = ActionRegistry()
+        reg_b.register("echo", description="Echo B", category="test", tags=[], dcc="test", version="1.0")
+
+        srv_a = McpHttpServer(reg_a, McpHttpConfig(port=0, server_name="hdl-a"))
+        srv_b = McpHttpServer(reg_b, McpHttpConfig(port=0, server_name="hdl-b"))
+
+        srv_a.register_handler("echo", lambda p: {"server": "A"})
+        srv_b.register_handler("echo", lambda p: {"server": "B"})
+
+        h_a = srv_a.start()
+        h_b = srv_b.start()
+        try:
+            body_a = self._call_tool(h_a.mcp_url(), "echo")
+            body_b = self._call_tool(h_b.mcp_url(), "echo")
+
+            text_a = body_a["result"]["content"][0]["text"]
+            text_b = body_b["result"]["content"][0]["text"]
+
+            assert "A" in text_a, f"Server A handler not called: {text_a}"
+            assert "B" in text_b, f"Server B handler not called: {text_b}"
+            # Cross-contamination check
+            assert "B" not in text_a or "A" not in text_b or text_a != text_b
+        finally:
+            h_a.shutdown()
+            h_b.shutdown()
+
+    def test_concurrent_pings_across_instances(self):
+        """Ten threads each ping a separate server instance simultaneously."""
+        import threading
+
+        n = 5
+        handles = []
+        errors = []
+        results = []
+
+        regs = [ActionRegistry() for _ in range(n)]
+        servers = [McpHttpServer(r, McpHttpConfig(port=0, server_name=f"conc-{i}")) for i, r in enumerate(regs)]
+        handles = [s.start() for s in servers]
+
+        def worker(url: str, idx: int) -> None:
+            try:
+                body = self._ping(url)
+                results.append((idx, body["result"]))
+            except Exception as exc:
+                errors.append((idx, str(exc)))
+
+        threads = [threading.Thread(target=worker, args=(h.mcp_url(), i)) for i, h in enumerate(handles)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=10)
+
+        for h in handles:
+            h.shutdown()
+
+        assert not errors, f"Errors during concurrent ping: {errors}"
+        assert len(results) == n
+
+    def test_skill_catalog_state_is_independent(self):
+        """Loading a skill on server A does not affect server B's catalog."""
+        if not Path(EXAMPLES_SKILLS_DIR).is_dir():
+            pytest.skip("examples/skills directory not found")
+
+        reg_a = ActionRegistry()
+        reg_b = ActionRegistry()
+
+        srv_a = McpHttpServer(reg_a, McpHttpConfig(port=0, server_name="cat-a"))
+        srv_b = McpHttpServer(reg_b, McpHttpConfig(port=0, server_name="cat-b"))
+
+        srv_a.discover(extra_paths=[EXAMPLES_SKILLS_DIR])
+        srv_b.discover(extra_paths=[EXAMPLES_SKILLS_DIR])
+
+        h_a = srv_a.start()
+        h_b = srv_b.start()
+        try:
+            # Load hello-world only on server A
+            body = self._call_tool(
+                h_a.mcp_url(),
+                "load_skill",
+                {"skill_name": "hello-world"},
+            )
+            result_text = body["result"]["content"][0]["text"]
+            load_data = json.loads(result_text)
+            assert load_data.get("loaded") is True
+
+            # Server A should have hello-world tools; server B should NOT
+            names_a = self._tools_list(h_a.mcp_url())
+            names_b = self._tools_list(h_b.mcp_url())
+
+            assert any("hello" in n.lower() for n in names_a), f"hello-world missing from A: {names_a}"
+            assert not any("hello_world" in n for n in names_b), f"hello-world leaked into B: {names_b}"
+        finally:
+            h_a.shutdown()
+            h_b.shutdown()
+
+    @pytest.mark.skipif(not NPX_AVAILABLE, reason="npx / mcporter not available")
+    def test_mcporter_connects_to_correct_instance(self):
+        """Mcporter explicitly targets one URL; the other server is unaffected."""
+        reg_a = ActionRegistry()
+        reg_a.register("action_alpha", description="Alpha tool", category="test", tags=[], dcc="test", version="1.0")
+
+        reg_b = ActionRegistry()
+        reg_b.register("action_beta", description="Beta tool", category="test", tags=[], dcc="test", version="1.0")
+
+        srv_a = McpHttpServer(reg_a, McpHttpConfig(port=0, server_name="target-a"))
+        srv_b = McpHttpServer(reg_b, McpHttpConfig(port=0, server_name="target-b"))
+
+        h_a = srv_a.start()
+        h_b = srv_b.start()
+        try:
+            # mcporter targets only server A
+            tools_a = _mcporter_list_tools(h_a.mcp_url(), "target-a")
+            names_a = {t["name"] if isinstance(t, dict) else t for t in tools_a}
+
+            # mcporter targets only server B
+            tools_b = _mcporter_list_tools(h_b.mcp_url(), "target-b")
+            names_b = {t["name"] if isinstance(t, dict) else t for t in tools_b}
+
+            assert "action_alpha" in names_a
+            assert "action_alpha" not in names_b
+
+            assert "action_beta" in names_b
+            assert "action_beta" not in names_a
+        finally:
+            h_a.shutdown()
+            h_b.shutdown()
