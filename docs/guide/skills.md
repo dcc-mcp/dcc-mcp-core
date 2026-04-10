@@ -56,24 +56,27 @@ export DCC_MCP_SKILL_PATHS="/path/skills1:/path/skills2"
 Use `SkillCatalog` (recommended) for full progressive loading, or low-level scan functions for one-shot use:
 
 ```python
-from dcc_mcp_core import ActionRegistry, SkillCatalog
+from dcc_mcp_core import SkillScanner, SkillCatalog, ActionRegistry, ActionDispatcher
 
-# Create registry and catalog
-registry = ActionRegistry()
-catalog = SkillCatalog(registry)
+# Create scanner and catalog
+scanner = SkillScanner()
+catalog = SkillCatalog(scanner)
 
 # Discover all skills from DCC_MCP_SKILL_PATHS
-count = catalog.discover(dcc_name="maya")
-print(f"Discovered {count} skills")
+catalog.discover(dcc_name="maya")
+
+# Optional: attach dispatcher for auto-handler registration
+registry = ActionRegistry()
+dispatcher = ActionDispatcher(registry)
+catalog.with_dispatcher(dispatcher)
 
 # List available skills
 for skill in catalog.list_skills():
     print(f"  {skill.name} v{skill.version}: {skill.description} (loaded={skill.loaded})")
 
-# Load a skill — registers its tools in ActionRegistry
-actions = catalog.load_skill("maya-geometry")
-print(f"Registered actions: {actions}")
-# ['maya_geometry__create_sphere', 'maya_geometry__export_fbx']
+# Load a skill — registers its tools if dispatcher is attached
+ok = catalog.load_skill("maya-geometry")
+print(f"Loaded: {ok}")
 ```
 
 ## Skill Catalog (Recommended API)
@@ -81,14 +84,17 @@ print(f"Registered actions: {actions}")
 `SkillCatalog` manages the full lifecycle: discovery → progressive loading → unloading.
 
 ```python
-from dcc_mcp_core import ActionRegistry, ActionDispatcher, SkillCatalog
+from dcc_mcp_core import SkillScanner, SkillCatalog, ActionRegistry, ActionDispatcher
+
+scanner = SkillScanner()
+catalog = SkillCatalog(scanner)
 
 registry = ActionRegistry()
 dispatcher = ActionDispatcher(registry)
-catalog = SkillCatalog(registry)
+catalog.with_dispatcher(dispatcher)
 
 # Discovery
-count = catalog.discover(extra_paths=["/my/skills"], dcc_name="maya")
+catalog.discover(extra_paths=["/my/skills"], dcc_name="maya")
 
 # Search
 results = catalog.find_skills(query="geometry", tags=["create"], dcc="maya")
@@ -96,16 +102,16 @@ for s in results:
     print(f"{s.name}: {s.tool_count} tools {s.tool_names}")
 
 # Load/unload
-actions = catalog.load_skill("maya-geometry")  # returns List[str] of action names
-catalog.is_loaded("maya-geometry")             # True
-n_removed = catalog.unload_skill("maya-geometry")
+ok = catalog.load_skill("maya-geometry")  # returns bool
+catalog.is_loaded("maya-geometry")        # True
+ok = catalog.unload_skill("maya-geometry")
 
 # Status inspection
 catalog.loaded_count()      # int
 len(catalog)                # total skills in catalog
 catalog.list_skills()       # all skills (SkillSummary list)
 catalog.list_skills("loaded")      # only loaded
-catalog.list_skills("discovered")  # only unloaded
+catalog.list_skills("unloaded")    # only unloaded
 
 # Detail
 info = catalog.get_skill_info("maya-geometry")  # dict with full details or None

@@ -97,6 +97,102 @@ paths = get_app_skill_paths_from_env("maya")
 paths = get_app_skill_paths_from_env("Maya")  # same result
 ```
 
+## Skill Functions
+
+Top-level functions for scanning, loading, and resolving skill dependencies.
+
+### `parse_skill_md()`
+
+```python
+from dcc_mcp_core import parse_skill_md
+
+metadata = parse_skill_md("/path/to/skills/maya-geometry")
+if metadata:
+    print(metadata.name, metadata.version)  # "maya-geometry", "1.0.0"
+```
+
+### `scan_skill_paths()`
+
+Scan configured directories for skill packages:
+
+```python
+from dcc_mcp_core import scan_skill_paths
+
+# Scan all configured paths (env vars + platform dirs)
+paths = scan_skill_paths()
+
+# Scope to a specific DCC
+paths = scan_skill_paths(dcc_name="maya")
+
+# Add extra directories
+paths = scan_skill_paths(extra_paths=["/my/extra/skills"], dcc_name="blender")
+```
+
+### `scan_and_load()`
+
+Full pipeline: scan directories, parse `SKILL.md` files, and topologically sort by dependencies. Raises `ValueError` on missing dependencies or cycles.
+
+```python
+from dcc_mcp_core import scan_and_load
+
+skills, skipped = scan_and_load(dcc_name="maya")
+
+for skill in skills:
+    print(f"{skill.name} v{skill.version}")
+
+print(f"Skipped {len(skipped)} directories")
+```
+
+### `scan_and_load_lenient()`
+
+Like `scan_and_load()` but silently skips skills with missing dependencies (only fails on cycles):
+
+```python
+from dcc_mcp_core import scan_and_load_lenient
+
+skills, skipped = scan_and_load_lenient(dcc_name="maya")
+# skills with unresolvable deps are in skipped, not raised as errors
+```
+
+### `resolve_dependencies()`
+
+Topologically sort a list of `SkillMetadata` objects by their `depends` field:
+
+```python
+from dcc_mcp_core import resolve_dependencies
+
+ordered = resolve_dependencies(skills)  # skills sorted so deps come first
+```
+
+Raises `ValueError` if a dependency is missing or a cycle is detected.
+
+### `validate_dependencies()`
+
+Validate that all declared dependencies exist in the provided skill list:
+
+```python
+from dcc_mcp_core import validate_dependencies
+
+errors = validate_dependencies(skills)
+for err in errors:
+    print(f"Missing dep: {err}")
+```
+
+Returns a list of error messages. Empty list means all deps are satisfied.
+
+### `expand_transitive_dependencies()`
+
+Get all transitive dependencies of a skill (recursively):
+
+```python
+from dcc_mcp_core import expand_transitive_dependencies
+
+all_deps = expand_transitive_dependencies(skills, "maya-complex-tool")
+print(all_deps)  # ["base-utils", "maya-core", "maya-geometry"]
+```
+
+Raises `ValueError` on missing deps or cycles.
+
 ## Constants
 
 Available as module-level attributes:

@@ -181,20 +181,20 @@ tools:
 ### How do I discover and load skills?
 
 ```python
-from dcc_mcp_core import ActionRegistry, SkillCatalog
+from dcc_mcp_core import SkillScanner, SkillCatalog
 import os
 
 os.environ["DCC_MCP_SKILL_PATHS"] = "/path/to/skills"
 
-registry = ActionRegistry()
-catalog = SkillCatalog(registry)
+scanner = SkillScanner()
+catalog = SkillCatalog(scanner)
 
 # Discover skills
-count = catalog.discover(dcc_name="maya")
+catalog.discover(dcc_name="maya")
 
-# Load a skill (registers its tools in ActionRegistry)
-actions = catalog.load_skill("maya-geometry")
-print(actions)  # ['maya_geometry__create_sphere']
+# Load a skill
+ok = catalog.load_skill("maya-geometry")
+print(ok)  # True
 ```
 
 ### What's the action naming convention for skill tools?

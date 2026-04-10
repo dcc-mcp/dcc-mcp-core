@@ -18,6 +18,8 @@ registry = ActionRegistry()
 | 方法 | 返回值 | 说明 |
 |------|--------|------|
 | `register(name, description="", category="", tags=[], dcc="python", version="1.0.0", input_schema=None, output_schema=None, source_file=None)` | — | 注册一个 Skill |
+| `register_batch(actions)` | — | 批量注册，传入字典列表（每个字典使用与 `register()` 相同的键；缺少 `name` 的条目被跳过）|
+| `unregister(name, dcc_name=None)` | `bool` | 移除 Skill。`dcc_name=None` 时全局移除；否则作用域限定。找到返回 `True` |
 | `get_action(name, dcc_name=None)` | `dict?` | 获取 Skill 元数据字典 |
 | `list_actions(dcc_name=None)` | `List[dict]` | 列出所有 Skill 的元数据字典 |
 | `list_actions_for_dcc(dcc_name)` | `List[str]` | 列出指定 DCC 的 Skill 名称 |
@@ -73,6 +75,16 @@ print(meta["version"])  # "1.0.0"
 
 # 搜索
 results = reg.search_actions(category="geometry", tags=["create"])
+
+# 批量注册
+reg.register_batch([
+    {"name": "create_sphere", "category": "geometry", "dcc": "maya"},
+    {"name": "delete_object", "category": "edit", "dcc": "maya"},
+])
+
+# 注销
+removed = reg.unregister("create_sphere")                  # 全局：找到返回 True
+removed = reg.unregister("create_sphere", dcc_name="maya") # 仅限 maya 作用域
 ```
 
 ## ActionValidator

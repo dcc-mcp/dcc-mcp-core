@@ -21,6 +21,9 @@ Standardized result for all action executions. Backed by a Rust struct via PyO3.
 | `with_error(error)` | `ActionResultModel` | Create copy with error info (sets `success=False`) |
 | `with_context(**kwargs)` | `ActionResultModel` | Create copy with updated context |
 | `to_dict()` | `Dict[str, Any]` | Convert to dictionary |
+| `__eq__(other)` | `bool` | Equality comparison |
+| `__str__()` | `str` | Human-readable string |
+| `__repr__()` | `str` | Unambiguous representation |
 
 ### Factory Functions
 
@@ -50,6 +53,15 @@ validate_action_result(result)                          # pass-through
 validate_action_result({"success": True, "message": "OK"})  # dict → ARM
 validate_action_result("hello")                         # wrap as success
 ```
+
+### Factory Function Signatures
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `success_result` | `(message, prompt=None, **context) -> ActionResultModel` | Create a successful result |
+| `error_result` | `(message, error, prompt=None, possible_solutions=None, **context) -> ActionResultModel` | Create a failed result |
+| `from_exception` | `(error_message, message=None, prompt=None, include_traceback=True, possible_solutions=None, **context) -> ActionResultModel` | Wrap an exception as a result |
+| `validate_action_result` | `(result: Any) -> ActionResultModel` | Normalize dict/str/None/ARM → ActionResultModel |
 
 ## SkillMetadata
 

@@ -181,20 +181,20 @@ tools:
 ### 如何发现并加载 Skill？
 
 ```python
-from dcc_mcp_core import ActionRegistry, SkillCatalog
+from dcc_mcp_core import SkillScanner, SkillCatalog
 import os
 
 os.environ["DCC_MCP_SKILL_PATHS"] = "/path/to/skills"
 
-registry = ActionRegistry()
-catalog = SkillCatalog(registry)
+scanner = SkillScanner()
+catalog = SkillCatalog(scanner)
 
 # 发现 Skill
-count = catalog.discover(dcc_name="maya")
+catalog.discover(dcc_name="maya")
 
-# 加载 Skill（将工具注册到 ActionRegistry）
-actions = catalog.load_skill("maya-geometry")
-print(actions)  # ['maya_geometry__create_sphere']
+# 加载 Skill
+ok = catalog.load_skill("maya-geometry")
+print(ok)  # True
 ```
 
 ### Skill 工具的 Action 命名规则是什么？

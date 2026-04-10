@@ -4,72 +4,86 @@
 
 ## SkillCatalog
 
-渐进式 Skill 发现与加载。管理 Skill 从发现到活跃工具注册的完整生命周期。
+渐进式 Skill 发现与加载。线程安全（所有状态存储在 DashMap/DashSet 中）。
+
+当通过 `with_dispatcher()` 附加了调度器时，加载 Skill 会自动为每个 Action 注册基于子进程的处理器 — 启用 Skills-First 工作流，Agent 无需手动注册处理器。
 
 ```python
-from dcc_mcp_core import ActionRegistry, SkillCatalog
+from dcc_mcp_core import SkillScanner, SkillCatalog
 
-registry = ActionRegistry()
-catalog = SkillCatalog(registry)
+scanner = SkillScanner()
+catalog = SkillCatalog(scanner)
 ```
 
 ### 构造函数
 
 ```python
-SkillCatalog(registry: ActionRegistry) -> SkillCatalog
+SkillCatalog(scanner: SkillScanner) -> SkillCatalog
 ```
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `scanner` | `SkillScanner` | 用于发现的扫描器实例 |
 
 ### 方法
 
 | 方法 | 返回值 | 说明 |
 |------|--------|------|
-| `discover(extra_paths=None, dcc_name=None)` | `int` | 发现 Skill；返回新发现的数量 |
-| `load_skill(skill_name)` | `List[str]` | 加载 Skill；返回已注册的 Action 名称。未找到则抛出 `ValueError` |
-| `unload_skill(skill_name)` | `int` | 卸载 Skill；返回移除的 Action 数量。未加载则抛出 `ValueError` |
-| `find_skills(query=None, tags=[], dcc=None)` | `List[SkillSummary]` | 按 query/tags/dcc 搜索 Skill（所有过滤器 AND 组合）|
-| `list_skills(status=None)` | `List[SkillSummary]` | 列出所有 Skill。status：`"loaded"`、`"discovered"`、`"error"` 或 `None`（全部）|
-| `get_skill_info(skill_name)` | `dict \| None` | 以 dict 形式返回详细信息，未找到返回 `None` |
+| `with_dispatcher(dispatcher)` | — | 附加 `ActionDispatcher`；启用 `load_skill()` 时的自动处理器注册 |
+| `discover(extra_paths=None, dcc_name=None)` | `None` | 扫描并填充目录 |
+| `load_skill(skill_name)` | `bool` | 加载 Skill；成功返回 `True`，已加载或未找到返回 `False` |
+| `unload_skill(skill_name)` | `bool` | 卸载 Skill；成功返回 `True`，未加载返回 `False` |
+| `find_skills(query=None, tags=None, dcc=None)` | `List[SkillSummary]` | 按 name/tags/dcc 搜索（所有过滤器 AND 组合）|
+| `list_skills(status=None)` | `List[SkillSummary]` | 列出 Skill。status：`"loaded"` 或 `"unloaded"`，`None` 为全部 |
+| `get_skill_info(skill_name)` | `SkillMetadata \| None` | 返回完整元数据，未找到返回 `None` |
 | `is_loaded(skill_name)` | `bool` | 指定 Skill 是否已加载 |
 | `loaded_count()` | `int` | 已加载 Skill 的数量 |
-| `__len__()` | `int` | 目录中 Skill 总数 |
-| `__bool__()` | `bool` | 目录为空时返回 False |
-| `__repr__()` | `str` | `SkillCatalog(total=N, loaded=N)` |
+| `__repr__()` | `str` | 字符串表示 |
 
 ### 示例
 
 ```python
 import os
-from dcc_mcp_core import ActionRegistry, SkillCatalog
+from dcc_mcp_core import SkillScanner, SkillCatalog, ActionRegistry, ActionDispatcher
 
 os.environ["DCC_MCP_SKILL_PATHS"] = "/path/to/skills"
 
-registry = ActionRegistry()
-catalog = SkillCatalog(registry)
+scanner = SkillScanner()
+catalog = SkillCatalog(scanner)
 
 # 发现 Skill
-count = catalog.discover(extra_paths=["/extra/skills"], dcc_name="maya")
+catalog.discover(extra_paths=["/extra/skills"], dcc_name="maya")
 
 # 列出所有已发现的 Skill
 for skill in catalog.list_skills():
-    status = "已加载" if skill.loaded else "未加载"
+    status = "loaded" if skill.loaded else "unloaded"
     print(f"  [{status}] {skill.name} v{skill.version}: {skill.description}")
 
 # 搜索
 results = catalog.find_skills(query="geometry", tags=["create"])
 for s in results:
-    print(f"  {s.name}: {s.tool_count} 个工具 → {s.tool_names}")
+    print(f"  {s.name}: {s.tool_count} tools → {s.tool_names}")
 
-# 加载 Skill
-actions = catalog.load_skill("maya-geometry")
-print(f"已注册：{actions}")
-# ['maya_geometry__create_sphere', 'maya_geometry__export_fbx']
+# 附加调度器 — 启用 Skills-First 自动处理器注册
+registry = ActionRegistry()
+dispatcher = ActionDispatcher(registry)
+catalog.with_dispatcher(dispatcher)
 
-# 检查已加载 Skill
-print(catalog.loaded_count(), len(catalog))
+# 加载 Skill（附加调度器后 Action 自动注册）
+ok = catalog.load_skill("maya-geometry")
+print(f"已加载: {ok}")
+
+# 获取完整元数据
+meta = catalog.get_skill_info("maya-geometry")
+if meta:
+    print(meta.name, meta.tools)
+
+# 查看已加载数量
+print(catalog.loaded_count())
 
 # 卸载
-n = catalog.unload_skill("maya-geometry")
-print(f"已移除 {n} 个 Action")
+ok = catalog.unload_skill("maya-geometry")
+print(f"已卸载: {ok}")
 ```
 
 ---

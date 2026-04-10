@@ -52,19 +52,22 @@ print(f"Maya MCP 服务器地址：{handle.mcp_url()}")
 
 ```python
 import os
-from dcc_mcp_core import ActionRegistry, SkillCatalog
+from dcc_mcp_core import SkillScanner, SkillCatalog, ActionRegistry, ActionDispatcher
 
 os.environ["DCC_MCP_SKILL_PATHS"] = "/path/to/my-skills"
 
+scanner = SkillScanner()
+catalog = SkillCatalog(scanner)
+catalog.discover(dcc_name="maya")
+
+# 可选：附加调度器以启用自动处理器注册
 registry = ActionRegistry()
-catalog = SkillCatalog(registry)
+dispatcher = ActionDispatcher(registry)
+catalog.with_dispatcher(dispatcher)
 
-count = catalog.discover(dcc_name="maya")
-print(f"发现 {count} 个 Skills")
-
-actions = catalog.load_skill("maya-geometry")
-print(f"已注册 Actions: {actions}")
-# 例如 ['maya_geometry__create_sphere', 'maya_geometry__export_fbx']
+# 加载 Skill
+ok = catalog.load_skill("maya-geometry")
+print(f"已加载: {ok}")
 ```
 
 参见 [Skills 系统指南](/zh/guide/skills) 了解 `SKILL.md` 的编写方式和更多选项。

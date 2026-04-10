@@ -52,19 +52,22 @@ Or use `SkillCatalog` directly for more control:
 
 ```python
 import os
-from dcc_mcp_core import ActionRegistry, SkillCatalog
+from dcc_mcp_core import SkillScanner, SkillCatalog, ActionRegistry, ActionDispatcher
 
 os.environ["DCC_MCP_SKILL_PATHS"] = "/path/to/my-skills"
 
+scanner = SkillScanner()
+catalog = SkillCatalog(scanner)
+catalog.discover(dcc_name="maya")
+
+# Optional: attach dispatcher for auto-handler registration
 registry = ActionRegistry()
-catalog = SkillCatalog(registry)
+dispatcher = ActionDispatcher(registry)
+catalog.with_dispatcher(dispatcher)
 
-count = catalog.discover(dcc_name="maya")
-print(f"Discovered {count} skills")
-
-actions = catalog.load_skill("maya-geometry")
-print(f"Registered actions: {actions}")
-# e.g. ['maya_geometry__create_sphere', 'maya_geometry__export_fbx']
+# Load a skill
+ok = catalog.load_skill("maya-geometry")
+print(f"Loaded: {ok}")
 ```
 
 See the [Skills System guide](/guide/skills) for writing `SKILL.md` files and advanced options.

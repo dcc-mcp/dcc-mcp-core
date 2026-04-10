@@ -4,54 +4,59 @@
 
 ## SkillCatalog
 
-Progressive skill discovery and loading. Manages skill lifecycle from discovery to active tool registration.
+Progressive skill discovery and loading. Thread-safe (all state stored in DashMap/DashSet).
+
+When a dispatcher is attached via `with_dispatcher()`, loading a skill also registers a subprocess-based handler for each action — enabling the Skills-First workflow where agents never need to register handlers manually.
 
 ```python
-from dcc_mcp_core import ActionRegistry, SkillCatalog
+from dcc_mcp_core import SkillScanner, SkillCatalog
 
-registry = ActionRegistry()
-catalog = SkillCatalog(registry)
+scanner = SkillScanner()
+catalog = SkillCatalog(scanner)
 ```
 
 ### Constructor
 
 ```python
-SkillCatalog(registry: ActionRegistry) -> SkillCatalog
+SkillCatalog(scanner: SkillScanner) -> SkillCatalog
 ```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `scanner` | `SkillScanner` | Scanner instance used for discovery |
 
 ### Methods
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `discover(extra_paths=None, dcc_name=None)` | `int` | Discover skills; returns count of newly discovered |
-| `load_skill(skill_name)` | `List[str]` | Load a skill; returns registered action names. Raises `ValueError` if not found |
-| `unload_skill(skill_name)` | `int` | Unload a skill; returns count of removed actions. Raises `ValueError` if not loaded |
-| `find_skills(query=None, tags=[], dcc=None)` | `List[SkillSummary]` | Search skills by query/tags/dcc (all filters AND-ed) |
-| `list_skills(status=None)` | `List[SkillSummary]` | List all skills. `status`: `"loaded"`, `"discovered"`, `"error"`, or `None` for all |
-| `get_skill_info(skill_name)` | `dict \| None` | Detailed skill info as dict, or `None` if not found |
+| `with_dispatcher(dispatcher)` | — | Attach an `ActionDispatcher`; enables auto-handler registration on `load_skill()` |
+| `discover(extra_paths=None, dcc_name=None)` | `None` | Scan for skills and populate the catalog |
+| `load_skill(skill_name)` | `bool` | Load a skill; returns `True` on success, `False` if already loaded or not found |
+| `unload_skill(skill_name)` | `bool` | Unload a skill; returns `True` on success, `False` if not loaded |
+| `find_skills(query=None, tags=None, dcc=None)` | `List[SkillSummary]` | Search by name/tags/dcc (all filters AND-ed) |
+| `list_skills(status=None)` | `List[SkillSummary]` | List skills. `status`: `"loaded"` or `"unloaded"`, or `None` for all |
+| `get_skill_info(skill_name)` | `SkillMetadata \| None` | Full metadata for a skill, or `None` if not found |
 | `is_loaded(skill_name)` | `bool` | Whether a skill is currently loaded |
 | `loaded_count()` | `int` | Number of loaded skills |
-| `__len__()` | `int` | Total skills in catalog |
-| `__bool__()` | `bool` | False if catalog is empty |
-| `__repr__()` | `str` | `SkillCatalog(total=N, loaded=N)` |
+| `__repr__()` | `str` | String representation |
 
 ### Example
 
 ```python
 import os
-from dcc_mcp_core import ActionRegistry, SkillCatalog
+from dcc_mcp_core import SkillScanner, SkillCatalog, ActionRegistry, ActionDispatcher
 
 os.environ["DCC_MCP_SKILL_PATHS"] = "/path/to/skills"
 
-registry = ActionRegistry()
-catalog = SkillCatalog(registry)
+scanner = SkillScanner()
+catalog = SkillCatalog(scanner)
 
 # Discover skills
-count = catalog.discover(extra_paths=["/extra/skills"], dcc_name="maya")
+catalog.discover(extra_paths=["/extra/skills"], dcc_name="maya")
 
 # List all discovered skills
 for skill in catalog.list_skills():
-    status = "loaded" if skill.loaded else "discovered"
+    status = "loaded" if skill.loaded else "unloaded"
     print(f"  [{status}] {skill.name} v{skill.version}: {skill.description}")
 
 # Search
@@ -59,17 +64,26 @@ results = catalog.find_skills(query="geometry", tags=["create"])
 for s in results:
     print(f"  {s.name}: {s.tool_count} tools → {s.tool_names}")
 
-# Load a skill
-actions = catalog.load_skill("maya-geometry")
-print(f"Registered: {actions}")
-# ['maya_geometry__create_sphere', 'maya_geometry__export_fbx']
+# With dispatcher — enables Skills-First auto-handler registration
+registry = ActionRegistry()
+dispatcher = ActionDispatcher(registry)
+catalog.with_dispatcher(dispatcher)
+
+# Load a skill (actions auto-registered if dispatcher is attached)
+ok = catalog.load_skill("maya-geometry")
+print(f"Loaded: {ok}")
+
+# Get full metadata
+meta = catalog.get_skill_info("maya-geometry")
+if meta:
+    print(meta.name, meta.tools)
 
 # Inspect loaded skills
-print(catalog.loaded_count(), len(catalog))
+print(catalog.loaded_count())
 
 # Unload
-n = catalog.unload_skill("maya-geometry")
-print(f"Removed {n} actions")
+ok = catalog.unload_skill("maya-geometry")
+print(f"Unloaded: {ok}")
 ```
 
 ---

@@ -21,6 +21,9 @@
 | `with_error(error)` | `ActionResultModel` | 创建带错误信息的副本（设置 `success=False`） |
 | `with_context(**kwargs)` | `ActionResultModel` | 创建带更新上下文的副本 |
 | `to_dict()` | `Dict[str, Any]` | 转换为字典 |
+| `__eq__(other)` | `bool` | 相等比较 |
+| `__str__()` | `str` | 人类可读字符串 |
+| `__repr__()` | `str` | 无歧义表示 |
 
 ### 工厂函数
 
@@ -50,6 +53,15 @@ validate_action_result(result)                          # 直接通过
 validate_action_result({"success": True, "message": "OK"})  # dict → ARM
 validate_action_result("hello")                         # 包装为成功结果
 ```
+
+### 工厂函数签名
+
+| 函数 | 签名 | 说明 |
+|------|------|------|
+| `success_result` | `(message, prompt=None, **context) -> ActionResultModel` | 创建成功结果 |
+| `error_result` | `(message, error, prompt=None, possible_solutions=None, **context) -> ActionResultModel` | 创建失败结果 |
+| `from_exception` | `(error_message, message=None, prompt=None, include_traceback=True, possible_solutions=None, **context) -> ActionResultModel` | 将异常包装为结果 |
+| `validate_action_result` | `(result: Any) -> ActionResultModel` | 规范化 dict/str/None/ARM → ActionResultModel |
 
 ## SkillMetadata
 

@@ -18,6 +18,8 @@ registry = ActionRegistry()
 | Method | Returns | Description |
 |--------|---------|-------------|
 | `register(name, description="", category="", tags=[], dcc="python", version="1.0.0", input_schema=None, output_schema=None, source_file=None)` | — | Register a skill |
+| `register_batch(actions)` | — | Register multiple skills from a list of dicts (each dict uses same keys as `register()`; entries without `name` are skipped) |
+| `unregister(name, dcc_name=None)` | `bool` | Remove a skill. If `dcc_name=None`, removes globally; otherwise scoped. Returns `True` if found |
 | `get_action(name, dcc_name=None)` | `dict?` | Get skill metadata as dict |
 | `list_actions(dcc_name=None)` | `List[dict]` | List all skills as metadata dicts |
 | `list_actions_for_dcc(dcc_name)` | `List[str]` | List skill names for a DCC |
@@ -73,6 +75,16 @@ print(meta["version"])  # "1.0.0"
 
 # Search
 results = reg.search_actions(category="geometry", tags=["create"])
+
+# Batch registration
+reg.register_batch([
+    {"name": "create_sphere", "category": "geometry", "dcc": "maya"},
+    {"name": "delete_object", "category": "edit", "dcc": "maya"},
+])
+
+# Unregister
+removed = reg.unregister("create_sphere")                  # global: True if found
+removed = reg.unregister("create_sphere", dcc_name="maya") # scoped to maya only
 ```
 
 ## ActionValidator

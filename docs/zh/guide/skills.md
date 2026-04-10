@@ -56,24 +56,27 @@ export DCC_MCP_SKILL_PATHS="/path/skills1:/path/skills2"
 推荐使用 `SkillCatalog` 进行完整的渐进式加载，也可使用低级扫描函数进行一次性操作：
 
 ```python
-from dcc_mcp_core import ActionRegistry, SkillCatalog
+from dcc_mcp_core import SkillScanner, SkillCatalog, ActionRegistry, ActionDispatcher
 
-# 创建注册表和目录
-registry = ActionRegistry()
-catalog = SkillCatalog(registry)
+# 创建扫描器和目录
+scanner = SkillScanner()
+catalog = SkillCatalog(scanner)
 
 # 发现 DCC_MCP_SKILL_PATHS 中的所有 Skill
-count = catalog.discover(dcc_name="maya")
-print(f"发现 {count} 个 Skill")
+catalog.discover(dcc_name="maya")
+
+# 可选：附加调度器以启用自动处理器注册
+registry = ActionRegistry()
+dispatcher = ActionDispatcher(registry)
+catalog.with_dispatcher(dispatcher)
 
 # 列出可用 Skill
 for skill in catalog.list_skills():
     print(f"  {skill.name} v{skill.version}: {skill.description} (已加载={skill.loaded})")
 
-# 加载 Skill — 将工具注册到 ActionRegistry
-actions = catalog.load_skill("maya-geometry")
-print(f"已注册的 Action：{actions}")
-# ['maya_geometry__create_sphere', 'maya_geometry__export_fbx']
+# 加载 Skill — 附加调度器后工具自动注册
+ok = catalog.load_skill("maya-geometry")
+print(f"已加载: {ok}")
 ```
 
 ## Skill 目录（推荐 API）
@@ -81,14 +84,17 @@ print(f"已注册的 Action：{actions}")
 `SkillCatalog` 管理完整生命周期：发现 → 渐进式加载 → 卸载。
 
 ```python
-from dcc_mcp_core import ActionRegistry, ActionDispatcher, SkillCatalog
+from dcc_mcp_core import SkillScanner, SkillCatalog, ActionRegistry, ActionDispatcher
+
+scanner = SkillScanner()
+catalog = SkillCatalog(scanner)
 
 registry = ActionRegistry()
 dispatcher = ActionDispatcher(registry)
-catalog = SkillCatalog(registry)
+catalog.with_dispatcher(dispatcher)
 
 # 发现
-count = catalog.discover(extra_paths=["/my/skills"], dcc_name="maya")
+catalog.discover(extra_paths=["/my/skills"], dcc_name="maya")
 
 # 搜索
 results = catalog.find_skills(query="geometry", tags=["create"], dcc="maya")
@@ -96,16 +102,16 @@ for s in results:
     print(f"{s.name}: {s.tool_count} 个工具 {s.tool_names}")
 
 # 加载/卸载
-actions = catalog.load_skill("maya-geometry")  # 返回 List[str]（Action 名称列表）
-catalog.is_loaded("maya-geometry")             # True
-n_removed = catalog.unload_skill("maya-geometry")
+ok = catalog.load_skill("maya-geometry")  # 返回 bool
+catalog.is_loaded("maya-geometry")        # True
+ok = catalog.unload_skill("maya-geometry")
 
 # 状态查询
 catalog.loaded_count()      # int
 len(catalog)                # 目录中的 Skill 总数
 catalog.list_skills()                  # 所有 Skill（SkillSummary 列表）
 catalog.list_skills("loaded")          # 仅已加载的
-catalog.list_skills("discovered")      # 仅未加载的
+catalog.list_skills("unloaded")        # 仅未加载的
 
 # 详细信息
 info = catalog.get_skill_info("maya-geometry")  # dict 或 None

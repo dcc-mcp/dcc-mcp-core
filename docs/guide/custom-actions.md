@@ -2,13 +2,93 @@
 
 Learn how to build custom skills for DCC applications — from the recommended Skills-First approach to the low-level registry API.
 
+## Recommended: Skills-First Approach
+
+The Skills-First approach uses `SKILL.md` packages discovered via environment variables. This is the recommended way to build DCC tools because:
+
+- **Zero boilerplate** — no manual handler registration; tools are auto-discovered
+- **Auto-exposed as MCP tools** — the skill manager exposes each tool to the AI via MCP
+- **Hot-reload** — changes to `SKILL.md` are picked up without restart
+
+### Step 1: Create a SKILL.md Package
+
+```markdown
+---
+name: maya-geometry
+description: Maya geometry creation tools
+version: 1.0.0
+dcc: maya
+tags: [geometry, create]
+tools:
+  - name: create_sphere
+    description: Create a polygon sphere
+    input_schema: |
+      {
+        "type": "object",
+        "required": ["radius"],
+        "properties": {
+          "radius": {"type": "number", "minimum": 0.1},
+          "name": {"type": "string"}
+        }
+      }
+scripts:
+  - create_sphere.py
+---
+
+# Maya Geometry Tools
+
+Tools for creating and editing geometry in Maya.
+```
+
+### Step 2: Implement the Script
+
+`create_sphere.py`:
+
+```python
+import maya.cmds as cmds
+from dcc_mcp_core import success_result, error_result
+
+
+def create_sphere(radius: float = 1.0, name: str | None = None):
+    try:
+        sphere = cmds.polySphere(r=radius, n=name)[0]
+        return success_result(
+            message=f"Created sphere: {sphere}",
+            context={"object_name": sphere, "radius": radius}
+        )
+    except Exception as e:
+        return error_result(str(e))
+```
+
+### Step 3: Register via Environment Variable and Start
+
+```python
+import os
+from dcc_mcp_core import create_skill_manager
+
+os.environ["DCC_MCP_MAYA_SKILL_PATHS"] = "/path/to/my/skills"
+
+# One call: discovers skills, starts MCP HTTP server
+manager = create_skill_manager("maya")
+```
+
+::: tip Skills-First is the recommended pattern
+Use `SKILL.md` packages for all new DCC tools. Fall back to the registry API only when you need programmatic control over handler logic at runtime.
+:::
+
+---
+
+## Low-Level Registry API
+
+Use the `ActionRegistry` + `ActionDispatcher` API when you need runtime programmatic control over which handlers are registered.
+
 ## Complete Example
 
 ```python
 import json
 from dcc_mcp_core import ActionRegistry, ActionDispatcher
 
-# 1. Register skill metadata with a JSON Schema
+# 1. Register action metadata with a JSON Schema
 reg = ActionRegistry()
 reg.register(
     name="create_sphere",
@@ -71,7 +151,7 @@ print(result["output"]["object_name"])  # "pSphere1"
 
 1. **Register with `ActionRegistry.register()`** — pass name, description, tags, DCC, version, and a JSON Schema
 2. **Implement a handler function** — takes `params: dict`, returns a result dict
-3. **Register handler with `ActionDispatcher`** — connects the skill name to your Python callable
+3. **Register handler with `ActionDispatcher`** — connects the action name to your Python callable
 4. **Use JSON Schema for validation** — `ActionDispatcher` validates JSON input before calling your handler
 5. **Dispatch with JSON strings** — the wire format uses JSON, not Python dicts
 
@@ -83,7 +163,7 @@ def my_handler(params: dict) -> Any:
     Args:
         params: Validated parameters from the JSON input (already parsed)
     Returns:
-        A dict with the skill execution result (serializable to JSON)
+        A dict with the action result (serializable to JSON)
     """
     pass
 ```
@@ -102,7 +182,7 @@ if not ok:
     # Handle error
 ```
 
-## Versioned Skills
+## Versioned Actions
 
 Maintain backward compatibility with `VersionedRegistry`:
 

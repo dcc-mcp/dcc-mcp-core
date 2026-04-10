@@ -97,6 +97,102 @@ paths = get_app_skill_paths_from_env("maya")
 paths = get_app_skill_paths_from_env("Maya")  # 同上
 ```
 
+## Skill 函数
+
+用于扫描、加载和解析 Skill 依赖关系的顶层函数。
+
+### `parse_skill_md()`
+
+```python
+from dcc_mcp_core import parse_skill_md
+
+metadata = parse_skill_md("/path/to/skills/maya-geometry")
+if metadata:
+    print(metadata.name, metadata.version)  # "maya-geometry", "1.0.0"
+```
+
+### `scan_skill_paths()`
+
+扫描已配置目录中的 Skill 包：
+
+```python
+from dcc_mcp_core import scan_skill_paths
+
+# 扫描所有已配置路径（环境变量 + 平台目录）
+paths = scan_skill_paths()
+
+# 限定到特定 DCC
+paths = scan_skill_paths(dcc_name="maya")
+
+# 添加额外目录
+paths = scan_skill_paths(extra_paths=["/my/extra/skills"], dcc_name="blender")
+```
+
+### `scan_and_load()`
+
+完整流水线：扫描目录、解析 `SKILL.md` 文件，并按依赖关系拓扑排序。依赖缺失或存在循环时抛出 `ValueError`。
+
+```python
+from dcc_mcp_core import scan_and_load
+
+skills, skipped = scan_and_load(dcc_name="maya")
+
+for skill in skills:
+    print(f"{skill.name} v{skill.version}")
+
+print(f"跳过 {len(skipped)} 个目录")
+```
+
+### `scan_and_load_lenient()`
+
+与 `scan_and_load()` 类似，但会静默跳过依赖缺失的 Skill（仅在出现循环依赖时失败）：
+
+```python
+from dcc_mcp_core import scan_and_load_lenient
+
+skills, skipped = scan_and_load_lenient(dcc_name="maya")
+# 依赖无法解析的 Skill 会出现在 skipped 中，而非抛出异常
+```
+
+### `resolve_dependencies()`
+
+对 `SkillMetadata` 列表按 `depends` 字段进行拓扑排序：
+
+```python
+from dcc_mcp_core import resolve_dependencies
+
+ordered = resolve_dependencies(skills)  # 排序后依赖在前
+```
+
+依赖缺失或存在循环时抛出 `ValueError`。
+
+### `validate_dependencies()`
+
+验证所有声明的依赖是否存在于提供的 Skill 列表中：
+
+```python
+from dcc_mcp_core import validate_dependencies
+
+errors = validate_dependencies(skills)
+for err in errors:
+    print(f"缺失依赖: {err}")
+```
+
+返回错误消息列表。空列表表示所有依赖均已满足。
+
+### `expand_transitive_dependencies()`
+
+获取 Skill 的所有传递依赖（递归）：
+
+```python
+from dcc_mcp_core import expand_transitive_dependencies
+
+all_deps = expand_transitive_dependencies(skills, "maya-complex-tool")
+print(all_deps)  # ["base-utils", "maya-core", "maya-geometry"]
+```
+
+依赖缺失或存在循环时抛出 `ValueError`。
+
 ## 常量
 
 模块级别属性：
