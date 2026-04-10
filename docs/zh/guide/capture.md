@@ -32,7 +32,7 @@ capturer = Capturer.new_auto()
 
 # 捕获一帧
 frame = capturer.capture(
-    format="png",          # 输出格式: "png", "jpeg", "rgba"
+    format="png",          # 输出格式: "png", "jpeg", "raw_bgra"
     jpeg_quality=85,       # JPEG 质量 (1-100)
     scale=1.0,             # 缩放因子
     timeout_ms=5000,       # 超时时间
@@ -74,11 +74,12 @@ frame = capturer.capture()
 print(f"宽度: {frame.width}")
 print(f"高度: {frame.height}")
 
-# 像素格式
-print(f"每像素字节: {frame.bytes_per_pixel}")
+# 格式信息
+print(f"格式: {frame.format}")        # "png", "jpeg", or "raw_bgra"
+print(f"MIME 类型: {frame.mime_type}") # "image/png"
 
-# 原始数据
-print(f"数据长度: {len(frame.data)} 字节")
+# 编码数据长度
+print(f"数据长度: {frame.byte_len()} 字节")
 ```
 
 ## 使用场景
@@ -117,7 +118,7 @@ def preview_stream(fps=30):
 
 1. **使用适当格式** — PNG 质量优先，JPEG 速度优先
 2. **针对特定窗口** — 尽可能避免全屏捕获
-3. **处理使用 RGBA** — 避免格式转换开销
+3. **处理使用 raw_bgra** — 避免格式转换开销
 4. **使用 process_id/window_title** — 避免捕获不需要的内容
 
 ## 后端选择
@@ -136,12 +137,12 @@ def preview_stream(fps=30):
 
 ## 错误处理
 
-```python
-from dcc_mcp_core import CaptureError
+捕获失败时抛出 `RuntimeError`：
 
+```python
 try:
     frame = capturer.capture(timeout_ms=1000)
-except CaptureError as e:
+except RuntimeError as e:
     print(f"捕获失败: {e}")
 ```
 

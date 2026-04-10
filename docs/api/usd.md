@@ -36,6 +36,9 @@ path = SdfPath("/World/Cube")
 |--------|---------|-------------|
 | `child(name)` | `SdfPath` | Append child segment |
 | `parent()` | `SdfPath \| None` | Parent path |
+| `__eq__(other)` | `bool` | Equality comparison |
+| `__hash__()` | `int` | Hash value (usable as dict key) |
+| `__str__()` | `str` | String representation |
 
 ### Properties
 
@@ -156,7 +159,7 @@ stage = UsdStage("my_scene")
 | `get_attribute(prim_path, attr_name)` | `VtValue \| None` | Get attribute |
 | `metrics()` | `dict[str, int]` | Get stage metrics |
 | `to_json()` | `str` | Export as JSON |
-| `from_json(json)` | `UsdStage` | Import from JSON |
+| `from_json(json)` *(staticmethod)* | `UsdStage` | Import from JSON |
 | `export_usda()` | `str` | Export as USDA text |
 
 ### Example

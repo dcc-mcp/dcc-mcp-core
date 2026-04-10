@@ -201,8 +201,8 @@ for attempt in range(3):
 ```python
 policy = PyCrashRecoveryPolicy(max_restarts=3)
 
-# Successful run - reset
-policy.reset()
+# Check max_restarts limit
+print(f"Max restarts: {policy.max_restarts}")
 
 # Check restart eligibility
 if policy.should_restart("crashed"):

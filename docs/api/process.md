@@ -111,6 +111,12 @@ from dcc_mcp_core import PyCrashRecoveryPolicy
 policy = PyCrashRecoveryPolicy(max_restarts=3)
 ```
 
+### Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `max_restarts` | `int` | Maximum restart count (constructor arg, default 3) |
+
 ### Methods
 
 | Method | Returns | Description |

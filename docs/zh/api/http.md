@@ -102,6 +102,8 @@ server = McpHttpServer(
 | 方法 | 返回值 | 说明 |
 |------|--------|------|
 | `start()` | `ServerHandle` | 在后台线程启动服务器并返回句柄 |
+| `register_handler(action_name, handler)` | `None` | 注册 Python 可调用对象作为 Action 处理器 |
+| `has_handler(action_name)` | `bool` | 检查是否已注册 Action 处理器 |
 
 ### MCP 协议端点
 

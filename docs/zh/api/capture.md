@@ -28,8 +28,10 @@ capturer = Capturer.new_auto()
 ```python
 frame = capturer.capture(format="png")
 print(frame.width, frame.height)  # 帧尺寸
-print(frame.bytes_per_pixel)      # 每像素字节数
-print(frame.data)                # 原始帧数据
+print(frame.format)               # 格式字符串: "png"、"jpeg" 或 "raw_bgra"
+print(frame.mime_type)            # MIME 类型，例如 "image/png"
+print(frame.byte_len())           # 编码数据的字节长度
+print(frame.data)                 # 编码图像字节
 ```
 
 ### CaptureFrame 属性
@@ -38,8 +40,17 @@ print(frame.data)                # 原始帧数据
 |------|------|------|
 | `width` | `int` | 帧宽度（像素） |
 | `height` | `int` | 帧高度（像素） |
-| `bytes_per_pixel` | `int` | 每像素字节数 |
-| `data` | `bytes` | 原始帧数据 |
+| `data` | `bytes` | 编码图像字节（PNG、JPEG）或原始 BGRA32 数据 |
+| `format` | `str` | 格式字符串：`"png"`、`"jpeg"` 或 `"raw_bgra"` |
+| `mime_type` | `str` | 编码字节的 MIME 类型（例如 `"image/png"`） |
+| `timestamp_ms` | `int` | 捕获时的 Unix 纪元毫秒时间戳 |
+| `dpi_scale` | `float` | 显示缩放因子（1.0 标准，2.0 HiDPI） |
+
+### CaptureFrame 方法
+
+| 方法 | 返回 | 描述 |
+|------|------|------|
+| `byte_len()` | `int` | 编码图像数据的字节长度 |
 
 ### 捕获格式
 
@@ -47,7 +58,7 @@ print(frame.data)                # 原始帧数据
 |------|------|
 | `png` | PNG 图片格式（无损，较大） |
 | `jpeg` / `jpg` | JPEG 图片格式（有损，较小） |
-| `rgba` | 原始 RGBA 字节 |
+| `raw_bgra` | 原始 BGRA32 字节（无编码） |
 
 ### 捕获参数
 
@@ -72,12 +83,12 @@ print(frame.data)                # 原始帧数据
 
 ## 错误处理
 
-```python
-from dcc_mcp_core import CaptureError
+捕获错误以 `RuntimeError` 抛出：
 
+```python
 try:
     frame = capturer.capture(timeout_ms=1000)
-except CaptureError as e:
+except RuntimeError as e:
     print(f"捕获失败: {e}")
 ```
 

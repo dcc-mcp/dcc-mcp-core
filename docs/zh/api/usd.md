@@ -36,6 +36,9 @@ path = SdfPath("/World/Cube")
 |------|------|------|
 | `child(name)` | `SdfPath` | 追加子路径段 |
 | `parent()` | `SdfPath \| None` | 父路径 |
+| `__eq__(other)` | `bool` | 相等比较 |
+| `__hash__()` | `int` | 哈希值（可用作字典键） |
+| `__str__()` | `str` | 字符串表示 |
 
 ### 属性
 
@@ -156,7 +159,7 @@ stage = UsdStage("my_scene")
 | `get_attribute(prim_path, attr_name)` | `VtValue \| None` | 获取属性 |
 | `metrics()` | `dict[str, int]` | 获取 stage 指标 |
 | `to_json()` | `str` | 导出为 JSON |
-| `from_json(json)` | `UsdStage` | 从 JSON 导入 |
+| `from_json(json)` *(静态方法)* | `UsdStage` | 从 JSON 导入 |
 | `export_usda()` | `str` | 导出为 USDA 文本 |
 
 ### 示例

@@ -102,6 +102,8 @@ server = McpHttpServer(
 | Method | Returns | Description |
 |--------|---------|-------------|
 | `start()` | `ServerHandle` | Start server in background thread and return handle |
+| `register_handler(action_name, handler)` | `None` | Register a Python callable as the handler for an action |
+| `has_handler(action_name)` | `bool` | Check if a handler is registered for an action |
 
 ### MCP Protocol Endpoints
 

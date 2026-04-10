@@ -201,8 +201,8 @@ for attempt in range(3):
 ```python
 policy = PyCrashRecoveryPolicy(max_restarts=3)
 
-# 成功运行 - 重置
-policy.reset()
+# 检查 max_restarts 限制
+print(f"最大重启次数: {policy.max_restarts}")
 
 # 检查重启资格
 if policy.should_restart("crashed"):
