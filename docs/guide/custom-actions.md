@@ -8,7 +8,7 @@ Learn how to build custom skills for DCC applications — from the recommended S
 import json
 from dcc_mcp_core import ActionRegistry, ActionDispatcher
 
-# 1. Register action metadata with a JSON Schema
+# 1. Register skill metadata with a JSON Schema
 reg = ActionRegistry()
 reg.register(
     name="create_sphere",
@@ -71,7 +71,7 @@ print(result["output"]["object_name"])  # "pSphere1"
 
 1. **Register with `ActionRegistry.register()`** — pass name, description, tags, DCC, version, and a JSON Schema
 2. **Implement a handler function** — takes `params: dict`, returns a result dict
-3. **Register handler with `ActionDispatcher`** — connects the action name to your Python callable
+3. **Register handler with `ActionDispatcher`** — connects the skill name to your Python callable
 4. **Use JSON Schema for validation** — `ActionDispatcher` validates JSON input before calling your handler
 5. **Dispatch with JSON strings** — the wire format uses JSON, not Python dicts
 
@@ -83,7 +83,7 @@ def my_handler(params: dict) -> Any:
     Args:
         params: Validated parameters from the JSON input (already parsed)
     Returns:
-        A dict with the action result (serializable to JSON)
+        A dict with the skill execution result (serializable to JSON)
     """
     pass
 ```
@@ -102,7 +102,7 @@ if not ok:
     # Handle error
 ```
 
-## Versioned Actions
+## Versioned Skills
 
 Maintain backward compatibility with `VersionedRegistry`:
 

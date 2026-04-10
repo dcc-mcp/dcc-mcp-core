@@ -11,7 +11,7 @@
 
 [English](README.md) | [中文文档](README_zh.md)
 
-DCC 模型上下文协议（Model Context Protocol，MCP）生态系统的基础库。提供 **Rust 核心引擎 + PyO3 Python 绑定**，交付高性能动作管理、技能发现、传输层、沙箱安全、共享内存、屏幕捕获、USD 支持和遥测 —— 所有这些均 **零运行时 Python 依赖**。
+DCC 模型上下文协议（Model Context Protocol，MCP）生态系统的基础库。提供 **Rust 核心引擎 + PyO3 Python 绑定**，交付高性能技能管理、技能发现、传输层、沙箱安全、共享内存、屏幕捕获、USD 支持和遥测 —— 所有这些均 **零运行时 Python 依赖**。
 
 > **注意**：本项目处于积极开发中（v0.12+）。API 可能会演进；版本历史请参阅 CHANGELOG.md。
 
@@ -62,8 +62,8 @@ from pathlib import Path
 for skill in skills:
     for script_path in skill.scripts:
         stem = Path(script_path).stem
-        action_name = f"{skill.name.replace('-', '_')}__{stem}"
-        registry.register(name=action_name, description=skill.description, dcc=skill.dcc)
+        skill_name = f"{skill.name.replace('-', '_')}__{stem}"
+        registry.register(name=skill_name, description=skill.description, dcc=skill.dcc)
 
 # 3. 创建调度器并注册处理函数
 dispatcher = ActionDispatcher(registry)
@@ -76,7 +76,7 @@ dispatcher.register_handler(
 bus = EventBus()
 bus.subscribe("action.after_execute", lambda **kw: print(f"事件: {kw}"))
 
-# 5. 调度动作
+# 5. 调度技能
 result = dispatcher.dispatch(
     "maya_geometry__create_sphere",
     json.dumps({"radius": 2.0}),
@@ -89,7 +89,7 @@ print(f"已创建: {output.get('object_name')}")
 
 ### ActionResultModel — AI 友好的结构化结果
 
-所有动作结果使用 `ActionResultModel`，专为 AI 设计，带有结构化上下文和下一步建议：
+所有技能执行结果使用 `ActionResultModel`，专为 AI 设计，带有结构化上下文和下一步建议：
 
 ```python
 from dcc_mcp_core import ActionResultModel, success_result, error_result
@@ -127,7 +127,7 @@ result.with_context(count=5)            # 新实例，带更新后的 context
 result.to_dict()                        # -> dict
 ```
 
-### ActionRegistry 与调度器 — 动作系统
+### ActionRegistry 与调度器 — 技能执行系统
 
 ```python
 import json
@@ -139,25 +139,25 @@ from dcc_mcp_core import (
 # 带版本支持的注册表
 registry = ActionRegistry()
 registry.register(
-    name="my_action",
-    description="执行某操作",
+    name="my_skill",
+    description="执行某技能",
     dcc="maya",
     version="1.0.0",
     input_schema='{"type": "object", "properties": {"param": {"type": "string"}}}',
 )
 
 # 查询
-meta = registry.get_action("my_action")
-meta = registry.get_action("my_action", dcc_name="maya")  # DCC 作用域查找
+meta = registry.get_action("my_skill")
+meta = registry.get_action("my_skill", dcc_name="maya")  # DCC 作用域查找
 names = registry.list_actions_for_dcc("maya")
-all_actions = registry.list_actions()
+all_skills = registry.list_actions()
 dccs = registry.get_all_dccs()
 
 # 带验证的调度器（ActionDispatcher 只接受 registry）
 dispatcher = ActionDispatcher(registry)
-dispatcher.register_handler("my_action", lambda params: {"done": True, "param": params.get("param")})
-result = dispatcher.dispatch("my_action", json.dumps({"param": "value"}))
-# result == {"action": "my_action", "output": {"done": True, "param": "value"}, "validation_skipped": False}
+dispatcher.register_handler("my_skill", lambda params: {"done": True, "param": params.get("param")})
+result = dispatcher.dispatch("my_skill", json.dumps({"param": "value"}))
+# result == {"action": "my_skill", "output": {"done": True, "param": "value"}, "validation_skipped": False}
 
 # 事件驱动架构
 bus = EventBus()
@@ -184,8 +184,7 @@ latest = vreg.latest_version("my_action", dcc="maya")                    # → "
 SKILL.md（元数据）+ scripts/ 目录
        ↓  SkillScanner 发现并解析
 每个技能包的 SkillMetadata（名称、描述、标签、脚本列表）
-       ↓  ScriptAction 工厂生成 Action
-动作注册到 ActionRegistry → AI 通过 MCP 可调用
+       ↓  技能注册到 ActionRegistry → AI 通过 MCP 可调用
 ```
 
 ### 快速示例
@@ -232,9 +231,9 @@ for s in skills:
 result = registry.call("my_tool__list", some_param="value")
 ```
 
-### 动作命名规则
+### 技能命名规则
 
-每个 `scripts/` 目录下的脚本成为一个动作，命名为 `{skill_name}__{script_stem}`：
+每个 `scripts/` 目录下的脚本成为一个技能入口，命名为 `{skill_name}__{script_stem}`：
 - `maya-geometry/scripts/create_sphere.py` → `maya_geometry__create_sphere`
 - `maya-geometry/scripts/batch_rename.mel` → `maya_geometry__batch_rename`
 
@@ -261,7 +260,7 @@ dcc-mcp-core 组织为 **11 个 Rust Crate 工作区**，通过 PyO3/maturin 编
 | Crate | 职责 | 关键类型 |
 |-------|------|---------|
 | `dcc-mcp-models` | 数据模型 | `ActionResultModel`, `SkillMetadata` |
-| `dcc-mcp-actions` | 动作生命周期 | `ActionRegistry`, `EventBus`, `ActionDispatcher`, `ActionValidator`, `ActionPipeline` |
+| `dcc-mcp-actions` | 技能执行生命周期 | `ActionRegistry`, `EventBus`, `ActionDispatcher`, `ActionValidator`, `ActionPipeline` |
 | `dcc-mcp-skills` | 技能发现 | `SkillScanner`, `SkillWatcher`, 依赖解析器 |
 | `dcc-mcp-protocols` | MCP 协议类型 | `ToolDefinition`, `ResourceDefinition`, `DccAdapter` |
 | `dcc-mcp-transport` | IPC 通信 | `TransportManager`, `ConnectionPool`, `IpcListener`, `FramedChannel`, `CircuitBreaker` |

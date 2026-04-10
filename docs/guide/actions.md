@@ -1,21 +1,21 @@
-# Actions
+# Skills
 
-Actions are the core building blocks of DCC-MCP-Core. Each action represents a discrete operation that can be performed in a DCC application (Maya, Blender, Houdini, etc.).
+Skills are the core building blocks of DCC-MCP-Core. Each skill represents a discrete operation that can be performed in a DCC application (Maya, Blender, Houdini, etc.).
 
 ## Architecture
 
-DCC-MCP-Core uses a registry-based action model backed by Rust's DashMap for thread-safe, concurrent access:
+DCC-MCP-Core uses a registry-based skill execution model backed by Rust's DashMap for thread-safe, concurrent access:
 
-- **`ActionRegistry`** — Thread-safe store for action metadata (name, description, tags, DCC, version, JSON schemas)
+- **`ActionRegistry`** — Thread-safe store for skill metadata (name, description, tags, DCC, version, JSON schemas)
 - **`ActionDispatcher`** — Routes validated calls to registered Python handlers
 - **`ActionValidator`** — JSON Schema-based input validation
-- **`VersionedRegistry`** — Multi-version action support with semantic version resolution
+- **`VersionedRegistry`** — Multi-version skill support with semantic version resolution
 
-All actions are discovered and registered at runtime. There are **no base classes or Pydantic models** — actions are plain Python functions registered with metadata.
+All skills are discovered and registered at runtime. There are **no base classes or Pydantic models** — skills are plain Python functions registered with metadata.
 
 ## ActionRegistry
 
-`ActionRegistry` is the central registry for all DCC operations. Register an action with a JSON Schema for input validation:
+`ActionRegistry` is the central registry for all DCC skill operations. Register a skill with a JSON Schema for input validation:
 
 ```python
 import json
@@ -45,13 +45,13 @@ reg.register(
 ### Discovery and Lookup
 
 ```python
-# Get all DCCs that have registered actions
+# Get all DCCs that have registered skills
 dccs = reg.get_all_dccs()
 print(dccs)  # ["maya", "blender", "houdini"]
 
-# List all actions for Maya
-maya_actions = reg.list_actions_for_dcc("maya")
-print(maya_actions)  # ["create_sphere", "create_cube", ...]
+# List all skills for Maya
+maya_skills = reg.list_actions_for_dcc("maya")
+print(maya_skills)  # ["create_sphere", "create_cube", ...]
 
 # Get full metadata
 meta = reg.get_action("create_sphere", dcc_name="maya")
@@ -72,12 +72,12 @@ tags = reg.get_tags(dcc_name="maya")
 ```python
 reg.register("echo", dcc="python")
 print("echo" in reg)  # True
-print(len(reg))        # Number of registered actions
+print(len(reg))        # Number of registered skills
 ```
 
 ## ActionDispatcher
 
-`ActionDispatcher` pairs with `ActionRegistry` to provide validated, routed action execution:
+`ActionDispatcher` pairs with `ActionRegistry` to provide validated, routed skill execution:
 
 ```python
 import json
@@ -139,7 +139,7 @@ validator = ActionValidator.from_action_registry(reg, "create_sphere", dcc_name=
 
 ## Result Models
 
-All action results normalize to `ActionResultModel`:
+All skill execution results normalize to `ActionResultModel`:
 
 ```python
 from dcc_mcp_core import success_result, error_result, from_exception
@@ -174,14 +174,14 @@ except Exception:
 
 ## VersionedRegistry
 
-For APIs that need to maintain backward compatibility across multiple versions:
+For APIs that need to maintain backward compatibility across multiple skill versions:
 
 ```python
 from dcc_mcp_core import VersionedRegistry, VersionConstraint
 
 vr = VersionedRegistry()
 
-# Register multiple versions of the same action
+# Register multiple versions of the same skill
 vr.register_versioned("create_sphere", dcc="maya", version="1.0.0",
     description="Basic sphere creation", category="geometry", tags=["geo"])
 vr.register_versioned("create_sphere", dcc="maya", version="2.0.0",
@@ -201,7 +201,7 @@ print(vr.latest_version("create_sphere", "maya"))  # "2.0.0"
 
 ## EventBus
 
-Subscribe to action lifecycle events for monitoring, logging, or chaining:
+Subscribe to skill execution lifecycle events for monitoring, logging, or chaining:
 
 ```python
 from dcc_mcp_core import EventBus

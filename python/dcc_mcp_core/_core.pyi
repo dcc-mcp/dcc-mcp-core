@@ -30,7 +30,7 @@ SKILL_METADATA_DIR: str
 # ── Models ──
 
 class ActionResultModel:
-    """Unified result type for all Action executions."""
+    """Unified result type for all Skill executions."""
 
     success: bool
     message: str
@@ -122,10 +122,10 @@ class SkillMetadata:
     def __str__(self) -> str: ...
     def __eq__(self, other: object) -> bool: ...
 
-# ── Actions ──
+# ── Skills ──
 
 class ActionRegistry:
-    """Thread-safe registry for DCC actions."""
+    """Thread-safe registry for DCC skills."""
 
     def __init__(self) -> None: ...
     def register(
@@ -150,12 +150,12 @@ class ActionRegistry:
         tags: list[str] = [],
         dcc_name: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Search actions by category, tags, and/or DCC name.
+        """Search skills by category, tags, and/or DCC name.
 
         All filters are AND-ed:
 
         - ``category``: exact match (``None`` / empty = no filter)
-        - ``tags``: action must contain **all** requested tags (empty = no filter)
+        - ``tags``: skill must contain **all** requested tags (empty = no filter)
         - ``dcc_name``: limit to a specific DCC (``None`` = all DCCs)
 
         Example::
@@ -166,13 +166,13 @@ class ActionRegistry:
         """
         ...
     def get_categories(self, dcc_name: str | None = None) -> list[str]:
-        """Return all unique action categories in sorted order.
+        """Return all unique skill categories in sorted order.
 
         Optionally scoped to a specific DCC.
         """
         ...
     def get_tags(self, dcc_name: str | None = None) -> list[str]:
-        """Return all unique action tags in sorted order.
+        """Return all unique skill tags in sorted order.
 
         Optionally scoped to a specific DCC.
         """
@@ -183,10 +183,10 @@ class ActionRegistry:
         tags: list[str] = [],
         dcc_name: str | None = None,
     ) -> int:
-        """Count actions matching the given search criteria.
+        """Count skills matching the given search criteria.
 
         Convenience wrapper around :meth:`search_actions` that returns the count
-        rather than the full list of matching actions.
+        rather than the full list of matching skills.
 
         Example::
 
@@ -197,7 +197,7 @@ class ActionRegistry:
         ...
     def reset(self) -> None: ...
     def register_batch(self, actions: list[dict[str, Any]]) -> None:
-        """Register multiple actions at once from a list of dicts.
+        """Register multiple skills at once from a list of dicts.
 
         Each dict may contain the same keys as :meth:`register`.
         Entries without a ``"name"`` key (or empty name) are silently skipped.
@@ -211,15 +211,15 @@ class ActionRegistry:
         """
         ...
     def unregister(self, name: str, dcc_name: str | None = None) -> bool:
-        """Remove an action from the registry.
+        """Remove a skill from the registry.
 
-        If ``dcc_name`` is ``None`` (default), the action is removed from the
+        If ``dcc_name`` is ``None`` (default), the skill is removed from the
         global registry and every per-DCC map.
 
         If ``dcc_name`` is provided, only that DCC's entry is removed; the
         global entry is cleared only when no other DCC still references it.
 
-        Returns ``True`` if the action was found and removed, ``False`` otherwise.
+        Returns ``True`` if the skill was found and removed, ``False`` otherwise.
 
         Example::
 
@@ -241,7 +241,7 @@ class EventBus:
     def __repr__(self) -> str: ...
 
 class ActionValidator:
-    """Validates JSON-encoded action parameters against a JSON Schema.
+    """Validates JSON-encoded skill parameters against a JSON Schema.
 
     Example::
 
@@ -277,10 +277,10 @@ class ActionValidator:
         action_name: str,
         dcc_name: str | None = None,
     ) -> ActionValidator:
-        """Create a validator from an action in an :class:`ActionRegistry`.
+        """Create a validator from a skill in an :class:`ActionRegistry`.
 
         Raises:
-            KeyError: If the action is not found in the registry.
+            KeyError: If the skill is not found in the registry.
 
         """
         ...
@@ -300,7 +300,7 @@ class ActionValidator:
     def __repr__(self) -> str: ...
 
 class ActionDispatcher:
-    """Routes action calls to registered Python callables with automatic validation.
+    """Routes skill calls to registered Python callables with automatic validation.
 
     Example::
 
@@ -329,7 +329,7 @@ class ActionDispatcher:
 
     def __init__(self, registry: ActionRegistry) -> None: ...
     def register_handler(self, action_name: str, handler: Any) -> None:
-        """Register a Python callable ``(params: dict) -> Any`` for ``action_name``.
+        """Register a Python callable ``(params: dict) -> Any`` for the skill ``action_name``.
 
         Raises:
             TypeError: If ``handler`` is not callable.
@@ -358,7 +358,7 @@ class ActionDispatcher:
 
     @property
     def skip_empty_schema_validation(self) -> bool:
-        """Whether to skip validation when the action schema is empty (``{}``)."""
+        """Whether to skip validation when the skill schema is empty (``{}``)."""
         ...
 
     @skip_empty_schema_validation.setter
@@ -368,15 +368,15 @@ class ActionDispatcher:
         action_name: str,
         params_json: str = "null",
     ) -> dict[str, Any]:
-        """Dispatch an action call.
+        """Dispatch a skill call.
 
-        Validates ``params_json`` against the action schema, calls the registered
+        Validates ``params_json`` against the skill schema, calls the registered
         Python handler, and returns a result dict.
 
         Returns:
             A dict with keys:
 
-            - ``"action"`` (str): Action name.
+            - ``"action"`` (str): Skill name.
             - ``"output"`` (Any): Handler return value.
             - ``"validation_skipped"`` (bool): Whether schema validation was skipped.
 
@@ -390,7 +390,7 @@ class ActionDispatcher:
 
     def __repr__(self) -> str: ...
 
-# ── Action Version Management ──
+# ── Skill Version Management ──
 
 class SemVer:
     """A semantic version (major.minor.patch).
@@ -468,9 +468,9 @@ class VersionConstraint:
     def __str__(self) -> str: ...
 
 class VersionedRegistry:
-    """Multi-version action registry.
+    """Multi-version skill registry.
 
-    Allows multiple versions of the same ``(action_name, dcc_name)`` pair to coexist.
+    Allows multiple versions of the same ``(skill_name, dcc_name)`` pair to coexist.
     Use :meth:`router` to obtain a :class:`CompatibilityRouter` that resolves the
     best-matching version given a client constraint.
 
@@ -499,7 +499,7 @@ class VersionedRegistry:
         category: str = "",
         tags: list[str] | None = None,
     ) -> None:
-        """Register an action version.
+        """Register a skill version.
 
         If the same ``(name, dcc, version)`` triple already exists it is overwritten.
 
@@ -522,7 +522,7 @@ class VersionedRegistry:
     ) -> dict[str, Any] | None:
         """Resolve the best-matching version given a constraint string.
 
-        Returns the action metadata dict, or ``None`` if no version satisfies the
+        Returns the skill metadata dict, or ``None`` if no version satisfies the
         constraint.
 
         """
@@ -534,7 +534,7 @@ class VersionedRegistry:
         dcc: str,
         constraint: str,
     ) -> list[dict[str, Any]]:
-        """Return all action metadata dicts that satisfy ``constraint``, sorted ascending."""
+        """Return all skill metadata dicts that satisfy ``constraint``, sorted ascending."""
         ...
 
     def total_entries(self) -> int:

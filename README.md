@@ -11,7 +11,7 @@
 
 [中文文档](README_zh.md) | [English](README.md)
 
-Foundational library for the DCC Model Context Protocol (MCP) ecosystem. It provides a **Rust-powered core with Python bindings (PyO3)** that delivers high-performance action management, skills discovery, transport, sandbox security, shared memory, screen capture, USD support, and telemetry — all with **zero runtime Python dependencies**. Supports Python 3.7–3.13.
+Foundational library for the DCC Model Context Protocol (MCP) ecosystem. It provides a **Rust-powered core with Python bindings (PyO3)** that delivers high-performance skill management, skills discovery, transport, sandbox security, shared memory, screen capture, USD support, and telemetry — all with **zero runtime Python dependencies**. Supports Python 3.7–3.13.
 
 > **Note**: This project is in active development (v0.12+). APIs may evolve; see CHANGELOG.md for version history.
 
@@ -56,14 +56,14 @@ from dcc_mcp_core import (
 skills, skipped = scan_and_load(dcc_name="maya")
 print(f"Loaded {len(skills)} skills")
 
-# 2. Register actions from discovered skills
+# 2. Register skills from discovered skill packages
 registry = ActionRegistry()
 from pathlib import Path
 for skill in skills:
     for script_path in skill.scripts:
         stem = Path(script_path).stem
-        action_name = f"{skill.name.replace('-', '_')}__{stem}"
-        registry.register(name=action_name, description=skill.description, dcc=skill.dcc)
+        skill_name = f"{skill.name.replace('-', '_')}__{stem}"
+        registry.register(name=skill_name, description=skill.description, dcc=skill.dcc)
 
 # 3. Set up dispatcher and register a handler
 dispatcher = ActionDispatcher(registry)
@@ -76,7 +76,7 @@ dispatcher.register_handler(
 bus = EventBus()
 bus.subscribe("action.after_execute", lambda **kw: print(f"event: {kw}"))
 
-# 5. Dispatch an action
+# 5. Dispatch a skill
 result = dispatcher.dispatch(
     "maya_geometry__create_sphere",
     json.dumps({"radius": 2.0}),
@@ -89,7 +89,7 @@ print(f"Created: {output.get('object_name')}")
 
 ### ActionResultModel — Structured Results for AI
 
-All action results use `ActionResultModel`, designed to be AI-friendly with structured context and next-step suggestions:
+All skill execution results use `ActionResultModel`, designed to be AI-friendly with structured context and next-step suggestions:
 
 ```python
 from dcc_mcp_core import ActionResultModel, success_result, error_result
@@ -122,7 +122,7 @@ result.error        # Optional[str] — error details
 result.context      # dict — arbitrary structured data
 ```
 
-### ActionRegistry & Dispatcher — The Action System
+### ActionRegistry & Dispatcher — The Skill Execution System
 
 ```python
 import json
@@ -133,13 +133,13 @@ from dcc_mcp_core import (
 
 # Registry with search support
 registry = ActionRegistry()
-registry.register("my_action", description="My action", category="tools", version="1.0.0")
+registry.register("my_skill", description="My skill", category="tools", version="1.0.0")
 
 # Validated dispatcher (takes only registry; validate separately with ActionValidator)
 dispatcher = ActionDispatcher(registry)
-dispatcher.register_handler("my_action", lambda params: {"done": True})
-result = dispatcher.dispatch("my_action", json.dumps({}))
-# result == {"action": "my_action", "output": {"done": True}, "validation_skipped": True}
+dispatcher.register_handler("my_skill", lambda params: {"done": True})
+result = dispatcher.dispatch("my_skill", json.dumps({}))
+# result == {"action": "my_skill", "output": {"done": True}, "validation_skipped": True}
 
 # Event-driven architecture
 bus = EventBus()
@@ -158,8 +158,7 @@ The **Skills system** is dcc-mcp-core's most unique feature: it lets you registe
 SKILL.md (metadata) + scripts/ directory
        ↓  SkillScanner discovers & parses
 SkillMetadata per skill (name, description, tags, script list)
-       ↓  ScriptAction factory generates Action subclasses
-Actions registered in ActionRegistry → callable by AI via MCP
+       ↓  Skills registered in ActionRegistry → callable by AI via MCP
 ```
 
 ### Quick Example
@@ -204,7 +203,7 @@ skills = scan_and_load(dcc_name="maya")
 for s in skills:
     print(f"✓ {s.name}: {len(s.scripts)} scripts")
 
-# Call a skill action: {skill_name}__{script_name}
+# Call a skill: {skill_name}__{script_name}
 result = registry.call("my_tool__list", some_param="value")
 ```
 
@@ -229,7 +228,7 @@ dcc-mcp-core is organized as a **Rust workspace of 11 crates**, compiled into a 
 | Crate | Responsibility | Key Types |
 |----------------------|-----------|
 | `dcc-mcp-models` | Data models | `ActionResultModel`, `SkillMetadata` |
-| `dcc-mcp-actions` | Action lifecycle | `ActionRegistry`, `EventBus`, `ActionDispatcher`, `ActionValidator`, `ActionPipeline` |
+| `dcc-mcp-actions` | Skill execution lifecycle | `ActionRegistry`, `EventBus`, `ActionDispatcher`, `ActionValidator`, `ActionPipeline` |
 | `dcc-mcp-skills` | Skills discovery | `SkillScanner`, `SkillLoader`, `SkillWatcher`, dependency resolver |
 | `dcc-mcp-protocols` | MCP protocol types | `ToolDefinition`, `ResourceDefinition`, `PromptDefinition`, `DccAdapter` types |
 | `dcc-mcp-transport` | IPC communication | `TransportManager`, `ConnectionPool`, `IpcListener`, `FramedChannel`, `CircuitBreaker` |
@@ -421,13 +420,13 @@ This project follows [Conventional Commits](https://www.conventionalcommits.org/
 
 ```bash
 # Feature (bumps minor version)
-git commit -m "feat: add batch action execution support"
+git commit -m "feat: add batch skill execution support"
 
 # Bug fix (bumps patch version)
 git commit -m "fix: resolve middleware chain ordering issue"
 
 # Breaking change (bumps major version)
-git commit -m "feat!: redesign Action base class API"
+git commit -m "feat!: redesign skill registry API"
 
 # Scoped commit
 git commit -m "feat(skills): add PowerShell script support"

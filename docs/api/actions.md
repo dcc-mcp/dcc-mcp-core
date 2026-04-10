@@ -1,10 +1,10 @@
-# Actions API
+# Skills API
 
 `dcc_mcp_core` — ActionRegistry, EventBus, ActionDispatcher, ActionValidator, SemVer, VersionConstraint, VersionedRegistry.
 
 ## ActionRegistry
 
-Thread-safe action registry backed by DashMap. Each registry instance is independent.
+Thread-safe skill registry backed by DashMap. Each registry instance is independent.
 
 ### Constructor
 
@@ -17,28 +17,28 @@ registry = ActionRegistry()
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `register(name, description="", category="", tags=[], dcc="python", version="1.0.0", input_schema=None, output_schema=None, source_file=None)` | — | Register an action |
-| `get_action(name, dcc_name=None)` | `dict?` | Get action metadata as dict |
-| `list_actions(dcc_name=None)` | `List[dict]` | List all actions as metadata dicts |
-| `list_actions_for_dcc(dcc_name)` | `List[str]` | List action names for a DCC |
+| `register(name, description="", category="", tags=[], dcc="python", version="1.0.0", input_schema=None, output_schema=None, source_file=None)` | — | Register a skill |
+| `get_action(name, dcc_name=None)` | `dict?` | Get skill metadata as dict |
+| `list_actions(dcc_name=None)` | `List[dict]` | List all skills as metadata dicts |
+| `list_actions_for_dcc(dcc_name)` | `List[str]` | List skill names for a DCC |
 | `get_all_dccs()` | `List[str]` | List all registered DCC names |
 | `search_actions(category=None, tags=[], dcc_name=None)` | `List[dict]` | Search with AND-ed filters |
 | `get_categories(dcc_name=None)` | `List[str]` | Sorted unique categories |
 | `get_tags(dcc_name=None)` | `List[str]` | Sorted unique tags |
-| `count_actions(category=None, tags=[], dcc_name=None)` | `int` | Count matching actions |
-| `reset()` | — | Clear all registered actions |
+| `count_actions(category=None, tags=[], dcc_name=None)` | `int` | Count matching skills |
+| `reset()` | — | Clear all registered skills |
 
 ### Dunder Methods
 
 | Method | Description |
 |--------|-------------|
-| `__len__` | Number of registered actions |
-| `__contains__(name)` | Check if action name is registered (scoped to "python" dcc) |
+| `__len__` | Number of registered skills |
+| `__contains__(name)` | Check if skill name is registered (scoped to "python" dcc) |
 | `__repr__` | `ActionRegistry(actions=N)` |
 
-### Action Metadata Dict
+### Skill Metadata Dict
 
-When retrieved via `get_action()`, `list_actions()`, or `search_actions()`, each action is a dict:
+When retrieved via `get_action()`, `list_actions()`, or `search_actions()`, each skill is a dict:
 
 ```python
 {
@@ -77,7 +77,7 @@ results = reg.search_actions(category="geometry", tags=["create"])
 
 ## ActionValidator
 
-Validates JSON-encoded action parameters against a JSON Schema. Created from a schema string or from an `ActionRegistry` action.
+Validates JSON-encoded skill parameters against a JSON Schema. Created from a schema string or from an `ActionRegistry` skill.
 
 ### Static Factory Methods
 
@@ -131,7 +131,7 @@ except ValueError as e:
 
 ## ActionDispatcher
 
-Routes action calls to registered Python callables with automatic validation.
+Routes skill calls to registered Python callables with automatic validation.
 
 ### Constructor
 
@@ -152,7 +152,7 @@ def handle_create_sphere(params):
 dispatcher.register_handler("create_sphere", handle_create_sphere)
 ```
 
-### Dispatching Actions
+### Dispatching Skills
 
 ```python
 import json
@@ -174,7 +174,7 @@ def handler(params: dict) -> Any:
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `register_handler(action_name, handler)` | — | Register a Python callable |
+| `register_handler(action_name, handler)` | — | Register a Python callable for a skill |
 | `remove_handler(action_name)` | `bool` | Remove handler, return True if existed |
 | `has_handler(action_name)` | `bool` | Check if handler is registered |
 | `handler_count()` | `int` | Number of registered handlers |
@@ -245,7 +245,7 @@ except ValueError as e:
 
 ## VersionConstraint
 
-Version requirement specification for matching against registered action versions.
+Version requirement specification for matching against registered skill versions.
 
 ### Creating Constraints
 
@@ -283,7 +283,7 @@ print(constraint.matches(v))  # True
 
 ## VersionedRegistry
 
-Multi-version action registry. Allows multiple versions of the same `(action_name, dcc_name)` pair to coexist. Provides resolution of the best-matching version given a constraint.
+Multi-version skill registry. Allows multiple versions of the same `(skill_name, dcc_name)` pair to coexist. Provides resolution of the best-matching version given a constraint.
 
 ### Constructor
 
@@ -363,7 +363,7 @@ print(removed)  # 2 (removed 1.0.0 and 2.0.0)
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `register_versioned(name, dcc, version, description, category, tags)` | — | Register an action version |
+| `register_versioned(name, dcc, version, description, category, tags)` | — | Register a skill version |
 | `versions(name, dcc)` | `List[str]` | All versions sorted ascending |
 | `latest_version(name, dcc)` | `str?` | Highest version string or None |
 | `resolve(name, dcc, constraint)` | `dict?` | Best match metadata dict or None |
@@ -395,7 +395,7 @@ pipeline = ActionPipeline(dispatcher)
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `dispatch(action, params_json)` | `dict` | Dispatch through all middleware layers |
+| `dispatch(action, params_json)` | `dict` | Dispatch skill through all middleware layers |
 | `register_handler(name, fn)` | — | Register a Python handler (mirrors `ActionDispatcher`) |
 | `add_logging(log_params=False)` | — | Add trace logging middleware |
 | `add_timing()` | `TimingMiddleware` | Add latency tracking; returns handle |
@@ -412,7 +412,7 @@ pipeline = ActionPipeline(dispatcher)
 
 | Key | Type | Description |
 |-----|------|-------------|
-| `action` | `str` | Action name |
+| `action` | `str` | Skill name |
 | `output` | `Any` | Handler return value |
 | `success` | `bool` | `True` if no exception |
 | `error` | `str?` | Error message if failed |
@@ -434,12 +434,12 @@ audit = pipeline.add_audit(record_params=True)
 pipeline.dispatch("my_action", '{}')
 
 records = audit.records()                        # all records
-records = audit.records_for_action("my_action")  # filtered
+records = audit.records_for_action("my_action")  # filtered by skill name
 count = audit.record_count()                     # int
 audit.clear()
 ```
 
-Each record dict: `action` (str), `success` (bool), `error` (str | None), `timestamp_ms` (int).
+Each record dict: `action` (str, the skill name), `success` (bool), `error` (str | None), `timestamp_ms` (int).
 
 | Method | Returns | Description |
 |--------|---------|-------------|

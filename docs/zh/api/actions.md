@@ -1,10 +1,10 @@
-# Actions API
+# Skills API
 
 `dcc_mcp_core` — ActionRegistry、EventBus、ActionDispatcher、ActionValidator、SemVer、VersionConstraint、VersionedRegistry。
 
 ## ActionRegistry
 
-线程安全的 Action 注册表，底层使用 DashMap 实现。每个注册表实例相互独立。
+线程安全的 Skill 注册表，底层使用 DashMap 实现。每个注册表实例相互独立。
 
 ### 构造函数
 
@@ -17,28 +17,28 @@ registry = ActionRegistry()
 
 | 方法 | 返回值 | 说明 |
 |------|--------|------|
-| `register(name, description="", category="", tags=[], dcc="python", version="1.0.0", input_schema=None, output_schema=None, source_file=None)` | — | 注册一个 Action |
-| `get_action(name, dcc_name=None)` | `dict?` | 获取 Action 元数据字典 |
-| `list_actions(dcc_name=None)` | `List[dict]` | 列出所有 Action 的元数据字典 |
-| `list_actions_for_dcc(dcc_name)` | `List[str]` | 列出指定 DCC 的 Action 名称 |
+| `register(name, description="", category="", tags=[], dcc="python", version="1.0.0", input_schema=None, output_schema=None, source_file=None)` | — | 注册一个 Skill |
+| `get_action(name, dcc_name=None)` | `dict?` | 获取 Skill 元数据字典 |
+| `list_actions(dcc_name=None)` | `List[dict]` | 列出所有 Skill 的元数据字典 |
+| `list_actions_for_dcc(dcc_name)` | `List[str]` | 列出指定 DCC 的 Skill 名称 |
 | `get_all_dccs()` | `List[str]` | 列出所有已注册的 DCC 名称 |
 | `search_actions(category=None, tags=[], dcc_name=None)` | `List[dict]` | AND 组合过滤搜索 |
 | `get_categories(dcc_name=None)` | `List[str]` | 排序后的唯一类别列表 |
 | `get_tags(dcc_name=None)` | `List[str]` | 排序后的唯一标签列表 |
-| `count_actions(category=None, tags=[], dcc_name=None)` | `int` | 符合条件的 Action 数量 |
-| `reset()` | — | 清除所有已注册的 Action |
+| `count_actions(category=None, tags=[], dcc_name=None)` | `int` | 符合条件的 Skill 数量 |
+| `reset()` | — | 清除所有已注册的 Skill |
 
 ### Dunder 方法
 
 | 方法 | 说明 |
 |------|------|
-| `__len__` | 已注册 Action 的数量 |
-| `__contains__(name)` | 检查 Action 名称是否已注册（作用域为 "python" dcc） |
+| `__len__` | 已注册 Skill 的数量 |
+| `__contains__(name)` | 检查 Skill 名称是否已注册（作用域为 "python" dcc） |
 | `__repr__` | `ActionRegistry(actions=N)` |
 
-### Action 元数据字典
+### Skill 元数据字典
 
-通过 `get_action()`、`list_actions()` 或 `search_actions()` 获取时，每个 Action 是一个字典：
+通过 `get_action()`、`list_actions()` 或 `search_actions()` 获取时，每个 Skill 是一个字典：
 
 ```python
 {
@@ -77,7 +77,7 @@ results = reg.search_actions(category="geometry", tags=["create"])
 
 ## ActionValidator
 
-基于 JSON Schema 的 Action 输入验证器。通过 schema 字符串或 `ActionRegistry` 中的 action 创建。
+基于 JSON Schema 的 Skill 输入验证器。通过 schema 字符串或 `ActionRegistry` 中的 skill 创建。
 
 ### 静态工厂方法
 
@@ -90,7 +90,7 @@ validator = ActionValidator.from_schema_json(
     '"properties": {"radius": {"type": "number", "minimum": 0.0}}}'
 )
 
-# 从 ActionRegistry 中的 action 创建
+# 从 ActionRegistry 中的 skill 创建
 from dcc_mcp_core import ActionRegistry
 reg = ActionRegistry()
 reg.register("create_sphere", input_schema='{"type": "object", "properties": {"radius": {"type": "number"}}}')
@@ -131,7 +131,7 @@ except ValueError as e:
 
 ## ActionDispatcher
 
-基于版本兼容性的 Action 路由到处理器函数。
+基于版本兼容性的 Skill 路由到处理器函数。
 
 ### 构造函数
 
@@ -152,7 +152,7 @@ def handle_create_sphere(params):
 dispatcher.register_handler("create_sphere", handle_create_sphere)
 ```
 
-### 分发 Action
+### 分发 Skill
 
 ```python
 import json
@@ -245,7 +245,7 @@ except ValueError as e:
 
 ## VersionConstraint
 
-版本需求规范，用于与注册的 Action 版本进行匹配。
+版本需求规范，用于与注册的 Skill 版本进行匹配。
 
 ### 创建约束
 
@@ -283,7 +283,7 @@ print(constraint.matches(v))  # True
 
 ## VersionedRegistry
 
-多版本 Action 注册表。允许同一 `(action_name, dcc_name)` 的多个版本共存。提供基于约束条件解析最佳匹配版本。
+多版本 Skill 注册表。允许同一 `(skill_name, dcc_name)` 的多个版本共存。提供基于约束条件解析最佳匹配版本。
 
 ### 构造函数
 
@@ -363,7 +363,7 @@ print(removed)  # 2（移除了 1.0.0 和 2.0.0）
 
 | 方法 | 返回值 | 说明 |
 |------|--------|------|
-| `register_versioned(name, dcc, version, description, category, tags)` | — | 注册一个 Action 版本 |
+| `register_versioned(name, dcc, version, description, category, tags)` | — | 注册一个 Skill 版本 |
 | `versions(name, dcc)` | `List[str]` | 所有版本，递增排序 |
 | `latest_version(name, dcc)` | `str?` | 最高版本字符串或 None |
 | `resolve(name, dcc, constraint)` | `dict?` | 最佳匹配元数据字典或 None |
@@ -412,7 +412,7 @@ pipeline = ActionPipeline(dispatcher)
 
 | 键 | 类型 | 说明 |
 |----|------|------|
-| `action` | `str` | Action 名称 |
+| `action` | `str` | Skill 名称 |
 | `output` | `Any` | 处理器返回值 |
 | `success` | `bool` | 无异常时为 `True` |
 | `error` | `str?` | 失败时的错误信息 |
@@ -434,7 +434,7 @@ audit = pipeline.add_audit(record_params=True)
 pipeline.dispatch("my_action", '{}')
 
 records = audit.records()                        # 所有记录
-records = audit.records_for_action("my_action")  # 按 Action 筛选
+records = audit.records_for_action("my_action")  # 按 Skill 名称筛选
 count = audit.record_count()                     # int
 audit.clear()
 ```

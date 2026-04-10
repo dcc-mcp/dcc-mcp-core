@@ -8,7 +8,7 @@
 import json
 from dcc_mcp_core import ActionRegistry, ActionDispatcher
 
-# 1. 使用 JSON Schema 注册 action 元数据
+# 1. 使用 JSON Schema 注册 skill 元数据
 reg = ActionRegistry()
 reg.register(
     name="create_sphere",
@@ -71,7 +71,7 @@ print(result["output"]["object_name"])  # "pSphere1"
 
 1. **使用 `ActionRegistry.register()` 注册** —— 传入 name、description、tags、DCC、version 和 JSON Schema
 2. **实现处理器函数** —— 接收 `params: dict`，返回结果字典
-3. **使用 `ActionDispatcher` 注册处理器** —— 将 action 名称连接到 Python 可调用对象
+3. **使用 `ActionDispatcher` 注册处理器** —— 将 skill 名称连接到 Python 可调用对象
 4. **使用 JSON Schema 进行验证** —— `ActionDispatcher` 在调用处理器之前验证 JSON 输入
 5. **使用 JSON 字符串分派** —— wire format 使用 JSON，而非 Python 字典
 
@@ -83,7 +83,7 @@ def my_handler(params: dict) -> Any:
     Args:
         params: 验证后的参数（已从 JSON 输入解析）
     Returns:
-        一个字典，作为 action 结果（可序列化为 JSON）
+        一个字典，作为 skill 执行结果（可序列化为 JSON）
     """
     pass
 ```
@@ -102,7 +102,7 @@ if not ok:
     # 处理错误
 ```
 
-## 版本化 Action
+## 版本化 Skill
 
 使用 `VersionedRegistry` 保持向后兼容：
 

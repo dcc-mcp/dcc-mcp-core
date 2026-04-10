@@ -1,21 +1,21 @@
-# Actions 动作
+# Skills 技能
 
-Actions 是 DCC-MCP-Core 的核心构建块。每个 Action 代表一个可以在 DCC 应用程序（Maya、Blender、Houdini 等）中执行的离散操作。
+Skills 是 DCC-MCP-Core 的核心构建块。每个 Skill 代表一个可以在 DCC 应用程序（Maya、Blender、Houdini 等）中执行的离散操作。
 
 ## 架构
 
-DCC-MCP-Core 采用基于注册表的 action 模型，后端使用 Rust 的 DashMap 实现线程安全并发访问：
+DCC-MCP-Core 采用基于注册表的 skill 执行模型，后端使用 Rust 的 DashMap 实现线程安全并发访问：
 
-- **`ActionRegistry`** — 线程安全的 action 元数据存储（name、description、tags、DCC、version、JSON schemas）
+- **`ActionRegistry`** — 线程安全的 skill 元数据存储（name、description、tags、DCC、version、JSON schemas）
 - **`ActionDispatcher`** — 将验证后的调用路由到注册的 Python 处理器
 - **`ActionValidator`** — 基于 JSON Schema 的输入验证
-- **`VersionedRegistry`** — 支持语义版本解析的多版本 action 管理
+- **`VersionedRegistry`** — 支持语义版本解析的多版本 skill 管理
 
-所有 action 在运行时被发现和注册。**没有基类或 Pydantic 模型** —— action 是通过元数据注册的普通 Python 函数。
+所有 skill 在运行时被发现和注册。**没有基类或 Pydantic 模型** —— skill 是通过元数据注册的普通 Python 函数。
 
 ## ActionRegistry
 
-`ActionRegistry` 是所有 DCC 操作的中央注册表。使用 JSON Schema 注册 action 进行输入验证：
+`ActionRegistry` 是所有 DCC skill 操作的中央注册表。使用 JSON Schema 注册 skill 进行输入验证：
 
 ```python
 import json
@@ -45,13 +45,13 @@ reg.register(
 ### 发现和查询
 
 ```python
-# 获取所有注册了 action 的 DCC
+# 获取所有注册了 skill 的 DCC
 dccs = reg.get_all_dccs()
 print(dccs)  # ["maya", "blender", "houdini"]
 
-# 列出 Maya 的所有 action
-maya_actions = reg.list_actions_for_dcc("maya")
-print(maya_actions)  # ["create_sphere", "create_cube", ...]
+# 列出 Maya 的所有 skill
+maya_skills = reg.list_actions_for_dcc("maya")
+print(maya_skills)  # ["create_sphere", "create_cube", ...]
 
 # 获取完整元数据
 meta = reg.get_action("create_sphere", dcc_name="maya")
@@ -72,12 +72,12 @@ tags = reg.get_tags(dcc_name="maya")
 ```python
 reg.register("echo", dcc="python")
 print("echo" in reg)  # True
-print(len(reg))        # 已注册 action 的数量
+print(len(reg))        # 已注册 skill 的数量
 ```
 
 ## ActionDispatcher
 
-`ActionDispatcher` 与 `ActionRegistry` 配对，提供验证后的 action 执行路由：
+`ActionDispatcher` 与 `ActionRegistry` 配对，提供验证后的 skill 执行路由：
 
 ```python
 import json
@@ -139,7 +139,7 @@ validator = ActionValidator.from_action_registry(reg, "create_sphere", dcc_name=
 
 ## 结果模型
 
-所有 action 结果都规范化为 `ActionResultModel`：
+所有 skill 执行结果都规范化为 `ActionResultModel`：
 
 ```python
 from dcc_mcp_core import success_result, error_result, from_exception
@@ -174,14 +174,14 @@ except Exception:
 
 ## VersionedRegistry
 
-对于需要在多个版本间保持向后兼容的 API：
+对于需要在多个 skill 版本间保持向后兼容的 API：
 
 ```python
 from dcc_mcp_core import VersionedRegistry, VersionConstraint
 
 vr = VersionedRegistry()
 
-# 注册同一 action 的多个版本
+# 注册同一 skill 的多个版本
 vr.register_versioned("create_sphere", dcc="maya", version="1.0.0",
     description="Basic sphere creation", category="geometry", tags=["geo"])
 vr.register_versioned("create_sphere", dcc="maya", version="2.0.0",
@@ -201,7 +201,7 @@ print(vr.latest_version("create_sphere", "maya"))  # "2.0.0"
 
 ## EventBus
 
-订阅 action 生命周期事件，用于监控、日志或链式调用：
+订阅 skill 执行生命周期事件，用于监控、日志或链式调用：
 
 ```python
 from dcc_mcp_core import EventBus
@@ -217,7 +217,7 @@ def on_after_execute(event, **kwargs):
 # 订阅所有 "before_execute" 事件（通配符）
 id1 = bus.subscribe("action.before_execute.*", on_before_execute)
 
-# 订阅特定 action
+# 订阅特定 skill
 id2 = bus.subscribe("action.after_execute.create_sphere", on_after_execute)
 
 # 取消订阅
