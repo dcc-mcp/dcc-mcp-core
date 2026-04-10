@@ -216,7 +216,7 @@ jobs:
           python-version: "3.13"
 
       # Node.js 20 ships npx; mcporter is fetched via npx --yes at runtime
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: "24"
 
