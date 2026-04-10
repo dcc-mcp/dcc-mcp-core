@@ -199,3 +199,42 @@ jobs:
         run: pip install ruff
       - name: Lint
         run: just lint-py
+
+  # -- mcporter e2e: real MCP client (npx mcporter) vs live McpHttpServer --
+  # Exercises the full HTTP stack from outside the process:
+  #   tools/list, tools/call, find_skills, load_skill, unload_skill,
+  #   progressive loading (discover -> load -> call -> unload)
+  mcporter-e2e:
+    name: mcporter e2e
+    needs: [build-wheel]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      # Node.js 20 ships npx; mcporter is fetched via npx --yes at runtime
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Download wheel
+        uses: actions/download-artifact@v8
+        with:
+          name: wheel-ubuntu-latest
+          path: dist/
+
+      - name: Install wheel + test deps
+        run: pip install --no-index --find-links dist dcc-mcp-core && pip install pytest anyio
+        shell: bash
+
+      # Pre-fetch mcporter so the actual test run does not hit network timeouts
+      - name: Pre-fetch mcporter
+        run: npx --yes mcporter --version
+        shell: bash
+
+      - name: Run mcporter e2e tests
+        run: pytest tests/test_mcp_mcporter_e2e.py -v --tb=short
+        shell: bash
