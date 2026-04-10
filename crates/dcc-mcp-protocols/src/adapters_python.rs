@@ -541,8 +541,10 @@ impl PyDccCapabilities {
 
     fn __repr__(&self) -> String {
         format!(
-            "DccCapabilities(languages={}, scene_manager={}, transform={}, render_capture={}, hierarchy={})",
+            "DccCapabilities(languages={}, scene_info={}, snapshot={}, scene_manager={}, transform={}, render_capture={}, hierarchy={})",
             self.script_languages.len(),
+            self.scene_info,
+            self.snapshot,
             self.scene_manager,
             self.transform,
             self.render_capture,
