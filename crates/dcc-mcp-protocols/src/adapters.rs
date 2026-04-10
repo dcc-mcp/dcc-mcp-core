@@ -7,11 +7,17 @@
 //! # Architecture
 //!
 //! ```text
-//! DccAdapter         — Top-level trait: connect, disconnect, execute, capabilities
-//!   ├── DccConnection    — Connection lifecycle: connect, disconnect, health check
-//!   ├── DccScriptEngine  — Script execution: run Python/MEL/MaxScript in DCC
-//!   ├── DccSceneInfo     — Scene inspection: file path, modified state, statistics
-//!   └── DccSnapshot      — Screenshot/viewport capture
+//! DccAdapter              — Top-level trait: connect, disconnect, execute, capabilities
+//!   ├── DccConnection         — Connection lifecycle: connect, disconnect, health check
+//!   ├── DccScriptEngine       — Script execution: run Python/MEL/MaxScript in DCC
+//!   ├── DccSceneInfo          — Scene inspection: file path, modified state, statistics
+//!   └── DccSnapshot           — Screenshot/viewport capture
+//!
+//! Cross-DCC Protocol Traits (universally applicable across Maya/Blender/3dsMax/UE/Unity/Photoshop)
+//!   ├── DccSceneManager       — Scene & file management: open/save/export/list objects/selection
+//!   ├── DccTransform          — Object transform (TRS): get/set translate/rotate/scale + hierarchy
+//!   ├── DccRenderCapture      — Viewport capture & render output
+//!   └── DccHierarchy          — Object hierarchy & grouping queries
 //! ```
 //!
 //! # Design Principles
@@ -23,6 +29,8 @@
 //!   error types without forcing a single error enum.
 //! - **Optional sub-traits**: Adapters can implement only the sub-traits they support.
 //!   For example, a headless DCC might skip `DccSnapshot`.
+//! - **Coordinate convention**: All transforms use right-hand Y-up world space, Euler XYZ
+//!   angles in degrees, and centimeter units. Adapters handle internal conversion.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -208,6 +216,14 @@ pub struct DccCapabilities {
     pub file_operations: bool,
     /// Whether the adapter supports selection queries/manipulation.
     pub selection: bool,
+    /// Whether the adapter implements [`DccSceneManager`] (scene/file management).
+    pub scene_manager: bool,
+    /// Whether the adapter implements [`DccTransform`] (object TRS transforms).
+    pub transform: bool,
+    /// Whether the adapter implements [`DccRenderCapture`] (viewport capture + render).
+    pub render_capture: bool,
+    /// Whether the adapter implements [`DccHierarchy`] (parent/child hierarchy).
+    pub hierarchy: bool,
     /// Additional capability flags.
     #[serde(default)]
     pub extensions: HashMap<String, bool>,
@@ -359,11 +375,370 @@ pub trait DccSnapshot: Send + Sync {
     ) -> DccResult<CaptureResult>;
 }
 
+// ── Cross-DCC Protocol Data Models ──
+
+/// 3D transform with translation, rotation (Euler XYZ, degrees), and scale.
+///
+/// Coordinate convention: right-hand Y-up world space, centimeter units.
+/// Adapters are responsible for converting from their native coordinate system.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ObjectTransform {
+    /// World-space translation [x, y, z] in centimeters.
+    pub translate: [f64; 3],
+    /// Euler XYZ rotation in degrees [rx, ry, rz].
+    pub rotate: [f64; 3],
+    /// Non-uniform scale [sx, sy, sz].
+    pub scale: [f64; 3],
+}
+
+impl ObjectTransform {
+    /// Create a transform at the origin (identity).
+    #[must_use]
+    pub fn identity() -> Self {
+        Self {
+            translate: [0.0, 0.0, 0.0],
+            rotate: [0.0, 0.0, 0.0],
+            scale: [1.0, 1.0, 1.0],
+        }
+    }
+}
+
+/// Axis-aligned bounding box.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct BoundingBox {
+    /// Minimum corner [x, y, z] in world space (centimeters).
+    pub min: [f64; 3],
+    /// Maximum corner [x, y, z] in world space (centimeters).
+    pub max: [f64; 3],
+}
+
+impl BoundingBox {
+    /// Compute the center of the bounding box.
+    #[must_use]
+    pub fn center(&self) -> [f64; 3] {
+        [
+            (self.min[0] + self.max[0]) * 0.5,
+            (self.min[1] + self.max[1]) * 0.5,
+            (self.min[2] + self.max[2]) * 0.5,
+        ]
+    }
+
+    /// Compute the size (extents) [width, height, depth].
+    #[must_use]
+    pub fn size(&self) -> [f64; 3] {
+        [
+            self.max[0] - self.min[0],
+            self.max[1] - self.min[1],
+            self.max[2] - self.min[2],
+        ]
+    }
+}
+
+/// Lightweight description of a scene object.
+///
+/// Applies to all DCC tools: Maya DAG nodes, Blender objects, UE actors,
+/// Unity GameObjects, Photoshop layers, Figma nodes, etc.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SceneObject {
+    /// Short name (leaf node name, without path separators).
+    pub name: String,
+    /// Full path or unique identifier within the scene.
+    ///
+    /// - Maya: `|group1|pCube1`
+    /// - Blender: `Mesh.001`
+    /// - UE: actor GUID string
+    /// - Photoshop: layer name or index path
+    pub long_name: String,
+    /// Object type string (DCC-specific, e.g. "mesh", "transform", "light", "camera", "layer").
+    pub object_type: String,
+    /// Full path of the parent object, or `None` if at the scene root.
+    pub parent: Option<String>,
+    /// Whether the object is currently visible.
+    pub visible: bool,
+    /// Arbitrary extra metadata (e.g. material name, layer ID).
+    #[serde(default)]
+    pub metadata: HashMap<String, String>,
+}
+
+/// Node in the scene hierarchy tree.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SceneNode {
+    /// The scene object at this node.
+    pub object: SceneObject,
+    /// Immediate children of this node.
+    pub children: Vec<SceneNode>,
+}
+
+/// Frame range and timing information.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct FrameRange {
+    /// First frame (inclusive).
+    pub start: f64,
+    /// Last frame (inclusive).
+    pub end: f64,
+    /// Frames per second.
+    pub fps: f64,
+    /// Currently active frame.
+    pub current: f64,
+}
+
+/// Render output configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RenderOutput {
+    /// Output file path (absolute).
+    pub file_path: String,
+    /// Image width in pixels.
+    pub width: u32,
+    /// Image height in pixels.
+    pub height: u32,
+    /// File format (e.g. "png", "exr", "jpg").
+    pub format: String,
+    /// Time taken to render in milliseconds.
+    pub render_time_ms: u64,
+}
+
+// ── Cross-DCC Protocol Traits ──
+
+/// **SceneManagerTrait** — Universal scene and file management.
+///
+/// Covers the operations common to all DCC tools and creative applications:
+/// Maya, Blender, 3dsMax, Unreal Engine, Unity, Photoshop, Figma.
+///
+/// # Implementation notes
+/// - `list_objects`: for 2D tools (Photoshop/Figma), this lists layers/nodes.
+/// - `open_file` / `save_file`: for Figma (read-only API), these may return `Unsupported`.
+/// - Selection is object-level (not component-level) to keep the interface minimal.
+pub trait DccSceneManager: Send + Sync {
+    /// Get high-level information about the current scene/document.
+    ///
+    /// Returns metadata including file path, frame range, coordinate system, etc.
+    fn get_scene_info(&self) -> DccResult<SceneInfo>;
+
+    /// List all top-level and descendant objects/layers in the scene.
+    ///
+    /// # Arguments
+    /// * `object_type` — Optional filter (e.g. "mesh", "light", "camera").
+    ///   Pass `None` to list all objects.
+    fn list_objects(&self, object_type: Option<&str>) -> DccResult<Vec<SceneObject>>;
+
+    /// Create a new empty scene/document.
+    ///
+    /// # Arguments
+    /// * `save_prompt` — If `true`, prompt the user to save unsaved changes first.
+    fn new_scene(&self, save_prompt: bool) -> DccResult<SceneInfo>;
+
+    /// Open a scene/document from disk.
+    ///
+    /// # Arguments
+    /// * `file_path` — Absolute path to the scene file.
+    /// * `force` — If `true`, discard unsaved changes without prompting.
+    fn open_file(&self, file_path: &str, force: bool) -> DccResult<SceneInfo>;
+
+    /// Save the current scene/document.
+    ///
+    /// # Arguments
+    /// * `file_path` — Destination path. Pass `None` to save in place.
+    fn save_file(&self, file_path: Option<&str>) -> DccResult<String>;
+
+    /// Export the scene or a selection to a file.
+    ///
+    /// # Arguments
+    /// * `file_path` — Output file path.
+    /// * `format` — Export format (e.g. "fbx", "obj", "usd", "png", "svg").
+    /// * `selection_only` — If `true`, export only selected objects/layers.
+    fn export_file(&self, file_path: &str, format: &str, selection_only: bool)
+    -> DccResult<String>;
+
+    /// Get the names of currently selected objects/layers.
+    fn get_selection(&self) -> DccResult<Vec<String>>;
+
+    /// Replace the current selection.
+    ///
+    /// # Arguments
+    /// * `object_names` — List of object names (short or long) to select.
+    fn set_selection(&self, object_names: &[&str]) -> DccResult<Vec<String>>;
+
+    /// Select all objects of a given type.
+    ///
+    /// # Arguments
+    /// * `object_type` — Type string (e.g. "mesh", "camera", "light").
+    fn select_by_type(&self, object_type: &str) -> DccResult<Vec<String>>;
+
+    /// Set the visibility of an object/layer.
+    ///
+    /// # Arguments
+    /// * `object_name` — Short or long name of the object.
+    /// * `visible` — Target visibility state.
+    fn set_visibility(&self, object_name: &str, visible: bool) -> DccResult<bool>;
+}
+
+/// **DccTransformTrait** — Universal object transform (TRS) interface.
+///
+/// Handles translate / rotate / scale queries and mutations for 3D objects
+/// in Maya, Blender, 3dsMax, Unreal Engine, and Unity, as well as 2D position
+/// and rotation for Photoshop layers and Figma nodes.
+///
+/// # Coordinate convention
+/// - All translations are in **centimeters** in world space.
+/// - All rotations are **Euler XYZ in degrees**.
+/// - Adapters must convert from their native representation (e.g. Blender's
+///   Z-up radians, Unreal's centimeter Z-up, Photoshop's pixel origin).
+pub trait DccTransform: Send + Sync {
+    /// Get the world-space transform of an object.
+    ///
+    /// # Arguments
+    /// * `object_name` — Short or long name of the object.
+    fn get_transform(&self, object_name: &str) -> DccResult<ObjectTransform>;
+
+    /// Set the world-space transform of an object.
+    ///
+    /// `None` fields leave the corresponding component unchanged.
+    ///
+    /// # Arguments
+    /// * `object_name` — Short or long name of the object.
+    /// * `translate` — New translation [x, y, z] in centimeters, or `None`.
+    /// * `rotate` — New Euler XYZ rotation in degrees, or `None`.
+    /// * `scale` — New scale [sx, sy, sz], or `None`.
+    fn set_transform(
+        &self,
+        object_name: &str,
+        translate: Option<[f64; 3]>,
+        rotate: Option<[f64; 3]>,
+        scale: Option<[f64; 3]>,
+    ) -> DccResult<ObjectTransform>;
+
+    /// Get the axis-aligned world-space bounding box of an object.
+    ///
+    /// # Arguments
+    /// * `object_name` — Short or long name of the object.
+    fn get_bounding_box(&self, object_name: &str) -> DccResult<BoundingBox>;
+
+    /// Rename an object/layer.
+    ///
+    /// # Arguments
+    /// * `old_name` — Current short or long name.
+    /// * `new_name` — Desired new name (short name, without path).
+    fn rename_object(&self, old_name: &str, new_name: &str) -> DccResult<String>;
+}
+
+/// **DccRenderCaptureTrait** — Universal viewport capture and render output.
+///
+/// Covers screenshot / playblast (Maya), viewport render (Blender),
+/// high-res render (UE/Unity), and document export (Photoshop/Figma).
+pub trait DccRenderCapture: Send + Sync {
+    /// Capture a screenshot of the active (or specified) viewport.
+    ///
+    /// # Arguments
+    /// * `viewport` — Which viewport to capture (e.g. "persp", "top"). `None` = active viewport.
+    /// * `width` — Image width in pixels. `None` = native/current resolution.
+    /// * `height` — Image height in pixels. `None` = native/current resolution.
+    /// * `format` — Output format: "png", "jpeg", or "webp".
+    fn capture_viewport(
+        &self,
+        viewport: Option<&str>,
+        width: Option<u32>,
+        height: Option<u32>,
+        format: &str,
+    ) -> DccResult<CaptureResult>;
+
+    /// Render the scene and write output to disk.
+    ///
+    /// This is a potentially long-running operation. Adapters may implement
+    /// a timeout via the DCC's own render API.
+    ///
+    /// # Arguments
+    /// * `output_path` — Destination file path.
+    /// * `width` — Render width in pixels. `None` = use current render settings.
+    /// * `height` — Render height in pixels. `None` = use current render settings.
+    /// * `renderer` — Renderer name (e.g. "arnold", "cycles", "eevee"). `None` = default.
+    fn render_scene(
+        &self,
+        output_path: &str,
+        width: Option<u32>,
+        height: Option<u32>,
+        renderer: Option<&str>,
+    ) -> DccResult<RenderOutput>;
+
+    /// Get the current render settings (width, height, renderer, sample count, etc.).
+    fn get_render_settings(&self) -> DccResult<HashMap<String, String>>;
+
+    /// Update one or more render settings.
+    ///
+    /// # Arguments
+    /// * `settings` — Key-value pairs to update (e.g. `{"width": "1920", "renderer": "arnold"}`).
+    fn set_render_settings(&self, settings: HashMap<String, String>) -> DccResult<()>;
+}
+
+/// **DccHierarchyTrait** — Universal scene hierarchy and grouping.
+///
+/// Provides read and write access to the parent-child object graph that all
+/// DCC tools share (Maya DAG, Blender collection tree, UE level hierarchy,
+/// Unity scene graph, Photoshop layer groups, Figma frames/groups).
+pub trait DccHierarchy: Send + Sync {
+    /// Get the full scene hierarchy as a tree.
+    ///
+    /// Returns only root-level nodes; each `SceneNode` contains its children.
+    fn get_hierarchy(&self) -> DccResult<Vec<SceneNode>>;
+
+    /// Get the immediate children of an object.
+    ///
+    /// # Arguments
+    /// * `object_name` — Short or long name of the parent object. `None` = scene root.
+    fn get_children(&self, object_name: Option<&str>) -> DccResult<Vec<SceneObject>>;
+
+    /// Get the parent of an object.
+    ///
+    /// Returns `Ok(None)` when the object is at the scene root.
+    ///
+    /// # Arguments
+    /// * `object_name` — Short or long name of the child object.
+    fn get_parent(&self, object_name: &str) -> DccResult<Option<String>>;
+
+    /// Group a set of objects under a new named group/null/empty object.
+    ///
+    /// # Arguments
+    /// * `object_names` — Objects to group (short or long names).
+    /// * `group_name` — Name for the newly created group.
+    /// * `parent` — Parent for the new group. `None` = scene root.
+    fn group_objects(
+        &self,
+        object_names: &[&str],
+        group_name: &str,
+        parent: Option<&str>,
+    ) -> DccResult<SceneObject>;
+
+    /// Ungroup a group/container, moving its children to the group's parent.
+    ///
+    /// # Arguments
+    /// * `group_name` — Short or long name of the group to dissolve.
+    fn ungroup(&self, group_name: &str) -> DccResult<Vec<String>>;
+
+    /// Reparent an object (change its parent in the hierarchy).
+    ///
+    /// # Arguments
+    /// * `object_name` — Object to reparent (short or long name).
+    /// * `new_parent` — New parent name. `None` = move to scene root.
+    /// * `preserve_world_transform` — If `true`, adjust local transform to keep world position.
+    fn reparent(
+        &self,
+        object_name: &str,
+        new_parent: Option<&str>,
+        preserve_world_transform: bool,
+    ) -> DccResult<SceneObject>;
+}
+
 /// Top-level DCC adapter combining all sub-traits.
 ///
 /// This is the primary interface that DCC integration projects implement.
 /// Not all sub-traits are required — use the `capabilities()` method to
 /// advertise which features are available.
+///
+/// In addition to the original four sub-traits, adapters can optionally expose
+/// the four cross-DCC protocol traits:
+/// - `DccSceneManager` — scene/file management, selection, visibility
+/// - `DccTransform` — object TRS transforms and bounding boxes
+/// - `DccRenderCapture` — viewport capture and scene rendering
+/// - `DccHierarchy` — parent/child hierarchy and grouping
 ///
 /// # Example
 ///
@@ -371,14 +746,11 @@ pub trait DccSnapshot: Send + Sync {
 /// use dcc_mcp_protocols::adapters::*;
 ///
 /// struct MockAdapter {
-///     connected: bool,
 ///     info: DccInfo,
 /// }
 ///
 /// impl DccAdapter for MockAdapter {
-///     fn info(&self) -> &DccInfo {
-///         &self.info
-///     }
+///     fn info(&self) -> &DccInfo { &self.info }
 ///
 ///     fn capabilities(&self) -> DccCapabilities {
 ///         DccCapabilities {
@@ -393,6 +765,12 @@ pub trait DccSnapshot: Send + Sync {
 ///     fn as_script_engine(&self) -> Option<&dyn DccScriptEngine> { None }
 ///     fn as_scene_info(&self) -> Option<&dyn DccSceneInfo> { None }
 ///     fn as_snapshot(&self) -> Option<&dyn DccSnapshot> { None }
+///
+///     // Cross-DCC protocol traits — all optional, return None by default
+///     fn as_scene_manager(&self) -> Option<&dyn DccSceneManager> { None }
+///     fn as_transform(&self) -> Option<&dyn DccTransform> { None }
+///     fn as_render_capture(&self) -> Option<&dyn DccRenderCapture> { None }
+///     fn as_hierarchy(&self) -> Option<&dyn DccHierarchy> { None }
 /// }
 /// ```
 pub trait DccAdapter: Send + Sync {
@@ -413,6 +791,37 @@ pub trait DccAdapter: Send + Sync {
 
     /// Access the snapshot/capture interface.
     fn as_snapshot(&self) -> Option<&dyn DccSnapshot>;
+
+    // ── Cross-DCC Protocol Accessors (optional, default to None) ──
+
+    /// Access the universal scene & file management interface.
+    ///
+    /// Supported by: Maya, Blender, 3dsMax, Unreal Engine, Unity, Photoshop, Figma.
+    fn as_scene_manager(&self) -> Option<&dyn DccSceneManager> {
+        None
+    }
+
+    /// Access the universal object transform (TRS) interface.
+    ///
+    /// Supported by: Maya, Blender, 3dsMax, Unreal Engine, Unity, Photoshop (layers), Figma (nodes).
+    fn as_transform(&self) -> Option<&dyn DccTransform> {
+        None
+    }
+
+    /// Access the universal viewport capture and render output interface.
+    ///
+    /// Supported by: Maya, Blender, 3dsMax, Unreal Engine, Unity, Photoshop.
+    fn as_render_capture(&self) -> Option<&dyn DccRenderCapture> {
+        None
+    }
+
+    /// Access the universal scene hierarchy and grouping interface.
+    ///
+    /// Supported by: Maya (DAG), Blender (collections), Unreal (level hierarchy),
+    /// Unity (scene graph), Photoshop (layer groups), Figma (frames/groups).
+    fn as_hierarchy(&self) -> Option<&dyn DccHierarchy> {
+        None
+    }
 }
 
 #[cfg(test)]
@@ -545,6 +954,10 @@ mod tests {
             progress_reporting: false,
             file_operations: true,
             selection: true,
+            scene_manager: true,
+            transform: true,
+            render_capture: true,
+            hierarchy: true,
             extensions: HashMap::from([("usd_export".to_string(), true)]),
         };
         let json = serde_json::to_string(&caps).unwrap();
@@ -668,6 +1081,183 @@ mod tests {
         assert!(adapter.as_script_engine().is_none());
         assert!(adapter.as_scene_info().is_none());
         assert!(adapter.as_snapshot().is_none());
+        // Cross-DCC protocol traits default to None
+        assert!(adapter.as_scene_manager().is_none());
+        assert!(adapter.as_transform().is_none());
+        assert!(adapter.as_render_capture().is_none());
+        assert!(adapter.as_hierarchy().is_none());
+    }
+
+    // ── ObjectTransform tests ──
+
+    #[test]
+    fn test_object_transform_identity() {
+        let t = ObjectTransform::identity();
+        assert_eq!(t.translate, [0.0, 0.0, 0.0]);
+        assert_eq!(t.rotate, [0.0, 0.0, 0.0]);
+        assert_eq!(t.scale, [1.0, 1.0, 1.0]);
+    }
+
+    #[test]
+    fn test_object_transform_default() {
+        let t = ObjectTransform::default();
+        assert_eq!(t.translate, [0.0, 0.0, 0.0]);
+        assert_eq!(t.scale, [0.0, 0.0, 0.0]); // default ≠ identity
+    }
+
+    #[test]
+    fn test_object_transform_serialization() {
+        let t = ObjectTransform {
+            translate: [1.0, 2.0, 3.0],
+            rotate: [45.0, 0.0, -90.0],
+            scale: [1.0, 2.0, 1.0],
+        };
+        let json = serde_json::to_string(&t).unwrap();
+        let back: ObjectTransform = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.translate, [1.0, 2.0, 3.0]);
+        assert_eq!(back.rotate, [45.0, 0.0, -90.0]);
+        assert_eq!(back.scale, [1.0, 2.0, 1.0]);
+    }
+
+    // ── BoundingBox tests ──
+
+    #[test]
+    fn test_bounding_box_center() {
+        let bb = BoundingBox {
+            min: [0.0, 0.0, 0.0],
+            max: [2.0, 4.0, 6.0],
+        };
+        assert_eq!(bb.center(), [1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn test_bounding_box_size() {
+        let bb = BoundingBox {
+            min: [-1.0, -2.0, -3.0],
+            max: [1.0, 2.0, 3.0],
+        };
+        assert_eq!(bb.size(), [2.0, 4.0, 6.0]);
+    }
+
+    #[test]
+    fn test_bounding_box_serialization() {
+        let bb = BoundingBox {
+            min: [-10.0, 0.0, -5.0],
+            max: [10.0, 20.0, 5.0],
+        };
+        let json = serde_json::to_string(&bb).unwrap();
+        let back: BoundingBox = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.min, [-10.0, 0.0, -5.0]);
+        assert_eq!(back.max, [10.0, 20.0, 5.0]);
+    }
+
+    // ── SceneObject tests ──
+
+    #[test]
+    fn test_scene_object_serialization() {
+        let obj = SceneObject {
+            name: "pCube1".to_string(),
+            long_name: "|group1|pCube1".to_string(),
+            object_type: "mesh".to_string(),
+            parent: Some("|group1".to_string()),
+            visible: true,
+            metadata: HashMap::from([("material".to_string(), "lambert1".to_string())]),
+        };
+        let json = serde_json::to_string(&obj).unwrap();
+        let back: SceneObject = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.name, "pCube1");
+        assert_eq!(back.long_name, "|group1|pCube1");
+        assert_eq!(back.parent.as_deref(), Some("|group1"));
+        assert!(back.visible);
+        assert_eq!(back.metadata["material"], "lambert1");
+    }
+
+    #[test]
+    fn test_scene_object_no_parent() {
+        let obj = SceneObject {
+            name: "root".to_string(),
+            long_name: "|root".to_string(),
+            object_type: "transform".to_string(),
+            parent: None,
+            visible: true,
+            metadata: HashMap::new(),
+        };
+        assert!(obj.parent.is_none());
+    }
+
+    // ── FrameRange tests ──
+
+    #[test]
+    fn test_frame_range_default() {
+        let fr = FrameRange::default();
+        assert_eq!(fr.start, 0.0);
+        assert_eq!(fr.end, 0.0);
+        assert_eq!(fr.fps, 0.0);
+    }
+
+    #[test]
+    fn test_frame_range_serialization() {
+        let fr = FrameRange {
+            start: 1.0,
+            end: 240.0,
+            fps: 24.0,
+            current: 48.0,
+        };
+        let json = serde_json::to_string(&fr).unwrap();
+        let back: FrameRange = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.start, 1.0);
+        assert_eq!(back.end, 240.0);
+        assert_eq!(back.fps, 24.0);
+        assert_eq!(back.current, 48.0);
+    }
+
+    // ── SceneNode tests ──
+
+    #[test]
+    fn test_scene_node_tree() {
+        let leaf = SceneNode {
+            object: SceneObject {
+                name: "pSphere1".to_string(),
+                long_name: "|grp|pSphere1".to_string(),
+                object_type: "mesh".to_string(),
+                parent: Some("|grp".to_string()),
+                visible: true,
+                metadata: HashMap::new(),
+            },
+            children: vec![],
+        };
+        let root = SceneNode {
+            object: SceneObject {
+                name: "grp".to_string(),
+                long_name: "|grp".to_string(),
+                object_type: "transform".to_string(),
+                parent: None,
+                visible: true,
+                metadata: HashMap::new(),
+            },
+            children: vec![leaf],
+        };
+        assert_eq!(root.children.len(), 1);
+        assert_eq!(root.children[0].object.name, "pSphere1");
+        assert!(root.children[0].children.is_empty());
+    }
+
+    // ── RenderOutput tests ──
+
+    #[test]
+    fn test_render_output_serialization() {
+        let out = RenderOutput {
+            file_path: "/renders/shot_010.png".to_string(),
+            width: 1920,
+            height: 1080,
+            format: "png".to_string(),
+            render_time_ms: 5432,
+        };
+        let json = serde_json::to_string(&out).unwrap();
+        let back: RenderOutput = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.file_path, "/renders/shot_010.png");
+        assert_eq!(back.width, 1920);
+        assert_eq!(back.render_time_ms, 5432);
     }
 
     // ── Capture result test ──

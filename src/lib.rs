@@ -131,6 +131,13 @@ fn register_protocols(m: &Bound<'_, PyModule>) -> PyResult<()> {
         dcc_mcp_protocols::PyDccError,
         dcc_mcp_protocols::PyDccErrorCode,
         dcc_mcp_protocols::PyCaptureResult,
+        // Cross-DCC protocol data models
+        dcc_mcp_protocols::PyObjectTransform,
+        dcc_mcp_protocols::PyBoundingBox,
+        dcc_mcp_protocols::PySceneObject,
+        dcc_mcp_protocols::PySceneNode,
+        dcc_mcp_protocols::PyFrameRange,
+        dcc_mcp_protocols::PyRenderOutput,
     );
     Ok(())
 }

@@ -8,9 +8,10 @@ pub mod mock;
 mod types;
 
 pub use adapters::{
-    CaptureResult, DccAdapter, DccCapabilities, DccConnection, DccError, DccErrorCode, DccInfo,
-    DccResult, DccSceneInfo, DccScriptEngine, DccSnapshot, SceneInfo, SceneStatistics,
-    ScriptLanguage, ScriptResult,
+    BoundingBox, CaptureResult, DccAdapter, DccCapabilities, DccConnection, DccError, DccErrorCode,
+    DccHierarchy, DccInfo, DccRenderCapture, DccResult, DccSceneInfo, DccSceneManager,
+    DccScriptEngine, DccSnapshot, DccTransform, FrameRange, ObjectTransform, RenderOutput,
+    SceneInfo, SceneNode, SceneObject, SceneStatistics, ScriptLanguage, ScriptResult,
 };
 pub use types::{
     PromptArgument, PromptDefinition, ResourceAnnotations, ResourceDefinition,
@@ -19,6 +20,7 @@ pub use types::{
 
 #[cfg(feature = "python-bindings")]
 pub use adapters_python::{
-    PyCaptureResult, PyDccCapabilities, PyDccError, PyDccErrorCode, PyDccInfo, PySceneInfo,
+    PyBoundingBox, PyCaptureResult, PyDccCapabilities, PyDccError, PyDccErrorCode, PyDccInfo,
+    PyFrameRange, PyObjectTransform, PyRenderOutput, PySceneInfo, PySceneNode, PySceneObject,
     PySceneStatistics, PyScriptLanguage, PyScriptResult,
 };

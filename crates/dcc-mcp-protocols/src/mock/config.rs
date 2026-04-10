@@ -2,7 +2,10 @@
 
 use std::collections::HashMap;
 
-use crate::adapters::{SceneInfo, SceneStatistics, ScriptLanguage};
+use crate::adapters::{
+    BoundingBox, ObjectTransform, SceneInfo, SceneNode, SceneObject, SceneStatistics,
+    ScriptLanguage,
+};
 
 use super::helpers::{current_platform, minimal_png};
 
@@ -42,10 +45,72 @@ pub struct MockConfig {
     pub connect_should_fail: bool,
     /// Error message when connect fails.
     pub connect_error_message: String,
+
+    // ── Cross-DCC Protocol mock state ──
+    /// Mock scene objects for `DccSceneManager::list_objects`.
+    pub objects: Vec<SceneObject>,
+    /// Mock selection for `DccSceneManager::get/set_selection`.
+    pub selection: Vec<String>,
+    /// Mock hierarchy tree for `DccHierarchy::get_hierarchy`.
+    pub hierarchy: Vec<SceneNode>,
+    /// Mock transforms keyed by object name (short or long).
+    pub transforms: HashMap<String, ObjectTransform>,
+    /// Mock bounding boxes keyed by object name.
+    pub bounding_boxes: HashMap<String, BoundingBox>,
+    /// Simulated render time in ms (default: 100).
+    pub render_time_ms: u64,
+    /// Mock render settings key-value pairs.
+    pub render_settings: HashMap<String, String>,
 }
 
 impl Default for MockConfig {
     fn default() -> Self {
+        // Build a small default scene: one mesh + one camera
+        let mesh = SceneObject {
+            name: "pCube1".to_string(),
+            long_name: "|pCube1".to_string(),
+            object_type: "mesh".to_string(),
+            parent: None,
+            visible: true,
+            metadata: HashMap::new(),
+        };
+        let camera = SceneObject {
+            name: "persp".to_string(),
+            long_name: "|persp".to_string(),
+            object_type: "camera".to_string(),
+            parent: None,
+            visible: true,
+            metadata: HashMap::new(),
+        };
+
+        let mut transforms = HashMap::new();
+        transforms.insert("pCube1".to_string(), ObjectTransform::identity());
+        transforms.insert("|pCube1".to_string(), ObjectTransform::identity());
+
+        let mut bounding_boxes = HashMap::new();
+        bounding_boxes.insert(
+            "pCube1".to_string(),
+            BoundingBox {
+                min: [-1.0, 0.0, -1.0],
+                max: [1.0, 2.0, 1.0],
+            },
+        );
+
+        let mut render_settings = HashMap::new();
+        render_settings.insert("width".to_string(), "1920".to_string());
+        render_settings.insert("height".to_string(), "1080".to_string());
+        render_settings.insert("renderer".to_string(), "default".to_string());
+        render_settings.insert("samples".to_string(), "64".to_string());
+
+        let mesh_node = SceneNode {
+            object: mesh.clone(),
+            children: vec![],
+        };
+        let camera_node = SceneNode {
+            object: camera.clone(),
+            children: vec![],
+        };
+
         Self {
             dcc_type: "mock".to_string(),
             version: "1.0.0".to_string(),
@@ -73,6 +138,13 @@ impl Default for MockConfig {
             health_check_latency_ms: 1,
             connect_should_fail: false,
             connect_error_message: "Simulated connection failure".to_string(),
+            objects: vec![mesh, camera],
+            selection: vec![],
+            hierarchy: vec![mesh_node, camera_node],
+            transforms,
+            bounding_boxes,
+            render_time_ms: 100,
+            render_settings,
         }
     }
 }
@@ -185,6 +257,27 @@ impl MockConfigBuilder {
     pub fn connect_should_fail(mut self, message: impl Into<String>) -> Self {
         self.config.connect_should_fail = true;
         self.config.connect_error_message = message.into();
+        self
+    }
+
+    /// Set initial scene objects (for DccSceneManager).
+    #[must_use]
+    pub fn objects(mut self, objects: Vec<SceneObject>) -> Self {
+        self.config.objects = objects;
+        self
+    }
+
+    /// Set initial render settings.
+    #[must_use]
+    pub fn render_settings(mut self, settings: HashMap<String, String>) -> Self {
+        self.config.render_settings = settings;
+        self
+    }
+
+    /// Set simulated render time in milliseconds.
+    #[must_use]
+    pub fn render_time_ms(mut self, ms: u64) -> Self {
+        self.config.render_time_ms = ms;
         self
     }
 
@@ -311,6 +404,25 @@ impl MockConfig {
                 up_axis: Some("y".to_string()),
                 units: Some("m".to_string()),
                 fps: Some(60.0),
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+
+    /// Create a Photoshop mock configuration (2D, image layers).
+    #[must_use]
+    pub fn photoshop(version: &str) -> Self {
+        Self {
+            dcc_type: "photoshop".to_string(),
+            version: version.to_string(),
+            python_version: Some("3.11.0".to_string()),
+            supported_languages: vec![ScriptLanguage::Python],
+            scene: SceneInfo {
+                format: ".psd".to_string(),
+                up_axis: None,
+                units: Some("px".to_string()),
+                fps: None,
                 ..Default::default()
             },
             ..Default::default()

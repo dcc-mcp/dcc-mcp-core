@@ -690,7 +690,13 @@ class SceneInfo:
     def __repr__(self) -> str: ...
 
 class DccCapabilities:
-    """Capabilities that a DCC adapter supports."""
+    """Capabilities that a DCC adapter supports.
+
+    The four cross-DCC protocol flags (``scene_manager``, ``transform``,
+    ``render_capture``, ``hierarchy``) indicate whether the adapter implements
+    the corresponding universal protocol trait.  Check these instead of calling
+    ``as_*()`` when you only need a quick feature check.
+    """
 
     script_languages: list[ScriptLanguage]
     scene_info: bool
@@ -699,6 +705,14 @@ class DccCapabilities:
     progress_reporting: bool
     file_operations: bool
     selection: bool
+    scene_manager: bool
+    """Whether the adapter implements DccSceneManager (scene/file management)."""
+    transform: bool
+    """Whether the adapter implements DccTransform (object TRS transforms)."""
+    render_capture: bool
+    """Whether the adapter implements DccRenderCapture (viewport capture + render)."""
+    hierarchy: bool
+    """Whether the adapter implements DccHierarchy (parent/child hierarchy)."""
     extensions: dict[str, bool]
 
     def __init__(
@@ -710,6 +724,10 @@ class DccCapabilities:
         progress_reporting: bool = False,
         file_operations: bool = False,
         selection: bool = False,
+        scene_manager: bool = False,
+        transform: bool = False,
+        render_capture: bool = False,
+        hierarchy: bool = False,
         extensions: dict[str, bool] | None = None,
     ) -> None: ...
     def __repr__(self) -> str: ...
@@ -752,7 +770,191 @@ class CaptureResult:
     def data_size(self) -> int: ...
     def __repr__(self) -> str: ...
 
-# ── Protocols ──
+# ── Cross-DCC Protocol Data Models ──
+
+class ObjectTransform:
+    """3D object transform (TRS) in right-hand Y-up world space.
+
+    - ``translate``: [x, y, z] in centimeters
+    - ``rotate``: Euler XYZ in degrees [rx, ry, rz]
+    - ``scale``: [sx, sy, sz]
+
+    All DCC adapters convert from their native coordinate system to this convention.
+
+    Example::
+
+        from dcc_mcp_core import ObjectTransform
+
+        t = ObjectTransform(translate=[0.0, 10.0, 0.0], rotate=[0.0, 45.0, 0.0])
+        print(t.translate)  # [0.0, 10.0, 0.0]
+        d = t.to_dict()
+    """
+
+    translate: list[float]  # [x, y, z] in cm
+    rotate: list[float]  # Euler XYZ in degrees
+    scale: list[float]  # [sx, sy, sz]
+
+    def __init__(
+        self,
+        translate: list[float] | None = None,
+        rotate: list[float] | None = None,
+        scale: list[float] | None = None,
+    ) -> None: ...
+    @staticmethod
+    def identity() -> ObjectTransform: ...
+    def to_dict(self) -> dict[str, list[float]]: ...
+    def __repr__(self) -> str: ...
+
+class BoundingBox:
+    """Axis-aligned bounding box in world space (centimeters).
+
+    Example::
+
+        from dcc_mcp_core import BoundingBox
+
+        bb = BoundingBox(min=[-1.0, 0.0, -1.0], max=[1.0, 2.0, 1.0])
+        print(bb.center())  # [0.0, 1.0, 0.0]
+        print(bb.size())    # [2.0, 2.0, 2.0]
+    """
+
+    min: list[float]  # [x, y, z]
+    max: list[float]  # [x, y, z]
+
+    def __init__(
+        self,
+        min: list[float] | None = None,
+        max: list[float] | None = None,
+    ) -> None: ...
+    def center(self) -> list[float]: ...
+    def size(self) -> list[float]: ...
+    def to_dict(self) -> dict[str, list[float]]: ...
+    def __repr__(self) -> str: ...
+
+class SceneObject:
+    """Lightweight descriptor of a scene object/layer/node.
+
+    Applies to all DCC tools:
+    - Maya/Blender/3dsMax: mesh, light, camera, transform nodes
+    - Unreal Engine: actors, components
+    - Unity: GameObjects
+    - Photoshop: layers and layer groups
+    - Figma: frames, groups, components
+
+    Example::
+
+        from dcc_mcp_core import SceneObject
+
+        obj = SceneObject(name="pCube1", long_name="|group1|pCube1", object_type="mesh")
+        print(obj.visible)   # True
+    """
+
+    name: str
+    long_name: str
+    object_type: str
+    parent: str | None
+    visible: bool
+    metadata: dict[str, str]
+
+    def __init__(
+        self,
+        name: str,
+        long_name: str | None = None,
+        object_type: str = "transform",
+        parent: str | None = None,
+        visible: bool = True,
+        metadata: dict[str, str] | None = None,
+    ) -> None: ...
+    def to_dict(self) -> dict[str, Any]: ...
+    def __repr__(self) -> str: ...
+
+class FrameRange:
+    """Animation frame range and timing.
+
+    Example::
+
+        from dcc_mcp_core import FrameRange
+
+        fr = FrameRange(start=1.0, end=240.0, fps=24.0, current=1.0)
+        duration_seconds = (fr.end - fr.start + 1) / fr.fps
+    """
+
+    start: float
+    end: float
+    fps: float
+    current: float
+
+    def __init__(
+        self,
+        start: float = 1.0,
+        end: float = 100.0,
+        fps: float = 24.0,
+        current: float = 1.0,
+    ) -> None: ...
+    def to_dict(self) -> dict[str, float]: ...
+    def __repr__(self) -> str: ...
+
+class RenderOutput:
+    """Metadata for a completed render operation.
+
+    Example::
+
+        from dcc_mcp_core import RenderOutput
+
+        out = RenderOutput(file_path="/renders/frame001.png", width=1920,
+                           height=1080, format="png", render_time_ms=5000)
+        print(f"Rendered in {out.render_time_ms / 1000:.1f}s")
+    """
+
+    file_path: str
+    width: int
+    height: int
+    format: str
+    render_time_ms: int
+
+    def __init__(
+        self,
+        file_path: str,
+        width: int,
+        height: int,
+        format: str,
+        render_time_ms: int = 0,
+    ) -> None: ...
+    def to_dict(self) -> dict[str, Any]: ...
+    def __repr__(self) -> str: ...
+
+class SceneNode:
+    """Scene hierarchy node with recursive children.
+
+    Represents a node in the DCC scene tree — Maya DAG node, Blender collection item,
+    Unreal actor, Unity GameObject, Photoshop layer group, or Figma frame.
+
+    Example::
+
+        from dcc_mcp_core import SceneNode, SceneObject
+
+        leaf = SceneNode(
+            object=SceneObject(name="pSphere1", object_type="mesh"),
+        )
+        root = SceneNode(
+            object=SceneObject(name="group1", object_type="transform"),
+            children=[leaf],
+        )
+        print(len(root.children))    # 1
+        print(root.children[0].object.name)  # "pSphere1"
+    """
+
+    object: SceneObject
+    children: list[SceneNode]
+
+    def __init__(
+        self,
+        object: SceneObject,
+        children: list[SceneNode] | None = None,
+    ) -> None: ...
+    def to_dict(self) -> dict[str, Any]: ...
+    def __repr__(self) -> str: ...
+
+# ── MCP Protocol Types ──
 
 class ToolAnnotations:
     """Annotations for MCP Tool behavior hints."""
