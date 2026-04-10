@@ -35,6 +35,7 @@ from dcc_mcp_core._core import AuditEntry
 from dcc_mcp_core._core import AuditLog
 from dcc_mcp_core._core import AuditMiddleware
 from dcc_mcp_core._core import BooleanWrapper
+from dcc_mcp_core._core import BoundingBox
 from dcc_mcp_core._core import CaptureFrame
 from dcc_mcp_core._core import Capturer
 from dcc_mcp_core._core import CaptureResult
@@ -45,6 +46,7 @@ from dcc_mcp_core._core import DccInfo
 from dcc_mcp_core._core import EventBus
 from dcc_mcp_core._core import FloatWrapper
 from dcc_mcp_core._core import FramedChannel
+from dcc_mcp_core._core import FrameRange
 from dcc_mcp_core._core import InputValidator
 from dcc_mcp_core._core import IntWrapper
 from dcc_mcp_core._core import IpcListener
@@ -52,6 +54,7 @@ from dcc_mcp_core._core import ListenerHandle
 from dcc_mcp_core._core import LoggingMiddleware
 from dcc_mcp_core._core import McpHttpConfig
 from dcc_mcp_core._core import McpHttpServer
+from dcc_mcp_core._core import ObjectTransform
 from dcc_mcp_core._core import PromptArgument
 from dcc_mcp_core._core import PromptDefinition
 
@@ -68,6 +71,7 @@ from dcc_mcp_core._core import PySharedBuffer
 from dcc_mcp_core._core import PySharedSceneBuffer
 from dcc_mcp_core._core import RateLimitMiddleware
 from dcc_mcp_core._core import RecordingGuard
+from dcc_mcp_core._core import RenderOutput
 from dcc_mcp_core._core import ResourceAnnotations
 from dcc_mcp_core._core import ResourceDefinition
 from dcc_mcp_core._core import ResourceTemplateDefinition
@@ -75,6 +79,8 @@ from dcc_mcp_core._core import RoutingStrategy
 from dcc_mcp_core._core import SandboxContext
 from dcc_mcp_core._core import SandboxPolicy
 from dcc_mcp_core._core import SceneInfo
+from dcc_mcp_core._core import SceneNode
+from dcc_mcp_core._core import SceneObject
 from dcc_mcp_core._core import SceneStatistics
 from dcc_mcp_core._core import ScriptLanguage
 from dcc_mcp_core._core import ScriptResult
@@ -178,6 +184,7 @@ __all__ = [
     "AuditLog",
     "AuditMiddleware",
     "BooleanWrapper",
+    "BoundingBox",
     "CaptureFrame",
     "CaptureResult",
     "Capturer",
@@ -187,6 +194,7 @@ __all__ = [
     "DccInfo",
     "EventBus",
     "FloatWrapper",
+    "FrameRange",
     "FramedChannel",
     "InputValidator",
     "IntWrapper",
@@ -196,6 +204,7 @@ __all__ = [
     "McpHttpConfig",
     "McpHttpServer",
     "McpServerHandle",
+    "ObjectTransform",
     "PromptArgument",
     "PromptDefinition",
     "PyBufferPool",
@@ -208,6 +217,7 @@ __all__ = [
     "PySharedSceneBuffer",
     "RateLimitMiddleware",
     "RecordingGuard",
+    "RenderOutput",
     "ResourceAnnotations",
     "ResourceDefinition",
     "ResourceTemplateDefinition",
@@ -215,6 +225,8 @@ __all__ = [
     "SandboxContext",
     "SandboxPolicy",
     "SceneInfo",
+    "SceneNode",
+    "SceneObject",
     "SceneStatistics",
     "ScriptLanguage",
     "ScriptResult",

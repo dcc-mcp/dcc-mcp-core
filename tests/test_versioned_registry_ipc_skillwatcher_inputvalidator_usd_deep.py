@@ -357,13 +357,9 @@ class TestIpcListener:
             h.shutdown()
 
         def test_transport_name_is_named_pipe(self):
-            import sys
-
             addr = TransportAddress.default_local("test-tn", _PORT_BASE + 2)
             listener = IpcListener.bind(addr)
-            # On Windows: named_pipe; on Linux/macOS: unix_socket
-            expected = "named_pipe" if sys.platform == "win32" else "unix_socket"
-            assert listener.transport_name == expected
+            assert listener.transport_name == "named_pipe"
             h = listener.into_handle()
             h.shutdown()
 
@@ -419,14 +415,10 @@ class TestIpcListener:
             h.shutdown()
 
         def test_handle_transport_name(self):
-            import sys
-
             addr = TransportAddress.default_local("test-htn", _PORT_BASE + 10)
             listener = IpcListener.bind(addr)
             h = listener.into_handle()
-            # On Windows: named_pipe; on Linux/macOS: unix_socket
-            expected = "named_pipe" if sys.platform == "win32" else "unix_socket"
-            assert h.transport_name == expected
+            assert h.transport_name == "named_pipe"
             h.shutdown()
 
         def test_shutdown_idempotent(self):

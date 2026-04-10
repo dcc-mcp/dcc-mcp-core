@@ -233,11 +233,9 @@ print([str(v) for v in sorted_versions])  # ["1.0.0", "1.2.3", "2.0.0"]
 ### 错误处理
 
 ```python
-from dcc_mcp_core import VersionParseError
-
 try:
     v = SemVer.parse("invalid")
-except VersionParseError as e:
+except ValueError as e:
     print(f"Invalid version: {e}")
 ```
 
@@ -377,3 +375,108 @@ print(removed)  # 2（移除了 1.0.0 和 2.0.0）
 ::: tip
 `resolve()` 和 `resolve_all()` 内部使用 `VersionConstraint.parse()` —— 传入约束字符串如 `"^1.0.0"` 或 `">=1.0.0,<2.0.0"`。
 :::
+
+
+## ActionPipeline
+
+`ActionDispatcher` 的中间件包装器。以可组合的方式叠加日志、计时、审计和速率限制中间件。
+
+### 构造函数
+
+```python
+from dcc_mcp_core import ActionRegistry, ActionDispatcher, ActionPipeline
+
+reg = ActionRegistry()
+dispatcher = ActionDispatcher(reg)
+pipeline = ActionPipeline(dispatcher)
+```
+
+### 方法
+
+| 方法 | 返回值 | 说明 |
+|------|--------|------|
+| `dispatch(action, params_json)` | `dict` | 通过所有中间件层进行调度 |
+| `register_handler(name, fn)` | — | 注册 Python 处理器（与 `ActionDispatcher` 一致）|
+| `add_logging(log_params=False)` | — | 添加 trace 日志中间件 |
+| `add_timing()` | `TimingMiddleware` | 添加延迟统计；返回句柄 |
+| `add_audit(record_params=False)` | `AuditMiddleware` | 添加审计日志；返回句柄 |
+| `add_rate_limit(max_calls, window_ms)` | `RateLimitMiddleware` | 添加速率限制；返回句柄 |
+| `add_callable(before_fn, after_fn)` | — | 添加 Python 可调用钩子 |
+| `middleware_count()` | `int` | 已注册的中间件层数 |
+| `middleware_names()` | `List[str]` | 按管道顺序排列的中间件名称 |
+| `handler_count()` | `int` | 已注册的处理器数量 |
+
+### dispatch() 返回值
+
+`dispatch()` 返回包含以下键的字典：
+
+| 键 | 类型 | 说明 |
+|----|------|------|
+| `action` | `str` | Action 名称 |
+| `output` | `Any` | 处理器返回值 |
+| `success` | `bool` | 无异常时为 `True` |
+| `error` | `str?` | 失败时的错误信息 |
+| `validation_skipped` | `bool` | JSON Schema 验证是否执行 |
+
+### TimingMiddleware
+
+```python
+timing = pipeline.add_timing()
+pipeline.dispatch("my_action", '{}')
+
+ms = timing.last_elapsed_ms("my_action")  # int | None — 最后一次调用耗时（ms）
+```
+
+### AuditMiddleware
+
+```python
+audit = pipeline.add_audit(record_params=True)
+pipeline.dispatch("my_action", '{}')
+
+records = audit.records()                        # 所有记录
+records = audit.records_for_action("my_action")  # 按 Action 筛选
+count = audit.record_count()                     # int
+audit.clear()
+```
+
+每条记录包含：`action`（str）、`success`（bool）、`error`（str | None）、`timestamp_ms`（int）。
+
+| 方法 | 返回值 | 说明 |
+|------|--------|------|
+| `records()` | `List[dict]` | 所有审计记录 |
+| `records_for_action(name)` | `List[dict]` | 指定 Action 的记录 |
+| `record_count()` | `int` | 总记录数 |
+| `clear()` | — | 清空所有记录 |
+
+### RateLimitMiddleware
+
+固定窗口速率限制器。在 `window_ms` 时间窗口内超出 `max_calls` 时抛出 `RuntimeError`。
+
+```python
+rl = pipeline.add_rate_limit(max_calls=10, window_ms=1000)
+print(rl.call_count("my_action"))  # 当前窗口的调用次数
+print(rl.max_calls)                # 10
+print(rl.window_ms)                # 1000
+```
+
+### 完整示例
+
+```python
+from dcc_mcp_core import ActionRegistry, ActionDispatcher, ActionPipeline
+
+reg = ActionRegistry()
+reg.register("process_mesh", description="处理网格", category="geometry")
+dispatcher = ActionDispatcher(reg)
+dispatcher.register_handler("process_mesh", lambda p: {"vertices": 1024})
+
+pipeline = ActionPipeline(dispatcher)
+pipeline.add_logging(log_params=True)
+timing = pipeline.add_timing()
+audit = pipeline.add_audit(record_params=True)
+rl = pipeline.add_rate_limit(max_calls=100, window_ms=60000)
+
+result = pipeline.dispatch("process_mesh", '{"mesh_name": "cube"}')
+print(result["output"])                          # {"vertices": 1024}
+print(timing.last_elapsed_ms("process_mesh"))    # 如：12
+print(audit.record_count())                      # 1
+```

@@ -193,3 +193,138 @@ scene = SceneInfo(
 | `LUA` | Lua scripts |
 | `CSHARP` | C# scripts |
 | `BLUEPRINT` | Visual scripting |
+
+---
+
+## DCC Adapter Traits
+
+DCC-MCP-Core provides a set of **adapter traits** that DCC integration packages implement to connect their application to the MCP ecosystem. Client code uses these traits through the `DccAdapter` interface without knowing which DCC is running.
+
+### Core Sub-traits
+
+```
+DccAdapter
+  ├── DccConnection      — connect / disconnect / health_check
+  ├── DccScriptEngine    — execute_script / supported_languages
+  ├── DccSceneInfo       — get_scene_info / list_objects / get_selection
+  └── DccSnapshot        — capture_viewport
+```
+
+Access a sub-trait via the corresponding accessor method:
+
+```python
+adapter = get_adapter()   # returns a DccAdapter implementation
+
+# Script execution
+if engine := adapter.as_script_engine():
+    result = engine.execute_script("import maya.cmds; print(cmds.ls())", "python")
+
+# Scene info
+if scene_info := adapter.as_scene_info():
+    info = scene_info.get_scene_info()
+    print(f"Scene: {info.file_path}  objects: {info.statistics.object_count}")
+
+# Viewport capture
+if snapshot := adapter.as_snapshot():
+    capture = snapshot.capture_viewport(None, 1920, 1080, "png")
+    with open("viewport.png", "wb") as f:
+        f.write(capture.data)
+```
+
+### Cross-DCC Protocol Traits
+
+Four optional traits provide **universal operations** that work across Maya, Blender, 3ds Max, Unreal Engine, Unity, Photoshop, and Figma. Always check if the adapter supports them via `DccCapabilities` before calling:
+
+```python
+caps = adapter.capabilities()
+
+if caps.scene_manager:
+    mgr = adapter.as_scene_manager()
+    objects = mgr.list_objects("mesh")          # all mesh objects
+    mgr.set_visibility("pCube1", False)         # hide an object
+    saved = mgr.save_file(None)                 # save in place
+
+if caps.transform:
+    xform = adapter.as_transform()
+    t = xform.get_transform("pCube1")
+    print(f"position: {t.translate}")
+    xform.set_transform("pCube1", translate=[10.0, 0.0, 0.0])
+
+if caps.hierarchy:
+    hier = adapter.as_hierarchy()
+    tree = hier.get_hierarchy()                 # full scene tree
+    children = hier.get_children("group1")     # immediate children
+
+if caps.render_capture:
+    rc = adapter.as_render_capture()
+    output = rc.render_scene("/renders/frame001.exr", 1920, 1080)
+    print(f"rendered in {output.render_time_ms}ms → {output.file_path}")
+```
+
+### Implementing a DCC Adapter
+
+To connect a new DCC to the MCP ecosystem, implement the adapter interface in your DCC integration package. The adapter traits (`DccAdapter`, `DccConnection`, `DccScriptEngine`, etc.) are Rust traits — they are **not importable from Python**. Python-side adapters use duck typing and register themselves with the Rust runtime. Only data types (`DccInfo`, `DccCapabilities`, `ScriptLanguage`, etc.) are exported from `dcc_mcp_core`.
+
+```python
+# In your DCC integration package (e.g. dcc-mcp-maya)
+# DccAdapter / DccConnection / DccScriptEngine are Rust traits — not Python imports.
+# Import only the data types you need to construct return values.
+from dcc_mcp_core import (
+    DccInfo, DccCapabilities,
+    ScriptResult, ScriptLanguage,
+)
+
+class MayaAdapter:
+    """Duck-typed DccAdapter implementation for Maya."""
+
+    def __init__(self):
+        self._info = DccInfo(
+            dcc_type="maya",
+            version="2025",
+            python_version="3.11.7",
+            platform="win64",
+            pid=12345,
+        )
+
+    def info(self):
+        return self._info
+
+    def capabilities(self):
+        return DccCapabilities(
+            script_languages=[ScriptLanguage.PYTHON, ScriptLanguage.MEL],
+            scene_info=True,
+            snapshot=True,
+            scene_manager=True,
+            transform=True,
+            hierarchy=True,
+        )
+
+    def as_connection(self):
+        return self._connection_impl   # duck-typed DccConnection
+
+    def as_script_engine(self):
+        return self._script_engine     # duck-typed DccScriptEngine
+
+    def as_scene_info(self):
+        return self._scene_info        # duck-typed DccSceneInfo
+
+    def as_snapshot(self):
+        return self._snapshot          # duck-typed DccSnapshot
+
+    def as_scene_manager(self):
+        return self._scene_manager     # duck-typed DccSceneManager
+
+    def as_transform(self):
+        return self._transform         # duck-typed DccTransform
+
+    def as_hierarchy(self):
+        return self._hierarchy         # duck-typed DccHierarchy
+```
+
+::: tip Coordinate Convention
+All `DccTransform` implementations must use **right-hand Y-up world space**, Euler XYZ rotation in **degrees**, and **centimeter** units. Adapters are responsible for converting from their native coordinate system (e.g. Blender Z-up radians, Unreal centimeter Z-up).
+:::
+
+::: info Optional Sub-traits
+The four cross-DCC protocol traits (`DccSceneManager`, `DccTransform`, `DccRenderCapture`, `DccHierarchy`) are **optional** — return `None` from the accessor if your DCC does not support them. Set the corresponding field in `DccCapabilities` to `False` so clients can check support before calling.
+:::

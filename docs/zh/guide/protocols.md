@@ -193,3 +193,138 @@ scene = SceneInfo(
 | `LUA` | Lua 脚本 |
 | `CSHARP` | C# 脚本 |
 | `BLUEPRINT` | 可视化脚本 |
+
+---
+
+## DCC Adapter Traits
+
+DCC-MCP-Core 提供一套 **adapter traits**，由各 DCC 集成包实现，将应用接入 MCP 生态系统。客户端代码通过 `DccAdapter` 接口使用这些 trait，无需关心底层具体是哪款 DCC。
+
+### 核心子 Traits
+
+```
+DccAdapter
+  ├── DccConnection      — connect / disconnect / health_check
+  ├── DccScriptEngine    — execute_script / supported_languages
+  ├── DccSceneInfo       — get_scene_info / list_objects / get_selection
+  └── DccSnapshot        — capture_viewport
+```
+
+通过对应的访问器方法获取子 trait：
+
+```python
+adapter = get_adapter()   # 返回 DccAdapter 实现
+
+# 脚本执行
+if engine := adapter.as_script_engine():
+    result = engine.execute_script("import maya.cmds; print(cmds.ls())", "python")
+
+# 场景信息
+if scene_info := adapter.as_scene_info():
+    info = scene_info.get_scene_info()
+    print(f"场景: {info.file_path}  对象数: {info.statistics.object_count}")
+
+# 视口截图
+if snapshot := adapter.as_snapshot():
+    capture = snapshot.capture_viewport(None, 1920, 1080, "png")
+    with open("viewport.png", "wb") as f:
+        f.write(capture.data)
+```
+
+### 跨 DCC 协议 Traits
+
+四个可选 trait 提供**通用操作**，可在 Maya、Blender、3ds Max、Unreal Engine、Unity、Photoshop、Figma 等 DCC 间通用。调用前请先通过 `DccCapabilities` 检查适配器是否支持：
+
+```python
+caps = adapter.capabilities()
+
+if caps.scene_manager:
+    mgr = adapter.as_scene_manager()
+    objects = mgr.list_objects("mesh")          # 所有网格对象
+    mgr.set_visibility("pCube1", False)         # 隐藏对象
+    saved = mgr.save_file(None)                 # 原位保存
+
+if caps.transform:
+    xform = adapter.as_transform()
+    t = xform.get_transform("pCube1")
+    print(f"位置: {t.translate}")
+    xform.set_transform("pCube1", translate=[10.0, 0.0, 0.0])
+
+if caps.hierarchy:
+    hier = adapter.as_hierarchy()
+    tree = hier.get_hierarchy()                 # 完整场景树
+    children = hier.get_children("group1")     # 直接子节点
+
+if caps.render_capture:
+    rc = adapter.as_render_capture()
+    output = rc.render_scene("/renders/frame001.exr", 1920, 1080)
+    print(f"渲染完成，耗时 {output.render_time_ms}ms → {output.file_path}")
+```
+
+### 实现 DCC Adapter
+
+要将新 DCC 接入 MCP 生态，需在你的 DCC 集成包中实现适配器接口。适配器 trait（`DccAdapter`、`DccConnection`、`DccScriptEngine` 等）是 Rust trait——**不可从 Python 导入**。Python 侧适配器使用鸭子类型（duck typing）实现，并向 Rust 运行时注册。只有数据类型（`DccInfo`、`DccCapabilities`、`ScriptLanguage` 等）才从 `dcc_mcp_core` 导出。
+
+```python
+# 在你的 DCC 集成包中（如 dcc-mcp-maya）
+# DccAdapter / DccConnection / DccScriptEngine 是 Rust trait，不可从 Python 导入。
+# 只需导入构造返回值所需的数据类型。
+from dcc_mcp_core import (
+    DccInfo, DccCapabilities,
+    ScriptResult, ScriptLanguage,
+)
+
+class MayaAdapter:
+    """Maya 的鸭子类型 DccAdapter 实现。"""
+
+    def __init__(self):
+        self._info = DccInfo(
+            dcc_type="maya",
+            version="2025",
+            python_version="3.11.7",
+            platform="win64",
+            pid=12345,
+        )
+
+    def info(self):
+        return self._info
+
+    def capabilities(self):
+        return DccCapabilities(
+            script_languages=[ScriptLanguage.PYTHON, ScriptLanguage.MEL],
+            scene_info=True,
+            snapshot=True,
+            scene_manager=True,
+            transform=True,
+            hierarchy=True,
+        )
+
+    def as_connection(self):
+        return self._connection_impl   # 鸭子类型 DccConnection
+
+    def as_script_engine(self):
+        return self._script_engine     # 鸭子类型 DccScriptEngine
+
+    def as_scene_info(self):
+        return self._scene_info        # 鸭子类型 DccSceneInfo
+
+    def as_snapshot(self):
+        return self._snapshot          # 鸭子类型 DccSnapshot
+
+    def as_scene_manager(self):
+        return self._scene_manager     # 鸭子类型 DccSceneManager
+
+    def as_transform(self):
+        return self._transform         # 鸭子类型 DccTransform
+
+    def as_hierarchy(self):
+        return self._hierarchy         # 鸭子类型 DccHierarchy
+```
+
+::: tip 坐标约定
+所有 `DccTransform` 实现必须使用**右手 Y-up 世界空间**，欧拉 XYZ 旋转以**度**为单位，平移以**厘米**为单位。适配器负责从各自的原生坐标系转换（如 Blender Z-up 弧度制、Unreal 厘米 Z-up）。
+:::
+
+::: info 可选子 Traits
+四个跨 DCC 协议 trait（`DccSceneManager`、`DccTransform`、`DccRenderCapture`、`DccHierarchy`）均为**可选** — 如果 DCC 不支持，则从访问器返回 `None`，并在 `DccCapabilities` 中将对应字段设为 `False`，以便客户端在调用前检查支持情况。
+:::

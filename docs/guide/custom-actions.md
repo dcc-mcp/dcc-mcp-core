@@ -1,6 +1,6 @@
-# Custom Actions
+# Custom Skills
 
-Learn how to create custom actions for DCC applications using the registry-based API.
+Learn how to build custom skills for DCC applications — from the recommended Skills-First approach to the low-level registry API.
 
 ## Complete Example
 

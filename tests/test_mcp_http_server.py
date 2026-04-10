@@ -346,7 +346,7 @@ class TestMcpSdkClient:
 
         _, _, url = running_server
 
-        async with mcp.client.streamable_http.streamablehttp_client(url) as (
+        async with mcp.client.streamable_http.streamable_http_client(url) as (
             read,
             write,
             _,
@@ -368,7 +368,7 @@ class TestMcpSdkClient:
 
         _, _, url = running_server
 
-        async with mcp.client.streamable_http.streamablehttp_client(url) as (
+        async with mcp.client.streamable_http.streamable_http_client(url) as (
             read,
             write,
             _,

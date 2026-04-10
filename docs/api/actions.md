@@ -233,11 +233,9 @@ print([str(v) for v in sorted_versions])  # ["1.0.0", "1.2.3", "2.0.0"]
 ### Error Handling
 
 ```python
-from dcc_mcp_core import VersionParseError
-
 try:
     v = SemVer.parse("invalid")
-except VersionParseError as e:
+except ValueError as e:
     print(f"Invalid version: {e}")
 ```
 
@@ -377,3 +375,108 @@ print(removed)  # 2 (removed 1.0.0 and 2.0.0)
 ::: tip
 `resolve()` and `resolve_all()` use `VersionConstraint.parse()` internally — pass a constraint string like `"^1.0.0"` or `">=1.0.0,<2.0.0"`.
 :::
+
+
+## ActionPipeline
+
+Middleware wrapper around `ActionDispatcher`. Layers logging, timing, audit, and rate-limit middleware in a composable pipeline.
+
+### Constructor
+
+```python
+from dcc_mcp_core import ActionRegistry, ActionDispatcher, ActionPipeline
+
+reg = ActionRegistry()
+dispatcher = ActionDispatcher(reg)
+pipeline = ActionPipeline(dispatcher)
+```
+
+### Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `dispatch(action, params_json)` | `dict` | Dispatch through all middleware layers |
+| `register_handler(name, fn)` | — | Register a Python handler (mirrors `ActionDispatcher`) |
+| `add_logging(log_params=False)` | — | Add trace logging middleware |
+| `add_timing()` | `TimingMiddleware` | Add latency tracking; returns handle |
+| `add_audit(record_params=False)` | `AuditMiddleware` | Add audit log; returns handle |
+| `add_rate_limit(max_calls, window_ms)` | `RateLimitMiddleware` | Add rate limiter; returns handle |
+| `add_callable(before_fn, after_fn)` | — | Add Python callable hooks |
+| `middleware_count()` | `int` | Number of registered middleware layers |
+| `middleware_names()` | `List[str]` | Names in pipeline order |
+| `handler_count()` | `int` | Number of registered handlers |
+
+### dispatch() Result
+
+`dispatch()` returns a dict with:
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `action` | `str` | Action name |
+| `output` | `Any` | Handler return value |
+| `success` | `bool` | `True` if no exception |
+| `error` | `str?` | Error message if failed |
+| `validation_skipped` | `bool` | Whether JSON schema validation ran |
+
+### TimingMiddleware
+
+```python
+timing = pipeline.add_timing()
+pipeline.dispatch("my_action", '{}')
+
+ms = timing.last_elapsed_ms("my_action")  # int | None
+```
+
+### AuditMiddleware
+
+```python
+audit = pipeline.add_audit(record_params=True)
+pipeline.dispatch("my_action", '{}')
+
+records = audit.records()                        # all records
+records = audit.records_for_action("my_action")  # filtered
+count = audit.record_count()                     # int
+audit.clear()
+```
+
+Each record dict: `action` (str), `success` (bool), `error` (str | None), `timestamp_ms` (int).
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `records()` | `List[dict]` | All audit records |
+| `records_for_action(name)` | `List[dict]` | Records for a specific action |
+| `record_count()` | `int` | Total record count |
+| `clear()` | — | Remove all records |
+
+### RateLimitMiddleware
+
+Fixed-window rate limiter. Raises `RuntimeError` when `max_calls` is exceeded within `window_ms`.
+
+```python
+rl = pipeline.add_rate_limit(max_calls=10, window_ms=1000)
+print(rl.call_count("my_action"))  # calls in current window
+print(rl.max_calls)                # 10
+print(rl.window_ms)                # 1000
+```
+
+### Full Example
+
+```python
+from dcc_mcp_core import ActionRegistry, ActionDispatcher, ActionPipeline
+
+reg = ActionRegistry()
+reg.register("process_mesh", description="Process mesh", category="geometry")
+dispatcher = ActionDispatcher(reg)
+dispatcher.register_handler("process_mesh", lambda p: {"vertices": 1024})
+
+pipeline = ActionPipeline(dispatcher)
+pipeline.add_logging(log_params=True)
+timing = pipeline.add_timing()
+audit = pipeline.add_audit(record_params=True)
+rl = pipeline.add_rate_limit(max_calls=100, window_ms=60000)
+
+result = pipeline.dispatch("process_mesh", '{"mesh_name": "cube"}')
+print(result["output"])                          # {"vertices": 1024}
+print(timing.last_elapsed_ms("process_mesh"))    # e.g. 12
+print(audit.record_count())                      # 1
+```

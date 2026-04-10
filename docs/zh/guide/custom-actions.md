@@ -1,6 +1,6 @@
-# 自定义 Action
+# 自定义 Skill
 
-学习如何使用基于注册表的 API 为 DCC 应用程序创建自定义 Action。
+学习如何为 DCC 应用程序构建自定义 Skill — 从推荐的 Skills-First 方式到低级注册表 API。
 
 ## 完整示例
 

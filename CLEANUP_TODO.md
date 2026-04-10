@@ -57,24 +57,25 @@ Files exceeding 500-line threshold (excluding test files), tracked since Run #91
 
 | File | Lines | Analysis | Priority |
 |------|-------|----------|----------|
-| `dcc-mcp-skills/src/catalog.rs` | 1239 | **Run #96**: 519 impl + 232 script exec + 120 Python bindings + 366 tests = single-concern; execution logic (`execute_script`, `resolve_tool_script`) tightly coupled to catalog; **no split needed** | ✅ No action |
-| `dcc-mcp-models/src/skill_metadata.rs` | 1149 | **Run #97**: PyO3 requires all getters/setters inline — split would require complex cfg(feature) cross-module refs. **No split needed** | ✅ No action |
-| `dcc-mcp-http/src/handler.rs` | 845 | HTTP MCP handler; large but single-concern (all request handling) | Low |
-| `dcc-mcp-usd/src/types.rs` | 847 | USD type definitions; top refactor candidate — consider splitting into `types/primitives.rs`, `types/geometry.rs`, etc. | Medium |
-| `dcc-mcp-protocols/src/adapters.rs` | 741 | DCC adapter traits; multiple adapter impls could be split | Medium |
-| `dcc-mcp-actions/src/pipeline/python.rs` | 738 | Python pipeline bindings; could split middleware types out | Low |
-| `dcc-mcp-transport/src/python/channel.rs` | 717 | Python bindings for FramedChannel; complex but single-concern | Low |
-| `dcc-mcp-transport/src/transport/mod.rs` | 692 | TransportManager; large but coherent | Low |
-| `dcc-mcp-protocols/src/adapters_python.rs` | 684 | Python bindings for DCC adapters | Low |
-| `dcc-mcp-skills/src/resolver.rs` | 683 | Skill dependency resolver; could split resolution strategies | Low |
-| `dcc-mcp-transport/src/pool/mod.rs` | 676 | ConnectionPool; borderline, watch for growth | Low |
-| `dcc-mcp-transport/src/python/manager.rs` | 665 | Python bindings for TransportManager; complex but single-concern | Low |
-| `dcc-mcp-actions/src/registry/mod.rs` | 654 | ActionRegistry; borderline, watch for growth | Low |
+| `dcc-mcp-protocols/src/adapters.rs` | **1207** | **Run #103**: Measured at 1207L (prev record 1331 was from an early version; iteration Agent's refactor of mock.rs removed some code). Split plan (core vs cross-DCC traits) still valid but not blocking. | **Medium** — evaluate next run |
+| `dcc-mcp-protocols/src/adapters_python.rs` | **1057** | **Run #103**: 1057L. Contains 15 `#[pyclass]`/`#[pymethods]` blocks, one per trait. PyO3 inline rules apply. Evaluate after adapters.rs split. | **Low** — after adapters.rs split |
+| `dcc-mcp-protocols/src/mock/tests.rs` | **1058** | **Run #103**: Test-only code (mock adapter tests). No action needed. | ✅ No action |
+| `dcc-mcp-protocols/src/mock/adapter.rs` | **772** | **Run #103**: Mock DCC adapter implementation. Large but acceptable for mock helpers. | Low |
+| `dcc-mcp-skills/src/catalog.rs` | **1092** | **Run #103**: ~1092L. **Run #96** evaluation: single-concern, no split needed. Monitor growth. | ✅ No action |
+| `dcc-mcp-models/src/skill_metadata.rs` | **1021** | **Run #97**: PyO3 requires all getters/setters inline. **No split needed** | ✅ No action |
+| `dcc-mcp-http/src/handler.rs` | 768 | HTTP MCP handler; large but single-concern | Low |
+| `dcc-mcp-usd/src/types.rs` | 755 | **Run #101**: Evaluated — 389L tests + 458L impl, no split needed. ✅ Closed | ✅ No action |
+| `dcc-mcp-actions/src/pipeline/python.rs` | **669** | **Run #103**: Pipeline already split to subdir by iteration Agent. `python.rs` is the Python bindings file for the pipeline module. Single-concern. | Low |
+| `dcc-mcp-transport/src/python/channel.rs` | **650** | Python bindings for FramedChannel; complex but single-concern | Low |
+| `dcc-mcp-transport/src/transport/mod.rs` | **614** | TransportManager; large but coherent | Low |
+| `dcc-mcp-transport/src/pool/mod.rs` | **610** | ConnectionPool; borderline, watch for growth | Low |
+| `dcc-mcp-actions/src/registry/mod.rs` | **606** | ActionRegistry; borderline, watch for growth | Low |
+| `dcc-mcp-skills/src/resolver.rs` | **601** | Skill dependency resolver; could split resolution strategies | Low |
+| `dcc-mcp-transport/src/python/manager.rs` | **617** | Python bindings for TransportManager; complex but single-concern | Low |
 
-**Note (Run #100)**: Run #99 CLEANUP_TODO incorrectly recorded reduced line counts for 5 files (handler.rs 845→768, types.rs 847→755, adapters.rs 741→675, pipeline/python.rs 738→669, adapters_python.rs 684→630). Actual measurements confirm all 5 files remain at their original sizes — the reported reductions were erroneous. Line counts above reflect verified current state.
+**Note (Run #103)**: pipeline.rs (was 1166L) successfully split by iteration Agent into `pipeline/` submodules — max file now 669L (python.rs). mock.rs (was 1274L) split into `mock/` subdir. Both structural improvements confirmed ✅
 
-- **Next action**: Evaluate `dcc-mcp-usd/src/types.rs` (847 lines) — top refactor candidate
-- **Priority**: Low-Medium
+**Next action (Run #103+)**: Evaluate `adapters.rs` (1207L) split — Core traits vs Cross-DCC Protocol traits boundary is documented in file header. Medium risk due to adapters_python.rs use paths.
 
 ---
 
@@ -108,3 +109,9 @@ Files exceeding 500-line threshold (excluding test files), tracked since Run #91
 | #99 | Large files table: **ERRONEOUS UPDATE** — Run #99 incorrectly reported 5 files as reduced (768/755/675/669/630) when actual sizes were unchanged (845/847/741/738/684). Corrected in Run #100. | ⚠️ Corrected |
 | #100 | Large files table: corrected erroneous Run #99 line counts — all 5 files verified at original sizes; added pool/mod.rs (676L) and manager.rs (665L) to table | ✅ Fixed |
 | #100 | All 9 scan stages: clean — 0 Clippy warnings, 0 Ruff warnings, 9516 pytest passed (+167 vs Run #99 from iteration Agent's 293 new tests), `_core`/`__all__`/`_core.pyi` fully synchronized | ✅ Verified |
+| #101 | `test_mcp_http_server.py`: replace deprecated `streamablehttp_client` (×2) with `streamable_http_client` — mcp SDK 1.27.0 deprecation; 0 DeprecationWarnings now in `-W error::DeprecationWarning` mode | ✅ Fixed |
+| #101 | `.gitignore`: add `ruff_out.txt` + `test_out.txt` — cleanup Agent temp files left untracked | ✅ Fixed |
+| #101 | `dcc-mcp-usd/src/types.rs` (847L) structural evaluation: 389L tests + 458L impl across 6 tightly-coupled types. **No split needed.** Closed. | ✅ Closed |
+| #102 | Docs: fix `VersionParseError → ValueError` in `docs/api/actions.md` EN+ZH — Python binding maps Rust `VersionParseError` to `PyValueError` | ✅ Fixed |
+| #103 | Docs: fix `DccAdapter/DccConnection/DccScriptEngine` incorrect Python import in `docs/guide/protocols.md` EN+ZH — these are Rust traits, not Python importable; replaced with duck-typing note + correct data-type imports only | ✅ Fixed |
+| #103 | `pipeline.rs` (1166L) split by iteration Agent into `pipeline/` submodules (max 669L); `mock.rs` (1274L) split into `mock/` subdir — structural improvements confirmed | ✅ Verified |

@@ -75,6 +75,8 @@ tasks/
 
 # Local test output files
 test_output.txt
+test_out.txt
 test_rust_out.txt
 test_rust_err.txt
+ruff_out.txt
 test_result.txt
