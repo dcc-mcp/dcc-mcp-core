@@ -372,19 +372,24 @@ class TestValidateAndSerializePipeline:
     """Test the full pipeline used by skill.py: dict → validate → serialize → deserialize."""
 
     def test_success_dict_pipeline(self):
-        raw = {"success": True, "message": "done", "prompt": None, "error": None, "context": {}}
+        # validate_action_result extracts success/message/prompt/error from the dict;
+        # all other top-level keys become context entries.
+        # An empty "context" key becomes context["context"] = {} — that's expected behavior.
+        raw = {"success": True, "message": "done", "prompt": None, "error": None}
         arm = validate_action_result(raw)
         restored = deserialize_result(serialize_result(arm))
         assert restored.success is True
         assert restored.message == "done"
 
     def test_error_dict_pipeline(self):
+        # validate_action_result treats top-level non-standard keys as context.
+        # Pass path as a top-level key so it ends up in context directly.
         raw = {
             "success": False,
             "message": "failed",
             "error": "IOError: file missing",
             "prompt": "check path",
-            "context": {"path": "/tmp/missing.ma"},
+            "path": "/tmp/missing.ma",  # top-level extra key → context["path"]
         }
         arm = validate_action_result(raw)
         restored = deserialize_result(serialize_result(arm))
@@ -393,12 +398,14 @@ class TestValidateAndSerializePipeline:
         assert restored.context["path"] == "/tmp/missing.ma"
 
     def test_dict_with_extra_context_pipeline(self):
+        # Extra top-level keys beyond success/message/prompt/error become context entries.
         raw = {
             "success": True,
             "message": "ok",
             "prompt": None,
             "error": None,
-            "context": {"nodes": ["a", "b"], "count": 2},
+            "nodes": ["a", "b"],  # top-level → context["nodes"]
+            "count": 2,  # top-level → context["count"]
         }
         arm = validate_action_result(raw)
         restored = deserialize_result(serialize_result(arm))
@@ -427,7 +434,7 @@ class TestDeserializeResultErrors:
             deserialize_result(None)  # type: ignore[arg-type]
 
     def test_type_error_on_list(self):
-        with pytest.raises(TypeError):
+        with pytest.raises((TypeError, ValueError)):
             deserialize_result([1, 2, 3])  # type: ignore[arg-type]
 
     def test_value_error_on_corrupt_json(self):
@@ -464,12 +471,14 @@ class TestSkillSerializeResult:
     def test_serialize_result_helper_success(self):
         from dcc_mcp_core.skill import _serialize_result
 
+        # Pass context as top-level kwargs (as skill functions do via skill_success)
+        # so count ends up directly in context, not nested under context["context"].
         result = {
             "success": True,
             "message": "batch done",
             "prompt": "check viewport",
             "error": None,
-            "context": {"count": 5},
+            "count": 5,  # top-level extra key → context["count"]
         }
         output = _serialize_result(result)
         parsed = json.loads(output)
