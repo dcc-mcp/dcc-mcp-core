@@ -350,7 +350,7 @@ def skill_entry(func: _F) -> _F:
 
 
 def run_main(main_fn: Callable[..., ResultDict], argv: list[str] | None = None) -> None:
-    """Execute *main_fn* and print the JSON result to stdout.
+    """Execute *main_fn* and print the serialized result to stdout.
 
     Intended for use in ``if __name__ == "__main__"`` blocks:
 
@@ -372,6 +372,12 @@ def run_main(main_fn: Callable[..., ResultDict], argv: list[str] | None = None) 
 
     Notes
     -----
+    * Serialization uses the Rust ``serialize_result()`` implementation when
+      the compiled ``_core`` extension is available.  This is type-safe,
+      format-agnostic (JSON now, MessagePack in the future), and validates the
+      result through ``ActionResultModel``.
+    * Falls back to ``json.dumps`` in DCC environments where only the pure-Python
+      wheel is installed.
     * The function currently ignores *argv* (no CLI arg parser is bundled).
       Future versions may parse ``--key=value`` pairs into kwargs.
     * Exit code ``0`` on success, ``1`` on failure (``result["success"] is False``).
@@ -383,14 +389,7 @@ def run_main(main_fn: Callable[..., ResultDict], argv: list[str] | None = None) 
     except Exception as exc:
         result = skill_exception(exc)
 
-    try:
-        output = json.dumps(result, default=str, ensure_ascii=False)
-    except (TypeError, ValueError) as exc:
-        output = json.dumps(
-            skill_error("Failed to serialize result", repr(exc)),
-            ensure_ascii=False,
-        )
-
+    output = _serialize_result(result)
     sys.stdout.write(output + "\n")
     sys.stdout.flush()
     sys.exit(0 if result.get("success", False) else 1)
@@ -399,6 +398,47 @@ def run_main(main_fn: Callable[..., ResultDict], argv: list[str] | None = None) 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+
+def _serialize_result(result: ResultDict) -> str:
+    """Serialize a result dict to a JSON string.
+
+    Tries the Rust ``serialize_result()`` path first (type-safe, validates via
+    ``ActionResultModel``, format-extensible).  Falls back to ``json.dumps``
+    when the compiled ``_core`` extension is not available (e.g. standalone
+    DCC environment with only this module installed).
+
+    Parameters
+    ----------
+    result:
+        A dict conforming to the ``ActionResultModel`` schema
+        (keys: success, message, prompt, error, context).
+
+    Returns
+    -------
+    str
+        JSON-encoded result string (no trailing newline).
+
+    """
+    try:
+        # Import lazily so skill.py itself has no hard _core dependency.
+        from dcc_mcp_core._core import SerializeFormat
+        from dcc_mcp_core._core import serialize_result
+        from dcc_mcp_core._core import validate_action_result
+
+        arm = validate_action_result(result)
+        return serialize_result(arm, SerializeFormat.Json)
+    except ImportError:
+        pass  # _core not available — fall back to pure Python
+
+    # Pure-Python fallback: handles any extra keys in context gracefully.
+    try:
+        return json.dumps(result, default=str, ensure_ascii=False)
+    except (TypeError, ValueError) as exc:
+        return json.dumps(
+            skill_error("Failed to serialize result", repr(exc)),
+            ensure_ascii=False,
+        )
 
 
 def _guess_dcc_from_import_error(exc: ImportError) -> str:

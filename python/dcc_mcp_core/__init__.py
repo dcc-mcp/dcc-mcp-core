@@ -97,6 +97,9 @@ from dcc_mcp_core._core import SdfPath
 
 # Action Version Management
 from dcc_mcp_core._core import SemVer
+
+# Serialization
+from dcc_mcp_core._core import SerializeFormat
 from dcc_mcp_core._core import ServerHandle as McpServerHandle
 from dcc_mcp_core._core import ServiceEntry
 from dcc_mcp_core._core import ServiceStatus
@@ -122,6 +125,7 @@ from dcc_mcp_core._core import VtValue
 from dcc_mcp_core._core import connect_ipc
 from dcc_mcp_core._core import create_skill_manager
 from dcc_mcp_core._core import decode_envelope
+from dcc_mcp_core._core import deserialize_result
 from dcc_mcp_core._core import encode_notify
 from dcc_mcp_core._core import encode_request
 from dcc_mcp_core._core import encode_response
@@ -146,6 +150,7 @@ from dcc_mcp_core._core import scan_skill_paths
 
 # USD bridge functions
 from dcc_mcp_core._core import scene_info_json_to_stage
+from dcc_mcp_core._core import serialize_result
 from dcc_mcp_core._core import shutdown_telemetry
 from dcc_mcp_core._core import stage_to_scene_info_json
 from dcc_mcp_core._core import success_result
@@ -247,6 +252,8 @@ __all__ = [
     "ScriptResult",
     "SdfPath",
     "SemVer",
+    # Serialization
+    "SerializeFormat",
     "ServiceEntry",
     "ServiceStatus",
     "SkillCatalog",
@@ -273,6 +280,7 @@ __all__ = [
     "connect_ipc",
     "create_skill_manager",
     "decode_envelope",
+    "deserialize_result",
     "encode_notify",
     "encode_request",
     "encode_response",
@@ -297,6 +305,7 @@ __all__ = [
     "scan_and_load_lenient",
     "scan_skill_paths",
     "scene_info_json_to_stage",
+    "serialize_result",
     "shutdown_telemetry",
     "skill_entry",
     "skill_error",

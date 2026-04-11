@@ -678,6 +678,72 @@ Dict structure is identical — both compatible with `ActionResultModel`.
 
 ---
 
+## Result Serialization — `serialize_result` / `deserialize_result`
+
+Rust-backed, format-agnostic serialization for `ActionResultModel`.
+Format is controlled by `SerializeFormat` enum — JSON now, MsgPack later, no API change.
+
+```python
+from dcc_mcp_core import serialize_result, deserialize_result, SerializeFormat, success_result
+```
+
+### SerializeFormat
+
+```python
+SerializeFormat.Json     # str  — UTF-8 JSON text (default)
+SerializeFormat.MsgPack  # bytes — binary MessagePack (rmp-serde)
+```
+
+### serialize_result
+
+```python
+serialize_result(result: ActionResultModel, format: SerializeFormat = SerializeFormat.Json) -> str | bytes
+```
+
+- Returns `str` for `Json`, `bytes` for `MsgPack`.
+
+```python
+arm = success_result("done", count=3)
+json_str = serialize_result(arm)                              # str
+pack_bytes = serialize_result(arm, SerializeFormat.MsgPack)  # bytes
+```
+
+### deserialize_result
+
+```python
+deserialize_result(data: str | bytes, format: SerializeFormat = SerializeFormat.Json) -> ActionResultModel
+```
+
+- Accepts `str` (JSON) or `bytes` (MsgPack). Format must match serialization.
+
+```python
+arm2 = deserialize_result(json_str)
+assert arm2.message == "done"
+arm3 = deserialize_result(pack_bytes, SerializeFormat.MsgPack)
+assert arm3.context["count"] == 3
+```
+
+### How run_main serializes
+
+`run_main()` in `dcc_mcp_core.skill` uses this Rust path when `_core` is available:
+```
+dict → validate_action_result() → ActionResultModel → serialize_result() → JSON str → stdout
+```
+Falls back to `json.dumps` in pure-Python DCC environments (no `_core` installed).
+
+### Rust API (for crate authors)
+
+```rust
+use dcc_mcp_models::{ActionResultModelData, SerializeFormat};
+
+let data = ActionResultModelData::success("done".into(), None, Default::default());
+let json_bytes = data.to_bytes(SerializeFormat::Json)?;
+let msgpack_bytes = data.to_bytes(SerializeFormat::MsgPack)?;
+let restored = ActionResultModelData::from_bytes(&json_bytes, SerializeFormat::Json)?;
+```
+
+---
+
 ## MCP Protocol Types (`dcc_mcp_core`)
 
 ### ToolDefinition

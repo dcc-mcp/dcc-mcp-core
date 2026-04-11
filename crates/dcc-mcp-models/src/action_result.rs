@@ -13,6 +13,41 @@ use dcc_mcp_utils::py_json::{json_value_to_bound_py, py_any_to_json_value, py_di
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+// ── Serialization format ─────────────────────────────────────────────────────
+
+/// Supported serialization formats for `ActionResultModel`.
+///
+/// The default is [`SerializeFormat::Json`] (UTF-8 text, human-readable).
+/// [`SerializeFormat::MsgPack`] produces compact binary (MessagePack via `rmp-serde`)
+/// and is suitable for high-throughput or binary transport scenarios.
+///
+/// # Future extensibility
+/// Additional formats (e.g. CBOR, Bincode) can be added as new variants without
+/// breaking the existing API.
+#[cfg_attr(
+    feature = "python-bindings",
+    pyclass(name = "SerializeFormat", eq, eq_int, from_py_object)
+)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SerializeFormat {
+    /// JSON (default): UTF-8 text, human-readable, widely compatible.
+    #[default]
+    Json,
+    /// MessagePack: compact binary encoding via `rmp-serde`.
+    MsgPack,
+}
+
+#[cfg(feature = "python-bindings")]
+#[pymethods]
+impl SerializeFormat {
+    fn __repr__(&self) -> &'static str {
+        match self {
+            SerializeFormat::Json => "SerializeFormat.Json",
+            SerializeFormat::MsgPack => "SerializeFormat.MsgPack",
+        }
+    }
+}
+
 /// Internal Rust data representation (serde-friendly).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -78,6 +113,35 @@ impl ActionResultModelData {
             error,
             context,
         }
+    }
+
+    /// Serialize to bytes using the specified format.
+    ///
+    /// Returns `Err(String)` if serialization fails (should never happen for
+    /// well-formed data).
+    pub fn to_bytes(&self, fmt: SerializeFormat) -> Result<Vec<u8>, String> {
+        match fmt {
+            SerializeFormat::Json => serde_json::to_vec(self).map_err(|e| e.to_string()),
+            SerializeFormat::MsgPack => rmp_serde::to_vec_named(self).map_err(|e| e.to_string()),
+        }
+    }
+
+    /// Deserialize from bytes using the specified format.
+    pub fn from_bytes(data: &[u8], fmt: SerializeFormat) -> Result<Self, String> {
+        match fmt {
+            SerializeFormat::Json => serde_json::from_slice(data).map_err(|e| e.to_string()),
+            SerializeFormat::MsgPack => rmp_serde::from_slice(data).map_err(|e| e.to_string()),
+        }
+    }
+
+    /// Convenience: serialize to a JSON string.
+    pub fn to_json_string(&self) -> Result<String, String> {
+        serde_json::to_string(self).map_err(|e| e.to_string())
+    }
+
+    /// Convenience: deserialize from a JSON string.
+    pub fn from_json_str(s: &str) -> Result<Self, String> {
+        serde_json::from_str(s).map_err(|e| e.to_string())
     }
 }
 
@@ -439,11 +503,65 @@ mod py_factories {
             ),
         })
     }
+
+    /// Serialize an `ActionResultModel` to a string (JSON) or bytes (MsgPack).
+    ///
+    /// Returns:
+    /// - `str` for `SerializeFormat::Json`
+    /// - `bytes` for `SerializeFormat::MsgPack`
+    #[pyfunction]
+    #[pyo3(name = "serialize_result")]
+    #[pyo3(signature = (result, format = SerializeFormat::Json))]
+    pub fn py_serialize_result(
+        py: Python<'_>,
+        result: &ActionResultModel,
+        format: SerializeFormat,
+    ) -> PyResult<Py<PyAny>> {
+        let bytes = result
+            .inner
+            .to_bytes(format)
+            .map_err(pyo3::exceptions::PyValueError::new_err)?;
+        match format {
+            SerializeFormat::Json => {
+                let s = String::from_utf8(bytes)
+                    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+                Ok(s.into_pyobject(py)?.into_any().unbind())
+            }
+            SerializeFormat::MsgPack => {
+                Ok(pyo3::types::PyBytes::new(py, &bytes).into_any().unbind())
+            }
+        }
+    }
+
+    /// Deserialize a `str` (JSON) or `bytes` (MsgPack) into an `ActionResultModel`.
+    ///
+    /// The format must match what was used during serialization.
+    #[pyfunction]
+    #[pyo3(name = "deserialize_result")]
+    #[pyo3(signature = (data, format = SerializeFormat::Json))]
+    pub fn py_deserialize_result(
+        data: &Bound<'_, PyAny>,
+        format: SerializeFormat,
+    ) -> PyResult<ActionResultModel> {
+        let raw: Vec<u8> = if let Ok(s) = data.extract::<String>() {
+            s.into_bytes()
+        } else if let Ok(b) = data.extract::<Vec<u8>>() {
+            b
+        } else {
+            return Err(pyo3::exceptions::PyTypeError::new_err(
+                "data must be str (JSON) or bytes (MsgPack)",
+            ));
+        };
+        let data = ActionResultModelData::from_bytes(&raw, format)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e))?;
+        Ok(ActionResultModel { inner: data })
+    }
 }
 
 #[cfg(feature = "python-bindings")]
 pub use py_factories::{
-    py_error_result, py_from_exception, py_success_result, py_validate_action_result,
+    py_deserialize_result, py_error_result, py_from_exception, py_serialize_result,
+    py_success_result, py_validate_action_result,
 };
 
 #[cfg(test)]

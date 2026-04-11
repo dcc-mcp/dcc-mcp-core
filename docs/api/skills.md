@@ -662,3 +662,97 @@ the generic equivalents map directly:
 | `maya_from_exception(exc_msg, ...)` | `skill_exception(exc, ...)` |
 
 The dict structure is identical — both are compatible with `ActionResultModel`.
+
+---
+
+## Result Serialization — `serialize_result` / `deserialize_result`
+
+Rust-backed serialization for `ActionResultModel`.  The format is switchable via
+`SerializeFormat`: JSON today, MessagePack tomorrow — without changing calling code.
+
+```python
+from dcc_mcp_core import (
+    serialize_result, deserialize_result, SerializeFormat, success_result
+)
+```
+
+---
+
+### SerializeFormat
+
+```python
+class SerializeFormat:
+    Json: SerializeFormat     # UTF-8 JSON text (default)
+    MsgPack: SerializeFormat  # binary MessagePack via rmp-serde
+```
+
+---
+
+### serialize_result
+
+```python
+serialize_result(
+    result: ActionResultModel,
+    format: SerializeFormat = SerializeFormat.Json,
+) -> str | bytes
+```
+
+Serialize an `ActionResultModel`.
+
+| `format` | Return type | Description |
+|----------|-------------|-------------|
+| `SerializeFormat.Json` | `str` | UTF-8 JSON string |
+| `SerializeFormat.MsgPack` | `bytes` | Binary MessagePack |
+
+```python
+arm = success_result("Timeline updated", start_frame=1, end_frame=120)
+
+# JSON (default)
+json_str = serialize_result(arm)
+assert isinstance(json_str, str)
+
+# MessagePack
+msgpack_bytes = serialize_result(arm, SerializeFormat.MsgPack)
+assert isinstance(msgpack_bytes, bytes)
+```
+
+---
+
+### deserialize_result
+
+```python
+deserialize_result(
+    data: str | bytes,
+    format: SerializeFormat = SerializeFormat.Json,
+) -> ActionResultModel
+```
+
+Deserialize a `str` (JSON) or `bytes` (MsgPack) back into an `ActionResultModel`.
+The *format* must match what was used during serialization.
+
+```python
+original = success_result("done", frame_count=240)
+roundtrip = deserialize_result(serialize_result(original))
+assert roundtrip.success
+assert roundtrip.message == "done"
+assert roundtrip.context["frame_count"] == 240
+```
+
+---
+
+### How `run_main` uses serialization
+
+`run_main()` automatically uses `serialize_result` when `_core` is available,
+falling back to `json.dumps` in pure-Python environments:
+
+```
+result dict
+    ↓ validate_action_result()  (type-safe validation)
+ActionResultModel
+    ↓ serialize_result(arm, SerializeFormat.Json)   (Rust JSON writer)
+JSON string → stdout
+```
+
+To switch to MessagePack in a future release, only `_serialize_result()` in
+`skill.py` needs updating — the `serialize_result` / `deserialize_result` API
+remains stable.

@@ -625,3 +625,92 @@ if __name__ == "__main__":
 | `maya_from_exception(exc_msg, ...)` | `skill_exception(exc, ...)` |
 
 dict 结构完全相同 — 两者均与 `ActionResultModel` 兼容。
+
+---
+
+## 结果序列化 — `serialize_result` / `deserialize_result`
+
+基于 Rust 实现的 `ActionResultModel` 序列化工具。格式通过 `SerializeFormat` 枚举切换：当前使用 JSON，未来可升级到 MessagePack——调用方代码无需修改。
+
+```python
+from dcc_mcp_core import (
+    serialize_result, deserialize_result, SerializeFormat, success_result
+)
+```
+
+---
+
+### SerializeFormat
+
+```python
+class SerializeFormat:
+    Json: SerializeFormat     # UTF-8 JSON 文本（默认）
+    MsgPack: SerializeFormat  # 二进制 MessagePack（via rmp-serde）
+```
+
+---
+
+### serialize_result
+
+```python
+serialize_result(
+    result: ActionResultModel,
+    format: SerializeFormat = SerializeFormat.Json,
+) -> str | bytes
+```
+
+序列化 `ActionResultModel`。
+
+| `format` | 返回类型 | 说明 |
+|----------|---------|------|
+| `SerializeFormat.Json` | `str` | UTF-8 JSON 字符串 |
+| `SerializeFormat.MsgPack` | `bytes` | 二进制 MessagePack |
+
+```python
+arm = success_result("时间线已更新", start_frame=1, end_frame=120)
+
+# JSON（默认）
+json_str = serialize_result(arm)
+assert isinstance(json_str, str)
+
+# MessagePack
+msgpack_bytes = serialize_result(arm, SerializeFormat.MsgPack)
+assert isinstance(msgpack_bytes, bytes)
+```
+
+---
+
+### deserialize_result
+
+```python
+deserialize_result(
+    data: str | bytes,
+    format: SerializeFormat = SerializeFormat.Json,
+) -> ActionResultModel
+```
+
+将 `str`（JSON）或 `bytes`（MsgPack）反序列化为 `ActionResultModel`。*format* 必须与序列化时使用的格式一致。
+
+```python
+original = success_result("完成", frame_count=240)
+roundtrip = deserialize_result(serialize_result(original))
+assert roundtrip.success
+assert roundtrip.message == "完成"
+assert roundtrip.context["frame_count"] == 240
+```
+
+---
+
+### `run_main` 的序列化流程
+
+`run_main()` 在 `_core` 可用时自动使用 `serialize_result`，在纯 Python 环境中回退到 `json.dumps`：
+
+```
+result dict
+    ↓ validate_action_result()  （类型安全验证）
+ActionResultModel
+    ↓ serialize_result(arm, SerializeFormat.Json)   （Rust JSON 写入器）
+JSON 字符串 → stdout
+```
+
+未来切换到 MessagePack 时，只需修改 `skill.py` 中的 `_serialize_result()`——`serialize_result` / `deserialize_result` API 保持稳定。

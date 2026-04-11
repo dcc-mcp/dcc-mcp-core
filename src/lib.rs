@@ -82,6 +82,7 @@ fn register_models(m: &Bound<'_, PyModule>) -> PyResult<()> {
     add_classes!(
         m,
         dcc_mcp_models::ActionResultModel,
+        dcc_mcp_models::SerializeFormat,
         dcc_mcp_models::SkillMetadata,
     );
     add_functions!(
@@ -90,6 +91,8 @@ fn register_models(m: &Bound<'_, PyModule>) -> PyResult<()> {
         dcc_mcp_models::py_error_result,
         dcc_mcp_models::py_from_exception,
         dcc_mcp_models::py_validate_action_result,
+        dcc_mcp_models::py_serialize_result,
+        dcc_mcp_models::py_deserialize_result,
     );
     Ok(())
 }

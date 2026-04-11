@@ -12,6 +12,7 @@ pyo3 = { workspace = true, optional = true }
 dcc-mcp-utils = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+rmp-serde = { workspace = true }
 
 [features]
 default = []

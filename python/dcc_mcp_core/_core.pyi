@@ -3645,3 +3645,99 @@ def create_skill_manager(
 
 # Alias: ServerHandle is exported as McpServerHandle in dcc_mcp_core.__init__
 McpServerHandle = ServerHandle
+
+# ── Serialization ──
+
+class SerializeFormat:
+    """Supported serialization formats for ``ActionResultModel``.
+
+    Use ``SerializeFormat.Json`` (default) for human-readable JSON text.
+    Use ``SerializeFormat.MsgPack`` for compact binary MessagePack encoding.
+
+    Future formats (CBOR, Bincode …) may be added as new class attributes
+    without breaking existing callers.
+    """
+
+    Json: SerializeFormat
+    """JSON: UTF-8 text, human-readable, widely compatible (default)."""
+    MsgPack: SerializeFormat
+    """MessagePack: compact binary encoding via rmp-serde."""
+
+    def __eq__(self, other: object) -> bool: ...
+    def __repr__(self) -> str: ...
+
+def serialize_result(
+    result: ActionResultModel,
+    format: SerializeFormat = ...,  # default: SerializeFormat.Json
+) -> str | bytes:
+    """Serialize an ``ActionResultModel`` to a string or bytes.
+
+    Parameters
+    ----------
+    result:
+        The ``ActionResultModel`` to serialize.
+    format:
+        Serialization format.  Defaults to ``SerializeFormat.Json``.
+
+    Returns
+    -------
+    str
+        When *format* is ``SerializeFormat.Json``: a UTF-8 JSON string.
+    bytes
+        When *format* is ``SerializeFormat.MsgPack``: raw MessagePack bytes.
+
+    Example
+    -------
+    .. code-block:: python
+
+        from dcc_mcp_core import serialize_result, deserialize_result, SerializeFormat, success_result
+
+        arm = success_result("done", count=3)
+
+        # JSON (default)
+        json_str = serialize_result(arm)
+        assert isinstance(json_str, str)
+
+        # MessagePack
+        msgpack_bytes = serialize_result(arm, SerializeFormat.MsgPack)
+        assert isinstance(msgpack_bytes, bytes)
+
+    """
+    ...
+
+def deserialize_result(
+    data: str | bytes,
+    format: SerializeFormat = ...,  # default: SerializeFormat.Json
+) -> ActionResultModel:
+    """Deserialize a ``str`` (JSON) or ``bytes`` (MsgPack) into an ``ActionResultModel``.
+
+    The *format* must match what was used during serialization.
+
+    Parameters
+    ----------
+    data:
+        Serialized data — ``str`` for JSON, ``bytes`` for MessagePack.
+    format:
+        The format that was used to serialize *data*.
+        Defaults to ``SerializeFormat.Json``.
+
+    Raises
+    ------
+    TypeError
+        If *data* is neither ``str`` nor ``bytes``.
+    ValueError
+        If deserialization fails (corrupt data or format mismatch).
+
+    Example
+    -------
+    .. code-block:: python
+
+        from dcc_mcp_core import serialize_result, deserialize_result, success_result
+
+        original = success_result("render complete", frame_count=240)
+        roundtrip = deserialize_result(serialize_result(original))
+        assert roundtrip.success
+        assert roundtrip.message == "render complete"
+
+    """
+    ...
