@@ -3,10 +3,7 @@
 use crate::adapters::{DccErrorCode, SceneInfo, SceneStatistics, ScriptLanguage};
 
 use super::{MockConfig, MockDccAdapter};
-use crate::adapters::{
-    DccAdapter, DccConnection, DccHierarchy, DccRenderCapture, DccSceneInfo, DccSceneManager,
-    DccScriptEngine, DccSnapshot,
-};
+use crate::adapters::{DccAdapter, DccConnection, DccSceneInfo, DccScriptEngine, DccSnapshot};
 
 // ── Construction tests ──
 

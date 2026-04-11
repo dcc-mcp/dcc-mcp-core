@@ -634,6 +634,41 @@ ann = dcc_mcp_core.ToolAnnotations(
 )
 ```
 
+### ToolDeclaration
+
+Declaration of a single MCP tool provided by a Skill, parsed from SKILL.md frontmatter.
+Lightweight discovery-time object — no script execution needed.
+
+```python
+from dcc_mcp_core import ToolDeclaration
+
+td = ToolDeclaration(
+    name="create_sphere",
+    description="Create a polygon sphere",
+    input_schema='{"type": "object", "required": ["radius"], "properties": {"radius": {"type": "number"}}}',
+    output_schema=None,       # Optional JSON Schema string
+    read_only=False,
+    destructive=False,
+    idempotent=False,
+    source_file="scripts/create_sphere.py",
+)
+
+# All fields are get/set:
+td.name          # "create_sphere"
+td.description   # str
+td.input_schema  # JSON Schema string
+td.output_schema # str|None
+td.read_only     # bool  — True = doesn't modify DCC state
+td.destructive   # bool  — True = deletes / overwrites data
+td.idempotent    # bool  — True = safe to call multiple times
+td.source_file   # str   — relative path within skill's scripts/ dir
+```
+
+**Relation to SkillMetadata**: `skill.tools` is a `List[ToolDeclaration]` populated from the
+`tools:` array in SKILL.md frontmatter (v0.12+ format). Each entry corresponds to one MCP tool
+that the skill exposes. The `source_file` field links the declaration back to the script that
+implements it.
+
 ### ResourceDefinition / ResourceTemplateDefinition
 
 ```python
@@ -693,6 +728,11 @@ caps = dcc_mcp_core.DccCapabilities(
     progress_reporting=False,
     file_operations=True,
     selection=True,
+    # Cross-DCC protocol trait flags (v0.12+):
+    scene_manager=True,    # implements DccSceneManager (scene/file management)
+    transform=True,        # implements DccTransform (object TRS transforms)
+    render_capture=False,  # implements DccRenderCapture (viewport capture + render)
+    hierarchy=True,        # implements DccHierarchy (parent/child hierarchy)
 )
 
 # DccError — structured DCC error
@@ -748,6 +788,27 @@ addr.scheme         # "tcp" | "pipe" | "unix"
 addr.is_local       # bool
 addr.is_tcp, addr.is_named_pipe, addr.is_unix_socket  # bool
 addr.to_connection_string()  # "tcp://127.0.0.1:18812"
+```
+
+### TransportScheme
+
+Transport selection strategy enum. Chooses the optimal communication channel based on platform
+and availability.
+
+```python
+from dcc_mcp_core import TransportScheme, TransportAddress
+
+# Enum values
+TransportScheme.AUTO                # Automatically pick best available transport
+TransportScheme.TCP_ONLY            # Force TCP (cross-machine or when IPC unavailable)
+TransportScheme.PREFER_NAMED_PIPE   # Prefer Windows Named Pipes (falls back to TCP)
+TransportScheme.PREFER_UNIX_SOCKET  # Prefer Unix Domain Sockets (falls back to TCP)
+TransportScheme.PREFER_IPC          # Prefer any IPC (Named Pipe on Windows, Unix Socket on Linux/macOS)
+
+# Select an address using the strategy
+scheme = TransportScheme.PREFER_IPC
+addr = scheme.select_address(dcc_type="maya", host="127.0.0.1", port=18812, pid=12345)
+# -> TransportAddress (Named Pipe on Windows, Unix Socket on Linux/macOS, TCP fallback)
 ```
 
 ### IpcListener + ListenerHandle
@@ -844,13 +905,31 @@ instance_id = mgr.register_service(
     metadata={"user": "artist1"},
 )
 mgr.deregister_service("maya", instance_id)
-instances = mgr.list_instances("maya")        # -> List[ServiceEntry]
-all_services = mgr.list_all_services()         # -> List[ServiceEntry]
-entry = mgr.get_service("maya", instance_id)   # -> ServiceEntry|None
+instances = mgr.list_instances("maya")           # -> List[ServiceEntry]
+all_services = mgr.list_all_services()            # -> List[ServiceEntry]
+all_services = mgr.list_all_instances()           # alias for list_all_services()
+entry = mgr.get_service("maya", instance_id)      # -> ServiceEntry|None
 
 # Heartbeat + status
 mgr.heartbeat("maya", instance_id)  # -> bool (False if not found)
 mgr.update_service_status("maya", instance_id, ServiceStatus.BUSY)
+
+# One-call server registration (v0.12+) — bind listener + register in one step
+instance_id, listener = mgr.bind_and_register(
+    "maya",
+    version="2025",
+    metadata={"artist": "user1"},
+)
+# Transport auto-selected: Named Pipe on Windows, Unix Socket on Linux/macOS, TCP fallback
+local_addr = listener.local_address()
+channel = listener.accept()   # wait for first client connection
+
+# Smart service discovery (v0.12+)
+best = mgr.find_best_service("maya")      # best available instance (raises if none)
+ranked = mgr.rank_services("maya")        # all live instances sorted by preference
+# Preference order: Local IPC AVAILABLE → Local IPC BUSY → Local TCP AVAIL → Remote TCP ...
+for entry in ranked:
+    print(entry.instance_id, entry.status, entry.effective_address())
 
 # Session management (automatic connection routing)
 session_id = mgr.get_or_create_session("maya", instance_id)
@@ -901,9 +980,126 @@ entry.scene              # str|None (current open scene path)
 entry.metadata           # dict[str,str]
 entry.status             # ServiceStatus
 entry.transport_address  # TransportAddress|None
+entry.last_heartbeat_ms  # int (Unix ms; updated by TransportManager.heartbeat())
 entry.is_ipc             # bool
 entry.effective_address()  # -> TransportAddress (transport_address or TCP fallback)
 entry.to_dict()
+
+# Check staleness
+import time
+idle_sec = (time.time() * 1000 - entry.last_heartbeat_ms) / 1000
+if idle_sec > 300:
+    mgr.deregister_service(entry.dcc_type, entry.instance_id)
+```
+
+---
+
+## Cross-DCC Protocol Data Models (`dcc_mcp_core`)
+
+Coordinate-system–normalized data models for DCC-agnostic communication.
+All adapters (Maya, Blender, Houdini, 3dsMax, Unreal, Unity, Photoshop, Figma, …)
+convert from their native representation to these shared types.
+
+### ObjectTransform
+
+3D object TRS in right-hand Y-up world space.
+
+```python
+from dcc_mcp_core import ObjectTransform
+
+t = ObjectTransform(
+    translate=[0.0, 10.0, 0.0],  # [x, y, z] in centimeters
+    rotate=[0.0, 45.0, 0.0],     # Euler XYZ in degrees
+    scale=[1.0, 1.0, 1.0],       # [sx, sy, sz]
+)
+t.translate   # [float, float, float]
+t.rotate      # [float, float, float]
+t.scale       # [float, float, float]
+ObjectTransform.identity()  # -> ObjectTransform (all zeros/ones)
+t.to_dict()   # -> {"translate": [...], "rotate": [...], "scale": [...]}
+```
+
+### BoundingBox
+
+Axis-aligned bounding box in world space (centimeters).
+
+```python
+from dcc_mcp_core import BoundingBox
+
+bb = BoundingBox(min=[-1.0, 0.0, -1.0], max=[1.0, 2.0, 1.0])
+bb.min, bb.max  # list[float], list[float]
+bb.center()     # -> [0.0, 1.0, 0.0]
+bb.size()       # -> [2.0, 2.0, 2.0]
+bb.to_dict()    # -> {"min": [...], "max": [...]}
+```
+
+### SceneObject
+
+Lightweight descriptor of any scene entity (mesh, light, camera, transform, layer, actor, …).
+
+```python
+from dcc_mcp_core import SceneObject
+
+obj = SceneObject(
+    name="pCube1",
+    long_name="|group1|pCube1",  # full DAG / hierarchy path
+    object_type="mesh",          # "mesh", "light", "camera", "transform", etc.
+    parent="group1",             # parent name (optional)
+    visible=True,
+    metadata={"material": "lambert1"},
+)
+obj.name, obj.long_name, obj.object_type
+obj.parent   # str|None
+obj.visible  # bool
+obj.to_dict()
+```
+
+### SceneNode
+
+Scene hierarchy node with recursive children (DAG node / actor / layer group).
+
+```python
+from dcc_mcp_core import SceneNode, SceneObject
+
+leaf = SceneNode(object=SceneObject(name="pSphere1", object_type="mesh"))
+root = SceneNode(
+    object=SceneObject(name="group1", object_type="transform"),
+    children=[leaf],
+)
+root.object    # SceneObject
+root.children  # list[SceneNode]
+root.to_dict()
+```
+
+### FrameRange
+
+Animation frame range and timing.
+
+```python
+from dcc_mcp_core import FrameRange
+
+fr = FrameRange(start=1.0, end=240.0, fps=24.0, current=1.0)
+fr.start, fr.end, fr.fps, fr.current  # float
+duration_seconds = (fr.end - fr.start + 1) / fr.fps
+fr.to_dict()
+```
+
+### RenderOutput
+
+Metadata for a completed render operation.
+
+```python
+from dcc_mcp_core import RenderOutput
+
+out = RenderOutput(
+    file_path="/renders/frame001.png",
+    width=1920,
+    height=1080,
+    format="png",
+    render_time_ms=5000,
+)
+out.file_path, out.width, out.height, out.format, out.render_time_ms
+out.to_dict()
 ```
 
 ---

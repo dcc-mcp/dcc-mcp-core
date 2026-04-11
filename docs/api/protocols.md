@@ -37,7 +37,46 @@ from dcc_mcp_core import ToolAnnotations
 ann = ToolAnnotations(read_only_hint=True)
 ```
 
-## ResourceDefinition
+## ToolDeclaration
+
+Lightweight declaration of a single MCP tool provided by a Skill. Parsed from the `tools:` array
+in SKILL.md frontmatter — no script execution needed for discovery.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `name` | `str` | — | Tool name (used as MCP tool identifier) |
+| `description` | `str` | `""` | Human-readable description |
+| `input_schema` | `str` | `""` | JSON Schema string for input parameters |
+| `output_schema` | `str` | `""` | JSON Schema string for output (empty = any) |
+| `read_only` | `bool` | `False` | True = doesn't modify DCC state |
+| `destructive` | `bool` | `False` | True = deletes / overwrites data |
+| `idempotent` | `bool` | `False` | True = safe to call multiple times |
+| `source_file` | `str` | `""` | Relative path within skill's `scripts/` dir |
+
+```python
+from dcc_mcp_core import ToolDeclaration
+
+td = ToolDeclaration(
+    name="create_sphere",
+    description="Create a polygon sphere",
+    input_schema='{"type": "object", "required": ["radius"], "properties": {"radius": {"type": "number"}}}',
+    output_schema=None,
+    read_only=False,
+    destructive=False,
+    idempotent=False,
+    source_file="scripts/create_sphere.py",
+)
+
+# All fields are get/set
+td.name, td.description, td.input_schema, td.output_schema
+td.read_only, td.destructive, td.idempotent, td.source_file
+```
+
+**Relation to SkillMetadata**: `skill.tools` is `List[ToolDeclaration]`, populated from SKILL.md
+`tools:` frontmatter. Each entry maps to one MCP tool. When `tools:` is absent, the Skill
+falls back to auto-discovering scripts in `scripts/`.
+
+
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -218,6 +257,182 @@ Parent-child object graph — Maya DAG, Blender collections, UE level, Unity sce
 | `group_objects(object_names, group_name, parent)` | `SceneObject` | Group under a new container |
 | `ungroup(group_name)` | `list[str]` | Dissolve group; children move to group's parent |
 | `reparent(object_name, new_parent, preserve_world_transform)` | `SceneObject` | Change parent |
+
+---
+
+## DCC Data Types
+
+### ScriptLanguage
+
+Enum of script languages supported by DCC applications.
+
+| Value | Description |
+|-------|-------------|
+| `PYTHON` | Python |
+| `MEL` | Maya Embedded Language |
+| `MAXSCRIPT` | 3ds Max MAXScript |
+| `HSCRIPT` | Houdini HScript |
+| `VEX` | Houdini VEX |
+| `LUA` | Lua |
+| `CSHARP` | C# (Unity, Unreal) |
+| `BLUEPRINT` | Unreal Engine Blueprint |
+
+```python
+from dcc_mcp_core import ScriptLanguage
+
+lang = ScriptLanguage.PYTHON
+assert lang == ScriptLanguage.PYTHON
+```
+
+### DccErrorCode
+
+Enum of error codes for DCC adapter operations.
+
+| Value | Description |
+|-------|-------------|
+| `CONNECTION_FAILED` | Could not connect to the DCC process |
+| `TIMEOUT` | Operation exceeded time limit |
+| `SCRIPT_ERROR` | Script execution failed |
+| `NOT_RESPONDING` | DCC is unresponsive |
+| `UNSUPPORTED` | Operation not supported by this DCC |
+| `PERMISSION_DENIED` | Insufficient permissions |
+| `INVALID_INPUT` | Bad input parameters |
+| `SCENE_ERROR` | Scene operation failed |
+| `INTERNAL` | Internal error in the DCC adapter |
+
+```python
+from dcc_mcp_core import DccErrorCode, DccError
+
+err = DccError(DccErrorCode.TIMEOUT, "operation timed out", recoverable=True)
+assert err.code == DccErrorCode.TIMEOUT
+```
+
+### DccInfo
+
+Static information about a running DCC application instance.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `dcc_type` | `str` | — | Application type (`"maya"`, `"blender"`, …) |
+| `version` | `str` | — | Application version string |
+| `platform` | `str` | — | OS platform (`"windows"`, `"linux"`, `"macos"`) |
+| `pid` | `int` | — | Process ID |
+| `python_version` | `str \| None` | `None` | Embedded Python version, if any |
+| `metadata` | `dict[str, str]` | `{}` | Arbitrary extra key/value info |
+
+```python
+from dcc_mcp_core import DccInfo
+
+info = DccInfo(
+    dcc_type="maya",
+    version="2024.2",
+    platform="windows",
+    pid=1234,
+    python_version="3.10.11",
+)
+d = info.to_dict()  # serialize to plain dict
+```
+
+### DccCapabilities
+
+Feature flags advertising which sub-traits a DCC adapter supports.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `script_languages` | `list[ScriptLanguage]` | `[]` | Supported script languages |
+| `scene_info` | `bool` | `False` | Implements `DccSceneInfo` |
+| `snapshot` | `bool` | `False` | Implements `DccSnapshot` |
+| `undo_redo` | `bool` | `False` | Supports undo/redo |
+| `progress_reporting` | `bool` | `False` | Supports progress callbacks |
+| `file_operations` | `bool` | `False` | Supports file open/save/export |
+| `selection` | `bool` | `False` | Supports object selection |
+| `scene_manager` | `bool` | `False` | Implements `DccSceneManager` |
+| `transform` | `bool` | `False` | Implements `DccTransform` |
+| `render_capture` | `bool` | `False` | Implements `DccRenderCapture` |
+| `hierarchy` | `bool` | `False` | Implements `DccHierarchy` |
+| `extensions` | `dict[str, bool]` | `{}` | Arbitrary extension flags |
+
+```python
+from dcc_mcp_core import DccCapabilities, ScriptLanguage
+
+caps = DccCapabilities(
+    script_languages=[ScriptLanguage.PYTHON, ScriptLanguage.MEL],
+    scene_info=True,
+    snapshot=True,
+    file_operations=True,
+)
+if caps.scene_manager:
+    print("scene manager available")
+```
+
+### DccError
+
+Raised or returned when a DCC adapter operation fails.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `code` | `DccErrorCode` | — | Error category |
+| `message` | `str` | — | Human-readable description |
+| `details` | `str \| None` | `None` | Optional extended details |
+| `recoverable` | `bool` | `False` | Whether retry may succeed |
+
+```python
+from dcc_mcp_core import DccError, DccErrorCode
+
+err = DccError(DccErrorCode.SCRIPT_ERROR, "NameError: name 'foo' is not defined")
+print(err.code, err.recoverable)
+```
+
+### ScriptResult
+
+Result returned by `DccScriptEngine.execute_script()`.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `success` | `bool` | — | Whether execution succeeded |
+| `execution_time_ms` | `int` | — | Execution duration in milliseconds |
+| `output` | `str \| None` | `None` | Captured stdout / return value |
+| `error` | `str \| None` | `None` | Error message if failed |
+| `context` | `dict[str, str]` | `{}` | Execution context key/values |
+
+```python
+from dcc_mcp_core import ScriptResult
+
+r = ScriptResult(success=True, execution_time_ms=12, output="42")
+d = r.to_dict()
+```
+
+### SceneStatistics
+
+Lightweight scene statistics summary.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `object_count` | `int` | `0` | Total scene objects |
+| `vertex_count` | `int` | `0` | Total mesh vertices |
+| `polygon_count` | `int` | `0` | Total polygons |
+| `material_count` | `int` | `0` | Unique materials |
+| `texture_count` | `int` | `0` | Unique textures |
+| `light_count` | `int` | `0` | Light sources |
+| `camera_count` | `int` | `0` | Cameras |
+
+### SceneInfo
+
+Information about the currently open scene / document.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `file_path` | `str` | `""` | Absolute path on disk; empty if unsaved |
+| `name` | `str` | `"untitled"` | Scene/document name |
+| `modified` | `bool` | `False` | Unsaved changes present |
+| `format` | `str` | `""` | File format extension (`.ma`, `.blend`, …) |
+| `frame_range` | `tuple[float, float] \| None` | `None` | `(start, end)` frames |
+| `current_frame` | `float \| None` | `None` | Active frame |
+| `fps` | `float \| None` | `None` | Frames per second |
+| `up_axis` | `str \| None` | `None` | `"Y"` or `"Z"` |
+| `units` | `str \| None` | `None` | Linear units (`"cm"`, `"m"`, …) |
+| `statistics` | `SceneStatistics` | default | Scene object counts |
+| `metadata` | `dict[str, str]` | `{}` | Arbitrary extra data |
 
 ---
 

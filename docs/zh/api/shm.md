@@ -67,10 +67,9 @@ data = ssb.read()
 | 类型 | 描述 |
 |------|------|
 | `Geometry` | 网格/顶点数据 |
-| `Texture` | 图像/纹理数据 |
-| `Animation` | 动画曲线 |
-| `Scene` | 完整场景状态 |
-| `Metadata` | 场景元数据 |
+| `AnimationCache` | 动画缓存数据 |
+| `Screenshot` | 截图/图像数据 |
+| `Arbitrary` | 任意二进制数据 |
 
 ## PyBufferPool
 
@@ -81,27 +80,30 @@ data = ssb.read()
 ```python
 from dcc_mcp_core import PyBufferPool
 
-pool = PyBufferPool(capacity=4, size_bytes=256 * 1024 * 1024)
+pool = PyBufferPool(capacity=4, buffer_size=256 * 1024 * 1024)
 ```
+
+参数：
+- `capacity` — 池中缓冲区槽位数量
+- `buffer_size` — 每个缓冲区的字节大小
 
 ### 方法
 
 | 方法 | 返回 | 描述 |
 |------|------|------|
-| `acquire()` | `PySharedBuffer` | 从池中获取缓冲区 |
-| `release(buffer)` | `None` | 将缓冲区返还池中 |
+| `acquire()` | `PySharedBuffer` | 从池中获取缓冲区（所有槽位占用时抛出 `RuntimeError`） |
+| `available()` | `int` | 当前可用（空闲）槽位数 |
+| `capacity()` | `int` | 缓冲区池总容量 |
+| `buffer_size()` | `int` | 每个缓冲区的字节大小 |
 
 ### 示例
 
 ```python
-# 从池中获取缓冲区
-buffer = pool.acquire()
-
-# 向缓冲区写入数据
-buffer.write(b"data")
-
-# 释放回池中
-pool.release(buffer)
+pool = PyBufferPool(capacity=4, buffer_size=1024 * 1024)
+buf = pool.acquire()
+buf.write(b"scene snapshot")
+# 缓冲区在 buf 被垃圾回收时自动归还池
+print(pool.available())  # 3
 ```
 
 ## PySharedBuffer
@@ -113,23 +115,36 @@ pool.release(buffer)
 ```python
 from dcc_mcp_core import PySharedBuffer
 
-buffer = PySharedBuffer.create(size_bytes=1024 * 1024)
-buffer_id = buffer.buffer_id()
+buf = PySharedBuffer.create(capacity=1024 * 1024)  # 1 MiB
+buf_id = buf.id   # str 属性（非方法）
+buf_path = buf.path()  # 底层内存映射文件路径
+```
+
+### open()
+
+```python
+# 跨进程传递：从路径 + id 重建
+buf2 = PySharedBuffer.open(path=buf.path(), id=buf.id)
+assert buf2.read() == buf.read()
 ```
 
 ### 方法
 
 | 方法 | 返回 | 描述 |
 |------|------|------|
-| `write(data)` | `None` | 向缓冲区写入字节 |
-| `read()` | `bytes` | 读取所有缓冲区数据 |
+| `write(data)` | `int` | 写入字节；返回已写入字节数。超出容量时抛出 `RuntimeError` |
+| `read()` | `bytes` | 读取当前数据 |
+| `data_len()` | `int` | 当前已存储字节数 |
+| `capacity()` | `int` | 缓冲区最大字节容量 |
+| `clear()` | `None` | 重置 data_len 为 0 |
+| `path()` | `str` | 底层内存映射文件路径 |
+| `descriptor_json()` | `str` | 用于跨进程传递的 JSON 描述符 |
 
 ### 属性
 
 | 属性 | 类型 | 描述 |
 |------|------|------|
-| `size_bytes` | `int` | 缓冲区大小 |
-| `buffer_id()` | `str` | 唯一缓冲区标识符 |
+| `id` | `str` | 唯一缓冲区标识符 |
 
 ## 性能说明
 

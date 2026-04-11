@@ -67,10 +67,9 @@ Enum for classifying data:
 | Kind | Description |
 |------|-------------|
 | `Geometry` | Mesh/vertex data |
-| `Texture` | Image/texture data |
-| `Animation` | Animation curves |
-| `Scene` | Full scene state |
-| `Metadata` | Scene metadata |
+| `AnimationCache` | Animation cache data |
+| `Screenshot` | Screenshot/image data |
+| `Arbitrary` | Arbitrary binary data |
 
 ## PyBufferPool
 
@@ -81,55 +80,71 @@ Pre-allocated buffer pool for high-performance scenarios.
 ```python
 from dcc_mcp_core import PyBufferPool
 
-pool = PyBufferPool(capacity=4, size_bytes=256 * 1024 * 1024)
+pool = PyBufferPool(capacity=4, buffer_size=256 * 1024 * 1024)
 ```
+
+Parameters:
+- `capacity` — number of buffer slots in the pool
+- `buffer_size` — size in bytes of each individual buffer
 
 ### Methods
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `acquire()` | `PySharedBuffer` | Get a buffer from the pool |
-| `release(buffer)` | `None` | Return buffer to the pool |
+| `acquire()` | `PySharedBuffer` | Get a buffer from the pool (raises `RuntimeError` if all slots in use) |
+| `available()` | `int` | Number of currently free slots |
+| `capacity()` | `int` | Total pool capacity |
+| `buffer_size()` | `int` | Per-buffer size in bytes |
 
 ### Example
 
 ```python
-# Acquire a buffer from the pool
-buffer = pool.acquire()
-
-# Write data to the buffer
-buffer.write(b"data")
-
-# Release back to the pool
-pool.release(buffer)
+pool = PyBufferPool(capacity=4, buffer_size=1024 * 1024)
+buf = pool.acquire()
+buf.write(b"scene snapshot")
+# Buffer is returned to the pool when `buf` is garbage-collected
+print(pool.available())  # 3
 ```
 
 ## PySharedBuffer
 
-Direct access to memory-mapped shared buffers.
+Direct access to named memory-mapped shared buffers.
 
 ### create()
 
 ```python
 from dcc_mcp_core import PySharedBuffer
 
-buffer = PySharedBuffer.create(size_bytes=1024 * 1024)
-buffer_id = buffer.buffer_id()
+buf = PySharedBuffer.create(capacity=1024 * 1024)  # 1 MiB
+buf_id = buf.id   # str property (not a method)
+buf_path = buf.path()  # file path of the backing mmap file
+```
+
+### open()
+
+```python
+# Cross-process handoff: reconstruct from path + id
+buf2 = PySharedBuffer.open(path=buf.path(), id=buf.id)
+assert buf2.read() == buf.read()
 ```
 
 ### Methods
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `write(data)` | `None` | Write bytes to buffer |
-| `read()` | `bytes` | Read all buffer data |
+| `write(data)` | `int` | Write bytes; returns bytes written. Raises `RuntimeError` if data exceeds capacity |
+| `read()` | `bytes` | Read current data |
+| `data_len()` | `int` | Bytes currently stored |
+| `capacity()` | `int` | Maximum bytes this buffer can hold |
+| `clear()` | `None` | Reset data_len to 0 |
+| `path()` | `str` | File path of backing mmap file |
+| `descriptor_json()` | `str` | JSON descriptor for cross-process handoff |
 
 ### Properties
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `size_bytes` | `int` | Buffer size |
-| `buffer_id()` | `str` | Unique buffer identifier |
+| `id` | `str` | Unique buffer identifier |
 
 ## Performance Notes
 
