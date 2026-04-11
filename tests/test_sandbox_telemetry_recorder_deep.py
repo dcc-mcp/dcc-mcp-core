@@ -220,7 +220,8 @@ class TestSandboxContextIsPathAllowed:
         sp = SandboxPolicy()
         sp.allow_paths(["/tmp/project/file.py"])
         sc = SandboxContext(sp)
-        assert sc.is_path_allowed("/tmp/project/file.py") is False  # observed: exact match not allowed either
+        # Exact match in allow_paths list => allowed
+        assert sc.is_path_allowed("/tmp/project/file.py") is True
 
     def test_unrelated_path_blocked(self):
         from dcc_mcp_core import SandboxContext
