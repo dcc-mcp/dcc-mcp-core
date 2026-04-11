@@ -220,11 +220,15 @@ class TestSandboxContextIsPathAllowed:
         from dcc_mcp_core import SandboxContext
         from dcc_mcp_core import SandboxPolicy
 
-        # Use a real resolved path so macOS /tmp → /private/tmp symlink is handled.
-        target = str(Path(tempfile.gettempdir()).resolve() / "dcc_mcp_test_file.py")
+        # Use an *existing* directory as the allowed path so that
+        # canonicalize() succeeds on all platforms (Windows, macOS, Linux).
+        # A file inside that directory must then be allowed.
+        tmp_dir = Path(tempfile.gettempdir()).resolve()
+        target = str(tmp_dir / "dcc_mcp_test_file.py")
         sp = SandboxPolicy()
-        sp.allow_paths([target])
+        sp.allow_paths([str(tmp_dir)])  # allow the parent directory
         sc = SandboxContext(sp)
+        # Any file inside the allowed directory should be permitted.
         assert sc.is_path_allowed(target) is True
 
     def test_unrelated_path_blocked(self):
