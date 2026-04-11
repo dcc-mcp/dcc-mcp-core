@@ -11,8 +11,9 @@ mod scene_node;
 
 #[cfg(feature = "python-bindings")]
 pub use data::{
-    PyCaptureResult, PyDccCapabilities, PyDccError, PyDccInfo, PyFrameRange, PyObjectTransform,
-    PyRenderOutput, PySceneInfo, PySceneObject, PySceneStatistics, PyScriptResult,
+    PyBoundingBox, PyCaptureResult, PyDccCapabilities, PyDccError, PyDccInfo, PyFrameRange,
+    PyObjectTransform, PyRenderOutput, PySceneInfo, PySceneObject, PySceneStatistics,
+    PyScriptResult,
 };
 #[cfg(feature = "python-bindings")]
 pub use enums::{PyDccErrorCode, PyScriptLanguage};

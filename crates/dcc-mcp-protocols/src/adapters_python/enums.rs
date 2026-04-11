@@ -124,10 +124,18 @@ pub enum PyDccErrorCode {
 #[pymethods]
 impl PyDccErrorCode {
     fn __repr__(&self) -> String {
-        format!("DccErrorCode.{}", self.__str__())
+        format!("DccErrorCode.{}", self.as_str())
     }
 
     fn __str__(&self) -> &'static str {
+        self.as_str()
+    }
+}
+
+#[cfg(feature = "python-bindings")]
+impl PyDccErrorCode {
+    /// Pure-Rust string representation (callable from Rust without going through PyO3).
+    pub fn as_str(&self) -> &'static str {
         match self {
             Self::ConnectionFailed => "CONNECTION_FAILED",
             Self::Timeout => "TIMEOUT",

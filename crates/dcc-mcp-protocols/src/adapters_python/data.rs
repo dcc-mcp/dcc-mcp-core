@@ -462,14 +462,14 @@ impl PyDccError {
     fn __repr__(&self) -> String {
         format!(
             "DccError(code={}, message={:?}, recoverable={})",
-            self.code.__str__(),
+            self.code.as_str(),
             self.message,
             self.recoverable,
         )
     }
 
     fn __str__(&self) -> String {
-        format!("[{}] {}", self.code.__str__(), self.message)
+        format!("[{}] {}", self.code.as_str(), self.message)
     }
 }
 
@@ -750,7 +750,7 @@ impl PySceneObject {
         }
     }
 
-    fn to_dict(&self, py: Python) -> PyResult<Py<PyAny>> {
+    pub fn to_dict(&self, py: Python) -> PyResult<Py<PyAny>> {
         let dict = PyDict::new(py);
         dict.set_item("name", &self.name)?;
         dict.set_item("long_name", &self.long_name)?;
