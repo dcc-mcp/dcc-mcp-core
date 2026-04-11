@@ -2,6 +2,8 @@
 
 `dcc_mcp_core.SkillCatalog`、`dcc_mcp_core.SkillScanner`、`dcc_mcp_core.SkillWatcher`、`dcc_mcp_core.SkillMetadata`、`dcc_mcp_core.SkillSummary`、`dcc_mcp_core.ToolDeclaration`、`dcc_mcp_core.parse_skill_md`、`dcc_mcp_core.scan_and_load`
 
+`dcc_mcp_core.skill`（纯 Python）：`skill_entry`、`skill_success`、`skill_error`、`skill_warning`、`skill_exception`、`run_main`
+
 ## SkillCatalog
 
 渐进式 Skill 发现与加载。线程安全（所有状态存储在 DashMap/DashSet 中）。
@@ -412,3 +414,214 @@ get_app_skill_paths_from_env(app_name: str) -> list[str]
 示例：
 - Skill `maya-geometry`，工具 `create_sphere` → `maya_geometry__create_sphere`
 - Skill `blender-utils`，工具 `render-scene` → `blender_utils__render_scene`
+
+---
+
+## Skill Script 辅助工具（纯 Python）
+
+`dcc_mcp_core.skill` 是**纯 Python** 子模块 — 无需编译扩展即可使用。
+Skill 脚本作者可在 DCC 环境内直接导入，即便完整 wheel 包未安装也可正常运行。
+
+```python
+from dcc_mcp_core.skill import skill_entry, skill_success, skill_error
+```
+
+所有辅助函数返回普通 `dict`，与 `ActionResultModel` 完全兼容。
+若 `dcc_mcp_core._core` 可用，可将 dict 传入 `validate_action_result()` 获得类型化的 `ActionResultModel` 对象。
+
+---
+
+### skill_success
+
+```python
+skill_success(
+    message: str,
+    *,
+    prompt: str | None = None,
+    **context,
+) -> dict
+```
+
+返回成功结果 dict。
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `message` | `str` | 人类可读的执行摘要 |
+| `prompt` | `str \| None` | Agent 下一步操作的提示（可选）|
+| `**context` | `Any` | 附加到 `context` 的任意键值对 |
+
+```python
+return skill_success(
+    "时间线已设置为 1–120 帧",
+    prompt="查看时间线滑块确认结果。",
+    start_frame=1,
+    end_frame=120,
+)
+```
+
+---
+
+### skill_error
+
+```python
+skill_error(
+    message: str,
+    error: str,
+    *,
+    prompt: str | None = None,
+    possible_solutions: list[str] | None = None,
+    **context,
+) -> dict
+```
+
+返回失败结果 dict。
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `message` | `str` | 面向用户的错误描述 |
+| `error` | `str` | 技术错误字符串（异常 repr、错误码等）|
+| `prompt` | `str \| None` | 恢复提示；默认为通用消息 |
+| `possible_solutions` | `list[str] \| None` | 可操作建议，存储在 `context["possible_solutions"]` 中 |
+
+```python
+return skill_error(
+    "Maya 环境不可用",
+    "ImportError: No module named 'maya'",
+    prompt="请确保 Maya 已启动再调用此 Skill。",
+    possible_solutions=["启动 Maya", "检查 DCC_MCP_MAYA_SKILL_PATHS"],
+)
+```
+
+---
+
+### skill_warning
+
+```python
+skill_warning(
+    message: str,
+    *,
+    warning: str = "",
+    prompt: str | None = None,
+    **context,
+) -> dict
+```
+
+返回成功但带警告的结果（`success=True`，`context["warning"]` 被设置）。
+
+```python
+return skill_warning(
+    "时间线已设置，end_frame 已截断为场景长度",
+    warning="end_frame 9999 > 场景长度 240；已截断为 240",
+    prompt="查看时间线滑块。",
+    actual_end=240,
+)
+```
+
+---
+
+### skill_exception
+
+```python
+skill_exception(
+    exc: BaseException,
+    *,
+    message: str | None = None,
+    prompt: str | None = None,
+    include_traceback: bool = True,
+    possible_solutions: list[str] | None = None,
+    **context,
+) -> dict
+```
+
+从异常构建失败结果 dict。自动捕获 `error_type` 和完整堆栈跟踪（可选）存入 `context`。
+
+```python
+try:
+    do_work()
+except Exception as exc:
+    return skill_exception(
+        exc,
+        possible_solutions=["请确认场景已打开"],
+    )
+```
+
+---
+
+### @skill_entry
+
+```python
+@skill_entry
+def my_tool(param: str = "default", **kwargs) -> dict:
+    ...
+```
+
+为 skill 函数添加标准错误处理的装饰器。
+
+- 自动捕获 `ImportError`（DCC 模块缺失）、`Exception` 和 `BaseException`
+- 每种异常自动转换为规范的错误 dict
+- 直接运行脚本时（`__name__ == "__main__"`），将 JSON 结果打印到 stdout
+
+**完整示例**（替代手动 try/except/`main()` 样板代码）：
+
+```python
+from dcc_mcp_core.skill import skill_entry, skill_success
+
+@skill_entry
+def set_timeline(start_frame: float = 1.0, end_frame: float = 120.0, **kwargs):
+    """设置 Maya 播放时间线范围。"""
+    import maya.cmds as cmds  # ImportError 由装饰器自动捕获
+
+    min_frame = kwargs.get("min_frame", start_frame)
+    max_frame = kwargs.get("max_frame", end_frame)
+
+    cmds.playbackOptions(
+        min=min_frame, max=max_frame,
+        animationStartTime=start_frame, animationEndTime=end_frame,
+    )
+    return skill_success(
+        f"时间线已设置为 {start_frame}–{end_frame}",
+        prompt="查看时间线滑块确认结果。",
+        start_frame=start_frame,
+        end_frame=end_frame,
+    )
+
+def main(**kwargs):
+    """入口点；委托给 set_timeline。"""
+    return set_timeline(**kwargs)
+
+if __name__ == "__main__":
+    from dcc_mcp_core.skill import run_main
+    run_main(main)
+```
+
+---
+
+### run_main
+
+```python
+run_main(main_fn: Callable[..., dict], argv: list[str] | None = None) -> None
+```
+
+执行 `main_fn` 并将 JSON 结果打印到 stdout。成功时调用 `sys.exit(0)`，失败时调用 `sys.exit(1)`。
+
+用于 `if __name__ == "__main__"` 块：
+
+```python
+if __name__ == "__main__":
+    from dcc_mcp_core.skill import run_main
+    run_main(main)
+```
+
+---
+
+### 从 DCC 专用辅助函数迁移
+
+如果之前使用 `dcc_mcp_maya` 的 `maya_success` / `maya_error` / `maya_from_exception`，通用版本直接对应：
+
+| 旧（DCC 专用）| 新（通用）|
+|--------------|----------|
+| `maya_success(msg, prompt=..., **ctx)` | `skill_success(msg, prompt=..., **ctx)` |
+| `maya_error(msg, error, prompt=..., **ctx)` | `skill_error(msg, error, prompt=..., **ctx)` |
+| `maya_from_exception(exc_msg, ...)` | `skill_exception(exc, ...)` |
+
+dict 结构完全相同 — 两者均与 `ActionResultModel` 兼容。

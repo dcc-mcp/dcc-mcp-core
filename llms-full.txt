@@ -601,6 +601,83 @@ Each script in `scripts/` becomes an action:
 
 ---
 
+## Skill Script Helpers — `dcc_mcp_core.skill` (pure Python)
+
+A **pure-Python** sub-module for skill script authors. No compiled `_core` extension required — works inside any DCC Python environment.
+
+```python
+from dcc_mcp_core.skill import skill_entry, skill_success, skill_error, skill_warning, skill_exception, run_main
+```
+
+All helpers return a plain `dict` compatible with `ActionResultModel`.
+
+### Result builders
+
+```python
+# Success
+skill_success(message, *, prompt=None, **context) -> dict
+
+# Failure — explicit error string
+skill_error(message, error, *, prompt=None, possible_solutions=None, **context) -> dict
+
+# Success with a warning note in context["warning"]
+skill_warning(message, *, warning="", prompt=None, **context) -> dict
+
+# Failure built from a caught exception (captures traceback in context)
+skill_exception(exc, *, message=None, prompt=None, include_traceback=True,
+                possible_solutions=None, **context) -> dict
+```
+
+### @skill_entry decorator
+
+Wraps a skill function with automatic error handling. Catches `ImportError` (DCC not
+available), `Exception`, and `BaseException`. When run directly, prints JSON to stdout.
+
+```python
+from dcc_mcp_core.skill import skill_entry, skill_success
+
+@skill_entry
+def set_timeline(start_frame: float = 1.0, end_frame: float = 120.0, **kwargs):
+    import maya.cmds as cmds          # ImportError caught automatically
+    cmds.playbackOptions(min=start_frame, max=end_frame,
+                         animationStartTime=start_frame, animationEndTime=end_frame)
+    return skill_success(
+        f"Timeline set to {start_frame}–{end_frame}",
+        prompt="Inspect the timeline slider to verify.",
+        start_frame=start_frame,
+        end_frame=end_frame,
+    )
+
+def main(**kwargs):
+    return set_timeline(**kwargs)
+
+if __name__ == "__main__":
+    from dcc_mcp_core.skill import run_main
+    run_main(main)
+```
+
+### run_main
+
+Executes `main_fn()`, prints JSON result to stdout, exits 0/1.
+
+```python
+if __name__ == "__main__":
+    from dcc_mcp_core.skill import run_main
+    run_main(main)
+```
+
+### Migration from DCC-specific helpers
+
+| DCC-specific (dcc_mcp_maya) | Generic (dcc_mcp_core.skill) |
+|-----------------------------|------------------------------|
+| `maya_success(msg, **ctx)` | `skill_success(msg, **ctx)` |
+| `maya_error(msg, error, **ctx)` | `skill_error(msg, error, **ctx)` |
+| `maya_from_exception(exc_str, ...)` | `skill_exception(exc, ...)` |
+
+Dict structure is identical — both compatible with `ActionResultModel`.
+
+---
+
 ## MCP Protocol Types (`dcc_mcp_core`)
 
 ### ToolDefinition

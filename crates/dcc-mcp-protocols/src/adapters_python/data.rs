@@ -1,9 +1,8 @@
-//! Python bindings for DCC adapter data types via PyO3.
+//! Python-facing data structs for DCC adapter types.
 //!
-//! Exposes `PyDccInfo`, `PyScriptResult`, `PyScriptLanguage`, `PySceneInfo`,
-//! `PySceneStatistics`, `PyDccCapabilities`, `PyDccError`, `PyDccErrorCode`,
-//! `PyCaptureResult`, `PyObjectTransform`, `PyBoundingBox`, `PySceneObject`,
-//! `PyFrameRange`, and `PyRenderOutput` as Python classes.
+//! Exports `PyDccInfo`, `PyScriptResult`, `PySceneStatistics`, `PySceneInfo`,
+//! `PyDccCapabilities`, `PyDccError`, `PyCaptureResult`, `PyObjectTransform`,
+//! `PyBoundingBox`, `PySceneObject`, `PyFrameRange`, and `PyRenderOutput`.
 
 #[cfg(feature = "python-bindings")]
 use pyo3::prelude::*;
@@ -15,161 +14,12 @@ use std::collections::HashMap;
 
 #[cfg(feature = "python-bindings")]
 use crate::adapters::{
-    BoundingBox, CaptureResult, DccCapabilities, DccError, DccErrorCode, DccInfo, FrameRange,
-    ObjectTransform, RenderOutput, SceneInfo, SceneNode, SceneObject, SceneStatistics,
-    ScriptLanguage, ScriptResult,
+    BoundingBox, CaptureResult, DccCapabilities, DccError, DccInfo, FrameRange, ObjectTransform,
+    RenderOutput, SceneInfo, SceneObject, SceneStatistics, ScriptResult,
 };
 
-// ── PyScriptLanguage ──
-
-/// Python-facing enum for DCC script languages.
-///
-/// ```python
-/// from dcc_mcp_core import ScriptLanguage
-///
-/// lang = ScriptLanguage.PYTHON
-/// print(lang)  # "python"
-/// ```
 #[cfg(feature = "python-bindings")]
-#[pyclass(name = "ScriptLanguage", eq, from_py_object)]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PyScriptLanguage {
-    #[pyo3(name = "PYTHON")]
-    Python,
-    #[pyo3(name = "MEL")]
-    Mel,
-    #[pyo3(name = "MAXSCRIPT")]
-    MaxScript,
-    #[pyo3(name = "HSCRIPT")]
-    HScript,
-    #[pyo3(name = "VEX")]
-    Vex,
-    #[pyo3(name = "LUA")]
-    Lua,
-    #[pyo3(name = "CSHARP")]
-    CSharp,
-    #[pyo3(name = "BLUEPRINT")]
-    Blueprint,
-}
-
-#[cfg(feature = "python-bindings")]
-#[pymethods]
-impl PyScriptLanguage {
-    fn __repr__(&self) -> String {
-        format!("ScriptLanguage.{}", self.__str__())
-    }
-
-    fn __str__(&self) -> &'static str {
-        match self {
-            Self::Python => "PYTHON",
-            Self::Mel => "MEL",
-            Self::MaxScript => "MAXSCRIPT",
-            Self::HScript => "HSCRIPT",
-            Self::Vex => "VEX",
-            Self::Lua => "LUA",
-            Self::CSharp => "CSHARP",
-            Self::Blueprint => "BLUEPRINT",
-        }
-    }
-}
-
-#[cfg(feature = "python-bindings")]
-impl From<ScriptLanguage> for PyScriptLanguage {
-    fn from(lang: ScriptLanguage) -> Self {
-        match lang {
-            ScriptLanguage::Python => PyScriptLanguage::Python,
-            ScriptLanguage::Mel => PyScriptLanguage::Mel,
-            ScriptLanguage::MaxScript => PyScriptLanguage::MaxScript,
-            ScriptLanguage::HScript => PyScriptLanguage::HScript,
-            ScriptLanguage::Vex => PyScriptLanguage::Vex,
-            ScriptLanguage::Lua => PyScriptLanguage::Lua,
-            ScriptLanguage::CSharp => PyScriptLanguage::CSharp,
-            ScriptLanguage::Blueprint => PyScriptLanguage::Blueprint,
-        }
-    }
-}
-
-#[cfg(feature = "python-bindings")]
-impl From<&PyScriptLanguage> for ScriptLanguage {
-    fn from(lang: &PyScriptLanguage) -> Self {
-        match lang {
-            PyScriptLanguage::Python => ScriptLanguage::Python,
-            PyScriptLanguage::Mel => ScriptLanguage::Mel,
-            PyScriptLanguage::MaxScript => ScriptLanguage::MaxScript,
-            PyScriptLanguage::HScript => ScriptLanguage::HScript,
-            PyScriptLanguage::Vex => ScriptLanguage::Vex,
-            PyScriptLanguage::Lua => ScriptLanguage::Lua,
-            PyScriptLanguage::CSharp => ScriptLanguage::CSharp,
-            PyScriptLanguage::Blueprint => ScriptLanguage::Blueprint,
-        }
-    }
-}
-
-// ── PyDccErrorCode ──
-
-/// Python-facing enum for DCC error codes.
-#[cfg(feature = "python-bindings")]
-#[pyclass(name = "DccErrorCode", eq, from_py_object)]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PyDccErrorCode {
-    #[pyo3(name = "CONNECTION_FAILED")]
-    ConnectionFailed,
-    #[pyo3(name = "TIMEOUT")]
-    Timeout,
-    #[pyo3(name = "SCRIPT_ERROR")]
-    ScriptError,
-    #[pyo3(name = "NOT_RESPONDING")]
-    NotResponding,
-    #[pyo3(name = "UNSUPPORTED")]
-    Unsupported,
-    #[pyo3(name = "PERMISSION_DENIED")]
-    PermissionDenied,
-    #[pyo3(name = "INVALID_INPUT")]
-    InvalidInput,
-    #[pyo3(name = "SCENE_ERROR")]
-    SceneError,
-    #[pyo3(name = "INTERNAL")]
-    Internal,
-}
-
-#[cfg(feature = "python-bindings")]
-#[pymethods]
-impl PyDccErrorCode {
-    fn __repr__(&self) -> String {
-        format!("DccErrorCode.{}", self.__str__())
-    }
-
-    fn __str__(&self) -> &'static str {
-        match self {
-            Self::ConnectionFailed => "CONNECTION_FAILED",
-            Self::Timeout => "TIMEOUT",
-            Self::ScriptError => "SCRIPT_ERROR",
-            Self::NotResponding => "NOT_RESPONDING",
-            Self::Unsupported => "UNSUPPORTED",
-            Self::PermissionDenied => "PERMISSION_DENIED",
-            Self::InvalidInput => "INVALID_INPUT",
-            Self::SceneError => "SCENE_ERROR",
-            Self::Internal => "INTERNAL",
-        }
-    }
-}
-
-#[cfg(feature = "python-bindings")]
-impl From<DccErrorCode> for PyDccErrorCode {
-    fn from(code: DccErrorCode) -> Self {
-        match code {
-            DccErrorCode::ConnectionFailed => PyDccErrorCode::ConnectionFailed,
-            DccErrorCode::Timeout => PyDccErrorCode::Timeout,
-            DccErrorCode::ScriptError => PyDccErrorCode::ScriptError,
-            DccErrorCode::NotResponding => PyDccErrorCode::NotResponding,
-            DccErrorCode::Unsupported => PyDccErrorCode::Unsupported,
-            DccErrorCode::PermissionDenied => PyDccErrorCode::PermissionDenied,
-            DccErrorCode::InvalidInput => PyDccErrorCode::InvalidInput,
-            DccErrorCode::SceneError => PyDccErrorCode::SceneError,
-            DccErrorCode::Internal => PyDccErrorCode::Internal,
-        }
-    }
-}
+use super::enums::{PyDccErrorCode, PyScriptLanguage};
 
 // ── PyDccInfo ──
 
@@ -920,8 +770,8 @@ impl PySceneObject {
 }
 
 #[cfg(feature = "python-bindings")]
-impl From<&crate::adapters::SceneObject> for PySceneObject {
-    fn from(obj: &crate::adapters::SceneObject) -> Self {
+impl From<&SceneObject> for PySceneObject {
+    fn from(obj: &SceneObject) -> Self {
         Self {
             name: obj.name.clone(),
             long_name: obj.long_name.clone(),
@@ -1066,86 +916,5 @@ impl From<&RenderOutput> for PyRenderOutput {
             format: out.format.clone(),
             render_time_ms: out.render_time_ms,
         }
-    }
-}
-
-// ── PySceneNode ──
-
-/// Python-facing scene hierarchy node (recursive tree).
-///
-/// ```python
-/// from dcc_mcp_core import SceneNode, SceneObject
-///
-/// leaf = SceneNode(
-///     object=SceneObject(name="pSphere1", object_type="mesh"),
-///     children=[]
-/// )
-/// root = SceneNode(
-///     object=SceneObject(name="group1", object_type="transform"),
-///     children=[leaf]
-/// )
-/// print(len(root.children))  # 1
-/// ```
-#[cfg(feature = "python-bindings")]
-#[pyclass(name = "SceneNode", get_all, from_py_object)]
-#[derive(Debug, Clone)]
-pub struct PySceneNode {
-    /// The scene object at this node.
-    pub object: PySceneObject,
-    /// Immediate children of this node.
-    pub children: Vec<PySceneNode>,
-}
-
-#[cfg(feature = "python-bindings")]
-#[pymethods]
-impl PySceneNode {
-    #[new]
-    #[pyo3(signature = (object, children=None))]
-    fn new(object: PySceneObject, children: Option<Vec<PySceneNode>>) -> Self {
-        Self {
-            object,
-            children: children.unwrap_or_default(),
-        }
-    }
-
-    fn to_dict(&self, py: Python) -> PyResult<Py<PyAny>> {
-        let dict = PyDict::new(py);
-        dict.set_item("object", self.object.to_dict(py)?)?;
-        let children: Vec<_> = self
-            .children
-            .iter()
-            .map(|c| c.to_dict(py))
-            .collect::<PyResult<_>>()?;
-        dict.set_item("children", children)?;
-        Ok(dict.unbind().into_any())
-    }
-
-    fn __repr__(&self) -> String {
-        format!(
-            "SceneNode(name={:?}, children={})",
-            self.object.name,
-            self.children.len()
-        )
-    }
-}
-
-#[cfg(feature = "python-bindings")]
-impl From<&SceneNode> for PySceneNode {
-    fn from(node: &SceneNode) -> Self {
-        Self {
-            object: PySceneObject::from(&node.object),
-            children: node.children.iter().map(PySceneNode::from).collect(),
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn test_module_compiles() {
-        // Compilation test — the Python bindings are gated behind the feature flag,
-        // so we only verify the module compiles in default (non-binding) mode.
-        // assert!(true) is a no-op; use a meaningful check instead.
-        let _ = 1 + 1;
     }
 }

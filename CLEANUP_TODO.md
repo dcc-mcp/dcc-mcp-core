@@ -57,8 +57,8 @@ Files exceeding 500-line threshold (excluding test files), tracked since Run #91
 
 | File | Lines | Analysis | Priority |
 |------|-------|----------|----------|
-| `dcc-mcp-protocols/src/adapters.rs` | **1207+** (48533B) | **Run #105**: Unchanged. Split plan (core DccConnection/DccScriptEngine/DccSceneInfo/DccSnapshot vs cross-DCC DccSceneManager/DccTransform/DccRenderCapture/DccHierarchy) valid, medium risk. Primary target for Run #106. | **Medium** — planned |
-| `dcc-mcp-protocols/src/adapters_python.rs` | **1057+** (34038B) | **Run #105**: Unchanged. Evaluate after adapters.rs split. | **Low** — after adapters.rs split |
+| `dcc-mcp-protocols/src/adapters/` | **SPLIT ✅** | **Run #106**: Split into adapters/types.rs (297L) + adapters/traits.rs (304L) + adapters/tests.rs (282L) + adapters/mod.rs (17L). All pub paths unchanged. 0 Clippy warnings. | **Done** |
+| `dcc-mcp-protocols/src/adapters_python/` | **SPLIT ✅** | **Run #107**: Split adapters_python.rs (1152L) into adapters_python/enums.rs (173L) + adapters_python/data.rs (843L) + adapters_python/scene_node.rs (86L) + adapters_python/mod.rs (28L). All pub paths unchanged. 0 Clippy warnings. | **Done** |
 | `dcc-mcp-protocols/src/mock/tests.rs` | **1000+** (41071B) | Test-only code. No action needed. | ✅ No action |
 | `dcc-mcp-protocols/src/mock/adapter.rs` | **898** (30292B) | Mock DCC adapter implementation. Large but acceptable for mock helpers. | Low |
 | `dcc-mcp-skills/src/catalog.rs` | **1092+** (44753B) | **Run #105**: Still growing. Single-concern; monitor. | ✅ No action |
@@ -79,7 +79,9 @@ Files exceeding 500-line threshold (excluding test files), tracked since Run #91
 
 **Note (Run #105)**: 3 unused imports removed in mock/tests.rs (DccHierarchy/DccRenderCapture/DccSceneManager). protocols.md EN+ZH: added 8 missing data type sections (DccInfo/DccCapabilities/DccError/DccErrorCode/ScriptLanguage/ScriptResult/SceneInfo/SceneStatistics) — these were referenced as return types but had no API docs. +235 Python tests (10858 total, +108 from iteration Agent).
 
-**Next action (Run #106)**: Evaluate `adapters.rs` (1207L, 48533B) split — Core traits (DccConnection/DccScriptEngine/DccSceneInfo/DccSnapshot) vs Cross-DCC Protocol traits (DccSceneManager/DccTransform/DccRenderCapture/DccHierarchy). Medium risk due to adapters_python.rs use paths.
+**Note (Run #106)**: adapters.rs (1207L) split into adapters/ submodule: types.rs (297L) + traits.rs (304L) + tests.rs (282L) + mod.rs (17L). All `crate::adapters::*` paths unchanged. 0 Clippy warnings. 11089 Python tests pass. Next: evaluate adapters_python.rs (1057L) structural split.
+
+**Note (Run #107)**: adapters_python.rs (1152L) split into adapters_python/ submodule: enums.rs (173L, PyScriptLanguage + PyDccErrorCode) + data.rs (843L, 12 data structs) + scene_node.rs (86L, recursive PySceneNode) + mod.rs (28L). All pub paths unchanged. 0 Clippy warnings. Stages 1–8 all clean. +269 new Python tests from iteration Agent (11419 total). Next: catalog.rs (1092L) monitor growth.
 
 ---
 

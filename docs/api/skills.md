@@ -2,6 +2,8 @@
 
 `dcc_mcp_core.SkillCatalog`, `dcc_mcp_core.SkillScanner`, `dcc_mcp_core.SkillWatcher`, `dcc_mcp_core.SkillMetadata`, `dcc_mcp_core.SkillSummary`, `dcc_mcp_core.ToolDeclaration`, `dcc_mcp_core.parse_skill_md`, `dcc_mcp_core.scan_and_load`
 
+`dcc_mcp_core.skill` (pure-Python): `skill_entry`, `skill_success`, `skill_error`, `skill_warning`, `skill_exception`, `run_main`
+
 ## SkillCatalog
 
 Progressive skill discovery and loading. Thread-safe (all state stored in DashMap/DashSet).
@@ -444,3 +446,219 @@ When `SkillCatalog.load_skill()` registers tools from a skill, action names foll
 Examples:
 - skill `maya-geometry`, tool `create_sphere` → `maya_geometry__create_sphere`
 - skill `blender-utils`, tool `render-scene` → `blender_utils__render_scene`
+
+---
+
+## Skill Script Helpers (pure-Python)
+
+`dcc_mcp_core.skill` is a **pure-Python** sub-module — no compiled extension required.
+Skill script authors can import helpers directly inside DCC environments that may not
+have the full wheel installed.
+
+```python
+from dcc_mcp_core.skill import skill_entry, skill_success, skill_error
+```
+
+All helpers return a plain `dict` that is fully compatible with `ActionResultModel`.
+When `dcc_mcp_core._core` is available, you can pass the dict to `validate_action_result()`
+to obtain a typed `ActionResultModel` object.
+
+---
+
+### skill_success
+
+```python
+skill_success(
+    message: str,
+    *,
+    prompt: str | None = None,
+    **context,
+) -> dict
+```
+
+Return a success result dict.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `message` | `str` | Human-readable summary of what was accomplished |
+| `prompt` | `str \| None` | Optional hint for the agent's next action |
+| `**context` | `Any` | Arbitrary key/value pairs attached to `context` |
+
+```python
+return skill_success(
+    "Timeline set to frames 1–120",
+    prompt="Check the timeline slider to verify.",
+    start_frame=1,
+    end_frame=120,
+)
+```
+
+---
+
+### skill_error
+
+```python
+skill_error(
+    message: str,
+    error: str,
+    *,
+    prompt: str | None = None,
+    possible_solutions: list[str] | None = None,
+    **context,
+) -> dict
+```
+
+Return a failure result dict.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `message` | `str` | User-facing description of what went wrong |
+| `error` | `str` | Technical error string (exception repr, code …) |
+| `prompt` | `str \| None` | Recovery hint; defaults to a generic message |
+| `possible_solutions` | `list[str] \| None` | Actionable suggestions in `context["possible_solutions"]` |
+
+```python
+return skill_error(
+    "Maya is not available",
+    "ImportError: No module named 'maya'",
+    prompt="Ensure Maya is running before calling this skill.",
+    possible_solutions=["Start Maya", "Check DCC_MCP_MAYA_SKILL_PATHS"],
+)
+```
+
+---
+
+### skill_warning
+
+```python
+skill_warning(
+    message: str,
+    *,
+    warning: str = "",
+    prompt: str | None = None,
+    **context,
+) -> dict
+```
+
+Return a success-but-with-warning result (`success=True`, `context["warning"]` set).
+
+```python
+return skill_warning(
+    "Timeline set, end_frame clamped to scene length",
+    warning="end_frame 9999 > scene length 240; clamped to 240",
+    prompt="Verify the timeline slider.",
+    actual_end=240,
+)
+```
+
+---
+
+### skill_exception
+
+```python
+skill_exception(
+    exc: BaseException,
+    *,
+    message: str | None = None,
+    prompt: str | None = None,
+    include_traceback: bool = True,
+    possible_solutions: list[str] | None = None,
+    **context,
+) -> dict
+```
+
+Return a failure result built from an exception. Captures `error_type` and optionally
+the formatted traceback in `context`.
+
+```python
+try:
+    do_work()
+except Exception as exc:
+    return skill_exception(
+        exc,
+        possible_solutions=["Check that the scene is open"],
+    )
+```
+
+---
+
+### @skill_entry
+
+```python
+@skill_entry
+def my_tool(param: str = "default", **kwargs) -> dict:
+    ...
+```
+
+Decorator that wraps a skill function with standard error handling.
+
+- Catches `ImportError` (DCC module missing), `Exception`, and `BaseException`
+- Converts each to a proper error dict automatically
+- When run directly (`__name__ == "__main__"`), the JSON result is printed to stdout
+
+**Full example** (replaces the manual try/except/`main()` boilerplate):
+
+```python
+from dcc_mcp_core.skill import skill_entry, skill_success
+
+@skill_entry
+def set_timeline(start_frame: float = 1.0, end_frame: float = 120.0, **kwargs):
+    """Set the Maya playback timeline range."""
+    import maya.cmds as cmds  # ImportError caught automatically if Maya not present
+
+    min_frame = kwargs.get("min_frame", start_frame)
+    max_frame = kwargs.get("max_frame", end_frame)
+
+    cmds.playbackOptions(
+        min=min_frame, max=max_frame,
+        animationStartTime=start_frame, animationEndTime=end_frame,
+    )
+    return skill_success(
+        f"Timeline set to {start_frame}–{end_frame}",
+        prompt="Inspect the timeline slider to verify.",
+        start_frame=start_frame,
+        end_frame=end_frame,
+    )
+
+def main(**kwargs):
+    """Entry point; delegates to set_timeline."""
+    return set_timeline(**kwargs)
+
+if __name__ == "__main__":
+    from dcc_mcp_core.skill import run_main
+    run_main(main)
+```
+
+---
+
+### run_main
+
+```python
+run_main(main_fn: Callable[..., dict], argv: list[str] | None = None) -> None
+```
+
+Execute `main_fn` and print the JSON result to stdout. Calls `sys.exit(0)` on success,
+`sys.exit(1)` on failure.
+
+Intended for `if __name__ == "__main__"` blocks:
+
+```python
+if __name__ == "__main__":
+    from dcc_mcp_core.skill import run_main
+    run_main(main)
+```
+
+---
+
+### Migration from DCC-specific helpers
+
+If you previously used `dcc_mcp_maya`'s `maya_success` / `maya_error` / `maya_from_exception`,
+the generic equivalents map directly:
+
+| Old (DCC-specific) | New (generic) |
+|--------------------|---------------|
+| `maya_success(msg, prompt=..., **ctx)` | `skill_success(msg, prompt=..., **ctx)` |
+| `maya_error(msg, error, prompt=..., **ctx)` | `skill_error(msg, error, prompt=..., **ctx)` |
+| `maya_from_exception(exc_msg, ...)` | `skill_exception(exc, ...)` |
+
+The dict structure is identical — both are compatible with `ActionResultModel`.

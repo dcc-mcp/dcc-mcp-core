@@ -2,6 +2,13 @@
 
 This package is powered by a Rust core via PyO3. The native extension module
 ``dcc_mcp_core._core`` is compiled by maturin and provides all public APIs.
+
+The pure-Python ``dcc_mcp_core.skill`` sub-module provides lightweight helpers
+for skill script authors — no compiled extension required:
+
+.. code-block:: python
+
+    from dcc_mcp_core.skill import skill_entry, skill_success, skill_error
 """
 
 # Import future modules
@@ -149,6 +156,14 @@ from dcc_mcp_core._core import validate_action_result
 from dcc_mcp_core._core import validate_dependencies
 from dcc_mcp_core._core import wrap_value
 
+# Pure-Python skill script helpers (no _core dependency)
+from dcc_mcp_core.skill import run_main
+from dcc_mcp_core.skill import skill_entry
+from dcc_mcp_core.skill import skill_error
+from dcc_mcp_core.skill import skill_exception
+from dcc_mcp_core.skill import skill_success
+from dcc_mcp_core.skill import skill_warning
+
 __version__: str
 try:
     __version__ = _core.__version__  # type: ignore[attr-defined]
@@ -276,11 +291,18 @@ __all__ = [
     "mpu_to_units",
     "parse_skill_md",
     "resolve_dependencies",
+    # Pure-Python skill script helpers
+    "run_main",
     "scan_and_load",
     "scan_and_load_lenient",
     "scan_skill_paths",
     "scene_info_json_to_stage",
     "shutdown_telemetry",
+    "skill_entry",
+    "skill_error",
+    "skill_exception",
+    "skill_success",
+    "skill_warning",
     "stage_to_scene_info_json",
     "success_result",
     "units_to_mpu",
