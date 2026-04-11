@@ -14,8 +14,8 @@ use std::collections::HashMap;
 
 #[cfg(feature = "python-bindings")]
 use crate::adapters::{
-    BoundingBox, CaptureResult, DccCapabilities, DccError, DccInfo, FrameRange, ObjectTransform,
-    RenderOutput, SceneInfo, SceneObject, SceneStatistics, ScriptResult,
+    BoundingBox, BridgeKind, CaptureResult, DccCapabilities, DccError, DccInfo, FrameRange,
+    ObjectTransform, RenderOutput, SceneInfo, SceneObject, SceneStatistics, ScriptResult,
 };
 
 #[cfg(feature = "python-bindings")]
@@ -345,6 +345,13 @@ pub struct PyDccCapabilities {
     pub render_capture: bool,
     /// Whether the adapter implements `DccHierarchy` (parent/child hierarchy).
     pub hierarchy: bool,
+    /// Whether the DCC has an embedded Python interpreter.
+    /// `False` for bridge-based DCCs (ZBrush, Photoshop).
+    pub has_embedded_python: bool,
+    /// Bridge kind string: `"http"`, `"websocket"`, `"named_pipe"`, or `None`.
+    pub bridge_kind: Option<String>,
+    /// Bridge endpoint (URL or socket path).
+    pub bridge_endpoint: Option<String>,
     pub extensions: HashMap<String, bool>,
 }
 
@@ -356,7 +363,9 @@ impl PyDccCapabilities {
         script_languages=vec![], scene_info=false, snapshot=false,
         undo_redo=false, progress_reporting=false, file_operations=false,
         selection=false, scene_manager=false, transform=false,
-        render_capture=false, hierarchy=false, extensions=None
+        render_capture=false, hierarchy=false,
+        has_embedded_python=true, bridge_kind=None, bridge_endpoint=None,
+        extensions=None
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -371,6 +380,9 @@ impl PyDccCapabilities {
         transform: bool,
         render_capture: bool,
         hierarchy: bool,
+        has_embedded_python: bool,
+        bridge_kind: Option<String>,
+        bridge_endpoint: Option<String>,
         extensions: Option<HashMap<String, bool>>,
     ) -> Self {
         Self {
@@ -385,13 +397,16 @@ impl PyDccCapabilities {
             transform,
             render_capture,
             hierarchy,
+            has_embedded_python,
+            bridge_kind,
+            bridge_endpoint,
             extensions: extensions.unwrap_or_default(),
         }
     }
 
     fn __repr__(&self) -> String {
         format!(
-            "DccCapabilities(languages={}, scene_info={}, snapshot={}, scene_manager={}, transform={}, render_capture={}, hierarchy={})",
+            "DccCapabilities(languages={}, scene_info={}, snapshot={}, scene_manager={}, transform={}, render_capture={}, hierarchy={}, has_embedded_python={}, bridge_kind={:?})",
             self.script_languages.len(),
             self.scene_info,
             self.snapshot,
@@ -399,6 +414,8 @@ impl PyDccCapabilities {
             self.transform,
             self.render_capture,
             self.hierarchy,
+            self.has_embedded_python,
+            self.bridge_kind,
         )
     }
 }
@@ -422,6 +439,14 @@ impl From<&DccCapabilities> for PyDccCapabilities {
             transform: caps.transform,
             render_capture: caps.render_capture,
             hierarchy: caps.hierarchy,
+            has_embedded_python: caps.has_embedded_python,
+            bridge_kind: caps.bridge_kind.as_ref().map(|k| match k {
+                BridgeKind::Http => "http".to_string(),
+                BridgeKind::WebSocket => "websocket".to_string(),
+                BridgeKind::NamedPipe => "named_pipe".to_string(),
+                BridgeKind::Custom(s) => s.clone(),
+            }),
+            bridge_endpoint: caps.bridge_endpoint.clone(),
             extensions: caps.extensions.clone(),
         }
     }

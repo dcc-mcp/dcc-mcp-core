@@ -696,6 +696,28 @@ class DccCapabilities:
     ``render_capture``, ``hierarchy``) indicate whether the adapter implements
     the corresponding universal protocol trait.  Check these instead of calling
     ``as_*()`` when you only need a quick feature check.
+
+    Bridge mode
+    -----------
+    DCCs without an embedded Python interpreter (ZBrush, Photoshop) use a
+    *bridge* process.  Set ``has_embedded_python=False``, ``bridge_kind``, and
+    ``bridge_endpoint`` to describe the communication channel:
+
+    .. code-block:: python
+
+        # ZBrush HTTP bridge
+        caps = DccCapabilities(
+            has_embedded_python=False,
+            bridge_kind="http",
+            bridge_endpoint="http://localhost:8765",
+        )
+
+        # Photoshop UXP WebSocket bridge
+        caps = DccCapabilities(
+            has_embedded_python=False,
+            bridge_kind="websocket",
+            bridge_endpoint="ws://localhost:3000",
+        )
     """
 
     script_languages: list[ScriptLanguage]
@@ -713,6 +735,12 @@ class DccCapabilities:
     """Whether the adapter implements DccRenderCapture (viewport capture + render)."""
     hierarchy: bool
     """Whether the adapter implements DccHierarchy (parent/child hierarchy)."""
+    has_embedded_python: bool
+    """Whether the DCC has an embedded Python interpreter (False for ZBrush, Photoshop)."""
+    bridge_kind: str | None
+    """Bridge communication kind: ``"http"``, ``"websocket"``, ``"named_pipe"``, or ``None``."""
+    bridge_endpoint: str | None
+    """Bridge endpoint address, e.g. ``"http://localhost:8765"`` or ``"ws://localhost:3000"``."""
     extensions: dict[str, bool]
 
     def __init__(
@@ -728,6 +756,9 @@ class DccCapabilities:
         transform: bool = False,
         render_capture: bool = False,
         hierarchy: bool = False,
+        has_embedded_python: bool = True,
+        bridge_kind: str | None = None,
+        bridge_endpoint: str | None = None,
         extensions: dict[str, bool] | None = None,
     ) -> None: ...
     def __repr__(self) -> str: ...

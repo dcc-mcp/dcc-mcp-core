@@ -10,9 +10,9 @@ pub use traits::{
     DccScriptEngine, DccSnapshot, DccTransform,
 };
 pub use types::{
-    BoundingBox, CaptureResult, DccCapabilities, DccError, DccErrorCode, DccInfo, DccResult,
-    FrameRange, ObjectTransform, RenderOutput, SceneInfo, SceneNode, SceneObject, SceneStatistics,
-    ScriptLanguage, ScriptResult,
+    BoundingBox, BridgeKind, CaptureResult, DccCapabilities, DccError, DccErrorCode, DccInfo,
+    DccResult, FrameRange, ObjectTransform, RenderOutput, SceneInfo, SceneNode, SceneObject,
+    SceneStatistics, ScriptLanguage, ScriptResult,
 };
 
 #[cfg(test)]

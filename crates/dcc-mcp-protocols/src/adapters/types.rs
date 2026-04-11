@@ -168,6 +168,14 @@ pub struct CaptureResult {
 ///
 /// Used for feature negotiation — the MCP server can query which operations
 /// are available for a given DCC and adapt its tool offerings accordingly.
+///
+/// # Bridge Mode
+///
+/// DCCs without an embedded Python interpreter (ZBrush, Photoshop) use a
+/// *bridge* process rather than direct subprocess execution:
+/// - Set `has_embedded_python = false`
+/// - Set the appropriate `bridge_kind` variant
+/// - Set `bridge_endpoint` to the address/URL the bridge listens on
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DccCapabilities {
     /// Supported script languages.
@@ -192,9 +200,97 @@ pub struct DccCapabilities {
     pub render_capture: bool,
     /// Whether the adapter implements [`DccHierarchy`] (parent/child hierarchy).
     pub hierarchy: bool,
+    /// Whether the DCC has an embedded Python interpreter.
+    ///
+    /// `true` for Maya, Blender, Houdini, Unreal, Godot, etc.
+    /// `false` for ZBrush, Photoshop (require bridge process).
+    #[serde(default = "default_true")]
+    pub has_embedded_python: bool,
+    /// Communication bridge kind used when `has_embedded_python` is `false`.
+    ///
+    /// `None` for Python-embedded DCCs; set to the appropriate variant for
+    /// bridge-based adapters.
+    #[serde(default)]
+    pub bridge_kind: Option<BridgeKind>,
+    /// Bridge endpoint address (URL or socket path).
+    ///
+    /// For `BridgeKind::Http`: `"http://localhost:8765"`
+    /// For `BridgeKind::WebSocket`: `"ws://localhost:3000"`
+    /// For `BridgeKind::NamedPipe`: `"\\\\.\\pipe\\zbrush-mcp"`
+    #[serde(default)]
+    pub bridge_endpoint: Option<String>,
     /// Additional capability flags.
     #[serde(default)]
     pub extensions: HashMap<String, bool>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+/// The communication bridge kind for DCCs without embedded Python.
+///
+/// Determines how `dcc-mcp-core` routes `tools/call` requests to the DCC.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BridgeKind {
+    /// HTTP REST bridge.
+    ///
+    /// Used by ZBrush 2024+ (built-in HTTP server on a configurable port).
+    /// The bridge process translates MCP tool calls into ZBrush HTTP API requests.
+    Http,
+    /// WebSocket bridge.
+    ///
+    /// Used by Photoshop (UXP plugin opens a WebSocket server).
+    /// The bridge process connects to the UXP WebSocket and forwards calls.
+    WebSocket,
+    /// Named-pipe / Unix-socket bridge.
+    ///
+    /// Used by applications that expose an IPC pipe (e.g. 3ds Max COM + pipe).
+    NamedPipe,
+    /// Custom/unknown bridge — check `extensions` for details.
+    Custom(String),
+}
+
+impl DccCapabilities {
+    /// Create capabilities for a standard Python-embedded DCC (Maya, Blender, Unreal…).
+    #[must_use]
+    pub fn python_embedded() -> Self {
+        Self {
+            has_embedded_python: true,
+            bridge_kind: None,
+            bridge_endpoint: None,
+            ..Default::default()
+        }
+    }
+
+    /// Create capabilities for an HTTP-bridge DCC (ZBrush).
+    #[must_use]
+    pub fn http_bridge(endpoint: impl Into<String>) -> Self {
+        Self {
+            has_embedded_python: false,
+            bridge_kind: Some(BridgeKind::Http),
+            bridge_endpoint: Some(endpoint.into()),
+            ..Default::default()
+        }
+    }
+
+    /// Create capabilities for a WebSocket-bridge DCC (Photoshop UXP).
+    #[must_use]
+    pub fn websocket_bridge(endpoint: impl Into<String>) -> Self {
+        Self {
+            has_embedded_python: false,
+            bridge_kind: Some(BridgeKind::WebSocket),
+            bridge_endpoint: Some(endpoint.into()),
+            ..Default::default()
+        }
+    }
+
+    /// Return `true` if this DCC uses a bridge process rather than a subprocess.
+    #[must_use]
+    pub fn uses_bridge(&self) -> bool {
+        self.bridge_kind.is_some()
+    }
 }
 
 /// Error type for DCC adapter operations.
