@@ -214,14 +214,18 @@ class TestSandboxContextIsPathAllowed:
         assert isinstance(result, bool)
 
     def test_exact_path_in_list_allowed(self):
+        from pathlib import Path
+        import tempfile
+
         from dcc_mcp_core import SandboxContext
         from dcc_mcp_core import SandboxPolicy
 
+        # Use a real resolved path so macOS /tmp → /private/tmp symlink is handled.
+        target = str(Path(tempfile.gettempdir()).resolve() / "dcc_mcp_test_file.py")
         sp = SandboxPolicy()
-        sp.allow_paths(["/tmp/project/file.py"])
+        sp.allow_paths([target])
         sc = SandboxContext(sp)
-        # An exact-match path in the allow list should be permitted.
-        assert sc.is_path_allowed("/tmp/project/file.py") is True
+        assert sc.is_path_allowed(target) is True
 
     def test_unrelated_path_blocked(self):
         from dcc_mcp_core import SandboxContext
