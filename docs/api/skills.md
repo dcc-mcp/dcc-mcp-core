@@ -178,6 +178,7 @@ meta = SkillMetadata(
     tools=[],        # List[str] — tool names
     dcc="maya",
     tags=["geometry"],
+    search_hint="polygon modeling, sphere, bevel, mesh",
     scripts=[],      # List[str] — discovered script paths
     skill_path="/path/to/maya-geometry",
     version="1.0.0",
@@ -195,6 +196,7 @@ SkillMetadata(
     tools: List[str] | None = None,
     dcc: str = "python",
     tags: List[str] | None = None,
+    search_hint: str = "",
     scripts: List[str] | None = None,
     skill_path: str = "",
     version: str = "1.0.0",
@@ -209,6 +211,7 @@ SkillMetadata(
 |-------|------|-------------|
 | `name` | `str` | Unique skill name |
 | `description` | `str` | Short description |
+| `search_hint` | `str` | Keyword hint for `search_skills` (SKILL.md `search-hint:` field; falls back to `description`) |
 | `tools` | `List[str]` | Tool names from frontmatter |
 | `dcc` | `str` | Target DCC application |
 | `tags` | `List[str]` | Classification tags |

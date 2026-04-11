@@ -334,6 +334,16 @@ pub struct SkillMetadata {
     #[serde(default)]
     pub tags: Vec<String>,
 
+    /// Short search hint for lightweight skill discovery.
+    ///
+    /// Used by `search_skills` to match against without loading full tool schemas.
+    /// Should be a comma-separated list of keywords or a short phrase, e.g.:
+    /// `"polygon modeling, bevel, extrude, mesh editing"`
+    ///
+    /// Falls back to `description` if not set.
+    #[serde(default, rename = "search-hint", alias = "search_hint")]
+    pub search_hint: String,
+
     /// MCP tool declarations — defines the tools this skill exposes.
     ///
     /// Accepts both simple names and full declarations:
@@ -628,6 +638,7 @@ impl SkillMetadata {
         tools = vec![],
         dcc = DEFAULT_DCC.to_string(),
         tags = vec![],
+        search_hint = "".to_string(),
         scripts = vec![],
         skill_path = "".to_string(),
         version = DEFAULT_VERSION.to_string(),
@@ -644,6 +655,7 @@ impl SkillMetadata {
         tools: Vec<ToolDeclaration>,
         dcc: String,
         tags: Vec<String>,
+        search_hint: String,
         scripts: Vec<String>,
         skill_path: String,
         version: String,
@@ -659,6 +671,7 @@ impl SkillMetadata {
             tools,
             dcc,
             tags,
+            search_hint,
             scripts,
             skill_path,
             version,
@@ -1104,6 +1117,7 @@ mod tests {
             ],
             dcc: "blender".to_string(),
             tags: vec!["modeling".to_string()],
+            search_hint: "mesh, modeling, geometry".to_string(),
             scripts: vec!["init.py".to_string()],
             skill_path: "/skills/full".to_string(),
             version: "1.2.3".to_string(),

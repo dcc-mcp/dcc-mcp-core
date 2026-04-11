@@ -10,6 +10,7 @@ metadata:
 tags: [example, multi-language, cross-platform]
 dcc: python
 version: "1.0.0"
+search-hint: "multi-script, cross-platform, python, shell, batch, script types, example"
 tools:
   - name: action_python
     description: Runs the Python implementation of the action

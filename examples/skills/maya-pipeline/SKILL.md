@@ -10,6 +10,7 @@ metadata:
 tags: [maya, pipeline, advanced, composable]
 dcc: maya
 version: "2.0.0"
+search-hint: "maya, pipeline, USD, export, project setup, scene, asset, DCC workflow"
 depends:
   - maya-geometry
   - usd-tools

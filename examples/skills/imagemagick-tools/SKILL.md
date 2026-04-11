@@ -19,6 +19,7 @@ metadata:
 tags: [image, processing, imagemagick, texture, compositing]
 dcc: python
 version: "1.0.0"
+search-hint: "imagemagick, image processing, resize, convert, watermark, texture, thumbnail"
 tools:
   - name: resize
     description: Resize an image to specified dimensions with fit mode control

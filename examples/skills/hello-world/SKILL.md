@@ -7,6 +7,7 @@ allowed-tools: Bash Read
 tags: [example, beginner]
 dcc: python
 version: "1.0.0"
+search-hint: "greeting, hello, example, demo, test skill"
 ---
 
 # Hello World

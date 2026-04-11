@@ -137,14 +137,14 @@ crates/
 - `SkillCatalog(scanner)` — construct with a `SkillScanner`
 - `.discover(extra_paths=None, dcc_name=None)` — scan and populate catalog
 - `.list_skills(status=None) -> List[SkillSummary]` — filter by `"loaded"` / `"unloaded"` / `None`
-- `.find_skills(query=None, tags=None, dcc=None) -> List[SkillSummary]`
+- `.find_skills(query=None, tags=None, dcc=None) -> List[SkillSummary]` — matches name, description, search_hint, tool names
 - `.load_skill(skill_name) -> bool` / `.unload_skill(skill_name) -> bool`
 - `.get_skill_info(skill_name) -> Optional[SkillMetadata]`
 - `.is_loaded(skill_name) -> bool` / `.loaded_count() -> int`
 
-**SkillSummary fields:** `.name`, `.description`, `.version`, `.dcc`, `.tags`, `.tool_count`, `.tool_names`, `.loaded`
+**SkillSummary fields:** `.name`, `.description`, `.search_hint`, `.version`, `.dcc`, `.tags`, `.tool_count`, `.tool_names`, `.loaded`
 
-**SkillMetadata fields:** `.name`, `.description`, `.dcc`, `.version`, `.tags`, `.tools`, `.scripts` (List[str] absolute paths), `.skill_path`, `.depends`, `.metadata_files`
+**SkillMetadata fields:** `.name`, `.description`, `.search_hint`, `.dcc`, `.version`, `.tags`, `.tools`, `.scripts` (List[str] absolute paths), `.skill_path`, `.depends`, `.metadata_files`
 
 **Action naming**: `{skill_name}__{script_stem}` — hyphens in skill names replaced by underscores
 

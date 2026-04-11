@@ -34,6 +34,13 @@
 //! let loaded = catalog.load_skill("modeling-bevel");
 //! ```
 
+pub mod execute;
+pub mod types;
+
+pub use types::{SkillDetail, SkillEntry, SkillState, SkillSummary};
+
+use execute::{execute_script, resolve_tool_script};
+
 #[cfg(feature = "python-bindings")]
 use pyo3::prelude::*;
 
@@ -42,45 +49,10 @@ use dcc_mcp_actions::{
     ActionDispatcher,
     registry::{ActionMeta, ActionRegistry},
 };
-use dcc_mcp_models::{SkillMetadata, ToolDeclaration};
+use dcc_mcp_models::SkillMetadata;
 use std::sync::Arc;
 
 use crate::loader;
-
-// ── Skill entry ──
-
-/// Load state of a skill in the catalog.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SkillState {
-    /// Skill discovered but not loaded (tools not registered).
-    Discovered,
-    /// Skill loaded — tools registered in ActionRegistry.
-    Loaded,
-    /// Skill failed to load.
-    Error(String),
-}
-
-impl std::fmt::Display for SkillState {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            SkillState::Discovered => write!(f, "discovered"),
-            SkillState::Loaded => write!(f, "loaded"),
-            SkillState::Error(e) => write!(f, "error: {e}"),
-        }
-    }
-}
-
-/// A skill entry in the catalog, tracking its metadata and load state.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct SkillEntry {
-    /// Parsed skill metadata from SKILL.md.
-    pub metadata: SkillMetadata,
-    /// Current load state.
-    pub state: SkillState,
-    /// Names of actions registered from this skill (populated on load).
-    pub registered_actions: Vec<String>,
-}
 
 // ── SkillCatalog ──
 
@@ -421,6 +393,7 @@ impl SkillCatalog {
 
     /// Search for skills matching the given criteria.
     ///
+    /// Query matches against: `name`, `description`, `search_hint`, and `tool_names`.
     /// All filters are AND-ed together. Empty/None filters match everything.
     pub fn find_skills(
         &self,
@@ -433,13 +406,23 @@ impl SkillCatalog {
             .filter(|entry| {
                 let meta = &entry.value().metadata;
 
-                // Query filter: match against name or description (case-insensitive)
+                // Query filter: match name, description, search_hint, and tool names
                 if let Some(q) = query {
                     if !q.is_empty() {
                         let q_lower = q.to_lowercase();
-                        let name_match = meta.name.to_lowercase().contains(&q_lower);
-                        let desc_match = meta.description.to_lowercase().contains(&q_lower);
-                        if !name_match && !desc_match {
+                        let hint = if meta.search_hint.is_empty() {
+                            &meta.description
+                        } else {
+                            &meta.search_hint
+                        };
+                        let matched = meta.name.to_lowercase().contains(&q_lower)
+                            || meta.description.to_lowercase().contains(&q_lower)
+                            || hint.to_lowercase().contains(&q_lower)
+                            || meta
+                                .tools
+                                .iter()
+                                .any(|t| t.name.to_lowercase().contains(&q_lower));
+                        if !matched {
                             return false;
                         }
                     }
@@ -463,19 +446,7 @@ impl SkillCatalog {
 
                 true
             })
-            .map(|entry| {
-                let e = entry.value();
-                SkillSummary {
-                    name: e.metadata.name.clone(),
-                    description: e.metadata.description.clone(),
-                    tags: e.metadata.tags.clone(),
-                    dcc: e.metadata.dcc.clone(),
-                    version: e.metadata.version.clone(),
-                    tool_count: e.metadata.tools.len(),
-                    tool_names: e.metadata.tools.iter().map(|t| t.name.clone()).collect(),
-                    loaded: e.state == SkillState::Loaded,
-                }
-            })
+            .map(|entry| skill_entry_to_summary(entry.value()))
             .collect()
     }
 
@@ -492,19 +463,7 @@ impl SkillCatalog {
                     _ => true, // "all" or None
                 }
             })
-            .map(|entry| {
-                let e = entry.value();
-                SkillSummary {
-                    name: e.metadata.name.clone(),
-                    description: e.metadata.description.clone(),
-                    tags: e.metadata.tags.clone(),
-                    dcc: e.metadata.dcc.clone(),
-                    version: e.metadata.version.clone(),
-                    tool_count: e.metadata.tools.len(),
-                    tool_names: e.metadata.tools.iter().map(|t| t.name.clone()).collect(),
-                    loaded: e.state == SkillState::Loaded,
-                }
-            })
+            .map(|entry| skill_entry_to_summary(entry.value()))
             .collect()
     }
 
@@ -584,167 +543,27 @@ impl SkillCatalog {
     }
 }
 
-// ── Script execution helpers ──────────────────────────────────────────────
+// ── Internal helpers ──────────────────────────────────────────────────────
 
-/// Resolve which script file backs a tool declaration.
+/// Convert a SkillEntry into a SkillSummary.
 ///
-/// Priority:
-/// 1. `tool_decl.source_file` — explicit path set in ToolDeclaration
-/// 2. A script whose stem matches the tool name in the skill's scripts list
-/// 3. The only script in the skill (if exactly one exists)
-fn resolve_tool_script(
-    tool_decl: &ToolDeclaration,
-    scripts: &[String],
-    _skill_path: &std::path::Path,
-) -> Option<String> {
-    // 1. Explicit source_file on the tool declaration
-    if !tool_decl.source_file.is_empty() {
-        return Some(tool_decl.source_file.clone());
-    }
-
-    // Extract bare tool name (after __ if present)
-    let tool_name = if tool_decl.name.contains("__") {
-        tool_decl.name.split("__").last().unwrap_or(&tool_decl.name)
-    } else {
-        &tool_decl.name
-    };
-    let tool_name_lower = tool_name.to_lowercase().replace('-', "_");
-
-    // 2. Script whose stem matches the tool name
-    for script in scripts {
-        let stem = std::path::Path::new(script)
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("")
-            .to_lowercase()
-            .replace('-', "_");
-        if stem == tool_name_lower {
-            return Some(script.clone());
-        }
-    }
-
-    // 3. Single-script skill — the one script backs all tools
-    if scripts.len() == 1 {
-        return Some(scripts[0].clone());
-    }
-
-    None
-}
-
-/// Execute a skill script as a subprocess, passing params as JSON via stdin.
-///
-/// The script is expected to:
-/// - Read JSON params from stdin (or use sys.argv for simple cases)
-/// - Write a JSON result to stdout
-/// - Exit with code 0 on success, non-zero on failure
-///
-/// Returns `Ok(Value)` on success, `Err(String)` on failure.
-fn execute_script(
-    script_path: &str,
-    params: serde_json::Value,
-) -> Result<serde_json::Value, String> {
-    use std::io::Write;
-    use std::process::{Command, Stdio};
-
-    let params_json = serde_json::to_string(&params).unwrap_or_else(|_| "{}".to_string());
-
-    let path = std::path::Path::new(script_path);
-    let ext = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("")
-        .to_lowercase();
-
-    // Choose interpreter based on extension
-    let (program, args): (&str, Vec<&str>) = match ext.as_str() {
-        "py" => ("python", vec![script_path]),
-        "sh" | "bash" => ("bash", vec![script_path]),
-        "bat" | "cmd" => ("cmd", vec!["/C", script_path]),
-        "mel" | "lua" | "hscript" | "maxscript" => {
-            // DCC-specific scripts: run via python wrapper if possible
-            ("python", vec![script_path])
-        }
-        _ => ("python", vec![script_path]),
-    };
-
-    let mut child = Command::new(program)
-        .args(&args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("Failed to spawn '{script_path}': {e}"))?;
-
-    // Write params to stdin
-    if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(params_json.as_bytes());
-        // stdin closes when dropped, signalling EOF to the script
-    }
-
-    let output = child
-        .wait_with_output()
-        .map_err(|e| format!("Script '{script_path}' execution failed: {e}"))?;
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-
-    if !output.status.success() {
-        let code = output.status.code().unwrap_or(-1);
-        let detail = if stderr.is_empty() {
-            stdout.trim().to_string()
+/// The `search_hint` falls back to `description` if not set in SKILL.md.
+fn skill_entry_to_summary(e: &SkillEntry) -> SkillSummary {
+    SkillSummary {
+        name: e.metadata.name.clone(),
+        description: e.metadata.description.clone(),
+        search_hint: if e.metadata.search_hint.is_empty() {
+            e.metadata.description.clone()
         } else {
-            stderr.trim().to_string()
-        };
-        return Err(format!(
-            "Script '{script_path}' exited with code {code}: {detail}"
-        ));
+            e.metadata.search_hint.clone()
+        },
+        tags: e.metadata.tags.clone(),
+        dcc: e.metadata.dcc.clone(),
+        version: e.metadata.version.clone(),
+        tool_count: e.metadata.tools.len(),
+        tool_names: e.metadata.tools.iter().map(|t| t.name.clone()).collect(),
+        loaded: e.state == SkillState::Loaded,
     }
-
-    // Try to parse stdout as JSON; fall back to plain text result
-    let result_str = stdout.trim();
-    if result_str.is_empty() {
-        return Ok(serde_json::json!({"success": true, "message": ""}));
-    }
-
-    match serde_json::from_str::<serde_json::Value>(result_str) {
-        Ok(v) => Ok(v),
-        Err(_) => {
-            // Plain text output — wrap it
-            Ok(serde_json::json!({"success": true, "message": result_str}))
-        }
-    }
-}
-
-// ── Summary / Detail types ──
-
-/// Lightweight summary of a skill for search/list results.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[cfg_attr(feature = "python-bindings", pyclass(name = "SkillSummary", get_all))]
-pub struct SkillSummary {
-    pub name: String,
-    pub description: String,
-    pub tags: Vec<String>,
-    pub dcc: String,
-    pub version: String,
-    pub tool_count: usize,
-    pub tool_names: Vec<String>,
-    pub loaded: bool,
-}
-
-/// Detailed information about a skill.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct SkillDetail {
-    pub name: String,
-    pub description: String,
-    pub tags: Vec<String>,
-    pub dcc: String,
-    pub version: String,
-    pub depends: Vec<String>,
-    pub skill_path: String,
-    pub scripts: Vec<String>,
-    pub tools: Vec<ToolDeclaration>,
-    pub state: String,
-    pub registered_actions: Vec<String>,
 }
 
 // ── Python bindings ──
@@ -858,382 +677,7 @@ impl SkillCatalog {
     }
 }
 
-// ── Python bindings for summary/detail ──
-
-#[cfg(feature = "python-bindings")]
-#[pymethods]
-impl SkillSummary {
-    fn __repr__(&self) -> String {
-        format!("SkillSummary(name={:?}, loaded={})", self.name, self.loaded)
-    }
-}
-
 // ── Tests ──
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use dcc_mcp_models::ToolDeclaration;
-
-    fn make_test_catalog() -> SkillCatalog {
-        let registry = Arc::new(ActionRegistry::new());
-        SkillCatalog::new(registry)
-    }
-
-    fn make_test_skill(name: &str, dcc: &str, tool_names: &[&str]) -> SkillMetadata {
-        SkillMetadata {
-            name: name.to_string(),
-            description: format!("Test skill: {name}"),
-            tools: tool_names
-                .iter()
-                .map(|t| ToolDeclaration {
-                    name: t.to_string(),
-                    ..Default::default()
-                })
-                .collect(),
-            dcc: dcc.to_string(),
-            tags: vec!["test".to_string()],
-            version: "1.0.0".to_string(),
-            ..Default::default()
-        }
-    }
-
-    #[test]
-    fn test_catalog_new_is_empty() {
-        let catalog = make_test_catalog();
-        assert!(catalog.is_empty());
-        assert_eq!(catalog.len(), 0);
-        assert_eq!(catalog.loaded_count(), 0);
-    }
-
-    #[test]
-    fn test_add_skill() {
-        let catalog = make_test_catalog();
-        catalog.add_skill(make_test_skill(
-            "modeling-bevel",
-            "maya",
-            &["bevel", "chamfer"],
-        ));
-        assert_eq!(catalog.len(), 1);
-        assert!(!catalog.is_loaded("modeling-bevel"));
-    }
-
-    #[test]
-    fn test_load_skill_registers_tools() {
-        let catalog = make_test_catalog();
-        catalog.add_skill(make_test_skill(
-            "modeling-bevel",
-            "maya",
-            &["bevel", "chamfer"],
-        ));
-
-        let actions = catalog.load_skill("modeling-bevel").unwrap();
-        assert_eq!(actions.len(), 2);
-        assert!(actions.contains(&"modeling_bevel__bevel".to_string()));
-        assert!(actions.contains(&"modeling_bevel__chamfer".to_string()));
-        assert!(catalog.is_loaded("modeling-bevel"));
-        assert_eq!(catalog.loaded_count(), 1);
-
-        // Verify tools are in the registry
-        let registry = catalog.registry();
-        assert_eq!(registry.len(), 2);
-        assert!(registry.get_action("modeling_bevel__bevel", None).is_some());
-    }
-
-    #[test]
-    fn test_load_skill_with_action_meta_skill_name() {
-        let catalog = make_test_catalog();
-        catalog.add_skill(make_test_skill("my-skill", "maya", &["tool1"]));
-
-        catalog.load_skill("my-skill").unwrap();
-        let meta = catalog
-            .registry()
-            .get_action("my_skill__tool1", None)
-            .unwrap();
-        assert_eq!(meta.skill_name, Some("my-skill".to_string()));
-    }
-
-    #[test]
-    fn test_unload_skill_removes_tools() {
-        let catalog = make_test_catalog();
-        catalog.add_skill(make_test_skill("modeling-bevel", "maya", &["bevel"]));
-        catalog.load_skill("modeling-bevel").unwrap();
-        assert_eq!(catalog.registry().len(), 1);
-
-        let removed = catalog.unload_skill("modeling-bevel").unwrap();
-        assert_eq!(removed, 1);
-        assert!(!catalog.is_loaded("modeling-bevel"));
-        assert_eq!(catalog.registry().len(), 0);
-    }
-
-    #[test]
-    fn test_load_nonexistent_skill_fails() {
-        let catalog = make_test_catalog();
-        let result = catalog.load_skill("no-such-skill");
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("not found"));
-    }
-
-    #[test]
-    fn test_unload_not_loaded_skill_fails() {
-        let catalog = make_test_catalog();
-        catalog.add_skill(make_test_skill("test", "maya", &[]));
-        let result = catalog.unload_skill("test");
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_load_skill_idempotent() {
-        let catalog = make_test_catalog();
-        catalog.add_skill(make_test_skill("test", "maya", &["tool1"]));
-
-        let actions1 = catalog.load_skill("test").unwrap();
-        let actions2 = catalog.load_skill("test").unwrap();
-        assert_eq!(actions1, actions2);
-        assert_eq!(catalog.registry().len(), 1);
-    }
-
-    #[test]
-    fn test_find_skills_by_query() {
-        let catalog = make_test_catalog();
-        catalog.add_skill(make_test_skill("modeling-bevel", "maya", &[]));
-        catalog.add_skill(make_test_skill("rendering-batch", "blender", &[]));
-
-        let results = catalog.find_skills(Some("bevel"), &[], None);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].name, "modeling-bevel");
-    }
-
-    #[test]
-    fn test_find_skills_by_dcc() {
-        let catalog = make_test_catalog();
-        catalog.add_skill(make_test_skill("skill-a", "maya", &[]));
-        catalog.add_skill(make_test_skill("skill-b", "blender", &[]));
-
-        let results = catalog.find_skills(None, &[], Some("maya"));
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].dcc, "maya");
-    }
-
-    #[test]
-    fn test_find_skills_by_tags() {
-        let catalog = make_test_catalog();
-        let mut skill = make_test_skill("tagged", "maya", &[]);
-        skill.tags = vec!["modeling".to_string(), "polygon".to_string()];
-        catalog.add_skill(skill);
-        catalog.add_skill(make_test_skill("untagged", "maya", &[]));
-
-        let results = catalog.find_skills(None, &["modeling"], None);
-        assert_eq!(results.len(), 1);
-        assert_eq!(results[0].name, "tagged");
-    }
-
-    #[test]
-    fn test_list_skills_filter_by_status() {
-        let catalog = make_test_catalog();
-        catalog.add_skill(make_test_skill("loaded-skill", "maya", &["tool1"]));
-        catalog.add_skill(make_test_skill("unloaded-skill", "maya", &[]));
-        catalog.load_skill("loaded-skill").unwrap();
-
-        let loaded = catalog.list_skills(Some("loaded"));
-        assert_eq!(loaded.len(), 1);
-        assert_eq!(loaded[0].name, "loaded-skill");
-        assert!(loaded[0].loaded);
-
-        let unloaded = catalog.list_skills(Some("unloaded"));
-        assert_eq!(unloaded.len(), 1);
-        assert_eq!(unloaded[0].name, "unloaded-skill");
-        assert!(!unloaded[0].loaded);
-    }
-
-    #[test]
-    fn test_get_skill_info() {
-        let catalog = make_test_catalog();
-        catalog.add_skill(make_test_skill("test-skill", "maya", &["tool1", "tool2"]));
-
-        let info = catalog.get_skill_info("test-skill").unwrap();
-        assert_eq!(info.name, "test-skill");
-        assert_eq!(info.tools.len(), 2);
-        assert_eq!(info.state, "discovered");
-    }
-
-    #[test]
-    fn test_get_skill_info_nonexistent() {
-        let catalog = make_test_catalog();
-        assert!(catalog.get_skill_info("nope").is_none());
-    }
-
-    #[test]
-    fn test_remove_skill() {
-        let catalog = make_test_catalog();
-        catalog.add_skill(make_test_skill("removable", "maya", &["tool1"]));
-        catalog.load_skill("removable").unwrap();
-
-        assert!(catalog.remove_skill("removable"));
-        assert_eq!(catalog.len(), 0);
-        assert_eq!(catalog.registry().len(), 0);
-    }
-
-    #[test]
-    fn test_clear() {
-        let catalog = make_test_catalog();
-        catalog.add_skill(make_test_skill("a", "maya", &["t1"]));
-        catalog.add_skill(make_test_skill("b", "maya", &["t2"]));
-        catalog.load_skill("a").unwrap();
-
-        catalog.clear();
-        assert!(catalog.is_empty());
-        assert_eq!(catalog.registry().len(), 0);
-    }
-
-    #[test]
-    fn test_skill_with_scripts_no_tools() {
-        let catalog = make_test_catalog();
-        let mut skill = make_test_skill("scripted", "maya", &[]);
-        skill.scripts = vec!["/path/to/run.py".to_string()];
-        catalog.add_skill(skill);
-
-        let actions = catalog.load_skill("scripted").unwrap();
-        assert_eq!(actions.len(), 1);
-        assert!(actions[0].contains("scripted__run"));
-    }
-
-    #[test]
-    fn test_add_skill_does_not_overwrite_loaded() {
-        let catalog = make_test_catalog();
-        let skill = make_test_skill("keep", "maya", &["tool1"]);
-        catalog.add_skill(skill);
-        catalog.load_skill("keep").unwrap();
-
-        // Add again with different metadata — should not overwrite loaded state
-        let updated = SkillMetadata {
-            name: "keep".to_string(),
-            description: "Updated description".to_string(),
-            tools: vec![ToolDeclaration {
-                name: "tool1".to_string(),
-                ..Default::default()
-            }],
-            ..Default::default()
-        };
-        catalog.add_skill(updated);
-
-        assert!(catalog.is_loaded("keep"));
-        let info = catalog.get_skill_info("keep").unwrap();
-        // Description should NOT be updated since skill was loaded
-        assert_eq!(info.description, "Test skill: keep");
-    }
-
-    // ── Skills-First: dispatcher integration tests ──
-
-    fn make_catalog_with_dispatcher() -> (SkillCatalog, Arc<ActionDispatcher>) {
-        let registry = Arc::new(ActionRegistry::new());
-        let dispatcher = Arc::new(ActionDispatcher::new((*registry).clone()));
-        let catalog = SkillCatalog::new_with_dispatcher(registry, dispatcher.clone());
-        (catalog, dispatcher)
-    }
-
-    #[test]
-    fn test_load_skill_registers_dispatcher_handler_for_scripts() {
-        let (catalog, dispatcher) = make_catalog_with_dispatcher();
-
-        // Skill with no tool declarations — script-only path
-        let mut skill = make_test_skill("echo-skill", "python", &[]);
-        skill.scripts = vec!["/fake/echo.py".to_string()];
-        catalog.add_skill(skill);
-
-        let actions = catalog.load_skill("echo-skill").unwrap();
-        assert_eq!(actions.len(), 1);
-        // Handler auto-registered in dispatcher
-        assert!(dispatcher.has_handler("echo_skill__echo"));
-    }
-
-    #[test]
-    fn test_unload_skill_removes_dispatcher_handlers() {
-        let (catalog, dispatcher) = make_catalog_with_dispatcher();
-
-        let mut skill = make_test_skill("rm-skill", "python", &[]);
-        skill.scripts = vec!["/fake/run.py".to_string()];
-        catalog.add_skill(skill);
-
-        catalog.load_skill("rm-skill").unwrap();
-        assert!(dispatcher.has_handler("rm_skill__run"));
-
-        catalog.unload_skill("rm-skill").unwrap();
-        assert!(!dispatcher.has_handler("rm_skill__run"));
-    }
-
-    #[test]
-    fn test_load_skill_with_tool_decl_and_source_file() {
-        let (catalog, dispatcher) = make_catalog_with_dispatcher();
-
-        let skill = SkillMetadata {
-            name: "explicit-skill".to_string(),
-            description: "Explicit source file".to_string(),
-            tools: vec![ToolDeclaration {
-                name: "do_thing".to_string(),
-                source_file: "/fake/do_thing.py".to_string(),
-                ..Default::default()
-            }],
-            ..Default::default()
-        };
-        catalog.add_skill(skill);
-
-        let actions = catalog.load_skill("explicit-skill").unwrap();
-        assert_eq!(actions.len(), 1);
-        assert_eq!(actions[0], "explicit_skill__do_thing");
-        assert!(dispatcher.has_handler("explicit_skill__do_thing"));
-        // Verify source_file propagated to ActionMeta
-        let meta = dispatcher
-            .registry()
-            .get_action("explicit_skill__do_thing", None)
-            .unwrap();
-        assert_eq!(meta.source_file, Some("/fake/do_thing.py".to_string()));
-    }
-
-    #[test]
-    fn test_execute_script_returns_json() {
-        // Test the execute_script helper with a real command that outputs JSON
-        // Use `python -c` for cross-platform compatibility
-        let result = execute_script("python", serde_json::json!({"key": "value"}));
-        // Python may or may not be available; just check the function runs
-        // (either Ok or Err is valid in CI environments without Python)
-        let _ = result;
-    }
-
-    #[test]
-    fn test_resolve_tool_script_by_name_match() {
-        let scripts = vec![
-            "/skill/scripts/bevel.py".to_string(),
-            "/skill/scripts/extrude.py".to_string(),
-        ];
-        let tool = ToolDeclaration {
-            name: "bevel".to_string(),
-            ..Default::default()
-        };
-        let resolved = resolve_tool_script(&tool, &scripts, std::path::Path::new("/skill"));
-        assert_eq!(resolved, Some("/skill/scripts/bevel.py".to_string()));
-    }
-
-    #[test]
-    fn test_resolve_tool_script_single_script_fallback() {
-        let scripts = vec!["/skill/scripts/main.py".to_string()];
-        let tool = ToolDeclaration {
-            name: "any_tool".to_string(),
-            ..Default::default()
-        };
-        let resolved = resolve_tool_script(&tool, &scripts, std::path::Path::new("/skill"));
-        assert_eq!(resolved, Some("/skill/scripts/main.py".to_string()));
-    }
-
-    #[test]
-    fn test_resolve_tool_script_explicit_source_file() {
-        let scripts = vec!["/skill/scripts/other.py".to_string()];
-        let tool = ToolDeclaration {
-            name: "my_tool".to_string(),
-            source_file: "/skill/scripts/special.py".to_string(),
-            ..Default::default()
-        };
-        let resolved = resolve_tool_script(&tool, &scripts, std::path::Path::new("/skill"));
-        assert_eq!(resolved, Some("/skill/scripts/special.py".to_string()));
-    }
-}
+mod tests;

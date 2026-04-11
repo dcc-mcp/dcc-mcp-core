@@ -31,6 +31,7 @@ use crate::{
 };
 use dcc_mcp_actions::{ActionDispatcher, ActionRegistry};
 use dcc_mcp_skills::SkillCatalog;
+use dcc_mcp_skills::catalog::SkillSummary;
 
 /// Shared application state passed to all axum handlers.
 #[derive(Clone)]
@@ -258,8 +259,12 @@ async fn handle_initialize(
             version: state.server_version.clone(),
         },
         instructions: Some(
-            "DCC MCP Server — use find_skills to discover available skills, \
-             load_skill to activate them, then tools/list to see their tools."
+            "DCC MCP Server — on-demand skill discovery workflow:\n\
+             1. Use search_skills(query) to find relevant skills by keyword.\n\
+             2. Use load_skill(skill_name) to activate a skill and register its full tool schemas.\n\
+             3. After loading, tools/list will include the skill's tools with complete input schemas.\n\
+             4. Unloaded skills appear as __skill__<name> stubs in tools/list (name + description only).\n\
+             5. Use list_skills/find_skills for broader discovery; get_skill_info for full metadata."
                 .to_string(),
         ),
     };
@@ -279,13 +284,23 @@ async fn handle_tools_list(
     state: &AppState,
     req: &JsonRpcRequest,
 ) -> Result<JsonRpcResponse, HttpError> {
-    // Build core discovery tools
+    // 1. Core discovery tools — always fully visible
     let mut tools: Vec<McpTool> = build_core_tools();
 
-    // Add all actions from the registry (includes dynamically loaded skill tools)
+    // 2. Loaded skill tools — full definitions from ActionRegistry
     let actions = state.registry.list_actions(None);
     for meta in &actions {
         tools.push(action_meta_to_mcp_tool(meta));
+    }
+
+    // 3. Unloaded skills — one lightweight stub per skill.
+    //    The stub lets the model see what skills exist and what tools they expose
+    //    without flooding the context with full input schemas.
+    //    Format: name="__skill__<skill_name>", description summarises tools,
+    //    input_schema is a minimal passthrough (use load_skill to get full tools).
+    let unloaded = state.catalog.list_skills(Some("unloaded"));
+    for summary in &unloaded {
+        tools.push(build_skill_stub(summary));
     }
 
     let result = ListToolsResult {
@@ -318,7 +333,20 @@ async fn handle_tools_call(
         "get_skill_info" => return handle_get_skill_info(state, req, &params).await,
         "load_skill" => return handle_load_skill(state, req, &params, session_id).await,
         "unload_skill" => return handle_unload_skill(state, req, &params, session_id).await,
+        "search_skills" => return handle_search_skills(state, req, &params).await,
         _ => {}
+    }
+
+    // Skill stub: __skill__<name> — guide model to call load_skill first
+    if let Some(skill_name) = tool_name.strip_prefix("__skill__") {
+        let msg = format!(
+            "Skill '{skill_name}' is not loaded. Call load_skill with skill_name=\"{skill_name}\" \
+             to register its tools, then call the specific tool you need."
+        );
+        return Ok(JsonRpcResponse::success(
+            req.id.clone(),
+            serde_json::to_value(CallToolResult::error(msg))?,
+        ));
     }
 
     // Resolve action params (default to empty object)
@@ -761,6 +789,34 @@ fn build_core_tools() -> Vec<McpTool> {
                 open_world_hint: false,
             }),
         },
+        McpTool {
+            name: "search_skills".to_string(),
+            description: "Search for skills by keyword. Matches against skill name, description, \
+                          search_hint, and tool names. Returns matching skills with a one-line \
+                          summary. Use load_skill to activate a skill and get its full tool schemas."
+                .to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Keyword to search in skill name, description, search_hint, and tool names"
+                    },
+                    "dcc": {
+                        "type": "string",
+                        "description": "Optional DCC filter (maya, blender, houdini, etc.)"
+                    }
+                },
+                "required": ["query"]
+            }),
+            annotations: Some(McpToolAnnotations {
+                title: Some("Search Skills".to_string()),
+                read_only_hint: true,
+                destructive_hint: false,
+                idempotent_hint: true,
+                open_world_hint: false,
+            }),
+        },
     ]
 }
 
@@ -785,6 +841,115 @@ fn action_meta_to_mcp_tool(meta: &dcc_mcp_actions::registry::ActionMeta) -> McpT
             open_world_hint: false,
         }),
     }
+}
+
+/// Build a lightweight stub McpTool for an unloaded skill.
+///
+/// The stub is surfaced in `tools/list` so the model knows the skill exists
+/// and what tools it contains — without emitting full input schemas.
+/// When called, the stub responds with a hint to call `load_skill` first.
+///
+/// Name format: `__skill__<skill_name>`
+fn build_skill_stub(summary: &SkillSummary) -> McpTool {
+    let tool_list = if summary.tool_names.is_empty() {
+        String::new()
+    } else {
+        format!(" Tools: {}.", summary.tool_names.join(", "))
+    };
+    let hint = if summary.search_hint.is_empty() || summary.search_hint == summary.description {
+        String::new()
+    } else {
+        format!(" Keywords: {}.", summary.search_hint)
+    };
+    let description = format!(
+        "[Skill: {}] {}{} \u{2022} {} tools available. \
+         Call load_skill(skill_name=\"{}\") to activate full tool schemas.",
+        summary.name, summary.description, hint, summary.tool_count, summary.name,
+    );
+    // Append tool list to description if not too long
+    let description = if tool_list.is_empty() || description.len() + tool_list.len() < 512 {
+        format!("{}{}", description, tool_list)
+    } else {
+        description
+    };
+
+    McpTool {
+        name: format!("__skill__{}", summary.name),
+        description,
+        input_schema: json!({"type": "object", "properties": {}}),
+        annotations: Some(McpToolAnnotations {
+            title: Some(format!("Skill: {}", summary.name)),
+            read_only_hint: true,
+            destructive_hint: false,
+            idempotent_hint: true,
+            open_world_hint: false,
+        }),
+    }
+}
+
+/// Handle `search_skills` tool call.
+///
+/// Searches skill name, description, search_hint, and tool names.
+/// Returns a compact list: one line per matching skill.
+async fn handle_search_skills(
+    state: &AppState,
+    req: &JsonRpcRequest,
+    params: &CallToolParams,
+) -> Result<JsonRpcResponse, HttpError> {
+    let query = params
+        .arguments
+        .as_ref()
+        .and_then(|a| a.get("query"))
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+
+    let dcc_filter = params
+        .arguments
+        .as_ref()
+        .and_then(|a| a.get("dcc"))
+        .and_then(Value::as_str);
+
+    if query.is_empty() {
+        return Ok(JsonRpcResponse::success(
+            req.id.clone(),
+            serde_json::to_value(CallToolResult::error("Missing required parameter: query"))?,
+        ));
+    }
+
+    let matches = state.catalog.find_skills(Some(query), &[], dcc_filter);
+
+    if matches.is_empty() {
+        let text = format!("No skills found matching '{query}'.");
+        return Ok(JsonRpcResponse::success(
+            req.id.clone(),
+            serde_json::to_value(CallToolResult::text(text))?,
+        ));
+    }
+
+    // Return compact one-line-per-skill summary
+    let lines: Vec<String> = matches
+        .iter()
+        .map(|s| {
+            let status = if s.loaded { "loaded" } else { "unloaded" };
+            let tools = s.tool_names.join(", ");
+            format!(
+                "- {} [{}] ({} tools: {}) — {}",
+                s.name, status, s.tool_count, tools, s.description
+            )
+        })
+        .collect();
+
+    let text = format!(
+        "Found {} skill(s) matching '{}':\n{}",
+        matches.len(),
+        query,
+        lines.join("\n")
+    );
+
+    Ok(JsonRpcResponse::success(
+        req.id.clone(),
+        serde_json::to_value(CallToolResult::text(text))?,
+    ))
 }
 
 /// Send a `notifications/tools/list_changed` event to a session's SSE subscribers.

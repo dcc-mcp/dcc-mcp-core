@@ -125,13 +125,302 @@ mod tests {
         resp.assert_status_ok();
         let body: Value = resp.json();
         let tools = body["result"]["tools"].as_array().unwrap();
-        // 5 core discovery tools + 2 registered actions = 7
-        assert_eq!(tools.len(), 7);
+        // 6 core discovery tools + 2 registered actions = 8
+        assert_eq!(tools.len(), 8);
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert!(names.contains(&"get_scene_info"));
         assert!(names.contains(&"list_objects"));
         assert!(names.contains(&"find_skills"));
         assert!(names.contains(&"load_skill"));
+        assert!(names.contains(&"search_skills"));
+    }
+
+    // ── search_skills ─────────────────────────────────────────────────────────────
+
+    // Helper: build an app state that has skills in the catalog
+    fn make_app_state_with_skills() -> AppState {
+        use dcc_mcp_models::ToolDeclaration;
+        let registry = Arc::new(ActionRegistry::new());
+        let catalog = Arc::new(SkillCatalog::new(registry.clone()));
+
+        // Add a skill with search_hint
+        let mut skill = SkillMetadata {
+            name: "maya-bevel".to_string(),
+            description: "Polygon bevel and chamfer tools".to_string(),
+            search_hint: "polygon modeling, bevel, chamfer, extrude".to_string(),
+            dcc: "maya".to_string(),
+            tools: vec![
+                ToolDeclaration {
+                    name: "bevel".to_string(),
+                    description: "Apply bevel to edges".to_string(),
+                    ..Default::default()
+                },
+                ToolDeclaration {
+                    name: "chamfer".to_string(),
+                    description: "Chamfer vertices".to_string(),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        skill.tags = vec!["modeling".to_string()];
+        catalog.add_skill(skill);
+
+        // Add a second unrelated skill
+        let mut skill2 = SkillMetadata {
+            name: "git-tools".to_string(),
+            description: "Git version control helpers".to_string(),
+            search_hint: "git, commit, branch, vcs".to_string(),
+            dcc: "python".to_string(),
+            tools: vec![ToolDeclaration {
+                name: "log".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        skill2.tags = vec!["devops".to_string()];
+        catalog.add_skill(skill2);
+
+        let dispatcher = Arc::new(ActionDispatcher::new((*registry).clone()));
+        AppState {
+            registry,
+            dispatcher,
+            catalog,
+            sessions: SessionManager::new(),
+            executor: None,
+            server_name: "test-dcc".to_string(),
+            server_version: "0.1.0".to_string(),
+        }
+    }
+
+    fn make_router_with_skills() -> axum::Router {
+        use crate::handler::{handle_delete, handle_get, handle_post};
+        use axum::{Router, routing};
+        Router::new()
+            .route(
+                "/mcp",
+                routing::post(handle_post)
+                    .get(handle_get)
+                    .delete(handle_delete),
+            )
+            .with_state(make_app_state_with_skills())
+    }
+
+    #[tokio::test]
+    async fn test_search_skills_returns_match() {
+        let server = TestServer::new(make_router_with_skills()).unwrap();
+
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::ACCEPT,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&json!({
+                "jsonrpc": "2.0",
+                "id": 10,
+                "method": "tools/call",
+                "params": {
+                    "name": "search_skills",
+                    "arguments": {"query": "bevel"}
+                }
+            }))
+            .await;
+
+        resp.assert_status_ok();
+        let body: Value = resp.json();
+        assert_eq!(body["result"]["isError"], false);
+        let text = body["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(
+            text.contains("maya-bevel"),
+            "Expected maya-bevel in results: {text}"
+        );
+        assert!(
+            !text.contains("git-tools"),
+            "git-tools should not match 'bevel': {text}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_search_skills_matches_search_hint() {
+        let server = TestServer::new(make_router_with_skills()).unwrap();
+
+        // "chamfer" is only in search_hint, not in description or name
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::ACCEPT,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&json!({
+                "jsonrpc": "2.0",
+                "id": 11,
+                "method": "tools/call",
+                "params": {
+                    "name": "search_skills",
+                    "arguments": {"query": "chamfer"}
+                }
+            }))
+            .await;
+
+        resp.assert_status_ok();
+        let body: Value = resp.json();
+        let text = body["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(
+            text.contains("maya-bevel"),
+            "search_hint match expected for 'chamfer': {text}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_search_skills_matches_tool_name() {
+        let server = TestServer::new(make_router_with_skills()).unwrap();
+
+        // "log" is a tool name in git-tools
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::ACCEPT,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&json!({
+                "jsonrpc": "2.0",
+                "id": 12,
+                "method": "tools/call",
+                "params": {
+                    "name": "search_skills",
+                    "arguments": {"query": "log"}
+                }
+            }))
+            .await;
+
+        resp.assert_status_ok();
+        let body: Value = resp.json();
+        let text = body["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(
+            text.contains("git-tools"),
+            "tool name match expected for 'log': {text}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_search_skills_no_match() {
+        let server = TestServer::new(make_router_with_skills()).unwrap();
+
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::ACCEPT,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&json!({
+                "jsonrpc": "2.0",
+                "id": 13,
+                "method": "tools/call",
+                "params": {
+                    "name": "search_skills",
+                    "arguments": {"query": "xyzzy_no_match"}
+                }
+            }))
+            .await;
+
+        resp.assert_status_ok();
+        let body: Value = resp.json();
+        let text = body["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(
+            text.contains("No skills found"),
+            "Expected 'No skills found' for unmatched query: {text}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_search_skills_missing_query_returns_error() {
+        let server = TestServer::new(make_router_with_skills()).unwrap();
+
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::ACCEPT,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&json!({
+                "jsonrpc": "2.0",
+                "id": 14,
+                "method": "tools/call",
+                "params": {
+                    "name": "search_skills",
+                    "arguments": {}
+                }
+            }))
+            .await;
+
+        resp.assert_status_ok();
+        let body: Value = resp.json();
+        // Missing required parameter — should return isError: true
+        assert_eq!(body["result"]["isError"], true);
+    }
+
+    #[tokio::test]
+    async fn test_tools_list_includes_unloaded_skill_stubs() {
+        let server = TestServer::new(make_router_with_skills()).unwrap();
+
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::ACCEPT,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&json!({"jsonrpc": "2.0", "id": 15, "method": "tools/list"}))
+            .await;
+
+        resp.assert_status_ok();
+        let body: Value = resp.json();
+        let tools = body["result"]["tools"].as_array().unwrap();
+        let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
+        // Unloaded skills appear as __skill__<name> stubs
+        assert!(
+            names.contains(&"__skill__maya-bevel"),
+            "Expected stub __skill__maya-bevel, got: {names:?}"
+        );
+        assert!(
+            names.contains(&"__skill__git-tools"),
+            "Expected stub __skill__git-tools, got: {names:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_skill_stub_call_returns_load_hint() {
+        let server = TestServer::new(make_router_with_skills()).unwrap();
+
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::ACCEPT,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&json!({
+                "jsonrpc": "2.0",
+                "id": 16,
+                "method": "tools/call",
+                "params": {
+                    "name": "__skill__maya-bevel",
+                    "arguments": {}
+                }
+            }))
+            .await;
+
+        resp.assert_status_ok();
+        let body: Value = resp.json();
+        assert_eq!(body["result"]["isError"], true);
+        let text = body["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(
+            text.contains("load_skill"),
+            "Stub call should hint at load_skill: {text}"
+        );
+        assert!(
+            text.contains("maya-bevel"),
+            "Stub call should name the skill: {text}"
+        );
     }
 
     // ── tools/call known (no handler registered) ──────────────────────────
@@ -565,8 +854,8 @@ mod tests {
 
         let body2: Value = resp2.json();
         let tools = body2["result"]["tools"].as_array().unwrap();
-        // 5 core tools + 2 skill tools = 7
-        assert_eq!(tools.len(), 7);
+        // 6 core tools + 2 skill tools (skill now loaded, no stubs) = 8
+        assert_eq!(tools.len(), 8);
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert!(names.contains(&"modeling_bevel__bevel"));
         assert!(names.contains(&"modeling_bevel__chamfer"));
@@ -635,8 +924,8 @@ mod tests {
 
         let body2: Value = resp2.json();
         let tools = body2["result"]["tools"].as_array().unwrap();
-        // Back to just 5 core tools
-        assert_eq!(tools.len(), 5);
+        // Back to 6 core tools + 1 unloaded skill stub = 7
+        assert_eq!(tools.len(), 7);
     }
 
     #[tokio::test]

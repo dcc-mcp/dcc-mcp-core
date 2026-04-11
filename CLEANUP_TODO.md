@@ -61,8 +61,9 @@ Files exceeding 500-line threshold (excluding test files), tracked since Run #91
 | `dcc-mcp-protocols/src/adapters_python/` | **SPLIT ✅** | **Run #107**: Split adapters_python.rs (1152L) into adapters_python/enums.rs (173L) + adapters_python/data.rs (843L) + adapters_python/scene_node.rs (86L) + adapters_python/mod.rs (28L). All pub paths unchanged. 0 Clippy warnings. | **Done** |
 | `dcc-mcp-protocols/src/mock/tests.rs` | **1000+** (41071B) | Test-only code. No action needed. | ✅ No action |
 | `dcc-mcp-protocols/src/mock/adapter.rs` | **898** (30292B) | Mock DCC adapter implementation. Large but acceptable for mock helpers. | Low |
-| `dcc-mcp-skills/src/catalog.rs` | **1092+** (44753B) | **Run #105**: Still growing. Single-concern; monitor. | ✅ No action |
-| `dcc-mcp-models/src/skill_metadata.rs` | **1021** (37654B) | PyO3 inline. No split needed. | ✅ No action |
+| `dcc-mcp-protocols/src/adapters_python/data.rs` | **945→19** | **Run #110**: Split into `data_dcc.rs` (574L, 7 DCC core types) + `data_scene.rs` (385L, 5 scene geometry types) + `data.rs` re-export shim (19L). All pub paths unchanged. 0 Clippy warnings. | **Done** |
+| `dcc-mcp-models/src/action_result.rs` | **761→569** | **Run #109**: Extracted 195L tests to `action_result_tests.rs` (via `#[path]` attr). Main file now 569L. | **Done** |
+| `dcc-mcp-skills/src/catalog/mod.rs` | **1038→673** | **Run #109**: Extracted 366L tests to `catalog/tests.rs`. mod.rs back to 673L. | **Done** |
 | `dcc-mcp-transport/src/python/channel.rs` | **717** (29844B) | Python bindings for FramedChannel; complex but single-concern | Low |
 | `dcc-mcp-transport/src/python/manager.rs` | **665** (24619B) | Python bindings for TransportManager; single-concern | Low |
 | `dcc-mcp-transport/src/framed/tests.rs` | **779** | Test-only. No action needed. | ✅ No action |
@@ -81,7 +82,11 @@ Files exceeding 500-line threshold (excluding test files), tracked since Run #91
 
 **Note (Run #106)**: adapters.rs (1207L) split into adapters/ submodule: types.rs (297L) + traits.rs (304L) + tests.rs (282L) + mod.rs (17L). All `crate::adapters::*` paths unchanged. 0 Clippy warnings. 11089 Python tests pass. Next: evaluate adapters_python.rs (1057L) structural split.
 
-**Note (Run #107)**: adapters_python.rs (1152L) split into adapters_python/ submodule: enums.rs (173L, PyScriptLanguage + PyDccErrorCode) + data.rs (843L, 12 data structs) + scene_node.rs (86L, recursive PySceneNode) + mod.rs (28L). All pub paths unchanged. 0 Clippy warnings. Stages 1–8 all clean. +269 new Python tests from iteration Agent (11419 total). Next: catalog.rs (1092L) monitor growth.
+**Note (Run #108)**: catalog.rs (1239L) split into catalog/ submodule: types.rs (80L, SkillState/SkillEntry/SkillSummary/SkillDetail) + execute.rs (120L, resolve_tool_script/execute_script) + mod.rs (720L, SkillCatalog core + Python bindings + tests). All pub paths unchanged. Also resolved adapters_python/enums.rs merge conflict (adopted origin/main's as_str() helper for PyDccErrorCode). 0 Clippy warnings. Rust tests: all pass.
+
+**Note (Run #109)**: Two more test-block extractions: (1) `catalog/mod.rs` (1038L → 673L) — 366L tests extracted to `catalog/tests.rs`; (2) `action_result.rs` (761L → 569L) — 195L tests extracted to `action_result_tests.rs` (via `#[path]` attr). Both: `cargo test --workspace` PASS, 0 Clippy warnings. `data.rs` (945L) added to watch list for future split.
+
+**Note (Run #110)**: `adapters_python/data.rs` (945L) split into `data_dcc.rs` (574L, 7 DCC core types: PyDccInfo/PyScriptResult/PySceneStatistics/PySceneInfo/PyDccCapabilities/PyDccError/PyCaptureResult) + `data_scene.rs` (385L, 5 scene geometry types: PyObjectTransform/PyBoundingBox/PySceneObject/PyFrameRange/PyRenderOutput) + `data.rs` re-export shim (19L). `cargo check/clippy` PASS. Iteration Agent added 244 new deep tests (2 new files: `test_shm_recovery_registry_usd_deep.py` 685L + `test_vtvalue_sdfpath_wrappers_mcp_skills_deep.py` 734L). All new tests are clean (ruff PASS).
 
 ---
 
@@ -124,3 +129,6 @@ Files exceeding 500-line threshold (excluding test files), tracked since Run #91
 | #104 | Docs: fix shm.md API errors — PySharedBuffer.create(capacity) not size_bytes, id property not buffer_id(), PyBufferPool(buffer_size), PySceneDataKind enum values (EN+ZH) | ✅ Fixed |
 | #105 | Clippy: remove 3 unused trait imports in mock/tests.rs (DccHierarchy/DccRenderCapture/DccSceneManager) — were in import but never used in code | ✅ Fixed |
 | #105 | Docs: protocols.md EN+ZH — add 8 missing data type sections: DccInfo/DccCapabilities/DccError/DccErrorCode/ScriptLanguage/ScriptResult/SceneInfo/SceneStatistics (all exported from `__init__.py` but had no API docs) | ✅ Fixed |
+| #109 | `catalog/mod.rs` (1038L→673L): extract 366L tests to `catalog/tests.rs` | ✅ Done |
+| #109 | `action_result.rs` (761L→569L): extract 195L tests to `action_result_tests.rs` via `#[path]` attr | ✅ Done |
+| #110 | `adapters_python/data.rs` (945L→19L): split into `data_dcc.rs` (574L, 7 types) + `data_scene.rs` (385L, 5 types) + re-export shim. All pub paths unchanged. 0 Clippy/Ruff warnings. | ✅ Done |

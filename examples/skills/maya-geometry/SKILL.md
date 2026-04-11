@@ -10,6 +10,7 @@ metadata:
 tags: [maya, geometry, creation, modeling]
 dcc: maya
 version: "1.0.0"
+search-hint: "maya, geometry, polygon, sphere, cube, bevel, extrude, merge, 3D modeling"
 tools:
   - name: create_sphere
     description: Create a polygon sphere with the given radius and subdivisions

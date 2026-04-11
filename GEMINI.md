@@ -112,12 +112,26 @@ DCC_MCP_SKILL_PATHS env var
         ↓
   resolve_dependencies(skills)  # topological sort by 'depends' field
         ↓
-  ActionRegistry.register()     # register each script as an action
+  SkillCatalog.load_skill(name) # on-demand: registers actions into ActionRegistry
         ↓
   ToolDefinition(...)           # expose as MCP tool to LLM
 ```
 
 Action naming: `{skill_name}__{script_stem}` (hyphens → underscores, `__` separator)
+
+### On-Demand Skill Discovery (MCP HTTP)
+
+`tools/list` returns three tiers:
+1. **6 core tools** (always): `find_skills`, `list_skills`, `get_skill_info`, `load_skill`, `unload_skill`, `search_skills`
+2. **Loaded skill tools** — full `input_schema` from ActionRegistry
+3. **Unloaded skill stubs** — `__skill__<name>` with one-line description only
+
+Workflow: `search_skills(query="keyword")` → `load_skill("skill-name")` → use tools
+
+SKILL.md `search-hint` field improves keyword matching:
+```yaml
+search-hint: "polygon modeling, bevel, extrude, mesh editing"
+```
 
 ## Common Pitfalls
 
@@ -145,6 +159,10 @@ Action naming: `{skill_name}__{script_stem}` (hyphens → underscores, `__` sepa
 20. **`scan_and_load` keyword args only**: Both `extra_paths` and `dcc_name` must be passed as keyword arguments: `scan_and_load(dcc_name="maya", extra_paths=["/path"])` — never as positionals.
 
 21. **`DeferredExecutor` import path**: `DeferredExecutor` is Rust-backed and must be imported via `from dcc_mcp_core._core import DeferredExecutor` until it is added to the public `__init__.py` exports. Always check `__init__.py` first.
+
+22. **tools/list has 6 core tools** (not 5): `find_skills`, `list_skills`, `get_skill_info`, `load_skill`, `unload_skill`, **`search_skills``. Unloaded skills appear as `__skill__<name>` stubs — calling a stub returns a `load_skill` hint, not an error about missing handlers.
+
+23. **`search_hint` fallback**: If `search-hint:` is not in SKILL.md, `SkillSummary.search_hint` falls back to `description`. Set `search-hint` explicitly for better keyword matching.
 
 ## CI/CD Summary
 

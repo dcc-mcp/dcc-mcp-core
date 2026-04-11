@@ -15,6 +15,7 @@ metadata:
 tags: [git, vcs, automation, devops]
 dcc: python
 version: "1.0.0"
+search-hint: "git, commit history, diff, branch, version control, log, vcs"
 tools:
   - name: log
     description: Show recent commit history

@@ -572,7 +572,7 @@ catalog.discover(extra_paths=["/my/skills"], dcc_name="maya")
 all_skills: list[SkillSummary] = catalog.list_skills()
 loaded_skills = catalog.list_skills(status="loaded")
 
-# Search
+# Search — matches name, description, search_hint, and tool names
 results = catalog.find_skills(query="geometry", tags=["maya"], dcc="maya")
 
 # Load / unload individual skills
@@ -585,7 +585,7 @@ catalog.loaded_count()                   # -> int
 meta = catalog.get_skill_info("maya-geometry")  # -> Optional[SkillMetadata]
 ```
 
-**SkillSummary fields:** `.name`, `.description`, `.version`, `.dcc`, `.tags`, `.tool_count`, `.tool_names`, `.loaded`
+**SkillSummary fields:** `.name`, `.description`, `.search_hint`, `.version`, `.dcc`, `.tags`, `.tool_count`, `.tool_names`, `.loaded`
 
 ### Action Naming Convention
 
@@ -2010,7 +2010,14 @@ handle = server.start()
 print(f"Maya MCP server at {handle.mcp_url()}")
 # Claude Desktop config: {"mcpServers": {"maya": {"url": "<handle.mcp_url()>"}}}
 
-# Skills are discovered but not loaded — agents call load_skill on demand:
+# On-demand skill discovery workflow (agent-driven):
+# 1. tools/list → 6 core tools + __skill__<name> stubs for unloaded skills
+#    Core tools: find_skills, list_skills, get_skill_info, load_skill, unload_skill, search_skills
+# 2. search_skills(query="bevel") → compact one-line-per-skill results matching search_hint/tool names
+# 3. load_skill("maya-bevel") → registers tools + handlers, sends tools/list_changed
+# 4. tools/list → new skill tools visible with full schemas
+# 5. tools/call maya_bevel__bevel {offset: 0.1} → runs scripts/bevel.py
+
 count = server.discover()               # scan again (optional)
 skills = server.list_skills()           # list all with status
 server.load_skill("hello-world")        # registers skill tools into ActionRegistry

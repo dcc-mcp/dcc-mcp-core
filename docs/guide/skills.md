@@ -24,6 +24,7 @@ description: "Maya geometry creation and modification tools"
 version: "1.0.0"
 dcc: maya
 tags: ["geometry", "create"]
+search-hint: "polygon modeling, sphere, bevel, extrude, mesh editing"
 tools:
   - name: create_sphere
     description: "Create a polygon sphere with the given radius"
@@ -37,6 +38,9 @@ tools:
 
 Use these tools to create and modify geometry in Maya.
 ```
+
+The `search-hint` field provides comma-separated keywords for efficient skill discovery
+via `search_skills` without loading full tool schemas.
 
 ### 3. Set Environment Variable
 
@@ -119,12 +123,13 @@ info = catalog.get_skill_info("maya-geometry")  # dict with full details or None
 
 ### SkillSummary Fields
 
-`find_skills()` and `list_skills()` return `SkillSummary` objects:
+`find_skills()`, `list_skills()`, and `search_skills` (MCP tool) return `SkillSummary` objects:
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `name` | `str` | Skill name |
 | `description` | `str` | Short description |
+| `search_hint` | `str` | Keyword hint for discovery (from `search-hint:` in SKILL.md; falls back to `description`) |
 | `tags` | `List[str]` | Skill tags |
 | `dcc` | `str` | Target DCC (e.g. `"maya"`) |
 | `version` | `str` | Skill version |
@@ -277,6 +282,7 @@ Parsed from SKILL.md frontmatter. Supports Anthropic Skills, ClawHub/OpenClaw, a
 |-------|------|-------------|
 | `name` | `str` | Unique skill name |
 | `description` | `str` | Short description |
+| `search_hint` | `str` | Keyword hint for `search_skills` (SKILL.md `search-hint:` field; falls back to `description`) |
 | `tools` | `List[str]` | Tool names listed in frontmatter |
 | `dcc` | `str` | Target DCC application (default: `"python"`) |
 | `tags` | `List[str]` | Classification tags |

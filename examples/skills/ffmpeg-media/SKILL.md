@@ -20,6 +20,7 @@ metadata:
 tags: [media, video, audio, ffmpeg, conversion]
 dcc: python
 version: "1.0.0"
+search-hint: "ffmpeg, video, audio, media conversion, transcode, extract frames, resize"
 tools:
   - name: convert
     description: Convert a media file to a different format

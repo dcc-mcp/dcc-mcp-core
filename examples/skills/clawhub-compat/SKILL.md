@@ -22,6 +22,7 @@ metadata:
 tags: [example, clawhub, openclaw, compatibility]
 dcc: python
 version: "1.0.0"
+search-hint: "clawhub, openclaw, compatibility, marketplace, example format"
 ---
 
 # ClawHub Compatible Skill

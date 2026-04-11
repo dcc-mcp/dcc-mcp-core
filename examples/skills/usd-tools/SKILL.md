@@ -16,6 +16,7 @@ metadata:
 tags: [usd, openusd, pipeline, scene, validation]
 dcc: python
 version: "1.0.0"
+search-hint: "USD, OpenUSD, scene inspection, validation, layer stack, prims, assets"
 tools:
   - name: inspect
     description: Print the contents of a USD file in human-readable form

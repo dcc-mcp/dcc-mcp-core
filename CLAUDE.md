@@ -56,6 +56,8 @@ vx just test-cov      # Coverage report to find gaps
 - Use `scan_and_load()` or `scan_and_load_lenient()` — not the old `scan_and_load_skills()`
 - **`scan_and_load` returns a 2-tuple**: `(List[SkillMetadata], List[str])` — always unpack both
 - See `examples/skills/` for 9 reference implementations
+- **`search-hint` in SKILL.md**: add `search-hint: "keyword1, keyword2"` to improve `search_skills` matching without loading full schemas
+- **On-demand discovery**: `tools/list` returns skill stubs (`__skill__<name>`) for unloaded skills; use `search_skills(query)` then `load_skill(name)` to activate
 
 ```python
 # Correct usage:
@@ -79,6 +81,14 @@ skills, skipped = scan_and_load(dcc_name="maya")
 ### When Using MCP HTTP Server
 
 ```python
+# Skills-First (recommended)
+from dcc_mcp_core import create_skill_manager, McpHttpConfig
+server = create_skill_manager("maya", McpHttpConfig(port=8765))
+handle = server.start()
+print(handle.mcp_url())  # "http://127.0.0.1:8765/mcp"
+# tools/list returns 6 core tools + __skill__<name> stubs; search_skills → load_skill → use
+
+# Manual registry wiring (low-level)
 from dcc_mcp_core import ActionRegistry, McpHttpServer, McpHttpConfig, McpServerHandle
 
 registry = ActionRegistry()

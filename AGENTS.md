@@ -401,25 +401,31 @@ from dcc_mcp_core import create_skill_manager, McpHttpConfig
 
 server = create_skill_manager("maya", McpHttpConfig(port=8765))
 handle = server.start()
-# Agents connect → find_skills → load_skill → tools/call
+# Agents connect → search_skills → load_skill → tools/call
 
-# Progressive discovery (agent-driven):
-# 1. tools/list → 5 core tools (find_skills, list_skills, get_skill_info, load_skill, unload_skill)
-# 2. find_skills(dcc="maya", query="modeling") → [{name, description, tags, loaded: false}]
+# On-demand skill discovery (agent-driven):
+# 1. tools/list → 6 core tools + __skill__<name> stubs for every unloaded skill
+#    Core: find_skills, list_skills, get_skill_info, load_skill, unload_skill, search_skills
+# 2. search_skills(query="modeling") → compact summary: name [status] (N tools: ...) — desc
 # 3. load_skill("maya-bevel") → registers tools + handlers, sends tools/list_changed
-# 4. tools/list → new skill tools visible
+# 4. tools/list → new skill tools visible with full input schemas
 # 5. tools/call maya_bevel__bevel {offset: 0.1} → runs scripts/bevel.py
 
 # ─────────────────────────────────────────────────────────────
 # SkillMetadata fields (v0.12.10+)
 # ─────────────────────────────────────────────────────────────
 # s.name, s.description, s.dcc, s.version, s.tags
+# s.search_hint                 # keyword hint for search_skills (SKILL.md search-hint:)
 # s.license, s.compatibility    # agentskills.io standard
 # s.allowed_tools               # agent permission list (e.g. ["Bash", "Read"])
 # s.metadata                    # arbitrary KV + ClawHub openclaw.*
 # s.tools (List[ToolDeclaration]) # MCP tool declarations with schemas
 # s.scripts (List[str])         # auto-discovered script paths
 # s.skill_path, s.depends, s.metadata_files
+
+# SkillSummary fields (from find_skills / list_skills):
+# s.name, s.description, s.search_hint, s.version, s.dcc, s.tags
+# s.tool_count, s.tool_names, s.loaded
 
 # ─────────────────────────────────────────────────────────────
 # Manual setup (advanced / custom handlers)
@@ -936,8 +942,8 @@ server = create_skill_manager(
 handle = server.start()
 print(f"Maya MCP server: {handle.mcp_url()}")
 
-# Agents connect and use progressive loading:
-# → find_skills(dcc="maya") to discover
+# Agents connect and use on-demand skill discovery:
+# → search_skills(query="maya") to find relevant skills
 # → load_skill("maya-bevel") to activate
 # → tools/call maya_bevel__bevel to execute
 handle.shutdown()
@@ -1044,7 +1050,7 @@ os.environ["DCC_MCP_MAYA_SKILL_PATHS"] = "/opt/maya-skills"
 server = create_skill_manager("maya", McpHttpConfig(port=8765, server_name="maya-mcp"))
 handle = server.start()
 print(f"MCP server ready at {handle.mcp_url()}")
-# Agents use find_skills/load_skill to discover and activate tools progressively.
+# Agents use search_skills/load_skill to discover and activate tools on-demand.
 # handle.shutdown() when done
 
 
