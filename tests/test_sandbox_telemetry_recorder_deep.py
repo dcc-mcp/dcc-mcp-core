@@ -214,14 +214,18 @@ class TestSandboxContextIsPathAllowed:
         assert isinstance(result, bool)
 
     def test_exact_path_in_list_allowed(self):
+        import tempfile
+
         from dcc_mcp_core import SandboxContext
         from dcc_mcp_core import SandboxPolicy
 
-        sp = SandboxPolicy()
-        sp.allow_paths(["/tmp/project/file.py"])
-        sc = SandboxContext(sp)
-        # Exact match in allow_paths list => allowed
-        assert sc.is_path_allowed("/tmp/project/file.py") is True
+        # Use a real existing directory so canonicalize works on all platforms
+        with tempfile.TemporaryDirectory() as tmpdir:
+            sp = SandboxPolicy()
+            sp.allow_paths([tmpdir])
+            sc = SandboxContext(sp)
+            # The allowed dir itself must be accessible
+            assert sc.is_path_allowed(tmpdir) is True
 
     def test_unrelated_path_blocked(self):
         from dcc_mcp_core import SandboxContext
