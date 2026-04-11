@@ -84,6 +84,7 @@ impl MockDccAdapter {
             render_capture: config.snapshot_enabled,
             hierarchy: true,
             extensions: HashMap::new(),
+            ..Default::default()
         };
 
         Self {

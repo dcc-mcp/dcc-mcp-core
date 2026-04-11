@@ -137,6 +137,7 @@ fn test_dcc_capabilities_serialization() {
         render_capture: true,
         hierarchy: true,
         extensions: HashMap::from([("usd_export".to_string(), true)]),
+        ..Default::default()
     };
     let json = serde_json::to_string(&caps).unwrap();
     let deserialized: DccCapabilities = serde_json::from_str(&json).unwrap();
