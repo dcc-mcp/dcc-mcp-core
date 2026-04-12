@@ -187,13 +187,19 @@ class TestParseSkillMdUsdTools:
 
 
 class TestParseSkillMdErrors:
-    def test_returns_none_for_nonexistent_directory(self):
-        result = parse_skill_md("/nonexistent/path/to/skill")
-        assert result is None
+    def test_raises_for_nonexistent_directory(self):
+        """parse_skill_md raises FileNotFoundError for paths that do not exist."""
+        import pytest
 
-    def test_returns_none_for_empty_string(self):
-        result = parse_skill_md("")
-        assert result is None
+        with pytest.raises(FileNotFoundError):
+            parse_skill_md("/nonexistent/path/to/skill")
+
+    def test_raises_for_empty_string(self):
+        """parse_skill_md raises FileNotFoundError for an empty path."""
+        import pytest
+
+        with pytest.raises(FileNotFoundError):
+            parse_skill_md("")
 
 
 # ---------------------------------------------------------------------------

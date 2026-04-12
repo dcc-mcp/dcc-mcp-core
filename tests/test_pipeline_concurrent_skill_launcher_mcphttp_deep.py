@@ -732,9 +732,11 @@ class TestSkillMetadataDeepAttrs:
         assert meta is not None
         assert len(meta.scripts) >= 2
 
-    def test_parse_skill_md_nonexistent_dir_returns_none(self):
-        result = parse_skill_md("/nonexistent/path/skill-xyz")
-        assert result is None
+    def test_parse_skill_md_nonexistent_dir_raises(self):
+        import pytest
+
+        with pytest.raises(FileNotFoundError):
+            parse_skill_md("/nonexistent/path/skill-xyz")
 
     def test_parse_skill_md_dir_without_skill_md_returns_none(self):
         tmpdir = tempfile.mkdtemp()

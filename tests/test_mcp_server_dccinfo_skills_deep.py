@@ -714,10 +714,12 @@ class TestParseSkillMd:
         """skill_path ends with 'hello-world'."""
         assert "hello-world" in hello_world_meta.skill_path.replace("\\", "/")
 
-    def test_invalid_path_returns_none(self) -> None:
-        """parse_skill_md on non-existent path returns None (lenient)."""
-        result = parse_skill_md("/nonexistent/path/to/skill")
-        assert result is None
+    def test_invalid_path_raises(self) -> None:
+        """parse_skill_md raises FileNotFoundError for a non-existent path."""
+        import pytest
+
+        with pytest.raises(FileNotFoundError):
+            parse_skill_md("/nonexistent/path/to/skill")
 
 
 # ---------------------------------------------------------------------------
