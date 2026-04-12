@@ -21,9 +21,30 @@
 | `with_error(error)` | `ActionResultModel` | 创建带错误信息的副本（设置 `success=False`） |
 | `with_context(**kwargs)` | `ActionResultModel` | 创建带更新上下文的副本 |
 | `to_dict()` | `Dict[str, Any]` | 转换为字典 |
+| `to_json()` | `str` | 序列化为 JSON 字符串 |
 | `__eq__(other)` | `bool` | 相等比较 |
 | `__str__()` | `str` | 人类可读字符串 |
 | `__repr__()` | `str` | 无歧义表示 |
+
+::: warning 不支持直接使用 `json.dumps()`
+`ActionResultModel` 是 Rust 后端对象，**不能直接传给 `json.dumps()`**。
+请使用 `to_json()` 或先转换为字典：
+
+```python
+import json
+result = success_result("完成")
+
+# 方式一 — 内置 JSON 序列化（推荐，使用 Rust serde）
+json_str = result.to_json()
+
+# 方式二 — 转换为字典后序列化
+json_str = json.dumps(result.to_dict())
+
+# 方式三 — serialize_result（支持 JSON 和 MsgPack）
+from dcc_mcp_core import serialize_result
+json_str = serialize_result(result)
+```
+:::
 
 ### 工厂函数
 

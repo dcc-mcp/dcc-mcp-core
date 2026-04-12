@@ -296,11 +296,37 @@ pub(crate) fn merge_depends_from_metadata(skill_dir: &Path, meta: &mut SkillMeta
 // ── Python bindings ──
 
 /// Python wrapper for parse_skill_md.
+///
+/// Accepts either a skill directory path or a direct path to a `SKILL.md` file.
+/// If a file path is given, the parent directory is used automatically.
+///
+/// Returns `None` if the directory contains no valid `SKILL.md`.
+/// Raises `FileNotFoundError` if the path does not exist at all.
 #[cfg(feature = "python-bindings")]
 #[pyfunction]
 #[pyo3(name = "parse_skill_md")]
-pub fn py_parse_skill_md(skill_dir: &str) -> Option<SkillMetadata> {
-    parse_skill_md(Path::new(skill_dir))
+pub fn py_parse_skill_md(skill_dir: &str) -> pyo3::PyResult<Option<SkillMetadata>> {
+    let raw = Path::new(skill_dir);
+
+    // Resolve: if the user passed a path to `SKILL.md` (or any file), use the parent dir.
+    let dir = if raw.is_file() {
+        raw.parent()
+            .ok_or_else(|| {
+                pyo3::exceptions::PyValueError::new_err(format!(
+                    "parse_skill_md: cannot determine parent directory of file: {skill_dir}"
+                ))
+            })?
+            .to_owned()
+    } else if raw.is_dir() {
+        raw.to_owned()
+    } else {
+        // Path doesn't exist at all — raise a clear error instead of silently returning None.
+        return Err(pyo3::exceptions::PyFileNotFoundError::new_err(format!(
+            "parse_skill_md: path does not exist: {skill_dir}"
+        )));
+    };
+
+    Ok(parse_skill_md(&dir))
 }
 
 /// Python wrapper for scan_and_load (strict mode).

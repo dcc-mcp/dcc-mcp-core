@@ -21,9 +21,30 @@ Standardized result for all action executions. Backed by a Rust struct via PyO3.
 | `with_error(error)` | `ActionResultModel` | Create copy with error info (sets `success=False`) |
 | `with_context(**kwargs)` | `ActionResultModel` | Create copy with updated context |
 | `to_dict()` | `Dict[str, Any]` | Convert to dictionary |
+| `to_json()` | `str` | Serialize to a JSON string |
 | `__eq__(other)` | `bool` | Equality comparison |
 | `__str__()` | `str` | Human-readable string |
 | `__repr__()` | `str` | Unambiguous representation |
+
+::: warning `json.dumps()` is not supported directly
+`ActionResultModel` is a Rust-backed object and **cannot be passed to `json.dumps()` directly**.
+Use `to_json()` or convert to a dict first:
+
+```python
+import json
+result = success_result("done")
+
+# Option 1 — built-in JSON serializer (recommended, uses Rust serde)
+json_str = result.to_json()
+
+# Option 2 — via dict
+json_str = json.dumps(result.to_dict())
+
+# Option 3 — serialize_result (supports JSON and MsgPack)
+from dcc_mcp_core import serialize_result
+json_str = serialize_result(result)
+```
+:::
 
 ### Factory Functions
 

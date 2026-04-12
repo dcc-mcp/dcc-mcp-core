@@ -119,6 +119,29 @@ impl SkillScanner {
             return results;
         }
 
+        // OpenClaw / single-skill layout: the search_path itself is a skill directory
+        // (contains SKILL.md directly, with or without a scripts/ subdirectory).
+        let self_skill_md = path.join(SKILL_METADATA_FILE);
+        if self_skill_md.is_file() {
+            let abs_path = path_to_string(path);
+            let current_mtime = Self::file_mtime_secs(&self_skill_md);
+            if !force_refresh {
+                if let (Some(&cached_mtime), Some(mtime)) =
+                    (self.cache.get(&abs_path), current_mtime)
+                {
+                    if (mtime - cached_mtime).abs() < MTIME_EPSILON_SECS {
+                        results.push(abs_path);
+                        return results;
+                    }
+                }
+            }
+            if let Some(mtime) = current_mtime {
+                self.cache.insert(abs_path.clone(), mtime);
+            }
+            results.push(abs_path);
+            return results;
+        }
+
         let entries = match std::fs::read_dir(path) {
             Ok(e) => e,
             Err(e) => {

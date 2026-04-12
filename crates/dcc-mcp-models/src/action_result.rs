@@ -254,6 +254,24 @@ impl ActionResultModel {
         Ok(dict)
     }
 
+    /// Serialize to a JSON string.
+    ///
+    /// This is the recommended way to convert an `ActionResultModel` to a JSON string.
+    /// `json.dumps(result)` will **not** work directly — use this method instead:
+    ///
+    /// ```python
+    /// import json
+    /// result = success_result("done")
+    /// json_str = result.to_json()          # preferred
+    /// d = result.to_dict()
+    /// json_str = json.dumps(d)             # also works
+    /// ```
+    fn to_json(&self) -> PyResult<String> {
+        self.inner
+            .to_json_string()
+            .map_err(pyo3::exceptions::PyValueError::new_err)
+    }
+
     fn __repr__(&self) -> String {
         format!(
             "ActionResultModel(success={}, message={:?})",
