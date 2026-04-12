@@ -14,10 +14,17 @@ use dcc_mcp_models::ToolDeclaration;
 pub(crate) fn resolve_tool_script(
     tool_decl: &ToolDeclaration,
     scripts: &[String],
-    _skill_path: &std::path::Path,
+    skill_path: &std::path::Path,
 ) -> Option<String> {
     // 1. Explicit source_file on the tool declaration
     if !tool_decl.source_file.is_empty() {
+        let p = std::path::Path::new(&tool_decl.source_file);
+        // If relative, resolve against the skill root directory so that
+        // the subprocess always receives an absolute path regardless of CWD.
+        if p.is_relative() {
+            let abs = skill_path.join(p);
+            return Some(abs.to_string_lossy().into_owned());
+        }
         return Some(tool_decl.source_file.clone());
     }
 
@@ -38,12 +45,23 @@ pub(crate) fn resolve_tool_script(
             .to_lowercase()
             .replace('-', "_");
         if stem == tool_name_lower {
+            // Resolve against skill_path if relative
+            let p = std::path::Path::new(script);
+            if p.is_relative() {
+                let abs = skill_path.join(p);
+                return Some(abs.to_string_lossy().into_owned());
+            }
             return Some(script.clone());
         }
     }
 
     // 3. Single-script skill — the one script backs all tools
     if scripts.len() == 1 {
+        let p = std::path::Path::new(&scripts[0]);
+        if p.is_relative() {
+            let abs = skill_path.join(p);
+            return Some(abs.to_string_lossy().into_owned());
+        }
         return Some(scripts[0].clone());
     }
 
@@ -74,19 +92,42 @@ pub(crate) fn execute_script(
         .unwrap_or("")
         .to_lowercase();
 
+    // Resolve the Python interpreter:
+    // 1. DCC_MCP_PYTHON_EXECUTABLE env var (explicit override, e.g. mayapy)
+    // 2. Fall back to the Python that shipped the `python` command on PATH
+    let python_exe =
+        std::env::var("DCC_MCP_PYTHON_EXECUTABLE").unwrap_or_else(|_| "python".to_string());
+
+    // Optional: prepend a Python init snippet before running the skill script.
+    // DCC_MCP_PYTHON_INIT_SNIPPET can contain a one-liner (semicolon separated)
+    // to run before the script, e.g. "import maya.standalone; maya.standalone.initialize(name='python')"
+    let init_snippet = std::env::var("DCC_MCP_PYTHON_INIT_SNIPPET").ok();
+
     // Choose interpreter based on extension
-    let (program, args): (&str, Vec<&str>) = match ext.as_str() {
-        "py" => ("python", vec![script_path]),
-        "sh" | "bash" => ("bash", vec![script_path]),
-        "bat" | "cmd" => ("cmd", vec!["/C", script_path]),
-        "mel" | "lua" | "hscript" | "maxscript" => {
-            // DCC-specific scripts: run via python wrapper if possible
-            ("python", vec![script_path])
+    let (program, args): (String, Vec<String>) = match ext.as_str() {
+        "py" => {
+            if let Some(ref snippet) = init_snippet {
+                // Wrap: python -c "exec(open(...).read())" with init prepended
+                let wrapper = format!(
+                    "exec(compile(open(r'{path}','r').read(), r'{path}', 'exec'), {{'__file__': r'{path}', '__name__': '__main__'}})",
+                    path = script_path
+                );
+                let code = format!("{}; {}", snippet, wrapper);
+                (python_exe, vec!["-c".to_string(), code])
+            } else {
+                (python_exe, vec![script_path.to_string()])
+            }
         }
-        _ => ("python", vec![script_path]),
+        "sh" | "bash" => ("bash".to_string(), vec![script_path.to_string()]),
+        "bat" | "cmd" => (
+            "cmd".to_string(),
+            vec!["/C".to_string(), script_path.to_string()],
+        ),
+        "mel" | "lua" | "hscript" | "maxscript" => (python_exe, vec![script_path.to_string()]),
+        _ => (python_exe, vec![script_path.to_string()]),
     };
 
-    let mut child = Command::new(program)
+    let mut child = Command::new(&program)
         .args(&args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
