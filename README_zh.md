@@ -251,19 +251,16 @@ result = registry.call("my_tool__list", some_param="value")
 | `.ps1` | PowerShell | `powershell -File` |
 | `.js`, `.jsx` | JavaScript | `node` |
 
-查看 `examples/skills/` 获取 **9 个完整示例**：hello-world、maya-geometry、maya-pipeline、git-automation、ffmpeg-media、imagemagick-tools、usd-tools、clawhub-compat、multi-script。
+查看 `examples/skills/` 获取 **11 个完整示例**：hello-world、maya-geometry、maya-pipeline、git-automation、ffmpeg-media、imagemagick-tools、usd-tools、clawhub-compat、multi-script、dcc-diagnostics、workflow。
 
 ### 内置技能包 — 零配置开箱即用
 
-`dcc-mcp-core` 在 wheel 安装包内直接内置了 **5 个通用技能包**，`pip install dcc-mcp-core` 后无需任何路径配置即可使用。
+`dcc-mcp-core` 在 wheel 安装包内直接内置了 **2 个核心技能包**，`pip install dcc-mcp-core` 后无需任何路径配置即可使用。
 
 | 技能包 | 工具 | 用途 |
 |--------|------|------|
 | `dcc-diagnostics` | `screenshot`、`audit_log`、`action_metrics`、`process_status` | 通用诊断与调试（适用所有 DCC） |
 | `workflow` | `run_chain` | 多步骤 action 链式编排，支持上下文传递 |
-| `git-automation` | `repo_stats`、`changelog_gen` | Git 仓库分析 |
-| `ffmpeg-media` | `convert`、`probe`、`thumbnail` | 媒体格式转换（需要 ffmpeg） |
-| `imagemagick-tools` | `resize`、`composite` | 图像处理（需要 ImageMagick） |
 
 ```python
 from dcc_mcp_core import get_bundled_skills_dir, get_bundled_skill_paths

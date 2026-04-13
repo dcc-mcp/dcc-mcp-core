@@ -219,11 +219,11 @@ result = registry.call("my_tool__list", some_param="value")
 | `.ps1` | PowerShell | `powershell -File` |
 | `.js`, `.jsx` | JavaScript | `node` |
 
-See `examples/skills/` for **9 complete examples**: hello-world, maya-geometry, maya-pipeline, git-automation, ffmpeg-media, imagemagick-tools, usd-tools, clawhub-compat, multi-script.
+See `examples/skills/` for **11 complete examples**: hello-world, maya-geometry, maya-pipeline, git-automation, ffmpeg-media, imagemagick-tools, usd-tools, clawhub-compat, multi-script, dcc-diagnostics, workflow.
 
 ### Bundled Skills — Zero Configuration Required
 
-`dcc-mcp-core` ships **five general-purpose skills** directly inside the wheel.
+`dcc-mcp-core` ships **two core skills** directly inside the wheel.
 They are available immediately after `pip install dcc-mcp-core` — no repository
 clone or `DCC_MCP_SKILL_PATHS` configuration needed.
 
@@ -231,9 +231,6 @@ clone or `DCC_MCP_SKILL_PATHS` configuration needed.
 |-------|-------|---------|
 | `dcc-diagnostics` | `screenshot`, `audit_log`, `action_metrics`, `process_status` | Observability & debugging for any DCC |
 | `workflow` | `run_chain` | Multi-step action chaining with context propagation |
-| `git-automation` | `repo_stats`, `changelog_gen` | Git repository analysis |
-| `ffmpeg-media` | `convert`, `probe`, `thumbnail` | Media conversion (requires ffmpeg) |
-| `imagemagick-tools` | `resize`, `composite` | Image processing (requires ImageMagick) |
 
 ```python
 from dcc_mcp_core import get_bundled_skills_dir, get_bundled_skill_paths
