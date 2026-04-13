@@ -65,7 +65,7 @@ lz4_flex = { version = "0.13", default-features = false, features = ["frame"] }
 libc = "0.2"
 notify = "8.0"
 anyhow = "1.0"
-tokio-tungstenite = "0.26"
+tokio-tungstenite = "0.29"
 futures-util = "0.3"
 
 # Root package — Python bindings entry point
