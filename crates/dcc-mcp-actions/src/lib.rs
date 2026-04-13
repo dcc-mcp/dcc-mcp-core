@@ -1,5 +1,6 @@
-//! dcc-mcp-actions: ActionRegistry, EventBus, ActionDispatcher, ActionValidator, VersionedRegistry, ActionPipeline.
+//! dcc-mcp-actions: ActionRegistry, EventBus, ActionDispatcher, ActionValidator, VersionedRegistry, ActionPipeline, ActionChain.
 
+pub mod chain;
 pub mod dispatcher;
 pub mod events;
 pub mod pipeline;
@@ -9,6 +10,7 @@ pub mod registry;
 pub mod validator;
 pub mod versioned;
 
+pub use chain::{ActionChain, ChainResult, ChainStepResult, ErrorAction};
 pub use dispatcher::{ActionDispatcher, DispatchError, DispatchResult, HandlerFn};
 pub use events::EventBus;
 pub use pipeline::{

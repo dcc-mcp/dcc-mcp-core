@@ -274,7 +274,7 @@ class TestRunChainSkillParsing:
         cat.discover(extra_paths=[str(_SKILL_DIR.parent)])
         cat.load_skill("workflow")
         actions = registry.list_actions()
-        action_names = [a.name for a in actions]
+        action_names = [a["name"] for a in actions]
         assert any("workflow" in n and "run_chain" in n for n in action_names)
 
 

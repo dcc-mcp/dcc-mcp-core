@@ -177,10 +177,11 @@ def main() -> None:
         if isinstance(result.get("context"), dict):
             context.update(result["context"])
 
-        if not step_success and stop_on_failure:
+        if not step_success:
             chain_success = False
-            aborted_at = idx
-            break
+            if stop_on_failure:
+                aborted_at = idx
+                break
 
     completed = len(results)
     total = len(steps)
@@ -194,14 +195,26 @@ def main() -> None:
             "You can proceed to the next task or run another chain."
         )
     else:
-        step_label = results[aborted_at]["label"] if aborted_at is not None else "unknown"
-        message = f"Chain aborted at step {aborted_at} ({step_label!r}): {results[aborted_at]['message']}"
-        prompt = (
-            f"Chain failed at step {aborted_at} ('{step_label}'). "
-            "Use dcc_diagnostics__screenshot to capture the current state, "
-            "dcc_diagnostics__audit_log to inspect recent action history, "
-            "or fix the failing step and re-run the chain."
-        )
+        if aborted_at is not None:
+            step_label = results[aborted_at]["label"]
+            message = f"Chain aborted at step {aborted_at} ({step_label!r}): {results[aborted_at]['message']}"
+            prompt = (
+                f"Chain failed at step {aborted_at} ('{step_label}'). "
+                "Use dcc_diagnostics__screenshot to capture the current state, "
+                "dcc_diagnostics__audit_log to inspect recent action history, "
+                "or fix the failing step and re-run the chain."
+            )
+        else:
+            failed_count = len(failed_steps)
+            message = (
+                f"Chain completed with {failed_count}/{total} failed step(s) (dispatch={source}). "
+                "All steps ran (stop_on_failure=False)."
+            )
+            prompt = (
+                f"{failed_count} step(s) failed but the chain ran to completion. "
+                "Use dcc_diagnostics__audit_log to inspect recent action history "
+                "or fix the failing steps and re-run the chain."
+            )
 
     print(
         json.dumps(
