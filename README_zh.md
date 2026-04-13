@@ -253,6 +253,32 @@ result = registry.call("my_tool__list", some_param="value")
 
 查看 `examples/skills/` 获取 **9 个完整示例**：hello-world、maya-geometry、maya-pipeline、git-automation、ffmpeg-media、imagemagick-tools、usd-tools、clawhub-compat、multi-script。
 
+### 内置技能包 — 零配置开箱即用
+
+`dcc-mcp-core` 在 wheel 安装包内直接内置了 **5 个通用技能包**，`pip install dcc-mcp-core` 后无需任何路径配置即可使用。
+
+| 技能包 | 工具 | 用途 |
+|--------|------|------|
+| `dcc-diagnostics` | `screenshot`、`audit_log`、`action_metrics`、`process_status` | 通用诊断与调试（适用所有 DCC） |
+| `workflow` | `run_chain` | 多步骤 action 链式编排，支持上下文传递 |
+| `git-automation` | `repo_stats`、`changelog_gen` | Git 仓库分析 |
+| `ffmpeg-media` | `convert`、`probe`、`thumbnail` | 媒体格式转换（需要 ffmpeg） |
+| `imagemagick-tools` | `resize`、`composite` | 图像处理（需要 ImageMagick） |
+
+```python
+from dcc_mcp_core import get_bundled_skills_dir, get_bundled_skill_paths
+
+# 获取内置技能包目录（wheel 安装包内）
+print(get_bundled_skills_dir())
+# /path/to/site-packages/dcc_mcp_core/skills
+
+# 返回 [bundled_dir] 或 []，可直接扩展搜索路径
+paths = get_bundled_skill_paths()                       # 默认开启
+paths = get_bundled_skill_paths(include_bundled=False)  # 按需禁用
+```
+
+DCC 适配器（如 `dcc-mcp-maya`）默认自动加载内置技能包。如需禁用：`start_server(include_bundled=False)`。
+
 ## 架构概览 — 11 个 Rust Crate 工作区
 
 dcc-mcp-core 组织为 **11 个 Rust Crate 工作区**，通过 PyO3/maturin 编译成单个原生 Python 扩展（`_core`）：

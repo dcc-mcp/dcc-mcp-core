@@ -58,11 +58,20 @@ vx just test-cov      # Coverage report to find gaps
 - See `examples/skills/` for 9 reference implementations
 - **`search-hint` in SKILL.md**: add `search-hint: "keyword1, keyword2"` to improve `search_skills` matching without loading full schemas
 - **On-demand discovery**: `tools/list` returns skill stubs (`__skill__<name>`) for unloaded skills; use `search_skills(query)` then `load_skill(name)` to activate
+- **Bundled skills**: 5 general-purpose skills shipped inside the wheel (`dcc_mcp_core/skills/`):
+  `dcc-diagnostics`, `workflow`, `git-automation`, `ffmpeg-media`, `imagemagick-tools`
+  — use `get_bundled_skills_dir()` / `get_bundled_skill_paths()` to get the path.
+  DCC adapters include these by default (`include_bundled=True`).
 
 ```python
 # Correct usage:
 skills, skipped = scan_and_load(dcc_name="maya")
 # NOT: skills = scan_and_load(dcc_name="maya")  ← returns tuple, iterating gives wrong results
+
+# Bundled skills (zero-config):
+from dcc_mcp_core import get_bundled_skills_dir, get_bundled_skill_paths
+paths = get_bundled_skill_paths()              # [".../dcc_mcp_core/skills"]
+paths = get_bundled_skill_paths(False)         # [] — opt-out
 ```
 
 ### When Understanding the Transport Layer

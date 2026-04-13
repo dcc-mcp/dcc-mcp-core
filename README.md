@@ -221,6 +221,35 @@ result = registry.call("my_tool__list", some_param="value")
 
 See `examples/skills/` for **9 complete examples**: hello-world, maya-geometry, maya-pipeline, git-automation, ffmpeg-media, imagemagick-tools, usd-tools, clawhub-compat, multi-script.
 
+### Bundled Skills — Zero Configuration Required
+
+`dcc-mcp-core` ships **five general-purpose skills** directly inside the wheel.
+They are available immediately after `pip install dcc-mcp-core` — no repository
+clone or `DCC_MCP_SKILL_PATHS` configuration needed.
+
+| Skill | Tools | Purpose |
+|-------|-------|---------|
+| `dcc-diagnostics` | `screenshot`, `audit_log`, `action_metrics`, `process_status` | Observability & debugging for any DCC |
+| `workflow` | `run_chain` | Multi-step action chaining with context propagation |
+| `git-automation` | `repo_stats`, `changelog_gen` | Git repository analysis |
+| `ffmpeg-media` | `convert`, `probe`, `thumbnail` | Media conversion (requires ffmpeg) |
+| `imagemagick-tools` | `resize`, `composite` | Image processing (requires ImageMagick) |
+
+```python
+from dcc_mcp_core import get_bundled_skills_dir, get_bundled_skill_paths
+
+# Get the bundled skills directory (inside the installed wheel)
+print(get_bundled_skills_dir())
+# /path/to/site-packages/dcc_mcp_core/skills
+
+# Returns [bundled_dir] or [] — ready to extend your search path
+paths = get_bundled_skill_paths()                    # default ON
+paths = get_bundled_skill_paths(include_bundled=False)  # opt-out
+```
+
+DCC adapters (e.g. `dcc-mcp-maya`) automatically include bundled skills by
+default. To opt-out: `start_server(include_bundled=False)`.
+
 ## Architecture Overview
 
 dcc-mcp-core is organized as a **Rust workspace of 11 crates**, compiled into a single native Python extension (`_core`) via PyO3/maturin:

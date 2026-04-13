@@ -13,6 +13,7 @@
 | Start a DCC skill server (Skills-First) | `create_skill_manager("maya")` — one call, auto-discovers from `DCC_MCP_MAYA_SKILL_PATHS` |
 | Discover/load skill packages | `create_skill_manager()` or `scan_and_load()` — not manual file scanning |
 | Set app-specific skill paths | `DCC_MCP_{APP}_SKILL_PATHS` env var (e.g. `DCC_MCP_MAYA_SKILL_PATHS`) |
+| Get bundled skills (zero config) | `get_bundled_skill_paths()` — included in wheel, no path config needed |
 | Validate JSON input params | `ActionValidator.from_schema_json()` — not manual isinstance checks |
 | Connect to running DCC process | `connect_ipc(TransportAddress.default_local(...))` |
 | Define MCP tool for LLM | `ToolDefinition` + `ToolAnnotations` — not raw JSON dicts |
@@ -383,6 +384,9 @@ from dcc_mcp_core import (
     SkillSummary,                    # Lightweight skill summary for search results
     create_skill_manager,            # One-call factory: env vars → server
     get_app_skill_paths_from_env,    # Read DCC_MCP_{APP}_SKILL_PATHS + global
+    # Bundled skills (zero-config)
+    get_bundled_skills_dir,          # Absolute path to dcc_mcp_core/skills/ in wheel
+    get_bundled_skill_paths,         # Returns [bundled_dir] or [] (include_bundled=False)
     # SkillMetadata new fields
     ToolDeclaration,                 # Tool declaration with input_schema, annotations
 )
@@ -393,6 +397,8 @@ from dcc_mcp_core import (
 ```python
 # ─────────────────────────────────────────────────────────────
 # Skills-First (recommended): one-call setup
+# Bundled skills (dcc-diagnostics, workflow, git-automation,
+# ffmpeg-media, imagemagick-tools) are loaded automatically.
 # ─────────────────────────────────────────────────────────────
 import os
 os.environ["DCC_MCP_MAYA_SKILL_PATHS"] = "/studio/maya-skills"  # or DCC_MCP_SKILL_PATHS
@@ -410,6 +416,19 @@ handle = server.start()
 # 3. load_skill("maya-bevel") → registers tools + handlers, sends tools/list_changed
 # 4. tools/list → new skill tools visible with full input schemas
 # 5. tools/call maya_bevel__bevel {offset: 0.1} → runs scripts/bevel.py
+
+# ─────────────────────────────────────────────────────────────
+# Bundled skills — zero-config, shipped inside the wheel
+# ─────────────────────────────────────────────────────────────
+from dcc_mcp_core import get_bundled_skills_dir, get_bundled_skill_paths
+
+print(get_bundled_skills_dir())   # .../site-packages/dcc_mcp_core/skills
+paths = get_bundled_skill_paths() # [".../dcc_mcp_core/skills"]  — include in search path
+# Opt-out: get_bundled_skill_paths(include_bundled=False) → []
+
+# DCC adapters call this automatically; DCC adapter search-path priority:
+# extra_paths > builtin DCC skills > DCC_MCP_{APP}_SKILL_PATHS > DCC_MCP_SKILL_PATHS
+# > bundled core skills > platform default skills dir
 
 # ─────────────────────────────────────────────────────────────
 # SkillMetadata fields (v0.12.10+)
