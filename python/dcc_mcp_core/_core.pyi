@@ -3532,6 +3532,16 @@ class McpHttpConfig:
     def server_name(self) -> str: ...
     @property
     def server_version(self) -> str: ...
+    @property
+    def session_ttl_secs(self) -> int:
+        """Idle session TTL in seconds.
+
+        Sessions not touched within this window are automatically evicted.
+        Default: 3600 (1 hour). Set to 0 to disable.
+        """
+        ...
+    @session_ttl_secs.setter
+    def session_ttl_secs(self, secs: int) -> None: ...
     def __repr__(self) -> str: ...
 
 class ServerHandle:

@@ -17,6 +17,7 @@ members = [
     "crates/dcc-mcp-usd",
     "crates/dcc-mcp-http",
     "crates/dcc-mcp-server",
+    "crates/dcc-mcp-gateway",
 ]
 resolver = "2"
 
@@ -44,6 +45,7 @@ dcc-mcp-capture = { path = "crates/dcc-mcp-capture" }
 dcc-mcp-usd = { path = "crates/dcc-mcp-usd" }
 dcc-mcp-http = { path = "crates/dcc-mcp-http" }
 dcc-mcp-server = { path = "crates/dcc-mcp-server" }
+dcc-mcp-gateway = { path = "crates/dcc-mcp-gateway" }
 
 # Shared dependencies (single version across workspace)
 pyo3 = { version = "0.28", features = ["multiple-pymethods"] }
@@ -67,6 +69,7 @@ notify = "8.0"
 anyhow = "1.0"
 tokio-tungstenite = "0.29"
 futures-util = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
 
 # Root package — Python bindings entry point
 # Compiles to `_core.pyd` / `_core.so`, exposed as `dcc_mcp_core._core`
