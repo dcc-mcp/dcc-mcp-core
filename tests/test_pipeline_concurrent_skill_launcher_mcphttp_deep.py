@@ -535,11 +535,11 @@ class TestSkillWatcherMultiPath:
         assert "named-skill-99" in names
 
     def test_examples_dir_loads_all_example_skills(self):
-        """Load all 9 example skills from examples/skills directory."""
+        """Load all example skills from examples/skills directory."""
         examples = str(Path(__file__).parent / ".." / "examples" / "skills")
         watcher = SkillWatcher()
         watcher.watch(examples)
-        assert watcher.skill_count() == 9
+        assert watcher.skill_count() == 11
 
     def test_watcher_with_invalid_path_does_not_crash(self):
         """Watching a non-existent path should not raise an exception."""
@@ -639,10 +639,11 @@ class TestSkillScannerCacheClearing:
         # bad-skill should be in skipped (parse_skill_md returns None)
         assert len(skipped) >= 1
 
-    def test_scan_examples_dir_loads_all_9(self):
+    def test_scan_examples_dir_loads_all_11(self):
+        """Scan examples/skills and verify all 11 skills are loaded."""
         examples = str(Path(__file__).parent / ".." / "examples" / "skills")
         skills, skipped = scan_and_load([examples])
-        assert len(skills) == 9
+        assert len(skills) == 11
         assert skipped == []
 
 

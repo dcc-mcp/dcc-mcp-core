@@ -1023,7 +1023,12 @@ class TestSkillCatalog:
         cat = m.SkillCatalog(reg)
         cat.discover(extra_paths=[EXAMPLES_SKILLS_DIR])
         found = cat.find_skills(query="maya")
-        assert all("maya" in s.name.lower() or "maya" in s.dcc.lower() for s in found)
+        # Query matches name, description, search_hint, and tool names — not only dcc field.
+        # Skills like dcc-diagnostics and workflow mention "Maya" in their descriptions/examples,
+        # so they are legitimately included in results.
+        assert len(found) > 0
+        # At least one result must have maya in name or dcc
+        assert any("maya" in s.name.lower() or "maya" in s.dcc.lower() for s in found)
 
     def test_find_skills_by_dcc(self):
         reg = m.ActionRegistry()
