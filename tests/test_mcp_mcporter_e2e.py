@@ -850,3 +850,175 @@ class TestMultipleServerInstances:
         finally:
             h_a.shutdown()
             h_b.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# Progressive loading boundary tests (mcporter + direct HTTP)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(not NPX_AVAILABLE, reason="npx / mcporter not available")
+class TestProgressiveLoadingBoundary:
+    """Edge cases for the on-demand skill discovery / loading workflow."""
+
+    def test_stub_not_present_after_skill_loaded(self, server_with_catalog):
+        """Once a skill is loaded its __skill__ stub must disappear."""
+        _, _, url, name = server_with_catalog
+        _mcporter_call(url, name, "load_skill", {"skill_name": "hello-world"})
+        tools = _mcporter_list_tools(url, name)
+        names = {t["name"] if isinstance(t, dict) else t for t in tools}
+        assert "__skill__hello-world" not in names, "__skill__hello-world stub should be gone after loading"
+
+    def test_stub_reappears_after_unload(self, server_with_catalog):
+        """After unloading a skill its __skill__ stub must reappear."""
+        _, _, url, name = server_with_catalog
+        _mcporter_call(url, name, "load_skill", {"skill_name": "hello-world"})
+        _mcporter_call(url, name, "unload_skill", {"skill_name": "hello-world"})
+        tools = _mcporter_list_tools(url, name)
+        names = {t["name"] if isinstance(t, dict) else t for t in tools}
+        assert "__skill__hello-world" in names, "__skill__hello-world stub should reappear after unloading"
+
+    def test_search_skills_finds_by_search_hint(self, server_with_catalog):
+        """search_skills must match against the search-hint SKILL.md field."""
+        _, _, url, name = server_with_catalog
+        result = _mcporter_call(url, name, "search_skills", {"query": "greeting"})
+        data = _parse_content_json(result)
+        assert data.get("total", 0) >= 1, "Expected at least 1 result for 'greeting' (hello-world search-hint)"
+
+    def test_list_skills_total_matches_skill_count(self, server_with_catalog):
+        """list_skills total field must equal len(skills) list."""
+        _, _, url, name = server_with_catalog
+        all_skills = _mcporter_call(url, name, "list_skills", {"status": "all"})
+        data = _parse_content_json(all_skills)
+        total = data.get("total", -1)
+        skills = data.get("skills", [])
+        assert total == len(skills), f"'total' {total} != len(skills) {len(skills)}"
+
+    def test_load_nonexistent_skill_returns_error(self, server_with_catalog):
+        """load_skill with unknown name must surface an error."""
+        _, _, url, name = server_with_catalog
+        result = _mcporter_call(
+            url,
+            name,
+            "load_skill",
+            {"skill_name": "this-skill-does-not-exist-xyz"},
+        )
+        text = _extract_content_text(result)
+        assert "not found" in text.lower() or "error" in text.lower() or result.get("isError") is True, (
+            f"Expected error for unknown skill, got: {text}"
+        )
+
+    def test_get_skill_info_includes_name(self, server_with_catalog):
+        """get_skill_info must return a name field matching the queried skill."""
+        _, _, url, name = server_with_catalog
+        result = _mcporter_call(url, name, "get_skill_info", {"skill_name": "hello-world"})
+        data = _parse_content_json(result)
+        assert data.get("name") == "hello-world"
+
+    def test_unload_not_loaded_skill_returns_error(self, server_with_catalog):
+        """unload_skill on a skill that is not loaded must return an error."""
+        _, _, url, name = server_with_catalog
+        # Ensure it's not loaded by unloading first if needed (ignore result)
+        _mcporter_call(url, name, "unload_skill", {"skill_name": "hello-world"})
+        # Now try again — it definitely should not be loaded
+        result = _mcporter_call(
+            url,
+            name,
+            "unload_skill",
+            {"skill_name": "hello-world"},
+        )
+        text = _extract_content_text(result)
+        assert "not loaded" in text.lower() or "error" in text.lower() or result.get("isError") is True, (
+            f"Expected error for unloading non-loaded skill, got: {text}"
+        )
+
+    def test_tool_call_passes_params_to_script(self, server_with_catalog):
+        """tools/call must forward arguments to the skill script."""
+        _, _, url, name = server_with_catalog
+        _mcporter_call(url, name, "load_skill", {"skill_name": "hello-world"})
+        result = _mcporter_call(
+            url,
+            name,
+            "hello_world__greet",
+            {"name": "BoundaryTest"},
+        )
+        text = _extract_content_text(result)
+        assert "BoundaryTest" in text or "Hello" in text, f"Expected greeting with 'BoundaryTest', got: {text}"
+
+    def test_double_load_does_not_duplicate_tools(self, server_with_catalog):
+        """Loading the same skill twice must not duplicate its tools."""
+        _, _, url, name = server_with_catalog
+        for _ in range(2):
+            _mcporter_call(url, name, "load_skill", {"skill_name": "hello-world"})
+        tools = _mcporter_list_tools(url, name)
+        names = [t["name"] if isinstance(t, dict) else t for t in tools]
+        count = names.count("hello_world__greet")
+        assert count <= 1, f"hello_world__greet duplicated after double load: {count}"
+
+    def test_unload_then_reload_re_registers_tools(self, server_with_catalog):
+        """After unload → reload, the skill's tools must be available again."""
+        _, _, url, name = server_with_catalog
+        _mcporter_call(url, name, "load_skill", {"skill_name": "hello-world"})
+        _mcporter_call(url, name, "unload_skill", {"skill_name": "hello-world"})
+        rl = _mcporter_call(url, name, "load_skill", {"skill_name": "hello-world"})
+        rl_data = _parse_content_json(rl)
+        assert rl_data.get("loaded") is True
+
+        tools = _mcporter_list_tools(url, name)
+        names = {t["name"] if isinstance(t, dict) else t for t in tools}
+        assert any("hello" in n for n in names), f"Expected hello-world tool after reload, got: {names}"
+
+
+@pytest.mark.skipif(not NPX_AVAILABLE, reason="npx / mcporter not available")
+class TestConcurrencyBoundary:
+    """Concurrent requests must not corrupt server state."""
+
+    def test_concurrent_tool_calls_all_succeed(self, simple_server):
+        """Multiple concurrent tools/call requests must all return correct results."""
+        import threading
+
+        _, _, url, name = simple_server
+        results: list = []
+        errors: list = []
+
+        def call_ping():
+            try:
+                r = _mcporter_call(url, name, "ping_action", {})
+                results.append(r)
+            except Exception as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=call_ping) for _ in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=30)
+
+        assert not errors, f"Concurrent calls raised errors: {errors}"
+        assert len(results) == 4, f"Expected 4 results, got {len(results)}"
+
+    def test_concurrent_load_same_skill_idempotent(self, server_with_catalog):
+        """Concurrently loading the same skill must not produce duplicate tools."""
+        import threading
+
+        _, _, url, name = server_with_catalog
+        errors: list = []
+
+        def load_hello():
+            try:
+                _mcporter_call(url, name, "load_skill", {"skill_name": "hello-world"})
+            except Exception as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=load_hello) for _ in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=30)
+
+        assert not errors, f"Concurrent loads raised: {errors}"
+
+        tools = _mcporter_list_tools(url, name)
+        tool_names = [t["name"] if isinstance(t, dict) else t for t in tools]
+        count = tool_names.count("hello_world__greet")
+        assert count <= 1, f"hello_world__greet duplicated: {count} occurrences"

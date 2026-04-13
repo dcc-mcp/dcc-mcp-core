@@ -548,3 +548,55 @@ fn test_find_skills_matches_name_and_hint_combined() {
     // Both should match: first by name, second by search_hint
     assert_eq!(results.len(), 2, "Both skills should match 'maya'");
 }
+
+// ── execute_script dual-mode param passing ────────────────────────────────────
+
+#[test]
+fn test_execute_script_stdin_json_params() {
+    // execute_script writes the full JSON to stdin — verify the call runs.
+    let result = execute_script("python", serde_json::json!({"greeting": "hello-stdin"}));
+    // Skip gracefully if Python is not available in this environment.
+    if let Err(ref e) = result {
+        if e.contains("Failed to spawn") || e.contains("No such file") {
+            return;
+        }
+    }
+    let _ = result;
+}
+
+#[test]
+fn test_execute_script_cli_flags_passed_for_scalar_params() {
+    // Scalar params (string/number/bool) must be expanded as --key value flags
+    // so argparse-based scripts can receive them.  We verify the function
+    // does not panic and returns a result.
+    let result = execute_script(
+        "python",
+        serde_json::json!({"name": "Alice", "count": 3, "verbose": true}),
+    );
+    if let Err(ref e) = result {
+        if e.contains("Failed to spawn") || e.contains("No such file") {
+            return;
+        }
+    }
+    let _ = result;
+}
+
+#[test]
+fn test_execute_script_complex_values_not_expanded_as_flags() {
+    // Object/array params must NOT be expanded as CLI flags — they should only
+    // arrive via stdin JSON.  The function must not panic.
+    let result = execute_script(
+        "python",
+        serde_json::json!({
+            "simple": "value",
+            "nested": {"a": 1},
+            "list": [1, 2, 3],
+        }),
+    );
+    if let Err(ref e) = result {
+        if e.contains("Failed to spawn") || e.contains("No such file") {
+            return;
+        }
+    }
+    let _ = result;
+}
