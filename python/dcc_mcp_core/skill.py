@@ -52,6 +52,7 @@ from __future__ import annotations
 
 import functools
 import json
+from pathlib import Path
 import sys
 import traceback
 from typing import Any
@@ -60,16 +61,79 @@ from typing import Dict
 from typing import TypeVar
 
 __all__ = [
-    # CLI runner
+    "get_bundled_skill_paths",
+    "get_bundled_skills_dir",
     "run_main",
-    # Decorator
     "skill_entry",
     "skill_error",
     "skill_exception",
-    # Result builders (return plain dict — no _core dependency required)
     "skill_success",
     "skill_warning",
 ]
+
+# ---------------------------------------------------------------------------
+# Bundled skills directory helpers
+# ---------------------------------------------------------------------------
+
+# The ``skills/`` subdirectory is co-located with this module inside the
+# installed wheel.  It contains the general-purpose reference skill packages
+# (dcc-diagnostics, workflow, git-automation, etc.) that are bundled with
+# dcc-mcp-core so users do not need to clone the repository.
+_BUNDLED_SKILLS_DIR: Path = Path(__file__).parent / "skills"
+
+
+def get_bundled_skills_dir() -> str:
+    """Return the absolute path to the bundled skills directory.
+
+    The directory contains the general-purpose skill packages shipped with
+    ``dcc-mcp-core`` (``dcc-diagnostics``, ``workflow``, ``git-automation``,
+    ``ffmpeg-media``, ``imagemagick-tools``).
+
+    Returns:
+        Absolute path string.  The directory is guaranteed to exist when the
+        package is installed from a wheel; it may not exist in editable/source
+        installs unless ``examples/skills/`` was copied to the package.
+
+    Example::
+
+        from dcc_mcp_core.skill import get_bundled_skills_dir
+        print(get_bundled_skills_dir())
+        # /path/to/site-packages/dcc_mcp_core/skills
+
+    """
+    return str(_BUNDLED_SKILLS_DIR)
+
+
+def get_bundled_skill_paths(include_bundled: bool = True) -> list[str]:
+    """Return a list containing the bundled skills directory (when it exists).
+
+    Convenience wrapper used by DCC adapters to build their skill search path.
+    Pass ``include_bundled=False`` to disable bundled skills entirely.
+
+    Args:
+        include_bundled: If ``False``, return an empty list so callers can
+            easily opt-out of the bundled skills.
+
+    Returns:
+        A list with the bundled skills directory path, or ``[]`` if the
+        directory does not exist or ``include_bundled`` is ``False``.
+
+    Example::
+
+        from dcc_mcp_core.skill import get_bundled_skill_paths
+
+        # Default — include bundled skills
+        paths = get_bundled_skill_paths()
+
+        # Opt-out
+        paths = get_bundled_skill_paths(include_bundled=False)
+
+    """
+    if not include_bundled:
+        return []
+    bundled = _BUNDLED_SKILLS_DIR
+    return [str(bundled)] if bundled.is_dir() else []
+
 
 # ---------------------------------------------------------------------------
 # Type aliases

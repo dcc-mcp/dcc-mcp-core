@@ -162,6 +162,8 @@ from dcc_mcp_core._core import validate_dependencies
 from dcc_mcp_core._core import wrap_value
 
 # Pure-Python skill script helpers (no _core dependency)
+from dcc_mcp_core.skill import get_bundled_skill_paths
+from dcc_mcp_core.skill import get_bundled_skills_dir
 from dcc_mcp_core.skill import run_main
 from dcc_mcp_core.skill import skill_entry
 from dcc_mcp_core.skill import skill_error
@@ -289,6 +291,9 @@ __all__ = [
     "from_exception",
     "get_actions_dir",
     "get_app_skill_paths_from_env",
+    # Pure-Python skill script helpers
+    "get_bundled_skill_paths",
+    "get_bundled_skills_dir",
     "get_config_dir",
     "get_data_dir",
     "get_log_dir",
@@ -299,7 +304,6 @@ __all__ = [
     "mpu_to_units",
     "parse_skill_md",
     "resolve_dependencies",
-    # Pure-Python skill script helpers
     "run_main",
     "scan_and_load",
     "scan_and_load_lenient",
