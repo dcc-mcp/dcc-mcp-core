@@ -28,7 +28,7 @@ from dcc_mcp_core import VersionedRegistry
 # ---------------------------------------------------------------------------
 
 
-def _make_ctx_with_audit() -> tuple[SandboxContext, AuditLog]:  # noqa: F821
+def _make_ctx_with_audit() -> tuple[SandboxContext, AuditLog]:
     """Create a SandboxContext with allow/deny policy and execute several actions."""
     p = SandboxPolicy()
     p.allow_actions(["move", "scale", "rotate"])

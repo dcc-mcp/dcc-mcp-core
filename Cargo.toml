@@ -17,7 +17,6 @@ members = [
     "crates/dcc-mcp-usd",
     "crates/dcc-mcp-http",
     "crates/dcc-mcp-server",
-    "crates/dcc-mcp-gateway",
 ]
 resolver = "2"
 
@@ -45,7 +44,6 @@ dcc-mcp-capture = { path = "crates/dcc-mcp-capture" }
 dcc-mcp-usd = { path = "crates/dcc-mcp-usd" }
 dcc-mcp-http = { path = "crates/dcc-mcp-http" }
 dcc-mcp-server = { path = "crates/dcc-mcp-server" }
-dcc-mcp-gateway = { path = "crates/dcc-mcp-gateway" }
 
 # Shared dependencies (single version across workspace)
 pyo3 = { version = "0.28", features = ["multiple-pymethods"] }

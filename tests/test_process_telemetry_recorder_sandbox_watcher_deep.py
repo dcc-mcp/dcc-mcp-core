@@ -4,7 +4,7 @@ SandboxPolicy/SandboxContext/AuditLog/InputValidator, and SkillWatcher.
 These tests cover the public Python API surface exposed by the Rust/PyO3 core.
 All tests are hermetic - they do not require a running DCC, network, or filesystem
 writes outside the project's examples directory.
-"""  # noqa: D205
+"""
 
 from __future__ import annotations
 

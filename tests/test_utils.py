@@ -110,8 +110,8 @@ class TestTypeWrappers:
 
     def test_boolean_wrapper_eq(self) -> None:
         w = dcc_mcp_core.BooleanWrapper(True)
-        assert w == True  # noqa: E712
-        assert w != False  # noqa: E712
+        assert w == True
+        assert w != False
         assert w != "not a bool"
 
     def test_int_wrapper(self) -> None:

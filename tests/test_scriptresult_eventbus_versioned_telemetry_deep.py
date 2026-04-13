@@ -350,7 +350,7 @@ class TestVersionedRegistryKeys:
     def test_keys_single(self) -> None:
         vr = dcc_mcp_core.VersionedRegistry()
         vr.register_versioned("create_sphere", "maya", "1.0.0")
-        assert ("create_sphere", "maya") in vr.keys()  # noqa: SIM118
+        assert ("create_sphere", "maya") in vr.keys()
 
     def test_keys_multiple_versions_dedup(self) -> None:
         vr = dcc_mcp_core.VersionedRegistry()

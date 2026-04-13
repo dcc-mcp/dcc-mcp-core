@@ -212,7 +212,7 @@ class TestActionResultModelEquality:
         r = dcc_mcp_core.ActionResultModel()
         assert r != "not a model"
         assert r != 42
-        assert r != None  # noqa: E711
+        assert r != None
 
     def test_equal_success_result_factory(self) -> None:
         r1 = dcc_mcp_core.success_result("done")

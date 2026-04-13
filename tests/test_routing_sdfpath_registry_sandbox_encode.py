@@ -390,7 +390,7 @@ class TestSkillMetadataEquality:
         m = SkillMetadata("s")
         assert m != "not a skill"
         assert m != 42
-        assert m != None  # noqa: E711
+        assert m != None
 
 
 # ===========================================================================

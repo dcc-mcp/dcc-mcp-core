@@ -4,7 +4,6 @@ SandboxContext, AuditLog, AuditEntry, InputValidator, Capturer, ScriptResult.
 All APIs verified against installed dcc-mcp-core 0.12.12.
 """
 
-# ruff: noqa: D205
 from __future__ import annotations
 
 import contextlib
