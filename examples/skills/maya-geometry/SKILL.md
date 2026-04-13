@@ -33,6 +33,9 @@ tools:
     destructive: false
     idempotent: false
     source_file: scripts/create_sphere.py
+    next-tools:
+      on-success: [maya_geometry__bevel_edges, maya_pipeline__export_usd]
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
 
   - name: bevel_edges
     description: Apply bevel to selected polygon edges
@@ -51,6 +54,9 @@ tools:
     destructive: false
     idempotent: false
     source_file: scripts/bevel_edges.py
+    next-tools:
+      on-success: [maya_pipeline__export_usd]
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
 ---
 
 # Maya Geometry Tools

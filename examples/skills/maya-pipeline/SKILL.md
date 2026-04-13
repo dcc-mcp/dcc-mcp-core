@@ -31,6 +31,9 @@ tools:
     destructive: false
     idempotent: true
     source_file: scripts/setup_project.py
+    next-tools:
+      on-success: [maya_geometry__create_sphere, maya_pipeline__export_usd]
+      on-failure: [dcc_diagnostics__audit_log]
 
   - name: export_usd
     description: Export the current Maya scene to a USD file
@@ -53,6 +56,9 @@ tools:
     destructive: false
     idempotent: false
     source_file: scripts/export_usd.py
+    next-tools:
+      on-success: [usd_tools__inspect, usd_tools__validate]
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
 ---
 
 # Maya Pipeline Skill (Advanced)

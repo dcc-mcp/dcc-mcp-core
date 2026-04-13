@@ -70,6 +70,32 @@ pub struct ToolDeclaration {
     /// ```
     #[serde(default)]
     pub source_file: String,
+
+    /// Suggested follow-up tools for progressive discovery (issue #143).
+    ///
+    /// Agents can use this to chain tool calls without pre-training.
+    ///
+    /// ```yaml
+    /// tools:
+    ///   - name: export_fbx
+    ///     next-tools:
+    ///       on-success: [validate_naming, inspect_usd]
+    ///       on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
+    /// ```
+    #[serde(default, rename = "next-tools", alias = "next_tools")]
+    pub next_tools: NextTools,
+}
+
+/// Suggested next tools for a successful or failed tool call (issue #143).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct NextTools {
+    /// Tool names to suggest after a successful invocation.
+    #[serde(default, rename = "on-success", alias = "on_success")]
+    pub on_success: Vec<String>,
+
+    /// Tool names to suggest after a failed invocation.
+    #[serde(default, rename = "on-failure", alias = "on_failure")]
+    pub on_failure: Vec<String>,
 }
 
 fn is_null_value(v: &serde_json::Value) -> bool {
@@ -107,6 +133,7 @@ impl ToolDeclaration {
             destructive,
             idempotent,
             source_file,
+            next_tools: NextTools::default(),
         }
     }
 
@@ -1159,5 +1186,53 @@ mod tests {
             let meta: SkillMetadata = serde_json::from_str(&json).unwrap();
             assert_eq!(&meta.dcc, dcc);
         }
+    }
+
+    #[test]
+    fn test_tool_declaration_next_tools() {
+        // Test next-tools deserialization (issue #143)
+        let json = r#"{"name": "pipeline-skill", "tools": [{
+            "name": "export_fbx",
+            "description": "Export to FBX",
+            "next-tools": {
+                "on-success": ["validate_naming", "inspect_usd"],
+                "on-failure": ["dcc_diagnostics__screenshot", "dcc_diagnostics__audit_log"]
+            }
+        }]}"#;
+        let meta: SkillMetadata = serde_json::from_str(json).unwrap();
+        assert_eq!(meta.tools.len(), 1);
+        assert_eq!(meta.tools[0].name, "export_fbx");
+        assert_eq!(
+            meta.tools[0].next_tools.on_success,
+            vec!["validate_naming", "inspect_usd"]
+        );
+        assert_eq!(
+            meta.tools[0].next_tools.on_failure,
+            vec!["dcc_diagnostics__screenshot", "dcc_diagnostics__audit_log"]
+        );
+    }
+
+    #[test]
+    fn test_tool_declaration_next_tools_alias() {
+        // Test next_tools (underscore) alias
+        let json = r#"{"name": "skill", "tools": [{
+            "name": "my_tool",
+            "next_tools": {
+                "on_success": ["tool_a"],
+                "on_failure": ["tool_b"]
+            }
+        }]}"#;
+        let meta: SkillMetadata = serde_json::from_str(json).unwrap();
+        assert_eq!(meta.tools[0].next_tools.on_success, vec!["tool_a"]);
+        assert_eq!(meta.tools[0].next_tools.on_failure, vec!["tool_b"]);
+    }
+
+    #[test]
+    fn test_tool_declaration_next_tools_default_empty() {
+        // Without next-tools, defaults are empty
+        let json = r#"{"name": "skill", "tools": [{"name": "simple_tool"}]}"#;
+        let meta: SkillMetadata = serde_json::from_str(json).unwrap();
+        assert!(meta.tools[0].next_tools.on_success.is_empty());
+        assert!(meta.tools[0].next_tools.on_failure.is_empty());
     }
 }

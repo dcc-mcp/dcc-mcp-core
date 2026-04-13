@@ -39,6 +39,9 @@ tools:
     read_only: true
     idempotent: false
     source_file: scripts/screenshot.py
+    next-tools:
+      on-success: []
+      on-failure: [dcc_diagnostics__audit_log, dcc_diagnostics__process_status]
 
   - name: audit_log
     description: "Query the dcc-mcp-core sandbox audit log — list recent action invocations, filter by outcome (success/denied), or search by action name. Helps diagnose why an action was blocked or what the agent did recently."
@@ -59,6 +62,9 @@ tools:
     read_only: true
     idempotent: true
     source_file: scripts/audit_log.py
+    next-tools:
+      on-success: [dcc_diagnostics__action_metrics]
+      on-failure: []
 
   - name: action_metrics
     description: "Show performance metrics for registered actions — invocation counts, success rates, average and P95/P99 latencies. Use to identify slow or failing tools."
@@ -79,6 +85,9 @@ tools:
     read_only: true
     idempotent: true
     source_file: scripts/action_metrics.py
+    next-tools:
+      on-success: [dcc_diagnostics__process_status]
+      on-failure: []
 
   - name: process_status
     description: "Check the health of tracked DCC processes — list running PIDs, check if a specific process is alive, and inspect crash recovery policy. Use when a DCC tool stops responding."
@@ -91,6 +100,9 @@ tools:
     read_only: true
     idempotent: true
     source_file: scripts/process_status.py
+    next-tools:
+      on-success: []
+      on-failure: [dcc_diagnostics__audit_log]
 ---
 
 # DCC Diagnostics
