@@ -33,6 +33,71 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
+  # ── Build standalone dcc-mcp-server binaries ──
+  build-binaries:
+    needs: [release-please]
+    if: needs.release-please.outputs.release_created == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact_name: dcc-mcp-server-linux-x86_64
+            binary: dcc-mcp-server
+          - os: windows-latest
+            artifact_name: dcc-mcp-server-windows-x86_64.exe
+            binary: dcc-mcp-server.exe
+          - os: macos-latest
+            artifact_name: dcc-mcp-server-macos-universal2
+            binary: dcc-mcp-server
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.90.0'
+          targets: aarch64-apple-darwin  # needed for macOS universal2 lipo
+
+      - name: Cache Cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-binary-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: ${{ runner.os }}-cargo-binary-
+
+      - name: Build binary (macOS universal2)
+        if: matrix.os == 'macos-latest'
+        run: |
+          cargo build --release -p dcc-mcp-server --target x86_64-apple-darwin
+          cargo build --release -p dcc-mcp-server --target aarch64-apple-darwin
+          lipo -create -output ${{ matrix.artifact_name }} \
+            target/x86_64-apple-darwin/release/dcc-mcp-server \
+            target/aarch64-apple-darwin/release/dcc-mcp-server
+
+      - name: Build binary (Linux / Windows)
+        if: matrix.os != 'macos-latest'
+        run: cargo build --release -p dcc-mcp-server
+        shell: bash
+
+      - name: Stage artifact (Linux / Windows)
+        if: matrix.os != 'macos-latest'
+        run: cp target/release/${{ matrix.binary }} ${{ matrix.artifact_name }}
+        shell: bash
+
+      - name: Upload binary to GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.release-please.outputs.tag_name }}
+          files: ${{ matrix.artifact_name }}
+
   # ── Build wheels only when release-please creates a release ──
   build-wheels:
     needs: [release-please]
