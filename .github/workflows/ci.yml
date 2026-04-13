@@ -30,7 +30,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
-      - uses: extractions/setup-just@v4
+      - uses: loonghao/vx@v0.8.25
+        with:
+          tools: just
       - name: Cache Cargo
         uses: actions/cache@v5
         with:
@@ -89,7 +91,9 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
-      - uses: extractions/setup-just@v4
+      - uses: loonghao/vx@v0.8.25
+        with:
+          tools: just
       - name: Install maturin
         run: pip install maturin
         shell: bash
@@ -115,7 +119,9 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
-      - uses: extractions/setup-just@v4
+      - uses: loonghao/vx@v0.8.25
+        with:
+          tools: just
       - name: Download wheel
         uses: actions/download-artifact@v8
         with:
@@ -155,7 +161,9 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
-      - uses: extractions/setup-just@v4
+      - uses: loonghao/vx@v0.8.25
+        with:
+          tools: just
       - name: Install maturin
         run: pip install maturin
         shell: bash
@@ -194,7 +202,9 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
-      - uses: extractions/setup-just@v4
+      - uses: loonghao/vx@v0.8.25
+        with:
+          tools: just
       - name: Install dev deps
         run: just install-dev-deps
       - name: Lint

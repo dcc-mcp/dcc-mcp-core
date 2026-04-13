@@ -57,7 +57,7 @@ jobs:
   # Users needing Python 3.7 on macOS should install from source distribution
 
   linux-py37:
-    runs-on: ubuntu-24.04  # Ubuntu 24.04 dropped Python 3.7 support; must use 22.04
+    runs-on: ubuntu-22.04  # Python 3.7 not available on Ubuntu 24.04
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/build-wheel
@@ -71,7 +71,7 @@ jobs:
           use-sccache: 'false'
 
   windows-py37:
-    runs-on: windows-2025  # Use Windows 2022 for Python 3.7 availability
+    runs-on: windows-2022  # Python 3.7 not available on newer Windows runners
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/build-wheel
