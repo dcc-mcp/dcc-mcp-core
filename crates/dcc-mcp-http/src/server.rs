@@ -134,11 +134,26 @@ impl McpHttpServer {
             .catalog
             .unwrap_or_else(|| Arc::new(SkillCatalog::new(self.registry.clone())));
 
+        let sessions = SessionManager::new();
+
+        // Spawn background task that evicts idle sessions once per minute.
+        if self.config.session_ttl_secs > 0 {
+            let sessions_bg = sessions.clone();
+            let ttl = std::time::Duration::from_secs(self.config.session_ttl_secs);
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+                loop {
+                    interval.tick().await;
+                    sessions_bg.evict_stale(ttl);
+                }
+            });
+        }
+
         let state = AppState {
             registry: self.registry,
             dispatcher: self.dispatcher,
             catalog,
-            sessions: SessionManager::new(),
+            sessions,
             executor: self.executor,
             server_name: self.config.server_name.clone(),
             server_version: self.config.server_version.clone(),

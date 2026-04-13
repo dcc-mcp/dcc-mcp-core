@@ -28,6 +28,12 @@ pub struct McpHttpConfig {
 
     /// Whether to enable CORS for browser-based MCP clients. Default: false.
     pub enable_cors: bool,
+
+    /// Idle session TTL in seconds. Sessions that have not received any
+    /// request within this window are automatically evicted by a background
+    /// task started in [`McpHttpServer::start`]. Default: 3600 (1 hour).
+    /// Set to 0 to disable automatic eviction.
+    pub session_ttl_secs: u64,
 }
 
 impl McpHttpConfig {
@@ -42,6 +48,7 @@ impl McpHttpConfig {
             max_sessions: 100,
             request_timeout_ms: 30_000,
             enable_cors: false,
+            session_ttl_secs: 3_600,
         }
     }
 
@@ -77,6 +84,12 @@ impl McpHttpConfig {
     /// Builder: set request timeout.
     pub fn with_timeout_ms(mut self, ms: u64) -> Self {
         self.request_timeout_ms = ms;
+        self
+    }
+
+    /// Builder: set the idle session TTL. 0 disables background eviction.
+    pub fn with_session_ttl_secs(mut self, secs: u64) -> Self {
+        self.session_ttl_secs = secs;
         self
     }
 }

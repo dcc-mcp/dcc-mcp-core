@@ -222,6 +222,10 @@ async fn dispatch_request(
     req: &JsonRpcRequest,
     session_id: Option<&str>,
 ) -> Result<JsonRpcResponse, HttpError> {
+    // Refresh session TTL on every request so active sessions are not evicted.
+    if let Some(id) = session_id {
+        state.sessions.touch(id);
+    }
     match req.method.as_str() {
         "initialize" => handle_initialize(state, req, session_id).await,
         "notifications/initialized" => Ok(JsonRpcResponse::success(req.id.clone(), json!({}))),

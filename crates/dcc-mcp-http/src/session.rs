@@ -3,9 +3,15 @@
 //! Sessions are identified by a cryptographically random UUID.
 //! Each session owns an SSE broadcast channel so multiple GET connections
 //! can receive server-pushed notifications.
+//!
+//! Sessions carry a `last_active` timestamp that is updated on every request
+//! via [`SessionManager::touch`].  The background eviction task in
+//! `McpHttpServer::start` calls [`SessionManager::evict_stale`] every 60 s to
+//! remove idle sessions older than `McpHttpConfig::session_ttl_secs`.
 
 use dashmap::DashMap;
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::broadcast;
 use uuid::Uuid;
 
@@ -18,6 +24,9 @@ pub struct McpSession {
     pub initialized: bool,
     /// Broadcast channel for server-push SSE events.
     pub sse_tx: broadcast::Sender<String>,
+    /// Wall-clock time of the last request handled for this session.
+    /// Used by the TTL eviction logic.
+    pub last_active: Instant,
 }
 
 impl Default for McpSession {
@@ -34,7 +43,13 @@ impl McpSession {
             id,
             initialized: false,
             sse_tx,
+            last_active: Instant::now(),
         }
+    }
+
+    /// Refresh the last-active timestamp to the current instant.
+    pub fn touch(&mut self) {
+        self.last_active = Instant::now();
     }
 
     /// Subscribe to SSE events for this session.
@@ -99,6 +114,41 @@ impl SessionManager {
         if let Some(s) = self.sessions.get(session_id) {
             s.push_event(event);
         }
+    }
+
+    /// Refresh the last-active timestamp for `session_id`.
+    ///
+    /// Returns `false` if the session does not exist.
+    pub fn touch(&self, session_id: &str) -> bool {
+        if let Some(mut s) = self.sessions.get_mut(session_id) {
+            s.touch();
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Evict sessions that have been idle for longer than `ttl`.
+    ///
+    /// Called periodically by the background task in `McpHttpServer::start`.
+    /// Returns the number of sessions removed.
+    pub fn evict_stale(&self, ttl: std::time::Duration) -> usize {
+        let now = Instant::now();
+        let stale: Vec<String> = self
+            .sessions
+            .iter()
+            .filter(|e| now.duration_since(e.value().last_active) > ttl)
+            .map(|e| e.key().clone())
+            .collect();
+        let count = stale.len();
+        for id in &stale {
+            self.sessions.remove(id);
+            tracing::debug!(session_id = %id, "session evicted (TTL expired)");
+        }
+        if count > 0 {
+            tracing::info!(evicted = count, "evicted stale MCP sessions");
+        }
+        count
     }
 
     /// Remove and drop a session.
