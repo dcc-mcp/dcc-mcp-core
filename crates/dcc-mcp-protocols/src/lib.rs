@@ -2,6 +2,7 @@
 
 pub mod adapters;
 pub mod adapters_python;
+pub mod bridge;
 
 #[cfg(test)]
 pub mod mock;
@@ -12,6 +13,11 @@ pub use adapters::{
     DccHierarchy, DccInfo, DccRenderCapture, DccResult, DccSceneInfo, DccSceneManager,
     DccScriptEngine, DccSnapshot, DccTransform, FrameRange, ObjectTransform, RenderOutput,
     SceneInfo, SceneNode, SceneObject, SceneStatistics, ScriptLanguage, ScriptResult,
+};
+pub use bridge::error_codes as bridge_error_codes;
+pub use bridge::{
+    BridgeDisconnect, BridgeEvent, BridgeHello, BridgeHelloAck, BridgeMessage, BridgeParseError,
+    BridgeRequest, BridgeResponse, RequestId, RpcError,
 };
 pub use types::{
     PromptArgument, PromptDefinition, ResourceAnnotations, ResourceDefinition,
