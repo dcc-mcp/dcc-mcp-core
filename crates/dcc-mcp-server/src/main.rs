@@ -131,28 +131,29 @@ async fn main() -> anyhow::Result<()> {
         dispatcher.clone(),
     ));
 
-    // Scan for skills.
-    if !skill_paths.is_empty() {
-        use dcc_mcp_skills::SkillScanner;
-        let mut scanner = SkillScanner::new();
-        let skill_dirs: Vec<String> = skill_paths
-            .iter()
-            .filter(|p| p.exists())
-            .map(|p| p.display().to_string())
-            .collect();
-        if !skill_dirs.is_empty() {
-            let dcc_hint = if args.dcc.is_empty() {
-                None
-            } else {
-                Some(args.dcc.as_str())
-            };
-            let discovered = scanner.scan(Some(&skill_dirs), dcc_hint, false);
-            tracing::info!("Found {} skill path(s)", discovered.len());
-            for s in &discovered {
-                tracing::debug!("  skill dir: {}", s);
-            }
-        }
-    }
+    // Discover skills into the catalog so they appear as stubs in tools/list.
+    // catalog.discover() scans for SKILL.md files and registers each skill as
+    // SkillState::Discovered (unloaded).  Tools from discovered skills show up
+    // as lightweight __skill__<name> stubs in tools/list, enabling agents to
+    // find and load them on demand without pre-loading all schemas.
+    let dcc_hint = if args.dcc.is_empty() {
+        None
+    } else {
+        Some(args.dcc.as_str())
+    };
+    let extra_dirs: Option<Vec<String>> = if skill_paths.is_empty() {
+        None
+    } else {
+        Some(
+            skill_paths
+                .iter()
+                .filter(|p| p.exists())
+                .map(|p| p.display().to_string())
+                .collect(),
+        )
+    };
+    let n = catalog.discover(extra_dirs.as_deref(), dcc_hint);
+    tracing::info!("Discovered {} skill(s) in catalog", n);
 
     // ── Start MCP HTTP server ────────────────────────────────────────────────
 

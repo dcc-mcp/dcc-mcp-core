@@ -68,12 +68,21 @@ pub(crate) fn resolve_tool_script(
     None
 }
 
-/// Execute a skill script as a subprocess, passing params as JSON via stdin.
+/// Execute a skill script as a subprocess.
 ///
-/// The script is expected to:
-/// - Read JSON params from stdin (or use sys.argv for simple cases)
-/// - Write a JSON result to stdout
-/// - Exit with code 0 on success, non-zero on failure
+/// Parameters are passed in **two complementary ways** so that scripts can use
+/// whichever convention they prefer:
+///
+/// 1. **stdin (preferred)** — the full params JSON object is written to the
+///    child's stdin.  Scripts read it with `json.load(sys.stdin)`.
+///
+/// 2. **CLI flags (argparse-compatible)** — each top-level string/number/bool
+///    key in `params` is also appended as `--<key> <value>` so that scripts
+///    that use `argparse` work without any modification.
+///
+/// The script is expected to write a JSON result to stdout and exit 0 on
+/// success, or exit non-zero on failure (stderr is captured for the error
+/// message).
 ///
 /// Returns `Ok(Value)` on success, `Err(String)` on failure.
 pub(crate) fn execute_script(
@@ -103,8 +112,35 @@ pub(crate) fn execute_script(
     // to run before the script, e.g. "import maya.standalone; maya.standalone.initialize(name='python')"
     let init_snippet = std::env::var("DCC_MCP_PYTHON_INIT_SNIPPET").ok();
 
-    // Choose interpreter based on extension
-    let (program, args): (String, Vec<String>) = match ext.as_str() {
+    // Build CLI args that argparse-based scripts can consume.
+    // Only scalar values (string, number, bool) are expanded; objects/arrays
+    // are left for the stdin JSON path.
+    let mut cli_extra: Vec<String> = Vec::new();
+    if let Some(obj) = params.as_object() {
+        for (key, val) in obj {
+            let flag = format!("--{}", key.replace('_', "-"));
+            match val {
+                serde_json::Value::String(s) => {
+                    cli_extra.push(flag);
+                    cli_extra.push(s.clone());
+                }
+                serde_json::Value::Number(n) => {
+                    cli_extra.push(flag);
+                    cli_extra.push(n.to_string());
+                }
+                serde_json::Value::Bool(b) => {
+                    // Boolean flags: --flag true / --flag false
+                    cli_extra.push(flag);
+                    cli_extra.push(b.to_string());
+                }
+                // Skip null / object / array — too complex for CLI args
+                _ => {}
+            }
+        }
+    }
+
+    // Choose interpreter based on extension, appending the CLI extra args
+    let (program, mut args): (String, Vec<String>) = match ext.as_str() {
         "py" => {
             if let Some(ref snippet) = init_snippet {
                 // Wrap: python -c "exec(open(...).read())" with init prepended
@@ -126,6 +162,8 @@ pub(crate) fn execute_script(
         "mel" | "lua" | "hscript" | "maxscript" => (python_exe, vec![script_path.to_string()]),
         _ => (python_exe, vec![script_path.to_string()]),
     };
+    // Append CLI flags after the script path (or after the -c "..." snippet)
+    args.extend(cli_extra);
 
     let mut child = Command::new(&program)
         .args(&args)
@@ -135,7 +173,7 @@ pub(crate) fn execute_script(
         .spawn()
         .map_err(|e| format!("Failed to spawn '{script_path}': {e}"))?;
 
-    // Write params to stdin
+    // Write full params JSON to stdin so scripts can also do json.load(sys.stdin)
     if let Some(mut stdin) = child.stdin.take() {
         let _ = stdin.write_all(params_json.as_bytes());
         // stdin closes when dropped, signalling EOF to the script

@@ -89,13 +89,28 @@ def _build_local_dispatcher():
 def main() -> None:
     """Run a sequence of actions as a chain and print JSON result to stdout."""
     parser = argparse.ArgumentParser(description="Run a sequence of actions as a chain.")
-    parser.add_argument("--steps", required=True, help="JSON array of step definitions.")
-    parser.add_argument("--context", default="{}", help="JSON object with initial context values.")
+    parser.add_argument("--steps", default=None, help="JSON array of step definitions.")
+    parser.add_argument("--context", default=None, help="JSON object with initial context values.")
     args = parser.parse_args()
 
+    # Prefer CLI args; fall back to reading the full params JSON from stdin.
+    # dcc-mcp-core execute_script writes params JSON to stdin alongside CLI flags,
+    # so complex values (arrays, nested objects) arrive via stdin.
+    if args.steps is None:
+        try:
+            raw = sys.stdin.read()
+            stdin_params = json.loads(raw) if raw.strip() else {}
+        except Exception:
+            stdin_params = {}
+        steps_str = json.dumps(stdin_params.get("steps", []))
+        context_str = json.dumps(stdin_params.get("context", {}))
+    else:
+        steps_str = args.steps
+        context_str = args.context or "{}"
+
     try:
-        steps = json.loads(args.steps)
-        context: dict = json.loads(args.context)
+        steps = json.loads(steps_str)
+        context: dict = json.loads(context_str)
     except json.JSONDecodeError as exc:
         print(json.dumps({"success": False, "message": f"Invalid JSON input: {exc}"}))
         sys.exit(1)
