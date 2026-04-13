@@ -30,7 +30,26 @@ SKILL_METADATA_DIR: str
 # ── Models ──
 
 class ActionResultModel:
-    """Unified result type for all Skill executions."""
+    """Unified result type for all Skill executions.
+
+    JSON Serialization
+    ------------------
+    ``json.dumps(result)`` will **not** work directly because ``ActionResultModel``
+    is not a subclass of ``dict``.  Use one of these instead::
+
+        import json
+        result = success_result("done")
+
+        # Option 1 — preferred, no extra allocation:
+        json_str = result.to_json()
+
+        # Option 2 — explicit dict conversion:
+        json_str = json.dumps(result.to_dict())
+
+        # Option 3 — via mapping protocol (also works):
+        json_str = json.dumps(dict(result))
+
+    """
 
     success: bool
     message: str
@@ -48,7 +67,37 @@ class ActionResultModel:
     ) -> None: ...
     def with_error(self, error: str) -> ActionResultModel: ...
     def with_context(self, **kwargs: Any) -> ActionResultModel: ...
-    def to_dict(self) -> dict[str, Any]: ...
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to a plain Python dict.
+
+        The returned dict is always JSON-serializable via ``json.dumps(result.to_dict())``.
+        """
+        ...
+    def to_json(self) -> str:
+        """Serialize to a JSON string (UTF-8).
+
+        Preferred over ``json.dumps(result.to_dict())`` — avoids an intermediate dict
+        allocation and is slightly faster.
+
+        Example::
+
+            result = success_result("sphere created", name="sphere1")
+            print(result.to_json())
+            # {"success": true, "message": "sphere created", ...}
+        """
+        ...
+    def keys(self) -> list[str]:
+        """Return the field names (mapping protocol support).
+
+        Enables ``dict(result)`` and thus ``json.dumps(dict(result))``.
+        """
+        ...
+    def __iter__(self) -> Any:
+        """Iterate over ``(key, value)`` pairs (mapping protocol).
+
+        Enables ``dict(result)`` so that ``json.dumps(dict(result))`` works.
+        """
+        ...
     def __repr__(self) -> str: ...
     def __str__(self) -> str: ...
     def __eq__(self, other: object) -> bool: ...

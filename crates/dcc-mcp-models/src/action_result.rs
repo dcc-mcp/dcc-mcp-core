@@ -272,6 +272,38 @@ impl ActionResultModel {
             .map_err(pyo3::exceptions::PyValueError::new_err)
     }
 
+    /// Iterate over key-value pairs (mapping protocol).
+    ///
+    /// This enables ``dict(result)`` to work, which in turn enables
+    /// ``json.dumps(dict(result))``.
+    ///
+    /// ```python
+    /// import json
+    /// result = success_result("done")
+    /// # Preferred — zero allocation:
+    /// json_str = result.to_json()
+    /// # Also works:
+    /// json_str = json.dumps(result.to_dict())
+    /// # Works via mapping protocol:
+    /// json_str = json.dumps(dict(result))
+    /// ```
+    fn __iter__<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, pyo3::types::PyIterator>> {
+        let dict = self.to_dict(py)?;
+        pyo3::types::PyIterator::from_object(&dict.into_any())
+    }
+
+    /// Return the list of field names (part of the mapping protocol).
+    fn keys<'py>(&self, py: Python<'py>) -> PyResult<Vec<String>> {
+        let _ = py;
+        Ok(vec![
+            "success".to_string(),
+            "message".to_string(),
+            "prompt".to_string(),
+            "error".to_string(),
+            "context".to_string(),
+        ])
+    }
+
     fn __repr__(&self) -> String {
         format!(
             "ActionResultModel(success={}, message={:?})",
