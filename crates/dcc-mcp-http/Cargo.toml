@@ -40,7 +40,7 @@ pyo3 = { workspace = true, optional = true }
 [dev-dependencies]
 serde_json.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
-axum-test = "17"
+axum-test = "20"
 rstest = "0.26"
 
 [features]

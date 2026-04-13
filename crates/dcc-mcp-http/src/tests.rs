@@ -71,7 +71,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_initialize() {
-        let server = TestServer::new(make_router()).unwrap();
+        let server = TestServer::new(make_router());
 
         let resp = server
             .post("/mcp")
@@ -107,7 +107,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_tools_list() {
-        let server = TestServer::new(make_router()).unwrap();
+        let server = TestServer::new(make_router());
 
         let resp = server
             .post("/mcp")
@@ -208,7 +208,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_search_skills_returns_match() {
-        let server = TestServer::new(make_router_with_skills()).unwrap();
+        let server = TestServer::new(make_router_with_skills());
 
         let resp = server
             .post("/mcp")
@@ -243,7 +243,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_search_skills_matches_search_hint() {
-        let server = TestServer::new(make_router_with_skills()).unwrap();
+        let server = TestServer::new(make_router_with_skills());
 
         // "chamfer" is only in search_hint, not in description or name
         let resp = server
@@ -274,7 +274,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_search_skills_matches_tool_name() {
-        let server = TestServer::new(make_router_with_skills()).unwrap();
+        let server = TestServer::new(make_router_with_skills());
 
         // "log" is a tool name in git-tools
         let resp = server
@@ -305,7 +305,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_search_skills_no_match() {
-        let server = TestServer::new(make_router_with_skills()).unwrap();
+        let server = TestServer::new(make_router_with_skills());
 
         let resp = server
             .post("/mcp")
@@ -335,7 +335,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_search_skills_missing_query_returns_error() {
-        let server = TestServer::new(make_router_with_skills()).unwrap();
+        let server = TestServer::new(make_router_with_skills());
 
         let resp = server
             .post("/mcp")
@@ -362,7 +362,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_tools_list_includes_unloaded_skill_stubs() {
-        let server = TestServer::new(make_router_with_skills()).unwrap();
+        let server = TestServer::new(make_router_with_skills());
 
         let resp = server
             .post("/mcp")
@@ -404,7 +404,7 @@ mod tests {
         // All discovered (unloaded) skills must appear ONLY as stubs — their
         // individual tool names (e.g. "maya_bevel__bevel") must NOT be present,
         // and the stubs themselves must not carry a rich input_schema.
-        let server = TestServer::new(make_router_with_skills()).unwrap();
+        let server = TestServer::new(make_router_with_skills());
 
         let resp = server
             .post("/mcp")
@@ -465,7 +465,7 @@ mod tests {
     async fn test_skill_tool_names_absent_before_load() {
         // The actual tool names declared inside a skill (e.g. "bevel", "chamfer")
         // must not appear as top-level tool names until load_skill is called.
-        let server = TestServer::new(make_router_with_skills()).unwrap();
+        let server = TestServer::new(make_router_with_skills());
 
         let resp = server
             .post("/mcp")
@@ -496,7 +496,7 @@ mod tests {
         // After load_skill: real tool(s) appear AND the stub disappears.
         let state = make_app_state_with_skills();
         let router = make_router_with_skills();
-        let server = TestServer::new(router).unwrap();
+        let server = TestServer::new(router);
 
         // Load maya-bevel.
         let resp = server
@@ -566,7 +566,7 @@ mod tests {
         // Invariant: tools/list tool count = N_core + N_loaded_skill_tools + N_stubs
         // Before any load: count = 6 core + 0 loaded + 2 stubs = 8
         // After loading maya-bevel (2 tools): = 6 core + 2 loaded + 1 remaining stub = 9
-        let server = TestServer::new(make_router_with_skills()).unwrap();
+        let server = TestServer::new(make_router_with_skills());
 
         let count_before = {
             let resp = server
@@ -619,7 +619,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_skill_stub_call_returns_load_hint() {
-        let server = TestServer::new(make_router_with_skills()).unwrap();
+        let server = TestServer::new(make_router_with_skills());
 
         let resp = server
             .post("/mcp")
@@ -656,7 +656,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_tools_call_known_tool() {
-        let server = TestServer::new(make_router()).unwrap();
+        let server = TestServer::new(make_router());
 
         let resp = server
             .post("/mcp")
@@ -687,7 +687,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_tools_call_unknown_tool() {
-        let server = TestServer::new(make_router()).unwrap();
+        let server = TestServer::new(make_router());
 
         let resp = server
             .post("/mcp")
@@ -715,7 +715,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_ping() {
-        let server = TestServer::new(make_router()).unwrap();
+        let server = TestServer::new(make_router());
 
         let resp = server
             .post("/mcp")
@@ -736,7 +736,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_method_not_found() {
-        let server = TestServer::new(make_router()).unwrap();
+        let server = TestServer::new(make_router());
 
         let resp = server
             .post("/mcp")
@@ -757,7 +757,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_notification_returns_202() {
-        let server = TestServer::new(make_router()).unwrap();
+        let server = TestServer::new(make_router());
 
         let resp = server
             .post("/mcp")
@@ -778,7 +778,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_delete_nonexistent_session() {
-        let server = TestServer::new(make_router()).unwrap();
+        let server = TestServer::new(make_router());
 
         let resp = server
             .delete("/mcp")
@@ -795,7 +795,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_batch_requests() {
-        let server = TestServer::new(make_router()).unwrap();
+        let server = TestServer::new(make_router());
 
         let resp = server
             .post("/mcp")
@@ -819,7 +819,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_without_sse_accept_returns_405() {
-        let server = TestServer::new(make_router()).unwrap();
+        let server = TestServer::new(make_router());
 
         let resp = server
             .get("/mcp")
@@ -952,7 +952,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_find_skills_returns_discovered_skills() {
-        let server = TestServer::new(make_router_with_skill()).unwrap();
+        let server = TestServer::new(make_router_with_skill());
 
         let resp = server
             .post("/mcp")
@@ -983,7 +983,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_skills_shows_all() {
-        let server = TestServer::new(make_router_with_skill()).unwrap();
+        let server = TestServer::new(make_router_with_skill());
 
         let resp = server
             .post("/mcp")
@@ -1010,7 +1010,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_skill_info() {
-        let server = TestServer::new(make_router_with_skill()).unwrap();
+        let server = TestServer::new(make_router_with_skill());
 
         let resp = server
             .post("/mcp")
@@ -1040,7 +1040,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_load_skill_registers_tools() {
-        let server = TestServer::new(make_router_with_skill()).unwrap();
+        let server = TestServer::new(make_router_with_skill());
 
         // Load the skill
         let resp = server
@@ -1092,7 +1092,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_unload_skill_removes_tools() {
-        let server = TestServer::new(make_router_with_skill()).unwrap();
+        let server = TestServer::new(make_router_with_skill());
 
         // Load first
         server
@@ -1159,7 +1159,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_initialize_reports_list_changed_true() {
-        let server = TestServer::new(make_router()).unwrap();
+        let server = TestServer::new(make_router());
 
         let resp = server
             .post("/mcp")
@@ -1222,7 +1222,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_tools_call_with_registered_handler() {
-        let server = TestServer::new(make_router_with_handler()).unwrap();
+        let server = TestServer::new(make_router_with_handler());
 
         let resp = server
             .post("/mcp")
@@ -1253,7 +1253,7 @@ mod tests {
     #[tokio::test]
     async fn test_tools_call_no_handler() {
         // Uses the default make_router() where no handlers are registered
-        let server = TestServer::new(make_router()).unwrap();
+        let server = TestServer::new(make_router());
 
         let resp = server
             .post("/mcp")
@@ -1313,7 +1313,7 @@ mod tests {
             )
             .with_state(state);
 
-        let server = TestServer::new(router).unwrap();
+        let server = TestServer::new(router);
         let resp = server
             .post("/mcp")
             .add_header(
@@ -1436,7 +1436,7 @@ mod tests {
         // We use the in-process axum_test router to avoid network deps.
         let state = make_app_state();
         let router = make_router();
-        let server = TestServer::new(router).unwrap();
+        let server = TestServer::new(router);
 
         // Initialize — creates a session and returns Mcp-Session-Id.
         let resp = server

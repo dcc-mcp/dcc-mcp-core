@@ -67,7 +67,7 @@ notify = "8.0"
 anyhow = "1.0"
 tokio-tungstenite = "0.29"
 futures-util = "0.3"
-reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "rustls"] }
 
 # Root package — Python bindings entry point
 # Compiles to `_core.pyd` / `_core.so`, exposed as `dcc_mcp_core._core`
