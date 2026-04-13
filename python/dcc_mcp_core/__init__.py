@@ -161,6 +161,9 @@ from dcc_mcp_core._core import validate_action_result
 from dcc_mcp_core._core import validate_dependencies
 from dcc_mcp_core._core import wrap_value
 
+# Pure-Python DCC server diagnostic helpers (no _core dependency)
+from dcc_mcp_core.dcc_server import register_diagnostic_handlers
+
 # Pure-Python skill script helpers (no _core dependency)
 from dcc_mcp_core.skill import get_bundled_skill_paths
 from dcc_mcp_core.skill import get_bundled_skills_dir
@@ -303,6 +306,7 @@ __all__ = [
     "is_telemetry_initialized",
     "mpu_to_units",
     "parse_skill_md",
+    "register_diagnostic_handlers",
     "resolve_dependencies",
     "run_main",
     "scan_and_load",
