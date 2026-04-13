@@ -65,7 +65,7 @@ jobs:
       - name: Install cargo-tarpaulin
         run: cargo install cargo-tarpaulin --locked
       - name: Run Rust coverage
-        run: cargo tarpaulin --workspace --out Xml --output-dir coverage/ --timeout 300
+        run: just rust-cov
       - name: Upload Rust coverage to Codecov
         uses: codecov/codecov-action@v6
         with:
@@ -195,8 +195,8 @@ jobs:
         with:
           python-version: "3.13"
       - uses: extractions/setup-just@v4
-      - name: Install ruff
-        run: pip install ruff
+      - name: Install dev deps
+        run: just install-dev-deps
       - name: Lint
         run: just lint-py
 
@@ -241,5 +241,5 @@ jobs:
         shell: bash
 
       - name: Run mcporter e2e tests
-        run: pytest tests/test_mcp_mcporter_e2e.py -v --tb=short
+        run: just test-e2e
         shell: bash
