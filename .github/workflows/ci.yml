@@ -241,5 +241,5 @@ jobs:
         shell: bash
 
       - name: Run mcporter e2e tests
-        run: just test-e2e
+        run: pytest tests/test_mcp_mcporter_e2e.py -v --tb=short
         shell: bash

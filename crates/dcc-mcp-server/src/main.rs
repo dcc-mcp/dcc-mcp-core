@@ -1,75 +1,114 @@
-//! Standalone `dcc-mcp-server` binary for bridge-mode DCCs.
+//! Standalone `dcc-mcp-server` — DCC MCP server with integrated gateway.
 //!
-//! Starts the MCP Streamable HTTP server and (optionally) a WebSocket bridge
-//! server so that DCC plugins written in non-Python languages (JavaScript/UXP,
-//! C++, C#, GDScript, …) can connect without a local Python installation.
+//! Every instance registers itself in a shared `FileRegistry` and **competes**
+//! for a single well-known gateway port (default `:9765`).  Whichever process
+//! wins the race becomes the **gateway**; the others are plain DCC instances.
 //!
-//! ## Simplified deployment
+//! ## Why this matters
 //!
-//! ```text
-//! DCC Plugin (any language)
-//!     ↕  WebSocket :9001  (JSON-RPC 2.0 bridge protocol)
-//! dcc-mcp-server  ← this binary, zero deps
-//!     ↕  HTTP :8765
-//! MCP Client (Claude/Cursor)
-//! ```
-//!
-//! ## Usage
+//! You can start N DCC servers without any extra configuration:
 //!
 //! ```bash
-//! # Auto-discover skills and start both servers
-//! dcc-mcp-server
+//! # Terminal 1 — Maya, gets OS-assigned port :18812, wins gateway :9765
+//! dcc-mcp-server --dcc maya
 //!
-//! # Explicit configuration
-//! dcc-mcp-server --mcp-port 8765 --ws-port 9001 --dcc photoshop \
-//!   --skill-paths /path/to/skills --server-name "photoshop-mcp"
+//! # Terminal 2 — Maya, gets :18813, gateway port already taken → plain instance
+//! dcc-mcp-server --dcc maya
 //!
-//! # No WebSocket bridge (MCP HTTP only)
-//! dcc-mcp-server --no-bridge
+//! # Terminal 3 — Photoshop, gets :18814, plain instance
+//! dcc-mcp-server --dcc photoshop
+//! ```
+//!
+//! ```bash
+//! # Agent always talks to one endpoint regardless of how many DCCs are running
+//! curl http://localhost:9765/instances           # → [maya@18812, maya@18813, photoshop@18814]
+//! curl -X POST http://localhost:9765/mcp \       # → list_dcc_instances / connect_to_dcc
+//!      -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_dcc_instances"}}'
+//! ```
+//!
+//! ## Gateway behaviour
+//!
+//! The gateway exposes **three discovery meta-tools** via its own MCP endpoint:
+//!
+//! | Tool | Description |
+//! |------|-------------|
+//! | `list_dcc_instances` | List all live DCC servers (type, port, scene, status) |
+//! | `get_dcc_instance`   | Get info for a specific instance (by id or dcc_type+scene) |
+//! | `connect_to_dcc`     | Return the direct MCP URL for a DCC instance |
+//!
+//! It also proxies tool calls transparently:
+//!
+//! ```
+//! POST /mcp                    → discovery tools (no proxy)
+//! POST /mcp/{instance_id}      → proxy to that DCC instance
+//! POST /mcp/dcc/{dcc_type}     → proxy to best instance of that type
+//! GET  /instances              → JSON list of all live instances (REST)
+//! GET  /health                 → {"ok": true}
+//! ```
+//!
+//! ## Python API
+//!
+//! The Python `McpHttpServer` gains `gateway_port` config so Maya/Blender
+//! plugins can also participate in the gateway:
+//!
+//! ```python
+//! from dcc_mcp_core import McpHttpServer, McpHttpConfig
+//! config = McpHttpConfig(port=0, server_name="maya")
+//! config.gateway_port = 9765   # join the gateway; 0 = disabled
+//! server = McpHttpServer(registry, config)
+//! server.start()
 //! ```
 //!
 //! ## Environment variables
 //!
-//! | Variable                      | Description                              |
-//! |-------------------------------|------------------------------------------|
-//! | `DCC_MCP_SKILL_PATHS`         | Colon/semicolon-separated skill dirs     |
-//! | `DCC_MCP_MCP_PORT`            | MCP HTTP server port (default 8765)      |
-//! | `DCC_MCP_WS_PORT`             | WebSocket bridge port (default 9001)     |
-//! | `DCC_MCP_DCC`                 | DCC name hint (e.g. "photoshop")         |
-//! | `DCC_MCP_SERVER_NAME`         | Server name advertised to MCP client     |
-//! | `DCC_MCP_PID_FILE`            | Override PID file path                   |
-//! | `DCC_MCP_RECONNECT_TIMEOUT`   | Seconds to wait for DCC reconnect        |
-//! | `DCC_MCP_HEARTBEAT_SECS`      | WebSocket heartbeat interval (seconds)   |
-//! | `RUST_LOG`                    | Log level filter (e.g. "debug")          |
+//! | Variable                  | Description                                        |
+//! |---------------------------|----------------------------------------------------|
+//! | `DCC_MCP_SKILL_PATHS`     | Colon/semicolon-separated skill dirs               |
+//! | `DCC_MCP_MCP_PORT`        | MCP HTTP server port (default 0 = OS-assigned)     |
+//! | `DCC_MCP_WS_PORT`         | WebSocket bridge port (default 9001)               |
+//! | `DCC_MCP_DCC`             | DCC name hint (e.g. "maya", "photoshop")           |
+//! | `DCC_MCP_SERVER_NAME`     | Server name advertised to MCP clients              |
+//! | `DCC_MCP_GATEWAY_PORT`    | Gateway port to compete for (default 9765, 0=off)  |
+//! | `DCC_MCP_REGISTRY_DIR`    | Shared FileRegistry directory                      |
+//! | `DCC_MCP_STALE_TIMEOUT`   | Seconds without heartbeat = stale (default 30)     |
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
+use anyhow::Context as _;
+use axum::extract::{Path, State};
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Response};
+use axum::{Json, Router, routing};
 use clap::Parser;
 use dcc_mcp_actions::{ActionDispatcher, ActionRegistry};
 use dcc_mcp_http::{McpHttpConfig, McpHttpServer};
 use dcc_mcp_skills::SkillCatalog;
+use dcc_mcp_transport::discovery::file_registry::FileRegistry;
+use dcc_mcp_transport::discovery::types::{ServiceEntry, ServiceStatus};
 use dcc_mcp_utils::filesystem;
-use tokio::sync::Mutex;
+use serde::Deserialize;
+use serde_json::{Value, json};
+use tokio::sync::RwLock;
+use tower_http::cors::{Any, CorsLayer};
+use tower_http::trace::TraceLayer;
 
-// ── CLI arguments ─────────────────────────────────────────────────────────────
+// ── CLI ───────────────────────────────────────────────────────────────────────
 
-/// Standalone MCP server for bridge-mode DCCs.
+/// DCC-MCP server with integrated auto-gateway.
 #[derive(Debug, Parser)]
 #[command(name = "dcc-mcp-server", about, version)]
 struct Args {
-    /// MCP Streamable HTTP server port.
-    #[arg(long, env = "DCC_MCP_MCP_PORT", default_value = "8765")]
+    /// MCP Streamable HTTP server port. Default 0 = OS-assigned.
+    #[arg(long, env = "DCC_MCP_MCP_PORT", default_value = "0")]
     mcp_port: u16,
 
-    /// WebSocket bridge server port (for DCC plugin connections).
+    /// WebSocket bridge server port (for non-Python DCC plugins).
     #[arg(long, env = "DCC_MCP_WS_PORT", default_value = "9001")]
     ws_port: u16,
 
-    /// DCC name hint (e.g. "photoshop", "zbrush", "unreal").
-    /// Used to resolve DCC-specific skill environment variables.
+    /// DCC application type (e.g. "maya", "photoshop", "blender").
     #[arg(long, env = "DCC_MCP_DCC", default_value = "")]
     dcc: String,
 
@@ -89,130 +128,514 @@ struct Args {
     #[arg(long, default_value = "127.0.0.1")]
     host: String,
 
-    /// Path for the PID file. Defaults to $TMPDIR/dcc-mcp-server-<port>.pid.
-    /// Pass an empty string "" to disable PID file management.
-    #[arg(long, env = "DCC_MCP_PID_FILE")]
-    pid_file: Option<String>,
+    // ── Gateway ──
+    /// Gateway port to compete for. First instance to bind wins the gateway.
+    /// 0 = gateway disabled entirely.
+    #[arg(long, env = "DCC_MCP_GATEWAY_PORT", default_value = "9765")]
+    gateway_port: u16,
 
-    /// Force start even if a PID file already exists (overwrite stale lock).
-    #[arg(long, default_value = "false")]
-    force: bool,
+    /// Directory for the shared FileRegistry (auto-created if missing).
+    #[arg(long, env = "DCC_MCP_REGISTRY_DIR")]
+    registry_dir: Option<String>,
 
-    /// Seconds to wait for a DCC plugin to (re-)connect after a disconnect
-    /// before automatically exiting. 0 = wait indefinitely.
-    /// Only effective when the WebSocket bridge is enabled.
-    #[arg(long, env = "DCC_MCP_RECONNECT_TIMEOUT", default_value = "0")]
-    reconnect_timeout_secs: u64,
+    /// Seconds without a heartbeat before an instance is considered stale.
+    #[arg(long, env = "DCC_MCP_STALE_TIMEOUT", default_value = "30")]
+    stale_timeout_secs: u64,
 
-    /// WebSocket heartbeat interval in seconds (0 = disabled).
-    /// A Ping frame is sent to the DCC plugin on this interval; if the send
-    /// fails the connection is considered dead and the handler exits.
-    #[arg(long, env = "DCC_MCP_HEARTBEAT_SECS", default_value = "30")]
+    /// DCC application version (reported in registry, e.g. "2024.2").
+    #[arg(long, env = "DCC_MCP_DCC_VERSION")]
+    dcc_version: Option<String>,
+
+    /// Currently open scene file (reported in registry, improves routing).
+    #[arg(long, env = "DCC_MCP_SCENE")]
+    scene: Option<String>,
+
+    /// Heartbeat interval in seconds for the registry. 0 = disabled.
+    #[arg(long, env = "DCC_MCP_HEARTBEAT_INTERVAL", default_value = "5")]
     heartbeat_secs: u64,
 }
 
-// ── Bridge connection state ────────────────────────────────────────────────────
+// ── Shared gateway state ──────────────────────────────────────────────────────
 
-/// Shared state tracking live DCC plugin WebSocket connections.
-///
-/// Passed to both `run_ws_bridge` and the reconnect-timeout watchdog so
-/// that either side can observe connection health without locks on the hot
-/// path.
-#[derive(Debug)]
-struct BridgeState {
-    /// Number of currently connected DCC plugin WebSocket connections.
-    connected_count: AtomicU32,
-    /// Set to `true` once at least one DCC plugin has ever connected.
-    ever_connected: AtomicBool,
-    /// Wall-clock time of the most recent disconnect event.
-    last_disconnect: Mutex<Option<Instant>>,
+#[derive(Clone)]
+struct GatewayState {
+    registry: Arc<RwLock<FileRegistry>>,
+    stale_timeout: Duration,
+    server_name: String,
+    server_version: String,
+    http_client: reqwest::Client,
 }
 
-impl BridgeState {
-    fn new() -> Self {
-        Self {
-            connected_count: AtomicU32::new(0),
-            ever_connected: AtomicBool::new(false),
-            last_disconnect: Mutex::new(None),
+impl GatewayState {
+    fn live_instances(&self, registry: &FileRegistry) -> Vec<ServiceEntry> {
+        registry
+            .list_all()
+            .into_iter()
+            .filter(|e| {
+                !e.is_stale(self.stale_timeout)
+                    && !matches!(
+                        e.status,
+                        ServiceStatus::ShuttingDown | ServiceStatus::Unreachable
+                    )
+            })
+            .collect()
+    }
+}
+
+// ── JSON-RPC types ────────────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+struct JsonRpcRequest {
+    #[allow(dead_code)]
+    jsonrpc: Option<String>,
+    id: Option<Value>,
+    method: String,
+    params: Option<Value>,
+}
+
+// ── Gateway REST handlers ─────────────────────────────────────────────────────
+
+async fn handle_health() -> impl IntoResponse {
+    Json(json!({"ok": true, "service": "dcc-mcp-gateway"}))
+}
+
+async fn handle_instances(State(gs): State<GatewayState>) -> impl IntoResponse {
+    let reg = gs.registry.read().await;
+    let instances: Vec<Value> = gs
+        .live_instances(&reg)
+        .into_iter()
+        .map(|e| entry_to_json(&e, gs.stale_timeout))
+        .collect();
+    Json(json!({ "total": instances.len(), "instances": instances }))
+}
+
+fn entry_to_json(e: &ServiceEntry, stale_timeout: Duration) -> Value {
+    json!({
+        "instance_id": e.instance_id.to_string(),
+        "dcc_type": e.dcc_type,
+        "host": e.host,
+        "port": e.port,
+        "mcp_url": format!("http://{}:{}/mcp", e.host, e.port),
+        "status": e.status.to_string(),
+        "scene": e.scene,
+        "version": e.version,
+        "metadata": e.metadata,
+        "stale": e.is_stale(stale_timeout),
+    })
+}
+
+// ── Gateway MCP endpoint ──────────────────────────────────────────────────────
+
+/// `POST /mcp` — gateway's own MCP endpoint with discovery meta-tools.
+/// Does NOT proxy; returns direct URLs for agents to use.
+async fn handle_gateway_mcp(State(gs): State<GatewayState>, body: axum::body::Bytes) -> Response {
+    let req: JsonRpcRequest = match serde_json::from_slice(&body) {
+        Ok(r) => r,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"jsonrpc":"2.0","id":null,"error":{"code":-32700,"message":format!("Parse error: {e}")}})),
+            )
+                .into_response();
         }
-    }
+    };
 
-    fn on_connect(&self) {
-        self.connected_count.fetch_add(1, Ordering::Relaxed);
-        self.ever_connected.store(true, Ordering::Relaxed);
-    }
+    let id = req.id.clone();
+    let resp = match req.method.as_str() {
+        "initialize" => json!({
+            "jsonrpc": "2.0", "id": id,
+            "result": {
+                "protocolVersion": "2025-03-26",
+                "capabilities": {"tools": {"listChanged": false}},
+                "serverInfo": {"name": gs.server_name, "version": gs.server_version},
+                "instructions":
+                    "DCC-MCP Gateway — multi-instance discovery.\n\
+                     1. Call list_dcc_instances to see all running DCC servers.\n\
+                     2. Call connect_to_dcc to get the MCP URL for a specific DCC type.\n\
+                     3. Connect your MCP client directly to that URL for zero-overhead access.\n\
+                     4. Or use POST /mcp/{instance_id} on this gateway for transparent proxying."
+            }
+        }),
+        "ping" => json!({"jsonrpc":"2.0","id":id,"result":{}}),
+        "notifications/initialized" => json!({"jsonrpc":"2.0","id":id,"result":{}}),
+        "tools/list" => {
+            json!({
+                "jsonrpc": "2.0", "id": id,
+                "result": {"tools": gateway_tool_defs(), "nextCursor": null}
+            })
+        }
+        "tools/call" => {
+            let tool = req
+                .params
+                .as_ref()
+                .and_then(|p| p.get("name"))
+                .and_then(|n| n.as_str())
+                .unwrap_or("");
+            let args = req
+                .params
+                .as_ref()
+                .and_then(|p| p.get("arguments"))
+                .cloned()
+                .unwrap_or(json!({}));
 
-    async fn on_disconnect(&self) {
-        self.connected_count.fetch_sub(1, Ordering::Relaxed);
-        *self.last_disconnect.lock().await = Some(Instant::now());
-    }
+            let result = match tool {
+                "list_dcc_instances" => tool_list_instances(&gs, &args).await,
+                "get_dcc_instance" => tool_get_instance(&gs, &args).await,
+                "connect_to_dcc" => tool_connect_to_dcc(&gs, &args).await,
+                other => Err(format!("Unknown tool: {other}")),
+            };
 
-    fn is_connected(&self) -> bool {
-        self.connected_count.load(Ordering::Relaxed) > 0
+            match result {
+                Ok(text) => json!({
+                    "jsonrpc": "2.0", "id": id,
+                    "result": {"content": [{"type": "text", "text": text}], "isError": false}
+                }),
+                Err(msg) => json!({
+                    "jsonrpc": "2.0", "id": id,
+                    "result": {"content": [{"type": "text", "text": msg}], "isError": true}
+                }),
+            }
+        }
+        other => json!({
+            "jsonrpc": "2.0", "id": id,
+            "error": {"code": -32601, "message": format!("Method not found: {other}")}
+        }),
+    };
+
+    let mut response = Json(resp).into_response();
+    response
+        .headers_mut()
+        .insert("Mcp-Session-Id", "dcc-mcp-gateway".parse().unwrap());
+    response
+}
+
+// ── Proxy handlers ────────────────────────────────────────────────────────────
+
+/// `POST /mcp/{instance_id}` — transparent proxy to a specific DCC instance.
+async fn handle_proxy_instance(
+    State(gs): State<GatewayState>,
+    Path(instance_id): Path<String>,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> Response {
+    let reg = gs.registry.read().await;
+    let entry = reg.list_all().into_iter().find(|e| {
+        let eid = e.instance_id.to_string();
+        eid == instance_id || eid.starts_with(&instance_id)
+    });
+    drop(reg);
+
+    match entry {
+        Some(e) => {
+            let url = format!("http://{}:{}/mcp", e.host, e.port);
+            proxy_request(&gs.http_client, &url, headers, body).await
+        }
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": format!("Instance '{}' not found", instance_id)})),
+        )
+            .into_response(),
     }
 }
 
-// ── PID file helpers ───────────────────────────────────────────────────────────
+/// `POST /mcp/dcc/{dcc_type}` — proxy to best instance of a DCC type.
+async fn handle_proxy_dcc(
+    State(gs): State<GatewayState>,
+    Path(dcc_type): Path<String>,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> Response {
+    let reg = gs.registry.read().await;
+    let mut candidates: Vec<ServiceEntry> = gs
+        .live_instances(&reg)
+        .into_iter()
+        .filter(|e| e.dcc_type == dcc_type)
+        .collect();
+    drop(reg);
 
-/// Resolve the PID file path from CLI args.
-/// Returns `None` when PID file management is explicitly disabled.
-fn resolve_pid_path(args: &Args) -> Option<PathBuf> {
-    match &args.pid_file {
-        Some(p) if p.is_empty() => None,
-        Some(p) => Some(PathBuf::from(p)),
-        None => Some(std::env::temp_dir().join(format!("dcc-mcp-server-{}.pid", args.mcp_port))),
+    if candidates.is_empty() {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"error": format!("No live '{}' instances", dcc_type)})),
+        )
+            .into_response();
     }
+
+    // Prefer Available over Busy
+    candidates.sort_by_key(|e| matches!(e.status, ServiceStatus::Busy) as u8);
+    let url = format!("http://{}:{}/mcp", candidates[0].host, candidates[0].port);
+    proxy_request(&gs.http_client, &url, headers, body).await
 }
 
-/// Check for a live duplicate process, then write the current PID to `pid_path`.
-///
-/// Returns `Err` when another live instance is detected and `--force` is not set.
-fn check_and_write_pid(pid_path: &PathBuf, force: bool) -> anyhow::Result<()> {
-    if pid_path.exists() {
-        let existing_pid_str = std::fs::read_to_string(pid_path)
-            .unwrap_or_default()
-            .trim()
-            .to_string();
+async fn proxy_request(
+    client: &reqwest::Client,
+    target_url: &str,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> Response {
+    let mut req = client.post(target_url).body(body.to_vec());
 
-        if let Ok(existing_pid) = existing_pid_str.parse::<u32>() {
-            if is_process_alive(existing_pid) {
-                if force {
-                    tracing::warn!(
-                        pid = existing_pid,
-                        "Another dcc-mcp-server (pid {existing_pid}) appears to be running. \
-                         --force is set; overwriting PID file."
-                    );
-                } else {
-                    anyhow::bail!(
-                        "dcc-mcp-server is already running (pid {existing_pid}, \
-                         pid file: {}). Use --force to override.",
-                        pid_path.display()
-                    );
-                }
-            } else {
-                tracing::debug!(
-                    "Stale PID file found (pid {existing_pid} is not running). Overwriting."
-                );
+    for (key, val) in &headers {
+        let name = key.as_str().to_lowercase();
+        if matches!(
+            name.as_str(),
+            "content-type" | "accept" | "mcp-session-id" | "authorization"
+        ) {
+            if let Ok(v) = val.to_str() {
+                req = req.header(key.as_str(), v);
             }
         }
     }
 
-    let my_pid = std::process::id();
-    std::fs::write(pid_path, my_pid.to_string())
-        .map_err(|e| anyhow::anyhow!("Failed to write PID file {}: {e}", pid_path.display()))?;
-    tracing::info!(pid = my_pid, path = %pid_path.display(), "PID file written");
-    Ok(())
+    match req.send().await {
+        Ok(resp) => {
+            let status =
+                StatusCode::from_u16(resp.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
+            let resp_headers = resp.headers().clone();
+            let bytes = resp.bytes().await.unwrap_or_default();
+            let mut response = Response::new(axum::body::Body::from(bytes));
+            *response.status_mut() = status;
+            for (k, v) in &resp_headers {
+                let n = k.as_str().to_lowercase();
+                if n == "content-type" || n.starts_with("mcp-") {
+                    response.headers_mut().insert(k, v.clone());
+                }
+            }
+            response
+        }
+        Err(e) => (
+            StatusCode::BAD_GATEWAY,
+            Json(json!({"error": format!("Upstream unreachable: {e}")})),
+        )
+            .into_response(),
+    }
 }
 
-/// Cross-platform liveness check for an OS process.
-///
-/// Uses `sysinfo` (already a transitive dep via `dcc-mcp-process`) so no
-/// extra platform-specific syscall crates are needed.
-fn is_process_alive(pid: u32) -> bool {
-    use sysinfo::{Pid, ProcessesToUpdate, System};
-    let mut sys = System::new();
-    sys.refresh_processes(ProcessesToUpdate::Some(&[Pid::from(pid as usize)]), false);
-    sys.process(Pid::from(pid as usize)).is_some()
+// ── Discovery meta-tools ──────────────────────────────────────────────────────
+
+async fn tool_list_instances(gs: &GatewayState, args: &Value) -> Result<String, String> {
+    let dcc_filter = args.get("dcc_type").and_then(|v| v.as_str());
+    let reg = gs.registry.read().await;
+    let mut instances: Vec<Value> = gs
+        .live_instances(&reg)
+        .iter()
+        .filter(|e| dcc_filter.is_none_or(|f| e.dcc_type == f))
+        .map(|e| entry_to_json(e, gs.stale_timeout))
+        .collect();
+
+    instances.sort_by(|a, b| {
+        a["dcc_type"]
+            .as_str()
+            .cmp(&b["dcc_type"].as_str())
+            .then(a["port"].as_u64().cmp(&b["port"].as_u64()))
+    });
+
+    let tip = if instances.is_empty() {
+        "No live DCC instances. Start dcc-mcp-server for each DCC application."
+    } else {
+        "Use connect_to_dcc(dcc_type=...) to get the direct MCP URL. \
+         Connect your agent directly — no proxy needed."
+    };
+
+    serde_json::to_string_pretty(&json!({
+        "total": instances.len(),
+        "instances": instances,
+        "tip": tip
+    }))
+    .map_err(|e| e.to_string())
+}
+
+async fn tool_get_instance(gs: &GatewayState, args: &Value) -> Result<String, String> {
+    let reg = gs.registry.read().await;
+    let all = gs.live_instances(&reg);
+
+    if let Some(id) = args.get("instance_id").and_then(|v| v.as_str()) {
+        return all
+            .iter()
+            .find(|e| {
+                let s = e.instance_id.to_string();
+                s == id || s.starts_with(id)
+            })
+            .map(|e| {
+                serde_json::to_string_pretty(&entry_to_json(e, gs.stale_timeout))
+                    .unwrap_or_default()
+            })
+            .ok_or_else(|| format!("Instance '{id}' not found"));
+    }
+
+    if let Some(dcc) = args.get("dcc_type").and_then(|v| v.as_str()) {
+        let candidates: Vec<&ServiceEntry> = all.iter().filter(|e| e.dcc_type == dcc).collect();
+        if candidates.is_empty() {
+            return Err(format!("No live '{dcc}' instances"));
+        }
+        let scene = args.get("scene").and_then(|v| v.as_str());
+        let entry = scene
+            .and_then(|hint| {
+                candidates
+                    .iter()
+                    .find(|e| e.scene.as_deref().unwrap_or("").contains(hint))
+            })
+            .copied()
+            .unwrap_or(candidates[0]);
+        return serde_json::to_string_pretty(&entry_to_json(entry, gs.stale_timeout))
+            .map_err(|e| e.to_string());
+    }
+
+    Err("Provide instance_id or dcc_type".to_string())
+}
+
+async fn tool_connect_to_dcc(gs: &GatewayState, args: &Value) -> Result<String, String> {
+    let reg = gs.registry.read().await;
+    let all = gs.live_instances(&reg);
+
+    let entry = if let Some(id) = args.get("instance_id").and_then(|v| v.as_str()) {
+        all.iter()
+            .find(|e| {
+                let s = e.instance_id.to_string();
+                s == id || s.starts_with(id)
+            })
+            .cloned()
+            .ok_or_else(|| format!("Instance '{id}' not found"))?
+    } else if let Some(dcc) = args.get("dcc_type").and_then(|v| v.as_str()) {
+        let candidates: Vec<&ServiceEntry> = all.iter().filter(|e| e.dcc_type == dcc).collect();
+        if candidates.is_empty() {
+            return Err(format!(
+                "No live '{dcc}' instances. Start: dcc-mcp-server --dcc {dcc}"
+            ));
+        }
+        let scene = args.get("scene").and_then(|v| v.as_str());
+        let e = scene
+            .and_then(|h| {
+                candidates
+                    .iter()
+                    .find(|e| e.scene.as_deref().unwrap_or("").contains(h))
+            })
+            .copied()
+            .unwrap_or(candidates[0]);
+        e.clone()
+    } else {
+        return Err("Provide instance_id or dcc_type".to_string());
+    };
+
+    let mcp_url = format!("http://{}:{}/mcp", entry.host, entry.port);
+    serde_json::to_string_pretty(&json!({
+        "instance_id": entry.instance_id.to_string(),
+        "dcc_type": entry.dcc_type,
+        "mcp_url": mcp_url,
+        "scene": entry.scene,
+        "status": entry.status.to_string(),
+        "instructions": format!(
+            "Point your MCP client to: {mcp_url}\n\
+             Direct connection = zero proxy overhead.\n\
+             Or use POST /mcp/{id} on this gateway for transparent proxying.",
+            id = entry.instance_id
+        )
+    }))
+    .map_err(|e| e.to_string())
+}
+
+fn gateway_tool_defs() -> Value {
+    json!([
+        {
+            "name": "list_dcc_instances",
+            "description": "List all running DCC server instances. Returns type, port, scene, status.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "dcc_type": {"type": "string", "description": "Filter by type (e.g. 'maya'). Omit for all."}
+                }
+            }
+        },
+        {
+            "name": "get_dcc_instance",
+            "description": "Get info on a specific DCC instance by id or dcc_type+scene.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "instance_id": {"type": "string", "description": "UUID (or prefix) from list_dcc_instances"},
+                    "dcc_type": {"type": "string"},
+                    "scene": {"type": "string", "description": "Scene name hint for selection"}
+                }
+            }
+        },
+        {
+            "name": "connect_to_dcc",
+            "description": "Get the direct MCP URL for a DCC instance. Connect to it directly for zero-overhead access.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "instance_id": {"type": "string"},
+                    "dcc_type": {"type": "string"},
+                    "scene": {"type": "string"}
+                }
+            }
+        }
+    ])
+}
+
+// ── WebSocket bridge (unchanged from original) ────────────────────────────────
+
+async fn run_ws_bridge(port: u16, server_name: String, server_version: String) {
+    use dcc_mcp_protocols::bridge::{BridgeHelloAck, BridgeMessage};
+    use futures_util::{SinkExt, StreamExt};
+    use tokio::net::TcpListener;
+    use tokio_tungstenite::tungstenite::Message;
+
+    let listener = match TcpListener::bind(format!("127.0.0.1:{port}")).await {
+        Ok(l) => l,
+        Err(e) => {
+            tracing::error!("Failed to bind WebSocket bridge on port {port}: {e}");
+            return;
+        }
+    };
+    tracing::info!("WebSocket bridge listening on ws://127.0.0.1:{port}");
+
+    loop {
+        match listener.accept().await {
+            Ok((stream, addr)) => {
+                let sn = server_name.clone();
+                let sv = server_version.clone();
+                tokio::spawn(async move {
+                    let ws = match tokio_tungstenite::accept_async(stream).await {
+                        Ok(w) => w,
+                        Err(e) => {
+                            tracing::warn!("WS handshake failed for {addr}: {e}");
+                            return;
+                        }
+                    };
+                    let (mut sink, mut stream) = ws.split();
+                    while let Some(Ok(msg)) = stream.next().await {
+                        match msg {
+                            Message::Text(t) => {
+                                if let Ok(BridgeMessage::Hello(h)) =
+                                    serde_json::from_str::<BridgeMessage>(&t)
+                                {
+                                    let ack = serde_json::to_string(&BridgeMessage::HelloAck(
+                                        BridgeHelloAck {
+                                            server: sn.clone(),
+                                            version: sv.clone(),
+                                            session_id: uuid::Uuid::new_v4().to_string(),
+                                        },
+                                    ))
+                                    .unwrap_or_default();
+                                    let _ = sink.send(Message::Text(ack.into())).await;
+                                    tracing::info!(
+                                        "DCC connected from {addr}: {} {}",
+                                        h.client,
+                                        h.version
+                                    );
+                                }
+                            }
+                            Message::Close(_) => break,
+                            _ => {}
+                        }
+                    }
+                    tracing::debug!("DCC plugin {addr} disconnected");
+                });
+            }
+            Err(e) => tracing::warn!("WS bridge accept error: {e}"),
+        }
+    }
 }
 
 // ── main ──────────────────────────────────────────────────────────────────────
@@ -227,50 +650,50 @@ async fn main() -> anyhow::Result<()> {
 
     let args = Args::parse();
 
-    // ── PID file ─────────────────────────────────────────────────────────────
+    // ── Resolve registry dir ──────────────────────────────────────────────
 
-    let pid_path = resolve_pid_path(&args);
-    if let Some(ref p) = pid_path {
-        check_and_write_pid(p, args.force)?;
-    }
+    let registry_dir = args.registry_dir.clone().unwrap_or_else(|| {
+        std::env::temp_dir()
+            .join("dcc-mcp")
+            .to_string_lossy()
+            .to_string()
+    });
 
-    // ── Collect skill paths ───────────────────────────────────────────────────
+    let registry = FileRegistry::new(&registry_dir)
+        .with_context(|| format!("Failed to open FileRegistry at {registry_dir}"))?;
+    let registry = Arc::new(RwLock::new(registry));
+
+    // ── Collect skill paths ───────────────────────────────────────────────
 
     let mut skill_paths: Vec<PathBuf> = args.skill_paths.clone();
-
-    let env_paths = filesystem::get_skill_paths_from_env();
-    skill_paths.extend(env_paths.into_iter().map(PathBuf::from));
-
+    skill_paths.extend(
+        filesystem::get_skill_paths_from_env()
+            .into_iter()
+            .map(PathBuf::from),
+    );
     if !args.dcc.is_empty() {
-        let app_paths = filesystem::get_app_skill_paths_from_env(&args.dcc);
-        skill_paths.extend(app_paths.into_iter().map(PathBuf::from));
+        skill_paths.extend(
+            filesystem::get_app_skill_paths_from_env(&args.dcc)
+                .into_iter()
+                .map(PathBuf::from),
+        );
     }
-
     if let Ok(bundled) = filesystem::get_skills_dir(None) {
-        let bundled_path = PathBuf::from(bundled);
-        if bundled_path.exists() {
-            skill_paths.push(bundled_path);
+        let p = PathBuf::from(bundled);
+        if p.exists() {
+            skill_paths.push(p);
         }
     }
 
-    tracing::info!(
-        "Skill search paths: {:?}",
-        skill_paths
-            .iter()
-            .map(|p| p.display().to_string())
-            .collect::<Vec<_>>()
-    );
+    // ── Build registry + catalog ──────────────────────────────────────────
 
-    // ── Build registry + catalog ──────────────────────────────────────────────
-
-    let registry = Arc::new(ActionRegistry::new());
-    let dispatcher = Arc::new(ActionDispatcher::new((*registry).clone()));
+    let action_registry = Arc::new(ActionRegistry::new());
+    let dispatcher = Arc::new(ActionDispatcher::new((*action_registry).clone()));
     let catalog = Arc::new(SkillCatalog::new_with_dispatcher(
-        registry.clone(),
+        action_registry.clone(),
         dispatcher.clone(),
     ));
 
-    // Discover skills into the catalog so they appear as stubs in tools/list.
     let dcc_hint = if args.dcc.is_empty() {
         None
     } else {
@@ -290,270 +713,191 @@ async fn main() -> anyhow::Result<()> {
     let n = catalog.discover(extra_dirs.as_deref(), dcc_hint);
     tracing::info!("Discovered {} skill(s) in catalog", n);
 
-    // ── Start MCP HTTP server ─────────────────────────────────────────────────
+    // ── Start MCP HTTP server (DCC-specific tools) ────────────────────────
 
     let config = McpHttpConfig::new(args.mcp_port)
         .with_name(args.server_name.clone())
         .with_cors();
 
-    let mcp_server = McpHttpServer::with_catalog(registry.clone(), catalog.clone(), config)
+    let mcp_server = McpHttpServer::with_catalog(action_registry.clone(), catalog.clone(), config)
         .with_dispatcher(dispatcher.clone());
 
     let handle = mcp_server.start().await?;
 
     tracing::info!(
-        "MCP HTTP server listening on http://{}:{}",
+        "MCP server listening on http://{}:{}/mcp  (dcc={})",
         args.host,
         handle.port,
+        if args.dcc.is_empty() {
+            "generic"
+        } else {
+            &args.dcc
+        }
     );
 
-    // ── Start WebSocket bridge server ─────────────────────────────────────────
+    // ── Register in FileRegistry ──────────────────────────────────────────
 
-    let bridge_state: Arc<BridgeState> = Arc::new(BridgeState::new());
+    let mut entry = ServiceEntry::new(
+        if args.dcc.is_empty() {
+            "unknown"
+        } else {
+            &args.dcc
+        },
+        &args.host,
+        handle.port,
+    );
+    entry.version = args.dcc_version.clone();
+    entry.scene = args.scene.clone();
+    entry
+        .metadata
+        .insert("server_name".to_string(), args.server_name.clone());
+    entry.metadata.insert(
+        "mcp_url".to_string(),
+        format!("http://{}:{}/mcp", args.host, handle.port),
+    );
 
-    if !args.no_bridge {
-        let ws_port = args.ws_port;
-        let server_name = args.server_name.clone();
-        let server_version = env!("CARGO_PKG_VERSION").to_string();
-        let heartbeat_secs = args.heartbeat_secs;
-        let state = bridge_state.clone();
+    let service_key = entry.key();
 
-        tokio::spawn(async move {
-            run_ws_bridge(ws_port, server_name, server_version, heartbeat_secs, state).await;
-        });
-
-        tracing::info!(
-            "WebSocket bridge listening on ws://127.0.0.1:{}  (heartbeat: {}s)",
-            args.ws_port,
-            args.heartbeat_secs,
-        );
+    {
+        let reg = registry.read().await;
+        if let Err(e) = reg.register(entry) {
+            tracing::warn!("Failed to register in FileRegistry: {e}");
+        } else {
+            tracing::info!(
+                instance = %service_key.instance_id,
+                registry = %registry_dir,
+                "Registered in FileRegistry"
+            );
+        }
     }
 
-    // ── Reconnect-timeout watchdog ────────────────────────────────────────────
-    //
-    // Once the DCC plugin has connected at least once, if it stays disconnected
-    // for longer than `--reconnect-timeout-secs` the server exits automatically.
-    // This allows sidecar supervisors (systemd, launchd, etc.) to decide
-    // whether to restart the whole DCC+server pair.
-
-    if !args.no_bridge && args.reconnect_timeout_secs > 0 {
-        let timeout = Duration::from_secs(args.reconnect_timeout_secs);
-        let state = bridge_state.clone();
-        let timeout_secs = args.reconnect_timeout_secs;
+    // Heartbeat background task
+    if args.heartbeat_secs > 0 {
+        let reg = registry.clone();
+        let key = service_key.clone();
+        let interval = args.heartbeat_secs;
         tokio::spawn(async move {
-            let poll = Duration::from_secs(10);
+            let mut tick = tokio::time::interval(Duration::from_secs(interval));
             loop {
-                tokio::time::sleep(poll).await;
-                if !state.ever_connected.load(Ordering::Relaxed) {
-                    continue; // haven't connected yet — don't start the clock
-                }
-                if state.is_connected() {
-                    continue; // still connected — nothing to do
-                }
-                let elapsed = state
-                    .last_disconnect
-                    .lock()
-                    .await
-                    .map(|t| t.elapsed())
-                    .unwrap_or(Duration::ZERO);
-                if elapsed >= timeout {
-                    tracing::warn!(
-                        timeout_secs,
-                        "DCC plugin disconnected for {elapsed:.0?} — exiting (reconnect timeout)."
-                    );
-                    std::process::exit(1);
-                }
+                tick.tick().await;
+                let r = reg.read().await;
+                let _ = r.heartbeat(&key);
             }
         });
     }
 
-    // ── Wait for shutdown signal ──────────────────────────────────────────────
+    // ── Try to become the gateway (first-wins competition) ────────────────
+
+    let is_gateway = if args.gateway_port > 0 {
+        let gateway_bind = format!("{}:{}", args.host, args.gateway_port);
+        match tokio::net::TcpListener::bind(&gateway_bind).await {
+            Ok(listener) => {
+                tracing::info!("Won gateway port {} — starting gateway", args.gateway_port);
+
+                let stale_timeout = Duration::from_secs(args.stale_timeout_secs);
+                let gs = GatewayState {
+                    registry: registry.clone(),
+                    stale_timeout,
+                    server_name: format!("{} (gateway)", args.server_name),
+                    server_version: env!("CARGO_PKG_VERSION").to_string(),
+                    http_client: reqwest::Client::builder()
+                        .timeout(Duration::from_secs(30))
+                        .build()
+                        .context("Failed to build HTTP client")?,
+                };
+
+                // Stale cleanup background task
+                {
+                    let reg = registry.clone();
+                    tokio::spawn(async move {
+                        let mut interval = tokio::time::interval(Duration::from_secs(15));
+                        loop {
+                            interval.tick().await;
+                            let r = reg.read().await;
+                            match r.cleanup_stale(stale_timeout) {
+                                Ok(n) if n > 0 => {
+                                    tracing::info!("Gateway: evicted {} stale instance(s)", n)
+                                }
+                                Err(e) => tracing::warn!("Gateway cleanup error: {e}"),
+                                _ => {}
+                            }
+                        }
+                    });
+                }
+
+                let router = Router::new()
+                    .route("/health", routing::get(handle_health))
+                    .route("/instances", routing::get(handle_instances))
+                    .route("/mcp", routing::post(handle_gateway_mcp))
+                    .route("/mcp/{instance_id}", routing::post(handle_proxy_instance))
+                    .route("/mcp/dcc/{dcc_type}", routing::post(handle_proxy_dcc))
+                    .with_state(gs)
+                    .layer(TraceLayer::new_for_http())
+                    .layer(
+                        CorsLayer::new()
+                            .allow_origin(Any)
+                            .allow_methods(Any)
+                            .allow_headers(Any),
+                    );
+
+                let actual = listener.local_addr()?;
+                tracing::info!(
+                    "Gateway listening on http://{}  (instances: /instances, mcp: /mcp)",
+                    actual
+                );
+
+                tokio::spawn(async move {
+                    axum::serve(listener, router)
+                        .with_graceful_shutdown(async {
+                            // Keep running until process exits
+                            std::future::pending::<()>().await
+                        })
+                        .await
+                        .ok();
+                });
+
+                true
+            }
+            Err(_) => {
+                tracing::info!(
+                    "Gateway port {} already taken — running as plain DCC instance",
+                    args.gateway_port
+                );
+                false
+            }
+        }
+    } else {
+        tracing::debug!("Gateway disabled (gateway_port=0)");
+        false
+    };
+
+    // ── Start WebSocket bridge (optional) ─────────────────────────────────
+
+    if !args.no_bridge {
+        let ws_port = args.ws_port;
+        let sn = args.server_name.clone();
+        let sv = env!("CARGO_PKG_VERSION").to_string();
+        tokio::spawn(async move { run_ws_bridge(ws_port, sn, sv).await });
+    }
+
+    // ── Wait for Ctrl+C ───────────────────────────────────────────────────
 
     tokio::signal::ctrl_c().await?;
     tracing::info!("Shutting down…");
 
-    // Remove PID file before exiting.
-    if let Some(ref p) = pid_path {
-        if let Err(e) = std::fs::remove_file(p) {
-            tracing::warn!("Failed to remove PID file {}: {e}", p.display());
-        } else {
-            tracing::debug!("PID file removed: {}", p.display());
+    // Deregister from FileRegistry
+    {
+        let reg = registry.read().await;
+        match reg.deregister(&service_key) {
+            Ok(_) => tracing::info!("Deregistered from FileRegistry"),
+            Err(e) => tracing::warn!("Deregister error: {e}"),
         }
+    }
+
+    if is_gateway {
+        tracing::info!("Gateway port released");
     }
 
     handle.shutdown().await;
     Ok(())
-}
-
-// ── WebSocket bridge ──────────────────────────────────────────────────────────
-
-/// Accept DCC plugin WebSocket connections and dispatch them to handler tasks.
-async fn run_ws_bridge(
-    port: u16,
-    server_name: String,
-    server_version: String,
-    heartbeat_secs: u64,
-    bridge_state: Arc<BridgeState>,
-) {
-    use tokio::net::TcpListener;
-
-    let listener = match TcpListener::bind(format!("127.0.0.1:{port}")).await {
-        Ok(l) => l,
-        Err(e) => {
-            tracing::error!("Failed to bind WebSocket bridge on port {port}: {e}");
-            return;
-        }
-    };
-
-    loop {
-        match listener.accept().await {
-            Ok((stream, addr)) => {
-                let sn = server_name.clone();
-                let sv = server_version.clone();
-                let state = bridge_state.clone();
-                tracing::debug!("DCC plugin connecting from {addr}");
-                tokio::spawn(async move {
-                    handle_ws_connection(stream, addr, sn, sv, heartbeat_secs, state).await;
-                });
-            }
-            Err(e) => {
-                tracing::warn!("WS bridge accept error: {e}");
-            }
-        }
-    }
-}
-
-/// Handle a single WebSocket connection from a DCC plugin.
-///
-/// Responsibilities:
-/// - Heartbeat: sends a Ping every `heartbeat_secs` seconds via a shared
-///   `Arc<Mutex<SplitSink>>`.  If the send fails the task exits, which also
-///   causes the main receive loop to detect a dead connection on next recv.
-/// - Responds to Ping frames from the DCC plugin with Pong (RFC 6455 §5.5.2).
-/// - Tracks connect/disconnect in `BridgeState` for the watchdog.
-async fn handle_ws_connection(
-    stream: tokio::net::TcpStream,
-    addr: std::net::SocketAddr,
-    server_name: String,
-    server_version: String,
-    heartbeat_secs: u64,
-    bridge_state: Arc<BridgeState>,
-) {
-    use dcc_mcp_protocols::bridge::{BridgeHelloAck, BridgeMessage};
-    use futures_util::{SinkExt, StreamExt};
-    use tokio_tungstenite::tungstenite::Message;
-
-    let ws_stream = match tokio_tungstenite::accept_async(stream).await {
-        Ok(ws) => ws,
-        Err(e) => {
-            tracing::warn!("WS handshake failed for {addr}: {e}");
-            return;
-        }
-    };
-
-    bridge_state.on_connect();
-    tracing::info!(
-        "DCC plugin connected from {addr}  (active: {})",
-        bridge_state.connected_count.load(Ordering::Relaxed)
-    );
-
-    let (sink, mut stream) = ws_stream.split();
-    // Wrap write half in Arc<Mutex> so the heartbeat task can share it.
-    let sink = Arc::new(Mutex::new(sink));
-
-    // Heartbeat task — periodically pings the DCC plugin.
-    let heartbeat_handle = if heartbeat_secs > 0 {
-        let tx = sink.clone();
-        Some(tokio::spawn(async move {
-            let mut interval = tokio::time::interval(Duration::from_secs(heartbeat_secs));
-            interval.tick().await; // skip the immediate first tick
-            loop {
-                interval.tick().await;
-                if tx
-                    .lock()
-                    .await
-                    .send(Message::Ping(vec![].into()))
-                    .await
-                    .is_err()
-                {
-                    break; // write failed — connection is gone
-                }
-            }
-        }))
-    } else {
-        None
-    };
-
-    let mut greeted = false;
-
-    while let Some(msg_result) = stream.next().await {
-        let raw = match msg_result {
-            Ok(Message::Text(t)) => t.to_string(),
-            Ok(Message::Ping(data)) => {
-                // RFC 6455 §5.5.2 — respond with Pong immediately.
-                let _ = sink.lock().await.send(Message::Pong(data)).await;
-                continue;
-            }
-            Ok(Message::Pong(_)) => {
-                tracing::trace!("Pong received from {addr}");
-                continue;
-            }
-            Ok(Message::Close(_)) => break,
-            Ok(_) => continue,
-            Err(e) => {
-                tracing::debug!("WS receive error from {addr}: {e}");
-                break;
-            }
-        };
-
-        match serde_json::from_str::<BridgeMessage>(&raw) {
-            Ok(BridgeMessage::Hello(hello)) => {
-                tracing::info!(
-                    "DCC hello from {addr}: client={} version={}",
-                    hello.client,
-                    hello.version
-                );
-                let ack = BridgeMessage::HelloAck(BridgeHelloAck {
-                    server: server_name.clone(),
-                    version: server_version.clone(),
-                    session_id: uuid::Uuid::new_v4().to_string(),
-                });
-                let text = serde_json::to_string(&ack).unwrap_or_default();
-                let _ = sink.lock().await.send(Message::Text(text.into())).await;
-                greeted = true;
-            }
-            Ok(BridgeMessage::Response(resp)) => {
-                tracing::debug!("DCC response (id={}): {:?}", resp.id, resp.result);
-            }
-            Ok(BridgeMessage::Event(evt)) => {
-                tracing::debug!("DCC event: {} {:?}", evt.event, evt.data);
-            }
-            Ok(BridgeMessage::Disconnect(_)) => {
-                tracing::debug!("DCC plugin {addr} sent disconnect");
-                break;
-            }
-            Ok(other) => {
-                tracing::debug!("Unhandled bridge message from {addr}: {other:?}");
-            }
-            Err(e) => {
-                let parse_err =
-                    BridgeMessage::ParseError(dcc_mcp_protocols::bridge::BridgeParseError {
-                        message: e.to_string(),
-                    });
-                let text = serde_json::to_string(&parse_err).unwrap_or_default();
-                let _ = sink.lock().await.send(Message::Text(text.into())).await;
-            }
-        }
-    }
-
-    // Cancel heartbeat before returning.
-    if let Some(h) = heartbeat_handle {
-        h.abort();
-    }
-
-    bridge_state.on_disconnect().await;
-    tracing::info!(
-        "DCC plugin {addr} disconnected (greeted={greeted}, remaining: {})",
-        bridge_state.connected_count.load(Ordering::Relaxed)
-    );
 }

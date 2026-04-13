@@ -54,9 +54,18 @@ build-server-universal:
         target/aarch64-apple-darwin/release/dcc-mcp-server
     echo "Built: dcc-mcp-server-macos-universal2"
 
-# Run the server locally (auto-discovers skills, MCP :8765, WS bridge :9001)
+# Run the server locally (auto-discovers skills, competes for gateway :9765)
 run-server *ARGS:
     cargo run --release -p dcc-mcp-server -- {{ARGS}}
+
+# Run two server instances to demo auto-gateway (open two terminals)
+# Terminal 1: just demo-gateway-maya   → wins gateway :9765
+# Terminal 2: just demo-gateway-maya2  → plain instance
+demo-gateway-maya:
+    cargo run -p dcc-mcp-server -- --dcc maya --scene shot01.ma
+
+demo-gateway-photoshop:
+    cargo run -p dcc-mcp-server -- --dcc photoshop --scene poster.psd
 
 # ── Python ────────────────────────────────────────────────────────────────────
 

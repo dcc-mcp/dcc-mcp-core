@@ -62,6 +62,18 @@ impl PyMcpHttpConfig {
         &self.inner.server_version
     }
 
+    /// Idle session TTL in seconds. Sessions not touched within this window are
+    /// automatically evicted. Default: 3600 (1 hour). Set to 0 to disable.
+    #[getter]
+    fn session_ttl_secs(&self) -> u64 {
+        self.inner.session_ttl_secs
+    }
+
+    #[setter]
+    fn set_session_ttl_secs(&mut self, secs: u64) {
+        self.inner.session_ttl_secs = secs;
+    }
+
     fn __repr__(&self) -> String {
         format!(
             "McpHttpConfig(port={}, name={})",
