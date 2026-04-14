@@ -26,6 +26,7 @@
 | Safe RPyC value transport | `wrap_value()` / `unwrap_value()` |
 | Multi-version action lookup | `VersionedRegistry` + `VersionConstraint.parse()` |
 | Expose DCC tools over HTTP/MCP | `create_skill_manager("maya", McpHttpConfig(port=8765))` — one-call Skills-First setup |
+| Join multi-DCC gateway (auto-discovery) | `config.gateway_port = 9765` on `McpHttpConfig` — first-wins port competition; check `handle.is_gateway` |
 
 ## Project Overview
 
@@ -37,7 +38,7 @@
 - **Build system**: `cargo` (Rust) + `maturin` (Python wheels)
 - **Python package**: `dcc_mcp_core` with ~130 public symbols re-exported from `_core` native extension (see `python/dcc_mcp_core/__init__.py`)
 - **Zero runtime Python dependencies** — everything is compiled into the Rust core
-- **Version**: 0.12.9 (use Release Please for versioning — never manually bump)
+- **Version**: current (use Release Please for versioning — never manually bump)
 - **Python support**: 3.7–3.13 (CI tests 3.7–3.13; abi3-py38 wheel for 3.8+)
 
 ## Repository Structure
@@ -524,7 +525,7 @@ entry = mgr.find_best_service("maya")   # best available Maya instance
 session_id = mgr.get_or_create_session("maya", entry.instance_id)
 ```
 
-#### MCP HTTP Server
+#### MCP HTTP Server + Gateway
 
 ```python
 from dcc_mcp_core import ActionRegistry, McpHttpServer, McpHttpConfig, McpServerHandle
@@ -537,8 +538,7 @@ registry.register(
     category="scene", tags=["query"], dcc="maya", version="1.0.0",
 )
 
-# Start MCP Streamable HTTP server (2025-03-26 spec)
-# Runs in background thread — safe to call from DCC main thread
+# ── Approach A: standalone instance (no gateway) ─────────────────────────────
 config = McpHttpConfig(
     port=8765,              # use 0 for random available port
     server_name="maya-mcp",
@@ -548,15 +548,28 @@ config = McpHttpConfig(
 )
 server = McpHttpServer(registry, config)
 handle = server.start()
-
-# MCP host (e.g. Claude Desktop) connects to:
 print(handle.mcp_url())    # "http://127.0.0.1:8765/mcp"
-print(handle.port)         # actual port (useful when port=0)
-print(handle.bind_addr)    # "127.0.0.1:8765"
+print(handle.is_gateway)   # False — not participating in gateway
+handle.shutdown()
 
-# Shutdown
-handle.shutdown()          # blocks until stopped
-# handle.signal_shutdown() # non-blocking alternative
+# ── Approach B: join gateway competition (multi-DCC) ─────────────────────────
+# First process to bind gateway_port=9765 becomes the gateway.
+# All others are plain instances that register themselves in FileRegistry.
+config = McpHttpConfig(port=0, server_name="maya-mcp")
+config.gateway_port = 9765   # join the gateway competition; 0 = disabled
+config.dcc_type = "maya"     # reported in FileRegistry for routing
+config.dcc_version = "2025"  # optional
+config.scene = "/proj/shot.ma"  # optional: improves dcc_type+scene routing
+
+server = McpHttpServer(registry, config)
+handle = server.start()
+print(handle.is_gateway)    # True if THIS process won the gateway port
+print(handle.mcp_url())     # direct MCP URL for this DCC instance
+# Gateway at http://127.0.0.1:9765/ exposes:
+#   GET  /instances          → JSON list of all live DCC instances
+#   POST /mcp                → meta-tools: list_dcc_instances, connect_to_dcc
+#   POST /mcp/{instance_id}  → transparent proxy to that instance
+#   POST /mcp/dcc/{dcc_type} → proxy to best instance of that type
 
 # McpServerHandle is an alias for ServerHandle in __init__.py
 from dcc_mcp_core import McpServerHandle  # same type
@@ -892,6 +905,10 @@ pub fn register_actions(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
 18. **`scan_and_load` with `extra_paths`**: When calling `scan_and_load(extra_paths=[...], dcc_name="maya")`, both arguments are keyword-only. Do not pass `extra_paths` as a positional argument — use `extra_paths=["/path"]` explicitly.
 
+19. **Gateway competition is opt-in**: Set `config.gateway_port = 9765` to join the multi-DCC gateway. Without this, `McpHttpServer` behaves exactly as before (no FileRegistry, no gateway). `handle.is_gateway` is `False` by default.
+
+20. **Never manually edit `CHANGELOG.md` or bump version numbers** in `Cargo.toml`, `pyproject.toml`, or `.release-please-manifest.json`. Release Please reads Conventional Commits from merged PRs and handles all version bumps and changelog generation automatically.
+
 ## Debugging & Diagnostics
 
 ### Build Issues
@@ -1057,7 +1074,39 @@ for entry in ctx.audit_log.entries():
     print(f"{entry.action}: {entry.outcome}")
 ```
 
-### Pattern 6: Expose DCC actions over MCP Streamable HTTP
+### Pattern 6: Multi-DCC gateway — one endpoint for all running instances
+
+```python
+"""
+Gateway pattern: start N DCC servers; the first one wins gateway_port and
+becomes the gateway. Agents connect to one URL regardless of how many DCCs run.
+"""
+import os
+from dcc_mcp_core import create_skill_manager, McpHttpConfig
+
+# maya_plugin.py — run inside Maya
+config = McpHttpConfig(port=0, server_name="maya")
+config.gateway_port = 9765   # compete for the shared gateway port
+config.dcc_type = "maya"
+config.dcc_version = "2025"
+config.scene = cmds.file(q=True, sn=True) or "untitled"
+
+server = create_skill_manager("maya", config)
+handle = server.start()
+if handle.is_gateway:
+    print(f"Gateway at http://127.0.0.1:9765/")
+else:
+    print(f"Instance at {handle.mcp_url()}, registered in gateway")
+
+# Agent workflow (once gateway is up):
+# 1. Connect to http://127.0.0.1:9765/mcp
+# 2. tools/call list_dcc_instances  → see all running DCC servers
+# 3. tools/call connect_to_dcc dcc_type="maya"  → get direct MCP URL
+# 4. Connect directly to the returned URL for zero-proxy-overhead access
+# OR: POST /mcp/dcc/maya  → gateway auto-proxies to best maya instance
+```
+
+### Pattern 6 (cont): Expose DCC actions over MCP Streamable HTTP
 
 ```python
 # ── Approach A: Skills-First (recommended) ──────────────────────────────────
