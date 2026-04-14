@@ -19,6 +19,7 @@ use tokio_stream::StreamExt;
 use tokio_stream::wrappers::BroadcastStream;
 
 use crate::{
+    bridge_registry::BridgeRegistry,
     error::HttpError,
     executor::DccExecutorHandle,
     protocol::{
@@ -41,6 +42,7 @@ pub struct AppState {
     pub catalog: Arc<SkillCatalog>,
     pub sessions: SessionManager,
     pub executor: Option<DccExecutorHandle>,
+    pub bridge_registry: BridgeRegistry,
     pub server_name: String,
     pub server_version: String,
 }

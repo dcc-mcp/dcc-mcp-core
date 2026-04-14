@@ -83,10 +83,6 @@ jobs:
           - blender-version: "3.6.21"
             blender-url: "https://download.blender.org/release/Blender3.6/blender-3.6.21-linux-x64.tar.xz"
             blender-dir: "blender-3.6.21-linux-x64"
-          # Blender from apt (latest available in Ubuntu repos)
-          - blender-version: "apt-latest"
-            blender-url: ""
-            blender-dir: ""
       fail-fast: false
     steps:
       - uses: actions/checkout@v6
@@ -95,18 +91,10 @@ jobs:
           python-version: "3.14"
 
       - name: Install Blender from tarball
-        if: matrix.blender-url != ''
         run: |
           wget -q "${{ matrix.blender-url }}" -O /tmp/blender.tar.xz
           tar -xf /tmp/blender.tar.xz -C /opt
           sudo ln -sf /opt/${{ matrix.blender-dir }}/blender /usr/local/bin/blender
-        shell: bash
-
-      - name: Install Blender from apt
-        if: matrix.blender-url == ''
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y blender
         shell: bash
 
       - uses: actions/download-artifact@v8

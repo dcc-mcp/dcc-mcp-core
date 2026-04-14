@@ -509,6 +509,7 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyMcpHttpServer>()?;
     m.add_class::<PyServerHandle>()?;
     m.add_function(wrap_pyfunction!(py_create_skill_manager, m)?)?;
+    m.add_function(wrap_pyfunction!(py_get_bridge_context, m)?)?;
     Ok(())
 }
 
@@ -598,4 +599,53 @@ pub fn py_create_skill_manager(
         config: cfg,
         runtime: Arc::new(runtime),
     })
+}
+
+/// Global bridge context registry (for gateway mode).
+///
+/// This singleton stores bridge connections that skill scripts can query.
+use std::sync::OnceLock;
+static BRIDGE_REGISTRY: OnceLock<crate::BridgeRegistry> = OnceLock::new();
+
+/// Get bridge context URL for a specific DCC type.
+///
+/// In gateway mode, external bridge plugins register their connection info
+/// via this mechanism, allowing skill scripts to access bridges from other
+/// processes.
+///
+/// # Arguments
+///
+/// * `dcc_type` - DCC type identifier (e.g., "photoshop", "zbrush")
+///
+/// # Returns
+///
+/// * `Some(url)` - Bridge URL if registered (e.g., "ws://localhost:9001")
+/// * `None` - If no bridge is registered for this DCC type
+///
+/// # Example
+///
+/// ```python
+/// from dcc_mcp_core import get_bridge_context
+///
+/// bridge_url = get_bridge_context("photoshop")
+/// if bridge_url:
+///     # Connect to the bridge
+///     ws = WebSocketBridge(bridge_url)
+/// else:
+///     raise PhotoshopNotAvailableError("Bridge not connected")
+/// ```
+#[pyfunction]
+#[pyo3(name = "get_bridge_context")]
+pub fn py_get_bridge_context(dcc_type: &str) -> Option<String> {
+    let registry = BRIDGE_REGISTRY.get_or_init(crate::BridgeRegistry::new);
+    registry.get_url(dcc_type)
+}
+
+/// Register a bridge connection (internal/gateway use).
+///
+/// Called by bridge plugins to register their connection info.
+#[doc(hidden)]
+pub fn register_bridge_internal(dcc_type: String, url: String) -> Result<(), String> {
+    let registry = BRIDGE_REGISTRY.get_or_init(crate::BridgeRegistry::new);
+    registry.register(dcc_type, url)
 }

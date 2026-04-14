@@ -38,6 +38,7 @@
 //! # }
 //! ```
 
+pub mod bridge_registry;
 pub mod config;
 pub mod error;
 pub mod executor;
@@ -51,6 +52,7 @@ pub mod session;
 pub mod python;
 
 // Re-exports
+pub use bridge_registry::{BridgeContext, BridgeRegistry};
 pub use config::McpHttpConfig;
 pub use error::{HttpError, HttpResult};
 pub use executor::{DccExecutorHandle, DeferredExecutor};

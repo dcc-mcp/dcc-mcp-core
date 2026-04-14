@@ -166,6 +166,7 @@ impl McpHttpServer {
             catalog,
             sessions,
             executor: self.executor,
+            bridge_registry: crate::BridgeRegistry::new(),
             server_name: self.config.server_name.clone(),
             server_version: self.config.server_version.clone(),
         };

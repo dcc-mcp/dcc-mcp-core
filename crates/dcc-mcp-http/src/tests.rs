@@ -47,6 +47,7 @@ mod tests {
             catalog,
             sessions: SessionManager::new(),
             executor: None,
+            bridge_registry: crate::BridgeRegistry::new(),
             server_name: "test-dcc".to_string(),
             server_version: "0.1.0".to_string(),
         }
@@ -188,6 +189,7 @@ mod tests {
             catalog,
             sessions: SessionManager::new(),
             executor: None,
+            bridge_registry: crate::BridgeRegistry::new(),
             server_name: "test-dcc".to_string(),
             server_version: "0.1.0".to_string(),
         }
@@ -943,6 +945,7 @@ mod tests {
             catalog,
             sessions: SessionManager::new(),
             executor: None,
+            bridge_registry: crate::BridgeRegistry::new(),
             server_name: "test-dcc".to_string(),
             server_version: "0.1.0".to_string(),
         }
@@ -1224,6 +1227,7 @@ mod tests {
             catalog,
             sessions: SessionManager::new(),
             executor: None,
+            bridge_registry: crate::BridgeRegistry::new(),
             server_name: "test-dcc".to_string(),
             server_version: "0.1.0".to_string(),
         }
@@ -1322,6 +1326,7 @@ mod tests {
             catalog,
             sessions: SessionManager::new(),
             executor: None,
+            bridge_registry: crate::BridgeRegistry::new(),
             server_name: "test-dcc".to_string(),
             server_version: "0.1.0".to_string(),
         };

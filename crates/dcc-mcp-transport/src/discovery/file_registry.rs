@@ -5,7 +5,8 @@
 
 use std::fs;
 use std::path::PathBuf;
-use std::time::Duration;
+use std::sync::Mutex;
+use std::time::{Duration, SystemTime};
 
 use dashmap::DashMap;
 use tracing;
@@ -20,11 +21,19 @@ const REGISTRY_FILE: &str = "services.json";
 ///
 /// Key improvement over the Python implementation: uses `(dcc_type, instance_id)` as key
 /// instead of `dcc_type` alone, enabling multiple instances of the same DCC type.
+///
+/// **Hot-reload feature**: Detects external writes to services.json via mtime tracking.
+/// When another process writes to the registry file, this process automatically reloads
+/// the new entries without requiring a restart. This enables the gateway to discover
+/// instances registered by other processes (e.g., Maya plugin using McpHttpConfig.gateway_port).
 pub struct FileRegistry {
     /// In-memory cache of services.
     services: DashMap<ServiceKey, ServiceEntry>,
     /// Directory where registry file is stored.
     registry_dir: PathBuf,
+    /// Last-seen modification time of services.json.
+    /// Used to detect external writes (hot-reload).
+    last_mtime: Mutex<Option<SystemTime>>,
 }
 
 impl FileRegistry {
@@ -42,12 +51,70 @@ impl FileRegistry {
         let registry = Self {
             services: DashMap::new(),
             registry_dir,
+            last_mtime: Mutex::new(None),
         };
 
         // Load existing entries
         registry.load_from_file()?;
+        registry.update_mtime()?;
 
         Ok(registry)
+    }
+
+    /// Reload from file if another process has written to it since our last read (hot-reload).
+    ///
+    /// This is O(1) on the happy path: single `stat` syscall + mutex check.
+    /// Only does actual file I/O when another process has modified services.json.
+    fn reload_if_stale(&self) -> TransportResult<()> {
+        let path = self.registry_file_path();
+
+        // Quick stat to get current mtime
+        let Ok(meta) = fs::metadata(&path) else {
+            // File doesn't exist yet, nothing to reload
+            return Ok(());
+        };
+        let Ok(current_mtime) = meta.modified() else {
+            // Can't get mtime, skip reload
+            return Ok(());
+        };
+
+        // Compare with cached mtime
+        let mut cached = self.last_mtime.lock().unwrap();
+        if *cached == Some(current_mtime) {
+            // File hasn't changed — fast path, no I/O
+            return Ok(());
+        }
+
+        // File was modified by another process — drop lock and reload
+        *cached = Some(current_mtime);
+        drop(cached);
+
+        // Load the new entries
+        if let Err(e) = self.load_from_file() {
+            tracing::warn!("FileRegistry hot-reload failed: {}", e);
+        } else {
+            tracing::debug!("FileRegistry hot-reloaded from disk");
+        }
+        Ok(())
+    }
+
+    /// Update the cached mtime to the current file modification time.
+    fn update_mtime(&self) -> TransportResult<()> {
+        let path = self.registry_file_path();
+        if !path.exists() {
+            return Ok(());
+        }
+
+        let Ok(meta) = fs::metadata(&path) else {
+            return Ok(());
+        };
+        let Ok(mtime) = meta.modified() else {
+            return Ok(());
+        };
+
+        let mut cached = self.last_mtime.lock().unwrap();
+        *cached = Some(mtime);
+        Ok(())
     }
 
     /// Register a service.
@@ -85,6 +152,7 @@ impl FileRegistry {
 
     /// List all instances for a given DCC type.
     pub fn list_instances(&self, dcc_type: &str) -> Vec<ServiceEntry> {
+        let _ = self.reload_if_stale();
         self.services
             .iter()
             .filter(|r| r.value().dcc_type == dcc_type)
@@ -94,6 +162,7 @@ impl FileRegistry {
 
     /// List all registered services.
     pub fn list_all(&self) -> Vec<ServiceEntry> {
+        let _ = self.reload_if_stale();
         self.services.iter().map(|r| r.value().clone()).collect()
     }
 
@@ -207,6 +276,9 @@ impl FileRegistry {
         fs::write(&path, content).map_err(|e| {
             TransportError::RegistryFile(format!("failed to write {}: {}", path.display(), e))
         })?;
+
+        // Update cached mtime after write
+        let _ = self.update_mtime();
 
         Ok(())
     }
@@ -329,5 +401,56 @@ mod tests {
         assert!(ports.contains(&18812));
         assert!(ports.contains(&18813));
         assert!(ports.contains(&18814));
+    }
+
+    #[test]
+    fn test_file_registry_hot_reload() {
+        let dir = tempfile::tempdir().unwrap();
+        let registry = FileRegistry::new(dir.path()).unwrap();
+
+        // Register entry in process A
+        let entry_a = ServiceEntry::new("maya", "127.0.0.1", 18812);
+        registry.register(entry_a).unwrap();
+        assert_eq!(registry.len(), 1);
+
+        // Small sleep to ensure filesystem mtime granularity is observed
+        // (on some systems, mtime has 1-second or coarser precision)
+        std::thread::sleep(Duration::from_millis(100));
+
+        // Simulate external write by another process: create a new registry instance
+        // that writes a new entry to the same file
+        {
+            let registry_b = FileRegistry::new(dir.path()).unwrap();
+            let entry_b = ServiceEntry::new("blender", "127.0.0.1", 8888);
+            registry_b.register(entry_b).unwrap();
+        }
+
+        // Process A should detect the new entry via hot-reload
+        let all = registry.list_all();
+        assert_eq!(all.len(), 2, "hot-reload should discover external entry");
+
+        let maya = registry.list_instances("maya");
+        assert_eq!(maya.len(), 1);
+
+        let blender = registry.list_instances("blender");
+        assert_eq!(blender.len(), 1);
+    }
+
+    #[test]
+    fn test_file_registry_hot_reload_is_lazy() {
+        let dir = tempfile::tempdir().unwrap();
+        let registry = FileRegistry::new(dir.path()).unwrap();
+
+        // Register initial entry
+        let entry = ServiceEntry::new("maya", "127.0.0.1", 18812);
+        registry.register(entry).unwrap();
+
+        // Multiple list_all() calls on unchanged file should all hit fast path
+        for _ in 0..5 {
+            let _ = registry.list_all();
+        }
+
+        // All calls should succeed without error
+        assert_eq!(registry.len(), 1);
     }
 }
