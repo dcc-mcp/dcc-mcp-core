@@ -693,10 +693,11 @@ fn build_core_tools() -> Vec<McpTool> {
             }),
             annotations: Some(McpToolAnnotations {
                 title: Some("Find Skills".to_string()),
-                read_only_hint: true,
-                destructive_hint: false,
-                idempotent_hint: true,
-                open_world_hint: false,
+                read_only_hint: Some(true),
+                destructive_hint: Some(false),
+                idempotent_hint: Some(true),
+                open_world_hint: Some(false),
+                deferred_hint: Some(false),
             }),
         },
         McpTool {
@@ -716,10 +717,11 @@ fn build_core_tools() -> Vec<McpTool> {
             }),
             annotations: Some(McpToolAnnotations {
                 title: Some("List Skills".to_string()),
-                read_only_hint: true,
-                destructive_hint: false,
-                idempotent_hint: true,
-                open_world_hint: false,
+                read_only_hint: Some(true),
+                destructive_hint: Some(false),
+                idempotent_hint: Some(true),
+                open_world_hint: Some(false),
+                deferred_hint: Some(false),
             }),
         },
         McpTool {
@@ -738,10 +740,11 @@ fn build_core_tools() -> Vec<McpTool> {
             }),
             annotations: Some(McpToolAnnotations {
                 title: Some("Get Skill Info".to_string()),
-                read_only_hint: true,
-                destructive_hint: false,
-                idempotent_hint: true,
-                open_world_hint: false,
+                read_only_hint: Some(true),
+                destructive_hint: Some(false),
+                idempotent_hint: Some(true),
+                open_world_hint: Some(false),
+                deferred_hint: Some(false),
             }),
         },
         McpTool {
@@ -765,10 +768,11 @@ fn build_core_tools() -> Vec<McpTool> {
             }),
             annotations: Some(McpToolAnnotations {
                 title: Some("Load Skill".to_string()),
-                read_only_hint: false,
-                destructive_hint: false,
-                idempotent_hint: true,
-                open_world_hint: false,
+                read_only_hint: Some(false),
+                destructive_hint: Some(false),
+                idempotent_hint: Some(true),
+                open_world_hint: Some(false),
+                deferred_hint: Some(false),
             }),
         },
         McpTool {
@@ -787,10 +791,11 @@ fn build_core_tools() -> Vec<McpTool> {
             }),
             annotations: Some(McpToolAnnotations {
                 title: Some("Unload Skill".to_string()),
-                read_only_hint: false,
-                destructive_hint: false,
-                idempotent_hint: true,
-                open_world_hint: false,
+                read_only_hint: Some(false),
+                destructive_hint: Some(false),
+                idempotent_hint: Some(true),
+                open_world_hint: Some(false),
+                deferred_hint: Some(false),
             }),
         },
         McpTool {
@@ -815,10 +820,11 @@ fn build_core_tools() -> Vec<McpTool> {
             }),
             annotations: Some(McpToolAnnotations {
                 title: Some("Search Skills".to_string()),
-                read_only_hint: true,
-                destructive_hint: false,
-                idempotent_hint: true,
-                open_world_hint: false,
+                read_only_hint: Some(true),
+                destructive_hint: Some(false),
+                idempotent_hint: Some(true),
+                open_world_hint: Some(false),
+                deferred_hint: Some(false),
             }),
         },
     ]
@@ -839,10 +845,11 @@ fn action_meta_to_mcp_tool(meta: &dcc_mcp_actions::registry::ActionMeta) -> McpT
         annotations: Some(McpToolAnnotations {
             title: Some(meta.name.clone()),
             // Actions from skills get sensible defaults; standalone actions default to false
-            read_only_hint: false,
-            destructive_hint: false,
-            idempotent_hint: false,
-            open_world_hint: false,
+            read_only_hint: Some(false),
+            destructive_hint: Some(false),
+            idempotent_hint: Some(false),
+            open_world_hint: Some(false),
+            deferred_hint: Some(false),
         }),
     }
 }
@@ -883,10 +890,11 @@ fn build_skill_stub(summary: &SkillSummary) -> McpTool {
         input_schema: json!({"type": "object", "properties": {}}),
         annotations: Some(McpToolAnnotations {
             title: Some(format!("Skill: {}", summary.name)),
-            read_only_hint: true,
-            destructive_hint: false,
-            idempotent_hint: true,
-            open_world_hint: false,
+            read_only_hint: Some(true),
+            destructive_hint: Some(false),
+            idempotent_hint: Some(true),
+            open_world_hint: Some(false),
+            deferred_hint: Some(true),
         }),
     }
 }

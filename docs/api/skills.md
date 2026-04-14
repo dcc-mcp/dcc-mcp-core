@@ -129,6 +129,7 @@ decl = ToolDeclaration(
     read_only=False,
     destructive=False,
     idempotent=False,
+    defer_loading=True,
     source_file="scripts/create_sphere.py",
 )
 ```
@@ -144,6 +145,7 @@ ToolDeclaration(
     read_only: bool = False,
     destructive: bool = False,
     idempotent: bool = False,
+    defer_loading: bool = False,
     source_file: str = "",
 ) -> ToolDeclaration
 ```
@@ -157,10 +159,15 @@ ToolDeclaration(
 | `read_only` | `bool` | `False` | True if this tool only reads data (no side effects) |
 | `destructive` | `bool` | `False` | True if this tool may cause destructive changes |
 | `idempotent` | `bool` | `False` | True if same args always produce the same result |
+| `defer_loading` | `bool` | `False` | Parse `defer-loading:` / `defer_loading:` from SKILL.md for discovery-oriented UIs |
 | `source_file` | `str` | `""` | Explicit path to the script file |
 
 ::: tip input_schema and output_schema
 These are stored internally as JSON values, not strings. When constructing from Python, pass a JSON string and it will be parsed automatically.
+:::
+
+::: tip Progressive loading signal
+Unloaded skill stubs surfaced via `tools/list` now include `annotations.deferredHint = true`. After `load_skill(...)`, the real tools appear with `deferredHint = false`.
 :::
 
 ---

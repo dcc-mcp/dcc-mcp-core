@@ -272,6 +272,21 @@ mod test_parse_skill_md {
     }
 
     #[test]
+    fn parse_skill_with_tool_defer_loading_aliases() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join(SKILL_METADATA_FILE),
+            "---\nname: deferred-skill\ndcc: python\ntools:\n  - name: slow_tool\n    defer-loading: true\n  - name: alias_tool\n    defer_loading: true\n---\n# Deferred\n",
+        )
+        .unwrap();
+
+        let meta = parse_skill_md(tmp.path()).unwrap();
+        assert_eq!(meta.tools.len(), 2);
+        assert!(meta.tools[0].defer_loading);
+        assert!(meta.tools[1].defer_loading);
+    }
+
+    #[test]
     fn parse_returns_none_for_missing_skill_md() {
         let tmp = tempfile::tempdir().unwrap();
         // No SKILL.md file

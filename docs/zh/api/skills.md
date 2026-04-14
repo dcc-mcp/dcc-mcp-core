@@ -129,6 +129,7 @@ decl = ToolDeclaration(
     read_only=False,
     destructive=False,
     idempotent=False,
+    defer_loading=True,
     source_file="scripts/create_sphere.py",
 )
 ```
@@ -144,6 +145,7 @@ ToolDeclaration(
     read_only: bool = False,
     destructive: bool = False,
     idempotent: bool = False,
+    defer_loading: bool = False,
     source_file: str = "",
 ) -> ToolDeclaration
 ```
@@ -157,10 +159,15 @@ ToolDeclaration(
 | `read_only` | `bool` | `False` | 仅读取数据（无副作用）|
 | `destructive` | `bool` | `False` | 可能导致破坏性更改 |
 | `idempotent` | `bool` | `False` | 相同参数始终产生相同结果 |
+| `defer_loading` | `bool` | `False` | 解析 SKILL.md 中的 `defer-loading:` / `defer_loading:`，供发现型 UI 使用 |
 | `source_file` | `str` | `""` | 脚本文件的显式路径 |
 
 ::: tip input_schema 和 output_schema
 内部以 JSON 值存储，非字符串。从 Python 构造时传入 JSON 字符串，会自动解析。
+:::
+
+::: tip 渐进式加载信号
+`tools/list` 返回的未加载 skill stub 现在会带 `annotations.deferredHint = true`。调用 `load_skill(...)` 后，真实工具会以 `deferredHint = false` 暴露。
 :::
 
 ---

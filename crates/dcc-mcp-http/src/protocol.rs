@@ -199,10 +199,16 @@ pub struct McpTool {
 pub struct McpToolAnnotations {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
-    pub read_only_hint: bool,
-    pub destructive_hint: bool,
-    pub idempotent_hint: bool,
-    pub open_world_hint: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub read_only_hint: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub destructive_hint: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub idempotent_hint: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub open_world_hint: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deferred_hint: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

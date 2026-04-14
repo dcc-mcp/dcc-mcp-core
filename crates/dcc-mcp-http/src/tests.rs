@@ -386,6 +386,12 @@ mod tests {
             names.contains(&"__skill__git-tools"),
             "Expected stub __skill__git-tools, got: {names:?}"
         );
+
+        let maya_stub = tools
+            .iter()
+            .find(|t| t["name"] == "__skill__maya-bevel")
+            .unwrap();
+        assert_eq!(maya_stub["annotations"]["deferredHint"], true);
     }
 
     // ── On-demand loading invariants ──────────────────────────────────────
@@ -557,6 +563,13 @@ mod tests {
             !bevel_tool["inputSchema"].is_null(),
             "Loaded tool must have an inputSchema"
         );
+        assert_eq!(bevel_tool["annotations"]["deferredHint"], false);
+
+        let git_stub = tools
+            .iter()
+            .find(|t| t["name"] == "__skill__git-tools")
+            .unwrap();
+        assert_eq!(git_stub["annotations"]["deferredHint"], true);
 
         let _ = state; // suppress unused warning
     }
@@ -1088,6 +1101,12 @@ mod tests {
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert!(names.contains(&"modeling_bevel__bevel"));
         assert!(names.contains(&"modeling_bevel__chamfer"));
+
+        let bevel_tool = tools
+            .iter()
+            .find(|t| t["name"] == "modeling_bevel__bevel")
+            .unwrap();
+        assert_eq!(bevel_tool["annotations"]["deferredHint"], false);
     }
 
     #[tokio::test]
@@ -1155,6 +1174,11 @@ mod tests {
         let tools = body2["result"]["tools"].as_array().unwrap();
         // Back to 6 core tools + 1 unloaded skill stub = 7
         assert_eq!(tools.len(), 7);
+        let stub = tools
+            .iter()
+            .find(|t| t["name"] == "__skill__modeling-bevel")
+            .unwrap();
+        assert_eq!(stub["annotations"]["deferredHint"], true);
     }
 
     #[tokio::test]

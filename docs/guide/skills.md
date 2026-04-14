@@ -149,6 +149,7 @@ tools:
     read_only: false
     destructive: false
     idempotent: false
+    defer-loading: true
     source_file: scripts/create_sphere.py
 ```
 
@@ -162,6 +163,7 @@ decl = ToolDeclaration(
     read_only=False,
     destructive=False,
     idempotent=False,
+    defer_loading=True,
     source_file="scripts/create_sphere.py",
 )
 ```
@@ -175,7 +177,10 @@ decl = ToolDeclaration(
 | `read_only` | `bool` | `False` | Whether this tool only reads data |
 | `destructive` | `bool` | `False` | Whether this tool may cause destructive changes |
 | `idempotent` | `bool` | `False` | Whether calling with same args always produces same result |
+| `defer_loading` | `bool` | `False` | Accepts `defer-loading` / `defer_loading` in SKILL.md and marks the declaration as discovery-oriented |
 | `source_file` | `str` | `""` | Explicit path to the script (relative to skill dir) |
+
+Unloaded skill stubs returned by `tools/list` also expose `annotations.deferredHint = true` as an explicit progressive-loading signal. Once you call `load_skill(...)`, the real tools replace the stub and return `deferredHint = false`.
 
 ## Script Lookup Priority
 

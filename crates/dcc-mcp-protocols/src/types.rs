@@ -30,19 +30,22 @@ pub struct ToolAnnotations {
     pub idempotent_hint: Option<bool>,
     #[serde(rename = "openWorldHint")]
     pub open_world_hint: Option<bool>,
+    #[serde(rename = "deferredHint")]
+    pub deferred_hint: Option<bool>,
 }
 
 #[cfg(feature = "python-bindings")]
 #[pymethods]
 impl ToolAnnotations {
     #[new]
-    #[pyo3(signature = (title=None, read_only_hint=None, destructive_hint=None, idempotent_hint=None, open_world_hint=None))]
+    #[pyo3(signature = (title=None, read_only_hint=None, destructive_hint=None, idempotent_hint=None, open_world_hint=None, deferred_hint=None))]
     fn new(
         title: Option<String>,
         read_only_hint: Option<bool>,
         destructive_hint: Option<bool>,
         idempotent_hint: Option<bool>,
         open_world_hint: Option<bool>,
+        deferred_hint: Option<bool>,
     ) -> Self {
         Self {
             title,
@@ -50,17 +53,19 @@ impl ToolAnnotations {
             destructive_hint,
             idempotent_hint,
             open_world_hint,
+            deferred_hint,
         }
     }
 
     fn __repr__(&self) -> String {
         format!(
-            "ToolAnnotations(title={:?}, read_only={:?}, destructive={:?}, idempotent={:?}, open_world={:?})",
+            "ToolAnnotations(title={:?}, read_only={:?}, destructive={:?}, idempotent={:?}, open_world={:?}, deferred={:?})",
             self.title,
             self.read_only_hint,
             self.destructive_hint,
             self.idempotent_hint,
-            self.open_world_hint
+            self.open_world_hint,
+            self.deferred_hint
         )
     }
 }
@@ -380,11 +385,13 @@ mod tests {
                 destructive_hint: Some(true),
                 idempotent_hint: Some(true),
                 open_world_hint: None,
+                deferred_hint: Some(true),
             }),
         };
         let json = serde_json::to_string(&td).unwrap();
         assert!(json.contains("\"annotations\""));
         assert!(json.contains("\"destructiveHint\":true"));
+        assert!(json.contains("\"deferredHint\":true"));
     }
 
     #[test]
@@ -400,6 +407,7 @@ mod tests {
                 destructive_hint: None,
                 idempotent_hint: None,
                 open_world_hint: None,
+                deferred_hint: None,
             }),
         };
         let json = serde_json::to_string(&td).unwrap();

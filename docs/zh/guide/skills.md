@@ -144,6 +144,7 @@ tools:
     read_only: false
     destructive: false
     idempotent: false
+    defer-loading: true
     source_file: scripts/create_sphere.py
 ```
 
@@ -157,6 +158,7 @@ decl = ToolDeclaration(
     read_only=False,
     destructive=False,
     idempotent=False,
+    defer_loading=True,
     source_file="scripts/create_sphere.py",
 )
 ```
@@ -170,7 +172,10 @@ decl = ToolDeclaration(
 | `read_only` | `bool` | `False` | 仅读取数据（无副作用）|
 | `destructive` | `bool` | `False` | 可能导致破坏性修改 |
 | `idempotent` | `bool` | `False` | 相同参数始终产生相同结果 |
+| `defer_loading` | `bool` | `False` | 接受 `defer-loading` / `defer_loading`，用于标记发现阶段的声明 |
 | `source_file` | `str` | `""` | 脚本的显式路径（相对于 Skill 目录）|
+
+`tools/list` 返回的未加载 skill stub 还会显式带上 `annotations.deferredHint = true`。调用 `load_skill(...)` 后，stub 会被真实工具替换，且这些工具返回 `deferredHint = false`。
 
 ## 脚本查找优先级
 

@@ -115,6 +115,7 @@ class ToolDeclaration:
     read_only: bool
     destructive: bool
     idempotent: bool
+    defer_loading: bool
     source_file: str
 
     def __init__(
@@ -126,6 +127,7 @@ class ToolDeclaration:
         read_only: bool = False,
         destructive: bool = False,
         idempotent: bool = False,
+        defer_loading: bool = False,
         source_file: str = "",
     ) -> None: ...
     def __repr__(self) -> str: ...
@@ -1044,6 +1046,7 @@ class ToolAnnotations:
     destructive_hint: bool | None
     idempotent_hint: bool | None
     open_world_hint: bool | None
+    deferred_hint: bool | None
 
     def __init__(
         self,
@@ -1052,6 +1055,7 @@ class ToolAnnotations:
         destructive_hint: bool | None = None,
         idempotent_hint: bool | None = None,
         open_world_hint: bool | None = None,
+        deferred_hint: bool | None = None,
     ) -> None: ...
     def __repr__(self) -> str: ...
     def __eq__(self, other: object) -> bool: ...

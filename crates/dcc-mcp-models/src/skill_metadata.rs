@@ -58,6 +58,12 @@ pub struct ToolDeclaration {
     #[serde(default)]
     pub idempotent: bool,
 
+    /// Whether this declaration should be surfaced as deferred in discovery-oriented UIs.
+    ///
+    /// Supports both `defer-loading` and `defer_loading` in SKILL.md frontmatter.
+    #[serde(default, rename = "defer-loading", alias = "defer_loading")]
+    pub defer_loading: bool,
+
     /// Explicit path to the script that implements this tool.
     ///
     /// If empty, the catalog will try to find a matching script by name.
@@ -106,7 +112,7 @@ fn is_null_value(v: &serde_json::Value) -> bool {
 #[pymethods]
 impl ToolDeclaration {
     #[new]
-    #[pyo3(signature = (name, description="".to_string(), input_schema=None, output_schema=None, read_only=false, destructive=false, idempotent=false, source_file="".to_string()))]
+    #[pyo3(signature = (name, description="".to_string(), input_schema=None, output_schema=None, read_only=false, destructive=false, idempotent=false, defer_loading=false, source_file="".to_string()))]
     #[allow(clippy::too_many_arguments)]
     fn new(
         name: String,
@@ -116,6 +122,7 @@ impl ToolDeclaration {
         read_only: bool,
         destructive: bool,
         idempotent: bool,
+        defer_loading: bool,
         source_file: String,
     ) -> Self {
         let input_schema = input_schema
@@ -132,6 +139,7 @@ impl ToolDeclaration {
             read_only,
             destructive,
             idempotent,
+            defer_loading,
             source_file,
             next_tools: NextTools::default(),
         }
@@ -222,6 +230,16 @@ impl ToolDeclaration {
     #[setter]
     fn set_idempotent(&mut self, value: bool) {
         self.idempotent = value;
+    }
+
+    #[getter]
+    fn defer_loading(&self) -> bool {
+        self.defer_loading
+    }
+
+    #[setter]
+    fn set_defer_loading(&mut self, value: bool) {
+        self.defer_loading = value;
     }
 
     #[getter]

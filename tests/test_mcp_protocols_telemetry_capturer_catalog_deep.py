@@ -301,6 +301,7 @@ class TestToolAnnotations:
         assert ta.destructive_hint is None
         assert ta.idempotent_hint is None
         assert ta.open_world_hint is None
+        assert ta.deferred_hint is None
 
     def test_title_set(self):
         ta = m.ToolAnnotations(title="Create Sphere")
@@ -333,12 +334,14 @@ class TestToolAnnotations:
             destructive_hint=False,
             idempotent_hint=True,
             open_world_hint=False,
+            deferred_hint=True,
         )
         assert ta.title == "My Tool"
         assert ta.read_only_hint is True
         assert ta.destructive_hint is False
         assert ta.idempotent_hint is True
         assert ta.open_world_hint is False
+        assert ta.deferred_hint is True
 
     def test_repr_contains_title(self):
         ta = m.ToolAnnotations(title="TestTool")
@@ -352,7 +355,14 @@ class TestToolAnnotations:
     def test_attrs_complete(self):
         ta = m.ToolAnnotations()
         attrs = [a for a in dir(ta) if not a.startswith("_")]
-        for attr in ["title", "read_only_hint", "destructive_hint", "idempotent_hint", "open_world_hint"]:
+        for attr in [
+            "title",
+            "read_only_hint",
+            "destructive_hint",
+            "idempotent_hint",
+            "open_world_hint",
+            "deferred_hint",
+        ]:
             assert attr in attrs
 
 
@@ -464,6 +474,14 @@ class TestToolDeclaration:
         tdecl = m.ToolDeclaration("tool", idempotent=True)
         assert tdecl.idempotent is True
 
+    def test_defer_loading_default_false(self):
+        tdecl = m.ToolDeclaration("tool")
+        assert tdecl.defer_loading is False
+
+    def test_defer_loading_true(self):
+        tdecl = m.ToolDeclaration("tool", defer_loading=True)
+        assert tdecl.defer_loading is True
+
     def test_input_schema_default_is_object_schema(self):
         tdecl = m.ToolDeclaration("tool")
         # Rust default is {"type":"object"} — always returns a JSON string
@@ -491,7 +509,16 @@ class TestToolDeclaration:
     def test_attrs_complete(self):
         tdecl = m.ToolDeclaration("t")
         attrs = [a for a in dir(tdecl) if not a.startswith("_")]
-        for attr in ["name", "description", "read_only", "destructive", "idempotent", "input_schema", "output_schema"]:
+        for attr in [
+            "name",
+            "description",
+            "read_only",
+            "destructive",
+            "idempotent",
+            "defer_loading",
+            "input_schema",
+            "output_schema",
+        ]:
             assert attr in attrs
 
     def test_all_flags_true(self):
