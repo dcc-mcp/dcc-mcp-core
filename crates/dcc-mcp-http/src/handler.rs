@@ -263,12 +263,7 @@ async fn handle_initialize(
             version: state.server_version.clone(),
         },
         instructions: Some(
-            "DCC MCP Server — on-demand skill discovery workflow:\n\
-             1. Use search_skills(query) to find relevant skills by keyword.\n\
-             2. Use load_skill(skill_name) to activate a skill and register its full tool schemas.\n\
-             3. After loading, tools/list will include the skill's tools with complete input schemas.\n\
-             4. Unloaded skills appear as __skill__<name> stubs in tools/list (name + description only).\n\
-             5. Use list_skills/find_skills for broader discovery; get_skill_info for full metadata."
+            "Search skills with search_skills(query), load with load_skill(name). See get_skill_info or tools/list for details."
                 .to_string(),
         ),
     };
@@ -862,27 +857,12 @@ fn action_meta_to_mcp_tool(meta: &dcc_mcp_actions::registry::ActionMeta) -> McpT
 ///
 /// Name format: `__skill__<skill_name>`
 fn build_skill_stub(summary: &SkillSummary) -> McpTool {
-    let tool_list = if summary.tool_names.is_empty() {
-        String::new()
-    } else {
-        format!(" Tools: {}.", summary.tool_names.join(", "))
-    };
-    let hint = if summary.search_hint.is_empty() || summary.search_hint == summary.description {
-        String::new()
-    } else {
-        format!(" Keywords: {}.", summary.search_hint)
-    };
+    // RTK-inspired: ultra-compact format for skill stubs
+    // Format: [dcc] tool_count tools • load_skill("name")
     let description = format!(
-        "[Skill: {}] {}{} \u{2022} {} tools available. \
-         Call load_skill(skill_name=\"{}\") to activate full tool schemas.",
-        summary.name, summary.description, hint, summary.tool_count, summary.name,
+        "[{}] {} tools • Call load_skill(\"{}\")",
+        summary.dcc, summary.tool_count, summary.name
     );
-    // Append tool list to description if not too long
-    let description = if tool_list.is_empty() || description.len() + tool_list.len() < 512 {
-        format!("{}{}", description, tool_list)
-    } else {
-        description
-    };
 
     McpTool {
         name: format!("__skill__{}", summary.name),
@@ -938,29 +918,28 @@ async fn handle_search_skills(
         ));
     }
 
-    // Return compact one-line-per-skill summary
-    let lines: Vec<String> = matches
+    // RTK-inspired: ultra-compact JSON format to reduce token consumption
+    let compact_skills: Vec<serde_json::Value> = matches
         .iter()
         .map(|s| {
-            let status = if s.loaded { "loaded" } else { "unloaded" };
-            let tools = s.tool_names.join(", ");
-            format!(
-                "- {} [{}] ({} tools: {}) — {}",
-                s.name, status, s.tool_count, tools, s.description
-            )
+            serde_json::json!({
+                "name": s.name,
+                "tools": s.tool_count,
+                "loaded": s.loaded,
+                "dcc": s.dcc
+            })
         })
         .collect();
 
-    let text = format!(
-        "Found {} skill(s) matching '{}':\n{}",
-        matches.len(),
-        query,
-        lines.join("\n")
-    );
+    let result = serde_json::json!({
+        "total": matches.len(),
+        "query": query,
+        "skills": compact_skills
+    });
 
     Ok(JsonRpcResponse::success(
         req.id.clone(),
-        serde_json::to_value(CallToolResult::text(text))?,
+        serde_json::to_value(CallToolResult::text(serde_json::to_string(&result)?))?,
     ))
 }
 

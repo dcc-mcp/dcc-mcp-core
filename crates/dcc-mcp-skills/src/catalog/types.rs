@@ -1,6 +1,16 @@
 //! Data types for the skill catalog: state, entries, summary, and detail.
 
 use dcc_mcp_models::{SkillMetadata, ToolDeclaration};
+use serde::Serializer;
+
+// RTK-inspired: compact serialization for tool_names
+fn serialize_tool_names<S>(tool_names: &[String], serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let compact = tool_names.join(",");
+    serializer.serialize_str(&compact)
+}
 
 // ── Skill state ──
 
@@ -57,6 +67,8 @@ pub struct SkillSummary {
     pub dcc: String,
     pub version: String,
     pub tool_count: usize,
+    /// RTK-inspired: compact comma-separated format when serialized to reduce token consumption.
+    #[serde(serialize_with = "serialize_tool_names")]
     pub tool_names: Vec<String>,
     pub loaded: bool,
 }

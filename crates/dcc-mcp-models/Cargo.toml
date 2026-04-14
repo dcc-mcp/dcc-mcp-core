@@ -13,6 +13,7 @@ dcc-mcp-utils = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 rmp-serde = { workspace = true }
+uuid = { workspace = true }
 
 [features]
 default = []

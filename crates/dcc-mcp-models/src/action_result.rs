@@ -13,6 +13,38 @@ use dcc_mcp_utils::py_json::{json_value_to_bound_py, py_any_to_json_value, py_di
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+// RTK-inspired: limit context depth and array size to reduce token consumption
+fn compact_json_value(
+    value: &serde_json::Value,
+    depth: usize,
+    max_depth: usize,
+) -> serde_json::Value {
+    if depth >= max_depth {
+        return serde_json::Value::String("...".to_string());
+    }
+    match value {
+        serde_json::Value::Array(arr) => {
+            // Limit array to first 10 elements
+            let limited = arr
+                .iter()
+                .take(10)
+                .map(|v| compact_json_value(v, depth + 1, max_depth))
+                .collect();
+            serde_json::Value::Array(limited)
+        }
+        serde_json::Value::Object(obj) => {
+            // Limit object depth to 3 levels
+            let limited = obj
+                .iter()
+                .take(10)
+                .map(|(k, v)| (k.clone(), compact_json_value(v, depth + 1, max_depth)))
+                .collect();
+            serde_json::Value::Object(limited)
+        }
+        other => other.clone(),
+    }
+}
+
 // ── Serialization format ─────────────────────────────────────────────────────
 
 /// Supported serialization formats for `ActionResultModel`.
@@ -135,8 +167,16 @@ impl ActionResultModelData {
     }
 
     /// Convenience: serialize to a JSON string.
+    /// Convenience: serialize to a JSON string.
     pub fn to_json_string(&self) -> Result<String, String> {
-        serde_json::to_string(self).map_err(|e| e.to_string())
+        // RTK-inspired: compact context to reduce token consumption
+        let mut compacted = self.clone();
+        compacted.context = compacted
+            .context
+            .iter()
+            .map(|(k, v)| (k.clone(), compact_json_value(v, 0, 3)))
+            .collect();
+        serde_json::to_string(&compacted).map_err(|e| e.to_string())
     }
 
     /// Convenience: deserialize from a JSON string.
@@ -514,11 +554,20 @@ mod py_factories {
         // Build the user-facing message before moving error_message.
         let msg = message.unwrap_or_else(|| format!("Error: {error_message}"));
         if include_traceback {
-            // Store error_message under the traceback key. Callers that need the real
-            // Python traceback should pass it explicitly via the **context kwarg.
+            // RTK-inspired: limit traceback to 1KB to reduce token consumption
+            let truncated_traceback = if error_message.len() > 1024 {
+                let trace_id = format!("err-{}", uuid::Uuid::new_v4());
+                format!(
+                    "{}... (truncated, see trace_id: {})",
+                    &error_message[..1000.min(error_message.len())],
+                    trace_id
+                )
+            } else {
+                error_message.clone()
+            };
             ctx.insert(
                 CTX_KEY_TRACEBACK.to_string(),
-                serde_json::Value::String(error_message.clone()),
+                serde_json::Value::String(truncated_traceback),
             );
         }
         insert_possible_solutions(&mut ctx, possible_solutions);
