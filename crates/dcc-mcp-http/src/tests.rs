@@ -1523,3 +1523,300 @@ mod tests {
         handle.shutdown().await;
     }
 }
+
+#[cfg(test)]
+mod gateway_tests {
+    use axum::http::HeaderValue;
+    use axum_test::TestServer;
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tokio::sync::RwLock;
+
+    use dcc_mcp_transport::discovery::file_registry::FileRegistry;
+    use dcc_mcp_transport::discovery::types::ServiceEntry;
+
+    use crate::gateway::router::build_gateway_router;
+    use crate::gateway::state::GatewayState;
+
+    fn make_gateway_state() -> GatewayState {
+        let dir = tempfile::tempdir().unwrap();
+        // keep() returns PathBuf and prevents deletion until the process exits
+        let path = dir.keep();
+        let registry = FileRegistry::new(&path).unwrap();
+        GatewayState {
+            registry: Arc::new(RwLock::new(registry)),
+            stale_timeout: Duration::from_secs(30),
+            server_name: "test-gateway".to_string(),
+            server_version: "0.1.0".to_string(),
+            http_client: reqwest::Client::new(),
+        }
+    }
+
+    fn make_gateway_router() -> axum::Router {
+        build_gateway_router(make_gateway_state())
+    }
+
+    // ── REST endpoints ─────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_gateway_health_endpoint() {
+        let server = TestServer::new(make_gateway_router());
+        let resp = server.get("/health").await;
+        resp.assert_status_ok();
+        let body: serde_json::Value = resp.json();
+        assert_eq!(body["ok"], true);
+    }
+
+    #[tokio::test]
+    async fn test_gateway_instances_endpoint_empty() {
+        let server = TestServer::new(make_gateway_router());
+        let resp = server.get("/instances").await;
+        resp.assert_status_ok();
+        let body: serde_json::Value = resp.json();
+        assert_eq!(body["total"], 0);
+        assert!(body["instances"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_gateway_instances_endpoint_with_entry() {
+        let state = make_gateway_state();
+        {
+            let reg = state.registry.read().await;
+            let entry = ServiceEntry::new("maya", "127.0.0.1", 18812);
+            reg.register(entry).unwrap();
+        }
+        let server = TestServer::new(build_gateway_router(state));
+        let resp = server.get("/instances").await;
+        resp.assert_status_ok();
+        let body: serde_json::Value = resp.json();
+        assert_eq!(body["total"], 1);
+    }
+
+    // ── MCP endpoint ───────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_gateway_mcp_initialize() {
+        let server = TestServer::new(make_gateway_router());
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::CONTENT_TYPE,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&serde_json::json!({
+                "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-03-26",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "1.0"}
+                }
+            }))
+            .await;
+        resp.assert_status_ok();
+        let body: serde_json::Value = resp.json();
+        assert_eq!(body["result"]["protocolVersion"], "2025-03-26");
+    }
+
+    #[tokio::test]
+    async fn test_gateway_mcp_ping() {
+        let server = TestServer::new(make_gateway_router());
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::CONTENT_TYPE,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&serde_json::json!({"jsonrpc": "2.0", "id": 2, "method": "ping"}))
+            .await;
+        resp.assert_status_ok();
+        let body: serde_json::Value = resp.json();
+        assert_eq!(body["result"], serde_json::json!({}));
+    }
+
+    #[tokio::test]
+    async fn test_gateway_mcp_tools_list() {
+        let server = TestServer::new(make_gateway_router());
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::CONTENT_TYPE,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&serde_json::json!({"jsonrpc": "2.0", "id": 3, "method": "tools/list", "params": {}}))
+            .await;
+        resp.assert_status_ok();
+        let body: serde_json::Value = resp.json();
+        let tools = body["result"]["tools"].as_array().unwrap();
+        let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
+        assert!(
+            names.contains(&"list_dcc_instances"),
+            "list_dcc_instances missing: {names:?}"
+        );
+        assert!(
+            names.contains(&"connect_to_dcc"),
+            "connect_to_dcc missing: {names:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_gateway_mcp_list_dcc_instances_empty() {
+        let server = TestServer::new(make_gateway_router());
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::CONTENT_TYPE,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&serde_json::json!({
+                "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                "params": {"name": "list_dcc_instances", "arguments": {}}
+            }))
+            .await;
+        resp.assert_status_ok();
+        let body: serde_json::Value = resp.json();
+        let text = body["result"]["content"][0]["text"]
+            .as_str()
+            .expect("no text content");
+        let result: serde_json::Value = serde_json::from_str(text).unwrap();
+        assert_eq!(result["total"], 0);
+    }
+
+    #[tokio::test]
+    async fn test_gateway_mcp_list_dcc_instances_with_entry() {
+        let state = make_gateway_state();
+        {
+            let reg = state.registry.read().await;
+            let entry = ServiceEntry::new("houdini", "127.0.0.1", 19765);
+            reg.register(entry).unwrap();
+        }
+        let server = TestServer::new(build_gateway_router(state));
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::CONTENT_TYPE,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&serde_json::json!({
+                "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                "params": {"name": "list_dcc_instances", "arguments": {}}
+            }))
+            .await;
+        resp.assert_status_ok();
+        let body: serde_json::Value = resp.json();
+        let text = body["result"]["content"][0]["text"]
+            .as_str()
+            .expect("no text content");
+        let result: serde_json::Value = serde_json::from_str(text).unwrap();
+        assert_eq!(result["total"], 1);
+        assert_eq!(result["instances"][0]["dcc_type"], "houdini");
+    }
+
+    #[tokio::test]
+    async fn test_gateway_mcp_unknown_method() {
+        let server = TestServer::new(make_gateway_router());
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::CONTENT_TYPE,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&serde_json::json!({"jsonrpc": "2.0", "id": 99, "method": "nonexistent"}))
+            .await;
+        resp.assert_status_ok();
+        let body: serde_json::Value = resp.json();
+        assert!(
+            body.get("error").is_some(),
+            "expected error for unknown method"
+        );
+    }
+
+    // ── GatewayRunner port-competition ────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_gateway_runner_single_start() {
+        use crate::gateway::{GatewayConfig, GatewayRunner};
+
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = GatewayConfig {
+            host: "127.0.0.1".to_string(),
+            gateway_port: 0,   // 0 disables gateway, so start() registers only
+            heartbeat_secs: 0, // no heartbeat in test
+            registry_dir: Some(dir.path().to_path_buf()),
+            ..GatewayConfig::default()
+        };
+        let runner = GatewayRunner::new(cfg).unwrap();
+        let entry = ServiceEntry::new("maya", "127.0.0.1", 18812);
+        let handle = runner.start(entry).await.unwrap();
+        // gateway_port=0 means we never attempt to bind
+        assert!(!handle.is_gateway);
+    }
+
+    #[tokio::test]
+    async fn test_gateway_port_competition() {
+        use crate::gateway::{GatewayConfig, GatewayRunner};
+
+        // Find a free port
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        // Small sleep so the OS fully releases the port
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let dir1 = tempfile::tempdir().unwrap();
+        let dir2 = tempfile::tempdir().unwrap();
+
+        let cfg1 = GatewayConfig {
+            host: "127.0.0.1".to_string(),
+            gateway_port: port,
+            heartbeat_secs: 0,
+            registry_dir: Some(dir1.path().to_path_buf()),
+            ..GatewayConfig::default()
+        };
+        let cfg2 = GatewayConfig {
+            host: "127.0.0.1".to_string(),
+            gateway_port: port,
+            heartbeat_secs: 0,
+            registry_dir: Some(dir2.path().to_path_buf()),
+            ..GatewayConfig::default()
+        };
+
+        let runner1 = GatewayRunner::new(cfg1).unwrap();
+        let runner2 = GatewayRunner::new(cfg2).unwrap();
+
+        let entry1 = ServiceEntry::new("maya", "127.0.0.1", 18812);
+        let entry2 = ServiceEntry::new("maya", "127.0.0.1", 18813);
+
+        let h1 = runner1.start(entry1).await.unwrap();
+        let h2 = runner2.start(entry2).await.unwrap();
+
+        // Exactly one should win the gateway port
+        assert_ne!(
+            h1.is_gateway, h2.is_gateway,
+            "exactly one process should win gateway port (h1={}, h2={})",
+            h1.is_gateway, h2.is_gateway
+        );
+    }
+
+    #[tokio::test]
+    async fn test_gateway_runner_is_gateway_true_when_port_free() {
+        use crate::gateway::{GatewayConfig, GatewayRunner};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = GatewayConfig {
+            host: "127.0.0.1".to_string(),
+            gateway_port: port,
+            heartbeat_secs: 0,
+            registry_dir: Some(dir.path().to_path_buf()),
+            ..GatewayConfig::default()
+        };
+        let runner = GatewayRunner::new(cfg).unwrap();
+        let entry = ServiceEntry::new("blender", "127.0.0.1", 19000);
+        let handle = runner.start(entry).await.unwrap();
+        assert!(handle.is_gateway, "first runner should win free port");
+    }
+}

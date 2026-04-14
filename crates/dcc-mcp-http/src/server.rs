@@ -10,11 +10,13 @@ use crate::{
     config::McpHttpConfig,
     error::{HttpError, HttpResult},
     executor::DccExecutorHandle,
+    gateway::{GatewayConfig, GatewayRunner},
     handler::{AppState, handle_delete, handle_get, handle_post},
     session::SessionManager,
 };
 use dcc_mcp_actions::{ActionDispatcher, ActionRegistry};
 use dcc_mcp_skills::SkillCatalog;
+use dcc_mcp_transport::discovery::types::ServiceEntry;
 
 /// Handle returned by [`McpHttpServer::start`].
 ///
@@ -25,6 +27,10 @@ pub struct ServerHandle {
     /// Actual port the server is listening on (useful when port=0).
     pub port: u16,
     pub bind_addr: String,
+    /// `true` if this process won the gateway port competition.
+    pub is_gateway: bool,
+    // Keep the GatewayHandle alive so background tasks keep running.
+    _gateway: Option<crate::gateway::GatewayHandle>,
 }
 
 impl ServerHandle {
@@ -32,6 +38,7 @@ impl ServerHandle {
     pub async fn shutdown(self) {
         let _ = self.shutdown_tx.send(true);
         let _ = self.join.await;
+        // _gateway is dropped here, aborting heartbeat/cleanup tasks
     }
 
     /// Signal shutdown without waiting.
@@ -128,6 +135,10 @@ impl McpHttpServer {
     ///
     /// Returns a [`ServerHandle`] for controlling the server lifecycle.
     /// This method is `async` but returns immediately after binding the port.
+    ///
+    /// When `config.gateway_port > 0`, this method also registers the instance
+    /// in the shared `FileRegistry` and attempts to become the gateway via
+    /// first-wins TCP port binding.
     pub async fn start(self) -> HttpResult<ServerHandle> {
         // If no catalog was provided, create a default one
         let catalog = self
@@ -201,6 +212,50 @@ impl McpHttpServer {
             self.config.endpoint_path
         );
 
+        // ── Optional gateway competition ──────────────────────────────────────
+        let gateway_handle = if self.config.gateway_port > 0 {
+            let gw_cfg = GatewayConfig {
+                host: self.config.host.to_string(),
+                gateway_port: self.config.gateway_port,
+                stale_timeout_secs: self.config.stale_timeout_secs,
+                heartbeat_secs: self.config.heartbeat_secs,
+                server_name: self.config.server_name.clone(),
+                server_version: self.config.server_version.clone(),
+                registry_dir: self.config.registry_dir.clone(),
+            };
+
+            match GatewayRunner::new(gw_cfg) {
+                Ok(runner) => {
+                    let mut entry = ServiceEntry::new(
+                        self.config.dcc_type.as_deref().unwrap_or("unknown"),
+                        self.config.host.to_string(),
+                        port,
+                    );
+                    entry.version = self.config.dcc_version.clone();
+                    entry.scene = self.config.scene.clone();
+
+                    match runner.start(entry).await {
+                        Ok(h) => Some(h),
+                        Err(e) => {
+                            tracing::warn!("Gateway runner failed to start: {e}");
+                            None
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to create GatewayRunner: {e}");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        let is_gateway = gateway_handle
+            .as_ref()
+            .map(|h| h.is_gateway)
+            .unwrap_or(false);
+
         let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
 
         let join = tokio::spawn(async move {
@@ -225,6 +280,8 @@ impl McpHttpServer {
             join,
             port,
             bind_addr: actual_bind,
+            is_gateway,
+            _gateway: gateway_handle,
         })
     }
 }

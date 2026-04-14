@@ -74,10 +74,104 @@ impl PyMcpHttpConfig {
         self.inner.session_ttl_secs = secs;
     }
 
+    // ── Gateway configuration ────────────────────────────────────────────────
+
+    /// Gateway port to compete for. First process to bind wins.
+    /// ``0`` disables gateway (default).
+    ///
+    /// Example::
+    ///
+    ///     config = McpHttpConfig(port=0, server_name="maya")
+    ///     config.gateway_port = 9765   # join the gateway competition
+    ///     config.dcc_type = "maya"
+    ///     server = McpHttpServer(registry, config)
+    ///     handle = server.start()
+    ///     print(handle.is_gateway)   # True if this process won
+    #[getter]
+    fn gateway_port(&self) -> u16 {
+        self.inner.gateway_port
+    }
+
+    #[setter]
+    fn set_gateway_port(&mut self, port: u16) {
+        self.inner.gateway_port = port;
+    }
+
+    /// Shared FileRegistry directory path. ``None`` uses a system temp dir.
+    #[getter]
+    fn registry_dir(&self) -> Option<String> {
+        self.inner
+            .registry_dir
+            .as_ref()
+            .map(|p| p.to_string_lossy().to_string())
+    }
+
+    #[setter]
+    fn set_registry_dir(&mut self, dir: Option<String>) {
+        self.inner.registry_dir = dir.map(std::path::PathBuf::from);
+    }
+
+    /// Seconds without heartbeat before an instance is stale. Default: 30.
+    #[getter]
+    fn stale_timeout_secs(&self) -> u64 {
+        self.inner.stale_timeout_secs
+    }
+
+    #[setter]
+    fn set_stale_timeout_secs(&mut self, secs: u64) {
+        self.inner.stale_timeout_secs = secs;
+    }
+
+    /// Heartbeat interval in seconds. ``0`` disables heartbeat. Default: 5.
+    #[getter]
+    fn heartbeat_secs(&self) -> u64 {
+        self.inner.heartbeat_secs
+    }
+
+    #[setter]
+    fn set_heartbeat_secs(&mut self, secs: u64) {
+        self.inner.heartbeat_secs = secs;
+    }
+
+    // ── Instance registration metadata ───────────────────────────────────────
+
+    /// DCC application type (e.g. ``"maya"``). Reported in the shared registry.
+    #[getter]
+    fn dcc_type(&self) -> Option<String> {
+        self.inner.dcc_type.clone()
+    }
+
+    #[setter]
+    fn set_dcc_type(&mut self, v: Option<String>) {
+        self.inner.dcc_type = v;
+    }
+
+    /// DCC application version (e.g. ``"2025.1"``).
+    #[getter]
+    fn dcc_version(&self) -> Option<String> {
+        self.inner.dcc_version.clone()
+    }
+
+    #[setter]
+    fn set_dcc_version(&mut self, v: Option<String>) {
+        self.inner.dcc_version = v;
+    }
+
+    /// Currently open scene/file. Improves routing accuracy.
+    #[getter]
+    fn scene(&self) -> Option<String> {
+        self.inner.scene.clone()
+    }
+
+    #[setter]
+    fn set_scene(&mut self, v: Option<String>) {
+        self.inner.scene = v;
+    }
+
     fn __repr__(&self) -> String {
         format!(
-            "McpHttpConfig(port={}, name={})",
-            self.inner.port, self.inner.server_name
+            "McpHttpConfig(port={}, name={}, gateway_port={})",
+            self.inner.port, self.inner.server_name, self.inner.gateway_port
         )
     }
 }
@@ -95,6 +189,8 @@ pub struct PyServerHandle {
     runtime: Arc<Runtime>,
     pub port: u16,
     pub bind_addr: String,
+    /// ``True`` if this process won the gateway port competition.
+    pub is_gateway: bool,
 }
 
 #[pymethods]
@@ -130,11 +226,18 @@ impl PyServerHandle {
         }
     }
 
+    /// ``True`` if this process won the gateway port competition.
+    #[getter]
+    fn is_gateway(&self) -> bool {
+        self.is_gateway
+    }
+
     fn __repr__(&self) -> String {
         format!(
-            "ServerHandle(addr={}, running={})",
+            "ServerHandle(addr={}, running={}, is_gateway={})",
             self.bind_addr,
-            self.inner.is_some()
+            self.inner.is_some(),
+            self.is_gateway,
         )
     }
 }
@@ -213,12 +316,14 @@ impl PyMcpHttpServer {
 
         let port = handle.port;
         let bind_addr = handle.bind_addr.clone();
+        let is_gateway = handle.is_gateway;
 
         Ok(PyServerHandle {
             inner: Some(handle),
             runtime: self.runtime.clone(),
             port,
             bind_addr,
+            is_gateway,
         })
     }
 

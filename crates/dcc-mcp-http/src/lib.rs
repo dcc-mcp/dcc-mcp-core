@@ -41,6 +41,7 @@
 pub mod config;
 pub mod error;
 pub mod executor;
+pub mod gateway;
 pub mod handler;
 pub mod protocol;
 pub mod server;
@@ -53,6 +54,7 @@ pub mod python;
 pub use config::McpHttpConfig;
 pub use error::{HttpError, HttpResult};
 pub use executor::{DccExecutorHandle, DeferredExecutor};
+pub use gateway::{GatewayConfig, GatewayHandle, GatewayRunner};
 pub use server::{McpHttpServer, ServerHandle};
 pub use session::SessionManager;
 
