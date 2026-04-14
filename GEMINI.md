@@ -6,7 +6,7 @@
 ## Project Identity
 
 You are working on **dcc-mcp-core**, a Rust-powered MCP (Model Context Protocol) library for DCC
-(Digital Content Creation) applications. Python package: `dcc_mcp_core`. ~120 public symbols,
+(Digital Content Creation) applications. Python package: `dcc_mcp_core`. ~140 public symbols,
 zero runtime Python dependencies (everything compiled into Rust core via PyO3).
 
 ## Priority Reading Order
@@ -30,11 +30,11 @@ vx just lint-fix     # Auto-fix all lint issues
 
 ## Key Architecture Facts
 
-- **12 Rust crates** under `crates/`, compiled into `dcc_mcp_core._core` native extension
-- **~130 public Python symbols** exported from `python/dcc_mcp_core/__init__.py`
+- **14 Rust crates** under `crates/`, compiled into `dcc_mcp_core._core` native extension
+- **~140 public Python symbols** exported from `python/dcc_mcp_core/__init__.py`
 - **Zero runtime Python deps** — all logic in Rust, no `dependencies = [...]` in pyproject.toml
 - Python 3.7–3.13 supported (abi3-py38 wheel; separate non-abi3 wheel for 3.7)
-- Version: **0.12.9** — managed by Release Please, never manually bump
+- Version: **0.12.23** — managed by Release Please, never manually bump
 
 ## Gemini-Specific Workflows
 
@@ -43,7 +43,7 @@ vx just lint-fix     # Auto-fix all lint issues
 ```python
 # What's available?
 import dcc_mcp_core
-print(dir(dcc_mcp_core))  # all ~120 symbols
+print(dir(dcc_mcp_core))  # all ~140 symbols
 
 # Parameter signatures — read _core.pyi
 # grep equivalent:

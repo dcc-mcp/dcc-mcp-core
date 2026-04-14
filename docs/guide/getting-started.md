@@ -132,7 +132,7 @@ server = McpHttpServer(registry, config)
 handle = server.start()
 
 print(f"MCP server running at http://127.0.0.1:8765/mcp")
-# handle.stop() to shut down
+# handle.shutdown() to shut down
 ```
 
 ## Development Setup
@@ -163,4 +163,4 @@ vx just lint
 - Check out the [Skills System](/guide/skills) for zero-code script registration
 - Expose tools with [MCP HTTP Server](/api/http)
 - See the [Transport Layer](/guide/transport) for DCC communication
-- Understand the [Architecture](/guide/architecture) of the 13-crate Rust workspace
+- Understand the [Architecture](/guide/architecture) of the 14-crate Rust workspace

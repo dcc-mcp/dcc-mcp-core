@@ -253,7 +253,7 @@ print(f'Loaded: {[s.name for s in skills]}')
 ┌─────────────────────────────────────────────────────┐
 │                   Python Layer                       │
 │  dcc_mcp_core/__init__.py  →  _core (PyO3 cdyll)   │
-│  ~130 public symbols re-exported from Rust core      │
+│  ~140 public symbols re-exported from Rust core      │
 └──────────────────────┬──────────────────────────────┘
                        │ PyO3 bindings
 ┌──────────────────────▼──────────────────────────────┐

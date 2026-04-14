@@ -20,7 +20,7 @@ Foundational library for the DCC Model Context Protocol (MCP) ecosystem. It prov
 | Feature | Description |
 |---------|-------------|
 | **Performance** | Rust core with zero-copy serialization via rmp-serde & LZ4 compression |
-| **Type Safety** | Full PyO3 bindings with comprehensive `.pyi` type stubs (~120 public symbols) |
+| **Type Safety** | Full PyO3 bindings with comprehensive `.pyi` type stubs (~140 public symbols) |
 | **Skills System** | Zero-code script registration as MCP tools (SKILL.md + scripts/) |
 | **Resilient Transport** | IPC with connection pooling, circuit breaker, retry policies |
 | **Process Management** | Launch, monitor, auto-recover DCC processes |
@@ -249,21 +249,23 @@ default. To opt-out: `start_server(include_bundled=False)`.
 
 ## Architecture Overview
 
-dcc-mcp-core is organized as a **Rust workspace of 11 crates**, compiled into a single native Python extension (`_core`) via PyO3/maturin:
+dcc-mcp-core is organized as a **Rust workspace of 14 crates**, compiled into a single native Python extension (`_core`) via PyO3/maturin:
 
 | Crate | Responsibility | Key Types |
 |----------------------|-----------|
 | `dcc-mcp-models` | Data models | `ActionResultModel`, `SkillMetadata` |
 | `dcc-mcp-actions` | Skill execution lifecycle | `ActionRegistry`, `EventBus`, `ActionDispatcher`, `ActionValidator`, `ActionPipeline` |
-| `dcc-mcp-skills` | Skills discovery | `SkillScanner`, `SkillLoader`, `SkillWatcher`, dependency resolver |
-| `dcc-mcp-protocols` | MCP protocol types | `ToolDefinition`, `ResourceDefinition`, `PromptDefinition`, `DccAdapter` types |
-| `dcc-mcp-transport` | IPC communication | `TransportManager`, `ConnectionPool`, `IpcListener`, `FramedChannel`, `CircuitBreaker` |
+| `dcc-mcp-skills` | Skills discovery & loading | `SkillScanner`, `SkillCatalog`, `SkillWatcher`, dependency resolver |
+| `dcc-mcp-protocols` | MCP protocol types | `ToolDefinition`, `ResourceDefinition`, `PromptDefinition`, `DccAdapter`, `BridgeKind` |
+| `dcc-mcp-transport` | IPC communication | `TransportManager`, `ConnectionPool`, `IpcListener`, `FramedChannel`, `CircuitBreaker`, `FileRegistry` |
 | `dcc-mcp-process` | Process management | `PyDccLauncher`, `ProcessMonitor`, `ProcessWatcher`, `CrashRecoveryPolicy` |
 | `dcc-mcp-sandbox` | Security | `SandboxPolicy`, `InputValidator`, `AuditLog` |
 | `dcc-mcp-shm` | Shared memory | `SharedBuffer`, `BufferPool`, LZ4 compression |
 | `dcc-mcp-capture` | Screen capture | `Capturer`, cross-platform backends |
 | `dcc-mcp-telemetry` | Observability | `TelemetryConfig`, `RecordingGuard`, tracing |
 | `dcc-mcp-usd` | USD integration | `UsdStage`, `UsdPrim`, scene info bridge |
+| `dcc-mcp-http` | MCP Streamable HTTP server | `McpHttpServer`, `McpHttpConfig`, `ServerHandle`, Gateway (first-wins competition) |
+| `dcc-mcp-server` | Binary entry point | `dcc-mcp-server` CLI, gateway runner |
 | `dcc-mcp-utils` | Infrastructure | Filesystem helpers, type wrappers, constants, JSON |
 
 ## Key Features
@@ -278,7 +280,7 @@ dcc-mcp-core is organized as a **Rust workspace of 11 crates**, compiled into a 
 - **Screen capture**: Cross-platform DCC viewport capture for AI visual feedback
 - **USD integration**: Universal Scene Description read/write bridge
 - **Structured telemetry**: Tracing & recording for observability
-- **~120 public Python symbols** with full type stubs (`.pyi`)
+- **~140 public Python symbols** with full type stubs (`.pyi`)
 - **OpenClaw Skills compatible**: Reuse existing ecosystem format
 
 ## Installation
@@ -416,7 +418,7 @@ for entry in audit.entries:
 
 ## More Examples
 
-See the [`examples/skills/`](examples/skills/) directory for **9 complete skill packages**, and the [VitePress docs site](https://loonghao.github.io/dcc-mcp-core/) for comprehensive guides per module.
+See the [`examples/skills/`](examples/skills/) directory for **11 complete skill packages**, and the [VitePress docs site](https://loonghao.github.io/dcc-mcp-core/) for comprehensive guides per module.
 
 ## Release Process
 
@@ -499,7 +501,7 @@ If you're an AI coding agent, also see:
 - **[CLAUDE.md](CLAUDE.md)** — Claude-specific instructions and workflows
 - **[GEMINI.md](GEMINI.md)** — Gemini-specific instructions and workflows
 - **[.agents/skills/dcc-mcp-core/SKILL.md](.agents/skills/dcc-mcp-core/SKILL.md)** — Complete API skill definition for learning and using this library
-- **[python/dcc_mcp_core/__init__.py](python/dcc_mcp_core/__init__.py)** — Full public API surface (~120 symbols)
+- **[python/dcc_mcp_core/__init__.py](python/dcc_mcp_core/__init__.py)** — Full public API surface (~140 symbols)
 - **[llms.txt](llms.txt)** — Concise API reference optimized for LLMs
 - **[llms-full.txt](llms-full.txt)** — Complete API reference optimized for LLMs
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** — Development workflow and coding standards

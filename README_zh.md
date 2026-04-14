@@ -20,7 +20,7 @@ DCC 模型上下文协议（Model Context Protocol，MCP）生态系统的基础
 | 特性 | 描述 |
 |------|------|
 | **高性能** | Rust 核心，rmp-serde 零拷贝序列化 & LZ4 压缩 |
-| **类型安全** | 完整的 PyO3 绑定 + 全面 `.pyi` 类型存根（约 120 个公共符号） |
+| **类型安全** | 完整的 PyO3 绑定 + 全面 `.pyi` 类型存根（约 140 个公共符号） |
 | **Skills 系统** | 零代码脚本注册为 MCP 工具（SKILL.md + scripts/） |
 | **弹性传输** | IPC + 连接池、熔断器、重试策略 |
 | **进程管理** | 启动/监控/自动恢复 DCC 进程 |
@@ -276,23 +276,25 @@ paths = get_bundled_skill_paths(include_bundled=False)  # 按需禁用
 
 DCC 适配器（如 `dcc-mcp-maya`）默认自动加载内置技能包。如需禁用：`start_server(include_bundled=False)`。
 
-## 架构概览 — 11 个 Rust Crate 工作区
+## 架构概览 — 14 个 Rust Crate 工作区
 
-dcc-mcp-core 组织为 **11 个 Rust Crate 工作区**，通过 PyO3/maturin 编译成单个原生 Python 扩展（`_core`）：
+dcc-mcp-core 组织为 **14 个 Rust Crate 工作区**，通过 PyO3/maturin 编译成单个原生 Python 扩展（`_core`）：
 
 | Crate | 职责 | 关键类型 |
 |-------|------|---------|
 | `dcc-mcp-models` | 数据模型 | `ActionResultModel`, `SkillMetadata` |
 | `dcc-mcp-actions` | 技能执行生命周期 | `ActionRegistry`, `EventBus`, `ActionDispatcher`, `ActionValidator`, `ActionPipeline` |
-| `dcc-mcp-skills` | 技能发现 | `SkillScanner`, `SkillWatcher`, 依赖解析器 |
-| `dcc-mcp-protocols` | MCP 协议类型 | `ToolDefinition`, `ResourceDefinition`, `DccAdapter` |
-| `dcc-mcp-transport` | IPC 通信 | `TransportManager`, `ConnectionPool`, `IpcListener`, `FramedChannel`, `CircuitBreaker` |
+| `dcc-mcp-skills` | 技能发现与加载 | `SkillScanner`, `SkillCatalog`, `SkillWatcher`, 依赖解析器 |
+| `dcc-mcp-protocols` | MCP 协议类型 | `ToolDefinition`, `ResourceDefinition`, `DccAdapter`, `BridgeKind` |
+| `dcc-mcp-transport` | IPC 通信 | `TransportManager`, `ConnectionPool`, `IpcListener`, `FramedChannel`, `CircuitBreaker`, `FileRegistry` |
 | `dcc-mcp-process` | 进程管理 | `PyDccLauncher`, `ProcessMonitor`, `CrashRecoveryPolicy` |
 | `dcc-mcp-sandbox` | 安全沙箱 | `SandboxPolicy`, `InputValidator`, `AuditLog` |
 | `dcc-mcp-shm` | 共享内存 | `SharedBuffer`, LZ4 压缩 |
 | `dcc-mcp-capture` | 屏幕捕获 | `Capturer`, 跨平台后端 |
 | `dcc-mcp-telemetry` | 可观测性 | `TelemetryConfig`, `ActionMetrics`, tracing |
 | `dcc-mcp-usd` | USD 场景 | `UsdStage`, `UsdPrim`, 场景信息桥接 |
+| `dcc-mcp-http` | MCP Streamable HTTP 服务器 | `McpHttpServer`, `McpHttpConfig`, `ServerHandle`, Gateway（首个获胜竞争） |
+| `dcc-mcp-server` | 二进制入口点 | `dcc-mcp-server` CLI、Gateway 运行器 |
 | `dcc-mcp-utils` | 基础设施 | 文件系统、类型封装、常量、JSON |
 
 ## 更多功能
@@ -387,7 +389,7 @@ for entry in audit.entries:
 - **屏幕捕获**：跨平台 DCC 视口捕获，AI 视觉反馈
 - **USD 集成**：通用场景描述读写桥接
 - **结构化遥测**：Tracing & 录制可观测性
-- **~120 个 Python 公共符号** + 完整 `.pyi` 类型存根
+- **~140 个 Python 公共符号** + 完整 `.pyi` 类型存根
 - **兼容 OpenClaw Skills**：直接复用生态格式
 
 ## 安装

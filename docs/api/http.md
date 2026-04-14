@@ -33,8 +33,12 @@ cfg = McpHttpConfig(
 | Property | Type | Default | Description |
 |----------|------|---------|-------------|
 | `port` | `int` | `8765` | TCP port the server is listening on (`0` = OS-assigned) |
+| `host` | `str` | `"127.0.0.1"` | IP address to bind (localhost only per MCP security spec) |
+| `endpoint_path` | `str` | `"/mcp"` | MCP endpoint path |
 | `server_name` | `str` | `"dcc-mcp"` | Server name in MCP response |
 | `server_version` | `str` | package version | Server version in MCP response |
+| `max_sessions` | `int` | `100` | Maximum concurrent SSE sessions |
+| `session_ttl_secs` | `int` | `3600` | Idle session TTL in seconds (`0` = disable eviction) |
 | `gateway_port` | `int` | `0` | Gateway port to compete for (`0` = disabled). See [Gateway](#gateway) |
 | `registry_dir` | `str \| None` | `None` | Directory for the shared `FileRegistry` JSON (defaults to OS temp dir) |
 | `stale_timeout_secs` | `int` | `30` | Seconds without a heartbeat before an instance is considered stale |
@@ -121,6 +125,7 @@ The server implements the MCP 2025-03-26 spec:
 |----------|--------|-------------|
 | `/mcp` | POST | MCP request (JSON-RPC 2.0) |
 | `/mcp` | GET | SSE-compatible event stream |
+| `/mcp` | DELETE | Terminate MCP session |
 | `/health` | GET | Health check |
 
 ### Request/Response Format

@@ -4,7 +4,7 @@ DCC-MCP-Core is a Rust workspace with Python bindings via PyO3. The library prov
 
 - **Zero third-party runtime dependencies** in the Rust core
 - **Optional Python bindings** via PyO3 for DCC integration
-- **13 modular crates** for selective dependency usage
+- **14 modular crates** for selective dependency usage
 
 ## Crate Structure
 
@@ -12,16 +12,17 @@ DCC-MCP-Core is a Rust workspace with Python bindings via PyO3. The library prov
 dcc-mcp-core (workspace root)
 ├── dcc-mcp-models       # ActionResultModel, SkillMetadata, DCC types
 ├── dcc-mcp-actions      # ActionRegistry, EventBus, ActionDispatcher, Pipeline
-├── dcc-mcp-skills       # SkillScanner, SkillLoader, SkillWatcher, Resolver
-├── dcc-mcp-protocols    # MCP types: ToolDefinition, ResourceDefinition, Prompt
-├── dcc-mcp-transport    # IPC, ConnectionPool, SessionManager, FramedChannel
+├── dcc-mcp-skills       # SkillScanner, SkillCatalog, SkillWatcher, Resolver
+├── dcc-mcp-protocols    # MCP types: ToolDefinition, ResourceDefinition, Prompt, DccAdapter, BridgeKind
+├── dcc-mcp-transport    # IPC, ConnectionPool, FileRegistry, FramedChannel
 ├── dcc-mcp-process      # PyDccLauncher, ProcessMonitor, ProcessWatcher, CrashRecovery
 ├── dcc-mcp-telemetry    # Tracing/recording: ActionRecorder, TelemetryConfig
 ├── dcc-mcp-sandbox      # Security: SandboxPolicy, SandboxContext, AuditLog
 ├── dcc-mcp-shm          # Shared memory: PySharedBuffer, PyBufferPool
 ├── dcc-mcp-capture      # Screen capture: Capturer, CaptureFrame
 ├── dcc-mcp-usd          # USD scene description: UsdStage, SdfPath, VtValue
-├── dcc-mcp-http         # MCP HTTP server: McpHttpServer, McpHttpConfig
+├── dcc-mcp-http         # MCP HTTP server: McpHttpServer, McpHttpConfig, Gateway
+├── dcc-mcp-server       # Binary entry point: dcc-mcp-server, gateway runner
 └── dcc-mcp-utils       # Filesystem, type wrappers, constants
 ```
 
@@ -38,7 +39,9 @@ dcc-mcp-protocols ← dcc-mcp-models
        ↓
 dcc-mcp-transport ← dcc-mcp-protocols
        ↓
-dcc-mcp-http ← dcc-mcp-transport, dcc-mcp-protocols
+dcc-mcp-http ← dcc-mcp-transport, dcc-mcp-protocols, dcc-mcp-actions, dcc-mcp-skills
+       ↓
+dcc-mcp-server ← dcc-mcp-http
 ```
 
 ## Crate Responsibilities
@@ -78,6 +81,7 @@ dcc-mcp-http ← dcc-mcp-transport, dcc-mcp-protocols
 
 **Key Components**:
 - `SkillScanner` — mtime-cached directory scanner for SKILL.md packages
+- `SkillCatalog` — Progressive skill loading with on-demand discovery (register actions on `load_skill`)
 - `SkillWatcher` — Platform-native filesystem watcher (inotify/FSEvents/ReadDirectoryChangesW)
 - `SkillMetadata` — Parsed metadata from SKILL.md frontmatter
 - Dependency resolution: `resolve_dependencies`, `expand_transitive_dependencies`, `validate_dependencies`
@@ -95,6 +99,7 @@ dcc-mcp-http ← dcc-mcp-transport, dcc-mcp-protocols
 - `ResourceDefinition`, `ResourceTemplateDefinition`, `ResourceAnnotations` — MCP resource schema
 - `PromptDefinition`, `PromptArgument` — MCP prompt schema
 - `DccAdapter` — DCC adapter capability descriptor
+- `BridgeKind` — Bridge type enum (Http, WebSocket, NamedPipe, Custom) for non-Python DCCs
 
 **Dependencies**: `dcc-mcp-models`
 
@@ -198,14 +203,36 @@ dcc-mcp-http ← dcc-mcp-transport, dcc-mcp-protocols
 
 ### dcc-mcp-http
 
-**Purpose**: MCP Streamable HTTP server (2025-03-26 spec) for HTTP-based MCP clients.
+**Purpose**: MCP Streamable HTTP server (2025-03-26 spec) for HTTP-based MCP clients, with optional gateway competition.
 
 **Key Components**:
 - `McpHttpServer` — Background-thread HTTP server (axum/Tokio)
-- `McpHttpConfig` — Server configuration (port, CORS, request timeout)
-- `ServerHandle` — Server handle for URL retrieval and graceful shutdown
+- `McpHttpConfig` — Server configuration (port, CORS, request timeout, gateway fields)
+- `ServerHandle` — Server handle with URL retrieval, `is_gateway` flag, and graceful shutdown
+- `GatewayRunner` — First-wins port competition orchestrator
+- `GatewayConfig` — Gateway configuration (port, stale timeout, heartbeat interval)
+- `GatewayHandle` — Handle indicating whether this process won the gateway port
+- `GatewayState` — Shared gateway state (registry, stale timeout, HTTP client for proxying)
 
-**Dependencies**: `axum`, `tokio`
+**McpHttpConfig Gateway Fields**:
+- `gateway_port` — Port to compete for (0 = disabled, default 0)
+- `registry_dir` — Shared FileRegistry directory
+- `stale_timeout_secs` — Seconds without heartbeat before instance is stale
+- `heartbeat_secs` — Heartbeat interval in seconds
+- `dcc_type` / `dcc_version` / `scene` — Instance metadata for gateway routing
+
+**SSE Support**: `GET /mcp` long-lived SSE stream for server-push events
+
+**Dependencies**: `axum`, `tokio`, `reqwest`, `socket2`, `dcc-mcp-transport`, `dcc-mcp-protocols`, `dcc-mcp-actions`, `dcc-mcp-skills`
+
+### dcc-mcp-server
+
+**Purpose**: Binary entry point (`dcc-mcp-server` CLI) that assembles and runs the full MCP server with gateway support.
+
+**Key Components**:
+- `main.rs` — CLI entry point using `GatewayRunner` and `McpHttpServer` library APIs
+
+**Dependencies**: `dcc-mcp-http`
 
 ### dcc-mcp-utils
 
@@ -257,7 +284,7 @@ If you need custom middleware or fine-grained control, assemble the stack manual
 
 ## Python Bindings
 
-All 13 crates are compiled into a single PyO3 native extension (`dcc_mcp_core._core`) via `maturin`.
+All 14 crates are compiled into a single PyO3 native extension (`dcc_mcp_core._core`) via `maturin`.
 
 ```toml
 # pyproject.toml
@@ -270,7 +297,7 @@ dependencies = []  # Zero runtime dependencies
 
 ```
 python/dcc_mcp_core/
-├── __init__.py     # Public API (re-exports ~130 symbols from _core)
+├── __init__.py     # Public API (re-exports ~140 symbols from _core)
 ├── _core.pyi       # Type stubs (auto-generated from Rust)
 └── py.typed        # PEP 561 marker
 ```

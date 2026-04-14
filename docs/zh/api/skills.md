@@ -11,30 +11,34 @@
 当通过 `with_dispatcher()` 附加了调度器时，加载 Skill 会自动为每个 Action 注册基于子进程的处理器 — 启用 Skills-First 工作流，Agent 无需手动注册处理器。
 
 ```python
-from dcc_mcp_core import SkillScanner, SkillCatalog
+from dcc_mcp_core import SkillCatalog, ActionRegistry
 
-scanner = SkillScanner()
-catalog = SkillCatalog(scanner)
+registry = ActionRegistry()
+catalog = SkillCatalog(registry)
 ```
 
 ### 构造函数
 
 ```python
-SkillCatalog(scanner: SkillScanner) -> SkillCatalog
+SkillCatalog(registry: ActionRegistry) -> SkillCatalog
 ```
 
 | 参数 | 类型 | 说明 |
 |------|------|------|
-| `scanner` | `SkillScanner` | 用于发现的扫描器实例 |
+| `registry` | `ActionRegistry` | 用于注册/注销工具的 Action 注册表 |
 
 ### 方法
 
 | 方法 | 返回值 | 说明 |
 |------|--------|------|
 | `with_dispatcher(dispatcher)` | — | 附加 `ActionDispatcher`；启用 `load_skill()` 时的自动处理器注册 |
-| `discover(extra_paths=None, dcc_name=None)` | `None` | 扫描并填充目录 |
-| `load_skill(skill_name)` | `bool` | 加载 Skill；成功返回 `True`，已加载或未找到返回 `False` |
-| `unload_skill(skill_name)` | `bool` | 卸载 Skill；成功返回 `True`，未加载返回 `False` |
+| `new_with_dispatcher(registry, dispatcher)` | — | 创建带 dispatcher 的 catalog（构造器式） |
+| `discover(extra_paths=None, dcc_name=None)` | `int` | 扫描并填充目录；返回新发现的 skill 数量 |
+| `load_skill(skill_name)` | `List[str]` | 加载 Skill；返回注册的 action 名称列表，未找到则报错 |
+| `load_skills(skill_names)` | `dict` | 批量加载；返回 `{name: Ok(actions) or Err(msg)}` |
+| `unload_skill(skill_name)` | `int` | 卸载 Skill；返回移除的 action 数量，未加载则报错 |
+| `remove_skill(skill_name)` | `bool` | 从目录中完全移除（已加载则先卸载） |
+| `clear()` | `None` | 清空所有 Skill（已加载的先卸载） |
 | `find_skills(query=None, tags=None, dcc=None)` | `List[SkillSummary]` | 按 name/tags/dcc 搜索（所有过滤器 AND 组合）|
 | `list_skills(status=None)` | `List[SkillSummary]` | 列出 Skill。status：`"loaded"` 或 `"unloaded"`，`None` 为全部 |
 | `get_skill_info(skill_name)` | `SkillMetadata \| None` | 返回完整元数据，未找到返回 `None` |
@@ -46,12 +50,13 @@ SkillCatalog(scanner: SkillScanner) -> SkillCatalog
 
 ```python
 import os
-from dcc_mcp_core import SkillScanner, SkillCatalog, ActionRegistry, ActionDispatcher
+from dcc_mcp_core import SkillCatalog, ActionRegistry, ActionDispatcher
 
 os.environ["DCC_MCP_SKILL_PATHS"] = "/path/to/skills"
 
-scanner = SkillScanner()
-catalog = SkillCatalog(scanner)
+registry = ActionRegistry()
+dispatcher = ActionDispatcher(registry)
+catalog = SkillCatalog.new_with_dispatcher(registry, dispatcher)
 
 # 发现 Skill
 catalog.discover(extra_paths=["/extra/skills"], dcc_name="maya")
@@ -66,14 +71,9 @@ results = catalog.find_skills(query="geometry", tags=["create"])
 for s in results:
     print(f"  {s.name}: {s.tool_count} tools → {s.tool_names}")
 
-# 附加调度器 — 启用 Skills-First 自动处理器注册
-registry = ActionRegistry()
-dispatcher = ActionDispatcher(registry)
-catalog.with_dispatcher(dispatcher)
-
 # 加载 Skill（附加调度器后 Action 自动注册）
-ok = catalog.load_skill("maya-geometry")
-print(f"已加载: {ok}")
+actions = catalog.load_skill("maya-geometry")
+print(f"已注册 actions: {actions}")
 
 # 获取完整元数据
 meta = catalog.get_skill_info("maya-geometry")
@@ -84,8 +84,8 @@ if meta:
 print(catalog.loaded_count())
 
 # 卸载
-ok = catalog.unload_skill("maya-geometry")
-print(f"已卸载: {ok}")
+removed = catalog.unload_skill("maya-geometry")
+print(f"已移除 {removed} 个 action")
 ```
 
 ---
@@ -100,6 +100,7 @@ print(f"已卸载: {ok}")
 |------|------|------|
 | `name` | `str` | Skill 名称 |
 | `description` | `str` | 简短描述 |
+| `search_hint` | `str` | 发现关键词提示（来自 SKILL.md `search-hint:`；回退到 `description`） |
 | `tags` | `List[str]` | Skill 标签 |
 | `dcc` | `str` | 目标 DCC（如 `"maya"`）|
 | `version` | `str` | Skill 版本 |
@@ -185,6 +186,7 @@ SkillMetadata(
     tools: List[str] | None = None,
     dcc: str = "python",
     tags: List[str] | None = None,
+    search_hint: str = "",
     scripts: List[str] | None = None,
     skill_path: str = "",
     version: str = "1.0.0",
@@ -199,6 +201,7 @@ SkillMetadata(
 |------|------|------|
 | `name` | `str` | 唯一 Skill 名称 |
 | `description` | `str` | 简短描述 |
+| `search_hint` | `str` | `search_skills` 的关键词提示（SKILL.md `search-hint:` 字段；回退到 `description`） |
 | `tools` | `List[str]` | frontmatter 中的工具名称 |
 | `dcc` | `str` | 目标 DCC 应用 |
 | `tags` | `List[str]` | 分类标签 |

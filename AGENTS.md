@@ -34,9 +34,9 @@
 
 ### Key Architecture Facts
 
-- **Language**: Rust core (12 crates workspace) + Python bindings via PyO3
+- **Language**: Rust core (14 crates workspace) + Python bindings via PyO3
 - **Build system**: `cargo` (Rust) + `maturin` (Python wheels)
-- **Python package**: `dcc_mcp_core` with ~130 public symbols re-exported from `_core` native extension (see `python/dcc_mcp_core/__init__.py`)
+- **Python package**: `dcc_mcp_core` with ~140 public symbols re-exported from `_core` native extension (see `python/dcc_mcp_core/__init__.py`)
 - **Zero runtime Python dependencies** — everything is compiled into the Rust core
 - **Version**: current (use Release Please for versioning — never manually bump)
 - **Python support**: 3.7–3.13 (CI tests 3.7–3.13; abi3-py38 wheel for 3.8+)
@@ -46,32 +46,34 @@
 ```
 dcc-mcp-core/
 ├── src/lib.rs                  # PyO3 entry point (_core module)
-├── Cargo.toml                  # Workspace definition (12 crates)
+├── Cargo.toml                  # Workspace definition (14 crates)
 ├── pyproject.toml              # Python package metadata
 ├── justfile                    # Development commands (use: vx just <recipe>)
 │
 ├── crates/                     # Rust workspace crates
 │   ├── dcc-mcp-models/         # ActionResultModel, SkillMetadata
 │   ├── dcc-mcp-actions/        # ActionRegistry, EventBus, Pipeline, Dispatcher, Validator
-│   ├── dcc-mcp-skills/         # SkillScanner, SkillLoader, SkillWatcher, Resolver
-│   ├── dcc-mcp-protocols/      # MCP types: ToolDefinition, ResourceDefinition, Prompt, DccAdapter
-│   ├── dcc-mcp-transport/      # IPC, ConnectionPool, SessionManager, CircuitBreaker, FramedChannel
+│   ├── dcc-mcp-skills/         # SkillScanner, SkillCatalog, SkillWatcher, Resolver
+│   ├── dcc-mcp-protocols/      # MCP types: ToolDefinition, ResourceDefinition, Prompt, DccAdapter, BridgeKind
+│   ├── dcc-mcp-transport/      # IPC, ConnectionPool, FileRegistry, CircuitBreaker, FramedChannel
 │   ├── dcc-mcp-process/        # PyDccLauncher, ProcessMonitor, ProcessWatcher, CrashRecovery
 │   ├── dcc-mcp-telemetry/      # Tracing/recording infrastructure
 │   ├── dcc-mcp-sandbox/        # Security policy, input validation, audit logging
 │   ├── dcc-mcp-shm/            # Shared memory buffers (LZ4 compressed)
 │   ├── dcc-mcp-capture/        # Screen/window capture backend
 │   ├── dcc-mcp-usd/            # USD scene description bridge
-│   ├── dcc-mcp-http/           # MCP Streamable HTTP server (2025-03-26 spec, McpHttpServer)
+│   ├── dcc-mcp-http/           # MCP Streamable HTTP server (2025-03-26 spec, McpHttpServer, Gateway)
+│   ├── dcc-mcp-server/         # Binary entry point, gateway runner
 │   └── dcc-mcp-utils/          # Filesystem, type wrappers, constants, JSON helpers
 │
 ├── python/dcc_mcp_core/
-│   ├── __init__.py             # Public API re-exports (~120 symbols) — ALWAYS read this first
+│   ├── __init__.py             # Public API re-exports (~140 symbols) — ALWAYS read this first
 │   ├── _core.pyi               # Type stubs (auto-generated-ish) — ground truth for parameter names
+│   ├── skill.py                # Pure-Python skill script helpers (no _core dependency)
 │   └── py.typed                # PEP 561 marker
 │
 ├── tests/                      # Python integration tests (26 files)
-├── examples/skills/            # 9 example SKILL.md packages (hello-world, maya-*, git-*, etc.)
+├── examples/skills/            # 11 example SKILL.md packages (hello-world, maya-*, git-*, etc.)
 ├── docs/                       # VitePress documentation site (EN + ZH)
 │   ├── api/                    # API reference per module
 │   └── guide/                  # User guides & tutorials
@@ -291,56 +293,6 @@ rl.max_calls                              # int
 rl.window_ms                              # int
 ```
 
-**ActionPipeline patterns:**
-
-```python
-from dcc_mcp_core import ActionRegistry, ActionDispatcher, ActionPipeline
-
-reg = ActionRegistry()
-reg.register("create_sphere", description="Create sphere", category="geometry")
-
-dispatcher = ActionDispatcher(reg)
-dispatcher.register_handler("create_sphere", lambda params: {"name": "sphere1"})
-
-pipeline = ActionPipeline(dispatcher)
-
-# Built-in middleware (add in desired order)
-pipeline.add_logging(log_params=True)         # tracing log before/after each action
-timing = pipeline.add_timing()                # measure per-action latency
-audit = pipeline.add_audit(record_params=True) # in-memory audit log
-rl = pipeline.add_rate_limit(max_calls=10, window_ms=1000)  # fixed-window rate limiter
-
-# Python callable hooks (flexible custom middleware)
-pipeline.add_callable(
-    before_fn=lambda action: print(f"before: {action}"),
-    after_fn=lambda action, success: print(f"after: {action} ok={success}"),
-)
-
-# Dispatch
-result = pipeline.dispatch("create_sphere", '{"radius": 1.0}')
-result["output"]          # {"name": "sphere1"}
-result["action"]          # "create_sphere"
-result["validation_skipped"]  # bool
-
-# Register handler directly on pipeline (mirrors ActionDispatcher)
-pipeline.register_handler("delete_sphere", lambda params: True)
-
-# Introspect middleware
-pipeline.middleware_count()   # int
-pipeline.middleware_names()   # ["logging", "timing", "audit", "rate_limit", "python_callable"]
-pipeline.handler_count()      # int
-
-# Query middleware state
-timing.last_elapsed_ms("create_sphere")  # int | None (milliseconds)
-audit.records()                           # list[dict] with action/success/error/timestamp_ms
-audit.records_for_action("create_sphere") # filtered records
-audit.record_count()                      # int
-audit.clear()                             # reset
-rl.call_count("create_sphere")            # int (calls in current window)
-rl.max_calls                              # int
-rl.window_ms                              # int
-```
-
 **ActionResultModel fields:**
 
 ```python
@@ -398,8 +350,7 @@ from dcc_mcp_core import (
 ```python
 # ─────────────────────────────────────────────────────────────
 # Skills-First (recommended): one-call setup
-# Bundled skills (dcc-diagnostics, workflow, git-automation,
-# ffmpeg-media, imagemagick-tools) are loaded automatically.
+# Bundled skills (dcc-diagnostics, workflow) are loaded automatically.
 # ─────────────────────────────────────────────────────────────
 import os
 os.environ["DCC_MCP_MAYA_SKILL_PATHS"] = "/studio/maya-skills"  # or DCC_MCP_SKILL_PATHS
@@ -820,7 +771,7 @@ set DCC_MCP_SKILL_PATHS=C:\path\skills1;C:\path\skills2
 | `.ps1` | PowerShell | `powershell -File` |
 | `.js`, `.jsx` | JavaScript | `node` |
 
-See `examples/skills/` for **9 complete examples**: hello-world, maya-geometry, maya-pipeline, git-automation, ffmpeg-media, imagemagick-tools, usd-tools, clawhub-compat, multi-script.
+See `examples/skills/` for **11 complete examples**: hello-world, maya-geometry, maya-pipeline, git-automation, ffmpeg-media, imagemagick-tools, usd-tools, clawhub-compat, multi-script, dcc-diagnostics, workflow.
 
 ## Adding New Python-Accessible Functions/Classes
 

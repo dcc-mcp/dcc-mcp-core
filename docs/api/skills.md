@@ -11,30 +11,33 @@ Progressive skill discovery and loading. Thread-safe (all state stored in DashMa
 When a dispatcher is attached via `with_dispatcher()`, loading a skill also registers a subprocess-based handler for each action — enabling the Skills-First workflow where agents never need to register handlers manually.
 
 ```python
-from dcc_mcp_core import SkillScanner, SkillCatalog
+from dcc_mcp_core import SkillCatalog, ActionRegistry
 
-scanner = SkillScanner()
-catalog = SkillCatalog(scanner)
+registry = ActionRegistry()
+catalog = SkillCatalog(registry)
 ```
 
 ### Constructor
 
 ```python
-SkillCatalog(scanner: SkillScanner) -> SkillCatalog
+SkillCatalog(registry: ActionRegistry) -> SkillCatalog
 ```
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `scanner` | `SkillScanner` | Scanner instance used for discovery |
+| `registry` | `ActionRegistry` | Action registry for registering skill tools |
 
 ### Methods
 
 | Method | Returns | Description |
 |--------|---------|-------------|
 | `with_dispatcher(dispatcher)` | — | Attach an `ActionDispatcher`; enables auto-handler registration on `load_skill()` |
-| `discover(extra_paths=None, dcc_name=None)` | `None` | Scan for skills and populate the catalog |
-| `load_skill(skill_name)` | `bool` | Load a skill; returns `True` on success, `False` if already loaded or not found |
-| `unload_skill(skill_name)` | `bool` | Unload a skill; returns `True` on success, `False` if not loaded |
+| `discover(extra_paths=None, dcc_name=None)` | `int` | Scan for skills and populate the catalog; returns number of newly discovered skills |
+| `load_skill(skill_name)` | `List[str]` | Load a skill; returns list of registered action names. Raises `ValueError` if not found |
+| `load_skills(skill_names)` | `dict[str, Result]` | Batch load multiple skills; returns map of name → result |
+| `unload_skill(skill_name)` | `int` | Unload a skill; returns number of actions removed. Raises `ValueError` if not loaded |
+| `remove_skill(skill_name)` | `bool` | Remove a skill from the catalog entirely (unloads first if loaded) |
+| `clear()` | `None` | Clear all skills from the catalog (unloads first) |
 | `find_skills(query=None, tags=None, dcc=None)` | `List[SkillSummary]` | Search by name/tags/dcc (all filters AND-ed) |
 | `list_skills(status=None)` | `List[SkillSummary]` | List skills. `status`: `"loaded"` or `"unloaded"`, or `None` for all |
 | `get_skill_info(skill_name)` | `SkillMetadata \| None` | Full metadata for a skill, or `None` if not found |
@@ -46,12 +49,12 @@ SkillCatalog(scanner: SkillScanner) -> SkillCatalog
 
 ```python
 import os
-from dcc_mcp_core import SkillScanner, SkillCatalog, ActionRegistry, ActionDispatcher
+from dcc_mcp_core import SkillCatalog, ActionRegistry, ActionDispatcher
 
 os.environ["DCC_MCP_SKILL_PATHS"] = "/path/to/skills"
 
-scanner = SkillScanner()
-catalog = SkillCatalog(scanner)
+registry = ActionRegistry()
+catalog = SkillCatalog(registry)
 
 # Discover skills
 catalog.discover(extra_paths=["/extra/skills"], dcc_name="maya")
@@ -67,13 +70,12 @@ for s in results:
     print(f"  {s.name}: {s.tool_count} tools → {s.tool_names}")
 
 # With dispatcher — enables Skills-First auto-handler registration
-registry = ActionRegistry()
 dispatcher = ActionDispatcher(registry)
 catalog.with_dispatcher(dispatcher)
 
 # Load a skill (actions auto-registered if dispatcher is attached)
-ok = catalog.load_skill("maya-geometry")
-print(f"Loaded: {ok}")
+actions = catalog.load_skill("maya-geometry")
+print(f"Loaded actions: {actions}")
 
 # Get full metadata
 meta = catalog.get_skill_info("maya-geometry")
@@ -84,8 +86,8 @@ if meta:
 print(catalog.loaded_count())
 
 # Unload
-ok = catalog.unload_skill("maya-geometry")
-print(f"Unloaded: {ok}")
+removed = catalog.unload_skill("maya-geometry")
+print(f"Unloaded {removed} actions")
 ```
 
 ---
@@ -100,6 +102,7 @@ Lightweight summary returned by `SkillCatalog.find_skills()` and `list_skills()`
 |----------|------|-------------|
 | `name` | `str` | Skill name |
 | `description` | `str` | Short description |
+| `search_hint` | `str` | Keyword hint for search (from `search-hint:` in SKILL.md; falls back to `description`) |
 | `tags` | `List[str]` | Skill tags |
 | `dcc` | `str` | Target DCC (e.g. `"maya"`) |
 | `version` | `str` | Skill version |

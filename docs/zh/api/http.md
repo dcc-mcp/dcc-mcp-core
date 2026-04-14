@@ -30,11 +30,24 @@ cfg = McpHttpConfig(
 
 ### 属性
 
-| 属性 | 类型 | 说明 |
-|------|------|------|
-| `port` | `int` | 服务器监听的 TCP 端口 |
-| `server_name` | `str` | MCP 响应中的服务器名称 |
-| `server_version` | `str` | MCP 响应中的服务器版本 |
+| 属性 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `port` | `int` | `8765` | 服务器监听的 TCP 端口（`0` = OS 分配） |
+| `host` | `str` | `"127.0.0.1"` | 绑定的 IP 地址 |
+| `endpoint_path` | `str` | `"/mcp"` | MCP 端点路径 |
+| `server_name` | `str` | `"dcc-mcp"` | MCP 响应中的服务器名称 |
+| `server_version` | `str` | 包版本 | MCP 响应中的服务器版本 |
+| `max_sessions` | `int` | `100` | 最大并发 SSE 会话数 |
+| `request_timeout_ms` | `int` | `30000` | 每个请求的超时时间（毫秒） |
+| `enable_cors` | `bool` | `False` | 是否启用浏览器客户端的 CORS |
+| `session_ttl_secs` | `int` | `3600` | 空闲会话 TTL 秒数（0 禁用自动清理） |
+| `gateway_port` | `int` | `0` | 竞争的网关端口（`0` = 禁用）。参见[网关](#网关) |
+| `registry_dir` | `str \| None` | `None` | 共享 `FileRegistry` JSON 目录（默认 OS 临时目录） |
+| `stale_timeout_secs` | `int` | `30` | 心跳超时秒数（实例视为过期） |
+| `heartbeat_secs` | `int` | `5` | 心跳间隔秒数（`0` = 禁用） |
+| `dcc_type` | `str \| None` | `None` | 注册表中报告的 DCC 类型（如 `"maya"`、`"blender"`） |
+| `dcc_version` | `str \| None` | `None` | 注册表中报告的 DCC 版本（如 `"2025"`） |
+| `scene` | `str \| None` | `None` | 当前打开的场景文件 — 改善网关路由 |
 
 ## ServerHandle
 
@@ -54,6 +67,7 @@ from dcc_mcp_core import McpServerHandle  # ServerHandle 的别名
 |------|------|------|
 | `port` | `int` | 服务器实际绑定的端口（当 port=0 时有用） |
 | `bind_addr` | `str` | 绑定地址，如 `"127.0.0.1:8765"` |
+| `is_gateway` | `bool` | 若本进程赢得网关端口竞争则为 `True` |
 
 ### 方法
 
@@ -113,6 +127,7 @@ server = McpHttpServer(
 |------|------|------|
 | `/mcp` | POST | MCP 请求（JSON-RPC 2.0） |
 | `/mcp` | GET | SSE 兼容的事件流 |
+| `/mcp` | DELETE | 终止 MCP 会话 |
 | `/health` | GET | 健康检查 |
 
 ### 请求/响应格式
@@ -194,6 +209,81 @@ print(f"Maya MCP 服务器: {handle.mcp_url()}")
 # 输出: Maya MCP 服务器: http://127.0.0.1:18812/mcp
 ```
 
+## 网关
+
+当多个 DCC 实例同时启动时，其中一个会自动成为**网关** — 一个统一的入口点，发现并代理所有运行中的实例。
+
+### 工作原理
+
+- 每个实例在共享的 `FileRegistry`（磁盘上的 JSON 文件）中注册自身，并定期发送心跳。
+- **首个**绑定 `gateway_port`（默认：`9765`）的进程成为网关；其余为普通实例。
+- 互斥使用 `SO_REUSEADDR=false`（通过 `socket2`），确保跨平台（包括 Windows）的首个获胜语义。
+- 网关自动清理过期实例（在 `stale_timeout_secs` 内未收到心跳）。
+- 进程退出时，`ServerHandle` 被 drop，实例自动注销。
+
+### 网关端点
+
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/instances` | GET | 所有活跃实例的 JSON 列表 |
+| `/health` | GET | `{"ok": true}` 健康检查 |
+| `/mcp` | POST | 网关自身的 MCP 端点（发现元工具） |
+| `/mcp/{instance_id}` | POST | 透明代理到指定实例 |
+| `/mcp/dcc/{dcc_type}` | POST | 代理到指定 DCC 类型的最佳实例 |
+
+### 网关 MCP 元工具
+
+网关通过自身的 `/mcp` 端点暴露三个发现工具：
+
+| 工具 | 说明 |
+|------|------|
+| `list_dcc_instances` | 列出所有活跃 DCC 服务器（类型、端口、场景、状态） |
+| `get_dcc_instance` | 获取指定实例的信息（按 id 或 `dcc_type+scene`） |
+| `connect_to_dcc` | 返回 DCC 实例的直接 MCP URL |
+
+### Python 示例
+
+```python
+from dcc_mcp_core import ActionRegistry, McpHttpServer, McpHttpConfig
+
+registry = ActionRegistry()
+registry.register("get_scene_info", description="获取场景信息", category="scene", dcc="maya")
+
+config = McpHttpConfig(port=0, server_name="maya-mcp")
+config.gateway_port = 9765    # 加入网关竞争；0 = 禁用
+config.dcc_type = "maya"
+config.dcc_version = "2025"
+config.scene = "/proj/shot01.ma"  # 可选：帮助按场景路由
+
+server = McpHttpServer(registry, config)
+handle = server.start()
+
+print(handle.is_gateway)        # True 表示本进程赢得了网关端口
+print(handle.mcp_url())         # 本实例的直接 MCP URL
+# → 若 is_gateway=True，网关在 http://127.0.0.1:9765/
+# → 实例在 http://127.0.0.1:<port>/mcp
+```
+
+::: tip 多 DCC、单入口
+启动任意数量的 DCC 服务器 — 第一个赢得网关端口。Agent 始终连接 `http://localhost:9765/mcp`，使用 `list_dcc_instances` / `connect_to_dcc` 发现并路由到特定 DCC 进程。
+:::
+
+::: info Skills-First + 网关
+`create_skill_manager()` 默认**不**配置 `gateway_port`。如需参与网关，需在传入的 `McpHttpConfig` 上显式设置：
+
+```python
+import os
+from dcc_mcp_core import create_skill_manager, McpHttpConfig
+
+config = McpHttpConfig(port=0, server_name="maya")
+config.gateway_port = 9765
+config.dcc_type = "maya"
+
+server = create_skill_manager("maya", config)
+handle = server.start()
+```
+:::
+
 ## CORS 配置
 
 为浏览器 MCP 客户端启用 CORS：
@@ -238,3 +328,4 @@ print(handle.mcp_url())
 - 每个调用的请求超时（默认 30 秒）
 - HTTP 层无连接池（每个 POST 无状态）
 - 使用 `TransportManager` 获取与 DCC 的持久 IPC 会话
+- 网关 `FileRegistry` 每次变更都刷新到磁盘 — 多进程安全但不适合高频写入

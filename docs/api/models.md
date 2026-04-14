@@ -94,6 +94,7 @@ Metadata parsed from SKILL.md frontmatter. All fields are readable and writable.
 |-------|------|---------|-------------|
 | `name` | `str` | — | Unique identifier |
 | `description` | `str` | `""` | Human-readable description |
+| `search_hint` | `str` | `""` | Keyword hint for `search_skills` (SKILL.md `search-hint:` field; falls back to `description`) |
 | `tools` | `List[str]` | `[]` | Required tool permissions |
 | `dcc` | `str` | `"python"` | Target DCC application |
 | `tags` | `List[str]` | `[]` | Classification tags |

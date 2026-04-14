@@ -20,7 +20,10 @@ DCC-MCP-Core is a foundational Rust library with Python bindings that provides:
 dcc-mcp-core is DCC-agnostic — the core library provides the infrastructure. DCC-specific integrations are separate projects:
 
 - **Maya** — via [dcc-mcp-maya](https://github.com/loonghao/dcc-mcp-maya)
-- **Blender, Houdini, 3ds Max, Unreal** — community/third-party integrations using this library
+- **Unreal Engine** — via [dcc-mcp-unreal](https://github.com/loonghao/dcc-mcp-unreal) (in development, Python embedded)
+- **Photoshop** — via [dcc-mcp-photoshop](https://github.com/loonghao/dcc-mcp-photoshop) (in development, WebSocket bridge)
+- **ZBrush** — via [dcc-mcp-zbrush](https://github.com/loonghao/dcc-mcp-zbrush) (in development, HTTP bridge)
+- **Blender, Houdini, 3ds Max** — community/third-party integrations using this library
 
 The core library works with any Python 3.7+ environment.
 
@@ -260,6 +263,47 @@ print(handle.mcp_url())  # http://127.0.0.1:8765/mcp
 # Connect your AI client to this URL
 handle.shutdown()
 ```
+
+## Gateway
+
+### How do I run multiple DCC instances with a single endpoint?
+
+Use the **Gateway** feature. Set `gateway_port` on `McpHttpConfig` to a well-known port (default: `9765`). The first process to bind that port becomes the gateway; all others register as plain DCC instances:
+
+```python
+from dcc_mcp_core import ActionRegistry, McpHttpServer, McpHttpConfig
+
+registry = ActionRegistry()
+config = McpHttpConfig(port=0, server_name="maya-mcp")
+config.gateway_port = 9765
+config.dcc_type = "maya"
+
+server = McpHttpServer(registry, config)
+handle = server.start()
+print(handle.is_gateway)  # True if this process won the gateway port
+```
+
+Agents always connect to `http://localhost:9765/mcp` and use `list_dcc_instances` / `connect_to_dcc` to discover and route to specific DCC processes.
+
+### What is BridgeKind?
+
+`BridgeKind` describes how a DCC communicates when it does **not** have an embedded Python interpreter:
+- `Http` — HTTP REST bridge (e.g. ZBrush)
+- `WebSocket` — WebSocket JSON-RPC bridge (e.g. Photoshop UXP)
+- `NamedPipe` — Named pipe bridge (e.g. 3ds Max COM)
+
+Set `DccCapabilities(bridge_kind="http", bridge_endpoint="http://localhost:1234", has_embedded_python=False)` for bridge-based DCCs.
+
+## On-Demand Skill Discovery
+
+### How does on-demand skill discovery work?
+
+When `create_skill_manager()` starts, it only **discovers** skills (reads SKILL.md files) — it does **not** load them. The `tools/list` response shows:
+1. 6 core discovery tools (always present)
+2. Loaded skill tools with full schemas
+3. Unloaded skill stubs as `__skill__<name>` (name + one-line description only)
+
+Agents use `search_skills(query="keyword")` to find relevant skills, then `load_skill(skill_name="...")` to activate them. This keeps the initial tool list small and loads schemas only when needed.
 
 ## Troubleshooting
 

@@ -45,7 +45,7 @@ flowchart LR
 
 ## 架构
 
-DCC-MCP-Core 是一个包含 **13 个子 crate** 的 Rust workspace，通过 maturin 编译为单一 Python 扩展模块 `dcc_mcp_core._core`：
+DCC-MCP-Core 是一个包含 **14 个子 crate** 的 Rust workspace，通过 maturin 编译为单一 Python 扩展模块 `dcc_mcp_core._core`：
 
 ```
 dcc-mcp-core/
@@ -62,17 +62,19 @@ dcc-mcp-core/
 │   ├── dcc-mcp-shm/            # PySharedBuffer, PyBufferPool, PySharedSceneBuffer
 │   ├── dcc-mcp-capture/        # Capturer, CaptureFrame
 │   ├── dcc-mcp-usd/            # UsdStage, UsdPrim, VtValue, SdfPath
-│   ├── dcc-mcp-http/           # McpHttpServer, McpHttpConfig, ServerHandle
+│   ├── dcc-mcp-http/           # McpHttpServer, McpHttpConfig, ServerHandle, Gateway
+│   ├── dcc-mcp-server/         # dcc-mcp-server CLI, Gateway runner
 │   └── dcc-mcp-utils/          # 文件系统, 常量, 类型包装器, JSON 工具
 └── python/
     └── dcc_mcp_core/
-        ├── __init__.py          # 从 _core 重导出约 130 个公开符号
+        ├── __init__.py          # 从 _core 重导出约 140 个公开符号
+        ├── skill.py             # 纯 Python Skill 脚本辅助（无 _core 依赖）
         └── _core.pyi            # 所有公开 API 的类型存根
 ```
 
 ## Python API 概览
 
-所有公开 API 均可从顶层包 `dcc_mcp_core` 访问，包含约 130 个公开符号，跨越 13 个领域：
+所有公开 API 均可从顶层包 `dcc_mcp_core` 访问，包含约 140 个公开符号，跨越 14 个领域：
 
 ```python
 from dcc_mcp_core import (
@@ -118,7 +120,7 @@ from dcc_mcp_core import (
 
 ## 版本与 Python 支持
 
-- **当前版本**：0.12.12
+- **当前版本**：0.12.23
 - **Python**：3.7–3.13（abi3-py38 wheel，CI 全版本测试）
 - **Rust**：Edition 2024，MSRV 1.85
 - **构建**：maturin + PyO3；零运行时 Python 依赖

@@ -30,12 +30,12 @@ vx just test-cov      # Coverage report to find gaps
 
 ### Architecture Summary
 
-- **12 Rust crates** under `crates/`, compiled into `_core` native extension
-- **~130 public Python symbols** exported from `python/dcc_mcp_core/__init__.py`
+- **14 Rust crates** under `crates/`, compiled into `_core` native extension
+- **~140 public Python symbols** exported from `python/dcc_mcp_core/__init__.py`
 - **Zero runtime Python deps** — all logic in Rust
 - Key entry point: `src/lib.rs` (PyO3 `#[pymodule]`)
 - Python 3.7–3.13 supported (CI tests 3.7–3.13)
-- Version: **0.12.9** — never manually bump (Release Please manages)
+- Version: **0.12.23** — never manually bump (Release Please manages)
 
 ## Claude-Specific Workflows
 
@@ -55,11 +55,11 @@ vx just test-cov      # Coverage report to find gaps
 - Action naming: `{skill_name}__{script_stem}` (double underscore, hyphens→underscores)
 - Use `scan_and_load()` or `scan_and_load_lenient()` — not the old `scan_and_load_skills()`
 - **`scan_and_load` returns a 2-tuple**: `(List[SkillMetadata], List[str])` — always unpack both
-- See `examples/skills/` for 9 reference implementations
+- See `examples/skills/` for 11 reference implementations
 - **`search-hint` in SKILL.md**: add `search-hint: "keyword1, keyword2"` to improve `search_skills` matching without loading full schemas
 - **On-demand discovery**: `tools/list` returns skill stubs (`__skill__<name>`) for unloaded skills; use `search_skills(query)` then `load_skill(name)` to activate
-- **Bundled skills**: 5 general-purpose skills shipped inside the wheel (`dcc_mcp_core/skills/`):
-  `dcc-diagnostics`, `workflow`, `git-automation`, `ffmpeg-media`, `imagemagick-tools`
+- **Bundled skills**: 2 core skills shipped inside the wheel (`dcc_mcp_core/skills/`):
+  `dcc-diagnostics`, `workflow`
   — use `get_bundled_skills_dir()` / `get_bundled_skill_paths()` to get the path.
   DCC adapters include these by default (`include_bundled=True`).
 
@@ -213,7 +213,7 @@ def test_skill_scan(tmp_path):
 
 ## Key Files to Read First (Priority Order)
 
-1. `python/dcc_mcp_core/__init__.py` — Complete public API (~120 symbols)
+1. `python/dcc_mcp_core/__init__.py` — Complete public API (~140 symbols)
 2. `python/dcc_mcp_core/_core.pyi` — Type stubs with parameter names
 3. `AGENTS.md` — Full architecture, commands, pitfalls
 4. `crates/*/src/python.rs` — PyO3 binding implementations

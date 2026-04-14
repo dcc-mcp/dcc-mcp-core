@@ -48,7 +48,7 @@ vx just test
 
 - **Formatter**: `ruff format` (line length: 120)
 - **Linter**: `ruff check` (includes import sorting via `I` rules)
-- **Target**: Python 3.9+ (CI tests 3.9–3.13)
+- **Target**: Python 3.7+ (CI tests 3.7–3.13)
 - **Quotes**: Double quotes (`"`)
 - **Docstrings**: Google-style
 
@@ -97,19 +97,30 @@ def register_action(self, name: str, **kwargs: Any) -> None:
 ```
 crates/                      # Rust workspace crates (core logic)
 ├── dcc-mcp-models/          # ActionResultModel, SkillMetadata
-├── dcc-mcp-actions/         # ActionRegistry, EventBus
-├── dcc-mcp-skills/          # SkillScanner, SKILL.md loader
-├── dcc-mcp-protocols/       # MCP protocol types (Tool, Resource, Prompt)
-└── dcc-mcp-utils/           # Filesystem, constants, type wrappers, JSON conversion
+├── dcc-mcp-actions/         # ActionRegistry, ActionDispatcher, EventBus, ActionPipeline
+├── dcc-mcp-skills/          # SkillScanner, SkillCatalog, SkillWatcher, dependency resolver
+├── dcc-mcp-protocols/       # MCP protocol types (Tool, Resource, Prompt, DccAdapter, BridgeKind)
+├── dcc-mcp-transport/       # IPC, ConnectionPool, FramedChannel, CircuitBreaker, FileRegistry
+├── dcc-mcp-process/         # PyDccLauncher, ProcessMonitor, CrashRecovery
+├── dcc-mcp-telemetry/       # TelemetryConfig, ActionRecorder, ActionMetrics
+├── dcc-mcp-sandbox/         # SandboxPolicy, InputValidator, AuditLog
+├── dcc-mcp-shm/             # PyBufferPool, PySharedBuffer, LZ4 compression
+├── dcc-mcp-capture/         # Capturer, cross-platform backends
+├── dcc-mcp-usd/             # UsdStage, UsdPrim, scene info bridge
+├── dcc-mcp-http/            # McpHttpServer, McpHttpConfig, Gateway (first-wins competition)
+├── dcc-mcp-server/          # dcc-mcp-server binary, gateway runner
+└── dcc-mcp-utils/           # Filesystem, constants, type wrappers, JSON
 src/
 └── lib.rs                   # PyO3 module entry point (_core)
 python/
 └── dcc_mcp_core/
-    ├── __init__.py           # Public API re-exports from _core
+    ├── __init__.py           # Public API re-exports (~140 symbols) from _core
+    ├── _core.pyi             # Type stubs
+    ├── skill.py              # Pure-Python skill script helpers (no _core dependency)
     └── py.typed              # PEP 561 marker
 tests/                       # Python integration tests
 examples/
-└── skills/                  # Example SKILL.md packages
+└── skills/                  # Example SKILL.md packages (11 examples)
 ```
 
 ## Release Process
@@ -127,7 +138,9 @@ This project uses [Release Please](https://github.com/googleapis/release-please)
 | Command | Description |
 |---------|-------------|
 | `vx just install` | Install project dependencies |
-| `vx just test` | Run tests |
+| `vx just dev` | Build + install dev wheel (maturin develop) |
+| `vx just test` | Run Python tests |
+| `vx just test-rust` | Run Rust unit tests |
 | `vx just test-cov` | Run tests with coverage report |
 | `vx just lint` | Run linter checks (Rust + Python) |
 | `vx just lint-fix` | Auto-fix lint issues |

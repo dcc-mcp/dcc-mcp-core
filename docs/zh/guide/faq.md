@@ -20,9 +20,30 @@ DCC-MCP-Core 是一个基础 Rust 库（含 Python 绑定），提供：
 dcc-mcp-core 是 DCC 无关的 — 核心库提供基础设施，DCC 特定集成由独立项目提供：
 
 - **Maya** — 通过 [dcc-mcp-maya](https://github.com/loonghao/dcc-mcp-maya)
-- **Blender、Houdini、3ds Max、Unreal** — 使用本库的社区/第三方集成
+- **Unreal** — 通过 [dcc-mcp-unreal](https://github.com/loonghao/dcc-mcp-unreal)（Python embedded）
+- **Photoshop** — 通过 [dcc-mcp-photoshop](https://github.com/loonghao/dcc-mcp-photoshop)（WebSocket bridge）
+- **ZBrush** — 通过 [dcc-mcp-zbrush](https://github.com/loonghao/dcc-mcp-zbrush)（HTTP bridge）
+- **Blender、Houdini、3ds Max** — 社区/第三方集成
 
 核心库适用于任何 Python 3.7+ 环境。
+
+### 什么是 Gateway 模式？
+
+当多个 DCC 实例同时启动时，可以启用 **Gateway 模式** — 一个统一的入口点，自动发现和代理到所有运行中的实例：
+
+```python
+from dcc_mcp_core import McpHttpConfig
+
+config = McpHttpConfig(port=0)  # 实例自身的端口
+config.gateway_port = 9765      # Gateway 竞争端口（0 = 禁用）
+config.dcc_type = "maya"
+```
+
+- 首个绑定 `gateway_port` 的进程成为 Gateway
+- 其他进程注册为普通 DCC 实例
+- Agent 连接 `http://localhost:9765/mcp` 即可访问所有 DCC
+
+通过 `handle.is_gateway` 检查当前进程是否赢得了 Gateway 竞争。
 
 ### 支持哪些 Python 版本？
 
@@ -181,20 +202,20 @@ tools:
 ### 如何发现并加载 Skill？
 
 ```python
-from dcc_mcp_core import SkillScanner, SkillCatalog
+from dcc_mcp_core import SkillCatalog, ActionRegistry
 import os
 
 os.environ["DCC_MCP_SKILL_PATHS"] = "/path/to/skills"
 
-scanner = SkillScanner()
-catalog = SkillCatalog(scanner)
+registry = ActionRegistry()
+catalog = SkillCatalog(registry)
 
 # 发现 Skill
 catalog.discover(dcc_name="maya")
 
 # 加载 Skill
-ok = catalog.load_skill("maya-geometry")
-print(ok)  # True
+actions = catalog.load_skill("maya-geometry")
+print(actions)  # ["maya_geometry__create_sphere", ...]
 ```
 
 ### Skill 工具的 Action 命名规则是什么？
@@ -260,6 +281,48 @@ print(handle.mcp_url())  # http://127.0.0.1:8765/mcp
 # 将 AI 客户端连接到此 URL
 handle.shutdown()
 ```
+
+
+## 网关（Gateway）
+
+### 如何以单一端点运行多个 DCC 实例？
+
+使用 **Gateway** 功能。在 `McpHttpConfig` 上设置 `gateway_port` 为一个知名端口（默认：`9765`）。第一个绑定该端口的进程成为 Gateway；其他进程注册为普通 DCC 实例：
+
+```python
+from dcc_mcp_core import ActionRegistry, McpHttpServer, McpHttpConfig
+
+registry = ActionRegistry()
+config = McpHttpConfig(port=0, server_name="maya-mcp")
+config.gateway_port = 9765
+config.dcc_type = "maya"
+
+server = McpHttpServer(registry, config)
+handle = server.start()
+print(handle.is_gateway)  # 如果此进程赢得了 Gateway 端口则为 True
+```
+
+Agent 始终连接 `http://localhost:9765/mcp`，使用 `list_dcc_instances` / `connect_to_dcc` 发现并路由到特定 DCC 进程。
+
+### BridgeKind 是什么？
+
+`BridgeKind` 描述非 Python 内嵌 DCC 的桥接通信方式：
+- `Http` — HTTP REST 桥接（如 ZBrush）
+- `WebSocket` — WebSocket JSON-RPC 桥接（如 Photoshop UXP）
+- `NamedPipe` — 命名管道桥接（如 3ds Max COM）
+
+对桥接 DCC 设置 `DccCapabilities(bridge_kind="http", bridge_endpoint="http://localhost:1234", has_embedded_python=False)`。
+
+## 按需 Skill 发现
+
+### 按需 Skill 发现如何工作？
+
+`create_skill_manager()` 启动时只**发现** Skill（读取 SKILL.md 文件）— **不会**加载它们。`tools/list` 响应展示：
+1. 6 个核心发现工具（始终存在）
+2. 已加载 Skill 工具（带完整 schema）
+3. 未加载 Skill Stub，以 `__skill__<name>` 形式出现（仅名称 + 一行描述）
+
+Agent 使用 `search_skills(query="关键词")` 找到相关 Skill，然后 `load_skill(skill_name="...")` 激活它们。这保持了初始工具列表的精简，仅在需要时加载 schema。
 
 ## 故障排查
 

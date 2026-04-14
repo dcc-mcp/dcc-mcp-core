@@ -76,7 +76,7 @@ td.read_only, td.destructive, td.idempotent, td.source_file
 `tools:` frontmatter. Each entry maps to one MCP tool. When `tools:` is absent, the Skill
 falls back to auto-discovering scripts in `scripts/`.
 
-
+## ResourceDefinition
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -350,19 +350,59 @@ Feature flags advertising which sub-traits a DCC adapter supports.
 | `transform` | `bool` | `False` | Implements `DccTransform` |
 | `render_capture` | `bool` | `False` | Implements `DccRenderCapture` |
 | `hierarchy` | `bool` | `False` | Implements `DccHierarchy` |
+| `has_embedded_python` | `bool` | `True` | Whether the DCC has an embedded Python interpreter (`False` for bridge-based DCCs) |
+| `bridge_kind` | `str \| None` | `None` | Bridge kind: `"http"`, `"websocket"`, `"named_pipe"`, or custom string |
+| `bridge_endpoint` | `str \| None` | `None` | Bridge endpoint URL or socket path |
 | `extensions` | `dict[str, bool]` | `{}` | Arbitrary extension flags |
 
 ```python
 from dcc_mcp_core import DccCapabilities, ScriptLanguage
 
+# Python-embedded DCC (e.g. Maya, Blender)
 caps = DccCapabilities(
     script_languages=[ScriptLanguage.PYTHON, ScriptLanguage.MEL],
     scene_info=True,
     snapshot=True,
     file_operations=True,
 )
+
+# Bridge-based DCC (e.g. Photoshop via WebSocket)
+caps_bridge = DccCapabilities(
+    scene_info=True,
+    has_embedded_python=False,
+    bridge_kind="websocket",
+    bridge_endpoint="ws://localhost:12345",
+)
 if caps.scene_manager:
     print("scene manager available")
+```
+
+### BridgeKind
+
+`BridgeKind` describes how a non-Python DCC communicates with the MCP server. Bridge-based DCCs
+(e.g. ZBrush via HTTP, Photoshop via WebSocket, 3ds Max via Named Pipe) do not have an embedded
+Python interpreter, so they use a bridge protocol instead.
+
+In Python, `BridgeKind` is exposed as a `str` on `DccCapabilities.bridge_kind`:
+
+| Value | Description | Example DCC |
+|-------|-------------|-------------|
+| `"http"` | HTTP REST bridge | ZBrush 2024+ |
+| `"websocket"` | WebSocket JSON-RPC bridge | Photoshop (UXP) |
+| `"named_pipe"` | Named pipe / COM bridge | 3ds Max |
+| Custom string | Application-specific bridge | — |
+| `None` | Direct Python-embedded (no bridge) | Maya, Blender, Houdini |
+
+```python
+from dcc_mcp_core import DccCapabilities
+
+# Check if a DCC uses a bridge
+if caps.bridge_kind == "websocket":
+    print(f"Connect to bridge at {caps.bridge_endpoint}")
+
+# has_embedded_python is False for bridge-based DCCs
+if not caps.has_embedded_python:
+    print("This DCC requires a bridge connection")
 ```
 
 ### DccError

@@ -366,3 +366,62 @@ def create_skill_manager(
 ::: warning script execution
 All scripts run as subprocesses. Input parameters are passed via stdin as JSON. The script should write a JSON result to stdout and exit with code 0 on success.
 :::
+
+## On-Demand Skill Discovery (MCP HTTP)
+
+When using the MCP HTTP server (`McpHttpServer` or `create_skill_manager`), `tools/list` returns a **three-tier** response:
+
+### Three-Tier `tools/list` Response
+
+1. **6 core discovery tools** (always present):
+   - `find_skills` — Search for skills by query, tags, DCC type
+   - `list_skills` — List all skills with optional status filter
+   - `get_skill_info` — Get full metadata for a specific skill
+   - `load_skill` — Load a skill, registering its tools in ActionRegistry
+   - `unload_skill` — Unload a skill, removing its tools
+   - `search_skills` — Keyword search across name, description, search_hint, and tool_names
+
+2. **Loaded skill tools** — Full `input_schema` from the `ActionRegistry` for all currently loaded skills
+
+3. **Unloaded skill stubs** — `__skill__<name>` entries with a one-line description only (no full schema)
+
+### Workflow
+
+```
+1. AI calls tools/list → sees core tools + loaded tools + __skill__ stubs
+2. AI calls search_skills(query="geometry") → finds matching skills
+3. AI calls load_skill(skill_name="maya-geometry") → tools registered
+4. AI calls tools/list again → maya-geometry tools now have full schemas
+5. AI calls maya_geometry__create_sphere → skill script executes
+```
+
+### Skill Stub Behavior
+
+Calling an unloaded skill stub (`__skill__<name>`) returns an error with a hint:
+
+```json
+{
+  "error": "Skill 'maya-geometry' is not loaded. Call load_skill(skill_name=\"maya-geometry\") to register its tools."
+}
+```
+
+### `search_skills` MCP Tool
+
+```json
+{
+  "name": "search_skills",
+  "description": "Search for skills matching a keyword query",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {"type": "string", "description": "Search keyword"},
+      "dcc": {"type": "string", "description": "Filter by DCC type"}
+    },
+    "required": ["query"]
+  }
+}
+```
+
+Searches across: `name`, `description`, `search_hint`, and `tool_names`. The `search_hint` field (from SKILL.md `search-hint:`) improves keyword matching without loading full schemas.
+
+`create_skill_manager()` only calls `discover()` at startup — skills are **not** automatically loaded. This keeps the initial tool list small and lets agents load only what they need.

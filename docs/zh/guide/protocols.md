@@ -194,6 +194,57 @@ scene = SceneInfo(
 | `CSHARP` | C# 脚本 |
 | `BLUEPRINT` | 可视化脚本 |
 
+### BridgeKind 枚举
+
+`BridgeKind` 描述非 Python 内嵌 DCC 的桥接通信方式。在 Python 中通过 `DccCapabilities.bridge_kind` 字符串访问。
+
+| 值 | Python 字符串 | 说明 |
+|----|---------------|------|
+| `Http` | `"http"` | HTTP REST 桥接（如 ZBrush 2024+） |
+| `WebSocket` | `"websocket"` | WebSocket JSON-RPC 桥接（如 Photoshop UXP） |
+| `NamedPipe` | `"named_pipe"` | 命名管道桥接（如 3ds Max COM） |
+| `Custom(String)` | 自定义字符串 | 其他桥接协议 |
+
+### DccCapabilities 桥接字段
+
+`DccCapabilities` 新增三个字段，用于区分内嵌 Python DCC 和桥接 DCC：
+
+| 字段 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `has_embedded_python` | `bool` | `True` | DCC 是否有内嵌 Python 解释器 |
+| `bridge_kind` | `Optional[str]` | `None` | 桥接类型：`"http"` / `"websocket"` / `"named_pipe"` 或自定义 |
+| `bridge_endpoint` | `Optional[str]` | `None` | 桥接端点 URL 或路径 |
+
+```python
+# 内嵌 Python DCC（如 Maya）
+caps = DccCapabilities(
+    script_languages=[ScriptLanguage.PYTHON],
+    has_embedded_python=True,
+)
+
+# HTTP 桥接 DCC（如 ZBrush）
+caps = DccCapabilities(
+    has_embedded_python=False,
+    bridge_kind="http",
+    bridge_endpoint="http://localhost:8080/api",
+)
+
+# WebSocket 桥接 DCC（如 Photoshop）
+caps = DccCapabilities(
+    has_embedded_python=False,
+    bridge_kind="websocket",
+    bridge_endpoint="ws://localhost:12345",
+)
+```
+
+### 新增 DCC 适配器项目
+
+| 项目 | 桥接模式 | 状态 |
+|------|----------|------|
+| [dcc-mcp-unreal](https://github.com/loonghao/dcc-mcp-unreal) | Python embedded（同 Maya） | 占位 |
+| [dcc-mcp-photoshop](https://github.com/loonghao/dcc-mcp-photoshop) | WebSocket bridge (UXP) | 占位 |
+| [dcc-mcp-zbrush](https://github.com/loonghao/dcc-mcp-zbrush) | HTTP bridge (ZBrush 2024+ REST) | 占位 |
+
 ---
 
 ## DCC Adapter Traits

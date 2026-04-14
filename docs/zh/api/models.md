@@ -94,6 +94,7 @@ validate_action_result("hello")                         # 包装为成功结果
 |------|------|--------|------|
 | `name` | `str` | — | 唯一标识符 |
 | `description` | `str` | `""` | 人类可读描述 |
+| `search_hint` | `str` | `""` | `search_skills` 的关键词提示（SKILL.md `search-hint:` 字段；回退到 `description`） |
 | `tools` | `List[str]` | `[]` | 所需工具权限 |
 | `dcc` | `str` | `"python"` | 目标 DCC 应用 |
 | `tags` | `List[str]` | `[]` | 分类标签 |

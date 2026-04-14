@@ -163,4 +163,4 @@ vx just lint
 - 查看 [Skills 技能包](/zh/guide/skills) 的零代码脚本注册
 - 使用 [MCP HTTP 服务器](/zh/api/http) 暴露工具给 AI 客户端
 - 查看 [传输层](/zh/guide/transport) 的 DCC 通信
-- 了解 [架构设计](/zh/guide/architecture) — 13 个 Rust crate 的工作区结构
+- 了解 [架构设计](/zh/guide/architecture) — 14 个 Rust crate 的工作区结构

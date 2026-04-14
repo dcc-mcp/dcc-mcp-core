@@ -45,7 +45,7 @@ flowchart LR
 
 ## Architecture
 
-DCC-MCP-Core is a Rust workspace with **13 sub-crates**, compiled into a single Python extension module `dcc_mcp_core._core` via maturin:
+DCC-MCP-Core is a Rust workspace with **14 sub-crates**, compiled into a single Python extension module `dcc_mcp_core._core` via maturin:
 
 ```
 dcc-mcp-core/
@@ -62,17 +62,19 @@ dcc-mcp-core/
 │   ├── dcc-mcp-shm/            # PySharedBuffer, PyBufferPool, PySharedSceneBuffer
 │   ├── dcc-mcp-capture/        # Capturer, CaptureFrame
 │   ├── dcc-mcp-usd/            # UsdStage, UsdPrim, VtValue, SdfPath
-│   ├── dcc-mcp-http/           # McpHttpServer, McpHttpConfig, ServerHandle
+│   ├── dcc-mcp-http/           # McpHttpServer, McpHttpConfig, ServerHandle, Gateway
+│   ├── dcc-mcp-server/         # Binary entry point, gateway runner
 │   └── dcc-mcp-utils/          # Filesystem, constants, type wrappers, JSON helpers
 └── python/
     └── dcc_mcp_core/
-        ├── __init__.py          # Re-exports ~130 public symbols from _core
+        ├── __init__.py          # Re-exports ~140 public symbols from _core
+        ├── skill.py             # Pure-Python skill script helpers
         └── _core.pyi            # Type stubs for all public APIs
 ```
 
 ## Python API Surface
 
-All public APIs are available from the top-level `dcc_mcp_core` package. The library exports ~130 public symbols across 13 domains:
+All public APIs are available from the top-level `dcc_mcp_core` package. The library exports ~140 public symbols across 14 domains:
 
 ```python
 from dcc_mcp_core import (
@@ -118,12 +120,15 @@ See the [API Reference](/api/actions) for complete documentation of every symbol
 
 ## Version & Python Support
 
-- **Current version**: 0.12.12
+- **Current version**: 0.12.23
 - **Python**: 3.7–3.13 (abi3-py38 wheel, tested in CI across all versions)
 - **Rust**: Edition 2024, MSRV 1.85
 - **Build**: maturin + PyO3; zero runtime Python dependencies
 
 ## Related Projects
 
-- [dcc-mcp-rpyc](https://github.com/loonghao/dcc-mcp-rpyc) — RPyC bridge for remote DCC operations
 - [dcc-mcp-maya](https://github.com/loonghao/dcc-mcp-maya) — Maya MCP server implementation
+- [dcc-mcp-unreal](https://github.com/loonghao/dcc-mcp-unreal) — Unreal Engine adapter (in development)
+- [dcc-mcp-photoshop](https://github.com/loonghao/dcc-mcp-photoshop) — Photoshop UXP WebSocket bridge (in development)
+- [dcc-mcp-zbrush](https://github.com/loonghao/dcc-mcp-zbrush) — ZBrush HTTP REST bridge (in development)
+- [dcc-mcp-rpyc](https://github.com/loonghao/dcc-mcp-rpyc) — RPyC bridge for remote DCC operations

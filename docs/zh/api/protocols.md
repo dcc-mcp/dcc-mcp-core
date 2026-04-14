@@ -77,6 +77,8 @@ td.read_only, td.destructive, td.idempotent, td.source_file
 
 
 
+## ResourceDefinition
+
 | 字段 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `uri` | `str` | — | 资源 URI |
@@ -349,20 +351,51 @@ d = info.to_dict()  # 序列化为普通字典
 | `transform` | `bool` | `False` | 是否实现 `DccTransform` |
 | `render_capture` | `bool` | `False` | 是否实现 `DccRenderCapture` |
 | `hierarchy` | `bool` | `False` | 是否实现 `DccHierarchy` |
+| `has_embedded_python` | `bool` | `True` | DCC 是否有内嵌 Python 解释器（`False` 表示桥接型 DCC，如 ZBrush、Photoshop） |
+| `bridge_kind` | `str \| None` | `None` | 桥接类型字符串（`"http"`、`"websocket"`、`"named_pipe"` 或自定义） |
+| `bridge_endpoint` | `str \| None` | `None` | 桥接端点（URL 或 socket 路径） |
 | `extensions` | `dict[str, bool]` | `{}` | 任意扩展功能标志 |
 
 ```python
 from dcc_mcp_core import DccCapabilities, ScriptLanguage
 
+# 内嵌 Python 的 DCC（如 Maya）
 caps = DccCapabilities(
     script_languages=[ScriptLanguage.PYTHON, ScriptLanguage.MEL],
     scene_info=True,
     snapshot=True,
     file_operations=True,
 )
+
+# HTTP 桥接型 DCC（如 ZBrush）
+caps_bridge = DccCapabilities(
+    has_embedded_python=False,
+    bridge_kind="http",
+    bridge_endpoint="http://localhost:8080",
+)
+
+# WebSocket 桥接型 DCC（如 Photoshop）
+caps_ws = DccCapabilities(
+    has_embedded_python=False,
+    bridge_kind="websocket",
+    bridge_endpoint="ws://localhost:12345",
+)
+
 if caps.scene_manager:
     print("场景管理器可用")
 ```
+
+### BridgeKind
+
+DCC 与 MCP 服务器之间的通信桥接类型。在 Python 中以字符串形式暴露：
+
+| 值 | 说明 | 典型应用 |
+|----|------|----------|
+| `"http"` | HTTP REST 桥接 | ZBrush 2024+ |
+| `"websocket"` | WebSocket JSON-RPC 桥接 | Photoshop (UXP) |
+| `"named_pipe"` | 命名管道桥接 | 3ds Max (COM/pipe) |
+| 自定义字符串 | 自定义桥接协议 | 其他 |
+| `None` | 无桥接（内嵌 Python） | Maya, Blender, Houdini |
 
 ### DccError
 

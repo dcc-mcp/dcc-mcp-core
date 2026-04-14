@@ -129,6 +129,10 @@ caps = DccCapabilities(
     progress_reporting=True,
     file_operations=True,
     selection=True,
+    # Bridge fields (for non-Python DCCs like Photoshop, ZBrush)
+    has_embedded_python=True,
+    bridge_kind=None,        # "http", "websocket", "named_pipe", or None
+    bridge_endpoint=None,    # URL or socket path for bridge connection
 )
 
 # DCC error
@@ -166,6 +170,29 @@ scene = SceneInfo(
     statistics=stats,
 )
 ```
+
+### BridgeKind
+
+`BridgeKind` describes how a DCC communicates when it does **not** have an embedded Python interpreter (e.g. Photoshop via UXP WebSocket, ZBrush via HTTP REST):
+
+| Variant | Python string | Description |
+|---------|---------------|-------------|
+| `Http` | `"http"` | HTTP REST bridge (e.g. ZBrush 2024+) |
+| `WebSocket` | `"websocket"` | WebSocket JSON-RPC bridge (e.g. Photoshop UXP) |
+| `NamedPipe` | `"named_pipe"` | Named pipe bridge (e.g. 3ds Max COM) |
+| `Custom(String)` | custom string | Custom bridge protocol |
+
+In Python, `DccCapabilities.bridge_kind` is exposed as `Optional[str]` — use the string values above.
+
+**Factory methods** on `DccCapabilities`:
+- `DccCapabilities()` — Standard Python-embedded DCC (`has_embedded_python=True`)
+- Set `bridge_kind="http"` + `bridge_endpoint=...` for HTTP bridge DCCs
+- Set `bridge_kind="websocket"` + `bridge_endpoint=...` for WebSocket bridge DCCs
+
+**New DCC adapter projects** (in development):
+- [dcc-mcp-unreal](https://github.com/loonghao/dcc-mcp-unreal) — Unreal Engine (Python embedded)
+- [dcc-mcp-photoshop](https://github.com/loonghao/dcc-mcp-photoshop) — Photoshop (WebSocket bridge via UXP)
+- [dcc-mcp-zbrush](https://github.com/loonghao/dcc-mcp-zbrush) — ZBrush (HTTP REST bridge)
 
 ### DccErrorCode Enum
 

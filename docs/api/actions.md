@@ -1,4 +1,4 @@
-# Skills API
+# Actions API
 
 `dcc_mcp_core` — ActionRegistry, EventBus, ActionDispatcher, ActionValidator, SemVer, VersionConstraint, VersionedRegistry.
 

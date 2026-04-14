@@ -24,6 +24,7 @@ description: "Maya 几何体创建和修改工具"
 version: "1.0.0"
 dcc: maya
 tags: ["geometry", "create"]
+search-hint: "polygon modeling, sphere, bevel, extrude, mesh editing"
 tools:
   - name: create_sphere
     description: "根据给定半径创建多边形球体"
@@ -56,27 +57,26 @@ export DCC_MCP_SKILL_PATHS="/path/skills1:/path/skills2"
 推荐使用 `SkillCatalog` 进行完整的渐进式加载，也可使用低级扫描函数进行一次性操作：
 
 ```python
-from dcc_mcp_core import SkillScanner, SkillCatalog, ActionRegistry, ActionDispatcher
+from dcc_mcp_core import SkillCatalog, ActionRegistry, ActionDispatcher
 
-# 创建扫描器和目录
-scanner = SkillScanner()
-catalog = SkillCatalog(scanner)
+# 创建目录（基于 ActionRegistry）
+registry = ActionRegistry()
+catalog = SkillCatalog(registry)
+
+# 可选：附加调度器以启用自动处理器注册
+dispatcher = ActionDispatcher(registry)
+catalog.with_dispatcher(dispatcher)
 
 # 发现 DCC_MCP_SKILL_PATHS 中的所有 Skill
 catalog.discover(dcc_name="maya")
-
-# 可选：附加调度器以启用自动处理器注册
-registry = ActionRegistry()
-dispatcher = ActionDispatcher(registry)
-catalog.with_dispatcher(dispatcher)
 
 # 列出可用 Skill
 for skill in catalog.list_skills():
     print(f"  {skill.name} v{skill.version}: {skill.description} (已加载={skill.loaded})")
 
 # 加载 Skill — 附加调度器后工具自动注册
-ok = catalog.load_skill("maya-geometry")
-print(f"已加载: {ok}")
+actions = catalog.load_skill("maya-geometry")
+print(f"已注册工具: {actions}")
 ```
 
 ## Skill 目录（推荐 API）
@@ -84,12 +84,10 @@ print(f"已加载: {ok}")
 `SkillCatalog` 管理完整生命周期：发现 → 渐进式加载 → 卸载。
 
 ```python
-from dcc_mcp_core import SkillScanner, SkillCatalog, ActionRegistry, ActionDispatcher
-
-scanner = SkillScanner()
-catalog = SkillCatalog(scanner)
+from dcc_mcp_core import SkillCatalog, ActionRegistry, ActionDispatcher
 
 registry = ActionRegistry()
+catalog = SkillCatalog(registry)
 dispatcher = ActionDispatcher(registry)
 catalog.with_dispatcher(dispatcher)
 
@@ -102,9 +100,9 @@ for s in results:
     print(f"{s.name}: {s.tool_count} 个工具 {s.tool_names}")
 
 # 加载/卸载
-ok = catalog.load_skill("maya-geometry")  # 返回 bool
-catalog.is_loaded("maya-geometry")        # True
-ok = catalog.unload_skill("maya-geometry")
+actions = catalog.load_skill("maya-geometry")  # 返回 List[str]
+catalog.is_loaded("maya-geometry")              # True
+removed = catalog.unload_skill("maya-geometry")  # 返回 int
 
 # 状态查询
 catalog.loaded_count()      # int
@@ -125,6 +123,7 @@ info = catalog.get_skill_info("maya-geometry")  # dict 或 None
 |------|------|------|
 | `name` | `str` | Skill 名称 |
 | `description` | `str` | 简短描述 |
+| `search_hint` | `str` | 搜索关键词提示（来自 SKILL.md 的 `search-hint:` 字段；缺失时回退到 `description`） |
 | `tags` | `List[str]` | Skill 标签 |
 | `dcc` | `str` | 目标 DCC（如 `"maya"`）|
 | `version` | `str` | Skill 版本 |
@@ -282,6 +281,7 @@ deps = expand_transitive_dependencies(skills, "maya-animation")
 |------|------|------|
 | `name` | `str` | 唯一 Skill 名称 |
 | `description` | `str` | 简短描述 |
+| `search_hint` | `str` | `search_skills` 的关键词提示（SKILL.md `search-hint:` 字段；缺失时回退到 `description`） |
 | `tools` | `List[str]` | frontmatter 中列出的工具名称 |
 | `dcc` | `str` | 目标 DCC 应用（默认：`"python"`）|
 | `tags` | `List[str]` | 分类标签 |
@@ -360,3 +360,101 @@ def create_skill_manager(
 ::: warning 脚本执行
 所有脚本作为子进程运行。输入参数通过 stdin 以 JSON 格式传入。脚本应将 JSON 结果写入 stdout，成功时退出码为 0。
 :::
+
+## 按需 Skill 发现（MCP HTTP）
+
+使用 MCP HTTP 服务器（`McpHttpServer` 或 `create_skill_manager`）时，`tools/list` 返回**三层**响应：
+
+### 三层 `tools/list` 响应
+
+1. **6 个核心发现工具**（始终存在）：
+   - `find_skills` — 按查询、标签、DCC 类型搜索 Skill
+   - `list_skills` — 列出所有 Skill，可按状态筛选
+   - `get_skill_info` — 获取指定 Skill 的完整元数据
+   - `load_skill` — 加载 Skill，将其工具注册到 ActionRegistry
+   - `unload_skill` — 卸载 Skill，移除其工具
+   - `search_skills` — 跨 name、description、search_hint、tool_names 的关键词搜索
+
+2. **已加载 Skill 工具** — 来自 `ActionRegistry` 的完整 `input_schema`
+
+3. **未加载 Skill Stub** — `__skill__<name>` 条目，仅含一行描述（无完整 schema）
+
+### 工作流
+
+```
+1. AI 调用 tools/list → 看到核心工具 + 已加载工具 + __skill__ stub
+2. AI 调用 search_skills(query="geometry") → 找到匹配的 Skill
+3. AI 调用 load_skill(skill_name="maya-geometry") → 工具已注册
+4. AI 再次调用 tools/list → maya-geometry 工具现在有完整 schema
+5. AI 调用 maya_geometry__create_sphere → Skill 脚本执行
+```
+
+### Skill Stub 行为
+
+调用未加载的 Skill stub（`__skill__<name>`）时返回带提示的错误：
+
+```json
+{
+  "error": "Skill 'maya-geometry' is not loaded. Call load_skill(skill_name=\"maya-geometry\") to register its tools."
+}
+```
+
+### `search_skills` MCP 工具
+
+```json
+{
+  "name": "search_skills",
+  "description": "搜索匹配关键词的 Skill",
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "query": {"type": "string", "description": "搜索关键词"},
+      "dcc": {"type": "string", "description": "按 DCC 类型筛选"}
+    },
+    "required": ["query"]
+  }
+}
+```
+
+搜索范围：`name`、`description`、`search_hint`、`tool_names`。`search_hint` 字段（来自 SKILL.md `search-hint:`）无需加载完整 schema 即可改善关键词匹配。
+
+`create_skill_manager()` 启动时只调用 `discover()` — Skills **不会**自动加载。这保持了初始工具列表的精简，让 Agent 按需加载。
+
+## MCP 核心发现工具
+
+通过 MCP HTTP 服务器，`tools/list` 始终返回 6 个核心发现工具：
+
+| 工具 | 说明 |
+|------|------|
+| `find_skills` | 按条件搜索技能（query/tags/dcc） |
+| `list_skills` | 列出技能及加载状态 |
+| `get_skill_info` | 获取技能的完整元数据 |
+| `load_skill` | 加载技能 — 将其工具注册到 ActionRegistry |
+| `unload_skill` | 卸载技能 — 从 ActionRegistry 移除其工具 |
+| `search_skills` | 按关键词搜索技能（紧凑一行摘要） |
+
+## 三层 tools/list 响应
+
+`tools/list` 返回三层内容：
+
+1. **核心发现工具**（6 个，始终完整）— `find_skills`、`list_skills`、`get_skill_info`、`load_skill`、`unload_skill`、`search_skills`
+2. **已加载技能工具** — 来自 ActionRegistry，带完整 `input_schema`
+3. **未加载技能存根** — `__skill__<name>` 格式名称 + 一句话描述，无完整 schema
+
+### 存根调用行为
+
+当调用 `__skill__<name>` 时，返回错误提示：
+
+```
+Call load_skill(skill_name="<name>") to register its tools
+```
+
+### 推荐工作流
+
+```
+1. tools/list          → 看到核心工具 + 已加载工具 + 存根
+2. search_skills(query="modeling") → 找到相关技能
+3. load_skill(skill_name="maya-geometry") → 加载技能
+4. tools/list          → 现在看到 maya-geometry 的完整工具
+5. tools/call          → 直接使用工具
+```

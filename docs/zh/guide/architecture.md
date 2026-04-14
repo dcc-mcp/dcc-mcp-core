@@ -1,25 +1,29 @@
 # 架构设计
 
-本文档描述 DCC-MCP-Core 的架构设计。DCC-MCP-Core 是一个 Rust 驱动的 DCC Model Context Protocol 生态系统基础库。
+DCC-MCP-Core 是一个 Rust workspace，通过 PyO3 提供 Python 绑定。核心特点：
 
-## 概述
-
-DCC-MCP-Core 采用 Rust workspace 结构，通过 PyO3 提供 Python 绑定。核心特点：
-
-- **零运行时第三方依赖** - Rust 核心无第三方运行时依赖
-- **可选 Python 绑定** - 通过 PyO3 实现 DCC 集成
-- **模块化 crate 设计** - 按需选择性依赖
+- **零运行时第三方依赖** — Rust 核心无第三方运行时依赖
+- **可选 Python 绑定** — 通过 PyO3 实现 DCC 集成
+- **14 个模块化 crate** — 按需选择性依赖
 
 ## Crate 结构
 
 ```
 dcc-mcp-core (workspace 根目录)
-├── dcc-mcp-models      # 数据模型和类型定义
-├── dcc-mcp-actions     # 动作注册系统
-├── dcc-mcp-skills      # 技能包系统
-├── dcc-mcp-protocols   # MCP 协议类型
-├── dcc-mcp-transport   # IPC 和网络传输
-└── dcc-mcp-utils       # 工具函数
+├── dcc-mcp-models       # ActionResultModel, SkillMetadata, DCC 类型
+├── dcc-mcp-actions      # ActionRegistry, EventBus, ActionDispatcher, Pipeline
+├── dcc-mcp-skills       # SkillScanner, SkillCatalog, SkillWatcher, Resolver
+├── dcc-mcp-protocols    # MCP 类型: ToolDefinition, ResourceDefinition, Prompt, BridgeKind
+├── dcc-mcp-transport    # IPC, ConnectionPool, FileRegistry, FramedChannel
+├── dcc-mcp-process      # PyDccLauncher, ProcessMonitor, ProcessWatcher, CrashRecovery
+├── dcc-mcp-telemetry    # Tracing/recording: ActionRecorder, TelemetryConfig
+├── dcc-mcp-sandbox      # Security: SandboxPolicy, SandboxContext, AuditLog
+├── dcc-mcp-shm          # Shared memory: PySharedBuffer, PyBufferPool
+├── dcc-mcp-capture      # Screen capture: Capturer, CaptureFrame
+├── dcc-mcp-usd          # USD scene description: UsdStage, SdfPath, VtValue
+├── dcc-mcp-http         # MCP HTTP server: McpHttpServer, McpHttpConfig, Gateway
+├── dcc-mcp-server       # 二进制入口点: dcc-mcp-server, gateway runner
+└── dcc-mcp-utils        # Filesystem, type wrappers, constants
 ```
 
 ### 依赖关系图
@@ -27,194 +31,218 @@ dcc-mcp-core (workspace 根目录)
 ```
 dcc-mcp-models (基础类型)
        ↓
-dcc-mcp-actions ← dcc-mcp-models (动作依赖模型)
+dcc-mcp-actions ← dcc-mcp-models
        ↓
 dcc-mcp-skills ← dcc-mcp-actions, dcc-mcp-models
        ↓
-dcc-mcp-protocols ← dcc-mcp-models (协议类型使用模型)
+dcc-mcp-protocols ← dcc-mcp-models
        ↓
-dcc-mcp-transport ← dcc-mcp-protocols (传输层使用协议类型)
+dcc-mcp-transport ← dcc-mcp-protocols
        ↓
-dcc-mcp-utils (共享工具，无内部依赖)
+dcc-mcp-http ← dcc-mcp-transport, dcc-mcp-protocols, dcc-mcp-actions, dcc-mcp-skills
+       ↓
+dcc-mcp-server ← dcc-mcp-http
 ```
 
 ## 各 Crate 职责
 
 ### dcc-mcp-models
 
-**职责**：核心数据模型和类型定义。
+**职责**：核心数据模型和类型定义，所有 crate 共享。
 
 **关键类型**：
-- `ActionResult`：标准化的动作执行结果
-- `SkillMetadata`：技能包元数据
-- `EventData`：事件负载结构
-- `UriTemplate`：URI 模板解析和匹配
+- `ActionResultModel` — 统一的动作执行结果类型
+- `SkillMetadata` — 解析后的技能包元数据
+- `SceneInfo`、`SceneStatistics` — DCC 场景信息
+- `DccInfo`、`DccCapabilities`、`DccError` — DCC 适配器类型
+- `ScriptResult`、`CaptureResult` — 操作结果
 
 **依赖**：无（基础 crate）
 
 ### dcc-mcp-actions
 
-**职责**：集中式动作注册和执行系统。
+**职责**：集中式动作注册、验证、调度和中间件管线系统。
 
 **关键组件**：
-- `ActionRegistry`：全局动作注册和查找
-- `Action`：动作实现的 trait
-- `ActionManager`：DCC 特定的动作管理
+- `ActionRegistry` — 线程安全注册表：register/get/search/list/unregister actions
+- `ActionDispatcher` — 带验证的调度，路由到已注册的 Python 可调用对象
+- `ActionValidator` — 基于 JSON Schema 的参数验证
+- `ActionPipeline` — 中间件管线（日志、计时、审计、限流）
+- `EventBus` — DCC 生命周期事件的发布/订阅系统
+- `VersionedRegistry` — 多版本动作注册表，支持 SemVer 约束解析
 
-**关键函数**：
-- `register_action()`：注册命名动作
-- `call_action()`：执行已注册的动作
-- `list_actions()`：获取所有已注册动作
+**关键特征**：动作是普通的 Python 可调用对象，通过 `ActionDispatcher.register_handler()` 注册
 
 **依赖**：`dcc-mcp-models`
 
 ### dcc-mcp-skills
 
-**职责**：通过 Markdown 文件实现零代码技能包注册。
+**职责**：零代码技能包发现、加载和文件系统热重载。
 
 **关键组件**：
-- `SkillScanner`：扫描目录中的技能包
-- `SkillRegistry`：集中式技能存储
-- `SkillResolver`：解析技能依赖关系
+- `SkillScanner` — 基于 mtime 缓存的目录扫描器，发现 SKILL.md 包
+- `SkillCatalog` — 渐进式技能发现与加载管理（推荐 API）
+- `SkillWatcher` — 平台原生文件系统监听器（inotify/FSEvents/ReadDirectoryChangesW）
+- `SkillMetadata` — 从 SKILL.md frontmatter 解析的元数据
+- 依赖解析：`resolve_dependencies`、`expand_transitive_dependencies`、`validate_dependencies`
 
-**技能包格式**：
-```markdown
----
-name: my-skill
-version: 1.0.0
-description: 一个有用的技能
-author: 作者名称
----
-
-# 技能文档
-
-技能内容和说明...
-```
+**技能包格式**：`SKILL.md` 含 YAML frontmatter（`name`、`version`、`description`、`tools`、`dcc`、`tags`、`depends`、`search-hint`）
 
 **依赖**：`dcc-mcp-actions`、`dcc-mcp-models`
 
 ### dcc-mcp-protocols
 
-**职责**：MCP（Model Context Protocol）类型定义。
+**职责**：MCP（Model Context Protocol）类型定义，遵循 2025-03-26 规范。
 
 **关键类型**：
-- `MCPServerProtocol`：服务端协议实现
-- `MCPClientProtocol`：客户端协议实现
-- `PromptProtocol`：提示词处理
-- `ResourceProtocol`：资源管理
-- `ToolProtocol`：工具执行
-
-**URI 模板**：
-- `{+uri}` - 带片段的 URI
-- `{uri}` - 基础 URI
-- 查询参数提取
+- `ToolDefinition`、`ToolAnnotations` — MCP 工具模式及行为提示
+- `ResourceDefinition`、`ResourceTemplateDefinition`、`ResourceAnnotations` — MCP 资源模式
+- `PromptDefinition`、`PromptArgument` — MCP 提示词模式
+- `DccAdapter` — DCC 适配器能力描述符
+- `BridgeKind` — 桥接类型枚举（Http、WebSocket、NamedPipe、Custom）
 
 **依赖**：`dcc-mcp-models`
 
 ### dcc-mcp-transport
 
-**职责**：IPC 和网络通信层。
+**职责**：IPC 和网络传输层，包含服务发现、会话管理和连接池。
 
 **传输类型**：
-- **IPC**：Unix 套接字 / Windows 命名管道
-- **TCP**：网络套接字
-- **WebSocket**：浏览器兼容
-- **HTTP**：REST 风格通信
+- **IPC**：Unix sockets (Linux/macOS) / Windows 命名管道 — 亚毫秒延迟，PID 唯一
+- **TCP**：网络套接字 — 跨机器或降级使用
 
 **关键组件**：
-- `TransportPool`：连接池
-- `TransportConfig`：配置管理
-- `Session`：连接会话追踪
-- `WireProtocol`：二进制序列化（MessagePack）
+- `TransportManager` — 高层管理器：服务注册、会话池、路由
+- `IpcListener` / `ListenerHandle` — 服务端 IPC 监听器，含连接追踪
+- `FramedChannel` — 全双工帧通道，含后台读取循环
+- `TransportAddress` — 协议无关端点（TCP、命名管道、Unix Socket）
+- `CircuitBreaker` — 故障检测与快速断开
+- `FileRegistry` — 基于文件的服务发现（Gateway 使用）
 
-**Ping/Pong 健康检查**：
-- `ping()` - 发送心跳
-- `ping_with_timeout()` - 超时检查响应
-- 超时自动重连
+**线协议**：MessagePack，4 字节大端长度前缀
 
 **依赖**：`dcc-mcp-protocols`、`tokio`
 
-### dcc-mcp-utils
+### dcc-mcp-process
 
-**职责**：共享工具函数。
+**职责**：跨平台 DCC 进程生命周期管理和崩溃恢复。
 
-**模块**：
-- `filesystem`：文件路径操作
-- `type_wrappers`：Python 类型互操作辅助
-- `constants`：共享常量
+**关键组件**：
+- `PyDccLauncher` — 异步 spawn/terminate/kill DCC 进程
+- `PyProcessMonitor` — 通过 `sysinfo` 进行 CPU/内存监控
+- `PyProcessWatcher` — 后台事件轮询监听器，含心跳/状态追踪
+- `PyCrashRecoveryPolicy` — 指数/固定退避重启策略
+
+**依赖**：`tokio`、`sysinfo`
+
+### dcc-mcp-telemetry
+
+**职责**：分布式追踪和指标收集。
+
+**关键组件**：
+- `ActionRecorder` / `RecordingGuard` — RAII 计时守卫，用于动作执行
+- `ActionMetrics` — 每个动作指标的只读快照（计数、成功率、P95/P99 延迟）
+- `TelemetryConfig` — 全局遥测 provider 构建器（stdout/JSON 导出器）
+
+**依赖**：`tracing`、`metrics`
+
+### dcc-mcp-sandbox
+
+**职责**：安全策略执行、审计日志和输入验证。
+
+**关键组件**：
+- `SandboxPolicy` — API 白名单、路径允许列表、执行约束（超时、最大动作数、只读）
+- `SandboxContext` — 每会话执行上下文，捆绑策略 + 审计日志
+- `AuditLog` / `AuditEntry` — 每次动作调用的结构化审计追踪
+- `InputValidator` — 基于 Schema 的验证，含注入防护模式匹配
 
 **依赖**：无
 
-## Python 绑定
+### dcc-mcp-shm
 
-Python 绑定通过 PyO3 的 `python-bindings` feature 生成：
+**职责**：零拷贝共享内存缓冲区，用于高频 DCC ↔ Agent 数据交换。
 
-```toml
-[features]
-python-bindings = ["pyo3", "dcc-mcp-models/python-bindings", ...]
-```
+**关键组件**：
+- `PySharedBuffer` — 命名内存映射文件缓冲区，支持跨进程传递
+- `PyBufferPool` — 固定容量的可复用缓冲池（在 30fps 下摊销 mmap 开销）
+- `PySharedSceneBuffer` — 高级包装器，含内联 vs 分块存储（>256 MiB 分割）
 
-### Python 包结构
+**压缩**：写入时可选 LZ4；读取时自动解压
 
-```
-python/dcc_mcp_core/
-├── __init__.py      # 公开 API
-├── _core.pyi       # 类型存根
-└── _core.*.so      # 编译的 Rust 扩展
-```
+**依赖**：`lz4`
 
-### 绑定模式
+### dcc-mcp-capture
 
-每个 crate 暴露一个 `python_module!` 宏来生成 Python 模块：
+**职责**：GPU 帧缓冲截图和 DCC 应用视口捕获。
 
-```rust
-#[pymodule]
-fn dcc_mcp_core(_py: Python, m: &PyModule) -> PyResult<()> {
-    dcc_mcp_models::python::register_module(m)?;
-    dcc_mcp_actions::python::register_module(m)?;
-    // ...
-    Ok(())
-}
-```
+**后端**：
+- **Windows**：DXGI Desktop Duplication API — GPU 直接访问，<16ms 每帧
+- **Linux**：X11 XShmGetImage
+- **降级**：Mock 合成后端（CI / headless）
 
-## 设计决策
+**关键组件**：
+- `Capturer` — 自动后端选择入口点（`new_auto()` / `new_mock()`）
+- `CaptureFrame` — 捕获的图像数据，含 PNG/JPEG/raw BGRA 编码
 
-### 1. 零运行时依赖
+**依赖**：平台特定（windows-capture、x11grab 等）
 
-Rust 核心没有第三方运行时依赖。这确保了：
-- 最小的二进制大小
-- 可预测的行为
-- DCC 环境中无依赖版本冲突
+### dcc-mcp-usd
 
-可选依赖（如 `pyo3`）通过 feature 门控。
+**职责**：USD 场景描述数据模型和序列化（纯 Rust，无 OpenUSD C++ 依赖）。
 
-### 2. PyO3 0.28
+**关键组件**：
+- `UsdStage` — 主 Stage 容器，含 prim 管理和元数据
+- `UsdPrim` — Prim，含属性 get/set 和 API Schema 检查
+- `SdfPath` — 场景图路径，含绝对/相对解析
+- `VtValue` — 变体值容器（bool、int、float、string、vec3f、asset、token）
 
-使用 PyO3 0.28，特性：
-- `multiple-pymethods` - 每个 struct 多个 #[pymethods]
-- `abi3-py38` - Python 3.8+ 稳定 ABI
-- `extension-module` - 允许从任意 Python 路径加载
+**序列化**：USDA（可读）和 JSON（紧凑，用于 IPC）
 
-### 3. Rust Edition 2024
+**桥接函数**：`scene_info_json_to_stage`、`stage_to_scene_info_json`、`units_to_mpu`、`mpu_to_units`
 
-Edition 2024 提供：
-- 隐式 `async fn` 在 trait 定义中
-- `async let` 绑定
-- 生命周期子类型改进
+**依赖**：`pxr-usd`（薄包装，无 C++ 运行时）
 
-### 4. Tokio 异步运行时
+### dcc-mcp-http
 
-使用 Tokio 因为：
-- Rust 异步的事实标准
-- 出色的 Windows 支持（命名管道）
-- 与 PyO3 配合良好
+**职责**：MCP Streamable HTTP 服务器（2025-03-26 规范），面向 HTTP 客户端。
 
-### 5. MessagePack 序列化
+**关键组件**：
+- `McpHttpServer` — 后台线程 HTTP 服务器（axum/Tokio）
+- `McpHttpConfig` — 服务器配置（端口、CORS、请求超时、Gateway 字段）
+- `ServerHandle` — 服务器句柄，含 URL 获取和优雅关机；`is_gateway` 标记是否赢得网关竞争
+- `GatewayRunner` / `GatewayConfig` / `GatewayHandle` — 首个获胜端口竞争、实例注册、心跳、代理
+- `GatewayState` — Gateway 运行时状态（实例注册表、路由）
 
-使用 RMP（Rust MessagePack）作为线协议：
-- 紧凑的二进制格式
-- 快速序列化/反序列化
-- 语言无关
+**Gateway 架构**：
+当 `McpHttpConfig.gateway_port > 0` 时，首个绑定该端口的进程成为 Gateway，提供：
+- `/instances` — 所有活跃实例的 JSON 列表
+- `/mcp` — Gateway 自身的 MCP 端点（6 个发现元工具）
+- `/mcp/{instance_id}` — 透明代理到特定实例
+- `/mcp/dcc/{dcc_type}` — 代理到指定 DCC 类型的最佳实例
+
+**依赖**：`axum`、`tokio`、`dcc-mcp-transport`、`dcc-mcp-protocols`、`dcc-mcp-actions`、`dcc-mcp-skills`、`reqwest`、`socket2`
+
+### dcc-mcp-server
+
+**职责**：独立的二进制入口点，提供完整的 MCP 服务器。
+
+**关键组件**：
+- `dcc-mcp-server` CLI — 解析命令行参数，启动 Gateway + MCP HTTP 服务器
+- 使用 `GatewayRunner` 库 API 进行端口竞争和实例注册
+
+**依赖**：`dcc-mcp-http`
+
+### dcc-mcp-utils
+
+**职责**：共享工具函数和常量。
+
+**模块**：
+- `filesystem` — 通过 `dirs` crate 实现平台特定目录
+- `type_wrappers` — RPyC 安全包装器（BooleanWrapper、IntWrapper、FloatWrapper、StringWrapper）
+- `constants` — 应用元数据和环境变量名称
+- `py_json` — Python JSON 互操作辅助
+
+**依赖**：`dirs`
 
 ## Skills-First 架构
 
@@ -243,44 +271,82 @@ print(f"Maya MCP server: {handle.mcp_url()}")
 ```
 
 **技能路径解析顺序**（先找到的优先）：
-1. 应用专属环境变量：`DCC_MCP_{APP}_SKILL_PATHS`（如 `DCC_MCP_MAYA_SKILL_PATHS`）
-2. 全局环境变量：`DCC_MCP_SKILL_PATHS`
+1. `DCC_MCP_{APP}_SKILL_PATHS` — 应用专属环境变量（如 `DCC_MCP_MAYA_SKILL_PATHS`）
+2. `DCC_MCP_SKILL_PATHS` — 全局降级
 3. 平台数据目录：`~/.local/share/dcc-mcp/skills/{app}/`
-4. `extra_paths` 参数传入的额外路径
+4. `extra_paths` 参数
 
 ::: tip 手动组装
 如果需要自定义中间件或更精细的控制，可手动组装：
 `ActionRegistry` → `ActionDispatcher` → `SkillCatalog` → `McpHttpServer`。
 :::
 
+## Python 绑定
+
+全部 14 个 crate 编译为单一 PyO3 原生扩展（`dcc_mcp_core._core`），通过 `maturin` 构建。
+
+```toml
+# pyproject.toml
+[project]
+requires-python = ">=3.7"
+dependencies = []  # 零运行时依赖
+```
+
+### Python 包结构
+
+```
+python/dcc_mcp_core/
+├── __init__.py     # 公开 API（从 _core 重导出约 140 个符号）
+├── _core.pyi       # 类型存根（从 Rust 自动生成）
+├── skill.py        # 纯 Python Skill 脚本辅助（无 _core 依赖）
+└── py.typed        # PEP 561 标记
+```
+
+## 设计决策
+
+### 1. 零运行时 Python 依赖
+
+原生扩展捆绑所有 Rust 代码 — 无需 `pip install` PyO3、tokio 等。这确保了：
+- 与 DCC 内嵌 Python 无版本冲突
+- 在 Maya/Blender/Houdini/3ds Max 中行为可预测
+- 最小导入延迟
+
+### 2. PyO3 0.22+ / Maturin
+
+使用 PyO3，特性：
+- `multiple-pymethods` — 每个 struct 多个 `#[pymethods]`
+- `abi3-py38` — Python 3.8+ 稳定 ABI（CI 测试 3.7–3.13）
+- `extension-module` — 允许从任意 Python 路径加载
+
+### 3. Rust Edition 2024, MSRV 1.85
+
+### 4. Tokio 异步运行时
+
+Rust 异步的事实标准，Windows 命名管道支持出色。
+
+### 5. MessagePack 线协议
+
+紧凑二进制格式，4 字节大端长度前缀 — 语言无关。
+
+### 6. `parking_lot` Mutex
+
+比 `std::sync::Mutex` 更快，且不会在 panic 时中毒。
+
 ## 线程安全
 
 所有内部状态使用：
 - `parking_lot::Mutex` 用于短期临界区
 - `parking_lot::RwLock` 用于读写模式
-- `Arc` 用于共享所有权
-
-不使用 `std::sync::Mutex` — `parking_lot` 更快且不会在 panic 时中毒。
+- 不使用 `std::sync::Mutex` 或 `RwLock`
 
 ## 错误处理
 
-使用 `thiserror` 处理错误类型：
-
-```rust
-#[derive(Error, Debug)]
-pub enum TransportError {
-    #[error("连接超时: {0}")]
-    Timeout(String),
-
-    #[error("连接被拒绝: {0}")]
-    ConnectionRefused(String),
-}
-```
+使用 `thiserror` 处理错误类型，通过 `#[from]` 实现自动转换。
 
 ## 测试策略
 
 - **单元测试**：每个 crate 有内联 `#[cfg(test)]` 模块
-- **集成测试**：`tests/` 目录包含 Python 和 Rust 测试
+- **集成测试**：`tests/` 目录包含 Python + Rust 测试（通过 `cargo test` 和 `pytest`）
 - **覆盖率追踪**：`cargo-llvm-cov` + `pytest --cov`
 
 ## 构建命令
