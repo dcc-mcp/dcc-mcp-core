@@ -41,11 +41,6 @@ jobs:
         with:
           python-version: "3.14"
       - uses: loonghao/vx@v0.8.25
-        with:
-          tools: just
-      - name: Add vx tools to PATH
-        run: echo "$VX_INSTALL_DIR" >> $GITHUB_PATH
-        shell: bash
       - name: Cache Cargo
         uses: actions/cache@v5
         with:
@@ -60,7 +55,7 @@ jobs:
         run: pip install maturin
         shell: bash
       - name: Build wheel
-        run: just build
+        run: vx just build
       - uses: actions/upload-artifact@v7
         with:
           name: wheel-dcc-integration
