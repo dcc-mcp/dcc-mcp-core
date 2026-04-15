@@ -155,7 +155,7 @@ search-hint: "polygon modeling, bevel, extrude, mesh editing"
 17. **`McpServerHandle` is an alias**: `server.start()` returns `ServerHandle`; it is re-exported as `McpServerHandle` in `__init__.py`. Import as `from dcc_mcp_core import McpServerHandle`.
 18. **`McpHttpServer` registry population**: All actions must be registered in `ActionRegistry` BEFORE calling `server.start()`. The server reads metadata from the registry at startup.
 
-19. **MCP spec version awareness**: `McpHttpServer` implements 2025-03-26 spec. The 2025-06-18 version adds Structured Tool Output, Elicitation, Resource Links, and removes JSON-RPC batching. The 2025-11-25 version adds icon metadata, Tasks, Sampling with tools, and JSON Schema 2020-12. Do NOT implement these manually — wait for the library to add support.
+19. **MCP spec version awareness**: `McpHttpServer` implements 2025-03-26 spec. The 2025-06-18 version adds Structured Tool Output, Elicitation, Resource Links, and removes JSON-RPC batching. The 2025-11-25 version adds icon metadata, Tasks (persistent requests), Sampling with tool calls, URL pattern requests, OAuth Client ID Metadata Document, JSON Schema 2020-12. The 2026 roadmap focuses on transport scalability, agent communication (Tasks lifecycle), governance, and enterprise readiness. Do NOT implement these manually — wait for the library to add support.
 
 20. **`scan_and_load` keyword args only**: Both `extra_paths` and `dcc_name` must be passed as keyword arguments: `scan_and_load(dcc_name="maya", extra_paths=["/path"])` — never as positionals.
 

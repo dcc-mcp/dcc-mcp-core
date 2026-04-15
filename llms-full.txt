@@ -26,6 +26,9 @@
 | Share large data between processes | `PySharedSceneBuffer` (LZ4 compressed) |
 | Capture a DCC viewport screenshot | `Capturer.new_auto().capture()` |
 | Exchange scene data via USD format | `UsdStage` + `scene_info_json_to_stage()` |
+| Bridge DCC protocols | `BridgeRegistry` + `register_bridge()` / `get_bridge_context()` |
+| Describe scene hierarchy | `SceneNode` + `SceneObject` + `ObjectTransform` + `BoundingBox` |
+| Serialize result for transport | `serialize_result()` / `deserialize_result()` with `SerializeFormat` |
 | Wrap values for safe RPyC transport | `wrap_value()` / `unwrap_value()` |
 | Handle multiple versions of an action | `VersionedRegistry` + `VersionConstraint` |
 | Expose DCC tools over HTTP/MCP | `create_skill_manager("maya", McpHttpConfig(port=8765))` — Skills-First one-call setup; falls back to `McpHttpServer(registry, config)` for manual registry wiring |
@@ -1756,6 +1759,72 @@ mpu = units_to_mpu("cm")   # -> 0.01 (meters per unit for centimeters)
 mpu = units_to_mpu("m")    # -> 1.0
 units = mpu_to_units(0.01) # -> "cm"
 units = mpu_to_units(1.0)  # -> "m"
+```
+
+---
+
+## Bridge System (`dcc_mcp_core`)
+
+DCC inter-protocol bridging — register named bridges between different transport protocols.
+
+```python
+from dcc_mcp_core import BridgeRegistry, BridgeContext, register_bridge, get_bridge_context
+
+# Register a named bridge
+register_bridge("rpyc", BridgeContext(name="rpyc", description="RPyC ↔ MCP bridge"))
+
+# Retrieve bridge context by name
+ctx = get_bridge_context("rpyc")  # -> BridgeContext or None
+```
+
+---
+
+## Scene Data Model (`dcc_mcp_core`)
+
+Structured scene data types for representing DCC scene hierarchy and geometry.
+
+```python
+from dcc_mcp_core import BoundingBox, FrameRange, ObjectTransform, SceneNode, SceneObject, RenderOutput
+
+# Bounding box (axis-aligned)
+bbox = BoundingBox(min_x=0, min_y=0, min_z=0, max_x=1, max_y=1, max_z=1)
+
+# Animation frame range
+frames = FrameRange(start=1, end=24, step=1)
+
+# Object transform (translate, rotate, scale decomposition)
+xform = ObjectTransform(translate=[0, 5, 0], rotate=[0, 0, 0, 1], scale=[1, 1, 1])
+
+# Scene nodes (hierarchical)
+node = SceneNode(path="/world/geo/sphere1", transform=xform)
+
+# Scene objects (full representation)
+obj = SceneObject(name="sphere1", node_type="mesh", transform=xform)
+
+# Render output metadata
+render = RenderOutput(path="/tmp/render.exr", format="exr", width=1920, height=1080)
+```
+
+> **Note**: `BoundingBox` is an optional import — may be `None` if not available in the compiled extension.
+
+---
+
+## Serialization (`dcc_mcp_core`)
+
+Transport-safe ActionResultModel serialization for IPC, storage, or network transfer.
+
+```python
+from dcc_mcp_core import SerializeFormat, serialize_result, deserialize_result, success_result
+
+result = success_result("Created sphere", prompt="Add materials next", count=1)
+
+# Serialize to bytes
+data = serialize_result(result, fmt=SerializeFormat.JSON)
+
+# Deserialize back
+restored = deserialize_result(data, fmt=SerializeFormat.JSON)
+assert restored.success
+assert restored.message == "Created sphere"
 ```
 
 ---

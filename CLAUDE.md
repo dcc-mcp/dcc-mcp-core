@@ -35,7 +35,7 @@ vx just test-cov      # Coverage report to find gaps
 - **Zero runtime Python deps** — all logic in Rust
 - Key entry point: `src/lib.rs` (PyO3 `#[pymodule]`)
 - Python 3.7–3.13 supported (CI tests 3.7–3.13)
-- Version: **0.12.29** — never manually bump (Release Please manages)
+- Version: current — never manually bump (Release Please manages)
 
 ## Claude-Specific Workflows
 
@@ -209,13 +209,16 @@ def test_skill_scan(tmp_path):
 - **Don't use legacy APIs**: `ActionManager`, `create_action_manager()`, `MiddlewareChain`, `Action` base class — all removed in v0.12+. Note: `LoggingMiddleware` IS still available (use via `pipeline.add_logging()`).
 - **The project has zero runtime Python dependencies by design** — never add `dependencies = [...]` to `pyproject.toml`
 - **`DeferredExecutor` is not in public `__init__.py`**: import via `from dcc_mcp_core._core import DeferredExecutor` until it is promoted to the public API
-- **MCP spec**: `McpHttpServer` implements 2025-03-26 spec. The 2025-06-18 version adds Structured Tool Output, Elicitation, Resource Links, and removes JSON-RPC batching. The 2025-11-25 version adds icon metadata, Tasks, Sampling with tools. Do NOT implement these manually — wait for the library to add support.
+- **MCP spec**: `McpHttpServer` implements 2025-03-26 spec. The 2025-06-18 version adds Structured Tool Output, Elicitation, Resource Links, and removes JSON-RPC batching. The 2025-11-25 version adds icon metadata, Tasks (persistent requests), Sampling with tools, URL pattern requests, OAuth Client ID Metadata Document, JSON Schema 2020-12. The 2026 roadmap focuses on transport scalability, agent communication (Tasks lifecycle), governance, and enterprise readiness. Do NOT implement these manually — wait for the library to add support.
+- **Bridge system**: `BridgeRegistry`, `BridgeContext`, `register_bridge()`, `get_bridge_context()` — for inter-protocol bridging (RPyC ↔ MCP etc.). Don't build custom bridge registries.
+- **Scene data model**: `BoundingBox`, `FrameRange`, `ObjectTransform`, `SceneNode`, `SceneObject`, `RenderOutput` — use for structured scene data instead of raw dicts. `BoundingBox` may be `None`.
+- **Serialization**: `serialize_result()` / `deserialize_result()` with `SerializeFormat` enum — for transport-safe ActionResultModel serialization. Don't use `json.dumps()` on ActionResultModel.
 
 ## Key Files to Read First (Priority Order)
 
-1. `python/dcc_mcp_core/__init__.py` — Complete public API (~154 symbols)
+1. `python/dcc_mcp_core/__init__.py` — Complete public API (~154 symbols including BridgeRegistry, BridgeContext, BoundingBox, FrameRange, ObjectTransform, SceneNode, SceneObject, RenderOutput, SerializeFormat)
 2. `python/dcc_mcp_core/_core.pyi` — Type stubs with parameter names
 3. `AGENTS.md` — Full architecture, commands, pitfalls
 4. `crates/*/src/python.rs` — PyO3 binding implementations
 5. `src/lib.rs` — Module registration entry point
-6. `tests/` — Usage examples in test form
+6. `tests/` — Usage examples in test form (120+ files)

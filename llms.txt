@@ -59,7 +59,7 @@ meta = dcc_mcp_core.parse_skill_md(dirs[0])  # -> SkillMetadata or None
 - Build from source: `maturin develop --features python-bindings,ext-module`
 - Python: >=3.7 (CI tests 3.7–3.13; abi3-py38 wheel for 3.8+)
 - Build: maturin (Rust 1.85+ + PyO3)
-- Version: 0.12.29
+- Version: 0.12.28+
 - License: MIT
 
 ## Architecture
@@ -233,6 +233,28 @@ crates/
 - `unwrap_parameters(params_dict)` — unwrap all wrapper values in a dict
 - `BooleanWrapper`, `FloatWrapper`, `IntWrapper`, `StringWrapper`
 
+### Bridge System (`dcc_mcp_core`)
+
+- `BridgeRegistry` — manages named protocol bridges (RPyC ↔ MCP, HTTP ↔ IPC)
+- `BridgeContext` — bridge context with name, description, metadata
+- `register_bridge(name, ctx)` — register a named bridge
+- `get_bridge_context(name) -> Optional[BridgeContext]` — retrieve bridge by name
+
+### Scene Data Model (`dcc_mcp_core`)
+
+- `BoundingBox` — axis-aligned bounding box (min/max corner vectors)
+- `FrameRange` — animation frame range (start, end, step)
+- `ObjectTransform` — 4x4 transform + decomposition (translate, rotate, scale)
+- `SceneNode` — hierarchical scene node (path, transform, children)
+- `SceneObject` — full scene object (mesh, material, transform references)
+- `RenderOutput` — render result metadata (path, format, resolution)
+
+### Serialization (`dcc_mcp_core`)
+
+- `SerializeFormat` — enum: JSON, MESSAGEPACK
+- `serialize_result(result, fmt) -> bytes` — ActionResultModel → transport-safe bytes
+- `deserialize_result(data, fmt) -> ActionResultModel` — bytes → ActionResultModel
+
 ### Utility Functions (`dcc_mcp_core`)
 
 - `get_config_dir()`, `get_data_dir()`, `get_log_dir()`, `get_platform_dir(dir_type)`
@@ -258,9 +280,10 @@ maya-geometry/
 ├── scripts/
 │   ├── create_sphere.py
 │   └── batch_rename.mel
-└── metadata/         # Optional
-    ├── help.md
-    ├── install.md
+├── references/       # Optional: supplementary docs (agentskills.io standard)
+│   └── REFERENCE.md
+├── assets/           # Optional: templates, images, data files
+└── metadata/         # Optional: dependency declarations
     └── depends.md    # YAML list of dependency skill names
 ```
 

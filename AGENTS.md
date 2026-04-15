@@ -23,6 +23,9 @@
 | Measure action performance | `ActionRecorder` + `ActionMetrics` |
 | Capture DCC viewport | `Capturer.new_auto().capture()` |
 | Exchange scene as USD | `UsdStage` + `scene_info_json_to_stage()` |
+| Bridge DCC protocols | `BridgeRegistry` + `register_bridge()` / `get_bridge_context()` |
+| Describe scene hierarchy | `SceneNode` + `SceneObject` + `ObjectTransform` + `BoundingBox` |
+| Serialize result for transport | `serialize_result()` / `deserialize_result()` with `SerializeFormat` |
 | Safe RPyC value transport | `wrap_value()` / `unwrap_value()` |
 | Multi-version action lookup | `VersionedRegistry` + `VersionConstraint.parse()` |
 | Expose DCC tools over HTTP/MCP | `create_skill_manager("maya", McpHttpConfig(port=8765))` — one-call Skills-First setup |
@@ -72,7 +75,7 @@ dcc-mcp-core/
 │   ├── skill.py                # Pure-Python skill script helpers (no _core dependency)
 │   └── py.typed                # PEP 561 marker
 │
-├── tests/                      # Python integration tests (26 files)
+├── tests/                      # Python integration tests (120+ files)
 ├── examples/skills/            # 11 example SKILL.md packages (hello-world, maya-*, git-*, etc.)
 ├── docs/                       # VitePress documentation site (EN + ZH)
 │   ├── api/                    # API reference per module
@@ -547,6 +550,47 @@ watcher = PyProcessWatcher(
 watcher.watch(process)
 ```
 
+#### Bridge System (DCC Inter-Protocol Bridging)
+
+```python
+from dcc_mcp_core import BridgeContext, BridgeRegistry, register_bridge, get_bridge_context
+
+# BridgeRegistry manages named protocol bridges (e.g., RPyC ↔ MCP, HTTP ↔ IPC)
+registry = BridgeRegistry()
+register_bridge("rpyc", BridgeContext(name="rpyc", description="RPyC bridge"))
+ctx = get_bridge_context("rpyc")  # retrieve by name
+```
+
+#### Scene Data Model
+
+```python
+from dcc_mcp_core import (
+    BoundingBox,       # Axis-aligned bounding box (min/max corner vectors)
+    FrameRange,        # Animation frame range (start, end, step)
+    ObjectTransform,   # 4x4 transform matrix + decomposition (translate, rotate, scale)
+    SceneNode,         # Hierarchical scene node (path, transform, children)
+    SceneObject,       # Full scene object (mesh, material, transform references)
+    RenderOutput,      # Render result metadata (path, format, resolution)
+)
+
+# BoundingBox usage
+bbox = BoundingBox(min_x=0, min_y=0, min_z=0, max_x=1, max_y=1, max_z=1)
+# FrameRange for animation queries
+frames = FrameRange(start=1, end=24, step=1)
+# ObjectTransform for spatial queries
+xform = ObjectTransform(translate=[0, 5, 0], rotate=[0, 0, 0, 1], scale=[1, 1, 1])
+```
+
+#### Serialization
+
+```python
+from dcc_mcp_core import SerializeFormat, serialize_result, deserialize_result
+
+# Serialize ActionResultModel to bytes/string for transport or storage
+data = serialize_result(result, fmt=SerializeFormat.JSON)
+restored = deserialize_result(data, fmt=SerializeFormat.JSON)
+```
+
 #### Other Modules
 
 ```python
@@ -793,10 +837,13 @@ my-skill/
 │   ├── create_sphere.py
 │   ├── batch_rename.mel
 │   └── export_fbx.bat
-└── metadata/         # Optional
-    ├── help.md
-    ├── install.md
-    └── depends.md    # Dependency declarations (YAML list of skill names)
+├── references/       # Optional: supplementary docs (agentskills.io standard)
+│   ├── REFERENCE.md
+│   └── FORMS.md
+├── assets/           # Optional: templates, images, data files
+│   └── lookup.json
+└── metadata/         # Optional: dependency declarations
+    └── depends.md    # YAML list of dependency skill names
 ```
 
 ### SKILL.md Format
@@ -927,7 +974,7 @@ pub fn register_actions(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
 16. **Do NOT use `dcc-mcp-ipc` in new code**: That project is superseded by `dcc-mcp-core`. All IPC transport, routing, and HTTP serving is provided by this library. New DCC integrations should only depend on `dcc-mcp-core`.
 
-17. **MCP specification version awareness**: `McpHttpServer` implements the 2025-03-26 MCP spec (Streamable HTTP). The 2025-06-18 spec adds **Structured Tool Output**, **Elicitation** (server asks user for info), **Resource Links in tool results**, and **removes JSON-RPC batching**; `MCP-Protocol-Version` header becomes mandatory. The 2025-11-25 spec adds icon metadata, experimental Tasks, Sampling with tool calls, and JSON Schema 2020-12. Do NOT implement these from scratch; wait for API additions to `McpHttpServer`.
+17. **MCP specification version awareness**: `McpHttpServer` implements the 2025-03-26 MCP spec (Streamable HTTP). The 2025-06-18 spec adds **Structured Tool Output**, **Elicitation** (server asks user for info), **Resource Links in tool results**, and **removes JSON-RPC batching**; `MCP-Protocol-Version` header becomes mandatory. The 2025-11-25 spec adds icon metadata, experimental **Tasks** (persistent request tracking), Sampling with tool calls, URL pattern requests, OAuth Client ID Metadata Document, and JSON Schema 2020-12. The 2026 roadmap focuses on transport scalability (stateless horizontal scaling), agent communication (Tasks lifecycle), governance maturation (working groups), and enterprise readiness (extensions). Do NOT implement these from scratch; wait for API additions to `McpHttpServer`.
 
 18. **`scan_and_load` with `extra_paths`**: When calling `scan_and_load(extra_paths=[...], dcc_name="maya")`, both arguments are keyword-only. Do not pass `extra_paths` as a positional argument — use `extra_paths=["/path"]` explicitly.
 
@@ -942,6 +989,16 @@ pub fn register_actions(m: &Bound<'_, PyModule>) -> PyResult<()> {
 23. **MCP 2025-06-18 removes JSON-RPC batching**: If you were planning to use batching, note that it was removed in the 2025-06-18 spec. Also, `MCP-Protocol-Version` header becomes mandatory — handled internally by `McpHttpServer`.
 
 24. **`ActionDispatcher` has new introspection methods**: `has_handler(name)`, `handler_count()`, `handler_names()`, `remove_handler(name)`, and `skip_empty_schema_validation` property. Use these instead of manual bookkeeping.
+
+25. **`BridgeRegistry` and `BridgeContext`** are available for DCC inter-protocol bridging. Use `register_bridge(name, ctx)` to register a named bridge and `get_bridge_context(name)` to retrieve it. Don't build custom bridge registries.
+
+26. **Scene data model types are available**: `BoundingBox`, `FrameRange`, `ObjectTransform`, `SceneNode`, `SceneObject`, `RenderOutput` — use these for structured scene data instead of raw dicts. `BoundingBox` is `Optional` — check for `None` before using.
+
+27. **`serialize_result()` / `deserialize_result()`** for transport-safe ActionResultModel serialization. Use `SerializeFormat.JSON` or `SerializeFormat.MESSAGEPACK` explicitly — don't use `json.dumps()` on ActionResultModel directly.
+
+28. **SKILL.md `references/` directory is now standard** (agentskills.io spec): Place supplementary docs (REFERENCE.md, FORMS.md) in `references/` rather than `metadata/`. The `metadata/` directory is for dependency declarations only. Keep main SKILL.md under 500 lines and move detailed content to `references/`.
+
+29. **MCP 2026 Roadmap**: The MCP project has shifted from version-release milestones to **priority-area working groups**. Four pillars: (1) Transport evolution — stateless horizontal scaling, `.well-known` server discovery; (2) Agent communication — Tasks lifecycle (retry, expiry); (3) Governance maturation — contributor ladder, delegation model; (4) Enterprise readiness — audit, SSO, gateway, config portability (as extensions, not core spec changes). New transport methods are NOT planned — only evolution of existing Streamable HTTP.
 
 ## Debugging & Diagnostics
 
