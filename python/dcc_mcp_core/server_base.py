@@ -121,12 +121,16 @@ class DccServerBase:
         )
         if effective_gateway_port > 0:
             self._config.gateway_port = effective_gateway_port
-        if registry_dir:
-            self._config.registry_dir = registry_dir
+        # registry_dir: explicit param wins; fall back to DCC_MCP_REGISTRY_DIR env var
+        effective_registry_dir = registry_dir or os.environ.get("DCC_MCP_REGISTRY_DIR", "")
+        if effective_registry_dir:
+            self._config.registry_dir = effective_registry_dir
         if dcc_version:
             self._config.dcc_version = dcc_version
         if scene:
             self._config.scene = scene
+        # Always stamp the DCC type so gateway registry knows which DCC this is
+        self._config.dcc_type = dcc_name
 
         # Create the inner skill manager (registry + dispatcher + catalog)
         self._server: Any = create_skill_manager(dcc_name, self._config)
@@ -210,8 +214,10 @@ class DccServerBase:
         )
         logger.debug("[%s] Registering skills from %d path(s)", self._dcc_name, len(skill_paths))
         try:
-            self._server.discover_and_load_all(skill_paths)
-            logger.info("[%s] Skills loaded from: %s", self._dcc_name, skill_paths)
+            # McpHttpServer.discover() scans the given extra_paths in addition to
+            # paths configured in McpHttpConfig; the returned count is informational.
+            count = self._server.discover(extra_paths=skill_paths)
+            logger.info("[%s] Skills discovered: %d from %d path(s)", self._dcc_name, count, len(skill_paths))
         except Exception as exc:
             logger.warning("[%s] register_builtin_actions failed: %s", self._dcc_name, exc)
 
