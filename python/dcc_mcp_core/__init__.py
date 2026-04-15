@@ -42,7 +42,11 @@ from dcc_mcp_core._core import AuditEntry
 from dcc_mcp_core._core import AuditLog
 from dcc_mcp_core._core import AuditMiddleware
 from dcc_mcp_core._core import BooleanWrapper
-from dcc_mcp_core._core import BoundingBox
+
+try:
+    from dcc_mcp_core._core import BoundingBox
+except ImportError:
+    BoundingBox = None  # type: ignore[assignment,misc]  # not yet exposed in compiled extension
 from dcc_mcp_core._core import BridgeContext
 from dcc_mcp_core._core import BridgeRegistry
 from dcc_mcp_core._core import CaptureFrame

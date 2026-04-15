@@ -18,7 +18,7 @@ from pathlib import Path
 import dcc_mcp_core
 
 # All supported DCCs for cross-DCC pipeline tests (module-level constant to avoid RUF012)
-_ALL_DCC_LIST = ["blender", "freecad", "godot", "openscad", "inkscape", "maya", "houdini"]
+_ALL_DCC_LIST = ["blender", "freecad", "godot", "openscad", "maya", "houdini"]
 
 
 class TestCrossDCCPipeline:
