@@ -113,11 +113,12 @@ class DccServerBase:
             if env_val.isdigit():
                 effective_gateway_port = int(env_val)
 
-        # Build McpHttpConfig
-        self._config = McpHttpConfig()
-        self._config.port = port
-        self._config.server_name = server_name or f"{dcc_name}-mcp"
-        self._config.server_version = server_version
+        # Build McpHttpConfig — port must be passed at construction time (read-only after init)
+        self._config = McpHttpConfig(
+            port=port,
+            server_name=server_name or f"{dcc_name}-mcp",
+            server_version=server_version,
+        )
         if effective_gateway_port > 0:
             self._config.gateway_port = effective_gateway_port
         if registry_dir:
