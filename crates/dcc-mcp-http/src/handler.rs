@@ -14,7 +14,8 @@ use axum::{
 use dashmap::DashMap;
 use futures::stream;
 use serde_json::{Value, json};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
+use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
 use tokio_stream::StreamExt;
 use tokio_stream::wrappers::BroadcastStream;
@@ -35,6 +36,13 @@ use dcc_mcp_actions::{ActionDispatcher, ActionRegistry};
 use dcc_mcp_skills::SkillCatalog;
 use dcc_mcp_skills::catalog::SkillSummary;
 
+/// How long a cancellation record is kept before being garbage-collected.
+///
+/// If a client sends `notifications/cancelled` for a request that has already
+/// completed (common race condition), the entry would never be consumed by the
+/// check in `handle_tools_call`.  This TTL bounds memory growth from such entries.
+const CANCELLED_REQUEST_TTL: Duration = Duration::from_secs(30);
+
 /// Shared application state passed to all axum handlers.
 #[derive(Clone)]
 pub struct AppState {
@@ -47,9 +55,25 @@ pub struct AppState {
     pub server_name: String,
     pub server_version: String,
     /// Tracks request IDs that have been cancelled by the client via
-    /// `notifications/cancelled`.  Entries are removed after a single
-    /// check so the map stays small.
-    pub cancelled_requests: Arc<DashMap<String, ()>>,
+    /// `notifications/cancelled`.
+    ///
+    /// Value is the `Instant` when the cancellation was recorded, used to
+    /// garbage-collect entries that are never consumed (e.g. because the tool
+    /// call already completed before the cancellation arrived).  A background
+    /// task in `McpHttpServer::start()` runs `purge_expired_cancellations()`
+    /// every 60 seconds to keep this map bounded.
+    pub cancelled_requests: Arc<DashMap<String, Instant>>,
+}
+
+impl AppState {
+    /// Remove cancellation entries older than [`CANCELLED_REQUEST_TTL`].
+    ///
+    /// Call this from a background task to prevent unbounded memory growth when
+    /// clients cancel requests that have already completed.
+    pub fn purge_expired_cancellations(&self) {
+        self.cancelled_requests
+            .retain(|_, recorded_at| recorded_at.elapsed() < CANCELLED_REQUEST_TTL);
+    }
 }
 
 // ── POST /mcp ─────────────────────────────────────────────────────────────
@@ -250,7 +274,7 @@ async fn handle_notification(state: &AppState, method: &str, params: Option<&Val
             if let Some(id) = id_str {
                 if !id.is_empty() {
                     tracing::info!(request_id = %id, "MCP request cancelled by client");
-                    state.cancelled_requests.insert(id, ());
+                    state.cancelled_requests.insert(id, Instant::now());
                 }
             }
         }
@@ -330,8 +354,10 @@ async fn handle_tools_list(
     state: &AppState,
     req: &JsonRpcRequest,
 ) -> Result<JsonRpcResponse, HttpError> {
-    // 1. Core discovery tools — always fully visible
-    let mut tools: Vec<McpTool> = build_core_tools();
+    // 1. Core discovery tools — always fully visible (static, cached once per process)
+    let core = build_core_tools();
+    let mut tools: Vec<McpTool> = Vec::with_capacity(core.len() + 16);
+    tools.extend_from_slice(core);
 
     // 2. Loaded skill tools — full definitions from ActionRegistry
     let actions = state.registry.list_actions(None);
@@ -483,7 +509,12 @@ async fn handle_tools_call(
         other => serde_json::to_string(other).unwrap_or_default(),
     });
     if let Some(ref rid) = req_id_str {
-        if state.cancelled_requests.remove(rid).is_some() {
+        // Only suppress if the cancellation was recorded within the TTL window.
+        let cancelled = state
+            .cancelled_requests
+            .remove(rid)
+            .is_some_and(|(_, recorded_at)| recorded_at.elapsed() < CANCELLED_REQUEST_TTL);
+        if cancelled {
             tracing::info!(request_id = %rid, "Suppressing result — request was cancelled");
             return Ok(JsonRpcResponse::success(
                 req.id.clone(),
@@ -730,8 +761,22 @@ async fn handle_unload_skill(
 
 // ── Core tool definitions ─────────────────────────────────────────────────
 
-/// Build the core discovery tools that are always visible.
-fn build_core_tools() -> Vec<McpTool> {
+/// Process-global cache for the core discovery tools.
+///
+/// The core tools (`find_skills`, `load_skill`, `unload_skill`, `get_skill_info`,
+/// `search_skills`) have static schemas that never change at runtime.  We build
+/// them once on the first `tools/list` call and reuse the result for every
+/// subsequent request, eliminating a handful of `String::from` / `json!` allocations
+/// per request.
+static CORE_TOOLS_CACHE: OnceLock<Vec<McpTool>> = OnceLock::new();
+
+/// Return the core discovery tools, building and caching them on the first call.
+fn build_core_tools() -> &'static [McpTool] {
+    CORE_TOOLS_CACHE.get_or_init(build_core_tools_inner)
+}
+
+/// Inner builder — called exactly once per process lifetime.
+fn build_core_tools_inner() -> Vec<McpTool> {
     vec![
         McpTool {
             name: "find_skills".to_string(),

@@ -160,6 +160,28 @@ impl McpHttpServer {
             });
         }
 
+        let cancelled_requests: std::sync::Arc<dashmap::DashMap<String, std::time::Instant>> =
+            std::sync::Arc::new(dashmap::DashMap::new());
+
+        // Spawn background task that garbage-collects stale cancellation records.
+        //
+        // When a client cancels a request that has already completed (common race),
+        // the entry in `cancelled_requests` is never consumed by `handle_tools_call`.
+        // Without this task the map would grow without bound in long-running servers.
+        {
+            let cr_bg = cancelled_requests.clone();
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
+                loop {
+                    interval.tick().await;
+                    // purge_expired_cancellations uses the same TTL constant defined in handler.rs
+                    cr_bg.retain(|_, recorded_at: &mut std::time::Instant| {
+                        recorded_at.elapsed() < std::time::Duration::from_secs(30)
+                    });
+                }
+            });
+        }
+
         let state = AppState {
             registry: self.registry,
             dispatcher: self.dispatcher,
@@ -169,7 +191,7 @@ impl McpHttpServer {
             bridge_registry: crate::BridgeRegistry::new(),
             server_name: self.config.server_name.clone(),
             server_version: self.config.server_version.clone(),
-            cancelled_requests: Arc::new(dashmap::DashMap::new()),
+            cancelled_requests,
         };
 
         let endpoint = self.config.endpoint_path.clone();

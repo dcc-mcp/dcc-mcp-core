@@ -38,7 +38,8 @@ use pyo3::prelude::*;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use dcc_mcp_models::SkillMetadata;
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
@@ -74,6 +75,19 @@ struct WatcherInner {
     skills: RwLock<Vec<SkillMetadata>>,
     /// Directories currently being watched (for full rescan on change).
     watched_paths: RwLock<Vec<PathBuf>>,
+    /// Epoch-millisecond timestamp of the most recent skill-related FS event.
+    ///
+    /// Written atomically by the notify callback; read by the single background
+    /// debounce thread.  Using u64 milliseconds fits in an atomic without any
+    /// locking, and the debounce window is large enough that minor clock jitter
+    /// is irrelevant.
+    last_event_ms: AtomicU64,
+    /// Callbacks to invoke after every successful reload.
+    ///
+    /// Registered via [`SkillWatcher::on_reload`].  Each callback is called
+    /// **synchronously** from the reload thread after the skill snapshot has
+    /// been updated, so it must be fast (typically just clearing a cache flag).
+    on_reload_callbacks: RwLock<Vec<Box<dyn Fn() + Send + Sync>>>,
 }
 
 impl WatcherInner {
@@ -81,10 +95,21 @@ impl WatcherInner {
         Arc::new(Self {
             skills: RwLock::new(Vec::new()),
             watched_paths: RwLock::new(Vec::new()),
+            last_event_ms: AtomicU64::new(0),
+            on_reload_callbacks: RwLock::new(Vec::new()),
         })
     }
 
-    /// Reload skills from all watched directories.
+    /// Record a skill-related filesystem event for the debounce thread.
+    fn mark_event(&self) {
+        let now_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        self.last_event_ms.store(now_ms, Ordering::Release);
+    }
+
+    /// Reload skills from all watched directories and notify listeners.
     fn reload(&self) {
         let paths: Vec<_> = self.watched_paths.read().clone();
         let extra_paths: Vec<String> = paths
@@ -106,6 +131,16 @@ impl WatcherInner {
         let count = new_skills.len();
         *self.skills.write() = new_skills;
         info!("SkillWatcher: reloaded {count} skill(s)");
+
+        // Notify all registered listeners (e.g. SkillsManager cache invalidation).
+        for cb in self.on_reload_callbacks.read().iter() {
+            cb();
+        }
+    }
+
+    /// Register a callback invoked after every reload.
+    fn add_on_reload_callback(&self, cb: Box<dyn Fn() + Send + Sync>) {
+        self.on_reload_callbacks.write().push(cb);
     }
 }
 
@@ -135,7 +170,20 @@ impl SkillWatcher {
     /// Create a new watcher with the given debounce delay.
     ///
     /// Events within `debounce` of each other are coalesced into a single
-    /// reload. A value of 300ms is a reasonable default.
+    /// reload. A value of 300 ms is a reasonable default.
+    ///
+    /// # Design note — single debounce thread
+    ///
+    /// The previous implementation spawned a new OS thread per filesystem event
+    /// (`thread::sleep(debounce); reload()`).  A rapid burst of changes (e.g.
+    /// `git checkout` touching 100 files) would spawn 100 threads, all sleeping
+    /// concurrently, saturating the thread pool.
+    ///
+    /// The new design uses a single, long-lived background thread that polls an
+    /// `AtomicU64` timestamp every 50 ms.  The notify callback only writes the
+    /// current epoch-ms into the atomic — zero allocation, no spawn.  The poll
+    /// thread fires a reload exactly once per quiet period (no new events for
+    /// `debounce` ms), regardless of how many raw events arrived.
     ///
     /// # Errors
     ///
@@ -143,29 +191,53 @@ impl SkillWatcher {
     /// be created (unlikely outside of test environments).
     pub fn new(debounce: Duration) -> Result<Self, WatcherError> {
         let inner = WatcherInner::new();
-        let inner_cb = Arc::clone(&inner);
-        let debounce_cb = debounce;
 
-        let watcher = notify::recommended_watcher(move |res: notify::Result<Event>| {
-            match res {
-                Ok(event) => {
-                    debug!("SkillWatcher: fs event {:?}", event.kind);
-                    if should_reload(&event) {
-                        // Spawn a dedicated thread for each debounced reload
-                        // so the notify callback (which runs in its own thread)
-                        // is never blocked.
-                        let inner_reload = Arc::clone(&inner_cb);
-                        std::thread::spawn(move || {
-                            std::thread::sleep(debounce_cb);
-                            inner_reload.reload();
-                        });
-                    }
-                }
-                Err(e) => {
-                    warn!("SkillWatcher: notify error: {e}");
+        // ── Notify callback: only stamps the atomic, never sleeps ──────────
+        let inner_cb = Arc::clone(&inner);
+        let watcher = notify::recommended_watcher(move |res: notify::Result<Event>| match res {
+            Ok(event) => {
+                debug!("SkillWatcher: fs event {:?}", event.kind);
+                if should_reload(&event) {
+                    inner_cb.mark_event();
                 }
             }
+            Err(e) => {
+                warn!("SkillWatcher: notify error: {e}");
+            }
         })?;
+
+        // ── Single background poll thread ───────────────────────────────────
+        // Polls every 50 ms.  When the last event is older than `debounce` and
+        // hasn't been fired yet, it triggers a reload and records that it did.
+        let inner_poll = Arc::clone(&inner);
+        let debounce_ms = debounce.as_millis() as u64;
+        std::thread::Builder::new()
+            .name("skill-watcher-debounce".into())
+            .spawn(move || {
+                let poll_interval = Duration::from_millis(50);
+                let mut last_fired_ms: u64 = 0;
+
+                loop {
+                    std::thread::sleep(poll_interval);
+
+                    let last_event = inner_poll.last_event_ms.load(Ordering::Acquire);
+                    if last_event == 0 || last_event == last_fired_ms {
+                        continue; // nothing new
+                    }
+
+                    let now_ms = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64;
+
+                    if now_ms.saturating_sub(last_event) >= debounce_ms {
+                        // Quiet window elapsed — fire exactly one reload.
+                        inner_poll.reload();
+                        last_fired_ms = last_event;
+                    }
+                }
+            })
+            .expect("failed to spawn skill-watcher-debounce thread");
 
         Ok(Self {
             inner,
@@ -250,6 +322,33 @@ impl SkillWatcher {
     /// normal watcher loop.
     pub fn reload(&self) {
         self.inner.reload();
+    }
+
+    /// Register a callback that is invoked **after every reload**.
+    ///
+    /// Use this to connect external caches to the watcher so they are
+    /// automatically invalidated whenever skills change on disk.
+    ///
+    /// The callback runs synchronously on the debounce thread, so it must
+    /// complete quickly (e.g. clearing a flag or calling `.clear_cache()`).
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use dcc_mcp_skills::watcher::SkillWatcher;
+    /// use dcc_mcp_skills::manager::SkillsManager;
+    /// use std::sync::Arc;
+    /// use std::time::Duration;
+    ///
+    /// let manager = Arc::new(SkillsManager::new(/* ... */ todo!()));
+    /// let mut watcher = SkillWatcher::new(Duration::from_millis(300)).unwrap();
+    ///
+    /// // Invalidate the manager's cache every time skills are reloaded.
+    /// let mgr = manager.clone();
+    /// watcher.on_reload(move || mgr.clear_cache());
+    /// ```
+    pub fn on_reload(&self, callback: impl Fn() + Send + Sync + 'static) {
+        self.inner.add_on_reload_callback(Box::new(callback));
     }
 }
 

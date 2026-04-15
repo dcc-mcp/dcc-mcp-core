@@ -37,6 +37,7 @@ use std::{
 use dcc_mcp_models::SkillScope;
 
 use crate::catalog::SkillCatalog;
+use crate::watcher::SkillWatcher;
 
 // ── Cache entry ───────────────────────────────────────────────────────────
 
@@ -206,6 +207,36 @@ impl SkillsManager {
             );
         }
         count
+    }
+
+    /// Connect a [`SkillWatcher`] so that every filesystem-triggered reload
+    /// automatically invalidates this manager's caches.
+    ///
+    /// After calling this, you no longer need to call [`clear_cache`] manually
+    /// when skills change on disk — the watcher's debounce thread will do it.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use dcc_mcp_skills::{SkillCatalog, manager::SkillsManager, watcher::SkillWatcher};
+    /// use dcc_mcp_actions::ActionRegistry;
+    /// use std::sync::Arc;
+    /// use std::time::Duration;
+    ///
+    /// let registry = Arc::new(ActionRegistry::new());
+    /// let catalog  = Arc::new(SkillCatalog::new(registry));
+    /// let manager  = Arc::new(SkillsManager::new(catalog));
+    /// let mut watcher = SkillWatcher::new(Duration::from_millis(300)).unwrap();
+    ///
+    /// // Wire them together: watcher reload → manager cache invalidation.
+    /// manager.connect_watcher(&mut watcher);
+    /// ```
+    pub fn connect_watcher(self: &Arc<Self>, watcher: &SkillWatcher) {
+        let mgr = Arc::clone(self);
+        watcher.on_reload(move || {
+            tracing::debug!("SkillsManager: cache invalidated by SkillWatcher reload");
+            mgr.clear_cache();
+        });
     }
 
     /// Evict all stale cache entries (both caches).

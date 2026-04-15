@@ -137,7 +137,7 @@ impl SessionManager {
         let stale: Vec<String> = self
             .sessions
             .iter()
-            .filter(|e| now.duration_since(e.value().last_active) > ttl)
+            .filter(|e| now.duration_since(e.value().last_active) >= ttl)
             .map(|e| e.key().clone())
             .collect();
         let count = stale.len();
