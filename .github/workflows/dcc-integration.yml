@@ -17,7 +17,7 @@ on:
   workflow_dispatch:
     inputs:
       dcc:
-        description: "DCC to test (blender/openscad/inkscape/godot/cross/all)"
+        description: "DCC to test (blender/openscad/godot/cross/all)"
         required: false
         default: "all"
   workflow_call:
@@ -148,35 +148,7 @@ jobs:
       - name: Verify OpenSCAD
         run: openscad --version
       - name: Test (with virtual display for PNG tests)
-        run: xvfb-run -a pytest tests/test_integration_dcc_openscad_inkscape.py -v --tb=short -k "OpenSCAD"
-
-  # ── Inkscape (headless --actions) ──
-  inkscape:
-    name: Inkscape
-    needs: [build-wheel]
-    if: github.event.inputs.dcc == '' || github.event.inputs.dcc == 'all' || github.event.inputs.dcc == 'inkscape'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
-        with:
-          python-version: "3.14"
-      - name: Install Inkscape
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y inkscape
-        shell: bash
-      - uses: actions/download-artifact@v8
-        with:
-          name: wheel-dcc-integration
-          path: dist/
-      - name: Install wheel + pytest
-        run: pip install --no-index --find-links dist dcc-mcp-core; pip install pytest
-        shell: bash
-      - name: Verify Inkscape
-        run: inkscape --version
-      - name: Test
-        run: pytest tests/test_integration_dcc_openscad_inkscape.py -v --tb=short -k "Inkscape"
+        run: xvfb-run -a pytest tests/test_integration_dcc_openscad.py -v --tb=short
 
   # ── Godot 4 (headless --headless --script) ──
   godot:
