@@ -1554,6 +1554,7 @@ mod gateway_tests {
         let path = dir.keep();
         let registry = FileRegistry::new(&path).unwrap();
         let (yield_tx, _yield_rx) = tokio::sync::watch::channel(false);
+        let (events_tx, _) = tokio::sync::broadcast::channel(16);
         GatewayState {
             registry: Arc::new(RwLock::new(registry)),
             stale_timeout: Duration::from_secs(30),
@@ -1561,6 +1562,7 @@ mod gateway_tests {
             server_version: "0.1.0".to_string(),
             http_client: reqwest::Client::new(),
             yield_tx: Arc::new(yield_tx),
+            events_tx: Arc::new(events_tx),
         }
     }
 

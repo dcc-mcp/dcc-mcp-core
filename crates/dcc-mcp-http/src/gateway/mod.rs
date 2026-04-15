@@ -37,7 +37,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::sync::{RwLock, watch};
+use tokio::sync::{RwLock, broadcast, watch};
 use tokio::task::AbortHandle;
 
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
@@ -113,7 +113,7 @@ fn has_newer_live_instance(reg: &FileRegistry, own_version: &str, stale_timeout:
 
 // ── Gateway task setup (shared between winner and challenger paths) ────────────
 
-/// Build and run the gateway HTTP server with a graceful-yield shutdown hook.
+/// Build and run the gateway HTTP server with graceful-yield and live-push support.
 ///
 /// Returns the combined `AbortHandle` for all gateway background tasks.
 async fn start_gateway_tasks(
@@ -123,11 +123,17 @@ async fn start_gateway_tasks(
     server_name: String,
     server_version: String,
 ) -> Result<(AbortHandle, Arc<watch::Sender<bool>>), Box<dyn std::error::Error + Send + Sync>> {
-    // Yield channel — sending `true` triggers graceful gateway shutdown.
+    // ── Yield channel ─────────────────────────────────────────────────────
     let (yield_tx, mut yield_rx) = watch::channel(false);
     let yield_tx = Arc::new(yield_tx);
 
-    // Stale cleanup + challenger detection background task.
+    // ── SSE broadcast channel ──────────────────────────────────────────────
+    // All MCP notifications (resources/list_changed, etc.) are sent here.
+    // Capacity 128 is generous; the watcher fires at most once every 2 s.
+    let (events_tx, _) = broadcast::channel::<String>(128);
+    let events_tx = Arc::new(events_tx);
+
+    // ── Stale cleanup + challenger detection (every 15 s) ─────────────────
     let reg_cleanup = registry.clone();
     let own_version = server_version.clone();
     let yield_tx_cleanup = yield_tx.clone();
@@ -154,7 +160,53 @@ async fn start_gateway_tasks(
         }
     });
 
-    // Gateway HTTP server — shuts down when `yield_rx` fires.
+    // ── Instance-change watcher (every 2 s) ───────────────────────────────
+    // Detects when DCC instances join or leave and broadcasts
+    // `notifications/resources/list_changed` to all connected SSE clients.
+    let reg_watch = registry.clone();
+    let events_tx_watch = events_tx.clone();
+    let watcher_handle = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(2));
+        // Fingerprint = sorted "dcc_type:instance_id" strings of live instances.
+        let mut last_fingerprint = String::new();
+
+        loop {
+            interval.tick().await;
+
+            let fingerprint = {
+                let r = reg_watch.read().await;
+                let mut keys: Vec<String> = r
+                    .list_all()
+                    .into_iter()
+                    .filter(|e| {
+                        e.dcc_type != GATEWAY_SENTINEL_DCC_TYPE && !e.is_stale(stale_timeout)
+                    })
+                    .map(|e| format!("{}:{}", e.dcc_type, e.instance_id))
+                    .collect();
+                keys.sort_unstable();
+                keys.join("|")
+            };
+
+            if fingerprint != last_fingerprint {
+                tracing::debug!(
+                    "Gateway: instance set changed — broadcasting resources/list_changed"
+                );
+                // Only send if there are active SSE subscribers.
+                if events_tx_watch.receiver_count() > 0 {
+                    let notif = serde_json::to_string(&serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "method": "notifications/resources/list_changed",
+                        "params": {}
+                    }))
+                    .unwrap_or_default();
+                    let _ = events_tx_watch.send(notif);
+                }
+                last_fingerprint = fingerprint;
+            }
+        }
+    });
+
+    // ── Gateway HTTP server ────────────────────────────────────────────────
     let gw_state = GatewayState {
         registry,
         stale_timeout,
@@ -164,11 +216,12 @@ async fn start_gateway_tasks(
             .timeout(Duration::from_secs(30))
             .build()?,
         yield_tx: yield_tx.clone(),
+        events_tx,
     };
     let gw_router = build_gateway_router(gw_state);
     let actual = listener.local_addr()?;
     tracing::info!(
-        "Gateway listening on http://{}  (instances: /instances, mcp: /mcp)",
+        "Gateway listening on http://{}  (GET /mcp = SSE stream, POST /mcp = MCP endpoint)",
         actual
     );
 
@@ -189,9 +242,9 @@ async fn start_gateway_tasks(
             .ok();
     });
 
-    // Wrap both tasks under one combined abort handle.
+    // Combine all tasks under one abort handle.
     let combined = tokio::spawn(async move {
-        let _ = tokio::join!(cleanup_handle, gw_handle);
+        let _ = tokio::join!(cleanup_handle, watcher_handle, gw_handle);
     });
 
     Ok((combined.abort_handle(), yield_tx))

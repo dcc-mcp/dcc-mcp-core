@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::{Value, json};
-use tokio::sync::{RwLock, watch};
+use tokio::sync::{RwLock, broadcast, watch};
 
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
 use dcc_mcp_transport::discovery::types::{ServiceEntry, ServiceStatus};
@@ -23,8 +23,16 @@ pub struct GatewayState {
     /// Sending `true` causes the gateway's HTTP server to perform a
     /// graceful shutdown and release the gateway port — allowing a
     /// higher-version challenger to take over.
-    /// Wrapped in `Arc` so every cloned `GatewayState` shares the same sender.
     pub yield_tx: Arc<watch::Sender<bool>>,
+    /// Broadcast channel for server-initiated MCP notifications pushed to SSE clients.
+    ///
+    /// The gateway's instance-watcher task sends JSON-RPC notification strings here
+    /// whenever the set of live DCC instances changes.  Every connected SSE client
+    /// (`GET /mcp`) subscribes and forwards the messages to the MCP client.
+    ///
+    /// Channel capacity 128 is intentionally generous: at a 2-second poll interval,
+    /// there will never be more than a handful of pending messages.
+    pub events_tx: Arc<broadcast::Sender<String>>,
 }
 
 impl GatewayState {
