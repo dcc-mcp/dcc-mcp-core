@@ -1,6 +1,45 @@
 # Architecture
 
-DCC-MCP-Core is a Rust workspace with Python bindings via PyO3. The library provides:
+DCC-MCP-Core is a **Rust-powered DCC automation framework** with Python bindings via PyO3, designed for AI-assisted workflows. It solves MCP's context explosion and provides zero-code skill registration.
+
+## High-Level Design
+
+### Three-Layer Stack
+
+```
+┌──────────────────────────────┐
+│ AI Agent (Claude, GPT, etc.) │ ← talks MCP via HTTP
+└──────────────┬───────────────┘
+               │ MCP Streamable HTTP
+               ▼
+┌──────────────────────────────┐
+│ Gateway Server (Rust core)   │ ← coordinates tool discovery
+│ - Version-aware election     │   and session routing
+│ - Session isolation          │
+│ - Tool scoping               │
+└──────────┬──────────────────┘
+           │ IPC (fast, zero-copy)
+           │
+     ┌─────┴──────┬────────┬────────┐
+     ▼            ▼        ▼        ▼
+  ┌──────┐   ┌──────┐  ┌──────┐  ┌──────┐
+  │ Maya │   │Blend │  │Houd  │  │Photo │
+  │ (v25)│   │ (3.9)│  │(21)  │  │(2025)│
+  └──────┘   └──────┘  └──────┘  └──────┘
+   Instances with embedded Skills system
+```
+
+### Core Principles
+
+1. **Session Isolation** — Each AI session pinned to one DCC instance (prevents context explosion)
+2. **Version-Aware Election** — Newest DCC automatically becomes gateway (no manual failover)
+3. **Zero-Code Skills** — SKILL.md + scripts/ = instant MCP tools (no Python glue)
+4. **Structured Results** — Every tool returns `{success, message, context, next_steps}` (AI-friendly)
+5. **Progressive Discovery** — Tools scoped by DCC/scope/product (71% context reduction)
+
+## The Library
+
+DCC-MCP-Core is a Rust workspace with Python bindings via PyO3. It provides:
 
 - **Zero third-party runtime dependencies** in the Rust core
 - **Optional Python bindings** via PyO3 for DCC integration
