@@ -39,6 +39,15 @@ pub trait ServiceDiscovery: Send + Sync {
         version: Option<&str>,
     ) -> TransportResult<bool>;
 
+    /// Update the active document, full document list, and optional display name.
+    fn update_documents(
+        &self,
+        key: &ServiceKey,
+        active_document: Option<&str>,
+        documents: &[String],
+        display_name: Option<&str>,
+    ) -> TransportResult<bool>;
+
     /// Remove stale services.
     fn cleanup_stale(&self, timeout: Duration) -> TransportResult<usize>;
 
@@ -88,6 +97,16 @@ impl ServiceDiscovery for file_registry::FileRegistry {
         version: Option<&str>,
     ) -> TransportResult<bool> {
         self.update_metadata(key, scene, version)
+    }
+
+    fn update_documents(
+        &self,
+        key: &ServiceKey,
+        active_document: Option<&str>,
+        documents: &[String],
+        display_name: Option<&str>,
+    ) -> TransportResult<bool> {
+        self.update_documents(key, active_document, documents, display_name)
     }
 
     fn cleanup_stale(&self, timeout: Duration) -> TransportResult<usize> {
@@ -159,6 +178,18 @@ impl ServiceRegistry {
         version: Option<&str>,
     ) -> TransportResult<bool> {
         self.strategy.update_metadata(key, scene, version)
+    }
+
+    /// Update the active document, full document list, and optional display name.
+    pub fn update_documents(
+        &self,
+        key: &ServiceKey,
+        active_document: Option<&str>,
+        documents: &[String],
+        display_name: Option<&str>,
+    ) -> TransportResult<bool> {
+        self.strategy
+            .update_documents(key, active_document, documents, display_name)
     }
 
     /// Remove stale services.

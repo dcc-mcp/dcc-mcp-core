@@ -141,6 +141,23 @@ impl TransportManager {
         self.registry.update_metadata(key, scene, version)
     }
 
+    /// Update the active document, full document list, and optional display name.
+    ///
+    /// Designed for multi-document DCC applications (e.g. Photoshop, After Effects).
+    /// For single-document DCCs (Maya, Blender) this is equivalent to `update_metadata`
+    /// with the `scene` field, but also stores `display_name` when provided.
+    pub fn update_documents(
+        &self,
+        key: &ServiceKey,
+        active_document: Option<&str>,
+        documents: &[String],
+        display_name: Option<&str>,
+    ) -> TransportResult<bool> {
+        self.check_shutdown()?;
+        self.registry
+            .update_documents(key, active_document, documents, display_name)
+    }
+
     // ── Session Management ──
 
     /// Get or create a session for a DCC instance (lazy creation).
