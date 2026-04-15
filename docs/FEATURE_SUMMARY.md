@@ -123,7 +123,6 @@ pip install -e .
 ```
 
 See:
-- [docs/guide/MCP_SKILLS_INTEGRATION.md](guide/MCP_SKILLS_INTEGRATION.md)
-- [docs/guide/GATEWAY_ELECTION.md](guide/GATEWAY_ELECTION.md)
-- [docs/guide/SKILL_SCOPES_POLICIES_DEPS.md](guide/SKILL_SCOPES_POLICIES_DEPS.md)
-- [examples/skills/](../examples/skills/) — 11 complete working examples
+- [MCP + Skills Integration](guide/mcp-skills-integration.md)
+- [Gateway Election](guide/gateway-election.md)
+- [Skill Scopes & Policies](guide/skill-scopes-policies.md)

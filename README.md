@@ -9,7 +9,7 @@
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
 [![Latest Version](https://img.shields.io/github/v/tag/loonghao/dcc-mcp-core?label=Latest%20Version)](https://github.com/loonghao/dcc-mcp-core/releases)
 
-[中文文档](README_zh.md) | [English](README.md)
+[Chinese](README_zh.md) | [English](README.md)
 
 **Production-grade foundation for AI-assisted DCC workflows** combining the **Model Context Protocol (MCP)** and a **zero-code Skills system**. Provides a **Rust-powered core with Python bindings (PyO3)** delivering enterprise-grade performance, security, and scalability — all with **zero runtime Python dependencies**. Supports Python 3.7–3.13.
 
@@ -17,7 +17,7 @@
 
 ---
 
-## 🎯 The Problem & Our Solution
+## The Problem & Our Solution
 
 ### Why Not Just Use CLI?
 **CLI tools are blind to DCC state.** They can't see the active scene, selected objects, or viewport context. They execute in isolation, forcing the AI to:
@@ -31,7 +31,7 @@
 1. **Context Explosion** — MCP has no mechanism to scope tools to specific sessions or instances, causing request bloat with multi-DCC setups
 2. **No Lifecycle Control** — Can't discover instance state (active scene, documents, process health) or control startup/shutdown
 
-### Our Approach: **MCP + Skills System**
+### Our Approach: MCP + Skills System
 
 We **reuse and extend** the existing MCP ecosystem, adding:
 
@@ -48,50 +48,52 @@ This isn't reinventing MCP — it's **solving MCP's blind spots for desktop auto
 
 ---
 
-## 🚀 Why dcc-mcp-core Over Alternatives?
+## Why dcc-mcp-core Over Alternatives?
 
 | Aspect | dcc-mcp-core | Generic MCP | CLI Tools | Browser Extensions |
 |--------|-------------|------------|-----------|-------------------|
-| **DCC State Awareness** | ✅ Scenes, docs, instance IDs | ❌ No | ❌ No | ⚠️ Partial |
-| **Multi-Instance Support** | ✅ Gateway election + session isolation | ❌ Single endpoint | ❌ No | ❌ No |
-| **Context Scoping** | ✅ By DCC/scene/product | ❌ Global tools | ❌ No | ⚠️ Limited |
-| **Zero-Code Tools** | ✅ SKILL.md + scripts | ❌ Full Python required | ✅ Scripts only | ❌ No |
-| **Performance** | ✅ Rust + zero-copy + IPC | ❌ Python overhead | ⚠️ Process overhead | ⚠️ Network overhead |
-| **Security** | ✅ Sandbox + audit log | ⚠️ Manual | ⚠️ Manual | ❌ None |
-| **Cross-Platform** | ✅ Windows/macOS/Linux | ✅ Yes | ⚠️ Limited | ❌ Browser only |
+| **DCC State Awareness** | Scenes, docs, instance IDs | No | No | Partial |
+| **Multi-Instance Support** | Gateway election + session isolation | Single endpoint | No | No |
+| **Context Scoping** | By DCC/scene/product | Global tools | No | Limited |
+| **Zero-Code Tools** | SKILL.md + scripts | Full Python required | Scripts only | No |
+| **Performance** | Rust + zero-copy + IPC | Python overhead | Process overhead | Network overhead |
+| **Security** | Sandbox + audit log | Manual | Manual | None |
+| **Cross-Platform** | Windows/macOS/Linux | Yes | Limited | Browser only |
 
 AI-friendly docs: [AGENTS.md](AGENTS.md) | [CLAUDE.md](CLAUDE.md) | [GEMINI.md](GEMINI.md) | [`.agents/skills/dcc-mcp-core/SKILL.md`](.agents/skills/dcc-mcp-core/SKILL.md)
 
-## 🏗️ Architecture: The Three-Layer Stack
+## Architecture: The Three-Layer Stack
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│ AI Agent (Claude, GPT, etc.) — Calls tools via MCP              │
-└────────────────────┬────────────────────────────────────────────┘
-                     │ MCP Streamable HTTP
-                     ▼
-┌─────────────────────────────────────────────────────────────────┐
-│ Gateway Server (Rust/HTTP)                                       │
-│ ├─ Version-Aware Instance Election                              │
-│ ├─ Session Isolation & Routing                                  │
-│ ├─ Tool Discovery (skills-derived)                              │
-│ └─ Cancellation & Notifications (SSE)                           │
-└────────────────────┬────────────────────────────────────────────┘
-                     │ IPC (Named Pipe / Unix Socket / TCP)
-     ┌───────────────┼───────────────┐
-     ▼               ▼               ▼
-  ┌─────┐         ┌─────┐         ┌─────┐
-  │Maya │        │Blender       │Houdini
-  │Bridge         │Bridge       │Bridge
-  │Plugin         │Plugin       │Plugin
-  │(Rust)         │(Rust)       │(Rust)
-  └─────┘         └─────┘         └─────┘
-    ↓               ↓               ↓
-  Python 3.7+    Python 3.7+    Python 3.7+
-  (zero deps)    (zero deps)    (zero deps)
++-----------------------------------------------------------------+
+|  AI Agent (Claude, GPT, etc.)                                    |
+|  Calls tools via MCP protocol (tools/list, tools/call)           |
++-------------------------------+---------------------------------+
+                                |
+                        MCP Streamable HTTP
+                                |
++-------------------------------v---------------------------------+
+|  Gateway Server (Rust/HTTP)                                      |
+|  +-- Version-Aware Instance Election                             |
+|  +-- Session Isolation & Routing                                 |
+|  +-- Tool Discovery (skills-derived)                             |
+|  +-- Cancellation & Notifications (SSE)                          |
++-------------------------------+---------------------------------+
+                                |
+                 IPC (Named Pipe / Unix Socket / TCP)
+                                |
+          +---------------------+---------------------+
+          |                     |                     |
+  +-------v-------+   +-------v-------+   +-------v-------+
+  |  Maya Bridge   |   | Blender Bridge |   | Houdini Bridge|
+  |  Plugin (Rust) |   | Plugin (Rust)  |   | Plugin (Rust)|
+  +-------+--------+   +-------+--------+   +-------+-------+
+          |                     |                     |
+    Python 3.7+           Python 3.7+           Python 3.7+
+    (zero deps)           (zero deps)           (zero deps)
 ```
 
-**Layer 1: AI Agent** — Calls tools via standard MCP protocol (tools/list, tools/call, notifications)
+**Layer 1: AI Agent** — Calls tools via standard MCP protocol (tools/list, tools/call, notifications).
 
 **Layer 2: Gateway** — Orchestrates discovery, session isolation, and request routing. Maintains `__gateway__` sentinel for version-aware election.
 
@@ -140,7 +142,7 @@ for skill in skills:
 # 3. Set up dispatcher with event lifecycle
 dispatcher = ActionDispatcher(registry)
 bus = EventBus()
-bus.subscribe("action.after_execute", lambda **kw: print(f"✓ {kw['action_name']}"))
+bus.subscribe("action.after_execute", lambda **kw: print(f"Done: {kw['action_name']}"))
 
 # 4. Call a skill (returns structured result)
 result = dispatcher.dispatch(
@@ -184,9 +186,9 @@ result = ActionResultModel(
 # Access fields
 result.success      # bool
 result.message     # str
-result.prompt       # Optional[str] — AI next-step suggestion
-result.error        # Optional[str] — error details
-result.context      # dict — arbitrary structured data
+result.prompt       # Optional[str] -- AI next-step suggestion
+result.error        # Optional[str] -- error details
+result.context      # dict -- arbitrary structured data
 ```
 
 ### ActionRegistry & Dispatcher — The Skill Execution System
@@ -215,35 +217,35 @@ bus.publish("action.before_execute", action_name="test")
 bus.unsubscribe("action.before_execute", sub_id)
 ```
 
-## 🛠️ Skills System — Zero-Code MCP Tool Registration
+## Skills System — Zero-Code MCP Tool Registration
 
 The **Skills system** is dcc-mcp-core's core innovation: it lets you register any script (Python, MEL, MaxScript, Batch, Shell, JS) as an MCP tool with **zero Python code**. Reuses the existing [OpenClaw Skills](https://docs.openclaw.ai/tools) format.
 
 ### How It Works
 
 ```
-┌─────────────────────────────────┐
-│  Directory:  my-automation/      │
-│  ├─ SKILL.md  (metadata)        │
-│  └─ scripts/                    │
-│     ├─ cleanup.py               │
-│     ├─ publish.sh               │
-│     └─ validate.mel             │
-└─────────────────────────────────┘
-         ↓  (discovery)
-┌─────────────────────────────────┐
-│  SkillsManager (with caching)   │
-│  ├─ Dual-cache: by-paths &      │
-│  │   by-config (session-bound)  │
-│  ├─ Scoped: Repo/User/System    │
-│  └─ Policies: implicit invoke,  │
-│     product filters, deps       │
-└─────────────────────────────────┘
-         ↓  (registration)
-┌─────────────────────────────────┐
-│  ActionRegistry + SkillCatalog  │
-│  (callable by AI via MCP tools) │
-└─────────────────────────────────┘
++-----------------------------------+
+|  Directory:  my-automation/       |
+|  +-- SKILL.md  (metadata)         |
+|  +-- scripts/                     |
+|      +-- cleanup.py               |
+|      +-- publish.sh               |
+|      +-- validate.mel             |
++-----------------------------------+
+          |  (discovery)
++-----------------------------------+
+|  SkillsManager (with caching)     |
+|  +-- Dual-cache: by-paths &       |
+|  |   by-config (session-bound)    |
+|  +-- Scoped: Repo/User/System     |
+|  +-- Policies: implicit invoke,   |
+|      product filters, deps        |
++-----------------------------------+
+          |  (registration)
++-----------------------------------+
+|  ActionRegistry + SkillCatalog    |
+|  (callable by AI via MCP tools)   |
++-----------------------------------+
 ```
 
 ### Five Minutes to Your First Skill
@@ -333,7 +335,7 @@ from dcc_mcp_core import get_bundled_skills_dir, get_bundled_skill_paths
 print(get_bundled_skills_dir())
 # /path/to/site-packages/dcc_mcp_core/skills
 
-# Returns [bundled_dir] or [] — ready to extend your search path
+# Returns [bundled_dir] or [] -- ready to extend your search path
 paths = get_bundled_skill_paths()                    # default ON
 paths = get_bundled_skill_paths(include_bundled=False)  # opt-out
 ```
@@ -341,9 +343,9 @@ paths = get_bundled_skill_paths(include_bundled=False)  # opt-out
 DCC adapters (e.g. `dcc-mcp-maya`) automatically include bundled skills by
 default. To opt-out: `start_server(include_bundled=False)`.
 
-## 🎓 Solving MCP Context Explosion
+## Solving MCP Context Explosion
 
-**The Problem:** Stock MCP returns ALL tools in `tools/list`, even those irrelevant to the user's current task or DCC instance. With 3 DCC instances × 50 skills × 5 scripts = **750 tools**, the context window fills instantly.
+**The Problem:** Stock MCP returns ALL tools in `tools/list`, even those irrelevant to the user's current task or DCC instance. With 3 DCC instances x 50 skills x 5 scripts = **750 tools**, the context window fills instantly.
 
 **Our Solution — Progressive Discovery:**
 
@@ -371,8 +373,8 @@ tools/list response includes:
 With dcc-mcp-core:
 ```
 tools/list filtered by session instance:
-AI talking to Maya instance #1 → sees 100 Maya tools + 50 shared tools
-AI talking to Houdini instance #2 → sees 100 Houdini tools + 50 shared tools
+AI talking to Maya instance #1 -> sees 100 Maya tools + 50 shared tools
+AI talking to Houdini instance #2 -> sees 100 Houdini tools + 50 shared tools
 = 150 tools in context (71% reduction)
 ```
 
@@ -380,7 +382,7 @@ This is **session-bound tool discovery** — not a hack, but a fundamental rethi
 
 ---
 
-## 🏗️ Architecture Overview
+## Architecture Overview — 14 Rust Crates
 
 dcc-mcp-core is organized as a **Rust workspace of 14 crates**, compiled into a single native Python extension (`_core`) via PyO3/maturin:
 
@@ -541,12 +543,12 @@ validator = InputValidator(ctx)
 if not validator.validate_action("delete_all_files"):
     print("Blocked by policy!")
 else:
-    print("Allowed — executing...")
+    print("Allowed -- executing...")
 
 # Review audit trail
 audit = AuditLog.load()
 for entry in audit.entries:
-    print(f"{entry.timestamp} [{entry.action}] {entry.decision} → {entry.details}")
+    print(f"{entry.timestamp} [{entry.action}] {entry.decision} -> {entry.details}")
 ```
 
 ## More Examples
@@ -564,7 +566,7 @@ This project uses [Release Please](https://github.com/googleapis/release-please)
 
 ### Commit Message Format
 
-This project follows [Conventional Commits](https://www.conventionalcommits.org/):
+This project follows [Conventional Commits](https://www.conventionalcommits.org):
 
 | Prefix | Description | Version Bump |
 |--------|-------------|--------------|

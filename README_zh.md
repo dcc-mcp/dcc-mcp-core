@@ -9,7 +9,7 @@
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
 [![Latest Version](https://img.shields.io/github/v/tag/loonghao/dcc-mcp-core?label=Latest%20Version)](https://github.com/loonghao/dcc-mcp-core/releases)
 
-[English](README.md) | [中文文档](README_zh.md)
+[English](README.md) | [Chinese](README_zh.md)
 
 **面向 AI 辅助 DCC 工作流的生产级基础库**，结合了 **模型上下文协议（MCP）** 与 **零代码 Skills 系统**。提供 **Rust 驱动核心 + PyO3 Python 绑定**，交付企业级性能、安全性和可扩展性——所有这些均**零运行时 Python 依赖**。支持 Python 3.7–3.13。
 
@@ -17,7 +17,7 @@
 
 ---
 
-## 🎯 问题与解决方案
+## 问题与解决方案
 
 ### 为什么不直接用 CLI？
 **CLI 工具对 DCC 状态一无所知。** 它们无法看到当前场景、选中对象或视口内容，在隔离环境中执行，迫使 AI：
@@ -31,7 +31,7 @@
 1. **上下文爆炸** — MCP 没有机制将工具限定到特定会话或实例，在多 DCC 场景下导致请求膨胀
 2. **无生命周期控制** — 无法发现实例状态（活跃场景、文档、进程健康）或控制启动/关闭
 
-### 我们的方案：**MCP + Skills 系统**
+### 我们的方案：MCP + Skills 系统
 
 我们**复用并扩展**现有 MCP 生态系统，新增：
 
@@ -48,46 +48,52 @@
 
 ---
 
-## 🚀 为什么选 dcc-mcp-core 而非其他方案？
+## 为什么选 dcc-mcp-core 而非其他方案？
 
 | 方面 | dcc-mcp-core | 通用 MCP | CLI 工具 | 浏览器扩展 |
 |------|-------------|---------|---------|-----------|
-| **DCC 状态感知** | ✅ 场景、文档、实例 ID | ❌ 无 | ❌ 无 | ⚠️ 部分 |
-| **多实例支持** | ✅ 网关选举 + 会话隔离 | ❌ 单一端点 | ❌ 无 | ❌ 无 |
-| **上下文范围控制** | ✅ 按 DCC/场景/产品 | ❌ 全局工具 | ❌ 无 | ⚠️ 有限 |
-| **零代码工具** | ✅ SKILL.md + scripts | ❌ 需要完整 Python | ✅ 仅脚本 | ❌ 无 |
-| **性能** | ✅ Rust + 零拷贝 + IPC | ❌ Python 开销 | ⚠️ 进程开销 | ⚠️ 网络开销 |
-| **安全性** | ✅ 沙箱 + 审计日志 | ⚠️ 手动 | ⚠️ 手动 | ❌ 无 |
-| **跨平台** | ✅ Windows/macOS/Linux | ✅ 是 | ⚠️ 有限 | ❌ 仅浏览器 |
+| **DCC 状态感知** | 场景、文档、实例 ID | 无 | 无 | 部分 |
+| **多实例支持** | 网关选举 + 会话隔离 | 单一端点 | 无 | 无 |
+| **上下文范围控制** | 按 DCC/场景/产品 | 全局工具 | 无 | 有限 |
+| **零代码工具** | SKILL.md + scripts | 需要完整 Python | 仅脚本 | 无 |
+| **性能** | Rust + 零拷贝 + IPC | Python 开销 | 进程开销 | 网络开销 |
+| **安全性** | 沙箱 + 审计日志 | 手动 | 手动 | 无 |
+| **跨平台** | Windows/macOS/Linux | 是 | 有限 | 仅浏览器 |
 
 AI 友好文档：[AGENTS.md](AGENTS.md) | [CLAUDE.md](CLAUDE.md) | [GEMINI.md](GEMINI.md) | [`.agents/skills/dcc-mcp-core/SKILL.md`](.agents/skills/dcc-mcp-core/SKILL.md)
 
-## 🏗️ 架构：三层体系
+## 架构：三层体系
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│ AI 智能体（Claude、GPT 等）— 通过 MCP 调用工具                    │
-└────────────────────┬────────────────────────────────────────────┘
-                     │ MCP Streamable HTTP
-                     ▼
-┌─────────────────────────────────────────────────────────────────┐
-│ 网关服务器（Rust/HTTP）                                            │
-│ ├─ 版本感知实例选举                                               │
-│ ├─ 会话隔离与路由                                                 │
-│ ├─ 工具发现（Skills 派生）                                        │
-│ └─ 取消与通知（SSE）                                              │
-└────────────────────┬────────────────────────────────────────────┘
-                     │ IPC（命名管道 / Unix Socket / TCP）
-     ┌───────────────┼───────────────┐
-     ▼               ▼               ▼
-  Maya 桥接       Blender 桥接    Houdini 桥接
-  插件（Rust）    插件（Rust）     插件（Rust）
-     ↓               ↓               ↓
-  Python 3.7+    Python 3.7+    Python 3.7+
-  （零依赖）      （零依赖）      （零依赖）
++-----------------------------------------------------------------+
+|  AI Agent (Claude、GPT 等)                                       |
+|  通过 MCP 协议调用工具 (tools/list、tools/call)                    |
++-------------------------------+---------------------------------+
+                                |
+                        MCP Streamable HTTP
+                                |
++-------------------------------v---------------------------------+
+|  网关服务器 (Rust/HTTP)                                           |
+|  +-- 版本感知实例选举                                              |
+|  +-- 会话隔离与路由                                                |
+|  +-- 工具发现 (Skills 派生)                                       |
+|  +-- 取消与通知 (SSE)                                             |
++-------------------------------+---------------------------------+
+                                |
+                 IPC (命名管道 / Unix Socket / TCP)
+                                |
+          +---------------------+---------------------+
+          |                     |                     |
+  +-------v-------+   +-------v-------+   +-------v-------+
+  |  Maya 桥接     |   | Blender 桥接   |   | Houdini 桥接  |
+  |  插件 (Rust)   |   | 插件 (Rust)    |   | 插件 (Rust)   |
+  +-------+--------+   +-------+--------+   +-------+-------+
+          |                     |                     |
+    Python 3.7+           Python 3.7+           Python 3.7+
+    (零依赖)              (零依赖)              (零依赖)
 ```
 
-**第一层：AI 智能体** — 通过标准 MCP 协议调用工具（tools/list、tools/call、notifications）
+**第一层：AI 智能体** — 通过标准 MCP 协议调用工具（tools/list、tools/call、notifications）。
 
 **第二层：网关** — 协调发现、会话隔离和请求路由。维护 `__gateway__` 哨兵用于版本感知选举。
 
@@ -95,9 +101,9 @@ AI 友好文档：[AGENTS.md](AGENTS.md) | [CLAUDE.md](CLAUDE.md) | [GEMINI.md](
 
 ---
 
-## 🎓 解决 MCP 上下文爆炸
+## 解决 MCP 上下文爆炸
 
-**问题：** 标准 MCP 在 `tools/list` 中返回所有工具，即使与用户当前任务或 DCC 实例无关。3 个 DCC 实例 × 50 个技能 × 5 个脚本 = **750 个工具**，上下文窗口立即填满。
+**问题：** 标准 MCP 在 `tools/list` 中返回所有工具，即使与用户当前任务或 DCC 实例无关。3 个 DCC 实例 x 50 个技能 x 5 个脚本 = **750 个工具**，上下文窗口立即填满。
 
 **我们的解决方案——渐进式发现：**
 
@@ -120,8 +126,8 @@ tools/list 包含：
 
 使用 dcc-mcp-core：
 tools/list 按会话实例过滤：
-与 Maya 实例 #1 通信的 AI → 看到 100 个 Maya 工具 + 50 个共享工具
-与 Houdini 实例 #1 通信的 AI → 看到 100 个 Houdini 工具 + 50 个共享工具
+与 Maya 实例 #1 通信的 AI -> 看到 100 个 Maya 工具 + 50 个共享工具
+与 Houdini 实例 #1 通信的 AI -> 看到 100 个 Houdini 工具 + 50 个共享工具
 = 上下文中 150 个工具（减少 71%）
 ```
 
@@ -184,7 +190,7 @@ output = result["output"]
 print(f"已创建: {output.get('object_name')}")
 ```
 
-## 🛠️ Skills 系统——零代码 MCP 工具注册
+## Skills 系统——零代码 MCP 工具注册
 
 **Skills 系统**是 dcc-mcp-core 的核心创新：让你用**零 Python 代码**将任意脚本注册为 MCP 工具。复用现有的 [OpenClaw Skills](https://docs.openclaw.ai/tools) 格式。
 
@@ -246,9 +252,9 @@ md = SkillMetadata("maya-scene-publisher")
 md.policy = json.dumps({"allow_implicit_invocation": False, "products": ["maya"]})
 
 # 检查：
-md.is_implicit_invocation_allowed()   # → False
-md.matches_product("maya")            # → True
-md.matches_product("blender")         # → False
+md.is_implicit_invocation_allowed()   # -> False
+md.matches_product("maya")            # -> True
+md.matches_product("blender")         # -> False
 
 # 外部依赖声明
 deps = {"tools": [
@@ -262,20 +268,20 @@ md.external_deps = json.dumps(deps)
 
 ```
 my-skills/
-├── maya-geometry/
-│   ├── SKILL.md          ← 元数据 + 策略
-│   └── scripts/
-│       ├── create_sphere.py
-│       ├── bevel.py
-│       └── export_fbx.bat
-├── houdini-vex/
-│   ├── SKILL.md
-│   └── scripts/
-│       └── compile.py
-└── shared-utils/
-    ├── SKILL.md
-    └── scripts/
-        └── screenshot.py
++-- maya-geometry/
+|   +-- SKILL.md          <- 元数据 + 策略
+|   +-- scripts/
+|       +-- create_sphere.py
+|       +-- bevel.py
+|       +-- export_fbx.bat
++-- houdini-vex/
+|   +-- SKILL.md
+|   +-- scripts/
+|       +-- compile.py
++-- shared-utils/
+    +-- SKILL.md
+    +-- scripts/
+        +-- screenshot.py
 ```
 
 ---
@@ -312,9 +318,9 @@ result = ActionResultModel(
 # 字段访问
 result.success   # bool
 result.message   # str
-result.prompt    # Optional[str] — AI 下一步建议
-result.error     # Optional[str] — 错误详情
-result.context   # dict — 任意结构化数据
+result.prompt    # Optional[str] -- AI 下一步建议
+result.error     # Optional[str] -- 错误详情
+result.context   # dict -- 任意结构化数据
 
 # 衍生新实例
 result.with_error("something failed")   # 新实例，success=False
@@ -364,75 +370,10 @@ bus.unsubscribe("action.before_execute", sub_id)
 vreg = VersionedRegistry()
 vreg.register_versioned("my_action", dcc="maya", version="1.2.0")
 vreg.register_versioned("my_action", dcc="maya", version="2.0.0")
-result_v = vreg.resolve("my_action", dcc="maya", constraint=">=1.0.0")   # → version "2.0.0"
-result_v1 = vreg.resolve("my_action", dcc="maya", constraint="^1.0.0")  # → version "1.2.0"
-latest = vreg.latest_version("my_action", dcc="maya")                    # → "2.0.0"
+result_v = vreg.resolve("my_action", dcc="maya", constraint=">=1.0.0")   # -> version "2.0.0"
+result_v1 = vreg.resolve("my_action", dcc="maya", constraint="^1.0.0")  # -> version "1.2.0"
+latest = vreg.latest_version("my_action", dcc="maya")                    # -> "2.0.0"
 ```
-
-## Skills 技能包系统 — 零代码 MCP 工具注册
-
-**Skills 系统**是 dcc-mcp-core 最独特的功能：让你将任何脚本（Python、MEL、MaxScript、BAT、Shell 等）**零代码**注册为 MCP 可发现工具。复用 [OpenClaw Skills](https://docs.openclaw.ai/tools) 生态格式。
-
-### 工作原理
-
-```
-SKILL.md（元数据）+ scripts/ 目录
-       ↓  SkillScanner 发现并解析
-每个技能包的 SkillMetadata（名称、描述、标签、脚本列表）
-       ↓  技能注册到 ActionRegistry → AI 通过 MCP 可调用
-```
-
-### 快速示例
-
-**1. 创建 Skill 目录：**
-
-```
-my-tool/
-├── SKILL.md          # 元数据 + 描述
-└── scripts/
-    └── list.py      # 你的脚本
-```
-
-**2. 编写 `SKILL.md`：**
-
-```yaml
----
-name: my-tool
-description: "我的自定义 DCC 自动化工具"
-allowed-tools: ["Bash"]
-tags: ["automation", "custom"]
-dcc: maya
-version: "1.0.0"
----
-# My Tool
-
-Maya 工作流优化自动化脚本。
-```
-
-**3. 设置环境变量并使用：**
-
-```python
-import os
-os.environ["DCC_MCP_SKILL_PATHS"] = "/path/to/my-tool"
-
-from dcc_mcp_core import scan_and_load, ActionRegistry
-
-registry = ActionRegistry()
-skills = scan_and_load(dcc_name="maya")
-for s in skills:
-    print(f"✓ {s.name}: {len(s.scripts)} 个脚本")
-
-# 调用 Skill 动作：{skill_name}__{script_stem}
-result = registry.call("my_tool__list", some_param="value")
-```
-
-### 技能命名规则
-
-每个 `scripts/` 目录下的脚本成为一个技能入口，命名为 `{skill_name}__{script_stem}`：
-- `maya-geometry/scripts/create_sphere.py` → `maya_geometry__create_sphere`
-- `maya-geometry/scripts/batch_rename.mel` → `maya_geometry__batch_rename`
-
-注意：技能名称中的连字符会替换为下划线。
 
 ### 支持的脚本类型
 
@@ -569,7 +510,7 @@ else:
 # 审计追踪
 audit = AuditLog.load()
 for entry in audit.entries:
-    print(f"{entry.timestamp} [{entry.action}] {entry.decision} → {entry.details}")
+    print(f"{entry.timestamp} [{entry.action}] {entry.decision} -> {entry.details}")
 ```
 
 ## 主要特性
@@ -638,7 +579,7 @@ vx just preflight      # 仅 pre-commit 检查
 
 ## 更多示例
 
-查看 [`examples/skills/`](examples/skills/) 目录获取 **9 个完整技能包示例**，以及 [VitePress 文档站](https://loonghao.github.io/dcc-mcp-core/) 获取各模块完整指南。
+查看 [`examples/skills/`](examples/skills/) 目录获取 **11 个完整技能包示例**，以及 [VitePress 文档站](https://loonghao.github.io/dcc-mcp-core/) 获取各模块完整指南。
 
 ## 版本发布流程
 
@@ -680,6 +621,6 @@ vx just preflight      # 仅 pre-commit 检查
 - **[CLAUDE.md](CLAUDE.md)** — Claude 专用指令与工作流
 - **[GEMINI.md](GEMINI.md)** — Gemini 专用指令与工作流
 - **[.agents/skills/dcc-mcp-core/SKILL.md](.agents/skills/dcc-mcp-core/SKILL.md)** — 完整 API 技能定义，用于学习与使用此库
-- **[python/dcc_mcp_core/__init__.py](python/dcc_mcp_core/__init__.py)** — 完整公共 API 表面（约 120 个符号）
+- **[python/dcc_mcp_core/__init__.py](python/dcc_mcp_core/__init__.py)** — 完整公共 API 表面（约 140 个符号）
 - **[llms.txt](llms.txt)** — 精简 API 参考（LLM 优化格式）
 - **[llms-full.txt](llms-full.txt)** — 完整 API 参考（LLM 优化格式）
