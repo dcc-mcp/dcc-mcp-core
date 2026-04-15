@@ -172,6 +172,14 @@ from dcc_mcp_core._core import wrap_value
 # Pure-Python DCC server diagnostic helpers (no _core dependency)
 from dcc_mcp_core.dcc_server import register_diagnostic_handlers
 
+# Pure-Python DCC adapter base classes (no _core dependency)
+from dcc_mcp_core.factory import create_dcc_server
+from dcc_mcp_core.factory import get_server_instance
+from dcc_mcp_core.factory import make_start_stop
+from dcc_mcp_core.gateway_election import DccGatewayElection
+from dcc_mcp_core.hotreload import DccSkillHotReloader
+from dcc_mcp_core.server_base import DccServerBase
+
 # Pure-Python skill script helpers (no _core dependency)
 from dcc_mcp_core.skill import get_bundled_skill_paths
 from dcc_mcp_core.skill import get_bundled_skills_dir
@@ -226,7 +234,10 @@ __all__ = [
     "DccCapabilities",
     "DccError",
     "DccErrorCode",
+    "DccGatewayElection",
     "DccInfo",
+    "DccServerBase",
+    "DccSkillHotReloader",
     "EventBus",
     "FloatWrapper",
     "FrameRange",
@@ -293,6 +304,7 @@ __all__ = [
     "__author__",
     "__version__",
     "connect_ipc",
+    "create_dcc_server",
     "create_skill_manager",
     "decode_envelope",
     "deserialize_result",
@@ -311,9 +323,11 @@ __all__ = [
     "get_data_dir",
     "get_log_dir",
     "get_platform_dir",
+    "get_server_instance",
     "get_skill_paths_from_env",
     "get_skills_dir",
     "is_telemetry_initialized",
+    "make_start_stop",
     "mpu_to_units",
     "parse_skill_md",
     "register_bridge",
