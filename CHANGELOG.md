@@ -11,6 +11,28 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.12.29](https://github.com/loonghao/dcc-mcp-core/compare/v0.12.28...v0.12.29) (2026-04-15)
+
+
+### Features
+
+* **gateway:** add MCP Resources API and SSE push for dynamic instance discovery ([71b9928](https://github.com/loonghao/dcc-mcp-core/commit/71b99281fef82e1bd0d01df71110bffd1b348ffe))
+* **transport,gateway:** multi-document support and agent disambiguation ([67bc624](https://github.com/loonghao/dcc-mcp-core/commit/67bc62472333dca67bd2f8b1dda18f4293586aee))
+* version-aware gateway election, SkillPolicy/Deps/Scope, MCP cancellation ([b136571](https://github.com/loonghao/dcc-mcp-core/commit/b13657180368b9ba05bdf635002756b01340dc19))
+
+
+### Bug Fixes
+
+* add update_documents to ServiceDiscovery trait, ServiceRegistry and TransportManager ([519d762](https://github.com/loonghao/dcc-mcp-core/commit/519d762d4effe5b7557a6bf1c2d6d965cb12a722))
+* **http,skills:** resolve 5 real performance and correctness issues ([f825b3b](https://github.com/loonghao/dcc-mcp-core/commit/f825b3b88c7aa18a4d5980afeae12f0897b5ac0a))
+
+
+### Documentation
+
+* add complete implementation summary ([c364fb2](https://github.com/loonghao/dcc-mcp-core/commit/c364fb20446295864d7c4c9064b2ba849e605531))
+* comprehensive feature documentation ([e270f1c](https://github.com/loonghao/dcc-mcp-core/commit/e270f1cd9805f7780bc9ec036caeb5524fb6fce5))
+* comprehensive README rewrite + 3 new guides (MCP+Skills, Gateway Election, Scopes/Policies/Deps) ([e385969](https://github.com/loonghao/dcc-mcp-core/commit/e38596937cee001ebf3632ccac2bc2783f06088e))
+
 ## [0.12.28](https://github.com/loonghao/dcc-mcp-core/compare/v0.12.27...v0.12.28) (2026-04-15)
 
 
