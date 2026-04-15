@@ -11,6 +11,13 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.12.28](https://github.com/loonghao/dcc-mcp-core/compare/v0.12.27...v0.12.28) (2026-04-15)
+
+
+### Bug Fixes
+
+* **server_base:** use discover() API, set dcc_type, read DCC_MCP_REGISTRY_DIR ([#191](https://github.com/loonghao/dcc-mcp-core/issues/191)) ([bd5f0c2](https://github.com/loonghao/dcc-mcp-core/commit/bd5f0c2709335a8ec389209ee33cd805395730ca))
+
 ## [0.12.27](https://github.com/loonghao/dcc-mcp-core/compare/v0.12.26...v0.12.27) (2026-04-15)
 
 
