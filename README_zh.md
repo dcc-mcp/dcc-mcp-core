@@ -9,7 +9,7 @@
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
 [![Latest Version](https://img.shields.io/github/v/tag/loonghao/dcc-mcp-core?label=Latest%20Version)](https://github.com/loonghao/dcc-mcp-core/releases)
 
-[English](README.md) | [Chinese](README_zh.md)
+English | [中文](README_zh.md)
 
 **面向 AI 辅助 DCC 工作流的生产级基础库**，结合了 **模型上下文协议（MCP）** 与 **零代码 Skills 系统**。提供 **Rust 驱动核心 + PyO3 Python 绑定**，交付企业级性能、安全性和可扩展性——所有这些均**零运行时 Python 依赖**。支持 Python 3.7–3.13。
 
