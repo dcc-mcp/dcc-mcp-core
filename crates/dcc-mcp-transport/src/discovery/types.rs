@@ -46,6 +46,23 @@ impl std::fmt::Display for ServiceStatus {
 ///
 /// The legacy `host` and `port` fields are always populated for backward compatibility.
 /// When `transport_address` is set, it takes precedence over `host:port`.
+///
+/// ## Multi-document support
+///
+/// Applications like Photoshop or After Effects can have several documents open at once.
+/// `scene` always holds the **currently active** document; `documents` holds the full list.
+/// For single-document DCCs (Maya, Blender, Houdini), `documents` is either empty or
+/// contains just the same path as `scene`.
+///
+/// ## Disambiguation
+///
+/// When multiple instances of the same DCC type are running (e.g. two Maya sessions
+/// working on different scenes), agents use `display_name` and `pid` to tell them apart:
+///
+/// ```text
+/// maya @ 127.0.0.1:18812  pid=1234  scene=character.ma  display_name="Maya-Rig"
+/// maya @ 127.0.0.1:18813  pid=5678  scene=character.ma  display_name="Maya-Anim"
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServiceEntry {
     /// DCC application type (e.g. "maya", "houdini", "blender").
@@ -64,8 +81,31 @@ pub struct ServiceEntry {
     pub transport_address: Option<TransportAddress>,
     /// DCC application version (e.g. "2024.2").
     pub version: Option<String>,
-    /// Currently open scene/file.
+    /// Currently active scene / document.
+    ///
+    /// For single-document DCCs (Maya, Blender) this is the open file path.
+    /// For multi-document apps (Photoshop) this is the **focused** document.
     pub scene: Option<String>,
+    /// All documents currently open in this instance.
+    ///
+    /// Empty for DCCs that only support one document at a time.
+    /// For multi-document apps each element is a file path.
+    /// The active document is also reflected in `scene`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub documents: Vec<String>,
+    /// OS process ID of the DCC process.
+    ///
+    /// Used to disambiguate two instances of the same DCC type that have the
+    /// same scene open (e.g. two Maya sessions reviewing the same asset).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pid: Option<u32>,
+    /// Human-readable label for this instance.
+    ///
+    /// Set by the DCC plugin at registration time (e.g. `"Maya-Rigging"`,
+    /// `"PS-Marketing"`).  Displayed by the agent when asking the user to
+    /// choose between multiple instances.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
     /// Arbitrary metadata.
     #[serde(default)]
     pub metadata: HashMap<String, String>,
@@ -90,6 +130,9 @@ impl ServiceEntry {
             transport_address: None,
             version: None,
             scene: None,
+            documents: Vec::new(),
+            pid: None,
+            display_name: None,
             metadata: HashMap::new(),
             registered_at: now,
             last_heartbeat: now,
@@ -114,6 +157,9 @@ impl ServiceEntry {
             transport_address: Some(address),
             version: None,
             scene: None,
+            documents: Vec::new(),
+            pid: None,
+            display_name: None,
             metadata: HashMap::new(),
             registered_at: now,
             last_heartbeat: now,

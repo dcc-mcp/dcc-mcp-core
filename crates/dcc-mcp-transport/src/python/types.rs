@@ -441,8 +441,26 @@ pub struct PyServiceEntry {
     pub port: u16,
     /// DCC application version (e.g. "2024.2").
     pub version: Option<String>,
-    /// Currently open scene/file.
+    /// Currently active scene / document.
+    ///
+    /// For single-document DCCs this is the open file path.
+    /// For multi-document apps (Photoshop) this is the **focused** document.
     pub scene: Option<String>,
+    /// All documents currently open in this instance.
+    ///
+    /// Empty for DCCs that only support one document at a time.
+    /// For multi-document apps each element is a file path.
+    pub documents: Vec<String>,
+    /// OS process ID of the DCC process.
+    ///
+    /// Useful for disambiguating two instances of the same DCC type
+    /// that have the same scene open.
+    pub pid: Option<u32>,
+    /// Human-readable label for this instance (e.g. `"Maya-Rigging"`).
+    ///
+    /// Set by the bridge plugin at registration time.  Displayed by the
+    /// agent when asking the user to choose between multiple instances.
+    pub display_name: Option<String>,
     /// Arbitrary metadata.
     pub metadata: HashMap<String, String>,
     /// Current service status.
@@ -497,6 +515,9 @@ impl PyServiceEntry {
         dict.set_item("port", self.port)?;
         dict.set_item("version", &self.version)?;
         dict.set_item("scene", &self.scene)?;
+        dict.set_item("documents", &self.documents)?;
+        dict.set_item("pid", self.pid)?;
+        dict.set_item("display_name", &self.display_name)?;
         dict.set_item("metadata", &self.metadata)?;
         dict.set_item("status", self.status.__str__())?;
         dict.set_item("last_heartbeat_ms", self.last_heartbeat_ms)?;
@@ -522,6 +543,9 @@ impl From<&ServiceEntry> for PyServiceEntry {
             port: entry.port,
             version: entry.version.clone(),
             scene: entry.scene.clone(),
+            documents: entry.documents.clone(),
+            pid: entry.pid,
+            display_name: entry.display_name.clone(),
             metadata: entry.metadata.clone(),
             status: entry.status.into(),
             transport_address: entry

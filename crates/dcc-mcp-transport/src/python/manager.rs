@@ -112,7 +112,10 @@ impl PyTransportManager {
     ///     host: Host address (e.g. "127.0.0.1").
     ///     port: Port number.
     ///     version: DCC version string (optional).
-    ///     scene: Currently open scene/file (optional).
+    ///     scene: Currently active scene/document (optional).
+    ///     documents: All open documents for multi-document apps like Photoshop (optional list).
+    ///     pid: OS process ID — used to disambiguate instances with the same scene (optional).
+    ///     display_name: Human-readable label, e.g. "Maya-Rigging" (optional).
     ///     metadata: Arbitrary metadata dict (optional).
     ///     transport_address: Preferred transport address (optional). When provided,
     ///         enables IPC registration (Named Pipe / Unix Socket) for lower latency.
@@ -122,7 +125,7 @@ impl PyTransportManager {
     /// Returns:
     ///     The instance_id (UUID string) of the registered service.
     #[pyo3(name = "register_service")]
-    #[pyo3(signature = (dcc_type, host, port, version=None, scene=None, metadata=None, transport_address=None))]
+    #[pyo3(signature = (dcc_type, host, port, version=None, scene=None, documents=None, pid=None, display_name=None, metadata=None, transport_address=None))]
     fn py_register_service(
         &self,
         dcc_type: &str,
@@ -130,12 +133,18 @@ impl PyTransportManager {
         port: u16,
         version: Option<String>,
         scene: Option<String>,
+        documents: Option<Vec<String>>,
+        pid: Option<u32>,
+        display_name: Option<String>,
         metadata: Option<HashMap<String, String>>,
         transport_address: Option<PyRef<'_, super::types::PyTransportAddress>>,
     ) -> PyResult<String> {
         let mut entry = ServiceEntry::new(dcc_type, host, port);
         entry.version = version;
         entry.scene = scene;
+        entry.documents = documents.unwrap_or_default();
+        entry.pid = pid;
+        entry.display_name = display_name;
         if let Some(md) = metadata {
             entry.metadata = md;
         }
@@ -326,6 +335,54 @@ impl PyTransportManager {
         };
         self.inner
             .update_metadata(&key, scene, version)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+    }
+
+    /// Update the active document, document list, and display name for a DCC instance.
+    ///
+    /// Designed for **multi-document applications** (Photoshop, After Effects, etc.) that
+    /// keep several files open simultaneously.  For single-document DCCs you can use
+    /// :meth:`update_scene` instead — both methods refresh the heartbeat.
+    ///
+    /// Args:
+    ///     dcc_type: DCC application type.
+    ///     instance_id: Instance UUID string.
+    ///     active_document: The currently focused file (stored in ``scene``).
+    ///         Pass ``None`` to leave unchanged; pass ``""`` to clear.
+    ///     documents: Full list of open documents — **replaces** the previous list.
+    ///         Pass an empty list ``[]`` to clear.
+    ///     display_name: Human-readable instance label, e.g. ``"PS-Marketing"``.
+    ///         Pass ``None`` to leave unchanged; pass ``""`` to clear.
+    ///
+    /// Returns:
+    ///     ``True`` if the service was found and updated.
+    ///
+    /// Example::
+    ///
+    ///     mgr.update_documents(
+    ///         "photoshop", iid,
+    ///         active_document="logo.psd",
+    ///         documents=["logo.psd", "banner.psd", "icon.psd"],
+    ///         display_name="PS-Marketing",
+    ///     )
+    #[pyo3(name = "update_documents")]
+    #[pyo3(signature = (dcc_type, instance_id, active_document=None, documents=None, display_name=None))]
+    fn py_update_documents(
+        &self,
+        dcc_type: &str,
+        instance_id: &str,
+        active_document: Option<&str>,
+        documents: Option<Vec<String>>,
+        display_name: Option<&str>,
+    ) -> PyResult<bool> {
+        let uuid = parse_uuid(instance_id)?;
+        let key = ServiceKey {
+            dcc_type: dcc_type.to_string(),
+            instance_id: uuid,
+        };
+        let docs = documents.unwrap_or_default();
+        self.inner
+            .update_documents(&key, active_document, &docs, display_name)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
     }
 

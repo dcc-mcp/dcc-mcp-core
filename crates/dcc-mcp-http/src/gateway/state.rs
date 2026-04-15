@@ -53,17 +53,31 @@ impl GatewayState {
 }
 
 /// Serialize a `ServiceEntry` to a JSON `Value` suitable for gateway responses.
+///
+/// The returned object always contains every field so that MCP clients can
+/// display a rich disambiguation prompt when multiple instances of the same
+/// DCC type are live at the same time.
 pub fn entry_to_json(e: &ServiceEntry, stale_timeout: Duration) -> Value {
     json!({
-        "instance_id": e.instance_id.to_string(),
-        "dcc_type":    e.dcc_type,
-        "host":        e.host,
-        "port":        e.port,
-        "mcp_url":     format!("http://{}:{}/mcp", e.host, e.port),
-        "status":      e.status.to_string(),
-        "scene":       e.scene,
-        "version":     e.version,
-        "metadata":    e.metadata,
-        "stale":       e.is_stale(stale_timeout),
+        "instance_id":  e.instance_id.to_string(),
+        "dcc_type":     e.dcc_type,
+        "host":         e.host,
+        "port":         e.port,
+        "mcp_url":      format!("http://{}:{}/mcp", e.host, e.port),
+        "status":       e.status.to_string(),
+        // ── document / scene ───────────────────────────────────────────────
+        // `scene` is the active / primary document (same field as before).
+        // `documents` is the full list for multi-document apps (Photoshop etc.).
+        "scene":        e.scene,
+        "documents":    e.documents,
+        // ── disambiguation helpers ─────────────────────────────────────────
+        // Both fields are null when not set; agents should skip null values
+        // when building the disambiguation prompt for users.
+        "pid":          e.pid,
+        "display_name": e.display_name,
+        // ── misc ───────────────────────────────────────────────────────────
+        "version":      e.version,
+        "metadata":     e.metadata,
+        "stale":        e.is_stale(stale_timeout),
     })
 }

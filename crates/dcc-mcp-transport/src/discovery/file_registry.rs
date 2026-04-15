@@ -234,6 +234,86 @@ impl FileRegistry {
         Ok(found)
     }
 
+    /// Update the active document, full document list, and optional display name.
+    ///
+    /// Designed for multi-document DCC applications (e.g. Photoshop, After Effects)
+    /// that can have several files open simultaneously. For single-document DCCs
+    /// (Maya, Blender, Houdini) it is equivalent to [`update_metadata`] with the
+    /// `scene` field, but also stores `pid` and `display_name` when provided.
+    ///
+    /// # Parameters
+    /// - `active_document` — the currently focused file; stored in `scene`.
+    ///   Pass `Some("")` to clear.
+    /// - `documents` — full list of open documents; replaces the previous list.
+    ///   Pass `&[]` to clear.
+    /// - `display_name` — human-readable instance label (e.g. `"PS-Marketing"`).
+    ///   Pass `Some("")` to clear.  `None` leaves the existing value unchanged.
+    ///
+    /// Always refreshes the heartbeat so the gateway does not mark the instance stale.
+    pub fn update_documents(
+        &self,
+        key: &ServiceKey,
+        active_document: Option<&str>,
+        documents: &[String],
+        display_name: Option<&str>,
+    ) -> TransportResult<bool> {
+        let found = if let Some(mut entry) = self.services.get_mut(key) {
+            let e = entry.value_mut();
+
+            if let Some(doc) = active_document {
+                e.scene = if doc.is_empty() {
+                    None
+                } else {
+                    Some(doc.to_string())
+                };
+            }
+
+            // Always replace the documents list (caller owns the authoritative set).
+            e.documents = documents
+                .iter()
+                .filter(|d| !d.is_empty())
+                .cloned()
+                .collect();
+
+            if let Some(name) = display_name {
+                e.display_name = if name.is_empty() {
+                    None
+                } else {
+                    Some(name.to_string())
+                };
+            }
+
+            e.touch();
+            true
+        } else {
+            false
+        };
+
+        if found {
+            self.flush_to_file()?;
+        }
+        Ok(found)
+    }
+
+    /// Set the OS process ID for a registered service.
+    ///
+    /// Normally called once at registration time; exposed separately so that
+    /// bridge plugins can set it after the initial [`register`] call if the PID
+    /// was not known at startup.
+    pub fn set_pid(&self, key: &ServiceKey, pid: u32) -> TransportResult<bool> {
+        let found = if let Some(mut entry) = self.services.get_mut(key) {
+            entry.value_mut().pid = Some(pid);
+            entry.value_mut().touch();
+            true
+        } else {
+            false
+        };
+        if found {
+            self.flush_to_file()?;
+        }
+        Ok(found)
+    }
+
     /// Remove stale services (no heartbeat within timeout).
     pub fn cleanup_stale(&self, timeout: Duration) -> TransportResult<usize> {
         let stale_keys: Vec<ServiceKey> = self
