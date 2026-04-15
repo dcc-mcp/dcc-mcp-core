@@ -417,6 +417,75 @@ impl PyDccCapabilities {
             self.bridge_kind,
         )
     }
+
+    /// Check if this DCC uses a bridge connection (i.e., no embedded Python).
+    ///
+    /// Returns ``True`` if ``bridge_kind`` is set (http, websocket, named_pipe, or custom).
+    fn uses_bridge(&self) -> bool {
+        self.bridge_kind.is_some()
+    }
+
+    /// Create a DccCapabilities for an HTTP bridge-based DCC.
+    ///
+    /// Args:
+    ///     endpoint: HTTP endpoint URL (e.g., ``"http://localhost:8765"``).
+    ///
+    /// Example::
+    ///
+    ///     caps = DccCapabilities.http_bridge("http://localhost:8765")
+    ///     assert caps.bridge_kind == "http"
+    ///     assert caps.uses_bridge()
+    #[staticmethod]
+    fn http_bridge(endpoint: String) -> Self {
+        Self {
+            script_languages: vec![],
+            scene_info: false,
+            snapshot: false,
+            undo_redo: false,
+            progress_reporting: false,
+            file_operations: false,
+            selection: false,
+            scene_manager: false,
+            transform: false,
+            render_capture: false,
+            hierarchy: false,
+            has_embedded_python: false,
+            bridge_kind: Some("http".to_string()),
+            bridge_endpoint: Some(endpoint),
+            extensions: HashMap::new(),
+        }
+    }
+
+    /// Create a DccCapabilities for a WebSocket bridge-based DCC.
+    ///
+    /// Args:
+    ///     endpoint: WebSocket endpoint URL (e.g., ``"ws://localhost:9001"``).
+    ///
+    /// Example::
+    ///
+    ///     caps = DccCapabilities.websocket_bridge("ws://localhost:9001")
+    ///     assert caps.bridge_kind == "websocket"
+    ///     assert caps.uses_bridge()
+    #[staticmethod]
+    fn websocket_bridge(endpoint: String) -> Self {
+        Self {
+            script_languages: vec![],
+            scene_info: false,
+            snapshot: false,
+            undo_redo: false,
+            progress_reporting: false,
+            file_operations: false,
+            selection: false,
+            scene_manager: false,
+            transform: false,
+            render_capture: false,
+            hierarchy: false,
+            has_embedded_python: false,
+            bridge_kind: Some("websocket".to_string()),
+            bridge_endpoint: Some(endpoint),
+            extensions: HashMap::new(),
+        }
+    }
 }
 
 #[cfg(feature = "python-bindings")]

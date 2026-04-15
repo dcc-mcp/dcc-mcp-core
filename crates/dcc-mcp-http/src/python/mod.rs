@@ -508,8 +508,11 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyMcpHttpConfig>()?;
     m.add_class::<PyMcpHttpServer>()?;
     m.add_class::<PyServerHandle>()?;
+    m.add_class::<PyBridgeContext>()?;
+    m.add_class::<PyBridgeRegistry>()?;
     m.add_function(wrap_pyfunction!(py_create_skill_manager, m)?)?;
     m.add_function(wrap_pyfunction!(py_get_bridge_context, m)?)?;
+    m.add_function(wrap_pyfunction!(py_register_bridge, m)?)?;
     Ok(())
 }
 
@@ -607,38 +610,227 @@ pub fn py_create_skill_manager(
 use std::sync::OnceLock;
 static BRIDGE_REGISTRY: OnceLock<crate::BridgeRegistry> = OnceLock::new();
 
-/// Get bridge context URL for a specific DCC type.
+// ── PyBridgeContext ──────────────────────────────────────────────────────
+
+/// Python-facing bridge connection context.
+///
+/// Example::
+///
+///     from dcc_mcp_core import get_bridge_context, register_bridge
+///
+///     register_bridge("photoshop", "ws://localhost:9001")
+///     ctx = get_bridge_context("photoshop")
+///     if ctx:
+///         print(ctx.dcc_type, ctx.bridge_url, ctx.connected)
+#[pyclass(name = "BridgeContext", get_all, skip_from_py_object)]
+#[derive(Debug, Clone)]
+pub struct PyBridgeContext {
+    pub dcc_type: String,
+    pub bridge_url: String,
+    pub connected: bool,
+}
+
+#[pymethods]
+impl PyBridgeContext {
+    fn __repr__(&self) -> String {
+        format!(
+            "BridgeContext(dcc_type={}, url={}, connected={})",
+            self.dcc_type, self.bridge_url, self.connected
+        )
+    }
+}
+
+impl From<crate::BridgeContext> for PyBridgeContext {
+    fn from(ctx: crate::BridgeContext) -> Self {
+        Self {
+            dcc_type: ctx.dcc_type,
+            bridge_url: ctx.bridge_url,
+            connected: ctx.connected,
+        }
+    }
+}
+
+// ── PyBridgeRegistry ─────────────────────────────────────────────────────
+
+/// Python-facing bridge connection registry.
+///
+/// Thread-safe registry for bridge connections available in gateway mode.
+/// Bridge plugins register their connection info, and skill scripts query
+/// it to discover available bridges.
+///
+/// Example::
+///
+///     from dcc_mcp_core import BridgeRegistry
+///
+///     registry = BridgeRegistry()
+///     registry.register("photoshop", "ws://localhost:9001")
+///     registry.register("zbrush", "http://localhost:8765")
+///
+///     ctx = registry.get("photoshop")
+///     print(ctx.bridge_url, ctx.connected)
+///
+///     for ctx in registry.list_all():
+///         print(ctx.dcc_type, ctx.connected)
+///
+///     registry.set_disconnected("photoshop")
+///     registry.unregister("zbrush")
+#[pyclass(name = "BridgeRegistry", skip_from_py_object)]
+#[derive(Debug, Clone)]
+pub struct PyBridgeRegistry {
+    inner: crate::BridgeRegistry,
+}
+
+#[pymethods]
+impl PyBridgeRegistry {
+    #[new]
+    fn new() -> Self {
+        Self {
+            inner: crate::BridgeRegistry::new(),
+        }
+    }
+
+    /// Register or update a bridge connection.
+    ///
+    /// Args:
+    ///     dcc_type: DCC type identifier (e.g., ``"photoshop"``).
+    ///     url: Bridge endpoint URL (e.g., ``"ws://localhost:9001"``).
+    ///
+    /// Raises:
+    ///     ValueError: If ``dcc_type`` or ``url`` is empty.
+    fn register(&self, dcc_type: String, url: String) -> PyResult<()> {
+        self.inner
+            .register(dcc_type, url)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e))
+    }
+
+    /// Get bridge context for a specific DCC type.
+    ///
+    /// Returns ``None`` if no bridge is registered for the given DCC type.
+    fn get(&self, dcc_type: &str) -> Option<PyBridgeContext> {
+        self.inner.get(dcc_type).map(PyBridgeContext::from)
+    }
+
+    /// Get bridge URL for a specific DCC type (convenience method).
+    ///
+    /// Returns ``None`` if no bridge is registered.
+    fn get_url(&self, dcc_type: &str) -> Option<String> {
+        self.inner.get_url(dcc_type)
+    }
+
+    /// List all registered bridges.
+    fn list_all(&self) -> Vec<PyBridgeContext> {
+        self.inner
+            .list_all()
+            .into_iter()
+            .map(PyBridgeContext::from)
+            .collect()
+    }
+
+    /// Mark a bridge as disconnected without removing it from the registry.
+    ///
+    /// Raises:
+    ///     ValueError: If the bridge is not found.
+    fn set_disconnected(&self, dcc_type: &str) -> PyResult<()> {
+        self.inner
+            .set_disconnected(dcc_type)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e))
+    }
+
+    /// Remove a bridge from the registry.
+    ///
+    /// Raises:
+    ///     ValueError: If the bridge is not found.
+    fn unregister(&self, dcc_type: &str) -> PyResult<()> {
+        self.inner
+            .unregister(dcc_type)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e))
+    }
+
+    /// Clear all registered bridges.
+    fn clear(&self) {
+        self.inner.clear();
+    }
+
+    /// Check if a bridge is registered for the given DCC type.
+    fn contains(&self, dcc_type: &str) -> bool {
+        self.inner.contains(dcc_type)
+    }
+
+    /// Get the number of registered bridges.
+    fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    /// Check if the registry is empty.
+    fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    fn __repr__(&self) -> String {
+        format!("BridgeRegistry(count={})", self.inner.len())
+    }
+
+    fn __len__(&self) -> usize {
+        self.inner.len()
+    }
+}
+
+// ── Global bridge functions ──────────────────────────────────────────────
+
+/// Get bridge context for a specific DCC type.
 ///
 /// In gateway mode, external bridge plugins register their connection info
-/// via this mechanism, allowing skill scripts to access bridges from other
-/// processes.
+/// via :func:`register_bridge`, allowing skill scripts to access bridges from
+/// other processes.
 ///
-/// # Arguments
+/// Args:
+///     dcc_type: DCC type identifier (e.g., ``"photoshop"``, ``"zbrush"``).
 ///
-/// * `dcc_type` - DCC type identifier (e.g., "photoshop", "zbrush")
+/// Returns:
+///     A :class:`BridgeContext` if registered, or ``None``.
 ///
-/// # Returns
+/// Example::
 ///
-/// * `Some(url)` - Bridge URL if registered (e.g., "ws://localhost:9001")
-/// * `None` - If no bridge is registered for this DCC type
+///     from dcc_mcp_core import get_bridge_context, register_bridge
 ///
-/// # Example
-///
-/// ```python
-/// from dcc_mcp_core import get_bridge_context
-///
-/// bridge_url = get_bridge_context("photoshop")
-/// if bridge_url:
-///     # Connect to the bridge
-///     ws = WebSocketBridge(bridge_url)
-/// else:
-///     raise PhotoshopNotAvailableError("Bridge not connected")
-/// ```
+///     register_bridge("photoshop", "ws://localhost:9001")
+///     ctx = get_bridge_context("photoshop")
+///     if ctx:
+///         print(ctx.bridge_url, ctx.connected)
+///     else:
+///         raise PhotoshopNotAvailableError("Bridge not connected")
 #[pyfunction]
 #[pyo3(name = "get_bridge_context")]
-pub fn py_get_bridge_context(dcc_type: &str) -> Option<String> {
+pub fn py_get_bridge_context(dcc_type: &str) -> Option<PyBridgeContext> {
     let registry = BRIDGE_REGISTRY.get_or_init(crate::BridgeRegistry::new);
-    registry.get_url(dcc_type)
+    registry.get(dcc_type).map(PyBridgeContext::from)
+}
+
+/// Register a bridge connection in the global registry.
+///
+/// Called by bridge plugins to register their connection info so that
+/// skill scripts can discover and use them via :func:`get_bridge_context`.
+///
+/// Args:
+///     dcc_type: DCC type identifier (e.g., ``"photoshop"``).
+///     url: Bridge endpoint URL (e.g., ``"ws://localhost:9001"``).
+///
+/// Raises:
+///     ValueError: If ``dcc_type`` or ``url`` is empty.
+///
+/// Example::
+///
+///     from dcc_mcp_core import register_bridge
+///
+///     register_bridge("photoshop", "ws://localhost:9001")
+///     register_bridge("zbrush", "http://localhost:8765")
+#[pyfunction]
+#[pyo3(name = "register_bridge")]
+pub fn py_register_bridge(dcc_type: String, url: String) -> PyResult<()> {
+    let registry = BRIDGE_REGISTRY.get_or_init(crate::BridgeRegistry::new);
+    registry
+        .register(dcc_type, url)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e))
 }
 
 /// Register a bridge connection (internal/gateway use).

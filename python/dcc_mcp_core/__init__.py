@@ -43,6 +43,8 @@ from dcc_mcp_core._core import AuditLog
 from dcc_mcp_core._core import AuditMiddleware
 from dcc_mcp_core._core import BooleanWrapper
 from dcc_mcp_core._core import BoundingBox
+from dcc_mcp_core._core import BridgeContext
+from dcc_mcp_core._core import BridgeRegistry
 from dcc_mcp_core._core import CaptureFrame
 from dcc_mcp_core._core import Capturer
 from dcc_mcp_core._core import CaptureResult
@@ -134,6 +136,7 @@ from dcc_mcp_core._core import expand_transitive_dependencies
 from dcc_mcp_core._core import from_exception
 from dcc_mcp_core._core import get_actions_dir
 from dcc_mcp_core._core import get_app_skill_paths_from_env
+from dcc_mcp_core._core import get_bridge_context
 from dcc_mcp_core._core import get_config_dir
 from dcc_mcp_core._core import get_data_dir
 from dcc_mcp_core._core import get_log_dir
@@ -143,6 +146,7 @@ from dcc_mcp_core._core import get_skills_dir
 from dcc_mcp_core._core import is_telemetry_initialized
 from dcc_mcp_core._core import mpu_to_units
 from dcc_mcp_core._core import parse_skill_md
+from dcc_mcp_core._core import register_bridge
 from dcc_mcp_core._core import resolve_dependencies
 from dcc_mcp_core._core import scan_and_load
 from dcc_mcp_core._core import scan_and_load_lenient
@@ -210,6 +214,8 @@ __all__ = [
     "AuditMiddleware",
     "BooleanWrapper",
     "BoundingBox",
+    "BridgeContext",
+    "BridgeRegistry",
     "CaptureFrame",
     "CaptureResult",
     "Capturer",
@@ -294,7 +300,7 @@ __all__ = [
     "from_exception",
     "get_actions_dir",
     "get_app_skill_paths_from_env",
-    # Pure-Python skill script helpers
+    "get_bridge_context",
     "get_bundled_skill_paths",
     "get_bundled_skills_dir",
     "get_config_dir",
@@ -306,6 +312,7 @@ __all__ = [
     "is_telemetry_initialized",
     "mpu_to_units",
     "parse_skill_md",
+    "register_bridge",
     "register_diagnostic_handlers",
     "resolve_dependencies",
     "run_main",

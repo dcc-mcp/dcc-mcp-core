@@ -812,6 +812,39 @@ class DccCapabilities:
         bridge_endpoint: str | None = None,
         extensions: dict[str, bool] | None = None,
     ) -> None: ...
+    def uses_bridge(self) -> bool:
+        """Return ``True`` if this DCC uses a bridge connection (bridge_kind is set)."""
+        ...
+    @staticmethod
+    def http_bridge(endpoint: str) -> DccCapabilities:
+        """Create a DccCapabilities for an HTTP bridge-based DCC.
+
+        Args:
+            endpoint: HTTP endpoint URL (e.g. ``"http://localhost:8765"``).
+
+        Example::
+
+            caps = DccCapabilities.http_bridge("http://localhost:8765")
+            assert caps.bridge_kind == "http"
+            assert caps.uses_bridge()
+
+        """
+        ...
+    @staticmethod
+    def websocket_bridge(endpoint: str) -> DccCapabilities:
+        """Create a DccCapabilities for a WebSocket bridge-based DCC.
+
+        Args:
+            endpoint: WebSocket endpoint URL (e.g. ``"ws://localhost:9001"``).
+
+        Example::
+
+            caps = DccCapabilities.websocket_bridge("ws://localhost:9001")
+            assert caps.bridge_kind == "websocket"
+            assert caps.uses_bridge()
+
+        """
+        ...
     def __repr__(self) -> str: ...
 
 class DccError:
@@ -1034,6 +1067,113 @@ class SceneNode:
         children: list[SceneNode] | None = None,
     ) -> None: ...
     def to_dict(self) -> dict[str, Any]: ...
+    def __repr__(self) -> str: ...
+
+# ── Bridge Registry ──
+
+class BridgeContext:
+    """Information about a bridge connection.
+
+    Returned by :func:`get_bridge_context` and :class:`BridgeRegistry` queries.
+
+    Example::
+
+        from dcc_mcp_core import register_bridge, get_bridge_context
+
+        register_bridge("photoshop", "ws://localhost:9001")
+        ctx = get_bridge_context("photoshop")
+        if ctx:
+            print(ctx.dcc_type, ctx.bridge_url, ctx.connected)
+    """
+
+    dcc_type: str
+    """DCC type identifier (e.g. ``"photoshop"``, ``"zbrush"``)."""
+    bridge_url: str
+    """Bridge endpoint URL (e.g. ``"ws://localhost:9001"``)."""
+    connected: bool
+    """Whether the bridge is currently connected."""
+
+    def __repr__(self) -> str: ...
+
+class BridgeRegistry:
+    """Thread-safe registry for bridge connections available in gateway mode.
+
+    Bridge plugins register their connection info, and skill scripts query
+    it to discover available bridges.
+
+    Example::
+
+        from dcc_mcp_core import BridgeRegistry
+
+        registry = BridgeRegistry()
+        registry.register("photoshop", "ws://localhost:9001")
+        registry.register("zbrush", "http://localhost:8765")
+
+        ctx = registry.get("photoshop")
+        if ctx:
+            print(ctx.bridge_url, ctx.connected)
+
+        for ctx in registry.list_all():
+            print(ctx.dcc_type, ctx.connected)
+
+        registry.set_disconnected("photoshop")
+        registry.unregister("zbrush")
+    """
+
+    def __init__(self) -> None: ...
+    def register(self, dcc_type: str, url: str) -> None:
+        """Register or update a bridge connection.
+
+        Args:
+            dcc_type: DCC type identifier (e.g. ``"photoshop"``).
+            url: Bridge endpoint URL (e.g. ``"ws://localhost:9001"``).
+
+        Raises:
+            ValueError: If ``dcc_type`` or ``url`` is empty.
+
+        """
+        ...
+    def get(self, dcc_type: str) -> BridgeContext | None:
+        """Get bridge context for a specific DCC type.
+
+        Returns ``None`` if no bridge is registered for the given DCC type.
+        """
+        ...
+    def get_url(self, dcc_type: str) -> str | None:
+        """Get bridge URL for a specific DCC type (convenience method).
+
+        Returns ``None`` if no bridge is registered.
+        """
+        ...
+    def list_all(self) -> list[BridgeContext]:
+        """List all registered bridges."""
+        ...
+    def set_disconnected(self, dcc_type: str) -> None:
+        """Mark a bridge as disconnected without removing it.
+
+        Raises:
+            ValueError: If the bridge is not found.
+
+        """
+        ...
+    def unregister(self, dcc_type: str) -> None:
+        """Remove a bridge from the registry.
+
+        Raises:
+            ValueError: If the bridge is not found.
+
+        """
+        ...
+    def clear(self) -> None:
+        """Clear all registered bridges."""
+        ...
+    def contains(self, dcc_type: str) -> bool:
+        """Check if a bridge is registered for the given DCC type."""
+        ...
+    def __len__(self) -> int: ...
+    def is_empty(self) -> bool:
+        """Check if the registry is empty."""
+        ...
     def __repr__(self) -> str: ...
 
 # ── MCP Protocol Types ──
@@ -2217,6 +2357,53 @@ def from_exception(
     **context: Any,
 ) -> ActionResultModel: ...
 def validate_action_result(result: Any) -> ActionResultModel: ...
+def get_bridge_context(dcc_type: str) -> BridgeContext | None:
+    """Get bridge context for a specific DCC type from the global registry.
+
+    In gateway mode, external bridge plugins register their connection info
+    via :func:`register_bridge`, allowing skill scripts to access bridges
+    from other processes.
+
+    Args:
+        dcc_type: DCC type identifier (e.g. ``"photoshop"``, ``"zbrush"``).
+
+    Returns:
+        A :class:`BridgeContext` if registered, or ``None``.
+
+    Example::
+
+        from dcc_mcp_core import get_bridge_context, register_bridge
+
+        register_bridge("photoshop", "ws://localhost:9001")
+        ctx = get_bridge_context("photoshop")
+        if ctx:
+            print(ctx.bridge_url, ctx.connected)
+
+    """
+    ...
+
+def register_bridge(dcc_type: str, url: str) -> None:
+    """Register a bridge connection in the global registry.
+
+    Called by bridge plugins to register their connection info so that
+    skill scripts can discover and use them via :func:`get_bridge_context`.
+
+    Args:
+        dcc_type: DCC type identifier (e.g. ``"photoshop"``).
+        url: Bridge endpoint URL (e.g. ``"ws://localhost:9001"``).
+
+    Raises:
+        ValueError: If ``dcc_type`` or ``url`` is empty.
+
+    Example::
+
+        from dcc_mcp_core import register_bridge
+
+        register_bridge("photoshop", "ws://localhost:9001")
+        register_bridge("zbrush", "http://localhost:8765")
+
+    """
+    ...
 
 # ── Skill Functions ──
 
