@@ -145,6 +145,7 @@ class DccServerBase:
         self,
         extra_paths: list[str] | None = None,
         include_bundled: bool = True,
+        filter_existing: bool = False,
     ) -> list[str]:
         """Build the ordered skill search path list for this DCC.
 
@@ -159,6 +160,10 @@ class DccServerBase:
         Args:
             extra_paths: Additional directories to prepend.
             include_bundled: Include general-purpose skills from dcc-mcp-core.
+            filter_existing: When ``True``, remove paths that do not exist on
+                disk and deduplicate the result.  Pass this when feeding paths
+                to ``McpHttpServer.discover()`` to avoid warnings on missing dirs.
+                Default ``False`` preserves backward-compatible behaviour.
 
         Returns:
             Ordered list of directory paths (strings).
@@ -187,6 +192,15 @@ class DccServerBase:
         default_dir = get_skills_dir()
         if default_dir and default_dir not in paths:
             paths.append(default_dir)
+
+        if filter_existing:
+            seen: set[str] = set()
+            filtered: list[str] = []
+            for p in paths:
+                if p not in seen and Path(p).is_dir():
+                    seen.add(p)
+                    filtered.append(p)
+            return filtered
 
         return paths
 
