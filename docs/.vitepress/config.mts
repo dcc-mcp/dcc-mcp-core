@@ -2,7 +2,7 @@ import { defineConfig } from 'vitepress'
 
 export default defineConfig({
   title: 'DCC-MCP-Core',
-  description: 'Foundational library for the DCC Model Context Protocol (MCP) ecosystem',
+  description: 'Production-grade MCP + Skills foundation for AI-assisted DCC workflows',
   base: '/dcc-mcp-core/',
   cleanUrls: true,
   lastUpdated: true,
@@ -17,10 +17,10 @@ export default defineConfig({
       lang: 'en-US',
       themeConfig: {
         nav: [
-          { text: 'Guide', link: '/guide/getting-started' },
+          { text: 'Guide', link: '/guide/what-is-dcc-mcp-core' },
           { text: 'API', link: '/api/models' },
           {
-            text: 'v0.12.12',
+            text: 'v0.12.28',
             items: [
               { text: 'Changelog', link: 'https://github.com/loonghao/dcc-mcp-core/blob/main/CHANGELOG.md' },
               { text: 'PyPI', link: 'https://pypi.org/project/dcc-mcp-core/' },
@@ -37,11 +37,19 @@ export default defineConfig({
               ]
             },
             {
+              text: 'MCP + Skills System',
+              items: [
+                { text: 'MCP Integration Guide', link: '/guide/mcp-skills-integration' },
+                { text: 'Skills System', link: '/guide/skills' },
+                { text: 'Skill Scopes & Policies', link: '/guide/skill-scopes-policies' },
+                { text: 'Gateway Election', link: '/guide/gateway-election' },
+              ]
+            },
+            {
               text: 'Core Concepts',
               items: [
                 { text: 'Actions & Registry', link: '/guide/actions' },
                 { text: 'Event System', link: '/guide/events' },
-                { text: 'Skills System', link: '/guide/skills' },
                 { text: 'MCP Protocols', link: '/guide/protocols' },
                 { text: 'Transport Layer', link: '/guide/transport' },
               ]
@@ -49,8 +57,8 @@ export default defineConfig({
             {
               text: 'Advanced',
               items: [
-                { text: 'Custom Skills', link: '/guide/custom-actions' },
                 { text: 'Architecture', link: '/guide/architecture' },
+                { text: 'Custom Skills', link: '/guide/custom-actions' },
                 { text: 'Process Management', link: '/guide/process' },
                 { text: 'Sandbox & Security', link: '/guide/sandbox' },
                 { text: 'Shared Memory', link: '/guide/shm' },
@@ -91,10 +99,10 @@ export default defineConfig({
       link: '/zh/',
       themeConfig: {
         nav: [
-          { text: '指南', link: '/zh/guide/getting-started' },
+          { text: '指南', link: '/zh/guide/what-is-dcc-mcp-core' },
           { text: 'API', link: '/zh/api/models' },
           {
-            text: 'v0.12.12',
+            text: 'v0.12.28',
             items: [
               { text: '更新日志', link: 'https://github.com/loonghao/dcc-mcp-core/blob/main/CHANGELOG.md' },
               { text: 'PyPI', link: 'https://pypi.org/project/dcc-mcp-core/' },
@@ -111,11 +119,19 @@ export default defineConfig({
               ]
             },
             {
+              text: 'MCP + Skills 系统',
+              items: [
+                { text: 'MCP + Skills 集成指南', link: '/zh/guide/mcp-skills-integration' },
+                { text: 'Skills 技能包', link: '/zh/guide/skills' },
+                { text: 'Skill 作用域与策略', link: '/zh/guide/skill-scopes-policies' },
+                { text: '网关选举机制', link: '/zh/guide/gateway-election' },
+              ]
+            },
+            {
               text: '核心概念',
               items: [
                 { text: 'Actions 动作', link: '/zh/guide/actions' },
                 { text: '事件系统', link: '/zh/guide/events' },
-                { text: 'Skills 技能包', link: '/zh/guide/skills' },
                 { text: 'MCP 协议', link: '/zh/guide/protocols' },
                 { text: '传输层', link: '/zh/guide/transport' },
               ]
@@ -123,8 +139,8 @@ export default defineConfig({
             {
               text: '进阶',
               items: [
-                { text: '自定义 Skill', link: '/zh/guide/custom-actions' },
                 { text: '架构设计', link: '/zh/guide/architecture' },
+                { text: '自定义 Skill', link: '/zh/guide/custom-actions' },
                 { text: '进程管理', link: '/zh/guide/process' },
                 { text: '沙箱与安全', link: '/zh/guide/sandbox' },
                 { text: '共享内存', link: '/zh/guide/shm' },

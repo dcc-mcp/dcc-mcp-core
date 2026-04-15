@@ -1,4 +1,4 @@
-# DCC-MCP-Core
+# dcc-mcp-core
 
 [![PyPI](https://img.shields.io/pypi/v/dcc-mcp-core)](https://pypi.org/project/dcc-mcp-core/)
 [![Python](https://img.shields.io/pypi/pyversions/dcc-mcp-core)](https://www.python.org/)
@@ -11,23 +11,121 @@
 
 [English](README.md) | [中文文档](README_zh.md)
 
-DCC 模型上下文协议（Model Context Protocol，MCP）生态系统的基础库。提供 **Rust 核心引擎 + PyO3 Python 绑定**，交付高性能技能管理、技能发现、传输层、沙箱安全、共享内存、屏幕捕获、USD 支持和遥测 —— 所有这些均 **零运行时 Python 依赖**。
+**面向 AI 辅助 DCC 工作流的生产级基础库**，结合了 **模型上下文协议（MCP）** 与 **零代码 Skills 系统**。提供 **Rust 驱动核心 + PyO3 Python 绑定**，交付企业级性能、安全性和可扩展性——所有这些均**零运行时 Python 依赖**。支持 Python 3.7–3.13。
 
 > **注意**：本项目处于积极开发中（v0.12+）。API 可能会演进；版本历史请参阅 CHANGELOG.md。
 
-## 为什么选择 dcc-mcp-core？
+---
 
-| 特性 | 描述 |
+## 🎯 问题与解决方案
+
+### 为什么不直接用 CLI？
+**CLI 工具对 DCC 状态一无所知。** 它们无法看到当前场景、选中对象或视口内容，在隔离环境中执行，迫使 AI：
+- 多次往返才能收集上下文
+- 从 CLI 输出重建状态（脆弱、缓慢）
+- 缺乏来自视口的视觉反馈
+- 随请求增长，上下文爆炸问题严重
+
+### 为什么选 MCP（模型上下文协议）？
+**MCP 是 AI 原生的**，但标准 MCP 缺少 DCC 自动化的两个关键能力：
+1. **上下文爆炸** — MCP 没有机制将工具限定到特定会话或实例，在多 DCC 场景下导致请求膨胀
+2. **无生命周期控制** — 无法发现实例状态（活跃场景、文档、进程健康）或控制启动/关闭
+
+### 我们的方案：**MCP + Skills 系统**
+
+我们**复用并扩展**现有 MCP 生态系统，新增：
+
+| 能力 | 收益 |
 |------|------|
-| **高性能** | Rust 核心，rmp-serde 零拷贝序列化 & LZ4 压缩 |
-| **类型安全** | 完整的 PyO3 绑定 + 全面 `.pyi` 类型存根（约 140 个公共符号） |
-| **Skills 系统** | 零代码脚本注册为 MCP 工具（SKILL.md + scripts/） |
-| **弹性传输** | IPC + 连接池、熔断器、重试策略 |
-| **进程管理** | 启动/监控/自动恢复 DCC 进程 |
-| **沙箱安全** | 基于策略的访问控制 + 审计日志 |
-| **跨平台** | Windows、macOS、Linux 三平台测试 |
+| **网关选举与版本感知** | 多实例负载均衡；更新 DCC 启动时自动接管 |
+| **会话隔离** | 每个 AI 会话与自己的 DCC 实例通信；防止上下文污染 |
+| **Skills 系统（零代码）** | 以 `SKILL.md` + scripts/ 定义工具；无需 Python 胶水代码 |
+| **渐进式发现** | 按 DCC 类型、实例、场景、产品过滤工具；防止上下文爆炸 |
+| **实例追踪** | 了解活跃文档、PID、显示名称；实现智能路由 |
+| **结构化结果** | 每个工具返回 `(success, message, context, next_steps)` 便于 AI 推理 |
+
+这不是重新发明 MCP——而是**解决 MCP 在桌面自动化中的盲点**。
+
+---
+
+## 🚀 为什么选 dcc-mcp-core 而非其他方案？
+
+| 方面 | dcc-mcp-core | 通用 MCP | CLI 工具 | 浏览器扩展 |
+|------|-------------|---------|---------|-----------|
+| **DCC 状态感知** | ✅ 场景、文档、实例 ID | ❌ 无 | ❌ 无 | ⚠️ 部分 |
+| **多实例支持** | ✅ 网关选举 + 会话隔离 | ❌ 单一端点 | ❌ 无 | ❌ 无 |
+| **上下文范围控制** | ✅ 按 DCC/场景/产品 | ❌ 全局工具 | ❌ 无 | ⚠️ 有限 |
+| **零代码工具** | ✅ SKILL.md + scripts | ❌ 需要完整 Python | ✅ 仅脚本 | ❌ 无 |
+| **性能** | ✅ Rust + 零拷贝 + IPC | ❌ Python 开销 | ⚠️ 进程开销 | ⚠️ 网络开销 |
+| **安全性** | ✅ 沙箱 + 审计日志 | ⚠️ 手动 | ⚠️ 手动 | ❌ 无 |
+| **跨平台** | ✅ Windows/macOS/Linux | ✅ 是 | ⚠️ 有限 | ❌ 仅浏览器 |
 
 AI 友好文档：[AGENTS.md](AGENTS.md) | [CLAUDE.md](CLAUDE.md) | [GEMINI.md](GEMINI.md) | [`.agents/skills/dcc-mcp-core/SKILL.md`](.agents/skills/dcc-mcp-core/SKILL.md)
+
+## 🏗️ 架构：三层体系
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ AI 智能体（Claude、GPT 等）— 通过 MCP 调用工具                    │
+└────────────────────┬────────────────────────────────────────────┘
+                     │ MCP Streamable HTTP
+                     ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ 网关服务器（Rust/HTTP）                                            │
+│ ├─ 版本感知实例选举                                               │
+│ ├─ 会话隔离与路由                                                 │
+│ ├─ 工具发现（Skills 派生）                                        │
+│ └─ 取消与通知（SSE）                                              │
+└────────────────────┬────────────────────────────────────────────┘
+                     │ IPC（命名管道 / Unix Socket / TCP）
+     ┌───────────────┼───────────────┐
+     ▼               ▼               ▼
+  Maya 桥接       Blender 桥接    Houdini 桥接
+  插件（Rust）    插件（Rust）     插件（Rust）
+     ↓               ↓               ↓
+  Python 3.7+    Python 3.7+    Python 3.7+
+  （零依赖）      （零依赖）      （零依赖）
+```
+
+**第一层：AI 智能体** — 通过标准 MCP 协议调用工具（tools/list、tools/call、notifications）
+
+**第二层：网关** — 协调发现、会话隔离和请求路由。维护 `__gateway__` 哨兵用于版本感知选举。
+
+**第三层：DCC 适配器** — 带嵌入式 Skills 系统的 Python 桥接插件（Maya、Blender、Photoshop）。每个插件注册文档、场景状态和活跃进程信息。
+
+---
+
+## 🎓 解决 MCP 上下文爆炸
+
+**问题：** 标准 MCP 在 `tools/list` 中返回所有工具，即使与用户当前任务或 DCC 实例无关。3 个 DCC 实例 × 50 个技能 × 5 个脚本 = **750 个工具**，上下文窗口立即填满。
+
+**我们的解决方案——渐进式发现：**
+
+1. **实例感知** — 每个 DCC 注册活跃文档、PID、显示名称、作用域级别
+2. **智能工具范围** — 工具按以下维度过滤：
+   - **DCC 类型** — 使用 Maya 时只显示 Maya 工具
+   - **作用域** — Repo 技能 < 用户技能 < 系统技能
+   - **产品** — 某些工具仅适用于 Houdini，不适用于 Maya
+   - **策略** — 隐式调用技能单独分组
+3. **会话隔离** — AI 会话绑定到一个 DCC 实例；只能看到其工具
+
+```
+不使用 dcc-mcp-core（标准 MCP）：
+tools/list 包含：
+- 100 个 Maya 工具
+- 100 个 Houdini 工具
+- 100 个 Blender 工具
++ 250 个共享工具
+= 上下文中 550 个工具定义
+
+使用 dcc-mcp-core：
+tools/list 按会话实例过滤：
+与 Maya 实例 #1 通信的 AI → 看到 100 个 Maya 工具 + 50 个共享工具
+与 Houdini 实例 #1 通信的 AI → 看到 100 个 Houdini 工具 + 50 个共享工具
+= 上下文中 150 个工具（减少 71%）
+```
+
+---
 
 ## 快速开始
 
@@ -37,24 +135,25 @@ AI 友好文档：[AGENTS.md](AGENTS.md) | [CLAUDE.md](CLAUDE.md) | [GEMINI.md](
 # 从 PyPI 安装（预编译 wheel，支持 Python 3.7+）
 pip install dcc-mcp-core
 
-# 或从源码安装（需要 Rust 工具链）
+# 或从源码安装（需要 Rust 1.85+）
 git clone https://github.com/loonghao/dcc-mcp-core.git
 cd dcc-mcp-core
 pip install -e .
 ```
 
-### 基本用法
+### 基本用法——加载与执行 Skills
 
 ```python
 import json
+from pathlib import Path
 from dcc_mcp_core import (
     ActionRegistry, ActionDispatcher,
     EventBus, success_result, scan_and_load
 )
 
-# 1. 加载 Skills；scan_and_load 返回 2-tuple (skills, skipped_dirs)
+# 1. 发现技能（扫描 SKILL.md + scripts/）
 skills, skipped = scan_and_load(dcc_name="maya")
-print(f"已加载 {len(skills)} 个技能包")
+print(f"已加载 {len(skills)} 个技能包，跳过 {len(skipped)} 个")
 
 # 2. 将发现的 Skills 注册到 ActionRegistry
 registry = ActionRegistry()
@@ -84,6 +183,102 @@ result = dispatcher.dispatch(
 output = result["output"]
 print(f"已创建: {output.get('object_name')}")
 ```
+
+## 🛠️ Skills 系统——零代码 MCP 工具注册
+
+**Skills 系统**是 dcc-mcp-core 的核心创新：让你用**零 Python 代码**将任意脚本注册为 MCP 工具。复用现有的 [OpenClaw Skills](https://docs.openclaw.ai/tools) 格式。
+
+### 五分钟创建第一个 Skill
+
+**1. 创建 `my-tool/SKILL.md`：**
+
+```yaml
+---
+name: maya-cleanup
+description: "场景优化与清理工具"
+version: "1.0.0"
+dcc: maya
+scope: repo              # 信任级别：repo < user < system < admin
+tags: ["maintenance", "quality"]
+policy:
+  allow_implicit_invocation: false  # 需要先显式调用 load_skill
+  products: ["maya", "houdini"]     # 仅在这些 DCC 中显示
+---
+# Maya 场景清理
+
+用于优化和验证 Maya 场景的自动化工具。
+```
+
+**2. 创建 `my-tool/scripts/cleanup.py`：**
+
+```python
+#!/usr/bin/env python
+"""清理场景中的未使用节点。"""
+import json, sys
+result = {"success": True, "message": "已清理 42 个未使用节点"}
+print(json.dumps(result))
+sys.exit(0)
+```
+
+**3. 注册并调用：**
+
+```python
+import os
+os.environ["DCC_MCP_SKILL_PATHS"] = "/path/to/my-tool"
+
+from dcc_mcp_core import scan_and_load, ActionRegistry, ActionDispatcher
+
+skills, _ = scan_and_load(dcc_name="maya")
+# 工具为：maya_cleanup__cleanup，带结构化结果
+```
+
+**就这样。** 无 Python 胶水代码。元数据 + 脚本 = 完成。
+
+### 新特性：SkillPolicy、SkillScope、SkillDependencies
+
+```python
+from dcc_mcp_core import SkillMetadata
+import json
+
+md = SkillMetadata("maya-scene-publisher")
+
+# 策略：禁止隐式调用（需要用户明确加载）
+md.policy = json.dumps({"allow_implicit_invocation": False, "products": ["maya"]})
+
+# 检查：
+md.is_implicit_invocation_allowed()   # → False
+md.matches_product("maya")            # → True
+md.matches_product("blender")         # → False
+
+# 外部依赖声明
+deps = {"tools": [
+    {"type": "env_var", "value": "PIPELINE_ROOT"},
+    {"type": "bin", "value": "mayapy"},
+]}
+md.external_deps = json.dumps(deps)
+```
+
+### Skills 目录结构
+
+```
+my-skills/
+├── maya-geometry/
+│   ├── SKILL.md          ← 元数据 + 策略
+│   └── scripts/
+│       ├── create_sphere.py
+│       ├── bevel.py
+│       └── export_fbx.bat
+├── houdini-vex/
+│   ├── SKILL.md
+│   └── scripts/
+│       └── compile.py
+└── shared-utils/
+    ├── SKILL.md
+    └── scripts/
+        └── screenshot.py
+```
+
+---
 
 ## 核心概念
 

@@ -3,8 +3,8 @@ layout: home
 
 hero:
   name: DCC-MCP-Core
-  text: AI ↔ DCC Bridge
-  tagline: Rust-powered foundational library for the DCC Model Context Protocol ecosystem. Seamlessly connect AI with Maya, Blender, Houdini, and more.
+  text: MCP + Skills for DCC AI
+  tagline: Production-grade foundation combining Model Context Protocol (MCP) and a zero-code Skills system. Connect AI to Maya, Blender, Houdini, Photoshop — without context explosion.
   image:
     src: /logo.svg
     alt: DCC-MCP-Core
@@ -13,35 +13,38 @@ hero:
       text: Get Started
       link: /guide/getting-started
     - theme: alt
-      text: View on GitHub
+      text: Why MCP + Skills?
+      link: /guide/what-is-dcc-mcp-core
+    - theme: alt
+      text: GitHub
       link: https://github.com/loonghao/dcc-mcp-core
 
 features:
+  - icon: 🎯
+    title: Solves MCP Context Explosion
+    details: Session isolation pins each AI session to one DCC instance. tools/list returns 150 tools instead of 750. Progressive discovery by DCC type, scope, and product.
+  - icon: 🔌
+    title: Zero-Code Skill Registration
+    details: Write SKILL.md + scripts/ → instant MCP tools. No Python glue code needed. Supports Python, MEL, MaxScript, Bash, PowerShell, and more.
+  - icon: 🏆
+    title: Version-Aware Gateway Election
+    details: Multiple DCC instances compete for gateway role. Newest version automatically takes over. No manual failover — just semantic version comparison.
   - icon: 🦀
     title: Rust-Powered Core
-    details: Performance-critical modules in Rust via PyO3. Thread-safe data structures with parking_lot. Zero Python runtime dependencies.
-  - icon: 🎯
-    title: Action Registry
-    details: Thread-safe action registration and lookup. Store metadata, JSON schemas, and source paths for each DCC operation.
-  - icon: 🔌
-    title: Skills-First Architecture
-    details: One call to create_skill_manager("maya") auto-discovers scripts via SKILL.md, registers MCP tools, and starts an HTTP server. Zero boilerplate.
-  - icon: 🌐
-    title: MCP HTTP Server
-    details: Built-in Streamable HTTP server (2025-03-26 spec). LLM clients (Claude Desktop, etc.) connect directly over HTTP. Runs in background, never blocks DCC.
-  - icon: ⚡
-    title: Event Bus
-    details: Publish/subscribe event system for decoupled action lifecycle communication. Panic-safe and thread-safe.
-  - icon: 🔄
-    title: Transport Layer
-    details: Connection pooling, file-based service discovery, session management with auto-reconnection for DCC communication.
+    details: Zero runtime Python dependencies. Zero-copy IPC via Named Pipes and Unix Sockets. rmp-serde serialization. LZ4 shared memory. Sub-millisecond tool calls.
+  - icon: 🔒
+    title: SkillPolicy & Scope
+    details: allow_implicit_invocation controls whether AI can call a skill without explicit load_skill. products filter visibility by DCC. Trust levels (repo < user < system < admin).
+  - icon: 📦
+    title: Instance Tracking
+    details: Every DCC registers pid, display_name, active scene, and open documents. AI agents route to the right instance by document or display name.
   - icon: 🛡️
-    title: Sandbox & Security
-    details: API whitelist, input validation, and in-memory audit logging for safe AI action execution.
+    title: Sandbox & Audit Log
+    details: Policy-based access control with in-memory audit logging. Define what AI can and cannot do per DCC type.
+  - icon: 🌐
+    title: MCP Streamable HTTP
+    details: Built-in server (2025-03-26 spec). Claude Desktop, Cursor, and other MCP clients connect directly over HTTP. Background thread, never blocks DCC.
   - icon: 📊
-    title: Telemetry
-    details: OpenTelemetry-compatible tracing, per-action metrics, and execution recorder for production observability.
-  - icon: 🎬
-    title: Process Management
-    details: Cross-platform DCC process launch, health monitoring, and crash recovery with configurable policies.
+    title: Structured Results
+    details: Every tool returns (success, message, context, next_steps). AI agents reason clearly about outcomes. No fragile text parsing.
 ---
