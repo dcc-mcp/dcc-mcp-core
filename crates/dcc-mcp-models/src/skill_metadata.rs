@@ -259,6 +259,149 @@ impl std::fmt::Display for ToolDeclaration {
     }
 }
 
+// ── SkillPolicy ───────────────────────────────────────────────────────────
+
+/// Invocation policy declared in the SKILL.md frontmatter.
+///
+/// Controls how AI agents may invoke this skill.
+///
+/// ```yaml
+/// policy:
+///   allow_implicit_invocation: false   # default: true
+///   products: ["maya", "houdini"]      # empty = all products
+/// ```
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct SkillPolicy {
+    /// When `false`, the skill must be explicitly loaded via `load_skill`
+    /// before any of its tools can be called.  Defaults to `true`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allow_implicit_invocation: Option<bool>,
+
+    /// Restricts this skill to specific DCC products (case-insensitive).
+    /// An empty list means the skill is available for all products.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub products: Vec<String>,
+}
+
+impl SkillPolicy {
+    /// Returns `true` if implicit invocation is allowed (default when absent).
+    pub fn is_implicit_invocation_allowed(&self) -> bool {
+        self.allow_implicit_invocation.unwrap_or(true)
+    }
+
+    /// Returns `true` if this skill is available for the given DCC product.
+    /// Empty `products` list means available for all.
+    pub fn matches_product(&self, product: &str) -> bool {
+        self.products.is_empty()
+            || self
+                .products
+                .iter()
+                .any(|p| p.eq_ignore_ascii_case(product))
+    }
+}
+
+// ── SkillDependencies ─────────────────────────────────────────────────────
+
+/// Category of an external dependency.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SkillDependencyType {
+    /// Requires a running MCP server.
+    #[default]
+    Mcp,
+    /// Requires an environment variable to be set.
+    EnvVar,
+    /// Requires a binary to be present on `$PATH`.
+    Bin,
+}
+
+impl std::fmt::Display for SkillDependencyType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Mcp => write!(f, "mcp"),
+            Self::EnvVar => write!(f, "env_var"),
+            Self::Bin => write!(f, "bin"),
+        }
+    }
+}
+
+/// A single external dependency declared by a skill.
+///
+/// ```yaml
+/// external_deps:
+///   tools:
+///     - type: mcp
+///       value: "render-server"
+///       description: "Needs the render MCP server"
+///       transport: stdio
+///       command: "python -m render_mcp"
+///     - type: env_var
+///       value: "MAYA_LICENSE_KEY"
+///       description: "Maya license key must be set"
+/// ```
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct SkillDependency {
+    /// Dependency category.
+    #[serde(default, rename = "type")]
+    pub dep_type: SkillDependencyType,
+
+    /// Identifier: server name, env-var name, or binary name.
+    #[serde(default)]
+    pub value: String,
+
+    /// Human-readable explanation shown when dependency is missing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+
+    /// MCP transport (`"stdio"`, `"http"`, …) — only for `Mcp` deps.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transport: Option<String>,
+
+    /// Command to launch the MCP server — only for `Mcp`/`stdio` deps.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+
+    /// URL of the MCP server — only for `Mcp`/`http` deps.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+}
+
+/// External dependency declarations for a skill.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct SkillDependencies {
+    /// List of external tool / server / environment dependencies.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tools: Vec<SkillDependency>,
+}
+
+impl SkillDependencies {
+    /// `true` when no dependencies are declared.
+    pub fn is_empty(&self) -> bool {
+        self.tools.is_empty()
+    }
+
+    /// Iterator over `Mcp`-type dependencies.
+    pub fn mcp_deps(&self) -> impl Iterator<Item = &SkillDependency> {
+        self.tools
+            .iter()
+            .filter(|d| d.dep_type == SkillDependencyType::Mcp)
+    }
+
+    /// Iterator over `EnvVar`-type dependencies.
+    pub fn env_var_deps(&self) -> impl Iterator<Item = &SkillDependency> {
+        self.tools
+            .iter()
+            .filter(|d| d.dep_type == SkillDependencyType::EnvVar)
+    }
+
+    /// Iterator over `Bin`-type dependencies.
+    pub fn bin_deps(&self) -> impl Iterator<Item = &SkillDependency> {
+        self.tools
+            .iter()
+            .filter(|d| d.dep_type == SkillDependencyType::Bin)
+    }
+}
+
 // ── SkillMetadata ─────────────────────────────────────────────────────────
 
 /// Metadata parsed from a SKILL.md frontmatter.
@@ -426,6 +569,21 @@ pub struct SkillMetadata {
     /// Populated at load time.
     #[serde(default)]
     pub metadata_files: Vec<String>,
+
+    // ── dcc-mcp-core: progressive discovery extensions ─────────────────
+    /// Invocation policy declared in SKILL.md frontmatter.
+    ///
+    /// Controls whether the skill may be loaded implicitly and which
+    /// DCC products it is available for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy: Option<SkillPolicy>,
+
+    /// External dependencies declared in SKILL.md frontmatter.
+    ///
+    /// Declares required MCP servers, environment variables, or binaries
+    /// that must be available for this skill to function correctly.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub external_deps: Option<SkillDependencies>,
 }
 
 impl SkillMetadata {
@@ -726,6 +884,8 @@ impl SkillMetadata {
             compatibility,
             allowed_tools,
             metadata: serde_json::Value::Null,
+            policy: None,
+            external_deps: None,
         }
     }
 
@@ -881,6 +1041,58 @@ impl SkillMetadata {
         self.metadata = py_any_to_json_value(value.bind(py))
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
         Ok(())
+    }
+
+    // ── policy / external_deps ────────────────────────────────────────
+
+    /// Returns the invocation policy serialised as a JSON string, or `None`.
+    ///
+    /// Parse with `json.loads(skill.policy)` in Python.
+    #[getter]
+    fn policy(&self) -> Option<String> {
+        self.policy
+            .as_ref()
+            .and_then(|p| serde_json::to_string(p).ok())
+    }
+
+    /// Set the invocation policy from a JSON string (or `None` to clear).
+    #[setter]
+    fn set_policy(&mut self, value: Option<String>) {
+        self.policy = value.and_then(|s| serde_json::from_str::<SkillPolicy>(&s).ok());
+    }
+
+    /// Returns `true` if implicit invocation is allowed for this skill.
+    #[pyo3(name = "is_implicit_invocation_allowed")]
+    fn py_is_implicit_invocation_allowed(&self) -> bool {
+        self.policy
+            .as_ref()
+            .map(|p| p.is_implicit_invocation_allowed())
+            .unwrap_or(true)
+    }
+
+    /// Returns `true` if this skill is available for the given DCC product.
+    #[pyo3(name = "matches_product")]
+    fn py_matches_product(&self, product: String) -> bool {
+        self.policy
+            .as_ref()
+            .map(|p| p.matches_product(&product))
+            .unwrap_or(true)
+    }
+
+    /// Returns the external dependencies serialised as a JSON string, or `None`.
+    ///
+    /// Parse with `json.loads(skill.external_deps)` in Python.
+    #[getter]
+    fn external_deps(&self) -> Option<String> {
+        self.external_deps
+            .as_ref()
+            .and_then(|d| serde_json::to_string(d).ok())
+    }
+
+    /// Set external dependencies from a JSON string (or `None` to clear).
+    #[setter]
+    fn set_external_deps(&mut self, value: Option<String>) {
+        self.external_deps = value.and_then(|s| serde_json::from_str::<SkillDependencies>(&s).ok());
     }
 
     // ── ClawHub convenience methods ────────────────────────────────────
@@ -1168,6 +1380,8 @@ mod tests {
             version: "1.2.3".to_string(),
             depends: vec!["base-skill".to_string()],
             metadata_files: vec!["help.md".to_string()],
+            policy: None,
+            external_deps: None,
         };
         let json = serde_json::to_string(&meta).unwrap();
         let back: SkillMetadata = serde_json::from_str(&json).unwrap();

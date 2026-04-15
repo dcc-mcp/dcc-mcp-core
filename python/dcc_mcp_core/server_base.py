@@ -583,6 +583,8 @@ class DccServerBase:
         """Update scene / version metadata in the gateway registry.
 
         Modifies the live registry entry without restarting the server.
+        Also updates the in-memory ``McpHttpConfig`` so future heartbeats
+        include the new values.
 
         Args:
             scene: New scene file path.
@@ -602,6 +604,7 @@ class DccServerBase:
             return False
 
         try:
+            # Update in-memory config first
             if scene is not None:
                 self._config.scene = scene
             if version is not None:
@@ -611,12 +614,17 @@ class DccServerBase:
 
             registry_dir = getattr(self._config, "registry_dir", "") or os.environ.get("DCC_MCP_REGISTRY_DIR", "")
             if not registry_dir:
-                return True  # config updated locally, no registry dir to heartbeat
+                return True  # config updated locally, no registry dir to write
 
             mgr = TransportManager(registry_dir=registry_dir)
             instance_id = getattr(self._handle, "instance_id", None) if self._handle else None
             if instance_id:
-                result = mgr.py_heartbeat(self._dcc_name, instance_id)
+                result = mgr.update_scene(
+                    self._dcc_name,
+                    instance_id,
+                    scene=scene,
+                    version=version,
+                )
                 return bool(result)
             return True
 

@@ -31,6 +31,14 @@ pub trait ServiceDiscovery: Send + Sync {
     /// Update status for a service.
     fn update_status(&self, key: &ServiceKey, status: ServiceStatus) -> TransportResult<bool>;
 
+    /// Update scene and/or version metadata for a service, and refresh heartbeat.
+    fn update_metadata(
+        &self,
+        key: &ServiceKey,
+        scene: Option<&str>,
+        version: Option<&str>,
+    ) -> TransportResult<bool>;
+
     /// Remove stale services.
     fn cleanup_stale(&self, timeout: Duration) -> TransportResult<usize>;
 
@@ -71,6 +79,15 @@ impl ServiceDiscovery for file_registry::FileRegistry {
 
     fn update_status(&self, key: &ServiceKey, status: ServiceStatus) -> TransportResult<bool> {
         self.update_status(key, status)
+    }
+
+    fn update_metadata(
+        &self,
+        key: &ServiceKey,
+        scene: Option<&str>,
+        version: Option<&str>,
+    ) -> TransportResult<bool> {
+        self.update_metadata(key, scene, version)
     }
 
     fn cleanup_stale(&self, timeout: Duration) -> TransportResult<usize> {
@@ -132,6 +149,16 @@ impl ServiceRegistry {
     /// Update status for a service.
     pub fn update_status(&self, key: &ServiceKey, status: ServiceStatus) -> TransportResult<bool> {
         self.strategy.update_status(key, status)
+    }
+
+    /// Update scene and/or version metadata for a service, and refresh heartbeat.
+    pub fn update_metadata(
+        &self,
+        key: &ServiceKey,
+        scene: Option<&str>,
+        version: Option<&str>,
+    ) -> TransportResult<bool> {
+        self.strategy.update_metadata(key, scene, version)
     }
 
     /// Remove stale services.

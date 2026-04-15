@@ -169,6 +169,7 @@ impl McpHttpServer {
             bridge_registry: crate::BridgeRegistry::new(),
             server_name: self.config.server_name.clone(),
             server_version: self.config.server_version.clone(),
+            cancelled_requests: Arc::new(dashmap::DashMap::new()),
         };
 
         let endpoint = self.config.endpoint_path.clone();
@@ -223,6 +224,7 @@ impl McpHttpServer {
                 server_name: self.config.server_name.clone(),
                 server_version: self.config.server_version.clone(),
                 registry_dir: self.config.registry_dir.clone(),
+                challenger_timeout_secs: 120,
             };
 
             match GatewayRunner::new(gw_cfg) {

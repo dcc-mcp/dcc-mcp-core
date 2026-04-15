@@ -1,10 +1,15 @@
-//! dcc-mcp-models: ActionResultModel, SkillMetadata.
+//! dcc-mcp-models: ActionResultModel, SkillMetadata, SkillScope.
 
 mod action_result;
 mod skill_metadata;
+pub mod skill_scope;
 
 pub use action_result::{ActionResultModel, ActionResultModelData, SerializeFormat};
-pub use skill_metadata::{SkillMetadata, ToolDeclaration};
+pub use skill_metadata::{
+    SkillDependencies, SkillDependency, SkillDependencyType, SkillMetadata, SkillPolicy,
+    ToolDeclaration,
+};
+pub use skill_scope::SkillScope;
 
 #[cfg(feature = "python-bindings")]
 pub use action_result::{

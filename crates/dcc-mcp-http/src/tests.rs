@@ -50,6 +50,7 @@ mod tests {
             bridge_registry: crate::BridgeRegistry::new(),
             server_name: "test-dcc".to_string(),
             server_version: "0.1.0".to_string(),
+            cancelled_requests: std::sync::Arc::new(dashmap::DashMap::new()),
         }
     }
 
@@ -192,6 +193,7 @@ mod tests {
             bridge_registry: crate::BridgeRegistry::new(),
             server_name: "test-dcc".to_string(),
             server_version: "0.1.0".to_string(),
+            cancelled_requests: std::sync::Arc::new(dashmap::DashMap::new()),
         }
     }
 
@@ -948,6 +950,7 @@ mod tests {
             bridge_registry: crate::BridgeRegistry::new(),
             server_name: "test-dcc".to_string(),
             server_version: "0.1.0".to_string(),
+            cancelled_requests: std::sync::Arc::new(dashmap::DashMap::new()),
         }
     }
 
@@ -1230,6 +1233,7 @@ mod tests {
             bridge_registry: crate::BridgeRegistry::new(),
             server_name: "test-dcc".to_string(),
             server_version: "0.1.0".to_string(),
+            cancelled_requests: std::sync::Arc::new(dashmap::DashMap::new()),
         }
     }
 
@@ -1329,6 +1333,7 @@ mod tests {
             bridge_registry: crate::BridgeRegistry::new(),
             server_name: "test-dcc".to_string(),
             server_version: "0.1.0".to_string(),
+            cancelled_requests: std::sync::Arc::new(dashmap::DashMap::new()),
         };
 
         use crate::handler::{handle_delete, handle_get, handle_post};
@@ -1548,12 +1553,14 @@ mod gateway_tests {
         // keep() returns PathBuf and prevents deletion until the process exits
         let path = dir.keep();
         let registry = FileRegistry::new(&path).unwrap();
+        let (yield_tx, _yield_rx) = tokio::sync::watch::channel(false);
         GatewayState {
             registry: Arc::new(RwLock::new(registry)),
             stale_timeout: Duration::from_secs(30),
             server_name: "test-gateway".to_string(),
             server_version: "0.1.0".to_string(),
             http_client: reqwest::Client::new(),
+            yield_tx: Arc::new(yield_tx),
         }
     }
 

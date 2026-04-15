@@ -1711,6 +1711,31 @@ class TransportManager:
     def get_service(self, dcc_type: str, instance_id: str) -> ServiceEntry | None: ...
     def heartbeat(self, dcc_type: str, instance_id: str) -> bool: ...
     def update_service_status(self, dcc_type: str, instance_id: str, status: ServiceStatus) -> bool: ...
+    def update_scene(
+        self,
+        dcc_type: str,
+        instance_id: str,
+        scene: str | None = None,
+        version: str | None = None,
+    ) -> bool:
+        """Update scene and/or version metadata for a registered service.
+
+        This is the primary way for a running DCC instance (e.g. Photoshop
+        bridge plugin) to report that the user has opened a different scene
+        or that the DCC version has changed.  The update is written to the
+        shared FileRegistry so the gateway and other processes can see it.
+
+        Args:
+            dcc_type: DCC application type.
+            instance_id: Instance UUID string.
+            scene: New scene name (None = leave unchanged, "" = clear).
+            version: New DCC version (None = leave unchanged, "" = clear).
+
+        Returns:
+            True if the service was found and updated.
+
+        """
+        ...
 
     # High-level auto-registration & discovery
 

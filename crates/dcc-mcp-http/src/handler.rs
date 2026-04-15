@@ -11,6 +11,7 @@ use axum::{
     response::sse::Event,
     response::{IntoResponse, Response, Sse},
 };
+use dashmap::DashMap;
 use futures::stream;
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -45,6 +46,10 @@ pub struct AppState {
     pub bridge_registry: BridgeRegistry,
     pub server_name: String,
     pub server_version: String,
+    /// Tracks request IDs that have been cancelled by the client via
+    /// `notifications/cancelled`.  Entries are removed after a single
+    /// check so the map stays small.
+    pub cancelled_requests: Arc<DashMap<String, ()>>,
 }
 
 // ── POST /mcp ─────────────────────────────────────────────────────────────
@@ -87,6 +92,14 @@ pub async fn handle_post(
 
     // A message is a "request" (needs a response) iff it has an explicit "id" field.
     let has_requests = raw_values.iter().any(json_has_id);
+
+    // Always process notifications (fire-and-forget — no id) so that
+    // `notifications/cancelled` can abort in-flight tool calls.
+    for msg in &messages {
+        if let JsonRpcMessage::Notification(notif) = msg {
+            handle_notification(&state, &notif.method, notif.params.as_ref()).await;
+        }
+    }
 
     if !has_requests {
         // Only notifications/responses — accept and return 202
@@ -214,6 +227,38 @@ pub async fn handle_delete(State(state): State<AppState>, headers: HeaderMap) ->
         Some(id) if state.sessions.remove(id) => StatusCode::NO_CONTENT,
         Some(_) => StatusCode::NOT_FOUND,
         None => StatusCode::BAD_REQUEST,
+    }
+}
+
+// ── Notification handling ─────────────────────────────────────────────────
+
+/// Process a JSON-RPC notification (a message without an `id`).
+///
+/// Notifications are fire-and-forget; the server must never reply to them.
+/// The main notification of interest is `notifications/cancelled`, which
+/// records that the client no longer needs the result of a previous request.
+async fn handle_notification(state: &AppState, method: &str, params: Option<&Value>) {
+    match method {
+        "notifications/cancelled" => {
+            // Extract the `requestId` field (string or number)
+            let id_str = params.and_then(|p| p.get("requestId")).map(|v| match v {
+                Value::String(s) => s.clone(),
+                Value::Number(n) => n.to_string(),
+                other => serde_json::to_string(other).unwrap_or_default(),
+            });
+
+            if let Some(id) = id_str {
+                if !id.is_empty() {
+                    tracing::info!(request_id = %id, "MCP request cancelled by client");
+                    state.cancelled_requests.insert(id, ());
+                }
+            }
+        }
+        // Already handled as a request-shaped message; safe to ignore here.
+        "notifications/initialized" => {}
+        other => {
+            tracing::debug!(method = other, "ignoring unknown MCP notification");
+        }
     }
 }
 
@@ -428,6 +473,29 @@ async fn handle_tools_call(
             }
         }
     };
+
+    // ── Cancellation check ────────────────────────────────────────────
+    // If the client sent `notifications/cancelled` for this request while
+    // the tool was executing, suppress the result and return a short error.
+    let req_id_str = req.id.as_ref().map(|id| match id {
+        Value::String(s) => s.clone(),
+        Value::Number(n) => n.to_string(),
+        other => serde_json::to_string(other).unwrap_or_default(),
+    });
+    if let Some(ref rid) = req_id_str {
+        if state.cancelled_requests.remove(rid).is_some() {
+            tracing::info!(request_id = %rid, "Suppressing result — request was cancelled");
+            return Ok(JsonRpcResponse::success(
+                req.id.clone(),
+                serde_json::to_value(CallToolResult {
+                    content: vec![protocol::ToolContent::Text {
+                        text: format!("Request {rid} was cancelled by the client."),
+                    }],
+                    is_error: true,
+                })?,
+            ));
+        }
+    }
 
     Ok(JsonRpcResponse::success(
         req.id.clone(),

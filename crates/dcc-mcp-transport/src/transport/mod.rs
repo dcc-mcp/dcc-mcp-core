@@ -127,6 +127,20 @@ impl TransportManager {
         self.registry.update_status(key, status)
     }
 
+    /// Update scene and/or version metadata for a service, and refresh heartbeat.
+    ///
+    /// This is the primary way for a running instance to report that the user
+    /// has opened a different scene or that the DCC version has changed.
+    pub fn update_metadata(
+        &self,
+        key: &ServiceKey,
+        scene: Option<&str>,
+        version: Option<&str>,
+    ) -> TransportResult<bool> {
+        self.check_shutdown()?;
+        self.registry.update_metadata(key, scene, version)
+    }
+
     // ── Session Management ──
 
     /// Get or create a session for a DCC instance (lazy creation).

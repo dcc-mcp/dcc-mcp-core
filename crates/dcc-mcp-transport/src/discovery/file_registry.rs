@@ -196,6 +196,44 @@ impl FileRegistry {
         Ok(found)
     }
 
+    /// Update scene and/or version metadata for a service, and refresh heartbeat.
+    ///
+    /// This is the primary way for a running instance to report that the user
+    /// has opened a different scene (e.g. switched documents in Photoshop) or
+    /// that the DCC version has changed.
+    pub fn update_metadata(
+        &self,
+        key: &ServiceKey,
+        scene: Option<&str>,
+        version: Option<&str>,
+    ) -> TransportResult<bool> {
+        let found = if let Some(mut entry) = self.services.get_mut(key) {
+            let e = entry.value_mut();
+            if let Some(s) = scene {
+                e.scene = if s.is_empty() {
+                    None
+                } else {
+                    Some(s.to_string())
+                };
+            }
+            if let Some(v) = version {
+                e.version = if v.is_empty() {
+                    None
+                } else {
+                    Some(v.to_string())
+                };
+            }
+            e.touch(); // also refresh heartbeat
+            true
+        } else {
+            false
+        };
+        if found {
+            self.flush_to_file()?;
+        }
+        Ok(found)
+    }
+
     /// Remove stale services (no heartbeat within timeout).
     pub fn cleanup_stale(&self, timeout: Duration) -> TransportResult<usize> {
         let stale_keys: Vec<ServiceKey> = self
@@ -452,5 +490,62 @@ mod tests {
 
         // All calls should succeed without error
         assert_eq!(registry.len(), 1);
+    }
+
+    #[test]
+    fn test_file_registry_update_metadata() {
+        let dir = tempfile::tempdir().unwrap();
+        let registry = FileRegistry::new(dir.path()).unwrap();
+
+        let entry = ServiceEntry::new("maya", "127.0.0.1", 18812);
+        let key = entry.key();
+        registry.register(entry).unwrap();
+
+        // Initially no scene
+        let e = registry.get(&key).unwrap();
+        assert!(e.scene.is_none());
+        assert!(e.version.is_none());
+
+        // Update scene
+        assert!(
+            registry
+                .update_metadata(&key, Some("my_scene.ma"), None)
+                .unwrap()
+        );
+        let e = registry.get(&key).unwrap();
+        assert_eq!(e.scene.as_deref(), Some("my_scene.ma"));
+        assert!(e.version.is_none());
+
+        // Update version
+        assert!(registry.update_metadata(&key, None, Some("2025")).unwrap());
+        let e = registry.get(&key).unwrap();
+        assert_eq!(e.scene.as_deref(), Some("my_scene.ma"));
+        assert_eq!(e.version.as_deref(), Some("2025"));
+
+        // Update both
+        assert!(
+            registry
+                .update_metadata(&key, Some("other.ma"), Some("2026"))
+                .unwrap()
+        );
+        let e = registry.get(&key).unwrap();
+        assert_eq!(e.scene.as_deref(), Some("other.ma"));
+        assert_eq!(e.version.as_deref(), Some("2026"));
+
+        // Clear scene with empty string
+        assert!(registry.update_metadata(&key, Some(""), None).unwrap());
+        let e = registry.get(&key).unwrap();
+        assert!(e.scene.is_none());
+
+        // Non-existent key
+        let fake_key = ServiceKey {
+            dcc_type: "nuke".to_string(),
+            instance_id: Uuid::new_v4(),
+        };
+        assert!(
+            !registry
+                .update_metadata(&fake_key, Some("x"), None)
+                .unwrap()
+        );
     }
 }

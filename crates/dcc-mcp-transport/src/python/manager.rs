@@ -295,6 +295,40 @@ impl PyTransportManager {
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
     }
 
+    /// Update scene and/or version metadata for a registered service.
+    ///
+    /// This is the primary way for a running DCC instance (e.g. Photoshop
+    /// bridge plugin) to report that the user has opened a different scene
+    /// or that the DCC version has changed.  The update is written to the
+    /// shared FileRegistry so the gateway and other processes can see it.
+    ///
+    /// Args:
+    ///     dcc_type: DCC application type.
+    ///     instance_id: Instance UUID string.
+    ///     scene: New scene name (pass None to leave unchanged, empty string to clear).
+    ///     version: New DCC version (pass None to leave unchanged, empty string to clear).
+    ///
+    /// Returns:
+    ///     True if the service was found and updated.
+    #[pyo3(name = "update_scene")]
+    #[pyo3(signature = (dcc_type, instance_id, scene=None, version=None))]
+    fn py_update_scene(
+        &self,
+        dcc_type: &str,
+        instance_id: &str,
+        scene: Option<&str>,
+        version: Option<&str>,
+    ) -> PyResult<bool> {
+        let uuid = parse_uuid(instance_id)?;
+        let key = ServiceKey {
+            dcc_type: dcc_type.to_string(),
+            instance_id: uuid,
+        };
+        self.inner
+            .update_metadata(&key, scene, version)
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+    }
+
     // ── Session Management ──
 
     /// Get or create a session for a DCC instance (lazy creation).

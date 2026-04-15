@@ -2,12 +2,14 @@
 
 pub mod catalog;
 mod loader;
+pub mod manager;
 pub mod resolver;
 mod scanner;
 pub mod watcher;
 
 pub use catalog::{SkillCatalog, SkillDetail, SkillState, SkillSummary};
 pub use loader::{LoadResult, parse_skill_md, scan_and_load, scan_and_load_lenient};
+pub use manager::SkillsManager;
 pub use resolver::{
     ResolveError, ResolvedSkills, expand_transitive_dependencies, resolve_dependencies,
     validate_dependencies,

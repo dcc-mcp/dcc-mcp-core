@@ -49,7 +49,7 @@ use dcc_mcp_actions::{
     ActionDispatcher,
     registry::{ActionMeta, ActionRegistry},
 };
-use dcc_mcp_models::SkillMetadata;
+use dcc_mcp_models::{SkillMetadata, SkillScope};
 use std::sync::Arc;
 
 use crate::loader;
@@ -156,6 +156,7 @@ impl SkillCatalog {
                         metadata: skill,
                         state: SkillState::Discovered,
                         registered_actions: Vec::new(),
+                        scope: SkillScope::Repo,
                     },
                 );
                 new_count += 1;
@@ -193,9 +194,74 @@ impl SkillCatalog {
                     metadata,
                     state: SkillState::Discovered,
                     registered_actions: Vec::new(),
+                    scope: SkillScope::Repo,
                 },
             );
         }
+    }
+
+    /// Discover skills from paths grouped by [`SkillScope`].
+    ///
+    /// Like [`discover`](Self::discover) but lets the caller tag each set of
+    /// paths with a trust level so tools like `list_skills` can surface scope
+    /// information to AI agents.
+    ///
+    /// ```no_run
+    /// # use dcc_mcp_skills::catalog::SkillCatalog;
+    /// # use dcc_mcp_models::SkillScope;
+    /// # use dcc_mcp_actions::ActionRegistry;
+    /// # use std::sync::Arc;
+    /// # let registry = Arc::new(ActionRegistry::new());
+    /// # let catalog = SkillCatalog::new(registry);
+    /// let count = catalog.discover_scoped(
+    ///     &[
+    ///         (SkillScope::Repo,   vec!["./.dcc_skills".to_string()]),
+    ///         (SkillScope::User,   vec!["~/.dcc_mcp/skills".to_string()]),
+    ///         (SkillScope::System, vec!["/usr/share/dcc_mcp/skills".to_string()]),
+    ///     ],
+    ///     Some("maya"),
+    /// );
+    /// ```
+    pub fn discover_scoped(
+        &self,
+        scoped_paths: &[(SkillScope, Vec<String>)],
+        dcc_name: Option<&str>,
+    ) -> usize {
+        let mut total_new = 0;
+        for (scope, paths) in scoped_paths {
+            let result =
+                match crate::loader::scan_and_load_lenient(Some(paths.as_slice()), dcc_name) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        tracing::error!(
+                            "SkillCatalog::discover_scoped: scan failed for scope={scope}: {e}"
+                        );
+                        continue;
+                    }
+                };
+
+            for skill in result.skills {
+                let name = skill.name.clone();
+                if !self.entries.contains_key(&name) {
+                    self.entries.insert(
+                        name,
+                        SkillEntry {
+                            metadata: skill,
+                            state: SkillState::Discovered,
+                            registered_actions: Vec::new(),
+                            scope: *scope,
+                        },
+                    );
+                    total_new += 1;
+                }
+            }
+        }
+        tracing::info!(
+            "SkillCatalog::discover_scoped: {} new skill(s) across {} scope(s)",
+            total_new,
+            scoped_paths.len()
+        );
+        total_new
     }
 
     /// Load a skill by name — registers its tools into ActionRegistry and,
@@ -483,6 +549,19 @@ impl SkillCatalog {
                 tools: e.metadata.tools.clone(),
                 state: e.state.to_string(),
                 registered_actions: e.registered_actions.clone(),
+                scope: e.scope.label().to_string(),
+                implicit_invocation: e
+                    .metadata
+                    .policy
+                    .as_ref()
+                    .map(|p| p.is_implicit_invocation_allowed())
+                    .unwrap_or(true),
+                dependency_count: e
+                    .metadata
+                    .external_deps
+                    .as_ref()
+                    .map(|d| d.tools.len())
+                    .unwrap_or(0),
             }
         })
     }
@@ -563,6 +642,13 @@ fn skill_entry_to_summary(e: &SkillEntry) -> SkillSummary {
         tool_count: e.metadata.tools.len(),
         tool_names: e.metadata.tools.iter().map(|t| t.name.clone()).collect(),
         loaded: e.state == SkillState::Loaded,
+        scope: e.scope.label().to_string(),
+        implicit_invocation: e
+            .metadata
+            .policy
+            .as_ref()
+            .map(|p| p.is_implicit_invocation_allowed())
+            .unwrap_or(true),
     }
 }
 

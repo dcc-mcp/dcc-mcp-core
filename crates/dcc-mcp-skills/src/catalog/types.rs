@@ -1,6 +1,6 @@
 //! Data types for the skill catalog: state, entries, summary, and detail.
 
-use dcc_mcp_models::{SkillMetadata, ToolDeclaration};
+use dcc_mcp_models::{SkillMetadata, SkillScope, ToolDeclaration};
 use serde::Serializer;
 
 // RTK-inspired: compact serialization for tool_names
@@ -47,6 +47,11 @@ pub struct SkillEntry {
     pub state: SkillState,
     /// Names of actions registered from this skill (populated on load).
     pub registered_actions: Vec<String>,
+    /// Trust level / origin of this skill.
+    ///
+    /// Set at discovery time based on which search path the skill was found in.
+    /// Defaults to `SkillScope::Repo` when not explicitly assigned.
+    pub scope: SkillScope,
 }
 
 // ── Summary / Detail types ──
@@ -71,6 +76,10 @@ pub struct SkillSummary {
     #[serde(serialize_with = "serialize_tool_names")]
     pub tool_names: Vec<String>,
     pub loaded: bool,
+    /// Trust level / origin scope of this skill (e.g. `"repo"`, `"user"`, `"system"`).
+    pub scope: String,
+    /// `true` when this skill declares `allow_implicit_invocation: false`.
+    pub implicit_invocation: bool,
 }
 
 /// Detailed information about a skill.
@@ -87,6 +96,12 @@ pub struct SkillDetail {
     pub tools: Vec<ToolDeclaration>,
     pub state: String,
     pub registered_actions: Vec<String>,
+    /// Trust level / origin scope of this skill.
+    pub scope: String,
+    /// Whether this skill may be invoked implicitly (without explicit `load_skill`).
+    pub implicit_invocation: bool,
+    /// Number of declared external dependencies (MCP servers, env vars, binaries).
+    pub dependency_count: usize,
 }
 
 // ── Python bindings for summary ──

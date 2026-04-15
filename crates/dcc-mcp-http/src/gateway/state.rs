@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::{Value, json};
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, watch};
 
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
 use dcc_mcp_transport::discovery::types::{ServiceEntry, ServiceStatus};
@@ -15,8 +15,16 @@ pub struct GatewayState {
     pub registry: Arc<RwLock<FileRegistry>>,
     pub stale_timeout: Duration,
     pub server_name: String,
+    /// The version string of this gateway instance (e.g. `"0.12.29"`).
     pub server_version: String,
     pub http_client: reqwest::Client,
+    /// Sending side of the voluntary-yield channel.
+    ///
+    /// Sending `true` causes the gateway's HTTP server to perform a
+    /// graceful shutdown and release the gateway port — allowing a
+    /// higher-version challenger to take over.
+    /// Wrapped in `Arc` so every cloned `GatewayState` shares the same sender.
+    pub yield_tx: Arc<watch::Sender<bool>>,
 }
 
 impl GatewayState {

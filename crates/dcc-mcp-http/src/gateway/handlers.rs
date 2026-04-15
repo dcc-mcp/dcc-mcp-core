@@ -7,6 +7,8 @@ use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use super::super::gateway::is_newer_version;
+
 use super::proxy::proxy_request;
 use super::state::{GatewayState, entry_to_json};
 use super::tools::{
@@ -29,6 +31,73 @@ pub struct JsonRpcRequest {
 /// `GET /health` — simple liveness probe.
 pub async fn handle_health() -> impl IntoResponse {
     Json(json!({"ok": true, "service": "dcc-mcp-gateway"}))
+}
+
+/// `POST /gateway/yield` — ask this gateway to voluntarily release its port.
+///
+/// The requester must supply its own version in the JSON body.
+/// The gateway only yields if the requester's version is strictly newer,
+/// preventing accidental downgrades.
+///
+/// # Request body
+/// ```json
+/// { "challenger_version": "0.12.29" }
+/// ```
+///
+/// # Responses
+/// - `200 OK` — yield accepted; gateway is shutting down.
+/// - `409 Conflict` — challenger version is not newer than the gateway.
+/// - `400 Bad Request` — malformed body.
+pub async fn handle_gateway_yield(
+    State(gs): State<super::state::GatewayState>,
+    body: axum::body::Bytes,
+) -> Response {
+    #[derive(Deserialize)]
+    struct YieldRequest {
+        challenger_version: String,
+    }
+
+    let req: YieldRequest = match serde_json::from_slice(&body) {
+        Ok(r) => r,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"ok": false, "error": format!("Invalid body: {e}")})),
+            )
+                .into_response();
+        }
+    };
+
+    if is_newer_version(&req.challenger_version, &gs.server_version) {
+        tracing::info!(
+            challenger = %req.challenger_version,
+            current = %gs.server_version,
+            "Gateway yield requested — initiating graceful handoff"
+        );
+        // Signal the gateway HTTP server to shut down gracefully.
+        // The port will be freed once axum drains in-flight requests.
+        let _ = gs.yield_tx.send(true);
+        Json(json!({
+            "ok": true,
+            "message": format!(
+                "Gateway v{} yielding to challenger v{}. Port will be free shortly.",
+                gs.server_version, req.challenger_version
+            )
+        }))
+        .into_response()
+    } else {
+        (
+            StatusCode::CONFLICT,
+            Json(json!({
+                "ok": false,
+                "error": format!(
+                    "Challenger version {} is not newer than gateway {}. Yield refused.",
+                    req.challenger_version, gs.server_version
+                )
+            })),
+        )
+            .into_response()
+    }
 }
 
 /// `GET /instances` — return all live instances as JSON.
