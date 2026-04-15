@@ -11,23 +11,93 @@
 
 [中文文档](README_zh.md) | [English](README.md)
 
-Foundational library for the DCC Model Context Protocol (MCP) ecosystem. It provides a **Rust-powered core with Python bindings (PyO3)** that delivers high-performance skill management, skills discovery, transport, sandbox security, shared memory, screen capture, USD support, and telemetry — all with **zero runtime Python dependencies**. Supports Python 3.7–3.13.
+**Production-grade foundation for AI-assisted DCC workflows** combining the **Model Context Protocol (MCP)** and a **zero-code Skills system**. Provides a **Rust-powered core with Python bindings (PyO3)** delivering enterprise-grade performance, security, and scalability — all with **zero runtime Python dependencies**. Supports Python 3.7–3.13.
 
 > **Note**: This project is in active development (v0.12+). APIs may evolve; see CHANGELOG.md for version history.
 
-## Why dcc-mcp-core?
+---
 
-| Feature | Description |
-|---------|-------------|
-| **Performance** | Rust core with zero-copy serialization via rmp-serde & LZ4 compression |
-| **Type Safety** | Full PyO3 bindings with comprehensive `.pyi` type stubs (~140 public symbols) |
-| **Skills System** | Zero-code script registration as MCP tools (SKILL.md + scripts/) |
-| **Resilient Transport** | IPC with connection pooling, circuit breaker, retry policies |
-| **Process Management** | Launch, monitor, auto-recover DCC processes |
-| **Sandbox Security** | Policy-based access control with audit logging |
-| **Cross-Platform** | Windows, macOS, Linux — tested on all three |
+## 🎯 The Problem & Our Solution
+
+### Why Not Just Use CLI?
+**CLI tools are blind to DCC state.** They can't see the active scene, selected objects, or viewport context. They execute in isolation, forcing the AI to:
+- Make multiple roundtrips to gather context
+- Rebuild state from CLI outputs (fragile, slow)
+- Lack visual feedback from the viewport
+- Scale poorly with context explosion as requests grow
+
+### Why MCP (Model Context Protocol)?
+**MCP is AI-native**, but stock MCP lacks two critical capabilities for DCC automation:
+1. **Context Explosion** — MCP has no mechanism to scope tools to specific sessions or instances, causing request bloat with multi-DCC setups
+2. **No Lifecycle Control** — Can't discover instance state (active scene, documents, process health) or control startup/shutdown
+
+### Our Approach: **MCP + Skills System**
+
+We **reuse and extend** the existing MCP ecosystem, adding:
+
+| Capability | Benefit |
+|-----------|---------|
+| **Gateway Election & Version Awareness** | Multi-instance load balancing; automatic handoff when newer DCC launches |
+| **Session Isolation** | Each AI session talks to its own DCC instance; prevents context bleeding |
+| **Skills System (Zero-Code)** | Define tools as `SKILL.md` + scripts/; no Python glue code needed |
+| **Progressive Discovery** | Scope tools by DCC type, instance, scene, product; prevents context explosion |
+| **Instance Tracking** | Know active documents, PIDs, display names; enable smart routing |
+| **Structured Results** | Every tool returns `(success, message, context, next_steps)` for AI reasoning |
+
+This isn't reinventing MCP — it's **solving MCP's blind spots for desktop automation**.
+
+---
+
+## 🚀 Why dcc-mcp-core Over Alternatives?
+
+| Aspect | dcc-mcp-core | Generic MCP | CLI Tools | Browser Extensions |
+|--------|-------------|------------|-----------|-------------------|
+| **DCC State Awareness** | ✅ Scenes, docs, instance IDs | ❌ No | ❌ No | ⚠️ Partial |
+| **Multi-Instance Support** | ✅ Gateway election + session isolation | ❌ Single endpoint | ❌ No | ❌ No |
+| **Context Scoping** | ✅ By DCC/scene/product | ❌ Global tools | ❌ No | ⚠️ Limited |
+| **Zero-Code Tools** | ✅ SKILL.md + scripts | ❌ Full Python required | ✅ Scripts only | ❌ No |
+| **Performance** | ✅ Rust + zero-copy + IPC | ❌ Python overhead | ⚠️ Process overhead | ⚠️ Network overhead |
+| **Security** | ✅ Sandbox + audit log | ⚠️ Manual | ⚠️ Manual | ❌ None |
+| **Cross-Platform** | ✅ Windows/macOS/Linux | ✅ Yes | ⚠️ Limited | ❌ Browser only |
 
 AI-friendly docs: [AGENTS.md](AGENTS.md) | [CLAUDE.md](CLAUDE.md) | [GEMINI.md](GEMINI.md) | [`.agents/skills/dcc-mcp-core/SKILL.md`](.agents/skills/dcc-mcp-core/SKILL.md)
+
+## 🏗️ Architecture: The Three-Layer Stack
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ AI Agent (Claude, GPT, etc.) — Calls tools via MCP              │
+└────────────────────┬────────────────────────────────────────────┘
+                     │ MCP Streamable HTTP
+                     ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ Gateway Server (Rust/HTTP)                                       │
+│ ├─ Version-Aware Instance Election                              │
+│ ├─ Session Isolation & Routing                                  │
+│ ├─ Tool Discovery (skills-derived)                              │
+│ └─ Cancellation & Notifications (SSE)                           │
+└────────────────────┬────────────────────────────────────────────┘
+                     │ IPC (Named Pipe / Unix Socket / TCP)
+     ┌───────────────┼───────────────┐
+     ▼               ▼               ▼
+  ┌─────┐         ┌─────┐         ┌─────┐
+  │Maya │        │Blender       │Houdini
+  │Bridge         │Bridge       │Bridge
+  │Plugin         │Plugin       │Plugin
+  │(Rust)         │(Rust)       │(Rust)
+  └─────┘         └─────┘         └─────┘
+    ↓               ↓               ↓
+  Python 3.7+    Python 3.7+    Python 3.7+
+  (zero deps)    (zero deps)    (zero deps)
+```
+
+**Layer 1: AI Agent** — Calls tools via standard MCP protocol (tools/list, tools/call, notifications)
+
+**Layer 2: Gateway** — Orchestrates discovery, session isolation, and request routing. Maintains `__gateway__` sentinel for version-aware election.
+
+**Layer 3: DCC Adapters** — Python bridge plugins (Maya, Blender, Photoshop) with embedded Skills system. Each registers documents, scene state, and active process info.
+
+---
 
 ## Quick Start
 
@@ -37,52 +107,49 @@ AI-friendly docs: [AGENTS.md](AGENTS.md) | [CLAUDE.md](CLAUDE.md) | [GEMINI.md](
 # From PyPI (pre-built wheels for Python 3.7+)
 pip install dcc-mcp-core
 
-# Or from source (requires Rust toolchain)
+# Or from source (requires Rust 1.85+)
 git clone https://github.com/loonghao/dcc-mcp-core.git
 cd dcc-mcp-core
 pip install -e .
 ```
 
-### Basic Usage
+### Basic Usage — Load & Execute Skills
 
 ```python
 import json
 from dcc_mcp_core import (
-    ActionRegistry, ActionDispatcher,
+    ActionRegistry, ActionDispatcher, SkillsManager,
     EventBus, success_result, scan_and_load
 )
 
-# 1. Load skills; scan_and_load returns a 2-tuple (skills, skipped_dirs)
+# 1. Discover skills (scans SKILL.md + scripts/)
 skills, skipped = scan_and_load(dcc_name="maya")
-print(f"Loaded {len(skills)} skills")
+print(f"Loaded {len(skills)} skills, skipped {len(skipped)}")
 
-# 2. Register skills from discovered skill packages
+# 2. Register all skill tools in registry
 registry = ActionRegistry()
-from pathlib import Path
 for skill in skills:
     for script_path in skill.scripts:
-        stem = Path(script_path).stem
-        skill_name = f"{skill.name.replace('-', '_')}__{stem}"
-        registry.register(name=skill_name, description=skill.description, dcc=skill.dcc)
+        skill_name = f"{skill.name.replace('-', '_')}__{Path(script_path).stem}"
+        registry.register(
+            name=skill_name,
+            description=skill.description,
+            dcc=skill.dcc
+        )
 
-# 3. Set up dispatcher and register a handler
+# 3. Set up dispatcher with event lifecycle
 dispatcher = ActionDispatcher(registry)
-dispatcher.register_handler(
-    "maya_geometry__create_sphere",
-    lambda params: {"object_name": "pSphere1", "radius": params.get("radius", 1.0)},
-)
-
-# 4. Subscribe to lifecycle events
 bus = EventBus()
-bus.subscribe("action.after_execute", lambda **kw: print(f"event: {kw}"))
+bus.subscribe("action.after_execute", lambda **kw: print(f"✓ {kw['action_name']}"))
 
-# 5. Dispatch a skill
+# 4. Call a skill (returns structured result)
 result = dispatcher.dispatch(
     "maya_geometry__create_sphere",
-    json.dumps({"radius": 2.0}),
+    json.dumps({"radius": 2.0})
 )
-output = result["output"]
-print(f"Created: {output.get('object_name')}")
+print(f"Success: {result['output']['success']}")
+print(f"Message: {result['output']['message']}")
+print(f"Context: {result['output']['context']}")
 ```
 
 ## Core Concepts
@@ -148,49 +215,75 @@ bus.publish("action.before_execute", action_name="test")
 bus.unsubscribe("action.before_execute", sub_id)
 ```
 
-## Skills System — Zero-Code MCP Tool Registration
+## 🛠️ Skills System — Zero-Code MCP Tool Registration
 
-The **Skills system** is dcc-mcp-core's most unique feature: it lets you register any script (Python, MEL, MaxScript, Batch, Shell, JS) as an MCP-discoverable tool with **zero Python code**. It reuses the [OpenClaw Skills](https://docs.openclaw.ai/tools) ecosystem format.
+The **Skills system** is dcc-mcp-core's core innovation: it lets you register any script (Python, MEL, MaxScript, Batch, Shell, JS) as an MCP tool with **zero Python code**. Reuses the existing [OpenClaw Skills](https://docs.openclaw.ai/tools) format.
 
 ### How It Works
 
 ```
-SKILL.md (metadata) + scripts/ directory
-       ↓  SkillScanner discovers & parses
-SkillMetadata per skill (name, description, tags, script list)
-       ↓  Skills registered in ActionRegistry → callable by AI via MCP
+┌─────────────────────────────────┐
+│  Directory:  my-automation/      │
+│  ├─ SKILL.md  (metadata)        │
+│  └─ scripts/                    │
+│     ├─ cleanup.py               │
+│     ├─ publish.sh               │
+│     └─ validate.mel             │
+└─────────────────────────────────┘
+         ↓  (discovery)
+┌─────────────────────────────────┐
+│  SkillsManager (with caching)   │
+│  ├─ Dual-cache: by-paths &      │
+│  │   by-config (session-bound)  │
+│  ├─ Scoped: Repo/User/System    │
+│  └─ Policies: implicit invoke,  │
+│     product filters, deps       │
+└─────────────────────────────────┘
+         ↓  (registration)
+┌─────────────────────────────────┐
+│  ActionRegistry + SkillCatalog  │
+│  (callable by AI via MCP tools) │
+└─────────────────────────────────┘
 ```
 
-### Quick Example
+### Five Minutes to Your First Skill
 
-**1. Create a Skill directory:**
-
-```
-my-tool/
-├── SKILL.md          # Metadata + description
-└── scripts/
-    └── list.py      # Your script
-```
-
-**2. Write `SKILL.md`:**
+**1. Create `my-tool/SKILL.md`:**
 
 ```yaml
 ---
-name: my-tool
-description: "My custom DCC automation tools"
-allowed-tools: ["Bash"]
-tags: ["automation", "custom"]
-dcc: maya
+name: maya-cleanup
+description: "Scene optimization and cleanup tools"
 version: "1.0.0"
+dcc: maya
+scope: repo  # Trust level: repo < user < system < admin
+tags: ["maintenance", "quality"]
+policy:
+  allow_implicit_invocation: false  # Require explicit load_skill call
+  products: ["maya", "houdini"]      # Only show these DCCs
+external_deps:
+  mcp:
+    - name: "usd-tools"
+      description: "USD validation"
+      transport: "ipc"
 ---
-# My Tool
+# Maya Scene Cleanup
 
-Automation scripts for Maya workflow optimization.
+Automated tools for optimizing and validating Maya scenes.
 ```
 
-**3. Add `scripts/list.py`**
+**2. Create `my-tool/scripts/cleanup.py`:**
 
-**4. Set environment and use:**
+```python
+#!/usr/bin/env python
+"""Clean unused nodes from the scene."""
+import sys
+result = {"success": True, "message": "Cleaned up 42 unused nodes"}
+print(json.dumps(result))
+sys.exit(0)
+```
+
+**3. Register and call:**
 
 ```python
 import os
@@ -198,14 +291,15 @@ os.environ["DCC_MCP_SKILL_PATHS"] = "/path/to/my-tool"
 
 from dcc_mcp_core import scan_and_load, ActionRegistry
 
-registry = ActionRegistry()
 skills = scan_and_load(dcc_name="maya")
-for s in skills:
-    print(f"✓ {s.name}: {len(s.scripts)} scripts")
+registry = ActionRegistry()
 
-# Call a skill: {skill_name}__{script_name}
-result = registry.call("my_tool__list", some_param="value")
+# Tools are now: maya_cleanup__cleanup, with structured results
+result = dispatcher.dispatch("maya_cleanup__cleanup", json.dumps({}))
+print(result["output"])  # {"success": True, "message": "...", "context": {...}}
 ```
+
+**That's it.** No Python glue code. Just metadata + scripts.
 
 ### Supported Script Types
 
@@ -247,7 +341,46 @@ paths = get_bundled_skill_paths(include_bundled=False)  # opt-out
 DCC adapters (e.g. `dcc-mcp-maya`) automatically include bundled skills by
 default. To opt-out: `start_server(include_bundled=False)`.
 
-## Architecture Overview
+## 🎓 Solving MCP Context Explosion
+
+**The Problem:** Stock MCP returns ALL tools in `tools/list`, even those irrelevant to the user's current task or DCC instance. With 3 DCC instances × 50 skills × 5 scripts = **750 tools**, the context window fills instantly.
+
+**Our Solution — Progressive Discovery:**
+
+1. **Instance Awareness** — Each DCC registers active documents, PID, display name, scope level
+2. **Smart Tool Scoping** — Tools filtered by:
+   - **DCC Type** — Only Maya tools if working with Maya
+   - **Scope** — Repo skills < User skills < System skills
+   - **Product** — Some tools only for Houdini, not Maya
+   - **Policy** — Implicit-invocation skills grouped separately
+3. **Session Isolation** — AI session pinned to one DCC instance; sees only its tools
+4. **Gateway Election** — If a newer DCC version launches, automatically hand off to it
+
+**Example:**
+
+Without dcc-mcp-core (stock MCP):
+```
+tools/list response includes:
+- 100 Maya tools
+- 100 Houdini tools
+- 100 Blender tools
++ 250 shared tools
+= 550 tool definitions in context
+```
+
+With dcc-mcp-core:
+```
+tools/list filtered by session instance:
+AI talking to Maya instance #1 → sees 100 Maya tools + 50 shared tools
+AI talking to Houdini instance #2 → sees 100 Houdini tools + 50 shared tools
+= 150 tools in context (71% reduction)
+```
+
+This is **session-bound tool discovery** — not a hack, but a fundamental rethinking of how MCP scales.
+
+---
+
+## 🏗️ Architecture Overview
 
 dcc-mcp-core is organized as a **Rust workspace of 14 crates**, compiled into a single native Python extension (`_core`) via PyO3/maturin:
 
