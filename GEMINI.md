@@ -6,8 +6,9 @@
 ## Project Identity
 
 You are working on **dcc-mcp-core**, a Rust-powered MCP (Model Context Protocol) library for DCC
-(Digital Content Creation) applications. Python package: `dcc_mcp_core`. ~140 public symbols,
-zero runtime Python dependencies (everything compiled into Rust core via PyO3).
+(Digital Content Creation) applications. Python package: `dcc_mcp_core`. ~154 public symbols,
+zero runtime Python dependencies (everything compiled into Rust core via PyO3), plus pure-Python
+helpers (DccServerBase, DccGatewayElection, DccSkillHotReloader, factory, skill helpers).
 
 ## Priority Reading Order
 
@@ -30,11 +31,11 @@ vx just lint-fix     # Auto-fix all lint issues
 
 ## Key Architecture Facts
 
-- **14 Rust crates** under `crates/`, compiled into `dcc_mcp_core._core` native extension
-- **~140 public Python symbols** exported from `python/dcc_mcp_core/__init__.py`
+- **14 Rust crates** under `crates/`, compiled into `dcc_mcp_core._core` native extension + pure-Python helpers
+- **~154 public Python symbols** exported from `python/dcc_mcp_core/__init__.py`
 - **Zero runtime Python deps** — all logic in Rust, no `dependencies = [...]` in pyproject.toml
 - Python 3.7–3.13 supported (abi3-py38 wheel; separate non-abi3 wheel for 3.7)
-- Version: **0.12.23** — managed by Release Please, never manually bump
+- Version: **0.12.29** — managed by Release Please, never manually bump
 
 ## Gemini-Specific Workflows
 
@@ -154,7 +155,7 @@ search-hint: "polygon modeling, bevel, extrude, mesh editing"
 17. **`McpServerHandle` is an alias**: `server.start()` returns `ServerHandle`; it is re-exported as `McpServerHandle` in `__init__.py`. Import as `from dcc_mcp_core import McpServerHandle`.
 18. **`McpHttpServer` registry population**: All actions must be registered in `ActionRegistry` BEFORE calling `server.start()`. The server reads metadata from the registry at startup.
 
-19. **MCP spec version awareness**: `McpHttpServer` implements 2025-03-26 spec. The 2025-11-05 draft adds JSON-RPC batching and resource links in tool results. Do NOT implement these manually — wait for the library to add support.
+19. **MCP spec version awareness**: `McpHttpServer` implements 2025-03-26 spec. The 2025-06-18 version adds Structured Tool Output, Elicitation, Resource Links, and removes JSON-RPC batching. The 2025-11-25 version adds icon metadata, Tasks, Sampling with tools, and JSON Schema 2020-12. Do NOT implement these manually — wait for the library to add support.
 
 20. **`scan_and_load` keyword args only**: Both `extra_paths` and `dcc_name` must be passed as keyword arguments: `scan_and_load(dcc_name="maya", extra_paths=["/path"])` — never as positionals.
 

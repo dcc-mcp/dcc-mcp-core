@@ -16,6 +16,8 @@
 | Sandbox AI actions | `SandboxPolicy` + `SandboxContext` |
 | Share large data zero-copy | `PySharedSceneBuffer.write()` with LZ4 compression |
 | Expose DCC tools over HTTP/MCP | `create_skill_manager("maya", McpHttpConfig(port=8765))` — Skills-First setup; falls back to `McpHttpServer(registry, config)` for manual registry wiring |
+| Build a DCC adapter | `DccServerBase(dcc_name, builtin_skills_dir)` — skill/lifecycle/gateway/hot-reload inherited |
+| Write skill scripts | `skill_entry` + `skill_success` / `skill_error` — zero-boilerplate skill authoring |
 
 ## Quick Start
 
@@ -57,12 +59,12 @@ meta = dcc_mcp_core.parse_skill_md(dirs[0])  # -> SkillMetadata or None
 - Build from source: `maturin develop --features python-bindings,ext-module`
 - Python: >=3.7 (CI tests 3.7–3.13; abi3-py38 wheel for 3.8+)
 - Build: maturin (Rust 1.85+ + PyO3)
-- Version: 0.12.9
+- Version: 0.12.29
 - License: MIT
 
 ## Architecture
 
-Rust workspace (12 crates) with PyO3 bindings. All logic in Rust sub-crates; Python gets a single `dcc_mcp_core._core` extension module. The `dcc_mcp_core` package re-exports all ~130 public symbols from `_core`.
+Rust workspace (14 crates) with PyO3 bindings. All logic in Rust sub-crates; Python gets a single `dcc_mcp_core._core` extension module. The `dcc_mcp_core` package re-exports all ~154 public symbols from `_core` plus pure-Python helpers (DccServerBase, DccGatewayElection, DccSkillHotReloader, factory, skill helpers).
 
 ```
 crates/
@@ -78,6 +80,7 @@ crates/
 ├── dcc-mcp-capture/     # Capturer, CaptureFrame, CaptureResult
 ├── dcc-mcp-usd/         # UsdStage, UsdPrim, SdfPath, scene info bridge
 ├── dcc-mcp-http/        # McpHttpServer, McpHttpConfig, ServerHandle (MCP Streamable HTTP 2025-03-26)
+├── dcc-mcp-server/      # Binary entry point, gateway runner
 └── dcc-mcp-utils/       # Filesystem, constants, type wrappers, JSON conversion
 ```
 
@@ -182,7 +185,7 @@ crates/
 - `McpHttpConfig(port=8765, server_name=None, server_version=None, enable_cors=False, request_timeout_ms=30000)` — server configuration
 - `McpHttpServer(registry, config=None)` — MCP Streamable HTTP server (**2025-03-26 spec**), axum/Tokio backend
   - `.start() -> McpServerHandle` — starts background thread, returns immediately
-  - **Note**: MCP 2025-11-05 draft will add JSON-RPC batching and resource links in tool results — do NOT implement manually
+  - **Note**: MCP 2025-06-18 adds Structured Tool Output, Elicitation, Resource Links, and removes JSON-RPC batching. MCP 2025-11-25 adds icon metadata, Tasks, Sampling with tools. Do NOT implement manually — wait for library support.
 - `McpServerHandle` (alias for `ServerHandle`) — handle to running server
   - `.mcp_url() -> str` — full MCP endpoint URL (e.g. `"http://127.0.0.1:8765/mcp"`)
   - `.port -> int`, `.bind_addr -> str`
@@ -245,7 +248,7 @@ crates/
 
 ## Skills System
 
-Register scripts as MCP tools with zero Python code via SKILL.md.
+Register scripts as MCP tools with zero Python code via SKILL.md. Follows [agentskills.io](https://agentskills.io/specification) specification for SKILL.md format.
 
 ### Directory Structure
 
@@ -267,11 +270,13 @@ maya-geometry/
 ---
 name: maya-geometry
 description: "Maya geometry creation tools"
-allowed-tools: ["Bash", "Read"]
+allowed-tools: Bash Read  # space-separated (agentskills.io spec), NOT a YAML list
 tags: ["maya", "geometry"]
 dcc: maya
 version: "1.0.0"
 depends: ["other-skill"]  # optional
+license: MIT              # optional
+compatibility: "Maya 2024+" # optional
 ---
 # Markdown description body
 ```

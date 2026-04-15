@@ -30,12 +30,12 @@ vx just test-cov      # Coverage report to find gaps
 
 ### Architecture Summary
 
-- **14 Rust crates** under `crates/`, compiled into `_core` native extension
-- **~140 public Python symbols** exported from `python/dcc_mcp_core/__init__.py`
+- **14 Rust crates** under `crates/`, compiled into `_core` native extension + pure-Python helpers
+- **~154 public Python symbols** exported from `python/dcc_mcp_core/__init__.py`
 - **Zero runtime Python deps** — all logic in Rust
 - Key entry point: `src/lib.rs` (PyO3 `#[pymodule]`)
 - Python 3.7–3.13 supported (CI tests 3.7–3.13)
-- Version: **0.12.23** — never manually bump (Release Please manages)
+- Version: **0.12.29** — never manually bump (Release Please manages)
 
 ## Claude-Specific Workflows
 
@@ -209,11 +209,11 @@ def test_skill_scan(tmp_path):
 - **Don't use legacy APIs**: `ActionManager`, `create_action_manager()`, `MiddlewareChain`, `Action` base class — all removed in v0.12+. Note: `LoggingMiddleware` IS still available (use via `pipeline.add_logging()`).
 - **The project has zero runtime Python dependencies by design** — never add `dependencies = [...]` to `pyproject.toml`
 - **`DeferredExecutor` is not in public `__init__.py`**: import via `from dcc_mcp_core._core import DeferredExecutor` until it is promoted to the public API
-- **MCP spec**: `McpHttpServer` implements 2025-03-26 spec. The upcoming 2025-11-05 draft adds JSON-RPC batching and resource links in tool results — do not implement these manually
+- **MCP spec**: `McpHttpServer` implements 2025-03-26 spec. The 2025-06-18 version adds Structured Tool Output, Elicitation, Resource Links, and removes JSON-RPC batching. The 2025-11-25 version adds icon metadata, Tasks, Sampling with tools. Do NOT implement these manually — wait for the library to add support.
 
 ## Key Files to Read First (Priority Order)
 
-1. `python/dcc_mcp_core/__init__.py` — Complete public API (~140 symbols)
+1. `python/dcc_mcp_core/__init__.py` — Complete public API (~154 symbols)
 2. `python/dcc_mcp_core/_core.pyi` — Type stubs with parameter names
 3. `AGENTS.md` — Full architecture, commands, pitfalls
 4. `crates/*/src/python.rs` — PyO3 binding implementations

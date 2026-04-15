@@ -34,9 +34,9 @@
 
 ### Key Architecture Facts
 
-- **Language**: Rust core (14 crates workspace) + Python bindings via PyO3
+- **Language**: Rust core (14 crates workspace) + Python bindings via PyO3 + pure-Python helpers
 - **Build system**: `cargo` (Rust) + `maturin` (Python wheels)
-- **Python package**: `dcc_mcp_core` with ~140 public symbols re-exported from `_core` native extension (see `python/dcc_mcp_core/__init__.py`)
+- **Python package**: `dcc_mcp_core` with ~154 public symbols re-exported from `_core` native extension + pure-Python modules (see `python/dcc_mcp_core/__init__.py`)
 - **Zero runtime Python dependencies** — everything is compiled into the Rust core
 - **Version**: current (use Release Please for versioning — never manually bump)
 - **Python support**: 3.7–3.13 (CI tests 3.7–3.13; abi3-py38 wheel for 3.8+)
@@ -67,7 +67,7 @@ dcc-mcp-core/
 │   └── dcc-mcp-utils/          # Filesystem, type wrappers, constants, JSON helpers
 │
 ├── python/dcc_mcp_core/
-│   ├── __init__.py             # Public API re-exports (~140 symbols) — ALWAYS read this first
+│   ├── __init__.py             # Public API re-exports (~154 symbols) — ALWAYS read this first
 │   ├── _core.pyi               # Type stubs (auto-generated-ish) — ground truth for parameter names
 │   ├── skill.py                # Pure-Python skill script helpers (no _core dependency)
 │   └── py.typed                # PEP 561 marker
@@ -581,6 +581,79 @@ from dcc_mcp_core import (
 from dcc_mcp_core import ServiceEntry, ServiceStatus
 ```
 
+#### Pure-Python Modules (no _core dependency)
+
+These modules provide reusable building blocks for DCC adapters. They don't depend on the Rust `_core` extension and can be imported in any Python environment.
+
+```python
+# ── DCC Server Base ──────────────────────────────────────────────────────────
+from dcc_mcp_core.server_base import DccServerBase
+
+# Reusable base class for ALL DCC adapters. Provides:
+# - Skill search path collection (per-app env var → global → bundled)
+# - register_builtin_actions(), list_skills(), load_skill(), unload_skill()
+# - find_skills(), search_actions(), get_skill_categories(), get_skill_tags()
+# - Hot-reload: enable_hot_reload(), disable_hot_reload()
+# - Gateway: is_gateway, gateway_url, update_gateway_metadata()
+# - Lifecycle: start() → McpServerHandle, stop(), is_running, mcp_url
+#
+# Subclass with just dcc_name + builtin_skills_dir:
+class BlenderMcpServer(DccServerBase):
+    def __init__(self, port=8765, **kwargs):
+        super().__init__(dcc_name="blender", builtin_skills_dir=Path(__file__).parent / "skills", port=port, **kwargs)
+
+# ── Gateway Election ─────────────────────────────────────────────────────────
+from dcc_mcp_core.gateway_election import DccGatewayElection
+
+# Automatic gateway failover when primary becomes unreachable.
+# Background daemon thread: probes /health → counts failures → first-wins election
+election = DccGatewayElection(dcc_name="blender", server=blender_server, gateway_port=9765)
+election.start()   # background thread
+election.stop()    # graceful shutdown
+election.get_status()  # {"running": bool, "consecutive_failures": int, ...}
+
+# ── Skill Hot-Reload ─────────────────────────────────────────────────────────
+from dcc_mcp_core.hotreload import DccSkillHotReloader
+
+# Wraps SkillWatcher for automatic skill reload on file changes
+reloader = DccSkillHotReloader(dcc_name="blender", server=blender_server)
+reloader.enable(["/path/to/skills"], debounce_ms=300)
+reloader.reload_now()   # manual trigger
+reloader.disable()
+reloader.get_stats()    # {"enabled": bool, "watched_paths": [...], "reload_count": int}
+
+# ── Factory (singleton helper) ───────────────────────────────────────────────
+from dcc_mcp_core.factory import create_dcc_server, make_start_stop, get_server_instance
+
+# Thread-safe singleton DCC server creation
+server = create_dcc_server(instance_holder=[None], lock=threading.Lock(), server_class=MyServer, port=8765)
+
+# Generate (start_server, stop_server) function pairs
+start_server, stop_server = make_start_stop(MyServer)
+
+# ── DCC Diagnostic Handlers ──────────────────────────────────────────────────
+from dcc_mcp_core.dcc_server import register_diagnostic_handlers
+
+# Registers 3 IPC action handlers: get_audit_log, get_action_metrics, dispatch_action
+# Also sets DCC_MCP_IPC_ADDRESS env var for skill subprocesses
+register_diagnostic_handlers(server, dispatcher=dispatcher, dcc_name="blender")
+
+# ── Skill Script Helpers ─────────────────────────────────────────────────────
+from dcc_mcp_core.skill import (
+    skill_entry, skill_success, skill_error, skill_warning, skill_exception, run_main,
+    get_bundled_skills_dir, get_bundled_skill_paths,
+)
+
+# @skill_entry: decorator with standard error handling (ImportError/Exception/BaseException)
+@skill_entry
+def my_tool(name: str = "world") -> dict:
+    return skill_success(f"Created {name}", prompt="Check viewport.", name=name)
+
+# Result builders: skill_success, skill_error, skill_warning, skill_exception
+# All return dicts compatible with ActionResultModel
+# run_main: execute function and print JSON result to stdout (exit 0/1)
+```
+
 #### Constants
 
 ```python
@@ -732,11 +805,13 @@ my-skill/
 ---
 name: maya-geometry           # Required: unique identifier (used in action names)
 description: "Maya geometry creation and modification tools"
-tools: ["Bash", "Read"]       # OpenClaw tool permissions
+allowed-tools: Bash Read     # Space-separated (agentskills.io spec), NOT a YAML list
 tags: ["maya", "geometry"]    # Classification tags
 dcc: maya                     # Target DCC application
 version: "1.0.0"              # Semantic version
 depends: ["other-skill"]      # Names of required skills
+license: MIT                  # Optional: license identifier
+compatibility: "Maya 2024+"  # Optional: environment requirements
 ---
 # Human-readable description (markdown body)
 ```
@@ -852,13 +927,21 @@ pub fn register_actions(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
 16. **Do NOT use `dcc-mcp-ipc` in new code**: That project is superseded by `dcc-mcp-core`. All IPC transport, routing, and HTTP serving is provided by this library. New DCC integrations should only depend on `dcc-mcp-core`.
 
-17. **MCP specification version awareness**: `McpHttpServer` implements the 2025-03-26 MCP spec (Streamable HTTP). The 2025-11-05 draft spec introduces JSON-RPC batching, resource links in tool results, and event streams — watch for these capabilities in future `dcc-mcp-core` releases. Do NOT implement these from scratch; wait for API additions to `McpHttpServer`.
+17. **MCP specification version awareness**: `McpHttpServer` implements the 2025-03-26 MCP spec (Streamable HTTP). The 2025-06-18 spec adds **Structured Tool Output**, **Elicitation** (server asks user for info), **Resource Links in tool results**, and **removes JSON-RPC batching**; `MCP-Protocol-Version` header becomes mandatory. The 2025-11-25 spec adds icon metadata, experimental Tasks, Sampling with tool calls, and JSON Schema 2020-12. Do NOT implement these from scratch; wait for API additions to `McpHttpServer`.
 
 18. **`scan_and_load` with `extra_paths`**: When calling `scan_and_load(extra_paths=[...], dcc_name="maya")`, both arguments are keyword-only. Do not pass `extra_paths` as a positional argument — use `extra_paths=["/path"]` explicitly.
 
 19. **Gateway competition is opt-in**: Set `config.gateway_port = 9765` to join the multi-DCC gateway. Without this, `McpHttpServer` behaves exactly as before (no FileRegistry, no gateway). `handle.is_gateway` is `False` by default.
 
 20. **Never manually edit `CHANGELOG.md` or bump version numbers** in `Cargo.toml`, `pyproject.toml`, or `.release-please-manifest.json`. Release Please reads Conventional Commits from merged PRs and handles all version bumps and changelog generation automatically.
+
+21. **SKILL.md `allowed-tools` is space-separated** (agentskills.io spec): `allowed-tools: Bash(git:*) Bash(jq:*) Read` — NOT a YAML list `["Bash", "Read"]`. The `name` field must match the parent directory name.
+
+22. **DccServerBase provides all adapter boilerplate**: When building a new DCC adapter, subclass `DccServerBase` with just `dcc_name` and `builtin_skills_dir`. Don't reimplement skill loading, hot-reload, gateway election, or lifecycle management.
+
+23. **MCP 2025-06-18 removes JSON-RPC batching**: If you were planning to use batching, note that it was removed in the 2025-06-18 spec. Also, `MCP-Protocol-Version` header becomes mandatory — handled internally by `McpHttpServer`.
+
+24. **`ActionDispatcher` has new introspection methods**: `has_handler(name)`, `handler_count()`, `handler_names()`, `remove_handler(name)`, and `skip_empty_schema_validation` property. Use these instead of manual bookkeeping.
 
 ## Debugging & Diagnostics
 
@@ -1161,13 +1244,64 @@ maya_server = create_skill_manager("maya", McpHttpConfig(port=8765))
 blender_server = create_skill_manager("blender", McpHttpConfig(port=8766))
 ```
 
+### Pattern 9: Build a DCC adapter with DccServerBase
+
+```python
+from pathlib import Path
+from dcc_mcp_core.server_base import DccServerBase
+
+# Subclass DccServerBase — all skill management, hot-reload, gateway logic is inherited
+class BlenderMcpServer(DccServerBase):
+    def __init__(self, port: int = 8765, **kwargs):
+        super().__init__(
+            dcc_name="blender",
+            builtin_skills_dir=Path(__file__).parent / "skills",
+            port=port,
+            **kwargs,
+        )
+
+    def _version_string(self) -> str:
+        import bpy
+        return bpy.app.version_string
+
+# Usage — all skill methods are ready out of the box
+server = BlenderMcpServer(port=8765, gateway_port=9765)
+server.register_builtin_actions()  # discover + load all skills
+server.enable_hot_reload()         # file-watching auto-reload
+handle = server.start()            # start MCP HTTP server + gateway election
+print(f"MCP: {handle.mcp_url()}")
+print(f"Gateway: {server.is_gateway}")
+```
+
+### Pattern 10: Write skill scripts with skill_entry decorator
+
+```python
+from dcc_mcp_core.skill import skill_entry, skill_success, skill_error, skill_exception
+
+@skill_entry
+def create_sphere(radius: float = 1.0, name: str = "sphere") -> dict:
+    """Create a polygon sphere in the active scene."""
+    try:
+        import maya.cmds as cmds
+        obj = cmds.polySphere(r=radius, n=name)[0]
+        return skill_success(
+            f"Created sphere '{obj}' with radius {radius}",
+            prompt="You can now adjust properties or add materials.",
+            object_name=obj,
+            radius=radius,
+        )
+    except ImportError:
+        return skill_error("Maya not available", "maya.cmds not found")
+```
+
 ## External References
 
 - [AGENTS.md specification](https://agents.md/) — open standard for AI agent guidance files (Linux Foundation / Agentic AI Foundation)
 - [llms.txt specification](https://llmstxt.org/) — AI-optimized documentation format by Answer.AI
 - [Model Context Protocol](https://modelcontextprotocol.io/) — the underlying MCP standard (Anthropic)
-- [MCP Specification 2025-03-26](https://modelcontextprotocol.io/specification/2025-03-26) — current stable spec (Streamable HTTP, OAuth 2.1, Tool Annotations)
-- [MCP Specification 2025-11-05 (draft)](https://modelcontextprotocol.io/specification/draft) — upcoming spec (JSON-RPC batching, resource links in tool results, event streams, improved error taxonomy)
+- [MCP Specification 2025-03-26](https://modelcontextprotocol.io/specification/2025-03-26) — current stable spec implemented by this library (Streamable HTTP, OAuth 2.1, Tool Annotations)
+- [MCP Specification 2025-06-18](https://modelcontextprotocol.io/specification/2025-06-18/changelog) — Structured Tool Output, Elicitation, Resource Links, JSON-RPC batching removed, `MCP-Protocol-Version` header mandatory
+- [MCP Specification 2025-11-25](https://modelcontextprotocol.io/specification/2025-11-25/changelog) — Icon metadata, Tasks (experimental), Sampling with tool calls, JSON Schema 2020-12
 - [MCP Agent Skills](https://modelcontextprotocol.io/docs/develop/build-with-agent-skills) — SKILL.md ecosystem and agent skills spec
 - [Agent Skills Specification](https://agentskills.io/specification) — official SKILL.md frontmatter format and best practices
 - [PyO3 documentation](https://pyo3.rs/) — Rust-Python bindings used in this project

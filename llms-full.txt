@@ -38,7 +38,7 @@ dcc-mcp-core is a **Rust workspace** with Python bindings via PyO3. All logic li
 sub-crates; the root crate re-exports everything into a single `dcc_mcp_core._core` Python
 extension module. The Python package `dcc_mcp_core` re-exports all public APIs from `_core`.
 
-**12 crates** — **Zero runtime Python dependencies** — install with just `pip install dcc-mcp-core`.
+**14 crates** — **Zero runtime Python dependencies** — install with just `pip install dcc-mcp-core`.
 
 ```
 crates/
@@ -54,6 +54,7 @@ crates/
 ├── dcc-mcp-shm/          # PyBufferPool, PySharedBuffer, PySharedSceneBuffer, LZ4 compression
 ├── dcc-mcp-capture/      # Capturer, CaptureFrame, CaptureResult
 ├── dcc-mcp-usd/          # UsdStage, UsdPrim, SdfPath, VtValue, scene info bridge
+├── dcc-mcp-server/       # Binary entry point, gateway runner
 └── dcc-mcp-utils/        # Filesystem, constants, type wrappers, JSON conversion
 ```
 
@@ -1933,11 +1934,13 @@ The `dcc-mcp-http` crate provides a **MCP Streamable HTTP server** compliant wit
 specification**. It uses axum + Tokio and runs in a background thread, making it safe to call from any
 DCC main thread.
 
-> **MCP Spec Roadmap**: The 2025-11-05 draft spec introduces:
-> - **JSON-RPC Batching** — multiple tool calls in one round-trip
-> - **Resource Links in Tool Results** — tools can return resource links for dynamic discovery
-> - **Event Streams** — server-initiated push notifications
-> - **Improved Error Taxonomy** — finer-grained error codes
+> **MCP Spec Roadmap**: The MCP specification has evolved significantly since the 2025-03-26 version this library implements:
+>
+> | Version | Key Changes | Status |
+> |---------|-------------|--------|
+> | 2025-03-26 | Streamable HTTP, Tool Annotations, OAuth 2.1 | **Implemented** |
+> | 2025-06-18 | Structured Tool Output, Elicitation (server asks user for info), Resource Links in tool results, JSON-RPC batching **removed**, `MCP-Protocol-Version` header mandatory | Planned |
+> | 2025-11-25 | Icon metadata, Tasks (experimental), Sampling with tool calls, JSON Schema 2020-12, enhanced OAuth | Planned |
 >
 > When these features land in `dcc-mcp-core`, they will be exposed via `McpHttpServer` —
 > do NOT implement these manually.
