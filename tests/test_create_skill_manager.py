@@ -49,6 +49,14 @@ class TestCreateSkillManagerBasic:
         server = create_skill_manager("maya", config=cfg)
         assert "9999" in repr(server)
 
+    def test_config_exposes_http_runtime_fields(self):
+        cfg = McpHttpConfig(port=8765, enable_cors=True, request_timeout_ms=1234)
+        assert cfg.host == "127.0.0.1"
+        assert cfg.endpoint_path == "/mcp"
+        assert cfg.max_sessions == 100
+        assert cfg.enable_cors is True
+        assert cfg.request_timeout_ms == 1234
+
     def test_extra_paths_empty_list_accepted(self):
         server = create_skill_manager("maya", extra_paths=[])
         assert isinstance(server, McpHttpServer)

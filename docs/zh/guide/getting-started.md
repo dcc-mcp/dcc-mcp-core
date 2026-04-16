@@ -52,22 +52,19 @@ print(f"Maya MCP 服务器地址：{handle.mcp_url()}")
 
 ```python
 import os
-from dcc_mcp_core import SkillScanner, SkillCatalog, ActionRegistry, ActionDispatcher
+from dcc_mcp_core import SkillCatalog, ActionRegistry
 
 os.environ["DCC_MCP_SKILL_PATHS"] = "/path/to/my-skills"
 
-scanner = SkillScanner()
-catalog = SkillCatalog(scanner)
-catalog.discover(dcc_name="maya")
-
-# 可选：附加调度器以启用自动处理器注册
 registry = ActionRegistry()
-dispatcher = ActionDispatcher(registry)
-catalog.with_dispatcher(dispatcher)
+catalog = SkillCatalog(registry)
 
-# 加载 Skill
-ok = catalog.load_skill("maya-geometry")
-print(f"已加载: {ok}")
+discovered = catalog.discover(dcc_name="maya")
+print(f"发现了 {discovered} 个 Skill")
+
+# 加载 Skill，并查看注册后的 Action 名称
+actions = catalog.load_skill("maya-geometry")
+print(actions)
 ```
 
 参见 [Skills 系统指南](/zh/guide/skills) 了解 `SKILL.md` 的编写方式和更多选项。
@@ -127,12 +124,12 @@ from dcc_mcp_core import ActionRegistry, McpHttpServer, McpHttpConfig
 registry = ActionRegistry()
 # ... 注册 Actions 或加载 Skills ...
 
-config = McpHttpConfig(port=8765, host="127.0.0.1")
+config = McpHttpConfig(port=8765)
 server = McpHttpServer(registry, config)
 handle = server.start()
 
-print(f"MCP 服务器运行在 http://127.0.0.1:8765/mcp")
-# handle.stop() 停止服务器
+print(f"MCP 服务器运行在 {handle.mcp_url()}")
+# handle.shutdown() 停止服务器
 ```
 
 ## 开发环境设置

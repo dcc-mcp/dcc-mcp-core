@@ -38,6 +38,8 @@ cfg = McpHttpConfig(
 | `server_name` | `str` | `"dcc-mcp"` | Server name in MCP response |
 | `server_version` | `str` | package version | Server version in MCP response |
 | `max_sessions` | `int` | `100` | Maximum concurrent SSE sessions |
+| `request_timeout_ms` | `int` | `30000` | Per-request timeout in milliseconds |
+| `enable_cors` | `bool` | `False` | Enable CORS headers for browser clients |
 | `session_ttl_secs` | `int` | `3600` | Idle session TTL in seconds (`0` = disable eviction) |
 | `gateway_port` | `int` | `0` | Gateway port to compete for (`0` = disabled). See [Gateway](#gateway) |
 | `registry_dir` | `str \| None` | `None` | Directory for the shared `FileRegistry` JSON (defaults to OS temp dir) |
@@ -114,7 +116,7 @@ server = McpHttpServer(
 | Method | Returns | Description |
 |--------|---------|-------------|
 | `start()` | `ServerHandle` | Start server in background thread and return handle |
-| `register_handler(action_name, handler)` | `None` | Register a Python callable as the handler for an action |
+| `register_handler(action_name, handler)` | `None` | Register a Python callable that receives decoded params (typically a `dict`) |
 | `has_handler(action_name)` | `bool` | Check if a handler is registered for an action |
 
 ### MCP Protocol Endpoints
@@ -169,9 +171,7 @@ MCP requests use JSON-RPC 2.0:
 ## Full Example: Maya MCP Server
 
 ```python
-from dcc_mcp_core import (
-    ActionRegistry, ActionDispatcher, McpHttpServer, McpHttpConfig,
-)
+from dcc_mcp_core import ActionRegistry, McpHttpServer, McpHttpConfig
 
 # Build action registry
 registry = ActionRegistry()
@@ -185,22 +185,18 @@ registry.register(
     input_schema='{}',
 )
 
-# Register handler
-dispatcher = ActionDispatcher(registry)
-
 def get_scene_info(params):
     # In practice, query Maya via pymel/cmdx
     return {"scene_name": "untitled", "object_count": 0}
 
-dispatcher.register_handler("get_scene_info", get_scene_info)
-
-# Start HTTP server
-config = McpHttpConfig(
+server = McpHttpServer(registry, McpHttpConfig(
     port=18812,
     server_name="maya-mcp",
     server_version="1.0.0",
-)
-server = McpHttpServer(registry, config)
+))
+server.register_handler("get_scene_info", get_scene_info)
+
+# Start HTTP server
 handle = server.start()
 
 print(f"Maya MCP server: {handle.mcp_url()}")

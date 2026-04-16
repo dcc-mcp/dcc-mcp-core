@@ -53,6 +53,16 @@ impl PyMcpHttpConfig {
     }
 
     #[getter]
+    fn host(&self) -> String {
+        self.inner.host.to_string()
+    }
+
+    #[getter]
+    fn endpoint_path(&self) -> &str {
+        &self.inner.endpoint_path
+    }
+
+    #[getter]
     fn server_name(&self) -> &str {
         &self.inner.server_name
     }
@@ -60,6 +70,21 @@ impl PyMcpHttpConfig {
     #[getter]
     fn server_version(&self) -> &str {
         &self.inner.server_version
+    }
+
+    #[getter]
+    fn max_sessions(&self) -> usize {
+        self.inner.max_sessions
+    }
+
+    #[getter]
+    fn request_timeout_ms(&self) -> u64 {
+        self.inner.request_timeout_ms
+    }
+
+    #[getter]
+    fn enable_cors(&self) -> bool {
+        self.inner.enable_cors
     }
 
     /// Idle session TTL in seconds. Sessions not touched within this window are
@@ -351,31 +376,22 @@ impl PyMcpHttpServer {
             ));
         }
         // Store a Rust closure in the dispatcher that calls the Python callable.
-        // The closure re-acquires the GIL via Python::attach (pyo3 0.28+).
-        //
-        // Params are serialised to a JSON string and passed as-is to the Python
-        // handler; the handler is expected to call json.loads() on the argument.
-        // The handler's return value is converted via __str__ and stored as a
-        // JSON string in the dispatch output.
+        // The closure re-acquires the GIL via Python::attach (pyo3 0.28+)
+        // and converts both params and return values through serde_json so the
+        // Python-side contract matches ActionDispatcher: dict/list/scalars in,
+        // JSON-serialisable values out.
         let handler_ref = handler.clone_ref(py);
         self.dispatcher
             .register_handler(action_name, move |params| {
-                let params_json =
-                    serde_json::to_string(&params).unwrap_or_else(|_| "{}".to_string());
                 Python::attach(|gil| {
+                    use dcc_mcp_utils::py_json::{json_value_to_bound_py, py_any_to_json_value};
+
+                    let py_params = json_value_to_bound_py(gil, &params)
+                        .map_err(|e| format!("failed to convert params: {e}"))?;
                     let raw = handler_ref
-                        .call1(gil, (params_json.as_str(),))
+                        .call1(gil, (py_params,))
                         .map_err(|e| format!("handler error: {e}"))?;
-                    // Convert Python return value -> serde_json::Value via str()
-                    let json_str: String = raw
-                        .bind(gil)
-                        .str()
-                        .map_err(|e| e.to_string())?
-                        .to_string_lossy()
-                        .into_owned();
-                    // Try to parse as JSON first; fall back to wrapping as a string
-                    Ok(serde_json::from_str::<serde_json::Value>(&json_str)
-                        .unwrap_or(serde_json::Value::String(json_str)))
+                    py_any_to_json_value(&raw.bind(gil)).map_err(|e| e.to_string())
                 })
             });
         Ok(())

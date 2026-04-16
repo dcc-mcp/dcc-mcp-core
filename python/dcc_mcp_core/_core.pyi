@@ -1347,19 +1347,19 @@ class SkillCatalog:
         scanner: A :class:`SkillScanner` instance to use for discovery.
 
     Example:
-        >>> scanner = SkillScanner()
-        >>> catalog = SkillCatalog(scanner)
-        >>> catalog.discover()
+        >>> registry = ActionRegistry()
+        >>> catalog = SkillCatalog(registry)
+        >>> catalog.discover(dcc_name="maya")
         >>> skills = catalog.list_skills()
 
     """
 
-    def __init__(self, scanner: SkillScanner) -> None: ...
+    def __init__(self, registry: ActionRegistry) -> None: ...
     def discover(
         self,
         extra_paths: list[str] | None = None,
         dcc_name: str | None = None,
-    ) -> None:
+    ) -> int:
         """Scan for skills and populate the catalog.
 
         Args:
@@ -1404,7 +1404,7 @@ class SkillCatalog:
 
         """
         ...
-    def load_skill(self, skill_name: str) -> bool:
+    def load_skill(self, skill_name: str) -> list[str]:
         """Load a skill by name.
 
         Returns:
@@ -1415,7 +1415,7 @@ class SkillCatalog:
     def loaded_count(self) -> int:
         """Return the number of currently loaded skills."""
         ...
-    def unload_skill(self, skill_name: str) -> bool:
+    def unload_skill(self, skill_name: str) -> int:
         """Unload a skill by name.
 
         Returns:
@@ -3745,9 +3745,19 @@ class McpHttpConfig:
     @property
     def port(self) -> int: ...
     @property
+    def host(self) -> str: ...
+    @property
+    def endpoint_path(self) -> str: ...
+    @property
     def server_name(self) -> str: ...
     @property
     def server_version(self) -> str: ...
+    @property
+    def max_sessions(self) -> int: ...
+    @property
+    def request_timeout_ms(self) -> int: ...
+    @property
+    def enable_cors(self) -> bool: ...
     @property
     def session_ttl_secs(self) -> int:
         """Idle session TTL in seconds.
@@ -3777,6 +3787,10 @@ class ServerHandle:
     @property
     def bind_addr(self) -> str:
         """The bind address, e.g. ``127.0.0.1:8765``."""
+        ...
+    @property
+    def is_gateway(self) -> bool:
+        """Whether this process won the gateway port competition."""
         ...
     def mcp_url(self) -> str:
         """Full MCP endpoint URL, e.g. ``http://127.0.0.1:8765/mcp``."""
@@ -3824,7 +3838,8 @@ class McpHttpServer:
     def register_handler(self, action_name: str, handler: object) -> None:
         """Register a Python callable as the handler for ``action_name``.
 
-        The callable receives a single JSON string argument (serialised params dict).
+        The callable receives a single Python object converted from the JSON
+        params dict (typically a `dict`).
         It must return a JSON-serialisable value.
 
         Raises:
@@ -3880,19 +3895,19 @@ class McpHttpServer:
         query: str | None = None,
         tags: list[str] | None = None,
         dcc: str | None = None,
-    ) -> list[object]:
+    ) -> list[SkillSummary]:
         """Search for skills matching the given criteria.
 
-        Returns a list of dicts with skill metadata.
+        Returns a list of skill summary dicts.
         """
         ...
-    def list_skills(self, status: str | None = None) -> list[object]:
+    def list_skills(self, status: str | None = None) -> list[SkillSummary]:
         """List all skills with their load status.
 
         Args:
             status: Optional filter — ``"loaded"`` or ``"unloaded"``.
 
-        Returns a list of dicts with skill status info.
+        Returns a list of skill summary dicts.
 
         """
         ...

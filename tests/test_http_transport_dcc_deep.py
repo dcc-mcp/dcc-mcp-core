@@ -10,9 +10,12 @@ All tests are pure unit tests; no real DCC process is required.
 
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 import time
+from typing import Any
+import urllib.request
 
 import pytest
 
@@ -41,6 +44,18 @@ def _make_registry(*names: str) -> ActionRegistry:
     for name in names:
         reg.register(name, description=f"desc {name}", category="test", tags=[], dcc="test", version="1.0.0")
     return reg
+
+
+def _post_json(url: str, body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+    data = json.dumps(body).encode()
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=5) as resp:
+        return resp.status, json.loads(resp.read())
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -101,11 +116,23 @@ class TestMcpHttpConfigCreate:
     def test_enable_cors_false_default(self) -> None:
         # Default no CORS; constructor accepts kwarg without error
         cfg = McpHttpConfig(enable_cors=False)
-        assert cfg.port == 8765
+        assert cfg.enable_cors is False
 
     def test_request_timeout_ms_default(self) -> None:
         cfg = McpHttpConfig(request_timeout_ms=5000)
-        assert cfg.port == 8765  # other fields unchanged
+        assert cfg.request_timeout_ms == 5000
+
+    def test_default_host_is_localhost(self) -> None:
+        cfg = McpHttpConfig()
+        assert cfg.host == "127.0.0.1"
+
+    def test_default_endpoint_path(self) -> None:
+        cfg = McpHttpConfig()
+        assert cfg.endpoint_path == "/mcp"
+
+    def test_default_max_sessions(self) -> None:
+        cfg = McpHttpConfig()
+        assert cfg.max_sessions == 100
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -165,6 +192,31 @@ class TestMcpHttpServerCreate:
         assert server.has_handler("a") is True
         assert server.has_handler("b") is True
         assert server.has_handler("c") is False
+
+    def test_register_handler_receives_dict_params(self) -> None:
+        server = McpHttpServer(_make_registry("echo"), McpHttpConfig(port=0))
+        received = []
+
+        server.register_handler("echo", lambda params: received.append(params) or params)
+
+        # Route through the HTTP surface in dedicated tests; here we only assert
+        # the callable contract by starting the server and invoking the MCP tool.
+        handle = server.start()
+        try:
+            code, body = _post_json(
+                handle.mcp_url(),
+                {
+                    "jsonrpc": "2.0",
+                    "id": 3,
+                    "method": "tools/call",
+                    "params": {"name": "echo", "arguments": {"count": 2}},
+                },
+            )
+            assert code == 200
+            assert received == [{"count": 2}]
+            assert body["result"]["isError"] is False
+        finally:
+            handle.shutdown()
 
     def test_discover_returns_int(self) -> None:
         server = McpHttpServer(_make_registry())

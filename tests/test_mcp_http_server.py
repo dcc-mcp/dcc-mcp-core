@@ -171,6 +171,36 @@ class TestMcpHttpProtocol:
         content_text = result["content"][0]["text"]
         assert "scene" in content_text or "test_scene" in content_text
 
+    def test_tools_call_passes_dict_to_handler(self):
+        reg = ActionRegistry()
+        reg.register(
+            "echo_args",
+            description="Echo args",
+            category="test",
+            tags=[],
+            dcc="test",
+            version="1.0.0",
+        )
+        server = McpHttpServer(reg, McpHttpConfig(port=0, server_name="dict-args-test"))
+        received = []
+        server.register_handler("echo_args", lambda params: received.append(params) or params)
+        handle = server.start()
+        try:
+            code, body = _post_json(
+                handle.mcp_url(),
+                {
+                    "jsonrpc": "2.0",
+                    "id": 31,
+                    "method": "tools/call",
+                    "params": {"name": "echo_args", "arguments": {"count": 2, "label": "cube"}},
+                },
+            )
+            assert code == 200
+            assert body["result"]["isError"] is False
+            assert received == [{"count": 2, "label": "cube"}]
+        finally:
+            handle.shutdown()
+
     def test_tools_call_unknown(self, running_server):
         _, _, url = running_server
         code, body = _post_json(

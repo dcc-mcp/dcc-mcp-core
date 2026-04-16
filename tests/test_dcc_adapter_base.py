@@ -461,6 +461,74 @@ class TestDccServerBase:
         assert srv._version_string() == "20.0.547"
         assert not srv.is_running
 
+    def test_init_uses_version_string_for_gateway_metadata(self, tmp_path):
+        import builtins
+
+        from dcc_mcp_core.server_base import DccServerBase
+
+        skills_dir = tmp_path / "skills"
+        skills_dir.mkdir()
+
+        class HoudiniMcpServer(DccServerBase):
+            def _version_string(self):
+                return "20.5.1"
+
+        fake_config = _FakeConfig()
+
+        real_import = __import__
+
+        def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+            if name == "dcc_mcp_core" and fromlist:
+                from types import SimpleNamespace
+
+                return SimpleNamespace(
+                    McpHttpConfig=lambda **_kwargs: fake_config,
+                    create_skill_manager=lambda *_args, **_kwargs: _FakeDccServer(),
+                    __version__="9.9.9",
+                )
+            return real_import(name, globals, locals, fromlist, level)
+
+        with patch.object(builtins, "__import__", side_effect=fake_import):
+            server = HoudiniMcpServer(dcc_name="houdini", builtin_skills_dir=skills_dir)
+
+        assert server._config.dcc_version == "20.5.1"
+
+    def test_init_explicit_dcc_version_overrides_version_string(self, tmp_path):
+        import builtins
+
+        from dcc_mcp_core.server_base import DccServerBase
+
+        skills_dir = tmp_path / "skills"
+        skills_dir.mkdir()
+
+        class HoudiniMcpServer(DccServerBase):
+            def _version_string(self):
+                return "20.5.1"
+
+        fake_config = _FakeConfig()
+
+        real_import = __import__
+
+        def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
+            if name == "dcc_mcp_core" and fromlist:
+                from types import SimpleNamespace
+
+                return SimpleNamespace(
+                    McpHttpConfig=lambda **_kwargs: fake_config,
+                    create_skill_manager=lambda *_args, **_kwargs: _FakeDccServer(),
+                    __version__="9.9.9",
+                )
+            return real_import(name, globals, locals, fromlist, level)
+
+        with patch.object(builtins, "__import__", side_effect=fake_import):
+            server = HoudiniMcpServer(
+                dcc_name="houdini",
+                builtin_skills_dir=skills_dir,
+                dcc_version="19.5.0",
+            )
+
+        assert server._config.dcc_version == "19.5.0"
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # factory.py

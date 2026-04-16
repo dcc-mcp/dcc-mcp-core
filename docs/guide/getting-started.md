@@ -52,22 +52,19 @@ Or use `SkillCatalog` directly for more control:
 
 ```python
 import os
-from dcc_mcp_core import SkillScanner, SkillCatalog, ActionRegistry, ActionDispatcher
+from dcc_mcp_core import SkillCatalog, ActionRegistry
 
 os.environ["DCC_MCP_SKILL_PATHS"] = "/path/to/my-skills"
 
-scanner = SkillScanner()
-catalog = SkillCatalog(scanner)
-catalog.discover(dcc_name="maya")
-
-# Optional: attach dispatcher for auto-handler registration
 registry = ActionRegistry()
-dispatcher = ActionDispatcher(registry)
-catalog.with_dispatcher(dispatcher)
+catalog = SkillCatalog(registry)
 
-# Load a skill
-ok = catalog.load_skill("maya-geometry")
-print(f"Loaded: {ok}")
+discovered = catalog.discover(dcc_name="maya")
+print(f"Discovered {discovered} skills")
+
+# Load a skill and inspect the registered action names
+actions = catalog.load_skill("maya-geometry")
+print(actions)
 ```
 
 See the [Skills System guide](/guide/skills) for writing `SKILL.md` files and advanced options.
@@ -127,11 +124,11 @@ from dcc_mcp_core import ActionRegistry, McpHttpServer, McpHttpConfig
 registry = ActionRegistry()
 # ... register actions or load skills ...
 
-config = McpHttpConfig(port=8765, host="127.0.0.1")
+config = McpHttpConfig(port=8765)
 server = McpHttpServer(registry, config)
 handle = server.start()
 
-print(f"MCP server running at http://127.0.0.1:8765/mcp")
+print(f"MCP server running at {handle.mcp_url()}")
 # handle.shutdown() to shut down
 ```
 

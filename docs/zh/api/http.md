@@ -116,7 +116,7 @@ server = McpHttpServer(
 | 方法 | 返回值 | 说明 |
 |------|--------|------|
 | `start()` | `ServerHandle` | 在后台线程启动服务器并返回句柄 |
-| `register_handler(action_name, handler)` | `None` | 注册 Python 可调用对象作为 Action 处理器 |
+| `register_handler(action_name, handler)` | `None` | 注册 Python 可调用对象；处理器接收解码后的参数（通常是 `dict`） |
 | `has_handler(action_name)` | `bool` | 检查是否已注册 Action 处理器 |
 
 ### MCP 协议端点
@@ -171,9 +171,7 @@ MCP 请求使用 JSON-RPC 2.0：
 ## 完整示例：Maya MCP 服务器
 
 ```python
-from dcc_mcp_core import (
-    ActionRegistry, ActionDispatcher, McpHttpServer, McpHttpConfig,
-)
+from dcc_mcp_core import ActionRegistry, McpHttpServer, McpHttpConfig
 
 # 构建 Action 注册表
 registry = ActionRegistry()
@@ -187,22 +185,18 @@ registry.register(
     input_schema='{}',
 )
 
-# 注册处理器
-dispatcher = ActionDispatcher(registry)
-
 def get_scene_info(params):
     # 实际中通过 pymel/cmdx 查询 Maya
     return {"scene_name": "untitled", "object_count": 0}
 
-dispatcher.register_handler("get_scene_info", get_scene_info)
-
-# 启动 HTTP 服务器
-config = McpHttpConfig(
+server = McpHttpServer(registry, McpHttpConfig(
     port=18812,
     server_name="maya-mcp",
     server_version="1.0.0",
-)
-server = McpHttpServer(registry, config)
+))
+server.register_handler("get_scene_info", get_scene_info)
+
+# 启动 HTTP 服务器
 handle = server.start()
 
 print(f"Maya MCP 服务器: {handle.mcp_url()}")

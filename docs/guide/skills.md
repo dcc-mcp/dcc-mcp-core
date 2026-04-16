@@ -60,27 +60,22 @@ export DCC_MCP_SKILL_PATHS="/path/skills1:/path/skills2"
 Use `SkillCatalog` (recommended) for full progressive loading, or low-level scan functions for one-shot use:
 
 ```python
-from dcc_mcp_core import SkillScanner, SkillCatalog, ActionRegistry, ActionDispatcher
+from dcc_mcp_core import SkillCatalog, ActionRegistry
 
-# Create scanner and catalog
-scanner = SkillScanner()
-catalog = SkillCatalog(scanner)
+registry = ActionRegistry()
+catalog = SkillCatalog(registry)
 
 # Discover all skills from DCC_MCP_SKILL_PATHS
-catalog.discover(dcc_name="maya")
-
-# Optional: attach dispatcher for auto-handler registration
-registry = ActionRegistry()
-dispatcher = ActionDispatcher(registry)
-catalog.with_dispatcher(dispatcher)
+discovered = catalog.discover(dcc_name="maya")
+print(f"Discovered {discovered} skills")
 
 # List available skills
 for skill in catalog.list_skills():
     print(f"  {skill.name} v{skill.version}: {skill.description} (loaded={skill.loaded})")
 
-# Load a skill — registers its tools if dispatcher is attached
-ok = catalog.load_skill("maya-geometry")
-print(f"Loaded: {ok}")
+# Load a skill — returns the registered action names
+actions = catalog.load_skill("maya-geometry")
+print(actions)
 ```
 
 ## Skill Catalog (Recommended API)
@@ -88,14 +83,10 @@ print(f"Loaded: {ok}")
 `SkillCatalog` manages the full lifecycle: discovery → progressive loading → unloading.
 
 ```python
-from dcc_mcp_core import SkillScanner, SkillCatalog, ActionRegistry, ActionDispatcher
-
-scanner = SkillScanner()
-catalog = SkillCatalog(scanner)
+from dcc_mcp_core import SkillCatalog, ActionRegistry
 
 registry = ActionRegistry()
-dispatcher = ActionDispatcher(registry)
-catalog.with_dispatcher(dispatcher)
+catalog = SkillCatalog(registry)
 
 # Discovery
 catalog.discover(extra_paths=["/my/skills"], dcc_name="maya")
@@ -106,9 +97,9 @@ for s in results:
     print(f"{s.name}: {s.tool_count} tools {s.tool_names}")
 
 # Load/unload
-ok = catalog.load_skill("maya-geometry")  # returns bool
+actions = catalog.load_skill("maya-geometry")  # returns List[str]
 catalog.is_loaded("maya-geometry")        # True
-ok = catalog.unload_skill("maya-geometry")
+removed = catalog.unload_skill("maya-geometry")
 
 # Status inspection
 catalog.loaded_count()      # int

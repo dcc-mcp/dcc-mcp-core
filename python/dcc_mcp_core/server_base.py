@@ -136,8 +136,9 @@ class DccServerBase:
         effective_registry_dir = registry_dir or os.environ.get("DCC_MCP_REGISTRY_DIR", "")
         if effective_registry_dir:
             self._config.registry_dir = effective_registry_dir
-        if dcc_version:
-            self._config.dcc_version = dcc_version
+        resolved_dcc_version = dcc_version if dcc_version is not None else self._version_string()
+        if resolved_dcc_version:
+            self._config.dcc_version = resolved_dcc_version
         if scene:
             self._config.scene = scene
         # Always stamp the DCC type so gateway registry knows which DCC this is
