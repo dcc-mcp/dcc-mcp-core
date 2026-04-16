@@ -11,18 +11,18 @@
 
 | I want to… | Use this API |
 |-------------|--------------|
-| Register a script/tool for AI to call | `ActionRegistry.register()` |
+| Register a script/tool for AI to call | `ToolRegistry.register()` |
 | Return a result from a DCC action | `success_result()` / `error_result()` |
 | Auto-discover skill packages from directories | `scan_and_load()` / `SkillScanner` |
 | Watch a skills directory for live updates | `SkillWatcher` |
-| Validate action input parameters | `ActionValidator` / `InputValidator` |
-| Route action calls to Python handlers | `ActionDispatcher` |
+| Validate action input parameters | `ToolValidator` / `InputValidator` |
+| Route action calls to Python handlers | `ToolDispatcher` |
 | Define an MCP Tool for the LLM | `ToolDefinition` + `ToolAnnotations` |
 | Connect to a running DCC process | `connect_ipc(TransportAddress)` |
 | Launch a new DCC process | `PyDccLauncher` |
 | Monitor DCC process health | `PyProcessWatcher` / `PyProcessMonitor` |
 | Enforce security policy on actions | `SandboxPolicy` + `SandboxContext` |
-| Track performance metrics | `ActionRecorder` + `ActionMetrics` |
+| Track performance metrics | `ToolRecorder` + `ToolMetrics` |
 | Share large data between processes | `PySharedSceneBuffer` (LZ4 compressed) |
 | Capture a DCC viewport screenshot | `Capturer.new_auto().capture()` |
 | Exchange scene data via USD format | `UsdStage` + `scene_info_json_to_stage()` |
@@ -31,7 +31,7 @@
 | Serialize result for transport | `serialize_result()` / `deserialize_result()` with `SerializeFormat` |
 | Wrap values for safe RPyC transport | `wrap_value()` / `unwrap_value()` |
 | Handle multiple versions of an action | `VersionedRegistry` + `VersionConstraint` |
-| Expose DCC tools over HTTP/MCP | `create_skill_manager("maya", McpHttpConfig(port=8765))` — Skills-First one-call setup; falls back to `McpHttpServer(registry, config)` for manual registry wiring |
+| Expose DCC tools over HTTP/MCP | `create_skill_server("maya", McpHttpConfig(port=8765))` — Skills-First one-call setup; falls back to `McpHttpServer(registry, config)` for manual registry wiring |
 
 ---
 
@@ -45,14 +45,14 @@ extension module. The Python package `dcc_mcp_core` re-exports all public APIs f
 
 ```
 crates/
-├── dcc-mcp-models/       # ActionResultModel, SkillMetadata
-├── dcc-mcp-actions/      # ActionRegistry, ActionDispatcher, ActionValidator, EventBus, ActionPipeline
+├── dcc-mcp-models/       # ToolResult, SkillMetadata
+├── dcc-mcp-actions/      # ToolRegistry, ToolDispatcher, ToolValidator, EventBus, ToolPipeline
 ├── dcc-mcp-skills/       # SkillScanner, SkillWatcher, parse_skill_md, dependency resolver
 ├── dcc-mcp-protocols/    # MCP type definitions (Tool, Resource, Prompt, DccAdapter)
 ├── dcc-mcp-transport/    # IPC transport, TransportManager, ConnectionPool, CircuitBreaker
-├── dcc-mcp-http/         # McpHttpServer, McpHttpConfig, ServerHandle (MCP Streamable HTTP 2025-03-26)
+├── dcc-mcp-http/         # McpHttpServer, McpHttpConfig, McpServerHandle (MCP Streamable HTTP 2025-03-26)
 ├── dcc-mcp-process/      # PyDccLauncher, PyProcessMonitor, PyProcessWatcher, PyCrashRecoveryPolicy
-├── dcc-mcp-telemetry/    # TelemetryConfig, RecordingGuard, ActionMetrics, ActionRecorder
+├── dcc-mcp-telemetry/    # TelemetryConfig, RecordingGuard, ToolMetrics, ToolRecorder
 ├── dcc-mcp-sandbox/      # SandboxPolicy, SandboxContext, InputValidator, AuditLog, AuditEntry
 ├── dcc-mcp-shm/          # PyBufferPool, PySharedBuffer, PySharedSceneBuffer, LZ4 compression
 ├── dcc-mcp-capture/      # Capturer, CaptureFrame, CaptureResult
@@ -63,7 +63,7 @@ crates/
 
 **Key import pattern** (always use the top-level package):
 ```python
-from dcc_mcp_core import ActionRegistry, success_result, SkillScanner
+from dcc_mcp_core import ToolRegistry, success_result, SkillScanner
 # Never: from dcc_mcp_core._core import ...
 ```
 
@@ -71,14 +71,14 @@ from dcc_mcp_core import ActionRegistry, success_result, SkillScanner
 
 ## Models (`dcc_mcp_core`)
 
-### ActionResultModel
+### ToolResult
 
 Structured result for all action executions. AI-friendly: the `prompt` field carries next-step
 hints for the LLM. Immutable snapshot — use `with_error()`/`with_context()` to derive.
 
 **Constructor:**
 ```python
-ActionResultModel(success=True, message="", prompt=None, error=None, context=None)
+ToolResult(success=True, message="", prompt=None, error=None, context=None)
 ```
 
 **Properties (read-only except `message`):**
@@ -89,8 +89,8 @@ ActionResultModel(success=True, message="", prompt=None, error=None, context=Non
 - `context: dict` — Additional context data (returns a new dict each access)
 
 **Methods:**
-- `with_error(error: str) -> ActionResultModel` — Copy with error info (sets success=False)
-- `with_context(**kwargs) -> ActionResultModel` — Copy with updated context
+- `with_error(error: str) -> ToolResult` — Copy with error info (sets success=False)
+- `with_context(**kwargs) -> ToolResult` — Copy with updated context
 - `to_dict() -> dict` — Full dict representation
 
 **Factory functions (preferred for creation):**
@@ -110,8 +110,8 @@ try:
 except Exception as e:
     exc_result = from_exception(str(e), message="Import failed", include_traceback=True)
 
-# validate_action_result: normalize any type to ActionResultModel
-validated = validate_action_result({"success": True, "message": "ok"})  # dict → ActionResultModel
+# validate_action_result: normalize any type to ToolResult
+validated = validate_action_result({"success": True, "message": "ok"})  # dict → ToolResult
 validated = validate_action_result("hello")  # wraps non-dict as success with context["value"]
 validated = validate_action_result(None)     # returns a success result
 ```
@@ -145,12 +145,12 @@ Metadata parsed from SKILL.md frontmatter. All fields are get/set.
 
 ## Actions (`dcc_mcp_core`)
 
-### ActionRegistry
+### ToolRegistry
 
 Thread-safe action registry using DashMap (Rust). Each instance is independent (no singleton).
 
 ```python
-reg = dcc_mcp_core.ActionRegistry()
+reg = dcc_mcp_core.ToolRegistry()
 
 # Register — all params except name are optional
 reg.register(
@@ -199,7 +199,7 @@ tags       = reg.get_tags(dcc_name="maya")                          # sorted uni
 # Manage
 reg.reset()    # clear all entries
 len(reg)       # count of registered actions
-repr(reg)      # "ActionRegistry(actions=N)"
+repr(reg)      # "ToolRegistry(actions=N)"
 ```
 
 **Returned dict structure from `get_action()` / `list_actions()`:**
@@ -217,41 +217,41 @@ repr(reg)      # "ActionRegistry(actions=N)"
 }
 ```
 
-### ActionValidator
+### ToolValidator
 
 Validates JSON-encoded action parameters against a JSON Schema.
 
 ```python
 import json
-from dcc_mcp_core import ActionRegistry, ActionValidator
+from dcc_mcp_core import ToolRegistry, ToolValidator
 
 schema = json.dumps({
     "type": "object",
     "required": ["radius"],
     "properties": {"radius": {"type": "number", "minimum": 0.0}}
 })
-v = ActionValidator.from_schema_json(schema)
+v = ToolValidator.from_schema_json(schema)
 ok, errors = v.validate('{"radius": 1.0}')   # -> (True, [])
 ok, errors = v.validate("{}")                  # -> (False, ["...missing required: radius"])
 
 # Or build from registry:
-v2 = ActionValidator.from_action_registry(reg, "create_sphere", dcc_name="maya")
+v2 = ToolValidator.from_action_registry(reg, "create_sphere", dcc_name="maya")
 ```
 
-### ActionDispatcher
+### ToolDispatcher
 
 Routes action calls to registered Python callables with automatic schema validation.
 
 ```python
 import json
-from dcc_mcp_core import ActionRegistry, ActionDispatcher
+from dcc_mcp_core import ToolRegistry, ToolDispatcher
 
-reg = ActionRegistry()
+reg = ToolRegistry()
 reg.register("create_sphere",
     input_schema=json.dumps({"type": "object", "required": ["radius"],
                               "properties": {"radius": {"type": "number", "minimum": 0.0}}}))
 
-dispatcher = ActionDispatcher(reg)
+dispatcher = ToolDispatcher(reg)
 
 def create_sphere_handler(params: dict):
     return {"created": True, "radius": params["radius"]}
@@ -272,9 +272,9 @@ dispatcher.handler_names()               # -> List[str] sorted
 dispatcher.remove_handler("create_sphere")  # -> bool
 ```
 
-### ActionPipeline
+### ToolPipeline
 
-Middleware-style processing pipeline for actions. Wraps `ActionDispatcher` with composable
+Middleware-style processing pipeline for actions. Wraps `ToolDispatcher` with composable
 cross-cutting concerns (logging, timing, auditing, rate limiting, custom Python hooks).
 
 Middleware runs in registration order for `before_dispatch`, in **reverse** for `after_dispatch`
@@ -282,18 +282,18 @@ Middleware runs in registration order for `before_dispatch`, in **reverse** for 
 
 ```python
 from dcc_mcp_core import (
-    ActionRegistry, ActionDispatcher, ActionPipeline,
+    ToolRegistry, ToolDispatcher, ToolPipeline,
     LoggingMiddleware, TimingMiddleware, AuditMiddleware, RateLimitMiddleware,
 )
 
 # Build registry + dispatcher with handlers
-reg = ActionRegistry()
+reg = ToolRegistry()
 reg.register("create_sphere", description="Create sphere", category="geometry")
-dispatcher = ActionDispatcher(reg)
+dispatcher = ToolDispatcher(reg)
 dispatcher.register_handler("create_sphere", lambda params: {"name": "sphere1"})
 
 # Wrap in pipeline
-pipeline = ActionPipeline(dispatcher)
+pipeline = ToolPipeline(dispatcher)
 
 # Add built-in middleware
 pipeline.add_logging(log_params=True)             # tracing before/after
@@ -565,7 +565,7 @@ blender_paths = get_app_skill_paths_from_env("blender")
 ```python
 from dcc_mcp_core import SkillCatalog, SkillScanner, SkillSummary
 
-# Create catalog (preferred: use create_skill_manager for Skills-First)
+# Create catalog (preferred: use create_skill_server for Skills-First)
 scanner = SkillScanner()
 catalog = SkillCatalog(scanner)
 
@@ -613,7 +613,7 @@ A **pure-Python** sub-module for skill script authors. No compiled `_core` exten
 from dcc_mcp_core.skill import skill_entry, skill_success, skill_error, skill_warning, skill_exception, run_main
 ```
 
-All helpers return a plain `dict` compatible with `ActionResultModel`.
+All helpers return a plain `dict` compatible with `ToolResult`.
 
 ### Result builders
 
@@ -678,13 +678,13 @@ if __name__ == "__main__":
 | `maya_error(msg, error, **ctx)` | `skill_error(msg, error, **ctx)` |
 | `maya_from_exception(exc_str, ...)` | `skill_exception(exc, ...)` |
 
-Dict structure is identical — both compatible with `ActionResultModel`.
+Dict structure is identical — both compatible with `ToolResult`.
 
 ---
 
 ## Result Serialization — `serialize_result` / `deserialize_result`
 
-Rust-backed, format-agnostic serialization for `ActionResultModel`.
+Rust-backed, format-agnostic serialization for `ToolResult`.
 Format is controlled by `SerializeFormat` enum — JSON now, MsgPack later, no API change.
 
 ```python
@@ -701,7 +701,7 @@ SerializeFormat.MsgPack  # bytes — binary MessagePack (rmp-serde)
 ### serialize_result
 
 ```python
-serialize_result(result: ActionResultModel, format: SerializeFormat = SerializeFormat.Json) -> str | bytes
+serialize_result(result: ToolResult, format: SerializeFormat = SerializeFormat.Json) -> str | bytes
 ```
 
 - Returns `str` for `Json`, `bytes` for `MsgPack`.
@@ -715,7 +715,7 @@ pack_bytes = serialize_result(arm, SerializeFormat.MsgPack)  # bytes
 ### deserialize_result
 
 ```python
-deserialize_result(data: str | bytes, format: SerializeFormat = SerializeFormat.Json) -> ActionResultModel
+deserialize_result(data: str | bytes, format: SerializeFormat = SerializeFormat.Json) -> ToolResult
 ```
 
 - Accepts `str` (JSON) or `bytes` (MsgPack). Format must match serialization.
@@ -731,7 +731,7 @@ assert arm3.context["count"] == 3
 
 `run_main()` in `dcc_mcp_core.skill` uses this Rust path when `_core` is available:
 ```
-dict → validate_action_result() → ActionResultModel → serialize_result() → JSON str → stdout
+dict → validate_action_result() → ToolResult → serialize_result() → JSON str → stdout
 ```
 Falls back to `json.dumps` in pure-Python DCC environments (no `_core` installed).
 
@@ -1440,14 +1440,14 @@ entry.outcome_detail  # str|None (error message or denial reason)
 
 ## Telemetry (`dcc_mcp_core`)
 
-### ActionRecorder + RecordingGuard
+### ToolRecorder + RecordingGuard
 
 Per-action timing and success/failure counters.
 
 ```python
-from dcc_mcp_core import ActionRecorder
+from dcc_mcp_core import ToolRecorder
 
-recorder = ActionRecorder("maya-mcp-server")  # scope name
+recorder = ToolRecorder("maya-mcp-server")  # scope name
 
 # Method 1: manual guard
 guard = recorder.start("create_sphere", "maya")
@@ -1464,12 +1464,12 @@ with recorder.start("batch_rename", "maya") as guard:
 # guard.finish() called automatically with success=(no exception)
 
 # Query metrics
-metrics = recorder.metrics("create_sphere")   # -> ActionMetrics|None
-all_m = recorder.all_metrics()               # -> List[ActionMetrics]
+metrics = recorder.metrics("create_sphere")   # -> ToolMetrics|None
+all_m = recorder.all_metrics()               # -> List[ToolMetrics]
 recorder.reset()                             # clear in-memory stats
 ```
 
-### ActionMetrics
+### ToolMetrics
 
 Read-only snapshot of per-action performance.
 
@@ -1811,7 +1811,7 @@ render = RenderOutput(path="/tmp/render.exr", format="exr", width=1920, height=1
 
 ## Serialization (`dcc_mcp_core`)
 
-Transport-safe ActionResultModel serialization for IPC, storage, or network transfer.
+Transport-safe ToolResult serialization for IPC, storage, or network transfer.
 
 ```python
 from dcc_mcp_core import SerializeFormat, serialize_result, deserialize_result, success_result
@@ -1870,7 +1870,7 @@ StringWrapper("hi").value     # "hi"; also supports __str__
 ```python
 from dcc_mcp_core import (
     get_config_dir, get_data_dir, get_log_dir, get_platform_dir,
-    get_actions_dir, get_skills_dir, get_skill_paths_from_env,
+    get_tools_dir, get_skills_dir, get_skill_paths_from_env,
     get_app_skill_paths_from_env,
 )
 
@@ -1878,7 +1878,7 @@ get_config_dir()              # Platform-specific config dir (e.g. %APPDATA%/dcc
 get_data_dir()                # Platform-specific data dir
 get_log_dir()                 # Data dir + /log subdirectory
 get_platform_dir("config")    # Generic: accepts "config"|"data"|"cache"|"log"|"state"|"documents"
-get_actions_dir("maya")       # -> .../data/actions/maya/
+get_tools_dir("maya")       # -> .../data/actions/maya/
 get_skills_dir("maya")        # -> .../data/skills/maya/
 get_skills_dir()              # -> .../data/skills/
 get_skill_paths_from_env()    # -> List[str] from DCC_MCP_SKILL_PATHS env var
@@ -1921,11 +1921,11 @@ get_app_skill_paths_from_env("blender") # -> List[str] from DCC_MCP_BLENDER_SKIL
 
 ```python
 import os
-from dcc_mcp_core import scan_and_load, ActionRegistry, ToolDefinition, ToolAnnotations
+from dcc_mcp_core import scan_and_load, ToolRegistry, ToolDefinition, ToolAnnotations
 
 os.environ["DCC_MCP_SKILL_PATHS"] = "/opt/skills"
 skills, _ = scan_and_load(dcc_name="maya")
-reg = ActionRegistry()
+reg = ToolRegistry()
 tools = []
 for skill in skills:
     for script in skill.scripts:
@@ -2034,9 +2034,9 @@ print(config.server_version) # "1.0.0"
 ### McpHttpServer
 
 ```python
-from dcc_mcp_core import ActionRegistry, McpHttpServer, McpHttpConfig, McpServerHandle
+from dcc_mcp_core import ToolRegistry, McpHttpServer, McpHttpConfig, McpServerHandle
 
-registry = ActionRegistry()
+registry = ToolRegistry()
 registry.register(
     "get_scene_info",
     description="Get info about the current scene",
@@ -2051,13 +2051,13 @@ registry.register(
 
 # Start server — returns immediately, server runs in background
 server = McpHttpServer(registry, McpHttpConfig(port=8765, server_name="maya-mcp"))
-handle = server.start()   # -> McpServerHandle (alias for ServerHandle)
+handle = server.start()   # -> McpServerHandle (alias for McpServerHandle)
 ```
 
 ### McpServerHandle
 
 ```python
-# McpServerHandle is the alias for ServerHandle in __init__.py
+# McpServerHandle is the alias for McpServerHandle in __init__.py
 from dcc_mcp_core import McpServerHandle
 
 print(handle.mcp_url())      # "http://127.0.0.1:8765/mcp"  (MCP endpoint URL)
@@ -2068,16 +2068,16 @@ handle.shutdown()            # blocks until server stops
 handle.signal_shutdown()     # non-blocking shutdown signal
 ```
 
-### create_skill_manager (Skills-First, recommended)
+### create_skill_server (Skills-First, recommended)
 
 ```python
 import os
 os.environ["DCC_MCP_MAYA_SKILL_PATHS"] = "/studio/maya-skills"
 
-from dcc_mcp_core import create_skill_manager, McpHttpConfig
+from dcc_mcp_core import create_skill_server, McpHttpConfig
 
 # One call: creates registry, dispatcher, SkillCatalog, discovers skills from env vars
-server = create_skill_manager("maya", McpHttpConfig(port=8765))
+server = create_skill_server("maya", McpHttpConfig(port=8765))
 handle = server.start()
 print(f"Maya MCP server at {handle.mcp_url()}")
 # Claude Desktop config: {"mcpServers": {"maya": {"url": "<handle.mcp_url()>"}}}
@@ -2092,7 +2092,7 @@ print(f"Maya MCP server at {handle.mcp_url()}")
 
 count = server.discover()               # scan again (optional)
 skills = server.list_skills()           # list all with status
-server.load_skill("hello-world")        # registers skill tools into ActionRegistry
+server.load_skill("hello-world")        # registers skill tools into ToolRegistry
 handle.shutdown()
 ```
 
@@ -2102,7 +2102,7 @@ handle.shutdown()
 import os
 from pathlib import Path
 from dcc_mcp_core import (
-    scan_and_load, ActionRegistry, ActionDispatcher,
+    scan_and_load, ToolRegistry, ToolDispatcher,
     McpHttpServer, McpHttpConfig,
     success_result, error_result,
 )
@@ -2110,8 +2110,8 @@ from dcc_mcp_core import (
 os.environ["DCC_MCP_SKILL_PATHS"] = "/opt/maya-skills"
 skills, skipped = scan_and_load(dcc_name="maya")
 
-registry = ActionRegistry()
-dispatcher = ActionDispatcher(registry)
+registry = ToolRegistry()
+dispatcher = ToolDispatcher(registry)
 
 for skill in skills:
     for script_path in skill.scripts:

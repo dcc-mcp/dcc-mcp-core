@@ -6,20 +6,20 @@
 
 提供：
 
-- **操作记录** — 通过 `ActionRecorder` 记录每个操作的耗时和成功/失败计数
-- **指标** — `ActionMetrics` 快照，包含延迟百分位数（p95/p99）和成功率
+- **操作记录** — 通过 `ToolRecorder` 记录每个操作的耗时和成功/失败计数
+- **指标** — `ToolMetrics` 快照，包含延迟百分位数（p95/p99）和成功率
 - **可选 OpenTelemetry** — stdout 导出器、JSON/文本日志、资源属性（可选）
 
-## ActionRecorder
+## ToolRecorder
 
 记录任何操作执行时间和结果。
 
 ### 快速开始
 
 ```python
-from dcc_mcp_core import ActionRecorder
+from dcc_mcp_core import ToolRecorder
 
-recorder = ActionRecorder("my-service")
+recorder = ToolRecorder("my-service")
 
 # 使用 guard 记录
 guard = recorder.start("create_sphere", "maya")
@@ -82,7 +82,7 @@ recorder.reset()  # 清除所有内存中统计数据
 
 ## TelemetryConfig
 
-可选的 OpenTelemetry 配置。单独使用 `ActionRecorder` 时不需要。
+可选的 OpenTelemetry 配置。单独使用 `ToolRecorder` 时不需要。
 
 ### 基础设置
 
@@ -160,10 +160,10 @@ if is_telemetry_initialized():
 ## Maya 集成
 
 ```python
-from dcc_mcp_core import ActionRecorder
+from dcc_mcp_core import ToolRecorder
 import maya.cmds as cmds
 
-recorder = ActionRecorder("maya")
+recorder = ToolRecorder("maya")
 
 def traced_create_sphere(radius=1.0, name=None):
     with recorder.start("create_sphere", "maya") as guard:
@@ -180,10 +180,10 @@ def traced_delete(object_name):
 ## Blender 集成
 
 ```python
-from dcc_mcp_core import ActionRecorder
+from dcc_mcp_core import ToolRecorder
 import bpy
 
-recorder = ActionRecorder("blender")
+recorder = ToolRecorder("blender")
 
 def traced_blender_operation(operation_name, func):
     with recorder.start(operation_name, "blender") as guard:
@@ -196,9 +196,9 @@ def traced_blender_operation(operation_name, func):
 
 ```python
 # 每个 DCC 一个记录器
-maya_recorder = ActionRecorder("maya")
-blender_recorder = ActionRecorder("blender")
-houdini_recorder = ActionRecorder("houdini")
+maya_recorder = ToolRecorder("maya")
+blender_recorder = ToolRecorder("blender")
+houdini_recorder = ToolRecorder("houdini")
 
 # 每个维护独立的指标
 ```

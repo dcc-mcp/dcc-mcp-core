@@ -1,8 +1,8 @@
-"""Deep tests for EventBus, ActionRecorder, SandboxPolicy/Context, and skill dependency functions.
+"""Deep tests for EventBus, ToolRecorder, SandboxPolicy/Context, and skill dependency functions.
 
 Coverage targets:
 - EventBus: subscribe/publish/unsubscribe, concurrent multi-thread, isolation
-- ActionRecorder: scope, start/finish, metrics attrs, reset, multi-action
+- ToolRecorder: scope, start/finish, metrics attrs, reset, multi-action
 - TimingMiddleware / AuditMiddleware: from pipeline.add_timing / add_audit
 - resolve_dependencies / expand_transitive_dependencies / validate_dependencies
 - SandboxPolicy: allow/deny/path/read-only/timeout/max-actions
@@ -19,14 +19,14 @@ import threading
 
 import pytest
 
-from dcc_mcp_core import ActionDispatcher
-from dcc_mcp_core import ActionPipeline
-from dcc_mcp_core import ActionRecorder
-from dcc_mcp_core import ActionRegistry
 from dcc_mcp_core import EventBus
 from dcc_mcp_core import SandboxContext
 from dcc_mcp_core import SandboxPolicy
 from dcc_mcp_core import SkillMetadata
+from dcc_mcp_core import ToolDispatcher
+from dcc_mcp_core import ToolPipeline
+from dcc_mcp_core import ToolRecorder
+from dcc_mcp_core import ToolRegistry
 from dcc_mcp_core import expand_transitive_dependencies
 from dcc_mcp_core import resolve_dependencies
 from dcc_mcp_core import scan_and_load
@@ -52,11 +52,11 @@ def make_skill(name: str, depends: list[str] | None = None, dcc: str = "python")
 
 
 def make_pipeline_with_action(action_name: str = "act"):
-    reg = ActionRegistry()
+    reg = ToolRegistry()
     reg.register(action_name, description="", category="test")
-    disp = ActionDispatcher(reg)
+    disp = ToolDispatcher(reg)
     disp.register_handler(action_name, lambda p: {"result": 42})
-    return ActionPipeline(disp), action_name
+    return ToolPipeline(disp), action_name
 
 
 # ===========================================================================
@@ -223,21 +223,21 @@ class TestEventBus:
 
 
 class TestActionRecorder:
-    """Tests for ActionRecorder + RecordingGuard + ActionMetrics."""
+    """Tests for ToolRecorder + RecordingGuard + ToolMetrics."""
 
     class TestBasicRecording:
         def test_create_recorder_with_scope(self) -> None:
-            ar = ActionRecorder("scope1")
+            ar = ToolRecorder("scope1")
             assert ar is not None
 
         def test_start_returns_recording_guard(self) -> None:
-            ar = ActionRecorder("scope1")
+            ar = ToolRecorder("scope1")
             guard = ar.start("my_action", "maya")
             assert guard is not None
             guard.finish(True)
 
         def test_finish_success_reflected_in_metrics(self) -> None:
-            ar = ActionRecorder("scope_success")
+            ar = ToolRecorder("scope_success")
             guard = ar.start("act_a", "maya")
             guard.finish(True)
             m = ar.metrics("act_a")
@@ -246,7 +246,7 @@ class TestActionRecorder:
             assert m.failure_count == 0
 
         def test_finish_failure_reflected_in_metrics(self) -> None:
-            ar = ActionRecorder("scope_fail")
+            ar = ToolRecorder("scope_fail")
             guard = ar.start("act_b", "maya")
             guard.finish(False)
             m = ar.metrics("act_b")
@@ -255,21 +255,21 @@ class TestActionRecorder:
             assert m.failure_count == 1
 
         def test_success_rate_1_when_all_success(self) -> None:
-            ar = ActionRecorder("scope_rate")
+            ar = ToolRecorder("scope_rate")
             for _ in range(3):
                 ar.start("act_rate", "maya").finish(True)
             m = ar.metrics("act_rate")
             assert m.success_rate() == pytest.approx(1.0)
 
         def test_success_rate_0_when_all_failure(self) -> None:
-            ar = ActionRecorder("scope_rate2")
+            ar = ToolRecorder("scope_rate2")
             for _ in range(3):
                 ar.start("act_fail", "maya").finish(False)
             m = ar.metrics("act_fail")
             assert m.success_rate() == pytest.approx(0.0)
 
         def test_mixed_success_failure_rate(self) -> None:
-            ar = ActionRecorder("scope_mixed")
+            ar = ToolRecorder("scope_mixed")
             ar.start("mix", "maya").finish(True)
             ar.start("mix", "maya").finish(False)
             m = ar.metrics("mix")
@@ -279,20 +279,20 @@ class TestActionRecorder:
             assert m.success_rate() == pytest.approx(0.5)
 
         def test_action_name_field(self) -> None:
-            ar = ActionRecorder("scope_name")
+            ar = ToolRecorder("scope_name")
             ar.start("named_action", "maya").finish(True)
             m = ar.metrics("named_action")
             assert m.action_name == "named_action"
 
         def test_avg_duration_ms_is_float(self) -> None:
-            ar = ActionRecorder("scope_dur")
+            ar = ToolRecorder("scope_dur")
             ar.start("dur_act", "maya").finish(True)
             m = ar.metrics("dur_act")
             assert isinstance(m.avg_duration_ms, float)
             assert m.avg_duration_ms >= 0.0
 
         def test_p95_p99_duration_populated(self) -> None:
-            ar = ActionRecorder("scope_pct")
+            ar = ToolRecorder("scope_pct")
             for _ in range(5):
                 ar.start("pct_act", "maya").finish(True)
             m = ar.metrics("pct_act")
@@ -301,7 +301,7 @@ class TestActionRecorder:
 
     class TestAllMetricsAndReset:
         def test_all_metrics_returns_list(self) -> None:
-            ar = ActionRecorder("scope_all")
+            ar = ToolRecorder("scope_all")
             ar.start("a1", "maya").finish(True)
             ar.start("a2", "maya").finish(True)
             all_m = ar.all_metrics()
@@ -312,7 +312,7 @@ class TestActionRecorder:
             assert "a2" in names
 
         def test_reset_clears_metrics(self) -> None:
-            ar = ActionRecorder("scope_reset")
+            ar = ToolRecorder("scope_reset")
             ar.start("reset_act", "maya").finish(True)
             ar.reset()
             all_m = ar.all_metrics()
@@ -320,7 +320,7 @@ class TestActionRecorder:
 
         def test_multiple_dccs_tracked_separately(self) -> None:
             """Different DCC names should result in separate metric entries."""
-            ar = ActionRecorder("scope_multi_dcc")
+            ar = ToolRecorder("scope_multi_dcc")
             ar.start("act_x", "maya").finish(True)
             ar.start("act_x", "blender").finish(False)
             all_m = ar.all_metrics()
@@ -328,7 +328,7 @@ class TestActionRecorder:
 
     class TestConcurrent:
         def test_concurrent_recording_no_crash(self) -> None:
-            ar = ActionRecorder("scope_concurrent")
+            ar = ToolRecorder("scope_concurrent")
             n = 20
 
             def work(i: int) -> None:
@@ -349,7 +349,7 @@ class TestActionRecorder:
 
 
 class TestTimingAndAuditMiddleware:
-    """Tests for TimingMiddleware and AuditMiddleware from ActionPipeline."""
+    """Tests for TimingMiddleware and AuditMiddleware from ToolPipeline."""
 
     class TestTimingMiddleware:
         def test_last_elapsed_ms_none_before_dispatch(self) -> None:
@@ -406,13 +406,13 @@ class TestTimingAndAuditMiddleware:
             assert "timestamp_ms" in rec
 
         def test_records_for_action_filters_correctly(self) -> None:
-            reg = ActionRegistry()
+            reg = ToolRegistry()
             reg.register("aa", description="", category="test")
             reg.register("bb", description="", category="test")
-            disp = ActionDispatcher(reg)
+            disp = ToolDispatcher(reg)
             disp.register_handler("aa", lambda p: {"r": 1})
             disp.register_handler("bb", lambda p: {"r": 2})
-            pipeline = ActionPipeline(disp)
+            pipeline = ToolPipeline(disp)
             audit = pipeline.add_audit()
             pipeline.dispatch("aa", "{}")
             pipeline.dispatch("bb", "{}")

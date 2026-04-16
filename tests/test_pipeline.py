@@ -1,12 +1,12 @@
-"""Tests for ActionPipeline middleware concepts (Python-side validation).
+"""Tests for ToolPipeline middleware concepts (Python-side validation).
 
-These tests validate the conceptual design of the ActionPipeline middleware
+These tests validate the conceptual design of the ToolPipeline middleware
 system by exercising the pattern in pure Python, verifying that:
 - The middleware ordering and onion model are correctly understood
 - The dispatch flow with middleware hooks works as expected
 - Rate limiting, audit, and logging middleware semantics are correct
 
-Note: The actual ActionPipeline is implemented in Rust (dcc_mcp_core._core),
+Note: The actual ToolPipeline is implemented in Rust (dcc_mcp_core._core),
 but the conceptual tests here ensure Python-side integration expectations
 are documented and verifiable.
 """
@@ -104,8 +104,8 @@ class SimpleDispatcher:
             raise HandlerError(str(exc)) from exc
 
 
-class ActionPipeline:
-    """Python mirror of Rust ActionPipeline."""
+class ToolPipeline:
+    """Python mirror of Rust ToolPipeline."""
 
     def __init__(self, dispatcher: SimpleDispatcher) -> None:
         self._dispatcher = dispatcher
@@ -276,12 +276,12 @@ class AuditMiddleware(ActionMiddleware):
 # ── Fixtures ──
 
 
-def make_pipeline(*actions: str) -> tuple[ActionPipeline, SimpleDispatcher]:
+def make_pipeline(*actions: str) -> tuple[ToolPipeline, SimpleDispatcher]:
     """Create a pipeline with echo handlers for each action."""
     dispatcher = SimpleDispatcher()
     for action in actions:
         dispatcher.register(action, lambda p: p)
-    pipeline = ActionPipeline(dispatcher)
+    pipeline = ToolPipeline(dispatcher)
     return pipeline, dispatcher
 
 
@@ -336,7 +336,7 @@ class TestActionPipelineBasics:
     def test_handler_error_propagates(self):
         dispatcher = SimpleDispatcher()
         dispatcher.register("fail", lambda _: (_ for _ in ()).throw(ValueError("bad")))
-        pipeline = ActionPipeline(dispatcher)
+        pipeline = ToolPipeline(dispatcher)
         with pytest.raises(HandlerError):
             pipeline.dispatch("fail", {})
 
@@ -358,7 +358,7 @@ class TestLoggingMiddleware:
             raise ValueError("oops")
 
         dispatcher.register("fail", raise_error)
-        pipeline = ActionPipeline(dispatcher)
+        pipeline = ToolPipeline(dispatcher)
         logger = LoggingMiddleware()
         pipeline.add_middleware(logger)
 
@@ -453,7 +453,7 @@ class TestAuditMiddleware:
     def test_records_failure(self):
         dispatcher = SimpleDispatcher()
         dispatcher.register("broken", lambda _: (_ for _ in ()).throw(ValueError("crash")))
-        pipeline = ActionPipeline(dispatcher)
+        pipeline = ToolPipeline(dispatcher)
         audit = AuditMiddleware()
         pipeline.add_middleware(audit)
 
@@ -562,7 +562,7 @@ class TestMiddlewareOrderingAndOnionModel:
         """Middleware can mutate params before they reach the handler."""
         dispatcher = SimpleDispatcher()
         dispatcher.register("echo", lambda p: p)
-        pipeline = ActionPipeline(dispatcher)
+        pipeline = ToolPipeline(dispatcher)
 
         class InjectMiddleware(ActionMiddleware):
             def before_dispatch(self, ctx):

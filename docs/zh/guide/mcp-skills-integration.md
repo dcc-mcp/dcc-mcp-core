@@ -168,11 +168,11 @@ policy:
 
 ```python
 import os
-from dcc_mcp_core import create_skill_manager, McpHttpConfig
+from dcc_mcp_core import create_skill_server, McpHttpConfig
 
 os.environ["DCC_MCP_MAYA_SKILL_PATHS"] = "/path/to/my-tools"
 
-server = create_skill_manager("maya", McpHttpConfig(port=8765))
+server = create_skill_server("maya", McpHttpConfig(port=8765))
 handle = server.start()
 print(f"MCP 服务器: {handle.mcp_url()}")
 # AI 客户端连接到 http://127.0.0.1:8765/mcp

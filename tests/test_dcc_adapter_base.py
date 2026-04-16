@@ -483,7 +483,7 @@ class TestDccServerBase:
 
                 return SimpleNamespace(
                     McpHttpConfig=lambda **_kwargs: fake_config,
-                    create_skill_manager=lambda *_args, **_kwargs: _FakeDccServer(),
+                    create_skill_server=lambda *_args, **_kwargs: _FakeDccServer(),
                     __version__="9.9.9",
                 )
             return real_import(name, globals, locals, fromlist, level)
@@ -515,7 +515,7 @@ class TestDccServerBase:
 
                 return SimpleNamespace(
                     McpHttpConfig=lambda **_kwargs: fake_config,
-                    create_skill_manager=lambda *_args, **_kwargs: _FakeDccServer(),
+                    create_skill_server=lambda *_args, **_kwargs: _FakeDccServer(),
                     __version__="9.9.9",
                 )
             return real_import(name, globals, locals, fromlist, level)
@@ -546,7 +546,7 @@ class TestCreateDccServer:
 
         class _TestServer(DccServerBase):
             def __init__(self, port=18767, **kwargs):
-                # Avoid hitting real McpHttpConfig / create_skill_manager
+                # Avoid hitting real McpHttpConfig / create_skill_server
                 self._dcc_name = "test"
                 self._builtin_skills_dir = skills_dir
                 self._handle = None

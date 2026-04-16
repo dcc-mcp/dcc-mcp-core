@@ -139,7 +139,7 @@ class TestOpenSCADSkillPipeline:
     """dcc-mcp-core skill pipeline with OpenSCAD as target DCC."""
 
     def test_register_openscad_actions(self) -> None:
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         reg.register(name="render_geometry", description="Render .scad to STL", dcc="openscad")
         reg.register(name="generate_scad", description="Generate .scad from parameters", dcc="openscad")
         reg.register(name="export_png", description="Render preview PNG", dcc="openscad")

@@ -1,15 +1,15 @@
-"""Deep tests for ActionResultModel, factory functions, and validate_action_result.
+"""Deep tests for ToolResult, factory functions, and validate_action_result.
 
 Covers:
 - success_result() factory: message, prompt, context kwargs
 - error_result() factory: message, error, possible_solutions, prompt
 - from_exception() factory: wraps exception string + traceback
-- validate_action_result() normalises dict / str / None / ActionResultModel
-- ActionResultModel.with_error() returns new model with success=False
-- ActionResultModel.with_context() merges extra kwargs into context
-- ActionResultModel.to_dict() round-trip
-- ActionResultModel equality / repr / str
-- ActionResultModel fields: success, message, prompt, error, context
+- validate_action_result() normalises dict / str / None / ToolResult
+- ToolResult.with_error() returns new model with success=False
+- ToolResult.with_context() merges extra kwargs into context
+- ToolResult.to_dict() round-trip
+- ToolResult equality / repr / str
+- ToolResult fields: success, message, prompt, error, context
 - error_result possible_solutions stored in context
 - from_exception include_traceback=False suppresses traceback
 """
@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import pytest
 
-from dcc_mcp_core import ActionResultModel
+from dcc_mcp_core import ToolResult
 from dcc_mcp_core import error_result
 from dcc_mcp_core import from_exception
 from dcc_mcp_core import success_result
@@ -60,7 +60,7 @@ class TestSuccessResult:
 
     def test_returns_action_result_model_instance(self):
         r = success_result("ok")
-        assert isinstance(r, ActionResultModel)
+        assert isinstance(r, ToolResult)
 
     def test_multiple_context_kwargs(self):
         r = success_result("batch", count=5, success_rate=1.0, dcc="maya")
@@ -113,7 +113,7 @@ class TestErrorResult:
 
     def test_returns_action_result_model_instance(self):
         r = error_result("fail", error="e")
-        assert isinstance(r, ActionResultModel)
+        assert isinstance(r, ToolResult)
 
 
 # ---------------------------------------------------------------------------
@@ -159,11 +159,11 @@ class TestFromException:
 
     def test_returns_action_result_model(self):
         r = from_exception("err")
-        assert isinstance(r, ActionResultModel)
+        assert isinstance(r, ToolResult)
 
 
 # ---------------------------------------------------------------------------
-# ActionResultModel.with_error()
+# ToolResult.with_error()
 # ---------------------------------------------------------------------------
 
 
@@ -197,7 +197,7 @@ class TestWithError:
 
 
 # ---------------------------------------------------------------------------
-# ActionResultModel.with_context()
+# ToolResult.with_context()
 # ---------------------------------------------------------------------------
 
 
@@ -237,7 +237,7 @@ class TestWithContext:
 
 
 # ---------------------------------------------------------------------------
-# ActionResultModel.to_dict()
+# ToolResult.to_dict()
 # ---------------------------------------------------------------------------
 
 
@@ -281,31 +281,31 @@ class TestToDict:
 
 
 # ---------------------------------------------------------------------------
-# ActionResultModel equality / repr / str
+# ToolResult equality / repr / str
 # ---------------------------------------------------------------------------
 
 
 class TestActionResultModelMisc:
     def test_equality_same_values(self):
-        r1 = ActionResultModel(success=True, message="ok")
-        r2 = ActionResultModel(success=True, message="ok")
+        r1 = ToolResult(success=True, message="ok")
+        r2 = ToolResult(success=True, message="ok")
         assert r1 == r2
 
     def test_inequality_different_success(self):
-        r1 = ActionResultModel(success=True, message="ok")
-        r2 = ActionResultModel(success=False, message="ok")
+        r1 = ToolResult(success=True, message="ok")
+        r2 = ToolResult(success=False, message="ok")
         assert r1 != r2
 
     def test_repr_contains_class(self):
         r = success_result("ok")
-        assert "ActionResultModel" in repr(r) or "success" in repr(r).lower()
+        assert "ToolResult" in repr(r) or "success" in repr(r).lower()
 
     def test_str_non_empty(self):
         r = success_result("ok")
         assert len(str(r)) > 0
 
     def test_direct_constructor(self):
-        r = ActionResultModel(
+        r = ToolResult(
             success=True,
             message="direct",
             prompt="hint",
@@ -327,34 +327,34 @@ class TestValidateActionResult:
     def test_passes_through_action_result_model(self):
         r = success_result("ok")
         validated = validate_action_result(r)
-        assert isinstance(validated, ActionResultModel)
+        assert isinstance(validated, ToolResult)
         assert validated.success is True
 
     def test_wraps_dict_with_success_true(self):
         d = {"success": True, "message": "ok"}
         validated = validate_action_result(d)
-        assert isinstance(validated, ActionResultModel)
+        assert isinstance(validated, ToolResult)
         assert validated.success is True
 
     def test_wraps_dict_with_success_false(self):
         d = {"success": False, "message": "fail", "error": "oops"}
         validated = validate_action_result(d)
-        assert isinstance(validated, ActionResultModel)
+        assert isinstance(validated, ToolResult)
         assert validated.success is False
 
     def test_wraps_none_as_success_true(self):
         validated = validate_action_result(None)
-        assert isinstance(validated, ActionResultModel)
+        assert isinstance(validated, ToolResult)
         # None result implies success with no output
         assert isinstance(validated.success, bool)
 
     def test_wraps_string_message(self):
         validated = validate_action_result("all good")
-        assert isinstance(validated, ActionResultModel)
+        assert isinstance(validated, ToolResult)
         # String should map to success result with that message
         assert isinstance(validated.message, str)
 
     def test_returns_action_result_model_type(self):
         for value in [None, "ok", {"success": True, "message": "x"}, success_result("y")]:
             result = validate_action_result(value)
-            assert isinstance(result, ActionResultModel), f"Failed for value={value!r}"
+            assert isinstance(result, ToolResult), f"Failed for value={value!r}"

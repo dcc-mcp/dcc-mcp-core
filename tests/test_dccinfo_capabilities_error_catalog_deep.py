@@ -362,84 +362,84 @@ class TestDccErrorCreate:
 
 
 # ── SkillCatalog ──────────────────────────────────────────────────────────────
-# Note: SkillCatalog(registry) takes an ActionRegistry, not SkillScanner.
-# The pyi stub shows SkillScanner but the runtime API accepts ActionRegistry.
+# Note: SkillCatalog(registry) takes an ToolRegistry, not SkillScanner.
+# The pyi stub shows SkillScanner but the runtime API accepts ToolRegistry.
 
 
 class TestSkillCatalogCreate:
     def test_create_with_registry(self):
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         catalog = dcc_mcp_core.SkillCatalog(reg)
         assert catalog is not None
 
     def test_repr_is_str(self):
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         catalog = dcc_mcp_core.SkillCatalog(reg)
         assert isinstance(repr(catalog), str)
 
     def test_list_skills_empty_initially(self):
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         catalog = dcc_mcp_core.SkillCatalog(reg)
         skills = catalog.list_skills()
         assert isinstance(skills, list)
 
     def test_loaded_count_zero_initially(self):
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         catalog = dcc_mcp_core.SkillCatalog(reg)
         assert catalog.loaded_count() == 0
 
     def test_discover_no_paths(self):
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         catalog = dcc_mcp_core.SkillCatalog(reg)
         # Should not raise
         catalog.discover()
 
     def test_discover_with_extra_paths_nonexistent(self):
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         catalog = dcc_mcp_core.SkillCatalog(reg)
         catalog.discover(extra_paths=["/nonexistent/path/xyz"])
         skills = catalog.list_skills()
         assert isinstance(skills, list)
 
     def test_discover_with_dcc_name(self):
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         catalog = dcc_mcp_core.SkillCatalog(reg)
         catalog.discover(dcc_name="maya")
         skills = catalog.list_skills()
         assert isinstance(skills, list)
 
     def test_find_skills_no_args(self):
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         catalog = dcc_mcp_core.SkillCatalog(reg)
         results = catalog.find_skills()
         assert isinstance(results, list)
 
     def test_find_skills_with_query(self):
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         catalog = dcc_mcp_core.SkillCatalog(reg)
         results = catalog.find_skills(query="maya")
         assert isinstance(results, list)
 
     def test_find_skills_with_tags(self):
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         catalog = dcc_mcp_core.SkillCatalog(reg)
         results = catalog.find_skills(tags=["geometry"])
         assert isinstance(results, list)
 
     def test_find_skills_with_dcc(self):
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         catalog = dcc_mcp_core.SkillCatalog(reg)
         results = catalog.find_skills(dcc="maya")
         assert isinstance(results, list)
 
     def test_find_skills_combined_filters(self):
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         catalog = dcc_mcp_core.SkillCatalog(reg)
         results = catalog.find_skills(query="sphere", tags=["create"], dcc="maya")
         assert isinstance(results, list)
 
     def test_load_skill_nonexistent_raises_or_false(self):
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         catalog = dcc_mcp_core.SkillCatalog(reg)
         # Unknown skill: either returns False/empty list or raises ValueError
         try:
@@ -449,7 +449,7 @@ class TestSkillCatalogCreate:
             pass  # expected when skill not found
 
     def test_unload_skill_nonexistent_raises_or_false(self):
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         catalog = dcc_mcp_core.SkillCatalog(reg)
         try:
             result = catalog.unload_skill("nonexistent-skill-xyz")
@@ -458,38 +458,38 @@ class TestSkillCatalogCreate:
             pass
 
     def test_is_loaded_nonexistent_false(self):
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         catalog = dcc_mcp_core.SkillCatalog(reg)
         assert catalog.is_loaded("nonexistent-skill-xyz") is False
 
     def test_get_skill_info_nonexistent_returns_none(self):
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         catalog = dcc_mcp_core.SkillCatalog(reg)
         result = catalog.get_skill_info("nonexistent-skill-xyz")
         assert result is None
 
     def test_list_skills_status_loaded_empty(self):
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         catalog = dcc_mcp_core.SkillCatalog(reg)
         skills = catalog.list_skills(status="loaded")
         assert isinstance(skills, list)
         assert len(skills) == 0
 
     def test_list_skills_status_unloaded(self):
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         catalog = dcc_mcp_core.SkillCatalog(reg)
         skills = catalog.list_skills(status="unloaded")
         assert isinstance(skills, list)
 
     def test_discover_returns_none_or_int(self):
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         catalog = dcc_mcp_core.SkillCatalog(reg)
         result = catalog.discover()
         # discover() may return None or int count
         assert result is None or isinstance(result, int)
 
     def test_loaded_count_returns_int(self):
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         catalog = dcc_mcp_core.SkillCatalog(reg)
         count = catalog.loaded_count()
         assert isinstance(count, int)
@@ -503,7 +503,7 @@ class TestSkillCatalogWithRealSkills:
     def catalog_with_skills(self):
         """Create catalog with actual skill examples."""
         skills_dir = Path(__file__).parent.parent / "examples" / "skills"
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         catalog = dcc_mcp_core.SkillCatalog(reg)
         if skills_dir.is_dir():
             catalog.discover(extra_paths=[str(skills_dir)])
@@ -583,7 +583,7 @@ class TestSkillSummaryFields:
     @pytest.fixture
     def first_summary(self):
         skills_dir = Path(__file__).parent.parent / "examples" / "skills"
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         catalog = dcc_mcp_core.SkillCatalog(reg)
         if skills_dir.is_dir():
             catalog.discover(extra_paths=[str(skills_dir)])

@@ -118,7 +118,7 @@ Returns recent action invocations with outcome (success/denied) and timestamps.
 
 ### `dcc_diagnostics__action_metrics`
 
-Inspect per-action performance counters from `dcc_mcp_core.ActionRecorder`:
+Inspect per-action performance counters from `dcc_mcp_core.ToolRecorder`:
 invocation count, success rate, average latency, P95/P99 percentiles.
 
 ### `dcc_diagnostics__process_status`

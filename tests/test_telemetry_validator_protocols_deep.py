@@ -1,4 +1,4 @@
-"""Deep tests for TelemetryConfig, ActionValidator, InputValidator.
+"""Deep tests for TelemetryConfig, ToolValidator, InputValidator.
 
 Also covers ToolDefinition, ToolAnnotations, PromptDefinition, PromptArgument,
 ResourceDefinition, ResourceAnnotations, DccInfo, DccCapabilities,
@@ -96,11 +96,11 @@ class TestTelemetryConfig:
 
 
 class TestActionValidator:
-    def _make_validator(self, props: dict, required: list | None = None) -> dcc_mcp_core.ActionValidator:
+    def _make_validator(self, props: dict, required: list | None = None) -> dcc_mcp_core.ToolValidator:
         schema = {"type": "object", "properties": props}
         if required:
             schema["required"] = required
-        return dcc_mcp_core.ActionValidator.from_schema_json(json.dumps(schema))
+        return dcc_mcp_core.ToolValidator.from_schema_json(json.dumps(schema))
 
     def test_valid_input(self) -> None:
         v = self._make_validator({"radius": {"type": "number"}})
@@ -150,25 +150,25 @@ class TestActionValidator:
         assert ok is False
 
     def test_from_action_registry_valid(self) -> None:
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         schema = json.dumps({"type": "object", "properties": {"r": {"type": "number"}}})
         reg.register("sphere", description="Create sphere", category="geo", input_schema=schema)
-        av = dcc_mcp_core.ActionValidator.from_action_registry(reg, "sphere")
+        av = dcc_mcp_core.ToolValidator.from_action_registry(reg, "sphere")
         ok, _errs = av.validate(json.dumps({"r": 2.0}))
         assert ok is True
 
     def test_from_action_registry_invalid(self) -> None:
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         schema = json.dumps({"type": "object", "properties": {"r": {"type": "number"}}})
         reg.register("sphere", description="Create sphere", category="geo", input_schema=schema)
-        av = dcc_mcp_core.ActionValidator.from_action_registry(reg, "sphere")
+        av = dcc_mcp_core.ToolValidator.from_action_registry(reg, "sphere")
         ok, _errs = av.validate(json.dumps({"r": "bad"}))
         assert ok is False
 
     def test_from_schema_json_repr(self) -> None:
         v = self._make_validator({"x": {"type": "number"}})
         r = repr(v)
-        assert "ActionValidator" in r
+        assert "ToolValidator" in r
 
     def test_boolean_field(self) -> None:
         v = self._make_validator({"flag": {"type": "boolean"}})

@@ -1,4 +1,4 @@
-"""Tests for ActionPipeline middleware edge cases, PySharedSceneBuffer, PyBufferPool, TransportManager.
+"""Tests for ToolPipeline middleware edge cases, PySharedSceneBuffer, PyBufferPool, TransportManager.
 
 New test classes (target: ~120 tests):
 
@@ -21,12 +21,13 @@ import time
 # Import third-party modules
 import pytest
 
-# Import local modules
-from dcc_mcp_core import ActionDispatcher
-from dcc_mcp_core import ActionPipeline
-from dcc_mcp_core import ActionRegistry
 from dcc_mcp_core import PyBufferPool
 from dcc_mcp_core import PySharedSceneBuffer
+
+# Import local modules
+from dcc_mcp_core import ToolDispatcher
+from dcc_mcp_core import ToolPipeline
+from dcc_mcp_core import ToolRegistry
 from dcc_mcp_core import TransportManager
 
 # ---------------------------------------------------------------------------
@@ -34,15 +35,15 @@ from dcc_mcp_core import TransportManager
 # ---------------------------------------------------------------------------
 
 
-def _make_pipeline(action_names: list[str]) -> tuple[ActionPipeline, ActionRegistry]:
+def _make_pipeline(action_names: list[str]) -> tuple[ToolPipeline, ToolRegistry]:
     """Return (pipeline, registry) with each action registered and handled."""
-    reg = ActionRegistry()
+    reg = ToolRegistry()
     for name in action_names:
         reg.register(name, description=f"action {name}", category="test")
-    dispatcher = ActionDispatcher(reg)
+    dispatcher = ToolDispatcher(reg)
     for name in action_names:
         dispatcher.register_handler(name, lambda params, n=name: {"action": n, "ok": True})
-    pipeline = ActionPipeline(dispatcher)
+    pipeline = ToolPipeline(dispatcher)
     return pipeline, reg
 
 
@@ -407,10 +408,10 @@ class TestPythonCallableMiddleware:
 
     def test_callable_handler_registered_directly_on_pipeline(self):
         _pipeline, _ = _make_pipeline([])
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("direct", description="direct", category="test")
-        dispatcher = ActionDispatcher(reg)
-        p2 = ActionPipeline(dispatcher)
+        dispatcher = ToolDispatcher(reg)
+        p2 = ToolPipeline(dispatcher)
         p2.register_handler("direct", lambda params: {"direct": True})
         result = p2.dispatch("direct", "{}")
         assert result["output"]["direct"] is True

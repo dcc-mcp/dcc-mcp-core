@@ -1,4 +1,4 @@
-"""Deep behavioral tests for McpHttpServer/ServerHandle, DccInfo/DccCapabilities, and skills.
+"""Deep behavioral tests for McpHttpServer/McpServerHandle, DccInfo/DccCapabilities, and skills.
 
 Covers: SkillScanner, parse_skill_md, scan_and_load, scan_and_load_lenient,
 scan_skill_paths, resolve_dependencies, expand_transitive_dependencies,
@@ -31,12 +31,12 @@ import tempfile
 import pytest
 
 import dcc_mcp_core as d
-from dcc_mcp_core import ActionRegistry
 from dcc_mcp_core import DccCapabilities
 from dcc_mcp_core import DccInfo
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
 from dcc_mcp_core import SkillScanner
+from dcc_mcp_core import ToolRegistry
 from dcc_mcp_core import expand_transitive_dependencies
 from dcc_mcp_core import parse_skill_md
 from dcc_mcp_core import resolve_dependencies
@@ -163,15 +163,15 @@ class TestMcpHttpConfigAttributes:
 
 
 class TestMcpHttpServerStartHandle:
-    """Verify McpHttpServer.start() returns a working ServerHandle."""
+    """Verify McpHttpServer.start() returns a working McpServerHandle."""
 
     def _make_server(self, port: int = 0) -> McpHttpServer:
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("ping", description="Ping action", category="test")
         return McpHttpServer(reg, McpHttpConfig(port=port))
 
     def test_start_returns_handle(self) -> None:
-        """start() returns a ServerHandle instance."""
+        """start() returns a McpServerHandle instance."""
         server = self._make_server()
         handle = server.start()
         try:
@@ -269,8 +269,8 @@ class TestMcpHttpServerStartHandle:
             h2.shutdown()
 
     def test_server_with_empty_registry(self) -> None:
-        """Server starts successfully even with an empty ActionRegistry."""
-        reg = ActionRegistry()
+        """Server starts successfully even with an empty ToolRegistry."""
+        reg = ToolRegistry()
         server = McpHttpServer(reg, McpHttpConfig(port=0))
         handle = server.start()
         try:
@@ -285,14 +285,14 @@ class TestMcpHttpServerStartHandle:
 
 
 class TestServerHandleAttributes:
-    """Detailed attribute checks on ServerHandle."""
+    """Detailed attribute checks on McpServerHandle."""
 
     @pytest.fixture()
     def handle(self):
         """Start a server, yield handle, then shut down."""
         import contextlib
 
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         server = McpHttpServer(reg, McpHttpConfig(port=0))
         h = server.start()
         yield h
@@ -300,8 +300,8 @@ class TestServerHandleAttributes:
             h.shutdown()
 
     def test_handle_type_name(self, handle) -> None:
-        """Handle type name contains 'ServerHandle'."""
-        assert "ServerHandle" in type(handle).__name__
+        """Handle type name contains 'McpServerHandle'."""
+        assert "McpServerHandle" in type(handle).__name__
 
     def test_port_is_int(self, handle) -> None:
         """handle.port is an integer."""
@@ -328,11 +328,11 @@ class TestServerHandleAttributes:
         assert "127.0.0.1" in handle.mcp_url()
 
     def test_shutdown_method_exists(self, handle) -> None:
-        """ServerHandle has a shutdown() method."""
+        """McpServerHandle has a shutdown() method."""
         assert callable(getattr(handle, "shutdown", None))
 
     def test_signal_shutdown_method_exists(self, handle) -> None:
-        """ServerHandle has a signal_shutdown() method."""
+        """McpServerHandle has a signal_shutdown() method."""
         assert callable(getattr(handle, "signal_shutdown", None))
 
     def test_mcp_url_not_empty(self, handle) -> None:

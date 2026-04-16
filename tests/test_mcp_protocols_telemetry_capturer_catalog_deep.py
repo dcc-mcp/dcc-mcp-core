@@ -859,7 +859,7 @@ EXAMPLES_SKILLS_DIR = str((Path(__file__).parent / ".." / "examples" / "skills")
 class TestSkillSummary:
     @pytest.fixture
     def catalog_with_skills(self):
-        reg = m.ActionRegistry()
+        reg = m.ToolRegistry()
         cat = m.SkillCatalog(reg)
         cat.discover(extra_paths=[EXAMPLES_SKILLS_DIR])
         return cat
@@ -933,34 +933,34 @@ class TestSkillSummary:
 
 class TestSkillCatalog:
     def test_empty_catalog(self):
-        reg = m.ActionRegistry()
+        reg = m.ToolRegistry()
         cat = m.SkillCatalog(reg)
         assert cat.loaded_count() == 0
         assert cat.list_skills() == []
 
     def test_discover_returns_count(self):
-        reg = m.ActionRegistry()
+        reg = m.ToolRegistry()
         cat = m.SkillCatalog(reg)
         count = cat.discover(extra_paths=[EXAMPLES_SKILLS_DIR])
         assert isinstance(count, int)
         assert count > 0
 
     def test_discover_populates_list(self):
-        reg = m.ActionRegistry()
+        reg = m.ToolRegistry()
         cat = m.SkillCatalog(reg)
         cat.discover(extra_paths=[EXAMPLES_SKILLS_DIR])
         items = cat.list_skills()
         assert len(items) > 0
 
     def test_is_loaded_false_before_load(self):
-        reg = m.ActionRegistry()
+        reg = m.ToolRegistry()
         cat = m.SkillCatalog(reg)
         cat.discover(extra_paths=[EXAMPLES_SKILLS_DIR])
         s = cat.list_skills()[0]
         assert cat.is_loaded(s.name) is False
 
     def test_load_skill_returns_action_names(self):
-        reg = m.ActionRegistry()
+        reg = m.ToolRegistry()
         cat = m.SkillCatalog(reg)
         cat.discover(extra_paths=[EXAMPLES_SKILLS_DIR])
         s = cat.list_skills()[0]
@@ -968,7 +968,7 @@ class TestSkillCatalog:
         assert isinstance(result, list)
 
     def test_is_loaded_true_after_load(self):
-        reg = m.ActionRegistry()
+        reg = m.ToolRegistry()
         cat = m.SkillCatalog(reg)
         cat.discover(extra_paths=[EXAMPLES_SKILLS_DIR])
         s = cat.list_skills()[0]
@@ -976,7 +976,7 @@ class TestSkillCatalog:
         assert cat.is_loaded(s.name) is True
 
     def test_loaded_count_after_load(self):
-        reg = m.ActionRegistry()
+        reg = m.ToolRegistry()
         cat = m.SkillCatalog(reg)
         cat.discover(extra_paths=[EXAMPLES_SKILLS_DIR])
         s = cat.list_skills()[0]
@@ -984,7 +984,7 @@ class TestSkillCatalog:
         assert cat.loaded_count() == 1
 
     def test_unload_skill_returns_count(self):
-        reg = m.ActionRegistry()
+        reg = m.ToolRegistry()
         cat = m.SkillCatalog(reg)
         cat.discover(extra_paths=[EXAMPLES_SKILLS_DIR])
         s = cat.list_skills()[0]
@@ -993,7 +993,7 @@ class TestSkillCatalog:
         assert isinstance(result, int)
 
     def test_is_loaded_false_after_unload(self):
-        reg = m.ActionRegistry()
+        reg = m.ToolRegistry()
         cat = m.SkillCatalog(reg)
         cat.discover(extra_paths=[EXAMPLES_SKILLS_DIR])
         s = cat.list_skills()[0]
@@ -1002,7 +1002,7 @@ class TestSkillCatalog:
         assert cat.is_loaded(s.name) is False
 
     def test_loaded_count_decreases_after_unload(self):
-        reg = m.ActionRegistry()
+        reg = m.ToolRegistry()
         cat = m.SkillCatalog(reg)
         cat.discover(extra_paths=[EXAMPLES_SKILLS_DIR])
         s = cat.list_skills()[0]
@@ -1011,7 +1011,7 @@ class TestSkillCatalog:
         assert cat.loaded_count() == 0
 
     def test_get_skill_info_returns_dict(self):
-        reg = m.ActionRegistry()
+        reg = m.ToolRegistry()
         cat = m.SkillCatalog(reg)
         cat.discover(extra_paths=[EXAMPLES_SKILLS_DIR])
         s = cat.list_skills()[0]
@@ -1019,7 +1019,7 @@ class TestSkillCatalog:
         assert isinstance(info, dict)
 
     def test_get_skill_info_has_name_key(self):
-        reg = m.ActionRegistry()
+        reg = m.ToolRegistry()
         cat = m.SkillCatalog(reg)
         cat.discover(extra_paths=[EXAMPLES_SKILLS_DIR])
         s = cat.list_skills()[0]
@@ -1028,25 +1028,25 @@ class TestSkillCatalog:
         assert info["name"] == s.name
 
     def test_get_skill_info_nonexistent_returns_none(self):
-        reg = m.ActionRegistry()
+        reg = m.ToolRegistry()
         cat = m.SkillCatalog(reg)
         result = cat.get_skill_info("no-such-skill")
         assert result is None
 
     def test_is_loaded_nonexistent_false(self):
-        reg = m.ActionRegistry()
+        reg = m.ToolRegistry()
         cat = m.SkillCatalog(reg)
         assert cat.is_loaded("no-such-skill") is False
 
     def test_find_skills_all(self):
-        reg = m.ActionRegistry()
+        reg = m.ToolRegistry()
         cat = m.SkillCatalog(reg)
         cat.discover(extra_paths=[EXAMPLES_SKILLS_DIR])
         found = cat.find_skills()
         assert len(found) > 0
 
     def test_find_skills_by_query(self):
-        reg = m.ActionRegistry()
+        reg = m.ToolRegistry()
         cat = m.SkillCatalog(reg)
         cat.discover(extra_paths=[EXAMPLES_SKILLS_DIR])
         found = cat.find_skills(query="maya")
@@ -1058,21 +1058,21 @@ class TestSkillCatalog:
         assert any("maya" in s.name.lower() or "maya" in s.dcc.lower() for s in found)
 
     def test_find_skills_by_dcc(self):
-        reg = m.ActionRegistry()
+        reg = m.ToolRegistry()
         cat = m.SkillCatalog(reg)
         cat.discover(extra_paths=[EXAMPLES_SKILLS_DIR])
         found = cat.find_skills(dcc="maya")
         assert all(s.dcc == "maya" for s in found)
 
     def test_find_skills_no_match_empty(self):
-        reg = m.ActionRegistry()
+        reg = m.ToolRegistry()
         cat = m.SkillCatalog(reg)
         cat.discover(extra_paths=[EXAMPLES_SKILLS_DIR])
         found = cat.find_skills(query="zzz_no_such_skill_zzz")
         assert found == []
 
     def test_info_has_state_key(self):
-        reg = m.ActionRegistry()
+        reg = m.ToolRegistry()
         cat = m.SkillCatalog(reg)
         cat.discover(extra_paths=[EXAMPLES_SKILLS_DIR])
         s = cat.list_skills()[0]
@@ -1080,7 +1080,7 @@ class TestSkillCatalog:
         assert "state" in info
 
     def test_info_state_discovered_before_load(self):
-        reg = m.ActionRegistry()
+        reg = m.ToolRegistry()
         cat = m.SkillCatalog(reg)
         cat.discover(extra_paths=[EXAMPLES_SKILLS_DIR])
         s = cat.list_skills()[0]
@@ -1088,7 +1088,7 @@ class TestSkillCatalog:
         assert info["state"] == "discovered"
 
     def test_info_state_loaded_after_load(self):
-        reg = m.ActionRegistry()
+        reg = m.ToolRegistry()
         cat = m.SkillCatalog(reg)
         cat.discover(extra_paths=[EXAMPLES_SKILLS_DIR])
         s = cat.list_skills()[0]
@@ -1098,7 +1098,7 @@ class TestSkillCatalog:
         cat.unload_skill(s.name)
 
     def test_attrs_complete(self):
-        reg = m.ActionRegistry()
+        reg = m.ToolRegistry()
         cat = m.SkillCatalog(reg)
         attrs = [a for a in dir(cat) if not a.startswith("_")]
         for attr in [
@@ -1143,21 +1143,21 @@ class TestLoggingMiddleware:
         assert "log_params" in attrs
 
     def test_pipeline_add_logging(self):
-        reg = m.ActionRegistry()
+        reg = m.ToolRegistry()
         reg.register("test_action", description="Test")
-        dispatcher = m.ActionDispatcher(reg)
+        dispatcher = m.ToolDispatcher(reg)
         dispatcher.register_handler("test_action", lambda p: {"ok": True})
-        pipeline = m.ActionPipeline(dispatcher)
+        pipeline = m.ToolPipeline(dispatcher)
         # add_logging() may return None or LoggingMiddleware depending on version
         pipeline.add_logging(log_params=True)
         assert "logging" in pipeline.middleware_names()
 
     def test_pipeline_logging_middleware_visible(self):
-        reg = m.ActionRegistry()
+        reg = m.ToolRegistry()
         reg.register("test_action", description="Test")
-        dispatcher = m.ActionDispatcher(reg)
+        dispatcher = m.ToolDispatcher(reg)
         dispatcher.register_handler("test_action", lambda p: True)
-        pipeline = m.ActionPipeline(dispatcher)
+        pipeline = m.ToolPipeline(dispatcher)
         pipeline.add_logging()
         assert "logging" in pipeline.middleware_names()
 
@@ -1187,20 +1187,20 @@ class TestTimingMiddleware:
         assert "last_elapsed_ms" in attrs
 
     def test_pipeline_add_timing(self):
-        reg = m.ActionRegistry()
+        reg = m.ToolRegistry()
         reg.register("timed_action", description="Timed")
-        dispatcher = m.ActionDispatcher(reg)
+        dispatcher = m.ToolDispatcher(reg)
         dispatcher.register_handler("timed_action", lambda p: True)
-        pipeline = m.ActionPipeline(dispatcher)
+        pipeline = m.ToolPipeline(dispatcher)
         tm = pipeline.add_timing()
         assert isinstance(tm, m.TimingMiddleware)
 
     def test_timing_after_dispatch(self):
-        reg = m.ActionRegistry()
+        reg = m.ToolRegistry()
         reg.register("timed_action", description="Timed")
-        dispatcher = m.ActionDispatcher(reg)
+        dispatcher = m.ToolDispatcher(reg)
         dispatcher.register_handler("timed_action", lambda p: True)
-        pipeline = m.ActionPipeline(dispatcher)
+        pipeline = m.ToolPipeline(dispatcher)
         tm = pipeline.add_timing()
         pipeline.dispatch("timed_action", "{}")
         elapsed = tm.last_elapsed_ms("timed_action")
@@ -1208,11 +1208,11 @@ class TestTimingMiddleware:
         assert elapsed >= 0
 
     def test_timing_in_middleware_names(self):
-        reg = m.ActionRegistry()
+        reg = m.ToolRegistry()
         reg.register("x", description="x")
-        dispatcher = m.ActionDispatcher(reg)
+        dispatcher = m.ToolDispatcher(reg)
         dispatcher.register_handler("x", lambda p: True)
-        pipeline = m.ActionPipeline(dispatcher)
+        pipeline = m.ToolPipeline(dispatcher)
         pipeline.add_timing()
         assert "timing" in pipeline.middleware_names()
 
@@ -1253,29 +1253,29 @@ class TestRateLimitMiddleware:
             assert attr in attrs
 
     def test_pipeline_add_rate_limit(self):
-        reg = m.ActionRegistry()
+        reg = m.ToolRegistry()
         reg.register("rate_action", description="Rate limited")
-        dispatcher = m.ActionDispatcher(reg)
+        dispatcher = m.ToolDispatcher(reg)
         dispatcher.register_handler("rate_action", lambda p: True)
-        pipeline = m.ActionPipeline(dispatcher)
+        pipeline = m.ToolPipeline(dispatcher)
         rlm = pipeline.add_rate_limit(max_calls=5, window_ms=1000)
         assert isinstance(rlm, m.RateLimitMiddleware)
 
     def test_rate_limit_in_middleware_names(self):
-        reg = m.ActionRegistry()
+        reg = m.ToolRegistry()
         reg.register("x", description="x")
-        dispatcher = m.ActionDispatcher(reg)
+        dispatcher = m.ToolDispatcher(reg)
         dispatcher.register_handler("x", lambda p: True)
-        pipeline = m.ActionPipeline(dispatcher)
+        pipeline = m.ToolPipeline(dispatcher)
         pipeline.add_rate_limit(max_calls=5, window_ms=500)
         assert "rate_limit" in pipeline.middleware_names()
 
     def test_call_count_increments(self):
-        reg = m.ActionRegistry()
+        reg = m.ToolRegistry()
         reg.register("counted_action", description="Counted")
-        dispatcher = m.ActionDispatcher(reg)
+        dispatcher = m.ToolDispatcher(reg)
         dispatcher.register_handler("counted_action", lambda p: True)
-        pipeline = m.ActionPipeline(dispatcher)
+        pipeline = m.ToolPipeline(dispatcher)
         rlm = pipeline.add_rate_limit(max_calls=100, window_ms=60000)
         pipeline.dispatch("counted_action", "{}")
         pipeline.dispatch("counted_action", "{}")
@@ -1283,11 +1283,11 @@ class TestRateLimitMiddleware:
         assert count >= 2
 
     def test_rate_limit_exceeded_raises(self):
-        reg = m.ActionRegistry()
+        reg = m.ToolRegistry()
         reg.register("limited", description="Limited")
-        dispatcher = m.ActionDispatcher(reg)
+        dispatcher = m.ToolDispatcher(reg)
         dispatcher.register_handler("limited", lambda p: True)
-        pipeline = m.ActionPipeline(dispatcher)
+        pipeline = m.ToolPipeline(dispatcher)
         pipeline.add_rate_limit(max_calls=2, window_ms=60000)
         pipeline.dispatch("limited", "{}")
         pipeline.dispatch("limited", "{}")

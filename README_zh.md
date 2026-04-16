@@ -153,7 +153,7 @@ pip install -e .
 import json
 from pathlib import Path
 from dcc_mcp_core import (
-    ActionRegistry, ActionDispatcher,
+    ToolRegistry, ToolDispatcher,
     EventBus, success_result, scan_and_load
 )
 
@@ -161,8 +161,8 @@ from dcc_mcp_core import (
 skills, skipped = scan_and_load(dcc_name="maya")
 print(f"已加载 {len(skills)} 个技能包，跳过 {len(skipped)} 个")
 
-# 2. 将发现的 Skills 注册到 ActionRegistry
-registry = ActionRegistry()
+# 2. 将发现的 Skills 注册到 ToolRegistry
+registry = ToolRegistry()
 from pathlib import Path
 for skill in skills:
     for script_path in skill.scripts:
@@ -171,7 +171,7 @@ for skill in skills:
         registry.register(name=skill_name, description=skill.description, dcc=skill.dcc)
 
 # 3. 创建调度器并注册处理函数
-dispatcher = ActionDispatcher(registry)
+dispatcher = ToolDispatcher(registry)
 dispatcher.register_handler(
     "maya_geometry__create_sphere",
     lambda params: {"object_name": "pSphere1", "radius": params.get("radius", 1.0)},
@@ -232,7 +232,7 @@ sys.exit(0)
 import os
 os.environ["DCC_MCP_SKILL_PATHS"] = "/path/to/my-tool"
 
-from dcc_mcp_core import scan_and_load, ActionRegistry, ActionDispatcher
+from dcc_mcp_core import scan_and_load, ToolRegistry, ToolDispatcher
 
 skills, _ = scan_and_load(dcc_name="maya")
 # 工具为：maya_cleanup__cleanup，带结构化结果
@@ -288,12 +288,12 @@ my-skills/
 
 ## 核心概念
 
-### ActionResultModel — AI 友好的结构化结果
+### ToolResult — AI 友好的结构化结果
 
-所有技能执行结果使用 `ActionResultModel`，专为 AI 设计，带有结构化上下文和下一步建议：
+所有技能执行结果使用 `ToolResult`，专为 AI 设计，带有结构化上下文和下一步建议：
 
 ```python
-from dcc_mcp_core import ActionResultModel, success_result, error_result
+from dcc_mcp_core import ToolResult, success_result, error_result
 
 # 工厂函数（推荐）
 ok = success_result(
@@ -309,7 +309,7 @@ err = error_result(
 )
 
 # 直接构造
-result = ActionResultModel(
+result = ToolResult(
     success=True,
     message="操作完成",
     context={"key": "value"}
@@ -328,17 +328,17 @@ result.with_context(count=5)            # 新实例，带更新后的 context
 result.to_dict()                        # -> dict
 ```
 
-### ActionRegistry 与调度器 — 技能执行系统
+### ToolRegistry 与调度器 — 技能执行系统
 
 ```python
 import json
 from dcc_mcp_core import (
-    ActionRegistry, ActionDispatcher,
+    ToolRegistry, ToolDispatcher,
     EventBus, SemVer, VersionedRegistry, VersionConstraint
 )
 
 # 带版本支持的注册表
-registry = ActionRegistry()
+registry = ToolRegistry()
 registry.register(
     name="my_skill",
     description="执行某技能",
@@ -354,8 +354,8 @@ names = registry.list_actions_for_dcc("maya")
 all_skills = registry.list_actions()
 dccs = registry.get_all_dccs()
 
-# 带验证的调度器（ActionDispatcher 只接受 registry）
-dispatcher = ActionDispatcher(registry)
+# 带验证的调度器（ToolDispatcher 只接受 registry）
+dispatcher = ToolDispatcher(registry)
 dispatcher.register_handler("my_skill", lambda params: {"done": True, "param": params.get("param")})
 result = dispatcher.dispatch("my_skill", json.dumps({"param": "value"}))
 # result == {"action": "my_skill", "output": {"done": True, "param": "value"}, "validation_skipped": False}
@@ -418,8 +418,8 @@ dcc-mcp-core 组织为 **14 个 Rust Crate 工作区**，通过 PyO3/maturin 编
 
 | Crate | 职责 | 关键类型 |
 |-------|------|---------|
-| `dcc-mcp-models` | 数据模型 | `ActionResultModel`, `SkillMetadata` |
-| `dcc-mcp-actions` | 技能执行生命周期 | `ActionRegistry`, `EventBus`, `ActionDispatcher`, `ActionValidator`, `ActionPipeline` |
+| `dcc-mcp-models` | 数据模型 | `ToolResult`, `SkillMetadata` |
+| `dcc-mcp-actions` | 技能执行生命周期 | `ToolRegistry`, `EventBus`, `ToolDispatcher`, `ToolValidator`, `ToolPipeline` |
 | `dcc-mcp-skills` | 技能发现与加载 | `SkillScanner`, `SkillCatalog`, `SkillWatcher`, 依赖解析器 |
 | `dcc-mcp-protocols` | MCP 协议类型 | `ToolDefinition`, `ResourceDefinition`, `DccAdapter`, `BridgeKind` |
 | `dcc-mcp-transport` | IPC 通信 | `TransportManager`, `ConnectionPool`, `IpcListener`, `FramedChannel`, `CircuitBreaker`, `FileRegistry` |
@@ -427,9 +427,9 @@ dcc-mcp-core 组织为 **14 个 Rust Crate 工作区**，通过 PyO3/maturin 编
 | `dcc-mcp-sandbox` | 安全沙箱 | `SandboxPolicy`, `InputValidator`, `AuditLog` |
 | `dcc-mcp-shm` | 共享内存 | `SharedBuffer`, LZ4 压缩 |
 | `dcc-mcp-capture` | 屏幕捕获 | `Capturer`, 跨平台后端 |
-| `dcc-mcp-telemetry` | 可观测性 | `TelemetryConfig`, `ActionMetrics`, tracing |
+| `dcc-mcp-telemetry` | 可观测性 | `TelemetryConfig`, `ToolMetrics`, tracing |
 | `dcc-mcp-usd` | USD 场景 | `UsdStage`, `UsdPrim`, 场景信息桥接 |
-| `dcc-mcp-http` | MCP Streamable HTTP 服务器 | `McpHttpServer`, `McpHttpConfig`, `ServerHandle`, Gateway（首个获胜竞争） |
+| `dcc-mcp-http` | MCP Streamable HTTP 服务器 | `McpHttpServer`, `McpHttpConfig`, `McpServerHandle`, Gateway（首个获胜竞争） |
 | `dcc-mcp-server` | 二进制入口点 | `dcc-mcp-server` CLI、Gateway 运行器 |
 | `dcc-mcp-utils` | 基础设施 | 文件系统、类型封装、常量、JSON |
 

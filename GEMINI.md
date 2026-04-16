@@ -58,13 +58,13 @@ for every API area. The file is structured with a **Quick Decision Guide** table
 
 ```bash
 # Find the Rust struct behind a Python class
-grep -rn "struct ActionRegistry\|pyclass.*ActionRegistry" crates/ --include="*.rs"
+grep -rn "struct ToolRegistry\|pyclass.*ToolRegistry" crates/ --include="*.rs"
 
 # Find PyO3 bindings
 grep -rn "#\[pymethods\]" crates/dcc-mcp-actions/src/ --include="*.rs"
 
 # Find where a Python symbol is registered
-grep -n "ActionRegistry" src/lib.rs
+grep -n "ToolRegistry" src/lib.rs
 ```
 
 ### When Adding a New Python-Accessible Symbol
@@ -81,7 +81,7 @@ grep -n "ActionRegistry" src/lib.rs
 ```python
 from __future__ import annotations
 import pytest
-from dcc_mcp_core import success_result, error_result, ActionResultModel
+from dcc_mcp_core import success_result, error_result, ToolResult
 
 def test_result_creation():
     r = success_result("done", prompt="next step hint", count=5)
@@ -113,7 +113,7 @@ DCC_MCP_SKILL_PATHS env var
         ↓
   resolve_dependencies(skills)  # topological sort by 'depends' field
         ↓
-  SkillCatalog.load_skill(name) # on-demand: registers actions into ActionRegistry
+  SkillCatalog.load_skill(name) # on-demand: registers actions into ToolRegistry
         ↓
   ToolDefinition(...)           # expose as MCP tool to LLM
 ```
@@ -124,7 +124,7 @@ Action naming: `{skill_name}__{script_stem}` (hyphens → underscores, `__` sepa
 
 `tools/list` returns three tiers:
 1. **6 core tools** (always): `find_skills`, `list_skills`, `get_skill_info`, `load_skill`, `unload_skill`, `search_skills`
-2. **Loaded skill tools** — full `input_schema` from ActionRegistry
+2. **Loaded skill tools** — full `input_schema` from ToolRegistry
 3. **Unloaded skill stubs** — `__skill__<name>` with one-line description only
 
 Workflow: `search_skills(query="keyword")` → `load_skill("skill-name")` → use tools
@@ -146,14 +146,14 @@ search-hint: "polygon modeling, bevel, extrude, mesh editing"
 8. **scan_and_load returns tuple**: `(List[SkillMetadata], List[str])` — unpack both — `skills = scan_and_load(...)` is WRONG
 9. **`_core.pyi` is authoritative**: When unsure of param names/types, read stubs first
 10. **`.agents/` is gitignored**: Use `git add -f` for files there
-11. **`ActionDispatcher` takes ONE arg**: `ActionDispatcher(registry)` — no `validator=` param; method is `.dispatch(name, json_str)` not `.call()`
+11. **`ToolDispatcher` takes ONE arg**: `ToolDispatcher(registry)` — no `validator=` param; method is `.dispatch(name, json_str)` not `.call()`
 12. **`success_result` kwargs → context**: `success_result("msg", count=5)` → `context={"count":5}` — do NOT use `context=` keyword
 13. **`error_result` positional args**: `error_result("msg", "error string")` — not `error_result(message=..., error=...)`
 14. **`EventBus.subscribe` returns int**: Store the return value to unsubscribe later: `sub_id = bus.subscribe(...)`
 15. **`FramedChannel.call()` IS available** (v0.12.7+): Use `channel.call(method, params_bytes, timeout_ms)` for synchronous RPC. Use `send_request()` + `recv()` only for async/multiplexed patterns.
 16. **`IpcListener.bind(addr)`** creates listener (static method); `.accept()` blocks until client connects. There is no `.new()` or `.start()` method.
-17. **`McpServerHandle` is an alias**: `server.start()` returns `ServerHandle`; it is re-exported as `McpServerHandle` in `__init__.py`. Import as `from dcc_mcp_core import McpServerHandle`.
-18. **`McpHttpServer` registry population**: All actions must be registered in `ActionRegistry` BEFORE calling `server.start()`. The server reads metadata from the registry at startup.
+17. **`McpServerHandle` is an alias**: `server.start()` returns `McpServerHandle`; it is re-exported as `McpServerHandle` in `__init__.py`. Import as `from dcc_mcp_core import McpServerHandle`.
+18. **`McpHttpServer` registry population**: All actions must be registered in `ToolRegistry` BEFORE calling `server.start()`. The server reads metadata from the registry at startup.
 
 19. **MCP spec version awareness**: `McpHttpServer` implements 2025-03-26 spec. The 2025-06-18 version adds Structured Tool Output, Elicitation, Resource Links, and removes JSON-RPC batching. The 2025-11-25 version adds icon metadata, Tasks (persistent requests), Sampling with tool calls, URL pattern requests, OAuth Client ID Metadata Document, JSON Schema 2020-12. The 2026 roadmap focuses on transport scalability, agent communication (Tasks lifecycle), governance, and enterprise readiness. Do NOT implement these manually — wait for the library to add support.
 

@@ -3,9 +3,9 @@
 Covers:
 - SerializeFormat enum values (Json, MsgPack)
 - serialize_result returns str for Json, bytes for MsgPack
-- deserialize_result round-trip: Json str → ActionResultModel
-- deserialize_result round-trip: MsgPack bytes → ActionResultModel
-- All ActionResultModel fields preserved (success, message, prompt, error, context)
+- deserialize_result round-trip: Json str → ToolResult
+- deserialize_result round-trip: MsgPack bytes → ToolResult
+- All ToolResult fields preserved (success, message, prompt, error, context)
 - success_result / error_result / from_exception factories + round-trip
 - Context with nested structures (list, dict, int, float, bool, None)
 - Empty context round-trip
@@ -23,8 +23,8 @@ import json
 import pytest
 
 import dcc_mcp_core
-from dcc_mcp_core import ActionResultModel
 from dcc_mcp_core import SerializeFormat
+from dcc_mcp_core import ToolResult
 from dcc_mcp_core import deserialize_result
 from dcc_mcp_core import error_result
 from dcc_mcp_core import from_exception
@@ -37,8 +37,8 @@ from dcc_mcp_core import validate_action_result
 # ---------------------------------------------------------------------------
 
 
-def _assert_model_equal(a: ActionResultModel, b: ActionResultModel) -> None:
-    """Assert that two ActionResultModel instances have identical fields."""
+def _assert_model_equal(a: ToolResult, b: ToolResult) -> None:
+    """Assert that two ToolResult instances have identical fields."""
     assert a.success == b.success, f"success mismatch: {a.success!r} != {b.success!r}"
     assert a.message == b.message, f"message mismatch: {a.message!r} != {b.message!r}"
     assert a.prompt == b.prompt, f"prompt mismatch: {a.prompt!r} != {b.prompt!r}"
@@ -335,7 +335,7 @@ class TestLongContent:
 
 
 # ---------------------------------------------------------------------------
-# ActionResultModel.with_error / with_context round-trips
+# ToolResult.with_error / with_context round-trips
 # ---------------------------------------------------------------------------
 
 
@@ -550,7 +550,7 @@ class TestCrossFormatIncompatibility:
 
 
 # ---------------------------------------------------------------------------
-# ActionResultModel instance returned by deserialize
+# ToolResult instance returned by deserialize
 # ---------------------------------------------------------------------------
 
 
@@ -558,18 +558,18 @@ class TestDeserializeReturnsActionResultModel:
     def test_returns_action_result_model_type(self):
         arm = success_result("check type")
         restored = deserialize_result(serialize_result(arm))
-        assert isinstance(restored, ActionResultModel)
+        assert isinstance(restored, ToolResult)
 
     def test_msgpack_returns_action_result_model_type(self):
         arm = success_result("check type")
         serialized = serialize_result(arm, SerializeFormat.MsgPack)
         restored = deserialize_result(serialized, SerializeFormat.MsgPack)
-        assert isinstance(restored, ActionResultModel)
+        assert isinstance(restored, ToolResult)
 
     def test_restored_model_has_correct_api(self):
         arm = success_result("api check", key="val")
         restored = deserialize_result(serialize_result(arm))
-        # Should support all ActionResultModel operations
+        # Should support all ToolResult operations
         with_err = restored.with_error("new error")
         assert with_err.success is False
         with_ctx = restored.with_context(extra=42)

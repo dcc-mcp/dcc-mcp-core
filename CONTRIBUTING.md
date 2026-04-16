@@ -67,7 +67,7 @@ from pathlib import Path
 import pytest
 
 # Import local modules
-from dcc_mcp_core import ActionResultModel
+from dcc_mcp_core import ToolResult
 ```
 
 ### Type Hints
@@ -96,13 +96,13 @@ def register_action(self, name: str, **kwargs: Any) -> None:
 
 ```
 crates/                      # Rust workspace crates (core logic)
-├── dcc-mcp-models/          # ActionResultModel, SkillMetadata
-├── dcc-mcp-actions/         # ActionRegistry, ActionDispatcher, EventBus, ActionPipeline
+├── dcc-mcp-models/          # ToolResult, SkillMetadata
+├── dcc-mcp-actions/         # ToolRegistry, ToolDispatcher, EventBus, ToolPipeline
 ├── dcc-mcp-skills/          # SkillScanner, SkillCatalog, SkillWatcher, dependency resolver
 ├── dcc-mcp-protocols/       # MCP protocol types (Tool, Resource, Prompt, DccAdapter, BridgeKind)
 ├── dcc-mcp-transport/       # IPC, ConnectionPool, FramedChannel, CircuitBreaker, FileRegistry
 ├── dcc-mcp-process/         # PyDccLauncher, ProcessMonitor, CrashRecovery
-├── dcc-mcp-telemetry/       # TelemetryConfig, ActionRecorder, ActionMetrics
+├── dcc-mcp-telemetry/       # TelemetryConfig, ToolRecorder, ToolMetrics
 ├── dcc-mcp-sandbox/         # SandboxPolicy, InputValidator, AuditLog
 ├── dcc-mcp-shm/             # PyBufferPool, PySharedBuffer, LZ4 compression
 ├── dcc-mcp-capture/         # Capturer, cross-platform backends

@@ -1,13 +1,13 @@
-"""Deep tests for ActionPipeline.add_callable, encode/decode round-trips.
+"""Deep tests for ToolPipeline.add_callable, encode/decode round-trips.
 
-PySharedBuffer.descriptor_json, ActionRegistry.__len__, and PyProcessMonitor.
+PySharedBuffer.descriptor_json, ToolRegistry.__len__, and PyProcessMonitor.
 
 Covers:
 
-- ActionPipeline.add_callable: before/after_fn trigger, non-callable error
+- ToolPipeline.add_callable: before/after_fn trigger, non-callable error
 - encode_request / encode_response / encode_notify / decode_envelope round-trips
 - PySharedBuffer.descriptor_json structure and open() reconstruction
-- ActionRegistry.__len__ changes with register/unregister/reset
+- ToolRegistry.__len__ changes with register/unregister/reset
 - PyProcessMonitor: track/untrack/refresh/query/list_all/is_alive/tracked_count
 """
 
@@ -21,12 +21,13 @@ import struct
 # Import third-party modules
 import pytest
 
-# Import local modules
-from dcc_mcp_core import ActionDispatcher
-from dcc_mcp_core import ActionPipeline
-from dcc_mcp_core import ActionRegistry
 from dcc_mcp_core import PyProcessMonitor
 from dcc_mcp_core import PySharedBuffer
+
+# Import local modules
+from dcc_mcp_core import ToolDispatcher
+from dcc_mcp_core import ToolPipeline
+from dcc_mcp_core import ToolRegistry
 from dcc_mcp_core import decode_envelope
 from dcc_mcp_core import encode_notify
 from dcc_mcp_core import encode_request
@@ -39,16 +40,16 @@ from dcc_mcp_core import encode_response
 
 def _make_pipeline_with_action(action_name: str = "ping"):
     """Return (pipeline, registry) with a simple echo handler registered."""
-    reg = ActionRegistry()
+    reg = ToolRegistry()
     reg.register(action_name, category="test")
-    dispatcher = ActionDispatcher(reg)
+    dispatcher = ToolDispatcher(reg)
     dispatcher.register_handler(action_name, lambda params: "pong")
-    pipeline = ActionPipeline(dispatcher)
+    pipeline = ToolPipeline(dispatcher)
     return pipeline, reg
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# ActionPipeline.add_callable — deep tests
+# ToolPipeline.add_callable — deep tests
 # ──────────────────────────────────────────────────────────────────────────────
 
 
@@ -382,7 +383,7 @@ class TestPySharedBufferDescriptorJson:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# ActionRegistry.__len__ deep tests
+# ToolRegistry.__len__ deep tests
 # ──────────────────────────────────────────────────────────────────────────────
 
 
@@ -390,43 +391,43 @@ class TestActionRegistryLen:
     """Verify __len__ changes correctly with register/unregister/reset."""
 
     def test_len_empty_registry_is_zero(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         assert len(reg) == 0
 
     def test_len_after_one_register(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("a")
         assert len(reg) == 1
 
     def test_len_after_three_registers(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("a")
         reg.register("b")
         reg.register("c")
         assert len(reg) == 3
 
     def test_len_after_unregister_decrements(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("a")
         reg.register("b")
         reg.unregister("a")
         assert len(reg) == 1
 
     def test_len_after_unregister_nonexistent_stays_same(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("a")
         reg.unregister("nonexistent")
         assert len(reg) == 1
 
     def test_len_after_reset_is_zero(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("a")
         reg.register("b")
         reg.reset()
         assert len(reg) == 0
 
     def test_len_batch_register_correct_count(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register_batch(
             [
                 {"name": "x", "dcc": "maya"},
@@ -437,7 +438,7 @@ class TestActionRegistryLen:
         assert len(reg) == 3
 
     def test_len_batch_skips_empty_name(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register_batch(
             [
                 {"name": "valid"},
@@ -448,7 +449,7 @@ class TestActionRegistryLen:
         assert len(reg) == 1
 
     def test_len_same_action_different_dcc_counts_once(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("action", dcc="maya")
         reg.register("action", dcc="blender")
         # Same action name — how many? Check that __len__ returns consistent int
@@ -457,11 +458,11 @@ class TestActionRegistryLen:
         assert count >= 1
 
     def test_len_type_is_int(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         assert isinstance(len(reg), int)
 
     def test_len_increases_monotonically(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         counts: list[int] = []
         for i in range(5):
             reg.register(f"action_{i}")

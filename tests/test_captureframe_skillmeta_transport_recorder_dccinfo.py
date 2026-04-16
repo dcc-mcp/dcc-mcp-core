@@ -1,6 +1,6 @@
 """Deep tests for CaptureFrame, SkillMetadata, TransportManager high-level APIs.
 
-ActionRecorder/ActionMetrics/RecordingGuard, DccInfo, SceneInfo, SceneStatistics,
+ToolRecorder/ToolMetrics/RecordingGuard, DccInfo, SceneInfo, SceneStatistics,
 StringWrapper, PyCrashRecoveryPolicy, TimingMiddleware, AuditMiddleware,
 RateLimitMiddleware (+167 tests).
 """
@@ -12,10 +12,6 @@ import time
 
 import pytest
 
-from dcc_mcp_core import ActionDispatcher
-from dcc_mcp_core import ActionMetrics
-from dcc_mcp_core import ActionRecorder
-from dcc_mcp_core import ActionRegistry
 from dcc_mcp_core import AuditMiddleware
 from dcc_mcp_core import CaptureFrame
 from dcc_mcp_core import Capturer
@@ -37,6 +33,10 @@ from dcc_mcp_core import SkillMetadata
 from dcc_mcp_core import StringWrapper
 from dcc_mcp_core import TimingMiddleware
 from dcc_mcp_core import ToolDeclaration
+from dcc_mcp_core import ToolDispatcher
+from dcc_mcp_core import ToolMetrics
+from dcc_mcp_core import ToolRecorder
+from dcc_mcp_core import ToolRegistry
 from dcc_mcp_core import TransportManager
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -48,10 +48,10 @@ def _make_capturer() -> Capturer:
     return Capturer.new_mock(width=640, height=480)
 
 
-def _make_registry_dispatcher(action_name: str = "ping") -> tuple[ActionRegistry, ActionDispatcher]:
-    reg = ActionRegistry()
+def _make_registry_dispatcher(action_name: str = "ping") -> tuple[ToolRegistry, ToolDispatcher]:
+    reg = ToolRegistry()
     reg.register(action_name, description="test", category="util")
-    d = ActionDispatcher(reg)
+    d = ToolDispatcher(reg)
     d.register_handler(action_name, lambda _params: "pong")
     return reg, d
 
@@ -425,43 +425,43 @@ class TestTransportManagerHighLevel:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ActionRecorder / ActionMetrics / RecordingGuard
+# ToolRecorder / ToolMetrics / RecordingGuard
 # ─────────────────────────────────────────────────────────────────────────────
 
 
 class TestActionRecorder:
-    """Tests for ActionRecorder and ActionMetrics."""
+    """Tests for ToolRecorder and ToolMetrics."""
 
     def test_start_returns_recording_guard(self) -> None:
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         guard = rec.start("my_action", "maya")
         assert isinstance(guard, RecordingGuard)
         guard.finish(success=True)
 
     def test_metrics_returns_none_before_any_recording(self) -> None:
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         assert rec.metrics("never_recorded") is None
 
     def test_metrics_returns_action_metrics_after_record(self) -> None:
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         guard = rec.start("create_sphere", "maya")
         guard.finish(success=True)
         m = rec.metrics("create_sphere")
-        assert isinstance(m, ActionMetrics)
+        assert isinstance(m, ToolMetrics)
 
     def test_action_name_field(self) -> None:
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         rec.start("sphere", "maya").finish(success=True)
         assert rec.metrics("sphere").action_name == "sphere"
 
     def test_invocation_count_increments(self) -> None:
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         rec.start("sphere", "maya").finish(success=True)
         rec.start("sphere", "maya").finish(success=True)
         assert rec.metrics("sphere").invocation_count == 2
 
     def test_success_count_tracks_successes(self) -> None:
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         rec.start("sphere", "maya").finish(success=True)
         rec.start("sphere", "maya").finish(success=False)
         m = rec.metrics("sphere")
@@ -469,34 +469,34 @@ class TestActionRecorder:
         assert m.failure_count == 1
 
     def test_success_rate_all_success(self) -> None:
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         rec.start("sphere", "maya").finish(success=True)
         rec.start("sphere", "maya").finish(success=True)
         assert rec.metrics("sphere").success_rate() == 1.0
 
     def test_success_rate_all_failure(self) -> None:
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         rec.start("sphere", "maya").finish(success=False)
         rec.start("sphere", "maya").finish(success=False)
         assert rec.metrics("sphere").success_rate() == 0.0
 
     def test_avg_duration_ms_is_float(self) -> None:
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         rec.start("sphere", "maya").finish(success=True)
         assert isinstance(rec.metrics("sphere").avg_duration_ms, float)
 
     def test_p95_duration_ms_is_float(self) -> None:
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         rec.start("sphere", "maya").finish(success=True)
         assert isinstance(rec.metrics("sphere").p95_duration_ms, float)
 
     def test_p99_duration_ms_is_float(self) -> None:
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         rec.start("sphere", "maya").finish(success=True)
         assert isinstance(rec.metrics("sphere").p99_duration_ms, float)
 
     def test_all_metrics_returns_list(self) -> None:
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         rec.start("a", "maya").finish(success=True)
         rec.start("b", "maya").finish(success=True)
         all_m = rec.all_metrics()
@@ -504,14 +504,14 @@ class TestActionRecorder:
         assert len(all_m) == 2
 
     def test_reset_clears_metrics(self) -> None:
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         rec.start("sphere", "maya").finish(success=True)
         rec.reset()
         assert rec.all_metrics() == []
         assert rec.metrics("sphere") is None
 
     def test_recording_guard_context_manager_success(self) -> None:
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         with rec.start("ctx_action", "blender"):
             pass
         m = rec.metrics("ctx_action")
@@ -519,7 +519,7 @@ class TestActionRecorder:
         assert m.invocation_count == 1
 
     def test_recording_guard_context_manager_exception(self) -> None:
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         try:
             with rec.start("failing_action", "blender"):
                 raise ValueError("intentional")
@@ -530,7 +530,7 @@ class TestActionRecorder:
         assert m.invocation_count == 1
 
     def test_metrics_repr_contains_action_name(self) -> None:
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         rec.start("sphere", "maya").finish(success=True)
         r = repr(rec.metrics("sphere"))
         assert "sphere" in r
@@ -829,14 +829,14 @@ class TestTimingMiddlewareDirect:
         assert tm.last_elapsed_ms("never_dispatched") is None
 
     def test_last_elapsed_ms_returns_int_after_dispatch(self) -> None:
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("fast_action", description="fast")
-        d = ActionDispatcher(reg)
+        d = ToolDispatcher(reg)
         d.register_handler("fast_action", lambda _p: 42)
 
-        from dcc_mcp_core import ActionPipeline
+        from dcc_mcp_core import ToolPipeline
 
-        pipeline = ActionPipeline(d)
+        pipeline = ToolPipeline(d)
         tm = pipeline.add_timing()
         pipeline.dispatch("fast_action", "{}")
         elapsed = tm.last_elapsed_ms("fast_action")

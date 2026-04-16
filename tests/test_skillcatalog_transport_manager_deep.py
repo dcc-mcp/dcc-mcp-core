@@ -71,10 +71,10 @@ import uuid
 
 import pytest
 
-from dcc_mcp_core import ActionRegistry
 from dcc_mcp_core import RoutingStrategy
 from dcc_mcp_core import ServiceStatus
 from dcc_mcp_core import SkillCatalog
+from dcc_mcp_core import ToolRegistry
 from dcc_mcp_core import TransportManager
 
 # ---------------------------------------------------------------------------
@@ -142,7 +142,7 @@ def tmpdir_path():
 def single_skill_cat(tmpdir_path):
     """SkillCatalog with one discovered (not yet loaded) Python skill."""
     make_skill_dir(tmpdir_path, "hello-world", dcc="python")
-    reg = ActionRegistry()
+    reg = ToolRegistry()
     cat = SkillCatalog(reg)
     cat.discover(extra_paths=[tmpdir_path])
     return cat
@@ -152,7 +152,7 @@ def single_skill_cat(tmpdir_path):
 def loaded_skill_cat(tmpdir_path):
     """SkillCatalog with one discovered AND loaded Python skill."""
     make_skill_dir(tmpdir_path, "hello-world", dcc="python")
-    reg = ActionRegistry()
+    reg = ToolRegistry()
     cat = SkillCatalog(reg)
     cat.discover(extra_paths=[tmpdir_path])
     cat.load_skill("hello-world")
@@ -164,7 +164,7 @@ def two_skill_cat(tmpdir_path):
     """SkillCatalog with two skills: hello-world (python) and maya-geo (maya)."""
     make_skill_dir(tmpdir_path, "hello-world", dcc="python")
     make_skill_dir(tmpdir_path, "maya-geo", dcc="maya", tags="[geometry]")
-    reg = ActionRegistry()
+    reg = ToolRegistry()
     cat = SkillCatalog(reg)
     cat.discover(extra_paths=[tmpdir_path])
     return cat
@@ -177,27 +177,27 @@ def two_skill_cat(tmpdir_path):
 
 class TestSkillCatalogCreate:
     def test_empty_repr(self):
-        cat = SkillCatalog(ActionRegistry())
+        cat = SkillCatalog(ToolRegistry())
         assert "SkillCatalog" in repr(cat)
 
     def test_empty_list_skills(self):
-        cat = SkillCatalog(ActionRegistry())
+        cat = SkillCatalog(ToolRegistry())
         assert cat.list_skills() == []
 
     def test_empty_loaded_count(self):
-        cat = SkillCatalog(ActionRegistry())
+        cat = SkillCatalog(ToolRegistry())
         assert cat.loaded_count() == 0
 
     def test_is_loaded_false(self):
-        cat = SkillCatalog(ActionRegistry())
+        cat = SkillCatalog(ToolRegistry())
         assert cat.is_loaded("anything") is False
 
     def test_get_skill_info_none(self):
-        cat = SkillCatalog(ActionRegistry())
+        cat = SkillCatalog(ToolRegistry())
         assert cat.get_skill_info("anything") is None
 
     def test_find_skills_empty(self):
-        cat = SkillCatalog(ActionRegistry())
+        cat = SkillCatalog(ToolRegistry())
         assert cat.find_skills() == []
 
 
@@ -209,14 +209,14 @@ class TestSkillCatalogCreate:
 class TestSkillCatalogDiscover:
     def test_single_skill_count(self, tmpdir_path):
         make_skill_dir(tmpdir_path, "hello-world")
-        cat = SkillCatalog(ActionRegistry())
+        cat = SkillCatalog(ToolRegistry())
         count = cat.discover(extra_paths=[tmpdir_path])
         assert count == 1
 
     def test_two_skills_count(self, tmpdir_path):
         make_skill_dir(tmpdir_path, "skill-a")
         make_skill_dir(tmpdir_path, "skill-b")
-        cat = SkillCatalog(ActionRegistry())
+        cat = SkillCatalog(ToolRegistry())
         count = cat.discover(extra_paths=[tmpdir_path])
         assert count == 2
 
@@ -252,7 +252,7 @@ class TestSkillCatalogDiscover:
     def test_discover_dcc_name_filter(self, tmpdir_path):
         make_skill_dir(tmpdir_path, "hello-world", dcc="python")
         make_skill_dir(tmpdir_path, "maya-geo", dcc="maya")
-        cat = SkillCatalog(ActionRegistry())
+        cat = SkillCatalog(ToolRegistry())
         cat.discover(extra_paths=[tmpdir_path], dcc_name="maya")
         # Only maya skills discovered when filter applied
         names = [s.name for s in cat.list_skills()]
@@ -446,7 +446,7 @@ class TestSkillCatalogMultiSkill:
 
     def test_discover_idempotent(self, tmpdir_path):
         make_skill_dir(tmpdir_path, "hello-world")
-        cat = SkillCatalog(ActionRegistry())
+        cat = SkillCatalog(ToolRegistry())
         count1 = cat.discover(extra_paths=[tmpdir_path])
         count2 = cat.discover(extra_paths=[tmpdir_path])
         # Second discover of same path should not add duplicates
@@ -454,7 +454,7 @@ class TestSkillCatalogMultiSkill:
 
     def test_discover_incremental(self, tmpdir_path):
         make_skill_dir(tmpdir_path, "skill-a")
-        cat = SkillCatalog(ActionRegistry())
+        cat = SkillCatalog(ToolRegistry())
         cat.discover(extra_paths=[tmpdir_path])
         make_skill_dir(tmpdir_path, "skill-b")
         cat.discover(extra_paths=[tmpdir_path])

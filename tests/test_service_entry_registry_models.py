@@ -1,10 +1,10 @@
-"""Tests for ServiceEntry deep API, ActionRegistry.reset(), ActionResultModel equality, SkillMetadata equality, and CaptureResult.
+"""Tests for ServiceEntry deep API, ToolRegistry.reset(), ToolResult equality, SkillMetadata equality, and CaptureResult.
 
 Targets previously uncovered APIs:
 - ServiceEntry.is_ipc / effective_address() / to_dict()
 - TransportManager with IPC transport_address — is_ipc True/False
-- ActionRegistry.reset() clears all actions and resets __len__
-- ActionResultModel.__eq__ equality and inequality
+- ToolRegistry.reset() clears all actions and resets __len__
+- ToolResult.__eq__ equality and inequality
 - SkillMetadata.__eq__ equality and inequality
 - CaptureResult.data_size()
 - ServiceEntry.last_heartbeat_ms / heartbeat update
@@ -119,14 +119,14 @@ class TestServiceEntryDeep:
             pass  # acceptable: implementation may raise on unregistered uuid
 
 
-# ── ActionRegistry.reset() ────────────────────────────────────────────────────
+# ── ToolRegistry.reset() ────────────────────────────────────────────────────
 
 
 class TestActionRegistryReset:
-    """Tests for ActionRegistry.reset() clears all registered actions."""
+    """Tests for ToolRegistry.reset() clears all registered actions."""
 
     def test_reset_empties_registry(self) -> None:
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         reg.register("create_sphere", dcc="maya")
         reg.register("delete_mesh", dcc="maya")
         assert len(reg) == 2
@@ -134,7 +134,7 @@ class TestActionRegistryReset:
         assert len(reg) == 0
 
     def test_reset_clears_dcc_entries(self) -> None:
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         reg.register("action_a", dcc="maya")
         reg.register("action_b", dcc="blender")
         reg.reset()
@@ -142,34 +142,34 @@ class TestActionRegistryReset:
         assert reg.list_actions_for_dcc("blender") == []
 
     def test_reset_allows_re_register(self) -> None:
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         reg.register("create_sphere", dcc="maya")
         reg.reset()
         reg.register("create_sphere", dcc="maya")
         assert len(reg) == 1
 
     def test_reset_clears_categories(self) -> None:
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         reg.register("geo_action", category="geometry", dcc="maya")
         reg.reset()
         assert reg.get_categories() == []
 
     def test_reset_clears_tags(self) -> None:
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         reg.register("tagged", tags=["mytag"], dcc="maya")
         reg.reset()
         assert reg.get_tags() == []
 
     def test_reset_empty_registry_noop(self) -> None:
         """Resetting an already empty registry should not raise."""
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         reg.reset()
         assert len(reg) == 0
 
     def test_reset_does_not_affect_other_registries(self) -> None:
         """Two independent registries — resetting one must not affect the other."""
-        reg1 = dcc_mcp_core.ActionRegistry()
-        reg2 = dcc_mcp_core.ActionRegistry()
+        reg1 = dcc_mcp_core.ToolRegistry()
+        reg2 = dcc_mcp_core.ToolRegistry()
         reg1.register("act", dcc="maya")
         reg2.register("act", dcc="maya")
         reg1.reset()
@@ -177,39 +177,39 @@ class TestActionRegistryReset:
         assert len(reg2) == 1
 
 
-# ── ActionResultModel equality ────────────────────────────────────────────────
+# ── ToolResult equality ────────────────────────────────────────────────
 
 
 class TestActionResultModelEquality:
-    """Tests for ActionResultModel.__eq__."""
+    """Tests for ToolResult.__eq__."""
 
     def test_equal_default_instances(self) -> None:
-        r1 = dcc_mcp_core.ActionResultModel()
-        r2 = dcc_mcp_core.ActionResultModel()
+        r1 = dcc_mcp_core.ToolResult()
+        r2 = dcc_mcp_core.ToolResult()
         assert r1 == r2
 
     def test_equal_same_values(self) -> None:
-        r1 = dcc_mcp_core.ActionResultModel(success=True, message="done")
-        r2 = dcc_mcp_core.ActionResultModel(success=True, message="done")
+        r1 = dcc_mcp_core.ToolResult(success=True, message="done")
+        r2 = dcc_mcp_core.ToolResult(success=True, message="done")
         assert r1 == r2
 
     def test_not_equal_different_success(self) -> None:
-        r1 = dcc_mcp_core.ActionResultModel(success=True)
-        r2 = dcc_mcp_core.ActionResultModel(success=False)
+        r1 = dcc_mcp_core.ToolResult(success=True)
+        r2 = dcc_mcp_core.ToolResult(success=False)
         assert r1 != r2
 
     def test_not_equal_different_message(self) -> None:
-        r1 = dcc_mcp_core.ActionResultModel(message="hello")
-        r2 = dcc_mcp_core.ActionResultModel(message="world")
+        r1 = dcc_mcp_core.ToolResult(message="hello")
+        r2 = dcc_mcp_core.ToolResult(message="world")
         assert r1 != r2
 
     def test_not_equal_different_error(self) -> None:
-        r1 = dcc_mcp_core.ActionResultModel(error="err1")
-        r2 = dcc_mcp_core.ActionResultModel(error="err2")
+        r1 = dcc_mcp_core.ToolResult(error="err1")
+        r2 = dcc_mcp_core.ToolResult(error="err2")
         assert r1 != r2
 
     def test_not_equal_non_model(self) -> None:
-        r = dcc_mcp_core.ActionResultModel()
+        r = dcc_mcp_core.ToolResult()
         assert r != "not a model"
         assert r != 42
         assert r != None
@@ -220,7 +220,7 @@ class TestActionResultModelEquality:
         assert r1 == r2
 
     def test_with_context_produces_different_instance(self) -> None:
-        r1 = dcc_mcp_core.ActionResultModel(message="ok")
+        r1 = dcc_mcp_core.ToolResult(message="ok")
         r2 = r1.with_context(count=5)
         assert r1 != r2
 

@@ -1,4 +1,4 @@
-"""Deep tests for ActionPipeline middleware interactions.
+"""Deep tests for ToolPipeline middleware interactions.
 
 Covers:
 - RateLimitMiddleware call_count accumulation
@@ -9,36 +9,36 @@ Covers:
 - TimingMiddleware.last_elapsed_ms() non-None after dispatch
 - TimingMiddleware.last_elapsed_ms() per-action independence
 - TimingMiddleware multiple dispatches update elapsed_ms
-- ActionPipeline.add_callable() before/after hooks fire
-- ActionPipeline.middleware_count() after adding various middleware
-- ActionPipeline combined: timing + audit + rate-limit together
+- ToolPipeline.add_callable() before/after hooks fire
+- ToolPipeline.middleware_count() after adding various middleware
+- ToolPipeline combined: timing + audit + rate-limit together
 """
 
 from __future__ import annotations
 
 import pytest
 
-from dcc_mcp_core import ActionDispatcher
-from dcc_mcp_core import ActionPipeline
-from dcc_mcp_core import ActionRegistry
 from dcc_mcp_core import AuditMiddleware
 from dcc_mcp_core import RateLimitMiddleware
 from dcc_mcp_core import TimingMiddleware
+from dcc_mcp_core import ToolDispatcher
+from dcc_mcp_core import ToolPipeline
+from dcc_mcp_core import ToolRegistry
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
-def _make_pipeline(*action_names: str) -> tuple[ActionPipeline, ActionRegistry]:
+def _make_pipeline(*action_names: str) -> tuple[ToolPipeline, ToolRegistry]:
     """Return (pipeline, registry) with each name registered + handler added."""
-    reg = ActionRegistry()
+    reg = ToolRegistry()
     for name in action_names:
         reg.register(name)
-    dispatcher = ActionDispatcher(reg)
+    dispatcher = ToolDispatcher(reg)
     for name in action_names:
         dispatcher.register_handler(name, lambda p, _n=name: {"done": _n})
-    pipeline = ActionPipeline(dispatcher)
+    pipeline = ToolPipeline(dispatcher)
     return pipeline, reg
 
 
@@ -250,15 +250,15 @@ class TestAuditRecordsErrorPath:
         assert audit.record_count() >= 1
 
     def test_handler_exception_appears_in_audit(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("fail")
-        dispatcher = ActionDispatcher(reg)
+        dispatcher = ToolDispatcher(reg)
 
         def bad_handler(p):
             raise ValueError("deliberate error")
 
         dispatcher.register_handler("fail", bad_handler)
-        pipeline = ActionPipeline(dispatcher)
+        pipeline = ToolPipeline(dispatcher)
         audit = pipeline.add_audit()
         with pytest.raises(RuntimeError):
             pipeline.dispatch("fail", "{}")
@@ -339,7 +339,7 @@ class TestTimingMiddlewareElapsed:
 
 
 # ---------------------------------------------------------------------------
-# ActionPipeline.add_callable() - before/after hooks
+# ToolPipeline.add_callable() - before/after hooks
 # ---------------------------------------------------------------------------
 
 
@@ -362,15 +362,15 @@ class TestPipelineCallableHooks:
         assert success is True
 
     def test_after_fn_success_false_on_handler_error(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("fail")
-        dispatcher = ActionDispatcher(reg)
+        dispatcher = ToolDispatcher(reg)
 
         def bad_fn(p):
             raise ValueError("deliberate error")
 
         dispatcher.register_handler("fail", bad_fn)
-        pipeline = ActionPipeline(dispatcher)
+        pipeline = ToolPipeline(dispatcher)
         results = []
         pipeline.add_callable(after_fn=lambda a, s: results.append(s))
         with pytest.raises(RuntimeError):
@@ -401,7 +401,7 @@ class TestPipelineCallableHooks:
 
 
 # ---------------------------------------------------------------------------
-# ActionPipeline.middleware_count()
+# ToolPipeline.middleware_count()
 # ---------------------------------------------------------------------------
 
 

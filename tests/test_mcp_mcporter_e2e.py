@@ -36,9 +36,9 @@ import pytest
 
 # Import local modules
 import dcc_mcp_core
-from dcc_mcp_core import ActionRegistry
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
+from dcc_mcp_core import ToolRegistry
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXAMPLES_SKILLS_DIR = str(REPO_ROOT / "examples" / "skills")
@@ -288,7 +288,7 @@ def server_with_catalog():
     if not Path(EXAMPLES_SKILLS_DIR).is_dir():
         pytest.skip("examples/skills directory not found")
 
-    reg = ActionRegistry()
+    reg = ToolRegistry()
     reg.register(
         "get_scene_info",
         description="Return info about the current scene",
@@ -318,7 +318,7 @@ def server_with_catalog():
 @pytest.fixture(scope="module")
 def simple_server():
     """Minimal server with two registered actions (no catalog)."""
-    reg = ActionRegistry()
+    reg = ToolRegistry()
     reg.register(
         "ping_action",
         description="A simple echo action for testing",
@@ -620,7 +620,7 @@ class TestMcporterAvailability:
 class TestMultipleServerInstances:
     """Verify that multiple McpHttpServer instances run independently.
 
-    Each server gets its own port, own ActionRegistry, and own catalog state.
+    Each server gets its own port, own ToolRegistry, and own catalog state.
     Requests to one server must not affect the other.
     """
 
@@ -673,8 +673,8 @@ class TestMultipleServerInstances:
 
     def test_two_servers_bind_different_ports(self):
         """Each server gets its own random port; they coexist without conflict."""
-        reg_a = ActionRegistry()
-        reg_b = ActionRegistry()
+        reg_a = ToolRegistry()
+        reg_b = ToolRegistry()
 
         srv_a = McpHttpServer(reg_a, McpHttpConfig(port=0, server_name="srv-a"))
         srv_b = McpHttpServer(reg_b, McpHttpConfig(port=0, server_name="srv-b"))
@@ -694,10 +694,10 @@ class TestMultipleServerInstances:
 
     def test_registries_are_isolated(self):
         """Tools registered on server A are not visible on server B."""
-        reg_a = ActionRegistry()
+        reg_a = ToolRegistry()
         reg_a.register("tool_only_in_a", description="Only in A", category="test", tags=[], dcc="test", version="1.0")
 
-        reg_b = ActionRegistry()
+        reg_b = ToolRegistry()
         reg_b.register("tool_only_in_b", description="Only in B", category="test", tags=[], dcc="test", version="1.0")
 
         srv_a = McpHttpServer(reg_a, McpHttpConfig(port=0, server_name="iso-a"))
@@ -720,10 +720,10 @@ class TestMultipleServerInstances:
 
     def test_handlers_are_isolated(self):
         """Calling a tool on server A does not invoke server B's handler."""
-        reg_a = ActionRegistry()
+        reg_a = ToolRegistry()
         reg_a.register("echo", description="Echo A", category="test", tags=[], dcc="test", version="1.0")
 
-        reg_b = ActionRegistry()
+        reg_b = ToolRegistry()
         reg_b.register("echo", description="Echo B", category="test", tags=[], dcc="test", version="1.0")
 
         srv_a = McpHttpServer(reg_a, McpHttpConfig(port=0, server_name="hdl-a"))
@@ -758,7 +758,7 @@ class TestMultipleServerInstances:
         errors = []
         results = []
 
-        regs = [ActionRegistry() for _ in range(n)]
+        regs = [ToolRegistry() for _ in range(n)]
         servers = [McpHttpServer(r, McpHttpConfig(port=0, server_name=f"conc-{i}")) for i, r in enumerate(regs)]
         handles = [s.start() for s in servers]
 
@@ -786,8 +786,8 @@ class TestMultipleServerInstances:
         if not Path(EXAMPLES_SKILLS_DIR).is_dir():
             pytest.skip("examples/skills directory not found")
 
-        reg_a = ActionRegistry()
-        reg_b = ActionRegistry()
+        reg_a = ToolRegistry()
+        reg_b = ToolRegistry()
 
         srv_a = McpHttpServer(reg_a, McpHttpConfig(port=0, server_name="cat-a"))
         srv_b = McpHttpServer(reg_b, McpHttpConfig(port=0, server_name="cat-b"))
@@ -821,10 +821,10 @@ class TestMultipleServerInstances:
     @pytest.mark.skipif(not NPX_AVAILABLE, reason="npx / mcporter not available")
     def test_mcporter_connects_to_correct_instance(self):
         """Mcporter explicitly targets one URL; the other server is unaffected."""
-        reg_a = ActionRegistry()
+        reg_a = ToolRegistry()
         reg_a.register("action_alpha", description="Alpha tool", category="test", tags=[], dcc="test", version="1.0")
 
-        reg_b = ActionRegistry()
+        reg_b = ToolRegistry()
         reg_b.register("action_beta", description="Beta tool", category="test", tags=[], dcc="test", version="1.0")
 
         srv_a = McpHttpServer(reg_a, McpHttpConfig(port=0, server_name="target-a"))

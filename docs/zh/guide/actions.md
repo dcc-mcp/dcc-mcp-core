@@ -6,22 +6,22 @@ Skills 是 DCC-MCP-Core 的核心构建块。每个 Skill 代表一个可以在 
 
 DCC-MCP-Core 采用基于注册表的 skill 执行模型，后端使用 Rust 的 DashMap 实现线程安全并发访问：
 
-- **`ActionRegistry`** — 线程安全的 skill 元数据存储（name、description、tags、DCC、version、JSON schemas）
-- **`ActionDispatcher`** — 将验证后的调用路由到注册的 Python 处理器
-- **`ActionValidator`** — 基于 JSON Schema 的输入验证
+- **`ToolRegistry`** — 线程安全的 skill 元数据存储（name、description、tags、DCC、version、JSON schemas）
+- **`ToolDispatcher`** — 将验证后的调用路由到注册的 Python 处理器
+- **`ToolValidator`** — 基于 JSON Schema 的输入验证
 - **`VersionedRegistry`** — 支持语义版本解析的多版本 skill 管理
 
 所有 skill 在运行时被发现和注册。**没有基类或 Pydantic 模型** —— skill 是通过元数据注册的普通 Python 函数。
 
-## ActionRegistry
+## ToolRegistry
 
-`ActionRegistry` 是所有 DCC skill 操作的中央注册表。使用 JSON Schema 注册 skill 进行输入验证：
+`ToolRegistry` 是所有 DCC skill 操作的中央注册表。使用 JSON Schema 注册 skill 进行输入验证：
 
 ```python
 import json
-from dcc_mcp_core import ActionRegistry
+from dcc_mcp_core import ToolRegistry
 
-reg = ActionRegistry()
+reg = ToolRegistry()
 
 reg.register(
     name="create_sphere",
@@ -75,15 +75,15 @@ print("echo" in reg)  # True
 print(len(reg))        # 已注册 skill 的数量
 ```
 
-## ActionDispatcher
+## ToolDispatcher
 
-`ActionDispatcher` 与 `ActionRegistry` 配对，提供验证后的 skill 执行路由：
+`ToolDispatcher` 与 `ToolRegistry` 配对，提供验证后的 skill 执行路由：
 
 ```python
 import json
-from dcc_mcp_core import ActionRegistry, ActionDispatcher
+from dcc_mcp_core import ToolRegistry, ToolDispatcher
 
-reg = ActionRegistry()
+reg = ToolRegistry()
 reg.register(
     "create_sphere",
     dcc="maya",
@@ -93,7 +93,7 @@ reg.register(
         "properties": {"radius": {"type": "number"}}
     }),
 )
-dispatcher = ActionDispatcher(reg)
+dispatcher = ToolDispatcher(reg)
 
 def handle_create_sphere(params):
     radius = params["radius"]
@@ -107,14 +107,14 @@ result = dispatcher.dispatch("create_sphere", json.dumps({"radius": 2.0}))
 # result = {"action": "create_sphere", "output": {"created": True, "radius": 2.0}, "validation_skipped": False}
 ```
 
-## ActionValidator
+## ToolValidator
 
 独立的验证器，用于根据 schema 检查 JSON 参数：
 
 ```python
-from dcc_mcp_core import ActionValidator
+from dcc_mcp_core import ToolValidator
 
-validator = ActionValidator.from_schema_json(
+validator = ToolValidator.from_schema_json(
     '{"type": "object", "required": ["radius"], '
     '"properties": {"radius": {"type": "number", "minimum": 0}}}'
 )
@@ -126,20 +126,20 @@ ok, errors = validator.validate('{"radius": -1}')
 print(ok, errors)  # False, ["radius must be >= 0"]
 ```
 
-或从已存在的 `ActionRegistry` action 创建：
+或从已存在的 `ToolRegistry` action 创建：
 
 ```python
-from dcc_mcp_core import ActionRegistry, ActionValidator
+from dcc_mcp_core import ToolRegistry, ToolValidator
 
-reg = ActionRegistry()
+reg = ToolRegistry()
 reg.register("create_sphere", dcc="maya", input_schema='{"type": "object", "properties": {"radius": {"type": "number"}}}')
 
-validator = ActionValidator.from_action_registry(reg, "create_sphere", dcc_name="maya")
+validator = ToolValidator.from_action_registry(reg, "create_sphere", dcc_name="maya")
 ```
 
 ## 结果模型
 
-所有 skill 执行结果都规范化为 `ActionResultModel`：
+所有 skill 执行结果都规范化为 `ToolResult`：
 
 ```python
 from dcc_mcp_core import success_result, error_result, from_exception

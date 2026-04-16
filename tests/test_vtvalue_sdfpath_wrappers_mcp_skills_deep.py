@@ -15,7 +15,6 @@ from pathlib import Path
 
 import pytest
 
-from dcc_mcp_core import ActionRegistry
 from dcc_mcp_core import BooleanWrapper
 from dcc_mcp_core import FloatWrapper
 from dcc_mcp_core import IntWrapper
@@ -23,6 +22,7 @@ from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
 from dcc_mcp_core import SdfPath
 from dcc_mcp_core import StringWrapper
+from dcc_mcp_core import ToolRegistry
 from dcc_mcp_core import VtValue
 from dcc_mcp_core import scan_and_load
 from dcc_mcp_core import scan_and_load_lenient
@@ -538,7 +538,7 @@ class TestMcpHttpConfig:
 
 class TestMcpHttpServerHandlers:
     def _make_server(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cfg = McpHttpConfig(port=8765)
         return McpHttpServer(reg, cfg)
 
@@ -574,7 +574,7 @@ class TestMcpHttpServerHandlers:
 
 class TestMcpHttpServerCatalogApi:
     def _make_server(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cfg = McpHttpConfig(port=8765)
         return McpHttpServer(reg, cfg)
 

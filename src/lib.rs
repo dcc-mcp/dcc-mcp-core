@@ -69,29 +69,11 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     register_utils(m)?;
     register_http(m)?;
     register_constants(m)?;
-    register_compat_aliases(m)?;
 
     // ── Metadata ──
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     m.add("__author__", env!("CARGO_PKG_AUTHORS"))?;
 
-    Ok(())
-}
-
-#[cfg(feature = "python-bindings")]
-fn register_compat_aliases(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    // Legacy Action* / manager names remain importable from the compiled module
-    // so existing wheels and direct `_core` imports keep working.
-    m.add("ActionResultModel", m.getattr("ToolResult")?)?;
-    m.add("ActionRegistry", m.getattr("ToolRegistry")?)?;
-    m.add("ActionValidator", m.getattr("ToolValidator")?)?;
-    m.add("ActionDispatcher", m.getattr("ToolDispatcher")?)?;
-    m.add("ActionPipeline", m.getattr("ToolPipeline")?)?;
-    m.add("ActionRecorder", m.getattr("ToolRecorder")?)?;
-    m.add("ActionMetrics", m.getattr("ToolMetrics")?)?;
-    m.add("ServerHandle", m.getattr("McpServerHandle")?)?;
-    m.add("create_skill_manager", m.getattr("create_skill_server")?)?;
-    m.add("get_actions_dir", m.getattr("get_tools_dir")?)?;
     Ok(())
 }
 

@@ -1,4 +1,4 @@
-"""Deep tests: PySharedBuffer/PyBufferPool, PyCrashRecoveryPolicy, ActionRegistry thread-safety.
+"""Deep tests: PySharedBuffer/PyBufferPool, PyCrashRecoveryPolicy, ToolRegistry thread-safety.
 
 UsdStage full lifecycle — covering previously untested edge cases and combinations.
 """
@@ -354,12 +354,12 @@ class TestPyCrashRecoveryPolicyExponentialBackoff:
             policy.next_delay_ms("maya", 2)
 
 
-# ─── ActionRegistry Thread Safety ────────────────────────────────────────────
+# ─── ToolRegistry Thread Safety ────────────────────────────────────────────
 
 
 class TestActionRegistryThreadSafety:
     def test_concurrent_register_50_threads(self):
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         errors = []
         n = 50
 
@@ -379,7 +379,7 @@ class TestActionRegistryThreadSafety:
         assert len(reg) == n
 
     def test_concurrent_register_and_list(self):
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         errors = []
 
         def register_worker(i):
@@ -408,7 +408,7 @@ class TestActionRegistryThreadSafety:
         assert len(errors) == 0
 
     def test_concurrent_register_different_dccs(self):
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         errors = []
         dccs = ["maya", "blender", "houdini", "3dsmax", "unreal"]
 
@@ -432,7 +432,7 @@ class TestActionRegistryThreadSafety:
         assert len(reg) == 50
 
     def test_len_and_reset_thread_safe(self):
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         for i in range(20):
             reg.register(f"act_{i}")
         assert len(reg) == 20
@@ -440,11 +440,11 @@ class TestActionRegistryThreadSafety:
         assert len(reg) == 0
 
     def test_repr_contains_count(self):
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         reg.register("alpha")
         reg.register("beta")
         r = repr(reg)
-        assert "ActionRegistry" in r
+        assert "ToolRegistry" in r
         assert "2" in r
 
 

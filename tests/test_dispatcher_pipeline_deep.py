@@ -1,12 +1,12 @@
-"""Deep tests for ActionDispatcher and ActionPipeline.
+"""Deep tests for ToolDispatcher and ToolPipeline.
 
 Covers:
-- ActionDispatcher.dispatch() success/failure/schema validation paths
-- ActionDispatcher.handler_count/handler_names/has_handler/remove_handler
-- ActionDispatcher.skip_empty_schema_validation property
-- ActionPipeline.middleware_names() after adding each middleware type
-- ActionPipeline.handler_count() before/after registering handlers
-- ActionPipeline.dispatch() full round-trip with audit/timing/rate-limit
+- ToolDispatcher.dispatch() success/failure/schema validation paths
+- ToolDispatcher.handler_count/handler_names/has_handler/remove_handler
+- ToolDispatcher.skip_empty_schema_validation property
+- ToolPipeline.middleware_names() after adding each middleware type
+- ToolPipeline.handler_count() before/after registering handlers
+- ToolPipeline.dispatch() full round-trip with audit/timing/rate-limit
 - AuditMiddleware.records() field structure
 - TimingMiddleware.last_elapsed_ms() after dispatch
 - RateLimitMiddleware.call_count() increment
@@ -18,12 +18,12 @@ import json
 
 import pytest
 
-from dcc_mcp_core import ActionDispatcher
-from dcc_mcp_core import ActionPipeline
-from dcc_mcp_core import ActionRegistry
 from dcc_mcp_core import AuditMiddleware
 from dcc_mcp_core import RateLimitMiddleware
 from dcc_mcp_core import TimingMiddleware
+from dcc_mcp_core import ToolDispatcher
+from dcc_mcp_core import ToolPipeline
+from dcc_mcp_core import ToolRegistry
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -32,14 +32,14 @@ from dcc_mcp_core import TimingMiddleware
 
 def _make_registry_dispatcher(name: str = "ping", schema: str = ""):
     """Return a (registry, dispatcher) pair with one registered action."""
-    reg = ActionRegistry()
+    reg = ToolRegistry()
     reg.register(name, input_schema=schema)
-    d = ActionDispatcher(reg)
+    d = ToolDispatcher(reg)
     return reg, d
 
 
 # ---------------------------------------------------------------------------
-# ActionDispatcher - happy path
+# ToolDispatcher - happy path
 # ---------------------------------------------------------------------------
 
 
@@ -102,7 +102,7 @@ class TestActionDispatcherHappyPath:
 
 
 # ---------------------------------------------------------------------------
-# ActionDispatcher - schema validation path
+# ToolDispatcher - schema validation path
 # ---------------------------------------------------------------------------
 
 
@@ -147,7 +147,7 @@ class TestActionDispatcherSchemaValidation:
 
 
 # ---------------------------------------------------------------------------
-# ActionDispatcher - error path
+# ToolDispatcher - error path
 # ---------------------------------------------------------------------------
 
 
@@ -174,7 +174,7 @@ class TestActionDispatcherErrorPath:
 
 
 # ---------------------------------------------------------------------------
-# ActionDispatcher - handler management
+# ToolDispatcher - handler management
 # ---------------------------------------------------------------------------
 
 
@@ -212,10 +212,10 @@ class TestActionDispatcherHandlerManagement:
         assert removed is False
 
     def test_handler_names_sorted(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         for name in ["zebra", "alpha", "mango"]:
             reg.register(name)
-        d = ActionDispatcher(reg)
+        d = ToolDispatcher(reg)
         for _n in ["zebra", "alpha", "mango"]:
             d.register_handler(_n, lambda p, n=_n: n)
         names = d.handler_names()
@@ -229,17 +229,17 @@ class TestActionDispatcherHandlerManagement:
 
 
 # ---------------------------------------------------------------------------
-# ActionPipeline - middleware_names()
+# ToolPipeline - middleware_names()
 # ---------------------------------------------------------------------------
 
 
 class TestActionPipelineMiddlewareNames:
-    def _make_pipeline(self) -> ActionPipeline:
-        reg = ActionRegistry()
+    def _make_pipeline(self) -> ToolPipeline:
+        reg = ToolRegistry()
         reg.register("ping")
-        d = ActionDispatcher(reg)
+        d = ToolDispatcher(reg)
         d.register_handler("ping", lambda p: "pong")
-        return ActionPipeline(d)
+        return ToolPipeline(d)
 
     def test_empty_pipeline_has_no_names(self):
         pl = self._make_pipeline()
@@ -293,43 +293,43 @@ class TestActionPipelineMiddlewareNames:
 
 
 # ---------------------------------------------------------------------------
-# ActionPipeline - handler_count()
+# ToolPipeline - handler_count()
 # ---------------------------------------------------------------------------
 
 
 class TestActionPipelineHandlerCount:
     def test_handler_count_initially_mirrors_dispatcher(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("a")
-        d = ActionDispatcher(reg)
+        d = ToolDispatcher(reg)
         d.register_handler("a", lambda p: None)
-        pl = ActionPipeline(d)
+        pl = ToolPipeline(d)
         assert pl.handler_count() == 1
 
     def test_register_handler_on_pipeline_increments_count(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("a")
         reg.register("b")
-        d = ActionDispatcher(reg)
+        d = ToolDispatcher(reg)
         d.register_handler("a", lambda p: None)
-        pl = ActionPipeline(d)
+        pl = ToolPipeline(d)
         count_before = pl.handler_count()
         pl.register_handler("b", lambda p: None)
         assert pl.handler_count() == count_before + 1
 
 
 # ---------------------------------------------------------------------------
-# ActionPipeline - full dispatch round-trip
+# ToolPipeline - full dispatch round-trip
 # ---------------------------------------------------------------------------
 
 
 class TestActionPipelineDispatchRoundTrip:
     def _setup(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("create_sphere")
-        d = ActionDispatcher(reg)
+        d = ToolDispatcher(reg)
         d.register_handler("create_sphere", lambda p: {"name": "sphere1"})
-        pl = ActionPipeline(d)
+        pl = ToolPipeline(d)
         return pl
 
     def test_dispatch_returns_correct_output(self):

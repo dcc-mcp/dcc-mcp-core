@@ -1,4 +1,4 @@
-"""Deep tests for ActionDispatcher, ActionValidator, PyDccLauncher, PyBufferPool/PySharedBuffer, DccInfo/DccCapabilities, and TransportManager.
+"""Deep tests for ToolDispatcher, ToolValidator, PyDccLauncher, PyBufferPool/PySharedBuffer, DccInfo/DccCapabilities, and TransportManager.
 
 Each class is grouped into its own TestXxx class. All tests are
 pure-Python / mock-based; no real DCC process is spawned.
@@ -13,9 +13,6 @@ import uuid
 
 import pytest
 
-from dcc_mcp_core import ActionDispatcher
-from dcc_mcp_core import ActionRegistry
-from dcc_mcp_core import ActionValidator
 from dcc_mcp_core import DccCapabilities
 from dcc_mcp_core import DccInfo
 from dcc_mcp_core import PyBufferPool
@@ -24,6 +21,9 @@ from dcc_mcp_core import PySceneDataKind
 from dcc_mcp_core import PySharedSceneBuffer
 from dcc_mcp_core import ScriptLanguage
 from dcc_mcp_core import ServiceStatus
+from dcc_mcp_core import ToolDispatcher
+from dcc_mcp_core import ToolRegistry
+from dcc_mcp_core import ToolValidator
 from dcc_mcp_core import TransportManager
 
 # ---------------------------------------------------------------------------
@@ -31,27 +31,27 @@ from dcc_mcp_core import TransportManager
 # ---------------------------------------------------------------------------
 
 
-def _make_registry(*names: str, category: str = "geo", dcc: str = "maya") -> ActionRegistry:
-    reg = ActionRegistry()
+def _make_registry(*names: str, category: str = "geo", dcc: str = "maya") -> ToolRegistry:
+    reg = ToolRegistry()
     for name in names:
         reg.register(name, description=f"desc {name}", category=category, dcc=dcc)
     return reg
 
 
-def _make_dispatcher(*names: str) -> ActionDispatcher:
+def _make_dispatcher(*names: str) -> ToolDispatcher:
     reg = _make_registry(*names)
-    return ActionDispatcher(reg)
+    return ToolDispatcher(reg)
 
 
 # ---------------------------------------------------------------------------
-# ActionDispatcher
+# ToolDispatcher
 # ---------------------------------------------------------------------------
 
 
 class TestActionDispatcherConstruction:
     def test_creates_with_registry(self) -> None:
-        reg = ActionRegistry()
-        disp = ActionDispatcher(reg)
+        reg = ToolRegistry()
+        disp = ToolDispatcher(reg)
         assert disp is not None
 
     def test_repr_contains_class_name(self) -> None:
@@ -208,19 +208,19 @@ class TestActionDispatcherDispatch:
 
 
 # ---------------------------------------------------------------------------
-# ActionValidator
+# ToolValidator
 # ---------------------------------------------------------------------------
 
 
 class TestActionValidatorFromSchemaJson:
     def test_creates_from_valid_schema(self) -> None:
         schema = json.dumps({"type": "object", "properties": {}})
-        v = ActionValidator.from_schema_json(schema)
+        v = ToolValidator.from_schema_json(schema)
         assert v is not None
 
     def test_validate_empty_object_always_valid(self) -> None:
         schema = json.dumps({"type": "object", "properties": {}})
-        v = ActionValidator.from_schema_json(schema)
+        v = ToolValidator.from_schema_json(schema)
         ok, errors = v.validate("{}")
         assert ok is True
         assert errors == []
@@ -233,7 +233,7 @@ class TestActionValidatorFromSchemaJson:
                 "required": ["name"],
             }
         )
-        v = ActionValidator.from_schema_json(schema)
+        v = ToolValidator.from_schema_json(schema)
         ok, _errors = v.validate(json.dumps({"name": "sphere"}))
         assert ok is True
 
@@ -245,14 +245,14 @@ class TestActionValidatorFromSchemaJson:
                 "required": ["name"],
             }
         )
-        v = ActionValidator.from_schema_json(schema)
+        v = ToolValidator.from_schema_json(schema)
         ok, errors = v.validate("{}")
         assert ok is False
         assert len(errors) > 0
 
     def test_validate_returns_tuple(self) -> None:
         schema = json.dumps({"type": "object"})
-        v = ActionValidator.from_schema_json(schema)
+        v = ToolValidator.from_schema_json(schema)
         result = v.validate("{}")
         assert isinstance(result, tuple)
         assert len(result) == 2
@@ -265,7 +265,7 @@ class TestActionValidatorFromSchemaJson:
                 "required": ["radius"],
             }
         )
-        v = ActionValidator.from_schema_json(schema)
+        v = ToolValidator.from_schema_json(schema)
         ok, errors = v.validate(json.dumps({"radius": "not_a_number"}))
         assert ok is False
         assert any("radius" in e for e in errors)
@@ -278,7 +278,7 @@ class TestActionValidatorFromSchemaJson:
                 "required": ["x"],
             }
         )
-        v = ActionValidator.from_schema_json(schema)
+        v = ToolValidator.from_schema_json(schema)
         ok, _ = v.validate(json.dumps({"x": 50}))
         assert ok is True
 
@@ -290,7 +290,7 @@ class TestActionValidatorFromSchemaJson:
                 "required": ["count"],
             }
         )
-        v = ActionValidator.from_schema_json(schema)
+        v = ToolValidator.from_schema_json(schema)
         _, errors = v.validate(json.dumps({"count": "abc"}))
         assert any("count" in e for e in errors)
 
@@ -305,7 +305,7 @@ class TestActionValidatorFromSchemaJson:
                 "required": ["a", "b"],
             }
         )
-        v = ActionValidator.from_schema_json(schema)
+        v = ToolValidator.from_schema_json(schema)
         ok, errors = v.validate("{}")
         assert ok is False
         assert len(errors) >= 2
@@ -321,7 +321,7 @@ class TestActionValidatorFromSchemaJson:
                 "required": ["a", "b"],
             }
         )
-        v = ActionValidator.from_schema_json(schema)
+        v = ToolValidator.from_schema_json(schema)
         ok, errors = v.validate(json.dumps({"a": "hello"}))
         assert ok is False
         assert len(errors) == 1
@@ -329,8 +329,8 @@ class TestActionValidatorFromSchemaJson:
     def test_validator_independence(self) -> None:
         schema1 = json.dumps({"type": "object", "required": ["x"]})
         schema2 = json.dumps({"type": "object", "required": ["y"]})
-        v1 = ActionValidator.from_schema_json(schema1)
-        v2 = ActionValidator.from_schema_json(schema2)
+        v1 = ToolValidator.from_schema_json(schema1)
+        v2 = ToolValidator.from_schema_json(schema2)
         ok1, _ = v1.validate(json.dumps({"x": 1}))
         ok2, _ = v2.validate(json.dumps({"y": 1}))
         assert ok1 is True
@@ -339,7 +339,7 @@ class TestActionValidatorFromSchemaJson:
 
 class TestActionValidatorFromActionRegistry:
     def test_creates_from_registry(self) -> None:
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register(
             "sphere",
             description="desc",
@@ -347,7 +347,7 @@ class TestActionValidatorFromActionRegistry:
             dcc="maya",
             input_schema=json.dumps({"type": "object", "properties": {}}),
         )
-        v = ActionValidator.from_action_registry(reg, "sphere")
+        v = ToolValidator.from_action_registry(reg, "sphere")
         assert v is not None
 
     def test_validate_against_registered_schema(self) -> None:
@@ -358,9 +358,9 @@ class TestActionValidatorFromActionRegistry:
                 "required": ["radius"],
             }
         )
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("sphere", description="desc", category="geo", dcc="maya", input_schema=schema)
-        v = ActionValidator.from_action_registry(reg, "sphere")
+        v = ToolValidator.from_action_registry(reg, "sphere")
         ok, _ = v.validate(json.dumps({"radius": 1.0}))
         assert ok is True
 
@@ -372,9 +372,9 @@ class TestActionValidatorFromActionRegistry:
                 "required": ["radius"],
             }
         )
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("sphere", description="desc", category="geo", dcc="maya", input_schema=schema)
-        v = ActionValidator.from_action_registry(reg, "sphere")
+        v = ToolValidator.from_action_registry(reg, "sphere")
         ok, errors = v.validate("{}")
         assert ok is False
         assert len(errors) > 0

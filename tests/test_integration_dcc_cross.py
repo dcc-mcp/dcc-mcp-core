@@ -30,7 +30,7 @@ class TestCrossDCCPipeline:
 
     def test_multi_dcc_action_registry(self) -> None:
         """Register actions for multiple DCCs and verify isolation."""
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         for dcc in _ALL_DCC_LIST:
             for action in ["create", "export", "validate"]:
                 reg.register(name=f"{dcc}_{action}", dcc=dcc, description=f"{dcc}: {action}")

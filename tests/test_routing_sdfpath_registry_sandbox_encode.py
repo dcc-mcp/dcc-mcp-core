@@ -7,7 +7,7 @@ Covers:
 - SkillMetadata equality depth
 - RateLimitMiddleware per-action independent counters
 - encode_notify / encode_response error paths (invalid UUID)
-- ActionRegistry.__repr__ content and register_batch edge cases
+- ToolRegistry.__repr__ content and register_batch edge cases
 - SandboxContext.is_allowed with allow_actions / deny_actions combos
 """
 
@@ -19,13 +19,13 @@ import uuid
 import pytest
 
 import dcc_mcp_core
-from dcc_mcp_core import ActionRegistry
 from dcc_mcp_core import RoutingStrategy
 from dcc_mcp_core import SandboxContext
 from dcc_mcp_core import SandboxPolicy
 from dcc_mcp_core import SdfPath
 from dcc_mcp_core import ServiceStatus
 from dcc_mcp_core import SkillMetadata
+from dcc_mcp_core import ToolRegistry
 from dcc_mcp_core import TransportManager
 from dcc_mcp_core import UsdStage
 from dcc_mcp_core import decode_envelope
@@ -402,15 +402,15 @@ class TestRateLimitMiddlewarePerAction:
     """Tests for RateLimitMiddleware tracking independent per-action counters."""
 
     def _make_pipeline_with_rl(self, max_calls: int = 100, window_ms: int = 10000):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("action_a")
         reg.register("action_b")
         reg.register("action_c")
-        dispatcher = dcc_mcp_core.ActionDispatcher(reg)
+        dispatcher = dcc_mcp_core.ToolDispatcher(reg)
         dispatcher.register_handler("action_a", lambda p: "a")
         dispatcher.register_handler("action_b", lambda p: "b")
         dispatcher.register_handler("action_c", lambda p: "c")
-        pipeline = dcc_mcp_core.ActionPipeline(dispatcher)
+        pipeline = dcc_mcp_core.ToolPipeline(dispatcher)
         rl = pipeline.add_rate_limit(max_calls=max_calls, window_ms=window_ms)
         return pipeline, rl
 
@@ -553,19 +553,19 @@ class TestEncodeResponseErrors:
 
 
 # ===========================================================================
-# ActionRegistry.__repr__ and register_batch edge cases
+# ToolRegistry.__repr__ and register_batch edge cases
 # ===========================================================================
 
 
 class TestActionRegistryReprAndBatch:
-    """Tests for ActionRegistry repr and register_batch edge cases."""
+    """Tests for ToolRegistry repr and register_batch edge cases."""
 
     def test_repr_is_string(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         assert isinstance(repr(reg), str)
 
     def test_repr_changes_after_register(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         repr(reg)
         reg.register("action_x")
         r2 = repr(reg)
@@ -573,7 +573,7 @@ class TestActionRegistryReprAndBatch:
         assert isinstance(r2, str)
 
     def test_register_batch_skips_no_name(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register_batch(
             [
                 {},
@@ -584,7 +584,7 @@ class TestActionRegistryReprAndBatch:
         assert len(reg) == 1
 
     def test_register_batch_skips_empty_name(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register_batch(
             [
                 {"name": "", "category": "geo"},
@@ -594,7 +594,7 @@ class TestActionRegistryReprAndBatch:
         assert len(reg) == 1
 
     def test_register_batch_all_fields(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register_batch(
             [
                 {
@@ -614,7 +614,7 @@ class TestActionRegistryReprAndBatch:
         assert meta["dcc"] == "maya"
 
     def test_register_batch_multiple_dccs(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register_batch(
             [
                 {"name": "create_sphere", "dcc": "maya"},
@@ -627,19 +627,19 @@ class TestActionRegistryReprAndBatch:
         assert "create_sphere" in blender_names
 
     def test_len_after_batch_and_reset(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register_batch([{"name": f"act{i}"} for i in range(5)])
         assert len(reg) == 5
         reg.reset()
         assert len(reg) == 0
 
     def test_register_batch_large_set(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register_batch([{"name": f"action_{i:04d}", "dcc": "maya"} for i in range(50)])
         assert len(reg) == 50
 
     def test_register_batch_empty_list(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register_batch([])
         assert len(reg) == 0
 

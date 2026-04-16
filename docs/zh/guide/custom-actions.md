@@ -64,12 +64,12 @@ def create_sphere(radius: float = 1.0, name: str | None = None):
 
 ```python
 import os
-from dcc_mcp_core import create_skill_manager
+from dcc_mcp_core import create_skill_server
 
 os.environ["DCC_MCP_MAYA_SKILL_PATHS"] = "/path/to/my/skills"
 
 # 一行代码：自动发现 Skill，启动 MCP HTTP 服务
-manager = create_skill_manager("maya")
+manager = create_skill_server("maya")
 ```
 
 ::: tip Skills-First 是推荐模式
@@ -80,16 +80,16 @@ manager = create_skill_manager("maya")
 
 ## 低级注册表 API
 
-当需要在运行时以编程方式控制处理器注册时，使用 `ActionRegistry` + `ActionDispatcher` API。
+当需要在运行时以编程方式控制处理器注册时，使用 `ToolRegistry` + `ToolDispatcher` API。
 
 ## 完整示例
 
 ```python
 import json
-from dcc_mcp_core import ActionRegistry, ActionDispatcher
+from dcc_mcp_core import ToolRegistry, ToolDispatcher
 
 # 1. 使用 JSON Schema 注册 action 元数据
-reg = ActionRegistry()
+reg = ToolRegistry()
 reg.register(
     name="create_sphere",
     description="在 Maya 中创建多边形球体",
@@ -121,7 +121,7 @@ reg.register(
 )
 
 # 2. 创建 dispatcher 并注册处理器
-dispatcher = ActionDispatcher(reg)
+dispatcher = ToolDispatcher(reg)
 
 def handle_create_sphere(params):
     radius = params.get("radius", 1.0)
@@ -149,10 +149,10 @@ print(result["output"]["object_name"])  # "pSphere1"
 
 ## 关键要点
 
-1. **使用 `ActionRegistry.register()` 注册** —— 传入 name、description、tags、DCC、version 和 JSON Schema
+1. **使用 `ToolRegistry.register()` 注册** —— 传入 name、description、tags、DCC、version 和 JSON Schema
 2. **实现处理器函数** —— 接收 `params: dict`，返回结果字典
-3. **使用 `ActionDispatcher` 注册处理器** —— 将 action 名称连接到 Python 可调用对象
-4. **使用 JSON Schema 进行验证** —— `ActionDispatcher` 在调用处理器之前验证 JSON 输入
+3. **使用 `ToolDispatcher` 注册处理器** —— 将 action 名称连接到 Python 可调用对象
+4. **使用 JSON Schema 进行验证** —— `ToolDispatcher` 在调用处理器之前验证 JSON 输入
 5. **使用 JSON 字符串分派** —— wire format 使用 JSON，而非 Python 字典
 
 ## 处理器函数签名
@@ -168,14 +168,14 @@ def my_handler(params: dict) -> Any:
     pass
 ```
 
-## 使用 ActionValidator 进行验证
+## 使用 ToolValidator 进行验证
 
 在分派前验证输入：
 
 ```python
-from dcc_mcp_core import ActionValidator
+from dcc_mcp_core import ToolValidator
 
-validator = ActionValidator.from_action_registry(reg, "create_sphere", dcc_name="maya")
+validator = ToolValidator.from_action_registry(reg, "create_sphere", dcc_name="maya")
 ok, errors = validator.validate('{"radius": 1.5}')
 if not ok:
     print(f"Validation failed: {errors}")
@@ -210,7 +210,7 @@ print(result["version"])  # "2.0.0"
 
 ## JSON Schema 技巧
 
-- 使用 `$ref` 可重用 schema（ActionValidator 不支持 —— 请内联所有定义）
+- 使用 `$ref` 可重用 schema（ToolValidator 不支持 —— 请内联所有定义）
 - `"default"` 字段在输入中缺少 key 时设置默认值
 - 使用 `"minimum"`/`maximum` 进行数值约束
 - 使用 `"minLength"`/`maxLength` 进行字符串长度约束

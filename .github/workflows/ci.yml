@@ -176,9 +176,11 @@ jobs:
           python -c "
           import dcc_mcp_core
           print(f'Version: {dcc_mcp_core.__version__}')
-          from dcc_mcp_core._core import ActionResultModel, ActionRegistry, SkillScanner
-          result = ActionResultModel(success=True, message='Wheel test passed')
+          from dcc_mcp_core._core import ToolRegistry, ToolResult, SkillScanner
+          result = ToolResult(success=True, message='Wheel test passed')
           print(f'Result: {result}')
+          reg = ToolRegistry()
+          print(f'Registry: {reg}')
           print('All imports OK!')
           "
       - uses: actions/upload-artifact@v7

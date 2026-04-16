@@ -199,7 +199,7 @@ class TestBlenderSkillPipeline:
     """dcc-mcp-core skill pipeline with Blender as target DCC."""
 
     def test_register_blender_actions(self) -> None:
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         reg.register(name="create_sphere", description="Create UV Sphere", dcc="blender")
         reg.register(name="batch_rename", description="Rename objects", dcc="blender")
         reg.register(name="export_scene", description="Export scene", dcc="blender")

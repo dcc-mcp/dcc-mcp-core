@@ -4,7 +4,7 @@
 
 ## 概述
 
-`dcc-mcp-http` crate 提供了一个 MCP HTTP 服务器，将你的 `ActionRegistry` 通过 HTTP 暴露出来。MCP 客户端（如 Claude Desktop 或其他 LLM 集成）通过 HTTP POST 请求连接到 `/mcp` 端点。
+`dcc-mcp-http` crate 提供了一个 MCP HTTP 服务器，将你的 `ToolRegistry` 通过 HTTP 暴露出来。MCP 客户端（如 Claude Desktop 或其他 LLM 集成）通过 HTTP POST 请求连接到 `/mcp` 端点。
 
 ::: tip 后台线程
 服务器在后台 Tokio 线程中运行，不会阻塞 DCC 主线程。可安全用于 Maya/Blender 等插件中。
@@ -49,15 +49,15 @@ cfg = McpHttpConfig(
 | `dcc_version` | `str \| None` | `None` | 注册表中报告的 DCC 版本（如 `"2025"`） |
 | `scene` | `str \| None` | `None` | 当前打开的场景文件 — 改善网关路由 |
 
-## ServerHandle
+## McpServerHandle
 
 由 `McpHttpServer.start()` 返回。用于获取 MCP 端点 URL 并优雅关闭。
 
 ::: tip 别名
-`ServerHandle` 在 `dcc_mcp_core` 中也以 `McpServerHandle` 别名导出，两者指向同一个类。
+`McpServerHandle` 在 `dcc_mcp_core` 中也以 `McpServerHandle` 别名导出，两者指向同一个类。
 
 ```python
-from dcc_mcp_core import McpServerHandle  # ServerHandle 的别名
+from dcc_mcp_core import McpServerHandle  # McpServerHandle 的别名
 ```
 :::
 
@@ -80,9 +80,9 @@ from dcc_mcp_core import McpServerHandle  # ServerHandle 的别名
 ### 示例
 
 ```python
-from dcc_mcp_core import ActionRegistry, McpHttpServer, McpHttpConfig
+from dcc_mcp_core import ToolRegistry, McpHttpServer, McpHttpConfig
 
-registry = ActionRegistry()
+registry = ToolRegistry()
 registry.register("get_scene_info", description="获取当前场景信息",
                   category="scene", tags=[], dcc="maya", version="1.0.0")
 
@@ -103,10 +103,10 @@ MCP Streamable HTTP 服务器（2025-03-26 规范）。
 ### 构造函数
 
 ```python
-from dcc_mcp_core import ActionRegistry, McpHttpServer, McpHttpConfig
+from dcc_mcp_core import ToolRegistry, McpHttpServer, McpHttpConfig
 
 server = McpHttpServer(
-    registry,         # ActionRegistry 实例
+    registry,         # ToolRegistry 实例
     config=None,      # McpHttpConfig（默认 port=8765，无 CORS）
 )
 ```
@@ -115,7 +115,7 @@ server = McpHttpServer(
 
 | 方法 | 返回值 | 说明 |
 |------|--------|------|
-| `start()` | `ServerHandle` | 在后台线程启动服务器并返回句柄 |
+| `start()` | `McpServerHandle` | 在后台线程启动服务器并返回句柄 |
 | `register_handler(action_name, handler)` | `None` | 注册 Python 可调用对象；处理器接收解码后的参数（通常是 `dict`） |
 | `has_handler(action_name)` | `bool` | 检查是否已注册 Action 处理器 |
 
@@ -171,10 +171,10 @@ MCP 请求使用 JSON-RPC 2.0：
 ## 完整示例：Maya MCP 服务器
 
 ```python
-from dcc_mcp_core import ActionRegistry, McpHttpServer, McpHttpConfig
+from dcc_mcp_core import ToolRegistry, McpHttpServer, McpHttpConfig
 
 # 构建 Action 注册表
-registry = ActionRegistry()
+registry = ToolRegistry()
 registry.register(
     "get_scene_info",
     description="获取当前 Maya 场景信息",
@@ -213,7 +213,7 @@ print(f"Maya MCP 服务器: {handle.mcp_url()}")
 - **首个**绑定 `gateway_port`（默认：`9765`）的进程成为网关；其余为普通实例。
 - 互斥使用 `SO_REUSEADDR=false`（通过 `socket2`），确保跨平台（包括 Windows）的首个获胜语义。
 - 网关自动清理过期实例（在 `stale_timeout_secs` 内未收到心跳）。
-- 进程退出时，`ServerHandle` 被 drop，实例自动注销。
+- 进程退出时，`McpServerHandle` 被 drop，实例自动注销。
 
 ### 网关端点
 
@@ -238,9 +238,9 @@ print(f"Maya MCP 服务器: {handle.mcp_url()}")
 ### Python 示例
 
 ```python
-from dcc_mcp_core import ActionRegistry, McpHttpServer, McpHttpConfig
+from dcc_mcp_core import ToolRegistry, McpHttpServer, McpHttpConfig
 
-registry = ActionRegistry()
+registry = ToolRegistry()
 registry.register("get_scene_info", description="获取场景信息", category="scene", dcc="maya")
 
 config = McpHttpConfig(port=0, server_name="maya-mcp")
@@ -263,17 +263,17 @@ print(handle.mcp_url())         # 本实例的直接 MCP URL
 :::
 
 ::: info Skills-First + 网关
-`create_skill_manager()` 默认**不**配置 `gateway_port`。如需参与网关，需在传入的 `McpHttpConfig` 上显式设置：
+`create_skill_server()` 默认**不**配置 `gateway_port`。如需参与网关，需在传入的 `McpHttpConfig` 上显式设置：
 
 ```python
 import os
-from dcc_mcp_core import create_skill_manager, McpHttpConfig
+from dcc_mcp_core import create_skill_server, McpHttpConfig
 
 config = McpHttpConfig(port=0, server_name="maya")
 config.gateway_port = 9765
 config.dcc_type = "maya"
 
-server = create_skill_manager("maya", config)
+server = create_skill_server("maya", config)
 handle = server.start()
 ```
 :::

@@ -57,14 +57,14 @@ export DCC_MCP_SKILL_PATHS="/path/skills1:/path/skills2"
 推荐使用 `SkillCatalog` 进行完整的渐进式加载，也可使用低级扫描函数进行一次性操作：
 
 ```python
-from dcc_mcp_core import SkillCatalog, ActionRegistry, ActionDispatcher
+from dcc_mcp_core import SkillCatalog, ToolRegistry, ToolDispatcher
 
-# 创建目录（基于 ActionRegistry）
-registry = ActionRegistry()
+# 创建目录（基于 ToolRegistry）
+registry = ToolRegistry()
 catalog = SkillCatalog(registry)
 
 # 可选：附加调度器以启用自动处理器注册
-dispatcher = ActionDispatcher(registry)
+dispatcher = ToolDispatcher(registry)
 catalog.with_dispatcher(dispatcher)
 
 # 发现 DCC_MCP_SKILL_PATHS 中的所有 Skill
@@ -84,11 +84,11 @@ print(f"已注册工具: {actions}")
 `SkillCatalog` 管理完整生命周期：发现 → 渐进式加载 → 卸载。
 
 ```python
-from dcc_mcp_core import SkillCatalog, ActionRegistry, ActionDispatcher
+from dcc_mcp_core import SkillCatalog, ToolRegistry, ToolDispatcher
 
-registry = ActionRegistry()
+registry = ToolRegistry()
 catalog = SkillCatalog(registry)
-dispatcher = ActionDispatcher(registry)
+dispatcher = ToolDispatcher(registry)
 catalog.with_dispatcher(dispatcher)
 
 # 发现
@@ -302,32 +302,32 @@ deps = expand_transitive_dependencies(skills, "maya-animation")
 对于 `app_name="maya"`，`DCC_MCP_MAYA_SKILL_PATHS` 优先检查，`DCC_MCP_SKILL_PATHS` 作为全局兜底。
 :::
 
-## 一键 Skills-First 启动：`create_skill_manager`
+## 一键 Skills-First 启动：`create_skill_server`
 
-使用 `create_skill_manager`（v0.12.12+）可以一键完成所有配置，将 `ActionRegistry`、`ActionDispatcher`、`SkillCatalog` 和 `McpHttpServer` 组合在一起：
+使用 `create_skill_server`（v0.12.12+）可以一键完成所有配置，将 `ToolRegistry`、`ToolDispatcher`、`SkillCatalog` 和 `McpHttpServer` 组合在一起：
 
 ```python
 import os
-from dcc_mcp_core import create_skill_manager, McpHttpConfig
+from dcc_mcp_core import create_skill_server, McpHttpConfig
 
 # 设置应用专属 Skill 路径
 os.environ["DCC_MCP_MAYA_SKILL_PATHS"] = "/studio/maya-skills"
 
 # 一键：发现 Skills + 启动 MCP HTTP 服务器
-server = create_skill_manager("maya", McpHttpConfig(port=8765))
+server = create_skill_server("maya", McpHttpConfig(port=8765))
 handle = server.start()
 print(f"Maya MCP 服务器地址：{handle.mcp_url()}")
 # AI 客户端连接到 http://127.0.0.1:8765/mcp
 ```
 
-`create_skill_manager` 自动完成：
-1. 创建 `ActionRegistry` 和 `ActionDispatcher`
+`create_skill_server` 自动完成：
+1. 创建 `ToolRegistry` 和 `ToolDispatcher`
 2. 创建连接到 dispatcher 的 `SkillCatalog`
 3. 从 `DCC_MCP_MAYA_SKILL_PATHS` 和 `DCC_MCP_SKILL_PATHS` 发现 Skills
 4. 返回已配置好的 `McpHttpServer`
 
 ```python
-def create_skill_manager(
+def create_skill_server(
     app_name: str,
     config: McpHttpConfig | None = None,
     extra_paths: list[str] | None = None,
@@ -354,7 +354,7 @@ def create_skill_manager(
 | `.lua`, `.hscript` | Lua / Houdini | `python` 包装器 |
 
 ::: tip Skills-First 架构
-推荐使用 `create_skill_manager` 作为 v0.12.12+ 的首选入口。它将 `SkillCatalog` 自动脚本执行与 MCP HTTP 服务集成，Agent 无需任何手动处理器注册即可通过 `tools/call` 调用工具。
+推荐使用 `create_skill_server` 作为 v0.12.12+ 的首选入口。它将 `SkillCatalog` 自动脚本执行与 MCP HTTP 服务集成，Agent 无需任何手动处理器注册即可通过 `tools/call` 调用工具。
 :::
 
 ::: warning 脚本执行
@@ -363,7 +363,7 @@ def create_skill_manager(
 
 ## 按需 Skill 发现（MCP HTTP）
 
-使用 MCP HTTP 服务器（`McpHttpServer` 或 `create_skill_manager`）时，`tools/list` 返回**三层**响应：
+使用 MCP HTTP 服务器（`McpHttpServer` 或 `create_skill_server`）时，`tools/list` 返回**三层**响应：
 
 ### 三层 `tools/list` 响应
 
@@ -371,11 +371,11 @@ def create_skill_manager(
    - `find_skills` — 按查询、标签、DCC 类型搜索 Skill
    - `list_skills` — 列出所有 Skill，可按状态筛选
    - `get_skill_info` — 获取指定 Skill 的完整元数据
-   - `load_skill` — 加载 Skill，将其工具注册到 ActionRegistry
+   - `load_skill` — 加载 Skill，将其工具注册到 ToolRegistry
    - `unload_skill` — 卸载 Skill，移除其工具
    - `search_skills` — 跨 name、description、search_hint、tool_names 的关键词搜索
 
-2. **已加载 Skill 工具** — 来自 `ActionRegistry` 的完整 `input_schema`
+2. **已加载 Skill 工具** — 来自 `ToolRegistry` 的完整 `input_schema`
 
 3. **未加载 Skill Stub** — `__skill__<name>` 条目，仅含一行描述（无完整 schema）
 
@@ -418,7 +418,7 @@ def create_skill_manager(
 
 搜索范围：`name`、`description`、`search_hint`、`tool_names`。`search_hint` 字段（来自 SKILL.md `search-hint:`）无需加载完整 schema 即可改善关键词匹配。
 
-`create_skill_manager()` 启动时只调用 `discover()` — Skills **不会**自动加载。这保持了初始工具列表的精简，让 Agent 按需加载。
+`create_skill_server()` 启动时只调用 `discover()` — Skills **不会**自动加载。这保持了初始工具列表的精简，让 Agent 按需加载。
 
 ## MCP 核心发现工具
 
@@ -429,8 +429,8 @@ def create_skill_manager(
 | `find_skills` | 按条件搜索技能（query/tags/dcc） |
 | `list_skills` | 列出技能及加载状态 |
 | `get_skill_info` | 获取技能的完整元数据 |
-| `load_skill` | 加载技能 — 将其工具注册到 ActionRegistry |
-| `unload_skill` | 卸载技能 — 从 ActionRegistry 移除其工具 |
+| `load_skill` | 加载技能 — 将其工具注册到 ToolRegistry |
+| `unload_skill` | 卸载技能 — 从 ToolRegistry 移除其工具 |
 | `search_skills` | 按关键词搜索技能（紧凑一行摘要） |
 
 ## 三层 tools/list 响应
@@ -438,7 +438,7 @@ def create_skill_manager(
 `tools/list` 返回三层内容：
 
 1. **核心发现工具**（6 个，始终完整）— `find_skills`、`list_skills`、`get_skill_info`、`load_skill`、`unload_skill`、`search_skills`
-2. **已加载技能工具** — 来自 ActionRegistry，带完整 `input_schema`
+2. **已加载技能工具** — 来自 ToolRegistry，带完整 `input_schema`
 3. **未加载技能存根** — `__skill__<name>` 格式名称 + 一句话描述，无完整 schema
 
 ### 存根调用行为

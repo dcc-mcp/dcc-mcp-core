@@ -1,4 +1,4 @@
-"""Deep tests for ActionRegistry.count_actions, get_categories, and get_tags.
+"""Deep tests for ToolRegistry.count_actions, get_categories, and get_tags.
 
 Covers multi-DCC multi-category scenarios, tag filtering, and combined filters.
 """
@@ -10,9 +10,9 @@ import pytest
 import dcc_mcp_core
 
 
-def _populate_registry() -> dcc_mcp_core.ActionRegistry:
+def _populate_registry() -> dcc_mcp_core.ToolRegistry:
     """Create a registry with actions across multiple DCCs and categories."""
-    reg = dcc_mcp_core.ActionRegistry()
+    reg = dcc_mcp_core.ToolRegistry()
     reg.register_batch(
         [
             # maya - geo
@@ -36,11 +36,11 @@ def _populate_registry() -> dcc_mcp_core.ActionRegistry:
 
 class TestCountActionsBasic:
     def test_count_empty(self) -> None:
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         assert reg.count_actions() == 0
 
     def test_count_single(self) -> None:
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         reg.register("my_action", description="d", category="c", dcc="maya")
         assert reg.count_actions() == 1
 
@@ -149,11 +149,11 @@ class TestCountActionsCombinedFilters:
 
 class TestGetCategories:
     def test_empty_returns_empty(self) -> None:
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         assert reg.get_categories() == []
 
     def test_categories_sorted(self) -> None:
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         reg.register("c", description="d", category="render", dcc="maya")
         reg.register("a", description="d", category="anim", dcc="maya")
         reg.register("g", description="d", category="geo", dcc="maya")
@@ -190,7 +190,7 @@ class TestGetCategories:
         assert reg.get_categories(dcc_name="cinema4d") == []
 
     def test_categories_after_unregister_shrinks(self) -> None:
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         reg.register("cook", description="d", category="sim", dcc="houdini")
         reg.register("sphere", description="d", category="geo", dcc="houdini")
         assert "sim" in reg.get_categories()
@@ -200,7 +200,7 @@ class TestGetCategories:
 
 class TestGetTags:
     def test_empty_returns_empty(self) -> None:
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         assert reg.get_tags() == []
 
     def test_tags_sorted(self) -> None:
@@ -239,12 +239,12 @@ class TestGetTags:
         assert reg.get_tags(dcc_name="unreal") == []
 
     def test_tags_no_tags_action_excluded(self) -> None:
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         reg.register("no_tag_action", description="d", category="misc", dcc="maya")
         assert reg.get_tags() == []
 
     def test_tags_after_batch_register(self) -> None:
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         reg.register_batch(
             [
                 {"name": "op1", "category": "c", "dcc": "maya", "tags": ["alpha", "beta"]},
@@ -255,7 +255,7 @@ class TestGetTags:
         assert set(tags) == {"alpha", "beta", "gamma"}
 
     def test_tags_sorted_after_multiple_register(self) -> None:
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         reg.register("z_op", description="d", category="c", dcc="maya", tags=["z_tag"])
         reg.register("a_op", description="d", category="c", dcc="maya", tags=["a_tag"])
         tags = reg.get_tags()

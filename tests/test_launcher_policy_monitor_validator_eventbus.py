@@ -1,7 +1,7 @@
 """Deep coverage tests.
 
 Covers PyDccLauncher, PyCrashRecoveryPolicy, PyProcessMonitor,
-ActionValidator (from_action_registry), EventBus multi-subscriber, SkillMetadata
+ToolValidator (from_action_registry), EventBus multi-subscriber, SkillMetadata
 new constructor, InputValidator, and PyBufferPool.
 
 All tests are fully self-contained with no external dependencies.
@@ -14,8 +14,6 @@ import os
 
 import pytest
 
-from dcc_mcp_core import ActionRegistry
-from dcc_mcp_core import ActionValidator
 from dcc_mcp_core import EventBus
 from dcc_mcp_core import InputValidator
 from dcc_mcp_core import PyBufferPool
@@ -24,6 +22,8 @@ from dcc_mcp_core import PyDccLauncher
 from dcc_mcp_core import PyProcessMonitor
 from dcc_mcp_core import SkillMetadata
 from dcc_mcp_core import ToolDeclaration
+from dcc_mcp_core import ToolRegistry
+from dcc_mcp_core import ToolValidator
 
 # PyDccLauncher
 # ---------------------------------------------------------------------------
@@ -407,73 +407,73 @@ class TestPyProcessMonitorQuery:
 
 
 # ---------------------------------------------------------------------------
-# ActionValidator — from_action_registry error paths
+# ToolValidator — from_action_registry error paths
 # ---------------------------------------------------------------------------
 
 
 class TestActionValidatorFromRegistry:
     def _make_registry_with_schema(self):
         schema = '{"type": "object", "properties": {"radius": {"type": "number"}}, "required": ["radius"]}'
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("sphere", description="Create sphere", category="geo", input_schema=schema)
         return reg, schema
 
     def test_from_action_registry_happy_path(self):
         reg, _ = self._make_registry_with_schema()
-        av = ActionValidator.from_action_registry(reg, "sphere")
+        av = ToolValidator.from_action_registry(reg, "sphere")
         ok, errors = av.validate('{"radius": 1.0}')
         assert ok is True
         assert errors == []
 
     def test_from_action_registry_validation_fails(self):
         reg, _ = self._make_registry_with_schema()
-        av = ActionValidator.from_action_registry(reg, "sphere")
+        av = ToolValidator.from_action_registry(reg, "sphere")
         ok, errors = av.validate('{"radius": "not-a-number"}')
         assert ok is False
         assert len(errors) > 0
 
     def test_from_action_registry_missing_required(self):
         reg, _ = self._make_registry_with_schema()
-        av = ActionValidator.from_action_registry(reg, "sphere")
+        av = ToolValidator.from_action_registry(reg, "sphere")
         ok, _ = av.validate("{}")
         assert ok is False
 
     def test_from_action_registry_key_error_on_missing(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         with pytest.raises(KeyError):
-            ActionValidator.from_action_registry(reg, "nonexistent_action")
+            ToolValidator.from_action_registry(reg, "nonexistent_action")
 
     def test_from_action_registry_with_dcc_name(self):
         schema = '{"type": "object", "properties": {"x": {"type": "integer"}}, "required": ["x"]}'
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("do_thing", dcc="maya", input_schema=schema)
-        av = ActionValidator.from_action_registry(reg, "do_thing", dcc_name="maya")
+        av = ToolValidator.from_action_registry(reg, "do_thing", dcc_name="maya")
         ok, _ = av.validate('{"x": 42}')
         assert ok is True
 
     def test_from_action_registry_wrong_dcc_raises(self):
         schema = '{"type": "object"}'
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("do_thing", dcc="maya", input_schema=schema)
         with pytest.raises(KeyError):
-            ActionValidator.from_action_registry(reg, "do_thing", dcc_name="blender")
+            ToolValidator.from_action_registry(reg, "do_thing", dcc_name="blender")
 
     def test_from_schema_json_invalid_json_raises(self):
         with pytest.raises((ValueError, RuntimeError)):
-            ActionValidator.from_schema_json("not-valid-json{")
+            ToolValidator.from_schema_json("not-valid-json{")
 
     def test_validate_invalid_json_raises(self):
-        av = ActionValidator.from_schema_json('{"type": "object"}')
+        av = ToolValidator.from_schema_json('{"type": "object"}')
         with pytest.raises((ValueError, RuntimeError)):
             av.validate("not-json")
 
     def test_repr_validator(self):
-        av = ActionValidator.from_schema_json('{"type": "object"}')
+        av = ToolValidator.from_schema_json('{"type": "object"}')
         r = repr(av)
         assert len(r) > 0
 
     def test_validate_empty_object_against_empty_schema(self):
-        av = ActionValidator.from_schema_json('{"type": "object"}')
+        av = ToolValidator.from_schema_json('{"type": "object"}')
         ok, _ = av.validate("{}")
         assert ok is True
 
@@ -486,7 +486,7 @@ class TestActionValidatorFromRegistry:
             },
             "required": ["name", "count"]
         }"""
-        av = ActionValidator.from_schema_json(schema)
+        av = ToolValidator.from_schema_json(schema)
         ok, _ = av.validate('{"name": "cube", "count": 5}')
         assert ok is True
         ok2, _ = av.validate('{"name": "", "count": 200}')

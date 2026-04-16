@@ -18,7 +18,6 @@ import uuid
 
 import pytest
 
-from dcc_mcp_core import ActionRegistry
 from dcc_mcp_core import IpcListener
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
@@ -33,6 +32,7 @@ from dcc_mcp_core import SemVer
 from dcc_mcp_core import ServiceStatus
 from dcc_mcp_core import ToolAnnotations
 from dcc_mcp_core import ToolDefinition
+from dcc_mcp_core import ToolRegistry
 from dcc_mcp_core import TransportAddress
 from dcc_mcp_core import TransportScheme
 from dcc_mcp_core import VersionConstraint
@@ -99,40 +99,40 @@ class TestMcpHttpConfigCreate:
 
 class TestMcpHttpServerCreate:
     def test_create_no_config(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         srv = McpHttpServer(reg)
         assert srv is not None
 
     def test_create_with_config(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cfg = McpHttpConfig(port=0)
         srv = McpHttpServer(reg, cfg)
         assert srv is not None
 
     def test_repr_is_string(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         srv = McpHttpServer(reg)
         assert isinstance(repr(srv), str)
 
     def test_repr_contains_name(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cfg = McpHttpConfig(server_name="maya-mcp")
         srv = McpHttpServer(reg, cfg)
         assert "maya-mcp" in repr(srv)
 
     def test_repr_contains_port(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cfg = McpHttpConfig(port=9876)
         srv = McpHttpServer(reg, cfg)
         assert "9876" in repr(srv)
 
     def test_create_with_none_config(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         srv = McpHttpServer(reg, None)
         assert srv is not None
 
     def test_start_returns_server_handle(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cfg = McpHttpConfig(port=0)
         srv = McpHttpServer(reg, cfg)
         handle = srv.start()
@@ -142,7 +142,7 @@ class TestMcpHttpServerCreate:
             handle.shutdown()
 
     def test_handle_port_positive(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cfg = McpHttpConfig(port=0)
         srv = McpHttpServer(reg, cfg)
         handle = srv.start()
@@ -152,7 +152,7 @@ class TestMcpHttpServerCreate:
             handle.shutdown()
 
     def test_handle_bind_addr_contains_port(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cfg = McpHttpConfig(port=0)
         srv = McpHttpServer(reg, cfg)
         handle = srv.start()
@@ -163,7 +163,7 @@ class TestMcpHttpServerCreate:
             handle.shutdown()
 
     def test_handle_mcp_url_format(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cfg = McpHttpConfig(port=0)
         srv = McpHttpServer(reg, cfg)
         handle = srv.start()
@@ -175,7 +175,7 @@ class TestMcpHttpServerCreate:
             handle.shutdown()
 
     def test_handle_repr(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cfg = McpHttpConfig(port=0)
         srv = McpHttpServer(reg, cfg)
         handle = srv.start()
@@ -185,7 +185,7 @@ class TestMcpHttpServerCreate:
             handle.shutdown()
 
     def test_handle_signal_shutdown(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cfg = McpHttpConfig(port=0)
         srv = McpHttpServer(reg, cfg)
         handle = srv.start()

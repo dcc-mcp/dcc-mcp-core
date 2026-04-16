@@ -1,4 +1,4 @@
-"""Deep tests for ActionPipeline, VersionedRegistry, SemVer, VersionConstraint, SkillMetadata, SkillScanner, and SkillCatalog.
+"""Deep tests for ToolPipeline, VersionedRegistry, SemVer, VersionConstraint, SkillMetadata, SkillScanner, and SkillCatalog.
 
 Round #127 — target: +150 tests
 """
@@ -12,10 +12,6 @@ import tempfile
 # Import third-party modules
 import pytest
 
-# Import local modules
-from dcc_mcp_core import ActionDispatcher
-from dcc_mcp_core import ActionPipeline
-from dcc_mcp_core import ActionRegistry
 from dcc_mcp_core import AuditMiddleware
 from dcc_mcp_core import RateLimitMiddleware
 from dcc_mcp_core import SemVer
@@ -23,6 +19,11 @@ from dcc_mcp_core import SkillCatalog
 from dcc_mcp_core import SkillMetadata
 from dcc_mcp_core import SkillScanner
 from dcc_mcp_core import TimingMiddleware
+
+# Import local modules
+from dcc_mcp_core import ToolDispatcher
+from dcc_mcp_core import ToolPipeline
+from dcc_mcp_core import ToolRegistry
 from dcc_mcp_core import VersionConstraint
 from dcc_mcp_core import VersionedRegistry
 
@@ -33,27 +34,27 @@ from dcc_mcp_core import VersionedRegistry
 
 def _make_pipeline(handler=None):
     """Return (pipeline, registry) with one registered action."""
-    reg = ActionRegistry()
+    reg = ToolRegistry()
     reg.register("act", description="test action", category="test")
-    disp = ActionDispatcher(reg)
+    disp = ToolDispatcher(reg)
     disp.register_handler("act", handler or (lambda _: {"ok": True}))
-    return ActionPipeline(disp), reg
+    return ToolPipeline(disp), reg
 
 
 def _make_pipeline_multi(*action_names):
     """Return pipeline with multiple actions, all returning {name: <action>}."""
-    reg = ActionRegistry()
+    reg = ToolRegistry()
     for name in action_names:
         reg.register(name, description=f"action {name}", category="test")
-    disp = ActionDispatcher(reg)
+    disp = ToolDispatcher(reg)
     for name in action_names:
         # capture name in closure
         disp.register_handler(name, (lambda n: lambda _: {"name": n})(name))
-    return ActionPipeline(disp), reg
+    return ToolPipeline(disp), reg
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 1. ActionPipeline — create
+# 1. ToolPipeline — create
 # ──────────────────────────────────────────────────────────────────────────────
 
 
@@ -86,7 +87,7 @@ class TestActionPipelineCreate:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 2. ActionPipeline — dispatch basics
+# 2. ToolPipeline — dispatch basics
 # ──────────────────────────────────────────────────────────────────────────────
 
 
@@ -139,27 +140,27 @@ class TestActionPipelineDispatch:
             assert r["action"] == "act"
 
     def test_register_handler_on_pipeline(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("x", description="x", category="c")
-        disp = ActionDispatcher(reg)
-        p = ActionPipeline(disp)
+        disp = ToolDispatcher(reg)
+        p = ToolPipeline(disp)
         p.register_handler("x", lambda _: {"x": 1})
         r = p.dispatch("x", "{}")
         assert r["output"] == {"x": 1}
 
     def test_handler_count_after_register(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("a", description="a", category="c")
         reg.register("b", description="b", category="c")
-        disp = ActionDispatcher(reg)
-        p = ActionPipeline(disp)
+        disp = ToolDispatcher(reg)
+        p = ToolPipeline(disp)
         p.register_handler("a", lambda _: {})
         p.register_handler("b", lambda _: {})
         assert p.handler_count() == 2
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 3. ActionPipeline — add_timing
+# 3. ToolPipeline — add_timing
 # ──────────────────────────────────────────────────────────────────────────────
 
 
@@ -228,7 +229,7 @@ class TestActionPipelineAddTiming:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 4. ActionPipeline — add_audit
+# 4. ToolPipeline — add_audit
 # ──────────────────────────────────────────────────────────────────────────────
 
 
@@ -338,7 +339,7 @@ class TestActionPipelineAddAudit:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 5. ActionPipeline — add_rate_limit
+# 5. ToolPipeline — add_rate_limit
 # ──────────────────────────────────────────────────────────────────────────────
 
 
@@ -405,7 +406,7 @@ class TestActionPipelineAddRateLimit:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 6. ActionPipeline — add_callable
+# 6. ToolPipeline — add_callable
 # ──────────────────────────────────────────────────────────────────────────────
 
 
@@ -482,7 +483,7 @@ class TestActionPipelineAddCallable:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 7. ActionPipeline — add_logging
+# 7. ToolPipeline — add_logging
 # ──────────────────────────────────────────────────────────────────────────────
 
 
@@ -516,7 +517,7 @@ class TestActionPipelineAddLogging:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# 8. ActionPipeline — combined middleware
+# 8. ToolPipeline — combined middleware
 # ──────────────────────────────────────────────────────────────────────────────
 
 
@@ -558,11 +559,11 @@ class TestActionPipelineCombinedMiddleware:
 
     def test_audit_records_failed_action(self):
         """Handler that raises should produce success=False in audit."""
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("fail_act", description="fail", category="test")
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         disp.register_handler("fail_act", lambda _: (_ for _ in ()).throw(ValueError("boom")))  # type: ignore[attr-defined]
-        p = ActionPipeline(disp)
+        p = ToolPipeline(disp)
         a = p.add_audit()
         with contextlib.suppress(Exception):
             p.dispatch("fail_act", "{}")
@@ -1114,7 +1115,7 @@ class TestSkillScanner:
 
 class TestSkillCatalog:
     def _make_catalog(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         return SkillCatalog(reg), reg
 
     def test_create(self):

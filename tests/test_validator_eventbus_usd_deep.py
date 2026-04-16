@@ -1,7 +1,7 @@
-"""Deep tests for ActionValidator, EventBus, UsdStage / SdfPath / VtValue APIs.
+"""Deep tests for ToolValidator, EventBus, UsdStage / SdfPath / VtValue APIs.
 
 Covers:
-- ActionValidator: from_schema_json, from_action_registry, validate (happy/error paths)
+- ToolValidator: from_schema_json, from_action_registry, validate (happy/error paths)
 - EventBus: subscribe/publish/unsubscribe, multiple subscribers, different event names
 - UsdStage: define_prim, set/get attribute, traverse, prims_of_type, to_json/from_json, export_usda
 - SdfPath: name, is_absolute, parent(), child()
@@ -17,11 +17,12 @@ import json
 # Import third-party modules
 import pytest
 
-# Import local modules
-from dcc_mcp_core import ActionRegistry
-from dcc_mcp_core import ActionValidator
 from dcc_mcp_core import EventBus
 from dcc_mcp_core import SdfPath
+
+# Import local modules
+from dcc_mcp_core import ToolRegistry
+from dcc_mcp_core import ToolValidator
 from dcc_mcp_core import UsdStage
 from dcc_mcp_core import VtValue
 from dcc_mcp_core import scene_info_json_to_stage
@@ -51,99 +52,99 @@ def _empty_stage() -> UsdStage:
 
 
 # ===========================================================================
-# ActionValidator
+# ToolValidator
 # ===========================================================================
 
 
 class TestActionValidatorCreate:
     def test_from_schema_json_creates_validator(self):
         schema = _make_schema(x={"type": "number"})
-        v = ActionValidator.from_schema_json(schema)
+        v = ToolValidator.from_schema_json(schema)
         assert v is not None
 
     def test_from_schema_json_repr(self):
-        v = ActionValidator.from_schema_json(_make_schema(x={"type": "number"}))
-        assert "ActionValidator" in repr(v)
+        v = ToolValidator.from_schema_json(_make_schema(x={"type": "number"}))
+        assert "ToolValidator" in repr(v)
 
     def test_from_action_registry_creates_validator(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register(
             "act",
             description="d",
             category="c",
             input_schema=_make_schema(x={"type": "number"}),
         )
-        v = ActionValidator.from_action_registry(reg, "act")
+        v = ToolValidator.from_action_registry(reg, "act")
         assert v is not None
 
     def test_from_action_registry_no_schema(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("act_no_schema", description="d", category="c")
-        v = ActionValidator.from_action_registry(reg, "act_no_schema")
+        v = ToolValidator.from_action_registry(reg, "act_no_schema")
         assert v is not None
 
     def test_from_action_registry_nonexistent_raises_key_error(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         with pytest.raises(KeyError):
-            ActionValidator.from_action_registry(reg, "nonexistent")
+            ToolValidator.from_action_registry(reg, "nonexistent")
 
 
 class TestActionValidatorHappyPath:
     def test_validate_returns_tuple(self):
-        v = ActionValidator.from_schema_json(_make_schema(x={"type": "number"}))
+        v = ToolValidator.from_schema_json(_make_schema(x={"type": "number"}))
         result = v.validate(json.dumps({"x": 1.0}))
         assert isinstance(result, tuple)
         assert len(result) == 2
 
     def test_validate_success_is_true(self):
-        v = ActionValidator.from_schema_json(_make_schema(x={"type": "number"}))
+        v = ToolValidator.from_schema_json(_make_schema(x={"type": "number"}))
         ok, _errors = v.validate(json.dumps({"x": 3.14}))
         assert ok is True
 
     def test_validate_success_errors_empty(self):
-        v = ActionValidator.from_schema_json(_make_schema(x={"type": "number"}))
+        v = ToolValidator.from_schema_json(_make_schema(x={"type": "number"}))
         _ok, errors = v.validate(json.dumps({"x": 0}))
         assert errors == []
 
     def test_validate_extra_fields_allowed(self):
-        v = ActionValidator.from_schema_json(_make_schema(x={"type": "number"}))
+        v = ToolValidator.from_schema_json(_make_schema(x={"type": "number"}))
         ok, _ = v.validate(json.dumps({"x": 1, "extra": "ignored"}))
         assert ok is True
 
     def test_validate_no_schema_action_all_params_valid(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("act", description="d", category="c")
-        v = ActionValidator.from_action_registry(reg, "act")
+        v = ToolValidator.from_action_registry(reg, "act")
         ok, _ = v.validate(json.dumps({"anything": "works", "num": 42}))
         assert ok is True
 
     def test_validate_empty_object_against_no_required(self):
-        v = ActionValidator.from_schema_json(_make_schema(x={"type": "number"}))
+        v = ToolValidator.from_schema_json(_make_schema(x={"type": "number"}))
         ok, _ = v.validate("{}")
         assert ok is True
 
     def test_validate_integer_field(self):
-        v = ActionValidator.from_schema_json(_make_schema(count={"type": "integer"}))
+        v = ToolValidator.from_schema_json(_make_schema(count={"type": "integer"}))
         ok, _ = v.validate(json.dumps({"count": 5}))
         assert ok is True
 
     def test_validate_string_field(self):
-        v = ActionValidator.from_schema_json(_make_schema(name={"type": "string"}))
+        v = ToolValidator.from_schema_json(_make_schema(name={"type": "string"}))
         ok, _ = v.validate(json.dumps({"name": "hello"}))
         assert ok is True
 
     def test_validate_boolean_field_true(self):
-        v = ActionValidator.from_schema_json(_make_schema(flag={"type": "boolean"}))
+        v = ToolValidator.from_schema_json(_make_schema(flag={"type": "boolean"}))
         ok, _ = v.validate(json.dumps({"flag": True}))
         assert ok is True
 
     def test_validate_boolean_field_false(self):
-        v = ActionValidator.from_schema_json(_make_schema(flag={"type": "boolean"}))
+        v = ToolValidator.from_schema_json(_make_schema(flag={"type": "boolean"}))
         ok, _ = v.validate(json.dumps({"flag": False}))
         assert ok is True
 
     def test_validate_multiple_fields(self):
-        v = ActionValidator.from_schema_json(
+        v = ToolValidator.from_schema_json(
             _make_required_schema(
                 ["x", "name"],
                 x={"type": "number"},
@@ -155,64 +156,64 @@ class TestActionValidatorHappyPath:
         assert ok is True
 
     def test_validate_from_registry_with_schema(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register(
             "my_act",
             description="d",
             category="c",
             input_schema=_make_required_schema(["val"], val={"type": "integer"}),
         )
-        v = ActionValidator.from_action_registry(reg, "my_act")
+        v = ToolValidator.from_action_registry(reg, "my_act")
         ok, _ = v.validate(json.dumps({"val": 42}))
         assert ok is True
 
 
 class TestActionValidatorErrorPath:
     def test_validate_missing_required_field(self):
-        v = ActionValidator.from_schema_json(_make_required_schema(["x"], x={"type": "number"}))
+        v = ToolValidator.from_schema_json(_make_required_schema(["x"], x={"type": "number"}))
         ok, errors = v.validate("{}")
         assert ok is False
         assert len(errors) > 0
 
     def test_validate_missing_required_error_message(self):
-        v = ActionValidator.from_schema_json(_make_required_schema(["x"], x={"type": "number"}))
+        v = ToolValidator.from_schema_json(_make_required_schema(["x"], x={"type": "number"}))
         _, errors = v.validate("{}")
         assert any("x" in e for e in errors)
 
     def test_validate_wrong_type_number_gets_string(self):
-        v = ActionValidator.from_schema_json(_make_schema(x={"type": "number"}))
+        v = ToolValidator.from_schema_json(_make_schema(x={"type": "number"}))
         ok, errors = v.validate(json.dumps({"x": "not_a_number"}))
         assert ok is False
         assert len(errors) > 0
 
     def test_validate_wrong_type_integer_gets_float(self):
-        v = ActionValidator.from_schema_json(_make_schema(n={"type": "integer"}))
+        v = ToolValidator.from_schema_json(_make_schema(n={"type": "integer"}))
         ok, _errors = v.validate(json.dumps({"n": "abc"}))
         assert ok is False
 
     def test_validate_wrong_type_boolean_gets_string(self):
-        v = ActionValidator.from_schema_json(_make_schema(flag={"type": "boolean"}))
+        v = ToolValidator.from_schema_json(_make_schema(flag={"type": "boolean"}))
         ok, _errors = v.validate(json.dumps({"flag": "yes"}))
         assert ok is False
 
     def test_validate_null_required_number(self):
-        v = ActionValidator.from_schema_json(_make_required_schema(["x"], x={"type": "number"}))
+        v = ToolValidator.from_schema_json(_make_required_schema(["x"], x={"type": "number"}))
         ok, _errors = v.validate(json.dumps({"x": None}))
         assert ok is False
 
     def test_validate_invalid_json_raises_value_error(self):
-        v = ActionValidator.from_schema_json(_make_schema(x={"type": "number"}))
+        v = ToolValidator.from_schema_json(_make_schema(x={"type": "number"}))
         with pytest.raises(ValueError):
             v.validate("not_valid_json{")
 
     def test_validate_array_instead_of_object(self):
-        v = ActionValidator.from_schema_json(_make_schema(x={"type": "number"}))
+        v = ToolValidator.from_schema_json(_make_schema(x={"type": "number"}))
         ok, errors = v.validate("[]")
         assert ok is False
         assert len(errors) > 0
 
     def test_validate_multiple_missing_required(self):
-        v = ActionValidator.from_schema_json(
+        v = ToolValidator.from_schema_json(
             _make_required_schema(["a", "b"], a={"type": "number"}, b={"type": "string"})
         )
         ok, errors = v.validate("{}")
@@ -220,7 +221,7 @@ class TestActionValidatorErrorPath:
         assert len(errors) >= 1
 
     def test_validate_error_list_is_strings(self):
-        v = ActionValidator.from_schema_json(_make_required_schema(["x"], x={"type": "number"}))
+        v = ToolValidator.from_schema_json(_make_required_schema(["x"], x={"type": "number"}))
         _, errors = v.validate("{}")
         for e in errors:
             assert isinstance(e, str)

@@ -9,7 +9,7 @@ This test module covers:
 - TestPyBufferPool (capacity/available/acquire/exhaust)
 - TestVersionedRegistry (register/resolve/resolve_all/latest_version/versions/keys/remove)
 - TestSemVerAndConstraint (parse/compare/matches_constraint/VersionConstraint.matches)
-- TestValidateActionResult (None/str/dict/ActionResultModel inputs)
+- TestValidateActionResult (None/str/dict/ToolResult inputs)
 - TestFromException (basic/with options/context kwargs)
 """
 
@@ -679,10 +679,10 @@ class TestValidateActionResult:
         assert r.success is True
 
     def test_returns_action_result_model_type(self):
-        from dcc_mcp_core import ActionResultModel
+        from dcc_mcp_core import ToolResult
 
         r = validate_action_result(None)
-        assert isinstance(r, ActionResultModel)
+        assert isinstance(r, ToolResult)
 
 
 # ---------------------------------------------------------------------------
@@ -691,7 +691,7 @@ class TestValidateActionResult:
 
 
 class TestFromException:
-    """Tests for from_exception - wrap an error string as ActionResultModel."""
+    """Tests for from_exception - wrap an error string as ToolResult."""
 
     def test_basic_success_false(self):
         r = from_exception("something went wrong")
@@ -737,10 +737,10 @@ class TestFromException:
         assert "error_type" in r.context
 
     def test_returns_action_result_model_type(self):
-        from dcc_mcp_core import ActionResultModel
+        from dcc_mcp_core import ToolResult
 
         r = from_exception("my error")
-        assert isinstance(r, ActionResultModel)
+        assert isinstance(r, ToolResult)
 
     def test_empty_error_string(self):
         r = from_exception("")

@@ -21,13 +21,14 @@ import uuid
 # Import third-party modules
 import pytest
 
-# Import local modules
-from dcc_mcp_core import ActionDispatcher
-from dcc_mcp_core import ActionPipeline
-from dcc_mcp_core import ActionRegistry
 from dcc_mcp_core import PySharedBuffer
 from dcc_mcp_core import ServiceStatus
 from dcc_mcp_core import SkillScanner
+
+# Import local modules
+from dcc_mcp_core import ToolDispatcher
+from dcc_mcp_core import ToolPipeline
+from dcc_mcp_core import ToolRegistry
 from dcc_mcp_core import TransportManager
 from dcc_mcp_core import UsdStage
 from dcc_mcp_core import VtValue
@@ -53,13 +54,13 @@ def make_transport_manager(tmpdir: str) -> TransportManager:
     return TransportManager(tmpdir)
 
 
-def make_pipeline_with_audit() -> tuple[ActionPipeline, object]:
+def make_pipeline_with_audit() -> tuple[ToolPipeline, object]:
     """Return (pipeline, audit_middleware) with a single 'my_action' handler."""
-    reg = ActionRegistry()
+    reg = ToolRegistry()
     reg.register("my_action", description="test action", category="test")
-    disp = ActionDispatcher(reg)
+    disp = ToolDispatcher(reg)
     disp.register_handler("my_action", lambda p: {"result": 1})
-    pipe = ActionPipeline(disp)
+    pipe = ToolPipeline(disp)
     audit = pipe.add_audit(record_params=True)
     return pipe, audit
 
@@ -328,13 +329,13 @@ class TestAuditMiddlewareRecords:
 
     def test_records_for_action_filters_correctly(self):
         """records_for_action() returns only records for the specified action."""
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("action_a", description="a", category="test")
         reg.register("action_b", description="b", category="test")
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         disp.register_handler("action_a", lambda p: {"a": 1})
         disp.register_handler("action_b", lambda p: {"b": 2})
-        pipe = ActionPipeline(disp)
+        pipe = ToolPipeline(disp)
         audit = pipe.add_audit()
 
         pipe.dispatch("action_a", "{}")

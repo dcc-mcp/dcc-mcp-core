@@ -1,7 +1,7 @@
 """Deep coverage tests for six API surface areas.
 
 Covers CaptureFrame properties, PySharedBuffer.clear/open cross-instance,
-ActionRegistry.search_actions AND-filter combinations, SandboxContext.is_path_allowed,
+ToolRegistry.search_actions AND-filter combinations, SandboxContext.is_path_allowed,
 VersionedRegistry.resolve_all/total_entries/keys, and PromptDefinition+PromptArgument.
 """
 
@@ -12,7 +12,6 @@ import tempfile
 
 import pytest
 
-from dcc_mcp_core import ActionRegistry
 from dcc_mcp_core import CaptureFrame
 from dcc_mcp_core import Capturer
 from dcc_mcp_core import PromptArgument
@@ -20,6 +19,7 @@ from dcc_mcp_core import PromptDefinition
 from dcc_mcp_core import PySharedBuffer
 from dcc_mcp_core import SandboxContext
 from dcc_mcp_core import SandboxPolicy
+from dcc_mcp_core import ToolRegistry
 from dcc_mcp_core import VersionConstraint
 from dcc_mcp_core import VersionedRegistry
 
@@ -257,14 +257,14 @@ class TestPySharedBufferClearAndOpen:
         assert "path" in desc
 
 
-# ─────────────────── ActionRegistry.search_actions combination filters ───────────────────
+# ─────────────────── ToolRegistry.search_actions combination filters ───────────────────
 
 
 class TestActionRegistrySearchActionsFilters:
     """search_actions AND-filter combinations: category + tags + dcc_name."""
 
     def setup_method(self):
-        self.reg = ActionRegistry()
+        self.reg = ToolRegistry()
         self.reg.register("create_sphere", category="geometry", tags=["create", "mesh"], dcc="maya")
         self.reg.register("delete_sphere", category="geometry", tags=["delete", "mesh"], dcc="maya")
         self.reg.register("create_cube", category="geometry", tags=["create", "mesh"], dcc="blender")

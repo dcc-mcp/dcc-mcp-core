@@ -50,16 +50,16 @@ bus.unsubscribe("action.executed", sid)
 
 ---
 
-## ActionRecorder
+## ToolRecorder
 
 记录每个 Action 的执行耗时与成功/失败计数。用于为代码中执行的任意 Action 收集性能遥测数据。
 
 ### 构造函数
 
 ```python
-from dcc_mcp_core import ActionRecorder
+from dcc_mcp_core import ToolRecorder
 
-recorder = ActionRecorder("my-service")
+recorder = ToolRecorder("my-service")
 ```
 
 | 参数 | 类型 | 说明 |
@@ -71,16 +71,16 @@ recorder = ActionRecorder("my-service")
 | 方法 | 返回值 | 说明 |
 |------|--------|------|
 | `start(action_name, dcc_name)` | `RecordingGuard` | 开始计时；返回 RAII 守卫对象 |
-| `metrics(action_name)` | `ActionMetrics \| None` | 指定 Action 的聚合指标；无数据时返回 `None` |
-| `all_metrics()` | `list[ActionMetrics]` | 所有已记录 Action 的聚合指标 |
+| `metrics(action_name)` | `ToolMetrics \| None` | 指定 Action 的聚合指标；无数据时返回 `None` |
+| `all_metrics()` | `list[ToolMetrics]` | 所有已记录 Action 的聚合指标 |
 | `reset()` | `None` | 清空所有内存统计数据 |
 
 ### 示例
 
 ```python
-from dcc_mcp_core import ActionRecorder
+from dcc_mcp_core import ToolRecorder
 
-recorder = ActionRecorder("maya-skill-server")
+recorder = ToolRecorder("maya-skill-server")
 
 # 手动守卫方式
 guard = recorder.start("create_sphere", "maya")
@@ -106,7 +106,7 @@ if m:
 
 ## RecordingGuard
 
-`ActionRecorder.start()` 返回的 RAII 守卫对象，自动记录耗时与执行结果。
+`ToolRecorder.start()` 返回的 RAII 守卫对象，自动记录耗时与执行结果。
 
 ### 方法
 
@@ -118,9 +118,9 @@ if m:
 
 ---
 
-## ActionMetrics
+## ToolMetrics
 
-单个 Action 的性能指标只读快照。通过 `ActionRecorder.metrics()` 或 `ActionRecorder.all_metrics()` 获取。
+单个 Action 的性能指标只读快照。通过 `ToolRecorder.metrics()` 或 `ToolRecorder.all_metrics()` 获取。
 
 ### 属性
 
@@ -143,7 +143,7 @@ if m:
 ### 示例
 
 ```python
-recorder = ActionRecorder("server")
+recorder = ToolRecorder("server")
 
 for _ in range(10):
     with recorder.start("ping", "maya"):

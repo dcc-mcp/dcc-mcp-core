@@ -46,7 +46,7 @@ A Rust-powered MCP (Model Context Protocol) library that lets AI agents interact
 
 **Setting up MCP HTTP server + gateway?**
 → [`docs/api/http.md`](docs/api/http.md)
-→ Key types: `McpHttpServer`, `McpHttpConfig`, `McpServerHandle`, `create_skill_manager`
+→ Key types: `McpHttpServer`, `McpHttpConfig`, `McpServerHandle`, `create_skill_server`
 
 **Bridging a non-Python DCC (Photoshop, ZBrush via WebSocket)?**
 → `python/dcc_mcp_core/bridge.py` — `DccBridge`
@@ -93,15 +93,15 @@ dcc-mcp-core/
 ├── justfile                        # Dev commands (always prefix with vx)
 │
 ├── crates/                         # Rust — one crate per concern
-│   ├── dcc-mcp-models/             # ActionResultModel, SkillMetadata, ToolDeclaration
-│   ├── dcc-mcp-actions/            # ActionRegistry, ActionDispatcher, ActionPipeline, EventBus
+│   ├── dcc-mcp-models/             # ToolResult, SkillMetadata, ToolDeclaration
+│   ├── dcc-mcp-actions/            # ToolRegistry, ToolDispatcher, ToolPipeline, EventBus
 │   ├── dcc-mcp-skills/             # SkillScanner, SkillCatalog, SkillWatcher
 │   ├── dcc-mcp-protocols/          # MCP types: ToolDefinition, DccCapabilities, BridgeKind
 │   ├── dcc-mcp-transport/          # IpcListener, FramedChannel, TransportManager, FileRegistry
 │   ├── dcc-mcp-process/            # PyDccLauncher, PyProcessWatcher, CrashRecoveryPolicy
 │   ├── dcc-mcp-http/               # McpHttpServer (MCP 2025-03-26 Streamable HTTP), Gateway
 │   ├── dcc-mcp-sandbox/            # SandboxPolicy, InputValidator, AuditLog
-│   ├── dcc-mcp-telemetry/          # TelemetryConfig, ActionRecorder, ActionMetrics
+│   ├── dcc-mcp-telemetry/          # TelemetryConfig, ToolRecorder, ToolMetrics
 │   ├── dcc-mcp-shm/                # PySharedBuffer, PySharedSceneBuffer (LZ4)
 │   ├── dcc-mcp-capture/            # Capturer, CaptureFrame (platform-native)
 │   ├── dcc-mcp-usd/                # UsdStage, UsdPrim, scene_info_json_to_stage
@@ -168,13 +168,13 @@ result = success_result("done", prompt="hint", count=5)
 # result.context == {"count": 5}
 ```
 
-**`ActionDispatcher` — only `.dispatch()`, never `.call()`:**
+**`ToolDispatcher` — only `.dispatch()`, never `.call()`:**
 ```python
-dispatcher = ActionDispatcher(registry)          # one arg only
+dispatcher = ToolDispatcher(registry)          # one arg only
 result = dispatcher.dispatch("name", json_str)   # returns dict
 ```
 
-**`ActionRegistry.register()` — keyword args only, no positional:**
+**`ToolRegistry.register()` — keyword args only, no positional:**
 ```python
 registry.register(name="my_action", description="...", dcc="maya")
 ```
@@ -203,8 +203,8 @@ from dcc_mcp_core._core import DeferredExecutor   # direct import required
 # Inside a skill script (pure Python, returns dict for subprocess capture):
 return skill_success("done", count=5)       # → {"success": True, ...} dict
 
-# Inside server code (returns ActionResultModel for validation/transport):
-return success_result("done", count=5)      # → ActionResultModel instance
+# Inside server code (returns ToolResult for validation/transport):
+return success_result("done", count=5)      # → ToolResult instance
 ```
 
 ---

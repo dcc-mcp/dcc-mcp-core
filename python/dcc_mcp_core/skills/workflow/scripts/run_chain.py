@@ -4,7 +4,7 @@ Dispatch strategy:
 1. IPC dispatch — if DCC_MCP_IPC_ADDRESS is set, each step is sent to the
    running DCC server via FramedChannel.call("dispatch_action", ...).
    This is the production path (Maya, Blender, Unreal, etc.).
-2. Local ActionDispatcher — fallback for testing without a live DCC server.
+2. Local ToolDispatcher — fallback for testing without a live DCC server.
    Only actions registered in the local process are available.
 
 Context propagation:
@@ -65,12 +65,12 @@ def _build_ipc_dispatcher(ipc_address: str):
 
 
 def _build_local_dispatcher():
-    """Return a callable that dispatches via a local ActionDispatcher."""
-    from dcc_mcp_core import ActionDispatcher
-    from dcc_mcp_core import ActionRegistry
+    """Return a callable that dispatches via a local ToolDispatcher."""
+    from dcc_mcp_core import ToolDispatcher
+    from dcc_mcp_core import ToolRegistry
 
-    registry = ActionRegistry()
-    dispatcher = ActionDispatcher(registry)
+    registry = ToolRegistry()
+    dispatcher = ToolDispatcher(registry)
 
     def dispatch(action_name: str, params: dict) -> dict:
         params_json = json.dumps(params)
@@ -120,7 +120,7 @@ def main() -> None:
         sys.exit(1)
 
     try:
-        from dcc_mcp_core import ActionDispatcher  # noqa: F401 — just check import
+        from dcc_mcp_core import ToolDispatcher  # noqa: F401 — just check import
     except ImportError:
         print(json.dumps({"success": False, "message": "dcc_mcp_core not available. Install the package first."}))
         sys.exit(1)

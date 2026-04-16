@@ -65,12 +65,12 @@ class TestFilesystem:
             dcc_mcp_core.get_platform_dir("invalid_type")
 
     def test_get_actions_dir(self) -> None:
-        path = dcc_mcp_core.get_actions_dir("maya")
+        path = dcc_mcp_core.get_tools_dir("maya")
         assert "maya" in path
         assert "actions" in path
 
     def test_get_actions_dir_different_dcc(self) -> None:
-        path = dcc_mcp_core.get_actions_dir("blender")
+        path = dcc_mcp_core.get_tools_dir("blender")
         assert "blender" in path
 
     def test_get_skills_dir_no_dcc(self) -> None:

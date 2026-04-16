@@ -1,4 +1,4 @@
-"""Deep coverage tests for ActionValidator, ActionDispatcher, TelemetryConfig, UsdStage/UsdPrim/VtValue, and SdfPath APIs.
+"""Deep coverage tests for ToolValidator, ToolDispatcher, TelemetryConfig, UsdStage/UsdPrim/VtValue, and SdfPath APIs.
 
 Groups:
 - TestActionValidatorSchemaTypes      — JSON schema type validation deep
@@ -18,11 +18,11 @@ import json
 
 import pytest
 
-from dcc_mcp_core import ActionDispatcher
-from dcc_mcp_core import ActionRegistry
-from dcc_mcp_core import ActionValidator
 from dcc_mcp_core import SdfPath
 from dcc_mcp_core import TelemetryConfig
+from dcc_mcp_core import ToolDispatcher
+from dcc_mcp_core import ToolRegistry
+from dcc_mcp_core import ToolValidator
 from dcc_mcp_core import UsdStage
 from dcc_mcp_core import VtValue
 
@@ -31,9 +31,9 @@ from dcc_mcp_core import VtValue
 # ---------------------------------------------------------------------------
 
 
-def _make_registry(*actions: tuple[str, str]) -> ActionRegistry:
+def _make_registry(*actions: tuple[str, str]) -> ToolRegistry:
     """Create a registry with named actions (name, schema_json) pairs."""
-    reg = ActionRegistry()
+    reg = ToolRegistry()
     for name, schema in actions:
         reg.register(name, description=f"desc {name}", category="test", input_schema=schema)
     return reg
@@ -67,14 +67,14 @@ class TestActionValidatorSchemaTypes:
 
     class TestHappyPath:
         def test_number_valid(self):
-            v = ActionValidator.from_schema_json(_SIMPLE_SCHEMA)
+            v = ToolValidator.from_schema_json(_SIMPLE_SCHEMA)
             ok, errors = v.validate(json.dumps({"radius": 1.5}))
             assert ok is True
             assert errors == []
 
         def test_integer_valid(self):
             schema = json.dumps({"type": "object", "properties": {"n": {"type": "integer"}}, "required": ["n"]})
-            v = ActionValidator.from_schema_json(schema)
+            v = ToolValidator.from_schema_json(schema)
             ok, errors = v.validate(json.dumps({"n": 42}))
             assert ok is True
             assert errors == []
@@ -87,7 +87,7 @@ class TestActionValidatorSchemaTypes:
                     "required": ["label"],
                 }
             )
-            v = ActionValidator.from_schema_json(schema)
+            v = ToolValidator.from_schema_json(schema)
             ok, _errors = v.validate(json.dumps({"label": "hello"}))
             assert ok is True
 
@@ -99,7 +99,7 @@ class TestActionValidatorSchemaTypes:
                     "required": ["flag"],
                 }
             )
-            v = ActionValidator.from_schema_json(schema)
+            v = ToolValidator.from_schema_json(schema)
             ok, _errors = v.validate(json.dumps({"flag": True}))
             assert ok is True
 
@@ -111,46 +111,46 @@ class TestActionValidatorSchemaTypes:
                     "required": ["items"],
                 }
             )
-            v = ActionValidator.from_schema_json(schema)
+            v = ToolValidator.from_schema_json(schema)
             ok, _errors = v.validate(json.dumps({"items": ["a", "b", "c"]}))
             assert ok is True
 
         def test_multi_field_valid(self):
-            v = ActionValidator.from_schema_json(_MULTI_SCHEMA)
+            v = ToolValidator.from_schema_json(_MULTI_SCHEMA)
             ok, errors = v.validate(json.dumps({"name": "sphere", "count": 3, "active": True, "tags": ["geo"]}))
             assert ok is True
             assert errors == []
 
         def test_optional_field_absent(self):
             """Optional fields (not in required) can be absent."""
-            v = ActionValidator.from_schema_json(_MULTI_SCHEMA)
+            v = ToolValidator.from_schema_json(_MULTI_SCHEMA)
             ok, _errors = v.validate(json.dumps({"name": "x", "count": 1}))
             assert ok is True
 
         def test_empty_schema_all_pass(self):
-            v = ActionValidator.from_schema_json(_EMPTY_SCHEMA)
+            v = ToolValidator.from_schema_json(_EMPTY_SCHEMA)
             ok, _ = v.validate("{}")
             assert ok is True
 
         def test_extra_fields_ignored(self):
             """Extra fields not in schema should not cause validation failure."""
-            v = ActionValidator.from_schema_json(_SIMPLE_SCHEMA)
+            v = ToolValidator.from_schema_json(_SIMPLE_SCHEMA)
             ok, _errors = v.validate(json.dumps({"radius": 1.0, "extra_field": "ignored"}))
             assert ok is True
 
         def test_zero_number_valid(self):
-            v = ActionValidator.from_schema_json(_SIMPLE_SCHEMA)
+            v = ToolValidator.from_schema_json(_SIMPLE_SCHEMA)
             ok, _ = v.validate(json.dumps({"radius": 0}))
             assert ok is True
 
         def test_negative_number_valid(self):
-            v = ActionValidator.from_schema_json(_SIMPLE_SCHEMA)
+            v = ToolValidator.from_schema_json(_SIMPLE_SCHEMA)
             ok, _ = v.validate(json.dumps({"radius": -3.14}))
             assert ok is True
 
     class TestErrorPath:
         def test_missing_required_field(self):
-            v = ActionValidator.from_schema_json(_SIMPLE_SCHEMA)
+            v = ToolValidator.from_schema_json(_SIMPLE_SCHEMA)
             ok, errors = v.validate("{}")
             assert ok is False
             assert len(errors) == 1
@@ -158,7 +158,7 @@ class TestActionValidatorSchemaTypes:
             assert "required" in errors[0]
 
         def test_wrong_type_number(self):
-            v = ActionValidator.from_schema_json(_SIMPLE_SCHEMA)
+            v = ToolValidator.from_schema_json(_SIMPLE_SCHEMA)
             ok, errors = v.validate(json.dumps({"radius": "not_a_number"}))
             assert ok is False
             assert "radius" in errors[0]
@@ -166,7 +166,7 @@ class TestActionValidatorSchemaTypes:
 
         def test_wrong_type_integer_rejects_float(self):
             schema = json.dumps({"type": "object", "properties": {"n": {"type": "integer"}}, "required": ["n"]})
-            v = ActionValidator.from_schema_json(schema)
+            v = ToolValidator.from_schema_json(schema)
             ok, errors = v.validate(json.dumps({"n": 5.5}))
             assert ok is False
             assert "integer" in errors[0]
@@ -179,7 +179,7 @@ class TestActionValidatorSchemaTypes:
                     "required": ["flag"],
                 }
             )
-            v = ActionValidator.from_schema_json(schema)
+            v = ToolValidator.from_schema_json(schema)
             ok, errors = v.validate(json.dumps({"flag": "yes"}))
             assert ok is False
             assert "boolean" in errors[0]
@@ -192,13 +192,13 @@ class TestActionValidatorSchemaTypes:
                     "required": ["tags"],
                 }
             )
-            v = ActionValidator.from_schema_json(schema)
+            v = ToolValidator.from_schema_json(schema)
             ok, errors = v.validate(json.dumps({"tags": "not_array"}))
             assert ok is False
             assert "array" in errors[0]
 
         def test_multiple_missing_required(self):
-            v = ActionValidator.from_schema_json(_MULTI_SCHEMA)
+            v = ToolValidator.from_schema_json(_MULTI_SCHEMA)
             ok, errors = v.validate("{}")
             assert ok is False
             # Should report both missing required fields
@@ -206,30 +206,30 @@ class TestActionValidatorSchemaTypes:
 
         def test_integer_from_string(self):
             schema = json.dumps({"type": "object", "properties": {"n": {"type": "integer"}}, "required": ["n"]})
-            v = ActionValidator.from_schema_json(schema)
+            v = ToolValidator.from_schema_json(schema)
             ok, _errors = v.validate(json.dumps({"n": "five"}))
             assert ok is False
 
         def test_error_message_contains_field_path(self):
             """Error messages should reference the field name."""
-            v = ActionValidator.from_schema_json(_SIMPLE_SCHEMA)
+            v = ToolValidator.from_schema_json(_SIMPLE_SCHEMA)
             ok, errors = v.validate(json.dumps({"radius": "bad"}))
             assert ok is False
             assert "radius" in errors[0]
 
         def test_validate_returns_tuple(self):
-            v = ActionValidator.from_schema_json(_SIMPLE_SCHEMA)
+            v = ToolValidator.from_schema_json(_SIMPLE_SCHEMA)
             result = v.validate("{}")
             assert isinstance(result, tuple)
             assert len(result) == 2
 
         def test_errors_is_list(self):
-            v = ActionValidator.from_schema_json(_SIMPLE_SCHEMA)
+            v = ToolValidator.from_schema_json(_SIMPLE_SCHEMA)
             _, errors = v.validate("{}")
             assert isinstance(errors, list)
 
         def test_valid_errors_empty_list(self):
-            v = ActionValidator.from_schema_json(_SIMPLE_SCHEMA)
+            v = ToolValidator.from_schema_json(_SIMPLE_SCHEMA)
             _, errors = v.validate(json.dumps({"radius": 1.0}))
             assert errors == []
 
@@ -240,51 +240,51 @@ class TestActionValidatorSchemaTypes:
 
 
 class TestActionValidatorFromRegistry:
-    """Validate ActionValidator.from_action_registry integration."""
+    """Validate ToolValidator.from_action_registry integration."""
 
     class TestHappyPath:
         def test_creates_validator_from_registry(self):
             reg = _make_registry(("sphere", _SIMPLE_SCHEMA))
-            v = ActionValidator.from_action_registry(reg, "sphere")
+            v = ToolValidator.from_action_registry(reg, "sphere")
             assert v is not None
 
         def test_validates_correct_params(self):
             reg = _make_registry(("sphere", _SIMPLE_SCHEMA))
-            v = ActionValidator.from_action_registry(reg, "sphere")
+            v = ToolValidator.from_action_registry(reg, "sphere")
             ok, errors = v.validate(json.dumps({"radius": 5.0}))
             assert ok is True
             assert errors == []
 
         def test_detects_missing_required_via_registry(self):
             reg = _make_registry(("sphere", _SIMPLE_SCHEMA))
-            v = ActionValidator.from_action_registry(reg, "sphere")
+            v = ToolValidator.from_action_registry(reg, "sphere")
             ok, errors = v.validate("{}")
             assert ok is False
             assert len(errors) >= 1
 
         def test_multi_field_schema_from_registry(self):
             reg = _make_registry(("multi", _MULTI_SCHEMA))
-            v = ActionValidator.from_action_registry(reg, "multi")
+            v = ToolValidator.from_action_registry(reg, "multi")
             ok, _ = v.validate(json.dumps({"name": "x", "count": 1}))
             assert ok is True
 
         def test_registry_with_no_schema(self):
             """Action with empty/no input_schema should accept any params."""
-            reg = ActionRegistry()
+            reg = ToolRegistry()
             reg.register("noop", description="noop", category="test")
-            v = ActionValidator.from_action_registry(reg, "noop")
+            v = ToolValidator.from_action_registry(reg, "noop")
             ok, _ = v.validate("{}")
             assert ok is True
 
         def test_validator_type(self):
             reg = _make_registry(("sphere", _SIMPLE_SCHEMA))
-            v = ActionValidator.from_action_registry(reg, "sphere")
-            assert type(v).__name__ == "ActionValidator"
+            v = ToolValidator.from_action_registry(reg, "sphere")
+            assert type(v).__name__ == "ToolValidator"
 
         def test_different_actions_different_validators(self):
             reg = _make_registry(("a", _SIMPLE_SCHEMA), ("b", _MULTI_SCHEMA))
-            va = ActionValidator.from_action_registry(reg, "a")
-            vb = ActionValidator.from_action_registry(reg, "b")
+            va = ToolValidator.from_action_registry(reg, "a")
+            vb = ToolValidator.from_action_registry(reg, "b")
             # a requires radius, b requires name+count
             ok_a, _ = va.validate(json.dumps({"radius": 1.0}))
             ok_b, _ = vb.validate(json.dumps({"name": "x", "count": 1}))
@@ -294,7 +294,7 @@ class TestActionValidatorFromRegistry:
     class TestErrorPath:
         def test_missing_required_from_registry(self):
             reg = _make_registry(("sphere", _SIMPLE_SCHEMA))
-            v = ActionValidator.from_action_registry(reg, "sphere")
+            v = ToolValidator.from_action_registry(reg, "sphere")
             ok, errors = v.validate(json.dumps({"radius": "wrong_type"}))
             assert ok is False
             assert len(errors) >= 1
@@ -306,29 +306,29 @@ class TestActionValidatorFromRegistry:
 
 
 class TestActionDispatcherDeep:
-    """Deep coverage of ActionDispatcher methods."""
+    """Deep coverage of ToolDispatcher methods."""
 
-    def _make_dispatcher(self) -> tuple[ActionDispatcher, ActionRegistry]:
-        reg = ActionRegistry()
+    def _make_dispatcher(self) -> tuple[ToolDispatcher, ToolRegistry]:
+        reg = ToolRegistry()
         reg.register("sphere", description="d", category="c", input_schema=_SIMPLE_SCHEMA)
         reg.register("cube", description="d2", category="c", input_schema=_EMPTY_SCHEMA)
         reg.register("light", description="d3", category="c")
-        d = ActionDispatcher(reg)
+        d = ToolDispatcher(reg)
         return d, reg
 
     class TestHandlerNames:
         def test_empty_initially(self):
-            reg = ActionRegistry()
-            d = ActionDispatcher(reg)
+            reg = ToolRegistry()
+            d = ToolDispatcher(reg)
             names = d.handler_names()
             assert isinstance(names, list)
             assert len(names) == 0
 
         def test_names_after_register(self):
-            reg = ActionRegistry()
+            reg = ToolRegistry()
             reg.register("sphere", description="d", category="c")
             reg.register("cube", description="d2", category="c")
-            d = ActionDispatcher(reg)
+            d = ToolDispatcher(reg)
             d.register_handler("sphere", lambda p: "ok")
             d.register_handler("cube", lambda p: "ok2")
             names = d.handler_names()
@@ -336,18 +336,18 @@ class TestActionDispatcherDeep:
             assert "cube" in names
 
         def test_names_count_matches_handler_count(self):
-            reg = ActionRegistry()
+            reg = ToolRegistry()
             reg.register("a", description="d", category="c")
             reg.register("b", description="d", category="c")
-            d = ActionDispatcher(reg)
+            d = ToolDispatcher(reg)
             d.register_handler("a", lambda p: "a")
             d.register_handler("b", lambda p: "b")
             assert len(d.handler_names()) == d.handler_count()
 
         def test_names_after_remove(self):
-            reg = ActionRegistry()
+            reg = ToolRegistry()
             reg.register("sphere", description="d", category="c")
-            d = ActionDispatcher(reg)
+            d = ToolDispatcher(reg)
             d.register_handler("sphere", lambda p: "ok")
             assert "sphere" in d.handler_names()
             d.remove_handler("sphere")
@@ -355,69 +355,69 @@ class TestActionDispatcherDeep:
 
     class TestHasHandler:
         def test_has_registered_handler(self):
-            reg = ActionRegistry()
+            reg = ToolRegistry()
             reg.register("sphere", description="d", category="c")
-            d = ActionDispatcher(reg)
+            d = ToolDispatcher(reg)
             d.register_handler("sphere", lambda p: "ok")
             assert d.has_handler("sphere") is True
 
         def test_not_has_unregistered_handler(self):
-            reg = ActionRegistry()
+            reg = ToolRegistry()
             reg.register("sphere", description="d", category="c")
-            d = ActionDispatcher(reg)
+            d = ToolDispatcher(reg)
             assert d.has_handler("sphere") is False
 
         def test_has_handler_after_remove(self):
-            reg = ActionRegistry()
+            reg = ToolRegistry()
             reg.register("sphere", description="d", category="c")
-            d = ActionDispatcher(reg)
+            d = ToolDispatcher(reg)
             d.register_handler("sphere", lambda p: "ok")
             d.remove_handler("sphere")
             assert d.has_handler("sphere") is False
 
     class TestDispatch:
         def test_dispatch_returns_dict(self):
-            reg = ActionRegistry()
+            reg = ToolRegistry()
             reg.register("sphere", description="d", category="c", input_schema=_SIMPLE_SCHEMA)
-            d = ActionDispatcher(reg)
+            d = ToolDispatcher(reg)
             d.register_handler("sphere", lambda p: {"result": "ok"})
             result = d.dispatch("sphere", json.dumps({"radius": 1.0}))
             assert isinstance(result, dict)
 
         def test_dispatch_has_action_key(self):
-            reg = ActionRegistry()
+            reg = ToolRegistry()
             reg.register("sphere", description="d", category="c", input_schema=_SIMPLE_SCHEMA)
-            d = ActionDispatcher(reg)
+            d = ToolDispatcher(reg)
             d.register_handler("sphere", lambda p: {"x": 1})
             result = d.dispatch("sphere", json.dumps({"radius": 1.0}))
             assert result["action"] == "sphere"
 
         def test_dispatch_has_output_key(self):
-            reg = ActionRegistry()
+            reg = ToolRegistry()
             reg.register("sphere", description="d", category="c", input_schema=_SIMPLE_SCHEMA)
-            d = ActionDispatcher(reg)
+            d = ToolDispatcher(reg)
             d.register_handler("sphere", lambda p: {"x": 42})
             result = d.dispatch("sphere", json.dumps({"radius": 1.0}))
             assert result["output"] == {"x": 42}
 
         def test_dispatch_validation_skipped_key(self):
-            reg = ActionRegistry()
+            reg = ToolRegistry()
             reg.register("sphere", description="d", category="c", input_schema=_SIMPLE_SCHEMA)
-            d = ActionDispatcher(reg)
+            d = ToolDispatcher(reg)
             d.register_handler("sphere", lambda p: "ok")
             result = d.dispatch("sphere", json.dumps({"radius": 1.0}))
             assert "validation_skipped" in result
 
         def test_dispatch_unknown_raises_keyerror(self):
-            reg = ActionRegistry()
-            d = ActionDispatcher(reg)
+            reg = ToolRegistry()
+            d = ToolDispatcher(reg)
             with pytest.raises(KeyError):
                 d.dispatch("unknown_action", "{}")
 
         def test_dispatch_passes_params_to_handler(self):
-            reg = ActionRegistry()
+            reg = ToolRegistry()
             reg.register("sphere", description="d", category="c", input_schema=_SIMPLE_SCHEMA)
-            d = ActionDispatcher(reg)
+            d = ToolDispatcher(reg)
             captured = []
             d.register_handler("sphere", lambda p: captured.append(p) or "ok")
             d.dispatch("sphere", json.dumps({"radius": 7.5}))
@@ -426,23 +426,23 @@ class TestActionDispatcherDeep:
 
         def test_dispatch_no_schema_action(self):
             """Action without schema — validation_skipped should be True."""
-            reg = ActionRegistry()
+            reg = ToolRegistry()
             reg.register("noop", description="d", category="c")
-            d = ActionDispatcher(reg)
+            d = ToolDispatcher(reg)
             d.register_handler("noop", lambda p: "done")
             result = d.dispatch("noop", "{}")
             assert result["action"] == "noop"
 
     class TestSkipEmptySchemaValidation:
         def test_property_accessible(self):
-            reg = ActionRegistry()
-            d = ActionDispatcher(reg)
+            reg = ToolRegistry()
+            d = ToolDispatcher(reg)
             val = d.skip_empty_schema_validation
             assert isinstance(val, bool)
 
         def test_default_value_is_bool(self):
-            reg = ActionRegistry()
-            d = ActionDispatcher(reg)
+            reg = ToolRegistry()
+            d = ToolDispatcher(reg)
             assert d.skip_empty_schema_validation in (True, False)
 
 

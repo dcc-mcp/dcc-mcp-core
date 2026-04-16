@@ -1,18 +1,18 @@
-"""Deep tests for ActionPipeline / ActionDispatcher error paths.
+"""Deep tests for ToolPipeline / ToolDispatcher error paths.
 
 Covers:
-- ActionDispatcher.dispatch() raises KeyError when no handler registered
-- ActionDispatcher.dispatch() raises RuntimeError when handler raises
-- ActionDispatcher.dispatch() raises ValueError on schema validation failure
-- ActionPipeline.dispatch() error paths with audit/timing middleware attached
+- ToolDispatcher.dispatch() raises KeyError when no handler registered
+- ToolDispatcher.dispatch() raises RuntimeError when handler raises
+- ToolDispatcher.dispatch() raises ValueError on schema validation failure
+- ToolPipeline.dispatch() error paths with audit/timing middleware attached
 - AuditMiddleware records error entries on handler exception
 - TimingMiddleware records elapsed_ms even on handler failure
 - RateLimitMiddleware raises RuntimeError when limit exceeded
-- ActionPipeline.dispatch() KeyError when handler missing
-- ActionPipeline.add_callable() before_fn / after_fn called on error
-- ActionDispatcher.skip_empty_schema_validation skips validation for empty schema
-- ActionDispatcher.remove_handler / has_handler consistency
-- ActionPipeline.dispatch() ValidationError on bad JSON params
+- ToolPipeline.dispatch() KeyError when handler missing
+- ToolPipeline.add_callable() before_fn / after_fn called on error
+- ToolDispatcher.skip_empty_schema_validation skips validation for empty schema
+- ToolDispatcher.remove_handler / has_handler consistency
+- ToolPipeline.dispatch() ValidationError on bad JSON params
 """
 
 from __future__ import annotations
@@ -21,25 +21,25 @@ import json
 
 import pytest
 
-from dcc_mcp_core import ActionDispatcher
-from dcc_mcp_core import ActionPipeline
-from dcc_mcp_core import ActionRegistry
+from dcc_mcp_core import ToolDispatcher
+from dcc_mcp_core import ToolPipeline
+from dcc_mcp_core import ToolRegistry
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
-def _reg_dispatcher(name: str = "op", schema: str = "") -> tuple[ActionRegistry, ActionDispatcher]:
-    reg = ActionRegistry()
+def _reg_dispatcher(name: str = "op", schema: str = "") -> tuple[ToolRegistry, ToolDispatcher]:
+    reg = ToolRegistry()
     reg.register(name, input_schema=schema)
-    return reg, ActionDispatcher(reg)
+    return reg, ToolDispatcher(reg)
 
 
-def _pipeline_with_handler(name: str = "op", raise_exc: bool = False) -> tuple[ActionPipeline, ActionDispatcher]:
-    reg = ActionRegistry()
+def _pipeline_with_handler(name: str = "op", raise_exc: bool = False) -> tuple[ToolPipeline, ToolDispatcher]:
+    reg = ToolRegistry()
     reg.register(name)
-    d = ActionDispatcher(reg)
+    d = ToolDispatcher(reg)
     if raise_exc:
 
         def _failing(params):
@@ -48,12 +48,12 @@ def _pipeline_with_handler(name: str = "op", raise_exc: bool = False) -> tuple[A
         d.register_handler(name, _failing)
     else:
         d.register_handler(name, lambda p: {"done": True})
-    pipe = ActionPipeline(d)
+    pipe = ToolPipeline(d)
     return pipe, d
 
 
 # ---------------------------------------------------------------------------
-# ActionDispatcher error paths
+# ToolDispatcher error paths
 # ---------------------------------------------------------------------------
 
 
@@ -121,10 +121,10 @@ class TestActionDispatcherErrors:
         assert d.has_handler("h") is False
 
     def test_handler_names_sorted(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("z_action")
         reg.register("a_action")
-        d = ActionDispatcher(reg)
+        d = ToolDispatcher(reg)
         d.register_handler("z_action", lambda p: p)
         d.register_handler("a_action", lambda p: p)
         names = d.handler_names()
@@ -148,17 +148,17 @@ class TestActionDispatcherErrors:
 
 
 # ---------------------------------------------------------------------------
-# ActionPipeline error paths
+# ToolPipeline error paths
 # ---------------------------------------------------------------------------
 
 
 class TestActionPipelineErrors:
     def test_dispatch_no_handler_raises(self):
         """Pipeline dispatch raises when no handler registered."""
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("ghost")
-        d = ActionDispatcher(reg)
-        pipe = ActionPipeline(d)
+        d = ToolDispatcher(reg)
+        pipe = ToolPipeline(d)
         with pytest.raises((KeyError, RuntimeError)):
             pipe.dispatch("ghost", "{}")
 
@@ -171,15 +171,15 @@ class TestActionPipelineErrors:
         (False = handler threw).  We only assert the entry exists and has the
         correct action name.
         """
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("crash")
-        d = ActionDispatcher(reg)
+        d = ToolDispatcher(reg)
 
         def _crash(params):
             raise RuntimeError("intentional crash")
 
         d.register_handler("crash", _crash)
-        pipe = ActionPipeline(d)
+        pipe = ToolPipeline(d)
         audit = pipe.add_audit(record_params=True)
 
         with pytest.raises(RuntimeError):
@@ -194,15 +194,15 @@ class TestActionPipelineErrors:
 
     def test_timing_records_elapsed_on_handler_exception(self):
         """TimingMiddleware should still record elapsed even on exception."""
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("slow_fail")
-        d = ActionDispatcher(reg)
+        d = ToolDispatcher(reg)
 
         def _fail(params):
             raise ValueError("fail after some work")
 
         d.register_handler("slow_fail", _fail)
-        pipe = ActionPipeline(d)
+        pipe = ToolPipeline(d)
         timing = pipe.add_timing()
 
         with pytest.raises((ValueError, RuntimeError)):
@@ -215,11 +215,11 @@ class TestActionPipelineErrors:
 
     def test_rate_limit_exceeded_raises_runtime_error(self):
         """RateLimitMiddleware raises RuntimeError when max_calls is exceeded."""
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("limited")
-        d = ActionDispatcher(reg)
+        d = ToolDispatcher(reg)
         d.register_handler("limited", lambda p: "ok")
-        pipe = ActionPipeline(d)
+        pipe = ToolPipeline(d)
         pipe.add_rate_limit(max_calls=2, window_ms=60_000)
 
         # First 2 calls should succeed
@@ -237,15 +237,15 @@ class TestActionPipelineErrors:
         completed without throwing (the handler exception is re-raised after hooks).
         We only verify that after_fn was called at all.
         """
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("fail_action")
-        d = ActionDispatcher(reg)
+        d = ToolDispatcher(reg)
 
         def _raise(params):
             raise RuntimeError("fail")
 
         d.register_handler("fail_action", _raise)
-        pipe = ActionPipeline(d)
+        pipe = ToolPipeline(d)
 
         results = []
 
@@ -266,13 +266,13 @@ class TestActionPipelineErrors:
 
     def test_callable_middleware_before_fn_called_before_dispatch(self):
         """before_fn should be called before the handler."""
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("before_test")
-        d = ActionDispatcher(reg)
+        d = ToolDispatcher(reg)
 
         order = []
         d.register_handler("before_test", lambda p: order.append("handler") or "done")
-        pipe = ActionPipeline(d)
+        pipe = ToolPipeline(d)
         pipe.add_callable(before_fn=lambda action: order.append(f"before:{action}"))
 
         pipe.dispatch("before_test", "{}")
@@ -282,10 +282,10 @@ class TestActionPipelineErrors:
 
     def test_multiple_middleware_still_count_correctly(self):
         """middleware_count() should reflect all added middleware."""
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("x")
-        d = ActionDispatcher(reg)
-        pipe = ActionPipeline(d)
+        d = ToolDispatcher(reg)
+        pipe = ToolPipeline(d)
         pipe.add_logging()
         pipe.add_timing()
         pipe.add_audit()
@@ -294,11 +294,11 @@ class TestActionPipelineErrors:
 
     def test_audit_records_count_after_multiple_dispatches(self):
         """AuditMiddleware.record_count() matches total dispatched actions."""
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("batch")
-        d = ActionDispatcher(reg)
+        d = ToolDispatcher(reg)
         d.register_handler("batch", lambda p: p)
-        pipe = ActionPipeline(d)
+        pipe = ToolPipeline(d)
         audit = pipe.add_audit()
 
         for _ in range(5):
@@ -308,11 +308,11 @@ class TestActionPipelineErrors:
 
     def test_audit_clear_resets_records(self):
         """AuditMiddleware.clear() removes all records."""
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("work")
-        d = ActionDispatcher(reg)
+        d = ToolDispatcher(reg)
         d.register_handler("work", lambda p: p)
-        pipe = ActionPipeline(d)
+        pipe = ToolPipeline(d)
         audit = pipe.add_audit()
 
         pipe.dispatch("work", "{}")
@@ -323,11 +323,11 @@ class TestActionPipelineErrors:
 
     def test_rate_limit_call_count_increments(self):
         """RateLimitMiddleware.call_count() increments on each successful dispatch."""
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("counted")
-        d = ActionDispatcher(reg)
+        d = ToolDispatcher(reg)
         d.register_handler("counted", lambda p: p)
-        pipe = ActionPipeline(d)
+        pipe = ToolPipeline(d)
         rl = pipe.add_rate_limit(max_calls=100, window_ms=60_000)
 
         assert rl.call_count("counted") == 0
@@ -338,26 +338,26 @@ class TestActionPipelineErrors:
 
     def test_rate_limit_properties(self):
         """RateLimitMiddleware.max_calls and window_ms are readable."""
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("prop_test")
-        d = ActionDispatcher(reg)
-        pipe = ActionPipeline(d)
+        d = ToolDispatcher(reg)
+        pipe = ToolPipeline(d)
         rl = pipe.add_rate_limit(max_calls=50, window_ms=2000)
         assert rl.max_calls == 50
         assert rl.window_ms == 2000
 
     def test_pipeline_register_handler_and_dispatch(self):
-        """ActionPipeline.register_handler works same as dispatcher."""
-        reg = ActionRegistry()
+        """ToolPipeline.register_handler works same as dispatcher."""
+        reg = ToolRegistry()
         reg.register("direct")
-        d = ActionDispatcher(reg)
-        pipe = ActionPipeline(d)
+        d = ToolDispatcher(reg)
+        pipe = ToolPipeline(d)
         pipe.register_handler("direct", lambda p: "pipeline_handler")
         result = pipe.dispatch("direct", "{}")
         assert result["output"] == "pipeline_handler"
 
     def test_dispatch_returns_action_name_in_result(self):
-        """ActionPipeline.dispatch() result includes 'action' key."""
+        """ToolPipeline.dispatch() result includes 'action' key."""
         pipe, _ = _pipeline_with_handler("tagged")
         result = pipe.dispatch("tagged", "{}")
         assert result["action"] == "tagged"

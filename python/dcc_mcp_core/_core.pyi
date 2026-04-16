@@ -102,9 +102,6 @@ class ToolResult:
     def __str__(self) -> str: ...
     def __eq__(self, other: object) -> bool: ...
 
-# Canonical tool-first aliases exposed by dcc_mcp_core.__init__.py
-ActionResultModel = ToolResult
-
 class ToolDeclaration:
     """Declaration of a tool provided by a skill, parsed from SKILL.md frontmatter.
 
@@ -3966,19 +3963,6 @@ def create_skill_server(
 
     """
     ...
-
-# Alias: ServerHandle is exported as McpServerHandle in dcc_mcp_core.__init__
-ServerHandle = McpServerHandle
-
-# Canonical tool-first aliases exposed by dcc_mcp_core.__init__.py
-ActionRegistry = ToolRegistry
-ActionValidator = ToolValidator
-ActionDispatcher = ToolDispatcher
-ActionPipeline = ToolPipeline
-ActionMetrics = ToolMetrics
-ActionRecorder = ToolRecorder
-create_skill_manager = create_skill_server
-get_actions_dir = get_tools_dir
 
 # ── Serialization ──
 

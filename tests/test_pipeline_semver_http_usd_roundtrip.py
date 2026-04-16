@@ -1,12 +1,12 @@
-"""Tests for ActionPipeline.add_callable, SemVer, VersionConstraint, McpHttpServer, UsdStage JSON round-trip.
+"""Tests for ToolPipeline.add_callable, SemVer, VersionConstraint, McpHttpServer, UsdStage JSON round-trip.
 
 Coverage targets (86th iteration):
-- ActionPipeline.add_callable — before_fn/after_fn call order, both None, non-callable TypeError,
+- ToolPipeline.add_callable — before_fn/after_fn call order, both None, non-callable TypeError,
   middleware_count/middleware_names reflects "python_callable", multiple callables accumulate
 - SemVer — constructor/major/minor/patch/str/repr/eq/lt/le/gt/ge/parse/parse_invalid
 - VersionConstraint — parse all operators (* = >= > <= < ^ ~), matches True/False, repr/str, invalid raises ValueError
 - McpHttpConfig — default port/server_name/server_version, custom values, repr
-- McpHttpServer + ServerHandle — start on random port, port>0, bind_addr, mcp_url format,
+- McpHttpServer + McpServerHandle — start on random port, port>0, bind_addr, mcp_url format,
   shutdown idempotent, signal_shutdown, repr, no-config default
 - UsdStage to_json/from_json — name/up_axis/fps/start_time_code/end_time_code/prims/attributes round-trip,
   from_json preserves metrics, from_json preserves prim type_name, invalid JSON raises,
@@ -23,14 +23,15 @@ import json
 # Import third-party modules
 import pytest
 
-# Import local modules
-from dcc_mcp_core import ActionDispatcher
-from dcc_mcp_core import ActionPipeline
-from dcc_mcp_core import ActionRegistry
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
 from dcc_mcp_core import McpServerHandle
 from dcc_mcp_core import SemVer
+
+# Import local modules
+from dcc_mcp_core import ToolDispatcher
+from dcc_mcp_core import ToolPipeline
+from dcc_mcp_core import ToolRegistry
 from dcc_mcp_core import UsdStage
 from dcc_mcp_core import VersionConstraint
 from dcc_mcp_core import VtValue
@@ -38,21 +39,21 @@ from dcc_mcp_core import VtValue
 # ── fixtures ──────────────────────────────────────────────────────────────────
 
 
-def _make_pipeline() -> tuple[ActionPipeline, ActionDispatcher, ActionRegistry]:
+def _make_pipeline() -> tuple[ToolPipeline, ToolDispatcher, ToolRegistry]:
     """Return a pipeline with a single 'ping' action wired to return 'pong'."""
-    reg = ActionRegistry()
+    reg = ToolRegistry()
     reg.register("ping", category="util")
-    disp = ActionDispatcher(reg)
+    disp = ToolDispatcher(reg)
     disp.register_handler("ping", lambda params: "pong")
-    pipeline = ActionPipeline(disp)
+    pipeline = ToolPipeline(disp)
     return pipeline, disp, reg
 
 
-# ── ActionPipeline.add_callable ───────────────────────────────────────────────
+# ── ToolPipeline.add_callable ───────────────────────────────────────────────
 
 
 class TestAddCallable:
-    """Tests for ActionPipeline.add_callable."""
+    """Tests for ToolPipeline.add_callable."""
 
     class TestHappyPath:
         def test_before_fn_called(self) -> None:
@@ -498,17 +499,17 @@ class TestMcpHttpConfig:
             assert cfg.port == 8765  # just check it doesn't error
 
 
-# ── McpHttpServer + ServerHandle ─────────────────────────────────────────────
+# ── McpHttpServer + McpServerHandle ─────────────────────────────────────────────
 
 
-def _make_registry() -> ActionRegistry:
-    reg = ActionRegistry()
+def _make_registry() -> ToolRegistry:
+    reg = ToolRegistry()
     reg.register("ping", description="ping", category="util", dcc="maya")
     return reg
 
 
 class TestMcpHttpServer:
-    """Tests for McpHttpServer and ServerHandle lifecycle."""
+    """Tests for McpHttpServer and McpServerHandle lifecycle."""
 
     class TestStartAndHandle:
         def test_start_returns_server_handle(self) -> None:

@@ -24,9 +24,6 @@ from dcc_mcp_core import ENV_SKILL_PATHS
 from dcc_mcp_core import SKILL_METADATA_DIR
 from dcc_mcp_core import SKILL_METADATA_FILE
 from dcc_mcp_core import SKILL_SCRIPTS_DIR
-from dcc_mcp_core import ActionDispatcher
-from dcc_mcp_core import ActionPipeline
-from dcc_mcp_core import ActionRegistry
 from dcc_mcp_core import BooleanWrapper
 from dcc_mcp_core import FloatWrapper
 from dcc_mcp_core import IntWrapper
@@ -34,15 +31,18 @@ from dcc_mcp_core import LoggingMiddleware
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
 from dcc_mcp_core import McpServerHandle
+from dcc_mcp_core import ToolDispatcher
+from dcc_mcp_core import ToolPipeline
+from dcc_mcp_core import ToolRegistry
 from dcc_mcp_core import TransportManager
 from dcc_mcp_core import expand_transitive_dependencies
-from dcc_mcp_core import get_actions_dir
 from dcc_mcp_core import get_config_dir
 from dcc_mcp_core import get_data_dir
 from dcc_mcp_core import get_log_dir
 from dcc_mcp_core import get_platform_dir
 from dcc_mcp_core import get_skill_paths_from_env
 from dcc_mcp_core import get_skills_dir
+from dcc_mcp_core import get_tools_dir
 from dcc_mcp_core import is_telemetry_initialized
 from dcc_mcp_core import scan_and_load_lenient
 from dcc_mcp_core import scan_skill_paths
@@ -185,18 +185,18 @@ class TestGetLogDir:
 
 class TestGetActionsDir:
     def test_returns_str_for_maya(self):
-        result = get_actions_dir("maya")
+        result = get_tools_dir("maya")
         assert isinstance(result, str)
         assert result
 
     def test_maya_contains_maya(self):
-        assert "maya" in get_actions_dir("maya").lower()
+        assert "maya" in get_tools_dir("maya").lower()
 
     def test_blender_contains_blender(self):
-        assert "blender" in get_actions_dir("blender").lower()
+        assert "blender" in get_tools_dir("blender").lower()
 
     def test_different_for_different_dcc(self):
-        assert get_actions_dir("maya") != get_actions_dir("blender")
+        assert get_tools_dir("maya") != get_tools_dir("blender")
 
 
 class TestGetPlatformDir:
@@ -514,17 +514,17 @@ class TestLoggingMiddleware:
         assert lm.log_params is False
 
     def test_add_logging_adds_to_pipeline(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("op", description="test", category="misc")
-        disp = ActionDispatcher(reg)
-        pipeline = ActionPipeline(disp)
+        disp = ToolDispatcher(reg)
+        pipeline = ToolPipeline(disp)
         pipeline.add_logging(log_params=True)
         assert "logging" in pipeline.middleware_names()
 
     def test_add_logging_returns_none(self):
-        reg = ActionRegistry()
-        disp = ActionDispatcher(reg)
-        pipeline = ActionPipeline(disp)
+        reg = ToolRegistry()
+        disp = ToolDispatcher(reg)
+        pipeline = ToolPipeline(disp)
         result = pipeline.add_logging(log_params=False)
         # add_logging returns None (side-effect only)
         assert result is None
@@ -537,7 +537,7 @@ class TestLoggingMiddleware:
 
 class TestMcpServerHandle:
     def _start_server(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("echo", description="Echo", category="test")
         cfg = McpHttpConfig(port=0)
         server = McpHttpServer(reg, cfg)

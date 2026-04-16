@@ -195,18 +195,6 @@ from dcc_mcp_core.skill import skill_exception
 from dcc_mcp_core.skill import skill_success
 from dcc_mcp_core.skill import skill_warning
 
-# Canonical public aliases. Keep legacy Action* names for compatibility.
-ActionDispatcher = ToolDispatcher
-ActionMetrics = ToolMetrics
-ActionPipeline = ToolPipeline
-ActionRecorder = ToolRecorder
-ActionRegistry = ToolRegistry
-ActionResultModel = ToolResult
-ActionValidator = ToolValidator
-ServerHandle = McpServerHandle
-create_skill_manager = create_skill_server
-get_actions_dir = get_tools_dir
-
 __version__: str
 try:
     __version__ = _core.__version__  # type: ignore[attr-defined]
@@ -231,13 +219,6 @@ __all__ = [
     "SKILL_METADATA_DIR",
     "SKILL_METADATA_FILE",
     "SKILL_SCRIPTS_DIR",
-    "ActionDispatcher",
-    "ActionMetrics",
-    "ActionPipeline",
-    "ActionRecorder",
-    "ActionRegistry",
-    "ActionResultModel",
-    "ActionValidator",
     "AuditEntry",
     "AuditLog",
     "AuditMiddleware",
@@ -302,7 +283,6 @@ __all__ = [
     "SemVer",
     # Serialization
     "SerializeFormat",
-    "ServerHandle",
     "ServiceEntry",
     "ServiceStatus",
     "SkillCatalog",
@@ -335,7 +315,6 @@ __all__ = [
     "__version__",
     "connect_ipc",
     "create_dcc_server",
-    "create_skill_manager",
     "create_skill_server",
     "decode_envelope",
     "deserialize_result",
@@ -345,7 +324,6 @@ __all__ = [
     "error_result",
     "expand_transitive_dependencies",
     "from_exception",
-    "get_actions_dir",
     "get_app_skill_paths_from_env",
     "get_bridge_context",
     "get_bundled_skill_paths",

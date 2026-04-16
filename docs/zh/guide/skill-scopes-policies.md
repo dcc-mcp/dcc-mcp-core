@@ -23,9 +23,9 @@ Repo    （.codex/skills/ ——项目本地，最低信任）
 作用域由 Skill 的**发现路径**决定：
 
 ```python
-from dcc_mcp_core import SkillCatalog, ActionRegistry
+from dcc_mcp_core import SkillCatalog, ToolRegistry
 
-catalog = SkillCatalog(ActionRegistry())
+catalog = SkillCatalog(ToolRegistry())
 
 # 从此路径发现的 Skills 获得 scope="repo"
 catalog.discover(extra_paths=[".codex/skills"])

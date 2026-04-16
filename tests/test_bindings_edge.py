@@ -17,51 +17,51 @@ import pytest
 # Import local modules
 import dcc_mcp_core
 
-# ── ActionResultModel edge cases ──
+# ── ToolResult edge cases ──
 
 
 class TestActionResultModelEdge:
     def test_empty_context(self) -> None:
-        r = dcc_mcp_core.ActionResultModel(message="ok", context={})
+        r = dcc_mcp_core.ToolResult(message="ok", context={})
         assert r.context == {}
 
     def test_deeply_nested_context(self) -> None:
         nested = {"a": {"b": {"c": {"d": [1, 2, {"e": True}]}}}}
-        r = dcc_mcp_core.ActionResultModel(message="deep", context=nested)
+        r = dcc_mcp_core.ToolResult(message="deep", context=nested)
         assert r.context["a"]["b"]["c"]["d"][2]["e"] is True
 
     def test_large_message(self) -> None:
         msg = "x" * 100_000
-        r = dcc_mcp_core.ActionResultModel(message=msg)
+        r = dcc_mcp_core.ToolResult(message=msg)
         assert len(r.message) == 100_000
 
     def test_unicode_message(self) -> None:
         msg = "日本語テスト 🎨 émojis «»"
-        r = dcc_mcp_core.ActionResultModel(message=msg)
+        r = dcc_mcp_core.ToolResult(message=msg)
         assert r.message == msg
 
     def test_context_with_special_keys(self) -> None:
         ctx = {"": "empty_key", "key with spaces": 1, "key\nwith\nnewlines": 2}
-        r = dcc_mcp_core.ActionResultModel(message="ok", context=ctx)
+        r = dcc_mcp_core.ToolResult(message="ok", context=ctx)
         assert r.context[""] == "empty_key"
         assert r.context["key with spaces"] == 1
 
     def test_with_error_preserves_original(self) -> None:
-        r1 = dcc_mcp_core.ActionResultModel(message="ok", context={"k": "v"})
+        r1 = dcc_mcp_core.ToolResult(message="ok", context={"k": "v"})
         r2 = r1.with_error("bad")
         assert r1.success is True
         assert r2.success is False
         assert r1.context.get("k") == "v"
 
     def test_with_context_merges(self) -> None:
-        r = dcc_mcp_core.ActionResultModel(message="ok")
+        r = dcc_mcp_core.ToolResult(message="ok")
         r2 = r.with_context(a=1, b="two", c=[3])
         assert r2.context["a"] == 1
         assert r2.context["b"] == "two"
         assert r2.context["c"] == [3]
 
     def test_to_dict_roundtrip(self) -> None:
-        r = dcc_mcp_core.ActionResultModel(
+        r = dcc_mcp_core.ToolResult(
             success=False,
             message="err",
             prompt="fix it",
@@ -105,7 +105,7 @@ class TestFactoryEdge:
 
     def test_validate_action_result_none(self) -> None:
         r = dcc_mcp_core.validate_action_result(None)
-        assert isinstance(r, dcc_mcp_core.ActionResultModel)
+        assert isinstance(r, dcc_mcp_core.ToolResult)
 
     def test_validate_action_result_bool(self) -> None:
         r = dcc_mcp_core.validate_action_result(True)
@@ -121,57 +121,57 @@ class TestFactoryEdge:
 
     def test_validate_action_result_dict_missing_fields(self) -> None:
         r = dcc_mcp_core.validate_action_result({"random_key": "value"})
-        assert isinstance(r, dcc_mcp_core.ActionResultModel)
+        assert isinstance(r, dcc_mcp_core.ToolResult)
 
     def test_validate_action_result_empty_dict(self) -> None:
         r = dcc_mcp_core.validate_action_result({})
-        assert isinstance(r, dcc_mcp_core.ActionResultModel)
+        assert isinstance(r, dcc_mcp_core.ToolResult)
 
 
-# ── ActionRegistry edge cases ──
+# ── ToolRegistry edge cases ──
 
 
 class TestActionRegistryEdge:
     def test_register_empty_name(self) -> None:
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         reg.register(name="")
         meta = reg.get_action("")
         assert meta is not None
 
     def test_register_unicode_name(self) -> None:
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         reg.register(name="アクション_テスト", dcc="maya")
         meta = reg.get_action("アクション_テスト")
         assert meta is not None
         assert meta["dcc"] == "maya"
 
     def test_register_special_chars_description(self) -> None:
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         desc = 'Line1\nLine2\t"quoted" <html>'
         reg.register(name="special", description=desc)
         assert reg.get_action("special")["description"] == desc
 
     def test_register_invalid_json_schema(self) -> None:
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         reg.register(name="a", input_schema="not valid json")
         meta = reg.get_action("a")
         assert meta is not None
 
     def test_register_many_actions(self) -> None:
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         for i in range(500):
             reg.register(name=f"action_{i}", dcc=f"dcc_{i % 10}")
         assert len(reg) == 500
         assert len(reg.get_all_dccs()) == 10
 
     def test_overwrite_changes_dcc(self) -> None:
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         reg.register(name="a", dcc="maya")
         reg.register(name="a", dcc="blender")
         assert reg.get_action("a")["dcc"] == "blender"
 
     def test_reset_idempotent(self) -> None:
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         reg.reset()
         reg.reset()
         assert len(reg) == 0
@@ -382,7 +382,7 @@ class TestFilesystemEdge:
         assert isinstance(path, str)
 
     def test_get_actions_dir_unicode_dcc(self) -> None:
-        path = dcc_mcp_core.get_actions_dir("ブレンダー")
+        path = dcc_mcp_core.get_tools_dir("ブレンダー")
         assert isinstance(path, str)
 
     def test_get_skill_paths_from_env_multiple(
@@ -408,7 +408,7 @@ class TestFilesystemEdge:
 
 class TestConcurrentRegistry:
     def test_concurrent_register_and_read(self) -> None:
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         errors: list[Exception] = []
         barrier = threading.Barrier(4)
 
@@ -444,7 +444,7 @@ class TestConcurrentRegistry:
 
     def test_concurrent_unregister(self) -> None:
         """Concurrent register + unregister must not crash."""
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         # Pre-populate
         for i in range(100):
             reg.register(name=f"action_{i}", dcc="maya")
@@ -478,7 +478,7 @@ class TestConcurrentRegistry:
 
     def test_concurrent_search_actions(self) -> None:
         """Multiple threads can search while others write."""
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         for i in range(50):
             reg.register(name=f"geo_{i}", category="geometry", dcc="maya")
 
@@ -516,7 +516,7 @@ class TestConcurrentRegistry:
 
     def test_concurrent_register_batch(self) -> None:
         """Concurrent register_batch calls must be race-free."""
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         errors: list[Exception] = []
         barrier = threading.Barrier(3)
 
@@ -655,13 +655,13 @@ class TestConcurrentVersionedRegistry:
         assert not errors, f"Concurrent keys/latest_version errors: {errors}"
 
 
-# ── ActionRecorder concurrent access ──
+# ── ToolRecorder concurrent access ──
 
 
 class TestConcurrentActionRecorder:
     def test_concurrent_start_and_finish(self) -> None:
         """Multiple threads recording distinct actions must not corrupt state."""
-        recorder = dcc_mcp_core.ActionRecorder("concurrent_scope")
+        recorder = dcc_mcp_core.ToolRecorder("concurrent_scope")
         errors: list[Exception] = []
         barrier = threading.Barrier(4)
 
@@ -689,7 +689,7 @@ class TestConcurrentActionRecorder:
 
     def test_concurrent_success_and_failure(self) -> None:
         """Mix of successes and failures recorded from multiple threads."""
-        recorder = dcc_mcp_core.ActionRecorder("mixed_scope")
+        recorder = dcc_mcp_core.ToolRecorder("mixed_scope")
         errors: list[Exception] = []
         barrier = threading.Barrier(3)
 
@@ -732,7 +732,7 @@ class TestConcurrentActionRecorder:
         """reset() during active recording must not crash."""
         import time
 
-        recorder = dcc_mcp_core.ActionRecorder("reset_scope")
+        recorder = dcc_mcp_core.ToolRecorder("reset_scope")
         errors: list[Exception] = []
         barrier = threading.Barrier(2)
 

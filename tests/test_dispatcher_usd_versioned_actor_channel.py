@@ -1,10 +1,10 @@
 """Tests for iteration 85.
 
-ActionDispatcher depth, UsdStage has/remove_prim,
+ToolDispatcher depth, UsdStage has/remove_prim,
 VersionedRegistry multi-version deep, SandboxContext.set_actor, FramedChannel roundtrip.
 
 Covers:
-- ActionDispatcher: register_handler/dispatch/handler_count/handler_names/has_handler/
+- ToolDispatcher: register_handler/dispatch/handler_count/handler_names/has_handler/
                     remove_handler/skip_empty_schema_validation/dispatch_errors
 - UsdStage: has_prim/remove_prim/get_prim after remove/traverse after remove
 - VersionedRegistry: resolve caret/exact/gte/tilde, resolve_all, remove count,
@@ -22,11 +22,11 @@ import time
 import pytest
 
 import dcc_mcp_core
-from dcc_mcp_core import ActionDispatcher
-from dcc_mcp_core import ActionRegistry
 from dcc_mcp_core import IpcListener
 from dcc_mcp_core import SandboxContext
 from dcc_mcp_core import SandboxPolicy
+from dcc_mcp_core import ToolDispatcher
+from dcc_mcp_core import ToolRegistry
 from dcc_mcp_core import TransportAddress
 from dcc_mcp_core import UsdStage
 from dcc_mcp_core import VersionedRegistry
@@ -37,12 +37,12 @@ from dcc_mcp_core import connect_ipc
 # ---------------------------------------------------------------------------
 
 
-def _make_dispatcher(*action_names: str) -> ActionDispatcher:
-    """Create an ActionDispatcher with the given registered action names."""
-    reg = ActionRegistry()
+def _make_dispatcher(*action_names: str) -> ToolDispatcher:
+    """Create an ToolDispatcher with the given registered action names."""
+    reg = ToolRegistry()
     for name in action_names:
         reg.register(name)
-    return ActionDispatcher(reg)
+    return ToolDispatcher(reg)
 
 
 def _bind_and_connect() -> tuple[object, dcc_mcp_core.FramedChannel]:
@@ -56,7 +56,7 @@ def _bind_and_connect() -> tuple[object, dcc_mcp_core.FramedChannel]:
 
 
 # ===========================================================================
-# ActionDispatcher
+# ToolDispatcher
 # ===========================================================================
 
 
@@ -98,10 +98,10 @@ class TestActionDispatcherInit:
 
     def test_handler_names_sorted_alphabetically(self) -> None:
         """handler_names() returns names in sorted order."""
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         for name in ["z_action", "a_action", "m_action"]:
             reg.register(name)
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         for name in ["z_action", "a_action", "m_action"]:
             disp.register_handler(name, lambda p: None)
         names = disp.handler_names()
@@ -109,17 +109,17 @@ class TestActionDispatcherInit:
 
     def test_register_non_callable_raises_type_error(self) -> None:
         """register_handler() raises TypeError for non-callable handlers."""
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("x")
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         with pytest.raises(TypeError):
             disp.register_handler("x", 42)  # type: ignore[arg-type]
 
     def test_register_non_callable_string_raises(self) -> None:
         """register_handler() raises TypeError for string 'handler'."""
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("x")
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         with pytest.raises(TypeError):
             disp.register_handler("x", "not_callable")  # type: ignore[arg-type]
 
@@ -190,7 +190,7 @@ class TestActionDispatcherDispatch:
         """dispatch() validates params against JSON Schema when schema is set."""
         import json
 
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register(
             "create_sphere",
             input_schema=json.dumps(
@@ -201,7 +201,7 @@ class TestActionDispatcherDispatch:
                 }
             ),
         )
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         disp.register_handler("create_sphere", lambda p: {"r": p["radius"]})
         result = disp.dispatch("create_sphere", '{"radius": 2.5}')
         assert result["output"]["r"] == 2.5
@@ -210,7 +210,7 @@ class TestActionDispatcherDispatch:
         """dispatch() raises ValueError when params fail JSON Schema validation."""
         import json
 
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register(
             "create_sphere",
             input_schema=json.dumps(
@@ -221,7 +221,7 @@ class TestActionDispatcherDispatch:
                 }
             ),
         )
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         disp.register_handler("create_sphere", lambda p: None)
         disp.skip_empty_schema_validation = False
         with pytest.raises((ValueError, RuntimeError)):
@@ -315,9 +315,9 @@ class TestActionDispatcherRepr:
         assert isinstance(repr(disp), str)
 
     def test_repr_contains_actiondispatcher(self) -> None:
-        """repr() mentions 'ActionDispatcher'."""
+        """repr() mentions 'ToolDispatcher'."""
         disp = _make_dispatcher("x")
-        assert "ActionDispatcher" in repr(disp) or "Dispatcher" in repr(disp)
+        assert "ToolDispatcher" in repr(disp) or "Dispatcher" in repr(disp)
 
 
 # ===========================================================================

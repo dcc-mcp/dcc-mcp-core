@@ -1,4 +1,4 @@
-"""Tests for VtValue all types, UsdStage.traverse/prims_of_type, ActionRegistry.count_actions/reset.
+"""Tests for VtValue all types, UsdStage.traverse/prims_of_type, ToolRegistry.count_actions/reset.
 
 ServiceEntry full attribute set, TimingMiddleware.last_elapsed_ms precision,
 PyBufferPool acquire/release lifecycle, PySharedSceneBuffer write/read/compression.
@@ -11,13 +11,13 @@ import tempfile
 
 import pytest
 
-from dcc_mcp_core import ActionDispatcher
-from dcc_mcp_core import ActionPipeline
-from dcc_mcp_core import ActionRegistry
 from dcc_mcp_core import PyBufferPool
 from dcc_mcp_core import PySceneDataKind
 from dcc_mcp_core import PySharedSceneBuffer
 from dcc_mcp_core import ServiceStatus
+from dcc_mcp_core import ToolDispatcher
+from dcc_mcp_core import ToolPipeline
+from dcc_mcp_core import ToolRegistry
 from dcc_mcp_core import TransportManager
 from dcc_mcp_core import UsdPrim
 from dcc_mcp_core import UsdStage
@@ -316,29 +316,29 @@ class TestUsdStageTraverse:
 
 
 # ---------------------------------------------------------------------------
-# ActionRegistry.count_actions + reset
+# ToolRegistry.count_actions + reset
 # ---------------------------------------------------------------------------
 
 
 class TestActionRegistryCountAndReset:
     def test_count_initial_zero(self) -> None:
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         assert reg.count_actions() == 0
 
     def test_count_after_one_register(self) -> None:
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("act1")
         assert reg.count_actions() == 1
 
     def test_count_after_multiple_registers(self) -> None:
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("a1", category="geo")
         reg.register("a2", category="geo")
         reg.register("a3", category="anim")
         assert reg.count_actions() == 3
 
     def test_count_by_category(self) -> None:
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("a1", category="geo")
         reg.register("a2", category="geo")
         reg.register("a3", category="anim")
@@ -346,12 +346,12 @@ class TestActionRegistryCountAndReset:
         assert reg.count_actions(category="anim") == 1
 
     def test_count_zero_for_nonexistent_category(self) -> None:
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("a1", category="geo")
         assert reg.count_actions(category="export") == 0
 
     def test_count_by_dcc_name(self) -> None:
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("a1", dcc="maya")
         reg.register("a2", dcc="maya")
         reg.register("a3", dcc="blender")
@@ -359,12 +359,12 @@ class TestActionRegistryCountAndReset:
         assert reg.count_actions(dcc_name="blender") == 1
 
     def test_count_returns_int(self) -> None:
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("act")
         assert isinstance(reg.count_actions(), int)
 
     def test_count_after_batch_register(self) -> None:
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register_batch(
             [
                 {"name": "a1", "category": "geo"},
@@ -375,34 +375,34 @@ class TestActionRegistryCountAndReset:
         assert reg.count_actions() == 3
 
     def test_count_after_unregister(self) -> None:
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("a1")
         reg.register("a2")
         reg.unregister("a1")
         assert reg.count_actions() == 1
 
     def test_reset_clears_all(self) -> None:
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("a1")
         reg.register("a2")
         reg.reset()
         assert reg.count_actions() == 0
 
     def test_reset_clears_list_actions(self) -> None:
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("a1")
         reg.reset()
         assert reg.list_actions() == []
 
     def test_reset_allows_re_register(self) -> None:
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("a1")
         reg.reset()
         reg.register("a1")
         assert reg.count_actions() == 1
 
     def test_count_filter_tags(self) -> None:
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("a1", tags=["create", "mesh"])
         reg.register("a2", tags=["delete"])
         assert reg.count_actions(tags=["create"]) == 1
@@ -589,11 +589,11 @@ class TestServiceEntryAttributes:
 
 class TestTimingMiddlewarePrecision:
     def _make_pipeline(self, handler=None):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("fast_action", category="util")
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         disp.register_handler("fast_action", handler or (lambda params: "ok"))
-        pipe = ActionPipeline(disp)
+        pipe = ToolPipeline(disp)
         timing = pipe.add_timing()
         return pipe, timing
 
@@ -628,13 +628,13 @@ class TestTimingMiddlewarePrecision:
         assert ms2 >= 0
 
     def test_multiple_actions_independent(self) -> None:
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("action_a", category="util")
         reg.register("action_b", category="util")
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         disp.register_handler("action_a", lambda p: "a")
         disp.register_handler("action_b", lambda p: "b")
-        pipe = ActionPipeline(disp)
+        pipe = ToolPipeline(disp)
         timing = pipe.add_timing()
 
         pipe.dispatch("action_a", "{}")

@@ -1,7 +1,7 @@
 """Tests for AuditLog, PyProcessWatcher, TransportManager.bind_and_register, etc.
 
 Covers AuditLog complete methods, PyProcessWatcher lifecycle,
-TransportManager.bind_and_register, ServerHandle.bind_addr,
+TransportManager.bind_and_register, McpServerHandle.bind_addr,
 VtValue advanced (from_asset/from_vec3f), and USD bridge functions
 (units_to_mpu, mpu_to_units, scene_info_json_to_stage,
 stage_to_scene_info_json).
@@ -21,12 +21,12 @@ from typing import ClassVar
 
 import pytest
 
-from dcc_mcp_core import ActionRegistry
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
 from dcc_mcp_core import PyProcessWatcher
 from dcc_mcp_core import SandboxContext
 from dcc_mcp_core import SandboxPolicy
+from dcc_mcp_core import ToolRegistry
 from dcc_mcp_core import TransportManager
 from dcc_mcp_core import UsdStage
 from dcc_mcp_core import VtValue
@@ -442,16 +442,16 @@ class TestTransportManagerBindAndRegister:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ServerHandle.bind_addr
+# McpServerHandle.bind_addr
 # ─────────────────────────────────────────────────────────────────────────────
 
 
 class TestServerHandleBindAddr:
-    """Verify ServerHandle.bind_addr and related properties."""
+    """Verify McpServerHandle.bind_addr and related properties."""
 
     @pytest.fixture
     def handle(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         server = McpHttpServer(reg, McpHttpConfig(port=0))
         h = server.start()
         yield h
@@ -488,7 +488,7 @@ class TestServerHandleBindAddr:
         assert isinstance(repr(handle), str)
 
     def test_signal_shutdown_does_not_block(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         server = McpHttpServer(reg, McpHttpConfig(port=0))
         h = server.start()
         h.signal_shutdown()  # Non-blocking

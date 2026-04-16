@@ -192,7 +192,7 @@ class TestFreeCADSkillPipeline:
     """dcc-mcp-core skill pipeline with FreeCAD as target DCC."""
 
     def test_register_freecad_actions(self) -> None:
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         reg.register(name="create_box", description="Create parametric box", dcc="freecad")
         reg.register(name="create_cylinder", description="Create parametric cylinder", dcc="freecad")
         reg.register(name="boolean_fuse", description="Boolean union of two shapes", dcc="freecad")

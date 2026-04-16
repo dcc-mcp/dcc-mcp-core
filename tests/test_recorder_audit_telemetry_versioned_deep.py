@@ -1,4 +1,4 @@
-"""Deep tests: ActionRecorder/ActionMetrics, TelemetryConfig, AuditLog/AuditEntry.
+"""Deep tests: ToolRecorder/ToolMetrics, TelemetryConfig, AuditLog/AuditEntry.
 
 Also covers: SandboxContext.execute_json, VersionedRegistry full matrix.
 Run #140: 12082 → ~12220 collected (+128 tests)
@@ -12,11 +12,11 @@ import time
 import pytest
 
 import dcc_mcp_core
-from dcc_mcp_core import ActionRecorder
 from dcc_mcp_core import SandboxContext
 from dcc_mcp_core import SandboxPolicy
 from dcc_mcp_core import SemVer
 from dcc_mcp_core import TelemetryConfig
+from dcc_mcp_core import ToolRecorder
 from dcc_mcp_core import VersionConstraint
 from dcc_mcp_core import VersionedRegistry
 from dcc_mcp_core import is_telemetry_initialized
@@ -24,44 +24,44 @@ from dcc_mcp_core import shutdown_telemetry
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# ActionRecorder — basic creation
+# ToolRecorder — basic creation
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 class TestActionRecorderCreate:
-    """ActionRecorder construction and basic API."""
+    """ToolRecorder construction and basic API."""
 
     def test_create_with_scope(self):
-        """ActionRecorder can be created with a scope name."""
-        recorder = ActionRecorder("my-server")
+        """ToolRecorder can be created with a scope name."""
+        recorder = ToolRecorder("my-server")
         assert recorder is not None
 
     def test_metrics_none_before_recording(self):
         """metrics() returns None for unknown action before any recording."""
-        recorder = ActionRecorder("test")
+        recorder = ToolRecorder("test")
         assert recorder.metrics("unknown_action") is None
 
     def test_all_metrics_empty_before_recording(self):
         """all_metrics() returns empty list before any recording."""
-        recorder = ActionRecorder("empty-scope")
+        recorder = ToolRecorder("empty-scope")
         result = recorder.all_metrics()
         assert isinstance(result, list)
         assert len(result) == 0
 
     def test_reset_clears_empty_recorder(self):
         """reset() on fresh recorder is a no-op (no error)."""
-        recorder = ActionRecorder("fresh")
+        recorder = ToolRecorder("fresh")
         recorder.reset()
         assert recorder.all_metrics() == []
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# ActionRecorder — manual guard
+# ToolRecorder — manual guard
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 class TestActionRecorderManualGuard:
     """Manual start/finish guard pattern."""
 
     def test_single_success_invocation_count(self):
         """Single successful call sets invocation_count=1."""
-        r = ActionRecorder("test")
+        r = ToolRecorder("test")
         g = r.start("op", "maya")
         g.finish(success=True)
         m = r.metrics("op")
@@ -69,7 +69,7 @@ class TestActionRecorderManualGuard:
 
     def test_single_success_success_count(self):
         """Single successful call sets success_count=1."""
-        r = ActionRecorder("test")
+        r = ToolRecorder("test")
         g = r.start("op", "maya")
         g.finish(success=True)
         m = r.metrics("op")
@@ -77,7 +77,7 @@ class TestActionRecorderManualGuard:
 
     def test_single_success_failure_count_zero(self):
         """Single successful call leaves failure_count=0."""
-        r = ActionRecorder("test")
+        r = ToolRecorder("test")
         g = r.start("op", "maya")
         g.finish(success=True)
         m = r.metrics("op")
@@ -85,7 +85,7 @@ class TestActionRecorderManualGuard:
 
     def test_single_success_rate_one(self):
         """Single successful call gives success_rate=1.0."""
-        r = ActionRecorder("test")
+        r = ToolRecorder("test")
         g = r.start("op", "maya")
         g.finish(success=True)
         m = r.metrics("op")
@@ -93,7 +93,7 @@ class TestActionRecorderManualGuard:
 
     def test_single_failure_invocation_count(self):
         """Single failed call sets invocation_count=1."""
-        r = ActionRecorder("test")
+        r = ToolRecorder("test")
         g = r.start("fail_op", "blender")
         g.finish(success=False)
         m = r.metrics("fail_op")
@@ -101,7 +101,7 @@ class TestActionRecorderManualGuard:
 
     def test_single_failure_failure_count(self):
         """Single failed call sets failure_count=1."""
-        r = ActionRecorder("test")
+        r = ToolRecorder("test")
         g = r.start("fail_op", "blender")
         g.finish(success=False)
         m = r.metrics("fail_op")
@@ -109,7 +109,7 @@ class TestActionRecorderManualGuard:
 
     def test_single_failure_success_count_zero(self):
         """Single failed call leaves success_count=0."""
-        r = ActionRecorder("test")
+        r = ToolRecorder("test")
         g = r.start("fail_op", "blender")
         g.finish(success=False)
         m = r.metrics("fail_op")
@@ -117,7 +117,7 @@ class TestActionRecorderManualGuard:
 
     def test_single_failure_success_rate_zero(self):
         """Single failed call gives success_rate=0.0."""
-        r = ActionRecorder("test")
+        r = ToolRecorder("test")
         g = r.start("fail_op", "blender")
         g.finish(success=False)
         m = r.metrics("fail_op")
@@ -125,7 +125,7 @@ class TestActionRecorderManualGuard:
 
     def test_mixed_calls_invocation_count(self):
         """5 successes + 1 failure → invocation_count=6."""
-        r = ActionRecorder("mixed")
+        r = ToolRecorder("mixed")
         for _ in range(5):
             g = r.start("create_sphere", "maya")
             g.finish(success=True)
@@ -135,7 +135,7 @@ class TestActionRecorderManualGuard:
 
     def test_mixed_calls_success_count(self):
         """5 successes + 1 failure → success_count=5."""
-        r = ActionRecorder("mixed2")
+        r = ToolRecorder("mixed2")
         for _ in range(5):
             g = r.start("a", "maya")
             g.finish(success=True)
@@ -145,7 +145,7 @@ class TestActionRecorderManualGuard:
 
     def test_mixed_calls_success_rate(self):
         """5 successes + 1 failure → success_rate≈0.833."""
-        r = ActionRecorder("mixed3")
+        r = ToolRecorder("mixed3")
         for _ in range(5):
             g = r.start("a", "maya")
             g.finish(success=True)
@@ -155,7 +155,7 @@ class TestActionRecorderManualGuard:
 
     def test_action_name_in_metrics(self):
         """metrics.action_name reflects the registered action."""
-        r = ActionRecorder("name-test")
+        r = ToolRecorder("name-test")
         g = r.start("unique_action_xyz", "maya")
         g.finish(success=True)
         m = r.metrics("unique_action_xyz")
@@ -163,7 +163,7 @@ class TestActionRecorderManualGuard:
 
     def test_avg_duration_ms_positive(self):
         """avg_duration_ms is a non-negative float after one call."""
-        r = ActionRecorder("dur-test")
+        r = ToolRecorder("dur-test")
         g = r.start("slow_op", "houdini")
         time.sleep(0.005)
         g.finish(success=True)
@@ -173,7 +173,7 @@ class TestActionRecorderManualGuard:
 
     def test_p95_duration_ms_type(self):
         """p95_duration_ms is a float."""
-        r = ActionRecorder("p95-test")
+        r = ToolRecorder("p95-test")
         g = r.start("op", "maya")
         g.finish(success=True)
         m = r.metrics("op")
@@ -181,7 +181,7 @@ class TestActionRecorderManualGuard:
 
     def test_p99_duration_ms_type(self):
         """p99_duration_ms is a float."""
-        r = ActionRecorder("p99-test")
+        r = ToolRecorder("p99-test")
         g = r.start("op", "maya")
         g.finish(success=True)
         m = r.metrics("op")
@@ -189,7 +189,7 @@ class TestActionRecorderManualGuard:
 
     def test_p95_gte_avg(self):
         """p95_duration_ms >= avg_duration_ms."""
-        r = ActionRecorder("p-compare")
+        r = ToolRecorder("p-compare")
         for _ in range(10):
             g = r.start("op", "maya")
             g.finish(success=True)
@@ -198,7 +198,7 @@ class TestActionRecorderManualGuard:
 
     def test_p99_gte_p95(self):
         """p99_duration_ms >= p95_duration_ms."""
-        r = ActionRecorder("p-compare2")
+        r = ToolRecorder("p-compare2")
         for _ in range(10):
             g = r.start("op", "maya")
             g.finish(success=True)
@@ -207,14 +207,14 @@ class TestActionRecorderManualGuard:
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# ActionRecorder — context manager
+# ToolRecorder — context manager
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 class TestActionRecorderContextManager:
     """Context manager (with recorder.start(...) as guard) pattern."""
 
     def test_context_manager_success_increments(self):
         """Successful with block records success=True."""
-        r = ActionRecorder("ctx")
+        r = ToolRecorder("ctx")
         with r.start("batch_op", "blender"):
             pass
         m = r.metrics("batch_op")
@@ -223,7 +223,7 @@ class TestActionRecorderContextManager:
 
     def test_context_manager_exception_records_failure(self):
         """Exception in with block records success=False."""
-        r = ActionRecorder("ctx2")
+        r = ToolRecorder("ctx2")
         with pytest.raises(ValueError), r.start("risky_op", "maya"):
             raise ValueError("oops")
         m = r.metrics("risky_op")
@@ -232,7 +232,7 @@ class TestActionRecorderContextManager:
 
     def test_context_manager_multiple_calls(self):
         """Multiple context manager calls accumulate correctly."""
-        r = ActionRecorder("ctx3")
+        r = ToolRecorder("ctx3")
         for _ in range(3):
             with r.start("op", "maya"):
                 pass
@@ -242,14 +242,14 @@ class TestActionRecorderContextManager:
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# ActionRecorder — all_metrics + reset
+# ToolRecorder — all_metrics + reset
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 class TestActionRecorderAllMetricsReset:
     """all_metrics() list and reset() semantics."""
 
     def test_all_metrics_contains_all_actions(self):
         """all_metrics() includes entries for each distinct action name."""
-        r = ActionRecorder("multi")
+        r = ToolRecorder("multi")
         for name in ["a", "b", "c"]:
             g = r.start(name, "maya")
             g.finish(success=True)
@@ -259,7 +259,7 @@ class TestActionRecorderAllMetricsReset:
 
     def test_all_metrics_length(self):
         """all_metrics() length equals distinct action count."""
-        r = ActionRecorder("multi2")
+        r = ToolRecorder("multi2")
         for name in ["x", "y"]:
             g = r.start(name, "maya")
             g.finish(success=True)
@@ -267,7 +267,7 @@ class TestActionRecorderAllMetricsReset:
 
     def test_reset_clears_metrics(self):
         """reset() makes metrics() return None again."""
-        r = ActionRecorder("reset-test")
+        r = ToolRecorder("reset-test")
         g = r.start("my_action", "maya")
         g.finish(success=True)
         assert r.metrics("my_action") is not None
@@ -276,7 +276,7 @@ class TestActionRecorderAllMetricsReset:
 
     def test_reset_clears_all_metrics(self):
         """reset() makes all_metrics() return empty list."""
-        r = ActionRecorder("reset-all")
+        r = ToolRecorder("reset-all")
         g = r.start("my_action", "maya")
         g.finish(success=True)
         r.reset()
@@ -284,7 +284,7 @@ class TestActionRecorderAllMetricsReset:
 
     def test_accumulate_after_reset(self):
         """Recording after reset accumulates from scratch."""
-        r = ActionRecorder("post-reset")
+        r = ToolRecorder("post-reset")
         g = r.start("op", "maya")
         g.finish(success=True)
         r.reset()
@@ -378,7 +378,7 @@ class TestTelemetryConfigInitShutdown:
     def test_init_raises_if_tracer_already_set(self):
         """init() raises RuntimeError when global tracer dispatcher is already set.
 
-        In pytest the ActionRecorder (used in other tests) triggers OTel initialisation
+        In pytest the ToolRecorder (used in other tests) triggers OTel initialisation
         the moment its Rust implementation creates a Meter, so the global dispatcher is
         always occupied by the time this test runs.  We therefore expect init() to fail.
         """

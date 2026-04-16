@@ -1,14 +1,14 @@
-"""Deep tests for TelemetryConfig, ActionRecorder, SandboxPolicy, SandboxContext, EventBus, and ActionPipeline middleware.
+"""Deep tests for TelemetryConfig, ToolRecorder, SandboxPolicy, SandboxContext, EventBus, and ToolPipeline middleware.
 
 Coverage targets:
 - TelemetryConfig: construction, builder chain, service_name, init, exporter variants
-- ActionRecorder: start/finish, metrics aggregation, reset, multiple actions
-- ActionMetrics: all numeric fields, success_rate(), repr
+- ToolRecorder: start/finish, metrics aggregation, reset, multiple actions
+- ToolMetrics: all numeric fields, success_rate(), repr
 - SandboxPolicy: allow/deny rules, read_only, timeout, max_actions
 - SandboxContext: is_allowed, execute_json, action_count, audit_log
 - AuditLog / AuditEntry: entries, entries_for_action, successes, denials, to_json
 - EventBus: subscribe/publish/unsubscribe, multiple subscribers, kwargs propagation
-- ActionPipeline: timing, audit, rate_limit, add_callable, middleware_count/names
+- ToolPipeline: timing, audit, rate_limit, add_callable, middleware_count/names
 """
 
 from __future__ import annotations
@@ -139,33 +139,33 @@ class TestTelemetryConfigBuilderChain:
 
 
 class TestActionRecorderCreate:
-    """ActionRecorder construction."""
+    """ToolRecorder construction."""
 
     def test_create_with_scope(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("my-scope")
+        r = ToolRecorder("my-scope")
         assert r is not None
 
     def test_create_different_scopes(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r1 = ActionRecorder("scope-a")
-        r2 = ActionRecorder("scope-b")
+        r1 = ToolRecorder("scope-a")
+        r2 = ToolRecorder("scope-b")
         assert r1 is not r2
 
     def test_all_metrics_empty_initially(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("svc")
+        r = ToolRecorder("svc")
         result = r.all_metrics()
         assert isinstance(result, list)
         assert len(result) == 0
 
     def test_metrics_returns_none_before_any_recording(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("svc")
+        r = ToolRecorder("svc")
         import contextlib
 
         # Either returns None or raises — just ensure no unexpected crash
@@ -174,21 +174,21 @@ class TestActionRecorderCreate:
 
 
 class TestActionRecorderStartFinish:
-    """ActionRecorder start/finish cycle."""
+    """ToolRecorder start/finish cycle."""
 
     def test_start_returns_recording_guard(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("svc")
+        r = ToolRecorder("svc")
         guard = r.start("sphere", "maya")
         assert guard is not None
         assert hasattr(guard, "finish")
         guard.finish(success=True)
 
     def test_finish_success_increments_success_count(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("svc")
+        r = ToolRecorder("svc")
         g = r.start("sphere", "maya")
         g.finish(success=True)
         m = r.metrics("sphere")
@@ -198,9 +198,9 @@ class TestActionRecorderStartFinish:
         assert m.failure_count == 0
 
     def test_finish_failure_increments_failure_count(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("svc")
+        r = ToolRecorder("svc")
         g = r.start("sphere", "maya")
         g.finish(success=False)
         m = r.metrics("sphere")
@@ -209,9 +209,9 @@ class TestActionRecorderStartFinish:
         assert m.success_count == 0
 
     def test_multiple_invocations_accumulated(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("svc")
+        r = ToolRecorder("svc")
         for _ in range(3):
             g = r.start("cube", "blender")
             g.finish(success=True)
@@ -223,9 +223,9 @@ class TestActionRecorderStartFinish:
         assert m.failure_count == 1
 
     def test_all_metrics_lists_all_actions(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("svc")
+        r = ToolRecorder("svc")
         r.start("a1", "maya").finish(success=True)
         r.start("a2", "maya").finish(success=True)
         r.start("a3", "blender").finish(success=False)
@@ -236,17 +236,17 @@ class TestActionRecorderStartFinish:
         assert "a3" in names
 
     def test_reset_clears_all_metrics(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("svc")
+        r = ToolRecorder("svc")
         r.start("x", "maya").finish(success=True)
         r.reset()
         assert len(r.all_metrics()) == 0
 
     def test_metrics_after_reset_returns_none_or_empty(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("svc")
+        r = ToolRecorder("svc")
         r.start("y", "maya").finish(success=True)
         r.reset()
         result = r.metrics("y")
@@ -254,46 +254,46 @@ class TestActionRecorderStartFinish:
 
 
 class TestActionMetrics:
-    """ActionMetrics fields and methods."""
+    """ToolMetrics fields and methods."""
 
     def test_action_name_field(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("svc")
+        r = ToolRecorder("svc")
         r.start("render_mesh", "maya").finish(success=True)
         m = r.metrics("render_mesh")
         assert m.action_name == "render_mesh"
 
     def test_success_rate_is_callable(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("svc")
+        r = ToolRecorder("svc")
         r.start("op", "maya").finish(success=True)
         m = r.metrics("op")
         assert callable(m.success_rate)
 
     def test_success_rate_all_success(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("svc")
+        r = ToolRecorder("svc")
         for _ in range(3):
             r.start("op", "maya").finish(success=True)
         m = r.metrics("op")
         assert abs(m.success_rate() - 1.0) < 0.01
 
     def test_success_rate_all_failure(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("svc")
+        r = ToolRecorder("svc")
         for _ in range(2):
             r.start("bad_op", "maya").finish(success=False)
         m = r.metrics("bad_op")
         assert abs(m.success_rate() - 0.0) < 0.01
 
     def test_success_rate_mixed(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("svc")
+        r = ToolRecorder("svc")
         for _ in range(2):
             r.start("mixed", "maya").finish(success=True)
         for _ in range(2):
@@ -302,34 +302,34 @@ class TestActionMetrics:
         assert abs(m.success_rate() - 0.5) < 0.01
 
     def test_avg_duration_ms_is_numeric(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("svc")
+        r = ToolRecorder("svc")
         r.start("timed_op", "maya").finish(success=True)
         m = r.metrics("timed_op")
         assert isinstance(m.avg_duration_ms, (int, float))
         assert m.avg_duration_ms >= 0
 
     def test_p95_duration_ms_is_numeric(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("svc")
+        r = ToolRecorder("svc")
         r.start("timed_op2", "maya").finish(success=True)
         m = r.metrics("timed_op2")
         assert isinstance(m.p95_duration_ms, (int, float))
 
     def test_p99_duration_ms_is_numeric(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("svc")
+        r = ToolRecorder("svc")
         r.start("timed_op3", "maya").finish(success=True)
         m = r.metrics("timed_op3")
         assert isinstance(m.p99_duration_ms, (int, float))
 
     def test_repr_contains_action_name_and_invocations(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("svc")
+        r = ToolRecorder("svc")
         r.start("repr_op", "maya").finish(success=True)
         m = r.metrics("repr_op")
         rep = repr(m)
@@ -885,22 +885,22 @@ class TestEventBusSubscribePublish:
 
 
 class TestActionPipelineMiddleware:
-    """ActionPipeline middleware: timing, audit, rate_limit, callable hooks."""
+    """ToolPipeline middleware: timing, audit, rate_limit, callable hooks."""
 
     def _make_pipeline(self, actions=None):
-        from dcc_mcp_core import ActionDispatcher
-        from dcc_mcp_core import ActionPipeline
-        from dcc_mcp_core import ActionRegistry
+        from dcc_mcp_core import ToolDispatcher
+        from dcc_mcp_core import ToolPipeline
+        from dcc_mcp_core import ToolRegistry
 
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         if actions is None:
             actions = ["sphere"]
         for name in actions:
             reg.register(name, description=f"Action {name}")
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         for name in actions:
             disp.register_handler(name, lambda p: {"done": True})
-        pipe = ActionPipeline(disp)
+        pipe = ToolPipeline(disp)
         return pipe
 
     def test_pipeline_create_zero_middleware(self):
@@ -965,18 +965,18 @@ class TestActionPipelineMiddleware:
 
 
 class TestActionPipelineTiming:
-    """ActionPipeline timing middleware."""
+    """ToolPipeline timing middleware."""
 
     def test_timing_last_elapsed_ms_after_dispatch(self):
-        from dcc_mcp_core import ActionDispatcher
-        from dcc_mcp_core import ActionPipeline
-        from dcc_mcp_core import ActionRegistry
+        from dcc_mcp_core import ToolDispatcher
+        from dcc_mcp_core import ToolPipeline
+        from dcc_mcp_core import ToolRegistry
 
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("sphere", description="sphere")
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         disp.register_handler("sphere", lambda p: {})
-        pipe = ActionPipeline(disp)
+        pipe = ToolPipeline(disp)
         timing = pipe.add_timing()
         pipe.dispatch("sphere", "{}")
         elapsed = timing.last_elapsed_ms("sphere")
@@ -985,31 +985,31 @@ class TestActionPipelineTiming:
         assert elapsed >= 0
 
     def test_timing_none_before_dispatch(self):
-        from dcc_mcp_core import ActionDispatcher
-        from dcc_mcp_core import ActionPipeline
-        from dcc_mcp_core import ActionRegistry
+        from dcc_mcp_core import ToolDispatcher
+        from dcc_mcp_core import ToolPipeline
+        from dcc_mcp_core import ToolRegistry
 
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("sphere", description="sphere")
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         disp.register_handler("sphere", lambda p: {})
-        pipe = ActionPipeline(disp)
+        pipe = ToolPipeline(disp)
         timing = pipe.add_timing()
         result = timing.last_elapsed_ms("sphere")
         assert result is None
 
     def test_timing_tracks_multiple_actions(self):
-        from dcc_mcp_core import ActionDispatcher
-        from dcc_mcp_core import ActionPipeline
-        from dcc_mcp_core import ActionRegistry
+        from dcc_mcp_core import ToolDispatcher
+        from dcc_mcp_core import ToolPipeline
+        from dcc_mcp_core import ToolRegistry
 
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         for name in ["a", "b"]:
             reg.register(name, description=name)
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         for name in ["a", "b"]:
             disp.register_handler(name, lambda p: {})
-        pipe = ActionPipeline(disp)
+        pipe = ToolPipeline(disp)
         timing = pipe.add_timing()
         pipe.dispatch("a", "{}")
         pipe.dispatch("b", "{}")
@@ -1018,76 +1018,76 @@ class TestActionPipelineTiming:
 
 
 class TestActionPipelineAudit:
-    """ActionPipeline audit middleware."""
+    """ToolPipeline audit middleware."""
 
     def test_audit_empty_before_dispatch(self):
-        from dcc_mcp_core import ActionDispatcher
-        from dcc_mcp_core import ActionPipeline
-        from dcc_mcp_core import ActionRegistry
+        from dcc_mcp_core import ToolDispatcher
+        from dcc_mcp_core import ToolPipeline
+        from dcc_mcp_core import ToolRegistry
 
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("sphere", description="sphere")
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         disp.register_handler("sphere", lambda p: {})
-        pipe = ActionPipeline(disp)
+        pipe = ToolPipeline(disp)
         audit = pipe.add_audit()
         assert audit.record_count() == 0
         assert audit.records() == []
 
     def test_audit_records_after_dispatch(self):
-        from dcc_mcp_core import ActionDispatcher
-        from dcc_mcp_core import ActionPipeline
-        from dcc_mcp_core import ActionRegistry
+        from dcc_mcp_core import ToolDispatcher
+        from dcc_mcp_core import ToolPipeline
+        from dcc_mcp_core import ToolRegistry
 
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("sphere", description="sphere")
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         disp.register_handler("sphere", lambda p: {"name": "s1"})
-        pipe = ActionPipeline(disp)
+        pipe = ToolPipeline(disp)
         audit = pipe.add_audit(record_params=True)
         pipe.dispatch("sphere", "{}")
         assert audit.record_count() == 1
 
     def test_audit_record_has_action_key(self):
-        from dcc_mcp_core import ActionDispatcher
-        from dcc_mcp_core import ActionPipeline
-        from dcc_mcp_core import ActionRegistry
+        from dcc_mcp_core import ToolDispatcher
+        from dcc_mcp_core import ToolPipeline
+        from dcc_mcp_core import ToolRegistry
 
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("cube", description="cube")
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         disp.register_handler("cube", lambda p: {})
-        pipe = ActionPipeline(disp)
+        pipe = ToolPipeline(disp)
         audit = pipe.add_audit()
         pipe.dispatch("cube", "{}")
         record = audit.records()[0]
         assert record["action"] == "cube"
 
     def test_audit_record_has_success_true(self):
-        from dcc_mcp_core import ActionDispatcher
-        from dcc_mcp_core import ActionPipeline
-        from dcc_mcp_core import ActionRegistry
+        from dcc_mcp_core import ToolDispatcher
+        from dcc_mcp_core import ToolPipeline
+        from dcc_mcp_core import ToolRegistry
 
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("op", description="op")
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         disp.register_handler("op", lambda p: {})
-        pipe = ActionPipeline(disp)
+        pipe = ToolPipeline(disp)
         audit = pipe.add_audit()
         pipe.dispatch("op", "{}")
         record = audit.records()[0]
         assert record["success"] is True
 
     def test_audit_record_has_timestamp_ms(self):
-        from dcc_mcp_core import ActionDispatcher
-        from dcc_mcp_core import ActionPipeline
-        from dcc_mcp_core import ActionRegistry
+        from dcc_mcp_core import ToolDispatcher
+        from dcc_mcp_core import ToolPipeline
+        from dcc_mcp_core import ToolRegistry
 
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("op", description="op")
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         disp.register_handler("op", lambda p: {})
-        pipe = ActionPipeline(disp)
+        pipe = ToolPipeline(disp)
         audit = pipe.add_audit()
         pipe.dispatch("op", "{}")
         record = audit.records()[0]
@@ -1095,17 +1095,17 @@ class TestActionPipelineAudit:
         assert record["timestamp_ms"] > 0
 
     def test_audit_records_for_action_filters(self):
-        from dcc_mcp_core import ActionDispatcher
-        from dcc_mcp_core import ActionPipeline
-        from dcc_mcp_core import ActionRegistry
+        from dcc_mcp_core import ToolDispatcher
+        from dcc_mcp_core import ToolPipeline
+        from dcc_mcp_core import ToolRegistry
 
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         for name in ["a", "b"]:
             reg.register(name, description=name)
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         for name in ["a", "b"]:
             disp.register_handler(name, lambda p: {})
-        pipe = ActionPipeline(disp)
+        pipe = ToolPipeline(disp)
         audit = pipe.add_audit()
         pipe.dispatch("a", "{}")
         pipe.dispatch("b", "{}")
@@ -1114,15 +1114,15 @@ class TestActionPipelineAudit:
         assert len(a_records) == 2
 
     def test_audit_clear_resets_records(self):
-        from dcc_mcp_core import ActionDispatcher
-        from dcc_mcp_core import ActionPipeline
-        from dcc_mcp_core import ActionRegistry
+        from dcc_mcp_core import ToolDispatcher
+        from dcc_mcp_core import ToolPipeline
+        from dcc_mcp_core import ToolRegistry
 
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("op", description="op")
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         disp.register_handler("op", lambda p: {})
-        pipe = ActionPipeline(disp)
+        pipe = ToolPipeline(disp)
         audit = pipe.add_audit()
         pipe.dispatch("op", "{}")
         assert audit.record_count() == 1
@@ -1131,15 +1131,15 @@ class TestActionPipelineAudit:
         assert audit.records() == []
 
     def test_audit_multiple_dispatches_accumulate(self):
-        from dcc_mcp_core import ActionDispatcher
-        from dcc_mcp_core import ActionPipeline
-        from dcc_mcp_core import ActionRegistry
+        from dcc_mcp_core import ToolDispatcher
+        from dcc_mcp_core import ToolPipeline
+        from dcc_mcp_core import ToolRegistry
 
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("op", description="op")
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         disp.register_handler("op", lambda p: {})
-        pipe = ActionPipeline(disp)
+        pipe = ToolPipeline(disp)
         audit = pipe.add_audit()
         for _ in range(7):
             pipe.dispatch("op", "{}")
@@ -1147,57 +1147,57 @@ class TestActionPipelineAudit:
 
 
 class TestActionPipelineRateLimit:
-    """ActionPipeline rate_limit middleware."""
+    """ToolPipeline rate_limit middleware."""
 
     def test_rate_limit_max_calls_property(self):
-        from dcc_mcp_core import ActionDispatcher
-        from dcc_mcp_core import ActionPipeline
-        from dcc_mcp_core import ActionRegistry
+        from dcc_mcp_core import ToolDispatcher
+        from dcc_mcp_core import ToolPipeline
+        from dcc_mcp_core import ToolRegistry
 
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("op", description="op")
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         disp.register_handler("op", lambda p: {})
-        pipe = ActionPipeline(disp)
+        pipe = ToolPipeline(disp)
         rl = pipe.add_rate_limit(max_calls=15, window_ms=2000)
         assert rl.max_calls == 15
 
     def test_rate_limit_window_ms_property(self):
-        from dcc_mcp_core import ActionDispatcher
-        from dcc_mcp_core import ActionPipeline
-        from dcc_mcp_core import ActionRegistry
+        from dcc_mcp_core import ToolDispatcher
+        from dcc_mcp_core import ToolPipeline
+        from dcc_mcp_core import ToolRegistry
 
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("op", description="op")
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         disp.register_handler("op", lambda p: {})
-        pipe = ActionPipeline(disp)
+        pipe = ToolPipeline(disp)
         rl = pipe.add_rate_limit(max_calls=10, window_ms=3000)
         assert rl.window_ms == 3000
 
     def test_rate_limit_call_count_starts_zero(self):
-        from dcc_mcp_core import ActionDispatcher
-        from dcc_mcp_core import ActionPipeline
-        from dcc_mcp_core import ActionRegistry
+        from dcc_mcp_core import ToolDispatcher
+        from dcc_mcp_core import ToolPipeline
+        from dcc_mcp_core import ToolRegistry
 
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("op", description="op")
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         disp.register_handler("op", lambda p: {})
-        pipe = ActionPipeline(disp)
+        pipe = ToolPipeline(disp)
         rl = pipe.add_rate_limit(max_calls=10, window_ms=1000)
         assert rl.call_count("op") == 0
 
     def test_rate_limit_call_count_increments(self):
-        from dcc_mcp_core import ActionDispatcher
-        from dcc_mcp_core import ActionPipeline
-        from dcc_mcp_core import ActionRegistry
+        from dcc_mcp_core import ToolDispatcher
+        from dcc_mcp_core import ToolPipeline
+        from dcc_mcp_core import ToolRegistry
 
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("op", description="op")
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         disp.register_handler("op", lambda p: {})
-        pipe = ActionPipeline(disp)
+        pipe = ToolPipeline(disp)
         rl = pipe.add_rate_limit(max_calls=100, window_ms=60000)
         pipe.dispatch("op", "{}")
         pipe.dispatch("op", "{}")
@@ -1205,15 +1205,15 @@ class TestActionPipelineRateLimit:
 
     def test_rate_limit_exceeded_raises(self):
         """When rate limit is exceeded, dispatch should raise RuntimeError or similar."""
-        from dcc_mcp_core import ActionDispatcher
-        from dcc_mcp_core import ActionPipeline
-        from dcc_mcp_core import ActionRegistry
+        from dcc_mcp_core import ToolDispatcher
+        from dcc_mcp_core import ToolPipeline
+        from dcc_mcp_core import ToolRegistry
 
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("op", description="op")
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         disp.register_handler("op", lambda p: {})
-        pipe = ActionPipeline(disp)
+        pipe = ToolPipeline(disp)
         pipe.add_rate_limit(max_calls=2, window_ms=60000)  # Very tight: 2 calls / 60s
         pipe.dispatch("op", "{}")
         pipe.dispatch("op", "{}")
@@ -1224,48 +1224,48 @@ class TestActionPipelineRateLimit:
 
 
 class TestActionPipelineCallable:
-    """ActionPipeline add_callable hooks."""
+    """ToolPipeline add_callable hooks."""
 
     def test_before_hook_called(self):
-        from dcc_mcp_core import ActionDispatcher
-        from dcc_mcp_core import ActionPipeline
-        from dcc_mcp_core import ActionRegistry
+        from dcc_mcp_core import ToolDispatcher
+        from dcc_mcp_core import ToolPipeline
+        from dcc_mcp_core import ToolRegistry
 
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("op", description="op")
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         disp.register_handler("op", lambda p: {})
-        pipe = ActionPipeline(disp)
+        pipe = ToolPipeline(disp)
         before_calls = []
         pipe.add_callable(before_fn=lambda action: before_calls.append(action))
         pipe.dispatch("op", "{}")
         assert len(before_calls) == 1
 
     def test_after_hook_called(self):
-        from dcc_mcp_core import ActionDispatcher
-        from dcc_mcp_core import ActionPipeline
-        from dcc_mcp_core import ActionRegistry
+        from dcc_mcp_core import ToolDispatcher
+        from dcc_mcp_core import ToolPipeline
+        from dcc_mcp_core import ToolRegistry
 
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("op", description="op")
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         disp.register_handler("op", lambda p: {})
-        pipe = ActionPipeline(disp)
+        pipe = ToolPipeline(disp)
         after_calls = []
         pipe.add_callable(after_fn=lambda action, success: after_calls.append((action, success)))
         pipe.dispatch("op", "{}")
         assert len(after_calls) == 1
 
     def test_both_hooks_called(self):
-        from dcc_mcp_core import ActionDispatcher
-        from dcc_mcp_core import ActionPipeline
-        from dcc_mcp_core import ActionRegistry
+        from dcc_mcp_core import ToolDispatcher
+        from dcc_mcp_core import ToolPipeline
+        from dcc_mcp_core import ToolRegistry
 
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("op", description="op")
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         disp.register_handler("op", lambda p: {})
-        pipe = ActionPipeline(disp)
+        pipe = ToolPipeline(disp)
         before_calls = []
         after_calls = []
         pipe.add_callable(
@@ -1277,42 +1277,42 @@ class TestActionPipelineCallable:
         assert len(after_calls) == 1
 
     def test_no_hooks_does_not_crash(self):
-        from dcc_mcp_core import ActionDispatcher
-        from dcc_mcp_core import ActionPipeline
-        from dcc_mcp_core import ActionRegistry
+        from dcc_mcp_core import ToolDispatcher
+        from dcc_mcp_core import ToolPipeline
+        from dcc_mcp_core import ToolRegistry
 
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("op", description="op")
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         disp.register_handler("op", lambda p: {})
-        pipe = ActionPipeline(disp)
+        pipe = ToolPipeline(disp)
         pipe.add_callable()
         result = pipe.dispatch("op", "{}")
         assert "action" in result
 
     def test_dispatch_result_has_output(self):
-        from dcc_mcp_core import ActionDispatcher
-        from dcc_mcp_core import ActionPipeline
-        from dcc_mcp_core import ActionRegistry
+        from dcc_mcp_core import ToolDispatcher
+        from dcc_mcp_core import ToolPipeline
+        from dcc_mcp_core import ToolRegistry
 
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("op", description="op")
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         disp.register_handler("op", lambda p: {"value": 99})
-        pipe = ActionPipeline(disp)
+        pipe = ToolPipeline(disp)
         result = pipe.dispatch("op", "{}")
         assert "output" in result
         assert result["output"] == {"value": 99}
 
     def test_dispatch_result_has_action_name(self):
-        from dcc_mcp_core import ActionDispatcher
-        from dcc_mcp_core import ActionPipeline
-        from dcc_mcp_core import ActionRegistry
+        from dcc_mcp_core import ToolDispatcher
+        from dcc_mcp_core import ToolPipeline
+        from dcc_mcp_core import ToolRegistry
 
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("my_action", description="op")
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         disp.register_handler("my_action", lambda p: {})
-        pipe = ActionPipeline(disp)
+        pipe = ToolPipeline(disp)
         result = pipe.dispatch("my_action", "{}")
         assert result["action"] == "my_action"

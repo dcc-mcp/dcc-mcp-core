@@ -60,7 +60,7 @@ clawhub publish ./clawhub-compat --slug clawhub-compat --version 1.0.0
 import dcc_mcp_core
 
 # Skills installed via ClawHub are discoverable automatically
-catalog = dcc_mcp_core.SkillCatalog(dcc_mcp_core.ActionRegistry())
+catalog = dcc_mcp_core.SkillCatalog(dcc_mcp_core.ToolRegistry())
 catalog.discover(extra_paths=["~/.openclaw/skills"])
 
 # Access ClawHub-specific metadata

@@ -1,4 +1,4 @@
-"""Tests for create_skill_manager — Skills-First one-call DCC server factory.
+"""Tests for create_skill_server — Skills-First one-call DCC server factory.
 
 Covers:
 - Basic instantiation (no env vars, no skills discovered)
@@ -17,36 +17,36 @@ import pytest
 
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
-from dcc_mcp_core import create_skill_manager
+from dcc_mcp_core import create_skill_server
 
 
 class TestCreateSkillManagerBasic:
     """Basic creation and type checks."""
 
     def test_returns_mcp_http_server(self):
-        server = create_skill_manager("maya")
+        server = create_skill_server("maya")
         assert isinstance(server, McpHttpServer)
 
     def test_default_config_port_is_8765(self):
-        server = create_skill_manager("maya")
+        server = create_skill_server("maya")
         # repr exposes port
         assert "8765" in repr(server)
 
     def test_default_server_name_in_repr(self):
         # app_name determines which env var to read for skill paths, NOT the server name.
         # The default server name is the APP_NAME constant ("dcc-mcp").
-        server = create_skill_manager("blender")
+        server = create_skill_server("blender")
         r = repr(server).lower()
         assert "dcc-mcp" in r
 
     def test_custom_server_name_in_repr(self):
         cfg = McpHttpConfig(server_name="blender")
-        server = create_skill_manager("blender", config=cfg)
+        server = create_skill_server("blender", config=cfg)
         assert "blender" in repr(server).lower()
 
     def test_custom_config_port_honoured(self):
         cfg = McpHttpConfig(port=9999, server_name="test-server")
-        server = create_skill_manager("maya", config=cfg)
+        server = create_skill_server("maya", config=cfg)
         assert "9999" in repr(server)
 
     def test_config_exposes_http_runtime_fields(self):
@@ -58,22 +58,22 @@ class TestCreateSkillManagerBasic:
         assert cfg.request_timeout_ms == 1234
 
     def test_extra_paths_empty_list_accepted(self):
-        server = create_skill_manager("maya", extra_paths=[])
+        server = create_skill_server("maya", extra_paths=[])
         assert isinstance(server, McpHttpServer)
 
     def test_extra_paths_nonexistent_dir_accepted(self):
         # Non-existent dirs are silently filtered by get_app_skill_paths_from_env
-        server = create_skill_manager("maya", extra_paths=["/nonexistent/path/xyz"])
+        server = create_skill_server("maya", extra_paths=["/nonexistent/path/xyz"])
         assert isinstance(server, McpHttpServer)
 
     def test_dcc_name_override_accepted(self):
-        server = create_skill_manager("my-app", dcc_name="maya")
+        server = create_skill_server("my-app", dcc_name="maya")
         assert isinstance(server, McpHttpServer)
 
     def test_no_skills_discovered_without_env(self, monkeypatch):
         monkeypatch.delenv("DCC_MCP_MAYA_SKILL_PATHS", raising=False)
         monkeypatch.delenv("DCC_MCP_SKILL_PATHS", raising=False)
-        server = create_skill_manager("maya")
+        server = create_skill_server("maya")
         skills = server.list_skills()
         assert isinstance(skills, list)
         assert len(skills) == 0
@@ -83,7 +83,7 @@ class TestCreateSkillManagerServerHandle:
     """Verify the returned server can be started and shut down."""
 
     def test_start_returns_handle_with_port(self):
-        server = create_skill_manager("maya", config=McpHttpConfig(port=0))
+        server = create_skill_server("maya", config=McpHttpConfig(port=0))
         handle = server.start()
         try:
             assert handle.port > 0
@@ -91,7 +91,7 @@ class TestCreateSkillManagerServerHandle:
             handle.shutdown()
 
     def test_start_returns_handle_with_mcp_url(self):
-        server = create_skill_manager("maya", config=McpHttpConfig(port=0))
+        server = create_skill_server("maya", config=McpHttpConfig(port=0))
         handle = server.start()
         try:
             url = handle.mcp_url()
@@ -101,7 +101,7 @@ class TestCreateSkillManagerServerHandle:
             handle.shutdown()
 
     def test_bind_addr_contains_port(self):
-        server = create_skill_manager("maya", config=McpHttpConfig(port=0))
+        server = create_skill_server("maya", config=McpHttpConfig(port=0))
         handle = server.start()
         try:
             assert str(handle.port) in handle.bind_addr
@@ -109,7 +109,7 @@ class TestCreateSkillManagerServerHandle:
             handle.shutdown()
 
     def test_double_shutdown_is_safe(self):
-        server = create_skill_manager("maya", config=McpHttpConfig(port=0))
+        server = create_skill_server("maya", config=McpHttpConfig(port=0))
         handle = server.start()
         handle.shutdown()
         handle.shutdown()  # Second shutdown must not raise
@@ -120,7 +120,7 @@ class TestCreateSkillManagerSkillMethods:
 
     @pytest.fixture
     def server(self):
-        return create_skill_manager("maya")
+        return create_skill_server("maya")
 
     def test_list_skills_returns_list(self, server):
         result = server.list_skills()
@@ -174,16 +174,16 @@ class TestCreateSkillManagerHandlerRegistration:
 
     @pytest.fixture
     def server(self):
-        from dcc_mcp_core import ActionRegistry
+        from dcc_mcp_core import ToolRegistry
 
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register(
             "test_action",
             description="Test action",
             category="test",
             dcc="maya",
         )
-        return create_skill_manager("maya")
+        return create_skill_server("maya")
 
     def test_has_handler_false_before_registration(self, server):
         assert server.has_handler("test_action") is False

@@ -1,6 +1,6 @@
 """Tests for dcc-mcp-telemetry Python bindings.
 
-Covers TelemetryConfig, ActionRecorder, ActionMetrics, RecordingGuard,
+Covers TelemetryConfig, ToolRecorder, ToolMetrics, RecordingGuard,
 is_telemetry_initialized, and shutdown_telemetry.
 """
 
@@ -80,20 +80,20 @@ class TestTelemetryConfig:
         assert cfg.service_name == "chained"
 
 
-# ── ActionRecorder ────────────────────────────────────────────────────────────
+# ── ToolRecorder ────────────────────────────────────────────────────────────
 
 
 class TestActionRecorder:
     def test_create_recorder(self) -> None:
-        recorder = dcc_mcp_core.ActionRecorder("test-scope")
+        recorder = dcc_mcp_core.ToolRecorder("test-scope")
         assert recorder is not None
 
     def test_metrics_none_before_first_invocation(self) -> None:
-        recorder = dcc_mcp_core.ActionRecorder("scope-a")
+        recorder = dcc_mcp_core.ToolRecorder("scope-a")
         assert recorder.metrics("not_yet_run") is None
 
     def test_start_and_finish_success(self) -> None:
-        recorder = dcc_mcp_core.ActionRecorder("scope-b")
+        recorder = dcc_mcp_core.ToolRecorder("scope-b")
         guard = recorder.start("create_sphere", "maya")
         guard.finish(True)
         m = recorder.metrics("create_sphere")
@@ -103,7 +103,7 @@ class TestActionRecorder:
         assert m.failure_count == 0
 
     def test_start_and_finish_failure(self) -> None:
-        recorder = dcc_mcp_core.ActionRecorder("scope-c")
+        recorder = dcc_mcp_core.ToolRecorder("scope-c")
         guard = recorder.start("delete_all", "blender")
         guard.finish(False)
         m = recorder.metrics("delete_all")
@@ -112,7 +112,7 @@ class TestActionRecorder:
         assert m.success_count == 0
 
     def test_multiple_invocations_accumulate(self) -> None:
-        recorder = dcc_mcp_core.ActionRecorder("scope-d")
+        recorder = dcc_mcp_core.ToolRecorder("scope-d")
         for _ in range(4):
             recorder.start("render", "houdini").finish(True)
         recorder.start("render", "houdini").finish(False)
@@ -123,7 +123,7 @@ class TestActionRecorder:
         assert m.failure_count == 1
 
     def test_success_rate(self) -> None:
-        recorder = dcc_mcp_core.ActionRecorder("scope-e")
+        recorder = dcc_mcp_core.ToolRecorder("scope-e")
         for _ in range(3):
             recorder.start("act", "maya").finish(True)
         recorder.start("act", "maya").finish(False)
@@ -132,7 +132,7 @@ class TestActionRecorder:
         assert abs(m.success_rate() - 0.75) < 1e-6
 
     def test_all_metrics_returns_all(self) -> None:
-        recorder = dcc_mcp_core.ActionRecorder("scope-f")
+        recorder = dcc_mcp_core.ToolRecorder("scope-f")
         recorder.start("action1", "maya").finish(True)
         recorder.start("action2", "blender").finish(False)
         all_m = recorder.all_metrics()
@@ -141,22 +141,22 @@ class TestActionRecorder:
         assert "action2" in names
 
     def test_reset_clears_stats(self) -> None:
-        recorder = dcc_mcp_core.ActionRecorder("scope-g")
+        recorder = dcc_mcp_core.ToolRecorder("scope-g")
         recorder.start("act", "maya").finish(True)
         recorder.reset()
         assert recorder.metrics("act") is None
 
     def test_all_metrics_empty_initially(self) -> None:
-        recorder = dcc_mcp_core.ActionRecorder("scope-h")
+        recorder = dcc_mcp_core.ToolRecorder("scope-h")
         assert recorder.all_metrics() == []
 
 
-# ── ActionMetrics ─────────────────────────────────────────────────────────────
+# ── ToolMetrics ─────────────────────────────────────────────────────────────
 
 
 class TestActionMetrics:
-    def _make_metrics(self, successes: int = 3, failures: int = 1) -> dcc_mcp_core.ActionMetrics:
-        recorder = dcc_mcp_core.ActionRecorder("scope-metrics")
+    def _make_metrics(self, successes: int = 3, failures: int = 1) -> dcc_mcp_core.ToolMetrics:
+        recorder = dcc_mcp_core.ToolRecorder("scope-metrics")
         for _ in range(successes):
             recorder.start("act", "maya").finish(True)
         for _ in range(failures):
@@ -201,7 +201,7 @@ class TestActionMetrics:
 
 class TestRecordingGuard:
     def test_context_manager_success(self) -> None:
-        recorder = dcc_mcp_core.ActionRecorder("scope-guard")
+        recorder = dcc_mcp_core.ToolRecorder("scope-guard")
         with recorder.start("ctx_action", "maya") as _guard:
             pass
         m = recorder.metrics("ctx_action")
@@ -209,7 +209,7 @@ class TestRecordingGuard:
         assert m.success_count == 1
 
     def test_context_manager_records_failure_on_exception(self) -> None:
-        recorder = dcc_mcp_core.ActionRecorder("scope-guard-ex")
+        recorder = dcc_mcp_core.ToolRecorder("scope-guard-ex")
         with pytest.raises(ValueError), recorder.start("err_action", "maya"):
             raise ValueError("boom")
         m = recorder.metrics("err_action")
@@ -217,13 +217,13 @@ class TestRecordingGuard:
         assert m.failure_count == 1
 
     def test_finish_success_explicit(self) -> None:
-        recorder = dcc_mcp_core.ActionRecorder("scope-guard-ok")
+        recorder = dcc_mcp_core.ToolRecorder("scope-guard-ok")
         guard = recorder.start("explicit_ok", "blender")
         guard.finish(True)
         assert recorder.metrics("explicit_ok").success_count == 1
 
     def test_repr_contains_action_name(self) -> None:
-        recorder = dcc_mcp_core.ActionRecorder("scope-repr")
+        recorder = dcc_mcp_core.ToolRecorder("scope-repr")
         guard = recorder.start("my_action", "maya")
         r = repr(guard)
         assert "my_action" in r
@@ -273,13 +273,13 @@ class TestTelemetryFunctions:
         dcc_mcp_core.shutdown_telemetry()
 
 
-# ── ActionRecorder — multi-DCC, p95/p99, and advanced metrics ────────────────
+# ── ToolRecorder — multi-DCC, p95/p99, and advanced metrics ────────────────
 
 
 class TestActionRecorderAdvanced:
     def test_multi_action_all_metrics_length(self) -> None:
         """all_metrics returns one entry per distinct action name."""
-        recorder = dcc_mcp_core.ActionRecorder("multi-scope")
+        recorder = dcc_mcp_core.ToolRecorder("multi-scope")
         for action in ["alpha", "beta", "gamma"]:
             for _ in range(3):
                 guard = recorder.start(action, "maya")
@@ -291,7 +291,7 @@ class TestActionRecorderAdvanced:
 
     def test_multi_dcc_same_action_accumulates(self) -> None:
         """Different DCC names for the same action accumulate into one metrics entry."""
-        recorder = dcc_mcp_core.ActionRecorder("multi-dcc-scope")
+        recorder = dcc_mcp_core.ToolRecorder("multi-dcc-scope")
         for dcc in ["maya", "blender", "houdini"]:
             guard = recorder.start("create_sphere", dcc)
             guard.finish(True)
@@ -302,7 +302,7 @@ class TestActionRecorderAdvanced:
 
     def test_p95_and_p99_nonnegative_after_many_invocations(self) -> None:
         """P95/P99 remain non-negative after 20 invocations."""
-        recorder = dcc_mcp_core.ActionRecorder("percentile-scope")
+        recorder = dcc_mcp_core.ToolRecorder("percentile-scope")
         for _ in range(20):
             guard = recorder.start("render", "maya")
             guard.finish(True)
@@ -313,7 +313,7 @@ class TestActionRecorderAdvanced:
 
     def test_success_rate_all_failed(self) -> None:
         """success_rate is 0.0 when all invocations failed."""
-        recorder = dcc_mcp_core.ActionRecorder("fail-scope")
+        recorder = dcc_mcp_core.ToolRecorder("fail-scope")
         for _ in range(5):
             guard = recorder.start("op", "test")
             guard.finish(False)
@@ -324,7 +324,7 @@ class TestActionRecorderAdvanced:
 
     def test_success_rate_all_succeeded(self) -> None:
         """success_rate is 1.0 when all invocations succeeded."""
-        recorder = dcc_mcp_core.ActionRecorder("pass-scope")
+        recorder = dcc_mcp_core.ToolRecorder("pass-scope")
         for _ in range(5):
             guard = recorder.start("op", "test")
             guard.finish(True)
@@ -334,7 +334,7 @@ class TestActionRecorderAdvanced:
 
     def test_reset_then_metrics_none(self) -> None:
         """After reset, metrics returns None for previously-recorded actions."""
-        recorder = dcc_mcp_core.ActionRecorder("reset-scope")
+        recorder = dcc_mcp_core.ToolRecorder("reset-scope")
         guard = recorder.start("act", "maya")
         guard.finish(True)
         assert recorder.metrics("act") is not None

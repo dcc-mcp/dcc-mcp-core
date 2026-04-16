@@ -1,9 +1,9 @@
-"""Deep tests for PySharedSceneBuffer, PyBufferPool, ActionDispatcher, TelemetryConfig, IpcListener/ListenerHandle.
+"""Deep tests for PySharedSceneBuffer, PyBufferPool, ToolDispatcher, TelemetryConfig, IpcListener/ListenerHandle.
 
 Coverage targets (93rd iteration):
 - PySharedSceneBuffer: write/read/id/is_inline/is_chunked/total_bytes/descriptor_json for small/large/compressed data
 - PyBufferPool: capacity/buffer_size/available/acquire/GC return
-- ActionDispatcher: handler_count/handler_names/has_handler/remove_handler/dispatch happy+error paths
+- ToolDispatcher: handler_count/handler_names/has_handler/remove_handler/dispatch happy+error paths
 - TelemetryConfig: is_telemetry_initialized before/after init/shutdown
 - IpcListener / ListenerHandle: bind/local_address/transport_name/into_handle/shutdown/is_shutdown/accept_count
 """
@@ -16,13 +16,13 @@ import json
 import pytest
 
 import dcc_mcp_core
-from dcc_mcp_core import ActionDispatcher
-from dcc_mcp_core import ActionRegistry
 from dcc_mcp_core import IpcListener
 from dcc_mcp_core import PyBufferPool
 from dcc_mcp_core import PySceneDataKind
 from dcc_mcp_core import PySharedSceneBuffer
 from dcc_mcp_core import TelemetryConfig
+from dcc_mcp_core import ToolDispatcher
+from dcc_mcp_core import ToolRegistry
 from dcc_mcp_core import TransportAddress
 from dcc_mcp_core import is_telemetry_initialized
 from dcc_mcp_core import shutdown_telemetry
@@ -291,63 +291,63 @@ class TestPyBufferPool:
 
 
 # ---------------------------------------------------------------------------
-# ActionDispatcher deep
+# ToolDispatcher deep
 # ---------------------------------------------------------------------------
 
 
 class TestActionDispatcherHandlers:
-    """ActionDispatcher handler management."""
+    """ToolDispatcher handler management."""
 
     def test_handler_count_initially_zero(self):
-        reg = ActionRegistry()
-        disp = ActionDispatcher(reg)
+        reg = ToolRegistry()
+        disp = ToolDispatcher(reg)
         assert disp.handler_count() == 0
 
     def test_register_handler_increments_count(self):
-        reg = ActionRegistry()
-        disp = ActionDispatcher(reg)
+        reg = ToolRegistry()
+        disp = ToolDispatcher(reg)
         disp.register_handler("act1", lambda p: {"ok": True})
         assert disp.handler_count() == 1
 
     def test_handler_names_contains_registered(self):
-        reg = ActionRegistry()
-        disp = ActionDispatcher(reg)
+        reg = ToolRegistry()
+        disp = ToolDispatcher(reg)
         disp.register_handler("act1", lambda p: {})
         assert "act1" in disp.handler_names()
 
     def test_has_handler_true_after_register(self):
-        reg = ActionRegistry()
-        disp = ActionDispatcher(reg)
+        reg = ToolRegistry()
+        disp = ToolDispatcher(reg)
         disp.register_handler("act1", lambda p: {})
         assert disp.has_handler("act1") is True
 
     def test_has_handler_false_before_register(self):
-        reg = ActionRegistry()
-        disp = ActionDispatcher(reg)
+        reg = ToolRegistry()
+        disp = ToolDispatcher(reg)
         assert disp.has_handler("nonexistent") is False
 
     def test_remove_handler_decrements_count(self):
-        reg = ActionRegistry()
-        disp = ActionDispatcher(reg)
+        reg = ToolRegistry()
+        disp = ToolDispatcher(reg)
         disp.register_handler("act1", lambda p: {})
         disp.remove_handler("act1")
         assert disp.handler_count() == 0
 
     def test_has_handler_false_after_remove(self):
-        reg = ActionRegistry()
-        disp = ActionDispatcher(reg)
+        reg = ToolRegistry()
+        disp = ToolDispatcher(reg)
         disp.register_handler("act1", lambda p: {})
         disp.remove_handler("act1")
         assert disp.has_handler("act1") is False
 
     def test_handler_names_empty_initially(self):
-        reg = ActionRegistry()
-        disp = ActionDispatcher(reg)
+        reg = ToolRegistry()
+        disp = ToolDispatcher(reg)
         assert disp.handler_names() == []
 
     def test_multiple_handlers(self):
-        reg = ActionRegistry()
-        disp = ActionDispatcher(reg)
+        reg = ToolRegistry()
+        disp = ToolDispatcher(reg)
         disp.register_handler("a", lambda p: {})
         disp.register_handler("b", lambda p: {})
         disp.register_handler("c", lambda p: {})
@@ -356,19 +356,19 @@ class TestActionDispatcherHandlers:
         assert "a" in names and "b" in names and "c" in names
 
     def test_handler_names_type_is_list(self):
-        reg = ActionRegistry()
-        disp = ActionDispatcher(reg)
+        reg = ToolRegistry()
+        disp = ToolDispatcher(reg)
         assert isinstance(disp.handler_names(), list)
 
     def test_skip_empty_schema_validation_is_bool(self):
-        reg = ActionRegistry()
-        disp = ActionDispatcher(reg)
+        reg = ToolRegistry()
+        disp = ToolDispatcher(reg)
         # skip_empty_schema_validation is a bool property
         assert isinstance(disp.skip_empty_schema_validation, bool)
 
     def test_register_replaces_existing_handler(self):
-        reg = ActionRegistry()
-        disp = ActionDispatcher(reg)
+        reg = ToolRegistry()
+        disp = ToolDispatcher(reg)
         disp.register_handler("act1", lambda p: {"v": 1})
         disp.register_handler("act1", lambda p: {"v": 2})
         # count should still be 1 (overwrite, not add)
@@ -376,36 +376,36 @@ class TestActionDispatcherHandlers:
 
 
 class TestActionDispatcherDispatch:
-    """ActionDispatcher.dispatch() result shapes."""
+    """ToolDispatcher.dispatch() result shapes."""
 
     def test_dispatch_returns_dict(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("my_act", description="test")
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         disp.register_handler("my_act", lambda p: {"done": True})
         result = disp.dispatch("my_act", "{}")
         assert isinstance(result, dict)
 
     def test_dispatch_result_has_output(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("my_act", description="test")
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         disp.register_handler("my_act", lambda p: {"key": "value"})
         result = disp.dispatch("my_act", "{}")
         assert "output" in result
 
     def test_dispatch_output_matches_handler_return(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("sum_act", description="test")
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         disp.register_handler("sum_act", lambda p: {"result": 42})
         out = disp.dispatch("sum_act", "{}")["output"]
         assert out["result"] == 42
 
     def test_dispatch_handler_returning_action_result_model(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("res_act", description="test")
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         disp.register_handler("res_act", lambda p: success_result("done").to_dict())
         result = disp.dispatch("res_act", "{}")
         assert isinstance(result, dict)
@@ -413,9 +413,9 @@ class TestActionDispatcherDispatch:
     def test_dispatch_handler_receives_params_dict(self):
         received = {}
 
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("param_act", description="test")
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
 
         def handler(params):
             received.update(params)
@@ -427,9 +427,9 @@ class TestActionDispatcherDispatch:
         assert received.get("y") == 2
 
     def test_dispatch_no_handler_raises_key_error(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("known_act", description="test")
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         # No handler registered — should raise KeyError
         with pytest.raises(KeyError, match="known_act"):
             disp.dispatch("known_act", "{}")

@@ -25,14 +25,14 @@ import pytest
 
 # Import local modules
 import dcc_mcp_core
-from dcc_mcp_core import ActionDispatcher
-from dcc_mcp_core import ActionPipeline
-from dcc_mcp_core import ActionRegistry
 from dcc_mcp_core import AuditLog
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
 from dcc_mcp_core import SandboxContext
 from dcc_mcp_core import SandboxPolicy
+from dcc_mcp_core import ToolDispatcher
+from dcc_mcp_core import ToolPipeline
+from dcc_mcp_core import ToolRegistry
 from dcc_mcp_core import VersionConstraint
 from dcc_mcp_core import VersionedRegistry
 
@@ -43,12 +43,12 @@ from dcc_mcp_core import VersionedRegistry
 
 def _make_pipeline_with_dispatcher(
     action_name: str = "ping",
-) -> tuple[ActionPipeline, ActionDispatcher, ActionRegistry]:
-    reg = ActionRegistry()
+) -> tuple[ToolPipeline, ToolDispatcher, ToolRegistry]:
+    reg = ToolRegistry()
     reg.register(action_name, description="test action", category="test")
-    dispatcher = ActionDispatcher(reg)
+    dispatcher = ToolDispatcher(reg)
     dispatcher.register_handler(action_name, lambda p: {"ok": True})
-    pipeline = ActionPipeline(dispatcher)
+    pipeline = ToolPipeline(dispatcher)
     return pipeline, dispatcher, reg
 
 
@@ -258,7 +258,7 @@ class TestAuditLogDeep:
 
 
 class TestRateLimitMiddlewareDeep:
-    """Deep tests for RateLimitMiddleware via ActionPipeline."""
+    """Deep tests for RateLimitMiddleware via ToolPipeline."""
 
     def _make_pipeline_with_rl(self, action: str = "task", max_calls: int = 3, window_ms: int = 10000) -> tuple:
         pipeline, _dispatcher, _reg = _make_pipeline_with_dispatcher(action)
@@ -327,13 +327,13 @@ class TestRateLimitMiddlewareDeep:
             pipeline.dispatch("task", "{}")
 
     def test_different_actions_have_independent_windows(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("a1", description="", category="test")
         reg.register("a2", description="", category="test")
-        dispatcher = ActionDispatcher(reg)
+        dispatcher = ToolDispatcher(reg)
         dispatcher.register_handler("a1", lambda p: {"done": True})
         dispatcher.register_handler("a2", lambda p: {"done": True})
-        pipeline = ActionPipeline(dispatcher)
+        pipeline = ToolPipeline(dispatcher)
         rl = pipeline.add_rate_limit(max_calls=2, window_ms=10000)
 
         pipeline.dispatch("a1", "{}")
@@ -346,13 +346,13 @@ class TestRateLimitMiddlewareDeep:
         assert rl.call_count("a2") == 2
 
     def test_exceeding_a1_does_not_block_a2(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("a1", description="", category="test")
         reg.register("a2", description="", category="test")
-        dispatcher = ActionDispatcher(reg)
+        dispatcher = ToolDispatcher(reg)
         dispatcher.register_handler("a1", lambda p: {})
         dispatcher.register_handler("a2", lambda p: {})
-        pipeline = ActionPipeline(dispatcher)
+        pipeline = ToolPipeline(dispatcher)
         pipeline.add_rate_limit(max_calls=1, window_ms=10000)
 
         pipeline.dispatch("a1", "{}")
@@ -396,11 +396,11 @@ class TestRateLimitMiddlewareDeep:
         assert any("rate" in n.lower() or "limit" in n.lower() for n in names)
 
     def test_multiple_rate_limiters_independent(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("x", description="", category="test")
-        dispatcher = ActionDispatcher(reg)
+        dispatcher = ToolDispatcher(reg)
         dispatcher.register_handler("x", lambda p: {})
-        pipeline = ActionPipeline(dispatcher)
+        pipeline = ToolPipeline(dispatcher)
         rl1 = pipeline.add_rate_limit(max_calls=5, window_ms=10000)
         rl2 = pipeline.add_rate_limit(max_calls=3, window_ms=10000)
         # rl2 has lower limit, should be hit first
@@ -455,7 +455,7 @@ class TestRateLimitMiddlewareDeep:
 
 
 class TestLoggingMiddlewareDeep:
-    """Deep tests for LoggingMiddleware via ActionPipeline."""
+    """Deep tests for LoggingMiddleware via ToolPipeline."""
 
     def _make_with_logging(self, log_params: bool = True) -> tuple:
         pipeline, _dispatcher, _reg = _make_pipeline_with_dispatcher()
@@ -550,7 +550,7 @@ class TestMcpServerHandleDeep:
     """Deep tests for McpServerHandle and McpHttpConfig fields."""
 
     def _start_server(self, **config_kwargs) -> tuple:
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cfg = McpHttpConfig(port=0, **config_kwargs)
         server = McpHttpServer(reg, cfg)
         handle = server.start()
@@ -638,7 +638,7 @@ class TestMcpServerHandleDeep:
         assert cfg.server_version == "3.0.0"
 
     def test_server_reports_correct_name_in_initialize(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cfg = McpHttpConfig(port=0, server_name="deep-test-server")
         server = McpHttpServer(reg, cfg)
         handle = server.start()
@@ -661,7 +661,7 @@ class TestMcpServerHandleDeep:
         handle.shutdown()
 
     def test_server_reports_correct_version_in_initialize(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cfg = McpHttpConfig(port=0, server_version="9.9.9")
         server = McpHttpServer(reg, cfg)
         handle = server.start()
@@ -684,7 +684,7 @@ class TestMcpServerHandleDeep:
         handle.shutdown()
 
     def test_server_with_empty_registry_tools_list_empty(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cfg = McpHttpConfig(port=0)
         server = McpHttpServer(reg, cfg)
         handle = server.start()
@@ -704,7 +704,7 @@ class TestMcpServerHandleDeep:
         handle.shutdown()
 
     def test_server_with_multiple_tools(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         for i in range(5):
             reg.register(f"tool_{i}", description=f"Tool {i}", category="test")
         cfg = McpHttpConfig(port=0)

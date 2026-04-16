@@ -44,14 +44,14 @@ native = unwrap_parameters(params)  # {"visible": True, "count": 5}
 ```python
 from dcc_mcp_core import (
     get_platform_dir, get_config_dir, get_data_dir, get_log_dir,
-    get_actions_dir, get_skills_dir, get_skill_paths_from_env,
+    get_tools_dir, get_skills_dir, get_skill_paths_from_env,
     get_app_skill_paths_from_env,
 )
 
 config = get_config_dir()           # ~/.config/dcc-mcp (Linux)
 data = get_data_dir()               # ~/.local/share/dcc-mcp (Linux)
 log = get_log_dir()                 # ~/.local/share/dcc-mcp/log (Linux)
-actions = get_actions_dir("maya")   # {data}/actions/maya/
+actions = get_tools_dir("maya")   # {data}/actions/maya/
 skills = get_skills_dir("maya")     # {data}/skills/maya/
 skills = get_skills_dir()           # {data}/skills/ (全局)
 
@@ -218,7 +218,7 @@ print(all_deps)  # ["base-utils", "maya-core", "maya-geometry"]
 | `MCP_LOG_LEVEL` | 日志级别覆盖（DEBUG、INFO、WARN、ERROR） |
 
 ::: tip 搜索路径优先级
-调用 `create_skill_manager("maya")` 时，技能目录按以下顺序解析：
+调用 `create_skill_server("maya")` 时，技能目录按以下顺序解析：
 1. `extra_paths` 参数传入的额外路径（最高优先级）
 2. 应用专属环境变量：`DCC_MCP_MAYA_SKILL_PATHS`
 3. 全局环境变量：`DCC_MCP_SKILL_PATHS`

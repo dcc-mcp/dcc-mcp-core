@@ -1,11 +1,11 @@
-"""Tests for SandboxPolicy/SandboxContext, TelemetryConfig, ActionRecorder, SkillWatcher, McpHttpConfig.
+"""Tests for SandboxPolicy/SandboxContext, TelemetryConfig, ToolRecorder, SkillWatcher, McpHttpConfig.
 
 Coverage areas:
 
 - SandboxPolicy: allow_paths, deny_actions, set_max_actions, set_read_only
 - SandboxContext: execute_json, is_path_allowed, audit log entries, to_json
 - TelemetryConfig: builder chain methods (with_service_version, with_noop_exporter, etc.)
-- ActionRecorder: start/finish, metrics, all_metrics, reset
+- ToolRecorder: start/finish, metrics, all_metrics, reset
 - SkillWatcher: watch/unwatch/reload, skills(), skill_count(), watched_paths()
 - McpHttpConfig: port, server_name, server_version attributes
 """
@@ -19,12 +19,12 @@ import tempfile
 
 import pytest
 
-from dcc_mcp_core import ActionRecorder
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import SandboxContext
 from dcc_mcp_core import SandboxPolicy
 from dcc_mcp_core import SkillWatcher
 from dcc_mcp_core import TelemetryConfig
+from dcc_mcp_core import ToolRecorder
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -574,15 +574,15 @@ class TestTelemetryConfigBuilder:
 
 
 # ===========================================================================
-# 5. ActionRecorder — start/finish/metrics/all_metrics/reset
+# 5. ToolRecorder — start/finish/metrics/all_metrics/reset
 # ===========================================================================
 
 
 class TestActionRecorderMetrics:
-    """Tests for ActionRecorder lifecycle and ActionMetrics fields."""
+    """Tests for ToolRecorder lifecycle and ToolMetrics fields."""
 
-    def _recorder(self) -> ActionRecorder:
-        return ActionRecorder("test_recorder")
+    def _recorder(self) -> ToolRecorder:
+        return ToolRecorder("test_recorder")
 
     def test_start_returns_recording_guard(self):
         r = self._recorder()
@@ -701,7 +701,7 @@ class TestActionRecorderMetrics:
         guard.finish(True)
 
     def test_recorder_scope_name(self):
-        r = ActionRecorder("custom_scope")
+        r = ToolRecorder("custom_scope")
         # Just ensure it constructs without error
         assert r is not None
 

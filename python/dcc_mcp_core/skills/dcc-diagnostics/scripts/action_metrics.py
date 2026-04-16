@@ -3,7 +3,7 @@
 Data source priority:
 1. IPC callback — if DCC_MCP_IPC_ADDRESS is set, connect to the running DCC
    server and call 'get_action_metrics' to get live recorder data.
-2. Local ActionRecorder — creates a fresh (empty) recorder as a fallback,
+2. Local ToolRecorder — creates a fresh (empty) recorder as a fallback,
    useful for testing without a running DCC server.
 """
 
@@ -55,14 +55,14 @@ def _fetch_via_ipc(ipc_address: str, action_name: str | None) -> dict | None:
 
 
 def _fetch_local(action_name: str | None) -> dict:
-    """Read from a local ActionRecorder (fallback; typically empty in subprocess)."""
+    """Read from a local ToolRecorder (fallback; typically empty in subprocess)."""
     try:
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
     except ImportError:
         return {"success": False, "message": "dcc_mcp_core not available. Install the package first."}
 
     try:
-        recorder = ActionRecorder("dcc-diagnostics")
+        recorder = ToolRecorder("dcc-diagnostics")
         if action_name:
             metric = recorder.metrics(action_name)
             metrics_list = [_metric_to_dict(metric)] if metric else []

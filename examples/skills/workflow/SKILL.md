@@ -10,7 +10,7 @@ metadata:
   category: workflow
 tools:
   - name: run_chain
-    description: "Execute a sequence of actions in order via the dcc-mcp-core ActionDispatcher. Each step's output context is merged into the next step's parameters. On failure, the chain stops and reports which step failed and why."
+    description: "Execute a sequence of actions in order via the dcc-mcp-core ToolDispatcher. Each step's output context is merged into the next step's parameters. On failure, the chain stops and reports which step failed and why."
     input_schema:
       type: object
       required: [steps]

@@ -1,11 +1,11 @@
-"""Test UsdStage(name) ctor, RoutingStrategy variants, PyProcessMonitor lifecycle, and ActionRegistry edge cases.
+"""Test UsdStage(name) ctor, RoutingStrategy variants, PyProcessMonitor lifecycle, and ToolRegistry edge cases.
 
 Covers:
   - UsdStage(name) constructor: basic fields, prim_count() as method, to_json/from_json roundtrip
   - RoutingStrategy: all 6 variants (enum equality, repr, distinct values)
   - TransportManager.get_or_create_session_routed with all strategy variants
   - PyProcessMonitor: track/untrack/refresh/query/list_all full lifecycle
-  - ActionRegistry: unregister, list_actions_for_dcc, register error paths
+  - ToolRegistry: unregister, list_actions_for_dcc, register error paths
   - McpHttpConfig: server_name/server_version with special characters
   - UsdStage.from_json with different up_axis and fps values
   - SemVer comparison edge cases
@@ -24,15 +24,16 @@ import tempfile
 # Import third-party modules
 import pytest
 
-# Import local modules
-from dcc_mcp_core import ActionDispatcher
-from dcc_mcp_core import ActionPipeline
-from dcc_mcp_core import ActionRegistry
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
 from dcc_mcp_core import PyProcessMonitor
 from dcc_mcp_core import RoutingStrategy
 from dcc_mcp_core import SemVer
+
+# Import local modules
+from dcc_mcp_core import ToolDispatcher
+from dcc_mcp_core import ToolPipeline
+from dcc_mcp_core import ToolRegistry
 from dcc_mcp_core import TransportManager
 from dcc_mcp_core import UsdStage
 from dcc_mcp_core import VersionConstraint
@@ -498,34 +499,34 @@ class TestPyProcessMonitorLifecycle:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# ActionRegistry edge cases
+# ToolRegistry edge cases
 # ─────────────────────────────────────────────────────────────────────────────
 
 
 class TestActionRegistryEdgeCases:
-    """ActionRegistry — edge cases, unregister, multi-DCC patterns."""
+    """ToolRegistry — edge cases, unregister, multi-DCC patterns."""
 
     class TestUnregisterGlobal:
         def test_unregister_removes_action(self) -> None:
-            reg = ActionRegistry()
+            reg = ToolRegistry()
             reg.register("my_action", description="Test", category="geo")
             removed = reg.unregister("my_action")
             assert removed is True
 
         def test_unregister_nonexistent_returns_false(self) -> None:
-            reg = ActionRegistry()
+            reg = ToolRegistry()
             removed = reg.unregister("nonexistent_action")
             assert removed is False
 
         def test_after_unregister_action_not_in_list(self) -> None:
-            reg = ActionRegistry()
+            reg = ToolRegistry()
             reg.register("action_a", description="A", category="geo")
             reg.unregister("action_a")
             names = reg.list_actions()
             assert "action_a" not in names
 
         def test_unregister_scoped_removes_only_that_dcc(self) -> None:
-            reg = ActionRegistry()
+            reg = ToolRegistry()
             reg.register("shared_action", description="A", category="geo", dcc="maya")
             reg.register("shared_action", description="A", category="geo", dcc="blender")
             removed = reg.unregister("shared_action", dcc_name="maya")
@@ -538,37 +539,37 @@ class TestActionRegistryEdgeCases:
 
     class TestListActionsForDcc:
         def test_list_actions_for_dcc_returns_list(self) -> None:
-            reg = ActionRegistry()
+            reg = ToolRegistry()
             reg.register("create_sphere", description="Sphere", category="geo", dcc="maya")
             names = reg.list_actions_for_dcc("maya")
             assert isinstance(names, list)
 
         def test_list_actions_for_dcc_contains_registered(self) -> None:
-            reg = ActionRegistry()
+            reg = ToolRegistry()
             reg.register("maya_tool", description="T", category="geo", dcc="maya")
             names = reg.list_actions_for_dcc("maya")
             assert "maya_tool" in names
 
         def test_list_actions_for_dcc_excludes_other_dcc(self) -> None:
-            reg = ActionRegistry()
+            reg = ToolRegistry()
             reg.register("maya_tool", description="T", category="geo", dcc="maya")
             reg.register("blender_tool", description="B", category="geo", dcc="blender")
             maya_names = reg.list_actions_for_dcc("maya")
             assert "blender_tool" not in maya_names
 
         def test_list_actions_for_unknown_dcc_returns_empty(self) -> None:
-            reg = ActionRegistry()
+            reg = ToolRegistry()
             names = reg.list_actions_for_dcc("unknown_dcc_xyz")
             assert names == []
 
     class TestGetAllDccs:
         def test_get_all_dccs_initially_empty(self) -> None:
-            reg = ActionRegistry()
+            reg = ToolRegistry()
             dccs = reg.get_all_dccs()
             assert dccs == []
 
         def test_get_all_dccs_returns_registered_dccs(self) -> None:
-            reg = ActionRegistry()
+            reg = ToolRegistry()
             reg.register("t", description="T", category="c", dcc="maya")
             reg.register("t2", description="T2", category="c", dcc="blender")
             dccs = reg.get_all_dccs()
@@ -576,7 +577,7 @@ class TestActionRegistryEdgeCases:
             assert "blender" in dccs
 
         def test_get_all_dccs_no_duplicates(self) -> None:
-            reg = ActionRegistry()
+            reg = ToolRegistry()
             reg.register("a", description="A", category="c", dcc="maya")
             reg.register("b", description="B", category="c", dcc="maya")
             dccs = reg.get_all_dccs()
@@ -584,7 +585,7 @@ class TestActionRegistryEdgeCases:
 
     class TestBatchRegistration:
         def test_register_batch_adds_all(self) -> None:
-            reg = ActionRegistry()
+            reg = ToolRegistry()
             reg.register_batch(
                 [
                     {"name": "action_1", "description": "A1", "category": "geo"},
@@ -599,12 +600,12 @@ class TestActionRegistryEdgeCases:
             assert "action_3" in names
 
         def test_register_batch_empty_list_no_error(self) -> None:
-            reg = ActionRegistry()
+            reg = ToolRegistry()
             reg.register_batch([])
             assert reg.list_actions() == []
 
         def test_register_batch_with_dcc(self) -> None:
-            reg = ActionRegistry()
+            reg = ToolRegistry()
             reg.register_batch(
                 [
                     {"name": "maya_cmd", "description": "MC", "category": "dcc", "dcc": "maya"},

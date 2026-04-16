@@ -21,10 +21,10 @@ from typing import Any
 import pytest
 
 import dcc_mcp_core
-from dcc_mcp_core import ActionRegistry
 from dcc_mcp_core import SkillCatalog
 from dcc_mcp_core import SkillMetadata
 from dcc_mcp_core import SkillSummary
+from dcc_mcp_core import ToolRegistry
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -51,7 +51,7 @@ def make_skill_dir(tmp_path: Path, name: str, dcc: str = "maya") -> Path:
 
 def make_catalog(extra_paths: list[str]) -> SkillCatalog:
     """Create a fresh SkillCatalog and run discover()."""
-    cat = SkillCatalog(ActionRegistry())
+    cat = SkillCatalog(ToolRegistry())
     cat.discover(extra_paths=extra_paths)
     return cat
 
@@ -252,7 +252,7 @@ class TestSkillCatalogProgressivePipeline:
     def test_discover_returns_count_int(self, tmp_path: Path) -> None:
         """discover() returns an int count of skills found."""
         make_skill_dir(tmp_path, "count-test")
-        cat = SkillCatalog(ActionRegistry())
+        cat = SkillCatalog(ToolRegistry())
         count = cat.discover(extra_paths=[str(tmp_path)])
         assert isinstance(count, int)
         assert count >= 1
@@ -261,7 +261,7 @@ class TestSkillCatalogProgressivePipeline:
         """discover() finds all skills in extra_paths."""
         for name in ("skill-alpha", "skill-beta", "skill-gamma"):
             make_skill_dir(tmp_path, name)
-        cat = SkillCatalog(ActionRegistry())
+        cat = SkillCatalog(ToolRegistry())
         count = cat.discover(extra_paths=[str(tmp_path)])
         assert count >= 3
 
@@ -323,7 +323,7 @@ class TestSkillCatalogProgressivePipeline:
 
     def test_load_unknown_skill_raises(self, tmp_path: Path) -> None:
         """load_skill() raises for an unknown skill name."""
-        cat = SkillCatalog(ActionRegistry())
+        cat = SkillCatalog(ToolRegistry())
         with pytest.raises((ValueError, RuntimeError, KeyError)):
             cat.load_skill("nonexistent-skill-xyz")
 

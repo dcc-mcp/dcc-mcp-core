@@ -3,7 +3,7 @@
 Covers:
 - register_diagnostic_handlers registers the three handler names on the mock server
 - get_audit_log handler returns valid JSON with success=True (local SandboxContext)
-- get_action_metrics handler returns valid JSON with success=True (local ActionRecorder)
+- get_action_metrics handler returns valid JSON with success=True (local ToolRecorder)
 - dispatch_action handler returns error when dispatcher is None
 - dispatch_action handler relays through a mock dispatcher
 - DCC_MCP_IPC_ADDRESS env var is set after registration (unless already present)
@@ -25,7 +25,7 @@ import pytest
 
 
 class _MockServer:
-    """Minimal stand-in for McpHttpServer / create_skill_manager result."""
+    """Minimal stand-in for McpHttpServer / create_skill_server result."""
 
     def __init__(self):
         self._handlers: dict[str, object] = {}
@@ -40,7 +40,7 @@ class _MockServer:
 
 
 class _MockDispatcher:
-    """Stand-in for ActionDispatcher that echoes back action + params."""
+    """Stand-in for ToolDispatcher that echoes back action + params."""
 
     def dispatch(self, action: str, params_json: str) -> dict:
         params = json.loads(params_json)

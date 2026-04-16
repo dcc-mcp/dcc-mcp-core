@@ -1,4 +1,4 @@
-"""Tests for ActionResultModel and factory functions."""
+"""Tests for ToolResult and factory functions."""
 
 # Import future modules
 from __future__ import annotations
@@ -9,14 +9,14 @@ import dcc_mcp_core
 
 class TestActionResultModel:
     def test_create_default(self) -> None:
-        r = dcc_mcp_core.ActionResultModel()
+        r = dcc_mcp_core.ToolResult()
         assert r.success is True
         assert r.message == ""
         assert r.prompt is None
         assert r.error is None
 
     def test_create_with_all_args(self) -> None:
-        r = dcc_mcp_core.ActionResultModel(
+        r = dcc_mcp_core.ToolResult(
             success=False,
             message="failed",
             prompt="try again",
@@ -30,31 +30,31 @@ class TestActionResultModel:
         assert r.context["key"] == "val"
 
     def test_message_setter(self) -> None:
-        r = dcc_mcp_core.ActionResultModel(message="old")
+        r = dcc_mcp_core.ToolResult(message="old")
         r.message = "new"
         assert r.message == "new"
 
     def test_with_error(self) -> None:
-        r = dcc_mcp_core.ActionResultModel(message="ok")
+        r = dcc_mcp_core.ToolResult(message="ok")
         r2 = r.with_error("bad")
         assert r2.success is False
         assert r2.error == "bad"
         assert r.success is True  # original unchanged
 
     def test_with_context(self) -> None:
-        r = dcc_mcp_core.ActionResultModel(message="ok")
+        r = dcc_mcp_core.ToolResult(message="ok")
         r2 = r.with_context(key="value", num=42)
         ctx = r2.context
         assert ctx["key"] == "value"
         assert ctx["num"] == 42
 
     def test_with_context_no_kwargs(self) -> None:
-        r = dcc_mcp_core.ActionResultModel(message="ok")
+        r = dcc_mcp_core.ToolResult(message="ok")
         r2 = r.with_context()
         assert r2.context == {}
 
     def test_context_complex_types(self) -> None:
-        r = dcc_mcp_core.ActionResultModel(
+        r = dcc_mcp_core.ToolResult(
             message="test",
             context={
                 "str_val": "hello",
@@ -76,7 +76,7 @@ class TestActionResultModel:
         assert ctx["dict_val"]["nested"] == "data"
 
     def test_to_dict(self) -> None:
-        r = dcc_mcp_core.ActionResultModel(success=True, message="done", prompt="next")
+        r = dcc_mcp_core.ToolResult(success=True, message="done", prompt="next")
         d = r.to_dict()
         assert d["success"] is True
         assert d["message"] == "done"
@@ -85,29 +85,29 @@ class TestActionResultModel:
         assert isinstance(d["context"], dict)
 
     def test_to_dict_with_error(self) -> None:
-        r = dcc_mcp_core.ActionResultModel(success=False, message="fail", error="err")
+        r = dcc_mcp_core.ToolResult(success=False, message="fail", error="err")
         d = r.to_dict()
         assert d["success"] is False
         assert d["error"] == "err"
 
     def test_repr(self) -> None:
-        r = dcc_mcp_core.ActionResultModel(success=True, message="hello")
+        r = dcc_mcp_core.ToolResult(success=True, message="hello")
         s = repr(r)
-        assert "ActionResultModel" in s
+        assert "ToolResult" in s
         assert "hello" in s
 
     def test_str_success(self) -> None:
-        r = dcc_mcp_core.ActionResultModel(message="done")
+        r = dcc_mcp_core.ToolResult(message="done")
         assert "Success" in str(r)
         assert "done" in str(r)
 
     def test_str_error(self) -> None:
-        r = dcc_mcp_core.ActionResultModel(success=False, error="oops")
+        r = dcc_mcp_core.ToolResult(success=False, error="oops")
         assert "Error" in str(r)
         assert "oops" in str(r)
 
     def test_str_error_fallback_to_message(self) -> None:
-        r = dcc_mcp_core.ActionResultModel(success=False, message="fallback msg")
+        r = dcc_mcp_core.ToolResult(success=False, message="fallback msg")
         assert "fallback msg" in str(r)
 
 
@@ -181,7 +181,7 @@ class TestFactoryFunctions:
         assert r.context["module"] == "core"
 
     def test_validate_action_result_passthrough(self) -> None:
-        orig = dcc_mcp_core.ActionResultModel(message="test")
+        orig = dcc_mcp_core.ToolResult(message="test")
         r = dcc_mcp_core.validate_action_result(orig)
         assert r.message == "test"
 

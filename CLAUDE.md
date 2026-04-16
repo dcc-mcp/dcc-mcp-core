@@ -91,20 +91,20 @@ paths = get_bundled_skill_paths(False)         # [] — opt-out
 
 ```python
 # Skills-First (recommended)
-from dcc_mcp_core import create_skill_manager, McpHttpConfig
-server = create_skill_manager("maya", McpHttpConfig(port=8765))
+from dcc_mcp_core import create_skill_server, McpHttpConfig
+server = create_skill_server("maya", McpHttpConfig(port=8765))
 handle = server.start()
 print(handle.mcp_url())  # "http://127.0.0.1:8765/mcp"
 # tools/list returns 6 core tools + __skill__<name> stubs; search_skills → load_skill → use
 
 # Manual registry wiring (low-level)
-from dcc_mcp_core import ActionRegistry, McpHttpServer, McpHttpConfig, McpServerHandle
+from dcc_mcp_core import ToolRegistry, McpHttpServer, McpHttpConfig, McpServerHandle
 
-registry = ActionRegistry()
+registry = ToolRegistry()
 registry.register("get_scene", description="Get scene", category="scene", dcc="maya")
 
 server = McpHttpServer(registry, McpHttpConfig(port=8765, server_name="maya-mcp"))
-handle = server.start()   # returns McpServerHandle (alias for ServerHandle)
+handle = server.start()   # returns McpServerHandle (alias for McpServerHandle)
 print(handle.mcp_url())   # "http://127.0.0.1:8765/mcp"
 handle.shutdown()
 # Note: register ALL actions BEFORE calling server.start()
@@ -113,8 +113,8 @@ handle.shutdown()
 ### Quick Lookup: Common Method Signatures
 
 ```python
-# ActionDispatcher — only .dispatch(), never .call()
-dispatcher = ActionDispatcher(registry)   # takes ONE arg; no validator param
+# ToolDispatcher — only .dispatch(), never .call()
+dispatcher = ToolDispatcher(registry)   # takes ONE arg; no validator param
 result = dispatcher.dispatch("action_name", json.dumps({"key": "value"}))
 # result keys: "action", "output", "validation_skipped"
 
@@ -132,7 +132,7 @@ result = error_result("Failed", "specific error string")
 sub_id = bus.subscribe("event_name", handler_fn)
 bus.unsubscribe("event_name", sub_id)
 
-# ActionRegistry.register — takes keyword args, NOT handler=
+# ToolRegistry.register — takes keyword args, NOT handler=
 registry.register(name="action", description="...", dcc="maya", version="1.0.0")
 # Use dispatcher.register_handler() to attach a Python callable
 
@@ -183,7 +183,7 @@ cargo build --workspace --features python-bindings 2>&1 | grep -E "error|warning
 # Import pattern for tests
 from __future__ import annotations
 import pytest
-from dcc_mcp_core import ActionResultModel, success_result, error_result
+from dcc_mcp_core import ToolResult, success_result, error_result
 
 # Skill tests: use tmp_path fixture + create minimal SKILL.md
 def test_skill_scan(tmp_path):
@@ -212,7 +212,7 @@ def test_skill_scan(tmp_path):
 - **MCP spec**: `McpHttpServer` implements 2025-03-26 spec. The 2025-06-18 version adds Structured Tool Output, Elicitation, Resource Links, and removes JSON-RPC batching. The 2025-11-25 version adds icon metadata, Tasks (persistent requests), Sampling with tools, URL pattern requests, OAuth Client ID Metadata Document, JSON Schema 2020-12. The 2026 roadmap focuses on transport scalability, agent communication (Tasks lifecycle), governance, and enterprise readiness. Do NOT implement these manually — wait for the library to add support.
 - **Bridge system**: `BridgeRegistry`, `BridgeContext`, `register_bridge()`, `get_bridge_context()` — for inter-protocol bridging (RPyC ↔ MCP etc.). Don't build custom bridge registries.
 - **Scene data model**: `BoundingBox`, `FrameRange`, `ObjectTransform`, `SceneNode`, `SceneObject`, `RenderOutput` — use for structured scene data instead of raw dicts. `BoundingBox` may be `None`.
-- **Serialization**: `serialize_result()` / `deserialize_result()` with `SerializeFormat` enum — for transport-safe ActionResultModel serialization. Don't use `json.dumps()` on ActionResultModel.
+- **Serialization**: `serialize_result()` / `deserialize_result()` with `SerializeFormat` enum — for transport-safe ToolResult serialization. Don't use `json.dumps()` on ToolResult.
 
 ## Key Files to Read First (Priority Order)
 

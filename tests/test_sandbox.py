@@ -474,11 +474,11 @@ class TestSandboxContextAdvanced:
 class TestAuditMiddleware:
     def _make_pipeline_with_audit(self):
         """Return (pipeline, audit_middleware) pair."""
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         reg.register("test_action", description="test")
-        dispatcher = dcc_mcp_core.ActionDispatcher(reg)
+        dispatcher = dcc_mcp_core.ToolDispatcher(reg)
         dispatcher.register_handler("test_action", lambda params: {"status": "ok"})
-        pipeline = dcc_mcp_core.ActionPipeline(dispatcher)
+        pipeline = dcc_mcp_core.ToolPipeline(dispatcher)
         audit = pipeline.add_audit(record_params=True)
         return pipeline, audit
 
@@ -495,13 +495,13 @@ class TestAuditMiddleware:
         assert len(records) == 1
 
     def test_records_for_action_filters(self) -> None:
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         reg.register("action_a", description="a")
         reg.register("action_b", description="b")
-        dispatcher = dcc_mcp_core.ActionDispatcher(reg)
+        dispatcher = dcc_mcp_core.ToolDispatcher(reg)
         dispatcher.register_handler("action_a", lambda p: {})
         dispatcher.register_handler("action_b", lambda p: {})
-        pipeline = dcc_mcp_core.ActionPipeline(dispatcher)
+        pipeline = dcc_mcp_core.ToolPipeline(dispatcher)
         audit = pipeline.add_audit()
         pipeline.dispatch("action_a", "{}")
         pipeline.dispatch("action_b", "{}")

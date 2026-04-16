@@ -254,10 +254,10 @@ class TestRunChainSkillParsing:
 
     def test_skill_loaded_in_catalog(self):
         """Verify workflow skill loads cleanly via SkillCatalog."""
-        from dcc_mcp_core import ActionRegistry
         from dcc_mcp_core import SkillCatalog
+        from dcc_mcp_core import ToolRegistry
 
-        registry = ActionRegistry()
+        registry = ToolRegistry()
         cat = SkillCatalog(registry)
         count = cat.discover(extra_paths=[str(_SKILL_DIR.parent)])
         assert count >= 1
@@ -266,10 +266,10 @@ class TestRunChainSkillParsing:
 
     def test_workflow_action_registered_after_load(self):
         """After load_skill, workflow__run_chain appears in registry."""
-        from dcc_mcp_core import ActionRegistry
         from dcc_mcp_core import SkillCatalog
+        from dcc_mcp_core import ToolRegistry
 
-        registry = ActionRegistry()
+        registry = ToolRegistry()
         cat = SkillCatalog(registry)
         cat.discover(extra_paths=[str(_SKILL_DIR.parent)])
         cat.load_skill("workflow")
@@ -302,12 +302,12 @@ class TestRunChainBundledDiscovery:
         assert paths == []
 
     def test_workflow_discoverable_via_bundled_path(self):
-        from dcc_mcp_core import ActionRegistry
         from dcc_mcp_core import SkillCatalog
+        from dcc_mcp_core import ToolRegistry
         from dcc_mcp_core import get_bundled_skill_paths
 
         paths = get_bundled_skill_paths()
-        registry = ActionRegistry()
+        registry = ToolRegistry()
         cat = SkillCatalog(registry)
         cat.discover(extra_paths=paths)
         names = [s.name for s in cat.list_skills()]

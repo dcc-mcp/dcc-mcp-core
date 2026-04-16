@@ -1,6 +1,6 @@
 """Deep tests for ScriptResult, EventBus multi-subscriber, VersionedRegistry full methods.
 
-TelemetryConfig builder, ActionRecorder / ActionMetrics, and RecordingGuard context manager.
+TelemetryConfig builder, ToolRecorder / ToolMetrics, and RecordingGuard context manager.
 """
 
 from __future__ import annotations
@@ -574,38 +574,38 @@ class TestTelemetryConfigCreate:
 
 
 # ---------------------------------------------------------------------------
-# ActionRecorder + ActionMetrics + RecordingGuard
+# ToolRecorder + ToolMetrics + RecordingGuard
 # ---------------------------------------------------------------------------
 
 
 class TestActionRecorderBasic:
-    """ActionRecorder basic guard usage."""
+    """ToolRecorder basic guard usage."""
 
     def test_start_returns_guard(self) -> None:
-        rec = dcc_mcp_core.ActionRecorder("svc")
+        rec = dcc_mcp_core.ToolRecorder("svc")
         guard = rec.start("my_action", "maya")
         assert guard is not None
         guard.finish(success=True)
 
     def test_metrics_none_before_first_call(self) -> None:
-        rec = dcc_mcp_core.ActionRecorder("svc")
+        rec = dcc_mcp_core.ToolRecorder("svc")
         assert rec.metrics("nonexistent") is None
 
     def test_metrics_available_after_finish(self) -> None:
-        rec = dcc_mcp_core.ActionRecorder("svc")
+        rec = dcc_mcp_core.ToolRecorder("svc")
         guard = rec.start("act", "maya")
         guard.finish(success=True)
         assert rec.metrics("act") is not None
 
     def test_invocation_count_increments(self) -> None:
-        rec = dcc_mcp_core.ActionRecorder("svc")
+        rec = dcc_mcp_core.ToolRecorder("svc")
         for _ in range(3):
             guard = rec.start("act", "maya")
             guard.finish(success=True)
         assert rec.metrics("act").invocation_count == 3
 
     def test_success_count(self) -> None:
-        rec = dcc_mcp_core.ActionRecorder("svc")
+        rec = dcc_mcp_core.ToolRecorder("svc")
         for _ in range(2):
             g = rec.start("act", "maya")
             g.finish(success=True)
@@ -616,7 +616,7 @@ class TestActionRecorderBasic:
         assert m.failure_count == 1
 
     def test_failure_count(self) -> None:
-        rec = dcc_mcp_core.ActionRecorder("svc")
+        rec = dcc_mcp_core.ToolRecorder("svc")
         for _ in range(3):
             g = rec.start("act", "maya")
             g.finish(success=False)
@@ -624,18 +624,18 @@ class TestActionRecorderBasic:
         assert m.failure_count == 3
 
     def test_reset_clears_metrics(self) -> None:
-        rec = dcc_mcp_core.ActionRecorder("svc")
+        rec = dcc_mcp_core.ToolRecorder("svc")
         g = rec.start("act", "maya")
         g.finish(success=True)
         rec.reset()
         assert rec.metrics("act") is None
 
     def test_all_metrics_empty_initially(self) -> None:
-        rec = dcc_mcp_core.ActionRecorder("fresh")
+        rec = dcc_mcp_core.ToolRecorder("fresh")
         assert rec.all_metrics() == []
 
     def test_all_metrics_contains_recorded(self) -> None:
-        rec = dcc_mcp_core.ActionRecorder("svc")
+        rec = dcc_mcp_core.ToolRecorder("svc")
         g = rec.start("action_a", "maya")
         g.finish(success=True)
         all_m = rec.all_metrics()
@@ -643,7 +643,7 @@ class TestActionRecorderBasic:
         assert all_m[0].action_name == "action_a"
 
     def test_all_metrics_multiple_actions(self) -> None:
-        rec = dcc_mcp_core.ActionRecorder("svc")
+        rec = dcc_mcp_core.ToolRecorder("svc")
         for name in ("a1", "a2", "a3"):
             g = rec.start(name, "maya")
             g.finish(success=True)
@@ -652,34 +652,34 @@ class TestActionRecorderBasic:
 
 
 class TestActionMetrics:
-    """ActionMetrics field types and values."""
+    """ToolMetrics field types and values."""
 
     def test_action_name_str(self) -> None:
-        rec = dcc_mcp_core.ActionRecorder("svc")
+        rec = dcc_mcp_core.ToolRecorder("svc")
         g = rec.start("sphere_op", "maya")
         g.finish(success=True)
         assert isinstance(rec.metrics("sphere_op").action_name, str)
 
     def test_invocation_count_int(self) -> None:
-        rec = dcc_mcp_core.ActionRecorder("svc")
+        rec = dcc_mcp_core.ToolRecorder("svc")
         g = rec.start("act", "maya")
         g.finish(success=True)
         assert isinstance(rec.metrics("act").invocation_count, int)
 
     def test_success_count_int(self) -> None:
-        rec = dcc_mcp_core.ActionRecorder("svc")
+        rec = dcc_mcp_core.ToolRecorder("svc")
         g = rec.start("act", "maya")
         g.finish(success=True)
         assert isinstance(rec.metrics("act").success_count, int)
 
     def test_failure_count_int(self) -> None:
-        rec = dcc_mcp_core.ActionRecorder("svc")
+        rec = dcc_mcp_core.ToolRecorder("svc")
         g = rec.start("act", "maya")
         g.finish(success=False)
         assert isinstance(rec.metrics("act").failure_count, int)
 
     def test_avg_duration_ms_float(self) -> None:
-        rec = dcc_mcp_core.ActionRecorder("svc")
+        rec = dcc_mcp_core.ToolRecorder("svc")
         g = rec.start("act", "maya")
         time.sleep(0.001)
         g.finish(success=True)
@@ -688,7 +688,7 @@ class TestActionMetrics:
         assert m.avg_duration_ms >= 0.0
 
     def test_p95_duration_ms_float(self) -> None:
-        rec = dcc_mcp_core.ActionRecorder("svc")
+        rec = dcc_mcp_core.ToolRecorder("svc")
         for _ in range(5):
             g = rec.start("act", "maya")
             g.finish(success=True)
@@ -696,7 +696,7 @@ class TestActionMetrics:
         assert isinstance(m.p95_duration_ms, float)
 
     def test_p99_duration_ms_float(self) -> None:
-        rec = dcc_mcp_core.ActionRecorder("svc")
+        rec = dcc_mcp_core.ToolRecorder("svc")
         for _ in range(5):
             g = rec.start("act", "maya")
             g.finish(success=True)
@@ -704,21 +704,21 @@ class TestActionMetrics:
         assert isinstance(m.p99_duration_ms, float)
 
     def test_success_rate_all_success(self) -> None:
-        rec = dcc_mcp_core.ActionRecorder("svc")
+        rec = dcc_mcp_core.ToolRecorder("svc")
         for _ in range(4):
             g = rec.start("act", "maya")
             g.finish(success=True)
         assert rec.metrics("act").success_rate() == 1.0
 
     def test_success_rate_all_failure(self) -> None:
-        rec = dcc_mcp_core.ActionRecorder("svc")
+        rec = dcc_mcp_core.ToolRecorder("svc")
         for _ in range(3):
             g = rec.start("act", "maya")
             g.finish(success=False)
         assert rec.metrics("act").success_rate() == 0.0
 
     def test_success_rate_partial(self) -> None:
-        rec = dcc_mcp_core.ActionRecorder("svc")
+        rec = dcc_mcp_core.ToolRecorder("svc")
         for i in range(4):
             g = rec.start("act", "maya")
             g.finish(success=(i % 2 == 0))
@@ -726,7 +726,7 @@ class TestActionMetrics:
         assert 0.0 < m.success_rate() < 1.0
 
     def test_success_rate_range(self) -> None:
-        rec = dcc_mcp_core.ActionRecorder("svc")
+        rec = dcc_mcp_core.ToolRecorder("svc")
         for i in range(10):
             g = rec.start("act", "maya")
             g.finish(success=(i < 7))
@@ -738,7 +738,7 @@ class TestRecordingGuardContextManager:
     """RecordingGuard as context manager."""
 
     def test_context_manager_success(self) -> None:
-        rec = dcc_mcp_core.ActionRecorder("svc")
+        rec = dcc_mcp_core.ToolRecorder("svc")
         with rec.start("act", "maya"):
             pass
         m = rec.metrics("act")
@@ -746,7 +746,7 @@ class TestRecordingGuardContextManager:
         assert m.invocation_count == 1
 
     def test_context_manager_exception_marks_failure(self) -> None:
-        rec = dcc_mcp_core.ActionRecorder("svc")
+        rec = dcc_mcp_core.ToolRecorder("svc")
         with pytest.raises(ValueError), rec.start("act", "maya"):
             raise ValueError("test error")
         m = rec.metrics("act")
@@ -754,7 +754,7 @@ class TestRecordingGuardContextManager:
         assert m.failure_count == 1
 
     def test_context_manager_no_exception_marks_success(self) -> None:
-        rec = dcc_mcp_core.ActionRecorder("svc")
+        rec = dcc_mcp_core.ToolRecorder("svc")
         with rec.start("act", "maya"):
             pass  # no exception
         assert rec.metrics("act").success_count == 1

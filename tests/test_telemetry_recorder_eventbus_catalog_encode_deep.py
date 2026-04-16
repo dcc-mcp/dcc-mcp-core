@@ -1,13 +1,13 @@
-"""Deep tests for TelemetryConfig, ActionRecorder, ActionMetrics, RecordingGuard, EventBus, McpHttpConfig, SkillCatalog/SkillSummary, and encode/decode envelope functions.
+"""Deep tests for TelemetryConfig, ToolRecorder, ToolMetrics, RecordingGuard, EventBus, McpHttpConfig, SkillCatalog/SkillSummary, and encode/decode envelope functions.
 
 Covers:
 - TelemetryConfig: constructor / service_name / enable_tracing / enable_metrics
   / with_noop_exporter / with_stdout_exporter / with_json_logs / with_text_logs
   / with_service_version / with_attribute / set_enable_metrics / set_enable_tracing
 - is_telemetry_initialized / shutdown_telemetry
-- ActionRecorder: start / all_metrics / reset / scope name
+- ToolRecorder: start / all_metrics / reset / scope name
 - RecordingGuard: finish(success=True/False) / context-manager path
-- ActionMetrics: action_name / invocation_count / success_count / failure_count
+- ToolMetrics: action_name / invocation_count / success_count / failure_count
   / avg_duration_ms / p95_duration_ms / p99_duration_ms / success_rate()
 - EventBus: subscribe / publish / unsubscribe / repr / multiple subscribers
   / publish unknown event / unsubscribe wrong id
@@ -146,33 +146,33 @@ class TestTelemetryIsInitialized:
 
 
 # ===========================================================================
-# ActionRecorder + RecordingGuard + ActionMetrics
+# ToolRecorder + RecordingGuard + ToolMetrics
 # ===========================================================================
 
 
 class TestActionRecorderCreate:
     def test_create_with_scope(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        rec = ActionRecorder("maya-mcp")
+        rec = ToolRecorder("maya-mcp")
         assert rec is not None
 
     def test_metrics_none_before_any_call(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         assert rec.metrics("nonexistent") is None
 
     def test_all_metrics_empty_initially(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         assert rec.all_metrics() == []
 
     def test_reset_clears_metrics(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         g = rec.start("op", "maya")
         g.finish(success=True)
         assert rec.metrics("op") is not None
@@ -180,9 +180,9 @@ class TestActionRecorderCreate:
         assert rec.metrics("op") is None
 
     def test_all_metrics_after_reset(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         g = rec.start("op", "maya")
         g.finish(success=True)
         rec.reset()
@@ -191,9 +191,9 @@ class TestActionRecorderCreate:
 
 class TestRecordingGuard:
     def test_manual_finish_success(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         g = rec.start("create_sphere", "maya")
         g.finish(success=True)
         m = rec.metrics("create_sphere")
@@ -202,9 +202,9 @@ class TestRecordingGuard:
         assert m.failure_count == 0
 
     def test_manual_finish_failure(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         g = rec.start("delete_mesh", "maya")
         g.finish(success=False)
         m = rec.metrics("delete_mesh")
@@ -212,36 +212,36 @@ class TestRecordingGuard:
         assert m.failure_count == 1
 
     def test_context_manager_success_no_exception(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         with rec.start("batch_op", "blender") as _guard:
             pass
         m = rec.metrics("batch_op")
         assert m.success_count == 1
 
     def test_context_manager_failure_on_exception(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         with pytest.raises(ValueError), rec.start("risky_op", "maya"):
             raise ValueError("something went wrong")
         m = rec.metrics("risky_op")
         assert m.failure_count == 1
 
     def test_repr_contains_action_name(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         g = rec.start("my_action", "maya")
         r = repr(g)
         assert "my_action" in r
         g.finish(success=True)
 
     def test_multiple_calls_accumulate(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         for _ in range(5):
             g = rec.start("batch", "maya")
             g.finish(success=True)
@@ -254,9 +254,9 @@ class TestRecordingGuard:
         assert m.failure_count == 2
 
     def test_different_dcc_same_action(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         g1 = rec.start("render", "maya")
         g1.finish(success=True)
         g2 = rec.start("render", "blender")
@@ -269,9 +269,9 @@ class TestRecordingGuard:
 
 class TestActionMetrics:
     def _make_metrics(self, success_count=3, failure_count=1, action="op", dcc="maya"):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         for _ in range(success_count):
             g = rec.start(action, dcc)
             g.finish(success=True)
@@ -328,9 +328,9 @@ class TestActionMetrics:
         assert "special_action" in r
 
     def test_all_metrics_list(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         for action in ["a", "b", "c"]:
             g = rec.start(action, "maya")
             g.finish(success=True)
@@ -570,91 +570,91 @@ class TestMcpHttpConfigCreate:
 
 class TestSkillCatalogCreate:
     def test_create_with_registry(self):
-        from dcc_mcp_core import ActionRegistry
         from dcc_mcp_core import SkillCatalog
+        from dcc_mcp_core import ToolRegistry
 
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cat = SkillCatalog(reg)
         assert cat is not None
 
     def test_list_skills_empty_initially(self):
-        from dcc_mcp_core import ActionRegistry
         from dcc_mcp_core import SkillCatalog
+        from dcc_mcp_core import ToolRegistry
 
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cat = SkillCatalog(reg)
         skills = cat.list_skills()
         assert isinstance(skills, list)
         assert len(skills) == 0
 
     def test_loaded_count_zero_initially(self):
-        from dcc_mcp_core import ActionRegistry
         from dcc_mcp_core import SkillCatalog
+        from dcc_mcp_core import ToolRegistry
 
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cat = SkillCatalog(reg)
         assert cat.loaded_count() == 0
 
     def test_is_loaded_nonexistent_false(self):
-        from dcc_mcp_core import ActionRegistry
         from dcc_mcp_core import SkillCatalog
+        from dcc_mcp_core import ToolRegistry
 
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cat = SkillCatalog(reg)
         assert cat.is_loaded("nonexistent-skill") is False
 
     def test_get_skill_info_nonexistent_none(self):
-        from dcc_mcp_core import ActionRegistry
         from dcc_mcp_core import SkillCatalog
+        from dcc_mcp_core import ToolRegistry
 
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cat = SkillCatalog(reg)
         result = cat.get_skill_info("nonexistent-skill")
         assert result is None
 
     def test_load_skill_nonexistent_raises(self):
-        from dcc_mcp_core import ActionRegistry
         from dcc_mcp_core import SkillCatalog
+        from dcc_mcp_core import ToolRegistry
 
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cat = SkillCatalog(reg)
         with pytest.raises((ValueError, RuntimeError, KeyError)):
             cat.load_skill("nonexistent-skill")
 
     def test_unload_skill_nonexistent_raises(self):
-        from dcc_mcp_core import ActionRegistry
         from dcc_mcp_core import SkillCatalog
+        from dcc_mcp_core import ToolRegistry
 
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cat = SkillCatalog(reg)
         with pytest.raises((ValueError, RuntimeError, KeyError)):
             cat.unload_skill("nonexistent-skill")
 
     def test_find_skills_empty(self):
-        from dcc_mcp_core import ActionRegistry
         from dcc_mcp_core import SkillCatalog
+        from dcc_mcp_core import ToolRegistry
 
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cat = SkillCatalog(reg)
         results = cat.find_skills(query="maya")
         assert isinstance(results, list)
         assert len(results) == 0
 
     def test_discover_with_empty_extra_paths(self):
-        from dcc_mcp_core import ActionRegistry
         from dcc_mcp_core import SkillCatalog
+        from dcc_mcp_core import ToolRegistry
 
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cat = SkillCatalog(reg)
         count = cat.discover(extra_paths=[], dcc_name="maya")
         assert isinstance(count, int)
         assert count >= 0
 
     def test_discover_returns_int(self):
-        from dcc_mcp_core import ActionRegistry
         from dcc_mcp_core import SkillCatalog
+        from dcc_mcp_core import ToolRegistry
 
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cat = SkillCatalog(reg)
         count = cat.discover()
         assert isinstance(count, int)
@@ -666,10 +666,10 @@ class TestSkillCatalogWithRealSkills:
     def _make_catalog_with_examples(self):
         from pathlib import Path
 
-        from dcc_mcp_core import ActionRegistry
         from dcc_mcp_core import SkillCatalog
+        from dcc_mcp_core import ToolRegistry
 
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cat = SkillCatalog(reg)
         examples_dir = Path(__file__).parent / ".." / "examples" / "skills"
         if not examples_dir.is_dir():

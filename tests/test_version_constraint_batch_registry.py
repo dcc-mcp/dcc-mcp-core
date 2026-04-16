@@ -4,7 +4,7 @@ Covers:
 - VersionConstraint.parse for all operator forms: *, >=, >, <=, <, ^, ~, =
 - VersionConstraint.matches(SemVer) truth table for all operators
 - SemVer repr(), comparison operators (<, >, ==, !=, <=, >=)
-- ActionRegistry.register_batch: empty batch, minimal fields, same name multi-DCC,
+- ToolRegistry.register_batch: empty batch, minimal fields, same name multi-DCC,
   multi-name multi-DCC, count_actions semantics, get_all_dccs after batch
 """
 
@@ -323,28 +323,28 @@ class TestSemVerFields:
 
 
 # ---------------------------------------------------------------------------
-# ActionRegistry.register_batch edge cases
+# ToolRegistry.register_batch edge cases
 # ---------------------------------------------------------------------------
 
 
 class TestRegisterBatchEdgeCases:
     def test_empty_batch_no_op(self) -> None:
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         reg.register_batch([])
         assert reg.count_actions() == 0
 
     def test_minimal_fields(self) -> None:
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         reg.register_batch([{"name": "op", "category": "c"}])
         assert reg.count_actions() == 1
 
     def test_single_item_batch(self) -> None:
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         reg.register_batch([{"name": "sphere", "category": "geo", "dcc": "maya"}])
         assert reg.count_actions() == 1
 
     def test_batch_with_tags(self) -> None:
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         reg.register_batch(
             [
                 {"name": "op1", "category": "c", "dcc": "maya", "tags": ["a", "b"]},
@@ -355,7 +355,7 @@ class TestRegisterBatchEdgeCases:
         assert "b" in tags
 
     def test_same_name_multiple_dccs(self) -> None:
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         reg.register_batch(
             [
                 {"name": "sphere", "category": "geo", "dcc": "maya"},
@@ -371,7 +371,7 @@ class TestRegisterBatchEdgeCases:
         assert reg.count_actions(dcc_name="houdini") == 1
 
     def test_same_name_multiple_dccs_get_all_dccs(self) -> None:
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         reg.register_batch(
             [
                 {"name": "op", "category": "c", "dcc": "maya"},
@@ -383,7 +383,7 @@ class TestRegisterBatchEdgeCases:
         assert "blender" in dccs
 
     def test_different_names_same_dcc(self) -> None:
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         reg.register_batch(
             [
                 {"name": "create", "category": "geo", "dcc": "maya"},
@@ -394,7 +394,7 @@ class TestRegisterBatchEdgeCases:
         assert reg.count_actions(dcc_name="maya") == 3
 
     def test_batch_then_register_extends(self) -> None:
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         reg.register_batch(
             [
                 {"name": "op1", "category": "c", "dcc": "maya"},
@@ -405,13 +405,13 @@ class TestRegisterBatchEdgeCases:
         assert reg.count_actions(dcc_name="maya") == 3
 
     def test_batch_large(self) -> None:
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         batch = [{"name": f"op_{i}", "category": "misc", "dcc": "maya"} for i in range(50)]
         reg.register_batch(batch)
         assert reg.count_actions(dcc_name="maya") == 50
 
     def test_batch_multiple_categories(self) -> None:
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         reg.register_batch(
             [
                 {"name": "create_sphere", "category": "geometry", "dcc": "maya"},
@@ -425,7 +425,7 @@ class TestRegisterBatchEdgeCases:
         assert "animation" in cats
 
     def test_batch_after_reset(self) -> None:
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         reg.register("initial", description="d", category="c", dcc="maya")
         reg.reset()
         assert reg.count_actions() == 0
@@ -433,7 +433,7 @@ class TestRegisterBatchEdgeCases:
         assert reg.count_actions() == 1
 
     def test_batch_search_by_tag(self) -> None:
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         reg.register_batch(
             [
                 {"name": "op_tagged", "category": "c", "dcc": "maya", "tags": ["special"]},
@@ -446,7 +446,7 @@ class TestRegisterBatchEdgeCases:
         assert "op_plain" not in names
 
     def test_batch_cross_dcc_categories(self) -> None:
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         reg.register_batch(
             [
                 {"name": "geo_op", "category": "geometry", "dcc": "maya"},

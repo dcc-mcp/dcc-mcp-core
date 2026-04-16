@@ -1,4 +1,4 @@
-"""Deep unit tests for PyProcessWatcher, TelemetryConfig, ActionRecorder/RecordingGuard,
+"""Deep unit tests for PyProcessWatcher, TelemetryConfig, ToolRecorder/RecordingGuard,
 SandboxPolicy/SandboxContext/AuditLog/InputValidator, and SkillWatcher.
 
 These tests cover the public Python API surface exposed by the Rust/PyO3 core.
@@ -14,13 +14,13 @@ from pathlib import Path
 
 import pytest
 
-from dcc_mcp_core import ActionRecorder
 from dcc_mcp_core import InputValidator
 from dcc_mcp_core import PyProcessWatcher
 from dcc_mcp_core import SandboxContext
 from dcc_mcp_core import SandboxPolicy
 from dcc_mcp_core import SkillWatcher
 from dcc_mcp_core import TelemetryConfig
+from dcc_mcp_core import ToolRecorder
 import dcc_mcp_core._core as core
 
 # ---------------------------------------------------------------------------
@@ -320,83 +320,83 @@ class TestTelemetryConfigInit:
 
 
 # ===========================================================================
-# ActionRecorder + RecordingGuard
+# ToolRecorder + RecordingGuard
 # ===========================================================================
 
 
 class TestActionRecorderConstruction:
-    """ActionRecorder construction and initial state."""
+    """ToolRecorder construction and initial state."""
 
     def test_construction_with_scope(self):
-        r = ActionRecorder("my-scope")
+        r = ToolRecorder("my-scope")
         assert r is not None
 
     def test_all_metrics_initially_empty(self):
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         assert r.all_metrics() == []
 
     def test_metrics_nonexistent_returns_none(self):
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         m = r.metrics("nonexistent")
         assert m is None
 
     def test_two_recorders_are_independent(self):
-        r1 = ActionRecorder("scope-a")
-        r2 = ActionRecorder("scope-b")
+        r1 = ToolRecorder("scope-a")
+        r2 = ToolRecorder("scope-b")
         r1.start("action_a", "maya").finish(True)
         assert r2.all_metrics() == []
 
 
 class TestRecordingGuard:
-    """RecordingGuard returned by ActionRecorder.start()."""
+    """RecordingGuard returned by ToolRecorder.start()."""
 
     def test_start_returns_recording_guard(self):
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         guard = r.start("create_sphere", "maya")
         assert type(guard).__name__ == "RecordingGuard"
 
     def test_guard_has_finish_method(self):
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         guard = r.start("create_sphere", "maya")
         assert hasattr(guard, "finish")
 
     def test_finish_success_populates_metrics(self):
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         guard = r.start("create_sphere", "maya")
         guard.finish(True)
         m = r.metrics("create_sphere")
         assert m is not None
 
     def test_finish_failure_populates_metrics(self):
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         guard = r.start("delete_mesh", "maya")
         guard.finish(False)
         m = r.metrics("delete_mesh")
         assert m is not None
 
     def test_guard_finish_success_increments_success_count(self):
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         r.start("action_a", "maya").finish(True)
         r.start("action_a", "maya").finish(True)
         m = r.metrics("action_a")
         assert m.success_count == 2
 
     def test_guard_finish_failure_increments_failure_count(self):
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         r.start("action_b", "maya").finish(True)
         r.start("action_b", "maya").finish(False)
         m = r.metrics("action_b")
         assert m.failure_count == 1
 
     def test_invocation_count_equals_total_calls(self):
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         for _ in range(3):
             r.start("action_c", "maya").finish(True)
         m = r.metrics("action_c")
         assert m.invocation_count == 3
 
     def test_success_rate_all_success(self):
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         for _ in range(4):
             r.start("action_d", "maya").finish(True)
         m = r.metrics("action_d")
@@ -405,7 +405,7 @@ class TestRecordingGuard:
         assert rate == 1.0
 
     def test_success_rate_all_failure(self):
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         for _ in range(2):
             r.start("action_e", "blender").finish(False)
         m = r.metrics("action_e")
@@ -414,34 +414,34 @@ class TestRecordingGuard:
 
 
 class TestActionMetricsFields:
-    """ActionMetrics struct fields."""
+    """ToolMetrics struct fields."""
 
     def test_action_name_field(self):
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         r.start("sphere_action", "maya").finish(True)
         m = r.metrics("sphere_action")
         assert m.action_name == "sphere_action"
 
     def test_avg_duration_ms_is_numeric(self):
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         r.start("timed", "maya").finish(True)
         m = r.metrics("timed")
         assert isinstance(m.avg_duration_ms, (int, float))
 
     def test_p95_duration_ms_is_numeric(self):
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         r.start("timed2", "maya").finish(True)
         m = r.metrics("timed2")
         assert isinstance(m.p95_duration_ms, (int, float))
 
     def test_p99_duration_ms_is_numeric(self):
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         r.start("timed3", "maya").finish(True)
         m = r.metrics("timed3")
         assert isinstance(m.p99_duration_ms, (int, float))
 
     def test_all_metrics_returns_list_of_action_metrics(self):
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         r.start("act1", "maya").finish(True)
         r.start("act2", "blender").finish(False)
         all_m = r.all_metrics()
@@ -452,21 +452,21 @@ class TestActionMetricsFields:
 
 
 class TestActionRecorderReset:
-    """ActionRecorder.reset() clears all accumulated metrics."""
+    """ToolRecorder.reset() clears all accumulated metrics."""
 
     def test_reset_clears_all_metrics(self):
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         r.start("act", "maya").finish(True)
         r.reset()
         assert r.all_metrics() == []
 
     def test_reset_on_empty_recorder_is_safe(self):
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         r.reset()
         assert r.all_metrics() == []
 
     def test_can_record_after_reset(self):
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         r.start("act", "maya").finish(True)
         r.reset()
         r.start("act", "blender").finish(True)

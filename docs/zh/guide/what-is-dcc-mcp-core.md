@@ -28,7 +28,7 @@ flowchart LR
 
 ## 核心特性
 
-- **ActionRegistry** — 线程安全的 Action 注册、搜索和版本管理
+- **ToolRegistry** — 线程安全的 Action 注册、搜索和版本管理
 - **SkillCatalog** — 渐进式 Skill 发现与加载；脚本通过 SKILL.md 自动注册为 MCP 工具（v0.12.10 起支持 Skills-First 架构）
 - **EventBus** — DCC 生命周期事件的发布/订阅系统
 - **MCP HTTP 服务器** — 符合 2025-03-26 规范的流式 HTTP 服务器，将 DCC 工具暴露给 AI 客户端
@@ -51,18 +51,18 @@ DCC-MCP-Core 是一个包含 **14 个子 crate** 的 Rust workspace，通过 mat
 dcc-mcp-core/
 ├── src/lib.rs                  # PyO3 模块入口点 (_core)
 ├── crates/
-│   ├── dcc-mcp-models/         # ActionResultModel, SkillMetadata, ToolDeclaration
-│   ├── dcc-mcp-actions/        # ActionRegistry, EventBus, Pipeline, Dispatcher, Validator
+│   ├── dcc-mcp-models/         # ToolResult, SkillMetadata, ToolDeclaration
+│   ├── dcc-mcp-actions/        # ToolRegistry, EventBus, Pipeline, Dispatcher, Validator
 │   ├── dcc-mcp-skills/         # SkillScanner, SkillCatalog, SkillWatcher, Resolver
 │   ├── dcc-mcp-protocols/      # MCP 类型：ToolDefinition, ResourceDefinition, Prompt, DccAdapter
 │   ├── dcc-mcp-transport/      # IPC, ConnectionPool, SessionManager, FramedChannel
 │   ├── dcc-mcp-process/        # PyDccLauncher, ProcessMonitor, CrashRecovery
-│   ├── dcc-mcp-telemetry/      # ActionRecorder, ActionMetrics, TelemetryConfig
+│   ├── dcc-mcp-telemetry/      # ToolRecorder, ToolMetrics, TelemetryConfig
 │   ├── dcc-mcp-sandbox/        # SandboxPolicy, SandboxContext, AuditLog, InputValidator
 │   ├── dcc-mcp-shm/            # PySharedBuffer, PyBufferPool, PySharedSceneBuffer
 │   ├── dcc-mcp-capture/        # Capturer, CaptureFrame
 │   ├── dcc-mcp-usd/            # UsdStage, UsdPrim, VtValue, SdfPath
-│   ├── dcc-mcp-http/           # McpHttpServer, McpHttpConfig, ServerHandle, Gateway
+│   ├── dcc-mcp-http/           # McpHttpServer, McpHttpConfig, McpServerHandle, Gateway
 │   ├── dcc-mcp-server/         # dcc-mcp-server CLI, Gateway runner
 │   └── dcc-mcp-utils/          # 文件系统, 常量, 类型包装器, JSON 工具
 └── python/
@@ -79,9 +79,9 @@ dcc-mcp-core/
 ```python
 from dcc_mcp_core import (
     # Actions
-    ActionRegistry, ActionDispatcher, ActionPipeline, ActionValidator,
-    ActionRecorder, ActionMetrics, EventBus,
-    ActionResultModel, success_result, error_result,
+    ToolRegistry, ToolDispatcher, ToolPipeline, ToolValidator,
+    ToolRecorder, ToolMetrics, EventBus,
+    ToolResult, success_result, error_result,
 
     # Skills — Skills-First 架构
     SkillCatalog, SkillSummary, SkillMetadata, ToolDeclaration,

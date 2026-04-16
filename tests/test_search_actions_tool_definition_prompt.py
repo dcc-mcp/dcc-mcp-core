@@ -1,7 +1,7 @@
-"""Tests for ActionRegistry.search_actions, protocol types, and McpHttpServer Python API.
+"""Tests for ToolRegistry.search_actions, protocol types, and McpHttpServer Python API.
 
 Covers deep coverage of:
-- ActionRegistry.search_actions: category/tags/dcc_name filters, AND logic, combined, empty
+- ToolRegistry.search_actions: category/tags/dcc_name filters, AND logic, combined, empty
 - search_actions: category/tags/dcc_name filters, AND logic, combined, empty
 - result dict structure and field types
 - ToolDefinition construction, input_schema, output_schema, annotations
@@ -17,22 +17,22 @@ import json
 
 import pytest
 
-from dcc_mcp_core import ActionRegistry
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
 from dcc_mcp_core import PromptDefinition
 from dcc_mcp_core import ResourceDefinition
 from dcc_mcp_core import ToolAnnotations
 from dcc_mcp_core import ToolDefinition
+from dcc_mcp_core import ToolRegistry
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────
 
 SCHEMA = '{"type": "object", "properties": {}}'
 
 
-def _make_registry() -> ActionRegistry:
+def _make_registry() -> ToolRegistry:
     """Five-action multi-DCC registry for search tests."""
-    reg = ActionRegistry()
+    reg = ToolRegistry()
     reg.register_batch(
         [
             {
@@ -149,7 +149,7 @@ class TestSearchActionsTag:
 
     def test_tags_and_logic_two_tags(self):
         """Tags filter requires ALL tags to be present (AND logic)."""
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("all_tags", description="d", category="c", dcc="maya", tags=["a", "b", "c"])
         reg.register("two_tags", description="d", category="c", dcc="maya", tags=["a", "b"])
         reg.register("one_tag", description="d", category="c", dcc="maya", tags=["a"])
@@ -158,7 +158,7 @@ class TestSearchActionsTag:
         assert names == {"all_tags", "two_tags"}
 
     def test_tags_and_logic_three_tags(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("all_three", description="d", category="c", dcc="maya", tags=["a", "b", "c"])
         reg.register("only_ab", description="d", category="c", dcc="maya", tags=["a", "b"])
         result = reg.search_actions(tags=["a", "b", "c"])
@@ -199,7 +199,7 @@ class TestSearchActionsDcc:
             assert item["dcc"] == "maya"
 
     def test_by_dcc_isolates_shared_action_name(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("shared_op", description="d", category="c", dcc="maya")
         reg.register("shared_op", description="d", category="c", dcc="blender")
         maya_results = reg.search_actions(dcc_name="maya")
@@ -248,7 +248,7 @@ class TestSearchActionsCombined:
         assert result == []
 
     def test_empty_registry_all_searches_empty(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         assert reg.search_actions() == []
         assert reg.search_actions(category="x") == []
         assert reg.search_actions(dcc_name="maya") == []
@@ -298,7 +298,7 @@ class TestSearchActionsResultStructure:
         assert item["version"] == "1.0.0"
 
     def test_result_version_custom(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("v_action", description="d", category="c", dcc="maya", version="3.1.0")
         item = reg.search_actions(dcc_name="maya")[0]
         assert item["version"] == "3.1.0"
@@ -628,25 +628,25 @@ class TestMcpHttpConfigExtra:
 
 class TestMcpHttpServerExtra:
     def test_server_repr_contains_server_name(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cfg = McpHttpConfig(port=8765, server_name="extra-test")
         server = McpHttpServer(reg, cfg)
         assert "extra-test" in repr(server)
 
     def test_server_repr_contains_mcp_http_server(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cfg = McpHttpConfig(port=8765)
         server = McpHttpServer(reg, cfg)
         assert "McpHttpServer" in repr(server)
 
     def test_empty_registry_server_created(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cfg = McpHttpConfig(port=0)
         server = McpHttpServer(reg, cfg)
         assert server is not None
 
     def test_server_start_returns_handle_with_port(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cfg = McpHttpConfig(port=0)
         server = McpHttpServer(reg, cfg)
         handle = server.start()
@@ -654,7 +654,7 @@ class TestMcpHttpServerExtra:
         handle.shutdown()
 
     def test_server_handle_mcp_url_format(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cfg = McpHttpConfig(port=0)
         server = McpHttpServer(reg, cfg)
         handle = server.start()
@@ -664,7 +664,7 @@ class TestMcpHttpServerExtra:
         handle.shutdown()
 
     def test_server_with_multiple_actions(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register_batch(
             [
                 {"name": "action_a", "description": "a", "category": "c", "dcc": "test"},

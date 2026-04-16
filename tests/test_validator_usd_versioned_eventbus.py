@@ -1,7 +1,7 @@
-"""Tests for ActionValidator, UsdStage deep methods, VersionedRegistry edge cases, EventBus kwargs.
+"""Tests for ToolValidator, UsdStage deep methods, VersionedRegistry edge cases, EventBus kwargs.
 
 Coverage targets:
-- ActionValidator: from_schema_json, from_action_registry, validate (tuple result)
+- ToolValidator: from_schema_json, from_action_registry, validate (tuple result)
 - UsdStage: list_prims, traverse, prims_of_type, has_prim, to_json, from_json, export_usda,
             metrics, set_default_prim, default_prim, set_attribute/get_attribute on UsdPrim/UsdStage,
             id/name, remove_prim nonexistent, attributes_summary/attribute_names, prim attrs
@@ -18,10 +18,10 @@ import json
 import pytest
 
 import dcc_mcp_core
-from dcc_mcp_core import ActionRegistry
-from dcc_mcp_core import ActionValidator
 from dcc_mcp_core import EventBus
 from dcc_mcp_core import SemVer
+from dcc_mcp_core import ToolRegistry
+from dcc_mcp_core import ToolValidator
 from dcc_mcp_core import UsdStage
 from dcc_mcp_core import VersionConstraint
 from dcc_mcp_core import VersionedRegistry
@@ -32,29 +32,29 @@ from dcc_mcp_core import VtValue
 # TestActionValidatorFromSchemaJson
 # ---------------------------------------------------------------------------
 class TestActionValidatorFromSchemaJson:
-    """ActionValidator.from_schema_json — schema construction and validate."""
+    """ToolValidator.from_schema_json — schema construction and validate."""
 
     def test_returns_action_validator_instance(self) -> None:
         schema = '{"type": "object"}'
-        v = ActionValidator.from_schema_json(schema)
-        assert "ActionValidator" in type(v).__name__
+        v = ToolValidator.from_schema_json(schema)
+        assert "ToolValidator" in type(v).__name__
 
     def test_validate_returns_tuple(self) -> None:
-        v = ActionValidator.from_schema_json('{"type": "object"}')
+        v = ToolValidator.from_schema_json('{"type": "object"}')
         result = v.validate("{}")
         assert isinstance(result, tuple)
         assert len(result) == 2
 
     def test_validate_ok_first_element_true(self) -> None:
         schema = '{"type": "object", "properties": {"x": {"type": "number"}}}'
-        v = ActionValidator.from_schema_json(schema)
+        v = ToolValidator.from_schema_json(schema)
         ok, errors = v.validate('{"x": 1.5}')
         assert ok is True
         assert errors == []
 
     def test_validate_missing_required_field(self) -> None:
         schema = '{"type": "object", "properties": {"radius": {"type": "number"}},"required": ["radius"]}'
-        v = ActionValidator.from_schema_json(schema)
+        v = ToolValidator.from_schema_json(schema)
         ok, errors = v.validate("{}")
         assert ok is False
         assert len(errors) > 0
@@ -62,44 +62,44 @@ class TestActionValidatorFromSchemaJson:
 
     def test_validate_error_list_contains_string(self) -> None:
         schema = '{"type": "object", "required": ["name"]}'
-        v = ActionValidator.from_schema_json(schema)
+        v = ToolValidator.from_schema_json(schema)
         _, errors = v.validate("{}")
         assert all(isinstance(e, str) for e in errors)
 
     def test_validate_empty_schema_accepts_any_object(self) -> None:
-        v = ActionValidator.from_schema_json("{}")
+        v = ToolValidator.from_schema_json("{}")
         ok, errors = v.validate('{"anything": 42, "nested": {"a": 1}}')
         assert ok is True
         assert errors == []
 
     def test_validate_extra_fields_allowed_by_default(self) -> None:
         schema = '{"type": "object", "properties": {"x": {"type": "number"}}}'
-        v = ActionValidator.from_schema_json(schema)
+        v = ToolValidator.from_schema_json(schema)
         ok, _ = v.validate('{"x": 1.0, "extra_key": "ignored"}')
         assert ok is True
 
     def test_validate_number_type(self) -> None:
-        v = ActionValidator.from_schema_json('{"type": "object", "properties": {"val": {"type": "number"}}}')
+        v = ToolValidator.from_schema_json('{"type": "object", "properties": {"val": {"type": "number"}}}')
         ok, _ = v.validate('{"val": 3.14}')
         assert ok is True
 
     def test_validate_integer_type(self) -> None:
-        v = ActionValidator.from_schema_json('{"type": "object", "properties": {"count": {"type": "integer"}}}')
+        v = ToolValidator.from_schema_json('{"type": "object", "properties": {"count": {"type": "integer"}}}')
         ok, _ = v.validate('{"count": 42}')
         assert ok is True
 
     def test_validate_string_type(self) -> None:
-        v = ActionValidator.from_schema_json('{"type": "object", "properties": {"name": {"type": "string"}}}')
+        v = ToolValidator.from_schema_json('{"type": "object", "properties": {"name": {"type": "string"}}}')
         ok, _ = v.validate('{"name": "hello"}')
         assert ok is True
 
     def test_validate_boolean_type(self) -> None:
-        v = ActionValidator.from_schema_json('{"type": "object", "properties": {"flag": {"type": "boolean"}}}')
+        v = ToolValidator.from_schema_json('{"type": "object", "properties": {"flag": {"type": "boolean"}}}')
         ok, _ = v.validate('{"flag": true}')
         assert ok is True
 
     def test_validate_array_type(self) -> None:
-        v = ActionValidator.from_schema_json('{"type": "object", "properties": {"items": {"type": "array"}}}')
+        v = ToolValidator.from_schema_json('{"type": "object", "properties": {"items": {"type": "array"}}}')
         ok, _ = v.validate('{"items": [1, 2, 3]}')
         assert ok is True
 
@@ -108,12 +108,12 @@ class TestActionValidatorFromSchemaJson:
             '{"type": "object", "properties": {"pos": {"type": "object",'
             '"properties": {"x": {"type": "number"}, "y": {"type": "number"}}}}}'
         )
-        v = ActionValidator.from_schema_json(schema)
+        v = ToolValidator.from_schema_json(schema)
         ok, _ = v.validate('{"pos": {"x": 1.0, "y": 2.0}}')
         assert ok is True
 
     def test_validate_invalid_json_raises_value_error(self) -> None:
-        v = ActionValidator.from_schema_json('{"type": "object"}')
+        v = ToolValidator.from_schema_json('{"type": "object"}')
         with pytest.raises((ValueError, Exception)):
             v.validate("not-valid-json")
 
@@ -122,7 +122,7 @@ class TestActionValidatorFromSchemaJson:
             '{"type": "object", "properties": {"a": {"type": "string"}, "b": {"type": "number"}},'
             '"required": ["a", "b"]}'
         )
-        v = ActionValidator.from_schema_json(schema)
+        v = ToolValidator.from_schema_json(schema)
         ok, errors = v.validate("{}")
         assert ok is False
         assert len(errors) >= 1
@@ -132,7 +132,7 @@ class TestActionValidatorFromSchemaJson:
             '{"type": "object", "properties": {"a": {"type": "string"}, "b": {"type": "number"}},'
             '"required": ["a", "b"]}'
         )
-        v = ActionValidator.from_schema_json(schema)
+        v = ToolValidator.from_schema_json(schema)
         ok, errors = v.validate('{"a": "hello"}')
         assert ok is False
         assert "b" in errors[0]
@@ -142,13 +142,13 @@ class TestActionValidatorFromSchemaJson:
             '{"type": "object", "properties": {"a": {"type": "string"}, "b": {"type": "number"}},'
             '"required": ["a", "b"]}'
         )
-        v = ActionValidator.from_schema_json(schema)
+        v = ToolValidator.from_schema_json(schema)
         ok, errors = v.validate('{"a": "hi", "b": 5.0}')
         assert ok is True
         assert errors == []
 
     def test_validate_empty_params_empty_schema(self) -> None:
-        v = ActionValidator.from_schema_json('{"type": "object"}')
+        v = ToolValidator.from_schema_json('{"type": "object"}')
         ok, _ = v.validate("{}")
         assert ok is True
 
@@ -157,58 +157,58 @@ class TestActionValidatorFromSchemaJson:
 # TestActionValidatorFromActionRegistry
 # ---------------------------------------------------------------------------
 class TestActionValidatorFromActionRegistry:
-    """ActionValidator.from_action_registry — registry-backed construction."""
+    """ToolValidator.from_action_registry — registry-backed construction."""
 
     def test_returns_validator_instance(self) -> None:
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register(
             name="create_sphere",
             description="Create a sphere",
             category="geometry",
             input_schema='{"type": "object", "properties": {"r": {"type": "number"}}}',
         )
-        v = ActionValidator.from_action_registry(reg, "create_sphere")
-        assert "ActionValidator" in type(v).__name__
+        v = ToolValidator.from_action_registry(reg, "create_sphere")
+        assert "ToolValidator" in type(v).__name__
 
     def test_validate_with_registry_schema(self) -> None:
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register(
             name="my_op",
             description="Op",
             category="ops",
             input_schema='{"type": "object", "properties": {"size": {"type": "number"}}, "required": ["size"]}',
         )
-        v = ActionValidator.from_action_registry(reg, "my_op")
+        v = ToolValidator.from_action_registry(reg, "my_op")
         ok, _ = v.validate('{"size": 3.0}')
         assert ok is True
 
     def test_validate_missing_required_via_registry(self) -> None:
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register(
             name="req_op",
             description="Op",
             category="ops",
             input_schema='{"type": "object", "required": ["x"]}',
         )
-        v = ActionValidator.from_action_registry(reg, "req_op")
+        v = ToolValidator.from_action_registry(reg, "req_op")
         ok, errors = v.validate("{}")
         assert ok is False
         assert len(errors) > 0
 
     def test_nonexistent_action_raises_key_error(self) -> None:
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         with pytest.raises(KeyError):
-            ActionValidator.from_action_registry(reg, "no_such_action")
+            ToolValidator.from_action_registry(reg, "no_such_action")
 
     def test_action_without_input_schema_accepts_any(self) -> None:
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register(name="bare_op", description="Op", category="ops")
-        v = ActionValidator.from_action_registry(reg, "bare_op")
+        v = ToolValidator.from_action_registry(reg, "bare_op")
         ok, _ = v.validate('{"anything": 1}')
         assert ok is True
 
     def test_multiple_validators_from_same_registry_are_independent(self) -> None:
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register(
             name="op_a",
             description="Op A",
@@ -221,8 +221,8 @@ class TestActionValidatorFromActionRegistry:
             category="ops",
             input_schema='{"type": "object", "required": ["b"]}',
         )
-        va = ActionValidator.from_action_registry(reg, "op_a")
-        vb = ActionValidator.from_action_registry(reg, "op_b")
+        va = ToolValidator.from_action_registry(reg, "op_a")
+        vb = ToolValidator.from_action_registry(reg, "op_b")
 
         ok_a, _ = va.validate('{"a": 1}')
         ok_b, _ = vb.validate('{"b": 2}')

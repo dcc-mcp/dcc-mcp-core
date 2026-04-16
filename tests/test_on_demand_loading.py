@@ -22,9 +22,9 @@ import urllib.request
 
 import pytest
 
-from dcc_mcp_core import ActionRegistry
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
+from dcc_mcp_core import ToolRegistry
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXAMPLES_SKILLS = REPO_ROOT / "examples" / "skills"
@@ -99,7 +99,7 @@ def catalog_server():
     if not EXAMPLES_SKILLS.is_dir():
         pytest.skip("examples/skills directory not found")
 
-    reg = ActionRegistry()
+    reg = ToolRegistry()
     config = McpHttpConfig(port=0, server_name="ci-on-demand")
     server = McpHttpServer(reg, config)
     server.discover(extra_paths=[str(EXAMPLES_SKILLS)])

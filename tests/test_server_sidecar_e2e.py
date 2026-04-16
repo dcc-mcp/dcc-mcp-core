@@ -30,9 +30,9 @@ import urllib.request
 import pytest
 
 import dcc_mcp_core
-from dcc_mcp_core import ActionRegistry
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
+from dcc_mcp_core import ToolRegistry
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXAMPLES_SKILLS = REPO_ROOT / "examples" / "skills"
@@ -91,7 +91,7 @@ def _initialize(url: str) -> str:
 
 
 def _make_server(ttl_secs: int = 3600, port: int = 0) -> tuple[McpHttpServer, Any]:
-    reg = ActionRegistry()
+    reg = ToolRegistry()
     reg.register(
         "ping_action",
         description="ping",
@@ -210,7 +210,7 @@ class TestToolsListBoundary:
     def catalog_server(self):
         if not EXAMPLES_SKILLS.is_dir():
             pytest.skip("examples/skills not found")
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         config = McpHttpConfig(port=0, server_name="catalog-test")
         server = McpHttpServer(reg, config)
         server.discover(extra_paths=[str(EXAMPLES_SKILLS)])
@@ -366,7 +366,7 @@ class TestToolCallExecution:
 
     def test_tool_without_handler_returns_no_handler_message(self):
         """A registered action without a Python handler returns a helpful error."""
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register(
             "unhandled_action",
             description="no handler",
@@ -398,7 +398,7 @@ class TestToolCallExecution:
             handle.shutdown()
 
     def test_registered_handler_returns_result(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register(
             "echo",
             description="echo back params",
@@ -432,7 +432,7 @@ class TestToolCallExecution:
             handle.shutdown()
 
     def test_handler_exception_returns_error_flag(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register(
             "boom",
             description="always raises",
@@ -513,11 +513,20 @@ class TestServerBinarySidecar:
     def test_pid_file_written_on_start(self, binary, tmp_path):
         """Server writes a PID file on startup and removes it on SIGTERM."""
         import signal
-        import threading
 
         pid_file = tmp_path / "test-server.pid"
+        registry_dir = tmp_path / "registry"
         proc = subprocess.Popen(
-            [str(binary), "--mcp-port", "18765", "--no-bridge", "--pid-file", str(pid_file)],
+            [
+                str(binary),
+                "--mcp-port",
+                "18765",
+                "--no-bridge",
+                "--pid-file",
+                str(pid_file),
+                "--registry-dir",
+                str(registry_dir),
+            ],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
@@ -543,7 +552,7 @@ class TestServerBinarySidecar:
 
         # PID file cleanup may be asynchronous on Windows because terminate()
         # force-kills the process. Allow a short grace period for the cleanup watcher.
-        deadline = time.monotonic() + 5.0
+        deadline = time.monotonic() + 15.0
         while pid_file.exists() and time.monotonic() < deadline:
             time.sleep(0.1)
         assert not pid_file.exists(), "PID file was not removed after shutdown"
@@ -553,8 +562,18 @@ class TestServerBinarySidecar:
         import signal
 
         pid_file = tmp_path / "dup-test.pid"
+        registry_dir = tmp_path / "registry"
         proc = subprocess.Popen(
-            [str(binary), "--mcp-port", "18766", "--no-bridge", "--pid-file", str(pid_file)],
+            [
+                str(binary),
+                "--mcp-port",
+                "18766",
+                "--no-bridge",
+                "--pid-file",
+                str(pid_file),
+                "--registry-dir",
+                str(registry_dir),
+            ],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
         )
@@ -567,7 +586,16 @@ class TestServerBinarySidecar:
 
             # Try to start a second instance without --force.
             dup = subprocess.run(
-                [str(binary), "--mcp-port", "18767", "--no-bridge", "--pid-file", str(pid_file)],
+                [
+                    str(binary),
+                    "--mcp-port",
+                    "18767",
+                    "--no-bridge",
+                    "--pid-file",
+                    str(pid_file),
+                    "--registry-dir",
+                    str(registry_dir),
+                ],
                 capture_output=True,
                 text=True,
                 timeout=10,

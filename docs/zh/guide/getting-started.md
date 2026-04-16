@@ -30,19 +30,19 @@ pip install -e .
 
 ## 快速上手
 
-### Skills-First：`create_skill_manager`（v0.12.12+ 推荐）
+### Skills-First：`create_skill_server`（v0.12.12+ 推荐）
 
 将脚本暴露为 MCP 工具最快捷的方式。在脚本目录创建 `SKILL.md`，然后一键完成所有配置：
 
 ```python
 import os
-from dcc_mcp_core import create_skill_manager, McpHttpConfig
+from dcc_mcp_core import create_skill_server, McpHttpConfig
 
 # 设置应用专属 Skill 路径
 os.environ["DCC_MCP_MAYA_SKILL_PATHS"] = "/path/to/my-skills"
 
 # 一键：发现 Skills + 启动 MCP HTTP 服务器
-server = create_skill_manager("maya", McpHttpConfig(port=8765))
+server = create_skill_server("maya", McpHttpConfig(port=8765))
 handle = server.start()
 print(f"Maya MCP 服务器地址：{handle.mcp_url()}")
 # AI 客户端（Claude Desktop 等）连接到 http://127.0.0.1:8765/mcp
@@ -52,11 +52,11 @@ print(f"Maya MCP 服务器地址：{handle.mcp_url()}")
 
 ```python
 import os
-from dcc_mcp_core import SkillCatalog, ActionRegistry
+from dcc_mcp_core import SkillCatalog, ToolRegistry
 
 os.environ["DCC_MCP_SKILL_PATHS"] = "/path/to/my-skills"
 
-registry = ActionRegistry()
+registry = ToolRegistry()
 catalog = SkillCatalog(registry)
 
 discovered = catalog.discover(dcc_name="maya")
@@ -72,9 +72,9 @@ print(actions)
 ### Action 注册表
 
 ```python
-from dcc_mcp_core import ActionRegistry
+from dcc_mcp_core import ToolRegistry
 
-registry = ActionRegistry()
+registry = ToolRegistry()
 registry.register(
     name="create_sphere",
     description="Creates a sphere in the scene",
@@ -119,9 +119,9 @@ bus.unsubscribe("scene.changed", sid)
 一行代码将注册表暴露给 AI 客户端（Claude Desktop 等）：
 
 ```python
-from dcc_mcp_core import ActionRegistry, McpHttpServer, McpHttpConfig
+from dcc_mcp_core import ToolRegistry, McpHttpServer, McpHttpConfig
 
-registry = ActionRegistry()
+registry = ToolRegistry()
 # ... 注册 Actions 或加载 Skills ...
 
 config = McpHttpConfig(port=8765)

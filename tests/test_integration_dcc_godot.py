@@ -232,7 +232,7 @@ class TestGodotSkillPipeline:
     """dcc-mcp-core skill pipeline with Godot as target DCC."""
 
     def test_register_godot_actions(self) -> None:
-        reg = dcc_mcp_core.ActionRegistry()
+        reg = dcc_mcp_core.ToolRegistry()
         reg.register(name="spawn_node", description="Spawn scene node", dcc="godot")
         reg.register(name="add_script", description="Attach GDScript", dcc="godot")
         reg.register(name="export_scene", description="Export packed scene", dcc="godot")

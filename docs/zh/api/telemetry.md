@@ -8,20 +8,20 @@
 
 提供：
 
-- **操作记录** — 通过 `ActionRecorder` 记录每个操作的耗时和成功/失败计数
-- **指标** — `ActionMetrics` 快照，包含延迟百分位数（p95/p99）和成功率
+- **操作记录** — 通过 `ToolRecorder` 记录每个操作的耗时和成功/失败计数
+- **指标** — `ToolMetrics` 快照，包含延迟百分位数（p95/p99）和成功率
 - **可选 OpenTelemetry** — stdout 导出器、JSON/文本日志、资源属性（可选）
 
-## ActionRecorder
+## ToolRecorder
 
 记录任何操作执行时间和结果。
 
 ### 构造函数
 
 ```python
-from dcc_mcp_core import ActionRecorder
+from dcc_mcp_core import ToolRecorder
 
-recorder = ActionRecorder("my-service")
+recorder = ToolRecorder("my-service")
 ```
 
 ### 方法
@@ -29,8 +29,8 @@ recorder = ActionRecorder("my-service")
 | 方法 | 返回 | 描述 |
 |------|------|------|
 | `start(action_name, dcc_name)` | `RecordingGuard` | 开始计时操作 |
-| `metrics(action_name)` | `ActionMetrics \| None` | 获取操作指标 |
-| `all_metrics()` | `list[ActionMetrics]` | 获取所有操作指标 |
+| `metrics(action_name)` | `ToolMetrics \| None` | 获取操作指标 |
+| `all_metrics()` | `list[ToolMetrics]` | 获取所有操作指标 |
 | `reset()` | `None` | 重置所有统计数据 |
 
 ### 使用 Guard 记录
@@ -50,7 +50,7 @@ with recorder.start("create_sphere", "maya") as guard:
 # guard.finish(success=False) 在异常时自动调用
 ```
 
-## ActionMetrics
+## ToolMetrics
 
 每个操作性能指标的只读快照。
 
@@ -84,7 +84,7 @@ if metrics:
 
 ## RecordingGuard
 
-`ActionRecorder.start()` 返回的 RAII guard。
+`ToolRecorder.start()` 返回的 RAII guard。
 
 ### 方法
 
@@ -146,10 +146,10 @@ if is_telemetry_initialized():
 ### Maya 集成
 
 ```python
-from dcc_mcp_core import ActionRecorder
+from dcc_mcp_core import ToolRecorder
 import maya.cmds as cmds
 
-recorder = ActionRecorder("maya")
+recorder = ToolRecorder("maya")
 
 def traced_create_sphere(radius=1.0, name=None):
     with recorder.start("create_sphere", "maya") as guard:

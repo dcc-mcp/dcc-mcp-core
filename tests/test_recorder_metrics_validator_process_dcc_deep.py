@@ -1,4 +1,4 @@
-"""Deep tests for ActionRecorder/ActionMetrics/RecordingGuard/InputValidator/PyCrashRecoveryPolicy/PyProcessMonitor/PyProcessWatcher/DccInfo/DccCapabilities/SceneInfo/SceneStatistics/ScriptLanguage/PyDccLauncher.
+"""Deep tests for ToolRecorder/ToolMetrics/RecordingGuard/InputValidator/PyCrashRecoveryPolicy/PyProcessMonitor/PyProcessWatcher/DccInfo/DccCapabilities/SceneInfo/SceneStatistics/ScriptLanguage/PyDccLauncher.
 
 All tests are pure-Python, no real DCC required.
 """
@@ -12,8 +12,6 @@ import time
 
 import pytest
 
-from dcc_mcp_core import ActionMetrics
-from dcc_mcp_core import ActionRecorder
 from dcc_mcp_core import DccCapabilities
 from dcc_mcp_core import DccInfo
 from dcc_mcp_core import InputValidator
@@ -25,6 +23,8 @@ from dcc_mcp_core import RecordingGuard
 from dcc_mcp_core import SceneInfo
 from dcc_mcp_core import SceneStatistics
 from dcc_mcp_core import ScriptLanguage
+from dcc_mcp_core import ToolMetrics
+from dcc_mcp_core import ToolRecorder
 
 # ---------------------------------------------------------------------------
 # TestActionRecorder
@@ -32,25 +32,25 @@ from dcc_mcp_core import ScriptLanguage
 
 
 class TestActionRecorder:
-    """Tests for ActionRecorder."""
+    """Tests for ToolRecorder."""
 
     class TestHappyPath:
         def test_create_with_scope(self):
-            rec = ActionRecorder("maya")
+            rec = ToolRecorder("maya")
             assert rec is not None
 
         def test_all_metrics_empty_initially(self):
-            rec = ActionRecorder("maya")
+            rec = ToolRecorder("maya")
             assert rec.all_metrics() == []
 
         def test_start_returns_recording_guard(self):
-            rec = ActionRecorder("maya")
+            rec = ToolRecorder("maya")
             guard = rec.start("create_sphere", "maya")
             assert isinstance(guard, RecordingGuard)
             guard.finish(True)
 
         def test_finish_success_increments_success_count(self):
-            rec = ActionRecorder("blender")
+            rec = ToolRecorder("blender")
             guard = rec.start("add_mesh", "blender")
             guard.finish(True)
             m = rec.metrics("add_mesh")
@@ -60,7 +60,7 @@ class TestActionRecorder:
             assert m.failure_count == 0
 
         def test_finish_failure_increments_failure_count(self):
-            rec = ActionRecorder("houdini")
+            rec = ToolRecorder("houdini")
             guard = rec.start("render_frame", "houdini")
             guard.finish(False)
             m = rec.metrics("render_frame")
@@ -70,7 +70,7 @@ class TestActionRecorder:
             assert m.failure_count == 1
 
         def test_multiple_recordings_aggregate(self):
-            rec = ActionRecorder("maya")
+            rec = ToolRecorder("maya")
             for _ in range(5):
                 g = rec.start("create_sphere", "maya")
                 g.finish(True)
@@ -82,7 +82,7 @@ class TestActionRecorder:
             assert m.failure_count == 1
 
         def test_all_metrics_returns_list_of_action_metrics(self):
-            rec = ActionRecorder("maya")
+            rec = ToolRecorder("maya")
             rec.start("action_a", "maya").finish(True)
             rec.start("action_b", "maya").finish(False)
             all_m = rec.all_metrics()
@@ -93,11 +93,11 @@ class TestActionRecorder:
             assert "action_b" in names
 
         def test_metrics_returns_none_for_unknown_action(self):
-            rec = ActionRecorder("maya")
+            rec = ToolRecorder("maya")
             assert rec.metrics("nonexistent") is None
 
         def test_reset_clears_all_metrics(self):
-            rec = ActionRecorder("maya")
+            rec = ToolRecorder("maya")
             rec.start("action_a", "maya").finish(True)
             rec.start("action_b", "maya").finish(True)
             assert len(rec.all_metrics()) == 2
@@ -105,7 +105,7 @@ class TestActionRecorder:
             assert rec.all_metrics() == []
 
         def test_multiple_actions_tracked_separately(self):
-            rec = ActionRecorder("maya")
+            rec = ToolRecorder("maya")
             for _ in range(3):
                 rec.start("action_a", "maya").finish(True)
             for _ in range(2):
@@ -114,8 +114,8 @@ class TestActionRecorder:
             assert rec.metrics("action_b").invocation_count == 2
 
         def test_different_dcc_scopes(self):
-            rec1 = ActionRecorder("maya")
-            rec2 = ActionRecorder("blender")
+            rec1 = ToolRecorder("maya")
+            rec2 = ToolRecorder("blender")
             rec1.start("do_thing", "maya").finish(True)
             rec2.start("do_thing", "blender").finish(False)
             m1 = rec1.metrics("do_thing")
@@ -124,7 +124,7 @@ class TestActionRecorder:
             assert m2.failure_count == 1
 
         def test_reset_allows_fresh_recording(self):
-            rec = ActionRecorder("maya")
+            rec = ToolRecorder("maya")
             rec.start("action", "maya").finish(True)
             rec.reset()
             rec.start("action", "maya").finish(False)
@@ -139,11 +139,11 @@ class TestActionRecorder:
 
 
 class TestActionMetrics:
-    """Tests for ActionMetrics returned by ActionRecorder."""
+    """Tests for ToolMetrics returned by ToolRecorder."""
 
     class TestHappyPath:
-        def _make_metrics(self, successes: int, failures: int) -> ActionMetrics:
-            rec = ActionRecorder("test_scope")
+        def _make_metrics(self, successes: int, failures: int) -> ToolMetrics:
+            rec = ToolRecorder("test_scope")
             for _ in range(successes):
                 rec.start("measured_action", "maya").finish(True)
             for _ in range(failures):
@@ -209,11 +209,11 @@ class TestActionMetrics:
             assert "measured_action" in r
 
         def test_all_metrics_returns_action_metrics_instances(self):
-            rec = ActionRecorder("maya")
+            rec = ToolRecorder("maya")
             rec.start("act1", "maya").finish(True)
             rec.start("act2", "maya").finish(False)
             for m in rec.all_metrics():
-                assert isinstance(m, ActionMetrics)
+                assert isinstance(m, ToolMetrics)
                 assert m.invocation_count >= 1
 
 
@@ -223,23 +223,23 @@ class TestActionMetrics:
 
 
 class TestRecordingGuard:
-    """Tests for RecordingGuard returned by ActionRecorder.start()."""
+    """Tests for RecordingGuard returned by ToolRecorder.start()."""
 
     class TestHappyPath:
         def test_finish_true_records_success(self):
-            rec = ActionRecorder("maya")
+            rec = ToolRecorder("maya")
             guard = rec.start("act", "maya")
             guard.finish(True)
             assert rec.metrics("act").success_count == 1
 
         def test_finish_false_records_failure(self):
-            rec = ActionRecorder("maya")
+            rec = ToolRecorder("maya")
             guard = rec.start("act", "maya")
             guard.finish(False)
             assert rec.metrics("act").failure_count == 1
 
         def test_guard_is_different_per_start(self):
-            rec = ActionRecorder("maya")
+            rec = ToolRecorder("maya")
             g1 = rec.start("act", "maya")
             g2 = rec.start("act", "maya")
             assert g1 is not g2

@@ -17,9 +17,6 @@ from __future__ import annotations
 import pytest
 
 import dcc_mcp_core
-from dcc_mcp_core import ActionDispatcher
-from dcc_mcp_core import ActionPipeline
-from dcc_mcp_core import ActionRegistry
 from dcc_mcp_core import AuditEntry
 from dcc_mcp_core import AuditLog
 from dcc_mcp_core import AuditMiddleware
@@ -36,6 +33,9 @@ from dcc_mcp_core import SandboxPolicy
 from dcc_mcp_core import ScriptResult
 from dcc_mcp_core import ServiceStatus
 from dcc_mcp_core import StringWrapper
+from dcc_mcp_core import ToolDispatcher
+from dcc_mcp_core import ToolPipeline
+from dcc_mcp_core import ToolRegistry
 from dcc_mcp_core import TransportAddress
 from dcc_mcp_core import TransportScheme
 from dcc_mcp_core import VtValue
@@ -50,11 +50,11 @@ from dcc_mcp_core import encode_response
 
 
 def _make_pipeline(action_name: str = "test_action"):
-    reg = ActionRegistry()
+    reg = ToolRegistry()
     reg.register(action_name, description="test", category="test")
-    disp = ActionDispatcher(reg)
+    disp = ToolDispatcher(reg)
     disp.register_handler(action_name, lambda p: {"done": True})
-    return ActionPipeline(disp), action_name
+    return ToolPipeline(disp), action_name
 
 
 # ===========================================================================
@@ -880,7 +880,7 @@ class TestMcpHttpServerDeep:
     """Tests for McpHttpServer construction and skill management (no actual HTTP binding)."""
 
     def _make_server(self, port: int = 19999) -> McpHttpServer:
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cfg = McpHttpConfig(port=port)
         return McpHttpServer(reg, cfg)
 
@@ -890,7 +890,7 @@ class TestMcpHttpServerDeep:
 
     def test_repr_contains_name(self) -> None:
         cfg = McpHttpConfig(port=19990, server_name="test-srv")
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         srv = McpHttpServer(reg, cfg)
         assert "test-srv" in repr(srv)
 
@@ -1067,14 +1067,14 @@ class TestAuditLogDeep:
 
 
 class TestAuditMiddlewareDeep:
-    """Tests for AuditMiddleware via ActionPipeline."""
+    """Tests for AuditMiddleware via ToolPipeline."""
 
     def _pipeline_with_audit(self, action: str = "op") -> tuple:
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register(action, description="test op", category="test")
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         disp.register_handler(action, lambda p: {"result": 42})
-        pipeline = ActionPipeline(disp)
+        pipeline = ToolPipeline(disp)
         audit = pipeline.add_audit(record_params=True)
         return pipeline, audit, action
 
@@ -1114,13 +1114,13 @@ class TestAuditMiddlewareDeep:
         assert rec["success"] is True
 
     def test_records_for_action_filters(self) -> None:
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("alpha", description="a", category="x")
         reg.register("beta", description="b", category="x")
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         disp.register_handler("alpha", lambda p: 1)
         disp.register_handler("beta", lambda p: 2)
-        pipeline = ActionPipeline(disp)
+        pipeline = ToolPipeline(disp)
         audit = pipeline.add_audit()
         pipeline.dispatch("alpha", "{}")
         pipeline.dispatch("beta", "{}")

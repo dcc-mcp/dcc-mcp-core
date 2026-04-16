@@ -231,10 +231,10 @@ except RuntimeError as e:
     print(f"无效 JSON: {e}")
 ```
 
-::: warning InputValidator vs ActionValidator
+::: warning InputValidator vs ToolValidator
 `InputValidator` 用于**沙盒字段级规则**（长度、范围、注入防护）。
-`ActionValidator`（来自 actions 模块）根据 **JSON Schema** 进行验证。
-在沙盒中使用 `InputValidator`；在操作分派层使用 `ActionValidator`。
+`ToolValidator`（来自 actions 模块）根据 **JSON Schema** 进行验证。
+在沙盒中使用 `InputValidator`；在操作分派层使用 `ToolValidator`。
 :::
 
 ## 最佳实践

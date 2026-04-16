@@ -1,6 +1,6 @@
 # 数据模型
 
-## ActionResultModel
+## ToolResult
 
 所有 Action 执行的标准化结果，底层为通过 PyO3 暴露的 Rust 结构体。
 
@@ -18,8 +18,8 @@
 
 | 方法 | 返回值 | 说明 |
 |------|--------|------|
-| `with_error(error)` | `ActionResultModel` | 创建带错误信息的副本（设置 `success=False`） |
-| `with_context(**kwargs)` | `ActionResultModel` | 创建带更新上下文的副本 |
+| `with_error(error)` | `ToolResult` | 创建带错误信息的副本（设置 `success=False`） |
+| `with_context(**kwargs)` | `ToolResult` | 创建带更新上下文的副本 |
 | `to_dict()` | `Dict[str, Any]` | 转换为字典 |
 | `to_json()` | `str` | 序列化为 JSON 字符串 |
 | `__eq__(other)` | `bool` | 相等比较 |
@@ -27,7 +27,7 @@
 | `__repr__()` | `str` | 无歧义表示 |
 
 ::: warning 不支持直接使用 `json.dumps()`
-`ActionResultModel` 是 Rust 后端对象，**不能直接传给 `json.dumps()`**。
+`ToolResult` 是 Rust 后端对象，**不能直接传给 `json.dumps()`**。
 请使用 `to_json()` 或先转换为字典：
 
 ```python
@@ -69,7 +69,7 @@ exc_result = from_exception(
     include_traceback=True,
 )
 
-# 验证/规范化任意值为 ActionResultModel
+# 验证/规范化任意值为 ToolResult
 validate_action_result(result)                          # 直接通过
 validate_action_result({"success": True, "message": "OK"})  # dict → ARM
 validate_action_result("hello")                         # 包装为成功结果
@@ -79,10 +79,10 @@ validate_action_result("hello")                         # 包装为成功结果
 
 | 函数 | 签名 | 说明 |
 |------|------|------|
-| `success_result` | `(message, prompt=None, **context) -> ActionResultModel` | 创建成功结果 |
-| `error_result` | `(message, error, prompt=None, possible_solutions=None, **context) -> ActionResultModel` | 创建失败结果 |
-| `from_exception` | `(error_message, message=None, prompt=None, include_traceback=True, possible_solutions=None, **context) -> ActionResultModel` | 将异常包装为结果 |
-| `validate_action_result` | `(result: Any) -> ActionResultModel` | 规范化 dict/str/None/ARM → ActionResultModel |
+| `success_result` | `(message, prompt=None, **context) -> ToolResult` | 创建成功结果 |
+| `error_result` | `(message, error, prompt=None, possible_solutions=None, **context) -> ToolResult` | 创建失败结果 |
+| `from_exception` | `(error_message, message=None, prompt=None, include_traceback=True, possible_solutions=None, **context) -> ToolResult` | 将异常包装为结果 |
+| `validate_action_result` | `(result: Any) -> ToolResult` | 规范化 dict/str/None/ARM → ToolResult |
 
 ## SkillMetadata
 

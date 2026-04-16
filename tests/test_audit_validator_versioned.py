@@ -1,10 +1,10 @@
-"""Tests for AuditLog / AuditEntry, ActionValidator, VersionedRegistry, SemVer, VersionConstraint.
+"""Tests for AuditLog / AuditEntry, ToolValidator, VersionedRegistry, SemVer, VersionConstraint.
 
 Scope
 -----
 - AuditLog: entries/successes/denials/entries_for_action/to_json/len
 - AuditEntry: all fields (action/actor/duration_ms/outcome/outcome_detail/params_json/timestamp_ms)
-- ActionValidator: from_schema_json/from_action_registry/validate (happy + error paths)
+- ToolValidator: from_schema_json/from_action_registry/validate (happy + error paths)
 - VersionedRegistry: register_versioned/resolve/resolve_all/latest_version/versions/keys/remove/total_entries
 - SemVer: parse/major/minor/patch/comparisons/matches_constraint
 - VersionConstraint: parse/matches/str
@@ -15,11 +15,11 @@ from __future__ import annotations
 import contextlib
 import json
 
-from dcc_mcp_core import ActionRegistry
-from dcc_mcp_core import ActionValidator
 from dcc_mcp_core import SandboxContext
 from dcc_mcp_core import SandboxPolicy
 from dcc_mcp_core import SemVer
+from dcc_mcp_core import ToolRegistry
+from dcc_mcp_core import ToolValidator
 from dcc_mcp_core import VersionConstraint
 from dcc_mcp_core import VersionedRegistry
 
@@ -259,17 +259,17 @@ class TestAuditEntry:
 
 
 # ===========================================================================
-# ActionValidator
+# ToolValidator
 # ===========================================================================
 
 
 class TestActionValidatorFromSchemaJson:
-    """Tests for ActionValidator.from_schema_json factory."""
+    """Tests for ToolValidator.from_schema_json factory."""
 
     def test_valid_object_passes(self):
         """Valid JSON matching schema returns (True, [])."""
         schema = '{"type":"object","properties":{"x":{"type":"number"}},"required":["x"]}'
-        v = ActionValidator.from_schema_json(schema)
+        v = ToolValidator.from_schema_json(schema)
         ok, errors = v.validate('{"x": 42}')
         assert ok is True
         assert errors == []
@@ -277,7 +277,7 @@ class TestActionValidatorFromSchemaJson:
     def test_missing_required_field(self):
         """Missing required field returns (False, [message])."""
         schema = '{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}'
-        v = ActionValidator.from_schema_json(schema)
+        v = ToolValidator.from_schema_json(schema)
         ok, errors = v.validate("{}")
         assert ok is False
         assert len(errors) > 0
@@ -286,7 +286,7 @@ class TestActionValidatorFromSchemaJson:
     def test_wrong_type_returns_error(self):
         """Wrong field type returns (False, [message])."""
         schema = '{"type":"object","properties":{"radius":{"type":"number"}},"required":["radius"]}'
-        v = ActionValidator.from_schema_json(schema)
+        v = ToolValidator.from_schema_json(schema)
         ok, errors = v.validate('{"radius": "not_a_number"}')
         assert ok is False
         assert len(errors) > 0
@@ -294,14 +294,14 @@ class TestActionValidatorFromSchemaJson:
     def test_extra_field_allowed(self):
         """Extra properties not in schema are tolerated (unless additionalProperties:false)."""
         schema = '{"type":"object","properties":{"x":{"type":"number"}}}'
-        v = ActionValidator.from_schema_json(schema)
+        v = ToolValidator.from_schema_json(schema)
         ok, _errors = v.validate('{"x": 1, "extra": "field"}')
         assert ok is True
 
     def test_empty_object_no_required(self):
         """Empty object is valid when no required fields."""
         schema = '{"type":"object"}'
-        v = ActionValidator.from_schema_json(schema)
+        v = ToolValidator.from_schema_json(schema)
         ok, errors = v.validate("{}")
         assert ok is True
         assert errors == []
@@ -309,7 +309,7 @@ class TestActionValidatorFromSchemaJson:
     def test_multiple_required_fields(self):
         """Multiple required fields: passing both is valid."""
         schema = '{"type":"object","properties":{"a":{"type":"string"},"b":{"type":"integer"}},"required":["a","b"]}'
-        v = ActionValidator.from_schema_json(schema)
+        v = ToolValidator.from_schema_json(schema)
         ok, errors = v.validate('{"a": "hello", "b": 7}')
         assert ok is True
         assert errors == []
@@ -317,7 +317,7 @@ class TestActionValidatorFromSchemaJson:
     def test_multiple_required_one_missing(self):
         """Multiple required fields: missing one returns error."""
         schema = '{"type":"object","properties":{"a":{"type":"string"},"b":{"type":"integer"}},"required":["a","b"]}'
-        v = ActionValidator.from_schema_json(schema)
+        v = ToolValidator.from_schema_json(schema)
         ok, errors = v.validate('{"a": "hello"}')
         assert ok is False
         assert len(errors) > 0
@@ -329,14 +329,14 @@ class TestActionValidatorFromSchemaJson:
             '"transform":{"type":"object","properties":{"x":{"type":"number"}},"required":["x"]}'
             '},"required":["transform"]}'
         )
-        v = ActionValidator.from_schema_json(schema)
+        v = ToolValidator.from_schema_json(schema)
         ok, _errors = v.validate('{"transform": {"x": 1.0}}')
         assert ok is True
 
     def test_validate_returns_tuple(self):
         """Validate always returns a 2-tuple."""
         schema = '{"type":"object"}'
-        v = ActionValidator.from_schema_json(schema)
+        v = ToolValidator.from_schema_json(schema)
         result = v.validate("{}")
         assert isinstance(result, tuple)
         assert len(result) == 2
@@ -344,17 +344,17 @@ class TestActionValidatorFromSchemaJson:
     def test_errors_are_list_of_strings(self):
         """Error messages are a list of strings."""
         schema = '{"type":"object","properties":{"x":{"type":"number"}},"required":["x"]}'
-        v = ActionValidator.from_schema_json(schema)
+        v = ToolValidator.from_schema_json(schema)
         _ok, errors = v.validate("{}")
         assert isinstance(errors, list)
         assert all(isinstance(e, str) for e in errors)
 
 
 class TestActionValidatorFromActionRegistry:
-    """Tests for ActionValidator.from_action_registry factory."""
+    """Tests for ToolValidator.from_action_registry factory."""
 
-    def _make_registry(self) -> ActionRegistry:
-        reg = ActionRegistry()
+    def _make_registry(self) -> ToolRegistry:
+        reg = ToolRegistry()
         schema = (
             '{"type":"object","properties":{"radius":{"type":"number"},"name":{"type":"string"}},"required":["radius"]}'
         )
@@ -370,7 +370,7 @@ class TestActionValidatorFromActionRegistry:
     def test_valid_params(self):
         """Valid params for registered action pass validation."""
         reg = self._make_registry()
-        v = ActionValidator.from_action_registry(reg, "create_sphere")
+        v = ToolValidator.from_action_registry(reg, "create_sphere")
         ok, errors = v.validate('{"radius": 5.0}')
         assert ok is True
         assert errors == []
@@ -378,7 +378,7 @@ class TestActionValidatorFromActionRegistry:
     def test_optional_field_included(self):
         """Optional field included is still valid."""
         reg = self._make_registry()
-        v = ActionValidator.from_action_registry(reg, "create_sphere")
+        v = ToolValidator.from_action_registry(reg, "create_sphere")
         ok, errors = v.validate('{"radius": 3.0, "name": "mySphere"}')
         assert ok is True
         assert errors == []
@@ -386,7 +386,7 @@ class TestActionValidatorFromActionRegistry:
     def test_missing_required_radius(self):
         """Missing required 'radius' returns validation error."""
         reg = self._make_registry()
-        v = ActionValidator.from_action_registry(reg, "create_sphere")
+        v = ToolValidator.from_action_registry(reg, "create_sphere")
         ok, errors = v.validate("{}")
         assert ok is False
         assert any("radius" in e for e in errors)
@@ -394,20 +394,20 @@ class TestActionValidatorFromActionRegistry:
     def test_wrong_type_for_radius(self):
         """String for numeric 'radius' returns validation error."""
         reg = self._make_registry()
-        v = ActionValidator.from_action_registry(reg, "create_sphere")
+        v = ToolValidator.from_action_registry(reg, "create_sphere")
         ok, errors = v.validate('{"radius": "big"}')
         assert ok is False
         assert len(errors) > 0
 
     def test_multiple_actions_independent(self):
         """Different validators from same registry are independent."""
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         schema_a = '{"type":"object","properties":{"a":{"type":"number"}},"required":["a"]}'
         schema_b = '{"type":"object","properties":{"b":{"type":"string"}},"required":["b"]}'
         reg.register(name="action_a", description="a", category="test", dcc="maya", input_schema=schema_a)
         reg.register(name="action_b", description="b", category="test", dcc="maya", input_schema=schema_b)
-        va = ActionValidator.from_action_registry(reg, "action_a")
-        vb = ActionValidator.from_action_registry(reg, "action_b")
+        va = ToolValidator.from_action_registry(reg, "action_a")
+        vb = ToolValidator.from_action_registry(reg, "action_b")
         ok_a, _ = va.validate('{"a": 1}')
         ok_b, _ = vb.validate('{"b": "hello"}')
         assert ok_a is True

@@ -671,7 +671,7 @@ class TestAuditEntry:
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# AuditMiddleware (from ActionPipeline)
+# AuditMiddleware (from ToolPipeline)
 # ═════════════════════════════════════════════════════════════════════════════
 
 
@@ -679,11 +679,11 @@ class TestAuditMiddleware:
     """Tests for AuditMiddleware (pipeline-level audit log)."""
 
     def _pipeline_with_audit(self):
-        reg = m.ActionRegistry()
+        reg = m.ToolRegistry()
         reg.register("m_action", description="mid test", category="test")
-        disp = m.ActionDispatcher(reg)
+        disp = m.ToolDispatcher(reg)
         disp.register_handler("m_action", lambda p: {"ok": True})
-        pipe = m.ActionPipeline(disp)
+        pipe = m.ToolPipeline(disp)
         audit = pipe.add_audit(record_params=True)
         return pipe, audit
 
@@ -765,35 +765,35 @@ class TestAuditMiddleware:
         assert audit.record_count() == 3
 
     def test_creation_default_record_params(self):
-        reg = m.ActionRegistry()
+        reg = m.ToolRegistry()
         reg.register("x", description="x", category="test")
-        disp = m.ActionDispatcher(reg)
+        disp = m.ToolDispatcher(reg)
         disp.register_handler("x", lambda p: {})
-        pipe = m.ActionPipeline(disp)
+        pipe = m.ToolPipeline(disp)
         audit = pipe.add_audit()  # default: record_params=True
         pipe.dispatch("x", "{}")
         assert audit.record_count() == 1
 
     def test_creation_record_params_false(self):
-        reg = m.ActionRegistry()
+        reg = m.ToolRegistry()
         reg.register("y", description="y", category="test")
-        disp = m.ActionDispatcher(reg)
+        disp = m.ToolDispatcher(reg)
         disp.register_handler("y", lambda p: {})
-        pipe = m.ActionPipeline(disp)
+        pipe = m.ToolPipeline(disp)
         audit = pipe.add_audit(record_params=False)
         pipe.dispatch("y", "{}")
         assert audit.record_count() == 1
 
     def test_error_dispatch_recorded_as_failure(self):
-        reg = m.ActionRegistry()
+        reg = m.ToolRegistry()
         reg.register("fail_action", description="x", category="test")
-        disp = m.ActionDispatcher(reg)
+        disp = m.ToolDispatcher(reg)
 
         def raise_error(p):
             raise ValueError("oops")
 
         disp.register_handler("fail_action", raise_error)
-        pipe = m.ActionPipeline(disp)
+        pipe = m.ToolPipeline(disp)
         audit = pipe.add_audit(record_params=True)
         with contextlib.suppress(Exception):
             pipe.dispatch("fail_action", "{}")
@@ -802,11 +802,11 @@ class TestAuditMiddleware:
         assert count >= 0
 
     def test_concurrent_dispatches(self):
-        reg = m.ActionRegistry()
+        reg = m.ToolRegistry()
         reg.register("concurrent_action", description="x", category="test")
-        disp = m.ActionDispatcher(reg)
+        disp = m.ToolDispatcher(reg)
         disp.register_handler("concurrent_action", lambda p: {"ok": True})
-        pipe = m.ActionPipeline(disp)
+        pipe = m.ToolPipeline(disp)
         audit = pipe.add_audit(record_params=True)
 
         def dispatch_n(n):

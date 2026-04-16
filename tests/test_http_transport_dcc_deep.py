@@ -19,7 +19,6 @@ import urllib.request
 
 import pytest
 
-from dcc_mcp_core import ActionRegistry
 from dcc_mcp_core import DccCapabilities
 from dcc_mcp_core import DccError
 from dcc_mcp_core import DccErrorCode
@@ -32,6 +31,7 @@ from dcc_mcp_core import RoutingStrategy
 from dcc_mcp_core import ScriptLanguage
 from dcc_mcp_core import ServiceStatus
 from dcc_mcp_core import SkillWatcher
+from dcc_mcp_core import ToolRegistry
 from dcc_mcp_core import TransportAddress
 from dcc_mcp_core import TransportManager
 from dcc_mcp_core import TransportScheme
@@ -39,8 +39,8 @@ from dcc_mcp_core import TransportScheme
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 
-def _make_registry(*names: str) -> ActionRegistry:
-    reg = ActionRegistry()
+def _make_registry(*names: str) -> ToolRegistry:
+    reg = ToolRegistry()
     for name in names:
         reg.register(name, description=f"desc {name}", category="test", tags=[], dcc="test", version="1.0.0")
     return reg
@@ -242,7 +242,7 @@ class TestMcpHttpServerCreate:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# McpServerHandle (ServerHandle)
+# McpServerHandle (McpServerHandle)
 # ══════════════════════════════════════════════════════════════════════════════
 
 

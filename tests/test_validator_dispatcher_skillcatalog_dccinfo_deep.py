@@ -1,10 +1,10 @@
-"""Deep tests for ActionValidator, ActionDispatcher, InputValidator, SkillCatalog.
+"""Deep tests for ToolValidator, ToolDispatcher, InputValidator, SkillCatalog.
 
 DccInfo/DccCapabilities/DccError/SceneInfo/ScriptResult/SceneStatistics.
 
 Coverage targets:
-- ActionValidator: from_schema_json, from_action_registry, validate edge cases
-- ActionDispatcher: skip_empty_schema_validation, remove_handler, handler_names, error paths
+- ToolValidator: from_schema_json, from_action_registry, validate edge cases
+- ToolDispatcher: skip_empty_schema_validation, remove_handler, handler_names, error paths
 - InputValidator: require_string/number/forbid_substrings/validate
 - SkillCatalog: discover, find_skills, list_skills, is_loaded, load/unload lifecycle
 - DccInfo, DccCapabilities, DccError, DccErrorCode: construction / attributes / repr
@@ -19,9 +19,6 @@ import tempfile
 
 import pytest
 
-from dcc_mcp_core import ActionDispatcher
-from dcc_mcp_core import ActionRegistry
-from dcc_mcp_core import ActionValidator
 from dcc_mcp_core import DccCapabilities
 from dcc_mcp_core import DccError
 from dcc_mcp_core import DccErrorCode
@@ -33,14 +30,17 @@ from dcc_mcp_core import ScriptLanguage
 from dcc_mcp_core import ScriptResult
 from dcc_mcp_core import SkillCatalog
 from dcc_mcp_core import SkillMetadata
+from dcc_mcp_core import ToolDispatcher
+from dcc_mcp_core import ToolRegistry
+from dcc_mcp_core import ToolValidator
 
 # ---------------------------------------------------------------------------
-# ActionValidator: from_schema_json
+# ToolValidator: from_schema_json
 # ---------------------------------------------------------------------------
 
 
 class TestActionValidatorFromSchemaJson:
-    """ActionValidator.from_schema_json construction and basic behaviour."""
+    """ToolValidator.from_schema_json construction and basic behaviour."""
 
     def _make_schema(self, required=None, props=None):
         schema = {"type": "object"}
@@ -51,15 +51,15 @@ class TestActionValidatorFromSchemaJson:
         return json.dumps(schema)
 
     def test_create_basic_schema(self):
-        v = ActionValidator.from_schema_json(self._make_schema())
+        v = ToolValidator.from_schema_json(self._make_schema())
         assert v is not None
 
     def test_repr_contains_class(self):
-        v = ActionValidator.from_schema_json(self._make_schema())
+        v = ToolValidator.from_schema_json(self._make_schema())
         assert "ToolValidator" in repr(v) or "Validator" in repr(v)
 
     def test_validate_empty_object_no_required(self):
-        v = ActionValidator.from_schema_json(self._make_schema())
+        v = ToolValidator.from_schema_json(self._make_schema())
         ok, errors = v.validate("{}")
         assert ok is True
         assert errors == []
@@ -69,7 +69,7 @@ class TestActionValidatorFromSchemaJson:
             required=["radius"],
             props={"radius": {"type": "number"}},
         )
-        v = ActionValidator.from_schema_json(schema)
+        v = ToolValidator.from_schema_json(schema)
         ok, _errors = v.validate('{"radius": 1.5}')
         assert ok is True
 
@@ -78,7 +78,7 @@ class TestActionValidatorFromSchemaJson:
             required=["radius"],
             props={"radius": {"type": "number"}},
         )
-        v = ActionValidator.from_schema_json(schema)
+        v = ToolValidator.from_schema_json(schema)
         ok, errors = v.validate("{}")
         assert ok is False
         assert len(errors) > 0
@@ -88,12 +88,12 @@ class TestActionValidatorFromSchemaJson:
             required=["count"],
             props={"count": {"type": "integer"}},
         )
-        v = ActionValidator.from_schema_json(schema)
+        v = ToolValidator.from_schema_json(schema)
         ok, _errors = v.validate('{"count": "not_a_number"}')
         assert ok is False
 
     def test_validate_invalid_json_raises(self):
-        v = ActionValidator.from_schema_json(self._make_schema())
+        v = ToolValidator.from_schema_json(self._make_schema())
         with pytest.raises((ValueError, Exception)):
             v.validate("not json at all")
 
@@ -102,7 +102,7 @@ class TestActionValidatorFromSchemaJson:
             required=["x"],
             props={"x": {"type": "number", "minimum": 0.0}},
         )
-        v = ActionValidator.from_schema_json(schema)
+        v = ToolValidator.from_schema_json(schema)
         ok, _ = v.validate('{"x": 0.0}')
         assert ok is True
 
@@ -111,14 +111,14 @@ class TestActionValidatorFromSchemaJson:
             required=["x"],
             props={"x": {"type": "number", "minimum": 0.0}},
         )
-        v = ActionValidator.from_schema_json(schema)
+        v = ToolValidator.from_schema_json(schema)
         ok, errors = v.validate('{"x": -1.0}')
         assert ok is False
         assert len(errors) > 0
 
     def test_invalid_schema_json_raises(self):
         with pytest.raises((ValueError, Exception)):
-            ActionValidator.from_schema_json("not json")
+            ToolValidator.from_schema_json("not json")
 
     def test_schema_with_string_type(self):
         schema = json.dumps(
@@ -128,7 +128,7 @@ class TestActionValidatorFromSchemaJson:
                 "properties": {"name": {"type": "string"}},
             }
         )
-        v = ActionValidator.from_schema_json(schema)
+        v = ToolValidator.from_schema_json(schema)
         ok, _ = v.validate('{"name": "sphere"}')
         assert ok is True
 
@@ -139,21 +139,21 @@ class TestActionValidatorFromSchemaJson:
                 "properties": {"visible": {"type": "boolean"}},
             }
         )
-        v = ActionValidator.from_schema_json(schema)
+        v = ToolValidator.from_schema_json(schema)
         ok, _ = v.validate('{"visible": true}')
         assert ok is True
 
 
 # ---------------------------------------------------------------------------
-# ActionValidator: from_action_registry
+# ToolValidator: from_action_registry
 # ---------------------------------------------------------------------------
 
 
 class TestActionValidatorFromRegistry:
-    """ActionValidator.from_action_registry construction."""
+    """ToolValidator.from_action_registry construction."""
 
     def _reg_with_schema(self, name="sphere", schema_props=None):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         if schema_props is None:
             schema_props = {"radius": {"type": "number"}}
         schema = json.dumps({"type": "object", "required": list(schema_props.keys()), "properties": schema_props})
@@ -162,33 +162,33 @@ class TestActionValidatorFromRegistry:
 
     def test_create_from_registry(self):
         reg = self._reg_with_schema()
-        v = ActionValidator.from_action_registry(reg, "sphere")
+        v = ToolValidator.from_action_registry(reg, "sphere")
         assert v is not None
 
     def test_validate_from_registry_pass(self):
         reg = self._reg_with_schema()
-        v = ActionValidator.from_action_registry(reg, "sphere")
+        v = ToolValidator.from_action_registry(reg, "sphere")
         ok, _ = v.validate('{"radius": 2.0}')
         assert ok is True
 
     def test_validate_from_registry_fail(self):
         reg = self._reg_with_schema()
-        v = ActionValidator.from_action_registry(reg, "sphere")
+        v = ToolValidator.from_action_registry(reg, "sphere")
         ok, _errors = v.validate("{}")
         assert ok is False
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         with pytest.raises((KeyError, Exception)):
-            ActionValidator.from_action_registry(reg, "nonexistent")
+            ToolValidator.from_action_registry(reg, "nonexistent")
 
     def test_with_dcc_name(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         schema = json.dumps({"type": "object", "properties": {"r": {"type": "number"}}})
         reg.register(name="cube", dcc="maya", input_schema=schema)
-        v = ActionValidator.from_action_registry(reg, "cube", dcc_name="maya")
+        v = ToolValidator.from_action_registry(reg, "cube", dcc_name="maya")
         assert v is not None
 
     def test_multiple_fields(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         schema = json.dumps(
             {
                 "type": "object",
@@ -200,48 +200,48 @@ class TestActionValidatorFromRegistry:
             }
         )
         reg.register(name="move", input_schema=schema)
-        v = ActionValidator.from_action_registry(reg, "move")
+        v = ToolValidator.from_action_registry(reg, "move")
         ok, _ = v.validate('{"x": 1.0, "y": 2.0}')
         assert ok is True
 
 
 # ---------------------------------------------------------------------------
-# ActionDispatcher: deep tests
+# ToolDispatcher: deep tests
 # ---------------------------------------------------------------------------
 
 
 class TestActionDispatcherCreate:
-    """ActionDispatcher construction and basic state."""
+    """ToolDispatcher construction and basic state."""
 
     def _make_reg_disp(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register(name="foo")
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         return reg, disp
 
     def test_create(self):
-        reg = ActionRegistry()
-        disp = ActionDispatcher(reg)
+        reg = ToolRegistry()
+        disp = ToolDispatcher(reg)
         assert disp is not None
 
     def test_repr(self):
-        reg = ActionRegistry()
-        disp = ActionDispatcher(reg)
+        reg = ToolRegistry()
+        disp = ToolDispatcher(reg)
         assert "ToolDispatcher" in repr(disp) or "Dispatcher" in repr(disp)
 
     def test_handler_count_zero(self):
-        reg = ActionRegistry()
-        disp = ActionDispatcher(reg)
+        reg = ToolRegistry()
+        disp = ToolDispatcher(reg)
         assert disp.handler_count() == 0
 
     def test_has_handler_false(self):
-        reg = ActionRegistry()
-        disp = ActionDispatcher(reg)
+        reg = ToolRegistry()
+        disp = ToolDispatcher(reg)
         assert disp.has_handler("nonexistent") is False
 
     def test_skip_empty_schema_validation_default(self):
-        reg = ActionRegistry()
-        disp = ActionDispatcher(reg)
+        reg = ToolRegistry()
+        disp = ToolDispatcher(reg)
         # default is True (skip when schema is empty)
         assert isinstance(disp.skip_empty_schema_validation, bool)
 
@@ -250,11 +250,11 @@ class TestActionDispatcherHandlers:
     """Register, remove, query handlers."""
 
     def _make(self, names=None):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         names = names or ["alpha", "beta"]
         for n in names:
             reg.register(name=n)
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         return reg, disp
 
     def test_register_handler(self):
@@ -305,32 +305,32 @@ class TestActionDispatcherHandlers:
             disp.register_handler("x", "not_callable")
 
     def test_dispatch_basic(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register(name="create")
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         disp.register_handler("create", lambda p: {"ok": True})
         result = disp.dispatch("create", "{}")
         assert result["output"]["ok"] is True
 
     def test_dispatch_has_action_key(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register(name="ping")
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         disp.register_handler("ping", lambda p: "pong")
         result = disp.dispatch("ping", "{}")
         assert result["action"] == "ping"
 
     def test_dispatch_no_handler_raises(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register(name="orphan")
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         with pytest.raises((KeyError, RuntimeError, Exception)):
             disp.dispatch("orphan", "{}")
 
     def test_dispatch_validation_skipped_flag(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register(name="act")
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         disp.register_handler("act", lambda p: {})
         result = disp.dispatch("act", "{}")
         assert "validation_skipped" in result
@@ -340,7 +340,7 @@ class TestActionDispatcherWithSchema:
     """Dispatcher with schema triggers real validation."""
 
     def _make_with_schema(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         schema = json.dumps(
             {
                 "type": "object",
@@ -349,7 +349,7 @@ class TestActionDispatcherWithSchema:
             }
         )
         reg.register(name="sphere", input_schema=schema)
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         disp.register_handler("sphere", lambda p: {"r": p.get("radius")})
         return disp
 
@@ -558,32 +558,32 @@ class TestSkillCatalogCreate:
     """SkillCatalog construction and empty state."""
 
     def test_create(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cat = SkillCatalog(reg)
         assert cat is not None
 
     def test_repr(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cat = SkillCatalog(reg)
         assert "SkillCatalog" in repr(cat)
 
     def test_len_zero_initial(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cat = SkillCatalog(reg)
         assert len(cat) == 0
 
     def test_bool_false_when_empty(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cat = SkillCatalog(reg)
         assert not cat
 
     def test_loaded_count_zero_initial(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cat = SkillCatalog(reg)
         assert cat.loaded_count() == 0
 
     def test_list_skills_empty(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cat = SkillCatalog(reg)
         skills = cat.list_skills()
         assert skills == [] or isinstance(skills, list)
@@ -593,7 +593,7 @@ class TestSkillCatalogDiscover:
     """SkillCatalog discover from directories."""
 
     def test_discover_no_paths_returns_zero(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cat = SkillCatalog(reg)
         # Without env vars pointing to real dirs, should return 0
         count = cat.discover(extra_paths=[])
@@ -602,7 +602,7 @@ class TestSkillCatalogDiscover:
 
     def test_discover_with_tmp_skill(self, tmp_path):
         _make_skill_dir(tmp_path, 0)
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cat = SkillCatalog(reg)
         count = cat.discover(extra_paths=[str(tmp_path)])
         assert count >= 1
@@ -610,35 +610,35 @@ class TestSkillCatalogDiscover:
     def test_discover_multiple_skills(self, tmp_path):
         for i in range(3):
             _make_skill_dir(tmp_path, i)
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cat = SkillCatalog(reg)
         count = cat.discover(extra_paths=[str(tmp_path)])
         assert count >= 3
 
     def test_discover_increments_len(self, tmp_path):
         _make_skill_dir(tmp_path, 9)
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cat = SkillCatalog(reg)
         cat.discover(extra_paths=[str(tmp_path)])
         assert len(cat) >= 1
 
     def test_discover_bool_true_when_skills(self, tmp_path):
         _make_skill_dir(tmp_path, 5)
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cat = SkillCatalog(reg)
         cat.discover(extra_paths=[str(tmp_path)])
         assert bool(cat)
 
     def test_discover_dcc_filter(self, tmp_path):
         _make_skill_dir(tmp_path, 1)
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cat = SkillCatalog(reg)
         # Filter by matching dcc
         count = cat.discover(extra_paths=[str(tmp_path)], dcc_name="maya")
         assert isinstance(count, int)
 
     def test_discover_nonexistent_path(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cat = SkillCatalog(reg)
         # Nonexistent path should not crash, returns 0
         count = cat.discover(extra_paths=["/nonexistent/path/xyz"])
@@ -650,7 +650,7 @@ class TestSkillCatalogListAndFind:
 
     def test_list_skills_returns_list(self, tmp_path):
         _make_skill_dir(tmp_path, 2)
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cat = SkillCatalog(reg)
         cat.discover(extra_paths=[str(tmp_path)])
         skills = cat.list_skills()
@@ -658,7 +658,7 @@ class TestSkillCatalogListAndFind:
 
     def test_list_skills_has_discovered_skill(self, tmp_path):
         _make_skill_dir(tmp_path, 3)
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cat = SkillCatalog(reg)
         cat.discover(extra_paths=[str(tmp_path)])
         skills = cat.list_skills()
@@ -667,7 +667,7 @@ class TestSkillCatalogListAndFind:
 
     def test_find_skills_no_filter(self, tmp_path):
         _make_skill_dir(tmp_path, 4)
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cat = SkillCatalog(reg)
         cat.discover(extra_paths=[str(tmp_path)])
         results = cat.find_skills()
@@ -675,7 +675,7 @@ class TestSkillCatalogListAndFind:
 
     def test_find_skills_by_query(self, tmp_path):
         _make_skill_dir(tmp_path, 6)
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cat = SkillCatalog(reg)
         cat.discover(extra_paths=[str(tmp_path)])
         results = cat.find_skills(query="test-skill-6")
@@ -683,7 +683,7 @@ class TestSkillCatalogListAndFind:
 
     def test_find_skills_by_tag(self, tmp_path):
         _make_skill_dir(tmp_path, 7)
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cat = SkillCatalog(reg)
         cat.discover(extra_paths=[str(tmp_path)])
         results = cat.find_skills(tags=["test"])
@@ -691,7 +691,7 @@ class TestSkillCatalogListAndFind:
 
     def test_find_skills_by_dcc(self, tmp_path):
         _make_skill_dir(tmp_path, 8)
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cat = SkillCatalog(reg)
         cat.discover(extra_paths=[str(tmp_path)])
         results = cat.find_skills(dcc="maya")
@@ -703,14 +703,14 @@ class TestSkillCatalogLoadUnload:
 
     def test_is_loaded_false_before_load(self, tmp_path):
         _make_skill_dir(tmp_path, 10)
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cat = SkillCatalog(reg)
         cat.discover(extra_paths=[str(tmp_path)])
         assert cat.is_loaded("test-skill-10") is False
 
     def test_load_skill_returns_list(self, tmp_path):
         _make_skill_dir(tmp_path, 11)
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cat = SkillCatalog(reg)
         cat.discover(extra_paths=[str(tmp_path)])
         actions = cat.load_skill("test-skill-11")
@@ -718,7 +718,7 @@ class TestSkillCatalogLoadUnload:
 
     def test_is_loaded_true_after_load(self, tmp_path):
         _make_skill_dir(tmp_path, 12)
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cat = SkillCatalog(reg)
         cat.discover(extra_paths=[str(tmp_path)])
         cat.load_skill("test-skill-12")
@@ -726,7 +726,7 @@ class TestSkillCatalogLoadUnload:
 
     def test_loaded_count_increments(self, tmp_path):
         _make_skill_dir(tmp_path, 13)
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cat = SkillCatalog(reg)
         cat.discover(extra_paths=[str(tmp_path)])
         assert cat.loaded_count() == 0
@@ -735,7 +735,7 @@ class TestSkillCatalogLoadUnload:
 
     def test_load_skill_registers_actions_in_registry(self, tmp_path):
         _make_skill_dir(tmp_path, 14)
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cat = SkillCatalog(reg)
         cat.discover(extra_paths=[str(tmp_path)])
         cat.load_skill("test-skill-14")
@@ -744,7 +744,7 @@ class TestSkillCatalogLoadUnload:
 
     def test_unload_skill_returns_count(self, tmp_path):
         _make_skill_dir(tmp_path, 15)
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cat = SkillCatalog(reg)
         cat.discover(extra_paths=[str(tmp_path)])
         cat.load_skill("test-skill-15")
@@ -754,7 +754,7 @@ class TestSkillCatalogLoadUnload:
 
     def test_is_loaded_false_after_unload(self, tmp_path):
         _make_skill_dir(tmp_path, 16)
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cat = SkillCatalog(reg)
         cat.discover(extra_paths=[str(tmp_path)])
         cat.load_skill("test-skill-16")
@@ -762,14 +762,14 @@ class TestSkillCatalogLoadUnload:
         assert cat.is_loaded("test-skill-16") is False
 
     def test_load_nonexistent_raises(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cat = SkillCatalog(reg)
         with pytest.raises((ValueError, Exception)):
             cat.load_skill("nonexistent-skill-xyz")
 
     def test_unload_not_loaded_raises(self, tmp_path):
         _make_skill_dir(tmp_path, 17)
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cat = SkillCatalog(reg)
         cat.discover(extra_paths=[str(tmp_path)])
         with pytest.raises((ValueError, Exception)):
@@ -777,7 +777,7 @@ class TestSkillCatalogLoadUnload:
 
     def test_get_skill_info_after_discover(self, tmp_path):
         _make_skill_dir(tmp_path, 18)
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cat = SkillCatalog(reg)
         cat.discover(extra_paths=[str(tmp_path)])
         info = cat.get_skill_info("test-skill-18")
@@ -785,7 +785,7 @@ class TestSkillCatalogLoadUnload:
         assert info is None or isinstance(info, dict)
 
     def test_get_skill_info_missing_returns_none(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cat = SkillCatalog(reg)
         info = cat.get_skill_info("does-not-exist")
         assert info is None

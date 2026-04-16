@@ -1,13 +1,13 @@
-"""Deep tests for SandboxPolicy, SandboxContext, InputValidator, ActionRecorder, ActionMetrics, TelemetryConfig.
+"""Deep tests for SandboxPolicy, SandboxContext, InputValidator, ToolRecorder, ToolMetrics, TelemetryConfig.
 
 Covers:
 - SandboxPolicy: allow_actions / deny_actions / allow_paths / set_read_only / set_timeout_ms / set_max_actions
 - SandboxContext: is_allowed / is_path_allowed / execute_json / action_count / audit_log / set_actor
 - AuditLog / AuditEntry: entries / entries_for_action / denials / successes / to_json
 - InputValidator: require_string / require_number / forbid_substrings / validate
-- ActionRecorder: start / finish / metrics / all_metrics / reset
+- ToolRecorder: start / finish / metrics / all_metrics / reset
 - RecordingGuard: repr / finish(success)
-- ActionMetrics: all attributes and methods
+- ToolMetrics: all attributes and methods
 - TelemetryConfig: service_name / enable_tracing / enable_metrics / builder methods / set methods
 """
 
@@ -716,57 +716,57 @@ class TestInputValidatorRequireNumber:
 
 
 # ---------------------------------------------------------------------------
-# ActionRecorder
+# ToolRecorder
 # ---------------------------------------------------------------------------
 
 
 class TestActionRecorderCreate:
     def test_create_with_scope(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("my_scope")
+        r = ToolRecorder("my_scope")
         assert r is not None
 
     def test_different_scopes(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r1 = ActionRecorder("scope_a")
-        r2 = ActionRecorder("scope_b")
+        r1 = ToolRecorder("scope_a")
+        r2 = ToolRecorder("scope_b")
         assert r1 is not r2
 
     def test_all_metrics_empty_initially(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         assert r.all_metrics() == []
 
     def test_metrics_none_before_recording(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         m = r.metrics("nonexistent_action")
         assert m is None
 
     def test_reset_on_empty(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         r.reset()
         assert r.all_metrics() == []
 
 
 class TestRecordingGuard:
     def test_start_returns_guard(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         guard = r.start("create_sphere", "maya")
         assert guard is not None
 
     def test_guard_repr_active(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         guard = r.start("create_sphere", "maya")
         rep = repr(guard)
         assert "create_sphere" in rep
@@ -774,18 +774,18 @@ class TestRecordingGuard:
         assert "active=true" in rep.lower() or "active" in rep.lower()
 
     def test_guard_repr_after_finish(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         guard = r.start("create_sphere", "maya")
         guard.finish(True)
         rep = repr(guard)
         assert "active=false" in rep.lower() or "false" in rep.lower()
 
     def test_guard_finish_success(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         guard = r.start("action_x", "dcc")
         guard.finish(True)
         m = r.metrics("action_x")
@@ -794,9 +794,9 @@ class TestRecordingGuard:
         assert m.failure_count == 0
 
     def test_guard_finish_failure(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         guard = r.start("action_x", "dcc")
         guard.finish(False)
         m = r.metrics("action_x")
@@ -805,34 +805,34 @@ class TestRecordingGuard:
         assert m.success_count == 0
 
     def test_guard_action_name_in_repr(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         guard = r.start("my_custom_action", "blender")
         assert "my_custom_action" in repr(guard)
 
     def test_guard_dcc_name_in_repr(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         guard = r.start("act", "houdini")
         assert "houdini" in repr(guard)
 
 
 class TestActionRecorderMetrics:
     def test_metrics_after_recording(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         g = r.start("action_a", "maya")
         g.finish(True)
         m = r.metrics("action_a")
         assert m is not None
 
     def test_metrics_invocation_count(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         for _ in range(3):
             g = r.start("action_a", "maya")
             g.finish(True)
@@ -840,9 +840,9 @@ class TestActionRecorderMetrics:
         assert m.invocation_count == 3
 
     def test_metrics_success_count(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         for _ in range(2):
             g = r.start("action_a", "maya")
             g.finish(True)
@@ -852,9 +852,9 @@ class TestActionRecorderMetrics:
         assert m.success_count == 2
 
     def test_metrics_failure_count(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         g = r.start("action_a", "maya")
         g.finish(True)
         for _ in range(2):
@@ -865,9 +865,9 @@ class TestActionRecorderMetrics:
 
     def test_metrics_success_rate_is_method(self):
         """success_rate is a bound method, not a property."""
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         g = r.start("act", "dcc")
         g.finish(True)
         m = r.metrics("act")
@@ -877,9 +877,9 @@ class TestActionRecorderMetrics:
         assert callable(m.success_rate)
 
     def test_metrics_success_rate_all_success(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         for _ in range(4):
             g = r.start("act", "dcc")
             g.finish(True)
@@ -888,9 +888,9 @@ class TestActionRecorderMetrics:
         assert abs(rate - 1.0) < 1e-6
 
     def test_metrics_success_rate_all_failure(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         for _ in range(3):
             g = r.start("act", "dcc")
             g.finish(False)
@@ -899,9 +899,9 @@ class TestActionRecorderMetrics:
         assert abs(rate - 0.0) < 1e-6
 
     def test_metrics_success_rate_mixed(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         g = r.start("act", "dcc")
         g.finish(True)
         g = r.start("act", "dcc")
@@ -911,45 +911,45 @@ class TestActionRecorderMetrics:
         assert abs(rate - 0.5) < 1e-6
 
     def test_metrics_action_name(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         g = r.start("my_named_action", "dcc")
         g.finish(True)
         m = r.metrics("my_named_action")
         assert m.action_name == "my_named_action"
 
     def test_metrics_avg_duration_ms_nonneg(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         g = r.start("act", "dcc")
         g.finish(True)
         m = r.metrics("act")
         assert m.avg_duration_ms >= 0.0
 
     def test_metrics_p95_nonneg(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         g = r.start("act", "dcc")
         g.finish(True)
         m = r.metrics("act")
         assert m.p95_duration_ms >= 0.0
 
     def test_metrics_p99_nonneg(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         g = r.start("act", "dcc")
         g.finish(True)
         m = r.metrics("act")
         assert m.p99_duration_ms >= 0.0
 
     def test_metrics_repr(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         g = r.start("act", "dcc")
         g.finish(True)
         m = r.metrics("act")
@@ -958,9 +958,9 @@ class TestActionRecorderMetrics:
         assert "invocations" in rep or "1" in rep
 
     def test_all_metrics_multiple_actions(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         for name in ["alpha", "beta", "gamma"]:
             g = r.start(name, "dcc")
             g.finish(True)
@@ -968,15 +968,15 @@ class TestActionRecorderMetrics:
         assert len(all_m) == 3
 
     def test_all_metrics_returns_list(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         assert isinstance(r.all_metrics(), list)
 
     def test_reset_clears_metrics(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         g = r.start("act", "dcc")
         g.finish(True)
         r.reset()
@@ -984,9 +984,9 @@ class TestActionRecorderMetrics:
         assert r.metrics("act") is None
 
     def test_reset_then_record_again(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         g = r.start("act", "dcc")
         g.finish(True)
         r.reset()
@@ -997,9 +997,9 @@ class TestActionRecorderMetrics:
         assert m.failure_count == 1
 
     def test_multiple_dccs_same_action(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         g1 = r.start("create_sphere", "maya")
         g1.finish(True)
         g2 = r.start("create_sphere", "blender")
@@ -1008,9 +1008,9 @@ class TestActionRecorderMetrics:
         assert m.invocation_count >= 1
 
     def test_p95_lte_p99(self):
-        from dcc_mcp_core import ActionRecorder
+        from dcc_mcp_core import ToolRecorder
 
-        r = ActionRecorder("scope")
+        r = ToolRecorder("scope")
         for _ in range(10):
             g = r.start("act", "dcc")
             g.finish(True)
@@ -1171,21 +1171,21 @@ class TestTelemetryConfigBuilderMethods:
 
 
 # ---------------------------------------------------------------------------
-# Integration: SandboxContext + ActionRecorder together
+# Integration: SandboxContext + ToolRecorder together
 # ---------------------------------------------------------------------------
 
 
 class TestSandboxAndRecorderIntegration:
     def test_record_sandbox_action(self):
-        from dcc_mcp_core import ActionRecorder
         from dcc_mcp_core import SandboxContext
         from dcc_mcp_core import SandboxPolicy
+        from dcc_mcp_core import ToolRecorder
 
         sp = SandboxPolicy()
         sp.allow_actions(["create_sphere"])
         sc = SandboxContext(sp)
 
-        r = ActionRecorder("integration")
+        r = ToolRecorder("integration")
         guard = r.start("create_sphere", "maya")
         sc.execute_json("create_sphere", "{}")
         guard.finish(True)
@@ -1195,15 +1195,15 @@ class TestSandboxAndRecorderIntegration:
         assert sc.action_count == 1
 
     def test_record_denied_as_failure(self):
-        from dcc_mcp_core import ActionRecorder
         from dcc_mcp_core import SandboxContext
         from dcc_mcp_core import SandboxPolicy
+        from dcc_mcp_core import ToolRecorder
 
         sp = SandboxPolicy()
         sp.allow_actions(["safe"])
         sc = SandboxContext(sp)
 
-        r = ActionRecorder("integration")
+        r = ToolRecorder("integration")
         guard = r.start("unsafe", "maya")
         success = True
         try:
@@ -1219,14 +1219,14 @@ class TestSandboxAndRecorderIntegration:
         assert len(denials) == 1
 
     def test_multiple_actions_tracking(self):
-        from dcc_mcp_core import ActionRecorder
         from dcc_mcp_core import SandboxContext
         from dcc_mcp_core import SandboxPolicy
+        from dcc_mcp_core import ToolRecorder
 
         sp = SandboxPolicy()
         sp.allow_actions(["a", "b"])
         sc = SandboxContext(sp)
-        r = ActionRecorder("multi")
+        r = ToolRecorder("multi")
 
         for name in ["a", "b", "a"]:
             g = r.start(name, "maya")

@@ -1,4 +1,4 @@
-"""Deep tests for ActionPipeline concurrency, SkillWatcher multi-path, PyDccLauncher, and McpHttpConfig.
+"""Deep tests for ToolPipeline concurrency, SkillWatcher multi-path, PyDccLauncher, and McpHttpConfig.
 
 Covers:
 - TestActionPipelineConcurrent: 20+ concurrent dispatch with threading
@@ -25,15 +25,16 @@ import threading
 # Import third-party modules
 import pytest
 
-# Import local modules
-from dcc_mcp_core import ActionDispatcher
-from dcc_mcp_core import ActionPipeline
-from dcc_mcp_core import ActionRegistry
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
 from dcc_mcp_core import PyDccLauncher
 from dcc_mcp_core import SkillScanner
 from dcc_mcp_core import SkillWatcher
+
+# Import local modules
+from dcc_mcp_core import ToolDispatcher
+from dcc_mcp_core import ToolPipeline
+from dcc_mcp_core import ToolRegistry
 from dcc_mcp_core import parse_skill_md
 from dcc_mcp_core import scan_and_load
 from dcc_mcp_core import scan_and_load_lenient
@@ -46,20 +47,20 @@ from dcc_mcp_core import scan_skill_paths
 EXAMPLES_DIR = str(Path(__file__).parent / ".." / "examples" / "skills")
 
 
-def _make_pipeline(n_actions: int = 1) -> tuple[ActionPipeline, list[str]]:
+def _make_pipeline(n_actions: int = 1) -> tuple[ToolPipeline, list[str]]:
     """Create a pipeline with n_actions registered."""
-    reg = ActionRegistry()
+    reg = ToolRegistry()
     names = []
     for i in range(n_actions):
         name = f"action_{i}"
         reg.register(name, description=f"Action {i}", category="test")
         names.append(name)
 
-    disp = ActionDispatcher(reg)
+    disp = ToolDispatcher(reg)
     for name in names:
         disp.register_handler(name, lambda p, n=name: {"result": n, "value": 42})
 
-    pipe = ActionPipeline(disp)
+    pipe = ToolPipeline(disp)
     return pipe, names
 
 
@@ -98,7 +99,7 @@ def _make_skill_dir(
 
 
 class TestActionPipelineConcurrent:
-    """Multi-thread concurrent dispatch tests for ActionPipeline."""
+    """Multi-thread concurrent dispatch tests for ToolPipeline."""
 
     def test_single_thread_basic_dispatch(self):
         pipe, names = _make_pipeline(1)
@@ -290,7 +291,7 @@ class TestActionPipelineConcurrent:
 
 
 class TestActionPipelineAddCallable:
-    """Tests for ActionPipeline.add_callable hook."""
+    """Tests for ToolPipeline.add_callable hook."""
 
     def test_add_callable_before_fn_called(self):
         """before_fn is called with action name before dispatch."""
@@ -361,14 +362,14 @@ class TestActionPipelineAddCallable:
 
 
 class TestActionPipelineRegisterHandler:
-    """Tests for ActionPipeline.register_handler."""
+    """Tests for ToolPipeline.register_handler."""
 
     def test_register_handler_and_dispatch(self):
         """Handler registered on pipeline is callable via dispatch."""
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("my_fn", description="fn", category="util")
-        disp = ActionDispatcher(reg)
-        pipe = ActionPipeline(disp)
+        disp = ToolDispatcher(reg)
+        pipe = ToolPipeline(disp)
 
         pipe.register_handler("my_fn", lambda p: {"ok": True})
         result = pipe.dispatch("my_fn", "{}")
@@ -376,11 +377,11 @@ class TestActionPipelineRegisterHandler:
 
     def test_register_multiple_handlers_independently_callable(self):
         """Multiple handlers can coexist and dispatch independently."""
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         for name in ["fn_a", "fn_b", "fn_c"]:
             reg.register(name, description="test", category="util")
-        disp = ActionDispatcher(reg)
-        pipe = ActionPipeline(disp)
+        disp = ToolDispatcher(reg)
+        pipe = ToolPipeline(disp)
 
         pipe.register_handler("fn_a", lambda p: {"fn": "a"})
         pipe.register_handler("fn_b", lambda p: {"fn": "b"})
@@ -392,10 +393,10 @@ class TestActionPipelineRegisterHandler:
 
     def test_register_handler_increases_handler_count(self):
         """handler_count reflects all registered handlers."""
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("act", description="a", category="x")
-        disp = ActionDispatcher(reg)
-        pipe = ActionPipeline(disp)
+        disp = ToolDispatcher(reg)
+        pipe = ToolPipeline(disp)
 
         assert pipe.handler_count() == 0
         pipe.register_handler("act", lambda p: {})
@@ -409,11 +410,11 @@ class TestActionPipelineRegisterHandler:
 
     def test_dispatch_output_is_handler_return_value(self):
         """The 'output' key in result matches the handler's return value."""
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("echo", description="echo", category="util")
-        disp = ActionDispatcher(reg)
+        disp = ToolDispatcher(reg)
         disp.register_handler("echo", lambda p: {"echo": "hello"})
-        pipe = ActionPipeline(disp)
+        pipe = ToolPipeline(disp)
         result = pipe.dispatch("echo", "{}")
         assert result["output"] == {"echo": "hello"}
 
@@ -907,13 +908,13 @@ class TestMcpHttpConfigDeep:
 
     def test_mcp_http_server_creates_from_config(self):
         """McpHttpServer can be created from registry + config without raising."""
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cfg = McpHttpConfig(port=19997)
         srv = McpHttpServer(reg, cfg)
         assert srv is not None
 
     def test_mcp_http_server_has_start_method(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cfg = McpHttpConfig(port=19996)
         srv = McpHttpServer(reg, cfg)
         assert hasattr(srv, "start")
@@ -921,7 +922,7 @@ class TestMcpHttpConfigDeep:
 
     def test_mcp_http_server_with_registered_actions(self):
         """McpHttpServer with pre-registered actions in the registry."""
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         for i in range(5):
             reg.register(f"tool_{i}", description=f"Tool {i}", category="test")
         cfg = McpHttpConfig(port=19995, server_name="test-dcc", server_version="0.1.0")

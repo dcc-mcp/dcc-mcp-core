@@ -1,6 +1,6 @@
 """Tests for UsdStage advanced ops (prims_of_type/remove_prim/has_prim/default_prim).
 
-Also covers ActionDispatcher depth (remove_handler/has_handler/handler_names/skip_empty_schema).
+Also covers ToolDispatcher depth (remove_handler/has_handler/handler_names/skip_empty_schema).
 """
 
 from __future__ import annotations
@@ -9,9 +9,9 @@ import json
 
 import pytest
 
-from dcc_mcp_core import ActionDispatcher
-from dcc_mcp_core import ActionRegistry
 from dcc_mcp_core import SdfPath
+from dcc_mcp_core import ToolDispatcher
+from dcc_mcp_core import ToolRegistry
 from dcc_mcp_core import UsdPrim
 from dcc_mcp_core import UsdStage
 from dcc_mcp_core import VtValue
@@ -280,7 +280,7 @@ class TestUsdStageMetricsWithOps:
 
 
 # ---------------------------------------------------------------------------
-# ActionDispatcher depth tests
+# ToolDispatcher depth tests
 # ---------------------------------------------------------------------------
 
 
@@ -288,10 +288,10 @@ class TestActionDispatcherRemoveHandler:
     """remove_handler: returns True when removed, False when not found."""
 
     def _make_dispatcher(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("action_a", category="test")
         reg.register("action_b", category="test")
-        dispatcher = ActionDispatcher(reg)
+        dispatcher = ToolDispatcher(reg)
         return dispatcher
 
     def test_remove_existing_handler(self):
@@ -331,9 +331,9 @@ class TestActionDispatcherHasHandler:
     """has_handler: True if registered, False otherwise."""
 
     def _make_dispatcher(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("x", category="test")
-        return ActionDispatcher(reg)
+        return ToolDispatcher(reg)
 
     def test_has_handler_before_register(self):
         d = self._make_dispatcher()
@@ -353,26 +353,26 @@ class TestActionDispatcherHandlerNames:
     """handler_names: sorted list of registered handler names."""
 
     def test_handler_names_empty(self):
-        reg = ActionRegistry()
-        d = ActionDispatcher(reg)
+        reg = ToolRegistry()
+        d = ToolDispatcher(reg)
         names = d.handler_names()
         assert isinstance(names, list)
         assert len(names) == 0
 
     def test_handler_names_single(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("my_action")
-        d = ActionDispatcher(reg)
+        d = ToolDispatcher(reg)
         d.register_handler("my_action", lambda p: None)
         names = d.handler_names()
         assert names == ["my_action"]
 
     def test_handler_names_multiple_sorted(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("zulu")
         reg.register("alpha")
         reg.register("mike")
-        d = ActionDispatcher(reg)
+        d = ToolDispatcher(reg)
         d.register_handler("zulu", lambda p: None)
         d.register_handler("alpha", lambda p: None)
         d.register_handler("mike", lambda p: None)
@@ -381,10 +381,10 @@ class TestActionDispatcherHandlerNames:
         assert set(names) == {"zulu", "alpha", "mike"}
 
     def test_handler_names_after_remove(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("a1")
         reg.register("a2")
-        d = ActionDispatcher(reg)
+        d = ToolDispatcher(reg)
         d.register_handler("a1", lambda p: None)
         d.register_handler("a2", lambda p: None)
         d.remove_handler("a1")
@@ -393,10 +393,10 @@ class TestActionDispatcherHandlerNames:
         assert "a2" in names
 
     def test_handler_count_matches_handler_names(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("p")
         reg.register("q")
-        d = ActionDispatcher(reg)
+        d = ToolDispatcher(reg)
         d.register_handler("p", lambda x: None)
         d.register_handler("q", lambda x: None)
         assert d.handler_count() == len(d.handler_names())
@@ -406,27 +406,27 @@ class TestActionDispatcherSkipEmptySchema:
     """skip_empty_schema_validation property."""
 
     def test_default_is_true(self):
-        reg = ActionRegistry()
-        d = ActionDispatcher(reg)
+        reg = ToolRegistry()
+        d = ToolDispatcher(reg)
         # Default should be True (skip validation when schema is empty)
         assert isinstance(d.skip_empty_schema_validation, bool)
 
     def test_set_false(self):
-        reg = ActionRegistry()
-        d = ActionDispatcher(reg)
+        reg = ToolRegistry()
+        d = ToolDispatcher(reg)
         d.skip_empty_schema_validation = False
         assert d.skip_empty_schema_validation is False
 
     def test_set_true(self):
-        reg = ActionRegistry()
-        d = ActionDispatcher(reg)
+        reg = ToolRegistry()
+        d = ToolDispatcher(reg)
         d.skip_empty_schema_validation = False
         d.skip_empty_schema_validation = True
         assert d.skip_empty_schema_validation is True
 
     def test_toggle_multiple_times(self):
-        reg = ActionRegistry()
-        d = ActionDispatcher(reg)
+        reg = ToolRegistry()
+        d = ToolDispatcher(reg)
         for expected in [False, True, False, True]:
             d.skip_empty_schema_validation = expected
             assert d.skip_empty_schema_validation is expected
@@ -436,9 +436,9 @@ class TestActionDispatcherDispatchVariants:
     """dispatch: various validation/handler scenarios."""
 
     def _make(self, schema: str = ""):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("action", input_schema=schema)
-        d = ActionDispatcher(reg)
+        d = ToolDispatcher(reg)
         return d
 
     def test_dispatch_no_handler_raises_key_error(self):

@@ -1,4 +1,4 @@
-"""Tests for PyDccLauncher, PyCrashRecoveryPolicy, ActionRecorder/RecordingGuard/ActionMetrics.
+"""Tests for PyDccLauncher, PyCrashRecoveryPolicy, ToolRecorder/RecordingGuard/ToolMetrics.
 
 Also covers InputValidator and TransportScheme.select_address.
 All tests are based on observed API behavior from probe sessions (probe87b-87i).
@@ -13,10 +13,10 @@ import time
 
 import pytest
 
-from dcc_mcp_core import ActionRecorder
 from dcc_mcp_core import InputValidator
 from dcc_mcp_core import PyCrashRecoveryPolicy
 from dcc_mcp_core import PyDccLauncher
+from dcc_mcp_core import ToolRecorder
 from dcc_mcp_core import TransportAddress
 from dcc_mcp_core import TransportScheme
 
@@ -252,51 +252,51 @@ class TestPyCrashRecoveryPolicy:
 
 
 # ---------------------------------------------------------------------------
-# ActionRecorder / RecordingGuard / ActionMetrics
+# ToolRecorder / RecordingGuard / ToolMetrics
 # ---------------------------------------------------------------------------
 
 
 class TestActionRecorder:
-    """Tests for ActionRecorder and its context manager (RecordingGuard)."""
+    """Tests for ToolRecorder and its context manager (RecordingGuard)."""
 
     class TestConstructor:
         def test_create_with_scope(self):
-            rec = ActionRecorder("test_scope")
+            rec = ToolRecorder("test_scope")
             assert rec is not None
 
         def test_initial_all_metrics_empty(self):
-            rec = ActionRecorder("empty_scope_87")
+            rec = ToolRecorder("empty_scope_87")
             assert rec.all_metrics() == []
 
         def test_repr(self):
-            rec = ActionRecorder("my_scope")
+            rec = ToolRecorder("my_scope")
             r = repr(rec)
-            assert "ActionRecorder" in r or "recorder" in r.lower() or "scope" in r.lower() or r
+            assert "ToolRecorder" in r or "recorder" in r.lower() or "scope" in r.lower() or r
 
     class TestRecordingGuard:
         def test_start_returns_recording_guard(self):
-            rec = ActionRecorder("guard_scope_87")
+            rec = ToolRecorder("guard_scope_87")
             with rec.start("create_sphere", "maya") as guard:
                 assert guard is not None
 
         def test_guard_repr(self):
-            rec = ActionRecorder("guard_repr_87")
+            rec = ToolRecorder("guard_repr_87")
             with rec.start("action", "maya") as guard:
                 r = repr(guard)
                 assert "RecordingGuard" in r
 
         def test_guard_has_finish_method(self):
-            rec = ActionRecorder("guard_finish_87")
+            rec = ToolRecorder("guard_finish_87")
             with rec.start("action", "maya") as guard:
                 assert hasattr(guard, "finish")
 
         def test_context_manager_enter_exit(self):
-            rec = ActionRecorder("ctx_87")
+            rec = ToolRecorder("ctx_87")
             with rec.start("action1", "maya") as guard:
                 assert guard is not None
 
         def test_context_manager_success_records_invocation(self):
-            rec = ActionRecorder("ctx_success_87")
+            rec = ToolRecorder("ctx_success_87")
             with rec.start("my_action", "maya"):
                 pass
             m = rec.metrics("my_action")
@@ -304,19 +304,19 @@ class TestActionRecorder:
             assert m.invocation_count == 1
 
         def test_context_manager_success_count(self):
-            rec = ActionRecorder("ctx_success_count_87")
+            rec = ToolRecorder("ctx_success_count_87")
             with rec.start("my_action", "maya"):
                 pass
             m = rec.metrics("my_action")
             assert m.success_count == 1
 
         def test_context_manager_exception_reraises(self):
-            rec = ActionRecorder("ctx_exc_87")
+            rec = ToolRecorder("ctx_exc_87")
             with pytest.raises(ValueError, match="deliberate"), rec.start("fail_action", "maya"):
                 raise ValueError("deliberate")
 
         def test_context_manager_exception_records_failure(self):
-            rec = ActionRecorder("ctx_fail_87")
+            rec = ToolRecorder("ctx_fail_87")
             try:
                 with rec.start("fail_action", "maya"):
                     raise ValueError("test fail")
@@ -327,7 +327,7 @@ class TestActionRecorder:
             assert m.failure_count == 1
 
         def test_context_manager_exception_success_count_zero(self):
-            rec = ActionRecorder("ctx_fail_sc_87")
+            rec = ToolRecorder("ctx_fail_sc_87")
             try:
                 with rec.start("fail_action", "maya"):
                     raise ValueError("test fail")
@@ -337,7 +337,7 @@ class TestActionRecorder:
             assert m.success_count == 0
 
         def test_multiple_recordings_accumulate(self):
-            rec = ActionRecorder("multi_87")
+            rec = ToolRecorder("multi_87")
             with rec.start("act", "maya"):
                 pass
             with rec.start("act", "maya"):
@@ -346,28 +346,28 @@ class TestActionRecorder:
             assert m.invocation_count == 2
 
         def test_guard_active_in_context(self):
-            rec = ActionRecorder("active_87")
+            rec = ToolRecorder("active_87")
             with rec.start("action", "maya") as guard:
                 r = repr(guard)
                 assert "active=true" in r
 
     class TestActionMetrics:
         def test_metrics_not_none_after_recording(self):
-            rec = ActionRecorder("metrics_87")
+            rec = ToolRecorder("metrics_87")
             with rec.start("action", "maya"):
                 pass
             m = rec.metrics("action")
             assert m is not None
 
         def test_metrics_action_name(self):
-            rec = ActionRecorder("metrics_name_87")
+            rec = ToolRecorder("metrics_name_87")
             with rec.start("create_cube", "blender"):
                 pass
             m = rec.metrics("create_cube")
             assert m.action_name == "create_cube"
 
         def test_metrics_invocation_count(self):
-            rec = ActionRecorder("metrics_inv_87")
+            rec = ToolRecorder("metrics_inv_87")
             for _ in range(3):
                 with rec.start("action", "maya"):
                     pass
@@ -375,7 +375,7 @@ class TestActionRecorder:
             assert m.invocation_count == 3
 
         def test_metrics_success_count(self):
-            rec = ActionRecorder("metrics_sc_87")
+            rec = ToolRecorder("metrics_sc_87")
             with rec.start("action", "maya"):
                 pass
             with rec.start("action", "maya"):
@@ -389,7 +389,7 @@ class TestActionRecorder:
             assert m.success_count == 2
 
         def test_metrics_failure_count(self):
-            rec = ActionRecorder("metrics_fc_87")
+            rec = ToolRecorder("metrics_fc_87")
             with rec.start("action", "maya"):
                 pass
             try:
@@ -401,14 +401,14 @@ class TestActionRecorder:
             assert m.failure_count == 1
 
         def test_metrics_success_rate_all_success(self):
-            rec = ActionRecorder("metrics_sr100_87")
+            rec = ToolRecorder("metrics_sr100_87")
             with rec.start("action", "maya"):
                 pass
             m = rec.metrics("action")
             assert m.success_rate() == pytest.approx(1.0)
 
         def test_metrics_success_rate_all_failure(self):
-            rec = ActionRecorder("metrics_sr0_87")
+            rec = ToolRecorder("metrics_sr0_87")
             try:
                 with rec.start("action", "maya"):
                     raise RuntimeError("fail")
@@ -418,7 +418,7 @@ class TestActionRecorder:
             assert m.success_rate() == pytest.approx(0.0)
 
         def test_metrics_success_rate_mixed(self):
-            rec = ActionRecorder("metrics_srmix_87")
+            rec = ToolRecorder("metrics_srmix_87")
             with rec.start("action", "maya"):
                 pass
             with rec.start("action", "maya"):
@@ -432,45 +432,45 @@ class TestActionRecorder:
             assert m.success_rate() == pytest.approx(2.0 / 3.0)
 
         def test_metrics_avg_duration_ms_positive(self):
-            rec = ActionRecorder("metrics_dur_87")
+            rec = ToolRecorder("metrics_dur_87")
             with rec.start("action", "maya"):
                 pass
             m = rec.metrics("action")
             assert m.avg_duration_ms >= 0.0
 
         def test_metrics_p95_duration_ms_positive(self):
-            rec = ActionRecorder("metrics_p95_87")
+            rec = ToolRecorder("metrics_p95_87")
             with rec.start("action", "maya"):
                 pass
             m = rec.metrics("action")
             assert m.p95_duration_ms >= 0.0
 
         def test_metrics_p99_duration_ms_positive(self):
-            rec = ActionRecorder("metrics_p99_87")
+            rec = ToolRecorder("metrics_p99_87")
             with rec.start("action", "maya"):
                 pass
             m = rec.metrics("action")
             assert m.p99_duration_ms >= 0.0
 
         def test_metrics_repr(self):
-            rec = ActionRecorder("metrics_repr_87")
+            rec = ToolRecorder("metrics_repr_87")
             with rec.start("my_action", "maya"):
                 pass
             m = rec.metrics("my_action")
             r = repr(m)
-            assert "ActionMetrics" in r
+            assert "ToolMetrics" in r
             assert "my_action" in r
 
     class TestAllMetricsAndReset:
         def test_all_metrics_returns_list(self):
-            rec = ActionRecorder("all_87")
+            rec = ToolRecorder("all_87")
             with rec.start("action", "maya"):
                 pass
             am = rec.all_metrics()
             assert isinstance(am, list)
 
         def test_all_metrics_contains_recorded_actions(self):
-            rec = ActionRecorder("all_has_87")
+            rec = ToolRecorder("all_has_87")
             with rec.start("action_a", "maya"):
                 pass
             with rec.start("action_b", "blender"):
@@ -480,7 +480,7 @@ class TestActionRecorder:
             assert "action_b" in names
 
         def test_all_metrics_len(self):
-            rec = ActionRecorder("all_len_87")
+            rec = ToolRecorder("all_len_87")
             with rec.start("act1", "maya"):
                 pass
             with rec.start("act2", "maya"):
@@ -488,20 +488,20 @@ class TestActionRecorder:
             assert len(rec.all_metrics()) == 2
 
         def test_reset_clears_metrics(self):
-            rec = ActionRecorder("reset_87")
+            rec = ToolRecorder("reset_87")
             with rec.start("action", "maya"):
                 pass
             rec.reset()
             assert rec.all_metrics() == []
 
         def test_reset_after_reset_still_works(self):
-            rec = ActionRecorder("reset2_87")
+            rec = ToolRecorder("reset2_87")
             rec.reset()
             rec.reset()
             assert rec.all_metrics() == []
 
         def test_all_metrics_empty_initial(self):
-            rec = ActionRecorder("empty2_87")
+            rec = ToolRecorder("empty2_87")
             assert len(rec.all_metrics()) == 0
 
 

@@ -1,13 +1,13 @@
-"""Deep tests for ActionRecorder, RecordingGuard, and ActionMetrics.
+"""Deep tests for ToolRecorder, RecordingGuard, and ToolMetrics.
 
 Covers:
-- ActionRecorder.start() + guard.finish(success=True/False) manual flow
+- ToolRecorder.start() + guard.finish(success=True/False) manual flow
 - RecordingGuard as context manager (success and exception paths)
-- ActionMetrics fields: invocation_count, success_count, failure_count,
+- ToolMetrics fields: invocation_count, success_count, failure_count,
   avg_duration_ms, p95_duration_ms, p99_duration_ms, success_rate()
-- ActionRecorder.all_metrics() ordering and count
-- ActionRecorder.reset() clears all metrics
-- ActionRecorder.metrics() returns None for unknown action
+- ToolRecorder.all_metrics() ordering and count
+- ToolRecorder.reset() clears all metrics
+- ToolRecorder.metrics() returns None for unknown action
 - Multiple RecordingGuard instances on same action accumulate correctly
 """
 
@@ -15,21 +15,21 @@ from __future__ import annotations
 
 import pytest
 
-from dcc_mcp_core import ActionMetrics
-from dcc_mcp_core import ActionRecorder
 from dcc_mcp_core import RecordingGuard
+from dcc_mcp_core import ToolMetrics
+from dcc_mcp_core import ToolRecorder
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
-def _recorder(scope: str = "test-scope") -> ActionRecorder:
-    return ActionRecorder(scope)
+def _recorder(scope: str = "test-scope") -> ToolRecorder:
+    return ToolRecorder(scope)
 
 
 # ---------------------------------------------------------------------------
-# ActionRecorder - basic guard.finish()
+# ToolRecorder - basic guard.finish()
 # ---------------------------------------------------------------------------
 
 
@@ -188,7 +188,7 @@ class TestRecordingGuardContextManager:
 
 
 # ---------------------------------------------------------------------------
-# ActionRecorder - all_metrics() and reset()
+# ToolRecorder - all_metrics() and reset()
 # ---------------------------------------------------------------------------
 
 
@@ -210,7 +210,7 @@ class TestActionRecorderAllMetricsReset:
         g = r.start("x", "maya")
         g.finish(success=True)
         for m in r.all_metrics():
-            assert isinstance(m, ActionMetrics)
+            assert isinstance(m, ToolMetrics)
 
     def test_metrics_returns_none_for_unknown_action(self):
         r = _recorder()
@@ -242,8 +242,8 @@ class TestActionRecorderAllMetricsReset:
         assert m.invocation_count == 2
 
     def test_multiple_recorders_independent(self):
-        r1 = ActionRecorder("scope-a")
-        r2 = ActionRecorder("scope-b")
+        r1 = ToolRecorder("scope-a")
+        r2 = ToolRecorder("scope-b")
         g1 = r1.start("shared", "maya")
         g1.finish(success=True)
         # r2 has no recordings

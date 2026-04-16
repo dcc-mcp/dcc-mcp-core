@@ -1,20 +1,20 @@
-"""Deep tests for VtValue type factories and ActionRecorder/RecordingGuard.
+"""Deep tests for VtValue type factories and ToolRecorder/RecordingGuard.
 
 Covers:
 - VtValue.from_bool / from_int / from_float / from_string / from_token / from_asset
 - VtValue.from_vec3f and to_python() returns tuple-like
 - VtValue.type_name for each factory
 - VtValue.to_python() returns correct Python primitives
-- ActionRecorder.start() returns RecordingGuard
+- ToolRecorder.start() returns RecordingGuard
 - RecordingGuard.finish(success=True/False) updates metrics
 - RecordingGuard as context manager: success on no exception
 - RecordingGuard as context manager: failure on exception
-- ActionRecorder.metrics() returns ActionMetrics
-- ActionMetrics.invocation_count / success_count / failure_count
-- ActionMetrics.avg_duration_ms >= 0
-- ActionMetrics.success_rate() in [0.0, 1.0]
-- ActionRecorder.all_metrics() list length
-- ActionRecorder.reset() clears all metrics
+- ToolRecorder.metrics() returns ToolMetrics
+- ToolMetrics.invocation_count / success_count / failure_count
+- ToolMetrics.avg_duration_ms >= 0
+- ToolMetrics.success_rate() in [0.0, 1.0]
+- ToolRecorder.all_metrics() list length
+- ToolRecorder.reset() clears all metrics
 - ScriptResult: all fields accessible
 """
 
@@ -22,10 +22,10 @@ from __future__ import annotations
 
 import pytest
 
-from dcc_mcp_core import ActionMetrics
-from dcc_mcp_core import ActionRecorder
 from dcc_mcp_core import RecordingGuard
 from dcc_mcp_core import ScriptResult
+from dcc_mcp_core import ToolMetrics
+from dcc_mcp_core import ToolRecorder
 from dcc_mcp_core import VtValue
 
 # ---------------------------------------------------------------------------
@@ -166,52 +166,52 @@ class TestVtValueVec3f:
 
 
 # ---------------------------------------------------------------------------
-# ActionRecorder and RecordingGuard
+# ToolRecorder and RecordingGuard
 # ---------------------------------------------------------------------------
 
 
 class TestActionRecorder:
     def test_start_returns_recording_guard(self):
-        rec = ActionRecorder("test-scope")
+        rec = ToolRecorder("test-scope")
         guard = rec.start("create_sphere", "maya")
         assert isinstance(guard, RecordingGuard)
         guard.finish(success=True)
 
     def test_metrics_none_before_any_recording(self):
-        rec = ActionRecorder("test-scope")
+        rec = ToolRecorder("test-scope")
         assert rec.metrics("nonexistent") is None
 
     def test_metrics_after_one_success(self):
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         guard = rec.start("render", "maya")
         guard.finish(success=True)
 
         m = rec.metrics("render")
         assert m is not None
-        assert isinstance(m, ActionMetrics)
+        assert isinstance(m, ToolMetrics)
 
     def test_invocation_count_after_one(self):
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         rec.start("op", "maya").finish(success=True)
         m = rec.metrics("op")
         assert m.invocation_count == 1
 
     def test_success_count_after_success(self):
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         rec.start("op", "maya").finish(success=True)
         m = rec.metrics("op")
         assert m.success_count == 1
         assert m.failure_count == 0
 
     def test_failure_count_after_failure(self):
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         rec.start("op", "maya").finish(success=False)
         m = rec.metrics("op")
         assert m.failure_count == 1
         assert m.success_count == 0
 
     def test_mixed_success_failure_counts(self):
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         rec.start("op", "maya").finish(success=True)
         rec.start("op", "maya").finish(success=True)
         rec.start("op", "maya").finish(success=False)
@@ -221,52 +221,52 @@ class TestActionRecorder:
         assert m.failure_count == 1
 
     def test_success_rate_all_success(self):
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         for _ in range(4):
             rec.start("x", "maya").finish(success=True)
         m = rec.metrics("x")
         assert abs(m.success_rate() - 1.0) < 1e-6
 
     def test_success_rate_all_failure(self):
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         for _ in range(3):
             rec.start("x", "maya").finish(success=False)
         m = rec.metrics("x")
         assert abs(m.success_rate() - 0.0) < 1e-6
 
     def test_success_rate_half(self):
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         rec.start("x", "maya").finish(success=True)
         rec.start("x", "maya").finish(success=False)
         m = rec.metrics("x")
         assert abs(m.success_rate() - 0.5) < 1e-6
 
     def test_avg_duration_ms_non_negative(self):
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         rec.start("op", "maya").finish(success=True)
         m = rec.metrics("op")
         assert m.avg_duration_ms >= 0.0
 
     def test_p95_duration_ms_non_negative(self):
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         for _ in range(10):
             rec.start("op", "maya").finish(success=True)
         m = rec.metrics("op")
         assert m.p95_duration_ms >= 0.0
 
     def test_p99_duration_ms_non_negative(self):
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         for _ in range(10):
             rec.start("op", "maya").finish(success=True)
         m = rec.metrics("op")
         assert m.p99_duration_ms >= 0.0
 
     def test_all_metrics_empty_initially(self):
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         assert rec.all_metrics() == []
 
     def test_all_metrics_returns_list(self):
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         rec.start("a", "maya").finish(success=True)
         rec.start("b", "maya").finish(success=True)
         all_m = rec.all_metrics()
@@ -274,7 +274,7 @@ class TestActionRecorder:
         assert len(all_m) == 2
 
     def test_reset_clears_all_metrics(self):
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         rec.start("op", "maya").finish(success=True)
         assert len(rec.all_metrics()) == 1
         rec.reset()
@@ -282,7 +282,7 @@ class TestActionRecorder:
         assert rec.metrics("op") is None
 
     def test_multiple_actions_tracked_separately(self):
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         rec.start("create", "maya").finish(success=True)
         rec.start("delete", "maya").finish(success=False)
         rec.start("create", "maya").finish(success=True)
@@ -300,7 +300,7 @@ class TestActionRecorder:
 
 class TestRecordingGuardContextManager:
     def test_context_manager_success_on_no_exception(self):
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         with rec.start("op", "maya"):
             pass
         m = rec.metrics("op")
@@ -309,7 +309,7 @@ class TestRecordingGuardContextManager:
         assert m.success_count == 1
 
     def test_context_manager_failure_on_exception(self):
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         with pytest.raises(RuntimeError), rec.start("op", "maya"):
             raise RuntimeError("test error")
 
@@ -319,20 +319,20 @@ class TestRecordingGuardContextManager:
         assert m.failure_count == 1
 
     def test_context_manager_returns_guard(self):
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         guard = rec.start("op", "maya")
         with guard as g:
             assert g is guard
 
     def test_context_manager_repr(self):
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         guard = rec.start("op", "maya")
         r = repr(guard)
         assert len(r) > 0
         guard.finish(success=True)
 
     def test_finish_outside_context(self):
-        rec = ActionRecorder("scope")
+        rec = ToolRecorder("scope")
         guard = rec.start("direct", "maya")
         guard.finish(success=True)
         m = rec.metrics("direct")
@@ -340,13 +340,13 @@ class TestRecordingGuardContextManager:
 
 
 # ---------------------------------------------------------------------------
-# ActionMetrics properties
+# ToolMetrics properties
 # ---------------------------------------------------------------------------
 
 
 class TestActionMetricsProperties:
-    def _make_metrics_for(self, action: str, count: int, success: bool = True) -> ActionMetrics:
-        rec = ActionRecorder("scope")
+    def _make_metrics_for(self, action: str, count: int, success: bool = True) -> ToolMetrics:
+        rec = ToolRecorder("scope")
         for _ in range(count):
             rec.start(action, "maya").finish(success=success)
         return rec.metrics(action)

@@ -1,4 +1,4 @@
-"""Deep tests for ToolDeclaration, SemVer/VersionConstraint, AuditEntry, InputValidator, and ActionResultModel.
+"""Deep tests for ToolDeclaration, SemVer/VersionConstraint, AuditEntry, InputValidator, and ToolResult.
 
 Target: +110 tests covering the five domains identified in the previous iteration as under-tested.
 """
@@ -565,12 +565,12 @@ class TestInputValidatorCombinedRules:
 
 
 # ===========================================================================
-# Section 5: ActionResultModel derived methods
+# Section 5: ToolResult derived methods
 # ===========================================================================
 
 
 class TestActionResultModelWithError:
-    """ActionResultModel.with_error() derived copy."""
+    """ToolResult.with_error() derived copy."""
 
     def test_with_error_sets_success_false(self):
         r = m.success_result("ok")
@@ -606,7 +606,7 @@ class TestActionResultModelWithError:
 
 
 class TestActionResultModelWithContext:
-    """ActionResultModel.with_context() derived copy."""
+    """ToolResult.with_context() derived copy."""
 
     def test_with_context_adds_key(self):
         r = m.success_result("ok")
@@ -689,7 +689,7 @@ class TestValidateActionResult:
     def test_dict_without_success_key(self):
         # dict without success key: treated as success with context
         r = m.validate_action_result({"key": "value"})
-        assert isinstance(r, m.ActionResultModel)
+        assert isinstance(r, m.ToolResult)
 
     def test_result_already_an_action_result_model(self):
         original = m.success_result("already good")
@@ -703,7 +703,7 @@ class TestValidateActionResult:
 
 
 class TestActionResultModelToDict:
-    """ActionResultModel.to_dict() completeness."""
+    """ToolResult.to_dict() completeness."""
 
     def test_to_dict_has_success_key(self):
         r = m.success_result("ok")
