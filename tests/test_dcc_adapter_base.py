@@ -333,14 +333,60 @@ class TestDccServerBase:
         server = self._make_server(tmp_path)
         assert server.unload_skill("some-skill") is True
 
-    def test_collect_skill_search_paths_includes_builtin(self, tmp_path):
+    @pytest.fixture()
+    def _patch_skill_env(self):
+        """Patch the three skill-path helpers to return empty / None values.
+
+        server_base.py does ``from dcc_mcp_core import <fn>`` inside
+        ``collect_skill_search_paths``, so we patch the symbols on the
+        ``dcc_mcp_core`` package itself.
+        """
+        with patch("dcc_mcp_core.get_app_skill_paths_from_env", return_value=[]), patch(
+            "dcc_mcp_core.get_skill_paths_from_env", return_value=[]
+        ), patch("dcc_mcp_core.get_skills_dir", return_value=None):
+            yield
+
+    def test_collect_skill_search_paths_includes_builtin(self, tmp_path, _patch_skill_env):
         server = self._make_server(tmp_path)
-        with patch("dcc_mcp_core._core.get_app_skill_paths_from_env", return_value=[], create=True), patch(
-            "dcc_mcp_core._core.get_skill_paths_from_env", return_value=[], create=True
-        ), patch("dcc_mcp_core._core.get_skills_dir", return_value=None, create=True):
-            paths = server.collect_skill_search_paths(include_bundled=False)
+        paths = server.collect_skill_search_paths(include_bundled=False)
         # builtin_skills_dir (tmp_path/skills) should be in the result
         assert any("skills" in p for p in paths)
+
+    def test_collect_skill_search_paths_filter_existing_removes_nonexistent(self, tmp_path, _patch_skill_env):
+        """filter_existing=True removes non-existent paths and deduplicates."""
+        server = self._make_server(tmp_path)
+        # Add extra_paths with a mix of existing and non-existent
+        existing_dir = str(tmp_path / "skills")
+        nonexistent = "/nonexistent/path/xyz"
+        paths = server.collect_skill_search_paths(
+            extra_paths=[existing_dir, nonexistent],
+            include_bundled=False,
+            filter_existing=True,
+        )
+        assert existing_dir in paths
+        assert nonexistent not in paths
+
+    def test_collect_skill_search_paths_filter_existing_deduplicates(self, tmp_path, _patch_skill_env):
+        """filter_existing=True deduplicates identical paths."""
+        server = self._make_server(tmp_path)
+        existing_dir = str(tmp_path / "skills")
+        paths = server.collect_skill_search_paths(
+            extra_paths=[existing_dir, existing_dir],
+            include_bundled=False,
+            filter_existing=True,
+        )
+        assert paths.count(existing_dir) == 1
+
+    def test_collect_skill_search_paths_filter_false_keeps_all(self, tmp_path, _patch_skill_env):
+        """filter_existing=False (default) preserves non-existent paths."""
+        server = self._make_server(tmp_path)
+        nonexistent = "/nonexistent/path/xyz"
+        paths = server.collect_skill_search_paths(
+            extra_paths=[nonexistent],
+            include_bundled=False,
+            filter_existing=False,
+        )
+        assert nonexistent in paths
 
     def test_enable_hot_reload_creates_reloader(self, tmp_path):
         server = self._make_server(tmp_path)

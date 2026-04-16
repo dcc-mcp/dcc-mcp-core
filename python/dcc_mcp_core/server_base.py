@@ -186,8 +186,8 @@ class DccServerBase:
                 from dcc_mcp_core.skill import get_bundled_skill_paths
 
                 paths.extend(get_bundled_skill_paths(include_bundled=True))
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("[%s] Could not load bundled skill paths: %s", self._dcc_name, exc)
 
         default_dir = get_skills_dir()
         if default_dir and default_dir not in paths:
@@ -225,6 +225,7 @@ class DccServerBase:
         skill_paths = self.collect_skill_search_paths(
             extra_paths=extra_skill_paths,
             include_bundled=include_bundled,
+            filter_existing=True,
         )
         logger.debug("[%s] Registering skills from %d path(s)", self._dcc_name, len(skill_paths))
         try:
@@ -254,7 +255,7 @@ class DccServerBase:
             return None
         try:
             port = getattr(self._config, "gateway_port", 0)
-            if port and port > 0 and self.is_gateway:
+            if port > 0 and self.is_gateway:
                 return f"http://127.0.0.1:{port}/mcp"
         except Exception:
             pass
@@ -339,17 +340,22 @@ class DccServerBase:
 
     def search_actions(
         self,
-        query: str,
+        category: str | None = None,
+        tags: list[str] | None = None,
         dcc_name: str | None = None,
     ) -> list[Any]:
-        """Full-text search across action names and descriptions.
+        """Search registered actions by category and/or tags.
+
+        Delegates to :meth:`ActionRegistry.search_actions` which filters by
+        exact category match, all-tags-present, and optional DCC scope.
 
         Args:
-            query: Search term.
+            category: Exact category name to filter by (``None`` = no filter).
+            tags: All listed tags must be present on the action (empty = no filter).
             dcc_name: Override the DCC filter.
 
         Returns:
-            List of matching ``ActionInfo`` objects.
+            List of matching ``ActionInfo`` dicts.
 
         """
         registry = self.registry
@@ -357,7 +363,7 @@ class DccServerBase:
             return []
         effective_dcc = dcc_name if dcc_name is not None else self._dcc_name
         try:
-            return list(registry.search_actions(query, dcc_name=effective_dcc))
+            return list(registry.search_actions(category=category, tags=tags or [], dcc_name=effective_dcc))
         except Exception as exc:
             logger.debug("[%s] search_actions failed: %s", self._dcc_name, exc)
             return []
@@ -493,7 +499,7 @@ class DccServerBase:
         if self._hot_reloader is None:
             self._hot_reloader = DccSkillHotReloader(dcc_name=self._dcc_name, server=self)
 
-        paths = skill_paths or self.collect_skill_search_paths(include_bundled=False)
+        paths = skill_paths or self.collect_skill_search_paths(include_bundled=False, filter_existing=True)
         return self._hot_reloader.enable(paths, debounce_ms=debounce_ms)
 
     def disable_hot_reload(self) -> None:
@@ -613,7 +619,7 @@ class DccServerBase:
             return False
 
         gateway_port = getattr(self._config, "gateway_port", 0)
-        if not gateway_port or gateway_port <= 0:
+        if gateway_port <= 0:
             logger.debug("[%s] Gateway not configured; metadata update skipped", self._dcc_name)
             return False
 

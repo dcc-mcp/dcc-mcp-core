@@ -293,7 +293,7 @@ os.environ["DCC_MCP_SKILL_PATHS"] = "/path/to/my-tool"
 
 from dcc_mcp_core import scan_and_load, ActionRegistry
 
-skills = scan_and_load(dcc_name="maya")
+skills, skipped = scan_and_load(dcc_name="maya")
 registry = ActionRegistry()
 
 # Tools are now: maya_cleanup__cleanup, with structured results
@@ -479,18 +479,18 @@ from dcc_mcp_core import (
     FramedChannel
 )
 
-# Server side: listen for connections
-listener = IpcListener.new("/tmp/dcc-mcp-server.sock")
-handle = listener.start(handler_fn=my_message_handler)
+# Server side: bind and accept connections (blocking)
+listener = IpcListener.bind("/tmp/dcc-mcp-server.sock")
+channel = listener.accept(timeout_ms=10000)   # blocks until client connects
 
 # Client side: connect to server
 channel = connect_ipc("/tmp/dcc-mcp-server.sock")
-response = channel.call({"method": "ping", "params": {}})
+# Primary RPC helper (v0.12.7+) — send request and wait for correlated response
+result = channel.call("ping", b"", timeout_ms=5000)
+# result: {"id": str, "success": bool, "payload": bytes, "error": str | None}
 
-# Advanced: connection pooling with resilience
-mgr = TransportManager()
-mgr.configure_pool(min_size=2, max_size=10)
-mgr.set_circuit_breaker(threshold=5, reset_timeout=30)
+# Advanced: service registry + transport manager
+mgr = TransportManager(registry_dir="/tmp/dcc-registry")
 ```
 
 ### Process Management — DCC Lifecycle Control
@@ -526,29 +526,22 @@ watcher.watch(process)
 ```python
 from dcc_mcp_core import SandboxContext, SandboxPolicy, InputValidator, AuditLog
 
-# Define what's allowed
-policy = (
-    SandboxPolicy.builder()
-    .allow_read(["/safe/paths/*"])
-    .allow_write(["/temp/*"])
-    .deny_pattern(["*.critical"])
-    .require_approval_for("delete_*")
-    .build()
-)
-
-ctx = SandboxContext(policy=policy)
+# Define a policy (SandboxPolicy accepts optional config dict)
+policy = SandboxPolicy()
+ctx = SandboxContext(policy)
 validator = InputValidator(ctx)
 
 # Validate before execution
-if not validator.validate_action("delete_all_files"):
-    print("Blocked by policy!")
+allowed, reason = validator.validate("delete_all_files")
+if not allowed:
+    print(f"Blocked by policy: {reason}")
 else:
-    print("Allowed -- executing...")
+    print("Allowed — executing...")
 
 # Review audit trail
-audit = AuditLog.load()
-for entry in audit.entries:
-    print(f"{entry.timestamp} [{entry.action}] {entry.decision} -> {entry.details}")
+audit = ctx.audit_log
+for entry in audit.entries():
+    print(f"{entry.action} -> {entry.outcome}")
 ```
 
 ## More Examples
@@ -612,7 +605,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
    ```bash
    vx just lint       # Check code style
    vx just test       # Run tests
-   vx just prek-all   # Run all pre-commit hooks
+   vx just preflight  # Run all pre-commit checks
    ```
 5. Commit using [Conventional Commits](https://www.conventionalcommits.org/) format
 6. Push and open a Pull Request against `main`

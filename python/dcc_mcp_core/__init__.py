@@ -169,10 +169,15 @@ from dcc_mcp_core._core import validate_action_result
 from dcc_mcp_core._core import validate_dependencies
 from dcc_mcp_core._core import wrap_value
 
+# Pure-Python DCC adapter base classes (no _core dependency)
+from dcc_mcp_core.bridge import BridgeConnectionError
+from dcc_mcp_core.bridge import BridgeError
+from dcc_mcp_core.bridge import BridgeRpcError
+from dcc_mcp_core.bridge import BridgeTimeoutError
+from dcc_mcp_core.bridge import DccBridge
+
 # Pure-Python DCC server diagnostic helpers (no _core dependency)
 from dcc_mcp_core.dcc_server import register_diagnostic_handlers
-
-# Pure-Python DCC adapter base classes (no _core dependency)
 from dcc_mcp_core.factory import create_dcc_server
 from dcc_mcp_core.factory import get_server_instance
 from dcc_mcp_core.factory import make_start_stop
@@ -226,11 +231,16 @@ __all__ = [
     "AuditMiddleware",
     "BooleanWrapper",
     "BoundingBox",
+    "BridgeConnectionError",
     "BridgeContext",
+    "BridgeError",
     "BridgeRegistry",
+    "BridgeRpcError",
+    "BridgeTimeoutError",
     "CaptureFrame",
     "CaptureResult",
     "Capturer",
+    "DccBridge",
     "DccCapabilities",
     "DccError",
     "DccErrorCode",

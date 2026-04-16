@@ -114,7 +114,7 @@ class DccBridge:
         port: int = 9001,
         timeout: float = 30.0,
         server_name: str = "dcc-mcp-server",
-        server_version: str = "0.12.18",
+        server_version: str = "1.0.0",
     ) -> None:
         self._host = host
         self._port = port
@@ -259,7 +259,9 @@ class DccBridge:
     # ── Internal: event loop thread ──────────────────────────────────────────
 
     def _run_event_loop(self) -> None:
-        asyncio.set_event_loop(self._loop)
+        # Do NOT call asyncio.set_event_loop(): it was deprecated in 3.10 and
+        # removed in Python 3.14.  The loop was created in __init__ via
+        # asyncio.new_event_loop() and is fully self-contained in this thread.
         try:
             self._loop.run_until_complete(self._serve())
         except Exception:
@@ -280,7 +282,7 @@ class DccBridge:
             self._server_ready.set()
             logger.debug("DccBridge listening on %s", self.endpoint)
             # Run until stop() is called.
-            await asyncio.get_event_loop().create_future()
+            await asyncio.get_running_loop().create_future()
 
     async def _handle_dcc(self, ws: Any) -> None:
         """Handle a single DCC plugin WebSocket connection."""

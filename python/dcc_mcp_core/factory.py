@@ -10,11 +10,7 @@ Usage::
     import threading
     from pathlib import Path
     from dcc_mcp_core.server_base import DccServerBase
-    from dcc_mcp_core.factory import create_dcc_server
-
-    _instance = None
-    _lock = threading.Lock()
-
+    from dcc_mcp_core.factory import create_dcc_server, make_start_stop
 
     class BlenderMcpServer(DccServerBase):
         def __init__(self, port=8765, **kwargs):
@@ -25,30 +21,30 @@ Usage::
                 **kwargs,
             )
 
+    # Recommended: use make_start_stop for zero-boilerplate adapters
+    start_server, stop_server = make_start_stop(
+        BlenderMcpServer,
+        hot_reload_env_var="DCC_MCP_BLENDER_HOT_RELOAD",
+    )
 
-    def start_server(port=8765, register_builtins=True, **kwargs):
-        global _instance
+    # Or manually with a list-based holder:
+    _holder = [None]
+    _lock = threading.Lock()
+
+    def start_server(port=8765, **kwargs):
         return create_dcc_server(
-            instance_ref=lambda: _instance,
-            instance_setter=lambda v: globals().update(_instance=v),
+            instance_holder=_holder,
             lock=_lock,
             server_class=BlenderMcpServer,
             port=port,
-            register_builtins=register_builtins,
             **kwargs,
         )
 
-
     def stop_server():
-        global _instance
         with _lock:
-            if _instance is not None:
-                _instance.stop()
-                _instance = None
-
-The two-argument ``instance_ref`` / ``instance_setter`` pattern avoids
-passing a mutable container just for the reference. Alternatively, you can
-use the simpler list-based variant shown in :func:`create_dcc_server`.
+            if _holder[0] is not None:
+                _holder[0].stop()
+                _holder[0] = None
 """
 
 # Import future modules
@@ -59,6 +55,7 @@ import logging
 import os
 import threading
 from typing import Any
+from typing import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -150,7 +147,7 @@ def create_dcc_server(
 def make_start_stop(
     server_class: type[Any],
     hot_reload_env_var: str | None = None,
-) -> tuple:
+) -> tuple[Callable[..., Any], Callable[[], None]]:
     """Generate a ``(start_server, stop_server)`` function pair for a DCC adapter.
 
     Convenience factory that creates the singleton holder + lock and returns
@@ -219,11 +216,3 @@ def get_server_instance(instance_holder: list[Any | None]) -> Any | None:
 
     """
     return instance_holder[0] if instance_holder else None
-
-
-def _make_env_var_name(dcc_name: str, suffix: str) -> str:
-    """Build a conventional environment variable name.
-
-    ``_make_env_var_name("blender", "HOT_RELOAD")`` → ``"DCC_MCP_BLENDER_HOT_RELOAD"``
-    """
-    return f"DCC_MCP_{dcc_name.upper()}_{suffix}"

@@ -35,11 +35,7 @@ from __future__ import annotations
 # Import built-in modules
 import logging
 import threading
-from typing import TYPE_CHECKING
 from typing import Any
-
-if TYPE_CHECKING:
-    pass
 
 logger = logging.getLogger(__name__)
 
@@ -171,11 +167,12 @@ class DccSkillHotReloader:
     def disable(self) -> None:
         """Disable hot-reload and clean up the SkillWatcher."""
         with self._lock:
-            if self._watcher is not None:
-                self._watcher = None
+            was_enabled = self._enabled
+            self._watcher = None
             self._watched_paths.clear()
             self._enabled = False
-        logger.info("[%s] Hot-reload disabled", self._dcc_name)
+        if was_enabled:
+            logger.info("[%s] Hot-reload disabled", self._dcc_name)
 
     def reload_now(self) -> int:
         """Manually trigger a reload of all monitored skills.
@@ -190,37 +187,42 @@ class DccSkillHotReloader:
             logger.warning("[%s] Hot-reload is not enabled", self._dcc_name)
             return 0
 
+        # Snapshot the watcher reference outside the lock before doing I/O.
         with self._lock:
-            try:
-                self._watcher.reload()
-                self._reload_count += 1
-
-                reloaded = 0
-                inner = getattr(self._server, "_server", None)
-                if inner is not None:
-                    try:
-                        for summary in inner.list_skills():
-                            skill_name = summary.name if hasattr(summary, "name") else summary.get("name")
-                            if skill_name:
-                                try:
-                                    inner.load_skill(skill_name)
-                                    reloaded += 1
-                                except Exception as exc:
-                                    logger.debug(
-                                        "[%s] Failed to reload skill %r: %s",
-                                        self._dcc_name,
-                                        skill_name,
-                                        exc,
-                                    )
-                    except Exception as exc:
-                        logger.warning("[%s] Error listing skills during reload: %s", self._dcc_name, exc)
-
-                logger.info("[%s] Manual reload triggered: %d skills reloaded", self._dcc_name, reloaded)
-                return reloaded
-
-            except Exception as exc:
-                logger.error("[%s] Manual reload failed: %s", self._dcc_name, exc)
+            watcher = self._watcher
+            if watcher is None:
                 return 0
+
+        try:
+            watcher.reload()
+            self._reload_count += 1
+
+            reloaded = 0
+            inner = getattr(self._server, "_server", None)
+            if inner is not None:
+                try:
+                    for summary in inner.list_skills():
+                        skill_name = summary.name if hasattr(summary, "name") else summary.get("name")
+                        if skill_name:
+                            try:
+                                inner.load_skill(skill_name)
+                                reloaded += 1
+                            except Exception as exc:
+                                logger.debug(
+                                    "[%s] Failed to reload skill %r: %s",
+                                    self._dcc_name,
+                                    skill_name,
+                                    exc,
+                                )
+                except Exception as exc:
+                    logger.warning("[%s] Error listing skills during reload: %s", self._dcc_name, exc)
+
+            logger.info("[%s] Manual reload triggered: %d skills reloaded", self._dcc_name, reloaded)
+            return reloaded
+
+        except Exception as exc:
+            logger.error("[%s] Manual reload failed: %s", self._dcc_name, exc)
+            return 0
 
     def get_stats(self) -> dict:
         """Return hot-reload statistics.
