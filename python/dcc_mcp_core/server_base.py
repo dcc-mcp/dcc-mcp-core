@@ -56,6 +56,13 @@ import os
 from pathlib import Path
 from typing import Any
 
+# NOTE: dcc_mcp_core imports (McpHttpConfig, create_skill_manager, get_*,
+# TransportManager, get_bundled_skill_paths) are deferred inside methods to
+# avoid a circular import: __init__.py imports DccServerBase from this module,
+# so this module cannot import from dcc_mcp_core at module level.
+from dcc_mcp_core.gateway_election import DccGatewayElection
+from dcc_mcp_core.hotreload import DccSkillHotReloader
+
 logger = logging.getLogger(__name__)
 
 
@@ -74,6 +81,7 @@ class DccServerBase:
         port: TCP port for the MCP HTTP server. ``0`` → OS picks a free port.
         server_name: Name reported in the MCP ``initialize`` response.
         server_version: Version reported in the MCP ``initialize`` response.
+            Defaults to the installed ``dcc_mcp_core`` package version.
         gateway_port: Port for the multi-DCC first-wins gateway competition.
             ``None`` reads ``DCC_MCP_GATEWAY_PORT`` env var; ``0`` disables gateway.
         registry_dir: Directory for the shared ``FileRegistry`` JSON file.
@@ -89,14 +97,17 @@ class DccServerBase:
         builtin_skills_dir: Path,
         port: int = 8765,
         server_name: str | None = None,
-        server_version: str = "0.1.0",
+        server_version: str | None = None,
         gateway_port: int | None = None,
         registry_dir: str | None = None,
         dcc_version: str | None = None,
         scene: str | None = None,
         enable_gateway_failover: bool = True,
     ) -> None:
+        # Deferred: circular import — __init__.py imports DccServerBase from
+        # this module, so we cannot import from dcc_mcp_core at module level.
         from dcc_mcp_core import McpHttpConfig
+        from dcc_mcp_core import __version__ as _pkg_version
         from dcc_mcp_core import create_skill_manager
 
         self._dcc_name = dcc_name
@@ -117,7 +128,7 @@ class DccServerBase:
         self._config = McpHttpConfig(
             port=port,
             server_name=server_name or f"{dcc_name}-mcp",
-            server_version=server_version,
+            server_version=server_version if server_version is not None else _pkg_version,
         )
         if effective_gateway_port > 0:
             self._config.gateway_port = effective_gateway_port
@@ -494,8 +505,6 @@ class DccServerBase:
             ``True`` on success.
 
         """
-        from dcc_mcp_core.hotreload import DccSkillHotReloader
-
         if self._hot_reloader is None:
             self._hot_reloader = DccSkillHotReloader(dcc_name=self._dcc_name, server=self)
 
@@ -546,8 +555,6 @@ class DccServerBase:
         gateway_port = getattr(self._config, "gateway_port", 0)
         if self._enable_gateway_failover and gateway_port and gateway_port > 0 and self._gateway_election is None:
             try:
-                from dcc_mcp_core.gateway_election import DccGatewayElection
-
                 self._gateway_election = DccGatewayElection(
                     dcc_name=self._dcc_name,
                     server=self,

@@ -35,6 +35,20 @@ import threading
 from typing import Any
 import uuid
 
+
+# NOTE: dcc_mcp_core.__version__ is deferred to avoid a potential import-time
+# circular dependency if bridge.py is ever imported before _core is ready.
+# We only need the version string at DccBridge.__init__ call time, not at
+# module import time, so this is safe.
+def _package_version() -> str:
+    try:
+        from dcc_mcp_core import __version__
+
+        return __version__
+    except Exception:
+        return "0.0.0"
+
+
 logger = logging.getLogger(__name__)
 
 # ── Exceptions ────────────────────────────────────────────────────────────────
@@ -105,6 +119,7 @@ class DccBridge:
         Name advertised in the ``hello_ack`` handshake.
     server_version:
         Version advertised in the ``hello_ack`` handshake.
+        Defaults to the installed ``dcc_mcp_core`` package version.
 
     """
 
@@ -114,13 +129,13 @@ class DccBridge:
         port: int = 9001,
         timeout: float = 30.0,
         server_name: str = "dcc-mcp-server",
-        server_version: str = "1.0.0",
+        server_version: str | None = None,
     ) -> None:
         self._host = host
         self._port = port
         self._timeout = timeout
         self._server_name = server_name
-        self._server_version = server_version
+        self._server_version = server_version if server_version is not None else _package_version()
 
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: threading.Thread | None = None
