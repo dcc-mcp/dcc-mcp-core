@@ -51,7 +51,7 @@ impl DurationStore {
         let mut sorted = self.samples.clone();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         let idx = ((pct / 100.0) * sorted.len() as f64).ceil() as usize;
-        sorted[(idx.min(sorted.len()) - 1).max(0)]
+        sorted[idx.min(sorted.len()).saturating_sub(1)]
     }
 }
 

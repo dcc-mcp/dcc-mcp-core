@@ -309,11 +309,12 @@ impl FramedChannel {
                 // Branch 3: outgoing envelope from send().
                 write_msg = write_rx.recv() => {
                     match write_msg {
-                        Some(envelope) => {
-                            if framed.send_envelope(&envelope).await.is_err() {
-                                return; // Write error — exit.
-                            }
+                        Some(envelope)
+                            if framed.send_envelope(&envelope).await.is_err() =>
+                        {
+                            return; // Write error — exit.
                         }
+                        Some(_) => {}
                         None => {
                             // write_tx dropped — no more sends; continue reading.
                         }
