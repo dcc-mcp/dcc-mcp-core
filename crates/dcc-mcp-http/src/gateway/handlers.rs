@@ -14,11 +14,9 @@ use tokio_stream::StreamExt;
 use tokio_stream::wrappers::BroadcastStream;
 
 use super::super::gateway::is_newer_version;
+use super::aggregator;
 use super::proxy::proxy_request;
 use super::state::{GatewayState, entry_to_json};
-use super::tools::{
-    gateway_tool_defs, tool_connect_to_dcc, tool_get_instance, tool_list_instances,
-};
 use dcc_mcp_transport::discovery::types::ServiceStatus;
 
 /// Minimal JSON-RPC 2.0 request shape accepted by the gateway `/mcp` endpoint.
@@ -177,10 +175,14 @@ pub async fn handle_instances(State(gs): State<GatewayState>) -> impl IntoRespon
 
 // ── MCP endpoint ──────────────────────────────────────────────────────────────
 
-/// `POST /mcp` — gateway's own MCP endpoint with discovery meta-tools.
-/// Does NOT proxy; returns direct URLs for agents to use.
+/// `POST /mcp` — gateway's own MCP endpoint (facade over every live DCC).
+///
+/// Aggregates `tools/list` from every backend, routes `tools/call` by the
+/// instance-prefix encoded into each tool name, and handles the 3 discovery
+/// meta-tools + 6 skill-management tools locally / with fan-out.
 pub async fn handle_gateway_mcp(
     State(gs): State<GatewayState>,
+    headers: HeaderMap,
     body: axum::body::Bytes,
 ) -> Response {
     let req: JsonRpcRequest = match serde_json::from_slice(&body) {
@@ -194,6 +196,13 @@ pub async fn handle_gateway_mcp(
         }
     };
 
+    // Preserve the client's session id (if any) so the SSE subscription opened
+    // via GET /mcp can correlate with POST /mcp calls.
+    let client_session_id = headers
+        .get("Mcp-Session-Id")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned);
+
     let id = req.id.clone();
     let resp = match req.method.as_str() {
         "initialize" => json!({
@@ -201,35 +210,35 @@ pub async fn handle_gateway_mcp(
             "result": {
                 "protocolVersion": "2025-03-26",
                 "capabilities": {
-                    // Tool schemas never change — the 3 meta-tools are always present.
-                    "tools": {"listChanged": false},
+                    // Aggregated tool list changes as backends load/unload skills.
+                    "tools": {"listChanged": true},
                     // Resources (DCC instances) change dynamically.
                     // Clients should subscribe to GET /mcp SSE stream for push notifications.
                     "resources": {"listChanged": true, "subscribe": true}
                 },
                 "serverInfo": {"name": gs.server_name, "version": gs.server_version},
                 "instructions":
-                    "DCC-MCP Gateway — multi-instance discovery.\n\
+                    "DCC-MCP Gateway — unified MCP endpoint across every live DCC.\n\
                      \n\
-                     DYNAMIC DISCOVERY (recommended):\n\
-                     • Open a persistent SSE connection to GET /mcp (Accept: text/event-stream)\n\
-                     • Call resources/list to see current DCC instances as MCP resources\n\
-                     • Receive notifications/resources/list_changed pushed over SSE when instances join/leave\n\
-                     • Call resources/read with a dcc:// URI to get full instance details\n\
+                     tools/list returns:\n\
+                     • 3 discovery meta-tools (list_dcc_instances / get_dcc_instance / connect_to_dcc)\n\
+                     • 6 skill-management tools (list/find/search/get_info/load/unload_skill)\n\
+                     • Every backend tool, prefixed with an 8-char instance id (e.g. abcd1234__maya_geometry__create_sphere)\n\
                      \n\
-                     TOOL-BASED DISCOVERY:\n\
-                     • Call list_dcc_instances — always returns the live snapshot\n\
-                     • Call connect_to_dcc to get a direct MCP URL (zero proxy overhead)\n\
-                     • Or POST /mcp/{instance_id} for transparent proxying"
+                     Workflow:\n\
+                     1. search_skills(query=...) — find relevant skills across every live DCC\n\
+                     2. load_skill(skill_name=..., instance_id=... when multiple instances exist)\n\
+                     3. Call the prefixed tool directly through this same endpoint\n\
+                     \n\
+                     Subscribe to GET /mcp (SSE) for notifications/tools/list_changed and\n\
+                     notifications/resources/list_changed push events."
             }
         }),
         "ping" => json!({"jsonrpc":"2.0","id":id,"result":{}}),
         "notifications/initialized" => json!({"jsonrpc":"2.0","id":id,"result":{}}),
         "tools/list" => {
-            json!({
-                "jsonrpc": "2.0", "id": id,
-                "result": {"tools": gateway_tool_defs(), "nextCursor": null}
-            })
+            let result = aggregator::aggregate_tools_list(&gs).await;
+            json!({"jsonrpc": "2.0", "id": id, "result": result})
         }
         // ── MCP Resources API ─────────────────────────────────────────────
         // Each live DCC instance is a resource with URI: dcc://{dcc_type}/{instance_id}
@@ -316,23 +325,11 @@ pub async fn handle_gateway_mcp(
                 .cloned()
                 .unwrap_or(json!({}));
 
-            let result = match tool {
-                "list_dcc_instances" => tool_list_instances(&gs, &args).await,
-                "get_dcc_instance" => tool_get_instance(&gs, &args).await,
-                "connect_to_dcc" => tool_connect_to_dcc(&gs, &args).await,
-                other => Err(format!("Unknown tool: {other}")),
-            };
-
-            match result {
-                Ok(text) => json!({
-                    "jsonrpc": "2.0", "id": id,
-                    "result": {"content": [{"type": "text", "text": text}], "isError": false}
-                }),
-                Err(msg) => json!({
-                    "jsonrpc": "2.0", "id": id,
-                    "result": {"content": [{"type": "text", "text": msg}], "isError": true}
-                }),
-            }
+            let (text, is_error) = aggregator::route_tools_call(&gs, tool, &args).await;
+            json!({
+                "jsonrpc": "2.0", "id": id,
+                "result": {"content": [{"type": "text", "text": text}], "isError": is_error}
+            })
         }
         other => json!({
             "jsonrpc": "2.0", "id": id,
@@ -340,10 +337,15 @@ pub async fn handle_gateway_mcp(
         }),
     };
 
+    // Session id: reuse the one the client sent if present; otherwise mint a
+    // fresh per-client token so streaming-http clients can correlate their
+    // POST requests with their GET /mcp SSE subscription.
+    let session_value =
+        client_session_id.unwrap_or_else(|| format!("gw-{}", uuid::Uuid::new_v4().simple()));
     let mut response = Json(resp).into_response();
-    response
-        .headers_mut()
-        .insert("Mcp-Session-Id", "dcc-mcp-gateway".parse().unwrap());
+    if let Ok(hv) = session_value.parse() {
+        response.headers_mut().insert("Mcp-Session-Id", hv);
+    }
     response
 }
 

@@ -24,7 +24,10 @@
 //! # }
 //! ```
 
+pub mod aggregator;
+pub mod backend_client;
 pub mod handlers;
+pub mod namespace;
 pub mod proxy;
 pub mod router;
 pub mod state;
@@ -128,10 +131,17 @@ async fn start_gateway_tasks(
     let yield_tx = Arc::new(yield_tx);
 
     // ── SSE broadcast channel ──────────────────────────────────────────────
-    // All MCP notifications (resources/list_changed, etc.) are sent here.
-    // Capacity 128 is generous; the watcher fires at most once every 2 s.
+    // All MCP notifications (resources/list_changed, tools/list_changed) are
+    // sent here. Capacity 128 is generous; watchers fire at most every 2-3 s.
     let (events_tx, _) = broadcast::channel::<String>(128);
     let events_tx = Arc::new(events_tx);
+
+    // ── Shared HTTP client for backend fan-out ─────────────────────────────
+    // Reused by both the tools-list watcher task and the facade /mcp handler
+    // via GatewayState so connection pooling is shared across all consumers.
+    let http_client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()?;
 
     // ── Stale cleanup + challenger detection (every 15 s) ─────────────────
     let reg_cleanup = registry.clone();
@@ -206,15 +216,66 @@ async fn start_gateway_tasks(
         }
     });
 
+    // ── Aggregated tools/list_changed watcher (every 3 s) ─────────────────
+    // Polls every live backend's `tools/list`, computes a set-fingerprint of
+    // "{instance_id}:{tool_name}" tuples, and broadcasts one
+    // `notifications/tools/list_changed` to gateway SSE subscribers when the
+    // aggregated set changes (skill loaded / unloaded on any DCC).
+    //
+    // Polling (vs. real SSE subscription to each backend) keeps the gateway
+    // decoupled from backend session lifecycles and works uniformly even when
+    // instances come and go. 3-second granularity is well within the latency
+    // budget for interactive skill loading.
+    let reg_tools = registry.clone();
+    let events_tx_tools = events_tx.clone();
+    let http_client_tools = http_client.clone();
+    let tools_watcher_handle = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(3));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        let mut last_fingerprint = String::new();
+
+        loop {
+            interval.tick().await;
+            // Skip polling when no clients are listening — keeps idle gateways
+            // from hammering backends.
+            if events_tx_tools.receiver_count() == 0 {
+                continue;
+            }
+
+            let fingerprint = aggregator::compute_tools_fingerprint(
+                &reg_tools,
+                stale_timeout,
+                &http_client_tools,
+            )
+            .await;
+
+            if fingerprint != last_fingerprint {
+                // First tick always "changes" from empty-string → don't push
+                // on initial startup unless there are actually tools.
+                if !last_fingerprint.is_empty() || !fingerprint.is_empty() {
+                    tracing::debug!(
+                        "Gateway: aggregated tool set changed — broadcasting tools/list_changed"
+                    );
+                    let notif = serde_json::to_string(&serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "method": "notifications/tools/list_changed",
+                        "params": {}
+                    }))
+                    .unwrap_or_default();
+                    let _ = events_tx_tools.send(notif);
+                }
+                last_fingerprint = fingerprint;
+            }
+        }
+    });
+
     // ── Gateway HTTP server ────────────────────────────────────────────────
     let gw_state = GatewayState {
         registry,
         stale_timeout,
         server_name,
         server_version,
-        http_client: reqwest::Client::builder()
-            .timeout(Duration::from_secs(30))
-            .build()?,
+        http_client,
         yield_tx: yield_tx.clone(),
         events_tx,
     };
@@ -244,7 +305,12 @@ async fn start_gateway_tasks(
 
     // Combine all tasks under one abort handle.
     let combined = tokio::spawn(async move {
-        let _ = tokio::join!(cleanup_handle, watcher_handle, gw_handle);
+        let _ = tokio::join!(
+            cleanup_handle,
+            watcher_handle,
+            tools_watcher_handle,
+            gw_handle
+        );
     });
 
     Ok((combined.abort_handle(), yield_tx))

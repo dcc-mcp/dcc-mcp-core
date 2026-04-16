@@ -205,7 +205,7 @@ print(f"Maya MCP 服务器: {handle.mcp_url()}")
 
 ## 网关
 
-当多个 DCC 实例同时启动时，其中一个会自动成为**网关** — 一个统一的入口点，发现并代理所有运行中的实例。
+当多个 DCC 实例同时启动时，其中一个会自动成为**网关** — 一个统一的 `/mcp` 入口点，将所有运行中实例的工具**聚合**成单一 MCP 接口。
 
 ### 工作原理
 
@@ -221,19 +221,24 @@ print(f"Maya MCP 服务器: {handle.mcp_url()}")
 |------|------|------|
 | `/instances` | GET | 所有活跃实例的 JSON 列表 |
 | `/health` | GET | `{"ok": true}` 健康检查 |
-| `/mcp` | POST | 网关自身的 MCP 端点（发现元工具） |
-| `/mcp/{instance_id}` | POST | 透明代理到指定实例 |
+| `/mcp` | POST | 聚合 MCP 端点（合并所有后端工具） |
+| `/mcp` | GET | SSE 事件流 — 推送 `tools/list_changed` 与 `resources/list_changed` |
+| `/mcp/{instance_id}` | POST | 透明代理到指定实例（底层逃生通道） |
 | `/mcp/dcc/{dcc_type}` | POST | 代理到指定 DCC 类型的最佳实例 |
 
-### 网关 MCP 元工具
+### 聚合式 Facade
 
-网关通过自身的 `/mcp` 端点暴露三个发现工具：
+网关的 `POST /mcp` 是一个统一 MCP 服务器，在单次 `tools/list` 响应中合并三层工具：
 
-| 工具 | 说明 |
-|------|------|
-| `list_dcc_instances` | 列出所有活跃 DCC 服务器（类型、端口、场景、状态） |
-| `get_dcc_instance` | 获取指定实例的信息（按 id 或 `dcc_type+scene`） |
-| `connect_to_dcc` | 返回 DCC 实例的直接 MCP URL |
+| 层级 | 工具 | 用途 |
+|------|------|------|
+| 发现元工具 | `list_dcc_instances`、`get_dcc_instance`、`connect_to_dcc` | 枚举 / 查看活跃 DCC；需要直连时返回直接 MCP URL |
+| 技能管理 | `list_skills`、`find_skills`、`search_skills`、`get_skill_info`、`load_skill`、`unload_skill` | 读操作向全部 DCC 扇出；`load_skill` / `unload_skill` 通过 `instance_id` / `dcc` 参数指向具体实例 |
+| 后端工具 | 所有活跃 DCC 自身的工具，带 8 字符实例前缀 — 例如 `a1b2c3d4__create_sphere` | 按前缀路由回原始后端 |
+
+每个命名空间化的后端工具还会附带 `_instance_id`、`_instance_short`、`_dcc_type` 注解，以便 agent 消歧（比如 `create_cube` 在 Maya 和 Blender 上各注册一次时，会表现为两个带不同前缀的独立条目）。
+
+网关声明 `capabilities.tools.listChanged: true`，每 3 秒轮询后端；当聚合集合发生变化（任何一处加载 / 卸载 skill）时，向所有连接的 SSE 客户端广播 `notifications/tools/list_changed`。
 
 ### Python 示例
 
@@ -259,7 +264,7 @@ print(handle.mcp_url())         # 本实例的直接 MCP URL
 ```
 
 ::: tip 多 DCC、单入口
-启动任意数量的 DCC 服务器 — 第一个赢得网关端口。Agent 始终连接 `http://localhost:9765/mcp`，使用 `list_dcc_instances` / `connect_to_dcc` 发现并路由到特定 DCC 进程。
+启动任意数量的 DCC 服务器 — 第一个赢得网关端口。Agent 始终连接 `http://localhost:9765/mcp`，在单一 `tools/list` 中看到所有后端工具（按实例命名空间化）。需要直连、不经代理时再使用 `list_dcc_instances` / `connect_to_dcc`。
 :::
 
 ::: info Skills-First + 网关

@@ -4,12 +4,12 @@
 
 ## 什么是网关？
 
-**网关**是一个单一的 Rust HTTP 服务器（默认运行在 `localhost:9999`），负责：
+**网关**是一个单一的 Rust HTTP 服务器（默认运行在 `localhost:9765`），负责：
 
 - 发现所有运行中的 DCC 实例（Maya、Blender、Houdini、Photoshop 等）
-- 根据会话将 AI 请求路由到正确的实例
-- 为每个会话提供有范围的 `tools/list`（防止上下文爆炸）
-- 处理请求取消和 SSE 通知
+- 将所有活跃后端的工具聚合到统一的 `/mcp` 端点（按 `{instance_short}__{name}` 命名空间化）
+- 对 skill 管理调用做扇出（`search_skills`、`list_skills`）或按实例路由（`load_skill`）
+- 当 skill 加载 / 卸载或实例进出时，通过 SSE 推送 `tools/list_changed` 和 `resources/list_changed`
 
 **每台机器只有一个网关**。当第一个 DCC 实例注册时自动启动。
 
@@ -162,9 +162,10 @@ session_b = mgr.get_or_create_session("maya", iid_rig)
 # 会话不同——无上下文混淆
 assert session_a != session_b
 
-# tools/list 按每个会话的实例过滤
-# 智能体 A 看到：maya_anim__set_keyframe, ...
-# 智能体 B 看到：maya_rig__mirror_joints, ...
+# 通过聚合式网关，两个实例的工具都会出现在同一份 tools/list 中，
+# 通过 8 字符前缀区分，agent 可定向调用任一实例：
+#   a1b2c3d4__set_keyframe   ← maya-animation
+#   e5f6g7h8__mirror_joints  ← maya-rigging
 ```
 
 ## 实例健康检查

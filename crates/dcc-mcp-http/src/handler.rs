@@ -663,52 +663,98 @@ async fn handle_load_skill(
         ));
     }
 
-    let mut all_registered_tools = Vec::new();
-    let mut errors = Vec::new();
-
-    // Load single skill
+    // Collect the full set of requested skills, deduping `skill_name` vs the
+    // `skill_names` array so callers passing both don't trigger the work twice.
+    let mut requested: Vec<String> = Vec::new();
     if !skill_name.is_empty() {
-        match state.catalog.load_skill(skill_name) {
-            Ok(tools) => all_registered_tools.extend(tools),
-            Err(e) => errors.push(format!("{skill_name}: {e}")),
+        requested.push(skill_name.to_string());
+    }
+    for name in &skill_names {
+        if !requested.contains(name) {
+            requested.push(name.clone());
         }
     }
 
-    // Load multiple skills
-    for name in &skill_names {
+    let mut all_registered_tools: Vec<String> = Vec::new();
+    let mut errors: Vec<String> = Vec::new();
+    let mut newly_loaded: Vec<String> = Vec::new();
+    let mut already_loaded: Vec<String> = Vec::new();
+
+    for name in &requested {
+        let was_loaded = state.catalog.is_loaded(name);
         match state.catalog.load_skill(name) {
-            Ok(tools) => all_registered_tools.extend(tools),
+            Ok(tools) => {
+                all_registered_tools.extend(tools);
+                if was_loaded {
+                    already_loaded.push(name.clone());
+                } else {
+                    newly_loaded.push(name.clone());
+                }
+            }
             Err(e) => errors.push(format!("{name}: {e}")),
         }
     }
 
-    // Send tools/list_changed notification to session if tools were loaded
-    if !all_registered_tools.is_empty() {
+    // Only notify tools/list_changed when at least one skill transitioned
+    // from unloaded → loaded.  Re-loading already-loaded skills is a no-op
+    // and must not trigger a spurious client refresh.
+    if !newly_loaded.is_empty() {
         if let Some(sid) = session_id {
             notify_tools_list_changed(&state.sessions, sid);
         }
     }
 
-    let text = if errors.is_empty() {
-        serde_json::to_string_pretty(&json!({
-            "loaded": true,
-            "registered_tools": all_registered_tools,
-            "tool_count": all_registered_tools.len()
-        }))
-        .unwrap_or_default()
-    } else {
-        serde_json::to_string_pretty(&json!({
-            "loaded": errors.is_empty(),
-            "registered_tools": all_registered_tools,
-            "tool_count": all_registered_tools.len(),
-            "errors": errors
-        }))
-        .unwrap_or_default()
-    };
+    // Build the full tool metadata so agents can invoke the new tools without
+    // a second round-trip to `tools/list`.  One registry read per newly or
+    // previously loaded skill; keeps the payload self-contained.
+    let mut tool_schemas: Vec<Value> = Vec::new();
+    for name in newly_loaded.iter().chain(already_loaded.iter()) {
+        for meta in state.catalog.registry().list_actions_by_skill(name) {
+            tool_schemas.push(json!({
+                "name":          meta.name,
+                "description":   meta.description,
+                "inputSchema":   meta.input_schema,
+                "outputSchema":  meta.output_schema,
+                "skill_name":    meta.skill_name,
+            }));
+        }
+    }
 
+    // Response semantics:
+    // - `loaded` is true when at least one requested skill ended up loaded
+    //   (even if some others failed). This matches the caller's intuition
+    //   that "tools were registered" rather than treating any failure as total.
+    // - `partial` distinguishes mixed success/failure from clean success.
+    let loaded_ok = !all_registered_tools.is_empty();
+    let partial = loaded_ok && !errors.is_empty();
+
+    let mut body = json!({
+        "loaded":           loaded_ok,
+        "partial":          partial,
+        "registered_tools": all_registered_tools,
+        "tool_count":       all_registered_tools.len(),
+        "newly_loaded":     newly_loaded,
+        "already_loaded":   already_loaded,
+        "tools":            tool_schemas,
+    });
+    if !errors.is_empty() {
+        body.as_object_mut()
+            .unwrap()
+            .insert("errors".to_string(), json!(errors));
+    }
+
+    let text = serde_json::to_string_pretty(&body).unwrap_or_default();
+
+    // `isError` only when every requested skill failed — partial success is
+    // still reported as success so clients see the registered-tool list.
+    let result = if loaded_ok {
+        CallToolResult::text(text)
+    } else {
+        CallToolResult::error(text)
+    };
     Ok(JsonRpcResponse::success(
         req.id.clone(),
-        serde_json::to_value(CallToolResult::text(text))?,
+        serde_json::to_value(result)?,
     ))
 }
 
@@ -972,11 +1018,26 @@ fn action_meta_to_mcp_tool(meta: &dcc_mcp_actions::registry::ActionMeta) -> McpT
 ///
 /// Name format: `__skill__<skill_name>`
 fn build_skill_stub(summary: &SkillSummary) -> McpTool {
-    // RTK-inspired: ultra-compact format for skill stubs
-    // Format: [dcc] tool_count tools • load_skill("name")
+    // Compact stub format including a short tool-name preview so the agent
+    // can reason about which skill to load without a second `get_skill_info`
+    // round-trip. Limited to the first few names + ellipsis to keep the
+    // `tools/list` payload from ballooning on skills that expose many tools.
+    const PREVIEW_LIMIT: usize = 5;
+    let preview = if summary.tool_names.is_empty() {
+        String::new()
+    } else if summary.tool_names.len() <= PREVIEW_LIMIT {
+        format!(" ({})", summary.tool_names.join(", "))
+    } else {
+        format!(
+            " ({}, …+{} more)",
+            summary.tool_names[..PREVIEW_LIMIT].join(", "),
+            summary.tool_names.len() - PREVIEW_LIMIT
+        )
+    };
+
     let description = format!(
-        "[{}] {} tools • Call load_skill(\"{}\")",
-        summary.dcc, summary.tool_count, summary.name
+        "[{}] {} tools{} • Call load_skill(\"{}\")",
+        summary.dcc, summary.tool_count, preview, summary.name
     );
 
     McpTool {

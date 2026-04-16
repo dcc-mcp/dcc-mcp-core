@@ -205,7 +205,7 @@ print(f"Maya MCP server: {handle.mcp_url()}")
 
 ## Gateway
 
-When multiple DCC instances start simultaneously, one automatically becomes the **gateway** — a single well-known entry point that discovers and proxies to all running instances.
+When multiple DCC instances start simultaneously, one automatically becomes the **gateway** — a single well-known `/mcp` endpoint that **aggregates** every running instance's tools into one unified MCP interface.
 
 ### How it works
 
@@ -221,19 +221,24 @@ When multiple DCC instances start simultaneously, one automatically becomes the 
 |----------|--------|-------------|
 | `/instances` | GET | JSON list of all live instances |
 | `/health` | GET | `{"ok": true}` health check |
-| `/mcp` | POST | Gateway's own MCP endpoint (discovery meta-tools) |
-| `/mcp/{instance_id}` | POST | Transparent proxy to a specific instance |
+| `/mcp` | POST | Aggregating MCP endpoint (merges every backend's tools) |
+| `/mcp` | GET | SSE stream — `tools/list_changed` and `resources/list_changed` |
+| `/mcp/{instance_id}` | POST | Transparent proxy to a specific instance (low-level escape hatch) |
 | `/mcp/dcc/{dcc_type}` | POST | Proxy to the best instance of a DCC type |
 
-### Gateway MCP meta-tools
+### Aggregating facade
 
-The gateway exposes three discovery tools via its own `/mcp` endpoint:
+`POST /mcp` on the gateway is a single MCP server that exposes three tiers of tools merged into one `tools/list` response:
 
-| Tool | Description |
-|------|-------------|
-| `list_dcc_instances` | List all live DCC servers (type, port, scene, status) |
-| `get_dcc_instance` | Get info for a specific instance (by id or `dcc_type+scene`) |
-| `connect_to_dcc` | Return the direct MCP URL for a DCC instance |
+| Tier | Tools | Purpose |
+|------|-------|---------|
+| Discovery meta | `list_dcc_instances`, `get_dcc_instance`, `connect_to_dcc` | Enumerate / inspect live DCCs; get a direct MCP URL when needed |
+| Skill management | `list_skills`, `find_skills`, `search_skills`, `get_skill_info`, `load_skill`, `unload_skill` | Fan-out to every DCC (read ops) or target a specific instance via the `instance_id` / `dcc` argument (`load_skill` / `unload_skill`) |
+| Backend tools | Every live DCC's own tools, prefixed with an 8-char instance id — e.g. `a1b2c3d4__create_sphere` | Routed to the originating backend by the prefix |
+
+Each namespaced backend tool also carries `_instance_id`, `_instance_short`, and `_dcc_type` annotations so agents can disambiguate colliding names (e.g. `create_cube` on Maya and Blender appear as two distinct entries with different prefixes).
+
+The gateway advertises `capabilities.tools.listChanged: true` and polls backends every 3 s; when the aggregated set changes (skill loaded / unloaded anywhere) it broadcasts `notifications/tools/list_changed` to every connected SSE client.
 
 ### Python example
 
@@ -259,7 +264,7 @@ print(handle.mcp_url())         # direct MCP URL for this instance
 ```
 
 ::: tip Multiple DCCs, one endpoint
-Start any number of DCC servers — the first one wins the gateway port. Agents always connect to `http://localhost:9765/mcp` and use `list_dcc_instances` / `connect_to_dcc` to discover and route to specific DCC processes.
+Start any number of DCC servers — the first one wins the gateway port. Agents always connect to `http://localhost:9765/mcp` and see every backend's tools in a single `tools/list`, namespaced by instance. `list_dcc_instances` / `connect_to_dcc` are available when an agent wants a direct, un-proxied session.
 :::
 
 ::: info Skills-First + gateway
