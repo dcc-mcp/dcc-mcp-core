@@ -537,10 +537,13 @@ class TestServiceEntryAttributes:
             d = entry.to_dict()
             expected_keys = {
                 "dcc_type",
+                "display_name",
+                "documents",
                 "host",
                 "instance_id",
                 "last_heartbeat_ms",
                 "metadata",
+                "pid",
                 "port",
                 "scene",
                 "status",
