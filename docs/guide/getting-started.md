@@ -156,7 +156,7 @@ vx just lint
 ## Next Steps
 
 - Learn about [Actions & Registry](/guide/actions) — the tool registration layer
-- Explore the [Event System](/guide/events) for lifecycle hooks
+- Explore [Events & Telemetry](/api/events) for lifecycle hooks and lightweight execution metrics
 - Check out the [Skills System](/guide/skills) for zero-code script registration
 - Expose tools with [MCP HTTP Server](/api/http)
 - See the [Transport Layer](/guide/transport) for DCC communication

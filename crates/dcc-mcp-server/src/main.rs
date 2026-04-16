@@ -73,7 +73,9 @@
 //! | `DCC_MCP_STALE_TIMEOUT`   | Seconds without heartbeat = stale (default 30)     |
 
 use std::path::PathBuf;
+use std::process::{Command, Stdio};
 use std::sync::Arc;
+use std::time::Duration;
 
 use clap::Parser;
 use dcc_mcp_actions::{ActionDispatcher, ActionRegistry};
@@ -82,6 +84,7 @@ use dcc_mcp_http::{McpHttpConfig, McpHttpServer};
 use dcc_mcp_skills::SkillCatalog;
 use dcc_mcp_transport::discovery::types::ServiceEntry;
 use dcc_mcp_utils::filesystem;
+use sysinfo::{Pid, ProcessesToUpdate, System};
 
 // ── CLI ───────────────────────────────────────────────────────────────────────
 
@@ -117,6 +120,14 @@ struct Args {
     #[arg(long, default_value = "127.0.0.1")]
     host: String,
 
+    /// Write the server process ID to this file while running.
+    #[arg(long, value_name = "PATH")]
+    pid_file: Option<PathBuf>,
+
+    /// Overwrite an existing PID file even if it points at a live process.
+    #[arg(long, default_value = "false")]
+    force: bool,
+
     // ── Gateway ──
     /// Gateway port to compete for. First instance to bind wins the gateway.
     /// 0 = gateway disabled entirely.
@@ -142,6 +153,139 @@ struct Args {
     /// Heartbeat interval in seconds for the registry. 0 = disabled.
     #[arg(long, env = "DCC_MCP_HEARTBEAT_INTERVAL", default_value = "5")]
     heartbeat_secs: u64,
+
+    /// Reserved compatibility flag for older sidecar supervisors.
+    #[arg(long, default_value = "30")]
+    reconnect_timeout_secs: u64,
+
+    /// Internal helper: watch a PID and remove its PID file after exit.
+    #[arg(long, hide = true)]
+    pid_cleanup_watch: Option<PathBuf>,
+
+    /// Internal helper: PID to watch for `--pid-cleanup-watch`.
+    #[arg(long, hide = true)]
+    watch_pid: Option<u32>,
+}
+
+struct PidFileGuard {
+    path: PathBuf,
+}
+
+impl Drop for PidFileGuard {
+    fn drop(&mut self) {
+        if let Err(error) = std::fs::remove_file(&self.path) {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                tracing::warn!(path = %self.path.display(), %error, "failed to remove PID file");
+            }
+        }
+    }
+}
+
+impl PidFileGuard {
+    fn remove_now(&mut self) {
+        if let Err(error) = std::fs::remove_file(&self.path) {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                tracing::warn!(path = %self.path.display(), %error, "failed to remove PID file");
+            }
+        }
+    }
+}
+
+fn is_process_alive(pid: u32) -> bool {
+    let mut sys = System::new();
+    sys.refresh_processes(ProcessesToUpdate::Some(&[Pid::from_u32(pid)]), true);
+    sys.process(Pid::from_u32(pid)).is_some()
+}
+
+fn acquire_pid_file(path: &std::path::Path, force: bool) -> anyhow::Result<PidFileGuard> {
+    let current_pid = std::process::id();
+
+    if path.exists() {
+        let existing = std::fs::read_to_string(path)
+            .ok()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+
+        if let Some(raw_pid) = existing {
+            if let Ok(existing_pid) = raw_pid.parse::<u32>() {
+                let alive = existing_pid == current_pid || is_process_alive(existing_pid);
+                if alive && !force {
+                    return Err(anyhow::anyhow!(
+                        "PID file '{}' already points to a running process ({existing_pid}); use --force to overwrite",
+                        path.display()
+                    ));
+                }
+                if alive {
+                    tracing::warn!(
+                        path = %path.display(),
+                        existing_pid,
+                        "overwriting live PID file because --force was set"
+                    );
+                } else {
+                    tracing::warn!(
+                        path = %path.display(),
+                        existing_pid,
+                        "overwriting stale PID file"
+                    );
+                }
+            } else {
+                tracing::warn!(path = %path.display(), "overwriting invalid PID file contents");
+            }
+        }
+    }
+
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
+
+    std::fs::write(path, format!("{current_pid}\n"))?;
+    Ok(PidFileGuard {
+        path: path.to_path_buf(),
+    })
+}
+
+fn spawn_pid_cleanup_watcher(path: &std::path::Path, pid: u32) {
+    let Ok(exe) = std::env::current_exe() else {
+        tracing::warn!("failed to resolve current executable for PID cleanup watcher");
+        return;
+    };
+
+    let mut cmd = Command::new(exe);
+    cmd.arg("--pid-cleanup-watch")
+        .arg(path)
+        .arg("--watch-pid")
+        .arg(pid.to_string())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        const DETACHED_PROCESS: u32 = 0x0000_0008;
+        cmd.creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS);
+    }
+
+    if let Err(error) = cmd.spawn() {
+        tracing::warn!(path = %path.display(), %error, "failed to start PID cleanup watcher");
+    }
+}
+
+fn run_pid_cleanup_watcher(path: PathBuf, pid: u32) {
+    loop {
+        if !is_process_alive(pid) {
+            if let Err(error) = std::fs::remove_file(&path) {
+                if error.kind() != std::io::ErrorKind::NotFound {
+                    tracing::warn!(path = %path.display(), %error, "PID cleanup watcher failed to remove file");
+                }
+            }
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
 }
 
 // ── WebSocket bridge (unchanged from original) ────────────────────────────────
@@ -221,6 +365,20 @@ async fn main() -> anyhow::Result<()> {
 
     let args = Args::parse();
 
+    if let (Some(path), Some(pid)) = (args.pid_cleanup_watch.clone(), args.watch_pid) {
+        run_pid_cleanup_watcher(path, pid);
+        return Ok(());
+    }
+
+    let mut pid_file_guard = args
+        .pid_file
+        .as_deref()
+        .map(|path| acquire_pid_file(path, args.force))
+        .transpose()?;
+    if let Some(path) = args.pid_file.as_deref() {
+        spawn_pid_cleanup_watcher(path, std::process::id());
+    }
+
     // ── Collect skill paths ───────────────────────────────────────────────
 
     let mut skill_paths: Vec<PathBuf> = args.skill_paths.clone();
@@ -273,9 +431,13 @@ async fn main() -> anyhow::Result<()> {
 
     // ── Start MCP HTTP server (DCC-specific tools) ────────────────────────
 
-    let config = McpHttpConfig::new(args.mcp_port)
+    let mut config = McpHttpConfig::new(args.mcp_port)
         .with_name(args.server_name.clone())
         .with_cors();
+    config.host = args
+        .host
+        .parse()
+        .map_err(|e| anyhow::anyhow!("Invalid --host '{}': {e}", args.host))?;
 
     let mcp_server = McpHttpServer::with_catalog(action_registry.clone(), catalog.clone(), config)
         .with_dispatcher(dispatcher.clone());
@@ -356,5 +518,8 @@ async fn main() -> anyhow::Result<()> {
     // gw_handle dropped here — aborts heartbeat, cleanup, and gateway tasks automatically
 
     handle.shutdown().await;
+    if let Some(guard) = pid_file_guard.as_mut() {
+        guard.remove_now();
+    }
     Ok(())
 }

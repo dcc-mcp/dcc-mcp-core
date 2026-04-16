@@ -541,7 +541,11 @@ class TestServerBinarySidecar:
                 proc.kill()
                 proc.wait()
 
-        # PID file should be gone after shutdown.
+        # PID file cleanup may be asynchronous on Windows because terminate()
+        # force-kills the process. Allow a short grace period for the cleanup watcher.
+        deadline = time.monotonic() + 5.0
+        while pid_file.exists() and time.monotonic() < deadline:
+            time.sleep(0.1)
         assert not pid_file.exists(), "PID file was not removed after shutdown"
 
     def test_duplicate_start_rejected_without_force(self, binary, tmp_path):

@@ -1084,7 +1084,7 @@ mod tests {
         let content_text = body["result"]["content"][0]["text"].as_str().unwrap();
         let result: Value = serde_json::from_str(content_text).unwrap();
         assert_eq!(result["loaded"], true);
-        assert_eq!(result["action_count"], 2);
+        assert_eq!(result["tool_count"], 2);
 
         // Verify tools are now in tools/list
         let resp2 = server
@@ -1160,7 +1160,7 @@ mod tests {
         let content_text = body["result"]["content"][0]["text"].as_str().unwrap();
         let result: Value = serde_json::from_str(content_text).unwrap();
         assert_eq!(result["unloaded"], true);
-        assert_eq!(result["actions_removed"], 2);
+        assert_eq!(result["tools_removed"], 2);
 
         // Verify tools are gone from tools/list
         let resp2 = server

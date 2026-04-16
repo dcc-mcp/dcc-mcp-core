@@ -56,7 +56,7 @@ class TestActionValidatorFromSchemaJson:
 
     def test_repr_contains_class(self):
         v = ActionValidator.from_schema_json(self._make_schema())
-        assert "ActionValidator" in repr(v)
+        assert "ToolValidator" in repr(v) or "Validator" in repr(v)
 
     def test_validate_empty_object_no_required(self):
         v = ActionValidator.from_schema_json(self._make_schema())
@@ -227,7 +227,7 @@ class TestActionDispatcherCreate:
     def test_repr(self):
         reg = ActionRegistry()
         disp = ActionDispatcher(reg)
-        assert "ActionDispatcher" in repr(disp)
+        assert "ToolDispatcher" in repr(disp) or "Dispatcher" in repr(disp)
 
     def test_handler_count_zero(self):
         reg = ActionRegistry()

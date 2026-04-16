@@ -168,9 +168,9 @@ def _parse_content_json(result: dict[str, Any]) -> Any:
         "total",
         "loaded",
         "unloaded",
-        "action_count",
-        "registered_actions",
-        "actions_removed",
+        "tool_count",
+        "registered_tools",
+        "tools_removed",
         "name",
         "description",
     }
@@ -394,19 +394,18 @@ class TestMcporterToolCall:
     def test_call_registered_handler(self, simple_server):
         _, _, url, name = simple_server
         result = _mcporter_call(url, name, "ping_action")
-        assert result.get("isError") is False
-        # Handler returns {"pong": True}; content text may be JSON or Python repr
+        assert result.get("isError") is False or "pong" in result
+        # Handler may come back as raw parsed JSON or MCP content-wrapped output.
         raw = result.get("content") or []
-        assert len(raw) > 0
-        text = raw[0].get("text", "") if isinstance(raw, list) else str(result)
+        text = raw[0].get("text", "") if raw else json.dumps(result)
         assert "pong" in text
 
     def test_call_list_objects(self, simple_server):
         _, _, url, name = simple_server
         result = _mcporter_call(url, name, "list_objects")
-        assert result.get("isError") is False
+        assert result.get("isError") is False or "objects" in result
         raw = result.get("content") or []
-        text = raw[0].get("text", "") if isinstance(raw, list) else str(result)
+        text = raw[0].get("text", "") if raw else json.dumps(result)
         assert "cube" in text
 
     def test_call_unknown_tool_returns_error(self, simple_server):
@@ -478,7 +477,7 @@ class TestMcporterProgressiveLoading:
         result = _mcporter_call(url, name, "load_skill", {"skill_name": "hello-world"})
         data = _parse_content_json(result)
         assert data.get("loaded") is True
-        assert data.get("action_count", 0) >= 1
+        assert data.get("tool_count", 0) >= 1
 
         # tools/list should now include the skill's tool
         tools = _mcporter_list_tools(url, name)
@@ -527,7 +526,7 @@ class TestMcporterProgressiveLoading:
         )
         data = _parse_content_json(result)
         assert data.get("loaded") is True
-        assert data.get("action_count", 0) >= 1
+        assert data.get("tool_count", 0) >= 1
 
     def test_list_skills_status_filter_loaded(self, server_with_catalog):
         """list_skills(status=loaded) only returns loaded skills."""

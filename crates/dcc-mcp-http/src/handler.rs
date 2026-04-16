@@ -663,13 +663,13 @@ async fn handle_load_skill(
         ));
     }
 
-    let mut all_registered = Vec::new();
+    let mut all_registered_tools = Vec::new();
     let mut errors = Vec::new();
 
     // Load single skill
     if !skill_name.is_empty() {
         match state.catalog.load_skill(skill_name) {
-            Ok(actions) => all_registered.extend(actions),
+            Ok(tools) => all_registered_tools.extend(tools),
             Err(e) => errors.push(format!("{skill_name}: {e}")),
         }
     }
@@ -677,13 +677,13 @@ async fn handle_load_skill(
     // Load multiple skills
     for name in &skill_names {
         match state.catalog.load_skill(name) {
-            Ok(actions) => all_registered.extend(actions),
+            Ok(tools) => all_registered_tools.extend(tools),
             Err(e) => errors.push(format!("{name}: {e}")),
         }
     }
 
     // Send tools/list_changed notification to session if tools were loaded
-    if !all_registered.is_empty() {
+    if !all_registered_tools.is_empty() {
         if let Some(sid) = session_id {
             notify_tools_list_changed(&state.sessions, sid);
         }
@@ -692,15 +692,15 @@ async fn handle_load_skill(
     let text = if errors.is_empty() {
         serde_json::to_string_pretty(&json!({
             "loaded": true,
-            "registered_actions": all_registered,
-            "action_count": all_registered.len()
+            "registered_tools": all_registered_tools,
+            "tool_count": all_registered_tools.len()
         }))
         .unwrap_or_default()
     } else {
         serde_json::to_string_pretty(&json!({
             "loaded": errors.is_empty(),
-            "registered_actions": all_registered,
-            "action_count": all_registered.len(),
+            "registered_tools": all_registered_tools,
+            "tool_count": all_registered_tools.len(),
             "errors": errors
         }))
         .unwrap_or_default()
@@ -743,7 +743,7 @@ async fn handle_unload_skill(
 
             let text = serde_json::to_string_pretty(&json!({
                 "unloaded": true,
-                "actions_removed": count
+                "tools_removed": count
             }))
             .unwrap_or_default();
 

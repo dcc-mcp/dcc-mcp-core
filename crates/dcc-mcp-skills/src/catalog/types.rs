@@ -45,8 +45,8 @@ pub struct SkillEntry {
     pub metadata: SkillMetadata,
     /// Current load state.
     pub state: SkillState,
-    /// Names of actions registered from this skill (populated on load).
-    pub registered_actions: Vec<String>,
+    /// Names of tools registered from this skill (populated on load).
+    pub registered_tools: Vec<String>,
     /// Trust level / origin of this skill.
     ///
     /// Set at discovery time based on which search path the skill was found in.
@@ -95,7 +95,7 @@ pub struct SkillDetail {
     pub scripts: Vec<String>,
     pub tools: Vec<ToolDeclaration>,
     pub state: String,
-    pub registered_actions: Vec<String>,
+    pub registered_tools: Vec<String>,
     /// Trust level / origin scope of this skill.
     pub scope: String,
     /// Whether this skill may be invoked implicitly (without explicit `load_skill`).

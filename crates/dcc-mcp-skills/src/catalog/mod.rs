@@ -155,7 +155,7 @@ impl SkillCatalog {
                     SkillEntry {
                         metadata: skill,
                         state: SkillState::Discovered,
-                        registered_actions: Vec::new(),
+                        registered_tools: Vec::new(),
                         scope: SkillScope::Repo,
                     },
                 );
@@ -193,7 +193,7 @@ impl SkillCatalog {
                 SkillEntry {
                     metadata,
                     state: SkillState::Discovered,
-                    registered_actions: Vec::new(),
+                    registered_tools: Vec::new(),
                     scope: SkillScope::Repo,
                 },
             );
@@ -248,7 +248,7 @@ impl SkillCatalog {
                         SkillEntry {
                             metadata: skill,
                             state: SkillState::Discovered,
-                            registered_actions: Vec::new(),
+                            registered_tools: Vec::new(),
                             scope: *scope,
                         },
                     );
@@ -284,7 +284,7 @@ impl SkillCatalog {
             let actions = self
                 .entries
                 .get(skill_name)
-                .map(|e| e.registered_actions.clone())
+                .map(|e| e.registered_tools.clone())
                 .unwrap_or_default();
             return Ok(actions);
         }
@@ -385,7 +385,7 @@ impl SkillCatalog {
         // Update catalog state
         if let Some(mut entry) = self.entries.get_mut(skill_name) {
             entry.state = SkillState::Loaded;
-            entry.registered_actions = registered.clone();
+            entry.registered_tools = registered.clone();
         }
         self.loaded.insert(skill_name.to_string());
 
@@ -429,7 +429,7 @@ impl SkillCatalog {
         let action_names: Vec<String> = self
             .entries
             .get(skill_name)
-            .map(|e| e.registered_actions.clone())
+            .map(|e| e.registered_tools.clone())
             .unwrap_or_default();
 
         // Remove handlers from dispatcher
@@ -444,7 +444,7 @@ impl SkillCatalog {
         // Update catalog state
         if let Some(mut entry) = self.entries.get_mut(skill_name) {
             entry.state = SkillState::Discovered;
-            entry.registered_actions.clear();
+            entry.registered_tools.clear();
         }
         self.loaded.remove(skill_name);
 
@@ -548,7 +548,7 @@ impl SkillCatalog {
                 scripts: e.metadata.scripts.clone(),
                 tools: e.metadata.tools.clone(),
                 state: e.state.to_string(),
-                registered_actions: e.registered_actions.clone(),
+                registered_tools: e.registered_tools.clone(),
                 scope: e.scope.label().to_string(),
                 implicit_invocation: e
                     .metadata
