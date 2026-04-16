@@ -2,35 +2,35 @@
 
 `dcc_mcp_core` (telemetry module)
 
-Action performance recording and optional OpenTelemetry tracing/metrics.
+Tool performance recording and optional OpenTelemetry tracing/metrics.
 
 ## Overview
 
 Provides:
 
-- **Action Recording** — Per-action timing and success/failure counters via `ActionRecorder`
-- **Metrics** — `ActionMetrics` snapshot with latency percentiles (p95/p99) and success rate
+- **Tool Recording** — Per-tool timing and success/failure counters via `ToolRecorder`
+- **Metrics** — `ToolMetrics` snapshot with latency percentiles (p95/p99) and success rate
 - **Optional OpenTelemetry** — stdout exporter, JSON/text logs, resource attributes (opt-in)
 
-## ActionRecorder
+## ToolRecorder
 
-Record execution time and outcomes for any action.
+Record execution time and outcomes for any tool.
 
 ### Constructor
 
 ```python
-from dcc_mcp_core import ActionRecorder
+from dcc_mcp_core import ToolRecorder
 
-recorder = ActionRecorder("my-service")
+recorder = ToolRecorder("my-service")
 ```
 
 ### Methods
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `start(action_name, dcc_name)` | `RecordingGuard` | Start timing an action |
-| `metrics(action_name)` | `ActionMetrics \| None` | Get metrics for an action |
-| `all_metrics()` | `list[ActionMetrics]` | Get all action metrics |
+| `start(action_name, dcc_name)` | `RecordingGuard` | Start timing a tool |
+| `metrics(action_name)` | `ToolMetrics \| None` | Get metrics for a tool |
+| `all_metrics()` | `list[ToolMetrics]` | Get all tool metrics |
 | `reset()` | `None` | Reset all statistics |
 
 ### Recording with Guard
@@ -50,15 +50,15 @@ with recorder.start("create_sphere", "maya") as guard:
 # guard.finish(success=False) called on exception
 ```
 
-## ActionMetrics
+## ToolMetrics
 
-Read-only snapshot of per-Action performance metrics.
+Read-only snapshot of per-Tool performance metrics.
 
 ### Properties
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `action_name` | `str` | Name of the action |
+| `action_name` | `str` | Name of the tool |
 | `invocation_count` | `int` | Total invocations |
 | `success_count` | `int` | Successful invocations |
 | `failure_count` | `int` | Failed invocations |
@@ -84,7 +84,7 @@ if metrics:
 
 ## RecordingGuard
 
-RAII guard returned by `ActionRecorder.start()`.
+RAII guard returned by `ToolRecorder.start()`.
 
 ### Methods
 
@@ -146,10 +146,10 @@ if is_telemetry_initialized():
 ### Maya Integration
 
 ```python
-from dcc_mcp_core import ActionRecorder
+from dcc_mcp_core import ToolRecorder
 import maya.cmds as cmds
 
-recorder = ActionRecorder("maya")
+recorder = ToolRecorder("maya")
 
 def traced_create_sphere(radius=1.0, name=None):
     with recorder.start("create_sphere", "maya") as guard:

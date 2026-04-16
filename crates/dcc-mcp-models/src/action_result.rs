@@ -1,4 +1,4 @@
-//! ActionResultModel — unified result type for all Action executions.
+//! ToolResult — unified result type for all tool executions.
 //!
 //! Rust struct exposed to Python via PyO3.
 
@@ -47,7 +47,7 @@ fn compact_json_value(
 
 // ── Serialization format ─────────────────────────────────────────────────────
 
-/// Supported serialization formats for `ActionResultModel`.
+/// Supported serialization formats for `ToolResult`.
 ///
 /// The default is [`SerializeFormat::Json`] (UTF-8 text, human-readable).
 /// [`SerializeFormat::MsgPack`] produces compact binary (MessagePack via `rmp-serde`)
@@ -100,7 +100,7 @@ pub struct ActionResultModelData {
 }
 
 // Manual impl: `success` defaults to `true` (unlike `bool::default()` which is `false`),
-// matching the Python `ActionResultModel.__new__` signature.
+// matching the Python `ToolResult.__new__` signature.
 impl Default for ActionResultModelData {
     fn default() -> Self {
         Self {
@@ -185,10 +185,10 @@ impl ActionResultModelData {
     }
 }
 
-/// Python-facing ActionResultModel.
+/// Python-facing ToolResult.
 #[cfg_attr(
     feature = "python-bindings",
-    pyclass(name = "ActionResultModel", eq, from_py_object)
+    pyclass(name = "ToolResult", eq, from_py_object)
 )]
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ActionResultModel {
@@ -296,7 +296,7 @@ impl ActionResultModel {
 
     /// Serialize to a JSON string.
     ///
-    /// This is the recommended way to convert an `ActionResultModel` to a JSON string.
+    /// This is the recommended way to convert a `ToolResult` to a JSON string.
     /// `json.dumps(result)` will **not** work directly — use this method instead:
     ///
     /// ```python
@@ -346,7 +346,7 @@ impl ActionResultModel {
 
     fn __repr__(&self) -> String {
         format!(
-            "ActionResultModel(success={}, message={:?})",
+            "ToolResult(success={}, message={:?})",
             self.inner.success, self.inner.message
         )
     }
@@ -357,7 +357,7 @@ impl ActionResultModel {
 }
 
 impl ActionResultModel {
-    /// Create an `ActionResultModel` from raw data.
+    /// Create a `ToolResult` from raw data.
     #[must_use]
     pub fn from_data(data: ActionResultModelData) -> Self {
         Self { inner: data }
@@ -471,7 +471,7 @@ mod py_factories {
             .map(|opt| opt.flatten())
     }
 
-    /// Extract dict fields into an `ActionResultModel`, filtering out standard keys.
+    /// Extract dict fields into a `ToolResult`, filtering out standard keys.
     fn validate_from_dict(dict: &Bound<'_, PyDict>) -> PyResult<ActionResultModel> {
         let success = extract_bool_field(dict, "success", true)?;
         let message = extract_string_field(dict, "message")?;
@@ -603,7 +603,7 @@ mod py_factories {
         })
     }
 
-    /// Serialize an `ActionResultModel` to a string (JSON) or bytes (MsgPack).
+    /// Serialize a `ToolResult` to a string (JSON) or bytes (MsgPack).
     ///
     /// Returns:
     /// - `str` for `SerializeFormat::Json`
@@ -632,7 +632,7 @@ mod py_factories {
         }
     }
 
-    /// Deserialize a `str` (JSON) or `bytes` (MsgPack) into an `ActionResultModel`.
+    /// Deserialize a `str` (JSON) or `bytes` (MsgPack) into a `ToolResult`.
     ///
     /// The format must match what was used during serialization.
     #[pyfunction]

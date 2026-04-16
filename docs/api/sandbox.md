@@ -232,10 +232,10 @@ except RuntimeError as e:
     print(f"Invalid JSON: {e}")
 ```
 
-::: warning validate() vs ActionValidator
+::: warning validate() vs ToolValidator
 `InputValidator` is for **sandbox field-level rules** (length, range, injection guards).
-`ActionValidator` (from the actions module) validates against a **JSON Schema**.
-Use `InputValidator` inside a sandbox; use `ActionValidator` at the action dispatch layer.
+`ToolValidator` (from the actions module) validates against a **JSON Schema**.
+Use `InputValidator` inside a sandbox; use `ToolValidator` at the tool dispatch layer.
 :::
 
 ## Best Practices

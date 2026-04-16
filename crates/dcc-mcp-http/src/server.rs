@@ -20,8 +20,8 @@ use dcc_mcp_transport::discovery::types::ServiceEntry;
 
 /// Handle returned by [`McpHttpServer::start`].
 ///
-/// Drop or call [`ServerHandle::shutdown`] to stop the server.
-pub struct ServerHandle {
+/// Drop or call [`McpServerHandle::shutdown`] to stop the server.
+pub struct McpServerHandle {
     shutdown_tx: watch::Sender<bool>,
     join: JoinHandle<()>,
     /// Actual port the server is listening on (useful when port=0).
@@ -33,7 +33,7 @@ pub struct ServerHandle {
     _gateway: Option<crate::gateway::GatewayHandle>,
 }
 
-impl ServerHandle {
+impl McpServerHandle {
     /// Gracefully shut down the server and wait for it to stop.
     pub async fn shutdown(self) {
         let _ = self.shutdown_tx.send(true);
@@ -133,13 +133,13 @@ impl McpHttpServer {
 
     /// Start the HTTP server in a background Tokio task.
     ///
-    /// Returns a [`ServerHandle`] for controlling the server lifecycle.
+    /// Returns a [`McpServerHandle`] for controlling the server lifecycle.
     /// This method is `async` but returns immediately after binding the port.
     ///
     /// When `config.gateway_port > 0`, this method also registers the instance
     /// in the shared `FileRegistry` and attempts to become the gateway via
     /// first-wins TCP port binding.
-    pub async fn start(self) -> HttpResult<ServerHandle> {
+    pub async fn start(self) -> HttpResult<McpServerHandle> {
         // If no catalog was provided, create a default one
         let catalog = self
             .catalog
@@ -300,7 +300,7 @@ impl McpHttpServer {
             tracing::info!("MCP HTTP server stopped");
         });
 
-        Ok(ServerHandle {
+        Ok(McpServerHandle {
             shutdown_tx,
             join,
             port,
@@ -318,6 +318,6 @@ pub fn start_in_runtime(
     runtime: &tokio::runtime::Runtime,
     registry: Arc<ActionRegistry>,
     config: McpHttpConfig,
-) -> HttpResult<ServerHandle> {
+) -> HttpResult<McpServerHandle> {
     runtime.block_on(async { McpHttpServer::new(registry, config).start().await })
 }

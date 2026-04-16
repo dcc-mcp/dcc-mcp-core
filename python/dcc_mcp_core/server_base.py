@@ -7,7 +7,7 @@ Streamable HTTP server (2025-03-26 spec) inside any DCC application.
 would otherwise copy-paste:
 
 - Skill search path collection (per-app env var → global env var → bundled)
-- ``McpHttpConfig`` / ``create_skill_manager`` wiring
+- ``McpHttpConfig`` / ``create_skill_server`` wiring
 - All 7 skill query / management methods (find, list, load, unload, …)
 - Hot-reload integration via :class:`~dcc_mcp_core.hotreload.DccSkillHotReloader`
 - Gateway failover via :class:`~dcc_mcp_core.gateway_election.DccGatewayElection`
@@ -56,7 +56,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-# NOTE: dcc_mcp_core imports (McpHttpConfig, create_skill_manager, get_*,
+# NOTE: dcc_mcp_core imports (McpHttpConfig, create_skill_server, get_*,
 # TransportManager, get_bundled_skill_paths) are deferred inside methods to
 # avoid a circular import: __init__.py imports DccServerBase from this module,
 # so this module cannot import from dcc_mcp_core at module level.
@@ -108,7 +108,7 @@ class DccServerBase:
         # this module, so we cannot import from dcc_mcp_core at module level.
         from dcc_mcp_core import McpHttpConfig
         from dcc_mcp_core import __version__ as _pkg_version
-        from dcc_mcp_core import create_skill_manager
+        from dcc_mcp_core import create_skill_server
 
         self._dcc_name = dcc_name
         self._builtin_skills_dir = builtin_skills_dir
@@ -145,7 +145,7 @@ class DccServerBase:
         self._config.dcc_type = dcc_name
 
         # Create the inner skill manager (registry + dispatcher + catalog)
-        self._server: Any = create_skill_manager(dcc_name, self._config)
+        self._server: Any = create_skill_server(dcc_name, self._config)
 
         # Lazy-initialised helpers
         self._hot_reloader: Any | None = None
@@ -277,7 +277,7 @@ class DccServerBase:
 
     @property
     def registry(self) -> Any | None:
-        """The underlying ``ActionRegistry``, or ``None`` if unavailable."""
+        """The underlying ``ToolRegistry``, or ``None`` if unavailable."""
         try:
             return self._server.registry
         except Exception:
@@ -358,7 +358,7 @@ class DccServerBase:
     ) -> list[Any]:
         """Search registered actions by category and/or tags.
 
-        Delegates to :meth:`ActionRegistry.search_actions` which filters by
+        Delegates to :meth:`ToolRegistry.search_actions` which filters by
         exact category match, all-tags-present, and optional DCC scope.
 
         Args:

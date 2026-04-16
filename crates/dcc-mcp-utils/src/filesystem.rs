@@ -121,12 +121,12 @@ pub fn get_log_dir() -> Result<String, FilesystemError> {
     Ok(path_to_string(&dir))
 }
 
-/// Get DCC-specific actions directory.
+/// Get DCC-specific tools directory.
 ///
 /// # Errors
 /// Returns [`FilesystemError`] if the platform data dir cannot be determined or directory creation fails.
 #[must_use = "this returns the directory path and also creates it as a side effect"]
-pub fn get_actions_dir(dcc_name: &str) -> Result<String, FilesystemError> {
+pub fn get_tools_dir(dcc_name: &str) -> Result<String, FilesystemError> {
     let dir = data_dir_path()?.join("actions").join(dcc_name);
     std::fs::create_dir_all(&dir)?;
     Ok(path_to_string(&dir))
@@ -243,7 +243,7 @@ mod py_bindings {
     py_dir_binding!(py_get_data_dir, "get_data_dir", get_data_dir);
     py_dir_binding!(py_get_log_dir, "get_log_dir", get_log_dir);
     py_dir_binding!(py_get_platform_dir, "get_platform_dir", get_platform_dir, dir_type: &str);
-    py_dir_binding!(py_get_actions_dir, "get_actions_dir", get_actions_dir, dcc_name: &str);
+    py_dir_binding!(py_get_tools_dir, "get_tools_dir", get_tools_dir, dcc_name: &str);
 
     // get_skills_dir has a custom pyo3 signature (optional param), kept manual.
     #[pyfunction]
@@ -343,8 +343,8 @@ mod tests {
     }
 
     #[test]
-    fn test_get_actions_dir() {
-        let result = get_actions_dir("maya");
+    fn test_get_tools_dir() {
+        let result = get_tools_dir("maya");
         assert!(result.is_ok());
         let path = result.unwrap();
         assert!(path.contains("maya"));
@@ -352,9 +352,9 @@ mod tests {
     }
 
     #[test]
-    fn test_get_actions_dir_different_dccs() {
+    fn test_get_tools_dir_different_dccs() {
         for dcc in &["blender", "houdini", "3dsmax", "unreal"] {
-            let result = get_actions_dir(dcc);
+            let result = get_tools_dir(dcc);
             assert!(result.is_ok(), "Failed for dcc={dcc}");
             assert!(result.unwrap().contains(dcc));
         }

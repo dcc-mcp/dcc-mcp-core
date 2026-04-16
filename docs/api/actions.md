@@ -1,16 +1,16 @@
 # Actions API
 
-`dcc_mcp_core` — ActionRegistry, EventBus, ActionDispatcher, ActionValidator, SemVer, VersionConstraint, VersionedRegistry.
+`dcc_mcp_core` — ToolRegistry, EventBus, ToolDispatcher, ToolValidator, SemVer, VersionConstraint, VersionedRegistry.
 
-## ActionRegistry
+## ToolRegistry
 
-Thread-safe skill registry backed by DashMap. Each registry instance is independent.
+Thread-safe tool registry backed by DashMap. Each registry instance is independent.
 
 ### Constructor
 
 ```python
-from dcc_mcp_core import ActionRegistry
-registry = ActionRegistry()
+from dcc_mcp_core import ToolRegistry
+registry = ToolRegistry()
 ```
 
 ### Methods
@@ -36,7 +36,7 @@ registry = ActionRegistry()
 |--------|-------------|
 | `__len__` | Number of registered skills |
 | `__contains__(name)` | Check if skill name is registered (scoped to "python" dcc) |
-| `__repr__` | `ActionRegistry(actions=N)` |
+| `__repr__` | `ToolRegistry(actions=N)` |
 
 ### Skill Metadata Dict
 
@@ -59,7 +59,7 @@ When retrieved via `get_action()`, `list_actions()`, or `search_actions()`, each
 ### Example
 
 ```python
-reg = ActionRegistry()
+reg = ToolRegistry()
 reg.register(
     "create_sphere",
     description="Create a polygon sphere",
@@ -87,26 +87,26 @@ removed = reg.unregister("create_sphere")                  # global: True if fou
 removed = reg.unregister("create_sphere", dcc_name="maya") # scoped to maya only
 ```
 
-## ActionValidator
+## ToolValidator
 
-Validates JSON-encoded skill parameters against a JSON Schema. Created from a schema string or from an `ActionRegistry` skill.
+Validates JSON-encoded tool parameters against a JSON Schema. Created from a schema string or from a `ToolRegistry` entry.
 
 ### Static Factory Methods
 
 ```python
-from dcc_mcp_core import ActionValidator
+from dcc_mcp_core import ToolValidator
 
 # From a JSON Schema string
-validator = ActionValidator.from_schema_json(
+validator = ToolValidator.from_schema_json(
     '{"type": "object", "required": ["radius"], '
     '"properties": {"radius": {"type": "number", "minimum": 0.0}}}'
 )
 
-# From an ActionRegistry action
-from dcc_mcp_core import ActionRegistry
-reg = ActionRegistry()
+# From a ToolRegistry entry
+from dcc_mcp_core import ToolRegistry
+reg = ToolRegistry()
 reg.register("create_sphere", input_schema='{"type": "object", "properties": {"radius": {"type": "number"}}}')
-validator = ActionValidator.from_action_registry(reg, "create_sphere")
+validator = ToolValidator.from_action_registry(reg, "create_sphere")
 ```
 
 ### Validating Input
@@ -141,17 +141,17 @@ except ValueError as e:
 `validate()` accepts a **JSON string** (`'{"radius": 1.0}'`), not a Python dict. This matches the wire-format used by the MCP protocol.
 :::
 
-## ActionDispatcher
+## ToolDispatcher
 
 Routes skill calls to registered Python callables with automatic validation.
 
 ### Constructor
 
 ```python
-from dcc_mcp_core import ActionRegistry, ActionDispatcher
+from dcc_mcp_core import ToolRegistry, ToolDispatcher
 
-reg = ActionRegistry()
-dispatcher = ActionDispatcher(reg)
+reg = ToolRegistry()
+dispatcher = ToolDispatcher(reg)
 ```
 
 ### Registering Handlers
@@ -389,18 +389,18 @@ print(removed)  # 2 (removed 1.0.0 and 2.0.0)
 :::
 
 
-## ActionPipeline
+## ToolPipeline
 
-Middleware wrapper around `ActionDispatcher`. Layers logging, timing, audit, and rate-limit middleware in a composable pipeline.
+Middleware wrapper around `ToolDispatcher`. Layers logging, timing, audit, and rate-limit middleware in a composable pipeline.
 
 ### Constructor
 
 ```python
-from dcc_mcp_core import ActionRegistry, ActionDispatcher, ActionPipeline
+from dcc_mcp_core import ToolRegistry, ToolDispatcher, ToolPipeline
 
-reg = ActionRegistry()
-dispatcher = ActionDispatcher(reg)
-pipeline = ActionPipeline(dispatcher)
+reg = ToolRegistry()
+dispatcher = ToolDispatcher(reg)
+pipeline = ToolPipeline(dispatcher)
 ```
 
 ### Methods
@@ -408,7 +408,7 @@ pipeline = ActionPipeline(dispatcher)
 | Method | Returns | Description |
 |--------|---------|-------------|
 | `dispatch(action, params_json)` | `dict` | Dispatch skill through all middleware layers |
-| `register_handler(name, fn)` | — | Register a Python handler (mirrors `ActionDispatcher`) |
+| `register_handler(name, fn)` | — | Register a Python handler (mirrors `ToolDispatcher`) |
 | `add_logging(log_params=False)` | — | Add trace logging middleware |
 | `add_timing()` | `TimingMiddleware` | Add latency tracking; returns handle |
 | `add_audit(record_params=False)` | `AuditMiddleware` | Add audit log; returns handle |
@@ -474,14 +474,14 @@ print(rl.window_ms)                # 1000
 ### Full Example
 
 ```python
-from dcc_mcp_core import ActionRegistry, ActionDispatcher, ActionPipeline
+from dcc_mcp_core import ToolRegistry, ToolDispatcher, ToolPipeline
 
-reg = ActionRegistry()
+reg = ToolRegistry()
 reg.register("process_mesh", description="Process mesh", category="geometry")
-dispatcher = ActionDispatcher(reg)
+dispatcher = ToolDispatcher(reg)
 dispatcher.register_handler("process_mesh", lambda p: {"vertices": 1024})
 
-pipeline = ActionPipeline(dispatcher)
+pipeline = ToolPipeline(dispatcher)
 pipeline.add_logging(log_params=True)
 timing = pipeline.add_timing()
 audit = pipeline.add_audit(record_params=True)

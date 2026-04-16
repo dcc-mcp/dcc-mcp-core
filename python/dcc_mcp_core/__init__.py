@@ -28,20 +28,20 @@ from dcc_mcp_core._core import SKILL_METADATA_DIR
 from dcc_mcp_core._core import SKILL_METADATA_FILE
 from dcc_mcp_core._core import SKILL_SCRIPTS_DIR
 
-# Telemetry
-from dcc_mcp_core._core import ActionDispatcher
-from dcc_mcp_core._core import ActionMetrics
-from dcc_mcp_core._core import ActionPipeline
-from dcc_mcp_core._core import ActionRecorder
-from dcc_mcp_core._core import ActionRegistry
-from dcc_mcp_core._core import ActionResultModel
-from dcc_mcp_core._core import ActionValidator
-
 # Sandbox
 from dcc_mcp_core._core import AuditEntry
 from dcc_mcp_core._core import AuditLog
 from dcc_mcp_core._core import AuditMiddleware
 from dcc_mcp_core._core import BooleanWrapper
+
+# Telemetry
+from dcc_mcp_core._core import ToolDispatcher
+from dcc_mcp_core._core import ToolMetrics
+from dcc_mcp_core._core import ToolPipeline
+from dcc_mcp_core._core import ToolRecorder
+from dcc_mcp_core._core import ToolRegistry
+from dcc_mcp_core._core import ToolResult
+from dcc_mcp_core._core import ToolValidator
 
 try:
     from dcc_mcp_core._core import BoundingBox
@@ -67,6 +67,7 @@ from dcc_mcp_core._core import ListenerHandle
 from dcc_mcp_core._core import LoggingMiddleware
 from dcc_mcp_core._core import McpHttpConfig
 from dcc_mcp_core._core import McpHttpServer
+from dcc_mcp_core._core import McpServerHandle
 from dcc_mcp_core._core import ObjectTransform
 from dcc_mcp_core._core import PromptArgument
 from dcc_mcp_core._core import PromptDefinition
@@ -106,7 +107,6 @@ from dcc_mcp_core._core import SemVer
 
 # Serialization
 from dcc_mcp_core._core import SerializeFormat
-from dcc_mcp_core._core import ServerHandle as McpServerHandle
 from dcc_mcp_core._core import ServiceEntry
 from dcc_mcp_core._core import ServiceStatus
 from dcc_mcp_core._core import SkillCatalog
@@ -129,7 +129,7 @@ from dcc_mcp_core._core import VersionConstraint
 from dcc_mcp_core._core import VersionedRegistry
 from dcc_mcp_core._core import VtValue
 from dcc_mcp_core._core import connect_ipc
-from dcc_mcp_core._core import create_skill_manager
+from dcc_mcp_core._core import create_skill_server
 from dcc_mcp_core._core import decode_envelope
 from dcc_mcp_core._core import deserialize_result
 from dcc_mcp_core._core import encode_notify
@@ -138,7 +138,6 @@ from dcc_mcp_core._core import encode_response
 from dcc_mcp_core._core import error_result
 from dcc_mcp_core._core import expand_transitive_dependencies
 from dcc_mcp_core._core import from_exception
-from dcc_mcp_core._core import get_actions_dir
 from dcc_mcp_core._core import get_app_skill_paths_from_env
 from dcc_mcp_core._core import get_bridge_context
 from dcc_mcp_core._core import get_config_dir
@@ -147,6 +146,7 @@ from dcc_mcp_core._core import get_log_dir
 from dcc_mcp_core._core import get_platform_dir
 from dcc_mcp_core._core import get_skill_paths_from_env
 from dcc_mcp_core._core import get_skills_dir
+from dcc_mcp_core._core import get_tools_dir
 from dcc_mcp_core._core import is_telemetry_initialized
 from dcc_mcp_core._core import mpu_to_units
 from dcc_mcp_core._core import parse_skill_md
@@ -194,6 +194,18 @@ from dcc_mcp_core.skill import skill_error
 from dcc_mcp_core.skill import skill_exception
 from dcc_mcp_core.skill import skill_success
 from dcc_mcp_core.skill import skill_warning
+
+# Canonical public aliases. Keep legacy Action* names for compatibility.
+ActionDispatcher = ToolDispatcher
+ActionMetrics = ToolMetrics
+ActionPipeline = ToolPipeline
+ActionRecorder = ToolRecorder
+ActionRegistry = ToolRegistry
+ActionResultModel = ToolResult
+ActionValidator = ToolValidator
+ServerHandle = McpServerHandle
+create_skill_manager = create_skill_server
+get_actions_dir = get_tools_dir
 
 __version__: str
 try:
@@ -290,6 +302,7 @@ __all__ = [
     "SemVer",
     # Serialization
     "SerializeFormat",
+    "ServerHandle",
     "ServiceEntry",
     "ServiceStatus",
     "SkillCatalog",
@@ -303,6 +316,13 @@ __all__ = [
     "ToolAnnotations",
     "ToolDeclaration",
     "ToolDefinition",
+    "ToolDispatcher",
+    "ToolMetrics",
+    "ToolPipeline",
+    "ToolRecorder",
+    "ToolRegistry",
+    "ToolResult",
+    "ToolValidator",
     "TransportAddress",
     "TransportManager",
     "TransportScheme",
@@ -316,6 +336,7 @@ __all__ = [
     "connect_ipc",
     "create_dcc_server",
     "create_skill_manager",
+    "create_skill_server",
     "decode_envelope",
     "deserialize_result",
     "encode_notify",
@@ -336,6 +357,7 @@ __all__ = [
     "get_server_instance",
     "get_skill_paths_from_env",
     "get_skills_dir",
+    "get_tools_dir",
     "is_telemetry_initialized",
     "make_start_stop",
     "mpu_to_units",

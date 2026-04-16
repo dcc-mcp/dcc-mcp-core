@@ -50,16 +50,16 @@ bus.unsubscribe("action.executed", sid)
 
 ---
 
-## ActionRecorder
+## ToolRecorder
 
-Records per-action execution time and success/failure counters. Use this to collect performance telemetry for any actions your code executes.
+Records per-tool execution time and success/failure counters. Use this to collect performance telemetry for any tools your code executes.
 
 ### Constructor
 
 ```python
-from dcc_mcp_core import ActionRecorder
+from dcc_mcp_core import ToolRecorder
 
-recorder = ActionRecorder("my-service")
+recorder = ToolRecorder("my-service")
 ```
 
 | Parameter | Type | Description |
@@ -70,17 +70,17 @@ recorder = ActionRecorder("my-service")
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `start(action_name, dcc_name)` | `RecordingGuard` | Start timing an action; returns a RAII guard |
-| `metrics(action_name)` | `ActionMetrics \| None` | Aggregated metrics for a specific action; `None` if no data |
-| `all_metrics()` | `list[ActionMetrics]` | Aggregated metrics for all recorded actions |
+| `start(action_name, dcc_name)` | `RecordingGuard` | Start timing a tool; returns a RAII guard |
+| `metrics(action_name)` | `ToolMetrics \| None` | Aggregated metrics for a specific action; `None` if no data |
+| `all_metrics()` | `list[ToolMetrics]` | Aggregated metrics for all recorded actions |
 | `reset()` | `None` | Clear all in-memory statistics |
 
 ### Example
 
 ```python
-from dcc_mcp_core import ActionRecorder
+from dcc_mcp_core import ToolRecorder
 
-recorder = ActionRecorder("maya-skill-server")
+recorder = ToolRecorder("maya-skill-server")
 
 # Manual guard usage
 guard = recorder.start("create_sphere", "maya")
@@ -106,7 +106,7 @@ if m:
 
 ## RecordingGuard
 
-RAII guard returned by `ActionRecorder.start()`. Automatically records the duration and outcome.
+RAII guard returned by `ToolRecorder.start()`. Automatically records the duration and outcome.
 
 ### Methods
 
@@ -118,9 +118,9 @@ RAII guard returned by `ActionRecorder.start()`. Automatically records the durat
 
 ---
 
-## ActionMetrics
+## ToolMetrics
 
-Read-only snapshot of per-action performance metrics. Obtained from `ActionRecorder.metrics()` or `ActionRecorder.all_metrics()`.
+Read-only snapshot of per-tool performance metrics. Obtained from `ToolRecorder.metrics()` or `ToolRecorder.all_metrics()`.
 
 ### Properties
 
@@ -143,7 +143,7 @@ Read-only snapshot of per-action performance metrics. Obtained from `ActionRecor
 ### Example
 
 ```python
-recorder = ActionRecorder("server")
+recorder = ToolRecorder("server")
 
 for _ in range(10):
     with recorder.start("ping", "maya"):

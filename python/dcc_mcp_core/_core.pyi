@@ -29,12 +29,12 @@ SKILL_METADATA_DIR: str
 
 # ── Models ──
 
-class ActionResultModel:
+class ToolResult:
     """Unified result type for all Skill executions.
 
     JSON Serialization
     ------------------
-    ``json.dumps(result)`` will **not** work directly because ``ActionResultModel``
+    ``json.dumps(result)`` will **not** work directly because ``ToolResult``
     is not a subclass of ``dict``.  Use one of these instead::
 
         import json
@@ -65,8 +65,8 @@ class ActionResultModel:
         error: str | None = None,
         context: dict[str, Any] | None = None,
     ) -> None: ...
-    def with_error(self, error: str) -> ActionResultModel: ...
-    def with_context(self, **kwargs: Any) -> ActionResultModel: ...
+    def with_error(self, error: str) -> ToolResult: ...
+    def with_context(self, **kwargs: Any) -> ToolResult: ...
     def to_dict(self) -> dict[str, Any]:
         """Convert to a plain Python dict.
 
@@ -101,6 +101,9 @@ class ActionResultModel:
     def __repr__(self) -> str: ...
     def __str__(self) -> str: ...
     def __eq__(self, other: object) -> bool: ...
+
+# Canonical tool-first aliases exposed by dcc_mcp_core.__init__.py
+ActionResultModel = ToolResult
 
 class ToolDeclaration:
     """Declaration of a tool provided by a skill, parsed from SKILL.md frontmatter.
@@ -175,7 +178,7 @@ class SkillMetadata:
 
 # ── Skills ──
 
-class ActionRegistry:
+class ToolRegistry:
     """Thread-safe registry for DCC skills."""
 
     def __init__(self) -> None: ...
@@ -291,20 +294,20 @@ class EventBus:
     def publish(self, event: str, **kwargs: Any) -> None: ...
     def __repr__(self) -> str: ...
 
-class ActionValidator:
+class ToolValidator:
     """Validates JSON-encoded skill parameters against a JSON Schema.
 
     Example::
 
         import json
-        from dcc_mcp_core import ActionRegistry, ActionValidator
+        from dcc_mcp_core import ToolRegistry, ToolValidator
 
         schema = json.dumps({
             "type": "object",
             "required": ["radius"],
             "properties": {"radius": {"type": "number", "minimum": 0.0}}
         })
-        v = ActionValidator.from_schema_json(schema)
+        v = ToolValidator.from_schema_json(schema)
         ok, errors = v.validate('{"radius": 1.0}')
         assert ok
         ok, errors = v.validate("{}")
@@ -313,7 +316,7 @@ class ActionValidator:
     """
 
     @staticmethod
-    def from_schema_json(schema_json: str) -> ActionValidator:
+    def from_schema_json(schema_json: str) -> ToolValidator:
         """Create a validator from a JSON Schema string.
 
         Raises:
@@ -324,11 +327,11 @@ class ActionValidator:
 
     @staticmethod
     def from_action_registry(
-        registry: ActionRegistry,
+        registry: ToolRegistry,
         action_name: str,
         dcc_name: str | None = None,
-    ) -> ActionValidator:
-        """Create a validator from a skill in an :class:`ActionRegistry`.
+    ) -> ToolValidator:
+        """Create a validator from a skill in an :class:`ToolRegistry`.
 
         Raises:
             KeyError: If the skill is not found in the registry.
@@ -350,15 +353,15 @@ class ActionValidator:
 
     def __repr__(self) -> str: ...
 
-class ActionDispatcher:
+class ToolDispatcher:
     """Routes skill calls to registered Python callables with automatic validation.
 
     Example::
 
         import json
-        from dcc_mcp_core import ActionRegistry, ActionDispatcher
+        from dcc_mcp_core import ToolRegistry, ToolDispatcher
 
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register(
             "create_sphere",
             input_schema=json.dumps({
@@ -367,7 +370,7 @@ class ActionDispatcher:
                 "properties": {"radius": {"type": "number", "minimum": 0.0}},
             }),
         )
-        dispatcher = ActionDispatcher(reg)
+        dispatcher = ToolDispatcher(reg)
 
         def create_sphere(params):
             return {"created": True, "radius": params["radius"]}
@@ -378,7 +381,7 @@ class ActionDispatcher:
 
     """
 
-    def __init__(self, registry: ActionRegistry) -> None: ...
+    def __init__(self, registry: ToolRegistry) -> None: ...
     def register_handler(self, action_name: str, handler: Any) -> None:
         """Register a Python callable ``(params: dict) -> Any`` for the skill ``action_name``.
 
@@ -1347,14 +1350,14 @@ class SkillCatalog:
         scanner: A :class:`SkillScanner` instance to use for discovery.
 
     Example:
-        >>> registry = ActionRegistry()
+        >>> registry = ToolRegistry()
         >>> catalog = SkillCatalog(registry)
         >>> catalog.discover(dcc_name="maya")
         >>> skills = catalog.list_skills()
 
     """
 
-    def __init__(self, registry: ActionRegistry) -> None: ...
+    def __init__(self, registry: ToolRegistry) -> None: ...
     def discover(
         self,
         extra_paths: list[str] | None = None,
@@ -2248,7 +2251,7 @@ class AuditMiddleware:
 
     Example::
 
-        pipeline = ActionPipeline(dispatcher)
+        pipeline = ToolPipeline(dispatcher)
         audit = pipeline.add_audit()
         pipeline.dispatch("create_sphere", "{}")
         for r in audit.records():
@@ -2283,19 +2286,19 @@ class RateLimitMiddleware:
     def window_ms(self) -> int: ...
     def __repr__(self) -> str: ...
 
-class ActionPipeline:
-    """Middleware-wrapped ActionDispatcher.
+class ToolPipeline:
+    """Middleware-wrapped ToolDispatcher.
 
     Example::
 
-        from dcc_mcp_core import ActionRegistry, ActionDispatcher, ActionPipeline
+        from dcc_mcp_core import ToolRegistry, ToolDispatcher, ToolPipeline
 
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register("ping", category="util")
-        dispatcher = ActionDispatcher(reg)
+        dispatcher = ToolDispatcher(reg)
         dispatcher.register_handler("ping", lambda params: "pong")
 
-        pipeline = ActionPipeline(dispatcher)
+        pipeline = ToolPipeline(dispatcher)
         pipeline.add_logging()
         audit = pipeline.add_audit()
         timing = pipeline.add_timing()
@@ -2305,7 +2308,7 @@ class ActionPipeline:
 
     """
 
-    def __init__(self, dispatcher: ActionDispatcher) -> None: ...
+    def __init__(self, dispatcher: ToolDispatcher) -> None: ...
     def add_logging(self, log_params: bool = False) -> None:
         """Add a LoggingMiddleware to the pipeline."""
         ...
@@ -2365,14 +2368,14 @@ def success_result(
     message: str,
     prompt: str | None = None,
     **context: Any,
-) -> ActionResultModel: ...
+) -> ToolResult: ...
 def error_result(
     message: str,
     error: str,
     prompt: str | None = None,
     possible_solutions: list[str] | None = None,
     **context: Any,
-) -> ActionResultModel: ...
+) -> ToolResult: ...
 def from_exception(
     error_message: str,
     message: str | None = None,
@@ -2380,8 +2383,8 @@ def from_exception(
     include_traceback: bool = True,
     possible_solutions: list[str] | None = None,
     **context: Any,
-) -> ActionResultModel: ...
-def validate_action_result(result: Any) -> ActionResultModel: ...
+) -> ToolResult: ...
+def validate_action_result(result: Any) -> ToolResult: ...
 def get_bridge_context(dcc_type: str) -> BridgeContext | None:
     """Get bridge context for a specific DCC type from the global registry.
 
@@ -2502,7 +2505,7 @@ def get_config_dir() -> str: ...
 def get_data_dir() -> str: ...
 def get_log_dir() -> str: ...
 def get_platform_dir(dir_type: str) -> str: ...
-def get_actions_dir(dcc_name: str) -> str: ...
+def get_tools_dir(dcc_name: str) -> str: ...
 def get_skills_dir(dcc_name: str | None = None) -> str: ...
 def get_skill_paths_from_env() -> list[str]: ...
 def get_app_skill_paths_from_env(app_name: str) -> list[str]:
@@ -2841,7 +2844,7 @@ class PyProcessWatcher:
 
 # ── Telemetry ──
 
-class ActionMetrics:
+class ToolMetrics:
     """Read-only snapshot of per-Action performance metrics."""
 
     @property
@@ -2864,7 +2867,7 @@ class ActionMetrics:
     def __repr__(self) -> str: ...
 
 class RecordingGuard:
-    """RAII guard returned by ``ActionRecorder.start()``.
+    """RAII guard returned by ``ToolRecorder.start()``.
 
     Call :meth:`finish` or use as a context manager.
 
@@ -2898,12 +2901,12 @@ class RecordingGuard:
     ) -> None: ...
     def __repr__(self) -> str: ...
 
-class ActionRecorder:
+class ToolRecorder:
     """Records per-Action execution time and success/failure counters.
 
     Example::
 
-        recorder = ActionRecorder("my-service")
+        recorder = ToolRecorder("my-service")
         guard = recorder.start("create_sphere", "maya")
         # ... do work ...
         guard.finish(success=True)
@@ -2919,13 +2922,13 @@ class ActionRecorder:
     def start(self, action_name: str, dcc_name: str) -> RecordingGuard:
         """Start timing an action and return a guard object."""
         ...
-    def metrics(self, action_name: str) -> ActionMetrics | None:
+    def metrics(self, action_name: str) -> ToolMetrics | None:
         """Get aggregated metrics for a specific action.
 
         Returns ``None`` if no data exists for this action.
         """
         ...
-    def all_metrics(self) -> list[ActionMetrics]:
+    def all_metrics(self) -> list[ToolMetrics]:
         """Get aggregated metrics for all recorded actions."""
         ...
     def reset(self) -> None:
@@ -3770,7 +3773,7 @@ class McpHttpConfig:
     def session_ttl_secs(self, secs: int) -> None: ...
     def __repr__(self) -> str: ...
 
-class ServerHandle:
+class McpServerHandle:
     """Handle returned by :meth:`McpHttpServer.start`.
 
     Example::
@@ -3811,9 +3814,9 @@ class McpHttpServer:
 
     Example::
 
-        from dcc_mcp_core import ActionRegistry, McpHttpServer, McpHttpConfig
+        from dcc_mcp_core import ToolRegistry, McpHttpServer, McpHttpConfig
 
-        registry = ActionRegistry()
+        registry = ToolRegistry()
         registry.register("get_scene_info", description="Get scene info",
                           category="scene", tags=[], dcc="maya",
                           version="1.0.0")
@@ -3826,11 +3829,11 @@ class McpHttpServer:
 
     def __init__(
         self,
-        registry: ActionRegistry,
+        registry: ToolRegistry,
         config: McpHttpConfig | None = None,
     ) -> None: ...
-    def start(self) -> ServerHandle:
-        """Start the server and return a :class:`ServerHandle`.
+    def start(self) -> McpServerHandle:
+        """Start the server and return a :class:`McpServerHandle`.
 
         Returns immediately; the server runs in a background thread.
         """
@@ -3871,7 +3874,7 @@ class McpHttpServer:
         """
         ...
     def load_skill(self, skill_name: str) -> list[str]:
-        """Load a skill by name — registers its tools in the ActionRegistry.
+        """Load a skill by name — registers its tools in the ToolRegistry.
 
         Returns the list of registered action names.
 
@@ -3881,7 +3884,7 @@ class McpHttpServer:
         """
         ...
     def unload_skill(self, skill_name: str) -> int:
-        """Unload a skill — removes its tools from the ActionRegistry.
+        """Unload a skill — removes its tools from the ToolRegistry.
 
         Returns the number of actions removed.
 
@@ -3925,7 +3928,7 @@ class McpHttpServer:
         ...
     def __repr__(self) -> str: ...
 
-def create_skill_manager(
+def create_skill_server(
     app_name: str,
     config: McpHttpConfig | None = None,
     extra_paths: list[str] | None = None,
@@ -3936,7 +3939,7 @@ def create_skill_manager(
     This is the recommended entry-point for the **Skills-First** workflow.
     It automatically:
 
-    1. Creates an ``ActionRegistry`` and ``ActionDispatcher``.
+    1. Creates a ``ToolRegistry`` and ``ToolDispatcher``.
     2. Creates a ``SkillCatalog`` wired to the dispatcher.
     3. Discovers skills from **both** env vars (per-app + global):
        - ``DCC_MCP_{APP}_SKILL_PATHS`` — e.g. ``DCC_MCP_MAYA_SKILL_PATHS``
@@ -3955,9 +3958,9 @@ def create_skill_manager(
         import os
         os.environ["DCC_MCP_MAYA_SKILL_PATHS"] = "/studio/maya-skills"
 
-        from dcc_mcp_core import create_skill_manager, McpHttpConfig
+        from dcc_mcp_core import create_skill_server, McpHttpConfig
 
-        server = create_skill_manager("maya", McpHttpConfig(port=8765))
+        server = create_skill_server("maya", McpHttpConfig(port=8765))
         handle = server.start()
         print(f"Maya MCP server at {handle.mcp_url()}")
 
@@ -3965,12 +3968,22 @@ def create_skill_manager(
     ...
 
 # Alias: ServerHandle is exported as McpServerHandle in dcc_mcp_core.__init__
-McpServerHandle = ServerHandle
+ServerHandle = McpServerHandle
+
+# Canonical tool-first aliases exposed by dcc_mcp_core.__init__.py
+ActionRegistry = ToolRegistry
+ActionValidator = ToolValidator
+ActionDispatcher = ToolDispatcher
+ActionPipeline = ToolPipeline
+ActionMetrics = ToolMetrics
+ActionRecorder = ToolRecorder
+create_skill_manager = create_skill_server
+get_actions_dir = get_tools_dir
 
 # ── Serialization ──
 
 class SerializeFormat:
-    """Supported serialization formats for ``ActionResultModel``.
+    """Supported serialization formats for ``ToolResult``.
 
     Use ``SerializeFormat.Json`` (default) for human-readable JSON text.
     Use ``SerializeFormat.MsgPack`` for compact binary MessagePack encoding.
@@ -3988,15 +4001,15 @@ class SerializeFormat:
     def __repr__(self) -> str: ...
 
 def serialize_result(
-    result: ActionResultModel,
+    result: ToolResult,
     format: SerializeFormat = ...,  # default: SerializeFormat.Json
 ) -> str | bytes:
-    """Serialize an ``ActionResultModel`` to a string or bytes.
+    """Serialize a ``ToolResult`` to a string or bytes.
 
     Parameters
     ----------
     result:
-        The ``ActionResultModel`` to serialize.
+        The ``ToolResult`` to serialize.
     format:
         Serialization format.  Defaults to ``SerializeFormat.Json``.
 
@@ -4029,8 +4042,8 @@ def serialize_result(
 def deserialize_result(
     data: str | bytes,
     format: SerializeFormat = ...,  # default: SerializeFormat.Json
-) -> ActionResultModel:
-    """Deserialize a ``str`` (JSON) or ``bytes`` (MsgPack) into an ``ActionResultModel``.
+) -> ToolResult:
+    """Deserialize a ``str`` (JSON) or ``bytes`` (MsgPack) into a ``ToolResult``.
 
     The *format* must match what was used during serialization.
 

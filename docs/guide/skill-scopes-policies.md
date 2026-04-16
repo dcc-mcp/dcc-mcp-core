@@ -23,9 +23,9 @@ Repo    (.codex/skills/ — project-local, lowest trust)
 Scope is determined by **which path** the skill was discovered from:
 
 ```python
-from dcc_mcp_core import SkillCatalog, ActionRegistry
+from dcc_mcp_core import SkillCatalog, ToolRegistry
 
-catalog = SkillCatalog(ActionRegistry())
+catalog = SkillCatalog(ToolRegistry())
 
 # Skills discovered here get scope="repo"
 catalog.discover(extra_paths=[".codex/skills"])

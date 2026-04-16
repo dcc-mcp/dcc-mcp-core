@@ -57,7 +57,7 @@ pub use config::McpHttpConfig;
 pub use error::{HttpError, HttpResult};
 pub use executor::{DccExecutorHandle, DeferredExecutor};
 pub use gateway::{GatewayConfig, GatewayHandle, GatewayRunner};
-pub use server::{McpHttpServer, ServerHandle};
+pub use server::{McpHttpServer, McpServerHandle};
 pub use session::SessionManager;
 
 #[cfg(feature = "python-bindings")]

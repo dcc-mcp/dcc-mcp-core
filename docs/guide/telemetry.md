@@ -1,25 +1,25 @@
 # Telemetry Guide
 
-Action performance recording and optional OpenTelemetry tracing/metrics.
+Tool performance recording and optional OpenTelemetry tracing/metrics.
 
 ## Overview
 
 Provides:
 
-- **Action Recording** — Per-action timing and success/failure counters via `ActionRecorder`
-- **Metrics** — `ActionMetrics` snapshot with latency percentiles (p95/p99) and success rate
+- **Tool Recording** — Per-tool timing and success/failure counters via `ToolRecorder`
+- **Metrics** — `ToolMetrics` snapshot with latency percentiles (p95/p99) and success rate
 - **Optional OpenTelemetry** — stdout exporter, JSON/text logs, resource attributes (opt-in)
 
-## ActionRecorder
+## ToolRecorder
 
-Record execution time and outcomes for any action.
+Record execution time and outcomes for any tool.
 
 ### Quick Start
 
 ```python
-from dcc_mcp_core import ActionRecorder
+from dcc_mcp_core import ToolRecorder
 
-recorder = ActionRecorder("my-service")
+recorder = ToolRecorder("my-service")
 
 # Record with guard
 guard = recorder.start("create_sphere", "maya")
@@ -82,7 +82,7 @@ recorder.reset()  # Clear all in-memory statistics
 
 ## TelemetryConfig
 
-Optional OpenTelemetry configuration. Not required for `ActionRecorder` alone.
+Optional OpenTelemetry configuration. Not required for `ToolRecorder` alone.
 
 ### Basic Setup
 
@@ -160,10 +160,10 @@ if is_telemetry_initialized():
 ## Maya Integration
 
 ```python
-from dcc_mcp_core import ActionRecorder
+from dcc_mcp_core import ToolRecorder
 import maya.cmds as cmds
 
-recorder = ActionRecorder("maya")
+recorder = ToolRecorder("maya")
 
 def traced_create_sphere(radius=1.0, name=None):
     with recorder.start("create_sphere", "maya") as guard:
@@ -180,10 +180,10 @@ def traced_delete(object_name):
 ## Blender Integration
 
 ```python
-from dcc_mcp_core import ActionRecorder
+from dcc_mcp_core import ToolRecorder
 import bpy
 
-recorder = ActionRecorder("blender")
+recorder = ToolRecorder("blender")
 
 def traced_blender_operation(operation_name, func):
     with recorder.start(operation_name, "blender") as guard:
@@ -196,9 +196,9 @@ def traced_blender_operation(operation_name, func):
 
 ```python
 # One recorder per DCC
-maya_recorder = ActionRecorder("maya")
-blender_recorder = ActionRecorder("blender")
-houdini_recorder = ActionRecorder("houdini")
+maya_recorder = ToolRecorder("maya")
+blender_recorder = ToolRecorder("blender")
+houdini_recorder = ToolRecorder("houdini")
 
 # Each maintains separate metrics
 ```

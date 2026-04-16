@@ -8,24 +8,24 @@
 
 Progressive skill discovery and loading. Thread-safe (all state stored in DashMap/DashSet).
 
-The Python binding is registry-backed: construct `SkillCatalog` with an `ActionRegistry`. Loading a skill registers its tool metadata into that registry on demand.
+The Python binding is registry-backed: construct `SkillCatalog` with an `ToolRegistry`. Loading a skill registers its tool metadata into that registry on demand.
 
 ```python
-from dcc_mcp_core import SkillCatalog, ActionRegistry
+from dcc_mcp_core import SkillCatalog, ToolRegistry
 
-registry = ActionRegistry()
+registry = ToolRegistry()
 catalog = SkillCatalog(registry)
 ```
 
 ### Constructor
 
 ```python
-SkillCatalog(registry: ActionRegistry) -> SkillCatalog
+SkillCatalog(registry: ToolRegistry) -> SkillCatalog
 ```
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `registry` | `ActionRegistry` | Action registry for registering skill tools |
+| `registry` | `ToolRegistry` | Action registry for registering skill tools |
 
 ### Methods
 
@@ -45,11 +45,11 @@ SkillCatalog(registry: ActionRegistry) -> SkillCatalog
 
 ```python
 import os
-from dcc_mcp_core import SkillCatalog, ActionRegistry
+from dcc_mcp_core import SkillCatalog, ToolRegistry
 
 os.environ["DCC_MCP_SKILL_PATHS"] = "/path/to/skills"
 
-registry = ActionRegistry()
+registry = ToolRegistry()
 catalog = SkillCatalog(registry)
 
 # Discover skills
@@ -385,10 +385,10 @@ Return names of all skills that `skill_name` transitively depends on. Raises `Va
 | `DCC_MCP_{APP}_SKILL_PATHS` | Per-app skill paths, e.g. `DCC_MCP_MAYA_SKILL_PATHS` (`;` on Windows, `:` on Unix) |
 | `DCC_MCP_SKILL_PATHS` | Global fallback skill paths |
 
-### create_skill_manager
+### create_skill_server
 
 ```python
-create_skill_manager(
+create_skill_server(
     app_name: str,
     config: McpHttpConfig | None = None,
     extra_paths: list[str] | None = None,
@@ -399,7 +399,7 @@ create_skill_manager(
 **Recommended entry-point for the Skills-First workflow** (v0.12.12+).
 
 Creates a fully wired `McpHttpServer` for a specific DCC application in one call. Automatically:
-1. Creates `ActionRegistry` + `ActionDispatcher`
+1. Creates `ToolRegistry` + `ToolDispatcher`
 2. Creates `SkillCatalog` wired to the dispatcher
 3. Discovers skills from `DCC_MCP_{APP}_SKILL_PATHS` and `DCC_MCP_SKILL_PATHS`
 4. Returns a ready-to-start `McpHttpServer`
@@ -419,11 +419,11 @@ Creates a fully wired `McpHttpServer` for a specific DCC application in one call
 
 ```python
 import os
-from dcc_mcp_core import create_skill_manager, McpHttpConfig
+from dcc_mcp_core import create_skill_server, McpHttpConfig
 
 os.environ["DCC_MCP_MAYA_SKILL_PATHS"] = "/studio/maya-skills"
 
-server = create_skill_manager("maya", McpHttpConfig(port=8765))
+server = create_skill_server("maya", McpHttpConfig(port=8765))
 handle = server.start()
 print(f"Serving at {handle.mcp_url()}")
 ```
@@ -464,9 +464,9 @@ have the full wheel installed.
 from dcc_mcp_core.skill import skill_entry, skill_success, skill_error
 ```
 
-All helpers return a plain `dict` that is fully compatible with `ActionResultModel`.
+All helpers return a plain `dict` that is fully compatible with `ToolResult`.
 When `dcc_mcp_core._core` is available, you can pass the dict to `validate_action_result()`
-to obtain a typed `ActionResultModel` object.
+to obtain a typed `ToolResult` object.
 
 ---
 
@@ -666,13 +666,13 @@ the generic equivalents map directly:
 | `maya_error(msg, error, prompt=..., **ctx)` | `skill_error(msg, error, prompt=..., **ctx)` |
 | `maya_from_exception(exc_msg, ...)` | `skill_exception(exc, ...)` |
 
-The dict structure is identical — both are compatible with `ActionResultModel`.
+The dict structure is identical — both are compatible with `ToolResult`.
 
 ---
 
 ## Result Serialization — `serialize_result` / `deserialize_result`
 
-Rust-backed serialization for `ActionResultModel`.  The format is switchable via
+Rust-backed serialization for `ToolResult`.  The format is switchable via
 `SerializeFormat`: JSON today, MessagePack tomorrow — without changing calling code.
 
 ```python
@@ -697,12 +697,12 @@ class SerializeFormat:
 
 ```python
 serialize_result(
-    result: ActionResultModel,
+    result: ToolResult,
     format: SerializeFormat = SerializeFormat.Json,
 ) -> str | bytes
 ```
 
-Serialize an `ActionResultModel`.
+Serialize an `ToolResult`.
 
 | `format` | Return type | Description |
 |----------|-------------|-------------|
@@ -729,10 +729,10 @@ assert isinstance(msgpack_bytes, bytes)
 deserialize_result(
     data: str | bytes,
     format: SerializeFormat = SerializeFormat.Json,
-) -> ActionResultModel
+) -> ToolResult
 ```
 
-Deserialize a `str` (JSON) or `bytes` (MsgPack) back into an `ActionResultModel`.
+Deserialize a `str` (JSON) or `bytes` (MsgPack) back into an `ToolResult`.
 The *format* must match what was used during serialization.
 
 ```python
@@ -753,7 +753,7 @@ falling back to `json.dumps` in pure-Python environments:
 ```
 result dict
     ↓ validate_action_result()  (type-safe validation)
-ActionResultModel
+ToolResult
     ↓ serialize_result(arm, SerializeFormat.Json)   (Rust JSON writer)
 JSON string → stdout
 ```

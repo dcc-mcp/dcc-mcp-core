@@ -51,7 +51,7 @@ pub struct ActionMeta {
 /// eliminating cross-DCC pollution.
 #[cfg_attr(
     feature = "python-bindings",
-    pyclass(name = "ActionRegistry", from_py_object)
+    pyclass(name = "ToolRegistry", from_py_object)
 )]
 #[derive(Debug, Clone)]
 pub struct ActionRegistry {
@@ -619,7 +619,7 @@ impl ActionRegistry {
     }
 
     fn __repr__(&self) -> String {
-        format!("ActionRegistry(actions={})", self.len())
+        format!("ToolRegistry(actions={})", self.len())
     }
 }
 

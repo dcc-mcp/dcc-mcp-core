@@ -7,7 +7,7 @@ Learn how to build custom skills for DCC applications — from the recommended S
 The Skills-First approach uses `SKILL.md` packages discovered via environment variables. This is the recommended way to build DCC tools because:
 
 - **Zero boilerplate** — no manual handler registration; tools are auto-discovered
-- **Auto-exposed as MCP tools** — the skill manager exposes each tool to the AI via MCP
+- **Auto-exposed as MCP tools** — the skill server exposes each tool to the AI via MCP
 - **Hot-reload** — changes to `SKILL.md` are picked up without restart
 
 ### Step 1: Create a SKILL.md Package
@@ -64,12 +64,12 @@ def create_sphere(radius: float = 1.0, name: str | None = None):
 
 ```python
 import os
-from dcc_mcp_core import create_skill_manager
+from dcc_mcp_core import create_skill_server
 
 os.environ["DCC_MCP_MAYA_SKILL_PATHS"] = "/path/to/my/skills"
 
 # One call: discovers skills, starts MCP HTTP server
-manager = create_skill_manager("maya")
+manager = create_skill_server("maya")
 ```
 
 ::: tip Skills-First is the recommended pattern
@@ -80,16 +80,16 @@ Use `SKILL.md` packages for all new DCC tools. Fall back to the registry API onl
 
 ## Low-Level Registry API
 
-Use the `ActionRegistry` + `ActionDispatcher` API when you need runtime programmatic control over which handlers are registered.
+Use the `ToolRegistry` + `ToolDispatcher` API when you need runtime programmatic control over which handlers are registered.
 
 ## Complete Example
 
 ```python
 import json
-from dcc_mcp_core import ActionRegistry, ActionDispatcher
+from dcc_mcp_core import ToolRegistry, ToolDispatcher
 
-# 1. Register action metadata with a JSON Schema
-reg = ActionRegistry()
+# 1. Register tool metadata with a JSON Schema
+reg = ToolRegistry()
 reg.register(
     name="create_sphere",
     description="Create a polygon sphere in Maya",
@@ -121,7 +121,7 @@ reg.register(
 )
 
 # 2. Create dispatcher and register the handler
-dispatcher = ActionDispatcher(reg)
+dispatcher = ToolDispatcher(reg)
 
 def handle_create_sphere(params):
     radius = params.get("radius", 1.0)
@@ -149,10 +149,10 @@ print(result["output"]["object_name"])  # "pSphere1"
 
 ## Key Points
 
-1. **Register with `ActionRegistry.register()`** — pass name, description, tags, DCC, version, and a JSON Schema
+1. **Register with `ToolRegistry.register()`** — pass name, description, tags, DCC, version, and a JSON Schema
 2. **Implement a handler function** — takes `params: dict`, returns a result dict
-3. **Register handler with `ActionDispatcher`** — connects the action name to your Python callable
-4. **Use JSON Schema for validation** — `ActionDispatcher` validates JSON input before calling your handler
+3. **Register handler with `ToolDispatcher`** — connects the tool name to your Python callable
+4. **Use JSON Schema for validation** — `ToolDispatcher` validates JSON input before calling your handler
 5. **Dispatch with JSON strings** — the wire format uses JSON, not Python dicts
 
 ## Handler Function Signature
@@ -163,26 +163,26 @@ def my_handler(params: dict) -> Any:
     Args:
         params: Validated parameters from the JSON input (already parsed)
     Returns:
-        A dict with the action result (serializable to JSON)
+        A dict with the tool result (serializable to JSON)
     """
     pass
 ```
 
-## Validation with ActionValidator
+## Validation with ToolValidator
 
 Validate input before dispatching:
 
 ```python
-from dcc_mcp_core import ActionValidator
+from dcc_mcp_core import ToolValidator
 
-validator = ActionValidator.from_action_registry(reg, "create_sphere", dcc_name="maya")
+validator = ToolValidator.from_action_registry(reg, "create_sphere", dcc_name="maya")
 ok, errors = validator.validate('{"radius": 1.5}')
 if not ok:
     print(f"Validation failed: {errors}")
     # Handle error
 ```
 
-## Versioned Actions
+## Versioned Tools
 
 Maintain backward compatibility with `VersionedRegistry`:
 
@@ -210,7 +210,7 @@ print(result["version"])  # "2.0.0"
 
 ## JSON Schema Tips
 
-- Use `$ref` for reusable schemas (not supported in ActionValidator — inline all definitions)
+- Use `$ref` for reusable schemas (not supported in ToolValidator — inline all definitions)
 - `"default"` field sets default values when key is missing in input
 - Use `"minimum"`/`maximum` for numeric constraints
 - Use `"minLength"`/`maxLength` for string length

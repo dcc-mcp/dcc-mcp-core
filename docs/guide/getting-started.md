@@ -30,19 +30,19 @@ The build is handled by [maturin](https://www.maturin.rs/) which compiles the Ru
 
 ## Quick Start
 
-### Skills-First: `create_skill_manager` (recommended since v0.12.12)
+### Skills-First: `create_skill_server` (recommended since v0.12.12)
 
-The fastest way to expose scripts as MCP tools. Create a `SKILL.md` in your script folder, then use `create_skill_manager` to wire everything in one call:
+The fastest way to expose scripts as MCP tools. Create a `SKILL.md` in your script folder, then use `create_skill_server` to wire everything in one call:
 
 ```python
 import os
-from dcc_mcp_core import create_skill_manager, McpHttpConfig
+from dcc_mcp_core import create_skill_server, McpHttpConfig
 
 # Point to your skill directories (per-app env var)
 os.environ["DCC_MCP_MAYA_SKILL_PATHS"] = "/path/to/my-skills"
 
 # One call: discover skills + start MCP HTTP server
-server = create_skill_manager("maya", McpHttpConfig(port=8765))
+server = create_skill_server("maya", McpHttpConfig(port=8765))
 handle = server.start()
 print(f"Maya MCP server at {handle.mcp_url()}")
 # AI clients (Claude Desktop, etc.) connect to http://127.0.0.1:8765/mcp
@@ -52,29 +52,29 @@ Or use `SkillCatalog` directly for more control:
 
 ```python
 import os
-from dcc_mcp_core import SkillCatalog, ActionRegistry
+from dcc_mcp_core import SkillCatalog, ToolRegistry
 
 os.environ["DCC_MCP_SKILL_PATHS"] = "/path/to/my-skills"
 
-registry = ActionRegistry()
+registry = ToolRegistry()
 catalog = SkillCatalog(registry)
 
 discovered = catalog.discover(dcc_name="maya")
 print(f"Discovered {discovered} skills")
 
-# Load a skill and inspect the registered action names
+# Load a skill and inspect the registered tool names
 actions = catalog.load_skill("maya-geometry")
 print(actions)
 ```
 
 See the [Skills System guide](/guide/skills) for writing `SKILL.md` files and advanced options.
 
-### Action Registry
+### Tool Registry
 
 ```python
-from dcc_mcp_core import ActionRegistry
+from dcc_mcp_core import ToolRegistry
 
-registry = ActionRegistry()
+registry = ToolRegistry()
 registry.register(
     name="create_sphere",
     description="Creates a sphere in the scene",
@@ -83,10 +83,10 @@ registry.register(
     dcc="maya",
 )
 
-action = registry.get_action("create_sphere")
-print(action)  # dict with action metadata
+tool = registry.get_action("create_sphere")
+print(tool)  # dict with tool metadata
 
-maya_actions = registry.list_actions(dcc_name="maya")
+maya_tools = registry.list_actions(dcc_name="maya")
 ```
 
 ### Action Results
@@ -119,10 +119,10 @@ bus.unsubscribe("scene.changed", sid)
 Expose your registry to AI clients (Claude Desktop, etc.) over HTTP in one call:
 
 ```python
-from dcc_mcp_core import ActionRegistry, McpHttpServer, McpHttpConfig
+from dcc_mcp_core import ToolRegistry, McpHttpServer, McpHttpConfig
 
-registry = ActionRegistry()
-# ... register actions or load skills ...
+registry = ToolRegistry()
+# ... register tools or load skills ...
 
 config = McpHttpConfig(port=8765)
 server = McpHttpServer(registry, config)
@@ -155,7 +155,7 @@ vx just lint
 
 ## Next Steps
 
-- Learn about [Actions & Registry](/guide/actions) — the core building block
+- Learn about [Actions & Registry](/guide/actions) — the tool registration layer
 - Explore the [Event System](/guide/events) for lifecycle hooks
 - Check out the [Skills System](/guide/skills) for zero-code script registration
 - Expose tools with [MCP HTTP Server](/api/http)

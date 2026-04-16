@@ -1,4 +1,4 @@
-//! PyO3 bindings for the ActionPipeline and its built-in middleware.
+//! PyO3 bindings for the ToolPipeline and its built-in middleware.
 //!
 //! Exposed Python classes:
 //!
@@ -376,7 +376,7 @@ impl PyRateLimitMiddleware {
 ///     result = pipeline.dispatch("ping", "{}")
 ///     assert result["output"] == "pong"
 ///
-#[pyclass(name = "ActionPipeline")]
+#[pyclass(name = "ToolPipeline")]
 pub struct PyActionPipeline {
     /// Rust-level pipeline wrapping an `ActionDispatcher`.
     inner: ActionPipeline,
@@ -653,7 +653,7 @@ impl PyActionPipeline {
 
     fn __repr__(&self) -> String {
         format!(
-            "ActionPipeline(handlers={}, middleware={})",
+            "ToolPipeline(handlers={}, middleware={})",
             self.handler_map.len(),
             self.middleware_count
         )

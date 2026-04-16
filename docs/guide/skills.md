@@ -60,9 +60,9 @@ export DCC_MCP_SKILL_PATHS="/path/skills1:/path/skills2"
 Use `SkillCatalog` (recommended) for full progressive loading, or low-level scan functions for one-shot use:
 
 ```python
-from dcc_mcp_core import SkillCatalog, ActionRegistry
+from dcc_mcp_core import SkillCatalog, ToolRegistry
 
-registry = ActionRegistry()
+registry = ToolRegistry()
 catalog = SkillCatalog(registry)
 
 # Discover all skills from DCC_MCP_SKILL_PATHS
@@ -83,9 +83,9 @@ print(actions)
 `SkillCatalog` manages the full lifecycle: discovery → progressive loading → unloading.
 
 ```python
-from dcc_mcp_core import SkillCatalog, ActionRegistry
+from dcc_mcp_core import SkillCatalog, ToolRegistry
 
-registry = ActionRegistry()
+registry = ToolRegistry()
 catalog = SkillCatalog(registry)
 
 # Discovery
@@ -299,32 +299,32 @@ Parsed from SKILL.md frontmatter. Supports Anthropic Skills, ClawHub/OpenClaw, a
 `DCC_MCP_MAYA_SKILL_PATHS` is checked first for `app_name="maya"`. `DCC_MCP_SKILL_PATHS` is the global fallback.
 :::
 
-## one-call Skills-First Setup: `create_skill_manager`
+## one-call Skills-First Setup: `create_skill_server`
 
-For the fastest possible setup, use `create_skill_manager` (v0.12.12+). It wires together `ActionRegistry`, `ActionDispatcher`, `SkillCatalog`, and `McpHttpServer` in one call:
+For the fastest possible setup, use `create_skill_server` (v0.12.12+). It wires together `ToolRegistry`, `ToolDispatcher`, `SkillCatalog`, and `McpHttpServer` in one call:
 
 ```python
 import os
-from dcc_mcp_core import create_skill_manager, McpHttpConfig
+from dcc_mcp_core import create_skill_server, McpHttpConfig
 
 # Set per-app skill paths
 os.environ["DCC_MCP_MAYA_SKILL_PATHS"] = "/studio/maya-skills"
 
 # One call: discover skills + start MCP HTTP server
-server = create_skill_manager("maya", McpHttpConfig(port=8765))
+server = create_skill_server("maya", McpHttpConfig(port=8765))
 handle = server.start()
 print(f"Maya MCP server at {handle.mcp_url()}")
 # AI clients connect to http://127.0.0.1:8765/mcp
 ```
 
-`create_skill_manager` automatically:
-1. Creates an `ActionRegistry` and `ActionDispatcher`
+`create_skill_server` automatically:
+1. Creates an `ToolRegistry` and `ToolDispatcher`
 2. Creates a `SkillCatalog` wired to the dispatcher
 3. Discovers skills from `DCC_MCP_MAYA_SKILL_PATHS` and `DCC_MCP_SKILL_PATHS`
 4. Returns a ready-to-start `McpHttpServer`
 
 ```python
-def create_skill_manager(
+def create_skill_server(
     app_name: str,
     config: McpHttpConfig | None = None,
     extra_paths: list[str] | None = None,
@@ -351,7 +351,7 @@ def create_skill_manager(
 | `.lua`, `.hscript` | Lua / Houdini | `python` wrapper |
 
 ::: tip Skills-First Architecture
-`create_skill_manager` is the recommended entry-point since v0.12.12. It combines `SkillCatalog` automatic script execution with MCP HTTP serving — agents can call tools via `tools/call` with zero manual handler registration.
+`create_skill_server` is the recommended entry-point since v0.12.12. It combines `SkillCatalog` automatic script execution with MCP HTTP serving — agents can call tools via `tools/call` with zero manual handler registration.
 :::
 
 ::: warning script execution
@@ -360,7 +360,7 @@ All scripts run as subprocesses. Input parameters are passed via stdin as JSON. 
 
 ## On-Demand Skill Discovery (MCP HTTP)
 
-When using the MCP HTTP server (`McpHttpServer` or `create_skill_manager`), `tools/list` returns a **three-tier** response:
+When using the MCP HTTP server (`McpHttpServer` or `create_skill_server`), `tools/list` returns a **three-tier** response:
 
 ### Three-Tier `tools/list` Response
 
@@ -368,11 +368,11 @@ When using the MCP HTTP server (`McpHttpServer` or `create_skill_manager`), `too
    - `find_skills` — Search for skills by query, tags, DCC type
    - `list_skills` — List all skills with optional status filter
    - `get_skill_info` — Get full metadata for a specific skill
-   - `load_skill` — Load a skill, registering its tools in ActionRegistry
+   - `load_skill` — Load a skill, registering its tools in ToolRegistry
    - `unload_skill` — Unload a skill, removing its tools
    - `search_skills` — Keyword search across name, description, search_hint, and tool_names
 
-2. **Loaded skill tools** — Full `input_schema` from the `ActionRegistry` for all currently loaded skills
+2. **Loaded skill tools** — Full `input_schema` from the `ToolRegistry` for all currently loaded skills
 
 3. **Unloaded skill stubs** — `__skill__<name>` entries with a one-line description only (no full schema)
 
@@ -415,4 +415,4 @@ Calling an unloaded skill stub (`__skill__<name>`) returns an error with a hint:
 
 Searches across: `name`, `description`, `search_hint`, and `tool_names`. The `search_hint` field (from SKILL.md `search-hint:`) improves keyword matching without loading full schemas.
 
-`create_skill_manager()` only calls `discover()` at startup — skills are **not** automatically loaded. This keeps the initial tool list small and lets agents load only what they need.
+`create_skill_server()` only calls `discover()` at startup — skills are **not** automatically loaded. This keeps the initial tool list small and lets agents load only what they need.

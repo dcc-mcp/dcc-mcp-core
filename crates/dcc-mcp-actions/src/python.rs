@@ -1,4 +1,4 @@
-//! PyO3 bindings for ActionValidator and ActionDispatcher.
+//! PyO3 bindings for ToolValidator and ToolDispatcher.
 //!
 //! Exposed Python classes:
 //! - [`PyActionValidator`] — validates JSON params against a JSON Schema string.
@@ -48,7 +48,7 @@ use crate::validator::ActionValidator;
 ///     ok, errors = v.validate("{}")
 ///     assert not ok
 ///
-#[pyclass(name = "ActionValidator")]
+#[pyclass(name = "ToolValidator")]
 pub struct PyActionValidator {
     inner: ActionValidator,
 }
@@ -107,7 +107,7 @@ impl PyActionValidator {
     }
 
     fn __repr__(&self) -> String {
-        "ActionValidator()".to_string()
+        "ToolValidator()".to_string()
     }
 }
 
@@ -138,7 +138,7 @@ impl PyActionValidator {
 ///     result = dispatcher.dispatch("create_sphere", json.dumps({"radius": 2.0}))
 ///     assert result["output"]["created"] is True
 ///
-#[pyclass(name = "ActionDispatcher")]
+#[pyclass(name = "ToolDispatcher")]
 pub struct PyActionDispatcher {
     /// Rust dispatcher used for schema validation; handler calls are short-circuited.
     inner: ActionDispatcher,
@@ -287,7 +287,7 @@ impl PyActionDispatcher {
     }
 
     fn __repr__(&self) -> String {
-        format!("ActionDispatcher(handlers={})", self.handler_map.len())
+        format!("ToolDispatcher(handlers={})", self.handler_map.len())
     }
 }
 

@@ -6,22 +6,22 @@ Skills are the core building blocks of DCC-MCP-Core. Each skill represents a dis
 
 DCC-MCP-Core uses a registry-based skill execution model backed by Rust's DashMap for thread-safe, concurrent access:
 
-- **`ActionRegistry`** — Thread-safe store for skill metadata (name, description, tags, DCC, version, JSON schemas)
-- **`ActionDispatcher`** — Routes validated calls to registered Python handlers
-- **`ActionValidator`** — JSON Schema-based input validation
+- **`ToolRegistry`** — Thread-safe store for skill metadata (name, description, tags, DCC, version, JSON schemas)
+- **`ToolDispatcher`** — Routes validated calls to registered Python handlers
+- **`ToolValidator`** — JSON Schema-based input validation
 - **`VersionedRegistry`** — Multi-version skill support with semantic version resolution
 
 All skills are discovered and registered at runtime. There are **no base classes or Pydantic models** — skills are plain Python functions registered with metadata.
 
-## ActionRegistry
+## ToolRegistry
 
-`ActionRegistry` is the central registry for all DCC skill operations. Register a skill with a JSON Schema for input validation:
+`ToolRegistry` is the central registry for all DCC skill operations. Register a skill with a JSON Schema for input validation:
 
 ```python
 import json
-from dcc_mcp_core import ActionRegistry
+from dcc_mcp_core import ToolRegistry
 
-reg = ActionRegistry()
+reg = ToolRegistry()
 
 reg.register(
     name="create_sphere",
@@ -75,15 +75,15 @@ print("echo" in reg)  # True
 print(len(reg))        # Number of registered skills
 ```
 
-## ActionDispatcher
+## ToolDispatcher
 
-`ActionDispatcher` pairs with `ActionRegistry` to provide validated, routed skill execution:
+`ToolDispatcher` pairs with `ToolRegistry` to provide validated, routed skill execution:
 
 ```python
 import json
-from dcc_mcp_core import ActionRegistry, ActionDispatcher
+from dcc_mcp_core import ToolRegistry, ToolDispatcher
 
-reg = ActionRegistry()
+reg = ToolRegistry()
 reg.register(
     "create_sphere",
     dcc="maya",
@@ -93,7 +93,7 @@ reg.register(
         "properties": {"radius": {"type": "number"}}
     }),
 )
-dispatcher = ActionDispatcher(reg)
+dispatcher = ToolDispatcher(reg)
 
 def handle_create_sphere(params):
     radius = params["radius"]
@@ -107,14 +107,14 @@ result = dispatcher.dispatch("create_sphere", json.dumps({"radius": 2.0}))
 # result = {"action": "create_sphere", "output": {"created": True, "radius": 2.0}, "validation_skipped": False}
 ```
 
-## ActionValidator
+## ToolValidator
 
 Standalone validator for checking JSON params against a schema:
 
 ```python
-from dcc_mcp_core import ActionValidator
+from dcc_mcp_core import ToolValidator
 
-validator = ActionValidator.from_schema_json(
+validator = ToolValidator.from_schema_json(
     '{"type": "object", "required": ["radius"], '
     '"properties": {"radius": {"type": "number", "minimum": 0}}}'
 )
@@ -126,20 +126,20 @@ ok, errors = validator.validate('{"radius": -1}')
 print(ok, errors)  # False, ["radius must be >= 0"]
 ```
 
-Or create from an existing `ActionRegistry` action:
+Or create from an existing `ToolRegistry` action:
 
 ```python
-from dcc_mcp_core import ActionRegistry, ActionValidator
+from dcc_mcp_core import ToolRegistry, ToolValidator
 
-reg = ActionRegistry()
+reg = ToolRegistry()
 reg.register("create_sphere", dcc="maya", input_schema='{"type": "object", "properties": {"radius": {"type": "number"}}}')
 
-validator = ActionValidator.from_action_registry(reg, "create_sphere", dcc_name="maya")
+validator = ToolValidator.from_action_registry(reg, "create_sphere", dcc_name="maya")
 ```
 
 ## Result Models
 
-All skill execution results normalize to `ActionResultModel`:
+All skill execution results normalize to `ToolResult`:
 
 ```python
 from dcc_mcp_core import success_result, error_result, from_exception

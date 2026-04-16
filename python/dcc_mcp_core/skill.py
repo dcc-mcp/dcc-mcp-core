@@ -154,7 +154,7 @@ def skill_success(
     prompt: str | None = None,
     **context: Any,
 ) -> ResultDict:
-    """Return a success result dict compatible with ``ActionResultModel``.
+    """Return a success result dict compatible with ``ToolResult``.
 
     Parameters
     ----------
@@ -202,7 +202,7 @@ def skill_error(
     possible_solutions: list[str] | None = None,
     **context: Any,
 ) -> ResultDict:
-    """Return a failure result dict compatible with ``ActionResultModel``.
+    """Return a failure result dict compatible with ``ToolResult``.
 
     Parameters
     ----------
@@ -439,7 +439,7 @@ def run_main(main_fn: Callable[..., ResultDict], argv: list[str] | None = None) 
     * Serialization uses the Rust ``serialize_result()`` implementation when
       the compiled ``_core`` extension is available.  This is type-safe,
       format-agnostic (JSON now, MessagePack in the future), and validates the
-      result through ``ActionResultModel``.
+      result through ``ToolResult``.
     * Falls back to ``json.dumps`` in DCC environments where only the pure-Python
       wheel is installed.
     * The function currently ignores *argv* (no CLI arg parser is bundled).
@@ -468,14 +468,14 @@ def _serialize_result(result: ResultDict) -> str:
     """Serialize a result dict to a JSON string.
 
     Tries the Rust ``serialize_result()`` path first (type-safe, validates via
-    ``ActionResultModel``, format-extensible).  Falls back to ``json.dumps``
+    ``ToolResult``, format-extensible).  Falls back to ``json.dumps``
     when the compiled ``_core`` extension is not available (e.g. standalone
     DCC environment with only this module installed).
 
     Parameters
     ----------
     result:
-        A dict conforming to the ``ActionResultModel`` schema
+        A dict conforming to the ``ToolResult`` schema
         (keys: success, message, prompt, error, context).
 
     Returns

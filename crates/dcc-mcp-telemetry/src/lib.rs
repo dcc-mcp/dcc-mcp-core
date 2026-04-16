@@ -62,6 +62,8 @@ pub mod python;
 pub use error::TelemetryError;
 pub use provider::{init, is_initialized, meter, shutdown, tracer};
 pub use recorder::ActionRecorder;
+pub use recorder::ActionRecorder as ToolRecorder;
+pub use types::ActionMetrics as ToolMetrics;
 pub use types::{ActionMetrics, ExporterBackend, LogFormat, TelemetryConfig};
 
 #[cfg(feature = "python-bindings")]

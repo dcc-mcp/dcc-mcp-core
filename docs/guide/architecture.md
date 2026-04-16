@@ -49,13 +49,13 @@ DCC-MCP-Core is a Rust workspace with Python bindings via PyO3. It provides:
 
 ```
 dcc-mcp-core (workspace root)
-├── dcc-mcp-models       # ActionResultModel, SkillMetadata, DCC types
-├── dcc-mcp-actions      # ActionRegistry, EventBus, ActionDispatcher, Pipeline
+├── dcc-mcp-models       # ToolResult, SkillMetadata, DCC types
+├── dcc-mcp-actions      # ToolRegistry, EventBus, ToolDispatcher, Pipeline
 ├── dcc-mcp-skills       # SkillScanner, SkillCatalog, SkillWatcher, Resolver
 ├── dcc-mcp-protocols    # MCP types: ToolDefinition, ResourceDefinition, Prompt, DccAdapter, BridgeKind
 ├── dcc-mcp-transport    # IPC, ConnectionPool, FileRegistry, FramedChannel
 ├── dcc-mcp-process      # PyDccLauncher, ProcessMonitor, ProcessWatcher, CrashRecovery
-├── dcc-mcp-telemetry    # Tracing/recording: ActionRecorder, TelemetryConfig
+├── dcc-mcp-telemetry    # Tracing/recording: ToolRecorder, TelemetryConfig
 ├── dcc-mcp-sandbox      # Security: SandboxPolicy, SandboxContext, AuditLog
 ├── dcc-mcp-shm          # Shared memory: PySharedBuffer, PyBufferPool
 ├── dcc-mcp-capture      # Screen capture: Capturer, CaptureFrame
@@ -90,7 +90,7 @@ dcc-mcp-server ← dcc-mcp-http
 **Purpose**: Core data models and type definitions shared across all crates.
 
 **Key Types**:
-- `ActionResultModel` — Unified result type for action executions
+- `ToolResult` — Unified result type for tool executions
 - `SkillMetadata` — Parsed skill package metadata
 - `SceneInfo`, `SceneStatistics` — DCC scene information
 - `DccInfo`, `DccCapabilities`, `DccError` — DCC adapter types
@@ -103,14 +103,14 @@ dcc-mcp-server ← dcc-mcp-http
 **Purpose**: Centralized action registry, validation, dispatch, and pipeline system.
 
 **Key Components**:
-- `ActionRegistry` — Thread-safe registry: register/get/search/list/unregister actions
-- `ActionDispatcher` — Typed dispatch with validation to registered Python callables
-- `ActionValidator` — JSON Schema-based parameter validation
-- `ActionPipeline` — Middleware pipeline (logging, timing, audit, rate limiting)
+- `ToolRegistry` — Thread-safe registry: register/get/search/list/unregister tools
+- `ToolDispatcher` — Typed dispatch with validation to registered Python callables
+- `ToolValidator` — JSON Schema-based parameter validation
+- `ToolPipeline` — Middleware pipeline (logging, timing, audit, rate limiting)
 - `EventBus` — Pub/sub event system for DCC lifecycle events
 - `VersionedRegistry` — Multi-version action registry with SemVer constraint resolution
 
-**Key Traits**: None — actions are plain Python callables registered via `ActionDispatcher.register_handler()`
+**Key Traits**: None — actions are plain Python callables registered via `ToolDispatcher.register_handler()`
 
 **Dependencies**: `dcc-mcp-models`
 
@@ -178,8 +178,8 @@ dcc-mcp-server ← dcc-mcp-http
 **Purpose**: Distributed tracing and metrics collection.
 
 **Key Components**:
-- `ActionRecorder` / `RecordingGuard` — RAII timing guard for action executions
-- `ActionMetrics` — Read-only snapshot of per-action metrics (count, success rate, p95/p99 latency)
+- `ToolRecorder` / `RecordingGuard` — RAII timing guard for tool executions
+- `ToolMetrics` — Read-only snapshot of per-tool metrics (count, success rate, p95/p99 latency)
 - `TelemetryConfig` — Builder for global telemetry provider (stdout/JSON exporter)
 
 **Dependencies**: `tracing`, `metrics`
@@ -247,7 +247,7 @@ dcc-mcp-server ← dcc-mcp-http
 **Key Components**:
 - `McpHttpServer` — Background-thread HTTP server (axum/Tokio)
 - `McpHttpConfig` — Server configuration (port, CORS, request timeout, gateway fields)
-- `ServerHandle` — Server handle with URL retrieval, `is_gateway` flag, and graceful shutdown
+- `McpServerHandle` — Server handle with URL retrieval, `is_gateway` flag, and graceful shutdown
 - `GatewayRunner` — First-wins port competition orchestrator
 - `GatewayConfig` — Gateway configuration (port, stale timeout, heartbeat interval)
 - `GatewayHandle` — Handle indicating whether this process won the gateway port
@@ -286,13 +286,13 @@ dcc-mcp-server ← dcc-mcp-http
 
 ## Skills-First Architecture
 
-The recommended entry-point for exposing DCC tools over MCP is the **Skills-First** pattern using `create_skill_manager`. A single call wires together the full stack:
+The recommended entry-point for exposing DCC tools over MCP is the **Skills-First** pattern using `create_skill_server`. A single call wires together the full stack:
 
 ```
-create_skill_manager("maya")
+create_skill_server("maya")
         │
-        ├─ ActionRegistry  (thread-safe action store)
-        ├─ ActionDispatcher (routes calls to Python handlers)
+        ├─ ToolRegistry  (thread-safe tool store)
+        ├─ ToolDispatcher (routes calls to Python handlers)
         ├─ SkillCatalog    (discovers + loads SKILL.md packages)
         │       └─ scans DCC_MCP_MAYA_SKILL_PATHS + DCC_MCP_SKILL_PATHS
         └─ McpHttpServer   (returns ready-to-start HTTP server)
@@ -302,9 +302,9 @@ create_skill_manager("maya")
 import os
 os.environ["DCC_MCP_MAYA_SKILL_PATHS"] = "/studio/maya-skills"
 
-from dcc_mcp_core import create_skill_manager, McpHttpConfig
+from dcc_mcp_core import create_skill_server, McpHttpConfig
 
-server = create_skill_manager("maya", McpHttpConfig(port=8765))
+server = create_skill_server("maya", McpHttpConfig(port=8765))
 handle = server.start()
 print(f"Maya MCP server: {handle.mcp_url()}")
 # handle.shutdown() when done
@@ -318,7 +318,7 @@ print(f"Maya MCP server: {handle.mcp_url()}")
 
 ::: tip Manual Assembly
 If you need custom middleware or fine-grained control, assemble the stack manually:
-`ActionRegistry` → `ActionDispatcher` → `SkillCatalog` → `McpHttpServer`.
+`ToolRegistry` → `ToolDispatcher` → `SkillCatalog` → `McpHttpServer`.
 :::
 
 ## Python Bindings

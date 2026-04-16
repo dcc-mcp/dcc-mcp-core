@@ -5,8 +5,8 @@
 //! | Python name | Rust type | Purpose |
 //! |-------------|-----------|---------|
 //! | `TelemetryConfig` | [`PyTelemetryConfig`] | Build and apply telemetry configuration |
-//! | `ActionRecorder` | [`PyActionRecorder`] | Record per-action metrics |
-//! | `ActionMetrics` | [`PyActionMetrics`] | Read-only metrics snapshot |
+//! | `ToolRecorder` | [`PyActionRecorder`] | Record per-tool metrics |
+//! | `ToolMetrics` | [`PyActionMetrics`] | Read-only metrics snapshot |
 
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
@@ -18,7 +18,7 @@ use crate::types::{ActionMetrics, ExporterBackend, LogFormat, TelemetryConfig};
 // ── PyActionMetrics ───────────────────────────────────────────────────────────
 
 /// Read-only snapshot of per-Action performance metrics.
-#[pyclass(name = "ActionMetrics", from_py_object)]
+#[pyclass(name = "ToolMetrics", from_py_object)]
 #[derive(Clone)]
 pub struct PyActionMetrics {
     inner: ActionMetrics,
@@ -75,7 +75,7 @@ impl PyActionMetrics {
 
     fn __repr__(&self) -> String {
         format!(
-            "ActionMetrics(action={:?}, invocations={}, success_rate={:.2})",
+            "ToolMetrics(tool={:?}, invocations={}, success_rate={:.2})",
             self.inner.action_name,
             self.inner.invocation_count,
             self.inner.success_rate()
@@ -219,7 +219,7 @@ impl PyTelemetryConfig {
 /// metrics = recorder.metrics("create_sphere")
 /// print(metrics.invocation_count, metrics.success_rate())
 /// ```
-#[pyclass(name = "ActionRecorder")]
+#[pyclass(name = "ToolRecorder")]
 pub struct PyActionRecorder {
     inner: ActionRecorder,
 }

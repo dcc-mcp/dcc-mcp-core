@@ -13,7 +13,7 @@ Registered handlers
 
 ``get_action_metrics``
     Returns per-action performance counters from the shared
-    :class:`ActionRecorder`.  Optionally filtered to a single action name.
+    :class:`ToolRecorder`.  Optionally filtered to a single action name.
 
 ``dispatch_action``
     Relays a ``{"action": "...", "params": {...}}`` request through the
@@ -35,8 +35,8 @@ In your DCC adapter's server startup code::
 
     class BlenderMcpServer:
         def __init__(self):
-            from dcc_mcp_core import McpHttpConfig, create_skill_manager
-            self._server = create_skill_manager("blender", McpHttpConfig())
+            from dcc_mcp_core import McpHttpConfig, create_skill_server
+            self._server = create_skill_server("blender", McpHttpConfig())
 
         def start(self):
             register_diagnostic_handlers(self._server, dcc_name="blender")
@@ -58,8 +58,8 @@ logger = logging.getLogger(__name__)
 # ── module-level shared state (one per process) ────────────────────────────
 # Populated by register_diagnostic_handlers().
 _sandbox_context: Any = None  # SandboxContext | None
-_action_recorder: Any = None  # ActionRecorder | None
-_dispatcher_ref: Any = None  # ActionDispatcher | None
+_action_recorder: Any = None  # ToolRecorder | None
+_dispatcher_ref: Any = None  # ToolDispatcher | None
 
 
 def _get_sandbox_context() -> Any:
@@ -78,15 +78,15 @@ def _get_sandbox_context() -> Any:
 
 
 def _get_action_recorder(dcc_name: str = "dcc") -> Any:
-    """Return the shared ActionRecorder, creating one lazily if needed."""
+    """Return the shared ToolRecorder, creating one lazily if needed."""
     global _action_recorder
     if _action_recorder is None:
         try:
-            from dcc_mcp_core._core import ActionRecorder
+            from dcc_mcp_core._core import ToolRecorder
 
-            _action_recorder = ActionRecorder(f"dcc-mcp-{dcc_name}")
+            _action_recorder = ToolRecorder(f"dcc-mcp-{dcc_name}")
         except Exception as exc:
-            logger.debug("Failed to create ActionRecorder: %s", exc)
+            logger.debug("Failed to create ToolRecorder: %s", exc)
     return _action_recorder
 
 
@@ -148,7 +148,7 @@ def _handle_get_audit_log(params_json: str) -> str:
 
 
 def _handle_get_action_metrics(params_json: str) -> str:
-    """Return ActionRecorder metrics as a JSON string."""
+    """Return ToolRecorder metrics as a JSON string."""
     try:
         params = json.loads(params_json) if params_json else {}
     except json.JSONDecodeError:
@@ -158,7 +158,7 @@ def _handle_get_action_metrics(params_json: str) -> str:
 
     recorder = _get_action_recorder()
     if recorder is None:
-        return json.dumps({"success": False, "message": "ActionRecorder not available."})
+        return json.dumps({"success": False, "message": "ToolRecorder not available."})
 
     try:
         if action_name:
@@ -180,7 +180,7 @@ def _handle_get_action_metrics(params_json: str) -> str:
 
 
 def _handle_dispatch_action(params_json: str) -> str:
-    """Relay a dispatch request through the server's ActionDispatcher."""
+    """Relay a dispatch request through the server's ToolDispatcher."""
     try:
         params = json.loads(params_json) if params_json else {}
     except json.JSONDecodeError:
@@ -228,11 +228,11 @@ def register_diagnostic_handlers(
     Args:
         server: A :class:`dcc_mcp_core.McpHttpServer` / skill-manager object
             that exposes a ``register_handler(name, callable)`` method.
-        dispatcher: Optional :class:`dcc_mcp_core.ActionDispatcher` used for
+        dispatcher: Optional :class:`dcc_mcp_core.ToolDispatcher` used for
             the ``dispatch_action`` relay handler.  When ``None``, dispatch
             relay calls return an error response.
         dcc_name: Short DCC identifier used for the IPC pipe name derivation
-            and ``ActionRecorder`` label (e.g. ``"maya"``, ``"blender"``).
+            and ``ToolRecorder`` label (e.g. ``"maya"``, ``"blender"``).
 
     Example::
 
@@ -244,8 +244,8 @@ def register_diagnostic_handlers(
     Registered actions
     ------------------
     - ``get_audit_log`` — sandbox audit log entries
-    - ``get_action_metrics`` — ActionRecorder performance counters
-    - ``dispatch_action`` — relay through the server's ActionDispatcher
+    - ``get_action_metrics`` — ToolRecorder performance counters
+    - ``dispatch_action`` — relay through the server's ToolDispatcher
 
     """
     global _dispatcher_ref

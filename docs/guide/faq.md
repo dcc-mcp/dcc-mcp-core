@@ -8,7 +8,7 @@ Frequently asked questions about DCC-MCP-Core.
 
 DCC-MCP-Core is a foundational Rust library with Python bindings that provides:
 
-- **ActionRegistry** — Thread-safe action registration and lookup
+- **ToolRegistry** — Thread-safe tool registration and lookup
 - **SkillCatalog** — Progressive skill discovery and loading; scripts auto-registered as MCP tools via SKILL.md
 - **EventBus** — A publish-subscribe event system for DCC lifecycle hooks
 - **MCP Protocol Types** — Type definitions for the Model Context Protocol (Tools, Resources, Prompts)
@@ -52,17 +52,17 @@ pip install maturin
 maturin develop
 ```
 
-## Actions
+## Tools
 
-### How do I register an action?
+### How do I register a tool?
 
 ```python
-from dcc_mcp_core import ActionRegistry, ActionDispatcher
+from dcc_mcp_core import ToolRegistry, ToolDispatcher
 import json
 
-reg = ActionRegistry()
+reg = ToolRegistry()
 
-# Register action metadata with an optional JSON Schema
+# Register tool metadata with an optional JSON Schema
 reg.register(
     name="create_sphere",
     description="Create a polygon sphere",
@@ -78,13 +78,13 @@ reg.register(
 )
 
 # Attach a Python handler
-dispatcher = ActionDispatcher(reg)
+dispatcher = ToolDispatcher(reg)
 dispatcher.register_handler("create_sphere", lambda params: {"name": "sphere1"})
 result = dispatcher.dispatch("create_sphere", '{"radius": 1.0}')
 print(result["output"])  # {"name": "sphere1"}
 ```
 
-### How do I return structured results from an action?
+### How do I return structured results from a tool?
 
 ```python
 from dcc_mcp_core import success_result, error_result, from_exception
@@ -105,12 +105,12 @@ except Exception:
     result = from_exception("Invalid radius")
 ```
 
-### How do I validate action input?
+### How do I validate tool input?
 
 ```python
-from dcc_mcp_core import ActionValidator
+from dcc_mcp_core import ToolValidator
 
-validator = ActionValidator.from_schema_json('{"type":"object","required":["radius"],"properties":{"radius":{"type":"number"}}}')
+validator = ToolValidator.from_schema_json('{"type":"object","required":["radius"],"properties":{"radius":{"type":"number"}}}')
 ok, errors = validator.validate('{"radius": 1.0}')
 assert ok
 
@@ -149,19 +149,19 @@ The EventBus does not natively support `async def` callbacks. Wrap async logic i
 
 ### What is the quickest way to expose scripts as MCP tools?
 
-Use `create_skill_manager` (v0.12.12+) — one call does everything:
+Use `create_skill_server` (v0.12.12+) — one call does everything:
 
 ```python
 import os
-from dcc_mcp_core import create_skill_manager, McpHttpConfig
+from dcc_mcp_core import create_skill_server, McpHttpConfig
 
 os.environ["DCC_MCP_MAYA_SKILL_PATHS"] = "/path/to/skills"
-server = create_skill_manager("maya", McpHttpConfig(port=8765))
+server = create_skill_server("maya", McpHttpConfig(port=8765))
 handle = server.start()
 print(handle.mcp_url())  # http://127.0.0.1:8765/mcp
 ```
 
-This automatically creates an `ActionRegistry`, `ActionDispatcher`, `SkillCatalog`, and `McpHttpServer`, and discovers skills from `DCC_MCP_MAYA_SKILL_PATHS` and `DCC_MCP_SKILL_PATHS`.
+This automatically creates an `ToolRegistry`, `ToolDispatcher`, `SkillCatalog`, and `McpHttpServer`, and discovers skills from `DCC_MCP_MAYA_SKILL_PATHS` and `DCC_MCP_SKILL_PATHS`.
 
 ### What is the Skills system?
 
@@ -200,10 +200,10 @@ ok = catalog.load_skill("maya-geometry")
 print(ok)  # True
 ```
 
-### What's the action naming convention for skill tools?
+### What's the tool naming convention for skill tools?
 
-Actions from skills are named `{skill_name_underscored}__{tool_name}`, e.g.:
-- skill `maya-geometry`, tool `create_sphere` → action `maya_geometry__create_sphere`
+Tools from skills are named `{skill_name_underscored}__{tool_name}`, e.g.:
+- skill `maya-geometry`, tool `create_sphere` → tool `maya_geometry__create_sphere`
 
 ### How do I scan for skills without loading them?
 
@@ -252,9 +252,9 @@ rtt = channel.ping()
 ### How do I expose DCC tools via HTTP for AI clients?
 
 ```python
-from dcc_mcp_core import ActionRegistry, McpHttpServer, McpHttpConfig
+from dcc_mcp_core import ToolRegistry, McpHttpServer, McpHttpConfig
 
-registry = ActionRegistry()
+registry = ToolRegistry()
 registry.register("get_scene_info", description="Get scene info", category="scene", dcc="maya")
 
 server = McpHttpServer(registry, McpHttpConfig(port=8765))
@@ -271,9 +271,9 @@ handle.shutdown()
 Use the **Gateway** feature. Set `gateway_port` on `McpHttpConfig` to a well-known port (default: `9765`). The first process to bind that port becomes the gateway; all others register as plain DCC instances:
 
 ```python
-from dcc_mcp_core import ActionRegistry, McpHttpServer, McpHttpConfig
+from dcc_mcp_core import ToolRegistry, McpHttpServer, McpHttpConfig
 
-registry = ActionRegistry()
+registry = ToolRegistry()
 config = McpHttpConfig(port=0, server_name="maya-mcp")
 config.gateway_port = 9765
 config.dcc_type = "maya"
@@ -298,7 +298,7 @@ Set `DccCapabilities(bridge_kind="http", bridge_endpoint="http://localhost:1234"
 
 ### How does on-demand skill discovery work?
 
-When `create_skill_manager()` starts, it only **discovers** skills (reads SKILL.md files) — it does **not** load them. The `tools/list` response shows:
+When `create_skill_server()` starts, it only **discovers** skills (reads SKILL.md files) — it does **not** load them. The `tools/list` response shows:
 1. 6 core discovery tools (always present)
 2. Loaded skill tools with full schemas
 3. Unloaded skill stubs as `__skill__<name>` (name + one-line description only)
@@ -307,12 +307,12 @@ Agents use `search_skills(query="keyword")` to find relevant skills, then `load_
 
 ## Troubleshooting
 
-### My action registration is not working. What should I check?
+### My tool registration is not working. What should I check?
 
-1. Make sure the `ActionRegistry` instance used for registration is the same one used for lookup
-2. Call `reg.list_actions()` to verify the action was registered
+1. Make sure the `ToolRegistry` instance used for registration is the same one used for lookup
+2. Call `reg.list_actions()` to verify the tool was registered
 3. Use `reg.get_action("my_action")` to check the stored metadata
-4. If using `ActionDispatcher`, verify `dispatcher.handler_count()` > 0
+4. If using `ToolDispatcher`, verify `dispatcher.handler_count()` > 0
 
 ### How do I enable debug logging?
 

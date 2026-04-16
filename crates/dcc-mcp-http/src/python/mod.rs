@@ -6,7 +6,7 @@ use tokio::runtime::Runtime;
 
 use crate::{
     config::McpHttpConfig,
-    server::{McpHttpServer, ServerHandle},
+    server::{McpHttpServer, McpServerHandle},
 };
 use dcc_mcp_actions::{ActionDispatcher, ActionRegistry};
 use dcc_mcp_skills::SkillCatalog;
@@ -208,9 +208,9 @@ impl PyMcpHttpConfig {
 ///     handle = server.start()
 ///     # ... later ...
 ///     handle.shutdown()
-#[pyclass(name = "ServerHandle", skip_from_py_object)]
+#[pyclass(name = "McpServerHandle", skip_from_py_object)]
 pub struct PyServerHandle {
-    inner: Option<ServerHandle>,
+    inner: Option<McpServerHandle>,
     runtime: Arc<Runtime>,
     pub port: u16,
     pub bind_addr: String,
@@ -259,7 +259,7 @@ impl PyServerHandle {
 
     fn __repr__(&self) -> String {
         format!(
-            "ServerHandle(addr={}, running={}, is_gateway={})",
+            "McpServerHandle(addr={}, running={}, is_gateway={})",
             self.bind_addr,
             self.inner.is_some(),
             self.is_gateway,
@@ -324,7 +324,7 @@ impl PyMcpHttpServer {
         })
     }
 
-    /// Start the server and return a :class:`ServerHandle`.
+    /// Start the server and return a :class:`McpServerHandle`.
     ///
     /// This call returns immediately; the server runs in a background thread.
     fn start(&self) -> PyResult<PyServerHandle> {
@@ -526,7 +526,7 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyServerHandle>()?;
     m.add_class::<PyBridgeContext>()?;
     m.add_class::<PyBridgeRegistry>()?;
-    m.add_function(wrap_pyfunction!(py_create_skill_manager, m)?)?;
+    m.add_function(wrap_pyfunction!(py_create_skill_server, m)?)?;
     m.add_function(wrap_pyfunction!(py_get_bridge_context, m)?)?;
     m.add_function(wrap_pyfunction!(py_register_bridge, m)?)?;
     Ok(())
@@ -569,9 +569,9 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
 ///     skills but none are *loaded* yet. Use ``server.load_skill(name)`` or
 ///     the ``load_skill`` MCP tool to load skills on demand.
 #[pyfunction]
-#[pyo3(name = "create_skill_manager")]
+#[pyo3(name = "create_skill_server")]
 #[pyo3(signature = (app_name, config=None, extra_paths=None, dcc_name=None))]
-pub fn py_create_skill_manager(
+pub fn py_create_skill_server(
     app_name: &str,
     config: Option<&PyMcpHttpConfig>,
     extra_paths: Option<Vec<String>>,
@@ -609,7 +609,7 @@ pub fn py_create_skill_manager(
 
     // Discover skills (lenient — missing deps are skipped, not errors)
     let discovered = catalog.discover(discover_paths.as_deref(), Some(effective_dcc));
-    tracing::info!("create_skill_manager({app_name}): discovered {discovered} skill(s)");
+    tracing::info!("create_skill_server({app_name}): discovered {discovered} skill(s)");
 
     Ok(PyMcpHttpServer {
         registry: reg,

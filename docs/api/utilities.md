@@ -44,14 +44,14 @@ Platform-specific directory resolution using the `dirs` crate.
 ```python
 from dcc_mcp_core import (
     get_platform_dir, get_config_dir, get_data_dir, get_log_dir,
-    get_actions_dir, get_skills_dir, get_skill_paths_from_env,
+    get_tools_dir, get_skills_dir, get_skill_paths_from_env,
     get_app_skill_paths_from_env,
 )
 
 config = get_config_dir()           # ~/.config/dcc-mcp (Linux)
 data = get_data_dir()               # ~/.local/share/dcc-mcp (Linux)
 log = get_log_dir()                 # ~/.local/share/dcc-mcp/log (Linux)
-actions = get_actions_dir("maya")   # {data}/actions/maya/
+tools = get_tools_dir("maya")   # {data}/actions/maya/
 skills = get_skills_dir("maya")     # {data}/skills/maya/
 skills = get_skills_dir()           # {data}/skills/ (global)
 
@@ -218,7 +218,7 @@ Available as module-level attributes:
 | `MCP_LOG_LEVEL` | Log level override (DEBUG, INFO, WARN, ERROR) |
 
 ::: tip Search Path Priority
-When `create_skill_manager("maya")` is called, skill directories are resolved in this order:
+When `create_skill_server("maya")` is called, skill directories are resolved in this order:
 1. `extra_paths` argument (highest priority)
 2. Per-app env var: `DCC_MCP_MAYA_SKILL_PATHS`
 3. Global env var: `DCC_MCP_SKILL_PATHS`

@@ -1,21 +1,21 @@
 # dcc-mcp-core
 
-> Foundational library for the DCC Model Context Protocol (MCP) ecosystem. Rust-powered core (via PyO3) providing action registry, structured results, event bus, skills/script registration, MCP protocol types, IPC transport, MCP Streamable HTTP server, process management, sandbox security, shared memory, screen capture, USD bridge, and telemetry for Digital Content Creation applications (Maya, Blender, Houdini, 3ds Max, etc.).
+> Foundational library for the DCC Model Context Protocol (MCP) ecosystem. Rust-powered core (via PyO3) providing tool registry, structured results, event bus, skills/script registration, MCP protocol types, IPC transport, MCP Streamable HTTP server, process management, sandbox security, shared memory, screen capture, USD bridge, and telemetry for Digital Content Creation applications (Maya, Blender, Houdini, 3ds Max, etc.).
 
 ## Quick Decision Guide
 
 | Task | Use this API |
 |------|--------------|
-| Return DCC action result | `success_result()` / `error_result()` |
-| Register scripts as MCP tools | `ActionRegistry.register()` |
+| Return DCC tool result | `success_result()` / `error_result()` |
+| Register scripts as MCP tools | `ToolRegistry.register()` |
 | Discover skills from directories | `scan_and_load()` → returns `(skills, skipped)` tuple |
-| Validate action params | `ActionValidator.from_schema_json()` |
+| Validate tool params | `ToolValidator.from_schema_json()` |
 | Connect to running DCC | `connect_ipc(TransportAddress.default_local(...))` |
 | Define MCP tool for LLM | `ToolDefinition` + `ToolAnnotations` |
 | Monitor DCC process | `PyProcessWatcher` + `PyCrashRecoveryPolicy` |
 | Sandbox AI actions | `SandboxPolicy` + `SandboxContext` |
 | Share large data zero-copy | `PySharedSceneBuffer.write()` with LZ4 compression |
-| Expose DCC tools over HTTP/MCP | `create_skill_manager("maya", McpHttpConfig(port=8765))` — Skills-First setup; falls back to `McpHttpServer(registry, config)` for manual registry wiring |
+| Expose DCC tools over HTTP/MCP | `create_skill_server("maya", McpHttpConfig(port=8765))` — Skills-First setup; falls back to `McpHttpServer(registry, config)` for manual registry wiring |
 | Build a DCC adapter | `DccServerBase(dcc_name, builtin_skills_dir)` — skill/lifecycle/gateway/hot-reload inherited |
 | Write skill scripts | `skill_entry` + `skill_success` / `skill_error` — zero-boilerplate skill authoring |
 
@@ -24,8 +24,8 @@
 ```python
 import dcc_mcp_core
 
-# Action registry
-reg = dcc_mcp_core.ActionRegistry()
+# Tool registry
+reg = dcc_mcp_core.ToolRegistry()
 reg.register(name="create_sphere", description="Create a sphere", dcc="maya")
 meta = reg.get_action("create_sphere")
 
@@ -68,60 +68,60 @@ Rust workspace (14 crates) with PyO3 bindings. All logic in Rust sub-crates; Pyt
 
 ```
 crates/
-├── dcc-mcp-models/      # ActionResultModel, SkillMetadata
-├── dcc-mcp-actions/     # ActionRegistry, ActionDispatcher, ActionValidator, EventBus, ActionPipeline
+├── dcc-mcp-models/      # ToolResult, SkillMetadata
+├── dcc-mcp-actions/     # ToolRegistry, ToolDispatcher, ToolValidator, EventBus, ToolPipeline
 ├── dcc-mcp-skills/      # SkillScanner, SkillWatcher, parse_skill_md, dependency resolver
 ├── dcc-mcp-protocols/   # MCP type definitions (Tool, Resource, Prompt, DccAdapter)
 ├── dcc-mcp-transport/   # IPC transport, ConnectionPool, CircuitBreaker, FramedChannel
 ├── dcc-mcp-process/     # PyDccLauncher, ProcessMonitor, ProcessWatcher, CrashRecovery
-├── dcc-mcp-telemetry/   # TelemetryConfig, RecordingGuard, ActionMetrics, ActionRecorder
+├── dcc-mcp-telemetry/   # TelemetryConfig, RecordingGuard, ToolMetrics, ToolRecorder
 ├── dcc-mcp-sandbox/     # SandboxPolicy, InputValidator, AuditLog
 ├── dcc-mcp-shm/         # PyBufferPool, PySharedBuffer, LZ4 compression
 ├── dcc-mcp-capture/     # Capturer, CaptureFrame, CaptureResult
 ├── dcc-mcp-usd/         # UsdStage, UsdPrim, SdfPath, scene info bridge
-├── dcc-mcp-http/        # McpHttpServer, McpHttpConfig, ServerHandle (MCP Streamable HTTP 2025-03-26)
+├── dcc-mcp-http/        # McpHttpServer, McpHttpConfig, McpServerHandle (MCP Streamable HTTP 2025-03-26)
 ├── dcc-mcp-server/      # Binary entry point, gateway runner
 └── dcc-mcp-utils/       # Filesystem, constants, type wrappers, JSON conversion
 ```
 
 ## Core Concepts
 
-- **ActionRegistry**: Thread-safe registry for action metadata (name, description, dcc, tags, schemas, version)
-- **ActionResultModel**: Structured result (success, message, prompt, error, context dict) — AI-friendly with next-step hints
+- **ToolRegistry**: Thread-safe registry for action metadata (name, description, dcc, tags, schemas, version)
+- **ToolResult**: Structured result (success, message, prompt, error, context dict) — AI-friendly with follow-up hints
 - **EventBus**: Thread-safe publish/subscribe system with per-event subscriber lists
 - **SkillScanner**: Discovers SKILL.md files in directories with mtime-based caching
 - **SkillMetadata**: Parsed from SKILL.md YAML frontmatter (name, dcc, tags, scripts, depends, version)
 - **MCP Protocol Types**: ToolDefinition, ResourceDefinition, PromptDefinition, ToolAnnotations
-- **ActionDispatcher**: Typed dispatch with validation via ActionValidator
-- **VersionedRegistry**: SemVer-aware action registry with constraint-based lookup
+- **ToolDispatcher**: Typed dispatch with validation via ToolValidator
+- **VersionedRegistry**: SemVer-aware tool registry with constraint-based lookup
 
 ## Key APIs
 
 ### Top-level exports (`dcc_mcp_core`)
 
 **Actions:**
-- `ActionRegistry` — Thread-safe registry; `.register(name, ...)`, `.register_batch([{...}, ...])`, `.unregister(name, dcc_name=None)`, `.get_action(name)`, `.list_actions()`, `.list_actions_for_dcc(dcc)`, `.get_all_dccs()`, `.search_actions(category, tags, dcc_name)`, `.get_categories()`, `.get_tags()`, `.reset()`
-- `ActionDispatcher` — Validated dispatch; `ActionDispatcher(registry)` (ONE arg); `.dispatch(name, json_str) -> dict`; dict keys: `"action"`, `"output"`, `"validation_skipped"`
-- `ActionValidator` — Input validation before action execution
-- `ActionPipeline(dispatcher)` — Middleware-style processing pipeline; `.add_logging(log_params=False)`, `.add_timing() -> TimingMiddleware`, `.add_audit(record_params=True) -> AuditMiddleware`, `.add_rate_limit(max_calls, window_ms) -> RateLimitMiddleware`, `.add_callable(before_fn=None, after_fn=None)`, `.dispatch(action_name, params_json="null") -> dict`, `.register_handler(name, fn)`, `.middleware_count()`, `.middleware_names()`, `.handler_count()`
+- `ToolRegistry` — Thread-safe registry; `.register(name, ...)`, `.register_batch([{...}, ...])`, `.unregister(name, dcc_name=None)`, `.get_action(name)`, `.list_actions()`, `.list_actions_for_dcc(dcc)`, `.get_all_dccs()`, `.search_actions(category, tags, dcc_name)`, `.get_categories()`, `.get_tags()`, `.reset()`
+- `ToolDispatcher` — Validated dispatch; `ToolDispatcher(registry)` (ONE arg); `.dispatch(name, json_str) -> dict`; dict keys: `"action"`, `"output"`, `"validation_skipped"`
+- `ToolValidator` — Input validation before action execution
+- `ToolPipeline(dispatcher)` — Middleware-style processing pipeline; `.add_logging(log_params=False)`, `.add_timing() -> TimingMiddleware`, `.add_audit(record_params=True) -> AuditMiddleware`, `.add_rate_limit(max_calls, window_ms) -> RateLimitMiddleware`, `.add_callable(before_fn=None, after_fn=None)`, `.dispatch(action_name, params_json="null") -> dict`, `.register_handler(name, fn)`, `.middleware_count()`, `.middleware_names()`, `.handler_count()`
 - `LoggingMiddleware(log_params=False)` — emits tracing log lines before/after each action
-- `TimingMiddleware()` — measures per-action latency; `.last_elapsed_ms(action) -> int|None`
+- `TimingMiddleware()` — measures per-tool latency; `.last_elapsed_ms(action) -> int|None`
 - `AuditMiddleware(record_params=True)` — in-memory audit log; `.records()`, `.records_for_action(action)`, `.record_count()`, `.clear()`
 - `RateLimitMiddleware(max_calls, window_ms)` — fixed-window rate limiter; `.call_count(action)`, `.max_calls`, `.window_ms`
-- `ActionMetrics` — Performance and execution metrics collection
-- `ActionRecorder` — Record/replay action executions
+- `ToolMetrics` — Performance and execution metrics collection
+- `ToolRecorder` — Record/replay tool executions
 - `EventBus` — `.subscribe(event, callback) -> id`, `.unsubscribe(event, id)`, `.publish(event, **kwargs)`
 - `VersionedRegistry` — SemVer-aware registry; `.register_versioned(name, dcc, version)`, `.resolve(name, dcc, constraint) -> Optional[dict]`, `.resolve_all(name, dcc, constraint) -> List[dict]`, `.latest_version(name, dcc) -> Optional[str]`, `.versions(name, dcc) -> List[str]`, `.remove(name, dcc, constraint) -> int`, `.keys() -> List[Tuple[str, str]]`, `.total_entries() -> int`
 - `SemVer(major, minor, patch)` — Semantic version value object
 - `VersionConstraint.parse(">=1.0.0")` — Version constraint expression
 
 **Result Factories:**
-- `success_result(message, prompt=None, **context) -> ActionResultModel`
-- `error_result(message, error, prompt=None, possible_solutions=None, **context) -> ActionResultModel`
-- `from_exception(error_message, message=None, include_traceback=False, ...) -> ActionResultModel`
-- `validate_action_result(result) -> ActionResultModel` — normalize dict/str/None → ActionResultModel
+- `success_result(message, prompt=None, **context) -> ToolResult`
+- `error_result(message, error, prompt=None, possible_solutions=None, **context) -> ToolResult`
+- `from_exception(error_message, message=None, include_traceback=False, ...) -> ToolResult`
+- `validate_action_result(result) -> ToolResult` — normalize dict/str/None → ToolResult
 
-**ActionResultModel fields:** `.success`, `.message`, `.prompt`, `.error`, `.context`, `.to_dict()`, `.with_error(err)`, `.with_context(**kw)`
+**ToolResult fields:** `.success`, `.message`, `.prompt`, `.error`, `.context`, `.to_dict()`, `.with_error(err)`, `.with_context(**kw)`
 
 **Skills:**
 - `SkillScanner` — `.scan(extra_paths=None, dcc_name=None, force_refresh=False) -> List[str]`
@@ -186,7 +186,7 @@ crates/
 - `McpHttpServer(registry, config=None)` — MCP Streamable HTTP server (**2025-03-26 spec**), axum/Tokio backend
   - `.start() -> McpServerHandle` — starts background thread, returns immediately
   - **Note**: MCP 2025-06-18 adds Structured Tool Output, Elicitation, Resource Links, and removes JSON-RPC batching. MCP 2025-11-25 adds icon metadata, Tasks, Sampling with tools. Do NOT implement manually — wait for library support.
-- `McpServerHandle` (alias for `ServerHandle`) — handle to running server
+- `McpServerHandle` (alias for `McpServerHandle`) — handle to running server
   - `.mcp_url() -> str` — full MCP endpoint URL (e.g. `"http://127.0.0.1:8765/mcp"`)
   - `.port -> int`, `.bind_addr -> str`
   - `.shutdown()` — blocks until stopped; `.signal_shutdown()` — non-blocking
@@ -209,7 +209,7 @@ crates/
 
 ### Telemetry (`dcc_mcp_core`)
 
-- `TelemetryConfig`, `RecordingGuard`, `ActionMetrics`, `ActionRecorder`
+- `TelemetryConfig`, `RecordingGuard`, `ToolMetrics`, `ToolRecorder`
 - `is_telemetry_initialized() -> bool`, `shutdown_telemetry()`
 
 ### Shared Memory (`dcc_mcp_core`)
@@ -252,13 +252,13 @@ crates/
 ### Serialization (`dcc_mcp_core`)
 
 - `SerializeFormat` — enum: JSON, MESSAGEPACK
-- `serialize_result(result, fmt) -> bytes` — ActionResultModel → transport-safe bytes
-- `deserialize_result(data, fmt) -> ActionResultModel` — bytes → ActionResultModel
+- `serialize_result(result, fmt) -> bytes` — ToolResult → transport-safe bytes
+- `deserialize_result(data, fmt) -> ToolResult` — bytes → ToolResult
 
 ### Utility Functions (`dcc_mcp_core`)
 
 - `get_config_dir()`, `get_data_dir()`, `get_log_dir()`, `get_platform_dir(dir_type)`
-- `get_actions_dir(dcc_name)`, `get_skills_dir(dcc_name=None)`
+- `get_tools_dir(dcc_name)`, `get_skills_dir(dcc_name=None)`
 - `get_skill_paths_from_env() -> List[str]` — reads `DCC_MCP_SKILL_PATHS`
 
 ### Constants (`dcc_mcp_core`)

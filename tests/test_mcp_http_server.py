@@ -28,9 +28,9 @@ import pytest
 
 # Import local modules
 import dcc_mcp_core
-from dcc_mcp_core import ActionRegistry
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
+from dcc_mcp_core import ToolRegistry
 
 # ── helpers ───────────────────────────────────────────────────────────────
 
@@ -55,8 +55,8 @@ def _post_json(url: str, body: dict[str, Any], headers: dict[str, str] | None = 
         return e.code, {}
 
 
-def _make_registry() -> ActionRegistry:
-    reg = ActionRegistry()
+def _make_registry() -> ToolRegistry:
+    reg = ToolRegistry()
     reg.register(
         "get_scene_info",
         description="Return info about the current scene",
@@ -172,7 +172,7 @@ class TestMcpHttpProtocol:
         assert "scene" in content_text or "test_scene" in content_text
 
     def test_tools_call_passes_dict_to_handler(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         reg.register(
             "echo_args",
             description="Echo args",
@@ -426,7 +426,7 @@ class TestMcpHttpServerPythonApi:
         assert cfg.server_name == "my-dcc"
 
     def test_server_start_stop(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cfg = McpHttpConfig(port=0)
         server = McpHttpServer(reg, cfg)
         handle = server.start()
@@ -436,7 +436,7 @@ class TestMcpHttpServerPythonApi:
         handle.shutdown()
 
     def test_server_is_reachable_after_start(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cfg = McpHttpConfig(port=0)
         server = McpHttpServer(reg, cfg)
         handle = server.start()
@@ -455,7 +455,7 @@ class TestMcpHttpServerPythonApi:
             handle.shutdown()
 
     def test_server_repr(self):
-        reg = ActionRegistry()
+        reg = ToolRegistry()
         cfg = McpHttpConfig(port=8765, server_name="test")
         server = McpHttpServer(reg, cfg)
         r = repr(server)

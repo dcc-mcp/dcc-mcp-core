@@ -4,7 +4,7 @@
 
 ## Overview
 
-The `dcc-mcp-http` crate provides an MCP HTTP server that exposes your `ActionRegistry` over HTTP. MCP hosts (like Claude Desktop or other LLM integrations) connect via HTTP POST requests to the `/mcp` endpoint.
+The `dcc-mcp-http` crate provides an MCP HTTP server that exposes your `ToolRegistry` over HTTP. MCP hosts (like Claude Desktop or other LLM integrations) connect via HTTP POST requests to the `/mcp` endpoint.
 
 ::: tip Background Thread
 The server runs in a background Tokio thread and never blocks the DCC main thread. Safe to use in Maya/Blender/etc. plugins.
@@ -49,15 +49,15 @@ cfg = McpHttpConfig(
 | `dcc_version` | `str \| None` | `None` | DCC version string reported in registry (e.g. `"2025"`) |
 | `scene` | `str \| None` | `None` | Currently open scene file — improves gateway routing |
 
-## ServerHandle
+## McpServerHandle
 
 Returned by `McpHttpServer.start()`. Use it to get the MCP endpoint URL and shut down gracefully.
 
 ::: tip Alias
-`ServerHandle` is also exported as `McpServerHandle` from `dcc_mcp_core`. Both names refer to the same class.
+`McpServerHandle` is the preferred public name. `ServerHandle` remains available as a compatibility alias.
 
 ```python
-from dcc_mcp_core import McpServerHandle  # alias for ServerHandle
+from dcc_mcp_core import McpServerHandle  # preferred public handle name
 ```
 :::
 
@@ -80,9 +80,9 @@ from dcc_mcp_core import McpServerHandle  # alias for ServerHandle
 ### Example
 
 ```python
-from dcc_mcp_core import ActionRegistry, McpHttpServer, McpHttpConfig
+from dcc_mcp_core import ToolRegistry, McpHttpServer, McpHttpConfig
 
-registry = ActionRegistry()
+registry = ToolRegistry()
 registry.register("get_scene_info", description="Get current scene info",
                   category="scene", tags=[], dcc="maya", version="1.0.0")
 
@@ -103,10 +103,10 @@ MCP Streamable HTTP server (2025-03-26 spec).
 ### Constructor
 
 ```python
-from dcc_mcp_core import ActionRegistry, McpHttpServer, McpHttpConfig
+from dcc_mcp_core import ToolRegistry, McpHttpServer, McpHttpConfig
 
 server = McpHttpServer(
-    registry,         # ActionRegistry instance
+    registry,         # ToolRegistry instance
     config=None,      # McpHttpConfig (defaults to port=8765, no CORS)
 )
 ```
@@ -115,9 +115,9 @@ server = McpHttpServer(
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `start()` | `ServerHandle` | Start server in background thread and return handle |
-| `register_handler(action_name, handler)` | `None` | Register a Python callable that receives decoded params (typically a `dict`) |
-| `has_handler(action_name)` | `bool` | Check if a handler is registered for an action |
+| `start()` | `McpServerHandle` | Start server in background thread and return handle |
+| `register_handler(tool_name, handler)` | `None` | Register a Python callable that receives decoded params (typically a `dict`) |
+| `has_handler(tool_name)` | `bool` | Check if a handler is registered for a tool |
 
 ### MCP Protocol Endpoints
 
@@ -162,8 +162,8 @@ MCP requests use JSON-RPC 2.0:
 | Method | Description |
 |--------|-------------|
 | `initialize` | Protocol handshake, returns server capabilities |
-| `tools/list` | List all registered actions from the registry |
-| `tools/call` | Dispatch an action by name with parameters |
+| `tools/list` | List all registered tools from the registry |
+| `tools/call` | Dispatch a tool by name with parameters |
 | `resources/list` | List available resources (empty in current impl) |
 | `prompts/list` | List available prompts (empty in current impl) |
 | `ping` | Liveness check |
@@ -171,10 +171,10 @@ MCP requests use JSON-RPC 2.0:
 ## Full Example: Maya MCP Server
 
 ```python
-from dcc_mcp_core import ActionRegistry, McpHttpServer, McpHttpConfig
+from dcc_mcp_core import ToolRegistry, McpHttpServer, McpHttpConfig
 
-# Build action registry
-registry = ActionRegistry()
+# Build tool registry
+registry = ToolRegistry()
 registry.register(
     "get_scene_info",
     description="Get current Maya scene information",
@@ -213,7 +213,7 @@ When multiple DCC instances start simultaneously, one automatically becomes the 
 - The **first** process to bind `gateway_port` (default: `9765`) becomes the gateway; all others are plain instances.
 - Mutual exclusion uses `SO_REUSEADDR=false` (via `socket2`), so the first-wins semantics are reliable across platforms including Windows.
 - The gateway automatically evicts stale instances (no heartbeat within `stale_timeout_secs`).
-- When the process exits, `ServerHandle` is dropped and the instance is automatically deregistered.
+- When the process exits, `McpServerHandle` is dropped and the instance is automatically deregistered.
 
 ### Gateway endpoints
 
@@ -238,9 +238,9 @@ The gateway exposes three discovery tools via its own `/mcp` endpoint:
 ### Python example
 
 ```python
-from dcc_mcp_core import ActionRegistry, McpHttpServer, McpHttpConfig
+from dcc_mcp_core import ToolRegistry, McpHttpServer, McpHttpConfig
 
-registry = ActionRegistry()
+registry = ToolRegistry()
 registry.register("get_scene_info", description="Get scene info", category="scene", dcc="maya")
 
 config = McpHttpConfig(port=0, server_name="maya-mcp")
@@ -263,17 +263,17 @@ Start any number of DCC servers — the first one wins the gateway port. Agents 
 :::
 
 ::: info Skills-First + gateway
-`create_skill_manager()` does **not** configure `gateway_port` by default. Set it explicitly on the `McpHttpConfig` passed to `create_skill_manager()` if you want gateway participation:
+`create_skill_server()` does **not** configure `gateway_port` by default. Set it explicitly on the `McpHttpConfig` passed to `create_skill_server()` if you want gateway participation:
 
 ```python
 import os
-from dcc_mcp_core import create_skill_manager, McpHttpConfig
+from dcc_mcp_core import create_skill_server, McpHttpConfig
 
 config = McpHttpConfig(port=0, server_name="maya")
 config.gateway_port = 9765
 config.dcc_type = "maya"
 
-server = create_skill_manager("maya", config)
+server = create_skill_server("maya", config)
 handle = server.start()
 ```
 :::
@@ -312,9 +312,9 @@ Common error codes:
 | -32600 | Invalid Request |
 | -32602 | Invalid Params |
 | -32603 | Internal Error |
-| -32000 | Action not found |
-| -32001 | Action validation failed |
-| -32002 | Action handler error |
+| -32000 | Tool not found |
+| -32001 | Tool validation failed |
+| -32002 | Tool handler error |
 
 ## Performance Notes
 

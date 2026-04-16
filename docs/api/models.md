@@ -1,6 +1,6 @@
 # Models
 
-## ActionResultModel
+## ToolResult
 
 Standardized result for all action executions. Backed by a Rust struct via PyO3.
 
@@ -18,8 +18,8 @@ Standardized result for all action executions. Backed by a Rust struct via PyO3.
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `with_error(error)` | `ActionResultModel` | Create copy with error info (sets `success=False`) |
-| `with_context(**kwargs)` | `ActionResultModel` | Create copy with updated context |
+| `with_error(error)` | `ToolResult` | Create copy with error info (sets `success=False`) |
+| `with_context(**kwargs)` | `ToolResult` | Create copy with updated context |
 | `to_dict()` | `Dict[str, Any]` | Convert to dictionary |
 | `to_json()` | `str` | Serialize to a JSON string |
 | `__eq__(other)` | `bool` | Equality comparison |
@@ -27,7 +27,7 @@ Standardized result for all action executions. Backed by a Rust struct via PyO3.
 | `__repr__()` | `str` | Unambiguous representation |
 
 ::: warning `json.dumps()` is not supported directly
-`ActionResultModel` is a Rust-backed object and **cannot be passed to `json.dumps()` directly**.
+`ToolResult` is a Rust-backed object and **cannot be passed to `json.dumps()` directly**.
 Use `to_json()` or convert to a dict first:
 
 ```python
@@ -49,7 +49,7 @@ json_str = serialize_result(result)
 ### Factory Functions
 
 ```python
-from dcc_mcp_core import success_result, error_result, from_exception, validate_action_result
+from dcc_mcp_core import success_result, error_result, from_exception, validate_action_result, ToolResult
 
 # Success result with context
 result = success_result("Created 5 spheres", prompt="Use modify_spheres next", count=5)
@@ -69,7 +69,7 @@ exc_result = from_exception(
     include_traceback=True,
 )
 
-# Validate/normalize any value to ActionResultModel
+# Validate/normalize any value to ToolResult
 validate_action_result(result)                          # pass-through
 validate_action_result({"success": True, "message": "OK"})  # dict → ARM
 validate_action_result("hello")                         # wrap as success
@@ -79,10 +79,10 @@ validate_action_result("hello")                         # wrap as success
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `success_result` | `(message, prompt=None, **context) -> ActionResultModel` | Create a successful result |
-| `error_result` | `(message, error, prompt=None, possible_solutions=None, **context) -> ActionResultModel` | Create a failed result |
-| `from_exception` | `(error_message, message=None, prompt=None, include_traceback=True, possible_solutions=None, **context) -> ActionResultModel` | Wrap an exception as a result |
-| `validate_action_result` | `(result: Any) -> ActionResultModel` | Normalize dict/str/None/ARM → ActionResultModel |
+| `success_result` | `(message, prompt=None, **context) -> ToolResult` | Create a successful result |
+| `error_result` | `(message, error, prompt=None, possible_solutions=None, **context) -> ToolResult` | Create a failed result |
+| `from_exception` | `(error_message, message=None, prompt=None, include_traceback=True, possible_solutions=None, **context) -> ToolResult` | Wrap an exception as a result |
+| `validate_action_result` | `(result: Any) -> ToolResult` | Normalize dict/str/None/ToolResult → ToolResult |
 
 ## SkillMetadata
 

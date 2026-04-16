@@ -4,6 +4,7 @@ mod action_result;
 mod skill_metadata;
 pub mod skill_scope;
 
+pub use action_result::ActionResultModel as ToolResult;
 pub use action_result::{ActionResultModel, ActionResultModelData, SerializeFormat};
 pub use skill_metadata::{
     SkillDependencies, SkillDependency, SkillDependencyType, SkillMetadata, SkillPolicy,

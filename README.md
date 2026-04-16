@@ -42,7 +42,7 @@ We **reuse and extend** the existing MCP ecosystem, adding:
 | **Skills System (Zero-Code)** | Define tools as `SKILL.md` + scripts/; no Python glue code needed |
 | **Progressive Discovery** | Scope tools by DCC type, instance, scene, product; prevents context explosion |
 | **Instance Tracking** | Know active documents, PIDs, display names; enable smart routing |
-| **Structured Results** | Every tool returns `(success, message, context, next_steps)` for AI reasoning |
+| **Structured Results** | Every tool returns `(success, message, context, prompt)` for AI reasoning |
 
 This isn't reinventing MCP — it's **solving MCP's blind spots for desktop automation**.
 
@@ -120,7 +120,7 @@ pip install -e .
 ```python
 import json
 from dcc_mcp_core import (
-    ActionRegistry, ActionDispatcher, SkillsManager,
+    ToolRegistry, ToolDispatcher, SkillCatalog,
     EventBus, success_result, scan_and_load
 )
 
@@ -129,7 +129,7 @@ skills, skipped = scan_and_load(dcc_name="maya")
 print(f"Loaded {len(skills)} skills, skipped {len(skipped)}")
 
 # 2. Register all skill tools in registry
-registry = ActionRegistry()
+registry = ToolRegistry()
 for skill in skills:
     for script_path in skill.scripts:
         skill_name = f"{skill.name.replace('-', '_')}__{Path(script_path).stem}"
@@ -140,7 +140,7 @@ for skill in skills:
         )
 
 # 3. Set up dispatcher with event lifecycle
-dispatcher = ActionDispatcher(registry)
+dispatcher = ToolDispatcher(registry)
 bus = EventBus()
 bus.subscribe("action.after_execute", lambda **kw: print(f"Done: {kw['action_name']}"))
 
@@ -156,12 +156,12 @@ print(f"Context: {result['output']['context']}")
 
 ## Core Concepts
 
-### ActionResultModel — Structured Results for AI
+### ToolResult — Structured Results for AI
 
-All skill execution results use `ActionResultModel`, designed to be AI-friendly with structured context and next-step suggestions:
+All skill execution results use `ToolResult`, designed to be AI-friendly with structured context and follow-up guidance:
 
 ```python
-from dcc_mcp_core import ActionResultModel, success_result, error_result
+from dcc_mcp_core import ToolResult, success_result, error_result
 
 # Factory functions (recommended)
 ok = success_result(
@@ -177,7 +177,7 @@ err = error_result(
 )
 
 # Direct construction
-result = ActionResultModel(
+result = ToolResult(
     success=True,
     message="Operation completed",
     context={"key": "value"}
@@ -191,21 +191,21 @@ result.error        # Optional[str] -- error details
 result.context      # dict -- arbitrary structured data
 ```
 
-### ActionRegistry & Dispatcher — The Skill Execution System
+### ToolRegistry & Dispatcher — The Skill Execution System
 
 ```python
 import json
 from dcc_mcp_core import (
-    ActionRegistry, ActionDispatcher, ActionValidator,
+    ToolRegistry, ToolDispatcher, ToolValidator,
     EventBus, SemVer, VersionedRegistry
 )
 
 # Registry with search support
-registry = ActionRegistry()
+registry = ToolRegistry()
 registry.register("my_skill", description="My skill", category="tools", version="1.0.0")
 
-# Validated dispatcher (takes only registry; validate separately with ActionValidator)
-dispatcher = ActionDispatcher(registry)
+# Validated dispatcher (takes only registry; validate separately with ToolValidator)
+dispatcher = ToolDispatcher(registry)
 dispatcher.register_handler("my_skill", lambda params: {"done": True})
 result = dispatcher.dispatch("my_skill", json.dumps({}))
 # result == {"action": "my_skill", "output": {"done": True}, "validation_skipped": True}
@@ -234,7 +234,7 @@ The **Skills system** is dcc-mcp-core's core innovation: it lets you register an
 +-----------------------------------+
           |  (discovery)
 +-----------------------------------+
-|  SkillsManager (with caching)     |
+|  SkillCatalog (progressive loading)     |
 |  +-- Dual-cache: by-paths &       |
 |  |   by-config (session-bound)    |
 |  +-- Scoped: Repo/User/System     |
@@ -243,7 +243,7 @@ The **Skills system** is dcc-mcp-core's core innovation: it lets you register an
 +-----------------------------------+
           |  (registration)
 +-----------------------------------+
-|  ActionRegistry + SkillCatalog    |
+|  ToolRegistry + SkillCatalog    |
 |  (callable by AI via MCP tools)   |
 +-----------------------------------+
 ```
@@ -291,10 +291,10 @@ sys.exit(0)
 import os
 os.environ["DCC_MCP_SKILL_PATHS"] = "/path/to/my-tool"
 
-from dcc_mcp_core import scan_and_load, ActionRegistry
+from dcc_mcp_core import scan_and_load, ToolRegistry
 
 skills, skipped = scan_and_load(dcc_name="maya")
-registry = ActionRegistry()
+registry = ToolRegistry()
 
 # Tools are now: maya_cleanup__cleanup, with structured results
 result = dispatcher.dispatch("maya_cleanup__cleanup", json.dumps({}))
@@ -388,8 +388,8 @@ dcc-mcp-core is organized as a **Rust workspace of 14 crates**, compiled into a 
 
 | Crate | Responsibility | Key Types |
 |----------------------|-----------|
-| `dcc-mcp-models` | Data models | `ActionResultModel`, `SkillMetadata` |
-| `dcc-mcp-actions` | Skill execution lifecycle | `ActionRegistry`, `EventBus`, `ActionDispatcher`, `ActionValidator`, `ActionPipeline` |
+| `dcc-mcp-models` | Data models | `ToolResult`, `SkillMetadata` |
+| `dcc-mcp-actions` | Tool execution lifecycle | `ToolRegistry`, `EventBus`, `ToolDispatcher`, `ToolValidator`, `ToolPipeline` |
 | `dcc-mcp-skills` | Skills discovery & loading | `SkillScanner`, `SkillCatalog`, `SkillWatcher`, dependency resolver |
 | `dcc-mcp-protocols` | MCP protocol types | `ToolDefinition`, `ResourceDefinition`, `PromptDefinition`, `DccAdapter`, `BridgeKind` |
 | `dcc-mcp-transport` | IPC communication | `TransportManager`, `ConnectionPool`, `IpcListener`, `FramedChannel`, `CircuitBreaker`, `FileRegistry` |
@@ -399,7 +399,7 @@ dcc-mcp-core is organized as a **Rust workspace of 14 crates**, compiled into a 
 | `dcc-mcp-capture` | Screen capture | `Capturer`, cross-platform backends |
 | `dcc-mcp-telemetry` | Observability | `TelemetryConfig`, `RecordingGuard`, tracing |
 | `dcc-mcp-usd` | USD integration | `UsdStage`, `UsdPrim`, scene info bridge |
-| `dcc-mcp-http` | MCP Streamable HTTP server | `McpHttpServer`, `McpHttpConfig`, `ServerHandle`, Gateway (first-wins competition) |
+| `dcc-mcp-http` | MCP Streamable HTTP server | `McpHttpServer`, `McpHttpConfig`, `McpServerHandle`, Gateway (first-wins competition) |
 | `dcc-mcp-server` | Binary entry point | `dcc-mcp-server` CLI, gateway runner |
 | `dcc-mcp-utils` | Infrastructure | Filesystem helpers, type wrappers, constants, JSON |
 

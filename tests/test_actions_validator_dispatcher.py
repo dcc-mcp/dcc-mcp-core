@@ -1,4 +1,4 @@
-"""pytest tests for ActionValidator and ActionDispatcher PyO3 bindings.
+"""pytest tests for ToolValidator and ToolDispatcher PyO3 bindings.
 
 These tests exercise the Python-level API without requiring a running DCC.
 All tests use the mock/in-process path; no maturin compilation required at
@@ -26,19 +26,19 @@ def _require(name: str):
     return obj
 
 
-# ── ActionValidator tests ─────────────────────────────────────────────────────
+# ── ToolValidator tests ───────────────────────────────────────────────────────
 
 
-class TestActionValidator:
-    """Tests for the ActionValidator PyO3 class."""
+class TestToolValidator:
+    """Tests for the ToolValidator PyO3 class."""
 
     @pytest.fixture
     def validator_cls(self):
-        return _require("ActionValidator")
+        return _require("ToolValidator")
 
     @pytest.fixture
     def registry_cls(self):
-        return _require("ActionRegistry")
+        return _require("ToolRegistry")
 
     # ── from_schema_json ──────────────────────────────────────────────────────
 
@@ -176,22 +176,22 @@ class TestActionValidator:
     def test_repr(self, validator_cls):
         v = validator_cls.from_schema_json("{}")
         r = repr(v)
-        assert "ActionValidator" in r or "Validator" in r or r  # at least non-empty
+        assert "ToolValidator" in r or "Validator" in r or r  # at least non-empty
 
 
-# ── ActionDispatcher tests ────────────────────────────────────────────────────
+# ── ToolDispatcher tests ──────────────────────────────────────────────────────
 
 
-class TestActionDispatcher:
-    """Tests for the ActionDispatcher PyO3 class."""
+class TestToolDispatcher:
+    """Tests for the ToolDispatcher PyO3 class."""
 
     @pytest.fixture
     def dispatcher_cls(self):
-        return _require("ActionDispatcher")
+        return _require("ToolDispatcher")
 
     @pytest.fixture
     def registry_cls(self):
-        return _require("ActionRegistry")
+        return _require("ToolRegistry")
 
     @pytest.fixture
     def empty_dispatcher(self, dispatcher_cls, registry_cls):
@@ -215,7 +215,7 @@ class TestActionDispatcher:
     def test_repr(self, empty_dispatcher):
         d, _ = empty_dispatcher
         r = repr(d)
-        assert "ActionDispatcher" in r or "Dispatcher" in r or r
+        assert "ToolDispatcher" in r or "Dispatcher" in r or r
 
     # ── register_handler ─────────────────────────────────────────────────────
 
