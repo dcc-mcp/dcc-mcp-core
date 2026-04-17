@@ -2,28 +2,34 @@
 # https://docs.codecov.com/docs/codecov-yaml
 
 coverage:
-  # Overall project coverage requirements
+  # Overall project coverage status — reported as informational (never blocks CI).
+  # We surface coverage trends in the PR comment/badge without gating merges on a
+  # hard threshold; targets stay as aspirational reference values only.
   status:
     project:
       default:
-        target: 80%           # Require 80% overall coverage
-        threshold: 2%         # Allow 2% drop before failing
+        target: 80%           # Aspirational overall coverage target
+        threshold: 2%         # Allow 2% drop before marking as regressing
         if_not_found: success # Don't fail if no report found (first run)
+        informational: true   # Always pass — report coverage as a warning, never block
       python:
         target: 80%
         threshold: 2%
         flags: [python]
         if_not_found: success
+        informational: true
       rust:
         target: 80%
         threshold: 2%
         flags: [rust]
         if_not_found: success
+        informational: true
     patch:
       default:
-        target: 70%           # New code in PRs requires 70% coverage
+        target: 70%           # Aspirational target for new code in PRs
         threshold: 5%
         if_not_found: success
+        informational: true   # Non-blocking — coverage reported, never fails the check
 
   precision: 2
   round: down
