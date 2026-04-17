@@ -56,6 +56,20 @@ pub struct ActionMeta {
     /// actions.
     #[serde(default = "default_enabled")]
     pub enabled: bool,
+    /// Host-DCC capabilities required for this action to be surfaced.
+    ///
+    /// When non-empty, Gateway / adapter implementations **should** hide
+    /// this action from ``tools/list`` on sessions whose host DCC does not
+    /// advertise every listed capability (see
+    /// [``WebViewAdapter.capabilities``](crate::adapters::webview) for the
+    /// pre-defined key set: ``"scene"``, ``"timeline"``, ``"selection"``,
+    /// ``"undo"``, ``"render"``).
+    ///
+    /// The registry itself does **not** perform filtering — filtering is
+    /// the responsibility of the consumer (Gateway, HTTP server, adapter).
+    /// Storing the declaration here avoids a separate side-table lookup.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub required_capabilities: Vec<String>,
 }
 
 fn default_enabled() -> bool {
@@ -77,6 +91,7 @@ impl Default for ActionMeta {
             skill_name: None,
             group: String::new(),
             enabled: true,
+            required_capabilities: Vec::new(),
         }
     }
 }
@@ -538,6 +553,12 @@ impl ActionRegistry {
                 .flatten()
                 .and_then(|v| v.extract().ok())
                 .unwrap_or(true);
+            let required_capabilities: Vec<String> = dict
+                .get_item("required_capabilities")
+                .ok()
+                .flatten()
+                .and_then(|v| v.extract().ok())
+                .unwrap_or_default();
 
             let input_schema =
                 parse_schema_or_default(input_schema_str.as_deref(), "input_schema", &name);
@@ -557,6 +578,7 @@ impl ActionRegistry {
                 skill_name,
                 group,
                 enabled,
+                required_capabilities,
             });
         }
     }
@@ -584,7 +606,7 @@ impl ActionRegistry {
 
     /// Register an action. Called from Python ActionManager.
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (name, description="".to_string(), category="".to_string(), tags=vec![], dcc=DEFAULT_DCC.to_string(), version=DEFAULT_VERSION.to_string(), input_schema=None, output_schema=None, source_file=None, skill_name=None, group="".to_string(), enabled=true))]
+    #[pyo3(signature = (name, description="".to_string(), category="".to_string(), tags=vec![], dcc=DEFAULT_DCC.to_string(), version=DEFAULT_VERSION.to_string(), input_schema=None, output_schema=None, source_file=None, skill_name=None, group="".to_string(), enabled=true, required_capabilities=None))]
     fn register(
         &self,
         name: String,
@@ -599,6 +621,7 @@ impl ActionRegistry {
         skill_name: Option<String>,
         group: String,
         enabled: bool,
+        required_capabilities: Option<Vec<String>>,
     ) {
         let input_schema = parse_schema_or_default(input_schema.as_deref(), "input_schema", &name);
         let output_schema =
@@ -617,6 +640,7 @@ impl ActionRegistry {
             skill_name,
             group,
             enabled,
+            required_capabilities: required_capabilities.unwrap_or_default(),
         });
     }
 

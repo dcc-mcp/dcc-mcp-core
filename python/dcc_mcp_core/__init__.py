@@ -201,6 +201,12 @@ from dcc_mcp_core.skill import skill_exception
 from dcc_mcp_core.skill import skill_success
 from dcc_mcp_core.skill import skill_warning
 
+# Adapters (pure-Python, non-DccServerBase)
+from dcc_mcp_core.adapters import CAPABILITY_KEYS
+from dcc_mcp_core.adapters import WEBVIEW_DEFAULT_CAPABILITIES
+from dcc_mcp_core.adapters import WebViewAdapter
+from dcc_mcp_core.adapters import WebViewContext
+
 __version__: str
 try:
     __version__ = _core.__version__  # type: ignore[attr-defined]
@@ -225,6 +231,8 @@ __all__ = [
     "SKILL_METADATA_DIR",
     "SKILL_METADATA_FILE",
     "SKILL_SCRIPTS_DIR",
+    "CAPABILITY_KEYS",
+    "WEBVIEW_DEFAULT_CAPABILITIES",
     "AuditEntry",
     "AuditLog",
     "AuditMiddleware",
@@ -320,6 +328,8 @@ __all__ = [
     "VersionConstraint",
     "VersionedRegistry",
     "VtValue",
+    "WebViewAdapter",
+    "WebViewContext",
     "WindowFinder",
     "WindowInfo",
     "__author__",

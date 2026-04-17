@@ -539,6 +539,7 @@ class TestServiceEntryAttributes:
                 "dcc_type",
                 "display_name",
                 "documents",
+                "extras",
                 "host",
                 "instance_id",
                 "last_heartbeat_ms",

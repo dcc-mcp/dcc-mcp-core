@@ -213,7 +213,22 @@ class ToolRegistry:
         input_schema: str = "",
         output_schema: str = "",
         source_file: str | None = None,
-    ) -> None: ...
+        skill_name: str | None = None,
+        group: str = "",
+        enabled: bool = True,
+        required_capabilities: list[str] | None = None,
+    ) -> None:
+        """Register a tool in this registry.
+
+        Args:
+            required_capabilities: Optional list of host-DCC capability keys
+                (e.g. ``["scene", "timeline"]``) that must be advertised by
+                the session for this tool to be exposed in ``tools/list``.
+                See :data:`dcc_mcp_core.CAPABILITY_KEYS` for the built-in
+                set.  Filtering is performed by the Gateway / adapter — the
+                registry only stores the declaration.
+        """
+        ...
     def get_action(self, name: str, dcc_name: str | None = None) -> dict[str, Any] | None: ...
     def list_actions(self, dcc_name: str | None = None) -> list[dict[str, Any]]: ...
     def list_actions_for_dcc(self, dcc_name: str) -> list[str]: ...

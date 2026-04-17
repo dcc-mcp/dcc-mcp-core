@@ -201,6 +201,7 @@ fn test_action_meta_serde_round_trip() {
         skill_name: None,
         group: String::new(),
         enabled: true,
+        required_capabilities: vec!["scene".into(), "render".into()],
     };
     let json = serde_json::to_string(&meta).unwrap();
     let back: ActionMeta = serde_json::from_str(&json).unwrap();

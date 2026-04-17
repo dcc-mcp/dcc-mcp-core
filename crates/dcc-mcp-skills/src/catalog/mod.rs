@@ -363,6 +363,7 @@ impl SkillCatalog {
                 // default-active; default groups (empty group name or an
                 // explicitly default-active group) stay enabled.
                 enabled: group_default_active(&metadata.groups, &tool_decl.group),
+                required_capabilities: Vec::new(),
             };
 
             self.registry.register_action(meta);
@@ -400,6 +401,7 @@ impl SkillCatalog {
                     skill_name: Some(skill_name.to_string()),
                     group: String::new(),
                     enabled: true,
+                    required_capabilities: Vec::new(),
                 };
 
                 self.registry.register_action(meta);
