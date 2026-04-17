@@ -173,7 +173,7 @@ MCP 请求使用 JSON-RPC 2.0：
 ```python
 from dcc_mcp_core import ToolRegistry, McpHttpServer, McpHttpConfig
 
-# 构建 Action 注册表
+# 构建工具注册表
 registry = ToolRegistry()
 registry.register(
     "get_scene_info",

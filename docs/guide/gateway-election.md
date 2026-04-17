@@ -185,3 +185,104 @@ mgr.deregister_service("maya", iid)
 ## Backward Compatibility
 
 Older DCC versions that don't support `/gateway/yield` return 404 — that's OK. The challenger enters a polling retry loop and waits until the port is naturally freed (when old DCC exits or crashes). No hard failures; graceful degradation.
+
+## DccGatewayElection (Python API)
+
+`DccGatewayElection` is a pure-Python class that provides **automatic gateway failover** for non-gateway DCC instances. When the current gateway becomes unreachable, the election thread automatically attempts to take over.
+
+### How It Works
+
+1. A background daemon thread periodically probes the gateway's `/health` endpoint
+2. Counts consecutive probe failures
+3. When failures exceed the threshold, attempts a first-wins TCP port check
+4. If the port is free, signals the server to upgrade to gateway mode
+
+### Constructor
+
+```python
+from dcc_mcp_core import DccGatewayElection
+
+election = DccGatewayElection(
+    dcc_name="blender",           # Short DCC identifier for logs
+    server=blender_server,        # DCC server instance (must expose is_gateway, is_running, _handle)
+    gateway_host="127.0.0.1",     # Gateway bind address
+    gateway_port=9765,            # Gateway port to compete for
+    probe_interval=5,             # Seconds between health probes
+    probe_timeout=2.0,            # Timeout per probe in seconds
+    probe_failures=3,             # Consecutive failures before election attempt
+    on_promote=None,              # Optional callable: () -> bool, overrides server._upgrade_to_gateway()
+)
+```
+
+### Configuration via Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DCC_MCP_GATEWAY_PROBE_INTERVAL` | `5` | Seconds between health probes |
+| `DCC_MCP_GATEWAY_PROBE_TIMEOUT` | `2` | Timeout per probe in seconds |
+| `DCC_MCP_GATEWAY_PROBE_FAILURES` | `3` | Consecutive failures before election |
+
+### Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `is_running` | `bool` | Whether the election thread is active |
+| `consecutive_failures` | `int` | Current consecutive gateway probe failure count |
+
+### Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `start()` | `None` | Start the background election thread (idempotent) |
+| `stop()` | `None` | Gracefully stop the thread (waits up to 5s) |
+| `get_status()` | `dict` | Returns `{running, consecutive_failures, gateway_host, gateway_port}` |
+
+### Promotion Path
+
+When the election wins (port is free), it resolves the promotion path in order:
+
+1. The `on_promote` callable passed to `__init__` (if any)
+2. `server._upgrade_to_gateway()` method on the bound server (if it exposes one)
+3. Fallback: logs a warning and returns `False`
+
+### Usage with DccServerBase
+
+`DccServerBase` integrates `DccGatewayElection` automatically:
+
+```python
+from dcc_mcp_core import DccServerBase
+
+class BlenderMcpServer(DccServerBase):
+    def __init__(self, **kwargs):
+        super().__init__(dcc_name="blender", builtin_skills_dir=..., **kwargs)
+
+server = BlenderMcpServer(gateway_port=9765)
+server.register_builtin_actions()
+handle = server.start()        # election thread starts automatically
+print(server._election.get_status())  # inspect election state
+```
+
+### Standalone Usage
+
+```python
+from dcc_mcp_core import DccGatewayElection
+
+# With a custom promotion callback
+def promote():
+    # Restart the MCP server with gateway port
+    return True
+
+election = DccGatewayElection(
+    dcc_name="blender",
+    server=my_server,
+    gateway_port=9765,
+    on_promote=promote,
+)
+election.start()
+
+# Later...
+status = election.get_status()
+# {"running": True, "consecutive_failures": 0, "gateway_host": "127.0.0.1", "gateway_port": 9765}
+
+election.stop()
+```

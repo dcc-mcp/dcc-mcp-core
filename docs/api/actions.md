@@ -1,6 +1,10 @@
-# Actions API
+# Tools API
 
 `dcc_mcp_core` — ToolRegistry, EventBus, ToolDispatcher, ToolValidator, SemVer, VersionConstraint, VersionedRegistry.
+
+:::: info Action → Tool terminology
+In v0.13+, the project renamed "action" → "tool" at the conceptual level. However, some Rust API method names (`get_action`, `list_actions`, `search_actions`, `count_actions`, `register_batch(actions)`) still use "action" for backward compatibility. These are NOT bugs — they are compatibility aliases.
+::::
 
 ## ToolRegistry
 
@@ -18,7 +22,7 @@ registry = ToolRegistry()
 | Method | Returns | Description |
 |--------|---------|-------------|
 | `register(name, description="", category="", tags=[], dcc="python", version="1.0.0", input_schema=None, output_schema=None, source_file=None)` | — | Register a skill |
-| `register_batch(actions)` | — | Register multiple skills from a list of dicts (each dict uses same keys as `register()`; entries without `name` are skipped) |
+| `register_batch(actions)` | — | Register multiple tools from a list of dicts (parameter named `actions` for backward compat; each dict uses same keys as `register()`) |
 | `unregister(name, dcc_name=None)` | `bool` | Remove a skill. If `dcc_name=None`, removes globally; otherwise scoped. Returns `True` if found |
 | `get_action(name, dcc_name=None)` | `dict?` | Get skill metadata as dict |
 | `list_actions(dcc_name=None)` | `List[dict]` | List all skills as metadata dicts |
@@ -27,7 +31,7 @@ registry = ToolRegistry()
 | `search_actions(category=None, tags=[], dcc_name=None)` | `List[dict]` | Search with AND-ed filters |
 | `get_categories(dcc_name=None)` | `List[str]` | Sorted unique categories |
 | `get_tags(dcc_name=None)` | `List[str]` | Sorted unique tags |
-| `count_actions(category=None, tags=[], dcc_name=None)` | `int` | Count matching skills |
+| `count_actions(category=None, tags=[], dcc_name=None)` | `int` | Count matching tools (method named `count_actions` for backward compat) |
 | `reset()` | — | Clear all registered skills |
 
 ### Dunder Methods
@@ -40,7 +44,7 @@ registry = ToolRegistry()
 
 ### Skill Metadata Dict
 
-When retrieved via `get_action()`, `list_actions()`, or `search_actions()`, each skill is a dict:
+When retrieved via `get_action()`, `list_actions()`, or `search_actions()` (method names use "action" for backward compat), each tool is a dict:
 
 ```python
 {
@@ -106,7 +110,7 @@ validator = ToolValidator.from_schema_json(
 from dcc_mcp_core import ToolRegistry
 reg = ToolRegistry()
 reg.register("create_sphere", input_schema='{"type": "object", "properties": {"radius": {"type": "number"}}}')
-validator = ToolValidator.from_action_registry(reg, "create_sphere")
+validator = ToolValidator.from_action_registry(reg, "create_sphere")  # method name uses "action" for backward compat
 ```
 
 ### Validating Input
@@ -171,6 +175,7 @@ import json
 
 result = dispatcher.dispatch("create_sphere", json.dumps({"radius": 2.0}))
 # result = {"action": "create_sphere", "output": {"created": True, "radius": 2.0}, "validation_skipped": False}
+# Note: the dict key "action" in the result reflects backward-compat naming in the Rust wire format
 print(result["output"]["created"])  # True
 ```
 
@@ -186,7 +191,7 @@ def handler(params: dict) -> Any:
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `register_handler(action_name, handler)` | — | Register a Python callable for a skill |
+| `register_handler(action_name, handler)` | — | Register a Python callable for a tool (parameter named `action_name` for backward compat) |
 | `remove_handler(action_name)` | `bool` | Remove handler, return True if existed |
 | `has_handler(action_name)` | `bool` | Check if handler is registered |
 | `handler_count()` | `int` | Number of registered handlers |
@@ -407,7 +412,7 @@ pipeline = ToolPipeline(dispatcher)
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `dispatch(action, params_json)` | `dict` | Dispatch skill through all middleware layers |
+| `dispatch(action, params_json)` | `dict` | Dispatch tool through all middleware layers |
 | `register_handler(name, fn)` | — | Register a Python handler (mirrors `ToolDispatcher`) |
 | `add_logging(log_params=False)` | — | Add trace logging middleware |
 | `add_timing()` | `TimingMiddleware` | Add latency tracking; returns handle |
@@ -424,7 +429,7 @@ pipeline = ToolPipeline(dispatcher)
 
 | Key | Type | Description |
 |-----|------|-------------|
-| `action` | `str` | Skill name |
+| `action` | `str` | Tool name (dict key uses "action" for backward compat) |
 | `output` | `Any` | Handler return value |
 | `success` | `bool` | `True` if no exception |
 | `error` | `str?` | Error message if failed |
@@ -451,12 +456,12 @@ count = audit.record_count()                     # int
 audit.clear()
 ```
 
-Each record dict: `action` (str, the skill name), `success` (bool), `error` (str | None), `timestamp_ms` (int).
+Each record dict: `action` (str, the tool name — key uses "action" for backward compat), `success` (bool), `error` (str | None), `timestamp_ms` (int).
 
 | Method | Returns | Description |
 |--------|---------|-------------|
 | `records()` | `List[dict]` | All audit records |
-| `records_for_action(name)` | `List[dict]` | Records for a specific action |
+| `records_for_action(name)` | `List[dict]` | Records for a specific tool (method named `records_for_action` for backward compat) |
 | `record_count()` | `int` | Total record count |
 | `clear()` | — | Remove all records |
 

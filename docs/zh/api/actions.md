@@ -1,6 +1,10 @@
-# Actions API
+# Tools API（工具 API）
 
 `dcc_mcp_core` — ToolRegistry、EventBus、ToolDispatcher、ToolValidator、SemVer、VersionConstraint、VersionedRegistry。
+
+:::: info Action → Tool 术语说明
+v0.13+ 项目在概念层面将 "action" 重命名为 "tool"。但部分 Rust API 方法名（`get_action`、`list_actions`、`search_actions`、`count_actions`、`register_batch(actions)`）仍使用 "action" 以保持向后兼容——这不是 bug，而是兼容别名。
+::::
 
 ## ToolRegistry
 
@@ -18,7 +22,7 @@ registry = ToolRegistry()
 | 方法 | 返回值 | 说明 |
 |------|--------|------|
 | `register(name, description="", category="", tags=[], dcc="python", version="1.0.0", input_schema=None, output_schema=None, source_file=None)` | — | 注册一个 Skill |
-| `register_batch(actions)` | — | 批量注册，传入字典列表（每个字典使用与 `register()` 相同的键；缺少 `name` 的条目被跳过）|
+| `register_batch(actions)` | — | 批量注册工具，传入字典列表（参数名 `actions` 为向后兼容；每个字典使用与 `register()` 相同的键）|
 | `unregister(name, dcc_name=None)` | `bool` | 移除 Skill。`dcc_name=None` 时全局移除；否则作用域限定。找到返回 `True` |
 | `get_action(name, dcc_name=None)` | `dict?` | 获取 Skill 元数据字典 |
 | `list_actions(dcc_name=None)` | `List[dict]` | 列出所有 Skill 的元数据字典 |
@@ -40,7 +44,7 @@ registry = ToolRegistry()
 
 ### Skill 元数据字典
 
-通过 `get_action()`、`list_actions()` 或 `search_actions()` 获取时，每个 Skill 是一个字典：
+通过 `get_action()`、`list_actions()` 或 `search_actions()` 获取时（方法名使用 "action" 以保持向后兼容），每个工具是一个字典：
 
 ```python
 {
@@ -186,7 +190,7 @@ def handler(params: dict) -> Any:
 
 | 方法 | 返回值 | 说明 |
 |------|--------|------|
-| `register_handler(action_name, handler)` | — | 注册一个 Python 可调用对象 |
+| `register_handler(action_name, handler)` | — | 注册一个 Python 可调用对象（参数名 `action_name` 为向后兼容） |
 | `remove_handler(action_name)` | `bool` | 移除处理器，存在返回 True |
 | `has_handler(action_name)` | `bool` | 检查处理器是否已注册 |
 | `handler_count()` | `int` | 已注册处理器数量 |
@@ -407,7 +411,7 @@ pipeline = ToolPipeline(dispatcher)
 
 | 方法 | 返回值 | 说明 |
 |------|--------|------|
-| `dispatch(action, params_json)` | `dict` | 通过所有中间件层进行调度 |
+| `dispatch(action, params_json)` | `dict` | 通过所有中间件层调度工具 |
 | `register_handler(name, fn)` | — | 注册 Python 处理器（与 `ToolDispatcher` 一致）|
 | `add_logging(log_params=False)` | — | 添加 trace 日志中间件 |
 | `add_timing()` | `TimingMiddleware` | 添加延迟统计；返回句柄 |
@@ -424,7 +428,7 @@ pipeline = ToolPipeline(dispatcher)
 
 | 键 | 类型 | 说明 |
 |----|------|------|
-| `action` | `str` | Skill 名称 |
+| `action` | `str` | 工具名称（字典键使用 "action" 以保持向后兼容） |
 | `output` | `Any` | 处理器返回值 |
 | `success` | `bool` | 无异常时为 `True` |
 | `error` | `str?` | 失败时的错误信息 |
@@ -451,12 +455,12 @@ count = audit.record_count()                     # int
 audit.clear()
 ```
 
-每条记录包含：`action`（str）、`success`（bool）、`error`（str | None）、`timestamp_ms`（int）。
+每条记录包含：`action`（str，工具名称——键名使用 "action" 以保持向后兼容）、`success`（bool）、`error`（str | None）、`timestamp_ms`（int）。
 
 | 方法 | 返回值 | 说明 |
 |------|--------|------|
 | `records()` | `List[dict]` | 所有审计记录 |
-| `records_for_action(name)` | `List[dict]` | 指定 Action 的记录 |
+| `records_for_action(name)` | `List[dict]` | 指定工具的记录（方法名使用 "action" 以保持向后兼容） |
 | `record_count()` | `int` | 总记录数 |
 | `clear()` | — | 清空所有记录 |
 

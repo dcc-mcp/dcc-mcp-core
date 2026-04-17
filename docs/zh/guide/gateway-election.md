@@ -185,3 +185,104 @@ mgr.deregister_service("maya", iid)
 ## 向后兼容性
 
 不支持 `/gateway/yield` 的旧版 DCC 会返回 404——这没问题。挑战者进入轮询重试循环，等待端口自然释放（当旧 DCC 退出或崩溃时）。无硬性失败，优雅降级。
+
+## DccGatewayElection（Python API）
+
+`DccGatewayElection` 是一个纯 Python 类，为非网关 DCC 实例提供**自动网关故障转移**。当当前网关不可达时，选举线程会自动尝试接管。
+
+### 工作原理
+
+1. 后台守护线程定期探测网关的 `/health` 端点
+2. 统计连续探测失败次数
+3. 当失败次数超过阈值时，尝试首次获胜的 TCP 端口检查
+4. 如果端口空闲，通知服务器升级为网关模式
+
+### 构造函数
+
+```python
+from dcc_mcp_core import DccGatewayElection
+
+election = DccGatewayElection(
+    dcc_name="blender",           # 日志中的 DCC 标识
+    server=blender_server,        # DCC 服务器实例（需暴露 is_gateway、is_running、_handle）
+    gateway_host="127.0.0.1",     # 网关绑定地址
+    gateway_port=9765,            # 竞争的网关端口
+    probe_interval=5,             # 健康探测间隔（秒）
+    probe_timeout=2.0,            # 每次探测超时（秒）
+    probe_failures=3,             # 触发选举前的连续失败次数
+    on_promote=None,              # 可选回调：() -> bool，覆盖 server._upgrade_to_gateway()
+)
+```
+
+### 环境变量配置
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `DCC_MCP_GATEWAY_PROBE_INTERVAL` | `5` | 健康探测间隔（秒） |
+| `DCC_MCP_GATEWAY_PROBE_TIMEOUT` | `2` | 每次探测超时（秒） |
+| `DCC_MCP_GATEWAY_PROBE_FAILURES` | `3` | 触发选举前的连续失败次数 |
+
+### 属性
+
+| 属性 | 类型 | 说明 |
+|------|------|------|
+| `is_running` | `bool` | 选举线程是否活跃 |
+| `consecutive_failures` | `int` | 当前连续网关探测失败次数 |
+
+### 方法
+
+| 方法 | 返回值 | 说明 |
+|------|--------|------|
+| `start()` | `None` | 启动后台选举线程（幂等） |
+| `stop()` | `None` | 优雅停止线程（最多等待 5 秒） |
+| `get_status()` | `dict` | 返回 `{running, consecutive_failures, gateway_host, gateway_port}` |
+
+### 提升路径
+
+选举获胜（端口空闲）时，按以下顺序解析提升路径：
+
+1. 传给 `__init__` 的 `on_promote` 可调用对象（如有）
+2. 绑定服务器上的 `server._upgrade_to_gateway()` 方法（如有）
+3. 回退：记录警告并返回 `False`
+
+### 与 DccServerBase 配合使用
+
+`DccServerBase` 已自动集成 `DccGatewayElection`：
+
+```python
+from dcc_mcp_core import DccServerBase
+
+class BlenderMcpServer(DccServerBase):
+    def __init__(self, **kwargs):
+        super().__init__(dcc_name="blender", builtin_skills_dir=..., **kwargs)
+
+server = BlenderMcpServer(gateway_port=9765)
+server.register_builtin_actions()
+handle = server.start()        # 选举线程自动启动
+print(server._election.get_status())  # 检查选举状态
+```
+
+### 独立使用
+
+```python
+from dcc_mcp_core import DccGatewayElection
+
+# 使用自定义提升回调
+def promote():
+    # 用网关端口重启 MCP 服务器
+    return True
+
+election = DccGatewayElection(
+    dcc_name="blender",
+    server=my_server,
+    gateway_port=9765,
+    on_promote=promote,
+)
+election.start()
+
+# 稍后...
+status = election.get_status()
+# {"running": True, "consecutive_failures": 0, "gateway_host": "127.0.0.1", "gateway_port": 9765}
+
+election.stop()
+```

@@ -13,15 +13,35 @@
 ```python
 from dcc_mcp_core import Capturer
 
+# 自动选择最佳后端
 capturer = Capturer.new_auto()
+
+# 单窗口捕获
+capturer = Capturer.new_window_auto()
+
+# 无头环境 / CI 测试
+capturer = Capturer.new_mock(width=1920, height=1080)
+print(f"Backend: {capturer.backend_name()}")
+count, total_bytes, errors = capturer.stats()
 ```
 
-### 方法
+### 静态方法
 
 | 方法 | 返回 | 描述 |
 |------|------|------|
-| `new_auto()` | `Capturer` | 使用最佳可用后端创建捕获器 |
-| `capture(format="png", jpeg_quality=85, scale=1.0, timeout_ms=5000, process_id=None, window_title=None)` | `CaptureFrame` | 捕获一帧 |
+| `new_auto()` | `Capturer` | 使用最佳可用后端创建捕获器（Windows: DXGI, Linux: X11, 其他: Mock） |
+| `new_window_auto()` | `Capturer` | 创建配置为单窗口捕获的捕获器（Windows: HWND PrintWindow；其他平台回退到 Mock） |
+| `new_mock(width=1920, height=1080)` | `Capturer` | 创建使用 Mock 合成后端的捕获器（用于 CI/无头环境） |
+
+### 实例方法
+
+| 方法 | 返回 | 描述 |
+|------|------|------|
+| `capture(format="png", jpeg_quality=85, scale=1.0, timeout_ms=5000, process_id=None, window_title=None)` | `CaptureFrame` | 捕获一帧（全屏，或当设置 `process_id`/`window_title` 时捕获匹配窗口） |
+| `capture_window(*, process_id=None, window_handle=None, window_title=None, format="png", jpeg_quality=85, scale=1.0, timeout_ms=5000, include_decorations=True)` | `CaptureFrame` | 捕获单个窗口。必须提供 `process_id`/`window_handle`/`window_title` 中的至少一个 |
+| `backend_name()` | `str` | 当前后端名称（如 `"DXGI Desktop Duplication"`、`"HWND PrintWindow"`） |
+| `backend_kind()` | `CaptureBackendKind` | 当前后端的枚举形式 |
+| `stats()` | `tuple[int, int, int]` | 运行统计：`(capture_count, total_bytes, error_count)` |
 
 ### CaptureFrame
 
