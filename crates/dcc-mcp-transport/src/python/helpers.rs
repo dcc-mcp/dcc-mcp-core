@@ -30,3 +30,13 @@ pub(super) fn session_to_py(py: Python, session: &crate::session::Session) -> Py
     let _ = dict.set_item("reconnect_attempts", session.reconnect_attempts);
     dict.unbind().into_any()
 }
+
+/// Re-export of [`dcc_mcp_utils::py_json::json_value_to_bound_py`] under the
+/// historical transport-crate name used by `PyServiceEntry::extras` getter.
+#[cfg(feature = "python-bindings")]
+pub(crate) use dcc_mcp_utils::py_json::json_value_to_bound_py as json_value_to_py;
+
+/// Re-export of [`dcc_mcp_utils::py_json::py_any_to_json_value`] under the
+/// historical transport-crate name used by `register_service(extras=...)`.
+#[cfg(feature = "python-bindings")]
+pub(crate) use dcc_mcp_utils::py_json::py_any_to_json_value as py_to_json_value;

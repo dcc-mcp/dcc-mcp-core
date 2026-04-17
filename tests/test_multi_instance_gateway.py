@@ -95,6 +95,60 @@ class TestServiceEntryNewFields:
         assert entry.pid is None
         assert entry.display_name is None
         assert entry.documents == []
+        assert entry.extras == {}
+
+    def test_register_with_extras_scalar_values(self, registry: dcc_mcp_core.TransportManager) -> None:
+        """Extras round-trip scalar JSON values (int / str / bool / None / float)."""
+        extras = {
+            "cdp_port": 9222,
+            "url": "http://localhost:3000",
+            "debug": True,
+            "token": None,
+            "ratio": 1.5,
+        }
+        iid = registry.register_service("webview", "127.0.0.1", 3000, extras=extras)
+        entry = registry.get_service("webview", iid)
+        assert entry is not None
+        assert entry.extras == extras
+
+    def test_register_with_extras_nested_values(self, registry: dcc_mcp_core.TransportManager) -> None:
+        """Extras round-trip nested dicts and lists (lossless JSON storage)."""
+        extras = {
+            "capabilities": {"scene": False, "timeline": True, "selection": False},
+            "tags": ["preview", "cdp", "webview"],
+            "host_dcc": {"name": "maya", "pid": 42000, "version": "2025"},
+        }
+        iid = registry.register_service("webview-maya", "127.0.0.1", 3001, extras=extras)
+        entry = registry.get_service("webview-maya", iid)
+        assert entry is not None
+        assert entry.extras == extras
+        assert entry.extras["capabilities"]["timeline"] is True
+        assert entry.extras["host_dcc"]["pid"] == 42000
+
+    def test_extras_returns_fresh_dict_each_call(self, registry: dcc_mcp_core.TransportManager) -> None:
+        """The ``extras`` getter materialises a new dict each access so mutations stay local."""
+        iid = registry.register_service("blender", "127.0.0.1", 8080, extras={"key": "value"})
+        entry = registry.get_service("blender", iid)
+        assert entry is not None
+        first = entry.extras
+        first["key"] = "mutated"
+        second = entry.extras
+        assert second == {"key": "value"}
+
+    def test_extras_persists_across_to_dict(self, registry: dcc_mcp_core.TransportManager) -> None:
+        """``to_dict()`` includes the extras field for downstream serialisation."""
+        iid = registry.register_service("houdini", "127.0.0.1", 9090, extras={"a": 1, "b": [2, 3]})
+        entry = registry.get_service("houdini", iid)
+        assert entry is not None
+        as_dict = entry.to_dict()
+        assert as_dict["extras"] == {"a": 1, "b": [2, 3]}
+
+    def test_extras_empty_default(self, registry: dcc_mcp_core.TransportManager) -> None:
+        """Not providing extras yields an empty dict, not ``None``."""
+        iid = registry.register_service("nuke", "127.0.0.1", 7070)
+        entry = registry.get_service("nuke", iid)
+        assert entry is not None
+        assert entry.extras == {}
 
 
 # ── update_documents ──────────────────────────────────────────────────────────

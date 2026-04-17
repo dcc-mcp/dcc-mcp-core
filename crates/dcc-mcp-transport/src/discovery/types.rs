@@ -109,6 +109,15 @@ pub struct ServiceEntry {
     /// Arbitrary metadata.
     #[serde(default)]
     pub metadata: HashMap<String, String>,
+    /// Arbitrary DCC-specific extras as JSON-typed values.
+    ///
+    /// Unlike [`metadata`] which is restricted to strings, `extras` allows
+    /// nested objects / arrays / numbers / booleans.  Use for WebView / bridge
+    /// specific fields such as `cdp_port`, `url`, `window_title`, `host_dcc`.
+    ///
+    /// Round-trips losslessly through `services.json` (JSON value preserved).
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub extras: HashMap<String, serde_json::Value>,
     /// When this service was registered.
     pub registered_at: SystemTime,
     /// Last heartbeat timestamp.
@@ -134,6 +143,7 @@ impl ServiceEntry {
             pid: None,
             display_name: None,
             metadata: HashMap::new(),
+            extras: HashMap::new(),
             registered_at: now,
             last_heartbeat: now,
             status: ServiceStatus::Available,
@@ -161,6 +171,7 @@ impl ServiceEntry {
             pid: None,
             display_name: None,
             metadata: HashMap::new(),
+            extras: HashMap::new(),
             registered_at: now,
             last_heartbeat: now,
             status: ServiceStatus::Available,
@@ -234,6 +245,45 @@ mod tests {
         assert!(entry.version.is_none());
         assert!(entry.scene.is_none());
         assert!(entry.transport_address.is_none());
+        assert!(entry.extras.is_empty());
+    }
+
+    #[test]
+    fn test_service_entry_extras_roundtrip() {
+        let mut entry = ServiceEntry::new("webview", "127.0.0.1", 3000);
+        entry
+            .extras
+            .insert("cdp_port".into(), serde_json::json!(9222));
+        entry
+            .extras
+            .insert("url".into(), serde_json::json!("http://localhost:3000"));
+        entry.extras.insert(
+            "capabilities".into(),
+            serde_json::json!({"scene": false, "timeline": true}),
+        );
+
+        let json = serde_json::to_string(&entry).unwrap();
+        let parsed: ServiceEntry = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.extras, entry.extras);
+        assert_eq!(parsed.extras["cdp_port"], serde_json::json!(9222));
+        assert_eq!(
+            parsed.extras["capabilities"]["timeline"],
+            serde_json::json!(true)
+        );
+    }
+
+    #[test]
+    fn test_service_entry_empty_extras_omitted_from_json() {
+        let entry = ServiceEntry::new("maya", "127.0.0.1", 18812);
+        let json = serde_json::to_string(&entry).unwrap();
+        // `skip_serializing_if = "HashMap::is_empty"` keeps services.json small
+        // when no extras were set — preserves backward-compatible file format.
+        assert!(
+            !json.contains("\"extras\""),
+            "empty extras should be omitted, got: {}",
+            json
+        );
     }
 
     #[test]

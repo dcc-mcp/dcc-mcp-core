@@ -116,16 +116,19 @@ impl PyTransportManager {
     ///     documents: All open documents for multi-document apps like Photoshop (optional list).
     ///     pid: OS process ID — used to disambiguate instances with the same scene (optional).
     ///     display_name: Human-readable label, e.g. "Maya-Rigging" (optional).
-    ///     metadata: Arbitrary metadata dict (optional).
+    ///     metadata: Arbitrary string metadata dict (optional).
     ///     transport_address: Preferred transport address (optional). When provided,
     ///         enables IPC registration (Named Pipe / Unix Socket) for lower latency.
     ///         Use TransportAddress.default_local(dcc_type, pid) to auto-select the
     ///         optimal IPC transport for the current platform.
+    ///     extras: Arbitrary DCC-specific extras dict with JSON-compatible values
+    ///         (dict / list / int / float / str / bool / None) — useful for
+    ///         WebView / bridge specific fields such as ``cdp_port`` or ``url``.
     ///
     /// Returns:
     ///     The instance_id (UUID string) of the registered service.
     #[pyo3(name = "register_service")]
-    #[pyo3(signature = (dcc_type, host, port, version=None, scene=None, documents=None, pid=None, display_name=None, metadata=None, transport_address=None))]
+    #[pyo3(signature = (dcc_type, host, port, version=None, scene=None, documents=None, pid=None, display_name=None, metadata=None, transport_address=None, extras=None))]
     fn py_register_service(
         &self,
         dcc_type: &str,
@@ -138,6 +141,7 @@ impl PyTransportManager {
         display_name: Option<String>,
         metadata: Option<HashMap<String, String>>,
         transport_address: Option<PyRef<'_, super::types::PyTransportAddress>>,
+        extras: Option<Bound<'_, pyo3::types::PyDict>>,
     ) -> PyResult<String> {
         let mut entry = ServiceEntry::new(dcc_type, host, port);
         entry.version = version;
@@ -150,6 +154,20 @@ impl PyTransportManager {
         }
         if let Some(addr) = transport_address {
             entry.transport_address = Some(addr.inner.clone());
+        }
+        if let Some(ex) = extras {
+            let mut out = HashMap::with_capacity(ex.len());
+            for (k, v) in ex.iter() {
+                let key = k
+                    .extract::<String>()
+                    .map_err(|_| {
+                        pyo3::exceptions::PyTypeError::new_err(
+                            "extras dict keys must be strings",
+                        )
+                    })?;
+                out.insert(key, super::helpers::py_to_json_value(&v)?);
+            }
+            entry.extras = out;
         }
         let instance_id = entry.instance_id.to_string();
         self.inner

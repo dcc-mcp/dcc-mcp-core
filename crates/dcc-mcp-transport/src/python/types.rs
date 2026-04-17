@@ -428,51 +428,69 @@ impl From<&PyTransportScheme> for TransportScheme {
 /// print(entry.status)        # ServiceStatus.AVAILABLE
 /// ```
 #[cfg(feature = "python-bindings")]
-#[pyclass(name = "ServiceEntry", get_all, from_py_object)]
+#[pyclass(name = "ServiceEntry", from_py_object)]
 #[derive(Debug, Clone)]
 pub struct PyServiceEntry {
     /// DCC application type (e.g. "maya", "houdini", "blender").
+    #[pyo3(get)]
     pub dcc_type: String,
     /// Unique instance identifier (UUID string).
+    #[pyo3(get)]
     pub instance_id: String,
     /// Host address.
+    #[pyo3(get)]
     pub host: String,
     /// Port number.
+    #[pyo3(get)]
     pub port: u16,
     /// DCC application version (e.g. "2024.2").
+    #[pyo3(get)]
     pub version: Option<String>,
     /// Currently active scene / document.
     ///
     /// For single-document DCCs this is the open file path.
     /// For multi-document apps (Photoshop) this is the **focused** document.
+    #[pyo3(get)]
     pub scene: Option<String>,
     /// All documents currently open in this instance.
     ///
     /// Empty for DCCs that only support one document at a time.
     /// For multi-document apps each element is a file path.
+    #[pyo3(get)]
     pub documents: Vec<String>,
     /// OS process ID of the DCC process.
     ///
     /// Useful for disambiguating two instances of the same DCC type
     /// that have the same scene open.
+    #[pyo3(get)]
     pub pid: Option<u32>,
     /// Human-readable label for this instance (e.g. `"Maya-Rigging"`).
     ///
     /// Set by the bridge plugin at registration time.  Displayed by the
     /// agent when asking the user to choose between multiple instances.
+    #[pyo3(get)]
     pub display_name: Option<String>,
     /// Arbitrary metadata.
+    #[pyo3(get)]
     pub metadata: HashMap<String, String>,
     /// Current service status.
+    #[pyo3(get)]
     pub status: PyServiceStatus,
     /// Transport address (None = TCP host:port).
+    #[pyo3(get)]
     pub transport_address: Option<PyTransportAddress>,
     /// Last heartbeat timestamp in milliseconds since Unix epoch.
     ///
     /// Useful for `LazySessionPool` implementations to determine if a session
     /// has been idle too long and should be evicted.  Updated by
     /// :meth:`TransportManager.heartbeat`.
+    #[pyo3(get)]
     pub last_heartbeat_ms: u64,
+    /// Arbitrary DCC-specific extras as JSON-typed values.
+    ///
+    /// Exposed to Python via the [`extras`] property getter which returns
+    /// a fresh `dict[str, Any]` with nested JSON values recursively converted.
+    pub(super) extras: HashMap<String, serde_json::Value>,
 }
 
 #[cfg(feature = "python-bindings")]
@@ -521,10 +539,25 @@ impl PyServiceEntry {
         dict.set_item("metadata", &self.metadata)?;
         dict.set_item("status", self.status.__str__())?;
         dict.set_item("last_heartbeat_ms", self.last_heartbeat_ms)?;
+        dict.set_item("extras", self.extras(py)?)?;
         if let Some(addr) = &self.transport_address {
             dict.set_item("transport_address", addr.to_connection_string())?;
         }
         Ok(dict.unbind().into_any())
+    }
+
+    /// Arbitrary DCC-specific extras as a `dict[str, Any]`.
+    ///
+    /// Nested JSON values (objects / arrays / numbers / booleans / nulls) are
+    /// recursively converted into native Python types.  Returns an empty dict
+    /// when no extras were registered.
+    #[getter]
+    fn extras<'py>(&self, py: Python<'py>) -> PyResult<Py<PyDict>> {
+        let dict = PyDict::new(py);
+        for (k, v) in &self.extras {
+            dict.set_item(k, crate::python::helpers::json_value_to_py(py, v)?)?;
+        }
+        Ok(dict.unbind())
     }
 }
 
@@ -553,6 +586,7 @@ impl From<&ServiceEntry> for PyServiceEntry {
                 .as_ref()
                 .map(PyTransportAddress::from),
             last_heartbeat_ms,
+            extras: entry.extras.clone(),
         }
     }
 }

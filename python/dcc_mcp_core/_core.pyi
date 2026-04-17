@@ -1626,10 +1626,30 @@ class ServiceEntry:
     port: int
     version: str | None
     scene: str | None
+    documents: list[str]
+    pid: int | None
+    display_name: str | None
     metadata: dict[str, str]
     status: ServiceStatus
     transport_address: TransportAddress | None
     last_heartbeat_ms: int
+    @property
+    def extras(self) -> dict[str, Any]:
+        """Arbitrary DCC-specific extras with JSON-typed values.
+
+        Unlike :attr:`metadata` (string-only), ``extras`` allows nested
+        objects / arrays / numbers / booleans / ``None``.  Round-trips
+        losslessly through ``services.json``.  Useful for WebView / bridge
+        specific fields such as ``cdp_port``, ``url``, ``window_title``,
+        ``host_dcc``.
+
+        Returns:
+            A fresh ``dict`` — mutating it does **not** update the registry;
+            use :meth:`TransportManager.register_service(..., extras=...)`
+            to register with extras.
+
+        """
+        ...
     """Last heartbeat timestamp in milliseconds since Unix epoch.
 
     Useful for ``LazySessionPool`` implementations to evict idle sessions:
@@ -1676,8 +1696,12 @@ class TransportManager:
         port: int,
         version: str | None = None,
         scene: str | None = None,
+        documents: list[str] | None = None,
+        pid: int | None = None,
+        display_name: str | None = None,
         metadata: dict[str, str] | None = None,
         transport_address: TransportAddress | None = None,
+        extras: dict[str, Any] | None = None,
     ) -> str:
         """Register a DCC service instance.
 
@@ -1687,12 +1711,21 @@ class TransportManager:
             port:               TCP port number.
             version:            DCC version string (optional).
             scene:              Currently open scene/file (optional).
-            metadata:           Arbitrary metadata dict (optional).
+            documents:          All open documents for multi-document apps (optional).
+            pid:                OS process ID (optional, disambiguates two
+                                instances with the same scene).
+            display_name:       Human-readable label, e.g. ``"Maya-Rigging"`` (optional).
+            metadata:           Arbitrary string metadata dict (optional).
             transport_address:  Preferred IPC transport address (optional).
                                 When provided, enables Named Pipe or Unix Socket
                                 for lower latency same-machine communication.
                                 Use ``TransportAddress.default_local(dcc_type, pid)``
                                 to auto-select the optimal IPC transport.
+            extras:             Arbitrary JSON-compatible extras dict (optional).
+                                Values may be ``dict`` / ``list`` / ``int`` /
+                                ``float`` / ``str`` / ``bool`` / ``None``.
+                                Useful for WebView / bridge specific fields
+                                (``cdp_port``, ``url``, ``window_title``, ...).
 
         Returns:
             The instance_id (UUID string) of the registered service.
@@ -1707,6 +1740,7 @@ class TransportManager:
             instance_id = mgr.register_service(
                 "maya", "127.0.0.1", 18812,
                 transport_address=addr,
+                extras={"cdp_port": 9222, "url": "http://localhost:3000"},
             )
 
         """
