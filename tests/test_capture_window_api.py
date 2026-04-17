@@ -120,3 +120,53 @@ class TestWindowFinderCrossPlatform:
         finder = dcc_mcp_core.WindowFinder()
         result = finder.find(dcc_mcp_core.CaptureTarget.process_id(0x7FFFFFFF))
         assert result is None
+
+
+# ── capture_window_png / capture_region_png sugar API (#212) ──────────────────
+
+
+class TestCaptureWindowPngStatic:
+    """Covers the issue #212 ergonomic wrappers for bytes-or-None captures."""
+
+    def test_is_static_method(self) -> None:
+        """capture_window_png is callable on the class itself (no instance)."""
+        assert callable(dcc_mcp_core.Capturer.capture_window_png)
+
+    def test_capture_region_png_is_static_method(self) -> None:
+        assert callable(dcc_mcp_core.Capturer.capture_region_png)
+
+    def test_unknown_pid_returns_none(self) -> None:
+        """On any platform, an unresolvable PID must return ``None`` (not raise)."""
+        result = dcc_mcp_core.Capturer.capture_window_png(pid=0x7FFFFFFF, timeout_ms=200)
+        assert result is None
+
+    def test_region_unknown_pid_returns_none(self) -> None:
+        result = dcc_mcp_core.Capturer.capture_region_png(
+            pid=0x7FFFFFFF, x=0, y=0, w=10, h=10, timeout_ms=200
+        )
+        assert result is None
+
+    def test_region_zero_width_returns_none(self) -> None:
+        """Zero-width/height regions are rejected cheaply as ``None``."""
+        result = dcc_mcp_core.Capturer.capture_region_png(
+            pid=0x7FFFFFFF, x=0, y=0, w=0, h=100, timeout_ms=200
+        )
+        assert result is None
+
+    def test_region_zero_height_returns_none(self) -> None:
+        result = dcc_mcp_core.Capturer.capture_region_png(
+            pid=0x7FFFFFFF, x=0, y=0, w=100, h=0, timeout_ms=200
+        )
+        assert result is None
+
+    def test_timeout_is_keyword_only(self) -> None:
+        """timeout_ms must be a keyword argument — positional call raises TypeError."""
+        with pytest.raises(TypeError):
+            dcc_mcp_core.Capturer.capture_window_png(0x7FFFFFFF, 200)  # type: ignore[misc]
+
+    def test_region_coords_are_positional(self) -> None:
+        """Region coords (x, y, w, h) may be passed positionally."""
+        result = dcc_mcp_core.Capturer.capture_region_png(
+            0x7FFFFFFF, 0, 0, 10, 10, timeout_ms=200
+        )
+        assert result is None

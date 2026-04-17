@@ -3702,6 +3702,66 @@ class Capturer:
         """Return running statistics as ``(capture_count, total_bytes, error_count)``."""
         ...
 
+    @staticmethod
+    def capture_window_png(pid: int, *, timeout_ms: int = 1000) -> bytes | None:
+        """Capture a window as PNG bytes, looked up by process ID.
+
+        Sugar wrapper for the "grab a window snapshot, attach to chat" flow —
+        no ``Capturer`` instance needed.  Internally creates a window-auto
+        capturer, captures the first visible top-level window for ``pid``,
+        and returns the PNG-encoded bytes.
+
+        Args:
+            pid:         OS process ID of the DCC to capture.
+            timeout_ms:  Max milliseconds to wait for the frame (default 1000).
+
+        Returns:
+            PNG-encoded bytes on success; ``None`` when the process has no
+            visible top-level window or the backend is unavailable.  Never
+            raises on capture errors — use :meth:`capture_window` when you
+            need exceptions.
+
+        Example::
+
+            from dcc_mcp_core import Capturer
+
+            png = Capturer.capture_window_png(pid=12345)
+            if png is not None:
+                attach_to_chat(png)
+
+        """
+        ...
+
+    @staticmethod
+    def capture_region_png(
+        pid: int,
+        x: int,
+        y: int,
+        w: int,
+        h: int,
+        *,
+        timeout_ms: int = 1000,
+    ) -> bytes | None:
+        """Capture a cropped window region as PNG bytes, looked up by PID.
+
+        The window is captured first (same backend as
+        :meth:`capture_window_png`) and the ``(x, y, w, h)`` rectangle is
+        cropped in CPU before re-encoding.  Coordinates are in window-local
+        pixels relative to the window's top-left corner.
+
+        Args:
+            pid:         OS process ID of the DCC to capture.
+            x, y:        Top-left corner of the crop rectangle (window-local).
+            w, h:        Width / height of the crop rectangle.
+            timeout_ms:  Max milliseconds to wait for the frame (default 1000).
+
+        Returns:
+            PNG-encoded cropped bytes on success; ``None`` on any failure
+            (window not found, crop out of bounds, decode error, ...).
+
+        """
+        ...
+
     def __repr__(self) -> str: ...
 
 # ── USD Scene Description (dcc-mcp-usd) ──

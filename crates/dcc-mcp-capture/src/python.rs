@@ -303,9 +303,132 @@ impl PyCapturer {
         self.inner.stats().snapshot()
     }
 
+    /// Capture a single window as PNG bytes, looked up by process ID.
+    ///
+    /// This is a sugar wrapper intended for the common "grab a snapshot of a
+    /// DCC window, attach it to a chat message" workflow — no ``Capturer``
+    /// instance needed.  Internally creates a window-auto capturer, captures,
+    /// and returns the PNG-encoded bytes.
+    ///
+    /// Parameters
+    /// ----------
+    /// pid : int
+    ///     OS process ID of the DCC to capture.
+    /// timeout_ms : int, optional
+    ///     Max milliseconds to wait for the frame (default 1000).
+    ///
+    /// Returns
+    /// -------
+    /// bytes | None
+    ///     PNG-encoded bytes on success; ``None`` when the process has no
+    ///     visible top-level window or the backend is unavailable (the
+    ///     function never raises for capture errors — use the instance
+    ///     :py:meth:`capture_window` API when you need exceptions).
+    #[staticmethod]
+    #[pyo3(signature = (pid, *, timeout_ms=1000))]
+    fn capture_window_png(py: Python<'_>, pid: u32, timeout_ms: u64) -> PyResult<Py<PyAny>> {
+        let cfg = CaptureConfig::builder()
+            .format(CaptureFormat::Png)
+            .timeout_ms(timeout_ms)
+            .target(CaptureTarget::ProcessId(pid))
+            .build();
+        let capturer = Capturer::new_window_auto();
+        match capturer.capture(&cfg) {
+            Ok(frame) => Ok(pyo3::types::PyBytes::new(py, &frame.data)
+                .unbind()
+                .into_any()),
+            Err(e) => {
+                tracing::debug!(?pid, error = %e, "capture_window_png returning None");
+                Ok(py.None())
+            }
+        }
+    }
+
+    /// Capture a cropped rectangle of a window as PNG bytes, looked up by PID.
+    ///
+    /// The window is captured first (via the same backend as
+    /// :py:meth:`capture_window_png`) and the ``(x, y, w, h)`` region is
+    /// cropped in CPU before re-encoding.  Coordinates are in window-local
+    /// pixels relative to the top-left of the window rectangle.
+    ///
+    /// Parameters
+    /// ----------
+    /// pid, x, y, w, h : int
+    /// timeout_ms : int, optional (default 1000)
+    ///
+    /// Returns
+    /// -------
+    /// bytes | None
+    ///     PNG-encoded cropped bytes on success; ``None`` on any failure
+    ///     (window not found, crop out of bounds, decode error, ...).
+    #[staticmethod]
+    #[pyo3(signature = (pid, x, y, w, h, *, timeout_ms=1000))]
+    #[allow(clippy::too_many_arguments)]
+    fn capture_region_png(
+        py: Python<'_>,
+        pid: u32,
+        x: u32,
+        y: u32,
+        w: u32,
+        h: u32,
+        timeout_ms: u64,
+    ) -> PyResult<Py<PyAny>> {
+        if w == 0 || h == 0 {
+            return Ok(py.None());
+        }
+        let cfg = CaptureConfig::builder()
+            .format(CaptureFormat::Png)
+            .timeout_ms(timeout_ms)
+            .target(CaptureTarget::ProcessId(pid))
+            .build();
+        let capturer = Capturer::new_window_auto();
+        let frame = match capturer.capture(&cfg) {
+            Ok(f) => f,
+            Err(e) => {
+                tracing::debug!(?pid, error = %e, "capture_region_png capture failed");
+                return Ok(py.None());
+            }
+        };
+        match crop_png_bytes(&frame.data, x, y, w, h) {
+            Ok(bytes) => Ok(pyo3::types::PyBytes::new(py, &bytes).unbind().into_any()),
+            Err(e) => {
+                tracing::debug!(?pid, ?x, ?y, ?w, ?h, error = %e, "capture_region_png crop failed");
+                Ok(py.None())
+            }
+        }
+    }
+
     fn __repr__(&self) -> String {
         format!("Capturer(backend='{}')", self.backend_name())
     }
+}
+
+/// Decode a PNG, crop to ``(x, y, w, h)`` and re-encode as PNG.
+///
+/// Returns the raw PNG bytes on success, or an error string describing the
+/// failure (decode error, crop out of bounds, encode error).
+#[cfg(feature = "python-bindings")]
+fn crop_png_bytes(png: &[u8], x: u32, y: u32, w: u32, h: u32) -> Result<Vec<u8>, String> {
+    use image::ImageFormat;
+    let img = image::load_from_memory_with_format(png, ImageFormat::Png)
+        .map_err(|e| format!("decode: {}", e))?;
+    if x.saturating_add(w) > img.width() || y.saturating_add(h) > img.height() {
+        return Err(format!(
+            "crop ({},{},{},{}) out of bounds {}x{}",
+            x,
+            y,
+            w,
+            h,
+            img.width(),
+            img.height()
+        ));
+    }
+    let cropped = img.crop_imm(x, y, w, h);
+    let mut out = Vec::with_capacity((w * h * 4) as usize);
+    cropped
+        .write_to(&mut std::io::Cursor::new(&mut out), ImageFormat::Png)
+        .map_err(|e| format!("encode: {}", e))?;
+    Ok(out)
 }
 
 // ── PyCaptureTarget ────────────────────────────────────────────────────────
