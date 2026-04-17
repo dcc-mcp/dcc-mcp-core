@@ -21,7 +21,7 @@ A Rust-powered MCP (Model Context Protocol) library that lets AI agents interact
 | Bridge non-Python DCCs (Photoshop, ZBrush) | `DccBridge` (WebSocket JSON-RPC 2.0) |
 | IPC between processes | `IpcListener.bind()` / `connect_ipc()` / `FramedChannel.call()` |
 | Multi-DCC gateway | `McpHttpConfig(gateway_port=9765)` |
-| Trust-based skill scoping | `SkillScope` (Repo → User → System → Admin) |
+| Trust-based skill scoping | `SkillScope` (Repo → User → System → Admin) — **Rust-only**; Python uses string values via `SkillMetadata` |
 | Progressive tool exposure | `SkillGroup` with `default_active` + `activate_tool_group()` |
 | Instance-bound diagnostics | `DccServerBase(..., dcc_pid=pid)` → scoped `diagnostics__*` tools |
 
@@ -81,6 +81,11 @@ A Rust-powered MCP (Model Context Protocol) library that lets AI agents interact
 **USD scene exchange?**
 → [`docs/api/usd.md`](docs/api/usd.md)
 
+**WebView integration (embedded browser panels)?**
+→ `python/dcc_mcp_core/adapters/webview.py` — `WebViewAdapter`, `WebViewContext`
+→ Constants: `CAPABILITY_KEYS`, `WEBVIEW_DEFAULT_CAPABILITIES`
+→ Note: Currently Python-only, not in `_core.pyi`
+
 **Screen capture, shared memory, telemetry, process management?**
 → `docs/api/capture.md`, `docs/api/shm.md`, `docs/api/telemetry.md`, `docs/api/process.md`
 
@@ -136,6 +141,7 @@ dcc-mcp-core/
 │   ├── hotreload.py                # Pure-Python: DccSkillHotReloader
 │   ├── bridge.py                   # Pure-Python: DccBridge (WebSocket JSON-RPC 2.0)
 │   ├── dcc_server.py               # Pure-Python: register_diagnostic_handlers + register_diagnostic_mcp_tools
+│   ├── adapters/                   # Pure-Python: WebViewAdapter, WebViewContext, capabilities
 │   └── skills/                     # Bundled: dcc-diagnostics, workflow (in wheel)
 │
 ├── tests/                          # 120+ integration tests — executable usage examples
@@ -240,8 +246,8 @@ Capturer.new_window_auto().capture_window(window_title="Maya 2024")
 
 **Tool groups — inactive groups are hidden, not deleted:**
 ```python
-# default_active=false tools are registered with ActionMeta.enabled=False.
-# tools/list hides them but registry.list_actions() still returns them.
+# default_active=false tools are hidden from tools/list but remain in ToolRegistry.
+# Use registry.list_actions() (shows all) vs registry.list_actions_enabled() (active only).
 registry.activate_tool_group("maya-geometry", "rigging")   # emits tools/list_changed
 ```
 
@@ -259,6 +265,11 @@ return success_result("done", count=5)      # → ToolResult instance
 # Scope hierarchy: Repo < User < System < Admin
 # A System-scoped skill silently shadows a Repo-scoped skill with the same name.
 # This prevents project-local skills from hijacking enterprise-managed ones.
+# NOTE: SkillScope/SkillPolicy are Rust-level types not exported to Python.
+# Access scope info via SkillMetadata: metadata.is_implicit_invocation_allowed(),
+# metadata.matches_product(dcc_name). Configure via SKILL.md frontmatter:
+#   allow_implicit_invocation: false
+#   products: ["maya", "blender"]
 ```
 
 **`allow_implicit_invocation: false` ≠ `defer-loading: true`:**
@@ -267,6 +278,28 @@ return success_result("done", count=5)      # → ToolResult instance
 # defer-loading: true → tool stub appears in tools/list but needs load_skill()
 # Both delay tool availability, but the former is a *policy* (security),
 # the latter is a *hint* (progressive loading). Use both for maximum control.
+```
+
+**MCP security — design tools for safe AI interaction:**
+```python
+# Use ToolAnnotations to signal safety properties to AI clients:
+from dcc_mcp_core import ToolAnnotations
+annotations = ToolAnnotations(
+    read_only_hint=True,       # tool only reads data, no side effects
+    destructive_hint=False,    # tool may cause irreversible changes
+    idempotent_hint=True,      # repeated calls produce same result
+)
+# Design tools around user workflows, not raw API calls.
+# Return human-readable errors via error_result("msg", "specific error").
+# Use notifications/tools/list_changed when the tool set changes.
+```
+
+**`skill_warning()` / `skill_exception()` — additional skill helpers:**
+```python
+from dcc_mcp_core import skill_warning, skill_exception
+# skill_warning() — partial success with warnings (success=True but with caveat)
+# skill_exception() — wrap an exception into error dict format
+# Both are pure-Python helpers in python/dcc_mcp_core/skill.py
 ```
 
 ---

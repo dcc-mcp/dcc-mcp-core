@@ -8,7 +8,17 @@
 You are working on **dcc-mcp-core**, a Rust-powered MCP (Model Context Protocol) library for DCC
 (Digital Content Creation) applications. Python package: `dcc_mcp_core`. ~154 public symbols,
 zero runtime Python dependencies (everything compiled into Rust core via PyO3), plus pure-Python
-helpers (DccServerBase, DccGatewayElection, DccSkillHotReloader, factory, skill helpers).
+helpers (DccServerBase, DccGatewayElection, DccSkillHotReloader, factory, skill helpers, WebViewAdapter).
+
+## Response Language
+
+- Reply to the user in **Simplified Chinese** (中文简体) by default.
+- Keep all code, identifiers, commit messages, branch names, docstrings,
+  comments, and file contents in **English** — this rule governs only the
+  conversational/assistant-facing output, not anything written to disk or
+  pushed to git.
+- If the user explicitly requests another language for a specific reply,
+  follow that request for that turn.
 
 ## Priority Reading Order
 
@@ -120,6 +130,43 @@ DCC_MCP_SKILL_PATHS env var
 
 Action naming: `{skill_name}__{script_stem}` (hyphens → underscores, `__` separator)
 
+### Quick Lookup: Common Method Signatures
+
+```python
+# ToolDispatcher — only .dispatch(), never .call()
+dispatcher = ToolDispatcher(registry)   # takes ONE arg; no validator param
+result = dispatcher.dispatch("action_name", json.dumps({"key": "value"}))
+# result keys: "action", "output", "validation_skipped"
+
+# scan_and_load — ALWAYS returns a 2-TUPLE
+skills, skipped = scan_and_load(dcc_name="maya")   # never: skills = scan_and_load(...)
+
+# success_result — extra kwargs go into context, NOT "context=" keyword arg
+result = success_result("message", prompt="hint", count=5)
+# result.context == {"count": 5}
+
+# error_result — positional args
+result = error_result("Failed", "specific error string")
+
+# EventBus.subscribe returns int ID
+sub_id = bus.subscribe("event_name", handler_fn)
+bus.unsubscribe("event_name", sub_id)
+
+# ToolRegistry.register — takes keyword args, NOT handler=
+registry.register(name="action", description="...", dcc="maya", version="1.0.0")
+# Use dispatcher.register_handler() to attach a Python callable
+
+# FramedChannel.call() — primary RPC helper (v0.12.7+)
+channel = connect_ipc(TransportAddress.default_local("maya", pid))
+result = channel.call("execute_python", b'cmds.sphere()', timeout_ms=30000)
+# result: {"id": str, "success": bool, "payload": bytes, "error": str|None}
+
+# McpHttpServer — expose registry over HTTP/MCP
+server = McpHttpServer(registry, McpHttpConfig(port=8765))
+handle = server.start()   # McpServerHandle
+print(handle.mcp_url())   # "http://127.0.0.1:8765/mcp"
+```
+
 ### On-Demand Skill Discovery (MCP HTTP)
 
 `tools/list` returns three tiers:
@@ -165,11 +212,17 @@ search-hint: "polygon modeling, bevel, extrude, mesh editing"
 
 23. **`search_hint` fallback**: If `search-hint:` is not in SKILL.md, `SkillSummary.search_hint` falls back to `description`. Set `search-hint` explicitly for better keyword matching.
 
-24. **SkillScope & SkillPolicy** (v0.13+): Trust hierarchy `Repo` < `User` < `System` < `Admin`. Higher-scope skills shadow lower-scope ones with the same name. `SkillPolicy.allow_implicit_invocation` controls auto-loading; `SkillPolicy.products` filters by DCC type.
+24. **SkillScope & SkillPolicy** (v0.13+): Trust hierarchy `Repo` < `User` < `System` < `Admin`. Higher-scope skills shadow lower-scope ones with the same name. **These are Rust-level types not directly importable from Python.** Configure via SKILL.md frontmatter (`allow_implicit_invocation`, `products`) and access via `SkillMetadata.is_implicit_invocation_allowed()` / `SkillMetadata.matches_product(dcc_name)`.
 
-25. **Action→Tool compatibility** (v0.13): The project renamed "action" → "tool" conceptually. Method names `get_action`, `list_actions`, `search_actions` remain as compatibility aliases — not bugs.
+25. **WebViewAdapter** (Python-only): `from dcc_mcp_core import WebViewAdapter, WebViewContext, CAPABILITY_KEYS, WEBVIEW_DEFAULT_CAPABILITIES` — for embedding browser panels in DCC applications. Not in `_core.pyi`.
 
-26. **MCP best practices**: Design tools around user workflows, not API calls. Use `ToolAnnotations` for safety hints. Return human-readable errors. Use `notifications/tools/list_changed` when the tool set changes.
+26. **`skill_warning()` / `skill_exception()`**: Pure-Python helpers in `skill.py`. `skill_warning()` returns a partial-success dict with warnings; `skill_exception()` wraps exceptions into error dict format.
+
+27. **Action→Tool compatibility** (v0.13): The project renamed "action" → "tool" conceptually. Method names `get_action`, `list_actions`, `search_actions` remain as compatibility aliases — not bugs.
+
+28. **MCP best practices**: Design tools around user workflows, not API calls. Use `ToolAnnotations` for safety hints (`read_only_hint`, `destructive_hint`, `idempotent_hint`). Return human-readable errors. Use `notifications/tools/list_changed` when the tool set changes.
+
+29. **`ActionMeta` is Rust-only**: Do not reference `ActionMeta.enabled` or `ActionMeta.group` in Python code. Use `ToolRegistry.set_tool_enabled(name, enabled)` and `ToolRegistry.list_tools_in_group(skill, group)` instead.
 
 ## CI/CD Summary
 

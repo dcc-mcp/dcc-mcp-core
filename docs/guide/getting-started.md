@@ -69,6 +69,45 @@ print(tool_names)
 
 See the [Skills System guide](/guide/skills) for writing `SKILL.md` files and advanced options.
 
+### Writing a Minimal SKILL.md
+
+Create a skill in three steps:
+
+```bash
+# 1. Create the skill directory structure
+mkdir -p my-skill/scripts
+
+# 2. Write SKILL.md (follows agentskills.io specification)
+cat > my-skill/SKILL.md << 'EOF'
+---
+name: my-skill
+description: "Does something useful in Maya. Use when user asks to do X."
+dcc: maya
+version: "1.0.0"
+search-hint: "keyword1, keyword2, related task"
+---
+
+# My Skill
+
+Instructions for the AI agent on how to use this skill.
+EOF
+
+# 3. Add a script
+cat > my-skill/scripts/do_thing.py << 'EOF'
+import sys, json
+
+def main():
+    params = json.loads(sys.stdin.read())
+    # ... do work ...
+    print(json.dumps({"success": True, "message": "Done"}))
+
+if __name__ == "__main__":
+    main()
+EOF
+```
+
+Then set `DCC_MCP_SKILL_PATHS` to the parent directory and use `create_skill_server` or `SkillCatalog.discover()`.
+
 ### Tool Registry
 
 ```python
@@ -209,6 +248,33 @@ vx just lint
 - See the [Transport Layer](/guide/transport) for DCC communication
 - Understand the [Architecture](/guide/architecture) of the 14-crate Rust workspace
 - Learn [Skill Scopes & Policies](/guide/skill-scopes-policies) for trust-based skill management
+
+## Troubleshooting
+
+### Build/Import Errors
+
+```bash
+# Symbol in __init__.py but ImportError → rebuild the dev wheel
+vx just dev
+
+# Verify import works
+python -c "import dcc_mcp_core; print(hasattr(dcc_mcp_core, 'MyNewSymbol'))"
+
+# Verbose cargo build to catch errors
+cargo build --workspace --features python-bindings 2>&1 | grep -E "error|warning" | head -30
+```
+
+### Common Mistakes
+
+| Problem | Solution |
+|---------|----------|
+| `scan_and_load` returns wrong results | Always unpack: `skills, skipped = scan_and_load(...)` — it returns a 2-tuple |
+| `success_result` context is empty | Pass kwargs directly: `success_result("msg", count=5)` — NOT `context={"count":5}` |
+| `ToolDispatcher.call()` not found | Use `.dispatch(name, json_str)` — there is no `.call()` method |
+| `McpHttpServer` tools not appearing | Register all tools BEFORE `server.start()` — the server reads the registry at startup |
+| `SkillScope` / `SkillPolicy` ImportError | These are Rust-only types. Use SKILL.md frontmatter and `SkillMetadata` methods instead |
+| `DeferredExecutor` ImportError | Import directly: `from dcc_mcp_core._core import DeferredExecutor` |
+| Skill scripts not discovered | Check `DCC_MCP_SKILL_PATHS` env var and `dcc:` field in SKILL.md matches your filter |
 
 ## Building a DCC Adapter with DccServerBase
 

@@ -223,14 +223,16 @@ def test_skill_scan(tmp_path):
 - **Bridge system**: `BridgeRegistry`, `BridgeContext`, `register_bridge()`, `get_bridge_context()` — for inter-protocol bridging (RPyC ↔ MCP etc.). Don't build custom bridge registries.
 - **Scene data model**: `BoundingBox`, `FrameRange`, `ObjectTransform`, `SceneNode`, `SceneObject`, `RenderOutput` — use for structured scene data instead of raw dicts. `BoundingBox` may be `None`.
 - **Serialization**: `serialize_result()` / `deserialize_result()` with `SerializeFormat` enum — for transport-safe ToolResult serialization. Don't use `json.dumps()` on ToolResult.
-- **SkillScope & SkillPolicy** (v0.13+): Trust hierarchy (`Repo` < `User` < `System` < `Admin`) — higher scopes shadow lower for same-name skills. `SkillPolicy` controls `allow_implicit_invocation` and `products` filter.
+- **SkillScope & SkillPolicy** (v0.13+): Trust hierarchy (`Repo` < `User` < `System` < `Admin`) — higher scopes shadow lower for same-name skills. **These are Rust-level types not directly importable from Python.** Configure via SKILL.md frontmatter (`allow_implicit_invocation`, `products`) and access via `SkillMetadata.is_implicit_invocation_allowed()` / `SkillMetadata.matches_product(dcc_name)`.
+- **WebViewAdapter** (Python-only): `from dcc_mcp_core import WebViewAdapter, WebViewContext, CAPABILITY_KEYS, WEBVIEW_DEFAULT_CAPABILITIES` — for embedding browser panels in DCC applications. Not in `_core.pyi`.
+- **`skill_warning()` / `skill_exception()`**: Pure-Python helpers in `skill.py`. `skill_warning()` returns a partial-success dict with warnings; `skill_exception()` wraps exceptions into error dict format.
 - **Action→Tool rename** (v0.13): Conceptual rename complete; some Rust API method names (`get_action`, `list_actions`, `search_actions`) remain as compatibility aliases — not bugs.
 - **MCP best practices**: Design tools around user workflows, not raw API calls. Use `ToolAnnotations` for safety hints (`read_only_hint`, `destructive_hint`, `idempotent_hint`). Return human-readable errors.
 
 ## Key Files to Read First (Priority Order)
 
-1. `python/dcc_mcp_core/__init__.py` — Complete public API (~154 symbols including BridgeRegistry, BridgeContext, BoundingBox, FrameRange, ObjectTransform, SceneNode, SceneObject, RenderOutput, SerializeFormat)
-2. `python/dcc_mcp_core/_core.pyi` — Type stubs with parameter names
+1. `python/dcc_mcp_core/__init__.py` — Complete public API (~154 symbols including BridgeRegistry, BridgeContext, BoundingBox, FrameRange, ObjectTransform, SceneNode, SceneObject, RenderOutput, SerializeFormat, WebViewAdapter, WebViewContext)
+2. `python/dcc_mcp_core/_core.pyi` — Type stubs with parameter names (does NOT include WebViewAdapter — that's Python-only)
 3. `AGENTS.md` — Full architecture, commands, pitfalls
 4. `crates/*/src/python.rs` — PyO3 binding implementations
 5. `src/lib.rs` — Module registration entry point

@@ -158,6 +158,7 @@ crates/
 **Tool groups (progressive exposure):**
 - `ToolRegistry.activate_tool_group(skill, group) -> int`, `.deactivate_tool_group(skill, group) -> int` — enable/disable tools in a group; emits `notifications/tools/list_changed`
 - `ToolRegistry.list_tools_in_group(skill, group) -> List[dict]`, `.list_actions_enabled() -> List[dict]`, `.set_tool_enabled(name, enabled) -> bool`
+- **Note**: `ActionMeta` is a Rust-internal type not accessible from Python. Use the `ToolRegistry` methods above to control tool visibility.
 - MCP core tools: `activate_tool_group`, `deactivate_tool_group`, `search_tools` (registered alongside the six skill-discovery tools; `tools/list` also emits `__group__<skill>.<group>` stubs for inactive groups)
 
 **Action naming**: `{skill_name}__{script_stem}` — hyphens in skill names replaced by underscores
@@ -267,19 +268,24 @@ crates/
 - `register_bridge(name, ctx)` — register a named bridge
 - `get_bridge_context(name) -> Optional[BridgeContext]` — retrieve bridge by name
 
+### WebView System (`dcc_mcp_core`)
+
+- `WebViewAdapter` — Python-only: embed browser panels in DCC applications
+- `WebViewContext` — Python-only: webview context with capabilities and configuration
+- `CAPABILITY_KEYS` — Python-only: available capability key constants
+- `WEBVIEW_DEFAULT_CAPABILITIES` — Python-only: default capability set
+- Note: These are pure-Python helpers, not in `_core.pyi`
+
 ### Skill Scopes & Policies (`dcc_mcp_core`)
 
-- `SkillScope` — enum: `Repo`, `User`, `System`, `Admin` (ascending trust; higher shadows lower)
+- `SkillScope` — enum: `Repo`, `User`, `System`, `Admin` (ascending trust; higher shadows lower). **Rust-only type — not importable from Python.** Configure via SKILL.md frontmatter and access via `SkillMetadata` methods.
   - `Repo` — project-local (e.g. `./<project>/.dcc_skills/`)
   - `User` — user-level (e.g. `~/.dcc_mcp/skills/`)
   - `System` — system-wide (e.g. `/opt/dcc_mcp/skills/`)
   - `Admin` — enterprise-managed (elevated privilege)
-  - `SkillScope.is_elevated()` — `True` for System and Admin
-  - `SkillScope.label()` — short string (`"repo"`, `"user"`, etc.)
-- `SkillPolicy` — declared in SKILL.md frontmatter
+- `SkillPolicy` — declared in SKILL.md frontmatter. **Rust-only type — not importable from Python.** Access via `SkillMetadata`:
   - `allow_implicit_invocation: bool` (default `True`) — when `False`, skill must be explicitly `load_skill()`'d
   - `products: list[str]` — DCC type whitelist (case-insensitive)
-  - `SkillMetadata.policy` — access the policy object
   - `SkillMetadata.is_implicit_invocation_allowed()` — check policy
   - `SkillMetadata.matches_product(dcc_name)` — check product filter
 

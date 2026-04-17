@@ -1,6 +1,6 @@
 # Skills System
 
-The Skills system allows you to register any script (Python, MEL, MaxScript, BAT, Shell, etc.) as an MCP-discoverable tool with **zero Python code**. It directly reuses the [OpenClaw Skills](https://docs.openclaw.ai/tools) / Anthropic Skills ecosystem format.
+The Skills system allows you to register any script (Python, MEL, MaxScript, BAT, Shell, etc.) as an MCP-discoverable tool with **zero Python code**. It follows the [agentskills.io](https://agentskills.io/specification) specification for SKILL.md format, with DCC-specific extensions (`dcc`, `search-hint`, `tools`, `groups`, `depends`).
 
 ## Quick Start
 
@@ -270,6 +270,28 @@ deps = expand_transitive_dependencies(skills, "maya-animation")
 # ["maya-geometry"]
 ```
 
+## Skill Directory Structure
+
+Beyond the required `SKILL.md` and `scripts/`, the [agentskills.io](https://agentskills.io/specification) specification defines optional directories:
+
+```
+my-skill/
+├── SKILL.md          # Required: metadata + instructions
+├── scripts/          # Required: executable code
+├── references/       # Optional: supplementary docs loaded on demand
+│   ├── REFERENCE.md  # Detailed technical reference
+│   └── FORMS.md      # Form templates or structured data formats
+├── assets/           # Optional: templates, images, data files
+└── metadata/         # Optional: dcc-mcp-core dependency declarations
+    └── depends.md    # YAML list of dependency skill names
+```
+
+**`references/`** — Additional documentation that agents load on demand. Keep each file focused and small (< 2000 tokens recommended) to minimize context consumption. Reference files from SKILL.md body using relative paths: `See [reference guide](references/REFERENCE.md) for details.`
+
+**`assets/`** — Static resources like document templates, configuration templates, images, or lookup tables. Not automatically loaded; agents access them when needed.
+
+> **Tip**: Keep the main `SKILL.md` body under **500 lines** and **5000 tokens**. Move detailed reference material to `references/` files — agents load them only when needed (progressive disclosure).
+
 ## SkillMetadata Fields
 
 Parsed from SKILL.md frontmatter. Supports Anthropic Skills, ClawHub/OpenClaw, and dcc-mcp-core extensions simultaneously.
@@ -341,10 +363,10 @@ tools:
 When `SkillCatalog.load_skill("maya-geometry")` runs:
 
 1. All tool declarations are registered in `ToolRegistry` with their
-   `ActionMeta.group` set to the declared group name.
-2. Tools in groups where `default_active=false` are registered with
-   `ActionMeta.enabled=False`. The MCP server hides disabled tools from
-   `tools/list`; they are invocable again once the group is activated.
+   group metadata set to the declared group name.
+2. Tools in groups where `default_active=false` are hidden from
+   `tools/list`. They remain in the registry (visible via `list_actions()`)
+   and become active once the group is activated.
 3. `SkillCatalog.active_groups(skill_name)` returns the initially-active groups.
 
 ### Controlling Groups at Runtime

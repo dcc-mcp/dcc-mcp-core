@@ -634,9 +634,9 @@ tools:
 
 **Runtime behaviour after `load_skill`:**
 
-1. Every tool is registered in `ToolRegistry` with `ActionMeta.group` set.
-2. Tools whose group has `default_active=false` are registered with
-   `ActionMeta.enabled=False` — MCP `tools/list` hides them.
+1. Every tool is registered in `ToolRegistry` with its group metadata set.
+2. Tools whose group has `default_active=false` are hidden from
+   MCP `tools/list` — they remain in the registry and become visible once activated.
 3. `tools/list` also emits `__group__<skill>.<group>` stubs for inactive
    groups so clients can discover and activate them on demand.
 
