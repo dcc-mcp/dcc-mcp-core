@@ -11,6 +11,19 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.13.2](https://github.com/loonghao/dcc-mcp-core/compare/v0.13.1...v0.13.2) (2026-04-17)
+
+
+### Features
+
+* window-target capture, instance-bound diagnostics, and tool groups ([#215](https://github.com/loonghao/dcc-mcp-core/issues/215)) ([89079fb](https://github.com/loonghao/dcc-mcp-core/commit/89079fb49a259c484187053cfceba81e7338b812))
+
+
+### Documentation
+
+* enhance AI agent guidance for v0.13.x with SkillScope, MCP best practices, DccServerBase ([#216](https://github.com/loonghao/dcc-mcp-core/issues/216)) ([13d3f34](https://github.com/loonghao/dcc-mcp-core/commit/13d3f3415433acd5131be408d79d49e54bce3ce9))
+* fix action→tool terminology, add DccGatewayElection API, sync ZH capture docs ([#218](https://github.com/loonghao/dcc-mcp-core/issues/218)) ([2bd655d](https://github.com/loonghao/dcc-mcp-core/commit/2bd655d3d8b4fa4502e021e4ae75c5bad70a49ea))
+
 ## [0.13.1](https://github.com/loonghao/dcc-mcp-core/compare/v0.13.0...v0.13.1) (2026-04-17)
 
 
