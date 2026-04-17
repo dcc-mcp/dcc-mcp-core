@@ -1,8 +1,8 @@
-"""Inspect per-action performance metrics.
+"""Inspect per-tool performance metrics.
 
 Data source priority:
 1. IPC callback — if DCC_MCP_IPC_ADDRESS is set, connect to the running DCC
-   server and call 'get_action_metrics' to get live recorder data.
+   server and call 'get_tool_metrics' to get live recorder data.
 2. Local ToolRecorder — creates a fresh (empty) recorder as a fallback,
    useful for testing without a running DCC server.
 """
@@ -24,7 +24,7 @@ _SORT_KEYS = {
 
 
 def _fetch_via_ipc(ipc_address: str, action_name: str | None) -> dict | None:
-    """Connect to the DCC server via IPC and call 'get_action_metrics'."""
+    """Connect to the DCC server via IPC and call 'get_tool_metrics'."""
     try:
         from dcc_mcp_core import TransportAddress
         from dcc_mcp_core import connect_ipc
@@ -39,7 +39,7 @@ def _fetch_via_ipc(ipc_address: str, action_name: str | None) -> dict | None:
 
     try:
         params = json.dumps({"action_name": action_name}).encode()
-        result = channel.call("get_action_metrics", params, timeout_ms=10000)
+        result = channel.call("get_tool_metrics", params, timeout_ms=10000)
         channel.shutdown()
 
         if not result.get("success"):
@@ -87,7 +87,6 @@ def _metric_to_dict(metric) -> dict:
 
 
 def main() -> None:
-    """Show action performance metrics and print JSON result to stdout."""
     parser = argparse.ArgumentParser(description="Show action performance metrics.")
     parser.add_argument("--action-name", default=None, dest="action_name")
     parser.add_argument("--sort-by", default="invocations", choices=list(_SORT_KEYS), dest="sort_by")

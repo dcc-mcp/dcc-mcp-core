@@ -144,7 +144,7 @@ def main() -> None:
                 ),
                 "prompt": (
                     "Audit log retrieved. If entries show 'denied' outcomes, check the SandboxPolicy. "
-                    "Use dcc_diagnostics__action_metrics to see performance data, or "
+                    "Use dcc_diagnostics__tool_metrics to see performance data, or "
                     "dcc_diagnostics__screenshot to capture what's currently visible."
                 ),
                 "context": {

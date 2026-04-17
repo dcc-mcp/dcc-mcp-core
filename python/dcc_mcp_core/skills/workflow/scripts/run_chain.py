@@ -2,7 +2,7 @@
 
 Dispatch strategy:
 1. IPC dispatch — if DCC_MCP_IPC_ADDRESS is set, each step is sent to the
-   running DCC server via FramedChannel.call("dispatch_action", ...).
+   running DCC server via FramedChannel.call("dispatch_tool", ...).
    This is the production path (Maya, Blender, Unreal, etc.).
 2. Local ToolDispatcher — fallback for testing without a live DCC server.
    Only actions registered in the local process are available.
@@ -51,7 +51,7 @@ def _build_ipc_dispatcher(ipc_address: str):
         channel = connect_ipc(addr, timeout_ms=5000)
         try:
             payload = json.dumps({"action": action_name, "params": params}).encode()
-            result = channel.call("dispatch_action", payload, timeout_ms=30000)
+            result = channel.call("dispatch_tool", payload, timeout_ms=30000)
             if not result.get("success"):
                 return {"success": False, "message": f"IPC dispatch error: {result.get('error')}"}
             raw = result.get("payload", b"{}")

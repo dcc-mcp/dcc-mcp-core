@@ -36,7 +36,7 @@ def server():
 EXPECTED_TOOLS = [
     "diagnostics__screenshot",
     "diagnostics__audit_log",
-    "diagnostics__action_metrics",
+    "diagnostics__tool_metrics",
     "diagnostics__process_status",
 ]
 

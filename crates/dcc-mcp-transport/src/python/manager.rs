@@ -158,13 +158,9 @@ impl PyTransportManager {
         if let Some(ex) = extras {
             let mut out = HashMap::with_capacity(ex.len());
             for (k, v) in ex.iter() {
-                let key = k
-                    .extract::<String>()
-                    .map_err(|_| {
-                        pyo3::exceptions::PyTypeError::new_err(
-                            "extras dict keys must be strings",
-                        )
-                    })?;
+                let key = k.extract::<String>().map_err(|_| {
+                    pyo3::exceptions::PyTypeError::new_err("extras dict keys must be strings")
+                })?;
                 out.insert(key, super::helpers::py_to_json_value(&v)?);
             }
             entry.extras = out;

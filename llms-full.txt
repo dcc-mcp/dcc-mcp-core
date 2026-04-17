@@ -1780,7 +1780,7 @@ handle = server.start()
 # Registers the four diagnostics tools bound to this instance:
 #   diagnostics__screenshot
 #   diagnostics__audit_log
-#   diagnostics__action_metrics
+#   diagnostics__tool_metrics   (renamed from diagnostics__action_metrics in 0.14.0)
 #   diagnostics__process_status
 ```
 

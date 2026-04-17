@@ -63,28 +63,28 @@ tools:
     idempotent: true
     source_file: scripts/audit_log.py
     next-tools:
-      on-success: [dcc_diagnostics__action_metrics]
+      on-success: [dcc_diagnostics__tool_metrics]
       on-failure: []
 
-  - name: action_metrics
-    description: "Show performance metrics for registered actions — invocation counts, success rates, average and P95/P99 latencies. Use to identify slow or failing tools."
+  - name: tool_metrics
+    description: "Show performance metrics for registered tools — invocation counts, success rates, average and P95/P99 latencies. Use to identify slow or failing tools."
     input_schema:
       type: object
       properties:
         action_name:
           type: string
-          description: "If provided, return metrics only for this action. Otherwise return all."
+          description: "If provided, return metrics only for this tool. Otherwise return all."
         sort_by:
           type: string
           description: "Sort results by: 'name', 'invocations' (default), 'avg_ms', 'p95_ms', or 'failure_rate'"
           default: invocations
         limit:
           type: integer
-          description: "Maximum number of actions to return (default 20)."
+          description: "Maximum number of tools to return (default 20)."
           default: 20
     read_only: true
     idempotent: true
-    source_file: scripts/action_metrics.py
+    source_file: scripts/tool_metrics.py
     next-tools:
       on-success: [dcc_diagnostics__process_status]
       on-failure: []
@@ -126,11 +126,11 @@ Backed by the `dcc_mcp_core.Capturer` class which uses:
 ### `dcc_diagnostics__audit_log`
 
 Query the sandbox audit log from `dcc_mcp_core.SandboxContext`.
-Returns recent action invocations with outcome (success/denied) and timestamps.
+Returns recent tool invocations with outcome (success/denied) and timestamps.
 
-### `dcc_diagnostics__action_metrics`
+### `dcc_diagnostics__tool_metrics`
 
-Inspect per-action performance counters from `dcc_mcp_core.ToolRecorder`:
+Inspect per-tool performance counters from `dcc_mcp_core.ToolRecorder`:
 invocation count, success rate, average latency, P95/P99 percentiles.
 
 ### `dcc_diagnostics__process_status`

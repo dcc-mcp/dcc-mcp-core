@@ -68,7 +68,7 @@ def main() -> None:
                 "prompt": (
                     "Screenshot captured. You can view the image data in the 'image_base64' field. "
                     "If you see an error on screen, use dcc_diagnostics__audit_log to check recent "
-                    "action history, or dcc_diagnostics__action_metrics to find failing tools."
+                    "tool history, or dcc_diagnostics__tool_metrics to find failing tools."
                 ),
                 "context": {
                     "width": frame.width,

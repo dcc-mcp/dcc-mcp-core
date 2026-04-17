@@ -242,7 +242,8 @@ crates/
 ### Instance-Bound Diagnostics (`dcc_mcp_core`)
 
 - `DccServerBase(dcc_name, builtin_skills_dir, *, dcc_pid=None, dcc_window_title=None, dcc_window_handle=None, resolver=None)` — bind an adapter to a specific DCC instance; the four `diagnostics__*` tools target this DCC only
-- `register_diagnostic_mcp_tools(server, *, dcc_name, dcc_pid=None, dcc_window_handle=None, dcc_window_title=None, resolver=None)` — register `diagnostics__screenshot`, `diagnostics__audit_log`, `diagnostics__action_metrics`, `diagnostics__process_status` on an `McpHttpServer` before `.start()`
+- `register_diagnostic_mcp_tools(server, *, dcc_name, dcc_pid=None, dcc_window_handle=None, dcc_window_title=None, resolver=None)` — register `diagnostics__screenshot`, `diagnostics__audit_log`, `diagnostics__tool_metrics`, `diagnostics__process_status` on an `McpHttpServer` before `.start()`
+- IPC handlers (renamed in 0.14.0, no compat aliases): `get_audit_log`, `get_tool_metrics` (was `get_action_metrics`), `dispatch_tool` (was `dispatch_action`), `take_screenshot`
 - `register_diagnostic_handlers(...)` — the IPC-path equivalent (used by `DccServerBase.start()`)
 - Bundled `dcc-diagnostics` skill's `screenshot.py` tries `DCC_MCP_OWNER_IPC` → `channel.call("take_screenshot")` first and falls back to `Capturer.new_auto()` when no owner IPC is set
 

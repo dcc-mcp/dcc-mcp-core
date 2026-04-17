@@ -3,13 +3,13 @@
 Covers:
 - register_diagnostic_handlers registers the four handler names on the mock server
 - get_audit_log handler returns valid JSON with success=True (local SandboxContext)
-- get_action_metrics handler returns valid JSON with success=True (local ToolRecorder)
-- dispatch_action handler returns error when dispatcher is None
-- dispatch_action handler relays through a mock dispatcher
+- get_tool_metrics handler returns valid JSON with success=True (local ToolRecorder)
+- dispatch_tool handler returns error when dispatcher is None
+- dispatch_tool handler relays through a mock dispatcher
 - DCC_MCP_IPC_ADDRESS env var is set after registration (unless already present)
 - register_diagnostic_handlers is importable from the top-level dcc_mcp_core package
 - _handle_get_audit_log handles invalid JSON params gracefully
-- _handle_get_action_metrics handles missing action gracefully
+- _handle_get_tool_metrics handles missing action gracefully
 """
 
 from __future__ import annotations
@@ -80,8 +80,8 @@ def test_registers_four_handlers():
     register_diagnostic_handlers(server, dcc_name="test-dcc")
 
     assert "get_audit_log" in server._handlers
-    assert "get_action_metrics" in server._handlers
-    assert "dispatch_action" in server._handlers
+    assert "get_tool_metrics" in server._handlers
+    assert "dispatch_tool" in server._handlers
     assert "take_screenshot" in server._handlers
 
 
@@ -157,42 +157,42 @@ def test_get_audit_log_empty_params():
 
 
 # ---------------------------------------------------------------------------
-# get_action_metrics
+# get_tool_metrics
 # ---------------------------------------------------------------------------
 
 
-def test_get_action_metrics_returns_json():
+def test_get_tool_metrics_returns_json():
     from dcc_mcp_core.dcc_server import register_diagnostic_handlers
 
     server = _MockServer()
     register_diagnostic_handlers(server, dcc_name="test-dcc")
 
-    result_str = server.call("get_action_metrics", json.dumps({}))
+    result_str = server.call("get_tool_metrics", json.dumps({}))
     data = json.loads(result_str)
     assert "success" in data
 
 
-def test_get_action_metrics_empty_params():
-    from dcc_mcp_core.dcc_server import _handle_get_action_metrics
+def test_get_tool_metrics_empty_params():
+    from dcc_mcp_core.dcc_server import _handle_get_tool_metrics
 
-    result_str = _handle_get_action_metrics("")
+    result_str = _handle_get_tool_metrics("")
     data = json.loads(result_str)
     assert "success" in data
 
 
 # ---------------------------------------------------------------------------
-# dispatch_action
+# dispatch_tool
 # ---------------------------------------------------------------------------
 
 
-def test_dispatch_action_no_dispatcher_returns_error():
+def test_dispatch_tool_no_dispatcher_returns_error():
     import dcc_mcp_core.dcc_server as mod
 
     # Reset dispatcher so we can test the None path
     original = mod._dispatcher_ref
     mod._dispatcher_ref = None
     try:
-        result_str = mod._handle_dispatch_action(json.dumps({"action": "test", "params": {}}))
+        result_str = mod._handle_dispatch_tool(json.dumps({"action": "test", "params": {}}))
         data = json.loads(result_str)
         assert data["success"] is False
         assert "Dispatcher not available" in data["message"]
@@ -200,7 +200,7 @@ def test_dispatch_action_no_dispatcher_returns_error():
         mod._dispatcher_ref = original
 
 
-def test_dispatch_action_with_dispatcher():
+def test_dispatch_tool_with_dispatcher():
     from dcc_mcp_core.dcc_server import register_diagnostic_handlers
 
     server = _MockServer()
@@ -208,7 +208,7 @@ def test_dispatch_action_with_dispatcher():
     register_diagnostic_handlers(server, dispatcher=dispatcher, dcc_name="test-dcc")
 
     result_str = server.call(
-        "dispatch_action",
+        "dispatch_tool",
         json.dumps({"action": "my_action", "params": {"key": "value"}}),
     )
     data = json.loads(result_str)
@@ -216,21 +216,31 @@ def test_dispatch_action_with_dispatcher():
     assert data.get("echoed_action") == "my_action"
 
 
-def test_dispatch_action_missing_action_field():
-    from dcc_mcp_core.dcc_server import _handle_dispatch_action
+def test_dispatch_tool_missing_action_field():
+    from dcc_mcp_core.dcc_server import _handle_dispatch_tool
 
-    result_str = _handle_dispatch_action(json.dumps({"params": {}}))
+    result_str = _handle_dispatch_tool(json.dumps({"params": {}}))
     data = json.loads(result_str)
     assert data["success"] is False
     assert "Missing 'action'" in data["message"]
 
 
-def test_dispatch_action_invalid_json():
-    from dcc_mcp_core.dcc_server import _handle_dispatch_action
+def test_dispatch_tool_invalid_json():
+    from dcc_mcp_core.dcc_server import _handle_dispatch_tool
 
-    result_str = _handle_dispatch_action("bad-json")
+    result_str = _handle_dispatch_tool("bad-json")
     data = json.loads(result_str)
     assert data["success"] is False
+
+
+def test_legacy_handler_names_not_registered():
+    """Breaking rename in 0.14.0 — no compat aliases are registered."""
+    from dcc_mcp_core.dcc_server import register_diagnostic_handlers
+
+    server = _MockServer()
+    register_diagnostic_handlers(server, dcc_name="test-dcc")
+    assert "get_action_metrics" not in server._handlers
+    assert "dispatch_action" not in server._handlers
 
 
 # ---------------------------------------------------------------------------

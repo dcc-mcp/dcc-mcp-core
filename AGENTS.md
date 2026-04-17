@@ -91,7 +91,7 @@ A Rust-powered MCP (Model Context Protocol) library that lets AI agents interact
 
 **Bind diagnostics tools to a specific DCC instance (multi-instance safe)?**
 → `DccServerBase(..., dcc_pid=pid, dcc_window_title=title, dcc_window_handle=hwnd, resolver=...)`
-→ Registers `diagnostics__screenshot` / `diagnostics__audit_log` / `diagnostics__action_metrics` / `diagnostics__process_status`
+→ Registers `diagnostics__screenshot` / `diagnostics__audit_log` / `diagnostics__tool_metrics` / `diagnostics__process_status`
 → Low-level: `register_diagnostic_mcp_tools(server, dcc_name=..., dcc_pid=...)` BEFORE `server.start()`
 
 **Limit tools surfaced to the LLM client (progressive exposure)?**

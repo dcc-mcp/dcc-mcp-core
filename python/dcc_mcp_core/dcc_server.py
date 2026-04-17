@@ -11,14 +11,18 @@ Registered handlers
     Returns entries from the server-level :class:`SandboxContext` audit log.
     Supports ``filter`` (all/success/denied/error) and ``action_name`` filters.
 
-``get_action_metrics``
-    Returns per-action performance counters from the shared
-    :class:`ToolRecorder`.  Optionally filtered to a single action name.
+``get_tool_metrics``
+    Returns per-tool performance counters from the shared
+    :class:`ToolRecorder`.  Optionally filtered to a single tool name.
+    **Renamed from ``get_action_metrics`` in 0.14.0** — no compatibility
+    alias is registered; callers on the old name will receive a handler-not-found
+    error.
 
-``dispatch_action``
+``dispatch_tool``
     Relays a ``{"action": "...", "params": {...}}`` request through the
     server's internal dispatcher.  Used by ``workflow__run_chain`` to
     execute multi-step chains via IPC without spawning extra sub-processes.
+    **Renamed from ``dispatch_action`` in 0.14.0** — no compatibility alias.
 
 IPC address convention
 ----------------------
@@ -163,7 +167,7 @@ def _handle_get_audit_log(params_json: str) -> str:
         return json.dumps({"success": False, "message": str(exc)})
 
 
-def _handle_get_action_metrics(params_json: str) -> str:
+def _handle_get_tool_metrics(params_json: str) -> str:
     """Return ToolRecorder metrics as a JSON string."""
     try:
         params = json.loads(params_json) if params_json else {}
@@ -191,7 +195,7 @@ def _handle_get_action_metrics(params_json: str) -> str:
             }
         )
     except Exception as exc:
-        logger.warning("get_action_metrics handler error: %s", exc)
+        logger.warning("get_tool_metrics handler error: %s", exc)
         return json.dumps({"success": False, "message": str(exc)})
 
 
@@ -338,13 +342,16 @@ def _handle_process_status(params_json: str) -> str:
     return json.dumps(payload)
 
 
-def _handle_dispatch_action(params_json: str) -> str:
+def _handle_dispatch_tool(params_json: str) -> str:
     """Relay a dispatch request through the server's ToolDispatcher."""
     try:
         params = json.loads(params_json) if params_json else {}
     except json.JSONDecodeError:
         return json.dumps({"success": False, "message": "Invalid JSON params."})
 
+    # The wire payload still uses the legacy field name ``action`` — that key
+    # reflects the backward-compat Rust dispatch result shape (see PR #218);
+    # it is NOT the handler method name.
     action = params.get("action", "")
     action_params = params.get("params", {})
 
@@ -362,7 +369,7 @@ def _handle_dispatch_action(params_json: str) -> str:
             return output  # already JSON
         return json.dumps(output)
     except Exception as exc:
-        logger.warning("dispatch_action handler error for '%s': %s", action, exc)
+        logger.warning("dispatch_tool handler error for '%s': %s", action, exc)
         return json.dumps({"success": False, "message": str(exc)})
 
 
@@ -392,7 +399,7 @@ def register_diagnostic_handlers(
         server: A :class:`dcc_mcp_core.McpHttpServer` / skill-manager object
             that exposes a ``register_handler(name, callable)`` method.
         dispatcher: Optional :class:`dcc_mcp_core.ToolDispatcher` used for
-            the ``dispatch_action`` relay handler.  When ``None``, dispatch
+            the ``dispatch_tool`` relay handler.  When ``None``, dispatch
             relay calls return an error response.
         dcc_name: Short DCC identifier used for the IPC pipe name derivation
             and ``ToolRecorder`` label (e.g. ``"maya"``, ``"blender"``).
@@ -413,8 +420,10 @@ def register_diagnostic_handlers(
     Registered actions
     ------------------
     - ``get_audit_log`` — sandbox audit log entries
-    - ``get_action_metrics`` — ToolRecorder performance counters
-    - ``dispatch_action`` — relay through the server's ToolDispatcher
+    - ``get_tool_metrics`` — ToolRecorder performance counters (was
+      ``get_action_metrics`` prior to 0.14.0)
+    - ``dispatch_tool`` — relay through the server's ToolDispatcher (was
+      ``dispatch_action`` prior to 0.14.0)
     - ``take_screenshot`` — capture the DCC window (or full screen)
 
     """
@@ -437,12 +446,12 @@ def register_diagnostic_handlers(
 
     try:
         server.register_handler("get_audit_log", _handle_get_audit_log)
-        server.register_handler("get_action_metrics", _handle_get_action_metrics)
-        server.register_handler("dispatch_action", _handle_dispatch_action)
+        server.register_handler("get_tool_metrics", _handle_get_tool_metrics)
+        server.register_handler("dispatch_tool", _handle_dispatch_tool)
         server.register_handler("take_screenshot", _handle_take_screenshot)
         logger.debug(
             "Registered diagnostic IPC handlers for dcc=%r: "
-            "get_audit_log, get_action_metrics, dispatch_action, take_screenshot",
+            "get_audit_log, get_tool_metrics, dispatch_tool, take_screenshot",
             dcc_name,
         )
     except Exception as exc:
@@ -550,7 +559,8 @@ def register_diagnostic_mcp_tools(
     ----------------
     - ``diagnostics__screenshot`` — capture the DCC window (or full screen)
     - ``diagnostics__audit_log`` — recent sandbox audit events
-    - ``diagnostics__action_metrics`` — tool dispatch metrics
+    - ``diagnostics__tool_metrics`` — tool dispatch metrics (renamed from
+      ``diagnostics__action_metrics`` in 0.14.0, no compat alias)
     - ``diagnostics__process_status`` — adapter process / DCC alive check
 
     Args:
@@ -593,10 +603,10 @@ def register_diagnostic_mcp_tools(
         ),
         ("diagnostics__audit_log", "Recent sandbox audit events.", _AUDIT_SCHEMA, _handle_get_audit_log),
         (
-            "diagnostics__action_metrics",
+            "diagnostics__tool_metrics",
             "Tool dispatch telemetry metrics.",
             _METRICS_SCHEMA,
-            _handle_get_action_metrics,
+            _handle_get_tool_metrics,
         ),
         ("diagnostics__process_status", "Adapter process and DCC alive status.", _PROC_SCHEMA, _handle_process_status),
     ]

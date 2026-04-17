@@ -161,7 +161,7 @@ class MayaServer(DccServerBase):
 
 server = MayaServer(pid=12345, window_title="Autodesk Maya 2024")
 handle = server.start()  # exposes diagnostics__screenshot / audit_log /
-                         # action_metrics / process_status tools bound to
+                         # tool_metrics / process_status tools bound to
                          # this Maya instance only
 ```
 
