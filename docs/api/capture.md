@@ -23,6 +23,8 @@ capturer = Capturer.new_auto()
 | `new_auto()` | `Capturer` | Create capturer with best available backend (full-screen / display) |
 | `new_window_auto()` | `Capturer` | Create capturer configured for single-window capture (HWND PrintWindow on Windows; Mock elsewhere) |
 | `new_mock(width=1920, height=1080)` | `Capturer` | Create capturer with mock backend (for testing/CI) |
+| `capture_window_png(pid, *, timeout_ms=1000)` | `bytes \| None` | One-shot helper: resolve the main window of `pid`, capture it, return PNG-encoded bytes. Returns `None` on any failure (window not found, backend error, …) instead of raising |
+| `capture_region_png(pid, x, y, w, h, *, timeout_ms=1000)` | `bytes \| None` | One-shot helper: capture window of `pid` and CPU-crop to the rectangle `(x, y, w, h)` (window-local pixels). Zero-width / zero-height regions short-circuit to `None` without touching the backend |
 
 ### Methods
 
@@ -106,6 +108,24 @@ if info is not None:
 # Enumerate every visible top-level window
 for info in finder.enumerate():
     print(info.handle, info.title)
+```
+
+### One-shot PNG sugar
+
+When a caller only needs PNG bytes for a single window and does not want to
+manage a `Capturer` instance, use the static helpers. They swallow every
+failure mode (window not found, backend error, decode error, out-of-bounds
+crop) and return `None`:
+
+```python
+from dcc_mcp_core import Capturer
+
+png = Capturer.capture_window_png(pid=12345, timeout_ms=1000)
+if png is not None:
+    Path("maya.png").write_bytes(png)
+
+# CPU-crop to a sub-rectangle (window-local coordinates, no backend change)
+thumb = Capturer.capture_region_png(12345, 0, 0, 320, 180, timeout_ms=1000)
 ```
 
 ### `CaptureTarget`

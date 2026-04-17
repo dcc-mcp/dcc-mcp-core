@@ -21,7 +21,7 @@ registry = ToolRegistry()
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `register(name, description="", category="", tags=[], dcc="python", version="1.0.0", input_schema=None, output_schema=None, source_file=None)` | — | Register a skill |
+| `register(name, description="", category="", tags=[], dcc="python", version="1.0.0", input_schema=None, output_schema=None, source_file=None, skill_name=None, group="", enabled=True, required_capabilities=None)` | — | Register a skill. `required_capabilities` is an optional `list[str]` of host-DCC capability keys (see [Capability-Based Filtering](#capability-based-filtering)) |
 | `register_batch(actions)` | — | Register multiple tools from a list of dicts (parameter named `actions` for backward compat; each dict uses same keys as `register()`) |
 | `unregister(name, dcc_name=None)` | `bool` | Remove a skill. If `dcc_name=None`, removes globally; otherwise scoped. Returns `True` if found |
 | `get_action(name, dcc_name=None)` | `dict?` | Get skill metadata as dict |
@@ -90,6 +90,36 @@ reg.register_batch([
 removed = reg.unregister("create_sphere")                  # global: True if found
 removed = reg.unregister("create_sphere", dcc_name="maya") # scoped to maya only
 ```
+
+### Capability-Based Filtering
+
+Tools may declare the host-DCC capabilities they rely on at registration time.
+The registry stores the declaration on `ActionMeta.required_capabilities`; the
+Gateway / adapter layer is responsible for hiding the tool from `tools/list`
+when the current session advertises none or a subset of those capabilities.
+
+Built-in keys are exposed through `dcc_mcp_core.CAPABILITY_KEYS`
+(`{"scene", "timeline", "selection", "undo", "render"}`); adapters are free to
+extend the set via `DccCapabilities.extensions`.
+
+```python
+from dcc_mcp_core import ToolRegistry, CAPABILITY_KEYS
+
+reg = ToolRegistry()
+reg.register(
+    "export_playblast",
+    description="Export a timeline playblast",
+    dcc="maya",
+    required_capabilities=["scene", "timeline", "render"],
+)
+
+meta = reg.get_action("export_playblast", dcc_name="maya")
+# Empty lists are elided from the serialized dict; use .get() for safety.
+assert meta.get("required_capabilities", []) == ["scene", "timeline", "render"]
+```
+
+The reference predicate consuming this field lives at
+[`dcc_mcp_core.adapters.WebViewAdapter.matches_requirements`](https://github.com/loonghao/dcc-mcp-core/blob/main/python/dcc_mcp_core/adapters/webview.py).
 
 ## ToolValidator
 

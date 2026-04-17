@@ -164,7 +164,8 @@ Represents a discovered DCC service instance.
 | `port` | `int` | TCP port |
 | `version` | `str \| None` | DCC version |
 | `scene` | `str \| None` | Currently open scene/file |
-| `metadata` | `dict[str, str]` | Arbitrary metadata |
+| `metadata` | `dict[str, str]` | Arbitrary string-only metadata |
+| `extras` | `dict[str, Any]` | JSON-typed DCC metadata (e.g. `cdp_port`, `pid`, nested config) — empty dict when unset |
 | `status` | `ServiceStatus` | Instance status |
 | `transport_address` | `TransportAddress \| None` | Preferred IPC address |
 | `last_heartbeat_ms` | `int` | Last heartbeat timestamp (Unix ms) |
@@ -215,7 +216,7 @@ mgr = TransportManager(
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `register_service(dcc_type, host, port, version=None, scene=None, metadata=None, transport_address=None)` | `str` | Register a service, returns instance_id (UUID) |
+| `register_service(dcc_type, host, port, version=None, scene=None, metadata=None, transport_address=None, extras=None)` | `str` | Register a service, returns instance_id (UUID). `extras` accepts a `dict[str, Any]` of JSON-typed metadata (nested dicts / lists / numbers allowed) |
 | `deregister_service(dcc_type, instance_id)` | `bool` | Deregister a service by key |
 | `list_instances(dcc_type)` | `list[ServiceEntry]` | List all instances for a DCC type |
 | `list_all_services()` | `list[ServiceEntry]` | List all registered services |
@@ -240,6 +241,30 @@ instance_id = mgr.register_service(
     transport_address=addr,
 )
 ```
+
+#### `register_service` — JSON-typed `extras`
+
+`metadata=` only accepts flat `dict[str, str]`. When the DCC needs to advertise
+numeric ports, nested objects, or typed flags, pass them through `extras=`:
+
+```python
+instance_id = mgr.register_service(
+    "photoshop", "127.0.0.1", 8888,
+    version="2024",
+    extras={
+        "cdp_port": 9222,              # integer survives the round-trip
+        "pid": os.getpid(),
+        "features": {"webview": True}, # nested dict is preserved
+    },
+)
+
+entry = mgr.get_service("photoshop", instance_id)
+assert entry.extras["cdp_port"] == 9222
+assert entry.extras["features"]["webview"] is True
+```
+
+`extras` defaults to `{}` and is omitted from the on-disk `services.json` when
+empty, so legacy registries remain byte-identical.
 
 ### Smart Routing
 
