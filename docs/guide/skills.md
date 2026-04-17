@@ -73,9 +73,9 @@ print(f"Discovered {discovered} skills")
 for skill in catalog.list_skills():
     print(f"  {skill.name} v{skill.version}: {skill.description} (loaded={skill.loaded})")
 
-# Load a skill — returns the registered action names
-actions = catalog.load_skill("maya-geometry")
-print(actions)
+# Load a skill — returns the registered tool names
+tool_names = catalog.load_skill("maya-geometry")
+print(tool_names)
 ```
 
 ## Skill Catalog (Recommended API)
@@ -97,7 +97,7 @@ for s in results:
     print(f"{s.name}: {s.tool_count} tools {s.tool_names}")
 
 # Load/unload
-actions = catalog.load_skill("maya-geometry")  # returns List[str]
+actions = catalog.load_skill("maya-geometry")  # returns List[str] — tool names
 catalog.is_loaded("maya-geometry")        # True
 removed = catalog.unload_skill("maya-geometry")
 

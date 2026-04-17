@@ -63,8 +63,8 @@ discovered = catalog.discover(dcc_name="maya")
 print(f"Discovered {discovered} skills")
 
 # Load a skill and inspect the registered tool names
-actions = catalog.load_skill("maya-geometry")
-print(actions)
+tool_names = catalog.load_skill("maya-geometry")
+print(tool_names)
 ```
 
 See the [Skills System guide](/guide/skills) for writing `SKILL.md` files and advanced options.
@@ -89,7 +89,11 @@ print(tool)  # dict with tool metadata
 maya_tools = registry.list_actions(dcc_name="maya")
 ```
 
-### Action Results
+:::: info Action → Tool terminology
+In v0.13+, the project renamed "action" → "tool" at the conceptual level. However, some Rust API method names (`get_action`, `list_actions`, `search_actions`) still use "action" for backward compatibility. These are not bugs — they are compatibility aliases.
+::::
+
+### Tool Results
 
 ```python
 from dcc_mcp_core import success_result, error_result
@@ -155,9 +159,50 @@ vx just lint
 
 ## Next Steps
 
-- Learn about [Actions & Registry](/guide/actions) — the tool registration layer
+- Learn about [Tools & Registry](/guide/actions) — the tool registration layer
 - Explore [Events & Telemetry](/api/events) for lifecycle hooks and lightweight execution metrics
 - Check out the [Skills System](/guide/skills) for zero-code script registration
 - Expose tools with [MCP HTTP Server](/api/http)
 - See the [Transport Layer](/guide/transport) for DCC communication
 - Understand the [Architecture](/guide/architecture) of the 14-crate Rust workspace
+- Learn [Skill Scopes & Policies](/guide/skill-scopes-policies) for trust-based skill management
+
+## Building a DCC Adapter with DccServerBase
+
+`DccServerBase` is the recommended base class for building DCC adapters. It bundles all the boilerplate that every adapter needs:
+
+```python
+from pathlib import Path
+from dcc_mcp_core import DccServerBase
+
+class BlenderMcpServer(DccServerBase):
+    def __init__(self, port: int = 8765, **kwargs):
+        super().__init__(
+            dcc_name="blender",
+            builtin_skills_dir=Path(__file__).parent / "skills",
+            port=port,
+            **kwargs,
+        )
+
+    def _version_string(self) -> str:
+        import bpy
+        return bpy.app.version_string
+
+# That's it — skill management, hot-reload, gateway election are all inherited.
+server = BlenderMcpServer(gateway_port=9765)
+server.register_builtin_actions()  # discover and load skills
+server.enable_hot_reload()         # optional: auto-reload on file changes
+handle = server.start()            # returns McpServerHandle
+print(f"Running at {handle.mcp_url()}")
+```
+
+For zero-boilerplate adapters, use `make_start_stop`:
+
+```python
+from dcc_mcp_core import make_start_stop
+
+start_server, stop_server = make_start_stop(
+    BlenderMcpServer,
+    hot_reload_env_var="DCC_MCP_BLENDER_HOT_RELOAD",
+)
+```

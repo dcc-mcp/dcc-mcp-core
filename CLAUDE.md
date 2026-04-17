@@ -213,6 +213,9 @@ def test_skill_scan(tmp_path):
 - **Bridge system**: `BridgeRegistry`, `BridgeContext`, `register_bridge()`, `get_bridge_context()` — for inter-protocol bridging (RPyC ↔ MCP etc.). Don't build custom bridge registries.
 - **Scene data model**: `BoundingBox`, `FrameRange`, `ObjectTransform`, `SceneNode`, `SceneObject`, `RenderOutput` — use for structured scene data instead of raw dicts. `BoundingBox` may be `None`.
 - **Serialization**: `serialize_result()` / `deserialize_result()` with `SerializeFormat` enum — for transport-safe ToolResult serialization. Don't use `json.dumps()` on ToolResult.
+- **SkillScope & SkillPolicy** (v0.13+): Trust hierarchy (`Repo` < `User` < `System` < `Admin`) — higher scopes shadow lower for same-name skills. `SkillPolicy` controls `allow_implicit_invocation` and `products` filter.
+- **Action→Tool rename** (v0.13): Conceptual rename complete; some Rust API method names (`get_action`, `list_actions`, `search_actions`) remain as compatibility aliases — not bugs.
+- **MCP best practices**: Design tools around user workflows, not raw API calls. Use `ToolAnnotations` for safety hints (`read_only_hint`, `destructive_hint`, `idempotent_hint`). Return human-readable errors.
 
 ## Key Files to Read First (Priority Order)
 

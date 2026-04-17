@@ -18,6 +18,8 @@
 | Expose DCC tools over HTTP/MCP | `create_skill_server("maya", McpHttpConfig(port=8765))` — Skills-First setup; falls back to `McpHttpServer(registry, config)` for manual registry wiring |
 | Build a DCC adapter | `DccServerBase(dcc_name, builtin_skills_dir)` — skill/lifecycle/gateway/hot-reload inherited |
 | Write skill scripts | `skill_entry` + `skill_success` / `skill_error` — zero-boilerplate skill authoring |
+| Control skill trust level | `SkillScope` (Repo < User < System < Admin) — higher scope shadows lower |
+| Progressive tool exposure | `SkillGroup` with `default_active` + `activate_tool_group()` |
 
 ## Quick Start
 
@@ -59,7 +61,7 @@ meta = dcc_mcp_core.parse_skill_md(dirs[0])  # -> SkillMetadata or None
 - Build from source: `maturin develop --features python-bindings,ext-module`
 - Python: >=3.7 (CI tests 3.7–3.13; abi3-py38 wheel for 3.8+)
 - Build: maturin (Rust 1.85+ + PyO3)
-- Version: 0.12.28+
+- Version: current
 - License: MIT
 
 ## Architecture
@@ -240,6 +242,22 @@ crates/
 - `register_bridge(name, ctx)` — register a named bridge
 - `get_bridge_context(name) -> Optional[BridgeContext]` — retrieve bridge by name
 
+### Skill Scopes & Policies (`dcc_mcp_core`)
+
+- `SkillScope` — enum: `Repo`, `User`, `System`, `Admin` (ascending trust; higher shadows lower)
+  - `Repo` — project-local (e.g. `./<project>/.dcc_skills/`)
+  - `User` — user-level (e.g. `~/.dcc_mcp/skills/`)
+  - `System` — system-wide (e.g. `/opt/dcc_mcp/skills/`)
+  - `Admin` — enterprise-managed (elevated privilege)
+  - `SkillScope.is_elevated()` — `True` for System and Admin
+  - `SkillScope.label()` — short string (`"repo"`, `"user"`, etc.)
+- `SkillPolicy` — declared in SKILL.md frontmatter
+  - `allow_implicit_invocation: bool` (default `True`) — when `False`, skill must be explicitly `load_skill()`'d
+  - `products: list[str]` — DCC type whitelist (case-insensitive)
+  - `SkillMetadata.policy` — access the policy object
+  - `SkillMetadata.is_implicit_invocation_allowed()` — check policy
+  - `SkillMetadata.matches_product(dcc_name)` — check product filter
+
 ### Scene Data Model (`dcc_mcp_core`)
 
 - `BoundingBox` — axis-aligned bounding box (min/max corner vectors)
@@ -289,6 +307,8 @@ maya-geometry/
 
 ### SKILL.md Format
 
+Follows [agentskills.io](https://agentskills.io/specification) specification.
+
 ```yaml
 ---
 name: maya-geometry
@@ -300,8 +320,12 @@ version: "1.0.0"
 depends: ["other-skill"]  # optional
 license: MIT              # optional
 compatibility: "Maya 2024+" # optional
+metadata:                 # optional (agentskills.io spec)
+  author: example-org
+  version: "1.0"
+search-hint: "polygon modeling, bevel, extrude"  # dcc-mcp-core extension
 ---
-# Markdown description body
+# Markdown description body (keep < 500 lines, < 5000 tokens recommended)
 ```
 
 ### Supported Script Types

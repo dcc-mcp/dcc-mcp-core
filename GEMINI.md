@@ -35,7 +35,7 @@ vx just lint-fix     # Auto-fix all lint issues
 - **~154 public Python symbols** exported from `python/dcc_mcp_core/__init__.py`
 - **Zero runtime Python deps** — all logic in Rust, no `dependencies = [...]` in pyproject.toml
 - Python 3.7–3.13 supported (abi3-py38 wheel; separate non-abi3 wheel for 3.7)
-- Version: **0.12.29** — managed by Release Please, never manually bump
+- **Version: current** — managed by Release Please, never manually bump
 
 ## Gemini-Specific Workflows
 
@@ -164,6 +164,12 @@ search-hint: "polygon modeling, bevel, extrude, mesh editing"
 22. **tools/list has 6 core tools** (not 5): `find_skills`, `list_skills`, `get_skill_info`, `load_skill`, `unload_skill`, **`search_skills``. Unloaded skills appear as `__skill__<name>` stubs — calling a stub returns a `load_skill` hint, not an error about missing handlers.
 
 23. **`search_hint` fallback**: If `search-hint:` is not in SKILL.md, `SkillSummary.search_hint` falls back to `description`. Set `search-hint` explicitly for better keyword matching.
+
+24. **SkillScope & SkillPolicy** (v0.13+): Trust hierarchy `Repo` < `User` < `System` < `Admin`. Higher-scope skills shadow lower-scope ones with the same name. `SkillPolicy.allow_implicit_invocation` controls auto-loading; `SkillPolicy.products` filters by DCC type.
+
+25. **Action→Tool compatibility** (v0.13): The project renamed "action" → "tool" conceptually. Method names `get_action`, `list_actions`, `search_actions` remain as compatibility aliases — not bugs.
+
+26. **MCP best practices**: Design tools around user workflows, not API calls. Use `ToolAnnotations` for safety hints. Return human-readable errors. Use `notifications/tools/list_changed` when the tool set changes.
 
 ## CI/CD Summary
 

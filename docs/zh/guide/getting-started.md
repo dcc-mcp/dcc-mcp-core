@@ -62,14 +62,14 @@ catalog = SkillCatalog(registry)
 discovered = catalog.discover(dcc_name="maya")
 print(f"发现了 {discovered} 个 Skill")
 
-# 加载 Skill，并查看注册后的 Action 名称
-actions = catalog.load_skill("maya-geometry")
-print(actions)
+# 加载 Skill，并查看注册后的工具名称
+tool_names = catalog.load_skill("maya-geometry")
+print(tool_names)
 ```
 
 参见 [Skills 系统指南](/zh/guide/skills) 了解 `SKILL.md` 的编写方式和更多选项。
 
-### Action 注册表
+### 工具注册表
 
 ```python
 from dcc_mcp_core import ToolRegistry
@@ -83,13 +83,17 @@ registry.register(
     dcc="maya",
 )
 
-action = registry.get_action("create_sphere")
-print(action)  # 包含 Action 元数据的字典
+tool = registry.get_action("create_sphere")
+print(tool)  # 包含工具元数据的字典
 
-maya_actions = registry.list_actions(dcc_name="maya")
+maya_tools = registry.list_actions(dcc_name="maya")
 ```
 
-### Action 结果
+:::: info Action → Tool 术语说明
+v0.13+ 项目在概念层面将 "action" 重命名为 "tool"。但部分 Rust API 方法名（`get_action`、`list_actions`、`search_actions`）仍使用 "action" 以保持向后兼容——这不是 bug，而是兼容别名。
+::::
+
+### 工具结果
 
 ```python
 from dcc_mcp_core import success_result, error_result
@@ -155,9 +159,50 @@ vx just lint
 
 ## 下一步
 
-- 了解 [Actions 动作](/zh/guide/actions) — 核心构建块
+- 了解 [工具注册表](/zh/guide/actions) — 核心构建块
 - 探索 [Events 事件](/zh/guide/events) 的生命周期钩子
 - 查看 [Skills 技能包](/zh/guide/skills) 的零代码脚本注册
 - 使用 [MCP HTTP 服务器](/zh/api/http) 暴露工具给 AI 客户端
 - 查看 [传输层](/zh/guide/transport) 的 DCC 通信
 - 了解 [架构设计](/zh/guide/architecture) — 14 个 Rust crate 的工作区结构
+- 学习 [技能作用域与策略](/zh/guide/skill-scopes-policies) — 基于信任的技能管理
+
+## 使用 DccServerBase 构建 DCC 适配器
+
+`DccServerBase` 是构建 DCC 适配器的推荐基类。它集成了所有适配器需要的样板代码：
+
+```python
+from pathlib import Path
+from dcc_mcp_core import DccServerBase
+
+class BlenderMcpServer(DccServerBase):
+    def __init__(self, port: int = 8765, **kwargs):
+        super().__init__(
+            dcc_name="blender",
+            builtin_skills_dir=Path(__file__).parent / "skills",
+            port=port,
+            **kwargs,
+        )
+
+    def _version_string(self) -> str:
+        import bpy
+        return bpy.app.version_string
+
+# 仅此而已 — 技能管理、热重载、网关选举均已继承
+server = BlenderMcpServer(gateway_port=9765)
+server.register_builtin_actions()  # 发现并加载技能
+server.enable_hot_reload()         # 可选：文件变更时自动重载
+handle = server.start()            # 返回 McpServerHandle
+print(f"运行于 {handle.mcp_url()}")
+```
+
+零样板适配器可使用 `make_start_stop`：
+
+```python
+from dcc_mcp_core import make_start_stop
+
+start_server, stop_server = make_start_stop(
+    BlenderMcpServer,
+    hot_reload_env_var="DCC_MCP_BLENDER_HOT_RELOAD",
+)
+```

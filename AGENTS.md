@@ -9,18 +9,21 @@
 ## Start Here — Orient in 60 Seconds
 
 **What is this?**
-A Rust-powered MCP (Model Context Protocol) library that lets AI agents interact with DCC software (Maya, Blender, Houdini, Photoshop…). Compiled to a native Python extension via PyO3/maturin. Zero runtime Python dependencies.
+A Rust-powered MCP (Model Context Protocol) library that lets AI agents interact with DCC software (Maya, Blender, Houdini, Photoshop…). Compiled to a native Python extension via PyO3/maturin. Zero runtime Python dependencies. Implements [MCP 2025-03-26](https://modelcontextprotocol.io/specification/2025-03-26) Streamable HTTP transport.
 
 **What does it provide to downstream adapter packages (`dcc-mcp-maya`, `dcc-mcp-blender`, …)?**
 
 | Need | What to use |
 |------|-------------|
 | Expose DCC tools over MCP HTTP | `DccServerBase` → subclass, call `start()` |
-| Zero-code tool registration | Drop `SKILL.md` + `scripts/` in a directory |
+| Zero-code tool registration | Drop `SKILL.md` + `scripts/` in a directory ([agentskills.io](https://agentskills.io/specification) format) |
 | AI-safe result structure | `success_result()` / `error_result()` |
 | Bridge non-Python DCCs (Photoshop, ZBrush) | `DccBridge` (WebSocket JSON-RPC 2.0) |
 | IPC between processes | `IpcListener.bind()` / `connect_ipc()` / `FramedChannel.call()` |
 | Multi-DCC gateway | `McpHttpConfig(gateway_port=9765)` |
+| Trust-based skill scoping | `SkillScope` (Repo → User → System → Admin) |
+| Progressive tool exposure | `SkillGroup` with `default_active` + `activate_tool_group()` |
+| Instance-bound diagnostics | `DccServerBase(..., dcc_pid=pid)` → scoped `diagnostics__*` tools |
 
 **The three files that define the entire public API surface — read them in this order:**
 
@@ -176,7 +179,17 @@ result = dispatcher.dispatch("name", json_str)   # returns dict
 
 **`ToolRegistry.register()` — keyword args only, no positional:**
 ```python
-registry.register(name="my_action", description="...", dcc="maya")
+registry.register(name="my_tool", description="...", dcc="maya")
+```
+
+**`ToolRegistry` method names still use "action" (v0.13 compatibility):**
+```python
+# The Rust API was renamed action→tool in v0.13, but some method names
+# remain as "action" for backward compatibility:
+registry.get_action("create_sphere")           # still "get_action"
+registry.list_actions(dcc_name="maya")         # still "list_actions"
+registry.search_actions(category="geometry")   # still "search_actions"
+# These are NOT bugs — they are compatibility aliases.
 ```
 
 **`FramedChannel.call()` — primary RPC (v0.12.7+):**
@@ -197,6 +210,25 @@ from dcc_mcp_core._core import DeferredExecutor   # direct import required
 ```
 
 **`McpHttpServer` — register ALL handlers BEFORE `.start()`.**
+This includes `register_diagnostic_mcp_tools(...)` for instance-bound diagnostics —
+register them before calling `server.start()`, never after.
+
+**`Capturer.new_auto()` vs `.new_window_auto()`:**
+```python
+# ✓ full-screen / display capture (DXGI on Windows, X11 on Linux)
+Capturer.new_auto().capture()
+
+# ✓ single-window capture (HWND PrintWindow on Windows; Mock elsewhere)
+Capturer.new_window_auto().capture_window(window_title="Maya 2024")
+# ✗ .new_auto() then .capture_window() — may return an incorrect backend
+```
+
+**Tool groups — inactive groups are hidden, not deleted:**
+```python
+# default_active=false tools are registered with enabled=False.
+# tools/list hides them but registry.list_actions() still returns them.
+registry.activate_tool_group("maya-geometry", "rigging")   # emits tools/list_changed
+```
 
 **`skill_success()` vs `success_result()` — different types, different use cases:**
 ```python
@@ -205,6 +237,21 @@ return skill_success("done", count=5)       # → {"success": True, ...} dict
 
 # Inside server code (returns ToolResult for validation/transport):
 return success_result("done", count=5)      # → ToolResult instance
+```
+
+**`SkillScope` — higher scope overrides lower for same-name skills:**
+```python
+# Scope hierarchy: Repo < User < System < Admin
+# A System-scoped skill silently shadows a Repo-scoped skill with the same name.
+# This prevents project-local skills from hijacking enterprise-managed ones.
+```
+
+**`allow_implicit_invocation: false` ≠ `defer-loading: true`:**
+```yaml
+# allow_implicit_invocation: false → skill must be explicitly load_skill()'d
+# defer-loading: true → tool stub appears in tools/list but needs load_skill()
+# Both delay tool availability, but the former is a *policy* (security),
+# the latter is a *hint* (progressive loading). Use both for maximum control.
 ```
 
 ---
