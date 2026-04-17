@@ -11,6 +11,26 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.13.1](https://github.com/loonghao/dcc-mcp-core/compare/v0.13.0...v0.13.1) (2026-04-17)
+
+
+### Bug Fixes
+
+* align http bindings and refresh adapter docs ([7ab2a43](https://github.com/loonghao/dcc-mcp-core/commit/7ab2a43482e44b24e756b1c0950eec1458a0e7ca))
+* **gateway:** aggregate tools from all backends into unified MCP facade ([0ed10b7](https://github.com/loonghao/dcc-mcp-core/commit/0ed10b751f859622997cc0ea3d51510bc36abf11))
+* restore _core compatibility aliases ([32b56a1](https://github.com/loonghao/dcc-mcp-core/commit/32b56a1ce3dc75c954b903c9bfb25027481d4799))
+* satisfy rust clippy on latest stable ([d444ddf](https://github.com/loonghao/dcc-mcp-core/commit/d444ddfa2cde63f91eebb02b27873d3a672e57ff))
+* **test:** update test_entry_to_dict_keys for new ServiceEntry fields ([858fb6b](https://github.com/loonghao/dcc-mcp-core/commit/858fb6b3e7c0a62a0acf91890399505cfb397249))
+
+
+### Code Refactoring
+
+* auto-derive server_version from package, promote deferred imports to top-level ([3c782cc](https://github.com/loonghao/dcc-mcp-core/commit/3c782cccfd1a59e779b4bd36f05d41201bd4f6c2))
+* clean up skill tool terminology ([76ab53e](https://github.com/loonghao/dcc-mcp-core/commit/76ab53e4da87021d0454d949cb3a9b5251de138f))
+* code quality, stale API fixes, AGENTS.md as navigation map ([6d1a46d](https://github.com/loonghao/dcc-mcp-core/commit/6d1a46d0deb302708778351e0ba41f96275de797))
+* remove legacy action aliases ([ac2f2c6](https://github.com/loonghao/dcc-mcp-core/commit/ac2f2c61fb80db5d056c1f867b864cdecbb7871f))
+* rename action APIs to tool APIs ([a71c0d9](https://github.com/loonghao/dcc-mcp-core/commit/a71c0d9d28aa861b2bbca4352e4c3cf425958a2c))
+
 ## [0.13.0](https://github.com/loonghao/dcc-mcp-core/compare/v0.12.29...v0.13.0) (2026-04-15)
 
 
