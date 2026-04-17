@@ -49,6 +49,11 @@ jobs:
     name: Rust coverage
     needs: [rust-check]
     runs-on: ubuntu-latest
+    # id-token: write is required for Codecov tokenless OIDC upload on
+    # protected branches. See https://docs.codecov.com/docs/codecov-tokens
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
@@ -73,6 +78,8 @@ jobs:
           files: coverage/cobertura.xml
           flags: rust
           name: rust-coverage
+          use_oidc: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) }}
+          token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
   # ── Build ABI3 wheel (one per OS, reused by python-test) ──
@@ -111,6 +118,10 @@ jobs:
         python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]
       fail-fast: false
     runs-on: ${{ matrix.os }}
+    # id-token: write enables Codecov tokenless OIDC on the upload step below.
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -134,6 +145,8 @@ jobs:
           files: coverage.xml
           flags: python
           name: python-coverage
+          use_oidc: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) }}
+          token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
   # ── Python 3.7 build + test (non-abi3 wheel) ──

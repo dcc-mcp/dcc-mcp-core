@@ -9,22 +9,21 @@ coverage:
         target: 80%           # Require 80% overall coverage
         threshold: 2%         # Allow 2% drop before failing
         if_not_found: success # Don't fail if no report found (first run)
+      python:
+        target: 80%
+        threshold: 2%
+        flags: [python]
+        if_not_found: success
+      rust:
+        target: 80%
+        threshold: 2%
+        flags: [rust]
+        if_not_found: success
     patch:
       default:
         target: 70%           # New code in PRs requires 70% coverage
         threshold: 5%
         if_not_found: success
-
-  # Per-flag requirements
-  flags:
-    python:
-      target: 80%
-      threshold: 2%
-      if_not_found: success
-    rust:
-      target: 80%
-      threshold: 2%
-      if_not_found: success
 
   precision: 2
   round: down
@@ -39,11 +38,14 @@ ignore:
   - "tests/**"                # Test code excluded from coverage target
 
 comment:
-  layout: "reach,diff,flags,components"
-  behavior: default
-  require_changes: true       # Only post comment if coverage changes
-  require_base: true          # Only post comment if base report exists
+  # See https://docs.codecov.com/docs/pull-request-comments
+  layout: "condensed_header, diff, flags, components, condensed_files, condensed_footer"
+  behavior: default           # Update the existing comment when one already exists
+  require_changes: false      # Post even when coverage did not change (keeps visibility on every PR)
+  require_base: false         # Still comment on the first PR when no base report exists yet
+  require_head: true          # Head report must exist (this PR uploaded coverage)
   show_carryforward_flags: true
+  hide_project_coverage: false
 
 # Parse flags from CI uploads
 flag_management:
