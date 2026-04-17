@@ -127,14 +127,18 @@ mod tests {
         resp.assert_status_ok();
         let body: Value = resp.json();
         let tools = body["result"]["tools"].as_array().unwrap();
-        // 6 core discovery tools + 2 registered actions = 8
-        assert_eq!(tools.len(), 8);
+        // 9 core meta-tools (6 skill discovery + activate/deactivate/search_tools)
+        // + 2 registered actions = 11
+        assert_eq!(tools.len(), 11);
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert!(names.contains(&"get_scene_info"));
         assert!(names.contains(&"list_objects"));
         assert!(names.contains(&"find_skills"));
         assert!(names.contains(&"load_skill"));
         assert!(names.contains(&"search_skills"));
+        assert!(names.contains(&"activate_tool_group"));
+        assert!(names.contains(&"deactivate_tool_group"));
+        assert!(names.contains(&"search_tools"));
     }
 
     // ── search_skills ─────────────────────────────────────────────────────────────
@@ -440,13 +444,16 @@ mod tests {
                     | "load_skill"
                     | "unload_skill"
                     | "search_skills"
+                    | "activate_tool_group"
+                    | "deactivate_tool_group"
+                    | "search_tools"
             );
-            let is_stub = name.starts_with("__skill__");
+            let is_stub = name.starts_with("__skill__") || name.starts_with("__group__");
 
             assert!(
                 is_core || is_stub,
                 "Found unexpected tool '{name}' in tools/list before any skill was loaded. \
-                 Only core meta-tools and __skill__<name> stubs should appear."
+                 Only core meta-tools and __skill__<name> / __group__<name> stubs should appear."
             );
 
             // Stubs must have a minimal input_schema — no nested 'properties'
@@ -1102,8 +1109,8 @@ mod tests {
 
         let body2: Value = resp2.json();
         let tools = body2["result"]["tools"].as_array().unwrap();
-        // 6 core tools + 2 skill tools (skill now loaded, no stubs) = 8
-        assert_eq!(tools.len(), 8);
+        // 9 core meta-tools + 2 skill tools (skill now loaded, no stubs) = 11
+        assert_eq!(tools.len(), 11);
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert!(names.contains(&"modeling_bevel__bevel"));
         assert!(names.contains(&"modeling_bevel__chamfer"));
@@ -1178,8 +1185,8 @@ mod tests {
 
         let body2: Value = resp2.json();
         let tools = body2["result"]["tools"].as_array().unwrap();
-        // Back to 6 core tools + 1 unloaded skill stub = 7
-        assert_eq!(tools.len(), 7);
+        // Back to 9 core meta-tools + 1 unloaded skill stub = 10
+        assert_eq!(tools.len(), 10);
         let stub = tools
             .iter()
             .find(|t| t["name"] == "__skill__modeling-bevel")

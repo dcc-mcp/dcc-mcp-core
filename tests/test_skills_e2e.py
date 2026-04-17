@@ -96,10 +96,11 @@ class TestSkillParsingE2E:
         assert meta.name == "maya-geometry"
         assert meta.dcc == "maya"
         assert "geometry" in meta.tags
-        assert len(meta.scripts) == 2
+        assert len(meta.scripts) == 3
         script_names = [Path(s).name for s in meta.scripts]
         assert "create_sphere.py" in script_names
         assert "batch_rename.py" in script_names
+        assert "create_joint.py" in script_names
 
     def test_parse_multi_script(self, examples_dir: str) -> None:
         skill_dir = str(Path(examples_dir) / "multi-script")

@@ -1,7 +1,12 @@
-"""Capture a screenshot using dcc_mcp_core.Capturer.
+"""Capture a screenshot, preferring the owning DCC adapter's IPC handler.
 
-Works on Windows (DXGI), Linux (X11), and falls back to a mock backend
-in headless/CI environments. Returns the image as base64-encoded bytes.
+Protocol (in order of preference):
+
+1. If ``DCC_MCP_IPC_ADDRESS`` is set, connect to the adapter's IPC listener
+   and delegate to the ``take_screenshot`` handler so the captured image is
+   the DCC's own window rather than the entire desktop.
+2. Otherwise fall back to the in-process :class:`dcc_mcp_core.Capturer` using
+   the auto backend (DXGI on Windows, X11 on Linux, mock in headless CI).
 """
 
 from __future__ import annotations
@@ -9,8 +14,42 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import os
 from pathlib import Path
 import sys
+
+
+def _try_ipc_capture(params: dict) -> dict | None:
+    """Return ``take_screenshot`` payload when the adapter's IPC is reachable.
+
+    Returns ``None`` if no IPC address is configured or the call fails so the
+    caller can fall back to the in-process path.
+    """
+    addr = os.environ.get("DCC_MCP_IPC_ADDRESS") or os.environ.get("DCC_MCP_OWNER_IPC")
+    if not addr:
+        return None
+    try:
+        from dcc_mcp_core import connect_ipc
+
+        channel = connect_ipc(addr, timeout_ms=3000)
+        result = channel.call(
+            "take_screenshot",
+            json.dumps(params).encode("utf-8"),
+            timeout_ms=int(params.get("timeout_ms", 10000)),
+        )
+    except Exception as exc:
+        print(
+            json.dumps({"debug": f"IPC screenshot failed, falling back: {exc}"}),
+            file=sys.stderr,
+        )
+        return None
+    if not result.get("success"):
+        return None
+    try:
+        return json.loads(bytes(result["payload"]).decode("utf-8"))
+    except Exception as exc:
+        print(json.dumps({"debug": f"IPC payload decode failed: {exc}"}), file=sys.stderr)
+        return None
 
 
 def main() -> None:
@@ -22,7 +61,61 @@ def main() -> None:
     parser.add_argument("--window-title", default=None, dest="window_title")
     parser.add_argument("--save-path", default=None, dest="save_path")
     parser.add_argument("--timeout-ms", type=int, default=5000, dest="timeout_ms")
+    parser.add_argument("--full-screen", action="store_true", dest="full_screen")
     args = parser.parse_args()
+
+    # Try IPC path first so we capture the DCC's own window.
+    ipc_payload = _try_ipc_capture(
+        {
+            "format": args.format,
+            "jpeg_quality": args.jpeg_quality,
+            "scale": args.scale,
+            "timeout_ms": args.timeout_ms,
+            "full_screen": args.full_screen,
+            "window_title": args.window_title,
+        }
+    )
+    if ipc_payload is not None and ipc_payload.get("success"):
+        saved_path = None
+        if args.save_path:
+            try:
+                with Path(args.save_path).open("wb") as f:
+                    f.write(base64.b64decode(ipc_payload["image_base64"]))
+                saved_path = args.save_path
+            except OSError as exc:
+                saved_path = f"SAVE_FAILED: {exc}"
+        print(
+            json.dumps(
+                {
+                    "success": True,
+                    "message": ipc_payload.get("message", "captured via IPC"),
+                    "prompt": (
+                        "Screenshot captured from the DCC's own window. "
+                        "If you see an error on screen, use dcc_diagnostics__audit_log to check "
+                        "recent action history, or dcc_diagnostics__action_metrics to find failing tools."
+                    ),
+                    "context": {
+                        **{
+                            k: ipc_payload.get(k)
+                            for k in (
+                                "width",
+                                "height",
+                                "format",
+                                "mime_type",
+                                "byte_len",
+                                "timestamp_ms",
+                                "window_rect",
+                                "window_title",
+                                "image_base64",
+                            )
+                        },
+                        "saved_path": saved_path,
+                        "source": "dcc-ipc",
+                    },
+                }
+            )
+        )
+        return
 
     try:
         from dcc_mcp_core import Capturer

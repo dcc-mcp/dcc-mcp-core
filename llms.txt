@@ -146,10 +146,19 @@ crates/
 - `.load_skill(skill_name) -> bool` / `.unload_skill(skill_name) -> bool`
 - `.get_skill_info(skill_name) -> Optional[SkillMetadata]`
 - `.is_loaded(skill_name) -> bool` / `.loaded_count() -> int`
+- `.active_groups(skill_name) -> List[str]`, `.activate_group(skill, group) -> bool`, `.deactivate_group(skill, group) -> bool`
+- `.list_groups(skill_name) -> List[SkillGroup]`, `.list_tools_catalog(skill_name) -> dict[str, list[str]]`
 
 **SkillSummary fields:** `.name`, `.description`, `.search_hint`, `.version`, `.dcc`, `.tags`, `.tool_count`, `.tool_names`, `.loaded`
 
-**SkillMetadata fields:** `.name`, `.description`, `.search_hint`, `.dcc`, `.version`, `.tags`, `.tools`, `.scripts` (List[str] absolute paths), `.skill_path`, `.depends`, `.metadata_files`
+**SkillMetadata fields:** `.name`, `.description`, `.search_hint`, `.dcc`, `.version`, `.tags`, `.tools`, `.scripts` (List[str] absolute paths), `.skill_path`, `.depends`, `.metadata_files`, `.groups` (List[SkillGroup])
+
+**SkillGroup fields:** `.name`, `.description`, `.default_active` (bool), `.tools` (List[str]) — declared in SKILL.md `groups:` frontmatter for progressive tool exposure
+
+**Tool groups (progressive exposure):**
+- `ToolRegistry.activate_tool_group(skill, group) -> int`, `.deactivate_tool_group(skill, group) -> int` — enable/disable tools in a group; emits `notifications/tools/list_changed`
+- `ToolRegistry.list_tools_in_group(skill, group) -> List[dict]`, `.list_actions_enabled() -> List[dict]`, `.set_tool_enabled(name, enabled) -> bool`
+- MCP core tools: `activate_tool_group`, `deactivate_tool_group`, `search_tools` (registered alongside the six skill-discovery tools; `tools/list` also emits `__group__<skill>.<group>` stubs for inactive groups)
 
 **Action naming**: `{skill_name}__{script_stem}` — hyphens in skill names replaced by underscores
 
@@ -220,7 +229,22 @@ crates/
 
 ### Capture (`dcc_mcp_core`)
 
-- `Capturer`, `CaptureFrame`, `CaptureResult`
+- `Capturer` — `.new_auto()` (display), `.new_window_auto()` (single window), `.new_mock(width, height)`
+- `Capturer.capture(format, jpeg_quality, scale, timeout_ms, process_id, window_title) -> CaptureFrame`
+- `Capturer.capture_window(*, process_id=None, window_handle=None, window_title=None, format="png", jpeg_quality=85, scale=1.0, timeout_ms=5000, include_decorations=True) -> CaptureFrame`
+- `Capturer.backend_name() -> str`, `.backend_kind() -> CaptureBackendKind`, `.stats() -> tuple[int, int, int]`
+- `CaptureFrame` — `.width`, `.height`, `.data`, `.format`, `.mime_type`, `.timestamp_ms`, `.dpi_scale`, `.window_rect` (tuple or None), `.window_title` (str or None), `.byte_len()`
+- `CaptureTarget` — factories: `.primary_display()`, `.monitor_index(i)`, `.process_id(pid)`, `.window_title(title)`, `.window_handle(handle)`
+- `CaptureBackendKind` — enum: `DxgiDesktopDuplication`, `ScreenCaptureKit`, `X11Xshm`, `PipeWire`, `HwndPrintWindow`, `Mock`
+- `WindowFinder()` — `.find(target) -> Optional[WindowInfo]`, `.enumerate() -> List[WindowInfo]`
+- `WindowInfo` — `.handle`, `.pid`, `.title`, `.rect`
+
+### Instance-Bound Diagnostics (`dcc_mcp_core`)
+
+- `DccServerBase(dcc_name, builtin_skills_dir, *, dcc_pid=None, dcc_window_title=None, dcc_window_handle=None, resolver=None)` — bind an adapter to a specific DCC instance; the four `diagnostics__*` tools target this DCC only
+- `register_diagnostic_mcp_tools(server, *, dcc_name, dcc_pid=None, dcc_window_handle=None, dcc_window_title=None, resolver=None)` — register `diagnostics__screenshot`, `diagnostics__audit_log`, `diagnostics__action_metrics`, `diagnostics__process_status` on an `McpHttpServer` before `.start()`
+- `register_diagnostic_handlers(...)` — the IPC-path equivalent (used by `DccServerBase.start()`)
+- Bundled `dcc-diagnostics` skill's `screenshot.py` tries `DCC_MCP_OWNER_IPC` → `channel.call("take_screenshot")` first and falls back to `Capturer.new_auto()` when no owner IPC is set
 
 ### USD (`dcc_mcp_core`)
 

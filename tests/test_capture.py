@@ -284,3 +284,60 @@ class TestCapturerEdgeCases:
         capturer = dcc_mcp_core.Capturer.new_mock()
         r = repr(capturer)
         assert len(r) > 0
+
+
+# ── CaptureTarget / CaptureBackendKind variants ───────────────────────────────
+
+
+class TestCaptureTargetVariants:
+    """All CaptureTarget factory constructors must be exhaustively callable."""
+
+    def test_primary_display(self) -> None:
+        t = dcc_mcp_core.CaptureTarget.primary_display()
+        assert "primary_display" in repr(t)
+
+    def test_monitor_index(self) -> None:
+        t = dcc_mcp_core.CaptureTarget.monitor_index(1)
+        assert "monitor_index(1)" in repr(t)
+
+    def test_process_id(self) -> None:
+        t = dcc_mcp_core.CaptureTarget.process_id(1234)
+        assert "1234" in repr(t)
+
+    def test_window_title(self) -> None:
+        t = dcc_mcp_core.CaptureTarget.window_title("Adobe Photoshop")
+        assert "Photoshop" in repr(t)
+
+    def test_window_handle(self) -> None:
+        t = dcc_mcp_core.CaptureTarget.window_handle(0xDEADBEEF)
+        r = repr(t)
+        assert "deadbeef" in r.lower() or "window_handle" in r
+
+
+class TestCaptureBackendKindVariants:
+    """Every backend kind must be accessible as a class attribute."""
+
+    @pytest.mark.parametrize(
+        "attr",
+        [
+            "DxgiDesktopDuplication",
+            "ScreenCaptureKit",
+            "X11Xshm",
+            "PipeWire",
+            "HwndPrintWindow",
+            "Mock",
+        ],
+    )
+    def test_variant_accessible(self, attr: str) -> None:
+        kind = getattr(dcc_mcp_core.CaptureBackendKind, attr)
+        assert kind is not None
+        assert isinstance(kind.name, str)
+        assert attr in repr(kind) or kind.name != ""
+
+    def test_equality(self) -> None:
+        a = dcc_mcp_core.CaptureBackendKind.HwndPrintWindow
+        b = dcc_mcp_core.CaptureBackendKind.HwndPrintWindow
+        assert a == b
+
+    def test_inequality(self) -> None:
+        assert dcc_mcp_core.CaptureBackendKind.Mock != dcc_mcp_core.CaptureBackendKind.HwndPrintWindow

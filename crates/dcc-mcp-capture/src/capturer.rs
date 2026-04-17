@@ -85,6 +85,21 @@ impl Capturer {
         }
     }
 
+    /// Create a new `Capturer` configured for single-window capture.
+    ///
+    /// Uses [`backend::best_window_capture`] — typically
+    /// [`CaptureBackendKind::HwndPrintWindow`] on Windows and
+    /// [`CaptureBackendKind::Mock`] elsewhere (until X11/macOS window backends
+    /// are implemented).
+    pub fn new_window_auto() -> Self {
+        let (backend, backend_kind) = backend::best_window_capture();
+        Capturer {
+            backend,
+            backend_kind,
+            stats: Arc::new(CaptureStats::default()),
+        }
+    }
+
     /// Create a `Capturer` from an explicit backend.
     pub fn with_backend(backend: Box<dyn DccCapture>) -> Self {
         let kind = backend.backend_kind();

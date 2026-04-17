@@ -359,10 +359,24 @@ async fn handle_tools_list(
     let mut tools: Vec<McpTool> = Vec::with_capacity(core.len() + 16);
     tools.extend_from_slice(core);
 
-    // 2. Loaded skill tools — full definitions from ActionRegistry
+    // 2. Loaded skill tools — full definitions from ActionRegistry.
+    //    Tools in inactive groups are collapsed into one ``__group__<name>``
+    //    stub per group to keep ``tools/list`` compact (progressive exposure).
     let actions = state.registry.list_actions(None);
+    let mut inactive_groups: std::collections::BTreeMap<String, Vec<String>> =
+        std::collections::BTreeMap::new();
     for meta in &actions {
-        tools.push(action_meta_to_mcp_tool(meta));
+        if meta.enabled {
+            tools.push(action_meta_to_mcp_tool(meta));
+        } else if !meta.group.is_empty() {
+            inactive_groups
+                .entry(meta.group.clone())
+                .or_default()
+                .push(meta.name.clone());
+        }
+    }
+    for (group, names) in &inactive_groups {
+        tools.push(build_group_stub(group, names));
     }
 
     // 3. Unloaded skills — one lightweight stub per skill.
@@ -406,6 +420,13 @@ async fn handle_tools_call(
         "load_skill" => return handle_load_skill(state, req, &params, session_id).await,
         "unload_skill" => return handle_unload_skill(state, req, &params, session_id).await,
         "search_skills" => return handle_search_skills(state, req, &params).await,
+        "activate_tool_group" => {
+            return handle_activate_tool_group(state, req, &params, session_id).await;
+        }
+        "deactivate_tool_group" => {
+            return handle_deactivate_tool_group(state, req, &params, session_id).await;
+        }
+        "search_tools" => return handle_search_tools(state, req, &params).await,
         _ => {}
     }
 
@@ -414,6 +435,18 @@ async fn handle_tools_call(
         let msg = format!(
             "Skill '{skill_name}' is not loaded. Call load_skill with skill_name=\"{skill_name}\" \
              to register its tools, then call the specific tool you need."
+        );
+        return Ok(JsonRpcResponse::success(
+            req.id.clone(),
+            serde_json::to_value(CallToolResult::error(msg))?,
+        ));
+    }
+
+    // Group stub: __group__<group_name> — guide model to call activate_tool_group.
+    if let Some(group_name) = tool_name.strip_prefix("__group__") {
+        let msg = format!(
+            "Tool group '{group_name}' is inactive. Call activate_tool_group with \
+             group=\"{group_name}\" to enable its tools, then re-list with tools/list."
         );
         return Ok(JsonRpcResponse::success(
             req.id.clone(),
@@ -983,6 +1016,88 @@ fn build_core_tools_inner() -> Vec<McpTool> {
                 deferred_hint: Some(false),
             }),
         },
+        McpTool {
+            name: "activate_tool_group".to_string(),
+            description: "Activate a tool group so its tools become callable. \
+                          Tools in inactive groups are collapsed into __group__<name> stubs. \
+                          Sends a tools/list_changed notification on success."
+                .to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "group": {
+                        "type": "string",
+                        "description": "Name of the tool group to activate"
+                    }
+                },
+                "required": ["group"]
+            }),
+            annotations: Some(McpToolAnnotations {
+                title: Some("Activate Tool Group".to_string()),
+                read_only_hint: Some(false),
+                destructive_hint: Some(false),
+                idempotent_hint: Some(true),
+                open_world_hint: Some(false),
+                deferred_hint: Some(false),
+            }),
+        },
+        McpTool {
+            name: "deactivate_tool_group".to_string(),
+            description: "Deactivate a tool group — its tools become uncallable until reactivated. \
+                          Useful to reduce the active tool surface for token budget reasons."
+                .to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "group": {
+                        "type": "string",
+                        "description": "Name of the tool group to deactivate"
+                    }
+                },
+                "required": ["group"]
+            }),
+            annotations: Some(McpToolAnnotations {
+                title: Some("Deactivate Tool Group".to_string()),
+                read_only_hint: Some(false),
+                destructive_hint: Some(false),
+                idempotent_hint: Some(true),
+                open_world_hint: Some(false),
+                deferred_hint: Some(false),
+            }),
+        },
+        McpTool {
+            name: "search_tools".to_string(),
+            description: "Full-text search across every registered tool (name/description/tags). \
+                          Matches against enabled tools first and includes group stubs when relevant."
+                .to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Keyword to match in tool name, description, category, or tags"
+                    },
+                    "dcc": {
+                        "type": "string",
+                        "description": "Optional DCC filter"
+                    },
+                    "include_disabled": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Include tools inside inactive groups"
+                    }
+                },
+                "required": ["query"]
+            }),
+            annotations: Some(McpToolAnnotations {
+                title: Some("Search Tools".to_string()),
+                read_only_hint: Some(true),
+                destructive_hint: Some(false),
+                idempotent_hint: Some(true),
+                open_world_hint: Some(false),
+                deferred_hint: Some(false),
+            }),
+        },
     ]
 }
 
@@ -1113,6 +1228,178 @@ async fn handle_search_skills(
         "skills": compact_skills
     });
 
+    Ok(JsonRpcResponse::success(
+        req.id.clone(),
+        serde_json::to_value(CallToolResult::text(serde_json::to_string(&result)?))?,
+    ))
+}
+
+/// Build a compact stub that replaces all tools of an inactive group in
+/// ``tools/list``. Collapses the group into one entry the agent can reason
+/// about without paying the schema cost for every member tool.
+fn build_group_stub(group: &str, tool_names: &[String]) -> McpTool {
+    const PREVIEW_LIMIT: usize = 5;
+    let preview = if tool_names.len() <= PREVIEW_LIMIT {
+        format!(" [{}]", tool_names.join(", "))
+    } else {
+        format!(
+            " [{}, … +{} more]",
+            tool_names[..PREVIEW_LIMIT].join(", "),
+            tool_names.len() - PREVIEW_LIMIT
+        )
+    };
+    let description = format!(
+        "Inactive group '{group}' • {} tools{preview} • Call activate_tool_group(\"{group}\")",
+        tool_names.len(),
+    );
+    McpTool {
+        name: format!("__group__{group}"),
+        description,
+        input_schema: json!({"type": "object", "properties": {}}),
+        annotations: Some(McpToolAnnotations {
+            title: Some(format!("Group: {group}")),
+            read_only_hint: Some(true),
+            destructive_hint: Some(false),
+            idempotent_hint: Some(true),
+            open_world_hint: Some(false),
+            deferred_hint: Some(true),
+        }),
+    }
+}
+
+/// Handle ``activate_tool_group`` — flips every action in the named group
+/// to ``enabled = true`` and fires a ``tools/list_changed`` notification.
+async fn handle_activate_tool_group(
+    state: &AppState,
+    req: &JsonRpcRequest,
+    params: &CallToolParams,
+    session_id: Option<&str>,
+) -> Result<JsonRpcResponse, HttpError> {
+    let group = params
+        .arguments
+        .as_ref()
+        .and_then(|a| a.get("group"))
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if group.is_empty() {
+        return Ok(JsonRpcResponse::success(
+            req.id.clone(),
+            serde_json::to_value(CallToolResult::error("Missing required parameter: group"))?,
+        ));
+    }
+
+    let changed = state.catalog.activate_group(group);
+    if let Some(sid) = session_id {
+        notify_tools_list_changed(&state.sessions, sid);
+    }
+    let payload = json!({
+        "success": true,
+        "group": group,
+        "changed": changed,
+        "active_groups": state.catalog.active_groups(),
+    });
+    Ok(JsonRpcResponse::success(
+        req.id.clone(),
+        serde_json::to_value(CallToolResult::text(payload.to_string()))?,
+    ))
+}
+
+/// Handle ``deactivate_tool_group`` — mirror of [`handle_activate_tool_group`].
+async fn handle_deactivate_tool_group(
+    state: &AppState,
+    req: &JsonRpcRequest,
+    params: &CallToolParams,
+    session_id: Option<&str>,
+) -> Result<JsonRpcResponse, HttpError> {
+    let group = params
+        .arguments
+        .as_ref()
+        .and_then(|a| a.get("group"))
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if group.is_empty() {
+        return Ok(JsonRpcResponse::success(
+            req.id.clone(),
+            serde_json::to_value(CallToolResult::error("Missing required parameter: group"))?,
+        ));
+    }
+
+    let changed = state.catalog.deactivate_group(group);
+    if let Some(sid) = session_id {
+        notify_tools_list_changed(&state.sessions, sid);
+    }
+    let payload = json!({
+        "success": true,
+        "group": group,
+        "changed": changed,
+        "active_groups": state.catalog.active_groups(),
+    });
+    Ok(JsonRpcResponse::success(
+        req.id.clone(),
+        serde_json::to_value(CallToolResult::text(payload.to_string()))?,
+    ))
+}
+
+/// Handle ``search_tools`` — free-text search across every registered tool.
+async fn handle_search_tools(
+    state: &AppState,
+    req: &JsonRpcRequest,
+    params: &CallToolParams,
+) -> Result<JsonRpcResponse, HttpError> {
+    let query = params
+        .arguments
+        .as_ref()
+        .and_then(|a| a.get("query"))
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_lowercase();
+    if query.is_empty() {
+        return Ok(JsonRpcResponse::success(
+            req.id.clone(),
+            serde_json::to_value(CallToolResult::error("Missing required parameter: query"))?,
+        ));
+    }
+    let dcc = params
+        .arguments
+        .as_ref()
+        .and_then(|a| a.get("dcc"))
+        .and_then(Value::as_str);
+    let include_disabled = params
+        .arguments
+        .as_ref()
+        .and_then(|a| a.get("include_disabled"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+
+    let mut matches: Vec<serde_json::Value> = Vec::new();
+    for meta in state.registry.list_actions(dcc) {
+        if !include_disabled && !meta.enabled {
+            continue;
+        }
+        let haystack = format!(
+            "{} {} {} {}",
+            meta.name,
+            meta.description,
+            meta.category,
+            meta.tags.join(" ")
+        )
+        .to_lowercase();
+        if haystack.contains(&query) {
+            matches.push(serde_json::json!({
+                "name": meta.name,
+                "description": meta.description,
+                "category": meta.category,
+                "group": meta.group,
+                "enabled": meta.enabled,
+                "dcc": meta.dcc,
+            }));
+        }
+    }
+    let result = serde_json::json!({
+        "total": matches.len(),
+        "query": query,
+        "tools": matches,
+    });
     Ok(JsonRpcResponse::success(
         req.id.clone(),
         serde_json::to_value(CallToolResult::text(serde_json::to_string(&result)?))?,

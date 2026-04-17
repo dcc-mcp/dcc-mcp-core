@@ -2,10 +2,12 @@
 //!
 //! | Backend | Platform | Priority |
 //! |---------|----------|----------|
-//! | [`windows::DxgiBackend`] | Windows | 1st |
+//! | [`windows::DxgiBackend`] | Windows (full-screen) | 1st |
+//! | [`hwnd::HwndBackend`] | Windows (window-target) | 1st |
 //! | [`unix::X11Backend`] | Linux (X11) | 1st |
 //! | [`mock::MockBackend`] | All | Fallback |
 
+pub mod hwnd;
 pub mod mock;
 pub mod unix;
 pub mod windows;
@@ -30,6 +32,25 @@ pub fn best_available() -> (Box<dyn DccCapture>, CaptureBackendKind) {
         return (Box::new(x11), CaptureBackendKind::X11Xshm);
     }
 
+    let mock = mock::MockBackend::new(1920, 1080);
+    (Box::new(mock), CaptureBackendKind::Mock)
+}
+
+/// Create the best available **window-target** backend for the current
+/// platform.  Unlike [`best_available`], this returns a backend that captures
+/// a single top-level window rather than the whole desktop.
+///
+/// Selection order:
+/// 1. GDI `PrintWindow` / `BitBlt` (Windows only)
+/// 2. Mock backend (other platforms — window capture pending)
+pub fn best_window_capture() -> (Box<dyn DccCapture>, CaptureBackendKind) {
+    #[cfg(target_os = "windows")]
+    {
+        let hb = hwnd::HwndBackend::new();
+        if hb.is_available() {
+            return (Box::new(hb), CaptureBackendKind::HwndPrintWindow);
+        }
+    }
     let mock = mock::MockBackend::new(1920, 1080);
     (Box::new(mock), CaptureBackendKind::Mock)
 }

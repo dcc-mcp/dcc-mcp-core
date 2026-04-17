@@ -49,9 +49,11 @@ except ImportError:
     BoundingBox = None  # type: ignore[assignment,misc]  # not yet exposed in compiled extension
 from dcc_mcp_core._core import BridgeContext
 from dcc_mcp_core._core import BridgeRegistry
+from dcc_mcp_core._core import CaptureBackendKind
 from dcc_mcp_core._core import CaptureFrame
 from dcc_mcp_core._core import Capturer
 from dcc_mcp_core._core import CaptureResult
+from dcc_mcp_core._core import CaptureTarget
 from dcc_mcp_core._core import DccCapabilities
 from dcc_mcp_core._core import DccError
 from dcc_mcp_core._core import DccErrorCode
@@ -110,6 +112,7 @@ from dcc_mcp_core._core import SerializeFormat
 from dcc_mcp_core._core import ServiceEntry
 from dcc_mcp_core._core import ServiceStatus
 from dcc_mcp_core._core import SkillCatalog
+from dcc_mcp_core._core import SkillGroup
 from dcc_mcp_core._core import SkillMetadata
 from dcc_mcp_core._core import SkillScanner
 from dcc_mcp_core._core import SkillSummary
@@ -128,6 +131,8 @@ from dcc_mcp_core._core import UsdStage
 from dcc_mcp_core._core import VersionConstraint
 from dcc_mcp_core._core import VersionedRegistry
 from dcc_mcp_core._core import VtValue
+from dcc_mcp_core._core import WindowFinder
+from dcc_mcp_core._core import WindowInfo
 from dcc_mcp_core._core import connect_ipc
 from dcc_mcp_core._core import create_skill_server
 from dcc_mcp_core._core import decode_envelope
@@ -178,6 +183,7 @@ from dcc_mcp_core.bridge import DccBridge
 
 # Pure-Python DCC server diagnostic helpers (no _core dependency)
 from dcc_mcp_core.dcc_server import register_diagnostic_handlers
+from dcc_mcp_core.dcc_server import register_diagnostic_mcp_tools
 from dcc_mcp_core.factory import create_dcc_server
 from dcc_mcp_core.factory import get_server_instance
 from dcc_mcp_core.factory import make_start_stop
@@ -230,8 +236,10 @@ __all__ = [
     "BridgeRegistry",
     "BridgeRpcError",
     "BridgeTimeoutError",
+    "CaptureBackendKind",
     "CaptureFrame",
     "CaptureResult",
+    "CaptureTarget",
     "Capturer",
     "DccBridge",
     "DccCapabilities",
@@ -286,6 +294,7 @@ __all__ = [
     "ServiceEntry",
     "ServiceStatus",
     "SkillCatalog",
+    "SkillGroup",
     "SkillMetadata",
     "SkillScanner",
     "SkillSummary",
@@ -311,6 +320,8 @@ __all__ = [
     "VersionConstraint",
     "VersionedRegistry",
     "VtValue",
+    "WindowFinder",
+    "WindowInfo",
     "__author__",
     "__version__",
     "connect_ipc",
@@ -342,6 +353,7 @@ __all__ = [
     "parse_skill_md",
     "register_bridge",
     "register_diagnostic_handlers",
+    "register_diagnostic_mcp_tools",
     "resolve_dependencies",
     "run_main",
     "scan_and_load",

@@ -403,6 +403,16 @@ impl PyMcpHttpServer {
         self.dispatcher.has_handler(action_name)
     }
 
+    /// The server's :class:`ToolRegistry`.
+    ///
+    /// Returned value shares the underlying storage with the server —
+    /// ``register()`` calls on it will update the tools exposed via
+    /// ``tools/list``. Must be populated **before** calling :meth:`start`.
+    #[getter]
+    fn registry(&self) -> ActionRegistry {
+        (*self.registry).clone()
+    }
+
     /// Access the server's SkillCatalog for progressive skill loading.
     ///
     /// Returns a debug representation of the catalog state (total/loaded counts).

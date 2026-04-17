@@ -90,6 +90,16 @@ pub struct ToolDeclaration {
     /// ```
     #[serde(default, rename = "next-tools", alias = "next_tools")]
     pub next_tools: NextTools,
+
+    /// Tool group this declaration belongs to (progressive exposure).
+    ///
+    /// Empty string ``""`` means the tool is always active (default group).
+    /// Non-empty values reference a :struct:`SkillGroup` declared in the
+    /// skill's `groups:` list. Tools in an inactive group are hidden behind
+    /// a ``__group__<skill>__<name>`` stub in ``tools/list`` until the agent
+    /// calls ``activate_tool_group``.
+    #[serde(default)]
+    pub group: String,
 }
 
 /// Suggested next tools for a successful or failed tool call (issue #143).
@@ -104,6 +114,87 @@ pub struct NextTools {
     pub on_failure: Vec<String>,
 }
 
+// ── SkillGroup ─────────────────────────────────────────────────────────────
+
+/// Declaration of a tool group within a skill (progressive exposure).
+///
+/// A group bundles multiple tools behind a single stub entry in ``tools/list``
+/// so agents only pay the context cost for the tools they actually use.
+///
+/// ```yaml
+/// groups:
+///   - name: uv-editing
+///     description: UV-space operations
+///     default-active: false
+///     tools: [unwrap, layout_uvs, transfer_uvs]
+/// ```
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(
+    feature = "python-bindings",
+    pyclass(name = "SkillGroup", eq, from_py_object)
+)]
+pub struct SkillGroup {
+    /// Group identifier — unique within the skill (kebab-case recommended).
+    #[serde(default)]
+    pub name: String,
+
+    /// Human-readable summary of what the group offers.
+    #[serde(default)]
+    pub description: String,
+
+    /// Names of tools belonging to this group.
+    #[serde(default)]
+    pub tools: Vec<String>,
+
+    /// Whether this group is active by default when the skill is loaded.
+    #[serde(default, rename = "default-active", alias = "default_active")]
+    pub default_active: bool,
+}
+
+#[cfg(feature = "python-bindings")]
+#[pymethods]
+impl SkillGroup {
+    #[new]
+    #[pyo3(signature = (name, description="".to_string(), tools=Vec::<String>::new(), default_active=false))]
+    fn new(name: String, description: String, tools: Vec<String>, default_active: bool) -> Self {
+        Self {
+            name,
+            description,
+            tools,
+            default_active,
+        }
+    }
+
+    #[getter]
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    #[getter]
+    fn description(&self) -> &str {
+        &self.description
+    }
+
+    #[getter]
+    fn tools(&self) -> Vec<String> {
+        self.tools.clone()
+    }
+
+    #[getter]
+    fn default_active(&self) -> bool {
+        self.default_active
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "SkillGroup(name={:?}, tools={}, default_active={})",
+            self.name,
+            self.tools.len(),
+            self.default_active
+        )
+    }
+}
+
 fn is_null_value(v: &serde_json::Value) -> bool {
     v.is_null()
 }
@@ -112,7 +203,7 @@ fn is_null_value(v: &serde_json::Value) -> bool {
 #[pymethods]
 impl ToolDeclaration {
     #[new]
-    #[pyo3(signature = (name, description="".to_string(), input_schema=None, output_schema=None, read_only=false, destructive=false, idempotent=false, defer_loading=false, source_file="".to_string()))]
+    #[pyo3(signature = (name, description="".to_string(), input_schema=None, output_schema=None, read_only=false, destructive=false, idempotent=false, defer_loading=false, source_file="".to_string(), group="".to_string()))]
     #[allow(clippy::too_many_arguments)]
     fn new(
         name: String,
@@ -124,6 +215,7 @@ impl ToolDeclaration {
         idempotent: bool,
         defer_loading: bool,
         source_file: String,
+        group: String,
     ) -> Self {
         let input_schema = input_schema
             .and_then(|s| serde_json::from_str(&s).ok())
@@ -142,7 +234,18 @@ impl ToolDeclaration {
             defer_loading,
             source_file,
             next_tools: NextTools::default(),
+            group,
         }
+    }
+
+    #[getter]
+    fn group(&self) -> &str {
+        &self.group
+    }
+
+    #[setter]
+    fn set_group(&mut self, value: String) {
+        self.group = value;
     }
 
     fn __repr__(&self) -> String {
@@ -584,6 +687,13 @@ pub struct SkillMetadata {
     /// that must be available for this skill to function correctly.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub external_deps: Option<SkillDependencies>,
+
+    /// Declared tool groups for progressive exposure (see [`SkillGroup`]).
+    ///
+    /// When a tool declares a group name that is not present in this list,
+    /// the catalog auto-inserts an inactive placeholder group at load time.
+    #[serde(default)]
+    pub groups: Vec<SkillGroup>,
 }
 
 impl SkillMetadata {
@@ -886,6 +996,7 @@ impl SkillMetadata {
             metadata: serde_json::Value::Null,
             policy: None,
             external_deps: None,
+            groups: Vec::new(),
         }
     }
 
@@ -1382,6 +1493,7 @@ mod tests {
             metadata_files: vec!["help.md".to_string()],
             policy: None,
             external_deps: None,
+            groups: Vec::new(),
         };
         let json = serde_json::to_string(&meta).unwrap();
         let back: SkillMetadata = serde_json::from_str(&json).unwrap();

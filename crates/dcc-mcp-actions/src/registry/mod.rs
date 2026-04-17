@@ -19,7 +19,7 @@ use dcc_mcp_utils::constants::{DEFAULT_DCC, DEFAULT_VERSION};
 use dcc_mcp_utils::constants::default_schema;
 
 /// Metadata about a registered Action (stored in Rust).
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ActionMeta {
     /// Unique action identifier.
@@ -43,6 +43,42 @@ pub struct ActionMeta {
     /// Name of the skill this action belongs to (if registered from a skill).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skill_name: Option<String>,
+    /// Tool group this action belongs to (``""`` = always active).
+    ///
+    /// See [`dcc_mcp_models::SkillGroup`]; used together with `enabled` to
+    /// implement progressive tool exposure via ``activate_tool_group``.
+    #[serde(default)]
+    pub group: String,
+    /// Whether this action is currently active / callable.
+    ///
+    /// Tools in an inactive group are collapsed into a ``__group__<name>``
+    /// stub in ``tools/list``. The dispatcher refuses to invoke disabled
+    /// actions.
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
+}
+
+fn default_enabled() -> bool {
+    true
+}
+
+impl Default for ActionMeta {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            description: String::new(),
+            category: String::new(),
+            tags: Vec::new(),
+            dcc: String::new(),
+            version: String::new(),
+            input_schema: serde_json::Value::Null,
+            output_schema: serde_json::Value::Null,
+            source_file: None,
+            skill_name: None,
+            group: String::new(),
+            enabled: true,
+        }
+    }
 }
 
 /// Thread-safe Action registry.
@@ -333,6 +369,74 @@ impl ActionRegistry {
     pub fn is_empty(&self) -> bool {
         self.actions.is_empty()
     }
+
+    // ── Group / enabled helpers (progressive tool exposure) ──────────────
+
+    /// Set ``enabled`` flag for every action with the given ``group`` value.
+    ///
+    /// Returns the number of actions whose state changed.
+    pub fn set_group_enabled(&self, group: &str, enabled: bool) -> usize {
+        let mut changed = 0;
+        for mut entry in self.actions.iter_mut() {
+            if entry.value().group == group && entry.value().enabled != enabled {
+                entry.value_mut().enabled = enabled;
+                changed += 1;
+            }
+        }
+        for dcc_map in self.dcc_actions.iter() {
+            for mut entry in dcc_map.value().iter_mut() {
+                if entry.value().group == group && entry.value().enabled != enabled {
+                    entry.value_mut().enabled = enabled;
+                }
+            }
+        }
+        changed
+    }
+
+    /// Enable or disable a single action by name.
+    ///
+    /// Returns ``true`` if the action existed.
+    pub fn set_action_enabled(&self, name: &str, enabled: bool) -> bool {
+        let Some(mut entry) = self.actions.get_mut(name) else {
+            return false;
+        };
+        entry.value_mut().enabled = enabled;
+        for dcc_map in self.dcc_actions.iter() {
+            if let Some(mut e) = dcc_map.value().get_mut(name) {
+                e.value_mut().enabled = enabled;
+            }
+        }
+        true
+    }
+
+    /// List actions belonging to a specific group (all DCCs).
+    pub fn list_actions_in_group(&self, group: &str) -> Vec<ActionMeta> {
+        self.actions
+            .iter()
+            .filter(|e| e.value().group == group)
+            .map(|e| e.value().clone())
+            .collect()
+    }
+
+    /// List currently enabled actions.
+    pub fn list_actions_enabled(&self, dcc_name: Option<&str>) -> Vec<ActionMeta> {
+        self.list_actions(dcc_name)
+            .into_iter()
+            .filter(|m| m.enabled)
+            .collect()
+    }
+
+    /// Enumerate distinct group names present in the registry.
+    pub fn list_groups(&self) -> Vec<String> {
+        let mut seen: Vec<String> = Vec::new();
+        for entry in self.actions.iter() {
+            let g = &entry.value().group;
+            if !g.is_empty() && !seen.contains(g) {
+                seen.push(g.clone());
+            }
+        }
+        seen
+    }
 }
 
 // ── Python bindings ──
@@ -422,6 +526,18 @@ impl ActionRegistry {
                 .ok()
                 .flatten()
                 .and_then(|v| v.extract().ok());
+            let group: String = dict
+                .get_item("group")
+                .ok()
+                .flatten()
+                .and_then(|v| v.extract().ok())
+                .unwrap_or_default();
+            let enabled: bool = dict
+                .get_item("enabled")
+                .ok()
+                .flatten()
+                .and_then(|v| v.extract().ok())
+                .unwrap_or(true);
 
             let input_schema =
                 parse_schema_or_default(input_schema_str.as_deref(), "input_schema", &name);
@@ -439,6 +555,8 @@ impl ActionRegistry {
                 output_schema,
                 source_file,
                 skill_name,
+                group,
+                enabled,
             });
         }
     }
@@ -466,7 +584,7 @@ impl ActionRegistry {
 
     /// Register an action. Called from Python ActionManager.
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (name, description="".to_string(), category="".to_string(), tags=vec![], dcc=DEFAULT_DCC.to_string(), version=DEFAULT_VERSION.to_string(), input_schema=None, output_schema=None, source_file=None, skill_name=None))]
+    #[pyo3(signature = (name, description="".to_string(), category="".to_string(), tags=vec![], dcc=DEFAULT_DCC.to_string(), version=DEFAULT_VERSION.to_string(), input_schema=None, output_schema=None, source_file=None, skill_name=None, group="".to_string(), enabled=true))]
     fn register(
         &self,
         name: String,
@@ -479,6 +597,8 @@ impl ActionRegistry {
         output_schema: Option<String>,
         source_file: Option<String>,
         skill_name: Option<String>,
+        group: String,
+        enabled: bool,
     ) {
         let input_schema = parse_schema_or_default(input_schema.as_deref(), "input_schema", &name);
         let output_schema =
@@ -495,7 +615,54 @@ impl ActionRegistry {
             output_schema,
             source_file,
             skill_name,
+            group,
+            enabled,
         });
+    }
+
+    /// Enable or disable every action belonging to ``group``.
+    ///
+    /// Returns the number of actions whose ``enabled`` flag changed.
+    #[pyo3(name = "set_group_enabled")]
+    fn py_set_group_enabled(&self, group: &str, enabled: bool) -> usize {
+        self.set_group_enabled(group, enabled)
+    }
+
+    /// Enable or disable a single action.
+    ///
+    /// Returns ``True`` if the action existed.
+    #[pyo3(name = "set_action_enabled")]
+    fn py_set_action_enabled(&self, name: &str, enabled: bool) -> bool {
+        self.set_action_enabled(name, enabled)
+    }
+
+    /// List all currently-enabled actions.
+    #[pyo3(name = "list_actions_enabled")]
+    #[pyo3(signature = (dcc_name=None))]
+    fn py_list_actions_enabled(
+        &self,
+        py: Python,
+        dcc_name: Option<&str>,
+    ) -> PyResult<Vec<Py<PyAny>>> {
+        self.list_actions_enabled(dcc_name)
+            .iter()
+            .map(|meta| action_meta_to_py(py, meta))
+            .collect()
+    }
+
+    /// List actions belonging to ``group`` (across all DCCs).
+    #[pyo3(name = "list_actions_in_group")]
+    fn py_list_actions_in_group(&self, py: Python, group: &str) -> PyResult<Vec<Py<PyAny>>> {
+        self.list_actions_in_group(group)
+            .iter()
+            .map(|meta| action_meta_to_py(py, meta))
+            .collect()
+    }
+
+    /// Return distinct non-empty group names.
+    #[pyo3(name = "list_groups")]
+    fn py_list_groups(&self) -> Vec<String> {
+        self.list_groups()
     }
 
     /// Get action metadata as dict.

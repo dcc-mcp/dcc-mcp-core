@@ -77,12 +77,20 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     Ok(())
 }
 
+// ── Type-stub generation (opt-in, PoC) ──
+//
+// Enabled by the `stub-gen` feature — powers the `stub_gen` binary target
+// which regenerates `python/dcc_mcp_core/_core.pyi` from annotated Rust code.
+#[cfg(feature = "stub-gen")]
+pyo3_stub_gen::define_stub_info_gatherer!(stub_info);
+
 #[cfg(feature = "python-bindings")]
 fn register_models(m: &Bound<'_, PyModule>) -> PyResult<()> {
     add_classes!(
         m,
         dcc_mcp_models::ActionResultModel,
         dcc_mcp_models::SerializeFormat,
+        dcc_mcp_models::SkillGroup,
         dcc_mcp_models::SkillMetadata,
     );
     add_functions!(

@@ -18,6 +18,10 @@ tracing.workspace = true
 # PyO3 (optional)
 pyo3 = { workspace = true, optional = true }
 
+# Type-stub generation (opt-in via `stub-gen` feature).
+pyo3-stub-gen = { workspace = true, optional = true }
+pyo3-stub-gen-derive = { workspace = true, optional = true }
+
 # Image encoding (PNG / JPEG)
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp"] }
 
@@ -33,6 +37,7 @@ windows = { version = "0.62", features = [
     "Win32_UI_WindowsAndMessaging",
     "Win32_System_Threading",
     "Win32_Graphics_Gdi",
+    "Win32_Storage_Xps",
 ] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
@@ -45,3 +50,7 @@ tempfile = "3"
 [features]
 default = []
 python-bindings = ["pyo3"]
+# Enable `pyo3-stub-gen` annotations on this crate's PyO3 types.
+# Pulled in by the workspace-level `stub-gen` feature — do not enable directly
+# in production wheels.
+stub-gen = ["python-bindings", "dep:pyo3-stub-gen", "dep:pyo3-stub-gen-derive"]

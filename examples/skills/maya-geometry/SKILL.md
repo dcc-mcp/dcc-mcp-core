@@ -10,10 +10,20 @@ metadata:
 tags: [maya, geometry, creation, modeling]
 dcc: maya
 version: "1.0.0"
-search-hint: "maya, geometry, polygon, sphere, cube, bevel, extrude, merge, 3D modeling"
+search-hint: "maya, geometry, polygon, sphere, cube, bevel, extrude, merge, 3D modeling, rigging, skin"
+groups:
+  - name: modeling
+    description: Polygon modeling primitives and edits (always active by default)
+    default-active: true
+    tools: [create_sphere, bevel_edges]
+  - name: rigging
+    description: Skeleton and deformation tools (activate with activate_tool_group)
+    default-active: false
+    tools: [create_joint]
 tools:
   - name: create_sphere
     description: Create a polygon sphere with the given radius and subdivisions
+    group: modeling
     input_schema:
       type: object
       properties:
@@ -39,6 +49,7 @@ tools:
 
   - name: bevel_edges
     description: Apply bevel to selected polygon edges
+    group: modeling
     input_schema:
       type: object
       properties:
@@ -57,6 +68,21 @@ tools:
     next-tools:
       on-success: [maya_pipeline__export_usd]
       on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
+
+  - name: create_joint
+    description: Create a skinning joint at the current selection (rigging group — inactive by default)
+    group: rigging
+    input_schema:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Joint node name
+          default: joint1
+    read_only: false
+    destructive: false
+    idempotent: false
+    source_file: scripts/create_joint.py
 ---
 
 # Maya Geometry Tools

@@ -7,6 +7,16 @@
 
 You are working on **dcc-mcp-core**, a Rust-powered MCP (Model Context Protocol) library for DCC (Digital Content Creation) applications. The Python package name is `dcc_mcp_core`.
 
+## Response Language
+
+- Reply to the user in **Simplified Chinese** (中文简体) by default.
+- Keep all code, identifiers, commit messages, branch names, docstrings,
+  comments, and file contents in **English** — this rule governs only the
+  conversational/assistant-facing output, not anything written to disk or
+  pushed to git.
+- If the user explicitly requests another language for a specific reply,
+  follow that request for that turn.
+
 ## Quick Reference
 
 ### Before Making Changes

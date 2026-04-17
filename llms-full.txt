@@ -24,7 +24,9 @@
 | Enforce security policy on actions | `SandboxPolicy` + `SandboxContext` |
 | Track performance metrics | `ToolRecorder` + `ToolMetrics` |
 | Share large data between processes | `PySharedSceneBuffer` (LZ4 compressed) |
-| Capture a DCC viewport screenshot | `Capturer.new_auto().capture()` |
+| Capture a DCC viewport screenshot | `Capturer.new_auto().capture()` (full-screen) / `Capturer.new_window_auto().capture_window(process_id=pid)` (single window) |
+| Bind diagnostics MCP tools to a specific DCC instance | `DccServerBase(..., dcc_pid=pid, dcc_window_title=title)` |
+| Expose a group of tools only when asked | Declare `groups:` in SKILL.md + `activate_tool_group` / `deactivate_tool_group` |
 | Exchange scene data via USD format | `UsdStage` + `scene_info_json_to_stage()` |
 | Bridge DCC protocols | `BridgeRegistry` + `register_bridge()` / `get_bridge_context()` |
 | Describe scene hierarchy | `SceneNode` + `SceneObject` + `ObjectTransform` + `BoundingBox` |
@@ -55,7 +57,7 @@ crates/
 ├── dcc-mcp-telemetry/    # TelemetryConfig, RecordingGuard, ToolMetrics, ToolRecorder
 ├── dcc-mcp-sandbox/      # SandboxPolicy, SandboxContext, InputValidator, AuditLog, AuditEntry
 ├── dcc-mcp-shm/          # PyBufferPool, PySharedBuffer, PySharedSceneBuffer, LZ4 compression
-├── dcc-mcp-capture/      # Capturer, CaptureFrame, CaptureResult
+├── dcc-mcp-capture/      # Capturer, CaptureFrame, CaptureResult, CaptureTarget, WindowFinder (HWND on Windows)
 ├── dcc-mcp-usd/          # UsdStage, UsdPrim, SdfPath, VtValue, scene info bridge
 ├── dcc-mcp-server/       # Binary entry point, gateway runner
 └── dcc-mcp-utils/        # Filesystem, constants, type wrappers, JSON conversion
@@ -587,9 +589,78 @@ catalog.loaded_count()                   # -> int
 
 # Get full metadata
 meta = catalog.get_skill_info("maya-geometry")  # -> Optional[SkillMetadata]
+
+# Tool groups (progressive exposure) — see next section
+catalog.active_groups("maya-geometry")            # -> List[str]
+catalog.activate_group("maya-geometry", "rigging")   # -> bool
+catalog.deactivate_group("maya-geometry", "rigging") # -> bool
+catalog.list_groups("maya-geometry")               # -> List[SkillGroup]
+catalog.list_tools_catalog("maya-geometry")        # -> {group_name: [tool_names]}
 ```
 
 **SkillSummary fields:** `.name`, `.description`, `.search_hint`, `.version`, `.dcc`, `.tags`, `.tool_count`, `.tool_names`, `.loaded`
+
+### Tool Groups (Progressive Exposure)
+
+Large skills can declare **tool groups** in SKILL.md so the AI client activates
+only the toolsets it needs, keeping `tools/list` compact while all tools stay
+discoverable via `search_tools`.
+
+```yaml
+# SKILL.md frontmatter
+---
+name: maya-geometry
+dcc: maya
+groups:
+  - name: modeling
+    description: "Polygon modeling and UV tools"
+    default_active: true          # active at load_skill time
+    tools: [create_sphere, extrude]
+  - name: rigging
+    description: "Skeleton, joints, skinning"
+    default_active: false         # dormant until activate_tool_group
+    tools: [create_joint]
+tools:
+  - name: create_sphere
+    group: modeling
+    source_file: scripts/create_sphere.py
+  - name: create_joint
+    group: rigging
+    source_file: scripts/create_joint.py
+---
+```
+
+**`SkillGroup` fields:** `.name`, `.description`, `.default_active` (bool), `.tools` (`List[str]`).
+
+**Runtime behaviour after `load_skill`:**
+
+1. Every tool is registered in `ToolRegistry` with `ActionMeta.group` set.
+2. Tools whose group has `default_active=false` are registered with
+   `ActionMeta.enabled=False` — MCP `tools/list` hides them.
+3. `tools/list` also emits `__group__<skill>.<group>` stubs for inactive
+   groups so clients can discover and activate them on demand.
+
+**Activate / deactivate from Python:**
+
+```python
+from dcc_mcp_core import ToolRegistry
+
+# Via the registry (emits notifications/tools/list_changed)
+registry.activate_tool_group("maya-geometry", "rigging")   # -> int enabled count
+registry.deactivate_tool_group("maya-geometry", "rigging") # -> int disabled count
+registry.list_tools_in_group("maya-geometry", "modeling")  # -> List[dict]
+registry.list_actions_enabled()                            # -> List[dict]
+registry.set_tool_enabled("maya_geometry__create_joint", True)
+```
+
+**Via MCP tools** — `create_skill_server` / `McpHttpServer` register three
+group-control tools alongside the six skill-discovery tools:
+
+| MCP tool | Description |
+|----------|-------------|
+| `activate_tool_group` | Enable all tools in a group; sends `notifications/tools/list_changed` |
+| `deactivate_tool_group` | Disable all tools in a group |
+| `search_tools` | Keyword search across currently-enabled tools |
 
 ### Action Naming Convention
 
@@ -1597,15 +1668,20 @@ PySceneDataKind.Arbitrary
 ### Capturer + CaptureFrame
 
 High-level DCC viewport / desktop capture. Platform-specific backends:
-- Windows: DXGI Desktop Duplication (GPU framebuffer, < 16 ms/frame)
-- Linux: X11 XShmGetImage
+- Windows (full-screen): DXGI Desktop Duplication (GPU framebuffer, < 16 ms/frame)
+- Windows (single window): HWND `PrintWindow` + `BitBlt` fallback
+- Linux: X11 XShmGetImage (full-screen) — PipeWire reserved for Wayland
+- macOS: ScreenCaptureKit (reserved)
 - Fallback: Mock synthetic checkerboard (CI / headless)
 
 ```python
-from dcc_mcp_core import Capturer
+from dcc_mcp_core import Capturer, CaptureBackendKind
 
-# Auto-select best backend
+# Auto-select best full-screen / display backend
 capturer = Capturer.new_auto()
+
+# Auto-select best single-window backend (HWND on Windows, Mock elsewhere)
+window_cap = Capturer.new_window_auto()
 
 # Mock backend (headless CI, no GPU needed)
 capturer = Capturer.new_mock(width=1920, height=1080)
@@ -1620,6 +1696,15 @@ frame = capturer.capture(
     window_title="Maya",    # capture window by title substring
 )
 
+# Or capture a single window explicitly
+frame = window_cap.capture_window(
+    window_title="Autodesk Maya 2024",
+    include_decorations=True,
+    format="png",
+    timeout_ms=5000,
+)
+# window_handle=<HWND int> and process_id=<pid> are also accepted
+
 # CaptureFrame fields
 frame.data           # bytes (PNG/JPEG/raw)
 frame.width          # int
@@ -1628,16 +1713,85 @@ frame.format         # "png" | "jpeg" | "raw_bgra"
 frame.mime_type      # "image/png" | "image/jpeg"
 frame.timestamp_ms   # int (Unix ms)
 frame.dpi_scale      # float (1.0=normal, 2.0=HiDPI)
+frame.window_rect    # (x, y, w, h) tuple or None for full-screen captures
+frame.window_title   # str or None
 frame.byte_len()     # int
 
 # Save to disk
 with open("screenshot.png", "wb") as f:
     f.write(frame.data)
 
-# Stats
-capturer.backend_name()  # "DXGI Desktop Duplication" | "X11" | "Mock"
+# Stats / backend introspection
+capturer.backend_name()                                 # "DXGI Desktop Duplication" | "HWND PrintWindow" | "X11" | "Mock"
+capturer.backend_kind() == CaptureBackendKind.HwndPrintWindow
 count, total_bytes, errors = capturer.stats()
 ```
+
+### CaptureTarget + WindowFinder
+
+Resolve windows / displays to a capture-ready descriptor without throwing when
+the target is missing.
+
+```python
+from dcc_mcp_core import CaptureTarget, WindowFinder
+
+# Static factories — opaque descriptor, no raise on invalid
+CaptureTarget.primary_display()
+CaptureTarget.monitor_index(0)
+CaptureTarget.process_id(12345)
+CaptureTarget.window_title("Maya 2024")
+CaptureTarget.window_handle(0x00A1B2)
+
+finder = WindowFinder()
+info = finder.find(CaptureTarget.process_id(12345))
+if info is not None:
+    info.handle   # int (HWND / X11 window id)
+    info.pid      # int
+    info.title    # str
+    info.rect     # (x, y, w, h)
+
+# Enumerate every visible top-level window on Windows
+for info in finder.enumerate():
+    print(info.handle, info.title)
+```
+
+### Instance-Bound Diagnostics
+
+When multiple DCC instances run side-by-side, each `DccServerBase` subclass
+should be bound to **its own** DCC process so `diagnostics__*` MCP tools and
+the bundled `dcc-diagnostics` skill target the right window / PID.
+
+```python
+from dcc_mcp_core import DccServerBase
+
+class MayaServer(DccServerBase):
+    def __init__(self, pid: int, window_title: str):
+        super().__init__(
+            dcc_name="maya",
+            builtin_skills_dir=None,
+            dcc_pid=pid,                     # owner DCC PID
+            dcc_window_title=window_title,   # title fallback for window lookups
+            # dcc_window_handle=0x00A1B2,    # or pass an HWND directly
+            # resolver=lambda: current_maya_pid(),  # late-bound PID
+        )
+
+server = MayaServer(pid=12345, window_title="Autodesk Maya 2024")
+handle = server.start()
+# Registers the four diagnostics tools bound to this instance:
+#   diagnostics__screenshot
+#   diagnostics__audit_log
+#   diagnostics__action_metrics
+#   diagnostics__process_status
+```
+
+For low-level servers that build on `McpHttpServer` directly, call
+`register_diagnostic_mcp_tools(server, *, dcc_name=..., dcc_pid=..., ...)` or
+`register_diagnostic_handlers(...)` (IPC path) **before** `server.start()` —
+MCP tool registration must complete before the server is running.
+
+The bundled `dcc-diagnostics` skill's `screenshot.py` handler tries
+`DCC_MCP_OWNER_IPC` → `channel.call("take_screenshot")` first and falls back
+to `Capturer.new_auto()` when no owner IPC is configured.
 
 ---
 

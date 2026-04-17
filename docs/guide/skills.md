@@ -287,6 +287,98 @@ Parsed from SKILL.md frontmatter. Supports Anthropic Skills, ClawHub/OpenClaw, a
 | `version` | `str` | Skill version (default: `"1.0.0"`) |
 | `depends` | `List[str]` | Skill dependency names |
 | `metadata_files` | `List[str]` | Paths to `.md` files in `metadata/` |
+| `groups` | `List[SkillGroup]` | Tool groups for progressive exposure (see below) |
+
+## Tool Groups (Progressive Exposure)
+
+Large skills often expose far more tools than an AI client needs at any given
+moment. Tool groups let a skill ship several related toolsets and let the
+client activate only the ones it needs — keeping `tools/list` small while all
+tools remain discoverable.
+
+### Declaring Groups in SKILL.md
+
+Groups are declared in the top-level `groups:` section. Each tool can then
+reference a group name via its `group:` field:
+
+```yaml
+---
+name: maya-geometry
+description: "Maya geometry, modeling, and rigging tools"
+dcc: maya
+groups:
+  - name: modeling
+    description: "Polygon modeling and UV tools"
+    default_active: true          # active at load time (no activation needed)
+    tools: [create_sphere, create_cube, extrude]
+  - name: rigging
+    description: "Skeleton, joints and skinning"
+    default_active: false         # inactive until activate_tool_group is called
+    tools: [create_joint]
+tools:
+  - name: create_sphere
+    description: "Create a polygon sphere"
+    group: modeling
+    source_file: scripts/create_sphere.py
+  - name: create_joint
+    description: "Create a joint chain"
+    group: rigging
+    source_file: scripts/create_joint.py
+---
+```
+
+### `SkillGroup` Fields
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `name` | `str` | required | Group identifier (kebab-case recommended) |
+| `description` | `str` | `""` | Human-readable description |
+| `default_active` | `bool` | `False` | Active immediately after `load_skill`; `False` means dormant until activated |
+| `tools` | `List[str]` | `[]` | Tool names in this group — must match `ToolDeclaration.name` entries |
+
+### How Groups Behave After `load_skill`
+
+When `SkillCatalog.load_skill("maya-geometry")` runs:
+
+1. All tool declarations are registered in `ToolRegistry` with their
+   `ActionMeta.group` set to the declared group name.
+2. Tools in groups where `default_active=false` are registered with
+   `ActionMeta.enabled=False`. The MCP server hides disabled tools from
+   `tools/list`; they are invocable again once the group is activated.
+3. `SkillCatalog.active_groups(skill_name)` returns the initially-active groups.
+
+### Controlling Groups at Runtime
+
+```python
+from dcc_mcp_core import SkillCatalog, ToolRegistry, create_skill_server
+
+# Via the high-level catalog
+catalog.activate_group("maya-geometry", "rigging")     # enables rigging tools
+catalog.deactivate_group("maya-geometry", "rigging")   # disables them again
+groups   = catalog.list_groups("maya-geometry")         # -> List[SkillGroup]
+tools    = catalog.list_tools_catalog("maya-geometry")  # group -> tools map
+
+# Or via the registry directly (emits tools/list_changed notifications)
+registry.activate_tool_group("maya-geometry", "rigging")
+registry.deactivate_tool_group("maya-geometry", "rigging")
+enabled_tools = registry.list_tools_in_group("maya-geometry", "modeling")
+enabled_only  = registry.list_actions_enabled()
+```
+
+### MCP Tools for Group Management
+
+`create_skill_server` / `McpHttpServer` register three core MCP tools for
+group control in addition to the six skill-discovery tools:
+
+| Tool | Description |
+|------|-------------|
+| `activate_tool_group` | Activate a group; emits `notifications/tools/list_changed` so clients refresh their view |
+| `deactivate_tool_group` | Deactivate a group |
+| `search_tools` | Keyword search across currently-enabled tools (name, description, tags) |
+
+`tools/list` also returns `__group__<skill>.<group>` stubs for any group
+that is inactive, making the full tool surface discoverable without
+exposing schemas or handlers.
 
 ## Environment Variables
 

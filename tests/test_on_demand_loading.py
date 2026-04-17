@@ -38,6 +38,9 @@ CORE_TOOLS = frozenset(
         "load_skill",
         "unload_skill",
         "search_skills",
+        "activate_tool_group",
+        "deactivate_tool_group",
+        "search_tools",
     }
 )
 
@@ -222,7 +225,7 @@ class TestOnDemandLoadingContract:
             )
 
     def test_core_tools_always_present(self, catalog_server):
-        """All 6 core meta-tools must be present in every tools/list response."""
+        """All 9 core meta-tools must be present in every tools/list response."""
         url = catalog_server.mcp_url()
         tools = _tools_list(url)
         names = {t["name"] for t in tools}

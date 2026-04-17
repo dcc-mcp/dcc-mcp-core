@@ -608,6 +608,9 @@ impl PyActionPipeline {
             Err(DispatchError::HandlerError(msg)) => {
                 Err(pyo3::exceptions::PyRuntimeError::new_err(msg))
             }
+            Err(err @ DispatchError::ActionDisabled { .. }) => Err(
+                pyo3::exceptions::PyPermissionError::new_err(err.to_string()),
+            ),
         }
     }
 

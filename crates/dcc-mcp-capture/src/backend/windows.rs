@@ -138,7 +138,10 @@ fn capture_dxgi(config: &CaptureConfig) -> CaptureResult<CaptureFrame> {
 
     let monitor_idx = match &config.target {
         crate::types::CaptureTarget::MonitorIndex(i) => *i,
-        _ => 0,
+        crate::types::CaptureTarget::PrimaryDisplay => 0,
+        crate::types::CaptureTarget::ProcessId(_)
+        | crate::types::CaptureTarget::WindowTitle(_)
+        | crate::types::CaptureTarget::WindowHandle(_) => 0,
     };
 
     let adapter = unsafe {
@@ -288,6 +291,8 @@ fn capture_dxgi(config: &CaptureConfig) -> CaptureResult<CaptureFrame> {
         format: fmt,
         timestamp_ms,
         dpi_scale: 1.0,
+        window_rect: None,
+        window_title: None,
     })
 }
 

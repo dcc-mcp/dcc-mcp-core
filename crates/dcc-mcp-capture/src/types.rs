@@ -51,6 +51,8 @@ pub enum CaptureTarget {
     WindowTitle(String),
     /// Capture a specific monitor by zero-based index.
     MonitorIndex(usize),
+    /// Capture a specific window by its platform handle (HWND on Windows, XID on X11).
+    WindowHandle(u64),
 }
 
 // ── CaptureConfig ──────────────────────────────────────────────────────────
@@ -154,6 +156,15 @@ pub struct CaptureFrame {
     pub timestamp_ms: u64,
     /// Source display scale factor (e.g. 2.0 for HiDPI).
     pub dpi_scale: f32,
+    /// Source window bounds `[x, y, width, height]` in physical pixels when
+    /// the frame was captured from a specific window.  `None` for full-screen
+    /// or display captures.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window_rect: Option<[i32; 4]>,
+    /// Source window title when captured from a specific window.  `None` for
+    /// full-screen or display captures.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window_title: Option<String>,
 }
 
 impl CaptureFrame {
@@ -181,6 +192,8 @@ pub enum CaptureBackendKind {
     X11Xshm,
     /// Linux Wayland / PipeWire.
     PipeWire,
+    /// Windows GDI `PrintWindow` / `BitBlt` window-target backend.
+    HwndPrintWindow,
     /// In-process mock backend (testing / headless).
     Mock,
 }
@@ -192,6 +205,7 @@ impl std::fmt::Display for CaptureBackendKind {
             CaptureBackendKind::ScreenCaptureKit => "ScreenCaptureKit",
             CaptureBackendKind::X11Xshm => "X11 XShmGetImage",
             CaptureBackendKind::PipeWire => "PipeWire",
+            CaptureBackendKind::HwndPrintWindow => "GDI PrintWindow",
             CaptureBackendKind::Mock => "Mock",
         };
         write!(f, "{s}")
@@ -277,6 +291,8 @@ mod tests {
             format: CaptureFormat::Png,
             timestamp_ms: 1_700_000_000_000,
             dpi_scale: 1.0,
+            window_rect: None,
+            window_title: None,
         };
         assert_eq!(frame.byte_len(), 128);
         assert_eq!(frame.mime_type(), "image/png");

@@ -1,7 +1,7 @@
 """Tests for dcc_mcp_core.dcc_server.register_diagnostic_handlers.
 
 Covers:
-- register_diagnostic_handlers registers the three handler names on the mock server
+- register_diagnostic_handlers registers the four handler names on the mock server
 - get_audit_log handler returns valid JSON with success=True (local SandboxContext)
 - get_action_metrics handler returns valid JSON with success=True (local ToolRecorder)
 - dispatch_action handler returns error when dispatcher is None
@@ -73,7 +73,7 @@ def test_importable_from_module():
 # ---------------------------------------------------------------------------
 
 
-def test_registers_three_handlers():
+def test_registers_four_handlers():
     from dcc_mcp_core.dcc_server import register_diagnostic_handlers
 
     server = _MockServer()
@@ -82,6 +82,7 @@ def test_registers_three_handlers():
     assert "get_audit_log" in server._handlers
     assert "get_action_metrics" in server._handlers
     assert "dispatch_action" in server._handlers
+    assert "take_screenshot" in server._handlers
 
 
 def test_idempotent_registration():
@@ -90,8 +91,36 @@ def test_idempotent_registration():
     server = _MockServer()
     register_diagnostic_handlers(server, dcc_name="test-dcc")
     register_diagnostic_handlers(server, dcc_name="test-dcc")
-    # Still exactly 3 handlers (re-registration overwrites)
-    assert len(server._handlers) == 3
+    # Still exactly 4 handlers (re-registration overwrites)
+    assert len(server._handlers) == 4
+
+
+def test_instance_context_populated():
+    """register_diagnostic_handlers stores DCC instance context for screenshot handler."""
+    from dcc_mcp_core.dcc_server import _instance_context
+    from dcc_mcp_core.dcc_server import register_diagnostic_handlers
+
+    server = _MockServer()
+    resolver_calls: list[int] = []
+
+    def _resolver() -> int:
+        resolver_calls.append(1)
+        return 0xABCD1234
+
+    register_diagnostic_handlers(
+        server,
+        dcc_name="test-dcc",
+        dcc_pid=54321,
+        dcc_window_handle=0x1234ABCD,
+        dcc_window_title="Test DCC",
+        resolver=_resolver,
+    )
+
+    assert _instance_context["dcc_name"] == "test-dcc"
+    assert _instance_context["dcc_pid"] == 54321
+    assert _instance_context["dcc_window_handle"] == 0x1234ABCD
+    assert _instance_context["dcc_window_title"] == "Test DCC"
+    assert _instance_context["resolver"] is _resolver
 
 
 # ---------------------------------------------------------------------------

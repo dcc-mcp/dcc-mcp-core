@@ -136,6 +136,49 @@ print(f"MCP server running at {handle.mcp_url()}")
 # handle.shutdown() to shut down
 ```
 
+### Instance-Bound Diagnostics
+
+When multiple DCC instances run side-by-side (two Maya processes, Maya +
+Blender, etc.), each adapter server should be bound to **its own** DCC
+process so diagnostics (screenshot, audit log, metrics) target the right
+window and PID.
+
+`DccServerBase` accepts three optional instance-binding kwargs and exposes
+four `diagnostics__*` MCP tools:
+
+```python
+from dcc_mcp_core import DccServerBase
+
+class MayaServer(DccServerBase):
+    def __init__(self, pid: int, window_title: str):
+        super().__init__(
+            dcc_name="maya",
+            builtin_skills_dir=None,
+            dcc_pid=pid,                   # owner DCC PID
+            dcc_window_title=window_title, # fallback match when PID lookup fails
+            # dcc_window_handle=0x00A1B2,  # or pass an HWND directly
+        )
+
+server = MayaServer(pid=12345, window_title="Autodesk Maya 2024")
+handle = server.start()  # exposes diagnostics__screenshot / audit_log /
+                         # action_metrics / process_status tools bound to
+                         # this Maya instance only
+```
+
+If the PID can change at runtime (e.g. the user relaunches Maya), pass a
+lazy `resolver` callable instead of `dcc_pid`:
+
+```python
+def current_maya_pid() -> int | None:
+    return _find_maya_pid()    # evaluated on every diagnostics call
+
+server = DccServerBase("maya", resolver=current_maya_pid, ...)
+```
+
+For low-level servers built around `McpHttpServer` directly, call
+`register_diagnostic_mcp_tools(server, dcc_name=..., dcc_pid=...)` **before**
+`server.start()` — per the "register all actions before start" rule.
+
 ## Development Setup
 
 ```bash

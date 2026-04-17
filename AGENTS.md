@@ -84,6 +84,21 @@ A Rust-powered MCP (Model Context Protocol) library that lets AI agents interact
 **Screen capture, shared memory, telemetry, process management?**
 → `docs/api/capture.md`, `docs/api/shm.md`, `docs/api/telemetry.md`, `docs/api/process.md`
 
+**Capture a single DCC window (not the whole screen)?**
+→ `Capturer.new_window_auto()` + `.capture_window(process_id=..., window_title=..., window_handle=...)`
+→ Resolve targets first: `WindowFinder().find(CaptureTarget.process_id(pid))` → `WindowInfo`
+→ Backend on Windows: HWND `PrintWindow` (falls back to Mock on other OSes)
+
+**Bind diagnostics tools to a specific DCC instance (multi-instance safe)?**
+→ `DccServerBase(..., dcc_pid=pid, dcc_window_title=title, dcc_window_handle=hwnd, resolver=...)`
+→ Registers `diagnostics__screenshot` / `diagnostics__audit_log` / `diagnostics__action_metrics` / `diagnostics__process_status`
+→ Low-level: `register_diagnostic_mcp_tools(server, dcc_name=..., dcc_pid=...)` BEFORE `server.start()`
+
+**Limit tools surfaced to the LLM client (progressive exposure)?**
+→ Declare `groups:` in SKILL.md with `default_active: true|false`
+→ Activate at runtime via `ToolRegistry.activate_tool_group(skill, group)` / MCP tool `activate_tool_group`
+→ See `docs/guide/skills.md` — "Tool Groups (Progressive Exposure)"
+
 ---
 
 ## Repo Layout (What Lives Where)
@@ -106,7 +121,7 @@ dcc-mcp-core/
 │   ├── dcc-mcp-sandbox/            # SandboxPolicy, InputValidator, AuditLog
 │   ├── dcc-mcp-telemetry/          # TelemetryConfig, ToolRecorder, ToolMetrics
 │   ├── dcc-mcp-shm/                # PySharedBuffer, PySharedSceneBuffer (LZ4)
-│   ├── dcc-mcp-capture/            # Capturer, CaptureFrame (platform-native)
+│   ├── dcc-mcp-capture/            # Capturer, CaptureFrame, CaptureTarget, WindowFinder (HWND/DXGI/X11/Mock)
 │   ├── dcc-mcp-usd/                # UsdStage, UsdPrim, scene_info_json_to_stage
 │   ├── dcc-mcp-server/             # Binary entry point for bridge-mode DCCs
 │   └── dcc-mcp-utils/              # Filesystem helpers, wrap_value, constants
@@ -115,12 +130,12 @@ dcc-mcp-core/
 │   ├── __init__.py                 # ← READ THIS: every public symbol + __all__
 │   ├── _core.pyi                   # ← READ THIS: parameter names, types, signatures
 │   ├── skill.py                    # Pure-Python: @skill_entry, skill_success/error/warning
-│   ├── server_base.py              # Pure-Python: DccServerBase (subclass for adapters)
+│   ├── server_base.py              # Pure-Python: DccServerBase (subclass, supports dcc_pid/dcc_window_title binding)
 │   ├── factory.py                  # Pure-Python: make_start_stop, create_dcc_server
 │   ├── gateway_election.py         # Pure-Python: DccGatewayElection
 │   ├── hotreload.py                # Pure-Python: DccSkillHotReloader
 │   ├── bridge.py                   # Pure-Python: DccBridge (WebSocket JSON-RPC 2.0)
-│   ├── dcc_server.py               # Pure-Python: register_diagnostic_handlers
+│   ├── dcc_server.py               # Pure-Python: register_diagnostic_handlers + register_diagnostic_mcp_tools
 │   └── skills/                     # Bundled: dcc-diagnostics, workflow (in wheel)
 │
 ├── tests/                          # 120+ integration tests — executable usage examples
@@ -225,7 +240,7 @@ Capturer.new_window_auto().capture_window(window_title="Maya 2024")
 
 **Tool groups — inactive groups are hidden, not deleted:**
 ```python
-# default_active=false tools are registered with enabled=False.
+# default_active=false tools are registered with ActionMeta.enabled=False.
 # tools/list hides them but registry.list_actions() still returns them.
 registry.activate_tool_group("maya-geometry", "rigging")   # emits tools/list_changed
 ```

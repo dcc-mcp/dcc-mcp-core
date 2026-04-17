@@ -74,6 +74,8 @@ pub enum DispatchError {
     ValidationFailed(String),
     /// The handler itself returned an error.
     HandlerError(String),
+    /// The action exists but is currently disabled (inactive tool group).
+    ActionDisabled { action: String, group: String },
 }
 
 impl std::fmt::Display for DispatchError {
@@ -85,6 +87,10 @@ impl std::fmt::Display for DispatchError {
             }
             Self::ValidationFailed(msg) => write!(f, "validation failed: {msg}"),
             Self::HandlerError(msg) => write!(f, "handler error: {msg}"),
+            Self::ActionDisabled { action, group } => write!(
+                f,
+                "action '{action}' is disabled (group '{group}' is inactive — call activate_tool_group first)"
+            ),
         }
     }
 }
@@ -239,6 +245,17 @@ impl ActionDispatcher {
 
         // 2. Look up metadata for validation
         let meta_opt: Option<ActionMeta> = self.registry.get_action(action_name, None);
+
+        // 2a. Enforce progressive-exposure "enabled" flag.
+        if let Some(meta) = &meta_opt
+            && !meta.enabled
+        {
+            return Err(DispatchError::ActionDisabled {
+                action: action_name.to_string(),
+                group: meta.group.clone(),
+            });
+        }
+
         let validation_skipped = match &meta_opt {
             None => true,
             Some(meta) => {

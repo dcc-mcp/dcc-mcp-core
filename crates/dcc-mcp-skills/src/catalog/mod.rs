@@ -49,10 +49,26 @@ use dcc_mcp_actions::{
     ActionDispatcher,
     registry::{ActionMeta, ActionRegistry},
 };
-use dcc_mcp_models::{SkillMetadata, SkillScope};
+use dcc_mcp_models::{SkillGroup, SkillMetadata, SkillScope};
 use std::sync::Arc;
 
 use crate::loader;
+
+/// Return whether the group named ``group_name`` should be active at load-time.
+///
+/// Empty ``group_name`` (the "always-on" default group) is always active.
+/// Otherwise, the group must be declared in ``groups`` with
+/// ``default_active = true``.
+pub(crate) fn group_default_active(groups: &[SkillGroup], group_name: &str) -> bool {
+    if group_name.is_empty() {
+        return true;
+    }
+    groups
+        .iter()
+        .find(|g| g.name == group_name)
+        .map(|g| g.default_active)
+        .unwrap_or(false)
+}
 
 // ── SkillCatalog ──
 
@@ -74,6 +90,8 @@ pub struct SkillCatalog {
     registry: Arc<ActionRegistry>,
     /// Optional dispatcher for auto-registering script handlers on load.
     dispatcher: Option<Arc<ActionDispatcher>>,
+    /// Tool groups currently active (``"<skill>:<group>"`` keys).
+    active_groups: DashSet<String>,
 }
 
 impl std::fmt::Debug for SkillCatalog {
@@ -104,6 +122,7 @@ impl SkillCatalog {
             loaded: DashSet::new(),
             registry,
             dispatcher: None,
+            active_groups: DashSet::new(),
         }
     }
 
@@ -121,6 +140,7 @@ impl SkillCatalog {
             loaded: DashSet::new(),
             registry,
             dispatcher: Some(dispatcher),
+            active_groups: DashSet::new(),
         }
     }
 
@@ -302,6 +322,13 @@ impl SkillCatalog {
         let skill_base = metadata.name.replace('-', "_");
         let skill_path = std::path::Path::new(&metadata.skill_path);
 
+        // Seed active_groups from default-active entries declared in the SKILL.md
+        for group in &metadata.groups {
+            if group.default_active {
+                self.active_groups.insert(group.name.clone());
+            }
+        }
+
         for tool_decl in &metadata.tools {
             let action_name = if tool_decl.name.contains("__") {
                 tool_decl.name.clone()
@@ -331,6 +358,11 @@ impl SkillCatalog {
                 output_schema: tool_decl.output_schema.clone(),
                 source_file: script_path.clone(),
                 skill_name: Some(skill_name.to_string()),
+                group: tool_decl.group.clone(),
+                // Disable at registration when the declared group is not
+                // default-active; default groups (empty group name or an
+                // explicitly default-active group) stay enabled.
+                enabled: group_default_active(&metadata.groups, &tool_decl.group),
             };
 
             self.registry.register_action(meta);
@@ -366,6 +398,8 @@ impl SkillCatalog {
                     output_schema: serde_json::Value::Null,
                     source_file: Some(script_path.clone()),
                     skill_name: Some(skill_name.to_string()),
+                    group: String::new(),
+                    enabled: true,
                 };
 
                 self.registry.register_action(meta);
@@ -652,6 +686,43 @@ fn skill_entry_to_summary(e: &SkillEntry) -> SkillSummary {
     }
 }
 
+// ── Progressive tool exposure (group activation) ──
+
+impl SkillCatalog {
+    /// Activate a tool group: enable every [`ActionMeta`] whose
+    /// ``group`` field matches ``group_name``.
+    ///
+    /// Returns the number of actions whose ``enabled`` state changed.
+    pub fn activate_group(&self, group_name: &str) -> usize {
+        self.active_groups.insert(group_name.to_string());
+        self.registry.set_group_enabled(group_name, true)
+    }
+
+    /// Deactivate a tool group (inverse of [`activate_group`]).
+    pub fn deactivate_group(&self, group_name: &str) -> usize {
+        self.active_groups.remove(group_name);
+        self.registry.set_group_enabled(group_name, false)
+    }
+
+    /// Return all currently-active tool group names.
+    pub fn active_groups(&self) -> Vec<String> {
+        self.active_groups.iter().map(|e| e.clone()).collect()
+    }
+
+    /// Return every distinct group name declared across loaded skills.
+    pub fn list_groups(&self) -> Vec<(String, String, bool)> {
+        let mut out: Vec<(String, String, bool)> = Vec::new();
+        for entry in self.entries.iter() {
+            let skill = entry.key().clone();
+            for g in &entry.value().metadata.groups {
+                let active = self.active_groups.contains(&g.name);
+                out.push((skill.clone(), g.name.clone(), active));
+            }
+        }
+        out
+    }
+}
+
 // ── Python bindings ──
 
 #[cfg(feature = "python-bindings")]
@@ -660,6 +731,32 @@ impl SkillCatalog {
     #[new]
     fn py_new(registry: ActionRegistry) -> Self {
         Self::new(Arc::new(registry))
+    }
+
+    /// Activate a tool group (enable every action in it).
+    ///
+    /// Returns the number of actions whose ``enabled`` flag changed.
+    #[pyo3(name = "activate_group")]
+    fn py_activate_group(&self, group_name: &str) -> usize {
+        self.activate_group(group_name)
+    }
+
+    /// Deactivate a tool group.
+    #[pyo3(name = "deactivate_group")]
+    fn py_deactivate_group(&self, group_name: &str) -> usize {
+        self.deactivate_group(group_name)
+    }
+
+    /// Return the list of currently-active tool groups.
+    #[pyo3(name = "active_groups")]
+    fn py_active_groups(&self) -> Vec<String> {
+        self.active_groups()
+    }
+
+    /// List all declared groups as ``(skill_name, group_name, active)`` tuples.
+    #[pyo3(name = "list_groups")]
+    fn py_list_groups(&self) -> Vec<(String, String, bool)> {
+        self.list_groups()
     }
 
     /// Discover skills from standard scan paths.

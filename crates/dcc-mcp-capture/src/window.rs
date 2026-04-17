@@ -51,6 +51,7 @@ impl WindowFinder {
             }
             CaptureTarget::ProcessId(pid) => self.find_by_pid(*pid),
             CaptureTarget::WindowTitle(title) => self.find_by_title(title),
+            CaptureTarget::WindowHandle(handle) => self.info_for_handle(*handle),
         }
     }
 
@@ -59,6 +60,25 @@ impl WindowFinder {
     /// Returns an empty list on unsupported platforms.
     pub fn enumerate(&self) -> Vec<WindowInfo> {
         platform_enumerate()
+    }
+
+    /// Look up window information for a known platform handle.
+    ///
+    /// On Windows, queries the HWND directly via `GetWindowRect` /
+    /// `GetWindowTextW`.  Other platforms fall back to `enumerate()`.
+    pub fn info_for_handle(&self, handle: u64) -> CaptureResult<WindowInfo> {
+        #[cfg(target_os = "windows")]
+        {
+            if let Some(info) = windows_info_for_hwnd(handle) {
+                return Ok(info);
+            }
+        }
+        self.enumerate()
+            .into_iter()
+            .find(|w| w.handle == handle)
+            .ok_or_else(|| {
+                CaptureError::TargetNotFound(format!("no window for handle=0x{handle:x}"))
+            })
     }
 
     fn find_by_pid(&self, pid: u32) -> CaptureResult<WindowInfo> {
@@ -141,6 +161,43 @@ fn windows_enumerate() -> Vec<WindowInfo> {
         let _ = EnumWindows(Some(enum_cb), LPARAM(result_ptr));
     }
     result
+}
+
+#[cfg(target_os = "windows")]
+fn windows_info_for_hwnd(handle: u64) -> Option<WindowInfo> {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetWindowRect, GetWindowTextW, GetWindowThreadProcessId, IsWindow,
+    };
+
+    let hwnd = HWND(handle as *mut core::ffi::c_void);
+    unsafe {
+        if !IsWindow(Some(hwnd)).as_bool() {
+            return None;
+        }
+        let mut title_buf = [0u16; 256];
+        let len = GetWindowTextW(hwnd, &mut title_buf);
+        let title = if len > 0 {
+            String::from_utf16_lossy(&title_buf[..len as usize])
+        } else {
+            String::new()
+        };
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(hwnd, Some(&mut pid));
+        let mut rect = windows::Win32::Foundation::RECT::default();
+        let _ = GetWindowRect(hwnd, &mut rect);
+        Some(WindowInfo {
+            handle,
+            pid,
+            title,
+            rect: [
+                rect.left,
+                rect.top,
+                rect.right - rect.left,
+                rect.bottom - rect.top,
+            ],
+        })
+    }
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────

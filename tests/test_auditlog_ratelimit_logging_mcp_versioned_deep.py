@@ -695,12 +695,18 @@ class TestMcpServerHandleDeep:
         tool_names = {t["name"] for t in tools}
         assert "find_skills" in tool_names
         assert "load_skill" in tool_names
-        assert not any(
-            t
-            for t in tools
-            if t["name"]
-            not in {"find_skills", "list_skills", "get_skill_info", "load_skill", "unload_skill", "search_skills"}
-        )
+        core_tools = {
+            "find_skills",
+            "list_skills",
+            "get_skill_info",
+            "load_skill",
+            "unload_skill",
+            "search_skills",
+            "activate_tool_group",
+            "deactivate_tool_group",
+            "search_tools",
+        }
+        assert not any(t for t in tools if t["name"] not in core_tools)
         handle.shutdown()
 
     def test_server_with_multiple_tools(self):

@@ -121,6 +121,13 @@ test-cov:
 test-e2e:
     pytest tests/test_mcp_mcporter_e2e.py -v --tb=short
 
+# ── Type stubs (pyo3-stub-gen PoC) ────────────────────────────────────────────
+
+# Generate python/dcc_mcp_core/_core.poc.pyi from annotated Rust code.
+# Current scope: dcc-mcp-capture crate only (PoC).
+stubgen:
+    cargo run --bin stub_gen --features stub-gen
+
 # ── Lint ──────────────────────────────────────────────────────────────────────
 
 # Lint Python source (ruff check only)

@@ -70,6 +70,11 @@ futures-util = "0.3"
 reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "rustls"] }
 socket2 = { version = "0.6", features = ["all"] }
 
+# Type-stub generation (opt-in via `stub-gen` feature). Used only by the
+# `stub_gen` binary target — never pulled into wheels or library consumers.
+pyo3-stub-gen = "0.20"
+pyo3-stub-gen-derive = "0.20"
+
 # Root package — Python bindings entry point
 # Compiles to `_core.pyd` / `_core.so`, exposed as `dcc_mcp_core._core`
 [package]
@@ -106,8 +111,19 @@ dcc-mcp-http.workspace = true
 # PyO3 (optional — only for wheel builds)
 pyo3 = { workspace = true, optional = true }
 
+# Type-stub generation (opt-in via `stub-gen` feature, used by the
+# `stub_gen` binary target only).
+pyo3-stub-gen = { workspace = true, optional = true }
+
 [dev-dependencies]
 serde_json.workspace = true
+
+# PoC binary: generate python/dcc_mcp_core/_core.pyi from annotated Rust code.
+# Build with: cargo run --bin stub_gen --features stub-gen
+[[bin]]
+name = "stub_gen"
+path = "src/bin/stub_gen.rs"
+required-features = ["stub-gen"]
 
 [profile.release]
 opt-level = 3
@@ -121,3 +137,10 @@ python-bindings = ["pyo3", "dcc-mcp-models/python-bindings", "dcc-mcp-actions/py
 abi3-py38 = ["pyo3/abi3-py38"]
 # Python 3.7 wheel: non-abi3 build, no abi3-py38 feature
 ext-module = ["pyo3/extension-module"]
+# Generate `python/dcc_mcp_core/_core.pyi` from annotated Rust code.
+# PoC scope: currently only dcc-mcp-capture is annotated.
+stub-gen = [
+    "python-bindings",
+    "dep:pyo3-stub-gen",
+    "dcc-mcp-capture/stub-gen",
+]

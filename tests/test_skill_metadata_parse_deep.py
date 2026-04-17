@@ -123,9 +123,10 @@ class TestParseSkillMdMayaGeometry:
         meta = parse_skill_md(_MAYA_GEOMETRY_DIR)
         assert meta.dcc == "maya"
 
-    def test_scripts_contains_two_files(self):
+    def test_scripts_contains_three_files(self):
         meta = parse_skill_md(_MAYA_GEOMETRY_DIR)
-        assert len(meta.scripts) == 2
+        # create_sphere, bevel_edges, create_joint (progressive-exposure demo)
+        assert len(meta.scripts) == 3
 
     def test_scripts_contain_create_sphere(self):
         meta = parse_skill_md(_MAYA_GEOMETRY_DIR)
@@ -283,7 +284,7 @@ class TestScanAndLoadScripts:
         skills, _ = scan_and_load(extra_paths=[_EXAMPLES_SKILLS_DIR])
         maya = next((s for s in skills if s.name == "maya-geometry"), None)
         assert maya is not None
-        assert len(maya.scripts) == 2
+        assert len(maya.scripts) == 3
 
     def test_scan_and_load_all_skills_have_skill_path(self):
         skills, _ = scan_and_load(extra_paths=[_EXAMPLES_SKILLS_DIR])

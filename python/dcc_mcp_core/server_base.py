@@ -88,6 +88,13 @@ class DccServerBase:
         dcc_version: DCC application version string for the gateway registry.
         scene: Currently open scene file path for the gateway registry.
         enable_gateway_failover: Enable automatic gateway failover / election.
+        dcc_pid: Process ID of the DCC application that owns this server.
+            Defaults to ``os.getpid()``. In bridge-mode adapters (e.g. Photoshop)
+            this MUST be set to the hosted DCC's PID, not the adapter's.
+        dcc_window_title: Substring of the DCC application window title used
+            to resolve the owner window for diagnostic screenshots.
+        dcc_window_handle: Pre-resolved native window handle (HWND on Windows,
+            XID on X11). When supplied, takes precedence over PID/title lookup.
 
     """
 
@@ -103,6 +110,10 @@ class DccServerBase:
         dcc_version: str | None = None,
         scene: str | None = None,
         enable_gateway_failover: bool = True,
+        *,
+        dcc_pid: int | None = None,
+        dcc_window_title: str | None = None,
+        dcc_window_handle: int | None = None,
     ) -> None:
         # Deferred: circular import — __init__.py imports DccServerBase from
         # this module, so we cannot import from dcc_mcp_core at module level.
@@ -114,6 +125,12 @@ class DccServerBase:
         self._builtin_skills_dir = builtin_skills_dir
         self._handle: Any | None = None
         self._enable_gateway_failover = enable_gateway_failover
+
+        # Instance-bound DCC diagnostic context
+        self._dcc_pid: int = dcc_pid if dcc_pid is not None else os.getpid()
+        self._dcc_window_title: str | None = dcc_window_title
+        self._dcc_window_handle: int | None = dcc_window_handle
+        self._cached_hwnd: int | None = None
 
         # Resolve gateway port
         effective_gateway_port: int = 0
@@ -272,6 +289,50 @@ class DccServerBase:
         except Exception:
             pass
         return None
+
+    # ── DCC instance context (PID / window handle / title) ───────────────────
+
+    @property
+    def dcc_pid(self) -> int:
+        """PID of the DCC application process hosting this server."""
+        return self._dcc_pid
+
+    @property
+    def dcc_window_title(self) -> str | None:
+        """Configured DCC window-title substring (``None`` if not set)."""
+        return self._dcc_window_title
+
+    @property
+    def dcc_window_handle(self) -> int | None:
+        """Pre-resolved native DCC window handle (``None`` if not set)."""
+        return self._dcc_window_handle
+
+    def _resolve_window_handle(self) -> int | None:
+        """Resolve the DCC window handle from the available context.
+
+        Priority: explicit ``dcc_window_handle`` → cached lookup → PID lookup
+        via :class:`WindowFinder` → title lookup → ``None``.
+        """
+        if self._dcc_window_handle is not None:
+            return self._dcc_window_handle
+        if self._cached_hwnd is not None:
+            return self._cached_hwnd
+        try:
+            from dcc_mcp_core import CaptureTarget
+            from dcc_mcp_core import WindowFinder
+
+            finder = WindowFinder()
+            info = None
+            if self._dcc_pid:
+                info = finder.find(CaptureTarget.process_id(self._dcc_pid))
+            if info is None and self._dcc_window_title:
+                info = finder.find(CaptureTarget.window_title(self._dcc_window_title))
+            if info is not None:
+                self._cached_hwnd = int(info.handle)
+            return self._cached_hwnd
+        except Exception as exc:
+            logger.debug("[%s] _resolve_window_handle failed: %s", self._dcc_name, exc)
+            return None
 
     # ── skill query methods (generic — 100% identical across all DCCs) ────────
 
@@ -548,6 +609,33 @@ class DccServerBase:
                 self._handle.port,
             )
             return self._handle
+
+        # Register instance-bound diagnostic IPC handlers before the server
+        # starts so skill subprocesses can call take_screenshot / audit_log.
+        try:
+            from dcc_mcp_core.dcc_server import register_diagnostic_handlers
+            from dcc_mcp_core.dcc_server import register_diagnostic_mcp_tools
+
+            register_diagnostic_handlers(
+                self._server,
+                dcc_name=self._dcc_name,
+                dcc_pid=self._dcc_pid,
+                dcc_window_handle=self._dcc_window_handle,
+                dcc_window_title=self._dcc_window_title,
+                resolver=self._resolve_window_handle,
+            )
+            # MCP tools MUST be registered before server.start() per the
+            # "register all actions before start" rule in AGENTS.md.
+            register_diagnostic_mcp_tools(
+                self._server,
+                dcc_name=self._dcc_name,
+                dcc_pid=self._dcc_pid,
+                dcc_window_handle=self._dcc_window_handle,
+                dcc_window_title=self._dcc_window_title,
+                resolver=self._resolve_window_handle,
+            )
+        except Exception as exc:
+            logger.debug("[%s] register_diagnostic_* failed: %s", self._dcc_name, exc)
 
         self._handle = self._server.start()
         logger.info("[%s] MCP server started at %s", self._dcc_name, self._handle.mcp_url())

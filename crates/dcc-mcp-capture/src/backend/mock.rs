@@ -127,6 +127,8 @@ impl DccCapture for MockBackend {
             format,
             timestamp_ms,
             dpi_scale: 1.0,
+            window_rect: None,
+            window_title: None,
         })
     }
 }

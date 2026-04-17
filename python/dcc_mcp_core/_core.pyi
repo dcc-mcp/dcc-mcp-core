@@ -132,6 +132,28 @@ class ToolDeclaration:
     ) -> None: ...
     def __repr__(self) -> str: ...
 
+class SkillGroup:
+    """Declaration of a tool group within a skill (progressive exposure).
+
+    Groups bundle multiple tools behind a single stub entry in ``tools/list``
+    so agents only pay the context cost for the tools they actually use.
+    """
+
+    name: str
+    description: str
+    tools: list[str]
+    default_active: bool
+
+    def __init__(
+        self,
+        name: str,
+        description: str = "",
+        tools: list[str] | None = None,
+        default_active: bool = False,
+    ) -> None: ...
+    def __repr__(self) -> str: ...
+    def __eq__(self, other: object) -> bool: ...
+
 class SkillMetadata:
     """Metadata parsed from a SKILL.md frontmatter.
 
@@ -152,6 +174,7 @@ class SkillMetadata:
     license: str
     compatibility: str
     allowed_tools: list[str]
+    groups: list[SkillGroup]
 
     def __init__(
         self,
@@ -3443,11 +3466,80 @@ class CaptureFrame:
         """Display scale factor (1.0 standard, 2.0 HiDPI)."""
         ...
 
+    @property
+    def window_rect(self) -> tuple[int, int, int, int] | None:
+        """Source window bounds ``(x, y, width, height)`` or ``None`` for full-screen captures."""
+        ...
+
+    @property
+    def window_title(self) -> str | None:
+        """Source window title or ``None`` for full-screen captures."""
+        ...
+
     def byte_len(self) -> int:
         """Byte length of the encoded image data."""
         ...
 
     def __repr__(self) -> str: ...
+
+class CaptureTarget:
+    """Capture target specifier.
+
+    Construct via the static factory methods; the value is opaque to Python.
+    """
+
+    @staticmethod
+    def primary_display() -> CaptureTarget: ...
+    @staticmethod
+    def monitor_index(index: int) -> CaptureTarget: ...
+    @staticmethod
+    def process_id(pid: int) -> CaptureTarget: ...
+    @staticmethod
+    def window_title(title: str) -> CaptureTarget: ...
+    @staticmethod
+    def window_handle(handle: int) -> CaptureTarget:
+        """Platform-opaque native window handle (HWND on Windows, XID on X11)."""
+        ...
+
+    def __repr__(self) -> str: ...
+
+class CaptureBackendKind:
+    """Enum-like handle identifying the active capture backend."""
+
+    DxgiDesktopDuplication: CaptureBackendKind
+    ScreenCaptureKit: CaptureBackendKind
+    X11Xshm: CaptureBackendKind
+    PipeWire: CaptureBackendKind
+    HwndPrintWindow: CaptureBackendKind
+    Mock: CaptureBackendKind
+
+    @property
+    def name(self) -> str: ...
+    def __repr__(self) -> str: ...
+    def __eq__(self, other: object) -> bool: ...
+
+class WindowInfo:
+    """Metadata for a discovered top-level window."""
+
+    @property
+    def handle(self) -> int: ...
+    @property
+    def pid(self) -> int: ...
+    @property
+    def title(self) -> str: ...
+    @property
+    def rect(self) -> tuple[int, int, int, int]: ...
+
+class WindowFinder:
+    """Resolve :class:`CaptureTarget` values to concrete top-level windows."""
+
+    def __init__(self) -> None: ...
+    def find(self, target: CaptureTarget) -> WindowInfo | None:
+        """Return the matching window or ``None`` if not found."""
+        ...
+    def enumerate(self) -> list[WindowInfo]:
+        """Return all visible top-level windows."""
+        ...
 
 class Capturer:
     """High-level DCC screenshot / frame-capture entry point.
@@ -3483,6 +3575,15 @@ class Capturer:
         """Create a capturer backed by the mock (synthetic checkerboard) backend.
 
         Safe to use in headless CI and testing environments without a GPU.
+        """
+        ...
+
+    @staticmethod
+    def new_window_auto() -> Capturer:
+        """Create a capturer configured for single-window capture.
+
+        Uses the GDI ``PrintWindow`` backend on Windows; falls back to the
+        mock backend on other platforms until window-target backends are added.
         """
         ...
 
@@ -3526,8 +3627,41 @@ class Capturer:
         """
         ...
 
+    def capture_window(
+        self,
+        *,
+        process_id: int | None = None,
+        window_handle: int | None = None,
+        window_title: str | None = None,
+        format: str = "png",
+        jpeg_quality: int = 85,
+        scale: float = 1.0,
+        timeout_ms: int = 5000,
+        include_decorations: bool = True,
+    ) -> CaptureFrame:
+        """Capture a single top-level window.
+
+        At least one of ``process_id``, ``window_handle``, or ``window_title``
+        must be provided. Returns a :class:`CaptureFrame` with
+        :attr:`CaptureFrame.window_rect` and :attr:`CaptureFrame.window_title`
+        populated.
+
+        Raises
+        ------
+        ValueError:
+            If none of the three target kwargs are supplied.
+        RuntimeError:
+            If the target window cannot be resolved or the backend fails.
+
+        """
+        ...
+
     def backend_name(self) -> str:
         """Return the name of the active backend (e.g. ``"DXGI Desktop Duplication"``)."""
+        ...
+
+    def backend_kind(self) -> CaptureBackendKind:
+        """Return the active backend kind enum."""
         ...
 
     def stats(self) -> tuple[int, int, int]:
