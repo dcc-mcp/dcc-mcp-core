@@ -38,6 +38,10 @@ pub enum PyScriptLanguage {
     CSharp,
     #[pyo3(name = "BLUEPRINT")]
     Blueprint,
+    #[pyo3(name = "JAVASCRIPT")]
+    JavaScript,
+    #[pyo3(name = "TYPESCRIPT")]
+    TypeScript,
 }
 
 #[cfg(feature = "python-bindings")]
@@ -57,6 +61,8 @@ impl PyScriptLanguage {
             Self::Lua => "LUA",
             Self::CSharp => "CSHARP",
             Self::Blueprint => "BLUEPRINT",
+            Self::JavaScript => "JAVASCRIPT",
+            Self::TypeScript => "TYPESCRIPT",
         }
     }
 }
@@ -73,6 +79,8 @@ impl From<ScriptLanguage> for PyScriptLanguage {
             ScriptLanguage::Lua => PyScriptLanguage::Lua,
             ScriptLanguage::CSharp => PyScriptLanguage::CSharp,
             ScriptLanguage::Blueprint => PyScriptLanguage::Blueprint,
+            ScriptLanguage::JavaScript => PyScriptLanguage::JavaScript,
+            ScriptLanguage::TypeScript => PyScriptLanguage::TypeScript,
         }
     }
 }
@@ -89,6 +97,8 @@ impl From<&PyScriptLanguage> for ScriptLanguage {
             PyScriptLanguage::Lua => ScriptLanguage::Lua,
             PyScriptLanguage::CSharp => ScriptLanguage::CSharp,
             PyScriptLanguage::Blueprint => ScriptLanguage::Blueprint,
+            PyScriptLanguage::JavaScript => ScriptLanguage::JavaScript,
+            PyScriptLanguage::TypeScript => ScriptLanguage::TypeScript,
         }
     }
 }

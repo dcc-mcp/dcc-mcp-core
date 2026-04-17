@@ -659,6 +659,8 @@ class ScriptLanguage:
     LUA: ScriptLanguage
     CSHARP: ScriptLanguage
     BLUEPRINT: ScriptLanguage
+    JAVASCRIPT: ScriptLanguage
+    TYPESCRIPT: ScriptLanguage
 
     def __repr__(self) -> str: ...
     def __str__(self) -> str: ...

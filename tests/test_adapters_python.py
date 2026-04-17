@@ -51,6 +51,16 @@ class TestScriptLanguage:
         lang = dcc_mcp_core.ScriptLanguage.BLUEPRINT
         assert str(lang) == "BLUEPRINT"
 
+    def test_javascript_variant(self) -> None:
+        lang = dcc_mcp_core.ScriptLanguage.JAVASCRIPT
+        assert str(lang) == "JAVASCRIPT"
+        assert "JAVASCRIPT" in repr(lang)
+
+    def test_typescript_variant(self) -> None:
+        lang = dcc_mcp_core.ScriptLanguage.TYPESCRIPT
+        assert str(lang) == "TYPESCRIPT"
+        assert "TYPESCRIPT" in repr(lang)
+
     def test_equality(self) -> None:
         assert dcc_mcp_core.ScriptLanguage.PYTHON == dcc_mcp_core.ScriptLanguage.PYTHON
         assert dcc_mcp_core.ScriptLanguage.MEL != dcc_mcp_core.ScriptLanguage.PYTHON

@@ -83,6 +83,14 @@ pub enum ScriptLanguage {
     CSharp,
     /// Blueprint/Visual Script (Unreal Engine).
     Blueprint,
+    /// JavaScript — served via CDP `Runtime.evaluate` to WebView-host DCCs
+    /// (auroraview, Photoshop UXP, Figma, embedded CEF/WebView2 panels).
+    #[serde(rename = "javascript")]
+    JavaScript,
+    /// TypeScript — compiled-ahead or evaluated via a TS host
+    /// (Figma plugin runtime, UXP manifests).
+    #[serde(rename = "typescript")]
+    TypeScript,
 }
 
 impl std::fmt::Display for ScriptLanguage {
@@ -96,6 +104,8 @@ impl std::fmt::Display for ScriptLanguage {
             Self::Lua => write!(f, "lua"),
             Self::CSharp => write!(f, "csharp"),
             Self::Blueprint => write!(f, "blueprint"),
+            Self::JavaScript => write!(f, "javascript"),
+            Self::TypeScript => write!(f, "typescript"),
         }
     }
 }

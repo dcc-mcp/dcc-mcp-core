@@ -55,6 +55,8 @@ fn test_script_language_display() {
     assert_eq!(ScriptLanguage::Lua.to_string(), "lua");
     assert_eq!(ScriptLanguage::CSharp.to_string(), "csharp");
     assert_eq!(ScriptLanguage::Blueprint.to_string(), "blueprint");
+    assert_eq!(ScriptLanguage::JavaScript.to_string(), "javascript");
+    assert_eq!(ScriptLanguage::TypeScript.to_string(), "typescript");
 }
 
 #[test]
@@ -64,6 +66,24 @@ fn test_script_language_serialization_roundtrip() {
     assert_eq!(json, "\"python\"");
     let deserialized: ScriptLanguage = serde_json::from_str(&json).unwrap();
     assert_eq!(deserialized, ScriptLanguage::Python);
+}
+
+#[test]
+fn test_script_language_javascript_serialization_roundtrip() {
+    let lang = ScriptLanguage::JavaScript;
+    let json = serde_json::to_string(&lang).unwrap();
+    assert_eq!(json, "\"javascript\"");
+    let deserialized: ScriptLanguage = serde_json::from_str(&json).unwrap();
+    assert_eq!(deserialized, ScriptLanguage::JavaScript);
+}
+
+#[test]
+fn test_script_language_typescript_serialization_roundtrip() {
+    let lang = ScriptLanguage::TypeScript;
+    let json = serde_json::to_string(&lang).unwrap();
+    assert_eq!(json, "\"typescript\"");
+    let deserialized: ScriptLanguage = serde_json::from_str(&json).unwrap();
+    assert_eq!(deserialized, ScriptLanguage::TypeScript);
 }
 
 #[test]
