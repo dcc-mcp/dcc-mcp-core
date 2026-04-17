@@ -62,7 +62,7 @@ jobs:
           toolchain: '1.90.0'
           targets: aarch64-apple-darwin  # needed for macOS universal2 lipo
 
-      - uses: loonghao/vx@v0.8.29
+      - uses: loonghao/vx@v0.8.30
 
       - name: Cache Cargo
         uses: actions/cache@v5
