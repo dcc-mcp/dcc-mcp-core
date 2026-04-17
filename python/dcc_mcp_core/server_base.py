@@ -694,6 +694,64 @@ class DccServerBase:
         """
         return "unknown"
 
+    # ── gateway promotion hook (invoked by DccGatewayElection) ────────────────
+
+    def _upgrade_to_gateway(self) -> bool:
+        """Promote this instance to the active gateway by re-running bind.
+
+        Called by :class:`DccGatewayElection` after it detects that the
+        current gateway is unreachable and the gateway port appears free.
+        The default implementation tears down the current MCP HTTP server
+        handle and starts a new one, which lets the Rust ``GatewayRunner``
+        re-run its exclusive first-wins port bind. When that bind succeeds
+        the new handle's ``is_gateway`` flag will be ``True`` and
+        ``self.is_gateway`` will reflect the promotion without a process
+        restart.
+
+        Sub-classes may override this method to plug in DCC-specific
+        promotion logic (e.g. clearing caches, re-announcing the endpoint
+        to a discovery service).
+
+        Returns:
+            ``True`` if the instance is now the active gateway, ``False``
+            otherwise (e.g. another process grabbed the port first, or the
+            restart failed).
+
+        """
+        if self.is_gateway:
+            return True
+
+        gateway_port = getattr(self._config, "gateway_port", 0)
+        if not gateway_port or gateway_port <= 0:
+            logger.debug(
+                "[%s] Cannot promote to gateway: gateway_port is not configured",
+                self._dcc_name,
+            )
+            return False
+
+        old_handle = self._handle
+        if old_handle is not None:
+            with contextlib.suppress(Exception):
+                old_handle.shutdown()
+            self._handle = None
+
+        try:
+            self._handle = self._server.start()
+        except Exception as exc:
+            logger.error("[%s] Gateway promotion restart failed: %s", self._dcc_name, exc)
+            self._handle = None
+            return False
+
+        promoted = bool(getattr(self._handle, "is_gateway", False))
+        if promoted:
+            logger.info("[%s] Gateway promotion succeeded (re-bound on %d)", self._dcc_name, gateway_port)
+        else:
+            logger.info(
+                "[%s] Gateway promotion attempted but another instance won the bind; running as plain instance",
+                self._dcc_name,
+            )
+        return promoted
+
     def __repr__(self) -> str:
         status = "running" if self.is_running else "stopped"
         return f"{type(self).__name__}(dcc={self._dcc_name!r}, status={status})"

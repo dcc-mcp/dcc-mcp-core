@@ -190,6 +190,85 @@ class TestDccGatewayElection:
         finally:
             finder.close()
 
+    # ── promotion hook (regression for issue #204) ───────────────────────────
+
+    def _free_port(self) -> int:
+        """Pick an unused TCP port and release it."""
+        import socket as _socket
+
+        s = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+        try:
+            s.bind(("127.0.0.1", 0))
+            return s.getsockname()[1]
+        finally:
+            s.close()
+
+    def test_upgrade_to_gateway_without_hook_returns_false(self):
+        """No callback and no server hook must not claim a bogus success."""
+        server = _make_mock_server()
+        # MagicMock auto-creates attributes, so strip _upgrade_to_gateway.
+        del server._upgrade_to_gateway
+        election = self._make_election(server=server)
+        assert election._upgrade_to_gateway() is False
+
+    def test_upgrade_to_gateway_calls_on_promote_callback(self):
+        """on_promote callback is invoked and its return value propagates."""
+        calls = {"n": 0}
+
+        def _promote() -> bool:
+            calls["n"] += 1
+            return True
+
+        election = self._make_election()
+        election._on_promote = _promote
+        assert election._upgrade_to_gateway() is True
+        assert calls["n"] == 1
+
+    def test_upgrade_to_gateway_falls_back_to_server_hook(self):
+        """When no callback is given, the server's _upgrade_to_gateway is used."""
+        server = _make_mock_server()
+        server._upgrade_to_gateway = MagicMock(return_value=True)
+        election = self._make_election(server=server)
+        assert election._upgrade_to_gateway() is True
+        server._upgrade_to_gateway.assert_called_once_with()
+
+    def test_upgrade_to_gateway_swallows_hook_exception(self):
+        """A raising hook must not break the election loop."""
+        server = _make_mock_server()
+        server._upgrade_to_gateway = MagicMock(side_effect=RuntimeError("boom"))
+        election = self._make_election(server=server)
+        assert election._upgrade_to_gateway() is False
+
+    def test_attempt_election_on_free_port_triggers_promotion(self):
+        """When the port is free, _attempt_election must delegate to promotion."""
+        port = self._free_port()
+        promote = MagicMock(return_value=True)
+        election = self._make_election(gateway_port=port)
+        election._on_promote = promote
+
+        assert election._attempt_election() is True
+        promote.assert_called_once_with()
+
+    def test_attempt_election_returns_false_when_promotion_fails(self):
+        """If promotion hook returns False, _attempt_election must reflect that."""
+        port = self._free_port()
+        election = self._make_election(gateway_port=port)
+        election._on_promote = MagicMock(return_value=False)
+        assert election._attempt_election() is False
+
+    def test_on_promote_kwarg_is_stored(self):
+        """on_promote passed via __init__ is stored and used."""
+        from dcc_mcp_core.gateway_election import DccGatewayElection
+
+        cb = MagicMock(return_value=True)
+        election = DccGatewayElection(
+            dcc_name="test-dcc",
+            server=_make_mock_server(),
+            gateway_port=19876,
+            on_promote=cb,
+        )
+        assert election._on_promote is cb
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # DccServerBase
@@ -434,6 +513,116 @@ class TestDccServerBase:
         server = self._make_server(tmp_path)
         result = server.update_gateway_metadata(scene="/some/scene.hip")
         assert result is False
+
+    # ── gateway promotion (regression for issue #204) ────────────────────────
+
+    def test_upgrade_to_gateway_no_port_returns_false(self, tmp_path):
+        """Promotion without a configured gateway port is a no-op, not a lie."""
+        server = self._make_server(tmp_path)
+        server._config.gateway_port = 0
+        assert server._upgrade_to_gateway() is False
+
+    def test_upgrade_to_gateway_already_gateway_is_noop(self, tmp_path):
+        """If we are already the gateway, return True without restarting."""
+        server = self._make_server(tmp_path)
+        server._config.gateway_port = 19876
+        existing = _FakeHandle()
+        existing.is_gateway = True
+        server._handle = existing
+        original_start = server._server.start
+        server._server.start = MagicMock(side_effect=AssertionError("must not restart"))
+        try:
+            assert server._upgrade_to_gateway() is True
+        finally:
+            server._server.start = original_start
+
+    def test_upgrade_to_gateway_restart_flips_is_gateway(self, tmp_path):
+        """Restart yields a new handle with is_gateway=True → server.is_gateway flips."""
+        server = self._make_server(tmp_path)
+        server._config.gateway_port = 19876
+        # Initial running handle that is NOT the gateway.
+        old_handle = _FakeHandle()
+        old_handle.is_gateway = False
+        old_handle.shutdown = MagicMock()
+        server._handle = old_handle
+        assert server.is_gateway is False
+
+        # The inner server's next start() returns a gateway handle.
+        new_handle = _FakeHandle()
+        new_handle.is_gateway = True
+        server._server.start = MagicMock(return_value=new_handle)
+
+        assert server._upgrade_to_gateway() is True
+        assert server._handle is new_handle
+        assert server.is_gateway is True
+        old_handle.shutdown.assert_called_once_with()
+        server._server.start.assert_called_once_with()
+
+    def test_upgrade_to_gateway_restart_fails_when_port_stolen(self, tmp_path):
+        """If Rust GatewayRunner loses the race, is_gateway remains False."""
+        server = self._make_server(tmp_path)
+        server._config.gateway_port = 19876
+        old_handle = _FakeHandle()
+        old_handle.is_gateway = False
+        old_handle.shutdown = MagicMock()
+        server._handle = old_handle
+
+        new_handle = _FakeHandle()
+        new_handle.is_gateway = False  # someone else grabbed the port
+        server._server.start = MagicMock(return_value=new_handle)
+
+        assert server._upgrade_to_gateway() is False
+        assert server._handle is new_handle
+        assert server.is_gateway is False
+
+    def test_upgrade_to_gateway_restart_exception_clears_handle(self, tmp_path):
+        """If the restart itself raises, we don't keep a stale handle around."""
+        server = self._make_server(tmp_path)
+        server._config.gateway_port = 19876
+        old_handle = _FakeHandle()
+        old_handle.shutdown = MagicMock()
+        server._handle = old_handle
+        server._server.start = MagicMock(side_effect=RuntimeError("bind failed"))
+
+        assert server._upgrade_to_gateway() is False
+        assert server._handle is None
+        assert server.is_gateway is False
+
+    def test_election_promotes_server_end_to_end(self, tmp_path):
+        """DccGatewayElection._attempt_election → DccServerBase._upgrade_to_gateway."""
+        from dcc_mcp_core.gateway_election import DccGatewayElection
+
+        server = self._make_server(tmp_path)
+        server._config.gateway_port = 19876
+        old_handle = _FakeHandle()
+        old_handle.is_gateway = False
+        old_handle.shutdown = MagicMock()
+        server._handle = old_handle
+
+        new_handle = _FakeHandle()
+        new_handle.is_gateway = True
+        server._server.start = MagicMock(return_value=new_handle)
+
+        # Pick a real free port so _is_port_free returns True.
+        import socket as _socket
+
+        s = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+        s.close()
+
+        election = DccGatewayElection(
+            dcc_name=server._dcc_name,
+            server=server,
+            gateway_port=port,
+            probe_interval=1,
+            probe_timeout=0.3,
+            probe_failures=1,
+        )
+
+        assert election._attempt_election() is True
+        assert server.is_gateway is True
+        assert server._handle is new_handle
 
     def test_subclass_minimal(self, tmp_path):
         """A minimal subclass should work out of the box."""
