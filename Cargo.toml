@@ -72,8 +72,8 @@ socket2 = { version = "0.6", features = ["all"] }
 
 # Type-stub generation (opt-in via `stub-gen` feature). Used only by the
 # `stub_gen` binary target — never pulled into wheels or library consumers.
-pyo3-stub-gen = "0.20"
-pyo3-stub-gen-derive = "0.20"
+pyo3-stub-gen = "0.22"
+pyo3-stub-gen-derive = "0.22"
 
 # Root package — Python bindings entry point
 # Compiles to `_core.pyd` / `_core.so`, exposed as `dcc_mcp_core._core`
