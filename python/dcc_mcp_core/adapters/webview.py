@@ -17,9 +17,11 @@ for the advertising side.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 # Import built-in modules
 from typing import Any
-from typing import TYPE_CHECKING
+from typing import ClassVar
 
 if TYPE_CHECKING:
     # Import built-in modules
@@ -92,7 +94,7 @@ class WebViewAdapter:
     #: Override in subclasses to flip individual entries when the host
     #: genuinely supports that capability (e.g. a Chromium-based editor with
     #: an in-browser undo stack → ``{"undo": True, ...}``).
-    capabilities: dict[str, bool] = dict(WEBVIEW_DEFAULT_CAPABILITIES)
+    capabilities: ClassVar[dict[str, bool]] = dict(WEBVIEW_DEFAULT_CAPABILITIES)
 
     #: DCC short-name this adapter registers as.  Override in subclasses.
     dcc_name: str = "webview"

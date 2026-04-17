@@ -220,13 +220,12 @@ class ToolRegistry:
     ) -> None:
         """Register a tool in this registry.
 
-        Args:
-            required_capabilities: Optional list of host-DCC capability keys
-                (e.g. ``["scene", "timeline"]``) that must be advertised by
-                the session for this tool to be exposed in ``tools/list``.
-                See :data:`dcc_mcp_core.CAPABILITY_KEYS` for the built-in
-                set.  Filtering is performed by the Gateway / adapter — the
-                registry only stores the declaration.
+        The ``required_capabilities`` parameter accepts an optional list of
+        host-DCC capability keys (e.g. ``["scene", "timeline"]``) that must be
+        advertised by the session for this tool to be exposed in
+        ``tools/list``.  See :data:`dcc_mcp_core.CAPABILITY_KEYS` for the
+        built-in set.  Filtering is performed by the Gateway / adapter — the
+        registry only stores the declaration.
         """
         ...
     def get_action(self, name: str, dcc_name: str | None = None) -> dict[str, Any] | None: ...
@@ -3765,10 +3764,12 @@ class Capturer:
         pixels relative to the window's top-left corner.
 
         Args:
-            pid:         OS process ID of the DCC to capture.
-            x, y:        Top-left corner of the crop rectangle (window-local).
-            w, h:        Width / height of the crop rectangle.
-            timeout_ms:  Max milliseconds to wait for the frame (default 1000).
+            pid: OS process ID of the DCC to capture.
+            x: Left edge of the crop rectangle (window-local pixels).
+            y: Top edge of the crop rectangle (window-local pixels).
+            w: Width of the crop rectangle in pixels.
+            h: Height of the crop rectangle in pixels.
+            timeout_ms: Max milliseconds to wait for the frame (default 1000).
 
         Returns:
             PNG-encoded cropped bytes on success; ``None`` on any failure

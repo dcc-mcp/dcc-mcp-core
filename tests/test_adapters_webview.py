@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # Import built-in modules
 from typing import Any
+from typing import ClassVar
 
 # Import third-party modules
 import pytest
@@ -14,7 +15,6 @@ from dcc_mcp_core import CAPABILITY_KEYS
 from dcc_mcp_core import WEBVIEW_DEFAULT_CAPABILITIES
 from dcc_mcp_core import WebViewAdapter
 from dcc_mcp_core import WebViewContext
-
 
 # ── Public API shape ──────────────────────────────────────────────────────────
 
@@ -89,7 +89,7 @@ class AuroraLikeAdapter(WebViewAdapter):
     """Mimics AuroraView: advertises undo only, routes through a fake bridge."""
 
     dcc_name = "auroraview"
-    capabilities = {**WEBVIEW_DEFAULT_CAPABILITIES, "undo": True}
+    capabilities: ClassVar[dict[str, bool]] = {**WEBVIEW_DEFAULT_CAPABILITIES, "undo": True}
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, Any]]] = []

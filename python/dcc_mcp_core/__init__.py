@@ -174,6 +174,12 @@ from dcc_mcp_core._core import validate_action_result
 from dcc_mcp_core._core import validate_dependencies
 from dcc_mcp_core._core import wrap_value
 
+# Adapters (pure-Python, non-DccServerBase)
+from dcc_mcp_core.adapters import CAPABILITY_KEYS
+from dcc_mcp_core.adapters import WEBVIEW_DEFAULT_CAPABILITIES
+from dcc_mcp_core.adapters import WebViewAdapter
+from dcc_mcp_core.adapters import WebViewContext
+
 # Pure-Python DCC adapter base classes (no _core dependency)
 from dcc_mcp_core.bridge import BridgeConnectionError
 from dcc_mcp_core.bridge import BridgeError
@@ -201,12 +207,6 @@ from dcc_mcp_core.skill import skill_exception
 from dcc_mcp_core.skill import skill_success
 from dcc_mcp_core.skill import skill_warning
 
-# Adapters (pure-Python, non-DccServerBase)
-from dcc_mcp_core.adapters import CAPABILITY_KEYS
-from dcc_mcp_core.adapters import WEBVIEW_DEFAULT_CAPABILITIES
-from dcc_mcp_core.adapters import WebViewAdapter
-from dcc_mcp_core.adapters import WebViewContext
-
 __version__: str
 try:
     __version__ = _core.__version__  # type: ignore[attr-defined]
@@ -222,6 +222,7 @@ except AttributeError:
 __all__ = [
     "APP_AUTHOR",
     "APP_NAME",
+    "CAPABILITY_KEYS",
     "DEFAULT_DCC",
     "DEFAULT_LOG_LEVEL",
     "DEFAULT_MIME_TYPE",
@@ -231,7 +232,6 @@ __all__ = [
     "SKILL_METADATA_DIR",
     "SKILL_METADATA_FILE",
     "SKILL_SCRIPTS_DIR",
-    "CAPABILITY_KEYS",
     "WEBVIEW_DEFAULT_CAPABILITIES",
     "AuditEntry",
     "AuditLog",
