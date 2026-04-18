@@ -11,6 +11,7 @@ pub use dcc_mcp_actions as actions;
 pub use dcc_mcp_capture as capture;
 pub use dcc_mcp_http as http;
 pub use dcc_mcp_models as models;
+pub use dcc_mcp_naming as naming;
 pub use dcc_mcp_process as process;
 pub use dcc_mcp_protocols as protocols;
 pub use dcc_mcp_sandbox as sandbox;
@@ -68,6 +69,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     register_usd(m)?;
     register_utils(m)?;
     register_http(m)?;
+    register_naming(m)?;
     register_constants(m)?;
 
     // ── Metadata ──
@@ -260,6 +262,11 @@ fn register_usd(m: &Bound<'_, PyModule>) -> PyResult<()> {
 #[cfg(feature = "python-bindings")]
 fn register_http(m: &Bound<'_, PyModule>) -> PyResult<()> {
     dcc_mcp_http::python::register_classes(m)
+}
+
+#[cfg(feature = "python-bindings")]
+fn register_naming(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    dcc_mcp_naming::python::register(m)
 }
 
 #[cfg(feature = "python-bindings")]

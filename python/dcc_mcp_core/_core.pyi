@@ -27,6 +27,43 @@ SKILL_METADATA_FILE: str
 SKILL_SCRIPTS_DIR: str
 SKILL_METADATA_DIR: str
 
+# Naming (SEP-986)
+TOOL_NAME_RE: str
+"""Regex pattern (anchored) that every MCP wire-visible tool name must match."""
+ACTION_ID_RE: str
+"""Regex pattern (anchored) that every internal action id must match."""
+MAX_TOOL_NAME_LEN: int
+"""Maximum tool-name length enforced by :func:`validate_tool_name` (48 chars).
+
+The MCP spec allows up to 128; the library caps lower to leave room for
+gateway prefixes like ``{id8}/`` or ``{skill}.``.
+"""
+
+def validate_tool_name(name: str) -> None:
+    """Validate an MCP wire-visible tool name (SEP-986).
+
+    Args:
+        name: Candidate tool name.
+
+    Raises:
+        ValueError: If ``name`` is empty, exceeds :data:`MAX_TOOL_NAME_LEN`,
+            contains a non-ASCII or disallowed character, or does not start
+            with an ASCII alphanumeric.
+
+    """
+
+def validate_action_id(name: str) -> None:
+    """Validate an internal action id (dotted lowercase identifier chain).
+
+    Args:
+        name: Candidate action id, e.g. ``"scene.get_info"``.
+
+    Raises:
+        ValueError: If ``name`` is empty, contains uppercase, a leading digit,
+            an empty ``.``-separated segment, or any disallowed character.
+
+    """
+
 # ── Models ──
 
 class ToolResult:

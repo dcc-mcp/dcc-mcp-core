@@ -1,0 +1,17 @@
+[package]
+name = "dcc-mcp-naming"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Tool-name and action-id validators for the DCC-MCP ecosystem (SEP-986 single source of truth)"
+
+[dependencies]
+pyo3 = { workspace = true, optional = true }
+thiserror = { workspace = true }
+
+[features]
+default = []
+python-bindings = ["pyo3"]

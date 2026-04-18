@@ -16,6 +16,9 @@ from __future__ import annotations
 
 # Import local modules
 from dcc_mcp_core import _core
+
+# Naming validators (SEP-986)
+from dcc_mcp_core._core import ACTION_ID_RE
 from dcc_mcp_core._core import APP_AUTHOR
 from dcc_mcp_core._core import APP_NAME
 from dcc_mcp_core._core import DEFAULT_DCC
@@ -24,9 +27,11 @@ from dcc_mcp_core._core import DEFAULT_MIME_TYPE
 from dcc_mcp_core._core import DEFAULT_VERSION
 from dcc_mcp_core._core import ENV_LOG_LEVEL
 from dcc_mcp_core._core import ENV_SKILL_PATHS
+from dcc_mcp_core._core import MAX_TOOL_NAME_LEN
 from dcc_mcp_core._core import SKILL_METADATA_DIR
 from dcc_mcp_core._core import SKILL_METADATA_FILE
 from dcc_mcp_core._core import SKILL_SCRIPTS_DIR
+from dcc_mcp_core._core import TOOL_NAME_RE
 
 # Sandbox
 from dcc_mcp_core._core import AuditEntry
@@ -166,8 +171,10 @@ from dcc_mcp_core._core import success_result
 from dcc_mcp_core._core import units_to_mpu
 from dcc_mcp_core._core import unwrap_parameters
 from dcc_mcp_core._core import unwrap_value
+from dcc_mcp_core._core import validate_action_id
 from dcc_mcp_core._core import validate_action_result
 from dcc_mcp_core._core import validate_dependencies
+from dcc_mcp_core._core import validate_tool_name
 from dcc_mcp_core._core import wrap_value
 
 # Adapters (pure-Python, non-DccServerBase)
@@ -216,6 +223,7 @@ except AttributeError:
     __author__ = ""
 
 __all__ = [
+    "ACTION_ID_RE",
     "APP_AUTHOR",
     "APP_NAME",
     "CAPABILITY_KEYS",
@@ -225,9 +233,11 @@ __all__ = [
     "DEFAULT_VERSION",
     "ENV_LOG_LEVEL",
     "ENV_SKILL_PATHS",
+    "MAX_TOOL_NAME_LEN",
     "SKILL_METADATA_DIR",
     "SKILL_METADATA_FILE",
     "SKILL_SCRIPTS_DIR",
+    "TOOL_NAME_RE",
     "WEBVIEW_DEFAULT_CAPABILITIES",
     "AuditEntry",
     "AuditLog",
@@ -378,7 +388,9 @@ __all__ = [
     "units_to_mpu",
     "unwrap_parameters",
     "unwrap_value",
+    "validate_action_id",
     "validate_action_result",
     "validate_dependencies",
+    "validate_tool_name",
     "wrap_value",
 ]

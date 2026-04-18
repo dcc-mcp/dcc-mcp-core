@@ -51,6 +51,7 @@ export default defineConfig({
                 { text: 'Actions & Registry', link: '/guide/actions' },
                 { text: 'Event System', link: '/guide/events' },
                 { text: 'MCP Protocols', link: '/guide/protocols' },
+                { text: 'Naming Actions & Tools', link: '/guide/naming' },
                 { text: 'Transport Layer', link: '/guide/transport' },
               ]
             },
