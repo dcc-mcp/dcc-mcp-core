@@ -13,7 +13,7 @@
 
 **Production-grade foundation for AI-assisted DCC workflows** combining the **Model Context Protocol (MCP)** and a **zero-code Skills system**. Provides a **Rust-powered core with Python bindings (PyO3)** delivering enterprise-grade performance, security, and scalability — all with **zero runtime Python dependencies**. Supports Python 3.7–3.13.
 
-> **Note**: This project is in active development (v0.12+). APIs may evolve; see CHANGELOG.md for version history.
+> **Note**: This project is in active development (v0.13+). APIs may evolve; see CHANGELOG.md for version history.
 
 ---
 
@@ -97,7 +97,7 @@ AI-friendly docs: [AGENTS.md](AGENTS.md) | [CLAUDE.md](CLAUDE.md) | [GEMINI.md](
 
 **Layer 2: Gateway** — Orchestrates discovery, session isolation, and request routing. Maintains `__gateway__` sentinel for version-aware election.
 
-**Layer 3: DCC Adapters** — Python bridge plugins (Maya, Blender, Photoshop) with embedded Skills system. Each registers documents, scene state, and active process info.
+**Layer 3: DCC Adapters** — Python bridge plugins (Maya, Blender, Photoshop) with embedded Skills system. Each registers documents, scene state, and active process info. WebView-host adapters (AuroraView, browser panels) use a narrower capability surface.
 
 ---
 
@@ -314,6 +314,7 @@ print(result["output"])  # {"success": True, "message": "...", "context": {...}}
 | `.sh`, `.bash` | Shell | `bash` |
 | `.ps1` | PowerShell | `powershell -File` |
 | `.js`, `.jsx` | JavaScript | `node` |
+| `.ts` | TypeScript | `node` (via ts-node or tsx) |
 
 See `examples/skills/` for **11 complete examples**: hello-world, maya-geometry, maya-pipeline, git-automation, ffmpeg-media, imagemagick-tools, usd-tools, clawhub-compat, multi-script, dcc-diagnostics, workflow.
 
@@ -325,7 +326,7 @@ clone or `DCC_MCP_SKILL_PATHS` configuration needed.
 
 | Skill | Tools | Purpose |
 |-------|-------|---------|
-| `dcc-diagnostics` | `screenshot`, `audit_log`, `action_metrics`, `process_status` | Observability & debugging for any DCC |
+| `dcc-diagnostics` | `screenshot`, `audit_log`, `tool_metrics`, `process_status` | Observability & debugging for any DCC |
 | `workflow` | `run_chain` | Multi-step action chaining with context propagation |
 
 ```python
@@ -415,7 +416,7 @@ dcc-mcp-core is organized as a **Rust workspace of 14 crates**, compiled into a 
 - **Screen capture**: Cross-platform DCC viewport capture for AI visual feedback
 - **USD integration**: Universal Scene Description read/write bridge
 - **Structured telemetry**: Tracing & recording for observability
-- **~140 public Python symbols** with full type stubs (`.pyi`)
+- **~154 public Python symbols** with full type stubs (`.pyi`)
 - **OpenClaw Skills compatible**: Reuse existing ecosystem format
 
 ## Installation

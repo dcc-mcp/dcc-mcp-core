@@ -72,6 +72,11 @@ vx just test-cov      # Coverage report to find gaps
   `dcc-diagnostics`, `workflow`
   — use `get_bundled_skills_dir()` / `get_bundled_skill_paths()` to get the path.
   DCC adapters include these by default (`include_bundled=True`).
+- **Skill authoring templates**: `skills/templates/` provides three starter templates:
+  - `minimal` — 1 tool, 1 script (simplest possible skill)
+  - `dcc-specific` — DCC binding + required_capabilities + next-tools chaining
+  - `with-groups` — tool groups for progressive exposure
+  See `skills/README.md` for quick-start guide.
 
 ```python
 # Correct usage:

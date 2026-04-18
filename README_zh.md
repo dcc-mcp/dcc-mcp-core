@@ -13,7 +13,7 @@ English | [中文](README_zh.md)
 
 **面向 AI 辅助 DCC 工作流的生产级基础库**，结合了 **模型上下文协议（MCP）** 与 **零代码 Skills 系统**。提供 **Rust 驱动核心 + PyO3 Python 绑定**，交付企业级性能、安全性和可扩展性——所有这些均**零运行时 Python 依赖**。支持 Python 3.7–3.13。
 
-> **注意**：本项目处于积极开发中（v0.12+）。API 可能会演进；版本历史请参阅 CHANGELOG.md。
+> **注意**：本项目处于积极开发中（v0.13+）。API 可能会演进；版本历史请参阅 CHANGELOG.md。
 
 ---
 
@@ -97,7 +97,7 @@ AI 友好文档：[AGENTS.md](AGENTS.md) | [CLAUDE.md](CLAUDE.md) | [GEMINI.md](
 
 **第二层：网关** — 协调发现、会话隔离和请求路由。维护 `__gateway__` 哨兵用于版本感知选举。
 
-**第三层：DCC 适配器** — 带嵌入式 Skills 系统的 Python 桥接插件（Maya、Blender、Photoshop）。每个插件注册文档、场景状态和活跃进程信息。
+**第三层：DCC 适配器** — 带嵌入式 Skills 系统的 Python 桥接插件（Maya、Blender、Photoshop）。每个插件注册文档、场景状态和活跃进程信息。WebView 宿主适配器（AuroraView、浏览器面板）使用更窄的能力表面。
 
 ---
 
@@ -386,6 +386,7 @@ latest = vreg.latest_version("my_action", dcc="maya")                    # -> "2
 | `.sh`, `.bash` | Shell | `bash` |
 | `.ps1` | PowerShell | `powershell -File` |
 | `.js`, `.jsx` | JavaScript | `node` |
+| `.ts` | TypeScript | `node`（通过 ts-node 或 tsx） |
 
 查看 `examples/skills/` 获取 **11 个完整示例**：hello-world、maya-geometry、maya-pipeline、git-automation、ffmpeg-media、imagemagick-tools、usd-tools、clawhub-compat、multi-script、dcc-diagnostics、workflow。
 
@@ -395,7 +396,7 @@ latest = vreg.latest_version("my_action", dcc="maya")                    # -> "2
 
 | 技能包 | 工具 | 用途 |
 |--------|------|------|
-| `dcc-diagnostics` | `screenshot`、`audit_log`、`action_metrics`、`process_status` | 通用诊断与调试（适用所有 DCC） |
+| `dcc-diagnostics` | `screenshot`、`audit_log`、`tool_metrics`、`process_status` | 通用诊断与调试（适用所有 DCC） |
 | `workflow` | `run_chain` | 多步骤 action 链式编排，支持上下文传递 |
 
 ```python
@@ -525,7 +526,7 @@ for entry in audit.entries:
 - **屏幕捕获**：跨平台 DCC 视口捕获，AI 视觉反馈
 - **USD 集成**：通用场景描述读写桥接
 - **结构化遥测**：Tracing & 录制可观测性
-- **~140 个 Python 公共符号** + 完整 `.pyi` 类型存根
+- **~154 个 Python 公共符号** + 完整 `.pyi` 类型存根
 - **兼容 OpenClaw Skills**：直接复用生态格式
 
 ## 安装
