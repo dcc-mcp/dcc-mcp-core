@@ -12,6 +12,7 @@ use crate::{
     executor::DccExecutorHandle,
     gateway::{GatewayConfig, GatewayRunner},
     handler::{AppState, handle_delete, handle_get, handle_post},
+    inflight::InFlightRequests,
     session::SessionManager,
 };
 use dcc_mcp_actions::{ActionDispatcher, ActionRegistry};
@@ -180,6 +181,7 @@ impl McpHttpServer {
             server_name: self.config.server_name.clone(),
             server_version: self.config.server_version.clone(),
             cancelled_requests,
+            in_flight: InFlightRequests::new(),
         };
 
         let endpoint = self.config.endpoint_path.clone();

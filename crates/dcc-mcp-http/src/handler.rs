@@ -24,6 +24,7 @@ use crate::{
     bridge_registry::BridgeRegistry,
     error::HttpError,
     executor::DccExecutorHandle,
+    inflight::{CancelToken, InFlightEntry, InFlightRequests, ProgressReporter},
     protocol::{
         self, CallToolParams, CallToolResult, InitializeResult, JsonRpcBatch, JsonRpcMessage,
         JsonRpcRequest, JsonRpcResponse, ListToolsResult, MCP_SESSION_HEADER, McpTool,
@@ -64,6 +65,7 @@ pub struct AppState {
     /// task in `McpHttpServer::start()` runs `purge_expired_cancellations()`
     /// every 60 seconds to keep this map bounded.
     pub cancelled_requests: Arc<DashMap<String, Instant>>,
+    pub in_flight: InFlightRequests,
 }
 
 impl AppState {
@@ -275,7 +277,10 @@ async fn handle_notification(state: &AppState, method: &str, params: Option<&Val
             if let Some(id) = id_str {
                 if !id.is_empty() {
                     tracing::info!(request_id = %id, "MCP request cancelled by client");
-                    state.cancelled_requests.insert(id, Instant::now());
+                    state.cancelled_requests.insert(id.clone(), Instant::now());
+                    if state.in_flight.request_cancel(&id) {
+                        tracing::debug!(request_id = %id, "cancel flag set on in-flight request");
+                    }
                 }
             }
         }
@@ -497,20 +502,72 @@ async fn handle_tools_call(
         ));
     }
 
-    // Dispatch via ActionDispatcher
+    // ── Register in-flight entry (#240 progress + #241 cancellation) ─────
+    let req_id_str: Option<String> = req.id.as_ref().map(|id| match id {
+        Value::String(s) => s.clone(),
+        Value::Number(n) => n.to_string(),
+        other => serde_json::to_string(other).unwrap_or_default(),
+    });
+
+    let progress_token = params.meta.as_ref().and_then(|m| m.progress_token.clone());
+    let cancel_token = CancelToken::new();
+    let progress_reporter = ProgressReporter::new(
+        progress_token.clone(),
+        session_id.map(str::to_owned),
+        state.sessions.clone(),
+        req_id_str.clone().unwrap_or_default(),
+    );
+
+    if let Some(ref rid) = req_id_str {
+        let entry = InFlightEntry::new(cancel_token.clone(), progress_reporter.clone());
+        state.in_flight.insert(rid.clone(), entry);
+        tracing::debug!(
+            request_id = %rid,
+            has_progress_token = progress_token.is_some(),
+            "registered in-flight request"
+        );
+    }
+
+    // ── Pre-dispatch early-cancel check ───────────────────────────────────
+    if let Some(ref rid) = req_id_str {
+        let already_cancelled = state
+            .cancelled_requests
+            .get(rid)
+            .is_some_and(|ts| ts.elapsed() < CANCELLED_REQUEST_TTL);
+        if already_cancelled {
+            state.in_flight.remove(rid);
+            state.cancelled_requests.remove(rid);
+            tracing::info!(request_id = %rid, "request cancelled before dispatch");
+            let envelope = DccMcpError::new(
+                "registry",
+                "CANCELLED",
+                format!("Request {rid} was cancelled before dispatch."),
+            )
+            .with_hint("Re-send the request if you still need the result.");
+            return Ok(JsonRpcResponse::success(
+                req.id.clone(),
+                serde_json::to_value(CallToolResult::error(envelope.to_json()))?,
+            ));
+        }
+    }
+
+    // Dispatch — cancel token is checked before entering the action.
+    let cancel_token_for_dispatch = cancel_token.clone();
     let dispatch_outcome = if let Some(exec) = &state.executor {
-        // DCC main-thread path: run synchronous dispatch inside DeferredExecutor
+        // DCC main-thread path
         let dispatcher = state.dispatcher.clone();
         let name = tool_name.clone();
         let p = call_params.clone();
+        let ct = cancel_token_for_dispatch;
         exec.execute(Box::new(move || {
+            if ct.is_cancelled() {
+                return serde_json::to_string(&json!({"__dispatch_error": "CANCELLED"}))
+                    .unwrap_or_default();
+            }
             match dispatcher.dispatch(&name, p) {
                 Ok(r) => serde_json::to_string(&r.output).unwrap_or_else(|_| "null".to_string()),
-                Err(e) => {
-                    // Encode error in a sentinel JSON object
-                    let err_obj = json!({"__dispatch_error": e.to_string()});
-                    serde_json::to_string(&err_obj).unwrap_or_default()
-                }
+                Err(e) => serde_json::to_string(&json!({"__dispatch_error": e.to_string()}))
+                    .unwrap_or_default(),
             }
         }))
         .await
@@ -524,17 +581,36 @@ async fn handle_tools_call(
         })
         .unwrap_or_else(|e| Err(e.to_string()))
     } else {
-        // Non-DCC path: use spawn_blocking so we don't block the async runtime
+        // Non-DCC path: spawn_blocking with cooperative cancel monitor.
         let dispatcher = state.dispatcher.clone();
         let name = tool_name.clone();
         let p = call_params.clone();
-        tokio::task::spawn_blocking(move || dispatcher.dispatch(&name, p))
-            .await
-            .map_err(|e| e.to_string())
-            .and_then(|r| r.map(|d| d.output).map_err(|e| e.to_string()))
+        let ct_for_block = cancel_token_for_dispatch.clone();
+        let dispatch_fut = tokio::task::spawn_blocking(move || {
+            if ct_for_block.is_cancelled() {
+                return Err("CANCELLED".to_string());
+            }
+            dispatcher
+                .dispatch(&name, p)
+                .map(|r| r.output)
+                .map_err(|e| e.to_string())
+        });
+        tokio::select! {
+            result = dispatch_fut => { result.map_err(|e| e.to_string()).and_then(|r| r) }
+            _ = async {
+                let deadline = tokio::time::Instant::now() + crate::inflight::CANCEL_GRACE_PERIOD;
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                    if cancel_token_for_dispatch.is_cancelled() || tokio::time::Instant::now() >= deadline { break; }
+                }
+            } => { Err("CANCELLED".to_string()) }
+        }
     };
 
-    // Build MCP CallToolResult from dispatch outcome
+    if let Some(ref rid) = req_id_str {
+        state.in_flight.remove(rid);
+    }
+
     let call_result = match dispatch_outcome {
         Ok(output) => {
             let text = match &output {
@@ -547,10 +623,25 @@ async fn handle_tools_call(
                 is_error: false,
             }
         }
+        Err(err_msg) if err_msg == "CANCELLED" => {
+            let rid = req_id_str.as_deref().unwrap_or("unknown");
+            tracing::info!(request_id = %rid, "tool call cancelled cooperatively");
+            if let Some(ref r) = req_id_str {
+                state.cancelled_requests.remove(r);
+            }
+            let envelope = DccMcpError::new(
+                "registry",
+                "CANCELLED",
+                format!("Request {rid} was cancelled by the client."),
+            )
+            .with_hint("Re-send the request if you still need the result.");
+            return Ok(JsonRpcResponse::success(
+                req.id.clone(),
+                serde_json::to_value(CallToolResult::error(envelope.to_json()))?,
+            ));
+        }
         Err(err_msg) => {
-            // Build a structured error envelope for dispatch failures.
             let envelope = if err_msg.contains("no handler registered") {
-                // Tool exists in registry but has no callable handler.
                 DccMcpError::new(
                     "instance",
                     "NO_HANDLER",
@@ -569,16 +660,7 @@ async fn handle_tools_call(
         }
     };
 
-    // ── Cancellation check ────────────────────────────────────────────
-    // If the client sent `notifications/cancelled` for this request while
-    // the tool was executing, suppress the result and return a short error.
-    let req_id_str = req.id.as_ref().map(|id| match id {
-        Value::String(s) => s.clone(),
-        Value::Number(n) => n.to_string(),
-        other => serde_json::to_string(other).unwrap_or_default(),
-    });
     if let Some(ref rid) = req_id_str {
-        // Only suppress if the cancellation was recorded within the TTL window.
         let cancelled = state
             .cancelled_requests
             .remove(rid)

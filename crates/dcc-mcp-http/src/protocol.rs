@@ -230,11 +230,21 @@ pub struct McpToolAnnotations {
     pub deferred_hint: Option<bool>,
 }
 
+/// `_meta` field carried in a `tools/call` request.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CallToolMeta {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub progress_token: Option<Value>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CallToolParams {
     pub name: String,
     #[serde(default)]
     pub arguments: Option<Value>,
+    #[serde(rename = "_meta", default)]
+    pub meta: Option<CallToolMeta>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

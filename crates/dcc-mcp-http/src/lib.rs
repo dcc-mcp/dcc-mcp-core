@@ -44,6 +44,7 @@ pub mod error;
 pub mod executor;
 pub mod gateway;
 pub mod handler;
+pub mod inflight;
 pub mod protocol;
 pub mod server;
 pub mod session;

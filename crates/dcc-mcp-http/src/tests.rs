@@ -8,7 +8,8 @@ mod tests {
     use std::sync::Arc;
 
     use crate::{
-        config::McpHttpConfig, handler::AppState, server::McpHttpServer, session::SessionManager,
+        config::McpHttpConfig, handler::AppState, inflight::InFlightRequests,
+        server::McpHttpServer, session::SessionManager,
     };
     use dcc_mcp_actions::{ActionDispatcher, ActionMeta, ActionRegistry};
     use dcc_mcp_models::{SkillMetadata, ToolDeclaration};
@@ -51,6 +52,7 @@ mod tests {
             server_name: "test-dcc".to_string(),
             server_version: "0.1.0".to_string(),
             cancelled_requests: std::sync::Arc::new(dashmap::DashMap::new()),
+            in_flight: InFlightRequests::new(),
         }
     }
 
@@ -198,6 +200,7 @@ mod tests {
             server_name: "test-dcc".to_string(),
             server_version: "0.1.0".to_string(),
             cancelled_requests: std::sync::Arc::new(dashmap::DashMap::new()),
+            in_flight: InFlightRequests::new(),
         }
     }
 
@@ -958,6 +961,7 @@ mod tests {
             server_name: "test-dcc".to_string(),
             server_version: "0.1.0".to_string(),
             cancelled_requests: std::sync::Arc::new(dashmap::DashMap::new()),
+            in_flight: InFlightRequests::new(),
         }
     }
 
@@ -1241,6 +1245,7 @@ mod tests {
             server_name: "test-dcc".to_string(),
             server_version: "0.1.0".to_string(),
             cancelled_requests: std::sync::Arc::new(dashmap::DashMap::new()),
+            in_flight: InFlightRequests::new(),
         }
     }
 
@@ -1341,6 +1346,7 @@ mod tests {
             server_name: "test-dcc".to_string(),
             server_version: "0.1.0".to_string(),
             cancelled_requests: std::sync::Arc::new(dashmap::DashMap::new()),
+            in_flight: InFlightRequests::new(),
         };
 
         use crate::handler::{handle_delete, handle_get, handle_post};
@@ -1538,6 +1544,197 @@ mod tests {
         let handle = server.start().await.unwrap();
         assert!(handle.port > 0);
         handle.shutdown().await;
+    }
+
+    // ── Progress notifications (#240) ─────────────────────────────────────
+
+    /// `_meta.progressToken` is deserialized correctly from `tools/call` params.
+    #[test]
+    fn test_progress_token_extracted_from_meta() {
+        use crate::protocol::CallToolParams;
+        let raw = json!({
+            "name": "my_tool",
+            "arguments": {"key": "val"},
+            "_meta": { "progressToken": "tok-abc" }
+        });
+        let params: CallToolParams = serde_json::from_value(raw).unwrap();
+        let token = params
+            .meta
+            .as_ref()
+            .and_then(|m| m.progress_token.as_ref())
+            .and_then(|v| v.as_str());
+        assert_eq!(token, Some("tok-abc"));
+    }
+
+    /// No `_meta` → `progress_token` is `None` (backward compat).
+    #[test]
+    fn test_progress_token_absent_when_no_meta() {
+        use crate::protocol::CallToolParams;
+        let raw = json!({"name": "my_tool", "arguments": {}});
+        let params: CallToolParams = serde_json::from_value(raw).unwrap();
+        assert!(params.meta.is_none());
+    }
+
+    /// Integer `progressToken` is also accepted (MCP spec allows int or string).
+    #[test]
+    fn test_progress_token_integer_accepted() {
+        use crate::protocol::CallToolParams;
+        let raw = json!({"name": "my_tool", "_meta": { "progressToken": 42 }});
+        let params: CallToolParams = serde_json::from_value(raw).unwrap();
+        let token = params.meta.as_ref().and_then(|m| m.progress_token.as_ref());
+        assert!(token.is_some());
+        assert_eq!(token.unwrap().as_i64(), Some(42));
+    }
+
+    /// ProgressReporter with a token pushes `notifications/progress` to SSE.
+    #[test]
+    fn test_progress_reporter_sends_event_to_session() {
+        use crate::inflight::ProgressReporter;
+        let sessions = SessionManager::new();
+        let sid = sessions.create();
+        let mut rx = sessions.subscribe(&sid).unwrap();
+        let reporter = ProgressReporter::new(
+            Some(serde_json::json!("tok-abc")),
+            Some(sid.clone()),
+            sessions.clone(),
+            "req-1".to_string(),
+        );
+        reporter.report(25.0, Some(100.0), Some("working"));
+        let event = rx.try_recv().expect("expected a progress SSE event");
+        assert!(event.contains("notifications/progress"), "event: {event}");
+        assert!(event.contains("tok-abc"), "event: {event}");
+        assert!(event.contains("25"), "event: {event}");
+        assert!(event.contains("100"), "event: {event}");
+        assert!(event.contains("working"), "event: {event}");
+    }
+
+    /// ProgressReporter without a token is a no-op.
+    #[test]
+    fn test_progress_reporter_noop_without_token() {
+        use crate::inflight::ProgressReporter;
+        let sessions = SessionManager::new();
+        let sid = sessions.create();
+        let mut rx = sessions.subscribe(&sid).unwrap();
+        let reporter = ProgressReporter::new(None, Some(sid), sessions, "req-2".to_string());
+        reporter.report(50.0, None, None);
+        assert!(
+            rx.try_recv().is_err(),
+            "no events when progressToken is absent"
+        );
+    }
+
+    // ── Cooperative cancellation (#241) ───────────────────────────────────
+
+    #[test]
+    fn test_cancel_token_lifecycle() {
+        use crate::inflight::CancelToken;
+        let token = CancelToken::new();
+        assert!(!token.is_cancelled());
+        token.cancel();
+        assert!(token.is_cancelled());
+    }
+
+    #[test]
+    fn test_cancel_token_clone_shares_state() {
+        use crate::inflight::CancelToken;
+        let token = CancelToken::new();
+        let clone = token.clone();
+        assert!(!clone.is_cancelled());
+        token.cancel();
+        assert!(
+            clone.is_cancelled(),
+            "clone must see cancellation from original"
+        );
+    }
+
+    /// `notifications/cancelled` for an unknown request is silently accepted.
+    #[tokio::test]
+    async fn test_cancel_notification_for_unknown_request_is_noop() {
+        let server = TestServer::new(make_router());
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::ACCEPT,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&json!({
+                "jsonrpc": "2.0",
+                "method": "notifications/cancelled",
+                "params": { "requestId": "nonexistent-req-99" }
+            }))
+            .await;
+        resp.assert_status(axum::http::StatusCode::ACCEPTED);
+    }
+
+    /// After cancelling a completed request, a subsequent call must still succeed.
+    #[tokio::test]
+    async fn test_cancel_completed_request_does_not_affect_future_calls() {
+        let server = TestServer::new(make_router_with_handler());
+
+        // First call succeeds.
+        let resp1 = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::ACCEPT,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&json!({"jsonrpc": "2.0", "id": 100, "method": "tools/call",
+                "params": {"name": "get_scene_info", "arguments": {}}}))
+            .await;
+        resp1.assert_status_ok();
+        assert_eq!(resp1.json::<Value>()["result"]["isError"], false);
+
+        // Send a stale cancellation for the completed request.
+        let _ = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::ACCEPT,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(
+                &json!({"jsonrpc": "2.0", "method": "notifications/cancelled",
+                "params": {"requestId": "100"}}),
+            )
+            .await;
+
+        // Second call must succeed regardless.
+        let resp2 = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::ACCEPT,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&json!({"jsonrpc": "2.0", "id": 101, "method": "tools/call",
+                "params": {"name": "get_scene_info", "arguments": {}}}))
+            .await;
+        resp2.assert_status_ok();
+        assert_eq!(
+            resp2.json::<Value>()["result"]["isError"],
+            false,
+            "subsequent call must succeed even after stale cancellation"
+        );
+    }
+
+    /// A `tools/call` with `_meta.progressToken` completes normally.
+    #[tokio::test]
+    async fn test_tools_call_with_progress_token_succeeds() {
+        let server = TestServer::new(make_router_with_handler());
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::ACCEPT,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&json!({"jsonrpc": "2.0", "id": 200, "method": "tools/call",
+                "params": {"name": "get_scene_info", "arguments": {},
+                           "_meta": { "progressToken": "pt-xyz" }}}))
+            .await;
+        resp.assert_status_ok();
+        assert_eq!(
+            resp.json::<Value>()["result"]["isError"],
+            false,
+            "tools/call with progressToken must return success"
+        );
     }
 }
 
