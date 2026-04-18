@@ -5,8 +5,27 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// MCP protocol version this server implements.
-pub const MCP_PROTOCOL_VERSION: &str = "2025-03-26";
+/// MCP protocol version this server implements (default / latest).
+pub const MCP_PROTOCOL_VERSION: &str = "2025-06-18";
+
+/// All protocol versions this server can speak, newest first.
+pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26"];
+
+/// Negotiate the protocol version to use for a session.
+///
+/// If the client requests a version we support, we use it; otherwise we fall
+/// back to our latest supported version (`SUPPORTED_PROTOCOL_VERSIONS[0]`).
+pub fn negotiate_protocol_version(client_requested: Option<&str>) -> &'static str {
+    if let Some(requested) = client_requested {
+        for &v in SUPPORTED_PROTOCOL_VERSIONS {
+            if v == requested {
+                return v;
+            }
+        }
+    }
+    // Client asked for an unknown version (or didn't specify one) — use our latest.
+    SUPPORTED_PROTOCOL_VERSIONS[0]
+}
 
 /// The `Mcp-Session-Id` HTTP header name.
 pub const MCP_SESSION_HEADER: &str = "Mcp-Session-Id";

@@ -26,9 +26,9 @@ use crate::{
     executor::DccExecutorHandle,
     protocol::{
         self, CallToolParams, CallToolResult, InitializeResult, JsonRpcBatch, JsonRpcMessage,
-        JsonRpcRequest, JsonRpcResponse, ListToolsResult, MCP_PROTOCOL_VERSION, MCP_SESSION_HEADER,
-        McpTool, McpToolAnnotations, ServerCapabilities, ServerInfo, ToolsCapability,
-        format_sse_event,
+        JsonRpcRequest, JsonRpcResponse, ListToolsResult, MCP_SESSION_HEADER, McpTool,
+        McpToolAnnotations, ServerCapabilities, ServerInfo, ToolsCapability, format_sse_event,
+        negotiate_protocol_version,
     },
     session::SessionManager,
 };
@@ -323,8 +323,20 @@ async fn handle_initialize(
         id
     };
 
+    // Negotiate protocol version: honour client's preference if we support it,
+    // otherwise fall back to our latest supported version.
+    let client_version = req
+        .params
+        .as_ref()
+        .and_then(|p| p.get("protocolVersion"))
+        .and_then(|v| v.as_str());
+    let negotiated = negotiate_protocol_version(client_version);
+
+    // Store the negotiated version on the session for later handlers.
+    state.sessions.set_protocol_version(&sid, negotiated);
+
     let result = InitializeResult {
-        protocol_version: MCP_PROTOCOL_VERSION.to_string(),
+        protocol_version: negotiated.to_string(),
         capabilities: ServerCapabilities {
             tools: Some(ToolsCapability { list_changed: true }),
             resources: None,

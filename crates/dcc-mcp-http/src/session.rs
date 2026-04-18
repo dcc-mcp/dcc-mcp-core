@@ -22,6 +22,11 @@ pub struct McpSession {
     pub id: String,
     /// Whether the session has been initialized (i.e. `initialize` was called).
     pub initialized: bool,
+    /// The negotiated MCP protocol version for this session (e.g. "2025-03-26").
+    ///
+    /// Set during `initialize` via [`SessionManager::set_protocol_version`].
+    /// Later handlers can branch on this to enable version-specific behaviour.
+    pub protocol_version: Option<String>,
     /// Broadcast channel for server-push SSE events.
     pub sse_tx: broadcast::Sender<String>,
     /// Wall-clock time of the last request handled for this session.
@@ -42,6 +47,7 @@ impl McpSession {
         Self {
             id,
             initialized: false,
+            protocol_version: None,
             sse_tx,
             last_active: Instant::now(),
         }
@@ -102,6 +108,25 @@ impl SessionManager {
             .get(session_id)
             .map(|s| s.initialized)
             .unwrap_or(false)
+    }
+
+    /// Store the negotiated protocol version on a session.
+    ///
+    /// Called during `initialize` after version negotiation.
+    pub fn set_protocol_version(&self, session_id: &str, version: &str) -> bool {
+        if let Some(mut s) = self.sessions.get_mut(session_id) {
+            s.protocol_version = Some(version.to_owned());
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Retrieve the negotiated protocol version for a session.
+    pub fn get_protocol_version(&self, session_id: &str) -> Option<String> {
+        self.sessions
+            .get(session_id)
+            .and_then(|s| s.protocol_version.clone())
     }
 
     /// Get an SSE subscriber for the session.

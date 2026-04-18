@@ -383,7 +383,7 @@ class TestMcpSdkClient:
         ), mcp.client.session.ClientSession(read, write) as session:
             result = await session.initialize()
             assert result.serverInfo.name == "e2e-test-server"
-            assert result.protocolVersion == "2025-03-26"
+            assert result.protocolVersion in ("2025-03-26", "2025-06-18")
 
             tools = await session.list_tools()
             names = {t.name for t in tools.tools}

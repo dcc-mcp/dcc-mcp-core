@@ -17,6 +17,7 @@ use super::super::gateway::is_newer_version;
 use super::aggregator;
 use super::proxy::proxy_request;
 use super::state::{GatewayState, entry_to_json};
+use crate::protocol::negotiate_protocol_version;
 use dcc_mcp_transport::discovery::types::ServiceStatus;
 
 /// Minimal JSON-RPC 2.0 request shape accepted by the gateway `/mcp` endpoint.
@@ -205,35 +206,45 @@ pub async fn handle_gateway_mcp(
 
     let id = req.id.clone();
     let resp = match req.method.as_str() {
-        "initialize" => json!({
-            "jsonrpc": "2.0", "id": id,
-            "result": {
-                "protocolVersion": "2025-03-26",
-                "capabilities": {
-                    // Aggregated tool list changes as backends load/unload skills.
-                    "tools": {"listChanged": true},
-                    // Resources (DCC instances) change dynamically.
-                    // Clients should subscribe to GET /mcp SSE stream for push notifications.
-                    "resources": {"listChanged": true, "subscribe": true}
-                },
-                "serverInfo": {"name": gs.server_name, "version": gs.server_version},
-                "instructions":
-                    "DCC-MCP Gateway — unified MCP endpoint across every live DCC.\n\
-                     \n\
-                     tools/list returns:\n\
-                     • 3 discovery meta-tools (list_dcc_instances / get_dcc_instance / connect_to_dcc)\n\
-                     • 6 skill-management tools (list/find/search/get_info/load/unload_skill)\n\
-                     • Every backend tool, prefixed with an 8-char instance id (e.g. abcd1234__maya_geometry__create_sphere)\n\
-                     \n\
-                     Workflow:\n\
-                     1. search_skills(query=...) — find relevant skills across every live DCC\n\
-                     2. load_skill(skill_name=..., instance_id=... when multiple instances exist)\n\
-                     3. Call the prefixed tool directly through this same endpoint\n\
-                     \n\
-                     Subscribe to GET /mcp (SSE) for notifications/tools/list_changed and\n\
-                     notifications/resources/list_changed push events."
-            }
-        }),
+        "initialize" => {
+            // Negotiate protocol version with the client.
+            let client_version = req
+                .params
+                .as_ref()
+                .and_then(|p| p.get("protocolVersion"))
+                .and_then(|v| v.as_str());
+            let negotiated = negotiate_protocol_version(client_version);
+
+            json!({
+                "jsonrpc": "2.0", "id": id,
+                "result": {
+                    "protocolVersion": negotiated,
+                    "capabilities": {
+                        // Aggregated tool list changes as backends load/unload skills.
+                        "tools": {"listChanged": true},
+                        // Resources (DCC instances) change dynamically.
+                        // Clients should subscribe to GET /mcp SSE stream for push notifications.
+                        "resources": {"listChanged": true, "subscribe": true}
+                    },
+                    "serverInfo": {"name": gs.server_name, "version": gs.server_version},
+                    "instructions":
+                        "DCC-MCP Gateway — unified MCP endpoint across every live DCC.\n\
+                         \n\
+                         tools/list returns:\n\
+                         • 3 discovery meta-tools (list_dcc_instances / get_dcc_instance / connect_to_dcc)\n\
+                         • 6 skill-management tools (list/find/search/get_info/load/unload_skill)\n\
+                         • Every backend tool, prefixed with an 8-char instance id (e.g. abcd1234__maya_geometry__create_sphere)\n\
+                         \n\
+                         Workflow:\n\
+                         1. search_skills(query=...) — find relevant skills across every live DCC\n\
+                         2. load_skill(skill_name=..., instance_id=... when multiple instances exist)\n\
+                         3. Call the prefixed tool directly through this same endpoint\n\
+                         \n\
+                         Subscribe to GET /mcp (SSE) for notifications/tools/list_changed and\n\
+                         notifications/resources/list_changed push events."
+                }
+            })
+        }
         "ping" => json!({"jsonrpc":"2.0","id":id,"result":{}}),
         "notifications/initialized" => json!({"jsonrpc":"2.0","id":id,"result":{}}),
         "tools/list" => {
