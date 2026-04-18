@@ -309,7 +309,7 @@ async fn dispatch_request(
     match req.method.as_str() {
         "initialize" => handle_initialize(state, req, session_id).await,
         "notifications/initialized" => Ok(JsonRpcResponse::success(req.id.clone(), json!({}))),
-        "tools/list" => handle_tools_list(state, req).await,
+        "tools/list" => handle_tools_list(state, req, session_id).await,
         "tools/call" => handle_tools_call(state, req, session_id).await,
         "ping" => Ok(JsonRpcResponse::success(req.id.clone(), json!({}))),
         other => Ok(JsonRpcResponse::method_not_found(req.id.clone(), other)),
@@ -395,11 +395,20 @@ async fn handle_initialize(
 async fn handle_tools_list(
     state: &AppState,
     req: &JsonRpcRequest,
+    session_id: Option<&str>,
 ) -> Result<JsonRpcResponse, HttpError> {
     // 1. Core discovery tools — always fully visible (static, cached once per process)
     let core = build_core_tools();
     let mut tools: Vec<McpTool> = Vec::with_capacity(core.len() + 16);
     tools.extend_from_slice(core);
+
+    // #242 — ``outputSchema`` is only valid on 2025-06-18 sessions. On
+    // 2025-03-26 we strip it so compliant clients never see a field they
+    // cannot process.
+    let include_output_schema = session_id
+        .and_then(|sid| state.sessions.get_protocol_version(sid))
+        .as_deref()
+        == Some("2025-06-18");
 
     // 2. Loaded skill tools — full definitions from ActionRegistry.
     //    Tools in inactive groups are collapsed into one ``__group__<name>``
@@ -409,7 +418,7 @@ async fn handle_tools_list(
         std::collections::BTreeMap::new();
     for meta in &actions {
         if meta.enabled {
-            tools.push(action_meta_to_mcp_tool(meta));
+            tools.push(action_meta_to_mcp_tool(meta, include_output_schema));
         } else if !meta.group.is_empty() {
             inactive_groups
                 .entry(meta.group.clone())
@@ -696,18 +705,33 @@ async fn handle_tools_call(
             };
             let mut content = vec![protocol::ToolContent::Text { text }];
 
-            // #243 — on MCP 2025-06-18 sessions, surface artifact files as
-            // `resource_link` content items so agents can resolve them on
-            // demand instead of receiving base64 blobs in the response.
-            if let Some(sid) = session_id {
-                let version = state.sessions.get_protocol_version(sid);
-                if version.as_deref() == Some("2025-06-18") {
-                    content.extend(crate::resource_link::extract_resource_links(&output));
-                }
+            // #243/#242 — both features are gated on 2025-06-18 sessions.
+            //   * resource_link: surface DCC artifact files without copying bytes
+            //   * structuredContent: hand back machine-readable payloads so the
+            //     agent skips the text→JSON re-parse step
+            let is_2025_06_18 = session_id
+                .and_then(|sid| state.sessions.get_protocol_version(sid))
+                .as_deref()
+                == Some("2025-06-18");
+
+            if is_2025_06_18 {
+                content.extend(crate::resource_link::extract_resource_links(&output));
             }
+
+            // #242 — ``structuredContent`` carries the dispatch output verbatim
+            // when it is a JSON object or array. Strings and nulls go through
+            // ``content[].text`` only, matching the 2025-03-26 convention.
+            // Older sessions never see the field (serde skips None).
+            let structured_content =
+                if is_2025_06_18 && matches!(&output, Value::Object(_) | Value::Array(_)) {
+                    Some(output.clone())
+                } else {
+                    None
+                };
 
             CallToolResult {
                 content,
+                structured_content,
                 is_error: false,
             }
         }
@@ -743,6 +767,7 @@ async fn handle_tools_call(
                 content: vec![protocol::ToolContent::Text {
                     text: envelope.to_json(),
                 }],
+                structured_content: None,
                 is_error: true,
             }
         }
@@ -1096,6 +1121,7 @@ fn build_core_tools_inner() -> Vec<McpTool> {
                     }
                 }
             }),
+            output_schema: None,
             annotations: Some(McpToolAnnotations {
                 title: Some("Find Skills".to_string()),
                 read_only_hint: Some(true),
@@ -1120,6 +1146,7 @@ fn build_core_tools_inner() -> Vec<McpTool> {
                     }
                 }
             }),
+            output_schema: None,
             annotations: Some(McpToolAnnotations {
                 title: Some("List Skills".to_string()),
                 read_only_hint: Some(true),
@@ -1143,6 +1170,7 @@ fn build_core_tools_inner() -> Vec<McpTool> {
                 },
                 "required": ["skill_name"]
             }),
+            output_schema: None,
             annotations: Some(McpToolAnnotations {
                 title: Some("Get Skill Info".to_string()),
                 read_only_hint: Some(true),
@@ -1171,6 +1199,7 @@ fn build_core_tools_inner() -> Vec<McpTool> {
                     }
                 }
             }),
+            output_schema: None,
             annotations: Some(McpToolAnnotations {
                 title: Some("Load Skill".to_string()),
                 read_only_hint: Some(false),
@@ -1194,6 +1223,7 @@ fn build_core_tools_inner() -> Vec<McpTool> {
                 },
                 "required": ["skill_name"]
             }),
+            output_schema: None,
             annotations: Some(McpToolAnnotations {
                 title: Some("Unload Skill".to_string()),
                 read_only_hint: Some(false),
@@ -1223,6 +1253,7 @@ fn build_core_tools_inner() -> Vec<McpTool> {
                 },
                 "required": ["query"]
             }),
+            output_schema: None,
             annotations: Some(McpToolAnnotations {
                 title: Some("Search Skills".to_string()),
                 read_only_hint: Some(true),
@@ -1248,6 +1279,7 @@ fn build_core_tools_inner() -> Vec<McpTool> {
                 },
                 "required": ["group"]
             }),
+            output_schema: None,
             annotations: Some(McpToolAnnotations {
                 title: Some("Activate Tool Group".to_string()),
                 read_only_hint: Some(false),
@@ -1272,6 +1304,7 @@ fn build_core_tools_inner() -> Vec<McpTool> {
                 },
                 "required": ["group"]
             }),
+            output_schema: None,
             annotations: Some(McpToolAnnotations {
                 title: Some("Deactivate Tool Group".to_string()),
                 read_only_hint: Some(false),
@@ -1305,6 +1338,7 @@ fn build_core_tools_inner() -> Vec<McpTool> {
                 },
                 "required": ["query"]
             }),
+            output_schema: None,
             annotations: Some(McpToolAnnotations {
                 title: Some("Search Tools".to_string()),
                 read_only_hint: Some(true),
@@ -1318,11 +1352,28 @@ fn build_core_tools_inner() -> Vec<McpTool> {
 }
 
 /// Convert an ActionMeta to an McpTool, respecting annotations from the skill.
-fn action_meta_to_mcp_tool(meta: &dcc_mcp_actions::registry::ActionMeta) -> McpTool {
+///
+/// `include_output_schema` controls whether the action's declared
+/// [`ActionMeta::output_schema`] is surfaced as the MCP `outputSchema` field
+/// (introduced in 2025-06-18). On older sessions this must be `false` so the
+/// field is never serialised.
+fn action_meta_to_mcp_tool(
+    meta: &dcc_mcp_actions::registry::ActionMeta,
+    include_output_schema: bool,
+) -> McpTool {
     let input_schema = if meta.input_schema.is_null() {
         json!({"type": "object"})
     } else {
         meta.input_schema.clone()
+    };
+
+    // Only surface a non-null schema. An explicit `null` from the action is
+    // equivalent to "unspecified" and must not leak as `outputSchema: null`
+    // (which some clients treat as a hard rejection).
+    let output_schema = if include_output_schema && !meta.output_schema.is_null() {
+        Some(meta.output_schema.clone())
+    } else {
+        None
     };
 
     let mcp_name = meta
@@ -1334,6 +1385,7 @@ fn action_meta_to_mcp_tool(meta: &dcc_mcp_actions::registry::ActionMeta) -> McpT
         name: mcp_name.clone(),
         description: meta.description.clone(),
         input_schema,
+        output_schema,
         annotations: Some(McpToolAnnotations {
             title: Some(mcp_name),
             // Actions from skills get sensible defaults; standalone actions default to false
@@ -1391,6 +1443,7 @@ fn build_skill_stub(summary: &SkillSummary) -> McpTool {
         name: format!("__skill__{}", summary.name),
         description,
         input_schema: json!({"type": "object", "properties": {}}),
+        output_schema: None,
         // Skill stubs are not callable tools: they exist solely to hint the agent
         // to call `load_skill` first. Full annotation blocks add ~40-60 tokens
         // per stub × 64 skills = measurable `tools/list` bloat with zero routing
@@ -1485,6 +1538,7 @@ fn build_group_stub(group: &str, tool_names: &[String]) -> McpTool {
         name: format!("__group__{group}"),
         description,
         input_schema: json!({"type": "object", "properties": {}}),
+        output_schema: None,
         // Same rationale as `build_skill_stub`: group stubs are not callable
         // tools, so their annotations are pure protocol noise. (#235)
         annotations: None,
