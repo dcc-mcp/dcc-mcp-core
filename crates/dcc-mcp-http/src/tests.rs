@@ -399,7 +399,7 @@ mod tests {
             .iter()
             .find(|t| t["name"] == "__skill__maya-bevel")
             .unwrap();
-        assert_eq!(maya_stub["annotations"]["deferredHint"], true);
+        assert_eq!(maya_stub["annotations"], serde_json::Value::Null);
     }
 
     // ── On-demand loading invariants ──────────────────────────────────────
@@ -580,7 +580,7 @@ mod tests {
             .iter()
             .find(|t| t["name"] == "__skill__git-tools")
             .unwrap();
-        assert_eq!(git_stub["annotations"]["deferredHint"], true);
+        assert_eq!(git_stub["annotations"], serde_json::Value::Null);
 
         let _ = state; // suppress unused warning
     }
@@ -1191,7 +1191,7 @@ mod tests {
             .iter()
             .find(|t| t["name"] == "__skill__modeling-bevel")
             .unwrap();
-        assert_eq!(stub["annotations"]["deferredHint"], true);
+        assert_eq!(stub["annotations"], serde_json::Value::Null);
     }
 
     #[tokio::test]
