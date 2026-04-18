@@ -33,6 +33,7 @@ use crate::{
     session::SessionManager,
 };
 use dcc_mcp_actions::{ActionDispatcher, ActionRegistry};
+use dcc_mcp_protocols::DccMcpError;
 use dcc_mcp_skills::SkillCatalog;
 use dcc_mcp_skills::catalog::SkillSummary;
 
@@ -432,25 +433,35 @@ async fn handle_tools_call(
 
     // Skill stub: __skill__<name> — guide model to call load_skill first
     if let Some(skill_name) = tool_name.strip_prefix("__skill__") {
-        let msg = format!(
-            "Skill '{skill_name}' is not loaded. Call load_skill with skill_name=\"{skill_name}\" \
-             to register its tools, then call the specific tool you need."
-        );
+        let envelope = DccMcpError::new(
+            "gateway",
+            "SKILL_NOT_LOADED",
+            format!("Skill '{skill_name}' is not loaded."),
+        )
+        .with_hint(format!(
+            "Call load_skill with skill_name=\"{skill_name}\" to register its tools, \
+             then call the specific tool you need."
+        ));
         return Ok(JsonRpcResponse::success(
             req.id.clone(),
-            serde_json::to_value(CallToolResult::error(msg))?,
+            serde_json::to_value(CallToolResult::error(envelope.to_json()))?,
         ));
     }
 
     // Group stub: __group__<group_name> — guide model to call activate_tool_group.
     if let Some(group_name) = tool_name.strip_prefix("__group__") {
-        let msg = format!(
-            "Tool group '{group_name}' is inactive. Call activate_tool_group with \
-             group=\"{group_name}\" to enable its tools, then re-list with tools/list."
-        );
+        let envelope = DccMcpError::new(
+            "gateway",
+            "GROUP_NOT_ACTIVATED",
+            format!("Tool group '{group_name}' is inactive."),
+        )
+        .with_hint(format!(
+            "Call activate_tool_group with group=\"{group_name}\" to enable its tools, \
+             then re-list with tools/list."
+        ));
         return Ok(JsonRpcResponse::success(
             req.id.clone(),
-            serde_json::to_value(CallToolResult::error(msg))?,
+            serde_json::to_value(CallToolResult::error(envelope.to_json()))?,
         ));
     }
 
@@ -459,9 +470,18 @@ async fn handle_tools_call(
 
     // Check action exists in registry before dispatch
     if state.registry.get_action(&tool_name, None).is_none() {
+        let envelope = DccMcpError::new(
+            "registry",
+            "ACTION_NOT_FOUND",
+            format!("Unknown tool: {tool_name}"),
+        )
+        .with_hint(
+            "Use tools/list to see available tools, or load a skill first with load_skill."
+                .to_string(),
+        );
         return Ok(JsonRpcResponse::success(
             req.id.clone(),
-            serde_json::to_value(CallToolResult::error(format!("Unknown tool: {tool_name}")))?,
+            serde_json::to_value(CallToolResult::error(envelope.to_json()))?,
         ));
     }
 
@@ -516,18 +536,22 @@ async fn handle_tools_call(
             }
         }
         Err(err_msg) => {
-            // "no handler registered" means tool exists in registry but has no
-            // callable handler — guide the user to register one.
-            let text = if err_msg.contains("no handler registered") {
-                format!(
-                    "Tool '{tool_name}' is registered but has no handler. \
-                     Register a handler via ActionDispatcher.register_handler()."
+            // Build a structured error envelope for dispatch failures.
+            let envelope = if err_msg.contains("no handler registered") {
+                // Tool exists in registry but has no callable handler.
+                DccMcpError::new(
+                    "instance",
+                    "NO_HANDLER",
+                    format!("Tool '{tool_name}' is registered but has no handler."),
                 )
+                .with_hint("Register a handler via ActionDispatcher.register_handler().")
             } else {
-                err_msg
+                DccMcpError::new("instance", "EXECUTION_FAILED", &err_msg)
             };
             CallToolResult {
-                content: vec![protocol::ToolContent::Text { text }],
+                content: vec![protocol::ToolContent::Text {
+                    text: envelope.to_json(),
+                }],
                 is_error: true,
             }
         }
@@ -549,14 +573,15 @@ async fn handle_tools_call(
             .is_some_and(|(_, recorded_at)| recorded_at.elapsed() < CANCELLED_REQUEST_TTL);
         if cancelled {
             tracing::info!(request_id = %rid, "Suppressing result — request was cancelled");
+            let envelope = DccMcpError::new(
+                "gateway",
+                "REQUEST_CANCELLED",
+                format!("Request {rid} was cancelled by the client."),
+            )
+            .with_hint("Re-send the request if you still need the result.");
             return Ok(JsonRpcResponse::success(
                 req.id.clone(),
-                serde_json::to_value(CallToolResult {
-                    content: vec![protocol::ToolContent::Text {
-                        text: format!("Request {rid} was cancelled by the client."),
-                    }],
-                    is_error: true,
-                })?,
+                serde_json::to_value(CallToolResult::error(envelope.to_json()))?,
             ));
         }
     }
@@ -1133,27 +1158,38 @@ fn action_meta_to_mcp_tool(meta: &dcc_mcp_actions::registry::ActionMeta) -> McpT
 ///
 /// Name format: `__skill__<skill_name>`
 fn build_skill_stub(summary: &SkillSummary) -> McpTool {
-    // Compact stub format including a short tool-name preview so the agent
-    // can reason about which skill to load without a second `get_skill_info`
-    // round-trip. Limited to the first few names + ellipsis to keep the
-    // `tools/list` payload from ballooning on skills that expose many tools.
-    const PREVIEW_LIMIT: usize = 5;
-    let preview = if summary.tool_names.is_empty() {
-        String::new()
-    } else if summary.tool_names.len() <= PREVIEW_LIMIT {
-        format!(" ({})", summary.tool_names.join(", "))
-    } else {
+    // When an explicit search-hint was provided in SKILL.md, surface it in the
+    // stub description so the agent can match skills by keyword without an
+    // extra round-trip.  The hint is considered explicit when it differs from
+    // the description (the catalog falls back to description when no hint is
+    // set).  When no explicit hint exists, keep the compact tool-name preview.
+    let has_explicit_hint =
+        !summary.search_hint.is_empty() && summary.search_hint != summary.description;
+
+    let description = if has_explicit_hint {
         format!(
-            " ({}, …+{} more)",
-            summary.tool_names[..PREVIEW_LIMIT].join(", "),
-            summary.tool_names.len() - PREVIEW_LIMIT
+            "[{}] {} tools • keywords: {} • Call load_skill(\"{}\")",
+            summary.dcc, summary.tool_count, summary.search_hint, summary.name
+        )
+    } else {
+        const PREVIEW_LIMIT: usize = 5;
+        let preview = if summary.tool_names.is_empty() {
+            String::new()
+        } else if summary.tool_names.len() <= PREVIEW_LIMIT {
+            format!(" ({})", summary.tool_names.join(", "))
+        } else {
+            format!(
+                " ({}, …+{} more)",
+                summary.tool_names[..PREVIEW_LIMIT].join(", "),
+                summary.tool_names.len() - PREVIEW_LIMIT
+            )
+        };
+
+        format!(
+            "[{}] {} tools{} • Call load_skill(\"{}\")",
+            summary.dcc, summary.tool_count, preview, summary.name
         )
     };
-
-    let description = format!(
-        "[{}] {} tools{} • Call load_skill(\"{}\")",
-        summary.dcc, summary.tool_count, preview, summary.name
-    );
 
     McpTool {
         name: format!("__skill__{}", summary.name),

@@ -368,3 +368,91 @@ class TestOnDemandLoadingContract:
         assert count_unloaded == count_base, (
             f"After unload count must return to base. base={count_base}, after_unload={count_unloaded}"
         )
+
+
+# ── Stub description tests ──────────────────────────────────────────────────
+
+
+@pytest.fixture(scope="module")
+def stub_server_with_hint(tmp_path_factory):
+    """Start a server with two skills: one with search-hint, one without."""
+    base = tmp_path_factory.mktemp("skills")
+
+    # Skill WITH explicit search-hint
+    hint_dir = base / "with-hint"
+    (hint_dir / "scripts").mkdir(parents=True)
+    (hint_dir / "SKILL.md").write_text(
+        "---\n"
+        "name: with-hint\n"
+        'description: "A skill that has a search hint"\n'
+        "dcc: python\n"
+        'search-hint: "alpha, beta, gamma"\n'
+        "tools:\n"
+        "  - name: do_thing\n"
+        '    description: "Does a thing"\n'
+        "---\n"
+    )
+    (hint_dir / "scripts" / "do_thing.py").write_text('import json, sys\nprint(json.dumps({"ok": True}))\n')
+
+    # Skill WITHOUT search-hint (but with tools declared for preview)
+    nohint_dir = base / "no-hint"
+    (nohint_dir / "scripts").mkdir(parents=True)
+    (nohint_dir / "SKILL.md").write_text(
+        "---\n"
+        "name: no-hint\n"
+        'description: "A skill without any search hint"\n'
+        "dcc: python\n"
+        "tools:\n"
+        "  - name: run_it\n"
+        '    description: "Runs something"\n'
+        "---\n"
+    )
+    (nohint_dir / "scripts" / "run_it.py").write_text('import json, sys\nprint(json.dumps({"ok": True}))\n')
+
+    reg = ToolRegistry()
+    config = McpHttpConfig(port=0, server_name="ci-stub-hint")
+    server = McpHttpServer(reg, config)
+    server.discover(extra_paths=[str(base)])
+    handle = server.start()
+    time.sleep(0.2)
+    yield handle
+    handle.shutdown()
+
+
+class TestStubSearchHint:
+    """Verify that __skill__ stub descriptions surface search-hint when present."""
+
+    def test_stub_with_search_hint_shows_keywords(self, stub_server_with_hint):
+        """When SKILL.md has an explicit search-hint, the stub description
+        must contain 'keywords: ...' with the hint text.
+        """
+        url = stub_server_with_hint.mcp_url()
+        tools = _tools_list(url)
+
+        stub = next((t for t in tools if t["name"] == "__skill__with-hint"), None)
+        assert stub is not None, f"Expected __skill__with-hint stub. Tools: {[t['name'] for t in tools]}"
+
+        desc = stub["description"]
+        assert "keywords:" in desc, f"Stub with search-hint should contain 'keywords:' in description, got: {desc}"
+        assert "alpha, beta, gamma" in desc, f"Stub description should include the search-hint text, got: {desc}"
+        # Should NOT have the tool-name preview parenthetical
+        assert "(" not in desc or "keywords:" in desc, (
+            f"Stub with search-hint should use keywords instead of tool-name preview, got: {desc}"
+        )
+
+    def test_stub_without_search_hint_shows_tool_preview(self, stub_server_with_hint):
+        """When SKILL.md has NO search-hint, the stub description must fall back
+        to the tool-name preview format (parenthesized tool names).
+        """
+        url = stub_server_with_hint.mcp_url()
+        tools = _tools_list(url)
+
+        stub = next((t for t in tools if t["name"] == "__skill__no-hint"), None)
+        assert stub is not None, f"Expected __skill__no-hint stub. Tools: {[t['name'] for t in tools]}"
+
+        desc = stub["description"]
+        assert "keywords:" not in desc, f"Stub without search-hint should NOT contain 'keywords:', got: {desc}"
+        # Should have the tool-name preview in parentheses
+        assert "(" in desc, f"Stub without search-hint should show tool-name preview in parens, got: {desc}"
+        assert "run_it" in desc, f"Stub without search-hint should show tool name in preview, got: {desc}"
+        assert "Call load_skill" in desc, f"Stub description must end with load_skill hint, got: {desc}"
