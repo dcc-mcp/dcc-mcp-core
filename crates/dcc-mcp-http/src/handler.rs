@@ -694,8 +694,20 @@ async fn handle_tools_call(
                 Value::Null => String::new(),
                 other => serde_json::to_string_pretty(other).unwrap_or_else(|_| other.to_string()),
             };
+            let mut content = vec![protocol::ToolContent::Text { text }];
+
+            // #243 — on MCP 2025-06-18 sessions, surface artifact files as
+            // `resource_link` content items so agents can resolve them on
+            // demand instead of receiving base64 blobs in the response.
+            if let Some(sid) = session_id {
+                let version = state.sessions.get_protocol_version(sid);
+                if version.as_deref() == Some("2025-06-18") {
+                    content.extend(crate::resource_link::extract_resource_links(&output));
+                }
+            }
+
             CallToolResult {
-                content: vec![protocol::ToolContent::Text { text }],
+                content,
                 is_error: false,
             }
         }

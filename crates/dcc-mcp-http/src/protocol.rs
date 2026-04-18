@@ -268,11 +268,29 @@ pub struct CallToolResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "lowercase")]
+#[serde(tag = "type")]
 pub enum ToolContent {
+    #[serde(rename = "text")]
     Text { text: String },
+    #[serde(rename = "image", rename_all = "camelCase")]
     Image { data: String, mime_type: String },
+    #[serde(rename = "resource")]
     Resource { resource: Value },
+    /// MCP 2025-06-18 `resource_link` content type.
+    ///
+    /// Used to hand DCC-produced artifact files (playblasts, exports,
+    /// screenshots) back to the agent without copying their bytes into the
+    /// JSON-RPC response.
+    #[serde(rename = "resource_link", rename_all = "camelCase")]
+    ResourceLink {
+        uri: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        mime_type: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
+    },
 }
 
 impl CallToolResult {

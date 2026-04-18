@@ -46,6 +46,7 @@ pub mod gateway;
 pub mod handler;
 pub mod inflight;
 pub mod protocol;
+pub mod resource_link;
 pub mod server;
 pub mod session;
 
