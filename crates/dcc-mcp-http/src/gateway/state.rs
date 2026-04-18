@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use tokio::sync::{RwLock, broadcast, watch};
 
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
-use dcc_mcp_transport::discovery::types::{ServiceEntry, ServiceStatus};
+use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry, ServiceStatus};
 
 /// Shared state passed to every gateway axum handler.
 #[derive(Clone)]
@@ -37,12 +37,19 @@ pub struct GatewayState {
 
 impl GatewayState {
     /// Return all instances that are live (not stale, not shutting down/unreachable).
+    ///
+    /// The `__gateway__` sentinel row is **always** excluded — it is bookkeeping
+    /// for gateway election, not an addressable DCC instance.  Including it in
+    /// user-facing tool output (`list_dcc_instances`, `get_dcc_instance`,
+    /// `connect_to_dcc`) would confuse agents and break the `mcp_url` contract
+    /// (the sentinel's host:port points at the gateway facade, not a real DCC).
     pub fn live_instances(&self, registry: &FileRegistry) -> Vec<ServiceEntry> {
         registry
             .list_all()
             .into_iter()
             .filter(|e| {
-                !e.is_stale(self.stale_timeout)
+                e.dcc_type != GATEWAY_SENTINEL_DCC_TYPE
+                    && !e.is_stale(self.stale_timeout)
                     && !matches!(
                         e.status,
                         ServiceStatus::ShuttingDown | ServiceStatus::Unreachable
@@ -80,4 +87,56 @@ pub fn entry_to_json(e: &ServiceEntry, stale_timeout: Duration) -> Value {
         "metadata":     e.metadata,
         "stale":        e.is_stale(stale_timeout),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use dcc_mcp_transport::discovery::types::ServiceEntry;
+    use std::sync::Arc;
+    use tokio::sync::{RwLock, broadcast, watch};
+
+    fn test_gateway_state(reg: Arc<RwLock<FileRegistry>>) -> GatewayState {
+        let (yield_tx, _) = watch::channel(false);
+        let (events_tx, _) = broadcast::channel::<String>(8);
+        GatewayState {
+            registry: reg,
+            stale_timeout: Duration::from_secs(30),
+            server_name: "test".into(),
+            server_version: "0.13.2".into(),
+            http_client: reqwest::Client::new(),
+            yield_tx: Arc::new(yield_tx),
+            events_tx: Arc::new(events_tx),
+        }
+    }
+
+    // Regression test for the sibling of issue #230: the `__gateway__` sentinel
+    // must never appear in user-facing DCC instance listings (e.g.
+    // `list_dcc_instances`, `get_dcc_instance`, `connect_to_dcc`). Exposing
+    // it would invite agents to `connect_to_dcc("__gateway__")` and loop
+    // requests back through the gateway facade.
+    #[tokio::test]
+    async fn test_live_instances_excludes_gateway_sentinel() {
+        let dir = tempfile::tempdir().unwrap();
+        let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+
+        {
+            let r = registry.read().await;
+            let mut sentinel = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 9765);
+            sentinel.version = Some("0.13.2".into());
+            r.register(sentinel).unwrap();
+
+            let maya = ServiceEntry::new("maya", "127.0.0.1", 18812);
+            r.register(maya).unwrap();
+        }
+
+        let gs = test_gateway_state(registry.clone());
+        let live = gs.live_instances(&*registry.read().await);
+        assert_eq!(live.len(), 1, "only the maya row should be returned");
+        assert_eq!(live[0].dcc_type, "maya");
+        assert!(
+            !live.iter().any(|e| e.dcc_type == GATEWAY_SENTINEL_DCC_TYPE),
+            "gateway sentinel must never appear in user-facing listings"
+        );
+    }
 }
