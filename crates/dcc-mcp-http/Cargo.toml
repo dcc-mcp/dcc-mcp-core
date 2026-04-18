@@ -11,6 +11,7 @@ description = "MCP Streamable HTTP server for DCC applications (axum-based, thre
 [dependencies]
 # Internal crates
 dcc-mcp-actions = { path = "../dcc-mcp-actions" }
+dcc-mcp-naming = { path = "../dcc-mcp-naming" }
 dcc-mcp-protocols = { path = "../dcc-mcp-protocols" }
 dcc-mcp-models = { path = "../dcc-mcp-models" }
 dcc-mcp-skills = { path = "../dcc-mcp-skills" }
