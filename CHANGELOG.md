@@ -11,6 +11,41 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.13.3](https://github.com/loonghao/dcc-mcp-core/compare/v0.13.2...v0.13.3) (2026-04-18)
+
+
+### Features
+
+* **adapters:** add JavaScript and TypeScript to ScriptLanguage enum ([acc72a2](https://github.com/loonghao/dcc-mcp-core/commit/acc72a2d25d17e148e80dc222c24776a1d09b013))
+* **http/gateway:** proactive skill.name tool namespacing ([#238](https://github.com/loonghao/dcc-mcp-core/issues/238)) ([9caba47](https://github.com/loonghao/dcc-mcp-core/commit/9caba47a9aee8696be28a7509bfe144fa23859f2))
+* **http:** drop annotations on __skill__/__group__ stubs in tools/list ([fe629f9](https://github.com/loonghao/dcc-mcp-core/commit/fe629f91461bad7dbdc8ff6f3115dec931eab1f1)), closes [#235](https://github.com/loonghao/dcc-mcp-core/issues/235)
+* **http:** negotiate MCP protocol version (2025-06-18 + 2025-03-26) ([94c9638](https://github.com/loonghao/dcc-mcp-core/commit/94c96382581c8e04cc6fcd40f77b9c0cab9414ac)), closes [#239](https://github.com/loonghao/dcc-mcp-core/issues/239)
+* **http:** opt-in lazy-actions fast-path ([#254](https://github.com/loonghao/dcc-mcp-core/issues/254)) ([b1e7754](https://github.com/loonghao/dcc-mcp-core/commit/b1e77544b0cb239451f694342931282fc107d1c4))
+* **http:** progress notifications and cooperative cancellation ([#240](https://github.com/loonghao/dcc-mcp-core/issues/240), [#241](https://github.com/loonghao/dcc-mcp-core/issues/241)) ([f260754](https://github.com/loonghao/dcc-mcp-core/commit/f2607540cb47a8e1f2f365043c07a86ecff514b2))
+* **http:** ResourceLink content for DCC artifacts ([#243](https://github.com/loonghao/dcc-mcp-core/issues/243)) ([5168336](https://github.com/loonghao/dcc-mcp-core/commit/5168336ef5c53fc03cf69c37273d7a92415740ab))
+* **http:** structuredContent + outputSchema on MCP 2025-06-18 ([#242](https://github.com/loonghao/dcc-mcp-core/issues/242)) ([e17629a](https://github.com/loonghao/dcc-mcp-core/commit/e17629aa47e27c8688c2631c3c8f3032926d23ea))
+* **http:** surface search-hint in skill stubs and apply error envelope ([e4af853](https://github.com/loonghao/dcc-mcp-core/commit/e4af853f4718ede027641c8d3bf16d153df35646))
+* **http:** tools/list pagination + delta notification ([#234](https://github.com/loonghao/dcc-mcp-core/issues/234)) ([78879fb](https://github.com/loonghao/dcc-mcp-core/commit/78879fb1bfedfff244f0ef4d009d00b444ea7929))
+* **naming:** add SEP-986 tool-name and action-id validators ([3a60242](https://github.com/loonghao/dcc-mcp-core/commit/3a60242e30d5ecce40e9c7cf877c242e5fd518ef))
+* **protocols:** add structured error envelope for tools/call failures ([314a37a](https://github.com/loonghao/dcc-mcp-core/commit/314a37abad28f30884396db5b4f2ca5acaed0025)), closes [#237](https://github.com/loonghao/dcc-mcp-core/issues/237)
+
+
+### Bug Fixes
+
+* **http/gateway:** exclude __gateway__ sentinel from DCC instance listings ([ecf8712](https://github.com/loonghao/dcc-mcp-core/commit/ecf8712d22449a98c25b69c1bdc2a4f6fade64c7))
+* **http/gateway:** replace `/` tool-name separator with `.` (SEP-986) ([43ef97b](https://github.com/loonghao/dcc-mcp-core/commit/43ef97b1efaf90d10e44eb60b6cf611755254812)), closes [#261](https://github.com/loonghao/dcc-mcp-core/issues/261)
+* **http/gateway:** scope version self-yield to sentinel and heartbeat it ([b120e9c](https://github.com/loonghao/dcc-mcp-core/commit/b120e9cc36b03fdcc3a20692c5693b0ec810ee7a))
+* **skills:** fail loud when DCC host Python is unset ([#231](https://github.com/loonghao/dcc-mcp-core/issues/231)) ([09285ea](https://github.com/loonghao/dcc-mcp-core/commit/09285ead1367725c043a6f9423e68df4ecf7334b))
+* **transport:** reap ghost registry rows and preserve gateway sentinel ([f10bf30](https://github.com/loonghao/dcc-mcp-core/commit/f10bf306eb2f52e6d981016339a87388da6fee30))
+
+
+### Documentation
+
+* add next-tools, agentskills.io fields, security & commit guidelines ([#233](https://github.com/loonghao/dcc-mcp-core/issues/233)) ([4102c86](https://github.com/loonghao/dcc-mcp-core/commit/4102c86403895e73ab82d9c2311e96920a94b3db))
+* cross-reference integration guide from CLAUDE.md and AGENTS.md ([bd8b1e2](https://github.com/loonghao/dcc-mcp-core/commit/bd8b1e2c20d3094ffaa2370b35f19fe51e0fc425))
+* enhance AI agent guidance and fix documentation inconsistencies ([#225](https://github.com/loonghao/dcc-mcp-core/issues/225)) ([b274dd3](https://github.com/loonghao/dcc-mcp-core/commit/b274dd34edb4aa7c216410b860ef23668fc8c4ec))
+* **skills:** add DCC integration architecture guide ([d49c6a1](https://github.com/loonghao/dcc-mcp-core/commit/d49c6a199ac9b3a0346a49e3b23043300520dc0f))
+
 ## [0.13.2](https://github.com/loonghao/dcc-mcp-core/compare/v0.13.1...v0.13.2) (2026-04-17)
 
 
