@@ -270,17 +270,8 @@ from dcc_mcp_core.skill import skill_exception
 from dcc_mcp_core.skill import skill_success
 from dcc_mcp_core.skill import skill_warning
 
-__version__: str
-try:
-    __version__ = _core.__version__  # type: ignore[attr-defined]
-except AttributeError:
-    __version__ = "0.0.0-dev"
-
-__author__: str
-try:
-    __author__ = _core.__author__  # type: ignore[attr-defined]
-except AttributeError:
-    __author__ = ""
+__version__: str = _core.__version__
+__author__: str = _core.__author__
 
 __all__ = [
     "ACTION_ID_RE",

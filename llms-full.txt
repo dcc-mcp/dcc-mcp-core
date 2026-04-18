@@ -1995,7 +1995,7 @@ obj = SceneObject(name="sphere1", node_type="mesh", transform=xform)
 render = RenderOutput(path="/tmp/render.exr", format="exr", width=1920, height=1080)
 ```
 
-> **Note**: `BoundingBox` is an optional import — may be `None` if not available in the compiled extension.
+> **Note**: `BoundingBox` is always available from the compiled extension since v0.13.0.
 
 ---
 
