@@ -411,8 +411,12 @@ class TestMcporterToolCall:
     def test_call_unknown_tool_returns_error(self, simple_server):
         _, _, url, name = simple_server
         result = _mcporter_call(url, name, "this_tool_does_not_exist")
-        # mcporter returns isError=true (rc=0) rather than raising
-        assert result.get("isError") is True
+        # mcporter returns either the MCP CallToolResult (isError=true) or
+        # the parsed DccMcpError envelope (layer/code/message) depending on
+        # how it handles the JSON text content.
+        is_mcp_error = result.get("isError") is True
+        is_envelope = result.get("code") == "ACTION_NOT_FOUND"
+        assert is_mcp_error or is_envelope, f"Expected isError=true or DccMcpError envelope, got: {result}"
 
 
 # ---------------------------------------------------------------------------
