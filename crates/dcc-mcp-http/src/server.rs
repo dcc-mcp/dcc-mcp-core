@@ -182,6 +182,7 @@ impl McpHttpServer {
             server_version: self.config.server_version.clone(),
             cancelled_requests,
             in_flight: InFlightRequests::new(),
+            pending_elicitations: std::sync::Arc::new(dashmap::DashMap::new()),
             lazy_actions: self.config.lazy_actions,
         };
 

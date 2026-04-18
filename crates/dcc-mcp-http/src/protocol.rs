@@ -36,6 +36,9 @@ pub const DELTA_TOOLS_UPDATE_CAP: &str = "dcc_mcp_core/deltaToolsUpdate";
 /// Method name for vendored delta tools update notifications.
 pub const DELTA_TOOLS_METHOD: &str = "notifications/tools/delta";
 
+/// Method name for server-initiated user elicitation.
+pub const ELICITATION_CREATE_METHOD: &str = "elicitation/create";
+
 /// Number of tools returned per `tools/list` page.
 pub const TOOLS_LIST_PAGE_SIZE: usize = 32;
 
@@ -175,6 +178,11 @@ pub struct ServerCapabilities {
     pub resources: Option<ResourcesCapability>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompts: Option<PromptsCapability>,
+    /// Client-side elicitation support (MCP 2025-06-18).
+    ///
+    /// The server includes this field only on 2025-06-18 sessions.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub elicitation: Option<ElicitationCapability>,
     /// Vendor-extension capabilities echoed back to the client.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub experimental: Option<Value>,
@@ -197,6 +205,26 @@ pub struct ResourcesCapability {
 #[serde(rename_all = "camelCase")]
 pub struct PromptsCapability {
     pub list_changed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ElicitationCapability {}
+
+/// Request params for `elicitation/create`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ElicitationCreateParams {
+    pub message: String,
+    pub requested_schema: Value,
+}
+
+/// Result payload returned by client for `elicitation/create`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ElicitationCreateResult {
+    pub action: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

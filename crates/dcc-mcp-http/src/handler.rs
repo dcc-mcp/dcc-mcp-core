@@ -17,6 +17,7 @@ use serde_json::{Value, json};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
+use tokio::sync::oneshot;
 use tokio_stream::StreamExt;
 use tokio_stream::wrappers::BroadcastStream;
 
@@ -27,10 +28,11 @@ use crate::{
     inflight::{CancelToken, InFlightEntry, InFlightRequests, ProgressReporter},
     protocol::{
         self, CallToolParams, CallToolResult, DELTA_TOOLS_METHOD, DELTA_TOOLS_UPDATE_CAP,
-        InitializeResult, JsonRpcBatch, JsonRpcMessage, JsonRpcRequest, JsonRpcResponse,
-        ListToolsResult, MCP_SESSION_HEADER, McpTool, McpToolAnnotations, ServerCapabilities,
-        ServerInfo, TOOLS_LIST_PAGE_SIZE, ToolsCapability, decode_cursor, encode_cursor,
-        format_sse_event, negotiate_protocol_version,
+        ElicitationCapability, ElicitationCreateParams, ElicitationCreateResult, InitializeResult,
+        JsonRpcBatch, JsonRpcMessage, JsonRpcRequest, JsonRpcResponse, ListToolsResult,
+        MCP_SESSION_HEADER, McpTool, McpToolAnnotations, ServerCapabilities, ServerInfo,
+        TOOLS_LIST_PAGE_SIZE, ToolsCapability, decode_cursor, encode_cursor, format_sse_event,
+        negotiate_protocol_version,
     },
     session::SessionManager,
 };
@@ -47,6 +49,7 @@ use crate::gateway::namespace::{decode_skill_tool_name, extract_bare_tool_name, 
 /// completed (common race condition), the entry would never be consumed by the
 /// check in `handle_tools_call`.  This TTL bounds memory growth from such entries.
 const CANCELLED_REQUEST_TTL: Duration = Duration::from_secs(30);
+const ELICITATION_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Shared application state passed to all axum handlers.
 #[derive(Clone)]
@@ -69,6 +72,8 @@ pub struct AppState {
     /// every 60 seconds to keep this map bounded.
     pub cancelled_requests: Arc<DashMap<String, Instant>>,
     pub in_flight: InFlightRequests,
+    /// Pending `elicitation/create` requests keyed by the elicitation request id.
+    pub pending_elicitations: Arc<DashMap<String, oneshot::Sender<ElicitationCreateResult>>>,
     /// When `true`, `tools/list` surfaces the three lazy-action meta-tools
     /// (`list_actions`, `describe_action`, `call_action`) and the dispatcher
     /// accepts them. See [`crate::McpHttpConfig::lazy_actions`] (#254).
@@ -132,6 +137,13 @@ pub async fn handle_post(
     for msg in &messages {
         if let JsonRpcMessage::Notification(notif) = msg {
             handle_notification(&state, &notif.method, notif.params.as_ref()).await;
+        }
+    }
+    // Client responses to server-initiated elicitation requests arrive as
+    // JSON-RPC responses. Correlate and wake the waiting oneshot channel.
+    for msg in &messages {
+        if let JsonRpcMessage::Response(resp) = msg {
+            handle_response_message(&state, resp);
         }
     }
 
@@ -299,6 +311,35 @@ async fn handle_notification(state: &AppState, method: &str, params: Option<&Val
     }
 }
 
+fn handle_response_message(state: &AppState, resp: &JsonRpcResponse) {
+    let id = match &resp.id {
+        Some(Value::String(s)) => s.clone(),
+        Some(Value::Number(n)) => n.to_string(),
+        Some(other) => serde_json::to_string(other).unwrap_or_default(),
+        None => return,
+    };
+    if id.is_empty() {
+        return;
+    }
+    let Some((_, tx)) = state.pending_elicitations.remove(&id) else {
+        return;
+    };
+    let resolved = if let Some(result) = resp.result.clone() {
+        serde_json::from_value::<ElicitationCreateResult>(result).unwrap_or(
+            ElicitationCreateResult {
+                action: "decline".to_string(),
+                content: None,
+            },
+        )
+    } else {
+        ElicitationCreateResult {
+            action: "decline".to_string(),
+            content: None,
+        }
+    };
+    let _ = tx.send(resolved);
+}
+
 // ── Method dispatch ───────────────────────────────────────────────────────
 
 async fn dispatch_request(
@@ -315,6 +356,7 @@ async fn dispatch_request(
         "notifications/initialized" => Ok(JsonRpcResponse::success(req.id.clone(), json!({}))),
         "tools/list" => handle_tools_list(state, req, session_id).await,
         "tools/call" => handle_tools_call(state, req, session_id).await,
+        "elicitation/create" => handle_elicitation_create(state, req, session_id).await,
         "ping" => Ok(JsonRpcResponse::success(req.id.clone(), json!({}))),
         other => Ok(JsonRpcResponse::method_not_found(req.id.clone(), other)),
     }
@@ -367,12 +409,19 @@ async fn handle_initialize(
         None
     };
 
+    let elicitation_cap = if negotiated == "2025-06-18" {
+        Some(ElicitationCapability::default())
+    } else {
+        None
+    };
+
     let result = InitializeResult {
         protocol_version: negotiated.to_string(),
         capabilities: ServerCapabilities {
             tools: Some(ToolsCapability { list_changed: true }),
             resources: None,
             prompts: None,
+            elicitation: elicitation_cap,
             experimental: experimental_caps,
         },
         server_info: ServerInfo {
@@ -394,6 +443,97 @@ async fn handle_initialize(
         obj.insert("__session_id".to_string(), Value::String(sid));
     }
     Ok(resp)
+}
+
+async fn handle_elicitation_create(
+    state: &AppState,
+    req: &JsonRpcRequest,
+    session_id: Option<&str>,
+) -> Result<JsonRpcResponse, HttpError> {
+    // Spec gate: only exposed on 2025-06-18 sessions.
+    let is_2025_06_18 = session_id
+        .and_then(|sid| state.sessions.get_protocol_version(sid))
+        .as_deref()
+        == Some("2025-06-18");
+    if !is_2025_06_18 {
+        return Ok(JsonRpcResponse::method_not_found(
+            req.id.clone(),
+            "elicitation/create",
+        ));
+    }
+    let sid = match session_id {
+        Some(s) => s,
+        None => {
+            return Err(HttpError::Internal(
+                "elicitation/create requires Mcp-Session-Id".to_string(),
+            ));
+        }
+    };
+    let elicit_id = req.id.clone().ok_or_else(|| {
+        HttpError::Internal("elicitation/create requires a JSON-RPC request id".to_string())
+    })?;
+    let req_id = match &elicit_id {
+        Value::String(s) => s.clone(),
+        Value::Number(n) => n.to_string(),
+        other => serde_json::to_string(other).unwrap_or_default(),
+    };
+    if req_id.is_empty() {
+        return Err(HttpError::Internal(
+            "elicitation/create request id cannot be empty".to_string(),
+        ));
+    }
+
+    let params: ElicitationCreateParams = req
+        .params
+        .as_ref()
+        .and_then(|p| serde_json::from_value(p.clone()).ok())
+        .ok_or_else(|| HttpError::Internal("invalid elicitation/create params".to_string()))?;
+
+    let (tx, rx) = oneshot::channel::<ElicitationCreateResult>();
+    state.pending_elicitations.insert(req_id.clone(), tx);
+
+    let notification = json!({
+        "jsonrpc": "2.0",
+        "method": "elicitation/create",
+        "params": {
+            "id": elicit_id,
+            "message": params.message,
+            "requestedSchema": params.requested_schema,
+        }
+    });
+    let event = format_sse_event(&notification, None);
+    state.sessions.push_event(sid, event);
+
+    let waited = tokio::time::timeout(ELICITATION_TIMEOUT, rx).await;
+    state.pending_elicitations.remove(&req_id);
+
+    let result = match waited {
+        Ok(Ok(value)) => value,
+        Ok(Err(_)) => ElicitationCreateResult {
+            action: "decline".to_string(),
+            content: None,
+        },
+        Err(_) => {
+            let envelope = DccMcpError::new(
+                "dcc",
+                "ELICITATION_TIMEOUT",
+                format!(
+                    "Client did not answer elicitation request {req_id} within {} seconds.",
+                    ELICITATION_TIMEOUT.as_secs()
+                ),
+            )
+            .with_hint("Ask the user again or proceed with a conservative default.");
+            return Ok(JsonRpcResponse::success(
+                req.id.clone(),
+                serde_json::to_value(CallToolResult::error(envelope.to_json()))?,
+            ));
+        }
+    };
+
+    Ok(JsonRpcResponse::success(
+        req.id.clone(),
+        serde_json::to_value(result)?,
+    ))
 }
 
 async fn handle_tools_list(
