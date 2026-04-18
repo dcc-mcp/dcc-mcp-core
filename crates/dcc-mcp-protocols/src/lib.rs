@@ -3,6 +3,7 @@
 pub mod adapters;
 pub mod adapters_python;
 pub mod bridge;
+pub mod error_envelope;
 
 #[cfg(test)]
 pub mod mock;
@@ -19,6 +20,7 @@ pub use bridge::{
     BridgeDisconnect, BridgeEvent, BridgeHello, BridgeHelloAck, BridgeMessage, BridgeParseError,
     BridgeRequest, BridgeResponse, RequestId, RpcError,
 };
+pub use error_envelope::DccMcpError;
 pub use types::{
     PromptArgument, PromptDefinition, ResourceAnnotations, ResourceDefinition,
     ResourceTemplateDefinition, ToolAnnotations, ToolDefinition,
