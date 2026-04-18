@@ -54,6 +54,7 @@ A Rust-powered MCP (Model Context Protocol) library that lets AI agents interact
 **Bridging a non-Python DCC (Photoshop, ZBrush via WebSocket)?**
 → `python/dcc_mcp_core/bridge.py` — `DccBridge`
 → Register with: `BridgeRegistry`, `register_bridge()`, `get_bridge_context()`
+→ Full examples: [`skills/integration-guide.md`](skills/integration-guide.md) (Photoshop UXP, Unity C#, ZBrush HTTP)
 
 **IPC / named pipe / unix socket between processes?**
 → [`docs/api/transport.md`](docs/api/transport.md)
@@ -84,6 +85,7 @@ A Rust-powered MCP (Model Context Protocol) library that lets AI agents interact
 **WebView integration (embedded browser panels)?**
 → `python/dcc_mcp_core/adapters/webview.py` — `WebViewAdapter`, `WebViewContext`
 → Constants: `CAPABILITY_KEYS`, `WEBVIEW_DEFAULT_CAPABILITIES`
+→ Full examples: [`skills/integration-guide.md`](skills/integration-guide.md) (AuroraView, Electron, capabilities model)
 → Note: Currently Python-only, not in `_core.pyi`
 
 **Screen capture, shared memory, telemetry, process management?**

@@ -77,6 +77,10 @@ vx just test-cov      # Coverage report to find gaps
   - `dcc-specific` — DCC binding + required_capabilities + next-tools chaining
   - `with-groups` — tool groups for progressive exposure
   See `skills/README.md` for quick-start guide.
+- **DCC integration architectures**: `skills/integration-guide.md` covers three patterns:
+  - **Embedded Python** (`DccServerBase`) — Maya, Blender, Houdini, Unreal
+  - **WebSocket Bridge** (`DccBridge`) — Photoshop, ZBrush, Unity, After Effects
+  - **WebView Host** (`WebViewAdapter`) — AuroraView, Electron panels
 
 ```python
 # Correct usage:
