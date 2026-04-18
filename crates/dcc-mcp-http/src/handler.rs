@@ -1159,14 +1159,11 @@ fn build_skill_stub(summary: &SkillSummary) -> McpTool {
         name: format!("__skill__{}", summary.name),
         description,
         input_schema: json!({"type": "object", "properties": {}}),
-        annotations: Some(McpToolAnnotations {
-            title: Some(format!("Skill: {}", summary.name)),
-            read_only_hint: Some(true),
-            destructive_hint: Some(false),
-            idempotent_hint: Some(true),
-            open_world_hint: Some(false),
-            deferred_hint: Some(true),
-        }),
+        // Skill stubs are not callable tools: they exist solely to hint the agent
+        // to call `load_skill` first. Full annotation blocks add ~40-60 tokens
+        // per stub × 64 skills = measurable `tools/list` bloat with zero routing
+        // value for the model. (#235)
+        annotations: None,
     }
 }
 
@@ -1256,14 +1253,9 @@ fn build_group_stub(group: &str, tool_names: &[String]) -> McpTool {
         name: format!("__group__{group}"),
         description,
         input_schema: json!({"type": "object", "properties": {}}),
-        annotations: Some(McpToolAnnotations {
-            title: Some(format!("Group: {group}")),
-            read_only_hint: Some(true),
-            destructive_hint: Some(false),
-            idempotent_hint: Some(true),
-            open_world_hint: Some(false),
-            deferred_hint: Some(true),
-        }),
+        // Same rationale as `build_skill_stub`: group stubs are not callable
+        // tools, so their annotations are pure protocol noise. (#235)
+        annotations: None,
     }
 }
 
