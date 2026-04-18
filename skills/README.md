@@ -116,3 +116,14 @@ after `pip install dcc-mcp-core` (no `DCC_MCP_SKILL_PATHS` needed):
 from dcc_mcp_core import get_bundled_skill_paths
 paths = get_bundled_skill_paths()  # [".../dcc_mcp_core/skills"]
 ```
+
+## DCC Integration Guide
+
+Building a new MCP adapter for a DCC application? See the
+**[Integration Guide](integration-guide.md)** for complete architecture patterns:
+
+| Architecture | For | Base Class | Examples |
+|---|---|---|---|
+| **A: Embedded Python** | DCCs with built-in Python | `DccServerBase` | Maya, Blender, Houdini, Unreal |
+| **B: WebSocket Bridge** | DCCs without Python | `DccServerBase` + `DccBridge` | Photoshop, ZBrush, Unity |
+| **C: WebView Host** | Browser panels inside DCCs | `WebViewAdapter` | AuroraView, Electron |
