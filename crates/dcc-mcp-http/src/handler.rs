@@ -26,10 +26,11 @@ use crate::{
     executor::DccExecutorHandle,
     inflight::{CancelToken, InFlightEntry, InFlightRequests, ProgressReporter},
     protocol::{
-        self, CallToolParams, CallToolResult, InitializeResult, JsonRpcBatch, JsonRpcMessage,
-        JsonRpcRequest, JsonRpcResponse, ListToolsResult, MCP_SESSION_HEADER, McpTool,
-        McpToolAnnotations, ServerCapabilities, ServerInfo, ToolsCapability, format_sse_event,
-        negotiate_protocol_version,
+        self, CallToolParams, CallToolResult, DELTA_TOOLS_METHOD, DELTA_TOOLS_UPDATE_CAP,
+        InitializeResult, JsonRpcBatch, JsonRpcMessage, JsonRpcRequest, JsonRpcResponse,
+        ListToolsResult, MCP_SESSION_HEADER, McpTool, McpToolAnnotations, ServerCapabilities,
+        ServerInfo, TOOLS_LIST_PAGE_SIZE, ToolsCapability, decode_cursor, encode_cursor,
+        format_sse_event, negotiate_protocol_version,
     },
     session::SessionManager,
 };
@@ -340,12 +341,33 @@ async fn handle_initialize(
     // Store the negotiated version on the session for later handlers.
     state.sessions.set_protocol_version(&sid, negotiated);
 
+    // Negotiate vendored delta-tools capability.
+    let client_wants_delta = req
+        .params
+        .as_ref()
+        .and_then(|p| p.get("capabilities"))
+        .and_then(|c| c.get("experimental"))
+        .and_then(|e| e.get(DELTA_TOOLS_UPDATE_CAP))
+        .and_then(|d| d.get("enabled"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    state
+        .sessions
+        .set_supports_delta_tools(&sid, client_wants_delta);
+
+    let experimental_caps = if client_wants_delta {
+        Some(json!({ DELTA_TOOLS_UPDATE_CAP: { "enabled": true } }))
+    } else {
+        None
+    };
+
     let result = InitializeResult {
         protocol_version: negotiated.to_string(),
         capabilities: ServerCapabilities {
             tools: Some(ToolsCapability { list_changed: true }),
             resources: None,
             prompts: None,
+            experimental: experimental_caps,
         },
         server_info: ServerInfo {
             name: state.server_name.clone(),
@@ -407,9 +429,29 @@ async fn handle_tools_list(
         tools.push(build_skill_stub(summary));
     }
 
+    // Cursor pagination
+    let cursor: usize = req
+        .params
+        .as_ref()
+        .and_then(|p| p.get("cursor"))
+        .and_then(|v| v.as_str())
+        .and_then(decode_cursor)
+        .unwrap_or(0);
+    let total = tools.len();
+    let page_end = (cursor + TOOLS_LIST_PAGE_SIZE).min(total);
+    let page: Vec<McpTool> = if cursor < total {
+        tools.drain(cursor..page_end).collect()
+    } else {
+        Vec::new()
+    };
+    let next_cursor = if page_end < total {
+        Some(encode_cursor(page_end))
+    } else {
+        None
+    };
     let result = ListToolsResult {
-        tools,
-        next_cursor: None,
+        tools: page,
+        next_cursor,
     };
     Ok(JsonRpcResponse::success(
         req.id.clone(),
@@ -847,12 +889,15 @@ async fn handle_load_skill(
         }
     }
 
-    // Only notify tools/list_changed when at least one skill transitioned
-    // from unloaded → loaded.  Re-loading already-loaded skills is a no-op
-    // and must not trigger a spurious client refresh.
+    // Only notify when a skill actually transitioned to loaded.
     if !newly_loaded.is_empty() {
         if let Some(sid) = session_id {
-            notify_tools_list_changed(&state.sessions, sid);
+            let added = all_registered_tools.clone();
+            let removed: Vec<String> = newly_loaded
+                .iter()
+                .map(|n| format!("__skill__{n}"))
+                .collect();
+            notify_tools_changed(&state.sessions, sid, &added, &removed);
         }
     }
 
@@ -934,9 +979,15 @@ async fn handle_unload_skill(
 
     match state.catalog.unload_skill(skill_name) {
         Ok(count) => {
-            // Send tools/list_changed notification
             if let Some(sid) = session_id {
-                notify_tools_list_changed(&state.sessions, sid);
+                let removed: Vec<String> = state
+                    .registry
+                    .list_actions_by_skill(skill_name)
+                    .iter()
+                    .map(|m| m.name.clone())
+                    .collect();
+                let added = vec![format!("__skill__{skill_name}")];
+                notify_tools_changed(&state.sessions, sid, &added, &removed);
             }
 
             let text = serde_json::to_string_pretty(&json!({
@@ -1412,7 +1463,14 @@ async fn handle_activate_tool_group(
 
     let changed = state.catalog.activate_group(group);
     if let Some(sid) = session_id {
-        notify_tools_list_changed(&state.sessions, sid);
+        let added: Vec<String> = state
+            .registry
+            .list_actions_in_group(group)
+            .iter()
+            .map(|m| m.name.clone())
+            .collect();
+        let removed = vec![format!("__group__{group}")];
+        notify_tools_changed(&state.sessions, sid, &added, &removed);
     }
     let payload = json!({
         "success": true,
@@ -1448,7 +1506,14 @@ async fn handle_deactivate_tool_group(
 
     let changed = state.catalog.deactivate_group(group);
     if let Some(sid) = session_id {
-        notify_tools_list_changed(&state.sessions, sid);
+        let removed: Vec<String> = state
+            .registry
+            .list_actions_in_group(group)
+            .iter()
+            .map(|m| m.name.clone())
+            .collect();
+        let added = vec![format!("__group__{group}")];
+        notify_tools_changed(&state.sessions, sid, &added, &removed);
     }
     let payload = json!({
         "success": true,
@@ -1538,6 +1603,32 @@ fn notify_tools_list_changed(sessions: &SessionManager, session_id: &str) {
     let event = format_sse_event(&notification, None);
     sessions.push_event(session_id, event);
     tracing::debug!("Sent tools/list_changed notification to session {session_id}");
+}
+
+/// Send a delta or full list_changed notification depending on client capability.
+fn notify_tools_changed(
+    sessions: &SessionManager,
+    session_id: &str,
+    added: &[String],
+    removed: &[String],
+) {
+    if sessions.supports_delta_tools(session_id) {
+        let notification = json!({
+            "jsonrpc": "2.0",
+            "method": DELTA_TOOLS_METHOD,
+            "params": { "added": added, "removed": removed }
+        });
+        let event = format_sse_event(&notification, None);
+        sessions.push_event(session_id, event);
+        tracing::debug!(
+            session_id,
+            added = added.len(),
+            removed = removed.len(),
+            "Sent tools/delta notification"
+        );
+    } else {
+        notify_tools_list_changed(sessions, session_id);
+    }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────

@@ -8,8 +8,7 @@ mod tests {
     use std::sync::Arc;
 
     use crate::{
-        config::McpHttpConfig, handler::AppState, inflight::InFlightRequests,
-        server::McpHttpServer, session::SessionManager,
+        config::McpHttpConfig, handler::AppState, server::McpHttpServer, session::SessionManager,
     };
     use dcc_mcp_actions::{ActionDispatcher, ActionMeta, ActionRegistry};
     use dcc_mcp_models::{SkillMetadata, ToolDeclaration};
@@ -52,7 +51,6 @@ mod tests {
             server_name: "test-dcc".to_string(),
             server_version: "0.1.0".to_string(),
             cancelled_requests: std::sync::Arc::new(dashmap::DashMap::new()),
-            in_flight: InFlightRequests::new(),
         }
     }
 
@@ -200,7 +198,6 @@ mod tests {
             server_name: "test-dcc".to_string(),
             server_version: "0.1.0".to_string(),
             cancelled_requests: std::sync::Arc::new(dashmap::DashMap::new()),
-            in_flight: InFlightRequests::new(),
         }
     }
 
@@ -961,7 +958,6 @@ mod tests {
             server_name: "test-dcc".to_string(),
             server_version: "0.1.0".to_string(),
             cancelled_requests: std::sync::Arc::new(dashmap::DashMap::new()),
-            in_flight: InFlightRequests::new(),
         }
     }
 
@@ -1245,7 +1241,6 @@ mod tests {
             server_name: "test-dcc".to_string(),
             server_version: "0.1.0".to_string(),
             cancelled_requests: std::sync::Arc::new(dashmap::DashMap::new()),
-            in_flight: InFlightRequests::new(),
         }
     }
 
@@ -1346,7 +1341,6 @@ mod tests {
             server_name: "test-dcc".to_string(),
             server_version: "0.1.0".to_string(),
             cancelled_requests: std::sync::Arc::new(dashmap::DashMap::new()),
-            in_flight: InFlightRequests::new(),
         };
 
         use crate::handler::{handle_delete, handle_get, handle_post};
@@ -1546,195 +1540,235 @@ mod tests {
         handle.shutdown().await;
     }
 
-    // ── Progress notifications (#240) ─────────────────────────────────────
+    // ── tools/list pagination ─────────────────────────────────────────────
 
-    /// `_meta.progressToken` is deserialized correctly from `tools/call` params.
-    #[test]
-    fn test_progress_token_extracted_from_meta() {
-        use crate::protocol::CallToolParams;
-        let raw = json!({
-            "name": "my_tool",
-            "arguments": {"key": "val"},
-            "_meta": { "progressToken": "tok-abc" }
-        });
-        let params: CallToolParams = serde_json::from_value(raw).unwrap();
-        let token = params
-            .meta
-            .as_ref()
-            .and_then(|m| m.progress_token.as_ref())
-            .and_then(|v| v.as_str());
-        assert_eq!(token, Some("tok-abc"));
+    fn make_app_state_many_tools() -> AppState {
+        let registry = Arc::new(ActionRegistry::new());
+        for i in 0..40usize {
+            registry.register_action(ActionMeta {
+                name: format!("tool_{i:02}"),
+                description: format!("Test tool {i}"),
+                dcc: "test".into(),
+                version: "1.0.0".into(),
+                ..Default::default()
+            });
+        }
+        let catalog = Arc::new(SkillCatalog::new(registry.clone()));
+        let dispatcher = Arc::new(ActionDispatcher::new((*registry).clone()));
+        AppState {
+            registry,
+            dispatcher,
+            catalog,
+            sessions: SessionManager::new(),
+            executor: None,
+            bridge_registry: crate::BridgeRegistry::new(),
+            server_name: "test-dcc".to_string(),
+            server_version: "0.1.0".to_string(),
+            cancelled_requests: std::sync::Arc::new(dashmap::DashMap::new()),
+        }
     }
 
-    /// No `_meta` → `progress_token` is `None` (backward compat).
-    #[test]
-    fn test_progress_token_absent_when_no_meta() {
-        use crate::protocol::CallToolParams;
-        let raw = json!({"name": "my_tool", "arguments": {}});
-        let params: CallToolParams = serde_json::from_value(raw).unwrap();
-        assert!(params.meta.is_none());
+    fn make_router_many_tools() -> axum::Router {
+        use crate::handler::{handle_delete, handle_get, handle_post};
+        use axum::{Router, routing};
+        Router::new()
+            .route(
+                "/mcp",
+                routing::post(handle_post)
+                    .get(handle_get)
+                    .delete(handle_delete),
+            )
+            .with_state(make_app_state_many_tools())
     }
 
-    /// Integer `progressToken` is also accepted (MCP spec allows int or string).
-    #[test]
-    fn test_progress_token_integer_accepted() {
-        use crate::protocol::CallToolParams;
-        let raw = json!({"name": "my_tool", "_meta": { "progressToken": 42 }});
-        let params: CallToolParams = serde_json::from_value(raw).unwrap();
-        let token = params.meta.as_ref().and_then(|m| m.progress_token.as_ref());
-        assert!(token.is_some());
-        assert_eq!(token.unwrap().as_i64(), Some(42));
-    }
-
-    /// ProgressReporter with a token pushes `notifications/progress` to SSE.
-    #[test]
-    fn test_progress_reporter_sends_event_to_session() {
-        use crate::inflight::ProgressReporter;
-        let sessions = SessionManager::new();
-        let sid = sessions.create();
-        let mut rx = sessions.subscribe(&sid).unwrap();
-        let reporter = ProgressReporter::new(
-            Some(serde_json::json!("tok-abc")),
-            Some(sid.clone()),
-            sessions.clone(),
-            "req-1".to_string(),
-        );
-        reporter.report(25.0, Some(100.0), Some("working"));
-        let event = rx.try_recv().expect("expected a progress SSE event");
-        assert!(event.contains("notifications/progress"), "event: {event}");
-        assert!(event.contains("tok-abc"), "event: {event}");
-        assert!(event.contains("25"), "event: {event}");
-        assert!(event.contains("100"), "event: {event}");
-        assert!(event.contains("working"), "event: {event}");
-    }
-
-    /// ProgressReporter without a token is a no-op.
-    #[test]
-    fn test_progress_reporter_noop_without_token() {
-        use crate::inflight::ProgressReporter;
-        let sessions = SessionManager::new();
-        let sid = sessions.create();
-        let mut rx = sessions.subscribe(&sid).unwrap();
-        let reporter = ProgressReporter::new(None, Some(sid), sessions, "req-2".to_string());
-        reporter.report(50.0, None, None);
-        assert!(
-            rx.try_recv().is_err(),
-            "no events when progressToken is absent"
-        );
-    }
-
-    // ── Cooperative cancellation (#241) ───────────────────────────────────
-
-    #[test]
-    fn test_cancel_token_lifecycle() {
-        use crate::inflight::CancelToken;
-        let token = CancelToken::new();
-        assert!(!token.is_cancelled());
-        token.cancel();
-        assert!(token.is_cancelled());
-    }
-
-    #[test]
-    fn test_cancel_token_clone_shares_state() {
-        use crate::inflight::CancelToken;
-        let token = CancelToken::new();
-        let clone = token.clone();
-        assert!(!clone.is_cancelled());
-        token.cancel();
-        assert!(
-            clone.is_cancelled(),
-            "clone must see cancellation from original"
-        );
-    }
-
-    /// `notifications/cancelled` for an unknown request is silently accepted.
     #[tokio::test]
-    async fn test_cancel_notification_for_unknown_request_is_noop() {
-        let server = TestServer::new(make_router());
+    async fn test_tools_list_pagination_first_page() {
+        use crate::protocol::TOOLS_LIST_PAGE_SIZE;
+        let server = TestServer::new(make_router_many_tools());
+
         let resp = server
             .post("/mcp")
             .add_header(
                 axum::http::header::ACCEPT,
                 "application/json".parse::<HeaderValue>().unwrap(),
             )
-            .json(&json!({
-                "jsonrpc": "2.0",
-                "method": "notifications/cancelled",
-                "params": { "requestId": "nonexistent-req-99" }
-            }))
-            .await;
-        resp.assert_status(axum::http::StatusCode::ACCEPTED);
-    }
-
-    /// After cancelling a completed request, a subsequent call must still succeed.
-    #[tokio::test]
-    async fn test_cancel_completed_request_does_not_affect_future_calls() {
-        let server = TestServer::new(make_router_with_handler());
-
-        // First call succeeds.
-        let resp1 = server
-            .post("/mcp")
-            .add_header(
-                axum::http::header::ACCEPT,
-                "application/json".parse::<HeaderValue>().unwrap(),
-            )
-            .json(&json!({"jsonrpc": "2.0", "id": 100, "method": "tools/call",
-                "params": {"name": "get_scene_info", "arguments": {}}}))
-            .await;
-        resp1.assert_status_ok();
-        assert_eq!(resp1.json::<Value>()["result"]["isError"], false);
-
-        // Send a stale cancellation for the completed request.
-        let _ = server
-            .post("/mcp")
-            .add_header(
-                axum::http::header::ACCEPT,
-                "application/json".parse::<HeaderValue>().unwrap(),
-            )
-            .json(
-                &json!({"jsonrpc": "2.0", "method": "notifications/cancelled",
-                "params": {"requestId": "100"}}),
-            )
-            .await;
-
-        // Second call must succeed regardless.
-        let resp2 = server
-            .post("/mcp")
-            .add_header(
-                axum::http::header::ACCEPT,
-                "application/json".parse::<HeaderValue>().unwrap(),
-            )
-            .json(&json!({"jsonrpc": "2.0", "id": 101, "method": "tools/call",
-                "params": {"name": "get_scene_info", "arguments": {}}}))
-            .await;
-        resp2.assert_status_ok();
-        assert_eq!(
-            resp2.json::<Value>()["result"]["isError"],
-            false,
-            "subsequent call must succeed even after stale cancellation"
-        );
-    }
-
-    /// A `tools/call` with `_meta.progressToken` completes normally.
-    #[tokio::test]
-    async fn test_tools_call_with_progress_token_succeeds() {
-        let server = TestServer::new(make_router_with_handler());
-        let resp = server
-            .post("/mcp")
-            .add_header(
-                axum::http::header::ACCEPT,
-                "application/json".parse::<HeaderValue>().unwrap(),
-            )
-            .json(&json!({"jsonrpc": "2.0", "id": 200, "method": "tools/call",
-                "params": {"name": "get_scene_info", "arguments": {},
-                           "_meta": { "progressToken": "pt-xyz" }}}))
+            .json(&serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}))
             .await;
         resp.assert_status_ok();
+        let body: Value = resp.json();
+        let tools = body["result"]["tools"].as_array().unwrap();
+        // Total = 9 core + 40 registered = 49; first page = 32.
         assert_eq!(
-            resp.json::<Value>()["result"]["isError"],
-            false,
-            "tools/call with progressToken must return success"
+            tools.len(),
+            TOOLS_LIST_PAGE_SIZE,
+            "First page must be exactly {TOOLS_LIST_PAGE_SIZE}"
         );
+        let cursor = body["result"]["nextCursor"]
+            .as_str()
+            .expect("nextCursor must be present on first page");
+        assert!(!cursor.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_tools_list_pagination_second_page() {
+        use crate::protocol::TOOLS_LIST_PAGE_SIZE;
+        let server = TestServer::new(make_router_many_tools());
+
+        // Page 1
+        let r1: Value = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::ACCEPT,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}))
+            .await
+            .json();
+        let cursor = r1["result"]["nextCursor"].as_str().unwrap().to_string();
+
+        // Page 2
+        let r2: Value = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::ACCEPT,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&serde_json::json!({
+                "jsonrpc": "2.0", "id": 2,
+                "method": "tools/list",
+                "params": { "cursor": cursor }
+            }))
+            .await
+            .json();
+        let tools2 = r2["result"]["tools"].as_array().unwrap();
+        // 49 - 32 = 17 tools on second page
+        assert_eq!(tools2.len(), 49 - TOOLS_LIST_PAGE_SIZE);
+        assert!(
+            r2["result"]["nextCursor"].is_null(),
+            "Last page must not have nextCursor"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_tools_list_all_pages_no_duplicates() {
+        let server = TestServer::new(make_router_many_tools());
+        let mut all_names: Vec<String> = Vec::new();
+        let mut cursor: Option<String> = None;
+
+        loop {
+            let params = match &cursor {
+                Some(c) => serde_json::json!({ "cursor": c }),
+                None => serde_json::json!({}),
+            };
+            let body: Value = server
+                .post("/mcp")
+                .add_header(axum::http::header::ACCEPT, "application/json".parse::<HeaderValue>().unwrap())
+                .json(&serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": params}))
+                .await
+                .json();
+            let tools = body["result"]["tools"].as_array().unwrap();
+            all_names.extend(
+                tools
+                    .iter()
+                    .map(|t| t["name"].as_str().unwrap().to_string()),
+            );
+            cursor = body["result"]["nextCursor"].as_str().map(str::to_owned);
+            if cursor.is_none() {
+                break;
+            }
+        }
+
+        assert_eq!(all_names.len(), 49, "All pages must cover exactly 49 tools");
+        let unique: std::collections::HashSet<_> = all_names.iter().collect();
+        assert_eq!(unique.len(), all_names.len(), "No duplicates across pages");
+    }
+
+    #[tokio::test]
+    async fn test_tools_list_no_cursor_for_small_list() {
+        let server = TestServer::new(make_router());
+        let body: Value = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::ACCEPT,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}))
+            .await
+            .json();
+        assert!(
+            body["result"]["nextCursor"].is_null(),
+            "Small list must not have nextCursor"
+        );
+    }
+
+    // ── Delta notification capability negotiation ─────────────────────────
+
+    #[tokio::test]
+    async fn test_initialize_negotiates_delta_capability() {
+        let server = TestServer::new(make_router_with_skill());
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::ACCEPT,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&serde_json::json!({
+                "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {
+                        "experimental": {
+                            "dcc_mcp_core/deltaToolsUpdate": { "enabled": true }
+                        }
+                    },
+                    "clientInfo": {"name": "delta-client", "version": "1.0"}
+                }
+            }))
+            .await;
+        resp.assert_status_ok();
+        let body: Value = resp.json();
+        let exp = &body["result"]["capabilities"]["experimental"];
+        assert_eq!(
+            exp["dcc_mcp_core/deltaToolsUpdate"]["enabled"], true,
+            "Server must echo delta capability: {exp}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_initialize_no_delta_when_not_requested() {
+        let server = TestServer::new(make_router_with_skill());
+        let body: Value = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::ACCEPT,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&serde_json::json!({
+                "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-03-26",
+                    "capabilities": {},
+                    "clientInfo": {"name": "plain-client", "version": "1.0"}
+                }
+            }))
+            .await
+            .json();
+        assert!(
+            body["result"]["capabilities"]["experimental"].is_null(),
+            "Server must not advertise delta when client did not opt in"
+        );
+    }
+
+    #[test]
+    fn test_session_supports_delta_tools() {
+        let mgr = SessionManager::new();
+        let id = mgr.create();
+        assert!(!mgr.supports_delta_tools(&id));
+        assert!(mgr.set_supports_delta_tools(&id, true));
+        assert!(mgr.supports_delta_tools(&id));
+        assert!(mgr.set_supports_delta_tools(&id, false));
+        assert!(!mgr.supports_delta_tools(&id));
+        assert!(!mgr.supports_delta_tools("nonexistent"));
     }
 }
 

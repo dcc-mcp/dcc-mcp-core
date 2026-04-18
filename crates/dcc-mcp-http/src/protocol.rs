@@ -30,6 +30,15 @@ pub fn negotiate_protocol_version(client_requested: Option<&str>) -> &'static st
 /// The `Mcp-Session-Id` HTTP header name.
 pub const MCP_SESSION_HEADER: &str = "Mcp-Session-Id";
 
+/// Vendored capability key for delta tools notifications.
+pub const DELTA_TOOLS_UPDATE_CAP: &str = "dcc_mcp_core/deltaToolsUpdate";
+
+/// Method name for vendored delta tools update notifications.
+pub const DELTA_TOOLS_METHOD: &str = "notifications/tools/delta";
+
+/// Number of tools returned per `tools/list` page.
+pub const TOOLS_LIST_PAGE_SIZE: usize = 32;
+
 // ── JSON-RPC envelope ──────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -166,6 +175,9 @@ pub struct ServerCapabilities {
     pub resources: Option<ResourcesCapability>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompts: Option<PromptsCapability>,
+    /// Vendor-extension capabilities echoed back to the client.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub experimental: Option<Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -289,4 +301,26 @@ pub fn format_sse_event(data: &impl Serialize, event_id: Option<&str>) -> String
     } else {
         format!("data: {json}\n\n")
     }
+}
+
+// ── Cursor pagination helpers ─────────────────────────────────────────────
+
+/// Encode a page offset as an opaque cursor string.
+pub fn encode_cursor(offset: usize) -> String {
+    format!("{offset}")
+        .bytes()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+/// Decode a cursor produced by [`encode_cursor`]. Returns `None` if malformed.
+pub fn decode_cursor(cursor: &str) -> Option<usize> {
+    if cursor.len() % 2 != 0 {
+        return None;
+    }
+    let bytes: Option<Vec<u8>> = (0..cursor.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&cursor[i..i + 2], 16).ok())
+        .collect();
+    String::from_utf8(bytes?).ok()?.parse().ok()
 }

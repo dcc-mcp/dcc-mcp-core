@@ -27,6 +27,8 @@ pub struct McpSession {
     /// Set during `initialize` via [`SessionManager::set_protocol_version`].
     /// Later handlers can branch on this to enable version-specific behaviour.
     pub protocol_version: Option<String>,
+    /// Whether the client opted into delta tools notifications.
+    pub supports_delta_tools: bool,
     /// Broadcast channel for server-push SSE events.
     pub sse_tx: broadcast::Sender<String>,
     /// Wall-clock time of the last request handled for this session.
@@ -48,6 +50,7 @@ impl McpSession {
             id,
             initialized: false,
             protocol_version: None,
+            supports_delta_tools: false,
             sse_tx,
             last_active: Instant::now(),
         }
@@ -127,6 +130,24 @@ impl SessionManager {
         self.sessions
             .get(session_id)
             .and_then(|s| s.protocol_version.clone())
+    }
+
+    /// Record whether the client opted into delta-tools notifications.
+    pub fn set_supports_delta_tools(&self, session_id: &str, enabled: bool) -> bool {
+        if let Some(mut s) = self.sessions.get_mut(session_id) {
+            s.supports_delta_tools = enabled;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Whether the client for `session_id` opted into delta-tools notifications.
+    pub fn supports_delta_tools(&self, session_id: &str) -> bool {
+        self.sessions
+            .get(session_id)
+            .map(|s| s.supports_delta_tools)
+            .unwrap_or(false)
     }
 
     /// Get an SSE subscriber for the session.
