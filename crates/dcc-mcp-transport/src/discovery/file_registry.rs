@@ -9,10 +9,23 @@ use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 
 use dashmap::DashMap;
+use sysinfo::{Pid, ProcessesToUpdate, System};
 use tracing;
 
-use super::types::{ServiceEntry, ServiceKey, ServiceStatus};
+use super::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry, ServiceKey, ServiceStatus};
 use crate::error::{TransportError, TransportResult};
+
+/// Return `true` when `pid` refers to a currently running OS process.
+///
+/// Used by [`FileRegistry::prune_dead_pids`] to detect ghost entries left behind
+/// when a DCC plugin crashes after registering but before the heartbeat loop
+/// starts. See issue #227.
+fn is_pid_alive(pid: u32) -> bool {
+    let sp = Pid::from_u32(pid);
+    let mut sys = System::new();
+    sys.refresh_processes(ProcessesToUpdate::Some(&[sp]), true);
+    sys.process(sp).is_some()
+}
 
 /// File name for the registry JSON.
 const REGISTRY_FILE: &str = "services.json";
@@ -315,11 +328,19 @@ impl FileRegistry {
     }
 
     /// Remove stale services (no heartbeat within timeout).
+    ///
+    /// The gateway sentinel entry ([`GATEWAY_SENTINEL_DCC_TYPE`]) is
+    /// **never** evicted here — its staleness is meaningful only if the
+    /// gateway process itself is dead, which [`Self::prune_dead_pids`] handles
+    /// via PID liveness probe. See issue #230.
     pub fn cleanup_stale(&self, timeout: Duration) -> TransportResult<usize> {
         let stale_keys: Vec<ServiceKey> = self
             .services
             .iter()
-            .filter(|r| r.value().is_stale(timeout))
+            .filter(|r| {
+                let e = r.value();
+                e.dcc_type != GATEWAY_SENTINEL_DCC_TYPE && e.is_stale(timeout)
+            })
             .map(|r| r.key().clone())
             .collect();
 
@@ -330,6 +351,41 @@ impl FileRegistry {
                 dcc_type = %key.dcc_type,
                 instance_id = %key.instance_id,
                 "removed stale service"
+            );
+        }
+
+        if count > 0 {
+            self.flush_to_file()?;
+        }
+        Ok(count)
+    }
+
+    /// Remove entries whose owning OS process is no longer running.
+    ///
+    /// Complements [`Self::cleanup_stale`]: a plugin that crashes during
+    /// `initializePlugin` (after `bind_and_register` wrote its row but before
+    /// the heartbeat task started) would otherwise leak a ghost entry for up
+    /// to `stale_timeout` seconds. This check runs a PID liveness probe and
+    /// removes entries with dead PIDs immediately — including the gateway
+    /// sentinel, since a dead gateway process must not keep the sentinel alive.
+    ///
+    /// Entries without a `pid` set are left untouched (fail-open — we cannot
+    /// probe what we cannot identify). See issue #227.
+    pub fn prune_dead_pids(&self) -> TransportResult<usize> {
+        let dead_keys: Vec<ServiceKey> = self
+            .services
+            .iter()
+            .filter(|r| r.value().pid.is_some_and(|p| !is_pid_alive(p)))
+            .map(|r| r.key().clone())
+            .collect();
+
+        let count = dead_keys.len();
+        for key in &dead_keys {
+            self.services.remove(key);
+            tracing::info!(
+                dcc_type = %key.dcc_type,
+                instance_id = %key.instance_id,
+                "removed ghost entry (owning process is dead)"
             );
         }
 
@@ -497,6 +553,78 @@ mod tests {
             .unwrap();
         assert_eq!(cleaned, 1);
         assert!(registry.is_empty());
+    }
+
+    // Regression test for issue #230: cleanup_stale must never evict the gateway sentinel,
+    // even when its heartbeat appears stale, because that record is the source of truth
+    // for "who is the gateway" and a live but non-heartbeating sentinel is valid.
+    #[test]
+    fn test_file_registry_cleanup_stale_preserves_gateway_sentinel() {
+        let dir = tempfile::tempdir().unwrap();
+        let registry = FileRegistry::new(dir.path()).unwrap();
+
+        let mut sentinel = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 9765);
+        sentinel.last_heartbeat =
+            std::time::SystemTime::now() - std::time::Duration::from_secs(600);
+        registry.register(sentinel).unwrap();
+
+        let mut stale_instance = ServiceEntry::new("maya", "127.0.0.1", 18812);
+        stale_instance.last_heartbeat =
+            std::time::SystemTime::now() - std::time::Duration::from_secs(600);
+        registry.register(stale_instance).unwrap();
+
+        let cleaned = registry
+            .cleanup_stale(std::time::Duration::from_secs(30))
+            .unwrap();
+        // Only the maya row gets evicted; sentinel survives.
+        assert_eq!(cleaned, 1);
+        assert_eq!(registry.len(), 1);
+        assert_eq!(
+            registry.list_instances(GATEWAY_SENTINEL_DCC_TYPE).len(),
+            1,
+            "gateway sentinel must not be evicted by cleanup_stale"
+        );
+    }
+
+    // Regression test for issue #227: ghost rows from a crashed DCC process must be reaped.
+    #[test]
+    fn test_file_registry_prune_dead_pids() {
+        let dir = tempfile::tempdir().unwrap();
+        let registry = FileRegistry::new(dir.path()).unwrap();
+
+        // Live entry (auto-populated pid == our own process id).
+        let live = ServiceEntry::new("maya", "127.0.0.1", 18812);
+        let live_key = live.key();
+        registry.register(live).unwrap();
+
+        // Ghost entry with a clearly-dead PID.
+        // u32::MAX is a reserved sentinel on every OS we target.
+        let ghost = ServiceEntry::new("maya", "127.0.0.1", 18813).with_pid(u32::MAX);
+        let ghost_key = ghost.key();
+        registry.register(ghost).unwrap();
+
+        let pruned = registry.prune_dead_pids().unwrap();
+        assert_eq!(pruned, 1, "exactly one ghost entry should be pruned");
+        assert!(registry.get(&live_key).is_some(), "live entry must remain");
+        assert!(
+            registry.get(&ghost_key).is_none(),
+            "ghost entry must be removed"
+        );
+    }
+
+    #[test]
+    fn test_file_registry_prune_dead_pids_skips_unknown_pid() {
+        let dir = tempfile::tempdir().unwrap();
+        let registry = FileRegistry::new(dir.path()).unwrap();
+
+        // Entry with pid explicitly cleared → liveness unknown, must not be pruned.
+        let mut entry = ServiceEntry::new("maya", "127.0.0.1", 18812);
+        entry.pid = None;
+        registry.register(entry).unwrap();
+
+        let pruned = registry.prune_dead_pids().unwrap();
+        assert_eq!(pruned, 0);
+        assert_eq!(registry.len(), 1);
     }
 
     #[test]

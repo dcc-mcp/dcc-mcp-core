@@ -51,6 +51,14 @@ pub trait ServiceDiscovery: Send + Sync {
     /// Remove stale services.
     fn cleanup_stale(&self, timeout: Duration) -> TransportResult<usize>;
 
+    /// Remove entries whose owning OS process is no longer running.
+    ///
+    /// Default implementation is a no-op so strategies without PID awareness
+    /// (e.g. future mDNS) compile unchanged.
+    fn prune_dead_pids(&self) -> TransportResult<usize> {
+        Ok(0)
+    }
+
     /// Get the number of registered services.
     fn len(&self) -> usize;
 
@@ -111,6 +119,10 @@ impl ServiceDiscovery for file_registry::FileRegistry {
 
     fn cleanup_stale(&self, timeout: Duration) -> TransportResult<usize> {
         self.cleanup_stale(timeout)
+    }
+
+    fn prune_dead_pids(&self) -> TransportResult<usize> {
+        self.prune_dead_pids()
     }
 
     fn len(&self) -> usize {
@@ -195,6 +207,13 @@ impl ServiceRegistry {
     /// Remove stale services.
     pub fn cleanup_stale(&self, timeout: Duration) -> TransportResult<usize> {
         self.strategy.cleanup_stale(timeout)
+    }
+
+    /// Remove entries whose owning OS process is no longer running (ghost-entry reaping).
+    ///
+    /// See [`file_registry::FileRegistry::prune_dead_pids`] for the full contract.
+    pub fn prune_dead_pids(&self) -> TransportResult<usize> {
+        self.strategy.prune_dead_pids()
     }
 
     /// Get the number of registered services.

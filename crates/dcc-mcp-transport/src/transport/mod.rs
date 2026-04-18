@@ -472,17 +472,28 @@ impl TransportManager {
     }
 
     /// Cleanup stale services, idle sessions, and evict idle connections.
+    ///
+    /// Also reaps ghost entries whose owning PID no longer exists (issue #227).
     pub fn cleanup(&self) -> TransportResult<(usize, usize, usize)> {
         let heartbeat_timeout = self.config.heartbeat_interval * 3;
         let stale_services = self.registry.cleanup_stale(heartbeat_timeout)?;
+        let ghost_services = self.registry.prune_dead_pids()?;
         let idle_sessions = self.sessions.mark_idle_sessions();
         let expired_sessions = self.sessions.close_expired();
         let evicted_connections = self.pool.evict_stale();
         Ok((
-            stale_services,
+            stale_services + ghost_services,
             idle_sessions + expired_sessions,
             evicted_connections,
         ))
+    }
+
+    /// Reap registry entries whose owning OS process is dead (ghost-entry cleanup).
+    ///
+    /// Callable independently of [`Self::cleanup`] when the host wants a cheap
+    /// prune without touching sessions/pool (e.g. DCC plugin pre-flight).
+    pub fn prune_dead_pids(&self) -> TransportResult<usize> {
+        self.registry.prune_dead_pids()
     }
 
     /// Gracefully shut down the transport.

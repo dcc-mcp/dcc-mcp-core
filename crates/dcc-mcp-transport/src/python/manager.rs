@@ -147,7 +147,14 @@ impl PyTransportManager {
         entry.version = version;
         entry.scene = scene;
         entry.documents = documents.unwrap_or_default();
-        entry.pid = pid;
+        // `ServiceEntry::new` auto-populated `pid` with `std::process::id()` so
+        // that `FileRegistry::prune_dead_pids` can reap ghost rows left by a
+        // crashed plugin (issue #227). Only overwrite when the caller passed
+        // an explicit pid — preserving the auto-populated value for the common
+        // Python-side `register_service(...)` call.
+        if let Some(explicit_pid) = pid {
+            entry.pid = Some(explicit_pid);
+        }
         entry.display_name = display_name;
         if let Some(md) = metadata {
             entry.metadata = md;
@@ -734,12 +741,30 @@ impl PyTransportManager {
 
     /// Cleanup stale services, idle sessions, and evict idle connections.
     ///
+    /// Also reaps ghost entries whose owning PID no longer exists (issue #227).
+    ///
     /// Returns:
     ///     Tuple of (stale_services, closed_sessions, evicted_connections).
+    ///     `stale_services` counts both heartbeat-timed-out rows and ghost rows.
     #[pyo3(name = "cleanup")]
     fn py_cleanup(&self) -> PyResult<(usize, usize, usize)> {
         self.inner
             .cleanup()
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+    }
+
+    /// Reap registry entries whose owning OS process is dead.
+    ///
+    /// Use this from a DCC plugin's ``_start()`` to proactively clean ghost
+    /// rows left by a previous crashed launch before re-registering. See
+    /// issue #227 for the motivation.
+    ///
+    /// Returns:
+    ///     Number of ghost entries removed.
+    #[pyo3(name = "prune_dead_pids")]
+    fn py_prune_dead_pids(&self) -> PyResult<usize> {
+        self.inner
+            .prune_dead_pids()
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
     }
 

@@ -1973,6 +1973,18 @@ class TransportManager:
 
     # Lifecycle
     def cleanup(self) -> tuple[int, int, int]: ...
+    def prune_dead_pids(self) -> int:
+        """Reap registry entries whose owning OS process is dead.
+
+        Use from a DCC plugin's ``_start()`` to proactively clean ghost rows
+        left by a previous crashed launch before re-registering.  See issue
+        #227 for the motivation.
+
+        Returns:
+            Number of ghost entries removed.
+
+        """
+        ...
     def shutdown(self) -> None: ...
     def is_shutdown(self) -> bool: ...
     def __repr__(self) -> str: ...

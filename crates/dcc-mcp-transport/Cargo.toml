@@ -19,6 +19,7 @@ uuid = { workspace = true }
 tokio = { workspace = true }
 rmp-serde = { workspace = true }
 dcc-mcp-utils = { workspace = true, optional = true }
+sysinfo.workspace = true
 
 [dev-dependencies]
 rstest = "0.26"

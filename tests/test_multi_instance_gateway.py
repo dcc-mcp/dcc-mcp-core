@@ -89,10 +89,14 @@ class TestServiceEntryNewFields:
 
     def test_register_without_new_fields_has_defaults(self, registry: dcc_mcp_core.TransportManager) -> None:
         """Old-style registration without new fields still works; fields default to None/[]."""
+        import os
+
         iid = registry.register_service("maya", "127.0.0.1", 18815)
         entry = registry.get_service("maya", iid)
         assert entry is not None
-        assert entry.pid is None
+        # `pid` is auto-populated with the current process id so the registry
+        # can reap ghost rows via `prune_dead_pids()` (issue #227).
+        assert entry.pid == os.getpid()
         assert entry.display_name is None
         assert entry.documents == []
         assert entry.extras == {}

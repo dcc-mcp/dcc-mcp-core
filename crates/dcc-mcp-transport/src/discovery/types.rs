@@ -7,6 +7,16 @@ use uuid::Uuid;
 
 use crate::ipc::TransportAddress;
 
+/// `dcc_type` used for the gateway sentinel entry in the `FileRegistry`.
+///
+/// The sentinel entry carries the current gateway's version so that newly
+/// started instances can compare themselves against the running gateway and
+/// decide whether to enter challenger mode.
+///
+/// Defined at the transport layer so lower layers (e.g. `FileRegistry::cleanup_stale`)
+/// can special-case it without depending on `dcc-mcp-http`.
+pub const GATEWAY_SENTINEL_DCC_TYPE: &str = "__gateway__";
+
 /// Status of a discovered DCC service instance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -129,6 +139,12 @@ pub struct ServiceEntry {
 
 impl ServiceEntry {
     /// Create a new service entry with TCP transport (sensible defaults).
+    ///
+    /// `pid` is auto-populated with [`std::process::id()`] so the registry can
+    /// reap ghost entries when the owning process crashes (see
+    /// [`FileRegistry::prune_dead_pids`](super::file_registry::FileRegistry::prune_dead_pids)).
+    /// Override via [`ServiceEntry::with_pid`] when registering on behalf of
+    /// another process (bridge scenarios).
     pub fn new(dcc_type: impl Into<String>, host: impl Into<String>, port: u16) -> Self {
         let now = SystemTime::now();
         Self {
@@ -140,7 +156,7 @@ impl ServiceEntry {
             version: None,
             scene: None,
             documents: Vec::new(),
-            pid: None,
+            pid: Some(std::process::id()),
             display_name: None,
             metadata: HashMap::new(),
             extras: HashMap::new(),
@@ -151,6 +167,8 @@ impl ServiceEntry {
     }
 
     /// Create a new service entry with a specific transport address.
+    ///
+    /// `pid` is auto-populated with [`std::process::id()`]; see [`ServiceEntry::new`].
     pub fn with_address(dcc_type: impl Into<String>, address: TransportAddress) -> Self {
         let (host, port) = match &address {
             TransportAddress::Tcp { host, port } => (host.clone(), *port),
@@ -168,7 +186,7 @@ impl ServiceEntry {
             version: None,
             scene: None,
             documents: Vec::new(),
-            pid: None,
+            pid: Some(std::process::id()),
             display_name: None,
             metadata: HashMap::new(),
             extras: HashMap::new(),
@@ -176,6 +194,12 @@ impl ServiceEntry {
             last_heartbeat: now,
             status: ServiceStatus::Available,
         }
+    }
+
+    /// Override the owning process PID (useful when registering on behalf of a bridge).
+    pub fn with_pid(mut self, pid: u32) -> Self {
+        self.pid = Some(pid);
+        self
     }
 
     /// Get the effective transport address.
@@ -246,6 +270,14 @@ mod tests {
         assert!(entry.scene.is_none());
         assert!(entry.transport_address.is_none());
         assert!(entry.extras.is_empty());
+        // pid is auto-populated with the current process id (ghost-entry prevention).
+        assert_eq!(entry.pid, Some(std::process::id()));
+    }
+
+    #[test]
+    fn test_service_entry_with_pid_override() {
+        let entry = ServiceEntry::new("maya", "127.0.0.1", 18812).with_pid(42);
+        assert_eq!(entry.pid, Some(42));
     }
 
     #[test]
