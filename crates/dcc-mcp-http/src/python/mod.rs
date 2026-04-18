@@ -99,6 +99,22 @@ impl PyMcpHttpConfig {
         self.inner.session_ttl_secs = secs;
     }
 
+    /// Enable the opt-in lazy-actions fast-path (#254).
+    ///
+    /// When ``True``, ``tools/list`` also surfaces three meta-tools:
+    /// ``list_actions``, ``describe_action`` and ``call_action``. Useful
+    /// for agents whose context budget cannot afford a full ``tools/list``
+    /// paging session. Default: ``False``.
+    #[getter]
+    fn lazy_actions(&self) -> bool {
+        self.inner.lazy_actions
+    }
+
+    #[setter]
+    fn set_lazy_actions(&mut self, enabled: bool) {
+        self.inner.lazy_actions = enabled;
+    }
+
     // ── Gateway configuration ────────────────────────────────────────────────
 
     /// Gateway port to compete for. First process to bind wins.

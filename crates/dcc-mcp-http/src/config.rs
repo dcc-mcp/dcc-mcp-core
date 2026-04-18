@@ -63,6 +63,20 @@ pub struct McpHttpConfig {
 
     /// Currently open scene/file. Improves routing accuracy.
     pub scene: Option<String>,
+
+    // ── Experimental: lazy-actions fast-path (#254) ───────────────────────
+    /// Enable the opt-in lazy-actions meta-tools: ``list_actions``,
+    /// ``describe_action`` and ``call_action``.
+    ///
+    /// When `true`, `tools/list` additionally surfaces these three meta-tools
+    /// so agents with tight context budgets can drive an arbitrarily large
+    /// action catalog through a single page of 3 stubs instead of paging
+    /// through every loaded skill's tools. Default: `false`.
+    ///
+    /// Clients may also flip this on via
+    /// `initialize.capabilities.experimental["dcc_mcp_core/lazyActions"]`
+    /// (per-session, negotiated at initialize time).
+    pub lazy_actions: bool,
 }
 
 impl McpHttpConfig {
@@ -85,7 +99,18 @@ impl McpHttpConfig {
             dcc_type: None,
             dcc_version: None,
             scene: None,
+            lazy_actions: false,
         }
+    }
+
+    /// Builder: enable the lazy-actions fast-path (#254).
+    ///
+    /// Surfaces `list_actions`, `describe_action` and `call_action` as
+    /// core MCP tools. Useful for agents whose context budget cannot
+    /// afford paging through every skill's full schema.
+    pub fn with_lazy_actions(mut self) -> Self {
+        self.lazy_actions = true;
+        self
     }
 
     /// Returns the full socket address string, e.g. `127.0.0.1:8765`.

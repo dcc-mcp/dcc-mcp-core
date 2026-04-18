@@ -182,6 +182,7 @@ impl McpHttpServer {
             server_version: self.config.server_version.clone(),
             cancelled_requests,
             in_flight: InFlightRequests::new(),
+            lazy_actions: self.config.lazy_actions,
         };
 
         let endpoint = self.config.endpoint_path.clone();
