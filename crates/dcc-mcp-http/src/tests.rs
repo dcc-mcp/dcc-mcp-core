@@ -416,7 +416,7 @@ mod tests {
     #[tokio::test]
     async fn test_tools_list_no_full_schemas_before_load() {
         // All discovered (unloaded) skills must appear ONLY as stubs — their
-        // individual tool names (e.g. "maya_bevel__bevel") must NOT be present,
+        // individual tool names (e.g. "maya-bevel.bevel") must NOT be present,
         // and the stubs themselves must not carry a rich input_schema.
         let server = TestServer::new(make_router_with_skills());
 
@@ -499,7 +499,7 @@ mod tests {
 
         // These are the real tool names from make_app_state_with_skills().
         // They must NOT appear before loading.
-        for forbidden in &["maya_bevel__bevel", "maya_bevel__chamfer", "git_tools__log"] {
+        for forbidden in &["maya-bevel.bevel", "maya-bevel.chamfer", "git-tools.log"] {
             assert!(
                 !names.contains(forbidden),
                 "Tool '{forbidden}' appeared in tools/list before load_skill was called. \
@@ -544,12 +544,12 @@ mod tests {
 
         // Real tools registered.
         assert!(
-            names.contains(&"maya_bevel__bevel"),
-            "Expected maya_bevel__bevel after load, got: {names:?}"
+            names.contains(&"maya-bevel.bevel"),
+            "Expected maya-bevel.bevel after load, got: {names:?}"
         );
         assert!(
-            names.contains(&"maya_bevel__chamfer"),
-            "Expected maya_bevel__chamfer after load, got: {names:?}"
+            names.contains(&"maya-bevel.chamfer"),
+            "Expected maya-bevel.chamfer after load, got: {names:?}"
         );
 
         // Stub gone.
@@ -567,7 +567,7 @@ mod tests {
         // The real tools carry a non-trivial inputSchema (set by ActionMeta).
         let bevel_tool = tools
             .iter()
-            .find(|t| t["name"] == "maya_bevel__bevel")
+            .find(|t| t["name"] == "maya-bevel.bevel")
             .unwrap();
         // inputSchema must be at least `{"type": "object"}` — not null/absent.
         assert!(
@@ -1112,12 +1112,12 @@ mod tests {
         // 9 core meta-tools + 2 skill tools (skill now loaded, no stubs) = 11
         assert_eq!(tools.len(), 11);
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
-        assert!(names.contains(&"modeling_bevel__bevel"));
-        assert!(names.contains(&"modeling_bevel__chamfer"));
+        assert!(names.contains(&"modeling-bevel.bevel"));
+        assert!(names.contains(&"modeling-bevel.chamfer"));
 
         let bevel_tool = tools
             .iter()
-            .find(|t| t["name"] == "modeling_bevel__bevel")
+            .find(|t| t["name"] == "modeling-bevel.bevel")
             .unwrap();
         assert_eq!(bevel_tool["annotations"]["deferredHint"], false);
     }
@@ -1194,6 +1194,85 @@ mod tests {
         assert_eq!(stub["annotations"], serde_json::Value::Null);
     }
 
+    // Tool namespacing tests (#238)
+    #[tokio::test]
+    async fn test_loaded_tools_have_namespaced_names() {
+        let server = TestServer::new(make_router_with_skill());
+        server.post("/mcp")
+            .add_header(axum::http::header::ACCEPT, "application/json".parse::<HeaderValue>().unwrap())
+            .json(&json!({"jsonrpc":"2.0","id":100,"method":"tools/call","params":{"name":"load_skill","arguments":{"skill_name":"modeling-bevel"}}}))
+            .await;
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::ACCEPT,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&json!({"jsonrpc":"2.0","id":101,"method":"tools/list"}))
+            .await;
+        let body: Value = resp.json();
+        let tools = body["result"]["tools"].as_array().unwrap();
+        let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
+        assert!(
+            names.contains(&"modeling-bevel.bevel"),
+            "Expected modeling-bevel.bevel, got: {names:?}"
+        );
+        assert!(
+            names.contains(&"modeling-bevel.chamfer"),
+            "Expected modeling-bevel.chamfer, got: {names:?}"
+        );
+        assert!(
+            !names.contains(&"modeling_bevel__bevel"),
+            "Old __ name must not appear: {names:?}"
+        );
+    }
+    #[tokio::test]
+    async fn test_core_tools_keep_bare_names() {
+        let server = TestServer::new(make_router_with_skill());
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::ACCEPT,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&json!({"jsonrpc":"2.0","id":120,"method":"tools/list"}))
+            .await;
+        let body: Value = resp.json();
+        let tools = body["result"]["tools"].as_array().unwrap();
+        let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
+        for core in &[
+            "find_skills",
+            "list_skills",
+            "get_skill_info",
+            "load_skill",
+            "unload_skill",
+            "search_skills",
+            "activate_tool_group",
+            "deactivate_tool_group",
+            "search_tools",
+        ] {
+            assert!(
+                names.contains(core),
+                "Core '{core}' must be bare, got: {names:?}"
+            );
+        }
+    }
+    #[tokio::test]
+    async fn test_unknown_tool_returns_not_found() {
+        let server = TestServer::new(make_router_with_skill());
+        let resp = server.post("/mcp")
+            .add_header(axum::http::header::ACCEPT, "application/json".parse::<HeaderValue>().unwrap())
+            .json(&json!({"jsonrpc":"2.0","id":130,"method":"tools/call","params":{"name":"totally_unknown_xyzzy","arguments":{}}}))
+            .await;
+        resp.assert_status_ok();
+        let body: Value = resp.json();
+        assert_eq!(body["result"]["isError"], true);
+        let text = body["result"]["content"][0]["text"].as_str().unwrap_or("");
+        assert!(
+            text.contains("Unknown tool") || text.contains("ACTION_NOT_FOUND"),
+            "Expected Unknown: {text}"
+        );
+    }
     #[tokio::test]
     async fn test_initialize_reports_list_changed_true() {
         let server = TestServer::new(make_router());

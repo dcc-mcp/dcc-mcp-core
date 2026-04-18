@@ -39,6 +39,8 @@ use dcc_mcp_protocols::DccMcpError;
 use dcc_mcp_skills::SkillCatalog;
 use dcc_mcp_skills::catalog::SkillSummary;
 
+use crate::gateway::namespace::{decode_skill_tool_name, extract_bare_tool_name, skill_tool_name};
+
 /// How long a cancellation record is kept before being garbage-collected.
 ///
 /// If a client sends `notifications/cancelled` for a request that has already
@@ -527,8 +529,40 @@ async fn handle_tools_call(
     // Resolve action params (default to empty object)
     let call_params = params.arguments.unwrap_or(json!({}));
 
+    // Tool name resolution (#238): <skill>.<name> + backward compat
+    let resolved_name: String = if state.registry.get_action(&tool_name, None).is_some() {
+        tool_name.clone()
+    } else if let Some((skill_part, bare_tool)) = decode_skill_tool_name(&tool_name) {
+        let matched = state
+            .registry
+            .list_actions_by_skill(skill_part)
+            .into_iter()
+            .find(|m| extract_bare_tool_name(skill_part, &m.name) == bare_tool);
+        if let Some(m) = matched {
+            m.name
+        } else {
+            tool_name.clone()
+        }
+    } else {
+        let lm = state.registry.list_actions(None).into_iter().find(|m| {
+            m.skill_name
+                .as_deref()
+                .map(|sn| extract_bare_tool_name(sn, &m.name) == tool_name.as_str())
+                .unwrap_or(false)
+        });
+        if let Some(ref matched) = lm {
+            let canonical =
+                skill_tool_name(matched.skill_name.as_deref().unwrap_or(""), &matched.name)
+                    .unwrap_or_else(|| matched.name.clone());
+            tracing::warn!(bare_name=%tool_name, "Deprecated bare name -- use {canonical}.");
+            matched.name.clone()
+        } else {
+            tool_name.clone()
+        }
+    };
+
     // Check action exists in registry before dispatch
-    if state.registry.get_action(&tool_name, None).is_none() {
+    if state.registry.get_action(&resolved_name, None).is_none() {
         let envelope = DccMcpError::new(
             "registry",
             "ACTION_NOT_FOUND",
@@ -598,7 +632,7 @@ async fn handle_tools_call(
     let dispatch_outcome = if let Some(exec) = &state.executor {
         // DCC main-thread path
         let dispatcher = state.dispatcher.clone();
-        let name = tool_name.clone();
+        let name = resolved_name.clone();
         let p = call_params.clone();
         let ct = cancel_token_for_dispatch;
         exec.execute(Box::new(move || {
@@ -625,7 +659,7 @@ async fn handle_tools_call(
     } else {
         // Non-DCC path: spawn_blocking with cooperative cancel monitor.
         let dispatcher = state.dispatcher.clone();
-        let name = tool_name.clone();
+        let name = resolved_name.clone();
         let p = call_params.clone();
         let ct_for_block = cancel_token_for_dispatch.clone();
         let dispatch_fut = tokio::task::spawn_blocking(move || {
@@ -1279,12 +1313,17 @@ fn action_meta_to_mcp_tool(meta: &dcc_mcp_actions::registry::ActionMeta) -> McpT
         meta.input_schema.clone()
     };
 
+    let mcp_name = meta
+        .skill_name
+        .as_deref()
+        .and_then(|sn| skill_tool_name(sn, &meta.name))
+        .unwrap_or_else(|| meta.name.clone());
     McpTool {
-        name: meta.name.clone(),
+        name: mcp_name.clone(),
         description: meta.description.clone(),
         input_schema,
         annotations: Some(McpToolAnnotations {
-            title: Some(meta.name.clone()),
+            title: Some(mcp_name),
             // Actions from skills get sensible defaults; standalone actions default to false
             read_only_hint: Some(false),
             destructive_hint: Some(false),
