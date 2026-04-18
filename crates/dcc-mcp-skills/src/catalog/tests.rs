@@ -320,7 +320,7 @@ fn test_load_skill_with_tool_decl_and_source_file() {
 fn test_execute_script_returns_json() {
     // Test the execute_script helper with a real command that outputs JSON
     // Use `python -c` for cross-platform compatibility
-    let result = execute_script("python", serde_json::json!({"key": "value"}));
+    let result = execute_script("python", serde_json::json!({"key": "value"}), None);
     // Python may or may not be available; just check the function runs
     // (either Ok or Err is valid in CI environments without Python)
     let _ = result;
@@ -554,7 +554,11 @@ fn test_find_skills_matches_name_and_hint_combined() {
 #[test]
 fn test_execute_script_stdin_json_params() {
     // execute_script writes the full JSON to stdin — verify the call runs.
-    let result = execute_script("python", serde_json::json!({"greeting": "hello-stdin"}));
+    let result = execute_script(
+        "python",
+        serde_json::json!({"greeting": "hello-stdin"}),
+        None,
+    );
     // Skip gracefully if Python is not available in this environment.
     if let Err(ref e) = result {
         if e.contains("Failed to spawn") || e.contains("No such file") {
@@ -572,6 +576,7 @@ fn test_execute_script_cli_flags_passed_for_scalar_params() {
     let result = execute_script(
         "python",
         serde_json::json!({"name": "Alice", "count": 3, "verbose": true}),
+        None,
     );
     if let Err(ref e) = result {
         if e.contains("Failed to spawn") || e.contains("No such file") {
@@ -592,6 +597,7 @@ fn test_execute_script_complex_values_not_expanded_as_flags() {
             "nested": {"a": 1},
             "list": [1, 2, 3],
         }),
+        None,
     );
     if let Err(ref e) = result {
         if e.contains("Failed to spawn") || e.contains("No such file") {
@@ -599,4 +605,149 @@ fn test_execute_script_complex_values_not_expanded_as_flags() {
         }
     }
     let _ = result;
+}
+
+// ── Regression tests for issue #231 (silent ambient-python fallback) ──────────
+//
+// These tests rely on manipulating process env vars. They must run serially
+// relative to each other — we guard the env mutations with a mutex inside the
+// module so parallel `cargo test` doesn't interleave SET/REMOVE calls.
+
+static EXEC_ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// RAII guard that clears `DCC_MCP_PYTHON_EXECUTABLE`, `DCC_MCP_PYTHON_INIT_SNIPPET`,
+/// and `DCC_MCP_ALLOW_AMBIENT_PYTHON` for the duration of a test, restoring the
+/// prior values on drop.  Holds [`EXEC_ENV_MUTEX`] to prevent parallel tests
+/// from racing on the same globals.
+struct ExecEnvGuard<'a> {
+    _lock: std::sync::MutexGuard<'a, ()>,
+    saved: Vec<(&'static str, Option<String>)>,
+}
+
+impl<'a> ExecEnvGuard<'a> {
+    fn new() -> Self {
+        let lock = EXEC_ENV_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+        let keys = [
+            "DCC_MCP_PYTHON_EXECUTABLE",
+            "DCC_MCP_PYTHON_INIT_SNIPPET",
+            "DCC_MCP_ALLOW_AMBIENT_PYTHON",
+        ];
+        let saved: Vec<(&'static str, Option<String>)> =
+            keys.iter().map(|k| (*k, std::env::var(*k).ok())).collect();
+        for (k, _) in &saved {
+            // SAFETY: unit tests run single-threaded relative to each other
+            // for this module thanks to EXEC_ENV_MUTEX.
+            unsafe { std::env::remove_var(k) };
+        }
+        Self { _lock: lock, saved }
+    }
+}
+
+impl<'a> Drop for ExecEnvGuard<'a> {
+    fn drop(&mut self) {
+        for (k, v) in &self.saved {
+            match v {
+                Some(val) => unsafe { std::env::set_var(k, val) },
+                None => unsafe { std::env::remove_var(k) },
+            }
+        }
+    }
+}
+
+#[test]
+fn test_execute_script_rejects_ambient_python_for_host_dcc() {
+    // When a skill declares a DCC that needs its own host Python (e.g. maya
+    // needing mayapy) and DCC_MCP_PYTHON_EXECUTABLE / _INIT_SNIPPET are NOT
+    // set, `execute_script` must fail loudly instead of silently falling
+    // back to the ambient `python` on PATH.
+    let _g = ExecEnvGuard::new();
+
+    let result = execute_script(
+        "any_skill.py",
+        serde_json::json!({"key": "value"}),
+        Some("maya"),
+    );
+    let err = result.expect_err("must fail loudly when DCC_MCP_PYTHON_EXECUTABLE is unset");
+    assert!(
+        err.contains("DCC_MCP_PYTHON_EXECUTABLE"),
+        "error message must mention the env var: got {err}"
+    );
+    assert!(
+        err.to_lowercase().contains("maya"),
+        "error message must mention the offending DCC: got {err}"
+    );
+}
+
+#[test]
+fn test_execute_script_rejects_ambient_python_case_insensitive() {
+    let _g = ExecEnvGuard::new();
+    // Uppercase / mixed case in the skill's declared dcc must still match.
+    let err = execute_script("any.py", serde_json::json!({}), Some("Houdini"))
+        .expect_err("Houdini must also require a host python");
+    assert!(err.contains("DCC_MCP_PYTHON_EXECUTABLE"));
+}
+
+#[test]
+fn test_execute_script_allows_opt_out_via_env_var() {
+    // DCC_MCP_ALLOW_AMBIENT_PYTHON=1 is the escape hatch for test harnesses
+    // and the stub-based `python` DCC.  With it set, the pre-flight check
+    // must not raise, and we fall through to the real spawn attempt.
+    let _g = ExecEnvGuard::new();
+    unsafe { std::env::set_var("DCC_MCP_ALLOW_AMBIENT_PYTHON", "1") };
+
+    let result = execute_script("/does/not/exist.py", serde_json::json!({}), Some("maya"));
+    // Either the script fails because the path doesn't exist (OK) or it runs
+    // — but critically the error must NOT be the #231 loud-fail.
+    if let Err(err) = result {
+        assert!(
+            !err.contains("DCC_MCP_PYTHON_EXECUTABLE"),
+            "opt-out must suppress the #231 check: got {err}"
+        );
+    }
+}
+
+#[test]
+fn test_execute_script_skips_check_when_executable_set() {
+    // If the caller set DCC_MCP_PYTHON_EXECUTABLE explicitly, the guard
+    // trusts them — even if the value points at a non-DCC interpreter.
+    let _g = ExecEnvGuard::new();
+    unsafe { std::env::set_var("DCC_MCP_PYTHON_EXECUTABLE", "python") };
+
+    let result = execute_script("/does/not/exist.py", serde_json::json!({}), Some("maya"));
+    if let Err(err) = result {
+        assert!(
+            !err.contains("DCC_MCP_PYTHON_EXECUTABLE"),
+            "explicit executable must disable the loud-fail: got {err}"
+        );
+    }
+}
+
+#[test]
+fn test_execute_script_allows_generic_python_dcc() {
+    // The `python` pseudo-DCC is the stub / generic runtime — it MUST be
+    // allowed to run on the ambient interpreter without any opt-outs.
+    let _g = ExecEnvGuard::new();
+
+    let result = execute_script("/does/not/exist.py", serde_json::json!({}), Some("python"));
+    if let Err(err) = result {
+        assert!(
+            !err.contains("DCC_MCP_PYTHON_EXECUTABLE"),
+            "generic 'python' dcc must not trigger the #231 check: got {err}"
+        );
+    }
+}
+
+#[test]
+fn test_execute_script_no_dcc_hint_does_not_trigger_check() {
+    // Older call-sites that pass `None` for the dcc hint must not get the
+    // hard-fail — the check only fires when we *know* the DCC requires it.
+    let _g = ExecEnvGuard::new();
+
+    let result = execute_script("/does/not/exist.py", serde_json::json!({}), None);
+    if let Err(err) = result {
+        assert!(
+            !err.contains("DCC_MCP_PYTHON_EXECUTABLE"),
+            "no dcc hint must not trigger the #231 check: got {err}"
+        );
+    }
 }

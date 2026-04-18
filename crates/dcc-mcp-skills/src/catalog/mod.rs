@@ -372,8 +372,10 @@ impl SkillCatalog {
             if let (Some(dispatcher), Some(sp)) = (&self.dispatcher, script_path) {
                 let sp_owned = sp.clone();
                 let name_clone = action_name.clone();
-                dispatcher
-                    .register_handler(&name_clone, move |params| execute_script(&sp_owned, params));
+                let dcc_owned = metadata.dcc.clone();
+                dispatcher.register_handler(&name_clone, move |params| {
+                    execute_script(&sp_owned, params, Some(dcc_owned.as_str()))
+                });
             }
 
             registered.push(action_name);
@@ -410,8 +412,10 @@ impl SkillCatalog {
                 if let Some(dispatcher) = &self.dispatcher {
                     let sp = script_path.clone();
                     let name_clone = action_name.clone();
-                    dispatcher
-                        .register_handler(&name_clone, move |params| execute_script(&sp, params));
+                    let dcc_owned = metadata.dcc.clone();
+                    dispatcher.register_handler(&name_clone, move |params| {
+                        execute_script(&sp, params, Some(dcc_owned.as_str()))
+                    });
                 }
 
                 registered.push(action_name);

@@ -85,9 +85,32 @@ pub(crate) fn resolve_tool_script(
 /// message).
 ///
 /// Returns `Ok(Value)` on success, `Err(String)` on failure.
+/// `dcc` values that require a DCC-specific Python interpreter (mayapy, blender --python,
+/// hython, 3dsmaxpy…). When a skill declares one of these and neither
+/// `DCC_MCP_PYTHON_EXECUTABLE` nor `DCC_MCP_PYTHON_INIT_SNIPPET` is exported, the
+/// worker would silently fall back to the ambient `python` on PATH — where
+/// `import maya.cmds` either fails outright or resolves to an unusable stub.
+/// Returning a structured error in that case is far better than the previous
+/// behaviour where commands like `cmds.polySphere(...)` raised
+/// `AttributeError` mid-skill (see issue #231).
+const DCC_NAMES_REQUIRING_HOST_PYTHON: &[&str] = &[
+    "maya",
+    "blender",
+    "houdini",
+    "3dsmax",
+    "max",
+    "nuke",
+    "katana",
+    "cinema4d",
+    "c4d",
+    "modo",
+    "motionbuilder",
+];
+
 pub(crate) fn execute_script(
     script_path: &str,
     params: serde_json::Value,
+    skill_dcc: Option<&str>,
 ) -> Result<serde_json::Value, String> {
     use std::io::Write;
     use std::process::{Command, Stdio};
@@ -104,13 +127,45 @@ pub(crate) fn execute_script(
     // Resolve the Python interpreter:
     // 1. DCC_MCP_PYTHON_EXECUTABLE env var (explicit override, e.g. mayapy)
     // 2. Fall back to the Python that shipped the `python` command on PATH
-    let python_exe =
-        std::env::var("DCC_MCP_PYTHON_EXECUTABLE").unwrap_or_else(|_| "python".to_string());
+    let python_exe_override = std::env::var("DCC_MCP_PYTHON_EXECUTABLE").ok();
+    let python_exe = python_exe_override
+        .clone()
+        .unwrap_or_else(|| "python".to_string());
 
     // Optional: prepend a Python init snippet before running the skill script.
     // DCC_MCP_PYTHON_INIT_SNIPPET can contain a one-liner (semicolon separated)
     // to run before the script, e.g. "import maya.standalone; maya.standalone.initialize(name='python')"
     let init_snippet = std::env::var("DCC_MCP_PYTHON_INIT_SNIPPET").ok();
+
+    // Fail-loud when a skill targeting a DCC host Python is about to be launched
+    // through the ambient `python` on PATH (issue #231). A skill can opt out of
+    // the check by setting `DCC_MCP_ALLOW_AMBIENT_PYTHON=1` (intended for test
+    // harnesses and the stub-based `python` DCC).
+    if (ext == "py" || ext == "pyw")
+        && python_exe_override.is_none()
+        && init_snippet.is_none()
+        && std::env::var("DCC_MCP_ALLOW_AMBIENT_PYTHON")
+            .ok()
+            .as_deref()
+            != Some("1")
+    {
+        if let Some(dcc) = skill_dcc {
+            let dcc_lc = dcc.to_ascii_lowercase();
+            if DCC_NAMES_REQUIRING_HOST_PYTHON.contains(&dcc_lc.as_str()) {
+                let msg = format!(
+                    "Skill for DCC '{dcc}' cannot run with the ambient Python on PATH: \
+                     `import {dcc_lc}.cmds` (or the equivalent) is either missing or a stub. \
+                     Export DCC_MCP_PYTHON_EXECUTABLE to the DCC's host interpreter \
+                     (e.g. mayapy, hython, 'blender --python') and DCC_MCP_PYTHON_INIT_SNIPPET \
+                     to the per-DCC bootstrap code before starting the MCP server. \
+                     Set DCC_MCP_ALLOW_AMBIENT_PYTHON=1 only for tests / stubs. \
+                     See issue #231 for the contract."
+                );
+                tracing::error!(target: "dcc_mcp_skills::execute", %dcc, "{}", msg);
+                return Err(msg);
+            }
+        }
+    }
 
     // Build CLI args that argparse-based scripts can consume.
     // Only scalar values (string, number, bool) are expanded; objects/arrays
