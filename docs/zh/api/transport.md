@@ -298,7 +298,75 @@ DCC 服务实例状态枚举。
 
 ### 常量
 
+<<<<<<< HEAD
 | 常量 | 说明 |
+=======
+## TransportManager
+
+带有服务发现、智能路由、会话管理和连接池的传输层管理器。
+
+### 构造函数
+
+```python
+from dcc_mcp_core import TransportManager
+
+mgr = TransportManager(
+    registry_dir="/tmp/dcc-mcp",
+    max_connections_per_dcc=10,
+    idle_timeout=300,
+    heartbeat_interval=5,
+    connect_timeout=10,
+    reconnect_max_retries=3,
+)
+```
+
+### 服务发现
+
+| 方法 | 返回值 | 说明 |
+|------|--------|------|
+| `register_service(dcc_type, host, port, version=None, scene=None, documents=None, pid=None, display_name=None, metadata=None, transport_address=None, extras=None)` | `str` | 注册服务，返回 instance_id。`extras` 接受 `dict[str, Any]` 类型的 JSON 元数据 |
+| `deregister_service(dcc_type, instance_id)` | `bool` | 注销服务 |
+| `list_instances(dcc_type)` | `list[ServiceEntry]` | 列出某 DCC 类型的所有实例 |
+| `list_all_services()` | `list[ServiceEntry]` | 列出所有已注册服务 |
+| `list_all_instances()` | `list[ServiceEntry]` | `list_all_services()` 的别名 |
+| `get_service(dcc_type, instance_id)` | `ServiceEntry \| None` | 获取特定实例 |
+| `heartbeat(dcc_type, instance_id)` | `bool` | 更新心跳时间戳 |
+| `update_service_status(dcc_type, instance_id, status)` | `bool` | 设置实例状态 |
+
+#### `register_service` — IPC 传输参数
+
+传入 `transport_address` 以启用 Named Pipe / Unix Socket 进行低延迟同机通信：
+
+```python
+import os
+from dcc_mcp_core import TransportManager, TransportAddress
+
+mgr = TransportManager("/tmp/dcc-mcp")
+addr = TransportAddress.default_local("maya", os.getpid())
+instance_id = mgr.register_service(
+    "maya", "127.0.0.1", 18812,
+    version="2025",
+    transport_address=addr,
+)
+```
+
+### 智能路由
+
+#### `find_best_service()`
+
+返回优先级最高的活跃 `ServiceEntry`。优先级：本地 IPC > 本地 TCP > 远程 TCP。同层内 `AVAILABLE` 优先于 `BUSY`，同优先级实例自动轮询。
+
+```python
+entry = mgr.find_best_service("maya")
+session_id = mgr.get_or_create_session("maya", entry.instance_id)
+```
+
+#### `rank_services()`
+
+返回按优先级排序的所有活跃实例（分数越低越优先）：
+
+| 分数 | 层级 |
+>>>>>>> 1d53899 (chore(cleanup): docs: fix SkillMetadata/SkillSummary field tables and ServiceEntry properties across EN+ZH — remove non-existent search_hint, correct tools type to list[ToolDeclaration], add missing license/compatibility/allowed_tools/groups/documents/pid/display_name/extras fields)
 |------|------|
 | `AVAILABLE` | 接受连接（默认）|
 | `BUSY` | 正在处理请求 |

@@ -123,12 +123,11 @@ info = catalog.get_skill_info("maya-geometry")  # dict 或 None
 |------|------|------|
 | `name` | `str` | Skill 名称 |
 | `description` | `str` | 简短描述 |
-| `search_hint` | `str` | 搜索关键词提示（来自 SKILL.md 的 `search-hint:` 字段；缺失时回退到 `description`） |
-| `tags` | `List[str]` | Skill 标签 |
+| `tags` | `list[str]` | Skill 标签 |
 | `dcc` | `str` | 目标 DCC（如 `"maya"`）|
 | `version` | `str` | Skill 版本 |
 | `tool_count` | `int` | 声明的工具数量 |
-| `tool_names` | `List[str]` | 声明的工具名称列表 |
+| `tool_names` | `list[str]` | 声明的工具名称列表 |
 | `loaded` | `bool` | 当前是否已加载 |
 
 ## ToolDeclaration
@@ -281,15 +280,18 @@ deps = expand_transitive_dependencies(skills, "maya-animation")
 |------|------|------|
 | `name` | `str` | 唯一 Skill 名称 |
 | `description` | `str` | 简短描述 |
-| `search_hint` | `str` | `search_skills` 的关键词提示（SKILL.md `search-hint:` 字段；缺失时回退到 `description`） |
-| `tools` | `List[str]` | frontmatter 中列出的工具名称 |
+| `tools` | `list[ToolDeclaration]` | 从 SKILL.md 解析的声明工具 |
 | `dcc` | `str` | 目标 DCC 应用（默认：`"python"`）|
-| `tags` | `List[str]` | 分类标签 |
-| `scripts` | `List[str]` | 发现的脚本文件路径 |
+| `tags` | `list[str]` | 分类标签 |
+| `scripts` | `list[str]` | 发现的脚本文件路径 |
 | `skill_path` | `str` | Skill 目录的绝对路径 |
 | `version` | `str` | Skill 版本（默认：`"1.0.0"`）|
-| `depends` | `List[str]` | 依赖的 Skill 名称 |
-| `metadata_files` | `List[str]` | `metadata/` 目录中的 `.md` 文件路径 |
+| `depends` | `list[str]` | 依赖的 Skill 名称 |
+| `metadata_files` | `list[str]` | `metadata/` 目录中的 `.md` 文件路径 |
+| `license` | `str` | 许可证标识 |
+| `compatibility` | `str` | 兼容性描述 |
+| `allowed_tools` | `list[str]` | 允许的工具名称 |
+| `groups` | `list[SkillGroup]` | 工具分组（渐进式暴露）|
 
 ## 环境变量
 

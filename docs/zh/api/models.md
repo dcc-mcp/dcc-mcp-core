@@ -94,12 +94,15 @@ validate_action_result("hello")                         # 包装为成功结果
 |------|------|--------|------|
 | `name` | `str` | — | 唯一标识符 |
 | `description` | `str` | `""` | 人类可读描述 |
-| `search_hint` | `str` | `""` | `search_skills` 的关键词提示（SKILL.md `search-hint:` 字段；回退到 `description`） |
-| `tools` | `List[str]` | `[]` | 所需工具权限 |
+| `tools` | `list[ToolDeclaration]` | `[]` | 从 SKILL.md 解析的声明工具 |
 | `dcc` | `str` | `"python"` | 目标 DCC 应用 |
-| `tags` | `List[str]` | `[]` | 分类标签 |
-| `scripts` | `List[str]` | `[]` | 发现的脚本文件路径 |
+| `tags` | `list[str]` | `[]` | 分类标签 |
+| `scripts` | `list[str]` | `[]` | 发现的脚本文件路径 |
 | `skill_path` | `str` | `""` | 技能包目录的绝对路径 |
 | `version` | `str` | `"1.0.0"` | 技能版本 |
-| `depends` | `List[str]` | `[]` | 依赖的技能名称 |
-| `metadata_files` | `List[str]` | `[]` | metadata/ 目录中的文件 |
+| `depends` | `list[str]` | `[]` | 依赖的技能名称 |
+| `metadata_files` | `list[str]` | `[]` | metadata/ 目录中的文件 |
+| `license` | `str` | `""` | 许可证标识 |
+| `compatibility` | `str` | `""` | 兼容性描述 |
+| `allowed_tools` | `list[str]` | `[]` | 允许的工具名称（限制可注册的工具）|
+| `groups` | `list[SkillGroup]` | `[]` | 工具分组（渐进式暴露）|

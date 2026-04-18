@@ -94,12 +94,15 @@ Metadata parsed from SKILL.md frontmatter. All fields are readable and writable.
 |-------|------|---------|-------------|
 | `name` | `str` | — | Unique identifier |
 | `description` | `str` | `""` | Human-readable description |
-| `search_hint` | `str` | `""` | Keyword hint for `search_skills` (SKILL.md `search-hint:` field; falls back to `description`) |
-| `tools` | `List[str]` | `[]` | Required tool permissions |
+| `tools` | `list[ToolDeclaration]` | `[]` | Declared tools parsed from SKILL.md |
 | `dcc` | `str` | `"python"` | Target DCC application |
-| `tags` | `List[str]` | `[]` | Classification tags |
-| `scripts` | `List[str]` | `[]` | Discovered script file paths |
+| `tags` | `list[str]` | `[]` | Classification tags |
+| `scripts` | `list[str]` | `[]` | Discovered script file paths |
 | `skill_path` | `str` | `""` | Absolute path to skill directory |
 | `version` | `str` | `"1.0.0"` | Skill version |
-| `depends` | `List[str]` | `[]` | Names of required skills |
-| `metadata_files` | `List[str]` | `[]` | Files in metadata/ directory |
+| `depends` | `list[str]` | `[]` | Names of required skills |
+| `metadata_files` | `list[str]` | `[]` | Files in metadata/ directory |
+| `license` | `str` | `""` | License identifier |
+| `compatibility` | `str` | `""` | Compatibility string |
+| `allowed_tools` | `list[str]` | `[]` | Allowed tool names (restricts which tools can be registered) |
+| `groups` | `list[SkillGroup]` | `[]` | Tool groups for progressive exposure |
