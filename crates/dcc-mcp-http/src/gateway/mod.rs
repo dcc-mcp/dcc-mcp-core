@@ -44,16 +44,12 @@ use tokio::sync::{RwLock, broadcast, watch};
 use tokio::task::AbortHandle;
 
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
-use dcc_mcp_transport::discovery::types::{ServiceEntry, ServiceKey};
+use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry, ServiceKey};
 
 // ── Version utilities ─────────────────────────────────────────────────────────
-
-/// `dcc_type` used for the gateway sentinel entry in the `FileRegistry`.
-///
-/// The sentinel entry carries the current gateway's version so that newly
-/// started instances can compare themselves against the running gateway and
-/// decide whether to enter challenger mode.
-pub(crate) const GATEWAY_SENTINEL_DCC_TYPE: &str = "__gateway__";
+//
+// `GATEWAY_SENTINEL_DCC_TYPE` now lives in `dcc-mcp-transport::discovery::types`
+// so the low-level `FileRegistry` can special-case it in `cleanup_stale`.
 
 /// Parse a semver string (`"0.12.29"`, `"v1.2.3-rc1"`) into a comparable triple.
 ///
@@ -101,17 +97,29 @@ async fn try_bind_port(host: &str, port: u16) -> Option<tokio::net::TcpListener>
     tokio::net::TcpListener::from_std(std::net::TcpListener::from(socket)).ok()
 }
 
-// ── Helper: does the registry contain a live instance newer than us? ──────────
-
-fn has_newer_live_instance(reg: &FileRegistry, own_version: &str, stale_timeout: Duration) -> bool {
-    reg.list_all().into_iter().any(|e| {
-        e.dcc_type != GATEWAY_SENTINEL_DCC_TYPE
-            && !e.is_stale(stale_timeout)
-            && e.version
-                .as_deref()
-                .map(|v| is_newer_version(v, own_version))
-                .unwrap_or(false)
-    })
+// ── Helper: does the sentinel advertise a newer gateway version than us? ─────
+//
+// Issue #228: the old implementation scanned every DCC instance entry and
+// compared its `version` field (which is the DCC host version — e.g. Maya
+// `"2024"`) against our crate version (e.g. `"0.13.2"`), causing semver
+// comparison to flag every running DCC as a "newer challenger" and trigger
+// a self-yield within 15 s of startup.
+//
+// A newer gateway instance will always rewrite the `__gateway__` sentinel with
+// its own crate version — so that sentinel row is the **only** reliable source
+// of "is there a newer gateway challenger on the network". Any comparison must
+// therefore be restricted to the sentinel row, and it must ignore our own
+// sentinel write (same version, same host, same port).
+fn has_newer_sentinel(reg: &FileRegistry, own_version: &str, stale_timeout: Duration) -> bool {
+    reg.list_instances(GATEWAY_SENTINEL_DCC_TYPE)
+        .into_iter()
+        .any(|e| {
+            !e.is_stale(stale_timeout)
+                && e.version
+                    .as_deref()
+                    .map(|v| is_newer_version(v, own_version))
+                    .unwrap_or(false)
+        })
 }
 
 // ── Gateway task setup (shared between winner and challenger paths) ────────────
@@ -119,12 +127,16 @@ fn has_newer_live_instance(reg: &FileRegistry, own_version: &str, stale_timeout:
 /// Build and run the gateway HTTP server with graceful-yield and live-push support.
 ///
 /// Returns the combined `AbortHandle` for all gateway background tasks.
+///
+/// `sentinel_key` is the registry key of the `__gateway__` sentinel row that
+/// the caller registered; the cleanup loop heartbeats it (issue #229).
 async fn start_gateway_tasks(
     listener: tokio::net::TcpListener,
     registry: Arc<RwLock<FileRegistry>>,
     stale_timeout: Duration,
     server_name: String,
     server_version: String,
+    sentinel_key: ServiceKey,
 ) -> Result<(AbortHandle, Arc<watch::Sender<bool>>), Box<dyn std::error::Error + Send + Sync>> {
     // ── Yield channel ─────────────────────────────────────────────────────
     let (yield_tx, mut yield_rx) = watch::channel(false);
@@ -143,15 +155,27 @@ async fn start_gateway_tasks(
         .timeout(Duration::from_secs(30))
         .build()?;
 
-    // ── Stale cleanup + challenger detection (every 15 s) ─────────────────
+    // ── Stale cleanup + sentinel heartbeat + dead-PID pruning (every 15 s) ─
+    //
+    // Issue #229: the sentinel row is heartbeated here — without this, it
+    // would be considered stale 30 s after startup and challengers could not
+    // distinguish a live gateway from a crashed one.
+    //
+    // Issue #227: dead-PID pruning reaps ghost rows left behind when a DCC
+    // plugin crashes after registering but before its own heartbeat starts.
     let reg_cleanup = registry.clone();
     let own_version = server_version.clone();
     let yield_tx_cleanup = yield_tx.clone();
+    let sentinel_key_cleanup = sentinel_key.clone();
     let cleanup_handle = tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(15));
         loop {
             interval.tick().await;
             let r = reg_cleanup.read().await;
+
+            // Keep the sentinel fresh first — it's what `has_newer_sentinel`
+            // and every consumer of `list_instances("__gateway__")` rely on.
+            let _ = r.heartbeat(&sentinel_key_cleanup);
 
             match r.cleanup_stale(stale_timeout) {
                 Ok(n) if n > 0 => tracing::info!("Gateway: evicted {} stale instance(s)", n),
@@ -159,10 +183,16 @@ async fn start_gateway_tasks(
                 _ => {}
             }
 
-            if has_newer_live_instance(&r, &own_version, stale_timeout) {
+            match r.prune_dead_pids() {
+                Ok(n) if n > 0 => tracing::info!("Gateway: reaped {} ghost entry/entries", n),
+                Err(e) => tracing::warn!("Gateway: ghost-entry reap error: {e}"),
+                _ => {}
+            }
+
+            if has_newer_sentinel(&r, &own_version, stale_timeout) {
                 tracing::info!(
                     current = %own_version,
-                    "Gateway: newer-version challenger detected — initiating voluntary yield"
+                    "Gateway: newer-version sentinel detected — initiating voluntary yield"
                 );
                 let _ = yield_tx_cleanup.send(true);
                 break;
@@ -486,12 +516,16 @@ impl GatewayRunner {
             // ── We won the port ───────────────────────────────────────────
             Some(listener) => {
                 // Write a sentinel entry so challengers can read our version.
+                // `ServiceEntry::new` auto-populates `pid` with our process id,
+                // so a crash of *this* process makes the sentinel prunable by
+                // `prune_dead_pids` on other peers (issue #227).
                 let mut sentinel = ServiceEntry::new(
                     GATEWAY_SENTINEL_DCC_TYPE,
                     &self.config.host,
                     self.config.gateway_port,
                 );
                 sentinel.version = Some(own_version.clone());
+                let sentinel_key = sentinel.key();
                 {
                     let reg = self.registry.read().await;
                     let _ = reg.register(sentinel);
@@ -503,6 +537,7 @@ impl GatewayRunner {
                     stale_timeout,
                     format!("{} (gateway)", self.config.server_name),
                     own_version.clone(),
+                    sentinel_key,
                 )
                 .await?;
 
@@ -603,6 +638,7 @@ impl GatewayRunner {
                     // Update sentinel with our version.
                     let mut sentinel = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, &host, port);
                     sentinel.version = Some(own_ver.clone());
+                    let sentinel_key = sentinel.key();
                     {
                         let reg = registry.read().await;
                         let _ = reg.register(sentinel);
@@ -614,6 +650,7 @@ impl GatewayRunner {
                         stale_timeout,
                         format!("{server_name} (gateway)"),
                         own_ver.clone(),
+                        sentinel_key,
                     )
                     .await
                     {
@@ -633,5 +670,128 @@ impl GatewayRunner {
         });
 
         handle.abort_handle()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use dcc_mcp_transport::discovery::types::ServiceEntry;
+
+    #[test]
+    fn test_parse_semver_basic() {
+        assert_eq!(parse_semver("0.12.29"), (0, 12, 29));
+        assert_eq!(parse_semver("v1.2.3"), (1, 2, 3));
+        assert_eq!(parse_semver("1.0.0-rc1"), (1, 0, 0));
+        assert_eq!(parse_semver("1.2"), (1, 2, 0));
+        assert_eq!(parse_semver("abc"), (0, 0, 0));
+    }
+
+    #[test]
+    fn test_is_newer_version_ordering() {
+        assert!(is_newer_version("0.12.29", "0.12.6"));
+        assert!(is_newer_version("1.0.0", "0.99.99"));
+        assert!(!is_newer_version("0.12.6", "0.12.6"));
+        assert!(!is_newer_version("0.12.5", "0.12.6"));
+    }
+
+    // Regression test for issue #228: Maya's host version ("2024") must not
+    // be mistaken for a newer gateway-crate version. Only the __gateway__
+    // sentinel row contributes to the self-yield decision.
+    #[test]
+    fn test_has_newer_sentinel_ignores_dcc_host_version() {
+        let dir = tempfile::tempdir().unwrap();
+        let reg = FileRegistry::new(dir.path()).unwrap();
+
+        // A Maya instance registering itself with its host version — this
+        // must never trigger a gateway self-yield even though "2024" parses
+        // to (2024, 0, 0) which is numerically larger than the crate version.
+        let mut maya = ServiceEntry::new("maya", "127.0.0.1", 18812);
+        maya.version = Some("2024".to_string());
+        reg.register(maya).unwrap();
+
+        assert!(
+            !has_newer_sentinel(&reg, "0.13.2", Duration::from_secs(30)),
+            "Maya 2024 host version must not appear as a newer gateway"
+        );
+    }
+
+    // Regression test for issue #228 (positive case): an actual newer
+    // __gateway__ sentinel entry MUST still trigger the voluntary yield.
+    #[test]
+    fn test_has_newer_sentinel_detects_newer_gateway() {
+        let dir = tempfile::tempdir().unwrap();
+        let reg = FileRegistry::new(dir.path()).unwrap();
+
+        let mut sentinel = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 9765);
+        sentinel.version = Some("0.14.0".to_string());
+        reg.register(sentinel).unwrap();
+
+        assert!(
+            has_newer_sentinel(&reg, "0.13.2", Duration::from_secs(30)),
+            "a newer-version sentinel must trigger yield"
+        );
+    }
+
+    // Regression test for issue #228: own sentinel write must not cause a
+    // self-yield (same version → not newer).
+    #[test]
+    fn test_has_newer_sentinel_ignores_own_version() {
+        let dir = tempfile::tempdir().unwrap();
+        let reg = FileRegistry::new(dir.path()).unwrap();
+
+        let mut sentinel = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 9765);
+        sentinel.version = Some("0.13.2".to_string());
+        reg.register(sentinel).unwrap();
+
+        assert!(
+            !has_newer_sentinel(&reg, "0.13.2", Duration::from_secs(30)),
+            "identical version sentinel must not trigger yield"
+        );
+    }
+
+    // Regression test for issue #228: a stale sentinel (older gateway
+    // crashed without cleanup) must not block us from becoming gateway.
+    #[test]
+    fn test_has_newer_sentinel_ignores_stale_sentinel() {
+        let dir = tempfile::tempdir().unwrap();
+        let reg = FileRegistry::new(dir.path()).unwrap();
+
+        let mut sentinel = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 9765);
+        sentinel.version = Some("9.9.9".to_string());
+        sentinel.last_heartbeat = std::time::SystemTime::now() - Duration::from_secs(600);
+        reg.register(sentinel).unwrap();
+
+        assert!(
+            !has_newer_sentinel(&reg, "0.13.2", Duration::from_secs(30)),
+            "stale sentinel (crashed gateway) must not block newer takeover"
+        );
+    }
+
+    // Regression test for issue #229: sentinel heartbeat must be refreshable
+    // via `FileRegistry::heartbeat`, which is what the cleanup loop calls.
+    #[test]
+    fn test_gateway_sentinel_heartbeat_advances() {
+        let dir = tempfile::tempdir().unwrap();
+        let reg = FileRegistry::new(dir.path()).unwrap();
+
+        let mut sentinel = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 9765);
+        sentinel.version = Some("0.13.2".to_string());
+        // Age the heartbeat so the before/after delta is observable.
+        sentinel.last_heartbeat = std::time::SystemTime::now() - Duration::from_secs(120);
+        let key = sentinel.key();
+        reg.register(sentinel).unwrap();
+
+        let before = reg.get(&key).unwrap().last_heartbeat;
+        assert!(reg.heartbeat(&key).unwrap(), "heartbeat must find sentinel");
+        let after = reg.get(&key).unwrap().last_heartbeat;
+
+        assert!(
+            after > before,
+            "sentinel heartbeat must advance after heartbeat() call (before={before:?}, after={after:?})"
+        );
+        // And after heartbeating it must NOT be considered stale anymore.
+        let entry = reg.get(&key).unwrap();
+        assert!(!entry.is_stale(Duration::from_secs(30)));
     }
 }
