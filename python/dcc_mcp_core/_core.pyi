@@ -4063,6 +4063,18 @@ class McpHttpConfig:
         ...
     @session_ttl_secs.setter
     def session_ttl_secs(self, secs: int) -> None: ...
+    @property
+    def lazy_actions(self) -> bool:
+        """Whether the opt-in lazy-actions fast-path (#254) is enabled.
+
+        When ``True``, ``tools/list`` surfaces three meta-tools
+        (``list_actions``, ``describe_action``, ``call_action``) so agents
+        with tight context budgets can drive an arbitrarily large action
+        catalog through a single page of 3 stubs. Default: ``False``.
+        """
+        ...
+    @lazy_actions.setter
+    def lazy_actions(self, enabled: bool) -> None: ...
     def __repr__(self) -> str: ...
 
 class McpServerHandle:

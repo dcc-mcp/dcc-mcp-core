@@ -218,6 +218,18 @@ def _wait_for_tool_suffix(
     raise AssertionError(f"Tool suffix {suffix!r} did not {verb} within {timeout}s. Final names: {sorted(names)}")
 
 
+def _split_gateway_prefixed_tool(name: str) -> tuple[str, str] | None:
+    """Return ``(instance_prefix, tool_name)`` for ``<id8>.<tool>`` names."""
+    if name.startswith("__"):
+        return None
+    prefix, sep, suffix = name.partition(".")
+    if not sep:
+        return None
+    if len(prefix) != 8 or not all(ch.isascii() and ch in "0123456789abcdef" for ch in prefix):
+        return None
+    return prefix, suffix
+
+
 # ── fixtures ─────────────────────────────────────────────────────────────────
 
 
@@ -367,8 +379,8 @@ class TestGatewaySkillAggregation:
     def test_backend_registered_tools_visible_through_gateway(self, skill_gateway_cluster):
         """Non-skill tools from both backends appear namespaced in the gateway."""
         tools = _tools_list(skill_gateway_cluster["gateway_url"])
-        prefixed = [t for t in tools if "__" in t["name"] and not t["name"].startswith("__skill__")]
-        suffixes = [t["name"].split("__", 1)[1] for t in prefixed]
+        prefixed = [t for t in tools if _split_gateway_prefixed_tool(t["name"]) is not None]
+        suffixes = [_split_gateway_prefixed_tool(t["name"])[1] for t in prefixed]
 
         assert "create_sphere" in suffixes, f"maya.create_sphere missing. suffixes={suffixes}"
         assert "add_material" in suffixes, f"blender.add_material missing. suffixes={suffixes}"
@@ -385,9 +397,9 @@ class TestGatewaySkillAggregation:
 
         try:
             # Wait for the gateway's aggregation refresh to pick up the new tool.
-            tools = _wait_for_tool_suffix(gateway_url, "hello_world__greet", timeout=6.0)
-            matching = [t for t in tools if t["name"].endswith("hello_world__greet")]
-            assert matching, "hello_world__greet did not appear in gateway after loading on backend"
+            tools = _wait_for_tool_suffix(gateway_url, "hello-world.greet", timeout=6.0)
+            matching = [t for t in tools if t["name"].endswith("hello-world.greet")]
+            assert matching, "hello-world.greet did not appear in gateway after loading on backend"
         finally:
             # Clean up: unload the skill on backend A.
             with contextlib.suppress(Exception):
@@ -432,9 +444,9 @@ class TestGatewayProgressiveLoadingCycle:
 
         try:
             # Wait for gateway to aggregate the new tool.
-            tools = _wait_for_tool_suffix(gw, "hello_world__greet", timeout=6.0)
-            matching = [t for t in tools if t["name"].endswith("hello_world__greet")]
-            assert matching, "hello_world__greet not visible through gateway after load on backend"
+            tools = _wait_for_tool_suffix(gw, "hello-world.greet", timeout=6.0)
+            matching = [t for t in tools if t["name"].endswith("hello-world.greet")]
+            assert matching, "hello-world.greet not visible through gateway after load on backend"
         finally:
             with contextlib.suppress(Exception):
                 _tools_call(backend_url, "unload_skill", {"skill_name": "hello-world"})
@@ -449,9 +461,9 @@ class TestGatewayProgressiveLoadingCycle:
 
         try:
             # Wait for gateway to see the tool.
-            tools = _wait_for_tool_suffix(gw, "hello_world__greet", timeout=6.0)
+            tools = _wait_for_tool_suffix(gw, "hello-world.greet", timeout=6.0)
             # Find the exact namespaced tool name.
-            gw_tool = next(t["name"] for t in tools if t["name"].endswith("hello_world__greet"))
+            gw_tool = next(t["name"] for t in tools if t["name"].endswith("hello-world.greet"))
 
             # Call it through the gateway.
             result = _tools_call(gw, gw_tool, {"name": "GatewayE2E"})
@@ -468,7 +480,7 @@ class TestGatewayProgressiveLoadingCycle:
 
         # Load on backend.
         _tools_call(backend_url, "load_skill", {"skill_name": "hello-world"})
-        _wait_for_tool_suffix(gw, "hello_world__greet", timeout=6.0)
+        _wait_for_tool_suffix(gw, "hello-world.greet", timeout=6.0)
 
         # Unload on backend.
         result = _tools_call(backend_url, "unload_skill", {"skill_name": "hello-world"})
@@ -476,7 +488,7 @@ class TestGatewayProgressiveLoadingCycle:
         assert data.get("unloaded") is True, f"unload_skill failed: {data}"
 
         # Wait for gateway to drop the tool.
-        _wait_for_tool_suffix(gw, "hello_world__greet", timeout=6.0, should_exist=False)
+        _wait_for_tool_suffix(gw, "hello-world.greet", timeout=6.0, should_exist=False)
 
 
 # ── TestWebViewAuroraViewDiscovery ───────────────────────────────────────────
@@ -499,8 +511,8 @@ class TestWebViewAuroraViewDiscovery:
     def test_auroraview_tools_aggregated_in_gateway(self, webview_gateway_cluster):
         """AuroraView tools appear namespaced in the gateway's tools/list."""
         tools = _tools_list(webview_gateway_cluster["gateway_url"])
-        prefixed = [t for t in tools if "__" in t["name"] and not t["name"].startswith("__skill__")]
-        suffixes = [t["name"].split("__", 1)[1] for t in prefixed]
+        prefixed = [t for t in tools if _split_gateway_prefixed_tool(t["name"]) is not None]
+        suffixes = [_split_gateway_prefixed_tool(t["name"])[1] for t in prefixed]
 
         assert "navigate_url" in suffixes, f"auroraview.navigate_url missing. suffixes={suffixes}"
         assert "take_screenshot" in suffixes, f"auroraview.take_screenshot missing. suffixes={suffixes}"
@@ -508,7 +520,7 @@ class TestWebViewAuroraViewDiscovery:
     def test_maya_and_auroraview_tools_coexist(self, webview_gateway_cluster):
         """Both DCC types' tools coexist without name collisions in the gateway."""
         tools = _tools_list(webview_gateway_cluster["gateway_url"])
-        prefixed = [t for t in tools if "__" in t["name"] and not t["name"].startswith("__skill__")]
+        prefixed = [t for t in tools if _split_gateway_prefixed_tool(t["name"]) is not None]
 
         # Collect dcc types from tool annotations.
         dcc_types_seen = set()
@@ -616,12 +628,14 @@ class TestSessionPinningToolRouting:
         av_tool = None
         for t in tools:
             name = t["name"]
-            if "__" in name and not name.startswith("__skill__"):
-                suffix = name.split("__", 1)[1]
-                if suffix == "create_sphere" and maya_tool is None:
-                    maya_tool = name
-                elif suffix == "navigate_url" and av_tool is None:
-                    av_tool = name
+            parsed = _split_gateway_prefixed_tool(name)
+            if parsed is None:
+                continue
+            suffix = parsed[1]
+            if suffix == "create_sphere" and maya_tool is None:
+                maya_tool = name
+            elif suffix == "navigate_url" and av_tool is None:
+                av_tool = name
 
         assert maya_tool, "Maya create_sphere not found in gateway tools"
         assert av_tool, "AuroraView navigate_url not found in gateway tools"
@@ -700,7 +714,7 @@ class TestBundledSkillsDiscovery:
         assert stub_name not in names, f"Stub {stub_name} should be gone after loading"
 
         # At least one tool with the skill prefix should exist.
-        skill_prefix = skill_name.replace("-", "_") + "__"
+        skill_prefix = skill_name + "."
         skill_tools = [n for n in names if n.startswith(skill_prefix)]
         assert skill_tools, f"Expected tools starting with {skill_prefix!r}, got: {sorted(names)}"
 
@@ -780,7 +794,7 @@ class TestCrossCuttingBoundary:
             _tools_call(h1.mcp_url(), "load_skill", {"skill_name": "hello-world"})
             tools1 = _tools_list(h1.mcp_url())
             names1 = {t["name"] for t in tools1}
-            assert "hello_world__greet" in names1, "hello-world should be loaded on server 1"
+            assert "hello-world.greet" in names1, "hello-world should be loaded on server 1"
         finally:
             h1.shutdown()
 
@@ -791,7 +805,7 @@ class TestCrossCuttingBoundary:
         try:
             tools2 = _tools_list(h2.mcp_url())
             names2 = {t["name"] for t in tools2}
-            assert "hello_world__greet" not in names2, "hello-world should NOT be loaded on a fresh server instance"
+            assert "hello-world.greet" not in names2, "hello-world should NOT be loaded on a fresh server instance"
             # But the __skill__ stub should be present (discovered, not loaded).
             assert "__skill__hello-world" in names2, "hello-world stub should be present on fresh server"
         finally:

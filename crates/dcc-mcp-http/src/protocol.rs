@@ -215,12 +215,20 @@ pub struct ListToolsResult {
     pub next_cursor: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct McpTool {
     pub name: String,
     pub description: String,
     pub input_schema: Value,
+    /// JSON Schema describing the tool's structured result (MCP 2025-06-18).
+    ///
+    /// Serialised as ``outputSchema`` when present. Must be omitted on
+    /// 2025-03-26 sessions because the field did not exist in that version
+    /// of the spec — a compliant client might treat it as an unknown field
+    /// and warn/log. See [`crate::handler`] for the version-gated emitter.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_schema: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub annotations: Option<McpToolAnnotations>,
 }
@@ -263,6 +271,15 @@ pub struct CallToolParams {
 #[serde(rename_all = "camelCase")]
 pub struct CallToolResult {
     pub content: Vec<ToolContent>,
+    /// Machine-readable payload (MCP 2025-06-18 ``structuredContent``).
+    ///
+    /// When set, the agent can skip re-parsing ``content[0].text`` as JSON.
+    /// Populated by the handler when the dispatch returns a JSON object or
+    /// array **and** the session negotiated protocol version 2025-06-18.
+    /// Left ``None`` (omitted from the wire) on 2025-03-26 sessions so
+    /// older clients never see a field they do not recognise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub structured_content: Option<Value>,
     #[serde(default)]
     pub is_error: bool,
 }
@@ -297,6 +314,7 @@ impl CallToolResult {
     pub fn text(text: impl Into<String>) -> Self {
         Self {
             content: vec![ToolContent::Text { text: text.into() }],
+            structured_content: None,
             is_error: false,
         }
     }
@@ -304,6 +322,7 @@ impl CallToolResult {
     pub fn error(msg: impl Into<String>) -> Self {
         Self {
             content: vec![ToolContent::Text { text: msg.into() }],
+            structured_content: None,
             is_error: true,
         }
     }
