@@ -113,7 +113,8 @@ crates/
 - `ToolMetrics` — Performance and execution metrics collection
 - `ToolRecorder` — Record/replay tool executions
 - `EventBus` — `.subscribe(event, callback) -> id`, `.unsubscribe(event, id)`, `.publish(event, **kwargs)`
-- `VersionedRegistry` — SemVer-aware registry; `.register_versioned(name, dcc, version)`, `.resolve(name, dcc, constraint) -> Optional[dict]`, `.resolve_all(name, dcc, constraint) -> List[dict]`, `.latest_version(name, dcc) -> Optional[str]`, `.versions(name, dcc) -> List[str]`, `.remove(name, dcc, constraint) -> int`, `.keys() -> List[Tuple[str, str]]`, `.total_entries() -> int`
+- `VersionedRegistry` — SemVer-aware registry; `.register_versioned(name, dcc, version)`, `.resolve(name, dcc, constraint) -> Optional[dict]`, `.resolve_all(name, dcc, constraint) -> List[dict]`, `.latest_version(name, dcc) -> Optional[str]`, `.versions(name, dcc) -> List[str]`, `.remove(name, dcc, constraint) -> int`, `.keys() -> List[Tuple[str, str]]`, `.total_entries() -> int`, `.router() -> CompatibilityRouter`
+- `CompatibilityRouter` — returned by `VersionedRegistry.router()`; resolves the best-matching tool version given a client-side version constraint. **Not yet exported as a standalone Python class** — access via `registry.router()`
 - `SemVer(major, minor, patch)` — Semantic version value object
 - `VersionConstraint.parse(">=1.0.0")` — Version constraint expression
 
@@ -151,7 +152,7 @@ crates/
 
 **SkillSummary fields:** `.name`, `.description`, `.search_hint`, `.version`, `.dcc`, `.tags`, `.tool_count`, `.tool_names`, `.loaded`
 
-**SkillMetadata fields:** `.name`, `.description`, `.search_hint`, `.dcc`, `.version`, `.tags`, `.tools`, `.scripts` (List[str] absolute paths), `.skill_path`, `.depends`, `.metadata_files`, `.groups` (List[SkillGroup]), `.license` (str), `.compatibility` (str), `.allowed_tools` (List[str])
+**SkillMetadata fields:** `.name`, `.description`, `.search_hint`, `.dcc`, `.version`, `.tags`, `.tools`, `.scripts` (List[str] absolute paths), `.skill_path`, `.depends`, `.metadata_files`, `.groups` (List[SkillGroup]), `.license` (str), `.compatibility` (str), `.allowed_tools` (List[str]), `.external_deps` (str|None — JSON string of external dependency declarations; set via `md.external_deps = json.dumps(deps)`, read via `json.loads(md.external_deps)`)
 
 **SkillGroup fields:** `.name`, `.description`, `.default_active` (bool), `.tools` (List[str]) — declared in SKILL.md `groups:` frontmatter for progressive tool exposure
 
@@ -210,7 +211,7 @@ tools:
 - `McpHttpConfig(port=8765, server_name=None, server_version=None, enable_cors=False, request_timeout_ms=30000)` — server configuration
 - `McpHttpServer(registry, config=None)` — MCP Streamable HTTP server (**2025-03-26 spec**), axum/Tokio backend
   - `.start() -> McpServerHandle` — starts background thread, returns immediately
-  - **Note**: MCP 2025-06-18 adds Structured Tool Output, Elicitation, Resource Links, and removes JSON-RPC batching. MCP 2025-11-25 adds icon metadata, Tasks, Sampling with tools. Do NOT implement manually — wait for library support.
+  - **Note**: MCP 2025-03-26 implements Streamable HTTP, Tool Annotations, OAuth 2.1. MCP 2025-06-18 adds Structured Tool Output, Elicitation, Resource Links, and removes JSON-RPC batching. MCP 2025-11-25 adds icon metadata, Tasks, Sampling with tools. Do NOT implement manually — wait for library support.
 - `McpServerHandle` (alias for `McpServerHandle`) — handle to running server
   - `.mcp_url() -> str` — full MCP endpoint URL (e.g. `"http://127.0.0.1:8765/mcp"`)
   - `.port -> int`, `.bind_addr -> str`
@@ -372,9 +373,9 @@ search-hint: "polygon modeling, bevel, extrude"  # dcc-mcp-core extension
 # Markdown description body (keep < 500 lines, < 5000 tokens recommended)
 ```
 
-**agentskills.io standard fields**: `name` (required), `description` (required), `license`, `compatibility`, `metadata`, `allowed-tools` (experimental — space-separated pre-approved tool strings like `Bash(git:*) Read`).
+**agentskills.io standard fields** (V1.0 spec, 2025-12-18): `name` (required), `description` (required), `license`, `compatibility`, `metadata`, `allowed-tools` (experimental — space-separated pre-approved tool strings like `Bash(git:*) Read`).
 
-**dcc-mcp-core extensions**: `dcc`, `tags`, `search-hint`, `tools`, `groups`, `depends`, `next-tools`.
+**dcc-mcp-core extensions**: `dcc`, `tags`, `search-hint`, `tools`, `groups`, `depends`, `external_deps`, `next-tools`.
 
 ### Supported Script Types
 

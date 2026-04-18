@@ -327,3 +327,24 @@ start_server, stop_server = make_start_stop(
     hot_reload_env_var="DCC_MCP_BLENDER_HOT_RELOAD",
 )
 ```
+
+### DeferredExecutor — DCC Main-Thread Safety
+
+Many DCCs (Maya, Blender, Houdini) require that API calls execute on the main thread.
+`DeferredExecutor` provides a task queue that the DCC event loop polls:
+
+```python
+from dcc_mcp_core._core import DeferredExecutor  # not yet in public __init__
+
+# Create a queue (capacity = max pending tasks)
+executor = DeferredExecutor(capacity=16)
+
+# Submit a callable from any thread (e.g. from MCP HTTP handler)
+executor.execute(lambda: maya.cmds.sphere(radius=1.0))
+
+# In the DCC main-loop callback (e.g. Maya's idleCallback, Blender's app.handlers):
+executor.poll_pending()  # runs all queued callables on the main thread
+```
+
+> **Note**: `DeferredExecutor` is not yet in the public `__init__.py` — import directly
+> from `dcc_mcp_core._core`. This will be promoted to the public API in a future release.

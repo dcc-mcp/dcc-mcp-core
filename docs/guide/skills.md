@@ -1,6 +1,6 @@
 # Skills System
 
-The Skills system allows you to register any script (Python, MEL, MaxScript, BAT, Shell, etc.) as an MCP-discoverable tool with **zero Python code**. It follows the [agentskills.io](https://agentskills.io/specification) specification for SKILL.md format, with DCC-specific extensions (`dcc`, `search-hint`, `tools`, `groups`, `depends`).
+The Skills system allows you to register any script (Python, MEL, MaxScript, BAT, Shell, etc.) as an MCP-discoverable tool with **zero Python code**. It follows the [agentskills.io V1.0](https://agentskills.io/specification) specification for SKILL.md format, with DCC-specific extensions (`dcc`, `search-hint`, `tools`, `groups`, `depends`, `external_deps`).
 
 ## Quick Start
 
@@ -335,6 +335,7 @@ Parsed from SKILL.md frontmatter. Supports [agentskills.io](https://agentskills.
 | `license` | `str` | License identifier (agentskills.io spec, e.g. `"MIT"`, `"Apache-2.0"`) |
 | `compatibility` | `str` | Environment requirements, max 500 chars (agentskills.io spec) |
 | `allowed_tools` | `List[str]` | Pre-approved tools (agentskills.io spec, experimental) |
+| `external_deps` | `str \| None` | External dependency declaration as JSON string (MCP servers, env vars, binaries). Set via `md.external_deps = json.dumps(deps)`, read via `json.loads(md.external_deps)`. See [Skill Scopes & Policies](skill-scopes-policies.md) for the full schema. |
 
 ## Tool Groups (Progressive Exposure)
 

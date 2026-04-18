@@ -202,11 +202,15 @@ search-hint: "polygon modeling, bevel, extrude, mesh editing"
 17. **`McpServerHandle` is an alias**: `server.start()` returns `McpServerHandle`; it is re-exported as `McpServerHandle` in `__init__.py`. Import as `from dcc_mcp_core import McpServerHandle`.
 18. **`McpHttpServer` registry population**: All actions must be registered in `ToolRegistry` BEFORE calling `server.start()`. The server reads metadata from the registry at startup.
 
-19. **MCP spec version awareness**: `McpHttpServer` implements 2025-03-26 spec. The 2025-06-18 version adds Structured Tool Output, Elicitation, Resource Links, and removes JSON-RPC batching. The 2025-11-25 version adds icon metadata, Tasks (persistent requests), Sampling with tool calls, URL pattern requests, OAuth Client ID Metadata Document, JSON Schema 2020-12. The 2026 roadmap focuses on transport scalability, agent communication (Tasks lifecycle), governance, and enterprise readiness. Do NOT implement these manually — wait for the library to add support.
+19. **MCP spec version awareness**: `McpHttpServer` implements 2025-03-26 spec (Streamable HTTP, Tool Annotations, OAuth 2.1). The 2025-06-18 version adds Structured Tool Output, Elicitation, Resource Links, and removes JSON-RPC batching. The 2025-11-25 version adds icon metadata, Tasks, Sampling with tools, JSON Schema 2020-12. Do NOT implement these manually — wait for the library to add support.
 
 20. **`scan_and_load` keyword args only**: Both `extra_paths` and `dcc_name` must be passed as keyword arguments: `scan_and_load(dcc_name="maya", extra_paths=["/path"])` — never as positionals.
 
 21. **`DeferredExecutor` import path**: `DeferredExecutor` is Rust-backed and must be imported via `from dcc_mcp_core._core import DeferredExecutor` until it is added to the public `__init__.py` exports. Always check `__init__.py` first.
+
+22. **`CompatibilityRouter` not standalone**: Access via `VersionedRegistry.router()`. It borrows the registry and provides constraint-based version resolution. For most use cases, `VersionedRegistry.resolve()` is sufficient.
+
+23. **`external_deps` on SkillMetadata**: A JSON string field for declaring external requirements (MCP servers, env vars, binaries). Set via `md.external_deps = json.dumps(deps)`, read via `json.loads(md.external_deps)`. Returns `None` when not set. See `docs/guide/skill-scopes-policies.md` for the schema.
 
 22. **tools/list has 6 core tools** (not 5): `find_skills`, `list_skills`, `get_skill_info`, `load_skill`, `unload_skill`, **`search_skills``. Unloaded skills appear as `__skill__<name>` stubs — calling a stub returns a `load_skill` hint, not an error about missing handlers.
 

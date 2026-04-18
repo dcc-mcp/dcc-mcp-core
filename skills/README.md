@@ -66,6 +66,7 @@ my-skill/
 | `groups` | No | Tool groups for progressive exposure |
 | `tools` | No | Explicit tool declarations with schemas |
 | `metadata` | No | Arbitrary key-value metadata (agentskills.io spec) |
+| `external_deps` | No | External dependency declaration (MCP servers, env vars, binaries) as YAML mapping |
 
 ### Tool Declaration Fields
 

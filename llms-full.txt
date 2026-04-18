@@ -126,9 +126,9 @@ Metadata parsed from SKILL.md frontmatter. All fields are get/set.
 - `name: str` — Unique identifier (used in action naming)
 - `description: str` — Human-readable description (default: "")
 - `tools: List[ToolDeclaration]` — MCP tool declarations (name, source_file, schemas); default: []
-- `allowed_tools: List[str]` — Agent permission list, e.g. ["Bash", "Read"] (Anthropic/OpenClaw); default: []
-- `license: str` — License identifier, e.g. "MIT" (Anthropic Skills standard); default: ""
-- `compatibility: str` — Runtime compatibility string, e.g. "Python>=3.9" (Anthropic Skills); default: ""
+- `allowed_tools: List[str]` — Agent permission list, e.g. ["Bash", "Read"] (agentskills.io spec); default: []
+- `license: str` — License identifier, e.g. "MIT" (agentskills.io spec); default: ""
+- `compatibility: str` — Runtime compatibility string, e.g. "Python>=3.9" (agentskills.io spec); default: ""
 - `dcc: str` — Target DCC application (default: "python")
 - `tags: List[str]` — Classification tags (default: [])
 - `scripts: List[str]` — Discovered script file paths (populated by loader; absolute paths)
@@ -136,6 +136,7 @@ Metadata parsed from SKILL.md frontmatter. All fields are get/set.
 - `version: str` — Skill version (default: "1.0.0")
 - `depends: List[str]` — Names of other skills this skill requires (default: [])
 - `metadata_files: List[str]` — Files discovered under metadata/ directory (default: [])
+- `external_deps: Optional[str]` — External dependency declaration as JSON string (MCP servers, env vars, binaries). Set via `md.external_deps = json.dumps(deps)`, read via `json.loads(md.external_deps)`. `None` when not set. See `docs/guide/skill-scopes-policies.md` for the full schema.
 
 **Action naming from SkillMetadata:**
 ```python
@@ -391,6 +392,26 @@ removed = vr.remove("create_sphere", "maya", "^1.0.0")   # removes 1.0.0 and 1.5
 removed = vr.remove("create_sphere", "maya", "*")         # removes all -> remaining count
 ```
 
+### CompatibilityRouter
+
+Returned by `VersionedRegistry.router()`. Resolves the best-matching tool version
+given a client-side version constraint. **Not yet exported as a standalone Python class** —
+access via `registry.router()`.
+
+```python
+from dcc_mcp_core import VersionedRegistry, VersionConstraint
+
+vr = VersionedRegistry()
+vr.register_versioned("create_sphere", "maya", "1.0.0")
+vr.register_versioned("create_sphere", "maya", "2.0.0")
+
+# Obtain a router for version-aware resolution
+router = vr.router()
+# The router borrows the registry and provides constraint-based lookups
+# Use VersionedRegistry.resolve() as the primary API — the router is
+# for advanced multi-step resolution scenarios
+```
+
 ### SemVer
 
 ```python
@@ -537,8 +558,8 @@ This markdown body describes the skill to humans and AI agents.
 Include: purpose, usage examples, expected environment, prerequisites.
 ```
 
-**agentskills.io standard fields**: `name` (required), `description` (required), `license`, `compatibility`, `metadata`, `allowed-tools` (experimental — space-separated tool strings like `Bash(git:*) Read`).
-**dcc-mcp-core extensions**: `dcc`, `tags`, `search-hint`, `tools`, `groups`, `depends`, `next-tools`.
+**agentskills.io standard fields** (V1.0 spec, 2025-12-18): `name` (required), `description` (required), `license`, `compatibility`, `metadata`, `allowed-tools` (experimental — space-separated tool strings like `Bash(git:*) Read`).
+**dcc-mcp-core extensions**: `dcc`, `tags`, `search-hint`, `tools`, `groups`, `depends`, `external_deps`, `next-tools`.
 
 ### Supported Script Extensions
 

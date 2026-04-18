@@ -330,6 +330,37 @@ allowed-tools: Bash(git:*) Read       # optional — pre-approved tools (experim
 - `allowed-tools` is experimental in agentskills.io spec — space-separated tool strings
 - Most skills don't need `compatibility`; only include it when there are hard requirements
 
+**`external_deps` — declare external requirements (MCP servers, env vars, binaries):**
+```python
+import json
+from dcc_mcp_core import SkillMetadata
+# external_deps is a JSON string field on SkillMetadata
+md.external_deps = json.dumps({
+    "tools": [
+        {"type": "mcp", "value": "github-mcp-server"},
+        {"type": "env_var", "value": "GITHUB_TOKEN"},
+        {"type": "bin", "value": "ffmpeg"},
+    ]
+})
+# Read it back:
+deps = json.loads(md.external_deps) if md.external_deps else None
+```
+- Declared in SKILL.md frontmatter as `external_deps:` (YAML mapping)
+- Parsed into `SkillMetadata.external_deps` as a JSON string
+- Access via `json.loads(metadata.external_deps)` — returns `None` if not set
+- See [`docs/guide/skill-scopes-policies.md`](docs/guide/skill-scopes-policies.md) for the full schema
+
+**`CompatibilityRouter` — not a standalone Python class:**
+```python
+# CompatibilityRouter is returned by VersionedRegistry.router()
+# It is NOT importable directly — access via:
+from dcc_mcp_core import VersionedRegistry
+vr = VersionedRegistry()
+router = vr.router()  # -> CompatibilityRouter (borrows the registry)
+# For most use cases, use VersionedRegistry.resolve() directly instead
+result = vr.resolve("create_sphere", "maya", "^1.0.0")
+```
+
 ---
 
 ## Code Style — Non-Negotiable
@@ -362,6 +393,15 @@ When adding a Rust type/function that needs to be callable from Python:
 
 ---
 
+## Dev Environment Tips
+
+- **Build before testing**: Always run `vx just dev` before `vx just test` — the Rust extension must be compiled first.
+- **Preflight before PR**: `vx just preflight` runs cargo check + clippy + fmt + test-rust — catch issues early.
+- **Lint auto-fix**: `vx just lint-fix` auto-fixes both Rust (cargo fmt) and Python (ruff + isort) issues.
+- **Version never manual**: Release Please owns versioning — never manually edit `CHANGELOG.md` or version strings.
+- **Docs-only changes**: Changes to `docs/`, `*.md`, `llms*.txt` skip Rust rebuild in CI — fast turnaround.
+- **Branch naming**: Avoid `docs/` prefix (causes `refs/heads/docs/...` conflicts). Use flat names like `feat-xxx` or `enhance-xxx`.
+
 ## Security Considerations
 
 - **Sandbox**: Use `SandboxPolicy` + `SandboxContext` for AI-driven tool execution. Never expose unrestricted filesystem or process access.
@@ -370,6 +410,15 @@ When adding a Rust type/function that needs to be callable from Python:
 - **SkillScope**: Trust hierarchy prevents project-local skills from shadowing enterprise-managed ones.
 - **Audit log**: `AuditLog` / `AuditMiddleware` provide traceability for all AI-initiated actions.
 - **No secrets in code**: Never hardcode API keys, tokens, or passwords. Use environment variables or config files outside the repo.
+
+## PR Instructions
+
+- **Title format**: Use Conventional Commits: `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`, `test:`
+- **Scope optional**: `feat(capture): add DXGI backend`
+- **Breaking changes**: `feat!: rename action→tool` with footer `BREAKING CHANGE: ...`
+- **Squash merge**: PRs are squash-merged — write the final commit message in the PR title.
+- **CI must pass**: `vx just preflight` + `vx just test` + `vx just lint` must all be green.
+- **No version bumps**: Release Please handles versioning — never manually bump.
 
 ## Commit Message Guidelines
 
@@ -401,14 +450,16 @@ When adding a Rust type/function that needs to be callable from Python:
 | maturin (wheel builder) | https://www.maturin.rs/ |
 | vx (tool manager) | https://github.com/loonghao/vx |
 
-> **MCP spec note**: Library implements 2025-03-26. Later specs (2025-06-18, 2025-11-25) add
-> Structured Tool Output, Elicitation, Resource Links, icon metadata, Tasks. Do NOT
-> implement these manually — wait for library support.
+> **MCP spec note**: Library implements 2025-03-26 (Streamable HTTP, Tool Annotations, OAuth 2.1).
+> Later specs add: 2025-06-18 (Structured Tool Output, Elicitation, Resource Links, JSON-RPC batching removed);
+> 2025-11-25 (icon metadata, Tasks, Sampling with tools, JSON Schema 2020-12).
+> Do NOT implement these manually — wait for library support.
 
-> **agentskills.io note**: The specification defines `name`, `description`, `license`, `compatibility`,
-> `metadata`, and `allowed-tools` (experimental) as standard frontmatter fields. The `allowed-tools`
-> field uses space-separated tool strings (e.g. `Bash(git:*) Read`). dcc-mcp-core extends this with
-> `dcc`, `tags`, `search-hint`, `tools`, `groups`, `depends`, and `next-tools`.
+> **agentskills.io note**: The V1.0 specification (stewarded by Anthropic, released 2025-12-18) defines
+> `name` (required), `description` (required), `license`, `compatibility`, `metadata`, and `allowed-tools`
+> (experimental, space-separated) as standard SKILL.md frontmatter fields. dcc-mcp-core extends this with
+> `dcc`, `tags`, `search-hint`, `tools`, `groups`, `depends`, `external_deps`, and `next-tools`.
+> Validation tool: `skills-ref validate ./my-skill` (from [agentskills/agentskills](https://github.com/agentskills/agentskills)).
 
 ---
 
