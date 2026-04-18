@@ -68,6 +68,18 @@ def _post_mcp(url: str, method: str, params: dict | None = None, rpc_id: int = 1
         return json.loads(resp.read())
 
 
+def _split_gateway_prefixed_tool(name: str) -> tuple[str, str] | None:
+    """Return ``(instance_prefix, tool_name)`` for ``<id8>.<tool>`` names."""
+    if name.startswith("__"):
+        return None
+    prefix, sep, suffix = name.partition(".")
+    if not sep:
+        return None
+    if len(prefix) != 8 or not all(ch.isascii() and ch in "0123456789abcdef" for ch in prefix):
+        return None
+    return prefix, suffix
+
+
 def _make_backend(dcc: str, tool_names: list[str], registry_dir: Path, gw_port: int) -> tuple[McpHttpServer, object]:
     """Start a backend McpHttpServer registered in ``registry_dir``.
 
@@ -173,8 +185,8 @@ class TestFacadeToolsAggregation:
         # We expect at least one namespaced tool whose suffix matches each
         # original backend name. Colliding names (``create_cube`` registered
         # on both maya and blender) must survive as two distinct entries.
-        prefixed = [t for t in tools if "__" in t["name"] and not t["name"].startswith("__skill__")]
-        suffixes = [t["name"].split("__", 1)[1] for t in prefixed]
+        prefixed = [t for t in tools if _split_gateway_prefixed_tool(t["name"]) is not None]
+        suffixes = [_split_gateway_prefixed_tool(t["name"])[1] for t in prefixed]
 
         assert "create_sphere" in suffixes, "maya.create_sphere missing from aggregated list"
         assert "delete_node" in suffixes, "maya.delete_node missing from aggregated list"
@@ -189,7 +201,7 @@ class TestFacadeToolsAggregation:
     def test_backend_tools_carry_instance_metadata(self, facade_cluster):
         resp = _post_mcp(facade_cluster["gateway_url"], "tools/list")
         tools = resp["result"]["tools"]
-        backend_tools = [t for t in tools if "__" in t["name"] and not t["name"].startswith("__skill__")]
+        backend_tools = [t for t in tools if _split_gateway_prefixed_tool(t["name"]) is not None]
         assert backend_tools, "no namespaced backend tools were aggregated"
 
         for tool in backend_tools:
@@ -197,7 +209,7 @@ class TestFacadeToolsAggregation:
             assert "_instance_short" in tool, f"tool {tool['name']!r} missing _instance_short annotation"
             assert "_dcc_type" in tool, f"tool {tool['name']!r} missing _dcc_type annotation"
             # Prefix in the name matches the short instance id.
-            prefix = tool["name"].split("__", 1)[0]
+            prefix = _split_gateway_prefixed_tool(tool["name"])[0]
             assert tool["_instance_short"] == prefix, (
                 f"prefix {prefix!r} doesn't match _instance_short {tool['_instance_short']!r}"
             )

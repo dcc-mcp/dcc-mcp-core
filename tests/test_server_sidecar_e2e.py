@@ -254,11 +254,11 @@ class TestToolsListBoundary:
         loaded = json.loads(load_resp["result"]["content"][0]["text"])
         assert loaded.get("loaded") is True
 
-        # tools/list should now contain hello_world__greet with schema
+        # tools/list should now contain hello-world.greet with schema
         _, tl = _post(url, {"jsonrpc": "2.0", "id": 4, "method": "tools/list"})
         names = {t["name"] for t in tl["result"]["tools"]}
-        assert "hello_world__greet" in names or any("hello" in n for n in names), (
-            f"Expected hello_world__greet in tools/list after load. Got: {names}"
+        assert "hello-world.greet" in names or any("hello" in n for n in names), (
+            f"Expected hello-world.greet in tools/list after load. Got: {names}"
         )
 
     def test_stub_call_returns_load_hint(self, catalog_server):
@@ -297,8 +297,8 @@ class TestToolsListBoundary:
 
         _, tl = _post(url, {"jsonrpc": "2.0", "id": 4, "method": "tools/list"})
         tools = [t["name"] for t in tl["result"]["tools"]]
-        greet_count = tools.count("hello_world__greet")
-        assert greet_count <= 1, f"hello_world__greet duplicated after double load: {greet_count}"
+        greet_count = tools.count("hello-world.greet")
+        assert greet_count <= 1, f"hello-world.greet duplicated after double load: {greet_count}"
 
     def test_unload_then_reload_works(self, catalog_server):
         """Unloading a skill and reloading it re-registers its tools."""

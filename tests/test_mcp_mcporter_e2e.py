@@ -496,7 +496,7 @@ class TestMcporterProgressiveLoading:
         _mcporter_call(url, name, "load_skill", {"skill_name": "hello-world"})
 
         # Greet via the skill tool
-        result = _mcporter_call(url, name, "hello_world__greet", {"name": "mcporter"})
+        result = _mcporter_call(url, name, "hello-world.greet", {"name": "mcporter"})
         text = _extract_content_text(result)
         assert "mcporter" in text or "Hello" in text
 
@@ -515,8 +515,8 @@ class TestMcporterProgressiveLoading:
         # tools/list should no longer contain hello-world tools
         tools = _mcporter_list_tools(url, name)
         tool_names = {t["name"] if isinstance(t, dict) else t for t in tools}
-        # hello_world__greet should be gone (core tools remain)
-        assert "hello_world__greet" not in tool_names
+        # hello-world.greet should be gone (core tools remain)
+        assert "hello-world.greet" not in tool_names
 
     def test_load_multiple_skills_at_once(self, server_with_catalog):
         """load_skill with skill_names loads several skills in one call."""
@@ -575,7 +575,7 @@ class TestMcporterProgressiveLoading:
         assert load_data["loaded"] is True
 
         # 4. Call the skill tool
-        call_result = _mcporter_call(url, name, "hello_world__greet", {"name": "E2E"})
+        call_result = _mcporter_call(url, name, "hello-world.greet", {"name": "E2E"})
         text = _extract_content_text(call_result)
         assert "E2E" in text or "Hello" in text
 
@@ -817,7 +817,7 @@ class TestMultipleServerInstances:
             names_b = self._tools_list(h_b.mcp_url())
 
             assert any("hello" in n.lower() for n in names_a), f"hello-world missing from A: {names_a}"
-            assert not any("hello_world" in n for n in names_b), f"hello-world leaked into B: {names_b}"
+            assert "hello-world.greet" not in names_b, f"hello-world leaked into B: {names_b}"
         finally:
             h_a.shutdown()
             h_b.shutdown()
@@ -945,7 +945,7 @@ class TestProgressiveLoadingBoundary:
         result = _mcporter_call(
             url,
             name,
-            "hello_world__greet",
+            "hello-world.greet",
             {"name": "BoundaryTest"},
         )
         text = _extract_content_text(result)
@@ -958,8 +958,8 @@ class TestProgressiveLoadingBoundary:
             _mcporter_call(url, name, "load_skill", {"skill_name": "hello-world"})
         tools = _mcporter_list_tools(url, name)
         names = [t["name"] if isinstance(t, dict) else t for t in tools]
-        count = names.count("hello_world__greet")
-        assert count <= 1, f"hello_world__greet duplicated after double load: {count}"
+        count = names.count("hello-world.greet")
+        assert count <= 1, f"hello-world.greet duplicated after double load: {count}"
 
     def test_unload_then_reload_re_registers_tools(self, server_with_catalog):
         """After unload → reload, the skill's tools must be available again."""
@@ -1026,5 +1026,5 @@ class TestConcurrencyBoundary:
 
         tools = _mcporter_list_tools(url, name)
         tool_names = [t["name"] if isinstance(t, dict) else t for t in tools]
-        count = tool_names.count("hello_world__greet")
-        assert count <= 1, f"hello_world__greet duplicated: {count} occurrences"
+        count = tool_names.count("hello-world.greet")
+        assert count <= 1, f"hello-world.greet duplicated: {count} occurrences"
