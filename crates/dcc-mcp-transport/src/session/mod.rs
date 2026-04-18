@@ -147,21 +147,6 @@ impl Session {
         }
     }
 
-    /// Create a new session in the Connected state (backward compatibility).
-    pub fn new(
-        dcc_type: impl Into<String>,
-        instance_id: Uuid,
-        host: impl Into<String>,
-        port: u16,
-    ) -> Self {
-        let host_str = host.into();
-        Self::with_address(
-            dcc_type,
-            instance_id,
-            TransportAddress::tcp(&host_str, port),
-        )
-    }
-
     /// Get the service key for this session.
     pub fn service_key(&self) -> ServiceKey {
         ServiceKey {

@@ -11,7 +11,11 @@ fn make_manager() -> SessionManager {
 #[test]
 fn test_session_creation() {
     let instance_id = Uuid::new_v4();
-    let session = Session::new("maya", instance_id, "127.0.0.1", 18812);
+    let session = Session::with_address(
+        "maya",
+        instance_id,
+        TransportAddress::tcp("127.0.0.1", 18812),
+    );
     assert_eq!(session.dcc_type, "maya");
     assert_eq!(session.instance_id, instance_id);
     assert_eq!(session.state, SessionState::Connected);
@@ -20,7 +24,11 @@ fn test_session_creation() {
 
 #[test]
 fn test_session_state_transitions() {
-    let mut session = Session::new("maya", Uuid::new_v4(), "127.0.0.1", 18812);
+    let mut session = Session::with_address(
+        "maya",
+        Uuid::new_v4(),
+        TransportAddress::tcp("127.0.0.1", 18812),
+    );
 
     // Connected → Idle
     session.transition_to(SessionState::Idle).unwrap();

@@ -99,18 +99,6 @@ impl McpHttpServer {
         }
     }
 
-    /// Create a server without a SkillCatalog (legacy mode — all tools visible).
-    pub fn without_catalog(registry: Arc<ActionRegistry>, config: McpHttpConfig) -> Self {
-        let dispatcher = Arc::new(ActionDispatcher::new((*registry).clone()));
-        Self {
-            registry,
-            dispatcher,
-            catalog: None,
-            config,
-            executor: None,
-        }
-    }
-
     /// Get a reference to the server's SkillCatalog (if configured).
     pub fn catalog(&self) -> Option<&Arc<SkillCatalog>> {
         self.catalog.as_ref()

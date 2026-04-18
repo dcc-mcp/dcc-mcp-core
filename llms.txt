@@ -151,7 +151,7 @@ crates/
 
 **SkillSummary fields:** `.name`, `.description`, `.search_hint`, `.version`, `.dcc`, `.tags`, `.tool_count`, `.tool_names`, `.loaded`
 
-**SkillMetadata fields:** `.name`, `.description`, `.search_hint`, `.dcc`, `.version`, `.tags`, `.tools`, `.scripts` (List[str] absolute paths), `.skill_path`, `.depends`, `.metadata_files`, `.groups` (List[SkillGroup])
+**SkillMetadata fields:** `.name`, `.description`, `.search_hint`, `.dcc`, `.version`, `.tags`, `.tools`, `.scripts` (List[str] absolute paths), `.skill_path`, `.depends`, `.metadata_files`, `.groups` (List[SkillGroup]), `.license` (str), `.compatibility` (str), `.allowed_tools` (List[str])
 
 **SkillGroup fields:** `.name`, `.description`, `.default_active` (bool), `.tools` (List[str]) — declared in SKILL.md `groups:` frontmatter for progressive tool exposure
 
@@ -162,6 +162,19 @@ crates/
 - MCP core tools: `activate_tool_group`, `deactivate_tool_group`, `search_tools` (registered alongside the six skill-discovery tools; `tools/list` also emits `__group__<skill>.<group>` stubs for inactive groups)
 
 **Action naming**: `{skill_name}__{script_stem}` — hyphens in skill names replaced by underscores
+
+**`next-tools` (dcc-mcp-core extension):** Declared per-tool in SKILL.md frontmatter to guide AI agents to follow-up tools:
+```yaml
+tools:
+  - name: create_sphere
+    next-tools:
+      on-success: [maya_geometry__bevel_edges]
+      on-failure: [dcc_diagnostics__screenshot]
+```
+- `on-success`: suggested tools after successful execution
+- `on-failure`: debugging/recovery tools on failure
+- Both accept lists of fully-qualified tool names (`skill_name__tool_name` format)
+- This is a dcc-mcp-core extension, not part of the agentskills.io specification
 
 ### MCP Protocol Types (`dcc_mcp_core`)
 
@@ -349,8 +362,8 @@ tags: ["maya", "geometry"]
 dcc: maya
 version: "1.0.0"
 depends: ["other-skill"]  # optional
-license: MIT              # optional
-compatibility: "Maya 2024+" # optional
+license: MIT              # optional (agentskills.io spec)
+compatibility: "Maya 2024+" # optional (agentskills.io spec) — environment requirements
 metadata:                 # optional (agentskills.io spec)
   author: example-org
   version: "1.0"
@@ -358,6 +371,10 @@ search-hint: "polygon modeling, bevel, extrude"  # dcc-mcp-core extension
 ---
 # Markdown description body (keep < 500 lines, < 5000 tokens recommended)
 ```
+
+**agentskills.io standard fields**: `name` (required), `description` (required), `license`, `compatibility`, `metadata`, `allowed-tools` (experimental — space-separated pre-approved tool strings like `Bash(git:*) Read`).
+
+**dcc-mcp-core extensions**: `dcc`, `tags`, `search-hint`, `tools`, `groups`, `depends`, `next-tools`.
 
 ### Supported Script Types
 

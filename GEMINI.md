@@ -224,6 +224,14 @@ search-hint: "polygon modeling, bevel, extrude, mesh editing"
 
 29. **`ActionMeta` is Rust-only**: Do not reference `ActionMeta.enabled` or `ActionMeta.group` in Python code. Use `ToolRegistry.set_tool_enabled(name, enabled)` and `ToolRegistry.list_tools_in_group(skill, group)` instead.
 
+30. **SKILL.md frontmatter fields**: agentskills.io standard (`name` required, `description` required, `license`, `compatibility`, `metadata`, `allowed-tools` experimental) + dcc-mcp-core extensions (`dcc`, `tags`, `search-hint`, `tools`, `groups`, `depends`, `next-tools`). The `allowed-tools` field uses space-separated tool strings like `Bash(git:*) Read`.
+
+31. **`next-tools` field** (dcc-mcp-core extension): Declared per-tool in SKILL.md to guide AI agents to follow-up tools. `on-success` and `on-failure` accept lists of fully-qualified tool names. Not part of agentskills.io spec.
+
+32. **Security**: Use `SandboxPolicy` + `SandboxContext` for AI-driven execution. Validate inputs with `ToolValidator`. Never hardcode secrets in code.
+
+33. **Commit messages**: Use Conventional Commits (`feat:`, `fix:`, `docs:`, etc.). Never manually bump versions.
+
 ## CI/CD Summary
 
 - 35 total CI jobs: Rust lint/test (3 platforms) + Python test matrix (Linux/macOS/Windows × py3.7–3.13) + DCC integration tests

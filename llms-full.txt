@@ -520,20 +520,25 @@ all_deps = expand_transitive_dependencies(skills, "my-skill")  # -> List[str] na
 
 ```yaml
 ---
-name: maya-geometry          # Required: unique identifier
-description: "Maya geometry creation and modification tools"
-allowed-tools: ["Bash", "Read"]  # Agent permission list (Bash=run scripts, Read=read files)
+name: maya-geometry          # Required: unique identifier (kebab-case, max 64 chars)
+description: "Maya geometry creation and modification tools. Use when creating or modifying polygon geometry."
+allowed-tools: Bash(git:*) Read  # Space-separated pre-approved tools (agentskills.io spec, experimental)
 tags: ["maya", "geometry"]   # Classification tags
 dcc: maya                    # Target DCC: maya, blender, houdini, 3dsmax, python
 version: "1.0.0"             # Semantic version
-license: "MIT"               # License (Anthropic Skills standard)
+license: "MIT"               # License identifier (agentskills.io spec)
+compatibility: "Maya 2024+"  # Environment requirements, max 500 chars (agentskills.io spec)
 depends: ["other-skill"]     # Names of required skills (optional)
+search-hint: "polygon modeling, sphere, bevel, extrude"  # dcc-mcp-core extension: keyword hints
 ---
 # Human-readable description (markdown body)
 
 This markdown body describes the skill to humans and AI agents.
 Include: purpose, usage examples, expected environment, prerequisites.
 ```
+
+**agentskills.io standard fields**: `name` (required), `description` (required), `license`, `compatibility`, `metadata`, `allowed-tools` (experimental — space-separated tool strings like `Bash(git:*) Read`).
+**dcc-mcp-core extensions**: `dcc`, `tags`, `search-hint`, `tools`, `groups`, `depends`, `next-tools`.
 
 ### Supported Script Extensions
 
@@ -661,6 +666,28 @@ group-control tools alongside the six skill-discovery tools:
 | `activate_tool_group` | Enable all tools in a group; sends `notifications/tools/list_changed` |
 | `deactivate_tool_group` | Disable all tools in a group |
 | `search_tools` | Keyword search across currently-enabled tools |
+
+### `next-tools` — Follow-Up Tool Hints (dcc-mcp-core extension)
+
+The `next-tools` field guides AI agents to appropriate follow-up actions after a tool
+executes. This is a dcc-mcp-core extension, not part of the agentskills.io specification.
+
+```yaml
+tools:
+  - name: create_sphere
+    description: "Create a polygon sphere"
+    source_file: scripts/create_sphere.py
+    next-tools:
+      on-success: [maya_geometry__bevel_edges]      # suggest after success
+      on-failure: [dcc_diagnostics__screenshot]      # debug on failure
+```
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `on-success` | `List[str]` | Suggested tools after successful execution |
+| `on-failure` | `List[str]` | Debugging/recovery tools on failure |
+
+Both accept fully-qualified tool names in `{skill_name}__{tool_name}` format.
 
 ### Action Naming Convention
 

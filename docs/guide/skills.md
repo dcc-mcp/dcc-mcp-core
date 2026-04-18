@@ -171,6 +171,28 @@ decl = ToolDeclaration(
 | `defer_loading` | `bool` | `False` | Accepts `defer-loading` / `defer_loading` in SKILL.md and marks the declaration as discovery-oriented |
 | `source_file` | `str` | `""` | Explicit path to the script (relative to skill dir) |
 
+### `next-tools` — Follow-Up Tool Hints (dcc-mcp-core extension)
+
+The `next-tools` field guides AI agents to appropriate follow-up actions after a tool
+executes. This is a dcc-mcp-core extension not present in the agentskills.io specification.
+
+```yaml
+tools:
+  - name: create_sphere
+    description: "Create a polygon sphere"
+    source_file: scripts/create_sphere.py
+    next-tools:
+      on-success: [maya_geometry__bevel_edges]      # suggest after success
+      on-failure: [dcc_diagnostics__screenshot]      # debug on failure
+```
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `on-success` | `List[str]` | Suggested tools after successful execution |
+| `on-failure` | `List[str]` | Debugging/recovery tools on failure |
+
+Both accept lists of fully-qualified tool names in `{skill_name}__{tool_name}` format.
+
 Unloaded skill stubs returned by `tools/list` also expose `annotations.deferredHint = true` as an explicit progressive-loading signal. Once you call `load_skill(...)`, the real tools replace the stub and return `deferredHint = false`.
 
 ## Script Lookup Priority
@@ -294,12 +316,12 @@ my-skill/
 
 ## SkillMetadata Fields
 
-Parsed from SKILL.md frontmatter. Supports Anthropic Skills, ClawHub/OpenClaw, and dcc-mcp-core extensions simultaneously.
+Parsed from SKILL.md frontmatter. Supports [agentskills.io](https://agentskills.io/specification) standard fields, ClawHub/OpenClaw, and dcc-mcp-core extensions simultaneously.
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `name` | `str` | Unique skill name |
-| `description` | `str` | Short description |
+| `description` | `str` | Short description (should describe what the skill does and when to use it) |
 | `search_hint` | `str` | Keyword hint for `search_skills` (SKILL.md `search-hint:` field; falls back to `description`) |
 | `tools` | `List[str]` | Tool names listed in frontmatter |
 | `dcc` | `str` | Target DCC application (default: `"python"`) |
@@ -310,6 +332,9 @@ Parsed from SKILL.md frontmatter. Supports Anthropic Skills, ClawHub/OpenClaw, a
 | `depends` | `List[str]` | Skill dependency names |
 | `metadata_files` | `List[str]` | Paths to `.md` files in `metadata/` |
 | `groups` | `List[SkillGroup]` | Tool groups for progressive exposure (see below) |
+| `license` | `str` | License identifier (agentskills.io spec, e.g. `"MIT"`, `"Apache-2.0"`) |
+| `compatibility` | `str` | Environment requirements, max 500 chars (agentskills.io spec) |
+| `allowed_tools` | `List[str]` | Pre-approved tools (agentskills.io spec, experimental) |
 
 ## Tool Groups (Progressive Exposure)
 

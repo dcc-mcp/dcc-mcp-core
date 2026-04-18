@@ -53,17 +53,19 @@ my-skill/
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `name` | Yes | Unique skill identifier (kebab-case) |
-| `description` | Yes | What the skill does (shown to AI agents) |
+| `name` | Yes | Unique skill identifier (kebab-case, max 64 chars) |
+| `description` | Yes | What the skill does and when to use it (shown to AI agents, max 1024 chars) |
 | `dcc` | No | Target DCC (`maya`, `blender`, `python`, etc.) |
 | `version` | No | Semantic version (default `1.0.0`) |
 | `tags` | No | Discovery tags (`[modeling, geometry, maya]`) |
 | `search-hint` | No | Extra keywords for `search_skills()` matching |
-| `license` | No | License identifier (default MIT) |
+| `license` | No | License identifier (agentskills.io spec, e.g. `MIT`, `Apache-2.0`) |
+| `compatibility` | No | Environment requirements, max 500 chars (agentskills.io spec, e.g. `"Maya 2024+, Python 3.7+"`) |
+| `allowed-tools` | No | Pre-approved tools, space-separated (agentskills.io spec, **experimental**, e.g. `Bash(git:*) Read`) |
 | `depends` | No | List of skill names this skill requires |
 | `groups` | No | Tool groups for progressive exposure |
 | `tools` | No | Explicit tool declarations with schemas |
-| `metadata` | No | Arbitrary key-value metadata |
+| `metadata` | No | Arbitrary key-value metadata (agentskills.io spec) |
 
 ### Tool Declaration Fields
 
@@ -80,10 +82,16 @@ tools:
     idempotent: true             # Hint: safe to call multiple times
     source_file: scripts/my_tool.py  # Script file path
     group: basic                 # Tool group name (if using groups)
-    next-tools:                  # Suggested follow-up tools
+    next-tools:                  # dcc-mcp-core extension: follow-up tools
       on-success: [other_skill__tool]
       on-failure: [dcc_diagnostics__screenshot]
 ```
+
+**`next-tools`** is a dcc-mcp-core extension (not in agentskills.io spec). It guides AI agents
+to chain tool calls:
+- `on-success`: suggested tools after successful execution
+- `on-failure`: debugging/recovery tools on failure
+- Both accept lists of fully-qualified tool names (`skill_name__tool_name` format)
 
 ## Existing Examples
 

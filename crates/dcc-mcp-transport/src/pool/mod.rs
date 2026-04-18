@@ -231,11 +231,6 @@ impl PooledConnection {
         }
     }
 
-    /// Create a new pooled connection from host and port (backward compatibility).
-    pub fn from_host_port(service_key: ServiceKey, host: String, port: u16) -> Self {
-        Self::new(service_key, TransportAddress::tcp(host, port))
-    }
-
     /// Get the host address (extracted from transport address for backward compatibility).
     pub fn host(&self) -> &str {
         match &self.address {
@@ -463,17 +458,6 @@ impl ConnectionPool {
                 timeout_ms: self.config.acquire_timeout.as_millis() as u64,
             }),
         }
-    }
-
-    /// Try to acquire or create a TCP connection (backward compatibility).
-    pub async fn acquire(
-        &self,
-        service_key: &ServiceKey,
-        host: &str,
-        port: u16,
-    ) -> TransportResult<Uuid> {
-        self.acquire_with_address(service_key, &TransportAddress::tcp(host, port))
-            .await
     }
 
     /// Release a connection back to the pool.

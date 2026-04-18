@@ -275,6 +275,18 @@ cargo build --workspace --features python-bindings 2>&1 | grep -E "error|warning
 | `SkillScope` / `SkillPolicy` ImportError | These are Rust-only types. Use SKILL.md frontmatter and `SkillMetadata` methods instead |
 | `DeferredExecutor` ImportError | Import directly: `from dcc_mcp_core._core import DeferredExecutor` |
 | Skill scripts not discovered | Check `DCC_MCP_SKILL_PATHS` env var and `dcc:` field in SKILL.md matches your filter |
+| `ActionMeta` AttributeError | Rust-only type. Use `ToolRegistry.set_tool_enabled()` and `list_tools_in_group()` instead |
+
+### AI Agent Best Practices
+
+When building tools for AI agents to consume:
+
+1. **Design around user workflows**, not raw API calls. A tool called `create_character` is better than three separate calls to `create_joint`, `bind_skin`, `apply_animation`.
+2. **Use `ToolAnnotations`** to signal safety properties — `read_only_hint=True`, `destructive_hint=False`, `idempotent_hint=True` — so AI clients make informed choices.
+3. **Return human-readable errors** via `error_result("msg", "specific error")` with actionable suggestions in `prompt`.
+4. **Use `next-tools`** in SKILL.md to guide AI agents to follow-up tools (e.g. `on-failure: [dcc_diagnostics__screenshot]`).
+5. **Keep `tools/list` small** by using tool groups with `default_active=false` for power-user features. Agents activate groups on demand.
+6. **Validate all AI-provided inputs** with `ToolValidator.from_schema_json()` before execution — never trust LLM output blindly.
 
 ## Building a DCC Adapter with DccServerBase
 

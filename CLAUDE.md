@@ -81,6 +81,9 @@ vx just test-cov      # Coverage report to find gaps
   - **Embedded Python** (`DccServerBase`) — Maya, Blender, Houdini, Unreal
   - **WebSocket Bridge** (`DccBridge`) — Photoshop, ZBrush, Unity, After Effects
   - **WebView Host** (`WebViewAdapter`) — AuroraView, Electron panels
+- **SKILL.md frontmatter fields**: agentskills.io standard (`name`, `description`, `license`, `compatibility`, `metadata`, `allowed-tools`) + dcc-mcp-core extensions (`dcc`, `tags`, `search-hint`, `tools`, `groups`, `depends`, `next-tools`)
+- **`next-tools`**: Per-tool field guiding AI agents to follow-up tools (`on-success` / `on-failure`). dcc-mcp-core extension, not in agentskills.io spec.
+- **`allowed-tools`**: Experimental agentskills.io field — space-separated pre-approved tool strings (e.g. `Bash(git:*) Read`)
 
 ```python
 # Correct usage:
@@ -237,6 +240,8 @@ def test_skill_scan(tmp_path):
 - **`skill_warning()` / `skill_exception()`**: Pure-Python helpers in `skill.py`. `skill_warning()` returns a partial-success dict with warnings; `skill_exception()` wraps exceptions into error dict format.
 - **Action→Tool rename** (v0.13): Conceptual rename complete; some Rust API method names (`get_action`, `list_actions`, `search_actions`) remain as compatibility aliases — not bugs.
 - **MCP best practices**: Design tools around user workflows, not raw API calls. Use `ToolAnnotations` for safety hints (`read_only_hint`, `destructive_hint`, `idempotent_hint`). Return human-readable errors.
+- **Security**: Use `SandboxPolicy` + `SandboxContext` for AI-driven tool execution. Validate inputs with `ToolValidator`. Never hardcode secrets.
+- **Commit messages**: Use Conventional Commits (`feat:`, `fix:`, `docs:`, `refactor:`, `chore:`, `test:`). Never manually bump versions — Release Please manages this.
 
 ## Key Files to Read First (Priority Order)
 

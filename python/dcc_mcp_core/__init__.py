@@ -33,20 +33,7 @@ from dcc_mcp_core._core import AuditEntry
 from dcc_mcp_core._core import AuditLog
 from dcc_mcp_core._core import AuditMiddleware
 from dcc_mcp_core._core import BooleanWrapper
-
-# Telemetry
-from dcc_mcp_core._core import ToolDispatcher
-from dcc_mcp_core._core import ToolMetrics
-from dcc_mcp_core._core import ToolPipeline
-from dcc_mcp_core._core import ToolRecorder
-from dcc_mcp_core._core import ToolRegistry
-from dcc_mcp_core._core import ToolResult
-from dcc_mcp_core._core import ToolValidator
-
-try:
-    from dcc_mcp_core._core import BoundingBox
-except ImportError:
-    BoundingBox = None  # type: ignore[assignment,misc]  # not yet exposed in compiled extension
+from dcc_mcp_core._core import BoundingBox
 from dcc_mcp_core._core import BridgeContext
 from dcc_mcp_core._core import BridgeRegistry
 from dcc_mcp_core._core import CaptureBackendKind
@@ -123,6 +110,15 @@ from dcc_mcp_core._core import TimingMiddleware
 from dcc_mcp_core._core import ToolAnnotations
 from dcc_mcp_core._core import ToolDeclaration
 from dcc_mcp_core._core import ToolDefinition
+
+# Telemetry
+from dcc_mcp_core._core import ToolDispatcher
+from dcc_mcp_core._core import ToolMetrics
+from dcc_mcp_core._core import ToolPipeline
+from dcc_mcp_core._core import ToolRecorder
+from dcc_mcp_core._core import ToolRegistry
+from dcc_mcp_core._core import ToolResult
+from dcc_mcp_core._core import ToolValidator
 from dcc_mcp_core._core import TransportAddress
 from dcc_mcp_core._core import TransportManager
 from dcc_mcp_core._core import TransportScheme

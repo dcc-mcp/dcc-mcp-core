@@ -39,6 +39,10 @@ Each demonstrates a specific skill system feature.
 ### Next-Tools Chaining
 - **maya-geometry** — `on-success: [maya_pipeline__export_usd]`, `on-failure: [dcc_diagnostics__screenshot]`
 - **maya-pipeline** — `on-success: [usd_tools__inspect]`
+- **dcc-diagnostics** — `on-failure: [dcc_diagnostics__screenshot]`
+
+> `next-tools` is a **dcc-mcp-core extension** (not in agentskills.io spec). It guides AI agents
+> to follow-up tools via `on-success` and `on-failure` keys.
 
 ### Metadata Directory
 - **maya-pipeline** — `metadata/help.md`, `metadata/install.md`, `metadata/depends.md`

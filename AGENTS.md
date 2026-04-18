@@ -304,6 +304,32 @@ from dcc_mcp_core import skill_warning, skill_exception
 # Both are pure-Python helpers in python/dcc_mcp_core/skill.py
 ```
 
+**`next-tools` in SKILL.md — guide AI to follow-up tools:**
+```yaml
+tools:
+  - name: create_sphere
+    next-tools:
+      on-success: [maya_geometry__bevel_edges]   # suggested after success
+      on-failure: [dcc_diagnostics__screenshot]   # debug on failure
+```
+- `next-tools` is a dcc-mcp-core extension (not in agentskills.io spec)
+- Helps AI agents chain tool calls without trial-and-error
+- Both `on-success` and `on-failure` accept lists of fully-qualified tool names
+
+**agentskills.io fields — `license`, `compatibility`, `allowed-tools`:**
+```yaml
+---
+name: my-skill
+description: "Does X. Use when user asks to Y."
+license: MIT                          # optional — SPDX identifier or file reference
+compatibility: "Maya 2024+, Python 3.7+"  # optional — environment requirements
+allowed-tools: Bash(git:*) Read       # optional — pre-approved tools (experimental)
+---
+```
+- `license` and `compatibility` are parsed into `SkillMetadata` fields
+- `allowed-tools` is experimental in agentskills.io spec — space-separated tool strings
+- Most skills don't need `compatibility`; only include it when there are hard requirements
+
 ---
 
 ## Code Style — Non-Negotiable
@@ -336,12 +362,30 @@ When adding a Rust type/function that needs to be callable from Python:
 
 ---
 
+## Security Considerations
+
+- **Sandbox**: Use `SandboxPolicy` + `SandboxContext` for AI-driven tool execution. Never expose unrestricted filesystem or process access.
+- **Input validation**: Always validate AI-provided parameters with `ToolValidator.from_schema_json()` before execution.
+- **ToolAnnotations**: Signal safety properties (`read_only_hint`, `destructive_hint`, `idempotent_hint`) so AI clients make informed choices.
+- **SkillScope**: Trust hierarchy prevents project-local skills from shadowing enterprise-managed ones.
+- **Audit log**: `AuditLog` / `AuditMiddleware` provide traceability for all AI-initiated actions.
+- **No secrets in code**: Never hardcode API keys, tokens, or passwords. Use environment variables or config files outside the repo.
+
+## Commit Message Guidelines
+
+- Use [Conventional Commits](https://www.conventionalcommits.org/): `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`, `test:`
+- Scope is optional: `feat(capture): add DXGI backend`
+- Breaking changes: `feat!: rename action→tool` with footer `BREAKING CHANGE: ...`
+- Version bumps are handled by Release Please — never manually edit `CHANGELOG.md` or version strings
+
 ## CI & Release
 
 - PRs must pass: `vx just preflight` + `vx just test` + `vx just lint`
 - CI matrix: Python 3.7, 3.9, 3.11, 3.13 on Linux / macOS / Windows
 - Versioning: Release Please (Conventional Commits) — never manually bump
 - PyPI: Trusted Publishing (no tokens)
+- Docs-only changes skip Rust rebuild → CI passes quickly
+- Squash merge convention for PRs
 
 ---
 
@@ -350,16 +394,21 @@ When adding a Rust type/function that needs to be callable from Python:
 | What | Where |
 |------|-------|
 | MCP spec (implemented: 2025-03-26) | https://modelcontextprotocol.io/specification/2025-03-26 |
-| SKILL.md format | https://agentskills.io/specification |
+| SKILL.md format (agentskills.io) | https://agentskills.io/specification |
 | AGENTS.md standard | https://agents.md/ |
 | llms.txt format | https://llmstxt.org/ |
 | PyO3 (Rust→Python bindings) | https://pyo3.rs/ |
 | maturin (wheel builder) | https://www.maturin.rs/ |
 | vx (tool manager) | https://github.com/loonghao/vx |
 
-> MCP spec note: Library implements 2025-03-26. Later specs (2025-06-18, 2025-11-25) add
+> **MCP spec note**: Library implements 2025-03-26. Later specs (2025-06-18, 2025-11-25) add
 > Structured Tool Output, Elicitation, Resource Links, icon metadata, Tasks. Do NOT
 > implement these manually — wait for library support.
+
+> **agentskills.io note**: The specification defines `name`, `description`, `license`, `compatibility`,
+> `metadata`, and `allowed-tools` (experimental) as standard frontmatter fields. The `allowed-tools`
+> field uses space-separated tool strings (e.g. `Bash(git:*) Read`). dcc-mcp-core extends this with
+> `dcc`, `tags`, `search-hint`, `tools`, `groups`, `depends`, and `next-tools`.
 
 ---
 

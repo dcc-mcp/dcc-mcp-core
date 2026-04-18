@@ -133,7 +133,7 @@ async fn test_acquire_reuses_available_connection() {
 }
 
 #[tokio::test]
-async fn test_acquire_backward_compat_returns_uuid() {
+async fn test_acquire_with_address_returns_uuid() {
     let pool = ConnectionPool::new(PoolConfig::default());
     let key = make_key("maya");
 
@@ -146,7 +146,10 @@ async fn test_acquire_backward_compat_returns_uuid() {
         }
     });
 
-    let _id = pool.acquire(&key, "127.0.0.1", port).await.unwrap();
+    let _id = pool
+        .acquire_with_address(&key, &TransportAddress::tcp("127.0.0.1", port))
+        .await
+        .unwrap();
     assert_eq!(pool.len(), 1);
 }
 

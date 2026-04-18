@@ -1,6 +1,4 @@
-//! ActionRegistry — thread-safe registry for Action classes.
-//!
-//! Uses DashMap for lock-free concurrent reads, replacing the Python singleton pattern.
+//! ActionRegistry — thread-safe registry for DCC tools.
 
 #[cfg(feature = "python-bindings")]
 use pyo3::prelude::*;
@@ -98,8 +96,7 @@ impl Default for ActionMeta {
 
 /// Thread-safe Action registry.
 ///
-/// Unlike the Python singleton, each ActionManager can own its own registry,
-/// eliminating cross-DCC pollution.
+/// Each registry instance is independent, eliminating cross-DCC pollution.
 #[cfg_attr(
     feature = "python-bindings",
     pyclass(name = "ToolRegistry", from_py_object)
@@ -604,7 +601,7 @@ impl ActionRegistry {
         self.unregister(name, dcc_name)
     }
 
-    /// Register an action. Called from Python ActionManager.
+    /// Register an action.
     #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (name, description="".to_string(), category="".to_string(), tags=vec![], dcc=DEFAULT_DCC.to_string(), version=DEFAULT_VERSION.to_string(), input_schema=None, output_schema=None, source_file=None, skill_name=None, group="".to_string(), enabled=true, required_capabilities=None))]
     fn register(
