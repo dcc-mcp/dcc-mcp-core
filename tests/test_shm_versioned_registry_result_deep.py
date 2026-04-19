@@ -172,9 +172,9 @@ class TestPySharedBuffer:
         assert isinstance(buf.id, str)
         assert len(buf.id) > 0
 
-    def test_path_is_string(self):
+    def test_name_is_string(self):
         buf = PySharedBuffer.create(capacity=256)
-        assert isinstance(buf.path(), str)
+        assert isinstance(buf.name(), str)
 
     def test_initial_data_len_is_zero(self):
         buf = PySharedBuffer.create(capacity=512)

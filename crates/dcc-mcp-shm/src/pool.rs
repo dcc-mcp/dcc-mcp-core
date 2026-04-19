@@ -1,8 +1,8 @@
 //! `BufferPool` — a fixed-capacity pool of pre-allocated [`SharedBuffer`]s.
 //!
 //! # Purpose
-//! Allocating a new shared-memory region involves creating a temp file, an
-//! mmap syscall, and zeroing the header.  For high-frequency use-cases (e.g.
+//! Allocating a new shared-memory region involves creating an ipckit segment
+//! and writing the header.  For high-frequency use-cases (e.g.
 //! 30 fps scene snapshots) repeated allocation is expensive.  A pool amortises
 //! this cost by recycling buffers.
 //!

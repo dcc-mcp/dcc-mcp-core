@@ -54,11 +54,11 @@ class TestPySharedBuffer:
         assert isinstance(buf.id, str)
         assert len(buf.id) > 0
 
-    def test_path_is_nonempty_string(self) -> None:
+    def test_name_is_nonempty_string(self) -> None:
         buf = dcc_mcp_core.PySharedBuffer.create(capacity=256)
-        path = buf.path()
-        assert isinstance(path, str)
-        assert len(path) > 0
+        name = buf.name()
+        assert isinstance(name, str)
+        assert len(name) > 0
 
     def test_descriptor_json_is_valid(self) -> None:
         import json
@@ -93,30 +93,30 @@ class TestPySharedBuffer:
         assert buf.read() == binary
 
     def test_open_reads_written_data(self) -> None:
-        """PySharedBuffer.open opens an existing buffer by path+id and reads data."""
+        """PySharedBuffer.open opens an existing buffer by name+id and reads data."""
         buf1 = dcc_mcp_core.PySharedBuffer.create(capacity=1024)
         payload = b"shared memory cross read"
         buf1.write(payload)
-        buf2 = dcc_mcp_core.PySharedBuffer.open(buf1.path(), buf1.id)
+        buf2 = dcc_mcp_core.PySharedBuffer.open(buf1.name(), buf1.id)
         assert buf2.read() == payload
 
     def test_open_capacity_matches_original(self) -> None:
         """Opened buffer reports the same capacity as the creator."""
         buf1 = dcc_mcp_core.PySharedBuffer.create(capacity=2048)
-        buf2 = dcc_mcp_core.PySharedBuffer.open(buf1.path(), buf1.id)
+        buf2 = dcc_mcp_core.PySharedBuffer.open(buf1.name(), buf1.id)
         assert buf2.capacity() == buf1.capacity()
 
     def test_open_data_len_matches_after_write(self) -> None:
         """Opened buffer sees the correct data_len written by creator."""
         buf1 = dcc_mcp_core.PySharedBuffer.create(capacity=512)
         buf1.write(b"hello")
-        buf2 = dcc_mcp_core.PySharedBuffer.open(buf1.path(), buf1.id)
+        buf2 = dcc_mcp_core.PySharedBuffer.open(buf1.name(), buf1.id)
         assert buf2.data_len() == 5
 
     def test_open_empty_buffer(self) -> None:
         """Opening a buffer that has not been written yet returns empty bytes."""
         buf1 = dcc_mcp_core.PySharedBuffer.create(capacity=256)
-        buf2 = dcc_mcp_core.PySharedBuffer.open(buf1.path(), buf1.id)
+        buf2 = dcc_mcp_core.PySharedBuffer.open(buf1.name(), buf1.id)
         assert buf2.data_len() == 0
         assert buf2.read() == b""
 
@@ -125,7 +125,7 @@ class TestPySharedBuffer:
         buf1 = dcc_mcp_core.PySharedBuffer.create(capacity=4096)
         payload = bytes(range(256))
         buf1.write(payload)
-        buf2 = dcc_mcp_core.PySharedBuffer.open(buf1.path(), buf1.id)
+        buf2 = dcc_mcp_core.PySharedBuffer.open(buf1.name(), buf1.id)
         assert buf2.read() == payload
 
     def test_descriptor_json_contains_id_field(self) -> None:
@@ -137,14 +137,14 @@ class TestPySharedBuffer:
         assert "id" in parsed
         assert parsed["id"] == buf.id
 
-    def test_descriptor_json_contains_path_field(self) -> None:
-        """descriptor_json dict contains a 'path' key."""
+    def test_descriptor_json_contains_name_field(self) -> None:
+        """descriptor_json dict contains a 'name' key."""
         import json
 
         buf = dcc_mcp_core.PySharedBuffer.create(capacity=512)
         parsed = json.loads(buf.descriptor_json())
-        assert "path" in parsed
-        assert len(parsed["path"]) > 0
+        assert "name" in parsed
+        assert len(parsed["name"]) > 0
 
     def test_descriptor_json_contains_capacity_field(self) -> None:
         """descriptor_json dict contains a 'capacity' key matching the buffer capacity."""

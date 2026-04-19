@@ -326,25 +326,25 @@ class TestPySharedBufferDescriptorJson:
     def test_open_reads_same_data(self):
         buf = PySharedBuffer.create(capacity=1024)
         buf.write(b"hello shared memory")
-        buf2 = PySharedBuffer.open(path=buf.path(), id=buf.id)
+        buf2 = PySharedBuffer.open(name=buf.name(), id=buf.id)
         assert buf2.read() == b"hello shared memory"
 
     def test_open_capacity_matches(self):
         buf = PySharedBuffer.create(capacity=4096)
-        buf2 = PySharedBuffer.open(path=buf.path(), id=buf.id)
+        buf2 = PySharedBuffer.open(name=buf.name(), id=buf.id)
         assert buf2.capacity() == buf.capacity()
 
     def test_open_data_len_matches(self):
         buf = PySharedBuffer.create(capacity=1024)
         data = b"some data"
         buf.write(data)
-        buf2 = PySharedBuffer.open(path=buf.path(), id=buf.id)
+        buf2 = PySharedBuffer.open(name=buf.name(), id=buf.id)
         assert buf2.data_len() == len(data)
 
     def test_write_visible_across_instances(self):
         buf = PySharedBuffer.create(capacity=1024)
         buf.write(b"cross-process data")
-        buf2 = PySharedBuffer.open(path=buf.path(), id=buf.id)
+        buf2 = PySharedBuffer.open(name=buf.name(), id=buf.id)
         assert buf2.read() == b"cross-process data"
 
     def test_clear_resets_data_len(self):
@@ -369,11 +369,11 @@ class TestPySharedBufferDescriptorJson:
         assert isinstance(buf.id, str)
         assert len(buf.id) > 0
 
-    def test_buf_path_is_string(self):
+    def test_buf_name_is_string(self):
         buf = PySharedBuffer.create(capacity=512)
-        path = buf.path()
-        assert isinstance(path, str)
-        assert len(path) > 0
+        name = buf.name()
+        assert isinstance(name, str)
+        assert len(name) > 0
 
     def test_repr_is_string(self):
         buf = PySharedBuffer.create(capacity=512)

@@ -156,8 +156,8 @@ class TestSharedSceneBufferDescriptorJson:
     def test_descriptor_json_storage_has_path(self) -> None:
         buf = self._make_buf()
         desc = json.loads(buf.descriptor_json())
-        assert "path" in desc["storage"]
-        assert len(desc["storage"]["path"]) > 0
+        assert "name" in desc["storage"]
+        assert len(desc["storage"]["name"]) > 0
 
     def test_descriptor_json_meta_has_created_at(self) -> None:
         buf = self._make_buf()

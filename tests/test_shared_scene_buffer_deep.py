@@ -280,7 +280,7 @@ class TestPySharedSceneBufferDescriptorJson:
     def test_storage_has_path(self):
         buf = PySharedSceneBuffer.write(b"test")
         dj = json.loads(buf.descriptor_json())
-        assert "path" in dj["storage"]
+        assert "name" in dj["storage"]
 
     def test_storage_has_capacity(self):
         buf = PySharedSceneBuffer.write(b"test")

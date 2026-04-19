@@ -60,10 +60,10 @@ class TestPySharedBufferCreate:
         assert isinstance(buf.id, str)
         assert len(buf.id) > 0
 
-    def test_path_is_string(self):
+    def test_name_is_string(self):
         buf = PySharedBuffer.create(capacity=128)
-        assert isinstance(buf.path(), str)
-        assert len(buf.path()) > 0
+        assert isinstance(buf.name(), str)
+        assert len(buf.name()) > 0
 
     def test_descriptor_json_is_string(self):
         buf = PySharedBuffer.create(capacity=128)
@@ -152,30 +152,30 @@ class TestPySharedBufferOpen:
     def test_open_reads_same_data(self):
         buf = PySharedBuffer.create(capacity=256)
         buf.write(b"cross-process data")
-        buf2 = PySharedBuffer.open(path=buf.path(), id=buf.id)
+        buf2 = PySharedBuffer.open(name=buf.name(), id=buf.id)
         assert buf2.read() == b"cross-process data"
 
     def test_open_has_same_id(self):
         buf = PySharedBuffer.create(capacity=256)
-        buf2 = PySharedBuffer.open(path=buf.path(), id=buf.id)
+        buf2 = PySharedBuffer.open(name=buf.name(), id=buf.id)
         assert buf2.id == buf.id
 
     def test_open_has_same_capacity(self):
         buf = PySharedBuffer.create(capacity=512)
-        buf2 = PySharedBuffer.open(path=buf.path(), id=buf.id)
+        buf2 = PySharedBuffer.open(name=buf.name(), id=buf.id)
         assert buf2.capacity() == 512
 
     def test_open_sees_updated_data(self):
         buf = PySharedBuffer.create(capacity=256)
         buf.write(b"v1")
-        buf2 = PySharedBuffer.open(path=buf.path(), id=buf.id)
+        buf2 = PySharedBuffer.open(name=buf.name(), id=buf.id)
         buf.write(b"v2")
         assert buf2.read() == b"v2"
 
     def test_descriptor_json_contains_id_and_path(self):
         buf = PySharedBuffer.create(capacity=256)
         desc = json.loads(buf.descriptor_json())
-        assert "id" in desc or "path" in desc
+        assert "id" in desc or "name" in desc
 
 
 # ===========================================================================

@@ -150,6 +150,7 @@ from dcc_mcp_core._core import encode_response
 from dcc_mcp_core._core import error_result
 from dcc_mcp_core._core import expand_transitive_dependencies
 from dcc_mcp_core._core import from_exception
+from dcc_mcp_core._core import gc_orphans
 from dcc_mcp_core._core import get_app_skill_paths_from_env
 from dcc_mcp_core._core import get_bridge_context
 from dcc_mcp_core._core import get_config_dir
@@ -273,6 +274,7 @@ __all__ = [
     "EventBus",
     "FloatWrapper",
     "FrameRange",
+    "FrameRange",
     "FramedChannel",
     "GracefulIpcChannelAdapter",
     "InputValidator",
@@ -363,6 +365,7 @@ __all__ = [
     "error_result",
     "expand_transitive_dependencies",
     "from_exception",
+    "gc_orphans",
     "get_app_skill_paths_from_env",
     "get_bridge_context",
     "get_bundled_skill_paths",

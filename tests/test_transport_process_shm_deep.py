@@ -6,7 +6,7 @@ Coverage targets (this iteration):
 - PyProcessWatcher: track/watch/start/stop/poll_events/aliases
 - PyDccLauncher: empty init/running_count/pid_of/restart_count
 - PyCrashRecoveryPolicy: should_restart/next_delay_ms/fixed/exponential
-- PySharedBuffer: create/write/read/clear/capacity/data_len/path/descriptor_json/open
+- PySharedBuffer: create/write/read/clear/capacity/data_len/name/descriptor_json/open
 - PySharedSceneBuffer: write/read/id/is_chunked/is_inline/descriptor_json/compression
 - PyBufferPool: capacity/buffer_size/available/acquire/release-on-gc
 """
@@ -778,9 +778,9 @@ class TestPySharedBufferCreate:
         assert isinstance(buf.id, str)
         assert len(buf.id) > 0
 
-    def test_path_is_str(self):
+    def test_name_is_str(self):
         buf = PySharedBuffer.create(capacity=1024)
-        p = buf.path()
+        p = buf.name()
         assert isinstance(p, str)
         assert len(p) > 0
 
@@ -857,7 +857,7 @@ class TestPySharedBufferDescriptorAndOpen:
     def test_open_existing_buffer(self):
         buf = PySharedBuffer.create(capacity=512)
         buf.write(b"test data")
-        buf2 = PySharedBuffer.open(buf.path(), buf.id)
+        buf2 = PySharedBuffer.open(buf.name(), buf.id)
         assert buf2.read() == b"test data"
 
 

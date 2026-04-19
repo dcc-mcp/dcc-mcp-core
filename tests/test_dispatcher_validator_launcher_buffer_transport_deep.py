@@ -564,9 +564,9 @@ class TestPySharedBufferOperations:
         # Pool buffer IDs are pool-<uuid>-<index> format
         assert buf.id.startswith("pool-")
 
-    def test_path_is_string(self) -> None:
+    def test_name_is_string(self) -> None:
         buf = self.pool.acquire()
-        assert isinstance(buf.path(), str)
+        assert isinstance(buf.name(), str)
 
     def test_capacity_matches_pool_buffer_size(self) -> None:
         buf = self.pool.acquire()

@@ -31,10 +31,10 @@ class TestPySharedBufferCreate:
         parts = buf.id.split("-")
         assert len(parts) == 5
 
-    def test_path_is_string(self):
+    def test_name_is_string(self):
         buf = dcc_mcp_core.PySharedBuffer.create(capacity=512)
-        assert isinstance(buf.path(), str)
-        assert len(buf.path()) > 0
+        assert isinstance(buf.name(), str)
+        assert len(buf.name()) > 0
 
     def test_capacity_matches(self):
         buf = dcc_mcp_core.PySharedBuffer.create(capacity=4096)
@@ -110,11 +110,11 @@ class TestPySharedBufferDescriptorAndOpen:
         assert "id" in parsed
         assert parsed["id"] == buf.id
 
-    def test_descriptor_json_has_path(self):
+    def test_descriptor_json_has_name(self):
         buf = dcc_mcp_core.PySharedBuffer.create(capacity=1024)
         parsed = json.loads(buf.descriptor_json())
-        assert "path" in parsed
-        assert parsed["path"] == buf.path()
+        assert "name" in parsed
+        assert parsed["name"] == buf.name()
 
     def test_descriptor_json_has_capacity(self):
         buf = dcc_mcp_core.PySharedBuffer.create(capacity=2048)
@@ -125,23 +125,23 @@ class TestPySharedBufferDescriptorAndOpen:
     def test_open_from_path_and_id(self):
         buf = dcc_mcp_core.PySharedBuffer.create(capacity=1024)
         buf.write(b"cross-process data")
-        buf2 = dcc_mcp_core.PySharedBuffer.open(path=buf.path(), id=buf.id)
+        buf2 = dcc_mcp_core.PySharedBuffer.open(name=buf.name(), id=buf.id)
         assert buf2.read() == b"cross-process data"
 
     def test_open_same_id(self):
         buf = dcc_mcp_core.PySharedBuffer.create(capacity=1024)
-        buf2 = dcc_mcp_core.PySharedBuffer.open(path=buf.path(), id=buf.id)
+        buf2 = dcc_mcp_core.PySharedBuffer.open(name=buf.name(), id=buf.id)
         assert buf2.id == buf.id
 
     def test_open_same_capacity(self):
         buf = dcc_mcp_core.PySharedBuffer.create(capacity=4096)
-        buf2 = dcc_mcp_core.PySharedBuffer.open(path=buf.path(), id=buf.id)
+        buf2 = dcc_mcp_core.PySharedBuffer.open(name=buf.name(), id=buf.id)
         assert buf2.capacity() == 4096
 
     def test_open_reads_updated_data(self):
         buf = dcc_mcp_core.PySharedBuffer.create(capacity=1024)
         buf.write(b"first write")
-        buf2 = dcc_mcp_core.PySharedBuffer.open(path=buf.path(), id=buf.id)
+        buf2 = dcc_mcp_core.PySharedBuffer.open(name=buf.name(), id=buf.id)
         # Write again via original handle
         buf.clear()
         buf.write(b"second write")
@@ -151,7 +151,7 @@ class TestPySharedBufferDescriptorAndOpen:
         buf = dcc_mcp_core.PySharedBuffer.create(capacity=1024)
         buf.write(b"descriptor roundtrip")
         desc = json.loads(buf.descriptor_json())
-        buf2 = dcc_mcp_core.PySharedBuffer.open(path=desc["path"], id=desc["id"])
+        buf2 = dcc_mcp_core.PySharedBuffer.open(name=desc["name"], id=desc["id"])
         assert buf2.read() == b"descriptor roundtrip"
 
 

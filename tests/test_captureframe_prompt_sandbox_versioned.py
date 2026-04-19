@@ -210,35 +210,35 @@ class TestPySharedBufferClearAndOpen:
         buf = PySharedBuffer.create(capacity=1024)
         payload = b"cross instance hello"
         buf.write(payload)
-        p = buf.path()
+        p = buf.name()
         i = buf.id
-        buf2 = PySharedBuffer.open(path=p, id=i)
+        buf2 = PySharedBuffer.open(name=p, id=i)
         assert buf2.read() == payload
 
     def test_open_cross_instance_id_matches(self):
         buf = PySharedBuffer.create(capacity=512)
         buf.write(b"test")
-        buf2 = PySharedBuffer.open(path=buf.path(), id=buf.id)
+        buf2 = PySharedBuffer.open(name=buf.name(), id=buf.id)
         assert buf2.id == buf.id
 
     def test_open_cross_instance_capacity_matches(self):
         buf = PySharedBuffer.create(capacity=2048)
         buf.write(b"data")
-        buf2 = PySharedBuffer.open(path=buf.path(), id=buf.id)
+        buf2 = PySharedBuffer.open(name=buf.name(), id=buf.id)
         assert buf2.capacity() == buf.capacity()
 
     def test_open_cross_instance_clear_visible(self):
         buf = PySharedBuffer.create(capacity=256)
         buf.write(b"before clear")
-        buf2 = PySharedBuffer.open(path=buf.path(), id=buf.id)
+        buf2 = PySharedBuffer.open(name=buf.name(), id=buf.id)
         buf2.clear()
         assert buf2.data_len() == 0
 
     def test_open_cross_instance_write_then_read(self):
         buf = PySharedBuffer.create(capacity=256)
         buf.write(b"initial")
-        p, i = buf.path(), buf.id
-        buf2 = PySharedBuffer.open(path=p, id=i)
+        p, i = buf.name(), buf.id
+        buf2 = PySharedBuffer.open(name=p, id=i)
         assert buf2.read() == b"initial"
         buf2.clear()
         buf2.write(b"updated")
@@ -249,12 +249,12 @@ class TestPySharedBufferClearAndOpen:
         desc = buf.descriptor_json()
         assert buf.id in desc
 
-    def test_descriptor_json_contains_path(self):
+    def test_descriptor_json_contains_name(self):
         buf = PySharedBuffer.create(capacity=256)
         desc = buf.descriptor_json()
         # descriptor_json JSON-escapes backslashes on Windows; verify via id instead
         assert buf.id in desc
-        assert "path" in desc
+        assert "name" in desc
 
 
 # ─────────────────── ToolRegistry.search_actions combination filters ───────────────────

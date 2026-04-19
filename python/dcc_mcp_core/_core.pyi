@@ -3682,9 +3682,9 @@ class InputValidator:
 # ── Shared Memory (dcc-mcp-shm) ──
 
 class PySharedBuffer:
-    """A named, fixed-capacity shared memory buffer backed by a memory-mapped file.
+    """A named, fixed-capacity shared memory buffer backed by an ipckit shared memory segment.
 
-    Zero-copy: the DCC side writes data directly into the mapped region; the
+    Zero-copy: the DCC side writes data directly into the shared region; the
     consumer reads from the same mapping without any copying or serialisation.
 
     Example::
@@ -3697,18 +3697,26 @@ class PySharedBuffer:
         # Cross-process handoff
         desc_json = buf.descriptor_json()
         # ... send desc_json to consumer via IPC ...
-        buf2 = PySharedBuffer.open(path=buf.path(), id=buf.id)
+        buf2 = PySharedBuffer.open(name=buf.name(), id=buf.id)
         assert buf2.read() == b"vertex data"
 
     """
 
     @staticmethod
-    def create(capacity: int) -> PySharedBuffer:
-        """Create a new buffer with the given capacity in bytes."""
+    def create(capacity: int, ttl_secs: int = 0) -> PySharedBuffer:
+        """Create a new buffer with the given capacity in bytes.
+
+        Args:
+            capacity: Maximum data bytes (header is added automatically).
+            ttl_secs: Time-to-live in seconds (0 = no TTL, never expires).
+                When > 0, the buffer is considered expired after this many
+                seconds since creation.
+
+        """
         ...
     @staticmethod
-    def open(path: str, id: str) -> PySharedBuffer:
-        """Open an existing buffer from a file path and id."""
+    def open(name: str, id: str) -> PySharedBuffer:
+        """Open an existing buffer from an ipckit segment name and id."""
         ...
     def write(self, data: bytes) -> int:
         """Write bytes into the buffer. Returns the number of bytes written.
@@ -3734,8 +3742,15 @@ class PySharedBuffer:
     def id(self) -> str:
         """Buffer id (string)."""
         ...
-    def path(self) -> str:
-        """File path of the backing memory-mapped file."""
+    def name(self) -> str:
+        """Ipckit segment name of the backing shared memory."""
+        ...
+    def is_expired(self) -> bool:
+        """Return True if this buffer's TTL has expired.
+
+        Buffers without a TTL (``ttl_secs == 0``) never expire.
+
+        """
         ...
     def descriptor_json(self) -> str:
         """Return a JSON descriptor string for cross-process handoff."""
@@ -3855,6 +3870,22 @@ class PySharedSceneBuffer:
         """JSON descriptor for cross-process handoff."""
         ...
     def __repr__(self) -> str: ...
+
+def gc_orphans(max_age_secs: float) -> int:
+    """Scan for and remove stale dcc_shm_* shared memory segments.
+
+    On Linux scans /dev/shm; on macOS scans /tmp; on Windows this is a no-op.
+
+    Args:
+        max_age_secs: Minimum age in seconds for a segment to be considered
+            stale.  Segments whose TTL has expired **or** whose creation time
+            is older than ``max_age_secs`` are removed.
+
+    Returns:
+        Number of segments removed.
+
+    """
+    ...
 
 # ── GPU Capture (dcc-mcp-capture) ──
 

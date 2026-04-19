@@ -98,7 +98,7 @@ pub fn write_chunked(
         let buf = SharedBuffer::create(stored_len.max(1))?;
         buf.write(&to_write)?;
 
-        let descriptor = BufferDescriptor::from_buffer(&buf);
+        let descriptor = BufferDescriptor::from_buffer(&buf)?;
         chunk_infos.push(ChunkInfo {
             index,
             descriptor,
@@ -141,7 +141,7 @@ pub fn read_chunked(manifest: &ChunkManifest) -> ShmResult<Vec<u8>> {
             });
         }
 
-        let buf = SharedBuffer::open(&chunk_info.descriptor.path, &chunk_info.descriptor.id)?;
+        let buf = SharedBuffer::open(&chunk_info.descriptor.name, &chunk_info.descriptor.id)?;
         let raw = buf.read()?;
 
         if chunk_info.compressed {

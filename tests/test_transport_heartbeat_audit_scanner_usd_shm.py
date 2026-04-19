@@ -799,7 +799,7 @@ class TestUsdPrimAttributesSummary:
 def _open_from_desc(desc_json: str) -> PySharedBuffer:
     """Open a PySharedBuffer from its descriptor_json string."""
     d = json.loads(desc_json)
-    return PySharedBuffer.open(d["path"], d["id"])
+    return PySharedBuffer.open(d["name"], d["id"])
 
 
 class TestPySharedBufferCrossInstance:
@@ -832,12 +832,12 @@ class TestPySharedBufferCrossInstance:
         d = json.loads(buf.descriptor_json())
         assert d["id"] == buf.id
 
-    def test_descriptor_json_contains_path(self):
-        """descriptor_json() JSON contains 'path' field."""
+    def test_descriptor_json_contains_name(self):
+        """descriptor_json() JSON contains 'name' field."""
         buf = PySharedBuffer.create(1024)
         d = json.loads(buf.descriptor_json())
-        assert "path" in d
-        assert len(d["path"]) > 0
+        assert "name" in d
+        assert len(d["name"]) > 0
 
     def test_write_and_read_roundtrip(self):
         """write() + read() roundtrip returns the exact same bytes."""
@@ -847,7 +847,7 @@ class TestPySharedBufferCrossInstance:
         assert buf.read() == data
 
     def test_open_from_descriptor_returns_buffer(self):
-        """PySharedBuffer.open(path, id) returns a PySharedBuffer object."""
+        """PySharedBuffer.open(name, id) returns a PySharedBuffer object."""
         buf1 = PySharedBuffer.create(1024)
         buf2 = _open_from_desc(buf1.descriptor_json())
         assert buf2 is not None

@@ -202,10 +202,10 @@ class TestPySharedBufferCreate:
         assert isinstance(buf.id, str)
         assert len(buf.id) > 0
 
-    def test_path_is_nonempty_string(self):
+    def test_name_is_nonempty_string(self):
         buf = PySharedBuffer.create(512)
-        assert isinstance(buf.path(), str)
-        assert len(buf.path()) > 0
+        assert isinstance(buf.name(), str)
+        assert len(buf.name()) > 0
 
     def test_write_and_read_roundtrip(self):
         buf = PySharedBuffer.create(1024)
@@ -247,29 +247,29 @@ class TestPySharedBufferCreate:
         assert "id" in d
         assert d["id"] == buf.id
 
-    def test_descriptor_json_has_path(self):
+    def test_descriptor_json_has_name(self):
         buf = PySharedBuffer.create(1024)
         d = json.loads(buf.descriptor_json())
-        assert "path" in d
+        assert "name" in d
 
 
 class TestPySharedBufferOpen:
-    """Opening an existing buffer by path + id."""
+    """Opening an existing buffer by name + id."""
 
     def test_open_returns_same_capacity(self):
         buf = PySharedBuffer.create(512)
-        buf2 = PySharedBuffer.open(buf.path(), buf.id)
+        buf2 = PySharedBuffer.open(buf.name(), buf.id)
         assert buf2.capacity() == 512
 
     def test_open_can_read_written_data(self):
         buf = PySharedBuffer.create(512)
         buf.write(b"shared content")
-        buf2 = PySharedBuffer.open(buf.path(), buf.id)
+        buf2 = PySharedBuffer.open(buf.name(), buf.id)
         assert buf2.read() == b"shared content"
 
     def test_open_repr_contains_id(self):
         buf = PySharedBuffer.create(512)
-        buf2 = PySharedBuffer.open(buf.path(), buf.id)
+        buf2 = PySharedBuffer.open(buf.name(), buf.id)
         assert buf.id in repr(buf2)
 
 

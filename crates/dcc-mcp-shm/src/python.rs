@@ -1,18 +1,22 @@
 //! PyO3 Python bindings for dcc-mcp-shm.
 //!
 //! Exposes:
-//!  - `PySharedBuffer`   — wraps [`SharedBuffer`]
+//!  - `PySharedBuffer`   — wraps [`SharedBuffer`] (with TTL support)
+//!  - `gc_orphans`        — module-level function to clean up stale segments
 //!  - `PyBufferPool`     — wraps [`BufferPool`]
 //!  - `PySceneDataKind`  — enum mirror of [`SceneDataKind`]
 //!  - `PySharedSceneBuffer` — wraps [`SharedSceneBuffer`]
 
+use std::time::Duration;
+
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 
-use crate::buffer::{BufferDescriptor, SharedBuffer};
+use crate::buffer::{BufferDescriptor, SharedBuffer, gc_orphans};
 use crate::error::ShmError;
 use crate::pool::{BufferPool, PooledBuffer};
 use crate::scene::{SceneDataKind, SharedSceneBuffer};
+use uuid::Uuid;
 
 // ── Error conversion ─────────────────────────────────────────────────────────
 
@@ -22,8 +26,8 @@ fn to_py(e: ShmError) -> PyErr {
 
 // ── PySharedBuffer ────────────────────────────────────────────────────────────
 
-/// A named, fixed-capacity shared memory buffer backed by a memory-mapped
-/// file.
+/// A named, fixed-capacity shared memory buffer backed by an ipckit
+/// shared memory segment.
 ///
 /// Usage::
 ///
@@ -32,6 +36,11 @@ fn to_py(e: ShmError) -> PyErr {
 ///     buf = PySharedBuffer.create(capacity=1024 * 1024)  # 1 MiB
 ///     buf.write(b"vertex data")
 ///     data = buf.read()
+///
+///     # With TTL (auto-expire after 60 seconds)
+///     buf = PySharedBuffer.create(capacity=1024, ttl_secs=60)
+///     if buf.is_expired():
+///         print("buffer has expired")
 #[pyclass(name = "PySharedBuffer")]
 pub struct PySharedBuffer {
     inner: SharedBuffer,
@@ -42,9 +51,19 @@ pub struct PySharedBuffer {
 #[pymethods]
 impl PySharedBuffer {
     /// Create a new buffer with the given capacity (bytes).
+    ///
+    /// If ``ttl_secs`` is > 0 the buffer will be considered expired after
+    /// that many seconds since creation, enabling automatic cleanup via
+    /// :func:`gc_orphans`.
     #[staticmethod]
-    fn create(capacity: usize) -> PyResult<Self> {
-        SharedBuffer::create(capacity)
+    #[pyo3(signature = (capacity, ttl_secs=0))]
+    fn create(capacity: usize, ttl_secs: u64) -> PyResult<Self> {
+        let ttl = if ttl_secs > 0 {
+            Some(Duration::from_secs(ttl_secs))
+        } else {
+            None
+        };
+        SharedBuffer::create_with_ttl(Uuid::new_v4().to_string(), capacity, ttl)
             .map(|inner| Self {
                 inner,
                 _pool_guard: None,
@@ -52,10 +71,10 @@ impl PySharedBuffer {
             .map_err(to_py)
     }
 
-    /// Open an existing buffer from a file path and id.
+    /// Open an existing buffer from an ipckit segment name and id.
     #[staticmethod]
-    fn open(path: &str, id: &str) -> PyResult<Self> {
-        SharedBuffer::open(path, id)
+    fn open(name: &str, id: &str) -> PyResult<Self> {
+        SharedBuffer::open(name, id)
             .map(|inner| Self {
                 inner,
                 _pool_guard: None,
@@ -94,23 +113,32 @@ impl PySharedBuffer {
         &self.inner.id
     }
 
-    /// File path of the backing memory-mapped file.
-    fn path(&self) -> String {
-        self.inner.path().to_string_lossy().into_owned()
+    /// ipckit segment name of the backing shared memory.
+    fn name(&self) -> String {
+        self.inner.name()
+    }
+
+    /// Returns True if this buffer's TTL has expired.
+    ///
+    /// Buffers without a TTL (``ttl_secs == 0``) never expire.
+    fn is_expired(&self) -> PyResult<bool> {
+        self.inner.is_expired().map_err(to_py)
     }
 
     /// Return a JSON descriptor string for cross-process handoff.
     fn descriptor_json(&self) -> PyResult<String> {
         BufferDescriptor::from_buffer(&self.inner)
+            .map_err(to_py)?
             .to_json()
             .map_err(to_py)
     }
 
     fn __repr__(&self) -> String {
         format!(
-            "PySharedBuffer(id={:?}, capacity={})",
+            "PySharedBuffer(id={:?}, capacity={}, ttl={})",
             self.inner.id,
-            self.inner.capacity()
+            self.inner.capacity(),
+            "?" // TTL is behind a lock; skip in repr for speed
         )
     }
 }
@@ -295,12 +323,33 @@ impl PySharedSceneBuffer {
 
 // ── Module registration ───────────────────────────────────────────────────────
 
+/// Scan for and remove stale ``dcc_shm_*`` shared memory segments.
+///
+/// On Linux this scans ``/dev/shm``; on macOS it scans ``/tmp``;
+/// on Windows it is a no-op (the OS reclaims named file-mappings on
+/// last close).
+///
+/// Returns the number of segments removed.
+///
+/// Parameters
+/// ----------
+/// max_age_secs : float
+///     Minimum age (in seconds) for a segment to be considered stale.
+///     Segments whose TTL has expired **or** whose creation time is older
+///     than ``max_age_secs`` are removed.
+#[pyfunction]
+#[pyo3(signature = (max_age_secs,), name = "gc_orphans")]
+fn py_gc_orphans(max_age_secs: f64) -> usize {
+    gc_orphans(Duration::from_secs_f64(max_age_secs))
+}
+
 /// Register all PyO3 classes from this crate into `m`.
 pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySharedBuffer>()?;
     m.add_class::<PyBufferPool>()?;
     m.add_class::<PySceneDataKind>()?;
     m.add_class::<PySharedSceneBuffer>()?;
+    m.add_function(wrap_pyfunction!(py_gc_orphans, m)?)?;
     Ok(())
 }
 

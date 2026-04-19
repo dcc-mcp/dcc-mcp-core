@@ -2,7 +2,7 @@
 
 Covers:
 - PyBufferPool: acquire/release cycle, available count, exhaustion RuntimeError
-- PySharedBuffer: id/capacity()/data_len()/path()/write/read/clear/descriptor_json
+- PySharedBuffer: id/capacity()/data_len()/name()/write/read/clear/descriptor_json
 - TelemetryConfig: builder chain methods, property access
 - PyCrashRecoveryPolicy: use_exponential_backoff, use_fixed_backoff,
   next_delay_ms, should_restart, max_restarts, boundary conditions
@@ -102,9 +102,9 @@ class TestPySharedBuffer:
         _, buf = self._make_pool_and_buf()
         assert buf.data_len() == 0
 
-    def test_path_is_string(self) -> None:
+    def test_name_is_string(self) -> None:
         _, buf = self._make_pool_and_buf()
-        p = buf.path()
+        p = buf.name()
         assert isinstance(p, str)
         assert len(p) > 0
 
@@ -160,10 +160,10 @@ class TestPySharedBuffer:
         assert "id" in desc
         assert desc["id"] == buf.id
 
-    def test_descriptor_json_contains_path(self) -> None:
+    def test_descriptor_json_contains_name(self) -> None:
         _, buf = self._make_pool_and_buf()
         desc = json.loads(buf.descriptor_json())
-        assert "path" in desc
+        assert "name" in desc
 
     def test_unique_ids_from_same_pool(self) -> None:
         pool = dcc_mcp_core.PyBufferPool(2, 256)

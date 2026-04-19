@@ -744,8 +744,8 @@ class TestPySharedSceneBufferDescriptor:
     def test_descriptor_json_storage_has_path(self):
         buf = PySharedSceneBuffer.write(b"path test")
         desc = json.loads(buf.descriptor_json())
-        assert "path" in desc["storage"]
-        assert isinstance(desc["storage"]["path"], str)
+        assert "name" in desc["storage"]
+        assert isinstance(desc["storage"]["name"], str)
 
     def test_large_data_read_roundtrip(self):
         large = bytes(range(256)) * 4000  # ~1MB
@@ -844,10 +844,10 @@ class TestPyBufferPoolLifecycle:
         buf.write(b"second")
         assert buf.read() == b"second"
 
-    def test_pool_path_returns_string(self):
+    def test_pool_name_returns_string(self):
         pool = PyBufferPool(capacity=2, buffer_size=256)
         buf = pool.acquire()
-        p = buf.path()
+        p = buf.name()
         assert isinstance(p, str)
         assert len(p) > 0
 

@@ -105,7 +105,7 @@ impl SharedSceneBuffer {
 
             let buf = SharedBuffer::create(to_write.len().max(1))?;
             buf.write(&to_write)?;
-            let desc = BufferDescriptor::from_buffer(&buf);
+            let desc = BufferDescriptor::from_buffer(&buf)?;
 
             // Store compression flag in descriptor path comment — we embed it
             // in the metadata JSON instead via the `compressed` field.
@@ -147,7 +147,7 @@ impl SharedSceneBuffer {
     pub fn read(&self) -> ShmResult<Vec<u8>> {
         match &self.storage {
             StorageKind::Inline(desc) => {
-                let buf = SharedBuffer::open(&desc.path, &desc.id)?;
+                let buf = SharedBuffer::open(&desc.name, &desc.id)?;
                 let raw = buf.read()?;
                 // Try decompression; if it fails fall back to raw (not
                 // compressed).

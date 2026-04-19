@@ -6,13 +6,13 @@
 //! serialising and sending over TCP, which can take 10-30 s for a 1 GB scene.
 //!
 //! `dcc-mcp-shm` provides a **zero-copy** alternative: the DCC side writes
-//! data directly into a memory-mapped file; the consumer reads from the same
+//! data directly into an ipckit shared memory segment; the consumer reads from the same
 //! mapped region without any copying or serialisation.
 //!
 //! # Modules
 //! | Module | Purpose |
 //! |--------|---------|
-//! | [`buffer`] | `SharedBuffer` — single named region backed by a temp mmap file |
+//! | [`buffer`] | `SharedBuffer` — single named region backed by ipckit shared memory |
 //! | [`compress`] | LZ4 frame compression/decompression helpers |
 //! | [`pool`] | `BufferPool` — reusable pool of pre-allocated buffers |
 //! | [`chunked`] | Chunked transfer for data > 256 MiB |
@@ -54,7 +54,7 @@ pub mod scene;
 pub mod python;
 
 // Re-export most-used types at crate root.
-pub use buffer::{BufferDescriptor, SharedBuffer};
+pub use buffer::{BufferDescriptor, SharedBuffer, gc_orphans};
 pub use chunked::{ChunkManifest, DEFAULT_CHUNK_SIZE};
 pub use error::{ShmError, ShmResult};
 pub use pool::BufferPool;
