@@ -24,6 +24,8 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
+#[cfg(any(unix, windows))]
+use ipckit::AsyncLocalSocketStream;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::net::TcpStream;
 
@@ -35,6 +37,15 @@ use crate::ipc::TransportAddress;
 /// Frames larger than this are rejected to prevent memory exhaustion.
 pub const MAX_FRAME_SIZE: u32 = 256 * 1024 * 1024;
 
+/// Kind of local IPC endpoint represented by an ipckit local socket.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LocalSocketKind {
+    /// Windows Named Pipe endpoint.
+    NamedPipe,
+    /// Unix Domain Socket endpoint.
+    UnixSocket,
+}
+
 // ── IpcStream ──────────────────────────────────────────────────────────────
 
 /// A unified async I/O stream that wraps platform-specific transports.
@@ -44,33 +55,23 @@ pub enum IpcStream {
     /// TCP socket (all platforms).
     Tcp(TcpStream),
 
-    /// Windows Named Pipe client.
-    #[cfg(windows)]
-    NamedPipe(tokio::net::windows::named_pipe::NamedPipeClient),
-
-    /// Windows Named Pipe server (accepted connection).
-    ///
-    /// Created by [`IpcListener`](crate::listener::IpcListener) when accepting a Named Pipe
-    /// connection. `NamedPipeServer` implements the same `AsyncRead + AsyncWrite` as
-    /// `NamedPipeClient`, so it is fully interchangeable for framed I/O.
-    #[cfg(windows)]
-    NamedPipeServer(tokio::net::windows::named_pipe::NamedPipeServer),
-
-    /// Unix Domain Socket.
-    #[cfg(unix)]
-    UnixSocket(tokio::net::UnixStream),
+    /// Local IPC stream backed by ipckit (Named Pipe / Unix Socket).
+    #[cfg(any(unix, windows))]
+    LocalSocket {
+        stream: AsyncLocalSocketStream,
+        kind: LocalSocketKind,
+    },
 }
 
 impl std::fmt::Debug for IpcStream {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Tcp(_) => f.debug_tuple("IpcStream::Tcp").finish(),
-            #[cfg(windows)]
-            Self::NamedPipe(_) => f.debug_tuple("IpcStream::NamedPipe").finish(),
-            #[cfg(windows)]
-            Self::NamedPipeServer(_) => f.debug_tuple("IpcStream::NamedPipeServer").finish(),
-            #[cfg(unix)]
-            Self::UnixSocket(_) => f.debug_tuple("IpcStream::UnixSocket").finish(),
+            #[cfg(any(unix, windows))]
+            Self::LocalSocket { kind, .. } => f
+                .debug_struct("IpcStream::LocalSocket")
+                .field("kind", kind)
+                .finish(),
         }
     }
 }
@@ -80,10 +81,11 @@ impl IpcStream {
     pub fn transport_name(&self) -> &'static str {
         match self {
             Self::Tcp(_) => "tcp",
-            #[cfg(windows)]
-            Self::NamedPipe(_) | Self::NamedPipeServer(_) => "named_pipe",
-            #[cfg(unix)]
-            Self::UnixSocket(_) => "unix_socket",
+            #[cfg(any(unix, windows))]
+            Self::LocalSocket { kind, .. } => match kind {
+                LocalSocketKind::NamedPipe => "named_pipe",
+                LocalSocketKind::UnixSocket => "unix_socket",
+            },
         }
     }
 
@@ -91,10 +93,8 @@ impl IpcStream {
     pub fn is_ipc(&self) -> bool {
         match self {
             Self::Tcp(_) => false,
-            #[cfg(windows)]
-            Self::NamedPipe(_) | Self::NamedPipeServer(_) => true,
-            #[cfg(unix)]
-            Self::UnixSocket(_) => true,
+            #[cfg(any(unix, windows))]
+            Self::LocalSocket { .. } => true,
         }
     }
 }
@@ -108,12 +108,8 @@ impl AsyncRead for IpcStream {
     ) -> Poll<io::Result<()>> {
         match self.get_mut() {
             Self::Tcp(s) => Pin::new(s).poll_read(cx, buf),
-            #[cfg(windows)]
-            Self::NamedPipe(s) => Pin::new(s).poll_read(cx, buf),
-            #[cfg(windows)]
-            Self::NamedPipeServer(s) => Pin::new(s).poll_read(cx, buf),
-            #[cfg(unix)]
-            Self::UnixSocket(s) => Pin::new(s).poll_read(cx, buf),
+            #[cfg(any(unix, windows))]
+            Self::LocalSocket { stream, .. } => Pin::new(stream).poll_read(cx, buf),
         }
     }
 }
@@ -127,36 +123,24 @@ impl AsyncWrite for IpcStream {
     ) -> Poll<io::Result<usize>> {
         match self.get_mut() {
             Self::Tcp(s) => Pin::new(s).poll_write(cx, buf),
-            #[cfg(windows)]
-            Self::NamedPipe(s) => Pin::new(s).poll_write(cx, buf),
-            #[cfg(windows)]
-            Self::NamedPipeServer(s) => Pin::new(s).poll_write(cx, buf),
-            #[cfg(unix)]
-            Self::UnixSocket(s) => Pin::new(s).poll_write(cx, buf),
+            #[cfg(any(unix, windows))]
+            Self::LocalSocket { stream, .. } => Pin::new(stream).poll_write(cx, buf),
         }
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         match self.get_mut() {
             Self::Tcp(s) => Pin::new(s).poll_flush(cx),
-            #[cfg(windows)]
-            Self::NamedPipe(s) => Pin::new(s).poll_flush(cx),
-            #[cfg(windows)]
-            Self::NamedPipeServer(s) => Pin::new(s).poll_flush(cx),
-            #[cfg(unix)]
-            Self::UnixSocket(s) => Pin::new(s).poll_flush(cx),
+            #[cfg(any(unix, windows))]
+            Self::LocalSocket { stream, .. } => Pin::new(stream).poll_flush(cx),
         }
     }
 
     fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         match self.get_mut() {
             Self::Tcp(s) => Pin::new(s).poll_shutdown(cx),
-            #[cfg(windows)]
-            Self::NamedPipe(s) => Pin::new(s).poll_shutdown(cx),
-            #[cfg(windows)]
-            Self::NamedPipeServer(s) => Pin::new(s).poll_shutdown(cx),
-            #[cfg(unix)]
-            Self::UnixSocket(s) => Pin::new(s).poll_shutdown(cx),
+            #[cfg(any(unix, windows))]
+            Self::LocalSocket { stream, .. } => Pin::new(stream).poll_shutdown(cx),
         }
     }
 }
@@ -260,30 +244,34 @@ async fn connect_tcp(host: &str, port: u16) -> TransportResult<IpcStream> {
 /// Connect via Windows Named Pipe.
 #[cfg(windows)]
 async fn connect_named_pipe(path: &str) -> TransportResult<IpcStream> {
-    use tokio::net::windows::named_pipe::ClientOptions;
+    let stream = AsyncLocalSocketStream::connect(path).await.map_err(|e| {
+        TransportError::IpcConnectionFailed {
+            address: format!("pipe://{path}"),
+            reason: format!("ipckit connect failed: {e}"),
+        }
+    })?;
 
-    let client =
-        ClientOptions::new()
-            .open(path)
-            .map_err(|e| TransportError::IpcConnectionFailed {
-                address: format!("pipe://{path}"),
-                reason: e.to_string(),
-            })?;
-
-    Ok(IpcStream::NamedPipe(client))
+    Ok(IpcStream::LocalSocket {
+        stream,
+        kind: LocalSocketKind::NamedPipe,
+    })
 }
 
 /// Connect via Unix Domain Socket.
 #[cfg(unix)]
 async fn connect_unix_socket(path: &std::path::Path) -> TransportResult<IpcStream> {
-    let stream = tokio::net::UnixStream::connect(path).await.map_err(|e| {
-        TransportError::IpcConnectionFailed {
+    let path_string = path.display().to_string();
+    let stream = AsyncLocalSocketStream::connect(&path_string)
+        .await
+        .map_err(|e| TransportError::IpcConnectionFailed {
             address: format!("unix://{}", path.display()),
-            reason: e.to_string(),
-        }
-    })?;
+            reason: format!("ipckit connect failed: {e}"),
+        })?;
 
-    Ok(IpcStream::UnixSocket(stream))
+    Ok(IpcStream::LocalSocket {
+        stream,
+        kind: LocalSocketKind::UnixSocket,
+    })
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────

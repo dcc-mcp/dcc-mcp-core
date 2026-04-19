@@ -39,9 +39,11 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
+#[cfg(any(unix, windows))]
+use ipckit::AsyncLocalSocketListener;
 use tokio::net::TcpListener;
 
-use crate::connector::IpcStream;
+use crate::connector::{IpcStream, LocalSocketKind};
 use crate::error::{TransportError, TransportResult};
 use crate::ipc::TransportAddress;
 
@@ -58,13 +60,12 @@ pub enum IpcListener {
     /// TCP listener (all platforms).
     Tcp(TcpListener),
 
-    /// Windows Named Pipe server.
-    #[cfg(windows)]
-    NamedPipe(NamedPipeListener),
-
-    /// Unix Domain Socket listener.
-    #[cfg(unix)]
-    UnixSocket(tokio::net::UnixListener),
+    /// Local IPC listener backed by ipckit (Named Pipe / Unix Socket).
+    #[cfg(any(unix, windows))]
+    LocalSocket {
+        listener: AsyncLocalSocketListener,
+        kind: LocalSocketKind,
+    },
 }
 
 impl std::fmt::Debug for IpcListener {
@@ -74,15 +75,10 @@ impl std::fmt::Debug for IpcListener {
                 .debug_struct("IpcListener::Tcp")
                 .field("addr", &l.local_addr().ok())
                 .finish(),
-            #[cfg(windows)]
-            Self::NamedPipe(l) => f
-                .debug_struct("IpcListener::NamedPipe")
-                .field("path", &l.path)
-                .finish(),
-            #[cfg(unix)]
-            Self::UnixSocket(l) => f
-                .debug_struct("IpcListener::UnixSocket")
-                .field("addr", &l.local_addr().ok())
+            #[cfg(any(unix, windows))]
+            Self::LocalSocket { kind, .. } => f
+                .debug_struct("IpcListener::LocalSocket")
+                .field("kind", kind)
                 .finish(),
         }
     }
@@ -141,29 +137,23 @@ impl IpcListener {
                 Ok(IpcStream::Tcp(stream))
             }
 
-            #[cfg(windows)]
-            Self::NamedPipe(listener) => listener.accept().await,
-
-            #[cfg(unix)]
-            Self::UnixSocket(listener) => {
-                let (stream, _peer) =
+            #[cfg(any(unix, windows))]
+            Self::LocalSocket { listener, kind } => {
+                let stream =
                     listener
                         .accept()
                         .await
                         .map_err(|e| TransportError::IpcConnectionFailed {
-                            address: format!(
-                                "unix://{}",
-                                listener
-                                    .local_addr()
-                                    .ok()
-                                    .and_then(|a| a.as_pathname().map(|p| p.display().to_string()))
-                                    .unwrap_or_default()
-                            ),
-                            reason: format!("accept failed: {e}"),
+                            address: match kind {
+                                LocalSocketKind::NamedPipe => "pipe://<local-socket>".to_string(),
+                                LocalSocketKind::UnixSocket => "unix://<local-socket>".to_string(),
+                            },
+                            reason: format!("ipckit accept failed: {e}"),
                         })?;
-
-                tracing::debug!("accepted Unix socket connection");
-                Ok(IpcStream::UnixSocket(stream))
+                Ok(IpcStream::LocalSocket {
+                    stream,
+                    kind: *kind,
+                })
             }
         }
     }
@@ -172,10 +162,11 @@ impl IpcListener {
     pub fn transport_name(&self) -> &'static str {
         match self {
             Self::Tcp(_) => "tcp",
-            #[cfg(windows)]
-            Self::NamedPipe(_) => "named_pipe",
-            #[cfg(unix)]
-            Self::UnixSocket(_) => "unix_socket",
+            #[cfg(any(unix, windows))]
+            Self::LocalSocket { kind, .. } => match kind {
+                LocalSocketKind::NamedPipe => "named_pipe",
+                LocalSocketKind::UnixSocket => "unix_socket",
+            },
         }
     }
 
@@ -190,101 +181,17 @@ impl IpcListener {
                     .map_err(|e| TransportError::Internal(e.to_string()))?;
                 Ok(TransportAddress::tcp(addr.ip().to_string(), addr.port()))
             }
-            #[cfg(windows)]
-            Self::NamedPipe(l) => Ok(TransportAddress::named_pipe(&l.path)),
-            #[cfg(unix)]
-            Self::UnixSocket(l) => {
-                let addr = l
-                    .local_addr()
-                    .map_err(|e| TransportError::Internal(e.to_string()))?;
-                let path = addr
-                    .as_pathname()
-                    .ok_or_else(|| {
-                        TransportError::Internal("unix socket has no pathname".to_string())
-                    })?
-                    .to_path_buf();
-                Ok(TransportAddress::UnixSocket { path })
+            #[cfg(any(unix, windows))]
+            Self::LocalSocket { listener, kind } => {
+                let name = listener.name();
+                match kind {
+                    LocalSocketKind::NamedPipe => Ok(TransportAddress::named_pipe(name)),
+                    LocalSocketKind::UnixSocket => Ok(TransportAddress::unix_socket(
+                        std::path::PathBuf::from(name),
+                    )),
+                }
             }
         }
-    }
-}
-
-// ── Windows Named Pipe Listener ────────────────────────────────────────────
-
-/// Named Pipe listener for Windows.
-///
-/// Windows Named Pipes don't have a `listen`/`accept` model like sockets.
-/// Instead, a server creates a pipe instance and waits for a client to connect.
-/// After each connection, a new pipe instance must be created for the next client.
-///
-/// This struct wraps that pattern into a familiar `accept()` loop.
-#[cfg(windows)]
-pub struct NamedPipeListener {
-    /// The pipe path (e.g. `\\.\pipe\dcc-mcp-maya`).
-    path: String,
-    /// Whether the listener has been shut down.
-    shutdown: Arc<AtomicBool>,
-    /// Counter for accepted connections (for logging/metrics).
-    accept_count: AtomicU64,
-}
-
-#[cfg(windows)]
-impl NamedPipeListener {
-    /// Create a new Named Pipe listener.
-    fn new(path: String) -> TransportResult<Self> {
-        // Verify we can create a pipe instance.
-        let _ = Self::create_pipe_instance(&path)?;
-
-        Ok(Self {
-            path,
-            shutdown: Arc::new(AtomicBool::new(false)),
-            accept_count: AtomicU64::new(0),
-        })
-    }
-
-    /// Create a single Named Pipe server instance.
-    fn create_pipe_instance(
-        path: &str,
-    ) -> TransportResult<tokio::net::windows::named_pipe::NamedPipeServer> {
-        use tokio::net::windows::named_pipe::ServerOptions;
-
-        ServerOptions::new()
-            .first_pipe_instance(false)
-            .create(path)
-            .map_err(|e| TransportError::IpcConnectionFailed {
-                address: format!("pipe://{path}"),
-                reason: format!("failed to create pipe server instance: {e}"),
-            })
-    }
-
-    /// Accept the next client connection.
-    async fn accept(&self) -> TransportResult<IpcStream> {
-        if self.shutdown.load(Ordering::SeqCst) {
-            return Err(TransportError::Shutdown);
-        }
-
-        let server = Self::create_pipe_instance(&self.path)?;
-
-        // Wait for a client to connect to this pipe instance.
-        server
-            .connect()
-            .await
-            .map_err(|e| TransportError::IpcConnectionFailed {
-                address: format!("pipe://{}", self.path),
-                reason: format!("client connect wait failed: {e}"),
-            })?;
-
-        self.accept_count.fetch_add(1, Ordering::Relaxed);
-        tracing::debug!(
-            path = %self.path,
-            count = self.accept_count.load(Ordering::Relaxed),
-            "accepted Named Pipe connection"
-        );
-
-        // Convert the connected NamedPipeServer to a NamedPipeClient-like stream.
-        // NamedPipeServer implements AsyncRead + AsyncWrite, same as NamedPipeClient.
-        // We wrap it in IpcStream::NamedPipe via the server type.
-        Ok(IpcStream::NamedPipeServer(server))
     }
 }
 
@@ -296,7 +203,7 @@ async fn bind_inner(addr: &TransportAddress) -> TransportResult<IpcListener> {
         TransportAddress::Tcp { host, port } => bind_tcp(host, *port).await,
 
         #[cfg(windows)]
-        TransportAddress::NamedPipe { path } => bind_named_pipe(path),
+        TransportAddress::NamedPipe { path } => bind_named_pipe(path).await,
 
         #[cfg(not(windows))]
         TransportAddress::NamedPipe { path } => Err(TransportError::IpcNotSupported {
@@ -337,36 +244,38 @@ async fn bind_tcp(host: &str, port: u16) -> TransportResult<IpcListener> {
     Ok(IpcListener::Tcp(listener))
 }
 
-/// Bind a Windows Named Pipe listener.
+/// Bind a Windows Named Pipe listener backed by ipckit local socket.
 #[cfg(windows)]
-fn bind_named_pipe(path: &str) -> TransportResult<IpcListener> {
-    let pipe_path = if path.starts_with(r"\\.\pipe\") {
-        path.to_string()
-    } else {
-        format!(r"\\.\pipe\{path}")
-    };
-
-    let listener = NamedPipeListener::new(pipe_path)?;
-    Ok(IpcListener::NamedPipe(listener))
+async fn bind_named_pipe(path: &str) -> TransportResult<IpcListener> {
+    let listener = AsyncLocalSocketListener::bind(path).await.map_err(|e| {
+        TransportError::IpcConnectionFailed {
+            address: format!("pipe://{path}"),
+            reason: format!("ipckit bind failed: {e}"),
+        }
+    })?;
+    Ok(IpcListener::LocalSocket {
+        listener,
+        kind: LocalSocketKind::NamedPipe,
+    })
 }
 
 /// Bind a Unix Domain Socket listener.
 #[cfg(unix)]
 async fn bind_unix_socket(path: &std::path::Path) -> TransportResult<IpcListener> {
-    // Remove stale socket file if it exists.
-    if path.exists() {
-        let _ = std::fs::remove_file(path);
-    }
-
-    let listener =
-        tokio::net::UnixListener::bind(path).map_err(|e| TransportError::IpcConnectionFailed {
+    let path_string = path.display().to_string();
+    let listener = AsyncLocalSocketListener::bind(&path_string)
+        .await
+        .map_err(|e| TransportError::IpcConnectionFailed {
             address: format!("unix://{}", path.display()),
-            reason: format!("bind failed: {e}"),
+            reason: format!("ipckit bind failed: {e}"),
         })?;
 
-    tracing::debug!(path = %path.display(), "Unix socket listener bound");
+    tracing::debug!(path = %path.display(), "ipckit local socket listener bound");
 
-    Ok(IpcListener::UnixSocket(listener))
+    Ok(IpcListener::LocalSocket {
+        listener,
+        kind: LocalSocketKind::UnixSocket,
+    })
 }
 
 // ── AcceptGuard ────────────────────────────────────────────────────────────
