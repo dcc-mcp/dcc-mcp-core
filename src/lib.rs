@@ -191,6 +191,10 @@ fn register_transport(m: &Bound<'_, PyModule>) -> PyResult<()> {
         dcc_mcp_transport::PyIpcListener,
         dcc_mcp_transport::PyListenerHandle,
         dcc_mcp_transport::PyFramedChannel,
+        dcc_mcp_transport::PyDccLinkFrame,
+        dcc_mcp_transport::PyIpcChannelAdapter,
+        dcc_mcp_transport::PyGracefulIpcChannelAdapter,
+        dcc_mcp_transport::PySocketServerAdapter,
     );
     add_functions!(
         m,

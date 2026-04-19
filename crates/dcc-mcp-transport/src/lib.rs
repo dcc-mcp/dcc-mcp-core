@@ -55,6 +55,8 @@ pub use transport::TransportManager;
 // Re-export Python bindings
 #[cfg(feature = "python-bindings")]
 pub use python::{
-    PyFramedChannel, PyIpcListener, PyListenerHandle, PyRoutingStrategy, PyServiceEntry,
-    PyServiceStatus, PyTransportAddress, PyTransportManager, PyTransportScheme, py_connect_ipc,
+    PyDccLinkFrame, PyFramedChannel, PyGracefulIpcChannelAdapter, PyIpcChannelAdapter,
+    PyIpcListener, PyListenerHandle, PyRoutingStrategy, PyServiceEntry, PyServiceStatus,
+    PySocketServerAdapter, PyTransportAddress, PyTransportManager, PyTransportScheme,
+    py_connect_ipc,
 };

@@ -2302,6 +2302,269 @@ class FramedChannel:
     def __repr__(self) -> str: ...
     def __bool__(self) -> bool: ...
 
+# ── DCC-Link Adapters ──────────────────────────────────────────────────────
+
+class DccLinkFrame:
+    """A DCC-Link frame with msg_type, seq, and body fields.
+
+    Wire format: ``[u32 len][u8 type][u64 seq][msgpack body]``.
+
+    Message type tags:
+        1 = Call, 2 = Reply, 3 = Err, 4 = Progress,
+        5 = Cancel, 6 = Push, 7 = Ping, 8 = Pong.
+
+    Example:
+        >>> frame = DccLinkFrame(msg_type=1, seq=0, body=b"hello")
+        >>> encoded = frame.encode()
+        >>> decoded = DccLinkFrame.decode(encoded)
+
+    """
+
+    def __init__(self, msg_type: int, seq: int, body: bytes | None = None) -> None:
+        """Create a new DCC-Link frame.
+
+        Args:
+            msg_type: Message type tag (1-8).
+            seq: Sequence number.
+            body: Payload bytes.
+
+        Raises:
+            ValueError: If msg_type is not a valid DccLinkType tag.
+
+        """
+        ...
+    @property
+    def msg_type(self) -> int:
+        """Message type tag (1=Call, 2=Reply, 3=Err, 4=Progress, 5=Cancel, 6=Push, 7=Ping, 8=Pong)."""
+        ...
+    @property
+    def seq(self) -> int:
+        """Sequence number."""
+        ...
+    @property
+    def body(self) -> bytes:
+        """Payload bytes."""
+        ...
+    def encode(self) -> bytes:
+        """Encode the frame to ``[len][type][seq][body]`` bytes."""
+        ...
+    @staticmethod
+    def decode(data: bytes) -> DccLinkFrame:
+        """Decode a frame from bytes including the 4-byte length prefix.
+
+        Raises:
+            RuntimeError: If the data is malformed.
+
+        """
+        ...
+    def __repr__(self) -> str: ...
+
+class IpcChannelAdapter:
+    """Thin adapter over ipckit IpcChannel using DCC-Link framing.
+
+    Create a server-side channel with :meth:`create` or connect as a client
+    with :meth:`connect`.
+
+    Example:
+        >>> server = IpcChannelAdapter.create("my-dcc")
+        >>> server.wait_for_client()
+        >>> client = IpcChannelAdapter.connect("my-dcc")
+        >>> frame = DccLinkFrame(msg_type=1, seq=0, body=b"hello")
+        >>> client.send_frame(frame)
+
+    """
+
+    @staticmethod
+    def create(name: str) -> IpcChannelAdapter:
+        """Create a server-side IPC channel.
+
+        Args:
+            name: Channel name (IPC endpoint identifier).
+
+        Raises:
+            RuntimeError: If the channel cannot be created.
+
+        """
+        ...
+    @staticmethod
+    def connect(name: str) -> IpcChannelAdapter:
+        """Connect to an existing IPC channel.
+
+        Args:
+            name: Channel name to connect to.
+
+        Raises:
+            RuntimeError: If the connection fails.
+
+        """
+        ...
+    def wait_for_client(self) -> None:
+        """Wait for a client to connect (server-side only).
+
+        Raises:
+            RuntimeError: If the wait fails.
+
+        """
+        ...
+    def send_frame(self, frame: DccLinkFrame) -> None:
+        """Send a DCC-Link frame to the peer.
+
+        Args:
+            frame: The frame to send.
+
+        Raises:
+            RuntimeError: If the send fails.
+
+        """
+        ...
+    def recv_frame(self) -> DccLinkFrame | None:
+        """Receive a DCC-Link frame (blocking).
+
+        Returns:
+            The received frame, or ``None`` if the channel is closed.
+
+        Raises:
+            RuntimeError: On unexpected errors.
+
+        """
+        ...
+    def __repr__(self) -> str: ...
+
+class GracefulIpcChannelAdapter:
+    """Graceful IPC channel adapter with shutdown and affinity-pump support.
+
+    Extends :class:`IpcChannelAdapter` with graceful shutdown and low-level
+    ``bind_affinity_thread`` / ``pump_pending`` for integrating with DCC
+    main-thread idle callbacks.
+
+    For reentrancy-safe Python dispatch, prefer ``DeferredExecutor`` from
+    ``dcc_mcp_core._core`` instead of ``submit()``.
+
+    Example:
+        >>> server = GracefulIpcChannelAdapter.create("my-dcc")
+        >>> server.bind_affinity_thread()
+        >>> server.wait_for_client()
+        >>> # In DCC idle callback:
+        >>> server.pump_pending()
+
+    """
+
+    @staticmethod
+    def create(name: str) -> GracefulIpcChannelAdapter:
+        """Create a server-side graceful IPC channel.
+
+        Args:
+            name: Channel name (IPC endpoint identifier).
+
+        Raises:
+            RuntimeError: If the channel cannot be created.
+
+        """
+        ...
+    @staticmethod
+    def connect(name: str) -> GracefulIpcChannelAdapter:
+        """Connect to an existing graceful IPC channel.
+
+        Args:
+            name: Channel name to connect to.
+
+        Raises:
+            RuntimeError: If the connection fails.
+
+        """
+        ...
+    def wait_for_client(self) -> None:
+        """Wait for a client to connect (server-side only).
+
+        Raises:
+            RuntimeError: If the wait fails.
+
+        """
+        ...
+    def send_frame(self, frame: DccLinkFrame) -> None:
+        """Send a DCC-Link frame to the peer.
+
+        Args:
+            frame: The frame to send.
+
+        Raises:
+            RuntimeError: If the send fails.
+
+        """
+        ...
+    def recv_frame(self) -> DccLinkFrame | None:
+        """Receive a DCC-Link frame (blocking).
+
+        Returns:
+            The received frame, or ``None`` if the channel is closed.
+
+        Raises:
+            RuntimeError: On unexpected errors.
+
+        """
+        ...
+    def shutdown(self) -> None:
+        """Signal the channel to shut down gracefully."""
+        ...
+    def bind_affinity_thread(self) -> None:
+        """Bind the current thread as the affinity thread for reentrancy-safe dispatch.
+
+        Call this **once** on the DCC main thread.
+        """
+        ...
+    def pump_pending(self, budget_ms: int = 100) -> int:
+        """Drain pending work items on the affinity thread within the budget.
+
+        Call from the DCC host's idle callback (e.g. Maya ``scriptJob idleEvent``,
+        Blender ``bpy.app.timers``).
+
+        Args:
+            budget_ms: Budget in milliseconds. Defaults to 100.
+
+        Returns:
+            Number of items processed.
+
+        """
+        ...
+    def __repr__(self) -> str: ...
+
+class SocketServerAdapter:
+    """Minimal wrapper for ipckit SocketServer (multi-client Unix socket / named pipe).
+
+    Example:
+        >>> server = SocketServerAdapter("/tmp/my-dcc.sock")
+        >>> print(server.socket_path)
+
+    """
+
+    def __init__(
+        self,
+        path: str,
+        max_connections: int = 10,
+        connection_timeout_ms: int = 30000,
+    ) -> None:
+        """Create a new socket server.
+
+        Args:
+            path: Socket path (Unix) or pipe name (Windows).
+            max_connections: Maximum concurrent connections.
+            connection_timeout_ms: Connection timeout in ms.
+
+        Raises:
+            RuntimeError: If the server cannot be created.
+
+        """
+        ...
+    @property
+    def socket_path(self) -> str:
+        """The socket path this server is listening on."""
+        ...
+    @property
+    def connection_count(self) -> int:
+        """Number of currently connected clients."""
+        ...
+    def __repr__(self) -> str: ...
+
 class BooleanWrapper:
     """Boolean wrapper for safe Python interop via PyO3."""
 

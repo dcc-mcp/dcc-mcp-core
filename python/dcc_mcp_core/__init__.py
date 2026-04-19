@@ -50,12 +50,15 @@ from dcc_mcp_core._core import DccCapabilities
 from dcc_mcp_core._core import DccError
 from dcc_mcp_core._core import DccErrorCode
 from dcc_mcp_core._core import DccInfo
+from dcc_mcp_core._core import DccLinkFrame
 from dcc_mcp_core._core import EventBus
 from dcc_mcp_core._core import FloatWrapper
 from dcc_mcp_core._core import FramedChannel
 from dcc_mcp_core._core import FrameRange
+from dcc_mcp_core._core import GracefulIpcChannelAdapter
 from dcc_mcp_core._core import InputValidator
 from dcc_mcp_core._core import IntWrapper
+from dcc_mcp_core._core import IpcChannelAdapter
 from dcc_mcp_core._core import IpcListener
 from dcc_mcp_core._core import ListenerHandle
 from dcc_mcp_core._core import LoggingMiddleware
@@ -111,6 +114,7 @@ from dcc_mcp_core._core import SkillMetadata
 from dcc_mcp_core._core import SkillScanner
 from dcc_mcp_core._core import SkillSummary
 from dcc_mcp_core._core import SkillWatcher
+from dcc_mcp_core._core import SocketServerAdapter
 from dcc_mcp_core._core import StringWrapper
 from dcc_mcp_core._core import TelemetryConfig
 from dcc_mcp_core._core import TimingMiddleware
@@ -263,14 +267,17 @@ __all__ = [
     "DccErrorCode",
     "DccGatewayElection",
     "DccInfo",
+    "DccLinkFrame",
     "DccServerBase",
     "DccSkillHotReloader",
     "EventBus",
     "FloatWrapper",
     "FrameRange",
     "FramedChannel",
+    "GracefulIpcChannelAdapter",
     "InputValidator",
     "IntWrapper",
+    "IpcChannelAdapter",
     "IpcListener",
     "ListenerHandle",
     "LoggingMiddleware",
@@ -317,6 +324,7 @@ __all__ = [
     "SkillScanner",
     "SkillSummary",
     "SkillWatcher",
+    "SocketServerAdapter",
     "StringWrapper",
     "TelemetryConfig",
     "TimingMiddleware",

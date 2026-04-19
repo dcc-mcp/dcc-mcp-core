@@ -14,9 +14,11 @@
 //! - [`listener`] — `PyIpcListener` and `PyListenerHandle` implementation
 //! - [`channel`] — `PyFramedChannel` implementation and `connect_ipc()` function
 //! - [`message`] — `encode_request`, `encode_response`, `encode_notify`, `decode_envelope`
+//! - [`dcc_link`] — `PyDccLinkFrame`, `PyIpcChannelAdapter`, `PyGracefulIpcChannelAdapter`, `PySocketServerAdapter`
 //! - [`helpers`] — internal conversion helpers
 
 pub mod channel;
+pub mod dcc_link;
 pub mod helpers;
 pub mod listener;
 pub mod manager;
@@ -27,6 +29,11 @@ pub mod types;
 
 #[cfg(feature = "python-bindings")]
 pub use channel::{PyFramedChannel, py_connect_ipc};
+
+#[cfg(feature = "python-bindings")]
+pub use dcc_link::{
+    PyDccLinkFrame, PyGracefulIpcChannelAdapter, PyIpcChannelAdapter, PySocketServerAdapter,
+};
 
 #[cfg(feature = "python-bindings")]
 pub use listener::{PyIpcListener, PyListenerHandle};
