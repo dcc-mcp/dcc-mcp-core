@@ -43,10 +43,11 @@ dcc-mcp-core is a **Rust workspace** with Python bindings via PyO3. All logic li
 sub-crates; the root crate re-exports everything into a single `dcc_mcp_core._core` Python
 extension module. The Python package `dcc_mcp_core` re-exports all public APIs from `_core`.
 
-**14 crates** — **Zero runtime Python dependencies** — install with just `pip install dcc-mcp-core`.
+**15 crates** — **Zero runtime Python dependencies** — install with just `pip install dcc-mcp-core`.
 
 ```
 crates/
+├── dcc-mcp-naming/       # SEP-986 tool-name / action-id validators (TOOL_NAME_RE, validate_tool_name)
 ├── dcc-mcp-models/       # ToolResult, SkillMetadata
 ├── dcc-mcp-actions/      # ToolRegistry, ToolDispatcher, ToolValidator, EventBus, ToolPipeline
 ├── dcc-mcp-skills/       # SkillScanner, SkillWatcher, parse_skill_md, dependency resolver
@@ -94,6 +95,9 @@ ToolResult(success=True, message="", prompt=None, error=None, context=None)
 - `with_error(error: str) -> ToolResult` — Copy with error info (sets success=False)
 - `with_context(**kwargs) -> ToolResult` — Copy with updated context
 - `to_dict() -> dict` — Full dict representation
+- `to_json() -> str` — JSON string representation
+- `keys() -> list[str]` — Dict keys (mapping protocol)
+- `__iter__()` — Iterate over keys (mapping protocol)
 
 **Factory functions (preferred for creation):**
 ```python
@@ -150,7 +154,7 @@ Metadata parsed from SKILL.md frontmatter. All fields are get/set.
 
 ### ToolRegistry
 
-Thread-safe action registry using DashMap (Rust). Each instance is independent (no singleton).
+Thread-safe tool registry using DashMap (Rust). Each instance is independent (no singleton).
 
 ```python
 reg = dcc_mcp_core.ToolRegistry()
@@ -897,6 +901,7 @@ ann = dcc_mcp_core.ToolAnnotations(
     destructive_hint=False,   # True = deletes/overwrites data
     idempotent_hint=True,     # True = safe to call multiple times
     open_world_hint=False,    # True = may affect external/open-ended state
+    deferred_hint=None,        # True = full schema deferred until load_skill (set by server)
 )
 ```
 
@@ -2231,6 +2236,22 @@ config = McpHttpConfig(
 print(config.port)          # 8765
 print(config.server_name)   # "maya-mcp"
 print(config.server_version) # "1.0.0"
+```
+
+```python
+
+# Opt-in: lazy-actions fast-path — tools/list surfaces only 3 meta-tools
+# (list_actions, describe_action, call_action) instead of all tools
+config.lazy_actions = True  # default: False
+
+# Gateway participation
+config.gateway_port = 9765  # 0 = disabled (default)
+config.dcc_type = "maya"
+config.dcc_version = "2025"
+config.scene = "/proj/shot01.ma"  # optional: helps routing by scene
+
+# Session management
+config.session_ttl_secs = 3600  # idle session eviction (0 = disable)
 ```
 
 ### McpHttpServer

@@ -191,7 +191,7 @@ tools:
 | `on-success` | `List[str]` | Suggested tools after successful execution |
 | `on-failure` | `List[str]` | Debugging/recovery tools on failure |
 
-Both accept lists of fully-qualified tool names in `{skill_name}__{tool_name}` format.
+Both accept lists of fully-qualified tool names in `{skill_name}__{tool_name}` format. SEP-986 dot-namespacing (`skill.tool_name`) is also supported — see [Naming Rules](/guide/naming) for validation.
 
 Unloaded skill stubs returned by `tools/list` also expose `annotations.deferredHint = true` as an explicit progressive-loading signal. Once you call `load_skill(...)`, the real tools replace the stub and return `deferredHint = false`.
 
@@ -323,7 +323,7 @@ Parsed from SKILL.md frontmatter. Supports [agentskills.io](https://agentskills.
 | `name` | `str` | Unique skill name |
 | `description` | `str` | Short description (should describe what the skill does and when to use it) |
 | `search_hint` | `str` | Keyword hint for `search_skills` (SKILL.md `search-hint:` field; falls back to `description`) |
-| `tools` | `List[str]` | Tool names listed in frontmatter |
+| `tools` | `List[ToolDeclaration]` | Tool declarations from frontmatter (use `.name` to get tool names) |
 | `dcc` | `str` | Target DCC application (default: `"python"`) |
 | `tags` | `List[str]` | Classification tags |
 | `scripts` | `List[str]` | Discovered script file paths |

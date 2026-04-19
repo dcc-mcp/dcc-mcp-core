@@ -246,8 +246,9 @@ vx just lint
 - Check out the [Skills System](/guide/skills) for zero-code script registration
 - Expose tools with [MCP HTTP Server](/api/http)
 - See the [Transport Layer](/guide/transport) for DCC communication
-- Understand the [Architecture](/guide/architecture) of the 14-crate Rust workspace
+- Understand the [Architecture](/guide/architecture) of the 15-crate Rust workspace
 - Learn [Skill Scopes & Policies](/guide/skill-scopes-policies) for trust-based skill management
+- Validate tool names with [SEP-986 Naming Rules](/guide/naming)
 
 ## Troubleshooting
 

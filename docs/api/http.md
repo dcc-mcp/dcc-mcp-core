@@ -41,6 +41,7 @@ cfg = McpHttpConfig(
 | `request_timeout_ms` | `int` | `30000` | Per-request timeout in milliseconds |
 | `enable_cors` | `bool` | `False` | Enable CORS headers for browser clients |
 | `session_ttl_secs` | `int` | `3600` | Idle session TTL in seconds (`0` = disable eviction) |
+| `lazy_actions` | `bool` | `False` | Opt-in: surface only 3 meta-tools (`list_actions`, `describe_action`, `call_action`) instead of all tools in `tools/list` |
 | `gateway_port` | `int` | `0` | Gateway port to compete for (`0` = disabled). See [Gateway](#gateway) |
 | `registry_dir` | `str \| None` | `None` | Directory for the shared `FileRegistry` JSON (defaults to OS temp dir) |
 | `stale_timeout_secs` | `int` | `30` | Seconds without a heartbeat before an instance is considered stale |
@@ -54,7 +55,7 @@ cfg = McpHttpConfig(
 Returned by `McpHttpServer.start()`. Use it to get the MCP endpoint URL and shut down gracefully.
 
 ::: tip Alias
-`McpServerHandle` is the preferred public name. `McpServerHandle` remains available as a compatibility alias.
+`McpServerHandle` is the preferred public name. The internal `ServerHandle` remains available as a compatibility alias.
 
 ```python
 from dcc_mcp_core import McpServerHandle  # preferred public handle name
@@ -118,6 +119,13 @@ server = McpHttpServer(
 | `start()` | `McpServerHandle` | Start server in background thread and return handle |
 | `register_handler(tool_name, handler)` | `None` | Register a Python callable that receives decoded params (typically a `dict`) |
 | `has_handler(tool_name)` | `bool` | Check if a handler is registered for a tool |
+| `discover(extra_paths, dcc_name)` | `int` | Scan and populate the skill catalog; returns count of discovered skills |
+| `load_skill(skill_name)` | `list[str]` | Load a skill, registering its tools; returns tool names |
+| `unload_skill(skill_name)` | `bool` | Unload a skill, removing its tools |
+| `find_skills(query, tags, dcc)` | `list[SkillSummary]` | Search skills by query, tags, or DCC type |
+| `list_skills(status)` | `list[SkillSummary]` | List skills with optional status filter (`"loaded"`/`"unloaded"`) |
+| `is_loaded(skill_name)` | `bool` | Check if a skill is currently loaded |
+| `loaded_count()` | `int` | Number of currently loaded skills |
 
 ### MCP Protocol Endpoints
 

@@ -106,18 +106,24 @@ A Rust-powered MCP (Model Context Protocol) library that lets AI agents interact
 → Activate at runtime via `ToolRegistry.activate_tool_group(skill, group)` / MCP tool `activate_tool_group`
 → See `docs/guide/skills.md` — "Tool Groups (Progressive Exposure)"
 
+**Validate tool names or action IDs (SEP-986)?**
+→ [`docs/guide/naming.md`](docs/guide/naming.md)
+→ `validate_tool_name(name)` / `validate_action_id(name)` — raise `ValueError` on invalid names
+→ Constants: `TOOL_NAME_RE`, `ACTION_ID_RE`, `MAX_TOOL_NAME_LEN`
+
 ---
 
 ## Repo Layout (What Lives Where)
 
 ```
 dcc-mcp-core/
-├── src/lib.rs                      # PyO3 entry point — registers all 14 crates into _core
-├── Cargo.toml                      # Workspace: 14 Rust crates
+├── src/lib.rs                      # PyO3 entry point — registers all 15 crates into _core
+├── Cargo.toml                      # Workspace: 15 Rust crates
 ├── pyproject.toml                  # Python package
 ├── justfile                        # Dev commands (always prefix with vx)
 │
 ├── crates/                         # Rust — one crate per concern
+│   ├── dcc-mcp-naming/             # SEP-986 tool-name / action-id validators (TOOL_NAME_RE, validate_tool_name)
 │   ├── dcc-mcp-models/             # ToolResult, SkillMetadata, ToolDeclaration
 │   ├── dcc-mcp-actions/            # ToolRegistry, ToolDispatcher, ToolPipeline, EventBus
 │   ├── dcc-mcp-skills/             # SkillScanner, SkillCatalog, SkillWatcher
@@ -290,6 +296,8 @@ annotations = ToolAnnotations(
     read_only_hint=True,       # tool only reads data, no side effects
     destructive_hint=False,    # tool may cause irreversible changes
     idempotent_hint=True,      # repeated calls produce same result
+    open_world_hint=False,     # tool may interact with external systems
+    deferred_hint=None,        # full schema deferred until load_skill (set by server, not user)
 )
 # Design tools around user workflows, not raw API calls.
 # Return human-readable errors via error_result("msg", "specific error").
@@ -361,6 +369,34 @@ router = vr.router()  # -> CompatibilityRouter (borrows the registry)
 result = vr.resolve("create_sphere", "maya", "^1.0.0")
 ```
 
+**SEP-986 tool naming — validate names before registration:**
+```python
+from dcc_mcp_core import validate_tool_name, validate_action_id, TOOL_NAME_RE
+# Tool names: dot-separated lowercase (e.g. "scene.get_info")
+validate_tool_name("scene.get_info")     # ✓ passes
+validate_tool_name("Scene/GetInfo")      # ✗ raises ValueError
+# Action IDs: dotted lowercase identifier chains
+validate_action_id("maya-geometry.create_sphere")  # ✓
+# Regex constants for custom validation:
+# TOOL_NAME_RE, ACTION_ID_RE, MAX_TOOL_NAME_LEN (48 chars)
+```
+
+**`lazy_actions` — opt-in meta-tool fast-path:**
+```python
+# When enabled, tools/list surfaces only 3 meta-tools:
+# list_actions, describe_action, call_action
+# instead of every registered tool at once.
+config = McpHttpConfig(port=8765)
+config.lazy_actions = True   # opt-in; default is False
+```
+
+**`ToolResult.to_json()` — JSON serialization:**
+```python
+result = success_result("done", count=5)
+json_str = result.to_json()    # JSON string
+# Also: result.to_dict()       # Python dict
+```
+
 ---
 
 ## Code Style — Non-Negotiable
@@ -406,9 +442,9 @@ When adding a Rust type/function that needs to be callable from Python:
 
 - **Sandbox**: Use `SandboxPolicy` + `SandboxContext` for AI-driven tool execution. Never expose unrestricted filesystem or process access.
 - **Input validation**: Always validate AI-provided parameters with `ToolValidator.from_schema_json()` before execution.
-- **ToolAnnotations**: Signal safety properties (`read_only_hint`, `destructive_hint`, `idempotent_hint`) so AI clients make informed choices.
+- **ToolAnnotations**: Signal safety properties (`read_only_hint`, `destructive_hint`, `idempotent_hint`, `open_world_hint`, `deferred_hint`) so AI clients make informed choices.
 - **SkillScope**: Trust hierarchy prevents project-local skills from shadowing enterprise-managed ones.
-- **Audit log**: `AuditLog` / `AuditMiddleware` provide traceability for all AI-initiated actions.
+- **Audit log**: `AuditLog` / `AuditMiddleware` provide traceability for all AI-initiated tool calls.
 - **No secrets in code**: Never hardcode API keys, tokens, or passwords. Use environment variables or config files outside the repo.
 
 ## PR Instructions

@@ -66,10 +66,11 @@ meta = dcc_mcp_core.parse_skill_md(dirs[0])  # -> SkillMetadata or None
 
 ## Architecture
 
-Rust workspace (14 crates) with PyO3 bindings. All logic in Rust sub-crates; Python gets a single `dcc_mcp_core._core` extension module. The `dcc_mcp_core` package re-exports all ~154 public symbols from `_core` plus pure-Python helpers (DccServerBase, DccGatewayElection, DccSkillHotReloader, factory, skill helpers).
+Rust workspace (15 crates) with PyO3 bindings. All logic in Rust sub-crates; Python gets a single `dcc_mcp_core._core` extension module. The `dcc_mcp_core` package re-exports all ~171 public symbols from `_core` plus pure-Python helpers (DccServerBase, DccGatewayElection, DccSkillHotReloader, factory, skill helpers).
 
 ```
 crates/
+├── dcc-mcp-naming/      # SEP-986 tool-name / action-id validators (TOOL_NAME_RE, validate_tool_name)
 ├── dcc-mcp-models/      # ToolResult, SkillMetadata
 ├── dcc-mcp-actions/     # ToolRegistry, ToolDispatcher, ToolValidator, EventBus, ToolPipeline
 ├── dcc-mcp-skills/      # SkillScanner, SkillWatcher, parse_skill_md, dependency resolver
@@ -88,7 +89,7 @@ crates/
 
 ## Core Concepts
 
-- **ToolRegistry**: Thread-safe registry for action metadata (name, description, dcc, tags, schemas, version)
+- **ToolRegistry**: Thread-safe registry for tool metadata (name, description, dcc, tags, schemas, version)
 - **ToolResult**: Structured result (success, message, prompt, error, context dict) — AI-friendly with follow-up hints
 - **EventBus**: Thread-safe publish/subscribe system with per-event subscriber lists
 - **SkillScanner**: Discovers SKILL.md files in directories with mtime-based caching
@@ -102,7 +103,7 @@ crates/
 ### Top-level exports (`dcc_mcp_core`)
 
 **Actions:**
-- `ToolRegistry` — Thread-safe registry; `.register(name, ...)`, `.register_batch([{...}, ...])`, `.unregister(name, dcc_name=None)`, `.get_action(name)`, `.list_actions()`, `.list_actions_for_dcc(dcc)`, `.get_all_dccs()`, `.search_actions(category, tags, dcc_name)`, `.get_categories()`, `.get_tags()`, `.reset()`
+- `ToolRegistry` — Thread-safe registry; `.register(name, ...)`, `.register_batch([{...}, ...])`, `.unregister(name, dcc_name=None)`, `.get_action(name)`, `.list_actions()`, `.list_actions_for_dcc(dcc)`, `.get_all_dccs()`, `.search_actions(category, tags, dcc_name)`, `.count_actions(category, tags, dcc_name)`, `.get_categories()`, `.get_tags()`, `.reset()`
 - `ToolDispatcher` — Validated dispatch; `ToolDispatcher(registry)` (ONE arg); `.dispatch(name, json_str) -> dict`; dict keys: `"action"`, `"output"`, `"validation_skipped"`
 - `ToolValidator` — Input validation before action execution
 - `ToolPipeline(dispatcher)` — Middleware-style processing pipeline; `.add_logging(log_params=False)`, `.add_timing() -> TimingMiddleware`, `.add_audit(record_params=True) -> AuditMiddleware`, `.add_rate_limit(max_calls, window_ms) -> RateLimitMiddleware`, `.add_callable(before_fn=None, after_fn=None)`, `.dispatch(action_name, params_json="null") -> dict`, `.register_handler(name, fn)`, `.middleware_count()`, `.middleware_names()`, `.handler_count()`
@@ -124,7 +125,7 @@ crates/
 - `from_exception(error_message, message=None, include_traceback=False, ...) -> ToolResult`
 - `validate_action_result(result) -> ToolResult` — normalize dict/str/None → ToolResult
 
-**ToolResult fields:** `.success`, `.message`, `.prompt`, `.error`, `.context`, `.to_dict()`, `.with_error(err)`, `.with_context(**kw)`
+**ToolResult fields:** `.success`, `.message`, `.prompt`, `.error`, `.context`, `.to_dict()`, `.to_json()`, `.with_error(err)`, `.with_context(**kw)`
 
 **Skills:**
 - `SkillScanner` — `.scan(extra_paths=None, dcc_name=None, force_refresh=False) -> List[str]`
@@ -162,7 +163,7 @@ crates/
 - **Note**: `ActionMeta` is a Rust-internal type not accessible from Python. Use the `ToolRegistry` methods above to control tool visibility.
 - MCP core tools: `activate_tool_group`, `deactivate_tool_group`, `search_tools` (registered alongside the six skill-discovery tools; `tools/list` also emits `__group__<skill>.<group>` stubs for inactive groups)
 
-**Action naming**: `{skill_name}__{script_stem}` — hyphens in skill names replaced by underscores
+**Action naming**: `{skill_name}__{script_stem}` — hyphens in skill names replaced by underscores. SEP-986 dot-namespacing (`skill.tool_name`) also supported — see `docs/guide/naming.md` for validation rules (`validate_tool_name`, `validate_action_id`)
 
 **`next-tools` (dcc-mcp-core extension):** Declared per-tool in SKILL.md frontmatter to guide AI agents to follow-up tools:
 ```yaml
@@ -180,9 +181,10 @@ tools:
 ### MCP Protocol Types (`dcc_mcp_core`)
 
 - `ToolDefinition(name, description, input_schema, output_schema=None, annotations=None)`
-- `ToolAnnotations(title=None, read_only_hint=None, destructive_hint=None, idempotent_hint=None, open_world_hint=None)`
-- `ResourceDefinition(uri, name, description, mime_type="text/plain")`
-- `ResourceTemplateDefinition(uri_template, name, description, mime_type="text/plain")`
+- `ToolAnnotations(title=None, read_only_hint=None, destructive_hint=None, idempotent_hint=None, open_world_hint=None, deferred_hint=None)`
+- `ResourceAnnotations(audience=None, priority=None)`
+- `ResourceDefinition(uri, name, description, mime_type="text/plain", annotations=None)`
+- `ResourceTemplateDefinition(uri_template, name, description, mime_type="text/plain", annotations=None)`
 - `PromptDefinition(name, description, arguments=None)`
 - `PromptArgument(name, description, required=False)`
 - `DccInfo`, `DccCapabilities`, `DccError`, `DccErrorCode`
@@ -209,6 +211,9 @@ tools:
 ### MCP HTTP Server (`dcc_mcp_core`)
 
 - `McpHttpConfig(port=8765, server_name=None, server_version=None, enable_cors=False, request_timeout_ms=30000)` — server configuration
+  - `.lazy_actions = True` — opt-in: `tools/list` surfaces only 3 meta-tools (`list_actions`, `describe_action`, `call_action`) instead of all tools
+  - `.session_ttl_secs` — idle session eviction (default 3600s)
+  - `.gateway_port`, `.registry_dir`, `.stale_timeout_secs`, `.heartbeat_secs`, `.dcc_type`, `.dcc_version`, `.scene` — gateway participation config
 - `McpHttpServer(registry, config=None)` — MCP Streamable HTTP server (**2025-03-26 spec**), axum/Tokio backend
   - `.start() -> McpServerHandle` — starts background thread, returns immediately
   - **Note**: MCP 2025-03-26 implements Streamable HTTP, Tool Annotations, OAuth 2.1. MCP 2025-06-18 adds Structured Tool Output, Elicitation, Resource Links, and removes JSON-RPC batching. MCP 2025-11-25 adds icon metadata, Tasks, Sampling with tools. Do NOT implement manually — wait for library support.
@@ -329,7 +334,15 @@ tools:
 - `APP_NAME = "dcc-mcp"`, `APP_AUTHOR = "dcc-mcp"`
 - `DEFAULT_DCC = "python"`, `DEFAULT_LOG_LEVEL = "DEBUG"`, `DEFAULT_MIME_TYPE = "text/plain"`, `DEFAULT_VERSION = "1.0.0"`
 - `SKILL_METADATA_FILE = "SKILL.md"`, `SKILL_SCRIPTS_DIR = "scripts"`, `SKILL_METADATA_DIR = "metadata"`
-- `ENV_SKILL_PATHS = "DCC_MCP_SKILL_PATHS"`, `ENV_LOG_LEVEL = "MCP_LOG_LEVEL"`
+- `ENV_SKILL_PATHS = "DCC_MCP_SKILL_PATHS"`, `ENV_LOG_LEVEL = "MCP_LOG_LEVEL"
+- `TOOL_NAME_RE` / `ACTION_ID_RE` — SEP-986 regex patterns for tool names and action IDs
+- `MAX_TOOL_NAME_LEN = 48` — maximum tool name length
+
+### SEP-986 Naming Validators (`dcc_mcp_core`)
+
+- `validate_tool_name(name: str) -> None` — raise `ValueError` if name doesn't match `TOOL_NAME_RE` (dot-separated lowercase, max 48 chars)
+- `validate_action_id(name: str) -> None` — raise `ValueError` if id doesn't match `ACTION_ID_RE` (dotted lowercase identifier chain)
+- See `docs/guide/naming.md` for the full naming rules`
 
 ## Skills System
 
