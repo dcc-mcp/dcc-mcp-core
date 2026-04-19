@@ -11,6 +11,26 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.13.4](https://github.com/loonghao/dcc-mcp-core/compare/v0.13.3...v0.13.4) (2026-04-19)
+
+
+### Features
+
+* **http:** add 2025-06-18 elicitation create flow ([fd0bd6e](https://github.com/loonghao/dcc-mcp-core/commit/fd0bd6e1cd807c6ab8dadd86a75fcb96132211a6))
+* **http:** add roots cache and list_roots meta tool ([#272](https://github.com/loonghao/dcc-mcp-core/issues/272)) ([e952a1d](https://github.com/loonghao/dcc-mcp-core/commit/e952a1db72711ad0a47d18b67834c5e62969bc0e))
+* **http:** implement logging/setLevel and notifications/message streaming ([#271](https://github.com/loonghao/dcc-mcp-core/issues/271)) ([a05f47d](https://github.com/loonghao/dcc-mcp-core/commit/a05f47d0505625f12d6f04e7fbf7aa4adda7bf64))
+* **process:** add thread-affinity dispatcher primitives ([#273](https://github.com/loonghao/dcc-mcp-core/issues/273)) ([be6e47a](https://github.com/loonghao/dcc-mcp-core/commit/be6e47ab21804fd1f5d276e99ee237f68ef12b3c))
+
+
+### Bug Fixes
+
+* **process:** align PyStandaloneDispatcher with actual dispatcher API ([11cfd5b](https://github.com/loonghao/dcc-mcp-core/commit/11cfd5bb40b5381d7a3b733ca493b2519f8f740c))
+
+
+### Documentation
+
+* enhance AI agent documentation (run [#15](https://github.com/loonghao/dcc-mcp-core/issues/15)) ([#268](https://github.com/loonghao/dcc-mcp-core/issues/268)) ([867de50](https://github.com/loonghao/dcc-mcp-core/commit/867de501df1bccaf16c2d14164fa2406b1394e16))
+
 ## [0.13.3](https://github.com/loonghao/dcc-mcp-core/compare/v0.13.2...v0.13.3) (2026-04-18)
 
 
