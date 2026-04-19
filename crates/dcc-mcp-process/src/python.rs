@@ -18,7 +18,7 @@ use pyo3::types::PyDict;
 use std::sync::{Arc, Mutex};
 use tokio::runtime::Runtime;
 
-use crate::dispatcher::{JobRequest, StandaloneDispatcher, ThreadAffinity};
+use crate::dispatcher::{HostDispatcher, JobRequest, StandaloneDispatcher, ThreadAffinity};
 use crate::error::ProcessError;
 use crate::launcher::DccLauncher;
 use crate::monitor::ProcessMonitor;
@@ -686,11 +686,13 @@ impl PyStandaloneDispatcher {
     /// Parameters
     /// ----------
     /// action_name : str
-    ///     Logical action identifier.
+    ///     Logical action identifier used as request_id.
     /// payload : str, optional
-    ///     Opaque payload text, carried through to the outcome.
+    ///     Opaque payload text, returned in the output on success.
     /// affinity : str, optional
-    ///     ``"any"`` (default), ``"main"``, or ``"named:<thread>"``.
+    ///     ``"any"`` (default) or ``"main"``.
+    ///     Standalone dispatcher only supports ``"any"``; ``"main"`` will
+    ///     return an error outcome.
     #[pyo3(signature = (action_name, payload=None, affinity="any"))]
     pub fn submit<'py>(
         &self,
@@ -702,23 +704,19 @@ impl PyStandaloneDispatcher {
         let affinity = match affinity.to_ascii_lowercase() {
             s if s == "any" => ThreadAffinity::Any,
             s if s == "main" => ThreadAffinity::Main,
-            s if s.starts_with("named:") => {
-                let raw = s.trim_start_matches("named:").trim();
-                if raw.is_empty() {
-                    return Err(PyValueError::new_err(
-                        "named affinity requires non-empty thread name",
-                    ));
-                }
-                ThreadAffinity::named(raw)?
-            }
             _ => {
                 return Err(PyValueError::new_err(
-                    "affinity must be one of: any, main, named:<thread>",
+                    "affinity must be one of: any, main (standalone only supports 'any')",
                 ));
             }
         };
 
-        let req = JobRequest::new(action_name, affinity).with_payload(payload.unwrap_or_default());
+        let payload_val = payload.unwrap_or_default();
+        let req = JobRequest::new(
+            action_name,
+            affinity,
+            Box::new(move || Ok(serde_json::Value::String(payload_val))),
+        );
         let rt = runtime()?;
         let outcome = rt
             .block_on(async {
@@ -729,11 +727,16 @@ impl PyStandaloneDispatcher {
 
         let d = PyDict::new(py);
         d.set_item("request_id", outcome.request_id)?;
-        d.set_item("action_name", outcome.action_name)?;
         d.set_item("affinity", outcome.affinity.to_string())?;
-        d.set_item("ok", outcome.ok)?;
-        d.set_item("output", outcome.output)?;
-        d.set_item("error", outcome.error)?;
+        d.set_item("success", outcome.success)?;
+        match outcome.output {
+            Some(v) => d.set_item("output", v.to_string())?,
+            None => d.set_item("output", py.None())?,
+        }
+        match outcome.error {
+            Some(e) => d.set_item("error", e)?,
+            None => d.set_item("error", py.None())?,
+        }
         Ok(d)
     }
 
@@ -752,8 +755,8 @@ impl PyStandaloneDispatcher {
         let d = PyDict::new(py);
         d.set_item("supports_main_thread", caps.supports_main_thread)?;
         d.set_item("supports_named_threads", caps.supports_named_threads)?;
-        d.set_item("supports_cancellation", caps.supports_cancellation)?;
-        d.set_item("supports_progress", caps.supports_progress)?;
+        d.set_item("supports_any_thread", caps.supports_any_thread)?;
+        d.set_item("supports_time_slicing", caps.supports_time_slicing)?;
         Ok(d)
     }
 }

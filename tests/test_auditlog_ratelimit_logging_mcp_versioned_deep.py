@@ -696,6 +696,7 @@ class TestMcpServerHandleDeep:
         assert "find_skills" in tool_names
         assert "load_skill" in tool_names
         core_tools = {
+            "list_roots",
             "find_skills",
             "list_skills",
             "get_skill_info",

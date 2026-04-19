@@ -32,6 +32,7 @@ EXAMPLES_SKILLS = REPO_ROOT / "examples" / "skills"
 # Core meta-tools that are ALWAYS present regardless of skill load state.
 CORE_TOOLS = frozenset(
     {
+        "list_roots",
         "find_skills",
         "list_skills",
         "get_skill_info",
@@ -225,7 +226,7 @@ class TestOnDemandLoadingContract:
             )
 
     def test_core_tools_always_present(self, catalog_server):
-        """All 9 core meta-tools must be present in every tools/list response."""
+        """All 10 core meta-tools must be present in every tools/list response."""
         url = catalog_server.mcp_url()
         tools = _tools_list(url)
         names = {t["name"] for t in tools}
