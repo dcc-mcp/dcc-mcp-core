@@ -339,7 +339,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_roots_reports_cached_session_roots() {
-        let session_id = "roots-cache-session";
+        let _session_id = "roots-cache-session";
 
         // Initialize with roots capability advertised by client.
         // Seed cached roots explicitly for this deterministic unit test path.

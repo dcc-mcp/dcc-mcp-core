@@ -262,6 +262,11 @@ async fn bind_named_pipe(path: &str) -> TransportResult<IpcListener> {
 /// Bind a Unix Domain Socket listener.
 #[cfg(unix)]
 async fn bind_unix_socket(path: &std::path::Path) -> TransportResult<IpcListener> {
+    // Remove stale socket file if it exists (previous process may have crashed).
+    if path.exists() {
+        let _ = std::fs::remove_file(path);
+    }
+
     let path_string = path.display().to_string();
     let listener = AsyncLocalSocketListener::bind(&path_string)
         .await
