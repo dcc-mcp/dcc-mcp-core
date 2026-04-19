@@ -173,6 +173,22 @@ pub struct InitializeResult {
     pub instructions: Option<String>,
 }
 
+/// A single client-advertised filesystem root (`roots/list`).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ClientRoot {
+    pub uri: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+/// Result payload for `roots/list`.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct RootsListResult {
+    pub roots: Vec<ClientRoot>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ServerCapabilities {
     #[serde(skip_serializing_if = "Option::is_none")]

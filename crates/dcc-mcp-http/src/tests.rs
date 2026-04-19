@@ -337,6 +337,151 @@ mod tests {
         assert!(result["__session_id"].is_string());
     }
 
+    #[tokio::test]
+    async fn test_list_roots_reports_cached_session_roots() {
+        let session_id = "roots-cache-session";
+
+        // Initialize with roots capability advertised by client.
+        // Seed cached roots explicitly for this deterministic unit test path.
+        let state = make_app_state();
+        let sid = state.sessions.create();
+        state.sessions.set_supports_roots(&sid, true);
+        state.sessions.set_client_roots(
+            &sid,
+            vec![
+                crate::protocol::ClientRoot {
+                    uri: "file:///projects/demo".to_string(),
+                    name: Some("Demo Root".to_string()),
+                },
+                crate::protocol::ClientRoot {
+                    uri: "file:///projects/demo/assets".to_string(),
+                    name: None,
+                },
+            ],
+        );
+        let server = TestServer::new(
+            axum::Router::new()
+                .route(
+                    "/mcp",
+                    axum::routing::post(crate::handler::handle_post)
+                        .get(crate::handler::handle_get)
+                        .delete(crate::handler::handle_delete),
+                )
+                .with_state(state),
+        );
+
+        let init = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::ACCEPT,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .add_header(
+                axum::http::HeaderName::from_static("mcp-session-id"),
+                sid.parse::<HeaderValue>().unwrap(),
+            )
+            .json(&json!({
+                "jsonrpc": "2.0",
+                "id": 301,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-03-26",
+                    "capabilities": {"roots": {}},
+                    "clientInfo": {"name": "test-client", "version": "1.0"}
+                }
+            }))
+            .await;
+        init.assert_status_ok();
+
+        // Query cached roots via the new core meta-tool.
+        let roots_call = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::ACCEPT,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .add_header(
+                axum::http::HeaderName::from_static("mcp-session-id"),
+                sid.parse::<HeaderValue>().unwrap(),
+            )
+            .json(&json!({
+                "jsonrpc": "2.0",
+                "id": 302,
+                "method": "tools/call",
+                "params": {"name": "list_roots", "arguments": {}}
+            }))
+            .await;
+        roots_call.assert_status_ok();
+        let body: Value = roots_call.json();
+        assert_eq!(body["result"]["isError"], false);
+        let text = body["result"]["content"][0]["text"]
+            .as_str()
+            .expect("list_roots should return text payload");
+        let payload: Value =
+            serde_json::from_str(text).expect("list_roots payload must be valid JSON");
+        assert_eq!(payload["supports_roots"], true);
+        assert_eq!(payload["count"], 2);
+        assert_eq!(
+            payload["roots"][0]["uri"], "file:///projects/demo",
+            "cached roots should include client-advertised root URI"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_list_roots_returns_cached_roots() {
+        let state = make_app_state();
+        let sid = state.sessions.create();
+        state.sessions.set_supports_roots(&sid, true);
+        state.sessions.set_client_roots(
+            &sid,
+            vec![crate::protocol::ClientRoot {
+                uri: "file:///projects/demo".to_string(),
+                name: Some("demo".to_string()),
+            }],
+        );
+
+        let router = {
+            use crate::handler::{handle_delete, handle_get, handle_post};
+            use axum::{Router, routing};
+            Router::new()
+                .route(
+                    "/mcp",
+                    routing::post(handle_post)
+                        .get(handle_get)
+                        .delete(handle_delete),
+                )
+                .with_state(state)
+        };
+        let server = TestServer::new(router);
+
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::ACCEPT,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .add_header(
+                "Mcp-Session-Id".parse::<axum::http::HeaderName>().unwrap(),
+                sid.parse::<HeaderValue>().unwrap(),
+            )
+            .json(&json!({
+                "jsonrpc": "2.0",
+                "id": 301,
+                "method": "tools/call",
+                "params": {"name": "list_roots", "arguments": {}}
+            }))
+            .await;
+
+        resp.assert_status_ok();
+        let body: Value = resp.json();
+        assert_eq!(body["result"]["isError"], false);
+        let text = body["result"]["content"][0]["text"].as_str().unwrap();
+        let payload: Value = serde_json::from_str(text).unwrap();
+        assert_eq!(payload["supports_roots"], true);
+        assert_eq!(payload["count"], 1);
+        assert_eq!(payload["roots"][0]["uri"], "file:///projects/demo");
+    }
+
     // ── tools/list ────────────────────────────────────────────────────────
 
     #[tokio::test]
@@ -359,9 +504,8 @@ mod tests {
         resp.assert_status_ok();
         let body: Value = resp.json();
         let tools = body["result"]["tools"].as_array().unwrap();
-        // 9 core meta-tools (6 skill discovery + activate/deactivate/search_tools)
-        // + 2 registered actions = 11
-        assert_eq!(tools.len(), 11);
+        // 10 core meta-tools (adds list_roots) + 2 registered actions = 12
+        assert_eq!(tools.len(), 12);
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert!(names.contains(&"get_scene_info"));
         assert!(names.contains(&"list_objects"));
@@ -673,7 +817,8 @@ mod tests {
             // Individual skill tools (non-stubs, non-core) must not appear.
             let is_core = matches!(
                 name,
-                "find_skills"
+                "list_roots"
+                    | "find_skills"
                     | "list_skills"
                     | "get_skill_info"
                     | "load_skill"
@@ -1347,8 +1492,8 @@ mod tests {
 
         let body2: Value = resp2.json();
         let tools = body2["result"]["tools"].as_array().unwrap();
-        // 9 core meta-tools + 2 skill tools (skill now loaded, no stubs) = 11
-        assert_eq!(tools.len(), 11);
+        // 10 core meta-tools + 2 skill tools (skill now loaded, no stubs) = 12
+        assert_eq!(tools.len(), 12);
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert!(names.contains(&"modeling-bevel.bevel"));
         assert!(names.contains(&"modeling-bevel.chamfer"));
@@ -1423,8 +1568,8 @@ mod tests {
 
         let body2: Value = resp2.json();
         let tools = body2["result"]["tools"].as_array().unwrap();
-        // Back to 9 core meta-tools + 1 unloaded skill stub = 10
-        assert_eq!(tools.len(), 10);
+        // Back to 10 core meta-tools + 1 unloaded skill stub = 11
+        assert_eq!(tools.len(), 11);
         let stub = tools
             .iter()
             .find(|t| t["name"] == "__skill__modeling-bevel")
@@ -1923,7 +2068,7 @@ mod tests {
         resp.assert_status_ok();
         let body: Value = resp.json();
         let tools = body["result"]["tools"].as_array().unwrap();
-        // Total = 9 core + 40 registered = 49; first page = 32.
+        // Total = 10 core + 40 registered = 50; first page = 32.
         assert_eq!(
             tools.len(),
             TOOLS_LIST_PAGE_SIZE,
@@ -1967,8 +2112,8 @@ mod tests {
             .await
             .json();
         let tools2 = r2["result"]["tools"].as_array().unwrap();
-        // 49 - 32 = 17 tools on second page
-        assert_eq!(tools2.len(), 49 - TOOLS_LIST_PAGE_SIZE);
+        // 50 - 32 = 18 tools on second page
+        assert_eq!(tools2.len(), 50 - TOOLS_LIST_PAGE_SIZE);
         assert!(
             r2["result"]["nextCursor"].is_null(),
             "Last page must not have nextCursor"
@@ -2004,7 +2149,7 @@ mod tests {
             }
         }
 
-        assert_eq!(all_names.len(), 49, "All pages must cover exactly 49 tools");
+        assert_eq!(all_names.len(), 50, "All pages must cover exactly 50 tools");
         let unique: std::collections::HashSet<_> = all_names.iter().collect();
         assert_eq!(unique.len(), all_names.len(), "No duplicates across pages");
     }

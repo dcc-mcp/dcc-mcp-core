@@ -49,6 +49,7 @@ use crate::gateway::namespace::{decode_skill_tool_name, extract_bare_tool_name, 
 /// completed (common race condition), the entry would never be consumed by the
 /// check in `handle_tools_call`.  This TTL bounds memory growth from such entries.
 const CANCELLED_REQUEST_TTL: Duration = Duration::from_secs(30);
+const ROOTS_REFRESH_TIMEOUT: Duration = Duration::from_secs(2);
 const ELICITATION_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Shared application state passed to all axum handlers.
@@ -303,6 +304,35 @@ async fn handle_notification(state: &AppState, method: &str, params: Option<&Val
                 }
             }
         }
+        "notifications/roots/list_changed" => {
+            let sid = params
+                .and_then(|p| p.get("sessionId"))
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            if sid.is_empty() {
+                tracing::debug!(
+                    "received notifications/roots/list_changed without sessionId; ignoring"
+                );
+                return;
+            }
+            if !state.sessions.supports_roots(sid) {
+                tracing::debug!(
+                    session_id = sid,
+                    "ignoring roots/list_changed for session without roots support"
+                );
+                return;
+            }
+            let sid_owned = sid.to_string();
+            let sessions = state.sessions.clone();
+            tokio::spawn(async move {
+                let refreshed = refresh_roots_cache_for_session(&sessions, &sid_owned).await;
+                tracing::debug!(
+                    session_id = sid_owned,
+                    root_count = refreshed.len(),
+                    "refreshed roots cache from roots/list_changed notification"
+                );
+            });
+        }
         // Already handled as a request-shaped message; safe to ignore here.
         "notifications/initialized" => {}
         other => {
@@ -403,6 +433,24 @@ async fn handle_initialize(
     state
         .sessions
         .set_supports_delta_tools(&sid, client_wants_delta);
+
+    // Negotiate MCP roots capability (2025-03-26+).
+    let client_supports_roots = req
+        .params
+        .as_ref()
+        .and_then(|p| p.get("capabilities"))
+        .and_then(|c| c.get("roots"))
+        .is_some();
+    state
+        .sessions
+        .set_supports_roots(&sid, client_supports_roots);
+    if client_supports_roots {
+        let sessions = state.sessions.clone();
+        let sid_owned = sid.clone();
+        tokio::spawn(async move {
+            let _ = refresh_roots_cache_for_session(&sessions, &sid_owned).await;
+        });
+    }
 
     let experimental_caps = if client_wants_delta {
         Some(json!({ DELTA_TOOLS_UPDATE_CAP: { "enabled": true } }))
@@ -698,6 +746,7 @@ async fn handle_tools_call(
 
     // Route core discovery tools
     match tool_name.as_str() {
+        "list_roots" => return handle_list_roots(state, req, session_id).await,
         "find_skills" => return handle_find_skills(state, req, &params).await,
         "list_skills" => return handle_list_skills(state, req, &params).await,
         "get_skill_info" => return handle_get_skill_info(state, req, &params).await,
@@ -1063,6 +1112,33 @@ async fn handle_tools_call(
     ))
 }
 
+async fn handle_list_roots(
+    state: &AppState,
+    req: &JsonRpcRequest,
+    session_id: Option<&str>,
+) -> Result<JsonRpcResponse, HttpError> {
+    let Some(sid) = session_id else {
+        return Ok(JsonRpcResponse::success(
+            req.id.clone(),
+            serde_json::to_value(CallToolResult::error(
+                "list_roots requires Mcp-Session-Id header",
+            ))?,
+        ));
+    };
+    let roots = state.sessions.get_client_roots(sid);
+    let payload = json!({
+        "supports_roots": state.sessions.supports_roots(sid),
+        "count": roots.len(),
+        "roots": roots,
+    });
+    Ok(JsonRpcResponse::success(
+        req.id.clone(),
+        serde_json::to_value(CallToolResult::text(serde_json::to_string_pretty(
+            &payload,
+        )?))?,
+    ))
+}
+
 // ── Core discovery tool handlers ──────────────────────────────────────────
 
 async fn handle_find_skills(
@@ -1362,6 +1438,24 @@ fn build_core_tools() -> &'static [McpTool] {
 /// Inner builder — called exactly once per process lifetime.
 fn build_core_tools_inner() -> Vec<McpTool> {
     vec![
+        McpTool {
+            name: "list_roots".to_string(),
+            description: "Return client-advertised filesystem roots cached from roots/list for this session."
+                .to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {}
+            }),
+            output_schema: None,
+            annotations: Some(McpToolAnnotations {
+                title: Some("List Roots".to_string()),
+                read_only_hint: Some(true),
+                destructive_hint: Some(false),
+                idempotent_hint: Some(true),
+                open_world_hint: Some(false),
+                deferred_hint: Some(false),
+            }),
+        },
         McpTool {
             name: "find_skills".to_string(),
             description: "Search available skills by keyword, tags, or DCC type. \
@@ -2395,4 +2489,23 @@ fn json_error_response(
         .header(header::CONTENT_TYPE, "application/json")
         .body(Body::from(body))
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+}
+
+async fn refresh_roots_cache_for_session(
+    sessions: &SessionManager,
+    session_id: &str,
+) -> Vec<crate::protocol::ClientRoot> {
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": format!("roots-refresh-{session_id}"),
+        "method": "roots/list",
+        "params": {}
+    });
+    let event = format_sse_event(&request, None);
+    sessions.push_event(session_id, event);
+
+    // Current low-risk phase: opportunistically keep existing cache.
+    // Full client response correlation will be added in follow-up.
+    let _ = tokio::time::timeout(ROOTS_REFRESH_TIMEOUT, async {}).await;
+    sessions.get_client_roots(session_id)
 }

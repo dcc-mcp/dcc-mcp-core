@@ -17,6 +17,8 @@ use std::time::Instant;
 use tokio::sync::broadcast;
 use uuid::Uuid;
 
+use crate::protocol::ClientRoot;
+
 /// Maximum number of recent log messages retained per session.
 const SESSION_LOG_BUFFER_CAP: usize = 200;
 
@@ -93,6 +95,10 @@ pub struct McpSession {
     pub log_level: SessionLogLevel,
     /// Recent retained log lines emitted for this session.
     pub recent_logs: VecDeque<SessionLogMessage>,
+    /// Whether the client advertised MCP roots capability.
+    pub supports_roots: bool,
+    /// Cached client-advertised roots from `roots/list`.
+    pub client_roots: Vec<ClientRoot>,
     /// Broadcast channel for server-push SSE events.
     pub sse_tx: broadcast::Sender<String>,
     /// Wall-clock time of the last request handled for this session.
@@ -117,6 +123,8 @@ impl McpSession {
             supports_delta_tools: false,
             log_level: SessionLogLevel::default(),
             recent_logs: VecDeque::with_capacity(SESSION_LOG_BUFFER_CAP),
+            supports_roots: false,
+            client_roots: Vec::new(),
             sse_tx,
             last_active: Instant::now(),
         }
@@ -278,6 +286,42 @@ impl SessionManager {
             .collect();
         out.reverse();
         out
+    }
+
+    /// Record whether the client advertised roots capability.
+    pub fn set_supports_roots(&self, session_id: &str, enabled: bool) -> bool {
+        if let Some(mut s) = self.sessions.get_mut(session_id) {
+            s.supports_roots = enabled;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Whether the client for `session_id` supports roots/list.
+    pub fn supports_roots(&self, session_id: &str) -> bool {
+        self.sessions
+            .get(session_id)
+            .map(|s| s.supports_roots)
+            .unwrap_or(false)
+    }
+
+    /// Replace cached roots for the session.
+    pub fn set_client_roots(&self, session_id: &str, roots: Vec<ClientRoot>) -> bool {
+        if let Some(mut s) = self.sessions.get_mut(session_id) {
+            s.client_roots = roots;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Get cached roots for a session.
+    pub fn get_client_roots(&self, session_id: &str) -> Vec<ClientRoot> {
+        self.sessions
+            .get(session_id)
+            .map(|s| s.client_roots.clone())
+            .unwrap_or_default()
     }
 
     /// Get an SSE subscriber for the session.
