@@ -11,6 +11,24 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.13.5](https://github.com/loonghao/dcc-mcp-core/compare/v0.13.4...v0.13.5) (2026-04-19)
+
+
+### Features
+
+* **transport:** add DCC-Link ipckit channel and server adapters ([8a29851](https://github.com/loonghao/dcc-mcp-core/commit/8a298514e6855a16049da66e68e28b1cb1d8e880))
+* **transport:** route local ipc through ipckit async sockets ([7d7daae](https://github.com/loonghao/dcc-mcp-core/commit/7d7daae7eae9cf9c0bdb3fe6c7089b3b1e62b387))
+
+
+### Bug Fixes
+
+* **http,transport:** suppress unused variable warning and clean stale unix sockets ([aeb506e](https://github.com/loonghao/dcc-mcp-core/commit/aeb506eda728f69fce25b48a477327e323ae4856))
+
+
+### Documentation
+
+* refresh stale terminology for v0.13.4 codebase ([7325bac](https://github.com/loonghao/dcc-mcp-core/commit/7325bacb2d5ade458f8ed2e9f6e063fa6a9c7969))
+
 ## [0.13.4](https://github.com/loonghao/dcc-mcp-core/compare/v0.13.3...v0.13.4) (2026-04-19)
 
 
