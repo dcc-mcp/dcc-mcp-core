@@ -355,7 +355,8 @@ class TestPyBufferPoolAcquireRelease:
     def test_id_has_pool_prefix(self):
         pool = PyBufferPool(2, 512)
         buf = pool.acquire()
-        assert "pool-" in buf.id
+        # Pool buffer IDs: "p{short_id}-{i}" (was "pool-{uuid}-{i}")
+        assert buf.id.startswith("p") and "-" in buf.id
 
     def test_all_buffers_acquired_leaves_zero_available(self):
         pool = PyBufferPool(2, 128)

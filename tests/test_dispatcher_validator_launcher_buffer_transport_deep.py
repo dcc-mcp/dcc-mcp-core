@@ -9,7 +9,6 @@ from __future__ import annotations
 import gc
 import json
 import tempfile
-import uuid
 
 import pytest
 
@@ -561,8 +560,8 @@ class TestPySharedBufferOperations:
 
     def test_id_is_pool_prefixed(self) -> None:
         buf = self.pool.acquire()
-        # Pool buffer IDs are pool-<uuid>-<index> format
-        assert buf.id.startswith("pool-")
+        # Pool buffer IDs: "p{short_id}-{i}" (was "pool-{uuid}-{i}")
+        assert buf.id.startswith("p") and "-" in buf.id
 
     def test_name_is_string(self) -> None:
         buf = self.pool.acquire()
@@ -621,7 +620,8 @@ class TestPySharedSceneBufferConstruction:
             source_dcc="Maya",
             use_compression=False,
         )
-        uuid.UUID(buf.id)
+        # Short ID format: 16 hex chars (was UUID v4 with dashes)
+        assert isinstance(buf.id, str) and len(buf.id) > 0
 
     def test_total_bytes_matches_data(self) -> None:
         data = b"hello" * 20

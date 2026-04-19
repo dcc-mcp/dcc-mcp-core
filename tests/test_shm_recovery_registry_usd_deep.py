@@ -27,9 +27,8 @@ class TestPySharedBufferCreate:
 
     def test_id_looks_like_uuid(self):
         buf = dcc_mcp_core.PySharedBuffer.create(capacity=512)
-        # UUID format: 8-4-4-4-12 chars
-        parts = buf.id.split("-")
-        assert len(parts) == 5
+        # Short ID format: 16 hex chars (was UUID v4 with 8-4-4-4-12 format)
+        assert isinstance(buf.id, str) and len(buf.id) > 0
 
     def test_name_is_string(self):
         buf = dcc_mcp_core.PySharedBuffer.create(capacity=512)

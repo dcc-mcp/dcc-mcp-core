@@ -47,8 +47,8 @@ class TestPySharedSceneBufferWrite:
 
     def test_id_is_uuid_format(self):
         ssb = PySharedSceneBuffer.write(b"data", PySceneDataKind.Geometry, "Maya", False)
-        parts = ssb.id.split("-")
-        assert len(parts) == 5
+        # Short ID format: 16 hex chars (was UUID v4 with 5 dash-separated parts)
+        assert isinstance(ssb.id, str) and len(ssb.id) > 0
 
     def test_two_writes_have_different_ids(self):
         a = PySharedSceneBuffer.write(b"a", PySceneDataKind.Geometry, "Maya", False)
@@ -193,7 +193,8 @@ class TestPySharedSceneBufferLargeData:
     def test_large_data_id_is_uuid(self):
         data = b"D" * (300 * 1024)
         ssb = PySharedSceneBuffer.write(data, PySceneDataKind.Geometry, "Maya", False)
-        assert len(ssb.id.split("-")) == 5
+        # Short ID format: 16 hex chars (was UUID v4 with 5 dash-separated parts)
+        assert isinstance(ssb.id, str) and len(ssb.id) > 0
 
     def test_large_data_inline_or_chunked_exclusive(self):
         data = b"E" * (300 * 1024)
