@@ -15,6 +15,7 @@ pub mod channel;
 pub mod circuit_breaker;
 pub mod config;
 pub mod connector;
+pub mod dcc_link;
 pub mod discovery;
 pub mod error;
 pub mod framed;
@@ -34,6 +35,9 @@ pub use circuit_breaker::{
 };
 pub use config::{PoolConfig, SessionConfig, TransportConfig};
 pub use connector::{IpcStream, connect};
+pub use dcc_link::{
+    DccLinkFrame, DccLinkType, GracefulIpcChannelAdapter, IpcChannelAdapter, SocketServerAdapter,
+};
 pub use discovery::ServiceRegistry;
 pub use discovery::types::{ServiceEntry, ServiceKey, ServiceStatus};
 pub use error::{TransportError, TransportResult};
