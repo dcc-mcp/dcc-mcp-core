@@ -18,6 +18,7 @@ use pyo3::types::PyDict;
 use std::sync::{Arc, Mutex};
 use tokio::runtime::Runtime;
 
+use crate::dispatcher::{JobRequest, StandaloneDispatcher, ThreadAffinity};
 use crate::error::ProcessError;
 use crate::launcher::DccLauncher;
 use crate::monitor::ProcessMonitor;
@@ -656,5 +657,109 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyDccLauncher>()?;
     m.add_class::<PyCrashRecoveryPolicy>()?;
     m.add_class::<PyProcessWatcher>()?;
+    m.add_class::<PyStandaloneDispatcher>()?;
     Ok(())
+}
+
+// ── PyStandaloneDispatcher ───────────────────────────────────────────────────
+
+/// Reference host dispatcher implementation for non-DCC environments.
+///
+/// Supports only ``ThreadAffinity.Any`` and executes submitted jobs on a Tokio
+/// worker task. Useful for tests and standalone CLI integrations.
+#[pyclass(name = "PyStandaloneDispatcher")]
+pub struct PyStandaloneDispatcher {
+    inner: StandaloneDispatcher,
+}
+
+#[pymethods]
+impl PyStandaloneDispatcher {
+    #[new]
+    pub fn new() -> Self {
+        Self {
+            inner: StandaloneDispatcher::new(),
+        }
+    }
+
+    /// Submit a lightweight job and block for completion.
+    ///
+    /// Parameters
+    /// ----------
+    /// action_name : str
+    ///     Logical action identifier.
+    /// payload : str, optional
+    ///     Opaque payload text, carried through to the outcome.
+    /// affinity : str, optional
+    ///     ``"any"`` (default), ``"main"``, or ``"named:<thread>"``.
+    #[pyo3(signature = (action_name, payload=None, affinity="any"))]
+    pub fn submit<'py>(
+        &self,
+        py: Python<'py>,
+        action_name: &str,
+        payload: Option<String>,
+        affinity: &str,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        let affinity = match affinity.to_ascii_lowercase() {
+            s if s == "any" => ThreadAffinity::Any,
+            s if s == "main" => ThreadAffinity::Main,
+            s if s.starts_with("named:") => {
+                let raw = s.trim_start_matches("named:").trim();
+                if raw.is_empty() {
+                    return Err(PyValueError::new_err(
+                        "named affinity requires non-empty thread name",
+                    ));
+                }
+                ThreadAffinity::named(raw)?
+            }
+            _ => {
+                return Err(PyValueError::new_err(
+                    "affinity must be one of: any, main, named:<thread>",
+                ));
+            }
+        };
+
+        let req = JobRequest::new(action_name, affinity).with_payload(payload.unwrap_or_default());
+        let rt = runtime()?;
+        let outcome = rt
+            .block_on(async {
+                let rx = self.inner.submit(req);
+                rx.await.map_err(|e| ProcessError::internal(e.to_string()))
+            })
+            .map_err(map_process_err)?;
+
+        let d = PyDict::new(py);
+        d.set_item("request_id", outcome.request_id)?;
+        d.set_item("action_name", outcome.action_name)?;
+        d.set_item("affinity", outcome.affinity.to_string())?;
+        d.set_item("ok", outcome.ok)?;
+        d.set_item("output", outcome.output)?;
+        d.set_item("error", outcome.error)?;
+        Ok(d)
+    }
+
+    /// Return supported affinity values.
+    pub fn supported(&self) -> Vec<String> {
+        self.inner
+            .supported()
+            .iter()
+            .map(std::string::ToString::to_string)
+            .collect()
+    }
+
+    /// Return dispatcher capability flags as a dict.
+    pub fn capabilities<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let caps = self.inner.capabilities();
+        let d = PyDict::new(py);
+        d.set_item("supports_main_thread", caps.supports_main_thread)?;
+        d.set_item("supports_named_threads", caps.supports_named_threads)?;
+        d.set_item("supports_cancellation", caps.supports_cancellation)?;
+        d.set_item("supports_progress", caps.supports_progress)?;
+        Ok(d)
+    }
+}
+
+impl Default for PyStandaloneDispatcher {
+    fn default() -> Self {
+        Self::new()
+    }
 }

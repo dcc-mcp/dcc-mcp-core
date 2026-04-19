@@ -37,6 +37,7 @@
 //! assert!(policy.should_restart(ProcessStatus::Crashed));
 //! ```
 
+pub mod dispatcher;
 pub mod error;
 pub mod launcher;
 pub mod monitor;
@@ -48,6 +49,10 @@ pub mod watcher;
 pub mod python;
 
 // Convenient re-exports at the crate root
+pub use dispatcher::{
+    ActionOutcome, HostCapabilities, HostDispatcher, JobRequest, StandaloneDispatcher,
+    ThreadAffinity,
+};
 pub use error::ProcessError;
 pub use launcher::DccLauncher;
 pub use monitor::ProcessMonitor;
