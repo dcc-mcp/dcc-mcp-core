@@ -10,10 +10,70 @@
 //! remove idle sessions older than `McpHttpConfig::session_ttl_secs`.
 
 use dashmap::DashMap;
+use serde_json::Value;
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::broadcast;
 use uuid::Uuid;
+
+/// Maximum number of recent log messages retained per session.
+const SESSION_LOG_BUFFER_CAP: usize = 200;
+
+/// Session-scoped MCP logging threshold.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SessionLogLevel {
+    Debug,
+    #[default]
+    Info,
+    Warning,
+    Error,
+}
+
+impl SessionLogLevel {
+    /// Parse MCP log level strings (case-insensitive).
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "debug" => Some(Self::Debug),
+            "info" => Some(Self::Info),
+            "warning" | "warn" => Some(Self::Warning),
+            "error" => Some(Self::Error),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Debug => "debug",
+            Self::Info => "info",
+            Self::Warning => "warning",
+            Self::Error => "error",
+        }
+    }
+
+    /// Whether a message at `message_level` should be emitted under this threshold.
+    pub fn allows(self, message_level: SessionLogLevel) -> bool {
+        self.rank() <= message_level.rank()
+    }
+
+    fn rank(self) -> u8 {
+        match self {
+            Self::Debug => 10,
+            Self::Info => 20,
+            Self::Warning => 30,
+            Self::Error => 40,
+        }
+    }
+}
+
+/// A retained per-session log message for error correlation (`details.log_tail`).
+#[derive(Debug, Clone)]
+pub struct SessionLogMessage {
+    pub level: SessionLogLevel,
+    pub logger: String,
+    pub data: Value,
+    pub request_id: Option<String>,
+}
 
 /// A single MCP session.
 #[derive(Debug)]
@@ -29,6 +89,10 @@ pub struct McpSession {
     pub protocol_version: Option<String>,
     /// Whether the client opted into delta tools notifications.
     pub supports_delta_tools: bool,
+    /// Current minimum log level for MCP `notifications/message`.
+    pub log_level: SessionLogLevel,
+    /// Recent retained log lines emitted for this session.
+    pub recent_logs: VecDeque<SessionLogMessage>,
     /// Broadcast channel for server-push SSE events.
     pub sse_tx: broadcast::Sender<String>,
     /// Wall-clock time of the last request handled for this session.
@@ -51,6 +115,8 @@ impl McpSession {
             initialized: false,
             protocol_version: None,
             supports_delta_tools: false,
+            log_level: SessionLogLevel::default(),
+            recent_logs: VecDeque::with_capacity(SESSION_LOG_BUFFER_CAP),
             sse_tx,
             last_active: Instant::now(),
         }
@@ -148,6 +214,70 @@ impl SessionManager {
             .get(session_id)
             .map(|s| s.supports_delta_tools)
             .unwrap_or(false)
+    }
+
+    /// Update the session's MCP message log threshold.
+    pub fn set_log_level(&self, session_id: &str, level: SessionLogLevel) -> bool {
+        if let Some(mut s) = self.sessions.get_mut(session_id) {
+            s.log_level = level;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Return the session's effective log threshold.
+    pub fn get_log_level(&self, session_id: &str) -> SessionLogLevel {
+        self.sessions
+            .get(session_id)
+            .map(|s| s.log_level)
+            .unwrap_or_default()
+    }
+
+    /// Retain a log message for later `details.log_tail` correlation.
+    pub fn push_log_message(&self, session_id: &str, entry: SessionLogMessage) -> bool {
+        if let Some(mut s) = self.sessions.get_mut(session_id) {
+            s.recent_logs.push_back(entry);
+            if s.recent_logs.len() > SESSION_LOG_BUFFER_CAP {
+                s.recent_logs.pop_front();
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Return up to `limit` recent log entries correlated to `request_id`.
+    pub fn tail_logs_for_request(
+        &self,
+        session_id: &str,
+        request_id: &str,
+        limit: usize,
+    ) -> Vec<Value> {
+        if request_id.is_empty() || limit == 0 {
+            return Vec::new();
+        }
+        let Some(s) = self.sessions.get(session_id) else {
+            return Vec::new();
+        };
+
+        let mut out: Vec<Value> = s
+            .recent_logs
+            .iter()
+            .rev()
+            .filter(|line| line.request_id.as_deref() == Some(request_id))
+            .take(limit)
+            .map(|line| {
+                serde_json::json!({
+                    "level": line.level.as_str(),
+                    "logger": line.logger,
+                    "data": line.data,
+                    "request_id": line.request_id,
+                })
+            })
+            .collect();
+        out.reverse();
+        out
     }
 
     /// Get an SSE subscriber for the session.

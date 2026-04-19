@@ -29,12 +29,12 @@ use crate::{
     protocol::{
         self, CallToolParams, CallToolResult, DELTA_TOOLS_METHOD, DELTA_TOOLS_UPDATE_CAP,
         ElicitationCapability, ElicitationCreateParams, ElicitationCreateResult, InitializeResult,
-        JsonRpcBatch, JsonRpcMessage, JsonRpcRequest, JsonRpcResponse, ListToolsResult,
-        MCP_SESSION_HEADER, McpTool, McpToolAnnotations, ServerCapabilities, ServerInfo,
-        TOOLS_LIST_PAGE_SIZE, ToolsCapability, decode_cursor, encode_cursor, format_sse_event,
-        negotiate_protocol_version,
+        JsonRpcBatch, JsonRpcMessage, JsonRpcRequest, JsonRpcResponse, LOGGING_SET_LEVEL_METHOD,
+        ListToolsResult, LoggingCapability, LoggingSetLevelParams, MCP_SESSION_HEADER, McpTool,
+        McpToolAnnotations, ServerCapabilities, ServerInfo, TOOLS_LIST_PAGE_SIZE, ToolsCapability,
+        decode_cursor, encode_cursor, format_sse_event, negotiate_protocol_version,
     },
-    session::SessionManager,
+    session::{SessionLogLevel, SessionLogMessage, SessionManager},
 };
 use dcc_mcp_actions::{ActionDispatcher, ActionRegistry};
 use dcc_mcp_protocols::DccMcpError;
@@ -354,6 +354,7 @@ async fn dispatch_request(
     match req.method.as_str() {
         "initialize" => handle_initialize(state, req, session_id).await,
         "notifications/initialized" => Ok(JsonRpcResponse::success(req.id.clone(), json!({}))),
+        LOGGING_SET_LEVEL_METHOD => handle_logging_set_level(state, req, session_id).await,
         "tools/list" => handle_tools_list(state, req, session_id).await,
         "tools/call" => handle_tools_call(state, req, session_id).await,
         "elicitation/create" => handle_elicitation_create(state, req, session_id).await,
@@ -421,6 +422,7 @@ async fn handle_initialize(
             tools: Some(ToolsCapability { list_changed: true }),
             resources: None,
             prompts: None,
+            logging: Some(LoggingCapability::default()),
             elicitation: elicitation_cap,
             experimental: experimental_caps,
         },
@@ -443,6 +445,65 @@ async fn handle_initialize(
         obj.insert("__session_id".to_string(), Value::String(sid));
     }
     Ok(resp)
+}
+
+async fn handle_logging_set_level(
+    state: &AppState,
+    req: &JsonRpcRequest,
+    session_id: Option<&str>,
+) -> Result<JsonRpcResponse, HttpError> {
+    let Some(sid) = session_id else {
+        return Ok(JsonRpcResponse::error(
+            req.id.clone(),
+            protocol::error_codes::INVALID_PARAMS,
+            "logging/setLevel requires Mcp-Session-Id header",
+        ));
+    };
+
+    let Some(params) = req
+        .params
+        .as_ref()
+        .and_then(|p| serde_json::from_value::<LoggingSetLevelParams>(p.clone()).ok())
+    else {
+        return Ok(JsonRpcResponse::error(
+            req.id.clone(),
+            protocol::error_codes::INVALID_PARAMS,
+            "Invalid logging/setLevel params",
+        ));
+    };
+
+    let Some(level) = SessionLogLevel::parse(&params.level) else {
+        return Ok(JsonRpcResponse::error(
+            req.id.clone(),
+            protocol::error_codes::INVALID_PARAMS,
+            "Invalid logging level. Expected one of: debug, info, warning, error",
+        ));
+    };
+
+    if !state.sessions.set_log_level(sid, level) {
+        return Ok(JsonRpcResponse::error(
+            req.id.clone(),
+            protocol::error_codes::INVALID_PARAMS,
+            "Session not found",
+        ));
+    }
+
+    let request_id = request_id_to_string(req.id.as_ref());
+    notify_message(
+        &state.sessions,
+        sid,
+        SessionLogMessage {
+            level: SessionLogLevel::Info,
+            logger: "dcc_mcp_http.logging".to_string(),
+            data: json!({
+                "event": "set_level",
+                "level": level.as_str(),
+            }),
+            request_id,
+        },
+    );
+
+    Ok(JsonRpcResponse::success(req.id.clone(), json!({})))
 }
 
 async fn handle_elicitation_create(
@@ -756,6 +817,23 @@ async fn handle_tools_call(
         other => serde_json::to_string(other).unwrap_or_default(),
     });
 
+    if let Some(sid) = session_id {
+        notify_message(
+            &state.sessions,
+            sid,
+            SessionLogMessage {
+                level: SessionLogLevel::Debug,
+                logger: "dcc_mcp_http.tools".to_string(),
+                data: json!({
+                    "event": "tools_call_received",
+                    "tool_name": tool_name.clone(),
+                    "resolved_name": resolved_name.clone(),
+                }),
+                request_id: req_id_str.clone(),
+            },
+        );
+    }
+
     let progress_token = params.meta.as_ref().and_then(|m| m.progress_token.clone());
     let cancel_token = CancelToken::new();
     let progress_reporter = ProgressReporter::new(
@@ -915,7 +993,24 @@ async fn handle_tools_call(
             ));
         }
         Err(err_msg) => {
-            let envelope = if err_msg.contains("no handler registered") {
+            if let Some(sid) = session_id {
+                notify_message(
+                    &state.sessions,
+                    sid,
+                    SessionLogMessage {
+                        level: SessionLogLevel::Error,
+                        logger: "dcc_mcp_http.tools".to_string(),
+                        data: json!({
+                            "event": "tools_call_failed",
+                            "tool_name": tool_name.clone(),
+                            "error": err_msg.clone(),
+                        }),
+                        request_id: req_id_str.clone(),
+                    },
+                );
+            }
+
+            let mut envelope = if err_msg.contains("no handler registered") {
                 DccMcpError::new(
                     "instance",
                     "NO_HANDLER",
@@ -925,6 +1020,13 @@ async fn handle_tools_call(
             } else {
                 DccMcpError::new("instance", "EXECUTION_FAILED", &err_msg)
             };
+
+            if let (Some(sid), Some(rid)) = (session_id, req_id_str.as_deref()) {
+                let log_tail = state.sessions.tail_logs_for_request(sid, rid, 20);
+                if !log_tail.is_empty() {
+                    envelope = envelope.with_details(json!({ "log_tail": log_tail }));
+                }
+            }
             CallToolResult {
                 content: vec![protocol::ToolContent::Text {
                     text: envelope.to_json(),
@@ -2204,6 +2306,50 @@ fn notify_tools_changed(
     } else {
         notify_tools_list_changed(sessions, session_id);
     }
+}
+
+/// Emit an MCP `notifications/message` event when the message level passes the
+/// session threshold. Every message is still retained for `details.log_tail`.
+fn notify_message(sessions: &SessionManager, session_id: &str, entry: SessionLogMessage) {
+    let emit_level = entry.level;
+    let request_id = entry.request_id.clone();
+    let logger = entry.logger.clone();
+    let data = entry.data.clone();
+    let _ = sessions.push_log_message(session_id, entry);
+
+    let threshold = sessions.get_log_level(session_id);
+    if !threshold.allows(emit_level) {
+        return;
+    }
+
+    let notification = json!({
+        "jsonrpc": "2.0",
+        "method": "notifications/message",
+        "params": {
+            "level": emit_level.as_str(),
+            "logger": logger.clone(),
+            "data": data,
+        },
+    });
+    let event = format_sse_event(&notification, None);
+    sessions.push_event(session_id, event);
+    tracing::debug!(
+        session_id,
+        level = emit_level.as_str(),
+        logger,
+        request_id = request_id.unwrap_or_default(),
+        "Sent notifications/message"
+    );
+}
+
+fn request_id_to_string(id: Option<&Value>) -> Option<String> {
+    let id = id?;
+    let s = match id {
+        Value::String(v) => v.clone(),
+        Value::Number(n) => n.to_string(),
+        other => serde_json::to_string(other).unwrap_or_default(),
+    };
+    if s.is_empty() { None } else { Some(s) }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────

@@ -24,6 +24,7 @@
 //! `PROCESS_NOT_READY`, `DCC_CMD_FAILED`.
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 /// Structured error envelope returned inside MCP `tools/call` error responses.
 ///
@@ -59,6 +60,10 @@ pub struct DccMcpError {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hint: Option<String>,
 
+    /// Optional machine-readable details for advanced diagnostics.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<Value>,
+
     /// Unique identifier for correlating this error with server-side logs.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub trace_id: Option<String>,
@@ -76,6 +81,7 @@ impl DccMcpError {
             code: code.into(),
             message: message.into(),
             hint: None,
+            details: None,
             trace_id: Some(uuid::Uuid::new_v4().to_string()),
         }
     }
@@ -83,6 +89,12 @@ impl DccMcpError {
     /// Attach an actionable hint.
     pub fn with_hint(mut self, hint: impl Into<String>) -> Self {
         self.hint = Some(hint.into());
+        self
+    }
+
+    /// Attach structured details for downstream tooling and diagnostics.
+    pub fn with_details(mut self, details: Value) -> Self {
+        self.details = Some(details);
         self
     }
 
@@ -182,10 +194,12 @@ mod tests {
             code: "ACTION_NOT_FOUND".to_string(),
             message: "Unknown tool: foo".to_string(),
             hint: None,
+            details: None,
             trace_id: None,
         };
         let json = err.to_json();
         assert!(!json.contains("hint"));
+        assert!(!json.contains("details"));
         assert!(!json.contains("trace_id"));
     }
 
