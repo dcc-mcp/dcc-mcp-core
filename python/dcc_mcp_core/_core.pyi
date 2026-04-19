@@ -3872,7 +3872,7 @@ class PySharedSceneBuffer:
     def __repr__(self) -> str: ...
 
 def gc_orphans(max_age_secs: float) -> int:
-    """Scan for and remove stale dcc_shm_* shared memory segments.
+    """Scan for and remove stale ds_* shared memory segments.
 
     On Linux scans /dev/shm; on macOS scans /tmp; on Windows this is a no-op.
 

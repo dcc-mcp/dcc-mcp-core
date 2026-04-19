@@ -68,7 +68,30 @@ pub(crate) const HEADER_MAGIC: u64 = 0xDCC0_0000_5348_4D01;
 pub(crate) const HEADER_SIZE: usize = std::mem::size_of::<RegionHeader>();
 
 /// Prefix used for all ipckit segment names created by dcc-mcp-shm.
-const SEGMENT_PREFIX: &str = "dcc_shm_";
+const SEGMENT_PREFIX: &str = "ds_";
+
+/// Maximum length for a POSIX shared-memory name (macOS limit is ~31 bytes).
+const MAX_SEGMENT_NAME_LEN: usize = 31;
+
+/// Build a segment name from an id, ensuring it stays within POSIX limits.
+///
+/// If `prefix + id` exceeds `MAX_SEGMENT_NAME_LEN`, the id is truncated.
+fn segment_name(id: &str) -> String {
+    let max_id_len = MAX_SEGMENT_NAME_LEN.saturating_sub(SEGMENT_PREFIX.len());
+    if id.len() <= max_id_len {
+        format!("{SEGMENT_PREFIX}{id}")
+    } else {
+        format!("{SEGMENT_PREFIX}{}", &id[..max_id_len])
+    }
+}
+
+/// Generate a short random id suitable for use as a segment name component.
+///
+/// Returns the first 16 hex characters of a UUID v4 (64 bits of randomness),
+/// which keeps the total segment name well under the macOS 31-byte limit.
+fn short_id() -> String {
+    Uuid::new_v4().simple().to_string()[..16].to_string()
+}
 
 // ── BufferHandle — the Arc-backed inner state ────────────────────────────────
 
@@ -109,7 +132,7 @@ impl SharedBuffer {
     /// `capacity` is the maximum number of *data* bytes (header is added
     /// automatically).
     pub fn create(capacity: usize) -> ShmResult<Self> {
-        Self::create_with_ttl(Uuid::new_v4().to_string(), capacity, None)
+        Self::create_with_ttl(short_id(), capacity, None)
     }
 
     /// Create a buffer with an explicit string id (used as the ipckit segment name).
@@ -136,9 +159,9 @@ impl SharedBuffer {
         let id = id.into();
         let total = HEADER_SIZE + capacity;
 
-        let segment_name = format!("{SEGMENT_PREFIX}{id}");
+        let seg_name = segment_name(&id);
 
-        let mut shm = SharedMemory::create(&segment_name, total).map_err(|e| {
+        let mut shm = SharedMemory::create(&seg_name, total).map_err(|e| {
             let msg = e.to_string();
             if msg.contains("already exists") || msg.contains("AlreadyExists") {
                 ShmError::AlreadyExists { name: id.clone() }
@@ -228,7 +251,7 @@ impl SharedBuffer {
 
     /// Segment name used for cross-process handoff (ipckit name).
     pub fn name(&self) -> String {
-        format!("{SEGMENT_PREFIX}{}", self.id)
+        segment_name(&self.id)
     }
 
     /// Returns `true` if this buffer's TTL has expired.
@@ -370,7 +393,7 @@ fn is_header_expired(header: &RegionHeader) -> bool {
 
 // ── Orphan GC ───────────────────────────────────────────────────────────────
 
-/// Scan the OS shared-memory namespace for `dcc_shm_*` segments whose TTL
+/// Scan the OS shared-memory namespace for `ds_*` segments whose TTL
 /// has expired and remove them.
 ///
 /// Returns the number of segments removed.
