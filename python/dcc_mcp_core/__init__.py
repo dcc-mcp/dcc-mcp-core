@@ -74,9 +74,11 @@ from dcc_mcp_core._core import PyCrashRecoveryPolicy
 from dcc_mcp_core._core import PyDccLauncher
 from dcc_mcp_core._core import PyProcessMonitor
 from dcc_mcp_core._core import PyProcessWatcher
+from dcc_mcp_core._core import PyPumpedDispatcher
 from dcc_mcp_core._core import PySceneDataKind
 from dcc_mcp_core._core import PySharedBuffer
 from dcc_mcp_core._core import PySharedSceneBuffer
+from dcc_mcp_core._core import PyStandaloneDispatcher
 from dcc_mcp_core._core import RateLimitMiddleware
 from dcc_mcp_core._core import RecordingGuard
 from dcc_mcp_core._core import RenderOutput
@@ -283,9 +285,11 @@ __all__ = [
     "PyDccLauncher",
     "PyProcessMonitor",
     "PyProcessWatcher",
+    "PyPumpedDispatcher",
     "PySceneDataKind",
     "PySharedBuffer",
     "PySharedSceneBuffer",
+    "PyStandaloneDispatcher",
     "RateLimitMiddleware",
     "RecordingGuard",
     "RenderOutput",

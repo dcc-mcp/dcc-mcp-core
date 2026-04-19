@@ -41,6 +41,7 @@ pub mod dispatcher;
 pub mod error;
 pub mod launcher;
 pub mod monitor;
+pub mod pump;
 pub mod recovery;
 pub mod types;
 pub mod watcher;
@@ -56,9 +57,12 @@ pub use dispatcher::{
 pub use error::ProcessError;
 pub use launcher::DccLauncher;
 pub use monitor::ProcessMonitor;
+pub use pump::{PumpStats, PumpedDispatcher};
 pub use recovery::{BackoffStrategy, CrashRecoveryPolicy};
 pub use types::{DccProcessConfig, ProcessInfo, ProcessStatus};
 pub use watcher::{ProcessEvent, ProcessWatcher, WatcherHandle};
 
 #[cfg(feature = "python-bindings")]
-pub use python::{PyCrashRecoveryPolicy, PyDccLauncher, PyProcessMonitor, PyProcessWatcher};
+pub use python::{
+    PyCrashRecoveryPolicy, PyDccLauncher, PyProcessMonitor, PyProcessWatcher, PyPumpedDispatcher,
+};

@@ -70,7 +70,7 @@ pub struct ActionOutcome {
 }
 
 impl ActionOutcome {
-    fn ok(request_id: String, affinity: ThreadAffinity, output: Value) -> Self {
+    pub(crate) fn ok(request_id: String, affinity: ThreadAffinity, output: Value) -> Self {
         Self {
             request_id,
             affinity,
@@ -80,7 +80,11 @@ impl ActionOutcome {
         }
     }
 
-    fn err(request_id: String, affinity: ThreadAffinity, error: impl Into<String>) -> Self {
+    pub(crate) fn err(
+        request_id: String,
+        affinity: ThreadAffinity,
+        error: impl Into<String>,
+    ) -> Self {
         Self {
             request_id,
             affinity,
@@ -137,7 +141,7 @@ impl JobRequest {
         self
     }
 
-    fn execute(self) -> ActionOutcome {
+    pub(crate) fn execute(self) -> ActionOutcome {
         let request_id = self.request_id;
         let affinity = self.affinity;
         let task = self.task;

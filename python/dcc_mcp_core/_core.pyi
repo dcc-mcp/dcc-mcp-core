@@ -2961,6 +2961,87 @@ class PyProcessWatcher:
         ...
     def __repr__(self) -> str: ...
 
+class PyStandaloneDispatcher:
+    """Reference host dispatcher for non-DCC environments.
+
+    Supports only ``ThreadAffinity.Any`` and executes submitted jobs on a
+    Tokio worker task.  Useful for tests and standalone CLI integrations.
+    """
+
+    def __init__(self) -> None: ...
+    def submit(self, action_name: str, payload: str | None = None, affinity: str = "any") -> dict:
+        """Submit a lightweight job and block for completion.
+
+        :param action_name: Logical action identifier used as request_id.
+        :param payload: Opaque payload text, returned in the output on success.
+        :param affinity: ``"any"`` (default) or ``"main"``.  Standalone only
+            supports ``"any"``; ``"main"`` returns an error outcome.
+        """
+        ...
+    def supported(self) -> list[str]:
+        """Return supported affinity values."""
+        ...
+    def capabilities(self) -> dict:
+        """Return dispatcher capability flags as a dict."""
+        ...
+
+class PyPumpedDispatcher:
+    """Thread-affinity aware dispatcher with cooperative main-thread pump.
+
+    Combines an ``ipckit::MainThreadPump`` for ``"main"``/``"named"`` affinity
+    jobs with Tokio worker execution for ``"any"`` affinity jobs.
+
+    Call :meth:`pump` from the DCC host's idle callback (e.g. Maya
+    ``scriptJob(idleEvent=...)``) to drain pending main-thread work items.
+    """
+
+    def __init__(self, budget_ms: int = 8) -> None:
+        """Create a new pumped dispatcher.
+
+        :param budget_ms: Wall-clock budget per ``pump()`` call in milliseconds.
+        """
+        ...
+    def pump(self) -> dict:
+        """Drain pending main-thread work items.
+
+        Returns a dict with ``processed`` and ``remaining`` counts.
+        """
+        ...
+    def pump_with_budget(self, budget_ms: int) -> dict:
+        """Drain with an explicit budget override for this call only."""
+        ...
+    def submit(self, action_name: str, payload: str | None = None, affinity: str = "any") -> dict:
+        """Submit a job and block for completion.
+
+        :param action_name: Logical action identifier used as request_id.
+        :param payload: Opaque payload text, returned in the output on success.
+        :param affinity: ``"any"`` (default), ``"main"``, or ``"named:ThreadName"``.
+            Main/named jobs are drained by ``pump()``; any jobs run on Tokio.
+        """
+        ...
+    def pending(self) -> int:
+        """Return the number of main-thread items currently waiting."""
+        ...
+    @property
+    def total_dispatched(self) -> int:
+        """Total items ever dispatched to the main-thread pump."""
+        ...
+    @property
+    def total_processed(self) -> int:
+        """Total items ever processed by the main-thread pump."""
+        ...
+    @property
+    def budget_ms(self) -> int:
+        """Configured budget in milliseconds."""
+        ...
+    def supported(self) -> list[str]:
+        """Return supported affinity values."""
+        ...
+    def capabilities(self) -> dict:
+        """Return dispatcher capability flags as a dict."""
+        ...
+    def __repr__(self) -> str: ...
+
 # ── Telemetry ──
 
 class ToolMetrics:

@@ -15,6 +15,7 @@ tracing = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["process", "rt-multi-thread", "sync", "time", "macros"] }
 pyo3 = { workspace = true, optional = true }
+ipckit.workspace = true
 
 # Cross-platform system/process information
 sysinfo = { workspace = true }

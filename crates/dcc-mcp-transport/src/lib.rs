@@ -18,6 +18,7 @@ pub mod connector;
 pub mod dcc_link;
 pub mod discovery;
 pub mod error;
+pub mod event_bridge;
 pub mod framed;
 pub mod ipc;
 pub mod listener;
@@ -41,6 +42,7 @@ pub use dcc_link::{
 pub use discovery::ServiceRegistry;
 pub use discovery::types::{ServiceEntry, ServiceKey, ServiceStatus};
 pub use error::{TransportError, TransportResult};
+pub use event_bridge::{EventBridge, EventBridgeService, NoopBridge};
 pub use framed::FramedIo;
 pub use ipc::{IpcConfig, PlatformCapabilities, TransportAddress, TransportScheme};
 pub use listener::{IpcListener, ListenerHandle};
