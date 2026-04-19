@@ -71,6 +71,7 @@ tokio-tungstenite = "0.29"
 futures-util = "0.3"
 reqwest = { version = "0.13", default-features = false, features = ["json", "stream", "rustls"] }
 socket2 = { version = "0.6", features = ["all"] }
+criterion = { version = "0.5", features = ["html_reports"] }
 ipckit = { version = "0.1.7", features = ["async", "backend-interprocess"] }
 
 # Type-stub generation (opt-in via `stub-gen` feature). Used only by the

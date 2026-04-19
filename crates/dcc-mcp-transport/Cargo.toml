@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "Async transport layer for the DCC-MCP ecosystem (connection pool, service discovery)"
+description = "Async transport layer for the DCC-MCP ecosystem (connection pool, service discovery, benchmarks)"
 
 [dependencies]
 pyo3 = { workspace = true, optional = true }
@@ -23,9 +23,18 @@ sysinfo.workspace = true
 ipckit.workspace = true
 
 [dev-dependencies]
+criterion = { workspace = true }
 rstest = "0.26"
 tempfile = "3.14"
 tokio = { workspace = true, features = ["test-util"] }
+
+[[bench]]
+name = "dcclink_frame"
+harness = false
+
+[[bench]]
+name = "dcclink_ipc"
+harness = false
 
 [features]
 default = []

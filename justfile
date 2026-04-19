@@ -35,6 +35,10 @@ test-rust:
 rust-cov:
     cargo tarpaulin --workspace --out Html --out Xml --output-dir coverage/ --timeout 300
 
+# Run criterion benchmarks for IPC transport
+bench:
+    cargo bench -p dcc-mcp-transport
+
 # ── Standalone binary (dcc-mcp-server) ───────────────────────────────────────
 
 # Build dcc-mcp-server for the current platform
