@@ -15,7 +15,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::buffer::{BufferDescriptor, SharedBuffer};
+use crate::buffer::{BufferDescriptor, SharedBuffer, short_id};
 use crate::chunked::{self, ChunkManifest, DEFAULT_CHUNK_SIZE};
 use crate::compress;
 use crate::error::{ShmError, ShmResult};
@@ -86,7 +86,7 @@ impl SharedSceneBuffer {
         source_dcc: Option<String>,
         use_compression: bool,
     ) -> ShmResult<Self> {
-        let id = uuid::Uuid::new_v4().to_string();
+        let id = short_id();
         let now = chrono_lite_now();
         let total_bytes = data.len();
 

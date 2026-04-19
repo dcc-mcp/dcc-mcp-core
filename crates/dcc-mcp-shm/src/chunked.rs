@@ -13,7 +13,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::buffer::{BufferDescriptor, SharedBuffer};
+use crate::buffer::{BufferDescriptor, SharedBuffer, short_id};
 use crate::compress;
 use crate::error::{ShmError, ShmResult};
 
@@ -76,7 +76,7 @@ pub fn write_chunked(
         return Err(ShmError::InvalidArgument("chunk_size must be > 0".into()));
     }
 
-    let transfer_id = uuid::Uuid::new_v4().to_string();
+    let transfer_id = short_id();
     let mut buffers: Vec<SharedBuffer> = Vec::new();
     let mut chunk_infos: Vec<ChunkInfo> = Vec::new();
 

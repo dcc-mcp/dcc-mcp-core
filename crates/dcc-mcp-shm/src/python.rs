@@ -12,11 +12,10 @@ use std::time::Duration;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 
-use crate::buffer::{BufferDescriptor, SharedBuffer, gc_orphans};
+use crate::buffer::{BufferDescriptor, SharedBuffer, gc_orphans, short_id};
 use crate::error::ShmError;
 use crate::pool::{BufferPool, PooledBuffer};
 use crate::scene::{SceneDataKind, SharedSceneBuffer};
-use uuid::Uuid;
 
 // ── Error conversion ─────────────────────────────────────────────────────────
 
@@ -63,7 +62,7 @@ impl PySharedBuffer {
         } else {
             None
         };
-        SharedBuffer::create_with_ttl(Uuid::new_v4().to_string(), capacity, ttl)
+        SharedBuffer::create_with_ttl(short_id(), capacity, ttl)
             .map(|inner| Self {
                 inner,
                 _pool_guard: None,

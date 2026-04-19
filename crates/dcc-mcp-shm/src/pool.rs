@@ -20,7 +20,7 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 
-use crate::buffer::SharedBuffer;
+use crate::buffer::{SharedBuffer, short_id};
 use crate::error::{ShmError, ShmResult};
 
 /// A single slot in the pool.
@@ -80,7 +80,7 @@ impl BufferPool {
 
         let mut slots = Vec::with_capacity(capacity);
         for i in 0..capacity {
-            let id = format!("pool-{}-{}", uuid::Uuid::new_v4(), i);
+            let id = format!("p{}-{}", short_id(), i);
             let buffer = SharedBuffer::create_with_id(id, buffer_size)?;
             slots.push(Slot {
                 buffer,

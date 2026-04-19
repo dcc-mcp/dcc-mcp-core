@@ -89,7 +89,7 @@ fn segment_name(id: &str) -> String {
 ///
 /// Returns the first 16 hex characters of a UUID v4 (64 bits of randomness),
 /// which keeps the total segment name well under the macOS 31-byte limit.
-fn short_id() -> String {
+pub(crate) fn short_id() -> String {
     Uuid::new_v4().simple().to_string()[..16].to_string()
 }
 
