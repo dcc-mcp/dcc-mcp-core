@@ -137,6 +137,15 @@ impl IpcChannelAdapter {
 }
 
 /// Thin adapter over `ipckit::GracefulIpcChannel<Vec<u8>>` using DCC-Link framing.
+///
+/// Also exposes reentrancy-safe dispatch via [`bind_affinity_thread`],
+/// [`submit_reentrant`], and [`pump_pending`], mirroring the ipckit API
+/// so that DCC host adapters can safely dispatch work to the main thread
+/// without deadlocking when the caller *is* the main thread.
+///
+/// [`bind_affinity_thread`]: GracefulIpcChannelAdapter::bind_affinity_thread
+/// [`submit_reentrant`]: GracefulIpcChannelAdapter::submit_reentrant
+/// [`pump_pending`]: GracefulIpcChannelAdapter::pump_pending
 pub struct GracefulIpcChannelAdapter {
     inner: GracefulIpcChannel<Vec<u8>>,
 }
@@ -169,6 +178,34 @@ impl GracefulIpcChannelAdapter {
     pub fn shutdown(&self) {
         use ipckit::GracefulChannel;
         self.inner.shutdown();
+    }
+
+    /// Bind the current thread as the affinity thread for reentrancy-safe
+    /// dispatch. Call this **once** on the DCC main thread.
+    pub fn bind_affinity_thread(&self) {
+        self.inner.bind_affinity_thread();
+    }
+
+    /// Submit a closure to the affinity thread in a deadlock-free way.
+    ///
+    /// - If the caller **is** the affinity thread → `f` runs inline.
+    /// - Otherwise → `f` is queued; the caller blocks until
+    ///   [`pump_pending`](Self::pump_pending) processes it.
+    pub fn submit_reentrant<F, R>(&self, f: F) -> TransportResult<R>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        self.inner.submit_reentrant(f).map_err(map_ipckit_err)
+    }
+
+    /// Drain pending work items on the current (affinity) thread within
+    /// the given `budget`. Returns the number of items processed.
+    ///
+    /// Call from the DCC host's idle callback (e.g. Maya `scriptJob
+    /// idleEvent`, Blender `bpy.app.timers`).
+    pub fn pump_pending(&self, budget: Duration) -> usize {
+        self.inner.pump_pending(budget)
     }
 }
 
@@ -239,5 +276,56 @@ mod tests {
     fn dcc_link_type_rejects_unknown_tag() {
         let err = DccLinkType::try_from(255).unwrap_err();
         assert!(err.to_string().contains("unknown DccLinkType"));
+    }
+
+    #[test]
+    fn graceful_adapter_bind_affinity_and_submit() {
+        let name = format!("dcc-link-reentrant-test-{}", std::process::id());
+        let server = GracefulIpcChannelAdapter::create(&name).unwrap();
+        let _client = GracefulIpcChannelAdapter::connect(&name).unwrap();
+
+        // Bind the current thread as the affinity thread.
+        server.bind_affinity_thread();
+
+        // Submit from the affinity thread → runs inline, no pump needed.
+        let val = server
+            .submit_reentrant(|| 42_u32)
+            .expect("inline submit should succeed");
+        assert_eq!(val, 42);
+    }
+
+    #[test]
+    fn graceful_adapter_pump_pending_from_other_thread() {
+        let name = format!("dcc-link-pump-test-{}", std::process::id());
+        let server = GracefulIpcChannelAdapter::create(&name).unwrap();
+        let _client = GracefulIpcChannelAdapter::connect(&name).unwrap();
+
+        server.bind_affinity_thread();
+
+        // Synchronisation: the other thread signals right *before* it calls
+        // submit_reentrant (which blocks until pump processes the work).
+        let (tx, rx) = std::sync::mpsc::channel::<()>();
+
+        let server_clone = std::sync::Arc::new(server);
+        let handle = {
+            let s = server_clone.clone();
+            std::thread::spawn(move || {
+                let _ = tx.send(());
+                let result = s.submit_reentrant(|| "hello".to_string());
+                result.expect("queued submit should succeed")
+            })
+        };
+
+        // Wait until the other thread is about to submit.
+        rx.recv().unwrap();
+        // Give it a moment to actually enqueue the closure.
+        std::thread::sleep(Duration::from_millis(50));
+
+        // Pump on the affinity thread to process the queued closure.
+        let processed = server_clone.pump_pending(Duration::from_millis(200));
+        assert_eq!(processed, 1);
+
+        let result = handle.join().expect("thread should not panic");
+        assert_eq!(result, "hello");
     }
 }
