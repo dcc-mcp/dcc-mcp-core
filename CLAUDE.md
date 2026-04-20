@@ -1,7 +1,7 @@
 # CLAUDE.md — dcc-mcp-core Instructions for Claude
 
-> **Purpose**: Claude-specific instructions. Complements AGENTS.md with Claude-specific guidance.
-> Read AGENTS.md first for full project context, then this file.
+> **Purpose**: Claude-specific instructions. **Read `AGENTS.md` first** for full project context,
+> architecture, commands, and pitfalls. This file adds only Claude-specific guidance.
 
 ## Project Identity
 
@@ -17,35 +17,17 @@ You are working on **dcc-mcp-core**, a Rust-powered MCP (Model Context Protocol)
 - If the user explicitly requests another language for a specific reply,
   follow that request for that turn.
 
-## Quick Reference
+## Document Hierarchy (Progressive Disclosure)
 
-### Before Making Changes
+When you need information, read in this order — stop when you find what you need:
 
-1. Read `AGENTS.md` for full project context
-2. Read `python/dcc_mcp_core/__init__.py` for the complete public API surface
-3. Read `python/dcc_mcp_core/_core.pyi` for parameter names/types when unsure
-4. Current branch convention: `feat/`, `fix/`, `docs/`, `refactor/`, `chore/`
-5. Always run commands with `vx` prefix
-
-### Essential Commands
-
-```bash
-vx just preflight     # Before committing (Rust check + clippy + fmt + test)
-vx just test          # Python tests
-vx just lint          # Full lint (Rust + Python)
-vx just dev           # Build dev wheel (needed before running Python tests)
-vx just lint-fix      # Auto-fix all lint issues
-vx just test-cov      # Coverage report to find gaps
-```
-
-### Architecture Summary
-
-- **14 Rust crates** under `crates/`, compiled into `_core` native extension + pure-Python helpers
-- **~154 public Python symbols** exported from `python/dcc_mcp_core/__init__.py`
-- **Zero runtime Python deps** — all logic in Rust
-- Key entry point: `src/lib.rs` (PyO3 `#[pymodule]`)
-- Python 3.7–3.13 supported (CI tests 3.7–3.13)
-- Version: current — never manually bump (Release Please manages)
+1. **`AGENTS.md`** — Navigation map: where to find everything, traps, Do/Don't
+2. **`llms.txt`** — Compressed API reference for AI agents (token-efficient)
+3. **`python/dcc_mcp_core/__init__.py`** — Complete public API surface (~154 symbols)
+4. **`python/dcc_mcp_core/_core.pyi`** — Parameter names, types, signatures
+5. **`llms-full.txt`** — Complete API reference with examples (when `llms.txt` lacks detail)
+6. **`docs/guide/`** + **`docs/api/`** — Conceptual guides and per-module API docs
+7. **`tests/`** — 120+ usage examples in test form
 
 ## Claude-Specific Workflows
 
@@ -199,27 +181,6 @@ python -c "import dcc_mcp_core; print(hasattr(dcc_mcp_core, 'MyNewSymbol'))"
 cargo build --workspace --features python-bindings 2>&1 | grep -E "error|warning" | head -30
 ```
 
-### When Writing Tests
-
-```python
-# Import pattern for tests
-from __future__ import annotations
-import pytest
-from dcc_mcp_core import ToolResult, success_result, error_result
-
-# Skill tests: use tmp_path fixture + create minimal SKILL.md
-def test_skill_scan(tmp_path):
-    skill_dir = tmp_path / "my-skill"
-    (skill_dir / "scripts").mkdir(parents=True)
-    (skill_dir / "SKILL.md").write_text("---\nname: my-skill\ndcc: python\n---\n")
-    (skill_dir / "scripts" / "do_thing.py").write_text("print('hello')")
-
-    from dcc_mcp_core import parse_skill_md
-    meta = parse_skill_md(str(skill_dir))
-    assert meta is not None
-    assert meta.name == "my-skill"
-```
-
 ## Claude-Specific Tips
 
 - **Prefer reading `__init__.py`** over guessing imports — it has the complete public API surface
@@ -233,7 +194,7 @@ def test_skill_scan(tmp_path):
 - **`DeferredExecutor` is not in public `__init__.py`**: import via `from dcc_mcp_core._core import DeferredExecutor` until it is promoted to the public API
 - **`CompatibilityRouter` is not a standalone Python class**: access via `VersionedRegistry.router()` — it borrows the registry for constraint-based version resolution
 - **`external_deps` on SkillMetadata**: a JSON string field for declaring external requirements (MCP servers, env vars, binaries). Set via `md.external_deps = json.dumps(deps)`, read via `json.loads(md.external_deps)`. Returns `None` if not set.
-- **MCP spec**: `McpHttpServer` implements 2025-03-26 spec. The 2025-06-18 version adds Structured Tool Output, Elicitation, Resource Links, and removes JSON-RPC batching. The 2025-11-25 version adds icon metadata, Tasks (persistent requests), Sampling with tools, URL pattern requests, OAuth Client ID Metadata Document, JSON Schema 2020-12. The 2026 roadmap focuses on transport scalability, agent communication (Tasks lifecycle), governance, and enterprise readiness. Do NOT implement these manually — wait for the library to add support.
+- **MCP spec**: `McpHttpServer` implements 2025-03-26 spec. The 2026 roadmap focuses on: (1) transport scalability — `.well-known` capability discovery, stateless session model; (2) agent communication — Tasks lifecycle (experimental), retry/expiration semantics; (3) governance — contributor ladder, delegated workgroups; (4) enterprise readiness — audit, SSO, gateway behavior (mostly extensions, not core spec changes). No new transport types in 2026 — only Streamable HTTP evolution. Do NOT implement these manually — wait for the library to add support.
 - **Bridge system**: `BridgeRegistry`, `BridgeContext`, `register_bridge()`, `get_bridge_context()` — for inter-protocol bridging (RPyC ↔ MCP etc.). Don't build custom bridge registries.
 - **Scene data model**: `BoundingBox`, `FrameRange`, `ObjectTransform`, `SceneNode`, `SceneObject`, `RenderOutput` — use for structured scene data instead of raw dicts. `BoundingBox` may be `None`.
 - **Serialization**: `serialize_result()` / `deserialize_result()` with `SerializeFormat` enum — for transport-safe ToolResult serialization. Don't use `json.dumps()` on ToolResult.
@@ -245,11 +206,13 @@ def test_skill_scan(tmp_path):
 - **Security**: Use `SandboxPolicy` + `SandboxContext` for AI-driven tool execution. Validate inputs with `ToolValidator`. Never hardcode secrets.
 - **Commit messages**: Use Conventional Commits (`feat:`, `fix:`, `docs:`, `refactor:`, `chore:`, `test:`). Never manually bump versions — Release Please manages this.
 
-## Key Files to Read First (Priority Order)
+## AI Agent Tool Priority
 
-1. `python/dcc_mcp_core/__init__.py` — Complete public API (~154 symbols including BridgeRegistry, BridgeContext, BoundingBox, FrameRange, ObjectTransform, SceneNode, SceneObject, RenderOutput, SerializeFormat, WebViewAdapter, WebViewContext)
-2. `python/dcc_mcp_core/_core.pyi` — Type stubs with parameter names (does NOT include WebViewAdapter — that's Python-only)
-3. `AGENTS.md` — Full architecture, commands, pitfalls
-4. `crates/*/src/python.rs` — PyO3 binding implementations
-5. `src/lib.rs` — Module registration entry point
-6. `tests/` — Usage examples in test form (120+ files)
+When building tools or interacting with DCCs, follow this priority order:
+
+1. **Skill Discovery** (start here): `search_skills(query)` → `load_skill(name)` → use skill tools
+2. **Skill-Based Tools** (preferred): Tools with validated schemas, error handling, `next-tools` guidance, and `ToolAnnotations` safety hints
+3. **Diagnostics Tools** (for verification): `diagnostics__screenshot`, `diagnostics__audit_log`, `diagnostics__process_status`
+4. **Direct Registry Access** (last resort): Only when no skill tool covers the operation; must validate with `ToolValidator` and sandbox with `SandboxPolicy`
+
+**Why skills first?** Safety (annotations), discoverability (search-hint), chainability (next-tools), progressive exposure (tool groups), validation (input_schema).

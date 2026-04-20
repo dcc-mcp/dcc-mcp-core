@@ -2218,6 +2218,14 @@ DCC main thread.
 > | 2025-06-18 | Structured Tool Output, Elicitation (server asks user for info), Resource Links in tool results, JSON-RPC batching **removed**, `MCP-Protocol-Version` header mandatory | Planned |
 > | 2025-11-25 | Icon metadata, Tasks (experimental), Sampling with tool calls, JSON Schema 2020-12, enhanced OAuth | Planned |
 >
+> **2026 MCP Roadmap** (announced March 2026) — four priority areas:
+> 1. **Transport scalability**: `.well-known` server capability discovery, stateless session model for horizontal scaling
+> 2. **Agent communication**: Tasks primitive lifecycle (experimental in 2025-11-25), retry/expiration semantics pending
+> 3. **Governance**: contributor ladder, delegated workgroup model for faster SEP review
+> 4. **Enterprise readiness**: audit trails, SSO integration, gateway behavior (mostly as extensions, not core spec changes)
+>
+> No new official transport types will be added in the 2026 cycle — only evolution of Streamable HTTP.
+>
 > When these features land in `dcc-mcp-core`, they will be exposed via `McpHttpServer` —
 > do NOT implement these manually.
 
@@ -2373,6 +2381,54 @@ print(f"MCP server ready: {handle.mcp_url()}")
 - Pre-flight: `vx just preflight` (check + clippy + fmt-check + test-rust)
 - Full CI: `vx just ci`
 - Release: [Release Please](https://github.com/googleapis/release-please) with Conventional Commits
+
+## AI Agent Tool Priority Guide
+
+When an AI agent needs to interact with DCC software, follow this priority order:
+
+### 1. Skill Discovery (always start here)
+```python
+# Find relevant skills by keyword
+result = search_skills(query="create sphere maya")
+# Load the skill to register its tools
+load_skill(skill_name="maya-geometry")
+# Now the skill's tools appear in tools/list
+```
+
+### 2. Skill-Based Tools (preferred over raw API calls)
+- Use skill tools (e.g. `maya_geometry__create_sphere`) — they have validated schemas, error handling, and `next-tools` guidance
+- Check `ToolAnnotations` for safety hints before calling destructive tools
+- Use `next-tools` from tool results to chain follow-up actions
+
+### 3. Diagnostics Tools (for debugging/verification)
+```python
+diagnostics__screenshot    # verify visual state
+diagnostics__audit_log     # check execution history
+diagnostics__tool_metrics  # measure performance
+diagnostics__process_status # check DCC process health
+```
+
+### 4. Direct Registry Access (last resort)
+- Only when no skill tool covers the needed operation
+- Must validate inputs with `ToolValidator` before execution
+- Must use `SandboxPolicy` for AI-initiated calls
+
+### Why Skills First?
+1. **Safety**: Skills declare `ToolAnnotations` — agents can check `destructive_hint`, `read_only_hint`
+2. **Discoverability**: `search_skills` + `search-hint` keywords find the right tool without trial-and-error
+3. **Chainability**: `next-tools` guides follow-up actions, reducing hallucination
+4. **Progressive exposure**: Tool groups keep `tools/list` small — agents activate only what they need
+5. **Validation**: Skill tools have `input_schema` — parameters are validated before execution
+
+### SKILL.md Description Quality
+The `description` field (1-1024 chars) should describe **what the skill does AND when to use it**:
+- Bad: `"Helps with geometry."`
+- Good: `"Creates and modifies polygon geometry in Maya. Use when user asks to create spheres, cubes, bevel edges, or extrude faces."`
+
+### Progressive Disclosure
+Keep `SKILL.md` body < 500 lines / < 5000 tokens; move details to `references/` (loaded on demand by agents).
+
+---
 
 ## Related Projects
 

@@ -154,6 +154,8 @@ crates/
 **SkillSummary fields:** `.name`, `.description`, `.search_hint`, `.version`, `.dcc`, `.tags`, `.tool_count`, `.tool_names`, `.loaded`
 
 **SkillMetadata fields:** `.name`, `.description`, `.search_hint`, `.dcc`, `.version`, `.tags`, `.tools`, `.scripts` (List[str] absolute paths), `.skill_path`, `.depends`, `.metadata_files`, `.groups` (List[SkillGroup]), `.license` (str), `.compatibility` (str), `.allowed_tools` (List[str]), `.external_deps` (str|None — JSON string of external dependency declarations; set via `md.external_deps = json.dumps(deps)`, read via `json.loads(md.external_deps)`)
+- **SKILL.md description quality**: The `description` field (1-1024 chars) should describe **what the skill does AND when to use it** — include specific keywords so AI agents can match tasks. Bad: "Helps with geometry." Good: "Creates and modifies polygon geometry in Maya. Use when user asks to create spheres, cubes, bevel edges, or extrude faces."
+- **Progressive disclosure**: Keep `SKILL.md` body < 500 lines / < 5000 tokens; move details to `references/` (loaded on demand by agents)
 
 **SkillGroup fields:** `.name`, `.description`, `.default_active` (bool), `.tools` (List[str]) — declared in SKILL.md `groups:` frontmatter for progressive tool exposure
 
@@ -177,6 +179,8 @@ tools:
 - `on-failure`: debugging/recovery tools on failure
 - Both accept lists of fully-qualified tool names (`skill_name__tool_name` format)
 - This is a dcc-mcp-core extension, not part of the agentskills.io specification
+
+**AI Agent Tool Priority**: When interacting with DCCs, prefer: (1) Skill Discovery (`search_skills` → `load_skill`), (2) Skill-based tools (validated schemas + `next-tools` + `ToolAnnotations` safety hints), (3) Diagnostics tools (`diagnostics__screenshot` etc.), (4) Direct registry access (last resort). Skills-first provides safety, discoverability, chainability, progressive exposure, and input validation.
 
 ### MCP Protocol Types (`dcc_mcp_core`)
 
@@ -216,7 +220,7 @@ tools:
   - `.gateway_port`, `.registry_dir`, `.stale_timeout_secs`, `.heartbeat_secs`, `.dcc_type`, `.dcc_version`, `.scene` — gateway participation config
 - `McpHttpServer(registry, config=None)` — MCP Streamable HTTP server (**2025-03-26 spec**), axum/Tokio backend
   - `.start() -> McpServerHandle` — starts background thread, returns immediately
-  - **Note**: MCP 2025-03-26 implements Streamable HTTP, Tool Annotations, OAuth 2.1. MCP 2025-06-18 adds Structured Tool Output, Elicitation, Resource Links, and removes JSON-RPC batching. MCP 2025-11-25 adds icon metadata, Tasks, Sampling with tools. Do NOT implement manually — wait for library support.
+  - **Note**: MCP 2025-03-26 implements Streamable HTTP, Tool Annotations, OAuth 2.1. MCP 2025-06-18 adds Structured Tool Output, Elicitation, Resource Links, and removes JSON-RPC batching. MCP 2025-11-25 adds icon metadata, Tasks, Sampling with tools. The 2026 roadmap focuses on: (1) transport scalability — `.well-known` capability discovery, stateless sessions; (2) agent communication — Tasks lifecycle, retry/expiration; (3) governance — delegated workgroups; (4) enterprise readiness — audit, SSO (mostly extensions). No new transport types in 2026. Do NOT implement manually — wait for library support.
 - `McpServerHandle` (alias for `McpServerHandle`) — handle to running server
   - `.mcp_url() -> str` — full MCP endpoint URL (e.g. `"http://127.0.0.1:8765/mcp"`)
   - `.port -> int`, `.bind_addr -> str`

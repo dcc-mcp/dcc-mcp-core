@@ -3,6 +3,17 @@
 > **This file is a navigation map, not a reference manual.**
 > It tells you *where to look*, not *what every API does*.
 > Follow the links; don't read everything upfront.
+>
+> **Document hierarchy** (progressive disclosure — read only what you need):
+>
+> | Layer | File | What it gives you | When to read it |
+> |-------|------|-------------------|-----------------|
+> | 🗺️ Navigation | `AGENTS.md` (this file) | Where to find everything | First contact with the project |
+> | ⚡ AI-friendly index | `llms.txt` | Compressed API reference optimised for token efficiency | When an AI agent needs to *use* the APIs |
+> | 📖 Full index | `llms-full.txt` | Complete API reference with copy-paste examples | When `llms.txt` lacks detail |
+> | 📚 Human docs | `docs/guide/` + `docs/api/` | Conceptual guides and per-module API docs | When building a new adapter or skill |
+> | 🔧 LLM-specific | `CLAUDE.md` / `GEMINI.md` | Agent-specific workflows and tips | When using Claude Code or Gemini CLI |
+> | 🧩 Skill authoring | `skills/README.md` + `examples/skills/` | Templates, examples, SKILL.md format | When creating or modifying skills |
 
 ---
 
@@ -30,6 +41,53 @@ A Rust-powered MCP (Model Context Protocol) library that lets AI agents interact
 1. `python/dcc_mcp_core/__init__.py` — every public symbol, nothing hidden
 2. `python/dcc_mcp_core/_core.pyi` — ground truth for parameter names, types, and signatures
 3. `llms.txt` — compressed version of (1)+(2) optimised for token efficiency
+
+---
+
+## AI Agent Tool Priority — Start Here
+
+When an AI agent needs to interact with DCC software, follow this priority order:
+
+### 1. Skill Discovery (always start here)
+```
+search_skills(query="...") → find relevant skills
+load_skill(skill_name="...") → register tools
+tools/list → see available tools
+```
+
+### 2. Skill-Based Tools (preferred over raw API calls)
+- Use skill tools (e.g. `maya_geometry__create_sphere`) — they have validated schemas, error handling, and `next-tools` guidance
+- Check `ToolAnnotations` for safety hints before calling destructive tools
+- Use `next-tools` from tool results to chain follow-up actions
+
+### 3. Diagnostics Tools (for debugging/verification)
+```
+diagnostics__screenshot → verify visual state
+diagnostics__audit_log → check execution history
+diagnostics__tool_metrics → measure performance
+diagnostics__process_status → check DCC process health
+```
+
+### 4. Direct Registry Access (last resort)
+- Only when no skill tool covers the needed operation
+- Must validate inputs with `ToolValidator` before execution
+- Must use `SandboxPolicy` for AI-initiated calls
+
+### Decision Tree
+```
+Need to interact with DCC?
+├── Know the skill? → load_skill(name) → use tool
+├── Don't know? → search_skills(query) → load_skill → use tool
+├── Need to verify? → diagnostics__screenshot / process_status
+└── No skill exists? → register custom tool with ToolRegistry
+```
+
+### Why Skills First?
+1. **Safety**: Skills declare `ToolAnnotations` — agents can check `destructive_hint`, `read_only_hint`
+2. **Discoverability**: `search_skills` + `search-hint` keywords find the right tool without trial-and-error
+3. **Chainability**: `next-tools` guides follow-up actions, reducing hallucination
+4. **Progressive exposure**: Tool groups keep `tools/list` small — agents activate only what they need
+5. **Validation**: Skill tools have `input_schema` — parameters are validated before execution
 
 ---
 
@@ -399,6 +457,46 @@ json_str = result.to_json()    # JSON string
 
 ---
 
+## Do and Don't — Quick Reference
+
+### Do ✅
+
+- Use `create_skill_server("maya", McpHttpConfig(port=8765))` — the Skills-First entry point since v0.12.12
+- Use `success_result("msg", count=5)` — extra kwargs become `context` dict
+- Use `ToolAnnotations(read_only_hint=True, destructive_hint=False)` — helps AI clients choose safely
+- Use `next-tools: on-success/on-failure` in SKILL.md — guides AI agents to follow-up tools
+- Use `search-hint:` in SKILL.md — improves `search_skills` keyword matching
+- Use tool groups with `default_active: false` for power-user features — keeps `tools/list` small
+- Unpack `scan_and_load()`: `skills, skipped = scan_and_load(dcc_name="maya")`
+- Register ALL handlers BEFORE `McpHttpServer.start()` — the server reads the registry at startup
+- Use `SandboxPolicy` + `InputValidator` for AI-driven tool execution
+- Use `DccServerBase` as the base class for DCC adapters — skill/lifecycle/gateway inherited
+- Use `vx just dev` before `vx just test` — the Rust extension must be compiled first
+- Keep `SKILL.md` body under 500 lines / 5000 tokens — move details to `references/`
+- Use Conventional Commits for PR titles — `feat:`, `fix:`, `docs:`, `refactor:`
+- Use `registry.list_actions()` (shows all) vs `registry.list_actions_enabled()` (active only)
+- Start with `search_skills(query)` when looking for a tool — don't guess tool names
+
+### Don't ❌
+
+- Don't iterate over `scan_and_load()` result directly — it returns `(list, list)`, not skill objects
+- Don't use `success_result("msg", context={"count": 5})` — kwargs go into context automatically
+- Don't call `ToolDispatcher.call()` — method is `.dispatch(name, json_str)`
+- Don't pass positional args to `ToolRegistry.register()` — keyword args only
+- Don't import `SkillScope` or `SkillPolicy` from Python — they are Rust-only types
+- Don't import `DeferredExecutor` from public `__init__` — use `from dcc_mcp_core._core import DeferredExecutor`
+- Don't call `.new_auto()` then `.capture_window()` — use `.new_window_auto()` for single-window capture
+- Don't use legacy APIs: `ActionManager`, `create_action_manager()`, `MiddlewareChain`, `Action` — removed in v0.12+
+- Don't add Python runtime dependencies — the project is zero-dep by design
+- Don't manually bump versions or edit `CHANGELOG.md` — Release Please handles this
+- Don't hardcode API keys, tokens, or passwords — use environment variables
+- Don't use `docs/` prefix in branch names — causes `refs/heads/docs/...` conflicts
+- Don't reference `ActionMeta.enabled` in Python — use `ToolRegistry.set_tool_enabled()` instead
+- Don't use `json.dumps()` on `ToolResult` — use `result.to_json()` or `serialize_result()`
+- Don't guess tool names — use `search_skills(query)` to discover the right tool
+
+---
+
 ## Code Style — Non-Negotiable
 
 **Python:**
@@ -489,19 +587,31 @@ When adding a Rust type/function that needs to be callable from Python:
 > **MCP spec note**: Library implements 2025-03-26 (Streamable HTTP, Tool Annotations, OAuth 2.1).
 > Later specs add: 2025-06-18 (Structured Tool Output, Elicitation, Resource Links, JSON-RPC batching removed);
 > 2025-11-25 (icon metadata, Tasks, Sampling with tools, JSON Schema 2020-12).
+> The 2026 roadmap focuses on four priority areas:
+> **1) Transport scalability** — `.well-known` server capability discovery, stateless session model for horizontal scaling;
+> **2) Agent communication** — Tasks primitive (experimental in 2025-11-25), retry/expiration semantics pending;
+> **3) Governance** — contributor ladder, delegated workgroup model for faster SEP review;
+> **4) Enterprise readiness** — audit trails, SSO integration, gateway behavior, configuration portability (mostly as extensions, not core spec changes).
+> No new official transport types will be added in the 2026 cycle — only evolution of Streamable HTTP.
 > Do NOT implement these manually — wait for library support.
 
 > **agentskills.io note**: The V1.0 specification (stewarded by Anthropic, released 2025-12-18) defines
-> `name` (required), `description` (required), `license`, `compatibility`, `metadata`, and `allowed-tools`
-> (experimental, space-separated) as standard SKILL.md frontmatter fields. dcc-mcp-core extends this with
-> `dcc`, `tags`, `search-hint`, `tools`, `groups`, `depends`, `external_deps`, and `next-tools`.
+> `name` (required, 1-64 chars, lowercase + hyphens, must match directory name),
+> `description` (required, 1-1024 chars, should describe **what** and **when to use**),
+> `license` (optional, SPDX identifier or file reference),
+> `compatibility` (optional, max 500 chars, environment requirements — most skills don't need this),
+> `metadata` (optional, arbitrary string→string key-value map), and
+> `allowed-tools` (experimental, space-separated pre-approved tool strings like `Bash(git:*) Read`)
+> as standard SKILL.md frontmatter fields.
+> dcc-mcp-core extends this with `dcc`, `tags`, `search-hint`, `tools`, `groups`, `depends`, `external_deps`, and `next-tools`.
 > Validation tool: `skills-ref validate ./my-skill` (from [agentskills/agentskills](https://github.com/agentskills/agentskills)).
+> **Progressive disclosure**: Keep `SKILL.md` body < 500 lines / < 5000 tokens; move details to `references/` (loaded on demand).
 
 ---
 
 ## LLM-Specific Guides
 
-- `CLAUDE.md` — Claude Code workflows and tips
-- `GEMINI.md` — Gemini-specific guidance
-- `llms.txt` — token-optimised API reference
-- `llms-full.txt` — complete API reference
+- `CLAUDE.md` — Claude Code workflows and tips (references AGENTS.md for project context)
+- `GEMINI.md` — Gemini-specific guidance (references AGENTS.md for project context)
+- `llms.txt` — token-optimised API reference (for AI agents that need to *use* the APIs)
+- `llms-full.txt` — complete API reference with copy-paste examples

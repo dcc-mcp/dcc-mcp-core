@@ -1,12 +1,12 @@
 # GEMINI.md — dcc-mcp-core Instructions for Gemini
 
-> **Purpose**: Gemini-specific instructions. Complements AGENTS.md with Gemini-specific guidance.
-> Read AGENTS.md first for full project context, then this file.
+> **Purpose**: Gemini-specific instructions. **Read `AGENTS.md` first** for full project context,
+> architecture, commands, and pitfalls. This file adds only Gemini-specific guidance.
 
 ## Project Identity
 
 You are working on **dcc-mcp-core**, a Rust-powered MCP (Model Context Protocol) library for DCC
-(Digital Content Creation) applications. Python package: `dcc_mcp_core`. ~154 public symbols,
+(DDigital Content Creation) applications. Python package: `dcc_mcp_core`. ~154 public symbols,
 zero runtime Python dependencies (everything compiled into Rust core via PyO3), plus pure-Python
 helpers (DccServerBase, DccGatewayElection, DccSkillHotReloader, factory, skill helpers, WebViewAdapter).
 
@@ -20,13 +20,20 @@ helpers (DccServerBase, DccGatewayElection, DccSkillHotReloader, factory, skill 
 - If the user explicitly requests another language for a specific reply,
   follow that request for that turn.
 
-## Priority Reading Order
+## Document Hierarchy (Progressive Disclosure)
 
-1. `python/dcc_mcp_core/__init__.py` — Complete public API (ground truth for imports)
-2. `python/dcc_mcp_core/_core.pyi` — Type stubs (parameter names, signatures, docstrings)
-3. `AGENTS.md` — Architecture, commands, pitfalls, AI integration patterns
-4. `llms-full.txt` — Comprehensive API reference with copy-paste examples
-5. `tests/` — Usage examples in executable test form
+When you need information, read in this order — stop when you find what you need:
+
+1. **`AGENTS.md`** — Navigation map: where to find everything, traps, Do/Don't
+2. **`llms.txt`** — Compressed API reference for AI agents (token-efficient)
+3. **`python/dcc_mcp_core/__init__.py`** — Complete public API (ground truth for imports)
+4. **`python/dcc_mcp_core/_core.pyi`** — Type stubs (parameter names, signatures, docstrings)
+5. **`llms-full.txt`** — Comprehensive API reference with copy-paste examples
+6. **`docs/guide/`** + **`docs/api/`** — Conceptual guides and per-module API docs
+7. **`tests/`** — Usage examples in executable test form
+
+Gemini tip: Use the `llms-full.txt` file as your primary API reference — it has copy-paste examples
+for every API area. The file is structured with a **Quick Decision Guide** table at the top.
 
 ## Essential Commands
 
@@ -60,9 +67,6 @@ print(dir(dcc_mcp_core))  # all ~140 symbols
 # grep equivalent:
 # python/dcc_mcp_core/_core.pyi: has full class/function docstrings + type annotations
 ```
-
-Gemini tip: Use the `llms-full.txt` file as your primary reference — it has copy-paste examples
-for every API area. The file is structured with a **Quick Decision Guide** table at the top.
 
 ### Finding Rust Implementation
 
@@ -183,7 +187,7 @@ search-hint: "polygon modeling, bevel, extrude, mesh editing"
 
 ## Common Pitfalls
 
-1. **Import from public API only**: `from dcc_mcp_core import X` — never `from dcc_mcp_core._core import X`
+1. **Import from public API only**: `from dcc_mcp_core import X` — never `from dcc_mcp_core._core import X` (except `DeferredExecutor`)
 2. **No manual version bumps**: Release Please owns `CHANGELOG.md` and version strings
 3. **No runtime Python deps**: Never add to `dependencies` in `pyproject.toml`
 4. **Rust changes need Python updates**: Modify `python.rs` → `src/lib.rs` → `__init__.py` → `_core.pyi`
@@ -202,7 +206,7 @@ search-hint: "polygon modeling, bevel, extrude, mesh editing"
 17. **`McpServerHandle` is an alias**: `server.start()` returns `McpServerHandle`; it is re-exported as `McpServerHandle` in `__init__.py`. Import as `from dcc_mcp_core import McpServerHandle`.
 18. **`McpHttpServer` registry population**: All actions must be registered in `ToolRegistry` BEFORE calling `server.start()`. The server reads metadata from the registry at startup.
 
-19. **MCP spec version awareness**: `McpHttpServer` implements 2025-03-26 spec (Streamable HTTP, Tool Annotations, OAuth 2.1). The 2025-06-18 version adds Structured Tool Output, Elicitation, Resource Links, and removes JSON-RPC batching. The 2025-11-25 version adds icon metadata, Tasks, Sampling with tools, JSON Schema 2020-12. Do NOT implement these manually — wait for the library to add support.
+19. **MCP spec version awareness**: `McpHttpServer` implements 2025-03-26 spec (Streamable HTTP, Tool Annotations, OAuth 2.1). The 2026 roadmap focuses on: (1) transport scalability — `.well-known` capability discovery, stateless sessions; (2) agent communication — Tasks lifecycle, retry/expiration; (3) governance — contributor ladder, delegated workgroups; (4) enterprise readiness — audit, SSO, gateway behavior (mostly extensions). No new transport types in 2026. Do NOT implement these manually — wait for the library to add support.
 
 20. **`scan_and_load` keyword args only**: Both `extra_paths` and `dcc_name` must be passed as keyword arguments: `scan_and_load(dcc_name="maya", extra_paths=["/path"])` — never as positionals.
 
@@ -212,29 +216,31 @@ search-hint: "polygon modeling, bevel, extrude, mesh editing"
 
 23. **`external_deps` on SkillMetadata**: A JSON string field for declaring external requirements (MCP servers, env vars, binaries). Set via `md.external_deps = json.dumps(deps)`, read via `json.loads(md.external_deps)`. Returns `None` when not set. See `docs/guide/skill-scopes-policies.md` for the schema.
 
-22. **tools/list has 6 core tools** (not 5): `find_skills`, `list_skills`, `get_skill_info`, `load_skill`, `unload_skill`, **`search_skills``. Unloaded skills appear as `__skill__<name>` stubs — calling a stub returns a `load_skill` hint, not an error about missing handlers.
+24. **tools/list has 6 core tools** (not 5): `find_skills`, `list_skills`, `get_skill_info`, `load_skill`, `unload_skill`, **`search_skills``. Unloaded skills appear as `__skill__<name>` stubs — calling a stub returns a `load_skill` hint, not an error about missing handlers.
 
-23. **`search_hint` fallback**: If `search-hint:` is not in SKILL.md, `SkillSummary.search_hint` falls back to `description`. Set `search-hint` explicitly for better keyword matching.
+25. **`search_hint` fallback**: If `search-hint:` is not in SKILL.md, `SkillSummary.search_hint` falls back to `description`. Set `search-hint` explicitly for better keyword matching.
 
-24. **SkillScope & SkillPolicy** (v0.13+): Trust hierarchy `Repo` < `User` < `System` < `Admin`. Higher-scope skills shadow lower-scope ones with the same name. **These are Rust-level types not directly importable from Python.** Configure via SKILL.md frontmatter (`allow_implicit_invocation`, `products`) and access via `SkillMetadata.is_implicit_invocation_allowed()` / `SkillMetadata.matches_product(dcc_name)`.
+26. **SkillScope & SkillPolicy** (v0.13+): Trust hierarchy `Repo` < `User` < `System` < `Admin`. Higher-scope skills shadow lower-scope ones with the same name. **These are Rust-level types not directly importable from Python.** Configure via SKILL.md frontmatter (`allow_implicit_invocation`, `products`) and access via `SkillMetadata.is_implicit_invocation_allowed()` / `SkillMetadata.matches_product(dcc_name)`.
 
-25. **WebViewAdapter** (Python-only): `from dcc_mcp_core import WebViewAdapter, WebViewContext, CAPABILITY_KEYS, WEBVIEW_DEFAULT_CAPABILITIES` — for embedding browser panels in DCC applications. Not in `_core.pyi`.
+27. **WebViewAdapter** (Python-only): `from dcc_mcp_core import WebViewAdapter, WebViewContext, CAPABILITY_KEYS, WEBVIEW_DEFAULT_CAPABILITIES` — for embedding browser panels in DCC applications. Not in `_core.pyi`.
 
-26. **`skill_warning()` / `skill_exception()`**: Pure-Python helpers in `skill.py`. `skill_warning()` returns a partial-success dict with warnings; `skill_exception()` wraps exceptions into error dict format.
+28. **`skill_warning()` / `skill_exception()`**: Pure-Python helpers in `skill.py`. `skill_warning()` returns a partial-success dict with warnings; `skill_exception()` wraps exceptions into error dict format.
 
-27. **Action→Tool compatibility** (v0.13): The project renamed "action" → "tool" conceptually. Method names `get_action`, `list_actions`, `search_actions` remain as compatibility aliases — not bugs.
+29. **Action→Tool compatibility** (v0.13): The project renamed "action" → "tool" conceptually. Method names `get_action`, `list_actions`, `search_actions` remain as compatibility aliases — not bugs.
 
-28. **MCP best practices**: Design tools around user workflows, not API calls. Use `ToolAnnotations` for safety hints (`read_only_hint`, `destructive_hint`, `idempotent_hint`). Return human-readable errors. Use `notifications/tools/list_changed` when the tool set changes.
+30. **MCP best practices**: Design tools around user workflows, not API calls. Use `ToolAnnotations` for safety hints (`read_only_hint`, `destructive_hint`, `idempotent_hint`). Return human-readable errors. Use `notifications/tools/list_changed` when the tool set changes.
 
-29. **`ActionMeta` is Rust-only**: Do not reference `ActionMeta.enabled` or `ActionMeta.group` in Python code. Use `ToolRegistry.set_tool_enabled(name, enabled)` and `ToolRegistry.list_tools_in_group(skill, group)` instead.
+31. **`ActionMeta` is Rust-only**: Do not reference `ActionMeta.enabled` or `ActionMeta.group` in Python code. Use `ToolRegistry.set_tool_enabled(name, enabled)` and `ToolRegistry.list_tools_in_group(skill, group)` instead.
 
-30. **SKILL.md frontmatter fields**: agentskills.io standard (`name` required, `description` required, `license`, `compatibility`, `metadata`, `allowed-tools` experimental) + dcc-mcp-core extensions (`dcc`, `tags`, `search-hint`, `tools`, `groups`, `depends`, `next-tools`). The `allowed-tools` field uses space-separated tool strings like `Bash(git:*) Read`.
+32. **SKILL.md frontmatter fields**: agentskills.io standard (`name` required, `description` required, `license`, `compatibility`, `metadata`, `allowed-tools` experimental) + dcc-mcp-core extensions (`dcc`, `tags`, `search-hint`, `tools`, `groups`, `depends`, `next-tools`). The `allowed-tools` field uses space-separated tool strings like `Bash(git:*) Read`.
 
-31. **`next-tools` field** (dcc-mcp-core extension): Declared per-tool in SKILL.md to guide AI agents to follow-up tools. `on-success` and `on-failure` accept lists of fully-qualified tool names. Not part of agentskills.io spec.
+33. **`next-tools` field** (dcc-mcp-core extension): Declared per-tool in SKILL.md to guide AI agents to follow-up tools. `on-success` and `on-failure` accept lists of fully-qualified tool names. Not part of agentskills.io spec.
 
-32. **Security**: Use `SandboxPolicy` + `SandboxContext` for AI-driven execution. Validate inputs with `ToolValidator`. Never hardcode secrets in code.
+34. **Security**: Use `SandboxPolicy` + `SandboxContext` for AI-driven execution. Validate inputs with `ToolValidator`. Never hardcode secrets in code.
 
-33. **Commit messages**: Use Conventional Commits (`feat:`, `fix:`, `docs:`, etc.). Never manually bump versions.
+35. **Commit messages**: Use Conventional Commits (`feat:`, `fix:`, `docs:`, etc.). Never manually bump versions.
+
+36. **AI Agent Tool Priority**: When interacting with DCCs, prefer: (1) Skill Discovery (`search_skills` → `load_skill`), (2) Skill-based tools (validated schemas + `next-tools` + `ToolAnnotations`), (3) Diagnostics tools (`diagnostics__screenshot` etc.), (4) Direct registry access (last resort, must validate + sandbox). Skills-first approach provides safety, discoverability, chainability, progressive exposure, and validation.
 
 ## CI/CD Summary
 

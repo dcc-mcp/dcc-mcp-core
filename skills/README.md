@@ -54,7 +54,7 @@ my-skill/
 | Field | Required | Description |
 |-------|----------|-------------|
 | `name` | Yes | Unique skill identifier (kebab-case, max 64 chars) |
-| `description` | Yes | What the skill does and when to use it (shown to AI agents, max 1024 chars) |
+| `description` | Yes | What the skill does AND when to use it (shown to AI agents, max 1024 chars). Include specific keywords for discoverability. |
 | `dcc` | No | Target DCC (`maya`, `blender`, `python`, etc.) |
 | `version` | No | Semantic version (default `1.0.0`) |
 | `tags` | No | Discovery tags (`[modeling, geometry, maya]`) |
@@ -67,6 +67,33 @@ my-skill/
 | `tools` | No | Explicit tool declarations with schemas |
 | `metadata` | No | Arbitrary key-value metadata (agentskills.io spec) |
 | `external_deps` | No | External dependency declaration (MCP servers, env vars, binaries) as YAML mapping |
+
+### Description Quality Guide
+
+The `description` field is the **most important field for AI agent discoverability**. It determines whether an agent will find and use your skill via `search_skills()`.
+
+**Good descriptions** tell AI agents **what** the skill does and **when to use it**:
+```yaml
+# ✓ Good — specific keywords + use-case trigger
+description: "Creates and modifies polygon geometry in Maya. Use when user asks to create spheres, cubes, bevel edges, or extrude faces."
+# ✓ Good — clear scope + trigger phrases
+description: "Extracts text and tables from PDF files, fills PDF forms, and merges multiple PDFs. Use when working with PDF documents."
+```
+
+**Bad descriptions** are vague and lack discoverability:
+```yaml
+# ✗ Bad — too vague, no keywords, no use-case
+description: "Helps with geometry."
+# ✗ Bad — no trigger phrase for when to use
+description: "PDF processing utilities."
+```
+
+### Progressive Disclosure
+
+Keep `SKILL.md` body under **500 lines / 5000 tokens**. Move detailed references to `references/`:
+- AI agents load `name` + `description` at startup (~100 tokens)
+- Full SKILL.md body is loaded on `load_skill()` activation
+- `references/` files are loaded only when explicitly needed
 
 ### Tool Declaration Fields
 
