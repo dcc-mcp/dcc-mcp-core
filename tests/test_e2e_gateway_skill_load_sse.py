@@ -276,9 +276,15 @@ class TestGatewayLoadSkillSsePropagation:
             f"expected ``__skill__hello-world`` stub in aggregated tools/list, got: {sorted(names)[:20]}..."
         )
 
-        # And the active tool must NOT be present yet. The real tool name
-        # is ``hello-world.greet`` (skill_name.script_stem); before
-        # load_skill runs, only the ``__skill__hello-world`` stub exists.
+        # And the active tool must NOT be present yet. The tool is
+        # ``greet`` (bare form introduced by #307; unique within the
+        # single-skill instance) — before load_skill runs, only the
+        # ``__skill__hello-world`` stub exists. We also assert the legacy
+        # ``hello-world.greet`` form is absent to guard against a
+        # regression that re-introduces prefixed emission unconditionally.
+        assert not any(n.endswith(".greet") for n in names), (
+            f"greet must NOT be active before load_skill is called; got: {sorted(names)[:20]}"
+        )
         assert not any(n.endswith("hello-world.greet") for n in names), (
             "hello-world.greet must NOT be active before load_skill is called"
         )
@@ -343,9 +349,10 @@ class TestGatewayLoadSkillSsePropagation:
             # And now tools/list must expose the loaded tool. Allow a brief
             # retry window because tools/list aggregation caches backend
             # responses for up to one watcher tick.
-            # Gateway-aggregated tool names are ``<8hex>.<backend-tool>``
-            # where the backend-tool for a loaded skill is
-            # ``<skill-name>.<script-stem>``, i.e. ``hello-world.greet``.
+            # Gateway-aggregated tool names are ``<8hex>.<backend-tool>``.
+            # Since #307, the backend-tool for a loaded skill is the bare
+            # action name when unique within the instance — here
+            # ``greet`` (the hello-world skill exposes a single action).
             # We match on the suffix so the test remains correct regardless
             # of the random 8-char instance id.
             deadline = time.time() + AGGREGATOR_TICK_S + 2.0
@@ -353,12 +360,12 @@ class TestGatewayLoadSkillSsePropagation:
             while time.time() < deadline:
                 resp = _post_mcp(gateway_url, "tools/list")
                 active_names = {t["name"] for t in resp["result"]["tools"]}
-                if any(n.endswith(".hello-world.greet") for n in active_names):
+                if any(n.endswith(".greet") for n in active_names):
                     break
                 time.sleep(0.5)
 
-            assert any(n.endswith(".hello-world.greet") for n in active_names), (
-                "load_skill succeeded and SSE fired, but hello-world.greet is still absent "
+            assert any(n.endswith(".greet") for n in active_names), (
+                "load_skill succeeded and SSE fired, but greet is still absent "
                 f"from aggregated tools/list: sample={sorted(active_names)[:30]}"
             )
 

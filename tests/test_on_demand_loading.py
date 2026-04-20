@@ -245,7 +245,7 @@ class TestOnDemandLoadingContract:
         # Snapshot before
         before = {t["name"]: t for t in _tools_list(url)}
         assert "__skill__hello-world" in before, "Expected __skill__hello-world stub before loading"
-        assert "hello-world.greet" not in before, "hello-world.greet must not be present before load_skill"
+        assert "greet" not in before, "greet must not be present before load_skill"
 
         # Load hello-world
         load_resp = _post(
@@ -267,9 +267,7 @@ class TestOnDemandLoadingContract:
         assert "__skill__hello-world" not in after, "The __skill__hello-world stub must be removed after loading"
 
         # Real tool present
-        assert "hello-world.greet" in after, (
-            f"hello-world.greet must appear after load_skill. Got: {list(after.keys())}"
-        )
+        assert "greet" in after, f"greet must appear after load_skill. Got: {list(after.keys())}"
 
         # Other stubs unaffected (count of remaining stubs = before - 1)
         stubs_before = {n for n in before if n.startswith("__skill__")}
@@ -312,7 +310,7 @@ class TestOnDemandLoadingContract:
         # Snapshot after unload
         after_unload = {t["name"] for t in _tools_list(url)}
 
-        assert "hello-world.greet" not in after_unload, "hello-world.greet must be removed after unload_skill"
+        assert "greet" not in after_unload, "greet must be removed after unload_skill"
         assert "__skill__hello-world" in after_unload, "__skill__hello-world stub must reappear after unload_skill"
 
     def test_tools_list_count_invariant(self, catalog_server):
@@ -335,7 +333,7 @@ class TestOnDemandLoadingContract:
 
         count_base = len(_tools_list(url))
 
-        # Load hello-world (1 tool: hello-world.greet)
+        # Load hello-world (1 tool: greet)
         _post(
             url,
             {

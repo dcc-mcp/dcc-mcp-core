@@ -79,6 +79,10 @@ pub struct AppState {
     /// (`list_actions`, `describe_action`, `call_action`) and the dispatcher
     /// accepts them. See [`crate::McpHttpConfig::lazy_actions`] (#254).
     pub lazy_actions: bool,
+    /// When `true` (default), `tools/list` emits bare action names whenever
+    /// they are unique within the instance. See
+    /// [`crate::McpHttpConfig::bare_tool_names`] (#307).
+    pub bare_tool_names: bool,
 }
 
 impl AppState {
@@ -675,11 +679,37 @@ async fn handle_tools_list(
     //    Tools in inactive groups are collapsed into one ``__group__<name>``
     //    stub per group to keep ``tools/list`` compact (progressive exposure).
     let actions = state.registry.list_actions(None);
+
+    // #307 — decide which actions can publish under their **bare name** on
+    // this instance. `bare_eligible` contains `(skill, action)` tuples for
+    // every action whose bare name is unique across loaded skills.
+    let bare_eligible: std::collections::HashSet<(String, String)> = if state.bare_tool_names {
+        let inputs: Vec<crate::gateway::namespace::BareNameInput<'_>> = actions
+            .iter()
+            .filter(|m| m.enabled)
+            .filter_map(|m| {
+                m.skill_name
+                    .as_deref()
+                    .map(|sn| crate::gateway::namespace::BareNameInput {
+                        skill_name: sn,
+                        action_name: m.name.as_str(),
+                    })
+            })
+            .collect();
+        crate::gateway::namespace::resolve_bare_names(&inputs)
+    } else {
+        std::collections::HashSet::new()
+    };
+
     let mut inactive_groups: std::collections::BTreeMap<String, Vec<String>> =
         std::collections::BTreeMap::new();
     for meta in &actions {
         if meta.enabled {
-            tools.push(action_meta_to_mcp_tool(meta, include_output_schema));
+            tools.push(action_meta_to_mcp_tool(
+                meta,
+                include_output_schema,
+                &bare_eligible,
+            ));
         } else if !meta.group.is_empty() {
             inactive_groups
                 .entry(meta.group.clone())
@@ -810,7 +840,13 @@ async fn handle_tools_call(
     // Resolve action params (default to empty object)
     let call_params = params.arguments.unwrap_or(json!({}));
 
-    // Tool name resolution (#238): <skill>.<name> + backward compat
+    // Tool name resolution (#238 + #307):
+    //   1. Exact registry hit (canonical `skill__action` form).
+    //   2. `<skill>.<action>` shape — the legacy prefixed form. Accepted for
+    //      one release even when `bare_tool_names` is on; emits a one-shot
+    //      warning so operators find remaining hard-coded clients.
+    //   3. Bare action name — the preferred #307 form when unique, or
+    //      legacy fallback when the client predates #238.
     let resolved_name: String = if state.registry.get_action(&tool_name, None).is_some() {
         tool_name.clone()
     } else if let Some((skill_part, bare_tool)) = decode_skill_tool_name(&tool_name) {
@@ -820,6 +856,9 @@ async fn handle_tools_call(
             .into_iter()
             .find(|m| extract_bare_tool_name(skill_part, &m.name) == bare_tool);
         if let Some(m) = matched {
+            if state.bare_tool_names {
+                crate::gateway::namespace::warn_legacy_prefixed_once(&tool_name);
+            }
             m.name
         } else {
             tool_name.clone()
@@ -832,10 +871,16 @@ async fn handle_tools_call(
                 .unwrap_or(false)
         });
         if let Some(ref matched) = lm {
-            let canonical =
-                skill_tool_name(matched.skill_name.as_deref().unwrap_or(""), &matched.name)
-                    .unwrap_or_else(|| matched.name.clone());
-            tracing::warn!(bare_name=%tool_name, "Deprecated bare name -- use {canonical}.");
+            // When bare names are the blessed form (#307) this path is the
+            // happy path — stay silent. Only warn when the server was
+            // explicitly told to keep the prefixed form as the primary shape,
+            // which means a bare call is the legacy escape hatch.
+            if !state.bare_tool_names {
+                let canonical =
+                    skill_tool_name(matched.skill_name.as_deref().unwrap_or(""), &matched.name)
+                        .unwrap_or_else(|| matched.name.clone());
+                tracing::warn!(bare_name=%tool_name, "Deprecated bare name -- use {canonical}.");
+            }
             matched.name.clone()
         } else {
             tool_name.clone()
@@ -1821,6 +1866,7 @@ fn build_lazy_action_tools() -> Vec<McpTool> {
 fn action_meta_to_mcp_tool(
     meta: &dcc_mcp_actions::registry::ActionMeta,
     include_output_schema: bool,
+    bare_eligible: &std::collections::HashSet<(String, String)>,
 ) -> McpTool {
     let input_schema = if meta.input_schema.is_null() {
         json!({"type": "object"})
@@ -1837,10 +1883,20 @@ fn action_meta_to_mcp_tool(
         None
     };
 
+    // #307 — prefer the bare action name when the caller has deemed it
+    // unique within this instance. Core tools and actions without a skill
+    // still publish under their canonical form.
     let mcp_name = meta
         .skill_name
         .as_deref()
-        .and_then(|sn| skill_tool_name(sn, &meta.name))
+        .map(|sn| {
+            let key = (sn.to_string(), meta.name.clone());
+            if bare_eligible.contains(&key) {
+                crate::gateway::namespace::extract_bare_tool_name(sn, &meta.name).to_string()
+            } else {
+                skill_tool_name(sn, &meta.name).unwrap_or_else(|| meta.name.clone())
+            }
+        })
         .unwrap_or_else(|| meta.name.clone());
     McpTool {
         name: mcp_name.clone(),
@@ -2263,7 +2319,12 @@ async fn handle_describe_action(
         .and_then(|sid| state.sessions.get_protocol_version(sid))
         .as_deref()
         == Some("2025-06-18");
-    let tool = action_meta_to_mcp_tool(&meta, include_output_schema);
+    // `describe_action` is a single-action view — passing an empty
+    // bare-eligible set keeps it on the canonical `<skill>.<action>` form
+    // rather than synthesising a bare name that might collide against a
+    // peer action the caller didn't ask about.
+    let bare_eligible_for_describe = std::collections::HashSet::new();
+    let tool = action_meta_to_mcp_tool(&meta, include_output_schema, &bare_eligible_for_describe);
     let payload = serde_json::to_value(tool)?;
 
     Ok(JsonRpcResponse::success(

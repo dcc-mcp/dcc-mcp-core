@@ -57,6 +57,8 @@ mod tests {
             in_flight: crate::inflight::InFlightRequests::new(),
             pending_elicitations: std::sync::Arc::new(dashmap::DashMap::new()),
             lazy_actions: false,
+
+            bare_tool_names: true,
         }
     }
 
@@ -577,6 +579,8 @@ mod tests {
             in_flight: crate::inflight::InFlightRequests::new(),
             pending_elicitations: std::sync::Arc::new(dashmap::DashMap::new()),
             lazy_actions: false,
+
+            bare_tool_names: true,
         }
     }
 
@@ -878,8 +882,16 @@ mod tests {
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
 
         // These are the real tool names from make_app_state_with_skills().
-        // They must NOT appear before loading.
-        for forbidden in &["maya-bevel.bevel", "maya-bevel.chamfer", "git-tools.log"] {
+        // They must NOT appear before loading — covers both the legacy
+        // `<skill>.<action>` form and the bare form introduced by #307.
+        for forbidden in &[
+            "maya-bevel.bevel",
+            "maya-bevel.chamfer",
+            "git-tools.log",
+            "bevel",
+            "chamfer",
+            "log",
+        ] {
             assert!(
                 !names.contains(forbidden),
                 "Tool '{forbidden}' appeared in tools/list before load_skill was called. \
@@ -922,14 +934,15 @@ mod tests {
         let tools = body["result"]["tools"].as_array().unwrap();
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
 
-        // Real tools registered.
+        // Real tools registered (#307: bare names when unique within the
+        // instance; `maya-bevel` is the only skill here, so bare wins).
         assert!(
-            names.contains(&"maya-bevel.bevel"),
-            "Expected maya-bevel.bevel after load, got: {names:?}"
+            names.contains(&"bevel"),
+            "Expected bare `bevel` after load, got: {names:?}"
         );
         assert!(
-            names.contains(&"maya-bevel.chamfer"),
-            "Expected maya-bevel.chamfer after load, got: {names:?}"
+            names.contains(&"chamfer"),
+            "Expected bare `chamfer` after load, got: {names:?}"
         );
 
         // Stub gone.
@@ -945,10 +958,7 @@ mod tests {
         );
 
         // The real tools carry a non-trivial inputSchema (set by ActionMeta).
-        let bevel_tool = tools
-            .iter()
-            .find(|t| t["name"] == "maya-bevel.bevel")
-            .unwrap();
+        let bevel_tool = tools.iter().find(|t| t["name"] == "bevel").unwrap();
         // inputSchema must be at least `{"type": "object"}` — not null/absent.
         assert!(
             !bevel_tool["inputSchema"].is_null(),
@@ -1341,6 +1351,8 @@ mod tests {
             in_flight: crate::inflight::InFlightRequests::new(),
             pending_elicitations: std::sync::Arc::new(dashmap::DashMap::new()),
             lazy_actions: false,
+
+            bare_tool_names: true,
         }
     }
 
@@ -1495,13 +1507,11 @@ mod tests {
         // 10 core meta-tools + 2 skill tools (skill now loaded, no stubs) = 12
         assert_eq!(tools.len(), 12);
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
-        assert!(names.contains(&"modeling-bevel.bevel"));
-        assert!(names.contains(&"modeling-bevel.chamfer"));
+        // #307: bare names when unique within the instance.
+        assert!(names.contains(&"bevel"));
+        assert!(names.contains(&"chamfer"));
 
-        let bevel_tool = tools
-            .iter()
-            .find(|t| t["name"] == "modeling-bevel.bevel")
-            .unwrap();
+        let bevel_tool = tools.iter().find(|t| t["name"] == "bevel").unwrap();
         assert_eq!(bevel_tool["annotations"]["deferredHint"], false);
     }
 
@@ -1596,13 +1606,15 @@ mod tests {
         let body: Value = resp.json();
         let tools = body["result"]["tools"].as_array().unwrap();
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
+        // #307: with bare_tool_names=true (default), unique action names
+        // publish without the `<skill>.` prefix.
         assert!(
-            names.contains(&"modeling-bevel.bevel"),
-            "Expected modeling-bevel.bevel, got: {names:?}"
+            names.contains(&"bevel"),
+            "Expected bare `bevel`, got: {names:?}"
         );
         assert!(
-            names.contains(&"modeling-bevel.chamfer"),
-            "Expected modeling-bevel.chamfer, got: {names:?}"
+            names.contains(&"chamfer"),
+            "Expected bare `chamfer`, got: {names:?}"
         );
         assert!(
             !names.contains(&"modeling_bevel__bevel"),
@@ -1706,6 +1718,8 @@ mod tests {
             in_flight: crate::inflight::InFlightRequests::new(),
             pending_elicitations: std::sync::Arc::new(dashmap::DashMap::new()),
             lazy_actions: false,
+
+            bare_tool_names: true,
         }
     }
 
@@ -1809,6 +1823,8 @@ mod tests {
             in_flight: crate::inflight::InFlightRequests::new(),
             pending_elicitations: std::sync::Arc::new(dashmap::DashMap::new()),
             lazy_actions: false,
+
+            bare_tool_names: true,
         };
 
         use crate::handler::{handle_delete, handle_get, handle_post};
@@ -2036,6 +2052,8 @@ mod tests {
             in_flight: crate::inflight::InFlightRequests::new(),
             pending_elicitations: std::sync::Arc::new(dashmap::DashMap::new()),
             lazy_actions: false,
+
+            bare_tool_names: true,
         }
     }
 
@@ -2829,6 +2847,8 @@ mod resource_link_integration_tests {
             in_flight: crate::inflight::InFlightRequests::new(),
             pending_elicitations: std::sync::Arc::new(dashmap::DashMap::new()),
             lazy_actions: false,
+
+            bare_tool_names: true,
         }
     }
 
@@ -3013,6 +3033,8 @@ mod resource_link_integration_tests {
             in_flight: crate::inflight::InFlightRequests::new(),
             pending_elicitations: std::sync::Arc::new(dashmap::DashMap::new()),
             lazy_actions: false,
+
+            bare_tool_names: true,
         }
     }
 
@@ -3290,6 +3312,7 @@ mod lazy_actions_tests {
             in_flight: crate::inflight::InFlightRequests::new(),
             pending_elicitations: std::sync::Arc::new(dashmap::DashMap::new()),
             lazy_actions,
+            bare_tool_names: true,
         }
     }
 

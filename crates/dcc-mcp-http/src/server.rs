@@ -202,6 +202,7 @@ impl McpHttpServer {
             in_flight: InFlightRequests::new(),
             pending_elicitations: std::sync::Arc::new(dashmap::DashMap::new()),
             lazy_actions: self.config.lazy_actions,
+            bare_tool_names: self.config.bare_tool_names,
         };
 
         let endpoint = self.config.endpoint_path.clone();

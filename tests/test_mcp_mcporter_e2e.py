@@ -486,7 +486,9 @@ class TestMcporterProgressiveLoading:
         # tools/list should now include the skill's tool
         tools = _mcporter_list_tools(url, name)
         tool_names = {t["name"] if isinstance(t, dict) else t for t in tools}
-        assert any("hello" in n.lower() for n in tool_names), f"hello-world tool not in list: {tool_names}"
+        assert "greet" in tool_names or any("hello" in n.lower() for n in tool_names), (
+            f"hello-world tool (bare: greet) not in list: {tool_names}"
+        )
 
     def test_call_skill_tool_after_load(self, server_with_catalog):
         """Invoke a skill-backed tool after loading it."""
@@ -496,7 +498,7 @@ class TestMcporterProgressiveLoading:
         _mcporter_call(url, name, "load_skill", {"skill_name": "hello-world"})
 
         # Greet via the skill tool
-        result = _mcporter_call(url, name, "hello-world.greet", {"name": "mcporter"})
+        result = _mcporter_call(url, name, "greet", {"name": "mcporter"})
         text = _extract_content_text(result)
         assert "mcporter" in text or "Hello" in text
 
@@ -515,8 +517,8 @@ class TestMcporterProgressiveLoading:
         # tools/list should no longer contain hello-world tools
         tools = _mcporter_list_tools(url, name)
         tool_names = {t["name"] if isinstance(t, dict) else t for t in tools}
-        # hello-world.greet should be gone (core tools remain)
-        assert "hello-world.greet" not in tool_names
+        # greet should be gone (core tools remain)
+        assert "greet" not in tool_names
 
     def test_load_multiple_skills_at_once(self, server_with_catalog):
         """load_skill with skill_names loads several skills in one call."""
@@ -575,7 +577,7 @@ class TestMcporterProgressiveLoading:
         assert load_data["loaded"] is True
 
         # 4. Call the skill tool
-        call_result = _mcporter_call(url, name, "hello-world.greet", {"name": "E2E"})
+        call_result = _mcporter_call(url, name, "greet", {"name": "E2E"})
         text = _extract_content_text(call_result)
         assert "E2E" in text or "Hello" in text
 
@@ -816,8 +818,10 @@ class TestMultipleServerInstances:
             names_a = self._tools_list(h_a.mcp_url())
             names_b = self._tools_list(h_b.mcp_url())
 
-            assert any("hello" in n.lower() for n in names_a), f"hello-world missing from A: {names_a}"
-            assert "hello-world.greet" not in names_b, f"hello-world leaked into B: {names_b}"
+            assert "greet" in names_a or any("hello" in n.lower() for n in names_a), (
+                f"hello-world missing from A: {names_a}"
+            )
+            assert "greet" not in names_b, f"hello-world leaked into B: {names_b}"
         finally:
             h_a.shutdown()
             h_b.shutdown()
@@ -945,7 +949,7 @@ class TestProgressiveLoadingBoundary:
         result = _mcporter_call(
             url,
             name,
-            "hello-world.greet",
+            "greet",
             {"name": "BoundaryTest"},
         )
         text = _extract_content_text(result)
@@ -958,8 +962,8 @@ class TestProgressiveLoadingBoundary:
             _mcporter_call(url, name, "load_skill", {"skill_name": "hello-world"})
         tools = _mcporter_list_tools(url, name)
         names = [t["name"] if isinstance(t, dict) else t for t in tools]
-        count = names.count("hello-world.greet")
-        assert count <= 1, f"hello-world.greet duplicated after double load: {count}"
+        count = names.count("greet")
+        assert count <= 1, f"greet duplicated after double load: {count}"
 
     def test_unload_then_reload_re_registers_tools(self, server_with_catalog):
         """After unload → reload, the skill's tools must be available again."""
@@ -972,7 +976,9 @@ class TestProgressiveLoadingBoundary:
 
         tools = _mcporter_list_tools(url, name)
         names = {t["name"] if isinstance(t, dict) else t for t in tools}
-        assert any("hello" in n for n in names), f"Expected hello-world tool after reload, got: {names}"
+        assert "greet" in names or any("hello" in n for n in names), (
+            f"Expected hello-world tool (bare: greet) after reload, got: {names}"
+        )
 
 
 @pytest.mark.skipif(not NPX_AVAILABLE, reason="npx / mcporter not available")
@@ -1026,5 +1032,5 @@ class TestConcurrencyBoundary:
 
         tools = _mcporter_list_tools(url, name)
         tool_names = [t["name"] if isinstance(t, dict) else t for t in tools]
-        count = tool_names.count("hello-world.greet")
-        assert count <= 1, f"hello-world.greet duplicated: {count} occurrences"
+        count = tool_names.count("greet")
+        assert count <= 1, f"greet duplicated: {count} occurrences"

@@ -115,6 +115,20 @@ pub struct McpHttpConfig {
     /// (per-session, negotiated at initialize time).
     pub lazy_actions: bool,
 
+    /// Publish skill-scoped tools under their **bare action name** when no
+    /// collision exists on this instance (#307).
+    ///
+    /// When `true` (default), `tools/list` emits `execute_python` rather than
+    /// `maya-scripting.execute_python` whenever the bare name is unique
+    /// within the instance's loaded skills. Collisions fall back to the
+    /// full `<skill>.<action>` form, and `tools/call` accepts both shapes
+    /// for one release cycle.
+    ///
+    /// Downstream clients that hard-coded the prefixed form can opt out by
+    /// setting this to `false` (or flipping `DCC_MCP_BARE_TOOL_NAMES=0`
+    /// at the binary level).
+    pub bare_tool_names: bool,
+
     /// How listener tasks (per-instance MCP endpoint and the optional
     /// gateway) are driven. See [`ServerSpawnMode`] for the tradeoffs.
     ///
@@ -151,6 +165,7 @@ impl McpHttpConfig {
             dcc_version: None,
             scene: None,
             lazy_actions: false,
+            bare_tool_names: true,
             spawn_mode: ServerSpawnMode::Ambient,
             self_probe_timeout_ms: 200,
         }
@@ -163,6 +178,16 @@ impl McpHttpConfig {
     /// afford paging through every skill's full schema.
     pub fn with_lazy_actions(mut self) -> Self {
         self.lazy_actions = true;
+        self
+    }
+
+    /// Builder: force the legacy `<skill>.<action>` form even when bare
+    /// names would be unique (#307).
+    ///
+    /// Useful for downstream clients that hard-coded the prefixed shape and
+    /// cannot be updated in lock-step with the server.
+    pub fn without_bare_tool_names(mut self) -> Self {
+        self.bare_tool_names = false;
         self
     }
 

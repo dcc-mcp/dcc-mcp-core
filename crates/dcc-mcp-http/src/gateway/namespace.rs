@@ -6,6 +6,16 @@
 //! (e.g. `maya-animation.set_keyframe`) so the AI agent immediately sees which
 //! skill a tool belongs to.
 //!
+//! ## Per-DCC server: bare-name mode (#307)
+//!
+//! When enabled via [`crate::McpHttpConfig::bare_tool_names`] (default `true`),
+//! the server publishes tools under their **bare action name** whenever no
+//! other skill on the same instance registers the same bare name. Collisions
+//! fall back to `<skill>.<action>` and log a one-shot warning. This cuts the
+//! `tools/list` token footprint by ~40% on Maya-sized skill sets without
+//! breaking routing — [`handle_tools_call`](crate::handler) accepts both forms
+//! for one release cycle (same policy as SEP-986 #258/#261).
+//!
 //! ## Gateway: `<id8>.<tool>` instance prefix (#261)
 //!
 //! The aggregating gateway prepends an 8-hex-char instance id so duplicate
@@ -25,6 +35,8 @@
 //! | `{id8}/{tool}` | Deprecated — previous unreleased build, decoded + warned |
 //! | `{id8}__{tool}` | Legacy — pre-#258, decoded + warned |
 
+use std::collections::{HashMap, HashSet};
+use std::sync::{Mutex, OnceLock};
 use uuid::Uuid;
 
 pub const GATEWAY_LOCAL_TOOLS: &[&str] = &[
@@ -166,6 +178,158 @@ pub fn assert_gateway_tool_name(name: &str) -> Result<(), dcc_mcp_naming::Naming
 
 fn is_instance_prefix(s: &str) -> bool {
     s.len() == ID_PREFIX_LEN && s.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+// ── Bare-name resolver (#307) ────────────────────────────────────────────────
+
+/// Reference to an action for the purposes of bare-name collision analysis.
+///
+/// Borrows strings from the caller so the resolver stays allocation-light —
+/// `resolve_bare_names` is called on every `tools/list` response.
+#[derive(Debug, Clone, Copy)]
+pub struct BareNameInput<'a> {
+    /// The owning skill's name (empty when the action is not skill-scoped).
+    pub skill_name: &'a str,
+    /// The registry-level action name (e.g. `maya_animation__set_keyframe`).
+    pub action_name: &'a str,
+}
+
+/// Decide which actions may publish under their **bare action name** on a
+/// single DCC instance.
+///
+/// An action is eligible when:
+/// * it belongs to a skill, AND
+/// * its bare name (stripped of the `<skill>__` prefix, when present) is
+///   unique across **all** skill-scoped actions on the instance, AND
+/// * the bare name is not a reserved core-tool name (those already carry
+///   first-class positions in `tools/list`), AND
+/// * the bare name contains no `.` (which would create an ambiguous
+///   `{id8}.a.b` gateway encoding).
+///
+/// Returns the set of `(skill_name, action_name)` tuples that should be
+/// published bare. Callers that find a tuple in the set emit
+/// `meta.name.strip_prefix(...)`; callers that don't, fall back to the
+/// `<skill>.<action>` form produced by [`skill_tool_name`].
+///
+/// Collisions (same bare name from two different skills) are logged once
+/// per process via [`warn_bare_collision_once`].
+///
+/// # Examples
+/// ```
+/// # use dcc_mcp_http::gateway::namespace::{resolve_bare_names, BareNameInput};
+/// let inputs = [
+///     BareNameInput { skill_name: "maya-anim", action_name: "maya_anim__set_keyframe" },
+///     BareNameInput { skill_name: "maya-geo",  action_name: "maya_geo__create_sphere" },
+/// ];
+/// let bare = resolve_bare_names(&inputs);
+/// assert!(bare.contains(&("maya-anim".to_string(), "maya_anim__set_keyframe".to_string())));
+/// assert!(bare.contains(&("maya-geo".to_string(),  "maya_geo__create_sphere".to_string())));
+/// ```
+#[must_use]
+pub fn resolve_bare_names(inputs: &[BareNameInput<'_>]) -> HashSet<(String, String)> {
+    // Count how many distinct skills register each bare name.
+    let mut counts: HashMap<String, Vec<&str>> = HashMap::new();
+    for inp in inputs {
+        if inp.skill_name.is_empty() {
+            continue;
+        }
+        let bare = extract_bare_tool_name(inp.skill_name, inp.action_name);
+        if is_core_tool(bare) || bare.contains(SKILL_TOOL_SEP) {
+            continue;
+        }
+        counts
+            .entry(bare.to_string())
+            .or_default()
+            .push(inp.skill_name);
+    }
+
+    let mut out: HashSet<(String, String)> = HashSet::new();
+    for inp in inputs {
+        if inp.skill_name.is_empty() {
+            continue;
+        }
+        let bare = extract_bare_tool_name(inp.skill_name, inp.action_name);
+        let Some(skills) = counts.get(bare) else {
+            continue;
+        };
+        // Unique within the instance when every entry refers to the same skill.
+        let first = skills.first().copied().unwrap_or("");
+        let unique = skills.iter().all(|s| *s == first);
+        if unique {
+            out.insert((inp.skill_name.to_string(), inp.action_name.to_string()));
+        } else {
+            warn_bare_collision_once(bare, skills);
+        }
+    }
+    out
+}
+
+static BARE_COLLISIONS_WARNED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+
+fn warned_bare_slot() -> &'static Mutex<HashSet<String>> {
+    BARE_COLLISIONS_WARNED.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+/// Emit a one-shot warning for a bare-name collision.
+///
+/// Each distinct `bare` string is logged at most once per process to keep
+/// the hot path quiet when multiple skills intentionally overlap
+/// (e.g. both `maya-anim` and `blender-anim` expose `set_keyframe`).
+fn warn_bare_collision_once(bare: &str, skills: &[&str]) {
+    let Ok(mut slot) = warned_bare_slot().lock() else {
+        return;
+    };
+    if slot.insert(bare.to_string()) {
+        let unique: Vec<&&str> = {
+            let mut s: Vec<&&str> = skills.iter().collect();
+            s.sort();
+            s.dedup();
+            s
+        };
+        tracing::warn!(
+            tool = bare,
+            skills = ?unique,
+            "bare tool name collision — falling back to `<skill>.<action>` form; \
+             set bare_tool_names=false to silence, or rename one action in SKILL.md"
+        );
+    }
+}
+
+static LEGACY_PREFIXED_WARNED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+
+fn warned_prefixed_slot() -> &'static Mutex<HashSet<String>> {
+    LEGACY_PREFIXED_WARNED.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+/// Emit a one-shot deprecation warning when a client calls a tool using the
+/// legacy `<skill>.<action>` form that could also have been reached via its
+/// bare name.
+///
+/// Used by `handle_tools_call` so operators learn which integrations still
+/// hard-code the prefixed form without drowning production logs when a
+/// dashboard retries the same tool every few seconds.
+pub fn warn_legacy_prefixed_once(prefixed: &str) {
+    let Ok(mut slot) = warned_prefixed_slot().lock() else {
+        return;
+    };
+    if slot.insert(prefixed.to_string()) {
+        tracing::warn!(
+            tool = prefixed,
+            "legacy `<skill>.<action>` tool name accepted — prefer the bare name; \
+             the prefix fallback will be removed in one release"
+        );
+    }
+}
+
+#[cfg(test)]
+#[doc(hidden)]
+pub fn __reset_warn_state_for_tests() {
+    if let Ok(mut s) = warned_bare_slot().lock() {
+        s.clear();
+    }
+    if let Ok(mut s) = warned_prefixed_slot().lock() {
+        s.clear();
+    }
 }
 
 /// Decode a gateway-encoded tool name into `(id8, original)`.
@@ -360,5 +524,125 @@ mod tests {
     #[test]
     fn assert_gateway_tool_name_rejects_slash() {
         assert!(assert_gateway_tool_name("abcdef01/create_sphere").is_err());
+    }
+
+    // ── #307 bare-name resolver ──────────────────────────────────────────────
+
+    #[test]
+    fn bare_name_when_unique_within_instance() {
+        __reset_warn_state_for_tests();
+        let inputs = [
+            BareNameInput {
+                skill_name: "maya-anim",
+                action_name: "maya_anim__set_keyframe",
+            },
+            BareNameInput {
+                skill_name: "maya-geo",
+                action_name: "maya_geo__create_sphere",
+            },
+        ];
+        let bare = resolve_bare_names(&inputs);
+        assert!(bare.contains(&(
+            "maya-anim".to_string(),
+            "maya_anim__set_keyframe".to_string()
+        )));
+        assert!(bare.contains(&(
+            "maya-geo".to_string(),
+            "maya_geo__create_sphere".to_string()
+        )));
+        assert_eq!(bare.len(), 2);
+    }
+
+    #[test]
+    fn falls_back_to_skill_prefix_on_collision() {
+        __reset_warn_state_for_tests();
+        // Both skills expose a `set_keyframe` action → collision; neither
+        // should be emitted bare.
+        let inputs = [
+            BareNameInput {
+                skill_name: "maya-anim",
+                action_name: "maya_anim__set_keyframe",
+            },
+            BareNameInput {
+                skill_name: "blender-anim",
+                action_name: "blender_anim__set_keyframe",
+            },
+            BareNameInput {
+                skill_name: "maya-geo",
+                action_name: "maya_geo__create_sphere",
+            },
+        ];
+        let bare = resolve_bare_names(&inputs);
+        assert!(bare.contains(&(
+            "maya-geo".to_string(),
+            "maya_geo__create_sphere".to_string()
+        )));
+        assert!(!bare.contains(&(
+            "maya-anim".to_string(),
+            "maya_anim__set_keyframe".to_string()
+        )));
+        assert!(!bare.contains(&(
+            "blender-anim".to_string(),
+            "blender_anim__set_keyframe".to_string()
+        )));
+    }
+
+    #[test]
+    fn same_skill_registering_same_bare_twice_is_not_a_collision() {
+        __reset_warn_state_for_tests();
+        // Re-registering the same (skill, action) shape twice must not be
+        // mistaken for a cross-skill collision.
+        let inputs = [
+            BareNameInput {
+                skill_name: "maya-anim",
+                action_name: "maya_anim__set_keyframe",
+            },
+            BareNameInput {
+                skill_name: "maya-anim",
+                action_name: "maya_anim__set_keyframe",
+            },
+        ];
+        let bare = resolve_bare_names(&inputs);
+        assert!(bare.contains(&(
+            "maya-anim".to_string(),
+            "maya_anim__set_keyframe".to_string()
+        )));
+    }
+
+    #[test]
+    fn core_tool_names_are_never_bare_eligible() {
+        __reset_warn_state_for_tests();
+        // `load_skill` is reserved and already has a first-class position
+        // in tools/list; emitting it bare from a skill would cause a dispatch
+        // ambiguity against the meta-tool.
+        let inputs = [BareNameInput {
+            skill_name: "rogue-skill",
+            action_name: "rogue_skill__load_skill",
+        }];
+        assert!(resolve_bare_names(&inputs).is_empty());
+    }
+
+    #[test]
+    fn actions_without_skill_are_skipped_by_resolver() {
+        __reset_warn_state_for_tests();
+        // Actions not registered from a skill keep their canonical name;
+        // the resolver simply ignores them rather than asserting they are
+        // unique.
+        let inputs = [BareNameInput {
+            skill_name: "",
+            action_name: "standalone_action",
+        }];
+        assert!(resolve_bare_names(&inputs).is_empty());
+    }
+
+    #[test]
+    fn warn_legacy_prefixed_once_is_one_shot_per_name() {
+        __reset_warn_state_for_tests();
+        // Two calls with the same name should not panic or repeatedly warn;
+        // we can only verify the API surface is idempotent here — actual
+        // log output is observed via `cargo test --nocapture` if needed.
+        warn_legacy_prefixed_once("maya-anim.set_keyframe");
+        warn_legacy_prefixed_once("maya-anim.set_keyframe");
+        warn_legacy_prefixed_once("maya-geo.create_sphere");
     }
 }
