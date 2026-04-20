@@ -11,6 +11,18 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.14.0](https://github.com/loonghao/dcc-mcp-core/compare/v0.13.6...v0.14.0) (2026-04-20)
+
+
+### ⚠ BREAKING CHANGES
+
+* **http,transport:** removes TransportManager, FramedChannel, FramedIo, IpcListener (Python class), ListenerHandle, RoutingStrategy, ConnectionPool, InstanceRouter, CircuitBreaker, MessageEnvelope, Request/Response/Notification/Ping/Pong/ShutdownMessage, connect_ipc, and the encode_request / encode_response / encode_notify / decode_envelope functions. Use IpcChannelAdapter, GracefulIpcChannelAdapter, SocketServerAdapter, DccLinkFrame, and FileRegistry/ServiceEntry instead.
+
+### Bug Fixes
+
+* **http,transport:** gateway lifecycle + remove legacy transport stack ([4549237](https://github.com/loonghao/dcc-mcp-core/commit/454923787a4325e92c92431e0e2c813f4fa035ed)), closes [#303](https://github.com/loonghao/dcc-mcp-core/issues/303) [#251](https://github.com/loonghao/dcc-mcp-core/issues/251)
+* **tests:** use tmp_path for sandbox allow_paths tests ([69ca84b](https://github.com/loonghao/dcc-mcp-core/commit/69ca84ba078e9c85fc312babc167d25f1d0e5afd))
+
 ## [0.13.6](https://github.com/loonghao/dcc-mcp-core/compare/v0.13.5...v0.13.6) (2026-04-20)
 
 
