@@ -20,7 +20,7 @@ export default defineConfig({
           { text: 'Guide', link: '/guide/what-is-dcc-mcp-core' },
           { text: 'API', link: '/api/models' },
           {
-            text: 'v0.12.28',
+            text: 'v0.13.5',
             items: [
               { text: 'Changelog', link: 'https://github.com/loonghao/dcc-mcp-core/blob/main/CHANGELOG.md' },
               { text: 'PyPI', link: 'https://pypi.org/project/dcc-mcp-core/' },
@@ -103,7 +103,7 @@ export default defineConfig({
           { text: '指南', link: '/zh/guide/what-is-dcc-mcp-core' },
           { text: 'API', link: '/zh/api/models' },
           {
-            text: 'v0.12.28',
+              text: 'v0.13.5',
             items: [
               { text: '更新日志', link: 'https://github.com/loonghao/dcc-mcp-core/blob/main/CHANGELOG.md' },
               { text: 'PyPI', link: 'https://pypi.org/project/dcc-mcp-core/' },
@@ -134,6 +134,7 @@ export default defineConfig({
                 { text: 'Actions 动作', link: '/zh/guide/actions' },
                 { text: '事件系统', link: '/zh/guide/events' },
                 { text: 'MCP 协议', link: '/zh/guide/protocols' },
+                { text: '命名 Actions 与 Tools', link: '/zh/guide/naming' },
                 { text: '传输层', link: '/zh/guide/transport' },
               ]
             },

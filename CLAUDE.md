@@ -23,7 +23,7 @@ When you need information, read in this order — stop when you find what you ne
 
 1. **`AGENTS.md`** — Navigation map: where to find everything, traps, Do/Don't
 2. **`llms.txt`** — Compressed API reference for AI agents (token-efficient)
-3. **`python/dcc_mcp_core/__init__.py`** — Complete public API surface (~154 symbols)
+3. **`python/dcc_mcp_core/__init__.py`** — Complete public API surface (~177 symbols)
 4. **`python/dcc_mcp_core/_core.pyi`** — Parameter names, types, signatures
 5. **`llms-full.txt`** — Complete API reference with examples (when `llms.txt` lacks detail)
 6. **`docs/guide/`** + **`docs/api/`** — Conceptual guides and per-module API docs

@@ -114,7 +114,7 @@ src/
 └── lib.rs                   # PyO3 module entry point (_core)
 python/
 └── dcc_mcp_core/
-    ├── __init__.py           # Public API re-exports (~140 symbols) from _core
+    ├── __init__.py           # Public API re-exports (~177 symbols) from _core
     ├── _core.pyi             # Type stubs
     ├── skill.py              # Pure-Python skill script helpers (no _core dependency)
     └── py.typed              # PEP 561 marker

@@ -60,7 +60,7 @@ English | [中文](README_zh.md)
 | **安全性** | 沙箱 + 审计日志 | 手动 | 手动 | 无 |
 | **跨平台** | Windows/macOS/Linux | 是 | 有限 | 仅浏览器 |
 
-AI 友好文档：[AGENTS.md](AGENTS.md) | [CLAUDE.md](CLAUDE.md) | [GEMINI.md](GEMINI.md) | [`.agents/skills/dcc-mcp-core/SKILL.md`](.agents/skills/dcc-mcp-core/SKILL.md)
+AI 友好文档：[AGENTS.md](AGENTS.md) | [CLAUDE.md](CLAUDE.md) | [GEMINI.md](GEMINI.md) | [CODEBUDDY.md](CODEBUDDY.md) | [`.agents/skills/dcc-mcp-core/SKILL.md`](.agents/skills/dcc-mcp-core/SKILL.md)
 
 ## 架构：三层体系
 
@@ -413,9 +413,9 @@ paths = get_bundled_skill_paths(include_bundled=False)  # 按需禁用
 
 DCC 适配器（如 `dcc-mcp-maya`）默认自动加载内置技能包。如需禁用：`start_server(include_bundled=False)`。
 
-## 架构概览 — 14 个 Rust Crate 工作区
+## 架构概览 — 15 个 Rust Crate 工作区
 
-dcc-mcp-core 组织为 **14 个 Rust Crate 工作区**，通过 PyO3/maturin 编译成单个原生 Python 扩展（`_core`）：
+dcc-mcp-core 组织为 **15 个 Rust Crate 工作区**，通过 PyO3/maturin 编译成单个原生 Python 扩展（`_core`）：
 
 | Crate | 职责 | 关键类型 |
 |-------|------|---------|
@@ -445,7 +445,7 @@ from dcc_mcp_core import (
 )
 
 # 服务端：监听连接
-listener = IpcListener.new("/tmp/dcc-mcp-server.sock")
+listener = IpcListener.bind("/tmp/dcc-mcp-server.sock")
 handle = listener.start(handler_fn=my_message_handler)
 
 # 客户端：连接服务器
@@ -621,7 +621,8 @@ vx just preflight      # 仅 pre-commit 检查
 - **[AGENTS.md](AGENTS.md)** — 所有 AI 代理综合指南（架构、命令、API 参考、陷阱规避）
 - **[CLAUDE.md](CLAUDE.md)** — Claude 专用指令与工作流
 - **[GEMINI.md](GEMINI.md)** — Gemini 专用指令与工作流
+- **[CODEBUDDY.md](CODEBUDDY.md)** — CodeBuddy Code 专用指令与工作流
 - **[.agents/skills/dcc-mcp-core/SKILL.md](.agents/skills/dcc-mcp-core/SKILL.md)** — 完整 API 技能定义，用于学习与使用此库
-- **[python/dcc_mcp_core/__init__.py](python/dcc_mcp_core/__init__.py)** — 完整公共 API 表面（约 140 个符号）
+- **[python/dcc_mcp_core/__init__.py](python/dcc_mcp_core/__init__.py)** — 完整公共 API 表面（约 177 个符号）
 - **[llms.txt](llms.txt)** — 精简 API 参考（LLM 优化格式）
 - **[llms-full.txt](llms-full.txt)** — 完整 API 参考（LLM 优化格式）

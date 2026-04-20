@@ -3,7 +3,7 @@ name: dcc-mcp-core
 description: "Foundation library for the DCC Model Context Protocol (MCP) ecosystem. Provides Rust-powered action management, skills system, IPC transport, MCP Streamable HTTP server (2025-03-26 spec, with 2025-06-18 and 2025-11-25 awareness), sandbox security, shared memory, screen capture, USD scene support, and telemetry for AI-assisted DCC workflows. Use when working with Maya, Blender, Houdini, 3ds Max, or any DCC MCP integration."
 allowed-tools: Bash Read Write Edit
 compatibility: "Python 3.7-3.13; Rust 1.85+ required to build from source; zero runtime Python dependencies"
-version: "0.12.29"
+version: "0.13.5"
 ---
 
 # dcc-mcp-core — DCC MCP Ecosystem Foundation
@@ -16,8 +16,8 @@ The foundational library enabling AI assistants to interact with Digital Content
 |------|----------|----------|
 | Return action result | `success_result()` / `error_result()` | raw dicts |
 | Load skills | `scan_and_load()` → `(skills, skipped)` | manual file scanning |
-| One-call MCP server | `create_skill_manager("maya", McpHttpConfig(port=8765))` | manual wiring |
-| Validate params | `ActionValidator.from_schema_json()` | isinstance checks |
+| One-call MCP server | `create_skill_server("maya", McpHttpConfig(port=8765))` | manual wiring |
+| Validate params | `ToolValidator.from_schema_json()` | isinstance checks |
 | Connect to DCC | `connect_ipc(TransportAddress.default_local(...))` | raw sockets |
 | Define MCP tool | `ToolDefinition` + `ToolAnnotations` | raw JSON |
 | Serve MCP over HTTP | `McpHttpServer(registry, McpHttpConfig(port=8765))` | raw HTTP server |
@@ -58,12 +58,12 @@ pip install dcc-mcp-core
 
 ```python
 import os
-from dcc_mcp_core import create_skill_manager, McpHttpConfig
+from dcc_mcp_core import create_skill_server, McpHttpConfig
 
 os.environ["DCC_MCP_MAYA_SKILL_PATHS"] = "/opt/my-skills"
 
 # One call: creates registry + dispatcher + catalog + discovers skills + server
-server = create_skill_manager("maya", McpHttpConfig(port=8765))
+server = create_skill_server("maya", McpHttpConfig(port=8765))
 handle = server.start()
 print(f"Maya MCP server: {handle.mcp_url()}")
 
@@ -96,7 +96,7 @@ def my_action(params):
 
 ```python
 import json
-from dcc_mcp_core import ActionValidator, error_result
+from dcc_mcp_core import ToolValidator, error_result
 
 schema = json.dumps({
     "type": "object",
@@ -106,7 +106,7 @@ schema = json.dumps({
         "radius": {"type": "number", "minimum": 0.001},
     },
 })
-validator = ActionValidator.from_schema_json(schema)
+validator = ToolValidator.from_schema_json(schema)
 ok, errors = validator.validate(json.dumps(params))
 if not ok:
     return error_result("Invalid parameters", "; ".join(errors))
@@ -173,14 +173,14 @@ current_skills = watcher.skills()  # -> List[SkillMetadata]
 
 ```python
 import json
-from dcc_mcp_core import ActionRegistry, ActionDispatcher
+from dcc_mcp_core import ToolRegistry, ToolDispatcher
 
-reg = ActionRegistry()
+reg = ToolRegistry()
 reg.register("create_sphere",
     input_schema=json.dumps({"type": "object", "required": ["radius"],
                               "properties": {"radius": {"type": "number", "minimum": 0.0}}}))
 
-dispatcher = ActionDispatcher(reg)
+dispatcher = ToolDispatcher(reg)
 dispatcher.register_handler("create_sphere", lambda params: {"created": True, "r": params["radius"]})
 
 # Introspect handlers
@@ -212,7 +212,7 @@ def poll():
 # Blender: bpy.app.timers.register(poll, persistent=True)
 # Houdini: hou.ui.addEventLoopCallback(poll)
 
-registry = ActionRegistry()
+registry = ToolRegistry()
 server = McpHttpServer(registry, McpHttpConfig(port=0, server_name="maya-mcp"))
 handle = server.start()
 ```
@@ -281,13 +281,13 @@ print(f'Loaded: {[s.name for s in skills]}')
 ┌─────────────────────────────────────────────────────┐
 │                   Python Layer                       │
 │  dcc_mcp_core/__init__.py  →  _core (PyO3 cdyll)   │
-│  ~154 public symbols re-exported from Rust core      │
+│  ~177 public symbols re-exported from Rust core      │
 │  + Pure-Python: DccServerBase, DccGatewayElection,  │
 │    DccSkillHotReloader, factory, skill helpers       │
 └──────────────────────┬──────────────────────────────┘
                        │ PyO3 bindings
 ┌──────────────────────▼──────────────────────────────┐
-│              Rust Core (14 Crates)                   │
+│              Rust Core (15 Crates)                   │
 │                                                      │
 │  models → actions → skills → protocols              │
 │  transport → http → process → sandbox → telemetry   │
@@ -318,7 +318,7 @@ print(f'Loaded: {[s.name for s in skills]}')
 | `GEMINI.md` | Gemini-specific workflows and tips |
 | `llms.txt` | Concise API reference for LLMs |
 | `llms-full.txt` | Comprehensive API reference with all examples |
-| `python/dcc_mcp_core/__init__.py` | Complete public API (~154 symbols, ground truth for imports) |
+| `python/dcc_mcp_core/__init__.py` | Complete public API (~177 symbols, ground truth for imports) |
 | `python/dcc_mcp_core/_core.pyi` | Type stubs — authoritative parameter names |
 | `examples/skills/` | 11 complete skill package examples |
 | `tests/` | Python integration tests (executable usage examples) |
@@ -354,7 +354,7 @@ The library currently implements **MCP 2025-03-26** (Streamable HTTP). The ecosy
 2. `DeferredExecutor` not in public API yet — use `from dcc_mcp_core._core import DeferredExecutor`
 3. Register ALL actions before `server.start()` — server reads from registry at startup only
 4. Use `FramedChannel.call()` for sync RPC — not `send_request()` + `recv()` (those are for async/multiplex)
-5. `ActionDispatcher(registry)` takes ONE arg — no `validator=` parameter
+5. `ToolDispatcher(registry)` takes ONE arg — no `validator=` parameter
 6. Action naming: `{skill_name.replace('-','_')}__{script_stem}` (double underscore)
 7. SKILL.md `name` must match parent directory name (agentskills.io spec)
 8. `allowed-tools` in SKILL.md is space-separated string, not a list (agentskills.io spec)

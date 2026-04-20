@@ -66,7 +66,7 @@ meta = dcc_mcp_core.parse_skill_md(dirs[0])  # -> SkillMetadata or None
 
 ## Architecture
 
-Rust workspace (15 crates) with PyO3 bindings. All logic in Rust sub-crates; Python gets a single `dcc_mcp_core._core` extension module. The `dcc_mcp_core` package re-exports all ~171 public symbols from `_core` plus pure-Python helpers (DccServerBase, DccGatewayElection, DccSkillHotReloader, factory, skill helpers).
+Rust workspace (15 crates) with PyO3 bindings. All logic in Rust sub-crates; Python gets a single `dcc_mcp_core._core` extension module. The `dcc_mcp_core` package re-exports all ~177 public symbols from `_core` plus pure-Python helpers (DccServerBase, DccGatewayElection, DccSkillHotReloader, factory, skill helpers).
 
 ```
 crates/
@@ -420,6 +420,7 @@ export DCC_MCP_SKILL_PATHS="/path/to/skills1:/path/to/skills2"
 - [AI Agent Guide (AGENTS.md)](https://github.com/loonghao/dcc-mcp-core/blob/main/AGENTS.md)
 - [Claude Guide (CLAUDE.md)](https://github.com/loonghao/dcc-mcp-core/blob/main/CLAUDE.md)
 - [Gemini Guide (GEMINI.md)](https://github.com/loonghao/dcc-mcp-core/blob/main/GEMINI.md)
+- [CodeBuddy Guide (CODEBUDDY.md)](https://github.com/loonghao/dcc-mcp-core/blob/main/CODEBUDDY.md)
 - [Contributing Guide](https://github.com/loonghao/dcc-mcp-core/blob/main/CONTRIBUTING.md)
 - [Changelog](https://github.com/loonghao/dcc-mcp-core/blob/main/CHANGELOG.md)
 - [Full API Reference](https://github.com/loonghao/dcc-mcp-core/blob/main/llms-full.txt)

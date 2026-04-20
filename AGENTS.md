@@ -12,7 +12,7 @@
 > | ⚡ AI-friendly index | `llms.txt` | Compressed API reference optimised for token efficiency | When an AI agent needs to *use* the APIs |
 > | 📖 Full index | `llms-full.txt` | Complete API reference with copy-paste examples | When `llms.txt` lacks detail |
 > | 📚 Human docs | `docs/guide/` + `docs/api/` | Conceptual guides and per-module API docs | When building a new adapter or skill |
-> | 🔧 LLM-specific | `CLAUDE.md` / `GEMINI.md` | Agent-specific workflows and tips | When using Claude Code or Gemini CLI |
+> | 🔧 LLM-specific | `CLAUDE.md` / `GEMINI.md` / `CODEBUDDY.md` | Agent-specific workflows and tips | When using Claude Code, Gemini CLI, or CodeBuddy Code |
 > | 🧩 Skill authoring | `skills/README.md` + `examples/skills/` | Templates, examples, SKILL.md format | When creating or modifying skills |
 
 ---
@@ -613,5 +613,6 @@ When adding a Rust type/function that needs to be callable from Python:
 
 - `CLAUDE.md` — Claude Code workflows and tips (references AGENTS.md for project context)
 - `GEMINI.md` — Gemini-specific guidance (references AGENTS.md for project context)
+- `CODEBUDDY.md` — CodeBuddy Code-specific guidance (references AGENTS.md for project context)
 - `llms.txt` — token-optimised API reference (for AI agents that need to *use* the APIs)
 - `llms-full.txt` — complete API reference with copy-paste examples

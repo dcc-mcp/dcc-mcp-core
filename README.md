@@ -60,7 +60,7 @@ This isn't reinventing MCP — it's **solving MCP's blind spots for desktop auto
 | **Security** | Sandbox + audit log | Manual | Manual | None |
 | **Cross-Platform** | Windows/macOS/Linux | Yes | Limited | Browser only |
 
-AI-friendly docs: [AGENTS.md](AGENTS.md) | [CLAUDE.md](CLAUDE.md) | [GEMINI.md](GEMINI.md) | [`.agents/skills/dcc-mcp-core/SKILL.md`](.agents/skills/dcc-mcp-core/SKILL.md)
+AI-friendly docs: [AGENTS.md](AGENTS.md) | [CLAUDE.md](CLAUDE.md) | [GEMINI.md](GEMINI.md) | [CODEBUDDY.md](CODEBUDDY.md) | [`.agents/skills/dcc-mcp-core/SKILL.md`](.agents/skills/dcc-mcp-core/SKILL.md)
 
 ## Architecture: The Three-Layer Stack
 
@@ -383,12 +383,13 @@ This is **session-bound tool discovery** — not a hack, but a fundamental rethi
 
 ---
 
-## Architecture Overview — 14 Rust Crates
+## Architecture Overview — 15 Rust Crates
 
-dcc-mcp-core is organized as a **Rust workspace of 14 crates**, compiled into a single native Python extension (`_core`) via PyO3/maturin:
+dcc-mcp-core is organized as a **Rust workspace of 15 crates**, compiled into a single native Python extension (`_core`) via PyO3/maturin:
 
 | Crate | Responsibility | Key Types |
 |----------------------|-----------|
+| `dcc-mcp-naming` | SEP-986 naming validators | `validate_tool_name`, `validate_action_id`, `TOOL_NAME_RE` |
 | `dcc-mcp-models` | Data models | `ToolResult`, `SkillMetadata` |
 | `dcc-mcp-actions` | Tool execution lifecycle | `ToolRegistry`, `EventBus`, `ToolDispatcher`, `ToolValidator`, `ToolPipeline` |
 | `dcc-mcp-skills` | Skills discovery & loading | `SkillScanner`, `SkillCatalog`, `SkillWatcher`, dependency resolver |
@@ -416,7 +417,7 @@ dcc-mcp-core is organized as a **Rust workspace of 14 crates**, compiled into a 
 - **Screen capture**: Cross-platform DCC viewport capture for AI visual feedback
 - **USD integration**: Universal Scene Description read/write bridge
 - **Structured telemetry**: Tracing & recording for observability
-- **~154 public Python symbols** with full type stubs (`.pyi`)
+- **~177 public Python symbols** with full type stubs (`.pyi`)
 - **OpenClaw Skills compatible**: Reuse existing ecosystem format
 
 ## Installation
@@ -629,8 +630,9 @@ If you're an AI coding agent, also see:
 - **[AGENTS.md](AGENTS.md)** — Comprehensive guide for all AI agents (architecture, commands, API reference, pitfalls)
 - **[CLAUDE.md](CLAUDE.md)** — Claude-specific instructions and workflows
 - **[GEMINI.md](GEMINI.md)** — Gemini-specific instructions and workflows
+- **[CODEBUDDY.md](CODEBUDDY.md)** — CodeBuddy Code-specific instructions and workflows
 - **[.agents/skills/dcc-mcp-core/SKILL.md](.agents/skills/dcc-mcp-core/SKILL.md)** — Complete API skill definition for learning and using this library
-- **[python/dcc_mcp_core/__init__.py](python/dcc_mcp_core/__init__.py)** — Full public API surface (~140 symbols)
+- **[python/dcc_mcp_core/__init__.py](python/dcc_mcp_core/__init__.py)** — Full public API surface (~177 symbols)
 - **[llms.txt](llms.txt)** — Concise API reference optimized for LLMs
 - **[llms-full.txt](llms-full.txt)** — Complete API reference optimized for LLMs
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** — Development workflow and coding standards

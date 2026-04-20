@@ -43,7 +43,7 @@ DCC-MCP-Core is a Rust workspace with Python bindings via PyO3. It provides:
 
 - **Zero third-party runtime dependencies** in the Rust core
 - **Optional Python bindings** via PyO3 for DCC integration
-- **14 modular crates** for selective dependency usage
+- **15 modular crates** for selective dependency usage
 
 ## Crate Structure
 
@@ -323,7 +323,7 @@ If you need custom middleware or fine-grained control, assemble the stack manual
 
 ## Python Bindings
 
-All 14 crates are compiled into a single PyO3 native extension (`dcc_mcp_core._core`) via `maturin`.
+All 15 crates are compiled into a single PyO3 native extension (`dcc_mcp_core._core`) via `maturin`.
 
 ```toml
 # pyproject.toml
@@ -336,7 +336,7 @@ dependencies = []  # Zero runtime dependencies
 
 ```
 python/dcc_mcp_core/
-├── __init__.py     # Public API (re-exports ~140 symbols from _core)
+├── __init__.py     # Public API (re-exports ~177 symbols from _core)
 ├── _core.pyi       # Type stubs (auto-generated from Rust)
 └── py.typed        # PEP 561 marker
 ```

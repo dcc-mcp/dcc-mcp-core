@@ -5,8 +5,7 @@
 
 ## Project Identity
 
-You are working on **dcc-mcp-core**, a Rust-powered MCP (Model Context Protocol) library for DCC
-(DDigital Content Creation) applications. Python package: `dcc_mcp_core`. ~154 public symbols,
+You are working on **dcc-mcp-core**, a Rust-powered MCP (Model Context Protocol) library for DCC (Digital Content Creation) applications. Python package: `dcc_mcp_core`. ~177 public symbols,
 zero runtime Python dependencies (everything compiled into Rust core via PyO3), plus pure-Python
 helpers (DccServerBase, DccGatewayElection, DccSkillHotReloader, factory, skill helpers, WebViewAdapter).
 
@@ -48,8 +47,8 @@ vx just lint-fix     # Auto-fix all lint issues
 
 ## Key Architecture Facts
 
-- **14 Rust crates** under `crates/`, compiled into `dcc_mcp_core._core` native extension + pure-Python helpers
-- **~154 public Python symbols** exported from `python/dcc_mcp_core/__init__.py`
+- **15 Rust crates** under `crates/`, compiled into `dcc_mcp_core._core` native extension + pure-Python helpers
+- **~177 public Python symbols** exported from `python/dcc_mcp_core/__init__.py`
 - **Zero runtime Python deps** — all logic in Rust, no `dependencies = [...]` in pyproject.toml
 - Python 3.7–3.13 supported (abi3-py38 wheel; separate non-abi3 wheel for 3.7)
 - **Version: current** — managed by Release Please, never manually bump
