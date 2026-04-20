@@ -622,11 +622,15 @@ class TestSandboxContextIsPathAllowed:
         result = ctx.is_path_allowed("/some/arbitrary/path")
         assert isinstance(result, bool)
 
-    def test_allow_paths_permits_listed_path(self):
+    def test_allow_paths_permits_listed_path(self, tmp_path):
+        # Use tmp_path so the allowed prefix is a real directory —
+        # Rust's check_path canonicalizes both sides, and on Windows a
+        # literal "/tmp" does not exist.
+        base = str(tmp_path)
         pol = SandboxPolicy()
-        pol.allow_paths(["/tmp"])
+        pol.allow_paths([base])
         ctx = SandboxContext(pol)
-        assert ctx.is_path_allowed("/tmp") is True
+        assert ctx.is_path_allowed(base) is True
 
     def test_allow_paths_permits_subpath(self):
         pol = SandboxPolicy()

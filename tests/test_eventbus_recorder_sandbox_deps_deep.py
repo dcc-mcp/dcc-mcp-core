@@ -617,12 +617,15 @@ class TestSandboxPolicy:
             assert ctx.is_allowed("anything") is False
 
     class TestAllowPaths:
-        def test_allow_paths_permits_matching(self) -> None:
-            # allow_paths uses prefix matching; exact path works
+        def test_allow_paths_permits_matching(self, tmp_path) -> None:
+            # allow_paths uses prefix matching; exact path works.
+            # Use tmp_path so canonicalization resolves both sides equally
+            # on Windows — literal "/tmp" does not exist there.
+            base = str(tmp_path)
             policy = SandboxPolicy()
-            policy.allow_paths(["/tmp"])
+            policy.allow_paths([base])
             ctx = SandboxContext(policy)
-            assert ctx.is_path_allowed("/tmp") is True
+            assert ctx.is_path_allowed(base) is True
 
         def test_allow_paths_denies_non_listed(self) -> None:
             policy = SandboxPolicy()

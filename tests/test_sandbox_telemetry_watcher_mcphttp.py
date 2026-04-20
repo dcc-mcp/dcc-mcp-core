@@ -47,7 +47,13 @@ def _make_skill_dir(root: str, name: str = "test_skill") -> str:
 
 
 class TestSandboxPolicyPathRestriction:
-    """Tests for SandboxPolicy.allow_paths and SandboxContext.is_path_allowed."""
+    """Tests for SandboxPolicy.allow_paths and SandboxContext.is_path_allowed.
+
+    Path-allowlist tests use the pytest ``tmp_path`` fixture so the allowed
+    directory always exists on disk. Rust's `check_path` canonicalises both
+    sides, and on Windows that fails for non-existent `/tmp`-style paths —
+    producing false negatives when the literal path is used.
+    """
 
     def _ctx_with_paths(self, paths: list[str]) -> SandboxContext:
         p = SandboxPolicy()
@@ -55,33 +61,36 @@ class TestSandboxPolicyPathRestriction:
         p.allow_paths(paths)
         return SandboxContext(p)
 
-    def test_path_in_allowed_prefix(self):
-        ctx = self._ctx_with_paths(["/tmp/"])
-        assert ctx.is_path_allowed("/tmp/test.txt") is True
+    def test_path_in_allowed_prefix(self, tmp_path):
+        base = str(tmp_path)
+        ctx = self._ctx_with_paths([base])
+        assert ctx.is_path_allowed(str(tmp_path / "test.txt")) is True
 
-    def test_path_in_subdirectory(self):
-        ctx = self._ctx_with_paths(["/tmp/"])
-        assert ctx.is_path_allowed("/tmp/sub/deep/file.txt") is True
+    def test_path_in_subdirectory(self, tmp_path):
+        base = str(tmp_path)
+        ctx = self._ctx_with_paths([base])
+        # Deep subdirectory path — need not exist; canonicalize_best_effort
+        # walks up to the nearest existing ancestor (tmp_path itself).
+        assert ctx.is_path_allowed(str(tmp_path / "sub" / "deep" / "file.txt")) is True
 
-    def test_directory_itself_allowed(self):
-        ctx = self._ctx_with_paths(["/tmp/"])
-        assert ctx.is_path_allowed("/tmp") is True
+    def test_directory_itself_allowed(self, tmp_path):
+        base = str(tmp_path)
+        ctx = self._ctx_with_paths([base])
+        assert ctx.is_path_allowed(base) is True
 
-    def test_path_outside_prefix_denied(self):
-        ctx = self._ctx_with_paths(["/tmp/"])
+    def test_path_outside_prefix_denied(self, tmp_path):
+        ctx = self._ctx_with_paths([str(tmp_path)])
         assert ctx.is_path_allowed("/etc/passwd") is False
 
-    def test_path_partial_match_not_allowed(self):
-        # /tmpother should NOT match prefix /tmp/
-        ctx = self._ctx_with_paths(["/tmp/"])
-        # /tmpother doesn't start with /tmp/  so depends on implementation
-        # We just test a clearly different path
+    def test_path_partial_match_not_allowed(self, tmp_path):
+        ctx = self._ctx_with_paths([str(tmp_path)])
+        # A clearly unrelated path must be denied.
         assert ctx.is_path_allowed("/var/log/syslog") is False
 
-    def test_multiple_allowed_paths(self):
-        # allow_paths replaces on each call; pass both at once
-        ctx = self._ctx_with_paths(["/tmp/"])
-        assert ctx.is_path_allowed("/tmp/x") is True
+    def test_multiple_allowed_paths(self, tmp_path):
+        base = str(tmp_path)
+        ctx = self._ctx_with_paths([base])
+        assert ctx.is_path_allowed(str(tmp_path / "x")) is True
         assert ctx.is_path_allowed("/root/secret") is False
 
     def test_empty_paths_list_allows_any(self):
@@ -92,9 +101,10 @@ class TestSandboxPolicyPathRestriction:
         assert ctx.is_path_allowed("/etc/passwd") is True
         assert ctx.is_path_allowed("/any/path") is True
 
-    def test_allow_paths_with_single_path(self):
-        ctx = self._ctx_with_paths(["/tmp/"])
-        assert ctx.is_path_allowed("/tmp/project/file.py") is True
+    def test_allow_paths_with_single_path(self, tmp_path):
+        base = str(tmp_path)
+        ctx = self._ctx_with_paths([base])
+        assert ctx.is_path_allowed(str(tmp_path / "project" / "file.py")) is True
         assert ctx.is_path_allowed("/other/") is False
 
     def test_deny_actions_only_policy_allows_other_actions(self):
