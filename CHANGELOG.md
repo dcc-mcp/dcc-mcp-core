@@ -11,6 +11,36 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.13.6](https://github.com/loonghao/dcc-mcp-core/compare/v0.13.5...v0.13.6) (2026-04-20)
+
+
+### Features
+
+* **process,transport:** MainThreadPump dispatcher + EventStream MCP bridge ([#283](https://github.com/loonghao/dcc-mcp-core/issues/283)) ([23eb553](https://github.com/loonghao/dcc-mcp-core/commit/23eb553f8caf61008837eba533e3c00e5ee1872a))
+* **transport:** add criterion benchmarks for IPC round-trip performance ([d186faf](https://github.com/loonghao/dcc-mcp-core/commit/d186faf5a3093f189d9957b3303f50c5ea224f25))
+* **transport:** add fault-injection tests for IPC and TCP transport ([#296](https://github.com/loonghao/dcc-mcp-core/issues/296)) ([c4adb2e](https://github.com/loonghao/dcc-mcp-core/commit/c4adb2e62bbef338a6c57577458e94d70753ec61)), closes [#289](https://github.com/loonghao/dcc-mcp-core/issues/289)
+* **transport:** add Python bindings for DccLink adapters ([de2eed7](https://github.com/loonghao/dcc-mcp-core/commit/de2eed7e0086f267e2d11d672265098b664b0731)), closes [#287](https://github.com/loonghao/dcc-mcp-core/issues/287)
+* **transport:** add reentrancy-safe dispatch to GracefulIpcChannelAdapter ([f651b1a](https://github.com/loonghao/dcc-mcp-core/commit/f651b1a79ccc67b0ff6c13fbb4a81c493de473bd)), closes [#285](https://github.com/loonghao/dcc-mcp-core/issues/285)
+
+
+### Bug Fixes
+
+* **shm:** shorten segment names for macOS POSIX shm compatibility ([#298](https://github.com/loonghao/dcc-mcp-core/issues/298)) ([791f8f8](https://github.com/loonghao/dcc-mcp-core/commit/791f8f8385e0f5b920c9e92e197e15295adf1613))
+* **shm:** use short_id() for all segment names to fix macOS CI ([d20283a](https://github.com/loonghao/dcc-mcp-core/commit/d20283a038ae692e2fc15153cab97f91ab7d0f5c)), closes [#294](https://github.com/loonghao/dcc-mcp-core/issues/294) [#295](https://github.com/loonghao/dcc-mcp-core/issues/295)
+* **tests:** add missing uuid import to transport manager tests ([#300](https://github.com/loonghao/dcc-mcp-core/issues/300)) ([b2bcbe3](https://github.com/loonghao/dcc-mcp-core/commit/b2bcbe3d518543c17bdbca2c6d96cde97bbb1442))
+* **tests:** update Python tests for short ID format ([f06467c](https://github.com/loonghao/dcc-mcp-core/commit/f06467c33e294865de375b8d9f68ff79afb009c9))
+
+
+### Code Refactoring
+
+* **shm:** migrate from memmap2 to ipckit SharedMemory with TTL support ([#297](https://github.com/loonghao/dcc-mcp-core/issues/297)) ([5e0d626](https://github.com/loonghao/dcc-mcp-core/commit/5e0d62667012470aa8cba7cdbce2065dbc3f8f79))
+
+
+### Documentation
+
+* enhance AI-agent documentation with progressive disclosure and tool priority guide ([#301](https://github.com/loonghao/dcc-mcp-core/issues/301)) ([7516f04](https://github.com/loonghao/dcc-mcp-core/commit/7516f045bbe1524dfe343864b54e99800f2f78cd))
+* fix outdated references and add missing guide pages ([#302](https://github.com/loonghao/dcc-mcp-core/issues/302)) ([c642195](https://github.com/loonghao/dcc-mcp-core/commit/c6421957c0b174c9889415a99763fd3acb5219ba))
+
 ## [0.13.5](https://github.com/loonghao/dcc-mcp-core/compare/v0.13.4...v0.13.5) (2026-04-19)
 
 
