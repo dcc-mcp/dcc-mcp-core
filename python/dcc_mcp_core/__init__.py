@@ -22,10 +22,20 @@ from dcc_mcp_core._core import ACTION_ID_RE
 from dcc_mcp_core._core import APP_AUTHOR
 from dcc_mcp_core._core import APP_NAME
 from dcc_mcp_core._core import DEFAULT_DCC
+from dcc_mcp_core._core import DEFAULT_LOG_FILE_PREFIX
 from dcc_mcp_core._core import DEFAULT_LOG_LEVEL
+from dcc_mcp_core._core import DEFAULT_LOG_MAX_FILES
+from dcc_mcp_core._core import DEFAULT_LOG_MAX_SIZE
+from dcc_mcp_core._core import DEFAULT_LOG_ROTATION
 from dcc_mcp_core._core import DEFAULT_MIME_TYPE
 from dcc_mcp_core._core import DEFAULT_VERSION
+from dcc_mcp_core._core import ENV_LOG_DIR
+from dcc_mcp_core._core import ENV_LOG_FILE
+from dcc_mcp_core._core import ENV_LOG_FILE_PREFIX
 from dcc_mcp_core._core import ENV_LOG_LEVEL
+from dcc_mcp_core._core import ENV_LOG_MAX_FILES
+from dcc_mcp_core._core import ENV_LOG_MAX_SIZE
+from dcc_mcp_core._core import ENV_LOG_ROTATION
 from dcc_mcp_core._core import ENV_SKILL_PATHS
 from dcc_mcp_core._core import MAX_TOOL_NAME_LEN
 from dcc_mcp_core._core import SKILL_METADATA_DIR
@@ -52,6 +62,7 @@ from dcc_mcp_core._core import DccErrorCode
 from dcc_mcp_core._core import DccInfo
 from dcc_mcp_core._core import DccLinkFrame
 from dcc_mcp_core._core import EventBus
+from dcc_mcp_core._core import FileLoggingConfig
 from dcc_mcp_core._core import FloatWrapper
 from dcc_mcp_core._core import FrameRange
 from dcc_mcp_core._core import GracefulIpcChannelAdapter
@@ -150,6 +161,7 @@ from dcc_mcp_core._core import get_platform_dir
 from dcc_mcp_core._core import get_skill_paths_from_env
 from dcc_mcp_core._core import get_skills_dir
 from dcc_mcp_core._core import get_tools_dir
+from dcc_mcp_core._core import init_file_logging
 from dcc_mcp_core._core import is_telemetry_initialized
 from dcc_mcp_core._core import mpu_to_units
 from dcc_mcp_core._core import parse_skill_md
@@ -162,6 +174,7 @@ from dcc_mcp_core._core import scan_skill_paths
 # USD bridge functions
 from dcc_mcp_core._core import scene_info_json_to_stage
 from dcc_mcp_core._core import serialize_result
+from dcc_mcp_core._core import shutdown_file_logging
 from dcc_mcp_core._core import shutdown_telemetry
 from dcc_mcp_core._core import stage_to_scene_info_json
 from dcc_mcp_core._core import success_result
@@ -225,10 +238,20 @@ __all__ = [
     "APP_NAME",
     "CAPABILITY_KEYS",
     "DEFAULT_DCC",
+    "DEFAULT_LOG_FILE_PREFIX",
     "DEFAULT_LOG_LEVEL",
+    "DEFAULT_LOG_MAX_FILES",
+    "DEFAULT_LOG_MAX_SIZE",
+    "DEFAULT_LOG_ROTATION",
     "DEFAULT_MIME_TYPE",
     "DEFAULT_VERSION",
+    "ENV_LOG_DIR",
+    "ENV_LOG_FILE",
+    "ENV_LOG_FILE_PREFIX",
     "ENV_LOG_LEVEL",
+    "ENV_LOG_MAX_FILES",
+    "ENV_LOG_MAX_SIZE",
+    "ENV_LOG_ROTATION",
     "ENV_SKILL_PATHS",
     "MAX_TOOL_NAME_LEN",
     "SKILL_METADATA_DIR",
@@ -262,6 +285,7 @@ __all__ = [
     "DccServerBase",
     "DccSkillHotReloader",
     "EventBus",
+    "FileLoggingConfig",
     "FloatWrapper",
     "FrameRange",
     "FrameRange",
@@ -358,6 +382,7 @@ __all__ = [
     "get_skill_paths_from_env",
     "get_skills_dir",
     "get_tools_dir",
+    "init_file_logging",
     "is_telemetry_initialized",
     "make_start_stop",
     "mpu_to_units",
@@ -372,6 +397,7 @@ __all__ = [
     "scan_skill_paths",
     "scene_info_json_to_stage",
     "serialize_result",
+    "shutdown_file_logging",
     "shutdown_telemetry",
     "skill_entry",
     "skill_error",

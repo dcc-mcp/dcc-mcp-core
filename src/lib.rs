@@ -209,6 +209,9 @@ fn register_utils(m: &Bound<'_, PyModule>) -> PyResult<()> {
         dcc_mcp_utils::type_wrappers::py_unwrap_value,
         dcc_mcp_utils::type_wrappers::py_unwrap_parameters,
         dcc_mcp_utils::type_wrappers::py_wrap_value,
+        dcc_mcp_utils::file_logging::python::py_init_file_logging,
+        dcc_mcp_utils::file_logging::python::py_shutdown_file_logging,
+        dcc_mcp_utils::file_logging::python::py_default_settings,
     );
     add_classes!(
         m,
@@ -216,6 +219,7 @@ fn register_utils(m: &Bound<'_, PyModule>) -> PyResult<()> {
         dcc_mcp_utils::type_wrappers::IntWrapper,
         dcc_mcp_utils::type_wrappers::FloatWrapper,
         dcc_mcp_utils::type_wrappers::StringWrapper,
+        dcc_mcp_utils::file_logging::python::PyFileLoggingConfig,
     );
     Ok(())
 }
@@ -276,7 +280,17 @@ fn register_constants(m: &Bound<'_, PyModule>) -> PyResult<()> {
         "ENV_SKILL_PATHS"    => constants::ENV_SKILL_PATHS,
         "ENV_LOG_LEVEL"      => constants::ENV_LOG_LEVEL,
         "DEFAULT_LOG_LEVEL"  => constants::DEFAULT_LOG_LEVEL,
+        "ENV_LOG_FILE"       => constants::ENV_LOG_FILE,
+        "ENV_LOG_DIR"        => constants::ENV_LOG_DIR,
+        "ENV_LOG_MAX_SIZE"   => constants::ENV_LOG_MAX_SIZE,
+        "ENV_LOG_MAX_FILES"  => constants::ENV_LOG_MAX_FILES,
+        "ENV_LOG_ROTATION"   => constants::ENV_LOG_ROTATION,
+        "ENV_LOG_FILE_PREFIX"=> constants::ENV_LOG_FILE_PREFIX,
+        "DEFAULT_LOG_FILE_PREFIX" => constants::DEFAULT_LOG_FILE_PREFIX,
+        "DEFAULT_LOG_ROTATION"   => constants::DEFAULT_LOG_ROTATION,
     );
+    m.add("DEFAULT_LOG_MAX_SIZE", constants::DEFAULT_LOG_MAX_SIZE)?;
+    m.add("DEFAULT_LOG_MAX_FILES", constants::DEFAULT_LOG_MAX_FILES)?;
     Ok(())
 }
 

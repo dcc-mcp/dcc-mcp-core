@@ -22,6 +22,16 @@ DEFAULT_VERSION: str
 DEFAULT_MIME_TYPE: str
 DEFAULT_LOG_LEVEL: str
 ENV_LOG_LEVEL: str
+ENV_LOG_FILE: str
+ENV_LOG_DIR: str
+ENV_LOG_MAX_SIZE: str
+ENV_LOG_MAX_FILES: str
+ENV_LOG_ROTATION: str
+ENV_LOG_FILE_PREFIX: str
+DEFAULT_LOG_FILE_PREFIX: str
+DEFAULT_LOG_ROTATION: str
+DEFAULT_LOG_MAX_SIZE: int
+DEFAULT_LOG_MAX_FILES: int
 ENV_SKILL_PATHS: str
 SKILL_METADATA_FILE: str
 SKILL_SCRIPTS_DIR: str
@@ -4003,4 +4013,109 @@ def deserialize_result(
         assert roundtrip.message == "render complete"
 
     """
+    ...
+
+# ── File logging ──────────────────────────────────────────────────────────────
+
+class FileLoggingConfig:
+    """Configuration for the rolling file-logger.
+
+    Attributes mirror the ``DCC_MCP_LOG_*`` environment variables read by
+    :py:func:`init_file_logging`. All fields are optional; defaults are the
+    same as the Rust ``FileLoggingConfig::default`` values.
+
+    Parameters
+    ----------
+    directory:
+        Target directory for log files. ``None`` falls back to
+        :py:func:`get_log_dir` (platform-appropriate log dir).
+    file_name_prefix:
+        File-name stem (full file is ``<prefix>.<YYYYMMDD>.log``).
+        Defaults to ``"dcc-mcp"``.
+    max_size_bytes:
+        Maximum bytes per file before a size-triggered rotation
+        (default 10 MiB).
+    max_files:
+        Retention cap — keep this many **rolled** files (current file
+        excluded). Default ``7``.
+    rotation:
+        ``"size"``, ``"daily"``, or ``"both"``. Default ``"both"``.
+    include_console:
+        Kept for parity with a future "silence stderr" option. Today the
+        console layer always remains active; setting this to ``False``
+        is accepted but has no runtime effect.
+
+    """
+
+    directory: str | None
+    file_name_prefix: str
+    max_size_bytes: int
+    max_files: int
+    rotation: str
+    include_console: bool
+
+    def __init__(
+        self,
+        directory: str | None = None,
+        file_name_prefix: str | None = None,
+        max_size_bytes: int | None = None,
+        max_files: int | None = None,
+        rotation: str | None = None,
+        include_console: bool | None = None,
+    ) -> None: ...
+    @staticmethod
+    def from_env() -> FileLoggingConfig:
+        """Build a config pre-populated from the ``DCC_MCP_LOG_*`` env vars."""
+        ...
+
+    def __repr__(self) -> str: ...
+
+def init_file_logging(config: FileLoggingConfig | None = None) -> str:
+    """Install (or swap) the rolling-file logging layer.
+
+    Console output (stderr) is unaffected. The writer rotates on size
+    and/or calendar-date change per the configuration. Calling this
+    function repeatedly is safe — each call atomically swaps the layer
+    and drops the previous non-blocking worker guard.
+
+    Parameters
+    ----------
+    config:
+        A :py:class:`FileLoggingConfig`. When ``None``, one is built from
+        the ``DCC_MCP_LOG_*`` env vars via
+        :py:meth:`FileLoggingConfig.from_env`.
+
+    Returns
+    -------
+    str
+        The resolved log directory (useful when it was inferred from the
+        platform log dir).
+
+    Raises
+    ------
+    ValueError
+        If a configuration value is invalid (e.g. unknown rotation policy).
+    OSError
+        If the log directory or the initial log file cannot be opened.
+    RuntimeError
+        If the tracing subscriber's reload handle rejects the swap
+        (should not happen under normal operation).
+
+    Example
+    -------
+    .. code-block:: python
+
+        from dcc_mcp_core import FileLoggingConfig, init_file_logging
+        init_file_logging(FileLoggingConfig(
+            directory="./tmp-logs",
+            max_size_bytes=5 * 1024 * 1024,
+            max_files=10,
+            rotation="both",
+        ))
+
+    """
+    ...
+
+def shutdown_file_logging() -> None:
+    """Uninstall the file-logging layer; console output is unaffected."""
     ...

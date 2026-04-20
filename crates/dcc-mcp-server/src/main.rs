@@ -165,6 +165,33 @@ struct Args {
     /// Internal helper: PID to watch for `--pid-cleanup-watch`.
     #[arg(long, hide = true)]
     watch_pid: Option<u32>,
+
+    // ── File logging ──
+    /// Enable logging to rotating files. Defaults to disabled; when `true`
+    /// the server also keeps emitting to stderr.
+    #[arg(long, env = "DCC_MCP_LOG_FILE", default_value = "false")]
+    log_file: bool,
+
+    /// Directory for rotated log files. Defaults to the platform log dir
+    /// (`dcc_mcp_utils::filesystem::get_log_dir()`).
+    #[arg(long, env = "DCC_MCP_LOG_DIR", value_name = "PATH")]
+    log_dir: Option<PathBuf>,
+
+    /// Maximum bytes per log file before a size-triggered rotation.
+    #[arg(long, env = "DCC_MCP_LOG_MAX_SIZE", value_name = "BYTES")]
+    log_max_size: Option<u64>,
+
+    /// Number of **rolled** files to retain (current file excluded).
+    #[arg(long, env = "DCC_MCP_LOG_MAX_FILES", value_name = "N")]
+    log_max_files: Option<usize>,
+
+    /// Rotation policy: `size`, `daily`, or `both`.
+    #[arg(long, env = "DCC_MCP_LOG_ROTATION", value_name = "POLICY")]
+    log_rotation: Option<String>,
+
+    /// File-name prefix (full file is `<prefix>.<YYYYMMDD>.log`).
+    #[arg(long, env = "DCC_MCP_LOG_FILE_PREFIX", value_name = "PREFIX")]
+    log_file_prefix: Option<String>,
 }
 
 struct PidFileGuard {
@@ -357,17 +384,56 @@ async fn run_ws_bridge(port: u16, server_name: String, server_version: String) {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
-        )
-        .init();
+    // Install the shared subscriber (stderr fmt-layer + reload slot for the
+    // optional file-logging layer). Safe to call multiple times.
+    dcc_mcp_utils::log_config::init_logging();
 
     let args = Args::parse();
 
     if let (Some(path), Some(pid)) = (args.pid_cleanup_watch.clone(), args.watch_pid) {
         run_pid_cleanup_watcher(path, pid);
         return Ok(());
+    }
+
+    // Wire up rolling-file logging if the operator asked for it via CLI
+    // or any of the `DCC_MCP_LOG_*` env vars. CLI flags win over env.
+    if args.log_file
+        || args.log_dir.is_some()
+        || args.log_max_size.is_some()
+        || args.log_max_files.is_some()
+        || args.log_rotation.is_some()
+        || args.log_file_prefix.is_some()
+        || dcc_mcp_utils::file_logging::FileLoggingConfig::enabled_by_env()
+    {
+        let mut cfg = dcc_mcp_utils::file_logging::FileLoggingConfig::from_env_with_defaults()
+            .map_err(|e| anyhow::anyhow!("invalid file-logging env vars: {e}"))?;
+        if let Some(dir) = args.log_dir.clone() {
+            cfg.directory = Some(dir);
+        }
+        if let Some(size) = args.log_max_size {
+            cfg.max_size_bytes = size;
+        }
+        if let Some(n) = args.log_max_files {
+            cfg.max_files = n;
+        }
+        if let Some(ref rot) = args.log_rotation {
+            cfg.rotation = dcc_mcp_utils::file_logging::RotationPolicy::parse(rot)
+                .map_err(|e| anyhow::anyhow!("invalid --log-rotation: {e}"))?;
+        }
+        if let Some(ref prefix) = args.log_file_prefix {
+            if !prefix.trim().is_empty() {
+                cfg.file_name_prefix = prefix.clone();
+            }
+        }
+        match dcc_mcp_utils::file_logging::init_file_logging(cfg) {
+            Ok(dir) => tracing::info!(
+                path = %dir.display(),
+                "rolling file logging enabled",
+            ),
+            Err(e) => {
+                tracing::warn!(%e, "failed to enable file logging; continuing with stderr only")
+            }
+        }
     }
 
     let mut pid_file_guard = args
