@@ -9,6 +9,7 @@ from __future__ import annotations
 import gc
 import json
 import tempfile
+import uuid
 
 import pytest
 
