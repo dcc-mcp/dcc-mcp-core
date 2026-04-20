@@ -22,7 +22,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.14.0" # x-release-please-version
+version = "0.14.1" # x-release-please-version
 edition = "2024"
 rust-version = "1.85"
 authors = ["Hal Long <hal.long@outlook.com>"]

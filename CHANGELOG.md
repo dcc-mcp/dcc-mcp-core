@@ -11,6 +11,14 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.14.1](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.0...v0.14.1) (2026-04-20)
+
+
+### Features
+
+* **http/gateway:** bare tool names per instance ([#307](https://github.com/loonghao/dcc-mcp-core/issues/307)) ([#309](https://github.com/loonghao/dcc-mcp-core/issues/309)) ([dd091bf](https://github.com/loonghao/dcc-mcp-core/commit/dd091bf1493822e415f5c761799534b791d93f31))
+* **logging:** rolling file logger for Rust + Python ([#308](https://github.com/loonghao/dcc-mcp-core/issues/308)) ([6efe208](https://github.com/loonghao/dcc-mcp-core/commit/6efe2082c41b3c35f4199f03f7e1d3f9b20c8923))
+
 ## [0.14.0](https://github.com/loonghao/dcc-mcp-core/compare/v0.13.6...v0.14.0) (2026-04-20)
 
 
