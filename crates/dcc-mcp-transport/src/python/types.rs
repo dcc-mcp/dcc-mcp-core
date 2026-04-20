@@ -483,10 +483,7 @@ impl PyServiceEntry {
     fn extras<'py>(&self, py: Python<'py>) -> PyResult<Py<PyDict>> {
         let dict = PyDict::new(py);
         for (k, v) in &self.extras {
-            dict.set_item(
-                k,
-                dcc_mcp_utils::py_json::json_value_to_bound_py(py, v)?,
-            )?;
+            dict.set_item(k, dcc_mcp_utils::py_json::json_value_to_bound_py(py, v)?)?;
         }
         Ok(dict.unbind())
     }

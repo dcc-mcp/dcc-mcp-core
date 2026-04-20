@@ -106,14 +106,13 @@ fn turmoil_half_open_detected_by_client() {
 
         // With a short read timeout the client must see an error, not hang.
         let mut buf = [0u8; 4];
-        let outcome =
-            tokio::time::timeout(Duration::from_secs(3), s.read_exact(&mut buf)).await;
+        let outcome = tokio::time::timeout(Duration::from_secs(3), s.read_exact(&mut buf)).await;
 
         // Either timeout (Elapsed) or a concrete I/O error are acceptable —
         // what's NOT acceptable is "succeeded unexpectedly".
         match outcome {
-            Err(_elapsed) => {}          // timeout → half-open detection path
-            Ok(Err(_io)) => {}           // connection reset / aborted → same outcome
+            Err(_elapsed) => {} // timeout → half-open detection path
+            Ok(Err(_io)) => {}  // connection reset / aborted → same outcome
             Ok(Ok(_n)) => panic!("half-open read must not succeed"),
         }
 

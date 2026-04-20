@@ -331,9 +331,8 @@ impl McpHttpServer {
                         self.config.host.to_string()
                     };
                     let probe_addr = format!("{probe_host}:{port}");
-                    let timeout = std::time::Duration::from_millis(
-                        self.config.self_probe_timeout_ms,
-                    );
+                    let timeout =
+                        std::time::Duration::from_millis(self.config.self_probe_timeout_ms);
                     let mut reachable = false;
                     for _ in 0..5 {
                         match tokio::time::timeout(
@@ -347,8 +346,7 @@ impl McpHttpServer {
                                 break;
                             }
                             _ => {
-                                tokio::time::sleep(std::time::Duration::from_millis(50))
-                                    .await;
+                                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
                             }
                         }
                     }
@@ -377,7 +375,8 @@ impl McpHttpServer {
                 let rebind_addr = actual_bind.clone();
                 drop(listener);
 
-                let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel::<Result<(), std::io::Error>>(1);
+                let (ready_tx, ready_rx) =
+                    std::sync::mpsc::sync_channel::<Result<(), std::io::Error>>(1);
                 let mut shutdown_rx_d = shutdown_rx.clone();
                 let self_probe_timeout_ms = self.config.self_probe_timeout_ms;
                 let probe_bind = actual_bind.clone();
@@ -452,8 +451,7 @@ impl McpHttpServer {
                 // Self-probe from the caller's runtime to confirm the
                 // dedicated thread's accept loop is actually serving.
                 if self_probe_timeout_ms > 0 {
-                    let timeout =
-                        std::time::Duration::from_millis(self_probe_timeout_ms);
+                    let timeout = std::time::Duration::from_millis(self_probe_timeout_ms);
                     let mut reachable = false;
                     for _ in 0..5 {
                         match tokio::time::timeout(
@@ -467,8 +465,7 @@ impl McpHttpServer {
                                 break;
                             }
                             _ => {
-                                tokio::time::sleep(std::time::Duration::from_millis(50))
-                                    .await;
+                                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
                             }
                         }
                     }

@@ -92,11 +92,12 @@ pub(crate) fn is_newer_version(candidate: &str, current: &str) -> bool {
 async fn try_bind_port(host: &str, port: u16) -> std::io::Result<tokio::net::TcpListener> {
     use socket2::{Domain, Socket, Type};
 
-    let addr: std::net::SocketAddr = format!("{host}:{port}")
-        .parse()
-        .map_err(|e: std::net::AddrParseError| {
-            std::io::Error::new(std::io::ErrorKind::InvalidInput, e.to_string())
-        })?;
+    let addr: std::net::SocketAddr =
+        format!("{host}:{port}")
+            .parse()
+            .map_err(|e: std::net::AddrParseError| {
+                std::io::Error::new(std::io::ErrorKind::InvalidInput, e.to_string())
+            })?;
     let socket = Socket::new(Domain::for_address(addr), Type::STREAM, None)?;
     socket.set_reuse_address(false)?;
     #[cfg(unix)]
@@ -422,10 +423,7 @@ async fn start_gateway_tasks(
         // task's JoinHandle here because the runtime may be starved — we
         // rely on `combined.abort_handle()` / `yield_tx` for cleanup.
         tokio::time::sleep(Duration::from_millis(50)).await;
-        return Err(format!(
-            "gateway listener self-probe failed at {actual}: {e}"
-        )
-        .into());
+        return Err(format!("gateway listener self-probe failed at {actual}: {e}").into());
     }
 
     Ok(GatewayTasks {
@@ -1059,12 +1057,9 @@ mod tests {
         // Entire probe (10 attempts * (200 ms timeout + 100 ms backoff)) must
         // finish in well under 5 s; cap the test at 5 s to catch regressions
         // that accidentally make the probe block indefinitely.
-        let result = tokio::time::timeout(
-            Duration::from_secs(5),
-            super::self_probe_listener(addr),
-        )
-        .await
-        .expect("self-probe must not hang past its budget");
+        let result = tokio::time::timeout(Duration::from_secs(5), super::self_probe_listener(addr))
+            .await
+            .expect("self-probe must not hang past its budget");
 
         assert!(
             result.is_err(),
