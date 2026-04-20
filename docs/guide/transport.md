@@ -1,5 +1,28 @@
 # Transport Layer
 
+> **🚨 v0.14 removed the legacy transport stack (issue #251).**
+>
+> The classes described below — `TransportManager`, `FramedChannel`,
+> `FramedIo`, `IpcListener` (Python), `ListenerHandle`, `RoutingStrategy`,
+> `ConnectionPool`, `InstanceRouter`, `CircuitBreaker`, `MessageEnvelope`,
+> `encode_request` / `encode_response` / `encode_notify` / `decode_envelope`,
+> `connect_ipc` — are **gone**. New code should use the DccLink adapters
+> built on `ipckit`:
+>
+> - `IpcChannelAdapter.connect(name)` / `.create(name)` — per-connection
+>   framed channel for Named Pipes (Windows) or Unix Sockets (*nix).
+> - `SocketServerAdapter` — multi-client IPC server with a bounded
+>   connection pool.
+> - `GracefulIpcChannelAdapter` — adds graceful shutdown + reentrancy-safe
+>   dispatch for DCC main-thread integration.
+> - `DccLinkFrame` / `DccLinkType` — `[u32 len][u8 type][u64 seq][msgpack body]`
+>   wire frame with eight message kinds (Call, Reply, Err, Progress,
+>   Cancel, Push, Ping, Pong).
+> - `ServiceEntry` + `FileRegistry` — service discovery (unchanged).
+>
+> The gateway HTTP API (`GET /instances`, `POST /mcp`, …) is the public
+> surface for discovery across processes.
+
 The Transport layer (`dcc-mcp-transport` crate) provides async communication infrastructure for connecting MCP servers to DCC application instances. It includes connection pooling, service discovery, session management, and a wire protocol.
 
 ## Overview

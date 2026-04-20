@@ -30,7 +30,7 @@ A Rust-powered MCP (Model Context Protocol) library that lets AI agents interact
 | Zero-code tool registration | Drop `SKILL.md` + `scripts/` in a directory ([agentskills.io](https://agentskills.io/specification) format) |
 | AI-safe result structure | `success_result()` / `error_result()` |
 | Bridge non-Python DCCs (Photoshop, ZBrush) | `DccBridge` (WebSocket JSON-RPC 2.0) |
-| IPC between processes | `IpcListener.bind()` / `connect_ipc()` / `FramedChannel.call()` |
+| IPC between processes | `IpcChannelAdapter` / `SocketServerAdapter` + `DccLinkFrame` |
 | Multi-DCC gateway | `McpHttpConfig(gateway_port=9765)` |
 | Trust-based skill scoping | `SkillScope` (Repo → User → System → Admin) — **Rust-only**; Python uses string values via `SkillMetadata` |
 | Progressive tool exposure | `SkillGroup` with `default_active` + `activate_tool_group()` |
@@ -186,7 +186,7 @@ dcc-mcp-core/
 │   ├── dcc-mcp-actions/            # ToolRegistry, ToolDispatcher, ToolPipeline, EventBus
 │   ├── dcc-mcp-skills/             # SkillScanner, SkillCatalog, SkillWatcher
 │   ├── dcc-mcp-protocols/          # MCP types: ToolDefinition, DccCapabilities, BridgeKind
-│   ├── dcc-mcp-transport/          # IpcListener, FramedChannel, TransportManager, FileRegistry
+│   ├── dcc-mcp-transport/          # DccLink adapters (ipckit), FileRegistry (discovery)
 │   ├── dcc-mcp-process/            # PyDccLauncher, PyProcessWatcher, CrashRecoveryPolicy
 │   ├── dcc-mcp-http/               # McpHttpServer (MCP 2025-03-26 Streamable HTTP), Gateway
 │   ├── dcc-mcp-sandbox/            # SandboxPolicy, InputValidator, AuditLog
@@ -279,16 +279,20 @@ registry.search_actions(category="geometry")   # still "search_actions"
 # These are NOT bugs — they are compatibility aliases.
 ```
 
-**`FramedChannel.call()` — primary RPC (v0.12.7+):**
+**DccLink IPC — primary RPC path (v0.14+, issue #251):**
 ```python
-result = channel.call("execute_python", b'cmds.sphere()', timeout_ms=30000)
-# result: {"id": str, "success": bool, "payload": bytes, "error": str|None}
+from dcc_mcp_core import DccLinkFrame, IpcChannelAdapter
+channel = IpcChannelAdapter.connect("dcc-mcp-maya-12345")  # Named Pipe / UDS
+channel.send_frame(DccLinkFrame(msg_type="Call", seq=1, body=b"{...}"))
+reply = channel.recv_frame()   # DccLinkFrame: msg_type, seq, body
+# Legacy FramedChannel.call / connect_ipc were REMOVED in v0.14 (#251).
 ```
 
-**`IpcListener` — bind then accept, not new+start:**
+**Multi-client IPC server:**
 ```python
-listener = IpcListener.bind(addr)       # ✓
-channel  = listener.accept()            # blocks until client connects
+from dcc_mcp_core import SocketServerAdapter
+server = SocketServerAdapter("/tmp/maya.sock", max_connections=8,
+                             connection_timeout_secs=30)
 ```
 
 **`DeferredExecutor` — not in public `__init__`:**

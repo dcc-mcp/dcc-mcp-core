@@ -80,16 +80,39 @@ paths = get_bundled_skill_paths(False)         # [] — opt-out
 
 ### When Understanding the Transport Layer
 
-- Uses IPC (Unix socket / named pipe) for process communication
-- `TransportManager` manages connection pools with `CircuitBreaker` resilience
-- `FramedChannel` for reliable message delivery with message framing
-- Connect (client): `connect_ipc(address, timeout_ms=10000) -> FramedChannel`
-- Listen (server): `IpcListener.bind(address)` → `.accept(timeout_ms=None) -> FramedChannel`
-  - Note: the method is `.bind()` (static) + `.accept()` (blocking) — not `.new()` + `.start()`
-- **`FramedChannel.call(method, params, timeout_ms)` — primary RPC helper** (added v0.12.7):
-  sends a Request and waits for the correlated Response atomically.
-  - `result = channel.call("execute_python", b'cmds.sphere()')` → `{"id", "success", "payload", "error"}`
-  - Use `send_request()` + `recv()` only when you need async/multiplexed patterns
+- Uses IPC (Unix socket / named pipe) for process communication, implemented on top of `ipckit`.
+- **DccLink adapters are the public API** (v0.14+): `IpcChannelAdapter`, `GracefulIpcChannelAdapter`,
+  `SocketServerAdapter`. Each wraps an `ipckit` primitive with a stable DCC-Link frame
+  (`[u32 len][u8 type][u64 seq][msgpack body]`).
+- Message kinds: `DccLinkType::{Call, Reply, Err, Progress, Cancel, Push, Ping, Pong}` —
+  use `DccLinkFrame` to construct them.
+- Client: `IpcChannelAdapter.connect(name)`; Server: `IpcChannelAdapter.create(name)` or
+  `SocketServerAdapter.new(path, max_connections, connection_timeout)`.
+- Service discovery lives in `dcc_mcp_transport::discovery::FileRegistry`
+  (`ServiceEntry`, `ServiceKey`, `ServiceStatus`).
+- **Removed in v0.14 (issue #251)**: `FramedChannel`, `FramedIo`, `TransportManager`,
+  `IpcListener` (Python class), `ListenerHandle`, `RoutingStrategy`, `ConnectionPool`,
+  `InstanceRouter`, `CircuitBreaker`, `MessageEnvelope`, `Request`/`Response`/`Notification`,
+  `connect_ipc`, `encode_request`/`encode_response`/`encode_notify`/`decode_envelope`.
+  Do NOT reference these symbols in new code; they no longer exist.
+
+### MCP HTTP server spawn modes (issue #303 fix)
+
+`McpHttpConfig` exposes a `spawn_mode` that picks how listeners are driven:
+
+- **`Ambient`** — listeners run as `tokio::spawn` tasks on the caller's runtime.
+  Correct for `#[tokio::main]` binaries like `dcc-mcp-server` where a driver
+  thread persists for the process lifetime.
+- **`Dedicated`** — each listener runs on its own OS thread with a
+  `current_thread` Tokio runtime. Default for PyO3-embedded hosts
+  (Maya/Blender/Houdini). Prevents the "is_gateway=true but port
+  unreachable" failure mode observed on Windows mayapy.
+
+The Python `McpHttpConfig` defaults `spawn_mode = "dedicated"`;
+`McpHttpServer.start()` self-probes the new listener and refuses to
+return a handle that claims to be bound when it actually is not.
+If you write new code that constructs `McpHttpServer` from Rust inside
+a PyO3 binding, set `spawn_mode = ServerSpawnMode::Dedicated` explicitly.
 
 ### When Using MCP HTTP Server
 
@@ -140,17 +163,40 @@ bus.unsubscribe("event_name", sub_id)
 registry.register(name="action", description="...", dcc="maya", version="1.0.0")
 # Use dispatcher.register_handler() to attach a Python callable
 
-# FramedChannel.call() — primary RPC helper (v0.12.7+)
-channel = connect_ipc(TransportAddress.default_local("maya", pid))
-result = channel.call("execute_python", b'cmds.sphere()', timeout_ms=30000)
-# result: {"id": str, "success": bool, "payload": bytes, "error": str|None}
-# Alternative (async): req_id = channel.send_request(...); msg = channel.recv(timeout_ms=...)
+# DccLink IPC — primary RPC path (v0.14+, issue #251)
+from dcc_mcp_core import DccLinkFrame, IpcChannelAdapter
+channel = IpcChannelAdapter.connect(f"dcc-mcp-maya-{pid}")   # Named Pipe / UDS
+channel.send_frame(DccLinkFrame(msg_type="Call", seq=1, body=b"{...}"))
+reply = channel.recv_frame()   # DccLinkFrame: msg_type, seq, body (bytes)
+# Use SocketServerAdapter for multi-client servers.
 
 # McpHttpServer — expose registry over HTTP/MCP
+# Python default: spawn_mode="dedicated" (issue #303 fix)
 server = McpHttpServer(registry, McpHttpConfig(port=8765))
-handle = server.start()   # McpServerHandle
+handle = server.start()   # McpServerHandle; guaranteed reachable after return
 print(handle.mcp_url())   # "http://127.0.0.1:8765/mcp"
 ```
+
+### Gateway lifecycle invariants (issue #303)
+
+These hold after v0.14 and MUST NOT regress:
+
+1. **`handle.is_gateway == True` ⇒ the gateway port is reachable.** The
+   election code runs a loopback `TcpStream::connect` self-probe before
+   declaring victory; if the probe fails it falls back to plain-instance
+   mode and returns `is_gateway = false`. Do not skip this probe.
+2. **The gateway supervisor `JoinHandle` must outlive `GatewayHandle`.**
+   Earlier versions dropped the JoinHandle at the end of
+   `start_gateway_tasks`; under PyO3-embedded hosts that detached the
+   accept loop and made it unreachable. Keep the `JoinHandle` in the
+   `GatewayHandle` struct.
+3. **Socket setup errors must not be silenced with `.ok()?`.**
+   `try_bind_port` returns `io::Result`; only `AddrInUse` is treated as
+   a lost election, all other errors are logged at warn level.
+4. **Python / PyO3 callers default to `ServerSpawnMode::Dedicated`.**
+   `PyMcpHttpConfig::new` sets this automatically; `py_create_skill_server`
+   also coerces `Ambient` → `Dedicated`. Do not revert to Ambient inside
+   Python bindings.
 
 ### When Exploring Unknown Symbols
 

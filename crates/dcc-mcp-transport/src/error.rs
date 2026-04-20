@@ -136,6 +136,7 @@ pub enum TransportError {
 /// Result type alias for transport operations.
 pub type TransportResult<T> = Result<T, TransportError>;
 
+#[allow(dead_code)]
 impl TransportError {
     /// Convenience constructor for a connection-refused style error.
     ///

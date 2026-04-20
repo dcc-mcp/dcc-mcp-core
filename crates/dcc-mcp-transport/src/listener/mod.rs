@@ -47,9 +47,6 @@ use crate::connector::{IpcStream, LocalSocketKind};
 use crate::error::{TransportError, TransportResult};
 use crate::ipc::TransportAddress;
 
-#[cfg(test)]
-mod tests;
-
 // ── IpcListener ────────────────────────────────────────────────────────────
 
 /// A unified async IPC listener that accepts incoming connections.

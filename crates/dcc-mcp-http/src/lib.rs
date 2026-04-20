@@ -55,7 +55,7 @@ pub mod python;
 
 // Re-exports
 pub use bridge_registry::{BridgeContext, BridgeRegistry};
-pub use config::McpHttpConfig;
+pub use config::{McpHttpConfig, ServerSpawnMode};
 pub use error::{HttpError, HttpResult};
 pub use executor::{DccExecutorHandle, DeferredExecutor};
 pub use gateway::{GatewayConfig, GatewayHandle, GatewayRunner};

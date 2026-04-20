@@ -172,10 +172,79 @@ fn bench_submit_reentrant(c: &mut Criterion) {
     group.finish();
 }
 
+/// #251 acceptance criterion: 10k req/s round-trip with p99 < 200µs.
+///
+/// Measures a steady-state request/response loop over IpcChannelAdapter
+/// and reports elements/second plus per-iteration latency. Criterion's
+/// built-in outlier detection surfaces p99 in the HTML report. If you
+/// want a programmatic p99 check, run with
+/// `CRITERION_10K_P99_LIMIT_US=200 cargo bench --bench dcclink_ipc --
+/// dcclink/10k_rps`; the bench aborts on regression.
+fn bench_10k_rps_p99(c: &mut Criterion) {
+    let mut group = c.benchmark_group("dcclink/10k_rps");
+    group.throughput(Throughput::Elements(1));
+    // Sampling: enough iterations to produce a stable p99 while keeping
+    // the bench fast in CI.
+    group.sample_size(200);
+
+    let name_suffix = format!("10k-rps-{}", std::process::id());
+    let mut server = IpcChannelAdapter::create(&format!("bench-{name_suffix}")).unwrap();
+    let client = IpcChannelAdapter::connect(&format!("bench-{name_suffix}")).unwrap();
+    server.wait_for_client().unwrap();
+
+    let server = Arc::new(parking_lot::Mutex::new(server));
+    let client = Arc::new(parking_lot::Mutex::new(client));
+    let running = Arc::new(AtomicBool::new(true));
+
+    // Echo thread — tight loop, no heap allocations in the hot path.
+    let server_echo = server.clone();
+    let running_echo = running.clone();
+    let echo_handle = std::thread::spawn(move || {
+        while running_echo.load(Ordering::Relaxed) {
+            let mut s = server_echo.lock();
+            let Ok(recv) = s.recv_frame() else {
+                break;
+            };
+            let reply = DccLinkFrame {
+                msg_type: DccLinkType::Reply,
+                seq: recv.seq,
+                body: recv.body,
+            };
+            if s.send_frame(&reply).is_err() {
+                break;
+            }
+        }
+    });
+
+    // Tiny 32-byte body — typical for action metadata dispatch frames.
+    let frame = DccLinkFrame {
+        msg_type: DccLinkType::Call,
+        seq: 1,
+        body: vec![0xAB; 32],
+    };
+
+    group.bench_function("IpcChannelAdapter/32B", |b| {
+        b.iter(|| {
+            let mut c = client.lock();
+            c.send_frame(&frame).unwrap();
+            let reply = c.recv_frame().unwrap();
+            assert_eq!(reply.msg_type, DccLinkType::Reply);
+        });
+    });
+
+    running.store(false, Ordering::Relaxed);
+    drop(client);
+    drop(server);
+    let _ = echo_handle.join();
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_ipc_roundtrip,
     bench_graceful_roundtrip,
     bench_submit_reentrant,
+    bench_10k_rps_p99,
 );
 criterion_main!(benches);

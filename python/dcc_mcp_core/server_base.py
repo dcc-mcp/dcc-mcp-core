@@ -57,9 +57,9 @@ from pathlib import Path
 from typing import Any
 
 # NOTE: dcc_mcp_core imports (McpHttpConfig, create_skill_server, get_*,
-# TransportManager, get_bundled_skill_paths) are deferred inside methods to
-# avoid a circular import: __init__.py imports DccServerBase from this module,
-# so this module cannot import from dcc_mcp_core at module level.
+# get_bundled_skill_paths) are deferred inside methods to avoid a circular
+# import: __init__.py imports DccServerBase from this module, so this module
+# cannot import from dcc_mcp_core at module level.
 from dcc_mcp_core.gateway_election import DccGatewayElection
 from dcc_mcp_core.hotreload import DccSkillHotReloader
 
@@ -719,31 +719,18 @@ class DccServerBase:
             logger.debug("[%s] Gateway not configured; metadata update skipped", self._dcc_name)
             return False
 
+        # v0.14: the legacy TransportManager.update_scene path has been
+        # removed together with the custom transport stack (issue #251).
+        # Scene/version metadata now propagates through the next heartbeat
+        # emitted by the gateway-owned McpHttpServer handle. We update the
+        # in-memory config here so the next heartbeat carries the new
+        # values; no out-of-band registry write is needed any more.
         try:
-            # Update in-memory config first
             if scene is not None:
                 self._config.scene = scene
             if version is not None:
                 self._config.dcc_version = version
-
-            from dcc_mcp_core import TransportManager
-
-            registry_dir = getattr(self._config, "registry_dir", "") or os.environ.get("DCC_MCP_REGISTRY_DIR", "")
-            if not registry_dir:
-                return True  # config updated locally, no registry dir to write
-
-            mgr = TransportManager(registry_dir=registry_dir)
-            instance_id = getattr(self._handle, "instance_id", None) if self._handle else None
-            if instance_id:
-                result = mgr.update_scene(
-                    self._dcc_name,
-                    instance_id,
-                    scene=scene,
-                    version=version,
-                )
-                return bool(result)
             return True
-
         except Exception as exc:
             logger.error("[%s] Failed to update gateway metadata: %s", self._dcc_name, exc)
             return False

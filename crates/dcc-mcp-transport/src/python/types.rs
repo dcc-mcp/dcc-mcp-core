@@ -1,7 +1,7 @@
 //! Python-facing type definitions for the transport layer.
 //!
-//! Contains `PyServiceStatus`, `PyRoutingStrategy`, `PyTransportAddress`,
-//! `PyTransportScheme`, and `PyServiceEntry`.
+//! Contains `PyServiceStatus`, `PyTransportAddress`, `PyTransportScheme`,
+//! and `PyServiceEntry`.
 
 #[cfg(feature = "python-bindings")]
 use pyo3::prelude::*;
@@ -14,8 +14,6 @@ use std::collections::HashMap;
 use crate::discovery::types::{ServiceEntry, ServiceStatus};
 #[cfg(feature = "python-bindings")]
 use crate::ipc::{TransportAddress, TransportScheme};
-#[cfg(feature = "python-bindings")]
-use crate::routing::RoutingStrategy;
 
 // ── PyServiceStatus ──
 
@@ -70,76 +68,6 @@ impl From<ServiceStatus> for PyServiceStatus {
             ServiceStatus::Busy => PyServiceStatus::Busy,
             ServiceStatus::Unreachable => PyServiceStatus::Unreachable,
             ServiceStatus::ShuttingDown => PyServiceStatus::ShuttingDown,
-        }
-    }
-}
-
-// ── PyRoutingStrategy ──
-
-/// Python-facing enum for DCC instance routing strategy.
-///
-/// ```python,ignore
-/// from dcc_mcp_core import RoutingStrategy, TransportManager
-///
-/// transport = TransportManager("/path/to/registry")
-/// session_id = transport.get_or_create_session_routed(
-///     "maya",
-///     strategy=RoutingStrategy.ROUND_ROBIN,
-/// )
-/// ```
-#[cfg(feature = "python-bindings")]
-#[pyclass(name = "RoutingStrategy", eq, from_py_object)]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PyRoutingStrategy {
-    /// Route to the first available (healthy) instance.
-    #[pyo3(name = "FIRST_AVAILABLE")]
-    FirstAvailable,
-    /// Distribute requests evenly across instances (round-robin).
-    #[pyo3(name = "ROUND_ROBIN")]
-    RoundRobin,
-    /// Route to the instance with the fewest active requests.
-    #[pyo3(name = "LEAST_BUSY")]
-    LeastBusy,
-    /// Route to a specific instance identified by hint.
-    #[pyo3(name = "SPECIFIC")]
-    Specific,
-    /// Route to the instance whose scene matches the given hint.
-    #[pyo3(name = "SCENE_MATCH")]
-    SceneMatch,
-    /// Route to a random available instance.
-    #[pyo3(name = "RANDOM")]
-    Random,
-}
-
-#[cfg(feature = "python-bindings")]
-#[pymethods]
-impl PyRoutingStrategy {
-    fn __repr__(&self) -> String {
-        format!("RoutingStrategy.{}", self.__str__())
-    }
-
-    fn __str__(&self) -> &'static str {
-        match self {
-            Self::FirstAvailable => "FIRST_AVAILABLE",
-            Self::RoundRobin => "ROUND_ROBIN",
-            Self::LeastBusy => "LEAST_BUSY",
-            Self::Specific => "SPECIFIC",
-            Self::SceneMatch => "SCENE_MATCH",
-            Self::Random => "RANDOM",
-        }
-    }
-}
-
-#[cfg(feature = "python-bindings")]
-impl From<&PyRoutingStrategy> for RoutingStrategy {
-    fn from(s: &PyRoutingStrategy) -> Self {
-        match s {
-            PyRoutingStrategy::FirstAvailable => RoutingStrategy::FirstAvailable,
-            PyRoutingStrategy::RoundRobin => RoutingStrategy::RoundRobin,
-            PyRoutingStrategy::LeastBusy => RoutingStrategy::LeastBusy,
-            PyRoutingStrategy::Specific => RoutingStrategy::Specific,
-            PyRoutingStrategy::SceneMatch => RoutingStrategy::SceneMatch,
-            PyRoutingStrategy::Random => RoutingStrategy::Random,
         }
     }
 }
@@ -555,7 +483,10 @@ impl PyServiceEntry {
     fn extras<'py>(&self, py: Python<'py>) -> PyResult<Py<PyDict>> {
         let dict = PyDict::new(py);
         for (k, v) in &self.extras {
-            dict.set_item(k, crate::python::helpers::json_value_to_py(py, v)?)?;
+            dict.set_item(
+                k,
+                dcc_mcp_utils::py_json::json_value_to_bound_py(py, v)?,
+            )?;
         }
         Ok(dict.unbind())
     }

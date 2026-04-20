@@ -7,7 +7,7 @@ use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
 use crate::{
-    config::McpHttpConfig,
+    config::{McpHttpConfig, ServerSpawnMode},
     error::{HttpError, HttpResult},
     executor::DccExecutorHandle,
     gateway::{GatewayConfig, GatewayRunner},
@@ -22,9 +22,20 @@ use dcc_mcp_transport::discovery::types::ServiceEntry;
 /// Handle returned by [`McpHttpServer::start`].
 ///
 /// Drop or call [`McpServerHandle::shutdown`] to stop the server.
+///
+/// In [`ServerSpawnMode::Dedicated`] mode the listener runs on a dedicated
+/// OS thread that owns a `current_thread` Tokio runtime — [`Self::serve_thread`]
+/// holds that thread's join handle. This fixes issue #303 by preventing the
+/// listener's accept loop from being starved under PyO3-embedded hosts.
 pub struct McpServerHandle {
     shutdown_tx: watch::Sender<bool>,
-    join: JoinHandle<()>,
+    /// JoinHandle for the serve task when running in
+    /// [`ServerSpawnMode::Ambient`] mode.
+    join: Option<JoinHandle<()>>,
+    /// OS thread JoinHandle when running in [`ServerSpawnMode::Dedicated`]
+    /// mode. The thread owns a `current_thread` runtime and drives the
+    /// serve future directly — guaranteed not to be starved (issue #303).
+    serve_thread: Option<std::thread::JoinHandle<()>>,
     /// Actual port the server is listening on (useful when port=0).
     pub port: u16,
     pub bind_addr: String,
@@ -36,9 +47,16 @@ pub struct McpServerHandle {
 
 impl McpServerHandle {
     /// Gracefully shut down the server and wait for it to stop.
-    pub async fn shutdown(self) {
+    pub async fn shutdown(mut self) {
         let _ = self.shutdown_tx.send(true);
-        let _ = self.join.await;
+        if let Some(join) = self.join.take() {
+            let _ = join.await;
+        }
+        // For Dedicated mode, the serve_thread observes shutdown_tx and
+        // exits on its own; we do not block on it here because callers
+        // frequently invoke shutdown() from a tokio runtime and joining
+        // an OS thread there would deadlock. Drop handles cleanup.
+        drop(self.serve_thread.take());
         // _gateway is dropped here, aborting heartbeat/cleanup tasks
     }
 
@@ -273,28 +291,207 @@ impl McpHttpServer {
             .map(|h| h.is_gateway)
             .unwrap_or(false);
 
-        let (shutdown_tx, mut shutdown_rx) = watch::channel(false);
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
-        let join = tokio::spawn(async move {
-            axum::serve(listener, router)
-                .with_graceful_shutdown(async move {
-                    loop {
-                        if *shutdown_rx.borrow() {
-                            break;
-                        }
-                        if shutdown_rx.changed().await.is_err() {
-                            break;
+        // ── Spawn strategy (issue #303) ──────────────────────────────────────
+        //
+        // `Ambient`   — run `axum::serve` as a tokio::spawn task. Correct for
+        //               standalone binaries (`#[tokio::main]`) where a driver
+        //               thread is guaranteed to outlive the server.
+        // `Dedicated` — run `axum::serve` inside a `current_thread` runtime on
+        //               its own OS thread. The thread owns the runtime and
+        //               blocks on the serve future, so the accept loop cannot
+        //               be starved even if the parent runtime's workers go
+        //               idle (Maya on Windows / PyO3-embedded hosts).
+        let (join, serve_thread) = match self.config.spawn_mode {
+            ServerSpawnMode::Ambient => {
+                let mut shutdown_rx_a = shutdown_rx.clone();
+                let join = tokio::spawn(async move {
+                    axum::serve(listener, router)
+                        .with_graceful_shutdown(async move {
+                            loop {
+                                if *shutdown_rx_a.borrow() {
+                                    break;
+                                }
+                                if shutdown_rx_a.changed().await.is_err() {
+                                    break;
+                                }
+                            }
+                        })
+                        .await
+                        .ok();
+                    tracing::info!("MCP HTTP server stopped");
+                });
+                // Self-probe: confirm the accept loop is actually running
+                // before we return a handle that claims to be bound.
+                if self.config.self_probe_timeout_ms > 0 {
+                    let probe_host = if self.config.host.is_unspecified() {
+                        "127.0.0.1".to_string()
+                    } else {
+                        self.config.host.to_string()
+                    };
+                    let probe_addr = format!("{probe_host}:{port}");
+                    let timeout = std::time::Duration::from_millis(
+                        self.config.self_probe_timeout_ms,
+                    );
+                    let mut reachable = false;
+                    for _ in 0..5 {
+                        match tokio::time::timeout(
+                            timeout,
+                            tokio::net::TcpStream::connect(&probe_addr),
+                        )
+                        .await
+                        {
+                            Ok(Ok(_)) => {
+                                reachable = true;
+                                break;
+                            }
+                            _ => {
+                                tokio::time::sleep(std::time::Duration::from_millis(50))
+                                    .await;
+                            }
                         }
                     }
-                })
-                .await
-                .ok();
-            tracing::info!("MCP HTTP server stopped");
-        });
+                    if !reachable {
+                        let _ = shutdown_tx.send(true);
+                        let _ = join.await;
+                        return Err(HttpError::BindFailed {
+                            addr: actual_bind.clone(),
+                            source: std::io::Error::new(
+                                std::io::ErrorKind::TimedOut,
+                                "instance listener self-probe failed (issue #303 guard)",
+                            ),
+                        });
+                    }
+                }
+                (Some(join), None)
+            }
+            ServerSpawnMode::Dedicated => {
+                // Re-bind the port inside the dedicated thread's runtime —
+                // a TcpListener is pinned to the runtime it was created on.
+                // Safely hand off: drop the existing listener, bind again
+                // on the new runtime. Because we use SO_REUSEADDR=false
+                // elsewhere, we briefly close the port here; that's safe
+                // because we still hold exclusive ownership of the port's
+                // "intent to bind" (`port` is already allocated from `0`).
+                let rebind_addr = actual_bind.clone();
+                drop(listener);
+
+                let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel::<Result<(), std::io::Error>>(1);
+                let mut shutdown_rx_d = shutdown_rx.clone();
+                let self_probe_timeout_ms = self.config.self_probe_timeout_ms;
+                let probe_bind = actual_bind.clone();
+
+                let thread = std::thread::Builder::new()
+                    .name(format!("dcc-mcp-http-{}", port))
+                    .spawn(move || {
+                        let rt = match tokio::runtime::Builder::new_current_thread()
+                            .enable_all()
+                            .build()
+                        {
+                            Ok(rt) => rt,
+                            Err(e) => {
+                                let _ = ready_tx.send(Err(std::io::Error::other(format!(
+                                    "failed to build dedicated runtime: {e}"
+                                ))));
+                                return;
+                            }
+                        };
+                        rt.block_on(async move {
+                            let listener = match TcpListener::bind(&rebind_addr).await {
+                                Ok(l) => l,
+                                Err(e) => {
+                                    let _ = ready_tx.send(Err(e));
+                                    return;
+                                }
+                            };
+                            // Signal ready: the listener is bound and
+                            // accept() will run on the next poll.
+                            let _ = ready_tx.send(Ok(()));
+                            axum::serve(listener, router)
+                                .with_graceful_shutdown(async move {
+                                    loop {
+                                        if *shutdown_rx_d.borrow() {
+                                            break;
+                                        }
+                                        if shutdown_rx_d.changed().await.is_err() {
+                                            break;
+                                        }
+                                    }
+                                })
+                                .await
+                                .ok();
+                            tracing::info!("MCP HTTP server (dedicated) stopped");
+                        });
+                    })
+                    .map_err(|e| HttpError::BindFailed {
+                        addr: actual_bind.clone(),
+                        source: e,
+                    })?;
+
+                // Wait for the thread to signal it has bound the listener.
+                match ready_rx.recv_timeout(std::time::Duration::from_secs(10)) {
+                    Ok(Ok(())) => {}
+                    Ok(Err(e)) => {
+                        return Err(HttpError::BindFailed {
+                            addr: actual_bind.clone(),
+                            source: e,
+                        });
+                    }
+                    Err(e) => {
+                        return Err(HttpError::BindFailed {
+                            addr: actual_bind.clone(),
+                            source: std::io::Error::new(
+                                std::io::ErrorKind::TimedOut,
+                                format!("dedicated thread did not signal readiness: {e}"),
+                            ),
+                        });
+                    }
+                }
+
+                // Self-probe from the caller's runtime to confirm the
+                // dedicated thread's accept loop is actually serving.
+                if self_probe_timeout_ms > 0 {
+                    let timeout =
+                        std::time::Duration::from_millis(self_probe_timeout_ms);
+                    let mut reachable = false;
+                    for _ in 0..5 {
+                        match tokio::time::timeout(
+                            timeout,
+                            tokio::net::TcpStream::connect(&probe_bind),
+                        )
+                        .await
+                        {
+                            Ok(Ok(_)) => {
+                                reachable = true;
+                                break;
+                            }
+                            _ => {
+                                tokio::time::sleep(std::time::Duration::from_millis(50))
+                                    .await;
+                            }
+                        }
+                    }
+                    if !reachable {
+                        let _ = shutdown_tx.send(true);
+                        return Err(HttpError::BindFailed {
+                            addr: actual_bind.clone(),
+                            source: std::io::Error::new(
+                                std::io::ErrorKind::TimedOut,
+                                "dedicated listener self-probe failed (issue #303 guard)",
+                            ),
+                        });
+                    }
+                }
+
+                (None, Some(thread))
+            }
+        };
 
         Ok(McpServerHandle {
             shutdown_tx,
             join,
+            serve_thread,
             port,
             bind_addr: actual_bind,
             is_gateway,

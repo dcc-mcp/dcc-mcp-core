@@ -1,9 +1,10 @@
 """Execute a sequence of dcc-mcp-core actions in order (action chain).
 
 Dispatch strategy:
-1. IPC dispatch — if DCC_MCP_IPC_ADDRESS is set, each step is sent to the
-   running DCC server via FramedChannel.call("dispatch_tool", ...).
-   This is the production path (Maya, Blender, Unreal, etc.).
+1. IPC dispatch — if ``DCC_MCP_IPC_ADDRESS`` is set, each step is sent to the
+   running DCC server via the DccLink ``IpcChannelAdapter``. This is the
+   production path (Maya, Blender, Unreal, etc.). Support was rewired in
+   v0.14 (issue #251) together with the removal of ``FramedChannel``.
 2. Local ToolDispatcher — fallback for testing without a live DCC server.
    Only actions registered in the local process are available.
 
@@ -40,26 +41,32 @@ def _interpolate(value: Any, context: dict) -> Any:
 
 
 def _build_ipc_dispatcher(ipc_address: str):
-    """Return a callable that dispatches actions via IPC to the DCC server."""
-    from dcc_mcp_core import TransportAddress
-    from dcc_mcp_core import connect_ipc
+    """Return a callable that dispatches actions via DccLink IPC.
 
-    addr = TransportAddress.parse(ipc_address)
+    The channel name is derived from ``ipc_address`` (expected to be a
+    DccLink channel name, e.g. ``dcc-mcp-maya-12345``). Each call sends a
+    single ``Call`` frame with a JSON body and waits for a correlated
+    ``Reply`` or ``Err`` frame.
+    """
+    from dcc_mcp_core import DccLinkFrame
+    from dcc_mcp_core import IpcChannelAdapter
 
     def dispatch(action_name: str, params: dict) -> dict:
-        # Open a fresh channel per call (stateless, safe for sequential chains)
-        channel = connect_ipc(addr, timeout_ms=5000)
+        channel = IpcChannelAdapter.connect(ipc_address)
         try:
             payload = json.dumps({"action": action_name, "params": params}).encode()
-            result = channel.call("dispatch_tool", payload, timeout_ms=30000)
-            if not result.get("success"):
-                return {"success": False, "message": f"IPC dispatch error: {result.get('error')}"}
-            raw = result.get("payload", b"{}")
+            seq = int(time.time() * 1000) & 0xFFFFFFFFFFFFFFFF
+            frame = DccLinkFrame(msg_type="Call", seq=seq, body=payload)
+            channel.send_frame(frame)
+            reply = channel.recv_frame()
+            if reply.msg_type == "Err":
+                return {"success": False, "message": reply.body.decode("utf-8", "replace")}
+            raw = reply.body
             if isinstance(raw, (bytes, bytearray)):
                 return json.loads(raw.decode())
             return json.loads(raw) if isinstance(raw, str) else raw
         finally:
-            channel.shutdown()
+            del channel
 
     return dispatch
 

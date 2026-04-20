@@ -3,6 +3,43 @@
 use std::net::IpAddr;
 use std::path::PathBuf;
 
+/// How the server and gateway HTTP listeners are driven.
+///
+/// Fixes **issue #303** — under PyO3-embedded interpreters (Maya on Windows),
+/// `tokio::spawn` onto a multi-threaded runtime that no longer has an active
+/// driver can cause background accept loops (specifically the gateway
+/// listener) to be starved of scheduling time. The per-instance listener
+/// survives because its accept loop is "warmed up" during the initial
+/// `block_on`, but the gateway listener — spawned via an extra `tokio::spawn`
+/// + `tokio::join!` layer — never gets its turn.
+///
+/// `ServerSpawnMode::Dedicated` avoids the failure mode entirely by running
+/// each HTTP listener on its own OS thread that owns a `current_thread`
+/// Tokio runtime. That thread is scheduled by the OS, not by a shared
+/// worker pool, and cannot be starved by a hanging block_on elsewhere.
+///
+/// | Mode | When to use | Behaviour |
+/// |------|-------------|-----------|
+/// | `Ambient`   | Standalone binary (`dcc-mcp-server`, library tests) | Spawns `axum::serve` onto the caller's Tokio runtime via `tokio::spawn`. |
+/// | `Dedicated` | Python bindings (`PyMcpHttpServer`) / embedded DCC hosts | Each listener gets its own OS thread + `current_thread` runtime. Immune to PyO3 worker starvation. |
+///
+/// Defaults: `Ambient`. The Python bindings override this to `Dedicated`
+/// automatically when constructing `McpHttpServer` via `PyMcpHttpServer`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ServerSpawnMode {
+    /// Spawn listeners as background tasks on the caller's Tokio runtime.
+    /// Correct for `#[tokio::main]` binaries that keep a thread in the
+    /// runtime for the process lifetime.
+    #[default]
+    Ambient,
+
+    /// Spawn each listener on a dedicated OS thread with its own
+    /// `current_thread` runtime. Correct for PyO3-embedded interpreters
+    /// where the parent runtime's worker pool cannot be relied upon after
+    /// `block_on` returns.
+    Dedicated,
+}
+
 /// Configuration for [`McpHttpServer`](crate::McpHttpServer).
 #[derive(Debug, Clone)]
 pub struct McpHttpConfig {
@@ -77,6 +114,20 @@ pub struct McpHttpConfig {
     /// `initialize.capabilities.experimental["dcc_mcp_core/lazyActions"]`
     /// (per-session, negotiated at initialize time).
     pub lazy_actions: bool,
+
+    /// How listener tasks (per-instance MCP endpoint and the optional
+    /// gateway) are driven. See [`ServerSpawnMode`] for the tradeoffs.
+    ///
+    /// Default: [`ServerSpawnMode::Ambient`]. PyO3-embedded users should
+    /// set this to [`ServerSpawnMode::Dedicated`] (the Python bindings do
+    /// so automatically). Fixes issue #303.
+    pub spawn_mode: ServerSpawnMode,
+
+    /// Maximum time to wait when self-probing a freshly bound listener to
+    /// confirm it is actually accepting connections before reporting
+    /// success. Applied per attempt; up to 5 attempts are made. Set to 0
+    /// to disable self-probing (not recommended). Default: 200.
+    pub self_probe_timeout_ms: u64,
 }
 
 impl McpHttpConfig {
@@ -100,6 +151,8 @@ impl McpHttpConfig {
             dcc_version: None,
             scene: None,
             lazy_actions: false,
+            spawn_mode: ServerSpawnMode::Ambient,
+            self_probe_timeout_ms: 200,
         }
     }
 
@@ -172,6 +225,17 @@ impl McpHttpConfig {
     /// Builder: set the DCC application type (e.g. `"maya"`).
     pub fn with_dcc_type(mut self, dcc_type: impl Into<String>) -> Self {
         self.dcc_type = Some(dcc_type.into());
+        self
+    }
+
+    /// Builder: select the listener spawn strategy (issue #303).
+    ///
+    /// Defaults to [`ServerSpawnMode::Ambient`]. Use
+    /// [`ServerSpawnMode::Dedicated`] for PyO3-embedded callers so that
+    /// listener accept loops are not starved of scheduling time when the
+    /// parent runtime has no active driver thread.
+    pub fn with_spawn_mode(mut self, mode: ServerSpawnMode) -> Self {
+        self.spawn_mode = mode;
         self
     }
 }

@@ -1,41 +1,51 @@
-//! dcc-mcp-transport: Async transport layer for the DCC-MCP ecosystem.
+//! dcc-mcp-transport: DCC-Link transport layer built on top of `ipckit`.
 //!
-//! Provides connection pooling, service discovery, session management,
-//! IPC transport abstractions, and wire protocol support for communication
-//! between MCP servers and DCC applications.
+//! This crate provides the on-the-wire substrate for the DCC-MCP ecosystem:
 //!
-//! ## IPC Transport
+//! - **DCC-Link framing** — the
+//!   `[u32 len][u8 type][u64 seq][msgpack body]` frame (see [`DccLinkFrame`]).
+//! - **Async IPC transport** — [`IpcStream`]/[`IpcListener`] backed by
+//!   [`ipckit::AsyncLocalSocketStream`]/[`AsyncLocalSocketListener`] for
+//!   Named Pipes (Windows) and Unix Domain Sockets (macOS/Linux).
+//! - **ipckit adapters** — [`IpcChannelAdapter`], [`GracefulIpcChannelAdapter`]
+//!   and [`SocketServerAdapter`] provide the channel/server abstractions for
+//!   DCC hosts.
+//! - **Service discovery** — [`discovery::FileRegistry`] for sharing live
+//!   DCC-server entries between the gateway and MCP HTTP servers.
+//! - **Event bridging** — [`EventBridgeService`] bridges
+//!   [`ipckit::EventStream`] into MCP `notifications/progress` and
+//!   `notifications/cancelled` events.
 //!
-//! The `ipc` module provides low-latency inter-process communication:
-//! - **Named Pipes** (Windows): < 0.5ms latency, > 1GB/s throughput
-//! - **Unix Domain Sockets** (macOS/Linux): < 0.1ms latency, > 1GB/s throughput
-//! - **Automatic selection**: chooses the optimal transport based on platform and locality
+//! ## History
+//!
+//! Earlier revisions also shipped a hand-rolled framing/multiplexing stack
+//! (`FramedIo`, `FramedChannel`, `TransportManager`, connection pool,
+//! session manager, circuit breaker, `InstanceRouter`, `MessageEnvelope`).
+//! That stack was removed in **v0.14** — see issue #251 — as part of the
+//! migration to ipckit. Callers should use the DccLink adapters for per-
+//! connection framing, `SocketServerAdapter` for multi-client servers, and
+//! `FileRegistry` for discovery. There is **no backward-compatibility
+//! shim**; the removed symbols are gone from the public API.
+//!
+//! ## Platform support
+//!
+//! | Transport      | Platform         | Typical latency | Throughput  |
+//! |----------------|------------------|-----------------|-------------|
+//! | TCP            | All              | ~10ms           | ~100MB/s    |
+//! | Named Pipe     | Windows          | < 0.5ms         | > 1GB/s     |
+//! | Unix Socket    | macOS / Linux    | < 0.1ms         | > 1GB/s     |
 
-pub mod channel;
-pub mod circuit_breaker;
-pub mod config;
 pub mod connector;
 pub mod dcc_link;
 pub mod discovery;
 pub mod error;
 pub mod event_bridge;
-pub mod framed;
 pub mod ipc;
 pub mod listener;
-pub mod message;
-pub mod pool;
 pub mod python;
-pub mod routing;
-pub mod session;
-pub mod transport;
 
 // Re-export primary types
-pub use channel::FramedChannel;
-pub use circuit_breaker::{
-    CircuitBreaker, CircuitBreakerConfig, CircuitBreakerRegistry, CircuitBreakerStats, CircuitState,
-};
-pub use config::{PoolConfig, SessionConfig, TransportConfig};
-pub use connector::{IpcStream, connect};
+pub use connector::{IpcStream, LocalSocketKind, MAX_FRAME_SIZE, connect};
 pub use dcc_link::{
     DccLinkFrame, DccLinkType, GracefulIpcChannelAdapter, IpcChannelAdapter, SocketServerAdapter,
 };
@@ -43,20 +53,12 @@ pub use discovery::ServiceRegistry;
 pub use discovery::types::{ServiceEntry, ServiceKey, ServiceStatus};
 pub use error::{TransportError, TransportResult};
 pub use event_bridge::{EventBridge, EventBridgeService, NoopBridge};
-pub use framed::FramedIo;
 pub use ipc::{IpcConfig, PlatformCapabilities, TransportAddress, TransportScheme};
 pub use listener::{IpcListener, ListenerHandle};
-pub use message::{MessageEnvelope, Notification, Ping, Pong, Request, Response, ShutdownMessage};
-pub use pool::{ActiveConnection, ConnectionPool, ConnectionState, PooledConnection};
-pub use routing::{InstanceRouter, RoutingStrategy};
-pub use session::{Session, SessionManager, SessionMetrics, SessionState};
-pub use transport::TransportManager;
 
 // Re-export Python bindings
 #[cfg(feature = "python-bindings")]
 pub use python::{
-    PyDccLinkFrame, PyFramedChannel, PyGracefulIpcChannelAdapter, PyIpcChannelAdapter,
-    PyIpcListener, PyListenerHandle, PyRoutingStrategy, PyServiceEntry, PyServiceStatus,
-    PySocketServerAdapter, PyTransportAddress, PyTransportManager, PyTransportScheme,
-    py_connect_ipc,
+    PyDccLinkFrame, PyGracefulIpcChannelAdapter, PyIpcChannelAdapter, PyServiceEntry,
+    PyServiceStatus, PySocketServerAdapter, PyTransportAddress, PyTransportScheme,
 };

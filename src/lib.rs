@@ -182,27 +182,14 @@ fn register_skills(m: &Bound<'_, PyModule>) -> PyResult<()> {
 fn register_transport(m: &Bound<'_, PyModule>) -> PyResult<()> {
     add_classes!(
         m,
-        dcc_mcp_transport::PyTransportManager,
         dcc_mcp_transport::PyServiceEntry,
         dcc_mcp_transport::PyServiceStatus,
-        dcc_mcp_transport::PyRoutingStrategy,
         dcc_mcp_transport::PyTransportAddress,
         dcc_mcp_transport::PyTransportScheme,
-        dcc_mcp_transport::PyIpcListener,
-        dcc_mcp_transport::PyListenerHandle,
-        dcc_mcp_transport::PyFramedChannel,
         dcc_mcp_transport::PyDccLinkFrame,
         dcc_mcp_transport::PyIpcChannelAdapter,
         dcc_mcp_transport::PyGracefulIpcChannelAdapter,
         dcc_mcp_transport::PySocketServerAdapter,
-    );
-    add_functions!(
-        m,
-        dcc_mcp_transport::py_connect_ipc,
-        dcc_mcp_transport::python::message::py_encode_request,
-        dcc_mcp_transport::python::message::py_encode_response,
-        dcc_mcp_transport::python::message::py_encode_notify,
-        dcc_mcp_transport::python::message::py_decode_envelope,
     );
     Ok(())
 }

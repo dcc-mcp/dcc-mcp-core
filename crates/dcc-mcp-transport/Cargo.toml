@@ -27,6 +27,10 @@ criterion = { workspace = true }
 rstest = "0.26"
 tempfile = "3.14"
 tokio = { workspace = true, features = ["test-util"] }
+# Deterministic network fault injection (issue #251 AC#3).
+# Scoped to tcp-only simulation — the IPC-backed paths are covered by
+# tests/fault_injection.rs which runs against real Named Pipes / Unix sockets.
+turmoil = "0.7"
 
 [[bench]]
 name = "dcclink_frame"

@@ -1,5 +1,23 @@
 # 传输层
 
+> **🚨 v0.14 已移除遗留传输栈（issue #251）。**
+>
+> 下文描述的 `TransportManager`、`FramedChannel`、`FramedIo`、
+> `IpcListener`（Python 版）、`ListenerHandle`、`RoutingStrategy`、
+> `ConnectionPool`、`InstanceRouter`、`CircuitBreaker`、`MessageEnvelope`、
+> `encode_request` / `encode_response` / `encode_notify` / `decode_envelope`、
+> `connect_ipc` 等都**已被删除**。新代码请改用基于 `ipckit` 的 DccLink 适配器：
+>
+> - `IpcChannelAdapter.connect(name)` / `.create(name)` — 单连接的带帧通道，
+>   对接 Windows Named Pipe 或 *nix Unix Socket。
+> - `SocketServerAdapter` — 支持连接上限的多客户端 IPC 服务器。
+> - `GracefulIpcChannelAdapter` — 额外提供优雅关闭和 DCC 主线程友好的重入派发。
+> - `DccLinkFrame` / `DccLinkType` — `[u32 len][u8 type][u64 seq][msgpack body]`
+>   线格式，共 8 种消息（Call、Reply、Err、Progress、Cancel、Push、Ping、Pong）。
+> - `ServiceEntry` + `FileRegistry` — 服务发现（保留未变）。
+>
+> 跨进程实例发现的对外接口为 gateway HTTP API（`GET /instances`、`POST /mcp` 等）。
+
 传输层（`dcc-mcp-transport` crate）为 MCP 服务器与 DCC 应用实例之间的通信提供异步基础设施，包括连接池、服务发现、会话管理和线协议。
 
 ## 概览

@@ -78,6 +78,13 @@ Maya v0.12.6（网关）              Maya v0.12.29（新实例）
 
 同一类型的多个 DCC 实例可以同时存在：
 
+> **v0.14（issue #251）** 已移除 `TransportManager`。多实例信息请通过：
+> ① `create_skill_server(..., gateway_port=9765)` 启动 DCC 适配器并让它自动注册；
+> ② gateway HTTP API（`GET /instances`）查询；
+> ③ 或在底层直接使用 `dcc_mcp_transport::discovery::FileRegistry` + `ServiceEntry`。
+>
+> PyO3 嵌入式宿主（Maya 等）下的监听器生命周期变化见后文 spawn_mode 与 issue #303 说明。
+
 ```python
 from dcc_mcp_core import TransportManager
 import os

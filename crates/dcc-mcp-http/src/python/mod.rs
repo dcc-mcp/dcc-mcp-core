@@ -44,6 +44,11 @@ impl PyMcpHttpConfig {
         }
         cfg.enable_cors = enable_cors;
         cfg.request_timeout_ms = request_timeout_ms;
+        // Issue #303: PyO3-embedded hosts (Maya on Windows etc.) cannot
+        // rely on shared tokio worker threads to drive the accept loop
+        // after `block_on` returns. Default to `Dedicated` so the listener
+        // runs on its own OS thread owning a `current_thread` runtime.
+        cfg.spawn_mode = crate::config::ServerSpawnMode::Dedicated;
         Self { inner: cfg }
     }
 
@@ -207,6 +212,47 @@ impl PyMcpHttpConfig {
     #[setter]
     fn set_scene(&mut self, v: Option<String>) {
         self.inner.scene = v;
+    }
+
+    /// Listener spawn strategy (issue #303).
+    ///
+    /// - ``"ambient"`` — listener runs as ``tokio::spawn`` on the caller's
+    ///   runtime. Correct for standalone binaries.
+    /// - ``"dedicated"`` — listener runs on its own OS thread owning a
+    ///   ``current_thread`` runtime. Default for PyO3-embedded callers
+    ///   (Maya/Blender/etc.) where shared workers can be starved.
+    #[getter]
+    fn spawn_mode(&self) -> &'static str {
+        match self.inner.spawn_mode {
+            crate::config::ServerSpawnMode::Ambient => "ambient",
+            crate::config::ServerSpawnMode::Dedicated => "dedicated",
+        }
+    }
+
+    #[setter]
+    fn set_spawn_mode(&mut self, mode: &str) -> PyResult<()> {
+        self.inner.spawn_mode = match mode {
+            "ambient" => crate::config::ServerSpawnMode::Ambient,
+            "dedicated" => crate::config::ServerSpawnMode::Dedicated,
+            other => {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "spawn_mode must be 'ambient' or 'dedicated', got {other:?}"
+                )));
+            }
+        };
+        Ok(())
+    }
+
+    /// Self-probe timeout in milliseconds. 0 disables the probe.
+    /// Default: 200. Issue #303 guard.
+    #[getter]
+    fn self_probe_timeout_ms(&self) -> u64 {
+        self.inner.self_probe_timeout_ms
+    }
+
+    #[setter]
+    fn set_self_probe_timeout_ms(&mut self, ms: u64) {
+        self.inner.self_probe_timeout_ms = ms;
     }
 
     fn __repr__(&self) -> String {
@@ -612,6 +658,14 @@ pub fn py_create_skill_server(
     let mut cfg = config.map(|c| c.inner.clone()).unwrap_or_default();
     if cfg.server_name == "dcc-mcp-server" || cfg.server_name.is_empty() {
         cfg.server_name = format!("{app_name}-mcp");
+    }
+    // Issue #303: force Dedicated mode for PyO3 callers, which matches
+    // what PyMcpHttpConfig's constructor picks when called from Python.
+    // Callers that really know what they're doing (i.e. running inside a
+    // persistent #[tokio::main] driver) can still set spawn_mode back to
+    // "ambient" on the config before passing it in.
+    if matches!(cfg.spawn_mode, crate::config::ServerSpawnMode::Ambient) {
+        cfg.spawn_mode = crate::config::ServerSpawnMode::Dedicated;
     }
 
     let runtime =

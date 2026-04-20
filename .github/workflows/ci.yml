@@ -259,3 +259,51 @@ jobs:
       - name: Run mcporter e2e tests
         run: pytest tests/test_mcp_mcporter_e2e.py -v --tb=short
         shell: bash
+
+  # ── Transport bench + turmoil fault-injection (issue #251 AC#2/AC#3) ──
+  # Runs on Linux only — cargo-criterion and turmoil produce deterministic
+  # output once a platform baseline is chosen. The gate reports failures
+  # to the PR but does not block merges yet; flip `fail_ci_if_error` after
+  # the baseline numbers are captured.
+  transport-bench-and-fault:
+    name: Transport bench + turmoil
+    needs: [rust-check]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache Cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ubuntu-cargo-bench-${{ hashFiles('**/Cargo.toml') }}
+          restore-keys: ubuntu-cargo-
+
+      # Issue #251 AC#3: deterministic network fault injection.
+      - name: turmoil TCP fault-injection tests
+        run: cargo test -p dcc-mcp-transport --test turmoil_tcp_fault --release
+        shell: bash
+
+      # Issue #251 AC#2: 10k req/s bench. We intentionally do not enforce
+      # a hard p99 gate here yet — Criterion's HTML report is archived so
+      # regressions can be spotted in the CI artifact. Adding a hard
+      # threshold requires a per-platform baseline first (future work).
+      - name: DccLink criterion bench (short run)
+        run: |
+          cargo bench -p dcc-mcp-transport --bench dcclink_ipc -- \
+            --sample-size 50 --measurement-time 5
+        shell: bash
+        env:
+          CRITERION_CI: "1"
+
+      - name: Upload criterion HTML report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: criterion-report
+          path: target/criterion/
+          if-no-files-found: ignore

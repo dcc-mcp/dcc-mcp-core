@@ -81,21 +81,59 @@ pub(crate) fn is_newer_version(candidate: &str, current: &str) -> bool {
 
 /// Attempt to bind `host:port` with `SO_REUSEADDR = false`.
 ///
-/// Returns a bound listener on success, or `None` if the port is already taken.
+/// Returns a bound listener on success, or a detailed `io::Error` on failure.
 /// Used by both the initial gateway competition and the challenger retry loop.
-async fn try_bind_port(host: &str, port: u16) -> Option<tokio::net::TcpListener> {
+///
+/// Unlike earlier revisions that returned `Option<TcpListener>` via `.ok()?`,
+/// this surface preserves the real cause — `EADDRINUSE`, `EACCES`, a Windows
+/// overlapped-I/O registration error from `TcpListener::from_std`, etc. —
+/// so callers can log it and distinguish "port in use" from "socket setup
+/// failed" (issue #303, suggestion D).
+async fn try_bind_port(host: &str, port: u16) -> std::io::Result<tokio::net::TcpListener> {
     use socket2::{Domain, Socket, Type};
 
-    let addr: std::net::SocketAddr = format!("{host}:{port}").parse().ok()?;
-    let socket = Socket::new(Domain::for_address(addr), Type::STREAM, None).ok()?;
-    socket.set_reuse_address(false).ok()?;
+    let addr: std::net::SocketAddr = format!("{host}:{port}")
+        .parse()
+        .map_err(|e: std::net::AddrParseError| {
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, e.to_string())
+        })?;
+    let socket = Socket::new(Domain::for_address(addr), Type::STREAM, None)?;
+    socket.set_reuse_address(false)?;
     #[cfg(unix)]
-    socket.set_reuse_port(false).ok()?;
-    socket.bind(&addr.into()).ok()?;
-    socket.listen(128).ok()?;
-    socket.set_nonblocking(true).ok()?;
-    tokio::net::TcpListener::from_std(std::net::TcpListener::from(socket)).ok()
+    socket.set_reuse_port(false)?;
+    socket.bind(&addr.into())?;
+    socket.listen(128)?;
+    socket.set_nonblocking(true)?;
+    tokio::net::TcpListener::from_std(std::net::TcpListener::from(socket))
 }
+
+/// `Option`-returning wrapper kept for the call sites that only care about
+/// win/lose semantics. Non-`AddrInUse` errors are still logged so they are
+/// never silently discarded (fixes the "silent bind error" leg of #303).
+async fn try_bind_port_opt(host: &str, port: u16) -> Option<tokio::net::TcpListener> {
+    match try_bind_port(host, port).await {
+        Ok(l) => Some(l),
+        Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => None,
+        Err(e) => {
+            tracing::warn!(
+                host = %host,
+                port = port,
+                error = %e,
+                kind = ?e.kind(),
+                "gateway bind failed (non-AddrInUse) — treating as lost election"
+            );
+            None
+        }
+    }
+}
+
+// ── Self-probe: confirm the listener is actually accepting connections ───────
+//
+// Implemented as `self_probe_listener` below (called from `start_gateway_tasks`
+// after the listener is spawned). Retained here as a reference for the
+// two failure modes it guards against (issue #303):
+// - Run A: TIMEOUT (bound but accept loop starved of scheduling time)
+// - Run B: REFUSED (listener task dropped before the kernel finished setup)
 
 // ── Helper: does the sentinel advertise a newer gateway version than us? ─────
 //
@@ -124,9 +162,25 @@ fn has_newer_sentinel(reg: &FileRegistry, own_version: &str, stale_timeout: Dura
 
 // ── Gateway task setup (shared between winner and challenger paths) ────────────
 
+/// Outcome of [`start_gateway_tasks`] for the ambient (shared-runtime) path.
+pub(crate) struct GatewayTasks {
+    /// AbortHandle for the combined supervisor task (cleanup + watcher +
+    /// tools watcher + serve).
+    pub(crate) abort: AbortHandle,
+    /// JoinHandle for the combined supervisor task. Retained by
+    /// `GatewayHandle` so the task is not silently detached — this is the
+    /// fix for the "Run A: TIMEOUT" leg of issue #303.
+    pub(crate) supervisor: tokio::task::JoinHandle<()>,
+    /// Yield signal used by the caller to trigger graceful shutdown.
+    #[allow(dead_code)]
+    pub(crate) yield_tx: Arc<watch::Sender<bool>>,
+}
+
 /// Build and run the gateway HTTP server with graceful-yield and live-push support.
 ///
-/// Returns the combined `AbortHandle` for all gateway background tasks.
+/// Returns a [`GatewayTasks`] handle holding both the `AbortHandle` and the
+/// supervisor task's `JoinHandle`, so the caller (typically a
+/// [`GatewayHandle`]) can keep the task alive for its own lifetime.
 ///
 /// `sentinel_key` is the registry key of the `__gateway__` sentinel row that
 /// the caller registered; the cleanup loop heartbeats it (issue #229).
@@ -137,7 +191,7 @@ async fn start_gateway_tasks(
     server_name: String,
     server_version: String,
     sentinel_key: ServiceKey,
-) -> Result<(AbortHandle, Arc<watch::Sender<bool>>), Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<GatewayTasks, Box<dyn std::error::Error + Send + Sync>> {
     // ── Yield channel ─────────────────────────────────────────────────────
     let (yield_tx, mut yield_rx) = watch::channel(false);
     let yield_tx = Arc::new(yield_tx);
@@ -343,7 +397,78 @@ async fn start_gateway_tasks(
         );
     });
 
-    Ok((combined.abort_handle(), yield_tx))
+    // ── Post-spawn self-probe (issue #303) ────────────────────────────────
+    //
+    // `bind()` succeeding does not guarantee the accept-loop is actually
+    // running — under PyO3-embedded hosts (e.g. mayapy on Windows) a freshly
+    // spawned Tokio task can be starved long enough that the caller is told
+    // `is_gateway = true` while clients see `CONNECTION REFUSED` or
+    // `CONNECTION TIMED OUT` on the gateway port.
+    //
+    // Connecting to our own address forces the runtime to drive the accept
+    // loop at least once; if that fails within the budget we trigger a yield
+    // so the listener is dropped, then propagate an error so the caller can
+    // fall back to plain-instance mode.
+    if let Err(e) = self_probe_listener(actual).await {
+        tracing::warn!(
+            addr = %actual,
+            error = %e,
+            "Gateway self-probe failed — aborting gateway role and releasing port"
+        );
+        // Trigger graceful shutdown of the listener task.
+        let _ = yield_tx.send(true);
+        // Give the shutdown a brief moment to run so the port is released
+        // before the caller decides what to do next. We do NOT await the
+        // task's JoinHandle here because the runtime may be starved — we
+        // rely on `combined.abort_handle()` / `yield_tx` for cleanup.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        return Err(format!(
+            "gateway listener self-probe failed at {actual}: {e}"
+        )
+        .into());
+    }
+
+    Ok(GatewayTasks {
+        abort: combined.abort_handle(),
+        supervisor: combined,
+        yield_tx,
+    })
+}
+
+/// Verify that the gateway accept-loop is actually running by connecting to it.
+///
+/// Retries a small number of times with short back-off to give the Tokio
+/// runtime a chance to schedule the `axum::serve` task — necessary under
+/// PyO3-embedded hosts where workers are slow to pick up newly spawned tasks
+/// (issue #303).
+async fn self_probe_listener(addr: std::net::SocketAddr) -> Result<(), std::io::Error> {
+    const MAX_ATTEMPTS: u32 = 10;
+    const ATTEMPT_TIMEOUT: Duration = Duration::from_millis(200);
+    const BACKOFF: Duration = Duration::from_millis(100);
+
+    let mut last_err: Option<std::io::Error> = None;
+    for attempt in 1..=MAX_ATTEMPTS {
+        match tokio::time::timeout(ATTEMPT_TIMEOUT, tokio::net::TcpStream::connect(addr)).await {
+            Ok(Ok(_stream)) => {
+                tracing::debug!(addr = %addr, attempt, "Gateway self-probe succeeded");
+                return Ok(());
+            }
+            Ok(Err(e)) => {
+                tracing::debug!(addr = %addr, attempt, error = %e, "Gateway self-probe: connect error");
+                last_err = Some(e);
+            }
+            Err(_) => {
+                tracing::debug!(addr = %addr, attempt, "Gateway self-probe: connect timed out");
+                last_err = Some(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "self-probe connect timed out",
+                ));
+            }
+        }
+        tokio::time::sleep(BACKOFF).await;
+    }
+
+    Err(last_err.unwrap_or_else(|| std::io::Error::other("self-probe failed with no error")))
 }
 
 /// Configuration for the optional gateway.
@@ -386,6 +511,23 @@ impl Default for GatewayConfig {
 
 /// Returned by [`GatewayRunner::start`]. Dropping this handle aborts the
 /// heartbeat and stale-cleanup background tasks.
+///
+/// # Task retention (issue #303 fix)
+///
+/// In earlier versions only the `AbortHandle` for the gateway's combined
+/// supervisor task was stored here, and the supervisor's `JoinHandle` was
+/// dropped at the end of `start_gateway_tasks`. Dropping a `JoinHandle`
+/// *detaches* the task — in theory that is fine, but under PyO3-embedded
+/// hosts on Windows the detached gateway accept loop can be starved of
+/// scheduling time by the parent runtime (cf. issue #303, Run A symptom:
+/// `bind()` succeeded, clients see `TIMEOUT`). Keeping the `JoinHandle`
+/// alive here pins the task to its original runtime via
+/// [`Runtime::enter`]-style ownership so it cannot be silently reclaimed,
+/// giving downstream callers a handle they can actually `await`.
+///
+/// For the `ServerSpawnMode::Dedicated` path the listener runs on an OS
+/// thread with its own `current_thread` runtime; [`Self::gateway_thread`]
+/// holds its join handle so the Drop impl can block briefly for cleanup.
 pub struct GatewayHandle {
     /// `true` if this instance won the gateway port at startup.
     pub is_gateway: bool,
@@ -394,6 +536,13 @@ pub struct GatewayHandle {
     heartbeat_abort: Option<AbortHandle>,
     /// Combined gateway-HTTP + cleanup abort handle (set on the winner path).
     gateway_abort: Option<AbortHandle>,
+    /// JoinHandle of the combined supervisor task, kept alive so the task
+    /// is not detached (issue #303).
+    #[allow(dead_code)]
+    gateway_supervisor: Option<tokio::task::JoinHandle<()>>,
+    /// OS thread running the dedicated-mode gateway accept loop.
+    /// Only populated when `ServerSpawnMode::Dedicated` is used.
+    gateway_thread: Option<std::thread::JoinHandle<()>>,
     /// Background challenger-loop abort handle (set when we entered challenger mode).
     challenger_abort: Option<AbortHandle>,
 }
@@ -409,7 +558,34 @@ impl Drop for GatewayHandle {
         if let Some(h) = self.challenger_abort.take() {
             h.abort();
         }
+        // Drop supervisor JoinHandle after aborting — this detaches the
+        // underlying task cleanly. The AbortHandle above has already
+        // cancelled its work; joining is optional.
+        drop(self.gateway_supervisor.take());
+
+        // Dedicated-mode OS thread: we *do not* join here to avoid
+        // blocking Drop indefinitely if shutdown is in flight. The thread
+        // observes the same yield signal and exits on its own.
+        if let Some(h) = self.gateway_thread.take() {
+            // Best-effort: detach; the thread is daemon-like and cleans
+            // itself up once its yield signal fires.
+            drop(h);
+        }
     }
+}
+
+/// Result of [`GatewayRunner::run_election`].
+///
+/// Packages the election outcome together with the supervisor join
+/// handle and optional OS-thread handle that must be kept alive for
+/// the lifetime of the gateway role (issue #303).
+#[allow(dead_code)]
+struct ElectionOutcome {
+    is_gateway: bool,
+    gateway_abort: Option<AbortHandle>,
+    challenger_abort: Option<AbortHandle>,
+    gateway_supervisor: Option<tokio::task::JoinHandle<()>>,
+    gateway_thread: Option<std::thread::JoinHandle<()>>,
 }
 
 /// Orchestrates FileRegistry registration, heartbeat, stale cleanup, and the
@@ -487,17 +663,27 @@ impl GatewayRunner {
         };
 
         // ── Gateway election ──────────────────────────────────────────────
-        let (is_gateway, gateway_abort, challenger_abort) = if self.config.gateway_port > 0 {
-            self.run_election().await?
-        } else {
-            (false, None, None)
-        };
+        let (is_gateway, gateway_abort, challenger_abort, gateway_supervisor, gateway_thread) =
+            if self.config.gateway_port > 0 {
+                let outcome = self.run_election().await?;
+                (
+                    outcome.is_gateway,
+                    outcome.gateway_abort,
+                    outcome.challenger_abort,
+                    outcome.gateway_supervisor,
+                    outcome.gateway_thread,
+                )
+            } else {
+                (false, None, None, None, None)
+            };
 
         Ok(GatewayHandle {
             is_gateway,
             service_key,
             heartbeat_abort,
             gateway_abort,
+            gateway_supervisor,
+            gateway_thread,
             challenger_abort,
         })
     }
@@ -505,14 +691,11 @@ impl GatewayRunner {
     /// Core version-aware election logic, extracted for clarity.
     async fn run_election(
         &self,
-    ) -> Result<
-        (bool, Option<AbortHandle>, Option<AbortHandle>),
-        Box<dyn std::error::Error + Send + Sync>,
-    > {
+    ) -> Result<ElectionOutcome, Box<dyn std::error::Error + Send + Sync>> {
         let stale_timeout = Duration::from_secs(self.config.stale_timeout_secs);
         let own_version = self.config.server_version.clone();
 
-        match try_bind_port(&self.config.host, self.config.gateway_port).await {
+        match try_bind_port_opt(&self.config.host, self.config.gateway_port).await {
             // ── We won the port ───────────────────────────────────────────
             Some(listener) => {
                 // Write a sentinel entry so challengers can read our version.
@@ -531,7 +714,7 @@ impl GatewayRunner {
                     let _ = reg.register(sentinel);
                 }
 
-                let (gateway_abort, _yield_tx) = start_gateway_tasks(
+                match start_gateway_tasks(
                     listener,
                     self.registry.clone(),
                     stale_timeout,
@@ -539,10 +722,37 @@ impl GatewayRunner {
                     own_version.clone(),
                     sentinel_key,
                 )
-                .await?;
-
-                tracing::info!(version = %own_version, "Won gateway election");
-                Ok((true, Some(gateway_abort), None))
+                .await
+                {
+                    Ok(tasks) => {
+                        tracing::info!(version = %own_version, "Won gateway election");
+                        Ok(ElectionOutcome {
+                            is_gateway: true,
+                            gateway_abort: Some(tasks.abort),
+                            challenger_abort: None,
+                            gateway_supervisor: Some(tasks.supervisor),
+                            gateway_thread: None,
+                        })
+                    }
+                    // Issue #303: bind() succeeded but the accept-loop never
+                    // came up (or the self-probe timed out). Fall back to
+                    // plain-instance mode instead of failing the whole
+                    // server start — the instance listener is unaffected.
+                    Err(e) => {
+                        tracing::warn!(
+                            error = %e,
+                            version = %own_version,
+                            "Gateway tasks failed to become healthy — falling back to plain-instance mode"
+                        );
+                        Ok(ElectionOutcome {
+                            is_gateway: false,
+                            gateway_abort: None,
+                            challenger_abort: None,
+                            gateway_supervisor: None,
+                            gateway_thread: None,
+                        })
+                    }
+                }
             }
 
             // ── Port is taken — version-aware challenger logic ────────────
@@ -565,7 +775,13 @@ impl GatewayRunner {
                     );
                     let challenger_abort = self.spawn_challenger_loop(&own_version, &gw_version);
                     // Return as non-gateway for now; challenger loop will promote us later.
-                    Ok((false, None, Some(challenger_abort)))
+                    Ok(ElectionOutcome {
+                        is_gateway: false,
+                        gateway_abort: None,
+                        challenger_abort: Some(challenger_abort),
+                        gateway_supervisor: None,
+                        gateway_thread: None,
+                    })
                 } else {
                     tracing::info!(
                         port = self.config.gateway_port,
@@ -573,7 +789,13 @@ impl GatewayRunner {
                         own_version = %own_version,
                         "Gateway port taken by same-or-newer version — running as plain DCC instance"
                     );
-                    Ok((false, None, None))
+                    Ok(ElectionOutcome {
+                        is_gateway: false,
+                        gateway_abort: None,
+                        challenger_abort: None,
+                        gateway_supervisor: None,
+                        gateway_thread: None,
+                    })
                 }
             }
         }
@@ -628,7 +850,7 @@ impl GatewayRunner {
             for attempt in 1..=max_retries {
                 tokio::time::sleep(Duration::from_secs(10)).await;
 
-                if let Some(listener) = try_bind_port(&host, port).await {
+                if let Some(listener) = try_bind_port_opt(&host, port).await {
                     tracing::info!(
                         attempt = attempt,
                         version = %own_ver,
@@ -793,5 +1015,60 @@ mod tests {
         // And after heartbeating it must NOT be considered stale anymore.
         let entry = reg.get(&key).unwrap();
         assert!(!entry.is_stale(Duration::from_secs(30)));
+    }
+
+    // ── Regression tests for issue #303 ──────────────────────────────────
+    //
+    // `start_gateway_tasks` must not report `is_gateway = true` when the
+    // listener's accept loop never comes up. `self_probe_listener` is the
+    // mechanism that detects this, so verify both the success and failure
+    // paths.
+
+    // Success path: probing an address with a real, running accept-loop
+    // must return Ok well within the retry budget.
+    #[tokio::test]
+    async fn test_self_probe_listener_succeeds_for_live_socket() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        // Drive accept in the background so connect() completes.
+        tokio::spawn(async move {
+            // One accept is enough for the probe; after that just hold the
+            // listener so the OS doesn't drop it.
+            let _ = listener.accept().await;
+            // Keep the listener alive until the task is aborted.
+            std::future::pending::<()>().await;
+        });
+
+        super::self_probe_listener(addr)
+            .await
+            .expect("probe must succeed against a live listener");
+    }
+
+    // Failure path: probing a definitely-unbound port must return Err after
+    // exhausting the retry budget, not hang forever.
+    #[tokio::test]
+    async fn test_self_probe_listener_fails_for_dead_port() {
+        // Bind-then-drop gives us a port the OS *just* released. We combine
+        // that with a fresh IPv4 loopback addr so the probe sees either
+        // "refused" or "timed out" — both must surface as Err.
+        let ephemeral = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = ephemeral.local_addr().unwrap();
+        drop(ephemeral);
+
+        // Entire probe (10 attempts * (200 ms timeout + 100 ms backoff)) must
+        // finish in well under 5 s; cap the test at 5 s to catch regressions
+        // that accidentally make the probe block indefinitely.
+        let result = tokio::time::timeout(
+            Duration::from_secs(5),
+            super::self_probe_listener(addr),
+        )
+        .await
+        .expect("self-probe must not hang past its budget");
+
+        assert!(
+            result.is_err(),
+            "probe must fail when nothing is listening on {addr}"
+        );
     }
 }

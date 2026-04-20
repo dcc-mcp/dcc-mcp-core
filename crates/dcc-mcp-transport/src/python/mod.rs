@@ -1,34 +1,20 @@
-//! Python bindings for the transport layer via PyO3.
+//! Python bindings for the DCC-Link transport layer via PyO3.
 //!
-//! Exposes `PyTransportManager`, `PyServiceEntry`, `PyServiceStatus`,
-//! `PyRoutingStrategy`, `PyTransportAddress`, `PyTransportScheme`,
-//! `PyIpcListener`, `PyListenerHandle`, `PyFramedChannel`, and message
-//! codec functions as Python classes/functions.
+//! Exposes the core types and ipckit-backed adapters to Python:
 //!
-//! Async operations are bridged to synchronous calls via an internal Tokio runtime.
+//! - [`types`] — `ServiceStatus`, `TransportAddress`, `TransportScheme`,
+//!   `ServiceEntry`
+//! - [`dcc_link`] — `DccLinkFrame`, `IpcChannelAdapter`,
+//!   `GracefulIpcChannelAdapter`, `SocketServerAdapter`
 //!
-//! ## Submodules
-//!
-//! - [`types`] — Python-facing enum/struct definitions
-//! - [`manager`] — `PyTransportManager` implementation
-//! - [`listener`] — `PyIpcListener` and `PyListenerHandle` implementation
-//! - [`channel`] — `PyFramedChannel` implementation and `connect_ipc()` function
-//! - [`message`] — `encode_request`, `encode_response`, `encode_notify`, `decode_envelope`
-//! - [`dcc_link`] — `PyDccLinkFrame`, `PyIpcChannelAdapter`, `PyGracefulIpcChannelAdapter`, `PySocketServerAdapter`
-//! - [`helpers`] — internal conversion helpers
+//! The legacy `TransportManager` / `FramedChannel` / `IpcListener` bindings
+//! were removed in v0.14 (issue #251). Use the DccLink adapters for framed
+//! per-connection messaging and `SocketServerAdapter` for multi-client
+//! servers; use [`crate::discovery::FileRegistry`] directly via
+//! `PyServiceEntry` for service registration.
 
-pub mod channel;
 pub mod dcc_link;
-pub mod helpers;
-pub mod listener;
-pub mod manager;
-pub mod message;
 pub mod types;
-
-// Re-export everything for backward compatibility with the flat `python::*` path.
-
-#[cfg(feature = "python-bindings")]
-pub use channel::{PyFramedChannel, py_connect_ipc};
 
 #[cfg(feature = "python-bindings")]
 pub use dcc_link::{
@@ -36,12 +22,4 @@ pub use dcc_link::{
 };
 
 #[cfg(feature = "python-bindings")]
-pub use listener::{PyIpcListener, PyListenerHandle};
-
-#[cfg(feature = "python-bindings")]
-pub use manager::PyTransportManager;
-
-#[cfg(feature = "python-bindings")]
-pub use types::{
-    PyRoutingStrategy, PyServiceEntry, PyServiceStatus, PyTransportAddress, PyTransportScheme,
-};
+pub use types::{PyServiceEntry, PyServiceStatus, PyTransportAddress, PyTransportScheme};
