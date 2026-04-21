@@ -30,6 +30,7 @@ pub mod handlers;
 pub mod namespace;
 pub mod proxy;
 pub mod router;
+pub mod sse_subscriber;
 pub mod state;
 pub mod tools;
 
@@ -357,6 +358,38 @@ async fn start_gateway_tasks(
         }
     });
 
+    // ── Backend SSE subscriber manager (#320) ─────────────────────────────
+    // Multiplexes per-backend SSE notifications back to originating client
+    // sessions. Each `ensure_subscribed` spawns a reconnecting task.
+    let subscriber = sse_subscriber::SubscriberManager::new(http_client.clone());
+
+    // Periodically ensure every live backend has an active subscription.
+    // The subscriber's internal DashMap makes repeat calls cheap, so we
+    // just poll the instance registry at the same cadence as the
+    // instance-change watcher.
+    let reg_sub = registry.clone();
+    let sub_for_task = subscriber.clone();
+    let backend_sub_handle = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(2));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            interval.tick().await;
+            let urls: Vec<String> = {
+                let r = reg_sub.read().await;
+                r.list_all()
+                    .into_iter()
+                    .filter(|e| {
+                        e.dcc_type != GATEWAY_SENTINEL_DCC_TYPE && !e.is_stale(stale_timeout)
+                    })
+                    .map(|e| format!("http://{}:{}/mcp", e.host, e.port))
+                    .collect()
+            };
+            for url in urls {
+                sub_for_task.ensure_subscribed(&url);
+            }
+        }
+    });
+
     // ── Gateway HTTP server ────────────────────────────────────────────────
     let gw_state = GatewayState {
         registry,
@@ -370,6 +403,7 @@ async fn start_gateway_tasks(
         protocol_version: Arc::new(RwLock::new(None)),
         resource_subscriptions: Arc::new(RwLock::new(HashMap::new())),
         pending_calls: Arc::new(RwLock::new(HashMap::new())),
+        subscriber,
     };
     let gw_router = build_gateway_router(gw_state);
     let actual = listener.local_addr()?;
@@ -401,6 +435,7 @@ async fn start_gateway_tasks(
             cleanup_handle,
             watcher_handle,
             tools_watcher_handle,
+            backend_sub_handle,
             gw_handle
         );
     });

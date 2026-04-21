@@ -65,6 +65,13 @@ pub struct GatewayState {
     /// Key = gateway-side JSON-RPC request `id` (serialised to string).
     /// Value = backend URL + the request id used when talking to that backend.
     pub pending_calls: Arc<RwLock<HashMap<String, PendingCall>>>,
+    /// Backend SSE multiplexer (#320).
+    ///
+    /// Each live backend gets a long-lived SSE subscription; incoming
+    /// `notifications/progress` / `$/dcc.jobUpdated` /
+    /// `$/dcc.workflowUpdated` are routed to the originating client
+    /// session via `progressToken` and `job_id` correlation.
+    pub subscriber: super::sse_subscriber::SubscriberManager,
 }
 
 impl GatewayState {
@@ -143,6 +150,7 @@ mod tests {
             protocol_version: Arc::new(RwLock::new(None)),
             resource_subscriptions: Arc::new(RwLock::new(HashMap::new())),
             pending_calls: Arc::new(RwLock::new(HashMap::new())),
+            subscriber: crate::gateway::sse_subscriber::SubscriberManager::default(),
         }
     }
 

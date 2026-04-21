@@ -2914,6 +2914,7 @@ mod gateway_tests {
             protocol_version: Arc::new(RwLock::new(None)),
             resource_subscriptions: Arc::new(RwLock::new(std::collections::HashMap::new())),
             pending_calls: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            subscriber: crate::gateway::sse_subscriber::SubscriberManager::default(),
         }
     }
 

@@ -103,6 +103,7 @@ pub async fn route_tools_call(
     args: &Value,
     meta: Option<&Value>,
     request_id: Option<String>,
+    client_session_id: Option<&str>,
 ) -> (String, bool) {
     // ── Local meta-tools ────────────────────────────────────────────────
     match tool {
@@ -151,6 +152,20 @@ pub async fn route_tools_call(
             call.backend_url = url.clone();
         }
     }
+
+    // ── #320: wire SSE correlation ─────────────────────────────────────
+    // (a) Ensure the backend has an SSE subscriber so notifications
+    //     produced during this call are captured.
+    // (b) If the caller supplied `_meta.progressToken`, remember the
+    //     session → token mapping so `notifications/progress` from the
+    //     backend can be routed back here.
+    gs.subscriber.ensure_subscribed(&url);
+    if let (Some(sid), Some(m)) = (client_session_id, meta) {
+        if let Some(token) = m.get("progressToken") {
+            gs.subscriber.bind_progress_token(token, sid);
+        }
+    }
+
     match forward_tools_call(
         &gs.http_client,
         &url,
@@ -163,6 +178,17 @@ pub async fn route_tools_call(
     .await
     {
         Ok(mut result) => {
+            // (c) Backend reply may carry `_meta.dcc.jobId` (async job
+            //     dispatch path, #318) or `structuredContent.job_id`.
+            //     Either way, bind the job → session mapping so later
+            //     `notifications/$/dcc.jobUpdated` arriving over SSE can
+            //     be routed to the originating client session.
+            if let Some(sid) = client_session_id {
+                if let Some(job_id) = extract_job_id(&result) {
+                    gs.subscriber.bind_job(&job_id, sid, &url);
+                }
+            }
+
             // Backend already returns a CallToolResult { content, isError }.
             // Extract the actual text payload so the gateway's own response
             // is a single CallToolResult rather than a nested envelope.
@@ -183,6 +209,28 @@ pub async fn route_tools_call(
         }
         Err(e) => (format!("Backend call failed: {e}"), true),
     }
+}
+
+/// Extract the `job_id` from a backend `tools/call` result envelope, if
+/// the backend enqueued an async job. Returns `None` when the tool ran
+/// synchronously.
+pub(crate) fn extract_job_id(result: &Value) -> Option<String> {
+    if let Some(s) = result
+        .get("structuredContent")
+        .and_then(|c| c.get("job_id"))
+        .and_then(Value::as_str)
+    {
+        return Some(s.to_owned());
+    }
+    if let Some(s) = result
+        .get("_meta")
+        .and_then(|m| m.get("dcc"))
+        .and_then(|d| d.get("jobId"))
+        .and_then(Value::as_str)
+    {
+        return Some(s.to_owned());
+    }
+    None
 }
 
 // ── Skill-management dispatch ──────────────────────────────────────────────
@@ -627,5 +675,33 @@ mod tests {
         let (text, is_error) = to_text_result(Err("boom".to_string()));
         assert_eq!(text, "boom");
         assert!(is_error);
+    }
+
+    // ── #320: extract_job_id covers both sync (None) and async (#318) envelopes.
+
+    #[test]
+    fn extract_job_id_reads_structured_content_first() {
+        let v = json!({
+            "content": [],
+            "structuredContent": {"job_id": "job-42", "status": "pending"},
+            "isError": false,
+        });
+        assert_eq!(extract_job_id(&v).as_deref(), Some("job-42"));
+    }
+
+    #[test]
+    fn extract_job_id_falls_back_to_meta_dcc_jobid() {
+        let v = json!({
+            "content": [],
+            "_meta": {"dcc": {"jobId": "job-99", "parentJobId": null}},
+            "isError": false,
+        });
+        assert_eq!(extract_job_id(&v).as_deref(), Some("job-99"));
+    }
+
+    #[test]
+    fn extract_job_id_returns_none_for_sync_reply() {
+        let v = json!({"content": [{"type": "text", "text": "ok"}], "isError": false});
+        assert!(extract_job_id(&v).is_none());
     }
 }

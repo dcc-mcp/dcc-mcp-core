@@ -1,6 +1,8 @@
 //! Axum request handlers for the gateway HTTP server.
 
 use std::convert::Infallible;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
 use axum::Json;
 use axum::extract::{Path, State};
@@ -19,6 +21,50 @@ use super::proxy::proxy_request;
 use super::state::{GatewayState, entry_to_json};
 use crate::protocol::negotiate_protocol_version;
 use dcc_mcp_transport::discovery::types::ServiceStatus;
+
+/// RAII guard that evicts a client session's subscriber sink when the
+/// gateway SSE response is dropped (client disconnect).
+struct SessionCleanup {
+    mgr: super::sse_subscriber::SubscriberManager,
+    session_id: String,
+}
+
+impl Drop for SessionCleanup {
+    fn drop(&mut self) {
+        self.mgr.forget_client(&self.session_id);
+    }
+}
+
+/// Stream adapter that holds a [`SessionCleanup`] alive for the duration
+/// of the response body. When axum drops the body (e.g. client hung up),
+/// the guard runs and frees the subscriber-manager slot.
+///
+/// The inner stream is boxed+pinned so axum's `Sse::new` can accept an
+/// arbitrarily composed adapter without `Unpin` bounds propagating
+/// through every layer.
+struct GuardedStream {
+    inner: Pin<Box<dyn futures::Stream<Item = Result<Event, Infallible>> + Send>>,
+    _guard: SessionCleanup,
+}
+
+impl GuardedStream {
+    fn new<S>(inner: S, guard: SessionCleanup) -> Self
+    where
+        S: futures::Stream<Item = Result<Event, Infallible>> + Send + 'static,
+    {
+        Self {
+            inner: Box::pin(inner),
+            _guard: guard,
+        }
+    }
+}
+
+impl futures::Stream for GuardedStream {
+    type Item = Result<Event, Infallible>;
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.inner.as_mut().poll_next(cx)
+    }
+}
 
 /// Minimal JSON-RPC 2.0 request shape accepted by the gateway `/mcp` endpoint.
 #[derive(Debug, Deserialize)]
@@ -89,10 +135,13 @@ pub async fn handle_gateway_get(
         .unwrap_or_else(|| format!("gw-{}", uuid::Uuid::new_v4().simple()));
 
     let rx = gs.events_tx.subscribe();
+    // Per-session sink for backend-SSE multiplex (#320). Dropped (via
+    // `forget_client`) when the axum stream is dropped by the client.
+    let per_session_rx = gs.subscriber.register_client(&session_id);
 
     // Convert broadcast receiver into an SSE stream.
     // Lagged messages (receiver too slow) are skipped gracefully.
-    let sse_stream = BroadcastStream::new(rx).filter_map(|result| {
+    let broadcast_stream = BroadcastStream::new(rx).filter_map(|result| {
         let data = match result {
             Ok(s) => s,
             Err(tokio_stream::wrappers::errors::BroadcastStreamRecvError::Lagged(n)) => {
@@ -102,6 +151,34 @@ pub async fn handle_gateway_get(
         };
         Some(Ok::<Event, Infallible>(Event::default().data(data)))
     });
+    // Per-client backend-notification stream.
+    let per_session_stream = BroadcastStream::new(per_session_rx).filter_map(|result| {
+        let data = match result {
+            Ok(s) => s,
+            Err(tokio_stream::wrappers::errors::BroadcastStreamRecvError::Lagged(n)) => {
+                tracing::warn!("Gateway SSE (per-session): client lagged, skipped {n} message(s)");
+                return None;
+            }
+        };
+        // Backend-SSE forwards are already pre-formatted as
+        // "data: <json>\n\n" by `format_sse_event`; strip the framing so
+        // axum's `Event::data` can re-add it cleanly.
+        let payload = data
+            .strip_prefix("data: ")
+            .and_then(|s| s.strip_suffix("\n\n"))
+            .unwrap_or(&data)
+            .to_owned();
+        Some(Ok::<Event, Infallible>(Event::default().data(payload)))
+    });
+    let sse_stream = broadcast_stream.merge(per_session_stream);
+
+    // Track lifetime of the per-session registration: when the axum
+    // response is dropped (client disconnect), this guard evicts the
+    // sink so stale notifications are not buffered forever.
+    let cleanup = SessionCleanup {
+        mgr: gs.subscriber.clone(),
+        session_id: session_id.clone(),
+    };
 
     // Prepend an endpoint-event so MCP clients know where to POST.
     // (Streamable HTTP spec §4.2 requires an initial `endpoint` event.)
@@ -109,7 +186,9 @@ pub async fn handle_gateway_get(
         Ok::<Event, Infallible>(Event::default().event("endpoint").data("/mcp"))
     });
 
-    let mut resp = Sse::new(endpoint_event.chain(sse_stream))
+    let combined = endpoint_event.chain(sse_stream);
+    let guarded = GuardedStream::new(combined, cleanup);
+    let mut resp = Sse::new(guarded)
         .keep_alive(KeepAlive::default())
         .into_response();
     if let Ok(hv) = session_id.parse() {
@@ -523,9 +602,15 @@ async fn dispatch_single_request(
                 );
             }
 
-            let (text, is_error) =
-                aggregator::route_tools_call(gs, tool, &args, meta.as_ref(), Some(id_str.clone()))
-                    .await;
+            let (text, is_error) = aggregator::route_tools_call(
+                gs,
+                tool,
+                &args,
+                meta.as_ref(),
+                Some(id_str.clone()),
+                Some(session_id),
+            )
+            .await;
 
             {
                 let mut pending = gs.pending_calls.write().await;
