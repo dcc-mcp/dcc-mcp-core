@@ -271,7 +271,7 @@ impl McpHttpServer {
             None
         };
 
-        let jobs = std::sync::Arc::new(crate::job::JobManager::new());
+        let jobs = build_job_manager(&self.config)?;
         let job_notifier = crate::notifications::JobNotifier::new(
             sessions.clone(),
             self.config.enable_job_notifications,
@@ -279,6 +279,23 @@ impl McpHttpServer {
         // Bridge JobManager transitions onto the notifier (#326).
         let notifier_cb = job_notifier.clone();
         jobs.subscribe(move |event| notifier_cb.on_job_event(event));
+        // Issue #328: recover any in-flight rows from a prior run and
+        // mark them Interrupted. Emits `$/dcc.jobUpdated` through the
+        // just-wired notifier. Errors are logged but not fatal — the
+        // server continues with an empty in-process map.
+        if jobs.storage().is_some() {
+            match jobs.recover_from_storage() {
+                Ok(n) if n > 0 => tracing::info!(
+                    interrupted_jobs = n,
+                    "JobManager recovered pending/running rows from storage and marked them Interrupted"
+                ),
+                Ok(_) => tracing::debug!("JobManager storage recovery found no in-flight rows"),
+                Err(e) => tracing::error!(
+                    error = %e,
+                    "JobManager storage recovery failed — in-process map stays empty"
+                ),
+            }
+        }
 
         let state = AppState {
             registry: self.registry,
@@ -641,4 +658,47 @@ pub fn start_in_runtime(
     config: McpHttpConfig,
 ) -> HttpResult<McpServerHandle> {
     runtime.block_on(async { McpHttpServer::new(registry, config).start().await })
+}
+
+/// Build the [`JobManager`](crate::job::JobManager) for this server,
+/// attaching a SQLite-backed [`JobStorage`](crate::job_storage::JobStorage)
+/// when `config.job_storage_path` is set.
+///
+/// Fails fast with [`HttpError::Internal`] when the caller asked for
+/// persistence but the `job-persist-sqlite` Cargo feature is not
+/// compiled in (issue #328) — we must not silently run without the
+/// persistence the deployment expected.
+fn build_job_manager(config: &McpHttpConfig) -> HttpResult<Arc<crate::job::JobManager>> {
+    match &config.job_storage_path {
+        Some(path) => {
+            #[cfg(feature = "job-persist-sqlite")]
+            {
+                let storage = crate::job_storage::SqliteStorage::open(path).map_err(|e| {
+                    tracing::error!(error = %e, path = %path.display(), "failed to open SQLite JobStorage");
+                    HttpError::Internal(format!(
+                        "failed to open SQLite job storage at {}: {e}",
+                        path.display()
+                    ))
+                })?;
+                Ok(Arc::new(crate::job::JobManager::with_storage(Arc::new(
+                    storage,
+                ))))
+            }
+            #[cfg(not(feature = "job-persist-sqlite"))]
+            {
+                tracing::error!(
+                    path = %path.display(),
+                    "McpHttpConfig.job_storage_path is set but the `job-persist-sqlite` \
+                     Cargo feature is not enabled"
+                );
+                Err(HttpError::Internal(format!(
+                    "job_storage_path={} requires the `job-persist-sqlite` Cargo feature; \
+                     rebuild dcc-mcp-core with --features job-persist-sqlite or clear \
+                     job_storage_path",
+                    path.display()
+                )))
+            }
+        }
+        None => Ok(Arc::new(crate::job::JobManager::new())),
+    }
 }

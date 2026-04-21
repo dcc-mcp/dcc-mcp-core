@@ -243,6 +243,25 @@ pub struct McpHttpConfig {
     /// has no effect. Use a capability-gated per-session opt-in (future
     /// work, see #326 amendment) for per-client control.
     pub enable_job_notifications: bool,
+
+    /// Path to a SQLite database file for persisting tracked jobs
+    /// (issue #328).
+    ///
+    /// When set **and** the `job-persist-sqlite` Cargo feature is
+    /// enabled, [`McpHttpServer::start`] opens the file, runs schema
+    /// migrations, and attaches it to `JobManager` as a write-through
+    /// store. On startup, any pre-existing rows whose status is
+    /// `Pending` or `Running` are rewritten to
+    /// [`JobStatus::Interrupted`](crate::job::JobStatus::Interrupted)
+    /// with `error = "server restart"` so clients never see silently
+    /// "lost" jobs.
+    ///
+    /// When set but the feature is **not** compiled in, `start()`
+    /// returns a descriptive error — the server refuses to silently
+    /// run without the persistence the caller asked for.
+    ///
+    /// Default: `None` (in-memory storage; no persistence).
+    pub job_storage_path: Option<PathBuf>,
 }
 
 impl McpHttpConfig {
@@ -277,7 +296,19 @@ impl McpHttpConfig {
             enable_prometheus: false,
             prometheus_basic_auth: None,
             enable_job_notifications: true,
+            job_storage_path: None,
         }
+    }
+
+    /// Builder: persist tracked jobs in a SQLite database at `path`
+    /// (issue #328).
+    ///
+    /// Requires the `job-persist-sqlite` Cargo feature; otherwise
+    /// [`McpHttpServer::start`](crate::McpHttpServer::start) fails
+    /// with a descriptive error at startup.
+    pub fn with_job_storage_path(mut self, path: impl Into<PathBuf>) -> Self {
+        self.job_storage_path = Some(path.into());
+        self
     }
 
     /// Builder: enable the built-in `workflows.*` tools (issue #348).

@@ -323,7 +323,7 @@ When building tools or interacting with DCCs, follow this priority order:
 
 1. **Skill Discovery** (start here): `search_skills(query)` → `load_skill(name)` → use skill tools
 2. **Skill-Based Tools** (preferred): Tools with validated schemas, error handling, `next-tools` guidance, and `ToolAnnotations` safety hints
-3. **Diagnostics Tools** (for verification): `diagnostics__screenshot`, `diagnostics__audit_log`, `diagnostics__process_status`, and — as a polling fallback when you can't subscribe to the `$/dcc.jobUpdated` SSE channel — **`jobs.get_status`** (#319, always registered, returns the full job-state envelope for a given `job_id`).
+3. **Diagnostics Tools** (for verification): `diagnostics__screenshot`, `diagnostics__audit_log`, `diagnostics__process_status`, and — as a polling fallback when you can't subscribe to the `$/dcc.jobUpdated` SSE channel — **`jobs.get_status`** (#319, always registered, returns the full job-state envelope for a given `job_id`). Use **`jobs.cleanup`** (#328) with `older_than_hours` to prune terminal jobs; combine with `McpHttpConfig.job_storage_path` + Cargo feature `job-persist-sqlite` for restart-safe job history (pending/running rows become `Interrupted` on reboot).
 4. **Direct Registry Access** (last resort): Only when no skill tool covers the operation; must validate with `ToolValidator` and sandbox with `SandboxPolicy`
 
 **Why skills first?** Safety (annotations), discoverability (search-hint), chainability (next-tools), progressive exposure (tool groups), validation (input_schema).

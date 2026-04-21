@@ -409,6 +409,39 @@ if env["status"] in {"completed", "failed", "cancelled", "interrupted"}:
     print("final:", env.get("result"))
 ```
 
+### Built-in tools: `jobs.cleanup`
+
+Prune terminal jobs from `JobManager` (and any attached `JobStorage` backend) once they age out. Complements [`jobs.get_status`](#built-in-tools-jobsget_status) and the optional SQLite persistence backend (see [`docs/guide/job-persistence.md`](../guide/job-persistence.md), issue #328).
+
+- **Name**: `jobs.cleanup` — SEP-986 compliant, validated at server startup.
+- **Visibility**: always surfaced in `tools/list`, independent of which skills are loaded.
+- **Annotations**: `readOnlyHint=false`, `destructiveHint=true`, `idempotentHint=true`, `openWorldHint=false`.
+
+Input schema:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `older_than_hours` | `integer ≥ 0` | `24` | Remove terminal jobs whose last `updated_at` is older than this many hours. Set to `0` to purge all terminal rows. |
+
+Only terminal statuses (`completed`, `failed`, `cancelled`, `interrupted`) are eligible — `pending` and `running` rows are never removed regardless of age.
+
+Success envelope (`CallToolResult.structuredContent`):
+
+```json
+{ "removed": 42, "older_than_hours": 24 }
+```
+
+## Optional SQLite job persistence
+
+Set `McpHttpConfig.job_storage_path` to persist `JobManager` state so in-flight jobs survive a restart (issue #328). Requires the `job-persist-sqlite` Cargo feature; when the feature is absent but the path is set, `McpHttpServer.start()` returns a descriptive error rather than silently falling back to the in-memory store.
+
+```python
+cfg = McpHttpConfig(port=8765)
+cfg.job_storage_path = "/var/lib/dcc-mcp/jobs.sqlite3"
+```
+
+On startup, any `pending` / `running` rows from a previous run are rewritten to the new terminal `interrupted` status with `error = "server restart"` and surfaced via `$/dcc.jobUpdated`. Full design and operational guidance: [`docs/guide/job-persistence.md`](../guide/job-persistence.md).
+
 ## CORS Configuration
 
 Enable CORS for browser-based MCP clients:

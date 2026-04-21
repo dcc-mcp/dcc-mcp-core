@@ -188,6 +188,10 @@ pub struct JobManager {
     jobs: DashMap<String, Arc<RwLock<Job>>>,
     /// Subscribers invoked on every status transition. See [`Self::subscribe`].
     subscribers: RwLock<Vec<JobSubscriber>>,
+    /// Optional persistence backend (issue #328). When `Some`, every
+    /// mutation is written through to storage so the next process
+    /// incarnation can see and mark-interrupted any in-flight jobs.
+    storage: Option<Arc<dyn crate::job_storage::JobStorage>>,
 }
 
 impl std::fmt::Debug for JobManager {
@@ -195,16 +199,102 @@ impl std::fmt::Debug for JobManager {
         f.debug_struct("JobManager")
             .field("jobs", &self.jobs.len())
             .field("subscribers", &self.subscribers.read().len())
+            .field("has_storage", &self.storage.is_some())
             .finish()
     }
 }
 
 impl JobManager {
-    /// Create an empty manager.
+    /// Create an empty manager with no persistence backend.
     pub fn new() -> Self {
         Self {
             jobs: DashMap::new(),
             subscribers: RwLock::new(Vec::new()),
+            storage: None,
+        }
+    }
+
+    /// Create a manager that writes every mutation through to `storage`
+    /// (issue #328).
+    ///
+    /// Does NOT perform recovery automatically — call
+    /// [`Self::recover_from_storage`] once after construction if the
+    /// backend may already contain rows from a previous process.
+    pub fn with_storage(storage: Arc<dyn crate::job_storage::JobStorage>) -> Self {
+        Self {
+            jobs: DashMap::new(),
+            subscribers: RwLock::new(Vec::new()),
+            storage: Some(storage),
+        }
+    }
+
+    /// Attach a storage backend to an existing manager. Intended for
+    /// uncommon build-up paths; the primary entry point is
+    /// [`Self::with_storage`].
+    pub fn set_storage(&mut self, storage: Arc<dyn crate::job_storage::JobStorage>) {
+        self.storage = Some(storage);
+    }
+
+    /// Borrow the underlying storage, if any.
+    pub fn storage(&self) -> Option<Arc<dyn crate::job_storage::JobStorage>> {
+        self.storage.clone()
+    }
+
+    /// Recover any in-flight rows left over by a previous process
+    /// (issue #328). Every row whose status is `Pending` or `Running`
+    /// is rewritten to [`JobStatus::Interrupted`] with
+    /// `error = "server restart"` and made visible to subscribers so
+    /// the `$/dcc.jobUpdated` SSE channel surfaces the transition.
+    ///
+    /// Terminal rows are left untouched — they remain queryable via
+    /// `jobs.get_status` / `jobs.cleanup`.
+    ///
+    /// Returns the number of rows that were flipped to `Interrupted`.
+    pub fn recover_from_storage(&self) -> Result<usize, crate::job_storage::JobStorageError> {
+        let storage = match &self.storage {
+            Some(s) => Arc::clone(s),
+            None => return Ok(0),
+        };
+        let all = storage.list(crate::job_storage::JobFilter::default())?;
+        let mut interrupted = 0usize;
+        let now = Utc::now();
+        for mut job in all {
+            let was_inflight = matches!(job.status, JobStatus::Pending | JobStatus::Running);
+            if was_inflight {
+                job.status = JobStatus::Interrupted;
+                job.error = Some("server restart".to_string());
+                job.updated_at = now;
+                // Persist the new terminal state before we hand the row
+                // back out so a second crash does not re-flip it.
+                storage.put(&job)?;
+                interrupted += 1;
+            }
+            // Rehydrate the in-process map so reads and the next
+            // `gc_stale` pass see recovered rows.
+            let id = job.id.clone();
+            let should_emit = was_inflight;
+            let snapshot = job.clone();
+            self.jobs.insert(id, Arc::new(RwLock::new(job)));
+            if should_emit {
+                self.emit(&snapshot);
+            }
+        }
+        Ok(interrupted)
+    }
+
+    fn persist_put(&self, job: &Job) {
+        if let Some(storage) = &self.storage
+            && let Err(e) = storage.put(job)
+        {
+            tracing::warn!(job_id = %job.id, error = %e, "JobStorage.put failed");
+        }
+    }
+
+    fn persist_status(&self, job_id: &str, status: JobStatus, at: DateTime<Utc>) {
+        if let Some(storage) = &self.storage
+            && let Err(e) = storage.update_status(job_id, status, at)
+        {
+            tracing::warn!(job_id = %job_id, error = %e, "JobStorage.update_status failed");
         }
     }
 
@@ -270,6 +360,7 @@ impl JobManager {
         self.jobs.insert(id, Arc::clone(&entry));
         {
             let guard = entry.read();
+            self.persist_put(&guard);
             self.emit(&guard);
         }
         entry
@@ -292,6 +383,7 @@ impl JobManager {
         job.updated_at = Utc::now();
         let snapshot = job.clone();
         drop(job);
+        self.persist_status(&snapshot.id, snapshot.status, snapshot.updated_at);
         self.emit(&snapshot);
         Some(())
     }
@@ -314,6 +406,7 @@ impl JobManager {
         job.updated_at = Utc::now();
         let snapshot = job.clone();
         drop(job);
+        self.persist_put(&snapshot);
         self.emit(&snapshot);
         Some(())
     }
@@ -336,6 +429,7 @@ impl JobManager {
         job.updated_at = Utc::now();
         let snapshot = job.clone();
         drop(job);
+        self.persist_put(&snapshot);
         self.emit(&snapshot);
         Some(())
     }
@@ -353,6 +447,7 @@ impl JobManager {
                 job.cancel_token.cancel();
                 let snapshot = job.clone();
                 drop(job);
+                self.persist_status(&snapshot.id, snapshot.status, snapshot.updated_at);
                 self.emit(&snapshot);
                 Some(())
             }
@@ -384,6 +479,7 @@ impl JobManager {
         job.updated_at = Utc::now();
         let snapshot = job.clone();
         drop(job);
+        self.persist_put(&snapshot);
         self.emit(&snapshot);
         Some(())
     }
@@ -422,7 +518,27 @@ impl JobManager {
                 removed += 1;
             }
         }
+        if removed > 0
+            && let Some(storage) = &self.storage
+            && let Err(e) = storage.delete_older_than(cutoff)
+        {
+            tracing::warn!(error = %e, "JobStorage.delete_older_than failed during gc_stale");
+        }
         removed
+    }
+
+    /// TTL-based cleanup used by the built-in `jobs.cleanup` MCP tool
+    /// (issue #328). Purges terminal rows older than
+    /// `older_than_hours` from both the in-process map and any attached
+    /// [`JobStorage`] backend.
+    ///
+    /// Returns the number of rows removed (from the in-process map —
+    /// the storage delete is authoritative for persisted rows).
+    pub fn cleanup_older_than_hours(&self, older_than_hours: u64) -> usize {
+        // Clamp to i64 to stay inside chrono's range. 1000 years is
+        // more than any real caller should ever pass.
+        let hours = older_than_hours.min(24 * 365 * 1000) as i64;
+        self.gc_stale(Duration::hours(hours))
     }
 }
 

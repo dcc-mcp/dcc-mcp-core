@@ -707,6 +707,7 @@ class TestMcpServerHandleDeep:
             "deactivate_tool_group",
             "search_tools",
             "jobs.get_status",
+            "jobs.cleanup",
         }
         assert not any(t for t in tools if t["name"] not in core_tools)
         handle.shutdown()

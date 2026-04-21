@@ -197,6 +197,33 @@ impl PyMcpHttpConfig {
         self.inner.enable_job_notifications = enabled;
     }
 
+    /// Optional filesystem path to a SQLite database used to persist
+    /// tracked jobs across server restarts (issue #328).
+    ///
+    /// When set, ``McpHttpServer.start()`` opens (or creates) the file
+    /// and attaches a write-through storage backend to the
+    /// ``JobManager``; any pre-existing ``pending``/``running`` rows
+    /// are rewritten to a terminal ``interrupted`` status on startup
+    /// so clients never see silently "lost" jobs.
+    ///
+    /// Requires the ``job-persist-sqlite`` Cargo feature; when the
+    /// wheel was built without that feature, setting this path
+    /// causes ``server.start()`` to raise a descriptive error.
+    ///
+    /// Default: ``None`` (in-memory only, no persistence).
+    #[getter]
+    fn job_storage_path(&self) -> Option<String> {
+        self.inner
+            .job_storage_path
+            .as_ref()
+            .map(|p| p.to_string_lossy().to_string())
+    }
+
+    #[setter]
+    fn set_job_storage_path(&mut self, path: Option<String>) {
+        self.inner.job_storage_path = path.map(std::path::PathBuf::from);
+    }
+
     // ── Gateway configuration ────────────────────────────────────────────────
 
     /// Gateway port to compete for. First process to bind wins.

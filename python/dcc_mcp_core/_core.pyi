@@ -3913,6 +3913,25 @@ class McpHttpConfig:
         ...
     @enable_job_notifications.setter
     def enable_job_notifications(self, enabled: bool) -> None: ...
+    @property
+    def job_storage_path(self) -> str | None:
+        """Optional SQLite database path for persisting tracked jobs (issue #328).
+
+        When set, ``McpHttpServer.start()`` opens (or creates) the file
+        and attaches a write-through storage backend to the
+        ``JobManager``; any pre-existing ``pending``/``running`` rows
+        are rewritten to a terminal ``interrupted`` status on startup
+        so clients never see silently "lost" jobs.
+
+        Requires the ``job-persist-sqlite`` Cargo feature; when the
+        wheel was built without that feature, setting this path causes
+        ``server.start()`` to raise a descriptive error.
+
+        Default: ``None`` (in-memory only, no persistence).
+        """
+        ...
+    @job_storage_path.setter
+    def job_storage_path(self, path: str | None) -> None: ...
     def __repr__(self) -> str: ...
 
 class McpServerHandle:

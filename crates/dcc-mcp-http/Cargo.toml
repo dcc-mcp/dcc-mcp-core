@@ -50,6 +50,10 @@ pin-project-lite = "0.2"
 # PyO3 (optional)
 pyo3 = { workspace = true, optional = true }
 
+# Optional SQLite JobStorage backend (issue #328). Gated behind the
+# `job-persist-sqlite` feature so the default build has zero SQLite cost.
+rusqlite = { workspace = true, optional = true }
+
 [dev-dependencies]
 serde_json.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
@@ -65,3 +69,7 @@ python-bindings = ["pyo3", "dcc-mcp-utils/python-bindings", "dcc-mcp-actions/pyt
 # matching `prometheus` feature of dcc-mcp-telemetry. Off by default so
 # zero Prometheus code compiles into the wheel when not requested.
 prometheus = ["dep:dcc-mcp-telemetry", "dcc-mcp-telemetry/prometheus"]
+# Persist tracked Jobs in a SQLite database so they survive a server
+# restart (issue #328). Pulls in the bundled `rusqlite` driver.
+# Off by default — the wheel's default build uses the in-memory store.
+job-persist-sqlite = ["dep:rusqlite"]

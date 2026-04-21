@@ -1,0 +1,10 @@
+feat(actions): optional SQLite JobStorage backend (#328)
+
+Adds a pluggable JobStorage trait with InMemoryStorage (default) and
+SqliteStorage (feature `job-persist-sqlite`). JobManager writes through
+on every state transition. Startup recovery marks any pending/running
+rows as a new Interrupted terminal status with error="server restart".
+Adds jobs.cleanup tool for TTL pruning. Feature-gated — zero sqlite cost
+when disabled.
+
+Closes #328

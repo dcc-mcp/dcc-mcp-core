@@ -1102,6 +1102,8 @@ async fn handle_tools_call_inner(
         // #319 — built-in job polling tool. Always available, regardless of
         // which skills are loaded or whether any jobs exist.
         "jobs.get_status" => return handle_jobs_get_status(state, req, &params).await,
+        // #328 — built-in TTL pruning for tracked jobs.
+        "jobs.cleanup" => return handle_jobs_cleanup(state, req, &params).await,
         // #254 — lazy-actions fast-path (opt-in).
         "list_actions" if state.lazy_actions => {
             return handle_list_actions(state, req, &params).await;
@@ -2507,10 +2509,53 @@ fn build_core_tools_inner() -> Vec<McpTool> {
                     "required": ["job_id"]
                 }),
                 output_schema: None,
+            annotations: Some(McpToolAnnotations {
+                title: Some("Get Job Status".to_string()),
+                read_only_hint: Some(true),
+                destructive_hint: Some(false),
+                idempotent_hint: Some(true),
+                open_world_hint: Some(false),
+                deferred_hint: Some(false),
+            }),
+            meta: None,
+            }
+        },
+        // `jobs.cleanup` — built-in TTL pruning tool (#328). Removes
+        // terminal job rows (and storage-backed rows when a
+        // `job_storage_path` is configured) older than the given
+        // window. Never touches pending / running jobs.
+        {
+            const TOOL_NAME: &str = "jobs.cleanup";
+            if let Err(e) = dcc_mcp_naming::validate_tool_name(TOOL_NAME) {
+                panic!("built-in tool name `{TOOL_NAME}` fails SEP-986 validation: {e}");
+            }
+            McpTool {
+                name: TOOL_NAME.to_string(),
+                description: "Purge terminal (completed/failed/cancelled/interrupted) jobs \
+                              older than `older_than_hours` hours from JobManager and any \
+                              attached storage backend. Non-terminal (pending/running) jobs \
+                              are never removed regardless of age. Returns {removed: <count>} \
+                              as structured content. Idempotent — repeated calls with the \
+                              same window return 0 once the pruning horizon is reached."
+                    .to_string(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {
+                        "older_than_hours": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "default": 24,
+                            "description": "Prune terminal jobs whose last update is older \
+                                            than this many hours. Default: 24."
+                        }
+                    },
+                    "required": []
+                }),
+                output_schema: None,
                 annotations: Some(McpToolAnnotations {
-                    title: Some("Get Job Status".to_string()),
-                    read_only_hint: Some(true),
-                    destructive_hint: Some(false),
+                    title: Some("Cleanup Completed Jobs".to_string()),
+                    read_only_hint: Some(false),
+                    destructive_hint: Some(true),
                     idempotent_hint: Some(true),
                     open_world_hint: Some(false),
                     deferred_hint: Some(false),
@@ -3235,6 +3280,45 @@ async fn handle_jobs_get_status(
     let tool_result = CallToolResult {
         content: vec![crate::protocol::ToolContent::Text { text }],
         structured_content: Some(envelope_value),
+        is_error: false,
+        meta: None,
+    };
+    Ok(JsonRpcResponse::success(
+        req.id.clone(),
+        serde_json::to_value(tool_result)?,
+    ))
+}
+
+// ── Built-in `jobs.cleanup` (#328) ────────────────────────────────────────
+
+/// Handle ``jobs.cleanup`` — TTL prune terminal jobs from JobManager
+/// and any attached storage backend (issue #328).
+///
+/// Semantics:
+/// * `older_than_hours` defaults to 24. Values of 0 prune every
+///   terminal row that already exists (useful for tests).
+/// * Non-terminal (pending/running) rows are never touched.
+/// * Returns a ``{removed: <count>}`` envelope both as text and
+///   `structuredContent`.
+async fn handle_jobs_cleanup(
+    state: &AppState,
+    req: &JsonRpcRequest,
+    params: &CallToolParams,
+) -> Result<JsonRpcResponse, HttpError> {
+    let args = params.arguments.as_ref();
+    let older_than_hours = args
+        .and_then(|a| a.get("older_than_hours"))
+        .and_then(Value::as_u64)
+        .unwrap_or(24);
+    let removed = state.jobs.cleanup_older_than_hours(older_than_hours);
+    let envelope = serde_json::json!({
+        "removed": removed,
+        "older_than_hours": older_than_hours,
+    });
+    let text = serde_json::to_string(&envelope)?;
+    let tool_result = CallToolResult {
+        content: vec![crate::protocol::ToolContent::Text { text }],
+        structured_content: Some(envelope),
         is_error: false,
         meta: None,
     };

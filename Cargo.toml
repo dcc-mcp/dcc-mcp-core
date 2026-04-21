@@ -78,6 +78,10 @@ socket2 = { version = "0.6", features = ["all"] }
 criterion = { version = "0.8", features = ["html_reports"] }
 ipckit = { version = "0.1.7", features = ["async", "backend-interprocess"] }
 base64 = "0.22"
+# Optional SQLite backend for JobManager persistence (issue #328). Pulled in
+# only when the `job-persist-sqlite` feature is enabled on `dcc-mcp-http`;
+# otherwise zero SQLite code compiles into the wheel.
+rusqlite = { version = "0.39", features = ["bundled"] }
 
 # Type-stub generation (opt-in via `stub-gen` feature). Used only by the
 # `stub_gen` binary target — never pulled into wheels or library consumers.
@@ -156,6 +160,10 @@ workflow = ["dep:dcc-mcp-workflow"]
 # prometheus feature on dcc-mcp-telemetry. When disabled, zero
 # Prometheus code is compiled into the wheel.
 prometheus = ["dcc-mcp-http/prometheus", "dcc-mcp-telemetry/prometheus"]
+# Persist JobManager state in SQLite so tracked jobs survive restarts
+# (issue #328). Forwards to `dcc-mcp-http/job-persist-sqlite`. Off by
+# default — when disabled, zero SQLite code compiles into the wheel.
+job-persist-sqlite = ["dcc-mcp-http/job-persist-sqlite"]
 abi3-py38 = ["pyo3/abi3-py38"]
 # Python 3.7 wheel: non-abi3 build, no abi3-py38 feature
 ext-module = ["pyo3/extension-module"]

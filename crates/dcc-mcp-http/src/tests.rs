@@ -512,8 +512,9 @@ mod tests {
         resp.assert_status_ok();
         let body: Value = resp.json();
         let tools = body["result"]["tools"].as_array().unwrap();
-        // 11 core meta-tools (10 + jobs.get_status #319) + 2 registered actions = 13
-        assert_eq!(tools.len(), 13);
+        // 12 core meta-tools (10 + jobs.get_status #319 + jobs.cleanup #328)
+        // + 2 registered actions = 14
+        assert_eq!(tools.len(), 14);
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert!(names.contains(&"get_scene_info"));
         assert!(names.contains(&"list_objects"));
@@ -1176,6 +1177,7 @@ mod tests {
                     | "deactivate_tool_group"
                     | "search_tools"
                     | "jobs.get_status"
+                    | "jobs.cleanup"
             );
             let is_stub = name.starts_with("__skill__") || name.starts_with("__group__");
 
@@ -1863,8 +1865,9 @@ mod tests {
 
         let body2: Value = resp2.json();
         let tools = body2["result"]["tools"].as_array().unwrap();
-        // 11 core meta-tools (incl. jobs.get_status #319) + 2 skill tools = 13
-        assert_eq!(tools.len(), 13);
+        // 12 core meta-tools (incl. jobs.get_status #319 + jobs.cleanup #328)
+        // + 2 skill tools = 14
+        assert_eq!(tools.len(), 14);
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         // #307: bare names when unique within the instance.
         assert!(names.contains(&"bevel"));
@@ -1944,8 +1947,9 @@ mod tests {
 
         let body2: Value = resp2.json();
         let tools = body2["result"]["tools"].as_array().unwrap();
-        // Back to 11 core meta-tools (incl. jobs.get_status #319) + 1 unloaded skill stub = 12
-        assert_eq!(tools.len(), 12);
+        // Back to 12 core meta-tools (incl. jobs.get_status #319 + jobs.cleanup
+        // #328) + 1 unloaded skill stub = 13
+        assert_eq!(tools.len(), 13);
         let stub = tools
             .iter()
             .find(|t| t["name"] == "__skill__modeling-bevel")
@@ -2470,7 +2474,7 @@ mod tests {
         resp.assert_status_ok();
         let body: Value = resp.json();
         let tools = body["result"]["tools"].as_array().unwrap();
-        // Total = 11 core (incl. jobs.get_status #319) + 40 registered = 51; first page = 32.
+        // Total = 12 core (incl. jobs.get_status #319 + jobs.cleanup #328) + 40 registered = 52; first page = 32.
         assert_eq!(
             tools.len(),
             TOOLS_LIST_PAGE_SIZE,
@@ -2514,8 +2518,8 @@ mod tests {
             .await
             .json();
         let tools2 = r2["result"]["tools"].as_array().unwrap();
-        // 51 - 32 = 19 tools on second page
-        assert_eq!(tools2.len(), 51 - TOOLS_LIST_PAGE_SIZE);
+        // 52 - 32 = 20 tools on second page
+        assert_eq!(tools2.len(), 52 - TOOLS_LIST_PAGE_SIZE);
         assert!(
             r2["result"]["nextCursor"].is_null(),
             "Last page must not have nextCursor"
@@ -2551,7 +2555,7 @@ mod tests {
             }
         }
 
-        assert_eq!(all_names.len(), 51, "All pages must cover exactly 51 tools");
+        assert_eq!(all_names.len(), 52, "All pages must cover exactly 52 tools");
         let unique: std::collections::HashSet<_> = all_names.iter().collect();
         assert_eq!(unique.len(), all_names.len(), "No duplicates across pages");
     }
