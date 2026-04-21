@@ -231,6 +231,7 @@ tools:
   - `.lazy_actions = True` — opt-in: `tools/list` surfaces only 3 meta-tools (`list_actions`, `describe_action`, `call_action`) instead of all tools
   - `.session_ttl_secs` — idle session eviction (default 3600s)
   - `.gateway_port`, `.registry_dir`, `.stale_timeout_secs`, `.heartbeat_secs`, `.dcc_type`, `.dcc_version`, `.scene` — gateway participation config
+  - `.bare_tool_names` — default `True`; publish unique action names without `<skill>.` prefix in `tools/list` (#307). Collisions fall back to full form; `tools/call` accepts both shapes
 - `McpHttpServer(registry, config=None)` — MCP Streamable HTTP server (**2025-03-26 spec**), axum/Tokio backend
   - `.start() -> McpServerHandle` — starts background thread, returns immediately
   - **Note**: MCP 2025-03-26 implements Streamable HTTP, Tool Annotations, OAuth 2.1. MCP 2025-06-18 adds Structured Tool Output, Elicitation, Resource Links, and removes JSON-RPC batching. MCP 2025-11-25 adds icon metadata, Tasks, Sampling with tools. The 2026 roadmap focuses on: (1) transport scalability — `.well-known` capability discovery, stateless sessions; (2) agent communication — Tasks lifecycle, retry/expiration; (3) governance — delegated workgroups; (4) enterprise readiness — audit, SSO (mostly extensions). No new transport types in 2026. Do NOT implement manually — wait for library support.
@@ -345,6 +346,12 @@ tools:
 - `get_config_dir()`, `get_data_dir()`, `get_log_dir()`, `get_platform_dir(dir_type)`
 - `get_tools_dir(dcc_name)`, `get_skills_dir(dcc_name=None)`
 - `get_skill_paths_from_env() -> List[str]` — reads `DCC_MCP_SKILL_PATHS`
+
+### File Logging (`dcc_mcp_core`)
+
+- `FileLoggingConfig(directory=None, file_name_prefix="dcc-mcp", max_size_bytes=10485760, max_files=7, rotation="both", include_console=True)` — rolling file logger config. `FileLoggingConfig.from_env()` reads `DCC_MCP_LOG_*` env vars.
+- `init_file_logging(config=None) -> str` — install (or swap) the rolling-file layer. Returns resolved log directory.
+- `shutdown_file_logging()` — uninstall the file-logging layer; console unaffected.
 
 ### Constants (`dcc_mcp_core`)
 

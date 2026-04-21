@@ -216,6 +216,11 @@ Available as module-level attributes:
 | `DCC_MCP_SKILL_PATHS` | Global skill search paths (`;` on Windows, `:` on Unix) |
 | `DCC_MCP_{APP}_SKILL_PATHS` | Per-app skill paths, e.g. `DCC_MCP_MAYA_SKILL_PATHS` for Maya |
 | `MCP_LOG_LEVEL` | Log level override (DEBUG, INFO, WARN, ERROR) |
+| `DCC_MCP_LOG_DIR` | Directory for rolling log files (falls back to platform log dir) |
+| `DCC_MCP_LOG_FILE_PREFIX` | Log file stem (default: `dcc-mcp`) |
+| `DCC_MCP_LOG_MAX_SIZE` | Max bytes per file before size-triggered rotation (default: 10 MiB) |
+| `DCC_MCP_LOG_MAX_FILES` | Retention cap for rolled files (default: 7) |
+| `DCC_MCP_LOG_ROTATION` | Rotation policy: `size`, `daily`, or `both` (default: `both`) |
 
 ::: tip Search Path Priority
 When `create_skill_server("maya")` is called, skill directories are resolved in this order:
@@ -224,3 +229,53 @@ When `create_skill_server("maya")` is called, skill directories are resolved in 
 3. Global env var: `DCC_MCP_SKILL_PATHS`
 4. Platform data dir: `~/.local/share/dcc-mcp/skills/maya/`
 :::
+
+## File Logging
+
+Rolling file logging for durable, multi-process debugging. Console output (stderr) is unaffected.
+
+```python
+from dcc_mcp_core import FileLoggingConfig, init_file_logging, shutdown_file_logging
+
+# Quick start — use environment variables or defaults
+init_file_logging()   # reads DCC_MCP_LOG_* env vars
+
+# Explicit configuration
+init_file_logging(FileLoggingConfig(
+    directory="./logs",
+    file_name_prefix="maya-mcp",
+    max_size_bytes=5 * 1024 * 1024,  # 5 MiB
+    max_files=10,
+    rotation="both",  # size + daily
+))
+
+# Swap config at runtime (idempotent)
+init_file_logging(FileLoggingConfig.from_env())
+
+# Uninstall file logging; console remains active
+shutdown_file_logging()
+```
+
+### `FileLoggingConfig`
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `directory` | `str \| None` | platform log dir | Target directory for log files |
+| `file_name_prefix` | `str` | `"dcc-mcp"` | File-name stem (`<prefix>.<YYYYMMDD>.log`) |
+| `max_size_bytes` | `int` | `10485760` (10 MiB) | Max bytes per file before size rotation |
+| `max_files` | `int` | `7` | Retention cap — keep this many **rolled** files (current excluded) |
+| `rotation` | `str` | `"both"` | `"size"`, `"daily"`, or `"both"` |
+| `include_console` | `bool` | `True` | Reserved for future use; console always stays active today |
+
+### Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `FileLoggingConfig.from_env()` | `FileLoggingConfig` | Build a config pre-populated from `DCC_MCP_LOG_*` env vars |
+
+### Functions
+
+| Function | Returns | Description |
+|----------|---------|-------------|
+| `init_file_logging(config=None)` | `str` | Install (or swap) the rolling-file layer. Returns resolved log directory. |
+| `shutdown_file_logging()` | `None` | Uninstall the file-logging layer. |

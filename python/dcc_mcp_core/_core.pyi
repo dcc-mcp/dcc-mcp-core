@@ -3723,6 +3723,20 @@ class McpHttpConfig:
         ...
     @lazy_actions.setter
     def lazy_actions(self, enabled: bool) -> None: ...
+    @property
+    def bare_tool_names(self) -> bool:
+        """Publish skill-scoped tools under their bare action name.
+
+        When no collision exists on this instance (#307).
+        When ``True`` (default), ``tools/list`` emits ``execute_python``
+        rather than ``maya-scripting.execute_python`` whenever the bare
+        name is unique. Collisions fall back to the full
+        ``<skill>.<action>`` form, and ``tools/call`` accepts both shapes
+        for one release cycle.
+        """
+        ...
+    @bare_tool_names.setter
+    def bare_tool_names(self, enabled: bool) -> None: ...
     def __repr__(self) -> str: ...
 
 class McpServerHandle:

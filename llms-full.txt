@@ -2041,6 +2041,48 @@ get_app_skill_paths_from_env("maya")   # -> List[str] from DCC_MCP_MAYA_SKILL_PA
 get_app_skill_paths_from_env("blender") # -> List[str] from DCC_MCP_BLENDER_SKILL_PATHS env var
 ```
 
+## File Logging (`dcc_mcp_core`)
+
+Rolling file logging for durable, multi-process debugging. Console output (stderr) is unaffected.
+
+```python
+from dcc_mcp_core import FileLoggingConfig, init_file_logging, shutdown_file_logging
+
+# Quick start — reads DCC_MCP_LOG_* env vars
+log_dir = init_file_logging()   # returns resolved directory
+
+# Explicit configuration
+init_file_logging(FileLoggingConfig(
+    directory="./logs",
+    file_name_prefix="maya-mcp",
+    max_size_bytes=5 * 1024 * 1024,  # 5 MiB
+    max_files=10,
+    rotation="both",  # "size", "daily", or "both"
+))
+
+# Swap at runtime (idempotent)
+init_file_logging(FileLoggingConfig.from_env())
+
+# Uninstall; console stays active
+shutdown_file_logging()
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `directory` | `str \| None` | platform log dir | Target directory for log files |
+| `file_name_prefix` | `str` | `"dcc-mcp"` | File-name stem (`<prefix>.<YYYYMMDD>.log`) |
+| `max_size_bytes` | `int` | `10485760` (10 MiB) | Max bytes before size-triggered rotation |
+| `max_files` | `int` | `7` | Retention cap for rolled files (current excluded) |
+| `rotation` | `str` | `"both"` | `"size"`, `"daily"`, or `"both"` |
+| `include_console` | `bool` | `True` | Reserved; console always active today |
+
+**Environment variables** (read by `FileLoggingConfig.from_env()`):
+- `DCC_MCP_LOG_DIR` — directory override
+- `DCC_MCP_LOG_FILE_PREFIX` — prefix override
+- `DCC_MCP_LOG_MAX_SIZE` — size override (bytes)
+- `DCC_MCP_LOG_MAX_FILES` — retention cap override
+- `DCC_MCP_LOG_ROTATION` — policy override (`size`/`daily`/`both`)
+
 ---
 
 ## Constants (`dcc_mcp_core`)
@@ -2210,6 +2252,11 @@ config.scene = "/proj/shot01.ma"  # optional: helps routing by scene
 
 # Session management
 config.session_ttl_secs = 3600  # idle session eviction (0 = disable)
+
+# Bare tool names (#307) — default True; emits "execute_python" instead of
+# "maya-scripting.execute_python" when the bare name is unique. Collisions
+# fall back to the full <skill>.<action> form; tools/call accepts both.
+config.bare_tool_names = True   # set False to force legacy prefixed form
 ```
 
 ### McpHttpServer

@@ -255,6 +255,24 @@ impl PyMcpHttpConfig {
         self.inner.self_probe_timeout_ms = ms;
     }
 
+    /// Publish skill-scoped tools under their **bare action name** when no
+    /// collision exists on this instance (#307).
+    ///
+    /// When ``True`` (default), ``tools/list`` emits ``execute_python``
+    /// rather than ``maya-scripting.execute_python`` whenever the bare name
+    /// is unique within the instance's loaded skills. Collisions fall back
+    /// to the full ``<skill>.<action>`` form, and ``tools/call`` accepts
+    /// both shapes for one release cycle.
+    #[getter]
+    fn bare_tool_names(&self) -> bool {
+        self.inner.bare_tool_names
+    }
+
+    #[setter]
+    fn set_bare_tool_names(&mut self, enabled: bool) {
+        self.inner.bare_tool_names = enabled;
+    }
+
     fn __repr__(&self) -> String {
         format!(
             "McpHttpConfig(port={}, name={}, gateway_port={})",

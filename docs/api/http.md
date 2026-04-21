@@ -49,6 +49,9 @@ cfg = McpHttpConfig(
 | `dcc_type` | `str \| None` | `None` | DCC type reported in registry (e.g. `"maya"`, `"blender"`) |
 | `dcc_version` | `str \| None` | `None` | DCC version string reported in registry (e.g. `"2025"`) |
 | `scene` | `str \| None` | `None` | Currently open scene file — improves gateway routing |
+| `spawn_mode` | `str` | `"dedicated"` | Listener spawn strategy: `"ambient"` (standalone binary) or `"dedicated"` (PyO3-embedded; own OS thread + current_thread runtime). Fixes issue #303 |
+| `self_probe_timeout_ms` | `int` | `200` | Max ms to wait when self-probing a freshly bound listener. 0 disables. Issue #303 guard |
+| `bare_tool_names` | `bool` | `True` | Publish unique action names without `<skill>.` prefix in `tools/list` (#307). Collisions fall back to full form; `tools/call` accepts both shapes |
 
 ## McpServerHandle
 

@@ -141,6 +141,10 @@ Need to interact with DCC?
 → `python/dcc_mcp_core/gateway_election.py` — `DccGatewayElection`
 → [`docs/guide/gateway-election.md`](docs/guide/gateway-election.md)
 
+**Enable durable rolling file logs (multi-gateway debugging)?**
+→ `FileLoggingConfig` + `init_file_logging()` / `shutdown_file_logging()`
+→ Environment vars: `DCC_MCP_LOG_DIR`, `DCC_MCP_LOG_MAX_SIZE`, `DCC_MCP_LOG_ROTATION`
+
 **Structured results, input validation, event bus?**
 → [`docs/api/actions.md`](docs/api/actions.md)
 → [`docs/api/models.md`](docs/api/models.md)
@@ -463,6 +467,20 @@ config = McpHttpConfig(port=8765)
 config.lazy_actions = True   # opt-in; default is False
 ```
 
+**`bare_tool_names` — collision-aware bare action names (#307):**
+```python
+# Default True. tools/list emits "execute_python" instead of
+# "maya-scripting.execute_python" when the bare name is unique.
+# Collisions fall back to the full "<skill>.<action>" form.
+# tools/call accepts BOTH shapes for one release cycle.
+config = McpHttpConfig(port=8765)
+config.bare_tool_names = True   # default
+
+# Opt-out only if a downstream client hard-coded the prefixed form
+# and cannot be updated in lock-step:
+config.bare_tool_names = False
+```
+
 **`ToolResult.to_json()` — JSON serialization:**
 ```python
 result = success_result("done", count=5)
@@ -491,6 +509,8 @@ json_str = result.to_json()    # JSON string
 - Use Conventional Commits for PR titles — `feat:`, `fix:`, `docs:`, `refactor:`
 - Use `registry.list_actions()` (shows all) vs `registry.list_actions_enabled()` (active only)
 - Start with `search_skills(query)` when looking for a tool — don't guess tool names
+- Use `init_file_logging(FileLoggingConfig(...))` for durable logs in multi-gateway setups
+- Rely on bare tool names in `tools/call` — both `execute_python` and `maya-scripting.execute_python` work during the one-release grace window
 
 ### Don't ❌
 
@@ -507,6 +527,7 @@ json_str = result.to_json()    # JSON string
 - Don't manually bump versions or edit `CHANGELOG.md` — Release Please handles this
 - Don't hardcode API keys, tokens, or passwords — use environment variables
 - Don't use `docs/` prefix in branch names — causes `refs/heads/docs/...` conflicts
+- Don't hard-code the legacy `<skill>.<action>` prefixed form in `tools/call` — bare names are the default since v0.14.2 (#307)
 - Don't reference `ActionMeta.enabled` in Python — use `ToolRegistry.set_tool_enabled()` instead
 - Don't use `json.dumps()` on `ToolResult` — use `result.to_json()` or `serialize_result()`
 - Don't guess tool names — use `search_skills(query)` to discover the right tool
