@@ -17,6 +17,40 @@ use dcc_mcp_utils::constants::{DEFAULT_DCC, DEFAULT_VERSION};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+// ── ExecutionMode ─────────────────────────────────────────────────────────
+
+/// How a tool is expected to execute with respect to request/response latency.
+///
+/// Authors declare `execution` in SKILL.md. The MCP server derives the
+/// `deferredHint` annotation from this value (per MCP 2025-03-26 the hint
+/// is server-set — end users should not set it directly). See issue #317.
+///
+/// ```yaml
+/// tools:
+///   - name: render_frames
+///     execution: async          # sync | async ; default sync
+///     timeout_hint_secs: 600    # optional u32
+/// ```
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ExecutionMode {
+    /// Returns quickly — callers expect a synchronous reply.
+    #[default]
+    Sync,
+    /// May take long enough that clients should treat the call as deferred.
+    /// Surfaces as `deferredHint: true` on the MCP tool annotation.
+    Async,
+}
+
+impl ExecutionMode {
+    /// Whether this mode should surface as a deferred hint in MCP tool
+    /// annotations.
+    #[must_use]
+    pub fn is_deferred(self) -> bool {
+        matches!(self, Self::Async)
+    }
+}
+
 // ── ToolDeclaration ───────────────────────────────────────────────────────
 
 /// Declaration of a tool provided by a skill, parsed from SKILL.md frontmatter.
@@ -100,6 +134,39 @@ pub struct ToolDeclaration {
     /// calls ``activate_tool_group``.
     #[serde(default)]
     pub group: String,
+
+    /// Execution mode — `sync` (default) or `async`.
+    ///
+    /// Drives the server-derived `deferredHint` annotation on the MCP tool
+    /// definition. See [`ExecutionMode`] and issue #317.
+    #[serde(default)]
+    pub execution: ExecutionMode,
+
+    /// Optional hint about typical execution time in seconds.
+    ///
+    /// When set, surfaces under the tool's `_meta.dcc.timeoutHintSecs` in
+    /// `tools/list` (never inside `annotations`). Clients may use this to
+    /// size their own request timeouts.
+    #[serde(
+        default,
+        rename = "timeout_hint_secs",
+        alias = "timeout-hint-secs",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub timeout_hint_secs: Option<u32>,
+
+    /// Reject the legacy user-level `deferred: true` flag with a clear error.
+    ///
+    /// `deferredHint` is server-set per MCP 2025-03-26; skill authors must
+    /// use `execution: async` instead. Always deserialises to `None`; the
+    /// presence of the key triggers a custom-deserialiser error.
+    #[serde(
+        default,
+        skip_serializing,
+        rename = "deferred",
+        deserialize_with = "reject_deferred_field"
+    )]
+    pub _deferred_guard: Option<()>,
 }
 
 /// Suggested next tools for a successful or failed tool call (issue #143).
@@ -203,7 +270,7 @@ fn is_null_value(v: &serde_json::Value) -> bool {
 #[pymethods]
 impl ToolDeclaration {
     #[new]
-    #[pyo3(signature = (name, description="".to_string(), input_schema=None, output_schema=None, read_only=false, destructive=false, idempotent=false, defer_loading=false, source_file="".to_string(), group="".to_string()))]
+    #[pyo3(signature = (name, description="".to_string(), input_schema=None, output_schema=None, read_only=false, destructive=false, idempotent=false, defer_loading=false, source_file="".to_string(), group="".to_string(), execution="sync".to_string(), timeout_hint_secs=None))]
     #[allow(clippy::too_many_arguments)]
     fn new(
         name: String,
@@ -216,14 +283,25 @@ impl ToolDeclaration {
         defer_loading: bool,
         source_file: String,
         group: String,
-    ) -> Self {
+        execution: String,
+        timeout_hint_secs: Option<u32>,
+    ) -> pyo3::PyResult<Self> {
         let input_schema = input_schema
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or(serde_json::json!({"type": "object"}));
         let output_schema = output_schema
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or(serde_json::Value::Null);
-        Self {
+        let execution = match execution.as_str() {
+            "sync" => ExecutionMode::Sync,
+            "async" => ExecutionMode::Async,
+            other => {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "execution must be 'sync' or 'async' (got {other:?})",
+                )));
+            }
+        };
+        Ok(Self {
             name,
             description,
             input_schema,
@@ -235,7 +313,42 @@ impl ToolDeclaration {
             source_file,
             next_tools: NextTools::default(),
             group,
+            execution,
+            timeout_hint_secs,
+            _deferred_guard: None,
+        })
+    }
+
+    #[getter]
+    fn execution(&self) -> &'static str {
+        match self.execution {
+            ExecutionMode::Sync => "sync",
+            ExecutionMode::Async => "async",
         }
+    }
+
+    #[setter]
+    fn set_execution(&mut self, value: String) -> pyo3::PyResult<()> {
+        self.execution = match value.as_str() {
+            "sync" => ExecutionMode::Sync,
+            "async" => ExecutionMode::Async,
+            other => {
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "execution must be 'sync' or 'async' (got {other:?})",
+                )));
+            }
+        };
+        Ok(())
+    }
+
+    #[getter]
+    fn timeout_hint_secs(&self) -> Option<u32> {
+        self.timeout_hint_secs
+    }
+
+    #[setter]
+    fn set_timeout_hint_secs(&mut self, value: Option<u32>) {
+        self.timeout_hint_secs = value;
     }
 
     #[getter]
@@ -931,6 +1044,21 @@ where
     deserializer.deserialize_seq(ToolDeclarationsVisitor)
 }
 
+/// Custom deserializer used by [`ToolDeclaration`] to reject the legacy
+/// `deferred:` user-level field with a clear, actionable error.
+///
+/// `deferredHint` is server-set per MCP 2025-03-26 — authors must declare
+/// `execution: sync|async` instead. See issue #317.
+fn reject_deferred_field<'de, D>(_deserializer: D) -> Result<Option<()>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Err(serde::de::Error::custom(
+        "`deferred` is not a user-level SKILL.md field — it is server-derived per \
+         MCP 2025-03-26. Declare `execution: async` instead (see issue #317).",
+    ))
+}
+
 fn default_dcc() -> String {
     DEFAULT_DCC.to_string()
 }
@@ -1569,6 +1697,67 @@ mod tests {
         let meta: SkillMetadata = serde_json::from_str(json).unwrap();
         assert_eq!(meta.tools[0].next_tools.on_success, vec!["tool_a"]);
         assert_eq!(meta.tools[0].next_tools.on_failure, vec!["tool_b"]);
+    }
+
+    // ── ExecutionMode (issue #317) ──────────────────────────────────────
+
+    #[test]
+    fn test_execution_mode_default_is_sync() {
+        assert_eq!(ExecutionMode::default(), ExecutionMode::Sync);
+        assert!(!ExecutionMode::default().is_deferred());
+    }
+
+    #[test]
+    fn test_execution_mode_is_deferred() {
+        assert!(!ExecutionMode::Sync.is_deferred());
+        assert!(ExecutionMode::Async.is_deferred());
+    }
+
+    #[test]
+    fn test_execution_mode_serde_round_trip() {
+        let s = serde_json::to_string(&ExecutionMode::Sync).unwrap();
+        assert_eq!(s, "\"sync\"");
+        let a = serde_json::to_string(&ExecutionMode::Async).unwrap();
+        assert_eq!(a, "\"async\"");
+        let back: ExecutionMode = serde_json::from_str("\"async\"").unwrap();
+        assert_eq!(back, ExecutionMode::Async);
+    }
+
+    #[test]
+    fn test_tool_declaration_execution_async() {
+        let json = r#"{"name": "s", "tools": [
+            {"name": "render", "execution": "async", "timeout_hint_secs": 600}
+        ]}"#;
+        let meta: SkillMetadata = serde_json::from_str(json).unwrap();
+        assert_eq!(meta.tools[0].execution, ExecutionMode::Async);
+        assert_eq!(meta.tools[0].timeout_hint_secs, Some(600));
+    }
+
+    #[test]
+    fn test_tool_declaration_execution_default_sync() {
+        // Absence of `execution` → Sync, timeout_hint_secs → None.
+        let json = r#"{"name": "s", "tools": [{"name": "quick"}]}"#;
+        let meta: SkillMetadata = serde_json::from_str(json).unwrap();
+        assert_eq!(meta.tools[0].execution, ExecutionMode::Sync);
+        assert_eq!(meta.tools[0].timeout_hint_secs, None);
+    }
+
+    #[test]
+    fn test_tool_declaration_rejects_deferred_field() {
+        let json = r#"{"name": "s", "tools": [{"name": "t", "deferred": true}]}"#;
+        let err = serde_json::from_str::<SkillMetadata>(json).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("execution: async") || msg.contains("deferred"),
+            "error must point to execution: async — got: {msg}",
+        );
+    }
+
+    #[test]
+    fn test_tool_declaration_rejects_unknown_execution() {
+        let json = r#"{"name": "s", "tools": [{"name": "t", "execution": "background"}]}"#;
+        let err = serde_json::from_str::<SkillMetadata>(json).unwrap_err();
+        assert!(err.to_string().contains("background") || err.to_string().contains("execution"));
     }
 
     #[test]

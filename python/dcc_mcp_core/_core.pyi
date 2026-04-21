@@ -164,6 +164,10 @@ class ToolDeclaration:
     idempotent: bool
     defer_loading: bool
     source_file: str
+    execution: str
+    """Execution mode — ``"sync"`` or ``"async"`` (issue #317)."""
+    timeout_hint_secs: int | None
+    """Optional hint in seconds; surfaces under ``_meta.dcc.timeoutHintSecs``."""
 
     def __init__(
         self,
@@ -176,6 +180,9 @@ class ToolDeclaration:
         idempotent: bool = False,
         defer_loading: bool = False,
         source_file: str = "",
+        group: str = "",
+        execution: str = "sync",
+        timeout_hint_secs: int | None = None,
     ) -> None: ...
     def __repr__(self) -> str: ...
 
@@ -264,8 +271,16 @@ class ToolRegistry:
         group: str = "",
         enabled: bool = True,
         required_capabilities: list[str] | None = None,
+        execution: str = "sync",
+        timeout_hint_secs: int | None = None,
     ) -> None:
         """Register a tool in this registry.
+
+        ``execution`` is ``"sync"`` (default) or ``"async"``. When ``"async"``,
+        the MCP server surfaces ``deferredHint: true`` on the tool annotation.
+        ``timeout_hint_secs`` surfaces under ``_meta.dcc.timeoutHintSecs`` on
+        the tool definition — never inside ``annotations`` (issue #317).
+
 
         The ``required_capabilities`` parameter accepts an optional list of
         host-DCC capability keys (e.g. ``["scene", "timeline"]``) that must be

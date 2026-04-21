@@ -421,7 +421,7 @@ toml = [
 
 [[package]]
 name = "dcc-mcp-core"
-version = "0.12.28"
+version = "0.14.2"
 source = { editable = "." }
 
 [package.optional-dependencies]

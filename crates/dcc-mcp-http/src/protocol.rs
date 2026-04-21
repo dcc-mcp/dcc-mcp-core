@@ -291,6 +291,13 @@ pub struct McpTool {
     pub output_schema: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub annotations: Option<McpToolAnnotations>,
+    /// MCP `_meta` — free-form server-scoped metadata (issue #317).
+    ///
+    /// dcc-mcp-core surfaces implementation-specific hints (e.g.
+    /// `dcc.timeoutHintSecs`) here rather than in `annotations`, which is
+    /// reserved for spec-defined tool hints.
+    #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
+    pub meta: Option<serde_json::Map<String, Value>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

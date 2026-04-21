@@ -540,7 +540,14 @@ class TestSkillWatcherMultiPath:
         examples = str(Path(__file__).parent / ".." / "examples" / "skills")
         watcher = SkillWatcher()
         watcher.watch(examples)
-        assert watcher.skill_count() == 11
+        # Count scales with the number of directories under examples/skills.
+        # Keep in sync when adding/removing example skills.
+        expected = sum(
+            1
+            for p in (Path(__file__).parent / ".." / "examples" / "skills").iterdir()
+            if p.is_dir() and (p / "SKILL.md").is_file()
+        )
+        assert watcher.skill_count() == expected
 
     def test_watcher_with_invalid_path_does_not_crash(self):
         """Watching a non-existent path should not raise an exception."""
@@ -641,10 +648,16 @@ class TestSkillScannerCacheClearing:
         assert len(skipped) >= 1
 
     def test_scan_examples_dir_loads_all_11(self):
-        """Scan examples/skills and verify all 11 skills are loaded."""
-        examples = str(Path(__file__).parent / ".." / "examples" / "skills")
+        """Scan examples/skills and verify every example skill is loaded.
+
+        Count scales with the number of skill directories — keep in sync
+        when adding/removing example skills.
+        """
+        examples_path = Path(__file__).parent / ".." / "examples" / "skills"
+        examples = str(examples_path)
+        expected = sum(1 for p in examples_path.iterdir() if p.is_dir() and (p / "SKILL.md").is_file())
         skills, skipped = scan_and_load([examples])
-        assert len(skills) == 11
+        assert len(skills) == expected
         assert skipped == []
 
 

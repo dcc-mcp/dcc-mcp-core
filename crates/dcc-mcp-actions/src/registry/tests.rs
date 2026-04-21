@@ -202,10 +202,33 @@ fn test_action_meta_serde_round_trip() {
         group: String::new(),
         enabled: true,
         required_capabilities: vec!["scene".into(), "render".into()],
+        execution: dcc_mcp_models::ExecutionMode::Async,
+        timeout_hint_secs: Some(900),
     };
     let json = serde_json::to_string(&meta).unwrap();
     let back: ActionMeta = serde_json::from_str(&json).unwrap();
     assert_eq!(meta, back);
+}
+
+#[test]
+fn test_action_meta_execution_defaults_to_sync() {
+    let meta = ActionMeta::default();
+    assert_eq!(meta.execution, dcc_mcp_models::ExecutionMode::Sync);
+    assert_eq!(meta.timeout_hint_secs, None);
+}
+
+#[test]
+fn test_action_meta_execution_and_timeout_serde() {
+    // Issue #317 — new fields must round-trip and be recognised on input.
+    let json = r#"{
+        "name": "render",
+        "description": "Render",
+        "execution": "async",
+        "timeout_hint_secs": 600
+    }"#;
+    let meta: ActionMeta = serde_json::from_str(json).unwrap();
+    assert_eq!(meta.execution, dcc_mcp_models::ExecutionMode::Async);
+    assert_eq!(meta.timeout_hint_secs, Some(600));
 }
 
 #[test]

@@ -287,6 +287,69 @@ mod test_parse_skill_md {
     }
 
     #[test]
+    fn parse_skill_with_tool_execution_async() {
+        // Issue #317 — `execution: async` and `timeout_hint_secs` round-trip.
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join(SKILL_METADATA_FILE),
+            "---\nname: render-farm\ndcc: python\ntools:\n  - name: render_frames\n    execution: async\n    timeout_hint_secs: 600\n  - name: quick_check\n---\n# Render\n",
+        )
+        .unwrap();
+
+        let meta = parse_skill_md(tmp.path()).unwrap();
+        assert_eq!(meta.tools.len(), 2);
+        assert_eq!(
+            meta.tools[0].execution,
+            dcc_mcp_models::ExecutionMode::Async,
+        );
+        assert_eq!(meta.tools[0].timeout_hint_secs, Some(600));
+        // Absence defaults to Sync / None.
+        assert_eq!(meta.tools[1].execution, dcc_mcp_models::ExecutionMode::Sync,);
+        assert_eq!(meta.tools[1].timeout_hint_secs, None);
+    }
+
+    #[test]
+    fn parse_skill_rejects_user_level_deferred_flag() {
+        // Issue #317 — `deferred: true` at the user level must be rejected,
+        // parse_skill_md logs and returns None.
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join(SKILL_METADATA_FILE),
+            "---\nname: bad\ndcc: python\ntools:\n  - name: x\n    deferred: true\n---\n# Bad\n",
+        )
+        .unwrap();
+        assert!(parse_skill_md(tmp.path()).is_none());
+    }
+
+    #[test]
+    fn parse_skill_rejects_unknown_execution_value() {
+        // Issue #317 — unknown execution value fails at load time.
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join(SKILL_METADATA_FILE),
+            "---\nname: bad\ndcc: python\ntools:\n  - name: x\n    execution: background\n---\n# Bad\n",
+        )
+        .unwrap();
+        assert!(parse_skill_md(tmp.path()).is_none());
+    }
+
+    #[test]
+    fn parse_skill_backward_compat_without_execution() {
+        // Issue #317 — existing pre-change SKILL.md files (no `execution` key)
+        // must continue to load and default to Sync / None.
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            tmp.path().join(SKILL_METADATA_FILE),
+            "---\nname: legacy\ndcc: python\ntools:\n  - name: do_thing\n    description: does a thing\n---\n# Legacy\n",
+        )
+        .unwrap();
+        let meta = parse_skill_md(tmp.path()).unwrap();
+        assert_eq!(meta.tools.len(), 1);
+        assert_eq!(meta.tools[0].execution, dcc_mcp_models::ExecutionMode::Sync,);
+        assert_eq!(meta.tools[0].timeout_hint_secs, None);
+    }
+
+    #[test]
     fn parse_returns_none_for_missing_skill_md() {
         let tmp = tempfile::tempdir().unwrap();
         // No SKILL.md file

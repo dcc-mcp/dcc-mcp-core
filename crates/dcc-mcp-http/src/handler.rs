@@ -1506,6 +1506,7 @@ fn build_core_tools_inner() -> Vec<McpTool> {
                 open_world_hint: Some(false),
                 deferred_hint: Some(false),
             }),
+            meta: None,
         },
         McpTool {
             name: "find_skills".to_string(),
@@ -1539,6 +1540,7 @@ fn build_core_tools_inner() -> Vec<McpTool> {
                 open_world_hint: Some(false),
                 deferred_hint: Some(false),
             }),
+            meta: None,
         },
         McpTool {
             name: "list_skills".to_string(),
@@ -1564,6 +1566,7 @@ fn build_core_tools_inner() -> Vec<McpTool> {
                 open_world_hint: Some(false),
                 deferred_hint: Some(false),
             }),
+            meta: None,
         },
         McpTool {
             name: "get_skill_info".to_string(),
@@ -1588,6 +1591,7 @@ fn build_core_tools_inner() -> Vec<McpTool> {
                 open_world_hint: Some(false),
                 deferred_hint: Some(false),
             }),
+            meta: None,
         },
         McpTool {
             name: "load_skill".to_string(),
@@ -1617,6 +1621,7 @@ fn build_core_tools_inner() -> Vec<McpTool> {
                 open_world_hint: Some(false),
                 deferred_hint: Some(false),
             }),
+            meta: None,
         },
         McpTool {
             name: "unload_skill".to_string(),
@@ -1641,6 +1646,7 @@ fn build_core_tools_inner() -> Vec<McpTool> {
                 open_world_hint: Some(false),
                 deferred_hint: Some(false),
             }),
+            meta: None,
         },
         McpTool {
             name: "search_skills".to_string(),
@@ -1671,6 +1677,7 @@ fn build_core_tools_inner() -> Vec<McpTool> {
                 open_world_hint: Some(false),
                 deferred_hint: Some(false),
             }),
+            meta: None,
         },
         McpTool {
             name: "activate_tool_group".to_string(),
@@ -1697,6 +1704,7 @@ fn build_core_tools_inner() -> Vec<McpTool> {
                 open_world_hint: Some(false),
                 deferred_hint: Some(false),
             }),
+            meta: None,
         },
         McpTool {
             name: "deactivate_tool_group".to_string(),
@@ -1722,6 +1730,7 @@ fn build_core_tools_inner() -> Vec<McpTool> {
                 open_world_hint: Some(false),
                 deferred_hint: Some(false),
             }),
+            meta: None,
         },
         McpTool {
             name: "search_tools".to_string(),
@@ -1756,6 +1765,7 @@ fn build_core_tools_inner() -> Vec<McpTool> {
                 open_world_hint: Some(false),
                 deferred_hint: Some(false),
             }),
+            meta: None,
         },
     ]
 }
@@ -1796,6 +1806,7 @@ fn build_lazy_action_tools() -> Vec<McpTool> {
                 open_world_hint: Some(false),
                 deferred_hint: Some(false),
             }),
+            meta: None,
         },
         McpTool {
             name: "describe_action".to_string(),
@@ -1822,6 +1833,7 @@ fn build_lazy_action_tools() -> Vec<McpTool> {
                 open_world_hint: Some(false),
                 deferred_hint: Some(false),
             }),
+            meta: None,
         },
         McpTool {
             name: "call_action".to_string(),
@@ -1859,6 +1871,7 @@ fn build_lazy_action_tools() -> Vec<McpTool> {
                 open_world_hint: Some(true),
                 deferred_hint: Some(false),
             }),
+            meta: None,
         },
     ]
 }
@@ -1916,9 +1929,29 @@ fn action_meta_to_mcp_tool(
             destructive_hint: Some(false),
             idempotent_hint: Some(false),
             open_world_hint: Some(false),
-            deferred_hint: Some(false),
+            // `deferredHint` is server-set per MCP 2025-03-26 — derived
+            // from the skill-author-declared `execution` mode (issue #317).
+            deferred_hint: Some(meta.execution.is_deferred()),
         }),
+        meta: build_tool_meta(meta),
     }
+}
+
+/// Build the MCP `_meta` map for a tool definition (issue #317).
+///
+/// Emits the dcc-mcp-core-specific `dcc.timeoutHintSecs` hint when the
+/// skill author declared `timeout_hint_secs`. The hint lives under a
+/// vendor-scoped `dcc.*` key so future additions don't collide with
+/// spec-defined fields. Returns `None` when there is nothing to emit.
+fn build_tool_meta(
+    meta: &dcc_mcp_actions::registry::ActionMeta,
+) -> Option<serde_json::Map<String, serde_json::Value>> {
+    let timeout = meta.timeout_hint_secs?;
+    let mut dcc_meta = serde_json::Map::new();
+    dcc_meta.insert("timeoutHintSecs".to_string(), serde_json::json!(timeout));
+    let mut out = serde_json::Map::new();
+    out.insert("dcc".to_string(), serde_json::Value::Object(dcc_meta));
+    Some(out)
 }
 
 /// Build a lightweight stub McpTool for an unloaded skill.
@@ -1972,6 +2005,7 @@ fn build_skill_stub(summary: &SkillSummary) -> McpTool {
         // per stub × 64 skills = measurable `tools/list` bloat with zero routing
         // value for the model. (#235)
         annotations: None,
+        meta: None,
     }
 }
 
@@ -2065,6 +2099,7 @@ fn build_group_stub(group: &str, tool_names: &[String]) -> McpTool {
         // Same rationale as `build_skill_stub`: group stubs are not callable
         // tools, so their annotations are pure protocol noise. (#235)
         annotations: None,
+        meta: None,
     }
 }
 
@@ -2575,4 +2610,105 @@ async fn refresh_roots_cache_for_session(
     // Full client response correlation will be added in follow-up.
     let _ = tokio::time::timeout(ROOTS_REFRESH_TIMEOUT, async {}).await;
     sessions.get_client_roots(session_id)
+}
+
+#[cfg(test)]
+mod issue_317_tests {
+    //! Issue #317 — `execution` / `timeout_hint_secs` plumbing.
+    use super::*;
+    use dcc_mcp_actions::registry::ActionMeta;
+    use dcc_mcp_models::ExecutionMode;
+
+    fn empty_eligible() -> std::collections::HashSet<(String, String)> {
+        std::collections::HashSet::new()
+    }
+
+    #[test]
+    fn deferred_hint_false_for_sync_action() {
+        let meta = ActionMeta {
+            name: "quick".into(),
+            description: "Fast".into(),
+            execution: ExecutionMode::Sync,
+            ..Default::default()
+        };
+        let tool = action_meta_to_mcp_tool(&meta, false, &empty_eligible());
+        let ann = tool.annotations.as_ref().unwrap();
+        assert_eq!(ann.deferred_hint, Some(false));
+        assert!(tool.meta.is_none(), "no timeout hint → no _meta");
+    }
+
+    #[test]
+    fn deferred_hint_true_for_async_action() {
+        let meta = ActionMeta {
+            name: "render".into(),
+            description: "Render".into(),
+            execution: ExecutionMode::Async,
+            timeout_hint_secs: Some(600),
+            ..Default::default()
+        };
+        let tool = action_meta_to_mcp_tool(&meta, false, &empty_eligible());
+        let ann = tool.annotations.as_ref().unwrap();
+        assert_eq!(ann.deferred_hint, Some(true));
+
+        // _meta.dcc.timeoutHintSecs must be set — NEVER inside annotations.
+        let m = tool
+            .meta
+            .as_ref()
+            .expect("timeout hint should surface _meta");
+        let dcc_meta = m.get("dcc").and_then(|v| v.as_object()).unwrap();
+        assert_eq!(
+            dcc_meta.get("timeoutHintSecs").and_then(|v| v.as_u64()),
+            Some(600),
+        );
+    }
+
+    #[test]
+    fn timeout_hint_emitted_even_when_sync() {
+        let meta = ActionMeta {
+            name: "measured".into(),
+            description: "Sync with timeout hint".into(),
+            execution: ExecutionMode::Sync,
+            timeout_hint_secs: Some(30),
+            ..Default::default()
+        };
+        let tool = action_meta_to_mcp_tool(&meta, false, &empty_eligible());
+        assert_eq!(
+            tool.annotations.as_ref().unwrap().deferred_hint,
+            Some(false)
+        );
+        let m = tool.meta.as_ref().unwrap();
+        assert_eq!(
+            m.get("dcc")
+                .and_then(|v| v.get("timeoutHintSecs"))
+                .and_then(|v| v.as_u64()),
+            Some(30),
+        );
+    }
+
+    #[test]
+    fn tools_list_serialization_places_timeout_under_meta_not_annotations() {
+        let meta = ActionMeta {
+            name: "render".into(),
+            description: "Render".into(),
+            execution: ExecutionMode::Async,
+            timeout_hint_secs: Some(600),
+            ..Default::default()
+        };
+        let tool = action_meta_to_mcp_tool(&meta, false, &empty_eligible());
+        let v = serde_json::to_value(&tool).unwrap();
+        assert_eq!(
+            v.pointer("/_meta/dcc/timeoutHintSecs")
+                .and_then(|x| x.as_u64()),
+            Some(600),
+        );
+        assert!(
+            v.pointer("/annotations/timeoutHintSecs").is_none(),
+            "timeoutHintSecs must never appear under annotations",
+        );
+        assert_eq!(
+            v.pointer("/annotations/deferredHint")
+                .and_then(|x| x.as_bool()),
+            Some(true),
+        );
+    }
 }

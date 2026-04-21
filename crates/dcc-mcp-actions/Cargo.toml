@@ -10,6 +10,7 @@ description = "Action registry and event system for the DCC-MCP ecosystem"
 [dependencies]
 pyo3 = { workspace = true, optional = true }
 dcc-mcp-utils = { workspace = true }
+dcc-mcp-models = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 dashmap = { workspace = true }
@@ -18,4 +19,4 @@ parking_lot = { workspace = true }
 
 [features]
 default = []
-python-bindings = ["pyo3", "dcc-mcp-utils/python-bindings"]
+python-bindings = ["pyo3", "dcc-mcp-utils/python-bindings", "dcc-mcp-models/python-bindings"]

@@ -364,6 +364,8 @@ impl SkillCatalog {
                 // explicitly default-active group) stay enabled.
                 enabled: group_default_active(&metadata.groups, &tool_decl.group),
                 required_capabilities: Vec::new(),
+                execution: tool_decl.execution,
+                timeout_hint_secs: tool_decl.timeout_hint_secs,
             };
 
             self.registry.register_action(meta);
@@ -404,6 +406,8 @@ impl SkillCatalog {
                     group: String::new(),
                     enabled: true,
                     required_capabilities: Vec::new(),
+                    execution: dcc_mcp_models::ExecutionMode::Sync,
+                    timeout_hint_secs: None,
                 };
 
                 self.registry.register_action(meta);
