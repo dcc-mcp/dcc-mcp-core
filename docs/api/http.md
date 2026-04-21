@@ -359,6 +359,55 @@ cfg.enable_job_notifications = True
 
 Channel A follows the MCP 2025-03-26 spec exactly and is mandatory whenever a `progressToken` is provided — the flag only controls B and C.
 
+### Built-in tools: `jobs.get_status`
+
+Clients that can't consume the `$/dcc.jobUpdated` SSE stream (or simply prefer request/response) can poll job state via the always-registered `jobs.get_status` built-in tool (issue #319).
+
+- **Name**: `jobs.get_status` — SEP-986 compliant (validated with `TOOL_NAME_RE` at server startup; the build panics if the regex ever rejects the name).
+- **Visibility**: surfaced in `tools/list` unconditionally, regardless of which skills are loaded or whether any jobs exist.
+- **Annotations**: `readOnlyHint=true`, `destructiveHint=false`, `idempotentHint=true`, `openWorldHint=false`.
+
+Input schema:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `job_id` | `string` | — (required) | UUID of the job to query |
+| `include_logs` | `boolean` | `false` | Forward-compat flag; `JobManager` does not currently capture stdout/stderr, so the flag is a no-op and a `tracing::debug!` breadcrumb is emitted |
+| `include_result` | `boolean` | `true` | When `true` **and** the job is terminal (`completed` / `failed`), include the final `ToolResult` JSON under `result`; otherwise the key is omitted |
+
+Success envelope (returned inside a `CallToolResult` — text content mirrors `structuredContent`):
+
+```json
+{
+  "job_id": "c8aa…",
+  "parent_job_id": null,
+  "tool": "scene.get_info",
+  "status": "completed",
+  "created_at": "2026-04-22T10:00:00+00:00",
+  "started_at": "2026-04-22T10:00:00+00:00",
+  "completed_at": "2026-04-22T10:00:01+00:00",
+  "updated_at": "2026-04-22T10:00:01+00:00",
+  "progress": {"current": 10, "total": 10, "message": "done"},
+  "error": null,
+  "result": { "...": "…final ToolResult…" }
+}
+```
+
+Field semantics mirror the `$/dcc.jobUpdated` channel so polling and streaming clients observe the same shape. `started_at` is derived from `updated_at` once the job leaves `pending`; `completed_at` from `updated_at` once it reaches a terminal state.
+
+Unknown job id → `CallToolResult { isError: true, content: [{type:"text", text:"No job found with id '<bad>'"}] }`. This is always an MCP tool-level error, **never** a JSON-RPC transport error — the response still carries a successful `result` field with `isError=true`.
+
+Python example:
+
+```python
+body = post_mcp({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                 "params": {"name": "jobs.get_status",
+                            "arguments": {"job_id": jid}}})
+env = body["result"]["structuredContent"]
+if env["status"] in {"completed", "failed", "cancelled", "interrupted"}:
+    print("final:", env.get("result"))
+```
+
 ## CORS Configuration
 
 Enable CORS for browser-based MCP clients:

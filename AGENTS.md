@@ -120,6 +120,7 @@ Need to interact with DCC?
 
 **Reacting to job / workflow lifecycle events on an MCP client?**
 → SSE channels: `notifications/progress` (spec, fires when `_meta.progressToken` is present), `notifications/$/dcc.jobUpdated`, `notifications/$/dcc.workflowUpdated` (both gated by `McpHttpConfig.enable_job_notifications`, default `True`) — see [`docs/api/http.md`](docs/api/http.md) §"Job lifecycle notifications" (#326).
+→ Polling alternative: call built-in tool **`jobs.get_status`** (#319) — returns the same envelope (`job_id`, `parent_job_id`, `tool`, `status`, timestamps, `progress`, `error`, optional `result`) via `tools/call`. Always listed in `tools/list`, SEP-986 compliant.
 
 **Exposing live DCC state (scene, window capture, audit log) to MCP clients?**
 → [`docs/api/resources.md`](docs/api/resources.md) — Resources primitive (#350)

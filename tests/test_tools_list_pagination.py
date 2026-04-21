@@ -132,8 +132,8 @@ class TestToolsListPagination:
             if cursor is None:
                 break
 
-        # 10 core + 40 registered = 50 total
-        assert len(all_names) == 50, f"Expected 50 tools across all pages, got {len(all_names)}"
+        # 11 core (incl. jobs.get_status #319) + 40 registered = 51 total
+        assert len(all_names) == 51, f"Expected 51 tools across all pages, got {len(all_names)}"
         unique = set(all_names)
         assert len(unique) == len(all_names), "Pages must not return duplicate tool names"
 
@@ -151,7 +151,7 @@ class TestToolsListPagination:
         )
         assert code == 200
         result2 = body2["result"]
-        assert len(result2["tools"]) == 50 - self.PAGE_SIZE
+        assert len(result2["tools"]) == 51 - self.PAGE_SIZE
         assert result2.get("nextCursor") is None, "Last page must not have nextCursor"
 
 

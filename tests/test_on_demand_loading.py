@@ -42,6 +42,7 @@ CORE_TOOLS = frozenset(
         "activate_tool_group",
         "deactivate_tool_group",
         "search_tools",
+        "jobs.get_status",
     }
 )
 

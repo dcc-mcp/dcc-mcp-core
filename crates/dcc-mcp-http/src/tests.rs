@@ -510,8 +510,8 @@ mod tests {
         resp.assert_status_ok();
         let body: Value = resp.json();
         let tools = body["result"]["tools"].as_array().unwrap();
-        // 10 core meta-tools (adds list_roots) + 2 registered actions = 12
-        assert_eq!(tools.len(), 12);
+        // 11 core meta-tools (10 + jobs.get_status #319) + 2 registered actions = 13
+        assert_eq!(tools.len(), 13);
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         assert!(names.contains(&"get_scene_info"));
         assert!(names.contains(&"list_objects"));
@@ -521,6 +521,240 @@ mod tests {
         assert!(names.contains(&"activate_tool_group"));
         assert!(names.contains(&"deactivate_tool_group"));
         assert!(names.contains(&"search_tools"));
+        assert!(
+            names.contains(&"jobs.get_status"),
+            "tools/list must always expose the built-in jobs.get_status (#319)"
+        );
+    }
+
+    // ── jobs.get_status (#319) ────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_jobs_get_status_unknown_id_returns_is_error_envelope() {
+        let server = TestServer::new(make_router());
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::ACCEPT,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {
+                    "name": "jobs.get_status",
+                    "arguments": {"job_id": "nonexistent-uuid"}
+                }
+            }))
+            .await;
+        resp.assert_status_ok();
+        let body: Value = resp.json();
+        // No JSON-RPC error object — the failure is carried inside a valid
+        // CallToolResult with isError=true (MCP convention).
+        assert!(
+            body.get("error").is_none(),
+            "unknown job id must not produce a transport-level JSON-RPC error"
+        );
+        let result = &body["result"];
+        assert_eq!(result["isError"], true);
+        let text = result["content"][0]["text"].as_str().unwrap();
+        assert!(
+            text.contains("nonexistent-uuid"),
+            "error message must name the missing id, got: {text}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_jobs_get_status_missing_job_id_param_is_error() {
+        let server = TestServer::new(make_router());
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::ACCEPT,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {
+                    "name": "jobs.get_status",
+                    "arguments": {}
+                }
+            }))
+            .await;
+        resp.assert_status_ok();
+        let body: Value = resp.json();
+        assert_eq!(body["result"]["isError"], true);
+        let text = body["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(
+            text.to_lowercase().contains("job_id"),
+            "error text must name the missing parameter, got: {text}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_jobs_get_status_returns_full_envelope_for_terminal_job() {
+        use crate::job::JobProgress;
+
+        let state = make_app_state();
+        // Create + drive a job to completion through JobManager directly,
+        // then invoke `jobs.get_status` via the full axum stack.
+        let parent = state.jobs.create("workflow.run");
+        let parent_id = parent.read().id.clone();
+        let child = state
+            .jobs
+            .create_with_parent("workflow.step", Some(parent_id.clone()));
+        let child_id = child.read().id.clone();
+        state.jobs.start(&child_id).unwrap();
+        state
+            .jobs
+            .update_progress(
+                &child_id,
+                JobProgress {
+                    current: 3,
+                    total: 10,
+                    message: Some("half-way".into()),
+                },
+            )
+            .unwrap();
+        state
+            .jobs
+            .complete(&child_id, json!({"ok": true, "value": 42}))
+            .unwrap();
+
+        let app = axum::Router::new()
+            .route(
+                "/mcp",
+                axum::routing::post(crate::handler::handle_post)
+                    .get(crate::handler::handle_get)
+                    .delete(crate::handler::handle_delete),
+            )
+            .with_state(state);
+        let server = TestServer::new(app);
+
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::ACCEPT,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {
+                    "name": "jobs.get_status",
+                    "arguments": {"job_id": child_id, "include_result": true}
+                }
+            }))
+            .await;
+        resp.assert_status_ok();
+        let body: Value = resp.json();
+        let result = &body["result"];
+        assert_eq!(result["isError"], false);
+        let sc = &result["structuredContent"];
+        assert_eq!(sc["job_id"], child_id);
+        assert_eq!(sc["parent_job_id"], parent_id);
+        assert_eq!(sc["tool"], "workflow.step");
+        assert_eq!(sc["status"], "completed");
+        assert!(sc["created_at"].is_string());
+        assert!(sc["started_at"].is_string());
+        assert!(sc["completed_at"].is_string());
+        assert_eq!(sc["progress"]["current"], 3);
+        assert_eq!(sc["progress"]["total"], 10);
+        assert_eq!(sc["result"]["ok"], true);
+        assert_eq!(sc["result"]["value"], 42);
+    }
+
+    #[tokio::test]
+    async fn test_jobs_get_status_include_result_false_omits_result() {
+        let state = make_app_state();
+        let job = state.jobs.create("t.x");
+        let id = job.read().id.clone();
+        state.jobs.start(&id).unwrap();
+        state.jobs.complete(&id, json!({"v": 1})).unwrap();
+
+        let app = axum::Router::new()
+            .route(
+                "/mcp",
+                axum::routing::post(crate::handler::handle_post)
+                    .get(crate::handler::handle_get)
+                    .delete(crate::handler::handle_delete),
+            )
+            .with_state(state);
+        let server = TestServer::new(app);
+
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::ACCEPT,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {
+                    "name": "jobs.get_status",
+                    "arguments": {"job_id": id, "include_result": false}
+                }
+            }))
+            .await;
+        resp.assert_status_ok();
+        let body: Value = resp.json();
+        let sc = &body["result"]["structuredContent"];
+        assert_eq!(sc["status"], "completed");
+        assert!(
+            sc.get("result").is_none(),
+            "include_result=false must omit `result` key, got {sc}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_jobs_get_status_running_job_has_no_result_yet() {
+        let state = make_app_state();
+        let job = state.jobs.create("t.slow");
+        let id = job.read().id.clone();
+        state.jobs.start(&id).unwrap();
+
+        let app = axum::Router::new()
+            .route(
+                "/mcp",
+                axum::routing::post(crate::handler::handle_post)
+                    .get(crate::handler::handle_get)
+                    .delete(crate::handler::handle_delete),
+            )
+            .with_state(state);
+        let server = TestServer::new(app);
+
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::ACCEPT,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {
+                    "name": "jobs.get_status",
+                    "arguments": {"job_id": id, "include_result": true}
+                }
+            }))
+            .await;
+        resp.assert_status_ok();
+        let body: Value = resp.json();
+        let sc = &body["result"]["structuredContent"];
+        assert_eq!(sc["status"], "running");
+        assert!(
+            sc.get("result").is_none(),
+            "running job must not have a `result` key even with include_result=true"
+        );
+        assert!(sc["started_at"].is_string());
+        assert_eq!(sc["completed_at"], Value::Null);
     }
 
     // ── search_skills ─────────────────────────────────────────────────────────────
@@ -839,6 +1073,7 @@ mod tests {
                     | "activate_tool_group"
                     | "deactivate_tool_group"
                     | "search_tools"
+                    | "jobs.get_status"
             );
             let is_stub = name.starts_with("__skill__") || name.starts_with("__group__");
 
@@ -1524,8 +1759,8 @@ mod tests {
 
         let body2: Value = resp2.json();
         let tools = body2["result"]["tools"].as_array().unwrap();
-        // 10 core meta-tools + 2 skill tools (skill now loaded, no stubs) = 12
-        assert_eq!(tools.len(), 12);
+        // 11 core meta-tools (incl. jobs.get_status #319) + 2 skill tools = 13
+        assert_eq!(tools.len(), 13);
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
         // #307: bare names when unique within the instance.
         assert!(names.contains(&"bevel"));
@@ -1605,8 +1840,8 @@ mod tests {
 
         let body2: Value = resp2.json();
         let tools = body2["result"]["tools"].as_array().unwrap();
-        // Back to 10 core meta-tools + 1 unloaded skill stub = 11
-        assert_eq!(tools.len(), 11);
+        // Back to 11 core meta-tools (incl. jobs.get_status #319) + 1 unloaded skill stub = 12
+        assert_eq!(tools.len(), 12);
         let stub = tools
             .iter()
             .find(|t| t["name"] == "__skill__modeling-bevel")
@@ -2125,7 +2360,7 @@ mod tests {
         resp.assert_status_ok();
         let body: Value = resp.json();
         let tools = body["result"]["tools"].as_array().unwrap();
-        // Total = 10 core + 40 registered = 50; first page = 32.
+        // Total = 11 core (incl. jobs.get_status #319) + 40 registered = 51; first page = 32.
         assert_eq!(
             tools.len(),
             TOOLS_LIST_PAGE_SIZE,
@@ -2169,8 +2404,8 @@ mod tests {
             .await
             .json();
         let tools2 = r2["result"]["tools"].as_array().unwrap();
-        // 50 - 32 = 18 tools on second page
-        assert_eq!(tools2.len(), 50 - TOOLS_LIST_PAGE_SIZE);
+        // 51 - 32 = 19 tools on second page
+        assert_eq!(tools2.len(), 51 - TOOLS_LIST_PAGE_SIZE);
         assert!(
             r2["result"]["nextCursor"].is_null(),
             "Last page must not have nextCursor"
@@ -2206,7 +2441,7 @@ mod tests {
             }
         }
 
-        assert_eq!(all_names.len(), 50, "All pages must cover exactly 50 tools");
+        assert_eq!(all_names.len(), 51, "All pages must cover exactly 51 tools");
         let unique: std::collections::HashSet<_> = all_names.iter().collect();
         assert_eq!(unique.len(), all_names.len(), "No duplicates across pages");
     }
