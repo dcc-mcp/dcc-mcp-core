@@ -1,0 +1,91 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dcc-mcp-gateway
+  labels:
+    app.kubernetes.io/name: dcc-mcp-gateway
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dcc-mcp-gateway
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dcc-mcp-gateway
+    spec:
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: gateway
+          image: ghcr.io/loonghao/dcc-mcp-server:latest
+          imagePullPolicy: IfNotPresent
+          args: ["--host", "0.0.0.0"]
+          envFrom:
+            - configMapRef:
+                name: dcc-mcp-gateway-config
+          ports:
+            - name: mcp
+              containerPort: 9765
+              protocol: TCP
+          readinessProbe:
+            httpGet: { path: /health, port: mcp }
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            failureThreshold: 2
+          livenessProbe:
+            httpGet: { path: /health, port: mcp }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 1
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: registry
+              mountPath: /var/lib/dcc-mcp
+            - name: logs
+              mountPath: /var/log/dcc-mcp
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        # ReadWriteMany is required: every replica must see the same
+        # FileRegistry. Replace with your own RWX storage class (EFS,
+        # CephFS, Longhorn RWX, …).
+        - name: registry
+          persistentVolumeClaim:
+            claimName: dcc-mcp-registry
+        - name: logs
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: dcc-mcp-registry
+spec:
+  accessModes: ["ReadWriteMany"]
+  resources:
+    requests:
+      storage: 1Gi
+  # storageClassName: efs-sc     # set to your cluster's RWX class

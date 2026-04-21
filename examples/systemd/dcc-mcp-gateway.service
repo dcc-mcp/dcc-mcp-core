@@ -1,0 +1,64 @@
+[Unit]
+Description=DCC-MCP gateway server
+Documentation=https://github.com/loonghao/dcc-mcp-core/blob/main/docs/guide/production-deployment.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+ExecStart=/usr/local/bin/dcc-mcp-server --host 127.0.0.1 --dcc generic
+Restart=on-failure
+RestartSec=2s
+
+# ── Environment ───────────────────────────────────────────────────────────
+# Override in `systemctl edit dcc-mcp-gateway.service`.
+Environment=DCC_MCP_GATEWAY_PORT=9765
+Environment=DCC_MCP_REGISTRY_DIR=%S/dcc-mcp/registry
+Environment=DCC_MCP_LOG_FILE=true
+Environment=DCC_MCP_LOG_DIR=%L/dcc-mcp
+Environment=DCC_MCP_HEARTBEAT_INTERVAL=2
+Environment=DCC_MCP_STALE_TIMEOUT=10
+
+# ── Privilege & filesystem hardening ──────────────────────────────────────
+DynamicUser=true
+StateDirectory=dcc-mcp
+LogsDirectory=dcc-mcp
+RuntimeDirectory=dcc-mcp
+UMask=0077
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectHostname=true
+ProtectClock=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectProc=invisible
+ProcSubset=pid
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+# ── Networking ────────────────────────────────────────────────────────────
+# Bind to loopback by default; expose publicly only through a reverse proxy
+# that terminates TLS (nginx / haproxy / …). Change ExecStart --host or set
+# IPAddressAllow= accordingly.
+
+# ── Resource caps (tune per host) ─────────────────────────────────────────
+LimitNOFILE=65536
+TasksMax=512
+
+[Install]
+WantedBy=multi-user.target

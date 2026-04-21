@@ -1,0 +1,78 @@
+# HA topology for dcc-mcp-server gateway.
+#
+#   client ──▶ (host 127.0.0.1:9765) ──▶ gateway-a
+#                                    \─▶ gateway-b (election runner-up)
+#
+# Both gateways share a single /var/lib/dcc-mcp volume so every replica sees
+# the same FileRegistry. Two mock DCC servers register themselves on startup.
+#
+# In real deployments the host port 9765 is replaced by an external LB
+# (nginx, ALB, …). See docs/guide/production-deployment.md §4-§5.
+
+services:
+  gateway-a:
+    build:
+      context: ../../..
+      dockerfile: examples/compose/gateway-ha/Dockerfile
+    image: dcc-mcp-server:latest
+    container_name: dcc-mcp-gateway-a
+    environment:
+      DCC_MCP_SERVER_NAME: gateway-a
+      DCC_MCP_DCC: generic
+      DCC_MCP_GATEWAY_PORT: "9765"
+      DCC_MCP_HEARTBEAT_INTERVAL: "2"
+      DCC_MCP_STALE_TIMEOUT: "10"
+    volumes:
+      - registry:/var/lib/dcc-mcp
+    ports:
+      - "9765:9765"
+    restart: unless-stopped
+
+  gateway-b:
+    image: dcc-mcp-server:latest
+    container_name: dcc-mcp-gateway-b
+    depends_on:
+      - gateway-a
+    environment:
+      DCC_MCP_SERVER_NAME: gateway-b
+      DCC_MCP_DCC: generic
+      DCC_MCP_GATEWAY_PORT: "9765"
+      DCC_MCP_HEARTBEAT_INTERVAL: "2"
+      DCC_MCP_STALE_TIMEOUT: "10"
+    volumes:
+      - registry:/var/lib/dcc-mcp
+    restart: unless-stopped
+
+  dcc-maya-1:
+    image: dcc-mcp-server:latest
+    container_name: dcc-mcp-maya-1
+    depends_on:
+      - gateway-a
+    environment:
+      DCC_MCP_SERVER_NAME: maya-1
+      DCC_MCP_DCC: maya
+      DCC_MCP_DCC_VERSION: "2025"
+      DCC_MCP_SCENE: shot_001.ma
+      # Plain instance — do not compete for the gateway port.
+      DCC_MCP_GATEWAY_PORT: "0"
+    volumes:
+      - registry:/var/lib/dcc-mcp
+    restart: unless-stopped
+
+  dcc-blender-1:
+    image: dcc-mcp-server:latest
+    container_name: dcc-mcp-blender-1
+    depends_on:
+      - gateway-a
+    environment:
+      DCC_MCP_SERVER_NAME: blender-1
+      DCC_MCP_DCC: blender
+      DCC_MCP_DCC_VERSION: "4.2"
+      DCC_MCP_SCENE: rig.blend
+      DCC_MCP_GATEWAY_PORT: "0"
+    volumes:
+      - registry:/var/lib/dcc-mcp
+    restart: unless-stopped
+
+volumes:
+  registry:

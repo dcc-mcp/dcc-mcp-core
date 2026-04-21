@@ -145,6 +145,10 @@ Need to interact with DCC?
 → `FileLoggingConfig` + `init_file_logging()` / `shutdown_file_logging()`
 → Environment vars: `DCC_MCP_LOG_DIR`, `DCC_MCP_LOG_MAX_SIZE`, `DCC_MCP_LOG_ROTATION`
 
+**Deploying `dcc-mcp-server` to production (Docker, systemd, k8s, LB)?**
+→ [`docs/guide/production-deployment.md`](docs/guide/production-deployment.md)
+→ Artifacts: [`examples/compose/gateway-ha/`](examples/compose/gateway-ha/), [`examples/k8s/gateway-ha/`](examples/k8s/gateway-ha/), [`examples/systemd/`](examples/systemd/)
+
 **Structured results, input validation, event bus?**
 → [`docs/api/actions.md`](docs/api/actions.md)
 → [`docs/api/models.md`](docs/api/models.md)

@@ -43,6 +43,7 @@ export default defineConfig({
                 { text: 'Skills System', link: '/guide/skills' },
                 { text: 'Skill Scopes & Policies', link: '/guide/skill-scopes-policies' },
                 { text: 'Gateway Election', link: '/guide/gateway-election' },
+                { text: 'Production Deployment', link: '/guide/production-deployment' },
               ]
             },
             {
@@ -127,6 +128,7 @@ export default defineConfig({
                 { text: 'Skills 技能包', link: '/zh/guide/skills' },
                 { text: 'Skill 作用域与策略', link: '/zh/guide/skill-scopes-policies' },
                 { text: '网关选举机制', link: '/zh/guide/gateway-election' },
+                { text: '生产环境部署', link: '/zh/guide/production-deployment' },
               ]
             },
             {
