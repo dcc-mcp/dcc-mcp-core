@@ -191,11 +191,19 @@ from dcc_mcp_core._core import wrap_value
 # Step execution is stubbed; only WorkflowSpec/WorkflowStatus (parse+validate)
 # are Python-visible here.
 try:
+    from dcc_mcp_core._core import BackoffKind  # type: ignore[attr-defined]
+    from dcc_mcp_core._core import RetryPolicy  # type: ignore[attr-defined]
+    from dcc_mcp_core._core import StepPolicy  # type: ignore[attr-defined]
     from dcc_mcp_core._core import WorkflowSpec  # type: ignore[attr-defined]
     from dcc_mcp_core._core import WorkflowStatus  # type: ignore[attr-defined]
+    from dcc_mcp_core._core import WorkflowStep  # type: ignore[attr-defined]
 except ImportError:  # pragma: no cover — feature off
+    BackoffKind = None  # type: ignore[assignment,misc]
+    RetryPolicy = None  # type: ignore[assignment,misc]
+    StepPolicy = None  # type: ignore[assignment,misc]
     WorkflowSpec = None  # type: ignore[assignment,misc]
     WorkflowStatus = None  # type: ignore[assignment,misc]
+    WorkflowStep = None  # type: ignore[assignment,misc]
 
 # Adapters (pure-Python, non-DccServerBase)
 from dcc_mcp_core.adapters import CAPABILITY_KEYS
@@ -280,6 +288,7 @@ __all__ = [
     "AuditEntry",
     "AuditLog",
     "AuditMiddleware",
+    "BackoffKind",
     "BooleanWrapper",
     "BoundingBox",
     "BridgeConnectionError",
@@ -335,6 +344,7 @@ __all__ = [
     "ResourceAnnotations",
     "ResourceDefinition",
     "ResourceTemplateDefinition",
+    "RetryPolicy",
     "SandboxContext",
     "SandboxPolicy",
     "SceneInfo",
@@ -356,6 +366,7 @@ __all__ = [
     "SkillSummary",
     "SkillWatcher",
     "SocketServerAdapter",
+    "StepPolicy",
     "StringWrapper",
     "TelemetryConfig",
     "TimingMiddleware",
@@ -380,9 +391,9 @@ __all__ = [
     "WebViewContext",
     "WindowFinder",
     "WindowInfo",
-    # Workflow primitive (issue #348 skeleton — None if built without `workflow` feature).
     "WorkflowSpec",
     "WorkflowStatus",
+    "WorkflowStep",
     "__author__",
     "__version__",
     "check_cancelled",

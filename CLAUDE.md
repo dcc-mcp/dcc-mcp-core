@@ -215,6 +215,18 @@ print(handle.mcp_url())   # "http://127.0.0.1:8765/mcp"
 #   notifications/$/dcc.workflowUpdated    (same gate; #348 executor populates it)
 cfg = McpHttpConfig(port=8765)
 cfg.enable_job_notifications = False  # opt the $/dcc.* channels out
+
+# Workflow step policies (#353) — retry / timeout / idempotency
+from dcc_mcp_core import WorkflowSpec, BackoffKind
+spec = WorkflowSpec.from_yaml_str(yaml)
+spec.validate()                          # static check on idempotency_key refs
+policy = spec.steps[0].policy            # frozen snapshot
+policy.timeout_secs                      # Optional[int]
+policy.retry.max_attempts                # >= 1; 1 = no retry
+policy.retry.backoff                     # BackoffKind.{FIXED,LINEAR,EXPONENTIAL}
+policy.retry.next_delay_ms(2)            # first-retry base delay, no jitter
+policy.idempotency_scope                 # "workflow" (default) | "global"
+# Executor enforcement is #348 follow-up; this release lands types+parser only.
 ```
 
 ### Gateway lifecycle invariants (issue #303)

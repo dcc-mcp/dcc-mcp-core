@@ -187,6 +187,12 @@ Need to interact with DCC?
 **Screen capture, shared memory, telemetry, process management?**
 → `docs/api/capture.md`, `docs/api/shm.md`, `docs/api/telemetry.md`, `docs/api/process.md`
 
+**Workflow primitive + step-level policies (retry / timeout / idempotency)?**
+→ [`docs/guide/workflows.md`](docs/guide/workflows.md) — step policy schema, backoff formulas, template reference rules
+→ `from dcc_mcp_core import WorkflowSpec, WorkflowStep, StepPolicy, RetryPolicy, BackoffKind`
+→ Key types: `StepPolicy { timeout, retry, idempotency_key, idempotency_scope }`, `RetryPolicy::next_delay(n)` helper
+→ Executor enforcement is the #348 follow-up PR; this PR (#353) lands types + parser + helpers only
+
 **Prometheus `/metrics` scraping (issue #331)?**
 → [`docs/api/observability.md`](docs/api/observability.md) — opt-in
   `prometheus` Cargo feature + `McpHttpConfig(enable_prometheus=True,
@@ -578,6 +584,22 @@ validate_action_id("maya-geometry.create_sphere")  # ✓
 # Regex constants for custom validation:
 # TOOL_NAME_RE, ACTION_ID_RE, MAX_TOOL_NAME_LEN (48 chars)
 ```
+
+**Workflow step policies — retry / timeout / idempotency (#353):**
+```python
+from dcc_mcp_core import WorkflowSpec, BackoffKind
+spec = WorkflowSpec.from_yaml_str(yaml)
+spec.validate()  # idempotency_key template refs checked HERE, not at parse
+retry = spec.steps[0].policy.retry
+# next_delay_ms is 1-indexed: 1 = initial attempt (returns 0), 2 = first retry
+assert retry.next_delay_ms(1) == 0
+assert retry.next_delay_ms(2) == retry.initial_delay_ms
+# Exponential doubles: attempt n >= 2 → initial * 2^(n-2), clamped to max
+```
+- `max_attempts == 1` means **no retry** (not "retry once")
+- `retry_on: None` = every error retryable; `retry_on: []` = no error retryable
+- `idempotency_scope` defaults to `"workflow"` (per-invocation), set `"global"` for cross-invocation
+- Template roots must be in `inputs`/`steps`/`item`/`env`, a top-level input key, or a step id — static-checked on `validate()`
 
 **`lazy_actions` — opt-in meta-tool fast-path:**
 ```python

@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::error::{ValidationError, WorkflowError};
+use crate::policy::{RawStepPolicy, StepPolicy};
 
 // ── Newtype ids ──────────────────────────────────────────────────────────
 
@@ -235,7 +236,23 @@ pub struct Step {
     pub id: StepId,
     /// What this step does.
     pub kind: StepKind,
+    /// Per-step execution policy (timeout / retry / idempotency). See
+    /// [`StepPolicy`]. Defaults to [`StepPolicy::default`] — empty — when
+    /// the YAML omits every knob. Runtime enforcement lives in the
+    /// executor (issue #348); this field is purely declarative.
+    pub policy: StepPolicy,
 }
+
+/// Policy-carrying sibling fields on a raw [`Step`] YAML mapping.
+///
+/// Kept separate from [`StepPolicy`] because `StepPolicy` is the parsed,
+/// validated form whereas these field names are what YAML actually uses.
+const STEP_POLICY_FIELDS: &[&str] = &[
+    "timeout_secs",
+    "retry",
+    "idempotency_key",
+    "idempotency_scope",
+];
 
 impl Serialize for Step {
     fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
@@ -251,6 +268,31 @@ impl Serialize for Step {
         map.serialize_entry("id", &self.id)?;
         for (k, v) in obj {
             map.serialize_entry(k, v)?;
+        }
+        // Emit policy fields back in their raw YAML shape so round-trips
+        // preserve timeout / retry / idempotency blocks.
+        if let Some(t) = &self.policy.timeout {
+            map.serialize_entry("timeout_secs", &t.as_secs())?;
+        }
+        if let Some(retry) = &self.policy.retry {
+            let raw = crate::policy::RawRetryPolicy {
+                max_attempts: retry.max_attempts,
+                backoff: Some(retry.backoff),
+                initial_delay_ms: Some(retry.initial_delay.as_millis() as u64),
+                max_delay_ms: Some(retry.max_delay.as_millis() as u64),
+                jitter: Some(retry.jitter),
+                retry_on: retry.retry_on.clone(),
+            };
+            map.serialize_entry("retry", &raw)?;
+        }
+        if let Some(key) = &self.policy.idempotency_key {
+            map.serialize_entry("idempotency_key", key)?;
+        }
+        if !matches!(
+            self.policy.idempotency_scope,
+            crate::policy::IdempotencyScope::Workflow
+        ) {
+            map.serialize_entry("idempotency_scope", &self.policy.idempotency_scope)?;
         }
         map.end()
     }
@@ -276,14 +318,54 @@ impl<'de> Deserialize<'de> for Step {
             obj.insert("kind".into(), serde_json::Value::String("tool".into()));
         }
 
+        // Peel off policy sibling fields so the remaining map can be
+        // round-tripped into a StepKind tag.
+        let mut raw_policy = serde_json::Map::new();
+        for field in STEP_POLICY_FIELDS {
+            if let Some(v) = obj.remove(*field) {
+                raw_policy.insert((*field).to_string(), v);
+            }
+        }
+
         let kind: StepKind = serde_json::from_value(serde_json::Value::Object(obj.clone()))
             .map_err(|e| {
                 serde::de::Error::custom(format!("step {id:?}: failed to decode kind: {e}"))
             })?;
 
+        // The raw policy is materialised here; validation (max_attempts,
+        // delay invariants, template-ref check) happens in `validate_step`
+        // so the deserialiser stays infallible on shape.
+        let raw: RawStepPolicy = serde_json::from_value(serde_json::Value::Object(raw_policy))
+            .map_err(|e| {
+                serde::de::Error::custom(format!("step {id:?}: invalid policy block: {e}"))
+            })?;
+
+        // Validate + normalise policy with an *empty* known-idents set at
+        // deserialise time; the real reference check runs again during
+        // `WorkflowSpec::validate` with the full set. We keep a default
+        // empty set here only so that well-formed keys without any
+        // references still parse.
+        let policy = match raw.clone().into_policy(&id, &HashSet::new()) {
+            Ok(p) => p,
+            // Defer UnknownTemplateVar to validate() — it's expected at
+            // deserialise time because we don't yet know the inputs.
+            Err(ValidationError::UnknownTemplateVar { .. }) => {
+                // Re-run without the key, then attach the raw key back.
+                let mut stripped = raw;
+                let key = stripped.idempotency_key.take();
+                let mut p = stripped
+                    .into_policy(&id, &HashSet::new())
+                    .map_err(|e| serde::de::Error::custom(format!("step {id:?}: {e}")))?;
+                p.idempotency_key = key;
+                p
+            }
+            Err(e) => return Err(serde::de::Error::custom(format!("step {id:?}: {e}"))),
+        };
+
         Ok(Step {
             id: StepId(id),
             kind,
+            policy,
         })
     }
 }
@@ -334,20 +416,69 @@ impl WorkflowSpec {
         if self.steps.is_empty() {
             return Err(ValidationError::NoSteps);
         }
+        // Build the set of identifiers an idempotency_key template may
+        // reference at its root: workflow-level aliases (`inputs`,
+        // `steps`, `item`, `env`), any top-level keys of a schema-shaped
+        // `inputs` block, plus the declared ids of every step in the tree
+        // (so prior-step outputs are addressable).
+        let mut known: HashSet<String> = ["inputs", "steps", "item", "env"]
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect();
+        if let Some(obj) = self.inputs.as_object() {
+            for k in obj.keys() {
+                known.insert(k.clone());
+            }
+            if let Some(props) = obj.get("properties").and_then(|v| v.as_object()) {
+                for k in props.keys() {
+                    known.insert(k.clone());
+                }
+            }
+        }
+        collect_step_ids(&self.steps, &mut known);
+
         let mut seen = HashSet::new();
         for step in &self.steps {
-            validate_step(step, &mut seen)?;
+            validate_step(step, &mut seen, &known)?;
         }
         Ok(())
     }
 }
 
-fn validate_step(step: &Step, seen: &mut HashSet<String>) -> Result<(), ValidationError> {
+fn collect_step_ids(steps: &[Step], out: &mut HashSet<String>) {
+    for s in steps {
+        out.insert(s.id.0.clone());
+        match &s.kind {
+            StepKind::Foreach { steps, .. } | StepKind::Parallel { steps } => {
+                collect_step_ids(steps, out);
+            }
+            StepKind::Branch {
+                then, else_steps, ..
+            } => {
+                collect_step_ids(then, out);
+                collect_step_ids(else_steps, out);
+            }
+            _ => {}
+        }
+    }
+}
+
+fn validate_step(
+    step: &Step,
+    seen: &mut HashSet<String>,
+    known_idents: &HashSet<String>,
+) -> Result<(), ValidationError> {
     if step.id.0.is_empty() {
         return Err(ValidationError::EmptyStepId);
     }
     if !seen.insert(step.id.0.clone()) {
         return Err(ValidationError::DuplicateStepId(step.id.0.clone()));
+    }
+
+    // Re-run the idempotency-key template reference check with the full
+    // known-identifier set (deserialisation only saw an empty set).
+    if let Some(key) = &step.policy.idempotency_key {
+        crate::policy::check_template_refs_pub(&step.id.0, key, known_idents)?;
     }
 
     match &step.kind {
@@ -363,12 +494,12 @@ fn validate_step(step: &Step, seen: &mut HashSet<String>) -> Result<(), Validati
         StepKind::Foreach { items, steps, .. } => {
             validate_jsonpath(&step.id.0, items)?;
             for child in steps {
-                validate_step(child, seen)?;
+                validate_step(child, seen, known_idents)?;
             }
         }
         StepKind::Parallel { steps } => {
             for child in steps {
-                validate_step(child, seen)?;
+                validate_step(child, seen, known_idents)?;
             }
         }
         StepKind::Branch {
@@ -378,10 +509,10 @@ fn validate_step(step: &Step, seen: &mut HashSet<String>) -> Result<(), Validati
         } => {
             validate_jsonpath(&step.id.0, on)?;
             for child in then {
-                validate_step(child, seen)?;
+                validate_step(child, seen, known_idents)?;
             }
             for child in else_steps {
-                validate_step(child, seen)?;
+                validate_step(child, seen, known_idents)?;
             }
         }
         StepKind::Approve { .. } => {}

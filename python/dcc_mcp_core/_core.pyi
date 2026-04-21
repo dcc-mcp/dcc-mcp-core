@@ -4350,7 +4350,108 @@ class WorkflowSpec:
         """Serialise back to a YAML document (round-trippable)."""
         ...
 
+    @property
+    def steps(self) -> list[WorkflowStep]:
+        """Snapshot of the top-level steps as read-only wrappers."""
+        ...
+
     def __repr__(self) -> str: ...
+
+class WorkflowStep:
+    """Read-only Python view of a single workflow step (#353).
+
+    Exposes the declared ``id``, the ``kind`` string (``"tool"``,
+    ``"tool_remote"``, ``"foreach"``, ``"parallel"``, ``"approve"``,
+    ``"branch"``) and the per-step execution :py:class:`StepPolicy`.
+    """
+
+    @property
+    def id(self) -> str: ...
+    @property
+    def kind(self) -> str: ...
+    @property
+    def policy(self) -> StepPolicy: ...
+    def __repr__(self) -> str: ...
+
+class StepPolicy:
+    """Per-step execution policy — timeout / retry / idempotency (#353).
+
+    Parsed from the YAML schema::
+
+        steps:
+          - id: export_fbx
+            tool: maya_animation__export_fbx
+            timeout_secs: 300
+            retry:
+              max_attempts: 3
+              backoff: exponential
+              initial_delay_ms: 500
+              max_delay_ms: 10000
+              jitter: 0.25
+              retry_on: ["transient", "timeout"]
+            idempotency_key: "export_{{scene_id}}_{{frame_range}}"
+            idempotency_scope: workflow  # or "global"
+
+    Runtime enforcement is the job of the forthcoming executor PR (#348);
+    this class only exposes the parsed + validated shape.
+    """
+
+    @property
+    def timeout_secs(self) -> int | None: ...
+    @property
+    def retry(self) -> RetryPolicy | None: ...
+    @property
+    def idempotency_key(self) -> str | None: ...
+    @property
+    def idempotency_scope(self) -> str: ...
+    @property
+    def is_empty(self) -> bool: ...
+    def __repr__(self) -> str: ...
+
+class RetryPolicy:
+    """Validated retry policy attached to a :py:class:`StepPolicy` (#353).
+
+    Invariants enforced at parse time:
+
+    - ``max_attempts >= 1`` (``1`` = no retry).
+    - ``initial_delay_ms <= max_delay_ms``.
+    - ``jitter`` clamped to ``[0.0, 1.0]`` on parse.
+    """
+
+    @property
+    def max_attempts(self) -> int: ...
+    @property
+    def backoff(self) -> str:
+        """One of ``"fixed"``, ``"linear"``, ``"exponential"``."""
+        ...
+
+    @property
+    def initial_delay_ms(self) -> int: ...
+    @property
+    def max_delay_ms(self) -> int: ...
+    @property
+    def jitter(self) -> float: ...
+    @property
+    def retry_on(self) -> list[str] | None: ...
+    def next_delay_ms(self, attempt_number: int) -> int:
+        """Return the base (unjittered) delay for a 1-indexed attempt.
+
+        ``attempt_number == 1`` returns ``0`` (no pre-delay for the very
+        first attempt). ``attempt_number >= 2`` returns the shaped delay
+        clamped to ``max_delay_ms``.
+        """
+        ...
+
+    def is_retryable(self, error_kind: str) -> bool: ...
+    def __repr__(self) -> str: ...
+
+class BackoffKind:
+    """String constants for valid backoff kinds (#353)."""
+
+    FIXED: str
+    LINEAR: str
+    EXPONENTIAL: str
+    VALUES: tuple[str, str, str]
 
 class WorkflowStatus:
     """Status of a :py:class:`WorkflowSpec` run.

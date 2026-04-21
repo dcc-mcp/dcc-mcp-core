@@ -50,6 +50,31 @@ pub enum ValidationError {
         /// Missing field name.
         field: &'static str,
     },
+
+    /// A per-step policy (timeout, retry, idempotency) is malformed
+    /// beyond what serde itself can catch.
+    ///
+    /// Examples: `retry.max_attempts == 0`, `timeout_secs == 0`,
+    /// `initial_delay > max_delay`.
+    #[error("step {step_id:?}: invalid policy: {reason}")]
+    InvalidPolicy {
+        /// Step that triggered the failure.
+        step_id: String,
+        /// Human-readable reason.
+        reason: String,
+    },
+
+    /// An `idempotency_key` template references an identifier that is
+    /// neither a workflow input nor a prior step id.
+    #[error("step {step_id:?}: idempotency_key {template:?} references unknown identifier {var:?}")]
+    UnknownTemplateVar {
+        /// Step that triggered the failure.
+        step_id: String,
+        /// The raw template string.
+        template: String,
+        /// The unresolved root identifier.
+        var: String,
+    },
 }
 
 /// Top-level error type returned by workflow operations.

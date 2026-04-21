@@ -24,6 +24,7 @@
 pub mod catalog;
 pub mod error;
 pub mod job;
+pub mod policy;
 #[cfg(feature = "python-bindings")]
 pub mod python;
 pub mod spec;
@@ -37,5 +38,8 @@ mod tests;
 pub use catalog::{WorkflowCatalog, WorkflowSummary};
 pub use error::{ValidationError, WorkflowError};
 pub use job::{WorkflowJob, WorkflowProgress};
+pub use policy::{
+    BackoffKind, IdempotencyScope, RawRetryPolicy, RawStepPolicy, RetryPolicy, StepPolicy,
+};
 pub use spec::{Step, StepId, StepKind, WorkflowId, WorkflowSpec, WorkflowStatus};
 pub use tools::register_builtin_workflow_tools;

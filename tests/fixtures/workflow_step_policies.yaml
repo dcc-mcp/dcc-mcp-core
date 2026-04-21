@@ -1,0 +1,22 @@
+name: step_policies_demo
+description: "Exercise per-step retry / timeout / idempotency policies (#353)."
+inputs:
+  scene_id: { type: string }
+  frame_range: { type: string }
+steps:
+  - id: export_fbx
+    tool: maya_animation__export_fbx
+    args: { scene: "{{inputs.scene_id}}" }
+    timeout_secs: 300
+    retry:
+      max_attempts: 3
+      backoff: exponential
+      initial_delay_ms: 500
+      max_delay_ms: 10000
+      jitter: 0.25
+      retry_on: ["transient", "timeout"]
+    idempotency_key: "export_{{scene_id}}_{{frame_range}}"
+    idempotency_scope: global
+  - id: push_to_unreal
+    tool: unreal__ingest_fbx
+    # No policy block → defaults everywhere.
