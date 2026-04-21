@@ -11,6 +11,13 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.14.2](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.1...v0.14.2) (2026-04-21)
+
+
+### Documentation
+
+* update all documentation for v0.14 DccLink transport API ([#311](https://github.com/loonghao/dcc-mcp-core/issues/311)) ([50a8050](https://github.com/loonghao/dcc-mcp-core/commit/50a80500c749753c17423369f6f72f35040ea098))
+
 ## [0.14.1](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.0...v0.14.1) (2026-04-20)
 
 
