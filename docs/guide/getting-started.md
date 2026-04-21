@@ -175,6 +175,16 @@ print(f"MCP server running at {handle.mcp_url()}")
 # handle.shutdown() to shut down
 ```
 
+### Job lifecycle notifications
+
+Every `tools/call` emits SSE notifications on completion (issue #326):
+
+- `notifications/progress` — fires when the call included `_meta.progressToken`.
+- `notifications/$/dcc.jobUpdated` — fires on every status transition while `McpHttpConfig.enable_job_notifications` is `True` (default).
+- `notifications/$/dcc.workflowUpdated` — emitted by the workflow executor (#348).
+
+Disable the `$/dcc.*` channels with `cfg.enable_job_notifications = False`; the spec-mandated progress channel still fires whenever a token is supplied.
+
 ### Instance-Bound Diagnostics
 
 When multiple DCC instances run side-by-side (two Maya processes, Maya +

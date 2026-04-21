@@ -260,6 +260,15 @@ impl McpHttpServer {
             None
         };
 
+        let jobs = std::sync::Arc::new(crate::job::JobManager::new());
+        let job_notifier = crate::notifications::JobNotifier::new(
+            sessions.clone(),
+            self.config.enable_job_notifications,
+        );
+        // Bridge JobManager transitions onto the notifier (#326).
+        let notifier_cb = job_notifier.clone();
+        jobs.subscribe(move |event| notifier_cb.on_job_event(event));
+
         let state = AppState {
             registry: self.registry,
             dispatcher: self.dispatcher,
@@ -274,7 +283,8 @@ impl McpHttpServer {
             pending_elicitations: std::sync::Arc::new(dashmap::DashMap::new()),
             lazy_actions: self.config.lazy_actions,
             bare_tool_names: self.config.bare_tool_names,
-            jobs: std::sync::Arc::new(crate::job::JobManager::new()),
+            jobs,
+            job_notifier,
             resources,
             enable_resources: self.config.enable_resources,
             #[cfg(feature = "prometheus")]

@@ -46,6 +46,7 @@ pub mod gateway;
 pub mod handler;
 pub mod inflight;
 pub mod job;
+pub mod notifications;
 pub mod protocol;
 pub mod resource_link;
 pub mod resources;
@@ -64,7 +65,8 @@ pub use config::{McpHttpConfig, ServerSpawnMode};
 pub use error::{HttpError, HttpResult};
 pub use executor::{DccExecutorHandle, DeferredExecutor};
 pub use gateway::{GatewayConfig, GatewayHandle, GatewayRunner};
-pub use job::{Job, JobManager, JobProgress, JobStatus};
+pub use job::{Job, JobEvent, JobManager, JobProgress, JobStatus, JobSubscriber};
+pub use notifications::{JobNotifier, WorkflowProgress, WorkflowUpdate};
 pub use resources::{
     ProducerContent, ResourceError, ResourceProducer, ResourceRegistry, ResourceResult,
 };

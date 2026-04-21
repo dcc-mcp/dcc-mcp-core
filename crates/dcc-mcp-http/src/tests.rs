@@ -60,6 +60,7 @@ mod tests {
 
             bare_tool_names: true,
             jobs: std::sync::Arc::new(crate::job::JobManager::new()),
+            job_notifier: crate::notifications::JobNotifier::new(SessionManager::new(), true),
             resources: crate::resources::ResourceRegistry::new(true, false),
             enable_resources: true,
         }
@@ -585,6 +586,7 @@ mod tests {
 
             bare_tool_names: true,
             jobs: std::sync::Arc::new(crate::job::JobManager::new()),
+            job_notifier: crate::notifications::JobNotifier::new(SessionManager::new(), true),
             resources: crate::resources::ResourceRegistry::new(true, false),
             enable_resources: true,
         }
@@ -1368,6 +1370,7 @@ mod tests {
 
             bare_tool_names: true,
             jobs: std::sync::Arc::new(crate::job::JobManager::new()),
+            job_notifier: crate::notifications::JobNotifier::new(SessionManager::new(), true),
             resources: crate::resources::ResourceRegistry::new(true, false),
             enable_resources: true,
         }
@@ -1745,6 +1748,7 @@ mod tests {
 
             bare_tool_names: true,
             jobs: std::sync::Arc::new(crate::job::JobManager::new()),
+            job_notifier: crate::notifications::JobNotifier::new(SessionManager::new(), true),
             resources: crate::resources::ResourceRegistry::new(true, false),
             enable_resources: true,
         }
@@ -1853,6 +1857,7 @@ mod tests {
 
             bare_tool_names: true,
             jobs: std::sync::Arc::new(crate::job::JobManager::new()),
+            job_notifier: crate::notifications::JobNotifier::new(SessionManager::new(), true),
             resources: crate::resources::ResourceRegistry::new(true, false),
             enable_resources: true,
         };
@@ -2085,6 +2090,7 @@ mod tests {
 
             bare_tool_names: true,
             jobs: std::sync::Arc::new(crate::job::JobManager::new()),
+            job_notifier: crate::notifications::JobNotifier::new(SessionManager::new(), true),
             resources: crate::resources::ResourceRegistry::new(true, false),
             enable_resources: true,
         }
@@ -3120,6 +3126,7 @@ mod resource_link_integration_tests {
 
             bare_tool_names: true,
             jobs: std::sync::Arc::new(crate::job::JobManager::new()),
+            job_notifier: crate::notifications::JobNotifier::new(SessionManager::new(), true),
             resources: crate::resources::ResourceRegistry::new(true, false),
             enable_resources: true,
         }
@@ -3309,6 +3316,7 @@ mod resource_link_integration_tests {
 
             bare_tool_names: true,
             jobs: std::sync::Arc::new(crate::job::JobManager::new()),
+            job_notifier: crate::notifications::JobNotifier::new(SessionManager::new(), true),
             resources: crate::resources::ResourceRegistry::new(true, false),
             enable_resources: true,
         }
@@ -3590,6 +3598,7 @@ mod lazy_actions_tests {
             lazy_actions,
             bare_tool_names: true,
             jobs: std::sync::Arc::new(crate::job::JobManager::new()),
+            job_notifier: crate::notifications::JobNotifier::new(SessionManager::new(), true),
             resources: crate::resources::ResourceRegistry::new(true, false),
             enable_resources: true,
         }
@@ -3914,6 +3923,7 @@ mod next_tools_meta_tests {
             lazy_actions: false,
             bare_tool_names: true,
             jobs: std::sync::Arc::new(crate::job::JobManager::new()),
+            job_notifier: crate::notifications::JobNotifier::new(SessionManager::new(), true),
             resources: crate::resources::ResourceRegistry::new(true, false),
             enable_resources: true,
         }

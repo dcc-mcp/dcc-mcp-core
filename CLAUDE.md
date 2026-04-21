@@ -208,6 +208,13 @@ reply = channel.recv_frame()   # DccLinkFrame: msg_type, seq, body (bytes)
 server = McpHttpServer(registry, McpHttpConfig(port=8765))
 handle = server.start()   # McpServerHandle; guaranteed reachable after return
 print(handle.mcp_url())   # "http://127.0.0.1:8765/mcp"
+
+# Job lifecycle notifications (#326) — every tools/call emits SSE frames:
+#   notifications/progress                  (when _meta.progressToken is set)
+#   notifications/$/dcc.jobUpdated         (gated by enable_job_notifications, default True)
+#   notifications/$/dcc.workflowUpdated    (same gate; #348 executor populates it)
+cfg = McpHttpConfig(port=8765)
+cfg.enable_job_notifications = False  # opt the $/dcc.* channels out
 ```
 
 ### Gateway lifecycle invariants (issue #303)

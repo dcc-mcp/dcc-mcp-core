@@ -20,6 +20,7 @@ dcc-mcp-transport = { path = "../dcc-mcp-transport" }
 dcc-mcp-sandbox = { path = "../dcc-mcp-sandbox" }
 dcc-mcp-capture = { path = "../dcc-mcp-capture" }
 dcc-mcp-telemetry = { path = "../dcc-mcp-telemetry", optional = true }
+dcc-mcp-workflow = { path = "../dcc-mcp-workflow" }
 
 # Workspace shared
 serde = { workspace = true }

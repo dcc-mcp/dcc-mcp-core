@@ -42,6 +42,33 @@ use tokio_util::sync::CancellationToken;
 use tracing::debug;
 use uuid::Uuid;
 
+/// Event emitted whenever a job transitions between [`JobStatus`] values.
+///
+/// Subscribers receive a snapshot of the job **after** the transition.
+/// The transport layer ([`crate::notifications::JobNotifier`]) converts
+/// these events into MCP `notifications/progress` and the
+/// `notifications/$/dcc.jobUpdated` vendor-extension channel (#326).
+#[derive(Debug, Clone)]
+pub struct JobEvent {
+    /// Job id.
+    pub id: String,
+    /// Fully-qualified tool name (e.g. `scene.get_info`).
+    pub tool_name: String,
+    /// New status after the transition.
+    pub status: JobStatus,
+    /// Last-known progress (may be `None` for `Pending`).
+    pub progress: Option<JobProgress>,
+    /// Error message attached when `status == Failed`.
+    pub error: Option<String>,
+    /// Wall-clock time of the transition.
+    pub updated_at: DateTime<Utc>,
+    /// Wall-clock time when the job was created.
+    pub created_at: DateTime<Utc>,
+}
+
+/// Boxed subscriber callback. See [`JobManager::subscribe`].
+pub type JobSubscriber = Arc<dyn Fn(JobEvent) + Send + Sync + 'static>;
+
 // ── Types ─────────────────────────────────────────────────────────────────
 
 /// Lifecycle state of a tracked [`Job`].
@@ -156,9 +183,20 @@ impl Job {
 // ── Manager ───────────────────────────────────────────────────────────────
 
 /// Thread-safe registry of [`Job`]s.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct JobManager {
     jobs: DashMap<String, Arc<RwLock<Job>>>,
+    /// Subscribers invoked on every status transition. See [`Self::subscribe`].
+    subscribers: RwLock<Vec<JobSubscriber>>,
+}
+
+impl std::fmt::Debug for JobManager {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("JobManager")
+            .field("jobs", &self.jobs.len())
+            .field("subscribers", &self.subscribers.read().len())
+            .finish()
+    }
 }
 
 impl JobManager {
@@ -166,6 +204,36 @@ impl JobManager {
     pub fn new() -> Self {
         Self {
             jobs: DashMap::new(),
+            subscribers: RwLock::new(Vec::new()),
+        }
+    }
+
+    /// Register a subscriber invoked on every status transition.
+    ///
+    /// Subscribers are called synchronously while the internal write lock is
+    /// held, so they MUST be cheap and non-blocking. The notification
+    /// layer (#326) queues events onto a `broadcast::Sender` inside the
+    /// callback — it never performs I/O itself.
+    pub fn subscribe<F>(&self, f: F)
+    where
+        F: Fn(JobEvent) + Send + Sync + 'static,
+    {
+        self.subscribers.write().push(Arc::new(f));
+    }
+
+    fn emit(&self, job: &Job) {
+        let event = JobEvent {
+            id: job.id.clone(),
+            tool_name: job.tool_name.clone(),
+            status: job.status,
+            progress: job.progress.clone(),
+            error: job.error.clone(),
+            updated_at: job.updated_at,
+            created_at: job.created_at,
+        };
+        let subs = self.subscribers.read().clone();
+        for sub in subs {
+            sub(event.clone());
         }
     }
 
@@ -200,6 +268,10 @@ impl JobManager {
         let id = job.id.clone();
         let entry = Arc::new(RwLock::new(job));
         self.jobs.insert(id, Arc::clone(&entry));
+        {
+            let guard = entry.read();
+            self.emit(&guard);
+        }
         entry
     }
 
@@ -218,6 +290,9 @@ impl JobManager {
         }
         job.status = JobStatus::Running;
         job.updated_at = Utc::now();
+        let snapshot = job.clone();
+        drop(job);
+        self.emit(&snapshot);
         Some(())
     }
 
@@ -237,6 +312,9 @@ impl JobManager {
         job.status = JobStatus::Completed;
         job.result = Some(result);
         job.updated_at = Utc::now();
+        let snapshot = job.clone();
+        drop(job);
+        self.emit(&snapshot);
         Some(())
     }
 
@@ -256,6 +334,9 @@ impl JobManager {
         job.status = JobStatus::Failed;
         job.error = Some(error.into());
         job.updated_at = Utc::now();
+        let snapshot = job.clone();
+        drop(job);
+        self.emit(&snapshot);
         Some(())
     }
 
@@ -270,6 +351,9 @@ impl JobManager {
                 job.status = JobStatus::Cancelled;
                 job.updated_at = Utc::now();
                 job.cancel_token.cancel();
+                let snapshot = job.clone();
+                drop(job);
+                self.emit(&snapshot);
                 Some(())
             }
             other => {
@@ -298,6 +382,9 @@ impl JobManager {
         }
         job.progress = Some(progress);
         job.updated_at = Utc::now();
+        let snapshot = job.clone();
+        drop(job);
+        self.emit(&snapshot);
         Some(())
     }
 

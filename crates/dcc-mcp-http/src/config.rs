@@ -216,6 +216,19 @@ pub struct McpHttpConfig {
     /// Surface-area is stable so downstream adapters can wire the tools
     /// today and pick up real execution when the follow-up PR lands.
     pub enable_workflows: bool,
+
+    /// Emit the `notifications/$/dcc.jobUpdated` and
+    /// `notifications/$/dcc.workflowUpdated` SSE channels (issue #326).
+    ///
+    /// Default: `true`. When `false`, the server still emits the
+    /// spec-mandated `notifications/progress` channel for callers that
+    /// supplied `_meta.progressToken`, but the `$/dcc.*` vendor extensions
+    /// are suppressed.
+    ///
+    /// The flag is checked at server start — disabling it after `start()`
+    /// has no effect. Use a capability-gated per-session opt-in (future
+    /// work, see #326 amendment) for per-client control.
+    pub enable_job_notifications: bool,
 }
 
 impl McpHttpConfig {
@@ -248,6 +261,7 @@ impl McpHttpConfig {
             enable_workflows: false,
             enable_prometheus: false,
             prometheus_basic_auth: None,
+            enable_job_notifications: true,
         }
     }
 

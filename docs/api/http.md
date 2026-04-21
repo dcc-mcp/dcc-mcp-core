@@ -294,6 +294,24 @@ handle = server.start()
 ```
 :::
 
+## Job lifecycle notifications
+
+Every `tools/call` is tracked by a [`JobManager`](../api/actions.md) instance, and transitions are surfaced to the client through three SSE channels (issue #326):
+
+| Channel | Method | Fires when |
+|---------|--------|-----------|
+| A | `notifications/progress` | The call supplied `_meta.progressToken`. Echoes the token, and maps `pending=0`, `running=10`, terminal states=100. |
+| B | `notifications/$/dcc.jobUpdated` | `enable_job_notifications` is `True` (default). One event per transition, payload carries `job_id`, `tool`, `status`, `started_at`, `completed_at`, `error`. |
+| C | `notifications/$/dcc.workflowUpdated` | Same flag; emitted by the workflow executor (#348) on step enter / step terminal / workflow terminal. |
+
+```python
+cfg = McpHttpConfig(port=8765)
+# Default True; set False to opt the whole server out of the $/dcc.* channels.
+cfg.enable_job_notifications = True
+```
+
+Channel A follows the MCP 2025-03-26 spec exactly and is mandatory whenever a `progressToken` is provided — the flag only controls B and C.
+
 ## CORS Configuration
 
 Enable CORS for browser-based MCP clients:

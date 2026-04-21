@@ -3860,6 +3860,18 @@ class McpHttpConfig:
         ...
     @prometheus_basic_auth.setter
     def prometheus_basic_auth(self, auth: tuple[str, str] | None) -> None: ...
+    @property
+    def enable_job_notifications(self) -> bool:
+        """Emit the ``$/dcc.jobUpdated`` and ``$/dcc.workflowUpdated`` SSE channels.
+
+        Default: ``True``. When ``False``, the server still emits the
+        spec-mandated ``notifications/progress`` channel for callers that
+        supplied ``_meta.progressToken``, but the ``$/dcc.*`` vendor
+        extensions are suppressed. See issue #326.
+        """
+        ...
+    @enable_job_notifications.setter
+    def enable_job_notifications(self, enabled: bool) -> None: ...
     def __repr__(self) -> str: ...
 
 class McpServerHandle:

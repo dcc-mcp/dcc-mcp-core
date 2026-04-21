@@ -180,6 +180,23 @@ impl PyMcpHttpConfig {
         self.inner.enable_workflows = enabled;
     }
 
+    /// Emit the ``$/dcc.jobUpdated`` and ``$/dcc.workflowUpdated`` SSE
+    /// channels (issue #326).
+    ///
+    /// Default: ``True``. When ``False``, the server still emits the
+    /// spec-mandated ``notifications/progress`` channel for callers that
+    /// supplied ``_meta.progressToken``, but the ``$/dcc.*`` vendor
+    /// extensions are suppressed.
+    #[getter]
+    fn enable_job_notifications(&self) -> bool {
+        self.inner.enable_job_notifications
+    }
+
+    #[setter]
+    fn set_enable_job_notifications(&mut self, enabled: bool) {
+        self.inner.enable_job_notifications = enabled;
+    }
+
     // ── Gateway configuration ────────────────────────────────────────────────
 
     /// Gateway port to compete for. First process to bind wins.
