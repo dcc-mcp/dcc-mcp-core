@@ -1,9 +1,8 @@
 # Workflows
 
 > First-class, spec-driven, persistable, cancellable pipelines of MCP tool
-> calls. The crate is currently in the **skeleton** stage — parsing and
-> validation are complete, step execution lands in a follow-up PR
-> (issue [#348](https://github.com/loonghao/dcc-mcp-core/issues/348)).
+> calls. Parsing, validation, and the full step execution engine all ship
+> in issue [#348](https://github.com/loonghao/dcc-mcp-core/issues/348).
 
 ## What is a workflow?
 
@@ -153,9 +152,122 @@ Re-parse the YAML to change anything.
 All three surface as `ValueError` on the Python side with the offending
 step id in the message.
 
-## Runtime enforcement
+## Execution engine (issue #348)
 
-**Not yet implemented.** The types + parser + helpers in this PR are
-consumed by the forthcoming executor in issue #348. Until that ships,
-`workflows.run` returns `{"success": false, "error": "not_implemented"}`
-deterministically — callers can depend on that shape.
+The `WorkflowExecutor` is the Tokio-driven engine that consumes a
+validated `WorkflowSpec` and runs every step kind end-to-end. It is
+transport-agnostic: local tool calls go through a `ToolCaller`, remote
+calls through a `RemoteCaller`, notifications through a `WorkflowNotifier`.
+
+```text
+WorkflowExecutor::run(spec, inputs, parent)
+   │
+   ├─ validates spec
+   ├─ creates root job + CancellationToken
+   ├─ spawns driver task
+   │     │
+   │     ├─ drive(steps) ── sequential
+   │     │     └─ for each step:
+   │     │           ├─ policy: retry + timeout + idempotency
+   │     │           ├─ dispatch by StepKind
+   │     │           │     ├─ Tool      → ToolCaller::call
+   │     │           │     ├─ ToolRemote→ RemoteCaller::call
+   │     │           │     ├─ Foreach   → drive(body) per item
+   │     │           │     ├─ Parallel  → tokio::join! branches
+   │     │           │     ├─ Approve   → ApprovalGate::wait_handle
+   │     │           │     └─ Branch    → JSONPath → then|else
+   │     │           ├─ artefact handoff (FileRef → ArtefactStore)
+   │     │           ├─ SSE: $/dcc.workflowUpdated enter / exit
+   │     │           └─ sqlite upsert (if feature enabled)
+   │     └─ emit workflow_terminal
+   └─ returns WorkflowRunHandle { workflow_id, root_job_id, cancel_token, join }
+```
+
+### Step kinds at a glance
+
+| Kind          | Driver                                   | Key policy knobs            |
+| ------------- | ---------------------------------------- | --------------------------- |
+| `tool`        | `ToolCaller::call(name, args)`           | `timeout`, `retry`, `idempotency_key` |
+| `tool_remote` | `RemoteCaller::call(dcc, name, args)`    | same                        |
+| `foreach`     | JSONPath → body per item, concurrency≥1  | per-body policy inherited   |
+| `parallel`    | `tokio::join!` over branches             | `on_any_fail: abort | continue` |
+| `approve`     | `ApprovalGate::wait_handle` + timeout    | `timeout_secs`              |
+| `branch`      | JSONPath condition → `then` or `else`    | n/a                         |
+
+### Cancellation cascade
+
+The root `CancellationToken` is handed to every step driver and every
+caller. On `cancel`:
+
+1. No new steps start.
+2. In-flight `ToolCaller` / `RemoteCaller` receive the token and should
+   honour it cooperatively.
+3. Sleeps (retry backoff, `Approve` timeout) are aborted via
+   `tokio::select!`.
+4. Workflow status becomes `cancelled`; a final `$/dcc.workflowUpdated`
+   fires.
+
+Round-trip from `WorkflowHost::cancel` → every in-flight step observing
+the token is bounded by one cooperative checkpoint (typically < 200 ms).
+
+### Artefact handoff (#349)
+
+A tool whose output contains a `file_refs` array is automatically
+captured via `ArtefactStore::put`; the resulting `FileRef` URIs appear
+in the downstream step context as
+`{{steps.<id>.file_refs[<i>].uri}}`. The raw JSON output is still
+accessible via `{{steps.<id>.output.*}}`.
+
+### Persistence (#328)
+
+With the `job-persist-sqlite` feature flag, each workflow run writes to
+two tables:
+
+- `workflows(workflow_id, root_job_id, spec_json, inputs_json, status,
+  current_step_id, step_outputs_json, created_at, completed_at)`
+- `workflow_steps(workflow_id, step_id, status, attempt, result_json,
+  updated_at)` — one row per step per transition.
+
+On startup, `WorkflowExecutor::recover_persisted()` flips every
+non-terminal row to `interrupted` and emits a final
+`$/dcc.workflowUpdated`. Runs are **not** auto-resumed —
+`interrupted` is terminal; clients may implement a resume tool on top
+if desired.
+
+### Built-in MCP tools
+
+Registered by `register_builtin_workflow_tools(&registry)`. Functional
+handlers are bound by `register_workflow_handlers(&dispatcher, &host)`.
+
+| Tool                   | Description                                      | ToolAnnotations                               |
+| ---------------------- | ------------------------------------------------ | --------------------------------------------- |
+| `workflows.run`        | Start a run (YAML or JSON spec + inputs).        | `destructive_hint=true, open_world_hint=true` |
+| `workflows.get_status` | Poll terminal status + progress.                 | `read_only_hint=true, idempotent_hint=true`   |
+| `workflows.cancel`     | Cancel a run by `workflow_id` (cascade).         | `destructive_hint=true, idempotent_hint=true` |
+| `workflows.lookup`     | Catalog search (read-only).                      | `read_only_hint=true`                         |
+
+### Approval gating
+
+```yaml
+steps:
+  - id: human_gate
+    kind: approve
+    prompt: "Proceed with vendor drop?"
+    timeout_secs: 300          # optional — default is indefinite
+```
+
+The executor pauses the workflow and emits a `$/dcc.workflowUpdated`
+with `detail.kind == "approve_requested"` and the prompt. The MCP
+server bridges inbound `notifications/$/dcc.approveResponse` messages
+into `ApprovalGate::resolve`. On timeout the gate resolves with
+`approved=false, reason="timeout"` and the step fails.
+
+### Python surface for runs
+
+Today the Python layer exposes the spec + policy viewers only. To run
+workflows, call the MCP tools (`workflows.run` / `workflows.get_status`
+/ `workflows.cancel`) from the MCP client side — they are registered
+on any skill server that calls `register_builtin_workflow_tools` plus
+`register_workflow_handlers`. A native `WorkflowHost` Python class is
+tracked as a follow-up; the MCP tool path is the recommended entry
+point since it composes with the rest of the agent toolbelt.

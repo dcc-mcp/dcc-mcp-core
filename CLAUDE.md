@@ -130,6 +130,53 @@ see there for Grafana PromQL examples. Counters advance from the
 `tools/call` wrapper in `handler.rs` — do not add recording sites
 elsewhere.
 
+### Workflow execution (issue #348)
+
+`dcc-mcp-workflow` ships the full execution engine atop the skeleton
+landed in the parent PR. Pipeline sketch:
+
+```
+WorkflowExecutor::run(spec, inputs, parent_job)
+   → validate spec
+   → create root job + CancellationToken
+   → spawn tokio driver
+      → drive(steps) sequentially
+         → per step: retry + timeout + idempotency_key short-circuit
+            → dispatch by StepKind:
+               ├─ Tool        → ToolCaller::call
+               ├─ ToolRemote  → RemoteCaller::call (via gateway)
+               ├─ Foreach     → JSONPath items → drive(body) per item
+               ├─ Parallel    → tokio::join! branches (on_any_fail)
+               ├─ Approve     → ApprovalGate::wait_handle + timeout
+               └─ Branch      → JSONPath cond → then | else
+            → artefact handoff (FileRef → ArtefactStore)
+            → emit $/dcc.workflowUpdated (enter / exit)
+            → sqlite upsert (if job-persist-sqlite)
+      → emit workflow_terminal
+   → return WorkflowRunHandle { workflow_id, root_job_id, cancel_token, join }
+```
+
+Use `WorkflowHost` as the stable entry point — it wraps `WorkflowExecutor`
+with a run registry keyed by `workflow_id`, so the three mutating MCP
+tools (`workflows.run` / `workflows.get_status` / `workflows.cancel`)
+can be wired with `register_workflow_handlers(&dispatcher, &host)` after
+`register_builtin_workflow_tools(&registry)` has been called.
+
+Key invariants:
+
+1. **Every transition emits `$/dcc.workflowUpdated`.** If you add a
+   new state, route it through `RunState::emit`.
+2. **Cancellation cascades through `tokio_util::sync::CancellationToken`.**
+   Never spawn a step future that drops the token — always pass it into
+   every `ToolCaller::call` / `RemoteCaller::call` / `tokio::select!`.
+3. **Idempotency short-circuit happens _before_ retry attempts.** A
+   cache hit skips the step entirely; retries only guard live calls.
+4. **SQLite recovery flips non-terminal rows to `interrupted` — never
+   auto-resumes.** Resume is explicit opt-in via a separate tool.
+5. **Approve gates block on `notifications/$/dcc.approveResponse`.**
+   The HTTP handler for that notification calls
+   `ApprovalGate::resolve(workflow_id, step_id, response)`.
+
 ### When Using MCP HTTP Server
 
 ```python

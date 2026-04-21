@@ -246,6 +246,15 @@ Need to interact with DCC?
 → Activate at runtime via `ToolRegistry.activate_tool_group(skill, group)` / MCP tool `activate_tool_group`
 → See `docs/guide/skills.md` — "Tool Groups (Progressive Exposure)"
 
+**Workflow execution (issue #348)?**
+→ `crates/dcc-mcp-workflow/` — `WorkflowExecutor`, `WorkflowHost`, all six `StepKind` variants.
+→ [`docs/guide/workflows.md`](docs/guide/workflows.md) — "Execution engine" section covers the full pipeline.
+→ Tools: `workflows.run` / `workflows.get_status` / `workflows.cancel` / `workflows.lookup`.
+→ Registration: `register_builtin_workflow_tools(&reg)` + `register_workflow_handlers(&dispatcher, &host)`.
+→ Pipeline: `spec → validate → spawn driver → drive(steps) → per-step policy (retry+timeout+idempotency) → dispatch by kind → artefact handoff → SSE `$/dcc.workflowUpdated` → sqlite upsert → next step`.
+→ Cancellation cascades from root `CancellationToken` to every step driver and caller; interrupt propagation bounded by one cooperative checkpoint.
+→ With `job-persist-sqlite`: non-terminal rows flip to `interrupted` on restart (no auto-resume).
+
 **Validate tool names or action IDs (SEP-986)?**
 → [`docs/guide/naming.md`](docs/guide/naming.md)
 → `validate_tool_name(name)` / `validate_action_id(name)` — raise `ValueError` on invalid names

@@ -6,13 +6,14 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "First-class Workflow primitive (WorkflowSpec + WorkflowJob) for the DCC-MCP ecosystem (skeleton; step execution pending)"
+description = "First-class Workflow primitive (WorkflowSpec + WorkflowJob) for the DCC-MCP ecosystem — spec, executor, SQLite persistence, MCP tools."
 
 [dependencies]
 pyo3 = { workspace = true, optional = true }
 dcc-mcp-naming = { workspace = true }
 dcc-mcp-models = { workspace = true }
 dcc-mcp-actions = { workspace = true }
+dcc-mcp-artefact = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml_ng = { workspace = true }
@@ -20,14 +21,19 @@ thiserror = { workspace = true }
 tracing = { workspace = true }
 parking_lot = { workspace = true }
 uuid = { workspace = true }
+tokio = { workspace = true, features = ["sync", "time", "rt", "macros"] }
+tokio-util = "0.7"
+chrono = { version = "0.4", features = ["serde"] }
 jsonpath-rust = "1.0"
 glob = "0.3"
+base64 = { workspace = true }
 
-# Optional: SQLite persistence DDL (no write paths yet in this skeleton).
+# Optional: SQLite persistence (writer + interrupted-on-restart recovery).
 rusqlite = { version = "0.39", optional = true, features = ["bundled"] }
 
 [dev-dependencies]
 tempfile = "3"
+tokio = { workspace = true, features = ["sync", "time", "rt", "rt-multi-thread", "macros", "test-util"] }
 
 [features]
 default = []
@@ -36,6 +42,7 @@ python-bindings = [
     "dcc-mcp-naming/python-bindings",
     "dcc-mcp-models/python-bindings",
     "dcc-mcp-actions/python-bindings",
+    "dcc-mcp-artefact/python-bindings",
 ]
-# Persistence DDL for workflows / workflow_steps tables. No writer yet.
+# Persistence for workflows / workflow_steps tables.
 job-persist-sqlite = ["dep:rusqlite"]

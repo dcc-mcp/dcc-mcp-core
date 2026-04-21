@@ -171,6 +171,58 @@ fn register_builtin_tools_populates_registry() {
 }
 
 #[test]
+fn builtin_tool_metadata_has_annotations() {
+    let reg = ActionRegistry::new();
+    register_builtin_workflow_tools(&reg);
+    let run = reg.get_action(tools::names::RUN, None).unwrap();
+    assert_eq!(run.annotations.destructive_hint, Some(true));
+    let get = reg.get_action(tools::names::GET_STATUS, None).unwrap();
+    assert_eq!(get.annotations.read_only_hint, Some(true));
+    let cancel = reg.get_action(tools::names::CANCEL, None).unwrap();
+    assert_eq!(cancel.annotations.destructive_hint, Some(true));
+    let lookup = reg.get_action(tools::names::LOOKUP, None).unwrap();
+    assert_eq!(lookup.annotations.read_only_hint, Some(true));
+}
+
+#[tokio::test]
+async fn register_workflow_handlers_wires_run_and_cancel() {
+    use std::sync::Arc;
+
+    use dcc_mcp_actions::dispatcher::ActionDispatcher;
+    use serde_json::json;
+
+    use crate::callers::test_support::MockToolCaller;
+    use crate::executor::WorkflowExecutor;
+    use crate::host::WorkflowHost;
+    use crate::tools::register_workflow_handlers;
+
+    let caller = Arc::new(MockToolCaller::new());
+    caller.add("scene.echo", Ok);
+    let executor = WorkflowExecutor::builder().tool_caller(caller).build();
+    let host = WorkflowHost::new(executor);
+
+    let reg = ActionRegistry::new();
+    register_builtin_workflow_tools(&reg);
+    let dispatcher = ActionDispatcher::new(reg);
+    register_workflow_handlers(&dispatcher, &host);
+
+    let yaml = "name: t\nsteps:\n  - id: s1\n    tool: scene.echo\n    args: {x: 1}\n";
+    let out = dispatcher
+        .dispatch(tools::names::RUN, json!({"spec": yaml, "inputs": {}}))
+        .unwrap()
+        .output;
+    let wid = out["workflow_id"].as_str().unwrap();
+    assert_eq!(out["status"], "pending");
+
+    // Cancel via dispatcher.
+    let cancelled = dispatcher
+        .dispatch(tools::names::CANCEL, json!({"workflow_id": wid}))
+        .unwrap()
+        .output;
+    assert_eq!(cancelled["cancelled"], true);
+}
+
+#[test]
 fn not_implemented_result_has_stable_shape() {
     let r = tools::not_implemented_result("workflows.run");
     assert_eq!(r["success"], serde_json::Value::Bool(false));
