@@ -63,7 +63,7 @@ When you need information, read in this order — stop when you find what you ne
   - **Embedded Python** (`DccServerBase`) — Maya, Blender, Houdini, Unreal
   - **WebSocket Bridge** (`DccBridge`) — Photoshop, ZBrush, Unity, After Effects
   - **WebView Host** (`WebViewAdapter`) — AuroraView, Electron panels
-- **SKILL.md frontmatter fields**: agentskills.io standard (`name`, `description`, `license`, `compatibility`, `metadata`, `allowed-tools`) + dcc-mcp-core extensions (`dcc`, `tags`, `search-hint`, `tools`, `groups`, `depends`, `next-tools`)
+- **SKILL.md frontmatter fields**: agentskills.io standard (`name`, `description`, `license`, `compatibility`, `metadata`, `allowed-tools`) + dcc-mcp-core extensions. **v0.15+ (issue #356)**: prefer the agentskills.io-compliant `metadata.dcc-mcp.*` form (e.g. `metadata["dcc-mcp.dcc"]`, `metadata["dcc-mcp.tools"] = "tools.yaml"`); top-level legacy extension keys (`dcc`, `tags`, `search-hint`, `tools`, `groups`, `depends`, `next-tools`) still parse but emit a one-shot deprecation warning and `SkillMetadata.is_spec_compliant()` returns `False`. See `docs/guide/skills.md#migrating-pre-015-skillmd`.
 - **`next-tools`**: Per-tool field guiding AI agents to follow-up tools (`on-success` / `on-failure`). dcc-mcp-core extension, not in agentskills.io spec.
 - **`allowed-tools`**: Experimental agentskills.io field — space-separated pre-approved tool strings (e.g. `Bash(git:*) Read`)
 

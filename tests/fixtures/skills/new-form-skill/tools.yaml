@@ -1,0 +1,14 @@
+tools:
+  - name: bevel
+    description: Apply a bevel to the selected edges.
+    read_only: false
+    destructive: true
+    idempotent: false
+    source_file: scripts/bevel.py
+  - name: measure
+
+groups:
+  - name: advanced
+    description: Advanced modeling tools not needed for most workflows.
+    default-active: false
+    tools: [bevel]

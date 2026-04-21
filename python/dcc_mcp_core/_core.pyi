@@ -229,6 +229,7 @@ class SkillMetadata:
     compatibility: str
     allowed_tools: list[str]
     groups: list[SkillGroup]
+    search_hint: str
 
     def __init__(
         self,
@@ -249,6 +250,22 @@ class SkillMetadata:
     def __repr__(self) -> str: ...
     def __str__(self) -> str: ...
     def __eq__(self, other: object) -> bool: ...
+    @property
+    def legacy_extension_fields(self) -> list[str]:
+        """Names of legacy top-level extension fields observed when parsing.
+
+        Populated by the SKILL.md loader. Empty ⇒ spec-compliant.
+        """
+        ...
+
+    def is_spec_compliant(self) -> bool:
+        """Return ``True`` iff this skill uses ``metadata.dcc-mcp.*`` exclusively.
+
+        A skill is spec-compliant (per agentskills.io 1.0) when no legacy
+        top-level extension fields (``dcc``, ``tags``, ``tools``, …) were
+        found in its SKILL.md frontmatter. See issue #356.
+        """
+        ...
 
 # ── Skills ──
 

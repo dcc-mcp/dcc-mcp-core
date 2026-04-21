@@ -556,3 +556,84 @@ Calling an unloaded skill stub (`__skill__<name>`) returns an error with a hint:
 Searches across: `name`, `description`, `search_hint`, and `tool_names`. The `search_hint` field (from SKILL.md `search-hint:`) improves keyword matching without loading full schemas.
 
 `create_skill_server()` only calls `discover()` at startup — skills are **not** automatically loaded. This keeps the initial tool list small and lets agents load only what they need.
+
+## Migrating pre-0.15 SKILL.md
+
+Starting with dcc-mcp-core 0.15 (issue [#356](https://github.com/loonghao/dcc-mcp-core/issues/356)), dcc-mcp-core-specific extension keys (`dcc`, `version`, `tags`, `tools`, …) should live under the agentskills.io-compliant `metadata.dcc-mcp.*` namespace rather than at the top level of SKILL.md frontmatter. Top-level extension keys continue to parse but emit a one-shot deprecation warning per skill, and `SkillMetadata.is_spec_compliant()` returns `False` for them.
+
+### Before (pre-0.15, legacy — still works, now deprecated)
+
+```yaml
+---
+name: maya-geometry
+description: "Maya geometry creation and modification tools"
+dcc: maya
+version: "1.0.0"
+tags: [geometry, create]
+search-hint: "polygon modeling, sphere, bevel, extrude"
+tools:
+  - name: create_sphere
+    description: "Create a polygon sphere"
+    source_file: scripts/create_sphere.py
+---
+```
+
+### After (0.15+, agentskills.io 1.0 compliant)
+
+```yaml
+---
+name: maya-geometry
+description: "Maya geometry creation and modification tools"
+license: MIT
+metadata:
+  dcc-mcp.dcc: maya
+  dcc-mcp.version: "1.0.0"
+  dcc-mcp.tags: "geometry, create"
+  dcc-mcp.search-hint: "polygon modeling, sphere, bevel, extrude"
+  dcc-mcp.tools: tools.yaml     # sibling file (relative to SKILL.md)
+---
+```
+
+Then put the MCP tool declarations in a sibling `tools.yaml`:
+
+```yaml
+# tools.yaml — same schema as the inline tools: block
+tools:
+  - name: create_sphere
+    description: "Create a polygon sphere"
+    source_file: scripts/create_sphere.py
+groups:
+  - name: advanced
+    default-active: false
+    tools: [create_sphere]
+```
+
+### Metadata key reference
+
+| Legacy top-level                | Spec-compliant `metadata` key                | Value type            |
+| ------------------------------- | -------------------------------------------- | --------------------- |
+| `dcc: maya`                     | `metadata["dcc-mcp.dcc"]`                    | string                |
+| `version: 1.0.0`                | `metadata["dcc-mcp.version"]`                | string                |
+| `tags: [a, b]`                  | `metadata["dcc-mcp.tags"]`                   | comma-separated string |
+| `search-hint: "…"`              | `metadata["dcc-mcp.search-hint"]`            | string                |
+| `depends: [x, y]`               | `metadata["dcc-mcp.depends"]`                | comma-separated string |
+| `products: [maya]`              | `metadata["dcc-mcp.products"]`               | comma-separated string |
+| `allow_implicit_invocation`     | `metadata["dcc-mcp.allow-implicit-invocation"]` | `"true"` / `"false"` |
+| `external_deps: {...}`          | `metadata["dcc-mcp.external-deps"]`          | JSON string           |
+| `tools: [...]` inline block     | `metadata["dcc-mcp.tools"]`                  | sibling `.yaml` file  |
+| `groups: [...]` inline block    | `metadata["dcc-mcp.groups"]`                 | sibling `.yaml` file  |
+
+### Priority rules
+
+- When both forms are present, the `metadata.dcc-mcp.*` value wins.
+- If only the legacy top-level field is present, it is still read (backward compatibility) and the loader emits a single `tracing::warn!` per skill.
+- Checking compliance programmatically:
+
+  ```python
+  skills, _skipped = dcc_mcp_core.scan_and_load(dcc_name="maya")
+  for s in skills:
+      if not s.is_spec_compliant():
+          print(f"{s.name}: legacy fields={s.legacy_extension_fields}")
+  ```
+
+A one-shot CLI migrator (`dcc-mcp-migrate-skill`) is planned as a follow-up; see the tracking issue for status.

@@ -2,47 +2,13 @@
 name: workflow
 description: "Multi-step action orchestration — run a sequence of MCP tools in order, passing results between steps. Enables agents to chain complex operations (select → rename → validate → export) without custom code."
 license: MIT
-dcc: python
-version: "1.0.0"
-search-hint: "chain, sequence, pipeline, multi-step, orchestration, workflow, batch, run steps"
-tags: [workflow, orchestration, chain, pipeline, automation]
 metadata:
   category: workflow
-tools:
-  - name: run_chain
-    description: "Execute a sequence of actions in order via the dcc-mcp-core ToolDispatcher. Each step's output context is merged into the next step's parameters. On failure, the chain stops and reports which step failed and why."
-    input_schema:
-      type: object
-      required: [steps]
-      properties:
-        steps:
-          type: array
-          description: "Ordered list of steps to execute."
-          items:
-            type: object
-            required: [action]
-            properties:
-              action:
-                type: string
-                description: "Action name (e.g. 'maya_scene__list_objects')."
-              params:
-                type: object
-                description: "Parameters to pass to this action. Values from previous step context can be referenced using '{key}' syntax."
-                default: {}
-              stop_on_failure:
-                type: boolean
-                description: "If true (default), abort the chain when this step fails."
-                default: true
-              label:
-                type: string
-                description: "Human-readable label for this step (shown in results)."
-        context:
-          type: object
-          description: "Initial context values available to all steps via '{key}' interpolation."
-          default: {}
-    read_only: false
-    idempotent: false
-    source_file: scripts/run_chain.py
+  dcc-mcp.dcc: python
+  dcc-mcp.version: "1.0.0"
+  dcc-mcp.search-hint: "chain, sequence, pipeline, multi-step, orchestration, workflow, batch, run steps"
+  dcc-mcp.tags: "workflow, orchestration, chain, pipeline, automation"
+  dcc-mcp.tools: tools.yaml
 ---
 
 # Workflow Orchestration

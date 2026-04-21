@@ -526,6 +526,7 @@ json_str = result.to_json()    # JSON string
 - Don't import `DeferredExecutor` from public `__init__` — use `from dcc_mcp_core._core import DeferredExecutor`
 - Don't call `.new_auto()` then `.capture_window()` — use `.new_window_auto()` for single-window capture
 - Don't use legacy APIs: `ActionManager`, `create_action_manager()`, `MiddlewareChain`, `Action` — removed in v0.12+
+- Don't put dcc-mcp-core extension keys at the top level of new SKILL.md files (v0.15+ / issue #356) — use the `metadata.dcc-mcp.*` form (`metadata["dcc-mcp.dcc"]`, `metadata["dcc-mcp.tools"] = "tools.yaml"`). Top-level `dcc:`/`tags:`/`tools:`/`groups:`/`depends:`/`search-hint:` still parse for backward compat but trigger a deprecation warn and `is_spec_compliant()` returns `False`. See `docs/guide/skills.md#migrating-pre-015-skillmd`.
 - Don't use removed transport APIs: `FramedChannel`, `connect_ipc()`, `IpcListener`, `TransportManager`, `CircuitBreaker`, `ConnectionPool` — removed in v0.14 (#251). Use `IpcChannelAdapter` / `DccLinkFrame` instead
 - Don't add Python runtime dependencies — the project is zero-dep by design
 - Don't manually bump versions or edit `CHANGELOG.md` — Release Please handles this
