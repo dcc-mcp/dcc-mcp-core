@@ -77,6 +77,7 @@ pub struct McpHttpServer {
     config: McpHttpConfig,
     executor: Option<DccExecutorHandle>,
     resources: crate::resources::ResourceRegistry,
+    prompts: crate::prompts::PromptRegistry,
 }
 
 impl McpHttpServer {
@@ -95,6 +96,7 @@ impl McpHttpServer {
             config.enable_resources,
             config.enable_artefact_resources,
         );
+        let prompts = crate::prompts::PromptRegistry::new(config.enable_prompts);
         Self {
             registry: registry.clone(),
             dispatcher,
@@ -102,6 +104,7 @@ impl McpHttpServer {
             config,
             executor: None,
             resources,
+            prompts,
         }
     }
 
@@ -119,6 +122,7 @@ impl McpHttpServer {
             config.enable_resources,
             config.enable_artefact_resources,
         );
+        let prompts = crate::prompts::PromptRegistry::new(config.enable_prompts);
         Self {
             registry,
             dispatcher,
@@ -126,7 +130,13 @@ impl McpHttpServer {
             config,
             executor: None,
             resources,
+            prompts,
         }
+    }
+
+    /// Access the MCP Prompts registry for this server (issues #351, #355).
+    pub fn prompts(&self) -> &crate::prompts::PromptRegistry {
+        &self.prompts
     }
 
     /// Access the MCP Resources registry for this server (issue #350).
@@ -223,6 +233,7 @@ impl McpHttpServer {
         };
 
         let resources = self.resources.clone();
+        let prompts = self.prompts.clone();
 
         // Forward `notifications/resources/updated` broadcasts to each
         // subscribed session's SSE channel (issue #350).
@@ -287,6 +298,8 @@ impl McpHttpServer {
             job_notifier,
             resources,
             enable_resources: self.config.enable_resources,
+            prompts,
+            enable_prompts: self.config.enable_prompts,
             #[cfg(feature = "prometheus")]
             prometheus: prometheus.clone(),
         };

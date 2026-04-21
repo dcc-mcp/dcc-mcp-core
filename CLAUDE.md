@@ -161,6 +161,17 @@ handle.shutdown()
 cfg = McpHttpConfig(port=8765)
 cfg.enable_resources = True            # advertise capability + built-ins
 cfg.enable_artefact_resources = False  # artefact:// returns JSON-RPC -32002 until #349
+
+# Prompts primitive (#351, #355) — reusable templates served via prompts/list|get
+# McpHttpConfig.enable_prompts defaults to True.
+# Prompts come from each loaded skill's sibling file referenced by
+# metadata["dcc-mcp.prompts"] in SKILL.md — either a single `prompts.yaml`
+# (top-level `prompts:` + `workflows:` lists) or a `prompts/*.prompt.yaml` glob.
+# Workflows referenced by the spec auto-generate a summary prompt.
+# Template engine is minimal: only {{arg_name}} substitution, missing required
+# args return JSON-RPC INVALID_PARAMS. notifications/prompts/list_changed fires
+# on skill load / unload.
+cfg.enable_prompts = True              # advertise capability + serve templates
 ```
 
 ### Quick Lookup: Common Method Signatures

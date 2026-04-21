@@ -689,6 +689,23 @@ impl SkillCatalog {
         self.loaded.contains(skill_name)
     }
 
+    /// Run a closure against every loaded skill's [`SkillMetadata`].
+    ///
+    /// Used by the MCP prompts primitive (issues #351, #355) to walk the
+    /// currently-loaded skills and lazily parse their sibling
+    /// `prompts.yaml` files on `prompts/list`. The closure is invoked
+    /// while a read guard on the underlying `DashMap` shard is held, so
+    /// it must not call back into the catalog (no `load_skill` /
+    /// `unload_skill`) or deadlock is possible.
+    pub fn for_each_loaded_metadata<F: FnMut(&dcc_mcp_models::SkillMetadata)>(&self, mut f: F) {
+        for entry in self.entries.iter() {
+            let e = entry.value();
+            if e.state == SkillState::Loaded {
+                f(&e.metadata);
+            }
+        }
+    }
+
     /// Remove a skill from the catalog entirely.
     ///
     /// If the skill is loaded, it is unloaded first.

@@ -63,6 +63,8 @@ mod tests {
             job_notifier: crate::notifications::JobNotifier::new(SessionManager::new(), true),
             resources: crate::resources::ResourceRegistry::new(true, false),
             enable_resources: true,
+            prompts: crate::prompts::PromptRegistry::new(true),
+            enable_prompts: true,
         }
     }
 
@@ -823,6 +825,8 @@ mod tests {
             job_notifier: crate::notifications::JobNotifier::new(SessionManager::new(), true),
             resources: crate::resources::ResourceRegistry::new(true, false),
             enable_resources: true,
+            prompts: crate::prompts::PromptRegistry::new(true),
+            enable_prompts: true,
         }
     }
 
@@ -1706,6 +1710,8 @@ mod tests {
             job_notifier: crate::notifications::JobNotifier::new(SessionManager::new(), true),
             resources: crate::resources::ResourceRegistry::new(true, false),
             enable_resources: true,
+            prompts: crate::prompts::PromptRegistry::new(true),
+            enable_prompts: true,
         }
     }
 
@@ -2084,6 +2090,8 @@ mod tests {
             job_notifier: crate::notifications::JobNotifier::new(SessionManager::new(), true),
             resources: crate::resources::ResourceRegistry::new(true, false),
             enable_resources: true,
+            prompts: crate::prompts::PromptRegistry::new(true),
+            enable_prompts: true,
         }
     }
 
@@ -2193,6 +2201,8 @@ mod tests {
             job_notifier: crate::notifications::JobNotifier::new(SessionManager::new(), true),
             resources: crate::resources::ResourceRegistry::new(true, false),
             enable_resources: true,
+            prompts: crate::prompts::PromptRegistry::new(true),
+            enable_prompts: true,
         };
 
         use crate::handler::{handle_delete, handle_get, handle_post};
@@ -2426,6 +2436,8 @@ mod tests {
             job_notifier: crate::notifications::JobNotifier::new(SessionManager::new(), true),
             resources: crate::resources::ResourceRegistry::new(true, false),
             enable_resources: true,
+            prompts: crate::prompts::PromptRegistry::new(true),
+            enable_prompts: true,
         }
     }
 
@@ -3462,6 +3474,8 @@ mod resource_link_integration_tests {
             job_notifier: crate::notifications::JobNotifier::new(SessionManager::new(), true),
             resources: crate::resources::ResourceRegistry::new(true, false),
             enable_resources: true,
+            prompts: crate::prompts::PromptRegistry::new(true),
+            enable_prompts: true,
         }
     }
 
@@ -3652,6 +3666,8 @@ mod resource_link_integration_tests {
             job_notifier: crate::notifications::JobNotifier::new(SessionManager::new(), true),
             resources: crate::resources::ResourceRegistry::new(true, false),
             enable_resources: true,
+            prompts: crate::prompts::PromptRegistry::new(true),
+            enable_prompts: true,
         }
     }
 
@@ -3934,6 +3950,8 @@ mod lazy_actions_tests {
             job_notifier: crate::notifications::JobNotifier::new(SessionManager::new(), true),
             resources: crate::resources::ResourceRegistry::new(true, false),
             enable_resources: true,
+            prompts: crate::prompts::PromptRegistry::new(true),
+            enable_prompts: true,
         }
     }
 
@@ -4259,6 +4277,8 @@ mod next_tools_meta_tests {
             job_notifier: crate::notifications::JobNotifier::new(SessionManager::new(), true),
             resources: crate::resources::ResourceRegistry::new(true, false),
             enable_resources: true,
+            prompts: crate::prompts::PromptRegistry::new(true),
+            enable_prompts: true,
         }
     }
 

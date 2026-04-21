@@ -128,6 +128,14 @@ Need to interact with DCC?
 → Built-ins: `scene://current`, `capture://current_window`, `audit://recent`, `artefact://<id>` (stub)
 → Rust wiring: `server.resources().set_scene(...)` / `.wire_audit_log(...)` / `.add_producer(...)` before `start()`
 
+**Serving reusable prompt templates to the MCP client (behavioural chain hints)?**
+→ [`docs/guide/prompts.md`](docs/guide/prompts.md) — Prompts primitive (#351, #355)
+→ Config: `McpHttpConfig.enable_prompts` (default `True`)
+→ SKILL.md: point `metadata.dcc-mcp.prompts` at sibling `prompts.yaml` (single file, `prompts:` + `workflows:` lists) or `prompts/*.prompt.yaml` (glob, one file per prompt)
+→ Auto-derivation: every workflow referenced in the `workflows:` list yields a summary prompt
+→ Template engine: `{{arg_name}}` only — missing required arg returns `INVALID_PARAMS`; unknown brace content is passed through verbatim
+→ Notifications: `notifications/prompts/list_changed` fires on skill load / unload
+
 **Bridging a non-Python DCC (Photoshop, ZBrush via WebSocket)?**
 → `python/dcc_mcp_core/bridge.py` — `DccBridge`
 → Register with: `BridgeRegistry`, `register_bridge()`, `get_bridge_context()`

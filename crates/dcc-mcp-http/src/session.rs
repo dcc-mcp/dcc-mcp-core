@@ -389,4 +389,14 @@ impl SessionManager {
     pub fn count(&self) -> usize {
         self.sessions.len()
     }
+
+    /// Snapshot of every active session id.
+    ///
+    /// Used by broadcast-style notifications (`prompts/list_changed`,
+    /// `tools/list_changed`) that fan out to every subscriber. The
+    /// returned vector is owned so the caller can iterate without
+    /// holding a shard lock.
+    pub fn all_ids(&self) -> Vec<String> {
+        self.sessions.iter().map(|e| e.key().clone()).collect()
+    }
 }

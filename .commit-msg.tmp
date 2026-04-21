@@ -1,0 +1,28 @@
+feat(http): add MCP prompts primitive with sibling-file + workflow-derived sources (#351, #355)
+
+Implements the MCP 2025-03-26 prompts primitive end-to-end, sourced from
+each loaded skill's sibling `prompts.yaml` (or `prompts/*.prompt.yaml`
+glob) referenced by `metadata.dcc-mcp.prompts` in SKILL.md. Workflows
+listed in the same spec auto-generate summary prompts that narrate the
+tool chain, giving AI agents a behavioural-chain hint without the skill
+author having to write one by hand.
+
+* Wire: `initialize` now advertises `prompts: { listChanged: true }`
+  when enabled; `prompts/list` and `prompts/get` dispatch through a new
+  `PromptRegistry` with a lazy, loaded-skill-scoped cache.
+* Templating: minimal `{{var}}` engine — whitespace-tolerant, missing
+  required args return `INVALID_PARAMS`, non-placeholder brace content
+  is passed through verbatim.
+* Notifications: `notifications/prompts/list_changed` fans out to every
+  active SSE session on skill load / unload; cache invalidation happens
+  in the same critical section.
+* Config: `McpHttpConfig::enable_prompts` (default `true`) toggles the
+  primitive; Python `McpHttpConfig.enable_prompts` getter + setter.
+* Tests: 11 new Rust unit tests cover the templating engine, registry
+  lifecycle, and YAML parsing; 3 Python tests cover the config surface.
+* Docs: new `docs/guide/prompts.md` (full spec walk-through), sibling-
+  file table row in `docs/guide/skills.md`, and orientation entries in
+  `AGENTS.md` + `CLAUDE.md`.
+
+Closes #351
+Closes #355

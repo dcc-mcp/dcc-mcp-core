@@ -35,6 +35,7 @@ socket2 = { workspace = true }
 parking_lot = { workspace = true }
 chrono = { version = "0.4", features = ["serde"] }
 base64 = { workspace = true }
+serde_yaml_ng = { workspace = true }
 tokio-util = { version = "0.7", features = ["rt"] }
 
 # HTTP server

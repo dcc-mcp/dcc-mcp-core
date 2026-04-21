@@ -401,6 +401,24 @@ impl PyMcpHttpConfig {
         self.inner.enable_artefact_resources = enabled;
     }
 
+    /// Advertise the MCP Prompts primitive (issues #351, #355).
+    ///
+    /// When ``True`` (default), the server advertises
+    /// ``prompts: { listChanged }`` in its ``initialize`` response and
+    /// handles ``prompts/list`` + ``prompts/get``. Prompts are sourced
+    /// from each loaded skill's sibling ``prompts.yaml`` (pointed at by
+    /// ``metadata.dcc-mcp.prompts`` in SKILL.md) plus workflow-derived
+    /// auto-generated entries.
+    #[getter]
+    fn enable_prompts(&self) -> bool {
+        self.inner.enable_prompts
+    }
+
+    #[setter]
+    fn set_enable_prompts(&mut self, enabled: bool) {
+        self.inner.enable_prompts = enabled;
+    }
+
     fn __repr__(&self) -> String {
         format!(
             "McpHttpConfig(port={}, name={}, gateway_port={})",

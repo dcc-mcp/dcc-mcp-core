@@ -160,6 +160,20 @@ pub struct McpHttpConfig {
     /// servers or when Resources are provided by an external MCP host.
     pub enable_resources: bool,
 
+    /// Advertise the MCP Prompts primitive (issues #351, #355).
+    ///
+    /// When `true` (default), the server:
+    /// - Advertises `prompts: { listChanged: true }` in `initialize`.
+    /// - Handles `prompts/list` and `prompts/get` JSON-RPC methods.
+    /// - Parses the sibling `prompts.yaml` file referenced by
+    ///   `metadata.dcc-mcp.prompts` on each loaded skill and merges its
+    ///   `prompts:` and workflow-derived entries into `prompts/list`.
+    /// - Emits `notifications/prompts/list_changed` on skill load/unload.
+    ///
+    /// Set to `false` to hide the capability — appropriate for minimal
+    /// servers, or when prompts are provided by an external MCP host.
+    pub enable_prompts: bool,
+
     /// Expose `artefact://` resources (issue #349).
     ///
     /// The full artefact store ships separately in issue #349. When this
@@ -258,6 +272,7 @@ impl McpHttpConfig {
             backend_timeout_ms: 10_000,
             enable_resources: true,
             enable_artefact_resources: false,
+            enable_prompts: true,
             enable_workflows: false,
             enable_prometheus: false,
             prometheus_basic_auth: None,

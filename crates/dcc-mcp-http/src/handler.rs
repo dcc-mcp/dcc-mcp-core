@@ -26,15 +26,17 @@ use crate::{
     error::HttpError,
     executor::DccExecutorHandle,
     inflight::{CancelToken, InFlightEntry, InFlightRequests, ProgressReporter},
+    prompts::{PromptError, PromptRegistry},
     protocol::{
         self, CallToolParams, CallToolResult, DELTA_TOOLS_METHOD, DELTA_TOOLS_UPDATE_CAP,
-        ElicitationCapability, ElicitationCreateParams, ElicitationCreateResult, InitializeResult,
-        JsonRpcBatch, JsonRpcMessage, JsonRpcRequest, JsonRpcResponse, LOGGING_SET_LEVEL_METHOD,
-        ListResourcesResult, ListToolsResult, LoggingCapability, LoggingSetLevelParams,
-        MCP_SESSION_HEADER, McpTool, McpToolAnnotations, RESOURCE_NOT_ENABLED_ERROR,
-        ReadResourceParams, ResourcesCapability, ServerCapabilities, ServerInfo,
-        SubscribeResourceParams, TOOLS_LIST_PAGE_SIZE, ToolsCapability, decode_cursor,
-        encode_cursor, format_sse_event, negotiate_protocol_version,
+        ElicitationCapability, ElicitationCreateParams, ElicitationCreateResult, GetPromptParams,
+        InitializeResult, JsonRpcBatch, JsonRpcMessage, JsonRpcRequest, JsonRpcResponse,
+        LOGGING_SET_LEVEL_METHOD, ListPromptsResult, ListResourcesResult, ListToolsResult,
+        LoggingCapability, LoggingSetLevelParams, MCP_SESSION_HEADER, McpTool, McpToolAnnotations,
+        PromptsCapability, RESOURCE_NOT_ENABLED_ERROR, ReadResourceParams, ResourcesCapability,
+        ServerCapabilities, ServerInfo, SubscribeResourceParams, TOOLS_LIST_PAGE_SIZE,
+        ToolsCapability, decode_cursor, encode_cursor, format_sse_event,
+        negotiate_protocol_version,
     },
     resources::{ResourceError, ResourceRegistry},
     session::{SessionLogLevel, SessionLogMessage, SessionManager},
@@ -109,6 +111,13 @@ pub struct AppState {
     /// Whether the `resources/*` methods are dispatched and the
     /// `resources` capability is advertised in `initialize`.
     pub enable_resources: bool,
+    /// MCP Prompts primitive registry (issues #351, #355).
+    ///
+    /// Always populated but only queried when `enable_prompts` is set.
+    pub prompts: PromptRegistry,
+    /// Whether the `prompts/*` methods are dispatched and the
+    /// `prompts` capability is advertised in `initialize`.
+    pub enable_prompts: bool,
     /// Prometheus exporter for tool-call observability (issue #331).
     ///
     /// Present only when the `prometheus` Cargo feature is enabled
@@ -439,6 +448,8 @@ async fn dispatch_request(
         "resources/unsubscribe" if state.enable_resources => {
             handle_resources_unsubscribe(state, req, session_id).await
         }
+        "prompts/list" if state.enable_prompts => handle_prompts_list(state, req).await,
+        "prompts/get" if state.enable_prompts => handle_prompts_get(state, req).await,
         "elicitation/create" => handle_elicitation_create(state, req, session_id).await,
         "ping" => Ok(JsonRpcResponse::success(req.id.clone(), json!({}))),
         other => Ok(JsonRpcResponse::method_not_found(req.id.clone(), other)),
@@ -525,12 +536,18 @@ async fn handle_initialize(
         None
     };
 
+    let prompts_cap = if state.enable_prompts {
+        Some(PromptsCapability { list_changed: true })
+    } else {
+        None
+    };
+
     let result = InitializeResult {
         protocol_version: negotiated.to_string(),
         capabilities: ServerCapabilities {
             tools: Some(ToolsCapability { list_changed: true }),
             resources: resources_cap,
-            prompts: None,
+            prompts: prompts_cap,
             logging: Some(LoggingCapability::default()),
             elicitation: elicitation_cap,
             experimental: experimental_caps,
@@ -663,6 +680,84 @@ async fn handle_resources_unsubscribe(
     };
     state.resources.unsubscribe(sid, &params.uri);
     Ok(JsonRpcResponse::success(req.id.clone(), json!({})))
+}
+
+// ── Prompts (issues #351, #355) ────────────────────────────────────────────
+
+async fn handle_prompts_list(
+    state: &AppState,
+    req: &JsonRpcRequest,
+) -> Result<JsonRpcResponse, HttpError> {
+    let catalog = state.catalog.clone();
+    let prompts = state.prompts.list(|visit| {
+        catalog.for_each_loaded_metadata(|md| visit(md));
+    });
+    let result = ListPromptsResult {
+        prompts,
+        next_cursor: None,
+    };
+    Ok(JsonRpcResponse::success(
+        req.id.clone(),
+        serde_json::to_value(result)?,
+    ))
+}
+
+async fn handle_prompts_get(
+    state: &AppState,
+    req: &JsonRpcRequest,
+) -> Result<JsonRpcResponse, HttpError> {
+    let Some(params) = req
+        .params
+        .as_ref()
+        .and_then(|p| serde_json::from_value::<GetPromptParams>(p.clone()).ok())
+    else {
+        return Ok(JsonRpcResponse::error(
+            req.id.clone(),
+            protocol::error_codes::INVALID_PARAMS,
+            "Invalid prompts/get params (expected {name: string, arguments?: object})",
+        ));
+    };
+    let catalog = state.catalog.clone();
+    let lookup = state.prompts.get(&params.name, &params.arguments, |visit| {
+        catalog.for_each_loaded_metadata(|md| visit(md));
+    });
+    match lookup {
+        Ok(result) => Ok(JsonRpcResponse::success(
+            req.id.clone(),
+            serde_json::to_value(result)?,
+        )),
+        Err(PromptError::NotFound(name)) => Ok(JsonRpcResponse::error(
+            req.id.clone(),
+            protocol::error_codes::INVALID_PARAMS,
+            format!("prompt not found: {name}"),
+        )),
+        Err(PromptError::MissingArg(arg)) => Ok(JsonRpcResponse::error(
+            req.id.clone(),
+            protocol::error_codes::INVALID_PARAMS,
+            format!("missing required argument: {arg}"),
+        )),
+        Err(PromptError::Load(msg)) => Ok(JsonRpcResponse::internal_error(
+            req.id.clone(),
+            format!("prompts/get load failure: {msg}"),
+        )),
+    }
+}
+
+/// Emit `notifications/prompts/list_changed` to every session whose SSE
+/// stream is live. Called from skill load / unload paths.
+pub(crate) fn notify_prompts_list_changed_all(state: &AppState) {
+    if !state.enable_prompts {
+        return;
+    }
+    let notification = json!({
+        "jsonrpc": "2.0",
+        "method": "notifications/prompts/list_changed",
+        "params": {}
+    });
+    let event = format_sse_event(&notification, None);
+    for sid in state.sessions.all_ids() {
+        state.sessions.push_event(&sid, event.clone());
+    }
 }
 
 async fn handle_logging_set_level(
@@ -1900,6 +1995,11 @@ async fn handle_load_skill(
                 .collect();
             notify_tools_changed(&state.sessions, sid, &added, &removed);
         }
+        // Skill content changed — invalidate the prompt cache and
+        // broadcast `notifications/prompts/list_changed` (issues
+        // #351, #355).
+        state.prompts.invalidate();
+        notify_prompts_list_changed_all(state);
     }
 
     // Build the full tool metadata so agents can invoke the new tools without
@@ -1990,6 +2090,10 @@ async fn handle_unload_skill(
                 let added = vec![format!("__skill__{skill_name}")];
                 notify_tools_changed(&state.sessions, sid, &added, &removed);
             }
+            // Invalidate prompt cache and fire
+            // `notifications/prompts/list_changed` (issues #351, #355).
+            state.prompts.invalidate();
+            notify_prompts_list_changed_all(state);
 
             let text = serde_json::to_string_pretty(&json!({
                 "unloaded": true,

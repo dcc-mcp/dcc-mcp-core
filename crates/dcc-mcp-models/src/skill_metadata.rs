@@ -1226,6 +1226,19 @@ pub struct SkillMetadata {
     /// keys. See [`SkillMetadata::is_spec_compliant`].
     #[serde(default, skip_serializing, skip_deserializing)]
     pub legacy_extension_fields: Vec<String>,
+
+    /// Sibling-file reference for the MCP prompts primitive (issues #351, #355).
+    ///
+    /// Set from `metadata.dcc-mcp.prompts` in SKILL.md frontmatter. The value
+    /// is a path relative to the skill root — either a single YAML file that
+    /// contains a top-level `prompts:` (and optional `workflows:`) list, or a
+    /// glob (`prompts/*.prompt.yaml`) that enumerates one file per prompt.
+    ///
+    /// Parsing is deferred until the MCP server handles a `prompts/list` or
+    /// `prompts/get` call, so a skill with 50 prompt files pays zero cost at
+    /// scan / load time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompts_file: Option<String>,
 }
 
 impl SkillMetadata {
@@ -1541,6 +1554,7 @@ impl SkillMetadata {
             external_deps: None,
             groups: Vec::new(),
             legacy_extension_fields: Vec::new(),
+            prompts_file: None,
         }
     }
 
@@ -2072,6 +2086,7 @@ mod tests {
             external_deps: None,
             groups: Vec::new(),
             legacy_extension_fields: Vec::new(),
+            prompts_file: None,
         };
         let json = serde_json::to_string(&meta).unwrap();
         let back: SkillMetadata = serde_json::from_str(&json).unwrap();

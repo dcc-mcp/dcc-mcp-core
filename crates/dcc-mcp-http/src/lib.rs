@@ -47,6 +47,7 @@ pub mod handler;
 pub mod inflight;
 pub mod job;
 pub mod notifications;
+pub mod prompts;
 pub mod protocol;
 pub mod resource_link;
 pub mod resources;
@@ -67,6 +68,10 @@ pub use executor::{DccExecutorHandle, DeferredExecutor};
 pub use gateway::{GatewayConfig, GatewayHandle, GatewayRunner};
 pub use job::{Job, JobEvent, JobManager, JobProgress, JobStatus, JobSubscriber};
 pub use notifications::{JobNotifier, WorkflowProgress, WorkflowUpdate};
+pub use prompts::{
+    PromptArgumentSpec, PromptEntry, PromptError, PromptRegistry, PromptResult, PromptSource,
+    PromptSpec, PromptsSpec, WorkflowPromptRef, render_template,
+};
 pub use resources::{
     ProducerContent, ResourceError, ResourceProducer, ResourceRegistry, ResourceResult,
 };

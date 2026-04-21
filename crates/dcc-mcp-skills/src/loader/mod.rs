@@ -257,6 +257,17 @@ fn apply_dcc_mcp_metadata_overrides(
                     }
                 }
             }
+            "prompts" => {
+                // Issues #351, #355 — sibling-file reference for the MCP
+                // prompts primitive. Parsing is deferred; we just record
+                // the path (relative to skill root) so the MCP server can
+                // load it lazily on `prompts/list` / `prompts/get`.
+                if let Some(s) = value.as_str() {
+                    if !s.is_empty() {
+                        meta.prompts_file = Some(s.to_string());
+                    }
+                }
+            }
             _ => {
                 tracing::debug!(
                     "skill {}: unknown metadata.dcc-mcp.{} key — ignoring",
