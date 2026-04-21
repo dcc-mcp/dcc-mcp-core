@@ -53,7 +53,7 @@ dcc-mcp-core (workspace root)
 ├── dcc-mcp-actions      # ToolRegistry, EventBus, ToolDispatcher, Pipeline
 ├── dcc-mcp-skills       # SkillScanner, SkillCatalog, SkillWatcher, Resolver
 ├── dcc-mcp-protocols    # MCP types: ToolDefinition, ResourceDefinition, Prompt, DccAdapter, BridgeKind
-├── dcc-mcp-transport    # IPC, ConnectionPool, FileRegistry, FramedChannel
+├── dcc-mcp-transport    # IPC (ipckit), DccLinkFrame, IpcChannelAdapter, SocketServerAdapter
 ├── dcc-mcp-process      # PyDccLauncher, ProcessMonitor, ProcessWatcher, CrashRecovery
 ├── dcc-mcp-telemetry    # Tracing/recording: ToolRecorder, TelemetryConfig
 ├── dcc-mcp-sandbox      # Security: SandboxPolicy, SandboxContext, AuditLog
@@ -151,11 +151,10 @@ dcc-mcp-server ← dcc-mcp-http
 - **TCP**: Network sockets — cross-machine or fallback
 
 **Key Components**:
-- `TransportManager` — High-level manager: service registry, session pool, routing
-- `IpcListener` / `ListenerHandle` — Server-side IPC listener with connection tracking
-- `FramedChannel` — Full-duplex framed channel with background reader loop
+- `IpcChannelAdapter` — Client/server IPC adapter using DccLink frames over ipckit
+- `SocketServerAdapter` — Multi-client TCP/UDS listener for server-side IPC
+- `DccLinkFrame` — Binary frame type (msg_type, seq, body) for DccLink wire protocol
 - `TransportAddress` — Protocol-agnostic endpoint (TCP, named pipe, unix socket)
-- `CircuitBreaker` — Failure detection and fast-drop
 
 **Wire Protocol**: MessagePack with 4-byte big-endian length prefix
 

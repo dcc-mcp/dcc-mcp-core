@@ -55,7 +55,7 @@ dcc-mcp-core/
 │   ├── dcc-mcp-actions/        # ToolRegistry, EventBus, Pipeline, Dispatcher, Validator
 │   ├── dcc-mcp-skills/         # SkillScanner, SkillCatalog, SkillWatcher, Resolver
 │   ├── dcc-mcp-protocols/      # MCP 类型：ToolDefinition, ResourceDefinition, Prompt, DccAdapter
-│   ├── dcc-mcp-transport/      # IPC, ConnectionPool, SessionManager, FramedChannel
+│   ├── dcc-mcp-transport/      # IPC (ipckit), DccLinkFrame, IpcChannelAdapter, SocketServerAdapter
 │   ├── dcc-mcp-process/        # PyDccLauncher, ProcessMonitor, CrashRecovery
 │   ├── dcc-mcp-telemetry/      # ToolRecorder, ToolMetrics, TelemetryConfig
 │   ├── dcc-mcp-sandbox/        # SandboxPolicy, SandboxContext, AuditLog, InputValidator
@@ -91,7 +91,7 @@ from dcc_mcp_core import (
     McpHttpServer, McpHttpConfig,
 
     # 传输层
-    TransportManager, TransportAddress, IpcListener, FramedChannel, connect_ipc,
+    IpcChannelAdapter, GracefulIpcChannelAdapter, SocketServerAdapter, DccLinkFrame,
 
     # 协议类型
     ToolDefinition, ToolAnnotations, ResourceDefinition, PromptDefinition,

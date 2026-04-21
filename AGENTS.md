@@ -116,7 +116,8 @@ Need to interact with DCC?
 
 **IPC / named pipe / unix socket between processes?**
 → [`docs/api/transport.md`](docs/api/transport.md)
-→ Key pattern: `IpcListener.bind(addr)` → `.accept()` | `connect_ipc(addr)` → `channel.call()`
+→ Key pattern: `IpcChannelAdapter.create(name)` → `.wait_for_client()` | `IpcChannelAdapter.connect(name)` → `.send_frame()` / `.recv_frame()`
+→ Frame type: `DccLinkFrame(msg_type, seq, body)`
 
 **DCC main-thread safety (Maya cmds, bpy, hou…)?**
 → [`docs/guide/getting-started.md`](docs/guide/getting-started.md) (DeferredExecutor section)
@@ -491,6 +492,7 @@ json_str = result.to_json()    # JSON string
 - Don't import `DeferredExecutor` from public `__init__` — use `from dcc_mcp_core._core import DeferredExecutor`
 - Don't call `.new_auto()` then `.capture_window()` — use `.new_window_auto()` for single-window capture
 - Don't use legacy APIs: `ActionManager`, `create_action_manager()`, `MiddlewareChain`, `Action` — removed in v0.12+
+- Don't use removed transport APIs: `FramedChannel`, `connect_ipc()`, `IpcListener`, `TransportManager`, `CircuitBreaker`, `ConnectionPool` — removed in v0.14 (#251). Use `IpcChannelAdapter` / `DccLinkFrame` instead
 - Don't add Python runtime dependencies — the project is zero-dep by design
 - Don't manually bump versions or edit `CHANGELOG.md` — Release Please handles this
 - Don't hardcode API keys, tokens, or passwords — use environment variables

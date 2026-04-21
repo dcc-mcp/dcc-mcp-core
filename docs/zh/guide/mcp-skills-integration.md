@@ -74,20 +74,11 @@ DCC 桥接插件
 ### ServiceEntry — 每个 DCC 注册的信息
 
 ```python
-from dcc_mcp_core import TransportManager
-import os
+from dcc_mcp_core import create_skill_server, McpHttpConfig
 
-mgr = TransportManager(registry_dir="/tmp/dcc-mcp")
-
-# Maya 桥接插件在启动时调用：
-iid = mgr.register_service(
-    "maya", "127.0.0.1", 18812,
-    pid=os.getpid(),
-    display_name="Maya-Production",
-    scene="character.ma",
-    documents=["character.ma", "rig.ma"],
-    version="2025",
-)
+# Gateway 自动注册 DCC 实例
+server = create_skill_server("maya", McpHttpConfig(port=8765))
+handle = server.start()
 ```
 
 网关通过这些信息了解：

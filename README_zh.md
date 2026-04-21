@@ -13,7 +13,7 @@ English | [中文](README_zh.md)
 
 **面向 AI 辅助 DCC 工作流的生产级基础库**，结合了 **模型上下文协议（MCP）** 与 **零代码 Skills 系统**。提供 **Rust 驱动核心 + PyO3 Python 绑定**，交付企业级性能、安全性和可扩展性——所有这些均**零运行时 Python 依赖**。支持 Python 3.7–3.13。
 
-> **注意**：本项目处于积极开发中（v0.13+）。API 可能会演进；版本历史请参阅 CHANGELOG.md。
+> **注意**：本项目处于积极开发中（v0.14+）。API 可能会演进；版本历史请参阅 CHANGELOG.md。
 
 ---
 
@@ -423,7 +423,7 @@ dcc-mcp-core 组织为 **15 个 Rust Crate 工作区**，通过 PyO3/maturin 编
 | `dcc-mcp-actions` | 技能执行生命周期 | `ToolRegistry`, `EventBus`, `ToolDispatcher`, `ToolValidator`, `ToolPipeline` |
 | `dcc-mcp-skills` | 技能发现与加载 | `SkillScanner`, `SkillCatalog`, `SkillWatcher`, 依赖解析器 |
 | `dcc-mcp-protocols` | MCP 协议类型 | `ToolDefinition`, `ResourceDefinition`, `DccAdapter`, `BridgeKind` |
-| `dcc-mcp-transport` | IPC 通信 | `TransportManager`, `ConnectionPool`, `IpcListener`, `FramedChannel`, `CircuitBreaker`, `FileRegistry` |
+| `dcc-mcp-transport` | IPC 通信 | `DccLinkFrame`, `IpcChannelAdapter`, `GracefulIpcChannelAdapter`, `SocketServerAdapter`, `TransportAddress` |
 | `dcc-mcp-process` | 进程管理 | `PyDccLauncher`, `ProcessMonitor`, `CrashRecoveryPolicy` |
 | `dcc-mcp-sandbox` | 安全沙箱 | `SandboxPolicy`, `InputValidator`, `AuditLog` |
 | `dcc-mcp-shm` | 共享内存 | `SharedBuffer`, LZ4 压缩 |
@@ -436,26 +436,30 @@ dcc-mcp-core 组织为 **15 个 Rust Crate 工作区**，通过 PyO3/maturin 编
 
 ## 更多功能
 
-### 传输层 — IPC 进程通信
+### 传输层 — DccLink IPC 进程通信
 
 ```python
 from dcc_mcp_core import (
-    TransportManager, TransportAddress, TransportScheme,
-    RoutingStrategy, IpcListener, connect_ipc, FramedChannel
+    DccLinkFrame, IpcChannelAdapter, GracefulIpcChannelAdapter,
+    SocketServerAdapter, TransportAddress
 )
 
-# 服务端：监听连接
-listener = IpcListener.bind("/tmp/dcc-mcp-server.sock")
-handle = listener.start(handler_fn=my_message_handler)
+# 服务端：创建 IPC 端点并等待客户端
+server = IpcChannelAdapter.create("my-dcc-server")
+server.wait_for_client()
+frame = server.recv_frame()
+response = DccLinkFrame(msg_type=2, seq=frame.seq, body=b'result')
+server.send_frame(response)
 
-# 客户端：连接服务器
-channel = connect_ipc("/tmp/dcc-mcp-server.sock")
-response = channel.call({"method": "ping", "params": {}})
+# 客户端：连接到服务端
+client = IpcChannelAdapter.connect("my-dcc-server")
+request = DccLinkFrame(msg_type=1, seq=0, body=b'ping')
+client.send_frame(request)
+reply = client.recv_frame()
 
-# 高级：连接池 + 弹性熔断
-mgr = TransportManager()
-mgr.configure_pool(min_size=2, max_size=10)
-mgr.set_circuit_breaker(threshold=5, reset_timeout=30)
+# TCP 服务器（跨机器通信）
+tcp_server = SocketServerAdapter("/tmp/dcc-mcp.sock")
+print(tcp_server.socket_path)
 ```
 
 ### 进程管理 — DCC 生命周期控制

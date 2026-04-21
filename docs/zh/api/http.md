@@ -326,5 +326,5 @@ print(handle.mcp_url())
 - 服务器在后台 Tokio 线程运行 — 不会阻塞 DCC 主线程
 - 每个调用的请求超时（默认 30 秒）
 - HTTP 层无连接池（每个 POST 无状态）
-- 使用 `TransportManager` 获取与 DCC 的持久 IPC 会话
+- 使用 `IpcChannelAdapter` 获取与 DCC 的持久 IPC 会话
 - 网关 `FileRegistry` 每次变更都刷新到磁盘 — 多进程安全但不适合高频写入

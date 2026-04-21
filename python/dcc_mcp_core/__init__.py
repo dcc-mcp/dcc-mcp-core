@@ -288,7 +288,6 @@ __all__ = [
     "FileLoggingConfig",
     "FloatWrapper",
     "FrameRange",
-    "FrameRange",
     "GracefulIpcChannelAdapter",
     "InputValidator",
     "IntWrapper",

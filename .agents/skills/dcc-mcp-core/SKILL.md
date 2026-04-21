@@ -3,7 +3,7 @@ name: dcc-mcp-core
 description: "Foundation library for the DCC Model Context Protocol (MCP) ecosystem. Provides Rust-powered action management, skills system, IPC transport, MCP Streamable HTTP server (2025-03-26 spec, with 2025-06-18 and 2025-11-25 awareness), sandbox security, shared memory, screen capture, USD scene support, and telemetry for AI-assisted DCC workflows. Use when working with Maya, Blender, Houdini, 3ds Max, or any DCC MCP integration."
 allowed-tools: Bash Read Write Edit
 compatibility: "Python 3.7-3.13; Rust 1.85+ required to build from source; zero runtime Python dependencies"
-version: "0.13.5"
+version: "0.14.1"
 ---
 
 # dcc-mcp-core — DCC MCP Ecosystem Foundation
@@ -18,7 +18,7 @@ The foundational library enabling AI assistants to interact with Digital Content
 | Load skills | `scan_and_load()` → `(skills, skipped)` | manual file scanning |
 | One-call MCP server | `create_skill_server("maya", McpHttpConfig(port=8765))` | manual wiring |
 | Validate params | `ToolValidator.from_schema_json()` | isinstance checks |
-| Connect to DCC | `connect_ipc(TransportAddress.default_local(...))` | raw sockets |
+| Connect to DCC | `IpcChannelAdapter.connect(name)` or `SocketServerAdapter(path)` | raw sockets |
 | Define MCP tool | `ToolDefinition` + `ToolAnnotations` | raw JSON |
 | Serve MCP over HTTP | `McpHttpServer(registry, McpHttpConfig(port=8765))` | raw HTTP server |
 | Build DCC adapter | `DccServerBase(dcc_name, builtin_skills_dir)` | copy-paste boilerplate |
@@ -32,7 +32,7 @@ The foundational library enabling AI assistants to interact with Digital Content
 |------------|-------------|
 | **Action Management** | Register, validate, dispatch, and execute actions with typed inputs/outputs |
 | **Skills System** | Zero-code script registration (Python/MEL/Batch/Shell/JS) as MCP tools via `SKILL.md` |
-| **Transport Layer** | High-performance IPC with connection pooling, circuit breaker, retry policies |
+| **Transport Layer** | High-performance IPC via ipckit with DccLink framing (IpcChannelAdapter, SocketServerAdapter) |
 | **MCP HTTP Server** | MCP Streamable HTTP (**2025-03-26 spec**) powered by axum/Tokio, runs in background thread |
 | **Process Management** | Launch, monitor, auto-recover DCC processes (Maya, Blender, Houdini, etc.) |
 | **Sandbox Security** | Policy-based access control, input validation, audit logging |
@@ -112,23 +112,23 @@ if not ok:
     return error_result("Invalid parameters", "; ".join(errors))
 ```
 
-### Pattern 4: Connect to a running DCC and call it
+### Pattern 4: Connect to a running DCC via IPC
 
 ```python
-from dcc_mcp_core import TransportAddress, connect_ipc, success_result, error_result
+from dcc_mcp_core import DccLinkFrame, IpcChannelAdapter, success_result, error_result
 
-addr = TransportAddress.default_local("maya", pid=12345)
-channel = connect_ipc(addr)
+# Connect to a DCC process via named pipe / Unix domain socket
+channel = IpcChannelAdapter.connect("dcc-mcp-maya-12345")
 try:
-    # Primary RPC: .call() sends request + waits for correlated response (v0.12.7+)
-    result = channel.call("execute_python", b'import maya.cmds; cmds.sphere()', timeout_ms=10000)
-    if result["success"]:
-        payload = result.get("payload", b"")
-        return success_result(payload.decode() if isinstance(payload, bytes) else str(payload))
+    # Send a Call frame and receive the reply
+    channel.send_frame(DccLinkFrame(msg_type=1, seq=1, body=b'{"method":"execute_python","params":"cmds.sphere()"}'))
+    reply = channel.recv_frame()  # DccLinkFrame
+    if reply.msg_type == 2:  # Reply
+        return success_result(reply.body.decode())
     else:
-        return error_result("DCC call failed", result.get("error", "Unknown error"))
+        return error_result("DCC call failed", reply.body.decode())
 finally:
-    channel.shutdown()
+    channel.shutdown() if hasattr(channel, 'shutdown') else None
 ```
 
 ### Pattern 5: Build a DCC adapter with DccServerBase
@@ -201,7 +201,7 @@ McpHttpServer runs on Tokio worker threads — use `DeferredExecutor` to bridge:
 ```python
 # DeferredExecutor is Rust-backed; import directly until added to public API
 from dcc_mcp_core._core import DeferredExecutor
-from dcc_mcp_core import ActionRegistry, McpHttpServer, McpHttpConfig
+from dcc_mcp_core import ToolRegistry, McpHttpServer, McpHttpConfig
 
 executor = DeferredExecutor(queue_depth=64)
 # In DCC main event loop / timer callback:
@@ -281,7 +281,7 @@ print(f'Loaded: {[s.name for s in skills]}')
 ┌─────────────────────────────────────────────────────┐
 │                   Python Layer                       │
 │  dcc_mcp_core/__init__.py  →  _core (PyO3 cdyll)   │
-│  ~177 public symbols re-exported from Rust core      │
+│  ~180 public symbols re-exported from Rust core      │
 │  + Pure-Python: DccServerBase, DccGatewayElection,  │
 │    DccSkillHotReloader, factory, skill helpers       │
 └──────────────────────┬──────────────────────────────┘
@@ -318,7 +318,7 @@ print(f'Loaded: {[s.name for s in skills]}')
 | `GEMINI.md` | Gemini-specific workflows and tips |
 | `llms.txt` | Concise API reference for LLMs |
 | `llms-full.txt` | Comprehensive API reference with all examples |
-| `python/dcc_mcp_core/__init__.py` | Complete public API (~177 symbols, ground truth for imports) |
+| `python/dcc_mcp_core/__init__.py` | Complete public API (~180 symbols, ground truth for imports) |
 | `python/dcc_mcp_core/_core.pyi` | Type stubs — authoritative parameter names |
 | `examples/skills/` | 11 complete skill package examples |
 | `tests/` | Python integration tests (executable usage examples) |
@@ -353,7 +353,7 @@ The library currently implements **MCP 2025-03-26** (Streamable HTTP). The ecosy
 1. `scan_and_load` returns `(List[SkillMetadata], List[str])` — always unpack: `skills, skipped = scan_and_load(...)`
 2. `DeferredExecutor` not in public API yet — use `from dcc_mcp_core._core import DeferredExecutor`
 3. Register ALL actions before `server.start()` — server reads from registry at startup only
-4. Use `FramedChannel.call()` for sync RPC — not `send_request()` + `recv()` (those are for async/multiplex)
+4. Use `IpcChannelAdapter` + `DccLinkFrame` for IPC (v0.14+) — `FramedChannel`/`connect_ipc` were removed in #251
 5. `ToolDispatcher(registry)` takes ONE arg — no `validator=` parameter
 6. Action naming: `{skill_name.replace('-','_')}__{script_stem}` (double underscore)
 7. SKILL.md `name` must match parent directory name (agentskills.io spec)

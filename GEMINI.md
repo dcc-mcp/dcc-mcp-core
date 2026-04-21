@@ -5,7 +5,7 @@
 
 ## Project Identity
 
-You are working on **dcc-mcp-core**, a Rust-powered MCP (Model Context Protocol) library for DCC (Digital Content Creation) applications. Python package: `dcc_mcp_core`. ~177 public symbols,
+You are working on **dcc-mcp-core**, a Rust-powered MCP (Model Context Protocol) library for DCC (Digital Content Creation) applications. Python package: `dcc_mcp_core`. ~180 public symbols,
 zero runtime Python dependencies (everything compiled into Rust core via PyO3), plus pure-Python
 helpers (DccServerBase, DccGatewayElection, DccSkillHotReloader, factory, skill helpers, WebViewAdapter).
 
@@ -48,7 +48,7 @@ vx just lint-fix     # Auto-fix all lint issues
 ## Key Architecture Facts
 
 - **15 Rust crates** under `crates/`, compiled into `dcc_mcp_core._core` native extension + pure-Python helpers
-- **~177 public Python symbols** exported from `python/dcc_mcp_core/__init__.py`
+- **~180 public Python symbols** exported from `python/dcc_mcp_core/__init__.py`
 - **Zero runtime Python deps** — all logic in Rust, no `dependencies = [...]` in pyproject.toml
 - Python 3.7–3.13 supported (abi3-py38 wheel; separate non-abi3 wheel for 3.7)
 - **Version: current** — managed by Release Please, never manually bump
@@ -159,10 +159,12 @@ bus.unsubscribe("event_name", sub_id)
 registry.register(name="action", description="...", dcc="maya", version="1.0.0")
 # Use dispatcher.register_handler() to attach a Python callable
 
-# FramedChannel.call() — primary RPC helper (v0.12.7+)
-channel = connect_ipc(TransportAddress.default_local("maya", pid))
-result = channel.call("execute_python", b'cmds.sphere()', timeout_ms=30000)
-# result: {"id": str, "success": bool, "payload": bytes, "error": str|None}
+# IpcChannelAdapter — IPC via DccLink frames (v0.14+)
+from dcc_mcp_core import DccLinkFrame, IpcChannelAdapter
+channel = IpcChannelAdapter.connect("dcc-mcp-maya-12345")
+channel.send_frame(DccLinkFrame(msg_type=1, seq=1, body=b'{...}'))
+reply = channel.recv_frame()  # DccLinkFrame
+# Legacy FramedChannel/connect_ipc REMOVED in v0.14 (#251)
 
 # McpHttpServer — expose registry over HTTP/MCP
 server = McpHttpServer(registry, McpHttpConfig(port=8765))
@@ -200,8 +202,8 @@ search-hint: "polygon modeling, bevel, extrude, mesh editing"
 12. **`success_result` kwargs → context**: `success_result("msg", count=5)` → `context={"count":5}` — do NOT use `context=` keyword
 13. **`error_result` positional args**: `error_result("msg", "error string")` — not `error_result(message=..., error=...)`
 14. **`EventBus.subscribe` returns int**: Store the return value to unsubscribe later: `sub_id = bus.subscribe(...)`
-15. **`FramedChannel.call()` IS available** (v0.12.7+): Use `channel.call(method, params_bytes, timeout_ms)` for synchronous RPC. Use `send_request()` + `recv()` only for async/multiplexed patterns.
-16. **`IpcListener.bind(addr)`** creates listener (static method); `.accept()` blocks until client connects. There is no `.new()` or `.start()` method.
+15. **`IpcChannelAdapter` replaces `FramedChannel`** (v0.14+): Use `IpcChannelAdapter.connect(name)` + `send_frame(DccLinkFrame(...))` + `recv_frame()`. Legacy `FramedChannel`, `connect_ipc`, `IpcListener` were removed in #251.
+16. **`IpcChannelAdapter.create(name)`** creates server-side channel; `.connect(name)` connects as client. Use `GracefulIpcChannelAdapter` for channels that need `.shutdown()` and thread affinity.
 17. **`McpServerHandle` is an alias**: `server.start()` returns `McpServerHandle`; it is re-exported as `McpServerHandle` in `__init__.py`. Import as `from dcc_mcp_core import McpServerHandle`.
 18. **`McpHttpServer` registry population**: All actions must be registered in `ToolRegistry` BEFORE calling `server.start()`. The server reads metadata from the registry at startup.
 

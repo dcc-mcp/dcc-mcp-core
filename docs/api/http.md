@@ -334,5 +334,5 @@ Common error codes:
 - Server runs in background Tokio thread — no DCC main thread blocking
 - Request timeout applies per-call (default 30s)
 - No connection pooling on the HTTP layer (each POST is stateless)
-- Use `TransportManager` for persistent IPC sessions with DCC
+- Use `IpcChannelAdapter` for persistent IPC sessions with DCC
 - Gateway `FileRegistry` flushes to disk on every mutation — safe for multi-process but not high-frequency writes

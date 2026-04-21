@@ -100,7 +100,7 @@ crates/                      # Rust workspace crates (core logic)
 ├── dcc-mcp-actions/         # ToolRegistry, ToolDispatcher, EventBus, ToolPipeline
 ├── dcc-mcp-skills/          # SkillScanner, SkillCatalog, SkillWatcher, dependency resolver
 ├── dcc-mcp-protocols/       # MCP protocol types (Tool, Resource, Prompt, DccAdapter, BridgeKind)
-├── dcc-mcp-transport/       # IPC, ConnectionPool, FramedChannel, CircuitBreaker, FileRegistry
+├── dcc-mcp-transport/       # IPC (ipckit), DccLinkFrame, IpcChannelAdapter, SocketServerAdapter
 ├── dcc-mcp-process/         # PyDccLauncher, ProcessMonitor, CrashRecovery
 ├── dcc-mcp-telemetry/       # TelemetryConfig, ToolRecorder, ToolMetrics
 ├── dcc-mcp-sandbox/         # SandboxPolicy, InputValidator, AuditLog

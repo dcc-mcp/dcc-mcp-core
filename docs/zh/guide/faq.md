@@ -247,22 +247,22 @@ for skill in skills:
 
 **DCC 端（服务器）：**
 ```python
-import os
-from dcc_mcp_core import TransportManager, IpcListener, TransportAddress
+from dcc_mcp_core import IpcChannelAdapter, DccLinkFrame
 
-mgr = TransportManager("/tmp/dcc-mcp")
-instance_id, listener = mgr.bind_and_register("maya", version="2025")
-channel = listener.accept()  # 等待 Agent 连接
+# 服务端：创建命名 IPC 端点并等待客户端
+server = IpcChannelAdapter.create("maya-2025")
+server.wait_for_client()
 ```
 
 **Agent 端（客户端）：**
 ```python
-from dcc_mcp_core import TransportManager, connect_ipc
+from dcc_mcp_core import IpcChannelAdapter, DccLinkFrame
 
-mgr = TransportManager("/tmp/dcc-mcp")
-entry = mgr.find_best_service("maya")
-channel = connect_ipc(entry.effective_address())
-rtt = channel.ping()
+# 客户端：连接到 DCC 的 IPC 端点
+client = IpcChannelAdapter.connect("maya-2025")
+request = DccLinkFrame(msg_type=1, seq=0, body=b'{"method":"ping"}')
+client.send_frame(request)
+reply = client.recv_frame()
 ```
 
 ## MCP HTTP 服务器

@@ -467,24 +467,16 @@ class AuroraViewAdapter(WebViewAdapter):
 WebView hosts register with extra metadata so the Gateway can identify them:
 
 ```python
-from dcc_mcp_core import TransportManager
+from dcc_mcp_core import create_skill_server, McpHttpConfig
 
-mgr = TransportManager(registry_dir="/tmp/dcc-mcp")
-instance_id = mgr.register_service(
-    "auroraview",
-    "127.0.0.1",
-    8765,
-    extras={
-        "cdp_port": 9222,
-        "url": "http://localhost:3000",
-        "window_title": "AuroraView Panel",
-        "host_dcc": "maya",           # embedded inside Maya
-    },
-)
-
-# AI agents discover it via the Gateway:
-# tools/call list_dcc_instances → shows auroraview with all extras
+# The gateway auto-registers the DCC instance
+server = create_skill_server("auroraview", McpHttpConfig(port=8765))
+handle = server.start()
 ```
+
+To include WebView-specific extras (CDP port, host DCC, etc.), pass them via
+`McpHttpConfig` fields or environment variables — the Gateway picks them up
+automatically during registration.
 
 ---
 
@@ -673,7 +665,7 @@ public class DccMcpBridge
 | **Capabilities** | Full (scene, timeline, ...) | Full (via bridge calls) | Narrow (configurable) |
 | **Base class** | `DccServerBase` | `DccServerBase` + `DccBridge` | `WebViewAdapter` |
 | **Main thread safety** | DCC-specific (deferred exec) | Always safe (separate process) | N/A |
-| **Gateway registration** | Automatic (via `McpHttpConfig`) | Automatic | Manual (`TransportManager`) |
+| **Gateway registration** | Automatic (via `McpHttpConfig`) | Automatic | Manual (`ServiceEntry` + `IpcChannelAdapter`) |
 
 ---
 
@@ -699,7 +691,7 @@ handle = server.start()
 | `DCC_MCP_SKILL_PATHS` | Global skill search paths |
 | `DCC_MCP_{DCC}_SKILL_PATHS` | Per-DCC skill search paths (e.g. `DCC_MCP_MAYA_SKILL_PATHS`) |
 | `DCC_MCP_GATEWAY_PORT` | Gateway election port (default 9765) |
-| `DCC_MCP_REGISTRY_DIR` | Shared FileRegistry directory |
+| `DCC_MCP_REGISTRY_DIR` | Shared service registry directory |
 | `DCC_MCP_{DCC}_HOT_RELOAD=1` | Enable skill hot-reload |
 
 ### Multiple DCC instances

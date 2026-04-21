@@ -10,7 +10,7 @@
 | Register scripts as MCP tools | `ToolRegistry.register()` |
 | Discover skills from directories | `scan_and_load()` → returns `(skills, skipped)` tuple |
 | Validate tool params | `ToolValidator.from_schema_json()` |
-| Connect to running DCC | `connect_ipc(TransportAddress.default_local(...))` |
+| Connect to running DCC | `IpcChannelAdapter.connect(name)` or `SocketServerAdapter(path)` |
 | Define MCP tool for LLM | `ToolDefinition` + `ToolAnnotations` |
 | Monitor DCC process | `PyProcessWatcher` + `PyCrashRecoveryPolicy` |
 | Sandbox AI actions | `SandboxPolicy` + `SandboxContext` |
@@ -66,7 +66,7 @@ meta = dcc_mcp_core.parse_skill_md(dirs[0])  # -> SkillMetadata or None
 
 ## Architecture
 
-Rust workspace (15 crates) with PyO3 bindings. All logic in Rust sub-crates; Python gets a single `dcc_mcp_core._core` extension module. The `dcc_mcp_core` package re-exports all ~177 public symbols from `_core` plus pure-Python helpers (DccServerBase, DccGatewayElection, DccSkillHotReloader, factory, skill helpers).
+Rust workspace (15 crates) with PyO3 bindings. All logic in Rust sub-crates; Python gets a single `dcc_mcp_core._core` extension module. The `dcc_mcp_core` package re-exports all ~180 public symbols from `_core` plus pure-Python helpers (DccServerBase, DccGatewayElection, DccSkillHotReloader, factory, skill helpers).
 
 ```
 crates/
@@ -75,7 +75,7 @@ crates/
 ├── dcc-mcp-actions/     # ToolRegistry, ToolDispatcher, ToolValidator, EventBus, ToolPipeline
 ├── dcc-mcp-skills/      # SkillScanner, SkillWatcher, parse_skill_md, dependency resolver
 ├── dcc-mcp-protocols/   # MCP type definitions (Tool, Resource, Prompt, DccAdapter)
-├── dcc-mcp-transport/   # IPC transport, ConnectionPool, CircuitBreaker, FramedChannel
+├── dcc-mcp-transport/   # IPC transport (ipckit), DccLinkFrame, IpcChannelAdapter, SocketServerAdapter
 ├── dcc-mcp-process/     # PyDccLauncher, ProcessMonitor, ProcessWatcher, CrashRecovery
 ├── dcc-mcp-telemetry/   # TelemetryConfig, RecordingGuard, ToolMetrics, ToolRecorder
 ├── dcc-mcp-sandbox/     # SandboxPolicy, InputValidator, AuditLog
@@ -195,22 +195,35 @@ tools:
 
 ### Transport (`dcc_mcp_core`)
 
-- `IpcListener.bind(address) -> IpcListener` → `.local_address()`, `.accept(timeout_ms=None) -> FramedChannel` (server-side), `.into_handle() -> ListenerHandle`
-- `connect_ipc(address, timeout_ms=10000) -> FramedChannel` (client-side)
-- `FramedChannel` methods:
-  - `.call(method, params=None, timeout_ms=30000) -> dict` — **primary RPC helper** (v0.12.7+); atomically sends Request + waits for correlated Response; result: `{"id", "success", "payload", "error"}`
-  - `.send_request(method, params=None) -> req_id` — async variant; use with `.recv()` for multiplexed patterns
-  - `.recv(timeout_ms=None) -> dict|None` — returns next Request/Response/Notify envelope
-  - `.send_response(request_id, success, payload=None, error=None)` — server-side reply
-  - `.send_notify(topic, data=None)` — one-way event push
-  - `.ping(timeout_ms=5000) -> int` — heartbeat RTT in ms
-  - `.shutdown()` — graceful close
-- `TransportManager(registry_dir, ...)` — connection pool + circuit breaker + service discovery
-  - `.bind_and_register(dcc_type, version=None) -> (instance_id, IpcListener)` — one-call server setup
-  - `.find_best_service(dcc_type) -> ServiceEntry` — smart routing (IPC > local TCP > remote)
-  - `.rank_services(dcc_type) -> List[ServiceEntry]` — all live instances sorted by preference
-- `TransportAddress`, `TransportScheme`, `RoutingStrategy`
-- Frame encode/decode: `encode_request(method, params)`, `encode_response(id, success, payload, error)`, `encode_notify(topic, data)`, `decode_envelope(data)` — low-level MessagePack framing
+**DccLinkFrame** — framed message for IPC transport:
+- `DccLinkFrame(msg_type, seq, body)` — construct a frame
+  - `.msg_type` — message type (int): 1=Call, 2=Reply, 3=Err, 4=Progress, 5=Cancel, 6=Push, 7=Ping, 8=Pong
+  - `.seq` — sequence number (u32)
+  - `.body` — payload bytes
+  - `.encode() -> bytes` — serialize frame to wire format
+  - `.decode(data) -> DccLinkFrame` — deserialize from wire format (static)
+
+**IpcChannelAdapter** — named-pipe IPC channel:
+- `IpcChannelAdapter.create(name) -> IpcChannelAdapter` — create server-side endpoint
+- `IpcChannelAdapter.connect(name) -> IpcChannelAdapter` — connect client-side endpoint
+- `.wait_for_client()` — block until a client connects (server-side)
+- `.send_frame(frame)` — send a DccLinkFrame
+- `.recv_frame() -> DccLinkFrame` — receive next frame
+
+**GracefulIpcChannelAdapter** — IPC channel with graceful shutdown and thread affinity:
+- Same methods as `IpcChannelAdapter` plus:
+- `.shutdown()` — graceful close
+- `.bind_affinity_thread()` — bind to current thread for thread-safe access
+
+**SocketServerAdapter** — Unix domain socket / named pipe server:
+- `SocketServerAdapter(path, max_connections=1, connection_timeout_ms=30000)` — create socket server
+- `.socket_path` — the socket path (read-only)
+- `.connection_count` — current active connections (read-only)
+
+**Service Discovery** (still available):
+- `TransportAddress`, `TransportScheme` — address types for service discovery
+- `ServiceEntry` — discovered service metadata
+- `ServiceStatus` — service health status
 
 ### MCP HTTP Server (`dcc_mcp_core`)
 

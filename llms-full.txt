@@ -18,7 +18,7 @@
 | Validate action input parameters | `ToolValidator` / `InputValidator` |
 | Route action calls to Python handlers | `ToolDispatcher` |
 | Define an MCP Tool for the LLM | `ToolDefinition` + `ToolAnnotations` |
-| Connect to a running DCC process | `connect_ipc(TransportAddress)` |
+| Connect to a running DCC process | `IpcChannelAdapter.connect(name)` / `GracefulIpcChannelAdapter.connect(name)` |
 | Launch a new DCC process | `PyDccLauncher` |
 | Monitor DCC process health | `PyProcessWatcher` / `PyProcessMonitor` |
 | Enforce security policy on actions | `SandboxPolicy` + `SandboxContext` |
@@ -52,7 +52,7 @@ crates/
 ├── dcc-mcp-actions/      # ToolRegistry, ToolDispatcher, ToolValidator, EventBus, ToolPipeline
 ├── dcc-mcp-skills/       # SkillScanner, SkillWatcher, parse_skill_md, dependency resolver
 ├── dcc-mcp-protocols/    # MCP type definitions (Tool, Resource, Prompt, DccAdapter)
-├── dcc-mcp-transport/    # IPC transport, TransportManager, ConnectionPool, CircuitBreaker
+├── dcc-mcp-transport/    # DccLink IPC adapters (IpcChannelAdapter, GracefulIpcChannelAdapter, SocketServerAdapter)
 ├── dcc-mcp-http/         # McpHttpServer, McpHttpConfig, McpServerHandle (MCP Streamable HTTP 2025-03-26)
 ├── dcc-mcp-process/      # PyDccLauncher, PyProcessMonitor, PyProcessWatcher, PyCrashRecoveryPolicy
 ├── dcc-mcp-telemetry/    # TelemetryConfig, RecordingGuard, ToolMetrics, ToolRecorder
@@ -1040,6 +1040,109 @@ dcc_mcp_core.DccErrorCode.INTERNAL
 
 ## Transport Layer (`dcc_mcp_core`)
 
+### DccLinkFrame
+
+Binary frame for DccLink protocol. Each frame carries a message type, sequence number, and body.
+
+```python
+from dcc_mcp_core import DccLinkFrame
+
+# Create a frame
+frame = DccLinkFrame(msg_type=1, seq=0, body=b'{"method": "execute_python", "params": {}}')
+frame.msg_type   # int — message type
+frame.seq        # int — sequence number
+frame.body       # bytes — payload
+
+# Encode / decode for wire transfer
+encoded: bytes = frame.encode()           # serialize to binary
+restored = DccLinkFrame.decode(encoded)   # deserialize from binary
+
+# Message types
+# 1 = Call      — request that expects a reply
+# 2 = Reply     — response to a Call
+# 3 = Err       — error response to a Call
+# 4 = Progress  — intermediate progress update
+# 5 = Cancel    — cancel a pending Call
+# 6 = Push      — server-initiated notification
+# 7 = Ping      — keep-alive / latency probe
+# 8 = Pong      — response to Ping
+```
+
+### IpcChannelAdapter
+
+Named IPC channel adapter using the DccLink framing protocol. Supports both server (create)
+and client (connect) modes over OS-native named pipes / Unix domain sockets.
+
+```python
+from dcc_mcp_core import IpcChannelAdapter, DccLinkFrame
+
+# Server mode: create a named channel
+server = IpcChannelAdapter.create("maya-ipc")
+server.wait_for_client()   # blocks until a client connects
+
+# Client mode: connect to a named channel
+client = IpcChannelAdapter.connect("maya-ipc")
+
+# Send a frame
+call_frame = DccLinkFrame(msg_type=1, seq=0, body=b'{"method": "execute_python", "params": {}}')
+client.send_frame(call_frame)
+
+# Receive a frame (blocking)
+reply_frame = server.recv_frame()   # -> DccLinkFrame
+print(reply_frame.msg_type)         # 2 (Reply) or 3 (Err)
+print(reply_frame.body)             # response payload bytes
+
+# Round-trip example
+server.send_frame(DccLinkFrame(msg_type=2, seq=reply_frame.seq, body=b'result'))
+client_reply = client.recv_frame()
+```
+
+### GracefulIpcChannelAdapter
+
+Extended `IpcChannelAdapter` with graceful shutdown and thread-affinity support.
+Use this in DCC main-thread scenarios where cleanup must be orderly.
+
+```python
+from dcc_mcp_core import GracefulIpcChannelAdapter, DccLinkFrame
+
+# Server mode
+server = GracefulIpcChannelAdapter.create("maya-graceful")
+server.wait_for_client()
+
+# Client mode
+client = GracefulIpcChannelAdapter.connect("maya-graceful")
+
+# Same send_frame / recv_frame as IpcChannelAdapter
+client.send_frame(DccLinkFrame(msg_type=1, seq=0, body=b'request'))
+reply = server.recv_frame()
+
+# Graceful shutdown (waits for in-flight frames)
+server.shutdown()
+client.shutdown()
+
+# Thread affinity: bind IPC processing to a specific thread
+# Required for DCCs that restrict API calls to the main thread
+server.bind_affinity_thread()   # binds to current thread
+```
+
+### SocketServerAdapter
+
+TCP socket server adapter for DccLink protocol. Accepts multiple client connections.
+
+```python
+from dcc_mcp_core import SocketServerAdapter
+
+# Create a TCP server on a Unix domain socket or named pipe path
+server = SocketServerAdapter(
+    path="/tmp/dcc-mcp.sock",       # socket path
+    max_connections=10,              # max concurrent clients (default: 10)
+    connection_timeout_ms=30000,     # per-connection idle timeout (default: 30000)
+)
+
+server.socket_path        # str — the socket path
+server.connection_count   # int — current active connections
+```
+
 ### TransportAddress
 
 Protocol-agnostic endpoint. Supports TCP, Windows Named Pipes, Unix Domain Sockets.
@@ -1082,164 +1185,6 @@ addr = scheme.select_address(dcc_type="maya", host="127.0.0.1", port=18812, pid=
 # -> TransportAddress (Named Pipe on Windows, Unix Socket on Linux/macOS, TCP fallback)
 ```
 
-### IpcListener + ListenerHandle
-
-Server-side: bind a listener and accept connections.
-
-```python
-from dcc_mcp_core import IpcListener, TransportAddress
-
-# Bind
-addr = TransportAddress.tcp("127.0.0.1", 0)   # port 0 = OS assigns
-listener = IpcListener.bind(addr)
-local_addr = listener.local_address()          # get assigned port
-print(f"Listening on {local_addr.to_connection_string()}")
-
-# Accept one connection (blocking)
-channel = listener.accept(timeout_ms=10000)   # -> FramedChannel
-
-# Or convert to handle for connection tracking
-handle = listener.into_handle()  # consumes listener
-print(handle.accept_count)       # 0 initially
-print(handle.is_shutdown)        # False
-handle.shutdown()                # request stop
-```
-
-### connect_ipc (client)
-
-```python
-from dcc_mcp_core import connect_ipc, TransportAddress
-
-addr = TransportAddress.tcp("127.0.0.1", 18812)
-channel = connect_ipc(addr, timeout_ms=10000)  # -> FramedChannel
-```
-
-### FramedChannel
-
-Full-duplex message-framed channel. Handles Ping/Pong heartbeats automatically.
-
-```python
-# Ping (round-trip latency check)
-rtt_ms = channel.ping(timeout_ms=5000)  # -> int
-
-# RPC-style call (send Request, wait for matching Response)
-result = channel.call(
-    "execute_python",
-    params=b'import maya.cmds as cmds; cmds.sphere()',
-    timeout_ms=30000,
-)
-# result: {"id": "...", "success": bool, "payload": bytes, "error": str|None}
-if result["success"]:
-    output = result["payload"]
-else:
-    raise RuntimeError(result["error"])
-
-# Low-level send/recv
-req_id = channel.send_request("execute_mel", params=b'sphere -r 1;')
-channel.send_notify("scene_changed", data=b'{"file": "scene.mb"}')
-msg = channel.recv(timeout_ms=5000)   # -> dict|None (blocks)
-msg = channel.try_recv()              # -> dict|None (non-blocking)
-
-# Shutdown
-channel.shutdown()       # graceful, idempotent
-channel.is_running       # bool
-
-# Message dict structure from recv():
-# Request:  {"type": "request",  "id": str, "method": str, "params": bytes|None}
-# Response: {"type": "response", "id": str, "success": bool, "payload": bytes|None, "error": str|None}
-# Notify:   {"type": "notify",   "topic": str, "data": bytes|None}
-```
-
-### TransportManager
-
-Full-featured manager with service discovery, session management, and connection pooling.
-
-```python
-from dcc_mcp_core import TransportManager, ServiceStatus, RoutingStrategy
-
-mgr = TransportManager(
-    registry_dir="/tmp/dcc-mcp-registry",
-    max_connections_per_dcc=10,
-    idle_timeout=300,           # seconds
-    heartbeat_interval=5,       # seconds
-    connect_timeout=10,         # seconds
-    reconnect_max_retries=3,
-)
-
-# Service discovery
-instance_id = mgr.register_service(
-    dcc_type="maya",
-    host="127.0.0.1",
-    port=18812,
-    version="2025",
-    scene="/project/scene.mb",
-    metadata={"user": "artist1"},
-)
-mgr.deregister_service("maya", instance_id)
-instances = mgr.list_instances("maya")           # -> List[ServiceEntry]
-all_services = mgr.list_all_services()            # -> List[ServiceEntry]
-all_services = mgr.list_all_instances()           # alias for list_all_services()
-entry = mgr.get_service("maya", instance_id)      # -> ServiceEntry|None
-
-# Heartbeat + status
-mgr.heartbeat("maya", instance_id)  # -> bool (False if not found)
-mgr.update_service_status("maya", instance_id, ServiceStatus.BUSY)
-
-# One-call server registration (v0.12+) — bind listener + register in one step
-instance_id, listener = mgr.bind_and_register(
-    "maya",
-    version="2025",
-    metadata={"artist": "user1"},
-)
-# Transport auto-selected: Named Pipe on Windows, Unix Socket on Linux/macOS, TCP fallback
-local_addr = listener.local_address()
-channel = listener.accept()   # wait for first client connection
-
-# Smart service discovery (v0.12+)
-best = mgr.find_best_service("maya")      # best available instance (raises if none)
-ranked = mgr.rank_services("maya")        # all live instances sorted by preference
-# Preference order: Local IPC AVAILABLE → Local IPC BUSY → Local TCP AVAIL → Remote TCP ...
-for entry in ranked:
-    print(entry.instance_id, entry.status, entry.effective_address())
-
-# Session management (automatic connection routing)
-session_id = mgr.get_or_create_session("maya", instance_id)
-session_id = mgr.get_or_create_session_routed(
-    "maya",
-    strategy=RoutingStrategy.LEAST_BUSY,
-)
-session = mgr.get_session(session_id)      # -> dict|None
-mgr.record_success(session_id, latency_ms=42)
-mgr.record_error(session_id, latency_ms=500, error="timeout")
-mgr.close_session(session_id)              # -> bool
-
-# Connection pool
-conn_id = mgr.acquire_connection("maya", instance_id)
-mgr.release_connection("maya", instance_id)
-mgr.pool_size()                 # -> int
-mgr.pool_count_for_dcc("maya")  # -> int
-
-# Lifecycle
-stats = mgr.cleanup()   # -> (expired_sessions, idle_conns, errors) tuple
-mgr.shutdown()
-mgr.is_shutdown()       # -> bool
-len(mgr)                # total managed connections
-
-# ServiceStatus values
-ServiceStatus.AVAILABLE
-ServiceStatus.BUSY
-ServiceStatus.UNREACHABLE
-ServiceStatus.SHUTTING_DOWN
-
-# RoutingStrategy values
-RoutingStrategy.FIRST_AVAILABLE
-RoutingStrategy.ROUND_ROBIN
-RoutingStrategy.LEAST_BUSY
-RoutingStrategy.SPECIFIC
-RoutingStrategy.SCENE_MATCH
-RoutingStrategy.RANDOM
-```
-
 ### ServiceEntry
 
 ```python
@@ -1251,16 +1196,19 @@ entry.scene              # str|None (current open scene path)
 entry.metadata           # dict[str,str]
 entry.status             # ServiceStatus
 entry.transport_address  # TransportAddress|None
-entry.last_heartbeat_ms  # int (Unix ms; updated by TransportManager.heartbeat())
+entry.last_heartbeat_ms  # int (Unix ms)
 entry.is_ipc             # bool
 entry.effective_address()  # -> TransportAddress (transport_address or TCP fallback)
 entry.to_dict()
+```
 
-# Check staleness
-import time
-idle_sec = (time.time() * 1000 - entry.last_heartbeat_ms) / 1000
-if idle_sec > 300:
-    mgr.deregister_service(entry.dcc_type, entry.instance_id)
+### ServiceStatus
+
+```python
+ServiceStatus.AVAILABLE
+ServiceStatus.BUSY
+ServiceStatus.UNREACHABLE
+ServiceStatus.SHUTTING_DOWN
 ```
 
 ---
@@ -1699,7 +1647,7 @@ ssb = PySharedSceneBuffer.write(
 desc_json = ssb.descriptor_json()  # send this to consumer via IPC channel
 
 # Read (consumer agent side) — reconstruct from descriptor is not exposed;
-# pass ssb itself if in-process, or use FramedChannel to send desc_json
+# pass ssb itself if in-process, or use IpcChannelAdapter to send desc_json
 recovered = ssb.read()  # -> bytes (decompresses automatically)
 
 ssb.id            # str
@@ -1843,7 +1791,7 @@ For low-level servers that build on `McpHttpServer` directly, call
 MCP tool registration must complete before the server is running.
 
 The bundled `dcc-diagnostics` skill's `screenshot.py` handler tries
-`DCC_MCP_OWNER_IPC` → `channel.call("take_screenshot")` first and falls back
+`DCC_MCP_OWNER_IPC` → IPC frame with take_screenshot request first and falls back
 to `Capturer.new_auto()` when no owner IPC is configured.
 
 ---
@@ -2147,25 +2095,26 @@ for skill in skills:
         ))
 ```
 
-### Pattern 2: Full RPC call to a running DCC
+### Pattern 2: IPC call to a running DCC via DccLink
 
 ```python
 import json
-from dcc_mcp_core import TransportAddress, connect_ipc, success_result, error_result
+from dcc_mcp_core import IpcChannelAdapter, DccLinkFrame, success_result, error_result
 
-addr = TransportAddress.default_local("maya", pid=12345)
-channel = connect_ipc(addr)
+# Connect to a DCC process via named IPC channel
+client = IpcChannelAdapter.connect("maya-ipc")
 try:
-    # Primary RPC: .call() atomically sends Request + waits for correlated Response (v0.12.7+)
-    result = channel.call("execute_python", b'import maya.cmds; print(maya.cmds.ls())', timeout_ms=10000)
-    if result["success"]:
-        payload = result.get("payload", b"")
-        output = payload.decode() if isinstance(payload, bytes) else str(payload)
+    # Send a Call frame and wait for a Reply
+    req = DccLinkFrame(msg_type=1, seq=0, body=json.dumps({"method": "execute_python", "params": "import maya.cmds; print(maya.cmds.ls())"}).encode())
+    client.send_frame(req)
+    reply = client.recv_frame()
+    if reply.msg_type == 2:  # Reply
+        output = reply.body.decode()
         r = success_result(output, prompt="Objects listed. You can now select one to modify.")
-    else:
-        r = error_result("DCC script failed", result.get("error", "Unknown error"))
+    else:  # Err (msg_type=3)
+        r = error_result("DCC script failed", reply.body.decode())
 finally:
-    channel.shutdown()
+    client.shutdown()
 ```
 
 ### Pattern 3: Sandbox AI-generated code execution
@@ -2191,15 +2140,16 @@ for entry in ctx.audit_log.entries():
 ### Pattern 4: Zero-copy scene data transfer
 
 ```python
-from dcc_mcp_core import PySharedSceneBuffer, PySceneDataKind, TransportAddress, connect_ipc
+import json
+from dcc_mcp_core import PySharedSceneBuffer, PySceneDataKind, IpcChannelAdapter, DccLinkFrame
 
 # In DCC (producer)
 mesh_bytes = get_mesh_data_as_bytes()
 ssb = PySharedSceneBuffer.write(mesh_bytes, kind=PySceneDataKind.Geometry, use_compression=True)
 desc = ssb.descriptor_json()
 # Send desc via IPC channel to agent
-channel = connect_ipc(TransportAddress.default_local("maya", os.getpid()))
-channel.send_notify("mesh_ready", data=desc.encode())
+client = IpcChannelAdapter.connect("maya-ipc")
+client.send_frame(DccLinkFrame(msg_type=6, seq=0, body=json.dumps({"topic": "mesh_ready", "desc": desc}).encode()))
 ```
 
 ---

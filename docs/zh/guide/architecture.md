@@ -14,7 +14,7 @@ dcc-mcp-core (workspace 根目录)
 ├── dcc-mcp-actions      # ToolRegistry, EventBus, ToolDispatcher, Pipeline
 ├── dcc-mcp-skills       # SkillScanner, SkillCatalog, SkillWatcher, Resolver
 ├── dcc-mcp-protocols    # MCP 类型: ToolDefinition, ResourceDefinition, Prompt, BridgeKind
-├── dcc-mcp-transport    # IPC, ConnectionPool, FileRegistry, FramedChannel
+├── dcc-mcp-transport    # IPC (ipckit), DccLinkFrame, IpcChannelAdapter, SocketServerAdapter
 ├── dcc-mcp-process      # PyDccLauncher, ProcessMonitor, ProcessWatcher, CrashRecovery
 ├── dcc-mcp-telemetry    # Tracing/recording: ToolRecorder, TelemetryConfig
 ├── dcc-mcp-sandbox      # Security: SandboxPolicy, SandboxContext, AuditLog
@@ -105,18 +105,17 @@ dcc-mcp-server ← dcc-mcp-http
 
 ### dcc-mcp-transport
 
-**职责**：IPC 和网络传输层，包含服务发现、会话管理和连接池。
+**职责**：IPC 和网络传输层，基于 ipckit 提供帧级通信。
 
 **传输类型**：
 - **IPC**：Unix sockets (Linux/macOS) / Windows 命名管道 — 亚毫秒延迟，PID 唯一
 - **TCP**：网络套接字 — 跨机器或降级使用
 
 **关键组件**：
-- `TransportManager` — 高层管理器：服务注册、会话池、路由
-- `IpcListener` / `ListenerHandle` — 服务端 IPC 监听器，含连接追踪
-- `FramedChannel` — 全双工帧通道，含后台读取循环
+- `IpcChannelAdapter` — 基于 ipckit 的客户端/服务端 IPC 适配器，使用 DccLink 帧
+- `SocketServerAdapter` — 多客户端 TCP/UDS 监听器，用于服务端 IPC
+- `DccLinkFrame` — DccLink 线协议二进制帧类型（msg_type, seq, body）
 - `TransportAddress` — 协议无关端点（TCP、命名管道、Unix Socket）
-- `CircuitBreaker` — 故障检测与快速断开
 - `FileRegistry` — 基于文件的服务发现（Gateway 使用）
 
 **线协议**：MessagePack，4 字节大端长度前缀

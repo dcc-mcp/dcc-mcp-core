@@ -1,135 +1,261 @@
 # Transport Layer
 
-> **🚨 v0.14 removed the legacy transport stack (issue #251).**
+> **v0.14 replaced the legacy transport stack (issue #251).**
 >
-> The classes described below — `TransportManager`, `FramedChannel`,
-> `FramedIo`, `IpcListener` (Python), `ListenerHandle`, `RoutingStrategy`,
+> The old classes — `TransportManager`, `FramedChannel`, `FramedIo`,
+> `IpcListener` (Python), `ListenerHandle`, `RoutingStrategy`,
 > `ConnectionPool`, `InstanceRouter`, `CircuitBreaker`, `MessageEnvelope`,
 > `encode_request` / `encode_response` / `encode_notify` / `decode_envelope`,
-> `connect_ipc` — are **gone**. New code should use the DccLink adapters
-> built on `ipckit`:
->
-> - `IpcChannelAdapter.connect(name)` / `.create(name)` — per-connection
->   framed channel for Named Pipes (Windows) or Unix Sockets (*nix).
-> - `SocketServerAdapter` — multi-client IPC server with a bounded
->   connection pool.
-> - `GracefulIpcChannelAdapter` — adds graceful shutdown + reentrancy-safe
->   dispatch for DCC main-thread integration.
-> - `DccLinkFrame` / `DccLinkType` — `[u32 len][u8 type][u64 seq][msgpack body]`
->   wire frame with eight message kinds (Call, Reply, Err, Progress,
->   Cancel, Push, Ping, Pong).
-> - `ServiceEntry` + `FileRegistry` — service discovery (unchanged).
->
-> The gateway HTTP API (`GET /instances`, `POST /mcp`, …) is the public
-> surface for discovery across processes.
+> `connect_ipc` — have been removed. Use the DccLink adapters built on
+> `ipckit` documented below.
 
-The Transport layer (`dcc-mcp-transport` crate) provides async communication infrastructure for connecting MCP servers to DCC application instances. It includes connection pooling, service discovery, session management, and a wire protocol.
+The Transport layer (`dcc-mcp-transport` crate) provides IPC communication between MCP servers and DCC application instances using DccLink framing over Named Pipes (Windows) or Unix Domain Sockets (macOS/Linux).
 
 ## Overview
 
+The new transport API is built around **DccLink adapters** — thin wrappers over `ipckit` IPC channels that use a binary wire format (`[u32 len][u8 type][u64 seq][msgpack body]`) for efficient framed communication.
+
 ```python
-from dcc_mcp_core import TransportManager
+from dcc_mcp_core import IpcChannelAdapter, DccLinkFrame
 
-transport = TransportManager("/path/to/registry")
+# Server side: create a named channel and wait for a client
+server = IpcChannelAdapter.create("my-dcc")
+server.wait_for_client()
 
-# Register a DCC service
-instance_id = transport.register_service("maya", "127.0.0.1", 18812, version="2025.1")
+# Client side: connect to the server
+client = IpcChannelAdapter.connect("my-dcc")
 
-# Create a session
-session_id = transport.get_or_create_session("maya")
+# Send a frame
+frame = DccLinkFrame(msg_type=1, seq=0, body=b"hello")
+client.send_frame(frame)
 
-# Use the connection
-conn_id = transport.acquire_connection("maya")
-# ... perform operations ...
-transport.release_connection("maya", instance_id)
-
-# Cleanup and shutdown
-transport.cleanup()
-transport.shutdown()
+# Receive a frame
+received = server.recv_frame()
+print(received.body)  # b"hello"
 ```
 
-## Service Discovery
+## DccLinkFrame
 
-The transport layer uses file-based service discovery to track running DCC instances. Each instance registers with a `(dcc_type, instance_id)` key, enabling multiple instances of the same DCC.
+Binary wire frame for DCC-Link protocol. Wire format: `[u32 len][u8 type][u64 seq][msgpack body]`.
+
+### Message Types
+
+| Tag | Type | Description |
+|-----|------|-------------|
+| 1 | Call | Request invocation |
+| 2 | Reply | Successful response |
+| 3 | Err | Error response |
+| 4 | Progress | Progress update |
+| 5 | Cancel | Cancellation signal |
+| 6 | Push | Server-pushed message |
+| 7 | Ping | Heartbeat request |
+| 8 | Pong | Heartbeat response |
+
+### Constructor
 
 ```python
-id1 = transport.register_service("maya", "127.0.0.1", 18812)
-id2 = transport.register_service("maya", "127.0.0.1", 18813)
-id3 = transport.register_service("blender", "127.0.0.1", 9090, version="4.0")
+from dcc_mcp_core import DccLinkFrame
 
-maya_instances = transport.list_instances("maya")
-all_services = transport.list_all_services()
-
-transport.heartbeat("maya", id1)
-transport.deregister_service("maya", id1)
+frame = DccLinkFrame(msg_type=1, seq=0, body=b"hello")
 ```
 
-## Session Management
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `msg_type` | `int` | Message type tag (1-8) |
+| `seq` | `int` | Sequence number |
+| `body` | `bytes \| None` | Payload bytes (defaults to `b""`) |
 
-Sessions track connections to DCC instances with lifecycle state management and metrics:
+### Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `msg_type` | `int` | Message type tag (1=Call, 2=Reply, 3=Err, 4=Progress, 5=Cancel, 6=Push, 7=Ping, 8=Pong) |
+| `seq` | `int` | Sequence number |
+| `body` | `bytes` | Payload bytes |
+
+### Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `encode()` | `bytes` | Encode the frame to `[len][type][seq][body]` bytes |
+| `decode(data)` | `DccLinkFrame` | Decode a frame from bytes including the 4-byte length prefix (static) |
 
 ```python
-session_id = transport.get_or_create_session("maya", id1)
-
-session = transport.get_session(session_id)
-# session is a dict with keys: id, dcc_type, instance_id, state, request_count, error_count, last_error, created_at, last_request_at
-
-transport.record_success(session_id, 50)
-transport.record_error(session_id, 100, "timeout")
-
-backoff_ms = transport.begin_reconnect(session_id)
-transport.reconnect_success(session_id)
-
-transport.close_session(session_id)
+frame = DccLinkFrame(msg_type=1, seq=0, body=b"payload")
+encoded = frame.encode()
+decoded = DccLinkFrame.decode(encoded)
+assert decoded.msg_type == frame.msg_type
+assert decoded.seq == frame.seq
+assert decoded.body == frame.body
 ```
 
-### Session States
+## IpcChannelAdapter
 
-| State | Description |
-|-------|-------------|
-| `connected` | Active and ready for requests |
-| `idle` | Idle timeout exceeded, still valid |
-| `reconnecting` | Reconnecting after failure |
-| `closed` | Terminal state |
+Thin adapter over `ipckit::IpcChannel` using DCC-Link framing. Supports 1:1 connections over Named Pipes (Windows) or Unix Domain Sockets (macOS/Linux).
 
-## Connection Pool
+### Creating a Server
 
 ```python
-conn_id = transport.acquire_connection("maya")
-transport.release_connection("maya", id1)
-transport.pool_size()
+from dcc_mcp_core import IpcChannelAdapter
+
+server = IpcChannelAdapter.create("my-dcc")
+server.wait_for_client()  # blocks until a client connects
 ```
 
-## Configuration
+### Connecting as a Client
 
 ```python
-transport = TransportManager(
-    registry_dir="/path/to/registry",
-    max_connections_per_dcc=10,
-    idle_timeout=300,
-    heartbeat_interval=5,
-    connect_timeout=10,
-    reconnect_max_retries=3,
+from dcc_mcp_core import IpcChannelAdapter
+
+client = IpcChannelAdapter.connect("my-dcc")
+```
+
+### Sending and Receiving Frames
+
+```python
+from dcc_mcp_core import IpcChannelAdapter, DccLinkFrame
+
+# Server side
+server = IpcChannelAdapter.create("my-dcc")
+server.wait_for_client()
+
+# Client side
+client = IpcChannelAdapter.connect("my-dcc")
+
+# Client sends a Call frame
+call_frame = DccLinkFrame(msg_type=1, seq=0, body=b"execute_python")
+client.send_frame(call_frame)
+
+# Server receives the frame
+received = server.recv_frame()  # blocking; returns None if channel closed
+if received is not None:
+    print(received.msg_type)  # 1
+    print(received.body)      # b"execute_python"
+
+    # Server sends a Reply frame
+    reply = DccLinkFrame(msg_type=2, seq=0, body=b"ok")
+    server.send_frame(reply)
+
+# Client receives the reply
+response = client.recv_frame()
+```
+
+### Static Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `create(name)` | `IpcChannelAdapter` | Create a server-side IPC channel |
+| `connect(name)` | `IpcChannelAdapter` | Connect to an existing IPC channel |
+
+### Instance Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `wait_for_client()` | `None` | Wait for a client to connect (server-side only) |
+| `send_frame(frame)` | `None` | Send a `DccLinkFrame` to the peer |
+| `recv_frame()` | `DccLinkFrame \| None` | Receive a frame (blocking). Returns `None` if channel closed |
+
+## GracefulIpcChannelAdapter
+
+Extends `IpcChannelAdapter` with graceful shutdown and DCC main-thread integration. Use this in DCC plugins that need to process IPC messages on the main thread without blocking.
+
+### Creating a Graceful Server
+
+```python
+from dcc_mcp_core import GracefulIpcChannelAdapter
+
+server = GracefulIpcChannelAdapter.create("my-dcc")
+server.bind_affinity_thread()  # call once on the DCC main thread
+server.wait_for_client()
+```
+
+### Pumping Messages on the Main Thread
+
+In DCC applications, IPC messages must often be processed on the main thread. Use `pump_pending()` from an idle callback:
+
+```python
+# Maya example: use scriptJob idleEvent
+import maya.cmds as cmds
+
+def on_idle():
+    processed = server.pump_pending(budget_ms=50)
+    # returns number of items processed
+
+cmds.scriptJob(idleEvent="python(\"on_idle()\")")
+```
+
+### Graceful Shutdown
+
+```python
+server.shutdown()  # signals the channel to shut down gracefully
+```
+
+### Static Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `create(name)` | `GracefulIpcChannelAdapter` | Create a server-side graceful IPC channel |
+| `connect(name)` | `GracefulIpcChannelAdapter` | Connect to an existing graceful IPC channel |
+
+### Instance Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `wait_for_client()` | `None` | Wait for a client to connect (server-side only) |
+| `send_frame(frame)` | `None` | Send a `DccLinkFrame` to the peer |
+| `recv_frame()` | `DccLinkFrame \| None` | Receive a frame (blocking). Returns `None` if channel closed |
+| `shutdown()` | `None` | Signal the channel to shut down gracefully |
+| `bind_affinity_thread()` | `None` | Bind the current thread as the affinity thread. Call **once** on the DCC main thread |
+| `pump_pending(budget_ms=100)` | `int` | Drain pending work items on the affinity thread within the budget. Returns items processed |
+
+## SocketServerAdapter
+
+Multi-client IPC server using Unix Domain Sockets (macOS/Linux) or Named Pipes (Windows). Supports a bounded connection pool.
+
+### Creating a Socket Server
+
+```python
+from dcc_mcp_core import SocketServerAdapter
+
+server = SocketServerAdapter(
+    path="/tmp/my-dcc.sock",  # Unix socket path or Windows pipe name
+    max_connections=10,        # maximum concurrent connections
+    connection_timeout_ms=30000,  # connection timeout in ms
 )
+
+print(server.socket_path)      # the path this server is listening on
+print(server.connection_count) # number of currently connected clients
+
+server.shutdown()  # gracefully shut down
 ```
 
-## Lifecycle
+### Constructor
 
-```python
-stale, sessions, evicted = transport.cleanup()
-transport.shutdown()
-transport.is_shutdown()
-```
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `path` | `str` | — | Socket path (Unix) or pipe name (Windows) |
+| `max_connections` | `int` | `10` | Maximum concurrent connections |
+| `connection_timeout_ms` | `int` | `30000` | Connection timeout in milliseconds |
 
----
+### Properties
 
-## Low-Level IPC API
+| Property | Type | Description |
+|----------|------|-------------|
+| `socket_path` | `str` | The socket path this server is listening on |
+| `connection_count` | `int` | Number of currently connected clients |
 
-For DCC plugins that need to act as a server or communicate directly over IPC (bypassing `TransportManager`), use the low-level classes.
+### Instance Methods
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `shutdown()` | `None` | Gracefully shut down the server (blocks until stopped) |
+| `signal_shutdown()` | `None` | Signal shutdown without blocking |
+
+## Transport Helpers
 
 ### TransportAddress
 
-Protocol-agnostic endpoint descriptor. Supports TCP, Windows Named Pipes, and Unix Domain Sockets.
+Protocol-agnostic transport endpoint. Supports TCP, Named Pipes (Windows), and Unix Domain Sockets (macOS/Linux).
 
 ```python
 from dcc_mcp_core import TransportAddress
@@ -157,155 +283,46 @@ addr = TransportAddress.parse("tcp://127.0.0.1:18812")
 
 ### TransportScheme
 
-Strategy enum for selecting the optimal transport type for a connection:
+Strategy for choosing the optimal communication channel:
 
-| Variant | Description |
-|---------|-------------|
-| `TransportScheme.AUTO` | Platform-optimal: Named Pipe on Windows, Unix Socket on Linux/macOS |
-| `TransportScheme.TCP_ONLY` | Always use TCP |
-| `TransportScheme.PREFER_NAMED_PIPE` | Named Pipe if same machine, TCP otherwise |
-| `TransportScheme.PREFER_UNIX_SOCKET` | Unix socket if same machine, TCP otherwise |
-| `TransportScheme.PREFER_IPC` | Any local IPC transport |
-
-```python
-from dcc_mcp_core import TransportScheme, TransportAddress
-
-scheme = TransportScheme.AUTO
-addr = scheme.select_address("maya", "127.0.0.1", 18812, pid=12345)
-```
-
-### IpcListener
-
-Server-side listener. Used inside DCC plugins to accept incoming connections.
+| Constant | Description |
+|----------|-------------|
+| `AUTO` | Auto-select best transport (Named Pipe on Windows, Unix Socket on *nix) |
+| `TCP_ONLY` | Always use TCP |
+| `PREFER_NAMED_PIPE` | Prefer Named Pipe, fall back to TCP |
+| `PREFER_UNIX_SOCKET` | Prefer Unix Socket, fall back to TCP |
+| `PREFER_IPC` | Prefer any IPC, fall back to TCP |
 
 ```python
-from dcc_mcp_core import IpcListener, TransportAddress
+from dcc_mcp_core import TransportScheme
 
-# Bind to a transport address (port 0 = OS-assigned)
-addr = TransportAddress.tcp("127.0.0.1", 0)
-listener = IpcListener.bind(addr)
-
-# Get the actual bound address (useful when port=0)
-local_addr = listener.local_address()
-print(f"Listening on {local_addr}")   # tcp://127.0.0.1:54321
-
-# Accept a connection (blocking)
-channel = listener.accept(timeout_ms=5000)  # → FramedChannel
-
-# Or convert to a handle for connection tracking
-handle = listener.into_handle()   # consumes listener; can only call once
+addr = TransportScheme.AUTO.select_address("maya", "127.0.0.1", 18812, pid=12345)
 ```
 
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `IpcListener.bind(addr)` | `IpcListener` | Bind to address. Raises `RuntimeError` if port in use |
-| `local_address()` | `TransportAddress` | Actual bound address |
-| `transport_name` | `str` | `"tcp"`, `"named_pipe"`, or `"unix_socket"` |
-| `accept(timeout_ms=None)` | `FramedChannel` | Accept next connection. Blocks until client connects |
-| `into_handle()` | `ListenerHandle` | Wrap in a handle with connection tracking (consumes `self`) |
+### ServiceEntry
 
-### ListenerHandle
+Represents a discovered DCC service instance.
 
-Wraps `IpcListener` with connection tracking and shutdown control.
-
-```python
-from dcc_mcp_core import IpcListener, TransportAddress
-
-addr = TransportAddress.default_local("maya", pid=12345)
-listener = IpcListener.bind(addr)
-handle = listener.into_handle()
-
-print(handle.accept_count)   # 0
-print(handle.is_shutdown)    # False
-
-# Request shutdown (stop accepting new connections)
-handle.shutdown()
-```
-
-| Property/Method | Returns | Description |
-|-----------------|---------|-------------|
-| `accept_count` | `int` | Connections accepted so far |
-| `is_shutdown` | `bool` | Whether shutdown has been requested |
-| `transport_name` | `str` | Transport type name |
-| `local_address()` | `TransportAddress` | Bound address |
-| `shutdown()` | `None` | Stop accepting new connections (idempotent) |
-
-### FramedChannel
-
-Full-duplex framed channel with a background reader loop. Handles Ping/Pong heartbeats automatically. Obtain via `IpcListener.accept()` (server) or `connect_ipc()` (client).
-
-```python
-from dcc_mcp_core import connect_ipc, TransportAddress
-
-# Client-side: connect to a running DCC server
-addr = TransportAddress.tcp("127.0.0.1", 18812)
-channel = connect_ipc(addr, timeout_ms=10000)
-
-# Liveness check
-rtt_ms = channel.ping()          # int, round-trip time in ms
-
-# Receive (blocking)
-msg = channel.recv(timeout_ms=5000)
-# msg: dict with "type" field → "request", "response", or "notify"
-
-# Non-blocking receive
-msg = channel.try_recv()         # None if buffer empty
-
-# Send
-req_id = channel.send_request("execute_python", params=b'{"code":"..."}')
-channel.send_response(req_id, success=True, payload=b'{"result":1}')
-channel.send_notify("scene_changed", data=b'{"scene":"untitled"}')
-
-# Shutdown
-channel.shutdown()
-print(channel.is_running)        # False
-```
-
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `recv(timeout_ms=None)` | `dict \| None` | Blocking receive. Returns `None` on timeout or close |
-| `try_recv()` | `dict \| None` | Non-blocking receive. Returns `None` if buffer empty |
-| `ping(timeout_ms=5000)` | `int` | Heartbeat ping; returns RTT ms. Data messages not lost |
-| `send_request(method, params=None)` | `str` | Send request; returns UUID request ID |
-| `send_response(request_id, success, payload=None, error=None)` | `None` | Send response for a request |
-| `send_notify(topic, data=None)` | `None` | Send a one-way notification |
-| `shutdown()` | `None` | Graceful shutdown (idempotent) |
-| `is_running` | `bool` | Whether the background reader is still running |
-
-### connect_ipc
-
-Client-side connection factory:
-
-```python
-from dcc_mcp_core import connect_ipc, TransportAddress
-
-channel = connect_ipc(
-    addr=TransportAddress.tcp("127.0.0.1", 18812),
-    timeout_ms=10000,    # default: 10000 ms
-)
-```
-
-Raises `RuntimeError` if the connection cannot be established within the timeout.
-
-### RoutingStrategy
-
-Strategy for selecting a DCC instance when multiple are registered:
-
-| Variant | Description |
-|---------|-------------|
-| `FIRST_AVAILABLE` | Pick the first reachable instance |
-| `ROUND_ROBIN` | Cycle through instances |
-| `LEAST_BUSY` | Instance with lowest session request count |
-| `SPECIFIC` | Requires an explicit `instance_id` |
-| `SCENE_MATCH` | Match by open scene name |
-| `RANDOM` | Random instance selection |
+| Property | Type | Description |
+|----------|------|-------------|
+| `dcc_type` | `str` | DCC application type (e.g. `"maya"`) |
+| `instance_id` | `str` | UUID string |
+| `host` | `str` | Host address |
+| `port` | `int` | TCP port |
+| `version` | `str \| None` | DCC version |
+| `scene` | `str \| None` | Currently open scene/file |
+| `metadata` | `dict[str, str]` | Arbitrary string-only metadata |
+| `extras` | `dict[str, Any]` | JSON-typed DCC metadata |
+| `status` | `ServiceStatus` | Instance status |
+| `transport_address` | `TransportAddress \| None` | Preferred IPC address |
+| `last_heartbeat_ms` | `int` | Last heartbeat timestamp (Unix ms) |
 
 ### ServiceStatus
 
-Enum for DCC service health:
+DCC service health status:
 
-| Variant | Meaning |
-|---------|---------|
+| Constant | Description |
+|----------|-------------|
 | `AVAILABLE` | Ready to accept requests |
 | `BUSY` | Processing; may accept more |
 | `UNREACHABLE` | Not responding to heartbeats |
@@ -313,40 +330,48 @@ Enum for DCC service health:
 
 ---
 
-## End-to-End Example: DCC Plugin Server
+## End-to-End Example
+
+### DCC Plugin (Server)
 
 ```python
-# Inside a Maya plugin (server side)
-import maya.cmds as cmds
-from dcc_mcp_core import IpcListener, TransportAddress
-import threading, os
+# Inside a Maya plugin
+from dcc_mcp_core import GracefulIpcChannelAdapter, DccLinkFrame
 
-addr = TransportAddress.default_local("maya", os.getpid())
-listener = IpcListener.bind(addr)
-print(f"Maya IPC server: {listener.local_address()}")
+server = GracefulIpcChannelAdapter.create("maya-ipc")
+server.bind_affinity_thread()  # call once on main thread
+server.wait_for_client()
 
-def serve():
-    channel = listener.accept()
-    while True:
-        msg = channel.recv(timeout_ms=1000)
-        if msg is None:
-            break
-        if msg["type"] == "request":
-            result = cmds.ls()
-            channel.send_response(msg["id"], success=True,
-                                  payload=str(result).encode())
+# In Maya idle callback:
+def on_idle():
+    processed = server.pump_pending(budget_ms=50)
 
-threading.Thread(target=serve, daemon=True).start()
+# Main message loop
+while True:
+    frame = server.recv_frame()
+    if frame is None:
+        break  # channel closed
+    if frame.msg_type == 1:  # Call
+        # Process the request...
+        reply = DccLinkFrame(msg_type=2, seq=frame.seq, body=b"ok")
+        server.send_frame(reply)
+
+server.shutdown()
 ```
 
-```python
-# Client side (MCP agent)
-from dcc_mcp_core import connect_ipc, TransportAddress
+### MCP Agent (Client)
 
-addr = TransportAddress.default_local("maya", pid=12345)
-channel = connect_ipc(addr)
-req_id = channel.send_request("ls")
-response = channel.recv()
-# response["type"] == "response", response["payload"] == b"[...]"
-channel.shutdown()
+```python
+from dcc_mcp_core import IpcChannelAdapter, DccLinkFrame
+
+client = IpcChannelAdapter.connect("maya-ipc")
+
+# Send a Call frame
+call = DccLinkFrame(msg_type=1, seq=0, body=b"get_scene_info")
+client.send_frame(call)
+
+# Receive the Reply
+reply = client.recv_frame()
+if reply and reply.msg_type == 2:
+    print(f"Result: {reply.body}")
 ```

@@ -229,22 +229,22 @@ Use `TransportAddress.default_local(dcc_type, pid)` to automatically select the 
 
 **DCC-side (server):**
 ```python
-import os
-from dcc_mcp_core import TransportManager, IpcListener, TransportAddress
+from dcc_mcp_core import IpcChannelAdapter, DccLinkFrame
 
-mgr = TransportManager("/tmp/dcc-mcp")
-instance_id, listener = mgr.bind_and_register("maya", version="2025")
-channel = listener.accept()  # wait for agent to connect
+# Server: create named IPC endpoint and wait for client
+server = IpcChannelAdapter.create("maya-2025")
+server.wait_for_client()
 ```
 
 **Agent-side (client):**
 ```python
-from dcc_mcp_core import TransportManager, connect_ipc
+from dcc_mcp_core import IpcChannelAdapter, DccLinkFrame
 
-mgr = TransportManager("/tmp/dcc-mcp")
-entry = mgr.find_best_service("maya")
-channel = connect_ipc(entry.effective_address())
-rtt = channel.ping()
+# Client: connect to the DCC's IPC endpoint
+client = IpcChannelAdapter.connect("maya-2025")
+request = DccLinkFrame(msg_type=1, seq=0, body=b'{"method":"ping"}')
+client.send_frame(request)
+reply = client.recv_frame()
 ```
 
 ## MCP HTTP Server

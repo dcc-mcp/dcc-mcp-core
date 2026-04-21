@@ -13,7 +13,7 @@
 
 **Production-grade foundation for AI-assisted DCC workflows** combining the **Model Context Protocol (MCP)** and a **zero-code Skills system**. Provides a **Rust-powered core with Python bindings (PyO3)** delivering enterprise-grade performance, security, and scalability — all with **zero runtime Python dependencies**. Supports Python 3.7–3.13.
 
-> **Note**: This project is in active development (v0.13+). APIs may evolve; see CHANGELOG.md for version history.
+> **Note**: This project is in active development (v0.14+). APIs may evolve; see CHANGELOG.md for version history.
 
 ---
 
@@ -394,7 +394,7 @@ dcc-mcp-core is organized as a **Rust workspace of 15 crates**, compiled into a 
 | `dcc-mcp-actions` | Tool execution lifecycle | `ToolRegistry`, `EventBus`, `ToolDispatcher`, `ToolValidator`, `ToolPipeline` |
 | `dcc-mcp-skills` | Skills discovery & loading | `SkillScanner`, `SkillCatalog`, `SkillWatcher`, dependency resolver |
 | `dcc-mcp-protocols` | MCP protocol types | `ToolDefinition`, `ResourceDefinition`, `PromptDefinition`, `DccAdapter`, `BridgeKind` |
-| `dcc-mcp-transport` | IPC communication | `TransportManager`, `ConnectionPool`, `IpcListener`, `FramedChannel`, `CircuitBreaker`, `FileRegistry` |
+| `dcc-mcp-transport` | IPC communication | `DccLinkFrame`, `IpcChannelAdapter`, `GracefulIpcChannelAdapter`, `SocketServerAdapter`, `TransportAddress` |
 | `dcc-mcp-process` | Process management | `PyDccLauncher`, `ProcessMonitor`, `ProcessWatcher`, `CrashRecoveryPolicy` |
 | `dcc-mcp-sandbox` | Security | `SandboxPolicy`, `InputValidator`, `AuditLog` |
 | `dcc-mcp-shm` | Shared memory | `SharedBuffer`, `BufferPool`, LZ4 compression |
@@ -411,13 +411,13 @@ dcc-mcp-core is organized as a **Rust workspace of 15 crates**, compiled into a 
 - **Zero runtime Python deps**: Everything compiled into native extension
 - **Skills system**: Zero-code MCP tool registration via SKILL.md + scripts/
 - **Validated dispatch**: Input validation pipeline before execution
-- **Resilient IPC**: Connection pooling, circuit breaker, automatic retry
+- **Resilient IPC**: DccLink framing via ipckit (IpcChannelAdapter, SocketServerAdapter)
 - **Process management**: Launch, monitor, auto-recover DCC processes
 - **Sandbox security**: Policy-based access control with audit logging
 - **Screen capture**: Cross-platform DCC viewport capture for AI visual feedback
 - **USD integration**: Universal Scene Description read/write bridge
 - **Structured telemetry**: Tracing & recording for observability
-- **~177 public Python symbols** with full type stubs (`.pyi`)
+- **~180 public Python symbols** with full type stubs (`.pyi`)
 - **OpenClaw Skills compatible**: Reuse existing ecosystem format
 
 ## Installation
@@ -472,27 +472,22 @@ vx just preflight       # Pre-commit checks only
 
 ### Transport Layer — Inter-Process Communication
 
-dcc-mcp-core provides a production-ready IPC transport layer:
+dcc-mcp-core provides IPC via DccLink framing (ipckit-based, v0.14+):
 
 ```python
-from dcc_mcp_core import (
-    TransportManager, TransportAddress, TransportScheme,
-    RoutingStrategy, IpcListener, connect_ipc,
-    FramedChannel
-)
+from dcc_mcp_core import DccLinkFrame, IpcChannelAdapter, GracefulIpcChannelAdapter, SocketServerAdapter
 
-# Server side: bind and accept connections (blocking)
-listener = IpcListener.bind("/tmp/dcc-mcp-server.sock")
-channel = listener.accept(timeout_ms=10000)   # blocks until client connects
+# Server side: create channel and wait for client
+server = IpcChannelAdapter.create("dcc-mcp-maya")
+server.wait_for_client()  # blocks until client connects
 
 # Client side: connect to server
-channel = connect_ipc("/tmp/dcc-mcp-server.sock")
-# Primary RPC helper (v0.12.7+) — send request and wait for correlated response
-result = channel.call("ping", b"", timeout_ms=5000)
-# result: {"id": str, "success": bool, "payload": bytes, "error": str | None}
+client = IpcChannelAdapter.connect("dcc-mcp-maya")
+client.send_frame(DccLinkFrame(msg_type=1, seq=1, body=b'{"method":"ping"}'))
+reply = client.recv_frame()  # DccLinkFrame
 
-# Advanced: service registry + transport manager
-mgr = TransportManager(registry_dir="/tmp/dcc-registry")
+# Multi-client socket server
+sock_server = SocketServerAdapter("/tmp/dcc-mcp.sock", max_connections=10)
 ```
 
 ### Process Management — DCC Lifecycle Control
@@ -632,7 +627,7 @@ If you're an AI coding agent, also see:
 - **[GEMINI.md](GEMINI.md)** — Gemini-specific instructions and workflows
 - **[CODEBUDDY.md](CODEBUDDY.md)** — CodeBuddy Code-specific instructions and workflows
 - **[.agents/skills/dcc-mcp-core/SKILL.md](.agents/skills/dcc-mcp-core/SKILL.md)** — Complete API skill definition for learning and using this library
-- **[python/dcc_mcp_core/__init__.py](python/dcc_mcp_core/__init__.py)** — Full public API surface (~177 symbols)
+- **[python/dcc_mcp_core/__init__.py](python/dcc_mcp_core/__init__.py)** — Full public API surface (~180 symbols)
 - **[llms.txt](llms.txt)** — Concise API reference optimized for LLMs
 - **[llms-full.txt](llms-full.txt)** — Complete API reference optimized for LLMs
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** — Development workflow and coding standards

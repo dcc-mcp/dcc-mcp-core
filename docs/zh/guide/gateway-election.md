@@ -86,108 +86,43 @@ Maya v0.12.6（网关）              Maya v0.12.29（新实例）
 > PyO3 嵌入式宿主（Maya 等）下的监听器生命周期变化见后文 spawn_mode 与 issue #303 说明。
 
 ```python
-from dcc_mcp_core import TransportManager
-import os
+from dcc_mcp_core import create_skill_server, McpHttpConfig
 
-mgr = TransportManager("/tmp/dcc-mcp")
-
-# Maya #1：动画工作
-iid_anim = mgr.register_service(
-    "maya", "127.0.0.1", 18812,
-    pid=os.getpid(),
-    display_name="Maya-Animation",
-    scene="shot_001.ma",
-    documents=["shot_001.ma", "shot_002.ma"],
-    version="2025",
-)
-
-# Maya #2：绑定工作
-iid_rig = mgr.register_service(
-    "maya", "127.0.0.1", 18813,
-    pid=12345,
-    display_name="Maya-Rigging",
-    scene="character_rig.ma",
-    documents=["character_rig.ma"],
-    version="2025",
-)
-
-# 列出所有 Maya 实例
-instances = mgr.list_instances("maya")
-# → [Maya-Animation, Maya-Rigging]
-
-# 查找最佳实例（AVAILABLE > BUSY；IPC > TCP）
-best = mgr.find_best_service("maya")
-
-# 按优先级排列所有实例
-ranked = mgr.rank_services("maya")
+# 启动带 Gateway 的服务器（自动注册）
+server = create_skill_server("maya", McpHttpConfig(port=8765))
+handle = server.start()
 ```
 
 ## 文档追踪
 
-对于多文档 DCC（Photoshop、After Effects），追踪所有打开的文件：
+对于多文档 DCC（Photoshop、After Effects），网关通过 `McpHttpConfig.scene` 追踪活跃文档：
 
 ```python
-# Photoshop 以初始文档注册
-iid = mgr.register_service(
-    "photoshop", "127.0.0.1", 18820,
-    pid=55001,
-    display_name="PS-Marketing",
-    scene="logo.psd",
-    documents=["logo.psd", "banner.psd"],
-)
+from dcc_mcp_core import create_skill_server, McpHttpConfig
 
-# 用户打开新文档
-mgr.update_documents(
-    "photoshop", iid,
-    active_document="icon.psd",
-    documents=["logo.psd", "banner.psd", "icon.psd"],
-)
+config = McpHttpConfig(port=0, server_name="photoshop")
+config.gateway_port = 9765
+config.dcc_type = "photoshop"
+config.scene = "logo.psd"  # 当前活跃文档
 
-# 用户切换活跃文档
-mgr.update_documents(
-    "photoshop", iid,
-    active_document="banner.psd",
-    documents=["logo.psd", "banner.psd", "icon.psd"],
-)
-
-entry = mgr.get_service("photoshop", iid)
-print(entry.scene)      # "banner.psd"（活跃文档）
-print(entry.documents)  # ["logo.psd", "banner.psd", "icon.psd"]
+server = create_skill_server("photoshop", config)
+handle = server.start()
 ```
+
+文档切换时更新 `config.scene` 即可反映到网关路由中。
 
 ## 会话隔离
 
-每个 AI 会话**绑定到一个实例**：
+每个 AI 会话**绑定到一个实例**。通过聚合式网关，多个实例的工具都会出现在同一份 `tools/list` 中，通过 8 字符前缀区分，agent 可定向调用任一实例：
 
-```python
-# AI 智能体 A 只与 Maya-Animation 通信
-session_a = mgr.get_or_create_session("maya", iid_anim)
-
-# AI 智能体 B 只与 Maya-Rigging 通信
-session_b = mgr.get_or_create_session("maya", iid_rig)
-
-# 会话不同——无上下文混淆
-assert session_a != session_b
-
-# 通过聚合式网关，两个实例的工具都会出现在同一份 tools/list 中，
-# 通过 8 字符前缀区分，agent 可定向调用任一实例：
-#   a1b2c3d4__set_keyframe   ← maya-animation
-#   e5f6g7h8__mirror_joints  ← maya-rigging
+```
+a1b2c3d4__set_keyframe   ← maya-animation
+e5f6g7h8__mirror_joints  ← maya-rigging
 ```
 
 ## 实例健康检查
 
-```python
-# 通过心跳保持实例存活
-mgr.heartbeat("maya", iid)  # → True 表示存活，False 表示未找到
-
-# 更新实例状态
-from dcc_mcp_core import ServiceStatus
-mgr.update_service_status("maya", iid, ServiceStatus.BUSY)
-
-# DCC 退出时清理
-mgr.deregister_service("maya", iid)
-```
+网关通过心跳自动检测实例健康状态（`stale_timeout_secs` 和 `heartbeat_secs` 在 `McpHttpConfig` 中配置）。实例退出时 `McpServerHandle` 被 drop，自动从网关注销。
 
 ## 向后兼容性
 

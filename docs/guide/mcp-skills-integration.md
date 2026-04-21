@@ -74,25 +74,11 @@ DCC Bridge Plugin
 ### ServiceEntry — What Each DCC Registers
 
 ```python
-from dcc_mcp_core import TransportManager
+from dcc_mcp_core import create_skill_server, McpHttpConfig
 
-mgr = TransportManager(registry_dir="/tmp/dcc-mcp")
-
-# Maya bridge plugin calls this on startup:
-instance_id, listener = mgr.bind_and_register(
-    dcc_type="maya",
-    version="2025",
-)
-
-# Or with rich metadata for smart routing:
-iid = mgr.register_service(
-    "maya", "127.0.0.1", 18812,
-    pid=os.getpid(),
-    display_name="Maya-Production",
-    scene="character.ma",
-    documents=["character.ma", "rig.ma"],
-    version="2025",
-)
+# Gateway auto-registers the DCC instance
+server = create_skill_server("maya", McpHttpConfig(port=8765))
+handle = server.start()
 ```
 
 The gateway reads this to know:
@@ -103,11 +89,9 @@ The gateway reads this to know:
 ### Session Isolation
 
 ```python
-# Pin session to specific Maya instance
-session_id = mgr.get_or_create_session("maya", instance_id)
-
-# tools/list filtered to this Maya instance's skills only
-# AI agent sees 150 tools, not 750
+# Session pinning is handled automatically by the gateway
+# based on dcc_type, dcc_version, and scene metadata
+# set on McpHttpConfig
 ```
 
 ### Skills System
