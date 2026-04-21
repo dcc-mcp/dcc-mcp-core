@@ -63,8 +63,14 @@ When you need information, read in this order — stop when you find what you ne
   - **Embedded Python** (`DccServerBase`) — Maya, Blender, Houdini, Unreal
   - **WebSocket Bridge** (`DccBridge`) — Photoshop, ZBrush, Unity, After Effects
   - **WebView Host** (`WebViewAdapter`) — AuroraView, Electron panels
-- **SKILL.md frontmatter fields**: agentskills.io standard (`name`, `description`, `license`, `compatibility`, `metadata`, `allowed-tools`) + dcc-mcp-core extensions. **v0.15+ (issue #356)**: prefer the agentskills.io-compliant `metadata.dcc-mcp.*` form (e.g. `metadata["dcc-mcp.dcc"]`, `metadata["dcc-mcp.tools"] = "tools.yaml"`); top-level legacy extension keys (`dcc`, `tags`, `search-hint`, `tools`, `groups`, `depends`, `next-tools`) still parse but emit a one-shot deprecation warning and `SkillMetadata.is_spec_compliant()` returns `False`. See `docs/guide/skills.md#migrating-pre-015-skillmd`.
-- **`next-tools`**: Per-tool field guiding AI agents to follow-up tools (`on-success` / `on-failure`). dcc-mcp-core extension, not in agentskills.io spec.
+- **SKILL.md frontmatter fields**: agentskills.io 1.0 allows ONLY six top-level keys — `name`, `description`, `license`, `compatibility`, `metadata`, `allowed-tools`. All dcc-mcp-core extensions live under `metadata:` as namespaced `dcc-mcp.<feature>` keys. The body stays ≤500 lines / ≤5000 tokens.
+- **SKILL.md sibling-file pattern (THE design rule for new features, v0.15+ / #356)**: every new extension — `tools`, `groups`, `workflows`, `prompts`, `next-tools`, `examples`, annotation packs, anything future — MUST be a `metadata.dcc-mcp.<feature>` value that **points at a sibling file** (glob or filename relative to the skill directory). Never inline the payload. This is architectural, not per-feature: when designing a new SKILL.md-touching feature, the gate is "Can it be a `metadata.dcc-mcp.<feature>` pointer to sibling YAML/MD?" If no, write a proposal under `docs/proposals/` first.
+  - Good: `metadata["dcc-mcp.workflows"] = "workflows/*.workflow.yaml"` + `workflows/vendor_intake.workflow.yaml` next to SKILL.md.
+  - Good: `metadata["dcc-mcp.tools"] = "tools.yaml"` + `tools.yaml` carrying the `tools:` and optional `groups:` lists.
+  - Bad: putting a `workflows:` / `tools:` / `prompts:` block at the SKILL.md top level (legacy parse still works but emits a deprecation warn and flips `is_spec_compliant()` to False).
+  - Bad: inlining a multi-step workflow or a long prompt template inside `metadata:` as a YAML block — use a sibling file even under `metadata:`.
+  - See `docs/guide/skills.md#migrating-pre-015-skillmd` for the before/after mapping.
+- **`next-tools`**: Per-tool field guiding AI agents to follow-up tools (`on-success` / `on-failure`). dcc-mcp-core extension, carried inside the `tools.yaml` sibling file — never at the SKILL.md top level.
 - **`allowed-tools`**: Experimental agentskills.io field — space-separated pre-approved tool strings (e.g. `Bash(git:*) Read`)
 
 ```python

@@ -294,6 +294,68 @@ result = dispatcher.dispatch("name", json_str)   # returns dict
 registry.register(name="my_tool", description="...", dcc="maya")
 ```
 
+**SKILL.md sibling-file pattern — THE rule for every new extension (v0.15+ / #356):**
+
+Do **not** add new top-level frontmatter keys to `SKILL.md`. agentskills.io
+1.0 only allows `name`, `description`, `license`, `compatibility`,
+`metadata`, `allowed-tools` at the top level. Every dcc-mcp-core
+extension — `tools`, `groups`, `workflows`, `prompts`, behaviour
+chains, annotations, templates, examples packs, anything future —
+MUST be expressed as:
+
+1. A **namespaced key under `metadata:`** using the `dcc-mcp.<feature>` convention.
+2. The key's **value is a glob or filename** pointing at a sibling
+   file (YAML or Markdown) that carries the actual payload.
+3. The sibling file lives **inside the skill directory**, not
+   inline in `SKILL.md`.
+
+```yaml
+---
+name: maya-animation
+description: >-
+  Maya animation keyframes, timeline, curves. Use when the user asks to
+  set/query keyframes, change timeline range, or bake simulations.
+license: MIT
+metadata:
+  dcc-mcp.dcc: maya
+  dcc-mcp.tools: "tools.yaml"              # ✓ points at sibling
+  dcc-mcp.groups: "tools.yaml"             # ✓ same or separate file
+  dcc-mcp.workflows: "workflows/*.workflow.yaml"
+  dcc-mcp.prompts: "prompts/*.prompt.yaml"
+  dcc-mcp.examples: "references/EXAMPLES.md"
+---
+# body — human-readable instructions only
+```
+
+```
+maya-animation/
+├── SKILL.md                    # metadata map + body
+├── tools.yaml                  # tools + groups
+├── workflows/
+│   ├── vendor_intake.workflow.yaml
+│   └── nightly_cleanup.workflow.yaml
+├── prompts/
+│   └── review_scene.prompt.yaml
+└── references/
+    └── EXAMPLES.md
+```
+
+Why this is non-negotiable:
+
+- **`skills-ref validate` passes** — no custom top-level fields.
+- **Progressive disclosure** — agents only pay tokens for the sibling
+  files they actually need; a 60-tool skill stays cheap to index.
+- **Diffable** — one PR per workflow/prompt file, not buried in a
+  monster SKILL.md block.
+- **Forward-compatible** — future extensions add a new
+  `metadata.dcc-mcp.<x>` key and a new sibling schema, without
+  re-negotiating the frontmatter spec.
+
+When you design a new feature that touches SKILL.md, the design review
+gate is: "Can this live as a `metadata.dcc-mcp.<feature>` pointer to
+sibling files?" If the answer is no, bring it to a proposal before
+implementing (see `docs/proposals/`).
+
 **`ToolRegistry` method names still use "action" (v0.13 compatibility):**
 ```python
 # The Rust API was renamed action→tool in v0.13, but some method names
@@ -510,6 +572,7 @@ json_str = result.to_json()    # JSON string
 - Use `next-tools: on-success/on-failure` in SKILL.md — guides AI agents to follow-up tools
 - Use `search-hint:` in SKILL.md — improves `search_skills` keyword matching
 - Use tool groups with `default_active: false` for power-user features — keeps `tools/list` small
+- For every new SKILL.md extension, use a `metadata.dcc-mcp.<feature>` key pointing at a sibling file (see "SKILL.md sibling-file pattern" in Traps). Same rule for `tools`, `groups`, `workflows`, `prompts`, and anything future.
 - Unpack `scan_and_load()`: `skills, skipped = scan_and_load(dcc_name="maya")`
 - Register ALL handlers BEFORE `McpHttpServer.start()` — the server reads the registry at startup
 - Use `SandboxPolicy` + `InputValidator` for AI-driven tool execution
@@ -532,7 +595,8 @@ json_str = result.to_json()    # JSON string
 - Don't import `DeferredExecutor` from public `__init__` — use `from dcc_mcp_core._core import DeferredExecutor`
 - Don't call `.new_auto()` then `.capture_window()` — use `.new_window_auto()` for single-window capture
 - Don't use legacy APIs: `ActionManager`, `create_action_manager()`, `MiddlewareChain`, `Action` — removed in v0.12+
-- Don't put dcc-mcp-core extension keys at the top level of new SKILL.md files (v0.15+ / issue #356) — use the `metadata.dcc-mcp.*` form (`metadata["dcc-mcp.dcc"]`, `metadata["dcc-mcp.tools"] = "tools.yaml"`). Top-level `dcc:`/`tags:`/`tools:`/`groups:`/`depends:`/`search-hint:` still parse for backward compat but trigger a deprecation warn and `is_spec_compliant()` returns `False`. See `docs/guide/skills.md#migrating-pre-015-skillmd`.
+- Don't put ANY dcc-mcp-core extension at the top level of a new SKILL.md (v0.15+ / #356) — **the rule is architectural, not a list of specific fields**. `tools`, `groups`, `workflows`, `prompts`, `next-tools` behaviour chains, `examples` packs, and any future extension MUST be a `metadata.dcc-mcp.<feature>` key pointing at a sibling file. See the "SKILL.md sibling-file pattern" trap for the full rationale. Legacy top-level `dcc:`/`tags:`/`tools:`/`groups:`/`depends:`/`search-hint:` still parse for backward compat but emit a deprecation warn and make `is_spec_compliant()` return `False`. See `docs/guide/skills.md#migrating-pre-015-skillmd`.
+- Don't inline large payloads (workflow specs, prompt templates, example dialogues, annotation tables) into SKILL.md frontmatter or body, even under `metadata:` — use sibling files. SKILL.md body stays ≤500 lines / ≤5000 tokens.
 - Don't use removed transport APIs: `FramedChannel`, `connect_ipc()`, `IpcListener`, `TransportManager`, `CircuitBreaker`, `ConnectionPool` — removed in v0.14 (#251). Use `IpcChannelAdapter` / `DccLinkFrame` instead
 - Don't add Python runtime dependencies — the project is zero-dep by design
 - Don't manually bump versions or edit `CHANGELOG.md` — Release Please handles this

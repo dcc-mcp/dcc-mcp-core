@@ -637,3 +637,53 @@ groups:
   ```
 
 A one-shot CLI migrator (`dcc-mcp-migrate-skill`) is planned as a follow-up; see the tracking issue for status.
+
+### The sibling-file pattern is the rule for every new extension
+
+The migration table above is not an exhaustive list — it is an example
+of **the single design rule** that governs every SKILL.md extension
+dcc-mcp-core adds from v0.15 onward:
+
+> **New extensions live under `metadata.dcc-mcp.<feature>` and point at sibling files; they never add new top-level frontmatter keys and they never inline large payloads into SKILL.md.**
+
+Concrete applications (shipped or in flight):
+
+| Feature | Metadata key | Sibling file(s) | Issue |
+|---|---|---|---|
+| Tool declarations + groups | `metadata["dcc-mcp.tools"]`, `metadata["dcc-mcp.groups"]` | `tools.yaml` | #356 |
+| Workflow specs | `metadata["dcc-mcp.workflows"]` | `workflows/*.workflow.yaml` | #348 |
+| Prompts / templates | `metadata["dcc-mcp.prompts"]` | `prompts/*.prompt.yaml` | #351, #355 |
+| Example dialogues | `metadata["dcc-mcp.examples"]` | `references/EXAMPLES.md` or `examples/*.md` | (future) |
+| Tool annotation packs | `metadata["dcc-mcp.annotations"]` | `annotations.yaml` or carried in `tools.yaml` | #344 |
+| next-tools behaviour chains | (carried inline inside `tools.yaml`) | n/a — never a top-level SKILL.md field | #342 |
+
+Layout convention (pick the shape that matches the feature's cardinality):
+
+```
+my-skill/
+├── SKILL.md
+├── tools.yaml               # one file — tools + groups + next-tools
+├── workflows/               # many files — one per workflow
+│   ├── vendor_intake.workflow.yaml
+│   └── nightly_cleanup.workflow.yaml
+├── prompts/                 # many files — one per prompt template
+│   └── review_scene.prompt.yaml
+└── references/              # Markdown reference material (agentskills.io standard)
+    ├── EXAMPLES.md
+    └── REFERENCE.md
+```
+
+Why the rule holds:
+
+- **Spec-conformance**: `skills-ref validate` (agentskills.io's
+  reference validator) passes without a custom ruleset.
+- **Progressive disclosure**: `search_skills` reads only SKILL.md; a
+  sibling file loads on demand when the agent activates that feature.
+- **Bounded SKILL.md**: the body stays ≤500 lines / ≤5000 tokens
+  regardless of how many workflows / prompts / examples ship.
+- **Diff-friendly**: a new workflow is one new YAML file in review,
+  not a 300-line diff inside SKILL.md.
+
+If a feature you are designing can't fit this pattern, that is a
+signal to write a proposal under `docs/proposals/` and discuss the
+frontmatter impact before implementing.
