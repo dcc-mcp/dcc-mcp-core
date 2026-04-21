@@ -297,8 +297,22 @@ fn collect_dcc_mcp_overrides(raw: &serde_yaml_ng::Value) -> Vec<(String, serde_y
     };
     for (k, v) in meta_map.iter() {
         let Some(ks) = k.as_str() else { continue };
+        // Flat form: `metadata: { "dcc-mcp.dcc": "maya", ... }` — pre-0.15
+        // shorthand preserved for back-compat.
         if let Some(rest) = ks.strip_prefix(DCC_MCP_PREFIX) {
             out.push((rest.to_string(), v.clone()));
+            continue;
+        }
+        // Nested form: `metadata: { dcc-mcp: { dcc: maya, ... } }` —
+        // canonical agentskills.io-compliant shape (issue #356) and the
+        // shape produced by the sibling-file migration tool.
+        if ks == "dcc-mcp" {
+            if let Some(inner) = v.as_mapping() {
+                for (ik, iv) in inner.iter() {
+                    let Some(iks) = ik.as_str() else { continue };
+                    out.push((iks.to_string(), iv.clone()));
+                }
+            }
         }
     }
     out

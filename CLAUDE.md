@@ -68,6 +68,7 @@ When you need information, read in this order — stop when you find what you ne
   - Good: `metadata["dcc-mcp.workflows"] = "workflows/*.workflow.yaml"` + `workflows/vendor_intake.workflow.yaml` next to SKILL.md.
   - Good: `metadata["dcc-mcp.tools"] = "tools.yaml"` + `tools.yaml` carrying the `tools:` and optional `groups:` lists.
   - Bad: putting a `workflows:` / `tools:` / `prompts:` block at the SKILL.md top level (legacy parse still works but emits a deprecation warn and flips `is_spec_compliant()` to False).
+  - Both **flat** (`metadata: { "dcc-mcp.dcc": "maya" }`) and **nested** (`metadata: { dcc-mcp: { dcc: maya } }`) forms are accepted by the loader. The nested form is the canonical agentskills.io shape and is what `yaml.safe_dump` / the `scripts/migrate_skills_to_sibling_file.py` migration tool emits — prefer it for new skills.
   - Bad: inlining a multi-step workflow or a long prompt template inside `metadata:` as a YAML block — use a sibling file even under `metadata:`.
   - See `docs/guide/skills.md#migrating-pre-015-skillmd` for the before/after mapping.
 - **`next-tools`**: Per-tool field guiding AI agents to follow-up tools (`on-success` / `on-failure`). dcc-mcp-core extension, carried inside the `tools.yaml` sibling file — never at the SKILL.md top level.

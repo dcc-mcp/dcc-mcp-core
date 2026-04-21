@@ -684,6 +684,42 @@ metadata:
     }
 
     #[test]
+    fn nested_form_is_spec_compliant() {
+        // Canonical agentskills.io shape produced by the migration tool
+        // and by `yaml.safe_dump` — `metadata.dcc-mcp` is a nested map.
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("nested");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("tools.yaml"),
+            "tools:\n  - name: create_sphere\n    description: make a sphere\n",
+        )
+        .unwrap();
+        let body = r#"---
+name: nested
+description: nested metadata form
+metadata:
+  dcc-mcp:
+    dcc: maya
+    version: "1.0.0"
+    tags: [maya, animation]
+    search-hint: "keyframe, timeline"
+    tools: tools.yaml
+---
+# body
+"#;
+        std::fs::write(dir.join(SKILL_METADATA_FILE), body).unwrap();
+        let meta = parse_skill_md(&dir).expect("parsed");
+        assert!(meta.is_spec_compliant(), "nested form must be compliant");
+        assert_eq!(meta.dcc, "maya");
+        assert_eq!(meta.version, "1.0.0");
+        assert_eq!(meta.tags, vec!["maya".to_string(), "animation".to_string()]);
+        assert_eq!(meta.search_hint, "keyframe, timeline");
+        assert_eq!(meta.tools.len(), 1);
+        assert_eq!(meta.tools[0].name, "create_sphere");
+    }
+
+    #[test]
     fn new_form_sibling_tools_yaml_resolves() {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path().join("sidecar");

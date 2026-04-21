@@ -427,6 +427,21 @@ metadata:
 # body — human-readable instructions only
 ```
 
+The loader accepts **both** shapes interchangeably — flat dotted keys
+(`dcc-mcp.dcc: maya`) and the nested map produced by `yaml.safe_dump`
+and the migration tool:
+
+```yaml
+metadata:
+  dcc-mcp:
+    dcc: maya
+    tools: "tools.yaml"
+    groups: "groups.yaml"
+```
+
+Prefer the nested form for new skills; it round-trips through standard
+YAML tooling without per-key quoting.
+
 ```
 maya-animation/
 ├── SKILL.md                    # metadata map + body
