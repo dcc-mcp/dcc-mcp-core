@@ -394,22 +394,71 @@ async fn handle_notification(gs: &GatewayState, req: &JsonRpcRequest, _session_i
                 .cloned();
             if let Some(rid) = request_id {
                 let rid_str = serde_json::to_string(&rid).unwrap_or_default();
-                let pending = gs.pending_calls.read().await;
-                if let Some(call) = pending.get(&rid_str) {
-                    if !call.backend_url.is_empty() {
-                        let cancel_body = json!({
-                            "jsonrpc": "2.0",
-                            "method": "notifications/cancelled",
-                            "params": {"requestId": rid}
-                        });
-                        let _ = gs
-                            .http_client
-                            .post(&call.backend_url)
-                            .header("content-type", "application/json")
-                            .body(cancel_body.to_string())
-                            .timeout(std::time::Duration::from_secs(5))
-                            .send()
-                            .await;
+
+                // #322: prefer the JobRoute cache — it knows the exact
+                // backend that owns the job and unlocks the
+                // parent-job cascade across backends. Fall back to
+                // `pending_calls` only when no route is cached (e.g.
+                // for synchronous `tools/call` that never produced a
+                // job_id, or after the route has been GC'd).
+                let mut forwarded_to: std::collections::HashSet<String> =
+                    std::collections::HashSet::new();
+
+                let job_id = gs.subscriber.job_id_for_request(&rid_str);
+                let route = job_id.as_deref().and_then(|j| gs.subscriber.job_route(j));
+
+                if let Some(route) = route.clone() {
+                    forward_cancel(gs, &route.backend_id, &rid, &route.tool).await;
+                    forwarded_to.insert(route.backend_id.clone());
+
+                    // Parent-job cascade: if THIS job has a parent, we
+                    // also cancel every sibling routed via this gateway
+                    // (issue #318 inside a single server, here extended
+                    // across backends). This matches the semantics
+                    // users expect: cancelling any node in a workflow
+                    // cancels the workflow.
+                    if let Some(parent) = route.parent_job_id.as_deref() {
+                        for (child_jid, child) in gs.subscriber.children_of(parent) {
+                            if forwarded_to.insert(child.backend_id.clone()) {
+                                tracing::debug!(
+                                    parent = parent,
+                                    child = %child_jid,
+                                    backend = %child.backend_id,
+                                    "gateway: cascading cancel to child job"
+                                );
+                                forward_cancel(gs, &child.backend_id, &rid, &child.tool).await;
+                            }
+                        }
+                    }
+                }
+
+                // #322 cascade (parent-side): if the cancelled request
+                // itself targets a *parent* job_id — meaning no specific
+                // child route is cached under this requestId — walk the
+                // children index directly.
+                if let Some(jid) = job_id.as_deref() {
+                    for (child_jid, child) in gs.subscriber.children_of(jid) {
+                        if forwarded_to.insert(child.backend_id.clone()) {
+                            tracing::debug!(
+                                parent = jid,
+                                child = %child_jid,
+                                backend = %child.backend_id,
+                                "gateway: cascading cancel from parent"
+                            );
+                            forward_cancel(gs, &child.backend_id, &rid, &child.tool).await;
+                        }
+                    }
+                }
+
+                // Fallback: if we never resolved via JobRoute, honour
+                // the legacy `pending_calls` path so synchronous /
+                // pre-#322 callers are still covered.
+                if forwarded_to.is_empty() {
+                    let pending = gs.pending_calls.read().await;
+                    if let Some(call) = pending.get(&rid_str) {
+                        if !call.backend_url.is_empty() {
+                            forward_cancel(gs, &call.backend_url, &rid, "").await;
+                        }
                     }
                 }
             }
@@ -417,6 +466,38 @@ async fn handle_notification(gs: &GatewayState, req: &JsonRpcRequest, _session_i
         other => {
             tracing::debug!(method = other, "Gateway received unknown MCP notification");
         }
+    }
+}
+
+/// POST `notifications/cancelled { requestId }` to `backend_url`. Fire-
+/// and-forget with a short timeout — the backend's own cancel handler
+/// is responsible for racing this against the in-flight job. A best-
+/// effort debug log records failures but does not surface them to the
+/// client (MCP notifications have no reply channel).
+async fn forward_cancel(gs: &GatewayState, backend_url: &str, request_id: &Value, tool: &str) {
+    if backend_url.is_empty() {
+        return;
+    }
+    let body = json!({
+        "jsonrpc": "2.0",
+        "method": "notifications/cancelled",
+        "params": {"requestId": request_id.clone()}
+    });
+    if let Err(e) = gs
+        .http_client
+        .post(backend_url)
+        .header("content-type", "application/json")
+        .body(body.to_string())
+        .timeout(std::time::Duration::from_secs(5))
+        .send()
+        .await
+    {
+        tracing::debug!(
+            backend = backend_url,
+            tool = tool,
+            error = %e,
+            "gateway: notifications/cancelled forward failed"
+        );
     }
 }
 

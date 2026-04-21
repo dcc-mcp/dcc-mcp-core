@@ -537,6 +537,8 @@ async fn main() -> anyhow::Result<()> {
         backend_timeout_ms: 10_000,
         async_dispatch_timeout_ms: 60_000,
         wait_terminal_timeout_ms: 600_000,
+        route_ttl_secs: 60 * 60 * 24,
+        max_routes_per_session: 1_000,
     };
 
     let runner = GatewayRunner::new(gateway_cfg)

@@ -44,6 +44,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use chrono::{DateTime, Utc};
 use dashmap::{DashMap, DashSet};
 use futures::StreamExt;
 use parking_lot::Mutex;
@@ -74,6 +75,78 @@ pub(crate) const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Identifier for a client-side MCP session.
 pub type ClientSessionId = String;
+
+/// Identifier for a backend DCC server. Conventionally the backend's
+/// MCP URL (`http://host:port/mcp`) — stable for the life of the
+/// instance and sufficient for cancel forwarding.
+pub type BackendId = String;
+
+/// Default ceiling on how long a non-terminal `JobRoute` may live in
+/// the gateway's routing cache (`gateway_route_ttl`, issue #322).
+pub(crate) const DEFAULT_ROUTE_TTL: Duration = Duration::from_secs(60 * 60 * 24);
+
+/// Default ceiling on concurrent live routes per client session
+/// (`gateway_max_routes_per_session`, issue #322).
+pub(crate) const DEFAULT_MAX_ROUTES_PER_SESSION: usize = 1_000;
+
+/// Cadence of the background GC that evicts stale `JobRoute`s.
+pub(crate) const ROUTE_GC_INTERVAL: Duration = Duration::from_secs(60);
+
+/// Gateway-owned routing entry for a single async job (issue #322).
+///
+/// Populated when the gateway forwards a `tools/call` and the backend
+/// replies with a `job_id`; consulted on `notifications/cancelled` so
+/// the cancel can be propagated to the exact backend that owns the
+/// job. The `parent_job_id` link lets the gateway fan a cancel out
+/// across backends when a workflow parent is cancelled (#318 cascade).
+#[derive(Debug, Clone)]
+pub struct JobRoute {
+    /// Owning client session — used to route backend SSE notifications
+    /// back to the originator (the pre-#322 behaviour).
+    pub client_session_id: ClientSessionId,
+    /// Backend that runs this job (stable for the job's lifetime —
+    /// routes are sticky, no multi-backend failover, per #322).
+    pub backend_id: BackendId,
+    /// Tool name reported on dispatch, kept for cancel-payload logs.
+    pub tool: String,
+    /// Wall-clock time the route was created — drives TTL GC.
+    pub created_at: DateTime<Utc>,
+    /// Parent job id when this job was dispatched under a workflow
+    /// (`_meta.dcc.parentJobId`). A cancel on the parent cascades to
+    /// every child route, even across backends.
+    pub parent_job_id: Option<String>,
+}
+
+/// Error returned when a new route cannot be admitted to the gateway
+/// routing cache (issue #322).
+#[derive(Debug, Clone)]
+pub enum BindJobError {
+    /// The owning session already holds `cap` live routes. The gateway
+    /// surfaces this as a JSON-RPC `-32005 too_many_in_flight_jobs`
+    /// error so AI clients can back off or cancel in-flight jobs.
+    TooManyInFlight {
+        session_id: ClientSessionId,
+        live: usize,
+        cap: usize,
+    },
+}
+
+impl std::fmt::Display for BindJobError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BindJobError::TooManyInFlight {
+                session_id,
+                live,
+                cap,
+            } => write!(
+                f,
+                "too_many_in_flight_jobs: session {session_id} holds {live} live routes (cap {cap})"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for BindJobError {}
 
 /// A notification buffered while its target mapping is still unknown.
 #[derive(Debug, Clone)]
@@ -148,8 +221,21 @@ pub struct SubscriberManager {
 
 struct SubscriberManagerInner {
     backends: DashMap<String, BackendSubscriber>,
-    /// `job_id` → owning client session.
-    job_routes: DashMap<String, ClientSessionId>,
+    /// `job_id` → full [`JobRoute`] (issue #322).
+    ///
+    /// Before v0.15 this was `DashMap<String, ClientSessionId>`; callers
+    /// that only need the session id now read `route.client_session_id`.
+    job_routes: DashMap<String, JobRoute>,
+    /// Reverse index: `client_session_id` → set of live `job_id`s. Used
+    /// to enforce the per-session cap without walking the whole
+    /// `job_routes` map on every insert.
+    session_jobs: DashMap<ClientSessionId, DashSet<String>>,
+    /// Reverse index: gateway JSON-RPC `requestId` (stringified) →
+    /// dispatched `job_id`. Populated at dispatch time for async jobs
+    /// so `notifications/cancelled { requestId }` can resolve to a
+    /// `JobRoute` even after the original RPC has already returned
+    /// (issue #322).
+    request_to_job: DashMap<String, String>,
     /// `progressToken` (serialised JSON) → owning client session.
     progress_token_routes: DashMap<String, ClientSessionId>,
     /// Backend URL → set of client sessions with in-flight jobs on that
@@ -167,6 +253,12 @@ struct SubscriberManagerInner {
     job_event_buses: DashMap<String, broadcast::Sender<Value>>,
     /// Shared HTTP client with connection pooling.
     http_client: reqwest::Client,
+    /// TTL beyond which a non-terminal route is evicted by the GC task
+    /// (issue #322).
+    route_ttl: Duration,
+    /// Per-session ceiling on concurrent live routes (issue #322). `0`
+    /// disables the cap.
+    max_routes_per_session: usize,
 }
 
 impl Default for SubscriberManager {
@@ -177,15 +269,34 @@ impl Default for SubscriberManager {
 
 impl SubscriberManager {
     pub fn new(http_client: reqwest::Client) -> Self {
+        Self::with_limits(
+            http_client,
+            DEFAULT_ROUTE_TTL,
+            DEFAULT_MAX_ROUTES_PER_SESSION,
+        )
+    }
+
+    /// Construct with explicit routing-cache limits (issue #322). A
+    /// `max_routes_per_session` of `0` is treated as unlimited — caps
+    /// are opt-in by configuration.
+    pub fn with_limits(
+        http_client: reqwest::Client,
+        route_ttl: Duration,
+        max_routes_per_session: usize,
+    ) -> Self {
         Self {
             inner: Arc::new(SubscriberManagerInner {
                 backends: DashMap::new(),
                 job_routes: DashMap::new(),
+                session_jobs: DashMap::new(),
+                request_to_job: DashMap::new(),
                 progress_token_routes: DashMap::new(),
                 backend_inflight: DashMap::new(),
                 client_sinks: DashMap::new(),
                 job_event_buses: DashMap::new(),
                 http_client,
+                route_ttl,
+                max_routes_per_session,
             }),
         }
     }
@@ -213,9 +324,24 @@ impl SubscriberManager {
         // Scrub routing tables to avoid memory growth. We don't scan
         // `progress_token_routes` keys eagerly (tokens are short-lived)
         // but removing job_routes bound to this session is cheap.
+        let mut dropped_jobs: Vec<String> = Vec::new();
+        self.inner.job_routes.retain(|job_id, route| {
+            let keep = route.client_session_id.as_str() != session_id;
+            if !keep {
+                dropped_jobs.push(job_id.clone());
+            }
+            keep
+        });
+        for jid in &dropped_jobs {
+            self.inner.job_event_buses.remove(jid);
+        }
+        // The reverse index for this session is now redundant.
+        self.inner.session_jobs.remove(session_id);
+        // Orphaned request_to_job entries would be cheap to keep, but
+        // may as well scrub them.
         self.inner
-            .job_routes
-            .retain(|_, sid| sid.as_str() != session_id);
+            .request_to_job
+            .retain(|_, jid| !dropped_jobs.iter().any(|d| d == jid));
         self.inner
             .progress_token_routes
             .retain(|_, sid| sid.as_str() != session_id);
@@ -233,29 +359,131 @@ impl SubscriberManager {
     }
 
     /// Associate a `job_id` extracted from a backend reply with its
-    /// owning client session. Also registers the session as having an
-    /// in-flight job on `backend_url` so that a later reconnect on that
-    /// backend can emit `$/dcc.gatewayReconnect`.
-    pub fn bind_job(&self, job_id: &str, session_id: &str, backend_url: &str) {
+    /// owning client session, backend, and tool name (issue #322). Also
+    /// registers the session as having an in-flight job on `backend_url`
+    /// so that a later reconnect on that backend can emit
+    /// `$/dcc.gatewayReconnect`.
+    ///
+    /// Returns [`BindJobError::TooManyInFlight`] when the session has
+    /// reached `gateway_max_routes_per_session`; the gateway translates
+    /// this into a JSON-RPC `-32005` error so clients can back off or
+    /// cancel in-flight jobs.
+    pub fn bind_job_route(
+        &self,
+        job_id: &str,
+        session_id: &str,
+        backend_url: &str,
+        tool: &str,
+        parent_job_id: Option<&str>,
+    ) -> Result<(), BindJobError> {
+        if self.inner.max_routes_per_session > 0 {
+            let live = self
+                .inner
+                .session_jobs
+                .get(session_id)
+                .map(|e| e.value().len())
+                .unwrap_or(0);
+            if live >= self.inner.max_routes_per_session {
+                return Err(BindJobError::TooManyInFlight {
+                    session_id: session_id.to_string(),
+                    live,
+                    cap: self.inner.max_routes_per_session,
+                });
+            }
+        }
+        let route = JobRoute {
+            client_session_id: session_id.to_string(),
+            backend_id: backend_url.to_string(),
+            tool: tool.to_string(),
+            created_at: Utc::now(),
+            parent_job_id: parent_job_id.map(str::to_owned),
+        };
+        self.inner.job_routes.insert(job_id.to_string(), route);
         self.inner
-            .job_routes
-            .insert(job_id.to_string(), session_id.to_string());
+            .session_jobs
+            .entry(session_id.to_string())
+            .or_default()
+            .insert(job_id.to_string());
         self.inner
             .backend_inflight
             .entry(backend_url.to_string())
             .or_default()
             .insert(session_id.to_string());
         self.flush_pending_for_backend(backend_url);
+        Ok(())
+    }
+
+    /// Back-compat shim for the pre-#322 signature. Still used by a few
+    /// tests; new code should prefer [`bind_job_route`].
+    #[cfg(test)]
+    pub fn bind_job(&self, job_id: &str, session_id: &str, backend_url: &str) {
+        let _ = self.bind_job_route(job_id, session_id, backend_url, "", None);
+    }
+
+    /// Associate a gateway `requestId` with the `job_id` produced for
+    /// that async dispatch (issue #322). `notifications/cancelled`
+    /// carries only the `requestId`, so this reverse index lets the
+    /// gateway resolve back to a [`JobRoute`] even after the original
+    /// RPC has returned.
+    pub fn bind_request_to_job(&self, request_id: &str, job_id: &str) {
+        self.inner
+            .request_to_job
+            .insert(request_id.to_string(), job_id.to_string());
+    }
+
+    /// Lookup helper for the cancel path.
+    pub fn job_id_for_request(&self, request_id: &str) -> Option<String> {
+        self.inner
+            .request_to_job
+            .get(request_id)
+            .map(|e| e.value().clone())
+    }
+
+    /// Drop the `request_id → job_id` mapping (e.g. when the dispatch
+    /// is resolved client-side and cannot be cancelled any more).
+    #[allow(dead_code)]
+    pub fn forget_request(&self, request_id: &str) {
+        self.inner.request_to_job.remove(request_id);
+    }
+
+    /// Fetch a cloned [`JobRoute`] for `job_id`, if any.
+    pub fn job_route(&self, job_id: &str) -> Option<JobRoute> {
+        self.inner.job_routes.get(job_id).map(|e| e.value().clone())
+    }
+
+    /// Return every route whose `parent_job_id == parent` (issue #322
+    /// cross-backend cascade).
+    pub fn children_of(&self, parent: &str) -> Vec<(String, JobRoute)> {
+        self.inner
+            .job_routes
+            .iter()
+            .filter_map(|e| match &e.value().parent_job_id {
+                Some(p) if p == parent => Some((e.key().clone(), e.value().clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Total number of live routes (introspection for tests + metrics).
+    pub fn route_count(&self) -> usize {
+        self.inner.job_routes.len()
     }
 
     /// Forget a `job_id` once the gateway has observed a terminal event
-    /// (caller's responsibility; the subscriber loop does not clean up
-    /// automatically because terminal detection needs JSON-RPC
-    /// semantics).
-    #[allow(dead_code)]
+    /// (the subscriber loop does this automatically on `$/dcc.jobUpdated`
+    /// with a terminal status — callers typically don't need to invoke
+    /// it themselves).
     pub fn forget_job(&self, job_id: &str) {
-        self.inner.job_routes.remove(job_id);
+        let removed = self.inner.job_routes.remove(job_id);
         self.inner.job_event_buses.remove(job_id);
+        if let Some((_, route)) = removed {
+            if let Some(set) = self.inner.session_jobs.get(&route.client_session_id) {
+                set.value().remove(job_id);
+            }
+        }
+        self.inner
+            .request_to_job
+            .retain(|_, jid| jid.as_str() != job_id);
     }
 
     // ── Job event bus (#321 wait-for-terminal) ─────────────────────────
@@ -326,11 +554,52 @@ impl SubscriberManager {
         );
     }
 
+    // ── Route GC (#322) ────────────────────────────────────────────────
+
+    /// Spawn a background task that periodically evicts stale
+    /// [`JobRoute`]s older than `route_ttl`. Returns the `JoinHandle`
+    /// so the gateway supervisor can cancel it on shutdown.
+    pub fn spawn_route_gc(&self) -> JoinHandle<()> {
+        let mgr = self.clone();
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(ROUTE_GC_INTERVAL);
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                ticker.tick().await;
+                mgr.run_route_gc_once();
+            }
+        })
+    }
+
+    /// One GC pass — exposed separately so tests can drive it
+    /// synchronously without waiting a real interval.
+    pub fn run_route_gc_once(&self) -> usize {
+        let ttl = self.inner.route_ttl;
+        if ttl.is_zero() {
+            return 0;
+        }
+        let cutoff = Utc::now() - chrono::Duration::from_std(ttl).unwrap_or_default();
+        let stale: Vec<String> = self
+            .inner
+            .job_routes
+            .iter()
+            .filter(|e| e.value().created_at < cutoff)
+            .map(|e| e.key().clone())
+            .collect();
+        for jid in &stale {
+            self.forget_job(jid);
+        }
+        stale.len()
+    }
+
     // ── Introspection helpers (for tests) ──────────────────────────────
 
     #[cfg(test)]
     pub(crate) fn route_for_job(&self, job_id: &str) -> Option<String> {
-        self.inner.job_routes.get(job_id).map(|e| e.value().clone())
+        self.inner
+            .job_routes
+            .get(job_id)
+            .map(|e| e.value().client_session_id.clone())
     }
 
     #[cfg(test)]
@@ -362,6 +631,11 @@ impl SubscriberManager {
         // any GET /mcp stream open at all.
         if let Some(jid) = job_id_for_job_notification(&value) {
             self.publish_job_event(&jid, &value);
+        }
+        // #322: auto-evict the JobRoute once a terminal status arrives,
+        // so the cache doesn't grow with completed jobs.
+        if let Some(jid) = terminal_job_id(&value) {
+            self.forget_job(&jid);
         }
         let session = resolve_target(&self.inner, &value);
         match session {
@@ -645,6 +919,29 @@ fn job_id_for_job_notification(value: &Value) -> Option<String> {
         .map(str::to_owned)
 }
 
+/// Extract the `job_id` from a `$/dcc.jobUpdated` / `workflowUpdated`
+/// notification only when it carries a terminal status (issue #322
+/// auto-eviction). Terminal statuses follow #318: `completed`,
+/// `failed`, `cancelled`, `interrupted`.
+fn terminal_job_id(value: &Value) -> Option<String> {
+    let method = value.get("method").and_then(|m| m.as_str())?;
+    if !matches!(
+        method,
+        "notifications/$/dcc.jobUpdated" | "notifications/$/dcc.workflowUpdated"
+    ) {
+        return None;
+    }
+    let params = value.get("params")?;
+    let status = params.get("status").and_then(|s| s.as_str())?;
+    if !matches!(status, "completed" | "failed" | "cancelled" | "interrupted") {
+        return None;
+    }
+    params
+        .get("job_id")
+        .and_then(|j| j.as_str())
+        .map(str::to_owned)
+}
+
 /// Determine which client session should receive `value`.
 fn resolve_target(inner: &SubscriberManagerInner, value: &Value) -> Option<String> {
     let method = value.get("method").and_then(|m| m.as_str())?;
@@ -662,7 +959,10 @@ fn resolve_target(inner: &SubscriberManagerInner, value: &Value) -> Option<Strin
             let job_id = params
                 .and_then(|p| p.get("job_id"))
                 .and_then(|j| j.as_str())?;
-            inner.job_routes.get(job_id).map(|e| e.value().clone())
+            inner
+                .job_routes
+                .get(job_id)
+                .map(|e| e.value().client_session_id.clone())
         }
         _ => None,
     }
@@ -737,11 +1037,25 @@ mod tests {
         SubscriberManagerInner {
             backends: DashMap::new(),
             job_routes: DashMap::new(),
+            session_jobs: DashMap::new(),
+            request_to_job: DashMap::new(),
             progress_token_routes: DashMap::new(),
             backend_inflight: DashMap::new(),
             client_sinks: DashMap::new(),
             job_event_buses: DashMap::new(),
             http_client: reqwest::Client::new(),
+            route_ttl: DEFAULT_ROUTE_TTL,
+            max_routes_per_session: DEFAULT_MAX_ROUTES_PER_SESSION,
+        }
+    }
+
+    fn test_route(sid: &str) -> JobRoute {
+        JobRoute {
+            client_session_id: sid.to_string(),
+            backend_id: "http://backend/mcp".into(),
+            tool: "test_tool".into(),
+            created_at: Utc::now(),
+            parent_job_id: None,
         }
     }
 
@@ -762,7 +1076,9 @@ mod tests {
     #[test]
     fn resolve_target_uses_job_id_for_job_updated() {
         let inner = empty_inner();
-        inner.job_routes.insert("jid-42".into(), "sessB".into());
+        inner
+            .job_routes
+            .insert("jid-42".into(), test_route("sessB"));
         let note = serde_json::json!({
             "method": "notifications/$/dcc.jobUpdated",
             "params": {"job_id": "jid-42", "status": "running"}
@@ -955,6 +1271,118 @@ mod tests {
             mgr.pending_count(&backend),
             PENDING_BUFFER_CAP,
             "buffer is bounded"
+        );
+    }
+
+    // ── #322 JobRoute store ─────────────────────────────────────────────
+
+    #[test]
+    fn bind_job_route_populates_all_fields() {
+        let mgr = SubscriberManager::default();
+        mgr.bind_job_route("j1", "sessA", "http://back/mcp", "my_tool", Some("parent"))
+            .unwrap();
+        let route = mgr.job_route("j1").expect("route present");
+        assert_eq!(route.client_session_id, "sessA");
+        assert_eq!(route.backend_id, "http://back/mcp");
+        assert_eq!(route.tool, "my_tool");
+        assert_eq!(route.parent_job_id.as_deref(), Some("parent"));
+    }
+
+    #[test]
+    fn bind_request_to_job_resolves_back_to_route() {
+        let mgr = SubscriberManager::default();
+        mgr.bind_job_route("j1", "sessA", "http://back/mcp", "t", None)
+            .unwrap();
+        mgr.bind_request_to_job("\"req-7\"", "j1");
+        let jid = mgr.job_id_for_request("\"req-7\"").expect("mapping");
+        assert_eq!(jid, "j1");
+        let route = mgr.job_route(&jid).unwrap();
+        assert_eq!(route.backend_id, "http://back/mcp");
+    }
+
+    #[test]
+    fn children_of_returns_every_child_of_parent() {
+        let mgr = SubscriberManager::default();
+        mgr.bind_job_route("c1", "s", "http://a/mcp", "t", Some("P"))
+            .unwrap();
+        mgr.bind_job_route("c2", "s", "http://b/mcp", "t", Some("P"))
+            .unwrap();
+        mgr.bind_job_route("other", "s", "http://c/mcp", "t", Some("Q"))
+            .unwrap();
+        let mut kids: Vec<String> = mgr.children_of("P").into_iter().map(|(j, _)| j).collect();
+        kids.sort();
+        assert_eq!(kids, vec!["c1".to_string(), "c2".to_string()]);
+    }
+
+    #[test]
+    fn per_session_cap_rejects_overflow() {
+        let mgr =
+            SubscriberManager::with_limits(reqwest::Client::new(), Duration::from_secs(60), 2);
+        assert!(
+            mgr.bind_job_route("j1", "sess", "http://b/mcp", "t", None)
+                .is_ok()
+        );
+        assert!(
+            mgr.bind_job_route("j2", "sess", "http://b/mcp", "t", None)
+                .is_ok()
+        );
+        let err = mgr
+            .bind_job_route("j3", "sess", "http://b/mcp", "t", None)
+            .expect_err("cap should reject");
+        matches!(err, BindJobError::TooManyInFlight { .. });
+    }
+
+    #[test]
+    fn terminal_status_auto_evicts_route() {
+        let mgr = SubscriberManager::default();
+        let backend = "http://127.0.0.1:0/mcp".to_string();
+        let shared = Arc::new(BackendShared::new(backend.clone()));
+        mgr.bind_job_route("jT", "sess", &backend, "t", None)
+            .unwrap();
+        assert!(mgr.job_route("jT").is_some());
+        let note = serde_json::json!({
+            "method": "notifications/$/dcc.jobUpdated",
+            "params": {"job_id": "jT", "status": "completed"}
+        });
+        mgr.deliver(note, &shared);
+        assert!(
+            mgr.job_route("jT").is_none(),
+            "route should be auto-evicted on completion"
+        );
+    }
+
+    #[test]
+    fn run_route_gc_once_evicts_stale_routes() {
+        // TTL=0 disables GC (per spec); use 1 ms so routes older than
+        // 1 ms are stale.
+        let mgr =
+            SubscriberManager::with_limits(reqwest::Client::new(), Duration::from_millis(1), 0);
+        mgr.bind_job_route("old", "s", "http://b/mcp", "t", None)
+            .unwrap();
+        // Force the created_at far into the past.
+        if let Some(mut e) = mgr.inner.job_routes.get_mut("old") {
+            e.value_mut().created_at = Utc::now() - chrono::Duration::seconds(10);
+        }
+        let evicted = mgr.run_route_gc_once();
+        assert_eq!(evicted, 1);
+        assert!(mgr.job_route("old").is_none());
+    }
+
+    #[test]
+    fn forget_job_cleans_up_reverse_indexes() {
+        let mgr = SubscriberManager::default();
+        mgr.bind_job_route("j1", "sess", "http://b/mcp", "t", None)
+            .unwrap();
+        mgr.bind_request_to_job("\"rid\"", "j1");
+        assert!(mgr.job_route("j1").is_some());
+        mgr.forget_job("j1");
+        assert!(mgr.job_route("j1").is_none());
+        assert!(mgr.job_id_for_request("\"rid\"").is_none());
+        assert!(
+            mgr.inner
+                .session_jobs
+                .get("sess")
+                .is_none_or(|s| !s.contains("j1"))
         );
     }
 }

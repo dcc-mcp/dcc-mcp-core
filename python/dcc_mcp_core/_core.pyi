@@ -3836,6 +3836,16 @@ class McpHttpConfig:
             the gateway returns the last-known job envelope annotated
             with ``_meta.dcc.timed_out=true`` and leaves the job
             running on the backend (issue #321).
+        gateway_route_ttl_secs: TTL (seconds) for the gateway's
+            ``job_id → backend_id`` routing cache. Default: ``86_400``
+            (24 hours). Routes that don't see a terminal notification
+            within this window are evicted by a background GC task
+            (issue #322).
+        gateway_max_routes_per_session: Per-session ceiling on
+            concurrent live routes in the gateway routing cache. ``0``
+            disables the cap. Default: ``1_000``. Exceeding the cap
+            rejects new async ``tools/call`` with JSON-RPC
+            ``-32005 too_many_in_flight_jobs`` (issue #322).
 
     Example::
 
@@ -3856,6 +3866,8 @@ class McpHttpConfig:
         prometheus_basic_auth: tuple[str, str] | None = None,
         gateway_async_dispatch_timeout_ms: int = 60_000,
         gateway_wait_terminal_timeout_ms: int = 600_000,
+        gateway_route_ttl_secs: int = 86_400,
+        gateway_max_routes_per_session: int = 1_000,
     ) -> None: ...
     @property
     def port(self) -> int: ...
@@ -3946,6 +3958,32 @@ class McpHttpConfig:
         ...
     @gateway_wait_terminal_timeout_ms.setter
     def gateway_wait_terminal_timeout_ms(self, ms: int) -> None: ...
+    @property
+    def gateway_route_ttl_secs(self) -> int:
+        """Gateway routing-cache TTL in seconds (#322).
+
+        Controls how long a cached ``JobRoute`` (``job_id → backend_id``)
+        may live without seeing a terminal ``$/dcc.jobUpdated`` before a
+        background GC task evicts it. Terminal notifications auto-evict
+        routes; this TTL is the safety net for jobs whose terminal event
+        is never delivered (backend crash, SSE drop that never recovers,
+        …). Default: ``86_400`` (24 hours).
+        """
+        ...
+    @gateway_route_ttl_secs.setter
+    def gateway_route_ttl_secs(self, secs: int) -> None: ...
+    @property
+    def gateway_max_routes_per_session(self) -> int:
+        """Per-session cap on concurrent live gateway routes (#322).
+
+        ``0`` disables the cap. When a client session is already holding
+        this many live routes, new async ``tools/call`` requests are
+        rejected with JSON-RPC ``-32005 too_many_in_flight_jobs``.
+        Default: ``1_000``.
+        """
+        ...
+    @gateway_max_routes_per_session.setter
+    def gateway_max_routes_per_session(self, cap: int) -> None: ...
     @property
     def enable_resources(self) -> bool:
         """Advertise the MCP Resources primitive (issue #350).

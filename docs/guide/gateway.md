@@ -146,7 +146,62 @@ returns a JSON-RPC `-32000` error identifying the backend and the
 the backend may surface it as `interrupted` (issue #328) when the
 persisted job store rehydrates.
 
+## Job-to-backend routing cache (#322)
+
+To forward a `notifications/cancelled { requestId }` from the client to
+the backend that actually owns the job, the gateway keeps a small cache:
+
+```rust
+pub struct JobRoute {
+    pub client_session_id: ClientSessionId,
+    pub backend_id: BackendId,            // e.g. http://127.0.0.1:8001/mcp
+    pub tool: String,                     // for logs + cancel payload
+    pub created_at: DateTime<Utc>,        // GC anchor
+    pub parent_job_id: Option<String>,    // #318 cascade
+}
+// DashMap<Uuid, JobRoute>
+```
+
+Populated when the backend reply to a `tools/call` carries a `job_id`.
+Consumed by:
+
+- `notifications/cancelled { requestId }` — the gateway resolves
+  `requestId → job_id → JobRoute` and POSTs a cancel to `backend_id`.
+- Parent-job cascade — if the cancelled job has a `parent_job_id`, or
+  *is itself* a parent, the gateway walks the `children_of` index and
+  fans the cancel out to every distinct `backend_id` (which may differ
+  from the originating backend — `#318` only covered single-server
+  cascade, the gateway extends this across backends).
+
+### Lifecycle
+
+- **Insert** — `aggregator::route_tools_call` → `SubscriberManager::bind_job_route`.
+- **Auto-evict** — `deliver()` removes the route as soon as a
+  `$/dcc.jobUpdated` with a terminal status (`completed`, `failed`,
+  `cancelled`, `interrupted`) is observed.
+- **TTL GC** — a background task sweeps routes older than
+  `gateway_route_ttl_secs` (default 24 h) every 60 s, so a backend
+  crash that never emits a terminal event doesn't leak the route.
+- **Per-session cap** — `gateway_max_routes_per_session` (default
+  1 000). When a session is already holding `cap` live routes a new
+  dispatch is rejected with JSON-RPC `-32005 too_many_in_flight_jobs`.
+
+### Python configuration
+
+```python
+from dcc_mcp_core import McpHttpConfig
+
+cfg = McpHttpConfig(
+    port=0,
+    gateway_route_ttl_secs=3600,              # 1 hour
+    gateway_max_routes_per_session=500,
+)
+```
+
+Both fields are also accessible as getters/setters on the returned
+`McpHttpConfig` instance.
+
 ## Non-goals
 
-Routing-cache improvements for cancellation (#322) and HTTP/2
-multiplexing tuning are out of scope for both #320 and #321.
+HTTP/2 multiplexing tuning and multi-backend failover for the routing
+cache (routes are sticky) are out of scope for #320 / #321 / #322.

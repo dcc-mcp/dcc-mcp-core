@@ -195,6 +195,8 @@ async fn start_gateway_tasks(
     backend_timeout: Duration,
     async_dispatch_timeout: Duration,
     wait_terminal_timeout: Duration,
+    route_ttl: Duration,
+    max_routes_per_session: usize,
     server_name: String,
     server_version: String,
     sentinel_key: ServiceKey,
@@ -364,7 +366,14 @@ async fn start_gateway_tasks(
     // ── Backend SSE subscriber manager (#320) ─────────────────────────────
     // Multiplexes per-backend SSE notifications back to originating client
     // sessions. Each `ensure_subscribed` spawns a reconnecting task.
-    let subscriber = sse_subscriber::SubscriberManager::new(http_client.clone());
+    let subscriber = sse_subscriber::SubscriberManager::with_limits(
+        http_client.clone(),
+        route_ttl,
+        max_routes_per_session,
+    );
+    // #322: GC loop — evicts stale (non-terminal) routes that outlive
+    // their TTL. Terminal jobs are auto-evicted in `deliver`.
+    let route_gc_handle = subscriber.spawn_route_gc();
 
     // Periodically ensure every live backend has an active subscription.
     // The subscriber's internal DashMap makes repeat calls cheap, so we
@@ -441,6 +450,7 @@ async fn start_gateway_tasks(
             watcher_handle,
             tools_watcher_handle,
             backend_sub_handle,
+            route_gc_handle,
             gw_handle
         );
     });
@@ -547,6 +557,16 @@ pub struct GatewayConfig {
     /// Gateway wait-for-terminal passthrough timeout (issue #321).
     /// Default: `600_000` (10 minutes).
     pub wait_terminal_timeout_ms: u64,
+    /// TTL (seconds) for cached [`JobRoute`] entries in the gateway
+    /// routing cache (issue #322). Routes older than this are evicted
+    /// by a background GC task even if no terminal event was observed.
+    /// Default: `86_400` (24 hours).
+    ///
+    /// [`JobRoute`]: sse_subscriber::JobRoute
+    pub route_ttl_secs: u64,
+    /// Per-session ceiling on concurrent live routes (issue #322). `0`
+    /// disables the cap. Default: `1_000`.
+    pub max_routes_per_session: u64,
 }
 
 impl Default for GatewayConfig {
@@ -563,6 +583,8 @@ impl Default for GatewayConfig {
             backend_timeout_ms: 10_000,
             async_dispatch_timeout_ms: 60_000,
             wait_terminal_timeout_ms: 600_000,
+            route_ttl_secs: 60 * 60 * 24,
+            max_routes_per_session: 1_000,
         }
     }
 }
@@ -754,6 +776,8 @@ impl GatewayRunner {
         let backend_timeout = Duration::from_millis(self.config.backend_timeout_ms);
         let async_dispatch_timeout = Duration::from_millis(self.config.async_dispatch_timeout_ms);
         let wait_terminal_timeout = Duration::from_millis(self.config.wait_terminal_timeout_ms);
+        let route_ttl = Duration::from_secs(self.config.route_ttl_secs);
+        let max_routes_per_session = self.config.max_routes_per_session as usize;
         let own_version = self.config.server_version.clone();
 
         match try_bind_port_opt(&self.config.host, self.config.gateway_port).await {
@@ -782,6 +806,8 @@ impl GatewayRunner {
                     backend_timeout,
                     async_dispatch_timeout,
                     wait_terminal_timeout,
+                    route_ttl,
+                    max_routes_per_session,
                     format!("{} (gateway)", self.config.server_name),
                     own_version.clone(),
                     sentinel_key,
@@ -881,6 +907,8 @@ impl GatewayRunner {
         let backend_timeout = Duration::from_millis(self.config.backend_timeout_ms);
         let async_dispatch_timeout = Duration::from_millis(self.config.async_dispatch_timeout_ms);
         let wait_terminal_timeout = Duration::from_millis(self.config.wait_terminal_timeout_ms);
+        let route_ttl = Duration::from_secs(self.config.route_ttl_secs);
+        let max_routes_per_session = self.config.max_routes_per_session as usize;
         let server_name = self.config.server_name.clone();
         let timeout_secs = self.config.challenger_timeout_secs;
 
@@ -940,6 +968,8 @@ impl GatewayRunner {
                         backend_timeout,
                         async_dispatch_timeout,
                         wait_terminal_timeout,
+                        route_ttl,
+                        max_routes_per_session,
                         format!("{server_name} (gateway)"),
                         own_ver.clone(),
                         sentinel_key,

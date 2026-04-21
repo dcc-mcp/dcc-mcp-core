@@ -233,6 +233,31 @@ pub struct McpHttpConfig {
     /// Default: `600_000` (10 minutes).
     pub gateway_wait_terminal_timeout_ms: u64,
 
+    /// TTL (seconds) for the gateway's per-job routing cache (issue
+    /// #322). Controls how long a `JobRoute` may live without seeing a
+    /// terminal notification before a background GC task evicts it.
+    ///
+    /// The routing cache maps `job_id → backend_id` so client-initiated
+    /// `notifications/cancelled` can be forwarded to the correct
+    /// backend. Terminal notifications (`completed`, `failed`,
+    /// `cancelled`, `interrupted`) auto-evict routes; this TTL is the
+    /// safety net for jobs whose terminal event is never delivered
+    /// (backend crash, SSE drop that never recovers, …).
+    ///
+    /// Default: `86_400` (24 hours).
+    pub gateway_route_ttl_secs: u64,
+
+    /// Per-session ceiling on concurrent live routes in the gateway
+    /// routing cache (issue #322). `0` disables the cap.
+    ///
+    /// When a client session is already holding `cap` live routes, a
+    /// new async `tools/call` is rejected with JSON-RPC error code
+    /// `-32005 too_many_in_flight_jobs`. This prevents a runaway agent
+    /// from causing unbounded memory growth in the gateway.
+    ///
+    /// Default: `1_000`.
+    pub gateway_max_routes_per_session: u64,
+
     /// Enable the Prometheus `/metrics` endpoint (issue #331).
     ///
     /// Requires the `prometheus` Cargo feature on both `dcc-mcp-http`
@@ -366,6 +391,8 @@ impl McpHttpConfig {
             backend_timeout_ms: 10_000,
             gateway_async_dispatch_timeout_ms: 60_000,
             gateway_wait_terminal_timeout_ms: 600_000,
+            gateway_route_ttl_secs: 60 * 60 * 24,
+            gateway_max_routes_per_session: 1_000,
             enable_resources: true,
             enable_artefact_resources: false,
             enable_prompts: true,
@@ -537,6 +564,22 @@ impl McpHttpConfig {
     /// See [`Self::gateway_wait_terminal_timeout_ms`] for the full contract.
     pub fn with_gateway_wait_terminal_timeout_ms(mut self, ms: u64) -> Self {
         self.gateway_wait_terminal_timeout_ms = ms;
+        self
+    }
+
+    /// Builder: override the gateway's routing-cache TTL (issue #322).
+    ///
+    /// See [`Self::gateway_route_ttl_secs`] for the full contract.
+    pub fn with_gateway_route_ttl_secs(mut self, secs: u64) -> Self {
+        self.gateway_route_ttl_secs = secs;
+        self
+    }
+
+    /// Builder: override the gateway's per-session route cap (issue #322).
+    ///
+    /// See [`Self::gateway_max_routes_per_session`] for the full contract.
+    pub fn with_gateway_max_routes_per_session(mut self, cap: u64) -> Self {
+        self.gateway_max_routes_per_session = cap;
         self
     }
 }

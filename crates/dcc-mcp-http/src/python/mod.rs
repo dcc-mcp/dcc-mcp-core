@@ -27,7 +27,7 @@ pub struct PyMcpHttpConfig {
 impl PyMcpHttpConfig {
     /// Create a new config. ``port=0`` binds to any available port.
     #[new]
-    #[pyo3(signature = (port=8765, server_name=None, server_version=None, enable_cors=false, request_timeout_ms=30000, backend_timeout_ms=10_000, enable_prometheus=false, prometheus_basic_auth=None, gateway_async_dispatch_timeout_ms=60_000, gateway_wait_terminal_timeout_ms=600_000))]
+    #[pyo3(signature = (port=8765, server_name=None, server_version=None, enable_cors=false, request_timeout_ms=30000, backend_timeout_ms=10_000, enable_prometheus=false, prometheus_basic_auth=None, gateway_async_dispatch_timeout_ms=60_000, gateway_wait_terminal_timeout_ms=600_000, gateway_route_ttl_secs=86_400, gateway_max_routes_per_session=1_000))]
     #[allow(clippy::too_many_arguments)]
     fn new(
         port: u16,
@@ -40,6 +40,8 @@ impl PyMcpHttpConfig {
         prometheus_basic_auth: Option<(String, String)>,
         gateway_async_dispatch_timeout_ms: u64,
         gateway_wait_terminal_timeout_ms: u64,
+        gateway_route_ttl_secs: u64,
+        gateway_max_routes_per_session: u64,
     ) -> Self {
         let mut cfg = McpHttpConfig::new(port);
         if let Some(name) = server_name {
@@ -55,6 +57,8 @@ impl PyMcpHttpConfig {
         cfg.prometheus_basic_auth = prometheus_basic_auth;
         cfg.gateway_async_dispatch_timeout_ms = gateway_async_dispatch_timeout_ms;
         cfg.gateway_wait_terminal_timeout_ms = gateway_wait_terminal_timeout_ms;
+        cfg.gateway_route_ttl_secs = gateway_route_ttl_secs;
+        cfg.gateway_max_routes_per_session = gateway_max_routes_per_session;
         // Issue #303: PyO3-embedded hosts (Maya on Windows etc.) cannot
         // rely on shared tokio worker threads to drive the accept loop
         // after `block_on` returns. Default to `Dedicated` so the listener
@@ -455,6 +459,38 @@ impl PyMcpHttpConfig {
     #[setter]
     fn set_gateway_wait_terminal_timeout_ms(&mut self, ms: u64) {
         self.inner.gateway_wait_terminal_timeout_ms = ms;
+    }
+
+    /// Gateway routing-cache TTL (seconds) for `JobRoute` entries
+    /// (issue #322). Default: ``86_400`` (24 hours).
+    ///
+    /// Routes that don't see a terminal notification within this window
+    /// are evicted by a background GC task so the cache cannot grow
+    /// without bound under pathological agents or crashed backends.
+    #[getter]
+    fn gateway_route_ttl_secs(&self) -> u64 {
+        self.inner.gateway_route_ttl_secs
+    }
+
+    #[setter]
+    fn set_gateway_route_ttl_secs(&mut self, secs: u64) {
+        self.inner.gateway_route_ttl_secs = secs;
+    }
+
+    /// Per-session ceiling on concurrent live gateway routes (issue
+    /// #322). ``0`` disables the cap. Default: ``1_000``.
+    ///
+    /// When a client session is already holding this many live routes,
+    /// new async ``tools/call`` requests are rejected with JSON-RPC
+    /// ``-32005 too_many_in_flight_jobs``.
+    #[getter]
+    fn gateway_max_routes_per_session(&self) -> u64 {
+        self.inner.gateway_max_routes_per_session
+    }
+
+    #[setter]
+    fn set_gateway_max_routes_per_session(&mut self, cap: u64) {
+        self.inner.gateway_max_routes_per_session = cap;
     }
 
     /// Advertise the MCP Resources primitive (issue #350).

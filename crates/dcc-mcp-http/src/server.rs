@@ -445,6 +445,8 @@ impl McpHttpServer {
                 backend_timeout_ms: self.config.backend_timeout_ms,
                 async_dispatch_timeout_ms: self.config.gateway_async_dispatch_timeout_ms,
                 wait_terminal_timeout_ms: self.config.gateway_wait_terminal_timeout_ms,
+                route_ttl_secs: self.config.gateway_route_ttl_secs,
+                max_routes_per_session: self.config.gateway_max_routes_per_session,
             };
 
             match GatewayRunner::new(gw_cfg) {

@@ -196,7 +196,7 @@ pub async fn route_tools_call(
         original,
         Some(args.clone()),
         forwarded_meta,
-        request_id,
+        request_id.clone(),
         dispatch_timeout,
     )
     .await;
@@ -210,7 +210,46 @@ pub async fn route_tools_call(
             //     be routed to the originating client session.
             let job_id = extract_job_id(&result);
             if let (Some(sid), Some(jid)) = (client_session_id, job_id.as_deref()) {
-                gs.subscriber.bind_job(jid, sid, &url);
+                // #322: record the full JobRoute so `notifications/cancelled`
+                // can later forward to this backend. `parent_job_id` comes
+                // from the inbound `_meta.dcc.parentJobId` so workflow
+                // cancellations can cascade across backends.
+                let parent = meta
+                    .and_then(|m| m.get("dcc"))
+                    .and_then(|d| d.get("parentJobId"))
+                    .and_then(|p| p.as_str());
+                if let Err(e) = gs
+                    .subscriber
+                    .bind_job_route(jid, sid, &url, original, parent)
+                {
+                    tracing::warn!(
+                        session = %sid,
+                        job = %jid,
+                        backend = %url,
+                        error = %e,
+                        "gateway: refusing to bind route — per-session cap reached"
+                    );
+                    let payload = json!({
+                        "error": {
+                            "code": -32005,
+                            "message": format!("{e}"),
+                            "data": {
+                                "instance_id": entry.instance_id.to_string(),
+                                "dcc_type": entry.dcc_type,
+                            }
+                        }
+                    });
+                    return (
+                        serde_json::to_string_pretty(&payload).unwrap_or_default(),
+                        true,
+                    );
+                }
+                // Correlate the originating JSON-RPC requestId with the
+                // dispatched job_id so a later `notifications/cancelled`
+                // can resolve to the JobRoute.
+                if let Some(ref rid) = request_id {
+                    gs.subscriber.bind_request_to_job(rid, jid);
+                }
             }
 
             // ── #321: wait-for-terminal passthrough ────────────────────
