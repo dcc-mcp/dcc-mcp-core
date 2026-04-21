@@ -1037,7 +1037,8 @@ async fn handle_tools_call(
     };
 
     // Check action exists in registry before dispatch
-    if state.registry.get_action(&resolved_name, None).is_none() {
+    let action_meta_snapshot = state.registry.get_action(&resolved_name, None);
+    if action_meta_snapshot.is_none() {
         let envelope = DccMcpError::new(
             "registry",
             "ACTION_NOT_FOUND",
@@ -1051,6 +1052,38 @@ async fn handle_tools_call(
             req.id.clone(),
             serde_json::to_value(CallToolResult::error(envelope.to_json()))?,
         ));
+    }
+
+    // ── Async dispatch path (#318) ───────────────────────────────────────
+    //
+    // Opt-in conditions — any of these routes the call through `JobManager`
+    // and returns immediately with `{job_id, status: "pending"}`:
+    //
+    // 1. `_meta.dcc.async == true` (explicit client opt-in).
+    // 2. `_meta.progressToken` is set (MCP 2025-03-26 long-running hint).
+    // 3. The tool declares `execution: async` in its `ActionMeta` (#317).
+    // 4. The tool declares a non-zero `timeout_hint_secs` (#317) — the
+    //    skill author signalled "expect this to take a while".
+    //
+    // Otherwise dispatch is synchronous (unchanged path below).
+    let meta_dcc = params.meta.as_ref().and_then(|m| m.dcc.as_ref());
+    let async_opt_in = meta_dcc.is_some_and(|d| d.r#async);
+    let has_progress_token = params
+        .meta
+        .as_ref()
+        .and_then(|m| m.progress_token.as_ref())
+        .is_some();
+    let action_meta_for_async = action_meta_snapshot.as_ref();
+    let action_declares_async = action_meta_for_async
+        .map(|m| {
+            matches!(m.execution, dcc_mcp_models::ExecutionMode::Async)
+                || m.timeout_hint_secs.unwrap_or(0) > 0
+        })
+        .unwrap_or(false);
+    let should_dispatch_async = async_opt_in || has_progress_token || action_declares_async;
+    if should_dispatch_async {
+        let parent_job_id = meta_dcc.and_then(|d| d.parent_job_id.clone());
+        return dispatch_async_job(state, req, resolved_name, call_params, parent_job_id).await;
     }
 
     // ── Register in-flight entry (#240 progress + #241 cancellation) ─────
@@ -1303,6 +1336,190 @@ async fn handle_tools_call(
     Ok(JsonRpcResponse::success(
         req.id.clone(),
         serde_json::to_value(call_result)?,
+    ))
+}
+
+/// Async job dispatch path for `tools/call` (issue #318).
+///
+/// Creates a [`crate::job::Job`] via `state.jobs`, spawns the actual tool
+/// execution on Tokio, and returns immediately with a spec-compliant
+/// `CallToolResult` envelope:
+///
+/// ```json
+/// {
+///   "content": [{"type": "text", "text": "Job <id> queued"}],
+///   "structuredContent": {"job_id": "<uuid>", "status": "pending", "parent_job_id": "<uuid>|null"},
+///   "isError": false,
+///   "_meta": {"dcc": {"jobId": "<uuid>", "parentJobId": "<uuid>|null"}, "status": "pending"}
+/// }
+/// ```
+///
+/// Parent-job cascade: when `parent_job_id` resolves to a tracked job, the
+/// child's `CancellationToken` is derived from the parent's via
+/// [`tokio_util::sync::CancellationToken::child_token`]. Cancelling the
+/// parent therefore cancels every descendant within one cooperative
+/// checkpoint.
+async fn dispatch_async_job(
+    state: &AppState,
+    req: &JsonRpcRequest,
+    resolved_name: String,
+    call_params: Value,
+    parent_job_id: Option<String>,
+) -> Result<JsonRpcResponse, HttpError> {
+    let job_handle = state
+        .jobs
+        .create_with_parent(resolved_name.clone(), parent_job_id.clone());
+    let (job_id, cancel_token) = {
+        let j = job_handle.read();
+        (j.id.clone(), j.cancel_token.clone())
+    };
+
+    tracing::info!(
+        job_id = %job_id,
+        tool = %resolved_name,
+        parent_job_id = ?parent_job_id,
+        "async job dispatched"
+    );
+
+    // Spawn the actual execution. The task owns clones of everything it
+    // needs; the request task returns immediately with the pending envelope.
+    let jobs = Arc::clone(&state.jobs);
+    let dispatcher = Arc::clone(&state.dispatcher);
+    let executor = state.executor.clone();
+    let spawn_job_id = job_id.clone();
+    let spawn_name = resolved_name.clone();
+    let spawn_params = call_params;
+    tokio::spawn(async move {
+        // Pending → Running. If the job was cancelled before pick-up, skip.
+        if cancel_token.is_cancelled() {
+            tracing::debug!(job_id = %spawn_job_id, "job cancelled before execution");
+            return;
+        }
+        if jobs.start(&spawn_job_id).is_none() {
+            tracing::debug!(job_id = %spawn_job_id, "job could not enter Running state");
+            return;
+        }
+
+        let exec_result: Result<Value, String> = if let Some(exec) = executor {
+            // DCC main-thread path — route through DeferredExecutor so the
+            // tool body hits the DCC UI tick instead of a Tokio worker.
+            let disp = Arc::clone(&dispatcher);
+            let name = spawn_name.clone();
+            let p = spawn_params.clone();
+            let ct = cancel_token.clone();
+            let fut = exec.execute(Box::new(move || {
+                if ct.is_cancelled() {
+                    return serde_json::to_string(&json!({"__dispatch_error": "CANCELLED"}))
+                        .unwrap_or_default();
+                }
+                match disp.dispatch(&name, p) {
+                    Ok(r) => serde_json::to_string(&r.output).unwrap_or_else(|_| "null".into()),
+                    Err(e) => serde_json::to_string(&json!({"__dispatch_error": e.to_string()}))
+                        .unwrap_or_default(),
+                }
+            }));
+            tokio::select! {
+                out = fut => match out {
+                    Ok(json_str) => {
+                        let v: Value = serde_json::from_str(&json_str).unwrap_or(json!({}));
+                        if let Some(err) = v.get("__dispatch_error") {
+                            Err(err.as_str().unwrap_or("dispatch error").to_string())
+                        } else {
+                            Ok(v)
+                        }
+                    }
+                    Err(e) => Err(e.to_string()),
+                },
+                _ = cancel_token.cancelled() => Err("CANCELLED".to_string()),
+            }
+        } else {
+            // Non-DCC path: offload to a blocking worker with cooperative
+            // cancel via `tokio::select!`.
+            let disp = Arc::clone(&dispatcher);
+            let name = spawn_name.clone();
+            let p = spawn_params.clone();
+            let ct = cancel_token.clone();
+            let fut = tokio::task::spawn_blocking(move || {
+                if ct.is_cancelled() {
+                    return Err("CANCELLED".to_string());
+                }
+                disp.dispatch(&name, p)
+                    .map(|r| r.output)
+                    .map_err(|e| e.to_string())
+            });
+            tokio::select! {
+                r = fut => r.map_err(|e| e.to_string()).and_then(|x| x),
+                _ = cancel_token.cancelled() => Err("CANCELLED".to_string()),
+            }
+        };
+
+        match exec_result {
+            Ok(v) => {
+                if jobs.complete(&spawn_job_id, v).is_none() {
+                    tracing::debug!(
+                        job_id = %spawn_job_id,
+                        "job.complete rejected — likely cancelled concurrently"
+                    );
+                }
+            }
+            Err(msg) if msg == "CANCELLED" => {
+                // `cancel_token` firing already transitioned the job via
+                // JobManager::cancel if that path was taken. If the job is
+                // still Running (e.g. the token fired via parent cascade
+                // without a direct `cancel()` call), mark it cancelled now.
+                if jobs
+                    .get(&spawn_job_id)
+                    .map(|h| h.read().status)
+                    .is_some_and(|s| !s.is_terminal())
+                {
+                    jobs.cancel(&spawn_job_id);
+                }
+            }
+            Err(msg) => {
+                jobs.fail(&spawn_job_id, msg);
+            }
+        }
+    });
+
+    // Build the pending envelope.
+    let structured = json!({
+        "job_id": job_id,
+        "status": "pending",
+        "parent_job_id": parent_job_id,
+    });
+    let mut meta = serde_json::Map::new();
+    meta.insert("status".to_string(), json!("pending"));
+    let mut dcc_meta = serde_json::Map::new();
+    dcc_meta.insert("jobId".to_string(), json!(job_id));
+    dcc_meta.insert(
+        "parentJobId".to_string(),
+        parent_job_id
+            .as_ref()
+            .map(|p| json!(p))
+            .unwrap_or(Value::Null),
+    );
+    meta.insert("dcc".to_string(), Value::Object(dcc_meta));
+
+    // The CallToolResult shape doesn't carry a `_meta` field today; embed it
+    // into `structured_content` so clients that read either surface find it.
+    // This matches the "structuredContent carries job metadata" convention
+    // spelled out in #318 while remaining spec-compliant (extra keys allowed).
+    let structured_with_meta = {
+        let mut s = structured.as_object().cloned().unwrap_or_default();
+        s.insert("_meta".to_string(), Value::Object(meta));
+        Value::Object(s)
+    };
+
+    let envelope = CallToolResult {
+        content: vec![protocol::ToolContent::Text {
+            text: format!("Job {job_id} queued"),
+        }],
+        structured_content: Some(structured_with_meta),
+        is_error: false,
+    };
+    Ok(JsonRpcResponse::success(
+        req.id.clone(),
+        serde_json::to_value(envelope)?,
     ))
 }
 

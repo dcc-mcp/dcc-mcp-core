@@ -90,6 +90,14 @@ pub struct Job {
     pub id: String,
     pub tool_name: String,
     pub status: JobStatus,
+    /// Parent job id (issue #318 — workflow nesting / cascading cancel).
+    ///
+    /// When set, this job is a child of another tracked job. The child's
+    /// `cancel_token` is derived via [`CancellationToken::child_token`] from
+    /// the parent's, so cancelling the parent cancels every descendant
+    /// within one cooperative checkpoint.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_job_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub progress: Option<JobProgress>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -101,24 +109,47 @@ pub struct Job {
     /// Cooperative cancellation signal for the running tool.
     ///
     /// Not serialised — clients observe cancellation through `status`.
+    /// For child jobs this is a child token of the parent's, so parent
+    /// cancellation propagates automatically.
     #[serde(skip)]
     pub cancel_token: CancellationToken,
 }
 
 impl Job {
-    fn new(tool_name: String) -> Self {
+    fn new(
+        tool_name: String,
+        parent_job_id: Option<String>,
+        cancel_token: CancellationToken,
+    ) -> Self {
         let now = Utc::now();
         Self {
             id: Uuid::new_v4().to_string(),
             tool_name,
             status: JobStatus::Pending,
+            parent_job_id,
             progress: None,
             result: None,
             error: None,
             created_at: now,
             updated_at: now,
-            cancel_token: CancellationToken::new(),
+            cancel_token,
         }
+    }
+
+    /// JSON status snapshot used by `jobs.get_status` (#319) and the async
+    /// dispatch envelope returned by `tools/call` (#318).
+    pub fn to_status_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "job_id": self.id,
+            "tool_name": self.tool_name,
+            "status": self.status,
+            "parent_job_id": self.parent_job_id,
+            "progress": self.progress,
+            "result": self.result,
+            "error": self.error,
+            "created_at": self.created_at,
+            "updated_at": self.updated_at,
+        })
     }
 }
 
@@ -139,8 +170,33 @@ impl JobManager {
     }
 
     /// Create a new job in the `Pending` state and return a handle to it.
+    ///
+    /// Convenience wrapper for the common (no-parent) case.
     pub fn create(&self, tool_name: impl Into<String>) -> Arc<RwLock<Job>> {
-        let job = Job::new(tool_name.into());
+        self.create_with_parent(tool_name, None)
+    }
+
+    /// Create a new job with an optional parent id (issue #318).
+    ///
+    /// When `parent_job_id` refers to a currently tracked job, the new job's
+    /// `cancel_token` is derived from the parent's via
+    /// [`CancellationToken::child_token`] — cancelling the parent cancels
+    /// this child within one cooperative checkpoint. If the parent id does
+    /// not exist the child gets a fresh standalone token and the parent id
+    /// is still recorded for diagnostic surfacing.
+    pub fn create_with_parent(
+        &self,
+        tool_name: impl Into<String>,
+        parent_job_id: Option<String>,
+    ) -> Arc<RwLock<Job>> {
+        let cancel_token = match &parent_job_id {
+            Some(pid) => match self.jobs.get(pid) {
+                Some(parent) => parent.read().cancel_token.child_token(),
+                None => CancellationToken::new(),
+            },
+            None => CancellationToken::new(),
+        };
+        let job = Job::new(tool_name.into(), parent_job_id, cancel_token);
         let id = job.id.clone();
         let entry = Arc::new(RwLock::new(job));
         self.jobs.insert(id, Arc::clone(&entry));

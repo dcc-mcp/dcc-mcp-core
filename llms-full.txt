@@ -279,6 +279,41 @@ dispatcher.handler_names()               # -> List[str] sorted
 dispatcher.remove_handler("create_sphere")  # -> bool
 ```
 
+#### Async `tools/call` dispatch (#318)
+
+When a `tools/call` opts into async dispatch, the MCP HTTP server skips the
+blocking dispatch path and returns a pending envelope immediately. Opt-in
+triggers (ANY of):
+
+1. Client sends `_meta.dcc.async = true` on the request.
+2. Client sends `_meta.progressToken` (MCP 2025-03-26 long-running hint).
+3. The tool's `ActionMeta` declares `execution: async` (#317).
+4. The tool's `ActionMeta` declares `timeout_hint_secs > 0` (#317).
+
+Response shape (standard `CallToolResult`, spec-compliant):
+
+```json
+{
+  "content": [{"type": "text", "text": "Job <uuid> queued"}],
+  "structuredContent": {
+    "job_id": "<uuid>",
+    "status": "pending",
+    "parent_job_id": "<uuid>|null",
+    "_meta": {"status": "pending", "dcc": {"jobId": "<uuid>", "parentJobId": "..."}}
+  },
+  "isError": false
+}
+```
+
+Poll `jobs.get_status` (#319) for progress / completion. Cancellation: send
+`notifications/cancelled` with the request id, OR use `_meta.dcc.jobId` once
+the job-scoped cancel endpoint ships (#319).
+
+Parent-job cascade: pass `_meta.dcc.parentJobId` on a child `tools/call` to
+link it to a parent job. The child's `CancellationToken` is derived via
+`CancellationToken::child_token`, so cancelling the parent cancels every
+descendant within one cooperative checkpoint.
+
 ### ToolPipeline
 
 Middleware-style processing pipeline for actions. Wraps `ToolDispatcher` with composable

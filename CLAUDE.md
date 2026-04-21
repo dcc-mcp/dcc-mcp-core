@@ -161,6 +161,13 @@ dispatcher = ToolDispatcher(registry)   # takes ONE arg; no validator param
 result = dispatcher.dispatch("action_name", json.dumps({"key": "value"}))
 # result keys: "action", "output", "validation_skipped"
 
+# Async tools/call dispatch (#318) — opt-in, returns {job_id, status: pending}
+# Opt-in when ANY of: _meta.dcc.async=true, _meta.progressToken set,
+# or the ActionMeta declares execution: async / timeout_hint_secs > 0.
+# Parent-job cascade: _meta.dcc.parentJobId makes the new Job's
+# CancellationToken a child of the parent's; cancelling the parent cancels
+# every descendant within one cooperative checkpoint.
+
 # scan_and_load — ALWAYS returns a 2-TUPLE
 skills, skipped = scan_and_load(dcc_name="maya")   # never: skills = scan_and_load(...)
 

@@ -323,6 +323,30 @@ pub struct McpToolAnnotations {
 pub struct CallToolMeta {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub progress_token: Option<Value>,
+    /// dcc-mcp-core specific metadata (issue #318).
+    ///
+    /// Opt-in async dispatch (`dcc.async = true`) and workflow nesting
+    /// (`dcc.parentJobId`). Nested under a single `dcc` key to avoid
+    /// polluting the top-level `_meta` namespace which is spec-reserved.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dcc: Option<CallToolMetaDcc>,
+}
+
+/// dcc-mcp-core specific `_meta.dcc` block on a `tools/call` request.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CallToolMetaDcc {
+    /// Opt into async job dispatch (#318). When `true`, the server returns
+    /// immediately with a `{job_id, status: "pending"}` envelope and runs
+    /// the tool on a Tokio task.
+    #[serde(default, rename = "async", skip_serializing_if = "std::ops::Not::not")]
+    pub r#async: bool,
+    /// Parent job id for workflow nesting (#318).
+    ///
+    /// When set, the dispatched async job's `cancel_token` is a child of the
+    /// parent's token — cancelling the parent cancels every descendant.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_job_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -289,6 +289,25 @@ dispatcher = ToolDispatcher(registry)          # one arg only
 result = dispatcher.dispatch("name", json_str)   # returns dict
 ```
 
+**Async `tools/call` dispatch (#318) — opt-in, non-blocking:**
+```python
+# Any of these routes the call through JobManager and returns immediately
+# with {job_id, status: "pending"}:
+#   1. Request carries _meta.dcc.async = true
+#   2. Request carries _meta.progressToken
+#   3. Tool's ActionMeta declares execution: async or timeout_hint_secs > 0
+# Otherwise dispatch is synchronous (byte-identical to pre-#318 behaviour).
+body = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
+    "name": "render_frames",
+    "arguments": {"start": 1, "end": 250},
+    "_meta": {"dcc": {"async": True, "parentJobId": "<uuid-or-null>"}},
+}}
+# → result.structuredContent = {"job_id": "<uuid>", "status": "pending",
+#                               "parent_job_id": "<uuid>|null"}
+# Poll via jobs.get_status (#319); cancelling the parent cancels every child
+# whose _meta.dcc.parentJobId matches (CancellationToken child-token cascade).
+```
+
 **`ToolRegistry.register()` — keyword args only, no positional:**
 ```python
 registry.register(name="my_tool", description="...", dcc="maya")
