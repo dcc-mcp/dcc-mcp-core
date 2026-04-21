@@ -3669,6 +3669,10 @@ class McpHttpConfig:
         server_version: Version reported in MCP ``initialize`` response.
         enable_cors: Enable CORS headers (for browser clients).
         request_timeout_ms: Request timeout in milliseconds.
+        backend_timeout_ms: Per-backend gateway fan-out timeout in
+            milliseconds. Default: ``10_000``. Raise this for DCC workflows
+            whose backend tools run legitimately longer than 10 s
+            (issue #314).
 
     Example::
 
@@ -3684,6 +3688,7 @@ class McpHttpConfig:
         server_version: str | None = None,
         enable_cors: bool = False,
         request_timeout_ms: int = 30000,
+        backend_timeout_ms: int = 10000,
     ) -> None: ...
     @property
     def port(self) -> int: ...
@@ -3737,6 +3742,16 @@ class McpHttpConfig:
         ...
     @bare_tool_names.setter
     def bare_tool_names(self, enabled: bool) -> None: ...
+    @property
+    def backend_timeout_ms(self) -> int:
+        """Per-backend gateway fan-out timeout in milliseconds (#314).
+
+        Used by the gateway when dispatching ``tools/list`` / ``tools/call``
+        to each live DCC instance. Default: ``10_000`` (10 seconds).
+        """
+        ...
+    @backend_timeout_ms.setter
+    def backend_timeout_ms(self, ms: int) -> None: ...
     def __repr__(self) -> str: ...
 
 class McpServerHandle:

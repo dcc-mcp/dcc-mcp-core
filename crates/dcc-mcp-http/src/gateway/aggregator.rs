@@ -28,11 +28,6 @@ use super::tools::{
 use crate::protocol::{TOOLS_LIST_PAGE_SIZE, decode_cursor, encode_cursor};
 use dcc_mcp_transport::discovery::types::ServiceEntry;
 
-/// Per-backend request timeout for fan-out calls.
-///
-/// Kept short so a single unresponsive instance does not stall aggregation.
-const BACKEND_TIMEOUT: Duration = Duration::from_secs(10);
-
 /// Build the unified `tools/list` result by aggregating every live backend.
 ///
 /// Tool order:
@@ -56,9 +51,10 @@ pub async fn aggregate_tools_list(gs: &GatewayState, cursor: Option<&str>) -> Va
     // Tier 3: fan out to every live backend.
     let instances = live_backends(gs).await;
     let client = &gs.http_client;
+    let backend_timeout = gs.backend_timeout;
     let futs = instances.iter().map(|entry| async move {
         let url = format!("http://{}:{}/mcp", entry.host, entry.port);
-        let backend_tools = fetch_tools(client, &url, BACKEND_TIMEOUT).await;
+        let backend_tools = fetch_tools(client, &url, backend_timeout).await;
         (entry.instance_id, entry.dcc_type.clone(), backend_tools)
     });
     let results = join_all(futs).await;
@@ -162,7 +158,7 @@ pub async fn route_tools_call(
         Some(args.clone()),
         meta.cloned(),
         request_id,
-        BACKEND_TIMEOUT,
+        gs.backend_timeout,
     )
     .await
     {
@@ -221,7 +217,7 @@ async fn skill_mgmt_dispatch(gs: &GatewayState, tool: &str, args: &Value) -> (St
                         Some(forward_args),
                         None,
                         None,
-                        BACKEND_TIMEOUT,
+                        gs.backend_timeout,
                     )
                     .await
                     {
@@ -265,6 +261,7 @@ async fn skill_mgmt_dispatch(gs: &GatewayState, tool: &str, args: &Value) -> (St
             }
 
             let client = &gs.http_client;
+            let backend_timeout = gs.backend_timeout;
             let params = json!({"name": tool, "arguments": args});
             let futs = targets.iter().map(|entry| {
                 let url = format!("http://{}:{}/mcp", entry.host, entry.port);
@@ -276,7 +273,7 @@ async fn skill_mgmt_dispatch(gs: &GatewayState, tool: &str, args: &Value) -> (St
                         "tools/call",
                         Some(params),
                         None,
-                        BACKEND_TIMEOUT,
+                        backend_timeout,
                     )
                     .await;
                     (entry.instance_id, entry.dcc_type.clone(), res)
@@ -423,6 +420,7 @@ pub async fn compute_tools_fingerprint(
     >,
     stale_timeout: Duration,
     http_client: &reqwest::Client,
+    backend_timeout: Duration,
 ) -> String {
     let instances: Vec<ServiceEntry> = {
         let reg = registry.read().await;
@@ -442,7 +440,7 @@ pub async fn compute_tools_fingerprint(
 
     let futs = instances.iter().map(|entry| async move {
         let url = format!("http://{}:{}/mcp", entry.host, entry.port);
-        let tools = fetch_tools(http_client, &url, BACKEND_TIMEOUT).await;
+        let tools = fetch_tools(http_client, &url, backend_timeout).await;
         (entry.instance_id, tools)
     });
     let results = join_all(futs).await;

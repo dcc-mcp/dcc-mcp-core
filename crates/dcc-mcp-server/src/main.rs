@@ -534,6 +534,7 @@ async fn main() -> anyhow::Result<()> {
         server_version: env!("CARGO_PKG_VERSION").to_string(),
         registry_dir: registry_dir_path,
         challenger_timeout_secs: 120,
+        backend_timeout_ms: 10_000,
     };
 
     let runner = GatewayRunner::new(gateway_cfg)

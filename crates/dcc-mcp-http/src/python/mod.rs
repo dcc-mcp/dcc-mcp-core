@@ -27,13 +27,14 @@ pub struct PyMcpHttpConfig {
 impl PyMcpHttpConfig {
     /// Create a new config. ``port=0`` binds to any available port.
     #[new]
-    #[pyo3(signature = (port=8765, server_name=None, server_version=None, enable_cors=false, request_timeout_ms=30000))]
+    #[pyo3(signature = (port=8765, server_name=None, server_version=None, enable_cors=false, request_timeout_ms=30000, backend_timeout_ms=10_000))]
     fn new(
         port: u16,
         server_name: Option<String>,
         server_version: Option<String>,
         enable_cors: bool,
         request_timeout_ms: u64,
+        backend_timeout_ms: u64,
     ) -> Self {
         let mut cfg = McpHttpConfig::new(port);
         if let Some(name) = server_name {
@@ -44,6 +45,7 @@ impl PyMcpHttpConfig {
         }
         cfg.enable_cors = enable_cors;
         cfg.request_timeout_ms = request_timeout_ms;
+        cfg.backend_timeout_ms = backend_timeout_ms;
         // Issue #303: PyO3-embedded hosts (Maya on Windows etc.) cannot
         // rely on shared tokio worker threads to drive the accept loop
         // after `block_on` returns. Default to `Dedicated` so the listener
@@ -271,6 +273,22 @@ impl PyMcpHttpConfig {
     #[setter]
     fn set_bare_tool_names(&mut self, enabled: bool) {
         self.inner.bare_tool_names = enabled;
+    }
+
+    /// Per-backend gateway fan-out timeout in milliseconds (issue #314).
+    ///
+    /// Default: ``10_000`` (10 seconds). Raise this for DCC workflows that
+    /// legitimately run backend tools longer than 10 seconds (scene import,
+    /// simulation bake, large USD composition) to avoid spurious transport
+    /// timeout errors on the gateway fan-out path.
+    #[getter]
+    fn backend_timeout_ms(&self) -> u64 {
+        self.inner.backend_timeout_ms
+    }
+
+    #[setter]
+    fn set_backend_timeout_ms(&mut self, ms: u64) {
+        self.inner.backend_timeout_ms = ms;
     }
 
     fn __repr__(&self) -> String {

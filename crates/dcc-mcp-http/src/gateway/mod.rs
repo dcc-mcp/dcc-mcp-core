@@ -190,6 +190,7 @@ async fn start_gateway_tasks(
     listener: tokio::net::TcpListener,
     registry: Arc<RwLock<FileRegistry>>,
     stale_timeout: Duration,
+    backend_timeout: Duration,
     server_name: String,
     server_version: String,
     sentinel_key: ServiceKey,
@@ -332,6 +333,7 @@ async fn start_gateway_tasks(
                 &reg_tools,
                 stale_timeout,
                 &http_client_tools,
+                backend_timeout,
             )
             .await;
 
@@ -359,6 +361,7 @@ async fn start_gateway_tasks(
     let gw_state = GatewayState {
         registry,
         stale_timeout,
+        backend_timeout,
         server_name,
         server_version,
         http_client,
@@ -494,6 +497,10 @@ pub struct GatewayConfig {
     ///
     /// Default: `120` seconds (12 × 10-second retry intervals).
     pub challenger_timeout_secs: u64,
+    /// Per-backend request timeout (milliseconds) used for fan-out calls
+    /// from the gateway to each live DCC instance. Default: `10_000`.
+    /// Issue #314.
+    pub backend_timeout_ms: u64,
 }
 
 impl Default for GatewayConfig {
@@ -507,6 +514,7 @@ impl Default for GatewayConfig {
             server_version: env!("CARGO_PKG_VERSION").to_string(),
             registry_dir: None,
             challenger_timeout_secs: 120,
+            backend_timeout_ms: 10_000,
         }
     }
 }
@@ -695,6 +703,7 @@ impl GatewayRunner {
         &self,
     ) -> Result<ElectionOutcome, Box<dyn std::error::Error + Send + Sync>> {
         let stale_timeout = Duration::from_secs(self.config.stale_timeout_secs);
+        let backend_timeout = Duration::from_millis(self.config.backend_timeout_ms);
         let own_version = self.config.server_version.clone();
 
         match try_bind_port_opt(&self.config.host, self.config.gateway_port).await {
@@ -720,6 +729,7 @@ impl GatewayRunner {
                     listener,
                     self.registry.clone(),
                     stale_timeout,
+                    backend_timeout,
                     format!("{} (gateway)", self.config.server_name),
                     own_version.clone(),
                     sentinel_key,
@@ -816,6 +826,7 @@ impl GatewayRunner {
         let gw_ver = gw_version.to_owned();
         let registry = self.registry.clone();
         let stale_timeout = Duration::from_secs(self.config.stale_timeout_secs);
+        let backend_timeout = Duration::from_millis(self.config.backend_timeout_ms);
         let server_name = self.config.server_name.clone();
         let timeout_secs = self.config.challenger_timeout_secs;
 
@@ -872,6 +883,7 @@ impl GatewayRunner {
                         listener,
                         registry.clone(),
                         stale_timeout,
+                        backend_timeout,
                         format!("{server_name} (gateway)"),
                         own_ver.clone(),
                         sentinel_key,

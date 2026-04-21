@@ -22,6 +22,13 @@ pub struct PendingCall {
 pub struct GatewayState {
     pub registry: Arc<RwLock<FileRegistry>>,
     pub stale_timeout: Duration,
+    /// Per-backend request timeout for gateway fan-out calls (issue #314).
+    ///
+    /// Kept short by default (10s) so a single unresponsive instance does
+    /// not stall aggregation, but configurable via
+    /// [`McpHttpConfig::backend_timeout_ms`] for workflows with legitimately
+    /// long-running backend tools.
+    pub backend_timeout: Duration,
     pub server_name: String,
     /// The version string of this gateway instance (e.g. `"0.12.29"`).
     pub server_version: String,
@@ -127,6 +134,7 @@ mod tests {
         GatewayState {
             registry: reg,
             stale_timeout: Duration::from_secs(30),
+            backend_timeout: Duration::from_secs(10),
             server_name: "test".into(),
             server_version: "0.13.2".into(),
             http_client: reqwest::Client::new(),

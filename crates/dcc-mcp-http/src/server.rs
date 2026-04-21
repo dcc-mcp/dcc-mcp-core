@@ -259,6 +259,7 @@ impl McpHttpServer {
                 server_version: self.config.server_version.clone(),
                 registry_dir: self.config.registry_dir.clone(),
                 challenger_timeout_secs: 120,
+                backend_timeout_ms: self.config.backend_timeout_ms,
             };
 
             match GatewayRunner::new(gw_cfg) {

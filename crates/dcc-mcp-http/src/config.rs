@@ -142,6 +142,19 @@ pub struct McpHttpConfig {
     /// success. Applied per attempt; up to 5 attempts are made. Set to 0
     /// to disable self-probing (not recommended). Default: 200.
     pub self_probe_timeout_ms: u64,
+
+    /// Per-backend request timeout (milliseconds) used by the gateway when
+    /// fanning out `tools/list` / `tools/call` to live DCC instances.
+    ///
+    /// Default: `10_000` (10 seconds). Increase for DCC workflows that
+    /// routinely produce long-running calls (e.g. heavy scene import,
+    /// simulation bake) so the gateway does not reply with a transport
+    /// timeout error while the backend is still legitimately working.
+    ///
+    /// Only the gateway fan-out uses this value — per-instance servers
+    /// bound to a DCC execute inline and are governed by
+    /// [`Self::request_timeout_ms`] instead. Fixes issue #314.
+    pub backend_timeout_ms: u64,
 }
 
 impl McpHttpConfig {
@@ -168,6 +181,7 @@ impl McpHttpConfig {
             bare_tool_names: true,
             spawn_mode: ServerSpawnMode::Ambient,
             self_probe_timeout_ms: 200,
+            backend_timeout_ms: 10_000,
         }
     }
 
@@ -261,6 +275,17 @@ impl McpHttpConfig {
     /// parent runtime has no active driver thread.
     pub fn with_spawn_mode(mut self, mode: ServerSpawnMode) -> Self {
         self.spawn_mode = mode;
+        self
+    }
+
+    /// Builder: override the per-backend gateway fan-out timeout (issue #314).
+    ///
+    /// Default: `10_000` ms. Raise this for workflows whose backend tools
+    /// legitimately run longer than 10 seconds (scene import, simulation
+    /// bake, large USD composition) so the gateway does not short-circuit
+    /// them with a transport timeout error.
+    pub fn with_backend_timeout_ms(mut self, ms: u64) -> Self {
+        self.backend_timeout_ms = ms;
         self
     }
 }

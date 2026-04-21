@@ -2523,6 +2523,7 @@ mod gateway_tests {
         GatewayState {
             registry: Arc::new(RwLock::new(registry)),
             stale_timeout: Duration::from_secs(30),
+            backend_timeout: Duration::from_secs(10),
             server_name: "test-gateway".to_string(),
             server_version: "0.1.0".to_string(),
             http_client: reqwest::Client::new(),
