@@ -149,6 +149,7 @@ from dcc_mcp_core._core import VersionedRegistry
 from dcc_mcp_core._core import VtValue
 from dcc_mcp_core._core import WindowFinder
 from dcc_mcp_core._core import WindowInfo
+from dcc_mcp_core._core import WorkspaceRoots
 from dcc_mcp_core._core import artefact_get_bytes
 from dcc_mcp_core._core import artefact_list
 from dcc_mcp_core._core import artefact_put_bytes
@@ -402,6 +403,7 @@ __all__ = [
     "WorkflowSpec",
     "WorkflowStatus",
     "WorkflowStep",
+    "WorkspaceRoots",
     "__author__",
     "__version__",
     "artefact_get_bytes",

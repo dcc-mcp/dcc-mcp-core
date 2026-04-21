@@ -262,6 +262,25 @@ pub struct McpHttpConfig {
     ///
     /// Default: `None` (in-memory storage; no persistence).
     pub job_storage_path: Option<PathBuf>,
+
+    /// Capabilities declared by the DCC adapter hosting this server (issue #354).
+    ///
+    /// Each tool may list [`required_capabilities`] in its sibling
+    /// `tools.yaml`; on `tools/call` the server intersects the tool's
+    /// requirements against this declared set. Missing capabilities
+    /// surface as a `-32001 capability_missing` MCP error. Tools with
+    /// unmet capabilities still appear in `tools/list` but carry
+    /// `_meta.dcc.missing_capabilities = [...]` so clients can filter.
+    ///
+    /// The list is freeform — conventionally lowercase dotted identifiers
+    /// like `"usd"`, `"scene.mutate"`, `"filesystem.read"`. Adapters hard-code
+    /// it at construction time; there is no runtime introspection of the DCC.
+    ///
+    /// Default: empty (no capabilities declared — any tool with declared
+    /// requirements will report them as missing).
+    ///
+    /// [`required_capabilities`]: dcc_mcp_models::ToolDeclaration::required_capabilities
+    pub declared_capabilities: Vec<String>,
 }
 
 impl McpHttpConfig {
@@ -297,6 +316,7 @@ impl McpHttpConfig {
             prometheus_basic_auth: None,
             enable_job_notifications: true,
             job_storage_path: None,
+            declared_capabilities: Vec::new(),
         }
     }
 
@@ -308,6 +328,19 @@ impl McpHttpConfig {
     /// with a descriptive error at startup.
     pub fn with_job_storage_path(mut self, path: impl Into<PathBuf>) -> Self {
         self.job_storage_path = Some(path.into());
+        self
+    }
+
+    /// Builder: declare the DCC capabilities this host provides (issue #354).
+    ///
+    /// Replaces any existing capability list. Pass freeform string tags like
+    /// `"usd"`, `"scene.mutate"`, `"filesystem.read"`.
+    pub fn with_declared_capabilities<I, S>(mut self, caps: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.declared_capabilities = caps.into_iter().map(Into::into).collect();
         self
     }
 

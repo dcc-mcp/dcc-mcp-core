@@ -59,6 +59,7 @@ mod tests {
             lazy_actions: false,
 
             bare_tool_names: true,
+            declared_capabilities: std::sync::Arc::new(Vec::new()),
             jobs: std::sync::Arc::new(crate::job::JobManager::new()),
             job_notifier: crate::notifications::JobNotifier::new(SessionManager::new(), true),
             resources: crate::resources::ResourceRegistry::new(true, false),
@@ -822,6 +823,7 @@ mod tests {
             lazy_actions: false,
 
             bare_tool_names: true,
+            declared_capabilities: std::sync::Arc::new(Vec::new()),
             jobs: std::sync::Arc::new(crate::job::JobManager::new()),
             job_notifier: crate::notifications::JobNotifier::new(SessionManager::new(), true),
             resources: crate::resources::ResourceRegistry::new(true, false),
@@ -1708,6 +1710,7 @@ mod tests {
             lazy_actions: false,
 
             bare_tool_names: true,
+            declared_capabilities: std::sync::Arc::new(Vec::new()),
             jobs: std::sync::Arc::new(crate::job::JobManager::new()),
             job_notifier: crate::notifications::JobNotifier::new(SessionManager::new(), true),
             resources: crate::resources::ResourceRegistry::new(true, false),
@@ -2090,6 +2093,7 @@ mod tests {
             lazy_actions: false,
 
             bare_tool_names: true,
+            declared_capabilities: std::sync::Arc::new(Vec::new()),
             jobs: std::sync::Arc::new(crate::job::JobManager::new()),
             job_notifier: crate::notifications::JobNotifier::new(SessionManager::new(), true),
             resources: crate::resources::ResourceRegistry::new(true, false),
@@ -2201,6 +2205,7 @@ mod tests {
             lazy_actions: false,
 
             bare_tool_names: true,
+            declared_capabilities: std::sync::Arc::new(Vec::new()),
             jobs: std::sync::Arc::new(crate::job::JobManager::new()),
             job_notifier: crate::notifications::JobNotifier::new(SessionManager::new(), true),
             resources: crate::resources::ResourceRegistry::new(true, false),
@@ -2436,6 +2441,7 @@ mod tests {
             lazy_actions: false,
 
             bare_tool_names: true,
+            declared_capabilities: std::sync::Arc::new(Vec::new()),
             jobs: std::sync::Arc::new(crate::job::JobManager::new()),
             job_notifier: crate::notifications::JobNotifier::new(SessionManager::new(), true),
             resources: crate::resources::ResourceRegistry::new(true, false),
@@ -3475,6 +3481,7 @@ mod resource_link_integration_tests {
             lazy_actions: false,
 
             bare_tool_names: true,
+            declared_capabilities: std::sync::Arc::new(Vec::new()),
             jobs: std::sync::Arc::new(crate::job::JobManager::new()),
             job_notifier: crate::notifications::JobNotifier::new(SessionManager::new(), true),
             resources: crate::resources::ResourceRegistry::new(true, false),
@@ -3667,6 +3674,7 @@ mod resource_link_integration_tests {
             lazy_actions: false,
 
             bare_tool_names: true,
+            declared_capabilities: std::sync::Arc::new(Vec::new()),
             jobs: std::sync::Arc::new(crate::job::JobManager::new()),
             job_notifier: crate::notifications::JobNotifier::new(SessionManager::new(), true),
             resources: crate::resources::ResourceRegistry::new(true, false),
@@ -3951,6 +3959,7 @@ mod lazy_actions_tests {
             pending_elicitations: std::sync::Arc::new(dashmap::DashMap::new()),
             lazy_actions,
             bare_tool_names: true,
+            declared_capabilities: std::sync::Arc::new(Vec::new()),
             jobs: std::sync::Arc::new(crate::job::JobManager::new()),
             job_notifier: crate::notifications::JobNotifier::new(SessionManager::new(), true),
             resources: crate::resources::ResourceRegistry::new(true, false),
@@ -4278,6 +4287,7 @@ mod next_tools_meta_tests {
             pending_elicitations: std::sync::Arc::new(dashmap::DashMap::new()),
             lazy_actions: false,
             bare_tool_names: true,
+            declared_capabilities: std::sync::Arc::new(Vec::new()),
             jobs: std::sync::Arc::new(crate::job::JobManager::new()),
             job_notifier: crate::notifications::JobNotifier::new(SessionManager::new(), true),
             resources: crate::resources::ResourceRegistry::new(true, false),

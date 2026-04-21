@@ -376,6 +376,32 @@ pub struct ToolDeclaration {
     /// per-field merge).
     #[serde(default, skip_serializing_if = "ToolAnnotations::is_empty")]
     pub annotations: ToolAnnotations,
+
+    /// DCC capabilities required by this tool (issue #354).
+    ///
+    /// Freeform string tags (e.g. `"usd"`, `"scene.mutate"`,
+    /// `"filesystem.read"`). At server startup each DCC adapter advertises
+    /// the capabilities it actually provides via
+    /// `McpHttpConfig::declared_capabilities`; any tool whose requirements
+    /// are not fully covered is still surfaced in `tools/list` but decorated
+    /// with `_meta.dcc.missing_capabilities` and fails `tools/call` with a
+    /// `-32001 capability_missing` JSON-RPC error.
+    ///
+    /// Declared per-tool in the sibling `tools.yaml` (no new top-level
+    /// SKILL.md frontmatter keys, per issue #356):
+    ///
+    /// ```yaml
+    /// tools:
+    ///   - name: import_usd
+    ///     required_capabilities: [usd, scene.mutate, filesystem.read]
+    /// ```
+    #[serde(
+        default,
+        rename = "required_capabilities",
+        alias = "required-capabilities",
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub required_capabilities: Vec<String>,
 }
 
 // ── ToolDeclaration custom deserializer (issue #344) ──────────────────────
@@ -463,6 +489,13 @@ impl<'de> serde::Deserialize<'de> for ToolDeclaration {
                 alias = "deferred-hint"
             )]
             deferred_hint: Option<bool>,
+
+            #[serde(
+                default,
+                rename = "required_capabilities",
+                alias = "required-capabilities"
+            )]
+            required_capabilities: Vec<String>,
         }
 
         let w = Wire::deserialize(deserializer)?;
@@ -506,6 +539,7 @@ impl<'de> serde::Deserialize<'de> for ToolDeclaration {
             thread_affinity: w.thread_affinity,
             _deferred_guard: None,
             annotations,
+            required_capabilities: w.required_capabilities,
         })
     }
 }
@@ -665,7 +699,22 @@ impl ToolDeclaration {
             thread_affinity,
             _deferred_guard: None,
             annotations: ToolAnnotations::default(),
+            required_capabilities: Vec::new(),
         })
+    }
+
+    /// Declared DCC capabilities required for this tool (issue #354).
+    ///
+    /// Returns freeform string tags; an empty list means the tool has no
+    /// capability prerequisites beyond what any DCC adapter provides.
+    #[getter]
+    fn required_capabilities(&self) -> Vec<String> {
+        self.required_capabilities.clone()
+    }
+
+    #[setter]
+    fn set_required_capabilities(&mut self, value: Vec<String>) {
+        self.required_capabilities = value;
     }
 
     #[getter]
@@ -1346,6 +1395,33 @@ impl SkillMetadata {
         })
     }
 
+    /// Union of DCC capabilities required by any tool in this skill (issue #354).
+    ///
+    /// Computed lazily from each [`ToolDeclaration::required_capabilities`].
+    /// The result is deduplicated and sorted, so two calls on the same skill
+    /// always produce the same ordering.
+    ///
+    /// ```
+    /// use dcc_mcp_models::{SkillMetadata, ToolDeclaration};
+    /// let mut md = SkillMetadata::default();
+    /// md.tools = vec![
+    ///     ToolDeclaration { name: "a".into(), required_capabilities: vec!["usd".into(), "scene.read".into()], ..Default::default() },
+    ///     ToolDeclaration { name: "b".into(), required_capabilities: vec!["usd".into(), "scene.mutate".into()], ..Default::default() },
+    /// ];
+    /// assert_eq!(md.required_capabilities(), vec!["scene.mutate", "scene.read", "usd"]);
+    /// ```
+    pub fn required_capabilities(&self) -> Vec<String> {
+        let mut set: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        for tool in &self.tools {
+            for cap in &tool.required_capabilities {
+                if !cap.is_empty() {
+                    set.insert(cap.clone());
+                }
+            }
+        }
+        set.into_iter().collect()
+    }
+
     /// Get required environment variables declared by this skill (ClawHub).
     pub fn required_env_vars(&self) -> Vec<&str> {
         self.openclaw_metadata()
@@ -1937,6 +2013,15 @@ impl SkillMetadata {
     fn legacy_extension_fields(&self) -> Vec<String> {
         self.legacy_extension_fields.clone()
     }
+
+    /// Union of DCC capabilities required by any tool in this skill (issue #354).
+    ///
+    /// Returns a deduplicated, sorted list of capability tags aggregated
+    /// from every `ToolDeclaration.required_capabilities` on this skill.
+    #[pyo3(name = "required_capabilities")]
+    fn py_required_capabilities(&self) -> Vec<String> {
+        SkillMetadata::required_capabilities(self)
+    }
 }
 
 impl std::fmt::Display for SkillMetadata {
@@ -1972,6 +2057,61 @@ mod tests {
         assert!(meta.compatibility.is_empty());
         assert!(meta.allowed_tools.is_empty());
         assert!(meta.metadata.is_null());
+    }
+
+    #[test]
+    fn test_required_capabilities_aggregation() {
+        // Issue #354 — per-tool required_capabilities aggregate to a
+        // deduplicated, sorted union on the skill.
+        let mut md = SkillMetadata {
+            name: "usd-tools".into(),
+            description: "USD".into(),
+            ..Default::default()
+        };
+        md.tools = vec![
+            ToolDeclaration {
+                name: "import_usd".into(),
+                required_capabilities: vec![
+                    "usd".into(),
+                    "scene.mutate".into(),
+                    "filesystem.read".into(),
+                ],
+                ..Default::default()
+            },
+            ToolDeclaration {
+                name: "read_stage".into(),
+                required_capabilities: vec!["usd".into(), "scene.read".into()],
+                ..Default::default()
+            },
+            ToolDeclaration {
+                name: "no_caps".into(),
+                required_capabilities: vec![],
+                ..Default::default()
+            },
+        ];
+        assert_eq!(
+            md.required_capabilities(),
+            vec![
+                "filesystem.read".to_string(),
+                "scene.mutate".into(),
+                "scene.read".into(),
+                "usd".into(),
+            ],
+        );
+    }
+
+    #[test]
+    fn test_tool_declaration_parses_required_capabilities() {
+        let json = r#"{
+            "name": "import_usd",
+            "description": "Import a USD file",
+            "required_capabilities": ["usd", "scene.mutate", "filesystem.read"]
+        }"#;
+        let decl: ToolDeclaration = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            decl.required_capabilities,
+            vec!["usd", "scene.mutate", "filesystem.read"]
+        );
     }
 
     #[test]

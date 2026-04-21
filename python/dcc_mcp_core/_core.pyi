@@ -3987,6 +3987,45 @@ class McpHttpConfig:
         ...
     @job_storage_path.setter
     def job_storage_path(self, path: str | None) -> None: ...
+    @property
+    def declared_capabilities(self) -> list[str]:
+        """DCC capabilities advertised by the hosting adapter (issue #354).
+
+        Freeform string tags (e.g. ``"usd"``, ``"scene.mutate"``,
+        ``"filesystem.read"``) consumed by the capability gate in
+        ``tools/call``. Tools whose ``required_capabilities`` are not
+        fully covered still surface in ``tools/list`` but fail the call
+        with JSON-RPC error ``-32001 capability_missing``.
+        """
+        ...
+    @declared_capabilities.setter
+    def declared_capabilities(self, caps: list[str]) -> None: ...
+    def __repr__(self) -> str: ...
+
+class WorkspaceRoots:
+    """Typed ``workspace://`` URI resolver built from MCP roots (issue #354).
+
+    Example::
+
+        from dcc_mcp_core import WorkspaceRoots
+        roots = WorkspaceRoots(["/projects/hero"])
+        roots.resolve("workspace://scenes/a.usd")   # → "/projects/hero/scenes/a.usd"
+        roots.resolve("/tmp/abs.txt")               # returned unchanged
+        roots.resolve("relative.txt")               # joined against first root
+    """
+
+    def __init__(self, roots: list[str] | None = None) -> None: ...
+    @property
+    def roots(self) -> list[str]:
+        """All roots (URI strings) in declaration order."""
+        ...
+    def resolve(self, path: str) -> str:
+        """Resolve a typed path against this workspace.
+
+        Raises ``ValueError`` when ``path`` uses the ``workspace://``
+        scheme but the client advertised no roots.
+        """
+        ...
     def __repr__(self) -> str: ...
 
 class McpServerHandle:

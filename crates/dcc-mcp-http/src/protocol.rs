@@ -101,6 +101,17 @@ pub mod error_codes {
     pub const METHOD_NOT_FOUND: i64 = -32601;
     pub const INVALID_PARAMS: i64 = -32602;
     pub const INTERNAL_ERROR: i64 = -32603;
+
+    /// Issue #354 — the target tool declared capabilities that the hosting
+    /// DCC adapter did not advertise at startup. The error `data` payload
+    /// includes the `tool`, `required_capabilities`, `declared_capabilities`
+    /// and `missing_capabilities` fields so clients can react programmatically.
+    pub const CAPABILITY_MISSING: i64 = -32001;
+
+    /// Issue #354 — the client invoked a `workspace://` URI but did not
+    /// advertise any MCP `roots` on this session. The error `data` carries
+    /// the original path.
+    pub const NO_WORKSPACE_ROOTS: i64 = -32602;
 }
 
 impl JsonRpcResponse {
@@ -122,6 +133,28 @@ impl JsonRpcResponse {
                 code,
                 message: message.into(),
                 data: None,
+            }),
+        }
+    }
+
+    /// Like [`Self::error`] but carries a structured `data` payload per
+    /// JSON-RPC 2.0 §5.1. Used by issue #354 for `capability_missing` and
+    /// `no workspace roots` so clients can machine-read the surrounding
+    /// context (missing capabilities, advertised roots, …).
+    pub fn error_with_data(
+        id: Option<Value>,
+        code: i64,
+        message: impl Into<String>,
+        data: Option<Value>,
+    ) -> Self {
+        Self {
+            jsonrpc: "2.0".to_string(),
+            id,
+            result: None,
+            error: Some(JsonRpcError {
+                code,
+                message: message.into(),
+                data,
             }),
         }
     }

@@ -364,7 +364,7 @@ impl SkillCatalog {
                 // default-active; default groups (empty group name or an
                 // explicitly default-active group) stay enabled.
                 enabled: group_default_active(&metadata.groups, &tool_decl.group),
-                required_capabilities: Vec::new(),
+                required_capabilities: tool_decl.required_capabilities.clone(),
                 execution: tool_decl.execution,
                 timeout_hint_secs: tool_decl.timeout_hint_secs,
                 thread_affinity: tool_decl.thread_affinity,

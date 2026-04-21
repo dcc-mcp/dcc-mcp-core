@@ -344,6 +344,7 @@ impl McpHttpServer {
             pending_elicitations: std::sync::Arc::new(dashmap::DashMap::new()),
             lazy_actions: self.config.lazy_actions,
             bare_tool_names: self.config.bare_tool_names,
+            declared_capabilities: std::sync::Arc::new(self.config.declared_capabilities.clone()),
             jobs,
             job_notifier,
             resources,

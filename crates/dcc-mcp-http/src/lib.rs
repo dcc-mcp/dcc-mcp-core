@@ -54,6 +54,7 @@ pub mod resource_link;
 pub mod resources;
 pub mod server;
 pub mod session;
+pub mod workspace;
 
 #[cfg(feature = "prometheus")]
 pub mod metrics;
@@ -81,9 +82,10 @@ pub use resources::{
 };
 pub use server::{McpHttpServer, McpServerHandle};
 pub use session::SessionManager;
+pub use workspace::{WorkspaceResolveError, WorkspaceRoots};
 
 #[cfg(feature = "python-bindings")]
-pub use python::{PyMcpHttpConfig, PyMcpHttpServer, PyServerHandle};
+pub use python::{PyMcpHttpConfig, PyMcpHttpServer, PyServerHandle, PyWorkspaceRoots};
 
 #[cfg(test)]
 mod tests;

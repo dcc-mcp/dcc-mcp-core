@@ -89,6 +89,13 @@ pub struct AppState {
     /// they are unique within the instance. See
     /// [`crate::McpHttpConfig::bare_tool_names`] (#307).
     pub bare_tool_names: bool,
+    /// DCC capabilities advertised by the hosting adapter (issue #354).
+    ///
+    /// Per-tool `required_capabilities` are checked against this set at
+    /// `tools/call` time. Tools with missing capabilities surface
+    /// `_meta.dcc.missing_capabilities` in `tools/list` and fail the call
+    /// with JSON-RPC error `-32001 capability_missing`.
+    pub declared_capabilities: Arc<Vec<String>>,
     /// Registry of async jobs tracked by this server instance (#316).
     ///
     /// Actual dispatch-side wiring lands in #318; #316 only establishes the
@@ -970,6 +977,7 @@ async fn handle_tools_list(
                 meta,
                 include_output_schema,
                 &bare_eligible,
+                state.declared_capabilities.as_ref(),
             ));
         } else if !meta.group.is_empty() {
             inactive_groups
@@ -1217,6 +1225,38 @@ async fn handle_tools_call_inner(
             req.id.clone(),
             serde_json::to_value(CallToolResult::error(envelope.to_json()))?,
         ));
+    }
+
+    // ── Issue #354 — capability gate ──
+    //
+    // Every tool may declare `required_capabilities` in its sibling
+    // `tools.yaml`. If the hosting DCC adapter did not advertise every
+    // requirement via `McpHttpConfig::declared_capabilities`, short-circuit
+    // the call with the `-32001 capability_missing` JSON-RPC error so
+    // clients can react (skip the step, branch to `else`, fail fast).
+    if let Some(meta) = action_meta_snapshot.as_ref() {
+        let missing = missing_capabilities(
+            &meta.required_capabilities,
+            state.declared_capabilities.as_ref(),
+        );
+        if !missing.is_empty() {
+            let msg = format!(
+                "tool {:?} requires capabilities not advertised by this DCC: {}",
+                resolved_name,
+                missing.join(", ")
+            );
+            return Ok(JsonRpcResponse::error_with_data(
+                req.id.clone(),
+                crate::protocol::error_codes::CAPABILITY_MISSING,
+                msg,
+                Some(serde_json::json!({
+                    "tool": resolved_name,
+                    "required_capabilities": meta.required_capabilities,
+                    "declared_capabilities": state.declared_capabilities.as_ref(),
+                    "missing_capabilities": missing,
+                })),
+            ));
+        }
     }
 
     // ── Async dispatch path (#318) ───────────────────────────────────────
@@ -2704,6 +2744,7 @@ fn action_meta_to_mcp_tool(
     meta: &dcc_mcp_actions::registry::ActionMeta,
     include_output_schema: bool,
     bare_eligible: &std::collections::HashSet<(String, String)>,
+    declared_capabilities: &[String],
 ) -> McpTool {
     let input_schema = if meta.input_schema.is_null() {
         json!({"type": "object"})
@@ -2762,7 +2803,7 @@ fn action_meta_to_mcp_tool(
         input_schema,
         output_schema,
         annotations,
-        meta: build_tool_meta(meta),
+        meta: build_tool_meta(meta, declared_capabilities),
     }
 }
 
@@ -2783,6 +2824,7 @@ fn action_meta_to_mcp_tool(
 /// Returns `None` when there is nothing to emit.
 fn build_tool_meta(
     meta: &dcc_mcp_actions::registry::ActionMeta,
+    declared_capabilities: &[String],
 ) -> Option<serde_json::Map<String, serde_json::Value>> {
     let deferred = meta
         .annotations
@@ -2790,7 +2832,12 @@ fn build_tool_meta(
         .unwrap_or_else(|| meta.execution.is_deferred());
 
     let has_timeout = meta.timeout_hint_secs.is_some();
-    if !has_timeout && !deferred {
+    // Issue #354 — surface any capabilities the tool requires that the
+    // hosting DCC adapter did not declare, so clients can filter these
+    // out before asking the user to invoke them.
+    let missing = missing_capabilities(&meta.required_capabilities, declared_capabilities);
+    let has_required_caps = !meta.required_capabilities.is_empty();
+    if !has_timeout && !deferred && !has_required_caps {
         return None;
     }
 
@@ -2801,9 +2848,35 @@ fn build_tool_meta(
     if deferred {
         dcc_meta.insert("deferred_hint".to_string(), serde_json::json!(true));
     }
+    if has_required_caps {
+        dcc_meta.insert(
+            "required_capabilities".to_string(),
+            serde_json::json!(meta.required_capabilities),
+        );
+        if !missing.is_empty() {
+            dcc_meta.insert(
+                "missing_capabilities".to_string(),
+                serde_json::json!(missing),
+            );
+        }
+    }
     let mut out = serde_json::Map::new();
     out.insert("dcc".to_string(), serde_json::Value::Object(dcc_meta));
     Some(out)
+}
+
+/// Return the subset of `required` capabilities that is not present in
+/// `declared`. Preserves declaration order; drops empty tags.
+pub(crate) fn missing_capabilities(required: &[String], declared: &[String]) -> Vec<String> {
+    if required.is_empty() {
+        return Vec::new();
+    }
+    let set: std::collections::HashSet<&str> = declared.iter().map(String::as_str).collect();
+    required
+        .iter()
+        .filter(|c| !c.is_empty() && !set.contains(c.as_str()))
+        .cloned()
+        .collect()
 }
 
 /// Build a lightweight stub McpTool for an unloaded skill.
@@ -3484,7 +3557,12 @@ async fn handle_describe_action(
     // rather than synthesising a bare name that might collide against a
     // peer action the caller didn't ask about.
     let bare_eligible_for_describe = std::collections::HashSet::new();
-    let tool = action_meta_to_mcp_tool(&meta, include_output_schema, &bare_eligible_for_describe);
+    let tool = action_meta_to_mcp_tool(
+        &meta,
+        include_output_schema,
+        &bare_eligible_for_describe,
+        state.declared_capabilities.as_ref(),
+    );
     let payload = serde_json::to_value(tool)?;
 
     Ok(JsonRpcResponse::success(
@@ -3757,7 +3835,7 @@ mod issue_317_tests {
             execution: ExecutionMode::Sync,
             ..Default::default()
         };
-        let tool = action_meta_to_mcp_tool(&meta, false, &empty_eligible());
+        let tool = action_meta_to_mcp_tool(&meta, false, &empty_eligible(), &[]);
         assert!(
             tool.annotations.is_none(),
             "tools without declared annotations must omit the field"
@@ -3776,7 +3854,7 @@ mod issue_317_tests {
             timeout_hint_secs: Some(600),
             ..Default::default()
         };
-        let tool = action_meta_to_mcp_tool(&meta, false, &empty_eligible());
+        let tool = action_meta_to_mcp_tool(&meta, false, &empty_eligible(), &[]);
         let v = serde_json::to_value(&tool).unwrap();
 
         assert_eq!(
@@ -3805,7 +3883,7 @@ mod issue_317_tests {
             timeout_hint_secs: Some(30),
             ..Default::default()
         };
-        let tool = action_meta_to_mcp_tool(&meta, false, &empty_eligible());
+        let tool = action_meta_to_mcp_tool(&meta, false, &empty_eligible(), &[]);
         let m = tool.meta.as_ref().unwrap();
         assert_eq!(
             m.get("dcc")
@@ -3837,7 +3915,7 @@ mod issue_317_tests {
             },
             ..Default::default()
         };
-        let tool = action_meta_to_mcp_tool(&meta, false, &empty_eligible());
+        let tool = action_meta_to_mcp_tool(&meta, false, &empty_eligible(), &[]);
         let v = serde_json::to_value(&tool).unwrap();
 
         assert_eq!(
@@ -3888,7 +3966,7 @@ mod issue_317_tests {
             },
             ..Default::default()
         };
-        let tool = action_meta_to_mcp_tool(&meta, false, &empty_eligible());
+        let tool = action_meta_to_mcp_tool(&meta, false, &empty_eligible(), &[]);
         let v = serde_json::to_value(&tool).unwrap();
         assert_eq!(
             v.pointer("/annotations/readOnlyHint")
