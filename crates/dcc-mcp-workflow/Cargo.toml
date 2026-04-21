@@ -24,7 +24,7 @@ jsonpath-rust = "1.0"
 glob = "0.3"
 
 # Optional: SQLite persistence DDL (no write paths yet in this skeleton).
-rusqlite = { version = "0.32", optional = true, features = ["bundled"] }
+rusqlite = { version = "0.39", optional = true, features = ["bundled"] }
 
 [dev-dependencies]
 tempfile = "3"
