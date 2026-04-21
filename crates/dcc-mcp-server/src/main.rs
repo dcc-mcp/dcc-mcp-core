@@ -535,6 +535,8 @@ async fn main() -> anyhow::Result<()> {
         registry_dir: registry_dir_path,
         challenger_timeout_secs: 120,
         backend_timeout_ms: 10_000,
+        async_dispatch_timeout_ms: 60_000,
+        wait_terminal_timeout_ms: 600_000,
     };
 
     let runner = GatewayRunner::new(gateway_cfg)

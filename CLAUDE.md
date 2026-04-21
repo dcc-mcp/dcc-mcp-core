@@ -285,6 +285,62 @@ These hold after v0.14 and MUST NOT regress:
    also coerces `Ambient` → `Dedicated`. Do not revert to Ambient inside
    Python bindings.
 
+### Gateway async-dispatch + wait-for-terminal (issue #321)
+
+The gateway now uses three per-request timeouts instead of one:
+
+- **Sync call** (no `_meta.dcc.async`, no `progressToken`): governed by
+  `McpHttpConfig.backend_timeout_ms` (default 10 s, #314).
+- **Async opt-in** (`_meta.dcc.async=true` *or* `_meta.progressToken`
+  present): governed by
+  `McpHttpConfig.gateway_async_dispatch_timeout_ms` (default 60 s).
+  Only the **queuing** step spends this budget — the backend replies
+  with `{status:"pending", job_id:"…"}` once the job is enqueued.
+- **Wait-for-terminal** (`_meta.dcc.wait_for_terminal=true` *and* an
+  async opt-in): the gateway blocks the `tools/call` response until
+  `$/dcc.jobUpdated` reports a terminal status (`completed` / `failed`
+  / `cancelled` / `interrupted`). Governed by
+  `McpHttpConfig.gateway_wait_terminal_timeout_ms` (default 10 min).
+  On timeout, the response is the last-known envelope annotated with
+  `_meta.dcc.timed_out = true`; the job keeps running on the backend.
+
+```python
+from dcc_mcp_core import McpHttpConfig
+cfg = McpHttpConfig(
+    port=8765,
+    gateway_async_dispatch_timeout_ms=60_000,   # queuing budget
+    gateway_wait_terminal_timeout_ms=600_000,   # wait-for-terminal budget
+)
+```
+
+Wire-level contract:
+
+```jsonc
+// POST /mcp — client request
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{
+  "name":"maya__bake_simulation","arguments":{...},
+  "_meta":{"dcc":{"async":true,"wait_for_terminal":true}}
+}}
+// Gateway blocks the response until $/dcc.jobUpdated status=terminal;
+// wait_for_terminal is STRIPPED before forwarding to the backend so
+// the backend contract remains unchanged.
+```
+
+Implementation notes for maintainers:
+
+- Detection helpers live in `crates/dcc-mcp-http/src/gateway/aggregator.rs`
+  (`meta_signals_async_dispatch`, `meta_wants_wait_for_terminal`,
+  `strip_gateway_meta_flags`).
+- The per-job broadcast bus is owned by `SubscriberManager`
+  (`job_event_buses`, `job_event_channel`, `publish_job_event`,
+  `forget_job_bus`). The bus is created **before** the outbound
+  `tools/call` so terminal events arriving in the tiny window between
+  the backend reply and the waiter installing its subscription are
+  not lost.
+- Backend disconnect during a wait surfaces as `-32000 backend
+  disconnected` and the job stays in whatever state on the backend
+  (may later become `interrupted` per #328).
+
 ### When Exploring Unknown Symbols
 
 ```bash

@@ -27,7 +27,8 @@ pub struct PyMcpHttpConfig {
 impl PyMcpHttpConfig {
     /// Create a new config. ``port=0`` binds to any available port.
     #[new]
-    #[pyo3(signature = (port=8765, server_name=None, server_version=None, enable_cors=false, request_timeout_ms=30000, backend_timeout_ms=10_000, enable_prometheus=false, prometheus_basic_auth=None))]
+    #[pyo3(signature = (port=8765, server_name=None, server_version=None, enable_cors=false, request_timeout_ms=30000, backend_timeout_ms=10_000, enable_prometheus=false, prometheus_basic_auth=None, gateway_async_dispatch_timeout_ms=60_000, gateway_wait_terminal_timeout_ms=600_000))]
+    #[allow(clippy::too_many_arguments)]
     fn new(
         port: u16,
         server_name: Option<String>,
@@ -37,6 +38,8 @@ impl PyMcpHttpConfig {
         backend_timeout_ms: u64,
         enable_prometheus: bool,
         prometheus_basic_auth: Option<(String, String)>,
+        gateway_async_dispatch_timeout_ms: u64,
+        gateway_wait_terminal_timeout_ms: u64,
     ) -> Self {
         let mut cfg = McpHttpConfig::new(port);
         if let Some(name) = server_name {
@@ -50,6 +53,8 @@ impl PyMcpHttpConfig {
         cfg.backend_timeout_ms = backend_timeout_ms;
         cfg.enable_prometheus = enable_prometheus;
         cfg.prometheus_basic_auth = prometheus_basic_auth;
+        cfg.gateway_async_dispatch_timeout_ms = gateway_async_dispatch_timeout_ms;
+        cfg.gateway_wait_terminal_timeout_ms = gateway_wait_terminal_timeout_ms;
         // Issue #303: PyO3-embedded hosts (Maya on Windows etc.) cannot
         // rely on shared tokio worker threads to drive the accept loop
         // after `block_on` returns. Default to `Dedicated` so the listener
@@ -413,6 +418,43 @@ impl PyMcpHttpConfig {
     #[setter]
     fn set_backend_timeout_ms(&mut self, ms: u64) {
         self.inner.backend_timeout_ms = ms;
+    }
+
+    /// Gateway timeout (ms) for async-dispatch `tools/call` requests
+    /// (issue #321). Default: ``60_000``.
+    ///
+    /// Applies when the outbound call carries ``_meta.dcc.async == true``,
+    /// a ``_meta.progressToken``, or targets a tool whose ``ActionMeta``
+    /// declares ``execution: async`` / a ``timeout_hint_secs``. Only the
+    /// **queuing** step uses this budget — the backend replies with
+    /// ``{status: "pending"}`` as soon as the job is enqueued.
+    #[getter]
+    fn gateway_async_dispatch_timeout_ms(&self) -> u64 {
+        self.inner.gateway_async_dispatch_timeout_ms
+    }
+
+    #[setter]
+    fn set_gateway_async_dispatch_timeout_ms(&mut self, ms: u64) {
+        self.inner.gateway_async_dispatch_timeout_ms = ms;
+    }
+
+    /// Gateway timeout (ms) for the opt-in wait-for-terminal passthrough
+    /// mode (issue #321). Default: ``600_000`` (10 minutes).
+    ///
+    /// When the client sets ``_meta.dcc.wait_for_terminal = true`` along
+    /// with an async opt-in, the gateway blocks the ``tools/call``
+    /// response until a ``$/dcc.jobUpdated`` with a terminal status
+    /// arrives. On timeout the gateway returns the last known status
+    /// with ``_meta.dcc.timed_out = true`` and leaves the job running
+    /// on the backend.
+    #[getter]
+    fn gateway_wait_terminal_timeout_ms(&self) -> u64 {
+        self.inner.gateway_wait_terminal_timeout_ms
+    }
+
+    #[setter]
+    fn set_gateway_wait_terminal_timeout_ms(&mut self, ms: u64) {
+        self.inner.gateway_wait_terminal_timeout_ms = ms;
     }
 
     /// Advertise the MCP Resources primitive (issue #350).

@@ -3821,6 +3821,21 @@ class McpHttpConfig:
             milliseconds. Default: ``10_000``. Raise this for DCC workflows
             whose backend tools run legitimately longer than 10 s
             (issue #314).
+        gateway_async_dispatch_timeout_ms: Per-backend timeout applied by the
+            gateway when the outbound ``tools/call`` is async-opt-in
+            (``_meta.dcc.async=true`` or ``_meta.progressToken``). Default:
+            ``60_000``. Only the **queuing** step uses this budget — the
+            backend replies with ``{status:"pending"}`` as soon as the
+            job is enqueued (issue #321).
+        gateway_wait_terminal_timeout_ms: Gateway wait-for-terminal
+            passthrough timeout in milliseconds. Default: ``600_000``
+            (10 minutes). When the client sets
+            ``_meta.dcc.wait_for_terminal=true`` along with an async
+            opt-in, the gateway blocks the ``tools/call`` response until
+            ``$/dcc.jobUpdated`` reports a terminal status. On timeout
+            the gateway returns the last-known job envelope annotated
+            with ``_meta.dcc.timed_out=true`` and leaves the job
+            running on the backend (issue #321).
 
     Example::
 
@@ -3839,6 +3854,8 @@ class McpHttpConfig:
         backend_timeout_ms: int = 10000,
         enable_prometheus: bool = False,
         prometheus_basic_auth: tuple[str, str] | None = None,
+        gateway_async_dispatch_timeout_ms: int = 60_000,
+        gateway_wait_terminal_timeout_ms: int = 600_000,
     ) -> None: ...
     @property
     def port(self) -> int: ...
@@ -3902,6 +3919,33 @@ class McpHttpConfig:
         ...
     @backend_timeout_ms.setter
     def backend_timeout_ms(self, ms: int) -> None: ...
+    @property
+    def gateway_async_dispatch_timeout_ms(self) -> int:
+        """Gateway timeout (ms) for async-dispatch ``tools/call`` (#321).
+
+        Triggered by ``_meta.dcc.async=true`` or ``_meta.progressToken``
+        on the outbound call. Default: ``60_000`` (60 seconds). Only the
+        queuing step uses this budget — the backend replies with
+        ``{status: "pending"}`` as soon as the job is enqueued.
+        """
+        ...
+    @gateway_async_dispatch_timeout_ms.setter
+    def gateway_async_dispatch_timeout_ms(self, ms: int) -> None: ...
+    @property
+    def gateway_wait_terminal_timeout_ms(self) -> int:
+        """Gateway wait-for-terminal passthrough timeout (ms) (#321).
+
+        Default: ``600_000`` (10 minutes). When the client sets
+        ``_meta.dcc.wait_for_terminal=true`` on an async-opt-in
+        ``tools/call``, the gateway blocks the response until a
+        ``$/dcc.jobUpdated`` with a terminal status arrives. On timeout
+        the gateway returns the last-known envelope with
+        ``_meta.dcc.timed_out=true`` and leaves the job running on the
+        backend.
+        """
+        ...
+    @gateway_wait_terminal_timeout_ms.setter
+    def gateway_wait_terminal_timeout_ms(self, ms: int) -> None: ...
     @property
     def enable_resources(self) -> bool:
         """Advertise the MCP Resources primitive (issue #350).

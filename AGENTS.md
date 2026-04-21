@@ -184,6 +184,14 @@ Need to interact with DCC?
 → Correlation: `progressToken` (progress) + `job_id` (`$/dcc.jobUpdated` / `$/dcc.workflowUpdated`)
 → On backend reconnect, clients with in-flight jobs receive `$/dcc.gatewayReconnect`
 
+**Gateway async-dispatch timeout + wait-for-terminal passthrough (#321)?**
+→ [`docs/guide/gateway.md`](docs/guide/gateway.md) — "Waiting for terminal results from the gateway"
+→ Config: `McpHttpConfig.gateway_async_dispatch_timeout_ms` (default 60 s),
+  `McpHttpConfig.gateway_wait_terminal_timeout_ms` (default 10 min)
+→ Opt-in: send `_meta.dcc.async=true` (or `_meta.progressToken`) to pick up the longer queuing timeout;
+  add `_meta.dcc.wait_for_terminal=true` for single-shot response stitching (no SSE client needed)
+→ Timeout path: returns the last-known envelope with `_meta.dcc.timed_out=true` and leaves the job running
+
 **Enable durable rolling file logs (multi-gateway debugging)?**
 → `FileLoggingConfig` + `init_file_logging()` / `shutdown_file_logging()`
 → Environment vars: `DCC_MCP_LOG_DIR`, `DCC_MCP_LOG_MAX_SIZE`, `DCC_MCP_LOG_ROTATION`

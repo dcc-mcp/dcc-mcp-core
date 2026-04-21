@@ -17,6 +17,7 @@ use std::time::Duration;
 
 use futures::future::join_all;
 use serde_json::{Value, json};
+use tokio::sync::broadcast;
 use uuid::Uuid;
 
 use super::backend_client::{fetch_tools, forward_tools_call};
@@ -27,6 +28,13 @@ use super::tools::{
 };
 use crate::protocol::{TOOLS_LIST_PAGE_SIZE, decode_cursor, encode_cursor};
 use dcc_mcp_transport::discovery::types::ServiceEntry;
+
+/// Terminal job statuses that end a wait-for-terminal block (#321).
+///
+/// Mirrors the backend's [`crate::job::JobStatus`] terminal states; the
+/// gateway does not import the enum directly to keep the dependency
+/// graph flat.
+const TERMINAL_JOB_STATUSES: &[&str] = &["completed", "failed", "cancelled", "interrupted"];
 
 /// Build the unified `tools/list` result by aggregating every live backend.
 ///
@@ -166,49 +174,344 @@ pub async fn route_tools_call(
         }
     }
 
-    match forward_tools_call(
+    // ── #321: pick the right timeout ──────────────────────────────────
+    // Async-opt-in calls may legitimately take longer than the short
+    // sync `backend_timeout` just to queue the job. Bump to
+    // `async_dispatch_timeout` when any of the opt-in signals fire.
+    let async_opt_in = meta_signals_async_dispatch(meta);
+    let dispatch_timeout = if async_opt_in {
+        gs.async_dispatch_timeout
+    } else {
+        gs.backend_timeout
+    };
+    let wait_for_terminal = async_opt_in && meta_wants_wait_for_terminal(meta);
+
+    // The outbound body must not carry `_meta.dcc.wait_for_terminal` —
+    // that flag is gateway-local bookkeeping, not a backend contract.
+    let forwarded_meta = meta.cloned().map(strip_gateway_meta_flags);
+
+    let forward = forward_tools_call(
         &gs.http_client,
         &url,
         original,
         Some(args.clone()),
-        meta.cloned(),
+        forwarded_meta,
         request_id,
-        gs.backend_timeout,
+        dispatch_timeout,
     )
-    .await
-    {
+    .await;
+
+    match forward {
         Ok(mut result) => {
             // (c) Backend reply may carry `_meta.dcc.jobId` (async job
             //     dispatch path, #318) or `structuredContent.job_id`.
             //     Either way, bind the job → session mapping so later
             //     `notifications/$/dcc.jobUpdated` arriving over SSE can
             //     be routed to the originating client session.
-            if let Some(sid) = client_session_id {
-                if let Some(job_id) = extract_job_id(&result) {
-                    gs.subscriber.bind_job(&job_id, sid, &url);
-                }
+            let job_id = extract_job_id(&result);
+            if let (Some(sid), Some(jid)) = (client_session_id, job_id.as_deref()) {
+                gs.subscriber.bind_job(jid, sid, &url);
             }
 
-            // Backend already returns a CallToolResult { content, isError }.
-            // Extract the actual text payload so the gateway's own response
-            // is a single CallToolResult rather than a nested envelope.
+            // ── #321: wait-for-terminal passthrough ────────────────────
+            if wait_for_terminal {
+                if let Some(jid) = job_id.as_deref() {
+                    return wait_for_terminal_reply(
+                        gs,
+                        jid,
+                        &mut result,
+                        &entry,
+                        gs.wait_terminal_timeout,
+                    )
+                    .await;
+                }
+                // Synchronous reply on an async-opt-in path: nothing to
+                // wait for — fall through and return the envelope as-is.
+            }
+
             inject_instance_metadata(&mut result, &entry.instance_id, &entry.dcc_type);
-            let is_error = result
-                .get("isError")
-                .and_then(Value::as_bool)
-                .unwrap_or(false);
-            let text = result
-                .get("content")
-                .and_then(Value::as_array)
-                .and_then(|arr| arr.first())
-                .and_then(|c| c.get("text"))
-                .and_then(Value::as_str)
-                .map(str::to_owned)
-                .unwrap_or_else(|| serde_json::to_string_pretty(&result).unwrap_or_default());
-            (text, is_error)
+            envelope_to_text_result(&result)
         }
-        Err(e) => (format!("Backend call failed: {e}"), true),
+        Err(e) => {
+            if async_opt_in && e.contains("timeout") {
+                // Backend was unresponsive while we tried to queue the
+                // job. Surface a JSON-RPC style `-32000 backend
+                // unresponsive` payload so clients can distinguish it
+                // from a legitimate tool error.
+                let payload = json!({
+                    "error": {
+                        "code": -32000,
+                        "message": format!(
+                            "backend unresponsive ({}): {e}",
+                            entry.dcc_type
+                        ),
+                        "data": {
+                            "instance_id": entry.instance_id.to_string(),
+                            "dcc_type": entry.dcc_type,
+                        }
+                    }
+                });
+                (
+                    serde_json::to_string_pretty(&payload).unwrap_or_default(),
+                    true,
+                )
+            } else {
+                (format!("Backend call failed: {e}"), true)
+            }
+        }
     }
+}
+
+/// Common envelope-to-text extraction used by both the sync and wait-
+/// for-terminal paths. Keeps the gateway's response shape a single
+/// `CallToolResult` rather than a nested envelope.
+fn envelope_to_text_result(result: &Value) -> (String, bool) {
+    let is_error = result
+        .get("isError")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let text = result
+        .get("content")
+        .and_then(Value::as_array)
+        .and_then(|arr| arr.first())
+        .and_then(|c| c.get("text"))
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .unwrap_or_else(|| serde_json::to_string_pretty(result).unwrap_or_default());
+    (text, is_error)
+}
+
+/// Detect whether the outbound `tools/call` has signalled async
+/// dispatch opt-in (#318 + #321). Any of the three signals listed in
+/// the backend handler (`handler.rs::should_dispatch_async`) triggers
+/// the longer gateway timeout — we do NOT need to consult the tool's
+/// `ActionMeta` here because the backend will do so itself; if none of
+/// these signals are present the call will always be synchronous and
+/// the short timeout is correct.
+fn meta_signals_async_dispatch(meta: Option<&Value>) -> bool {
+    let Some(m) = meta else {
+        return false;
+    };
+    let async_flag = m
+        .get("dcc")
+        .and_then(|d| d.get("async"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let has_progress_token = m.get("progressToken").is_some();
+    async_flag || has_progress_token
+}
+
+/// Detect the `_meta.dcc.wait_for_terminal = true` opt-in (#321).
+fn meta_wants_wait_for_terminal(meta: Option<&Value>) -> bool {
+    meta.and_then(|m| m.get("dcc"))
+        .and_then(|d| d.get("wait_for_terminal"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+}
+
+/// Remove gateway-only bookkeeping keys from a `_meta` value before we
+/// forward it to the backend (`wait_for_terminal` is useless to the
+/// backend — keep the wire protocol clean).
+fn strip_gateway_meta_flags(mut meta: Value) -> Value {
+    if let Some(dcc) = meta.get_mut("dcc").and_then(Value::as_object_mut) {
+        dcc.remove("wait_for_terminal");
+    }
+    meta
+}
+
+/// Block the gateway's `tools/call` response until the backend reports
+/// a terminal `$/dcc.jobUpdated` for `job_id`, or until the
+/// [`GatewayState::wait_terminal_timeout`] elapses.
+///
+/// Returns the same `(text, is_error)` shape as the synchronous path so
+/// the caller's wrapping into `CallToolResult` is identical.
+///
+/// On timeout we return the **initial `{pending}` envelope annotated
+/// with `_meta.dcc.timed_out = true`** and leave the job running on the
+/// backend — the caller can keep polling `jobs.get_status` or reconnect
+/// SSE to collect the result later.
+async fn wait_for_terminal_reply(
+    gs: &GatewayState,
+    job_id: &str,
+    pending_envelope: &mut Value,
+    entry: &ServiceEntry,
+    timeout: Duration,
+) -> (String, bool) {
+    // Subscribe BEFORE we return to the caller — the publish happens
+    // inside [`SubscriberManager::deliver`] regardless of any
+    // client-session binding, so the only race window we need to
+    // defend against is between "backend replied {pending}" and "we
+    // call `.recv()` below". Binding happened in the caller via
+    // `bind_job`, but the bus is independent — create it here.
+    let mut rx: broadcast::Receiver<Value> = gs.subscriber.job_event_channel(job_id);
+
+    // Capture the latest-seen job update so that on timeout we can
+    // return the richest envelope we observed.
+    let mut latest: Option<Value> = None;
+    let deadline = tokio::time::Instant::now() + timeout;
+
+    loop {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        match tokio::time::timeout(remaining, rx.recv()).await {
+            Ok(Ok(value)) => {
+                let status = value
+                    .get("params")
+                    .and_then(|p| p.get("status"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                let is_terminal = TERMINAL_JOB_STATUSES
+                    .iter()
+                    .any(|s| s.eq_ignore_ascii_case(status));
+                latest = Some(value);
+                if is_terminal {
+                    // Retire per-job bus + routing (best-effort — we may
+                    // have an in-flight notification still buffered, but
+                    // the waiter has consumed the terminal event).
+                    gs.subscriber.forget_job_bus(job_id);
+                    gs.subscriber.forget_job(job_id);
+                    break;
+                }
+            }
+            // Broadcast lag: the backend emitted notifications faster
+            // than we could consume them. Keep going; the next call
+            // will deliver the most recent events.
+            Ok(Err(broadcast::error::RecvError::Lagged(_))) => continue,
+            // Sender was dropped — the subscriber's backend loop tore
+            // down. This is NOT a terminal state; surface a clear
+            // error so the client knows the job is in limbo on the
+            // backend. (#328 will later mark it `interrupted`.)
+            Ok(Err(broadcast::error::RecvError::Closed)) => {
+                gs.subscriber.forget_job_bus(job_id);
+                let payload = json!({
+                    "error": {
+                        "code": -32000,
+                        "message": format!(
+                            "backend disconnected during wait_for_terminal \
+                             (job {job_id} still running on {})",
+                            entry.dcc_type
+                        ),
+                        "data": {
+                            "job_id": job_id,
+                            "instance_id": entry.instance_id.to_string(),
+                            "dcc_type": entry.dcc_type,
+                        }
+                    }
+                });
+                return (
+                    serde_json::to_string_pretty(&payload).unwrap_or_default(),
+                    true,
+                );
+            }
+            // Per-iteration timeout — fall through to check deadline.
+            Err(_) => break,
+        }
+    }
+
+    // If we have a terminal event, build the final envelope by merging
+    // the backend's job-update payload into the pending envelope.
+    let envelope = match latest {
+        Some(update) => merge_job_update_into_envelope(pending_envelope.clone(), &update, false),
+        None => {
+            // Timed out before any update arrived. Tag the pending
+            // envelope so the client can distinguish "still running"
+            // from "completed with empty output".
+            gs.subscriber.forget_job_bus(job_id);
+            merge_job_update_into_envelope(pending_envelope.clone(), &Value::Null, true)
+        }
+    };
+
+    let mut final_envelope = envelope;
+    inject_instance_metadata(&mut final_envelope, &entry.instance_id, &entry.dcc_type);
+    envelope_to_text_result(&final_envelope)
+}
+
+/// Compose a terminal-state `CallToolResult` by layering:
+/// 1. The backend's original `{pending, job_id}` envelope (preserves
+///    `_meta.dcc.jobId`, `parentJobId`).
+/// 2. The `$/dcc.jobUpdated` payload's `status`, `result` (if present),
+///    and `error` (if present).
+/// 3. Gateway flags — `_meta.dcc.timed_out` when we couldn't wait any
+///    longer.
+///
+/// The output is a JSON object shaped like a `CallToolResult` so the
+/// caller can reuse [`envelope_to_text_result`].
+fn merge_job_update_into_envelope(mut pending: Value, update: &Value, timed_out: bool) -> Value {
+    let params = update.get("params");
+    let status = params
+        .and_then(|p| p.get("status"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let error_text = params
+        .and_then(|p| p.get("error"))
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    let result_value = params.and_then(|p| p.get("result")).cloned();
+
+    // Build structuredContent payload: reuse the pending object, then
+    // overwrite status + result.
+    let mut sc = pending
+        .get("structuredContent")
+        .cloned()
+        .and_then(|v| v.as_object().cloned())
+        .unwrap_or_default();
+    if !status.is_empty() {
+        sc.insert("status".to_string(), Value::String(status.to_string()));
+    }
+    if let Some(r) = result_value {
+        sc.insert("result".to_string(), r);
+    }
+    if let Some(ref e) = error_text {
+        sc.insert("error".to_string(), Value::String(e.clone()));
+    }
+
+    // Merge _meta.
+    let mut meta = sc
+        .get("_meta")
+        .cloned()
+        .and_then(|v| v.as_object().cloned())
+        .unwrap_or_default();
+    let mut dcc_meta = meta
+        .get("dcc")
+        .cloned()
+        .and_then(|v| v.as_object().cloned())
+        .unwrap_or_default();
+    if !status.is_empty() {
+        dcc_meta.insert("status".to_string(), Value::String(status.to_string()));
+    }
+    if timed_out {
+        dcc_meta.insert("timed_out".to_string(), Value::Bool(true));
+    }
+    meta.insert("dcc".to_string(), Value::Object(dcc_meta));
+    sc.insert("_meta".to_string(), Value::Object(meta));
+
+    // Build a human-readable text body so the CallToolResult still
+    // has a non-empty `content`.
+    let text = if timed_out {
+        format!("wait_for_terminal: timeout — job still running (status={status})")
+    } else if let Some(err) = error_text.as_deref() {
+        format!("Job {}: {err}", status)
+    } else {
+        format!(
+            "Job {status} — {}",
+            sc.get("result")
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "(no structured result)".to_string())
+        )
+    };
+
+    let is_error = matches!(status, "failed" | "cancelled" | "interrupted") || timed_out;
+    if let Some(obj) = pending.as_object_mut() {
+        obj.insert("structuredContent".to_string(), Value::Object(sc));
+        obj.insert("isError".to_string(), Value::Bool(is_error));
+        obj.insert(
+            "content".to_string(),
+            json!([{ "type": "text", "text": text }]),
+        );
+    }
+    pending
 }
 
 /// Extract the `job_id` from a backend `tools/call` result envelope, if
@@ -703,5 +1006,97 @@ mod tests {
     fn extract_job_id_returns_none_for_sync_reply() {
         let v = json!({"content": [{"type": "text", "text": "ok"}], "isError": false});
         assert!(extract_job_id(&v).is_none());
+    }
+
+    // ── #321: async opt-in detection + envelope merging ────────────────
+
+    #[test]
+    fn meta_signals_async_dispatch_picks_up_async_flag() {
+        let meta = json!({"dcc": {"async": true}});
+        assert!(meta_signals_async_dispatch(Some(&meta)));
+    }
+
+    #[test]
+    fn meta_signals_async_dispatch_picks_up_progress_token() {
+        let meta = json!({"progressToken": "tok"});
+        assert!(meta_signals_async_dispatch(Some(&meta)));
+    }
+
+    #[test]
+    fn meta_signals_async_dispatch_is_false_for_sync_requests() {
+        assert!(!meta_signals_async_dispatch(None));
+        let meta = json!({"dcc": {"parentJobId": "abc"}});
+        assert!(!meta_signals_async_dispatch(Some(&meta)));
+    }
+
+    #[test]
+    fn meta_wants_wait_for_terminal_reads_dcc_flag() {
+        let meta = json!({"dcc": {"async": true, "wait_for_terminal": true}});
+        assert!(meta_wants_wait_for_terminal(Some(&meta)));
+
+        let meta = json!({"dcc": {"async": true}});
+        assert!(!meta_wants_wait_for_terminal(Some(&meta)));
+    }
+
+    #[test]
+    fn strip_gateway_meta_flags_removes_wait_for_terminal_only() {
+        let meta = json!({"dcc": {"async": true, "wait_for_terminal": true, "parentJobId": "p"}});
+        let stripped = strip_gateway_meta_flags(meta);
+        assert_eq!(stripped["dcc"]["async"], true);
+        assert_eq!(stripped["dcc"]["parentJobId"], "p");
+        assert!(stripped["dcc"].get("wait_for_terminal").is_none());
+    }
+
+    #[test]
+    fn merge_job_update_into_envelope_completed_sets_status_and_result() {
+        let pending = json!({
+            "content": [{"type": "text", "text": "Job x queued"}],
+            "structuredContent": {"job_id": "x", "status": "pending", "_meta": {"dcc": {"jobId": "x"}}},
+            "isError": false,
+        });
+        let update = json!({
+            "method": "notifications/$/dcc.jobUpdated",
+            "params": {"job_id": "x", "status": "completed", "result": {"rows": 42}}
+        });
+        let merged = merge_job_update_into_envelope(pending, &update, false);
+        assert_eq!(merged["structuredContent"]["status"], "completed");
+        assert_eq!(merged["structuredContent"]["result"]["rows"], 42);
+        assert_eq!(
+            merged["structuredContent"]["_meta"]["dcc"]["status"],
+            "completed"
+        );
+        assert_eq!(merged["isError"], false);
+    }
+
+    #[test]
+    fn merge_job_update_into_envelope_failed_marks_is_error() {
+        let pending = json!({
+            "content": [{"type": "text", "text": "Job x queued"}],
+            "structuredContent": {"job_id": "x", "status": "pending"},
+            "isError": false,
+        });
+        let update = json!({
+            "method": "notifications/$/dcc.jobUpdated",
+            "params": {"job_id": "x", "status": "failed", "error": "boom"}
+        });
+        let merged = merge_job_update_into_envelope(pending, &update, false);
+        assert_eq!(merged["structuredContent"]["status"], "failed");
+        assert_eq!(merged["structuredContent"]["error"], "boom");
+        assert_eq!(merged["isError"], true);
+    }
+
+    #[test]
+    fn merge_job_update_into_envelope_timeout_sets_timed_out_flag() {
+        let pending = json!({
+            "content": [{"type": "text", "text": "Job x queued"}],
+            "structuredContent": {"job_id": "x", "status": "pending"},
+            "isError": false,
+        });
+        let merged = merge_job_update_into_envelope(pending, &Value::Null, true);
+        assert_eq!(
+            merged["structuredContent"]["_meta"]["dcc"]["timed_out"],
+            true
+        );
+        assert_eq!(merged["isError"], true);
     }
 }

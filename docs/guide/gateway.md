@@ -76,9 +76,77 @@ still depend on them.
 | `tools/call` correlation hooks | `crates/dcc-mcp-http/src/gateway/aggregator.rs` (`route_tools_call`) |
 | Subscription watcher | `crates/dcc-mcp-http/src/gateway/mod.rs` (`backend_sub_handle`) |
 
+## Waiting for terminal results from the gateway (#321)
+
+The gateway applies two separate request budgets to an outbound
+`tools/call`:
+
+| Case | Timeout | Source |
+|------|---------|--------|
+| Sync call (no `_meta.dcc.async`, no `progressToken`) | `backend_timeout_ms` (default 10 s) | `McpHttpConfig` |
+| Async opt-in call (`_meta.dcc.async=true` or `_meta.progressToken`) | `gateway_async_dispatch_timeout_ms` (default 60 s) | `McpHttpConfig` |
+| Async opt-in **with** `_meta.dcc.wait_for_terminal=true` | `gateway_wait_terminal_timeout_ms` (default 10 min) for the wait, `gateway_async_dispatch_timeout_ms` for the initial queuing step | `McpHttpConfig` |
+
+**Why two timeouts?** An async-dispatched tool replies immediately with
+`{status:"pending", job_id:"…"}` once the job has been queued on the
+backend. Under cold-start conditions (Maya re-importing a heavy module,
+Blender firing up a fresh Python interpreter) even that queuing step can
+legitimately take >10 s, so the short sync timeout would surface a
+spurious transport error while the backend is still starting the work.
+
+### Response stitching (opt-in)
+
+Clients that cannot consume SSE (plain `curl`, a batch script, a CI
+runner) can still get the final result in a single `tools/call`
+response by setting `_meta.dcc.wait_for_terminal = true` alongside
+`_meta.dcc.async = true`:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "maya__bake_simulation",
+    "arguments": {...},
+    "_meta": {
+      "dcc": {"async": true, "wait_for_terminal": true}
+    }
+  }
+}
+```
+
+The gateway now:
+
+1. Forwards the call to the backend with the longer
+   `gateway_async_dispatch_timeout_ms` budget.
+2. Receives the `{pending, job_id}` envelope and subscribes to the
+   per-job broadcast bus owned by the SSE subscriber manager.
+3. Blocks the HTTP response until a
+   `notifications/$/dcc.jobUpdated` frame with `status in {completed,
+   failed, cancelled, interrupted}` arrives over the backend's SSE
+   stream, or until `gateway_wait_terminal_timeout_ms` elapses.
+4. Merges the terminal status, `result`, and `error` into the original
+   pending envelope's `structuredContent` and returns the resulting
+   `CallToolResult`. `isError` is set for any non-`completed` status.
+
+### Timeout semantics
+
+If `gateway_wait_terminal_timeout_ms` elapses before a terminal event
+arrives, the gateway returns the **last observed** job envelope
+annotated with `_meta.dcc.timed_out = true` and leaves the job running
+on the backend. Callers can either reconnect over SSE or keep polling
+`jobs.get_status` to collect the eventual result.
+
+### Backend disconnect
+
+If the backend SSE stream drops while a waiter is blocked, the gateway
+returns a JSON-RPC `-32000` error identifying the backend and the
+`job_id`. The job itself is not cancelled — a subsequent restart of
+the backend may surface it as `interrupted` (issue #328) when the
+persisted job store rehydrates.
+
 ## Non-goals
 
-The SSE multiplexer does **not** forward non-notification response
-bodies — that is tracked under issue #321. Routing-cache improvements
-for cancellation (#322) and HTTP/2 multiplexing tuning are also out of
-scope for #320.
+Routing-cache improvements for cancellation (#322) and HTTP/2
+multiplexing tuning are out of scope for both #320 and #321.

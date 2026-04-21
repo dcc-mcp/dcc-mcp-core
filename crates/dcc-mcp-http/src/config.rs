@@ -197,6 +197,42 @@ pub struct McpHttpConfig {
     /// [`Self::request_timeout_ms`] instead. Fixes issue #314.
     pub backend_timeout_ms: u64,
 
+    /// Per-backend request timeout (milliseconds) applied by the gateway
+    /// when the client has opted into **async dispatch** (issue #321).
+    ///
+    /// Triggered when any of the following signals are present on the
+    /// outbound `tools/call`:
+    ///
+    /// * `_meta.dcc.async == true` (explicit client opt-in).
+    /// * `_meta.progressToken` is set (MCP 2025-03-26 long-running hint).
+    /// * The target tool declares `execution: async` or a non-zero
+    ///   `timeout_hint_secs` in its [`dcc_mcp_models::ActionMeta`].
+    ///
+    /// The async dispatch path only has to **queue** the job on the
+    /// backend (reply is `{status:"pending", job_id:"..."}`), but cold
+    /// starts or heavy imports can still legitimately push the queuing
+    /// step past [`Self::backend_timeout_ms`]. This longer timeout
+    /// prevents the gateway from returning a spurious transport error
+    /// while the backend is still starting the job.
+    ///
+    /// Default: `60_000` (60 seconds).
+    pub gateway_async_dispatch_timeout_ms: u64,
+
+    /// Gateway timeout (milliseconds) for the opt-in wait-for-terminal
+    /// response-stitching mode (issue #321).
+    ///
+    /// When a client sends `_meta.dcc.wait_for_terminal = true` on an
+    /// async `tools/call`, the gateway blocks the POST response until
+    /// a `notifications/$/dcc.jobUpdated` with a terminal status
+    /// (`completed`, `failed`, `cancelled`) arrives over the backend
+    /// SSE stream. On timeout the gateway returns the last known job
+    /// envelope annotated with `_meta.dcc.timed_out = true` and leaves
+    /// the job running on the backend — the caller can keep polling
+    /// `jobs.get_status` or reconnect SSE to collect the result later.
+    ///
+    /// Default: `600_000` (10 minutes).
+    pub gateway_wait_terminal_timeout_ms: u64,
+
     /// Enable the Prometheus `/metrics` endpoint (issue #331).
     ///
     /// Requires the `prometheus` Cargo feature on both `dcc-mcp-http`
@@ -308,6 +344,8 @@ impl McpHttpConfig {
             spawn_mode: ServerSpawnMode::Ambient,
             self_probe_timeout_ms: 200,
             backend_timeout_ms: 10_000,
+            gateway_async_dispatch_timeout_ms: 60_000,
+            gateway_wait_terminal_timeout_ms: 600_000,
             enable_resources: true,
             enable_artefact_resources: false,
             enable_prompts: true,
@@ -453,6 +491,22 @@ impl McpHttpConfig {
     /// them with a transport timeout error.
     pub fn with_backend_timeout_ms(mut self, ms: u64) -> Self {
         self.backend_timeout_ms = ms;
+        self
+    }
+
+    /// Builder: override the gateway's async-dispatch timeout (issue #321).
+    ///
+    /// See [`Self::gateway_async_dispatch_timeout_ms`] for the full contract.
+    pub fn with_gateway_async_dispatch_timeout_ms(mut self, ms: u64) -> Self {
+        self.gateway_async_dispatch_timeout_ms = ms;
+        self
+    }
+
+    /// Builder: override the gateway wait-for-terminal timeout (issue #321).
+    ///
+    /// See [`Self::gateway_wait_terminal_timeout_ms`] for the full contract.
+    pub fn with_gateway_wait_terminal_timeout_ms(mut self, ms: u64) -> Self {
+        self.gateway_wait_terminal_timeout_ms = ms;
         self
     }
 }

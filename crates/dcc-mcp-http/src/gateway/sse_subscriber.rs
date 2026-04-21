@@ -157,6 +157,14 @@ struct SubscriberManagerInner {
     backend_inflight: DashMap<String, DashSet<ClientSessionId>>,
     /// Client session → broadcast::Sender used by the GET /mcp handler.
     client_sinks: DashMap<ClientSessionId, broadcast::Sender<String>>,
+    /// Per-`job_id` broadcast of parsed `$/dcc.jobUpdated` / `workflowUpdated`
+    /// JSON-RPC notifications (#321 wait-for-terminal passthrough).
+    ///
+    /// The bus is created lazily by [`SubscriberManager::job_event_channel`]
+    /// — typically called from the gateway aggregator just before
+    /// forwarding an async `tools/call` so the waiter cannot miss a
+    /// terminal event that arrives while the POST reply is in flight.
+    job_event_buses: DashMap<String, broadcast::Sender<Value>>,
     /// Shared HTTP client with connection pooling.
     http_client: reqwest::Client,
 }
@@ -176,6 +184,7 @@ impl SubscriberManager {
                 progress_token_routes: DashMap::new(),
                 backend_inflight: DashMap::new(),
                 client_sinks: DashMap::new(),
+                job_event_buses: DashMap::new(),
                 http_client,
             }),
         }
@@ -246,6 +255,50 @@ impl SubscriberManager {
     #[allow(dead_code)]
     pub fn forget_job(&self, job_id: &str) {
         self.inner.job_routes.remove(job_id);
+        self.inner.job_event_buses.remove(job_id);
+    }
+
+    // ── Job event bus (#321 wait-for-terminal) ─────────────────────────
+
+    /// Subscribe to parsed `$/dcc.jobUpdated` / `workflowUpdated`
+    /// JSON-RPC notifications for `job_id`. Idempotent — repeated calls
+    /// return independent receivers reading from the same broadcast.
+    ///
+    /// Callers should invoke this **before** forwarding the outbound
+    /// `tools/call` so that a terminal event produced during the brief
+    /// window between the backend reply and the waiter installing its
+    /// subscription cannot be missed.
+    pub fn job_event_channel(&self, job_id: &str) -> broadcast::Receiver<Value> {
+        let entry = self
+            .inner
+            .job_event_buses
+            .entry(job_id.to_string())
+            .or_insert_with(|| broadcast::channel::<Value>(32).0);
+        entry.value().subscribe()
+    }
+
+    /// Drop the per-job broadcast bus. Outstanding receivers will see
+    /// `RecvError::Closed` on their next `recv().await`; call this after
+    /// the waiter has observed a terminal event (or timed out) so the
+    /// map does not grow unboundedly across many async jobs.
+    pub fn forget_job_bus(&self, job_id: &str) {
+        self.inner.job_event_buses.remove(job_id);
+    }
+
+    /// Publish a parsed notification to the per-job bus, if any waiter
+    /// is listening. Silently noops when nobody subscribed.
+    fn publish_job_event(&self, job_id: &str, value: &Value) {
+        if let Some(entry) = self.inner.job_event_buses.get(job_id) {
+            let _ = entry.value().send(value.clone());
+        }
+    }
+
+    /// Testing-only: hand-feed a `$/dcc.jobUpdated` notification to the
+    /// per-job bus. Lets integration tests exercise the wait-for-
+    /// terminal path without spinning up a real backend SSE stream.
+    #[doc(hidden)]
+    pub fn test_publish_job_event(&self, job_id: &str, value: Value) {
+        self.publish_job_event(job_id, &value);
     }
 
     // ── Backend lifecycle ──────────────────────────────────────────────
@@ -302,6 +355,14 @@ impl SubscriberManager {
     /// Deliver an MCP notification JSON to the right client session, or
     /// buffer it if we cannot resolve the target yet.
     fn deliver(&self, value: Value, backend_shared: &BackendShared) {
+        // #321: fan out `$/dcc.jobUpdated` / `workflowUpdated` onto any
+        // per-job wait-for-terminal bus before we worry about SSE
+        // routing. Publishing is independent of whether a client SSE
+        // sink exists — a wait-for-terminal POST client may not have
+        // any GET /mcp stream open at all.
+        if let Some(jid) = job_id_for_job_notification(&value) {
+            self.publish_job_event(&jid, &value);
+        }
         let session = resolve_target(&self.inner, &value);
         match session {
             Some(sid) => {
@@ -565,6 +626,25 @@ fn parse_sse_record(record: &[u8]) -> Option<Value> {
     serde_json::from_str::<Value>(&joined).ok()
 }
 
+/// Extract the `job_id` from a `$/dcc.jobUpdated` / `workflowUpdated`
+/// notification envelope. Used by the per-job broadcast bus (#321) so
+/// wait-for-terminal POST handlers can block on terminal events without
+/// needing their own SSE subscription.
+fn job_id_for_job_notification(value: &Value) -> Option<String> {
+    let method = value.get("method").and_then(|m| m.as_str())?;
+    if !matches!(
+        method,
+        "notifications/$/dcc.jobUpdated" | "notifications/$/dcc.workflowUpdated"
+    ) {
+        return None;
+    }
+    value
+        .get("params")
+        .and_then(|p| p.get("job_id"))
+        .and_then(|j| j.as_str())
+        .map(str::to_owned)
+}
+
 /// Determine which client session should receive `value`.
 fn resolve_target(inner: &SubscriberManagerInner, value: &Value) -> Option<String> {
     let method = value.get("method").and_then(|m| m.as_str())?;
@@ -653,16 +733,21 @@ mod tests {
         assert!(parse_sse_record(rec).is_none());
     }
 
-    #[test]
-    fn resolve_target_prefers_progress_token_for_progress_notifications() {
-        let inner = SubscriberManagerInner {
+    fn empty_inner() -> SubscriberManagerInner {
+        SubscriberManagerInner {
             backends: DashMap::new(),
             job_routes: DashMap::new(),
             progress_token_routes: DashMap::new(),
             backend_inflight: DashMap::new(),
             client_sinks: DashMap::new(),
+            job_event_buses: DashMap::new(),
             http_client: reqwest::Client::new(),
-        };
+        }
+    }
+
+    #[test]
+    fn resolve_target_prefers_progress_token_for_progress_notifications() {
+        let inner = empty_inner();
         inner.progress_token_routes.insert(
             progress_token_key(&Value::String("tok".into())),
             "sessA".into(),
@@ -676,14 +761,7 @@ mod tests {
 
     #[test]
     fn resolve_target_uses_job_id_for_job_updated() {
-        let inner = SubscriberManagerInner {
-            backends: DashMap::new(),
-            job_routes: DashMap::new(),
-            progress_token_routes: DashMap::new(),
-            backend_inflight: DashMap::new(),
-            client_sinks: DashMap::new(),
-            http_client: reqwest::Client::new(),
-        };
+        let inner = empty_inner();
         inner.job_routes.insert("jid-42".into(), "sessB".into());
         let note = serde_json::json!({
             "method": "notifications/$/dcc.jobUpdated",
@@ -694,19 +772,77 @@ mod tests {
 
     #[test]
     fn resolve_target_returns_none_when_unknown() {
-        let inner = SubscriberManagerInner {
-            backends: DashMap::new(),
-            job_routes: DashMap::new(),
-            progress_token_routes: DashMap::new(),
-            backend_inflight: DashMap::new(),
-            client_sinks: DashMap::new(),
-            http_client: reqwest::Client::new(),
-        };
+        let inner = empty_inner();
         let note = serde_json::json!({
             "method": "notifications/progress",
             "params": {"progressToken": "no-such-token"}
         });
         assert!(resolve_target(&inner, &note).is_none());
+    }
+
+    // #321: per-job broadcast delivery — unit tests here, end-to-end
+    // wiring is covered by `gateway/tests.rs`.
+
+    #[tokio::test]
+    async fn job_event_channel_receives_published_notifications() {
+        let mgr = SubscriberManager::default();
+        let mut rx = mgr.job_event_channel("job-1");
+        let note = serde_json::json!({
+            "method": "notifications/$/dcc.jobUpdated",
+            "params": {"job_id": "job-1", "status": "completed"}
+        });
+        mgr.publish_job_event("job-1", &note);
+        let delivered = tokio::time::timeout(std::time::Duration::from_millis(500), rx.recv())
+            .await
+            .expect("recv did not time out")
+            .expect("bus delivered");
+        assert_eq!(delivered["params"]["status"], "completed");
+    }
+
+    #[tokio::test]
+    async fn job_event_channel_publishes_only_to_requested_job() {
+        let mgr = SubscriberManager::default();
+        let mut rx_a = mgr.job_event_channel("job-a");
+        let mut rx_b = mgr.job_event_channel("job-b");
+        let note = serde_json::json!({
+            "method": "notifications/$/dcc.jobUpdated",
+            "params": {"job_id": "job-a", "status": "running"}
+        });
+        mgr.publish_job_event("job-a", &note);
+        assert!(rx_a.try_recv().is_ok());
+        assert!(rx_b.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn deliver_publishes_to_job_event_bus_even_without_route() {
+        // The waiter path does NOT require `bind_job` — it subscribes to
+        // the per-job bus directly before the reply arrives. `deliver`
+        // must therefore publish to the bus regardless of whether a
+        // client-session route exists.
+        let mgr = SubscriberManager::default();
+        let mut rx = mgr.job_event_channel("job-x");
+        let backend = "http://127.0.0.1:0/mcp".to_string();
+        let shared = Arc::new(BackendShared::new(backend.clone()));
+        let note = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "notifications/$/dcc.jobUpdated",
+            "params": {"job_id": "job-x", "status": "completed"}
+        });
+        mgr.deliver(note, &shared);
+        let delivered = tokio::time::timeout(std::time::Duration::from_millis(500), rx.recv())
+            .await
+            .expect("recv did not time out")
+            .expect("bus delivered");
+        assert_eq!(delivered["params"]["status"], "completed");
+    }
+
+    #[test]
+    fn forget_job_bus_removes_the_broadcast() {
+        let mgr = SubscriberManager::default();
+        let _rx = mgr.job_event_channel("job-1");
+        assert!(mgr.inner.job_event_buses.contains_key("job-1"));
+        mgr.forget_job_bus("job-1");
+        assert!(!mgr.inner.job_event_buses.contains_key("job-1"));
     }
 
     #[tokio::test]

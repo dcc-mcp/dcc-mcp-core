@@ -50,6 +50,8 @@ async fn make_state(
         registry: registry.clone(),
         stale_timeout: Duration::from_secs(30),
         backend_timeout,
+        async_dispatch_timeout: Duration::from_secs(60),
+        wait_terminal_timeout: Duration::from_secs(600),
         server_name: "test".into(),
         server_version: "0.0.0".into(),
         http_client: reqwest::Client::new(),

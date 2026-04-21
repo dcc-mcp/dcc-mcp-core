@@ -29,6 +29,12 @@ pub struct GatewayState {
     /// [`McpHttpConfig::backend_timeout_ms`] for workflows with legitimately
     /// long-running backend tools.
     pub backend_timeout: Duration,
+    /// Longer timeout applied when the outbound `tools/call` is async-
+    /// opted-in (issue #321). Default: `60 s`.
+    pub async_dispatch_timeout: Duration,
+    /// Gateway wait-for-terminal passthrough timeout (issue #321).
+    /// Default: `600 s` (10 minutes).
+    pub wait_terminal_timeout: Duration,
     pub server_name: String,
     /// The version string of this gateway instance (e.g. `"0.12.29"`).
     pub server_version: String,
@@ -142,6 +148,8 @@ mod tests {
             registry: reg,
             stale_timeout: Duration::from_secs(30),
             backend_timeout: Duration::from_secs(10),
+            async_dispatch_timeout: Duration::from_secs(60),
+            wait_terminal_timeout: Duration::from_secs(600),
             server_name: "test".into(),
             server_version: "0.13.2".into(),
             http_client: reqwest::Client::new(),

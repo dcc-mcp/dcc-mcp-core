@@ -443,6 +443,8 @@ impl McpHttpServer {
                 registry_dir: self.config.registry_dir.clone(),
                 challenger_timeout_secs: 120,
                 backend_timeout_ms: self.config.backend_timeout_ms,
+                async_dispatch_timeout_ms: self.config.gateway_async_dispatch_timeout_ms,
+                wait_terminal_timeout_ms: self.config.gateway_wait_terminal_timeout_ms,
             };
 
             match GatewayRunner::new(gw_cfg) {

@@ -187,11 +187,14 @@ pub(crate) struct GatewayTasks {
 ///
 /// `sentinel_key` is the registry key of the `__gateway__` sentinel row that
 /// the caller registered; the cleanup loop heartbeats it (issue #229).
+#[allow(clippy::too_many_arguments)]
 async fn start_gateway_tasks(
     listener: tokio::net::TcpListener,
     registry: Arc<RwLock<FileRegistry>>,
     stale_timeout: Duration,
     backend_timeout: Duration,
+    async_dispatch_timeout: Duration,
+    wait_terminal_timeout: Duration,
     server_name: String,
     server_version: String,
     sentinel_key: ServiceKey,
@@ -395,6 +398,8 @@ async fn start_gateway_tasks(
         registry,
         stale_timeout,
         backend_timeout,
+        async_dispatch_timeout,
+        wait_terminal_timeout,
         server_name,
         server_version,
         http_client,
@@ -536,6 +541,12 @@ pub struct GatewayConfig {
     /// from the gateway to each live DCC instance. Default: `10_000`.
     /// Issue #314.
     pub backend_timeout_ms: u64,
+    /// Longer timeout applied when the outbound `tools/call` is async-
+    /// opted-in (issue #321). Default: `60_000`.
+    pub async_dispatch_timeout_ms: u64,
+    /// Gateway wait-for-terminal passthrough timeout (issue #321).
+    /// Default: `600_000` (10 minutes).
+    pub wait_terminal_timeout_ms: u64,
 }
 
 impl Default for GatewayConfig {
@@ -550,6 +561,8 @@ impl Default for GatewayConfig {
             registry_dir: None,
             challenger_timeout_secs: 120,
             backend_timeout_ms: 10_000,
+            async_dispatch_timeout_ms: 60_000,
+            wait_terminal_timeout_ms: 600_000,
         }
     }
 }
@@ -739,6 +752,8 @@ impl GatewayRunner {
     ) -> Result<ElectionOutcome, Box<dyn std::error::Error + Send + Sync>> {
         let stale_timeout = Duration::from_secs(self.config.stale_timeout_secs);
         let backend_timeout = Duration::from_millis(self.config.backend_timeout_ms);
+        let async_dispatch_timeout = Duration::from_millis(self.config.async_dispatch_timeout_ms);
+        let wait_terminal_timeout = Duration::from_millis(self.config.wait_terminal_timeout_ms);
         let own_version = self.config.server_version.clone();
 
         match try_bind_port_opt(&self.config.host, self.config.gateway_port).await {
@@ -765,6 +780,8 @@ impl GatewayRunner {
                     self.registry.clone(),
                     stale_timeout,
                     backend_timeout,
+                    async_dispatch_timeout,
+                    wait_terminal_timeout,
                     format!("{} (gateway)", self.config.server_name),
                     own_version.clone(),
                     sentinel_key,
@@ -862,6 +879,8 @@ impl GatewayRunner {
         let registry = self.registry.clone();
         let stale_timeout = Duration::from_secs(self.config.stale_timeout_secs);
         let backend_timeout = Duration::from_millis(self.config.backend_timeout_ms);
+        let async_dispatch_timeout = Duration::from_millis(self.config.async_dispatch_timeout_ms);
+        let wait_terminal_timeout = Duration::from_millis(self.config.wait_terminal_timeout_ms);
         let server_name = self.config.server_name.clone();
         let timeout_secs = self.config.challenger_timeout_secs;
 
@@ -919,6 +938,8 @@ impl GatewayRunner {
                         registry.clone(),
                         stale_timeout,
                         backend_timeout,
+                        async_dispatch_timeout,
+                        wait_terminal_timeout,
                         format!("{server_name} (gateway)"),
                         own_ver.clone(),
                         sentinel_key,
