@@ -109,6 +109,42 @@ fn test_unload_not_loaded_skill_fails() {
 }
 
 #[test]
+fn test_load_skill_propagates_next_tools_and_drops_invalid() {
+    // Issue #342: tools.yaml `next-tools` flows into ActionMeta.next_tools;
+    // entries whose tool name fails `validate_tool_name` are dropped at
+    // load time and do not fail the whole skill load.
+    let catalog = make_test_catalog();
+    let mut skill = make_test_skill("modeling", "maya", &[]);
+    skill.tools = vec![ToolDeclaration {
+        name: "bevel".to_string(),
+        next_tools: dcc_mcp_models::NextTools {
+            on_success: vec![
+                "maya_geometry__assign_material".to_string(),
+                "bad/name".to_string(), // invalid — must be dropped
+            ],
+            on_failure: vec!["diagnostics__screenshot".to_string()],
+        },
+        ..Default::default()
+    }];
+    catalog.add_skill(skill);
+
+    catalog.load_skill("modeling").unwrap();
+    let meta = catalog
+        .registry()
+        .get_action("modeling__bevel", None)
+        .expect("action registered");
+    assert_eq!(
+        meta.next_tools.on_success,
+        vec!["maya_geometry__assign_material".to_string()],
+        "invalid entries must be filtered",
+    );
+    assert_eq!(
+        meta.next_tools.on_failure,
+        vec!["diagnostics__screenshot".to_string()],
+    );
+}
+
+#[test]
 fn test_load_skill_idempotent() {
     let catalog = make_test_catalog();
     catalog.add_skill(make_test_skill("test", "maya", &["tool1"]));

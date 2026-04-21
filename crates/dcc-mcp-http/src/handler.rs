@@ -1269,7 +1269,7 @@ async fn handle_tools_call_inner(
         state.in_flight.remove(rid);
     }
 
-    let call_result = match dispatch_outcome {
+    let mut call_result = match dispatch_outcome {
         Ok(output) => {
             let text = match &output {
                 Value::String(s) => s.clone(),
@@ -1306,6 +1306,7 @@ async fn handle_tools_call_inner(
                 content,
                 structured_content,
                 is_error: false,
+                meta: None,
             }
         }
         Err(err_msg) if err_msg == "CANCELLED" => {
@@ -1366,6 +1367,7 @@ async fn handle_tools_call_inner(
                 }],
                 structured_content: None,
                 is_error: true,
+                meta: None,
             }
         }
     };
@@ -1388,6 +1390,14 @@ async fn handle_tools_call_inner(
                 serde_json::to_value(CallToolResult::error(envelope.to_json()))?,
             ));
         }
+    }
+
+    // Issue #342 — attach `_meta["dcc.next_tools"]` with the matching
+    // on-success / on-failure list when the tool declared one. The slot
+    // is asymmetric on purpose: success results never expose on-failure
+    // suggestions and vice versa. Absent → no key, never an empty dict.
+    if let Some(action_meta) = state.registry.get_action(&resolved_name, None) {
+        attach_next_tools_meta(&mut call_result, &action_meta.next_tools);
     }
 
     Ok(JsonRpcResponse::success(
@@ -1578,6 +1588,35 @@ async fn dispatch_async_job(
         req.id.clone(),
         serde_json::to_value(envelope)?,
     ))
+}
+
+/// Populate `CallToolResult._meta["dcc.next_tools"]` per issue #342.
+///
+/// The key is only emitted when the relevant list (on-success for a
+/// success result, on-failure for an error result) is non-empty. Other
+/// existing `_meta` entries are preserved; callers are expected to own
+/// their own vendor namespace inside the same map.
+fn attach_next_tools_meta(result: &mut CallToolResult, next_tools: &dcc_mcp_models::NextTools) {
+    let list = if result.is_error {
+        &next_tools.on_failure
+    } else {
+        &next_tools.on_success
+    };
+    if list.is_empty() {
+        return;
+    }
+    let key = if result.is_error {
+        "on_failure"
+    } else {
+        "on_success"
+    };
+    let mut nt_map = serde_json::Map::new();
+    nt_map.insert(
+        key.to_string(),
+        Value::Array(list.iter().map(|n| Value::String(n.clone())).collect()),
+    );
+    let meta = result.meta.get_or_insert_with(serde_json::Map::new);
+    meta.insert("dcc.next_tools".to_string(), Value::Object(nt_map));
 }
 
 async fn handle_list_roots(

@@ -373,6 +373,13 @@ pub struct CallToolResult {
     pub structured_content: Option<Value>,
     #[serde(default)]
     pub is_error: bool,
+    /// MCP `_meta` slot on a `CallToolResult` (issue #342).
+    ///
+    /// Namespaced under vendor keys (e.g. `dcc.next_tools`); never used
+    /// to carry spec-defined top-level fields. Populated lazily by the
+    /// handler; older clients ignore it.
+    #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
+    pub meta: Option<serde_json::Map<String, Value>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -407,6 +414,7 @@ impl CallToolResult {
             content: vec![ToolContent::Text { text: text.into() }],
             structured_content: None,
             is_error: false,
+            meta: None,
         }
     }
 
@@ -415,6 +423,7 @@ impl CallToolResult {
             content: vec![ToolContent::Text { text: msg.into() }],
             structured_content: None,
             is_error: true,
+            meta: None,
         }
     }
 }

@@ -425,7 +425,7 @@ impl<'de> serde::Deserialize<'de> for ToolDeclaration {
 }
 
 /// Suggested next tools for a successful or failed tool call (issue #143).
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NextTools {
     /// Tool names to suggest after a successful invocation.
     #[serde(default, rename = "on-success", alias = "on_success")]
@@ -811,6 +811,68 @@ impl ToolDeclaration {
             idempotent_hint: get_bool(d, &["idempotent_hint", "idempotentHint"])?,
             open_world_hint: get_bool(d, &["open_world_hint", "openWorldHint"])?,
             deferred_hint: get_bool(d, &["deferred_hint", "deferredHint"])?,
+        };
+        Ok(())
+    }
+
+    /// Suggested follow-up tools for this declaration (issue #342).
+    ///
+    /// Returns ``None`` when neither ``on-success`` nor ``on-failure``
+    /// was declared. Otherwise returns a dict with string-list values
+    /// under the ``"on_success"`` / ``"on_failure"`` keys.
+    #[getter]
+    fn next_tools<'py>(
+        &self,
+        py: Python<'py>,
+    ) -> pyo3::PyResult<Option<pyo3::Bound<'py, pyo3::types::PyDict>>> {
+        if self.next_tools.on_success.is_empty() && self.next_tools.on_failure.is_empty() {
+            return Ok(None);
+        }
+        let d = pyo3::types::PyDict::new(py);
+        d.set_item("on_success", self.next_tools.on_success.clone())?;
+        d.set_item("on_failure", self.next_tools.on_failure.clone())?;
+        Ok(Some(d))
+    }
+
+    /// Set ``next_tools`` from a dict with optional ``on_success`` /
+    /// ``on_failure`` list-of-string values. Passing ``None`` clears
+    /// both lists.
+    #[setter]
+    fn set_next_tools(
+        &mut self,
+        value: Option<&pyo3::Bound<'_, pyo3::types::PyAny>>,
+    ) -> pyo3::PyResult<()> {
+        use pyo3::types::PyDict;
+        let Some(v) = value else {
+            self.next_tools = NextTools::default();
+            return Ok(());
+        };
+        if v.is_none() {
+            self.next_tools = NextTools::default();
+            return Ok(());
+        }
+        let dict = v.downcast::<PyDict>().map_err(|_| {
+            pyo3::exceptions::PyTypeError::new_err(
+                "next_tools must be a dict with optional on_success/on_failure list keys, or None",
+            )
+        })?;
+        let on_success: Vec<String> = dict
+            .get_item("on_success")
+            .ok()
+            .flatten()
+            .map(|v| v.extract())
+            .transpose()?
+            .unwrap_or_default();
+        let on_failure: Vec<String> = dict
+            .get_item("on_failure")
+            .ok()
+            .flatten()
+            .map(|v| v.extract())
+            .transpose()?
+            .unwrap_or_default();
+        self.next_tools = NextTools {
+            on_success,
+            on_failure,
         };
         Ok(())
     }

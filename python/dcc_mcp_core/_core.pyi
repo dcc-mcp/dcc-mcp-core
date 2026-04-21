@@ -180,6 +180,14 @@ class ToolDeclaration:
     Assignment accepts both snake_case (``read_only_hint``) and camelCase
     (``readOnlyHint``). Set to ``None`` or ``{}`` to clear.
     """
+    next_tools: dict[str, list[str]] | None
+    """Suggested follow-up tools (issue #342).
+
+    Returns ``None`` when no ``next-tools`` block was declared in the
+    sibling ``tools.yaml``. Otherwise a dict with ``"on_success"`` and
+    ``"on_failure"`` list-of-string values. Surfaces on
+    ``CallToolResult._meta`` as ``dcc.next_tools``.
+    """
 
     def __init__(
         self,

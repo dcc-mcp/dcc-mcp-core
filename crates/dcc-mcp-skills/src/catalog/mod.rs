@@ -367,6 +367,7 @@ impl SkillCatalog {
                 execution: tool_decl.execution,
                 timeout_hint_secs: tool_decl.timeout_hint_secs,
                 annotations: tool_decl.annotations.clone(),
+                next_tools: sanitize_next_tools(&tool_decl.next_tools, skill_name, &action_name),
             };
 
             self.registry.register_action(meta);
@@ -410,6 +411,7 @@ impl SkillCatalog {
                     execution: dcc_mcp_models::ExecutionMode::Sync,
                     timeout_hint_secs: None,
                     annotations: dcc_mcp_models::ToolAnnotations::default(),
+                    next_tools: dcc_mcp_models::NextTools::default(),
                 };
 
                 self.registry.register_action(meta);
@@ -869,6 +871,39 @@ impl SkillCatalog {
             self.len(),
             self.loaded_count()
         )
+    }
+}
+
+/// Drop tool names in `next-tools` that fail `validate_tool_name` so
+/// the catalog never surfaces malformed follow-up suggestions to AI
+/// clients (issue #342).
+///
+/// Invalid entries are logged at warn-level and skipped; skill load
+/// succeeds so a typo in one tool's `next-tools` list does not block
+/// an entire skill.
+fn sanitize_next_tools(
+    raw: &dcc_mcp_models::NextTools,
+    skill_name: &str,
+    action_name: &str,
+) -> dcc_mcp_models::NextTools {
+    let sanitize = |kind: &str, names: &[String]| -> Vec<String> {
+        names
+            .iter()
+            .filter_map(|n| match dcc_mcp_naming::validate_tool_name(n) {
+                Ok(()) => Some(n.clone()),
+                Err(e) => {
+                    tracing::warn!(
+                        "skill {skill_name}: tool {action_name}: next-tools.{kind} entry \
+                         {n:?} is not a valid tool name ({e}); dropping.",
+                    );
+                    None
+                }
+            })
+            .collect()
+    };
+    dcc_mcp_models::NextTools {
+        on_success: sanitize("on-success", &raw.on_success),
+        on_failure: sanitize("on-failure", &raw.on_failure),
     }
 }
 

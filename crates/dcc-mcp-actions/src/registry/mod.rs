@@ -7,7 +7,7 @@ use pyo3::prelude::*;
 use dcc_mcp_utils::py_json::json_value_to_pyobject;
 
 use dashmap::DashMap;
-use dcc_mcp_models::{ExecutionMode, ToolAnnotations};
+use dcc_mcp_models::{ExecutionMode, NextTools, ToolAnnotations};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -90,6 +90,19 @@ pub struct ActionMeta {
     /// inside the spec `annotations` map.
     #[serde(default, skip_serializing_if = "ToolAnnotations::is_empty")]
     pub annotations: ToolAnnotations,
+    /// Suggested follow-up tools surfaced on `CallToolResult._meta`
+    /// under `dcc.next_tools` (issue #342).
+    ///
+    /// Populated from the per-tool `next-tools` entry in the sibling
+    /// `tools.yaml` file. Tool names must pass
+    /// [`dcc_mcp_naming::validate_tool_name`]; invalid entries are
+    /// dropped at skill-load time with a warning.
+    #[serde(default, skip_serializing_if = "next_tools_is_empty")]
+    pub next_tools: NextTools,
+}
+
+fn next_tools_is_empty(nt: &NextTools) -> bool {
+    nt.on_success.is_empty() && nt.on_failure.is_empty()
 }
 
 fn default_enabled() -> bool {
@@ -115,6 +128,7 @@ impl Default for ActionMeta {
             execution: ExecutionMode::Sync,
             timeout_hint_secs: None,
             annotations: ToolAnnotations::default(),
+            next_tools: NextTools::default(),
         }
     }
 }
@@ -624,6 +638,7 @@ impl ActionRegistry {
                 execution,
                 timeout_hint_secs,
                 annotations: ToolAnnotations::default(),
+                next_tools: NextTools::default(),
             });
         }
     }
@@ -700,6 +715,7 @@ impl ActionRegistry {
             execution,
             timeout_hint_secs,
             annotations: ToolAnnotations::default(),
+            next_tools: NextTools::default(),
         });
         Ok(())
     }

@@ -205,6 +205,7 @@ fn test_action_meta_serde_round_trip() {
         execution: dcc_mcp_models::ExecutionMode::Async,
         timeout_hint_secs: Some(900),
         annotations: dcc_mcp_models::ToolAnnotations::default(),
+        next_tools: dcc_mcp_models::NextTools::default(),
     };
     let json = serde_json::to_string(&meta).unwrap();
     let back: ActionMeta = serde_json::from_str(&json).unwrap();

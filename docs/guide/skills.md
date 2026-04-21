@@ -664,6 +664,41 @@ spec-standard `annotations` map (which would make the payload
 non-compliant). The same `_meta` slot also carries the
 `execution: async` implication from issue #317.
 
+#### Declaring `next-tools` (issue #342)
+
+`next-tools` belongs **inside each tool entry in `tools.yaml`** — never as
+a top-level SKILL.md frontmatter key. The server surfaces the declared
+list on `CallToolResult._meta["dcc.next_tools"]`:
+
+- `on-success` list → attached after a successful tool call
+- `on-failure` list → attached after an error (`isError == true`)
+- No `next-tools` declared → `_meta["dcc.next_tools"]` is omitted entirely
+
+```yaml
+# tools.yaml
+tools:
+  - name: create_sphere
+    description: "Create a polygon sphere"
+    source_file: scripts/create_sphere.py
+    next-tools:
+      on-success:
+        - maya_geometry__bevel_edges
+        - maya_geometry__assign_material
+      on-failure:
+        - diagnostics__screenshot
+        - diagnostics__audit_log
+```
+
+Tool names are validated with `dcc_mcp_naming::validate_tool_name` at
+skill-load time. Invalid entries are dropped with a `tracing::warn!`
+and the rest of the skill loads normally — a single malformed name
+will not fail the whole skill.
+
+A legacy top-level `next-tools:` block on SKILL.md still parses for
+backward compatibility but emits a deprecation warning and flips
+`SkillMetadata.is_spec_compliant()` to `False` (`next-tools` appears
+in `legacy_extension_fields`).
+
 ### Metadata key reference
 
 | Legacy top-level                | Spec-compliant `metadata` key                | Value type            |

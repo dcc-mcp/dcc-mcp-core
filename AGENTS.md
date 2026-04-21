@@ -494,17 +494,20 @@ from dcc_mcp_core import skill_warning, skill_exception
 # Both are pure-Python helpers in python/dcc_mcp_core/skill.py
 ```
 
-**`next-tools` in SKILL.md — guide AI to follow-up tools:**
+**`next-tools` — live inside the sibling `tools.yaml`, never top-level SKILL.md (issue #342):**
 ```yaml
+# tools.yaml  (referenced from SKILL.md via metadata.dcc-mcp.tools: tools.yaml)
 tools:
   - name: create_sphere
     next-tools:
-      on-success: [maya_geometry__bevel_edges]   # suggested after success
+      on-success: [maya_geometry__bevel_edges]    # suggested after success
       on-failure: [dcc_diagnostics__screenshot]   # debug on failure
 ```
 - `next-tools` is a dcc-mcp-core extension (not in agentskills.io spec)
-- Helps AI agents chain tool calls without trial-and-error
-- Both `on-success` and `on-failure` accept lists of fully-qualified tool names
+- Lives inside each tool entry in `tools.yaml`. Top-level `next-tools:` on SKILL.md is legacy, emits a deprecation warn, and flips `is_spec_compliant() → False`.
+- Surfaces on `CallToolResult._meta["dcc.next_tools"]` — server attaches `on_success` after success and `on_failure` after error; omitted entirely when not declared.
+- Invalid tool names are dropped at load-time with a warn — skill still loads.
+- Both `on-success` and `on-failure` accept lists of fully-qualified tool names.
 
 **agentskills.io fields — `license`, `compatibility`, `allowed-tools`:**
 ```yaml

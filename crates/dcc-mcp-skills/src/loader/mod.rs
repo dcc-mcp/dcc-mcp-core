@@ -52,6 +52,11 @@ const LEGACY_EXTENSION_KEYS: &[&str] = &[
     "products",
     "allow_implicit_invocation",
     "allow-implicit-invocation",
+    // Issue #342 — per-tool `next-tools` MUST live in the sibling
+    // tools.yaml file. A top-level `next-tools:` in SKILL.md is the
+    // legacy form and is treated as spec-non-compliant.
+    "next-tools",
+    "next_tools",
 ];
 
 use crate::resolver::{self, ResolveError};
