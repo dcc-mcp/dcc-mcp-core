@@ -2368,6 +2368,136 @@ print(f"MCP server ready: {handle.mcp_url()}")
 
 ---
 
+## Workflow Primitive (`dcc_mcp_workflow`, skeleton — issue #348)
+
+**Status**: skeleton. Types, YAML parser, validator, catalog reader, DDL
+and the four built-in `workflows.*` MCP tools are shipped. **Step
+execution is intentionally deferred** to a follow-up PR — see the stable
+error payload below.
+
+Opt-in via the top-level `workflow` Cargo feature (off by default for
+one release). Python surface: `WorkflowSpec`, `WorkflowStatus` — or
+`None` when the wheel was built without the feature.
+
+### Rust types
+
+```rust
+use dcc_mcp_workflow::{
+    WorkflowSpec, Step, StepKind, StepId, WorkflowId,
+    WorkflowStatus, WorkflowJob, WorkflowProgress,
+    WorkflowCatalog, WorkflowSummary,
+    register_builtin_workflow_tools, WorkflowError,
+};
+```
+
+All structural types are `Serialize + Deserialize`. IDs are newtypes
+with `#[serde(transparent)]`.
+
+#### `WorkflowSpec`
+
+```rust
+let spec = WorkflowSpec::from_yaml(yaml_source)?;
+spec.validate()?;   // unique step ids, SEP-986 tool names, JSONPath parse
+```
+
+Validation uses `dcc_mcp_naming::validate_tool_name` for tool refs and
+`jsonpath_rust::parser::parse_json_path` for `branch.on` / `foreach.items`.
+
+#### `WorkflowJob` (placeholder)
+
+```rust
+let mut job = WorkflowJob::pending(spec);
+assert!(matches!(job.start(), Err(WorkflowError::NotImplemented(_))));
+```
+
+Signature is stable for #349 / #353; body is a deliberate stub.
+
+#### `WorkflowCatalog`
+
+Reads `SkillMetadata.metadata["dcc-mcp.workflows"]` (glob or
+comma-separated globs) relative to `skill_root`, parses **header only**:
+
+```rust
+let cat = WorkflowCatalog::from_skill(&skill_meta, &skill_root)?;
+let hits: Vec<_> = cat.search("vendor intake").into_iter().collect();
+```
+
+Full-body parse is deferred — marked `TODO(#348-full)`.
+
+### Built-in MCP tools
+
+`register_builtin_workflow_tools(&registry)` registers:
+
+| Tool                   | Status     |
+|------------------------|------------|
+| `workflows.run`        | stub       |
+| `workflows.get_status` | stub       |
+| `workflows.cancel`     | stub       |
+| `workflows.lookup`     | functional |
+
+Stable stub payload (all three execution tools):
+
+```json
+{
+  "success": false,
+  "error": "not_implemented",
+  "message": "workflows.run: step execution pending follow-up PR",
+  "issue": "#348"
+}
+```
+
+### HTTP server gate
+
+```python
+from dcc_mcp_core import McpHttpConfig
+cfg = McpHttpConfig(port=8765)
+cfg.enable_workflows = True     # default False
+```
+
+### Persistence DDL (`job-persist-sqlite` feature)
+
+```rust
+dcc_mcp_workflow::sqlite::apply_migrations(&conn)?;
+```
+
+Creates `workflows` + `workflow_steps`. No writer is wired — the tables
+are for the follow-up execution PR (crash recovery via
+`WorkflowStatus::Interrupted`).
+
+### Python
+
+```python
+from dcc_mcp_core import WorkflowSpec, WorkflowStatus
+
+if WorkflowSpec is None:
+    raise RuntimeError("wheel was built without the `workflow` feature")
+
+spec = WorkflowSpec.from_yaml_str(yaml_source)
+spec.validate()        # raises ValueError on failure
+print(spec.name, spec.step_count)
+
+s = WorkflowStatus("running")
+assert not s.is_terminal
+```
+
+### Discovery
+
+Point SKILL.md at sibling workflow YAML files via a single metadata key:
+
+```yaml
+---
+name: vendor-intake
+description: "Nightly vendor intake; import, QC, export, handoff."
+metadata:
+  dcc-mcp.workflows: "workflows/*.workflow.yaml"
+  dcc-mcp.workflows.search-hint: "vendor intake, nightly cleanup"
+---
+```
+
+No new top-level SKILL.md field → `skills-ref validate` stays green.
+
+---
+
 ## Development
 
 - Tool manager: [vx](https://github.com/loonghao/vx)

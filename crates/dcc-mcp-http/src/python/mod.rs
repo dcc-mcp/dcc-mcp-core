@@ -122,6 +122,21 @@ impl PyMcpHttpConfig {
         self.inner.lazy_actions = enabled;
     }
 
+    /// Enable the built-in ``workflows.*`` tools (issue #348).
+    ///
+    /// Default: ``False``. Step execution is stubbed in the skeleton —
+    /// see :class:`WorkflowSpec` for the parse/validate surface that is
+    /// already usable.
+    #[getter]
+    fn enable_workflows(&self) -> bool {
+        self.inner.enable_workflows
+    }
+
+    #[setter]
+    fn set_enable_workflows(&mut self, enabled: bool) {
+        self.inner.enable_workflows = enabled;
+    }
+
     // ── Gateway configuration ────────────────────────────────────────────────
 
     /// Gateway port to compete for. First process to bind wins.

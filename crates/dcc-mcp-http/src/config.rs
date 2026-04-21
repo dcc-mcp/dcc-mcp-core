@@ -155,6 +155,19 @@ pub struct McpHttpConfig {
     /// bound to a DCC execute inline and are governed by
     /// [`Self::request_timeout_ms`] instead. Fixes issue #314.
     pub backend_timeout_ms: u64,
+
+    /// Enable the built-in `workflows.*` tools (issue #348).
+    ///
+    /// Default: `false`. When `true`, [`McpHttpServer::start`] registers
+    /// `workflows.run` / `workflows.get_status` / `workflows.cancel` /
+    /// `workflows.lookup` on the registry before the listener comes up.
+    ///
+    /// **Skeleton note**: in this release the three execution-facing tools
+    /// return a structured `"step execution pending follow-up PR"` error;
+    /// `workflows.lookup` is fully functional against the `WorkflowCatalog`.
+    /// Surface-area is stable so downstream adapters can wire the tools
+    /// today and pick up real execution when the follow-up PR lands.
+    pub enable_workflows: bool,
 }
 
 impl McpHttpConfig {
@@ -182,7 +195,16 @@ impl McpHttpConfig {
             spawn_mode: ServerSpawnMode::Ambient,
             self_probe_timeout_ms: 200,
             backend_timeout_ms: 10_000,
+            enable_workflows: false,
         }
+    }
+
+    /// Builder: enable the built-in `workflows.*` tools (issue #348).
+    ///
+    /// See [`Self::enable_workflows`] for the full contract.
+    pub fn with_workflows(mut self) -> Self {
+        self.enable_workflows = true;
+        self
     }
 
     /// Builder: enable the lazy-actions fast-path (#254).

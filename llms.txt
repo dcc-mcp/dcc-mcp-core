@@ -433,6 +433,21 @@ export DCC_MCP_SKILL_PATHS="/path/to/skills1:/path/to/skills2"
 # Windows: set DCC_MCP_SKILL_PATHS=C:\skills1;C:\skills2
 ```
 
+## Workflow Primitive (skeleton — issue #348)
+
+Opt-in via the `workflow` Cargo feature. Ships types + validator + catalog
++ four built-in MCP tools; step execution is deferred to a follow-up PR.
+
+- **Types**: `WorkflowSpec`, `Step`, `StepKind` (`Tool`/`ToolRemote`/`Foreach`/`Parallel`/`Approve`/`Branch`), `WorkflowStatus`, `WorkflowJob` (placeholder)
+- **Parser / validator**: `WorkflowSpec::from_yaml(&str)` + `validate()` — checks unique step ids, SEP-986 tool names, JSONPath in `branch.on` / `foreach.items`
+- **Catalog**: `WorkflowCatalog::from_skill(&SkillMetadata, skill_root)` reads the `metadata["dcc-mcp.workflows"]` glob (comma-separated OK), header-only parse
+- **Tools**: `workflows.run` / `workflows.get_status` / `workflows.cancel` (stubs returning `"step execution pending follow-up PR"`) + `workflows.lookup` (functional)
+- **HTTP server gate**: `McpHttpConfig::enable_workflows` (default `false`)
+- **Persistence DDL**: `workflows` + `workflow_steps` tables under the `job-persist-sqlite` feature — no writer yet
+- **Python**: `from dcc_mcp_core import WorkflowSpec, WorkflowStatus` — `None` when the wheel was built without `workflow`
+
+Full docs: `docs/api/workflow.md`.
+
 ## Documentation
 
 - [README (English)](https://github.com/loonghao/dcc-mcp-core/blob/main/README.md)

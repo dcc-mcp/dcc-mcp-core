@@ -18,6 +18,7 @@ members = [
     "crates/dcc-mcp-usd",
     "crates/dcc-mcp-http",
     "crates/dcc-mcp-server",
+    "crates/dcc-mcp-workflow",
 ]
 resolver = "2"
 
@@ -46,6 +47,7 @@ dcc-mcp-capture = { path = "crates/dcc-mcp-capture" }
 dcc-mcp-usd = { path = "crates/dcc-mcp-usd" }
 dcc-mcp-http = { path = "crates/dcc-mcp-http" }
 dcc-mcp-server = { path = "crates/dcc-mcp-server" }
+dcc-mcp-workflow = { path = "crates/dcc-mcp-workflow" }
 
 # Shared dependencies (single version across workspace)
 pyo3 = { version = "0.28", features = ["multiple-pymethods"] }
@@ -115,6 +117,9 @@ dcc-mcp-capture.workspace = true
 dcc-mcp-usd.workspace = true
 dcc-mcp-http.workspace = true
 
+# Workflow crate — opt-in via the top-level `workflow` feature.
+dcc-mcp-workflow = { workspace = true, optional = true }
+
 # PyO3 (optional — only for wheel builds)
 pyo3 = { workspace = true, optional = true }
 
@@ -140,7 +145,11 @@ strip = true
 
 [features]
 default = []
-python-bindings = ["pyo3", "dcc-mcp-naming/python-bindings", "dcc-mcp-models/python-bindings", "dcc-mcp-actions/python-bindings", "dcc-mcp-skills/python-bindings", "dcc-mcp-protocols/python-bindings", "dcc-mcp-utils/python-bindings", "dcc-mcp-transport/python-bindings", "dcc-mcp-process/python-bindings", "dcc-mcp-telemetry/python-bindings", "dcc-mcp-sandbox/python-bindings", "dcc-mcp-shm/python-bindings", "dcc-mcp-capture/python-bindings", "dcc-mcp-usd/python-bindings", "dcc-mcp-http/python-bindings"]
+python-bindings = ["pyo3", "dcc-mcp-naming/python-bindings", "dcc-mcp-models/python-bindings", "dcc-mcp-actions/python-bindings", "dcc-mcp-skills/python-bindings", "dcc-mcp-protocols/python-bindings", "dcc-mcp-utils/python-bindings", "dcc-mcp-transport/python-bindings", "dcc-mcp-process/python-bindings", "dcc-mcp-telemetry/python-bindings", "dcc-mcp-sandbox/python-bindings", "dcc-mcp-shm/python-bindings", "dcc-mcp-capture/python-bindings", "dcc-mcp-usd/python-bindings", "dcc-mcp-http/python-bindings", "dcc-mcp-workflow?/python-bindings"]
+# Opt into the first-class Workflow primitive (issue #348). Off by default
+# for one release — enables WorkflowSpec/WorkflowStatus in Python and the
+# workflows.* built-in tools in Rust. Step execution is stubbed; see #348.
+workflow = ["dep:dcc-mcp-workflow"]
 abi3-py38 = ["pyo3/abi3-py38"]
 # Python 3.7 wheel: non-abi3 build, no abi3-py38 feature
 ext-module = ["pyo3/extension-module"]

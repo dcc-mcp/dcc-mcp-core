@@ -187,6 +187,16 @@ from dcc_mcp_core._core import validate_dependencies
 from dcc_mcp_core._core import validate_tool_name
 from dcc_mcp_core._core import wrap_value
 
+# Workflow primitive — optional (Cargo `workflow` feature, issue #348 skeleton).
+# Step execution is stubbed; only WorkflowSpec/WorkflowStatus (parse+validate)
+# are Python-visible here.
+try:
+    from dcc_mcp_core._core import WorkflowSpec  # type: ignore[attr-defined]
+    from dcc_mcp_core._core import WorkflowStatus  # type: ignore[attr-defined]
+except ImportError:  # pragma: no cover — feature off
+    WorkflowSpec = None  # type: ignore[assignment,misc]
+    WorkflowStatus = None  # type: ignore[assignment,misc]
+
 # Adapters (pure-Python, non-DccServerBase)
 from dcc_mcp_core.adapters import CAPABILITY_KEYS
 from dcc_mcp_core.adapters import WEBVIEW_DEFAULT_CAPABILITIES
@@ -370,6 +380,9 @@ __all__ = [
     "WebViewContext",
     "WindowFinder",
     "WindowInfo",
+    # Workflow primitive (issue #348 skeleton — None if built without `workflow` feature).
+    "WorkflowSpec",
+    "WorkflowStatus",
     "__author__",
     "__version__",
     "check_cancelled",

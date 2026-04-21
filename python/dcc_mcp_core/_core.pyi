@@ -4180,3 +4180,59 @@ def init_file_logging(config: FileLoggingConfig | None = None) -> str:
 def shutdown_file_logging() -> None:
     """Uninstall the file-logging layer; console output is unaffected."""
     ...
+
+# ── Workflow primitive (issue #348, skeleton) ────────────────────────────────
+#
+# Only WorkflowSpec / WorkflowStatus are Python-visible in this release.
+# Step execution is stubbed — see the Rust crate `dcc-mcp-workflow` for the
+# full `WorkflowJob` shape that will become Python-visible in the follow-up
+# PR. Requires the crate-level `workflow` feature at build time; when absent
+# these classes are exported from `dcc_mcp_core` as ``None``.
+
+class WorkflowSpec:
+    """Declarative workflow specification (issue #348 skeleton).
+
+    Use :py:meth:`from_yaml_str` to parse and :py:meth:`validate` to check
+    structural invariants (unique step ids, well-formed JSONPath on
+    ``branch.on`` / ``foreach.items``, tool names conformant with
+    SEP-986).
+
+    Step execution itself is **not** implemented in this release — see
+    ``workflows.run`` in the MCP tool list for the stable error shape.
+    """
+
+    name: str
+    description: str
+    step_count: int
+
+    @classmethod
+    def from_yaml_str(cls, source: str) -> WorkflowSpec:
+        """Parse a WorkflowSpec from a YAML document.
+
+        Raises ``ValueError`` on parse failure.
+        """
+        ...
+
+    def validate(self) -> None:
+        """Check structural invariants. Raises ``ValueError`` on failure."""
+        ...
+
+    def to_yaml(self) -> str:
+        """Serialise back to a YAML document (round-trippable)."""
+        ...
+
+    def __repr__(self) -> str: ...
+
+class WorkflowStatus:
+    """Status of a :py:class:`WorkflowSpec` run.
+
+    One of ``"pending"``, ``"running"``, ``"completed"``, ``"failed"``,
+    ``"cancelled"``, ``"interrupted"``.
+    """
+
+    value: str
+    is_terminal: bool
+
+    def __init__(self, value: str) -> None: ...
+    def __repr__(self) -> str: ...
+    def __str__(self) -> str: ...

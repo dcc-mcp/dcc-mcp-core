@@ -22,6 +22,9 @@ pub use dcc_mcp_transport as transport;
 pub use dcc_mcp_usd as usd;
 pub use dcc_mcp_utils as utils;
 
+#[cfg(feature = "workflow")]
+pub use dcc_mcp_workflow as workflow;
+
 // ── Helper macros (defined before use for readability) ──
 
 /// Batch-register `#[pyfunction]`s on a module.
@@ -71,6 +74,8 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     register_http(m)?;
     register_naming(m)?;
     register_constants(m)?;
+    #[cfg(feature = "workflow")]
+    register_workflow(m)?;
 
     // ── Metadata ──
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
@@ -262,6 +267,11 @@ fn register_http(m: &Bound<'_, PyModule>) -> PyResult<()> {
 #[cfg(feature = "python-bindings")]
 fn register_naming(m: &Bound<'_, PyModule>) -> PyResult<()> {
     dcc_mcp_naming::python::register(m)
+}
+
+#[cfg(all(feature = "python-bindings", feature = "workflow"))]
+fn register_workflow(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    dcc_mcp_workflow::python::register_classes(m)
 }
 
 #[cfg(feature = "python-bindings")]

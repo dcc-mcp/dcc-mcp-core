@@ -83,7 +83,7 @@ dev:
         . .venv/bin/activate; \
     fi
     pip install maturin 2>/dev/null || true
-    maturin develop --features python-bindings,ext-module
+    maturin develop --features python-bindings,ext-module,workflow
 
 [windows]
 dev:
@@ -92,7 +92,7 @@ dev:
         & .\.venv\Scripts\Activate.ps1; \
     }
     pip install maturin -q 2>$null
-    maturin develop --features python-bindings,ext-module
+    maturin develop --features python-bindings,ext-module,workflow
 
 # Build abi3-py38 release wheel and install it
 install:
