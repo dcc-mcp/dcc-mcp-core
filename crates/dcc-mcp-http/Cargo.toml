@@ -28,6 +28,9 @@ uuid = { workspace = true }
 dashmap = { workspace = true }
 reqwest = { workspace = true }
 socket2 = { workspace = true }
+parking_lot = { workspace = true }
+chrono = { version = "0.4", features = ["serde"] }
+tokio-util = { version = "0.7", features = ["rt"] }
 
 # HTTP server
 axum = { version = "0.8", features = ["http1", "http2", "tokio"] }

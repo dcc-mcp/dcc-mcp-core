@@ -83,6 +83,12 @@ pub struct AppState {
     /// they are unique within the instance. See
     /// [`crate::McpHttpConfig::bare_tool_names`] (#307).
     pub bare_tool_names: bool,
+    /// Registry of async jobs tracked by this server instance (#316).
+    ///
+    /// Actual dispatch-side wiring lands in #318; #316 only establishes the
+    /// field so downstream changes can attach to it without touching
+    /// `AppState` again.
+    pub jobs: Arc<crate::job::JobManager>,
 }
 
 impl AppState {
