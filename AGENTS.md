@@ -109,6 +109,12 @@ Need to interact with DCC?
 → [`docs/api/http.md`](docs/api/http.md)
 → Key types: `McpHttpServer`, `McpHttpConfig`, `McpServerHandle`, `create_skill_server`
 
+**Exposing live DCC state (scene, window capture, audit log) to MCP clients?**
+→ [`docs/api/resources.md`](docs/api/resources.md) — Resources primitive (#350)
+→ Config: `McpHttpConfig.enable_resources` (default `True`), `.enable_artefact_resources` (default `False`)
+→ Built-ins: `scene://current`, `capture://current_window`, `audit://recent`, `artefact://<id>` (stub)
+→ Rust wiring: `server.resources().set_scene(...)` / `.wire_audit_log(...)` / `.add_producer(...)` before `start()`
+
 **Bridging a non-Python DCC (Photoshop, ZBrush via WebSocket)?**
 → `python/dcc_mcp_core/bridge.py` — `DccBridge`
 → Register with: `BridgeRegistry`, `register_bridge()`, `get_bridge_context()`

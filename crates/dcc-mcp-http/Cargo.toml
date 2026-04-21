@@ -17,6 +17,8 @@ dcc-mcp-models = { path = "../dcc-mcp-models" }
 dcc-mcp-skills = { path = "../dcc-mcp-skills" }
 dcc-mcp-utils = { path = "../dcc-mcp-utils" }
 dcc-mcp-transport = { path = "../dcc-mcp-transport" }
+dcc-mcp-sandbox = { path = "../dcc-mcp-sandbox" }
+dcc-mcp-capture = { path = "../dcc-mcp-capture" }
 
 # Workspace shared
 serde = { workspace = true }
@@ -30,6 +32,7 @@ reqwest = { workspace = true }
 socket2 = { workspace = true }
 parking_lot = { workspace = true }
 chrono = { version = "0.4", features = ["serde"] }
+base64 = { workspace = true }
 tokio-util = { version = "0.7", features = ["rt"] }
 
 # HTTP server
@@ -50,6 +53,7 @@ tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"
 axum-test = "20"
 rstest = "0.26"
 tempfile = "3"
+dcc-mcp-sandbox = { path = "../dcc-mcp-sandbox" }
 
 [features]
 default = []

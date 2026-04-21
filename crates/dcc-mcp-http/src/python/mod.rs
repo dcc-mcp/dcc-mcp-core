@@ -306,6 +306,41 @@ impl PyMcpHttpConfig {
         self.inner.backend_timeout_ms = ms;
     }
 
+    /// Advertise the MCP Resources primitive (issue #350).
+    ///
+    /// When ``True`` (default), the server advertises
+    /// ``resources: { subscribe, listChanged }`` in its ``initialize``
+    /// response and handles ``resources/list`` / ``resources/read`` /
+    /// ``resources/subscribe`` / ``resources/unsubscribe``. Built-in
+    /// producers surface ``scene://current`` (JSON), ``audit://recent``
+    /// (JSON) and ``capture://current_window`` (PNG, when a real window
+    /// backend is available).
+    #[getter]
+    fn enable_resources(&self) -> bool {
+        self.inner.enable_resources
+    }
+
+    #[setter]
+    fn set_enable_resources(&mut self, enabled: bool) {
+        self.inner.enable_resources = enabled;
+    }
+
+    /// Expose ``artefact://`` resources (issue #349).
+    ///
+    /// Default ``False``. The full artefact store lands in issue #349;
+    /// this flag merely gates whether the ``artefact://`` scheme appears
+    /// in ``resources/list`` and whether reads return a descriptive
+    /// ``-32002`` error versus a normal not-found.
+    #[getter]
+    fn enable_artefact_resources(&self) -> bool {
+        self.inner.enable_artefact_resources
+    }
+
+    #[setter]
+    fn set_enable_artefact_resources(&mut self, enabled: bool) {
+        self.inner.enable_artefact_resources = enabled;
+    }
+
     fn __repr__(&self) -> String {
         format!(
             "McpHttpConfig(port={}, name={}, gateway_port={})",

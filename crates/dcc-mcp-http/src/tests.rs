@@ -60,6 +60,8 @@ mod tests {
 
             bare_tool_names: true,
             jobs: std::sync::Arc::new(crate::job::JobManager::new()),
+            resources: crate::resources::ResourceRegistry::new(true, false),
+            enable_resources: true,
         }
     }
 
@@ -583,6 +585,8 @@ mod tests {
 
             bare_tool_names: true,
             jobs: std::sync::Arc::new(crate::job::JobManager::new()),
+            resources: crate::resources::ResourceRegistry::new(true, false),
+            enable_resources: true,
         }
     }
 
@@ -1356,6 +1360,8 @@ mod tests {
 
             bare_tool_names: true,
             jobs: std::sync::Arc::new(crate::job::JobManager::new()),
+            resources: crate::resources::ResourceRegistry::new(true, false),
+            enable_resources: true,
         }
     }
 
@@ -1724,6 +1730,8 @@ mod tests {
 
             bare_tool_names: true,
             jobs: std::sync::Arc::new(crate::job::JobManager::new()),
+            resources: crate::resources::ResourceRegistry::new(true, false),
+            enable_resources: true,
         }
     }
 
@@ -1830,6 +1838,8 @@ mod tests {
 
             bare_tool_names: true,
             jobs: std::sync::Arc::new(crate::job::JobManager::new()),
+            resources: crate::resources::ResourceRegistry::new(true, false),
+            enable_resources: true,
         };
 
         use crate::handler::{handle_delete, handle_get, handle_post};
@@ -2060,6 +2070,8 @@ mod tests {
 
             bare_tool_names: true,
             jobs: std::sync::Arc::new(crate::job::JobManager::new()),
+            resources: crate::resources::ResourceRegistry::new(true, false),
+            enable_resources: true,
         }
     }
 
@@ -3093,6 +3105,8 @@ mod resource_link_integration_tests {
 
             bare_tool_names: true,
             jobs: std::sync::Arc::new(crate::job::JobManager::new()),
+            resources: crate::resources::ResourceRegistry::new(true, false),
+            enable_resources: true,
         }
     }
 
@@ -3280,6 +3294,8 @@ mod resource_link_integration_tests {
 
             bare_tool_names: true,
             jobs: std::sync::Arc::new(crate::job::JobManager::new()),
+            resources: crate::resources::ResourceRegistry::new(true, false),
+            enable_resources: true,
         }
     }
 
@@ -3559,6 +3575,8 @@ mod lazy_actions_tests {
             lazy_actions,
             bare_tool_names: true,
             jobs: std::sync::Arc::new(crate::job::JobManager::new()),
+            resources: crate::resources::ResourceRegistry::new(true, false),
+            enable_resources: true,
         }
     }
 

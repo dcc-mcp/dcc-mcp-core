@@ -135,6 +135,16 @@ handle = server.start()   # returns McpServerHandle (alias for McpServerHandle)
 print(handle.mcp_url())   # "http://127.0.0.1:8765/mcp"
 handle.shutdown()
 # Note: register ALL actions BEFORE calling server.start()
+
+# Resources primitive (#350) — live DCC state via resources/list|read|subscribe
+# McpHttpConfig.enable_resources defaults to True. Built-in URIs:
+#   scene://current           (JSON; update via server.resources().set_scene(...) in Rust)
+#   capture://current_window  (PNG blob; Windows HWND PrintWindow backend only)
+#   audit://recent?limit=N    (JSON; wire via server.resources().wire_audit_log(log) in Rust)
+#   artefact://<id>           (stub — returns -32002 until enable_artefact_resources=True)
+cfg = McpHttpConfig(port=8765)
+cfg.enable_resources = True            # advertise capability + built-ins
+cfg.enable_artefact_resources = False  # artefact:// returns JSON-RPC -32002 until #349
 ```
 
 ### Quick Lookup: Common Method Signatures

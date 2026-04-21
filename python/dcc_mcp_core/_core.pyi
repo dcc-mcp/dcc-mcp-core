@@ -3784,6 +3784,33 @@ class McpHttpConfig:
         ...
     @backend_timeout_ms.setter
     def backend_timeout_ms(self, ms: int) -> None: ...
+    @property
+    def enable_resources(self) -> bool:
+        """Advertise the MCP Resources primitive (issue #350).
+
+        When ``True`` (default), the server advertises
+        ``resources: { subscribe, listChanged }`` in its ``initialize``
+        response and handles ``resources/list`` / ``resources/read`` /
+        ``resources/subscribe`` / ``resources/unsubscribe``. Built-in
+        producers surface ``scene://current``, ``audit://recent`` and
+        ``capture://current_window`` (when a real window backend is
+        available).
+        """
+        ...
+    @enable_resources.setter
+    def enable_resources(self, enabled: bool) -> None: ...
+    @property
+    def enable_artefact_resources(self) -> bool:
+        """Expose ``artefact://`` resources (issue #349).
+
+        Default ``False``. The full artefact store lands in issue #349;
+        this flag only gates whether the ``artefact://`` scheme appears
+        in ``resources/list`` and whether reads return a descriptive
+        ``-32002`` error versus the normal not-found.
+        """
+        ...
+    @enable_artefact_resources.setter
+    def enable_artefact_resources(self, enabled: bool) -> None: ...
     def __repr__(self) -> str: ...
 
 class McpServerHandle:

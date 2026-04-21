@@ -10,6 +10,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
+use tokio::sync::broadcast;
 
 // ── Outcome ───────────────────────────────────────────────────────────────────
 
@@ -91,21 +92,55 @@ impl AuditEntry {
 /// Thread-safe in-memory audit log.
 ///
 /// Wrap with `Arc<AuditLog>` to share across threads / tasks.
-#[derive(Debug, Clone, Default)]
+///
+/// An optional Tokio `broadcast` channel is exposed via [`AuditLog::watch`]
+/// so observers (e.g. the MCP `audit://` resource producer introduced in
+/// issue #350) can receive a notification each time [`AuditLog::record`]
+/// appends an entry.
+#[derive(Debug, Clone)]
 pub struct AuditLog {
     entries: Arc<Mutex<Vec<AuditEntry>>>,
+    append_tx: broadcast::Sender<()>,
+}
+
+impl Default for AuditLog {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl AuditLog {
     /// Create an empty audit log.
     pub fn new() -> Self {
-        Self::default()
+        let (append_tx, _) = broadcast::channel(16);
+        Self {
+            entries: Arc::new(Mutex::new(Vec::new())),
+            append_tx,
+        }
     }
 
     /// Append a new audit entry.
+    ///
+    /// Fires a notification on the broadcast channel returned by
+    /// [`AuditLog::watch`] (best-effort — dropped when there are no
+    /// subscribers).
     pub fn record(&self, entry: AuditEntry) {
         let mut guard = self.entries.lock();
         guard.push(entry);
+        drop(guard);
+        // Best-effort: ignore send error when no subscribers are attached.
+        let _ = self.append_tx.send(());
+    }
+
+    /// Subscribe to append events.
+    ///
+    /// Each successful [`AuditLog::record`] call fires a `()` on the
+    /// returned receiver. Useful for the MCP `audit://recent` resource
+    /// producer which emits `notifications/resources/updated` when a new
+    /// entry lands. The channel has a bounded capacity — slow consumers
+    /// see lagged recv errors which they should treat as a hint to poll.
+    pub fn watch(&self) -> broadcast::Receiver<()> {
+        self.append_tx.subscribe()
     }
 
     /// Return all recorded entries (cloned).

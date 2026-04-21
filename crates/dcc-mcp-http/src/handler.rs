@@ -30,10 +30,13 @@ use crate::{
         self, CallToolParams, CallToolResult, DELTA_TOOLS_METHOD, DELTA_TOOLS_UPDATE_CAP,
         ElicitationCapability, ElicitationCreateParams, ElicitationCreateResult, InitializeResult,
         JsonRpcBatch, JsonRpcMessage, JsonRpcRequest, JsonRpcResponse, LOGGING_SET_LEVEL_METHOD,
-        ListToolsResult, LoggingCapability, LoggingSetLevelParams, MCP_SESSION_HEADER, McpTool,
-        McpToolAnnotations, ServerCapabilities, ServerInfo, TOOLS_LIST_PAGE_SIZE, ToolsCapability,
-        decode_cursor, encode_cursor, format_sse_event, negotiate_protocol_version,
+        ListResourcesResult, ListToolsResult, LoggingCapability, LoggingSetLevelParams,
+        MCP_SESSION_HEADER, McpTool, McpToolAnnotations, RESOURCE_NOT_ENABLED_ERROR,
+        ReadResourceParams, ResourcesCapability, ServerCapabilities, ServerInfo,
+        SubscribeResourceParams, TOOLS_LIST_PAGE_SIZE, ToolsCapability, decode_cursor,
+        encode_cursor, format_sse_event, negotiate_protocol_version,
     },
+    resources::{ResourceError, ResourceRegistry},
     session::{SessionLogLevel, SessionLogMessage, SessionManager},
 };
 use dcc_mcp_actions::{ActionDispatcher, ActionRegistry};
@@ -89,6 +92,15 @@ pub struct AppState {
     /// field so downstream changes can attach to it without touching
     /// `AppState` again.
     pub jobs: Arc<crate::job::JobManager>,
+    /// MCP Resources primitive registry (issue #350).
+    ///
+    /// Populated regardless of `enable_resources` so producers can be
+    /// added before the server starts; the capability is only advertised
+    /// (and the JSON-RPC methods dispatched) when the flag is set.
+    pub resources: ResourceRegistry,
+    /// Whether the `resources/*` methods are dispatched and the
+    /// `resources` capability is advertised in `initialize`.
+    pub enable_resources: bool,
 }
 
 impl AppState {
@@ -281,7 +293,12 @@ pub async fn handle_delete(State(state): State<AppState>, headers: HeaderMap) ->
         .and_then(|v| v.to_str().ok());
 
     match session_id {
-        Some(id) if state.sessions.remove(id) => StatusCode::NO_CONTENT,
+        Some(id) if state.sessions.remove(id) => {
+            if state.enable_resources {
+                state.resources.drop_session(id);
+            }
+            StatusCode::NO_CONTENT
+        }
         Some(_) => StatusCode::NOT_FOUND,
         None => StatusCode::BAD_REQUEST,
     }
@@ -397,6 +414,14 @@ async fn dispatch_request(
         LOGGING_SET_LEVEL_METHOD => handle_logging_set_level(state, req, session_id).await,
         "tools/list" => handle_tools_list(state, req, session_id).await,
         "tools/call" => handle_tools_call(state, req, session_id).await,
+        "resources/list" if state.enable_resources => handle_resources_list(state, req).await,
+        "resources/read" if state.enable_resources => handle_resources_read(state, req).await,
+        "resources/subscribe" if state.enable_resources => {
+            handle_resources_subscribe(state, req, session_id).await
+        }
+        "resources/unsubscribe" if state.enable_resources => {
+            handle_resources_unsubscribe(state, req, session_id).await
+        }
         "elicitation/create" => handle_elicitation_create(state, req, session_id).await,
         "ping" => Ok(JsonRpcResponse::success(req.id.clone(), json!({}))),
         other => Ok(JsonRpcResponse::method_not_found(req.id.clone(), other)),
@@ -474,11 +499,20 @@ async fn handle_initialize(
         None
     };
 
+    let resources_cap = if state.enable_resources {
+        Some(ResourcesCapability {
+            subscribe: true,
+            list_changed: true,
+        })
+    } else {
+        None
+    };
+
     let result = InitializeResult {
         protocol_version: negotiated.to_string(),
         capabilities: ServerCapabilities {
             tools: Some(ToolsCapability { list_changed: true }),
-            resources: None,
+            resources: resources_cap,
             prompts: None,
             logging: Some(LoggingCapability::default()),
             elicitation: elicitation_cap,
@@ -503,6 +537,115 @@ async fn handle_initialize(
         obj.insert("__session_id".to_string(), Value::String(sid));
     }
     Ok(resp)
+}
+
+// ── Resources (issue #350) ─────────────────────────────────────────────────
+
+async fn handle_resources_list(
+    state: &AppState,
+    req: &JsonRpcRequest,
+) -> Result<JsonRpcResponse, HttpError> {
+    let resources = state.resources.list();
+    let result = ListResourcesResult {
+        resources,
+        next_cursor: None,
+    };
+    Ok(JsonRpcResponse::success(
+        req.id.clone(),
+        serde_json::to_value(result)?,
+    ))
+}
+
+async fn handle_resources_read(
+    state: &AppState,
+    req: &JsonRpcRequest,
+) -> Result<JsonRpcResponse, HttpError> {
+    let Some(params) = req
+        .params
+        .as_ref()
+        .and_then(|p| serde_json::from_value::<ReadResourceParams>(p.clone()).ok())
+    else {
+        return Ok(JsonRpcResponse::error(
+            req.id.clone(),
+            protocol::error_codes::INVALID_PARAMS,
+            "Invalid resources/read params (expected {uri: string})",
+        ));
+    };
+
+    match state.resources.read(&params.uri) {
+        Ok(result) => Ok(JsonRpcResponse::success(
+            req.id.clone(),
+            serde_json::to_value(result)?,
+        )),
+        Err(ResourceError::NotEnabled(msg)) => Ok(JsonRpcResponse::error(
+            req.id.clone(),
+            RESOURCE_NOT_ENABLED_ERROR,
+            msg,
+        )),
+        Err(ResourceError::NotFound(msg)) => Ok(JsonRpcResponse::error(
+            req.id.clone(),
+            RESOURCE_NOT_ENABLED_ERROR,
+            format!("resource not found: {msg}"),
+        )),
+        Err(ResourceError::Read(msg)) => Ok(JsonRpcResponse::internal_error(
+            req.id.clone(),
+            format!("resource read failed: {msg}"),
+        )),
+    }
+}
+
+async fn handle_resources_subscribe(
+    state: &AppState,
+    req: &JsonRpcRequest,
+    session_id: Option<&str>,
+) -> Result<JsonRpcResponse, HttpError> {
+    let Some(sid) = session_id else {
+        return Ok(JsonRpcResponse::error(
+            req.id.clone(),
+            protocol::error_codes::INVALID_PARAMS,
+            "resources/subscribe requires Mcp-Session-Id header",
+        ));
+    };
+    let Some(params) = req
+        .params
+        .as_ref()
+        .and_then(|p| serde_json::from_value::<SubscribeResourceParams>(p.clone()).ok())
+    else {
+        return Ok(JsonRpcResponse::error(
+            req.id.clone(),
+            protocol::error_codes::INVALID_PARAMS,
+            "Invalid resources/subscribe params (expected {uri: string})",
+        ));
+    };
+    state.resources.subscribe(sid, &params.uri);
+    Ok(JsonRpcResponse::success(req.id.clone(), json!({})))
+}
+
+async fn handle_resources_unsubscribe(
+    state: &AppState,
+    req: &JsonRpcRequest,
+    session_id: Option<&str>,
+) -> Result<JsonRpcResponse, HttpError> {
+    let Some(sid) = session_id else {
+        return Ok(JsonRpcResponse::error(
+            req.id.clone(),
+            protocol::error_codes::INVALID_PARAMS,
+            "resources/unsubscribe requires Mcp-Session-Id header",
+        ));
+    };
+    let Some(params) = req
+        .params
+        .as_ref()
+        .and_then(|p| serde_json::from_value::<SubscribeResourceParams>(p.clone()).ok())
+    else {
+        return Ok(JsonRpcResponse::error(
+            req.id.clone(),
+            protocol::error_codes::INVALID_PARAMS,
+            "Invalid resources/unsubscribe params (expected {uri: string})",
+        ));
+    };
+    state.resources.unsubscribe(sid, &params.uri);
+    Ok(JsonRpcResponse::success(req.id.clone(), json!({})))
 }
 
 async fn handle_logging_set_level(

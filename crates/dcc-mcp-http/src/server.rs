@@ -76,6 +76,7 @@ pub struct McpHttpServer {
     catalog: Option<Arc<SkillCatalog>>,
     config: McpHttpConfig,
     executor: Option<DccExecutorHandle>,
+    resources: crate::resources::ResourceRegistry,
 }
 
 impl McpHttpServer {
@@ -90,12 +91,17 @@ impl McpHttpServer {
             registry.clone(),
             dispatcher.clone(),
         ));
+        let resources = crate::resources::ResourceRegistry::new(
+            config.enable_resources,
+            config.enable_artefact_resources,
+        );
         Self {
             registry: registry.clone(),
             dispatcher,
             catalog: Some(catalog),
             config,
             executor: None,
+            resources,
         }
     }
 
@@ -109,13 +115,30 @@ impl McpHttpServer {
             .dispatcher()
             .cloned()
             .unwrap_or_else(|| Arc::new(ActionDispatcher::new((*registry).clone())));
+        let resources = crate::resources::ResourceRegistry::new(
+            config.enable_resources,
+            config.enable_artefact_resources,
+        );
         Self {
             registry,
             dispatcher,
             catalog: Some(catalog),
             config,
             executor: None,
+            resources,
         }
+    }
+
+    /// Access the MCP Resources registry for this server (issue #350).
+    ///
+    /// Register additional [`crate::ResourceProducer`] implementations or
+    /// publish a scene snapshot via
+    /// [`crate::ResourceRegistry::set_scene`] **before** calling
+    /// [`Self::start`]. The registry is shared with the running server —
+    /// producers registered here are reflected in `resources/list` and
+    /// `resources/read`.
+    pub fn resources(&self) -> &crate::resources::ResourceRegistry {
+        &self.resources
     }
 
     /// Get a reference to the server's SkillCatalog (if configured).
@@ -189,6 +212,29 @@ impl McpHttpServer {
             });
         }
 
+        let resources = self.resources.clone();
+
+        // Forward `notifications/resources/updated` broadcasts to each
+        // subscribed session's SSE channel (issue #350).
+        if self.config.enable_resources {
+            let resources_bg = resources.clone();
+            let sessions_bg = sessions.clone();
+            tokio::spawn(async move {
+                let mut rx = resources_bg.watch_updates();
+                while let Ok(uri) = rx.recv().await {
+                    let notification = serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "method": "notifications/resources/updated",
+                        "params": { "uri": uri }
+                    });
+                    let event = crate::protocol::format_sse_event(&notification, None);
+                    for sid in resources_bg.sessions_subscribed_to(&uri) {
+                        sessions_bg.push_event(&sid, event.clone());
+                    }
+                }
+            });
+        }
+
         let state = AppState {
             registry: self.registry,
             dispatcher: self.dispatcher,
@@ -204,6 +250,8 @@ impl McpHttpServer {
             lazy_actions: self.config.lazy_actions,
             bare_tool_names: self.config.bare_tool_names,
             jobs: std::sync::Arc::new(crate::job::JobManager::new()),
+            resources,
+            enable_resources: self.config.enable_resources,
         };
 
         let endpoint = self.config.endpoint_path.clone();

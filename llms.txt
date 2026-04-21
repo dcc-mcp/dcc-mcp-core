@@ -232,6 +232,8 @@ tools:
   - `.session_ttl_secs` — idle session eviction (default 3600s)
   - `.gateway_port`, `.registry_dir`, `.stale_timeout_secs`, `.heartbeat_secs`, `.dcc_type`, `.dcc_version`, `.scene` — gateway participation config
   - `.bare_tool_names` — default `True`; publish unique action names without `<skill>.` prefix in `tools/list` (#307). Collisions fall back to full form; `tools/call` accepts both shapes
+  - `.enable_resources` — default `True`; advertise `resources: { subscribe, listChanged }` and serve `resources/list|read|subscribe|unsubscribe` (#350). Built-ins: `scene://current`, `capture://current_window`, `audit://recent`
+  - `.enable_artefact_resources` — default `False`; when `True`, `artefact://` URIs are served from the artefact store (#349, not yet implemented); otherwise returns JSON-RPC error `-32002`
 - `McpHttpServer(registry, config=None)` — MCP Streamable HTTP server (**2025-03-26 spec**), axum/Tokio backend
   - `.start() -> McpServerHandle` — starts background thread, returns immediately
   - **Note**: MCP 2025-03-26 implements Streamable HTTP, Tool Annotations, OAuth 2.1. MCP 2025-06-18 adds Structured Tool Output, Elicitation, Resource Links, and removes JSON-RPC batching. MCP 2025-11-25 adds icon metadata, Tasks, Sampling with tools. The 2026 roadmap focuses on: (1) transport scalability — `.well-known` capability discovery, stateless sessions; (2) agent communication — Tasks lifecycle, retry/expiration; (3) governance — delegated workgroups; (4) enterprise readiness — audit, SSO (mostly extensions). No new transport types in 2026. Do NOT implement manually — wait for library support.
@@ -239,6 +241,14 @@ tools:
   - `.mcp_url() -> str` — full MCP endpoint URL (e.g. `"http://127.0.0.1:8765/mcp"`)
   - `.port -> int`, `.bind_addr -> str`
   - `.shutdown()` — blocks until stopped; `.signal_shutdown()` — non-blocking
+
+**Resources primitive** (#350, Rust-only API — Python exposure is via the HTTP methods):
+- `server.resources()` (Rust) — get the `ResourceRegistry`
+- `registry.set_scene(Option<Value>)` — update `scene://current`; fires `notifications/resources/updated`
+- `registry.wire_audit_log(&AuditLog)` — forward `AuditLog.record()` to `audit://recent` subscribers
+- `registry.add_producer(Arc<dyn ResourceProducer>)` — register a custom scheme
+- JSON-RPC: `resources/list`, `resources/read`, `resources/subscribe`, `resources/unsubscribe`
+- Errors: `-32601` method-not-found (resources disabled), `-32602` invalid params, `-32002` resource-not-enabled (artefact://), `-32603` producer read failure
 
 ### Process Management (`dcc_mcp_core`)
 

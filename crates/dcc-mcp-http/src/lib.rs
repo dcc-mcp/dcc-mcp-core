@@ -48,6 +48,7 @@ pub mod inflight;
 pub mod job;
 pub mod protocol;
 pub mod resource_link;
+pub mod resources;
 pub mod server;
 pub mod session;
 
@@ -61,6 +62,9 @@ pub use error::{HttpError, HttpResult};
 pub use executor::{DccExecutorHandle, DeferredExecutor};
 pub use gateway::{GatewayConfig, GatewayHandle, GatewayRunner};
 pub use job::{Job, JobManager, JobProgress, JobStatus};
+pub use resources::{
+    ProducerContent, ResourceError, ResourceProducer, ResourceRegistry, ResourceResult,
+};
 pub use server::{McpHttpServer, McpServerHandle};
 pub use session::SessionManager;
 

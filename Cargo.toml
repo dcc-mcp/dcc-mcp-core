@@ -77,6 +77,7 @@ reqwest = { version = "0.13", default-features = false, features = ["json", "str
 socket2 = { version = "0.6", features = ["all"] }
 criterion = { version = "0.8", features = ["html_reports"] }
 ipckit = { version = "0.1.7", features = ["async", "backend-interprocess"] }
+base64 = "0.22"
 
 # Type-stub generation (opt-in via `stub-gen` feature). Used only by the
 # `stub_gen` binary target — never pulled into wheels or library consumers.

@@ -143,6 +143,33 @@ pub struct McpHttpConfig {
     /// to disable self-probing (not recommended). Default: 200.
     pub self_probe_timeout_ms: u64,
 
+    /// Advertise the MCP Resources primitive (issue #350).
+    ///
+    /// When `true` (default), the server:
+    /// - Advertises `resources: { subscribe: true, listChanged: true }`
+    ///   in its `initialize` response.
+    /// - Handles `resources/list`, `resources/read`, `resources/subscribe`
+    ///   and `resources/unsubscribe` JSON-RPC methods.
+    /// - Surfaces four URI schemes: `scene://current` (JSON scene summary),
+    ///   `capture://current_window` (PNG snapshot of the DCC window, only
+    ///   enabled when a real window backend is available), `audit://recent`
+    ///   (tail of the `AuditLog`), and `artefact://…` (stub reserved for
+    ///   issue #349).
+    ///
+    /// Set to `false` to hide the capability entirely — useful for minimal
+    /// servers or when Resources are provided by an external MCP host.
+    pub enable_resources: bool,
+
+    /// Expose `artefact://` resources (issue #349).
+    ///
+    /// The full artefact store ships separately in issue #349. When this
+    /// flag is `false` (default), `resources/list` omits `artefact://`
+    /// entries and `resources/read` returns a
+    /// [`protocol::RESOURCE_NOT_ENABLED_ERROR`](crate::protocol::RESOURCE_NOT_ENABLED_ERROR)
+    /// JSON-RPC error so callers can distinguish "scheme unknown" from
+    /// "scheme recognized but backing store not enabled yet".
+    pub enable_artefact_resources: bool,
+
     /// Per-backend request timeout (milliseconds) used by the gateway when
     /// fanning out `tools/list` / `tools/call` to live DCC instances.
     ///
@@ -195,6 +222,8 @@ impl McpHttpConfig {
             spawn_mode: ServerSpawnMode::Ambient,
             self_probe_timeout_ms: 200,
             backend_timeout_ms: 10_000,
+            enable_resources: true,
+            enable_artefact_resources: false,
             enable_workflows: false,
         }
     }
