@@ -1,5 +1,6 @@
 //! Shared gateway state and helpers.
 
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -8,6 +9,13 @@ use tokio::sync::{RwLock, broadcast, watch};
 
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
 use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry, ServiceStatus};
+
+/// A call that the gateway has forwarded to a backend and is still awaiting.
+#[derive(Debug, Clone)]
+pub struct PendingCall {
+    pub backend_url: String,
+    pub backend_request_id: String,
+}
 
 /// Shared state passed to every gateway axum handler.
 #[derive(Clone)]
@@ -33,6 +41,23 @@ pub struct GatewayState {
     /// Channel capacity 128 is intentionally generous: at a 2-second poll interval,
     /// there will never be more than a handful of pending messages.
     pub events_tx: Arc<broadcast::Sender<String>>,
+    /// Protocol version negotiated during the last `initialize` handshake.
+    ///
+    /// `None` until the first client calls `initialize`.  Used so that the
+    /// gateway can adapt its behaviour (e.g. `outputSchema` inclusion) to the
+    /// client's supported protocol version.
+    pub protocol_version: Arc<RwLock<Option<String>>>,
+    /// Per-session resource subscriptions.
+    ///
+    /// Key = `Mcp-Session-Id`, value = set of subscribed URIs.
+    /// Populated by `resources/subscribe` and pruned by `resources/unsubscribe`.
+    pub resource_subscriptions: Arc<RwLock<HashMap<String, HashSet<String>>>>,
+    /// In-flight forwarded tool calls so that `notifications/cancelled` can be
+    /// routed to the correct backend.
+    ///
+    /// Key = gateway-side JSON-RPC request `id` (serialised to string).
+    /// Value = backend URL + the request id used when talking to that backend.
+    pub pending_calls: Arc<RwLock<HashMap<String, PendingCall>>>,
 }
 
 impl GatewayState {
@@ -107,6 +132,9 @@ mod tests {
             http_client: reqwest::Client::new(),
             yield_tx: Arc::new(yield_tx),
             events_tx: Arc::new(events_tx),
+            protocol_version: Arc::new(RwLock::new(None)),
+            resource_subscriptions: Arc::new(RwLock::new(HashMap::new())),
+            pending_calls: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 

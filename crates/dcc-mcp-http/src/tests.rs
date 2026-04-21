@@ -2522,6 +2522,9 @@ mod gateway_tests {
             http_client: reqwest::Client::new(),
             yield_tx: Arc::new(yield_tx),
             events_tx: Arc::new(events_tx),
+            protocol_version: Arc::new(RwLock::new(None)),
+            resource_subscriptions: Arc::new(RwLock::new(std::collections::HashMap::new())),
+            pending_calls: Arc::new(RwLock::new(std::collections::HashMap::new())),
         }
     }
 
@@ -2791,6 +2794,239 @@ mod gateway_tests {
         let entry = ServiceEntry::new("blender", "127.0.0.1", 19000);
         let handle = runner.start(entry).await.unwrap();
         assert!(handle.is_gateway, "first runner should win free port");
+    }
+
+    // ── JSON-RPC batch ───────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_gateway_mcp_batch_mixed_request_and_notification() {
+        let server = TestServer::new(make_gateway_router());
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::CONTENT_TYPE,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&serde_json::json!([
+                {"jsonrpc": "2.0", "id": 1, "method": "ping"},
+                {"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}},
+                {"jsonrpc": "2.0", "id": 2, "method": "ping"}
+            ]))
+            .await;
+        resp.assert_status_ok();
+        let body: serde_json::Value = resp.json();
+        let arr = body.as_array().expect("batch must return array");
+        assert_eq!(arr.len(), 2, "notification must not produce a response");
+        assert_eq!(arr[0]["id"], 1);
+        assert_eq!(arr[1]["id"], 2);
+    }
+
+    #[tokio::test]
+    async fn test_gateway_mcp_batch_all_notifications_returns_202() {
+        let server = TestServer::new(make_gateway_router());
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::CONTENT_TYPE,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&serde_json::json!([
+                {"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}},
+                {"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 42}}
+            ]))
+            .await;
+        assert_eq!(resp.status_code().as_u16(), 202);
+    }
+
+    #[tokio::test]
+    async fn test_gateway_mcp_batch_invalid_entry_returns_parse_error() {
+        let server = TestServer::new(make_gateway_router());
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::CONTENT_TYPE,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&serde_json::json!([
+                {"jsonrpc": "2.0", "id": 1, "method": "ping"},
+                "not-an-object",
+                {"jsonrpc": "2.0", "id": 3, "method": "ping"}
+            ]))
+            .await;
+        resp.assert_status_ok();
+        let body: serde_json::Value = resp.json();
+        let arr = body.as_array().unwrap();
+        assert_eq!(arr.len(), 3);
+        assert_eq!(arr[0]["id"], 1);
+        assert_eq!(arr[1]["error"]["code"], -32700);
+        assert_eq!(arr[2]["id"], 3);
+    }
+
+    // ── Session id ───────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_gateway_mcp_post_returns_session_id_header() {
+        let server = TestServer::new(make_gateway_router());
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::CONTENT_TYPE,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "ping"}))
+            .await;
+        resp.assert_status_ok();
+        let sid = resp
+            .headers()
+            .get("Mcp-Session-Id")
+            .expect("POST /mcp must return Mcp-Session-Id");
+        assert!(!sid.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_gateway_mcp_post_preserves_client_session_id() {
+        let server = TestServer::new(make_gateway_router());
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::CONTENT_TYPE,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .add_header(
+                "Mcp-Session-Id",
+                "client-sid-123".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "ping"}))
+            .await;
+        resp.assert_status_ok();
+        let sid = resp.headers().get("Mcp-Session-Id").unwrap();
+        assert_eq!(sid, "client-sid-123");
+    }
+
+    #[tokio::test]
+    async fn test_gateway_get_sse_returns_session_id_header() {
+        let server = TestServer::builder()
+            .http_transport()
+            .build(make_gateway_router());
+        let client = reqwest::Client::new();
+        let url = server.server_url("/mcp").unwrap();
+        let resp = client
+            .get(url.as_str())
+            .header(axum::http::header::ACCEPT, "text/event-stream")
+            .send()
+            .await
+            .expect("GET /mcp SSE request must succeed");
+        assert_eq!(resp.status(), 200);
+        let sid = resp
+            .headers()
+            .get("Mcp-Session-Id")
+            .expect("GET /mcp SSE must return Mcp-Session-Id");
+        assert!(!sid.is_empty());
+    }
+
+    // ── Resources subscribe / unsubscribe ────────────────────────────────
+
+    #[tokio::test]
+    async fn test_gateway_mcp_resources_subscribe_tracks_subscription() {
+        let state = make_gateway_state();
+        let server = TestServer::new(build_gateway_router(state.clone()));
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::CONTENT_TYPE,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .add_header("Mcp-Session-Id", "sess-abc".parse::<HeaderValue>().unwrap())
+            .json(&serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "resources/subscribe",
+                "params": {"uri": "dcc://maya/1234"}
+            }))
+            .await;
+        resp.assert_status_ok();
+
+        let subs = state.resource_subscriptions.read().await;
+        let uris = subs.get("sess-abc").expect("subscription must be recorded");
+        assert!(uris.contains("dcc://maya/1234"));
+    }
+
+    #[tokio::test]
+    async fn test_gateway_mcp_resources_unsubscribe_removes_subscription() {
+        let state = make_gateway_state();
+        {
+            let mut subs = state.resource_subscriptions.write().await;
+            let mut set = std::collections::HashSet::new();
+            set.insert("dcc://maya/1234".to_string());
+            subs.insert("sess-def".to_string(), set);
+        }
+
+        let server = TestServer::new(build_gateway_router(state.clone()));
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::CONTENT_TYPE,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .add_header("Mcp-Session-Id", "sess-def".parse::<HeaderValue>().unwrap())
+            .json(&serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "resources/unsubscribe",
+                "params": {"uri": "dcc://maya/1234"}
+            }))
+            .await;
+        resp.assert_status_ok();
+
+        let subs = state.resource_subscriptions.read().await;
+        let uris = subs.get("sess-def").unwrap();
+        assert!(!uris.contains("dcc://maya/1234"));
+    }
+
+    // ── Protocol version storage ─────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_gateway_mcp_initialize_stores_negotiated_version() {
+        let state = make_gateway_state();
+        let server = TestServer::new(build_gateway_router(state.clone()));
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::CONTENT_TYPE,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {"protocolVersion": "2025-03-26"}
+            }))
+            .await;
+        resp.assert_status_ok();
+
+        let pv = state.protocol_version.read().await;
+        assert_eq!(pv.as_deref(), Some("2025-03-26"));
+    }
+
+    // ── Pagination (local tools only, no backends) ───────────────────────
+
+    #[tokio::test]
+    async fn test_gateway_mcp_tools_list_no_cursor_no_next_cursor_for_small_list() {
+        let server = TestServer::new(make_gateway_router());
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::CONTENT_TYPE,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&serde_json::json!({"jsonrpc": "2.0", "id": 1, "method": "tools/list"}))
+            .await;
+        resp.assert_status_ok();
+        let body: serde_json::Value = resp.json();
+        assert!(
+            body["result"]["nextCursor"].is_null(),
+            "small aggregated list must not have nextCursor"
+        );
     }
 }
 

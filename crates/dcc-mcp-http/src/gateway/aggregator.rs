@@ -25,6 +25,7 @@ use super::state::GatewayState;
 use super::tools::{
     gateway_tool_defs, tool_connect_to_dcc, tool_get_instance, tool_list_instances,
 };
+use crate::protocol::{TOOLS_LIST_PAGE_SIZE, decode_cursor, encode_cursor};
 use dcc_mcp_transport::discovery::types::ServiceEntry;
 
 /// Per-backend request timeout for fan-out calls.
@@ -40,7 +41,10 @@ const BACKEND_TIMEOUT: Duration = Duration::from_secs(10);
 /// 3. Backend-provided tools from every live instance, prefixed with the
 ///    8-char instance id, annotated with `_instance_id` / `_dcc_type` in the
 ///    tool's `annotations` map so agents can display origin context.
-pub async fn aggregate_tools_list(gs: &GatewayState) -> Value {
+///
+/// Pagination uses the same cursor scheme as the per-DCC server:
+/// `cursor` is an opaque hex-encoded offset into the flat tool list.
+pub async fn aggregate_tools_list(gs: &GatewayState, cursor: Option<&str>) -> Value {
     let mut tools: Vec<Value> = Vec::new();
 
     // Tier 1 + 2: local gateway tools (meta + skill management).
@@ -75,7 +79,21 @@ pub async fn aggregate_tools_list(gs: &GatewayState) -> Value {
         }
     }
 
-    json!({"tools": tools, "nextCursor": Value::Null})
+    // ── Pagination ───────────────────────────────────────────────────────
+    let offset = cursor.and_then(decode_cursor).unwrap_or(0);
+    let total = tools.len();
+    let page_end = (offset + TOOLS_LIST_PAGE_SIZE).min(total);
+    let page: Vec<Value> = if offset < total {
+        tools.drain(offset..page_end).collect()
+    } else {
+        Vec::new()
+    };
+
+    let mut result = json!({"tools": page});
+    if page_end < total {
+        result["nextCursor"] = json!(encode_cursor(page_end));
+    }
+    result
 }
 
 /// Dispatch a gateway `tools/call` to the right place.
@@ -83,7 +101,13 @@ pub async fn aggregate_tools_list(gs: &GatewayState) -> Value {
 /// Returns `(text_body, is_error)` so the caller can wrap into an MCP
 /// `CallToolResult`.  Agents never see backend URLs; results look identical
 /// to those produced by a single-DCC server.
-pub async fn route_tools_call(gs: &GatewayState, tool: &str, args: &Value) -> (String, bool) {
+pub async fn route_tools_call(
+    gs: &GatewayState,
+    tool: &str,
+    args: &Value,
+    meta: Option<&Value>,
+    request_id: Option<String>,
+) -> (String, bool) {
     // ── Local meta-tools ────────────────────────────────────────────────
     match tool {
         "list_dcc_instances" => return to_text_result(tool_list_instances(gs, args).await),
@@ -123,26 +147,43 @@ pub async fn route_tools_call(gs: &GatewayState, tool: &str, args: &Value) -> (S
     };
 
     let url = format!("http://{}:{}/mcp", entry.host, entry.port);
+    // Update the pending-calls map with the real backend URL so that a
+    // later notifications/cancelled can be forwarded to the right server.
+    if let Some(ref rid) = request_id {
+        let mut pending = gs.pending_calls.write().await;
+        if let Some(call) = pending.get_mut(rid) {
+            call.backend_url = url.clone();
+        }
+    }
     match forward_tools_call(
         &gs.http_client,
         &url,
         original,
         Some(args.clone()),
+        meta.cloned(),
+        request_id,
         BACKEND_TIMEOUT,
     )
     .await
     {
         Ok(mut result) => {
-            // Backend already returns a CallToolResult { content, isError }
-            // shaped value; pass it through unchanged by serialising to text.
+            // Backend already returns a CallToolResult { content, isError }.
+            // Extract the actual text payload so the gateway's own response
+            // is a single CallToolResult rather than a nested envelope.
             inject_instance_metadata(&mut result, &entry.instance_id, &entry.dcc_type);
-            (
-                serde_json::to_string_pretty(&result).unwrap_or_default(),
-                result
-                    .get("isError")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false),
-            )
+            let is_error = result
+                .get("isError")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            let text = result
+                .get("content")
+                .and_then(Value::as_array)
+                .and_then(|arr| arr.first())
+                .and_then(|c| c.get("text"))
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .unwrap_or_else(|| serde_json::to_string_pretty(&result).unwrap_or_default());
+            (text, is_error)
         }
         Err(e) => (format!("Backend call failed: {e}"), true),
     }
@@ -178,6 +219,8 @@ async fn skill_mgmt_dispatch(gs: &GatewayState, tool: &str, args: &Value) -> (St
                         &url,
                         tool,
                         Some(forward_args),
+                        None,
+                        None,
                         BACKEND_TIMEOUT,
                     )
                     .await
@@ -188,13 +231,21 @@ async fn skill_mgmt_dispatch(gs: &GatewayState, tool: &str, args: &Value) -> (St
                                 &entry.instance_id,
                                 &entry.dcc_type,
                             );
-                            (
-                                serde_json::to_string_pretty(&result).unwrap_or_default(),
-                                result
-                                    .get("isError")
-                                    .and_then(Value::as_bool)
-                                    .unwrap_or(false),
-                            )
+                            let is_error = result
+                                .get("isError")
+                                .and_then(Value::as_bool)
+                                .unwrap_or(false);
+                            let text = result
+                                .get("content")
+                                .and_then(Value::as_array)
+                                .and_then(|arr| arr.first())
+                                .and_then(|c| c.get("text"))
+                                .and_then(Value::as_str)
+                                .map(str::to_owned)
+                                .unwrap_or_else(|| {
+                                    serde_json::to_string_pretty(&result).unwrap_or_default()
+                                });
+                            (text, is_error)
                         }
                         Err(e) => (format!("Backend call failed: {e}"), true),
                     }
@@ -224,6 +275,7 @@ async fn skill_mgmt_dispatch(gs: &GatewayState, tool: &str, args: &Value) -> (St
                         &url,
                         "tools/call",
                         Some(params),
+                        None,
                         BACKEND_TIMEOUT,
                     )
                     .await;
@@ -235,12 +287,27 @@ async fn skill_mgmt_dispatch(gs: &GatewayState, tool: &str, args: &Value) -> (St
             let merged: Vec<Value> = results
                 .into_iter()
                 .map(|(iid, dcc, res)| match res {
-                    Ok(v) => json!({
-                        "instance_id": iid.to_string(),
-                        "instance_short": instance_short(&iid),
-                        "dcc_type": dcc,
-                        "result": v,
-                    }),
+                    Ok(v) => {
+                        // Extract the actual text payload from the backend
+                        // CallToolResult so the merged response is readable
+                        // without double-unwrapping.
+                        let text = v
+                            .get("content")
+                            .and_then(Value::as_array)
+                            .and_then(|arr| arr.first())
+                            .and_then(|c| c.get("text"))
+                            .and_then(Value::as_str)
+                            .map(str::to_owned)
+                            .unwrap_or_else(|| {
+                                serde_json::to_string_pretty(&v).unwrap_or_default()
+                            });
+                        json!({
+                            "instance_id": iid.to_string(),
+                            "instance_short": instance_short(&iid),
+                            "dcc_type": dcc,
+                            "result": text,
+                        })
+                    }
                     Err(e) => json!({
                         "instance_id": iid.to_string(),
                         "instance_short": instance_short(&iid),
@@ -460,7 +527,8 @@ fn skill_management_tool_defs() -> Vec<Value> {
                     "skill_names": {"type": "array", "items": {"type": "string"}},
                     "instance_id": {"type": "string", "description": "Target instance (full UUID or short prefix)"},
                     "dcc":         {"type": "string", "description": "DCC type when only one instance of that type is live"}
-                }
+                },
+                "required": ["skill_name"]
             }
         }),
         json!({

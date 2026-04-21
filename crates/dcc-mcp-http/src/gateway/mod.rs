@@ -36,6 +36,7 @@ pub mod tools;
 pub use router::build_gateway_router;
 pub use state::{GatewayState, entry_to_json};
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -363,6 +364,9 @@ async fn start_gateway_tasks(
         http_client,
         yield_tx: yield_tx.clone(),
         events_tx,
+        protocol_version: Arc::new(RwLock::new(None)),
+        resource_subscriptions: Arc::new(RwLock::new(HashMap::new())),
+        pending_calls: Arc::new(RwLock::new(HashMap::new())),
     };
     let gw_router = build_gateway_router(gw_state);
     let actual = listener.local_addr()?;

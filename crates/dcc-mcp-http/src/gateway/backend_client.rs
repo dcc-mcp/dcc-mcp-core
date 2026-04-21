@@ -19,19 +19,34 @@ use crate::protocol::{JsonRpcResponse, McpTool};
 ///
 /// Returns the raw `result` value on success, or an error string on transport
 /// / protocol failure. Timeouts are inherited from the `reqwest::Client`.
+///
+/// `request_id` lets the caller control the JSON-RPC `id` field.  When `None`
+/// a fresh gateway-local id is minted.  Supplying an explicit id is required
+/// for cancellation tracking (the gateway must know which backend request id
+/// to cancel).
 pub async fn call_backend(
     client: &reqwest::Client,
     mcp_url: &str,
     method: &str,
     params: Option<Value>,
+    request_id: Option<String>,
     timeout: Duration,
 ) -> Result<Value, String> {
-    let req_body = json!({
-        "jsonrpc": "2.0",
-        "id": uuid_like_id(),
-        "method": method,
-        "params": params.unwrap_or(Value::Null),
-    });
+    let id = request_id.unwrap_or_else(uuid_like_id);
+    let req_body = if let Some(p) = params {
+        json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": method,
+            "params": p,
+        })
+    } else {
+        json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": method,
+        })
+    };
 
     let resp = client
         .post(mcp_url)
@@ -81,7 +96,7 @@ pub async fn fetch_tools(
     mcp_url: &str,
     timeout: Duration,
 ) -> Vec<McpTool> {
-    match call_backend(client, mcp_url, "tools/list", None, timeout).await {
+    match call_backend(client, mcp_url, "tools/list", None, None, timeout).await {
         Ok(val) => val
             .get("tools")
             .and_then(Value::as_array)
@@ -99,18 +114,31 @@ pub async fn fetch_tools(
 }
 
 /// Forward a `tools/call` to a backend and return the raw result JSON.
+///
+/// `request_id` is forwarded as the JSON-RPC `id` so that the gateway can
+/// correlate a later `notifications/cancelled` with this backend call.
 pub async fn forward_tools_call(
     client: &reqwest::Client,
     mcp_url: &str,
     tool_name: &str,
     arguments: Option<Value>,
+    meta: Option<Value>,
+    request_id: Option<String>,
     timeout: Duration,
 ) -> Result<Value, String> {
+    let mut params = json!({
+        "name": tool_name,
+        "arguments": arguments.unwrap_or(json!({}))
+    });
+    if let Some(m) = meta {
+        params["_meta"] = m;
+    }
     call_backend(
         client,
         mcp_url,
         "tools/call",
-        Some(json!({"name": tool_name, "arguments": arguments.unwrap_or(json!({}))})),
+        Some(params),
+        request_id,
         timeout,
     )
     .await
