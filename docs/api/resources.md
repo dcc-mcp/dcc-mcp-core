@@ -32,7 +32,7 @@ Resources are advertised in `initialize` as:
 | `scene://current` | `application/json` | Current `SceneInfo` snapshot (or placeholder) | Fires when `set_scene()` is called |
 | `capture://current_window` | `image/png` | PNG of the active DCC window (base64 blob) | None (read-on-demand) |
 | `audit://recent?limit=N` | `application/json` | Tail of the `AuditLog` (default 50, max 500) | Fires on every `AuditLog.record()` |
-| `artefact://<id>` | — | Stub — returns error `-32002` until artefact backend lands (#349) | None |
+| `artefact://sha256/<hex>` | varies | Content-addressed artefact store (#349); bodies returned as base64 blobs with their declared MIME. Gated by `enable_artefact_resources`. | None (polling model) |
 
 `capture://current_window` is only listed when a real window-capture backend is available
 (currently Windows `HWND PrintWindow`). On other platforms it is hidden from `resources/list`.
@@ -134,8 +134,24 @@ body = {
 |------|---------|
 | `-32601` | Method not found — resources disabled (`enable_resources = False`) |
 | `-32602` | Invalid params — missing or malformed `uri` |
-| `-32002` | Resource not enabled — recognised scheme (e.g. `artefact://`) but backend disabled |
+| `-32002` | Resource not enabled (scheme recognised, backend disabled) — also reused when an `artefact://` URI is syntactically valid but not stored |
 | `-32603` | Internal error — producer failed (capture backend error, etc.) |
+
+## `artefact://` Scheme (issue #349)
+
+Content-addressed artefact hand-off between tools and workflow steps.
+See [`docs/guide/artefacts.md`](../guide/artefacts.md) for the full
+`FileRef` + `ArtefactStore` guide. Quick reference:
+
+- URI shape: `artefact://sha256/<hex>`.
+- Default backend: `FilesystemArtefactStore` anchored at
+  `<registry_dir>/dcc-mcp-artefacts` (or the OS temp dir).
+- `resources/list` enumerates every stored artefact; entries carry the
+  declared MIME and sidecar metadata.
+- `resources/read` returns the raw bytes as a base64 blob.
+- Python helpers: `artefact_put_file`, `artefact_put_bytes`,
+  `artefact_get_bytes`, `artefact_list`.
+- Enable with `McpHttpConfig.enable_artefact_resources = True`.
 
 ## Writing a Custom Producer (Rust)
 

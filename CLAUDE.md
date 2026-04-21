@@ -157,10 +157,10 @@ handle.shutdown()
 #   scene://current           (JSON; update via server.resources().set_scene(...) in Rust)
 #   capture://current_window  (PNG blob; Windows HWND PrintWindow backend only)
 #   audit://recent?limit=N    (JSON; wire via server.resources().wire_audit_log(log) in Rust)
-#   artefact://<id>           (stub — returns -32002 until enable_artefact_resources=True)
+#   artefact://sha256/<hex>   (content-addressed artefact; #349) — toggle via enable_artefact_resources
 cfg = McpHttpConfig(port=8765)
 cfg.enable_resources = True            # advertise capability + built-ins
-cfg.enable_artefact_resources = False  # artefact:// returns JSON-RPC -32002 until #349
+cfg.enable_artefact_resources = False  # default: artefact:// returns JSON-RPC -32002
 
 # Prompts primitive (#351, #355) — reusable templates served via prompts/list|get
 # McpHttpConfig.enable_prompts defaults to True.
@@ -173,6 +173,30 @@ cfg.enable_artefact_resources = False  # artefact:// returns JSON-RPC -32002 unt
 # on skill load / unload.
 cfg.enable_prompts = True              # advertise capability + serve templates
 ```
+
+### Artefact Hand-Off (FileRef + ArtefactStore, issue #349)
+
+```python
+from dcc_mcp_core import (
+    FileRef,
+    artefact_put_file, artefact_put_bytes,
+    artefact_get_bytes, artefact_list,
+)
+
+# Content-addressed SHA-256 store. Duplicate bytes → same URI.
+ref = artefact_put_bytes(b"hello", mime="text/plain")
+ref.uri          # "artefact://sha256/<hex>"
+ref.size_bytes   # 5
+ref.digest       # "sha256:<hex>"
+assert artefact_get_bytes(ref.uri) == b"hello"
+
+# When McpHttpConfig.enable_artefact_resources=True the server exposes
+# every FileRef as an MCP resource — clients resources/read the uri.
+```
+
+Rust: `dcc_mcp_artefact::{FilesystemArtefactStore, InMemoryArtefactStore,
+ArtefactStore, ArtefactBody, ArtefactFilter, put_bytes, put_file, resolve}`.
+`FilesystemArtefactStore` persists at `<root>/<sha256>.bin` + `.json`.
 
 ### Quick Lookup: Common Method Signatures
 

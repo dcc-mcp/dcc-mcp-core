@@ -8,6 +8,7 @@ use pyo3::prelude::*;
 
 // Re-export sub-crates for Rust consumers
 pub use dcc_mcp_actions as actions;
+pub use dcc_mcp_artefact as artefact;
 pub use dcc_mcp_capture as capture;
 pub use dcc_mcp_http as http;
 pub use dcc_mcp_models as models;
@@ -72,6 +73,7 @@ fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     register_usd(m)?;
     register_utils(m)?;
     register_http(m)?;
+    register_artefact(m)?;
     register_naming(m)?;
     register_constants(m)?;
     #[cfg(feature = "workflow")]
@@ -267,6 +269,11 @@ fn register_http(m: &Bound<'_, PyModule>) -> PyResult<()> {
 #[cfg(feature = "python-bindings")]
 fn register_naming(m: &Bound<'_, PyModule>) -> PyResult<()> {
     dcc_mcp_naming::python::register(m)
+}
+
+#[cfg(feature = "python-bindings")]
+fn register_artefact(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    dcc_mcp_artefact::python::register_classes(m)
 }
 
 #[cfg(all(feature = "python-bindings", feature = "workflow"))]

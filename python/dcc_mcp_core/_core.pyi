@@ -440,6 +440,48 @@ class EventBus:
     def publish(self, event: str, **kwargs: Any) -> None: ...
     def __repr__(self) -> str: ...
 
+class FileRef:
+    """Reference to a stored artefact (issue #349).
+
+    Canonical URI is ``artefact://sha256/<hex>`` for content-addressed
+    artefacts or ``file:///absolute/path`` for external files.
+    """
+
+    @property
+    def uri(self) -> str: ...
+    @property
+    def mime(self) -> str | None: ...
+    @property
+    def size_bytes(self) -> int | None: ...
+    @property
+    def digest(self) -> str | None: ...
+    @property
+    def producer_job_id(self) -> str | None: ...
+    @property
+    def created_at(self) -> str: ...
+    @property
+    def metadata_json(self) -> str: ...
+    def __repr__(self) -> str: ...
+
+def artefact_put_file(path: str, mime: str | None = ...) -> FileRef:
+    """Store the file at ``path`` and return a :class:`FileRef`."""
+    ...
+
+def artefact_put_bytes(data: bytes, mime: str | None = ...) -> FileRef:
+    """Store raw bytes and return a :class:`FileRef`."""
+    ...
+
+def artefact_get_bytes(uri: str) -> bytes:
+    """Read back the raw bytes for an ``artefact://`` URI.
+
+    Raises ``IOError`` when the URI is unknown to the default store.
+    """
+    ...
+
+def artefact_list() -> list[FileRef]:
+    """Return every :class:`FileRef` known to the default store."""
+    ...
+
 class ToolValidator:
     """Validates JSON-encoded skill parameters against a JSON Schema.
 

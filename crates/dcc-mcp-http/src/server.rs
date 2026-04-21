@@ -70,6 +70,45 @@ impl McpServerHandle {
 ///
 /// Embeds an axum HTTP server running on a dedicated Tokio runtime thread.
 /// Safe to use from DCC main threads — the server never blocks the caller.
+/// Build the [`ResourceRegistry`](crate::resources::ResourceRegistry) for
+/// a server.
+///
+/// When artefact resources are enabled, a content-addressed
+/// [`FilesystemArtefactStore`](dcc_mcp_artefact::FilesystemArtefactStore)
+/// is anchored at `<registry_dir>/artefacts` (falling back to the OS
+/// temp dir when no registry dir is configured). Wiring the Python
+/// helpers to the same store is the caller's responsibility — see
+/// `dcc_mcp_artefact::python::set_default_store` for that path.
+fn build_resource_registry(config: &McpHttpConfig) -> crate::resources::ResourceRegistry {
+    if config.enable_artefact_resources {
+        let root = config
+            .registry_dir
+            .clone()
+            .unwrap_or_else(std::env::temp_dir)
+            .join("dcc-mcp-artefacts");
+        match dcc_mcp_artefact::FilesystemArtefactStore::new_in(root) {
+            Ok(store) => {
+                let shared: dcc_mcp_artefact::SharedArtefactStore = Arc::new(store);
+                return crate::resources::ResourceRegistry::new_with_artefact_store(
+                    config.enable_resources,
+                    true,
+                    shared,
+                );
+            }
+            Err(err) => {
+                tracing::warn!(
+                    %err,
+                    "failed to create FilesystemArtefactStore; falling back to in-memory",
+                );
+            }
+        }
+    }
+    crate::resources::ResourceRegistry::new(
+        config.enable_resources,
+        config.enable_artefact_resources,
+    )
+}
+
 pub struct McpHttpServer {
     registry: Arc<ActionRegistry>,
     dispatcher: Arc<ActionDispatcher>,
@@ -92,10 +131,7 @@ impl McpHttpServer {
             registry.clone(),
             dispatcher.clone(),
         ));
-        let resources = crate::resources::ResourceRegistry::new(
-            config.enable_resources,
-            config.enable_artefact_resources,
-        );
+        let resources = build_resource_registry(&config);
         let prompts = crate::prompts::PromptRegistry::new(config.enable_prompts);
         Self {
             registry: registry.clone(),
@@ -118,10 +154,7 @@ impl McpHttpServer {
             .dispatcher()
             .cloned()
             .unwrap_or_else(|| Arc::new(ActionDispatcher::new((*registry).clone())));
-        let resources = crate::resources::ResourceRegistry::new(
-            config.enable_resources,
-            config.enable_artefact_resources,
-        );
+        let resources = build_resource_registry(&config);
         let prompts = crate::prompts::PromptRegistry::new(config.enable_prompts);
         Self {
             registry,

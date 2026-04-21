@@ -126,7 +126,7 @@ Need to interact with DCC?
 **Exposing live DCC state (scene, window capture, audit log) to MCP clients?**
 → [`docs/api/resources.md`](docs/api/resources.md) — Resources primitive (#350)
 → Config: `McpHttpConfig.enable_resources` (default `True`), `.enable_artefact_resources` (default `False`)
-→ Built-ins: `scene://current`, `capture://current_window`, `audit://recent`, `artefact://<id>` (stub)
+→ Built-ins: `scene://current`, `capture://current_window`, `audit://recent`, `artefact://sha256/<hex>` (#349)
 → Rust wiring: `server.resources().set_scene(...)` / `.wire_audit_log(...)` / `.add_producer(...)` before `start()`
 
 **Serving reusable prompt templates to the MCP client (behavioural chain hints)?**
@@ -136,6 +136,13 @@ Need to interact with DCC?
 → Auto-derivation: every workflow referenced in the `workflows:` list yields a summary prompt
 → Template engine: `{{arg_name}}` only — missing required arg returns `INVALID_PARAMS`; unknown brace content is passed through verbatim
 → Notifications: `notifications/prompts/list_changed` fires on skill load / unload
+
+**Handing a file output to a later tool / workflow step (issue #349)?**
+→ [`docs/guide/artefacts.md`](docs/guide/artefacts.md) — FileRef + ArtefactStore
+→ Python helpers: `artefact_put_file(path, mime)`, `artefact_put_bytes(data, mime)`, `artefact_get_bytes(uri)`, `artefact_list()`
+→ Type: `FileRef` (`.uri`, `.mime`, `.size_bytes`, `.digest`, `.producer_job_id`, `.created_at`, `.metadata_json`)
+→ Rust: `dcc_mcp_artefact::{FilesystemArtefactStore, InMemoryArtefactStore, put_bytes, put_file}` — content-addressed SHA-256
+→ Enable resource surface: `McpHttpConfig.enable_artefact_resources = True` → MCP clients `resources/read` the URI
 
 **Bridging a non-Python DCC (Photoshop, ZBrush via WebSocket)?**
 → `python/dcc_mcp_core/bridge.py` — `DccBridge`

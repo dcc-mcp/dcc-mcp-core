@@ -24,6 +24,7 @@ use std::sync::Arc;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use dcc_mcp_artefact::{InMemoryArtefactStore, SharedArtefactStore};
 use parking_lot::RwLock;
 use serde_json::{Value, json};
 use tokio::sync::broadcast;
@@ -129,11 +130,49 @@ struct ResourceRegistryInner {
     /// Enables `artefact://` entries in `resources/list`. Mirrored from
     /// [`crate::McpHttpConfig::enable_artefact_resources`].
     artefact_enabled: bool,
+    /// Backing store for `artefact://` resources (issue #349). Populated
+    /// when `artefact_enabled` is `true`, wired into the producer at
+    /// registration time and kept here so callers can hand it back to
+    /// tools/workflow steps via [`ResourceRegistry::artefact_store`].
+    artefact_store: Option<SharedArtefactStore>,
 }
 
 impl ResourceRegistry {
     /// Construct a registry with the default built-in producers.
+    ///
+    /// When `artefact_enabled` is `true`, an in-memory
+    /// [`dcc_mcp_artefact::InMemoryArtefactStore`] is wired up by default.
+    /// Callers that need persistence (the default for real servers) should
+    /// use [`Self::new_with_artefact_store`].
     pub fn new(enabled: bool, artefact_enabled: bool) -> Self {
+        let store: Option<SharedArtefactStore> = if artefact_enabled {
+            Some(Arc::new(InMemoryArtefactStore::new()) as SharedArtefactStore)
+        } else {
+            None
+        };
+        Self::new_inner(enabled, artefact_enabled, store)
+    }
+
+    /// Construct a registry with a caller-supplied artefact store. Use
+    /// this to plug in a [`dcc_mcp_artefact::FilesystemArtefactStore`]
+    /// under the workspace's `.dcc-mcp/artefacts` directory.
+    ///
+    /// `artefact_enabled` must be `true` for the store to be surfaced in
+    /// `resources/list` — pass `false` to retain the producer while
+    /// hiding entries from agents.
+    pub fn new_with_artefact_store(
+        enabled: bool,
+        artefact_enabled: bool,
+        store: SharedArtefactStore,
+    ) -> Self {
+        Self::new_inner(enabled, artefact_enabled, Some(store))
+    }
+
+    fn new_inner(
+        enabled: bool,
+        artefact_enabled: bool,
+        store: Option<SharedArtefactStore>,
+    ) -> Self {
         let (updated_tx, _) = broadcast::channel(64);
         let scene_snapshot = Arc::new(RwLock::new(None));
         let inner = Arc::new(ResourceRegistryInner {
@@ -143,6 +182,7 @@ impl ResourceRegistry {
             scene_snapshot: scene_snapshot.clone(),
             enabled,
             artefact_enabled,
+            artefact_store: store.clone(),
         });
         let registry = Self { inner };
         if enabled {
@@ -151,14 +191,22 @@ impl ResourceRegistry {
             }));
             registry.add_producer(Arc::new(CaptureProducer));
             registry.add_producer(Arc::new(AuditProducer::disabled()));
-            // Always register the artefact producer so the scheme is
-            // recognized; it returns NotEnabled when the flag is off so
-            // #349 can wire the real backend without touching this file.
-            registry.add_producer(Arc::new(ArtefactStubProducer {
+            registry.add_producer(Arc::new(ArtefactProducer {
                 enabled: artefact_enabled,
+                store,
             }));
         }
         registry
+    }
+
+    /// The artefact store backing `artefact://` resources, if any.
+    ///
+    /// `None` when `enable_artefact_resources = false`. Useful for tools
+    /// and workflow-step runners that need to hand back a
+    /// [`dcc_mcp_artefact::FileRef`] inside a
+    /// [`dcc_mcp_models::ToolResult`]'s `context`.
+    pub fn artefact_store(&self) -> Option<SharedArtefactStore> {
+        self.inner.artefact_store.clone()
     }
 
     /// Returns `true` when the Resources primitive is advertised in
@@ -465,14 +513,18 @@ fn parse_audit_limit(uri: &str) -> Option<usize> {
     None
 }
 
-/// Stub producer for `artefact://` — recognizes the scheme so that
-/// `resources/read` can emit a descriptive error until issue #349 wires
-/// the real artefact store.
-struct ArtefactStubProducer {
+/// Producer for `artefact://` URIs, backed by a
+/// [`dcc_mcp_artefact::ArtefactStore`] (issue #349).
+///
+/// When `enabled` is `false`, `list` hides entries and `read` returns
+/// `ResourceError::NotEnabled` so clients can distinguish "scheme unknown"
+/// from "scheme recognized but disabled".
+struct ArtefactProducer {
     enabled: bool,
+    store: Option<SharedArtefactStore>,
 }
 
-impl ResourceProducer for ArtefactStubProducer {
+impl ResourceProducer for ArtefactProducer {
     fn scheme(&self) -> &str {
         "artefact"
     }
@@ -481,18 +533,59 @@ impl ResourceProducer for ArtefactStubProducer {
         if !self.enabled {
             return Vec::new();
         }
-        // When enabled, the real store (issue #349) will populate this;
-        // the stub just returns an empty list.
-        Vec::new()
+        let Some(store) = self.store.as_ref() else {
+            return Vec::new();
+        };
+        let refs = store
+            .list(dcc_mcp_artefact::ArtefactFilter::default())
+            .unwrap_or_default();
+        refs.into_iter()
+            .map(|fr| McpResource {
+                uri: fr.uri.clone(),
+                name: fr.digest.clone().unwrap_or_else(|| fr.uri.clone()),
+                description: Some(format!(
+                    "Artefact ({} bytes, digest {})",
+                    fr.size_bytes.unwrap_or(0),
+                    fr.digest.as_deref().unwrap_or("unknown"),
+                )),
+                mime_type: fr.mime.clone(),
+            })
+            .collect()
     }
 
     fn read(&self, uri: &str) -> ResourceResult<ProducerContent> {
         if !self.enabled {
             return Err(ResourceError::NotEnabled(format!(
-                "artefact resources not enabled (issue #349): {uri}"
+                "artefact resources not enabled: {uri}"
             )));
         }
-        Err(ResourceError::NotFound(uri.to_string()))
+        let Some(store) = self.store.as_ref() else {
+            return Err(ResourceError::NotEnabled(format!(
+                "artefact store not configured: {uri}"
+            )));
+        };
+        let head = store
+            .head(uri)
+            .map_err(|e| ResourceError::Read(e.to_string()))?;
+        let Some(head) = head else {
+            return Err(ResourceError::NotFound(uri.to_string()));
+        };
+        let body = store
+            .get(uri)
+            .map_err(|e| ResourceError::Read(e.to_string()))?;
+        let bytes = body
+            .ok_or_else(|| ResourceError::NotFound(uri.to_string()))?
+            .into_bytes()
+            .map_err(|e| ResourceError::Read(e.to_string()))?;
+        let mime = head
+            .mime
+            .clone()
+            .unwrap_or_else(|| "application/octet-stream".to_string());
+        Ok(ProducerContent::Blob {
+            uri: uri.to_string(),
+            mime_type: mime,
+            bytes,
+        })
     }
 }
 
@@ -600,5 +693,37 @@ mod tests {
     fn disabled_artefact_hidden_from_list() {
         let reg = ResourceRegistry::new(true, false);
         assert!(!reg.list().iter().any(|r| r.uri.starts_with("artefact://")));
+    }
+
+    #[test]
+    fn enabled_artefact_store_surfaces_put_in_list_and_read() {
+        use dcc_mcp_artefact::ArtefactBody;
+
+        let reg = ResourceRegistry::new(true, true);
+        let store = reg.artefact_store().expect("store wired");
+        let fr = store
+            .put(ArtefactBody::Inline(b"hello-artefact".to_vec()))
+            .unwrap();
+
+        // list should include the new URI.
+        let uris: Vec<String> = reg.list().into_iter().map(|r| r.uri).collect();
+        assert!(uris.contains(&fr.uri), "list missing {}: {uris:?}", fr.uri);
+
+        // read should return the bytes as a blob (base64).
+        let result = reg.read(&fr.uri).expect("read ok");
+        let item = &result.contents[0];
+        assert_eq!(item.uri, fr.uri);
+        assert!(item.blob.is_some(), "expected base64 blob");
+        let decoded = BASE64_STANDARD
+            .decode(item.blob.as_deref().unwrap())
+            .unwrap();
+        assert_eq!(decoded, b"hello-artefact");
+    }
+
+    #[test]
+    fn enabled_artefact_read_unknown_uri_returns_not_found() {
+        let reg = ResourceRegistry::new(true, true);
+        let err = reg.read("artefact://sha256/deadbeef").unwrap_err();
+        assert!(matches!(err, ResourceError::NotFound(_)));
     }
 }

@@ -63,6 +63,9 @@ from dcc_mcp_core._core import DccInfo
 from dcc_mcp_core._core import DccLinkFrame
 from dcc_mcp_core._core import EventBus
 from dcc_mcp_core._core import FileLoggingConfig
+
+# Artefact hand-off (issue #349)
+from dcc_mcp_core._core import FileRef
 from dcc_mcp_core._core import FloatWrapper
 from dcc_mcp_core._core import FrameRange
 from dcc_mcp_core._core import GracefulIpcChannelAdapter
@@ -146,6 +149,10 @@ from dcc_mcp_core._core import VersionedRegistry
 from dcc_mcp_core._core import VtValue
 from dcc_mcp_core._core import WindowFinder
 from dcc_mcp_core._core import WindowInfo
+from dcc_mcp_core._core import artefact_get_bytes
+from dcc_mcp_core._core import artefact_list
+from dcc_mcp_core._core import artefact_put_bytes
+from dcc_mcp_core._core import artefact_put_file
 from dcc_mcp_core._core import create_skill_server
 from dcc_mcp_core._core import deserialize_result
 from dcc_mcp_core._core import error_result
@@ -315,6 +322,7 @@ __all__ = [
     "DccSkillHotReloader",
     "EventBus",
     "FileLoggingConfig",
+    "FileRef",
     "FloatWrapper",
     "FrameRange",
     "GracefulIpcChannelAdapter",
@@ -396,6 +404,10 @@ __all__ = [
     "WorkflowStep",
     "__author__",
     "__version__",
+    "artefact_get_bytes",
+    "artefact_list",
+    "artefact_put_bytes",
+    "artefact_put_file",
     "check_cancelled",
     "create_dcc_server",
     "create_skill_server",
