@@ -309,6 +309,22 @@ policy.retry.backoff                     # BackoffKind.{FIXED,LINEAR,EXPONENTIAL
 policy.retry.next_delay_ms(2)            # first-retry base delay, no jitter
 policy.idempotency_scope                 # "workflow" (default) | "global"
 # Executor enforcement is #348 follow-up; this release lands types+parser only.
+
+# Scheduler (#352) — opt in with Cargo feature `scheduler`
+from dcc_mcp_core import (
+    ScheduleSpec, TriggerSpec, parse_schedules_yaml,
+    hmac_sha256_hex, verify_hub_signature_256,
+)
+cfg = McpHttpConfig(port=8765)
+cfg.enable_scheduler = True
+cfg.schedules_dir = "/opt/dcc-mcp/schedules"   # loads *.schedules.yaml
+# ScheduleSpec/TriggerSpec are declarative; the SchedulerService runtime is
+# driven from Rust. Schedules live in sibling schedules.yaml files (never
+# embedded in SKILL.md frontmatter — follow the #356 sibling-file pattern).
+# Cron format is 6-field: "sec min hour day month weekday".
+# Webhook HMAC-SHA256 via X-Hub-Signature-256; secret read from secret_env
+# at startup. On terminal workflow status, host calls
+# SchedulerHandle::mark_terminal(schedule_id) to release max_concurrent.
 ```
 
 ### Gateway lifecycle invariants (issue #303)

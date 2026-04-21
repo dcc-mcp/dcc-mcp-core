@@ -4623,3 +4623,114 @@ class WorkflowStatus:
     def __init__(self, value: str) -> None: ...
     def __repr__(self) -> str: ...
     def __str__(self) -> str: ...
+
+# ── Scheduler (issue #352) ────────────────────────────────────────────────────
+#
+# Requires the crate-level ``scheduler`` feature at build time; when absent,
+# these classes are exported from ``dcc_mcp_core`` as ``None``.
+
+class TriggerSpec:
+    """Declarative trigger for a :py:class:`ScheduleSpec` (issue #352).
+
+    Construct via the ``cron`` / ``webhook`` classmethods — do not
+    instantiate directly.
+    """
+
+    @classmethod
+    def cron(
+        cls,
+        expression: str,
+        timezone: str = "UTC",
+        jitter_secs: int = 0,
+    ) -> TriggerSpec:
+        """Build a cron trigger.
+
+        Raises ``ValueError`` on an invalid expression or unknown timezone.
+        """
+        ...
+
+    @classmethod
+    def webhook(cls, path: str, secret_env: str | None = None) -> TriggerSpec:
+        """Build an HTTP-POST webhook trigger.
+
+        ``path`` must start with ``/``. ``secret_env``, when set, names an
+        environment variable that holds the HMAC-SHA256 shared secret used
+        to validate ``X-Hub-Signature-256`` headers.
+        """
+        ...
+
+    @property
+    def kind(self) -> str:
+        """``"cron"`` or ``"webhook"``."""
+        ...
+
+    @property
+    def expression(self) -> str | None: ...
+    @property
+    def timezone(self) -> str | None: ...
+    @property
+    def jitter_secs(self) -> int: ...
+    @property
+    def path(self) -> str | None: ...
+    @property
+    def secret_env(self) -> str | None: ...
+    def __repr__(self) -> str: ...
+
+class ScheduleSpec:
+    """A single cron- or webhook-triggered schedule (issue #352).
+
+    Example:
+    -------
+    .. code-block:: python
+
+        from dcc_mcp_core import ScheduleSpec, TriggerSpec
+
+        s = ScheduleSpec(
+            id="nightly_cleanup",
+            workflow="scene_cleanup",
+            trigger=TriggerSpec.cron("0 3 * * *", timezone="UTC"),
+            inputs='{"scope": "all-scenes"}',
+            max_concurrent=1,
+        )
+        s.validate()
+
+    """
+
+    def __init__(
+        self,
+        id: str,
+        workflow: str,
+        trigger: TriggerSpec,
+        inputs: str | None = None,
+        enabled: bool = True,
+        max_concurrent: int = 1,
+    ) -> None:
+        """Construct and validate a schedule. Raises ``ValueError`` on failure."""
+        ...
+
+    def validate(self) -> None: ...
+    @property
+    def id(self) -> str: ...
+    @property
+    def workflow(self) -> str: ...
+    @property
+    def inputs_json(self) -> str: ...
+    @property
+    def trigger(self) -> TriggerSpec: ...
+    @property
+    def enabled(self) -> bool: ...
+    @property
+    def max_concurrent(self) -> int: ...
+    def __repr__(self) -> str: ...
+
+def parse_schedules_yaml(source: str, path_hint: str = "<string>") -> list[ScheduleSpec]:
+    """Parse a ``*.schedules.yaml`` document. Raises ``ValueError``."""
+    ...
+
+def hmac_sha256_hex(secret: bytes, body: bytes) -> str:
+    """Compute the canonical ``sha256=<hex>`` HMAC for a webhook body."""
+    ...
+
+def verify_hub_signature_256(secret: bytes, body: bytes, header_value: str | None) -> bool:
+    """Constant-time verify an ``X-Hub-Signature-256`` header value."""
+    ...

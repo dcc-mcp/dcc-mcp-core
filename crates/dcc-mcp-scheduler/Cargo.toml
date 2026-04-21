@@ -1,0 +1,52 @@
+[package]
+name = "dcc-mcp-scheduler"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Cron + webhook-triggered workflow scheduler for the DCC-MCP ecosystem (feature-gated)"
+
+[dependencies]
+pyo3 = { workspace = true, optional = true }
+dcc-mcp-workflow = { workspace = true }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml_ng = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+parking_lot = { workspace = true }
+dashmap = { workspace = true }
+tokio = { workspace = true }
+uuid = { workspace = true }
+
+# Cron parsing + timezone-aware scheduling
+cron = "0.15"
+chrono = { version = "0.4", features = ["serde"] }
+chrono-tz = "0.10"
+
+# HMAC-SHA256 webhook validation
+hmac = "0.12"
+sha2 = "0.10"
+subtle = "2.6"
+hex = "0.4"
+
+# Axum router for webhook endpoints
+axum = { version = "0.8", features = ["http1", "tokio"] }
+bytes = "1"
+
+# Seedable PRNG for jitter testing
+rand = "0.9"
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
+
+[features]
+default = []
+python-bindings = [
+    "pyo3",
+    "dcc-mcp-workflow/python-bindings",
+]

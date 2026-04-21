@@ -317,6 +317,26 @@ pub struct McpHttpConfig {
     ///
     /// [`required_capabilities`]: dcc_mcp_models::ToolDeclaration::required_capabilities
     pub declared_capabilities: Vec<String>,
+
+    /// Enable the cron + webhook scheduler subsystem (issue #352).
+    ///
+    /// Default: `false`. When `true`, the server loads every
+    /// `*.schedules.yaml` file in [`Self::schedules_dir`] at startup,
+    /// spawns one Tokio task per enabled cron schedule, and mounts each
+    /// declared webhook route on the main Axum router.
+    ///
+    /// The scheduler is provided by the optional `dcc-mcp-scheduler`
+    /// crate (feature-gated at the workspace root). When the crate is not
+    /// compiled in, this flag has no effect.
+    pub enable_scheduler: bool,
+
+    /// Directory holding `*.schedules.yaml` files for the scheduler
+    /// subsystem (issue #352).
+    ///
+    /// Only consulted when [`Self::enable_scheduler`] is `true`. Paths
+    /// are loaded non-recursively. A `None` value pairs with
+    /// `enable_scheduler = true` as a no-op (empty schedule set).
+    pub schedules_dir: Option<PathBuf>,
 }
 
 impl McpHttpConfig {
@@ -355,7 +375,17 @@ impl McpHttpConfig {
             enable_job_notifications: true,
             job_storage_path: None,
             declared_capabilities: Vec::new(),
+            enable_scheduler: false,
+            schedules_dir: None,
         }
+    }
+
+    /// Builder: enable the scheduler subsystem and point at a directory
+    /// of `*.schedules.yaml` files (issue #352).
+    pub fn with_scheduler(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.enable_scheduler = true;
+        self.schedules_dir = Some(dir.into());
+        self
     }
 
     /// Builder: persist tracked jobs in a SQLite database at `path`

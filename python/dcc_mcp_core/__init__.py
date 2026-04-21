@@ -213,6 +213,22 @@ except ImportError:  # pragma: no cover — feature off
     WorkflowStatus = None  # type: ignore[assignment,misc]
     WorkflowStep = None  # type: ignore[assignment,misc]
 
+# Scheduler subsystem — optional (Cargo `scheduler` feature, issue #352).
+# Only declarative types are Python-visible; the runtime service is
+# constructed from Rust inside the McpHttpServer.
+try:
+    from dcc_mcp_core._core import ScheduleSpec  # type: ignore[attr-defined]
+    from dcc_mcp_core._core import TriggerSpec  # type: ignore[attr-defined]
+    from dcc_mcp_core._core import hmac_sha256_hex  # type: ignore[attr-defined]
+    from dcc_mcp_core._core import parse_schedules_yaml  # type: ignore[attr-defined]
+    from dcc_mcp_core._core import verify_hub_signature_256  # type: ignore[attr-defined]
+except ImportError:  # pragma: no cover — feature off
+    ScheduleSpec = None  # type: ignore[assignment,misc]
+    TriggerSpec = None  # type: ignore[assignment,misc]
+    parse_schedules_yaml = None  # type: ignore[assignment,misc]
+    hmac_sha256_hex = None  # type: ignore[assignment,misc]
+    verify_hub_signature_256 = None  # type: ignore[assignment,misc]
+
 # Adapters (pure-Python, non-DccServerBase)
 from dcc_mcp_core.adapters import CAPABILITY_KEYS
 from dcc_mcp_core.adapters import WEBVIEW_DEFAULT_CAPABILITIES
@@ -360,6 +376,7 @@ __all__ = [
     "SceneNode",
     "SceneObject",
     "SceneStatistics",
+    "ScheduleSpec",
     "ScriptLanguage",
     "ScriptResult",
     "SdfPath",
@@ -391,6 +408,7 @@ __all__ = [
     "ToolValidator",
     "TransportAddress",
     "TransportScheme",
+    "TriggerSpec",
     "UsdPrim",
     "UsdStage",
     "VersionConstraint",
@@ -431,10 +449,12 @@ __all__ = [
     "get_skill_paths_from_env",
     "get_skills_dir",
     "get_tools_dir",
+    "hmac_sha256_hex",
     "init_file_logging",
     "is_telemetry_initialized",
     "make_start_stop",
     "mpu_to_units",
+    "parse_schedules_yaml",
     "parse_skill_md",
     "register_bridge",
     "register_diagnostic_handlers",
@@ -464,5 +484,6 @@ __all__ = [
     "validate_action_result",
     "validate_dependencies",
     "validate_tool_name",
+    "verify_hub_signature_256",
     "wrap_value",
 ]

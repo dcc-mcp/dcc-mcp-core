@@ -19,6 +19,7 @@ members = [
     "crates/dcc-mcp-http",
     "crates/dcc-mcp-server",
     "crates/dcc-mcp-workflow",
+    "crates/dcc-mcp-scheduler",
     "crates/dcc-mcp-artefact",
 ]
 resolver = "2"
@@ -49,6 +50,7 @@ dcc-mcp-usd = { path = "crates/dcc-mcp-usd" }
 dcc-mcp-http = { path = "crates/dcc-mcp-http" }
 dcc-mcp-server = { path = "crates/dcc-mcp-server" }
 dcc-mcp-workflow = { path = "crates/dcc-mcp-workflow" }
+dcc-mcp-scheduler = { path = "crates/dcc-mcp-scheduler" }
 dcc-mcp-artefact = { path = "crates/dcc-mcp-artefact" }
 
 # Shared dependencies (single version across workspace)
@@ -128,6 +130,9 @@ dcc-mcp-artefact.workspace = true
 # Workflow crate — opt-in via the top-level `workflow` feature.
 dcc-mcp-workflow = { workspace = true, optional = true }
 
+# Scheduler crate — opt-in via the top-level `scheduler` feature (issue #352).
+dcc-mcp-scheduler = { workspace = true, optional = true }
+
 # PyO3 (optional — only for wheel builds)
 pyo3 = { workspace = true, optional = true }
 
@@ -153,11 +158,15 @@ strip = true
 
 [features]
 default = []
-python-bindings = ["pyo3", "dcc-mcp-naming/python-bindings", "dcc-mcp-models/python-bindings", "dcc-mcp-actions/python-bindings", "dcc-mcp-skills/python-bindings", "dcc-mcp-protocols/python-bindings", "dcc-mcp-utils/python-bindings", "dcc-mcp-transport/python-bindings", "dcc-mcp-process/python-bindings", "dcc-mcp-telemetry/python-bindings", "dcc-mcp-sandbox/python-bindings", "dcc-mcp-shm/python-bindings", "dcc-mcp-capture/python-bindings", "dcc-mcp-usd/python-bindings", "dcc-mcp-http/python-bindings", "dcc-mcp-artefact/python-bindings", "dcc-mcp-workflow?/python-bindings"]
+python-bindings = ["pyo3", "dcc-mcp-naming/python-bindings", "dcc-mcp-models/python-bindings", "dcc-mcp-actions/python-bindings", "dcc-mcp-skills/python-bindings", "dcc-mcp-protocols/python-bindings", "dcc-mcp-utils/python-bindings", "dcc-mcp-transport/python-bindings", "dcc-mcp-process/python-bindings", "dcc-mcp-telemetry/python-bindings", "dcc-mcp-sandbox/python-bindings", "dcc-mcp-shm/python-bindings", "dcc-mcp-capture/python-bindings", "dcc-mcp-usd/python-bindings", "dcc-mcp-http/python-bindings", "dcc-mcp-artefact/python-bindings", "dcc-mcp-workflow?/python-bindings", "dcc-mcp-scheduler?/python-bindings"]
 # Opt into the first-class Workflow primitive (issue #348). Off by default
 # for one release — enables WorkflowSpec/WorkflowStatus in Python and the
 # workflows.* built-in tools in Rust. Step execution is stubbed; see #348.
 workflow = ["dep:dcc-mcp-workflow"]
+# Opt into the scheduler subsystem (issue #352). Off by default — enables
+# the cron + webhook-triggered workflow scheduler and exposes
+# ScheduleSpec / TriggerSpec in Python. Requires the `workflow` feature.
+scheduler = ["dep:dcc-mcp-scheduler", "workflow"]
 # Enable the Prometheus `/metrics` exporter (issue #331). Off by default.
 # Forwards to dcc-mcp-http/prometheus, which in turn enables the
 # prometheus feature on dcc-mcp-telemetry. When disabled, zero

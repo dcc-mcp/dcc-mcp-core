@@ -225,6 +225,13 @@ Need to interact with DCC?
 → Key types: `StepPolicy { timeout, retry, idempotency_key, idempotency_scope }`, `RetryPolicy::next_delay(n)` helper
 → Executor enforcement is the #348 follow-up PR; this PR (#353) lands types + parser + helpers only
 
+**Scheduled workflow triggers (cron + webhook)?**
+→ [`docs/guide/scheduler.md`](docs/guide/scheduler.md) — sibling `schedules.yaml` schema, HMAC, `max_concurrent` semantics
+→ Opt in with the Cargo `scheduler` feature + `McpHttpConfig(enable_scheduler=True, schedules_dir="…")`
+→ `from dcc_mcp_core import ScheduleSpec, TriggerSpec, parse_schedules_yaml, hmac_sha256_hex, verify_hub_signature_256`
+→ Rust runtime: `dcc_mcp_scheduler::{SchedulerService, SchedulerConfig, SchedulerHandle, JobSink, TriggerFire}` (issue #352)
+→ Call `handle.mark_terminal(id)` on terminal workflow status to release `max_concurrent` gate
+
 **Prometheus `/metrics` scraping (issue #331)?**
 → [`docs/api/observability.md`](docs/api/observability.md) — opt-in
   `prometheus` Cargo feature + `McpHttpConfig(enable_prometheus=True,
