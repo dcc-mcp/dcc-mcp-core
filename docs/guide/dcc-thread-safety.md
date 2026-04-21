@@ -81,6 +81,102 @@ When a skill tool is marked `ThreadAffinity::Main`, the adapter routes it
 through `DeferredExecutor`; `ThreadAffinity::Any` jobs run on Tokio workers
 directly.
 
+### Main-thread affinity in the async path
+
+Starting with issue #332, `McpHttpServer`'s **async dispatch path**
+(`async: true` or `async.mode: "fire_and_forget"` in a `tools/call`
+request) also respects `ActionMeta.thread_affinity`. Before #332, the
+async branch unconditionally ran handlers on Tokio `spawn_blocking`
+workers, which was unsafe for tools that touch `maya.cmds`, `bpy.ops`,
+`hou.*`, or `pymxs.runtime`.
+
+Flow for an async `tools/call` on a `ThreadAffinity::Main` tool:
+
+```text
+HTTP request (Tokio worker)
+  │
+  ├─▶ JobManager creates job → status = Pending
+  ├─▶ Response returned immediately: {job_id, status: "pending"}
+  │
+  └─▶ Driver task spawned on Tokio:
+        │
+        ├─▶ executor.submit_deferred(tool_name, cancel_token, task_fn)
+        │     │
+        │     ├─▶ tx.reserve() races against cancel_token.cancelled()
+        │     │     └─▶ if cancelled first → job = Cancelled, task dropped
+        │     │
+        │     └─▶ permit.send(task) → DeferredExecutor::pending queue
+        │
+        ▼
+      DCC main thread pumps poll_pending_bounded(max=8)
+        │
+        ├─▶ task_fn checks is_cancelled() → skip if cancelled
+        └─▶ run handler, send result via oneshot
+        │
+      Tokio driver awaits oneshot, updates JobManager (Succeeded / Failed)
+```
+
+Key invariants:
+
+1. **Envelope is immediate.** `{job_id, status: "pending"}` is returned
+   before the task reaches the DCC pump, regardless of affinity.
+2. **Main-affined handler runs on the DCC main thread.** The thread ID
+   of the handler closure equals the thread that called
+   `poll_pending_bounded`. Any-affined handlers stay on Tokio.
+3. **Cancellation before pump drops the task.** If the caller cancels
+   the job (via `JobManager::cancel`) before the main thread pulls it,
+   the wrapper skips execution and the job ends in `Cancelled`.
+4. **Soft fence.** `submit_deferred` logs a `tracing::warn!` if the
+   deferred closure runs longer than 50 ms, surfacing candidates for
+   chunking (`@chunked_job`, see [issue #332][chunked]).
+5. **Fallback warning.** If a `Main`-affined tool is dispatched in an
+   environment without a `DeferredExecutor` (e.g. pure HTTP tests with
+   no DCC host), the handler falls back to `spawn_blocking` and logs
+   `tracing::warn!` so the misconfiguration is visible.
+
+#### Long-running async tools (cooperative contract)
+
+If your tool declares `long_running: true` or `timeout_hint_secs > 1`,
+the handler **must** be cooperative — it runs on the single DCC main
+thread, so a 30 s hot loop freezes the UI even if it is "correct".
+Inside a `DccTaskFn` running via `submit_deferred`, use:
+
+- **`check_cancelled()`** — a fast predicate the handler calls between
+  chunks; returns `True` if the async job was cancelled while queued or
+  while running. Short-circuit and return a `skill_error("Cancelled")`
+  immediately.
+- **`DccExecutorHandle::yield_frame()`** (Rust) — an `async fn` that
+  parks a no-op task on the DCC main thread and awaits it, allowing the
+  pump to tick the UI once. Use between chunks from a Tokio driver. The
+  Python equivalent is "return control to the pump between batches"
+  (i.e. do not call `poll_pending_bounded` recursively; split work
+  across ticks via the DCC's own timer primitive).
+
+```rust
+// inside a Tokio driver that is orchestrating a long chunked job
+for batch in batches {
+    if job.is_cancelled() { return; }
+    executor.submit_deferred(tool_name, token.clone(), Box::new(move || {
+        process_batch(batch) // runs on DCC main thread, must be < one tick
+    })).await?;
+    executor.yield_frame().await?; // let UI redraw between batches
+}
+```
+
+Forbidden patterns inside a deferred closure (enforced by soft-fence
+warnings; will be upgraded to hard errors when `@chunked_job` lands):
+
+- `time.sleep(n)` / `std::thread::sleep(n)` — blocks the DCC UI.
+- `threading.Thread(...).start()` that calls scene APIs — violates the
+  main-thread contract regardless of how it was scheduled.
+- Blocking I/O (`requests.get`, synchronous DB calls, large file reads)
+  — do these on the Tokio worker *before* calling `submit_deferred`.
+
+See [ADR 002](../adr/002-dcc-main-thread-affinity.md) for the
+architectural rationale.
+
+[chunked]: https://github.com/loonghao/dcc-mcp-core/issues/332
+
 ### Python usage
 
 ```python

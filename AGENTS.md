@@ -157,9 +157,11 @@ Need to interact with DCC?
 
 - All scene-mutating calls go through `DeferredExecutor` — never call `maya.cmds` / `bpy.ops` / `hou.*` / `pymxs.runtime` from a Tokio worker or `threading.Thread`.
 - Pump the queue via `poll_pending_bounded(max=8)` from the DCC's defer primitive (`maya.utils.executeDeferred`, `bpy.app.timers.register`, `hou.ui.addEventLoopCallback`). Never `poll_pending()` in production — it drains unboundedly and freezes the UI under bursts.
-- Long-running jobs must be chunked into per-tick units with cooperative checkpoints (see #329 `check_cancelled()`, #332 `@chunked_job`).
-- Forbidden inside a `DccTaskFn`: `time.sleep`, spawning OS threads for scene ops, blocking I/O (`requests.get`, sync DB, large file reads). Do I/O on the Tokio worker, then defer only the scene call.
-- Source of truth: `crates/dcc-mcp-http/src/executor.rs` (`DeferredExecutor`), `crates/dcc-mcp-process/src/dispatcher.rs` (`ThreadAffinity`, `JobRequest`, `HostDispatcher`).
+- Declare main-thread-only tools with `thread_affinity="main"` on `ToolRegistry.register(...)` or `thread-affinity: main` in `SKILL.md`. Both the sync and async (`async: true`) dispatch paths honour this — main-affined tools are routed through `DeferredExecutor` on the DCC main thread; any-affined tools stay on Tokio. The async envelope `{job_id, status: "pending"}` is still returned immediately regardless of affinity (issue #332).
+- Cancelling a main-affined async job before the pump picks it up is safe: `submit_deferred` races `mpsc::Sender::reserve` against the `CancellationToken`, and the wrapper re-checks `is_cancelled()` before invoking the handler. The job ends in `Cancelled` without the handler running.
+- Long-running jobs must be chunked into per-tick units with cooperative checkpoints (see #329 `check_cancelled()`, #332 `@chunked_job`). Between chunks, call `DccExecutorHandle::yield_frame()` (Rust) or return control to the DCC's own timer primitive (Python) so the UI can redraw.
+- Forbidden inside a `DccTaskFn`: `time.sleep`, spawning OS threads for scene ops, blocking I/O (`requests.get`, sync DB, large file reads). Do I/O on the Tokio worker, then defer only the scene call. `submit_deferred` logs a `tracing::warn!` for closures that run longer than 50 ms — treat these as chunking candidates.
+- Source of truth: `crates/dcc-mcp-http/src/executor.rs` (`DeferredExecutor`, `submit_deferred`, `yield_frame`), `crates/dcc-mcp-http/src/handler.rs` (`dispatch_async_job` affinity routing), `crates/dcc-mcp-process/src/dispatcher.rs` (`ThreadAffinity`, `JobRequest`, `HostDispatcher`).
 
 **Skills hot-reload during development?**
 → `python/dcc_mcp_core/hotreload.py` — `DccSkillHotReloader`

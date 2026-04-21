@@ -7,7 +7,7 @@ use pyo3::prelude::*;
 use dcc_mcp_utils::py_json::json_value_to_pyobject;
 
 use dashmap::DashMap;
-use dcc_mcp_models::{ExecutionMode, NextTools, ToolAnnotations};
+use dcc_mcp_models::{ExecutionMode, NextTools, ThreadAffinity, ToolAnnotations};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -81,6 +81,14 @@ pub struct ActionMeta {
     /// never inside `annotations`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout_hint_secs: Option<u32>,
+    /// Thread-affinity hint surfaced by the skill author (issue #332).
+    ///
+    /// Drives async-dispatch routing in the HTTP server:
+    /// `Main` forces the tool through [`crate::DeferredExecutor`] even along
+    /// the async `tools/call` path, guaranteeing the handler runs on the DCC's
+    /// main thread. `Any` (default) allows execution on a Tokio worker.
+    #[serde(default, skip_serializing_if = "is_default_thread_affinity")]
+    pub thread_affinity: ThreadAffinity,
     /// MCP tool annotations declared by the skill author (issue #344).
     ///
     /// When present, each non-`None` hint is surfaced on the MCP
@@ -105,6 +113,10 @@ fn next_tools_is_empty(nt: &NextTools) -> bool {
     nt.on_success.is_empty() && nt.on_failure.is_empty()
 }
 
+fn is_default_thread_affinity(affinity: &ThreadAffinity) -> bool {
+    matches!(affinity, ThreadAffinity::Any)
+}
+
 fn default_enabled() -> bool {
     true
 }
@@ -127,6 +139,7 @@ impl Default for ActionMeta {
             required_capabilities: Vec::new(),
             execution: ExecutionMode::Sync,
             timeout_hint_secs: None,
+            thread_affinity: ThreadAffinity::Any,
             annotations: ToolAnnotations::default(),
             next_tools: NextTools::default(),
         }
@@ -615,6 +628,23 @@ impl ActionRegistry {
                 .ok()
                 .flatten()
                 .and_then(|v| v.extract().ok());
+            let thread_affinity_str: Option<String> = dict
+                .get_item("thread_affinity")
+                .ok()
+                .flatten()
+                .and_then(|v| v.extract().ok());
+            let thread_affinity = match thread_affinity_str.as_deref() {
+                None => ThreadAffinity::Any,
+                Some(s) => match ThreadAffinity::parse(s) {
+                    Some(a) => a,
+                    None => {
+                        tracing::warn!(
+                            "Invalid thread_affinity {s:?} for '{name}' — defaulting to 'any'"
+                        );
+                        ThreadAffinity::Any
+                    }
+                },
+            };
 
             let input_schema =
                 parse_schema_or_default(input_schema_str.as_deref(), "input_schema", &name);
@@ -637,6 +667,7 @@ impl ActionRegistry {
                 required_capabilities,
                 execution,
                 timeout_hint_secs,
+                thread_affinity,
                 annotations: ToolAnnotations::default(),
                 next_tools: NextTools::default(),
             });
@@ -666,7 +697,7 @@ impl ActionRegistry {
 
     /// Register an action.
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (name, description="".to_string(), category="".to_string(), tags=vec![], dcc=DEFAULT_DCC.to_string(), version=DEFAULT_VERSION.to_string(), input_schema=None, output_schema=None, source_file=None, skill_name=None, group="".to_string(), enabled=true, required_capabilities=None, execution="sync".to_string(), timeout_hint_secs=None))]
+    #[pyo3(signature = (name, description="".to_string(), category="".to_string(), tags=vec![], dcc=DEFAULT_DCC.to_string(), version=DEFAULT_VERSION.to_string(), input_schema=None, output_schema=None, source_file=None, skill_name=None, group="".to_string(), enabled=true, required_capabilities=None, execution="sync".to_string(), timeout_hint_secs=None, thread_affinity="any".to_string()))]
     fn register(
         &self,
         name: String,
@@ -684,6 +715,7 @@ impl ActionRegistry {
         required_capabilities: Option<Vec<String>>,
         execution: String,
         timeout_hint_secs: Option<u32>,
+        thread_affinity: String,
     ) -> pyo3::PyResult<()> {
         let input_schema = parse_schema_or_default(input_schema.as_deref(), "input_schema", &name);
         let output_schema =
@@ -697,6 +729,11 @@ impl ActionRegistry {
                 )));
             }
         };
+        let thread_affinity = ThreadAffinity::parse(&thread_affinity).ok_or_else(|| {
+            pyo3::exceptions::PyValueError::new_err(format!(
+                "thread_affinity must be 'any' or 'main' (got {thread_affinity:?})"
+            ))
+        })?;
 
         self.register_action(ActionMeta {
             name,
@@ -714,6 +751,7 @@ impl ActionRegistry {
             required_capabilities: required_capabilities.unwrap_or_default(),
             execution,
             timeout_hint_secs,
+            thread_affinity,
             annotations: ToolAnnotations::default(),
             next_tools: NextTools::default(),
         });

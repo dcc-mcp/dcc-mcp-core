@@ -1249,6 +1249,12 @@ async fn handle_tools_call_inner(
     if should_dispatch_async {
         let parent_job_id = meta_dcc.and_then(|d| d.parent_job_id.clone());
         let progress_token = params.meta.as_ref().and_then(|m| m.progress_token.clone());
+        // #332 — inspect the tool's thread_affinity. Main-affined tools must
+        // execute on the DCC main thread via DeferredExecutor even along the
+        // async path; Any-affined tools execute on a Tokio worker.
+        let thread_affinity = action_meta_for_async
+            .map(|m| m.thread_affinity)
+            .unwrap_or_default();
         return dispatch_async_job(
             state,
             req,
@@ -1257,6 +1263,7 @@ async fn handle_tools_call_inner(
             parent_job_id,
             session_id,
             progress_token,
+            thread_affinity,
         )
         .await;
     }
@@ -1580,6 +1587,7 @@ async fn handle_tools_call_inner(
 /// [`tokio_util::sync::CancellationToken::child_token`]. Cancelling the
 /// parent therefore cancels every descendant within one cooperative
 /// checkpoint.
+#[allow(clippy::too_many_arguments)]
 async fn dispatch_async_job(
     state: &AppState,
     req: &JsonRpcRequest,
@@ -1588,6 +1596,7 @@ async fn dispatch_async_job(
     parent_job_id: Option<String>,
     session_id: Option<&str>,
     progress_token: Option<Value>,
+    thread_affinity: dcc_mcp_models::ThreadAffinity,
 ) -> Result<JsonRpcResponse, HttpError> {
     let job_handle = state
         .jobs
@@ -1612,6 +1621,7 @@ async fn dispatch_async_job(
         job_id = %job_id,
         tool = %resolved_name,
         parent_job_id = ?parent_job_id,
+        affinity = %thread_affinity,
         "async job dispatched"
     );
 
@@ -1623,6 +1633,14 @@ async fn dispatch_async_job(
     let spawn_job_id = job_id.clone();
     let spawn_name = resolved_name.clone();
     let spawn_params = call_params;
+    let use_main_thread = matches!(thread_affinity, dcc_mcp_models::ThreadAffinity::Main);
+    if use_main_thread && executor.is_none() {
+        tracing::warn!(
+            tool = %spawn_name,
+            "tool declares thread_affinity=main but no DeferredExecutor is wired; \
+             falling back to Tokio worker — scene API calls will be unsafe"
+        );
+    }
     tokio::spawn(async move {
         // Pending → Running. If the job was cancelled before pick-up, skip.
         if cancel_token.is_cancelled() {
@@ -1634,26 +1652,28 @@ async fn dispatch_async_job(
             return;
         }
 
-        let exec_result: Result<Value, String> = if let Some(exec) = executor {
-            // DCC main-thread path — route through DeferredExecutor so the
-            // tool body hits the DCC UI tick instead of a Tokio worker.
+        // #332 — pick the execution lane:
+        //   * `Main` + executor available  → DeferredExecutor::submit_deferred
+        //     (guarantees the handler runs on the DCC main thread)
+        //   * `Main` + no executor         → Tokio worker (already warned above)
+        //   * `Any`                        → Tokio worker
+        let route_to_main = use_main_thread && executor.is_some();
+        let exec_result: Result<Value, String> = if route_to_main {
+            let exec = executor.as_ref().unwrap();
             let disp = Arc::clone(&dispatcher);
             let name = spawn_name.clone();
             let p = spawn_params.clone();
-            let ct = cancel_token.clone();
-            let fut = exec.execute(Box::new(move || {
-                if ct.is_cancelled() {
-                    return serde_json::to_string(&json!({"__dispatch_error": "CANCELLED"}))
-                        .unwrap_or_default();
-                }
-                match disp.dispatch(&name, p) {
+            let rx = exec.submit_deferred(
+                &spawn_name,
+                cancel_token.clone(),
+                Box::new(move || match disp.dispatch(&name, p) {
                     Ok(r) => serde_json::to_string(&r.output).unwrap_or_else(|_| "null".into()),
                     Err(e) => serde_json::to_string(&json!({"__dispatch_error": e.to_string()}))
                         .unwrap_or_default(),
-                }
-            }));
+                }),
+            );
             tokio::select! {
-                out = fut => match out {
+                out = rx => match out {
                     Ok(json_str) => {
                         let v: Value = serde_json::from_str(&json_str).unwrap_or(json!({}));
                         if let Some(err) = v.get("__dispatch_error") {
@@ -1662,13 +1682,14 @@ async fn dispatch_async_job(
                             Ok(v)
                         }
                     }
-                    Err(e) => Err(e.to_string()),
+                    // oneshot dropped without sending → cancelled or executor down.
+                    Err(_) => Err("CANCELLED".to_string()),
                 },
                 _ = cancel_token.cancelled() => Err("CANCELLED".to_string()),
             }
         } else {
-            // Non-DCC path: offload to a blocking worker with cooperative
-            // cancel via `tokio::select!`.
+            // `Any` affinity (or `Main` fallback): offload to a blocking
+            // worker with cooperative cancel via `tokio::select!`.
             let disp = Arc::clone(&dispatcher);
             let name = spawn_name.clone();
             let p = spawn_params.clone();

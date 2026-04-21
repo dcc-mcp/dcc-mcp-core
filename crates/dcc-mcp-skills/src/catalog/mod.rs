@@ -367,6 +367,7 @@ impl SkillCatalog {
                 required_capabilities: Vec::new(),
                 execution: tool_decl.execution,
                 timeout_hint_secs: tool_decl.timeout_hint_secs,
+                thread_affinity: tool_decl.thread_affinity,
                 annotations: tool_decl.annotations.clone(),
                 next_tools: sanitize_next_tools(&tool_decl.next_tools, skill_name, &action_name),
             };
@@ -411,6 +412,7 @@ impl SkillCatalog {
                     required_capabilities: Vec::new(),
                     execution: dcc_mcp_models::ExecutionMode::Sync,
                     timeout_hint_secs: None,
+                    thread_affinity: dcc_mcp_models::ThreadAffinity::Any,
                     annotations: dcc_mcp_models::ToolAnnotations::default(),
                     next_tools: dcc_mcp_models::NextTools::default(),
                 };

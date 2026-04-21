@@ -168,6 +168,13 @@ class ToolDeclaration:
     """Execution mode — ``"sync"`` or ``"async"`` (issue #317)."""
     timeout_hint_secs: int | None
     """Optional hint in seconds; surfaces under ``_meta.dcc.timeoutHintSecs``."""
+    thread_affinity: str
+    """Thread-affinity hint — ``"any"`` (default) or ``"main"`` (issue #332).
+
+    When set to ``"main"`` the HTTP server routes this tool through
+    ``DeferredExecutor`` even along the async ``tools/call`` path so the
+    handler body runs on the DCC main thread.
+    """
     annotations: dict[str, Any]
     """MCP tool annotations declared in the sibling ``tools.yaml`` file (issue #344).
 
@@ -310,6 +317,7 @@ class ToolRegistry:
         required_capabilities: list[str] | None = None,
         execution: str = "sync",
         timeout_hint_secs: int | None = None,
+        thread_affinity: str = "any",
     ) -> None:
         """Register a tool in this registry.
 
@@ -317,6 +325,11 @@ class ToolRegistry:
         the MCP server surfaces ``deferredHint: true`` on the tool annotation.
         ``timeout_hint_secs`` surfaces under ``_meta.dcc.timeoutHintSecs`` on
         the tool definition — never inside ``annotations`` (issue #317).
+
+        ``thread_affinity`` is ``"any"`` (default) or ``"main"`` — see issue
+        #332. ``"main"`` forces the tool to execute on the DCC main thread
+        via ``DeferredExecutor`` even when dispatched along the async
+        ``tools/call`` path. Invalid values raise ``ValueError``.
 
 
         The ``required_capabilities`` parameter accepts an optional list of
