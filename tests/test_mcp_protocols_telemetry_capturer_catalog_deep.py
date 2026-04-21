@@ -1068,7 +1068,9 @@ class TestSkillCatalog:
         reg = m.ToolRegistry()
         cat = m.SkillCatalog(reg)
         cat.discover(extra_paths=[EXAMPLES_SKILLS_DIR])
-        found = cat.find_skills(query="zzz_no_such_skill_zzz")
+        # The tokeniser splits on `_`, so use a single contiguous nonsense
+        # token to confirm truly-unmatched queries return no results.
+        found = cat.find_skills(query="zzznosuchskillzzz")
         assert found == []
 
     def test_info_has_state_key(self):

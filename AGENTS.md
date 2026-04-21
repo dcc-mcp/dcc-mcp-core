@@ -55,6 +55,15 @@ load_skill(skill_name="...") → register tools
 tools/list → see available tools
 ```
 
+`search_skills` uses a deterministic BM25-lite scorer (issue
+[#343](https://github.com/loonghao/dcc-mcp-core/issues/343)): multi-word
+queries are tokenised on whitespace/punctuation, stopwords are ignored, and
+matches are weighted across `name` / `tags` / `search_hint` / `description`
+plus the sibling `tools.yaml` tool names and descriptions. Exact-name queries
+short-circuit to first place; ties break on name-substring hit → scope
+precedence (Admin > System > User > Repo) → alphabetical name. See
+`docs/guide/skills.md` → "How `search_skills` ranks results" for weights.
+
 ### 2. Skill-Based Tools (preferred over raw API calls)
 - Use skill tools (e.g. `maya_geometry__create_sphere`) — they have validated schemas, error handling, and `next-tools` guidance
 - Check `ToolAnnotations` for safety hints before calling destructive tools

@@ -35,6 +35,7 @@
 //! ```
 
 pub mod execute;
+pub mod scoring;
 pub mod types;
 
 pub use types::{SkillDetail, SkillEntry, SkillState, SkillSummary};
@@ -507,42 +508,30 @@ impl SkillCatalog {
 
     /// Search for skills matching the given criteria.
     ///
-    /// Query matches against: `name`, `description`, `search_hint`, and `tool_names`.
-    /// All filters are AND-ed together. Empty/None filters match everything.
+    /// The `tags` and `dcc` filters are applied first (AND semantics). If a
+    /// non-empty `query` is provided, the remaining skills are ranked with a
+    /// BM25-lite scorer that tokenises name, tags, search_hint, description,
+    /// sibling `tools.yaml` entries (tool names + descriptions) and `dcc`.
+    /// See [`scoring`] for weights, tie-breaks and the exact-name fast path.
+    ///
+    /// When `query` is `None` or empty the pre-filter result is returned in
+    /// a deterministic order (scope descending, then alphabetical name), so
+    /// callers don't observe `DashMap` iteration order.
     pub fn find_skills(
         &self,
         query: Option<&str>,
         tags: &[&str],
         dcc: Option<&str>,
     ) -> Vec<SkillSummary> {
-        self.entries
+        // ── 1. Pre-filter by tags/dcc (AND semantics) ──
+        // Collect to owned entries so we can borrow them for the ranker and
+        // also produce a deterministic iteration order independent of DashMap.
+        let mut prefiltered: Vec<SkillEntry> = self
+            .entries
             .iter()
             .filter(|entry| {
                 let meta = &entry.value().metadata;
 
-                // Query filter: match name, description, search_hint, and tool names
-                if let Some(q) = query {
-                    if !q.is_empty() {
-                        let q_lower = q.to_lowercase();
-                        let hint = if meta.search_hint.is_empty() {
-                            &meta.description
-                        } else {
-                            &meta.search_hint
-                        };
-                        let matched = meta.name.to_lowercase().contains(&q_lower)
-                            || meta.description.to_lowercase().contains(&q_lower)
-                            || hint.to_lowercase().contains(&q_lower)
-                            || meta
-                                .tools
-                                .iter()
-                                .any(|t| t.name.to_lowercase().contains(&q_lower));
-                        if !matched {
-                            return false;
-                        }
-                    }
-                }
-
-                // Tags filter: skill must contain ALL requested tags
                 if !tags.is_empty() {
                     for tag in tags {
                         if !meta.tags.iter().any(|t| t.eq_ignore_ascii_case(tag)) {
@@ -551,7 +540,6 @@ impl SkillCatalog {
                     }
                 }
 
-                // DCC filter
                 if let Some(dcc_filter) = dcc {
                     if !dcc_filter.is_empty() && !meta.dcc.eq_ignore_ascii_case(dcc_filter) {
                         return false;
@@ -560,7 +548,28 @@ impl SkillCatalog {
 
                 true
             })
-            .map(|entry| skill_entry_to_summary(entry.value()))
+            .map(|entry| entry.value().clone())
+            .collect();
+
+        // ── 2. No query → deterministic order, no ranking ──
+        let q_trim = query.map(str::trim).unwrap_or("");
+        if q_trim.is_empty() {
+            prefiltered.sort_by(|a, b| {
+                b.scope
+                    .cmp(&a.scope)
+                    .then_with(|| a.metadata.name.cmp(&b.metadata.name))
+            });
+            return prefiltered.iter().map(skill_entry_to_summary).collect();
+        }
+
+        // ── 3. BM25-lite scoring ──
+        let metas: Vec<&SkillMetadata> = prefiltered.iter().map(|e| &e.metadata).collect();
+        let scopes: Vec<SkillScope> = prefiltered.iter().map(|e| e.scope).collect();
+        let scored = scoring::score_skills(q_trim, &metas, &scopes);
+
+        scored
+            .into_iter()
+            .map(|s| skill_entry_to_summary(&prefiltered[s.index]))
             .collect()
     }
 

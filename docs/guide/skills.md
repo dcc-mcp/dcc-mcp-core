@@ -553,7 +553,48 @@ Calling an unloaded skill stub (`__skill__<name>`) returns an error with a hint:
 }
 ```
 
-Searches across: `name`, `description`, `search_hint`, and `tool_names`. The `search_hint` field (from SKILL.md `search-hint:`) improves keyword matching without loading full schemas.
+Searches across: `name`, `description`, `search_hint`, `tags`, `dcc`, and the
+sibling `tools.yaml` entries (`name` + `description`). The `search_hint` field
+(from SKILL.md `search-hint:`) improves keyword matching without loading full
+schemas.
+
+#### How `search_skills` ranks results
+
+Since dcc-mcp-core 0.15 (issue [#343](https://github.com/loonghao/dcc-mcp-core/issues/343))
+the ranker is a tokenised BM25-lite scorer. It is deterministic — the same
+skill set + query always yields the same order.
+
+**Tokeniser** — lowercase, split on `[\s_\-.,;:/]+`, drop a small stopword
+list (`a, an, the, of, and, or, to, for, with, from`). No stemming, no
+fuzzy match.
+
+**Field weights**
+
+| Field | Weight |
+|-------|-------:|
+| `name`                                   | 5.0 |
+| `dcc` (exact token match only)           | 4.0 |
+| `tags`                                   | 3.0 |
+| `search_hint`                            | 3.0 |
+| `description`                            | 2.0 |
+| sibling tool names (from `tools.yaml`)   | 2.0 |
+| sibling tool descriptions                | 1.0 |
+
+**Scoring** — standard BM25 per query token with `k1=1.2`, `b=0.75`, document
+length = total tokens across all weighted fields. The per-field contributions
+are multiplied by the weights above and summed across query tokens.
+
+**Tie-breaks** (in order)
+
+1. **Exact-name fast-path** — if the query equals a skill's name
+   (case-insensitive, after trimming), that skill sorts first unconditionally.
+2. **Name-substring hit** — skills whose `name` contains the query as a
+   raw substring rank above equal-scoring skills that don't.
+3. **Scope precedence** — `Admin > System > User > Repo`.
+4. **Alphabetical name**.
+
+Skills with a total score of `0.0` (and no exact-name match) are dropped.
+The `tags` and `dcc` filter arguments are applied *before* scoring.
 
 `create_skill_server()` only calls `discover()` at startup — skills are **not** automatically loaded. This keeps the initial tool list small and lets agents load only what they need.
 

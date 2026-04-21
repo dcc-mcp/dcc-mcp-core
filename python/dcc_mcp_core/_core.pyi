@@ -1513,15 +1513,26 @@ class SkillCatalog:
         tags: list[str] | None = None,
         dcc: str | None = None,
     ) -> list[SkillSummary]:
-        """Search the catalog by name, tags, or DCC.
+        """Search the catalog by keyword, tags, or DCC.
+
+        The ``tags`` and ``dcc`` filters are applied first (AND semantics).
+        Remaining skills are then ranked with a tokenised BM25-lite scorer
+        when ``query`` is non-empty, weighting matches across name / tags /
+        search_hint / description / sibling ``tools.yaml`` entries / dcc.
+        An exact (case-insensitive) match on skill name always ranks first.
+
+        When ``query`` is ``None`` or empty, results are returned in a
+        deterministic order (scope descending, then alphabetical name).
 
         Args:
-            query: Case-insensitive substring match on skill name/description.
+            query: Keyword search — tokenised on whitespace/punctuation,
+                   stopwords dropped, no stemming or fuzzy match.
             tags:  Return only skills that have ALL of the given tags.
             dcc:   Return only skills targeting this DCC.
 
         Returns:
-            List of :class:`SkillSummary` matching all supplied filters.
+            List of :class:`SkillSummary` matching all supplied filters,
+            sorted by relevance descending.
 
         """
         ...
