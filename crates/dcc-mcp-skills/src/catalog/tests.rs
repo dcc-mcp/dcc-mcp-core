@@ -787,3 +787,137 @@ fn test_execute_script_no_dcc_hint_does_not_trigger_check() {
         );
     }
 }
+
+// ── Unified `search_skills` (issue #340) ──────────────────────────────────
+
+/// Insert a skill at an explicit [`SkillScope`] — test-only helper.
+///
+/// `add_skill` always tags skills as `Repo`; to exercise scope filtering
+/// we reach past that constructor and inject the entry directly.
+fn add_skill_with_scope(catalog: &SkillCatalog, meta: SkillMetadata, scope: SkillScope) {
+    catalog.entries.insert(
+        meta.name.clone(),
+        SkillEntry {
+            metadata: meta,
+            state: SkillState::Discovered,
+            registered_tools: Vec::new(),
+            scope,
+        },
+    );
+}
+
+#[test]
+fn test_search_skills_empty_query_returns_by_scope_precedence() {
+    // Admin > System > User > Repo, then alphabetical name.
+    let catalog = make_test_catalog();
+    add_skill_with_scope(
+        &catalog,
+        make_test_skill("zeta-user", "maya", &[]),
+        SkillScope::User,
+    );
+    add_skill_with_scope(
+        &catalog,
+        make_test_skill("alpha-repo", "maya", &[]),
+        SkillScope::Repo,
+    );
+    add_skill_with_scope(
+        &catalog,
+        make_test_skill("gamma-admin", "maya", &[]),
+        SkillScope::Admin,
+    );
+    add_skill_with_scope(
+        &catalog,
+        make_test_skill("beta-system", "maya", &[]),
+        SkillScope::System,
+    );
+
+    let results = catalog.search_skills(None, &[], None, None, None);
+    let names: Vec<&str> = results.iter().map(|s| s.name.as_str()).collect();
+    assert_eq!(
+        names,
+        vec!["gamma-admin", "beta-system", "zeta-user", "alpha-repo"]
+    );
+}
+
+#[test]
+fn test_search_skills_limit_caps_output() {
+    let catalog = make_test_catalog();
+    for i in 0..5 {
+        catalog.add_skill(make_test_skill(&format!("skill-{i}"), "maya", &[]));
+    }
+
+    let results = catalog.search_skills(None, &[], None, None, Some(2));
+    assert_eq!(results.len(), 2);
+}
+
+#[test]
+fn test_search_skills_scope_filter() {
+    let catalog = make_test_catalog();
+    add_skill_with_scope(
+        &catalog,
+        make_test_skill("sys-skill", "maya", &[]),
+        SkillScope::System,
+    );
+    add_skill_with_scope(
+        &catalog,
+        make_test_skill("repo-skill", "maya", &[]),
+        SkillScope::Repo,
+    );
+
+    let results = catalog.search_skills(None, &[], None, Some(SkillScope::System), None);
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].name, "sys-skill");
+}
+
+#[test]
+fn test_search_skills_combined_filters() {
+    // query + dcc + scope + limit all AND-ed.
+    let catalog = make_test_catalog();
+    let mut modeling = make_test_skill("maya-modeling", "maya", &["bevel"]);
+    modeling.tags = vec!["modeling".to_string()];
+    add_skill_with_scope(&catalog, modeling, SkillScope::System);
+
+    let mut rendering = make_test_skill("maya-rendering", "maya", &["render"]);
+    rendering.tags = vec!["rendering".to_string()];
+    add_skill_with_scope(&catalog, rendering, SkillScope::System);
+
+    let results = catalog.search_skills(
+        Some("bevel"),
+        &["modeling"],
+        Some("maya"),
+        Some(SkillScope::System),
+        Some(5),
+    );
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].name, "maya-modeling");
+}
+
+#[test]
+fn test_search_skills_parse_scope_str_valid_and_invalid() {
+    use super::parse_scope_str;
+    assert_eq!(parse_scope_str("repo").unwrap(), SkillScope::Repo);
+    assert_eq!(parse_scope_str("USER").unwrap(), SkillScope::User);
+    assert_eq!(parse_scope_str("System").unwrap(), SkillScope::System);
+    assert_eq!(parse_scope_str("admin").unwrap(), SkillScope::Admin);
+    assert!(parse_scope_str("bogus").is_err());
+}
+
+#[test]
+fn test_search_skills_superset_of_find_skills() {
+    // Any result find_skills returns must also be returned by search_skills
+    // with the same filters — the consolidation must not break callers.
+    let catalog = make_test_catalog();
+    let mut a = make_test_skill("a", "maya", &["bevel"]);
+    a.tags = vec!["modeling".to_string()];
+    catalog.add_skill(a);
+    catalog.add_skill(make_test_skill("b", "blender", &[]));
+
+    let old = catalog.find_skills(Some("bevel"), &["modeling"], Some("maya"));
+    let new = catalog.search_skills(Some("bevel"), &["modeling"], Some("maya"), None, None);
+
+    let old_names: Vec<&str> = old.iter().map(|s| s.name.as_str()).collect();
+    let new_names: Vec<&str> = new.iter().map(|s| s.name.as_str()).collect();
+    for n in &old_names {
+        assert!(new_names.contains(n), "search_skills must include {n}");
+    }
+}

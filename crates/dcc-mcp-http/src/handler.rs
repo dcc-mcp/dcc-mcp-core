@@ -40,6 +40,7 @@ use crate::{
     session::{SessionLogLevel, SessionLogMessage, SessionManager},
 };
 use dcc_mcp_actions::{ActionDispatcher, ActionRegistry};
+use dcc_mcp_models::SkillScope;
 use dcc_mcp_protocols::DccMcpError;
 use dcc_mcp_skills::SkillCatalog;
 use dcc_mcp_skills::catalog::SkillSummary;
@@ -1718,33 +1719,45 @@ async fn handle_list_roots(
 
 // ── Core discovery tool handlers ──────────────────────────────────────────
 
+/// Deprecated — kept as a compatibility shim that forwards to
+/// `search_skills` (issue #340).
+///
+/// Emits a `tracing::warn!` on every call and attaches the deprecation
+/// notice to the MCP `_meta` block on the response so agents can surface
+/// the guidance without reparsing text content. Scheduled for removal in
+/// v0.17.
 async fn handle_find_skills(
     state: &AppState,
     req: &JsonRpcRequest,
     params: &CallToolParams,
 ) -> Result<JsonRpcResponse, HttpError> {
-    let args = params.arguments.as_ref();
+    tracing::warn!(
+        "find_skills is deprecated; use search_skills instead (issue #340). \
+         Scheduled for removal in v0.17."
+    );
 
-    let query = args.and_then(|a| a.get("query")).and_then(Value::as_str);
-    let tags: Vec<&str> = args
-        .and_then(|a| a.get("tags"))
-        .and_then(|t| t.as_array())
-        .map(|arr| arr.iter().filter_map(Value::as_str).collect())
-        .unwrap_or_default();
-    let dcc = args.and_then(|a| a.get("dcc")).and_then(Value::as_str);
+    // Forward to the unified entry point. `find_skills` historically required
+    // no arguments, so we map its full parameter surface (query/tags/dcc)
+    // onto `search_skills` 1:1 — no caller breaks.
+    let mut resp = handle_search_skills(state, req, params).await?;
 
-    let results = state.catalog.find_skills(query, &tags, dcc);
-
-    let text = serde_json::to_string_pretty(&json!({
-        "skills": results,
-        "total": results.len()
-    }))
-    .unwrap_or_default();
-
-    Ok(JsonRpcResponse::success(
-        req.id.clone(),
-        serde_json::to_value(CallToolResult::text(text))?,
-    ))
+    // Attach the deprecation marker to `_meta` on the CallToolResult. We
+    // deserialize, mutate, and reserialize the result so we can reach into
+    // the envelope that `handle_search_skills` just produced.
+    if let Some(result_val) = resp.result.as_mut() {
+        if let Ok(mut ctr) = serde_json::from_value::<CallToolResult>(result_val.clone()) {
+            let meta = ctr.meta.get_or_insert_with(serde_json::Map::new);
+            meta.insert(
+                "dcc.deprecation".to_string(),
+                Value::String(
+                    "find_skills is deprecated — use search_skills. Will be removed in v0.17."
+                        .to_string(),
+                ),
+            );
+            *result_val = serde_json::to_value(&ctr)?;
+        }
+    }
+    Ok(resp)
 }
 
 async fn handle_list_skills(
@@ -2040,11 +2053,11 @@ fn build_core_tools_inner() -> Vec<McpTool> {
         },
         McpTool {
             name: "find_skills".to_string(),
-            description: "Deprecated: use search_skills. Legacy search over discovered skills by keyword, tags, and DCC type that returns metadata without loading anything.\n\n\
-                          When to use: Only for backward compatibility with clients written before search_skills existed. New code should always call search_skills instead — it has better ranking and wider field coverage.\n\n\
+            description: "Deprecated (#340): forwards to search_skills and stamps _meta with a deprecation notice; removed in v0.17.\n\n\
+                          When to use: Only for backward compatibility. New code should call search_skills instead.\n\n\
                           How to use:\n\
-                          - Prefer search_skills(query, dcc) for all new integrations.\n\
-                          - After a match, call load_skill(skill_name=...) to register its tools."
+                          - Prefer search_skills(query, tags, dcc, scope, limit).\n\
+                          - After a match, call load_skill(skill_name=...)."
                 .to_string(),
             input_schema: json!({
                 "type": "object",
@@ -2066,7 +2079,7 @@ fn build_core_tools_inner() -> Vec<McpTool> {
             }),
             output_schema: None,
             annotations: Some(McpToolAnnotations {
-                title: Some("Find Skills".to_string()),
+                title: Some("Find Skills (deprecated)".to_string()),
                 read_only_hint: Some(true),
                 destructive_hint: Some(false),
                 idempotent_hint: Some(true),
@@ -2198,25 +2211,41 @@ fn build_core_tools_inner() -> Vec<McpTool> {
         },
         McpTool {
             name: "search_skills".to_string(),
-            description: "Ranks discovered skills against a free-text query by scoring matches across name, description, search-hint, tags, and tool names.\n\n\
-                          When to use: Start here whenever you need a capability but don't know the exact skill or tool name. For already-loaded tools, use search_tools; to browse without ranking, use list_skills.\n\n\
+            description: "Unified skill discovery (#340, supersedes find_skills). Ranks skills against query across name, description, search-hint, tags, and tool names; filters by tags/dcc/scope.\n\n\
+                          When to use: Start here when you need a capability but don't know the skill name. Call with no args to browse by trust scope (Admin>System>User>Repo).\n\n\
                           How to use:\n\
-                          - Keep the query short (2-4 keywords like 'create sphere'); full sentences hurt ranking.\n\
-                          - After a hit, call load_skill(skill_name=...) then the specific tool."
+                          - Keep query short (2-4 keywords); combine with tags/dcc/scope.\n\
+                          - After a hit, call load_skill(skill_name=...)."
                 .to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "Short keyword phrase; 2-4 words works best."
+                        "description": "Short keyword phrase (2-4 words). Leave empty to browse by scope."
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Filter by tags (all must match; case-insensitive)."
                     },
                     "dcc": {
                         "type": "string",
                         "description": "DCC filter (e.g. maya, blender, houdini)."
+                    },
+                    "scope": {
+                        "type": "string",
+                        "enum": ["repo", "user", "system", "admin"],
+                        "description": "Filter by trust scope (Admin > System > User > Repo)."
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 100,
+                        "default": 20,
+                        "description": "Cap the number of results (default 20, max 100)."
                     }
-                },
-                "required": ["query"]
+                }
             }),
             output_schema: None,
             annotations: Some(McpToolAnnotations {
@@ -2662,54 +2691,107 @@ fn build_skill_stub(summary: &SkillSummary) -> McpTool {
     }
 }
 
-/// Handle `search_skills` tool call.
+/// Handle `search_skills` — unified skill discovery tool (issue #340).
 ///
-/// Searches skill name, description, search_hint, and tool names.
-/// Returns a compact list: one line per matching skill.
+/// Input:
+///   - `query`  (str, optional)     — substring match on name/description/search_hint/tool names
+///   - `tags`   (list[str], optional) — every tag must match (AND)
+///   - `dcc`    (str, optional)       — filter by DCC binding
+///   - `scope`  (str, optional)       — `"repo" | "user" | "system" | "admin"`
+///   - `limit`  (int, optional)       — cap results (default 20, max 100)
+///
+/// When all inputs are empty/None, returns the top `limit` skills sorted by
+/// scope precedence (Admin > System > User > Repo) then name. This is the
+/// "what skills are available?" discovery entry point for agents.
 async fn handle_search_skills(
     state: &AppState,
     req: &JsonRpcRequest,
     params: &CallToolParams,
 ) -> Result<JsonRpcResponse, HttpError> {
-    let query = params
-        .arguments
-        .as_ref()
+    const DEFAULT_LIMIT: usize = 20;
+    const MAX_LIMIT: usize = 100;
+
+    let args = params.arguments.as_ref();
+
+    let query = args
         .and_then(|a| a.get("query"))
         .and_then(Value::as_str)
         .unwrap_or_default();
 
-    let dcc_filter = params
-        .arguments
-        .as_ref()
-        .and_then(|a| a.get("dcc"))
-        .and_then(Value::as_str);
+    let tags_owned: Vec<String> = args
+        .and_then(|a| a.get("tags"))
+        .and_then(|t| t.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(Value::as_str)
+                .map(String::from)
+                .collect()
+        })
+        .unwrap_or_default();
+    let tags: Vec<&str> = tags_owned.iter().map(String::as_str).collect();
 
-    if query.is_empty() {
-        return Ok(JsonRpcResponse::success(
-            req.id.clone(),
-            serde_json::to_value(CallToolResult::error("Missing required parameter: query"))?,
-        ));
-    }
+    let dcc_filter = args.and_then(|a| a.get("dcc")).and_then(Value::as_str);
 
-    let matches = state.catalog.find_skills(Some(query), &[], dcc_filter);
+    let scope_filter = match args.and_then(|a| a.get("scope")).and_then(Value::as_str) {
+        None => None,
+        Some(s) => match parse_scope_label(s) {
+            Ok(sc) => Some(sc),
+            Err(msg) => {
+                return Ok(JsonRpcResponse::success(
+                    req.id.clone(),
+                    serde_json::to_value(CallToolResult::error(msg))?,
+                ));
+            }
+        },
+    };
+
+    let limit = args
+        .and_then(|a| a.get("limit"))
+        .and_then(Value::as_u64)
+        .map(|n| n as usize)
+        .unwrap_or(DEFAULT_LIMIT)
+        .clamp(1, MAX_LIMIT);
+
+    let query_opt = if query.is_empty() { None } else { Some(query) };
+    let matches =
+        state
+            .catalog
+            .search_skills(query_opt, &tags, dcc_filter, scope_filter, Some(limit));
 
     if matches.is_empty() {
-        let text = format!("No skills found matching '{query}'.");
+        let text = if query.is_empty()
+            && tags.is_empty()
+            && dcc_filter.is_none()
+            && scope_filter.is_none()
+        {
+            "No skills discovered. Drop SKILL.md files into the scan paths and rescan.".to_string()
+        } else if query.is_empty() {
+            "No skills match the given filters.".to_string()
+        } else {
+            format!("No skills found matching '{query}'.")
+        };
         return Ok(JsonRpcResponse::success(
             req.id.clone(),
             serde_json::to_value(CallToolResult::text(text))?,
         ));
     }
 
-    // RTK-inspired: ultra-compact JSON format to reduce token consumption
+    // RTK-inspired: ultra-compact JSON format to reduce token consumption.
+    // Keep the historical keys (`name`, `tools`, `loaded`, `dcc`) and add
+    // `scope` / `description` / `tags` / `search_hint` so the union covers
+    // what find_skills used to return.
     let compact_skills: Vec<serde_json::Value> = matches
         .iter()
         .map(|s| {
             serde_json::json!({
                 "name": s.name,
+                "description": s.description,
                 "tools": s.tool_count,
                 "loaded": s.loaded,
-                "dcc": s.dcc
+                "dcc": s.dcc,
+                "scope": s.scope,
+                "tags": s.tags,
+                "search_hint": s.search_hint,
             })
         })
         .collect();
@@ -2724,6 +2806,19 @@ async fn handle_search_skills(
         req.id.clone(),
         serde_json::to_value(CallToolResult::text(serde_json::to_string(&result)?))?,
     ))
+}
+
+/// Parse the `scope` argument string into a [`SkillScope`].
+fn parse_scope_label(s: &str) -> Result<SkillScope, String> {
+    match s.to_ascii_lowercase().as_str() {
+        "repo" => Ok(SkillScope::Repo),
+        "user" => Ok(SkillScope::User),
+        "system" => Ok(SkillScope::System),
+        "admin" => Ok(SkillScope::Admin),
+        other => Err(format!(
+            "Invalid scope {other:?}: expected 'repo' | 'user' | 'system' | 'admin'"
+        )),
+    }
 }
 
 /// Build a compact stub that replaces all tools of an inactive group in

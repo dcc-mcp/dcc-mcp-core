@@ -967,7 +967,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_search_skills_missing_query_returns_error() {
+    async fn test_search_skills_empty_args_returns_discovery() {
+        // Issue #340: empty-args search_skills is a discovery call, not an error.
+        // Returns the top skills sorted by scope precedence.
         let server = TestServer::new(make_router_with_skills());
 
         let resp = server
@@ -989,8 +991,104 @@ mod tests {
 
         resp.assert_status_ok();
         let body: Value = resp.json();
-        // Missing required parameter — should return isError: true
+        assert_eq!(body["result"]["isError"], false);
+        let text = body["result"]["content"][0]["text"].as_str().unwrap();
+        // Discovery mode surfaces every discovered skill in the test fixture.
+        assert!(
+            text.contains("maya-bevel") && text.contains("git-tools"),
+            "Expected discovery to list all skills: {text}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_search_skills_limit_clamps_results() {
+        let server = TestServer::new(make_router_with_skills());
+
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::ACCEPT,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&json!({
+                "jsonrpc": "2.0",
+                "id": 140,
+                "method": "tools/call",
+                "params": {
+                    "name": "search_skills",
+                    "arguments": {"limit": 1}
+                }
+            }))
+            .await;
+
+        resp.assert_status_ok();
+        let body: Value = resp.json();
+        let text = body["result"]["content"][0]["text"].as_str().unwrap();
+        let payload: Value = serde_json::from_str(text).unwrap();
+        assert_eq!(payload["skills"].as_array().unwrap().len(), 1);
+        assert_eq!(payload["total"], 1);
+    }
+
+    #[tokio::test]
+    async fn test_search_skills_scope_filter_rejects_invalid_scope() {
+        let server = TestServer::new(make_router_with_skills());
+
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::ACCEPT,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&json!({
+                "jsonrpc": "2.0",
+                "id": 141,
+                "method": "tools/call",
+                "params": {
+                    "name": "search_skills",
+                    "arguments": {"scope": "bogus"}
+                }
+            }))
+            .await;
+
+        resp.assert_status_ok();
+        let body: Value = resp.json();
         assert_eq!(body["result"]["isError"], true);
+    }
+
+    #[tokio::test]
+    async fn test_find_skills_forwards_and_marks_deprecated() {
+        // Issue #340: find_skills is now a compatibility alias. It must still
+        // return valid results AND attach `_meta["dcc.deprecation"]`.
+        let server = TestServer::new(make_router_with_skills());
+
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::ACCEPT,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&json!({
+                "jsonrpc": "2.0",
+                "id": 142,
+                "method": "tools/call",
+                "params": {
+                    "name": "find_skills",
+                    "arguments": {"query": "bevel"}
+                }
+            }))
+            .await;
+
+        resp.assert_status_ok();
+        let body: Value = resp.json();
+        assert_eq!(body["result"]["isError"], false);
+        let text = body["result"]["content"][0]["text"].as_str().unwrap();
+        assert!(text.contains("maya-bevel"), "forwarded result: {text}");
+        assert_eq!(
+            body["result"]["_meta"]["dcc.deprecation"]
+                .as_str()
+                .unwrap_or(""),
+            "find_skills is deprecated — use search_skills. Will be removed in v0.17."
+        );
     }
 
     #[tokio::test]

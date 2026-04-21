@@ -1524,6 +1524,10 @@ class SkillCatalog:
         When ``query`` is ``None`` or empty, results are returned in a
         deterministic order (scope descending, then alphabetical name).
 
+        Deprecated (issue #340) — use :meth:`search_skills`, which accepts a
+        superset of filters (``scope``, ``limit``) and treats the empty call
+        as a discovery request. Kept as a compat shim until v0.17.
+
         Args:
             query: Keyword search — tokenised on whitespace/punctuation,
                    stopwords dropped, no stemming or fuzzy match.
@@ -1533,6 +1537,32 @@ class SkillCatalog:
         Returns:
             List of :class:`SkillSummary` matching all supplied filters,
             sorted by relevance descending.
+
+        """
+        ...
+    def search_skills(
+        self,
+        query: str | None = None,
+        tags: list[str] | None = None,
+        dcc: str | None = None,
+        scope: str | None = None,
+        limit: int | None = None,
+    ) -> list[SkillSummary]:
+        """Unified skill discovery (issue #340) — superset of :meth:`find_skills`.
+
+        Args:
+            query: Case-insensitive substring match on name, description,
+                   search_hint, and tool names. ``None`` / empty disables the
+                   query filter (discovery mode).
+            tags:  Skill must contain ALL listed tags (case-insensitive).
+            dcc:   Filter by DCC binding (e.g. ``"maya"``).
+            scope: One of ``"repo" | "user" | "system" | "admin"``. Raises
+                   :class:`ValueError` on any other value.
+            limit: Cap the number of summaries returned. ``None`` means no cap.
+
+        Returns:
+            List of :class:`SkillSummary` sorted by scope precedence
+            (Admin > System > User > Repo) then alphabetical name.
 
         """
         ...

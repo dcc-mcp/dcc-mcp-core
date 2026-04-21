@@ -478,7 +478,8 @@ fn skill_management_tool_defs() -> Vec<Value> {
         }),
         json!({
             "name": "find_skills",
-            "description": "Search skills by query/tags/dcc across every live DCC instance.",
+            "description": "DEPRECATED — use `search_skills`. Compat alias that forwards to `search_skills` \
+                            on every live DCC instance. Scheduled for removal in v0.17.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -490,15 +491,18 @@ fn skill_management_tool_defs() -> Vec<Value> {
         }),
         json!({
             "name": "search_skills",
-            "description": "Keyword search over skills in every live DCC instance. Use this to discover \
-                            skills before calling load_skill.",
+            "description": "Unified skill discovery across every live DCC instance. Matches `query` against \
+                            name/description/search_hint/tool names and filters by `tags`, `dcc`, `scope`. \
+                            Call with no arguments to browse by trust scope (Admin > System > User > Repo).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "query": {"type": "string"},
-                    "dcc":   {"type": "string"}
-                },
-                "required": ["query"]
+                    "tags":  {"type": "array", "items": {"type": "string"}},
+                    "dcc":   {"type": "string"},
+                    "scope": {"type": "string", "enum": ["repo", "user", "system", "admin"]},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20}
+                }
             }
         }),
         json!({

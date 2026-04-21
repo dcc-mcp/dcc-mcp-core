@@ -49,7 +49,7 @@ When you need information, read in this order — stop when you find what you ne
 - **`scan_and_load` returns a 2-tuple**: `(List[SkillMetadata], List[str])` — always unpack both
 - See `examples/skills/` for 11 reference implementations
 - **`search-hint` in SKILL.md**: add `search-hint: "keyword1, keyword2"` to improve `search_skills` matching without loading full schemas
-- **On-demand discovery**: `tools/list` returns skill stubs (`__skill__<name>`) for unloaded skills; use `search_skills(query)` then `load_skill(name)` to activate
+- **On-demand discovery**: `tools/list` returns skill stubs (`__skill__<name>`) for unloaded skills; use `search_skills(query)` then `load_skill(name)` to activate. As of #340 `search_skills` takes `query`/`tags`/`dcc`/`scope`/`limit` (all optional — empty call browses by trust scope). `find_skills` is a deprecated alias that logs a warning and forwards to `search_skills`; removed in v0.17.
 - **Bundled skills**: 2 core skills shipped inside the wheel (`dcc_mcp_core/skills/`):
   `dcc-diagnostics`, `workflow`
   — use `get_bundled_skills_dir()` / `get_bundled_skill_paths()` to get the path.

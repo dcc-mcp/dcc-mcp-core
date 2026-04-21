@@ -573,6 +573,48 @@ impl SkillCatalog {
             .collect()
     }
 
+    /// Unified skill discovery — superset of [`find_skills`](Self::find_skills).
+    ///
+    /// Combines the filters previously split across `find_skills` and
+    /// `search_skills`. Issue #340 (`find_skills` → `search_skills` merge).
+    ///
+    /// Behaviour:
+    /// - `query` / `tags` / `dcc` are AND-ed through [`find_skills`] — ranking
+    ///   and scoring (including the #343 BM25-lite ranker) are reused as-is.
+    /// - `scope` restricts the result to one [`SkillScope`] level. The filter
+    ///   is applied post-ranking so high-scoring skills from other scopes
+    ///   don't shuffle the order.
+    /// - Empty `query` with no other filters returns the whole catalog
+    ///   sorted by scope precedence (Admin > System > User > Repo) then
+    ///   alphabetical name — the "discovery mode" entry point for agents.
+    /// - `limit` caps the number of summaries returned; `None` means no cap.
+    pub fn search_skills(
+        &self,
+        query: Option<&str>,
+        tags: &[&str],
+        dcc: Option<&str>,
+        scope: Option<SkillScope>,
+        limit: Option<usize>,
+    ) -> Vec<SkillSummary> {
+        let ranked = self.find_skills(query, tags, dcc);
+
+        let filtered: Vec<SkillSummary> = match scope {
+            None => ranked,
+            Some(scope_filter) => {
+                let label = scope_filter.label();
+                ranked
+                    .into_iter()
+                    .filter(|s| s.scope.eq_ignore_ascii_case(label))
+                    .collect()
+            }
+        };
+
+        match limit {
+            None => filtered,
+            Some(n) => filtered.into_iter().take(n).collect(),
+        }
+    }
+
     /// List all skills with their load status.
     pub fn list_skills(&self, status: Option<&str>) -> Vec<SkillSummary> {
         self.entries
@@ -680,6 +722,24 @@ impl SkillCatalog {
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────
+
+/// Parse a scope filter string (case-insensitive) into a [`SkillScope`].
+///
+/// Accepts: `"repo"`, `"user"`, `"system"`, `"admin"`. Used by the unified
+/// `search_skills` entry point (#340) so Python and JSON-RPC callers can
+/// filter by trust level without crossing the PyO3 enum boundary directly.
+#[cfg_attr(not(any(feature = "python-bindings", test)), allow(dead_code))]
+pub(crate) fn parse_scope_str(s: &str) -> Result<SkillScope, String> {
+    match s.to_ascii_lowercase().as_str() {
+        "repo" => Ok(SkillScope::Repo),
+        "user" => Ok(SkillScope::User),
+        "system" => Ok(SkillScope::System),
+        "admin" => Ok(SkillScope::Admin),
+        other => Err(format!(
+            "invalid scope {other:?}: expected 'repo' | 'user' | 'system' | 'admin'"
+        )),
+    }
+}
 
 /// Convert a SkillEntry into a SkillSummary.
 ///
@@ -826,6 +886,30 @@ impl SkillCatalog {
     ) -> Vec<SkillSummary> {
         let tag_refs: Vec<&str> = tags.iter().map(String::as_str).collect();
         self.find_skills(query, &tag_refs, dcc)
+    }
+
+    /// Unified skill discovery (issue #340).
+    ///
+    /// Superset of ``find_skills`` with optional ``scope`` (str: "repo" |
+    /// "user" | "system" | "admin") and ``limit``. Empty ``query`` with no
+    /// other filters returns the top ``limit`` skills ordered by scope
+    /// precedence (Admin > System > User > Repo) then name.
+    #[pyo3(name = "search_skills")]
+    #[pyo3(signature = (query=None, tags=vec![], dcc=None, scope=None, limit=None))]
+    fn py_search_skills(
+        &self,
+        query: Option<&str>,
+        tags: Vec<String>,
+        dcc: Option<&str>,
+        scope: Option<&str>,
+        limit: Option<usize>,
+    ) -> PyResult<Vec<SkillSummary>> {
+        let tag_refs: Vec<&str> = tags.iter().map(String::as_str).collect();
+        let scope_enum = match scope {
+            None => None,
+            Some(s) => Some(parse_scope_str(s).map_err(pyo3::exceptions::PyValueError::new_err)?),
+        };
+        Ok(self.search_skills(query, &tag_refs, dcc, scope_enum, limit))
     }
 
     /// List all skills with their load status.
