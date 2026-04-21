@@ -60,6 +60,7 @@ export default defineConfig({
               items: [
                 { text: 'Architecture', link: '/guide/architecture' },
                 { text: 'Custom Skills', link: '/guide/custom-actions' },
+                { text: 'DCC Thread Safety', link: '/guide/dcc-thread-safety' },
                 { text: 'Process Management', link: '/guide/process' },
                 { text: 'Sandbox & Security', link: '/guide/sandbox' },
                 { text: 'Shared Memory', link: '/guide/shm' },
@@ -143,6 +144,7 @@ export default defineConfig({
               items: [
                 { text: '架构设计', link: '/zh/guide/architecture' },
                 { text: '自定义 Skill', link: '/zh/guide/custom-actions' },
+                { text: 'DCC 线程安全', link: '/zh/guide/dcc-thread-safety' },
                 { text: '进程管理', link: '/zh/guide/process' },
                 { text: '沙箱与安全', link: '/zh/guide/sandbox' },
                 { text: '共享内存', link: '/zh/guide/shm' },

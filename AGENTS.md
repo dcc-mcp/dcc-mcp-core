@@ -120,8 +120,18 @@ Need to interact with DCC?
 → Frame type: `DccLinkFrame(msg_type, seq, body)`
 
 **DCC main-thread safety (Maya cmds, bpy, hou…)?**
-→ [`docs/guide/getting-started.md`](docs/guide/getting-started.md) (DeferredExecutor section)
+→ [`docs/guide/dcc-thread-safety.md`](docs/guide/dcc-thread-safety.md) — full guide (chunking, forbidden patterns, per-DCC defer primitives)
+→ [`docs/adr/002-dcc-main-thread-affinity.md`](docs/adr/002-dcc-main-thread-affinity.md) — architectural rationale
+→ [`docs/guide/getting-started.md`](docs/guide/getting-started.md) (DeferredExecutor section) — minimal example
 → `from dcc_mcp_core._core import DeferredExecutor` (not yet in public `__init__`)
+
+### Thread Safety (quick rules — see `docs/guide/dcc-thread-safety.md`)
+
+- All scene-mutating calls go through `DeferredExecutor` — never call `maya.cmds` / `bpy.ops` / `hou.*` / `pymxs.runtime` from a Tokio worker or `threading.Thread`.
+- Pump the queue via `poll_pending_bounded(max=8)` from the DCC's defer primitive (`maya.utils.executeDeferred`, `bpy.app.timers.register`, `hou.ui.addEventLoopCallback`). Never `poll_pending()` in production — it drains unboundedly and freezes the UI under bursts.
+- Long-running jobs must be chunked into per-tick units with cooperative checkpoints (see #329 `check_cancelled()`, #332 `@chunked_job`).
+- Forbidden inside a `DccTaskFn`: `time.sleep`, spawning OS threads for scene ops, blocking I/O (`requests.get`, sync DB, large file reads). Do I/O on the Tokio worker, then defer only the scene call.
+- Source of truth: `crates/dcc-mcp-http/src/executor.rs` (`DeferredExecutor`), `crates/dcc-mcp-process/src/dispatcher.rs` (`ThreadAffinity`, `JobRequest`, `HostDispatcher`).
 
 **Skills hot-reload during development?**
 → `python/dcc_mcp_core/hotreload.py` — `DccSkillHotReloader`
