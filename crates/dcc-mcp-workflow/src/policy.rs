@@ -29,7 +29,7 @@ use crate::error::ValidationError;
 ///
 /// All variants are bounded by [`RetryPolicy::max_delay`] and modulated by
 /// [`RetryPolicy::jitter`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum BackoffKind {
     /// Constant `initial_delay` between attempts.
@@ -37,13 +37,8 @@ pub enum BackoffKind {
     /// `initial_delay * attempt_number` (1-indexed).
     Linear,
     /// `initial_delay * 2^(attempt_number - 1)` (1-indexed).
+    #[default]
     Exponential,
-}
-
-impl Default for BackoffKind {
-    fn default() -> Self {
-        Self::Exponential
-    }
 }
 
 impl BackoffKind {
