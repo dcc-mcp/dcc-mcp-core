@@ -662,6 +662,20 @@ json_str = result.to_json()    # JSON string
 - `thiserror` for error types
 - `parking_lot` instead of `std::sync::Mutex`
 
+## Writing Tool Descriptions — Style Guide
+
+Every built-in MCP tool description (see `build_core_tools_inner` and
+`build_lazy_action_tools` in `crates/dcc-mcp-http/src/handler.rs`) follows
+the 3-layer behavioural structure adopted in issue #341: a one-sentence
+present-tense "what" summary, a `When to use:` paragraph contrasting the
+tool against its siblings (so the agent knows when NOT to pick it), and a
+`How to use:` bullet list covering preconditions, common pitfalls, and
+follow-up tools. Keep the whole string ≤ 500 chars (MCP clients truncate
+long text); if more context is needed, move it to `docs/api/http.md` and
+reference the anchor from the description. Per-parameter `description`
+fields in the input schema are single clauses ≤ 100 chars. The structural
+contract is enforced by `tests/test_tool_descriptions.py`.
+
 ---
 
 ## Adding a New Public Symbol — Checklist

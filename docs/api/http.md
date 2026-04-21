@@ -179,6 +179,53 @@ MCP requests use JSON-RPC 2.0:
 | `prompts/list` | List available prompts (empty in current impl) |
 | `ping` | Liveness check |
 
+## Built-in Tools {#builtin-tools}
+
+Every `McpHttpServer` emits a fixed set of built-in tools in `tools/list` in addition to whatever is registered on the `ToolRegistry` or loaded from skills. Their descriptions follow the 3-layer `what / When to use / How to use` structure defined in issue #341 (capped at 500 chars, enforced by `tests/test_tool_descriptions.py`).
+
+### Discovery & lifecycle (always-on)
+
+| Tool | Purpose | Typical follow-up |
+|------|---------|-------------------|
+| `search_skills` | Ranked keyword search over discovered skills (name, description, search-hint, tags, tool names). **Start here** when you don't know the skill name. | `load_skill(skill_name=...)` |
+| `list_skills` | Flat dump of every discovered skill with load status. Use for browsing, not search. | `get_skill_info(...)` or `load_skill(...)` |
+| `get_skill_info` | Full metadata + input schemas for one skill. | `load_skill(skill_name=...)` |
+| `load_skill` | Loads one or more skills; emits `tools/list_changed`. Idempotent. | Call the specific tool by name |
+| `unload_skill` | Unloads a skill; emits `tools/list_changed`. Idempotent. | `load_skill(...)` again if needed |
+| `activate_tool_group` | Expands a `__group__<name>` stub into its member tools. | Re-call `tools/list`, then the tool |
+| `deactivate_tool_group` | Collapses a tool group back to a stub to shrink the token footprint. | `activate_tool_group(...)` |
+| `search_tools` | Full-text search over **already-registered** tools. If nothing matches, try `search_skills`. | Call the matched tool |
+| `list_roots` | Returns the filesystem roots the client advertised via `roots/list`. Rarely needed. | — |
+| `find_skills` | **Deprecated** — kept for legacy clients; new code should use `search_skills`. | `search_skills(query=...)` |
+
+### Lazy-actions fast-path (opt-in)
+
+Enabled via `McpHttpConfig.lazy_actions = True`. Replaces the per-action `tools/list` expansion with three meta-tools so the tool surface stays small regardless of how many actions are registered:
+
+| Tool | Purpose |
+|------|---------|
+| `list_actions` | Compact `{id, summary, tags}` records for every enabled action, no schemas. |
+| `describe_action` | Full input schema for one action by id. |
+| `call_action` | Generic dispatcher — invokes any action by id with args. Same code path as a direct `tools/call`. |
+
+Typical flow: `list_actions(dcc="maya")` → pick an id → `describe_action(id=...)` → `call_action(id=..., args={...})`.
+
+### Writing new built-in tools
+
+Built-in tool descriptions are **hand-written**, not auto-generated. When adding a new built-in, follow the 3-layer pattern used by every entry in `build_core_tools_inner()`:
+
+```
+<1 sentence present-tense summary of what the tool does>
+
+When to use: <1-2 sentences naming the situation, and explicitly contrasting the tool against its nearest sibling so an agent knows when NOT to pick it>
+
+How to use:
+- <precondition or common pitfall>
+- <suggested follow-up tool, fully qualified>
+```
+
+Keep the whole string ≤ 500 chars; move any longer reference material here, under a stable heading, and link to it from the description. Per-parameter `description` fields in the input schema are single clauses ≤ 100 chars. `tests/test_tool_descriptions.py` enforces both bounds structurally so future tools stay consistent.
+
 ## Full Example: Maya MCP Server
 
 ```python

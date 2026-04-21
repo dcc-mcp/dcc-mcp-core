@@ -2014,7 +2014,11 @@ fn build_core_tools_inner() -> Vec<McpTool> {
     vec![
         McpTool {
             name: "list_roots".to_string(),
-            description: "Return client-advertised filesystem roots cached from roots/list for this session."
+            description: "Returns the filesystem roots the MCP client advertised for this session (cached from roots/list).\n\n\
+                          When to use: Call when another tool needs to resolve a relative path and you have no absolute context yet. Rarely needed — most DCC tools operate on in-memory scene data, not the client's workspace.\n\n\
+                          How to use:\n\
+                          - Takes no arguments; returns an empty array if the client sent no roots.\n\
+                          - Do not call repeatedly; roots change only on client reconnect."
                 .to_string(),
             input_schema: json!({
                 "type": "object",
@@ -2033,24 +2037,27 @@ fn build_core_tools_inner() -> Vec<McpTool> {
         },
         McpTool {
             name: "find_skills".to_string(),
-            description: "Search available skills by keyword, tags, or DCC type. \
-                          Returns matching skills with metadata but does NOT load them."
+            description: "Deprecated: use search_skills. Legacy search over discovered skills by keyword, tags, and DCC type that returns metadata without loading anything.\n\n\
+                          When to use: Only for backward compatibility with clients written before search_skills existed. New code should always call search_skills instead — it has better ranking and wider field coverage.\n\n\
+                          How to use:\n\
+                          - Prefer search_skills(query, dcc) for all new integrations.\n\
+                          - After a match, call load_skill(skill_name=...) to register its tools."
                 .to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "Search in skill name and description"
+                        "description": "Keyword matched against skill name and description."
                     },
                     "tags": {
                         "type": "array",
                         "items": { "type": "string" },
-                        "description": "Filter by tags (all must match)"
+                        "description": "Tag filter; every listed tag must match."
                     },
                     "dcc": {
                         "type": "string",
-                        "description": "Filter by DCC type (maya, blender, houdini, etc.)"
+                        "description": "DCC type filter (e.g. maya, blender, houdini)."
                     }
                 }
             }),
@@ -2067,7 +2074,11 @@ fn build_core_tools_inner() -> Vec<McpTool> {
         },
         McpTool {
             name: "list_skills".to_string(),
-            description: "List all discovered skills with their load status (loaded/unloaded)."
+            description: "Lists every discovered skill on this server with its current load status (loaded, unloaded, or error).\n\n\
+                          When to use: Use to browse what is available or to audit which skills are currently active. For keyword lookup, call search_skills instead — list_skills is a flat dump with no ranking.\n\n\
+                          How to use:\n\
+                          - Pass status='loaded' to inspect the active tool surface, 'unloaded' to find candidates to load.\n\
+                          - Follow up with get_skill_info(skill_name=...) or load_skill(skill_name=...)."
                 .to_string(),
             input_schema: json!({
                 "type": "object",
@@ -2076,7 +2087,7 @@ fn build_core_tools_inner() -> Vec<McpTool> {
                         "type": "string",
                         "enum": ["all", "loaded", "unloaded", "error"],
                         "default": "all",
-                        "description": "Filter by load status"
+                        "description": "Load-status filter; 'all' returns every discovered skill."
                     }
                 }
             }),
@@ -2093,14 +2104,18 @@ fn build_core_tools_inner() -> Vec<McpTool> {
         },
         McpTool {
             name: "get_skill_info".to_string(),
-            description: "Get detailed info about a specific skill including its tools and their input schemas."
+            description: "Returns detailed metadata for one skill: description, tags, DCC binding, and full input schemas for every tool it declares.\n\n\
+                          When to use: Use when you already know the skill name and need to inspect its tools' schemas before committing to load_skill. Pair this with search_skills when deciding between candidates.\n\n\
+                          How to use:\n\
+                          - Inspecting alone does not make the tools callable; follow up with load_skill(skill_name=...) to activate them.\n\
+                          - Returns an error if the skill is unknown."
                 .to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
                     "skill_name": {
                         "type": "string",
-                        "description": "Name of the skill to inspect"
+                        "description": "Exact skill name as reported by list_skills / search_skills."
                     }
                 },
                 "required": ["skill_name"]
@@ -2118,20 +2133,23 @@ fn build_core_tools_inner() -> Vec<McpTool> {
         },
         McpTool {
             name: "load_skill".to_string(),
-            description: "Load a skill and register its tools. After loading, the tools become available via tools/list. \
-                          A tools/list_changed notification is sent to connected clients."
+            description: "Loads one or more discovered skills and registers their tools, then emits a tools/list_changed notification.\n\n\
+                          When to use: Call after search_skills, list_skills, or get_skill_info has identified the skill you need. Idempotent — re-loading an already-loaded skill is a no-op.\n\n\
+                          How to use:\n\
+                          - Use skill_name for one skill, or skill_names for a batch in a single round-trip.\n\
+                          - After success, call tools/list or the specific tool (e.g. maya_geometry__create_sphere) directly."
                 .to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
                     "skill_name": {
                         "type": "string",
-                        "description": "Name of the skill to load"
+                        "description": "Single skill to load; mutually exclusive with skill_names."
                     },
                     "skill_names": {
                         "type": "array",
                         "items": { "type": "string" },
-                        "description": "Load multiple skills at once"
+                        "description": "Batch of skill names to load in one call."
                     }
                 }
             }),
@@ -2148,14 +2166,18 @@ fn build_core_tools_inner() -> Vec<McpTool> {
         },
         McpTool {
             name: "unload_skill".to_string(),
-            description: "Unload a skill and unregister its tools. Sends a tools/list_changed notification."
+            description: "Unloads a previously loaded skill, unregisters its tools, and emits a tools/list_changed notification.\n\n\
+                          When to use: Use to free tool slots and shrink the tools/list token footprint once a workflow no longer needs a skill. Safe to call on an unloaded skill (no-op).\n\n\
+                          How to use:\n\
+                          - Pending tools/call requests against this skill will fail after unload — drain them first.\n\
+                          - To re-enable the skill later, call load_skill(skill_name=...)."
                 .to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
                     "skill_name": {
                         "type": "string",
-                        "description": "Name of the skill to unload"
+                        "description": "Exact skill name previously passed to load_skill."
                     }
                 },
                 "required": ["skill_name"]
@@ -2173,20 +2195,22 @@ fn build_core_tools_inner() -> Vec<McpTool> {
         },
         McpTool {
             name: "search_skills".to_string(),
-            description: "Search for skills by keyword. Matches against skill name, description, \
-                          search_hint, and tool names. Returns matching skills with a one-line \
-                          summary. Use load_skill to activate a skill and get its full tool schemas."
+            description: "Ranks discovered skills against a free-text query by scoring matches across name, description, search-hint, tags, and tool names.\n\n\
+                          When to use: Start here whenever you need a capability but don't know the exact skill or tool name. For already-loaded tools, use search_tools; to browse without ranking, use list_skills.\n\n\
+                          How to use:\n\
+                          - Keep the query short (2-4 keywords like 'create sphere'); full sentences hurt ranking.\n\
+                          - After a hit, call load_skill(skill_name=...) then the specific tool."
                 .to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "Keyword to search in skill name, description, search_hint, and tool names"
+                        "description": "Short keyword phrase; 2-4 words works best."
                     },
                     "dcc": {
                         "type": "string",
-                        "description": "Optional DCC filter (maya, blender, houdini, etc.)"
+                        "description": "DCC filter (e.g. maya, blender, houdini)."
                     }
                 },
                 "required": ["query"]
@@ -2204,16 +2228,18 @@ fn build_core_tools_inner() -> Vec<McpTool> {
         },
         McpTool {
             name: "activate_tool_group".to_string(),
-            description: "Activate a tool group so its tools become callable. \
-                          Tools in inactive groups are collapsed into __group__<name> stubs. \
-                          Sends a tools/list_changed notification on success."
+            description: "Activates a tool group inside a loaded skill, making its members callable and emitting a tools/list_changed notification.\n\n\
+                          When to use: Call when tools/list surfaces a __group__<name> stub and you need the underlying tools. Progressive exposure keeps the default surface small until you opt in.\n\n\
+                          How to use:\n\
+                          - The parent skill must be loaded first; check list_skills(status='loaded') if unsure.\n\
+                          - After activation, re-run tools/list to see the newly available tools, then call them by name."
                 .to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
                     "group": {
                         "type": "string",
-                        "description": "Name of the tool group to activate"
+                        "description": "Group name as shown in the __group__<name> stub."
                     }
                 },
                 "required": ["group"]
@@ -2231,15 +2257,18 @@ fn build_core_tools_inner() -> Vec<McpTool> {
         },
         McpTool {
             name: "deactivate_tool_group".to_string(),
-            description: "Deactivate a tool group — its tools become uncallable until reactivated. \
-                          Useful to reduce the active tool surface for token budget reasons."
+            description: "Deactivates a tool group, collapsing its members back into a __group__<name> stub and emitting a tools/list_changed notification.\n\n\
+                          When to use: Use to shrink the active tool surface once a sub-workflow is done, to stay within the client's token budget. Group tools remain on disk — only their visibility changes.\n\n\
+                          How to use:\n\
+                          - Idempotent; calling on an already-inactive group is a safe no-op.\n\
+                          - To bring the tools back, call activate_tool_group(group=...)."
                 .to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
                     "group": {
                         "type": "string",
-                        "description": "Name of the tool group to deactivate"
+                        "description": "Group name previously passed to activate_tool_group."
                     }
                 },
                 "required": ["group"]
@@ -2257,24 +2286,27 @@ fn build_core_tools_inner() -> Vec<McpTool> {
         },
         McpTool {
             name: "search_tools".to_string(),
-            description: "Full-text search across every registered tool (name/description/tags). \
-                          Matches against enabled tools first and includes group stubs when relevant."
+            description: "Full-text search over already-registered tools, matching name, description, category, and tags and ranking enabled tools first.\n\n\
+                          When to use: Use after skills are loaded to locate a specific tool without dumping the whole tools/list. If nothing matches, fall back to search_skills — the tool may live in an unloaded skill.\n\n\
+                          How to use:\n\
+                          - Keep the query short; set include_disabled=true only when inspecting inactive groups.\n\
+                          - Call the returned tool directly by its name."
                 .to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "Keyword to match in tool name, description, category, or tags"
+                        "description": "Keyword matched against tool name, description, category, and tags."
                     },
                     "dcc": {
                         "type": "string",
-                        "description": "Optional DCC filter"
+                        "description": "DCC filter (e.g. maya, blender)."
                     },
                     "include_disabled": {
                         "type": "boolean",
                         "default": false,
-                        "description": "Include tools inside inactive groups"
+                        "description": "Also search tools inside inactive tool groups."
                     }
                 },
                 "required": ["query"]
@@ -2302,21 +2334,22 @@ fn build_lazy_action_tools() -> Vec<McpTool> {
     vec![
         McpTool {
             name: "list_actions".to_string(),
-            description: "Return every enabled action as a compact \
-                          `{id, summary, tags}` record — no JSON schemas. \
-                          Pair with `describe_action` + `call_action` for a \
-                          token-minimal tool surface."
+            description: "Returns every enabled action as a compact {id, summary, tags} record with no JSON schemas attached.\n\n\
+                          When to use: The entry point of the lazy-actions fast-path (lazy_actions=true). Use it to enumerate candidates cheaply when the full tools/list would blow the token budget.\n\n\
+                          How to use:\n\
+                          - Filter with dcc and/or skill to narrow the list before fetching schemas.\n\
+                          - Follow up with describe_action(id=...) for one action, then call_action(id=..., args=...) to invoke."
                 .to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
                     "dcc": {
                         "type": "string",
-                        "description": "Optional DCC filter (e.g. \"maya\")"
+                        "description": "DCC filter (e.g. maya, blender)."
                     },
                     "skill": {
                         "type": "string",
-                        "description": "Optional skill-name filter"
+                        "description": "Skill-name filter to limit results to one skill."
                     }
                 }
             }),
@@ -2333,16 +2366,18 @@ fn build_lazy_action_tools() -> Vec<McpTool> {
         },
         McpTool {
             name: "describe_action".to_string(),
-            description: "Return the full JSON input schema for a single \
-                          action by id. Output matches what the action \
-                          would have contributed to `tools/list`."
+            description: "Returns the full JSON input schema and metadata for a single action, identical to what tools/list would surface for it.\n\n\
+                          When to use: Step 2 of the lazy-actions flow — after list_actions has narrowed the candidate, fetch the schema for exactly one action before calling it.\n\n\
+                          How to use:\n\
+                          - Pass id exactly as reported by list_actions; unknown ids return an error.\n\
+                          - Follow up with call_action(id=..., args=...) using the returned schema."
                 .to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
                     "id": {
                         "type": "string",
-                        "description": "Action id as reported by `list_actions`"
+                        "description": "Action id as reported by list_actions."
                     }
                 },
                 "required": ["id"]
@@ -2360,24 +2395,22 @@ fn build_lazy_action_tools() -> Vec<McpTool> {
         },
         McpTool {
             name: "call_action".to_string(),
-            description: "Generic dispatcher: invoke an action by id with \
-                          the provided arguments. Semantically identical \
-                          to a direct `tools/call` against the action's \
-                          native tool name (single dispatch path, no \
-                          divergence)."
+            description: "Generic dispatcher that invokes any action by id with the given arguments, using the same code path as a native tools/call.\n\n\
+                          When to use: Step 3 of the lazy-actions flow, or whenever you want to avoid inflating tools/list with every action. Semantically identical to calling the action's native tool name directly.\n\n\
+                          How to use:\n\
+                          - Make sure args matches the schema from describe_action; invalid args are rejected.\n\
+                          - Side effects are those of the underlying action — check its ToolAnnotations first."
                 .to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
                     "id": {
                         "type": "string",
-                        "description": "Action id (e.g. `create_sphere` or \
-                                        `maya-geometry.create_sphere`)"
+                        "description": "Action id (e.g. create_sphere or maya-geometry.create_sphere)."
                     },
                     "args": {
                         "type": "object",
-                        "description": "Arguments object, same shape as the \
-                                        action's input_schema"
+                        "description": "Arguments matching the action's input_schema."
                     }
                 },
                 "required": ["id"]
