@@ -168,6 +168,18 @@ class ToolDeclaration:
     """Execution mode — ``"sync"`` or ``"async"`` (issue #317)."""
     timeout_hint_secs: int | None
     """Optional hint in seconds; surfaces under ``_meta.dcc.timeoutHintSecs``."""
+    annotations: dict[str, Any]
+    """MCP tool annotations declared in the sibling ``tools.yaml`` file (issue #344).
+
+    Returned as a dict with MCP-spec camelCase keys (``readOnlyHint``,
+    ``destructiveHint``, ``idempotentHint``, ``openWorldHint``, ``title``).
+    The dcc-mcp-core-specific ``deferredHint`` is surfaced here for
+    inspection but on ``tools/list`` it lands in ``_meta["dcc.deferred_hint"]``
+    — never inside the spec ``annotations`` map. Missing hints are omitted.
+
+    Assignment accepts both snake_case (``read_only_hint``) and camelCase
+    (``readOnlyHint``). Set to ``None`` or ``{}`` to clear.
+    """
 
     def __init__(
         self,

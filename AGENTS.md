@@ -313,6 +313,14 @@ body = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
 registry.register(name="my_tool", description="...", dcc="maya")
 ```
 
+**Tool annotations live in the sibling `tools.yaml`, never at the SKILL.md top level (#344):**
+Declare MCP `ToolAnnotations` as a nested `annotations:` map on each
+tool entry (or the legacy shorthand flat `*_hint:` keys). Nested map
+wins whole-map when both forms are present. `deferred_hint` is a
+dcc-mcp-core extension and rides in `_meta["dcc.deferred_hint"]` on
+`tools/list` — never inside the spec `annotations` map. Full guide:
+`docs/guide/skills.md#declaring-tool-annotations-issue-344`.
+
 **SKILL.md sibling-file pattern — THE rule for every new extension (v0.15+ / #356):**
 
 Do **not** add new top-level frontmatter keys to `SKILL.md`. agentskills.io

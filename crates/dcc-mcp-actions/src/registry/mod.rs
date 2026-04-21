@@ -7,7 +7,7 @@ use pyo3::prelude::*;
 use dcc_mcp_utils::py_json::json_value_to_pyobject;
 
 use dashmap::DashMap;
-use dcc_mcp_models::ExecutionMode;
+use dcc_mcp_models::{ExecutionMode, ToolAnnotations};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -81,6 +81,15 @@ pub struct ActionMeta {
     /// never inside `annotations`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout_hint_secs: Option<u32>,
+    /// MCP tool annotations declared by the skill author (issue #344).
+    ///
+    /// When present, each non-`None` hint is surfaced on the MCP
+    /// `tools/list` tool definition as a spec-compliant camelCase field
+    /// (`readOnlyHint`, `destructiveHint`, …). The dcc-mcp-core-specific
+    /// `deferred_hint` lands in `_meta["dcc.deferred_hint"]` rather than
+    /// inside the spec `annotations` map.
+    #[serde(default, skip_serializing_if = "ToolAnnotations::is_empty")]
+    pub annotations: ToolAnnotations,
 }
 
 fn default_enabled() -> bool {
@@ -105,6 +114,7 @@ impl Default for ActionMeta {
             required_capabilities: Vec::new(),
             execution: ExecutionMode::Sync,
             timeout_hint_secs: None,
+            annotations: ToolAnnotations::default(),
         }
     }
 }
@@ -613,6 +623,7 @@ impl ActionRegistry {
                 required_capabilities,
                 execution,
                 timeout_hint_secs,
+                annotations: ToolAnnotations::default(),
             });
         }
     }
@@ -688,6 +699,7 @@ impl ActionRegistry {
             required_capabilities: required_capabilities.unwrap_or_default(),
             execution,
             timeout_hint_secs,
+            annotations: ToolAnnotations::default(),
         });
         Ok(())
     }

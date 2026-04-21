@@ -1,0 +1,39 @@
+feat(skills): surface ToolAnnotations from tools.yaml to MCP tools/list (#344)
+
+Declare per-tool MCP ToolAnnotations inside each entry of the sibling
+tools.yaml file — never as a new top-level SKILL.md frontmatter key
+(keeps #356 sibling-file pattern clean).
+
+Parsing:
+- Canonical form: nested `annotations:` map per tool.
+- Shorthand form: flat `read_only_hint`/`destructive_hint`/... keys on
+  the tool entry (backward compat).
+- Precedence: nested map wins whole-map when both forms are present
+  (not a per-field merge).
+
+tools/list serialization:
+- Emits spec-compliant camelCase keys (readOnlyHint, destructiveHint,
+  idempotentHint, openWorldHint).
+- Tools without any declared annotations OMIT the annotations field
+  entirely — no empty object.
+- `deferred_hint` is a dcc-mcp-core extension, not MCP 2025-03-26; it
+  rides in `_meta["dcc.deferred_hint"]` on the tool declaration,
+  never inside the spec annotations map.
+
+Python surface:
+- `ToolDeclaration.annotations` getter/setter (dict with camelCase keys
+  on read; accepts both snake_case and camelCase on write).
+- `_core.pyi` updated.
+
+Tests:
+- New Python module `tests/test_tool_annotations_surface.py` covering
+  canonical/shorthand/mixed forms and tools/list routing.
+- Rust loader + handler tests extended to cover camelCase emission,
+  omission when empty, and `_meta/dcc/deferred_hint` placement.
+
+Docs:
+- `docs/guide/skills.md` — new "Declaring tool annotations" subsection
+  with both forms, precedence rule, and deferred_hint meta note.
+- `AGENTS.md` + `CLAUDE.md` — one-line pointers.
+
+Closes #344

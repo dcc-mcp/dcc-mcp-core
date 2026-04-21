@@ -51,6 +51,111 @@ impl ExecutionMode {
     }
 }
 
+// ── ToolAnnotations ───────────────────────────────────────────────────────
+
+/// MCP tool behavioural annotations declared in the sibling `tools.yaml`
+/// file (or the SKILL.md `tools:` list).
+///
+/// This mirrors the spec-defined `ToolAnnotations` object from MCP
+/// 2025-03-26 — all fields are optional, missing fields stay `None`.
+/// The one dcc-mcp-core-specific extension is `deferred_hint`, which is
+/// surfaced in the tool declaration's `_meta` slot (never inside the
+/// spec-standard `annotations` map — see issue #344).
+///
+/// ```yaml
+/// tools:
+///   - name: delete_keyframes
+///     annotations:
+///       read_only_hint: false
+///       destructive_hint: true
+///       idempotent_hint: true
+///       open_world_hint: false
+/// ```
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolAnnotations {
+    /// Human-readable display title for the tool.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+
+    /// Whether this tool only reads data (no side effects).
+    #[serde(
+        default,
+        rename = "read_only_hint",
+        alias = "readOnlyHint",
+        alias = "read-only-hint",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub read_only_hint: Option<bool>,
+
+    /// Whether this tool may cause irreversible destructive changes.
+    #[serde(
+        default,
+        rename = "destructive_hint",
+        alias = "destructiveHint",
+        alias = "destructive-hint",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub destructive_hint: Option<bool>,
+
+    /// Whether repeated calls with the same args produce the same result.
+    #[serde(
+        default,
+        rename = "idempotent_hint",
+        alias = "idempotentHint",
+        alias = "idempotent-hint",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub idempotent_hint: Option<bool>,
+
+    /// Whether the tool may interact with external, open-world systems.
+    #[serde(
+        default,
+        rename = "open_world_hint",
+        alias = "openWorldHint",
+        alias = "open-world-hint",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub open_world_hint: Option<bool>,
+
+    /// dcc-mcp-core extension — signals that the tool declaration is a
+    /// deferred stub (full schema arrives on `load_skill`).  Surfaces in
+    /// `_meta["dcc.deferred_hint"]`, **not** in the spec `annotations`
+    /// field.
+    #[serde(
+        default,
+        rename = "deferred_hint",
+        alias = "deferredHint",
+        alias = "deferred-hint",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub deferred_hint: Option<bool>,
+}
+
+impl ToolAnnotations {
+    /// Return `true` when every hint field is `None` — used to decide
+    /// whether to emit an `annotations:` object at all.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.title.is_none()
+            && self.read_only_hint.is_none()
+            && self.destructive_hint.is_none()
+            && self.idempotent_hint.is_none()
+            && self.open_world_hint.is_none()
+            && self.deferred_hint.is_none()
+    }
+
+    /// Same as [`Self::is_empty`] but ignores the `deferred_hint`
+    /// extension (which lives outside the spec `annotations` map).
+    #[must_use]
+    pub fn is_spec_empty(&self) -> bool {
+        self.title.is_none()
+            && self.read_only_hint.is_none()
+            && self.destructive_hint.is_none()
+            && self.idempotent_hint.is_none()
+            && self.open_world_hint.is_none()
+    }
+}
+
 // ── ToolDeclaration ───────────────────────────────────────────────────────
 
 /// Declaration of a tool provided by a skill, parsed from SKILL.md frontmatter.
@@ -58,7 +163,7 @@ impl ExecutionMode {
 /// Unlike `ActionMeta`, this is a lightweight declaration that can be discovered
 /// without loading the skill's scripts. It carries enough information for agents
 /// to decide whether to load a skill.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
 #[cfg_attr(
     feature = "python-bindings",
     pyclass(name = "ToolDeclaration", eq, from_py_object)
@@ -160,13 +265,163 @@ pub struct ToolDeclaration {
     /// `deferredHint` is server-set per MCP 2025-03-26; skill authors must
     /// use `execution: async` instead. Always deserialises to `None`; the
     /// presence of the key triggers a custom-deserialiser error.
-    #[serde(
-        default,
-        skip_serializing,
-        rename = "deferred",
-        deserialize_with = "reject_deferred_field"
-    )]
+    #[serde(default, skip_serializing)]
     pub _deferred_guard: Option<()>,
+
+    /// MCP tool annotations declared in the sibling `tools.yaml` file.
+    ///
+    /// Issue #344 — supports two forms in the YAML source:
+    ///
+    /// 1. Canonical nested map:
+    ///    ```yaml
+    ///    tools:
+    ///      - name: delete_keyframes
+    ///        annotations:
+    ///          read_only_hint: false
+    ///          destructive_hint: true
+    ///    ```
+    /// 2. Shorthand top-level hint keys (backward compatibility):
+    ///    ```yaml
+    ///    tools:
+    ///      - name: get_keyframes
+    ///        read_only_hint: true
+    ///        idempotent_hint: true
+    ///    ```
+    ///
+    /// When both forms are present for the same tool, the nested
+    /// `annotations:` map wins entirely (whole-map replacement, not
+    /// per-field merge).
+    #[serde(default, skip_serializing_if = "ToolAnnotations::is_empty")]
+    pub annotations: ToolAnnotations,
+}
+
+// ── ToolDeclaration custom deserializer (issue #344) ──────────────────────
+//
+// We deserialize via an intermediate "wire" struct so we can:
+//   * reject the legacy top-level `deferred:` field with a clear error,
+//   * fold the shorthand hint keys (`read_only_hint`, `destructive_hint`,
+//     `idempotent_hint`, `open_world_hint`, `deferred_hint`) that sit
+//     directly on the tool entry into `ToolAnnotations`,
+//   * honour the canonical nested `annotations:` map when present — and
+//     have it win whole-map over the shorthand form.
+impl<'de> serde::Deserialize<'de> for ToolDeclaration {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::Error;
+
+        #[derive(Deserialize, Default)]
+        #[serde(default)]
+        struct Wire {
+            name: String,
+            description: String,
+            input_schema: serde_json::Value,
+            #[serde(default)]
+            output_schema: serde_json::Value,
+            read_only: bool,
+            destructive: bool,
+            idempotent: bool,
+            #[serde(rename = "defer-loading", alias = "defer_loading")]
+            defer_loading: bool,
+            source_file: String,
+            #[serde(rename = "next-tools", alias = "next_tools")]
+            next_tools: NextTools,
+            group: String,
+            execution: ExecutionMode,
+            #[serde(rename = "timeout_hint_secs", alias = "timeout-hint-secs")]
+            timeout_hint_secs: Option<u32>,
+
+            /// Legacy user-level `deferred:` flag — rejected below.
+            #[serde(rename = "deferred")]
+            deferred: Option<serde_json::Value>,
+
+            /// Canonical nested annotations map (wins when present).
+            #[serde(default)]
+            annotations: Option<ToolAnnotations>,
+
+            // Shorthand hint keys that sit directly on the tool entry
+            // (backward compatibility). Accept snake_case, camelCase and
+            // kebab-case for each.
+            #[serde(
+                default,
+                rename = "read_only_hint",
+                alias = "readOnlyHint",
+                alias = "read-only-hint"
+            )]
+            read_only_hint: Option<bool>,
+            #[serde(
+                default,
+                rename = "destructive_hint",
+                alias = "destructiveHint",
+                alias = "destructive-hint"
+            )]
+            destructive_hint: Option<bool>,
+            #[serde(
+                default,
+                rename = "idempotent_hint",
+                alias = "idempotentHint",
+                alias = "idempotent-hint"
+            )]
+            idempotent_hint: Option<bool>,
+            #[serde(
+                default,
+                rename = "open_world_hint",
+                alias = "openWorldHint",
+                alias = "open-world-hint"
+            )]
+            open_world_hint: Option<bool>,
+            #[serde(
+                default,
+                rename = "deferred_hint",
+                alias = "deferredHint",
+                alias = "deferred-hint"
+            )]
+            deferred_hint: Option<bool>,
+        }
+
+        let w = Wire::deserialize(deserializer)?;
+
+        if w.deferred.is_some() {
+            return Err(D::Error::custom(
+                "`deferred` is not a user-level SKILL.md field — it is server-derived per \
+                 MCP 2025-03-26. Declare `execution: async` instead (see issue #317).",
+            ));
+        }
+
+        // Build the final annotations: nested map wins entirely; otherwise
+        // promote the shorthand keys.
+        let annotations = if let Some(nested) = w.annotations {
+            nested
+        } else {
+            ToolAnnotations {
+                title: None,
+                read_only_hint: w.read_only_hint,
+                destructive_hint: w.destructive_hint,
+                idempotent_hint: w.idempotent_hint,
+                open_world_hint: w.open_world_hint,
+                deferred_hint: w.deferred_hint,
+            }
+        };
+
+        Ok(Self {
+            name: w.name,
+            description: w.description,
+            input_schema: w.input_schema,
+            output_schema: w.output_schema,
+            read_only: w.read_only,
+            destructive: w.destructive,
+            idempotent: w.idempotent,
+            defer_loading: w.defer_loading,
+            source_file: w.source_file,
+            next_tools: w.next_tools,
+            group: w.group,
+            execution: w.execution,
+            timeout_hint_secs: w.timeout_hint_secs,
+            _deferred_guard: None,
+            annotations,
+        })
+    }
 }
 
 /// Suggested next tools for a successful or failed tool call (issue #143).
@@ -316,6 +571,7 @@ impl ToolDeclaration {
             execution,
             timeout_hint_secs,
             _deferred_guard: None,
+            annotations: ToolAnnotations::default(),
         })
     }
 
@@ -466,6 +722,97 @@ impl ToolDeclaration {
     #[setter]
     fn set_source_file(&mut self, value: String) {
         self.source_file = value;
+    }
+
+    /// Return the declared MCP tool annotations as a Python dict.
+    ///
+    /// Keys use MCP-spec camelCase (`readOnlyHint`, `destructiveHint`,
+    /// `idempotentHint`, `openWorldHint`). The dcc-mcp-core-specific
+    /// `deferredHint` key is included when set (it lives in `_meta` on
+    /// `tools/list`, but is exposed here for convenience).
+    /// Missing fields are omitted entirely.
+    #[getter]
+    fn annotations(&self, py: pyo3::Python<'_>) -> pyo3::PyResult<Py<PyAny>> {
+        use pyo3::types::PyDict;
+        let d = PyDict::new(py);
+        if let Some(v) = &self.annotations.title {
+            d.set_item("title", v)?;
+        }
+        if let Some(v) = self.annotations.read_only_hint {
+            d.set_item("readOnlyHint", v)?;
+        }
+        if let Some(v) = self.annotations.destructive_hint {
+            d.set_item("destructiveHint", v)?;
+        }
+        if let Some(v) = self.annotations.idempotent_hint {
+            d.set_item("idempotentHint", v)?;
+        }
+        if let Some(v) = self.annotations.open_world_hint {
+            d.set_item("openWorldHint", v)?;
+        }
+        if let Some(v) = self.annotations.deferred_hint {
+            d.set_item("deferredHint", v)?;
+        }
+        Ok(d.into_any().unbind())
+    }
+
+    /// Set the tool annotations from a Python mapping.
+    ///
+    /// Accepts both snake_case (`read_only_hint`) and camelCase
+    /// (`readOnlyHint`) keys.  Unknown keys are ignored.  Pass `None` or
+    /// an empty dict to clear.
+    #[setter]
+    fn set_annotations(
+        &mut self,
+        py: pyo3::Python<'_>,
+        value: Option<Py<PyAny>>,
+    ) -> pyo3::PyResult<()> {
+        use pyo3::types::PyDict;
+        let Some(obj) = value else {
+            self.annotations = ToolAnnotations::default();
+            return Ok(());
+        };
+        let bound = obj.bind(py);
+        if bound.is_none() {
+            self.annotations = ToolAnnotations::default();
+            return Ok(());
+        }
+        let d = bound.cast::<PyDict>().map_err(|_| {
+            pyo3::exceptions::PyTypeError::new_err("annotations must be a dict or None")
+        })?;
+
+        fn get_bool(d: &pyo3::Bound<'_, PyDict>, keys: &[&str]) -> pyo3::PyResult<Option<bool>> {
+            for k in keys {
+                if let Some(v) = d.get_item(k)? {
+                    if v.is_none() {
+                        return Ok(None);
+                    }
+                    return Ok(Some(v.extract::<bool>()?));
+                }
+            }
+            Ok(None)
+        }
+        fn get_str(d: &pyo3::Bound<'_, PyDict>, keys: &[&str]) -> pyo3::PyResult<Option<String>> {
+            for k in keys {
+                if let Some(v) = d.get_item(k)? {
+                    if v.is_none() {
+                        return Ok(None);
+                    }
+                    return Ok(Some(v.extract::<String>()?));
+                }
+            }
+            Ok(None)
+        }
+
+        self.annotations = ToolAnnotations {
+            title: get_str(d, &["title"])?,
+            read_only_hint: get_bool(d, &["read_only_hint", "readOnlyHint"])?,
+            destructive_hint: get_bool(d, &["destructive_hint", "destructiveHint"])?,
+            idempotent_hint: get_bool(d, &["idempotent_hint", "idempotentHint"])?,
+            open_world_hint: get_bool(d, &["open_world_hint", "openWorldHint"])?,
+            deferred_hint: get_bool(d, &["deferred_hint", "deferredHint"])?,
+        };
+        Ok(())
     }
 }
 
@@ -1063,21 +1410,6 @@ where
     }
 
     deserializer.deserialize_seq(ToolDeclarationsVisitor)
-}
-
-/// Custom deserializer used by [`ToolDeclaration`] to reject the legacy
-/// `deferred:` user-level field with a clear, actionable error.
-///
-/// `deferredHint` is server-set per MCP 2025-03-26 — authors must declare
-/// `execution: sync|async` instead. See issue #317.
-fn reject_deferred_field<'de, D>(_deserializer: D) -> Result<Option<()>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    Err(serde::de::Error::custom(
-        "`deferred` is not a user-level SKILL.md field — it is server-derived per \
-         MCP 2025-03-26. Declare `execution: async` instead (see issue #317).",
-    ))
 }
 
 fn default_dcc() -> String {

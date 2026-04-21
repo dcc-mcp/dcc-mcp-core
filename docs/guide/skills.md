@@ -608,6 +608,62 @@ groups:
     tools: [create_sphere]
 ```
 
+#### Declaring tool annotations (issue #344)
+
+Each tool entry in `tools.yaml` can carry MCP
+[`ToolAnnotations`](https://modelcontextprotocol.io/specification/2025-03-26/server/tools#tool-annotations)
+that describe how the tool behaves. dcc-mcp-core surfaces them on
+`tools/list` with spec-compliant camelCase keys
+(`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`).
+Tools without any declared annotations **omit** the `annotations` field
+entirely — no empty object.
+
+Two declaration forms are accepted:
+
+**1. Canonical — nested `annotations:` map (preferred).**
+
+```yaml
+# tools.yaml
+tools:
+  - name: delete_keyframes
+    description: Delete keyframes in a frame range
+    annotations:
+      read_only_hint: false
+      destructive_hint: true
+      idempotent_hint: true
+      open_world_hint: false
+```
+
+**2. Shorthand — flat hint keys on the tool entry (backward compatibility).**
+
+```yaml
+tools:
+  - name: get_keyframes
+    read_only_hint: true
+    idempotent_hint: true
+```
+
+**Precedence: the nested `annotations:` map wins whole-map when both
+forms are present for the same tool** — not a per-field merge. This
+avoids confusing precedence when authors migrate from shorthand to
+canonical:
+
+```yaml
+tools:
+  - name: risky
+    read_only_hint: true         # ignored (shorthand)
+    idempotent_hint: true        # ignored (shorthand)
+    annotations:
+      destructive_hint: true     # wins — only this hint is surfaced
+```
+
+**`deferred_hint` is a dcc-mcp-core extension, not MCP 2025-03-26.**
+When you declare `deferred_hint: true`, it rides in
+`_meta["dcc.deferred_hint"]` on the tool declaration — never inside the
+spec-standard `annotations` map (which would make the payload
+non-compliant). The same `_meta` slot also carries the
+`execution: async` implication from issue #317.
+
 ### Metadata key reference
 
 | Legacy top-level                | Spec-compliant `metadata` key                | Value type            |

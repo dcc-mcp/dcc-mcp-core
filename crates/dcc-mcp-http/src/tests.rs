@@ -970,7 +970,15 @@ mod tests {
             !bevel_tool["inputSchema"].is_null(),
             "Loaded tool must have an inputSchema"
         );
-        assert_eq!(bevel_tool["annotations"]["deferredHint"], false);
+        // Issue #344 — tools without declared annotations must OMIT the
+        // `annotations` field entirely (no empty object, no defaults) and
+        // `deferredHint` (a dcc-mcp-core extension) rides in `_meta`,
+        // never in the spec `annotations` map.
+        assert!(
+            bevel_tool.get("annotations").is_none()
+                || bevel_tool["annotations"].get("deferredHint").is_none(),
+            "deferredHint must not appear inside the spec `annotations` map; got {bevel_tool}"
+        );
 
         let git_stub = tools
             .iter()
@@ -1521,7 +1529,14 @@ mod tests {
         assert!(names.contains(&"chamfer"));
 
         let bevel_tool = tools.iter().find(|t| t["name"] == "bevel").unwrap();
-        assert_eq!(bevel_tool["annotations"]["deferredHint"], false);
+        // Issue #344 — deferredHint lives in `_meta["dcc.deferred_hint"]`,
+        // never inside the spec `annotations` map. A tool with no declared
+        // annotations and no async/timeout hint should omit both fields.
+        assert!(
+            bevel_tool.get("annotations").is_none()
+                || bevel_tool["annotations"].get("deferredHint").is_none(),
+            "deferredHint must not appear inside the spec `annotations` map"
+        );
     }
 
     #[tokio::test]

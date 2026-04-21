@@ -8,7 +8,7 @@ pub use action_result::ActionResultModel as ToolResult;
 pub use action_result::{ActionResultModel, ActionResultModelData, SerializeFormat};
 pub use skill_metadata::{
     ExecutionMode, SkillDependencies, SkillDependency, SkillDependencyType, SkillGroup,
-    SkillMetadata, SkillPolicy, ToolDeclaration,
+    SkillMetadata, SkillPolicy, ToolAnnotations, ToolDeclaration,
 };
 pub use skill_scope::SkillScope;
 

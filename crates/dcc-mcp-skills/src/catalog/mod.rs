@@ -366,6 +366,7 @@ impl SkillCatalog {
                 required_capabilities: Vec::new(),
                 execution: tool_decl.execution,
                 timeout_hint_secs: tool_decl.timeout_hint_secs,
+                annotations: tool_decl.annotations.clone(),
             };
 
             self.registry.register_action(meta);
@@ -408,6 +409,7 @@ impl SkillCatalog {
                     required_capabilities: Vec::new(),
                     execution: dcc_mcp_models::ExecutionMode::Sync,
                     timeout_hint_secs: None,
+                    annotations: dcc_mcp_models::ToolAnnotations::default(),
                 };
 
                 self.registry.register_action(meta);
