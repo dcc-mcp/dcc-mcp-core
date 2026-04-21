@@ -200,6 +200,14 @@ from dcc_mcp_core.bridge import BridgeRpcError
 from dcc_mcp_core.bridge import BridgeTimeoutError
 from dcc_mcp_core.bridge import DccBridge
 
+# Cooperative cancellation (pure-Python, no _core dependency)
+from dcc_mcp_core.cancellation import CancelledError
+from dcc_mcp_core.cancellation import CancelToken
+from dcc_mcp_core.cancellation import check_cancelled
+from dcc_mcp_core.cancellation import current_cancel_token
+from dcc_mcp_core.cancellation import reset_cancel_token
+from dcc_mcp_core.cancellation import set_cancel_token
+
 # Pure-Python DCC server diagnostic helpers (no _core dependency)
 from dcc_mcp_core.dcc_server import register_diagnostic_handlers
 from dcc_mcp_core.dcc_server import register_diagnostic_mcp_tools
@@ -270,6 +278,8 @@ __all__ = [
     "BridgeRegistry",
     "BridgeRpcError",
     "BridgeTimeoutError",
+    "CancelToken",
+    "CancelledError",
     "CaptureBackendKind",
     "CaptureFrame",
     "CaptureResult",
@@ -362,8 +372,10 @@ __all__ = [
     "WindowInfo",
     "__author__",
     "__version__",
+    "check_cancelled",
     "create_dcc_server",
     "create_skill_server",
+    "current_cancel_token",
     "deserialize_result",
     "error_result",
     "expand_transitive_dependencies",
@@ -389,6 +401,7 @@ __all__ = [
     "register_bridge",
     "register_diagnostic_handlers",
     "register_diagnostic_mcp_tools",
+    "reset_cancel_token",
     "resolve_dependencies",
     "run_main",
     "scan_and_load",
@@ -396,6 +409,7 @@ __all__ = [
     "scan_skill_paths",
     "scene_info_json_to_stage",
     "serialize_result",
+    "set_cancel_token",
     "shutdown_file_logging",
     "shutdown_telemetry",
     "skill_entry",

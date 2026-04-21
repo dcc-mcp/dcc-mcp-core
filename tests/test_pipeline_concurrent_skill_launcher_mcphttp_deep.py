@@ -647,7 +647,7 @@ class TestSkillScannerCacheClearing:
         # bad-skill should be in skipped (parse_skill_md returns None)
         assert len(skipped) >= 1
 
-    def test_scan_examples_dir_loads_all_11(self):
+    def test_scan_examples_dir_loads_all_example_skills(self):
         """Scan examples/skills and verify every example skill is loaded.
 
         Count scales with the number of skill directories — keep in sync
