@@ -183,6 +183,27 @@ pub struct McpHttpConfig {
     /// [`Self::request_timeout_ms`] instead. Fixes issue #314.
     pub backend_timeout_ms: u64,
 
+    /// Enable the Prometheus `/metrics` endpoint (issue #331).
+    ///
+    /// Requires the `prometheus` Cargo feature on both `dcc-mcp-http`
+    /// and `dcc-mcp-telemetry`. When `true`, [`McpHttpServer::start`]
+    /// mounts a `GET /metrics` route on the same Axum router that
+    /// serves `/mcp`; the body is a standard Prometheus text-exposition
+    /// payload (`text/plain; version=0.0.4`).
+    ///
+    /// Defaults to `false`: the endpoint is opt-in, and when the
+    /// feature is compiled out this flag has no effect.
+    pub enable_prometheus: bool,
+
+    /// Optional HTTP Basic auth guard for `/metrics` (issue #331).
+    ///
+    /// When `Some((user, pass))`, scrapers must present a matching
+    /// `Authorization: Basic ...` header or the endpoint responds with
+    /// `401 Unauthorized`. When `None` (default), the endpoint is
+    /// unauthenticated — acceptable for localhost-only development but
+    /// strongly discouraged in production.
+    pub prometheus_basic_auth: Option<(String, String)>,
+
     /// Enable the built-in `workflows.*` tools (issue #348).
     ///
     /// Default: `false`. When `true`, [`McpHttpServer::start`] registers
@@ -225,6 +246,8 @@ impl McpHttpConfig {
             enable_resources: true,
             enable_artefact_resources: false,
             enable_workflows: false,
+            enable_prometheus: false,
+            prometheus_basic_auth: None,
         }
     }
 

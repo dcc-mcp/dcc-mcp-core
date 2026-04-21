@@ -1,0 +1,33 @@
+feat(telemetry,http): Prometheus /metrics exporter (#331)
+
+Adds an opt-in Prometheus text-exposition exporter built on top of
+dcc-mcp-telemetry. Zero code is compiled when the `prometheus` Cargo
+feature is off; when on, `McpHttpConfig::enable_prometheus = true`
+mounts `GET /metrics` on the existing Axum router with optional HTTP
+Basic auth via `prometheus_basic_auth`.
+
+- New crate feature `dcc-mcp-telemetry/prometheus` + `PrometheusExporter`
+  wrapping a private `prometheus::Registry` with counters, gauges, and
+  histograms for tool calls, job lifecycle, notifications, sessions, and
+  registered tools, plus a `dcc_mcp_build_info` gauge.
+- New `dcc-mcp-http/prometheus` feature wires a `/metrics` handler with
+  constant-time basic-auth comparison; a background tick refreshes the
+  `active_sessions` / `registered_tools` gauges.
+- `handle_tools_call` is wrapped to time every MCP tool invocation and
+  record `dcc_mcp_tool_calls_total{tool,status}` plus
+  `dcc_mcp_tool_duration_seconds`, with the recursive `call_action`
+  path calling the inner fn to avoid double-counting.
+- Python: `McpHttpConfig(enable_prometheus=..., prometheus_basic_auth=...)`
+  with matching getters/setters and `_core.pyi` stubs.
+- Rust integration tests cover payload shape, counter increments, basic
+  auth (401/200), and the endpoint being absent when disabled. Python
+  integration test `tests/test_prometheus.py` mirrors the same flow and
+  skips gracefully when the wheel lacks the feature.
+- Docs: `docs/api/observability.md` with metrics reference, scrape
+  config, and Grafana PromQL examples; pointers added to AGENTS.md /
+  CLAUDE.md.
+
+Non-goals: OTLP exporter, alerting rules, Grafana dashboards beyond
+example queries, push gateway support.
+
+Closes #331

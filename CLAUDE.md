@@ -120,6 +120,16 @@ return a handle that claims to be bound when it actually is not.
 If you write new code that constructs `McpHttpServer` from Rust inside
 a PyO3 binding, set `spawn_mode = ServerSpawnMode::Dedicated` explicitly.
 
+### Prometheus `/metrics` exporter (issue #331)
+
+Opt-in behind the `prometheus` Cargo feature — **off by default**.
+When compiled in, enable at runtime via
+`McpHttpConfig(enable_prometheus=True, prometheus_basic_auth=(u, p))`.
+Metric names live in [`docs/api/observability.md`](docs/api/observability.md);
+see there for Grafana PromQL examples. Counters advance from the
+`tools/call` wrapper in `handler.rs` — do not add recording sites
+elsewhere.
+
 ### When Using MCP HTTP Server
 
 ```python

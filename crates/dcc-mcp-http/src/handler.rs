@@ -101,6 +101,15 @@ pub struct AppState {
     /// Whether the `resources/*` methods are dispatched and the
     /// `resources` capability is advertised in `initialize`.
     pub enable_resources: bool,
+    /// Prometheus exporter for tool-call observability (issue #331).
+    ///
+    /// Present only when the `prometheus` Cargo feature is enabled
+    /// **and** [`McpHttpConfig::enable_prometheus`](crate::config::McpHttpConfig::enable_prometheus)
+    /// is `true`. When `None`, every recording site is a cheap
+    /// `Option::is_some` check so the overhead is negligible for
+    /// servers that do not opt in.
+    #[cfg(feature = "prometheus")]
+    pub prometheus: Option<dcc_mcp_telemetry::PrometheusExporter>,
 }
 
 impl AppState {
@@ -911,6 +920,54 @@ async fn handle_tools_list(
 }
 
 async fn handle_tools_call(
+    state: &AppState,
+    req: &JsonRpcRequest,
+    session_id: Option<&str>,
+) -> Result<JsonRpcResponse, HttpError> {
+    // Observe tool-call duration / status when the Prometheus exporter
+    // is enabled (issue #331). We extract the tool name eagerly so we
+    // can still record a row for malformed params.
+    #[cfg(feature = "prometheus")]
+    let prom_start = std::time::Instant::now();
+    #[cfg(feature = "prometheus")]
+    let prom_tool_name: Option<String> = req
+        .params
+        .as_ref()
+        .and_then(|p| p.get("name"))
+        .and_then(|n| n.as_str())
+        .map(|s| s.to_string());
+
+    let result = handle_tools_call_inner(state, req, session_id).await;
+
+    #[cfg(feature = "prometheus")]
+    if let Some(exporter) = state.prometheus.as_ref() {
+        let tool = prom_tool_name.as_deref().unwrap_or("<unknown>");
+        let status = match &result {
+            Ok(resp) => {
+                // A JSON-RPC success response with `result.isError == true`
+                // is a tool-level error (MCP convention). Distinguish so
+                // counters match what operators see in traces.
+                if resp
+                    .result
+                    .as_ref()
+                    .and_then(|r| r.get("isError"))
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
+                {
+                    "error"
+                } else {
+                    "success"
+                }
+            }
+            Err(_) => "error",
+        };
+        exporter.record_tool_call(tool, status, prom_start.elapsed());
+    }
+
+    result
+}
+
+async fn handle_tools_call_inner(
     state: &AppState,
     req: &JsonRpcRequest,
     session_id: Option<&str>,
@@ -2836,7 +2893,10 @@ async fn handle_call_action(
     // on the `call_action` branch). The meta-tool guard above guarantees
     // the recursion terminates in one step — we only ever call through
     // to a real action.
-    Box::pin(handle_tools_call(state, &inner_req, session_id)).await
+    // Recurse through the `_inner` variant — the outer wrapper has
+    // already started the Prometheus timer for this request; letting
+    // the recursion hit the wrapper again would double-count.
+    Box::pin(handle_tools_call_inner(state, &inner_req, session_id)).await
 }
 
 /// Look up an action by the id surfaced in `list_actions` (canonical

@@ -25,6 +25,10 @@ tracing-opentelemetry = { version = "0.32" }
 # OTLP exporter (optional — only for production export to Jaeger/Tempo/etc.)
 opentelemetry-otlp = { version = "0.31", features = ["grpc-tonic", "trace", "metrics"], optional = true }
 
+# Prometheus exporter (optional — enabled via the `prometheus` feature).
+# Zero-cost when disabled; no code paths are compiled into the wheel.
+prometheus = { version = "0.14", default-features = false, optional = true }
+
 # Tokio runtime
 tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time", "macros"] }
 
@@ -37,3 +41,8 @@ default = []
 python-bindings = ["pyo3"]
 # Enable OTLP export to Jaeger / Grafana Tempo / Prometheus
 otlp-exporter = ["opentelemetry-otlp"]
+# Enable the Prometheus text-exposition exporter (issue #331).
+# Surfaces a `PrometheusExporter` type that reads from `ToolRecorder`
+# state and can be rendered to a Prometheus scrape body. The HTTP crate
+# enables this via its own `prometheus` feature to wire up `/metrics`.
+prometheus = ["dep:prometheus"]

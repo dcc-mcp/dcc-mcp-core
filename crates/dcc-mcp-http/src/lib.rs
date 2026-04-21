@@ -52,6 +52,9 @@ pub mod resources;
 pub mod server;
 pub mod session;
 
+#[cfg(feature = "prometheus")]
+pub mod metrics;
+
 #[cfg(feature = "python-bindings")]
 pub mod python;
 

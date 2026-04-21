@@ -151,6 +151,11 @@ python-bindings = ["pyo3", "dcc-mcp-naming/python-bindings", "dcc-mcp-models/pyt
 # for one release — enables WorkflowSpec/WorkflowStatus in Python and the
 # workflows.* built-in tools in Rust. Step execution is stubbed; see #348.
 workflow = ["dep:dcc-mcp-workflow"]
+# Enable the Prometheus `/metrics` exporter (issue #331). Off by default.
+# Forwards to dcc-mcp-http/prometheus, which in turn enables the
+# prometheus feature on dcc-mcp-telemetry. When disabled, zero
+# Prometheus code is compiled into the wheel.
+prometheus = ["dcc-mcp-http/prometheus", "dcc-mcp-telemetry/prometheus"]
 abi3-py38 = ["pyo3/abi3-py38"]
 # Python 3.7 wheel: non-abi3 build, no abi3-py38 feature
 ext-module = ["pyo3/extension-module"]

@@ -212,6 +212,16 @@ impl McpHttpServer {
             });
         }
 
+        // Periodic gauge updater for Prometheus (issue #331). Driven
+        // by the exporter being live so we do not leak a ticker task
+        // on servers that did not opt into metrics.
+        #[cfg(feature = "prometheus")]
+        let prometheus_gauge_ctx = if self.config.enable_prometheus {
+            Some((self.registry.clone(), sessions.clone()))
+        } else {
+            None
+        };
+
         let resources = self.resources.clone();
 
         // Forward `notifications/resources/updated` broadcasts to each
@@ -235,6 +245,21 @@ impl McpHttpServer {
             });
         }
 
+        // Build the Prometheus exporter when both the Cargo feature and
+        // runtime flag are enabled (issue #331). Kept in an Arc so the
+        // `/metrics` route and every tool-call handler share one
+        // registry.
+        #[cfg(feature = "prometheus")]
+        let prometheus = if self.config.enable_prometheus {
+            let exporter = dcc_mcp_telemetry::PrometheusExporter::new();
+            // Seed the gauge for registered tools so scrapers see a
+            // meaningful value on the very first scrape.
+            exporter.set_registered_tools(self.registry.list_actions(None).len() as i64);
+            Some(exporter)
+        } else {
+            None
+        };
+
         let state = AppState {
             registry: self.registry,
             dispatcher: self.dispatcher,
@@ -252,6 +277,8 @@ impl McpHttpServer {
             jobs: std::sync::Arc::new(crate::job::JobManager::new()),
             resources,
             enable_resources: self.config.enable_resources,
+            #[cfg(feature = "prometheus")]
+            prometheus: prometheus.clone(),
         };
 
         let endpoint = self.config.endpoint_path.clone();
@@ -265,6 +292,40 @@ impl McpHttpServer {
             )
             .with_state(state)
             .layer(TraceLayer::new_for_http());
+
+        // Prometheus `/metrics` endpoint (issue #331). Mounted on the
+        // same router so scrapers share the MCP server's listening
+        // port, TLS terminator, and ingress config. The route has its
+        // own `MetricsState`, independent of the MCP AppState.
+        #[cfg(feature = "prometheus")]
+        if let Some(exporter) = prometheus.as_ref() {
+            let metrics_state = crate::metrics::MetricsState::new(
+                exporter.clone(),
+                self.config.prometheus_basic_auth.clone(),
+            );
+            let metrics_router = Router::new()
+                .route("/metrics", routing::get(crate::metrics::handle_metrics))
+                .with_state(metrics_state);
+            router = router.merge(metrics_router);
+            tracing::info!("Prometheus /metrics endpoint enabled");
+
+            // Spawn a low-frequency gauge updater so `active_sessions`
+            // and `registered_tools` stay fresh without poking every
+            // handler path. 5-second tick is finer than the default
+            // Prometheus scrape interval (15 s) yet costs nothing
+            // meaningful.
+            if let Some((registry, sessions_for_gauge)) = prometheus_gauge_ctx.clone() {
+                let exporter_bg = exporter.clone();
+                tokio::spawn(async move {
+                    let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
+                    loop {
+                        interval.tick().await;
+                        exporter_bg.set_registered_tools(registry.list_actions(None).len() as i64);
+                        exporter_bg.set_active_sessions(sessions_for_gauge.count() as i64);
+                    }
+                });
+            }
+        }
 
         if self.config.enable_cors {
             router = router.layer(

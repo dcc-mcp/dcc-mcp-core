@@ -174,6 +174,12 @@ Need to interact with DCC?
 **Screen capture, shared memory, telemetry, process management?**
 → `docs/api/capture.md`, `docs/api/shm.md`, `docs/api/telemetry.md`, `docs/api/process.md`
 
+**Prometheus `/metrics` scraping (issue #331)?**
+→ [`docs/api/observability.md`](docs/api/observability.md) — opt-in
+  `prometheus` Cargo feature + `McpHttpConfig(enable_prometheus=True,
+  prometheus_basic_auth=(user, pass))`. Off by default; zero code
+  when disabled.
+
 **Capture a single DCC window (not the whole screen)?**
 → `Capturer.new_window_auto()` + `.capture_window(process_id=..., window_title=..., window_handle=...)`
 → Resolve targets first: `WindowFinder().find(CaptureTarget.process_id(pid))` → `WindowInfo`

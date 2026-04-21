@@ -27,7 +27,7 @@ pub struct PyMcpHttpConfig {
 impl PyMcpHttpConfig {
     /// Create a new config. ``port=0`` binds to any available port.
     #[new]
-    #[pyo3(signature = (port=8765, server_name=None, server_version=None, enable_cors=false, request_timeout_ms=30000, backend_timeout_ms=10_000))]
+    #[pyo3(signature = (port=8765, server_name=None, server_version=None, enable_cors=false, request_timeout_ms=30000, backend_timeout_ms=10_000, enable_prometheus=false, prometheus_basic_auth=None))]
     fn new(
         port: u16,
         server_name: Option<String>,
@@ -35,6 +35,8 @@ impl PyMcpHttpConfig {
         enable_cors: bool,
         request_timeout_ms: u64,
         backend_timeout_ms: u64,
+        enable_prometheus: bool,
+        prometheus_basic_auth: Option<(String, String)>,
     ) -> Self {
         let mut cfg = McpHttpConfig::new(port);
         if let Some(name) = server_name {
@@ -46,6 +48,8 @@ impl PyMcpHttpConfig {
         cfg.enable_cors = enable_cors;
         cfg.request_timeout_ms = request_timeout_ms;
         cfg.backend_timeout_ms = backend_timeout_ms;
+        cfg.enable_prometheus = enable_prometheus;
+        cfg.prometheus_basic_auth = prometheus_basic_auth;
         // Issue #303: PyO3-embedded hosts (Maya on Windows etc.) cannot
         // rely on shared tokio worker threads to drive the accept loop
         // after `block_on` returns. Default to `Dedicated` so the listener
@@ -92,6 +96,45 @@ impl PyMcpHttpConfig {
     #[getter]
     fn enable_cors(&self) -> bool {
         self.inner.enable_cors
+    }
+
+    /// Enable the Prometheus ``/metrics`` endpoint (issue #331).
+    ///
+    /// When ``True``, ``McpHttpServer.start()`` mounts a ``GET /metrics``
+    /// route alongside ``/mcp``. The payload is a standard Prometheus
+    /// text-exposition body (``text/plain; version=0.0.4``) suitable
+    /// for direct scraping by Prometheus, VictoriaMetrics, or any
+    /// OpenMetrics-compatible collector.
+    ///
+    /// Requires the ``prometheus`` Cargo feature to be enabled at
+    /// wheel-build time. On wheels built without the feature this
+    /// flag is accepted but silently has no effect.
+    #[getter]
+    fn enable_prometheus(&self) -> bool {
+        self.inner.enable_prometheus
+    }
+
+    #[setter]
+    fn set_enable_prometheus(&mut self, enabled: bool) {
+        self.inner.enable_prometheus = enabled;
+    }
+
+    /// Optional HTTP Basic auth for ``/metrics`` (issue #331).
+    ///
+    /// Tuple of ``(username, password)`` or ``None``. When set,
+    /// scrapers must present a matching
+    /// ``Authorization: Basic base64(user:pass)`` header or the
+    /// endpoint responds with ``401 Unauthorized``. ``None`` leaves
+    /// the endpoint open — appropriate for localhost-only dev, but
+    /// configure credentials for anything exposed beyond that.
+    #[getter]
+    fn prometheus_basic_auth(&self) -> Option<(String, String)> {
+        self.inner.prometheus_basic_auth.clone()
+    }
+
+    #[setter]
+    fn set_prometheus_basic_auth(&mut self, auth: Option<(String, String)>) {
+        self.inner.prometheus_basic_auth = auth;
     }
 
     /// Idle session TTL in seconds. Sessions not touched within this window are

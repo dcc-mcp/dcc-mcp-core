@@ -19,6 +19,7 @@ dcc-mcp-utils = { path = "../dcc-mcp-utils" }
 dcc-mcp-transport = { path = "../dcc-mcp-transport" }
 dcc-mcp-sandbox = { path = "../dcc-mcp-sandbox" }
 dcc-mcp-capture = { path = "../dcc-mcp-capture" }
+dcc-mcp-telemetry = { path = "../dcc-mcp-telemetry", optional = true }
 
 # Workspace shared
 serde = { workspace = true }
@@ -58,3 +59,7 @@ dcc-mcp-sandbox = { path = "../dcc-mcp-sandbox" }
 [features]
 default = []
 python-bindings = ["pyo3", "dcc-mcp-utils/python-bindings", "dcc-mcp-actions/python-bindings", "dcc-mcp-skills/python-bindings"]
+# Enable the Prometheus `/metrics` endpoint (issue #331). Pulls in the
+# matching `prometheus` feature of dcc-mcp-telemetry. Off by default so
+# zero Prometheus code compiles into the wheel when not requested.
+prometheus = ["dep:dcc-mcp-telemetry", "dcc-mcp-telemetry/prometheus"]

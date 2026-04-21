@@ -3733,6 +3733,8 @@ class McpHttpConfig:
         enable_cors: bool = False,
         request_timeout_ms: int = 30000,
         backend_timeout_ms: int = 10000,
+        enable_prometheus: bool = False,
+        prometheus_basic_auth: tuple[str, str] | None = None,
     ) -> None: ...
     @property
     def port(self) -> int: ...
@@ -3823,6 +3825,33 @@ class McpHttpConfig:
         ...
     @enable_artefact_resources.setter
     def enable_artefact_resources(self, enabled: bool) -> None: ...
+    @property
+    def enable_prometheus(self) -> bool:
+        """Enable the Prometheus ``/metrics`` endpoint (issue #331).
+
+        When ``True``, ``McpHttpServer.start()`` mounts a ``GET /metrics``
+        route on the same router as ``/mcp``. The body is a standard
+        Prometheus text-exposition payload (``text/plain; version=0.0.4``).
+
+        Requires the ``prometheus`` Cargo feature to be enabled at
+        wheel-build time. Default: ``False``.
+        """
+        ...
+    @enable_prometheus.setter
+    def enable_prometheus(self, enabled: bool) -> None: ...
+    @property
+    def prometheus_basic_auth(self) -> tuple[str, str] | None:
+        """Optional HTTP Basic auth credentials for ``/metrics``.
+
+        Tuple of ``(username, password)`` or ``None``. When set,
+        scrapers must present a matching ``Authorization: Basic``
+        header or the endpoint responds with ``401 Unauthorized``.
+        ``None`` (default) leaves the endpoint open — acceptable for
+        localhost-only development only.
+        """
+        ...
+    @prometheus_basic_auth.setter
+    def prometheus_basic_auth(self, auth: tuple[str, str] | None) -> None: ...
     def __repr__(self) -> str: ...
 
 class McpServerHandle:
