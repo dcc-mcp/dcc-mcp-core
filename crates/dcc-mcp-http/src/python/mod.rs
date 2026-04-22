@@ -7,7 +7,7 @@ use tokio::runtime::Runtime;
 
 use crate::{
     config::McpHttpConfig,
-    server::{McpHttpServer, McpServerHandle},
+    server::{LiveMetaInner, McpHttpServer, McpServerHandle},
 };
 use dcc_mcp_actions::{ActionDispatcher, ActionRegistry};
 use dcc_mcp_skills::SkillCatalog;
@@ -571,9 +571,9 @@ pub struct PyServerHandle {
     /// ``True`` if this process won the gateway port competition.
     pub is_gateway: bool,
     /// Shared live metadata — mirrors `McpHttpServer::live_meta` so Python
-    /// can push scene/version updates that flow into the FileRegistry on the
-    /// next heartbeat tick.
-    live_meta: Arc<RwLock<(Option<String>, Option<String>)>>,
+    /// can push scene/version/documents updates that flow into FileRegistry
+    /// on the next heartbeat tick.
+    live_meta: Arc<RwLock<LiveMetaInner>>,
 }
 
 #[pymethods]
@@ -615,31 +615,65 @@ impl PyServerHandle {
         self.is_gateway
     }
 
-    /// Update the active scene path and/or DCC version in the gateway registry.
+    /// Update the live instance metadata in the gateway registry.
     ///
-    /// The values are pushed into the shared live-metadata store and propagated
+    /// Works for both single-document DCCs (Maya, Blender — pass ``scene``
+    /// only) and multi-document DCCs (Photoshop, After Effects — also pass
+    /// ``documents`` with the full list of open files and optionally
+    /// ``display_name`` to label the instance).
+    ///
+    /// Values are written into the shared live-metadata store and propagated
     /// to ``FileRegistry`` on the next heartbeat tick (≤ 5 s).  After the
-    /// update, ``list_dcc_instances`` will show the new scene so that AI agents
-    /// and users can identify the correct instance without restarting.
+    /// update, ``list_dcc_instances`` reflects the change so AI agents and
+    /// users can identify the correct instance without restarting.
     ///
-    /// Pass ``None`` to leave a field unchanged; pass ``""`` to clear it.
+    /// Pass ``None`` to leave a field unchanged; pass ``""`` / ``[]`` to
+    /// clear it.
     ///
-    /// Example::
+    /// Examples::
     ///
+    ///     # Maya — single active scene:
     ///     handle.update_scene("C:/projects/hero/rig.ma")
-    ///     handle.update_scene(None, version="Maya 2025.2")
+    ///
+    ///     # Photoshop — active document + all open docs + instance label:
+    ///     handle.update_scene(
+    ///         scene="hero_comp.psd",
+    ///         documents=["hero_comp.psd", "bg_plate.psd", "overlay.psd"],
+    ///         display_name="PS-Marketing",
+    ///     )
+    ///
+    ///     # Clear the document list (single-doc mode again):
+    ///     handle.update_scene(documents=[])
     ///
     /// Args:
-    ///     scene: New scene file path. ``None`` = no change, ``""`` = clear.
-    ///     version: New DCC version string. ``None`` = no change, ``""`` = clear.
-    #[pyo3(signature = (scene=None, version=None))]
-    fn update_scene(&self, scene: Option<String>, version: Option<String>) {
+    ///     scene: Active/focused scene or document path.
+    ///             ``None`` = no change, ``""`` = clear.
+    ///     version: DCC application version string.
+    ///              ``None`` = no change, ``""`` = clear.
+    ///     documents: Full list of open documents (multi-doc DCCs).
+    ///                ``None`` = no change, ``[]`` = clear list.
+    ///     display_name: Human-readable instance label (e.g. ``"PS-Marketing"``).
+    ///                   ``None`` = no change, ``""`` = clear.
+    #[pyo3(signature = (scene=None, version=None, documents=None, display_name=None))]
+    fn update_scene(
+        &self,
+        scene: Option<String>,
+        version: Option<String>,
+        documents: Option<Vec<String>>,
+        display_name: Option<String>,
+    ) {
         let mut guard = self.live_meta.write();
         if let Some(s) = scene {
-            guard.0 = if s.is_empty() { None } else { Some(s) };
+            guard.scene = if s.is_empty() { None } else { Some(s) };
         }
         if let Some(v) = version {
-            guard.1 = if v.is_empty() { None } else { Some(v) };
+            guard.version = if v.is_empty() { None } else { Some(v) };
+        }
+        if let Some(docs) = documents {
+            guard.documents = docs.into_iter().filter(|d| !d.is_empty()).collect();
+        }
+        if let Some(name) = display_name {
+            guard.display_name = if name.is_empty() { None } else { Some(name) };
         }
     }
 
@@ -676,9 +710,9 @@ pub struct PyMcpHttpServer {
     catalog: Arc<SkillCatalog>,
     config: McpHttpConfig,
     runtime: Arc<Runtime>,
-    /// Shared live scene/version — written by Python via `update_scene()` or
-    /// `update_gateway_metadata()`, propagated to FileRegistry each heartbeat.
-    live_meta: Arc<RwLock<(Option<String>, Option<String>)>>,
+    /// Shared live metadata — written by Python via `update_scene()` /
+    /// `update_gateway_metadata()`; propagated to FileRegistry each heartbeat.
+    live_meta: Arc<RwLock<LiveMetaInner>>,
 }
 
 #[pymethods]
@@ -704,7 +738,11 @@ impl PyMcpHttpServer {
             dispatcher.clone(),
         ));
 
-        let live_meta = Arc::new(RwLock::new((cfg.scene.clone(), cfg.dcc_version.clone())));
+        let live_meta = Arc::new(RwLock::new(LiveMetaInner {
+            scene: cfg.scene.clone(),
+            version: cfg.dcc_version.clone(),
+            ..Default::default()
+        }));
         Ok(Self {
             registry: reg,
             dispatcher,
@@ -1098,7 +1136,11 @@ pub fn py_create_skill_server(
     let discovered = catalog.discover(discover_paths.as_deref(), Some(effective_dcc));
     tracing::info!("create_skill_server({app_name}): discovered {discovered} skill(s)");
 
-    let live_meta = Arc::new(RwLock::new((cfg.scene.clone(), cfg.dcc_version.clone())));
+    let live_meta = Arc::new(RwLock::new(LiveMetaInner {
+        scene: cfg.scene.clone(),
+        version: cfg.dcc_version.clone(),
+        ..Default::default()
+    }));
     Ok(PyMcpHttpServer {
         registry: reg,
         dispatcher,

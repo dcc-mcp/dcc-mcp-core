@@ -856,16 +856,29 @@ class DccServerBase:
         self,
         scene: str | None = None,
         version: str | None = None,
+        documents: list[str] | None = None,
+        display_name: str | None = None,
     ) -> bool:
-        """Update scene / version metadata in the gateway registry.
+        """Update instance metadata in the gateway registry.
 
-        Modifies the live registry entry without restarting the server.
-        Also updates the in-memory ``McpHttpConfig`` so future heartbeats
-        include the new values.
+        Works for both single-document DCCs (Maya, Blender — pass ``scene``
+        only) and multi-document DCCs (Photoshop, After Effects — also pass
+        ``documents`` with all open files and optionally ``display_name``).
+
+        Changes propagate to ``FileRegistry`` on the next heartbeat tick
+        (≤ 5 s) so ``list_dcc_instances`` stays current without a restart.
 
         Args:
-            scene: New scene file path.
-            version: New DCC application version string.
+            scene: Active/focused scene or document path.
+                   ``None`` = no change, ``""`` = clear.
+            version: DCC application version string.
+                     ``None`` = no change, ``""`` = clear.
+            documents: Full list of open documents (multi-document DCCs like
+                       Photoshop / After Effects).
+                       ``None`` = no change, ``[]`` = clear list.
+            display_name: Human-readable instance label shown during
+                          disambiguation (e.g. ``"PS-Marketing"``).
+                          ``None`` = no change, ``""`` = clear.
 
         Returns:
             ``True`` on success.
@@ -880,22 +893,16 @@ class DccServerBase:
             logger.debug("[%s] Gateway not configured; metadata update skipped", self._dcc_name)
             return False
 
-        # v0.14: the legacy TransportManager.update_scene path has been
-        # removed together with the custom transport stack (issue #251).
-        # Scene/version metadata now propagates through the next heartbeat
-        # emitted by the gateway-owned McpHttpServer handle. We update the
-        # in-memory config here so the next heartbeat carries the new
-        # values; no out-of-band registry write is needed any more.
         try:
             if scene is not None:
                 self._config.scene = scene
             if version is not None:
                 self._config.dcc_version = version
-            # Push the update into the live-metadata store so it reaches the
-            # FileRegistry on the next heartbeat tick (≤ 5 s) without a restart.
+            # Push all fields into the live-metadata store so the next
+            # heartbeat tick (≤ 5 s) propagates them to FileRegistry.
             if self._handle is not None:
                 try:
-                    self._handle.update_scene(scene, version)
+                    self._handle.update_scene(scene, version, documents, display_name)
                 except Exception as exc_inner:
                     logger.debug("[%s] handle.update_scene failed: %s", self._dcc_name, exc_inner)
             return True

@@ -4204,27 +4204,49 @@ class McpServerHandle:
     def signal_shutdown(self) -> None:
         """Signal shutdown without blocking."""
         ...
-    def update_scene(self, scene: str | None = None, version: str | None = None) -> None:
-        """Push updated scene path and/or DCC version to the gateway registry.
+    def update_scene(
+        self,
+        scene: str | None = None,
+        version: str | None = None,
+        documents: list[str] | None = None,
+        display_name: str | None = None,
+    ) -> None:
+        """Update live instance metadata in the gateway registry.
 
-        The values are written into the shared live-metadata store and
-        propagated to ``FileRegistry`` on the next heartbeat tick (≤ 5 s).
-        After the update, ``list_dcc_instances`` will show the new scene so
-        that AI agents and users can identify the correct instance without
-        restarting the server.
+        Works for both single-document DCCs (Maya, Blender) and multi-document
+        DCCs (Photoshop, After Effects).  Values are written into the shared
+        live-metadata store and propagated to ``FileRegistry`` on the next
+        heartbeat tick (≤ 5 s), so ``list_dcc_instances`` stays current
+        without restarting the server.
 
-        Pass ``None`` to leave a field unchanged; pass ``""`` to clear it.
+        Pass ``None`` to leave a field unchanged; ``""`` / ``[]`` to clear it.
 
-        Example::
+        Examples::
 
-            handle = server.start()
-            # User opens a new file — push the update immediately:
+            # Maya — single active scene:
             handle.update_scene("C:/projects/hero/rig.ma")
-            handle.update_scene(None, version="Maya 2025.2")
+
+            # Photoshop — active doc + all open docs + instance label:
+            handle.update_scene(
+                scene="hero_comp.psd",
+                documents=["hero_comp.psd", "bg_plate.psd", "overlay.psd"],
+                display_name="PS-Marketing",
+            )
+
+            # Clear the document list (back to single-doc mode):
+            handle.update_scene(documents=[])
 
         Args:
-            scene: New scene file path. ``None`` = no change, ``""`` = clear.
-            version: New DCC version string. ``None`` = no change, ``""`` = clear.
+            scene: Active/focused scene or document path.
+                   ``None`` = no change, ``""`` = clear.
+            version: DCC application version string.
+                     ``None`` = no change, ``""`` = clear.
+            documents: Full list of open documents (multi-document DCCs like
+                       Photoshop / After Effects).
+                       ``None`` = no change, ``[]`` = clear list.
+            display_name: Human-readable instance label shown in
+                          disambiguation (e.g. ``"PS-Marketing"``).
+                          ``None`` = no change, ``""`` = clear.
 
         """
         ...

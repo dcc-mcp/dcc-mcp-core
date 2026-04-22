@@ -42,11 +42,29 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-/// Closure type for supplying live scene/version metadata to the heartbeat task.
+/// Snapshot of live DCC instance metadata returned by [`MetadataProvider`].
 ///
-/// Returns `(scene, version)` — either may be `None` to leave the field
-/// unchanged, or `Some("")` to clear it.
-pub type MetadataProvider = Arc<dyn Fn() -> (Option<String>, Option<String>) + Send + Sync>;
+/// Supports both single-document DCCs (Maya, Blender — only `scene` changes)
+/// and multi-document DCCs (Photoshop, After Effects — also `documents` list).
+#[derive(Debug, Clone, Default)]
+pub struct LiveSnapshot {
+    /// Currently active/focused scene or document path.
+    pub scene: Option<String>,
+    /// DCC application version string.
+    pub version: Option<String>,
+    /// All open documents.  Non-empty → `update_documents` is called;
+    /// empty → only `scene`/`version` are updated via `update_metadata`.
+    pub documents: Vec<String>,
+    /// Human-readable instance label (e.g. `"PS-Marketing"`).
+    pub display_name: Option<String>,
+}
+
+/// Closure type for supplying live instance metadata to the heartbeat task.
+///
+/// Called on every heartbeat tick; the returned [`LiveSnapshot`] is written
+/// to `FileRegistry` via `update_documents` (when `documents` is non-empty)
+/// or `update_metadata` (single-document DCCs).
+pub type MetadataProvider = Arc<dyn Fn() -> LiveSnapshot + Send + Sync>;
 
 use tokio::sync::{RwLock, broadcast, watch};
 use tokio::task::AbortHandle;
@@ -757,11 +775,25 @@ impl GatewayRunner {
                     tick.tick().await;
                     let r = reg.read().await;
                     if let Some(ref prov) = provider {
-                        let (scene, version) = prov();
-                        let scene_ref = scene.as_deref();
-                        let version_ref = version.as_deref();
-                        // update_metadata also refreshes the heartbeat timestamp
-                        let _ = r.update_metadata(&key, scene_ref, version_ref);
+                        let snap = prov();
+                        if !snap.documents.is_empty() {
+                            // Multi-document DCC (Photoshop, After Effects…):
+                            // update active document + full open-document list + label.
+                            let _ = r.update_documents(
+                                &key,
+                                snap.scene.as_deref(),
+                                &snap.documents,
+                                snap.display_name.as_deref(),
+                            );
+                        } else {
+                            // Single-document DCC (Maya, Blender, Houdini…):
+                            // update scene path and version only.
+                            let _ = r.update_metadata(
+                                &key,
+                                snap.scene.as_deref(),
+                                snap.version.as_deref(),
+                            );
+                        }
                     } else {
                         let _ = r.heartbeat(&key);
                     }

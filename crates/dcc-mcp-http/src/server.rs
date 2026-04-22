@@ -11,7 +11,7 @@ use crate::{
     config::{McpHttpConfig, ServerSpawnMode},
     error::{HttpError, HttpResult},
     executor::DccExecutorHandle,
-    gateway::{GatewayConfig, GatewayRunner, MetadataProvider},
+    gateway::{GatewayConfig, GatewayRunner, LiveSnapshot, MetadataProvider},
     handler::{AppState, handle_delete, handle_get, handle_post},
     inflight::InFlightRequests,
     session::SessionManager,
@@ -20,12 +20,25 @@ use dcc_mcp_actions::{ActionDispatcher, ActionRegistry};
 use dcc_mcp_skills::SkillCatalog;
 use dcc_mcp_transport::discovery::types::ServiceEntry;
 
-/// Shared live metadata for scene/version that is updated while the server
-/// runs and propagated to the `FileRegistry` on every heartbeat tick.
+/// Live DCC instance metadata that is propagated to `FileRegistry` on every
+/// heartbeat tick so that `list_dcc_instances` always shows current state.
 ///
-/// This allows `list_dcc_instances` to always reflect the currently open DCC
-/// scene without requiring a server restart after the user opens a new file.
-type LiveMeta = Arc<RwLock<(Option<String>, Option<String>)>>;
+/// Works for both single-document DCCs (Maya, Blender — only `scene` changes)
+/// and multi-document DCCs (Photoshop, After Effects — also `documents` list).
+#[derive(Debug, Clone, Default)]
+pub struct LiveMetaInner {
+    /// Currently active/focused scene or document path.
+    pub scene: Option<String>,
+    /// DCC application version string.
+    pub version: Option<String>,
+    /// All open documents (multi-document DCCs like Photoshop).
+    /// Empty = no document-list update; use `scene` only.
+    pub documents: Vec<String>,
+    /// Human-readable instance label shown in disambiguation (e.g. `"PS-Marketing"`).
+    pub display_name: Option<String>,
+}
+
+pub(crate) type LiveMeta = Arc<RwLock<LiveMetaInner>>;
 
 /// Handle returned by [`McpHttpServer::start`].
 ///
@@ -144,10 +157,11 @@ impl McpHttpServer {
         ));
         let resources = build_resource_registry(&config);
         let prompts = crate::prompts::PromptRegistry::new(config.enable_prompts);
-        let live_meta: LiveMeta = Arc::new(RwLock::new((
-            config.scene.clone(),
-            config.dcc_version.clone(),
-        )));
+        let live_meta: LiveMeta = Arc::new(RwLock::new(LiveMetaInner {
+            scene: config.scene.clone(),
+            version: config.dcc_version.clone(),
+            ..Default::default()
+        }));
         Self {
             registry: registry.clone(),
             dispatcher,
@@ -172,10 +186,11 @@ impl McpHttpServer {
             .unwrap_or_else(|| Arc::new(ActionDispatcher::new((*registry).clone())));
         let resources = build_resource_registry(&config);
         let prompts = crate::prompts::PromptRegistry::new(config.enable_prompts);
-        let live_meta: LiveMeta = Arc::new(RwLock::new((
-            config.scene.clone(),
-            config.dcc_version.clone(),
-        )));
+        let live_meta: LiveMeta = Arc::new(RwLock::new(LiveMetaInner {
+            scene: config.scene.clone(),
+            version: config.dcc_version.clone(),
+            ..Default::default()
+        }));
         Self {
             registry,
             dispatcher,
@@ -188,24 +203,35 @@ impl McpHttpServer {
         }
     }
 
-    /// Update the live scene and/or version metadata.
+    /// Update the live instance metadata pushed to `FileRegistry` each heartbeat.
     ///
-    /// The new values are written into the shared `LiveMeta` store and will be
-    /// propagated to the `FileRegistry` on the next heartbeat tick (every
-    /// `heartbeat_secs` seconds, default 5 s).  This keeps `list_dcc_instances`
-    /// current when the user opens a different scene without restarting the server.
+    /// Works for both single-document DCCs (Maya, Blender — pass only `scene`)
+    /// and multi-document DCCs (Photoshop, After Effects — also pass `documents`
+    /// and optionally `display_name`).
     ///
-    /// Pass `None` to leave a field unchanged.
-    pub fn update_live_scene(&self, scene: Option<String>, version: Option<String>) {
+    /// Pass `None` to leave a field unchanged; pass `Some("")` / `Some(vec![])`
+    /// to clear it.  Changes are visible in `list_dcc_instances` within the next
+    /// heartbeat interval (default 5 s).
+    pub fn update_live_scene(
+        &self,
+        scene: Option<String>,
+        version: Option<String>,
+        documents: Option<Vec<String>>,
+        display_name: Option<String>,
+    ) {
         let mut guard = self.live_meta.write();
         if let Some(s) = scene {
-            guard.0 = if s.is_empty() { None } else { Some(s) };
+            guard.scene = if s.is_empty() { None } else { Some(s) };
         }
         if let Some(v) = version {
-            guard.1 = if v.is_empty() { None } else { Some(v) };
+            guard.version = if v.is_empty() { None } else { Some(v) };
         }
-        // Also update config so future ServiceEntry construction is consistent.
-        drop(guard);
+        if let Some(docs) = documents {
+            guard.documents = docs.into_iter().filter(|d| !d.is_empty()).collect();
+        }
+        if let Some(name) = display_name {
+            guard.display_name = if name.is_empty() { None } else { Some(name) };
+        }
     }
 
     /// Access the MCP Prompts registry for this server (issues #351, #355).
@@ -517,7 +543,12 @@ impl McpHttpServer {
                     let meta_clone = self.live_meta.clone();
                     let metadata_provider: Option<MetadataProvider> = Some(Arc::new(move || {
                         let guard = meta_clone.read();
-                        (guard.0.clone(), guard.1.clone())
+                        LiveSnapshot {
+                            scene: guard.scene.clone(),
+                            version: guard.version.clone(),
+                            documents: guard.documents.clone(),
+                            display_name: guard.display_name.clone(),
+                        }
                     }));
 
                     match runner.start(entry, metadata_provider).await {
