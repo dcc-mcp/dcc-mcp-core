@@ -72,11 +72,11 @@ to parse — use `"0 0 3 * * *"` for "every day at 03:00".
 ### Template variables
 
 Webhook payloads are merged into workflow inputs via
-`{{trigger.payload.<json-path>}}` placeholders:
+`\{{trigger.payload.<json-path>\}}` placeholders:
 
-- `{{trigger.payload.file_path}}` — dotted-path lookup (objects + numeric
+- `\{{trigger.payload.file_path\}}` — dotted-path lookup (objects + numeric
   array indices).
-- `{{trigger.schedule_id}}` / `{{trigger.workflow}}` — literal context.
+- `\{{trigger.schedule_id\}}` / `\{{trigger.workflow\}}` — literal context.
 
 A placeholder that is the **entire** string preserves the underlying
 JSON type (number stays a number). Placeholders inside a larger string
