@@ -11,6 +11,59 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.14.3](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.2...v0.14.3) (2026-04-22)
+
+
+### Features
+
+* **actions,skills:** add execution and timeout_hint_secs to Action and SKILL.md ([#317](https://github.com/loonghao/dcc-mcp-core/issues/317)) ([#337](https://github.com/loonghao/dcc-mcp-core/issues/337)) ([a29e914](https://github.com/loonghao/dcc-mcp-core/commit/a29e914613143b773f5d3fa7c7cd6027b038dbd7))
+* **actions:** optional SQLite JobStorage backend ([#328](https://github.com/loonghao/dcc-mcp-core/issues/328)) ([#377](https://github.com/loonghao/dcc-mcp-core/issues/377)) ([55d85f6](https://github.com/loonghao/dcc-mcp-core/commit/55d85f68fa82293f9dc977bb98f7ed398de3c15c))
+* **core:** add Workflow primitive skeleton (WorkflowSpec + WorkflowJob) ([#358](https://github.com/loonghao/dcc-mcp-core/issues/358)) ([08fdba3](https://github.com/loonghao/dcc-mcp-core/commit/08fdba3ca7757e612c3df738ef3dd86e6a6a8481))
+* **core:** artefact handoff via FileRef resources ([#349](https://github.com/loonghao/dcc-mcp-core/issues/349)) ([#374](https://github.com/loonghao/dcc-mcp-core/issues/374)) ([fde6096](https://github.com/loonghao/dcc-mcp-core/commit/fde6096d28ce54efe452213c758eb8fe74920d49))
+* **core:** scheduler for cron + webhook-triggered workflows ([#352](https://github.com/loonghao/dcc-mcp-core/issues/352)) ([#383](https://github.com/loonghao/dcc-mcp-core/issues/383)) ([54cc915](https://github.com/loonghao/dcc-mcp-core/commit/54cc91506455892985f9392c67c82cf12dd367f9))
+* **gateway:** async dispatch timeout + opt-in wait-for-terminal response ([#321](https://github.com/loonghao/dcc-mcp-core/issues/321)) ([#381](https://github.com/loonghao/dcc-mcp-core/issues/381)) ([a12114c](https://github.com/loonghao/dcc-mcp-core/commit/a12114c10a77ee42ccede01e6bfb538bb842ad05))
+* **gateway:** batch JSON-RPC, session correlation, and cancellation forwarding ([#313](https://github.com/loonghao/dcc-mcp-core/issues/313)) ([fcb1f45](https://github.com/loonghao/dcc-mcp-core/commit/fcb1f45a4789aab883a993d359a39fa9a58013a6))
+* **gateway:** JobRoute cache with backend correlation, TTL, and cap ([#322](https://github.com/loonghao/dcc-mcp-core/issues/322)) ([#384](https://github.com/loonghao/dcc-mcp-core/issues/384)) ([39e9f40](https://github.com/loonghao/dcc-mcp-core/commit/39e9f4048a3aa70ba9c247fbeca209ff21b07347))
+* **gateway:** multiplex backend SSE notifications to client sessions ([#320](https://github.com/loonghao/dcc-mcp-core/issues/320)) ([#375](https://github.com/loonghao/dcc-mcp-core/issues/375)) ([5cdacf8](https://github.com/loonghao/dcc-mcp-core/commit/5cdacf822b187e40fbf4fd94b8a30bc787240e6a))
+* **http:** add JobManager for async job tracking ([#316](https://github.com/loonghao/dcc-mcp-core/issues/316)) ([86dc5dc](https://github.com/loonghao/dcc-mcp-core/commit/86dc5dcfe0703dc7954c448173d88aefec1c41c7))
+* **http:** add jobs.get_status built-in tool for job polling ([#319](https://github.com/loonghao/dcc-mcp-core/issues/319)) ([#371](https://github.com/loonghao/dcc-mcp-core/issues/371)) ([f60b777](https://github.com/loonghao/dcc-mcp-core/commit/f60b7772a05ae9a3ff4d096368329ecdf4099062))
+* **http:** add MCP prompts primitive with sibling-file + workflow-derived sources ([#351](https://github.com/loonghao/dcc-mcp-core/issues/351), [#355](https://github.com/loonghao/dcc-mcp-core/issues/355)) ([#373](https://github.com/loonghao/dcc-mcp-core/issues/373)) ([8a9fc6a](https://github.com/loonghao/dcc-mcp-core/commit/8a9fc6a90be234a8bf0024142d779fcbc58d4934))
+* **http:** async job dispatch path in handle_tools_call ([#318](https://github.com/loonghao/dcc-mcp-core/issues/318)) ([#362](https://github.com/loonghao/dcc-mcp-core/issues/362)) ([e9bc876](https://github.com/loonghao/dcc-mcp-core/commit/e9bc8765992632c2f2e020879c51a2c135c141c5))
+* **http:** job lifecycle notifications on progress + $/dcc.jobUpdated channels ([#326](https://github.com/loonghao/dcc-mcp-core/issues/326)) ([#366](https://github.com/loonghao/dcc-mcp-core/issues/366)) ([e100e3e](https://github.com/loonghao/dcc-mcp-core/commit/e100e3eea89223d9b4f691b9a5539a3b21f0bf86))
+* **http:** make gateway backend timeout configurable ([#314](https://github.com/loonghao/dcc-mcp-core/issues/314)) ([#334](https://github.com/loonghao/dcc-mcp-core/issues/334)) ([1fb2880](https://github.com/loonghao/dcc-mcp-core/commit/1fb2880a931090706e256edd0129beded8156168))
+* **http:** Resources primitive for live DCC state ([#350](https://github.com/loonghao/dcc-mcp-core/issues/350)) ([#360](https://github.com/loonghao/dcc-mcp-core/issues/360)) ([415a3b0](https://github.com/loonghao/dcc-mcp-core/commit/415a3b0264249c6bfe4a673d21961c83d356f198))
+* **http:** rewrite built-in tool descriptions with 3-layer behavioral structure ([#341](https://github.com/loonghao/dcc-mcp-core/issues/341)) ([#368](https://github.com/loonghao/dcc-mcp-core/issues/368)) ([6e0200f](https://github.com/loonghao/dcc-mcp-core/commit/6e0200f1ab837c8ad270f9356235bae53f855889))
+* **skill:** add check_cancelled() cooperative cancellation API ([#329](https://github.com/loonghao/dcc-mcp-core/issues/329)) ([#338](https://github.com/loonghao/dcc-mcp-core/issues/338)) ([ca8e79b](https://github.com/loonghao/dcc-mcp-core/commit/ca8e79bb0f8f4ce3edff7687e2840cd958cc2ba7))
+* **skills:** accept agentskills.io-compliant metadata.dcc-mcp.* keys ([#357](https://github.com/loonghao/dcc-mcp-core/issues/357)) ([2233a7b](https://github.com/loonghao/dcc-mcp-core/commit/2233a7b65001de540297dfccff7fc95fd92c1b9b)), closes [#356](https://github.com/loonghao/dcc-mcp-core/issues/356)
+* **skills:** BM25-lite scoring with field weights + sibling-file expansion ([#343](https://github.com/loonghao/dcc-mcp-core/issues/343)) ([#369](https://github.com/loonghao/dcc-mcp-core/issues/369)) ([67d6a45](https://github.com/loonghao/dcc-mcp-core/commit/67d6a459c0d19c1734d79d57ac02bce52405d229))
+* **skills:** capability declaration + typed workspace path handshake ([#354](https://github.com/loonghao/dcc-mcp-core/issues/354)) ([#376](https://github.com/loonghao/dcc-mcp-core/issues/376)) ([ace5328](https://github.com/loonghao/dcc-mcp-core/commit/ace5328c532e626780588d5db4b6c74003259694))
+* **skills:** surface ToolAnnotations from tools.yaml to MCP tools/list ([#344](https://github.com/loonghao/dcc-mcp-core/issues/344)) ([#363](https://github.com/loonghao/dcc-mcp-core/issues/363)) ([2b870a6](https://github.com/loonghao/dcc-mcp-core/commit/2b870a6e7fe1148e097b7da0c1384b7427230f2c))
+* **skills:** unify find_skills and search_skills into one discovery tool ([#340](https://github.com/loonghao/dcc-mcp-core/issues/340)) ([#370](https://github.com/loonghao/dcc-mcp-core/issues/370)) ([f73c52b](https://github.com/loonghao/dcc-mcp-core/commit/f73c52bbdf2417ee257410373760aa93b6375ae7))
+* **skills:** wire next-tools from tools.yaml to _meta on CallToolResult ([#342](https://github.com/loonghao/dcc-mcp-core/issues/342)) ([#365](https://github.com/loonghao/dcc-mcp-core/issues/365)) ([1006529](https://github.com/loonghao/dcc-mcp-core/commit/1006529b4f3644bce7b1eed5ee00311bdf939dcd))
+* **telemetry,http:** Prometheus /metrics exporter ([#331](https://github.com/loonghao/dcc-mcp-core/issues/331)) ([#364](https://github.com/loonghao/dcc-mcp-core/issues/364)) ([595adec](https://github.com/loonghao/dcc-mcp-core/commit/595adec273f580bada2fdda2dd8cca9fc5b1e6f6))
+* **telemetry:** Prometheus /metrics exporter for dcc-mcp-core ([#331](https://github.com/loonghao/dcc-mcp-core/issues/331)) ([#367](https://github.com/loonghao/dcc-mcp-core/issues/367)) ([171b529](https://github.com/loonghao/dcc-mcp-core/commit/171b529065299d7c0a0459f21d109bcd68caddfa))
+* **workflow:** full WorkflowExecutor — Tool/Remote/Foreach/Parallel/Approve/Branch ([#348](https://github.com/loonghao/dcc-mcp-core/issues/348)) ([#382](https://github.com/loonghao/dcc-mcp-core/issues/382)) ([8142ade](https://github.com/loonghao/dcc-mcp-core/commit/8142adeca991d7eaf29ce1dcfa1152fbd84e53e5))
+* **workflow:** step-level retry, timeout, and idempotency policies ([#353](https://github.com/loonghao/dcc-mcp-core/issues/353)) ([#372](https://github.com/loonghao/dcc-mcp-core/issues/372)) ([a4fd10b](https://github.com/loonghao/dcc-mcp-core/commit/a4fd10becbe593b2c1619a6f8ca7d4afce6b4342))
+
+
+### Bug Fixes
+
+* **deps:** update rust crate rusqlite to 0.39 ([e90e1de](https://github.com/loonghao/dcc-mcp-core/commit/e90e1deb8da28ccd7fb205a8fc047e524b80cc17))
+* **http,process:** honour main-thread affinity in async dispatch ([#332](https://github.com/loonghao/dcc-mcp-core/issues/332)) ([#378](https://github.com/loonghao/dcc-mcp-core/issues/378)) ([b372a57](https://github.com/loonghao/dcc-mcp-core/commit/b372a57d7d508700bdcc485acfc9235835314baf))
+* **skills:** accept nested metadata.dcc-mcp.* form in SKILL.md loader ([53f4f4f](https://github.com/loonghao/dcc-mcp-core/commit/53f4f4fd9b1d4cfa0aa0e9c42d6d79d51e72fdca))
+* **workflow:** use derive(Default) for BackoffKind to satisfy clippy ([#380](https://github.com/loonghao/dcc-mcp-core/issues/380)) ([5bf37dc](https://github.com/loonghao/dcc-mcp-core/commit/5bf37dc961641d57cba81e04acfd4ceeea7ee8c4))
+
+
+### Documentation
+
+* docs/api/http.md, docs/api/skills.md, AGENTS.md, CLAUDE.md. ([f73c52b](https://github.com/loonghao/dcc-mcp-core/commit/f73c52bbdf2417ee257410373760aa93b6375ae7))
+* docs/guide/capabilities.md ([ace5328](https://github.com/loonghao/dcc-mcp-core/commit/ace5328c532e626780588d5db4b6c74003259694))
+* document DCC main-thread affinity and long-running job patterns ([#315](https://github.com/loonghao/dcc-mcp-core/issues/315)) ([e8cc3cb](https://github.com/loonghao/dcc-mcp-core/commit/e8cc3cbffa148df5cb26b2ed14511776945b744e))
+* document file logging, bare tool names, and missing HTTP config properties ([25720ef](https://github.com/loonghao/dcc-mcp-core/commit/25720ef60ea3da4e4393f5c2df6755b6b44dcaa6))
+* new `docs/guide/gateway.md` + AGENTS.md pointer. ([5cdacf8](https://github.com/loonghao/dcc-mcp-core/commit/5cdacf822b187e40fbf4fd94b8a30bc787240e6a))
+* production deployment guide with Docker, systemd, k8s, HA ([#330](https://github.com/loonghao/dcc-mcp-core/issues/330), [#327](https://github.com/loonghao/dcc-mcp-core/issues/327)) ([#339](https://github.com/loonghao/dcc-mcp-core/issues/339)) ([cf64cd2](https://github.com/loonghao/dcc-mcp-core/commit/cf64cd21130a7977dfef7fd4b4e9a46997179052))
+* **skills:** promote sibling-file pattern from [#356](https://github.com/loonghao/dcc-mcp-core/issues/356) to a repo-wide design rule ([#361](https://github.com/loonghao/dcc-mcp-core/issues/361)) ([208258f](https://github.com/loonghao/dcc-mcp-core/commit/208258fd3bea90b5147e070ab6b30bddfb1c99b6))
+
 ## [0.14.2](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.1...v0.14.2) (2026-04-21)
 
 
