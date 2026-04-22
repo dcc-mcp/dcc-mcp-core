@@ -18,6 +18,7 @@ use chrono_tz::Tz;
 use cron::Schedule as CronSchedule;
 use dashmap::DashMap;
 use parking_lot::Mutex;
+use rand::RngExt;
 use serde_json::json;
 use tokio::sync::Notify;
 use tokio::task::JoinHandle;
@@ -403,7 +404,7 @@ fn jitter_duration(
     schedule_id: &str,
     next: DateTime<Tz>,
 ) -> Duration {
-    use rand::{Rng, SeedableRng};
+    use rand::SeedableRng;
     if max_secs == 0 {
         return Duration::ZERO;
     }

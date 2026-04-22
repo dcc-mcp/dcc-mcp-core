@@ -229,7 +229,7 @@ async fn test_gateway_runner_single_start() {
     };
     let runner = GatewayRunner::new(cfg).unwrap();
     let entry = ServiceEntry::new("maya", "127.0.0.1", 18812);
-    let handle = runner.start(entry).await.unwrap();
+    let handle = runner.start(entry, None).await.unwrap();
     // gateway_port=0 means we never attempt to bind
     assert!(!handle.is_gateway);
 }
@@ -269,8 +269,8 @@ async fn test_gateway_port_competition() {
     let entry1 = ServiceEntry::new("maya", "127.0.0.1", 18812);
     let entry2 = ServiceEntry::new("maya", "127.0.0.1", 18813);
 
-    let h1 = runner1.start(entry1).await.unwrap();
-    let h2 = runner2.start(entry2).await.unwrap();
+    let h1 = runner1.start(entry1, None).await.unwrap();
+    let h2 = runner2.start(entry2, None).await.unwrap();
 
     // Exactly one should win the gateway port
     assert_ne!(
@@ -299,7 +299,7 @@ async fn test_gateway_runner_is_gateway_true_when_port_free() {
     };
     let runner = GatewayRunner::new(cfg).unwrap();
     let entry = ServiceEntry::new("blender", "127.0.0.1", 19000);
-    let handle = runner.start(entry).await.unwrap();
+    let handle = runner.start(entry, None).await.unwrap();
     assert!(handle.is_gateway, "first runner should win free port");
 }
 

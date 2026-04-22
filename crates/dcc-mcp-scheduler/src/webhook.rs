@@ -3,7 +3,7 @@
 //! Uses the GitHub-style `X-Hub-Signature-256: sha256=<hex>` header
 //! convention and a constant-time comparison via the `subtle` crate.
 
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
 use subtle::ConstantTimeEq;
 

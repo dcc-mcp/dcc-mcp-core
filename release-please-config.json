@@ -24,6 +24,18 @@
         {
           "type": "generic",
           "path": ".agents/skills/dcc-mcp-core/SKILL.md"
+        },
+        {
+          "type": "generic",
+          "path": "docs/.vitepress/config.mts"
+        },
+        {
+          "type": "generic",
+          "path": "docs/guide/what-is-dcc-mcp-core.md"
+        },
+        {
+          "type": "generic",
+          "path": "docs/zh/guide/what-is-dcc-mcp-core.md"
         }
       ]
     }

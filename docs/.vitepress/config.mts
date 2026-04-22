@@ -20,7 +20,7 @@ export default defineConfig({
           { text: 'Guide', link: '/guide/what-is-dcc-mcp-core' },
           { text: 'API', link: '/api/models' },
           {
-            text: 'v0.14.1',
+            text: 'v0.14.5',
             items: [
               { text: 'Changelog', link: 'https://github.com/loonghao/dcc-mcp-core/blob/main/CHANGELOG.md' },
               { text: 'PyPI', link: 'https://pypi.org/project/dcc-mcp-core/' },
@@ -43,6 +43,7 @@ export default defineConfig({
                 { text: 'Skills System', link: '/guide/skills' },
                 { text: 'Skill Scopes & Policies', link: '/guide/skill-scopes-policies' },
                 { text: 'Gateway Election', link: '/guide/gateway-election' },
+                { text: 'Gateway', link: '/guide/gateway' },
                 { text: 'Production Deployment', link: '/guide/production-deployment' },
               ]
             },
@@ -54,6 +55,8 @@ export default defineConfig({
                 { text: 'MCP Protocols', link: '/guide/protocols' },
                 { text: 'Naming Actions & Tools', link: '/guide/naming' },
                 { text: 'Transport Layer', link: '/guide/transport' },
+                { text: 'Capabilities', link: '/guide/capabilities' },
+                { text: 'Prompts', link: '/guide/prompts' },
               ]
             },
             {
@@ -68,6 +71,10 @@ export default defineConfig({
                 { text: 'Telemetry', link: '/guide/telemetry' },
                 { text: 'Capture', link: '/guide/capture' },
                 { text: 'USD Bridge', link: '/guide/usd' },
+                { text: 'Artefacts', link: '/guide/artefacts' },
+                { text: 'Job Persistence', link: '/guide/job-persistence' },
+                { text: 'Scheduler', link: '/guide/scheduler' },
+                { text: 'Workflows', link: '/guide/workflows' },
                 { text: 'FAQ', link: '/guide/faq' },
               ]
             },
@@ -90,6 +97,9 @@ export default defineConfig({
                 { text: 'Capture', link: '/api/capture' },
                 { text: 'USD', link: '/api/usd' },
                 { text: 'Utilities', link: '/api/utilities' },
+                { text: 'Observability', link: '/api/observability' },
+                { text: 'Resources', link: '/api/resources' },
+                { text: 'Workflow', link: '/api/workflow' },
               ]
             }
           ]
@@ -105,7 +115,7 @@ export default defineConfig({
           { text: '指南', link: '/zh/guide/what-is-dcc-mcp-core' },
           { text: 'API', link: '/zh/api/models' },
           {
-              text: 'v0.14.1',
+              text: 'v0.14.5',
             items: [
               { text: '更新日志', link: 'https://github.com/loonghao/dcc-mcp-core/blob/main/CHANGELOG.md' },
               { text: 'PyPI', link: 'https://pypi.org/project/dcc-mcp-core/' },
@@ -128,6 +138,7 @@ export default defineConfig({
                 { text: 'Skills 技能包', link: '/zh/guide/skills' },
                 { text: 'Skill 作用域与策略', link: '/zh/guide/skill-scopes-policies' },
                 { text: '网关选举机制', link: '/zh/guide/gateway-election' },
+                { text: 'Gateway', link: '/zh/guide/gateway' },
                 { text: '生产环境部署', link: '/zh/guide/production-deployment' },
               ]
             },
@@ -139,6 +150,8 @@ export default defineConfig({
                 { text: 'MCP 协议', link: '/zh/guide/protocols' },
                 { text: '命名 Actions 与 Tools', link: '/zh/guide/naming' },
                 { text: '传输层', link: '/zh/guide/transport' },
+                { text: 'Capabilities', link: '/zh/guide/capabilities' },
+                { text: 'Prompts', link: '/zh/guide/prompts' },
               ]
             },
             {
@@ -153,6 +166,10 @@ export default defineConfig({
                 { text: '遥测', link: '/zh/guide/telemetry' },
                 { text: '画面捕获', link: '/zh/guide/capture' },
                 { text: 'USD 桥接', link: '/zh/guide/usd' },
+                { text: 'Artefacts', link: '/zh/guide/artefacts' },
+                { text: 'Job Persistence', link: '/zh/guide/job-persistence' },
+                { text: 'Scheduler', link: '/zh/guide/scheduler' },
+                { text: 'Workflows', link: '/zh/guide/workflows' },
                 { text: '常见问题', link: '/zh/guide/faq' },
               ]
             },

@@ -120,7 +120,7 @@ See the [API Reference](/api/actions) for complete documentation of every symbol
 
 ## Version & Python Support
 
-- **Current version**: 0.12.23
+- **Current version**: 0.14.5 <!-- x-release-please-version -->
 - **Python**: 3.7–3.13 (abi3-py38 wheel, tested in CI across all versions)
 - **Rust**: Edition 2024, MSRV 1.85
 - **Build**: maturin + PyO3; zero runtime Python dependencies
