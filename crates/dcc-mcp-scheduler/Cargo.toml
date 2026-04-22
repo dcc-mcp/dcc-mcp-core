@@ -23,13 +23,13 @@ tokio = { workspace = true }
 uuid = { workspace = true }
 
 # Cron parsing + timezone-aware scheduling
-cron = "0.15"
+cron = "0.16"
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
 
 # HMAC-SHA256 webhook validation
-hmac = "0.12"
-sha2 = "0.10"
+hmac = "0.13"
+sha2 = "0.11"
 subtle = "2.6"
 hex = "0.4"
 
@@ -38,7 +38,7 @@ axum = { version = "0.8", features = ["http1", "tokio"] }
 bytes = "1"
 
 # Seedable PRNG for jitter testing
-rand = "0.9"
+rand = "0.10"
 
 [dev-dependencies]
 tempfile = "3"
