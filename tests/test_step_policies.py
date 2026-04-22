@@ -11,10 +11,16 @@ from pathlib import Path
 
 import pytest
 
+import dcc_mcp_core
 from dcc_mcp_core import BackoffKind
 from dcc_mcp_core import RetryPolicy
 from dcc_mcp_core import StepPolicy
 from dcc_mcp_core import WorkflowSpec
+
+pytestmark = pytest.mark.skipif(
+    dcc_mcp_core.WorkflowSpec is None,
+    reason="Built without the `workflow` Cargo feature",
+)
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
