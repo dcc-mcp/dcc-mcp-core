@@ -529,6 +529,20 @@ impl SubscriberManager {
         self.publish_job_event(job_id, &value);
     }
 
+    /// Testing-only: report how many receivers are currently attached
+    /// to the per-job broadcast bus. Returns zero when the bus does
+    /// not yet exist. Used by integration tests to synchronise the
+    /// publish against the gateway's own subscription so the test
+    /// isn't racing the backend round-trip under CI instrumentation.
+    #[doc(hidden)]
+    pub fn job_bus_receiver_count(&self, job_id: &str) -> usize {
+        self.inner
+            .job_event_buses
+            .get(job_id)
+            .map(|entry| entry.value().receiver_count())
+            .unwrap_or(0)
+    }
+
     // ── Backend lifecycle ──────────────────────────────────────────────
 
     /// Ensure a reconnecting SSE subscriber exists for `backend_url`.

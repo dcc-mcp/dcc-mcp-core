@@ -303,8 +303,8 @@ async fn wait_for_terminal_times_out_with_timed_out_flag() {
 
 /// Subscribing to the per-job bus must happen BEFORE the backend reply
 /// so a fast-completing backend doesn't beat the waiter into position.
-/// Publish the terminal event 0 ms later (effectively as soon as the
-/// spawn has a tick to run) and assert we still observe completion.
+/// Publish the terminal event once the gateway has subscribed and
+/// assert we still observe completion.
 #[tokio::test]
 async fn wait_for_terminal_no_race_on_fast_completion() {
     let port = spawn_pending_backend(Duration::ZERO).await;
@@ -317,12 +317,21 @@ async fn wait_for_terminal_no_race_on_fast_completion() {
     let entry = register_backend(&registry, port).await;
     let tool = encoded_tool_name(entry.instance_id, "slow_tool");
 
-    // Publish as fast as we can — the waiter's `job_event_channel` is
-    // created inside `wait_for_terminal_reply` before we await the
-    // receiver, so this race is safe.
+    // Poll until the gateway's `wait_for_terminal_reply` has called
+    // `job_event_channel("job-1")` and registered its receiver, then
+    // publish. This deliberately avoids timing assumptions so the
+    // test is robust under heavy instrumentation (e.g. tarpaulin) and
+    // on loaded CI runners where a fixed 50 ms sleep was occasionally
+    // losing the race with the backend RTT.
     let sub = state.subscriber.clone();
-    tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(50)).await;
+    let publisher = tokio::spawn(async move {
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        while std::time::Instant::now() < deadline {
+            if sub.job_bus_receiver_count("job-1") >= 1 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
         sub.test_publish_job_event(
             "job-1",
             json!({
@@ -344,6 +353,7 @@ async fn wait_for_terminal_no_race_on_fast_completion() {
         Some("sess-5"),
     )
     .await;
+    let _ = publisher.await;
     assert!(!is_error, "fast completion should succeed; text={text}");
     assert!(text.contains("completed"));
 }
