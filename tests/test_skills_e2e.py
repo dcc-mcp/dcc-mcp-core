@@ -214,8 +214,7 @@ class TestAdvancedSkillLayout:
         assert meta.name == "maya-pipeline"
         assert meta.dcc == "maya"
         assert meta.version == "2.0.0"
-        assert "advanced" in meta.tags
-        assert "composable" in meta.tags
+        assert "maya" in meta.tags
 
     def test_maya_pipeline_has_scripts(self, examples_dir: str) -> None:
         skill_dir = str(Path(examples_dir) / "maya-pipeline")

@@ -350,6 +350,9 @@ class TestDccServerBase:
         server._gateway_election = None
         server._config = _FakeConfig()
         server._server = _FakeDccServer()
+        server._enable_telemetry = False
+        server._enable_file_logging = False
+        server._enable_job_persistence = False
         return server
 
     def test_initial_state(self, tmp_path):
@@ -744,6 +747,9 @@ class TestCreateDccServer:
                 self._gateway_election = None
                 self._config = _FakeConfig()
                 self._server = _FakeDccServer()
+                self._enable_telemetry = False
+                self._enable_file_logging = False
+                self._enable_job_persistence = False
 
         return _TestServer
 

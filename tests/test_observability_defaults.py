@@ -36,7 +36,7 @@ def _make_stub_class(tmp_path: Path):
 class TestFileLoggingDefaults:
     def test_file_logging_enabled_by_default(self, tmp_path: Path) -> None:
         """init_file_logging must be called on construction when not disabled."""
-        with patch("dcc_mcp_core.server_base.create_skill_server", return_value=MagicMock()):
+        with patch("dcc_mcp_core.create_skill_server", return_value=MagicMock()):
             with patch("dcc_mcp_core.server_base.DccServerBase._init_file_logging") as mock_log:
                 mock_log.return_value = str(tmp_path)
                 _Stub, skills = _make_stub_class(tmp_path)
@@ -45,7 +45,7 @@ class TestFileLoggingDefaults:
 
     def test_file_logging_disabled_via_flag(self, tmp_path: Path) -> None:
         """enable_file_logging=False must be stored correctly."""
-        with patch("dcc_mcp_core.server_base.create_skill_server", return_value=MagicMock()):
+        with patch("dcc_mcp_core.create_skill_server", return_value=MagicMock()):
             with patch("dcc_mcp_core.server_base.DccServerBase._init_file_logging") as mock_log:
                 mock_log.return_value = ""
                 _Stub, skills = _make_stub_class(tmp_path)
@@ -60,7 +60,7 @@ class TestFileLoggingDefaults:
     def test_file_logging_disabled_via_env_var(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """DCC_MCP_DISABLE_FILE_LOGGING=1 must override enable_file_logging=True."""
         monkeypatch.setenv("DCC_MCP_DISABLE_FILE_LOGGING", "1")
-        with patch("dcc_mcp_core.server_base.create_skill_server", return_value=MagicMock()):
+        with patch("dcc_mcp_core.create_skill_server", return_value=MagicMock()):
             _Stub, skills = _make_stub_class(tmp_path)
             srv = _Stub(dcc_name="maya", builtin_skills_dir=skills, port=0)
             assert srv._enable_file_logging is False
@@ -68,7 +68,7 @@ class TestFileLoggingDefaults:
     def test_log_dir_property_reflects_resolved_dir(self, tmp_path: Path) -> None:
         """server.log_dir must return the path passed back by init_file_logging."""
         log_dir = str(tmp_path / "logs")
-        with patch("dcc_mcp_core.server_base.create_skill_server", return_value=MagicMock()):
+        with patch("dcc_mcp_core.create_skill_server", return_value=MagicMock()):
             with patch("dcc_mcp_core.server_base.DccServerBase._init_file_logging", return_value=log_dir):
                 _Stub, skills = _make_stub_class(tmp_path)
                 srv = _Stub(dcc_name="maya", builtin_skills_dir=skills, port=0)
@@ -82,7 +82,7 @@ class TestFileLoggingDefaults:
             captured.append(cfg)
             return str(tmp_path)
 
-        with patch("dcc_mcp_core.server_base.create_skill_server", return_value=MagicMock()):
+        with patch("dcc_mcp_core.create_skill_server", return_value=MagicMock()):
             with patch("dcc_mcp_core.init_file_logging", side_effect=_fake_init):
                 with patch("dcc_mcp_core.get_log_dir", return_value=str(tmp_path)):
                     from importlib import reload
@@ -108,7 +108,7 @@ class TestFileLoggingDefaults:
 class TestJobPersistenceDefaults:
     def test_job_storage_path_set_by_default(self, tmp_path: Path) -> None:
         """job_storage_path on McpHttpConfig must be set when persistence is enabled."""
-        with patch("dcc_mcp_core.server_base.create_skill_server", return_value=MagicMock()):
+        with patch("dcc_mcp_core.create_skill_server", return_value=MagicMock()):
             with patch("dcc_mcp_core.server_base.DccServerBase._init_file_logging", return_value=str(tmp_path)):
                 _Stub, skills = _make_stub_class(tmp_path)
                 srv = _Stub(dcc_name="maya", builtin_skills_dir=skills, port=0)
@@ -118,7 +118,7 @@ class TestJobPersistenceDefaults:
 
     def test_job_persistence_disabled_via_flag(self, tmp_path: Path) -> None:
         """enable_job_persistence=False must be stored correctly."""
-        with patch("dcc_mcp_core.server_base.create_skill_server", return_value=MagicMock()):
+        with patch("dcc_mcp_core.create_skill_server", return_value=MagicMock()):
             with patch("dcc_mcp_core.server_base.DccServerBase._init_file_logging", return_value=""):
                 _Stub, skills = _make_stub_class(tmp_path)
                 srv = _Stub(
@@ -132,7 +132,7 @@ class TestJobPersistenceDefaults:
     def test_job_persistence_disabled_via_env_var(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """DCC_MCP_DISABLE_JOB_PERSISTENCE=1 must override the default."""
         monkeypatch.setenv("DCC_MCP_DISABLE_JOB_PERSISTENCE", "1")
-        with patch("dcc_mcp_core.server_base.create_skill_server", return_value=MagicMock()):
+        with patch("dcc_mcp_core.create_skill_server", return_value=MagicMock()):
             with patch("dcc_mcp_core.server_base.DccServerBase._init_file_logging", return_value=""):
                 _Stub, skills = _make_stub_class(tmp_path)
                 srv = _Stub(dcc_name="maya", builtin_skills_dir=skills, port=0)
@@ -150,7 +150,7 @@ class TestTelemetryDefaults:
         mock_server = MagicMock()
         mock_server.start.return_value = mock_handle
 
-        with patch("dcc_mcp_core.server_base.create_skill_server", return_value=mock_server):
+        with patch("dcc_mcp_core.create_skill_server", return_value=mock_server):
             with patch("dcc_mcp_core.server_base.DccServerBase._init_file_logging", return_value=""):
                 with patch("dcc_mcp_core.server_base.DccServerBase._init_telemetry") as mock_tel:
                     _Stub, skills = _make_stub_class(tmp_path)
@@ -161,7 +161,7 @@ class TestTelemetryDefaults:
 
     def test_telemetry_disabled_via_flag(self, tmp_path: Path) -> None:
         """enable_telemetry=False must be stored correctly."""
-        with patch("dcc_mcp_core.server_base.create_skill_server", return_value=MagicMock()):
+        with patch("dcc_mcp_core.create_skill_server", return_value=MagicMock()):
             with patch("dcc_mcp_core.server_base.DccServerBase._init_file_logging", return_value=""):
                 _Stub, skills = _make_stub_class(tmp_path)
                 srv = _Stub(
@@ -175,7 +175,7 @@ class TestTelemetryDefaults:
     def test_telemetry_disabled_via_env_var(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """DCC_MCP_DISABLE_TELEMETRY=1 must override enable_telemetry=True."""
         monkeypatch.setenv("DCC_MCP_DISABLE_TELEMETRY", "1")
-        with patch("dcc_mcp_core.server_base.create_skill_server", return_value=MagicMock()):
+        with patch("dcc_mcp_core.create_skill_server", return_value=MagicMock()):
             with patch("dcc_mcp_core.server_base.DccServerBase._init_file_logging", return_value=""):
                 _Stub, skills = _make_stub_class(tmp_path)
                 srv = _Stub(dcc_name="maya", builtin_skills_dir=skills, port=0)
@@ -183,7 +183,7 @@ class TestTelemetryDefaults:
 
     def test_init_telemetry_skips_when_already_initialized(self, tmp_path: Path) -> None:
         """_init_telemetry must not call TelemetryConfig.init() twice."""
-        with patch("dcc_mcp_core.server_base.create_skill_server", return_value=MagicMock()):
+        with patch("dcc_mcp_core.create_skill_server", return_value=MagicMock()):
             with patch("dcc_mcp_core.server_base.DccServerBase._init_file_logging", return_value=""):
                 _Stub, skills = _make_stub_class(tmp_path)
                 srv = _Stub(dcc_name="maya", builtin_skills_dir=skills, port=0)
@@ -200,7 +200,7 @@ class TestTelemetryDefaults:
 class TestObservabilitySummary:
     def test_summary_keys_present(self, tmp_path: Path) -> None:
         """observability_summary must expose all three feature flags."""
-        with patch("dcc_mcp_core.server_base.create_skill_server", return_value=MagicMock()):
+        with patch("dcc_mcp_core.create_skill_server", return_value=MagicMock()):
             with patch("dcc_mcp_core.server_base.DccServerBase._init_file_logging", return_value=""):
                 _Stub, skills = _make_stub_class(tmp_path)
                 srv = _Stub(dcc_name="maya", builtin_skills_dir=skills, port=0)
