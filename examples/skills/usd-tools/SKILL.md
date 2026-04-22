@@ -1,11 +1,20 @@
 ---
 name: usd-tools
-description: "OpenUSD scene inspection and validation tools — read layer stacks, traverse prims, validate USD files. Use when working with USD assets, pipelines, or scene description."
+description: >-
+  Infrastructure skill — low-level OpenUSD scene inspection and validation:
+  read layer stacks, traverse prims, validate USD schemas. Use when working
+  directly with raw USD files (usda, usdc, usdz) or verifying USD compliance.
+  Not for Maya-specific USD export — use maya-pipeline__export_usd for that.
+  Not for full DCC pipeline workflows — use a domain pipeline skill instead.
 license: Apache-2.0
 compatibility: Requires usdcat and usdchecker from the OpenUSD distribution
 allowed-tools: Bash Read
 metadata:
-  category: pipeline
+  dcc-mcp.dcc: python
+  dcc-mcp.version: "1.0.0"
+  dcc-mcp.layer: infrastructure
+  dcc-mcp.search-hint: "USD stage, prim, schema validation, layer stack, usda, usdc, usdz, usdchecker, usdcat, raw USD file"
+  dcc-mcp.tags: "usd, openusd, scene inspection, validation, infrastructure"
   openclaw:
     requires:
       bins:
@@ -13,10 +22,6 @@ metadata:
         - usdchecker
     emoji: "🎬"
     homepage: https://openusd.org
-tags: [usd, openusd, pipeline, scene, validation]
-dcc: python
-version: "1.0.0"
-search-hint: "USD, OpenUSD, scene inspection, validation, layer stack, prims, assets"
 tools:
   - name: inspect
     description: Print the contents of a USD file in human-readable form

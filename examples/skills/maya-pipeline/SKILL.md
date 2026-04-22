@@ -1,16 +1,22 @@
 ---
 name: maya-pipeline
-description: "Advanced Maya pipeline skill — set up project structures, export scenes to USD, and orchestrate multi-step DCC workflows. Use when initialising a Maya project or exporting assets for a pipeline."
+description: >-
+  Domain skill — Maya asset pipeline orchestration: set up project directory
+  structures, export scenes to USD, and coordinate multi-step DCC workflows.
+  Use when initialising a Maya project or exporting assets for a downstream
+  pipeline. Not for raw geometry editing — use maya-geometry for that. Not for
+  low-level USD file inspection — use usd-tools for that.
 license: MIT
 compatibility: Maya 2022+, Python 3.7+, requires usd-tools and maya-geometry skills
 allowed-tools: Bash Read Write
 metadata:
+  dcc-mcp.dcc: maya
+  dcc-mcp.version: "2.0.0"
+  dcc-mcp.layer: domain
+  dcc-mcp.search-hint: "Maya project setup, export scene USD, asset pipeline, Maya export workflow, DCC pipeline orchestration"
+  dcc-mcp.tags: "maya, pipeline, export, project setup, domain"
   category: pipeline
   author: dcc-mcp-core
-tags: [maya, pipeline, advanced, composable]
-dcc: maya
-version: "2.0.0"
-search-hint: "maya, pipeline, USD, export, project setup, scene, asset, DCC workflow"
 depends:
   - maya-geometry
   - usd-tools

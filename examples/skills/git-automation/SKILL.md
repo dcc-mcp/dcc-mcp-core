@@ -1,21 +1,26 @@
 ---
 name: git-automation
-description: "Git repository analysis and automation — inspect commits, branches, diffs, and file history. Use when analysing a codebase, reviewing changes, or automating version control workflows."
+description: >-
+  Infrastructure skill — Git repository analysis and automation: inspect
+  commits, branches, diffs, and file history. Use when analysing a codebase,
+  reviewing changes, or automating version control workflows independent of any
+  DCC. Not for DCC asset versioning or Perforce operations — use a domain skill
+  bound to the specific VCS for those.
 license: MIT
 compatibility: Requires git on PATH
 allowed-tools: Bash Read
 metadata:
-  category: devops
+  dcc-mcp.dcc: python
+  dcc-mcp.version: "1.0.0"
+  dcc-mcp.layer: infrastructure
+  dcc-mcp.search-hint: "git commit, git diff, git branch, git log, version control, codebase analysis, git history"
+  dcc-mcp.tags: "git, vcs, automation, devops, infrastructure"
   openclaw:
     requires:
       bins:
         - git
     emoji: "🔀"
     homepage: https://git-scm.com
-tags: [git, vcs, automation, devops]
-dcc: python
-version: "1.0.0"
-search-hint: "git, commit history, diff, branch, version control, log, vcs"
 tools:
   - name: log
     description: Show recent commit history

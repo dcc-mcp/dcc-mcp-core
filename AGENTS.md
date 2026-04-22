@@ -111,6 +111,11 @@ Need to interact with DCC?
 → [`docs/guide/skills.md`](docs/guide/skills.md)
 → Examples: `examples/skills/` (11 complete packages)
 
+**Choosing the right skill layer (infrastructure vs domain vs example)?**
+→ [`skills/README.md#skill-layering`](skills/README.md#skill-layering) — layer definitions, description pattern, search-hint partitioning
+→ [`docs/guide/skills.md#layered-skill-architecture`](docs/guide/skills.md#layered-skill-architecture) — checklist + failure chain wiring
+→ Template: `skills/templates/domain-skill/` — ready-to-copy domain skill with correct layering
+
 **Writing tool handler Python scripts?**
 → `python/dcc_mcp_core/skill.py` — `@skill_entry`, `skill_success()`, `skill_error()`
 
@@ -706,6 +711,11 @@ json_str = result.to_json()    # JSON string
 - Use `next-tools: on-success/on-failure` in SKILL.md — guides AI agents to follow-up tools
 - Use `search-hint:` in SKILL.md — improves `search_skills` keyword matching
 - Use tool groups with `default_active: false` for power-user features — keeps `tools/list` small
+- **Tag every skill with `metadata.dcc-mcp.layer`** — `infrastructure`, `domain`, or `example`. See `skills/README.md#skill-layering`.
+- **Start every skill `description` with the layer prefix** (`Infrastructure skill —` / `Domain skill —` / `Example skill —`) followed by a "Not for X — use Y" negative routing sentence
+- **Keep `search-hint` non-overlapping across layers** — infrastructure: mechanism-oriented; domain: intent-oriented; example: append "authoring reference"
+- **Wire every domain skill tool `on-failure`** to `[dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]`
+- **Declare `depends: [dcc-diagnostics]`** in every domain skill that uses `on-failure` chains
 - For every new SKILL.md extension, use a `metadata.dcc-mcp.<feature>` key pointing at a sibling file (see "SKILL.md sibling-file pattern" in Traps). Same rule for `tools`, `groups`, `workflows`, `prompts`, and anything future.
 - Unpack `scan_and_load()`: `skills, skipped = scan_and_load(dcc_name="maya")`
 - Register ALL handlers BEFORE `McpHttpServer.start()` — the server reads the registry at startup
@@ -731,6 +741,9 @@ json_str = result.to_json()    # JSON string
 - Don't use legacy APIs: `ActionManager`, `create_action_manager()`, `MiddlewareChain`, `Action` — removed in v0.12+
 - Don't put ANY dcc-mcp-core extension at the top level of a new SKILL.md (v0.15+ / #356) — **the rule is architectural, not a list of specific fields**. `tools`, `groups`, `workflows`, `prompts`, `next-tools` behaviour chains, `examples` packs, and any future extension MUST be a `metadata.dcc-mcp.<feature>` key pointing at a sibling file. See the "SKILL.md sibling-file pattern" trap for the full rationale. Legacy top-level `dcc:`/`tags:`/`tools:`/`groups:`/`depends:`/`search-hint:` still parse for backward compat but emit a deprecation warn and make `is_spec_compliant()` return `False`. See `docs/guide/skills.md#migrating-pre-015-skillmd`.
 - Don't inline large payloads (workflow specs, prompt templates, example dialogues, annotation tables) into SKILL.md frontmatter or body, even under `metadata:` — use sibling files. SKILL.md body stays ≤500 lines / ≤5000 tokens.
+- **Don't create a skill without `metadata.dcc-mcp.layer`** — untagged skills cause routing ambiguity as the catalog grows
+- **Don't write a domain skill `description` without a "Not for X" sentence** — agents need explicit counter-examples to avoid picking the wrong skill
+- **Don't overlap `search-hint` keywords between infrastructure and domain skills** — overlapping keywords make `search_skills()` return ambiguous results
 - Don't use removed transport APIs: `FramedChannel`, `connect_ipc()`, `IpcListener`, `TransportManager`, `CircuitBreaker`, `ConnectionPool` — removed in v0.14 (#251). Use `IpcChannelAdapter` / `DccLinkFrame` instead
 - Don't add Python runtime dependencies — the project is zero-dep by design
 - Don't manually bump versions or edit `CHANGELOG.md` — Release Please handles this

@@ -1,11 +1,18 @@
 ---
 name: clawhub-compat
-description: "Demonstrates full compatibility with the ClawHub/OpenClaw skill format. Use as a reference when creating skills for both the dcc-mcp-core ecosystem and ClawHub marketplace."
+description: >-
+  Example skill — demonstrates full compatibility with the ClawHub/OpenClaw
+  skill format. Use as a reference when creating skills for both the
+  dcc-mcp-core ecosystem and ClawHub marketplace. Not intended for production
+  use — this is an authoring reference only.
 license: MIT
 compatibility: Requires curl binary on PATH
 allowed-tools: Bash Read
 metadata:
-  category: example
+  dcc-mcp.dcc: python
+  dcc-mcp.layer: example
+  dcc-mcp.search-hint: "clawhub, openclaw, marketplace, skill format, compatibility reference"
+  dcc-mcp.tags: "example, clawhub, openclaw, compatibility"
   openclaw:
     requires:
       env:

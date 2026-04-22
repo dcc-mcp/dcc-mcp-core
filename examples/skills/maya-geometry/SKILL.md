@@ -1,16 +1,22 @@
 ---
 name: maya-geometry
-description: "Maya geometry creation and modification tools — create spheres, cubes, cylinders; bevel, extrude, and merge polygon components. Use when working with 3D geometry in Maya scenes."
+description: >-
+  Domain skill — Maya geometry primitives: create spheres, cubes, cylinders;
+  bevel, extrude, and merge polygon components. Use for individual geometry
+  creation or editing operations inside Maya. Not for full asset export
+  pipelines — use maya-pipeline for that. Not for USD scene inspection — use
+  usd-tools for that.
 license: MIT
 compatibility: Maya 2022+, Python 3.7+
 allowed-tools: Bash Read Write
 metadata:
+  dcc-mcp.dcc: maya
+  dcc-mcp.version: "1.0.0"
+  dcc-mcp.layer: domain
+  dcc-mcp.search-hint: "create sphere, create cube, bevel edges, extrude faces, polygon modeling, Maya mesh, 3D primitives, rigging joint"
+  dcc-mcp.tags: "maya, geometry, modeling, polygon, domain"
   category: modeling
   dcc_vendor: Autodesk
-tags: [maya, geometry, creation, modeling]
-dcc: maya
-version: "1.0.0"
-search-hint: "maya, geometry, polygon, sphere, cube, bevel, extrude, merge, 3D modeling, rigging, skin"
 groups:
   - name: modeling
     description: Polygon modeling primitives and edits (always active by default)

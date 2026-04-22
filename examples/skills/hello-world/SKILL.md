@@ -1,13 +1,18 @@
 ---
 name: hello-world
-description: "A minimal example skill that prints a greeting message. Use when demonstrating the dcc-mcp-core skill system or testing a new skill installation."
+description: >-
+  Example skill — minimal greeting tool demonstrating the dcc-mcp-core skill
+  system. Use only when testing a new skill installation or onboarding to the
+  skill authoring workflow. Not intended for production use.
 license: MIT
 compatibility: Python 3.7+
 allowed-tools: Bash Read
-tags: [example, beginner]
-dcc: python
-version: "1.0.0"
-search-hint: "greeting, hello, example, demo, test skill"
+metadata:
+  dcc-mcp.dcc: python
+  dcc-mcp.version: "1.0.0"
+  dcc-mcp.layer: example
+  dcc-mcp.search-hint: "greeting, hello, example, demo, test skill, starter"
+  dcc-mcp.tags: "example, beginner, demo"
 ---
 
 # Hello World

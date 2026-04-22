@@ -1,13 +1,18 @@
 ---
 name: workflow
-description: "Multi-step action orchestration — run a sequence of MCP tools in order, passing results between steps. Enables agents to chain complex operations (select → rename → validate → export) without custom code."
+description: >-
+  Infrastructure skill — multi-step action orchestration: run a sequence of MCP
+  tools in order, passing results between steps. Use when chaining two or more
+  tools into a repeatable pipeline (select → rename → validate → export). Not
+  for single-tool operations or DCC-specific business logic — use a domain skill
+  for those.
 license: MIT
 metadata:
-  category: workflow
   dcc-mcp.dcc: python
   dcc-mcp.version: "1.0.0"
-  dcc-mcp.search-hint: "chain, sequence, pipeline, multi-step, orchestration, workflow, batch, run steps"
-  dcc-mcp.tags: "workflow, orchestration, chain, pipeline, automation"
+  dcc-mcp.layer: infrastructure
+  dcc-mcp.search-hint: "chain, sequence, pipeline, multi-step, orchestration, workflow, batch, run steps, automate"
+  dcc-mcp.tags: "workflow, orchestration, chain, pipeline, automation, infrastructure"
   dcc-mcp.tools: tools.yaml
 ---
 

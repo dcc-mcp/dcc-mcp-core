@@ -261,6 +261,117 @@ watcher.unwatch("/path/to/skills")
 paths = watcher.watched_paths()    # List[str]
 ```
 
+## Layered Skill Architecture
+
+### Why layers matter
+
+As a DCC adapter's skill set grows, AI agents can encounter routing ambiguity: two
+skills share overlapping keywords and the agent picks the wrong one. The layered
+architecture solves this by making each skill's scope and counter-examples explicit
+in its `description`, and by tagging every skill with a `dcc-mcp.layer` metadata key
+that partitions discovery.
+
+### The three layers
+
+| Layer | Role | `dcc-mcp.layer` value |
+|-------|------|----------------------|
+| **infrastructure** | Low-level, DCC-agnostic primitives. Stable API. Auto-loaded or shared. | `infrastructure` |
+| **domain** | Business workflows for a specific DCC or task. Depends on infrastructure. | `domain` |
+| **example** | Authoring references and demos. Never loaded in production. | `example` |
+
+**Infrastructure skills** (e.g. `dcc-diagnostics`, `workflow`, `usd-tools`) are the
+fallback and recovery layer. Every domain skill chains to them via `next-tools.on-failure`.
+
+**Domain skills** (e.g. `maya-geometry`, `maya-pipeline`) implement a specific DCC
+workflow. They declare `depends:` on the infrastructure skills they chain to, and their
+tool descriptions guide agents toward other domain skills when the requested operation
+is out of scope.
+
+### Description pattern: explicit negative routing
+
+The `description` field must follow a 3-part structure that tells agents both
+when to use and when **not** to use the skill:
+
+```
+<Layer> skill — <one-sentence what + scope keywords>. Use when <trigger>.
+Not for <counter-example> — use <other-skill> for that.
+```
+
+```yaml
+# Infrastructure skill
+description: >-
+  Infrastructure skill — low-level OpenUSD scene inspection and validation:
+  read layer stacks, traverse prims, validate schemas. Use when working
+  directly with raw USD files. Not for Maya-specific USD export — use
+  maya-pipeline__export_usd for that.
+
+# Domain skill
+description: >-
+  Domain skill — Maya geometry primitives: create spheres, cubes, cylinders;
+  bevel and extrude polygon components. Use for individual geometry operations
+  in Maya. Not for full asset export pipelines — use maya-pipeline for that.
+  Not for raw USD file inspection — use usd-tools for that.
+```
+
+### Metadata layer tag
+
+Tag every skill with its layer so `search_skills` can filter by layer:
+
+```yaml
+metadata:
+  dcc-mcp.layer: infrastructure   # or: domain | example
+```
+
+```python
+# Browse only infrastructure skills
+infra = catalog.find_skills(tags=["infrastructure"])
+
+# Browse only domain skills for maya
+domain = catalog.find_skills(tags=["domain"], dcc="maya")
+```
+
+### search-hint partitioning
+
+Keep `search-hint` keywords non-overlapping across layers so `search_skills()`
+returns the most relevant skill:
+
+```yaml
+# ✓ Infrastructure — mechanism-oriented (describes the tool/API itself)
+dcc-mcp.search-hint: "usd stage, prim, schema validation, usdcat, usdchecker"
+
+# ✓ Domain — intent-oriented (describes the user's goal)
+dcc-mcp.search-hint: "export Maya scene to USD, asset pipeline, project setup"
+
+# ✓ Example — append "authoring reference" to avoid production matches
+dcc-mcp.search-hint: "async tool, deferred hint, authoring reference"
+```
+
+### Failure chain wiring
+
+Every **domain skill tool** must wire `on-failure` to infrastructure diagnostics.
+This gives the agent a consistent recovery path regardless of which domain skill failed:
+
+```yaml
+tools:
+  - name: export_usd
+    source_file: scripts/export_usd.py
+    next-tools:
+      on-success: [usd_tools__validate]
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
+```
+
+Infrastructure skills do not need `on-failure` chains — they are the fallback.
+
+### Checklist for a new domain skill
+
+Before opening a PR for a new domain skill, verify:
+
+- [ ] `metadata.dcc-mcp.layer: domain` is set
+- [ ] `description` starts with `Domain skill —` and ends with at least one `Not for … — use … for that.` sentence
+- [ ] `search-hint` uses intent-oriented keywords that do not overlap with infrastructure skills
+- [ ] `depends:` lists every infrastructure skill referenced in `next-tools.on-failure`
+- [ ] Every tool has `on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]`
+
 ## Dependency Resolution
 
 Skills can declare dependencies on other skills using the `depends:` field in SKILL.md:

@@ -1,13 +1,19 @@
 ---
 name: dcc-diagnostics
-description: "DCC-agnostic diagnostics and observability tools — capture screenshots, query audit logs, inspect tool performance metrics, and monitor process health. Works in any DCC environment (Maya, Blender, Houdini, Unreal, etc.) or standalone Python."
+description: >-
+  Infrastructure skill — DCC-agnostic observability primitives: capture
+  screenshots, query audit logs, inspect tool performance metrics, and monitor
+  process health. Works in any DCC environment (Maya, Blender, Houdini, Unreal,
+  etc.) or standalone Python. Use for debugging any skill failure or verifying
+  DCC state. Not for primary task execution — use a domain skill for actual DCC
+  operations.
 license: MIT
 metadata:
-  category: diagnostics
   dcc-mcp.dcc: python
   dcc-mcp.version: "1.0.0"
-  dcc-mcp.search-hint: "screenshot, capture, audit log, metrics, performance, process monitor, diagnostics, debug, health check"
-  dcc-mcp.tags: "diagnostics, observability, screenshot, audit, metrics, debug"
+  dcc-mcp.layer: infrastructure
+  dcc-mcp.search-hint: "screenshot, capture, audit log, metrics, performance, process monitor, diagnostics, debug, health check, observability"
+  dcc-mcp.tags: "diagnostics, observability, screenshot, audit, metrics, debug, infrastructure"
   dcc-mcp.tools: tools.yaml
 ---
 

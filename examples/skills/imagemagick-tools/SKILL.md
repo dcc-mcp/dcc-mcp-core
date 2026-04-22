@@ -1,11 +1,19 @@
 ---
 name: imagemagick-tools
-description: "Image processing and manipulation powered by ImageMagick — resize, composite, convert formats, add watermarks. Use when batch-processing textures, thumbnails, or rendered images in DCC pipelines."
+description: >-
+  Infrastructure skill — image processing and manipulation via ImageMagick:
+  resize, composite, convert formats, add watermarks. Use when batch-processing
+  textures, thumbnails, or rendered images at the file level. Not for
+  in-DCC texture or material editing — use a domain skill bound to the specific
+  DCC for that.
 license: MIT
 compatibility: Requires ImageMagick (magick binary) on PATH
 allowed-tools: Bash Read Write
 metadata:
-  category: image
+  dcc-mcp.dcc: python
+  dcc-mcp.layer: infrastructure
+  dcc-mcp.search-hint: "imagemagick, resize image, convert texture, composite, watermark, batch image, thumbnail"
+  dcc-mcp.tags: "image, processing, imagemagick, texture, compositing, infrastructure"
   openclaw:
     requires:
       bins:
@@ -16,8 +24,6 @@ metadata:
         bins: [magick]
     emoji: "🖼️"
     homepage: https://imagemagick.org
-tags: [image, processing, imagemagick, texture, compositing]
-dcc: python
 version: "1.0.0"
 search-hint: "imagemagick, image processing, resize, convert, watermark, texture, thumbnail"
 tools:

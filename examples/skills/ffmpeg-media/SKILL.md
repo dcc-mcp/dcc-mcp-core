@@ -1,11 +1,19 @@
 ---
 name: ffmpeg-media
-description: "Media conversion and processing powered by FFmpeg — convert video/audio formats, extract frames, resize, and transcode. Use when working with video, audio, or image sequences."
+description: >-
+  Infrastructure skill — media conversion and processing via FFmpeg: convert
+  video/audio formats, extract frames, resize, and transcode. Use when
+  manipulating raw media files (mp4, mov, wav, image sequences) regardless of
+  DCC context. Not for DCC-specific render output handling — use a domain
+  pipeline skill for post-render processing tied to a specific DCC.
 license: MIT
 compatibility: Requires ffmpeg and ffprobe binaries on PATH
 allowed-tools: Bash Read Write
 metadata:
-  category: media
+  dcc-mcp.dcc: python
+  dcc-mcp.layer: infrastructure
+  dcc-mcp.search-hint: "ffmpeg, video transcode, audio convert, extract frames, resize video, image sequence, media processing"
+  dcc-mcp.tags: "media, video, audio, ffmpeg, conversion, infrastructure"
   openclaw:
     requires:
       bins:
@@ -17,7 +25,6 @@ metadata:
         bins: [ffmpeg, ffprobe]
     emoji: "🎬"
     homepage: https://ffmpeg.org
-tags: [media, video, audio, ffmpeg, conversion]
 dcc: python
 version: "1.0.0"
 search-hint: "ffmpeg, video, audio, media conversion, transcode, extract frames, resize"

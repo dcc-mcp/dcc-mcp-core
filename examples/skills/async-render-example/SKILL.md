@@ -1,12 +1,18 @@
 ---
 name: async-render-example
-description: "Example skill demonstrating async execution affinity. Use when you want to see how long-running tools surface as deferredHint=true in MCP tools/list."
+description: >-
+  Example skill — demonstrates async execution affinity: long-running tools
+  surface as deferredHint=true in MCP tools/list. Use as a reference when
+  writing domain skills with render or simulation tools. Not intended for
+  production use.
 license: MIT
 compatibility: Python 3.7+
-tags: [example, async, render]
-dcc: python
-version: "1.0.0"
-search-hint: "async, long-running, render, deferred, timeout hint"
+metadata:
+  dcc-mcp.dcc: python
+  dcc-mcp.version: "1.0.0"
+  dcc-mcp.layer: example
+  dcc-mcp.search-hint: "async tool, long-running, deferred hint, timeout hint, render async, authoring reference"
+  dcc-mcp.tags: "example, async, render, deferred"
 tools:
   - name: render_frames
     description: "Pretend to render a frame range. Long-running; the server surfaces `deferredHint: true` and `_meta.dcc.timeoutHintSecs`."

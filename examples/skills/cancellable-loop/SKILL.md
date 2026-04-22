@@ -1,12 +1,18 @@
 ---
 name: cancellable-loop
-description: "Demonstrates cooperative cancellation inside a skill script loop using check_cancelled(). Use when showing how long-running skills should respond to notifications/cancelled."
+description: >-
+  Example skill — demonstrates cooperative cancellation inside a skill script
+  loop using check_cancelled(). Use as a reference when writing long-running
+  domain skills that must respond to notifications/cancelled. Not intended for
+  production use.
 license: MIT
 compatibility: Python 3.7+
-tags: [example, cancellation, long-running]
-dcc: python
-version: "1.0.0"
-search-hint: "cancellation, cancel, long-running, cooperative, check_cancelled, abort"
+metadata:
+  dcc-mcp.dcc: python
+  dcc-mcp.version: "1.0.0"
+  dcc-mcp.layer: example
+  dcc-mcp.search-hint: "cancellation, cancel, long-running, cooperative, check_cancelled, abort, authoring reference"
+  dcc-mcp.tags: "example, cancellation, long-running"
 ---
 
 # Cancellable Loop

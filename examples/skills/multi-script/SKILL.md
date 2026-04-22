@@ -1,16 +1,19 @@
 ---
 name: multi-script
-description: "Demonstrates a skill with multiple script types — Python, Shell, and Batch. Use as a reference when writing cross-platform skills that run different script languages."
+description: >-
+  Example skill — demonstrates a skill with multiple script types (Python,
+  Shell, Batch). Use as a reference when writing cross-platform skills. Not
+  intended for production use — this is an authoring reference only.
 license: MIT
 compatibility: Python 3.7+; bash required on Linux/macOS; cmd on Windows
 allowed-tools: Bash Read
 metadata:
-  category: example
+  dcc-mcp.dcc: python
+  dcc-mcp.version: "1.0.0"
+  dcc-mcp.layer: example
+  dcc-mcp.search-hint: "multi-script, cross-platform, python shell batch, script types, authoring reference"
+  dcc-mcp.tags: "example, multi-language, cross-platform"
   author: dcc-mcp-core
-tags: [example, multi-language, cross-platform]
-dcc: python
-version: "1.0.0"
-search-hint: "multi-script, cross-platform, python, shell, batch, script types, example"
 tools:
   - name: action_python
     description: Runs the Python implementation of the action
