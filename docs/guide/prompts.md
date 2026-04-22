@@ -55,6 +55,7 @@ metadata:
 
 `prompts.yaml` contains two top-level lists — both optional:
 
+::: v-pre
 ```yaml
 prompts:
   - name: bevel_all_edges
@@ -76,6 +77,7 @@ workflows:
   - file: workflows/bake_proxies.workflow.yaml
     prompt_name: bake_proxies_summary      # optional rename
 ```
+:::
 
 ### Explicit prompts
 
@@ -86,7 +88,7 @@ Each entry under `prompts:` is a `PromptSpec`:
 | `name`        | string            | ✅        | Unique within the skill. Fully-qualified when served as MCP. |
 | `description` | string            | ✅        | One-line summary the client shows to the user.               |
 | `arguments`   | list[ArgumentSpec] | ❌       | Typed placeholders for the template.                         |
-| `template`    | string            | ✅        | `{{name}}` placeholders resolved against call-site arguments. |
+| `template`    | string            | ✅        | <code v-pre>`{{name}}`</code> placeholders resolved against call-site arguments. |
 
 `ArgumentSpec` fields: `name`, `description`, `required` (default `false`).
 
@@ -121,14 +123,16 @@ contents are only read when the server handles `prompts/list` or
 ## Templating engine
 
 The rendering engine is intentionally minimal — one token only:
+::: v-pre
 `{{placeholder}}`.
+:::
 
-- Whitespace inside braces is trimmed: `{{ foo }}` == `{{foo}}`.
+- Whitespace inside braces is trimmed: <code v-pre>`{{ foo }}`</code> == <code v-pre>`{{foo}}`</code>.
 - An undeclared required argument raises
   `INVALID_PARAMS: missing required argument: <name>`.
-- Brace content that isn't a bare identifier (`{{ 1 + 1 }}`) is left
+- Brace content that isn't a bare identifier (<code v-pre>`{{ 1 + 1 }}`</code>) is left
   untouched — the engine never evaluates expressions.
-- Unclosed `{{` with no matching `}}` is emitted verbatim.
+- Unclosed <code v-pre>`{{`</code> with no matching `}}` is emitted verbatim.
 
 Keep templates small and declarative. If a template needs loops,
 conditionals, or data fetches, author it as a **workflow** (issue #348)

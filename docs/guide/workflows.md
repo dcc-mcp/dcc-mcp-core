@@ -10,9 +10,10 @@ A workflow is a YAML document that declares an ordered tree of **steps**.
 Each step is either a `tool` call, a `tool_remote` call via the gateway,
 or one of the control-flow kinds (`foreach`, `parallel`, `branch`,
 `approve`). The top-level spec is parsed by
-[`WorkflowSpec::from_yaml`](../api/workflows.md) and validated by
+[`WorkflowSpec::from_yaml`](../api/workflow) and validated by
 `WorkflowSpec::validate()`.
 
+::: v-pre
 ```yaml
 name: vendor_intake
 description: "Import vendor Maya files, QC, export FBX, push to Unreal."
@@ -30,6 +31,7 @@ steps:
       - id: export
         tool: maya__export_fbx
 ```
+:::
 
 See the examples in `examples/workflows/` (to be added alongside the
 executor PR) for full end-to-end demos.
@@ -40,6 +42,7 @@ Every step may declare an optional **policy** block that controls how the
 executor runs it. All fields are optional; omitting the block yields a
 default `StepPolicy` (no timeout, no retry, no idempotency key).
 
+::: v-pre
 ```yaml
 steps:
   - id: export_fbx
@@ -56,6 +59,7 @@ steps:
     idempotency_key: "export_{{scene_id}}_{{frame_range}}"
     idempotency_scope: workflow     # or "global" (default: "workflow")
 ```
+:::
 
 ### `timeout_secs`
 
@@ -102,7 +106,7 @@ execution. The executor consults the JobManager for an existing
 completed job with matching (`step.tool`, `rendered_key`, `scope`); if
 found, the prior result is returned and the step is skipped.
 
-- **Reference check at parse time.** Every `\{{var\}}` root identifier
+- **Reference check at parse time.** Every <code v-pre>`{{var}}`</code> root identifier
   must resolve to either a workflow input, one of the well-known roots
   (`inputs`, `steps`, `item`, `env`), or a step id declared anywhere in
   the tree. Unknown roots produce a
@@ -147,7 +151,7 @@ Re-parse the YAML to change anything.
 | --------------------------------- | ----------------------------------------------------------------------------- |
 | `InvalidPolicy`                   | `max_attempts == 0`, `initial_delay_ms > max_delay_ms`, `timeout_secs == 0`.  |
 | `UnknownTemplateVar`              | `idempotency_key` references an identifier outside the known set.             |
-| `InvalidPolicy` (template parse)  | `idempotency_key` contains a malformed `\{{...\}}` segment.                     |
+| `InvalidPolicy` (template parse)  | `idempotency_key` contains a malformed <code v-pre>`{{...}}`</code> segment.                     |
 
 All three surface as `ValueError` on the Python side with the offending
 step id in the message.
@@ -215,8 +219,8 @@ the token is bounded by one cooperative checkpoint (typically < 200 ms).
 A tool whose output contains a `file_refs` array is automatically
 captured via `ArtefactStore::put`; the resulting `FileRef` URIs appear
 in the downstream step context as
-`\{{steps.<id>.file_refs[<i>].uri\}}`. The raw JSON output is still
-accessible via `\{{steps.<id>.output.*\}}`.
+<code v-pre>`{{steps.<id>.file_refs[<i>].uri}}`</code>. The raw JSON output is still
+accessible via <code v-pre>`{{steps.<id>.output.*}}`</code>.
 
 ### Persistence (#328)
 

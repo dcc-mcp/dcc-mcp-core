@@ -36,6 +36,7 @@ metadata:
 ---
 ```
 
+::: v-pre
 ```yaml
 # schedules.yaml (sibling of SKILL.md)
 schedules:
@@ -61,6 +62,7 @@ schedules:
       secret_env: UPLOAD_WEBHOOK_SECRET
     enabled: true
 ```
+:::
 
 ### Cron expression format
 
@@ -72,11 +74,11 @@ to parse — use `"0 0 3 * * *"` for "every day at 03:00".
 ### Template variables
 
 Webhook payloads are merged into workflow inputs via
-`\{{trigger.payload.<json-path>\}}` placeholders:
+<code v-pre>`{{trigger.payload.<json-path>}}`</code> placeholders:
 
-- `\{{trigger.payload.file_path\}}` — dotted-path lookup (objects + numeric
+- <code v-pre>`{{trigger.payload.file_path}}`</code> — dotted-path lookup (objects + numeric
   array indices).
-- `\{{trigger.schedule_id\}}` / `\{{trigger.workflow\}}` — literal context.
+- <code v-pre>`{{trigger.schedule_id}}`</code> / <code v-pre>`{{trigger.workflow}}`</code> — literal context.
 
 A placeholder that is the **entire** string preserves the underlying
 JSON type (number stays a number). Placeholders inside a larger string
