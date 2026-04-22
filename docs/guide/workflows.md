@@ -102,7 +102,7 @@ execution. The executor consults the JobManager for an existing
 completed job with matching (`step.tool`, `rendered_key`, `scope`); if
 found, the prior result is returned and the step is skipped.
 
-- **Reference check at parse time.** Every `{{var}}` root identifier
+- **Reference check at parse time.** Every `\{{var\}}` root identifier
   must resolve to either a workflow input, one of the well-known roots
   (`inputs`, `steps`, `item`, `env`), or a step id declared anywhere in
   the tree. Unknown roots produce a
@@ -147,7 +147,7 @@ Re-parse the YAML to change anything.
 | --------------------------------- | ----------------------------------------------------------------------------- |
 | `InvalidPolicy`                   | `max_attempts == 0`, `initial_delay_ms > max_delay_ms`, `timeout_secs == 0`.  |
 | `UnknownTemplateVar`              | `idempotency_key` references an identifier outside the known set.             |
-| `InvalidPolicy` (template parse)  | `idempotency_key` contains a malformed `{{...}}` segment.                     |
+| `InvalidPolicy` (template parse)  | `idempotency_key` contains a malformed `\{{...\}}` segment.                     |
 
 All three surface as `ValueError` on the Python side with the offending
 step id in the message.
@@ -215,8 +215,8 @@ the token is bounded by one cooperative checkpoint (typically < 200 ms).
 A tool whose output contains a `file_refs` array is automatically
 captured via `ArtefactStore::put`; the resulting `FileRef` URIs appear
 in the downstream step context as
-`{{steps.<id>.file_refs[<i>].uri}}`. The raw JSON output is still
-accessible via `{{steps.<id>.output.*}}`.
+`\{{steps.<id>.file_refs[<i>].uri\}}`. The raw JSON output is still
+accessible via `\{{steps.<id>.output.*\}}`.
 
 ### Persistence (#328)
 
