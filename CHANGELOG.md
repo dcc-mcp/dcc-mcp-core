@@ -11,6 +11,13 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.14.5](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.4...v0.14.5) (2026-04-22)
+
+
+### Features
+
+* **skills:** add SkillValidator for structured SKILL.md linting ([b658515](https://github.com/loonghao/dcc-mcp-core/commit/b658515723cfd3fcc8884ca24e62b13d9dadec56))
+
 ## [0.14.4](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.3...v0.14.4) (2026-04-22)
 
 
