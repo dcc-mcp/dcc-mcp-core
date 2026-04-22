@@ -820,3 +820,54 @@ Why the rule holds:
 If a feature you are designing can't fit this pattern, that is a
 signal to write a proposal under `docs/proposals/` and discuss the
 frontmatter impact before implementing.
+
+## Validating Skills
+
+Use `validate_skill` to check a skill directory against the specification before loading it at runtime. This catches structural errors, missing files, and format violations early.
+
+```python
+from dcc_mcp_core import validate_skill
+
+report = validate_skill("/path/to/my-skill")
+
+if report.is_clean:
+    print("Skill is valid!")
+else:
+    for issue in report.issues:
+        print(f"[{issue.severity}] {issue.category}: {issue.message}")
+```
+
+### Validation Rules
+
+The validator checks the following categories:
+
+| Category | Checks |
+|----------|--------|
+| **SkillMd** | `SKILL.md` exists and is readable |
+| **Frontmatter** | YAML is well-formed; required fields (`name`, `description`) present; `name` is kebab-case and ≤64 chars; `description` ≤1024 chars; `compatibility` ≤500 chars |
+| **Tools** | Tool names are non-empty, unique, and snake_case; descriptions are present; `group` references exist in declared groups; `next-tools` references point to existing tools |
+| **Scripts** | `source_file` references exist in `scripts/`; file extensions are supported |
+| **Sidecars** | `metadata.dcc-mcp.tools/groups/prompts` sibling files exist |
+| **Dependencies** | `depends` entries are non-empty; `metadata/depends.md` exists when `depends` is declared |
+
+### Severity Levels
+
+- **Error** — the skill cannot be loaded or will malfunction
+- **Warning** — the skill loads but violates a best-practice or spec recommendation
+- **Info** — purely informational (e.g. legacy extension field deprecation notice)
+
+### Using the `dcc-skills-creator` Skill
+
+The `examples/skills/dcc-skills-creator/` skill provides scaffolding and validation helpers:
+
+```python
+# Scaffold a new skill directory
+from dcc_mcp_core.skill import create_skill
+
+skill_path = create_skill("my-new-skill", "/path/to/skills", dcc="maya")
+# Creates: my-new-skill/SKILL.md, scripts/, metadata/
+
+# Get a full SKILL.md template
+from dcc_mcp_core.skill import skill_template
+print(skill_template())
+```

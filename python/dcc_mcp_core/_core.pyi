@@ -1527,6 +1527,21 @@ class SkillSummary:
 
     def __repr__(self) -> str: ...
 
+class SkillValidationIssue:
+    """A single validation issue found by :func:`validate_skill`."""
+
+    severity: str
+    category: str
+    message: str
+
+class SkillValidationReport:
+    """Complete validation report for a skill directory."""
+
+    skill_dir: str
+    issues: list[SkillValidationIssue]
+    has_errors: bool
+    is_clean: bool
+
 class SkillCatalog:
     """Manages discovered skills and their progressive loading.
 
@@ -2398,6 +2413,17 @@ def validate_dependencies(
     """Validate that all declared dependencies exist.
 
     Returns a list of error messages for each missing dependency.
+    """
+    ...
+
+def validate_skill(skill_dir: str) -> SkillValidationReport:
+    """Validate a skill directory and return a structured report.
+
+    Checks that SKILL.md exists, frontmatter is well-formed, required fields
+    are present, field values follow naming/length constraints, declared
+    script files exist, and sidecar references are valid.
+
+    Returns a :class:`SkillValidationReport` with zero or more issues.
     """
     ...
 

@@ -80,3 +80,10 @@ test_rust_out.txt
 test_rust_err.txt
 ruff_out.txt
 test_result.txt
+
+# Temporary / commit message files
+*.tmp
+.commit-msg*
+.git-commit-msg*
+_commit_msg_*.txt
+memory/

@@ -1,10 +1,38 @@
-# dcc-mcp-core Skills Templates
+# dcc-mcp-core Skills
 
-Starter templates for creating new MCP skills. Copy a template directory,
-customise the `SKILL.md` frontmatter and scripts, then add the parent path to
-`DCC_MCP_SKILL_PATHS` so the gateway discovers your skill automatically.
+Official skills and starter templates for the dcc-mcp-core ecosystem.
+
+## Bundled Skills
+
+| Skill | Description | Location |
+|-------|-------------|----------|
+| [`dcc-skills-creator`](dcc-skills-creator/) | Create, validate, and scaffold DCC skills | `skills/dcc-skills-creator/` |
 
 ## Quick Start
+
+### Using the dcc-skills-creator
+
+```bash
+# Add the skills directory to your path
+export DCC_MCP_SKILL_PATHS="/path/to/dcc-mcp-core/skills"
+
+# Start the MCP server — dcc-skills-creator appears in tools/list
+python -c "
+from dcc_mcp_core import create_skill_server, McpHttpConfig
+server = create_skill_server('maya', McpHttpConfig(port=8765))
+handle = server.start()
+print(handle.mcp_url())
+input('Press Enter to stop...')
+handle.shutdown()
+"
+```
+
+Then use the skill's tools:
+- `create_skill` — scaffold a new skill directory
+- `validate_skill_dir` — validate a skill against the spec
+- `skill_template` — get a full SKILL.md template
+
+### Manual Template Copy
 
 ```bash
 # 1. Copy a template
@@ -16,18 +44,11 @@ $EDITOR my-skills/my-new-skill/SKILL.md
 # 3. Write your script(s) in scripts/
 $EDITOR my-skills/my-new-skill/scripts/hello.py
 
-# 4. Register the path so the gateway discovers it
-export DCC_MCP_SKILL_PATHS="/path/to/my-skills"
+# 4. Validate before loading
+python -c "from dcc_mcp_core import validate_skill; print(validate_skill('my-skills/my-new-skill').is_clean)"
 
-# 5. Start the MCP server — your skill appears as a stub in tools/list
-python -c "
-from dcc_mcp_core import create_skill_server, McpHttpConfig
-server = create_skill_server('maya', McpHttpConfig(port=8765))
-handle = server.start()
-print(handle.mcp_url())
-input('Press Enter to stop...')
-handle.shutdown()
-"
+# 5. Register the path so the gateway discovers it
+export DCC_MCP_SKILL_PATHS="/path/to/my-skills"
 ```
 
 ## Templates

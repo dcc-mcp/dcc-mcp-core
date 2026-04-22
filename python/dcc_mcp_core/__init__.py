@@ -123,6 +123,8 @@ from dcc_mcp_core._core import SkillGroup
 from dcc_mcp_core._core import SkillMetadata
 from dcc_mcp_core._core import SkillScanner
 from dcc_mcp_core._core import SkillSummary
+from dcc_mcp_core._core import SkillValidationIssue
+from dcc_mcp_core._core import SkillValidationReport
 from dcc_mcp_core._core import SkillWatcher
 from dcc_mcp_core._core import SocketServerAdapter
 from dcc_mcp_core._core import StringWrapper
@@ -192,6 +194,7 @@ from dcc_mcp_core._core import unwrap_value
 from dcc_mcp_core._core import validate_action_id
 from dcc_mcp_core._core import validate_action_result
 from dcc_mcp_core._core import validate_dependencies
+from dcc_mcp_core._core import validate_skill
 from dcc_mcp_core._core import validate_tool_name
 from dcc_mcp_core._core import wrap_value
 
@@ -381,6 +384,8 @@ __all__ = [
     "SkillMetadata",
     "SkillScanner",
     "SkillSummary",
+    "SkillValidationIssue",
+    "SkillValidationReport",
     "SkillWatcher",
     "SocketServerAdapter",
     "StepPolicy",
@@ -474,6 +479,7 @@ __all__ = [
     "validate_action_id",
     "validate_action_result",
     "validate_dependencies",
+    "validate_skill",
     "validate_tool_name",
     "verify_hub_signature_256",
     "wrap_value",

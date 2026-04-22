@@ -175,6 +175,8 @@ fn register_skills(m: &Bound<'_, PyModule>) -> PyResult<()> {
         dcc_mcp_skills::PySkillWatcher,
         dcc_mcp_skills::SkillCatalog,
         dcc_mcp_skills::SkillSummary,
+        dcc_mcp_skills::PySkillValidationIssue,
+        dcc_mcp_skills::PySkillValidationReport,
         dcc_mcp_models::ToolDeclaration,
     );
     add_functions!(
@@ -186,6 +188,7 @@ fn register_skills(m: &Bound<'_, PyModule>) -> PyResult<()> {
         dcc_mcp_skills::py_expand_transitive_dependencies,
         dcc_mcp_skills::py_scan_and_load,
         dcc_mcp_skills::py_scan_and_load_lenient,
+        dcc_mcp_skills::py_validate_skill,
     );
     Ok(())
 }
