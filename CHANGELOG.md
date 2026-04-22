@@ -11,6 +11,21 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.14.6](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.5...v0.14.6) (2026-04-22)
+
+
+### Features
+
+* **skills:** add in-process DCC execution + observability defaults + error_report skill ([1d4f6b1](https://github.com/loonghao/dcc-mcp-core/commit/1d4f6b1d783fc11058bf146f8f406403cf97abcb))
+* **skills:** introduce layered skill architecture with explicit routing ([cd656cd](https://github.com/loonghao/dcc-mcp-core/commit/cd656cd916ae9c3525c624754ba684e04032d3b7))
+
+
+### Bug Fixes
+
+* **deps:** update rust dependencies ([9aaa77e](https://github.com/loonghao/dcc-mcp-core/commit/9aaa77e0d0ebcefea3ca01413e243545c25e019d))
+* **gateway:** support multi-document DCCs in live metadata updates ([6f6efd4](https://github.com/loonghao/dcc-mcp-core/commit/6f6efd469ab5527e6617b1ccea2a5631ef8d3441))
+* **gateway:** sync live scene/version to FileRegistry on every heartbeat ([3a83988](https://github.com/loonghao/dcc-mcp-core/commit/3a83988ca4764e0ea95f0856780c08b08c3eaa1e))
+
 ## [0.14.5](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.4...v0.14.5) (2026-04-22)
 
 
