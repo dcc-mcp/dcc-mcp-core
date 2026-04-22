@@ -11,6 +11,23 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.14.4](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.3...v0.14.4) (2026-04-22)
+
+
+### Bug Fixes
+
+* **ci:** resolve merge conflicts, add missing pyo3 imports, fix markdown lint ([f27acf0](https://github.com/loonghao/dcc-mcp-core/commit/f27acf01401548d234843aa634bd90e254b9ece1))
+* **docs:** escape bare {{ }} in scheduler.md (VitePress Vue parse error) ([815c9b8](https://github.com/loonghao/dcc-mcp-core/commit/815c9b8a7d766deac417264f743e8ec8aad1da26))
+* **docs:** escape bare {{ }} in workflows.md to prevent VitePress Vue parse error ([96dc2a7](https://github.com/loonghao/dcc-mcp-core/commit/96dc2a71c657bbfa5638fbfcc7ddd214f702d571))
+* **docs:** properly escape {{ }} in VitePress markdown ([89f7256](https://github.com/loonghao/dcc-mcp-core/commit/89f725628044507e4dfb1f3f6e52d5631162af06))
+* **lint:** allow &lt;code&gt; inline HTML in markdown for VitePress v-pre escape ([94f88d3](https://github.com/loonghao/dcc-mcp-core/commit/94f88d3bd57d443279765ba20228a0a6bf10d2b9))
+* **python:** add fallback for __version__ when _core module lacks it ([6c479a1](https://github.com/loonghao/dcc-mcp-core/commit/6c479a1f868e26ed334912658efaac4fc13c8ab6))
+
+
+### Code Refactoring
+
+* split oversized files into modular components ([485cab4](https://github.com/loonghao/dcc-mcp-core/commit/485cab4664db1c0280425004895eb85d992c1dfe))
+
 ## [0.14.3](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.2...v0.14.3) (2026-04-22)
 
 
