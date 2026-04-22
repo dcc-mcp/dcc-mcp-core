@@ -891,6 +891,13 @@ class DccServerBase:
                 self._config.scene = scene
             if version is not None:
                 self._config.dcc_version = version
+            # Push the update into the live-metadata store so it reaches the
+            # FileRegistry on the next heartbeat tick (≤ 5 s) without a restart.
+            if self._handle is not None:
+                try:
+                    self._handle.update_scene(scene, version)
+                except Exception as exc_inner:
+                    logger.debug("[%s] handle.update_scene failed: %s", self._dcc_name, exc_inner)
             return True
         except Exception as exc:
             logger.error("[%s] Failed to update gateway metadata: %s", self._dcc_name, exc)

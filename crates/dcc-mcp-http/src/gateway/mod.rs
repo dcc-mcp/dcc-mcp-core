@@ -42,6 +42,12 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+/// Closure type for supplying live scene/version metadata to the heartbeat task.
+///
+/// Returns `(scene, version)` — either may be `None` to leave the field
+/// unchanged, or `Some("")` to clear it.
+pub type MetadataProvider = Arc<dyn Fn() -> (Option<String>, Option<String>) + Send + Sync>;
+
 use tokio::sync::{RwLock, broadcast, watch};
 use tokio::task::AbortHandle;
 
@@ -711,9 +717,19 @@ impl GatewayRunner {
     ///      polls the port every 10 s for up to `challenger_timeout_secs`.
     ///    - When the port becomes free (old gateway yielded or crashed),
     ///      the challenger binds it and becomes the new gateway.
+    ///
+    /// ## Live scene/version updates
+    ///
+    /// Pass `metadata_provider` to keep the `scene` and `version` fields in the
+    /// `FileRegistry` in sync with the running DCC application.  The closure is
+    /// called on every heartbeat tick and the returned `(scene, version)` pair is
+    /// written via `FileRegistry::update_metadata`.  This ensures that
+    /// `list_dcc_instances` always shows the currently open scene — even when the
+    /// user opens a different file after the server was started.
     pub async fn start(
         &self,
         entry: ServiceEntry,
+        metadata_provider: Option<MetadataProvider>,
     ) -> Result<GatewayHandle, Box<dyn std::error::Error + Send + Sync>> {
         let service_key = entry.key();
 
@@ -725,16 +741,30 @@ impl GatewayRunner {
         tracing::info!(instance = %service_key.instance_id, "Registered in FileRegistry");
 
         // ── Heartbeat task ────────────────────────────────────────────────
+        //
+        // Besides touching the timestamp, every tick also calls update_metadata
+        // when a metadata_provider is present.  This keeps the `scene` field
+        // in FileRegistry current so that list_dcc_instances always reflects
+        // the currently open DCC scene without requiring a server restart.
         let heartbeat_abort = if self.config.heartbeat_secs > 0 {
             let reg = self.registry.clone();
             let key = service_key.clone();
             let secs = self.config.heartbeat_secs;
+            let provider = metadata_provider;
             let h = tokio::spawn(async move {
                 let mut tick = tokio::time::interval(Duration::from_secs(secs));
                 loop {
                     tick.tick().await;
                     let r = reg.read().await;
-                    let _ = r.heartbeat(&key);
+                    if let Some(ref prov) = provider {
+                        let (scene, version) = prov();
+                        let scene_ref = scene.as_deref();
+                        let version_ref = version.as_deref();
+                        // update_metadata also refreshes the heartbeat timestamp
+                        let _ = r.update_metadata(&key, scene_ref, version_ref);
+                    } else {
+                        let _ = r.heartbeat(&key);
+                    }
                 }
             });
             Some(h.abort_handle())

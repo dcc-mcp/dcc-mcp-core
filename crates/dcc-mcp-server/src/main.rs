@@ -563,8 +563,9 @@ async fn main() -> anyhow::Result<()> {
         format!("http://{}:{}/mcp", args.host, handle.port),
     );
 
+    // Standalone binary: scene is fixed at launch; no live provider needed.
     let gw_handle = runner
-        .start(entry)
+        .start(entry, None)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to start gateway: {e}"))?;
     let is_gateway = gw_handle.is_gateway;

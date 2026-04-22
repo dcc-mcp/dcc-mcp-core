@@ -4204,6 +4204,30 @@ class McpServerHandle:
     def signal_shutdown(self) -> None:
         """Signal shutdown without blocking."""
         ...
+    def update_scene(self, scene: str | None = None, version: str | None = None) -> None:
+        """Push updated scene path and/or DCC version to the gateway registry.
+
+        The values are written into the shared live-metadata store and
+        propagated to ``FileRegistry`` on the next heartbeat tick (≤ 5 s).
+        After the update, ``list_dcc_instances`` will show the new scene so
+        that AI agents and users can identify the correct instance without
+        restarting the server.
+
+        Pass ``None`` to leave a field unchanged; pass ``""`` to clear it.
+
+        Example::
+
+            handle = server.start()
+            # User opens a new file — push the update immediately:
+            handle.update_scene("C:/projects/hero/rig.ma")
+            handle.update_scene(None, version="Maya 2025.2")
+
+        Args:
+            scene: New scene file path. ``None`` = no change, ``""`` = clear.
+            version: New DCC version string. ``None`` = no change, ``""`` = clear.
+
+        """
+        ...
     def __repr__(self) -> str: ...
 
 class McpHttpServer:

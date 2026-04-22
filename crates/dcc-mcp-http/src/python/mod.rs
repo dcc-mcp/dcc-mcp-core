@@ -1,5 +1,6 @@
 //! PyO3 bindings for the MCP HTTP server.
 
+use parking_lot::RwLock;
 use pyo3::prelude::*;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
@@ -569,6 +570,10 @@ pub struct PyServerHandle {
     pub bind_addr: String,
     /// ``True`` if this process won the gateway port competition.
     pub is_gateway: bool,
+    /// Shared live metadata — mirrors `McpHttpServer::live_meta` so Python
+    /// can push scene/version updates that flow into the FileRegistry on the
+    /// next heartbeat tick.
+    live_meta: Arc<RwLock<(Option<String>, Option<String>)>>,
 }
 
 #[pymethods]
@@ -610,6 +615,34 @@ impl PyServerHandle {
         self.is_gateway
     }
 
+    /// Update the active scene path and/or DCC version in the gateway registry.
+    ///
+    /// The values are pushed into the shared live-metadata store and propagated
+    /// to ``FileRegistry`` on the next heartbeat tick (≤ 5 s).  After the
+    /// update, ``list_dcc_instances`` will show the new scene so that AI agents
+    /// and users can identify the correct instance without restarting.
+    ///
+    /// Pass ``None`` to leave a field unchanged; pass ``""`` to clear it.
+    ///
+    /// Example::
+    ///
+    ///     handle.update_scene("C:/projects/hero/rig.ma")
+    ///     handle.update_scene(None, version="Maya 2025.2")
+    ///
+    /// Args:
+    ///     scene: New scene file path. ``None`` = no change, ``""`` = clear.
+    ///     version: New DCC version string. ``None`` = no change, ``""`` = clear.
+    #[pyo3(signature = (scene=None, version=None))]
+    fn update_scene(&self, scene: Option<String>, version: Option<String>) {
+        let mut guard = self.live_meta.write();
+        if let Some(s) = scene {
+            guard.0 = if s.is_empty() { None } else { Some(s) };
+        }
+        if let Some(v) = version {
+            guard.1 = if v.is_empty() { None } else { Some(v) };
+        }
+    }
+
     fn __repr__(&self) -> String {
         format!(
             "McpServerHandle(addr={}, running={}, is_gateway={})",
@@ -643,6 +676,9 @@ pub struct PyMcpHttpServer {
     catalog: Arc<SkillCatalog>,
     config: McpHttpConfig,
     runtime: Arc<Runtime>,
+    /// Shared live scene/version — written by Python via `update_scene()` or
+    /// `update_gateway_metadata()`, propagated to FileRegistry each heartbeat.
+    live_meta: Arc<RwLock<(Option<String>, Option<String>)>>,
 }
 
 #[pymethods]
@@ -668,12 +704,14 @@ impl PyMcpHttpServer {
             dispatcher.clone(),
         ));
 
+        let live_meta = Arc::new(RwLock::new((cfg.scene.clone(), cfg.dcc_version.clone())));
         Ok(Self {
             registry: reg,
             dispatcher,
             catalog,
             config: cfg,
             runtime: Arc::new(runtime),
+            live_meta,
         })
     }
 
@@ -686,7 +724,8 @@ impl PyMcpHttpServer {
             self.catalog.clone(),
             self.config.clone(),
         )
-        .with_dispatcher(self.dispatcher.clone());
+        .with_dispatcher(self.dispatcher.clone())
+        .with_live_meta(self.live_meta.clone());
         let handle = self
             .runtime
             .block_on(server.start())
@@ -702,6 +741,7 @@ impl PyMcpHttpServer {
             port,
             bind_addr,
             is_gateway,
+            live_meta: self.live_meta.clone(),
         })
     }
 
@@ -1058,12 +1098,14 @@ pub fn py_create_skill_server(
     let discovered = catalog.discover(discover_paths.as_deref(), Some(effective_dcc));
     tracing::info!("create_skill_server({app_name}): discovered {discovered} skill(s)");
 
+    let live_meta = Arc::new(RwLock::new((cfg.scene.clone(), cfg.dcc_version.clone())));
     Ok(PyMcpHttpServer {
         registry: reg,
         dispatcher,
         catalog,
         config: cfg,
         runtime: Arc::new(runtime),
+        live_meta,
     })
 }
 

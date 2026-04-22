@@ -1,6 +1,7 @@
 //! The main `McpHttpServer` type.
 
 use axum::{Router, routing};
+use parking_lot::RwLock;
 use std::sync::Arc;
 use tokio::{net::TcpListener, sync::watch, task::JoinHandle};
 use tower_http::cors::{Any, CorsLayer};
@@ -10,7 +11,7 @@ use crate::{
     config::{McpHttpConfig, ServerSpawnMode},
     error::{HttpError, HttpResult},
     executor::DccExecutorHandle,
-    gateway::{GatewayConfig, GatewayRunner},
+    gateway::{GatewayConfig, GatewayRunner, MetadataProvider},
     handler::{AppState, handle_delete, handle_get, handle_post},
     inflight::InFlightRequests,
     session::SessionManager,
@@ -18,6 +19,13 @@ use crate::{
 use dcc_mcp_actions::{ActionDispatcher, ActionRegistry};
 use dcc_mcp_skills::SkillCatalog;
 use dcc_mcp_transport::discovery::types::ServiceEntry;
+
+/// Shared live metadata for scene/version that is updated while the server
+/// runs and propagated to the `FileRegistry` on every heartbeat tick.
+///
+/// This allows `list_dcc_instances` to always reflect the currently open DCC
+/// scene without requiring a server restart after the user opens a new file.
+type LiveMeta = Arc<RwLock<(Option<String>, Option<String>)>>;
 
 /// Handle returned by [`McpHttpServer::start`].
 ///
@@ -117,6 +125,9 @@ pub struct McpHttpServer {
     executor: Option<DccExecutorHandle>,
     resources: crate::resources::ResourceRegistry,
     prompts: crate::prompts::PromptRegistry,
+    /// Live scene/version that is sync'd to FileRegistry on every heartbeat.
+    /// Updated via [`McpHttpServer::update_live_scene`].
+    live_meta: LiveMeta,
 }
 
 impl McpHttpServer {
@@ -133,6 +144,10 @@ impl McpHttpServer {
         ));
         let resources = build_resource_registry(&config);
         let prompts = crate::prompts::PromptRegistry::new(config.enable_prompts);
+        let live_meta: LiveMeta = Arc::new(RwLock::new((
+            config.scene.clone(),
+            config.dcc_version.clone(),
+        )));
         Self {
             registry: registry.clone(),
             dispatcher,
@@ -141,6 +156,7 @@ impl McpHttpServer {
             executor: None,
             resources,
             prompts,
+            live_meta,
         }
     }
 
@@ -156,6 +172,10 @@ impl McpHttpServer {
             .unwrap_or_else(|| Arc::new(ActionDispatcher::new((*registry).clone())));
         let resources = build_resource_registry(&config);
         let prompts = crate::prompts::PromptRegistry::new(config.enable_prompts);
+        let live_meta: LiveMeta = Arc::new(RwLock::new((
+            config.scene.clone(),
+            config.dcc_version.clone(),
+        )));
         Self {
             registry,
             dispatcher,
@@ -164,7 +184,28 @@ impl McpHttpServer {
             executor: None,
             resources,
             prompts,
+            live_meta,
         }
+    }
+
+    /// Update the live scene and/or version metadata.
+    ///
+    /// The new values are written into the shared `LiveMeta` store and will be
+    /// propagated to the `FileRegistry` on the next heartbeat tick (every
+    /// `heartbeat_secs` seconds, default 5 s).  This keeps `list_dcc_instances`
+    /// current when the user opens a different scene without restarting the server.
+    ///
+    /// Pass `None` to leave a field unchanged.
+    pub fn update_live_scene(&self, scene: Option<String>, version: Option<String>) {
+        let mut guard = self.live_meta.write();
+        if let Some(s) = scene {
+            guard.0 = if s.is_empty() { None } else { Some(s) };
+        }
+        if let Some(v) = version {
+            guard.1 = if v.is_empty() { None } else { Some(v) };
+        }
+        // Also update config so future ServiceEntry construction is consistent.
+        drop(guard);
     }
 
     /// Access the MCP Prompts registry for this server (issues #351, #355).
@@ -201,6 +242,17 @@ impl McpHttpServer {
     /// The dispatcher should be backed by the same [`ActionRegistry`].
     pub fn with_dispatcher(mut self, dispatcher: Arc<ActionDispatcher>) -> Self {
         self.dispatcher = dispatcher;
+        self
+    }
+
+    /// Replace the live-metadata store with a shared one.
+    ///
+    /// Use this when the caller needs to retain a handle to the store so it
+    /// can push scene/version updates after the server starts (e.g. Python
+    /// bindings where `PyMcpHttpServer` must share the same `Arc` with the
+    /// returned `PyServerHandle`).
+    pub fn with_live_meta(mut self, live_meta: LiveMeta) -> Self {
+        self.live_meta = live_meta;
         self
     }
 
@@ -459,7 +511,16 @@ impl McpHttpServer {
                     entry.version = self.config.dcc_version.clone();
                     entry.scene = self.config.scene.clone();
 
-                    match runner.start(entry).await {
+                    // Provide a live metadata closure so the heartbeat task
+                    // keeps the FileRegistry's scene field in sync whenever
+                    // the user opens a different DCC scene at runtime.
+                    let meta_clone = self.live_meta.clone();
+                    let metadata_provider: Option<MetadataProvider> = Some(Arc::new(move || {
+                        let guard = meta_clone.read();
+                        (guard.0.clone(), guard.1.clone())
+                    }));
+
+                    match runner.start(entry, metadata_provider).await {
                         Ok(h) => Some(h),
                         Err(e) => {
                             tracing::warn!("Gateway runner failed to start: {e}");
