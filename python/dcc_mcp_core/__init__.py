@@ -270,8 +270,8 @@ from dcc_mcp_core.skill import skill_exception
 from dcc_mcp_core.skill import skill_success
 from dcc_mcp_core.skill import skill_warning
 
-__version__: str = _core.__version__
-__author__: str = _core.__author__
+__version__: str = getattr(_core, "__version__", "0.0.0-dev")
+__author__: str = getattr(_core, "__author__", "unknown")
 
 __all__ = [
     "ACTION_ID_RE",
