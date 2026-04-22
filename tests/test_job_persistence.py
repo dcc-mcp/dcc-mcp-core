@@ -17,12 +17,15 @@ the ``job-persist-sqlite`` Cargo feature — detected by trying to set
 
 from __future__ import annotations
 
+import contextlib
 import json
 from pathlib import Path
+import shutil
 import sqlite3
 import tempfile
 import time
 from typing import Any
+from typing import Iterator
 import urllib.request
 
 import pytest
@@ -30,6 +33,24 @@ import pytest
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
 from dcc_mcp_core import ToolRegistry
+
+
+@contextlib.contextmanager
+def _temp_dir_ignore_cleanup_errors() -> Iterator[str]:
+    """Python 3.8/3.9-safe substitute for
+    ``tempfile.TemporaryDirectory(ignore_cleanup_errors=True)``.
+
+    On Windows the SQLite WAL/SHM side-files keep the directory locked
+    for a brief moment after shutdown, so the unmodified
+    ``TemporaryDirectory`` context manager occasionally raises
+    ``PermissionError`` on cleanup. ``ignore_cleanup_errors`` was only
+    added in Python 3.10 — this helper emulates it everywhere.
+    """
+    path = tempfile.mkdtemp()
+    try:
+        yield path
+    finally:
+        shutil.rmtree(path, ignore_errors=True)
 
 
 def _feature_enabled() -> bool:
@@ -42,10 +63,10 @@ def _feature_enabled() -> bool:
     """
     cfg = McpHttpConfig(port=0, server_name="sqlite-probe")
     # On Windows the SQLite WAL/SHM side-files keep the directory
-    # locked for a brief moment after shutdown, so we use
-    # ``ignore_cleanup_errors=True`` to avoid a spurious collection
+    # locked for a brief moment after shutdown, so we use the helper
+    # that swallows cleanup errors to avoid a spurious collection
     # failure here.
-    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
+    with _temp_dir_ignore_cleanup_errors() as d:
         cfg.job_storage_path = str(Path(d) / "probe.sqlite3")
         reg = ToolRegistry()
         server = McpHttpServer(reg, cfg)
@@ -120,7 +141,7 @@ def _make_server(db_path: str, handler):
 
 
 def test_sqlite_storage_persists_rows_across_restart():
-    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
+    with _temp_dir_ignore_cleanup_errors() as d:
         db = str(Path(d) / "jobs.sqlite3")
 
         # First incarnation — dispatch an async tool; shut the server
@@ -198,7 +219,7 @@ def test_sqlite_storage_persists_rows_across_restart():
 
 
 def test_jobs_cleanup_tool_roundtrip_with_sqlite_storage():
-    with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as d:
+    with _temp_dir_ignore_cleanup_errors() as d:
         db = str(Path(d) / "jobs.sqlite3")
 
         def fast_handler(params):
