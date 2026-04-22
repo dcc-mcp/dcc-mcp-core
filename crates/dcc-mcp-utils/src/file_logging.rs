@@ -628,8 +628,8 @@ pub mod python {
                 cfg.max_files = n;
             }
             if let Some(r) = rotation {
-                cfg.rotation = RotationPolicy::parse(&r)
-                    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e))?;
+                cfg.rotation =
+                    RotationPolicy::parse(&r).map_err(pyo3::exceptions::PyValueError::new_err)?;
             }
             if let Some(b) = include_console {
                 cfg.include_console = b;

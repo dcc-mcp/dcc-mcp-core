@@ -6,6 +6,12 @@ use serde::{Deserialize, Serialize};
 
 use super::{ExecutionMode, ThreadAffinity};
 
+#[cfg(feature = "python-bindings")]
+use pyo3::prelude::*;
+
+#[cfg(feature = "python-bindings")]
+use pyo3::types::{PyAnyMethods, PyDictMethods};
+
 // ── ToolAnnotations ───────────────────────────────────────────────────────
 
 /// MCP tool behavioural annotations declared in the sibling `tools.yaml`
@@ -879,7 +885,7 @@ impl ToolDeclaration {
             self.next_tools = NextTools::default();
             return Ok(());
         }
-        let dict = v.downcast::<PyDict>().map_err(|_| {
+        let dict = v.cast::<PyDict>().map_err(|_| {
             pyo3::exceptions::PyTypeError::new_err(
                 "next_tools must be a dict with optional on_success/on_failure list keys, or None",
             )

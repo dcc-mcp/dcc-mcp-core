@@ -205,4 +205,4 @@ let path = roots.resolve("workspace://assets/hero.usd")?;
 
 - [Skills guide](skills.md) — `tools.yaml` sibling-file pattern (#356)
 - [`docs/guide/naming.md`](naming.md) — SEP-986 tool-name validation
-- MCP roots spec: https://modelcontextprotocol.io/specification/2025-03-26/client/roots
+- MCP roots spec: <https://modelcontextprotocol.io/specification/2025-03-26/client/roots>

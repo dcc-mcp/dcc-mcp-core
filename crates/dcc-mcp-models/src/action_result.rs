@@ -652,7 +652,7 @@ mod py_factories {
             ));
         };
         let data = ActionResultModelData::from_bytes(&raw, format)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e))?;
+            .map_err(pyo3::exceptions::PyValueError::new_err)?;
         Ok(ActionResultModel { inner: data })
     }
 }

@@ -15,7 +15,7 @@ use pyo3::exceptions::{PyIOError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyBytes};
 
-use crate::{ArtefactError, ArtefactStore, FileRef, FilesystemArtefactStore, SharedArtefactStore};
+use crate::{ArtefactError, FileRef, FilesystemArtefactStore, SharedArtefactStore};
 
 /// Python wrapper for [`crate::FileRef`].
 #[pyclass(name = "FileRef", module = "dcc_mcp_core._core", skip_from_py_object)]

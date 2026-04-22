@@ -26,7 +26,10 @@ use serde::{Deserialize, Serialize};
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default,
 )]
 #[serde(rename_all = "snake_case")]
-#[cfg_attr(feature = "python-bindings", pyclass(name = "SkillScope", eq))]
+#[cfg_attr(
+    feature = "python-bindings",
+    pyclass(name = "SkillScope", eq, skip_from_py_object)
+)]
 pub enum SkillScope {
     /// Project-local skill (e.g. `./<project>/.dcc_skills/`).
     ///

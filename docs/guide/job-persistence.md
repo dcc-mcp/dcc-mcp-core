@@ -1,7 +1,7 @@
 # Job Persistence
 
-`JobManager` tracks long-running async tool executions (see issues #316, #318,
-#326, #371). By default it keeps all job state in-process, which means every
+`JobManager` tracks long-running async tool executions (see issues \#316, \#318,
+\#326, \#371). By default it keeps all job state in-process, which means every
 `Pending` or `Running` row is lost if the server crashes or restarts.
 
 Issue #328 adds an **optional, feature-gated SQLite backend** so tracked jobs

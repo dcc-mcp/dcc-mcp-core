@@ -60,7 +60,7 @@ pub struct SkillEntry {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(
     feature = "python-bindings",
-    pyo3::pyclass(name = "SkillSummary", get_all)
+    pyo3::pyclass(name = "SkillSummary", get_all, from_py_object)
 )]
 pub struct SkillSummary {
     pub name: String,

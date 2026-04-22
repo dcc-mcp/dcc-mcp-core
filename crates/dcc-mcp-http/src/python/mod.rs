@@ -744,7 +744,7 @@ impl PyMcpHttpServer {
                     let raw = handler_ref
                         .call1(gil, (py_params,))
                         .map_err(|e| format!("handler error: {e}"))?;
-                    py_any_to_json_value(&raw.bind(gil)).map_err(|e| e.to_string())
+                    py_any_to_json_value(raw.bind(gil)).map_err(|e| e.to_string())
                 })
             });
         Ok(())
@@ -799,7 +799,7 @@ impl PyMcpHttpServer {
     fn load_skill(&self, skill_name: &str) -> PyResult<Vec<String>> {
         self.catalog
             .load_skill(skill_name)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e))
+            .map_err(pyo3::exceptions::PyValueError::new_err)
     }
 
     /// Unload a skill — removes its tools from the ActionRegistry.
@@ -809,7 +809,7 @@ impl PyMcpHttpServer {
     fn unload_skill(&self, skill_name: &str) -> PyResult<usize> {
         self.catalog
             .unload_skill(skill_name)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e))
+            .map_err(pyo3::exceptions::PyValueError::new_err)
     }
 
     /// Search for skills matching the given criteria.
@@ -1163,7 +1163,7 @@ impl PyBridgeRegistry {
     fn register(&self, dcc_type: String, url: String) -> PyResult<()> {
         self.inner
             .register(dcc_type, url)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e))
+            .map_err(pyo3::exceptions::PyValueError::new_err)
     }
 
     /// Get bridge context for a specific DCC type.
@@ -1196,7 +1196,7 @@ impl PyBridgeRegistry {
     fn set_disconnected(&self, dcc_type: &str) -> PyResult<()> {
         self.inner
             .set_disconnected(dcc_type)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e))
+            .map_err(pyo3::exceptions::PyValueError::new_err)
     }
 
     /// Remove a bridge from the registry.
@@ -1206,7 +1206,7 @@ impl PyBridgeRegistry {
     fn unregister(&self, dcc_type: &str) -> PyResult<()> {
         self.inner
             .unregister(dcc_type)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e))
+            .map_err(pyo3::exceptions::PyValueError::new_err)
     }
 
     /// Clear all registered bridges.
@@ -1293,7 +1293,7 @@ pub fn py_register_bridge(dcc_type: String, url: String) -> PyResult<()> {
     let registry = BRIDGE_REGISTRY.get_or_init(crate::BridgeRegistry::new);
     registry
         .register(dcc_type, url)
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e))
+        .map_err(pyo3::exceptions::PyValueError::new_err)
 }
 
 /// Register a bridge connection (internal/gateway use).

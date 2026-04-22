@@ -523,11 +523,10 @@ impl VersionedRegistry {
         let c = constraint
             .parse::<VersionConstraint>()
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-        Ok(self
-            .router()
+        self.router()
             .resolve(name, dcc, &c)
             .map(|m| build_action_meta_dict(py, m))
-            .transpose()?)
+            .transpose()
     }
 
     /// Return all action metadata dicts that satisfy ``constraint``, sorted ascending.

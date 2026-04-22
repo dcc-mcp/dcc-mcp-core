@@ -754,7 +754,7 @@ in `legacy_extension_fields`).
 | `external_deps: {...}`          | `metadata["dcc-mcp.external-deps"]`          | JSON string           |
 | `tools: [...]` inline block     | `metadata["dcc-mcp.tools"]`                  | sibling `.yaml` file  |
 | `groups: [...]` inline block    | `metadata["dcc-mcp.groups"]`                 | sibling `.yaml` file  |
-| _(MCP prompts primitive)_       | `metadata["dcc-mcp.prompts"]`                | sibling `.yaml` file or `prompts/*.prompt.yaml` glob |
+| *(MCP prompts primitive)*       | `metadata["dcc-mcp.prompts"]`                | sibling `.yaml` file or `prompts/*.prompt.yaml` glob |
 
 ### Priority rules
 

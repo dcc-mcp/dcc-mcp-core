@@ -298,9 +298,13 @@ DCC 服务实例状态枚举。
 
 ### 常量
 
-<<<<<<< HEAD
 | 常量 | 说明 |
-=======
+|------|------|
+| `AVAILABLE` | 接受连接（默认）|
+| `BUSY` | 正在处理请求 |
+| `UNREACHABLE` | 健康检查失败 |
+| `SHUTTING_DOWN` | 正在关闭 |
+
 ## TransportManager
 
 带有服务发现、智能路由、会话管理和连接池的传输层管理器。
@@ -366,7 +370,6 @@ session_id = mgr.get_or_create_session("maya", entry.instance_id)
 返回按优先级排序的所有活跃实例（分数越低越优先）：
 
 | 分数 | 层级 |
->>>>>>> 1d53899 (chore(cleanup): docs: fix SkillMetadata/SkillSummary field tables and ServiceEntry properties across EN+ZH — remove non-existent search_hint, correct tools type to list[ToolDeclaration], add missing license/compatibility/allowed_tools/groups/documents/pid/display_name/extras fields)
 |------|------|
 | `AVAILABLE` | 接受连接（默认）|
 | `BUSY` | 正在处理请求 |

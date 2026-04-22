@@ -141,6 +141,12 @@ pub struct PyTimingMiddleware {
     inner: Arc<TimingMiddleware>,
 }
 
+impl Default for PyTimingMiddleware {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[pymethods]
 impl PyTimingMiddleware {
     #[new]

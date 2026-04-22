@@ -881,7 +881,7 @@ impl SkillCatalog {
     #[pyo3(name = "load_skill")]
     fn py_load_skill(&self, skill_name: &str) -> PyResult<Vec<String>> {
         self.load_skill(skill_name)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e))
+            .map_err(pyo3::exceptions::PyValueError::new_err)
     }
 
     /// Unload a skill — removes its tools from the registry.
@@ -891,7 +891,7 @@ impl SkillCatalog {
     #[pyo3(name = "unload_skill")]
     fn py_unload_skill(&self, skill_name: &str) -> PyResult<usize> {
         self.unload_skill(skill_name)
-            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e))
+            .map_err(pyo3::exceptions::PyValueError::new_err)
     }
 
     /// Search for skills matching criteria.
