@@ -81,3 +81,42 @@ tools:
     read_only: true
     idempotent: true
     source_file: scripts/process_status.py
+
+  - name: error_report
+    description: >-
+      Collect a structured error report for any DCC environment.
+      When to use: call this first whenever a tool fails with a vague error like
+      "mcp tool execution failed" — it aggregates log file errors, failed job
+      history, and process context into a single response so you can diagnose
+      the root cause without multiple round-trips.
+      How to use: optionally pass dcc_name (e.g. "maya") to scope the log and
+      database search; omit to auto-detect. Increase tail_lines for more log
+      context when errors are sparse.
+    input_schema:
+      type: object
+      properties:
+        dcc_name:
+          type: string
+          description: "DCC name to scope the search (e.g. 'maya', 'blender', 'houdini'). Auto-detected when omitted."
+        log_dir:
+          type: string
+          description: "Directory containing dcc-mcp-*.log files. Defaults to DCC_MCP_LOG_DIR or platform log dir."
+        db_path:
+          type: string
+          description: "Path to the SQLite job database. Auto-resolved from log_dir when omitted."
+        tail_lines:
+          type: integer
+          description: "Number of tail lines to read from the log file (default 200)."
+          default: 200
+        job_limit:
+          type: integer
+          description: "Maximum failed jobs to return (default 20)."
+          default: 20
+    read_only: true
+    idempotent: true
+    next-tools:
+      on-success:
+        - dcc_diagnostics__audit_log
+        - dcc_diagnostics__tool_metrics
+        - dcc_diagnostics__screenshot
+    source_file: scripts/error_report.py

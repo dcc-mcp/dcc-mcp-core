@@ -95,6 +95,23 @@ class DccServerBase:
             to resolve the owner window for diagnostic screenshots.
         dcc_window_handle: Pre-resolved native window handle (HWND on Windows,
             XID on X11). When supplied, takes precedence over PID/title lookup.
+        enable_file_logging: Automatically initialise rolling file logging on
+            construction so that all ``tracing`` events (Rust) and Python
+            ``logging`` records are written to
+            ``<log_dir>/dcc-mcp-<dcc_name>.<date>.log``.  Set
+            ``DCC_MCP_DISABLE_FILE_LOGGING=1`` env var to override at runtime.
+            Default ``True``.
+        enable_job_persistence: Persist tracked jobs to a SQLite database
+            inside the log directory so that tool-call history (including
+            failures) survives server restarts and is queryable via
+            ``diagnostics__audit_log`` / ``jobs.get_status``.  Requires the
+            ``job-persist-sqlite`` wheel feature; silently skipped when the
+            feature is absent.  Set ``DCC_MCP_DISABLE_JOB_PERSISTENCE=1`` to
+            override.  Default ``True``.
+        enable_telemetry: Initialise in-process metrics collection via
+            ``TelemetryConfig`` so that ``diagnostics__tool_metrics`` returns
+            real latency and success-rate data.  Set
+            ``DCC_MCP_DISABLE_TELEMETRY=1`` to override.  Default ``True``.
 
     """
 
@@ -114,6 +131,9 @@ class DccServerBase:
         dcc_pid: int | None = None,
         dcc_window_title: str | None = None,
         dcc_window_handle: int | None = None,
+        enable_file_logging: bool = True,
+        enable_job_persistence: bool = True,
+        enable_telemetry: bool = True,
     ) -> None:
         # Deferred: circular import — __init__.py imports DccServerBase from
         # this module, so we cannot import from dcc_mcp_core at module level.
@@ -125,6 +145,15 @@ class DccServerBase:
         self._builtin_skills_dir = builtin_skills_dir
         self._handle: Any | None = None
         self._enable_gateway_failover = enable_gateway_failover
+
+        # Observability flags (env var can override at runtime)
+        self._enable_file_logging: bool = (
+            enable_file_logging and os.environ.get("DCC_MCP_DISABLE_FILE_LOGGING", "0") != "1"
+        )
+        self._enable_job_persistence: bool = (
+            enable_job_persistence and os.environ.get("DCC_MCP_DISABLE_JOB_PERSISTENCE", "0") != "1"
+        )
+        self._enable_telemetry: bool = enable_telemetry and os.environ.get("DCC_MCP_DISABLE_TELEMETRY", "0") != "1"
 
         # Instance-bound DCC diagnostic context
         self._dcc_pid: int = dcc_pid if dcc_pid is not None else os.getpid()
@@ -140,6 +169,11 @@ class DccServerBase:
             env_val = os.environ.get("DCC_MCP_GATEWAY_PORT", "")
             if env_val.isdigit():
                 effective_gateway_port = int(env_val)
+
+        # ── File logging ──────────────────────────────────────────────────────
+        # Start as early as possible so that config / skill-scan errors land in
+        # the log file, not just on stderr (which most DCCs swallow).
+        self._log_dir: str = self._init_file_logging(dcc_name)
 
         # Build McpHttpConfig — port must be passed at construction time (read-only after init)
         self._config = McpHttpConfig(
@@ -161,12 +195,111 @@ class DccServerBase:
         # Always stamp the DCC type so gateway registry knows which DCC this is
         self._config.dcc_type = dcc_name
 
+        # ── Job persistence ───────────────────────────────────────────────────
+        # Wire a per-DCC SQLite database for job history so that tool-call
+        # failures (like the ones in the screenshots) are queryable after
+        # the fact via `diagnostics__audit_log` / `jobs.get_status`.
+        self._init_job_persistence(dcc_name)
+
         # Create the inner skill manager (registry + dispatcher + catalog)
         self._server: Any = create_skill_server(dcc_name, self._config)
 
         # Lazy-initialised helpers
         self._hot_reloader: Any | None = None
         self._gateway_election: Any | None = None
+
+    # ── observability helpers ─────────────────────────────────────────────────
+
+    def _init_file_logging(self, dcc_name: str) -> str:
+        """Initialise rolling file logging for this DCC server.
+
+        Returns the resolved log directory path (empty string on failure).
+        Failures are non-fatal: a ``logger.warning`` is emitted and the
+        server continues without file logging.
+
+        Log files are named ``dcc-mcp-<dcc_name>.<YYYYMMDD>.log`` and live in:
+        1. ``DCC_MCP_LOG_DIR`` env var (if set)
+        2. ``<platform log dir>/dcc-mcp/`` (macOS: ``~/Library/Logs``,
+           Windows: ``%LOCALAPPDATA%``, Linux: ``~/.local/share``)
+        """
+        if not self._enable_file_logging:
+            return ""
+        try:
+            from dcc_mcp_core import FileLoggingConfig
+            from dcc_mcp_core import get_log_dir
+            from dcc_mcp_core import init_file_logging
+
+            log_dir = os.environ.get("DCC_MCP_LOG_DIR") or get_log_dir()
+            cfg = FileLoggingConfig(
+                directory=log_dir,
+                file_name_prefix=f"dcc-mcp-{dcc_name}",
+                # Keep 14 daily files (two weeks of history)
+                max_files=14,
+                # 20 MiB per file — enough for a busy session without filling disks
+                max_size_bytes=20 * 1024 * 1024,
+                rotation="both",
+            )
+            resolved = init_file_logging(cfg)
+            logger.info(
+                "[%s] File logging enabled → %s/dcc-mcp-%s.*.log",
+                dcc_name,
+                resolved,
+                dcc_name,
+            )
+            return resolved
+        except Exception as exc:
+            logger.warning("[%s] Could not enable file logging: %s", dcc_name, exc)
+            return ""
+
+    def _init_job_persistence(self, dcc_name: str) -> None:
+        """Wire a SQLite job-history database into ``McpHttpConfig``.
+
+        The database is placed alongside the log files so that a single
+        directory gives full post-mortem visibility.  Errors are non-fatal.
+        """
+        if not self._enable_job_persistence:
+            return
+        try:
+            import os as _os
+
+            from dcc_mcp_core import get_log_dir
+
+            db_dir = self._log_dir or _os.environ.get("DCC_MCP_LOG_DIR") or get_log_dir()
+            db_path = str(Path(db_dir) / f"dcc-mcp-{dcc_name}-jobs.db")
+            self._config.job_storage_path = db_path
+            logger.info("[%s] Job persistence enabled → %s", dcc_name, db_path)
+        except Exception as exc:
+            # The job-persist-sqlite feature may be absent in some wheels.
+            logger.debug("[%s] Could not enable job persistence: %s", dcc_name, exc)
+
+    def _init_telemetry(self) -> None:
+        """Initialise in-process metrics so ``diagnostics__tool_metrics`` has data.
+
+        Uses the noop exporter (no network traffic) — metrics stay in memory
+        and are served exclusively through the ``diagnostics__tool_metrics``
+        MCP tool.  Call this once, just before ``server.start()``.
+        """
+        if not self._enable_telemetry:
+            return
+        try:
+            from dcc_mcp_core import TelemetryConfig
+            from dcc_mcp_core import is_telemetry_initialized
+
+            if is_telemetry_initialized():
+                return  # already set up (e.g. by the adapter)
+
+            (
+                TelemetryConfig(f"dcc-mcp-{self._dcc_name}")
+                .with_noop_exporter()
+                .set_enable_metrics(True)
+                .set_enable_tracing(False)  # tracing spans go to the log file instead
+                .with_attribute("dcc.name", self._dcc_name)
+                .with_attribute("dcc.pid", str(self._dcc_pid))
+                .init()
+            )
+            logger.info("[%s] In-process telemetry (metrics) enabled", self._dcc_name)
+        except Exception as exc:
+            logger.debug("[%s] Could not enable telemetry: %s", self._dcc_name, exc)
 
     # ── skill search path helpers ─────────────────────────────────────────────
 
@@ -264,6 +397,29 @@ class DccServerBase:
             logger.info("[%s] Skills discovered: %d from %d path(s)", self._dcc_name, count, len(skill_paths))
         except Exception as exc:
             logger.warning("[%s] register_builtin_actions failed: %s", self._dcc_name, exc)
+
+    # ── gateway & is_gateway ──────────────────────────────────────────────────
+
+    # ── observability properties ──────────────────────────────────────────────
+
+    @property
+    def log_dir(self) -> str:
+        """Directory where rolling log files are written, or ``""`` if disabled."""
+        return self._log_dir
+
+    @property
+    def observability_summary(self) -> dict[str, Any]:
+        """Return a snapshot of the active observability features.
+
+        Useful for ``diagnostics__process_status`` and support reports.
+        """
+        return {
+            "file_logging": self._enable_file_logging,
+            "log_dir": self._log_dir or None,
+            "job_persistence": self._enable_job_persistence,
+            "job_db": getattr(self._config, "job_storage_path", None),
+            "telemetry": self._enable_telemetry,
+        }
 
     # ── gateway & is_gateway ──────────────────────────────────────────────────
 
@@ -636,6 +792,11 @@ class DccServerBase:
             )
         except Exception as exc:
             logger.debug("[%s] register_diagnostic_* failed: %s", self._dcc_name, exc)
+
+        # Initialise in-process metrics just before start so the
+        # ToolRecorder inside McpHttpServer can accumulate data from the
+        # first tool call onward.
+        self._init_telemetry()
 
         self._handle = self._server.start()
         logger.info("[%s] MCP server started at %s", self._dcc_name, self._handle.mcp_url())

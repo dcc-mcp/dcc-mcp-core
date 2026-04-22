@@ -87,7 +87,7 @@ known-first-party = ["dcc_mcp_core"]
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
-"tests/*.py" = ["F401", "F811", "F821", "E711", "E712", "SIM118", "D100", "D101", "D103", "D106", "D205", "D400", "D415", "E501"]
+"tests/*.py" = ["F401", "F811", "F821", "E711", "E712", "SIM117", "SIM118", "D100", "D101", "D103", "D106", "D205", "D400", "D415", "E501"]
 "examples/**/*.py" = ["D100", "D101", "D103", "D104", "E402", "INP001"]
 
 [tool.ruff.format]

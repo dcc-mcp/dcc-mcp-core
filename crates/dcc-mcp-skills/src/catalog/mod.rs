@@ -40,7 +40,7 @@ pub mod types;
 
 pub use types::{SkillDetail, SkillEntry, SkillState, SkillSummary};
 
-use execute::{execute_script, resolve_tool_script};
+use execute::{ScriptExecutorFn, execute_script, resolve_tool_script};
 
 #[cfg(feature = "python-bindings")]
 use pyo3::prelude::*;
@@ -78,9 +78,18 @@ pub(crate) fn group_default_active(groups: &[SkillGroup], group_name: &str) -> b
 /// Thread-safe: all state is stored in `DashMap` / `DashSet`.
 ///
 /// When a dispatcher is attached (via [`SkillCatalog::with_dispatcher`]),
-/// loading a skill also registers a subprocess-based handler for each
-/// action — enabling the Skills-First workflow where agents never need to
-/// register handlers manually.
+/// loading a skill also registers a handler for each action — enabling the
+/// Skills-First workflow where agents never need to register handlers manually.
+///
+/// # Execution modes
+///
+/// - **In-process** (preferred inside a DCC): register a
+///   [`ScriptExecutorFn`] via [`with_in_process_executor`](Self::with_in_process_executor).
+///   Scripts are executed directly in the host DCC's Python interpreter so
+///   DCC APIs (`maya.cmds`, `bpy`, `hou`, …) are available without spawning
+///   any external process.
+/// - **Subprocess** (default): each skill script is executed as a child
+///   process. Suitable for standalone / non-DCC environments.
 #[cfg_attr(feature = "python-bindings", pyclass(name = "SkillCatalog"))]
 pub struct SkillCatalog {
     /// All discovered skill entries, keyed by skill name.
@@ -91,6 +100,13 @@ pub struct SkillCatalog {
     registry: Arc<ActionRegistry>,
     /// Optional dispatcher for auto-registering script handlers on load.
     dispatcher: Option<Arc<ActionDispatcher>>,
+    /// Optional in-process script executor.
+    ///
+    /// When set, skill scripts are run inside the current Python interpreter
+    /// instead of being dispatched to a subprocess.  DCC adapters should
+    /// register one of these via [`with_in_process_executor`](Self::with_in_process_executor)
+    /// so that `maya.cmds`, `bpy`, `hou`, etc. are available to the scripts.
+    script_executor: Option<Arc<ScriptExecutorFn>>,
     /// Tool groups currently active (``"<skill>:<group>"`` keys).
     active_groups: DashSet<String>,
 }
@@ -123,6 +139,7 @@ impl SkillCatalog {
             loaded: DashSet::new(),
             registry,
             dispatcher: None,
+            script_executor: None,
             active_groups: DashSet::new(),
         }
     }
@@ -130,7 +147,7 @@ impl SkillCatalog {
     /// Create a catalog with an attached dispatcher for Skills-First execution.
     ///
     /// When a dispatcher is attached, calling `load_skill` automatically
-    /// registers a subprocess-based handler for every script in the skill.
+    /// registers a handler for every script in the skill.
     /// Agents can then call `tools/call` and have scripts actually execute.
     pub fn new_with_dispatcher(
         registry: Arc<ActionRegistry>,
@@ -141,6 +158,7 @@ impl SkillCatalog {
             loaded: DashSet::new(),
             registry,
             dispatcher: Some(dispatcher),
+            script_executor: None,
             active_groups: DashSet::new(),
         }
     }
@@ -149,6 +167,55 @@ impl SkillCatalog {
     pub fn with_dispatcher(mut self, dispatcher: Arc<ActionDispatcher>) -> Self {
         self.dispatcher = Some(dispatcher);
         self
+    }
+
+    /// Register an **in-process** script executor (builder-style).
+    ///
+    /// When set, skill scripts are executed directly in the current Python
+    /// interpreter rather than being spawned as child processes.  This is the
+    /// correct approach for DCC applications (Maya, Blender, Houdini, …) where
+    /// the host DCC already provides its own Python interpreter with all DCC
+    /// modules pre-imported.
+    ///
+    /// # Example (from a DCC adapter)
+    /// ```no_run
+    /// use dcc_mcp_skills::catalog::SkillCatalog;
+    /// use dcc_mcp_actions::ActionRegistry;
+    /// use std::sync::Arc;
+    ///
+    /// let registry = Arc::new(ActionRegistry::new());
+    /// let catalog = SkillCatalog::new(registry)
+    ///     .with_in_process_executor(|script_path, params| {
+    ///         // Execute script_path inside the DCC's Python environment
+    ///         // (implemented by the DCC adapter via PyO3 or cffi)
+    ///         Ok(serde_json::json!({"success": true}))
+    ///     });
+    /// ```
+    pub fn with_in_process_executor<F>(mut self, executor: F) -> Self
+    where
+        F: Fn(String, serde_json::Value) -> Result<serde_json::Value, String>
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.script_executor = Some(Arc::new(executor));
+        self
+    }
+
+    /// Replace the in-process executor after construction.
+    pub fn set_in_process_executor<F>(&mut self, executor: F)
+    where
+        F: Fn(String, serde_json::Value) -> Result<serde_json::Value, String>
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.script_executor = Some(Arc::new(executor));
+    }
+
+    /// Remove the in-process executor, reverting to subprocess execution.
+    pub fn clear_in_process_executor(&mut self) {
+        self.script_executor = None;
     }
 
     /// Discover skills from the standard scan paths.
@@ -374,14 +441,22 @@ impl SkillCatalog {
 
             self.registry.register_action(meta);
 
-            // Auto-register subprocess handler if dispatcher is attached
+            // Auto-register handler if dispatcher is attached.
+            // Prefer in-process execution (DCC adapters) over subprocess.
             if let (Some(dispatcher), Some(sp)) = (&self.dispatcher, script_path) {
                 let sp_owned = sp.clone();
                 let name_clone = action_name.clone();
                 let dcc_owned = metadata.dcc.clone();
-                dispatcher.register_handler(&name_clone, move |params| {
-                    execute_script(&sp_owned, params, Some(dcc_owned.as_str()))
-                });
+                if let Some(executor) = &self.script_executor {
+                    let executor = Arc::clone(executor);
+                    dispatcher.register_handler(&name_clone, move |params| {
+                        executor(sp_owned.clone(), params)
+                    });
+                } else {
+                    dispatcher.register_handler(&name_clone, move |params| {
+                        execute_script(&sp_owned, params, Some(dcc_owned.as_str()))
+                    });
+                }
             }
 
             registered.push(action_name);
@@ -419,14 +494,21 @@ impl SkillCatalog {
 
                 self.registry.register_action(meta);
 
-                // Auto-register handler
+                // Auto-register handler; prefer in-process execution for DCC hosts.
                 if let Some(dispatcher) = &self.dispatcher {
                     let sp = script_path.clone();
                     let name_clone = action_name.clone();
                     let dcc_owned = metadata.dcc.clone();
-                    dispatcher.register_handler(&name_clone, move |params| {
-                        execute_script(&sp, params, Some(dcc_owned.as_str()))
-                    });
+                    if let Some(executor) = &self.script_executor {
+                        let executor = Arc::clone(executor);
+                        dispatcher.register_handler(&name_clone, move |params| {
+                            executor(sp.clone(), params)
+                        });
+                    } else {
+                        dispatcher.register_handler(&name_clone, move |params| {
+                            execute_script(&sp, params, Some(dcc_owned.as_str()))
+                        });
+                    }
                 }
 
                 registered.push(action_name);
@@ -440,15 +522,16 @@ impl SkillCatalog {
         }
         self.loaded.insert(skill_name.to_string());
 
+        let handler_mode = match (&self.dispatcher, &self.script_executor) {
+            (Some(_), Some(_)) => "in-process",
+            (Some(_), None) => "subprocess",
+            (None, _) => "none",
+        };
         tracing::info!(
             "SkillCatalog: loaded skill '{}' ({} tools registered, handlers: {})",
             skill_name,
             registered.len(),
-            if self.dispatcher.is_some() {
-                "auto"
-            } else {
-                "none"
-            }
+            handler_mode,
         );
 
         Ok(registered)
@@ -872,6 +955,62 @@ impl SkillCatalog {
     #[pyo3(signature = (extra_paths=None, dcc_name=None))]
     fn py_discover(&self, extra_paths: Option<Vec<String>>, dcc_name: Option<&str>) -> usize {
         self.discover(extra_paths.as_deref(), dcc_name)
+    }
+
+    /// Register a Python callable as the in-process script executor.
+    ///
+    /// When registered, skill scripts are executed inside the **current**
+    /// Python interpreter (the one running inside the DCC application) rather
+    /// than being spawned as a subprocess.  This is the correct behaviour for
+    /// Maya, Blender, Houdini, and any other DCC that embeds its own Python —
+    /// the callable receives the script path and a params dict and must return
+    /// a JSON-serialisable dict.
+    ///
+    /// The callable signature must be::
+    ///
+    ///     def executor(script_path: str, params: dict) -> dict:
+    ///         ...
+    ///
+    /// Example (Maya adapter)::
+    ///
+    ///     def _maya_exec(script_path: str, params: dict) -> dict:
+    ///         import importlib.util, sys
+    ///         spec = importlib.util.spec_from_file_location("_skill_script", script_path)
+    ///         mod = importlib.util.module_from_spec(spec)
+    ///         mod.__mcp_params__ = params
+    ///         spec.loader.exec_module(mod)
+    ///         return getattr(mod, "__mcp_result__", {"success": True})
+    ///
+    ///     catalog.set_in_process_executor(_maya_exec)
+    ///
+    /// Pass ``None`` to revert to subprocess execution.
+    #[pyo3(name = "set_in_process_executor")]
+    fn py_set_in_process_executor(&mut self, executor: Option<Py<PyAny>>) -> PyResult<()> {
+        match executor {
+            None => {
+                self.script_executor = None;
+            }
+            Some(py_fn) => {
+                let executor_fn = move |script_path: String,
+                                        params: serde_json::Value|
+                      -> Result<serde_json::Value, String> {
+                    use dcc_mcp_utils::py_json::{json_value_to_pyobject, py_any_to_json_value};
+                    Python::try_attach(|py| {
+                        let py_params = json_value_to_pyobject(py, &params)
+                            .map_err(|e| format!("params → Python: {e}"))?;
+                        let result = py_fn
+                            .call1(py, (script_path, py_params))
+                            .map_err(|e| format!("in-process executor failed: {e}"))?;
+                        let bound = result.into_bound(py);
+                        py_any_to_json_value(&bound).map_err(|e| format!("result → JSON: {e}"))
+                    })
+                    .ok_or_else(|| "Python interpreter not attached".to_string())
+                    .and_then(|r| r)
+                };
+                self.script_executor = Some(Arc::new(executor_fn));
+            }
+        }
+        Ok(())
     }
 
     /// Load a skill by name — registers its tools.

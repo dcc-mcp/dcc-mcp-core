@@ -1,9 +1,129 @@
 //! Script execution helpers for the skill catalog.
 //!
-//! Provides subprocess-based script dispatch used by [`SkillCatalog::load_skill`]
-//! when auto-registering handlers in the Skills-First workflow.
+//! Provides two execution paths used by [`SkillCatalog::load_skill`]:
+//!
+//! 1. **In-process** (preferred when running inside a DCC application):
+//!    The script is executed directly inside the current Python interpreter
+//!    via PyO3.  This is correct for Maya, Blender, Houdini, etc. because
+//!    the host DCC already provides its own interpreter with all DCC modules
+//!    available (`maya.cmds`, `bpy`, `hou`, …).  Spawning a subprocess in
+//!    that scenario would start a *second* interpreter (or a whole new DCC
+//!    instance when `DCC_MCP_PYTHON_EXECUTABLE` is set to `mayapy`), which
+//!    has no access to the live scene.
+//!
+//! 2. **Subprocess** (fallback for standalone / non-DCC environments):
+//!    The original behaviour — spawn `python` (or the executable named by
+//!    `DCC_MCP_PYTHON_EXECUTABLE`) as a child process and communicate via
+//!    stdin/stdout JSON.  Still required when dcc-mcp-core runs outside of
+//!    a DCC process (e.g. a standalone gateway, test harness, or a DCC that
+//!    has no embedded Python).
+//!
+//! The catalog switches between these paths automatically: if a
+//! [`ScriptExecutorFn`] has been registered (via
+//! [`SkillCatalog::with_in_process_executor`]) it is used; otherwise the
+//! subprocess path is taken.
 
 use dcc_mcp_models::ToolDeclaration;
+
+/// A pluggable script executor that runs a skill script inside the **current**
+/// process rather than spawning a child process.
+///
+/// DCC adapters (Maya, Blender, Houdini…) should register one of these via
+/// [`SkillCatalog::with_in_process_executor`] so that skill scripts are
+/// executed inside the host DCC's own Python interpreter instead of being
+/// dispatched to a subprocess.
+///
+/// The closure receives:
+/// - `script_path` — absolute path to the `.py` script to execute.
+/// - `params`      — the tool's input parameters as a `serde_json::Value`.
+///
+/// It must return `Ok(Value)` on success or `Err(String)` on failure.
+pub type ScriptExecutorFn =
+    dyn Fn(String, serde_json::Value) -> Result<serde_json::Value, String> + Send + Sync;
+
+/// Execute a skill script **in-process** using PyO3.
+///
+/// This is the preferred execution path when dcc-mcp-core is embedded inside
+/// a DCC application (Maya, Blender, Houdini, …).  The script is loaded via
+/// `importlib.util` inside the *current* Python interpreter — the one already
+/// running inside the DCC — so all host modules (`maya.cmds`, `bpy`, `hou`, …)
+/// are available without spawning any external process.
+///
+/// The script receives the input parameters via a `__mcp_params__` global dict
+/// so it can access them with `params = globals().get("__mcp_params__", {})`.
+/// The script is expected to set a `__mcp_result__` module-level variable to a
+/// JSON-serialisable dict before returning.
+///
+/// # Fallback
+/// If the `python-bindings` Cargo feature is not enabled (i.e. PyO3 is not
+/// available) this function is not compiled and the catalog falls back to the
+/// subprocess path automatically.
+#[cfg(feature = "python-bindings")]
+#[allow(dead_code)] // Available for DCC adapters that invoke it directly
+pub(crate) fn execute_script_in_process(
+    script_path: &str,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    use dcc_mcp_utils::py_json::{json_value_to_pyobject, py_any_to_json_value};
+    use pyo3::prelude::*;
+    use pyo3::types::PyDict;
+
+    Python::try_attach(|py| {
+        // Build a glue script that loads the target via importlib.util,
+        // injects __mcp_params__, executes the module, and captures
+        // __mcp_result__ — all in a single `eval`-friendly expression.
+        //
+        // We cannot use `PyModule::from_code` here because its signature
+        // requires `&CStr` literals which cannot hold runtime strings in
+        // PyO3 0.28.  Using `py.run(CStr)` has the same limitation.
+        // Instead we delegate fully to Python's own importlib so that the
+        // script has a proper `__spec__` and the DCC's import hooks fire.
+        let params_obj =
+            json_value_to_pyobject(py, &params).map_err(|e| format!("params → Python: {e}"))?;
+
+        let glue = PyDict::new(py);
+        glue.set_item("_script_path", script_path)
+            .map_err(|e| format!("PyO3 glue dict: {e}"))?;
+        glue.set_item("_params", params_obj)
+            .map_err(|e| format!("PyO3 glue dict: {e}"))?;
+
+        // Execute via Python eval — the code string is built at runtime so
+        // there is no need for `c_str!` macros.
+        let run_code = r#"
+import importlib.util as _ilu, types as _types
+_spec = _ilu.spec_from_file_location("__mcp_skill__", _script_path)
+_mod = _ilu.module_from_spec(_spec)
+_mod.__mcp_params__ = _params
+_spec.loader.exec_module(_mod)
+getattr(_mod, "__mcp_result__", {"success": True, "message": ""})
+"#;
+
+        // `py.eval_bound` accepts a `&str` in PyO3 0.28
+        let result_obj = py
+            .eval(
+                pyo3::ffi::c_str!(
+                    r#"
+import importlib.util as _ilu
+_spec = _ilu.spec_from_file_location("__mcp_skill__", _script_path)
+_mod = _ilu.module_from_spec(_spec)
+_mod.__mcp_params__ = _params
+_spec.loader.exec_module(_mod)
+getattr(_mod, "__mcp_result__", {"success": True, "message": ""})
+"#
+                ),
+                None,
+                Some(&glue),
+            )
+            .map_err(|e| format!("in-process script '{script_path}' failed: {e}"))?;
+
+        let _ = run_code; // silence unused warning
+        py_any_to_json_value(&result_obj).map_err(|e| format!("result → JSON: {e}"))
+    })
+    .ok_or_else(|| {
+        format!("Python interpreter not attached; cannot execute '{script_path}' in-process")
+    })
+    .and_then(|r| r)
+}
 
 /// Resolve which script file backs a tool declaration.
 ///

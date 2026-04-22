@@ -1563,6 +1563,43 @@ class SkillCatalog:
     """
 
     def __init__(self, registry: ToolRegistry) -> None: ...
+    def set_in_process_executor(
+        self,
+        executor: Any | None,
+    ) -> None:
+        """Register a Python callable as the in-process script executor.
+
+        When set, skill scripts are executed inside the **current** Python
+        interpreter (the one running inside the DCC application) rather than
+        being spawned as a subprocess.  This is the correct behaviour for Maya,
+        Blender, Houdini, and any other DCC that embeds its own Python.
+
+        The callable signature must be::
+
+            def executor(script_path: str, params: dict) -> dict:
+                ...
+
+        Example (Maya adapter)::
+
+            import importlib.util
+
+            def _maya_exec(script_path: str, params: dict) -> dict:
+                spec = importlib.util.spec_from_file_location("_skill_script", script_path)
+                mod = importlib.util.module_from_spec(spec)
+                mod.__mcp_params__ = params
+                spec.loader.exec_module(mod)
+                return getattr(mod, "__mcp_result__", {"success": True})
+
+            catalog.set_in_process_executor(_maya_exec)
+
+        Pass ``None`` to revert to subprocess execution.
+
+        Args:
+            executor: A callable ``(script_path: str, params: dict) -> dict``,
+                      or ``None`` to remove the in-process executor.
+
+        """
+        ...
     def discover(
         self,
         extra_paths: list[str] | None = None,
