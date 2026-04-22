@@ -1,6 +1,8 @@
 use super::*;
 use dcc_mcp_transport::discovery::types::ServiceEntry;
 
+const TEST_OWN_VERSION: &str = env!("CARGO_PKG_VERSION");
+
 #[test]
 fn test_parse_semver_basic() {
     assert_eq!(parse_semver("0.12.29"), (0, 12, 29));
@@ -34,7 +36,7 @@ fn test_has_newer_sentinel_ignores_dcc_host_version() {
     reg.register(maya).unwrap();
 
     assert!(
-        !has_newer_sentinel(&reg, "0.13.2", Duration::from_secs(30)),
+        !has_newer_sentinel(&reg, TEST_OWN_VERSION, Duration::from_secs(30)),
         "Maya 2024 host version must not appear as a newer gateway"
     );
 }
@@ -47,11 +49,11 @@ fn test_has_newer_sentinel_detects_newer_gateway() {
     let reg = FileRegistry::new(dir.path()).unwrap();
 
     let mut sentinel = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 9765);
-    sentinel.version = Some("0.14.0".to_string());
+    sentinel.version = Some("99.0.0".to_string());
     reg.register(sentinel).unwrap();
 
     assert!(
-        has_newer_sentinel(&reg, "0.13.2", Duration::from_secs(30)),
+        has_newer_sentinel(&reg, TEST_OWN_VERSION, Duration::from_secs(30)),
         "a newer-version sentinel must trigger yield"
     );
 }
@@ -64,11 +66,11 @@ fn test_has_newer_sentinel_ignores_own_version() {
     let reg = FileRegistry::new(dir.path()).unwrap();
 
     let mut sentinel = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 9765);
-    sentinel.version = Some("0.13.2".to_string());
+    sentinel.version = Some(TEST_OWN_VERSION.to_string());
     reg.register(sentinel).unwrap();
 
     assert!(
-        !has_newer_sentinel(&reg, "0.13.2", Duration::from_secs(30)),
+        !has_newer_sentinel(&reg, TEST_OWN_VERSION, Duration::from_secs(30)),
         "identical version sentinel must not trigger yield"
     );
 }
@@ -86,7 +88,7 @@ fn test_has_newer_sentinel_ignores_stale_sentinel() {
     reg.register(sentinel).unwrap();
 
     assert!(
-        !has_newer_sentinel(&reg, "0.13.2", Duration::from_secs(30)),
+        !has_newer_sentinel(&reg, TEST_OWN_VERSION, Duration::from_secs(30)),
         "stale sentinel (crashed gateway) must not block newer takeover"
     );
 }
@@ -99,7 +101,7 @@ fn test_gateway_sentinel_heartbeat_advances() {
     let reg = FileRegistry::new(dir.path()).unwrap();
 
     let mut sentinel = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 9765);
-    sentinel.version = Some("0.13.2".to_string());
+    sentinel.version = Some(TEST_OWN_VERSION.to_string());
     // Age the heartbeat so the before/after delta is observable.
     sentinel.last_heartbeat = std::time::SystemTime::now() - Duration::from_secs(120);
     let key = sentinel.key();

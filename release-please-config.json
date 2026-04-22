@@ -20,6 +20,10 @@
           "type": "toml",
           "path": "pyproject.toml",
           "jsonpath": "$.project.version"
+        },
+        {
+          "type": "generic",
+          "path": ".agents/skills/dcc-mcp-core/SKILL.md"
         }
       ]
     }

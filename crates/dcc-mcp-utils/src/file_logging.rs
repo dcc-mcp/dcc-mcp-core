@@ -814,7 +814,7 @@ mod tests {
         // First write below threshold — no rotation.
         writer.write_all(b"hello\n").unwrap();
         // Second write pushes us past 32 bytes.
-        writer.write_all(&vec![b'x'; 64]).unwrap();
+        writer.write_all(&[b'x'; 64]).unwrap();
         writer.flush().unwrap();
         drop(writer);
 

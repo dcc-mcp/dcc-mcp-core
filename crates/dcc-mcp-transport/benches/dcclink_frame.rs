@@ -1,7 +1,8 @@
 //! Criterion benchmarks for DccLinkFrame encode/decode (pure CPU, no I/O).
 
-use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use dcc_mcp_transport::{DccLinkFrame, DccLinkType};
+use std::hint::black_box;
 
 fn bench_encode(c: &mut Criterion) {
     let mut group = c.benchmark_group("dcclink_frame/encode");

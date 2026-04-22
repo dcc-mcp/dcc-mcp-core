@@ -609,22 +609,6 @@ impl SubscriberManager {
     // ── Introspection helpers (for tests) ──────────────────────────────
 
     #[cfg(test)]
-    pub(crate) fn route_for_job(&self, job_id: &str) -> Option<String> {
-        self.inner
-            .job_routes
-            .get(job_id)
-            .map(|e| e.value().client_session_id.clone())
-    }
-
-    #[cfg(test)]
-    pub(crate) fn route_for_progress_token(&self, token: &Value) -> Option<String> {
-        self.inner
-            .progress_token_routes
-            .get(&progress_token_key(token))
-            .map(|e| e.value().clone())
-    }
-
-    #[cfg(test)]
     pub(crate) fn pending_count(&self, backend_url: &str) -> usize {
         self.inner
             .backends

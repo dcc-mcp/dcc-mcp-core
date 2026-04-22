@@ -320,7 +320,7 @@ mod tests {
         assert_eq!(d.total_processed(), 0);
 
         let req = JobRequest::new("s1", ThreadAffinity::Main, Box::new(|| Ok(json!(1))));
-        let _ = d.submit(req);
+        drop(d.submit(req));
         assert_eq!(d.total_dispatched(), 1);
 
         d.pump();

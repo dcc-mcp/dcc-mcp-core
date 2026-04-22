@@ -686,23 +686,16 @@ mod tests {
 
         #[test]
         fn test_long_ttl_not_expired() {
-            let buf = SharedBuffer::create_with_ttl(
-                "ttl-long",
-                256,
-                Some(Duration::from_secs(3600)).into(),
-            )
-            .unwrap();
+            let buf =
+                SharedBuffer::create_with_ttl("ttl-long", 256, Some(Duration::from_secs(3600)))
+                    .unwrap();
             assert!(!buf.is_expired().unwrap());
         }
 
         #[test]
         fn test_descriptor_contains_ttl() {
-            let buf = SharedBuffer::create_with_ttl(
-                "ttl-desc",
-                256,
-                Some(Duration::from_secs(30)).into(),
-            )
-            .unwrap();
+            let buf = SharedBuffer::create_with_ttl("ttl-desc", 256, Some(Duration::from_secs(30)))
+                .unwrap();
             let desc = BufferDescriptor::from_buffer(&buf).unwrap();
             assert_eq!(desc.ttl_secs, 30);
         }

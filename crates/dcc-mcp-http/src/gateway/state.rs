@@ -151,7 +151,7 @@ mod tests {
             async_dispatch_timeout: Duration::from_secs(60),
             wait_terminal_timeout: Duration::from_secs(600),
             server_name: "test".into(),
-            server_version: "0.13.2".into(),
+            server_version: env!("CARGO_PKG_VERSION").into(),
             http_client: reqwest::Client::new(),
             yield_tx: Arc::new(yield_tx),
             events_tx: Arc::new(events_tx),
@@ -175,7 +175,7 @@ mod tests {
         {
             let r = registry.read().await;
             let mut sentinel = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 9765);
-            sentinel.version = Some("0.13.2".into());
+            sentinel.version = Some(env!("CARGO_PKG_VERSION").into());
             r.register(sentinel).unwrap();
 
             let maya = ServiceEntry::new("maya", "127.0.0.1", 18812);

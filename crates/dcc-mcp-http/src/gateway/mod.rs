@@ -142,7 +142,7 @@ async fn try_bind_port_opt(host: &str, port: u16) -> Option<tokio::net::TcpListe
 //
 // Issue #228: the old implementation scanned every DCC instance entry and
 // compared its `version` field (which is the DCC host version — e.g. Maya
-// `"2024"`) against our crate version (e.g. `"0.13.2"`), causing semver
+// `"2024"`) against our crate version (e.g. `"0.14.3"`), causing semver
 // comparison to flag every running DCC as a "newer challenger" and trigger
 // a self-yield within 15 s of startup.
 //
