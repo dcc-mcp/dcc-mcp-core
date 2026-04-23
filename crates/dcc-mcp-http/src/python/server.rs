@@ -11,8 +11,8 @@ use super::*;
 ///     handle.shutdown()
 #[pyclass(name = "McpServerHandle", skip_from_py_object)]
 pub struct PyServerHandle {
-    inner: Option<McpServerHandle>,
-    runtime: Arc<Runtime>,
+    pub(crate) inner: Option<McpServerHandle>,
+    pub(crate) runtime: Arc<Runtime>,
     pub port: u16,
     pub bind_addr: String,
     /// ``True`` if this process won the gateway port competition.
@@ -20,7 +20,7 @@ pub struct PyServerHandle {
     /// Shared live metadata — mirrors `McpHttpServer::live_meta` so Python
     /// can push scene/version/documents updates that flow into FileRegistry
     /// on the next heartbeat tick.
-    live_meta: Arc<RwLock<LiveMetaInner>>,
+    pub(crate) live_meta: Arc<RwLock<LiveMetaInner>>,
 }
 
 #[pymethods]

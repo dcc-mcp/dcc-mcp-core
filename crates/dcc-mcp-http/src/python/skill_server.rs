@@ -20,14 +20,14 @@ use super::*;
 ///     handle.shutdown()
 #[pyclass(name = "McpHttpServer", skip_from_py_object)]
 pub struct PyMcpHttpServer {
-    registry: Arc<ActionRegistry>,
-    dispatcher: Arc<ActionDispatcher>,
-    catalog: Arc<SkillCatalog>,
-    config: McpHttpConfig,
-    runtime: Arc<Runtime>,
+    pub(crate) registry: Arc<ActionRegistry>,
+    pub(crate) dispatcher: Arc<ActionDispatcher>,
+    pub(crate) catalog: Arc<SkillCatalog>,
+    pub(crate) config: McpHttpConfig,
+    pub(crate) runtime: Arc<Runtime>,
     /// Shared live metadata — written by Python via `update_scene()` /
     /// `update_gateway_metadata()`; propagated to FileRegistry each heartbeat.
-    live_meta: Arc<RwLock<LiveMetaInner>>,
+    pub(crate) live_meta: Arc<RwLock<LiveMetaInner>>,
 }
 
 #[pymethods]
