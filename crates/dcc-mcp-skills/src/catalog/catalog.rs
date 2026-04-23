@@ -309,7 +309,11 @@ impl SkillCatalog {
                 timeout_hint_secs: tool_decl.timeout_hint_secs,
                 thread_affinity: tool_decl.thread_affinity,
                 annotations: tool_decl.annotations.clone(),
-                next_tools: helpers::sanitize_next_tools(&tool_decl.next_tools, skill_name, &action_name),
+                next_tools: helpers::sanitize_next_tools(
+                    &tool_decl.next_tools,
+                    skill_name,
+                    &action_name,
+                ),
             };
 
             self.registry.register_action(meta);
@@ -338,7 +342,7 @@ impl SkillCatalog {
         // Script-only path: no explicit tool declarations → one action per script
         if metadata.tools.is_empty() {
             for script_path in &metadata.scripts {
-                let stem = std::path::Path::new(script_path)
+                let stem = std::path::Path::new(script_path.as_str())
                     .file_stem()
                     .and_then(|s| s.to_str())
                     .unwrap_or("unknown");
@@ -517,7 +521,10 @@ impl SkillCatalog {
                     .cmp(&a.scope)
                     .then_with(|| a.metadata.name.cmp(&b.metadata.name))
             });
-            return prefiltered.iter().map(helpers::skill_entry_to_summary).collect();
+            return prefiltered
+                .iter()
+                .map(helpers::skill_entry_to_summary)
+                .collect();
         }
 
         // ── 3. BM25-lite scoring ──

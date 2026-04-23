@@ -3,11 +3,15 @@ use super::*;
 /// Step outcome used internally by the drivers.
 #[derive(Debug)]
 pub enum StepOutcome {
+    /// Step completed successfully.
     Ok,
+    /// Step was cancelled via the [`CancellationToken`].
     Cancelled,
+    /// Step failed with the given error message.
     Failed(String),
 }
 
+/// Evaluate a JSONPath expression against `root`, returning the matched value(s).
 pub fn eval_jsonpath(expr: &str, root: &Value) -> Result<Value, String> {
     // jsonpath-rust 1.x — value can be queried directly.
     match root.query(expr) {
@@ -24,6 +28,7 @@ pub fn eval_jsonpath(expr: &str, root: &Value) -> Result<Value, String> {
     }
 }
 
+/// Return `true` if `v` is considered truthy (non-null, non-zero, non-empty).
 pub fn is_truthy(v: &Value) -> bool {
     match v {
         Value::Null => false,
@@ -35,6 +40,7 @@ pub fn is_truthy(v: &Value) -> bool {
     }
 }
 
+/// Classify an error string into a coarse category label (`"timeout"`, `"transient"`, `"error"`).
 pub fn classify_error(e: &str) -> String {
     // Very small heuristic — user-supplied retry_on lists are the canonical
     // source of truth. We only need a string label that aligns with the
@@ -48,6 +54,7 @@ pub fn classify_error(e: &str) -> String {
     }
 }
 
+/// Recursively count the total number of steps in a [`WorkflowSpec`], including nested steps.
 pub fn count_steps(spec: &WorkflowSpec) -> u32 {
     fn count(steps: &[Step]) -> u32 {
         steps
@@ -68,10 +75,14 @@ pub fn count_steps(spec: &WorkflowSpec) -> u32 {
 
 // Squash unused in non-sqlite builds.
 #[allow(dead_code)]
+/// Suppress unused-import warnings for [`RetryPolicy`] and [`StepPolicy`] in non-sqlite builds.
 pub fn _silence_retry_policy<'a>(_r: &'a RetryPolicy, _s: &'a StepPolicy) {}
 #[allow(dead_code)]
+/// Suppress unused-import warning for [`BackoffKind`] in non-sqlite builds.
 pub fn _silence_backoff(_b: BackoffKind) {}
 #[allow(dead_code)]
+/// Suppress unused-import warning for [`IdempotencyScope`] in non-sqlite builds.
 pub fn _silence_scope(_s: IdempotencyScope) {}
 #[allow(dead_code)]
+/// Suppress unused-import warning for [`FileRef`] in non-sqlite builds.
 pub fn _silence_fileref(_f: &FileRef) {}

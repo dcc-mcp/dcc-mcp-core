@@ -461,5 +461,3 @@ pub fn build_group_stub(group: &str, tool_names: &[String]) -> McpTool {
         meta: None,
     }
 }
-
-/// Handle ``activate_tool_group`` — flips every action in the named group

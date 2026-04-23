@@ -13,26 +13,25 @@
 //! All network I/O goes through the stateless helpers in
 //! [`super::backend_client`], so fan-out works concurrently via `join_all`.
 
-mod list;
 mod call;
-mod wait_terminal;
-mod skill_mgmt;
 mod fingerprint;
 mod helpers;
+mod list;
+mod skill_mgmt;
 #[cfg(test)]
 mod tests;
+mod wait_terminal;
 
-pub use list::aggregate_tools_list;
 pub use call::route_tools_call;
 pub use fingerprint::compute_tools_fingerprint;
 pub(crate) use helpers::{
-    envelope_to_text_result, extract_job_id, inject_instance_metadata,
-    live_backends, meta_signals_async_dispatch, meta_wants_wait_for_terminal,
-    resolve_target, strip_gateway_meta_flags, targets_for_fanout,
-    to_text_result,
+    envelope_to_text_result, extract_job_id, find_instance_by_prefix, inject_instance_metadata,
+    live_backends, meta_signals_async_dispatch, meta_wants_wait_for_terminal, resolve_target,
+    strip_gateway_meta_flags, targets_for_fanout, to_text_result,
 };
+pub use list::aggregate_tools_list;
 pub(crate) use skill_mgmt::{skill_management_tool_defs, skill_mgmt_dispatch};
-pub(crate) use wait_terminal::{merge_job_update_into_envelope, wait_for_terminal_reply};
+pub(crate) use wait_terminal::wait_for_terminal_reply;
 
 use std::time::Duration;
 

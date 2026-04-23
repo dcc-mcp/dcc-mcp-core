@@ -1,3 +1,5 @@
+use super::backend::BackendShared;
+use super::helpers::{backoff_delay, find_record_end, parse_sse_record, record_delim_len};
 use super::*;
 
 impl SubscriberManager {

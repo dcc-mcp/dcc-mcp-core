@@ -342,8 +342,7 @@ fn children_of_returns_every_child_of_parent() {
 
 #[test]
 fn per_session_cap_rejects_overflow() {
-    let mgr =
-        SubscriberManager::with_limits(reqwest::Client::new(), Duration::from_secs(60), 2);
+    let mgr = SubscriberManager::with_limits(reqwest::Client::new(), Duration::from_secs(60), 2);
     assert!(
         mgr.bind_job_route("j1", "sess", "http://b/mcp", "t", None)
             .is_ok()
@@ -381,8 +380,7 @@ fn terminal_status_auto_evicts_route() {
 fn run_route_gc_once_evicts_stale_routes() {
     // TTL=0 disables GC (per spec); use 1 ms so routes older than
     // 1 ms are stale.
-    let mgr =
-        SubscriberManager::with_limits(reqwest::Client::new(), Duration::from_millis(1), 0);
+    let mgr = SubscriberManager::with_limits(reqwest::Client::new(), Duration::from_millis(1), 0);
     mgr.bind_job_route("old", "s", "http://b/mcp", "t", None)
         .unwrap();
     // Force the created_at far into the past.

@@ -450,8 +450,3 @@ pub fn build_core_tools_inner() -> Vec<McpTool> {
         },
     ]
 }
-
-/// Build the three opt-in meta-tools for the lazy-actions fast-path (#254).
-///
-/// All three tool names are bare, lower-snake and ≤ 16 chars — SEP-986
-/// compliant and therefore legal to surface unprefixed in `tools/list`.

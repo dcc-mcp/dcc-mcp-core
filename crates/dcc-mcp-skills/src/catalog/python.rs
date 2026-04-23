@@ -154,7 +154,9 @@ impl SkillCatalog {
         let tag_refs: Vec<&str> = tags.iter().map(String::as_str).collect();
         let scope_enum = match scope {
             None => None,
-            Some(s) => Some(helpers::parse_scope_str(s).map_err(pyo3::exceptions::PyValueError::new_err)?),
+            Some(s) => {
+                Some(helpers::parse_scope_str(s).map_err(pyo3::exceptions::PyValueError::new_err)?)
+            }
         };
         Ok(self.search_skills(query, &tag_refs, dcc, scope_enum, limit))
     }

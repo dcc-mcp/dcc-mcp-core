@@ -53,12 +53,19 @@ use crate::notifier::{NullNotifier, SharedNotifier, WorkflowUpdate, WorkflowUpda
 use crate::policy::{BackoffKind, IdempotencyScope, RetryPolicy, StepPolicy};
 use crate::spec::{Step, StepId, StepKind, WorkflowSpec, WorkflowStatus};
 
+/// Fluent builder for [`WorkflowExecutor`].
 pub mod builder;
+/// Core execution loop — drives steps sequentially, handles cancellation.
 pub mod core;
+/// [`WorkflowRunHandle`] returned by [`WorkflowExecutor::run`].
 pub mod handle;
+/// Shared helper utilities used across step-driver modules.
 pub mod helpers;
+/// Output ingestion and artefact promotion helpers.
 pub mod output;
+/// Step-policy enforcement wrapper (retry, timeout, idempotency).
 pub mod policy_wrapper;
+/// Per-[`StepKind`] driver implementations.
 pub mod step_drivers;
 #[cfg(test)]
 pub mod tests;

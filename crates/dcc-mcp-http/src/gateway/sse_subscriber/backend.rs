@@ -1,18 +1,19 @@
+use super::types::Pending;
 use super::*;
 
 /// Per-backend subscription state.
 ///
-/// Public fields are `pub(super)` so the gateway's `start_gateway_tasks`
+/// Public fields are `pub(crate)` so the gateway's `start_gateway_tasks`
 /// can spawn / abort the reconnect loop directly.
-pub struct BackendSubscriber {
+pub(crate) struct BackendSubscriber {
     /// Absolute URL of the backend MCP endpoint (`http://host:port/mcp`).
     #[allow(dead_code)]
-    pub(super) url: String,
+    pub(crate) url: String,
     /// Reconnect loop JoinHandle. `None` when the subscriber was never
     /// started or has been aborted.
-    pub(super) task: Option<JoinHandle<()>>,
+    pub(crate) task: Option<JoinHandle<()>>,
     /// Shared state with the reconnect task.
-    pub(super) shared: Arc<BackendShared>,
+    pub(crate) shared: Arc<BackendShared>,
 }
 
 impl BackendSubscriber {
@@ -31,19 +32,19 @@ impl Drop for BackendSubscriber {
 }
 
 /// Shared state for a single backend's reconnect loop.
-pub(super) struct BackendShared {
+pub(crate) struct BackendShared {
     /// Backend URL for logging.
-    pub(super) url: String,
+    pub(crate) url: String,
     /// Per-backend bounded buffer of notifications whose target session
     /// could not yet be resolved.
-    pub(super) pending: Mutex<VecDeque<Pending>>,
+    pub(crate) pending: Mutex<VecDeque<Pending>>,
     /// Number of consecutive reconnect attempts (reset on a successful
     /// open of the SSE stream).
-    pub(super) reconnect_attempts: Mutex<u32>,
+    pub(crate) reconnect_attempts: Mutex<u32>,
 }
 
 impl BackendShared {
-    pub(super) fn new(url: String) -> Self {
+    pub(crate) fn new(url: String) -> Self {
         Self {
             url,
             pending: Mutex::new(VecDeque::with_capacity(PENDING_BUFFER_CAP)),

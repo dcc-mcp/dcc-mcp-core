@@ -20,6 +20,7 @@ pub fn ingest_output(state: &RunState, step_id: &StepId, mut output: Value) -> S
     step_out
 }
 
+/// Scan `output` for inline artefact entries (`inline_b64` or `path`) and upload them to `store`.
 pub fn maybe_upload_inline_refs(
     store: &dyn dcc_mcp_artefact::ArtefactStore,
     output: &mut Value,

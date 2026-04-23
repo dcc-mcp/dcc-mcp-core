@@ -55,11 +55,68 @@ use std::sync::Arc;
 
 use crate::loader;
 
+#[allow(clippy::module_inception)]
 mod catalog;
 mod groups;
 mod helpers;
 #[cfg(feature = "python-bindings")]
 mod python;
+
+// ── SkillCatalog ──
+
+/// Manages discovered skills and their progressive loading.
+///
+/// Thread-safe: all state is stored in `DashMap` / `DashSet`.
+///
+/// When a dispatcher is attached (via [`SkillCatalog::with_dispatcher`]),
+/// loading a skill also registers a handler for each action — enabling the
+/// Skills-First workflow where agents never need to register handlers manually.
+///
+/// # Execution modes
+///
+/// - **In-process** (preferred inside a DCC): register a
+///   [`ScriptExecutorFn`] via [`with_in_process_executor`](Self::with_in_process_executor).
+///   Scripts are executed directly in the host DCC's Python interpreter so
+///   DCC APIs (`maya.cmds`, `bpy`, `hou`, …) are available without spawning
+///   any external process.
+/// - **Subprocess** (default): each skill script is executed as a child
+///   process. Suitable for standalone / non-DCC environments.
+#[cfg_attr(feature = "python-bindings", pyclass(name = "SkillCatalog"))]
+pub struct SkillCatalog {
+    /// All discovered skill entries, keyed by skill name.
+    pub(super) entries: DashMap<String, SkillEntry>,
+    /// Set of skill names currently loaded.
+    pub(super) loaded: DashSet<String>,
+    /// Reference to ActionRegistry for registering/unregistering tools.
+    pub(super) registry: Arc<ActionRegistry>,
+    /// Optional dispatcher for auto-registering script handlers on load.
+    pub(super) dispatcher: Option<Arc<ActionDispatcher>>,
+    /// Optional in-process script executor.
+    ///
+    /// When set, skill scripts are run inside the current Python interpreter
+    /// instead of being dispatched to a subprocess.  DCC adapters should
+    /// register one of these via [`with_in_process_executor`](Self::with_in_process_executor)
+    /// so that `maya.cmds`, `bpy`, `hou`, etc. are available to the scripts.
+    pub(super) script_executor: Option<Arc<ScriptExecutorFn>>,
+    /// Tool groups currently active (`"<skill>:<group>"` keys).
+    pub(super) active_groups: DashSet<String>,
+}
+
+impl std::fmt::Debug for SkillCatalog {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let discovered = self
+            .entries
+            .iter()
+            .filter(|e| e.value().state == SkillState::Discovered)
+            .count();
+        let loaded = self.loaded.len();
+        f.debug_struct("SkillCatalog")
+            .field("discovered", &discovered)
+            .field("loaded", &loaded)
+            .field("total", &self.entries.len())
+            .finish()
+    }
+}
 
 /// Return whether the group named ``group_name`` should be active at load-time.
 ///

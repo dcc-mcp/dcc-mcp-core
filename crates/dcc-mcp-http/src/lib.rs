@@ -44,6 +44,7 @@ pub mod error;
 pub mod executor;
 pub mod gateway;
 pub mod handler;
+pub(crate) mod handlers;
 pub mod inflight;
 pub mod job;
 pub mod job_storage;

@@ -72,22 +72,22 @@ use tokio::task::AbortHandle;
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
 use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry, ServiceKey};
 
-mod version;
 mod bind;
-mod sentinel;
-mod tasks;
 mod config;
 mod handle;
 mod runner;
+mod sentinel;
+mod tasks;
+mod version;
 
-pub(crate) use version::{parse_semver, is_newer_version};
-pub(crate) use bind::{try_bind_port, try_bind_port_opt};
-pub(crate) use sentinel::has_newer_sentinel;
-pub(crate) use tasks::{GatewayTasks, start_gateway_tasks, self_probe_listener};
+pub(crate) use bind::try_bind_port_opt;
 pub use config::GatewayConfig;
-pub use handle::GatewayHandle;
 pub(crate) use handle::ElectionOutcome;
+pub use handle::GatewayHandle;
 pub use runner::GatewayRunner;
+pub(crate) use sentinel::has_newer_sentinel;
+pub(crate) use tasks::start_gateway_tasks;
+pub(crate) use version::is_newer_version;
 
 #[cfg(test)]
 mod tests;

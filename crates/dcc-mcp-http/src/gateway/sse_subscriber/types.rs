@@ -1,5 +1,13 @@
 use super::*;
 
+/// Identifier for a client-side MCP session.
+pub type ClientSessionId = String;
+
+/// Identifier for a backend DCC server. Conventionally the backend's
+/// MCP URL (`http://host:port/mcp`) — stable for the life of the
+/// instance and sufficient for cancel forwarding.
+pub type BackendId = String;
+
 /// Gateway-owned routing entry for a single async job (issue #322).
 ///
 /// Populated when the gateway forwards a `tools/call` and the backend
@@ -58,7 +66,7 @@ impl std::error::Error for BindJobError {}
 
 /// A notification buffered while its target mapping is still unknown.
 #[derive(Debug, Clone)]
-pub(super) struct Pending {
-    pub(super) inserted_at: Instant,
-    pub(super) value: Value,
+pub(crate) struct Pending {
+    pub(crate) inserted_at: Instant,
+    pub(crate) value: Value,
 }

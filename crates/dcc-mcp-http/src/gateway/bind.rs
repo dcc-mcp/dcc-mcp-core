@@ -1,5 +1,3 @@
-use super::*;
-
 /// Attempt to bind `host:port` with `SO_REUSEADDR = false`.
 ///
 /// Returns a bound listener on success, or a detailed `io::Error` on failure.
@@ -10,7 +8,10 @@ use super::*;
 /// overlapped-I/O registration error from `TcpListener::from_std`, etc. —
 /// so callers can log it and distinguish "port in use" from "socket setup
 /// failed" (issue #303, suggestion D).
-pub(crate) async fn try_bind_port(host: &str, port: u16) -> std::io::Result<tokio::net::TcpListener> {
+pub(crate) async fn try_bind_port(
+    host: &str,
+    port: u16,
+) -> std::io::Result<tokio::net::TcpListener> {
     use socket2::{Domain, Socket, Type};
 
     let addr: std::net::SocketAddr =

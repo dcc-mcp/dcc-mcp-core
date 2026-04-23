@@ -119,7 +119,11 @@ pub(crate) async fn wait_for_terminal_reply(
 ///
 /// The output is a JSON object shaped like a `CallToolResult` so the
 /// caller can reuse [`envelope_to_text_result`].
-pub(crate) fn merge_job_update_into_envelope(mut pending: Value, update: &Value, timed_out: bool) -> Value {
+pub(crate) fn merge_job_update_into_envelope(
+    mut pending: Value,
+    update: &Value,
+    timed_out: bool,
+) -> Value {
     let params = update.get("params");
     let status = params
         .and_then(|p| p.get("status"))

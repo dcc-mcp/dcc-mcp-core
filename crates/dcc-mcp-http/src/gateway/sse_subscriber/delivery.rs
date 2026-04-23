@@ -1,3 +1,6 @@
+use super::backend::BackendShared;
+use super::helpers::{job_id_for_job_notification, resolve_target, terminal_job_id};
+use super::types::Pending;
 use super::*;
 
 impl SubscriberManager {

@@ -351,17 +351,3 @@ pub fn compute_job_timestamps(
     };
     (started_at, completed_at)
 }
-
-// ── Lazy-actions fast-path (#254) ─────────────────────────────────────────
-
-/// Handle ``list_actions`` — compact action catalog without JSON schemas.
-///
-/// Returns one JSON object per enabled action, containing **only** the
-/// three fields needed for an agent to decide whether to follow up with
-/// ``describe_action`` / ``call_action``:
-///
-/// ```text
-/// {"id": <full tool name>, "summary": <description>, "tags": [...]}
-/// ```
-///
-/// Deliberately omits the input/output schemas — surfacing them here

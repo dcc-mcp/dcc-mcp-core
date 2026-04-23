@@ -15,7 +15,11 @@ use dcc_mcp_transport::discovery::file_registry::FileRegistry;
 /// of "is there a newer gateway challenger on the network". Any comparison must
 /// therefore be restricted to the sentinel row, and it must ignore our own
 /// sentinel write (same version, same host, same port).
-pub(crate) fn has_newer_sentinel(reg: &FileRegistry, own_version: &str, stale_timeout: Duration) -> bool {
+pub(crate) fn has_newer_sentinel(
+    reg: &FileRegistry,
+    own_version: &str,
+    stale_timeout: Duration,
+) -> bool {
     reg.list_instances(GATEWAY_SENTINEL_DCC_TYPE)
         .into_iter()
         .any(|e| {

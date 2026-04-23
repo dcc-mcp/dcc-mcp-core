@@ -1,5 +1,3 @@
-use super::*;
-
 /// Parse a semver string (`"0.12.29"`, `"v1.2.3-rc1"`) into a comparable triple.
 ///
 /// Handles common variants:

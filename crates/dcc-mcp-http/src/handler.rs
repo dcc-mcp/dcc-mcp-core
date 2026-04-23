@@ -14,7 +14,7 @@ use axum::{
 use dashmap::DashMap;
 use futures::stream;
 use serde_json::{Value, json};
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
 use tokio::sync::oneshot;
@@ -25,41 +25,32 @@ use crate::{
     bridge_registry::BridgeRegistry,
     error::HttpError,
     executor::DccExecutorHandle,
-    inflight::{CancelToken, InFlightEntry, InFlightRequests, ProgressReporter},
-    prompts::{PromptError, PromptRegistry},
+    inflight::InFlightRequests,
+    prompts::PromptRegistry,
     protocol::{
-        self, CallToolParams, CallToolResult, DELTA_TOOLS_METHOD, DELTA_TOOLS_UPDATE_CAP,
-        ElicitationCapability, ElicitationCreateParams, ElicitationCreateResult, GetPromptParams,
+        self, DELTA_TOOLS_UPDATE_CAP, ElicitationCapability, ElicitationCreateResult,
         InitializeResult, JsonRpcBatch, JsonRpcMessage, JsonRpcRequest, JsonRpcResponse,
-        LOGGING_SET_LEVEL_METHOD, ListPromptsResult, ListResourcesResult, ListToolsResult,
-        LoggingCapability, LoggingSetLevelParams, MCP_SESSION_HEADER, McpTool, McpToolAnnotations,
-        PromptsCapability, RESOURCE_NOT_ENABLED_ERROR, ReadResourceParams, ResourcesCapability,
-        ServerCapabilities, ServerInfo, SubscribeResourceParams, TOOLS_LIST_PAGE_SIZE,
-        ToolsCapability, decode_cursor, encode_cursor, format_sse_event,
+        LOGGING_SET_LEVEL_METHOD, ListToolsResult, LoggingCapability, MCP_SESSION_HEADER, McpTool,
+        PromptsCapability, ResourcesCapability, ServerCapabilities, ServerInfo,
+        TOOLS_LIST_PAGE_SIZE, ToolsCapability, decode_cursor, encode_cursor, format_sse_event,
         negotiate_protocol_version,
     },
-    resources::{ResourceError, ResourceRegistry},
-    session::{SessionLogLevel, SessionLogMessage, SessionManager},
+    resources::ResourceRegistry,
+    session::SessionManager,
 };
 use dcc_mcp_actions::{ActionDispatcher, ActionRegistry};
-use dcc_mcp_models::SkillScope;
-use dcc_mcp_protocols::DccMcpError;
 use dcc_mcp_skills::SkillCatalog;
-use dcc_mcp_skills::catalog::SkillSummary;
 
-use crate::gateway::namespace::{decode_skill_tool_name, extract_bare_tool_name, skill_tool_name};
-
-pub(crate) mod handlers;
-pub(crate) use handlers::*;
+pub(crate) use crate::handlers::*;
 
 /// How long a cancellation record is kept before being garbage-collected.
 ///
 /// If a client sends `notifications/cancelled` for a request that has already
 /// completed (common race condition), the entry would never be consumed by the
 /// check in `handle_tools_call`.  This TTL bounds memory growth from such entries.
-const CANCELLED_REQUEST_TTL: Duration = Duration::from_secs(30);
-const ROOTS_REFRESH_TIMEOUT: Duration = Duration::from_secs(2);
-const ELICITATION_TIMEOUT: Duration = Duration::from_secs(60);
+pub(crate) const CANCELLED_REQUEST_TTL: Duration = Duration::from_secs(30);
+pub(crate) const ROOTS_REFRESH_TIMEOUT: Duration = Duration::from_secs(2);
+pub(crate) const ELICITATION_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Shared application state passed to all axum handlers.
 #[derive(Clone)]
@@ -582,7 +573,6 @@ pub(crate) async fn handle_initialize(
     }
     Ok(resp)
 }
-
 
 pub(crate) async fn handle_tools_list(
     state: &AppState,

@@ -87,7 +87,10 @@ pub(crate) async fn live_backends(gs: &GatewayState) -> Vec<ServiceEntry> {
         .collect()
 }
 
-pub(crate) async fn targets_for_fanout(gs: &GatewayState, dcc_filter: Option<&str>) -> Vec<ServiceEntry> {
+pub(crate) async fn targets_for_fanout(
+    gs: &GatewayState,
+    dcc_filter: Option<&str>,
+) -> Vec<ServiceEntry> {
     live_backends(gs)
         .await
         .into_iter()
@@ -95,7 +98,10 @@ pub(crate) async fn targets_for_fanout(gs: &GatewayState, dcc_filter: Option<&st
         .collect()
 }
 
-pub(crate) async fn find_instance_by_prefix(gs: &GatewayState, prefix: &str) -> Option<ServiceEntry> {
+pub(crate) async fn find_instance_by_prefix(
+    gs: &GatewayState,
+    prefix: &str,
+) -> Option<ServiceEntry> {
     live_backends(gs)
         .await
         .into_iter()

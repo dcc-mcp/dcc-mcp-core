@@ -40,16 +40,16 @@
 //! notification to every client that had an in-flight job on that
 //! backend (tracked in `backend_inflight`).
 
-mod types;
 mod backend;
-mod manager;
 mod delivery;
-mod job_bus;
-mod route_gc;
-mod reconnect;
 mod helpers;
+mod job_bus;
+mod manager;
+mod reconnect;
+mod route_gc;
 #[cfg(test)]
 mod tests;
+mod types;
 
 pub use manager::SubscriberManager;
 pub use types::{BackendId, BindJobError, ClientSessionId, JobRoute};

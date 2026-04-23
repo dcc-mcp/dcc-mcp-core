@@ -1,33 +1,36 @@
+use super::backend::{BackendShared, BackendSubscriber};
+use super::helpers::progress_token_key;
 use super::*;
 
+#[derive(Clone)]
 pub struct SubscriberManager {
-    inner: Arc<SubscriberManagerInner>,
+    pub(crate) inner: Arc<SubscriberManagerInner>,
 }
 
-struct SubscriberManagerInner {
-    backends: DashMap<String, BackendSubscriber>,
+pub(crate) struct SubscriberManagerInner {
+    pub(crate) backends: DashMap<String, BackendSubscriber>,
     /// `job_id` → full [`JobRoute`] (issue #322).
     ///
     /// Before v0.15 this was `DashMap<String, ClientSessionId>`; callers
     /// that only need the session id now read `route.client_session_id`.
-    job_routes: DashMap<String, JobRoute>,
+    pub(crate) job_routes: DashMap<String, JobRoute>,
     /// Reverse index: `client_session_id` → set of live `job_id`s. Used
     /// to enforce the per-session cap without walking the whole
     /// `job_routes` map on every insert.
-    session_jobs: DashMap<ClientSessionId, DashSet<String>>,
+    pub(crate) session_jobs: DashMap<ClientSessionId, DashSet<String>>,
     /// Reverse index: gateway JSON-RPC `requestId` (stringified) →
     /// dispatched `job_id`. Populated at dispatch time for async jobs
     /// so `notifications/cancelled { requestId }` can resolve to a
     /// `JobRoute` even after the original RPC has already returned
     /// (issue #322).
-    request_to_job: DashMap<String, String>,
+    pub(crate) request_to_job: DashMap<String, String>,
     /// `progressToken` (serialised JSON) → owning client session.
-    progress_token_routes: DashMap<String, ClientSessionId>,
+    pub(crate) progress_token_routes: DashMap<String, ClientSessionId>,
     /// Backend URL → set of client sessions with in-flight jobs on that
     /// backend. Used for `$/dcc.gatewayReconnect` fan-out.
-    backend_inflight: DashMap<String, DashSet<ClientSessionId>>,
+    pub(crate) backend_inflight: DashMap<String, DashSet<ClientSessionId>>,
     /// Client session → broadcast::Sender used by the GET /mcp handler.
-    client_sinks: DashMap<ClientSessionId, broadcast::Sender<String>>,
+    pub(crate) client_sinks: DashMap<ClientSessionId, broadcast::Sender<String>>,
     /// Per-`job_id` broadcast of parsed `$/dcc.jobUpdated` / `workflowUpdated`
     /// JSON-RPC notifications (#321 wait-for-terminal passthrough).
     ///
@@ -35,15 +38,15 @@ struct SubscriberManagerInner {
     /// — typically called from the gateway aggregator just before
     /// forwarding an async `tools/call` so the waiter cannot miss a
     /// terminal event that arrives while the POST reply is in flight.
-    job_event_buses: DashMap<String, broadcast::Sender<Value>>,
+    pub(crate) job_event_buses: DashMap<String, broadcast::Sender<Value>>,
     /// Shared HTTP client with connection pooling.
-    http_client: reqwest::Client,
+    pub(crate) http_client: reqwest::Client,
     /// TTL beyond which a non-terminal route is evicted by the GC task
     /// (issue #322).
-    route_ttl: Duration,
+    pub(crate) route_ttl: Duration,
     /// Per-session ceiling on concurrent live routes (issue #322). `0`
     /// disables the cap.
-    max_routes_per_session: usize,
+    pub(crate) max_routes_per_session: usize,
 }
 
 impl Default for SubscriberManager {
@@ -271,63 +274,6 @@ impl SubscriberManager {
             .retain(|_, jid| jid.as_str() != job_id);
     }
 
-    // ── Job event bus (#321 wait-for-terminal) ─────────────────────────
-
-    /// Subscribe to parsed `$/dcc.jobUpdated` / `workflowUpdated`
-    /// JSON-RPC notifications for `job_id`. Idempotent — repeated calls
-    /// return independent receivers reading from the same broadcast.
-    ///
-    /// Callers should invoke this **before** forwarding the outbound
-    /// `tools/call` so that a terminal event produced during the brief
-    /// window between the backend reply and the waiter installing its
-    /// subscription cannot be missed.
-    pub fn job_event_channel(&self, job_id: &str) -> broadcast::Receiver<Value> {
-        let entry = self
-            .inner
-            .job_event_buses
-            .entry(job_id.to_string())
-            .or_insert_with(|| broadcast::channel::<Value>(32).0);
-        entry.value().subscribe()
-    }
-
-    /// Drop the per-job broadcast bus. Outstanding receivers will see
-    /// `RecvError::Closed` on their next `recv().await`; call this after
-    /// the waiter has observed a terminal event (or timed out) so the
-    /// map does not grow unboundedly across many async jobs.
-    pub fn forget_job_bus(&self, job_id: &str) {
-        self.inner.job_event_buses.remove(job_id);
-    }
-
-    /// Publish a parsed notification to the per-job bus, if any waiter
-    /// is listening. Silently noops when nobody subscribed.
-    fn publish_job_event(&self, job_id: &str, value: &Value) {
-        if let Some(entry) = self.inner.job_event_buses.get(job_id) {
-            let _ = entry.value().send(value.clone());
-        }
-    }
-
-    /// Testing-only: hand-feed a `$/dcc.jobUpdated` notification to the
-    /// per-job bus. Lets integration tests exercise the wait-for-
-    /// terminal path without spinning up a real backend SSE stream.
-    #[doc(hidden)]
-    pub fn test_publish_job_event(&self, job_id: &str, value: Value) {
-        self.publish_job_event(job_id, &value);
-    }
-
-    /// Testing-only: report how many receivers are currently attached
-    /// to the per-job broadcast bus. Returns zero when the bus does
-    /// not yet exist. Used by integration tests to synchronise the
-    /// publish against the gateway's own subscription so the test
-    /// isn't racing the backend round-trip under CI instrumentation.
-    #[doc(hidden)]
-    pub fn job_bus_receiver_count(&self, job_id: &str) -> usize {
-        self.inner
-            .job_event_buses
-            .get(job_id)
-            .map(|entry| entry.value().receiver_count())
-            .unwrap_or(0)
-    }
-
     // ── Backend lifecycle ──────────────────────────────────────────────
 
     /// Ensure a reconnecting SSE subscriber exists for `backend_url`.
@@ -390,44 +336,6 @@ impl SubscriberManager {
         }
     }
 
-    // ── Route GC (#322) ────────────────────────────────────────────────
-
-    /// Spawn a background task that periodically evicts stale
-    /// [`JobRoute`]s older than `route_ttl`. Returns the `JoinHandle`
-    /// so the gateway supervisor can cancel it on shutdown.
-    pub fn spawn_route_gc(&self) -> JoinHandle<()> {
-        let mgr = self.clone();
-        tokio::spawn(async move {
-            let mut ticker = tokio::time::interval(ROUTE_GC_INTERVAL);
-            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-            loop {
-                ticker.tick().await;
-                mgr.run_route_gc_once();
-            }
-        })
-    }
-
-    /// One GC pass — exposed separately so tests can drive it
-    /// synchronously without waiting a real interval.
-    pub fn run_route_gc_once(&self) -> usize {
-        let ttl = self.inner.route_ttl;
-        if ttl.is_zero() {
-            return 0;
-        }
-        let cutoff = Utc::now() - chrono::Duration::from_std(ttl).unwrap_or_default();
-        let stale: Vec<String> = self
-            .inner
-            .job_routes
-            .iter()
-            .filter(|e| e.value().created_at < cutoff)
-            .map(|e| e.key().clone())
-            .collect();
-        for jid in &stale {
-            self.forget_job(jid);
-        }
-        stale.len()
-    }
-
     // ── Introspection helpers (for tests) ──────────────────────────────
 
     #[cfg(test)]
@@ -438,199 +346,4 @@ impl SubscriberManager {
             .map(|b| b.shared.pending.lock().len())
             .unwrap_or(0)
     }
-
-    // ── Delivery ───────────────────────────────────────────────────────
-
-    /// Deliver an MCP notification JSON to the right client session, or
-    /// buffer it if we cannot resolve the target yet.
-    fn deliver(&self, value: Value, backend_shared: &BackendShared) {
-        // #321: fan out `$/dcc.jobUpdated` / `workflowUpdated` onto any
-        // per-job wait-for-terminal bus before we worry about SSE
-        // routing. Publishing is independent of whether a client SSE
-        // sink exists — a wait-for-terminal POST client may not have
-        // any GET /mcp stream open at all.
-        if let Some(jid) = job_id_for_job_notification(&value) {
-            self.publish_job_event(&jid, &value);
-        }
-        // #322: auto-evict the JobRoute once a terminal status arrives,
-        // so the cache doesn't grow with completed jobs.
-        if let Some(jid) = terminal_job_id(&value) {
-            self.forget_job(&jid);
-        }
-        let session = resolve_target(&self.inner, &value);
-        match session {
-            Some(sid) => {
-                if let Some(sender) = self.inner.client_sinks.get(&sid) {
-                    let event = format_sse_event(&value, None);
-                    // receiver_count() == 0 is fine: push_event in
-                    // SessionManager has the same semantics.
-                    let _ = sender.send(event);
-                } else {
-                    tracing::debug!(
-                        session = %sid,
-                        backend = %backend_shared.url,
-                        "gateway SSE: target session has no live sink — dropping"
-                    );
-                }
-            }
-            None => self.buffer_pending(backend_shared, value),
-        }
-    }
-
-    fn buffer_pending(&self, shared: &BackendShared, value: Value) {
-        let mut buf = shared.pending.lock();
-        // Expire stale entries first.
-        let now = Instant::now();
-        while buf
-            .front()
-            .map(|p| now.duration_since(p.inserted_at) >= PENDING_BUFFER_TTL)
-            .unwrap_or(false)
-        {
-            buf.pop_front();
-        }
-        if buf.len() >= PENDING_BUFFER_CAP {
-            let dropped = buf.pop_front();
-            tracing::warn!(
-                backend = %shared.url,
-                buffered = buf.len() + 1,
-                dropped_method = %dropped
-                    .as_ref()
-                    .and_then(|p| p.value.get("method"))
-                    .and_then(|m| m.as_str())
-                    .unwrap_or(""),
-                "gateway SSE pending buffer full — dropping oldest"
-            );
-        }
-        buf.push_back(Pending {
-            inserted_at: now,
-            value,
-        });
-    }
-
-    /// Re-scan the pending buffer after a new routing mapping appeared.
-    fn flush_pending_for_backend(&self, backend_url: &str) {
-        let Some(backend) = self.inner.backends.get(backend_url) else {
-            return;
-        };
-        let shared = backend.shared.clone();
-        drop(backend); // release DashMap shard lock before taking inner lock
-
-        let drained: Vec<Pending> = {
-            let mut buf = shared.pending.lock();
-            let now = Instant::now();
-            buf.retain(|p| now.duration_since(p.inserted_at) < PENDING_BUFFER_TTL);
-            std::mem::take(&mut *buf).into_iter().collect()
-        };
-        for p in drained {
-            let session = resolve_target(&self.inner, &p.value);
-            match session {
-                Some(sid) => {
-                    if let Some(sender) = self.inner.client_sinks.get(&sid) {
-                        let event = format_sse_event(&p.value, None);
-                        let _ = sender.send(event);
-                    }
-                }
-                None => {
-                    // Still unresolved — re-queue.
-                    shared.pending.lock().push_back(p);
-                }
-            }
-        }
-    }
-
-    /// Fan-out a synthetic `$/dcc.gatewayReconnect` notification to every
-    /// client that had an in-flight job on `backend_url`.
-    fn emit_gateway_reconnect(&self, backend_url: &str) {
-        let Some(sessions) = self.inner.backend_inflight.get(backend_url) else {
-            return;
-        };
-        let notification = json!({
-            "jsonrpc": "2.0",
-            "method": "notifications/$/dcc.gatewayReconnect",
-            "params": {
-                "backend_url": backend_url,
-            },
-        });
-        let event = format_sse_event(&notification, None);
-        for sid in sessions.iter() {
-            if let Some(sender) = self.inner.client_sinks.get(sid.key()) {
-                let _ = sender.send(event.clone());
-            }
-        }
-    }
-
-    // ── Backend reconnect loop ─────────────────────────────────────────
-
-    async fn run_backend_loop(self, url: String, shared: Arc<BackendShared>) {
-        let mut attempt: u32 = 0;
-        loop {
-            match self.open_stream(&url).await {
-                Ok(resp) => {
-                    if attempt > 0 {
-                        tracing::info!(
-                            backend = %url,
-                            attempts = attempt,
-                            "gateway SSE: backend reconnected — emitting gatewayReconnect"
-                        );
-                        self.emit_gateway_reconnect(&url);
-                    }
-                    attempt = 0;
-                    *shared.reconnect_attempts.lock() = 0;
-                    // Pump until the stream closes / errors out.
-                    self.pump_stream(resp, &shared).await;
-                    tracing::info!(backend = %url, "gateway SSE: stream closed — reconnecting");
-                }
-                Err(e) => {
-                    tracing::debug!(
-                        backend = %url,
-                        attempt,
-                        error = %e,
-                        "gateway SSE: connect failed"
-                    );
-                }
-            }
-            attempt = attempt.saturating_add(1);
-            *shared.reconnect_attempts.lock() = attempt;
-            let delay = backoff_delay(attempt);
-            tokio::time::sleep(delay).await;
-        }
-    }
-
-    async fn open_stream(&self, url: &str) -> reqwest::Result<reqwest::Response> {
-        self.inner
-            .http_client
-            .get(url)
-            .timeout(CONNECT_TIMEOUT)
-            .header("accept", "text/event-stream")
-            .send()
-            .await
-            .and_then(|r| r.error_for_status())
-    }
-
-    async fn pump_stream(&self, resp: reqwest::Response, shared: &BackendShared) {
-        let mut stream = resp.bytes_stream();
-        let mut scratch: Vec<u8> = Vec::with_capacity(4096);
-        while let Some(chunk) = stream.next().await {
-            let bytes = match chunk {
-                Ok(b) => b,
-                Err(e) => {
-                    tracing::debug!(backend = %shared.url, error = %e, "gateway SSE: stream error");
-                    break;
-                }
-            };
-            scratch.extend_from_slice(&bytes);
-            // SSE records terminate with "\n\n"; drain complete records
-            // from the head of the scratch buffer.
-            while let Some(pos) = find_record_end(&scratch) {
-                let record = scratch.drain(..pos).collect::<Vec<u8>>();
-                // Discard the trailing delimiter.
-                let _ = scratch.drain(..record_delim_len(&scratch));
-                if let Some(value) = parse_sse_record(&record) {
-                    self.deliver(value, shared);
-                }
-            }
-        }
-    }
 }
-
-// ── Helpers ────────────────────────────────────────────────────────────

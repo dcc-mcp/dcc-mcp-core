@@ -9,7 +9,11 @@ use super::*;
 /// * Target-instance (`load_skill`, `unload_skill`): require `instance_id` /
 ///   `dcc` in the arguments; if a single backend is live these default
 ///   automatically.
-pub(crate) async fn skill_mgmt_dispatch(gs: &GatewayState, tool: &str, args: &Value) -> (String, bool) {
+pub(crate) async fn skill_mgmt_dispatch(
+    gs: &GatewayState,
+    tool: &str,
+    args: &Value,
+) -> (String, bool) {
     let dcc_filter = args.get("dcc").and_then(Value::as_str);
     let target_instance = args.get("instance_id").and_then(Value::as_str);
 

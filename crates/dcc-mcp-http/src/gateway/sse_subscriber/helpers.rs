@@ -1,3 +1,4 @@
+use super::manager::SubscriberManagerInner;
 use super::*;
 
 /// Serialise a `progressToken` (may be number or string) into a stable
