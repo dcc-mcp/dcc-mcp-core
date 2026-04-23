@@ -62,6 +62,9 @@ mod helpers;
 #[cfg(feature = "python-bindings")]
 mod python;
 
+#[cfg(test)]
+pub(crate) use helpers::parse_scope_str;
+
 // ── SkillCatalog ──
 
 /// Manages discovered skills and their progressive loading.

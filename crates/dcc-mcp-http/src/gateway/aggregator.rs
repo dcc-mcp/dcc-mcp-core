@@ -31,6 +31,8 @@ pub(crate) use helpers::{
 };
 pub use list::aggregate_tools_list;
 pub(crate) use skill_mgmt::{skill_management_tool_defs, skill_mgmt_dispatch};
+#[cfg(test)]
+pub(crate) use wait_terminal::merge_job_update_into_envelope;
 pub(crate) use wait_terminal::wait_for_terminal_reply;
 
 use std::time::Duration;

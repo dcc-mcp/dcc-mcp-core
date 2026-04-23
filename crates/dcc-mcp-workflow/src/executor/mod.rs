@@ -68,6 +68,7 @@ pub mod policy_wrapper;
 /// Per-[`StepKind`] driver implementations.
 pub mod step_drivers;
 #[cfg(test)]
+#[doc(hidden)]
 pub mod tests;
 
 pub use builder::WorkflowExecutorBuilder;
