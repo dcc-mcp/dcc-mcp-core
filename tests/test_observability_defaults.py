@@ -99,7 +99,8 @@ class TestFileLoggingDefaults:
                     _Stub(dcc_name="houdini", builtin_skills_dir=skills, port=0)
 
         if captured:
-            assert captured[0].file_name_prefix == "dcc-mcp-houdini"
+            # Prefix includes PID suffix for multi-instance isolation (issue #402).
+            assert captured[0].file_name_prefix.startswith("dcc-mcp-houdini")
 
 
 # ── Job persistence ───────────────────────────────────────────────────────────
