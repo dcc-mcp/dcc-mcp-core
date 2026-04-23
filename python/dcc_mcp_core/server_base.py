@@ -256,9 +256,14 @@ class DccServerBase:
 
         The database is placed alongside the log files so that a single
         directory gives full post-mortem visibility.  Errors are non-fatal.
+
+        If the compiled extension lacks the ``job-persist-sqlite`` Cargo
+        feature, this method silently skips enabling persistence so the
+        server can fall back to the in-memory ``JobManager``.
         """
         if not self._enable_job_persistence:
             return
+        db_path = None
         try:
             import os as _os
 
@@ -266,11 +271,39 @@ class DccServerBase:
 
             db_dir = self._log_dir or _os.environ.get("DCC_MCP_LOG_DIR") or get_log_dir()
             db_path = str(Path(db_dir) / f"dcc-mcp-{dcc_name}-jobs.db")
+        except Exception as exc:
+            logger.debug("[%s] Could not resolve job persistence path: %s", dcc_name, exc)
+            return
+
+        # Probe whether the job-persist-sqlite feature is compiled in by
+        # starting a throw-away server with the same db path.  This avoids
+        # the heavy recovery dance (re-discover + re-load skills) that would
+        # otherwise be needed when the real server.start() fails mid-way.
+        try:
+            from dcc_mcp_core import McpHttpConfig
+            from dcc_mcp_core import create_skill_server
+
+            probe_cfg = McpHttpConfig(port=0, server_name="probe")
+            probe_cfg.job_storage_path = db_path
+            probe_srv = create_skill_server(dcc_name, probe_cfg)
+            probe_handle = probe_srv.start()
+            probe_handle.shutdown()
+            # Probe succeeded — feature is available.
             self._config.job_storage_path = db_path
             logger.info("[%s] Job persistence enabled → %s", dcc_name, db_path)
+        except RuntimeError as exc:
+            err_msg = str(exc)
+            if "job-persist-sqlite" in err_msg and "job_storage_path" in err_msg:
+                logger.warning(
+                    "[%s] job-persist-sqlite feature not compiled in; job persistence disabled (in-memory fallback)",
+                    dcc_name,
+                )
+            else:
+                # Some other RuntimeError during probe — be conservative
+                # and leave job_storage_path unset.
+                logger.debug("[%s] Job persistence probe failed: %s", dcc_name, exc)
         except Exception as exc:
-            # The job-persist-sqlite feature may be absent in some wheels.
-            logger.debug("[%s] Could not enable job persistence: %s", dcc_name, exc)
+            logger.debug("[%s] Job persistence probe failed: %s", dcc_name, exc)
 
     def _init_telemetry(self) -> None:
         """Initialise in-process metrics so ``diagnostics__tool_metrics`` has data.
