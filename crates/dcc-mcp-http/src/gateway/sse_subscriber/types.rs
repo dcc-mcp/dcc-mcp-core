@@ -1,0 +1,64 @@
+use super::*;
+
+/// Gateway-owned routing entry for a single async job (issue #322).
+///
+/// Populated when the gateway forwards a `tools/call` and the backend
+/// replies with a `job_id`; consulted on `notifications/cancelled` so
+/// the cancel can be propagated to the exact backend that owns the
+/// job. The `parent_job_id` link lets the gateway fan a cancel out
+/// across backends when a workflow parent is cancelled (#318 cascade).
+#[derive(Debug, Clone)]
+pub struct JobRoute {
+    /// Owning client session — used to route backend SSE notifications
+    /// back to the originator (the pre-#322 behaviour).
+    pub client_session_id: ClientSessionId,
+    /// Backend that runs this job (stable for the job's lifetime —
+    /// routes are sticky, no multi-backend failover, per #322).
+    pub backend_id: BackendId,
+    /// Tool name reported on dispatch, kept for cancel-payload logs.
+    pub tool: String,
+    /// Wall-clock time the route was created — drives TTL GC.
+    pub created_at: DateTime<Utc>,
+    /// Parent job id when this job was dispatched under a workflow
+    /// (`_meta.dcc.parentJobId`). A cancel on the parent cascades to
+    /// every child route, even across backends.
+    pub parent_job_id: Option<String>,
+}
+
+/// Error returned when a new route cannot be admitted to the gateway
+/// routing cache (issue #322).
+#[derive(Debug, Clone)]
+pub enum BindJobError {
+    /// The owning session already holds `cap` live routes. The gateway
+    /// surfaces this as a JSON-RPC `-32005 too_many_in_flight_jobs`
+    /// error so AI clients can back off or cancel in-flight jobs.
+    TooManyInFlight {
+        session_id: ClientSessionId,
+        live: usize,
+        cap: usize,
+    },
+}
+
+impl std::fmt::Display for BindJobError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BindJobError::TooManyInFlight {
+                session_id,
+                live,
+                cap,
+            } => write!(
+                f,
+                "too_many_in_flight_jobs: session {session_id} holds {live} live routes (cap {cap})"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for BindJobError {}
+
+/// A notification buffered while its target mapping is still unknown.
+#[derive(Debug, Clone)]
+pub(super) struct Pending {
+    pub(super) inserted_at: Instant,
+    pub(super) value: Value,
+}
