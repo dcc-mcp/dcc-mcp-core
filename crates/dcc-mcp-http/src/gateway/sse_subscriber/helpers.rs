@@ -3,7 +3,7 @@ use super::*;
 
 /// Serialise a `progressToken` (may be number or string) into a stable
 /// map key.
-pub(super) fn progress_token_key(token: &Value) -> String {
+pub(crate) fn progress_token_key(token: &Value) -> String {
     match token {
         Value::String(s) => format!("s:{s}"),
         Value::Number(n) => format!("n:{n}"),
@@ -12,7 +12,7 @@ pub(super) fn progress_token_key(token: &Value) -> String {
 }
 
 /// Exponential backoff with ±25 % jitter.
-pub(super) fn backoff_delay(attempt: u32) -> Duration {
+pub(crate) fn backoff_delay(attempt: u32) -> Duration {
     let base = RECONNECT_INITIAL.as_millis() as u64;
     // doubling, capped.
     let shift = attempt.saturating_sub(1).min(12); // 2^12 headroom
@@ -69,7 +69,7 @@ pub(super) fn record_delim_len(buf: &[u8]) -> usize {
 /// Parse a single SSE record (without trailing blank line) into a JSON
 /// value, returning `None` if the record has no `data:` field or the
 /// payload is not valid JSON.
-pub(super) fn parse_sse_record(record: &[u8]) -> Option<Value> {
+pub(crate) fn parse_sse_record(record: &[u8]) -> Option<Value> {
     let text = std::str::from_utf8(record).ok()?;
     let mut data_lines: Vec<&str> = Vec::new();
     for line in text.split('\n') {
@@ -129,7 +129,7 @@ pub(super) fn terminal_job_id(value: &Value) -> Option<String> {
 }
 
 /// Determine which client session should receive `value`.
-pub(super) fn resolve_target(inner: &SubscriberManagerInner, value: &Value) -> Option<String> {
+pub(crate) fn resolve_target(inner: &SubscriberManagerInner, value: &Value) -> Option<String> {
     let method = value.get("method").and_then(|m| m.as_str())?;
     let params = value.get("params");
 

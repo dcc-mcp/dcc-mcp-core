@@ -54,6 +54,13 @@ mod types;
 pub use manager::SubscriberManager;
 pub use types::{BackendId, BindJobError, ClientSessionId, JobRoute};
 
+#[cfg(test)]
+pub(crate) use backend::{BackendShared, BackendSubscriber};
+#[cfg(test)]
+pub(crate) use helpers::{backoff_delay, parse_sse_record, progress_token_key, resolve_target};
+#[cfg(test)]
+pub(crate) use manager::SubscriberManagerInner;
+
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::{Duration, Instant};

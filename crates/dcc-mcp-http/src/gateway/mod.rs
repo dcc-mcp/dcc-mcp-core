@@ -90,4 +90,9 @@ pub(crate) use tasks::start_gateway_tasks;
 pub(crate) use version::is_newer_version;
 
 #[cfg(test)]
+pub(crate) use tasks::self_probe_listener;
+#[cfg(test)]
+pub(crate) use version::parse_semver;
+
+#[cfg(test)]
 mod tests;
