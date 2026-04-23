@@ -444,20 +444,25 @@ export DCC_MCP_SKILL_PATHS="/path/to/skills1:/path/to/skills2"
 # Windows: set DCC_MCP_SKILL_PATHS=C:\skills1;C:\skills2
 ```
 
-## Workflow Primitive (skeleton — issue #348)
+## Workflow Primitive (issue #348)
 
-Opt-in via the `workflow` Cargo feature. Ships types + validator + catalog
-+ four built-in MCP tools; step execution is deferred to a follow-up PR.
+Opt-in via the `workflow` Cargo feature. Full spec-driven pipeline engine with six step kinds, step-level policies, artefact hand-off, and persistence.
 
-- **Types**: `WorkflowSpec`, `Step`, `StepKind` (`Tool`/`ToolRemote`/`Foreach`/`Parallel`/`Approve`/`Branch`), `WorkflowStatus`, `WorkflowJob` (placeholder)
-- **Parser / validator**: `WorkflowSpec::from_yaml(&str)` + `validate()` — checks unique step ids, SEP-986 tool names, JSONPath in `branch.on` / `foreach.items`
-- **Catalog**: `WorkflowCatalog::from_skill(&SkillMetadata, skill_root)` reads the `metadata["dcc-mcp.workflows"]` glob (comma-separated OK), header-only parse
-- **Tools**: `workflows.run` / `workflows.get_status` / `workflows.cancel` (stubs returning `"step execution pending follow-up PR"`) + `workflows.lookup` (functional)
-- **HTTP server gate**: `McpHttpConfig::enable_workflows` (default `false`)
-- **Persistence DDL**: `workflows` + `workflow_steps` tables under the `job-persist-sqlite` feature — no writer yet
-- **Python**: `from dcc_mcp_core import WorkflowSpec, WorkflowStatus` — `None` when the wheel was built without `workflow`
+- **Types**: `WorkflowSpec`, `WorkflowStep`, `StepKind` (`Tool`/`ToolRemote`/`Foreach`/`Parallel`/`Approve`/`Branch`), `WorkflowStatus`, `WorkflowJob`, `WorkflowProgress`, `StepPolicy`, `RetryPolicy`, `BackoffKind`
+- **Parser / validator**: `WorkflowSpec::from_yaml_str(&str)` + `.validate()` — checks unique step ids, SEP-986 tool names, JSONPath in `branch.on` / `foreach.items`
+- **Catalog**: `WorkflowCatalog::from_skill(&SkillMetadata, skill_root)` reads the `metadata["dcc-mcp.workflows"]` glob
+- **Execution engine**: `WorkflowExecutor::run(spec, inputs, parent)` — drives steps sequentially, dispatches by kind, applies retry/timeout/idempotency policies, handles cancellation cascade
+- **Tools** (registered via `register_builtin_workflow_tools` + `register_workflow_handlers`):
+  - `workflows.run` — start a run (spec + inputs)
+  - `workflows.get_status` — poll terminal status + progress
+  - `workflows.cancel` — cancel by `workflow_id` (cascade)
+  - `workflows.lookup` — catalog search
+- **Step policies** (per-step): `timeout_secs`, `retry { max_attempts, backoff: fixed|linear|exponential, initial_delay_ms, max_delay_ms, jitter, retry_on }`, `idempotency_key`, `idempotency_scope: workflow|global`
+- **Artefact hand-off**: step outputs with `file_refs` are captured to `ArtefactStore`; downstream steps reference via `{{steps.<id>.file_refs[<i>].uri}}`
+- **Persistence**: `workflows` + `workflow_steps` tables under `job-persist-sqlite`; non-terminal rows flip to `Interrupted` on restart
+- **Python**: `from dcc_mcp_core import WorkflowSpec, WorkflowStep, StepPolicy, RetryPolicy, BackoffKind, WorkflowStatus`
 
-Full docs: `docs/api/workflow.md`.
+Full docs: `docs/guide/workflows.md`.
 
 ## Documentation
 

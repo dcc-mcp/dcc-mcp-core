@@ -2403,16 +2403,16 @@ print(f"MCP server ready: {handle.mcp_url()}")
 
 ---
 
-## Workflow Primitive (`dcc_mcp_workflow`, skeleton — issue #348)
+## Workflow Primitive (`dcc_mcp_workflow`, issue #348)
 
-**Status**: skeleton. Types, YAML parser, validator, catalog reader, DDL
-and the four built-in `workflows.*` MCP tools are shipped. **Step
-execution is intentionally deferred** to a follow-up PR — see the stable
-error payload below.
+**Status**: fully implemented. Spec-driven pipeline engine with six step
+kinds, step-level policies (retry / timeout / idempotency), artefact
+hand-off, cancellation cascade, and SQLite persistence.
 
-Opt-in via the top-level `workflow` Cargo feature (off by default for
-one release). Python surface: `WorkflowSpec`, `WorkflowStatus` — or
-`None` when the wheel was built without the feature.
+Opt-in via the top-level `workflow` Cargo feature (off by default).
+Python surface: `WorkflowSpec`, `WorkflowStep`, `StepPolicy`,
+`RetryPolicy`, `BackoffKind`, `WorkflowStatus` — or `None` when the wheel
+was built without the feature.
 
 ### Rust types
 
@@ -2421,12 +2421,13 @@ use dcc_mcp_workflow::{
     WorkflowSpec, Step, StepKind, StepId, WorkflowId,
     WorkflowStatus, WorkflowJob, WorkflowProgress,
     WorkflowCatalog, WorkflowSummary,
-    register_builtin_workflow_tools, WorkflowError,
+    register_builtin_workflow_tools, register_workflow_handlers,
+    WorkflowExecutor, WorkflowHost, WorkflowError,
 };
 ```
 
-All structural types are `Serialize + Deserialize`. IDs are newtypes
-with `#[serde(transparent)]`.
+All structural types are `Serialize + Deserialize + Clone`. IDs are
+newtypes with `#[serde(transparent)]`.
 
 #### `WorkflowSpec`
 
@@ -2438,56 +2439,84 @@ spec.validate()?;   // unique step ids, SEP-986 tool names, JSONPath parse
 Validation uses `dcc_mcp_naming::validate_tool_name` for tool refs and
 `jsonpath_rust::parser::parse_json_path` for `branch.on` / `foreach.items`.
 
-#### `WorkflowJob` (placeholder)
+#### `WorkflowExecutor`
 
 ```rust
-let mut job = WorkflowJob::pending(spec);
-assert!(matches!(job.start(), Err(WorkflowError::NotImplemented(_))));
+let handle = WorkflowExecutor::run(spec, inputs, parent_job_id)?;
+// handle: WorkflowRunHandle { workflow_id, root_job_id, cancel_token, join }
 ```
 
-Signature is stable for #349 / #353; body is a deliberate stub.
+Execution pipeline: `spec → validate → spawn driver → drive(steps) →
+per-step policy (retry+timeout+idempotency) → dispatch by kind →
+artefact handoff → SSE $/dcc.workflowUpdated → sqlite upsert → next
+step`.
+
+#### Step kinds
+
+| Kind | Driver | Policy knobs |
+|------|--------|--------------|
+| `tool` | `ToolCaller::call(name, args)` | timeout, retry, idempotency_key |
+| `tool_remote` | `RemoteCaller::call(dcc, name, args)` | same |
+| `foreach` | JSONPath → body per item | per-body policy inherited |
+| `parallel` | `tokio::join!` over branches | `on_any_fail: abort \| continue` |
+| `approve` | `ApprovalGate::wait_handle` + timeout | timeout_secs |
+| `branch` | JSONPath condition → `then` or `else` | n/a |
+
+#### Cancellation cascade
+
+Root `CancellationToken` handed to every step driver. On `cancel`:
+1. No new steps start.
+2. In-flight callers receive the token.
+3. Sleeps (retry backoff, `Approve` timeout) aborted via `tokio::select!`.
+4. Final `$/dcc.workflowUpdated` with `status: cancelled`.
 
 #### `WorkflowCatalog`
 
 Reads `SkillMetadata.metadata["dcc-mcp.workflows"]` (glob or
-comma-separated globs) relative to `skill_root`, parses **header only**:
+comma-separated globs) relative to `skill_root`:
 
 ```rust
 let cat = WorkflowCatalog::from_skill(&skill_meta, &skill_root)?;
 let hits: Vec<_> = cat.search("vendor intake").into_iter().collect();
 ```
 
-Full-body parse is deferred — marked `TODO(#348-full)`.
+### Step policies (issue #353)
+
+Every step may declare an optional `policy` block:
+
+| Field | Type | Default | Notes |
+|-------|------|---------|-------|
+| `timeout_secs` | `u64 > 0` | none | Per-attempt wall-clock deadline. |
+| `retry.max_attempts` | `u32 >= 1` | required if retry present | `1` = no retry. |
+| `retry.backoff` | enum | `exponential` | `fixed` / `linear` / `exponential`. |
+| `retry.initial_delay_ms` | `u64` | `500` | `<= max_delay_ms`. |
+| `retry.max_delay_ms` | `u64` | `10_000` | Upper clamp after shape + jitter. |
+| `retry.jitter` | `f32` | `0.0` | Clamped to `[0.0, 1.0]`. |
+| `retry.retry_on` | `[String]` | all errors | Error-kind allowlist. |
+| `idempotency_key` | string | none | Mustache template rendered before execution. |
+| `idempotency_scope` | enum | `workflow` | `workflow` or `global`. |
+
+Backoff formula: `min(base(n), max_delay) * (1 + rand(-jitter, +jitter))`
+where `base` is `initial_delay` (fixed), `initial_delay * (n-1)` (linear),
+or `initial_delay * 2^(n-2)` (exponential).
 
 ### Built-in MCP tools
 
-`register_builtin_workflow_tools(&registry)` registers:
+Registered by `register_builtin_workflow_tools(&registry)` + bound by
+`register_workflow_handlers(&dispatcher, &host)`:
 
-| Tool                   | Status     |
-|------------------------|------------|
-| `workflows.run`        | stub       |
-| `workflows.get_status` | stub       |
-| `workflows.cancel`     | stub       |
-| `workflows.lookup`     | functional |
+| Tool | Description | ToolAnnotations |
+|------|-------------|-----------------|
+| `workflows.run` | Start a run (YAML or JSON spec + inputs). | `destructive_hint=true, open_world_hint=true` |
+| `workflows.get_status` | Poll terminal status + progress. | `read_only_hint=true, idempotent_hint=true` |
+| `workflows.cancel` | Cancel a run by `workflow_id` (cascade). | `destructive_hint=true, idempotent_hint=true` |
+| `workflows.lookup` | Catalog search (read-only). | `read_only_hint=true` |
 
-Stable stub payload (all three execution tools):
+### Artefact hand-off (issue #349)
 
-```json
-{
-  "success": false,
-  "error": "not_implemented",
-  "message": "workflows.run: step execution pending follow-up PR",
-  "issue": "#348"
-}
-```
-
-### HTTP server gate
-
-```python
-from dcc_mcp_core import McpHttpConfig
-cfg = McpHttpConfig(port=8765)
-cfg.enable_workflows = True     # default False
-```
+A tool whose output contains `file_refs` array is captured to
+`ArtefactStore`. Downstream steps reference via
+`{{steps.<id>.file_refs[<i>].uri}}`.
 
 ### Persistence DDL (`job-persist-sqlite` feature)
 
@@ -2495,24 +2524,37 @@ cfg.enable_workflows = True     # default False
 dcc_mcp_workflow::sqlite::apply_migrations(&conn)?;
 ```
 
-Creates `workflows` + `workflow_steps`. No writer is wired — the tables
-are for the follow-up execution PR (crash recovery via
-`WorkflowStatus::Interrupted`).
+Creates `workflows` + `workflow_steps`. On startup,
+`WorkflowExecutor::recover_persisted()` flips non-terminal rows to
+`Interrupted`. Runs are **not** auto-resumed.
 
 ### Python
 
 ```python
-from dcc_mcp_core import WorkflowSpec, WorkflowStatus
-
-if WorkflowSpec is None:
-    raise RuntimeError("wheel was built without the `workflow` feature")
+from dcc_mcp_core import (
+    WorkflowSpec, WorkflowStep, StepPolicy,
+    RetryPolicy, BackoffKind, WorkflowStatus,
+)
 
 spec = WorkflowSpec.from_yaml_str(yaml_source)
 spec.validate()        # raises ValueError on failure
-print(spec.name, spec.step_count)
 
-s = WorkflowStatus("running")
-assert not s.is_terminal
+step: WorkflowStep = spec.steps[0]
+policy: StepPolicy = step.policy
+retry: RetryPolicy = policy.retry
+assert retry.next_delay_ms(2) == 500   # first retry delay (unjittered)
+```
+
+All policy classes are **frozen**. To run workflows, call the MCP tools
+(`workflows.run` / `workflows.get_status` / `workflows.cancel`) from the
+MCP client side.
+
+### HTTP server gate
+
+```python
+from dcc_mcp_core import McpHttpConfig
+cfg = McpHttpConfig(port=8765)
+cfg.enable_workflows = True     # default False
 ```
 
 ### Discovery
