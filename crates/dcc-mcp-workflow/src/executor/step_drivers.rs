@@ -3,7 +3,7 @@ use super::*;
 impl WorkflowExecutor {
     // ── Tool step ────────────────────────────────────────────────────────
 
-    async fn run_tool_step(state: &RunState, step: &Step) -> StepOutcome {
+    pub(crate) async fn run_tool_step(state: &RunState, step: &Step) -> StepOutcome {
         let (name, args) = match &step.kind {
             StepKind::Tool { tool, args } => (tool.clone(), args.clone()),
             _ => unreachable!(),
@@ -18,7 +18,7 @@ impl WorkflowExecutor {
 
     // ── ToolRemote step ──────────────────────────────────────────────────
 
-    async fn run_remote_step(state: &RunState, step: &Step) -> StepOutcome {
+    pub(crate) async fn run_remote_step(state: &RunState, step: &Step) -> StepOutcome {
         let (dcc, tool, args) = match &step.kind {
             StepKind::ToolRemote { dcc, tool, args } => (dcc.clone(), tool.clone(), args.clone()),
             _ => unreachable!(),
@@ -34,7 +34,7 @@ impl WorkflowExecutor {
 
     // ── Foreach step ─────────────────────────────────────────────────────
 
-    async fn run_foreach(
+    pub(crate) async fn run_foreach(
         state: RunState,
         step: Step,
         default_approve_timeout: Option<Duration>,
@@ -90,7 +90,7 @@ impl WorkflowExecutor {
 
     // ── Parallel step ────────────────────────────────────────────────────
 
-    async fn run_parallel(
+    pub(crate) async fn run_parallel(
         state: RunState,
         step: Step,
         default_approve_timeout: Option<Duration>,
@@ -141,7 +141,7 @@ impl WorkflowExecutor {
 
     // ── Approve step ─────────────────────────────────────────────────────
 
-    async fn run_approve(
+    pub(crate) async fn run_approve(
         state: RunState,
         step: Step,
         default_approve_timeout: Option<Duration>,
@@ -222,7 +222,7 @@ impl WorkflowExecutor {
 
     // ── Branch step ──────────────────────────────────────────────────────
 
-    async fn run_branch(
+    pub(crate) async fn run_branch(
         state: RunState,
         step: Step,
         default_approve_timeout: Option<Duration>,

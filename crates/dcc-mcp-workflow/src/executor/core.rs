@@ -133,7 +133,7 @@ impl WorkflowExecutor {
     /// Drive a sequence of steps in order. Returns the aggregated
     /// [`WorkflowStatus`] reached after processing all steps (or the first
     /// failing / cancelled step).
-    async fn drive(
+    pub(crate) async fn drive(
         state: RunState,
         steps: Vec<Step>,
         default_approve_timeout: Option<Duration>,
