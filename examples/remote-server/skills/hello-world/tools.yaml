@@ -1,0 +1,16 @@
+tools:
+  - name: greet
+    description: >-
+      Greet a user by name. Use to verify remote server connectivity and skill
+      loading. When to use: smoke-testing the remote MCP server after deploy.
+      How to use: pass {"name": "YourName"} — defaults to "World".
+    annotations:
+      read_only_hint: true
+      idempotent_hint: true
+    input_schema:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Name to greet (default "World")
+      required: []

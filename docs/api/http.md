@@ -480,6 +480,93 @@ Common error codes:
 | -32001 | Tool validation failed |
 | -32002 | Tool handler error |
 
+## Context-Efficient Tool Loading (issue #405) {#context-efficient-loading}
+
+When a skill catalog grows large (50+ tools × multiple skills), the initial
+`tools/list` response becomes expensive in token terms. Three strategies let
+you control how much of the schema surface is pushed into the agent's context.
+
+### Comparison
+
+| Strategy | `tools/list` content | Token cost | Best for |
+|----------|---------------------|------------|----------|
+| Default (eager) | All tool definitions + schemas | High | ≤ 20 tools |
+| `lazy_actions = True` | 3 meta-tools only | Very low | Large static catalogs |
+| Skill stubs (default) | `__skill__<name>` stubs for unloaded skills | Low | Dynamic loading workflows |
+| `tools/search` (future) | Zero schemas on init; search → schema on demand | 85%+ reduction | Very large catalogs |
+
+### 1. Default: Skill Stubs
+
+Without any config, `tools/list` emits:
+
+- A `__skill__<name>` stub for every **unloaded** skill (name + 1-line description, no input schemas)
+- Full tool definitions for every **loaded** skill
+
+Agent workflow: `search_skills(query)` → `load_skill(name)` → re-call `tools/list`.
+
+```python
+from dcc_mcp_core import create_skill_server, McpHttpConfig
+
+server = create_skill_server("maya", McpHttpConfig(port=8765))
+handle = server.start()
+# tools/list returns __skill__<name> stubs for each discovered skill
+# Until load_skill() is called, no input schemas are sent to the agent
+```
+
+### 2. `lazy_actions = True` (3 meta-tools)
+
+Surfaces only `list_actions`, `describe_action`, `call_action`.
+
+```python
+cfg = McpHttpConfig(port=8765)
+cfg.lazy_actions = True
+server = create_skill_server("maya", cfg)
+```
+
+Token footprint for `tools/list` is essentially constant (3 tool entries)
+regardless of catalog size. The agent must call `list_actions(dcc="maya")`
+first to discover available tools.
+
+### 3. `lazy_tool_schemas = True` (planned, issue #405)
+
+> **Note**: `lazy_tool_schemas` is planned for a future release. Track issue #405.
+
+When enabled, `tools/list` will return tool entries with `description` only,
+omitting `inputSchema`. A subsequent `tools/describe` call returns the full
+schema for a single tool. This aligns with the pattern Anthropic describes as
+cutting tool-definition tokens by 85%+ while maintaining high selection
+accuracy.
+
+```python
+# Planned API (not yet available):
+cfg = McpHttpConfig(port=8765)
+cfg.lazy_tool_schemas = True  # omit inputSchema from tools/list (planned)
+```
+
+### 4. `tools/search` endpoint (planned, issue #405)
+
+> **Note**: A `tools/search` built-in tool is planned for a future release.
+
+The planned endpoint will:
+
+- Accept a natural language query
+- Return matching tool definitions (name + description + inputSchema) ranked by relevance
+- Keep the initial `tools/list` response minimal (names only, no schemas)
+
+Until this is available, use the existing `search_skills(query)` → `load_skill(name)`
+workflow which already provides skill-level search.
+
+### Token Usage Decision Guide
+
+```
+Catalog size  ┌─────────────────────────────────────────────────────┐
+< 20 tools    │ Default (eager) — simplest, no configuration needed  │
+20-100 tools  │ Skill stubs (default) — search_skills + load_skill   │
+100+ tools    │ lazy_actions=True  — constant 3 meta-tools           │
+> 500 tools   │ lazy_tool_schemas=True (planned) — 85%+ reduction    │
+              └─────────────────────────────────────────────────────┘
+```
+
 ## Performance Notes
 
 - Server runs in background Tokio thread — no DCC main thread blocking

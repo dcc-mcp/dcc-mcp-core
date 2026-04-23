@@ -1040,6 +1040,60 @@ class DccServerBase:
             )
         return promoted
 
+    # ── Plugin manifest (issue #410) ─────────────────────────────────────────
+
+    def plugin_manifest(
+        self,
+        *,
+        version: str | None = None,
+        extra_mcp_servers: list[dict] | None = None,
+    ) -> dict:
+        """Generate a Claude Code plugin manifest for this server.
+
+        The manifest bundles the running MCP server URL and all currently
+        loaded skill paths into a format compatible with Claude Code Plugins
+        (https://code.claude.com/docs/en/plugins-reference).
+
+        Requires the server to be running (``is_running == True``).
+
+        Args:
+            version: Plugin version string.  Defaults to
+                ``dcc_mcp_core.__version__``.
+            extra_mcp_servers: Additional MCP server entries to include in
+                the manifest alongside this server.
+
+        Returns:
+            A JSON-serialisable dict following the Claude Code plugin manifest
+            schema.  Save to ``claude_plugin.json`` and distribute alongside
+            the server.
+
+        Raises:
+            RuntimeError: If the server is not running.
+
+        Example::
+
+            handle = server.start()
+            manifest = server.plugin_manifest(version="1.0.0")
+            import json, pathlib
+            pathlib.Path("claude_plugin.json").write_text(json.dumps(manifest, indent=2))
+
+        """
+        if not self.is_running:
+            raise RuntimeError(
+                f"{self._dcc_name}: Cannot generate plugin manifest — server is not running. Call server.start() first."
+            )
+
+        from dcc_mcp_core import __version__ as _pkg_version
+        from dcc_mcp_core.plugin_manifest import build_plugin_manifest
+
+        return build_plugin_manifest(
+            dcc_name=self._dcc_name,
+            mcp_url=self.mcp_url,
+            skill_paths=self.collect_skill_search_paths(),
+            version=version or _pkg_version,
+            extra_mcp_servers=extra_mcp_servers,
+        )
+
     def __repr__(self) -> str:
         status = "running" if self.is_running else "stopped"
         return f"{type(self).__name__}(dcc={self._dcc_name!r}, status={status})"

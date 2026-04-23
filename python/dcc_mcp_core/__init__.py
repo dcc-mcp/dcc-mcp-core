@@ -239,6 +239,18 @@ from dcc_mcp_core.adapters import WEBVIEW_DEFAULT_CAPABILITIES
 from dcc_mcp_core.adapters import WebViewAdapter
 from dcc_mcp_core.adapters import WebViewContext
 
+# Auth helpers: API key + CIMD OAuth (issue #408)
+from dcc_mcp_core.auth import ApiKeyConfig
+from dcc_mcp_core.auth import CimdDocument
+from dcc_mcp_core.auth import OAuthConfig
+from dcc_mcp_core.auth import TokenValidationError
+from dcc_mcp_core.auth import generate_api_key
+from dcc_mcp_core.auth import validate_bearer_token
+
+# Programmatic (batch) tool calling helpers (issue #406)
+from dcc_mcp_core.batch import EvalContext
+from dcc_mcp_core.batch import batch_dispatch
+
 # Pure-Python DCC adapter base classes (no _core dependency)
 from dcc_mcp_core.bridge import BridgeConnectionError
 from dcc_mcp_core.bridge import BridgeError
@@ -254,14 +266,42 @@ from dcc_mcp_core.cancellation import current_cancel_token
 from dcc_mcp_core.cancellation import reset_cancel_token
 from dcc_mcp_core.cancellation import set_cancel_token
 
+# Code orchestration pattern — 2-tool DCC API surface (issue #411)
+from dcc_mcp_core.dcc_api_executor import DccApiCatalog
+from dcc_mcp_core.dcc_api_executor import DccApiExecutor
+from dcc_mcp_core.dcc_api_executor import register_dcc_api_executor
+
 # Pure-Python DCC server diagnostic helpers (no _core dependency)
 from dcc_mcp_core.dcc_server import register_diagnostic_handlers
 from dcc_mcp_core.dcc_server import register_diagnostic_mcp_tools
+
+# MCP Elicitation support (issue #407)
+from dcc_mcp_core.elicitation import ElicitationMode
+from dcc_mcp_core.elicitation import ElicitationRequest
+from dcc_mcp_core.elicitation import ElicitationResponse
+from dcc_mcp_core.elicitation import FormElicitation
+from dcc_mcp_core.elicitation import UrlElicitation
+from dcc_mcp_core.elicitation import elicit_form
+from dcc_mcp_core.elicitation import elicit_form_sync
+from dcc_mcp_core.elicitation import elicit_url
 from dcc_mcp_core.factory import create_dcc_server
 from dcc_mcp_core.factory import get_server_instance
 from dcc_mcp_core.factory import make_start_stop
 from dcc_mcp_core.gateway_election import DccGatewayElection
 from dcc_mcp_core.hotreload import DccSkillHotReloader
+
+# Plugin manifest generation (issue #410)
+from dcc_mcp_core.plugin_manifest import PluginManifest
+from dcc_mcp_core.plugin_manifest import build_plugin_manifest
+from dcc_mcp_core.plugin_manifest import export_plugin_manifest
+
+# MCP Apps rich content (issue #409)
+from dcc_mcp_core.rich_content import RichContent
+from dcc_mcp_core.rich_content import RichContentKind
+from dcc_mcp_core.rich_content import attach_rich_content
+from dcc_mcp_core.rich_content import skill_success_with_chart
+from dcc_mcp_core.rich_content import skill_success_with_image
+from dcc_mcp_core.rich_content import skill_success_with_table
 from dcc_mcp_core.server_base import DccServerBase
 
 # Pure-Python skill script helpers (no _core dependency)
@@ -304,6 +344,7 @@ __all__ = [
     "SKILL_SCRIPTS_DIR",
     "TOOL_NAME_RE",
     "WEBVIEW_DEFAULT_CAPABILITIES",
+    "ApiKeyConfig",
     "AuditEntry",
     "AuditLog",
     "AuditMiddleware",
@@ -323,6 +364,9 @@ __all__ = [
     "CaptureResult",
     "CaptureTarget",
     "Capturer",
+    "CimdDocument",
+    "DccApiCatalog",
+    "DccApiExecutor",
     "DccBridge",
     "DccCapabilities",
     "DccError",
@@ -332,10 +376,15 @@ __all__ = [
     "DccLinkFrame",
     "DccServerBase",
     "DccSkillHotReloader",
+    "ElicitationMode",
+    "ElicitationRequest",
+    "ElicitationResponse",
+    "EvalContext",
     "EventBus",
     "FileLoggingConfig",
     "FileRef",
     "FloatWrapper",
+    "FormElicitation",
     "FrameRange",
     "GracefulIpcChannelAdapter",
     "InputValidator",
@@ -345,7 +394,9 @@ __all__ = [
     "McpHttpConfig",
     "McpHttpServer",
     "McpServerHandle",
+    "OAuthConfig",
     "ObjectTransform",
+    "PluginManifest",
     "PromptArgument",
     "PromptDefinition",
     "PyBufferPool",
@@ -365,6 +416,8 @@ __all__ = [
     "ResourceDefinition",
     "ResourceTemplateDefinition",
     "RetryPolicy",
+    "RichContent",
+    "RichContentKind",
     "SandboxContext",
     "SandboxPolicy",
     "SceneInfo",
@@ -393,6 +446,7 @@ __all__ = [
     "StringWrapper",
     "TelemetryConfig",
     "TimingMiddleware",
+    "TokenValidationError",
     "ToolAnnotations",
     "ToolDeclaration",
     "ToolDefinition",
@@ -406,6 +460,7 @@ __all__ = [
     "TransportAddress",
     "TransportScheme",
     "TriggerSpec",
+    "UrlElicitation",
     "UsdPrim",
     "UsdStage",
     "VersionConstraint",
@@ -425,16 +480,24 @@ __all__ = [
     "artefact_list",
     "artefact_put_bytes",
     "artefact_put_file",
+    "attach_rich_content",
+    "batch_dispatch",
+    "build_plugin_manifest",
     "check_cancelled",
     "create_dcc_server",
     "create_skill_server",
     "current_cancel_token",
     "deserialize_result",
+    "elicit_form",
+    "elicit_form_sync",
+    "elicit_url",
     "error_result",
     "expand_transitive_dependencies",
+    "export_plugin_manifest",
     "flush_logs",
     "from_exception",
     "gc_orphans",
+    "generate_api_key",
     "get_app_skill_paths_from_env",
     "get_bridge_context",
     "get_bundled_skill_paths",
@@ -455,6 +518,7 @@ __all__ = [
     "parse_schedules_yaml",
     "parse_skill_md",
     "register_bridge",
+    "register_dcc_api_executor",
     "register_diagnostic_handlers",
     "register_diagnostic_mcp_tools",
     "reset_cancel_token",
@@ -472,6 +536,9 @@ __all__ = [
     "skill_error",
     "skill_exception",
     "skill_success",
+    "skill_success_with_chart",
+    "skill_success_with_image",
+    "skill_success_with_table",
     "skill_warning",
     "stage_to_scene_info_json",
     "success_result",
@@ -480,6 +547,7 @@ __all__ = [
     "unwrap_value",
     "validate_action_id",
     "validate_action_result",
+    "validate_bearer_token",
     "validate_dependencies",
     "validate_skill",
     "validate_tool_name",
