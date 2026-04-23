@@ -568,6 +568,43 @@ impl SubscriberManager {
         );
     }
 
+    /// Abort and remove any subscriber whose URL is **not** in `live_urls`.
+    ///
+    /// Called after each `FileRegistry` scan so that dead backends (ports that
+    /// have gone away or become stale) stop burning reconnect-loop cycles and
+    /// log spam. Issue #402.
+    pub fn prune_unlisted(&self, live_urls: &[String]) {
+        let dead: Vec<String> = self
+            .inner
+            .backends
+            .iter()
+            .filter_map(|e| {
+                if !live_urls.contains(e.key()) {
+                    Some(e.key().clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for url in &dead {
+            if let Some((_, mut sub)) = self.inner.backends.remove(url) {
+                sub.abort();
+                tracing::debug!(
+                    backend = %url,
+                    "gateway SSE: pruned subscriber for dead/stale backend"
+                );
+            }
+        }
+        if !dead.is_empty() {
+            tracing::info!(
+                pruned = dead.len(),
+                "gateway SSE: removed {} dead backend subscriber(s)",
+                dead.len()
+            );
+        }
+    }
+
     // ── Route GC (#322) ────────────────────────────────────────────────
 
     /// Spawn a background task that periodically evicts stale

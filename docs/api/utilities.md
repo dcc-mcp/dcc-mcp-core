@@ -279,3 +279,8 @@ shutdown_file_logging()
 |----------|---------|-------------|
 | `init_file_logging(config=None)` | `str` | Install (or swap) the rolling-file layer. Returns resolved log directory. |
 | `shutdown_file_logging()` | `None` | Uninstall the file-logging layer. |
+| `flush_logs()` | `None` | Flush buffered log events to disk immediately. `tracing_appender` batches writes on a background thread — call this after an error, before opening the log viewer, or from a periodic timer to make entries visible before process exit. No-op when file logging is not installed. (issue #402) |
+
+> **Multi-instance isolation**: `DccServerBase` automatically includes the process PID in the log
+> file prefix — `dcc-mcp-<dcc_name>.<pid>.<YYYYMMDD>.log` — so multiple instances of the same
+> DCC application on the same machine write to distinct, non-interleaved files.

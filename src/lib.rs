@@ -226,6 +226,7 @@ fn register_utils(m: &Bound<'_, PyModule>) -> PyResult<()> {
         dcc_mcp_utils::type_wrappers::py_wrap_value,
         dcc_mcp_utils::file_logging::python::py_init_file_logging,
         dcc_mcp_utils::file_logging::python::py_shutdown_file_logging,
+        dcc_mcp_utils::file_logging::python::py_flush_logs,
         dcc_mcp_utils::file_logging::python::py_default_settings,
     );
     add_classes!(

@@ -4614,6 +4614,21 @@ def shutdown_file_logging() -> None:
     """Uninstall the file-logging layer; console output is unaffected."""
     ...
 
+def flush_logs() -> None:
+    """Flush buffered log events to disk immediately.
+
+    ``tracing_appender::non_blocking`` batches writes on a background thread
+    and only guarantees a flush on log rotation or process exit.  For
+    long-running DCC sessions (Maya, Blender, Houdini…) this means the log
+    file can appear empty or stale until the process exits.
+
+    Call ``flush_logs()`` to force all buffered events to disk right now —
+    useful after an error, before opening the log viewer, or from a periodic
+    Python timer.  Safe to call when no file layer is installed (no-op).
+    Issue #402.
+    """
+    ...
+
 # ── Workflow primitive (issue #348, skeleton) ────────────────────────────────
 #
 # Only WorkflowSpec / WorkflowStatus are Python-visible in this release.

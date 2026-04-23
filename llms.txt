@@ -363,6 +363,8 @@ tools:
 - `FileLoggingConfig(directory=None, file_name_prefix="dcc-mcp", max_size_bytes=10485760, max_files=7, rotation="both", include_console=True)` — rolling file logger config. `FileLoggingConfig.from_env()` reads `DCC_MCP_LOG_*` env vars.
 - `init_file_logging(config=None) -> str` — install (or swap) the rolling-file layer. Returns resolved log directory.
 - `shutdown_file_logging()` — uninstall the file-logging layer; console unaffected.
+- `flush_logs()` — flush buffered log events to disk immediately; no-op when file logging is not installed. (issue #402)
+- Note: `DccServerBase` writes to `dcc-mcp-<dcc_name>.<pid>.<YYYYMMDD>.log` — PID is included to isolate multi-instance log files.
 
 ### Constants (`dcc_mcp_core`)
 

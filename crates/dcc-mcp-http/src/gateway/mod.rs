@@ -420,9 +420,14 @@ async fn start_gateway_tasks(
                     .map(|e| format!("http://{}:{}/mcp", e.host, e.port))
                     .collect()
             };
-            for url in urls {
-                sub_for_task.ensure_subscribed(&url);
+            // Add subscriptions for newly-appeared backends.
+            for url in &urls {
+                sub_for_task.ensure_subscribed(url);
             }
+            // Remove subscriptions for backends that have disappeared from the
+            // registry (stale / dead). Without this the reconnect loop runs
+            // indefinitely for ports that no longer exist. Issue #402.
+            sub_for_task.prune_unlisted(&urls);
         }
     });
 

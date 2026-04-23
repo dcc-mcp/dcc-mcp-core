@@ -2081,7 +2081,7 @@ get_app_skill_paths_from_env("blender") # -> List[str] from DCC_MCP_BLENDER_SKIL
 Rolling file logging for durable, multi-process debugging. Console output (stderr) is unaffected.
 
 ```python
-from dcc_mcp_core import FileLoggingConfig, init_file_logging, shutdown_file_logging
+from dcc_mcp_core import FileLoggingConfig, init_file_logging, shutdown_file_logging, flush_logs
 
 # Quick start — reads DCC_MCP_LOG_* env vars
 log_dir = init_file_logging()   # returns resolved directory
@@ -2098,6 +2098,9 @@ init_file_logging(FileLoggingConfig(
 # Swap at runtime (idempotent)
 init_file_logging(FileLoggingConfig.from_env())
 
+# Flush buffered events to disk immediately (issue #402)
+flush_logs()
+
 # Uninstall; console stays active
 shutdown_file_logging()
 ```
@@ -2110,6 +2113,14 @@ shutdown_file_logging()
 | `max_files` | `int` | `7` | Retention cap for rolled files (current excluded) |
 | `rotation` | `str` | `"both"` | `"size"`, `"daily"`, or `"both"` |
 | `include_console` | `bool` | `True` | Reserved; console always active today |
+
+**Functions:**
+- `init_file_logging(config=None) -> str` — install (or swap) the rolling-file layer. Returns resolved log directory.
+- `shutdown_file_logging()` — uninstall the file-logging layer; console unaffected.
+- `flush_logs()` — flush buffered log events to disk immediately. `tracing_appender` batches writes on a background thread; this bypasses the async channel and forces an OS-level flush. No-op when no file layer is installed. (issue #402)
+
+**Multi-instance isolation**: `DccServerBase` appends the PID to the log file prefix:
+`dcc-mcp-<dcc_name>.<pid>.<YYYYMMDD>.log` — so two Maya processes never share a file.
 
 **Environment variables** (read by `FileLoggingConfig.from_env()`):
 - `DCC_MCP_LOG_DIR` — directory override

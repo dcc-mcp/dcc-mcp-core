@@ -160,6 +160,7 @@ from dcc_mcp_core._core import create_skill_server
 from dcc_mcp_core._core import deserialize_result
 from dcc_mcp_core._core import error_result
 from dcc_mcp_core._core import expand_transitive_dependencies
+from dcc_mcp_core._core import flush_logs
 from dcc_mcp_core._core import from_exception
 from dcc_mcp_core._core import gc_orphans
 from dcc_mcp_core._core import get_app_skill_paths_from_env
@@ -431,6 +432,7 @@ __all__ = [
     "deserialize_result",
     "error_result",
     "expand_transitive_dependencies",
+    "flush_logs",
     "from_exception",
     "gc_orphans",
     "get_app_skill_paths_from_env",

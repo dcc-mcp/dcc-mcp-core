@@ -505,6 +505,11 @@ fn prune_old(directory: &Path, prefix: &str, max_files: usize) {
 struct FileLoggingHandles {
     guard: WorkerGuard,
     config: FileLoggingConfig,
+    /// Shared `Inner` from the live `RollingFileWriter`. Cloning the writer
+    /// is cheap (it only clones the `Arc`) so we keep a copy here to service
+    /// `flush_logs()` calls from Python / Rust without going through the
+    /// async `tracing_appender` channel (issue #402).
+    writer_inner: Arc<Mutex<Inner>>,
 }
 
 static HANDLES: OnceLock<parking_lot::Mutex<Option<FileLoggingHandles>>> = OnceLock::new();
@@ -528,7 +533,8 @@ pub fn init_file_logging(config: FileLoggingConfig) -> Result<PathBuf, FileLoggi
     crate::log_config::init_logging();
 
     let writer = RollingFileWriter::new(&config)?;
-    let directory = writer.inner.lock().directory.clone();
+    let writer_inner = writer.inner.clone();
+    let directory = writer_inner.lock().directory.clone();
 
     let (non_blocking, guard): (NonBlocking, WorkerGuard) = tracing_appender::non_blocking(writer);
 
@@ -546,9 +552,30 @@ pub fn init_file_logging(config: FileLoggingConfig) -> Result<PathBuf, FileLoggi
     *handles_slot().lock() = Some(FileLoggingHandles {
         guard,
         config: config.clone(),
+        writer_inner,
     });
 
     Ok(directory)
+}
+
+/// Flush any buffered log events to disk immediately.
+///
+/// `tracing_appender::non_blocking` batches writes on a background
+/// thread and only guarantees a flush on rotation or `WorkerGuard` drop.
+/// For long-running DCC sessions (Maya, Blender…) this means the log
+/// file can appear empty or stale until the process exits.
+///
+/// Calling `flush_logs()` forces the underlying `RollingFileWriter` to
+/// flush its OS page-cache buffers, making all events written so far
+/// visible on disk immediately. Issue #402.
+///
+/// Safe to call from any thread. Returns `Ok(())` when no file layer is
+/// installed (no-op).
+pub fn flush_logs() -> std::io::Result<()> {
+    if let Some(handles) = handles_slot().lock().as_ref() {
+        handles.writer_inner.lock().current.flush()?;
+    }
+    Ok(())
 }
 
 /// Uninstall the rolling-file layer (console output is unaffected).
@@ -750,6 +777,21 @@ pub mod python {
     #[pyo3(name = "shutdown_file_logging")]
     pub fn py_shutdown_file_logging() -> PyResult<()> {
         shutdown_file_logging()?;
+        Ok(())
+    }
+
+    /// Flush buffered log events to disk immediately.
+    ///
+    /// `tracing_appender::non_blocking` batches writes on a background thread
+    /// and only guarantees a flush on rotation or process exit. For
+    /// long-running DCC sessions this means the log file can appear empty or
+    /// stale. Call `flush_logs()` to force all buffered events to disk now —
+    /// useful after an error, before opening the log viewer, or from a
+    /// periodic Python timer. Issue #402.
+    #[pyfunction]
+    #[pyo3(name = "flush_logs")]
+    pub fn py_flush_logs() -> PyResult<()> {
+        super::flush_logs().map_err(pyo3::exceptions::PyOSError::new_err)?;
         Ok(())
     }
 

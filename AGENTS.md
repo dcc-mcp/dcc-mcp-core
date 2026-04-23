@@ -198,7 +198,9 @@ Need to interact with DCC?
 → Timeout path: returns the last-known envelope with `_meta.dcc.timed_out=true` and leaves the job running
 
 **Enable durable rolling file logs (multi-gateway debugging)?**
-→ `FileLoggingConfig` + `init_file_logging()` / `shutdown_file_logging()`
+→ `FileLoggingConfig` + `init_file_logging()` / `shutdown_file_logging()` / `flush_logs()`
+→ `flush_logs()` forces buffered events to disk immediately — use after errors or from a periodic timer (issue #402)
+→ `DccServerBase` writes to `dcc-mcp-<dcc_name>.<pid>.<date>.log` — PID isolates multi-instance files
 → Environment vars: `DCC_MCP_LOG_DIR`, `DCC_MCP_LOG_MAX_SIZE`, `DCC_MCP_LOG_ROTATION`
 
 **Deploying `dcc-mcp-server` to production (Docker, systemd, k8s, LB)?**
@@ -726,7 +728,7 @@ json_str = result.to_json()    # JSON string
 - Use Conventional Commits for PR titles — `feat:`, `fix:`, `docs:`, `refactor:`
 - Use `registry.list_actions()` (shows all) vs `registry.list_actions_enabled()` (active only)
 - Start with `search_skills(query)` when looking for a tool — don't guess tool names. As of #340 `search_skills` also accepts `tags`, `dcc`, `scope`, and `limit`; call it with no arguments to browse by trust scope. `find_skills` is a deprecated alias (removal in v0.17).
-- Use `init_file_logging(FileLoggingConfig(...))` for durable logs in multi-gateway setups
+- Use `init_file_logging(FileLoggingConfig(...))` for durable logs in multi-gateway setups; call `flush_logs()` to force events to disk immediately
 - Rely on bare tool names in `tools/call` — both `execute_python` and `maya-scripting.execute_python` work during the one-release grace window
 
 ### Don't ❌

@@ -98,7 +98,7 @@ class DccServerBase:
         enable_file_logging: Automatically initialise rolling file logging on
             construction so that all ``tracing`` events (Rust) and Python
             ``logging`` records are written to
-            ``<log_dir>/dcc-mcp-<dcc_name>.<date>.log``.  Set
+            ``<log_dir>/dcc-mcp-<dcc_name>.<pid>.<date>.log``.  Set
             ``DCC_MCP_DISABLE_FILE_LOGGING=1`` env var to override at runtime.
             Default ``True``.
         enable_job_persistence: Persist tracked jobs to a SQLite database
@@ -217,7 +217,7 @@ class DccServerBase:
         Failures are non-fatal: a ``logger.warning`` is emitted and the
         server continues without file logging.
 
-        Log files are named ``dcc-mcp-<dcc_name>.<YYYYMMDD>.log`` and live in:
+        Log files are named ``dcc-mcp-<dcc_name>.<pid>.<YYYYMMDD>.log`` and live in:
         1. ``DCC_MCP_LOG_DIR`` env var (if set)
         2. ``<platform log dir>/dcc-mcp/`` (macOS: ``~/Library/Logs``,
            Windows: ``%LOCALAPPDATA%``, Linux: ``~/.local/share``)
@@ -230,9 +230,13 @@ class DccServerBase:
             from dcc_mcp_core import init_file_logging
 
             log_dir = os.environ.get("DCC_MCP_LOG_DIR") or get_log_dir()
+            # Include the PID in the prefix so multiple instances of the same
+            # DCC (e.g. two Maya sessions) write to distinct files and never
+            # interleave their log lines. Issue #402.
+            pid = os.getpid()
             cfg = FileLoggingConfig(
                 directory=log_dir,
-                file_name_prefix=f"dcc-mcp-{dcc_name}",
+                file_name_prefix=f"dcc-mcp-{dcc_name}.{pid}",
                 # Keep 14 daily files (two weeks of history)
                 max_files=14,
                 # 20 MiB per file — enough for a busy session without filling disks
@@ -241,10 +245,11 @@ class DccServerBase:
             )
             resolved = init_file_logging(cfg)
             logger.info(
-                "[%s] File logging enabled → %s/dcc-mcp-%s.*.log",
+                "[%s] File logging enabled → %s/dcc-mcp-%s.%s.*.log",
                 dcc_name,
                 resolved,
                 dcc_name,
+                pid,
             )
             return resolved
         except Exception as exc:
