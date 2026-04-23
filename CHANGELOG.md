@@ -11,6 +11,13 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.14.8](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.7...v0.14.8) (2026-04-23)
+
+
+### Documentation
+
+* update outdated workflow docs and translate Chinese placeholders ([#400](https://github.com/loonghao/dcc-mcp-core/issues/400)) ([867824b](https://github.com/loonghao/dcc-mcp-core/commit/867824bf81c9f04a93e8a8048278e76b34633346))
+
 ## [0.14.7](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.6...v0.14.7) (2026-04-23)
 
 
