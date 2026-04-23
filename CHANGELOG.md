@@ -11,6 +11,14 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.14.7](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.6...v0.14.7) (2026-04-23)
+
+
+### Bug Fixes
+
+* **server:** probe job-persist-sqlite feature before setting job_storage_path ([373acf7](https://github.com/loonghao/dcc-mcp-core/commit/373acf71bdad79a7cdcf5d85649a78eb5c69e279))
+* **tests:** resolve DccServerBase mock and skill tag assertions ([#397](https://github.com/loonghao/dcc-mcp-core/issues/397)) ([f8ba089](https://github.com/loonghao/dcc-mcp-core/commit/f8ba089d51c941c5a8ee0e92edec3355087d5d53))
+
 ## [0.14.6](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.5...v0.14.6) (2026-04-22)
 
 
