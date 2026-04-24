@@ -14,10 +14,11 @@ inputs:
     description: 'Rust toolchain version'
     required: false
     default: '1.90.0'
-  maturin-args:
-    description: 'maturin build arguments'
+  maturin-extra-args:
+    description: 'Extra maturin args (e.g. --sdist, -i python3.7). Features
+      and --release/--out are set by this action from the justfile.'
     required: false
-    default: '--release --out dist --find-interpreter --features python-bindings,ext-module,abi3-py38,workflow,scheduler,prometheus,job-persist-sqlite'
+    default: '--find-interpreter'
   test-wheel:
     description: 'Test the built wheel'
     required: false
@@ -44,6 +45,9 @@ runs:
       with:
         toolchain: ${{ inputs.rust-version }}
 
+    - name: Install just
+      uses: extractions/setup-just@v3
+
     - name: Cache Cargo
       uses: actions/cache@v5
       with:
@@ -56,27 +60,26 @@ runs:
         restore-keys: |
           ${{ runner.os }}-${{ inputs.target || 'default' }}-cargo-wheel-
 
-    - name: Resolve maturin args
-      id: resolve-maturin-args
+    - name: Resolve features from justfile
+      id: resolve-features
       shell: bash
       run: |
-        resolved_args="${{ inputs.maturin-args }}"
-
-        # Python 3.7 must not use abi3-py38 (PyO3 requires interpreter >= 3.8 for that feature)
+        # Single source of truth: the feature list lives in justfile.
+        # Python 3.7 cannot use abi3-py38 (PyO3 requires interpreter >= 3.8).
         if [[ "${{ inputs.python-version }}" == "3.7" ]]; then
-          resolved_args="${resolved_args//abi3-py38,/}"
-          resolved_args="${resolved_args//,abi3-py38/}"
-          resolved_args="${resolved_args//abi3-py38/}"
+          features=$(just print-wheel-features-py37)
+        else
+          features=$(just print-wheel-features)
         fi
-
-        echo "Resolved maturin args: ${resolved_args}"
-        echo "value=${resolved_args}" >> "$GITHUB_OUTPUT"
+        args="--release --out dist --features ${features} ${{ inputs.maturin-extra-args }}"
+        echo "Resolved maturin args: ${args}"
+        echo "value=${args}" >> "$GITHUB_OUTPUT"
 
     - name: Build wheel
       uses: PyO3/maturin-action@v1
       with:
         target: ${{ inputs.target }}
-        args: ${{ steps.resolve-maturin-args.outputs.value }}
+        args: ${{ steps.resolve-features.outputs.value }}
         rust-toolchain: ${{ inputs.rust-version }}
         sccache: ${{ inputs.use-sccache == 'true' }}
         manylinux: auto

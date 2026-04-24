@@ -6,8 +6,43 @@
 set windows-shell := ["powershell.exe", "-NoLogo", "-Command"]
 set shell := ["sh", "-cu"]
 
+# ── Feature sets (single source of truth) ─────────────────────────────────────
+# Opt-in Cargo features that must ship in every wheel. Add new features here
+# and every recipe below — as well as CI workflows invoking `just build-*` —
+# will pick them up automatically.
+OPT_FEATURES := "workflow,scheduler,prometheus,job-persist-sqlite"
+
+# Feature set for `maturin develop` (no abi3, extension-module linkage)
+DEV_FEATURES := "python-bindings,ext-module," + OPT_FEATURES
+
+# Feature set for abi3 release wheels (Python 3.8+)
+WHEEL_FEATURES := "python-bindings,ext-module,abi3-py38," + OPT_FEATURES
+
+# Feature set for Python 3.7 wheels (non-abi3 — PyO3 requires >=3.8 for abi3)
+WHEEL_FEATURES_PY37 := "python-bindings,ext-module," + OPT_FEATURES
+
 default:
     @just --list
+
+# ── Feature introspection (for CI / scripts) ──────────────────────────────────
+# CI workflows call these to pick up the canonical feature list from justfile
+# rather than hard-coding feature names in workflow YAML.
+#
+# Example (GitHub Actions):
+#   FEATURES=$(just print-wheel-features)
+#   maturin build --release --features "$FEATURES"
+
+print-opt-features:
+    @echo "{{OPT_FEATURES}}"
+
+print-dev-features:
+    @echo "{{DEV_FEATURES}}"
+
+print-wheel-features:
+    @echo "{{WHEEL_FEATURES}}"
+
+print-wheel-features-py37:
+    @echo "{{WHEEL_FEATURES_PY37}}"
 
 # ── Rust ──────────────────────────────────────────────────────────────────────
 
@@ -83,7 +118,7 @@ dev:
         . .venv/bin/activate; \
     fi
     pip install maturin 2>/dev/null || true
-    maturin develop --features python-bindings,ext-module,workflow,scheduler,prometheus,job-persist-sqlite
+    maturin develop --features {{DEV_FEATURES}}
 
 [windows]
 dev:
@@ -92,20 +127,23 @@ dev:
         & .\.venv\Scripts\Activate.ps1; \
     }
     pip install maturin -q 2>$null
-    maturin develop --features python-bindings,ext-module,workflow,scheduler,prometheus,job-persist-sqlite
+    maturin develop --features {{DEV_FEATURES}}
 
 # Build abi3-py38 release wheel and install it
 install:
-    maturin build --release --out dist --features python-bindings,ext-module,abi3-py38,workflow,scheduler,prometheus,job-persist-sqlite
+    maturin build --release --out dist --features {{WHEEL_FEATURES}}
     pip install --force-reinstall --no-index --find-links dist dcc-mcp-core
 
-# Build abi3-py38 release wheel (dist/ only, no install)
-build:
-    maturin build --release --features python-bindings,ext-module,abi3-py38,workflow,scheduler,prometheus,job-persist-sqlite
+# Build abi3-py38 release wheel (dist/ only, no install).
+# EXTRA is forwarded to maturin — used by CI to pass --sdist,
+# --find-interpreter, --target, etc. without duplicating feature flags.
+build *EXTRA:
+    maturin build --release --out dist --features {{WHEEL_FEATURES}} {{EXTRA}}
 
-# Build Python 3.7 wheel (non-abi3, for py37-specific CI jobs)
-build-py37:
-    maturin build --release --out dist --features python-bindings,ext-module,workflow,scheduler,prometheus,job-persist-sqlite
+# Build Python 3.7 wheel (non-abi3, for py37-specific CI jobs).
+# EXTRA is forwarded to maturin (e.g. `-i python3.7`, `--target x86_64`).
+build-py37 *EXTRA:
+    maturin build --release --out dist --features {{WHEEL_FEATURES_PY37}} {{EXTRA}}
 
 # Install dev/test dependencies
 install-dev-deps:

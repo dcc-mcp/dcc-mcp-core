@@ -52,6 +52,9 @@ Issues = "https://github.com/loonghao/dcc-mcp-core/issues"
 [tool.maturin]
 python-source = "python"
 module-name = "dcc_mcp_core._core"
+# Feature list MUST stay in sync with `WHEEL_FEATURES` in the root justfile.
+# The justfile is the single source of truth for CI; this list only matters
+# for downstream `pip install .` / sdist rebuilds that bypass our CI.
 features = ["python-bindings", "ext-module", "abi3-py38", "workflow", "scheduler", "prometheus", "job-persist-sqlite"]
 bindings = "pyo3"
 
