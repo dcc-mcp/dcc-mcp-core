@@ -11,6 +11,25 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.14.10](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.9...v0.14.10) (2026-04-24)
+
+
+### Bug Fixes
+
+* **gateway:** prevent self-loop SSE subscription + pre-subscribe registry sweep ([#419](https://github.com/loonghao/dcc-mcp-core/issues/419)) ([d376056](https://github.com/loonghao/dcc-mcp-core/commit/d37605632f142f3c33a904e2644af1422a942839))
+
+
+### Code Refactoring
+
+* **build:** centralise wheel feature list in justfile ([e1e26b5](https://github.com/loonghao/dcc-mcp-core/commit/e1e26b5f65b77958f6ae72e76156d343afd1228b))
+
+
+### Documentation
+
+* document remote-server extensions from issues [#404](https://github.com/loonghao/dcc-mcp-core/issues/404)-[#411](https://github.com/loonghao/dcc-mcp-core/issues/411) ([59c8622](https://github.com/loonghao/dcc-mcp-core/commit/59c86223ca53b5a026d6745c55655d7c18851642))
+* mark vitepress sidebar version for release-please auto-bump ([13597e1](https://github.com/loonghao/dcc-mcp-core/commit/13597e1b2fa8cbbc828952aad6e8850d15b31dec))
+* **readme:** rewrite README for v0.14+ APIs and fix formatting drift ([29cb0e8](https://github.com/loonghao/dcc-mcp-core/commit/29cb0e8003b274e2dc441796c1af9c30fcb30796))
+
 ## [0.14.9](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.8...v0.14.9) (2026-04-24)
 
 
