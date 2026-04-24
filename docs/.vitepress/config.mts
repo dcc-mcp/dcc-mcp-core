@@ -115,7 +115,7 @@ export default defineConfig({
           { text: '指南', link: '/zh/guide/what-is-dcc-mcp-core' },
           { text: 'API', link: '/zh/api/models' },
           {
-              text: 'v0.14.6',
+            text: 'v0.14.6',
             items: [
               { text: '更新日志', link: 'https://github.com/loonghao/dcc-mcp-core/blob/main/CHANGELOG.md' },
               { text: 'PyPI', link: 'https://pypi.org/project/dcc-mcp-core/' },
@@ -192,6 +192,9 @@ export default defineConfig({
                 { text: '画面捕获', link: '/zh/api/capture' },
                 { text: 'USD', link: '/zh/api/usd' },
                 { text: '工具函数', link: '/zh/api/utilities' },
+                { text: '可观测性', link: '/zh/api/observability' },
+                { text: 'Resources', link: '/zh/api/resources' },
+                { text: 'Workflow', link: '/zh/api/workflow' },
               ]
             }
           ]

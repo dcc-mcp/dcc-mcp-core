@@ -1,6 +1,6 @@
 # Remote-First MCP Server Design Guide
 
-> **[中文版](../zh/guide/remote-server)**
+> **[中文版](../zh/guide/remote-server.md)**
 
 This guide explains when to choose a remote MCP server over a local socket,
 how to deploy `create_skill_server()` so it is reachable from cloud-hosted
@@ -59,7 +59,7 @@ print(handle.mcp_url())        # "http://0.0.0.0:8765/mcp"
 | `allowed_origins` | `["*"]` | Restrict to specific client origins in production |
 | `spawn_mode` | `"dedicated"` | Always use `"dedicated"` for PyO3-embedded hosts |
 | `api_key` | env var | Optional Bearer token auth (see [Auth](#auth)) |
-| `enable_oauth` | `False` | OAuth 2.1 + CIMD auth (see [OAuth](#oauth-cimd)) |
+| `enable_oauth` | `False` | OAuth 2.1 + CIMD auth (see [OAuth](#oauth--cimd)) |
 
 ```python
 cfg = McpHttpConfig(
@@ -89,7 +89,7 @@ Clients include `Authorization: Bearer <key>` in every request.
 
 ### OAuth 2.1 + CIMD (recommended for production)
 
-See [CIMD OAuth guide](remote-server.md#oauth-cimd) below and issue #408.
+See [CIMD OAuth guide](remote-server.md#oauth--cimd) below and issue #408.
 Enable with `McpHttpConfig(enable_oauth=True)`.
 
 ---
@@ -150,7 +150,7 @@ docker run -p 8765:8765 -e DCC_MCP_API_KEY=secret my-mcp-server
 
 ## Example: Minimal Remote-Accessible Skill Server
 
-See [`examples/remote-server/`](../../examples/remote-server/) for a
+See [`examples/remote-server/`](https://github.com/loonghao/dcc-mcp-core/tree/main/examples/remote-server) for a
 complete, deployable example that:
 
 - Starts a publicly reachable MCP server on `0.0.0.0:8765`
