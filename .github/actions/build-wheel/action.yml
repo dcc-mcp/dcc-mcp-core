@@ -46,7 +46,7 @@ runs:
         toolchain: ${{ inputs.rust-version }}
 
     - name: Install just
-      uses: extractions/setup-just@v3
+      uses: extractions/setup-just@v4
 
     - name: Cache Cargo
       uses: actions/cache@v5
