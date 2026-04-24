@@ -11,6 +11,35 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.14.9](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.8...v0.14.9) (2026-04-24)
+
+
+### Features
+
+* implement issues [#404](https://github.com/loonghao/dcc-mcp-core/issues/404)-[#411](https://github.com/loonghao/dcc-mcp-core/issues/411) remote server, batch dispatch, elicitation, OAuth, MCP Apps, plugin manifest, code orchestration ([66288af](https://github.com/loonghao/dcc-mcp-core/commit/66288af926db945bf73974ae506a6637586cd3bf))
+
+
+### Bug Fixes
+
+* **gateway:** prune dead SSE backends, flush logs in real-time, isolate multi-instance log files ([#402](https://github.com/loonghao/dcc-mcp-core/issues/402)) ([e5dfdc5](https://github.com/loonghao/dcc-mcp-core/commit/e5dfdc52eaa722cdf2d2cb426b0bbbed5e9851af))
+* **http:** make PyMcpHttpServer and PyServerHandle fields pub(crate) for cross-module access ([332e57f](https://github.com/loonghao/dcc-mcp-core/commit/332e57fb80016d69b79080101842f9d3e8b8e3c8))
+* **refactor:** restore missing type definitions and module exports after modularization ([fb12c08](https://github.com/loonghao/dcc-mcp-core/commit/fb12c08757819ad81cd429109e4f495ae1add88a))
+* **tests:** expose internal symbols for test compilation after modularization ([92c316b](https://github.com/loonghao/dcc-mcp-core/commit/92c316b2142d4fdf620f0be76aa311660dee2ed9))
+* **tests:** expose internal symbols under cfg(test) for test compilation after modularization ([07d5867](https://github.com/loonghao/dcc-mcp-core/commit/07d58675f14b853457edd570f898b6deb935fc90))
+* **test:** update file_name_prefix assertion to allow PID suffix (issue [#402](https://github.com/loonghao/dcc-mcp-core/issues/402)) ([be804f9](https://github.com/loonghao/dcc-mcp-core/commit/be804f97d09ea9fb73d985a853d1b2a510e9a059))
+* **workflow:** make executor methods pub(crate) for cross-module visibility ([ef45408](https://github.com/loonghao/dcc-mcp-core/commit/ef45408f5e5aaaf8b6751bc891b25a75dd9cba45))
+
+
+### Code Refactoring
+
+* modularize oversized files into single-responsibility modules ([f989bcf](https://github.com/loonghao/dcc-mcp-core/commit/f989bcf5854074003eff97fa9c8a4767fc5d382a))
+* **protocols,http:** split protocol models and gateway test fixtures ([#416](https://github.com/loonghao/dcc-mcp-core/issues/416)) ([b1c29da](https://github.com/loonghao/dcc-mcp-core/commit/b1c29dadb69b53303fec2734f72f1688cbf0afb1))
+
+
+### Documentation
+
+* fix VitePress dead links and complete Chinese sidebar ([94d03ea](https://github.com/loonghao/dcc-mcp-core/commit/94d03eadb16f698096c5c3d524a21e2c5c2f7225))
+
 ## [0.14.8](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.7...v0.14.8) (2026-04-23)
 
 
