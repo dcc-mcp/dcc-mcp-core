@@ -106,7 +106,8 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: wheel-${{ matrix.os }}
-          path: target/wheels/*.whl
+          # `vx just build` outputs to `dist/` (see root justfile `build` recipe)
+          path: dist/*.whl
 
   # ── Python tests: matrix over OS × Python versions ──
   python-test:

@@ -59,7 +59,8 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: wheel-dcc-integration
-          path: target/wheels/*.whl
+          # `vx just build` writes release wheels to `dist/` (justfile)
+          path: dist/*.whl
           retention-days: 1
 
   # ── Blender (headless --background) ──
