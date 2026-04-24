@@ -67,6 +67,33 @@ and any `job_routes` / `progress_token_routes` bound to that session
 are scrubbed. Backend subscriptions stay alive — another client might
 still depend on them.
 
+### Self-loop guard + pre-subscribe hygiene (#419)
+
+When a DCC process (Maya, Blender, Houdini…) wins gateway election it
+keeps *two* rows in `FileRegistry`: the `__gateway__` sentinel **and**
+its own plain `"maya"` / `"blender"` / … row. Without filtering, the
+backend SSE subscriber would open a connection to its own `/mcp`
+endpoint — a self-loop that wastes a socket and floods the reconnect
+logs whenever the facade blips.
+
+Two invariants prevent this:
+
+1. **Self-exclusion in every fan-out path.** `GatewayState::live_instances`
+   skips rows whose `(host, port)` matches the gateway's own binding,
+   using `is_own_instance` from `crates/dcc-mcp-http/src/gateway/sentinel.rs`.
+   The helper normalises localhost aliases (`localhost`, `::1`,
+   `0.0.0.0`, `[::]`) to `127.0.0.1` so an adapter that advertises its
+   host as `"localhost"` is still filtered when the gateway is bound
+   to `127.0.0.1`. The `backend_sub_handle` subscription loop and the
+   `compute_tools_fingerprint_with_own` watcher apply the same filter.
+2. **Synchronous hygiene before the subscriber loop starts.** Inside
+   `start_gateway_tasks`, a one-shot `prune_dead_pids()` +
+   `cleanup_stale()` pass runs **before** `backend_sub_handle` is
+   spawned. The periodic cleanup task only ticks every 15 s; without
+   the synchronous pre-pass, ghost rows left behind by a previous
+   crash would eat the full exponential-backoff retry budget during
+   the first ~15 s of gateway lifetime.
+
 ## Code pointers
 
 | Piece | File |

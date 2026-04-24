@@ -62,6 +62,31 @@ Gateway 会向每个在该后端上有进行中的作业的客户端发出一个
 该会话的任何 `job_routes` / `progress_token_routes`。后端订阅保持
 活动状态 — 另一个客户端可能仍然依赖它们。
 
+### 自环防护与订阅前卫生检查（#419）
+
+当一个 DCC 进程（Maya、Blender、Houdini…）赢得 Gateway 选举时，
+`FileRegistry` 中会同时保留 *两行*：`__gateway__` 哨兵行以及它
+自身的普通 `"maya"` / `"blender"` / … 行。如果不做过滤，后端 SSE
+订阅器会连接到自己的 `/mcp` 端点 —— 这是一个经典的自环，每次
+facade 抖动都会浪费 socket 并塞满重连日志。
+
+两条不变量防止这种情况：
+
+1. **所有 fan-out 路径都排除自身。** `GatewayState::live_instances`
+   会跳过 `(host, port)` 等于 Gateway 自身绑定地址的行，使用
+   `crates/dcc-mcp-http/src/gateway/sentinel.rs` 中的
+   `is_own_instance` 辅助函数。该函数将 localhost 别名
+   （`localhost` / `::1` / `0.0.0.0` / `[::]`）规范化为
+   `127.0.0.1`，这样即便适配器把 host 写成 `"localhost"`，当
+   Gateway 绑定到 `127.0.0.1` 时也能被正确过滤。
+   `backend_sub_handle` 订阅循环和 `compute_tools_fingerprint_with_own`
+   监听器都复用同一过滤规则。
+2. **启动订阅循环前执行同步卫生检查。** 在 `start_gateway_tasks`
+   内部，`backend_sub_handle` spawn **之前**会同步执行一次
+   `prune_dead_pids()` + `cleanup_stale()`。周期性清理任务每 15
+   秒才触发一次；没有这次同步前置扫描的话，上一次崩溃残留的幽灵
+   行会在 Gateway 启动后的前 ~15 秒内耗尽完整的指数退避重连预算。
+
 ## 代码指针
 
 | 组件 | 文件 |

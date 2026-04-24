@@ -10,6 +10,11 @@ use super::*;
 ///
 /// Deliberately excludes tool descriptions / schemas: we only want to detect
 /// set-level add/remove changes, not metadata edits.
+///
+/// `own_host` / `own_port` identify the gateway's own facade so its own
+/// plain-instance row (present when a DCC process wins gateway election)
+/// is skipped — see issue #419. Pass `None`/`0` to disable the filter;
+/// tests that do not care about self-exclusion use this form.
 pub async fn compute_tools_fingerprint(
     registry: &std::sync::Arc<
         tokio::sync::RwLock<dcc_mcp_transport::discovery::file_registry::FileRegistry>,
@@ -17,6 +22,29 @@ pub async fn compute_tools_fingerprint(
     stale_timeout: Duration,
     http_client: &reqwest::Client,
     backend_timeout: Duration,
+) -> String {
+    compute_tools_fingerprint_with_own(
+        registry,
+        stale_timeout,
+        http_client,
+        backend_timeout,
+        None,
+        0,
+    )
+    .await
+}
+
+/// Same as [`compute_tools_fingerprint`] but also filters out the gateway's
+/// own plain-instance row (issue #419).
+pub(crate) async fn compute_tools_fingerprint_with_own(
+    registry: &std::sync::Arc<
+        tokio::sync::RwLock<dcc_mcp_transport::discovery::file_registry::FileRegistry>,
+    >,
+    stale_timeout: Duration,
+    http_client: &reqwest::Client,
+    backend_timeout: Duration,
+    own_host: Option<&str>,
+    own_port: u16,
 ) -> String {
     let instances: Vec<ServiceEntry> = {
         let reg = registry.read().await;
@@ -30,6 +58,10 @@ pub async fn compute_tools_fingerprint(
                         dcc_mcp_transport::discovery::types::ServiceStatus::ShuttingDown
                             | dcc_mcp_transport::discovery::types::ServiceStatus::Unreachable
                     )
+                    && match own_host {
+                        Some(h) => !super::super::is_own_instance(e, h, own_port),
+                        None => true,
+                    }
             })
             .collect()
     };

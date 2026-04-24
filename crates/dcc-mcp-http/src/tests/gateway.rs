@@ -24,6 +24,8 @@ fn make_gateway_state() -> GatewayState {
         wait_terminal_timeout: Duration::from_secs(600),
         server_name: "test-gateway".to_string(),
         server_version: "0.1.0".to_string(),
+        own_host: "127.0.0.1".to_string(),
+        own_port: 0,
         http_client: reqwest::Client::new(),
         yield_tx: Arc::new(yield_tx),
         events_tx: Arc::new(events_tx),

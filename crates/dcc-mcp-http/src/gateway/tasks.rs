@@ -35,6 +35,8 @@ pub(crate) async fn start_gateway_tasks(
     server_name: String,
     server_version: String,
     sentinel_key: ServiceKey,
+    own_host: String,
+    own_port: u16,
 ) -> Result<GatewayTasks, Box<dyn std::error::Error + Send + Sync>> {
     // ── Yield channel ─────────────────────────────────────────────────────
     let (yield_tx, mut yield_rx) = watch::channel(false);
@@ -103,6 +105,8 @@ pub(crate) async fn start_gateway_tasks(
     // `notifications/resources/list_changed` to all connected SSE clients.
     let reg_watch = registry.clone();
     let events_tx_watch = events_tx.clone();
+    let watch_own_host = own_host.clone();
+    let watch_own_port = own_port;
     let watcher_handle = tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(2));
         // Fingerprint = sorted "dcc_type:instance_id" strings of live instances.
@@ -117,7 +121,9 @@ pub(crate) async fn start_gateway_tasks(
                     .list_all()
                     .into_iter()
                     .filter(|e| {
-                        e.dcc_type != GATEWAY_SENTINEL_DCC_TYPE && !e.is_stale(stale_timeout)
+                        e.dcc_type != GATEWAY_SENTINEL_DCC_TYPE
+                            && !e.is_stale(stale_timeout)
+                            && !is_own_instance(e, &watch_own_host, watch_own_port)
                     })
                     .map(|e| format!("{}:{}", e.dcc_type, e.instance_id))
                     .collect();
@@ -157,6 +163,8 @@ pub(crate) async fn start_gateway_tasks(
     let reg_tools = registry.clone();
     let events_tx_tools = events_tx.clone();
     let http_client_tools = http_client.clone();
+    let tools_own_host = own_host.clone();
+    let tools_own_port = own_port;
     let tools_watcher_handle = tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(3));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -170,11 +178,13 @@ pub(crate) async fn start_gateway_tasks(
                 continue;
             }
 
-            let fingerprint = aggregator::compute_tools_fingerprint(
+            let fingerprint = aggregator::compute_tools_fingerprint_with_own(
                 &reg_tools,
                 stale_timeout,
                 &http_client_tools,
                 backend_timeout,
+                Some(tools_own_host.as_str()),
+                tools_own_port,
             )
             .await;
 
@@ -210,12 +220,47 @@ pub(crate) async fn start_gateway_tasks(
     // their TTL. Terminal jobs are auto-evicted in `deliver`.
     let route_gc_handle = subscriber.spawn_route_gc();
 
+    // ── Pre-subscribe registry hygiene (issue #419) ───────────────────────
+    //
+    // Before the backend subscriber loop starts fanning SSE connections at
+    // everything in the registry, do a one-shot synchronous cleanup so we
+    // don't waste reconnect budget on ghost rows left behind by a previous
+    // crash. The periodic `cleanup_handle` above runs on a 15-second
+    // cadence; without this synchronous pass, the subscriber would see
+    // stale / dead-PID entries during the first ~15 s and pay the full
+    // exponential-backoff retry cost trying to reach them.
+    {
+        let r = registry.read().await;
+        match r.prune_dead_pids() {
+            Ok(n) if n > 0 => {
+                tracing::info!(
+                    reaped = n,
+                    "Gateway: pre-subscribe dead-PID sweep reaped ghost entry/entries"
+                );
+            }
+            Err(e) => tracing::warn!("Gateway: pre-subscribe dead-PID sweep error: {e}"),
+            _ => {}
+        }
+        match r.cleanup_stale(stale_timeout) {
+            Ok(n) if n > 0 => {
+                tracing::info!(
+                    evicted = n,
+                    "Gateway: pre-subscribe stale sweep evicted instance(s)"
+                );
+            }
+            Err(e) => tracing::warn!("Gateway: pre-subscribe stale sweep error: {e}"),
+            _ => {}
+        }
+    }
+
     // Periodically ensure every live backend has an active subscription.
     // The subscriber's internal DashMap makes repeat calls cheap, so we
     // just poll the instance registry at the same cadence as the
     // instance-change watcher.
     let reg_sub = registry.clone();
     let sub_for_task = subscriber.clone();
+    let sub_own_host = own_host.clone();
+    let sub_own_port = own_port;
     let backend_sub_handle = tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(2));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -226,7 +271,9 @@ pub(crate) async fn start_gateway_tasks(
                 r.list_all()
                     .into_iter()
                     .filter(|e| {
-                        e.dcc_type != GATEWAY_SENTINEL_DCC_TYPE && !e.is_stale(stale_timeout)
+                        e.dcc_type != GATEWAY_SENTINEL_DCC_TYPE
+                            && !e.is_stale(stale_timeout)
+                            && !is_own_instance(e, &sub_own_host, sub_own_port)
                     })
                     .map(|e| format!("http://{}:{}/mcp", e.host, e.port))
                     .collect()
@@ -251,6 +298,8 @@ pub(crate) async fn start_gateway_tasks(
         wait_terminal_timeout,
         server_name,
         server_version,
+        own_host,
+        own_port,
         http_client,
         yield_tx: yield_tx.clone(),
         events_tx,

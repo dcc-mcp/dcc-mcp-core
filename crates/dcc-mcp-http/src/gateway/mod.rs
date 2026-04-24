@@ -85,7 +85,7 @@ pub use config::GatewayConfig;
 pub(crate) use handle::ElectionOutcome;
 pub use handle::GatewayHandle;
 pub use runner::GatewayRunner;
-pub(crate) use sentinel::has_newer_sentinel;
+pub(crate) use sentinel::{has_newer_sentinel, is_own_instance};
 pub(crate) use tasks::start_gateway_tasks;
 pub(crate) use version::is_newer_version;
 

@@ -181,6 +181,8 @@ impl GatewayRunner {
                     format!("{} (gateway)", self.config.server_name),
                     own_version.clone(),
                     sentinel_key,
+                    self.config.host.clone(),
+                    self.config.gateway_port,
                 )
                 .await
                 {
@@ -343,6 +345,8 @@ impl GatewayRunner {
                         format!("{server_name} (gateway)"),
                         own_ver.clone(),
                         sentinel_key,
+                        host.clone(),
+                        port,
                     )
                     .await
                     {

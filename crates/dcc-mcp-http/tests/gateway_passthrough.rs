@@ -52,6 +52,8 @@ async fn make_state(
         wait_terminal_timeout,
         server_name: "test".into(),
         server_version: "0.0.0".into(),
+        own_host: "127.0.0.1".into(),
+        own_port: 0,
         http_client: reqwest::Client::new(),
         yield_tx: Arc::new(yield_tx),
         events_tx: Arc::new(events_tx),

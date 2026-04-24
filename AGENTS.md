@@ -193,6 +193,14 @@ Need to interact with DCC?
 → `crates/dcc-mcp-http/src/gateway/sse_subscriber.rs` — `SubscriberManager`, `BackendSubscriber`
 → Correlation: `progressToken` (progress) + `job_id` (`$/dcc.jobUpdated` / `$/dcc.workflowUpdated`)
 → On backend reconnect, clients with in-flight jobs receive `$/dcc.gatewayReconnect`
+→ **Self-loop guard (#419)**: when a DCC process wins gateway election
+ the facade filters its own `(host, port)` out of fan-out targets —
+ see `is_own_instance` in `crates/dcc-mcp-http/src/gateway/sentinel.rs`
+ and `GatewayState::live_instances` in `state.rs`.
+→ **Pre-subscribe hygiene (#419)**: `start_gateway_tasks` runs a
+ synchronous `prune_dead_pids` + `cleanup_stale` pass **before**
+ spawning the backend SSE loop, so the first two-second tick does not
+ waste reconnect budget on ghost rows left behind by a previous crash.
 
 **Gateway async-dispatch timeout + wait-for-terminal passthrough (#321)?**
 → [`docs/guide/gateway.md`](docs/guide/gateway.md) — "Waiting for terminal results from the gateway"

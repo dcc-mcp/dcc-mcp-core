@@ -24,6 +24,7 @@ mod wait_terminal;
 
 pub use call::route_tools_call;
 pub use fingerprint::compute_tools_fingerprint;
+pub(crate) use fingerprint::compute_tools_fingerprint_with_own;
 pub(crate) use helpers::{
     envelope_to_text_result, extract_job_id, find_instance_by_prefix, inject_instance_metadata,
     live_backends, meta_signals_async_dispatch, meta_wants_wait_for_terminal, resolve_target,

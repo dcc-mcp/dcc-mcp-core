@@ -38,6 +38,16 @@ pub struct GatewayState {
     pub server_name: String,
     /// The version string of this gateway instance (e.g. `"0.12.29"`).
     pub server_version: String,
+    /// Host the gateway is bound to (issue #419).
+    ///
+    /// Used together with [`Self::own_port`] to filter this gateway's own
+    /// plain-instance row out of fan-out targets — without the filter, a
+    /// DCC that wins gateway election would subscribe to its own `/mcp`
+    /// endpoint via [`super::sse_subscriber::SubscriberManager`] and every
+    /// `tools/list` / `tools/call` fan-out would recurse back into itself.
+    pub own_host: String,
+    /// Port the gateway's facade listens on (issue #419).
+    pub own_port: u16,
     pub http_client: reqwest::Client,
     /// Sending side of the voluntary-yield channel.
     ///
@@ -88,6 +98,11 @@ impl GatewayState {
     /// user-facing tool output (`list_dcc_instances`, `get_dcc_instance`,
     /// `connect_to_dcc`) would confuse agents and break the `mcp_url` contract
     /// (the sentinel's host:port points at the gateway facade, not a real DCC).
+    ///
+    /// The gateway's **own plain-instance row** is also excluded (issue #419).
+    /// When a DCC process (e.g. Maya) wins gateway election it keeps both the
+    /// sentinel and a regular `"maya"` row; exposing its own row here would
+    /// cause the facade to fan `tools/list` / `tools/call` back into itself.
     pub fn live_instances(&self, registry: &FileRegistry) -> Vec<ServiceEntry> {
         registry
             .list_all()
@@ -99,6 +114,7 @@ impl GatewayState {
                         e.status,
                         ServiceStatus::ShuttingDown | ServiceStatus::Unreachable
                     )
+                    && !super::is_own_instance(e, &self.own_host, self.own_port)
             })
             .collect()
     }
@@ -142,6 +158,14 @@ mod tests {
     use tokio::sync::{RwLock, broadcast, watch};
 
     fn test_gateway_state(reg: Arc<RwLock<FileRegistry>>) -> GatewayState {
+        test_gateway_state_with_own(reg, "127.0.0.1", 9765)
+    }
+
+    fn test_gateway_state_with_own(
+        reg: Arc<RwLock<FileRegistry>>,
+        own_host: &str,
+        own_port: u16,
+    ) -> GatewayState {
         let (yield_tx, _) = watch::channel(false);
         let (events_tx, _) = broadcast::channel::<String>(8);
         GatewayState {
@@ -152,6 +176,8 @@ mod tests {
             wait_terminal_timeout: Duration::from_secs(600),
             server_name: "test".into(),
             server_version: env!("CARGO_PKG_VERSION").into(),
+            own_host: own_host.to_string(),
+            own_port,
             http_client: reqwest::Client::new(),
             yield_tx: Arc::new(yield_tx),
             events_tx: Arc::new(events_tx),
@@ -189,6 +215,66 @@ mod tests {
         assert!(
             !live.iter().any(|e| e.dcc_type == GATEWAY_SENTINEL_DCC_TYPE),
             "gateway sentinel must never appear in user-facing listings"
+        );
+    }
+
+    /// Regression test for issue #419: when the gateway process is also a
+    /// DCC instance (e.g. Maya that won the gateway election), its own
+    /// plain-instance row must be hidden from `live_instances` so the
+    /// facade does not fan `tools/list` / `tools/call` back into itself.
+    #[tokio::test]
+    async fn test_live_instances_excludes_gateway_self_row() {
+        let dir = tempfile::tempdir().unwrap();
+        let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+
+        {
+            let r = registry.read().await;
+            // The sentinel + the gateway's own DCC row share host/port.
+            let mut sentinel = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 9765);
+            sentinel.version = Some(env!("CARGO_PKG_VERSION").into());
+            r.register(sentinel).unwrap();
+
+            // Self DCC row — same host/port as the gateway facade.
+            let maya_self = ServiceEntry::new("maya", "127.0.0.1", 9765);
+            r.register(maya_self).unwrap();
+
+            // A second Maya instance on a different port — must survive.
+            let maya_other = ServiceEntry::new("maya", "127.0.0.1", 18812);
+            r.register(maya_other).unwrap();
+        }
+
+        let gs = test_gateway_state_with_own(registry.clone(), "127.0.0.1", 9765);
+        let live = gs.live_instances(&*registry.read().await);
+        assert_eq!(
+            live.len(),
+            1,
+            "only the non-self maya row should remain; got {live:#?}"
+        );
+        assert_eq!(live[0].port, 18812);
+    }
+
+    /// Regression test for issue #419: `localhost` / `::1` / `0.0.0.0` must
+    /// all normalise to the same address so that a gateway bound on
+    /// `127.0.0.1` still filters out a self-row advertised as `localhost`
+    /// (DCC adapters vary in how they populate `ServiceEntry::host`).
+    #[tokio::test]
+    async fn test_live_instances_self_row_localhost_aliases() {
+        let dir = tempfile::tempdir().unwrap();
+        let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+
+        {
+            let r = registry.read().await;
+            // Self row advertised as "localhost" — must still be filtered
+            // when the gateway is bound to 127.0.0.1.
+            let maya_self = ServiceEntry::new("maya", "localhost", 9765);
+            r.register(maya_self).unwrap();
+        }
+
+        let gs = test_gateway_state_with_own(registry.clone(), "127.0.0.1", 9765);
+        let live = gs.live_instances(&*registry.read().await);
+        assert!(
+            live.is_empty(),
+            "self row with localhost alias must be filtered; got {live:#?}"
         );
     }
 }
