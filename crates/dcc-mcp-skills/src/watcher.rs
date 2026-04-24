@@ -32,117 +32,47 @@
 //!     println!("Loaded: {} ({})", skill.name, skill.dcc);
 //! }
 //! ```
+//!
+//! # Maintainer layout
+//!
+//! This module is a **thin facade** over three focused siblings so the
+//! public `SkillWatcher` surface stays compact:
+//!
+//! - [`watcher_inner`](super::watcher_inner) — `WatcherInner` shared state
+//!   (snapshot, watched paths, debounce atomic, on-reload callbacks) and the
+//!   public `WatcherError` type.
+//! - [`watcher_filter`](super::watcher_filter) — `should_reload` /
+//!   `is_skill_related` heuristics that decide which filesystem events matter.
+//! - [`watcher_python`](super::watcher_python) — `PySkillWatcher` PyO3 wrapper
+//!   (compiled only with the `python-bindings` feature).
+//! - [`watcher_tests`](super::watcher_tests) — unit tests for the three
+//!   modules above (gated on `#[cfg(test)]`).
+
+#[path = "watcher_inner.rs"]
+mod inner;
+
+#[path = "watcher_filter.rs"]
+mod filter;
 
 #[cfg(feature = "python-bindings")]
-use pyo3::prelude::*;
+#[path = "watcher_python.rs"]
+mod python_impl;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::Ordering;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use dcc_mcp_models::SkillMetadata;
-use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use parking_lot::RwLock;
-use tracing::{debug, info, warn};
+use notify::{Event, RecommendedWatcher, RecursiveMode, Watcher};
+use tracing::{debug, warn};
 
-use crate::loader::parse_skill_md;
-use crate::scanner::SkillScanner;
+pub use inner::WatcherError;
 
-// ── Error type ──
-
-/// Errors that can occur during skill watching.
-#[derive(Debug, thiserror::Error)]
-pub enum WatcherError {
-    /// A path could not be watched.
-    #[error("Failed to watch path '{path}': {source}")]
-    Watch {
-        path: PathBuf,
-        #[source]
-        source: notify::Error,
-    },
-
-    /// The underlying notify watcher failed to initialise.
-    #[error("Failed to create filesystem watcher: {0}")]
-    Init(#[from] notify::Error),
-}
+use filter::should_reload;
+use inner::WatcherInner;
 
 // ── SkillWatcher ──
-
-/// Inner state shared between the watcher struct and the notify callback.
-struct WatcherInner {
-    /// Last-seen skill snapshot.
-    skills: RwLock<Vec<SkillMetadata>>,
-    /// Directories currently being watched (for full rescan on change).
-    watched_paths: RwLock<Vec<PathBuf>>,
-    /// Epoch-millisecond timestamp of the most recent skill-related FS event.
-    ///
-    /// Written atomically by the notify callback; read by the single background
-    /// debounce thread.  Using u64 milliseconds fits in an atomic without any
-    /// locking, and the debounce window is large enough that minor clock jitter
-    /// is irrelevant.
-    last_event_ms: AtomicU64,
-    /// Callbacks to invoke after every successful reload.
-    ///
-    /// Registered via [`SkillWatcher::on_reload`].  Each callback is called
-    /// **synchronously** from the reload thread after the skill snapshot has
-    /// been updated, so it must be fast (typically just clearing a cache flag).
-    on_reload_callbacks: RwLock<Vec<Box<dyn Fn() + Send + Sync>>>,
-}
-
-impl WatcherInner {
-    fn new() -> Arc<Self> {
-        Arc::new(Self {
-            skills: RwLock::new(Vec::new()),
-            watched_paths: RwLock::new(Vec::new()),
-            last_event_ms: AtomicU64::new(0),
-            on_reload_callbacks: RwLock::new(Vec::new()),
-        })
-    }
-
-    /// Record a skill-related filesystem event for the debounce thread.
-    fn mark_event(&self) {
-        let now_ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
-        self.last_event_ms.store(now_ms, Ordering::Release);
-    }
-
-    /// Reload skills from all watched directories and notify listeners.
-    fn reload(&self) {
-        let paths: Vec<_> = self.watched_paths.read().clone();
-        let extra_paths: Vec<String> = paths
-            .iter()
-            .map(|p| p.to_string_lossy().into_owned())
-            .collect();
-
-        let mut scanner = SkillScanner::new();
-        let dirs = scanner.scan(Some(&extra_paths), None, false);
-
-        let mut new_skills = Vec::new();
-        for dir_str in &dirs {
-            let dir = Path::new(dir_str);
-            if let Some(meta) = parse_skill_md(dir) {
-                new_skills.push(meta);
-            }
-        }
-
-        let count = new_skills.len();
-        *self.skills.write() = new_skills;
-        info!("SkillWatcher: reloaded {count} skill(s)");
-
-        // Notify all registered listeners (e.g. SkillsManager cache invalidation).
-        for cb in self.on_reload_callbacks.read().iter() {
-            cb();
-        }
-    }
-
-    /// Register a callback invoked after every reload.
-    fn add_on_reload_callback(&self, cb: Box<dyn Fn() + Send + Sync>) {
-        self.on_reload_callbacks.write().push(cb);
-    }
-}
 
 /// Hot-reload watcher for skill directories.
 ///
@@ -266,7 +196,7 @@ impl SkillWatcher {
             })?;
 
         self.inner.watched_paths.write().push(path.clone());
-        info!("SkillWatcher: watching '{}'", path.display());
+        tracing::info!("SkillWatcher: watching '{}'", path.display());
 
         // Immediate scan so the caller sees skills without waiting for a change.
         self.inner.reload();
@@ -352,383 +282,9 @@ impl SkillWatcher {
     }
 }
 
-// ── Helpers ──
-
-/// Determine whether a notify event should trigger a skill reload.
-///
-/// We reload on Create/Modify/Remove events for any file whose name
-/// matches skill-related patterns (SKILL.md, .py, .mel, .lua, etc.)
-/// or any directory event (a new skill subdirectory may have appeared).
-fn should_reload(event: &Event) -> bool {
-    match event.kind {
-        EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_) => {
-            // Reload if the changed path looks like a skill file or directory
-            event.paths.iter().any(|p| is_skill_related(p))
-        }
-        _ => false,
-    }
-}
-
-/// Return `true` if `path` is likely to affect skill loading.
-fn is_skill_related(path: &Path) -> bool {
-    // Always reload for directory events — a new skill directory may appear
-    if path.is_dir() {
-        return true;
-    }
-
-    let file_name = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or_default();
-
-    // SKILL.md itself
-    if file_name.eq_ignore_ascii_case("skill.md") {
-        return true;
-    }
-
-    // depends.md inside metadata/
-    if file_name.eq_ignore_ascii_case("depends.md") {
-        return true;
-    }
-
-    // Script files (check extension against supported list)
-    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-        if dcc_mcp_utils::constants::is_supported_extension(ext) {
-            return true;
-        }
-    }
-
-    false
-}
-
-// ── Python bindings ──
-
-/// Python-facing wrapper for [`SkillWatcher`].
 #[cfg(feature = "python-bindings")]
-#[pyclass(name = "SkillWatcher")]
-pub struct PySkillWatcher {
-    inner: SkillWatcher,
-}
-
-#[cfg(feature = "python-bindings")]
-#[pymethods]
-impl PySkillWatcher {
-    /// Create a new SkillWatcher.
-    ///
-    /// Args:
-    ///     debounce_ms: Milliseconds to wait before reloading after a change
-    ///                  (default: 300).
-    #[new]
-    #[pyo3(signature = (debounce_ms=300))]
-    pub fn new(debounce_ms: u64) -> pyo3::PyResult<Self> {
-        let watcher = SkillWatcher::new(Duration::from_millis(debounce_ms))
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-        Ok(Self { inner: watcher })
-    }
-
-    /// Start watching *path* for skill changes.
-    ///
-    /// An immediate reload is performed so skills are available without waiting
-    /// for a filesystem event.
-    ///
-    /// Raises:
-    ///     RuntimeError: If the path cannot be watched.
-    pub fn watch(&mut self, path: &str) -> pyo3::PyResult<()> {
-        self.inner
-            .watch(path)
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
-    }
-
-    /// Stop watching *path*.
-    ///
-    /// Returns ``True`` if the path was being watched, ``False`` otherwise.
-    pub fn unwatch(&mut self, path: &str) -> bool {
-        self.inner.unwatch(path)
-    }
-
-    /// Return the current skill snapshot as a list.
-    pub fn skills(&self) -> Vec<SkillMetadata> {
-        self.inner.skills()
-    }
-
-    /// Return the number of loaded skills.
-    pub fn skill_count(&self) -> usize {
-        self.inner.skill_count()
-    }
-
-    /// Return the list of watched directory paths.
-    pub fn watched_paths(&self) -> Vec<String> {
-        self.inner
-            .watched_paths()
-            .into_iter()
-            .map(|p| p.to_string_lossy().into_owned())
-            .collect()
-    }
-
-    /// Manually trigger a reload.
-    pub fn reload(&self) {
-        self.inner.reload();
-    }
-
-    fn __repr__(&self) -> String {
-        format!(
-            "SkillWatcher(skills={}, paths={})",
-            self.inner.skill_count(),
-            self.inner.watched_paths().len()
-        )
-    }
-}
-
-// ── Tests ──
+pub use python_impl::PySkillWatcher;
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use dcc_mcp_utils::constants::SKILL_METADATA_FILE;
-    use std::fs;
-    use tempfile::tempdir;
-
-    // Helpers
-
-    fn write_skill(dir: &Path, name: &str) {
-        let skill_dir = dir.join(name);
-        fs::create_dir_all(&skill_dir).unwrap();
-        let content = format!("---\nname: {name}\ndcc: python\n---\n# {name}\n\nTest skill.");
-        fs::write(skill_dir.join(SKILL_METADATA_FILE), &content).unwrap();
-    }
-
-    mod test_new {
-        use super::*;
-
-        #[test]
-        fn create_with_default_debounce() {
-            let watcher = SkillWatcher::new(Duration::from_millis(300));
-            assert!(watcher.is_ok());
-        }
-
-        #[test]
-        fn create_with_zero_debounce() {
-            let watcher = SkillWatcher::new(Duration::ZERO);
-            assert!(watcher.is_ok());
-        }
-    }
-
-    mod test_watch {
-        use super::*;
-
-        #[test]
-        fn watch_nonexistent_dir_returns_error() {
-            let mut watcher = SkillWatcher::new(Duration::from_millis(100)).unwrap();
-            let result = watcher.watch("/path/that/does/not/exist/xyz");
-            assert!(result.is_err());
-        }
-
-        #[test]
-        fn watch_valid_dir_succeeds() {
-            let tmp = tempdir().unwrap();
-            let mut watcher = SkillWatcher::new(Duration::from_millis(100)).unwrap();
-            let result = watcher.watch(tmp.path());
-            assert!(result.is_ok());
-        }
-
-        #[test]
-        fn watch_and_immediate_skill_load() {
-            let tmp = tempdir().unwrap();
-            write_skill(tmp.path(), "alpha");
-            write_skill(tmp.path(), "beta");
-
-            let mut watcher = SkillWatcher::new(Duration::from_millis(100)).unwrap();
-            watcher.watch(tmp.path()).unwrap();
-
-            let skills = watcher.skills();
-            assert_eq!(
-                skills.len(),
-                2,
-                "Should have loaded 2 skills, got {skills:?}"
-            );
-            let names: Vec<&str> = skills.iter().map(|s| s.name.as_str()).collect();
-            assert!(names.contains(&"alpha"));
-            assert!(names.contains(&"beta"));
-        }
-
-        #[test]
-        fn watched_paths_contains_added_path() {
-            let tmp = tempdir().unwrap();
-            let mut watcher = SkillWatcher::new(Duration::from_millis(100)).unwrap();
-            watcher.watch(tmp.path()).unwrap();
-
-            let paths = watcher.watched_paths();
-            assert_eq!(paths.len(), 1);
-            assert_eq!(paths[0], tmp.path());
-        }
-    }
-
-    mod test_unwatch {
-        use super::*;
-
-        #[test]
-        fn unwatch_removes_path() {
-            let tmp = tempdir().unwrap();
-            let mut watcher = SkillWatcher::new(Duration::from_millis(100)).unwrap();
-            watcher.watch(tmp.path()).unwrap();
-            assert_eq!(watcher.watched_paths().len(), 1);
-
-            let removed = watcher.unwatch(tmp.path());
-            assert!(removed, "unwatch should return true for known path");
-            assert_eq!(watcher.watched_paths().len(), 0);
-        }
-
-        #[test]
-        fn unwatch_unknown_path_returns_false() {
-            let mut watcher = SkillWatcher::new(Duration::from_millis(100)).unwrap();
-            let removed = watcher.unwatch("/no/such/path");
-            assert!(!removed);
-        }
-    }
-
-    mod test_reload {
-        use super::*;
-
-        #[test]
-        fn manual_reload_updates_skill_count() {
-            let tmp = tempdir().unwrap();
-            let mut watcher = SkillWatcher::new(Duration::from_millis(100)).unwrap();
-            watcher.watch(tmp.path()).unwrap();
-            assert_eq!(watcher.skill_count(), 0);
-
-            // Add a skill after initial watch
-            write_skill(tmp.path(), "new-skill");
-
-            // Trigger manual reload
-            watcher.reload();
-            assert_eq!(watcher.skill_count(), 1);
-        }
-
-        #[test]
-        fn reload_reflects_removed_skill() {
-            let tmp = tempdir().unwrap();
-            write_skill(tmp.path(), "removable");
-
-            let mut watcher = SkillWatcher::new(Duration::from_millis(100)).unwrap();
-            watcher.watch(tmp.path()).unwrap();
-            assert_eq!(watcher.skill_count(), 1);
-
-            // Remove the skill directory
-            fs::remove_dir_all(tmp.path().join("removable")).unwrap();
-            watcher.reload();
-            assert_eq!(watcher.skill_count(), 0);
-        }
-    }
-
-    mod test_skill_related {
-        use super::*;
-
-        #[test]
-        fn skill_md_is_related() {
-            assert!(is_skill_related(Path::new("/skills/my-skill/SKILL.md")));
-        }
-
-        #[test]
-        fn depends_md_is_related() {
-            assert!(is_skill_related(Path::new(
-                "/skills/my-skill/metadata/depends.md"
-            )));
-        }
-
-        #[test]
-        fn python_script_is_related() {
-            assert!(is_skill_related(Path::new(
-                "/skills/my-skill/scripts/run.py"
-            )));
-        }
-
-        #[test]
-        fn mel_script_is_related() {
-            assert!(is_skill_related(Path::new(
-                "/skills/my-skill/scripts/rig.mel"
-            )));
-        }
-
-        #[test]
-        fn text_file_is_not_related() {
-            assert!(!is_skill_related(Path::new("/skills/notes.txt")));
-        }
-
-        #[test]
-        fn json_config_is_not_related() {
-            assert!(!is_skill_related(Path::new("/skills/config.json")));
-        }
-    }
-
-    mod test_should_reload {
-        use super::*;
-        use notify::event::{CreateKind, ModifyKind, RemoveKind};
-
-        fn make_event(kind: EventKind, path: &str) -> Event {
-            Event {
-                kind,
-                paths: vec![PathBuf::from(path)],
-                attrs: Default::default(),
-            }
-        }
-
-        #[test]
-        fn create_skill_md_triggers_reload() {
-            let event = make_event(
-                EventKind::Create(CreateKind::File),
-                "/skills/new-skill/SKILL.md",
-            );
-            assert!(should_reload(&event));
-        }
-
-        #[test]
-        fn modify_python_script_triggers_reload() {
-            let event = make_event(
-                EventKind::Modify(ModifyKind::Data(notify::event::DataChange::Any)),
-                "/skills/my-skill/scripts/run.py",
-            );
-            assert!(should_reload(&event));
-        }
-
-        #[test]
-        fn remove_skill_md_triggers_reload() {
-            let event = make_event(
-                EventKind::Remove(RemoveKind::File),
-                "/skills/old-skill/SKILL.md",
-            );
-            assert!(should_reload(&event));
-        }
-
-        #[test]
-        fn access_event_does_not_trigger_reload() {
-            let event = make_event(
-                EventKind::Access(notify::event::AccessKind::Read),
-                "/skills/my-skill/SKILL.md",
-            );
-            assert!(!should_reload(&event));
-        }
-
-        #[test]
-        fn modify_non_skill_file_does_not_trigger_reload() {
-            let event = make_event(
-                EventKind::Modify(ModifyKind::Data(notify::event::DataChange::Any)),
-                "/skills/my-skill/README.md",
-            );
-            // "readme.md" is not SKILL.md / depends.md, and .md is not a
-            // supported script extension — should not reload.
-            assert!(!should_reload(&event));
-        }
-    }
-
-    mod test_debug {
-        use super::*;
-
-        #[test]
-        fn debug_format_shows_counts() {
-            let watcher = SkillWatcher::new(Duration::from_millis(200)).unwrap();
-            let debug = format!("{watcher:?}");
-            assert!(debug.contains("SkillWatcher"));
-            assert!(debug.contains("debounce_ms"));
-        }
-    }
-}
+#[path = "watcher_tests.rs"]
+mod tests;

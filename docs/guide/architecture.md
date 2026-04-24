@@ -98,6 +98,11 @@ dcc-mcp-server ← dcc-mcp-http
 
 **Dependencies**: None (base crate)
 
+**Maintainer layout**:
+- `skill_metadata/mod.rs` now focuses on the public struct surface, while runtime helpers, serde parsing helpers, and Python bindings live in focused sibling modules.
+- `skill_metadata/tool_declaration.rs` keeps the declaration model and serde rules, while the PyO3 accessor surface lives in a dedicated sibling module.
+- This keeps spec-facing fields easy to scan without mixing frontmatter parsing, ClawHub helpers, and PyO3 accessors in one block.
+
 ### dcc-mcp-actions
 
 **Purpose**: Centralized action registry, validation, dispatch, and pipeline system.
@@ -114,6 +119,11 @@ dcc-mcp-server ← dcc-mcp-http
 
 **Dependencies**: `dcc-mcp-models`
 
+**Maintainer layout**:
+- `registry/mod.rs` keeps the core registry behavior, while `ActionMeta` and the Python binding shim live in focused sibling modules.
+- `chain.rs` is a thin facade: step/result types, placeholder interpolation, the `ActionChain` fluent builder and executor, and unit tests each live in dedicated sibling modules (`chain_types.rs`, `chain_interpolate.rs`, `chain_exec.rs`, `chain_tests.rs`).
+- This separates Rust-side lookup/update semantics from PyO3 translation code and makes metadata evolution easier to review.
+
 ### dcc-mcp-skills
 
 **Purpose**: Zero-code skill package discovery, loading, and hot-reload via filesystem watching.
@@ -129,6 +139,13 @@ dcc-mcp-server ← dcc-mcp-http
 
 **Dependencies**: `dcc-mcp-actions`, `dcc-mcp-models`
 
+**Maintainer layout**:
+- `catalog/catalog.rs` now focuses on query/read APIs, while discovery/bootstrap and load/unload lifecycle paths live in dedicated implementation files.
+- `loader/mod.rs` stays centered on single-skill `SKILL.md` parsing, while batch scan/load orchestration and filesystem enumeration helpers live in sibling modules.
+- `validator.rs` is a thin facade now; report types, validation rules, Python bindings, and unit tests each live in focused siblings.
+- `watcher.rs` is a thin facade around the `SkillWatcher` public surface; shared `WatcherInner` state and the `WatcherError` type live in `watcher_inner.rs`, the `should_reload` / `is_skill_related` FS filters live in `watcher_filter.rs`, the PyO3 wrapper lives in `watcher_python.rs`, and unit tests live in `watcher_tests.rs`.
+- This keeps search/ranking work separate from registry mutation and script-handler registration, which lowers the cognitive load for future refactors.
+
 ### dcc-mcp-protocols
 
 **Purpose**: MCP (Model Context Protocol) type definitions per 2025-03-26 spec.
@@ -141,6 +158,11 @@ dcc-mcp-server ← dcc-mcp-http
 - `BridgeKind` — Bridge type enum (Http, WebSocket, NamedPipe, Custom) for non-Python DCCs
 
 **Dependencies**: `dcc-mcp-models`
+
+**Maintainer layout**:
+- `types.rs` is now a thin re-export surface; tool/resource/prompt models live in focused internal modules.
+- `mock/config.rs` keeps the public `MockConfig` API while defaults, builder methods, and DCC presets live in separate implementation files.
+- `mock/adapter.rs` keeps shared state and helpers while trait implementations are split by capability (`connection`, `scene_manager`, `transform`, `hierarchy`, etc.).
 
 ### dcc-mcp-transport
 
@@ -171,6 +193,33 @@ dcc-mcp-server ← dcc-mcp-http
 - `PyCrashRecoveryPolicy` — Exponential/fixed backoff restart policy
 
 **Dependencies**: `tokio`, `sysinfo`
+
+**Maintainer layout (dcc-mcp-shm)**:
+- `src/buffer.rs` is trimmed from 720 to 553 lines by moving the `#[cfg(test)] mod tests { ... }` block (61 integration-style tests across `test_create`, `test_open`, `test_gc`, `test_descriptor` submodules) into a sibling `buffer_tests.rs`. Mounted via `#[cfg(test)] #[path = "buffer_tests.rs"] mod tests;`. Production types (`SharedBuffer`, `BufferDescriptor`, `gc_orphans`) and all private helpers stay co-located to retain access to `SharedBuffer::inner` / `read_header` etc.
+
+**Maintainer layout (dcc-mcp-actions pipeline)**:
+- `src/pipeline/python.rs` becomes a 67-line facade that mounts four siblings via `#[path]`: `python_helpers` (`value_to_py`, `PyCallableHook`), `python_middleware` (`PyLoggingMiddleware`, `PyTimingMiddleware`, `PyAuditMiddleware`, `PyRateLimitMiddleware` — inner fields `pub(super)` so the pipeline can construct them), `python_shared` (`Shared{Timing,Audit,RateLimit}Middleware` `Arc` newtypes implementing `ActionMiddleware`), `python_pipeline` (`PyActionPipeline` — the Python-facing `ToolPipeline`). Every Python class is re-exported so `pipeline::python::{PyActionPipeline, PyLoggingMiddleware, …}` keeps working. The `Shared*` newtypes are re-exported under `#[cfg(test)]` so the existing `python_tests.rs` unit tests can reference `super::python::Shared*` unchanged.
+
+**Maintainer layout (dcc-mcp-transport)**:
+- `src/discovery/file_registry.rs` keeps the `FileRegistry` struct and every `impl FileRegistry` method in place (private fields would otherwise require workarounds); the 298-line `#[cfg(test)] mod tests` block is extracted into `file_registry_tests.rs` and mounted via `#[cfg(test)] #[path = "file_registry_tests.rs"] mod tests;`. File drops from 759 to 463 lines with no behaviour change.
+
+**Maintainer layout (dcc-mcp-usd)**:
+- `src/types.rs` is a thin facade over the six core USD data types. `SdfPath` lives in `types_sdf_path.rs`, `VtValue` in `types_vt_value.rs`, `UsdAttribute` in `types_attribute.rs`, `UsdPrim` (+ the `default_true` serde helper) in `types_prim.rs`, `UsdLayer` (+ the `default_y_axis` / `default_mpu` serde helpers) in `types_layer.rs`, and `UsdStageMetrics` in `types_metrics.rs`. Unit tests live in `types_tests.rs`. The facade re-exports every type so `dcc_mcp_usd::types::{SdfPath, VtValue, UsdAttribute, UsdPrim, UsdLayer, UsdStageMetrics}` keeps working unchanged.
+
+**Maintainer layout (dcc-mcp-skills resolver)**:
+- `src/resolver.rs` keeps the production dependency-resolution logic (`resolve_dependencies`, `resolve_skill_order`, `topological_sort`, cycle detection) in place; the 321-line `#[cfg(test)] mod tests` block — covering happy paths, missing deps, cycles, diamond graphs, and edge cases — is extracted into a sibling `resolver_tests.rs` and mounted via `#[cfg(test)] #[path = "resolver_tests.rs"] mod tests;`. File drops from 685 to 365 lines.
+
+**Maintainer layout (dcc-mcp-artefact)**:
+- `src/lib.rs` retains `FileRef`, `ArtefactStore` trait, `FilesystemArtefactStore`, `InMemoryArtefactStore`, and all `put_*` / `resolve` helpers. The `#[cfg(test)] mod tests` block (round-trip JSON, idempotency, TTL, filesystem persistence) lives in `lib_tests.rs` and is mounted via `#[cfg(test)] #[path = "lib_tests.rs"] mod tests;`.
+
+**Maintainer layout (dcc-mcp-scheduler)**:
+- `src/service.rs` keeps `SchedulerService`, `SchedulerHandle`, `SchedulerConfig`, and cron/webhook trigger dispatch in place. The `#[cfg(test)] mod tests` block (cron-spec coverage, `max_concurrent` gating, HMAC verification) is extracted into `service_tests.rs` and mounted via `#[cfg(test)] #[path = "service_tests.rs"] mod tests;`.
+
+**Maintainer layout (dcc-mcp-capture python)**:
+- `src/python.rs` retains every `#[pyclass]` / `#[pymethods]` binding (`PyCapturer`, `PyCaptureFrame`, `PyWindowFinder`, `PyWindowInfo`, `PyCaptureTarget`). The test module — exercising the Mock backend and capability detection — is extracted into `python_tests.rs` and mounted via `#[cfg(test)] #[path = "python_tests.rs"] mod tests;`.
+
+**Maintainer layout**:
+- `src/python.rs` is a thin facade over the PyO3 bindings: the shared Tokio runtime handle, `ProcessError → PyErr` adaptor, and `ProcessStatus → &'static str` serialiser live in `python_helpers.rs`; each Python-facing class lives in its own focused sibling — `python_monitor.rs` (`PyProcessMonitor`), `python_launcher.rs` (`PyDccLauncher`), `python_crash_policy.rs` (`PyCrashRecoveryPolicy` + the `parse_status` helper), `python_watcher.rs` (`PyProcessWatcher` + the internal `PyWatcherEvent` event type), `python_standalone_dispatcher.rs` (`PyStandaloneDispatcher`), and `python_pumped_dispatcher.rs` (`PyPumpedDispatcher` + the `parse_affinity` / `outcome_to_dict` helpers). The facade re-exports every `Py*` class and keeps `register_classes` as the single registration entry point.
 
 ### dcc-mcp-telemetry
 
@@ -263,6 +312,19 @@ dcc-mcp-server ← dcc-mcp-http
 
 **Dependencies**: `axum`, `tokio`, `reqwest`, `socket2`, `dcc-mcp-transport`, `dcc-mcp-protocols`, `dcc-mcp-actions`, `dcc-mcp-skills`
 
+**Maintainer layout**:
+- `src/tests/gateway.rs` is a shared fixture module; gateway tests are split into focused submodules for REST, MCP methods, batch handling, session headers, subscriptions, runner competition, and pagination.
+- Legacy unreferenced `segment_*` test fragments were removed so the crate test tree mirrors real runtime responsibilities.
+- `src/handlers/tools_call.rs` is now a thin facade; request resolution, async job dispatch, sync execution, and result shaping live in focused helper modules.
+- `src/gateway/handlers.rs` is a routing facade; SSE, REST, MCP batch/request handling, notification forwarding, and instance proxying are split into dedicated files.
+- `src/server.rs` keeps the public server types and startup orchestration, while background tasks, gateway bootstrap, and listener spawn strategies live in dedicated implementation modules.
+- `src/job.rs` is a thin facade over the in-process async job tracker: `Job` / `JobStatus` / `JobProgress` / `JobEvent` data live in `job_types.rs`, the `JobManager` registry (transitions, persistence, subscriptions, GC) lives in `job_manager.rs`, and unit tests live in `job_tests.rs`.
+- `src/resources.rs` keeps the `ResourceRegistry` (producer wiring, subscription state, `notify_updated` fan-out); the `ResourceProducer` trait + content/error types live in `resources_types.rs`, the built-in producers (`scene://`, `capture://`, `audit://`, `artefact://`) live in `resources_producers.rs`, and unit tests live in `resources_tests.rs`.
+- `src/prompts.rs` keeps the `PromptRegistry` (lazy cache, skill-set invalidation, `list` / `get` surface); the YAML spec types + `PromptError` live in `prompts_spec.rs`, the `{{name}}` template engine lives in `prompts_template.rs`, the sibling-file / glob loader plus the workflow-derived prompt generator live in `prompts_loader.rs`, and unit tests live in `prompts_tests.rs`.
+- `src/protocol.rs` is a thin facade keeping protocol-version negotiation + session/method constants; every MCP message type is split by primitive: JSON-RPC envelope + error codes in `protocol_jsonrpc.rs`, lifecycle (`initialize` / capabilities / roots / logging / elicitation) in `protocol_lifecycle.rs`, tools (`tools/list` / `tools/call` / annotations / content) in `protocol_tools.rs`, resources (`resources/list|read|subscribe`) in `protocol_resources.rs`, prompts (`prompts/list|get`) in `protocol_prompts.rs`, and SSE formatter + cursor helpers in `protocol_sse.rs`.
+- `src/handler.rs` is a thin facade over the top-level axum handlers: shared `AppState` + cancellation/elicitation TTL constants live in `handler_state.rs`, the three HTTP verbs (`POST` / `GET` / `DELETE /mcp`) live in `handler_routes.rs`, notification and response-message routing (`notifications/cancelled`, `roots/list_changed`, elicitation correlation) live in `handler_notifications.rs`, and the JSON-RPC method router plus `initialize` / `tools/list` implementations live in `handler_dispatch.rs`. Per-method request handlers (`tools/call`, `resources/*`, `prompts/*`, `elicitation/create`, …) continue to live under `src/handlers/` and are re-exported through the facade so existing call sites keep using `crate::handler::*`.
+- `src/gateway/namespace.rs` is a thin facade over the tool-name namespace helpers: the canonical name lists (`GATEWAY_LOCAL_TOOLS`, `CORE_TOOL_NAMES`), SEP-986 separator constants, and the `is_local_tool` / `is_core_tool` / `instance_short` / `is_instance_prefix` predicates live in `namespace_constants.rs`; the encoder / decoder pair (`extract_bare_tool_name`, `skill_tool_name`, `decode_skill_tool_name`, `encode_tool_name`, `decode_tool_name`, `assert_gateway_tool_name`) lives in `namespace_encode.rs`; the #307 bare-name resolver (`BareNameInput`, `resolve_bare_names`) and the one-shot deprecation warn helpers (`warn_legacy_prefixed_once`, process-local dedupe state) live in `namespace_bare.rs`; unit tests live in `namespace_tests.rs`. The facade re-exports every public symbol so downstream modules and tests keep using `crate::gateway::namespace::*` unchanged.
+
 ### dcc-mcp-server
 
 **Purpose**: Binary entry point (`dcc-mcp-server` CLI) that assembles and runs the full MCP server with gateway support.
@@ -280,8 +342,14 @@ dcc-mcp-server ← dcc-mcp-http
 - `filesystem` — Platform-specific directories via `dirs` crate
 - `type_wrappers` — RPyC-safe wrappers (BooleanWrapper, IntWrapper, FloatWrapper, StringWrapper)
 - `constants` — App metadata and environment variable names
+- `file_logging` — Rolling-file `tracing` subscriber with size/daily rotation and retention pruning
+- `log_config` — Global subscriber bootstrap + reload handle for swapping the file layer
 
-**Dependencies**: `dirs`
+**Maintainer layout**:
+- `file_logging.rs` is a thin facade that keeps the public install / shutdown / `flush_logs` entry points and the process-wide handles. Configuration types (`RotationPolicy`, `FileLoggingConfig`, `FileLoggingError`) live in `file_logging_config.rs`; the `RollingFileWriter`, `Inner` rotation state, `CalendarDate`, and filesystem helpers live in `file_logging_writer.rs`; the PyO3 wrappers live in `file_logging_python.rs`; and unit tests live in `file_logging_tests.rs`.
+- This keeps the install-pipeline easy to follow without mixing rotation bookkeeping, env-var parsing, and PyO3 translation in one block.
+
+**Dependencies**: `dirs`, `tracing`, `tracing-subscriber`, `tracing-appender`, `parking_lot`, `time`
 
 ## Skills-First Architecture
 
@@ -386,6 +454,7 @@ Using `thiserror` for error types with `#[from]` for automatic conversion.
 - **Unit tests**: Each crate has inline `#[cfg(test)]` modules
 - **Integration tests**: `tests/` directory with Python + Rust tests (via `cargo test` and `pytest`)
 - **Coverage tracking**: `cargo-llvm-cov` + `pytest --cov`
+- **Preferred Rust test shape**: keep helper fixtures in a thin root module and split large suites by behavior domain instead of appending more scenarios to a monolithic file
 
 ## Build Commands
 

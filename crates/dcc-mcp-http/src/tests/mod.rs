@@ -126,16 +126,5 @@ mod skill_discovery;
 mod tools_call;
 mod tools_list;
 
-pub use delta_capability::*;
-pub use dispatch_with_handler::*;
-pub use elicitation::*;
-pub use initialize::*;
-pub use jobs::*;
-pub use logging::*;
-pub use on_demand_loading::*;
-pub use pagination::*;
-pub use search_skills::*;
-pub use session::*;
-pub use skill_discovery::*;
-pub use tools_call::*;
-pub use tools_list::*;
+pub(crate) use search_skills::{make_app_state_with_skills, make_router_with_skills};
+pub(crate) use skill_discovery::make_router_with_skill;

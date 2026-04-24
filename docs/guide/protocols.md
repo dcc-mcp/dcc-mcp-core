@@ -2,6 +2,8 @@
 
 DCC-MCP-Core provides MCP (Model Context Protocol) type definitions for Tools, Resources, and Prompts. All types are exported directly from `dcc_mcp_core`.
 
+For maintainers of this crate, the Rust implementation mirrors that separation internally as well: tool/resource/prompt models live in focused internal modules behind a thin `types.rs` re-export surface, which keeps edits and tests localized.
+
 ## ToolDefinition
 
 Define an MCP tool:

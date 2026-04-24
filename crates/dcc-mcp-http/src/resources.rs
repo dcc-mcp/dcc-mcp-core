@@ -11,7 +11,7 @@
 //! | `scene://current`         | `application/json` | JSON summary of the current DCC scene, fed by the embedding adapter via [`ResourceRegistry::set_scene`]. |
 //! | `capture://current_window`| `image/png`        | PNG snapshot of the DCC window (real backend on Windows; Mock elsewhere). |
 //! | `audit://recent?limit=N`  | `application/json` | Last `N` entries from the `AuditLog`. `notifications/resources/updated` fires on append. |
-//! | `artefact://…`            | varies             | Reserved for issue #349 — recognized but disabled by default. |
+//! | `artefact://…`            | varies             | Issue #349 — toggle via `McpHttpConfig::enable_artefact_resources`. |
 //!
 //! # Adding a custom producer
 //!
@@ -19,91 +19,41 @@
 //! [`ResourceRegistry::add_producer`] **before** `McpHttpServer::start()`.
 //! External producers can call [`ResourceRegistry::notify_updated`] to
 //! emit `notifications/resources/updated` for a URI they own.
+//!
+//! ## Maintainer layout
+//!
+//! This module is a **thin facade** that keeps `ResourceRegistry` and
+//! re-exports the public surface. Implementation is split across
+//! sibling files:
+//!
+//! | File | Responsibility |
+//! |------|----------------|
+//! | `resources_types.rs`     | `ProducerContent`, `ResourceError`, `ResourceResult`, `ResourceProducer` trait, `uri_scheme` helper |
+//! | `resources_producers.rs` | Built-in producers (`SceneProducer`, `CaptureProducer`, `AuditProducer`, `ArtefactProducer`) + `parse_audit_limit` |
+//! | `resources_tests.rs`     | Unit + `tokio::test` suite |
+
+#[path = "resources_types.rs"]
+mod types;
+
+#[path = "resources_producers.rs"]
+mod producers;
+
+#[cfg(test)]
+#[path = "resources_tests.rs"]
+mod tests;
+
+pub use types::{ProducerContent, ResourceError, ResourceProducer, ResourceResult};
 
 use std::sync::Arc;
 
-use base64::Engine as _;
-use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use dcc_mcp_artefact::{InMemoryArtefactStore, SharedArtefactStore};
 use parking_lot::RwLock;
-use serde_json::{Value, json};
+use serde_json::Value;
 use tokio::sync::broadcast;
 
-use crate::protocol::{McpResource, ReadResourceResult, ResourceContents};
-
-/// Content returned by a [`ResourceProducer`].
-pub enum ProducerContent {
-    /// UTF-8 text payload (stored in `text`). Typically `application/json`.
-    Text {
-        uri: String,
-        mime_type: String,
-        text: String,
-    },
-    /// Binary payload — serialized as base64 under `blob`.
-    Blob {
-        uri: String,
-        mime_type: String,
-        bytes: Vec<u8>,
-    },
-}
-
-impl ProducerContent {
-    fn into_contents(self) -> ResourceContents {
-        match self {
-            ProducerContent::Text {
-                uri,
-                mime_type,
-                text,
-            } => ResourceContents {
-                uri,
-                mime_type: Some(mime_type),
-                text: Some(text),
-                blob: None,
-            },
-            ProducerContent::Blob {
-                uri,
-                mime_type,
-                bytes,
-            } => ResourceContents {
-                uri,
-                mime_type: Some(mime_type),
-                text: None,
-                blob: Some(BASE64_STANDARD.encode(bytes)),
-            },
-        }
-    }
-}
-
-/// Error type returned by [`ResourceProducer::read`].
-#[derive(Debug, thiserror::Error)]
-pub enum ResourceError {
-    #[error("resource not found: {0}")]
-    NotFound(String),
-    #[error("resource not enabled: {0}")]
-    NotEnabled(String),
-    #[error("resource read failed: {0}")]
-    Read(String),
-}
-
-pub type ResourceResult<T> = Result<T, ResourceError>;
-
-/// A URI-scheme-keyed producer of MCP resources.
-///
-/// Implementations must be `Send + Sync` because the MCP server calls
-/// them from any tokio worker thread.
-pub trait ResourceProducer: Send + Sync {
-    /// Human-readable URI scheme (e.g. `"scene"`, `"capture"`). Used to
-    /// dispatch `resources/read` by scheme.
-    fn scheme(&self) -> &str;
-
-    /// Resources this producer surfaces in `resources/list`. May return an
-    /// empty vector to hide the producer while keeping the scheme
-    /// registered (useful for feature-flagged producers).
-    fn list(&self) -> Vec<McpResource>;
-
-    /// Read a resource by full URI.
-    fn read(&self, uri: &str) -> ResourceResult<ProducerContent>;
-}
+use self::producers::{ArtefactProducer, AuditProducer, CaptureProducer, SceneProducer};
+use self::types::uri_scheme;
+use crate::protocol::{McpResource, ReadResourceResult};
 
 /// Thread-safe registry of resource producers and subscription state.
 ///
@@ -342,388 +292,5 @@ impl ResourceRegistry {
     /// this to each subscribed session's SSE stream.
     pub fn notify_updated(&self, uri: &str) {
         let _ = self.inner.updated_tx.send(uri.to_string());
-    }
-}
-
-fn uri_scheme(uri: &str) -> Option<&str> {
-    let idx = uri.find(':')?;
-    Some(&uri[..idx])
-}
-
-// ── Built-in producers ─────────────────────────────────────────────────────
-
-struct SceneProducer {
-    snapshot: Arc<parking_lot::RwLock<Option<Value>>>,
-}
-
-impl ResourceProducer for SceneProducer {
-    fn scheme(&self) -> &str {
-        "scene"
-    }
-
-    fn list(&self) -> Vec<McpResource> {
-        vec![McpResource {
-            uri: "scene://current".to_string(),
-            name: "Current Scene".to_string(),
-            description: Some(
-                "JSON summary of the current DCC scene (nodes, counts, metadata). \
-                 Updated by the embedding adapter via ResourceRegistry::set_scene()."
-                    .to_string(),
-            ),
-            mime_type: Some("application/json".to_string()),
-        }]
-    }
-
-    fn read(&self, uri: &str) -> ResourceResult<ProducerContent> {
-        if uri != "scene://current" {
-            return Err(ResourceError::NotFound(uri.to_string()));
-        }
-        let snapshot = self.snapshot.read();
-        let text = match snapshot.as_ref() {
-            Some(v) => serde_json::to_string(v).map_err(|e| ResourceError::Read(e.to_string()))?,
-            None => serde_json::to_string(&json!({
-                "status": "no_scene_published",
-                "hint": "embedding adapter should call ResourceRegistry::set_scene"
-            }))
-            .map_err(|e| ResourceError::Read(e.to_string()))?,
-        };
-        Ok(ProducerContent::Text {
-            uri: uri.to_string(),
-            mime_type: "application/json".to_string(),
-            text,
-        })
-    }
-}
-
-struct CaptureProducer;
-
-impl ResourceProducer for CaptureProducer {
-    fn scheme(&self) -> &str {
-        "capture"
-    }
-
-    fn list(&self) -> Vec<McpResource> {
-        // Only surface capture://current_window when a real window backend
-        // is available. Mock backend indicates no DCC window is present.
-        let capturer = dcc_mcp_capture::Capturer::new_window_auto();
-        if matches!(
-            capturer.backend_kind(),
-            dcc_mcp_capture::CaptureBackendKind::Mock
-        ) {
-            return Vec::new();
-        }
-        vec![McpResource {
-            uri: "capture://current_window".to_string(),
-            name: "DCC Window Snapshot".to_string(),
-            description: Some(
-                "PNG snapshot of the active DCC window. Read-only; each \
-                 resources/read triggers a fresh capture."
-                    .to_string(),
-            ),
-            mime_type: Some("image/png".to_string()),
-        }]
-    }
-
-    fn read(&self, uri: &str) -> ResourceResult<ProducerContent> {
-        if uri != "capture://current_window" {
-            return Err(ResourceError::NotFound(uri.to_string()));
-        }
-        let capturer = dcc_mcp_capture::Capturer::new_window_auto();
-        let cfg = dcc_mcp_capture::CaptureConfig::builder()
-            .format(dcc_mcp_capture::CaptureFormat::Png)
-            .build();
-        let frame = capturer
-            .capture(&cfg)
-            .map_err(|e| ResourceError::Read(e.to_string()))?;
-        Ok(ProducerContent::Blob {
-            uri: uri.to_string(),
-            mime_type: "image/png".to_string(),
-            bytes: frame.data,
-        })
-    }
-}
-
-struct AuditProducer {
-    log: Option<Arc<dcc_mcp_sandbox::AuditLog>>,
-}
-
-impl AuditProducer {
-    fn new(log: Arc<dcc_mcp_sandbox::AuditLog>) -> Self {
-        Self { log: Some(log) }
-    }
-
-    /// Stub producer used until `ResourceRegistry::wire_audit_log` is
-    /// called. Returns an empty tail so callers can still list and read
-    /// the resource without blowing up.
-    fn disabled() -> Self {
-        Self { log: None }
-    }
-}
-
-impl ResourceProducer for AuditProducer {
-    fn scheme(&self) -> &str {
-        "audit"
-    }
-
-    fn list(&self) -> Vec<McpResource> {
-        vec![McpResource {
-            uri: "audit://recent".to_string(),
-            name: "Recent Audit Entries".to_string(),
-            description: Some(
-                "Tail of the sandbox AuditLog. Supports ?limit=N (default \
-                 100). Fires notifications/resources/updated on append."
-                    .to_string(),
-            ),
-            mime_type: Some("application/json".to_string()),
-        }]
-    }
-
-    fn read(&self, uri: &str) -> ResourceResult<ProducerContent> {
-        let limit = parse_audit_limit(uri).unwrap_or(100);
-        let entries = match &self.log {
-            Some(log) => {
-                let all = log.entries();
-                let start = all.len().saturating_sub(limit);
-                all[start..].to_vec()
-            }
-            None => Vec::new(),
-        };
-        let payload = json!({
-            "limit": limit,
-            "count": entries.len(),
-            "entries": entries,
-        });
-        let text =
-            serde_json::to_string(&payload).map_err(|e| ResourceError::Read(e.to_string()))?;
-        Ok(ProducerContent::Text {
-            uri: uri.to_string(),
-            mime_type: "application/json".to_string(),
-            text,
-        })
-    }
-}
-
-fn parse_audit_limit(uri: &str) -> Option<usize> {
-    let q = uri.split_once('?')?.1;
-    for kv in q.split('&') {
-        if let Some(("limit", value)) = kv.split_once('=') {
-            return value.parse().ok();
-        }
-    }
-    None
-}
-
-/// Producer for `artefact://` URIs, backed by a
-/// [`dcc_mcp_artefact::ArtefactStore`] (issue #349).
-///
-/// When `enabled` is `false`, `list` hides entries and `read` returns
-/// `ResourceError::NotEnabled` so clients can distinguish "scheme unknown"
-/// from "scheme recognized but disabled".
-struct ArtefactProducer {
-    enabled: bool,
-    store: Option<SharedArtefactStore>,
-}
-
-impl ResourceProducer for ArtefactProducer {
-    fn scheme(&self) -> &str {
-        "artefact"
-    }
-
-    fn list(&self) -> Vec<McpResource> {
-        if !self.enabled {
-            return Vec::new();
-        }
-        let Some(store) = self.store.as_ref() else {
-            return Vec::new();
-        };
-        let refs = store
-            .list(dcc_mcp_artefact::ArtefactFilter::default())
-            .unwrap_or_default();
-        refs.into_iter()
-            .map(|fr| McpResource {
-                uri: fr.uri.clone(),
-                name: fr.digest.clone().unwrap_or_else(|| fr.uri.clone()),
-                description: Some(format!(
-                    "Artefact ({} bytes, digest {})",
-                    fr.size_bytes.unwrap_or(0),
-                    fr.digest.as_deref().unwrap_or("unknown"),
-                )),
-                mime_type: fr.mime.clone(),
-            })
-            .collect()
-    }
-
-    fn read(&self, uri: &str) -> ResourceResult<ProducerContent> {
-        if !self.enabled {
-            return Err(ResourceError::NotEnabled(format!(
-                "artefact resources not enabled: {uri}"
-            )));
-        }
-        let Some(store) = self.store.as_ref() else {
-            return Err(ResourceError::NotEnabled(format!(
-                "artefact store not configured: {uri}"
-            )));
-        };
-        let head = store
-            .head(uri)
-            .map_err(|e| ResourceError::Read(e.to_string()))?;
-        let Some(head) = head else {
-            return Err(ResourceError::NotFound(uri.to_string()));
-        };
-        let body = store
-            .get(uri)
-            .map_err(|e| ResourceError::Read(e.to_string()))?;
-        let bytes = body
-            .ok_or_else(|| ResourceError::NotFound(uri.to_string()))?
-            .into_bytes()
-            .map_err(|e| ResourceError::Read(e.to_string()))?;
-        let mime = head
-            .mime
-            .clone()
-            .unwrap_or_else(|| "application/octet-stream".to_string());
-        Ok(ProducerContent::Blob {
-            uri: uri.to_string(),
-            mime_type: mime,
-            bytes,
-        })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn scene_read_returns_placeholder_when_no_snapshot() {
-        let reg = ResourceRegistry::new(true, false);
-        let result = reg.read("scene://current").expect("scene read");
-        let first = &result.contents[0];
-        assert_eq!(first.uri, "scene://current");
-        assert_eq!(first.mime_type.as_deref(), Some("application/json"));
-        let text = first.text.as_deref().unwrap();
-        assert!(text.contains("no_scene_published"));
-    }
-
-    #[test]
-    fn scene_read_uses_published_snapshot() {
-        let reg = ResourceRegistry::new(true, false);
-        reg.set_scene(json!({"name": "my-scene", "nodes": 42}));
-        let result = reg.read("scene://current").unwrap();
-        let text = result.contents[0].text.as_deref().unwrap();
-        assert!(text.contains("my-scene"));
-        assert!(text.contains("42"));
-    }
-
-    #[test]
-    fn list_includes_scene_and_audit_by_default() {
-        let reg = ResourceRegistry::new(true, false);
-        let uris: Vec<String> = reg.list().into_iter().map(|r| r.uri).collect();
-        assert!(uris.iter().any(|u| u == "scene://current"));
-        assert!(uris.iter().any(|u| u == "audit://recent"));
-        // artefact hidden when disabled.
-        assert!(!uris.iter().any(|u| u.starts_with("artefact://")));
-    }
-
-    #[test]
-    fn artefact_read_returns_not_enabled_when_disabled() {
-        let reg = ResourceRegistry::new(true, false);
-        let err = reg.read("artefact://abc123").unwrap_err();
-        assert!(matches!(err, ResourceError::NotEnabled(_)));
-    }
-
-    #[test]
-    fn unknown_scheme_returns_not_found() {
-        let reg = ResourceRegistry::new(true, false);
-        let err = reg.read("bogus://x").unwrap_err();
-        assert!(matches!(err, ResourceError::NotFound(_)));
-    }
-
-    #[test]
-    fn subscribe_and_unsubscribe_tracks_session() {
-        let reg = ResourceRegistry::new(true, false);
-        assert!(reg.subscribe("sess1", "scene://current"));
-        // Duplicate returns false.
-        assert!(!reg.subscribe("sess1", "scene://current"));
-        let subs = reg.sessions_subscribed_to("scene://current");
-        assert_eq!(subs, vec!["sess1".to_string()]);
-        assert!(reg.unsubscribe("sess1", "scene://current"));
-        assert!(reg.sessions_subscribed_to("scene://current").is_empty());
-    }
-
-    #[test]
-    fn audit_read_returns_empty_tail_by_default() {
-        let reg = ResourceRegistry::new(true, false);
-        let result = reg.read("audit://recent?limit=5").unwrap();
-        let text = result.contents[0].text.as_deref().unwrap();
-        assert!(text.contains("\"count\":0"));
-        assert!(text.contains("\"limit\":5"));
-    }
-
-    #[tokio::test]
-    async fn wire_audit_log_fires_update_on_record() {
-        use dcc_mcp_sandbox::{AuditEntry, AuditLog, AuditOutcome};
-        use std::time::Duration;
-
-        let reg = ResourceRegistry::new(true, false);
-        let log = Arc::new(AuditLog::new());
-        reg.wire_audit_log(log.clone());
-
-        let mut rx = reg.watch_updates();
-        log.record(AuditEntry::new(
-            None,
-            "test",
-            "{}",
-            Duration::from_millis(1),
-            AuditOutcome::Success,
-        ));
-        // Allow the forwarding task to run.
-        let uri = tokio::time::timeout(Duration::from_secs(2), rx.recv())
-            .await
-            .expect("update fired")
-            .expect("recv ok");
-        assert_eq!(uri, "audit://recent");
-
-        // And the tail now includes the entry.
-        let result = reg.read("audit://recent?limit=10").unwrap();
-        let text = result.contents[0].text.as_deref().unwrap();
-        assert!(text.contains("\"count\":1"));
-    }
-
-    #[test]
-    fn disabled_artefact_hidden_from_list() {
-        let reg = ResourceRegistry::new(true, false);
-        assert!(!reg.list().iter().any(|r| r.uri.starts_with("artefact://")));
-    }
-
-    #[test]
-    fn enabled_artefact_store_surfaces_put_in_list_and_read() {
-        use dcc_mcp_artefact::ArtefactBody;
-
-        let reg = ResourceRegistry::new(true, true);
-        let store = reg.artefact_store().expect("store wired");
-        let fr = store
-            .put(ArtefactBody::Inline(b"hello-artefact".to_vec()))
-            .unwrap();
-
-        // list should include the new URI.
-        let uris: Vec<String> = reg.list().into_iter().map(|r| r.uri).collect();
-        assert!(uris.contains(&fr.uri), "list missing {}: {uris:?}", fr.uri);
-
-        // read should return the bytes as a blob (base64).
-        let result = reg.read(&fr.uri).expect("read ok");
-        let item = &result.contents[0];
-        assert_eq!(item.uri, fr.uri);
-        assert!(item.blob.is_some(), "expected base64 blob");
-        let decoded = BASE64_STANDARD
-            .decode(item.blob.as_deref().unwrap())
-            .unwrap();
-        assert_eq!(decoded, b"hello-artefact");
-    }
-
-    #[test]
-    fn enabled_artefact_read_unknown_uri_returns_not_found() {
-        let reg = ResourceRegistry::new(true, true);
-        let err = reg.read("artefact://sha256/deadbeef").unwrap_err();
-        assert!(matches!(err, ResourceError::NotFound(_)));
     }
 }

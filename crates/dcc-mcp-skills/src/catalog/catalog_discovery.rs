@@ -1,0 +1,167 @@
+use super::*;
+
+impl SkillCatalog {
+    /// Create a new, empty catalog backed by the given registry.
+    pub fn new(registry: Arc<ActionRegistry>) -> Self {
+        Self {
+            entries: DashMap::new(),
+            loaded: DashSet::new(),
+            registry,
+            dispatcher: None,
+            script_executor: None,
+            active_groups: DashSet::new(),
+        }
+    }
+
+    /// Create a catalog with an attached dispatcher for Skills-First execution.
+    pub fn new_with_dispatcher(
+        registry: Arc<ActionRegistry>,
+        dispatcher: Arc<ActionDispatcher>,
+    ) -> Self {
+        Self {
+            entries: DashMap::new(),
+            loaded: DashSet::new(),
+            registry,
+            dispatcher: Some(dispatcher),
+            script_executor: None,
+            active_groups: DashSet::new(),
+        }
+    }
+
+    /// Attach a dispatcher after construction (builder-style).
+    pub fn with_dispatcher(mut self, dispatcher: Arc<ActionDispatcher>) -> Self {
+        self.dispatcher = Some(dispatcher);
+        self
+    }
+
+    /// Register an **in-process** script executor (builder-style).
+    pub fn with_in_process_executor<F>(mut self, executor: F) -> Self
+    where
+        F: Fn(String, serde_json::Value) -> Result<serde_json::Value, String>
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.script_executor = Some(Arc::new(executor));
+        self
+    }
+
+    /// Replace the in-process executor after construction.
+    pub fn set_in_process_executor<F>(&mut self, executor: F)
+    where
+        F: Fn(String, serde_json::Value) -> Result<serde_json::Value, String>
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.script_executor = Some(Arc::new(executor));
+    }
+
+    /// Remove the in-process executor, reverting to subprocess execution.
+    pub fn clear_in_process_executor(&mut self) {
+        self.script_executor = None;
+    }
+
+    /// Discover skills from the standard scan paths.
+    pub fn discover(&self, extra_paths: Option<&[String]>, dcc_name: Option<&str>) -> usize {
+        let result = match loader::scan_and_load_lenient(extra_paths, dcc_name) {
+            Ok(result) => result,
+            Err(err) => {
+                tracing::error!("SkillCatalog: discovery failed: {err}");
+                return 0;
+            }
+        };
+
+        let mut new_count = 0;
+        for skill in result.skills {
+            let name = skill.name.clone();
+            if !self.entries.contains_key(&name) {
+                self.entries.insert(
+                    name,
+                    SkillEntry {
+                        metadata: skill,
+                        state: SkillState::Discovered,
+                        registered_tools: Vec::new(),
+                        scope: SkillScope::Repo,
+                    },
+                );
+                new_count += 1;
+            }
+        }
+
+        if !result.skipped.is_empty() {
+            tracing::debug!("SkillCatalog: skipped {} directories", result.skipped.len());
+        }
+
+        tracing::info!(
+            "SkillCatalog: discovered {} new skill(s), total {}",
+            new_count,
+            self.entries.len()
+        );
+        new_count
+    }
+
+    /// Add a single skill to the catalog (e.g. from SkillWatcher).
+    pub fn add_skill(&self, metadata: SkillMetadata) {
+        let name = metadata.name.clone();
+        if let Some(mut entry) = self.entries.get_mut(&name) {
+            if entry.state != SkillState::Loaded {
+                entry.metadata = metadata;
+                entry.state = SkillState::Discovered;
+            }
+        } else {
+            self.entries.insert(
+                name,
+                SkillEntry {
+                    metadata,
+                    state: SkillState::Discovered,
+                    registered_tools: Vec::new(),
+                    scope: SkillScope::Repo,
+                },
+            );
+        }
+    }
+
+    /// Discover skills from paths grouped by [`SkillScope`].
+    pub fn discover_scoped(
+        &self,
+        scoped_paths: &[(SkillScope, Vec<String>)],
+        dcc_name: Option<&str>,
+    ) -> usize {
+        let mut total_new = 0;
+        for (scope, paths) in scoped_paths {
+            let result =
+                match crate::loader::scan_and_load_lenient(Some(paths.as_slice()), dcc_name) {
+                    Ok(result) => result,
+                    Err(err) => {
+                        tracing::error!(
+                            "SkillCatalog::discover_scoped: scan failed for scope={scope}: {err}"
+                        );
+                        continue;
+                    }
+                };
+
+            for skill in result.skills {
+                let name = skill.name.clone();
+                if !self.entries.contains_key(&name) {
+                    self.entries.insert(
+                        name,
+                        SkillEntry {
+                            metadata: skill,
+                            state: SkillState::Discovered,
+                            registered_tools: Vec::new(),
+                            scope: *scope,
+                        },
+                    );
+                    total_new += 1;
+                }
+            }
+        }
+        tracing::info!(
+            "SkillCatalog::discover_scoped: {} new skill(s) across {} scope(s)",
+            total_new,
+            scoped_paths.len()
+        );
+        total_new
+    }
+}

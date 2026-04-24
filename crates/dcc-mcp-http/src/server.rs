@@ -8,17 +8,22 @@ use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
 use crate::{
-    config::{McpHttpConfig, ServerSpawnMode},
+    config::McpHttpConfig,
     error::{HttpError, HttpResult},
     executor::DccExecutorHandle,
-    gateway::{GatewayConfig, GatewayRunner, LiveSnapshot, MetadataProvider},
     handler::{AppState, handle_delete, handle_get, handle_post},
     inflight::InFlightRequests,
     session::SessionManager,
 };
 use dcc_mcp_actions::{ActionDispatcher, ActionRegistry};
 use dcc_mcp_skills::SkillCatalog;
-use dcc_mcp_transport::discovery::types::ServiceEntry;
+
+#[path = "server_background.rs"]
+mod background_impl;
+#[path = "server_gateway.rs"]
+mod gateway_impl;
+#[path = "server_spawn.rs"]
+mod spawn_impl;
 
 /// Live DCC instance metadata that is propagated to `FileRegistry` on every
 /// heartbeat tick so that `list_dcc_instances` always shows current state.
@@ -298,89 +303,39 @@ impl McpHttpServer {
 
         let sessions = SessionManager::new();
 
-        // Spawn background task that evicts idle sessions once per minute.
-        if self.config.session_ttl_secs > 0 {
-            let sessions_bg = sessions.clone();
-            let ttl = std::time::Duration::from_secs(self.config.session_ttl_secs);
-            tokio::spawn(async move {
-                let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
-                loop {
-                    interval.tick().await;
-                    sessions_bg.evict_stale(ttl);
-                }
-            });
-        }
+        background_impl::spawn_session_eviction_task(&sessions, self.config.session_ttl_secs);
 
         let cancelled_requests: std::sync::Arc<dashmap::DashMap<String, std::time::Instant>> =
             std::sync::Arc::new(dashmap::DashMap::new());
 
-        // Spawn background task that garbage-collects stale cancellation records.
-        //
-        // When a client cancels a request that has already completed (common race),
-        // the entry in `cancelled_requests` is never consumed by `handle_tools_call`.
-        // Without this task the map would grow without bound in long-running servers.
-        {
-            let cr_bg = cancelled_requests.clone();
-            tokio::spawn(async move {
-                let mut interval = tokio::time::interval(std::time::Duration::from_secs(60));
-                loop {
-                    interval.tick().await;
-                    // purge_expired_cancellations uses the same TTL constant defined in handler.rs
-                    cr_bg.retain(|_, recorded_at: &mut std::time::Instant| {
-                        recorded_at.elapsed() < std::time::Duration::from_secs(30)
-                    });
-                }
-            });
-        }
+        background_impl::spawn_cancellation_gc_task(&cancelled_requests);
 
         // Periodic gauge updater for Prometheus (issue #331). Driven
         // by the exporter being live so we do not leak a ticker task
         // on servers that did not opt into metrics.
         #[cfg(feature = "prometheus")]
-        let prometheus_gauge_ctx = if self.config.enable_prometheus {
-            Some((self.registry.clone(), sessions.clone()))
-        } else {
-            None
-        };
+        let prometheus_gauge_ctx = background_impl::prometheus_gauge_context(
+            &self.config,
+            self.registry.clone(),
+            sessions.clone(),
+        );
 
         let resources = self.resources.clone();
         let prompts = self.prompts.clone();
 
-        // Forward `notifications/resources/updated` broadcasts to each
-        // subscribed session's SSE channel (issue #350).
-        if self.config.enable_resources {
-            let resources_bg = resources.clone();
-            let sessions_bg = sessions.clone();
-            tokio::spawn(async move {
-                let mut rx = resources_bg.watch_updates();
-                while let Ok(uri) = rx.recv().await {
-                    let notification = serde_json::json!({
-                        "jsonrpc": "2.0",
-                        "method": "notifications/resources/updated",
-                        "params": { "uri": uri }
-                    });
-                    let event = crate::protocol::format_sse_event(&notification, None);
-                    for sid in resources_bg.sessions_subscribed_to(&uri) {
-                        sessions_bg.push_event(&sid, event.clone());
-                    }
-                }
-            });
-        }
+        background_impl::spawn_resource_update_forwarder(
+            self.config.enable_resources,
+            &resources,
+            &sessions,
+        );
 
         // Build the Prometheus exporter when both the Cargo feature and
         // runtime flag are enabled (issue #331). Kept in an Arc so the
         // `/metrics` route and every tool-call handler share one
         // registry.
         #[cfg(feature = "prometheus")]
-        let prometheus = if self.config.enable_prometheus {
-            let exporter = dcc_mcp_telemetry::PrometheusExporter::new();
-            // Seed the gauge for registered tools so scrapers see a
-            // meaningful value on the very first scrape.
-            exporter.set_registered_tools(self.registry.list_actions(None).len() as i64);
-            Some(exporter)
-        } else {
-            None
-        };
+        let prometheus =
+            background_impl::build_prometheus_exporter(&self.config, self.registry.as_ref());
 
         let jobs = build_job_manager(&self.config)?;
         let job_notifier = crate::notifications::JobNotifier::new(
@@ -450,33 +405,13 @@ impl McpHttpServer {
         // port, TLS terminator, and ingress config. The route has its
         // own `MetricsState`, independent of the MCP AppState.
         #[cfg(feature = "prometheus")]
-        if let Some(exporter) = prometheus.as_ref() {
-            let metrics_state = crate::metrics::MetricsState::new(
-                exporter.clone(),
-                self.config.prometheus_basic_auth.clone(),
+        {
+            router = background_impl::attach_metrics_route(
+                router,
+                &prometheus,
+                &self.config,
+                prometheus_gauge_ctx.clone(),
             );
-            let metrics_router = Router::new()
-                .route("/metrics", routing::get(crate::metrics::handle_metrics))
-                .with_state(metrics_state);
-            router = router.merge(metrics_router);
-            tracing::info!("Prometheus /metrics endpoint enabled");
-
-            // Spawn a low-frequency gauge updater so `active_sessions`
-            // and `registered_tools` stay fresh without poking every
-            // handler path. 5-second tick is finer than the default
-            // Prometheus scrape interval (15 s) yet costs nothing
-            // meaningful.
-            if let Some((registry, sessions_for_gauge)) = prometheus_gauge_ctx.clone() {
-                let exporter_bg = exporter.clone();
-                tokio::spawn(async move {
-                    let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
-                    loop {
-                        interval.tick().await;
-                        exporter_bg.set_registered_tools(registry.list_actions(None).len() as i64);
-                        exporter_bg.set_active_sessions(sessions_for_gauge.count() as i64);
-                    }
-                });
-            }
         }
 
         if self.config.enable_cors {
@@ -510,63 +445,8 @@ impl McpHttpServer {
         );
 
         // ── Optional gateway competition ──────────────────────────────────────
-        let gateway_handle = if self.config.gateway_port > 0 {
-            let gw_cfg = GatewayConfig {
-                host: self.config.host.to_string(),
-                gateway_port: self.config.gateway_port,
-                stale_timeout_secs: self.config.stale_timeout_secs,
-                heartbeat_secs: self.config.heartbeat_secs,
-                server_name: self.config.server_name.clone(),
-                server_version: self.config.server_version.clone(),
-                registry_dir: self.config.registry_dir.clone(),
-                challenger_timeout_secs: 120,
-                backend_timeout_ms: self.config.backend_timeout_ms,
-                async_dispatch_timeout_ms: self.config.gateway_async_dispatch_timeout_ms,
-                wait_terminal_timeout_ms: self.config.gateway_wait_terminal_timeout_ms,
-                route_ttl_secs: self.config.gateway_route_ttl_secs,
-                max_routes_per_session: self.config.gateway_max_routes_per_session,
-            };
-
-            match GatewayRunner::new(gw_cfg) {
-                Ok(runner) => {
-                    let mut entry = ServiceEntry::new(
-                        self.config.dcc_type.as_deref().unwrap_or("unknown"),
-                        self.config.host.to_string(),
-                        port,
-                    );
-                    entry.version = self.config.dcc_version.clone();
-                    entry.scene = self.config.scene.clone();
-
-                    // Provide a live metadata closure so the heartbeat task
-                    // keeps the FileRegistry's scene field in sync whenever
-                    // the user opens a different DCC scene at runtime.
-                    let meta_clone = self.live_meta.clone();
-                    let metadata_provider: Option<MetadataProvider> = Some(Arc::new(move || {
-                        let guard = meta_clone.read();
-                        LiveSnapshot {
-                            scene: guard.scene.clone(),
-                            version: guard.version.clone(),
-                            documents: guard.documents.clone(),
-                            display_name: guard.display_name.clone(),
-                        }
-                    }));
-
-                    match runner.start(entry, metadata_provider).await {
-                        Ok(h) => Some(h),
-                        Err(e) => {
-                            tracing::warn!("Gateway runner failed to start: {e}");
-                            None
-                        }
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!("Failed to create GatewayRunner: {e}");
-                    None
-                }
-            }
-        } else {
-            None
-        };
+        let gateway_handle =
+            gateway_impl::start_gateway_runner(&self.config, port, &self.live_meta).await;
 
         let is_gateway = gateway_handle
             .as_ref()
@@ -585,187 +465,16 @@ impl McpHttpServer {
         //               blocks on the serve future, so the accept loop cannot
         //               be starved even if the parent runtime's workers go
         //               idle (Maya on Windows / PyO3-embedded hosts).
-        let (join, serve_thread) = match self.config.spawn_mode {
-            ServerSpawnMode::Ambient => {
-                let mut shutdown_rx_a = shutdown_rx.clone();
-                let join = tokio::spawn(async move {
-                    axum::serve(listener, router)
-                        .with_graceful_shutdown(async move {
-                            loop {
-                                if *shutdown_rx_a.borrow() {
-                                    break;
-                                }
-                                if shutdown_rx_a.changed().await.is_err() {
-                                    break;
-                                }
-                            }
-                        })
-                        .await
-                        .ok();
-                    tracing::info!("MCP HTTP server stopped");
-                });
-                // Self-probe: confirm the accept loop is actually running
-                // before we return a handle that claims to be bound.
-                if self.config.self_probe_timeout_ms > 0 {
-                    let probe_host = if self.config.host.is_unspecified() {
-                        "127.0.0.1".to_string()
-                    } else {
-                        self.config.host.to_string()
-                    };
-                    let probe_addr = format!("{probe_host}:{port}");
-                    let timeout =
-                        std::time::Duration::from_millis(self.config.self_probe_timeout_ms);
-                    let mut reachable = false;
-                    for _ in 0..5 {
-                        match tokio::time::timeout(
-                            timeout,
-                            tokio::net::TcpStream::connect(&probe_addr),
-                        )
-                        .await
-                        {
-                            Ok(Ok(_)) => {
-                                reachable = true;
-                                break;
-                            }
-                            _ => {
-                                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-                            }
-                        }
-                    }
-                    if !reachable {
-                        let _ = shutdown_tx.send(true);
-                        let _ = join.await;
-                        return Err(HttpError::BindFailed {
-                            addr: actual_bind.clone(),
-                            source: std::io::Error::new(
-                                std::io::ErrorKind::TimedOut,
-                                "instance listener self-probe failed (issue #303 guard)",
-                            ),
-                        });
-                    }
-                }
-                (Some(join), None)
-            }
-            ServerSpawnMode::Dedicated => {
-                // Re-bind the port inside the dedicated thread's runtime —
-                // a TcpListener is pinned to the runtime it was created on.
-                // Safely hand off: drop the existing listener, bind again
-                // on the new runtime. Because we use SO_REUSEADDR=false
-                // elsewhere, we briefly close the port here; that's safe
-                // because we still hold exclusive ownership of the port's
-                // "intent to bind" (`port` is already allocated from `0`).
-                let rebind_addr = actual_bind.clone();
-                drop(listener);
-
-                let (ready_tx, ready_rx) =
-                    std::sync::mpsc::sync_channel::<Result<(), std::io::Error>>(1);
-                let mut shutdown_rx_d = shutdown_rx.clone();
-                let self_probe_timeout_ms = self.config.self_probe_timeout_ms;
-                let probe_bind = actual_bind.clone();
-
-                let thread = std::thread::Builder::new()
-                    .name(format!("dcc-mcp-http-{}", port))
-                    .spawn(move || {
-                        let rt = match tokio::runtime::Builder::new_current_thread()
-                            .enable_all()
-                            .build()
-                        {
-                            Ok(rt) => rt,
-                            Err(e) => {
-                                let _ = ready_tx.send(Err(std::io::Error::other(format!(
-                                    "failed to build dedicated runtime: {e}"
-                                ))));
-                                return;
-                            }
-                        };
-                        rt.block_on(async move {
-                            let listener = match TcpListener::bind(&rebind_addr).await {
-                                Ok(l) => l,
-                                Err(e) => {
-                                    let _ = ready_tx.send(Err(e));
-                                    return;
-                                }
-                            };
-                            // Signal ready: the listener is bound and
-                            // accept() will run on the next poll.
-                            let _ = ready_tx.send(Ok(()));
-                            axum::serve(listener, router)
-                                .with_graceful_shutdown(async move {
-                                    loop {
-                                        if *shutdown_rx_d.borrow() {
-                                            break;
-                                        }
-                                        if shutdown_rx_d.changed().await.is_err() {
-                                            break;
-                                        }
-                                    }
-                                })
-                                .await
-                                .ok();
-                            tracing::info!("MCP HTTP server (dedicated) stopped");
-                        });
-                    })
-                    .map_err(|e| HttpError::BindFailed {
-                        addr: actual_bind.clone(),
-                        source: e,
-                    })?;
-
-                // Wait for the thread to signal it has bound the listener.
-                match ready_rx.recv_timeout(std::time::Duration::from_secs(10)) {
-                    Ok(Ok(())) => {}
-                    Ok(Err(e)) => {
-                        return Err(HttpError::BindFailed {
-                            addr: actual_bind.clone(),
-                            source: e,
-                        });
-                    }
-                    Err(e) => {
-                        return Err(HttpError::BindFailed {
-                            addr: actual_bind.clone(),
-                            source: std::io::Error::new(
-                                std::io::ErrorKind::TimedOut,
-                                format!("dedicated thread did not signal readiness: {e}"),
-                            ),
-                        });
-                    }
-                }
-
-                // Self-probe from the caller's runtime to confirm the
-                // dedicated thread's accept loop is actually serving.
-                if self_probe_timeout_ms > 0 {
-                    let timeout = std::time::Duration::from_millis(self_probe_timeout_ms);
-                    let mut reachable = false;
-                    for _ in 0..5 {
-                        match tokio::time::timeout(
-                            timeout,
-                            tokio::net::TcpStream::connect(&probe_bind),
-                        )
-                        .await
-                        {
-                            Ok(Ok(_)) => {
-                                reachable = true;
-                                break;
-                            }
-                            _ => {
-                                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-                            }
-                        }
-                    }
-                    if !reachable {
-                        let _ = shutdown_tx.send(true);
-                        return Err(HttpError::BindFailed {
-                            addr: actual_bind.clone(),
-                            source: std::io::Error::new(
-                                std::io::ErrorKind::TimedOut,
-                                "dedicated listener self-probe failed (issue #303 guard)",
-                            ),
-                        });
-                    }
-                }
-
-                (None, Some(thread))
-            }
-        };
+        let (join, serve_thread) = spawn_impl::spawn_http_server(
+            listener,
+            router,
+            &self.config,
+            actual_bind.clone(),
+            port,
+            shutdown_tx.clone(),
+            shutdown_rx,
+        )
+        .await?;
 
         Ok(McpServerHandle {
             shutdown_tx,
