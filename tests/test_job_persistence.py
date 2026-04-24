@@ -21,7 +21,6 @@ import contextlib
 import json
 from pathlib import Path
 import shutil
-import sqlite3
 import tempfile
 import time
 from typing import Any
@@ -178,19 +177,16 @@ def test_sqlite_storage_persists_rows_across_restart():
         finally:
             handle.shutdown()
 
-        # SQLite file must exist and contain the `jobs` table.
+        # The database file must exist. Do *not* open it with
+        # ``sqlite3`` from the Python stdlib between server incarnations:
+        # our Rust extension uses the bundled libsqlite3 in WAL mode,
+        # while the interpreter links the system ``sqlite3`` — mixing
+        # the two on the same files can yield ``database disk image is
+        # malformed`` on the next ``rusqlite::Connection::open`` (notably
+        # on macOS CI). Recovery + ``jobs.get_status`` below is the
+        # authoritative check of persisted rows.
         assert Path(db).exists(), "SQLite database file should have been created"
-        with sqlite3.connect(db) as conn:
-            rows = conn.execute(
-                "SELECT job_id, tool, status FROM jobs WHERE job_id = ?",
-                (job_id,),
-            ).fetchall()
-        assert len(rows) == 1, f"expected one persisted row, got {rows}"
-        assert rows[0][1] == "slow_echo"
-        # The status will be either 'pending' or 'running' — either is
-        # recoverable. Terminal values would mean the handler completed
-        # before we tore down, which is a timing failure.
-        assert rows[0][2] in {"pending", "running"}, rows
+        assert Path(db).stat().st_size > 0, "database file is unexpectedly empty"
 
         # Second incarnation against the SAME database file.
         _server, handle, url = _make_server(db, slow_handler)
