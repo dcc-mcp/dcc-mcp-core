@@ -174,7 +174,7 @@ jobs:
         run: pip install maturin
         shell: bash
       - name: Build Python 3.7 wheel (non-abi3)
-        run: maturin build --release --out dist --features python-bindings,ext-module
+        run: maturin build --release --out dist --features python-bindings,ext-module,workflow,scheduler,prometheus,job-persist-sqlite
         shell: bash
       - name: Test Python 3.7 wheel
         shell: bash

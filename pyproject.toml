@@ -52,7 +52,7 @@ Issues = "https://github.com/loonghao/dcc-mcp-core/issues"
 [tool.maturin]
 python-source = "python"
 module-name = "dcc_mcp_core._core"
-features = ["python-bindings", "ext-module", "abi3-py38"]
+features = ["python-bindings", "ext-module", "abi3-py38", "workflow", "scheduler", "prometheus", "job-persist-sqlite"]
 bindings = "pyo3"
 
 [tool.mypy]

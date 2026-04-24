@@ -17,7 +17,7 @@ inputs:
   maturin-args:
     description: 'maturin build arguments'
     required: false
-    default: '--release --out dist --find-interpreter --features python-bindings,ext-module,abi3-py38'
+    default: '--release --out dist --find-interpreter --features python-bindings,ext-module,abi3-py38,workflow,scheduler,prometheus,job-persist-sqlite'
   test-wheel:
     description: 'Test the built wheel'
     required: false

@@ -47,7 +47,7 @@ jobs:
         with:
           target: universal2-apple-darwin
           python-version: '3.11'
-          maturin-args: '--release --out dist --sdist --find-interpreter --features python-bindings,ext-module,abi3-py38'
+          maturin-args: '--release --out dist --sdist --find-interpreter --features python-bindings,ext-module,abi3-py38,workflow,scheduler,prometheus,job-persist-sqlite'
           artifact-name: wheels-macos-universal2
 
   # ── Python 3.7 builds (non-abi3) — separate wheel for Python 3.7 only ──
@@ -65,7 +65,7 @@ jobs:
           target: x86_64
           python-version: '3.7'
           # Non-abi3 build: use python-bindings without abi3 feature
-          maturin-args: '--release --out dist -i python3.7 --features python-bindings,ext-module'
+          maturin-args: '--release --out dist -i python3.7 --features python-bindings,ext-module,workflow,scheduler,prometheus,job-persist-sqlite'
           test-wheel: ${{ inputs.test-wheel || 'true' }}
           artifact-name: wheels-linux-x86_64-py37
           use-sccache: 'false'
@@ -79,7 +79,7 @@ jobs:
           target: x64
           python-version: '3.7'
           # Non-abi3 build: use python-bindings without abi3 feature
-          maturin-args: '--release --out dist -i python3.7 --features python-bindings,ext-module'
+          maturin-args: '--release --out dist -i python3.7 --features python-bindings,ext-module,workflow,scheduler,prometheus,job-persist-sqlite'
           test-wheel: ${{ inputs.test-wheel || 'true' }}
           artifact-name: wheels-windows-x64-py37
           use-sccache: 'false'

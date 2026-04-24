@@ -83,7 +83,7 @@ dev:
         . .venv/bin/activate; \
     fi
     pip install maturin 2>/dev/null || true
-    maturin develop --features python-bindings,ext-module,workflow,scheduler
+    maturin develop --features python-bindings,ext-module,workflow,scheduler,prometheus,job-persist-sqlite
 
 [windows]
 dev:
@@ -92,20 +92,20 @@ dev:
         & .\.venv\Scripts\Activate.ps1; \
     }
     pip install maturin -q 2>$null
-    maturin develop --features python-bindings,ext-module,workflow,scheduler
+    maturin develop --features python-bindings,ext-module,workflow,scheduler,prometheus,job-persist-sqlite
 
 # Build abi3-py38 release wheel and install it
 install:
-    maturin build --release --out dist --features python-bindings,ext-module,abi3-py38
+    maturin build --release --out dist --features python-bindings,ext-module,abi3-py38,workflow,scheduler,prometheus,job-persist-sqlite
     pip install --force-reinstall --no-index --find-links dist dcc-mcp-core
 
 # Build abi3-py38 release wheel (dist/ only, no install)
 build:
-    maturin build --release --features python-bindings,ext-module,abi3-py38
+    maturin build --release --features python-bindings,ext-module,abi3-py38,workflow,scheduler,prometheus,job-persist-sqlite
 
 # Build Python 3.7 wheel (non-abi3, for py37-specific CI jobs)
 build-py37:
-    maturin build --release --out dist --features python-bindings,ext-module
+    maturin build --release --out dist --features python-bindings,ext-module,workflow,scheduler,prometheus,job-persist-sqlite
 
 # Install dev/test dependencies
 install-dev-deps:
