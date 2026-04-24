@@ -2586,6 +2586,127 @@ No new top-level SKILL.md field → `skills-ref validate` stays green.
 
 ---
 
+## Remote-Server Extensions (issues #404–#411)
+
+Pure-Python modules that extend the MCP HTTP server towards cloud-hosted agents (Claude.ai, Cursor, ChatGPT, VS Code). All symbols re-exported from `dcc_mcp_core`. Per-module API reference lives in `docs/api/{auth,batch,elicitation,rich-content,plugin-manifest,dcc-api-executor}.md`; end-to-end deployment guide in `docs/guide/remote-server.md`.
+
+### `dcc_mcp_core.auth` (issue #408)
+
+Declarative auth configuration + Bearer-token validation.
+
+- `ApiKeyConfig(api_key=None, env_var="DCC_MCP_API_KEY", header_name="Authorization")` — dataclass; `.resolve()` returns field → env var → None.
+- `OAuthConfig(provider_url, client_id=None, scopes=[], client_name="dcc-mcp-server", redirect_uri=None)` — derived `.authorization_endpoint`, `.token_endpoint`, `.well_known_url`; `.to_cimd_document(redirect_uri=...)` builds `CimdDocument`.
+- `CimdDocument(client_name, redirect_uris, grant_types=["authorization_code"], response_types=["code"], token_endpoint_auth_method="none", scope=None, logo_uri=None, client_uri=None, contacts=[])` — `.to_dict()` produces the JSON served from `GET /.well-known/oauth-client-metadata`.
+- `validate_bearer_token(headers, *, expected_token, header_name="Authorization") -> bool` — constant-time compare via `secrets.compare_digest`; case-insensitive header lookup; `expected_token=None` disables auth with a warning.
+- `generate_api_key(length=32) -> str` — URL-safe base64 from `secrets.token_urlsafe`.
+- `TokenValidationError` — exception type (reserved; `validate_bearer_token` returns bool).
+
+Status: API key path ships today via `McpHttpConfig.api_key`. OAuth Rust-side enforcement (serving CIMD well-known + enforcing `/mcp` Bearer) tracked in #408.
+
+### `dcc_mcp_core.batch` (issue #406)
+
+Server-side batch + sandboxed eval — intermediate results never enter model context.
+
+- `batch_dispatch(dispatcher, calls, *, aggregate="list", stop_on_error=False) -> dict`
+  - `calls`: `list[tuple[str, dict]]`
+  - `aggregate`: `"list"` / `"merge"` / `"last"` — added result key matches the mode
+  - Returns always-present `total`, `succeeded`, `errors` plus the mode-specific payload
+  - Failed calls produce `{"index": i, "tool": name, "error": str}` records; when `stop_on_error=True` the batch halts on the first failure
+- `EvalContext(dispatcher, *, sandbox=True, timeout_secs=30)`
+  - `.run(script: str)` wraps in a function body so top-level `return` works; last-expression is NOT implicitly returned
+  - Sandbox strips `open`, `exec`, `eval`, `__import__`, `compile`, `getattr`, `setattr`, `delattr`, `vars`, `dir`, `globals`, `locals` from `__builtins__`
+  - POSIX-only `SIGALRM` timeout; silently skipped on Windows
+  - Inside script: `dispatch(tool_name, args_dict) -> dict` is available; `json` module pre-imported
+
+Rust-level `tools/batch` + `dcc_mcp_core__eval` built-in MCP tools tracked in #406 — they will call through these same helpers.
+
+### `dcc_mcp_core.elicitation` (issue #407)
+
+Pause a tool mid-call to ask the user for input (MCP 2025-11-25 Elicitation spec).
+
+- `ElicitationMode` enum: `FORM`, `URL`
+- `FormElicitation(message, schema, title=None)` / `UrlElicitation(message, url, description=None)` — parameter dataclasses
+- `ElicitationRequest(mode, params)` — wraps a mode + params pair
+- `ElicitationResponse(accepted, data=None, message=None)` — returned by the helpers
+- `await elicit_form(message, schema, *, title=None) -> ElicitationResponse` — async form
+- `await elicit_url(message, url, *, description=None) -> ElicitationResponse` — async URL flow
+- `elicit_form_sync(message, schema, *, title=None, fallback_values=None) -> ElicitationResponse` — blocking wrapper for DCC main-thread handlers; `fallback_values` (if provided) returns `accepted=True, message="fallback_values_used"`
+
+Status: Rust-side `notifications/elicitation/request` + `notifications/elicitation/response` wiring tracked in #407. Until then, helpers log a warning and return `accepted=False, message="elicitation_not_supported"` — safe fallback lets handlers written today upgrade automatically.
+
+### `dcc_mcp_core.rich_content` (issue #409, MCP Apps)
+
+Inline chart / form / dashboard / image / table results rendered by MCP-Apps-aware clients.
+
+- `RichContentKind` enum: `CHART`, `FORM`, `DASHBOARD`, `IMAGE`, `TABLE`
+- `RichContent(kind, payload)` dataclass + class-method constructors:
+  - `.chart(spec)` — Vega-Lite v5 / Chart.js spec dict
+  - `.form(schema, *, title=None)` — JSON-Schema form (one-shot display; distinct from `elicit_form`)
+  - `.image(data, mime="image/png", *, alt=None)` — base64-encodes raw bytes
+  - `.image_from_file(path, mime=None, *, alt=None)` — auto-detects MIME from extension
+  - `.table(headers, rows, *, title=None)` — grid
+  - `.dashboard(components)` — composite layout of other `RichContent`
+  - `.to_dict() -> dict` — flattens to `{"kind": value, **payload}`
+- `attach_rich_content(result, content) -> dict` — sets `result["context"]["__rich__"] = content.to_dict()`; backward-compatible with plain clients
+- Skill-script helpers (return ready-to-use skill dicts):
+  - `skill_success_with_chart(message, chart_spec, **context) -> dict`
+  - `skill_success_with_table(message, headers, rows, *, title=None, **context) -> dict`
+  - `skill_success_with_image(message, image_data=None, image_path=None, mime="image/png", *, alt=None, **context) -> dict` — raises `ValueError` if both `image_data` and `image_path` are `None`
+
+Rust-side MCP Apps envelope wiring tracked in #409. Today's `context.__rich__` placement is ignored by plain clients.
+
+### `dcc_mcp_core.plugin_manifest` (issue #410)
+
+Claude Code one-click plugin bundles.
+
+- `PluginManifest(name, version, description, mcp_servers, skills, sub_agents=[])` dataclass
+  - `.to_dict()` / `.to_json(indent=2)`
+- `build_plugin_manifest(dcc_name, mcp_url, skill_paths=None, *, version="0.1.0", description=None, api_key=None, extra_mcp_servers=None, sub_agents=None) -> dict`
+  - Plugin name auto-derives as `<dcc_name>-mcp`; description auto-generates when `None`
+  - `api_key` → injected into `mcp_servers[0].headers.Authorization` as `Bearer <key>`
+  - Non-existent `skill_paths` entries are dropped with a debug log
+- `export_plugin_manifest(manifest, path, *, indent=2) -> Path` — writes JSON, creates parent dirs, returns resolved path
+- Convenience: `DccServerBase.plugin_manifest(version="...")` auto-fills `mcp_url` + `skill_paths` from the running server
+
+### `dcc_mcp_core.dcc_api_executor` (issue #411)
+
+Two-tool Cloudflare-pattern wrapper — covers 1500+ DCC commands in ~500 tokens.
+
+- `DccApiCatalog(dcc_name, commands=None, catalog_text=None)`
+  - `commands`: `list[{name, signature, description}]`
+  - `catalog_text`: plain-text `name - description` per line; `#` comments + blank lines ignored
+  - `.add_command(name, *, signature="", description="")` — runtime append
+  - `.search(query, *, limit=10)` — tokenised BM25-lite over `name + description + signature`; stopwords dropped (`the`, `a`, `an`, `in`, `for`, `of`); score-sorted then alphabetical
+  - `len(catalog)` returns command count
+- `DccApiExecutor(dcc_name, catalog=None, dispatcher=None)`
+  - `.search(query, *, limit=10) -> dict` — `dcc_search` handler; zero-hit path returns `"results": []` + `"hint"`
+  - `.execute(code, *, timeout_secs=30) -> dict` — `dcc_execute` handler; runs code via `EvalContext(sandbox=True)`, `dispatch()` available when dispatcher passed; handles `TimeoutError` + `RuntimeError` into structured error dicts
+  - `.catalog` property exposes the underlying `DccApiCatalog`
+- `register_dcc_api_executor(server, executor, *, search_tool_name="dcc_search", execute_tool_name="dcc_execute") -> None` — register both tools on `McpHttpServer` BEFORE `server.start()`
+
+Typical agent flow: `dcc_search({"query": ...})` → narrow down commands → `dcc_execute({"code": "for i in range(5): dispatch('polySphere', {'position': [i,0,0]}); return {'created': 5}"})`. Only the final return value reaches the model.
+
+Rust-level built-in `dcc_search` / `dcc_execute` tools tracked in #411 — they will call through these same handlers.
+
+### Minimum `McpHttpConfig` for remote access
+
+```python
+cfg = McpHttpConfig(
+    port=8765,
+    host="0.0.0.0",              # bind to all interfaces (default "127.0.0.1")
+    enable_cors=True,            # required for browser / Claude.ai / Cursor
+    allowed_origins=["https://claude.ai", "https://cursor.sh"],
+    spawn_mode="dedicated",      # always for PyO3-embedded DCC hosts
+)
+cfg.api_key = os.environ["DCC_MCP_API_KEY"]   # Bearer token
+server = create_skill_server("maya", cfg)
+handle = server.start()
+```
+
+See `docs/guide/remote-server.md` for the Docker / systemd / k8s / reverse-proxy TLS recipes and the `examples/remote-server/` deployable reference.
+
+---
+
 ## Development
 
 - Tool manager: [vx](https://github.com/loonghao/vx)

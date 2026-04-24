@@ -20,6 +20,14 @@
 | Write skill scripts | `skill_entry` + `skill_success` / `skill_error` — zero-boilerplate skill authoring |
 | Control skill trust level | `SkillScope` (Repo < User < System < Admin) — higher scope shadows lower |
 | Progressive tool exposure | `SkillGroup` with `default_active` + `activate_tool_group()` |
+| Remote-accessible MCP server (cloud agents) | `create_skill_server("maya", McpHttpConfig(host="0.0.0.0", port=8765, enable_cors=True))` — bind `0.0.0.0`, CORS on, Bearer auth via `cfg.api_key` |
+| Bearer-token / OAuth auth | `ApiKeyConfig`, `OAuthConfig`, `CimdDocument`, `validate_bearer_token(headers, expected_token=...)`, `generate_api_key()` |
+| Batch multiple tool calls server-side (issue #406) | `batch_dispatch(dispatcher, calls, aggregate="merge")` — returns `{total, succeeded, errors, merged}` |
+| Sandboxed script orchestration (issue #406) | `EvalContext(dispatcher, sandbox=True).run("...")` — script uses `dispatch(name, args)` |
+| Thin 2-tool surface for huge DCC APIs (issue #411) | `DccApiExecutor("maya", catalog, dispatcher)` + `register_dcc_api_executor(server, executor)` → `dcc_search`, `dcc_execute` |
+| Mid-call user input (issue #407) | `await elicit_form(message, schema)` / `elicit_form_sync(...)` / `await elicit_url(message, url)` — returns `ElicitationResponse` |
+| Inline chart / table / image result (MCP Apps, issue #409) | `skill_success_with_chart(msg, spec)` / `skill_success_with_table(msg, headers, rows)` / `skill_success_with_image(msg, image_data=...)` |
+| Claude Code one-click plugin bundle (issue #410) | `build_plugin_manifest(dcc_name, mcp_url, skill_paths, api_key=...)` + `export_plugin_manifest(manifest, path)` or `server.plugin_manifest(version=...)` |
 
 ## Quick Start
 
@@ -465,6 +473,159 @@ Opt-in via the `workflow` Cargo feature. Full spec-driven pipeline engine with s
 - **Python**: `from dcc_mcp_core import WorkflowSpec, WorkflowStep, StepPolicy, RetryPolicy, BackoffKind, WorkflowStatus`
 
 Full docs: `docs/guide/workflows.md`.
+
+## Remote-Server Extensions (issues #404–#411)
+
+Pure-Python helpers that enable cloud-hosted MCP agents (Claude.ai, Cursor, ChatGPT, VS Code) to reach your DCC server. All symbols are re-exported from `dcc_mcp_core`.
+
+### Auth (`#408`, `dcc_mcp_core.auth`)
+
+```python
+from dcc_mcp_core import (
+    ApiKeyConfig, OAuthConfig, CimdDocument,
+    validate_bearer_token, generate_api_key, TokenValidationError,
+)
+
+# API key — simplest: read from env, attach to McpHttpConfig
+cfg = McpHttpConfig(port=8765, host="0.0.0.0", enable_cors=True)
+cfg.api_key = ApiKeyConfig(env_var="DCC_MCP_API_KEY").resolve()
+
+# OAuth 2.1 + CIMD — serve /.well-known/oauth-client-metadata
+oauth = OAuthConfig(
+    provider_url="https://auth.example.com",
+    scopes=["scene:read", "render:write"],
+    client_name="Maya MCP Server",
+)
+cimd = oauth.to_cimd_document(redirect_uri="http://localhost:8765/oauth/callback")
+
+# Manual validation inside a pure-Python handler
+ok = validate_bearer_token(request_headers, expected_token=os.environ["DCC_MCP_API_KEY"])
+```
+
+### Batch Dispatch (`#406`, `dcc_mcp_core.batch`)
+
+```python
+from dcc_mcp_core import batch_dispatch, EvalContext
+
+# Sequential N calls → single aggregated summary; intermediate results never hit the model
+summary = batch_dispatch(
+    dispatcher,
+    [("get_scene_objects", {}), ("get_render_stats", {"layer": "beauty"})],
+    aggregate="merge",   # "list" | "merge" | "last"
+)
+summary["total"], summary["succeeded"], summary["errors"], summary["merged"]
+
+# Sandboxed script with access to dispatch() — the Cloudflare orchestration pattern
+ctx = EvalContext(dispatcher, sandbox=True, timeout_secs=30)
+keyframes = ctx.run("""
+frames = []
+for i in range(1, 11):
+    r = dispatch("get_frame_data", {"frame": i})
+    if r.get("output", {}).get("has_keyframe"):
+        frames.append(i)
+return frames
+""")
+```
+
+### Elicitation (`#407`, `dcc_mcp_core.elicitation`)
+
+```python
+from dcc_mcp_core import (
+    ElicitationMode, ElicitationRequest, ElicitationResponse,
+    FormElicitation, UrlElicitation,
+    elicit_form, elicit_form_sync, elicit_url,
+)
+
+# Async form (async def handlers)
+resp = await elicit_form(
+    message=f"Delete {n} objects? This cannot be undone.",
+    schema={"type": "object", "properties": {"confirm": {"type": "boolean"}}, "required": ["confirm"]},
+)
+if not resp.accepted or not resp.data.get("confirm"):
+    return {"success": False, "message": "Cancelled by user"}
+
+# Sync variant for DCC main-thread handlers; optional fallback_values for unsupported clients
+resp = elicit_form_sync(message="...", schema={...}, fallback_values={"confirm": True})
+
+# URL mode (OAuth / payment / credential collection)
+resp = await elicit_url(message="Authorize Shotgrid access", url="https://.../oauth/authorize?...")
+```
+
+Status: stubs return `accepted=False, message="elicitation_not_supported"` until Rust transport wires `notifications/elicitation/request`. Design handlers today — they upgrade automatically.
+
+### Rich Content / MCP Apps (`#409`, `dcc_mcp_core.rich_content`)
+
+```python
+from dcc_mcp_core import (
+    RichContent, RichContentKind, attach_rich_content,
+    skill_success_with_chart, skill_success_with_table, skill_success_with_image,
+)
+
+# Inline Vega-Lite chart from a skill script
+return skill_success_with_chart(
+    "Render complete",
+    chart_spec={
+        "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+        "data": {"values": stats},
+        "mark": "bar",
+        "encoding": {"x": {"field": "layer"}, "y": {"field": "time_secs"}},
+    },
+    total_frames=250,
+)
+
+# Table / image
+return skill_success_with_table("Scene objects", headers=["Name", "Type"], rows=[["pCube1", "mesh"]])
+return skill_success_with_image("Viewport captured", image_data=png_bytes, alt="Maya viewport")
+
+# Low-level: attach any RichContent to an existing result dict
+result = skill_success("Render complete", total_frames=250)
+return attach_rich_content(result, RichContent.dashboard([RichContent.chart({...}), RichContent.table(...)]))
+```
+
+Today rich content lives under `result.context["__rich__"]`; MCP-Apps-aware clients render it, others ignore gracefully. Full `tools/call` envelope wiring tracked in #409.
+
+### Plugin Manifest (`#410`, `dcc_mcp_core.plugin_manifest`)
+
+```python
+from dcc_mcp_core import PluginManifest, build_plugin_manifest, export_plugin_manifest
+
+manifest = build_plugin_manifest(
+    dcc_name="maya",
+    mcp_url="https://mcp.example.com/mcp",
+    skill_paths=["/opt/skills/maya-geometry"],
+    version="1.2.0",
+    api_key="studio-token",     # → headers.Authorization: Bearer …
+)
+export_plugin_manifest(manifest, "dist/maya-mcp.plugin.json")
+
+# Recommended on DccServerBase:
+manifest = server.plugin_manifest(version="1.2.0")
+```
+
+### DCC API Executor (`#411`, `dcc_mcp_core.dcc_api_executor`)
+
+Covers 2000+ DCC commands in a 2-tool surface (~500 tokens) — the "Cloudflare pattern" for DCC APIs.
+
+```python
+from dcc_mcp_core import DccApiCatalog, DccApiExecutor, register_dcc_api_executor
+
+catalog = DccApiCatalog("maya", catalog_text="""
+polyCube - Create a cube polygon mesh
+polySphere - Create a sphere polygon mesh
+select - Select nodes in the scene
+""")
+catalog.add_command("render", signature="render(frame)", description="Render the current frame")
+
+executor = DccApiExecutor("maya", catalog=catalog, dispatcher=dispatcher)
+register_dcc_api_executor(server, executor)   # before server.start()
+# tools/list now contains only: dcc_search, dcc_execute
+
+# Agent workflow:
+# dcc_search({"query": "create sphere"}) → finds polySphere
+# dcc_execute({"code": "dispatch('polySphere', {...}); return {'ok': True}"})
+```
+
+Full guide: `docs/guide/remote-server.md`. Per-module API: `docs/api/{auth,batch,elicitation,rich-content,plugin-manifest,dcc-api-executor}.md`.
 
 ## Documentation
 

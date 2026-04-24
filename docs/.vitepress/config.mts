@@ -20,7 +20,7 @@ export default defineConfig({
           { text: 'Guide', link: '/guide/what-is-dcc-mcp-core' },
           { text: 'API', link: '/api/models' },
           {
-            text: 'v0.14.6',
+            text: 'v0.14.9',
             items: [
               { text: 'Changelog', link: 'https://github.com/loonghao/dcc-mcp-core/blob/main/CHANGELOG.md' },
               { text: 'PyPI', link: 'https://pypi.org/project/dcc-mcp-core/' },
@@ -44,6 +44,7 @@ export default defineConfig({
                 { text: 'Skill Scopes & Policies', link: '/guide/skill-scopes-policies' },
                 { text: 'Gateway Election', link: '/guide/gateway-election' },
                 { text: 'Gateway', link: '/guide/gateway' },
+                { text: 'Remote Server', link: '/guide/remote-server' },
                 { text: 'Production Deployment', link: '/guide/production-deployment' },
               ]
             },
@@ -101,6 +102,17 @@ export default defineConfig({
                 { text: 'Resources', link: '/api/resources' },
                 { text: 'Workflow', link: '/api/workflow' },
               ]
+            },
+            {
+              text: 'Remote-Server Extensions',
+              items: [
+                { text: 'Auth (API Key + OAuth/CIMD)', link: '/api/auth' },
+                { text: 'Batch Dispatch', link: '/api/batch' },
+                { text: 'Elicitation', link: '/api/elicitation' },
+                { text: 'Plugin Manifest', link: '/api/plugin-manifest' },
+                { text: 'Rich Content (MCP Apps)', link: '/api/rich-content' },
+                { text: 'DCC API Executor', link: '/api/dcc-api-executor' },
+              ]
             }
           ]
         },
@@ -115,7 +127,7 @@ export default defineConfig({
           { text: '指南', link: '/zh/guide/what-is-dcc-mcp-core' },
           { text: 'API', link: '/zh/api/models' },
           {
-            text: 'v0.14.6',
+            text: 'v0.14.9',
             items: [
               { text: '更新日志', link: 'https://github.com/loonghao/dcc-mcp-core/blob/main/CHANGELOG.md' },
               { text: 'PyPI', link: 'https://pypi.org/project/dcc-mcp-core/' },
@@ -139,6 +151,7 @@ export default defineConfig({
                 { text: 'Skill 作用域与策略', link: '/zh/guide/skill-scopes-policies' },
                 { text: '网关选举机制', link: '/zh/guide/gateway-election' },
                 { text: 'Gateway', link: '/zh/guide/gateway' },
+                { text: '远程服务器', link: '/zh/guide/remote-server' },
                 { text: '生产环境部署', link: '/zh/guide/production-deployment' },
               ]
             },
@@ -195,6 +208,17 @@ export default defineConfig({
                 { text: '可观测性', link: '/zh/api/observability' },
                 { text: 'Resources', link: '/zh/api/resources' },
                 { text: 'Workflow', link: '/zh/api/workflow' },
+              ]
+            },
+            {
+              text: '远程服务器扩展',
+              items: [
+                { text: '认证 (API Key + OAuth/CIMD)', link: '/zh/api/auth' },
+                { text: '批量分发', link: '/zh/api/batch' },
+                { text: 'Elicitation 用户交互', link: '/zh/api/elicitation' },
+                { text: '插件清单', link: '/zh/api/plugin-manifest' },
+                { text: 'Rich Content (MCP Apps)', link: '/zh/api/rich-content' },
+                { text: 'DCC API Executor', link: '/zh/api/dcc-api-executor' },
               ]
             }
           ]

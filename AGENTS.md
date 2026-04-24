@@ -35,6 +35,11 @@ A Rust-powered MCP (Model Context Protocol) library that lets AI agents interact
 | Trust-based skill scoping | `SkillScope` (Repo → User → System → Admin) — **Rust-only**; Python uses string values via `SkillMetadata` |
 | Progressive tool exposure | `SkillGroup` with `default_active` + `activate_tool_group()` |
 | Instance-bound diagnostics | `DccServerBase(..., dcc_pid=pid)` → scoped `diagnostics__*` tools |
+| Remote-server auth (API key / OAuth / CIMD) | `ApiKeyConfig`, `OAuthConfig`, `validate_bearer_token`, `McpHttpConfig.api_key` |
+| Batch tool calls / sandboxed script orchestration | `batch_dispatch()`, `EvalContext`, `DccApiExecutor` (2-tool Cloudflare pattern) |
+| Mid-call user input (confirm destructive, fill missing param, OAuth) | `elicit_form()`, `elicit_url()`, `elicit_form_sync()` |
+| Inline chart / table / image tool results (MCP Apps) | `skill_success_with_chart/table/image`, `RichContent`, `attach_rich_content()` |
+| Claude Code one-click plugin bundle | `build_plugin_manifest()`, `DccServerBase.plugin_manifest()` |
 
 **The three files that define the entire public API surface — read them in this order:**
 
@@ -268,6 +273,30 @@ Need to interact with DCC?
 → Pipeline: `spec → validate → spawn driver → drive(steps) → per-step policy (retry+timeout+idempotency) → dispatch by kind → artefact handoff → SSE `$/dcc.workflowUpdated` → sqlite upsert → next step`.
 → Cancellation cascades from root `CancellationToken` to every step driver and caller; interrupt propagation bounded by one cooperative checkpoint.
 → With `job-persist-sqlite`: non-terminal rows flip to `interrupted` on restart (no auto-resume).
+
+**Expose an MCP server to cloud-hosted agents (Claude.ai, Cursor, ChatGPT, VS Code)?**
+→ [`docs/guide/remote-server.md`](docs/guide/remote-server.md) — `host="0.0.0.0"`, CORS, API key / OAuth, Docker + reverse-proxy TLS recipes
+→ Example: [`examples/remote-server/`](examples/remote-server/) — minimal deployable server + hello-world skill + Dockerfile + docker-compose
+→ Auth: `ApiKeyConfig` / `OAuthConfig` / `CimdDocument` / `validate_bearer_token` / `generate_api_key` — see [`docs/api/auth.md`](docs/api/auth.md)
+
+**Reduce tool-call round-trips by batching or code-orchestration (issues #406, #411)?**
+→ [`docs/api/batch.md`](docs/api/batch.md) — `batch_dispatch()` (sequential N-call summary) and `EvalContext` (sandboxed script with `dispatch()`)
+→ [`docs/api/dcc-api-executor.md`](docs/api/dcc-api-executor.md) — `DccApiCatalog` + `DccApiExecutor` + `register_dcc_api_executor()` — the 2-tool "Cloudflare pattern" that covers 2000+ DCC commands in ~500 tokens
+→ Python helpers ship now; Rust-level `tools/batch` + `dcc_mcp_core__eval` + `dcc_search` / `dcc_execute` built-ins land in follow-up PRs
+
+**Pause a tool call to ask the user for input (issue #407)?**
+→ [`docs/api/elicitation.md`](docs/api/elicitation.md) — `elicit_form` (async), `elicit_form_sync` (DCC main-thread), `elicit_url` (OAuth / payment / credential flows)
+→ Types: `ElicitationMode`, `ElicitationRequest`, `ElicitationResponse`, `FormElicitation`, `UrlElicitation`
+→ Status: stubs return `accepted=False, message="elicitation_not_supported"` until Rust transport support lands — design handlers now, upgrade automatically
+
+**Return rich inline UI (chart / form / image / table / dashboard) — MCP Apps (issue #409)?**
+→ [`docs/api/rich-content.md`](docs/api/rich-content.md) — `RichContent.{chart,form,image,table,dashboard}`, `attach_rich_content()`
+→ Skill-script helpers: `skill_success_with_chart()` / `skill_success_with_table()` / `skill_success_with_image()`
+→ Stored today under `result.context["__rich__"]`; Rust-side MCP Apps envelope wiring tracked in #409
+
+**Bundle your server as a Claude Code one-click plugin (issue #410)?**
+→ [`docs/api/plugin-manifest.md`](docs/api/plugin-manifest.md) — `PluginManifest`, `build_plugin_manifest()`, `export_plugin_manifest()`
+→ Recommended: `DccServerBase.plugin_manifest(version=...)` — auto-fills `mcp_url` + `skill_paths` from the running server
 
 **Validate tool names or action IDs (SEP-986)?**
 → [`docs/guide/naming.md`](docs/guide/naming.md)
