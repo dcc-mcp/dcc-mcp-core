@@ -41,10 +41,23 @@ impl SubscriberManager {
     }
 
     pub(super) async fn open_stream(&self, url: &str) -> reqwest::Result<reqwest::Response> {
+        // NOTE: Intentionally do NOT call `.timeout(..)` here.
+        //
+        // `RequestBuilder::timeout()` in reqwest 0.13 applies to the *entire*
+        // request — including the streaming response body — so for an SSE
+        // subscription it would abort the long-lived stream as soon as the
+        // timeout elapsed, producing a recurring "error decoding response
+        // body" every few seconds (gateway SSE reconnect storm, visible in
+        // the logs as back-to-back `gatewayReconnect` events).
+        //
+        // The idle/heartbeat timeout for the established stream is enforced
+        // by `pump_stream` via `tokio::time::timeout` around each chunk
+        // read (see [`STREAM_IDLE_TIMEOUT`]), so the connect phase here
+        // only needs whatever default the shared `reqwest::Client` was
+        // built with.
         self.inner
             .http_client
             .get(url)
-            .timeout(CONNECT_TIMEOUT)
             .header("accept", "text/event-stream")
             .send()
             .await
@@ -54,7 +67,24 @@ impl SubscriberManager {
     pub(super) async fn pump_stream(&self, resp: reqwest::Response, shared: &BackendShared) {
         let mut stream = resp.bytes_stream();
         let mut scratch: Vec<u8> = Vec::with_capacity(4096);
-        while let Some(chunk) = stream.next().await {
+        loop {
+            // Apply an idle/read timeout *per chunk* rather than to the
+            // whole request — this keeps the long-lived SSE stream alive
+            // as long as the backend emits heartbeats within the window,
+            // while still failing fast if the backend stalls.
+            let chunk = match tokio::time::timeout(STREAM_IDLE_TIMEOUT, stream.next()).await {
+                Ok(Some(item)) => item,
+                // Stream terminated cleanly by the server.
+                Ok(None) => break,
+                Err(_) => {
+                    tracing::debug!(
+                        backend = %shared.url,
+                        idle_secs = STREAM_IDLE_TIMEOUT.as_secs(),
+                        "gateway SSE: read idle timeout — reconnecting"
+                    );
+                    break;
+                }
+            };
             let bytes = match chunk {
                 Ok(b) => b,
                 Err(e) => {

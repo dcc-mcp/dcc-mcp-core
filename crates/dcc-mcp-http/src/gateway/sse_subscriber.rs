@@ -91,8 +91,19 @@ pub(crate) const RECONNECT_MAX: Duration = Duration::from_secs(10);
 /// Jitter multiplier applied to each reconnect delay (±25 %).
 pub(crate) const RECONNECT_JITTER: f32 = 0.25;
 
-/// Request timeout used when opening the backend SSE stream.
-pub(crate) const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+/// Idle/read timeout applied to the established backend SSE stream.
+///
+/// This caps how long the subscriber waits between consecutive chunks
+/// on the response body — **not** the total request duration. It must
+/// be noticeably larger than the server-side SSE keep-alive interval
+/// (axum's `KeepAlive::default()` emits a heartbeat every 15 s), so we
+/// pick 60 s to tolerate GC pauses and transient network stalls while
+/// still failing fast if the backend goes silent.
+///
+/// Do NOT pass this into `RequestBuilder::timeout()`; that would abort
+/// the long-lived stream after this interval and trigger an endless
+/// reconnect loop.
+pub(crate) const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Default ceiling on how long a non-terminal `JobRoute` may live in
 /// the gateway's routing cache (`gateway_route_ttl`, issue #322).

@@ -409,3 +409,35 @@ fn forget_job_cleans_up_reverse_indexes() {
             .is_none_or(|s| !s.contains("j1"))
     );
 }
+
+// ── Regression: gateway SSE reconnect storm ────────────────────────
+//
+// History: `reconnect::open_stream` used to pass a 5 s
+// `CONNECT_TIMEOUT` into `RequestBuilder::timeout()`. reqwest treats
+// that as a *total* request timeout, so the long-lived SSE stream got
+// aborted every 5 s — producing a recurring
+// `error decoding response body` / `gatewayReconnect` loop in the
+// gateway logs while Maya was otherwise idle.
+//
+// The fix replaced the total timeout with a per-chunk idle timeout
+// (`STREAM_IDLE_TIMEOUT`) enforced inside `pump_stream`. This test
+// locks in the invariant that the idle window comfortably exceeds the
+// server-side SSE keep-alive interval so heartbeats cannot trip it.
+
+#[test]
+fn stream_idle_timeout_exceeds_axum_default_keepalive() {
+    // `axum::response::sse::KeepAlive::default()` emits a heartbeat
+    // every 15 s. The subscriber's idle timeout must be strictly
+    // larger than that, with enough slack for GC pauses and transient
+    // network stalls — otherwise an otherwise-healthy backend that
+    // only sends heartbeats (no real events) would be incorrectly
+    // classified as dead every `STREAM_IDLE_TIMEOUT`.
+    const AXUM_DEFAULT_KEEPALIVE_SECS: u64 = 15;
+    assert!(
+        STREAM_IDLE_TIMEOUT.as_secs() > AXUM_DEFAULT_KEEPALIVE_SECS * 2,
+        "STREAM_IDLE_TIMEOUT={}s must be comfortably greater than 2x the \
+         axum default keep-alive ({}s) to avoid spurious reconnects",
+        STREAM_IDLE_TIMEOUT.as_secs(),
+        AXUM_DEFAULT_KEEPALIVE_SECS
+    );
+}
