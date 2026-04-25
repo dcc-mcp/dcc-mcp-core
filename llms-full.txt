@@ -644,7 +644,7 @@ all_skills: list[SkillSummary] = catalog.list_skills()
 loaded_skills = catalog.list_skills(status="loaded")
 
 # Search — matches name, description, search_hint, and tool names
-results = catalog.find_skills(query="geometry", tags=["maya"], dcc="maya")
+results = catalog.search_skills(query="geometry", tags=["maya"], dcc="maya")
 
 # Load / unload individual skills
 catalog.load_skill("maya-geometry")      # -> bool
@@ -2357,8 +2357,8 @@ print(f"Maya MCP server at {handle.mcp_url()}")
 # Claude Desktop config: {"mcpServers": {"maya": {"url": "<handle.mcp_url()>"}}}
 
 # On-demand skill discovery workflow (agent-driven):
-# 1. tools/list → 6 core tools + __skill__<name> stubs for unloaded skills
-#    Core tools: find_skills, list_skills, get_skill_info, load_skill, unload_skill, search_skills
+# 1. tools/list → 5 core tools + __skill__<name> stubs for unloaded skills
+#    Core tools: list_skills, get_skill_info, load_skill, unload_skill, search_skills
 # 2. search_skills(query="bevel") → compact one-line-per-skill results matching search_hint/tool names
 # 3. load_skill("maya-bevel") → registers tools + handlers, sends tools/list_changed
 # 4. tools/list → new skill tools visible with full schemas

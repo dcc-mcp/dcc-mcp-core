@@ -153,7 +153,7 @@ crates/
 - `SkillCatalog(scanner)` — construct with a `SkillScanner`
 - `.discover(extra_paths=None, dcc_name=None)` — scan and populate catalog
 - `.list_skills(status=None) -> List[SkillSummary]` — filter by `"loaded"` / `"unloaded"` / `None`
-- `.find_skills(query=None, tags=None, dcc=None) -> List[SkillSummary]` — matches name, description, search_hint, tool names
+- `.search_skills(query=None, tags=None, dcc=None, scope=None, limit=None) -> List[SkillSummary]` — unified discovery: matches name, description, search_hint, tool names; scope filters by trust level; empty call browses by scope precedence
 - `.load_skill(skill_name) -> bool` / `.unload_skill(skill_name) -> bool`
 - `.get_skill_info(skill_name) -> Optional[SkillMetadata]`
 - `.is_loaded(skill_name) -> bool` / `.loaded_count() -> int`

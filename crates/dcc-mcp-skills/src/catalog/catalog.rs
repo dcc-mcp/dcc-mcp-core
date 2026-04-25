@@ -17,7 +17,7 @@ impl SkillCatalog {
     /// When `query` is `None` or empty the pre-filter result is returned in
     /// a deterministic order (scope descending, then alphabetical name), so
     /// callers don't observe `DashMap` iteration order.
-    pub fn find_skills(
+    pub fn rank_skills(
         &self,
         query: Option<&str>,
         tags: &[&str],
@@ -79,7 +79,7 @@ impl SkillCatalog {
     /// Unified skill discovery (issue #340).
     ///
     /// Behaviour:
-    /// - `query` / `tags` / `dcc` are AND-ed through [`find_skills`] — ranking
+    /// - `query` / `tags` / `dcc` are AND-ed through the internal ranker —
     ///   and scoring (including the #343 BM25-lite ranker) are reused as-is.
     /// - `scope` restricts the result to one [`SkillScope`] level. The filter
     ///   is applied post-ranking so high-scoring skills from other scopes
@@ -96,7 +96,7 @@ impl SkillCatalog {
         scope: Option<SkillScope>,
         limit: Option<usize>,
     ) -> Vec<SkillSummary> {
-        let ranked = self.find_skills(query, tags, dcc);
+        let ranked = self.rank_skills(query, tags, dcc);
 
         let filtered: Vec<SkillSummary> = match scope {
             None => ranked,

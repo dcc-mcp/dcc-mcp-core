@@ -125,7 +125,6 @@ server = McpHttpServer(
 | `discover(extra_paths, dcc_name)` | `int` | Scan and populate the skill catalog; returns count of discovered skills |
 | `load_skill(skill_name)` | `list[str]` | Load a skill, registering its tools; returns tool names |
 | `unload_skill(skill_name)` | `bool` | Unload a skill, removing its tools |
-| `find_skills(query, tags, dcc)` | `list[SkillSummary]` | **Deprecated (issue #340)** — kept as a compatibility alias; forwards to `search_skills` and attaches a `_meta["dcc.deprecation"]` notice. Scheduled for removal in v0.17. |
 | `search_skills(query, tags, dcc, scope, limit)` | `list[SkillSummary]` | Unified skill discovery. All arguments optional; empty call returns the top `limit` skills by scope precedence (Admin > System > User > Repo). |
 | `list_skills(status)` | `list[SkillSummary]` | List skills with optional status filter (`"loaded"`/`"unloaded"`) |
 | `is_loaded(skill_name)` | `bool` | Check if a skill is currently loaded |
@@ -197,7 +196,6 @@ Every `McpHttpServer` emits a fixed set of built-in tools in `tools/list` in add
 | `deactivate_tool_group` | Collapses a tool group back to a stub to shrink the token footprint. | `activate_tool_group(...)` |
 | `search_tools` | Full-text search over **already-registered** tools. If nothing matches, try `search_skills`. | Call the matched tool |
 | `list_roots` | Returns the filesystem roots the client advertised via `roots/list`. Rarely needed. | — |
-| `find_skills` | **Deprecated** — kept for legacy clients; new code should use `search_skills`. | `search_skills(query=...)` |
 
 ### Lazy-actions fast-path (opt-in)
 
@@ -292,7 +290,7 @@ When multiple DCC instances start simultaneously, one automatically becomes the 
 | Tier | Tools | Purpose |
 |------|-------|---------|
 | Discovery meta | `list_dcc_instances`, `get_dcc_instance`, `connect_to_dcc` | Enumerate / inspect live DCCs; get a direct MCP URL when needed |
-| Skill management | `list_skills`, `search_skills`, `get_skill_info`, `load_skill`, `unload_skill` (plus `find_skills` as a deprecated alias for `search_skills` — removed in v0.17) | Fan-out to every DCC (read ops) or target a specific instance via the `instance_id` / `dcc` argument (`load_skill` / `unload_skill`) |
+| Skill management | `list_skills`, `search_skills`, `get_skill_info`, `load_skill`, `unload_skill` | Fan-out to every DCC (read ops) or target a specific instance via the `instance_id` / `dcc` argument (`load_skill` / `unload_skill`) |
 | Backend tools | Every live DCC's own tools, prefixed with an 8-char instance id — e.g. `a1b2c3d4__create_sphere` | Routed to the originating backend by the prefix |
 
 Each namespaced backend tool also carries `_instance_id`, `_instance_short`, and `_dcc_type` annotations so agents can disambiguate colliding names (e.g. `create_cube` on Maya and Blender appear as two distinct entries with different prefixes).

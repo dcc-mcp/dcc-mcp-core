@@ -46,8 +46,9 @@ print-wheel-features-py37:
 
 # ── Rust ──────────────────────────────────────────────────────────────────────
 
-# Check all crates compile
+# Check all crates compile (also regenerates _core.pyi for IDE completions)
 check:
+    just stubgen
     cargo check --workspace
 
 # Run clippy (same flags as CI)

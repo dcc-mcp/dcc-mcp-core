@@ -40,16 +40,17 @@ fn main() -> Result<()> {
     // 3. Build header: constants + metadata that pyo3-stub-gen cannot emit
     let header = build_header();
 
-    // 3b. Build supplements: hand-written stubs for types whose methods use
-    //     & [u8] or other types that don't implement PyStubType.
-    let supplements = build_supplements();
-
     // 4. Assemble final _core.pyi
     let final_content = if gen_content.is_empty() {
-        format!("{header}\n\n{supplements}")
+        header
     } else {
-        format!("{header}\n\n{gen_content}\n\n{supplements}")
+        format!("{header}\n\n{gen_content}")
     };
+
+    // 4. Post-process: fix pyo3-stub-gen type mappings that are imprecise.
+    //    pyo3-stub-gen maps `Vec<u8>` → `list[int]`, but at runtime PyO3
+    //    converts it to `bytes`. Replace the imprecise annotations.
+    let final_content = fix_vec_u8_types(final_content);
 
     // 5. Write or check
     let final_path = manifest_dir.join(FINAL_STUB);
@@ -135,29 +136,26 @@ DEFAULT_LOG_MAX_FILES: builtins.int
     )
 }
 
-/// Hand-written stub supplements for types whose methods use `&[u8]` or other
-/// types that don't implement `PyStubType`, so `gen_stub_pymethods` /`
-/// `gen_stub_pyfunction` cannot be applied.
+/// Post-process the generated stub to fix imprecise type mappings.
 ///
-/// These are appended **after** the auto-generated stubs so they take
-/// precedence when a type-checker merges class bodies (PEP 484 allows
-/// multiple partial class definitions in a `.pyi`).
-fn build_supplements() -> String {
-    r#"# ── Supplement: methods skipped by pyo3-stub-gen (&[u8] / PyStubType) ──
-
-class DccLinkFrame:
-    def __init__(self, msg_type: builtins.int, seq: builtins.int, body: builtins.bytes = ...) -> None: ...
-    @property
-    def msg_type(self) -> builtins.int: ...
-    @property
-    def seq(self) -> builtins.int: ...
-    @property
-    def body(self) -> builtins.bytes: ...
-    def encode(self) -> builtins.bytes: ...
-    @staticmethod
-    def decode(data: builtins.bytes) -> DccLinkFrame: ...
-    def __repr__(self) -> builtins.str: ...
-
-def artefact_put_bytes(data: builtins.bytes, mime: typing.Optional[builtins.str] = ...) -> FileRef: ..."#
-        .to_string()
+/// pyo3-stub-gen maps `Vec<u8>` → `list[int]` and `Option<Vec<u8>>` →
+/// `Optional[Sequence[int]]`, but at runtime PyO3 converts these to/from
+/// Python `bytes`. This function replaces the imprecise annotations with
+/// the correct `bytes` types.
+fn fix_vec_u8_types(content: String) -> String {
+    // Vec<u8> return type: `builtins.list[builtins.int]` → `builtins.bytes`
+    let content = content.replace("builtins.list[builtins.int]", "builtins.bytes");
+    // Vec<u8> parameter type: `typing.Sequence[builtins.int]` → `builtins.bytes`
+    let content = content.replace("typing.Sequence[builtins.int]", "builtins.bytes");
+    // Option<Vec<u8>> parameter: `typing.Optional[typing.Sequence[builtins.int]]` → `typing.Optional[builtins.bytes]`
+    let content = content.replace(
+        "typing.Optional[typing.Sequence[builtins.int]]",
+        "typing.Optional[builtins.bytes]",
+    );
+    // Option<Vec<u8>> parameter (already partially replaced): catch remaining
+    let content = content.replace(
+        "typing.Optional[builtins.bytes]",
+        "typing.Optional[builtins.bytes]",
+    );
+    content
 }

@@ -95,7 +95,7 @@ catalog.with_dispatcher(dispatcher)
 catalog.discover(extra_paths=["/my/skills"], dcc_name="maya")
 
 # 搜索
-results = catalog.find_skills(query="geometry", tags=["create"], dcc="maya")
+results = catalog.search_skills(query="geometry", tags=["create"], dcc="maya")
 for s in results:
     print(f"{s.name}: {s.tool_count} 个工具 {s.tool_names}")
 
@@ -117,7 +117,7 @@ info = catalog.get_skill_info("maya-geometry")  # dict 或 None
 
 ### SkillSummary 字段
 
-`find_skills()` 和 `list_skills()` 返回 `SkillSummary` 对象：
+`search_skills()` 和 `list_skills()` 返回 `SkillSummary` 对象：
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -369,8 +369,7 @@ def create_skill_server(
 
 ### 三层 `tools/list` 响应
 
-1. **6 个核心发现工具**（始终存在）：
-   - `find_skills` — 按查询、标签、DCC 类型搜索 Skill
+1. **5 个核心发现工具**（始终存在）：
    - `list_skills` — 列出所有 Skill，可按状态筛选
    - `get_skill_info` — 获取指定 Skill 的完整元数据
    - `load_skill` — 加载 Skill，将其工具注册到 ToolRegistry
@@ -428,7 +427,6 @@ def create_skill_server(
 
 | 工具 | 说明 |
 |------|------|
-| `find_skills` | 按条件搜索技能（query/tags/dcc） |
 | `list_skills` | 列出技能及加载状态 |
 | `get_skill_info` | 获取技能的完整元数据 |
 | `load_skill` | 加载技能 — 将其工具注册到 ToolRegistry |
@@ -439,7 +437,7 @@ def create_skill_server(
 
 `tools/list` 返回三层内容：
 
-1. **核心发现工具**（6 个，始终完整）— `find_skills`、`list_skills`、`get_skill_info`、`load_skill`、`unload_skill`、`search_skills`
+1. **核心发现工具**（5 个，始终完整）— `list_skills`、`get_skill_info`、`load_skill`、`unload_skill`、`search_skills`
 2. **已加载技能工具** — 来自 ToolRegistry，带完整 `input_schema`
 3. **未加载技能存根** — `__skill__<name>` 格式名称 + 一句话描述，无完整 schema
 

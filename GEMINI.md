@@ -175,7 +175,7 @@ print(handle.mcp_url())   # "http://127.0.0.1:8765/mcp"
 ### On-Demand Skill Discovery (MCP HTTP)
 
 `tools/list` returns three tiers:
-1. **6 core tools** (always): `find_skills`, `list_skills`, `get_skill_info`, `load_skill`, `unload_skill`, `search_skills`
+1. **5 core tools** (always): `list_skills`, `get_skill_info`, `load_skill`, `unload_skill`, `search_skills`
 2. **Loaded skill tools** — full `input_schema` from ToolRegistry
 3. **Unloaded skill stubs** — `__skill__<name>` with one-line description only
 
@@ -217,7 +217,7 @@ search-hint: "polygon modeling, bevel, extrude, mesh editing"
 
 23. **`external_deps` on SkillMetadata**: A JSON string field for declaring external requirements (MCP servers, env vars, binaries). Set via `md.external_deps = json.dumps(deps)`, read via `json.loads(md.external_deps)`. Returns `None` when not set. See `docs/guide/skill-scopes-policies.md` for the schema.
 
-24. **tools/list has 6 core tools** (not 5): `find_skills`, `list_skills`, `get_skill_info`, `load_skill`, `unload_skill`, **`search_skills``. Unloaded skills appear as `__skill__<name>` stubs — calling a stub returns a `load_skill` hint, not an error about missing handlers.
+24. **tools/list has 5 core tools**: `list_skills`, `get_skill_info`, `load_skill`, `unload_skill`, **`search_skills``. Unloaded skills appear as `__skill__<name>` stubs — calling a stub returns a `load_skill` hint, not an error about missing handlers.
 
 25. **`search_hint` fallback**: If `search-hint:` is not in SKILL.md, `SkillSummary.search_hint` falls back to `description`. Set `search-hint` explicitly for better keyword matching.
 

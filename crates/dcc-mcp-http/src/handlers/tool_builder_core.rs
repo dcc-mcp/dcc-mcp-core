@@ -165,7 +165,7 @@ pub fn build_core_tools_inner() -> Vec<McpTool> {
         },
         McpTool {
             name: "search_skills".to_string(),
-            description: "Unified skill discovery (#340, supersedes find_skills). Ranks skills against query across name, description, search-hint, tags, and tool names; filters by tags/dcc/scope.\n\n\
+            description: "Unified skill discovery. Ranks skills against query across name, description, search-hint, tags, and tool names; filters by tags/dcc/scope.\n\n\
                           When to use: Start here when you need a capability but don't know the skill name. Call with no args to browse by trust scope (Admin>System>User>Repo).\n\n\
                           How to use:\n\
                           - Keep query short (2-4 keywords); combine with tags/dcc/scope.\n\

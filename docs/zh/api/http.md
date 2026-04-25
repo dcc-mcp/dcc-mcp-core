@@ -233,7 +233,7 @@ print(f"Maya MCP 服务器: {handle.mcp_url()}")
 | 层级 | 工具 | 用途 |
 |------|------|------|
 | 发现元工具 | `list_dcc_instances`、`get_dcc_instance`、`connect_to_dcc` | 枚举 / 查看活跃 DCC；需要直连时返回直接 MCP URL |
-| 技能管理 | `list_skills`、`find_skills`、`search_skills`、`get_skill_info`、`load_skill`、`unload_skill` | 读操作向全部 DCC 扇出；`load_skill` / `unload_skill` 通过 `instance_id` / `dcc` 参数指向具体实例 |
+| 技能管理 | `list_skills`、`search_skills`、`get_skill_info`、`load_skill`、`unload_skill` | 读操作向全部 DCC 扇出；`load_skill` / `unload_skill` 通过 `instance_id` / `dcc` 参数指向具体实例 |
 | 后端工具 | 所有活跃 DCC 自身的工具，带 8 字符实例前缀 — 例如 `a1b2c3d4__create_sphere` | 按前缀路由回原始后端 |
 
 每个命名空间化的后端工具还会附带 `_instance_id`、`_instance_short`、`_dcc_type` 注解，以便 agent 消歧（比如 `create_cube` 在 Maya 和 Blender 上各注册一次时，会表现为两个带不同前缀的独立条目）。

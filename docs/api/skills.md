@@ -34,8 +34,7 @@ SkillCatalog(registry: ToolRegistry) -> SkillCatalog
 | `discover(extra_paths=None, dcc_name=None)` | `int` | Scan for skills and populate the catalog; returns number of newly discovered skills |
 | `load_skill(skill_name)` | `List[str]` | Load a skill; returns list of registered action names. Raises `ValueError` if not found |
 | `unload_skill(skill_name)` | `int` | Unload a skill; returns number of actions removed. Raises `ValueError` if not loaded |
-| `find_skills(query=None, tags=None, dcc=None)` | `List[SkillSummary]` | Search by name/tags/dcc (all filters AND-ed). **Deprecated (#340)** — use `search_skills`. |
-| `search_skills(query=None, tags=None, dcc=None, scope=None, limit=None)` | `List[SkillSummary]` | Unified discovery: superset of `find_skills` with `scope` (`"repo" \| "user" \| "system" \| "admin"`) and `limit`. Empty call returns top skills by scope precedence (Admin > System > User > Repo). |
+| `search_skills(query=None, tags=None, dcc=None, scope=None, limit=None)` | `List[SkillSummary]` | Unified discovery with `scope` (`"repo" \| "user" \| "system" \| "admin"`) and `limit`. Empty call returns top skills by scope precedence (Admin > System > User > Repo). |
 | `list_skills(status=None)` | `List[SkillSummary]` | List skills. `status`: `"loaded"` or `"unloaded"`, or `None` for all |
 | `get_skill_info(skill_name)` | `dict \| None` | Full metadata for a skill, or `None` if not found |
 | `is_loaded(skill_name)` | `bool` | Whether a skill is currently loaded |
@@ -62,7 +61,7 @@ for skill in catalog.list_skills():
     print(f"  [{status}] {skill.name} v{skill.version}: {skill.description}")
 
 # Search
-results = catalog.find_skills(query="geometry", tags=["create"])
+results = catalog.search_skills(query="geometry", tags=["create"])
 for s in results:
     print(f"  {s.name}: {s.tool_count} tools → {s.tool_names}")
 
@@ -87,7 +86,7 @@ print(f"Unloaded {removed} actions")
 
 ## SkillSummary
 
-Lightweight summary returned by `SkillCatalog.find_skills()` and `list_skills()`.
+Lightweight summary returned by `SkillCatalog.search_skills()` and `list_skills()`.
 
 ### Properties (read-only)
 

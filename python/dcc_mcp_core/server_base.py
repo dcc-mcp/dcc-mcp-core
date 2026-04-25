@@ -571,6 +571,33 @@ class DccServerBase:
             logger.debug("[%s] list_skills failed: %s", self._dcc_name, exc)
             return []
 
+    def search_skills(
+        self,
+        query: str | None = None,
+        tags: list[str] | None = None,
+        dcc: str | None = None,
+        scope: str | None = None,
+        limit: int | None = None,
+    ) -> list[Any]:
+        """Search for skills by query, tags, DCC, scope, and/or limit.
+
+        Args:
+            query: Search query string.
+            tags: Filter by tags.
+            dcc: Filter by DCC name.
+            scope: Filter by scope (``"repo"`` | ``"user"`` | ``"system"`` | ``"admin"``).
+            limit: Maximum number of results.
+
+        Returns:
+            List of ``SkillSummary`` objects.
+
+        """
+        try:
+            return list(self._server.search_skills(query=query, tags=tags or [], dcc=dcc, scope=scope, limit=limit))
+        except Exception as exc:
+            logger.debug("[%s] search_skills failed: %s", self._dcc_name, exc)
+            return []
+
     def load_skill(self, name: str) -> bool:
         """Load a skill by name.
 

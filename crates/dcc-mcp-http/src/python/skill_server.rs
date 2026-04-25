@@ -220,6 +220,47 @@ impl PyMcpHttpServer {
             .collect::<PyResult<Vec<Py<PyAny>>>>()
     }
 
+    /// Unified skill discovery — search by query, tags, DCC, scope, and/or limit.
+    #[pyo3(signature = (query=None, tags=vec![], dcc=None, scope=None, limit=None))]
+    fn search_skills(
+        &self,
+        py: Python<'_>,
+        query: Option<&str>,
+        tags: Vec<String>,
+        dcc: Option<&str>,
+        scope: Option<&str>,
+        limit: Option<usize>,
+    ) -> PyResult<Vec<Py<PyAny>>> {
+        use dcc_mcp_utils::py_json::json_value_to_pyobject;
+        let tag_refs: Vec<&str> = tags.iter().map(String::as_str).collect();
+        let scope_enum = match scope {
+            None => None,
+            Some(s) => {
+                let sc = match s.to_ascii_lowercase().as_str() {
+                    "repo" => dcc_mcp_models::SkillScope::Repo,
+                    "user" => dcc_mcp_models::SkillScope::User,
+                    "system" => dcc_mcp_models::SkillScope::System,
+                    "admin" => dcc_mcp_models::SkillScope::Admin,
+                    _ => {
+                        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                            "invalid scope: {s:?} — expected one of: repo, user, system, admin"
+                        )));
+                    }
+                };
+                Some(sc)
+            }
+        };
+        self.catalog
+            .search_skills(query, &tag_refs, dcc, scope_enum, limit)
+            .into_iter()
+            .map(|s| {
+                let val = serde_json::to_value(&s)
+                    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+                json_value_to_pyobject(py, &val)
+            })
+            .collect::<PyResult<Vec<Py<PyAny>>>>()
+    }
+
     /// Get detailed info about a specific skill as a Python dict.
     ///
     /// Returns ``None`` if the skill is not found.

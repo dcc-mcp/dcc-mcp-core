@@ -791,7 +791,7 @@ json_str = result.to_json()    # JSON string
 - Don't hard-code the legacy `<skill>.<action>` prefixed form in `tools/call` — bare names are the default since v0.14.2 (#307)
 - Don't reference `ActionMeta.enabled` in Python — use `ToolRegistry.set_tool_enabled()` instead
 - Don't use `json.dumps()` on `ToolResult` — use `result.to_json()` or `serialize_result()`
-- Don't guess tool names — use `search_skills(query)` to discover the right tool. Don't call `find_skills` — removed in v0.15 (#340).
+- Don't guess tool names — use `search_skills(query)` to discover the right tool.
 
 ---
 

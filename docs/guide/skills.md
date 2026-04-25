@@ -92,7 +92,7 @@ catalog = SkillCatalog(registry)
 catalog.discover(extra_paths=["/my/skills"], dcc_name="maya")
 
 # Search
-results = catalog.find_skills(query="geometry", tags=["create"], dcc="maya")
+results = catalog.search_skills(query="geometry", tags=["create"], dcc="maya")
 for s in results:
     print(f"{s.name}: {s.tool_count} tools {s.tool_names}")
 
@@ -114,7 +114,7 @@ info = catalog.get_skill_info("maya-geometry")  # dict with full details or None
 
 ### SkillSummary Fields
 
-`find_skills()`, `list_skills()`, and `search_skills` (MCP tool) return `SkillSummary` objects:
+`search_skills()` and `list_skills()` return `SkillSummary` objects:
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -324,10 +324,10 @@ metadata:
 
 ```python
 # Browse only infrastructure skills
-infra = catalog.find_skills(tags=["infrastructure"])
+infra = catalog.search_skills(tags=["infrastructure"])
 
 # Browse only domain skills for maya
-domain = catalog.find_skills(tags=["domain"], dcc="maya")
+domain = catalog.search_skills(tags=["domain"], dcc="maya")
 ```
 
 ### search-hint partitioning
@@ -615,8 +615,7 @@ When using the MCP HTTP server (`McpHttpServer` or `create_skill_server`), `tool
 
 ### Three-Tier `tools/list` Response
 
-1. **6 core discovery tools** (always present):
-   - `find_skills` — Search for skills by query, tags, DCC type
+1. **5 core discovery tools** (always present):
    - `list_skills` — List all skills with optional status filter
    - `get_skill_info` — Get full metadata for a specific skill
    - `load_skill` — Load a skill, registering its tools in ToolRegistry

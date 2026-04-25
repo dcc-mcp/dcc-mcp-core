@@ -55,8 +55,7 @@ pub struct PyDccLinkFrame {
     inner: DccLinkFrame,
 }
 
-// NOTE: gen_stub_pymethods skipped — body() returns &[u8] and decode() takes &[u8],
-// which don't implement PyStubType (unsized slice type).
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[cfg(feature = "python-bindings")]
 #[pymethods]
 impl PyDccLinkFrame {
@@ -89,8 +88,8 @@ impl PyDccLinkFrame {
 
     /// Payload bytes.
     #[getter]
-    fn body(&self) -> &[u8] {
-        &self.inner.body
+    fn body(&self) -> Vec<u8> {
+        self.inner.body.clone()
     }
 
     /// Encode the frame to bytes (``[len][type][seq][body]``).
@@ -102,8 +101,8 @@ impl PyDccLinkFrame {
 
     /// Decode a frame from bytes including the 4-byte length prefix.
     #[staticmethod]
-    fn decode(data: &[u8]) -> PyResult<Self> {
-        let frame = DccLinkFrame::decode(data)
+    fn decode(data: Vec<u8>) -> PyResult<Self> {
+        let frame = DccLinkFrame::decode(&data)
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
         Ok(Self { inner: frame })
     }
@@ -436,7 +435,7 @@ mod tests {
     fn test_py_dcc_link_frame_encode_decode() {
         let frame = PyDccLinkFrame::new(1, 99, Some(vec![4, 5, 6])).unwrap();
         let encoded = frame.encode().unwrap();
-        let decoded = PyDccLinkFrame::decode(&encoded).unwrap();
+        let decoded = PyDccLinkFrame::decode(encoded).unwrap();
         assert_eq!(decoded.msg_type(), 1);
         assert_eq!(decoded.seq(), 99);
         assert_eq!(decoded.body(), &[4, 5, 6]);

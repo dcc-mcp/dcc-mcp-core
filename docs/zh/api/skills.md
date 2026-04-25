@@ -39,7 +39,7 @@ SkillCatalog(registry: ToolRegistry) -> SkillCatalog
 | `unload_skill(skill_name)` | `int` | 卸载 Skill；返回移除的 action 数量，未加载则报错 |
 | `remove_skill(skill_name)` | `bool` | 从目录中完全移除（已加载则先卸载） |
 | `clear()` | `None` | 清空所有 Skill（已加载的先卸载） |
-| `find_skills(query=None, tags=None, dcc=None)` | `List[SkillSummary]` | 按 name/tags/dcc 搜索（所有过滤器 AND 组合）|
+| `search_skills(query=None, tags=None, dcc=None, scope=None, limit=None)` | `List[SkillSummary]` | 统一发现：支持 `scope`（`"repo" \| "user" \| "system" \| "admin"`）和 `limit`。空调用按 scope 优先级返回顶级 Skill（Admin > System > User > Repo）。 |
 | `list_skills(status=None)` | `List[SkillSummary]` | 列出 Skill。status：`"loaded"` 或 `"unloaded"`，`None` 为全部 |
 | `get_skill_info(skill_name)` | `SkillMetadata \| None` | 返回完整元数据，未找到返回 `None` |
 | `is_loaded(skill_name)` | `bool` | 指定 Skill 是否已加载 |
@@ -67,7 +67,7 @@ for skill in catalog.list_skills():
     print(f"  [{status}] {skill.name} v{skill.version}: {skill.description}")
 
 # 搜索
-results = catalog.find_skills(query="geometry", tags=["create"])
+results = catalog.search_skills(query="geometry", tags=["create"])
 for s in results:
     print(f"  {s.name}: {s.tool_count} tools → {s.tool_names}")
 
@@ -92,7 +92,7 @@ print(f"已移除 {removed} 个 action")
 
 ## SkillSummary
 
-`SkillCatalog.find_skills()` 和 `list_skills()` 返回的轻量级摘要对象。
+`SkillCatalog.search_skills()` 和 `list_skills()` 返回的轻量级摘要对象。
 
 ### 属性（只读）
 

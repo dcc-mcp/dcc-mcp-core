@@ -135,12 +135,12 @@ pub fn py_artefact_put_file(path: &str, mime: Option<String>) -> PyResult<PyFile
 }
 
 /// Store raw ``bytes`` and return a :class:`FileRef`.
-// NOTE: gen_stub_pyfunction skipped — `data: &[u8]` doesn't implement PyStubType.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
 #[pyfunction(name = "artefact_put_bytes")]
 #[pyo3(signature = (data, mime=None))]
-pub fn py_artefact_put_bytes(data: &[u8], mime: Option<String>) -> PyResult<PyFileRef> {
+pub fn py_artefact_put_bytes(data: Vec<u8>, mime: Option<String>) -> PyResult<PyFileRef> {
     let store = default_store();
-    let fr = crate::put_bytes(store.as_ref(), data.to_vec(), mime).map_err(map_err)?;
+    let fr = crate::put_bytes(store.as_ref(), data, mime).map_err(map_err)?;
     Ok(PyFileRef::from(fr))
 }
 
