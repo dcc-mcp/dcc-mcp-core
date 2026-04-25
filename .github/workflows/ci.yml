@@ -151,6 +151,12 @@ jobs:
           fail_ci_if_error: false
 
   # ── Python 3.7 build + test (non-abi3 wheel) ──
+  # Uses the same composite action as the release workflow so CI mirrors the
+  # exact environment that caused the windows-py37 failure post-merge.
+  # Previously this job used Python 3.14 as the active interpreter and called
+  # `just build-py37` directly, which hid a pyo3-stub-gen Python<3.10 compat
+  # bug (PyEncodingWarning missing on py37) that only surfaced in the release
+  # build-wheels workflow. Now both paths go through the same composite action.
   # Note: Must use older OS runners where Python 3.7 is still available via setup-python
   build-wheel-py37:
     name: Build wheel (py3.7, ${{ matrix.os }})
@@ -166,42 +172,14 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-python@v6
+      - uses: ./.github/actions/build-wheel
         with:
-          python-version: "3.14"
-      - uses: loonghao/vx@v0.8.32
-      - name: Install maturin
-        run: pip install maturin
-        shell: bash
-      - name: Build Python 3.7 wheel (non-abi3)
-        # Feature list lives in justfile (WHEEL_FEATURES_PY37).
-        run: vx just build-py37
-        shell: bash
-      - name: Test Python 3.7 wheel
-        shell: bash
-        run: |
-          python -m venv test-env
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            source test-env/Scripts/activate
-          else
-            source test-env/bin/activate
-          fi
-          pip install --no-index --find-links dist dcc-mcp-core --force-reinstall --no-deps
-          python -c "
-          import dcc_mcp_core
-          print(f'Version: {dcc_mcp_core.__version__}')
-          from dcc_mcp_core._core import ToolRegistry, ToolResult, SkillScanner
-          result = ToolResult(success=True, message='Wheel test passed')
-          print(f'Result: {result}')
-          reg = ToolRegistry()
-          print(f'Registry: {reg}')
-          print('All imports OK!')
-          "
-      - uses: actions/upload-artifact@v7
-        with:
-          name: wheel-py37-${{ matrix.os }}
-          path: dist/*.whl
+          target: ${{ matrix.target }}
+          python-version: "3.7"
+          maturin-extra-args: '-i python3.7'
+          test-wheel: 'true'
+          artifact-name: wheel-py37-${{ matrix.os }}
+          use-sccache: 'false'
 
   # ── Lint Python source ──
   lint:

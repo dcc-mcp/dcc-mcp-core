@@ -77,7 +77,14 @@ runs:
 
     - name: Generate type stubs
       shell: bash
-      run: just stubgen
+      run: |
+        # pyo3-stub-gen v0.22.x unconditionally references PyEncodingWarning,
+        # which only exists in pyo3 when targeting Python >= 3.10.
+        # For Python 3.7 builds we skip regeneration and use the committed stubs.
+        # The abi3 (Python 3.11) build regenerates and commits the authoritative stubs.
+        if [[ "${{ inputs.python-version }}" != "3.7" ]]; then
+          just stubgen
+        fi
 
     - name: Build wheel
       uses: PyO3/maturin-action@v1
