@@ -266,6 +266,16 @@ from dcc_mcp_core.cancellation import current_cancel_token
 from dcc_mcp_core.cancellation import reset_cancel_token
 from dcc_mcp_core.cancellation import set_cancel_token
 
+# Checkpoint/resume for long-running tool executions (issue #436)
+from dcc_mcp_core.checkpoint import CheckpointStore
+from dcc_mcp_core.checkpoint import checkpoint_every
+from dcc_mcp_core.checkpoint import clear_checkpoint
+from dcc_mcp_core.checkpoint import configure_checkpoint_store
+from dcc_mcp_core.checkpoint import get_checkpoint
+from dcc_mcp_core.checkpoint import list_checkpoints
+from dcc_mcp_core.checkpoint import register_checkpoint_tools
+from dcc_mcp_core.checkpoint import save_checkpoint
+
 # Code orchestration pattern — 2-tool DCC API surface (issue #411)
 from dcc_mcp_core.dcc_api_executor import DccApiCatalog
 from dcc_mcp_core.dcc_api_executor import DccApiExecutor
@@ -379,6 +389,7 @@ __all__ = [
     "CaptureResult",
     "CaptureTarget",
     "Capturer",
+    "CheckpointStore",
     "CimdDocument",
     "DccApiCatalog",
     "DccApiExecutor",
@@ -499,7 +510,10 @@ __all__ = [
     "batch_dispatch",
     "build_plugin_manifest",
     "check_cancelled",
+    "checkpoint_every",
+    "clear_checkpoint",
     "clear_feedback",
+    "configure_checkpoint_store",
     "create_dcc_server",
     "create_skill_server",
     "current_cancel_token",
@@ -519,6 +533,7 @@ __all__ = [
     "get_bridge_context",
     "get_bundled_skill_paths",
     "get_bundled_skills_dir",
+    "get_checkpoint",
     "get_config_dir",
     "get_data_dir",
     "get_feedback_entries",
@@ -535,12 +550,14 @@ __all__ = [
     "introspect_search",
     "introspect_signature",
     "is_telemetry_initialized",
+    "list_checkpoints",
     "make_rationale_meta",
     "make_start_stop",
     "mpu_to_units",
     "parse_schedules_yaml",
     "parse_skill_md",
     "register_bridge",
+    "register_checkpoint_tools",
     "register_dcc_api_executor",
     "register_diagnostic_handlers",
     "register_diagnostic_mcp_tools",
@@ -549,6 +566,7 @@ __all__ = [
     "reset_cancel_token",
     "resolve_dependencies",
     "run_main",
+    "save_checkpoint",
     "scan_and_load",
     "scan_and_load_lenient",
     "scan_skill_paths",
