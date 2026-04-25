@@ -37,7 +37,6 @@ pub async fn test_tools_list_no_full_schemas_before_load() {
         let is_core = matches!(
             name,
             "list_roots"
-                | "find_skills"
                 | "list_skills"
                 | "get_skill_info"
                 | "load_skill"

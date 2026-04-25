@@ -222,15 +222,6 @@ async fn register_workflow_handlers_wires_run_and_cancel() {
     assert_eq!(cancelled["cancelled"], true);
 }
 
-#[test]
-fn not_implemented_result_has_stable_shape() {
-    let r = tools::not_implemented_result("workflows.run");
-    assert_eq!(r["success"], serde_json::Value::Bool(false));
-    assert_eq!(r["error"], "not_implemented");
-    assert_eq!(r["issue"], "#348");
-    assert!(r["message"].as_str().unwrap().contains("pending"));
-}
-
 // ── catalog glob reader ─────────────────────────────────────────────────
 
 #[test]

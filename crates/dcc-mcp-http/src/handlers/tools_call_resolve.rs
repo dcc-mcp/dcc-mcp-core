@@ -79,7 +79,6 @@ async fn route_core_tool(
 ) -> Result<Option<JsonRpcResponse>, HttpError> {
     let response = match tool_name {
         "list_roots" => Some(handle_list_roots(state, req, session_id).await?),
-        "find_skills" => Some(handle_find_skills(state, req, params).await?),
         "list_skills" => Some(handle_list_skills(state, req, params).await?),
         "get_skill_info" => Some(handle_get_skill_info(state, req, params).await?),
         "load_skill" => Some(handle_load_skill(state, req, params, session_id).await?),

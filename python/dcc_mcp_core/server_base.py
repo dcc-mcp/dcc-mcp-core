@@ -688,29 +688,6 @@ class DccServerBase:
         except Exception as exc:
             logger.debug("[%s] unregister(%r) failed: %s", self._dcc_name, name, exc)
 
-    def find_skills(
-        self,
-        query: str | None = None,
-        tags: list[str] | None = None,
-        dcc: str | None = None,
-    ) -> list[Any]:
-        """Search the SkillCatalog by query / tags / DCC filter.
-
-        Args:
-            query: Free-text matched against name, description, and search_hint.
-            tags: All listed tags must be present on the skill.
-            dcc: Restrict to skills targeting this DCC.
-
-        Returns:
-            List of ``SkillSummary`` objects.
-
-        """
-        try:
-            return list(self._server.find_skills(query=query, tags=tags, dcc=dcc))
-        except Exception as exc:
-            logger.debug("[%s] find_skills failed: %s", self._dcc_name, exc)
-            return []
-
     def is_skill_loaded(self, name: str) -> bool:
         """Check whether a skill is currently loaded.
 

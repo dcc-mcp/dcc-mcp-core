@@ -82,7 +82,7 @@ cargo build --workspace --features python-bindings 2>&1 | grep -E "error|warning
 - **`_core.pyi` is the ground truth** for parameter names and types
 - **For large refactors**, use `cargo check --workspace` early to catch errors before building the full wheel
 - **Use `vx just dev`** before running any Python tests — the Rust extension must be compiled first
-- **Don't use legacy APIs**: `ActionManager`, `create_action_manager()`, `MiddlewareChain`, `Action` base class — all removed in v0.12+. Note: `LoggingMiddleware` IS still available.
+- **Don't use legacy APIs**: `ActionManager`, `create_action_manager()`, `MiddlewareChain`, `Action` base class, `find_skills` — all removed. Note: `LoggingMiddleware` IS still available.
 - **The project has zero runtime Python dependencies by design** — never add `dependencies = [...]` to `pyproject.toml`
 - **`DeferredExecutor` is not in public `__init__.py`**: import via `from dcc_mcp_core._core import DeferredExecutor`
 - **Commit messages**: Use Conventional Commits (`feat:`, `fix:`, `docs:`, `refactor:`, `chore:`, `test:`). Never manually bump versions.

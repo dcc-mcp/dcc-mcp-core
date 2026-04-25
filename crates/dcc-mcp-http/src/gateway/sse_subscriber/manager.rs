@@ -201,13 +201,6 @@ impl SubscriberManager {
         Ok(())
     }
 
-    /// Back-compat shim for the pre-#322 signature. Still used by a few
-    /// tests; new code should prefer [`bind_job_route`].
-    #[cfg(test)]
-    pub fn bind_job(&self, job_id: &str, session_id: &str, backend_url: &str) {
-        let _ = self.bind_job_route(job_id, session_id, backend_url, "", None);
-    }
-
     /// Associate a gateway `requestId` with the `job_id` produced for
     /// that async dispatch (issue #322). `notifications/cancelled`
     /// carries only the `requestId`, so this reverse index lets the

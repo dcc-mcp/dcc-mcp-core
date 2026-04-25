@@ -76,7 +76,7 @@ pub fn validate_skill_dir(skill_dir: &Path) -> SkillValidationReport {
 
     let legacy = detect_legacy_fields(&raw_value);
     if !legacy.is_empty() {
-        report.issues.push(SkillValidationIssue::info(
+        report.issues.push(SkillValidationIssue::error(
             IssueCategory::Frontmatter,
             format!(
                 "Legacy top-level extension field(s) detected: {:?}. \

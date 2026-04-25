@@ -7,8 +7,6 @@ pub enum IssueSeverity {
     Error,
     /// Warning — the skill loads but violates a best-practice or spec recommendation.
     Warning,
-    /// Info — purely informational, e.g. deprecation notices.
-    Info,
 }
 
 /// Category of a validation issue.
@@ -54,14 +52,6 @@ impl SkillValidationIssue {
             message: message.into(),
         }
     }
-
-    pub(crate) fn info(category: IssueCategory, message: impl Into<String>) -> Self {
-        Self {
-            severity: IssueSeverity::Info,
-            category,
-            message: message.into(),
-        }
-    }
 }
 
 /// Complete validation report for a skill directory.
@@ -85,17 +75,15 @@ impl SkillValidationReport {
     }
 
     /// Count issues by severity.
-    pub fn counts(&self) -> (usize, usize, usize) {
+    pub fn counts(&self) -> (usize, usize) {
         let mut errors = 0;
         let mut warnings = 0;
-        let mut infos = 0;
         for issue in &self.issues {
             match issue.severity {
                 IssueSeverity::Error => errors += 1,
                 IssueSeverity::Warning => warnings += 1,
-                IssueSeverity::Info => infos += 1,
             }
         }
-        (errors, warnings, infos)
+        (errors, warnings)
     }
 }

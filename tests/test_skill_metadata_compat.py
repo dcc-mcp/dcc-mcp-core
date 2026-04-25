@@ -15,39 +15,12 @@ import dcc_mcp_core
 
 FIXTURES = Path(__file__).parent / "fixtures" / "skills"
 NEW_FORM = FIXTURES / "new-form-skill"
-LEGACY_FORM = FIXTURES / "legacy-form-skill"
 
 
 def _parse(skill_dir: Path):
     meta = dcc_mcp_core.parse_skill_md(str(skill_dir))
     assert meta is not None, f"parse_skill_md returned None for {skill_dir}"
     return meta
-
-
-class TestLegacyForm:
-    """Pre-0.15 SKILL.md with top-level extensions must still parse."""
-
-    def test_parses(self) -> None:
-        meta = _parse(LEGACY_FORM)
-        assert meta.name == "legacy-form-skill"
-
-    def test_is_not_spec_compliant(self) -> None:
-        meta = _parse(LEGACY_FORM)
-        assert meta.is_spec_compliant() is False
-        # The loader must have flagged at least the `dcc` / `tools` keys.
-        legacy = meta.legacy_extension_fields
-        assert isinstance(legacy, list)
-        assert "dcc" in legacy
-        assert "tools" in legacy
-
-    def test_values_populated(self) -> None:
-        meta = _parse(LEGACY_FORM)
-        assert meta.dcc == "maya"
-        assert meta.version == "1.2.3"
-        assert meta.tags == ["modeling", "polygon", "bevel"]
-        assert meta.search_hint == "bevel edges mesh polygon modeling"
-        names = [t.name for t in meta.tools]
-        assert names == ["bevel", "measure"]
 
 
 class TestNewForm:
@@ -92,22 +65,6 @@ class TestNewForm:
         policy = json.loads(policy_json)
         assert sorted(policy["products"]) == ["houdini", "maya"]
         assert policy["allow_implicit_invocation"] is False
-
-
-class TestParity:
-    """Both SKILL.md forms must yield identical field values."""
-
-    FIELDS = ("dcc", "version", "tags", "search_hint")
-
-    def test_parity(self) -> None:
-        old = _parse(LEGACY_FORM)
-        new = _parse(NEW_FORM)
-        for field in self.FIELDS:
-            assert getattr(old, field) == getattr(new, field), (
-                f"field {field!r} differs: old={getattr(old, field)!r} new={getattr(new, field)!r}"
-            )
-        # Tool names match.
-        assert [t.name for t in old.tools] == [t.name for t in new.tools]
 
 
 class TestInlineNewForm:

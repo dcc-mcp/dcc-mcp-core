@@ -205,28 +205,6 @@ impl PyMcpHttpServer {
             .map_err(pyo3::exceptions::PyValueError::new_err)
     }
 
-    /// Search for skills matching the given criteria.
-    #[pyo3(signature = (query=None, tags=vec![], dcc=None))]
-    fn find_skills(
-        &self,
-        py: Python<'_>,
-        query: Option<&str>,
-        tags: Vec<String>,
-        dcc: Option<&str>,
-    ) -> PyResult<Vec<Py<PyAny>>> {
-        use dcc_mcp_utils::py_json::json_value_to_pyobject;
-        let tag_refs: Vec<&str> = tags.iter().map(String::as_str).collect();
-        self.catalog
-            .find_skills(query, &tag_refs, dcc)
-            .into_iter()
-            .map(|s| {
-                let val = serde_json::to_value(&s)
-                    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-                json_value_to_pyobject(py, &val)
-            })
-            .collect::<PyResult<Vec<Py<PyAny>>>>()
-    }
-
     /// List all skills with their load status.
     #[pyo3(signature = (status=None))]
     fn list_skills(&self, py: Python<'_>, status: Option<&str>) -> PyResult<Vec<Py<PyAny>>> {

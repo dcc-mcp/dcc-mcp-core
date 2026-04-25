@@ -76,10 +76,7 @@ impl SkillCatalog {
             .collect()
     }
 
-    /// Unified skill discovery — superset of [`find_skills`](Self::find_skills).
-    ///
-    /// Combines the filters previously split across `find_skills` and
-    /// `search_skills`. Issue #340 (`find_skills` → `search_skills` merge).
+    /// Unified skill discovery (issue #340).
     ///
     /// Behaviour:
     /// - `query` / `tags` / `dcc` are AND-ed through [`find_skills`] — ranking

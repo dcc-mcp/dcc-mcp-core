@@ -253,17 +253,3 @@ fn cancel_output_schema() -> Value {
         },
     })
 }
-
-/// Legacy pre-host stub error payload. Kept for tests that assert on the
-/// shape produced before the execution PR landed. New code should rely on
-/// the structured outputs defined above.
-#[must_use]
-#[doc(hidden)]
-pub fn not_implemented_result(which: &str) -> serde_json::Value {
-    json!({
-        "success": false,
-        "error": "not_implemented",
-        "message": format!("{which}: no WorkflowHost wired — handler registration pending"),
-        "issue": "#348",
-    })
-}

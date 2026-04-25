@@ -11,7 +11,6 @@ pub const GATEWAY_LOCAL_TOOLS: &[&str] = &[
     "get_dcc_instance",
     "connect_to_dcc",
     "list_skills",
-    "find_skills",
     "search_skills",
     "get_skill_info",
     "load_skill",
@@ -20,7 +19,6 @@ pub const GATEWAY_LOCAL_TOOLS: &[&str] = &[
 
 /// Core per-DCC tools that keep bare names (no skill prefix).
 pub const CORE_TOOL_NAMES: &[&str] = &[
-    "find_skills",
     "list_skills",
     "get_skill_info",
     "load_skill",

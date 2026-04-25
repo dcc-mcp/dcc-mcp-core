@@ -390,7 +390,7 @@ pub async fn handle_search_skills(
     // RTK-inspired: ultra-compact JSON format to reduce token consumption.
     // Keep the historical keys (`name`, `tools`, `loaded`, `dcc`) and add
     // `scope` / `description` / `tags` / `search_hint` so the union covers
-    // what find_skills used to return.
+    // what search_skills returns.
     let compact_skills: Vec<serde_json::Value> = matches
         .iter()
         .map(|s| {

@@ -9,7 +9,6 @@ fn skill_management_tool_defs_cover_all_six_tools() {
         .collect();
     for expected in [
         "list_skills",
-        "find_skills",
         "search_skills",
         "get_skill_info",
         "load_skill",
@@ -17,7 +16,7 @@ fn skill_management_tool_defs_cover_all_six_tools() {
     ] {
         assert!(names.contains(&expected), "missing tool def {expected}");
     }
-    assert_eq!(defs.len(), 6, "expected exactly 6 skill-management tools");
+    assert_eq!(defs.len(), 5, "expected exactly 5 skill-management tools");
 }
 
 #[test]

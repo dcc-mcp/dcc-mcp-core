@@ -9,7 +9,7 @@
 //! ```text
 //! [SKILL.md files] --scan--> SkillEntry(Discovered) --load_skill--> SkillEntry(Loaded)
 //!                                    │                                    │
-//!                              find_skills()                     tools in ActionRegistry
+//!                              search_skills()                     tools in ActionRegistry
 //!                              list_skills()                     + tools/list_changed notification
 //!                              get_skill_info()
 //! ```
@@ -28,7 +28,7 @@
 //! catalog.discover(None, Some("maya"));
 //!
 //! // Search for skills
-//! let results = catalog.find_skills(Some("modeling"), &[], Some("maya"));
+//! let results = catalog.search_skills(Some("modeling"), &[], Some("maya"), None, None);
 //!
 //! // Load a skill — registers its tools in ActionRegistry
 //! let loaded = catalog.load_skill("modeling-bevel");

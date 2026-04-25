@@ -122,22 +122,9 @@ impl SkillCatalog {
             .map_err(pyo3::exceptions::PyValueError::new_err)
     }
 
-    /// Search for skills matching criteria.
-    #[pyo3(name = "find_skills")]
-    #[pyo3(signature = (query=None, tags=vec![], dcc=None))]
-    fn py_find_skills(
-        &self,
-        query: Option<&str>,
-        tags: Vec<String>,
-        dcc: Option<&str>,
-    ) -> Vec<SkillSummary> {
-        let tag_refs: Vec<&str> = tags.iter().map(String::as_str).collect();
-        self.find_skills(query, &tag_refs, dcc)
-    }
-
     /// Unified skill discovery (issue #340).
     ///
-    /// Superset of ``find_skills`` with optional ``scope`` (str: "repo" |
+    /// Optional ``scope`` (str: "repo" |
     /// "user" | "system" | "admin") and ``limit``. Empty ``query`` with no
     /// other filters returns the top ``limit`` skills ordered by scope
     /// precedence (Admin > System > User > Repo) then name.

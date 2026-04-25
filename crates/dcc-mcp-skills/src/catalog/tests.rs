@@ -903,21 +903,16 @@ fn test_search_skills_parse_scope_str_valid_and_invalid() {
 }
 
 #[test]
-fn test_search_skills_superset_of_find_skills() {
-    // Any result find_skills returns must also be returned by search_skills
-    // with the same filters — the consolidation must not break callers.
+fn test_search_skills_returns_matching_skills() {
+    // search_skills with the same filters must return all matching skills.
     let catalog = make_test_catalog();
     let mut a = make_test_skill("a", "maya", &["bevel"]);
     a.tags = vec!["modeling".to_string()];
     catalog.add_skill(a);
     catalog.add_skill(make_test_skill("b", "blender", &[]));
 
-    let old = catalog.find_skills(Some("bevel"), &["modeling"], Some("maya"));
-    let new = catalog.search_skills(Some("bevel"), &["modeling"], Some("maya"), None, None);
+    let results = catalog.search_skills(Some("bevel"), &["modeling"], Some("maya"), None, None);
 
-    let old_names: Vec<&str> = old.iter().map(|s| s.name.as_str()).collect();
-    let new_names: Vec<&str> = new.iter().map(|s| s.name.as_str()).collect();
-    for n in &old_names {
-        assert!(new_names.contains(n), "search_skills must include {n}");
-    }
+    let names: Vec<&str> = results.iter().map(|s| s.name.as_str()).collect();
+    assert!(names.contains(&"a"), "search_skills must include 'a'");
 }

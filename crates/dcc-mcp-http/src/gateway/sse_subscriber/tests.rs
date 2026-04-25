@@ -215,7 +215,8 @@ async fn manager_buffers_then_flushes_after_job_binding() {
     assert_eq!(mgr.pending_count(&backend), 1, "buffered while unresolved");
     assert!(rx.try_recv().is_err(), "nothing delivered yet");
 
-    mgr.bind_job("job-1", "sess1", &backend);
+    mgr.bind_job_route("job-1", "sess1", &backend, "", None)
+        .unwrap();
     // After bind, the flush is triggered synchronously.
     assert_eq!(mgr.pending_count(&backend), 0, "buffer drained");
     let event = rx
@@ -238,7 +239,8 @@ async fn manager_emits_gateway_reconnect_to_inflight_sessions() {
             shared,
         },
     );
-    mgr.bind_job("job-x", "sess1", &backend);
+    mgr.bind_job_route("job-x", "sess1", &backend, "", None)
+        .unwrap();
 
     mgr.emit_gateway_reconnect(&backend);
 
@@ -263,7 +265,8 @@ async fn manager_drops_events_for_forgotten_client() {
             shared: shared.clone(),
         },
     );
-    mgr.bind_job("job-gone", "sess1", &backend);
+    mgr.bind_job_route("job-gone", "sess1", &backend, "", None)
+        .unwrap();
     let note = serde_json::json!({
         "jsonrpc":"2.0",
         "method":"notifications/$/dcc.jobUpdated",

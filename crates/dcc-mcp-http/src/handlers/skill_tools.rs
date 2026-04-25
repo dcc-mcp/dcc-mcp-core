@@ -1,47 +1,6 @@
 // ── Core discovery tool handlers ──────────────────────────────────────────
 
-/// Deprecated — kept as a compatibility shim that forwards to
-/// `search_skills` (issue #340).
-///
-/// Emits a `tracing::warn!` on every call and attaches the deprecation
-/// notice to the MCP `_meta` block on the response so agents can surface
-/// the guidance without reparsing text content. Scheduled for removal in
-/// v0.17.
 use super::*;
-
-pub async fn handle_find_skills(
-    state: &AppState,
-    req: &JsonRpcRequest,
-    params: &CallToolParams,
-) -> Result<JsonRpcResponse, HttpError> {
-    tracing::warn!(
-        "find_skills is deprecated; use search_skills instead (issue #340). \
-         Scheduled for removal in v0.17."
-    );
-
-    // Forward to the unified entry point. `find_skills` historically required
-    // no arguments, so we map its full parameter surface (query/tags/dcc)
-    // onto `search_skills` 1:1 — no caller breaks.
-    let mut resp = handle_search_skills(state, req, params).await?;
-
-    // Attach the deprecation marker to `_meta` on the CallToolResult. We
-    // deserialize, mutate, and reserialize the result so we can reach into
-    // the envelope that `handle_search_skills` just produced.
-    if let Some(result_val) = resp.result.as_mut() {
-        if let Ok(mut ctr) = serde_json::from_value::<CallToolResult>(result_val.clone()) {
-            let meta = ctr.meta.get_or_insert_with(serde_json::Map::new);
-            meta.insert(
-                "dcc.deprecation".to_string(),
-                Value::String(
-                    "find_skills is deprecated — use search_skills. Will be removed in v0.17."
-                        .to_string(),
-                ),
-            );
-            *result_val = serde_json::to_value(&ctr)?;
-        }
-    }
-    Ok(resp)
-}
 
 pub async fn handle_list_skills(
     state: &AppState,

@@ -3,7 +3,7 @@ use super::*;
 /// Dispatch a skill-management tool across backends.
 ///
 /// Two patterns:
-/// * Fan-out, aggregate (`list_skills`, `find_skills`, `search_skills`,
+/// * Fan-out, aggregate (`list_skills`, `search_skills`,
 ///   `get_skill_info`): call every matching backend, merge results with
 ///   `_instance_id` / `_dcc_type` annotations so agents can disambiguate.
 /// * Target-instance (`load_skill`, `unload_skill`): require `instance_id` /
@@ -152,19 +152,6 @@ pub(crate) fn skill_management_tool_defs() -> Vec<Value> {
                 "properties": {
                     "status": {"type": "string", "enum": ["all", "loaded", "unloaded", "error"], "default": "all"},
                     "dcc":    {"type": "string", "description": "Restrict to one DCC type (maya, blender, …)"}
-                }
-            }
-        }),
-        json!({
-            "name": "find_skills",
-            "description": "DEPRECATED — use `search_skills`. Compat alias that forwards to `search_skills` \
-                            on every live DCC instance. Scheduled for removal in v0.17.",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string"},
-                    "tags":  {"type": "array", "items": {"type": "string"}},
-                    "dcc":   {"type": "string"}
                 }
             }
         }),

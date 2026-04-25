@@ -2,7 +2,7 @@
 
 /// Process-global cache for the core discovery tools.
 ///
-/// The core tools (`find_skills`, `load_skill`, `unload_skill`, `get_skill_info`,
+/// The core tools (`load_skill`, `unload_skill`, `get_skill_info`,
 /// `search_skills`) have static schemas that never change at runtime.  We build
 /// them once on the first `tools/list` call and reuse the result for every
 /// subsequent request, eliminating a handful of `String::from` / `json!` allocations
@@ -34,43 +34,6 @@ pub fn build_core_tools_inner() -> Vec<McpTool> {
             output_schema: None,
             annotations: Some(McpToolAnnotations {
                 title: Some("List Roots".to_string()),
-                read_only_hint: Some(true),
-                destructive_hint: Some(false),
-                idempotent_hint: Some(true),
-                open_world_hint: Some(false),
-                deferred_hint: Some(false),
-            }),
-            meta: None,
-        },
-        McpTool {
-            name: "find_skills".to_string(),
-            description: "Deprecated (#340): forwards to search_skills and stamps _meta with a deprecation notice; removed in v0.17.\n\n\
-                          When to use: Only for backward compatibility. New code should call search_skills instead.\n\n\
-                          How to use:\n\
-                          - Prefer search_skills(query, tags, dcc, scope, limit).\n\
-                          - After a match, call load_skill(skill_name=...)."
-                .to_string(),
-            input_schema: json!({
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "Keyword matched against skill name and description."
-                    },
-                    "tags": {
-                        "type": "array",
-                        "items": { "type": "string" },
-                        "description": "Tag filter; every listed tag must match."
-                    },
-                    "dcc": {
-                        "type": "string",
-                        "description": "DCC type filter (e.g. maya, blender, houdini)."
-                    }
-                }
-            }),
-            output_schema: None,
-            annotations: Some(McpToolAnnotations {
-                title: Some("Find Skills (deprecated)".to_string()),
                 read_only_hint: Some(true),
                 destructive_hint: Some(false),
                 idempotent_hint: Some(true),

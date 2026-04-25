@@ -764,7 +764,7 @@ json_str = result.to_json()    # JSON string
 - Keep `SKILL.md` body under 500 lines / 5000 tokens — move details to `references/`
 - Use Conventional Commits for PR titles — `feat:`, `fix:`, `docs:`, `refactor:`
 - Use `registry.list_actions()` (shows all) vs `registry.list_actions_enabled()` (active only)
-- Start with `search_skills(query)` when looking for a tool — don't guess tool names. As of #340 `search_skills` also accepts `tags`, `dcc`, `scope`, and `limit`; call it with no arguments to browse by trust scope. `find_skills` is a deprecated alias (removal in v0.17).
+- Start with `search_skills(query)` when looking for a tool — don't guess tool names. `search_skills` accepts `tags`, `dcc`, `scope`, and `limit`; call it with no arguments to browse by trust scope.
 - Use `init_file_logging(FileLoggingConfig(...))` for durable logs in multi-gateway setups; call `flush_logs()` to force events to disk immediately
 - Rely on bare tool names in `tools/call` — both `execute_python` and `maya-scripting.execute_python` work during the one-release grace window
 
@@ -791,7 +791,7 @@ json_str = result.to_json()    # JSON string
 - Don't hard-code the legacy `<skill>.<action>` prefixed form in `tools/call` — bare names are the default since v0.14.2 (#307)
 - Don't reference `ActionMeta.enabled` in Python — use `ToolRegistry.set_tool_enabled()` instead
 - Don't use `json.dumps()` on `ToolResult` — use `result.to_json()` or `serialize_result()`
-- Don't guess tool names — use `search_skills(query)` to discover the right tool. Don't call `find_skills` in new code — it's a deprecated alias (#340).
+- Don't guess tool names — use `search_skills(query)` to discover the right tool. Don't call `find_skills` — removed in v0.15 (#340).
 
 ---
 

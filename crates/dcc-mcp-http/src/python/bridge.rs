@@ -288,7 +288,7 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
 ///     server = create_skill_manager("maya", McpHttpConfig(port=8765))
 ///     handle = server.start()
 ///     print(f"Maya MCP server at {handle.mcp_url()}")
-///     # Agents connect, call find_skills() and load_skill() to discover tools.
+///     # Agents connect, call search_skills() and load_skill() to discover tools.
 ///
 /// .. note::
 ///

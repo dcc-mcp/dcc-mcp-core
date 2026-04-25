@@ -60,7 +60,6 @@ impl From<SkillValidationIssue> for PySkillValidationIssue {
             severity: match issue.severity {
                 IssueSeverity::Error => "error".to_string(),
                 IssueSeverity::Warning => "warning".to_string(),
-                IssueSeverity::Info => "info".to_string(),
             },
             category: format!("{:?}", issue.category).to_lowercase(),
             message: issue.message,

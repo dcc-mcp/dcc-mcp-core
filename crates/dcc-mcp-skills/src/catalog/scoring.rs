@@ -1,4 +1,4 @@
-//! BM25-lite relevance scoring for `search_skills` / `find_skills`.
+//! BM25-lite relevance scoring for `search_skills`.
 //!
 //! Replaces the previous naive substring matcher with a deterministic,
 //! tokenised BM25-style ranker that weights different skill fields.
