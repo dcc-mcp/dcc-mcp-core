@@ -5,6 +5,8 @@ use std::sync::Mutex;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
+#[cfg(feature = "stub-gen")]
+use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pymethods};
 
 use super::helpers::status_to_str;
 use crate::monitor::ProcessMonitor;
@@ -23,11 +25,13 @@ use crate::monitor::ProcessMonitor;
 /// info = mon.query(os.getpid())
 /// print(info["status"])  # "running"
 /// ```
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[pyclass(name = "PyProcessMonitor")]
 pub struct PyProcessMonitor {
     inner: Mutex<ProcessMonitor>,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
 impl PyProcessMonitor {
     #[new]

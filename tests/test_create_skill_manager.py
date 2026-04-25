@@ -130,12 +130,12 @@ class TestCreateSkillManagerSkillMethods:
         result = server.list_skills(status="loaded")
         assert isinstance(result, list)
 
-    def test_find_skills_returns_list(self, server):
-        result = server.find_skills()
+    def test_search_skills_returns_list(self, server):
+        result = server.search_skills()
         assert isinstance(result, list)
 
-    def test_find_skills_with_query(self, server):
-        result = server.find_skills(query="nonexistent_skill_xyz")
+    def test_search_skills_with_query(self, server):
+        result = server.search_skills(query="nonexistent_skill_xyz")
         assert isinstance(result, list)
         assert len(result) == 0
 

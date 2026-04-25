@@ -16,6 +16,10 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "fmt", "json"] }
 pyo3 = { workspace = true, optional = true }
 
+# Type-stub generation (opt-in via `stub-gen` feature).
+pyo3-stub-gen = { workspace = true, optional = true }
+pyo3-stub-gen-derive = { workspace = true, optional = true }
+
 # OpenTelemetry core
 opentelemetry = { version = "0.31", features = ["trace", "metrics"] }
 opentelemetry_sdk = { version = "0.31", features = ["trace", "metrics", "rt-tokio"] }
@@ -39,6 +43,8 @@ tokio = { workspace = true, features = ["test-util"] }
 [features]
 default = []
 python-bindings = ["pyo3"]
+# Enable `pyo3-stub-gen` annotations on this crate's PyO3 types.
+stub-gen = ["python-bindings", "dep:pyo3-stub-gen", "dep:pyo3-stub-gen-derive"]
 # Enable OTLP export to Jaeger / Grafana Tempo / Prometheus
 otlp-exporter = ["opentelemetry-otlp"]
 # Enable the Prometheus text-exposition exporter (issue #331).

@@ -44,6 +44,8 @@ use execute::{ScriptExecutorFn, execute_script, resolve_tool_script};
 
 #[cfg(feature = "python-bindings")]
 use pyo3::prelude::*;
+#[cfg(feature = "stub-gen")]
+use pyo3_stub_gen_derive::gen_stub_pyclass;
 
 use dashmap::{DashMap, DashSet};
 use dcc_mcp_actions::{
@@ -84,6 +86,7 @@ pub(crate) use helpers::parse_scope_str;
 ///   any external process.
 /// - **Subprocess** (default): each skill script is executed as a child
 ///   process. Suitable for standalone / non-DCC environments.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg_attr(feature = "python-bindings", pyclass(name = "SkillCatalog"))]
 pub struct SkillCatalog {
     /// All discovered skill entries, keyed by skill name.

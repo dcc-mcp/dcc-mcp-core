@@ -2,6 +2,8 @@
 
 #[cfg(feature = "python-bindings")]
 use pyo3::prelude::*;
+#[cfg(feature = "stub-gen")]
+use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pymethods};
 use serde::{Deserialize, Serialize};
 
 /// Annotations for MCP Tool behavior hints.
@@ -9,6 +11,7 @@ use serde::{Deserialize, Serialize};
 /// Per MCP spec (2025-11-25), tools MAY include annotations that describe
 /// their destructive/idempotent nature and open-world safety.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg_attr(
     feature = "python-bindings",
     pyclass(name = "ToolAnnotations", eq, get_all, set_all, from_py_object)
@@ -27,6 +30,7 @@ pub struct ToolAnnotations {
     pub deferred_hint: Option<bool>,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[cfg(feature = "python-bindings")]
 #[pymethods]
 impl ToolAnnotations {
@@ -68,6 +72,7 @@ impl ToolAnnotations {
 /// Per MCP spec (2025-11-25), a tool has a name, description, input/output schemas,
 /// and optional annotations providing behavioral hints.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg_attr(
     feature = "python-bindings",
     pyclass(name = "ToolDefinition", eq, get_all, set_all, from_py_object)
@@ -84,6 +89,7 @@ pub struct ToolDefinition {
     pub annotations: Option<ToolAnnotations>,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[cfg(feature = "python-bindings")]
 #[pymethods]
 impl ToolDefinition {

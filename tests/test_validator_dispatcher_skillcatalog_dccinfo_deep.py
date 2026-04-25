@@ -6,7 +6,7 @@ Coverage targets:
 - ToolValidator: from_schema_json, from_action_registry, validate edge cases
 - ToolDispatcher: skip_empty_schema_validation, remove_handler, handler_names, error paths
 - InputValidator: require_string/number/forbid_substrings/validate
-- SkillCatalog: discover, find_skills, list_skills, is_loaded, load/unload lifecycle
+- SkillCatalog: discover, search_skills, list_skills, is_loaded, load/unload lifecycle
 - DccInfo, DccCapabilities, DccError, DccErrorCode: construction / attributes / repr
 - SceneStatistics, SceneInfo, ScriptResult, ScriptLanguage: construction / to_dict / attrs
 """
@@ -645,8 +645,8 @@ class TestSkillCatalogDiscover:
         assert count == 0
 
 
-class TestSkillCatalogListAndFind:
-    """SkillCatalog list_skills and find_skills after discover."""
+class TestSkillCatalogListAndSearch:
+    """SkillCatalog list_skills and search_skills after discover."""
 
     def test_list_skills_returns_list(self, tmp_path):
         _make_skill_dir(tmp_path, 2)
@@ -665,36 +665,36 @@ class TestSkillCatalogListAndFind:
         names = [s.name if hasattr(s, "name") else s.get("name", "") for s in skills]
         assert "test-skill-3" in names
 
-    def test_find_skills_no_filter(self, tmp_path):
+    def test_search_skills_no_filter(self, tmp_path):
         _make_skill_dir(tmp_path, 4)
         reg = ToolRegistry()
         cat = SkillCatalog(reg)
         cat.discover(extra_paths=[str(tmp_path)])
-        results = cat.find_skills()
+        results = cat.search_skills()
         assert isinstance(results, list)
 
-    def test_find_skills_by_query(self, tmp_path):
+    def test_search_skills_by_query(self, tmp_path):
         _make_skill_dir(tmp_path, 6)
         reg = ToolRegistry()
         cat = SkillCatalog(reg)
         cat.discover(extra_paths=[str(tmp_path)])
-        results = cat.find_skills(query="test-skill-6")
+        results = cat.search_skills(query="test-skill-6")
         assert isinstance(results, list)
 
-    def test_find_skills_by_tag(self, tmp_path):
+    def test_search_skills_by_tag(self, tmp_path):
         _make_skill_dir(tmp_path, 7)
         reg = ToolRegistry()
         cat = SkillCatalog(reg)
         cat.discover(extra_paths=[str(tmp_path)])
-        results = cat.find_skills(tags=["test"])
+        results = cat.search_skills(tags=["test"])
         assert isinstance(results, list)
 
-    def test_find_skills_by_dcc(self, tmp_path):
+    def test_search_skills_by_dcc(self, tmp_path):
         _make_skill_dir(tmp_path, 8)
         reg = ToolRegistry()
         cat = SkillCatalog(reg)
         cat.discover(extra_paths=[str(tmp_path)])
-        results = cat.find_skills(dcc="maya")
+        results = cat.search_skills(dcc="maya")
         assert isinstance(results, list)
 
 

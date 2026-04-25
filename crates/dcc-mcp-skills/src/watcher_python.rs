@@ -5,17 +5,21 @@
 use std::time::Duration;
 
 use pyo3::prelude::*;
+#[cfg(feature = "stub-gen")]
+use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pymethods};
 
 use dcc_mcp_models::SkillMetadata;
 
 use super::SkillWatcher;
 
 /// Python-facing wrapper for [`SkillWatcher`].
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[pyclass(name = "SkillWatcher")]
 pub struct PySkillWatcher {
     inner: SkillWatcher,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
 impl PySkillWatcher {
     /// Create a new SkillWatcher.

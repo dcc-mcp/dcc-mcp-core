@@ -1154,17 +1154,17 @@ class TestSkillCatalog:
         with pytest.raises((ValueError, KeyError, RuntimeError)):
             cat.load_skill("nonexist")
 
-    def test_find_skills_empty_no_results(self):
+    def test_search_skills_empty_no_results(self):
         cat, _ = self._make_catalog()
-        assert cat.find_skills() == []
+        assert cat.search_skills() == []
 
-    def test_find_skills_query_no_results(self):
+    def test_search_skills_query_no_results(self):
         cat, _ = self._make_catalog()
-        assert cat.find_skills(query="anything") == []
+        assert cat.search_skills(query="anything") == []
 
-    def test_find_skills_dcc_no_results(self):
+    def test_search_skills_dcc_no_results(self):
         cat, _ = self._make_catalog()
-        assert cat.find_skills(dcc="maya") == []
+        assert cat.search_skills(dcc="maya") == []
 
     def test_list_skills_status_loaded_empty(self):
         cat, _ = self._make_catalog()

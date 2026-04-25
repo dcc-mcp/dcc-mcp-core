@@ -224,7 +224,7 @@ class TestToolsListBoundary:
         _initialize(url)
         _, body = _post(url, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
         names = {t["name"] for t in body["result"]["tools"]}
-        for core in ("find_skills", "load_skill", "unload_skill", "list_skills"):
+        for core in ("search_skills", "load_skill", "unload_skill", "list_skills"):
             assert core in names, f"Core meta-tool '{core}' missing from tools/list"
 
     def test_unloaded_skills_appear_as_stubs(self, catalog_server):

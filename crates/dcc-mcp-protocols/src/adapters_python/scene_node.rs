@@ -6,6 +6,8 @@
 use pyo3::prelude::*;
 #[cfg(feature = "python-bindings")]
 use pyo3::types::PyDict;
+#[cfg(feature = "stub-gen")]
+use pyo3_stub_gen_derive::gen_stub_pyclass;
 
 #[cfg(feature = "python-bindings")]
 use crate::adapters::SceneNode;
@@ -30,6 +32,7 @@ use super::data::PySceneObject;
 /// )
 /// print(len(root.children))  # 1
 /// ```
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg(feature = "python-bindings")]
 #[pyclass(name = "SceneNode", get_all, from_py_object)]
 #[derive(Debug, Clone)]

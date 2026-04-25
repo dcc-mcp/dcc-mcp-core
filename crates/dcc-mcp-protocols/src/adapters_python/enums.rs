@@ -4,6 +4,8 @@
 
 #[cfg(feature = "python-bindings")]
 use pyo3::prelude::*;
+#[cfg(feature = "stub-gen")]
+use pyo3_stub_gen_derive::{gen_stub_pyclass_enum, gen_stub_pymethods};
 
 #[cfg(feature = "python-bindings")]
 use crate::adapters::{DccErrorCode, ScriptLanguage};
@@ -18,6 +20,7 @@ use crate::adapters::{DccErrorCode, ScriptLanguage};
 /// lang = ScriptLanguage.PYTHON
 /// print(lang)  # "python"
 /// ```
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass_enum)]
 #[cfg(feature = "python-bindings")]
 #[pyclass(name = "ScriptLanguage", eq, from_py_object)]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44,6 +47,7 @@ pub enum PyScriptLanguage {
     TypeScript,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[cfg(feature = "python-bindings")]
 #[pymethods]
 impl PyScriptLanguage {
@@ -106,6 +110,7 @@ impl From<&PyScriptLanguage> for ScriptLanguage {
 // ── PyDccErrorCode ──
 
 /// Python-facing enum for DCC error codes.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass_enum)]
 #[cfg(feature = "python-bindings")]
 #[pyclass(name = "DccErrorCode", eq, from_py_object)]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -130,6 +135,7 @@ pub enum PyDccErrorCode {
     Internal,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[cfg(feature = "python-bindings")]
 #[pymethods]
 impl PyDccErrorCode {

@@ -12,6 +12,8 @@
 
 #[cfg(feature = "python-bindings")]
 use pyo3::prelude::*;
+#[cfg(feature = "stub-gen")]
+use pyo3_stub_gen_derive::gen_stub_pyclass;
 
 use dcc_mcp_utils::constants::{DEFAULT_DCC, DEFAULT_VERSION};
 use serde::{Deserialize, Serialize};
@@ -69,6 +71,7 @@ use serde_impl::{
 /// ---
 /// ```
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg_attr(
     feature = "python-bindings",
     pyclass(name = "SkillMetadata", from_py_object)

@@ -2,6 +2,8 @@
 
 #[cfg(feature = "python-bindings")]
 use pyo3::prelude::*;
+#[cfg(feature = "stub-gen")]
+use pyo3_stub_gen_derive::gen_stub_pyclass;
 
 #[cfg(feature = "python-bindings")]
 use dcc_mcp_utils::py_json::json_value_to_pyobject;
@@ -24,6 +26,7 @@ pub use meta::ActionMeta;
 /// Thread-safe Action registry.
 ///
 /// Each registry instance is independent, eliminating cross-DCC pollution.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg_attr(
     feature = "python-bindings",
     pyclass(name = "ToolRegistry", from_py_object)

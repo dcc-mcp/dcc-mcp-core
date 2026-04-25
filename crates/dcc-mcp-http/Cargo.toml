@@ -51,6 +51,10 @@ pin-project-lite = "0.2"
 # PyO3 (optional)
 pyo3 = { workspace = true, optional = true }
 
+# Type-stub generation (opt-in via `stub-gen` feature).
+pyo3-stub-gen = { workspace = true, optional = true }
+pyo3-stub-gen-derive = { workspace = true, optional = true }
+
 # Optional SQLite JobStorage backend (issue #328). Gated behind the
 # `job-persist-sqlite` feature so the default build has zero SQLite cost.
 rusqlite = { workspace = true, optional = true }
@@ -66,6 +70,8 @@ dcc-mcp-sandbox = { path = "../dcc-mcp-sandbox" }
 [features]
 default = []
 python-bindings = ["pyo3", "dcc-mcp-utils/python-bindings", "dcc-mcp-actions/python-bindings", "dcc-mcp-skills/python-bindings", "dcc-mcp-artefact/python-bindings"]
+# Enable `pyo3-stub-gen` annotations on this crate's PyO3 types.
+stub-gen = ["python-bindings", "dep:pyo3-stub-gen", "dep:pyo3-stub-gen-derive"]
 # Enable the Prometheus `/metrics` endpoint (issue #331). Pulls in the
 # matching `prometheus` feature of dcc-mcp-telemetry. Off by default so
 # zero Prometheus code compiles into the wheel when not requested.

@@ -693,16 +693,15 @@ class TestMcpServerHandleDeep:
         assert code == 200
         tools = body["result"]["tools"]
         tool_names = {t["name"] for t in tools}
-        assert "find_skills" in tool_names
+        assert "search_skills" in tool_names
         assert "load_skill" in tool_names
         core_tools = {
             "list_roots",
-            "find_skills",
+            "search_skills",
             "list_skills",
             "get_skill_info",
             "load_skill",
             "unload_skill",
-            "search_skills",
             "activate_tool_group",
             "deactivate_tool_group",
             "search_tools",
@@ -722,7 +721,7 @@ class TestMcpServerHandleDeep:
         url = handle.mcp_url()
         code, body = _post_json(url, {"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
         assert code == 200
-        # 5 user tools + core discovery tools (find_skills, list_skills, get_skill_info, load_skill, unload_skill, search_skills)
+        # 5 user tools + core discovery tools (search_skills, list_skills, get_skill_info, load_skill, unload_skill)
         tools = body["result"]["tools"]
         user_tools = [t for t in tools if t["name"].startswith("tool_")]
         core_tools = [t for t in tools if t["name"] not in {t["name"] for t in tools if t["name"].startswith("tool_")}]

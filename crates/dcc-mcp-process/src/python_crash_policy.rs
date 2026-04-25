@@ -2,6 +2,8 @@
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+#[cfg(feature = "stub-gen")]
+use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pymethods};
 
 use super::helpers::map_process_err;
 use crate::recovery::{BackoffStrategy, CrashRecoveryPolicy};
@@ -17,11 +19,13 @@ use crate::types::{DccProcessConfig, ProcessStatus};
 /// print(policy.should_restart("crashed"))   # True
 /// print(policy.next_delay_ms("maya", 0))    # 1000
 /// ```
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[pyclass(name = "PyCrashRecoveryPolicy")]
 pub struct PyCrashRecoveryPolicy {
     inner: CrashRecoveryPolicy,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
 impl PyCrashRecoveryPolicy {
     /// Create a policy with ``max_restarts`` and fixed 2 s back-off by default.

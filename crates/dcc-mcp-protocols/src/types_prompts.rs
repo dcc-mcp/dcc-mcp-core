@@ -2,6 +2,8 @@
 
 #[cfg(feature = "python-bindings")]
 use pyo3::prelude::*;
+#[cfg(feature = "stub-gen")]
+use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pymethods};
 use serde::{Deserialize, Serialize};
 
 /// MCP Prompt argument.
@@ -9,6 +11,7 @@ use serde::{Deserialize, Serialize};
 /// Describes a single named argument that a prompt accepts, including
 /// whether it is required or optional.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg_attr(
     feature = "python-bindings",
     pyclass(name = "PromptArgument", eq, get_all, set_all, from_py_object)
@@ -19,6 +22,7 @@ pub struct PromptArgument {
     pub required: bool,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[cfg(feature = "python-bindings")]
 #[pymethods]
 impl PromptArgument {
@@ -45,6 +49,7 @@ impl PromptArgument {
 /// Per MCP spec (2025-11-25), a prompt MAY declare typed arguments that
 /// the client should collect before invoking the prompt.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg_attr(
     feature = "python-bindings",
     pyclass(name = "PromptDefinition", eq, get_all, set_all, from_py_object)
@@ -57,6 +62,7 @@ pub struct PromptDefinition {
     pub arguments: Vec<PromptArgument>,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[cfg(feature = "python-bindings")]
 #[pymethods]
 impl PromptDefinition {

@@ -14,16 +14,20 @@ use parking_lot::RwLock;
 use pyo3::exceptions::{PyIOError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyAny, PyBytes};
+#[cfg(feature = "stub-gen")]
+use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pyfunction, gen_stub_pymethods};
 
 use crate::{ArtefactError, FileRef, FilesystemArtefactStore, SharedArtefactStore};
 
 /// Python wrapper for [`crate::FileRef`].
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[pyclass(name = "FileRef", module = "dcc_mcp_core._core", skip_from_py_object)]
 #[derive(Clone)]
 pub struct PyFileRef {
     pub(crate) inner: FileRef,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
 impl PyFileRef {
     /// Canonical URI, e.g. ``artefact://sha256/<hex>``.
@@ -121,6 +125,7 @@ fn map_err(e: ArtefactError) -> PyErr {
 /// ``<temp_dir>/dcc-mcp-artefacts``. ``McpHttpServer`` installs its own
 /// store on start, so inside a server process this helper routes to the
 /// server-owned store automatically.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
 #[pyfunction(name = "artefact_put_file")]
 #[pyo3(signature = (path, mime=None))]
 pub fn py_artefact_put_file(path: &str, mime: Option<String>) -> PyResult<PyFileRef> {
@@ -130,6 +135,7 @@ pub fn py_artefact_put_file(path: &str, mime: Option<String>) -> PyResult<PyFile
 }
 
 /// Store raw ``bytes`` and return a :class:`FileRef`.
+// NOTE (stub-gen): skip gen_stub_pyfunction — `data: &[u8]` can't auto-map.
 #[pyfunction(name = "artefact_put_bytes")]
 #[pyo3(signature = (data, mime=None))]
 pub fn py_artefact_put_bytes(data: &[u8], mime: Option<String>) -> PyResult<PyFileRef> {
@@ -140,6 +146,7 @@ pub fn py_artefact_put_bytes(data: &[u8], mime: Option<String>) -> PyResult<PyFi
 
 /// Read back the raw bytes for an ``artefact://`` URI. Raises ``IOError``
 /// when the URI is unknown.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
 #[pyfunction(name = "artefact_get_bytes")]
 pub fn py_artefact_get_bytes(py: Python<'_>, uri: &str) -> PyResult<Py<PyAny>> {
     let store = default_store();
@@ -154,6 +161,7 @@ pub fn py_artefact_get_bytes(py: Python<'_>, uri: &str) -> PyResult<Py<PyAny>> {
 }
 
 /// List every known artefact, returning a list of :class:`FileRef`.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
 #[pyfunction(name = "artefact_list")]
 pub fn py_artefact_list() -> PyResult<Vec<PyFileRef>> {
     let store = default_store();

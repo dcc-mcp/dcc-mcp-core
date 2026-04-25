@@ -298,7 +298,7 @@ class _FakeDccServer:
     def unload_skill(self, name):
         pass
 
-    def find_skills(self, **kwargs):
+    def search_skills(self, **kwargs):
         return []
 
     def is_loaded(self, name):
@@ -392,9 +392,9 @@ class TestDccServerBase:
             result = server.list_actions()
         assert isinstance(result, list)
 
-    def test_find_skills_returns_list(self, tmp_path):
+    def test_search_skills_returns_list(self, tmp_path):
         server = self._make_server(tmp_path)
-        result = server.find_skills(query="anything")
+        result = server.search_skills(query="anything")
         assert isinstance(result, list)
 
     def test_is_skill_loaded_returns_bool(self, tmp_path):

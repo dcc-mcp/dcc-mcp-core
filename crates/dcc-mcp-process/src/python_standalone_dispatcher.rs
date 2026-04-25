@@ -3,6 +3,8 @@
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
+#[cfg(feature = "stub-gen")]
+use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pymethods};
 
 use super::helpers::{map_process_err, runtime};
 use crate::dispatcher::{HostDispatcher, JobRequest, StandaloneDispatcher, ThreadAffinity};
@@ -12,11 +14,13 @@ use crate::error::ProcessError;
 ///
 /// Supports only ``ThreadAffinity.Any`` and executes submitted jobs on a Tokio
 /// worker task. Useful for tests and standalone CLI integrations.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[pyclass(name = "PyStandaloneDispatcher")]
 pub struct PyStandaloneDispatcher {
     inner: StandaloneDispatcher,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
 impl PyStandaloneDispatcher {
     #[new]

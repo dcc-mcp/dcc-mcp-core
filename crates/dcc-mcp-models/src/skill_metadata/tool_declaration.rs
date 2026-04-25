@@ -8,6 +8,8 @@ use super::{ExecutionMode, ThreadAffinity};
 
 #[cfg(feature = "python-bindings")]
 use pyo3::prelude::*;
+#[cfg(feature = "stub-gen")]
+use pyo3_stub_gen_derive::gen_stub_pyclass;
 
 #[cfg(feature = "python-bindings")]
 #[path = "tool_declaration_python.rs"]
@@ -126,6 +128,7 @@ impl ToolAnnotations {
 /// without loading the skill's scripts. It carries enough information for agents
 /// to decide whether to load a skill.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg_attr(
     feature = "python-bindings",
     pyclass(name = "ToolDeclaration", eq, from_py_object)
@@ -464,6 +467,7 @@ pub struct NextTools {
 ///     tools: [unwrap, layout_uvs, transfer_uvs]
 /// ```
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg_attr(
     feature = "python-bindings",
     pyclass(name = "SkillGroup", eq, from_py_object)

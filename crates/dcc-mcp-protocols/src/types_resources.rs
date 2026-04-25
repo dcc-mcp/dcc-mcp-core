@@ -4,6 +4,8 @@
 use dcc_mcp_utils::constants::DEFAULT_MIME_TYPE;
 #[cfg(feature = "python-bindings")]
 use pyo3::prelude::*;
+#[cfg(feature = "stub-gen")]
+use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pymethods};
 use serde::{Deserialize, Serialize};
 
 /// Annotations for MCP Resource behavior hints.
@@ -11,6 +13,7 @@ use serde::{Deserialize, Serialize};
 /// Per MCP spec (2025-11-25), resources MAY include annotations that describe
 /// their audience (user/assistant) and priority level.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg_attr(
     feature = "python-bindings",
     pyclass(name = "ResourceAnnotations", get_all, set_all, from_py_object)
@@ -24,6 +27,7 @@ pub struct ResourceAnnotations {
     pub priority: Option<f64>,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[cfg(feature = "python-bindings")]
 #[pymethods]
 impl ResourceAnnotations {
@@ -46,6 +50,7 @@ impl ResourceAnnotations {
 /// Per MCP spec (2025-11-25), a resource has a URI, name, description, MIME type,
 /// and optional annotations providing audience/priority hints.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg_attr(
     feature = "python-bindings",
     pyclass(name = "ResourceDefinition", get_all, set_all, from_py_object)
@@ -61,6 +66,7 @@ pub struct ResourceDefinition {
     pub annotations: Option<ResourceAnnotations>,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[cfg(feature = "python-bindings")]
 #[pymethods]
 impl ResourceDefinition {
@@ -95,6 +101,7 @@ impl ResourceDefinition {
 /// Per MCP spec (2025-11-25), a resource template has a URI template, name,
 /// description, MIME type, and optional annotations.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg_attr(
     feature = "python-bindings",
     pyclass(name = "ResourceTemplateDefinition", get_all, set_all, from_py_object)
@@ -111,6 +118,7 @@ pub struct ResourceTemplateDefinition {
     pub annotations: Option<ResourceAnnotations>,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[cfg(feature = "python-bindings")]
 #[pymethods]
 impl ResourceTemplateDefinition {

@@ -1,7 +1,7 @@
 """Deep tests for DccInfo, DccCapabilities, DccError, ScriptLanguage, DccErrorCode, SkillCatalog.
 
 Covers: full field access, edge cases, enum completeness, SkillCatalog all methods
-(discover/list_skills/find_skills/load_skill/unload_skill/is_loaded/loaded_count/get_skill_info).
+(discover/list_skills/search_skills/load_skill/unload_skill/is_loaded/loaded_count/get_skill_info).
 """
 
 from __future__ import annotations
@@ -408,34 +408,34 @@ class TestSkillCatalogCreate:
         skills = catalog.list_skills()
         assert isinstance(skills, list)
 
-    def test_find_skills_no_args(self):
+    def test_search_skills_no_args(self):
         reg = dcc_mcp_core.ToolRegistry()
         catalog = dcc_mcp_core.SkillCatalog(reg)
-        results = catalog.find_skills()
+        results = catalog.search_skills()
         assert isinstance(results, list)
 
-    def test_find_skills_with_query(self):
+    def test_search_skills_with_query(self):
         reg = dcc_mcp_core.ToolRegistry()
         catalog = dcc_mcp_core.SkillCatalog(reg)
-        results = catalog.find_skills(query="maya")
+        results = catalog.search_skills(query="maya")
         assert isinstance(results, list)
 
-    def test_find_skills_with_tags(self):
+    def test_search_skills_with_tags(self):
         reg = dcc_mcp_core.ToolRegistry()
         catalog = dcc_mcp_core.SkillCatalog(reg)
-        results = catalog.find_skills(tags=["geometry"])
+        results = catalog.search_skills(tags=["geometry"])
         assert isinstance(results, list)
 
-    def test_find_skills_with_dcc(self):
+    def test_search_skills_with_dcc(self):
         reg = dcc_mcp_core.ToolRegistry()
         catalog = dcc_mcp_core.SkillCatalog(reg)
-        results = catalog.find_skills(dcc="maya")
+        results = catalog.search_skills(dcc="maya")
         assert isinstance(results, list)
 
-    def test_find_skills_combined_filters(self):
+    def test_search_skills_combined_filters(self):
         reg = dcc_mcp_core.ToolRegistry()
         catalog = dcc_mcp_core.SkillCatalog(reg)
-        results = catalog.find_skills(query="sphere", tags=["create"], dcc="maya")
+        results = catalog.search_skills(query="sphere", tags=["create"], dcc="maya")
         assert isinstance(results, list)
 
     def test_load_skill_nonexistent_raises_or_false(self):
@@ -520,9 +520,9 @@ class TestSkillCatalogWithRealSkills:
             # SkillSummary instances
             assert hasattr(s, "name") or isinstance(s, dict)
 
-    def test_find_skills_returns_subset(self, catalog_with_skills):
+    def test_search_skills_returns_subset(self, catalog_with_skills):
         all_skills = catalog_with_skills.list_skills()
-        found = catalog_with_skills.find_skills(query="hello")
+        found = catalog_with_skills.search_skills(query="hello")
         assert isinstance(found, list)
         # result should be subset of all_skills
         assert len(found) <= len(all_skills)

@@ -44,6 +44,9 @@ use std::str::FromStr;
 use pyo3::prelude::*;
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "stub-gen")]
+use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pymethods};
+
 use crate::registry::ActionMeta;
 
 #[cfg(test)]
@@ -56,6 +59,7 @@ mod tests;
 /// Only the numeric components are considered; pre-release labels (e.g. `-alpha`)
 /// are stripped and ignored for comparison purposes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg_attr(
     feature = "python-bindings",
     pyclass(name = "SemVer", get_all, from_py_object)
@@ -67,6 +71,7 @@ pub struct SemVer {
 }
 
 #[cfg(feature = "python-bindings")]
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
 impl SemVer {
     #[new]
@@ -212,12 +217,14 @@ impl std::error::Error for VersionParseError {}
 // ── VersionConstraint pyclass ────────────────────────────────────────────────
 
 #[cfg(feature = "python-bindings")]
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[pyclass(name = "VersionConstraint")]
 pub struct PyVersionConstraint {
     pub inner: VersionConstraint,
 }
 
 #[cfg(feature = "python-bindings")]
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
 impl PyVersionConstraint {
     #[staticmethod]
@@ -342,6 +349,7 @@ type VersionKey = (String, String);
 /// Older versions are kept until explicitly removed, enabling backward-compatible
 /// resolution through the [`CompatibilityRouter`].
 #[derive(Debug, Default, Clone)]
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg_attr(
     feature = "python-bindings",
     pyclass(name = "VersionedRegistry", from_py_object)
@@ -438,6 +446,7 @@ impl VersionedRegistry {
 }
 
 #[cfg(feature = "python-bindings")]
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
 impl VersionedRegistry {
     #[new]

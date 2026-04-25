@@ -178,7 +178,7 @@ class TestFacadeToolsAggregation:
             assert meta in names, f"missing meta-tool {meta!r}"
 
         # Tier 2 — skill-management tools (one canonical set gateway-side).
-        for mgmt in ("list_skills", "find_skills", "search_skills", "get_skill_info", "load_skill", "unload_skill"):
+        for mgmt in ("list_skills", "search_skills", "get_skill_info", "load_skill", "unload_skill"):
             assert mgmt in names, f"missing skill-management tool {mgmt!r}"
 
         # Tier 3 — backend tools, each prefixed with an 8-char instance id.

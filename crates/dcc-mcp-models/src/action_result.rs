@@ -6,6 +6,8 @@
 use pyo3::prelude::*;
 #[cfg(feature = "python-bindings")]
 use pyo3::types::PyDict;
+#[cfg(feature = "stub-gen")]
+use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pyclass_enum, gen_stub_pymethods};
 
 #[cfg(feature = "python-bindings")]
 use dcc_mcp_utils::py_json::{json_value_to_bound_py, py_any_to_json_value, py_dict_to_json_map};
@@ -56,6 +58,7 @@ fn compact_json_value(
 /// # Future extensibility
 /// Additional formats (e.g. CBOR, Bincode) can be added as new variants without
 /// breaking the existing API.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass_enum)]
 #[cfg_attr(
     feature = "python-bindings",
     pyclass(name = "SerializeFormat", eq, eq_int, from_py_object)
@@ -70,6 +73,7 @@ pub enum SerializeFormat {
 }
 
 #[cfg(feature = "python-bindings")]
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
 impl SerializeFormat {
     fn __repr__(&self) -> &'static str {
@@ -186,6 +190,7 @@ impl ActionResultModelData {
 }
 
 /// Python-facing ToolResult.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg_attr(
     feature = "python-bindings",
     pyclass(name = "ToolResult", eq, from_py_object)

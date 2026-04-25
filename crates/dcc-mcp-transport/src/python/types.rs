@@ -7,6 +7,8 @@
 use pyo3::prelude::*;
 #[cfg(feature = "python-bindings")]
 use pyo3::types::PyDict;
+#[cfg(feature = "stub-gen")]
+use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pyclass_enum, gen_stub_pymethods};
 #[cfg(feature = "python-bindings")]
 use std::collections::HashMap;
 
@@ -25,6 +27,7 @@ use crate::ipc::{TransportAddress, TransportScheme};
 /// status = ServiceStatus.AVAILABLE
 /// print(status)  # "AVAILABLE"
 /// ```
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass_enum)]
 #[cfg(feature = "python-bindings")]
 #[pyclass(name = "ServiceStatus", eq, from_py_object)]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -43,6 +46,7 @@ pub enum PyServiceStatus {
     ShuttingDown,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[cfg(feature = "python-bindings")]
 #[pymethods]
 impl PyServiceStatus {
@@ -100,6 +104,7 @@ impl From<ServiceStatus> for PyServiceStatus {
 /// print(addr.is_local)    # True/False
 /// print(str(addr))        # "tcp://127.0.0.1:18812"
 /// ```
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg(feature = "python-bindings")]
 #[pyclass(name = "TransportAddress", from_py_object)]
 #[derive(Debug, Clone)]
@@ -107,6 +112,7 @@ pub struct PyTransportAddress {
     pub(super) inner: TransportAddress,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[cfg(feature = "python-bindings")]
 #[pymethods]
 impl PyTransportAddress {
@@ -264,6 +270,7 @@ impl From<&PyTransportAddress> for TransportAddress {
 /// scheme = TransportScheme.TCP_ONLY      # Always use TCP
 /// scheme = TransportScheme.PREFER_IPC    # Prefer IPC, fallback to TCP
 /// ```
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass_enum)]
 #[cfg(feature = "python-bindings")]
 #[pyclass(name = "TransportScheme", eq, from_py_object)]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -285,6 +292,7 @@ pub enum PyTransportScheme {
     PreferIpc,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[cfg(feature = "python-bindings")]
 #[pymethods]
 impl PyTransportScheme {
@@ -355,6 +363,7 @@ impl From<&PyTransportScheme> for TransportScheme {
 /// print(entry.port)          # 18812
 /// print(entry.status)        # ServiceStatus.AVAILABLE
 /// ```
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg(feature = "python-bindings")]
 #[pyclass(name = "ServiceEntry", from_py_object)]
 #[derive(Debug, Clone)]

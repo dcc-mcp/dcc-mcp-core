@@ -8,6 +8,8 @@
 
 #[cfg(feature = "python-bindings")]
 use pyo3::prelude::*;
+#[cfg(feature = "stub-gen")]
+use pyo3_stub_gen_derive::gen_stub_pyfunction;
 
 use dcc_mcp_models::{SkillGroup, SkillMetadata, ToolDeclaration};
 use dcc_mcp_utils::constants::SKILL_METADATA_FILE;
@@ -585,6 +587,7 @@ pub(crate) fn extract_frontmatter(content: &str) -> Option<&str> {
 /// Returns `None` if the directory contains no valid `SKILL.md`.
 /// Raises `FileNotFoundError` if the path does not exist at all.
 #[cfg(feature = "python-bindings")]
+#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
 #[pyfunction]
 #[pyo3(name = "parse_skill_md")]
 pub fn py_parse_skill_md(skill_dir: &str) -> pyo3::PyResult<Option<SkillMetadata>> {
@@ -616,6 +619,7 @@ pub fn py_parse_skill_md(skill_dir: &str) -> pyo3::PyResult<Option<SkillMetadata
 /// Returns a tuple of (ordered_skills, skipped_dirs).
 /// Raises ValueError on missing dependencies or cycles.
 #[cfg(feature = "python-bindings")]
+#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
 #[pyfunction]
 #[pyo3(name = "scan_and_load")]
 #[pyo3(signature = (extra_paths=None, dcc_name=None))]
@@ -634,6 +638,7 @@ pub fn py_scan_and_load(
 /// Skills with missing dependencies are skipped instead of raising errors.
 /// Only raises ValueError on cyclic dependencies.
 #[cfg(feature = "python-bindings")]
+#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
 #[pyfunction]
 #[pyo3(name = "scan_and_load_lenient")]
 #[pyo3(signature = (extra_paths=None, dcc_name=None))]

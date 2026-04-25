@@ -3,6 +3,9 @@
 #[cfg(feature = "python-bindings")]
 use pyo3::prelude::*;
 
+#[cfg(feature = "stub-gen")]
+use pyo3_stub_gen_derive::gen_stub_pyclass;
+
 use dashmap::DashMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -24,6 +27,7 @@ type SubscriberMap = Arc<DashMap<String, Vec<(SubscriberId, Py<PyAny>)>>>;
 type SubscriberMap = Arc<DashMap<String, Vec<(SubscriberId, EventCallback)>>>;
 
 /// Thread-safe event bus.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg_attr(
     feature = "python-bindings",
     pyclass(name = "EventBus", from_py_object)
@@ -152,6 +156,7 @@ impl EventBus {
 
 // ── Python bindings ──
 
+// NOTE: gen_stub_pymethods skipped — subscribe() takes Py<PyAny>, publish() uses **kwargs with Py<PyAny>
 #[cfg(feature = "python-bindings")]
 #[pymethods]
 impl EventBus {

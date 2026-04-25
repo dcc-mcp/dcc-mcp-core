@@ -10,6 +10,8 @@
 
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
+#[cfg(feature = "stub-gen")]
+use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pyfunction, gen_stub_pymethods};
 
 use crate::provider;
 use crate::recorder::ActionRecorder;
@@ -18,12 +20,14 @@ use crate::types::{ActionMetrics, ExporterBackend, LogFormat, TelemetryConfig};
 // ── PyActionMetrics ───────────────────────────────────────────────────────────
 
 /// Read-only snapshot of per-Action performance metrics.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[pyclass(name = "ToolMetrics", from_py_object)]
 #[derive(Clone)]
 pub struct PyActionMetrics {
     inner: ActionMetrics,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
 impl PyActionMetrics {
     /// Action name.
@@ -98,11 +102,13 @@ impl PyActionMetrics {
 /// cfg.init()   # install global provider
 /// cfg.shutdown()  # flush and close
 /// ```
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[pyclass(name = "TelemetryConfig")]
 pub struct PyTelemetryConfig {
     inner: TelemetryConfig,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
 impl PyTelemetryConfig {
     /// Create a new config for the given service name.
@@ -219,11 +225,13 @@ impl PyTelemetryConfig {
 /// metrics = recorder.metrics("create_sphere")
 /// print(metrics.invocation_count, metrics.success_rate())
 /// ```
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[pyclass(name = "ToolRecorder")]
 pub struct PyActionRecorder {
     inner: ActionRecorder,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
 impl PyActionRecorder {
     /// Create a new `ActionRecorder` for the given scope name.
@@ -276,6 +284,7 @@ impl PyActionRecorder {
 /// Guard object returned by `ActionRecorder.start()`.
 ///
 /// Call `finish(success)` to record the result, or let it drop to record as failure.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[pyclass(name = "RecordingGuard")]
 pub struct PyRecordingGuard {
     guard: Option<crate::recorder::RecordingGuard>,
@@ -283,6 +292,7 @@ pub struct PyRecordingGuard {
     dcc_name: String,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
 impl PyRecordingGuard {
     /// Finish recording with the given success flag.
@@ -321,6 +331,7 @@ impl PyRecordingGuard {
 // ── Free functions ────────────────────────────────────────────────────────────
 
 /// Return `True` if the global telemetry provider has been initialised.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
 #[pyfunction]
 #[pyo3(name = "is_telemetry_initialized")]
 pub fn py_is_telemetry_initialized() -> bool {
@@ -328,6 +339,7 @@ pub fn py_is_telemetry_initialized() -> bool {
 }
 
 /// Shut down the global telemetry provider, flushing all pending data.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
 #[pyfunction]
 #[pyo3(name = "shutdown_telemetry")]
 pub fn py_shutdown_telemetry() {

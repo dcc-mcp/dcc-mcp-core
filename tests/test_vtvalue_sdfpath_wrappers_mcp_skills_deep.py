@@ -586,9 +586,9 @@ class TestMcpHttpServerCatalogApi:
         server = self._make_server()
         assert server.loaded_count() == 0
 
-    def test_find_skills_empty_query_returns_list(self):
+    def test_search_skills_empty_query_returns_list(self):
         server = self._make_server()
-        result = server.find_skills(query="geometry")
+        result = server.search_skills(query="geometry")
         assert isinstance(result, list)
 
     def test_is_loaded_false_for_nonexistent(self):

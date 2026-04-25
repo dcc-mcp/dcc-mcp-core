@@ -1,85 +1,132 @@
-//! Type-stub generator — PoC for `pyo3-stub-gen` integration.
+//! Type-stub generator — produces `python/dcc_mcp_core/_core.pyi` from annotated Rust code.
 //!
-//! Walks every `#[gen_stub_pyclass]` / `#[gen_stub_pymethods]` annotation
-//! registered via `inventory::submit!` at link time and emits a `.pyi`
-//! package for the `dcc_mcp_core._core` module.
+//! Walks every `#[gen_stub_pyclass]` / `#[gen_stub_pymethods]` /
+//! `#[gen_stub_pyfunction]` annotation registered via `inventory::submit!`
+//! at link time, emits a `.pyi` package, then post-processes it into a
+//! single-file `_core.pyi` suitable for type checkers.
 //!
 //! Run with:
 //!     cargo run --bin stub_gen --features stub-gen
 //!     # or: just stubgen
 //!
-//! PoC scope: only the `dcc-mcp-capture` crate is annotated, so only its
-//! types appear in the generated output.
-//!
-//! ## How this plays with the hand-maintained `python/dcc_mcp_core/_core.pyi`
-//!
-//! `pyo3-stub-gen` v0.20 detects our mixed layout (`python-source =
-//! "python"`, `module-name = "dcc_mcp_core._core"`) and writes a *package-
-//! style* stub:
-//!
-//!   python/dcc_mcp_core/_core/__init__.pyi    ← generated (5.7 KB for 6 classes)
-//!   python/dcc_mcp_core/__init__.pyi          ← generated umbrella
-//!
-//! This collides with (and would eventually replace) the single-file
-//! `python/dcc_mcp_core/_core.pyi` we currently maintain by hand. For the
-//! PoC we move the generated files out of `python/` into `target/stubgen/`
-//! so the hand-written stub stays authoritative.
+//! CI drift check:
+//!     cargo run --bin stub_gen --features stub-gen -- --check
 
-use std::path::{Path, PathBuf};
+use std::fs;
+use std::path::PathBuf;
 
 use pyo3_stub_gen::Result;
 
+/// Where pyo3-stub-gen writes its package-style output.
 const GEN_PKG_STUB: &str = "python/dcc_mcp_core/_core/__init__.pyi";
 const GEN_PARENT_STUB: &str = "python/dcc_mcp_core/__init__.pyi";
 const GEN_PKG_DIR: &str = "python/dcc_mcp_core/_core";
 
-const POC_PKG_STUB: &str = "target/stubgen/_core/__init__.pyi";
-const POC_PARENT_STUB: &str = "target/stubgen/__init__.pyi";
+/// Where the final single-file stub is written.
+const FINAL_STUB: &str = "python/dcc_mcp_core/_core.pyi";
 
 fn main() -> Result<()> {
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let check_mode = std::env::args().any(|arg| arg == "--check");
 
     // 1. Run the generator — this writes into python/dcc_mcp_core/...
     let stub = _core::stub_info()?;
     stub.generate()?;
 
-    // 2. Relocate the output so we don't clobber the hand-written stub.
-    let gen_pkg = manifest_dir.join(GEN_PKG_STUB);
-    let gen_parent = manifest_dir.join(GEN_PARENT_STUB);
-    let gen_pkg_dir = manifest_dir.join(GEN_PKG_DIR);
-    let poc_pkg = manifest_dir.join(POC_PKG_STUB);
-    let poc_parent = manifest_dir.join(POC_PARENT_STUB);
+    // 2. Read the generated package-style stub
+    let gen_pkg_path = manifest_dir.join(GEN_PKG_STUB);
+    let gen_content = fs::read_to_string(&gen_pkg_path).unwrap_or_default();
 
-    if let Some(dir) = poc_pkg.parent() {
-        std::fs::create_dir_all(dir)?;
+    // 3. Build header: constants + metadata that pyo3-stub-gen cannot emit
+    let header = build_header();
+
+    // 4. Assemble final _core.pyi
+    let final_content = if gen_content.is_empty() {
+        header
+    } else {
+        format!("{header}\n\n{gen_content}")
+    };
+
+    // 5. Write or check
+    let final_path = manifest_dir.join(FINAL_STUB);
+
+    if check_mode {
+        let existing = fs::read_to_string(&final_path).unwrap_or_default();
+        if existing == final_content {
+            println!("Stub drift check: OK — _core.pyi is up to date.");
+        } else {
+            eprintln!("Stub drift check: FAILED — _core.pyi is out of date.");
+            eprintln!("Run `just stubgen` to regenerate.");
+            std::process::exit(1);
+        }
+    } else {
+        fs::write(&final_path, &final_content)?;
+        println!("Generated: {}", final_path.display());
     }
-    move_replace(&gen_pkg, &poc_pkg)?;
-    move_replace(&gen_parent, &poc_parent)?;
-    // Clean up the now-empty _core/ directory pyo3-stub-gen created next to _core.pyi.
-    let _ = std::fs::remove_dir(&gen_pkg_dir);
 
-    println!();
-    println!("=== pyo3-stub-gen PoC — generation complete ===");
-    println!(
-        "Hand-written stub  : {}",
-        manifest_dir.join("python/dcc_mcp_core/_core.pyi").display()
-    );
-    println!("Generated package  : {}", poc_pkg.display());
-    println!("Generated umbrella : {}", poc_parent.display());
-    println!();
-    println!("View with:");
-    println!("    Get-Content {}", poc_pkg.display());
+    // 6. Clean up the package-style directory that pyo3-stub-gen created.
+    let gen_pkg_dir = manifest_dir.join(GEN_PKG_DIR);
+    if gen_pkg_dir.is_dir() {
+        let _ = fs::remove_dir_all(&gen_pkg_dir);
+    }
+    // Remove the generated umbrella __init__.pyi (not our hand-written one).
+    let gen_parent = manifest_dir.join(GEN_PARENT_STUB);
+    if gen_parent.is_file() {
+        let content = fs::read_to_string(&gen_parent).unwrap_or_default();
+        if content.starts_with("# This file is automatically generated by pyo3_stub_gen") {
+            let _ = fs::remove_file(&gen_parent);
+        }
+    }
+
     Ok(())
 }
 
-/// Rename `src` to `dst`, overwriting `dst` if it exists. No-op if `src` missing.
-fn move_replace(src: &Path, dst: &Path) -> std::io::Result<()> {
-    if !src.exists() {
-        return Ok(());
-    }
-    if dst.exists() {
-        std::fs::remove_file(dst)?;
-    }
-    std::fs::rename(src, dst)?;
-    Ok(())
+/// Build the header block containing constants and metadata that are
+/// registered via `m.add()` / `m.add_function()` but are invisible to
+/// `pyo3-stub-gen` (which only sees `#[pyclass]` / `#[pymethods]` /
+/// `#[pyfunction]`).
+fn build_header() -> String {
+    let version = env!("CARGO_PKG_VERSION");
+    let author = env!("CARGO_PKG_AUTHORS");
+
+    format!(
+        r#"# This file is automatically generated by `just stubgen`.
+# Do not edit manually — your changes will be overwritten.
+# To regenerate: cargo run --bin stub_gen --features stub-gen
+
+from __future__ import annotations
+
+import builtins
+import typing
+
+# ── Module metadata ──
+
+__version__: builtins.str = {version:?}
+__author__: builtins.str = {author:?}
+
+# ── Constants (from dcc_mcp_utils::constants, registered via m.add()) ──
+
+APP_NAME: builtins.str
+APP_AUTHOR: builtins.str
+DEFAULT_DCC: builtins.str
+DEFAULT_VERSION: builtins.str
+DEFAULT_MIME_TYPE: builtins.str
+SKILL_METADATA_FILE: builtins.str
+SKILL_SCRIPTS_DIR: builtins.str
+SKILL_METADATA_DIR: builtins.str
+ENV_SKILL_PATHS: builtins.str
+ENV_LOG_LEVEL: builtins.str
+DEFAULT_LOG_LEVEL: builtins.str
+ENV_LOG_FILE: builtins.str
+ENV_LOG_DIR: builtins.str
+ENV_LOG_MAX_SIZE: builtins.str
+ENV_LOG_MAX_FILES: builtins.str
+ENV_LOG_ROTATION: builtins.str
+ENV_LOG_FILE_PREFIX: builtins.str
+DEFAULT_LOG_FILE_PREFIX: builtins.str
+DEFAULT_LOG_ROTATION: builtins.str
+DEFAULT_LOG_MAX_SIZE: builtins.int
+DEFAULT_LOG_MAX_FILES: builtins.int
+"#
+    )
 }

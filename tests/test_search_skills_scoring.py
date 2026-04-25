@@ -1,6 +1,6 @@
 """Integration tests for the BM25-lite ranker powering ``search_skills``.
 
-Issue #343 — `SkillCatalog.find_skills` (the function backing the
+Issue #343 — `SkillCatalog.search_skills` (the function backing the
 ``search_skills`` MCP tool) now tokenises the query, drops stopwords,
 weights matches across skill-level fields AND sibling ``tools.yaml``
 entries, and sorts results deterministically.
@@ -130,7 +130,7 @@ def test_exact_name_ranks_first(catalog: SkillCatalog) -> None:
     """Querying the exact skill name places it first, regardless of
     other skills with more matching fields.
     """
-    results = catalog.find_skills(query="polygon-bevel")
+    results = catalog.search_skills(query="polygon-bevel")
     assert results, "expected at least one result"
     assert results[0].name == "polygon-bevel"
 
@@ -139,7 +139,7 @@ def test_sibling_tools_yaml_contributes_to_score(catalog: SkillCatalog) -> None:
     """A skill whose only mention of the query is in its sibling
     tools.yaml must still appear in search results (#343 + #356).
     """
-    results = catalog.find_skills(query="turntable")
+    results = catalog.search_skills(query="turntable")
     names = [r.name for r in results]
     assert "camera-helpers" in names, f"sibling tools.yaml entry must make skill scorable, got {names}"
     assert results[0].name == "camera-helpers"
@@ -149,7 +149,7 @@ def test_multi_token_query_prefers_skill_matching_all_tokens(
     catalog: SkillCatalog,
 ) -> None:
     """A multi-token query favours the skill that hits on more tokens."""
-    results = catalog.find_skills(query="polygon bevel")
+    results = catalog.search_skills(query="polygon bevel")
     assert results
     # `polygon-bevel` has both tokens in name + tags + hint; `misc-utils`
     # only has `polygon` in description.
@@ -158,7 +158,7 @@ def test_multi_token_query_prefers_skill_matching_all_tokens(
 
 def test_stopword_only_query_returns_nothing(catalog: SkillCatalog) -> None:
     """`the of and` contains only stopwords — no skill should rank."""
-    results = catalog.find_skills(query="the of and")
+    results = catalog.search_skills(query="the of and")
     assert results == [], "stopword-only query must return no results"
 
 
@@ -166,6 +166,6 @@ def test_dcc_filter_applied_before_scoring(catalog: SkillCatalog) -> None:
     """The `dcc` pre-filter excludes skills for other DCCs before the
     scorer runs — a maya-only query must not surface blender skills.
     """
-    results = catalog.find_skills(query="render", dcc="maya")
+    results = catalog.search_skills(query="render", dcc="maya")
     names = [r.name for r in results]
     assert "render-utils" not in names, f"blender skill must be filtered out, got {names}"

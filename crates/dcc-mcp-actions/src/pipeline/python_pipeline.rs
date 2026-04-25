@@ -9,6 +9,9 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use serde_json::Value;
 
+#[cfg(feature = "stub-gen")]
+use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pymethods};
+
 use crate::dispatcher::{ActionDispatcher, DispatchError};
 use crate::pipeline::{
     ActionPipeline, AuditMiddleware, LoggingMiddleware, RateLimitMiddleware, TimingMiddleware,
@@ -43,6 +46,7 @@ use super::shared::{SharedAuditMiddleware, SharedRateLimitMiddleware, SharedTimi
 /// result = pipeline.dispatch("ping", "{}")
 /// assert result["output"] == "pong"
 /// ```
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[pyclass(name = "ToolPipeline")]
 pub struct PyActionPipeline {
     /// Rust-level pipeline wrapping an `ActionDispatcher`.
@@ -57,6 +61,7 @@ pub struct PyActionPipeline {
     middleware_names: Vec<String>,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
 impl PyActionPipeline {
     /// Create a pipeline wrapping the given ``ActionDispatcher``.

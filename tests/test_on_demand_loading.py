@@ -33,12 +33,11 @@ EXAMPLES_SKILLS = REPO_ROOT / "examples" / "skills"
 CORE_TOOLS = frozenset(
     {
         "list_roots",
-        "find_skills",
+        "search_skills",
         "list_skills",
         "get_skill_info",
         "load_skill",
         "unload_skill",
-        "search_skills",
         "activate_tool_group",
         "deactivate_tool_group",
         "search_tools",
@@ -124,7 +123,7 @@ class TestOnDemandLoadingContract:
     def test_initial_tools_list_contains_only_core_and_stubs(self, catalog_server):
         """REGRESSION TEST: tools/list on a freshly started server with discovered
         but unloaded skills MUST contain only:
-          1. Core meta-tools (find_skills, load_skill, etc.)
+          1. Core meta-tools (search_skills, load_skill, etc.)
           2. __skill__<name> stub entries
 
         Any other tool name is a regression — it means a skill was pre-loaded

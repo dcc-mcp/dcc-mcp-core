@@ -7,6 +7,8 @@
 use pyo3::prelude::*;
 #[cfg(feature = "python-bindings")]
 use pyo3::types::PyDict;
+#[cfg(feature = "stub-gen")]
+use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pymethods};
 
 #[cfg(feature = "python-bindings")]
 use std::collections::HashMap;
@@ -36,6 +38,7 @@ use super::super::enums::{PyDccErrorCode, PyScriptLanguage};
 /// )
 /// print(info.dcc_type)  # "maya"
 /// ```
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg(feature = "python-bindings")]
 #[pyclass(name = "DccInfo", get_all, from_py_object)]
 #[derive(Debug, Clone)]
@@ -107,6 +110,7 @@ impl From<&DccInfo> for PyDccInfo {
 // ── PyScriptResult ──
 
 /// Python-facing script execution result.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg(feature = "python-bindings")]
 #[pyclass(name = "ScriptResult", get_all, from_py_object)]
 #[derive(Debug, Clone)]
@@ -173,6 +177,7 @@ impl From<&ScriptResult> for PyScriptResult {
 // ── PySceneStatistics ──
 
 /// Python-facing scene statistics.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg(feature = "python-bindings")]
 #[pyclass(name = "SceneStatistics", get_all, set_all, from_py_object)]
 #[derive(Debug, Clone, Default)]
@@ -186,6 +191,7 @@ pub struct PySceneStatistics {
     pub camera_count: u64,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[cfg(feature = "python-bindings")]
 #[pymethods]
 impl PySceneStatistics {
@@ -240,6 +246,7 @@ impl From<&SceneStatistics> for PySceneStatistics {
 // ── PySceneInfo ──
 
 /// Python-facing scene information.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg(feature = "python-bindings")]
 #[pyclass(name = "SceneInfo", get_all, from_py_object)]
 #[derive(Debug, Clone)]
@@ -257,6 +264,7 @@ pub struct PySceneInfo {
     pub metadata: HashMap<String, String>,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[cfg(feature = "python-bindings")]
 #[pymethods]
 impl PySceneInfo {
@@ -325,6 +333,7 @@ impl From<&SceneInfo> for PySceneInfo {
 // ── PyDccCapabilities ──
 
 /// Python-facing DCC capabilities declaration.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg(feature = "python-bindings")]
 #[pyclass(name = "DccCapabilities", get_all, set_all, from_py_object)]
 #[derive(Debug, Clone)]
@@ -354,6 +363,7 @@ pub struct PyDccCapabilities {
     pub extensions: HashMap<String, bool>,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[cfg(feature = "python-bindings")]
 #[pymethods]
 impl PyDccCapabilities {
@@ -523,6 +533,7 @@ impl From<&DccCapabilities> for PyDccCapabilities {
 // ── PyDccError ──
 
 /// Python-facing DCC error.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg(feature = "python-bindings")]
 #[pyclass(name = "DccError", get_all, from_py_object)]
 #[derive(Debug, Clone)]
@@ -533,6 +544,7 @@ pub struct PyDccError {
     pub recoverable: bool,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[cfg(feature = "python-bindings")]
 #[pymethods]
 impl PyDccError {
@@ -581,6 +593,7 @@ impl From<&DccError> for PyDccError {
 // ── PyCaptureResult ──
 
 /// Python-facing capture/screenshot result.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg(feature = "python-bindings")]
 #[pyclass(name = "CaptureResult", get_all, from_py_object)]
 #[derive(Debug, Clone)]
@@ -592,6 +605,7 @@ pub struct PyCaptureResult {
     pub viewport: Option<String>,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[cfg(feature = "python-bindings")]
 #[pymethods]
 impl PyCaptureResult {

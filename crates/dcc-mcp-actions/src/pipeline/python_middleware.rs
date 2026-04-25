@@ -12,6 +12,9 @@ use std::time::Duration;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
+#[cfg(feature = "stub-gen")]
+use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pymethods};
+
 use crate::pipeline::{AuditMiddleware, LoggingMiddleware, RateLimitMiddleware, TimingMiddleware};
 
 // ── PyLoggingMiddleware ──────────────────────────────────────────────────────
@@ -26,11 +29,13 @@ use crate::pipeline::{AuditMiddleware, LoggingMiddleware, RateLimitMiddleware, T
 /// pipeline = ActionPipeline(dispatcher)
 /// pipeline.add_logging(log_params=True)
 /// ```
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[pyclass(name = "LoggingMiddleware")]
 pub struct PyLoggingMiddleware {
     pub(super) inner: LoggingMiddleware,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
 impl PyLoggingMiddleware {
     /// Create a new logging middleware.
@@ -72,6 +77,7 @@ impl PyLoggingMiddleware {
 /// pipeline.dispatch("my_action", "{}")
 /// print(timing.last_elapsed_ms("my_action"))  # milliseconds
 /// ```
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[pyclass(name = "TimingMiddleware")]
 pub struct PyTimingMiddleware {
     pub(super) inner: Arc<TimingMiddleware>,
@@ -83,6 +89,7 @@ impl Default for PyTimingMiddleware {
     }
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
 impl PyTimingMiddleware {
     #[new]
@@ -118,11 +125,13 @@ impl PyTimingMiddleware {
 /// for record in audit.records():
 ///     print(record["action"], record["success"])
 /// ```
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[pyclass(name = "AuditMiddleware")]
 pub struct PyAuditMiddleware {
     pub(super) inner: Arc<AuditMiddleware>,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
 impl PyAuditMiddleware {
     /// Create a new audit middleware.
@@ -235,6 +244,7 @@ impl PyAuditMiddleware {
 /// rate_limit = RateLimitMiddleware(max_calls=5, window_ms=1000)
 /// pipeline.add_rate_limit(max_calls=5, window_ms=1000)
 /// ```
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[pyclass(name = "RateLimitMiddleware")]
 pub struct PyRateLimitMiddleware {
     pub(super) inner: Arc<RateLimitMiddleware>,
@@ -242,6 +252,7 @@ pub struct PyRateLimitMiddleware {
     pub(super) window_ms: u64,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
 impl PyRateLimitMiddleware {
     /// Create a new rate limiter.

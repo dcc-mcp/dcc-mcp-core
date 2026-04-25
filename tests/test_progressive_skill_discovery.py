@@ -306,11 +306,11 @@ class TestSkillCatalogProgressivePipeline:
         cat.load_skill("count-b")
         assert cat.loaded_count() == before + 2
 
-    def test_find_skills_returns_summaries(self, tmp_path: Path) -> None:
-        """find_skills() returns SkillSummary list."""
+    def test_search_skills_returns_summaries(self, tmp_path: Path) -> None:
+        """search_skills() returns SkillSummary list."""
         make_skill_dir(tmp_path, "findable")
         cat = make_catalog(extra_paths=[str(tmp_path)])
-        results = cat.find_skills(query="findable")
+        results = cat.search_skills(query="findable")
         assert isinstance(results, list)
 
     def test_get_skill_info_after_load(self, tmp_path: Path) -> None:

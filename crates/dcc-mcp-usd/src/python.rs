@@ -6,6 +6,8 @@
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
+#[cfg(feature = "stub-gen")]
+use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pyfunction, gen_stub_pymethods};
 
 use crate::bridge::{
     meters_per_unit_to_units, scene_info_to_stage, stage_to_scene_info, units_to_meters_per_unit,
@@ -16,12 +18,14 @@ use crate::types::{SdfPath, UsdAttribute, UsdPrim, VtValue};
 // ── PySdfPath ─────────────────────────────────────────────────────────────────
 
 /// A USD scene description path (e.g. ``/World/Cube``).
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[pyclass(name = "SdfPath", from_py_object)]
 #[derive(Clone)]
 pub struct PySdfPath {
     inner: SdfPath,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
 impl PySdfPath {
     #[new]
@@ -80,12 +84,14 @@ impl PySdfPath {
 // ── PyVtValue ─────────────────────────────────────────────────────────────────
 
 /// A USD variant value (bool, int, float, string, vec3f, etc.).
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[pyclass(name = "VtValue", from_py_object)]
 #[derive(Clone)]
 pub struct PyVtValue {
     pub inner: VtValue,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
 impl PyVtValue {
     /// The USD type name string (e.g. ``"float3"``, ``"token"``).
@@ -183,12 +189,14 @@ impl PyVtValue {
 // ── PyUsdPrim ─────────────────────────────────────────────────────────────────
 
 /// A prim (primitive) within a USD stage.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[pyclass(name = "UsdPrim", from_py_object)]
 #[derive(Clone)]
 pub struct PyUsdPrim {
     pub inner: UsdPrim,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
 impl PyUsdPrim {
     pub fn __repr__(&self) -> String {
@@ -281,11 +289,13 @@ impl PyUsdPrim {
 ///     prim = stage.define_prim("/World/Cube", "Mesh")
 ///     stage.set_attribute("/World/Cube", "radius", VtValue.from_float(1.0))
 ///     print(stage.export_usda())
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[pyclass(name = "UsdStage")]
 pub struct PyUsdStage {
     pub inner: UsdStage,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
 impl PyUsdStage {
     /// Create a new empty stage with the given name.
@@ -526,6 +536,7 @@ impl PyUsdStage {
 ///
 /// Returns:
 ///     A ``UsdStage`` containing the converted scene.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
 #[pyfunction]
 #[pyo3(signature = (scene_info_json, dcc_type = "generic"))]
 pub fn scene_info_json_to_stage(scene_info_json: &str, dcc_type: &str) -> PyResult<PyUsdStage> {
@@ -536,6 +547,7 @@ pub fn scene_info_json_to_stage(scene_info_json: &str, dcc_type: &str) -> PyResu
 }
 
 /// Convert a ``UsdStage`` to a JSON string representing ``SceneInfo``.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
 #[pyfunction]
 pub fn stage_to_scene_info_json(stage: &PyUsdStage) -> PyResult<String> {
     let info = stage_to_scene_info(&stage.inner);
@@ -543,6 +555,7 @@ pub fn stage_to_scene_info_json(stage: &PyUsdStage) -> PyResult<String> {
 }
 
 /// Convert a unit string to meters per unit.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
 #[pyfunction]
 #[pyo3(name = "units_to_mpu")]
 pub fn py_units_to_mpu(units: &str) -> f64 {
@@ -550,6 +563,7 @@ pub fn py_units_to_mpu(units: &str) -> f64 {
 }
 
 /// Convert meters per unit to a unit string.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
 #[pyfunction]
 #[pyo3(name = "mpu_to_units")]
 pub fn py_mpu_to_units(mpu: f64) -> String {

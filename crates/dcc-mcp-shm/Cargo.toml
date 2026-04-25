@@ -22,6 +22,10 @@ lz4_flex.workspace = true
 # PyO3 (optional)
 pyo3 = { workspace = true, optional = true }
 
+# Type-stub generation (opt-in via `stub-gen` feature).
+pyo3-stub-gen = { workspace = true, optional = true }
+pyo3-stub-gen-derive = { workspace = true, optional = true }
+
 # libc needed for shm_unlink in gc_orphans (Unix only)
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
@@ -32,3 +36,5 @@ serde_json.workspace = true
 [features]
 default = []
 python-bindings = ["pyo3"]
+# Enable `pyo3-stub-gen` annotations on this crate's PyO3 types.
+stub-gen = ["python-bindings", "dep:pyo3-stub-gen", "dep:pyo3-stub-gen-derive"]

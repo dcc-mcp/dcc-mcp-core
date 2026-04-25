@@ -7,7 +7,7 @@ These tests start a real McpHttpServer, then exercise it through ``npx mcporter`
 to validate the full MCP protocol stack including:
 
 - Protocol methods: initialize, ping, tools/list
-- Core discovery tools: find_skills, list_skills, get_skill_info, load_skill, unload_skill
+- Core discovery tools: search_skills, list_skills, get_skill_info, load_skill, unload_skill
 - Progressive loading flow: discover -> load -> call tool -> unload
 - tools/call on registered handlers and skill-backed actions
 - Batch requests, session lifecycle, notifications
@@ -369,7 +369,7 @@ class TestMcporterToolsList:
         tools = _mcporter_list_tools(url, name)
         tool_names = {t["name"] if isinstance(t, dict) else t for t in tools}
         # 5 core discovery tools must always be present
-        for core_tool in ("find_skills", "list_skills", "get_skill_info", "load_skill", "unload_skill"):
+        for core_tool in ("search_skills", "list_skills", "get_skill_info", "load_skill", "unload_skill"):
             assert core_tool in tool_names, f"Missing core tool: {core_tool}"
 
     def test_tools_have_required_fields(self, simple_server):
@@ -435,17 +435,17 @@ class TestMcporterCoreDiscoveryTools:
         assert "skills" in data
         assert data["total"] >= 1
 
-    def test_find_skills_by_keyword(self, server_with_catalog):
+    def test_search_skills_by_keyword(self, server_with_catalog):
         _, _, url, name = server_with_catalog
-        result = _mcporter_call(url, name, "find_skills", {"query": "hello"})
+        result = _mcporter_call(url, name, "search_skills", {"query": "hello"})
         data = _parse_content_json(result)
         assert "skills" in data
         skill_names = [s.get("name", "") for s in data["skills"]]
         assert any("hello" in n for n in skill_names), f"'hello' skill not found in: {skill_names}"
 
-    def test_find_skills_by_tag(self, server_with_catalog):
+    def test_search_skills_by_tag(self, server_with_catalog):
         _, _, url, name = server_with_catalog
-        result = _mcporter_call(url, name, "find_skills", {"tags": ["example"]})
+        result = _mcporter_call(url, name, "search_skills", {"tags": ["example"]})
         data = _parse_content_json(result)
         # hello-world has tag 'example'
         assert data["total"] >= 1
@@ -562,7 +562,7 @@ class TestMcporterProgressiveLoading:
         _, _, url, name = server_with_catalog
 
         # 1. Find the skill
-        find_result = _mcporter_call(url, name, "find_skills", {"query": "hello"})
+        find_result = _mcporter_call(url, name, "search_skills", {"query": "hello"})
         found_data = _parse_content_json(find_result)
         assert found_data["total"] >= 1
 

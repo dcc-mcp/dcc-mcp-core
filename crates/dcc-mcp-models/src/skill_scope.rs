@@ -2,6 +2,8 @@
 
 #[cfg(feature = "python-bindings")]
 use pyo3::prelude::*;
+#[cfg(feature = "stub-gen")]
+use pyo3_stub_gen_derive::{gen_stub_pyclass_enum, gen_stub_pymethods};
 
 use serde::{Deserialize, Serialize};
 
@@ -26,6 +28,7 @@ use serde::{Deserialize, Serialize};
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default,
 )]
 #[serde(rename_all = "snake_case")]
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass_enum)]
 #[cfg_attr(
     feature = "python-bindings",
     pyclass(name = "SkillScope", eq, skip_from_py_object)
@@ -71,6 +74,7 @@ impl std::fmt::Display for SkillScope {
 }
 
 #[cfg(feature = "python-bindings")]
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
 impl SkillScope {
     fn __repr__(&self) -> String {

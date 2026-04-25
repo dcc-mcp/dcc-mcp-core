@@ -25,6 +25,8 @@
 
 #[cfg(feature = "python-bindings")]
 use pyo3::prelude::*;
+#[cfg(feature = "stub-gen")]
+use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pymethods};
 
 #[cfg(feature = "python-bindings")]
 use std::sync::Arc;
@@ -45,6 +47,7 @@ use crate::dcc_link::{
 ///               4=Progress, 5=Cancel, 6=Push, 7=Ping, 8=Pong).
 ///     seq:      Sequence number (uint64).
 ///     body:     Payload bytes.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg(feature = "python-bindings")]
 #[pyclass(name = "DccLinkFrame", from_py_object)]
 #[derive(Clone)]
@@ -52,6 +55,7 @@ pub struct PyDccLinkFrame {
     inner: DccLinkFrame,
 }
 
+// NOTE: gen_stub_pymethods skipped — body() returns &[u8] and decode() takes &[u8]
 #[cfg(feature = "python-bindings")]
 #[pymethods]
 impl PyDccLinkFrame {
@@ -119,12 +123,14 @@ impl PyDccLinkFrame {
 ///
 /// Create a server-side channel with :meth:`create` or connect as a client
 /// with :meth:`connect`.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg(feature = "python-bindings")]
 #[pyclass(name = "IpcChannelAdapter")]
 pub struct PyIpcChannelAdapter {
     inner: Arc<std::sync::Mutex<IpcChannelAdapter>>,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[cfg(feature = "python-bindings")]
 #[pymethods]
 impl PyIpcChannelAdapter {
@@ -217,12 +223,14 @@ impl PyIpcChannelAdapter {
 /// reentrancy-safe dispatch (``bind_affinity_thread``, ``submit``,
 /// ``pump_pending``), use the Rust-level ``GracefulIpcChannelAdapter``
 /// directly or the ``DeferredExecutor`` from the Python ``_core`` module.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg(feature = "python-bindings")]
 #[pyclass(name = "GracefulIpcChannelAdapter")]
 pub struct PyGracefulIpcChannelAdapter {
     inner: Arc<std::sync::Mutex<GracefulIpcChannelAdapter>>,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[cfg(feature = "python-bindings")]
 #[pymethods]
 impl PyGracefulIpcChannelAdapter {
@@ -335,12 +343,14 @@ impl PyGracefulIpcChannelAdapter {
 /// Minimal wrapper for ``ipckit::SocketServer``.
 ///
 /// Create a multi-client Unix socket or named-pipe server.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg(feature = "python-bindings")]
 #[pyclass(name = "SocketServerAdapter")]
 pub struct PySocketServerAdapter {
     inner: Arc<SocketServerAdapter>,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[cfg(feature = "python-bindings")]
 #[pymethods]
 impl PySocketServerAdapter {

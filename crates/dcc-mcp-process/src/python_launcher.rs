@@ -5,6 +5,8 @@ use std::sync::Arc;
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
+#[cfg(feature = "stub-gen")]
+use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pymethods};
 
 use super::helpers::{map_process_err, runtime, status_to_str};
 use crate::launcher::DccLauncher;
@@ -18,11 +20,13 @@ use crate::types::DccProcessConfig;
 /// launcher = PyDccLauncher()
 /// # info = launcher.launch("maya-2025", "/usr/autodesk/maya/bin/maya", [], 30000)
 /// ```
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[pyclass(name = "PyDccLauncher")]
 pub struct PyDccLauncher {
     inner: Arc<DccLauncher>,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
 impl PyDccLauncher {
     #[new]

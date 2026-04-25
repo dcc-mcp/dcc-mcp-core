@@ -7,6 +7,8 @@
 use pyo3::prelude::*;
 #[cfg(feature = "python-bindings")]
 use pyo3::types::PyDict;
+#[cfg(feature = "stub-gen")]
+use pyo3_stub_gen_derive::gen_stub_pyclass;
 
 #[cfg(feature = "python-bindings")]
 use std::collections::HashMap;
@@ -24,6 +26,7 @@ use crate::adapters::{BoundingBox, FrameRange, ObjectTransform, RenderOutput, Sc
 /// t = ObjectTransform(translate=[0.0, 10.0, 0.0], rotate=[0.0, 45.0, 0.0], scale=[1.0, 1.0, 1.0])
 /// print(t.translate)  # [0.0, 10.0, 0.0]
 /// ```
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg(feature = "python-bindings")]
 #[pyclass(name = "ObjectTransform", get_all, set_all, from_py_object)]
 #[derive(Debug, Clone)]
@@ -107,6 +110,7 @@ impl From<&PyObjectTransform> for ObjectTransform {
 /// bb = BoundingBox(min=[-1.0, 0.0, -1.0], max=[1.0, 2.0, 1.0])
 /// print(bb.center())  # [0.0, 1.0, 0.0]
 /// ```
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg(feature = "python-bindings")]
 #[pyclass(name = "BoundingBox", get_all, set_all, from_py_object)]
 #[derive(Debug, Clone)]
@@ -179,6 +183,7 @@ impl From<&BoundingBox> for PyBoundingBox {
 /// obj = SceneObject(name="pCube1", long_name="|group1|pCube1", object_type="mesh")
 /// print(obj.name)  # "pCube1"
 /// ```
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg(feature = "python-bindings")]
 #[pyclass(name = "SceneObject", get_all, set_all, from_py_object)]
 #[derive(Debug, Clone)]
@@ -258,6 +263,7 @@ impl From<&SceneObject> for PySceneObject {
 /// fr = FrameRange(start=1.0, end=240.0, fps=24.0, current=1.0)
 /// print(fr.end - fr.start)  # 239.0
 /// ```
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg(feature = "python-bindings")]
 #[pyclass(name = "FrameRange", get_all, set_all, from_py_object)]
 #[derive(Debug, Clone)]
@@ -321,6 +327,7 @@ impl From<&FrameRange> for PyFrameRange {
 /// out = RenderOutput(file_path="/renders/frame001.png", width=1920, height=1080,
 ///                    format="png", render_time_ms=5000)
 /// ```
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg(feature = "python-bindings")]
 #[pyclass(name = "RenderOutput", get_all, from_py_object)]
 #[derive(Debug, Clone)]

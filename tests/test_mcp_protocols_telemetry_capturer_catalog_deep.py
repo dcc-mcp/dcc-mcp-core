@@ -1038,18 +1038,18 @@ class TestSkillCatalog:
         cat = m.SkillCatalog(reg)
         assert cat.is_loaded("no-such-skill") is False
 
-    def test_find_skills_all(self):
+    def test_search_skills_all(self):
         reg = m.ToolRegistry()
         cat = m.SkillCatalog(reg)
         cat.discover(extra_paths=[EXAMPLES_SKILLS_DIR])
-        found = cat.find_skills()
+        found = cat.search_skills()
         assert len(found) > 0
 
-    def test_find_skills_by_query(self):
+    def test_search_skills_by_query(self):
         reg = m.ToolRegistry()
         cat = m.SkillCatalog(reg)
         cat.discover(extra_paths=[EXAMPLES_SKILLS_DIR])
-        found = cat.find_skills(query="maya")
+        found = cat.search_skills(query="maya")
         # Query matches name, description, search_hint, and tool names — not only dcc field.
         # Skills like dcc-diagnostics and workflow mention "Maya" in their descriptions/examples,
         # so they are legitimately included in results.
@@ -1057,20 +1057,20 @@ class TestSkillCatalog:
         # At least one result must have maya in name or dcc
         assert any("maya" in s.name.lower() or "maya" in s.dcc.lower() for s in found)
 
-    def test_find_skills_by_dcc(self):
+    def test_search_skills_by_dcc(self):
         reg = m.ToolRegistry()
         cat = m.SkillCatalog(reg)
         cat.discover(extra_paths=[EXAMPLES_SKILLS_DIR])
-        found = cat.find_skills(dcc="maya")
+        found = cat.search_skills(dcc="maya")
         assert all(s.dcc == "maya" for s in found)
 
-    def test_find_skills_no_match_empty(self):
+    def test_search_skills_no_match_empty(self):
         reg = m.ToolRegistry()
         cat = m.SkillCatalog(reg)
         cat.discover(extra_paths=[EXAMPLES_SKILLS_DIR])
         # The tokeniser splits on `_`, so use a single contiguous nonsense
         # token to confirm truly-unmatched queries return no results.
-        found = cat.find_skills(query="zzznosuchskillzzz")
+        found = cat.search_skills(query="zzznosuchskillzzz")
         assert found == []
 
     def test_info_has_state_key(self):
@@ -1105,7 +1105,7 @@ class TestSkillCatalog:
         attrs = [a for a in dir(cat) if not a.startswith("_")]
         for attr in [
             "discover",
-            "find_skills",
+            "search_skills",
             "get_skill_info",
             "is_loaded",
             "list_skills",

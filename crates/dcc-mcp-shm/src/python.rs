@@ -11,6 +11,10 @@ use std::time::Duration;
 
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
+#[cfg(feature = "stub-gen")]
+use pyo3_stub_gen_derive::{
+    gen_stub_pyclass, gen_stub_pyclass_enum, gen_stub_pyfunction, gen_stub_pymethods,
+};
 
 use crate::buffer::{BufferDescriptor, SharedBuffer, gc_orphans, short_id};
 use crate::error::ShmError;
@@ -40,6 +44,7 @@ fn to_py(e: ShmError) -> PyErr {
 ///     buf = PySharedBuffer.create(capacity=1024, ttl_secs=60)
 ///     if buf.is_expired():
 ///         print("buffer has expired")
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[pyclass(name = "PySharedBuffer")]
 pub struct PySharedBuffer {
     inner: SharedBuffer,
@@ -47,6 +52,8 @@ pub struct PySharedBuffer {
     _pool_guard: Option<PooledBuffer>,
 }
 
+// NOTE (stub-gen): skip gen_stub_pymethods — `write()` takes `&[u8]` which
+// pyo3-stub-gen can't auto-map.
 #[pymethods]
 impl PySharedBuffer {
     /// Create a new buffer with the given capacity (bytes).
@@ -152,11 +159,13 @@ impl PySharedBuffer {
 ///     buf = pool.acquire()
 ///     buf.write(b"scene snapshot")
 ///     # buf automatically returned on GC / explicit del
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[pyclass(name = "PyBufferPool")]
 pub struct PyBufferPool {
     inner: BufferPool,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
 impl PyBufferPool {
     #[new]
@@ -207,6 +216,7 @@ impl PyBufferPool {
 // ── PySceneDataKind ───────────────────────────────────────────────────────────
 
 /// Kind of DCC scene data stored in a shared scene buffer.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass_enum)]
 #[pyclass(name = "PySceneDataKind", eq, eq_int, from_py_object)]
 #[derive(Clone, PartialEq)]
 pub enum PySceneDataKind {
@@ -244,11 +254,14 @@ impl From<PySceneDataKind> for SceneDataKind {
 ///
 ///     # Consumer side:
 ///     recovered = ssb.read()
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[pyclass(name = "PySharedSceneBuffer")]
 pub struct PySharedSceneBuffer {
     inner: SharedSceneBuffer,
 }
 
+// NOTE (stub-gen): skip gen_stub_pymethods — `write()` takes `&[u8]` which
+// pyo3-stub-gen can't auto-map.
 #[pymethods]
 impl PySharedSceneBuffer {
     /// Write data into a new shared scene buffer.
@@ -336,6 +349,7 @@ impl PySharedSceneBuffer {
 ///     Minimum age (in seconds) for a segment to be considered stale.
 ///     Segments whose TTL has expired **or** whose creation time is older
 ///     than ``max_age_secs`` are removed.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
 #[pyfunction]
 #[pyo3(signature = (max_age_secs,), name = "gc_orphans")]
 fn py_gc_orphans(max_age_secs: f64) -> usize {

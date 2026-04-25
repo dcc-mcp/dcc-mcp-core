@@ -1,6 +1,8 @@
 //! Data types for the skill catalog: state, entries, summary, and detail.
 
 use dcc_mcp_models::{SkillMetadata, SkillScope, ToolDeclaration};
+#[cfg(feature = "stub-gen")]
+use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pymethods};
 use serde::Serializer;
 
 // RTK-inspired: compact serialization for tool_names
@@ -58,6 +60,7 @@ pub struct SkillEntry {
 
 /// Lightweight summary of a skill for search/list results.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg_attr(
     feature = "python-bindings",
     pyo3::pyclass(name = "SkillSummary", get_all, from_py_object)
@@ -107,6 +110,7 @@ pub struct SkillDetail {
 // ── Python bindings for summary ──
 
 #[cfg(feature = "python-bindings")]
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pyo3::pymethods]
 impl SkillSummary {
     fn __repr__(&self) -> String {

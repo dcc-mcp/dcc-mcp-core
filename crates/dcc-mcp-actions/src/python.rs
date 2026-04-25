@@ -22,6 +22,9 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use serde_json::Value;
 
+#[cfg(feature = "stub-gen")]
+use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pymethods};
+
 use crate::dispatcher::{ActionDispatcher, DispatchError};
 use crate::registry::{ActionMeta, ActionRegistry};
 use crate::validator::ActionValidator;
@@ -48,11 +51,13 @@ use crate::validator::ActionValidator;
 ///     ok, errors = v.validate("{}")
 ///     assert not ok
 ///
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[pyclass(name = "ToolValidator")]
 pub struct PyActionValidator {
     inner: ActionValidator,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
 impl PyActionValidator {
     /// Create a validator from a JSON Schema string.
@@ -138,6 +143,7 @@ impl PyActionValidator {
 ///     result = dispatcher.dispatch("create_sphere", json.dumps({"radius": 2.0}))
 ///     assert result["output"]["created"] is True
 ///
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[pyclass(name = "ToolDispatcher")]
 pub struct PyActionDispatcher {
     /// Rust dispatcher used for schema validation; handler calls are short-circuited.
@@ -148,6 +154,7 @@ pub struct PyActionDispatcher {
     pub skip_empty_schema_validation: bool,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
 impl PyActionDispatcher {
     /// Create a new dispatcher backed by the given registry.

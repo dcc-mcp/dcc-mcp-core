@@ -9,6 +9,11 @@ description = "Action registry and event system for the DCC-MCP ecosystem"
 
 [dependencies]
 pyo3 = { workspace = true, optional = true }
+
+# Type-stub generation (opt-in via `stub-gen` feature).
+pyo3-stub-gen = { workspace = true, optional = true }
+pyo3-stub-gen-derive = { workspace = true, optional = true }
+
 dcc-mcp-utils = { workspace = true }
 dcc-mcp-models = { workspace = true }
 serde = { workspace = true }
@@ -20,3 +25,5 @@ parking_lot = { workspace = true }
 [features]
 default = []
 python-bindings = ["pyo3", "dcc-mcp-utils/python-bindings", "dcc-mcp-models/python-bindings"]
+# Enable `pyo3-stub-gen` annotations on this crate's PyO3 types.
+stub-gen = ["python-bindings", "dep:pyo3-stub-gen", "dep:pyo3-stub-gen-derive"]

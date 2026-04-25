@@ -8,6 +8,8 @@
 
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
+#[cfg(feature = "stub-gen")]
+use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pymethods};
 use serde_json::Value;
 
 use crate::audit::{AuditEntry, AuditLog, AuditOutcome};
@@ -25,12 +27,14 @@ fn sandbox_err_to_py(e: SandboxError) -> PyErr {
 // ── PyAuditEntry ──────────────────────────────────────────────────────────────
 
 /// Python representation of a single sandbox audit entry.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[pyclass(name = "AuditEntry", from_py_object)]
 #[derive(Clone)]
 pub struct PyAuditEntry {
     inner: AuditEntry,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
 impl PyAuditEntry {
     /// Unix timestamp in milliseconds when the action was recorded.
@@ -97,12 +101,14 @@ impl PyAuditEntry {
 // ── PyAuditLog ────────────────────────────────────────────────────────────────
 
 /// Read-only Python view of the sandbox audit log.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[pyclass(name = "AuditLog", from_py_object)]
 #[derive(Clone)]
 pub struct PyAuditLog {
     inner: AuditLog,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
 impl PyAuditLog {
     /// Total number of entries.
@@ -169,11 +175,13 @@ impl PyAuditLog {
 ///     policy.deny_actions(["delete_scene"])
 ///     policy.set_timeout_ms(5000)
 ///     policy.set_read_only(True)
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[pyclass(name = "SandboxPolicy")]
 pub struct PySandboxPolicy {
     inner: SandboxPolicy,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
 impl PySandboxPolicy {
     #[new]
@@ -259,11 +267,13 @@ impl PySandboxPolicy {
 ///
 ///     # Execute with params as a JSON string
 ///     result_json = ctx.execute_json("echo", '{"x": 1}')
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[pyclass(name = "SandboxContext")]
 pub struct PySandboxContext {
     inner: SandboxContext,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
 impl PySandboxContext {
     #[new]
@@ -356,11 +366,13 @@ impl PySandboxContext {
 ///     v.require_string("name", max_length=50)
 ///     v.require_number("count", min_value=0, max_value=1000)
 ///     ok, error = v.validate('{"name": "sphere", "count": 5}')
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[pyclass(name = "InputValidator")]
 pub struct PyInputValidator {
     inner: InputValidator,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
 impl PyInputValidator {
     #[new]

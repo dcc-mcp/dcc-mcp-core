@@ -15,6 +15,11 @@ tracing = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["process", "rt-multi-thread", "sync", "time", "macros"] }
 pyo3 = { workspace = true, optional = true }
+
+# Type-stub generation (opt-in via `stub-gen` feature).
+pyo3-stub-gen = { workspace = true, optional = true }
+pyo3-stub-gen-derive = { workspace = true, optional = true }
+
 ipckit.workspace = true
 
 # Cross-platform system/process information
@@ -27,3 +32,5 @@ tokio = { workspace = true, features = ["test-util"] }
 [features]
 default = []
 python-bindings = ["pyo3"]
+# Enable `pyo3-stub-gen` annotations on this crate's PyO3 types.
+stub-gen = ["python-bindings", "dep:pyo3-stub-gen", "dep:pyo3-stub-gen-derive"]

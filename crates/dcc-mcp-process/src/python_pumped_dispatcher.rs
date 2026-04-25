@@ -5,6 +5,8 @@
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
+#[cfg(feature = "stub-gen")]
+use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pymethods};
 
 use super::helpers::{map_process_err, runtime};
 use crate::dispatcher::{ActionOutcome, HostDispatcher, JobRequest, ThreadAffinity};
@@ -30,11 +32,13 @@ use crate::pump::PumpedDispatcher;
 /// stats = dispatcher.pump()
 /// print(f"processed={stats['processed']}, remaining={stats['remaining']}")
 /// ```
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[pyclass(name = "PyPumpedDispatcher")]
 pub struct PyPumpedDispatcher {
     inner: PumpedDispatcher,
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
 impl PyPumpedDispatcher {
     /// Create a new pumped dispatcher.

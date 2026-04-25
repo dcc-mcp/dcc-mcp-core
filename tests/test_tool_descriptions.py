@@ -33,12 +33,11 @@ from dcc_mcp_core import ToolRegistry
 CORE_TOOLS = frozenset(
     {
         "list_roots",
-        "find_skills",
+        "search_skills",
         "list_skills",
         "get_skill_info",
         "load_skill",
         "unload_skill",
-        "search_skills",
         "activate_tool_group",
         "deactivate_tool_group",
         "search_tools",
@@ -156,15 +155,6 @@ class TestCoreToolDescriptions:
         tools = {t["name"]: t for t in _tools_list(core_server.mcp_url())}
         for name in CORE_TOOLS:
             _assert_param_descriptions(tools[name])
-
-    def test_find_skills_description_is_flagged_deprecated(self, core_server):
-        tools = {t["name"]: t for t in _tools_list(core_server.mcp_url())}
-        desc = tools["find_skills"].get("description", "")
-        # Case-insensitive: "Deprecated" / "deprecated" both fine, but
-        # the word must be present and search_skills must be named as
-        # the successor so agents pick the right follow-up.
-        assert "eprecated" in desc, "find_skills description must flag the tool as deprecated"
-        assert "search_skills" in desc, "find_skills description must point at search_skills as the replacement"
 
 
 class TestLazyActionToolDescriptions:

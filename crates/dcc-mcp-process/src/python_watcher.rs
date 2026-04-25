@@ -10,6 +10,8 @@ use std::sync::{Arc, Mutex};
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
+#[cfg(feature = "stub-gen")]
+use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pymethods};
 
 use super::helpers::{runtime, status_to_str};
 use crate::watcher::ProcessWatcher;
@@ -32,6 +34,7 @@ use crate::watcher::ProcessWatcher;
 /// print(events[0]["type"])  # "heartbeat"
 /// watcher.stop()
 /// ```
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[pyclass(name = "PyProcessWatcher")]
 pub struct PyProcessWatcher {
     watcher: ProcessWatcher,
@@ -81,6 +84,7 @@ impl PyWatcherEvent {
     }
 }
 
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
 impl PyProcessWatcher {
     /// Create a new watcher that polls every `poll_interval_ms` milliseconds.

@@ -15,6 +15,8 @@
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+#[cfg(feature = "stub-gen")]
+use pyo3_stub_gen_derive::gen_stub_pyfunction;
 
 use crate::{ACTION_ID_RE, MAX_TOOL_NAME_LEN, NamingError, TOOL_NAME_RE};
 
@@ -25,6 +27,7 @@ fn to_py_err(e: NamingError) -> PyErr {
 /// Validate an MCP wire-visible tool name.
 ///
 /// Raises ``ValueError`` on any violation; returns ``None`` on success.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
 #[pyfunction]
 #[pyo3(name = "validate_tool_name", text_signature = "(name, /)")]
 pub fn py_validate_tool_name(name: &str) -> PyResult<()> {
@@ -34,6 +37,7 @@ pub fn py_validate_tool_name(name: &str) -> PyResult<()> {
 /// Validate an internal action id.
 ///
 /// Raises ``ValueError`` on any violation; returns ``None`` on success.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
 #[pyfunction]
 #[pyo3(name = "validate_action_id", text_signature = "(name, /)")]
 pub fn py_validate_action_id(name: &str) -> PyResult<()> {

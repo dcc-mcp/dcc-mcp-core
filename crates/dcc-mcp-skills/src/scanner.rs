@@ -2,6 +2,8 @@
 
 #[cfg(feature = "python-bindings")]
 use pyo3::prelude::*;
+#[cfg(feature = "stub-gen")]
+use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pyfunction, gen_stub_pymethods};
 
 use dcc_mcp_utils::constants::{MTIME_EPSILON_SECS, SKILL_METADATA_FILE};
 use dcc_mcp_utils::filesystem::{self, path_to_string};
@@ -10,6 +12,7 @@ use std::path::{Path, PathBuf};
 
 /// Scanner for discovering Skill packages in directories.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg_attr(
     feature = "python-bindings",
     pyclass(name = "SkillScanner", from_py_object)
@@ -217,6 +220,7 @@ impl SkillScanner {
 }
 
 #[cfg(feature = "python-bindings")]
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
 impl SkillScanner {
     #[new]
@@ -256,6 +260,7 @@ impl SkillScanner {
 
 /// Convenience function: scan with a fresh scanner.
 #[cfg(feature = "python-bindings")]
+#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
 #[pyfunction]
 #[pyo3(name = "scan_skill_paths")]
 #[pyo3(signature = (extra_paths=None, dcc_name=None))]
