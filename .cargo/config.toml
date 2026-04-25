@@ -1,9 +1,28 @@
+# ── Build profile overrides ──────────────────────────────────────────────────
+# These override [profile.release] in Cargo.toml for CI and local iteration.
+# The release workflow (maturin-action) overrides these back to full optimization
+# via MATURIN_* env vars, so these settings only affect cargo-build and dev
+# workflows where fast iteration matters more than binary performance.
+
 [profile.release]
-# Minimal optimization for CI stability
 opt-level = 1
 codegen-units = 16
 lto = false
+# macOS: "packed" avoids dsymutil which is the #1 macOS link bottleneck.
+# On Linux/Windows this setting is ignored.
+split-debuginfo = "packed"
 
 [profile.test]
 # Speed up test builds
 codegen-units = 16
+
+[profile.dev]
+# macOS: "packed" avoids dsymutil which is the #1 macOS link bottleneck.
+split-debuginfo = "packed"
+
+# ── Compiler cache (sccache) ────────────────────────────────────────────────
+# Install: cargo install sccache
+# Then set env: SCCACHE_DIR=<cache-dir> RUSTC_WRAPPER=sccache
+# To disable: comment out the next line or unset RUSTC_WRAPPER.
+# [env]
+# RUSTC_WRAPPER = "sccache"

@@ -24,6 +24,7 @@ pyo3-stub-gen-derive = { workspace = true, optional = true }
 
 # Image encoding (PNG / JPEG)
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp"] }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [target.'cfg(windows)'.dependencies]
 # Windows DXGI Desktop Duplication API

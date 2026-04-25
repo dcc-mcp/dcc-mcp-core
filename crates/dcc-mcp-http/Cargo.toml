@@ -58,6 +58,7 @@ pyo3-stub-gen-derive = { workspace = true, optional = true }
 # Optional SQLite JobStorage backend (issue #328). Gated behind the
 # `job-persist-sqlite` feature so the default build has zero SQLite cost.
 rusqlite = { workspace = true, optional = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
 serde_json.workspace = true

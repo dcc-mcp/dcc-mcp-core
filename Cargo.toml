@@ -21,6 +21,7 @@ members = [
     "crates/dcc-mcp-workflow",
     "crates/dcc-mcp-scheduler",
     "crates/dcc-mcp-artefact",
+    "crates/workspace-hack",
 ]
 resolver = "2"
 
@@ -139,6 +140,7 @@ pyo3 = { workspace = true, optional = true }
 # Type-stub generation (opt-in via `stub-gen` feature, used by the
 # `stub_gen` binary target only).
 pyo3-stub-gen = { workspace = true, optional = true }
+workspace-hack = { version = "0.1", path = "crates/workspace-hack" }
 
 [dev-dependencies]
 serde_json.workspace = true

@@ -26,6 +26,7 @@ rmp-serde = { workspace = true }
 dcc-mcp-utils = { workspace = true, optional = true }
 sysinfo.workspace = true
 ipckit.workspace = true
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
 criterion = { workspace = true }

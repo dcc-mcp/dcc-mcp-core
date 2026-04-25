@@ -25,6 +25,7 @@ pyo3 = { workspace = true, optional = true }
 # Type-stub generation (opt-in via `stub-gen` feature).
 pyo3-stub-gen = { workspace = true, optional = true }
 pyo3-stub-gen-derive = { workspace = true, optional = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 # libc needed for shm_unlink in gc_orphans (Unix only)
 [target.'cfg(unix)'.dependencies]
