@@ -9,7 +9,6 @@ __pycache__/
 /target/
 /target2/
 **/*.rs.bk
-Cargo.lock
 
 # PyCharm project files
 .idea/

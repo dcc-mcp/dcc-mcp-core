@@ -32,15 +32,9 @@ jobs:
           components: clippy, rustfmt
       - uses: loonghao/vx@v0.8.32
       - name: Cache Cargo
-        uses: actions/cache@v5
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: ${{ runner.os }}-cargo-
+          key: preflight
       - name: Preflight (check + clippy + fmt + test)
         run: vx just preflight
 
@@ -59,15 +53,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: loonghao/vx@v0.8.32
       - name: Cache Cargo
-        uses: actions/cache@v5
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ubuntu-cargo-tarpaulin-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: ubuntu-cargo-
+          key: tarpaulin
       - name: Install cargo-tarpaulin
         run: cargo install cargo-tarpaulin --locked
       - name: Run Rust coverage
@@ -253,15 +241,9 @@ jobs:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - name: Cache Cargo
-        uses: actions/cache@v5
+        uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ubuntu-cargo-bench-${{ hashFiles('**/Cargo.toml') }}
-          restore-keys: ubuntu-cargo-
+          key: bench
 
       # Issue #251 AC#3: deterministic network fault injection.
       - name: turmoil TCP fault-injection tests

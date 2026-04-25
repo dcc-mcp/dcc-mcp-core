@@ -49,16 +49,9 @@ runs:
       uses: extractions/setup-just@v4
 
     - name: Cache Cargo
-      uses: actions/cache@v5
+      uses: Swatinem/rust-cache@v2
       with:
-        path: |
-          ~/.cargo/registry/index/
-          ~/.cargo/registry/cache/
-          ~/.cargo/git/db/
-          target/
-        key: ${{ runner.os }}-${{ inputs.target || 'default' }}-py${{ inputs.python-version }}-cargo-wheel-${{ hashFiles('**/Cargo.toml') }}
-        restore-keys: |
-          ${{ runner.os }}-${{ inputs.target || 'default' }}-cargo-wheel-
+        key: wheel-${{ inputs.target || 'default' }}-py${{ inputs.python-version }}
 
     - name: Resolve features from justfile
       id: resolve-features

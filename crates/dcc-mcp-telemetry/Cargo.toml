@@ -35,6 +35,7 @@ prometheus = { version = "0.14", default-features = false, optional = true }
 
 # Tokio runtime
 tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time", "macros"] }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
 rstest = "0.26"

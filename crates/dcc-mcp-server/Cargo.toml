@@ -33,3 +33,4 @@ axum = { version = "0.8", features = ["http1", "http2", "tokio"] }
 tower-http = { version = "0.6", features = ["cors", "trace"] }
 clap = { version = "4", features = ["derive", "env"] }
 sysinfo.workspace = true
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
