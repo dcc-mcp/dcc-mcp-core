@@ -42,6 +42,8 @@ export default defineConfig({
                 { text: 'MCP Integration Guide', link: '/guide/mcp-skills-integration' },
                 { text: 'Skills System', link: '/guide/skills' },
                 { text: 'Skill Scopes & Policies', link: '/guide/skill-scopes-policies' },
+                { text: 'Agents Reference', link: '/guide/agents-reference' },
+                { text: 'Thin Harness', link: '/guide/thin-harness' },
                 { text: 'Gateway Election', link: '/guide/gateway-election' },
                 { text: 'Gateway', link: '/guide/gateway' },
                 { text: 'Remote Server', link: '/guide/remote-server' },
@@ -113,6 +115,27 @@ export default defineConfig({
                 { text: 'Rich Content (MCP Apps)', link: '/api/rich-content' },
                 { text: 'DCC API Executor', link: '/api/dcc-api-executor' },
               ]
+            },
+            {
+              text: 'Agent Tools',
+              items: [
+                { text: 'Cancellation', link: '/api/cancellation' },
+                { text: 'Checkpoint', link: '/api/checkpoint' },
+                { text: 'Docs Resources', link: '/api/docs-resources' },
+                { text: 'Feedback', link: '/api/feedback' },
+                { text: 'Introspection', link: '/api/introspection' },
+                { text: 'Recipes', link: '/api/recipes' },
+                { text: 'Workflow YAML', link: '/api/workflow-yaml' },
+              ],
+            },
+            {
+              text: 'DCC Integration',
+              items: [
+                { text: 'Bridge', link: '/api/bridge' },
+                { text: 'Gateway Election', link: '/api/gateway-election' },
+                { text: 'Hot Reload', link: '/api/hot-reload' },
+                { text: 'Server Factory', link: '/api/factory' },
+              ],
             }
           ]
         },
@@ -149,6 +172,8 @@ export default defineConfig({
                 { text: 'MCP + Skills 集成指南', link: '/zh/guide/mcp-skills-integration' },
                 { text: 'Skills 技能包', link: '/zh/guide/skills' },
                 { text: 'Skill 作用域与策略', link: '/zh/guide/skill-scopes-policies' },
+                { text: 'Agent 参考', link: '/zh/guide/agents-reference' },
+                { text: 'Thin Harness', link: '/zh/guide/thin-harness' },
                 { text: '网关选举机制', link: '/zh/guide/gateway-election' },
                 { text: 'Gateway', link: '/zh/guide/gateway' },
                 { text: '远程服务器', link: '/zh/guide/remote-server' },
@@ -220,6 +245,27 @@ export default defineConfig({
                 { text: 'Rich Content (MCP Apps)', link: '/zh/api/rich-content' },
                 { text: 'DCC API Executor', link: '/zh/api/dcc-api-executor' },
               ]
+            },
+            {
+              text: 'Agent 工具',
+              items: [
+                { text: '取消机制', link: '/zh/api/cancellation' },
+                { text: '检查点', link: '/zh/api/checkpoint' },
+                { text: '文档资源', link: '/zh/api/docs-resources' },
+                { text: '反馈', link: '/zh/api/feedback' },
+                { text: '内省', link: '/zh/api/introspection' },
+                { text: '配方', link: '/zh/api/recipes' },
+                { text: '工作流 YAML', link: '/zh/api/workflow-yaml' },
+              ],
+            },
+            {
+              text: 'DCC 集成',
+              items: [
+                { text: '桥接', link: '/zh/api/bridge' },
+                { text: '网关选举', link: '/zh/api/gateway-election' },
+                { text: '热重载', link: '/zh/api/hot-reload' },
+                { text: '服务器工厂', link: '/zh/api/factory' },
+              ],
             }
           ]
         },

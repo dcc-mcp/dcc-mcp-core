@@ -1,54 +1,55 @@
-# Thin-Harness Skill Authoring Pattern
+# 薄线束 Skill 编写模式
 
-> **TL;DR** — When no domain skill covers the user's intent, a thin-harness skill
-> hands the agent a raw script executor plus a recipe book. The agent reads the
-> recipe, writes the native DCC call, and submits it — no wrapper needed.
-> See [ADR 003](../adr/003-thin-harness-skill-pattern.md) for the architectural rationale.
+**[English](../../guide/thin-harness.md)**
 
----
-
-## When to Write a Wrapper vs. a Thin Harness
-
-| Signal | Use this |
-|--------|----------|
-| Operation is 2–5 native API calls, well-documented in training data | **Thin harness** — ship `execute_python` + recipes |
-| Operation requires multi-step pipeline logic (render farm, shot export) | **Domain skill** — explicit schema + error handling |
-| Operation needs security validation before execution | **Domain skill** — `ToolValidator` + `SandboxPolicy` |
-| You're wrapping `maya.cmds`, `bpy.ops`, or `hou.*` one-to-one | **Thin harness** — agent already knows these APIs |
-| You need `next-tools` chaining across multiple DCC state changes | **Domain skill** — declare the chain explicitly |
-
-**Rule of thumb**: If the LLM training corpus contains 10,000+ examples of the native
-call, write a thin harness. If the operation is proprietary pipeline logic, write a
-domain skill.
+> **TL;DR** — 当没有 domain skill 覆盖用户的意图时，薄线束 skill
+> 向代理提供一个原始脚本执行器加一本配方书。代理阅读配方，
+> 编写原生 DCC 调用，然后提交 — 无需包装器。
+> 架构原理参见 [ADR 003](/adr/003-thin-harness-skill-pattern)。
 
 ---
 
-## Skill Layer Values
+## 何时写包装器 vs. 薄线束
+
+| 信号 | 使用方案 |
+|------|----------|
+| 操作是 2–5 个原生 API 调用，在训练数据中有良好文档 | **薄线束** — 提供 `execute_python` + 配方 |
+| 操作需要多步骤流水线逻辑（渲染农场、镜头导出） | **Domain skill** — 显式 schema + 错误处理 |
+| 操作需要在执行前进行安全验证 | **Domain skill** — `ToolValidator` + `SandboxPolicy` |
+| 你在一对一包装 `maya.cmds`、`bpy.ops` 或 `hou.*` | **薄线束** — 代理已经知道这些 API |
+| 你需要跨多个 DCC 状态变更的 `next-tools` 链式调用 | **Domain skill** — 显式声明链 |
+
+**经验法则**：如果 LLM 训练语料中包含 10,000+ 个原生调用示例，
+就写薄线束。如果操作是专有流水线逻辑，就写 domain skill。
+
+---
+
+## Skill 层级值
 
 ```yaml
 # SKILL.md metadata
 metadata:
   dcc-mcp:
-    layer: thin-harness   # ← new value alongside infrastructure / domain / example
+    layer: thin-harness   # ← 新值，与 infrastructure / domain / example 并列
 ```
 
-Routing: agents load thin-harness skills as the **fall-through** after searching
-domain skills. If `search_skills(query)` returns no domain match, the agent loads
-the DCC's thin-harness skill and checks `references/RECIPES.md`.
+路由：代理在搜索 domain skill 之后将薄线束 skill 作为**兜底**加载。
+如果 `search_skills(query)` 未返回 domain 匹配，代理加载 DCC 的薄线束
+skill 并查阅 `references/RECIPES.md`。
 
 ---
 
-## Thin-Harness Skill Structure
+## 薄线束 Skill 结构
 
 ```
 my-dcc-scripting/
-├── SKILL.md                      # short, layer: thin-harness
-├── tools.yaml                    # execute_python + optional group
+├── SKILL.md                      # 简短，layer: thin-harness
+├── tools.yaml                    # execute_python + 可选组
 ├── scripts/
-│   └── execute.py                # raw script runner
+│   └── execute.py                # 原始脚本运行器
 └── references/
-    ├── RECIPES.md                # ~20 copy-pasteable snippets
-    └── INTROSPECTION.md          # how to query the live DCC namespace
+    ├── RECIPES.md                # ~20 个可复制粘贴的代码片段
+    └── INTROSPECTION.md          # 如何查询实时 DCC 命名空间
 ```
 
 ### SKILL.md
@@ -146,12 +147,12 @@ def execute_python(code: str, timeout_secs: int = 30) -> dict:
 
 ---
 
-## references/RECIPES.md Contract
+## references/RECIPES.md 约定
 
-A flat Markdown file with anchored `##` sections. Each section:
-- One sentence describing when to use the recipe.
-- A ready-to-run Python snippet (≤15 lines).
-- No boilerplate imports — assume `import maya.cmds as cmds` etc. are in scope.
+一个带有 `##` 锚点段的扁平 Markdown 文件。每个段：
+- 一句话描述何时使用该配方。
+- 一个可直接运行的 Python 片段（≤15 行）。
+- 无样板导入 — 假定 `import maya.cmds as cmds` 等已在作用域内。
 
 ```markdown
 ## create_polygon_cube
@@ -171,14 +172,13 @@ cmds.xform("myCube", translation=(1, 2, 3), worldSpace=True)
 \`\`\`
 ```
 
-Recipe anchor names become searchable via `recipes__get(skill=..., anchor=...)` once
-issue #428 lands.
+配方锚点名将在 issue #428 落地后通过 `recipes__get(skill=..., anchor=...)` 可搜索。
 
 ---
 
-## references/INTROSPECTION.md Contract
+## references/INTROSPECTION.md 约定
 
-Explains how the agent can discover the live DCC namespace without reading vendor docs.
+解释代理如何在不阅读供应商文档的情况下发现实时 DCC 命名空间。
 
 ```markdown
 ## List a module's public names
@@ -204,20 +204,20 @@ Once the dcc-introspect built-in skill is loaded:
 
 ---
 
-## Routing in AGENTS.md
+## AGENTS.md 中的路由
 
-Add to `AGENTS.md` Do list (see also ADR 003):
+添加到 `AGENTS.md` Do 列表（另见 ADR 003）：
 
-> **If no domain skill matches the user's intent**, load the DCC's `*-scripting`
-> (thin-harness) skill and read `references/RECIPES.md` before inventing a call.
-> Only fall back to raw `execute_python` if no recipe matches.
+> **如果没有 domain skill 匹配用户的意图**，加载 DCC 的 `*-scripting`
+> （薄线束）skill 并在发明调用之前阅读 `references/RECIPES.md`。
+> 仅在没有配方匹配时才回退到原始 `execute_python`。
 
 ---
 
-## Error Envelope Integration (issue #427)
+## 错误信封集成 (issue #427)
 
-When a thin-harness `execute_python` call raises, the `_meta.dcc.raw_trace` block
-(when `McpHttpConfig.enable_error_raw_trace = True`) gives the agent:
+当薄线束 `execute_python` 调用抛出异常时，`_meta.dcc.raw_trace` 块
+（当 `McpHttpConfig.enable_error_raw_trace = True` 时）为代理提供：
 
 ```jsonc
 {
@@ -232,16 +232,15 @@ When a thin-harness `execute_python` call raises, the `_meta.dcc.raw_trace` bloc
 }
 ```
 
-The agent reads the trace, corrects the call, and resubmits — without asking for
-a new wrapper tool.
+代理读取跟踪，修正调用，然后重新提交 — 无需请求新的包装器工具。
 
 ---
 
-## Related
+## 相关
 
-- [ADR 003](../adr/003-thin-harness-skill-pattern.md) — architectural decision
-- [skills/templates/thin-harness/](https://github.com/loonghao/dcc-mcp-core/tree/main/skills/templates/thin-harness/) — starter template
-- [skills/README.md#skill-layering](https://github.com/loonghao/dcc-mcp-core/blob/main/skills/README.md) — layer definitions
-- Issue #426 — `dcc_introspect__*` built-in tools
-- Issue #427 — `_meta.dcc.raw_trace` error envelope
-- Issue #428 — `metadata.dcc-mcp.recipes` formalization
+- [ADR 003](/adr/003-thin-harness-skill-pattern) — 架构决策
+- [skills/templates/thin-harness/](https://github.com/loonghao/dcc-mcp-core/tree/main/skills/templates/thin-harness/) — 起始模板
+- [skills/README.md#skill-layering](https://github.com/loonghao/dcc-mcp-core/blob/main/skills/README.md) — 层级定义
+- Issue #426 — `dcc_introspect__*` 内置工具
+- Issue #427 — `_meta.dcc.raw_trace` 错误信封
+- Issue #428 — `metadata.dcc-mcp.recipes` 形式化

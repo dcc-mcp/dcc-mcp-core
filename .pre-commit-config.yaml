@@ -41,3 +41,15 @@ repos:
         types: [rust]
         pass_filenames: false
         stages: [pre-push]
+
+  # Docs dead-link check (pre-push only — requires npm ci)
+  - repo: local
+    hooks:
+      - id: docs-check
+        name: docs build check (dead links)
+        entry: bash -c "cd docs && npm ci && npm run docs:build"
+        language: system
+        types: [file]
+        files: ^docs/
+        pass_filenames: false
+        stages: [pre-push]

@@ -41,6 +41,7 @@
 | Bridge non-Python DCC | `DccBridge` (WebSocket JSON-RPC 2.0) |
 | IPC | `IpcChannelAdapter` / `SocketServerAdapter` + `DccLinkFrame` |
 | Multi-DCC gateway | `McpHttpConfig(gateway_port=9765)` |
+| Gateway failover | `DccGatewayElection(dcc_name, server)` — auto-promote on gateway failure |
 | Skill scoping | `SkillScope` (Repo → User → System → Admin) — Rust-only |
 | Progressive tool exposure | `SkillGroup` + `activate_tool_group()` |
 | Instance-bound diagnostics | `DccServerBase(..., dcc_pid=pid)` |
@@ -56,6 +57,17 @@
 | MCP HTTP (manual) | `McpHttpServer(registry, McpHttpConfig(port=8765))` |
 | Full-screen capture | `Capturer.new_auto().capture()` |
 | Single-window capture | `Capturer.new_window_auto().capture_window(...)` |
+| Cooperative cancellation | `check_cancelled()` in long-running skill scripts |
+| Checkpoint/resume | `save_checkpoint(job_id, state)` / `get_checkpoint(job_id)` |
+| Agent-facing docs resources | `register_docs_server(server)` → `docs://` MCP resources |
+| Agent feedback | `register_feedback_tool(server)` → `dcc_feedback__report` tool |
+| Runtime introspection | `register_introspect_tools(server)` → `dcc_introspect__*` tools |
+| Skill recipe lookup | `register_recipes_tools(server, skills=...)` |
+| YAML workflow definitions | `load_workflow_yaml(path)` / `register_workflow_yaml_tools(server)` |
+| Skill hot-reload | `DccSkillHotReloader(dcc_name, server).enable(paths)` |
+| Singleton server factory | `make_start_stop(ServerClass)` → `(start_fn, stop_fn)` |
+| Skill validation | `validate_skill(skill_dir)` → `SkillValidationReport` |
+| Zero-dep JSON/YAML | `json_dumps/loads` / `yaml_dumps/loads` (Rust-powered) |
 
 | `infrastructure` | Safety, diagnostics, introspection |
 | `domain` | Pipeline-level intent (shot export, render farm) |
@@ -86,7 +98,7 @@ Full trap list + code examples → [`docs/guide/agents-reference.md`](docs/guide
 
 ## Build & Test
 
-`vx just dev` (build wheel) → `vx just test` → `vx just preflight` (pre-commit check)
+`vx just dev` (build wheel) → `vx just test` → `vx just preflight` (pre-commit check + docs dead-link check)
 
 ---
 

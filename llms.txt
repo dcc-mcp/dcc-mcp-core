@@ -29,6 +29,19 @@
 | Inline chart / table / image result (MCP Apps, issue #409) | `skill_success_with_chart(msg, spec)` / `skill_success_with_table(msg, headers, rows)` / `skill_success_with_image(msg, image_data=...)` |
 | Run skill scripts inside embedded DCC (no subprocess) | `SkillCatalog.set_in_process_executor(callable)` on the server's catalog — callable receives `(script_path, params) -> dict` |
 | Claude Code one-click plugin bundle (issue #410) | `build_plugin_manifest(dcc_name, mcp_url, skill_paths, api_key=...)` + `export_plugin_manifest(manifest, path)` or `server.plugin_manifest(version=...)` |
+| Cooperative cancellation in skill scripts | `check_cancelled()` — raises `CancelledError` when the active request was cancelled; dispatcher sets `CancelToken` via `set_cancel_token()` |
+| Checkpoint/resume long-running tool executions (issue #436) | `save_checkpoint(job_id, state)` / `get_checkpoint(job_id)` / `checkpoint_every(n, job_id, state_fn)` — persist progress at intervals so interrupted jobs resume from last checkpoint |
+| Agent-facing docs:// MCP resources (issue #435) | `register_docs_server(server)` — serves `docs://output-format/*` and `docs://skill-authoring/*` resources; agents fetch only specs they need |
+| Agent feedback / rationale (issues #433, #434) | `register_feedback_tool(server)` / `extract_rationale(params)` / `make_rationale_meta(text)` — `dcc_feedback__report` tool + `_meta.dcc.rationale` extraction |
+| Runtime DCC namespace introspection (issue #426) | `register_introspect_tools(server)` — `dcc_introspect__list_module`, `dcc_introspect__signature`, `dcc_introspect__search`, `dcc_introspect__eval` |
+| Skill recipe anchors (issue #428) | `register_recipes_tools(server, skills=...)` — `recipes__list` and `recipes__get` tools for thin-harness skill recipe lookup |
+| YAML declarative workflows (issue #439) | `WorkflowYaml` + `load_workflow_yaml(path)` + `register_workflow_yaml_tools(server)` — task vs step semantics for multi-step DCC workflows |
+| WebSocket bridge for non-Python DCCs | `DccBridge(host, port)` — WebSocket JSON-RPC 2.0 bridge; `.call(method, **params)` for synchronous RPC to DCC plugin |
+| Gateway failover election | `DccGatewayElection(dcc_name, server)` — automatic gateway failover via first-wins socket election |
+| Skill hot-reload without server restart | `DccSkillHotReloader(dcc_name, server)` — monitors skill directories and auto-reloads on change |
+| Singleton DCC server factory | `create_dcc_server(instance_holder, lock, server_class, ...)` / `make_start_stop(ServerClass)` — zero-boilerplate singleton server pattern |
+| Skill validation | `validate_skill(skill_dir)` → `SkillValidationReport` with `SkillValidationIssue` list |
+| Rust-powered JSON/YAML | `json_dumps(obj)` / `json_loads(s)` / `yaml_dumps(obj)` / `yaml_loads(s)` — zero-dependency serialization |
 
 ## Quick Start
 
@@ -75,7 +88,7 @@ meta = dcc_mcp_core.parse_skill_md(dirs[0])  # -> SkillMetadata or None
 
 ## Architecture
 
-Rust workspace (15 crates) with PyO3 bindings. All logic in Rust sub-crates; Python gets a single `dcc_mcp_core._core` extension module. The `dcc_mcp_core` package re-exports all ~180 public symbols from `_core` plus pure-Python helpers (DccServerBase, DccGatewayElection, DccSkillHotReloader, factory, skill helpers).
+Rust workspace (15 crates) with PyO3 bindings. All logic in Rust sub-crates; Python gets a single `dcc_mcp_core._core` extension module. The `dcc_mcp_core` package re-exports all ~275 public symbols from `_core` plus pure-Python helpers (DccServerBase, DccGatewayElection, DccSkillHotReloader, factory, skill helpers).
 
 ```
 crates/
@@ -95,6 +108,8 @@ crates/
 ├── dcc-mcp-server/      # Binary entry point, gateway runner
 └── dcc-mcp-utils/       # Filesystem, constants, type wrappers, JSON conversion
 ```
+
+Pure-Python modules: cancellation, checkpoint, docs_resources, feedback, introspect, recipes, workflow_yaml, bridge, gateway_election, hotreload, factory, dcc_server, server_base, adapters, auth, batch, elicitation, rich_content, plugin_manifest, dcc_api_executor, skill, workflow_yaml
 
 ## Core Concepts
 
@@ -326,6 +341,104 @@ tools:
 - `register_bridge(name, ctx)` — register a named bridge
 - `get_bridge_context(name) -> Optional[BridgeContext]` — retrieve bridge by name
 
+### DccBridge — WebSocket Bridge (`dcc_mcp_core.bridge`)
+
+- `DccBridge(host="localhost", port=9001, timeout=30.0)` — WebSocket bridge server for non-Python DCCs
+  - `.connect(wait_for_dcc=False)` — start the WebSocket server; optionally block until DCC plugin connects
+  - `.call(method, **params) -> Any` — synchronous RPC to the DCC plugin (thread-safe)
+  - `.disconnect()` — shut down the WebSocket server
+  - `.is_connected() -> bool`, `.endpoint -> str` (e.g. `"ws://localhost:9001"`)
+  - Context manager: `with DccBridge(port=9001) as bridge: ...`
+- `BridgeError` — base class for all DccBridge errors
+- `BridgeConnectionError(BridgeError)` — DCC plugin not connected / connection lost
+- `BridgeTimeoutError(BridgeError)` — call timed out
+- `BridgeRpcError(BridgeError)` — DCC plugin returned JSON-RPC error; attributes: `.code`, `.message`, `.data`
+
+### Cancellation (`dcc_mcp_core.cancellation`)
+
+- `CancelToken()` — thread-safe cancellation flag; `.cancel()`, `.cancelled -> bool`
+- `CancelledError(Exception)` — raised by `check_cancelled()` when the active request was cancelled
+- `check_cancelled() -> None` — raise `CancelledError` if the active request was cancelled (no-op outside request context)
+- `set_cancel_token(token) -> contextvars.Token` — install a CancelToken (dispatcher use only)
+- `reset_cancel_token(reset) -> None` — restore previous token (pair with set_cancel_token)
+- `current_cancel_token() -> CancelToken | None` — return the active token
+
+### Checkpoint / Resume (`dcc_mcp_core.checkpoint`)
+
+- `CheckpointStore(path=None)` — thread-safe checkpoint storage; in-memory by default, JSON file when `path` is set
+  - `.save(job_id, state, progress_hint="")`, `.get(job_id) -> dict | None`, `.clear(job_id) -> bool`, `.list_ids() -> list[str]`, `.clear_all() -> int`
+- `configure_checkpoint_store(path=None) -> CheckpointStore` — replace the module-level default store
+- `save_checkpoint(job_id, state, *, progress_hint="", store=None) -> None` — persist a checkpoint
+- `get_checkpoint(job_id, *, store=None) -> dict | None` — retrieve last checkpoint (keys: `job_id`, `saved_at`, `progress_hint`, `context`)
+- `clear_checkpoint(job_id, *, store=None) -> bool` — delete a job's checkpoint
+- `list_checkpoints(*, store=None) -> list[str]` — enumerate stored checkpoint job IDs
+- `checkpoint_every(n, job_id, state_fn, *, progress_fn=None, store=None)` — auto-checkpoint every *n* iterations inside a loop
+- `register_checkpoint_tools(server, *, dcc_name="dcc", store=None)` — register `jobs.checkpoint_status` and `jobs.resume_context` tools
+
+### docs:// MCP Resources (`dcc_mcp_core.docs_resources`)
+
+- `get_builtin_docs_uris() -> list[str]` — list built-in `docs://` resource URIs
+- `get_docs_content(uri) -> dict | None` — return content dict for a `docs://` URI
+- `register_docs_resource(server, *, uri, name, description, content, mime="text/markdown")` — register a single `docs://` resource
+- `register_docs_resources_from_dir(server, *, directory, uri_prefix="docs://custom", glob="**/*.md") -> list[str]` — register all Markdown files as resources
+- `register_docs_server(server)` — register all built-in `docs://` resources; call **before** `server.start()`
+- Built-in URIs: `docs://output-format/call-action`, `docs://output-format/list-actions`, `docs://skill-authoring/tools-yaml`, `docs://skill-authoring/annotations`, `docs://skill-authoring/sibling-files`, `docs://skill-authoring/thin-harness`
+
+### Agent Feedback & Rationale (`dcc_mcp_core.feedback`)
+
+- `register_feedback_tool(server, *, dcc_name="dcc")` — register `dcc_feedback__report` MCP tool; call **before** `server.start()`
+- `extract_rationale(params) -> str | None` — extract `_meta.dcc.rationale` from a `tools/call` params dict
+- `make_rationale_meta(rationale) -> dict` — build the `_meta` fragment for a `tools/call` request with a rationale
+- `get_feedback_entries(*, tool_name=None, severity=None, limit=50) -> list[dict]` — return recent feedback entries (newest first)
+- `clear_feedback() -> int` — clear all in-memory feedback entries; returns count cleared
+
+### Runtime Introspection (`dcc_mcp_core.introspect`)
+
+- `register_introspect_tools(server, *, dcc_name="dcc")` — register four `dcc_introspect__*` tools; call **before** `server.start()`
+- `introspect_list_module(module_name, *, limit=200) -> dict` — list exported names in a module
+- `introspect_signature(qualname) -> dict` — get signature + docstring for a callable (e.g. `"maya.cmds.polyCube"`)
+- `introspect_search(pattern, module_name, *, limit=50) -> dict` — regex-search names across a module
+- `introspect_eval(expression) -> dict` — evaluate a short read-only expression and return its repr
+
+### Recipes (`dcc_mcp_core.recipes`)
+
+- `get_recipes_path(metadata) -> str | None` — extract recipes file path from SkillMetadata
+- `parse_recipe_anchors(recipes_path) -> list[str]` — list anchor names from a RECIPES.md file
+- `get_recipe_content(recipes_path, anchor) -> str | None` — fetch content of a specific anchor section
+- `register_recipes_tools(server, *, skills, dcc_name="dcc")` — register `recipes__list` and `recipes__get` tools
+
+### YAML Workflows (`dcc_mcp_core.workflow_yaml`)
+
+- `WorkflowTask` (dataclass) — `name`, `kind` (`"task"` / `"step"`), `tool`, `inputs`, `outputs`, `on_failure`, `description`; `.interpolate_inputs(variables)` replaces `{{var}}` templates
+- `WorkflowYaml` (dataclass) — `name`, `goal`, `config`, `variables`, `tasks` (list[WorkflowTask]), `source_path`; `.validate()`, `.task_names()`, `.get_task(name)`, `.to_summary_dict()`
+- `load_workflow_yaml(path) -> WorkflowYaml` — load and validate a workflow YAML file
+- `get_workflow_path(metadata) -> str | None` — extract workflow file path from SkillMetadata
+- `register_workflow_yaml_tools(server, *, workflows=None, skills=None, dcc_name="dcc")` — register `workflows.list` and `workflows.describe` tools
+
+### Gateway Election (`dcc_mcp_core.gateway_election`)
+
+- `DccGatewayElection(dcc_name, server, gateway_host="127.0.0.1", gateway_port=9765, ..., on_promote=None)` — automatic gateway failover via first-wins socket election
+  - `.start()` — start the background election thread
+  - `.stop()` — gracefully stop the election thread
+  - `.is_running -> bool`, `.consecutive_failures -> int`
+  - `.get_status() -> dict` — `{running, consecutive_failures, gateway_host, gateway_port}`
+  - Env vars: `DCC_MCP_GATEWAY_PROBE_INTERVAL` (5s), `DCC_MCP_GATEWAY_PROBE_TIMEOUT` (2s), `DCC_MCP_GATEWAY_PROBE_FAILURES` (3)
+
+### Skill Hot-Reload (`dcc_mcp_core.hotreload`)
+
+- `DccSkillHotReloader(dcc_name, server)` — generic skill hot-reload manager
+  - `.enable(skill_paths, debounce_ms=300) -> bool` — enable hot-reload for given directories
+  - `.disable()` — disable hot-reload
+  - `.reload_now() -> int` — manually trigger a reload
+  - `.is_enabled -> bool`, `.reload_count -> int`, `.watched_paths -> list[str]`
+  - `.get_stats() -> dict` — `{enabled, watched_paths, reload_count}`
+
+### Server Factory (`dcc_mcp_core.factory`)
+
+- `create_dcc_server(*, instance_holder, lock, server_class, port=8765, register_builtins=True, extra_skill_paths=None, include_bundled=True, enable_hot_reload=False, hot_reload_env_var=None, **server_kwargs) -> McpServerHandle` — create-or-return a singleton DCC MCP server
+- `make_start_stop(server_class, hot_reload_env_var=None) -> (start_fn, stop_fn)` — generate a `(start_server, stop_server)` function pair
+- `get_server_instance(instance_holder) -> server | None` — return the current singleton instance
+
 ### WebView System (`dcc_mcp_core`)
 
 - `WebViewAdapter` — Python-only: embed browser panels in DCC applications
@@ -384,6 +497,37 @@ tools:
 - `ENV_SKILL_PATHS = "DCC_MCP_SKILL_PATHS"`, `ENV_LOG_LEVEL = "MCP_LOG_LEVEL"
 - `TOOL_NAME_RE` / `ACTION_ID_RE` — SEP-986 regex patterns for tool names and action IDs
 - `MAX_TOOL_NAME_LEN = 48` — maximum tool name length
+
+### Serialization — Rust-Powered (`dcc_mcp_core`)
+
+- `json_dumps(obj) -> str` — serialize to JSON string (zero-dependency, Rust-powered)
+- `json_loads(s) -> obj` — deserialize from JSON string (zero-dependency, Rust-powered)
+- `yaml_dumps(obj) -> str` — serialize to YAML string (zero-dependency, Rust-powered)
+- `yaml_loads(s) -> obj` — deserialize from YAML string (zero-dependency, Rust-powered)
+
+### Skill Validation (`dcc_mcp_core`)
+
+- `validate_skill(skill_dir) -> SkillValidationReport` — validate a skill directory structure and metadata
+- `SkillValidationReport` — `.issues: list[SkillValidationIssue]`, `.is_valid -> bool`
+- `SkillValidationIssue` — `.severity`, `.message`, `.path`
+
+### Dispatchers (`dcc_mcp_core`)
+
+- `PyPumpedDispatcher` — async-pump dispatcher for DCC main-thread execution
+- `PyStandaloneDispatcher` — standalone dispatcher for non-DCC environments
+
+### Workspace (`dcc_mcp_core`)
+
+- `WorkspaceRoots` — workspace root directory management
+
+### Garbage Collection (`dcc_mcp_core`)
+
+- `gc_orphans() -> int` — collect orphaned resources; returns count
+
+### Logging Configuration Constants (`dcc_mcp_core`)
+
+- `DEFAULT_LOG_FILE_PREFIX = "dcc-mcp"`, `DEFAULT_LOG_MAX_FILES = 7`, `DEFAULT_LOG_MAX_SIZE = 10485760`, `DEFAULT_LOG_ROTATION = "both"`
+- `ENV_LOG_DIR`, `ENV_LOG_FILE`, `ENV_LOG_FILE_PREFIX`, `ENV_LOG_MAX_FILES`, `ENV_LOG_MAX_SIZE`, `ENV_LOG_ROTATION` — environment variable names for file logging configuration
 
 ### SEP-986 Naming Validators (`dcc_mcp_core`)
 

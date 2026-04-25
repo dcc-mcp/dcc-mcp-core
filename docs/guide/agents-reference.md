@@ -292,7 +292,7 @@ deps = json.loads(md.external_deps) if md.external_deps else None
 - Declared in SKILL.md frontmatter as `external_deps:` (YAML mapping)
 - Parsed into `SkillMetadata.external_deps` as a JSON string
 - Access via `json.loads(metadata.external_deps)` — returns `None` if not set
-- See [`docs/guide/skill-scopes-policies.md`](docs/guide/skill-scopes-policies.md) for the full schema
+- See [Skill Scopes & Policies](/guide/skill-scopes-policies) for the full schema
 
 **`CompatibilityRouter` — not a standalone Python class:**
 ```python
