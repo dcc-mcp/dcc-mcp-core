@@ -66,6 +66,7 @@ __all__ = [
     "run_main",
     "skill_entry",
     "skill_error",
+    "skill_error_with_trace",
     "skill_exception",
     "skill_success",
     "skill_warning",
@@ -240,6 +241,119 @@ def skill_error(
         "error": error,
         "context": context,
     }
+
+
+def skill_error_with_trace(
+    message: str,
+    error: str,
+    *,
+    underlying_call: str | None = None,
+    recipe_hint: str | None = None,
+    introspect_hint: str | None = None,
+    tb: str | None = None,
+    prompt: str | None = None,
+    possible_solutions: list[str] | None = None,
+    **context: Any,
+) -> ResultDict:
+    """Return a failure result dict enriched with a diagnostic ``_meta.dcc.raw_trace`` block.
+
+    Designed for thin-harness ``execute_python`` skills and any handler that
+    wraps a native DCC API call: the trace block gives the calling agent enough
+    context to self-correct the call without asking for a new wrapper tool.
+
+    The ``_meta.dcc.raw_trace`` block is included only when at least one of
+    ``underlying_call``, ``recipe_hint``, or ``introspect_hint`` is non-empty.
+    When ``McpHttpConfig.enable_error_raw_trace`` is ``False`` (the production
+    default), the gateway strips this block before forwarding the response.
+
+    Parameters
+    ----------
+    message:
+        User-facing description of what went wrong.
+    error:
+        Technical error string (exception repr, error code …).
+    underlying_call:
+        The raw DCC API call that failed (e.g.
+        ``"maya.cmds.polySphere(name='mySphere', radius=-1.0)"``).
+        Truncated to 500 chars automatically.
+    recipe_hint:
+        Path + optional anchor to a recipe that covers this call
+        (e.g. ``"references/RECIPES.md#create_sphere"``).
+    introspect_hint:
+        A ready-to-call ``dcc_introspect__*`` expression that reveals
+        the live API contract
+        (e.g. ``"dcc_introspect__signature(qualname='maya.cmds.polySphere')"``).
+    tb:
+        Full formatted traceback string (``traceback.format_exc()``).
+        Stored in ``_meta.dcc.raw_trace.traceback``.
+    prompt:
+        Optional recovery hint for the agent.
+    possible_solutions:
+        Optional list of actionable suggestions.
+    **context:
+        Additional key/value pairs attached to ``context``.
+
+    Returns
+    -------
+    dict
+        Standard error dict with an additional ``_meta`` key::
+
+            {
+                "success": False,
+                "message": ...,
+                "error": ...,
+                "_meta": {
+                    "dcc.raw_trace": {
+                        "underlying_call": "...",
+                        "traceback": "...",
+                        "recipe_hint": "...",
+                        "introspect_hint": "...",
+                    }
+                }
+            }
+
+    Example
+    -------
+    .. code-block:: python
+
+        import traceback as _tb
+
+        try:
+            result = cmds.polySphere(name="mySphere", radius=radius)
+        except Exception as exc:
+            return skill_error_with_trace(
+                "Failed to create sphere",
+                str(exc),
+                underlying_call=f"maya.cmds.polySphere(name='mySphere', radius={radius})",
+                recipe_hint="references/RECIPES.md#create_sphere",
+                introspect_hint="dcc_introspect__signature(qualname='maya.cmds.polySphere')",
+                tb=_tb.format_exc(),
+            )
+
+    """
+    if possible_solutions:
+        context.setdefault("possible_solutions", possible_solutions)
+
+    raw_trace: dict[str, str] = {}
+    if underlying_call:
+        raw_trace["underlying_call"] = underlying_call[:500]
+    if tb:
+        raw_trace["traceback"] = tb
+    if recipe_hint:
+        raw_trace["recipe_hint"] = recipe_hint
+    if introspect_hint:
+        raw_trace["introspect_hint"] = introspect_hint
+
+    result: ResultDict = {
+        "success": False,
+        "message": message,
+        "prompt": prompt or "Check the error details and try again.",
+        "error": error,
+        "context": context,
+    }
+    if raw_trace:
+        result["_meta"] = {"dcc.raw_trace": raw_trace}
+    return result
 
 
 def skill_warning(

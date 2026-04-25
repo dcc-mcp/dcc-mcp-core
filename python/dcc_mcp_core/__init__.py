@@ -310,6 +310,7 @@ from dcc_mcp_core.skill import get_bundled_skills_dir
 from dcc_mcp_core.skill import run_main
 from dcc_mcp_core.skill import skill_entry
 from dcc_mcp_core.skill import skill_error
+from dcc_mcp_core.skill import skill_error_with_trace
 from dcc_mcp_core.skill import skill_exception
 from dcc_mcp_core.skill import skill_success
 from dcc_mcp_core.skill import skill_warning
@@ -534,6 +535,7 @@ __all__ = [
     "shutdown_telemetry",
     "skill_entry",
     "skill_error",
+    "skill_error_with_trace",
     "skill_exception",
     "skill_success",
     "skill_success_with_chart",
