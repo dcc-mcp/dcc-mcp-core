@@ -297,6 +297,13 @@ from dcc_mcp_core.feedback import register_feedback_tool
 from dcc_mcp_core.gateway_election import DccGatewayElection
 from dcc_mcp_core.hotreload import DccSkillHotReloader
 
+# Runtime namespace introspection tools (issue #426)
+from dcc_mcp_core.introspect import introspect_eval
+from dcc_mcp_core.introspect import introspect_list_module
+from dcc_mcp_core.introspect import introspect_search
+from dcc_mcp_core.introspect import introspect_signature
+from dcc_mcp_core.introspect import register_introspect_tools
+
 # Plugin manifest generation (issue #410)
 from dcc_mcp_core.plugin_manifest import PluginManifest
 from dcc_mcp_core.plugin_manifest import build_plugin_manifest
@@ -523,6 +530,10 @@ __all__ = [
     "get_tools_dir",
     "hmac_sha256_hex",
     "init_file_logging",
+    "introspect_eval",
+    "introspect_list_module",
+    "introspect_search",
+    "introspect_signature",
     "is_telemetry_initialized",
     "make_rationale_meta",
     "make_start_stop",
@@ -534,6 +545,7 @@ __all__ = [
     "register_diagnostic_handlers",
     "register_diagnostic_mcp_tools",
     "register_feedback_tool",
+    "register_introspect_tools",
     "reset_cancel_token",
     "resolve_dependencies",
     "run_main",
