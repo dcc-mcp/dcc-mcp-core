@@ -15,7 +15,7 @@ System  (bundled with dcc-mcp-core — verified)
   ↑
 User    (~/.skills/ — personal workflows)
   ↑
-Repo    (.codex/skills/ — project-local, lowest trust)
+Repo    (project-local skills/, lowest trust)
 ```
 
 ### How Scope Is Assigned
@@ -28,7 +28,7 @@ from dcc_mcp_core import SkillCatalog, ToolRegistry
 catalog = SkillCatalog(ToolRegistry())
 
 # Skills discovered here get scope="repo"
-catalog.discover(extra_paths=[".codex/skills"])
+catalog.discover(extra_paths=["skills"])
 
 # Check scope in summaries
 for skill in catalog.list_skills():

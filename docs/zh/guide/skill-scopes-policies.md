@@ -15,7 +15,7 @@ System  （随 dcc-mcp-core 捆绑——已验证）
   ↑
 User    （~/.skills/ ——个人工作流）
   ↑
-Repo    （.codex/skills/ ——项目本地，最低信任）
+Repo    （project-local skills/ ——项目本地，最低信任）
 ```
 
 ### 作用域的分配方式
@@ -28,7 +28,7 @@ from dcc_mcp_core import SkillCatalog, ToolRegistry
 catalog = SkillCatalog(ToolRegistry())
 
 # 从此路径发现的 Skills 获得 scope="repo"
-catalog.discover(extra_paths=[".codex/skills"])
+catalog.discover(extra_paths=["skills"])
 
 # 在摘要中查看作用域
 for skill in catalog.list_skills():
