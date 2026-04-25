@@ -15,139 +15,139 @@ publish = false
 
 ### BEGIN HAKARI SECTION
 [dependencies]
-axum = { version = "0.8", features = ["http2"] }
-chrono = { version = "0.4", features = ["serde"] }
-clap = { version = "4", features = ["derive", "env"] }
-clap_builder = { version = "4", default-features = false, features = ["color", "env", "help", "std", "suggestions", "usage"] }
-crossbeam-utils = { version = "0.8" }
-digest = { version = "0.11", features = ["alloc", "mac", "oid"] }
-either = { version = "1", features = ["use_std"] }
-futures-channel = { version = "0.3", features = ["sink"] }
-futures-executor = { version = "0.3" }
-futures-task = { version = "0.3", default-features = false, features = ["std"] }
-futures-util = { version = "0.3", features = ["channel", "io", "sink"] }
-hyper = { version = "1", features = ["client", "http1", "http2", "server"] }
-hyper-util = { version = "0.1", features = ["client-legacy", "http1", "http2", "server", "service"] }
-log = { version = "0.4", default-features = false, features = ["std"] }
-memchr = { version = "2" }
-num-bigint = { version = "0.4" }
-num-complex = { version = "0.4" }
-num-integer = { version = "0.1", features = ["i128"] }
-num-traits = { version = "0.2", features = ["i128", "libm"] }
-phf = { version = "0.11", features = ["macros"] }
-phf_shared = { version = "0.11" }
-pyo3 = { version = "0.28", features = ["abi3-py38", "extension-module", "multiple-pymethods"] }
-pyo3-ffi = { version = "0.28", features = ["abi3-py38", "extension-module"] }
-rand-274715c4dabd11b0 = { package = "rand", version = "0.9" }
-regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal", "std", "unicode"] }
-regex-syntax = { version = "0.8" }
-serde = { version = "1", features = ["alloc", "derive"] }
-serde_core = { version = "1", features = ["alloc"] }
-serde_json = { version = "1", features = ["raw_value"] }
-slab = { version = "0.4" }
-smallvec = { version = "1", default-features = false, features = ["const_new"] }
-sync_wrapper = { version = "1", default-features = false, features = ["futures"] }
-time = { version = "0.3", features = ["formatting", "local-offset", "macros", "parsing"] }
-tokio = { version = "1", features = ["full", "test-util"] }
-tokio-stream = { version = "0.1", features = ["sync"] }
-tokio-util = { version = "0.7", features = ["codec", "io", "rt"] }
-toml_datetime = { version = "1", features = ["serde"] }
-toml_parser = { version = "1" }
-tower = { version = "0.5", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "log"] }
-tracing = { version = "0.1", features = ["log"] }
-tracing-core = { version = "0.1" }
-tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-winnow = { version = "1" }
-zerocopy = { version = "0.8", default-features = false, features = ["derive", "simd"] }
+axum = { version = "0.8.9", features = ["http2"] }
+chrono = { version = "0.4.44", features = ["serde"] }
+clap = { version = "4.6.1", features = ["derive", "env"] }
+clap_builder = { version = "4.6.0", default-features = false, features = ["color", "env", "help", "std", "suggestions", "usage"] }
+crossbeam-utils = { version = "0.8.21" }
+digest = { version = "0.11.2", features = ["alloc", "mac", "oid"] }
+either = { version = "1.15.0", features = ["use_std"] }
+futures-channel = { version = "0.3.32", features = ["sink"] }
+futures-executor = { version = "0.3.32" }
+futures-task = { version = "0.3.32", default-features = false, features = ["std"] }
+futures-util = { version = "0.3.32", features = ["channel", "io", "sink"] }
+hyper = { version = "1.9.0", features = ["client", "http1", "http2", "server"] }
+hyper-util = { version = "0.1.20", features = ["client-legacy", "http1", "http2", "server", "service"] }
+log = { version = "0.4.29", default-features = false, features = ["std"] }
+memchr = { version = "2.8.0" }
+num-bigint = { version = "0.4.6" }
+num-complex = { version = "0.4.6" }
+num-integer = { version = "0.1.46", features = ["i128"] }
+num-traits = { version = "0.2.19", features = ["i128", "libm"] }
+phf = { version = "0.11.3", features = ["macros"] }
+phf_shared = { version = "0.11.3" }
+pyo3 = { version = "0.28.3", features = ["abi3-py38", "extension-module", "multiple-pymethods"] }
+pyo3-ffi = { version = "0.28.3", features = ["abi3-py38", "extension-module"] }
+rand-274715c4dabd11b0 = { package = "rand", version = "0.9.4" }
+regex-automata = { version = "0.4.14", default-features = false, features = ["dfa-build", "dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal", "std", "unicode"] }
+regex-syntax = { version = "0.8.10" }
+serde = { version = "1.0.228", features = ["alloc", "derive"] }
+serde_core = { version = "1.0.228", features = ["alloc"] }
+serde_json = { version = "1.0.149", features = ["raw_value"] }
+slab = { version = "0.4.12" }
+smallvec = { version = "1.15.1", default-features = false, features = ["const_new"] }
+sync_wrapper = { version = "1.0.2", default-features = false, features = ["futures"] }
+time = { version = "0.3.47", features = ["formatting", "local-offset", "macros", "parsing"] }
+tokio = { version = "1.52.1", features = ["full", "test-util"] }
+tokio-stream = { version = "0.1.18", features = ["sync"] }
+tokio-util = { version = "0.7.18", features = ["codec", "io", "rt"] }
+toml_datetime = { version = "1.1.1", features = ["serde"] }
+toml_parser = { version = "1.1.2" }
+tower = { version = "0.5.3", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "log"] }
+tracing = { version = "0.1.44", features = ["log"] }
+tracing-core = { version = "0.1.36" }
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
+winnow = { version = "1.0.2" }
+zerocopy = { version = "0.8.48", default-features = false, features = ["derive", "simd"] }
 
 [build-dependencies]
-either = { version = "1", features = ["use_std"] }
-log = { version = "0.4", default-features = false, features = ["std"] }
-memchr = { version = "2" }
-num-bigint = { version = "0.4" }
-num-integer = { version = "0.1", features = ["i128"] }
-num-traits = { version = "0.2", features = ["i128", "libm"] }
-phf = { version = "0.11", features = ["macros"] }
-phf_shared = { version = "0.11" }
-pyo3-build-config = { version = "0.28", features = ["abi3-py38", "extension-module", "resolve-config"] }
-rand-c38e5c1d305a1b54 = { package = "rand", version = "0.8", features = ["small_rng"] }
-rand_core = { version = "0.6", default-features = false, features = ["std"] }
-regex-automata = { version = "0.4", default-features = false, features = ["dfa-build", "dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal", "std", "unicode"] }
-regex-syntax = { version = "0.8" }
-serde_core = { version = "1", features = ["alloc"] }
-syn = { version = "2", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
-toml_datetime = { version = "1", features = ["serde"] }
-toml_parser = { version = "1" }
-winnow = { version = "1" }
-zerocopy = { version = "0.8", default-features = false, features = ["derive", "simd"] }
+either = { version = "1.15.0", features = ["use_std"] }
+log = { version = "0.4.29", default-features = false, features = ["std"] }
+memchr = { version = "2.8.0" }
+num-bigint = { version = "0.4.6" }
+num-integer = { version = "0.1.46", features = ["i128"] }
+num-traits = { version = "0.2.19", features = ["i128", "libm"] }
+phf = { version = "0.11.3", features = ["macros"] }
+phf_shared = { version = "0.11.3" }
+pyo3-build-config = { version = "0.28.3", features = ["abi3-py38", "extension-module", "resolve-config"] }
+rand-c38e5c1d305a1b54 = { package = "rand", version = "0.8.6", features = ["small_rng"] }
+rand_core = { version = "0.6.4", default-features = false, features = ["std"] }
+regex-automata = { version = "0.4.14", default-features = false, features = ["dfa-build", "dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal", "std", "unicode"] }
+regex-syntax = { version = "0.8.10" }
+serde_core = { version = "1.0.228", features = ["alloc"] }
+syn = { version = "2.0.117", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
+toml_datetime = { version = "1.1.1", features = ["serde"] }
+toml_parser = { version = "1.1.2" }
+winnow = { version = "1.0.2" }
+zerocopy = { version = "0.8.48", default-features = false, features = ["derive", "simd"] }
 
 [target.x86_64-unknown-linux-gnu.dependencies]
-bitflags = { version = "2", default-features = false, features = ["std"] }
-getrandom = { version = "0.4", default-features = false, features = ["std", "sys_rng"] }
-hyper-util = { version = "0.1", default-features = false, features = ["client-proxy"] }
-libc = { version = "0.2", features = ["extra_traits"] }
-mio = { version = "1", features = ["net", "os-ext"] }
-subtle = { version = "2" }
-tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
-tower-http = { version = "0.6", features = ["cors", "follow-redirect", "trace"] }
+bitflags = { version = "2.11.1", default-features = false, features = ["std"] }
+getrandom = { version = "0.4.2", default-features = false, features = ["std", "sys_rng"] }
+hyper-util = { version = "0.1.20", default-features = false, features = ["client-proxy"] }
+libc = { version = "0.2.186", features = ["extra_traits"] }
+mio = { version = "1.2.0", features = ["net", "os-ext"] }
+subtle = { version = "2.6.1" }
+tower = { version = "0.5.3", default-features = false, features = ["retry", "timeout"] }
+tower-http = { version = "0.6.8", features = ["cors", "follow-redirect", "trace"] }
 
 [target.x86_64-unknown-linux-gnu.build-dependencies]
-cc = { version = "1", default-features = false, features = ["parallel"] }
-libc = { version = "0.2", features = ["extra_traits"] }
+cc = { version = "1.2.61", default-features = false, features = ["parallel"] }
+libc = { version = "0.2.186", features = ["extra_traits"] }
 
 [target.aarch64-unknown-linux-gnu.dependencies]
-bitflags = { version = "2", default-features = false, features = ["std"] }
-getrandom = { version = "0.4", default-features = false, features = ["std", "sys_rng"] }
-hyper-util = { version = "0.1", default-features = false, features = ["client-proxy"] }
-libc = { version = "0.2", features = ["extra_traits"] }
-mio = { version = "1", features = ["net", "os-ext"] }
-subtle = { version = "2" }
-tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
-tower-http = { version = "0.6", features = ["cors", "follow-redirect", "trace"] }
+bitflags = { version = "2.11.1", default-features = false, features = ["std"] }
+getrandom = { version = "0.4.2", default-features = false, features = ["std", "sys_rng"] }
+hyper-util = { version = "0.1.20", default-features = false, features = ["client-proxy"] }
+libc = { version = "0.2.186", features = ["extra_traits"] }
+mio = { version = "1.2.0", features = ["net", "os-ext"] }
+subtle = { version = "2.6.1" }
+tower = { version = "0.5.3", default-features = false, features = ["retry", "timeout"] }
+tower-http = { version = "0.6.8", features = ["cors", "follow-redirect", "trace"] }
 
 [target.aarch64-unknown-linux-gnu.build-dependencies]
-cc = { version = "1", default-features = false, features = ["parallel"] }
-libc = { version = "0.2", features = ["extra_traits"] }
+cc = { version = "1.2.61", default-features = false, features = ["parallel"] }
+libc = { version = "0.2.186", features = ["extra_traits"] }
 
 [target.x86_64-apple-darwin.dependencies]
-bitflags = { version = "2", default-features = false, features = ["std"] }
-errno = { version = "0.3" }
-getrandom = { version = "0.4", default-features = false, features = ["std", "sys_rng"] }
-hyper-util = { version = "0.1", default-features = false, features = ["client-proxy"] }
-libc = { version = "0.2", features = ["extra_traits"] }
-subtle = { version = "2" }
-tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
-tower-http = { version = "0.6", features = ["cors", "follow-redirect", "trace"] }
+bitflags = { version = "2.11.1", default-features = false, features = ["std"] }
+errno = { version = "0.3.14" }
+getrandom = { version = "0.4.2", default-features = false, features = ["std", "sys_rng"] }
+hyper-util = { version = "0.1.20", default-features = false, features = ["client-proxy"] }
+libc = { version = "0.2.186", features = ["extra_traits"] }
+subtle = { version = "2.6.1" }
+tower = { version = "0.5.3", default-features = false, features = ["retry", "timeout"] }
+tower-http = { version = "0.6.8", features = ["cors", "follow-redirect", "trace"] }
 
 [target.x86_64-apple-darwin.build-dependencies]
-cc = { version = "1", default-features = false, features = ["parallel"] }
-libc = { version = "0.2", features = ["extra_traits"] }
+cc = { version = "1.2.61", default-features = false, features = ["parallel"] }
+libc = { version = "0.2.186", features = ["extra_traits"] }
 
 [target.aarch64-apple-darwin.dependencies]
-bitflags = { version = "2", default-features = false, features = ["std"] }
-errno = { version = "0.3" }
-getrandom = { version = "0.4", default-features = false, features = ["std", "sys_rng"] }
-hyper-util = { version = "0.1", default-features = false, features = ["client-proxy"] }
-libc = { version = "0.2", features = ["extra_traits"] }
-subtle = { version = "2" }
-tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
-tower-http = { version = "0.6", features = ["cors", "follow-redirect", "trace"] }
+bitflags = { version = "2.11.1", default-features = false, features = ["std"] }
+errno = { version = "0.3.14" }
+getrandom = { version = "0.4.2", default-features = false, features = ["std", "sys_rng"] }
+hyper-util = { version = "0.1.20", default-features = false, features = ["client-proxy"] }
+libc = { version = "0.2.186", features = ["extra_traits"] }
+subtle = { version = "2.6.1" }
+tower = { version = "0.5.3", default-features = false, features = ["retry", "timeout"] }
+tower-http = { version = "0.6.8", features = ["cors", "follow-redirect", "trace"] }
 
 [target.aarch64-apple-darwin.build-dependencies]
-cc = { version = "1", default-features = false, features = ["parallel"] }
-libc = { version = "0.2", features = ["extra_traits"] }
+cc = { version = "1.2.61", default-features = false, features = ["parallel"] }
+libc = { version = "0.2.186", features = ["extra_traits"] }
 
 [target.x86_64-pc-windows-msvc.dependencies]
-getrandom = { version = "0.4", default-features = false, features = ["std", "sys_rng"] }
-hyper-util = { version = "0.1", default-features = false, features = ["client-proxy"] }
-subtle = { version = "2" }
-tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
-tower-http = { version = "0.6", features = ["cors", "follow-redirect", "trace"] }
-winapi = { version = "0.3", default-features = false, features = ["cfg", "evntrace", "in6addr", "inaddr", "minwinbase", "ntsecapi", "sysinfoapi", "windef", "winioctl"] }
-windows = { version = "0.62", features = ["Wdk_System_SystemInformation", "Wdk_System_SystemServices", "Wdk_System_Threading", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D11", "Win32_Graphics_Dxgi_Common", "Win32_Graphics_Gdi", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_NetworkManagement_NetManagement", "Win32_Networking_WinSock", "Win32_Security_Authentication_Identity", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_Storage_Xps", "Win32_System_Com", "Win32_System_Diagnostics_Debug", "Win32_System_Diagnostics_ToolHelp", "Win32_System_IO", "Win32_System_Ioctl", "Win32_System_Kernel", "Win32_System_Memory", "Win32_System_Ole", "Win32_System_Performance", "Win32_System_Power", "Win32_System_ProcessStatus", "Win32_System_Registry", "Win32_System_RemoteDesktop", "Win32_System_Rpc", "Win32_System_SystemInformation", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_Variant", "Win32_System_WindowsProgramming", "Win32_System_Wmi", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
-windows-sys = { version = "0.61", features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Wdk_System_IO", "Win32_Globalization", "Win32_Networking_WinSock", "Win32_Security_Authorization", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_Console", "Win32_System_IO", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Pipes", "Win32_System_SystemInformation", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_WindowsProgramming", "Win32_UI_Shell"] }
+getrandom = { version = "0.4.2", default-features = false, features = ["std", "sys_rng"] }
+hyper-util = { version = "0.1.20", default-features = false, features = ["client-proxy"] }
+subtle = { version = "2.6.1" }
+tower = { version = "0.5.3", default-features = false, features = ["retry", "timeout"] }
+tower-http = { version = "0.6.8", features = ["cors", "follow-redirect", "trace"] }
+winapi = { version = "0.3.9", default-features = false, features = ["cfg", "evntrace", "in6addr", "inaddr", "minwinbase", "ntsecapi", "sysinfoapi", "windef", "winioctl"] }
+windows = { version = "0.62.2", features = ["Wdk_System_SystemInformation", "Wdk_System_SystemServices", "Wdk_System_Threading", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D11", "Win32_Graphics_Dxgi_Common", "Win32_Graphics_Gdi", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_NetworkManagement_NetManagement", "Win32_Networking_WinSock", "Win32_Security_Authentication_Identity", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_Storage_Xps", "Win32_System_Com", "Win32_System_Diagnostics_Debug", "Win32_System_Diagnostics_ToolHelp", "Win32_System_IO", "Win32_System_Ioctl", "Win32_System_Kernel", "Win32_System_Memory", "Win32_System_Ole", "Win32_System_Performance", "Win32_System_Power", "Win32_System_ProcessStatus", "Win32_System_Registry", "Win32_System_RemoteDesktop", "Win32_System_Rpc", "Win32_System_SystemInformation", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_Variant", "Win32_System_WindowsProgramming", "Win32_System_Wmi", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
+windows-sys = { version = "0.61.2", features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Wdk_System_IO", "Win32_Globalization", "Win32_Networking_WinSock", "Win32_Security_Authorization", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_Console", "Win32_System_IO", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Pipes", "Win32_System_SystemInformation", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_WindowsProgramming", "Win32_UI_Shell"] }
 
 [target.x86_64-pc-windows-msvc.build-dependencies]
-cc = { version = "1", default-features = false, features = ["parallel"] }
+cc = { version = "1.2.61", default-features = false, features = ["parallel"] }
 
 ### END HAKARI SECTION
