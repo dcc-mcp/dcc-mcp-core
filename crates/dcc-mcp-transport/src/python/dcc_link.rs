@@ -55,7 +55,8 @@ pub struct PyDccLinkFrame {
     inner: DccLinkFrame,
 }
 
-// NOTE: gen_stub_pymethods skipped — body() returns &[u8] and decode() takes &[u8]
+// NOTE: gen_stub_pymethods skipped — body() returns &[u8] and decode() takes &[u8],
+// which don't implement PyStubType (unsized slice type).
 #[cfg(feature = "python-bindings")]
 #[pymethods]
 impl PyDccLinkFrame {

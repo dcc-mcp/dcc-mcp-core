@@ -135,7 +135,7 @@ pub fn py_artefact_put_file(path: &str, mime: Option<String>) -> PyResult<PyFile
 }
 
 /// Store raw ``bytes`` and return a :class:`FileRef`.
-// NOTE (stub-gen): skip gen_stub_pyfunction — `data: &[u8]` can't auto-map.
+// NOTE: gen_stub_pyfunction skipped — `data: &[u8]` doesn't implement PyStubType.
 #[pyfunction(name = "artefact_put_bytes")]
 #[pyo3(signature = (data, mime=None))]
 pub fn py_artefact_put_bytes(data: &[u8], mime: Option<String>) -> PyResult<PyFileRef> {

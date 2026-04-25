@@ -118,6 +118,7 @@ dev:
         . .venv/bin/activate; \
     fi
     pip install maturin 2>/dev/null || true
+    just stubgen
     maturin develop --features {{DEV_FEATURES}}
 
 [windows]
@@ -127,10 +128,12 @@ dev:
         & .\.venv\Scripts\Activate.ps1; \
     }
     pip install maturin -q 2>$null
+    just stubgen
     maturin develop --features {{DEV_FEATURES}}
 
 # Build abi3-py38 release wheel and install it
 install:
+    just stubgen
     maturin build --release --out dist --features {{WHEEL_FEATURES}}
     pip install --force-reinstall --no-index --find-links dist dcc-mcp-core
 
@@ -138,11 +141,13 @@ install:
 # EXTRA is forwarded to maturin — used by CI to pass --sdist,
 # --find-interpreter, --target, etc. without duplicating feature flags.
 build *EXTRA:
+    just stubgen
     maturin build --release --out dist --features {{WHEEL_FEATURES}} {{EXTRA}}
 
 # Build Python 3.7 wheel (non-abi3, for py37-specific CI jobs).
 # EXTRA is forwarded to maturin (e.g. `-i python3.7`, `--target x86_64`).
 build-py37 *EXTRA:
+    just stubgen
     maturin build --release --out dist --features {{WHEEL_FEATURES_PY37}} {{EXTRA}}
 
 # Install dev/test dependencies
@@ -163,12 +168,16 @@ test-cov:
 test-e2e:
     pytest tests/test_mcp_mcporter_e2e.py -v --tb=short
 
-# ── Type stubs (pyo3-stub-gen PoC) ────────────────────────────────────────────
+# ── Type stubs (pyo3-stub-gen) ───────────────────────────────────────────
 
-# Generate python/dcc_mcp_core/_core.poc.pyi from annotated Rust code.
-# Current scope: dcc-mcp-capture crate only (PoC).
+# Generate python/dcc_mcp_core/_core.pyi from annotated Rust code.
+# Also run automatically as part of `build`, `dev`, and `install`.
 stubgen:
     cargo run --bin stub_gen --features stub-gen
+
+# Check that _core.pyi is in sync with the Rust source (for CI drift detection).
+stubgen-check:
+    cargo run --bin stub_gen --features stub-gen -- --check
 
 # ── Lint ──────────────────────────────────────────────────────────────────────
 

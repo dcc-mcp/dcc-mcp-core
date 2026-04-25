@@ -75,6 +75,10 @@ runs:
         echo "Resolved maturin args: ${args}"
         echo "value=${args}" >> "$GITHUB_OUTPUT"
 
+    - name: Generate type stubs
+      shell: bash
+      run: just stubgen
+
     - name: Build wheel
       uses: PyO3/maturin-action@v1
       with:

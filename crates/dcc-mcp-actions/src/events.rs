@@ -4,7 +4,7 @@
 use pyo3::prelude::*;
 
 #[cfg(feature = "stub-gen")]
-use pyo3_stub_gen_derive::gen_stub_pyclass;
+use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pymethods};
 
 use dashmap::DashMap;
 use std::sync::Arc;
@@ -156,7 +156,8 @@ impl EventBus {
 
 // ── Python bindings ──
 
-// NOTE: gen_stub_pymethods skipped — subscribe() takes Py<PyAny>, publish() uses **kwargs with Py<PyAny>
+// NOTE: subscribe() takes Py<PyAny>, publish() uses **kwargs — stubs may have imperfect types
+#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[cfg(feature = "python-bindings")]
 #[pymethods]
 impl EventBus {
