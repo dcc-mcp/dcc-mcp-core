@@ -6,4 +6,6 @@ pub mod filesystem;
 pub mod log_config;
 #[cfg(feature = "python-bindings")]
 pub mod py_json;
+#[cfg(feature = "python-bindings")]
+pub mod py_yaml;
 pub mod type_wrappers;

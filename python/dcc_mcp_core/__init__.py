@@ -200,6 +200,8 @@ from dcc_mcp_core._core import validate_dependencies
 from dcc_mcp_core._core import validate_skill
 from dcc_mcp_core._core import validate_tool_name
 from dcc_mcp_core._core import wrap_value
+from dcc_mcp_core._core import yaml_dumps
+from dcc_mcp_core._core import yaml_loads
 
 # Workflow primitive — optional (Cargo `workflow` feature, issue #348 skeleton).
 # Step execution is stubbed; only WorkflowSpec/WorkflowStatus (parse+validate)
@@ -635,4 +637,6 @@ __all__ = [
     "validate_tool_name",
     "verify_hub_signature_256",
     "wrap_value",
+    "yaml_dumps",
+    "yaml_loads",
 ]

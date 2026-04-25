@@ -60,6 +60,7 @@ from typing import Any
 
 from dcc_mcp_core import json_dumps
 from dcc_mcp_core import json_loads
+from dcc_mcp_core import yaml_loads
 
 logger = logging.getLogger(__name__)
 
@@ -238,17 +239,12 @@ def load_workflow_yaml(path: str | Path) -> WorkflowYaml:
         If the file fails to parse or validate.
 
     """
-    try:
-        import yaml  # type: ignore[import-untyped]
-    except ImportError as exc:
-        raise ImportError("PyYAML is required to load workflow YAML files: pip install pyyaml") from exc
-
     p = Path(path)
     if not p.is_file():
         raise FileNotFoundError(f"Workflow YAML file not found: {p}")
 
     try:
-        raw = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+        raw = yaml_loads(p.read_text(encoding="utf-8")) or {}
     except Exception as exc:
         raise ValueError(f"Failed to parse YAML at {p}: {exc}") from exc
 
