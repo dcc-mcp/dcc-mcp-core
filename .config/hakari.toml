@@ -26,3 +26,15 @@ platforms = [
 
 # Write out exact versions rather than a semver range. (Defaults to false.)
 exact-versions = true
+
+# Exclude pyo3 and related crates from feature unification.
+# pyo3 has mutually exclusive feature sets: "extension-module" is used by
+# the final wheel/binary but must NOT be enabled for pyo3-stub-gen, which
+# needs the auto-initialize path. Unifying these in workspace-hack breaks
+# pyo3-stub-gen (PyEncodingWarning unavailable under extension-module).
+[traversal-excludes]
+third-party = [
+    { name = "pyo3" },
+    { name = "pyo3-ffi" },
+    { name = "pyo3-build-config" },
+]

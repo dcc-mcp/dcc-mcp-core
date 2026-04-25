@@ -36,8 +36,6 @@ num-integer = { version = "0.1.46", features = ["i128"] }
 num-traits = { version = "0.2.19", features = ["i128", "libm"] }
 phf = { version = "0.11.3", features = ["macros"] }
 phf_shared = { version = "0.11.3" }
-pyo3 = { version = "0.28.3", features = ["abi3-py38", "extension-module", "multiple-pymethods"] }
-pyo3-ffi = { version = "0.28.3", features = ["abi3-py38", "extension-module"] }
 rand-274715c4dabd11b0 = { package = "rand", version = "0.9.4" }
 regex-automata = { version = "0.4.14", default-features = false, features = ["dfa-build", "dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal", "std", "unicode"] }
 regex-syntax = { version = "0.8.10" }
@@ -69,7 +67,6 @@ num-integer = { version = "0.1.46", features = ["i128"] }
 num-traits = { version = "0.2.19", features = ["i128", "libm"] }
 phf = { version = "0.11.3", features = ["macros"] }
 phf_shared = { version = "0.11.3" }
-pyo3-build-config = { version = "0.28.3", features = ["abi3-py38", "extension-module", "resolve-config"] }
 rand-c38e5c1d305a1b54 = { package = "rand", version = "0.8.6", features = ["small_rng"] }
 rand_core = { version = "0.6.4", default-features = false, features = ["std"] }
 regex-automata = { version = "0.4.14", default-features = false, features = ["dfa-build", "dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal", "std", "unicode"] }
