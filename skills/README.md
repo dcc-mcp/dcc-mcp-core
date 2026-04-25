@@ -59,15 +59,17 @@ export DCC_MCP_SKILL_PATHS="/path/to/my-skills"
 | [`dcc-specific`](templates/dcc-specific/) | DCC-bound skill (Maya, Blender, etc.) | `dcc:` field, `required_capabilities`, `next-tools` |
 | [`with-groups`](templates/with-groups/) | Progressive exposure via tool groups | `groups:` field, `default-active` toggle |
 | [`domain-skill`](templates/domain-skill/) | Business workflow skill with layering | `dcc-mcp.layer: domain`, negative routing, `depends:`, failure chains |
+| [`thin-harness`](templates/thin-harness/) | Raw script execution + recipe book (no wrappers) | `dcc-mcp.layer: thin-harness`, `recipes:`, `introspection:`, `execute_python` |
 
 ## Skill Layering
 
-Every skill must belong to one of three layers. Set the layer in `metadata`:
+Every skill must belong to one of four layers. Set the layer in `metadata`:
 
 ```yaml
 metadata:
   dcc-mcp.layer: infrastructure   # low-level reusable primitive
   # dcc-mcp.layer: domain         # business workflow, depends on infrastructure
+  # dcc-mcp.layer: thin-harness   # raw script execution + recipes (fall-through)
   # dcc-mcp.layer: example        # authoring reference, never used in production
 ```
 
@@ -77,6 +79,7 @@ metadata:
 |-------|------|---------|
 | **infrastructure** | Low-level, DCC-agnostic primitives. No business context. Stable API. Auto-loaded or shared across all servers. | `dcc-diagnostics`, `workflow`, `usd-tools`, `ffmpeg-media`, `imagemagick-tools`, `git-automation` |
 | **domain** | Business workflows for a specific DCC or task area. Depends on infrastructure skills. Loaded on-demand per DCC. | `maya-geometry`, `maya-pipeline`, `maya-animation`, `blender-rigging` |
+| **thin-harness** | Raw script execution + recipe book. Primary fall-through when no domain skill matches. One `execute_python` tool + `references/RECIPES.md`. See [thin-harness guide](../docs/guide/thin-harness.md). | `maya-scripting`, `blender-scripting`, `houdini-scripting` |
 | **example** | Authoring references and demos only. Never loaded in production environments. | `hello-world`, `multi-script`, `async-render-example`, `cancellable-loop` |
 
 ### Description pattern (required for all skills)

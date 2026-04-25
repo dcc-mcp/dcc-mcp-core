@@ -1,0 +1,16 @@
+tools:
+  - name: execute_python
+    description: >-
+      Execute a Python script string inside the live DCC interpreter.
+      When to use: when no domain skill covers the operation and you have
+      a working DCC API snippet. How to use: pass the full script as
+      'code'; check references/RECIPES.md first; read
+      _meta.dcc.raw_trace on error.
+    annotations:
+      read_only_hint: false
+      destructive_hint: true
+      idempotent_hint: false
+    next-tools:
+      on-failure:
+        - dcc_diagnostics__screenshot
+        - dcc_diagnostics__audit_log
