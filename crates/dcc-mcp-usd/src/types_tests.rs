@@ -1,5 +1,4 @@
 //! Unit tests for the `types` module.
-#![cfg(test)]
 
 use super::*;
 

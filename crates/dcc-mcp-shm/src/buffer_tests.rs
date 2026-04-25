@@ -1,5 +1,4 @@
 //! Unit tests for the `SharedBuffer` type and orphan GC.
-#![cfg(test)]
 
 use super::*;
 

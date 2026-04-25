@@ -1,5 +1,4 @@
 //! Unit tests for the `resolver` module.
-#![cfg(test)]
 
 use super::*;
 

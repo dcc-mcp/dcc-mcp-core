@@ -1,7 +1,5 @@
 //! Unit tests for the namespace module.
 
-#![cfg(test)]
-
 use super::*;
 use dcc_mcp_naming::validate_tool_name;
 use uuid::Uuid;

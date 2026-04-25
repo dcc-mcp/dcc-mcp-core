@@ -1,5 +1,4 @@
 //! Unit tests for the artefact module.
-#![cfg(test)]
 
 use super::*;
 

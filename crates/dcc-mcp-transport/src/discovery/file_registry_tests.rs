@@ -1,5 +1,4 @@
 //! Unit tests for `FileRegistry`.
-#![cfg(test)]
 
 use super::*;
 use uuid::Uuid;

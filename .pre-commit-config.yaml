@@ -30,7 +30,7 @@ repos:
         pass_filenames: false
       - id: cargo-clippy
         name: cargo clippy
-        entry: cargo clippy --workspace -- -D warnings
+        entry: cargo clippy --workspace --tests -- -D warnings
         language: system
         types: [rust]
         pass_filenames: false

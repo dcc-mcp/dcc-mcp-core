@@ -156,36 +156,36 @@ fn test_load_skill_idempotent() {
 }
 
 #[test]
-fn test_rank_skills_by_query() {
+fn test_search_skills_by_query() {
     let catalog = make_test_catalog();
     catalog.add_skill(make_test_skill("modeling-bevel", "maya", &[]));
     catalog.add_skill(make_test_skill("rendering-batch", "blender", &[]));
 
-    let results = catalog.rank_skills(Some("bevel"), &[], None);
+    let results = catalog.search_skills(Some("bevel"), &[], None, None, None);
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "modeling-bevel");
 }
 
 #[test]
-fn test_rank_skills_by_dcc() {
+fn test_search_skills_by_dcc() {
     let catalog = make_test_catalog();
     catalog.add_skill(make_test_skill("skill-a", "maya", &[]));
     catalog.add_skill(make_test_skill("skill-b", "blender", &[]));
 
-    let results = catalog.rank_skills(None, &[], Some("maya"));
+    let results = catalog.search_skills(None, &[], Some("maya"), None, None);
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].dcc, "maya");
 }
 
 #[test]
-fn test_rank_skills_by_tags() {
+fn test_search_skills_by_tags() {
     let catalog = make_test_catalog();
     let mut skill = make_test_skill("tagged", "maya", &[]);
     skill.tags = vec!["modeling".to_string(), "polygon".to_string()];
     catalog.add_skill(skill);
     catalog.add_skill(make_test_skill("untagged", "maya", &[]));
 
-    let results = catalog.rank_skills(None, &["modeling"], None);
+    let results = catalog.search_skills(None, &["modeling"], None, None, None);
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].name, "tagged");
 }
@@ -506,7 +506,7 @@ fn test_skill_summary_search_hint_fallback_to_description() {
 }
 
 #[test]
-fn test_rank_skills_matches_search_hint() {
+fn test_search_skills_matches_search_hint() {
     let catalog = make_test_catalog();
     catalog.add_skill(make_test_skill_with_hint(
         "maya-bevel",
@@ -522,13 +522,13 @@ fn test_rank_skills_matches_search_hint() {
     ));
 
     // "chamfer" only appears in search_hint of maya-bevel
-    let results = catalog.rank_skills(Some("chamfer"), &[], None);
+    let results = catalog.search_skills(Some("chamfer"), &[], None, None, None);
     assert_eq!(results.len(), 1, "Expected 1 match for 'chamfer'");
     assert_eq!(results[0].name, "maya-bevel");
 }
 
 #[test]
-fn test_rank_skills_matches_tool_name() {
+fn test_search_skills_matches_tool_name() {
     let catalog = make_test_catalog();
     catalog.add_skill(make_test_skill_with_hint(
         "maya-bevel",
@@ -544,13 +544,13 @@ fn test_rank_skills_matches_tool_name() {
     ));
 
     // "diff" is a tool name in git-tools
-    let results = catalog.rank_skills(Some("diff"), &[], None);
+    let results = catalog.search_skills(Some("diff"), &[], None, None, None);
     assert_eq!(results.len(), 1, "Expected 1 match for tool 'diff'");
     assert_eq!(results[0].name, "git-tools");
 }
 
 #[test]
-fn test_rank_skills_no_match_returns_empty() {
+fn test_search_skills_no_match_returns_empty() {
     let catalog = make_test_catalog();
     catalog.add_skill(make_test_skill_with_hint(
         "skill-a",
@@ -559,12 +559,12 @@ fn test_rank_skills_no_match_returns_empty() {
         &["tool_a"],
     ));
 
-    let results = catalog.rank_skills(Some("xyzzy_no_match"), &[], None);
+    let results = catalog.search_skills(Some("xyzzy_no_match"), &[], None, None, None);
     assert!(results.is_empty(), "Expected empty results for no match");
 }
 
 #[test]
-fn test_rank_skills_matches_name_and_hint_combined() {
+fn test_search_skills_matches_name_and_hint_combined() {
     let catalog = make_test_catalog();
     // "maya" appears in name of first, but also search_hint of second
     catalog.add_skill(make_test_skill_with_hint(
@@ -580,7 +580,7 @@ fn test_rank_skills_matches_name_and_hint_combined() {
         &["shader"],
     ));
 
-    let results = catalog.rank_skills(Some("maya"), &[], None);
+    let results = catalog.search_skills(Some("maya"), &[], None, None, None);
     // Both should match: first by name, second by search_hint
     assert_eq!(results.len(), 2, "Both skills should match 'maya'");
 }

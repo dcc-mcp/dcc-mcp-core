@@ -1,5 +1,4 @@
 //! Unit tests for the scheduler service.
-#![cfg(test)]
 
 use super::*;
 use crate::sink::RecordingSink;

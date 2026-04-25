@@ -1,5 +1,4 @@
 //! Unit tests for the Python capture bindings.
-#![cfg(test)]
 
 use super::*;
 
