@@ -29,11 +29,13 @@ from __future__ import annotations
 
 import asyncio
 from concurrent.futures import Future
-import json
 import logging
 import threading
 from typing import Any
 import uuid
+
+from dcc_mcp_core import json_dumps
+from dcc_mcp_core import json_loads
 
 
 # NOTE: dcc_mcp_core.__version__ is deferred to avoid a potential import-time
@@ -251,7 +253,7 @@ class DccBridge:
         if params:
             message["params"] = params
 
-        asyncio.run_coroutine_threadsafe(self._send(json.dumps(message)), self._loop)
+        asyncio.run_coroutine_threadsafe(self._send(json_dumps(message)), self._loop)
 
         try:
             result = fut.result(timeout=self._timeout)
@@ -323,10 +325,10 @@ class DccBridge:
     async def _dispatch(self, raw: str) -> None:
         """Parse an incoming message and route it."""
         try:
-            msg = json.loads(raw)
-        except json.JSONDecodeError as exc:
+            msg = json_loads(raw)
+        except ValueError as exc:
             await self._send(
-                json.dumps(
+                json_dumps(
                     {
                         "type": "parse_error",
                         "message": str(exc),
@@ -359,7 +361,7 @@ class DccBridge:
             "version": self._server_version,
             "session_id": str(uuid.uuid4()),
         }
-        await self._send(json.dumps(ack))
+        await self._send(json_dumps(ack))
         self._connected = True
         self._dcc_connected.set()
 

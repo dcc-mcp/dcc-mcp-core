@@ -53,11 +53,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from dataclasses import field
-import json
 import logging
 from pathlib import Path
 import re
 from typing import Any
+
+from dcc_mcp_core import json_dumps
+from dcc_mcp_core import json_loads
 
 logger = logging.getLogger(__name__)
 
@@ -408,7 +410,7 @@ def register_workflow_yaml_tools(
         }
 
     def _handle_describe(params: Any) -> Any:
-        args: dict[str, Any] = json.loads(params) if isinstance(params, str) else (params or {})
+        args: dict[str, Any] = json_loads(params) if isinstance(params, str) else (params or {})
         name = args.get("name", "")
         wf = workflow_map.get(name)
         if wf is None:
@@ -438,7 +440,7 @@ def register_workflow_yaml_tools(
             registry.register(
                 name=name,
                 description=desc,
-                input_schema=json.dumps(schema),
+                input_schema=json_dumps(schema),
                 dcc=dcc_name,
                 category="workflows",
                 version="1.0.0",

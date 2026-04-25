@@ -228,6 +228,8 @@ fn register_utils(m: &Bound<'_, PyModule>) -> PyResult<()> {
         dcc_mcp_utils::file_logging::python::py_shutdown_file_logging,
         dcc_mcp_utils::file_logging::python::py_flush_logs,
         dcc_mcp_utils::file_logging::python::py_default_settings,
+        dcc_mcp_utils::py_json::json_dumps,
+        dcc_mcp_utils::py_json::json_loads,
     );
     add_classes!(
         m,

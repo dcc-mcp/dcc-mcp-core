@@ -26,19 +26,21 @@ from __future__ import annotations
 import contextlib
 import importlib
 import inspect
-import json
 import logging
 import re
 import traceback
 from typing import Any
 
+from dcc_mcp_core import json_dumps
+from dcc_mcp_core import json_loads
+
 logger = logging.getLogger(__name__)
 
 # Hard output caps
-_MAX_NAMES = 200        # max entries from list_module
-_MAX_HITS = 50          # max hits from search
-_DOC_MAX_CHARS = 800    # max chars for docstring truncation
-_REPR_MAX_CHARS = 500   # max chars for eval repr
+_MAX_NAMES = 200  # max entries from list_module
+_MAX_HITS = 50  # max hits from search
+_DOC_MAX_CHARS = 800  # max chars for docstring truncation
+_REPR_MAX_CHARS = 500  # max chars for eval repr
 
 
 # ── Core introspection helpers ────────────────────────────────────────────
@@ -393,9 +395,11 @@ def register_introspect_tools(
 
     def _handler(fn):
         """Wrap a function to accept JSON string or dict params."""
+
         def wrapper(params: Any) -> Any:
-            args: dict[str, Any] = json.loads(params) if isinstance(params, str) else (params or {})
+            args: dict[str, Any] = json_loads(params) if isinstance(params, str) else (params or {})
             return fn(**args)
+
         return wrapper
 
     tools = [
@@ -430,7 +434,7 @@ def register_introspect_tools(
             registry.register(
                 name=name,
                 description=desc,
-                input_schema=json.dumps(schema),
+                input_schema=json_dumps(schema),
                 dcc=dcc_name,
                 category="introspect",
                 version="1.0.0",

@@ -61,10 +61,11 @@ Usage
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from typing import Any
+
+from dcc_mcp_core import json_dumps
 
 logger = logging.getLogger(__name__)
 
@@ -309,7 +310,7 @@ def register_dcc_api_executor(
         f"Scripts are sandboxed and time-limited."
     )
 
-    search_schema = json.dumps(
+    search_schema = json_dumps(
         {
             "type": "object",
             "properties": {
@@ -329,7 +330,7 @@ def register_dcc_api_executor(
         }
     )
 
-    execute_schema = json.dumps(
+    execute_schema = json_dumps(
         {
             "type": "object",
             "properties": {

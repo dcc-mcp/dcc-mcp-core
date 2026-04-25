@@ -174,6 +174,8 @@ from dcc_mcp_core._core import get_skills_dir
 from dcc_mcp_core._core import get_tools_dir
 from dcc_mcp_core._core import init_file_logging
 from dcc_mcp_core._core import is_telemetry_initialized
+from dcc_mcp_core._core import json_dumps
+from dcc_mcp_core._core import json_loads
 from dcc_mcp_core._core import mpu_to_units
 from dcc_mcp_core._core import parse_skill_md
 from dcc_mcp_core._core import register_bridge
@@ -577,6 +579,8 @@ __all__ = [
     "introspect_search",
     "introspect_signature",
     "is_telemetry_initialized",
+    "json_dumps",
+    "json_loads",
     "list_checkpoints",
     "load_workflow_yaml",
     "make_rationale_meta",

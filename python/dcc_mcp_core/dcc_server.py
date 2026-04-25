@@ -53,12 +53,14 @@ The ``dcc_name`` argument is used to derive the default IPC pipe name when
 from __future__ import annotations
 
 import base64
-import json
 import logging
 import os
 import time
 from typing import Any
 from typing import Callable
+
+from dcc_mcp_core import json_dumps
+from dcc_mcp_core import json_loads
 
 logger = logging.getLogger(__name__)
 
@@ -116,8 +118,8 @@ def _get_action_recorder(dcc_name: str = "dcc") -> Any:
 def _handle_get_audit_log(params_json: str) -> str:
     """Return audit log entries as a JSON string."""
     try:
-        params = json.loads(params_json) if params_json else {}
-    except json.JSONDecodeError:
+        params = json_loads(params_json) if params_json else {}
+    except ValueError:
         params = {}
 
     filter_ = params.get("filter", "all")
@@ -126,7 +128,7 @@ def _handle_get_audit_log(params_json: str) -> str:
 
     ctx = _get_sandbox_context()
     if ctx is None:
-        return json.dumps({"success": False, "message": "SandboxContext not available."})
+        return json_dumps({"success": False, "message": "SandboxContext not available."})
 
     try:
         audit = ctx.audit_log
@@ -154,7 +156,7 @@ def _handle_get_audit_log(params_json: str) -> str:
             except Exception:
                 serialized.append(str(entry))
 
-        return json.dumps(
+        return json_dumps(
             {
                 "success": True,
                 "total_entries": total,
@@ -164,21 +166,21 @@ def _handle_get_audit_log(params_json: str) -> str:
         )
     except Exception as exc:
         logger.warning("get_audit_log handler error: %s", exc)
-        return json.dumps({"success": False, "message": str(exc)})
+        return json_dumps({"success": False, "message": str(exc)})
 
 
 def _handle_get_tool_metrics(params_json: str) -> str:
     """Return ToolRecorder metrics as a JSON string."""
     try:
-        params = json.loads(params_json) if params_json else {}
-    except json.JSONDecodeError:
+        params = json_loads(params_json) if params_json else {}
+    except ValueError:
         params = {}
 
     action_name = params.get("action_name")
 
     recorder = _get_action_recorder()
     if recorder is None:
-        return json.dumps({"success": False, "message": "ToolRecorder not available."})
+        return json_dumps({"success": False, "message": "ToolRecorder not available."})
 
     try:
         if action_name:
@@ -187,7 +189,7 @@ def _handle_get_tool_metrics(params_json: str) -> str:
         else:
             metrics_list = [_metric_to_dict(m) for m in recorder.all_metrics()]
 
-        return json.dumps(
+        return json_dumps(
             {
                 "success": True,
                 "metrics": metrics_list,
@@ -196,7 +198,7 @@ def _handle_get_tool_metrics(params_json: str) -> str:
         )
     except Exception as exc:
         logger.warning("get_tool_metrics handler error: %s", exc)
-        return json.dumps({"success": False, "message": str(exc)})
+        return json_dumps({"success": False, "message": str(exc)})
 
 
 def _get_window_capturer() -> Any:
@@ -233,8 +235,8 @@ def _handle_take_screenshot(params_json: str) -> str:
         window_title (str): override the window title substring.
     """
     try:
-        params = json.loads(params_json) if params_json else {}
-    except json.JSONDecodeError:
+        params = json_loads(params_json) if params_json else {}
+    except ValueError:
         params = {}
 
     fmt = params.get("format", "png")
@@ -295,7 +297,7 @@ def _handle_take_screenshot(params_json: str) -> str:
             "error": type(exc).__name__,
             "source": "dcc-ipc",
         }
-    return json.dumps(payload)
+    return json_dumps(payload)
 
 
 def _handle_process_status(params_json: str) -> str:
@@ -339,15 +341,15 @@ def _handle_process_status(params_json: str) -> str:
         "dcc_alive": alive,
         "timestamp_ms": int(time.time() * 1000),
     }
-    return json.dumps(payload)
+    return json_dumps(payload)
 
 
 def _handle_dispatch_tool(params_json: str) -> str:
     """Relay a dispatch request through the server's ToolDispatcher."""
     try:
-        params = json.loads(params_json) if params_json else {}
-    except json.JSONDecodeError:
-        return json.dumps({"success": False, "message": "Invalid JSON params."})
+        params = json_loads(params_json) if params_json else {}
+    except ValueError:
+        return json_dumps({"success": False, "message": "Invalid JSON params."})
 
     # The wire payload still uses the legacy field name ``action`` — that key
     # reflects the backward-compat Rust dispatch result shape (see PR #218);
@@ -356,21 +358,21 @@ def _handle_dispatch_tool(params_json: str) -> str:
     action_params = params.get("params", {})
 
     if not action:
-        return json.dumps({"success": False, "message": "Missing 'action' field."})
+        return json_dumps({"success": False, "message": "Missing 'action' field."})
 
     dispatcher = _dispatcher_ref
     if dispatcher is None:
-        return json.dumps({"success": False, "message": "Dispatcher not available."})
+        return json_dumps({"success": False, "message": "Dispatcher not available."})
 
     try:
-        result = dispatcher.dispatch(action, json.dumps(action_params))
+        result = dispatcher.dispatch(action, json_dumps(action_params))
         output = result.get("output", "{}")
         if isinstance(output, str):
             return output  # already JSON
-        return json.dumps(output)
+        return json_dumps(output)
     except Exception as exc:
         logger.warning("dispatch_tool handler error for '%s': %s", action, exc)
-        return json.dumps({"success": False, "message": str(exc)})
+        return json_dumps({"success": False, "message": str(exc)})
 
 
 # ── public API ────────────────────────────────────────────────────────────
@@ -616,7 +618,7 @@ def register_diagnostic_mcp_tools(
             registry.register(
                 name=name,
                 description=desc,
-                input_schema=json.dumps(schema),
+                input_schema=json_dumps(schema),
                 dcc=dcc_name,
                 category="diagnostics",
                 version="1.0.0",
@@ -632,9 +634,9 @@ def register_diagnostic_mcp_tools(
 
 def _adapt_mcp_handler(handler: Callable[[str], str], params: Any) -> Any:
     """Adapt an IPC-style ``(json_str) -> json_str`` handler to MCP's dict IO."""
-    params_str = json.dumps(params) if not isinstance(params, str) else params
+    params_str = json_dumps(params) if not isinstance(params, str) else params
     result_str = handler(params_str)
     try:
-        return json.loads(result_str)
-    except (TypeError, json.JSONDecodeError):
+        return json_loads(result_str)
+    except (TypeError, ValueError):
         return {"success": False, "message": "Invalid handler output"}

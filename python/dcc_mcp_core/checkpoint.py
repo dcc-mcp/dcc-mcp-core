@@ -38,12 +38,14 @@ Usage in a skill script::
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 import threading
 import time
 from typing import Any
+
+from dcc_mcp_core import json_dumps
+from dcc_mcp_core import json_loads
 
 logger = logging.getLogger(__name__)
 
@@ -76,8 +78,8 @@ class CheckpointStore:
     def _load(self) -> None:
         try:
             raw = self._path.read_text(encoding="utf-8")  # type: ignore[union-attr]
-            self._data = json.loads(raw)
-        except (OSError, json.JSONDecodeError) as exc:
+            self._data = json_loads(raw)
+        except (OSError, ValueError) as exc:
             logger.warning("CheckpointStore: could not load %s: %s", self._path, exc)
             self._data = {}
 
@@ -86,7 +88,7 @@ class CheckpointStore:
             return
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
-            self._path.write_text(json.dumps(self._data, indent=2), encoding="utf-8")
+            self._path.write_text(json_dumps(self._data, indent=2), encoding="utf-8")
         except OSError as exc:
             logger.warning("CheckpointStore: could not flush to %s: %s", self._path, exc)
 
@@ -363,7 +365,7 @@ def register_checkpoint_tools(
         return
 
     def _handle_checkpoint_status(params: Any) -> Any:
-        args: dict[str, Any] = json.loads(params) if isinstance(params, str) else (params or {})
+        args: dict[str, Any] = json_loads(params) if isinstance(params, str) else (params or {})
         job_id = args.get("job_id", "")
         cp = _store.get(job_id)
         if cp is None:
@@ -379,7 +381,7 @@ def register_checkpoint_tools(
         }
 
     def _handle_resume_context(params: Any) -> Any:
-        args: dict[str, Any] = json.loads(params) if isinstance(params, str) else (params or {})
+        args: dict[str, Any] = json_loads(params) if isinstance(params, str) else (params or {})
         job_id = args.get("job_id", "")
         cp = _store.get(job_id)
         if cp is None:
@@ -423,7 +425,7 @@ def register_checkpoint_tools(
             registry.register(
                 name=name,
                 description=desc,
-                input_schema=json.dumps(schema),
+                input_schema=json_dumps(schema),
                 dcc=dcc_name,
                 category="jobs",
                 version="1.0.0",

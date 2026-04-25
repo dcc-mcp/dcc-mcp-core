@@ -38,10 +38,11 @@ Usage
 from __future__ import annotations
 
 import dataclasses
-import json
 import logging
 from pathlib import Path
 from typing import Any
+
+from dcc_mcp_core import json_dumps
 
 logger = logging.getLogger(__name__)
 
@@ -89,7 +90,7 @@ class PluginManifest:
 
     def to_json(self, indent: int = 2) -> str:
         """Return the manifest as a formatted JSON string."""
-        return json.dumps(self.to_dict(), indent=indent)
+        return json_dumps(self.to_dict(), indent=indent)
 
 
 def build_plugin_manifest(
@@ -197,6 +198,6 @@ def export_plugin_manifest(
     """
     p = Path(path).resolve()
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(manifest, indent=indent), encoding="utf-8")
+    p.write_text(json_dumps(manifest, indent=indent), encoding="utf-8")
     logger.info("export_plugin_manifest: manifest written to %s", p)
     return p

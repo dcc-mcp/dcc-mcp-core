@@ -54,6 +54,8 @@ import json
 import logging
 from typing import Any
 
+from dcc_mcp_core import json_dumps
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -125,7 +127,7 @@ def batch_dispatch(
 
     for idx, (tool_name, arguments) in enumerate(calls):
         try:
-            result = dispatcher.dispatch(tool_name, json.dumps(arguments))
+            result = dispatcher.dispatch(tool_name, json_dumps(arguments))
             results.append(result)
             output = result.get("output", result)
             if isinstance(output, dict) and output.get("success") is False:
@@ -248,7 +250,7 @@ class EvalContext:
         """Dispatch a single tool call from within an eval script."""
         args = arguments or {}
         try:
-            return self._dispatcher.dispatch(tool_name, json.dumps(args))
+            return self._dispatcher.dispatch(tool_name, json_dumps(args))
         except Exception as exc:
             return {"action": tool_name, "output": {"success": False, "message": str(exc)}}
 

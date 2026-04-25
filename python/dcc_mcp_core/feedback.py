@@ -52,12 +52,14 @@ Example — feedback tool call::
 
 from __future__ import annotations
 
-import json
 import logging
 import threading
 import time
 from typing import Any
 import uuid
+
+from dcc_mcp_core import json_dumps
+from dcc_mcp_core import json_loads
 
 logger = logging.getLogger(__name__)
 
@@ -150,7 +152,7 @@ def extract_rationale(params: dict[str, Any] | str) -> str | None:
     """
     if isinstance(params, str):
         try:
-            params = json.loads(params)
+            params = json_loads(params)
         except (TypeError, ValueError):
             return None
     if not isinstance(params, dict):
@@ -179,7 +181,6 @@ def make_rationale_meta(rationale: str) -> dict[str, Any]:
     -------
     .. code-block:: python
 
-        import json
         import httpx
 
         meta = make_rationale_meta("User wants a reference sphere for scale.")
@@ -244,9 +245,9 @@ _FEEDBACK_TOOL_DESCRIPTION = (
 def _handle_feedback_report(params: str) -> str:
     """IPC-style handler for ``dcc_feedback__report``."""
     try:
-        args: dict[str, Any] = json.loads(params) if isinstance(params, str) else params
+        args: dict[str, Any] = json_loads(params) if isinstance(params, str) else params
     except (TypeError, ValueError) as exc:
-        return json.dumps({"success": False, "message": f"Invalid params: {exc}"})
+        return json_dumps({"success": False, "message": f"Invalid params: {exc}"})
 
     entry: dict[str, Any] = {
         "id": str(uuid.uuid4()),
@@ -264,7 +265,7 @@ def _handle_feedback_report(params: str) -> str:
         entry["tool_name"],
         entry["severity"],
     )
-    return json.dumps(
+    return json_dumps(
         {
             "success": True,
             "message": "Feedback recorded.",
@@ -317,7 +318,7 @@ def register_feedback_tool(
         registry.register(
             name="dcc_feedback__report",
             description=_FEEDBACK_TOOL_DESCRIPTION,
-            input_schema=json.dumps(_FEEDBACK_SCHEMA),
+            input_schema=json_dumps(_FEEDBACK_SCHEMA),
             dcc=dcc_name,
             category="feedback",
             version="1.0.0",
@@ -327,11 +328,11 @@ def register_feedback_tool(
         return
 
     def _mcp_handler(params: Any) -> Any:
-        params_str = json.dumps(params) if not isinstance(params, str) else params
+        params_str = json_dumps(params) if not isinstance(params, str) else params
         result_str = _handle_feedback_report(params_str)
         try:
-            return json.loads(result_str)
-        except (TypeError, json.JSONDecodeError):
+            return json_loads(result_str)
+        except (TypeError, ValueError):
             return {"success": False, "message": "Invalid handler output"}
 
     try:

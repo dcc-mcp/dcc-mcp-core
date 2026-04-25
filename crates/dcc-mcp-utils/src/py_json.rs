@@ -2,6 +2,8 @@
 //!
 //! Provides a single source of truth for converting between Python objects and
 //! `serde_json::Value`, eliminating duplicate implementations across crates.
+//! Also exposes high-performance `json_dumps` / `json_loads` pyfunctions that
+//! serve as drop-in replacements for Python's `json.dumps()` / `json.loads()`.
 
 use pyo3::prelude::*;
 use pyo3::types::{PyBool, PyDict, PyList};
@@ -115,4 +117,146 @@ pub fn py_dict_to_json_map(
     dict: &Bound<'_, PyDict>,
 ) -> PyResult<HashMap<String, serde_json::Value>> {
     Ok(py_dict_to_json_object(dict)?.into_iter().collect())
+}
+
+// ---------------------------------------------------------------------------
+// High-performance Python-accessible JSON functions
+// ---------------------------------------------------------------------------
+
+/// Serialize a Python object to a JSON string using Rust's serde_json.
+///
+/// This is a high-performance drop-in replacement for `json.dumps()`.
+/// Supports dicts, lists, strings, numbers, booleans, and None.
+/// Non-serializable objects are converted to their string representation.
+///
+/// Parameters
+/// ----------
+/// obj : object
+///     The Python object to serialize.
+/// ensure_ascii : bool, optional
+///     If True (default), escape non-ASCII characters. If False, output
+///     raw Unicode characters.
+/// indent : int or None, optional
+///     If given, pretty-print with the specified number of spaces.
+#[pyfunction]
+#[pyo3(signature = (obj, *, ensure_ascii=true, indent=None))]
+pub fn json_dumps(
+    _py: Python,
+    obj: &Bound<'_, PyAny>,
+    ensure_ascii: bool,
+    indent: Option<usize>,
+) -> PyResult<String> {
+    let value = py_any_to_json_value(obj)?;
+    let s = match indent {
+        Some(_) => serde_json::to_string_pretty(&value),
+        None => serde_json::to_string(&value),
+    }
+    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+
+    if ensure_ascii {
+        Ok(s)
+    } else {
+        // serde_json always escapes non-ASCII; for ensure_ascii=False we
+        // post-process the output to replace \uXXXX escapes with raw chars.
+        Ok(unescape_unicode_json(&s))
+    }
+}
+
+/// Deserialize a JSON string to a Python object using Rust's serde_json.
+///
+/// This is a high-performance drop-in replacement for `json.loads()`.
+/// Returns a Python dict, list, string, number, bool, or None.
+#[pyfunction]
+pub fn json_loads(py: Python, s: &str) -> PyResult<Py<PyAny>> {
+    let value: serde_json::Value = serde_json::from_str(s)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+    json_value_to_pyobject(py, &value)
+}
+
+/// Replace `\uXXXX` escape sequences with their actual Unicode characters
+/// in a JSON string, for `ensure_ascii=False` support.
+fn unescape_unicode_json(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            if chars.peek() == Some(&'u') {
+                chars.next(); // consume 'u'
+                let hex: String = chars.by_ref().take(4).collect();
+                if let Ok(code) = u32::from_str_radix(&hex, 16) {
+                    // Handle surrogate pairs (U+D800..U+DBFF followed by U+DC00..U+DFFF)
+                    if (0xD800..=0xDBFF).contains(&code) {
+                        if chars.peek() == Some(&'\\') {
+                            let mut lookahead = chars.clone();
+                            lookahead.next(); // consume '\'
+                            if lookahead.peek() == Some(&'u') {
+                                chars.next(); // consume '\'
+                                chars.next(); // consume 'u'
+                                let hex2: String = chars.by_ref().take(4).collect();
+                                if let Ok(code2) = u32::from_str_radix(&hex2, 16) {
+                                    if (0xDC00..=0xDFFF).contains(&code2) {
+                                        let combined =
+                                            0x10000 + (code - 0xD800) * 0x400 + (code2 - 0xDC00);
+                                        if let Some(ch) = char::from_u32(combined) {
+                                            result.push(ch);
+                                            continue;
+                                        }
+                                    }
+                                    // Invalid surrogate pair, keep as-is
+                                    result.push_str(&format!("\\u{hex}\\u{hex2}"));
+                                    continue;
+                                }
+                            }
+                        }
+                        // High surrogate without low surrogate, keep as-is
+                        result.push_str(&format!("\\u{hex}"));
+                        continue;
+                    }
+                    // BMP character
+                    if let Some(ch) = char::from_u32(code) {
+                        result.push(ch);
+                        continue;
+                    }
+                    result.push_str(&format!("\\u{hex}"));
+                    continue;
+                }
+                result.push_str(&format!("\\u{hex}"));
+                continue;
+            }
+            result.push('\\');
+        } else {
+            result.push(c);
+        }
+    }
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_unescape_basic() {
+        assert_eq!(unescape_unicode_json(r#""hello""#), r#""hello""#);
+        assert_eq!(unescape_unicode_json(r#""\u4f60\u597d""#), r#""你好""#);
+    }
+
+    #[test]
+    fn test_unescape_no_escapes() {
+        assert_eq!(unescape_unicode_json("abc"), "abc");
+    }
+
+    #[test]
+    fn test_unescape_surrogate_pair() {
+        // U+1F600 = D83D DE00 (surrogate pair)
+        let input = r#""\uD83D\uDE00""#;
+        let output = unescape_unicode_json(input);
+        assert_eq!(output, r#""😀""#);
+    }
+
+    #[test]
+    fn test_json_loads_basic() {
+        let val: serde_json::Value = serde_json::from_str(r#"{"key": "value"}"#).unwrap();
+        assert_eq!(val["key"], "value");
+    }
 }

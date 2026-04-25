@@ -62,11 +62,13 @@ Usage::
 
 from __future__ import annotations
 
-import json
 import logging
-import re
 from pathlib import Path
+import re
 from typing import Any
+
+from dcc_mcp_core import json_dumps
+from dcc_mcp_core import json_loads
 
 logger = logging.getLogger(__name__)
 
@@ -281,7 +283,7 @@ def register_recipes_tools(
     skill_map: dict[str, Any] = {getattr(s, "name", ""): s for s in skills}
 
     def _handle_list(params: Any) -> Any:
-        args: dict[str, Any] = json.loads(params) if isinstance(params, str) else (params or {})
+        args: dict[str, Any] = json_loads(params) if isinstance(params, str) else (params or {})
         skill_name = args.get("skill", "")
         skill_md = skill_map.get(skill_name)
         if skill_md is None:
@@ -305,7 +307,7 @@ def register_recipes_tools(
         }
 
     def _handle_get(params: Any) -> Any:
-        args: dict[str, Any] = json.loads(params) if isinstance(params, str) else (params or {})
+        args: dict[str, Any] = json_loads(params) if isinstance(params, str) else (params or {})
         skill_name = args.get("skill", "")
         anchor = args.get("anchor", "")
         skill_md = skill_map.get(skill_name)
@@ -341,7 +343,7 @@ def register_recipes_tools(
             registry.register(
                 name=name,
                 description=desc,
-                input_schema=json.dumps(schema),
+                input_schema=json_dumps(schema),
                 dcc=dcc_name,
                 category="recipes",
                 version="1.0.0",
