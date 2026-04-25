@@ -11,6 +11,18 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.14.13](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.12...v0.14.13) (2026-04-25)
+
+
+### Features
+
+* **http:** connection-scoped cache for multi-turn tool call optimization ([#438](https://github.com/loonghao/dcc-mcp-core/issues/438)) ([e5f35b7](https://github.com/loonghao/dcc-mcp-core/commit/e5f35b71829bd26b1cd053c306fe7e7a4817d4cc))
+
+
+### Bug Fixes
+
+* **ci:** skip stubgen on Python 3.7 builds, mirror release flow in PR CI ([24867a8](https://github.com/loonghao/dcc-mcp-core/commit/24867a8b02ac6861f9ee6cb46553e50d0f8fb015))
+
 ## [0.14.12](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.11...v0.14.12) (2026-04-25)
 
 
