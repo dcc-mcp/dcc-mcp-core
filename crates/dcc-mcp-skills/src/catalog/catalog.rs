@@ -6,26 +6,29 @@ mod discovery_impl;
 mod loading_impl;
 
 impl SkillCatalog {
-    /// Search for skills matching the given criteria.
+    /// Unified skill discovery (issue #340).
     ///
-    /// The `tags` and `dcc` filters are applied first (AND semantics). If a
-    /// non-empty `query` is provided, the remaining skills are ranked with a
-    /// BM25-lite scorer that tokenises name, tags, search_hint, description,
-    /// sibling `tools.yaml` entries (tool names + descriptions) and `dcc`.
-    /// See [`scoring`] for weights, tie-breaks and the exact-name fast path.
-    ///
-    /// When `query` is `None` or empty the pre-filter result is returned in
-    /// a deterministic order (scope descending, then alphabetical name), so
-    /// callers don't observe `DashMap` iteration order.
-    pub fn rank_skills(
+    /// Behaviour:
+    /// - `query` / `tags` / `dcc` are AND-ed through a BM25-lite scorer that
+    ///   tokenises name, tags, search_hint, description, sibling `tools.yaml`
+    ///   entries (tool names + descriptions) and `dcc`.
+    ///   See [`scoring`] for weights, tie-breaks and the exact-name fast path.
+    /// - `scope` restricts the result to one [`SkillScope`] level. The filter
+    ///   is applied post-ranking so high-scoring skills from other scopes
+    ///   don't shuffle the order.
+    /// - Empty `query` with no other filters returns the whole catalog
+    ///   sorted by scope precedence (Admin > System > User > Repo) then
+    ///   alphabetical name — the "discovery mode" entry point for agents.
+    /// - `limit` caps the number of summaries returned; `None` means no cap.
+    pub fn search_skills(
         &self,
         query: Option<&str>,
         tags: &[&str],
         dcc: Option<&str>,
+        scope: Option<SkillScope>,
+        limit: Option<usize>,
     ) -> Vec<SkillSummary> {
         // ── 1. Pre-filter by tags/dcc (AND semantics) ──
-        // Collect to owned entries so we can borrow them for the ranker and
-        // also produce a deterministic iteration order independent of DashMap.
         let mut prefiltered: Vec<SkillEntry> = self
             .entries
             .iter()
@@ -53,51 +56,28 @@ impl SkillCatalog {
 
         // ── 2. No query → deterministic order, no ranking ──
         let q_trim = query.map(str::trim).unwrap_or("");
-        if q_trim.is_empty() {
+        let ranked: Vec<SkillSummary> = if q_trim.is_empty() {
             prefiltered.sort_by(|a, b| {
                 b.scope
                     .cmp(&a.scope)
                     .then_with(|| a.metadata.name.cmp(&b.metadata.name))
             });
-            return prefiltered
+            prefiltered
                 .iter()
                 .map(helpers::skill_entry_to_summary)
-                .collect();
-        }
+                .collect()
+        } else {
+            // ── 3. BM25-lite scoring ──
+            let metas: Vec<&SkillMetadata> = prefiltered.iter().map(|e| &e.metadata).collect();
+            let scopes: Vec<SkillScope> = prefiltered.iter().map(|e| e.scope).collect();
+            let scored = scoring::score_skills(q_trim, &metas, &scopes);
+            scored
+                .into_iter()
+                .map(|s| helpers::skill_entry_to_summary(&prefiltered[s.index]))
+                .collect()
+        };
 
-        // ── 3. BM25-lite scoring ──
-        let metas: Vec<&SkillMetadata> = prefiltered.iter().map(|e| &e.metadata).collect();
-        let scopes: Vec<SkillScope> = prefiltered.iter().map(|e| e.scope).collect();
-        let scored = scoring::score_skills(q_trim, &metas, &scopes);
-
-        scored
-            .into_iter()
-            .map(|s| helpers::skill_entry_to_summary(&prefiltered[s.index]))
-            .collect()
-    }
-
-    /// Unified skill discovery (issue #340).
-    ///
-    /// Behaviour:
-    /// - `query` / `tags` / `dcc` are AND-ed through the internal ranker —
-    ///   and scoring (including the #343 BM25-lite ranker) are reused as-is.
-    /// - `scope` restricts the result to one [`SkillScope`] level. The filter
-    ///   is applied post-ranking so high-scoring skills from other scopes
-    ///   don't shuffle the order.
-    /// - Empty `query` with no other filters returns the whole catalog
-    ///   sorted by scope precedence (Admin > System > User > Repo) then
-    ///   alphabetical name — the "discovery mode" entry point for agents.
-    /// - `limit` caps the number of summaries returned; `None` means no cap.
-    pub fn search_skills(
-        &self,
-        query: Option<&str>,
-        tags: &[&str],
-        dcc: Option<&str>,
-        scope: Option<SkillScope>,
-        limit: Option<usize>,
-    ) -> Vec<SkillSummary> {
-        let ranked = self.rank_skills(query, tags, dcc);
-
+        // ── 4. Scope filter (post-ranking) ──
         let filtered: Vec<SkillSummary> = match scope {
             None => ranked,
             Some(scope_filter) => {
@@ -109,6 +89,7 @@ impl SkillCatalog {
             }
         };
 
+        // ── 5. Limit ──
         match limit {
             None => filtered,
             Some(n) => filtered.into_iter().take(n).collect(),
