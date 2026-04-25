@@ -326,6 +326,12 @@ from dcc_mcp_core.plugin_manifest import PluginManifest
 from dcc_mcp_core.plugin_manifest import build_plugin_manifest
 from dcc_mcp_core.plugin_manifest import export_plugin_manifest
 
+# Recipes system: metadata.dcc-mcp.recipes + recipes__list/get tools (issue #428)
+from dcc_mcp_core.recipes import get_recipe_content
+from dcc_mcp_core.recipes import get_recipes_path
+from dcc_mcp_core.recipes import parse_recipe_anchors
+from dcc_mcp_core.recipes import register_recipes_tools
+
 # MCP Apps rich content (issue #409)
 from dcc_mcp_core.rich_content import RichContent
 from dcc_mcp_core.rich_content import RichContentKind
@@ -548,6 +554,8 @@ __all__ = [
     "get_feedback_entries",
     "get_log_dir",
     "get_platform_dir",
+    "get_recipe_content",
+    "get_recipes_path",
     "get_server_instance",
     "get_skill_paths_from_env",
     "get_skills_dir",
@@ -563,6 +571,7 @@ __all__ = [
     "make_rationale_meta",
     "make_start_stop",
     "mpu_to_units",
+    "parse_recipe_anchors",
     "parse_schedules_yaml",
     "parse_skill_md",
     "register_bridge",
@@ -575,6 +584,7 @@ __all__ = [
     "register_docs_server",
     "register_feedback_tool",
     "register_introspect_tools",
+    "register_recipes_tools",
     "reset_cancel_token",
     "resolve_dependencies",
     "run_main",
