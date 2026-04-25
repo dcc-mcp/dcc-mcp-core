@@ -27,6 +27,7 @@
 | Thin 2-tool surface for huge DCC APIs (issue #411) | `DccApiExecutor("maya", catalog, dispatcher)` + `register_dcc_api_executor(server, executor)` → `dcc_search`, `dcc_execute` |
 | Mid-call user input (issue #407) | `await elicit_form(message, schema)` / `elicit_form_sync(...)` / `await elicit_url(message, url)` — returns `ElicitationResponse` |
 | Inline chart / table / image result (MCP Apps, issue #409) | `skill_success_with_chart(msg, spec)` / `skill_success_with_table(msg, headers, rows)` / `skill_success_with_image(msg, image_data=...)` |
+| Run skill scripts inside embedded DCC (no subprocess) | `SkillCatalog.set_in_process_executor(callable)` on the server's catalog — callable receives `(script_path, params) -> dict` |
 | Claude Code one-click plugin bundle (issue #410) | `build_plugin_manifest(dcc_name, mcp_url, skill_paths, api_key=...)` + `export_plugin_manifest(manifest, path)` or `server.plugin_manifest(version=...)` |
 
 ## Quick Start
@@ -150,7 +151,8 @@ crates/
 - `get_app_skill_paths_from_env(app_name: str) -> List[str]` — reads `DCC_MCP_{APP}_SKILL_PATHS` env var
 
 **SkillCatalog** — progressive skill loading with thread-safe state:
-- `SkillCatalog(scanner)` — construct with a `SkillScanner`
+- `SkillCatalog(registry)` — construct with a `ToolRegistry`
+- `.set_in_process_executor(executor)` — register an in-process callable so skill scripts run inside the host DCC's Python interpreter instead of spawning `DCC_MCP_PYTHON_EXECUTABLE` subprocesses. Callable signature: `def executor(script_path: str, params: dict) -> dict`. Pass `None` to revert to subprocess mode. Use inside embedded DCC adapters (Maya, Blender, Houdini) where DCC APIs are available in-process.
 - `.discover(extra_paths=None, dcc_name=None)` — scan and populate catalog
 - `.list_skills(status=None) -> List[SkillSummary]` — filter by `"loaded"` / `"unloaded"` / `None`
 - `.search_skills(query=None, tags=None, dcc=None, scope=None, limit=None) -> List[SkillSummary]` — unified discovery: matches name, description, search_hint, tool names; scope filters by trust level; empty call browses by scope precedence
