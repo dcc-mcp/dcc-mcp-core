@@ -11,6 +11,29 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.14.12](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.11...v0.14.12) (2026-04-25)
+
+
+### Features
+
+* add metadata.dcc-mcp.recipes sibling-file + recipes__list/get tools ([#428](https://github.com/loonghao/dcc-mcp-core/issues/428)) ([#447](https://github.com/loonghao/dcc-mcp-core/issues/447)) ([8a06497](https://github.com/loonghao/dcc-mcp-core/commit/8a064974c48108ae50f10eb0776b47dd6ea30341))
+* add Rust-powered json_dumps/json_loads and replace stdlib json in library code ([4c64e7e](https://github.com/loonghao/dcc-mcp-core/commit/4c64e7e257839886b7a61efda09d9486d3f003cf))
+* add Rust-powered yaml_loads/yaml_dumps, eliminate PyYAML dependency ([230d5a3](https://github.com/loonghao/dcc-mcp-core/commit/230d5a3d2c5c5ca12498e20badeb8cf60c5c7e4a))
+* **checkpoint:** add checkpoint/resume helpers for long-running tool executions ([#436](https://github.com/loonghao/dcc-mcp-core/issues/436)) ([10a30f7](https://github.com/loonghao/dcc-mcp-core/commit/10a30f758613a37df9adf8f6b3564bb03010e0c7))
+* **http:** agent rationale capture and dcc_feedback__report tool ([#433](https://github.com/loonghao/dcc-mcp-core/issues/433), [#434](https://github.com/loonghao/dcc-mcp-core/issues/434)) ([28e2182](https://github.com/loonghao/dcc-mcp-core/commit/28e2182d8a46f09f8c434f6ab2279e06cac7abb4))
+* **http:** docs:// MCP resources for agent-facing format specs ([#435](https://github.com/loonghao/dcc-mcp-core/issues/435)) ([#446](https://github.com/loonghao/dcc-mcp-core/issues/446)) ([f4a2b6e](https://github.com/loonghao/dcc-mcp-core/commit/f4a2b6e1556ff53ed199911a8adba985bd94a3ae))
+* **introspect:** add dcc_introspect__* built-in tools for runtime namespace discovery ([#426](https://github.com/loonghao/dcc-mcp-core/issues/426)) ([d65d5e3](https://github.com/loonghao/dcc-mcp-core/commit/d65d5e311679d169dd396bf1801f416de3b2fffc))
+* **skill:** add skill_error_with_trace helper for agent self-heal ([#427](https://github.com/loonghao/dcc-mcp-core/issues/427)) ([a4798ce](https://github.com/loonghao/dcc-mcp-core/commit/a4798ceac1d2e24e5de761fe3984a4a29bd75cac))
+* **skills:** YAML declarative workflow definitions with task/step semantics ([#439](https://github.com/loonghao/dcc-mcp-core/issues/439)) ([#450](https://github.com/loonghao/dcc-mcp-core/issues/450)) ([a856e0c](https://github.com/loonghao/dcc-mcp-core/commit/a856e0cc5df84800c1201c246bd6091bec024640))
+
+
+### Documentation
+
+* add missing API docs, fix dead links, add docs-check to pre-push ([#452](https://github.com/loonghao/dcc-mcp-core/issues/452)) ([fb5d20e](https://github.com/loonghao/dcc-mcp-core/commit/fb5d20e8fd0b07c89fe70afc6cc076cc91b4cb8a))
+* **agents:** audit AGENTS.md per Augment Code study findings ([cb702a8](https://github.com/loonghao/dcc-mcp-core/commit/cb702a8167194af3da6297d9e47b5e8cd48a5c4c)), closes [#437](https://github.com/loonghao/dcc-mcp-core/issues/437)
+* **llms:** add set_in_process_executor to Quick Decision Guide ([1349601](https://github.com/loonghao/dcc-mcp-core/commit/134960171b89c7e3e52ae8d929afa0820ce48e9a)), closes [#421](https://github.com/loonghao/dcc-mcp-core/issues/421)
+* **skills:** RFC thin-harness skill authoring pattern ([#425](https://github.com/loonghao/dcc-mcp-core/issues/425)) ([a70848b](https://github.com/loonghao/dcc-mcp-core/commit/a70848ba26523399178be7671982aa87fd0d2014))
+
 ## [0.14.11](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.10...v0.14.11) (2026-04-25)
 
 
