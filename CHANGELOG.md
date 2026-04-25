@@ -11,6 +11,31 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.14.11](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.10...v0.14.11) (2026-04-25)
+
+
+### Features
+
+* 100% stub coverage, remove find_skills, fix CI tests ([e5d7a7d](https://github.com/loonghao/dcc-mcp-core/commit/e5d7a7dc37b8bc3ce61cf5d7704533965869fcf1))
+* expand pyo3-stub-gen annotations to all crates ([33777fc](https://github.com/loonghao/dcc-mcp-core/commit/33777fc2c32b285e2d34a1b4b2c20ee5a79c2a9a))
+* integrate stubgen into wheel builds, add EventBus method stubs ([5495a4b](https://github.com/loonghao/dcc-mcp-core/commit/5495a4b312f4b92556d1f9d7413804c1e5c669fa))
+
+
+### Bug Fixes
+
+* **gateway:** replace SSE total timeout with per-chunk idle timeout ([5b9bae7](https://github.com/loonghao/dcc-mcp-core/commit/5b9bae7f85e11cdbbade8c358b148baa715a3f83))
+* update search_skills test signatures and gate test compilation in pre-commit ([7499932](https://github.com/loonghao/dcc-mcp-core/commit/7499932ab1a6fba34eb845fe07ac60cea6f48e8e))
+
+
+### Code Refactoring
+
+* inline rank_skills into search_skills ([c2f3e11](https://github.com/loonghao/dcc-mcp-core/commit/c2f3e11b8b3a23ae4ed8bd400b8c3b75fec105e8))
+
+
+### Documentation
+
+* remove .codex from default skill search path examples ([eb856be](https://github.com/loonghao/dcc-mcp-core/commit/eb856bee23272824e5d2ebcaf554d2f3dbd59c19))
+
 ## [0.14.10](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.9...v0.14.10) (2026-04-24)
 
 
