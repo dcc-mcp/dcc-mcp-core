@@ -537,6 +537,34 @@ impl PyMcpHttpConfig {
         self.inner.enable_prompts = enabled;
     }
 
+    /// Enable connection-scoped tool-list caching (issue #438).
+    ///
+    /// When ``True`` (default), ``tools/list`` stores a per-session
+    /// snapshot of the full tool list. On subsequent ``tools/list``
+    /// calls within the same session, if the registry has not changed
+    /// (no skill load/unload, no group activation/deactivation), the
+    /// cached snapshot is returned directly — avoiding redundant
+    /// registry scans and tool-construction overhead.
+    ///
+    /// The cache is automatically invalidated when:
+    /// - A skill is loaded or unloaded
+    /// - A tool group is activated or deactivated
+    /// - The session is evicted (TTL expiry)
+    /// - The client sends ``tools/list`` with ``_meta.dcc.refresh = true``
+    ///
+    /// Set to ``False`` to disable caching (every ``tools/list`` call
+    /// rebuilds the full list from scratch). Useful for debugging or
+    /// when tool definitions are mutated externally.
+    #[getter]
+    fn enable_tool_cache(&self) -> bool {
+        self.inner.enable_tool_cache
+    }
+
+    #[setter]
+    fn set_enable_tool_cache(&mut self, enabled: bool) {
+        self.inner.enable_tool_cache = enabled;
+    }
+
     fn __repr__(&self) -> String {
         format!(
             "McpHttpConfig(port={}, name={}, gateway_port={})",

@@ -362,6 +362,25 @@ pub struct McpHttpConfig {
     /// are loaded non-recursively. A `None` value pairs with
     /// `enable_scheduler = true` as a no-op (empty schedule set).
     pub schedules_dir: Option<PathBuf>,
+
+    /// Enable connection-scoped tool-list caching (issue #438).
+    ///
+    /// When `true` (default), `tools/list` stores a per-session snapshot
+    /// of the full tool list. On subsequent `tools/list` calls within the
+    /// same session, if the registry generation has not changed (no skill
+    /// load/unload, no group activation/deactivation), the cached
+    /// snapshot is returned directly — avoiding redundant registry scans,
+    /// bare-name resolution, and `McpTool` construction.
+    ///
+    /// The cache is automatically invalidated when:
+    /// - A skill is loaded or unloaded
+    /// - A tool group is activated or deactivated
+    /// - The session is evicted (TTL expiry)
+    /// - The client sends `tools/list` with `_meta.dcc.refresh = true`
+    ///
+    /// Set to `false` to disable caching (every `tools/list` call
+    /// rebuilds the full list from scratch).
+    pub enable_tool_cache: bool,
 }
 
 impl McpHttpConfig {
@@ -404,6 +423,7 @@ impl McpHttpConfig {
             declared_capabilities: Vec::new(),
             enable_scheduler: false,
             schedules_dir: None,
+            enable_tool_cache: true,
         }
     }
 
@@ -580,6 +600,17 @@ impl McpHttpConfig {
     /// See [`Self::gateway_max_routes_per_session`] for the full contract.
     pub fn with_gateway_max_routes_per_session(mut self, cap: u64) -> Self {
         self.gateway_max_routes_per_session = cap;
+        self
+    }
+
+    /// Builder: disable the connection-scoped tool-list cache (issue #438).
+    ///
+    /// By default the cache is enabled. Use this to force every `tools/list`
+    /// call to rebuild the full list from scratch (e.g. for debugging or
+    /// when tool definitions are mutated externally and no registry
+    /// generation bump occurs).
+    pub fn without_tool_cache(mut self) -> Self {
+        self.enable_tool_cache = false;
         self
     }
 }

@@ -176,6 +176,59 @@ pub(crate) async fn handle_tools_list(
     req: &JsonRpcRequest,
     session_id: Option<&str>,
 ) -> Result<JsonRpcResponse, HttpError> {
+    // Check whether the client requested a forced refresh (issue #438).
+    let force_refresh = req
+        .params
+        .as_ref()
+        .and_then(|p| p.get("_meta"))
+        .and_then(|m| m.get("dcc"))
+        .and_then(|d| d.get("refresh"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let current_gen = state.current_registry_generation();
+
+    // ── Fast path: return cached snapshot if available and still valid ──
+    if state.enable_tool_cache && !force_refresh {
+        if let Some(sid) = session_id {
+            if let Some(snapshot) = state.sessions.get_tool_list_snapshot(sid) {
+                if snapshot.generation == current_gen {
+                    // Cache hit — apply cursor pagination on the cached list
+                    // and return without rebuilding.
+                    let cursor: usize = req
+                        .params
+                        .as_ref()
+                        .and_then(|p| p.get("cursor"))
+                        .and_then(|v| v.as_str())
+                        .and_then(decode_cursor)
+                        .unwrap_or(0);
+                    let total = snapshot.total;
+                    let page_end = (cursor + TOOLS_LIST_PAGE_SIZE).min(total);
+                    let page: Vec<McpTool> = if cursor < total {
+                        snapshot.tools[cursor..page_end].to_vec()
+                    } else {
+                        Vec::new()
+                    };
+                    let next_cursor = if page_end < total {
+                        Some(encode_cursor(page_end))
+                    } else {
+                        None
+                    };
+                    let result = ListToolsResult {
+                        tools: page,
+                        next_cursor,
+                    };
+                    return Ok(JsonRpcResponse::success(
+                        req.id.clone(),
+                        serde_json::to_value(result)?,
+                    ));
+                }
+            }
+        }
+    }
+
+    // ── Slow path: rebuild the full tool list from the registry ──
+
     // 1. Core discovery tools — always fully visible (static, cached once per process)
     let core = build_core_tools();
     let mut tools: Vec<McpTool> = Vec::with_capacity(core.len() + 16);
@@ -254,6 +307,20 @@ pub(crate) async fn handle_tools_list(
         tools.push(build_skill_stub(summary));
     }
 
+    let total = tools.len();
+
+    // ── Store the snapshot for future cache hits (issue #438) ──
+    if state.enable_tool_cache {
+        if let Some(sid) = session_id {
+            let snapshot = crate::session::ToolListSnapshot {
+                tools: tools.clone(),
+                generation: current_gen,
+                total,
+            };
+            state.sessions.set_tool_list_snapshot(sid, snapshot);
+        }
+    }
+
     // Cursor pagination
     let cursor: usize = req
         .params
@@ -262,7 +329,6 @@ pub(crate) async fn handle_tools_list(
         .and_then(|v| v.as_str())
         .and_then(decode_cursor)
         .unwrap_or(0);
-    let total = tools.len();
     let page_end = (cursor + TOOLS_LIST_PAGE_SIZE).min(total);
     let page: Vec<McpTool> = if cursor < total {
         tools.drain(cursor..page_end).collect()

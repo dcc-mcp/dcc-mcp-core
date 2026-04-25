@@ -17,10 +17,30 @@ use std::time::Instant;
 use tokio::sync::broadcast;
 use uuid::Uuid;
 
-use crate::protocol::ClientRoot;
+use crate::protocol::{ClientRoot, McpTool};
 
 /// Maximum number of recent log messages retained per session.
 const SESSION_LOG_BUFFER_CAP: usize = 200;
+
+/// Cached snapshot of the `tools/list` result for a session (issue #438).
+///
+/// Stores the full list of [`McpTool`] definitions and the registry generation
+/// at which the snapshot was taken. When the registry generation changes
+/// (skill load/unload, group activation/deactivation), the cache is
+/// considered stale and rebuilt on the next `tools/list` call.
+///
+/// This avoids redundant per-request registry scans, bare-name resolution,
+/// and `McpTool` construction in a typical agent loop where the tool set
+/// does not change between sequential calls.
+#[derive(Debug, Clone)]
+pub struct ToolListSnapshot {
+    /// The cached tool definitions.
+    pub tools: Vec<McpTool>,
+    /// The registry generation at which this snapshot was built.
+    pub generation: u64,
+    /// The total tool count (before pagination) at snapshot time.
+    pub total: usize,
+}
 
 /// Session-scoped MCP logging threshold.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -104,6 +124,13 @@ pub struct McpSession {
     /// Wall-clock time of the last request handled for this session.
     /// Used by the TTL eviction logic.
     pub last_active: Instant,
+    /// Cached `tools/list` snapshot for this session (issue #438).
+    ///
+    /// `None` means no cache has been built yet (first call or after
+    /// invalidation). Rebuilt on the next `tools/list` call. Invalidated
+    /// when the registry generation changes (skill load/unload, group
+    /// activation/deactivation).
+    pub tool_list_snapshot: Option<ToolListSnapshot>,
 }
 
 impl Default for McpSession {
@@ -127,6 +154,7 @@ impl McpSession {
             client_roots: Vec::new(),
             sse_tx,
             last_active: Instant::now(),
+            tool_list_snapshot: None,
         }
     }
 
@@ -322,6 +350,58 @@ impl SessionManager {
             .get(session_id)
             .map(|s| s.client_roots.clone())
             .unwrap_or_default()
+    }
+
+    // ── Tool-list cache (issue #438) ──────────────────────────────────────
+
+    /// Retrieve the cached `tools/list` snapshot for a session.
+    ///
+    /// Returns `None` if no cache exists or the session is unknown.
+    /// The caller should also check whether `snapshot.generation` matches
+    /// the current `AppState::registry_generation`; if not, the cache is
+    /// stale and must be rebuilt.
+    pub fn get_tool_list_snapshot(&self, session_id: &str) -> Option<ToolListSnapshot> {
+        self.sessions
+            .get(session_id)
+            .and_then(|s| s.tool_list_snapshot.clone())
+    }
+
+    /// Store a `tools/list` snapshot for a session (issue #438).
+    ///
+    /// Call this after building the full tool list in `handle_tools_list`.
+    /// The snapshot includes the registry generation at build time so that
+    /// subsequent calls can detect staleness.
+    ///
+    /// Returns `false` if the session does not exist.
+    pub fn set_tool_list_snapshot(&self, session_id: &str, snapshot: ToolListSnapshot) -> bool {
+        if let Some(mut s) = self.sessions.get_mut(session_id) {
+            s.tool_list_snapshot = Some(snapshot);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Invalidate the `tools/list` cache for a specific session (issue #438).
+    ///
+    /// Returns `false` if the session does not exist.
+    pub fn invalidate_tool_list_snapshot(&self, session_id: &str) -> bool {
+        if let Some(mut s) = self.sessions.get_mut(session_id) {
+            s.tool_list_snapshot = None;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Invalidate the `tools/list` cache for **all** sessions (issue #438).
+    ///
+    /// Called when a global registry change occurs (skill load/unload,
+    /// group activation/deactivation) that affects every session.
+    pub fn invalidate_all_tool_list_snapshots(&self) {
+        for mut entry in self.sessions.iter_mut() {
+            entry.value_mut().tool_list_snapshot = None;
+        }
     }
 
     /// Get an SSE subscriber for the session.

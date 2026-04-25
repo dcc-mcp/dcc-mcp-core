@@ -20,6 +20,7 @@ pub async fn handle_activate_tool_group(
     }
 
     let changed = state.catalog.activate_group(group);
+    state.bump_registry_generation(); // #438
     if let Some(sid) = session_id {
         let added: Vec<String> = state
             .registry
@@ -63,6 +64,7 @@ pub async fn handle_deactivate_tool_group(
     }
 
     let changed = state.catalog.deactivate_group(group);
+    state.bump_registry_generation(); // #438
     if let Some(sid) = session_id {
         let removed: Vec<String> = state
             .registry

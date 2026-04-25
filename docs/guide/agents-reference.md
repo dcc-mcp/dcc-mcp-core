@@ -175,6 +175,13 @@ from dcc_mcp_core._core import DeferredExecutor   # direct import required
 This includes `register_diagnostic_mcp_tools(...)` for instance-bound diagnostics —
 register them before calling `server.start()`, never after.
 
+**Connection-scoped tool cache (issue #438):**
+`tools/list` caches a per-session snapshot by default (`enable_tool_cache=True`).
+The cache is invalidated automatically on skill load/unload and group
+activation/deactivation. To force a fresh build for a single request, send
+`_meta.dcc.refresh=true` on the `tools/list` call. The cache does **not**
+apply to `tools/call` — only to `tools/list` response construction.
+
 **`Capturer.new_auto()` vs `.new_window_auto()`:**
 ```python
 # ✓ full-screen / display capture (DXGI on Windows, X11 on Linux)

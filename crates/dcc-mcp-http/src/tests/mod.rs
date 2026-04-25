@@ -64,6 +64,8 @@ fn make_app_state() -> AppState {
         enable_resources: true,
         prompts: crate::prompts::PromptRegistry::new(true),
         enable_prompts: true,
+        registry_generation: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        enable_tool_cache: true,
     }
 }
 

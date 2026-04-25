@@ -7,6 +7,7 @@
 //! `Arc`-backed handle.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use dashmap::DashMap;
@@ -96,6 +97,18 @@ pub struct AppState {
     /// Whether the `prompts/*` methods are dispatched and the
     /// `prompts` capability is advertised in `initialize`.
     pub enable_prompts: bool,
+    /// Monotonically increasing generation counter for the action registry
+    /// (issue #438). Incremented whenever the registry changes (skill
+    /// load/unload, group activation/deactivation). The per-session
+    /// [`ToolListSnapshot`](crate::session::ToolListSnapshot) records the
+    /// generation at which it was built; a mismatch means the cache is
+    /// stale and must be rebuilt.
+    pub registry_generation: Arc<AtomicU64>,
+    /// Whether the connection-scoped tool cache is enabled (issue #438).
+    /// When `true`, `tools/list` stores a per-session snapshot and
+    /// returns it directly on subsequent calls if the registry generation
+    /// has not changed. Default: `true`.
+    pub enable_tool_cache: bool,
     /// Prometheus exporter for tool-call observability (issue #331).
     ///
     /// Present only when the `prometheus` Cargo feature is enabled
@@ -115,5 +128,22 @@ impl AppState {
     pub fn purge_expired_cancellations(&self) {
         self.cancelled_requests
             .retain(|_, recorded_at| recorded_at.elapsed() < CANCELLED_REQUEST_TTL);
+    }
+
+    /// Bump the registry generation counter and invalidate all per-session
+    /// tool-list caches (issue #438).
+    ///
+    /// Call this after any registry mutation: skill load/unload, group
+    /// activation/deactivation. The next `tools/list` call on any session
+    /// will detect the generation mismatch and rebuild the snapshot.
+    pub fn bump_registry_generation(&self) {
+        let prev = self.registry_generation.fetch_add(1, Ordering::Relaxed);
+        tracing::debug!(prev_generation = prev, "registry generation bumped");
+        self.sessions.invalidate_all_tool_list_snapshots();
+    }
+
+    /// Read the current registry generation counter (issue #438).
+    pub fn current_registry_generation(&self) -> u64 {
+        self.registry_generation.load(Ordering::Relaxed)
     }
 }

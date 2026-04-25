@@ -384,6 +384,8 @@ impl McpHttpServer {
             enable_resources: self.config.enable_resources,
             prompts,
             enable_prompts: self.config.enable_prompts,
+            registry_generation: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            enable_tool_cache: self.config.enable_tool_cache,
             #[cfg(feature = "prometheus")]
             prometheus: prometheus.clone(),
         };

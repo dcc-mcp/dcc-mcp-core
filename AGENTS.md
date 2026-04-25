@@ -44,6 +44,7 @@
 | Gateway failover | `DccGatewayElection(dcc_name, server)` — auto-promote on gateway failure |
 | Skill scoping | `SkillScope` (Repo → User → System → Admin) — Rust-only |
 | Progressive tool exposure | `SkillGroup` + `activate_tool_group()` |
+| Connection-scoped cache | `McpHttpConfig(enable_tool_cache=True)` — per-session `tools/list` snapshot (#438) |
 | Instance-bound diagnostics | `DccServerBase(..., dcc_pid=pid)` |
 | Remote auth | `ApiKeyConfig` / `OAuthConfig` / `validate_bearer_token` |
 | Batch / orchestration | `batch_dispatch()`, `EvalContext`, `DccApiExecutor` |

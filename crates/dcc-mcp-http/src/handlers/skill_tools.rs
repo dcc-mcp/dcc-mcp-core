@@ -134,6 +134,7 @@ pub async fn handle_load_skill(
 
     // Only notify when a skill actually transitioned to loaded.
     if !newly_loaded.is_empty() {
+        state.bump_registry_generation(); // #438
         if let Some(sid) = session_id {
             let added = all_registered_tools.clone();
             let removed: Vec<String> = newly_loaded
@@ -227,6 +228,7 @@ pub async fn handle_unload_skill(
 
     match state.catalog.unload_skill(skill_name) {
         Ok(count) => {
+            state.bump_registry_generation(); // #438
             if let Some(sid) = session_id {
                 let removed: Vec<String> = state
                     .registry

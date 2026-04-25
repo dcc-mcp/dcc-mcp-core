@@ -310,6 +310,8 @@ dcc-mcp-server ← dcc-mcp-http
 
 **SSE Support**: `GET /mcp` long-lived SSE stream for server-push events
 
+**Connection-Scoped Cache** (issue #438): Per-session `tools/list` snapshot stored on `McpSession`. On cache hit, avoids redundant registry scan, bare-name resolution, and `McpTool` construction. Invalidated when the `AppState::registry_generation` counter is bumped (skill load/unload, group activation/deactivation). Configurable via `McpHttpConfig.enable_tool_cache` (default `True`).
+
 **Dependencies**: `axum`, `tokio`, `reqwest`, `socket2`, `dcc-mcp-transport`, `dcc-mcp-protocols`, `dcc-mcp-actions`, `dcc-mcp-skills`
 
 **Maintainer layout**:

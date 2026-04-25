@@ -52,6 +52,7 @@ cfg = McpHttpConfig(
 | `spawn_mode` | `str` | `"dedicated"` | Listener spawn strategy: `"ambient"` (standalone binary) or `"dedicated"` (PyO3-embedded; own OS thread + current_thread runtime). Fixes issue #303 |
 | `self_probe_timeout_ms` | `int` | `200` | Max ms to wait when self-probing a freshly bound listener. 0 disables. Issue #303 guard |
 | `bare_tool_names` | `bool` | `True` | Publish unique action names without `<skill>.` prefix in `tools/list` (#307). Collisions fall back to full form; `tools/call` accepts both shapes |
+| `enable_tool_cache` | `bool` | `True` | Connection-scoped `tools/list` cache (#438). Per-session snapshot avoids redundant registry scans on sequential calls. Invalidated on skill load/unload, group activation/deactivation, session eviction, or `_meta.dcc.refresh=true` |
 
 ## McpServerHandle
 
@@ -564,6 +565,80 @@ Catalog size  ┌─────────────────────
 > 500 tools   │ lazy_tool_schemas=True (planned) — 85%+ reduction    │
               └─────────────────────────────────────────────────────┘
 ```
+
+## Connection-Scoped Tool Cache (issue #438) {#connection-scoped-cache}
+
+When an MCP agent loop calls `tools/list` repeatedly between sequential tool calls
+(e.g. "create sphere → assign material → add light → render"), each call
+rebuilds the full tool list from scratch — scanning the `ActionRegistry`,
+resolving bare names, converting every `ActionMeta` into an `McpTool`, and
+fetching unloaded skill stubs. With 100+ registered tools, this per-request
+overhead becomes measurable.
+
+The connection-scoped cache stores a per-session snapshot of the `tools/list`
+result. On subsequent calls, if the registry has not changed, the cached
+snapshot is returned directly — skipping all redundant computation.
+
+### How it works
+
+1. On the **first** `tools/list` call in a session, the full tool list is
+   built normally and stored as a `ToolListSnapshot` on the `McpSession`.
+2. On **subsequent** calls, the server checks the current registry generation
+   against the snapshot's generation:
+   - **Match** → return the cached snapshot (fast path)
+   - **Mismatch** → rebuild and store a fresh snapshot (slow path)
+3. Cursor pagination is applied on the cached snapshot just like on a fresh list.
+
+### Cache invalidation
+
+The cache is automatically invalidated when any of these events occur:
+
+| Event | Mechanism |
+|-------|-----------|
+| Skill loaded (`load_skill`) | Registry generation bumped; all session caches cleared |
+| Skill unloaded (`unload_skill`) | Registry generation bumped; all session caches cleared |
+| Tool group activated/deactivated | Registry generation bumped; all session caches cleared |
+| Session evicted (TTL expiry) | Session and its cache are dropped |
+| Client sends `_meta.dcc.refresh = true` | Cache bypassed for that single request |
+
+### Configuration
+
+```python
+from dcc_mcp_core import McpHttpConfig
+
+cfg = McpHttpConfig(port=8765)
+# Tool cache is enabled by default (True). Disable to force a full
+# rebuild on every tools/list call (useful for debugging).
+cfg.enable_tool_cache = False
+```
+
+### Forcing a refresh
+
+MCP clients can request a fresh tool list by including `_meta.dcc.refresh = true`
+in the `tools/list` request:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/list",
+  "params": {},
+  "_meta": { "dcc": { "refresh": true } }
+}
+```
+
+### Expected impact
+
+| Metric | Before | After (cache hit) |
+|--------|--------|-------------------|
+| `tools/list` response time (100+ tools) | Full registry scan + bare-name resolution + McpTool construction | Snapshot clone + pagination (~0ms resolution overhead) |
+| Agent loop throughput | N independent requests | Session-aware sequential optimization |
+
+### Gateway behavior
+
+The cache is per-session on the individual DCC instance. Gateway requests are
+proxied to the backend instance, so the cache operates transparently — the
+gateway itself does not cache tool lists.
 
 ## Performance Notes
 
