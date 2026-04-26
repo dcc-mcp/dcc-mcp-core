@@ -39,8 +39,9 @@ def test_mcp_http_config_defaults_match_issue_321():
     cfg = McpHttpConfig(port=8765)
     assert cfg.gateway_async_dispatch_timeout_ms == 60_000
     assert cfg.gateway_wait_terminal_timeout_ms == 600_000
-    # Sync path unchanged — regression guard for #314.
-    assert cfg.backend_timeout_ms == 10_000
+    # Default raised from 10 s → 120 s to accommodate long DCC operations
+    # (scene import, simulation bake, render). Regression guard for #314.
+    assert cfg.backend_timeout_ms == 120_000
 
 
 def test_mcp_http_config_accepts_new_fields_via_constructor():

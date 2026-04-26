@@ -14,13 +14,16 @@ from dcc_mcp_core import McpHttpConfig
 
 
 def test_backend_timeout_ms_has_sensible_default() -> None:
-    """The pre-#314 hard-coded value was ``Duration::from_secs(10)``.
+    """Default raised from 10 s → 120 s (issue #314 follow-up).
 
-    Leaving ``McpHttpConfig(...)`` unconfigured must preserve that behaviour
-    so existing deployments do not silently change after upgrading.
+    DCC scene operations (mesh import, simulation bake, render, complex
+    keyframe setup) regularly take tens of seconds. The previous 10-second
+    default caused the gateway to cancel legitimate tool calls while the
+    backend was still working. For truly long operations prefer async dispatch
+    (``_meta.dcc.async=true``) which returns a ``job_id`` immediately.
     """
     cfg = McpHttpConfig(port=8765)
-    assert cfg.backend_timeout_ms == 10_000
+    assert cfg.backend_timeout_ms == 120_000
 
 
 def test_backend_timeout_ms_constructor_kwarg() -> None:
