@@ -62,10 +62,11 @@ jobs:
           key: tarpaulin
       - name: Install cargo-tarpaulin
         # cargo-tarpaulin >=0.35 pulls in cargo-platform@0.3.3 (rust-version=1.91).
-        # Stable is 1.90.0; pin to ~0.31 which uses cargo_metadata <0.23 and has
-        # no such constraint. Drop --locked so version resolution can pick the
-        # latest compatible 0.31.x patch.
-        run: cargo install cargo-tarpaulin --version "~0.31"
+        # Use taiki-e/install-action to download prebuilt binaries instead of
+        # compiling from source, avoiding rustc version constraints entirely.
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-tarpaulin
       - name: Run Rust coverage
         run: vx just rust-cov
       - name: Upload Rust coverage to Codecov
