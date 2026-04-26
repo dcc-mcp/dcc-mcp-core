@@ -29,6 +29,7 @@ from dcc_mcp_core._core import DEFAULT_LOG_MAX_SIZE
 from dcc_mcp_core._core import DEFAULT_LOG_ROTATION
 from dcc_mcp_core._core import DEFAULT_MIME_TYPE
 from dcc_mcp_core._core import DEFAULT_VERSION
+from dcc_mcp_core._core import ENV_DISABLE_ACCUMULATED_SKILLS
 from dcc_mcp_core._core import ENV_LOG_DIR
 from dcc_mcp_core._core import ENV_LOG_FILE
 from dcc_mcp_core._core import ENV_LOG_FILE_PREFIX
@@ -37,6 +38,8 @@ from dcc_mcp_core._core import ENV_LOG_MAX_FILES
 from dcc_mcp_core._core import ENV_LOG_MAX_SIZE
 from dcc_mcp_core._core import ENV_LOG_ROTATION
 from dcc_mcp_core._core import ENV_SKILL_PATHS
+from dcc_mcp_core._core import ENV_TEAM_SKILL_PATHS
+from dcc_mcp_core._core import ENV_USER_SKILL_PATHS
 from dcc_mcp_core._core import MAX_TOOL_NAME_LEN
 from dcc_mcp_core._core import SKILL_METADATA_DIR
 from dcc_mcp_core._core import SKILL_METADATA_FILE
@@ -119,12 +122,15 @@ from dcc_mcp_core._core import SerializeFormat
 from dcc_mcp_core._core import ServiceEntry
 from dcc_mcp_core._core import ServiceStatus
 from dcc_mcp_core._core import SkillCatalog
+from dcc_mcp_core._core import SkillFeedback
 from dcc_mcp_core._core import SkillGroup
 from dcc_mcp_core._core import SkillMetadata
 from dcc_mcp_core._core import SkillScanner
 from dcc_mcp_core._core import SkillSummary
 from dcc_mcp_core._core import SkillValidationIssue
 from dcc_mcp_core._core import SkillValidationReport
+from dcc_mcp_core._core import SkillVersionEntry
+from dcc_mcp_core._core import SkillVersionManifest
 from dcc_mcp_core._core import SkillWatcher
 from dcc_mcp_core._core import SocketServerAdapter
 from dcc_mcp_core._core import StringWrapper
@@ -156,6 +162,8 @@ from dcc_mcp_core._core import artefact_get_bytes
 from dcc_mcp_core._core import artefact_list
 from dcc_mcp_core._core import artefact_put_bytes
 from dcc_mcp_core._core import artefact_put_file
+from dcc_mcp_core._core import copy_skill_to_team_dir
+from dcc_mcp_core._core import copy_skill_to_user_dir
 from dcc_mcp_core._core import create_skill_server
 from dcc_mcp_core._core import deserialize_result
 from dcc_mcp_core._core import error_result
@@ -164,24 +172,37 @@ from dcc_mcp_core._core import flush_logs
 from dcc_mcp_core._core import from_exception
 from dcc_mcp_core._core import gc_orphans
 from dcc_mcp_core._core import get_app_skill_paths_from_env
+from dcc_mcp_core._core import get_app_team_skill_paths_from_env
+from dcc_mcp_core._core import get_app_user_skill_paths_from_env
 from dcc_mcp_core._core import get_bridge_context
 from dcc_mcp_core._core import get_config_dir
 from dcc_mcp_core._core import get_data_dir
 from dcc_mcp_core._core import get_log_dir
 from dcc_mcp_core._core import get_platform_dir
+from dcc_mcp_core._core import get_skill_feedback
 from dcc_mcp_core._core import get_skill_paths_from_env
+from dcc_mcp_core._core import get_skill_version_manifest
 from dcc_mcp_core._core import get_skills_dir
+from dcc_mcp_core._core import get_team_skill_paths_from_env
+from dcc_mcp_core._core import get_team_skills_dir
 from dcc_mcp_core._core import get_tools_dir
+from dcc_mcp_core._core import get_user_skill_paths_from_env
+from dcc_mcp_core._core import get_user_skills_dir
 from dcc_mcp_core._core import init_file_logging
 from dcc_mcp_core._core import is_telemetry_initialized
 from dcc_mcp_core._core import json_dumps
 from dcc_mcp_core._core import json_loads
 from dcc_mcp_core._core import mpu_to_units
 from dcc_mcp_core._core import parse_skill_md
+from dcc_mcp_core._core import record_skill_feedback
 from dcc_mcp_core._core import register_bridge
 from dcc_mcp_core._core import resolve_dependencies
 from dcc_mcp_core._core import scan_and_load
 from dcc_mcp_core._core import scan_and_load_lenient
+from dcc_mcp_core._core import scan_and_load_team
+from dcc_mcp_core._core import scan_and_load_team_lenient
+from dcc_mcp_core._core import scan_and_load_user
+from dcc_mcp_core._core import scan_and_load_user_lenient
 from dcc_mcp_core._core import scan_skill_paths
 
 # USD bridge functions
@@ -379,6 +400,7 @@ __all__ = [
     "DEFAULT_LOG_ROTATION",
     "DEFAULT_MIME_TYPE",
     "DEFAULT_VERSION",
+    "ENV_DISABLE_ACCUMULATED_SKILLS",
     "ENV_LOG_DIR",
     "ENV_LOG_FILE",
     "ENV_LOG_FILE_PREFIX",
@@ -387,6 +409,8 @@ __all__ = [
     "ENV_LOG_MAX_SIZE",
     "ENV_LOG_ROTATION",
     "ENV_SKILL_PATHS",
+    "ENV_TEAM_SKILL_PATHS",
+    "ENV_USER_SKILL_PATHS",
     "MAX_TOOL_NAME_LEN",
     "SKILL_METADATA_DIR",
     "SKILL_METADATA_FILE",
@@ -484,12 +508,15 @@ __all__ = [
     "ServiceEntry",
     "ServiceStatus",
     "SkillCatalog",
+    "SkillFeedback",
     "SkillGroup",
     "SkillMetadata",
     "SkillScanner",
     "SkillSummary",
     "SkillValidationIssue",
     "SkillValidationReport",
+    "SkillVersionEntry",
+    "SkillVersionManifest",
     "SkillWatcher",
     "SocketServerAdapter",
     "StepPolicy",
@@ -540,6 +567,8 @@ __all__ = [
     "clear_checkpoint",
     "clear_feedback",
     "configure_checkpoint_store",
+    "copy_skill_to_team_dir",
+    "copy_skill_to_user_dir",
     "create_dcc_server",
     "create_skill_server",
     "current_cancel_token",
@@ -556,6 +585,8 @@ __all__ = [
     "gc_orphans",
     "generate_api_key",
     "get_app_skill_paths_from_env",
+    "get_app_team_skill_paths_from_env",
+    "get_app_user_skill_paths_from_env",
     "get_bridge_context",
     "get_builtin_docs_uris",
     "get_bundled_skill_paths",
@@ -570,9 +601,15 @@ __all__ = [
     "get_recipe_content",
     "get_recipes_path",
     "get_server_instance",
+    "get_skill_feedback",
     "get_skill_paths_from_env",
+    "get_skill_version_manifest",
     "get_skills_dir",
+    "get_team_skill_paths_from_env",
+    "get_team_skills_dir",
     "get_tools_dir",
+    "get_user_skill_paths_from_env",
+    "get_user_skills_dir",
     "get_workflow_path",
     "hmac_sha256_hex",
     "init_file_logging",
@@ -591,6 +628,7 @@ __all__ = [
     "parse_recipe_anchors",
     "parse_schedules_yaml",
     "parse_skill_md",
+    "record_skill_feedback",
     "register_bridge",
     "register_checkpoint_tools",
     "register_dcc_api_executor",
@@ -609,6 +647,10 @@ __all__ = [
     "save_checkpoint",
     "scan_and_load",
     "scan_and_load_lenient",
+    "scan_and_load_team",
+    "scan_and_load_team_lenient",
+    "scan_and_load_user",
+    "scan_and_load_user_lenient",
     "scan_skill_paths",
     "scene_info_json_to_stage",
     "serialize_result",

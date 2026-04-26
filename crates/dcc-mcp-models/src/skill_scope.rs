@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 /// Determines default policy and precedence when multiple skills with
 /// the same name exist at different scope levels.
 ///
-/// Precedence (highest → lowest): `Admin > System > User > Repo`
+/// Precedence (highest → lowest): `Admin > System > Team > User > Repo`
 ///
 /// # Example SKILL.md usage
 /// Scope is **not** declared in the SKILL.md file itself — it is inferred
@@ -22,6 +22,7 @@ use serde::{Deserialize, Serialize};
 /// |----------------------------------------|--------|
 /// | `<project>/.dcc_skills/`               | Repo   |
 /// | `~/.dcc_mcp/skills/`                   | User   |
+/// | `~/.dcc_mcp/skills/team/`              | Team   |
 /// | `<install>/share/dcc_mcp/skills/`      | System |
 /// | Managed enterprise distribution        | Admin  |
 #[derive(
@@ -43,6 +44,9 @@ pub enum SkillScope {
     /// User-level skill (e.g. `~/.dcc_mcp/skills/`).
     User,
 
+    /// Team-level skill shared within a studio or team.
+    Team,
+
     /// System-level skill bundled with the package (read-only).
     System,
 
@@ -56,12 +60,13 @@ impl SkillScope {
         match self {
             Self::Repo => "repo",
             Self::User => "user",
+            Self::Team => "team",
             Self::System => "system",
             Self::Admin => "admin",
         }
     }
 
-    /// Returns `true` for scopes that cannot be overridden by user/repo skills.
+    /// Returns `true` for scopes that cannot be overridden by user/repo/team skills.
     pub fn is_elevated(self) -> bool {
         matches!(self, Self::System | Self::Admin)
     }
@@ -93,7 +98,8 @@ mod tests {
     #[test]
     fn test_scope_ordering() {
         assert!(SkillScope::Repo < SkillScope::User);
-        assert!(SkillScope::User < SkillScope::System);
+        assert!(SkillScope::User < SkillScope::Team);
+        assert!(SkillScope::Team < SkillScope::System);
         assert!(SkillScope::System < SkillScope::Admin);
     }
 
@@ -115,6 +121,7 @@ mod tests {
     fn test_scope_is_elevated() {
         assert!(!SkillScope::Repo.is_elevated());
         assert!(!SkillScope::User.is_elevated());
+        assert!(!SkillScope::Team.is_elevated());
         assert!(SkillScope::System.is_elevated());
         assert!(SkillScope::Admin.is_elevated());
     }
@@ -122,5 +129,6 @@ mod tests {
     #[test]
     fn test_scope_display() {
         assert_eq!(SkillScope::Admin.to_string(), "admin");
+        assert_eq!(SkillScope::Team.to_string(), "team");
     }
 }

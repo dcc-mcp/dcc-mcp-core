@@ -9,7 +9,10 @@ pub mod validator;
 pub mod watcher;
 
 pub use catalog::{SkillCatalog, SkillDetail, SkillState, SkillSummary};
-pub use loader::{LoadResult, parse_skill_md, scan_and_load, scan_and_load_lenient};
+pub use loader::{
+    LoadResult, parse_skill_md, scan_and_load, scan_and_load_lenient, scan_and_load_team,
+    scan_and_load_team_lenient, scan_and_load_user, scan_and_load_user_lenient,
+};
 pub use manager::SkillsManager;
 pub use resolver::{
     ResolveError, ResolvedSkills, expand_transitive_dependencies, resolve_dependencies,
@@ -20,7 +23,10 @@ pub use validator::{SkillValidationIssue, SkillValidationReport, validate_skill_
 pub use watcher::{SkillWatcher, WatcherError};
 
 #[cfg(feature = "python-bindings")]
-pub use loader::{py_parse_skill_md, py_scan_and_load, py_scan_and_load_lenient};
+pub use loader::{
+    py_parse_skill_md, py_scan_and_load, py_scan_and_load_lenient, py_scan_and_load_team,
+    py_scan_and_load_team_lenient, py_scan_and_load_user, py_scan_and_load_user_lenient,
+};
 #[cfg(feature = "python-bindings")]
 pub use resolver::{
     py_expand_transitive_dependencies, py_resolve_dependencies, py_validate_dependencies,

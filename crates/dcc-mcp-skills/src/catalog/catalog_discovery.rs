@@ -164,4 +164,38 @@ impl SkillCatalog {
         );
         total_new
     }
+
+    /// Discover user-level and team-level accumulated skills from environment variables.
+    pub fn discover_user_and_team(&self, dcc_name: Option<&str>) -> usize {
+        use dcc_mcp_utils::filesystem::{
+            get_app_team_skill_paths_from_env, get_app_user_skill_paths_from_env,
+            get_team_skill_paths_from_env, get_user_skill_paths_from_env,
+        };
+
+        let mut scoped_paths: Vec<(SkillScope, Vec<String>)> = Vec::new();
+
+        let user_paths = if let Some(dcc) = dcc_name {
+            get_app_user_skill_paths_from_env(dcc)
+        } else {
+            get_user_skill_paths_from_env()
+        };
+        if !user_paths.is_empty() {
+            scoped_paths.push((SkillScope::User, user_paths));
+        }
+
+        let team_paths = if let Some(dcc) = dcc_name {
+            get_app_team_skill_paths_from_env(dcc)
+        } else {
+            get_team_skill_paths_from_env()
+        };
+        if !team_paths.is_empty() {
+            scoped_paths.push((SkillScope::Team, team_paths));
+        }
+
+        if scoped_paths.is_empty() {
+            return 0;
+        }
+
+        self.discover_scoped(&scoped_paths, dcc_name)
+    }
 }

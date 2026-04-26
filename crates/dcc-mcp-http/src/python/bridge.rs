@@ -269,7 +269,8 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
 /// 3. Discovers skills from **both** env vars (per-app + global):
 ///    - ``DCC_MCP_{APP}_SKILL_PATHS`` — e.g. ``DCC_MCP_MAYA_SKILL_PATHS``
 ///    - ``DCC_MCP_SKILL_PATHS`` — global fallback
-/// 4. Returns a ready-to-start ``McpHttpServer``.
+/// 4. Discovers accumulated user/team skills from env vars unless disabled.
+/// 5. Returns a ready-to-start ``McpHttpServer``.
 ///
 /// Args:
 ///     app_name: DCC application name (e.g. ``"maya"``, ``"blender"``).
@@ -277,6 +278,8 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
 ///     config:   Optional ``McpHttpConfig``; defaults to port 8765.
 ///     extra_paths: Extra skill directories to scan in addition to env var paths.
 ///     dcc_name: Override the DCC filter for skill scanning (defaults to ``app_name``).
+///     accumulated: Whether to also discover user/team accumulated skills (default ``True``).
+///                  Can be disabled by setting ``DCC_MCP_DISABLE_ACCUMULATED_SKILLS=1``.
 ///
 /// Example::
 ///
@@ -297,12 +300,13 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
 ///     the ``load_skill`` MCP tool to load skills on demand.
 #[pyfunction]
 #[pyo3(name = "create_skill_server")]
-#[pyo3(signature = (app_name, config=None, extra_paths=None, dcc_name=None))]
+#[pyo3(signature = (app_name, config=None, extra_paths=None, dcc_name=None, accumulated=true))]
 pub fn py_create_skill_server(
     app_name: &str,
     config: Option<&PyMcpHttpConfig>,
     extra_paths: Option<Vec<String>>,
     dcc_name: Option<&str>,
+    accumulated: bool,
 ) -> PyResult<PyMcpHttpServer> {
     // Determine DCC filter — default to app_name
     let effective_dcc = dcc_name.unwrap_or(app_name);
@@ -343,6 +347,18 @@ pub fn py_create_skill_server(
     // Discover skills (lenient — missing deps are skipped, not errors)
     let discovered = catalog.discover(discover_paths.as_deref(), Some(effective_dcc));
     tracing::info!("create_skill_server({app_name}): discovered {discovered} skill(s)");
+
+    // Discover accumulated user/team skills unless disabled
+    let accumulated_disabled =
+        std::env::var(dcc_mcp_utils::constants::ENV_DISABLE_ACCUMULATED_SKILLS)
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+    if accumulated && !accumulated_disabled {
+        let acc_discovered = catalog.discover_user_and_team(Some(effective_dcc));
+        tracing::info!(
+            "create_skill_server({app_name}): discovered {acc_discovered} accumulated skill(s)"
+        );
+    }
 
     let live_meta = Arc::new(RwLock::new(LiveMetaInner {
         scene: cfg.scene.clone(),

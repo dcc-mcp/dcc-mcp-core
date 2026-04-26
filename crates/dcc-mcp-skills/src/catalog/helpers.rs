@@ -10,10 +10,11 @@ pub(crate) fn parse_scope_str(s: &str) -> Result<SkillScope, String> {
     match s.to_ascii_lowercase().as_str() {
         "repo" => Ok(SkillScope::Repo),
         "user" => Ok(SkillScope::User),
+        "team" => Ok(SkillScope::Team),
         "system" => Ok(SkillScope::System),
         "admin" => Ok(SkillScope::Admin),
         other => Err(format!(
-            "invalid scope {other:?}: expected 'repo' | 'user' | 'system' | 'admin'"
+            "invalid scope {other:?}: expected 'repo' | 'user' | 'team' | 'system' | 'admin'"
         )),
     }
 }

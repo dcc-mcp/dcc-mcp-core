@@ -424,10 +424,11 @@ pub fn parse_scope_label(s: &str) -> Result<SkillScope, String> {
     match s.to_ascii_lowercase().as_str() {
         "repo" => Ok(SkillScope::Repo),
         "user" => Ok(SkillScope::User),
+        "team" => Ok(SkillScope::Team),
         "system" => Ok(SkillScope::System),
         "admin" => Ok(SkillScope::Admin),
         other => Err(format!(
-            "Invalid scope {other:?}: expected 'repo' | 'user' | 'system' | 'admin'"
+            "Invalid scope {other:?}: expected 'repo' | 'user' | 'team' | 'system' | 'admin'"
         )),
     }
 }

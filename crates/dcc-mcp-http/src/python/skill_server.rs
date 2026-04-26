@@ -239,11 +239,12 @@ impl PyMcpHttpServer {
                 let sc = match s.to_ascii_lowercase().as_str() {
                     "repo" => dcc_mcp_models::SkillScope::Repo,
                     "user" => dcc_mcp_models::SkillScope::User,
+                    "team" => dcc_mcp_models::SkillScope::Team,
                     "system" => dcc_mcp_models::SkillScope::System,
                     "admin" => dcc_mcp_models::SkillScope::Admin,
                     _ => {
                         return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                            "invalid scope: {s:?} — expected one of: repo, user, system, admin"
+                            "invalid scope: {s:?} — expected one of: repo, user, team, system, admin"
                         )));
                     }
                 };

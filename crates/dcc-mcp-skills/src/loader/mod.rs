@@ -65,7 +65,10 @@ mod scan;
 pub(crate) use files::{enumerate_metadata_files, enumerate_scripts, merge_depends_from_metadata};
 #[cfg(test)]
 pub(crate) use scan::load_all_skills;
-pub use scan::{LoadResult, scan_and_load, scan_and_load_lenient};
+pub use scan::{
+    LoadResult, scan_and_load, scan_and_load_lenient, scan_and_load_team,
+    scan_and_load_team_lenient, scan_and_load_user, scan_and_load_user_lenient,
+};
 
 // ── Single skill loading ──
 
@@ -647,6 +650,66 @@ pub fn py_scan_and_load_lenient(
     dcc_name: Option<&str>,
 ) -> pyo3::PyResult<(Vec<SkillMetadata>, Vec<String>)> {
     let result = scan_and_load_lenient(extra_paths.as_deref(), dcc_name)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+    Ok((result.skills, result.skipped))
+}
+
+/// Python wrapper for scan_and_load_user (strict mode).
+#[cfg(feature = "python-bindings")]
+#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
+#[pyfunction]
+#[pyo3(name = "scan_and_load_user")]
+#[pyo3(signature = (extra_paths=None, dcc_name=None))]
+pub fn py_scan_and_load_user(
+    extra_paths: Option<Vec<String>>,
+    dcc_name: Option<&str>,
+) -> pyo3::PyResult<(Vec<SkillMetadata>, Vec<String>)> {
+    let result = scan_and_load_user(extra_paths.as_deref(), dcc_name)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+    Ok((result.skills, result.skipped))
+}
+
+/// Python wrapper for scan_and_load_team (strict mode).
+#[cfg(feature = "python-bindings")]
+#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
+#[pyfunction]
+#[pyo3(name = "scan_and_load_team")]
+#[pyo3(signature = (extra_paths=None, dcc_name=None))]
+pub fn py_scan_and_load_team(
+    extra_paths: Option<Vec<String>>,
+    dcc_name: Option<&str>,
+) -> pyo3::PyResult<(Vec<SkillMetadata>, Vec<String>)> {
+    let result = scan_and_load_team(extra_paths.as_deref(), dcc_name)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+    Ok((result.skills, result.skipped))
+}
+
+/// Python wrapper for scan_and_load_user_lenient.
+#[cfg(feature = "python-bindings")]
+#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
+#[pyfunction]
+#[pyo3(name = "scan_and_load_user_lenient")]
+#[pyo3(signature = (extra_paths=None, dcc_name=None))]
+pub fn py_scan_and_load_user_lenient(
+    extra_paths: Option<Vec<String>>,
+    dcc_name: Option<&str>,
+) -> pyo3::PyResult<(Vec<SkillMetadata>, Vec<String>)> {
+    let result = scan_and_load_user_lenient(extra_paths.as_deref(), dcc_name)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+    Ok((result.skills, result.skipped))
+}
+
+/// Python wrapper for scan_and_load_team_lenient.
+#[cfg(feature = "python-bindings")]
+#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
+#[pyfunction]
+#[pyo3(name = "scan_and_load_team_lenient")]
+#[pyo3(signature = (extra_paths=None, dcc_name=None))]
+pub fn py_scan_and_load_team_lenient(
+    extra_paths: Option<Vec<String>>,
+    dcc_name: Option<&str>,
+) -> pyo3::PyResult<(Vec<SkillMetadata>, Vec<String>)> {
+    let result = scan_and_load_team_lenient(extra_paths.as_deref(), dcc_name)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
     Ok((result.skills, result.skipped))
 }

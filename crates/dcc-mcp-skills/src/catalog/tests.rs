@@ -808,7 +808,7 @@ fn add_skill_with_scope(catalog: &SkillCatalog, meta: SkillMetadata, scope: Skil
 
 #[test]
 fn test_search_skills_empty_query_returns_by_scope_precedence() {
-    // Admin > System > User > Repo, then alphabetical name.
+    // Admin > System > Team > User > Repo, then alphabetical name.
     let catalog = make_test_catalog();
     add_skill_with_scope(
         &catalog,
@@ -830,12 +830,23 @@ fn test_search_skills_empty_query_returns_by_scope_precedence() {
         make_test_skill("beta-system", "maya", &[]),
         SkillScope::System,
     );
+    add_skill_with_scope(
+        &catalog,
+        make_test_skill("delta-team", "maya", &[]),
+        SkillScope::Team,
+    );
 
     let results = catalog.search_skills(None, &[], None, None, None);
     let names: Vec<&str> = results.iter().map(|s| s.name.as_str()).collect();
     assert_eq!(
         names,
-        vec!["gamma-admin", "beta-system", "zeta-user", "alpha-repo"]
+        vec![
+            "gamma-admin",
+            "beta-system",
+            "delta-team",
+            "zeta-user",
+            "alpha-repo"
+        ]
     );
 }
 
@@ -897,6 +908,7 @@ fn test_search_skills_parse_scope_str_valid_and_invalid() {
     use super::parse_scope_str;
     assert_eq!(parse_scope_str("repo").unwrap(), SkillScope::Repo);
     assert_eq!(parse_scope_str("USER").unwrap(), SkillScope::User);
+    assert_eq!(parse_scope_str("Team").unwrap(), SkillScope::Team);
     assert_eq!(parse_scope_str("System").unwrap(), SkillScope::System);
     assert_eq!(parse_scope_str("admin").unwrap(), SkillScope::Admin);
     assert!(parse_scope_str("bogus").is_err());

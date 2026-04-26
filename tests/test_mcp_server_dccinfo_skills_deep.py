@@ -37,11 +37,18 @@ from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
 from dcc_mcp_core import SkillScanner
 from dcc_mcp_core import ToolRegistry
+from dcc_mcp_core import copy_skill_to_team_dir
+from dcc_mcp_core import copy_skill_to_user_dir
 from dcc_mcp_core import expand_transitive_dependencies
+from dcc_mcp_core import get_skill_feedback
+from dcc_mcp_core import get_skill_version_manifest
 from dcc_mcp_core import parse_skill_md
+from dcc_mcp_core import record_skill_feedback
 from dcc_mcp_core import resolve_dependencies
 from dcc_mcp_core import scan_and_load
 from dcc_mcp_core import scan_and_load_lenient
+from dcc_mcp_core import scan_and_load_team
+from dcc_mcp_core import scan_and_load_user
 from dcc_mcp_core import scan_skill_paths
 from dcc_mcp_core import validate_dependencies
 
@@ -1040,3 +1047,116 @@ class TestValidateDependencies:
         """Example skills (all deps present) produce no errors."""
         errors = validate_dependencies(example_skills)
         assert len(errors) == 0
+
+
+# ---------------------------------------------------------------------------
+# TestAccumulatedSkills (user / team scan and save)
+# ---------------------------------------------------------------------------
+
+
+class TestAccumulatedSkills:
+    """scan_and_load_user, scan_and_load_team, copy_skill_to_*_dir."""
+
+    def test_scan_and_load_user_empty_when_no_env(self) -> None:
+        """scan_and_load_user returns empty when env var is not set."""
+        skills, skipped = scan_and_load_user()
+        assert skills == []
+        assert skipped == []
+
+    def test_scan_and_load_team_empty_when_no_env(self) -> None:
+        """scan_and_load_team returns empty when env var is not set."""
+        skills, skipped = scan_and_load_team()
+        assert skills == []
+        assert skipped == []
+
+    def test_scan_and_load_user_with_env_var(self) -> None:
+        """scan_and_load_user discovers skills from DCC_MCP_USER_SKILL_PATHS."""
+        import os
+
+        with tempfile.TemporaryDirectory() as tmp:
+            _make_skill_dir(tmp, "user-skill")
+            os.environ["DCC_MCP_USER_SKILL_PATHS"] = tmp
+            try:
+                skills, _skipped = scan_and_load_user()
+                assert len(skills) == 1
+                assert skills[0].name == "user-skill"
+            finally:
+                del os.environ["DCC_MCP_USER_SKILL_PATHS"]
+
+    def test_scan_and_load_team_with_env_var(self) -> None:
+        """scan_and_load_team discovers skills from DCC_MCP_TEAM_SKILL_PATHS."""
+        import os
+
+        with tempfile.TemporaryDirectory() as tmp:
+            _make_skill_dir(tmp, "team-skill")
+            os.environ["DCC_MCP_TEAM_SKILL_PATHS"] = tmp
+            try:
+                skills, _skipped = scan_and_load_team()
+                assert len(skills) == 1
+                assert skills[0].name == "team-skill"
+            finally:
+                del os.environ["DCC_MCP_TEAM_SKILL_PATHS"]
+
+    def test_copy_skill_to_user_dir(self) -> None:
+        """copy_skill_to_user_dir copies a valid skill and returns the dest path."""
+        from pathlib import Path
+        import shutil
+        import uuid
+
+        skill_name = f"saveable-skill-{uuid.uuid4().hex[:8]}"
+        with tempfile.TemporaryDirectory() as src_tmp:
+            _make_skill_dir(src_tmp, skill_name)
+            dest = copy_skill_to_user_dir(str(Path(src_tmp) / skill_name))
+            assert Path(dest).is_dir()
+            assert (Path(dest) / "SKILL.md").is_file()
+            shutil.rmtree(dest, ignore_errors=True)
+
+    def test_copy_skill_to_team_dir(self) -> None:
+        """copy_skill_to_team_dir copies a valid skill and returns the dest path."""
+        from pathlib import Path
+        import shutil
+        import uuid
+
+        skill_name = f"saveable-skill-{uuid.uuid4().hex[:8]}"
+        with tempfile.TemporaryDirectory() as src_tmp:
+            _make_skill_dir(src_tmp, skill_name)
+            dest = copy_skill_to_team_dir(str(Path(src_tmp) / skill_name))
+            assert Path(dest).is_dir()
+            assert (Path(dest) / "SKILL.md").is_file()
+            shutil.rmtree(dest, ignore_errors=True)
+
+    def test_copy_skill_versions_and_feedback(self) -> None:
+        """copy_skill_to_user_dir archives old versions and feedback persists."""
+        from pathlib import Path
+        import shutil
+        import uuid
+
+        skill_name = f"evolvable-skill-{uuid.uuid4().hex[:8]}"
+        with tempfile.TemporaryDirectory() as src_tmp:
+            # First version
+            _make_skill_dir(src_tmp, skill_name)
+            dest = copy_skill_to_user_dir(str(Path(src_tmp) / skill_name))
+            assert Path(dest).is_dir()
+
+            # Record feedback
+            record_skill_feedback(dest, success=True, notes="works well")
+            record_skill_feedback(dest, success=False, correction="add error handling")
+
+            # Update skill (second version)
+            skill_md = Path(src_tmp) / skill_name / "SKILL.md"
+            skill_md.write_text("---\nname: evolvable-skill\nversion: 2.0.0\n---\n")
+            dest2 = copy_skill_to_user_dir(str(Path(src_tmp) / skill_name))
+            assert dest2 == dest
+
+            # Check version manifest exists
+            manifest = get_skill_version_manifest(dest)
+            assert manifest.current_version != ""
+            assert len(manifest.history) >= 1
+
+            # Check feedback
+            feedback = get_skill_feedback(dest, limit=10)
+            assert len(feedback) == 2
+            assert feedback[0].success is False
+            assert feedback[1].success is True
+
+            shutil.rmtree(dest, ignore_errors=True)

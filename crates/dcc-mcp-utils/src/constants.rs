@@ -46,6 +46,19 @@ pub const ENV_SKILL_PATHS: &str = "DCC_MCP_SKILL_PATHS";
 /// Example: `DCC_MCP_MAYA_SKILL_PATHS`, `DCC_MCP_BLENDER_SKILL_PATHS`.
 pub const ENV_APP_SKILL_PATHS_TEMPLATE: &str = "DCC_MCP_{APP}_SKILL_PATHS";
 
+/// Environment variable containing user-level accumulated skill search paths.
+pub const ENV_USER_SKILL_PATHS: &str = "DCC_MCP_USER_SKILL_PATHS";
+/// Template for per-app user skill search paths: `DCC_MCP_USER_{APP}_SKILL_PATHS`.
+pub const ENV_USER_APP_SKILL_PATHS_TEMPLATE: &str = "DCC_MCP_USER_{APP}_SKILL_PATHS";
+
+/// Environment variable containing team-level accumulated skill search paths.
+pub const ENV_TEAM_SKILL_PATHS: &str = "DCC_MCP_TEAM_SKILL_PATHS";
+/// Template for per-app team skill search paths: `DCC_MCP_TEAM_{APP}_SKILL_PATHS`.
+pub const ENV_TEAM_APP_SKILL_PATHS_TEMPLATE: &str = "DCC_MCP_TEAM_{APP}_SKILL_PATHS";
+
+/// Environment variable to disable automatic discovery of accumulated skills.
+pub const ENV_DISABLE_ACCUMULATED_SKILLS: &str = "DCC_MCP_DISABLE_ACCUMULATED_SKILLS";
+
 /// Build the per-app env var name for a given app/DCC name.
 ///
 /// `app_name = "maya"` → `"DCC_MCP_MAYA_SKILL_PATHS"`
@@ -53,6 +66,28 @@ pub const ENV_APP_SKILL_PATHS_TEMPLATE: &str = "DCC_MCP_{APP}_SKILL_PATHS";
 pub fn app_skill_paths_env_key(app_name: &str) -> String {
     format!(
         "DCC_MCP_{}_SKILL_PATHS",
+        app_name.to_uppercase().replace('-', "_")
+    )
+}
+
+/// Build the per-app user skill paths env var name.
+///
+/// `app_name = "maya"` → `"DCC_MCP_USER_MAYA_SKILL_PATHS"`
+#[must_use]
+pub fn user_skill_paths_env_key(app_name: &str) -> String {
+    format!(
+        "DCC_MCP_USER_{}_SKILL_PATHS",
+        app_name.to_uppercase().replace('-', "_")
+    )
+}
+
+/// Build the per-app team skill paths env var name.
+///
+/// `app_name = "maya"` → `"DCC_MCP_TEAM_MAYA_SKILL_PATHS"`
+#[must_use]
+pub fn team_skill_paths_env_key(app_name: &str) -> String {
+    format!(
+        "DCC_MCP_TEAM_{}_SKILL_PATHS",
         app_name.to_uppercase().replace('-', "_")
     )
 }

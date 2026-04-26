@@ -98,3 +98,101 @@ pub(crate) fn load_all_skills(dirs: &[String]) -> (Vec<SkillMetadata>, Vec<Strin
 
     (skills, skipped)
 }
+
+// ── Accumulated skills (user / team) ────────────────────────────────────────
+
+/// Scan user-level accumulated skill paths from environment variables.
+pub fn scan_and_load_user(
+    extra_paths: Option<&[String]>,
+    dcc_name: Option<&str>,
+) -> Result<LoadResult, ResolveError> {
+    let user_paths = if let Some(dcc) = dcc_name {
+        dcc_mcp_utils::filesystem::get_app_user_skill_paths_from_env(dcc)
+    } else {
+        dcc_mcp_utils::filesystem::get_user_skill_paths_from_env()
+    };
+    let mut all_paths = user_paths;
+    if let Some(extra) = extra_paths {
+        all_paths.extend(extra.iter().cloned());
+    }
+    scan_and_load(
+        if all_paths.is_empty() {
+            None
+        } else {
+            Some(&all_paths)
+        },
+        dcc_name,
+    )
+}
+
+/// Scan team-level accumulated skill paths from environment variables.
+pub fn scan_and_load_team(
+    extra_paths: Option<&[String]>,
+    dcc_name: Option<&str>,
+) -> Result<LoadResult, ResolveError> {
+    let team_paths = if let Some(dcc) = dcc_name {
+        dcc_mcp_utils::filesystem::get_app_team_skill_paths_from_env(dcc)
+    } else {
+        dcc_mcp_utils::filesystem::get_team_skill_paths_from_env()
+    };
+    let mut all_paths = team_paths;
+    if let Some(extra) = extra_paths {
+        all_paths.extend(extra.iter().cloned());
+    }
+    scan_and_load(
+        if all_paths.is_empty() {
+            None
+        } else {
+            Some(&all_paths)
+        },
+        dcc_name,
+    )
+}
+
+/// Lenient variant of [`scan_and_load_user`].
+pub fn scan_and_load_user_lenient(
+    extra_paths: Option<&[String]>,
+    dcc_name: Option<&str>,
+) -> Result<LoadResult, ResolveError> {
+    let user_paths = if let Some(dcc) = dcc_name {
+        dcc_mcp_utils::filesystem::get_app_user_skill_paths_from_env(dcc)
+    } else {
+        dcc_mcp_utils::filesystem::get_user_skill_paths_from_env()
+    };
+    let mut all_paths = user_paths;
+    if let Some(extra) = extra_paths {
+        all_paths.extend(extra.iter().cloned());
+    }
+    scan_and_load_lenient(
+        if all_paths.is_empty() {
+            None
+        } else {
+            Some(&all_paths)
+        },
+        dcc_name,
+    )
+}
+
+/// Lenient variant of [`scan_and_load_team`].
+pub fn scan_and_load_team_lenient(
+    extra_paths: Option<&[String]>,
+    dcc_name: Option<&str>,
+) -> Result<LoadResult, ResolveError> {
+    let team_paths = if let Some(dcc) = dcc_name {
+        dcc_mcp_utils::filesystem::get_app_team_skill_paths_from_env(dcc)
+    } else {
+        dcc_mcp_utils::filesystem::get_team_skill_paths_from_env()
+    };
+    let mut all_paths = team_paths;
+    if let Some(extra) = extra_paths {
+        all_paths.extend(extra.iter().cloned());
+    }
+    scan_and_load_lenient(
+        if all_paths.is_empty() {
+            None
+        } else {
+            Some(&all_paths)
+        },
+        dcc_name,
+    )
+}
