@@ -54,18 +54,18 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v6
-      # cargo-tarpaulin's latest release pulls in cargo-platform@0.3.3 which
-      # requires rustc ≥ 1.91. Use nightly (always ≥ 1.91) for this job only
-      # so tarpaulin can install without version constraints. Coverage itself
-      # is not affected by nightly vs stable semantics.
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: dtolnay/rust-toolchain@stable
       - uses: loonghao/vx@v0.8.32
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
         with:
           key: tarpaulin
       - name: Install cargo-tarpaulin
-        run: cargo install cargo-tarpaulin --locked
+        # cargo-tarpaulin >=0.35 pulls in cargo-platform@0.3.3 (rust-version=1.91).
+        # Stable is 1.90.0; pin to ~0.31 which uses cargo_metadata <0.23 and has
+        # no such constraint. Drop --locked so version resolution can pick the
+        # latest compatible 0.31.x patch.
+        run: cargo install cargo-tarpaulin --version "~0.31"
       - name: Run Rust coverage
         run: vx just rust-cov
       - name: Upload Rust coverage to Codecov
