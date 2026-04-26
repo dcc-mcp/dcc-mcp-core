@@ -71,7 +71,7 @@ pub async fn test_tools_list_pagination_first_page() {
     resp.assert_status_ok();
     let body: Value = resp.json();
     let tools = body["result"]["tools"].as_array().unwrap();
-    // Total = 11 core (incl. jobs.get_status #319 + jobs.cleanup #328) + 40 registered = 51; first page = 32.
+    // Total = 14 core (11 + register_tool/deregister_tool/list_dynamic_tools #462) + 40 registered = 54; first page = 32.
     assert_eq!(
         tools.len(),
         TOOLS_LIST_PAGE_SIZE,
@@ -115,8 +115,8 @@ pub async fn test_tools_list_pagination_second_page() {
         .await
         .json();
     let tools2 = r2["result"]["tools"].as_array().unwrap();
-    // 51 - 32 = 19 tools on second page
-    assert_eq!(tools2.len(), 51 - TOOLS_LIST_PAGE_SIZE);
+    // 54 - 32 = 22 tools on second page
+    assert_eq!(tools2.len(), 54 - TOOLS_LIST_PAGE_SIZE);
     assert!(
         r2["result"]["nextCursor"].is_null(),
         "Last page must not have nextCursor"
@@ -152,7 +152,7 @@ pub async fn test_tools_list_all_pages_no_duplicates() {
         }
     }
 
-    assert_eq!(all_names.len(), 51, "All pages must cover exactly 51 tools");
+    assert_eq!(all_names.len(), 54, "All pages must cover exactly 54 tools");
     let unique: std::collections::HashSet<_> = all_names.iter().collect();
     assert_eq!(unique.len(), all_names.len(), "No duplicates across pages");
 }

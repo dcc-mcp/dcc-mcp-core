@@ -208,9 +208,9 @@ pub async fn test_load_skill_registers_tools() {
 
     let body2: Value = resp2.json();
     let tools = body2["result"]["tools"].as_array().unwrap();
-    // 11 core meta-tools (incl. jobs.get_status #319 + jobs.cleanup #328)
-    // + 2 skill tools = 13
-    assert_eq!(tools.len(), 13);
+    // 14 core meta-tools (11 + register_tool/deregister_tool/list_dynamic_tools #462)
+    // + 2 skill tools = 16
+    assert_eq!(tools.len(), 16);
     let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     // #307: bare names when unique within the instance.
     assert!(names.contains(&"bevel"));
@@ -290,9 +290,9 @@ pub async fn test_unload_skill_removes_tools() {
 
     let body2: Value = resp2.json();
     let tools = body2["result"]["tools"].as_array().unwrap();
-    // Back to 11 core meta-tools (incl. jobs.get_status #319 + jobs.cleanup
-    // #328) + 1 unloaded skill stub = 12
-    assert_eq!(tools.len(), 12);
+    // Back to 14 core meta-tools (11 + register_tool/deregister_tool/list_dynamic_tools #462)
+    // + 1 unloaded skill stub = 15
+    assert_eq!(tools.len(), 15);
     let stub = tools
         .iter()
         .find(|t| t["name"] == "__skill__modeling-bevel")

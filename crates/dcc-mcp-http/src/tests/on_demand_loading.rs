@@ -47,6 +47,10 @@ pub async fn test_tools_list_no_full_schemas_before_load() {
                 | "search_tools"
                 | "jobs.get_status"
                 | "jobs.cleanup"
+                // Dynamic tool management (issue #462)
+                | "register_tool"
+                | "deregister_tool"
+                | "list_dynamic_tools"
         );
         let is_stub = name.starts_with("__skill__") || name.starts_with("__group__");
 

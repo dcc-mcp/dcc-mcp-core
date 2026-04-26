@@ -22,7 +22,7 @@ pub async fn test_tools_list() {
     resp.assert_status_ok();
     let body: Value = resp.json();
     let tools = body["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.len(), 13);
+    assert_eq!(tools.len(), 16); // 14 core (11 + register_tool/deregister_tool/list_dynamic_tools #462) + 2 registered
     let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
     assert!(names.contains(&"get_scene_info"));
     assert!(names.contains(&"list_objects"));
