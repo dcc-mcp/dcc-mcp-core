@@ -707,6 +707,10 @@ class TestMcpServerHandleDeep:
             "search_tools",
             "jobs.get_status",
             "jobs.cleanup",
+            # Dynamic tool management (issue #462)
+            "register_tool",
+            "deregister_tool",
+            "list_dynamic_tools",
         }
         assert not any(t for t in tools if t["name"] not in core_tools)
         handle.shutdown()

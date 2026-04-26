@@ -43,6 +43,10 @@ CORE_TOOLS = frozenset(
         "search_tools",
         "jobs.get_status",
         "jobs.cleanup",
+        # Dynamic tool management (issue #462)
+        "register_tool",
+        "deregister_tool",
+        "list_dynamic_tools",
     }
 )
 
