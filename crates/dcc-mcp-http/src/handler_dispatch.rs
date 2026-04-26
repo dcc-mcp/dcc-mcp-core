@@ -321,6 +321,18 @@ pub(crate) async fn handle_tools_list(
         }
     }
 
+    // 4. Session-scoped dynamic tools (issue #462).
+    //    These are intentionally excluded from the tool-list cache because
+    //    they are session-specific and may change independently of the
+    //    registry generation counter.
+    if let Some(sid) = session_id {
+        let dynamic = state.sessions.dynamic_tools_for_list(sid);
+        tools.extend(dynamic);
+    }
+
+    // Recalculate total after dynamic tools are appended (they are not cached).
+    let total = tools.len();
+
     // Cursor pagination
     let cursor: usize = req
         .params

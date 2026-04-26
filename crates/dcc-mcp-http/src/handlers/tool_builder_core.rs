@@ -411,5 +411,9 @@ pub fn build_core_tools_inner() -> Vec<McpTool> {
                 meta: None,
             }
         },
+        // Dynamic tool management (issue #462).
+        crate::dynamic_tools::build_register_tool_descriptor(),
+        crate::dynamic_tools::build_deregister_tool_descriptor(),
+        crate::dynamic_tools::build_list_dynamic_tools_descriptor(),
     ]
 }

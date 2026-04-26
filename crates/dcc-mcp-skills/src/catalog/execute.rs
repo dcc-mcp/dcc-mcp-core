@@ -120,7 +120,25 @@ getattr(_mod, "__mcp_result__", {"success": True, "message": ""})
         py_any_to_json_value(&result_obj).map_err(|e| format!("result → JSON: {e}"))
     })
     .ok_or_else(|| {
-        format!("Python interpreter not attached; cannot execute '{script_path}' in-process")
+        // Distinguish between "Python not initialized at all" and
+        // "initialized but GIL not held / wrong thread".
+        let initialized = unsafe { pyo3::ffi::Py_IsInitialized() } != 0;
+        if initialized {
+            format!(
+                "Python interpreter is initialized but the GIL is not held; \
+                 cannot execute '{script_path}' in-process. \
+                 Hint: ensure you are calling this from the main Python thread \
+                 or that the in-process executor is registered via \
+                 SkillCatalog::with_in_process_executor."
+            )
+        } else {
+            format!(
+                "Python interpreter is not initialized in this process; \
+                 cannot execute '{script_path}' in-process. \
+                 Hint: when running inside a DCC, register an in-process executor \
+                 via SkillCatalog::with_in_process_executor."
+            )
+        }
     })
     .and_then(|r| r)
 }
@@ -227,6 +245,35 @@ const DCC_NAMES_REQUIRING_HOST_PYTHON: &[&str] = &[
     "motionbuilder",
 ];
 
+/// Known DCC GUI executable names (case-insensitive).  Used to detect
+/// when `DCC_MCP_PYTHON_EXECUTABLE` has been mistakenly pointed at a
+/// GUI binary instead of the headless interpreter.
+const DCC_GUI_EXECUTABLES: &[&str] = &[
+    "maya",
+    "maya.exe",
+    "maya.bin",
+    "blender",
+    "blender.exe",
+    "houdini",
+    "houdini.exe",
+    "houdinifx",
+    "houdinicore",
+    "3dsmax",
+    "3dsmax.exe",
+    "nuke",
+    "nuke.exe",
+    "nukestudio",
+    "modo",
+    "modo.exe",
+    "motionbuilder",
+    "motionbuilder.exe",
+    "cinema4d",
+    "cinema4d.exe",
+    "c4d",
+    "katana",
+    "katana.exe",
+];
+
 pub(crate) fn execute_script(
     script_path: &str,
     params: serde_json::Value,
@@ -282,6 +329,29 @@ pub(crate) fn execute_script(
                      See issue #231 for the contract."
                 );
                 tracing::error!(target: "dcc_mcp_skills::execute", %dcc, "{}", msg);
+                return Err(msg);
+            }
+        }
+    }
+
+    // Guard against accidentally pointing DCC_MCP_PYTHON_EXECUTABLE at a GUI
+    // executable (e.g. maya.exe, Maya, blender.exe).  Spawning a GUI as a
+    // Python interpreter will open a second DCC window instead of running the
+    // skill script.
+    if let Some(ref exe) = python_exe_override {
+        if let Some(stem) = std::path::Path::new(exe)
+            .file_stem()
+            .and_then(|s| s.to_str())
+        {
+            let stem_lc = stem.to_lowercase();
+            if DCC_GUI_EXECUTABLES.iter().any(|g| g == &stem_lc.as_str()) {
+                let msg = format!(
+                    "DCC_MCP_PYTHON_EXECUTABLE points to a GUI executable '{exe}' ({stem}). \
+                     This will spawn a new DCC window instead of running the skill script. \
+                     Use the command-line interpreter (e.g. mayapy, blender --python, hython) \
+                     or leave DCC_MCP_PYTHON_EXECUTABLE unset to use the in-process executor."
+                );
+                tracing::error!(target: "dcc_mcp_skills::execute", exe, "{}", msg);
                 return Err(msg);
             }
         }

@@ -788,6 +788,117 @@ fn test_execute_script_no_dcc_hint_does_not_trigger_check() {
     }
 }
 
+#[test]
+fn test_execute_script_rejects_gui_executable_maya_exe() {
+    let _g = ExecEnvGuard::new();
+    unsafe { std::env::set_var("DCC_MCP_PYTHON_EXECUTABLE", "maya.exe") };
+
+    let result = execute_script("any_skill.py", serde_json::json!({}), None);
+    let err =
+        result.expect_err("must fail when DCC_MCP_PYTHON_EXECUTABLE points to a GUI executable");
+    assert!(
+        err.contains("GUI executable"),
+        "error must mention GUI executable: got {err}"
+    );
+    assert!(
+        err.contains("maya.exe"),
+        "error must mention the offending executable: got {err}"
+    );
+}
+
+#[test]
+fn test_execute_script_rejects_gui_executable_case_insensitive() {
+    let _g = ExecEnvGuard::new();
+    unsafe {
+        std::env::set_var(
+            "DCC_MCP_PYTHON_EXECUTABLE",
+            "/usr/autodesk/maya2024/bin/Maya",
+        )
+    };
+
+    let err = execute_script("any_skill.py", serde_json::json!({}), None)
+        .expect_err("must fail for GUI executable regardless of case");
+    assert!(
+        err.contains("GUI executable"),
+        "error must mention GUI executable: got {err}"
+    );
+}
+
+#[test]
+fn test_execute_script_rejects_gui_executable_blender() {
+    let _g = ExecEnvGuard::new();
+    unsafe { std::env::set_var("DCC_MCP_PYTHON_EXECUTABLE", "blender") };
+
+    let err = execute_script("any_skill.py", serde_json::json!({}), None)
+        .expect_err("must fail for blender GUI executable");
+    assert!(
+        err.contains("GUI executable"),
+        "error must mention GUI executable: got {err}"
+    );
+}
+
+#[test]
+fn test_execute_script_allows_headless_interpreter() {
+    let _g = ExecEnvGuard::new();
+    // mayapy is the headless Maya interpreter — must NOT trigger the GUI guard
+    unsafe { std::env::set_var("DCC_MCP_PYTHON_EXECUTABLE", "mayapy") };
+
+    let result = execute_script("/does/not/exist.py", serde_json::json!({}), None);
+    if let Err(err) = result {
+        assert!(
+            !err.contains("GUI executable"),
+            "headless interpreter must not trigger GUI guard: got {err}"
+        );
+    }
+}
+
+#[test]
+fn test_execute_script_allows_hython() {
+    let _g = ExecEnvGuard::new();
+    // hython is Houdini's headless interpreter
+    unsafe { std::env::set_var("DCC_MCP_PYTHON_EXECUTABLE", "hython") };
+
+    let result = execute_script("/does/not/exist.py", serde_json::json!({}), None);
+    if let Err(err) = result {
+        assert!(
+            !err.contains("GUI executable"),
+            "hython must not trigger GUI guard: got {err}"
+        );
+    }
+}
+
+// ── execute_script_in_process diagnostics (requires python-bindings) ────────
+
+#[cfg(feature = "python-bindings")]
+#[test]
+fn test_execute_script_in_process_not_initialized() {
+    // In a standard `cargo test` process Python is not initialized,
+    // so `Py_IsInitialized` returns 0 and we should get the "not initialized" message.
+    let result =
+        super::execute::execute_script_in_process("/fake/script.py", serde_json::json!({}));
+    let err = result.expect_err("must fail when Python is not initialized");
+    assert!(
+        err.contains("not initialized"),
+        "error must mention 'not initialized': got {err}"
+    );
+    assert!(
+        err.contains("SkillCatalog::with_in_process_executor"),
+        "error must hint at in-process executor registration: got {err}"
+    );
+}
+
+#[cfg(feature = "python-bindings")]
+#[test]
+fn test_execute_script_in_process_error_includes_script_path() {
+    let result =
+        super::execute::execute_script_in_process("/path/to/my_skill.py", serde_json::json!({}));
+    let err = result.expect_err("must fail");
+    assert!(
+        err.contains("my_skill.py"),
+        "error must include the script path: got {err}"
+    );
+}
+
 // ── Unified `search_skills` (issue #340) ──────────────────────────────────
 
 /// Insert a skill at an explicit [`SkillScope`] — test-only helper.

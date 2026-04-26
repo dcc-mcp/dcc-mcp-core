@@ -17,6 +17,7 @@ use std::time::Instant;
 use tokio::sync::broadcast;
 use uuid::Uuid;
 
+use crate::dynamic_tools::SessionDynamicTools;
 use crate::protocol::{ClientRoot, McpTool};
 
 /// Maximum number of recent log messages retained per session.
@@ -131,6 +132,11 @@ pub struct McpSession {
     /// when the registry generation changes (skill load/unload, group
     /// activation/deactivation).
     pub tool_list_snapshot: Option<ToolListSnapshot>,
+    /// Session-scoped dynamically registered tools (issue #462).
+    ///
+    /// Tools in this registry are visible only to this session and are
+    /// automatically discarded when the session expires.
+    pub dynamic_tools: SessionDynamicTools,
 }
 
 impl Default for McpSession {
@@ -155,6 +161,7 @@ impl McpSession {
             sse_tx,
             last_active: Instant::now(),
             tool_list_snapshot: None,
+            dynamic_tools: SessionDynamicTools::new(),
         }
     }
 
@@ -478,5 +485,27 @@ impl SessionManager {
     /// holding a shard lock.
     pub fn all_ids(&self) -> Vec<String> {
         self.sessions.iter().map(|e| e.key().clone()).collect()
+    }
+
+    /// Apply `f` to the session's [`SessionDynamicTools`] and return its result.
+    ///
+    /// Returns `None` if the session does not exist.
+    pub fn with_dynamic_tools_mut<F, T>(&self, session_id: &str, f: F) -> Option<T>
+    where
+        F: FnOnce(&mut crate::dynamic_tools::SessionDynamicTools) -> T,
+    {
+        self.sessions
+            .get_mut(session_id)
+            .map(|mut s| f(&mut s.dynamic_tools))
+    }
+
+    /// Build a `Vec<McpTool>` from the session's dynamic tools.
+    ///
+    /// Returns an empty vec if the session does not exist.
+    pub fn dynamic_tools_for_list(&self, session_id: &str) -> Vec<crate::protocol::McpTool> {
+        self.sessions
+            .get_mut(session_id)
+            .map(|mut s| s.dynamic_tools.to_mcp_tools())
+            .unwrap_or_default()
     }
 }

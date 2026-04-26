@@ -80,6 +80,14 @@ from dcc_mcp_core._core import McpHttpConfig
 from dcc_mcp_core._core import McpHttpServer
 from dcc_mcp_core._core import McpServerHandle
 from dcc_mcp_core._core import ObjectTransform
+
+# DCC output capture — expose stdout/stderr/script-editor as output:// resource (issue #461).
+# Only present after the wheel is rebuilt with the new dcc-mcp-http code.
+try:
+    from dcc_mcp_core._core import OutputCapture  # type: ignore[attr-defined]
+except ImportError:  # pragma: no cover — pre-built wheel
+    OutputCapture = None  # type: ignore[assignment,misc]
+
 from dcc_mcp_core._core import PromptArgument
 from dcc_mcp_core._core import PromptDefinition
 
@@ -139,6 +147,13 @@ from dcc_mcp_core._core import TimingMiddleware
 from dcc_mcp_core._core import ToolAnnotations
 from dcc_mcp_core._core import ToolDeclaration
 from dcc_mcp_core._core import ToolDefinition
+
+# Dynamic tool registration — agent-defined ephemeral tools (issue #462).
+# Only present after the wheel is rebuilt with the new dcc-mcp-http code.
+try:
+    from dcc_mcp_core._core import ToolSpec  # type: ignore[attr-defined]
+except ImportError:  # pragma: no cover — pre-built wheel
+    ToolSpec = None  # type: ignore[assignment,misc]
 
 # Telemetry
 from dcc_mcp_core._core import ToolDispatcher
@@ -470,6 +485,7 @@ __all__ = [
     "McpServerHandle",
     "OAuthConfig",
     "ObjectTransform",
+    "OutputCapture",
     "PluginManifest",
     "PromptArgument",
     "PromptDefinition",
@@ -533,6 +549,7 @@ __all__ = [
     "ToolRecorder",
     "ToolRegistry",
     "ToolResult",
+    "ToolSpec",
     "ToolValidator",
     "TransportAddress",
     "TransportScheme",

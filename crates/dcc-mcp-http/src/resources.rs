@@ -174,6 +174,23 @@ impl ResourceRegistry {
         self.inner.producers.write().push(producer);
     }
 
+    /// Register an [`crate::output::OutputBuffer`] as an `output://` resource.
+    ///
+    /// This is a convenience wrapper around [`Self::add_producer`] for the
+    /// common case where a DCC adapter wants to expose its captured output
+    /// to MCP clients (issue #461).
+    ///
+    /// ```rust,no_run
+    /// # use dcc_mcp_http::{ResourceRegistry, output::OutputBuffer};
+    /// let registry = ResourceRegistry::new(true, false);
+    /// let buf = OutputBuffer::new("maya-001");
+    /// registry.register_output_buffer(buf.clone());
+    /// // Now output://instance/maya-001 appears in resources/list.
+    /// ```
+    pub fn register_output_buffer(&self, buffer: crate::output::OutputBuffer) {
+        self.add_producer(Arc::new(crate::output::OutputResourceProducer::new(buffer)));
+    }
+
     /// Publish a new scene snapshot for `scene://current`.
     ///
     /// Fires `notifications/resources/updated` for subscribed clients.

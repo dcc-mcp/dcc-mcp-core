@@ -40,6 +40,7 @@
 
 pub mod bridge_registry;
 pub mod config;
+pub mod dynamic_tools;
 pub mod error;
 pub mod executor;
 pub mod gateway;
@@ -49,6 +50,7 @@ pub mod inflight;
 pub mod job;
 pub mod job_storage;
 pub mod notifications;
+pub mod output;
 pub mod prompts;
 pub mod protocol;
 pub mod resource_link;
@@ -66,6 +68,7 @@ pub mod python;
 // Re-exports
 pub use bridge_registry::{BridgeContext, BridgeRegistry};
 pub use config::{McpHttpConfig, ServerSpawnMode};
+pub use dynamic_tools::{DYNAMIC_TOOL_PREFIX, DynamicToolError, SessionDynamicTools, ToolSpec};
 pub use error::{HttpError, HttpResult};
 pub use executor::{DccExecutorHandle, DeferredExecutor};
 pub use gateway::{GatewayConfig, GatewayHandle, GatewayRunner};
@@ -74,6 +77,7 @@ pub use job::{Job, JobEvent, JobManager, JobProgress, JobStatus, JobSubscriber};
 pub use job_storage::SqliteStorage;
 pub use job_storage::{InMemoryStorage, JobFilter, JobStorage, JobStorageError};
 pub use notifications::{JobNotifier, WorkflowProgress, WorkflowUpdate};
+pub use output::{OutputBuffer, OutputCapture, OutputEntry, OutputStream};
 pub use prompts::{
     PromptArgumentSpec, PromptEntry, PromptError, PromptRegistry, PromptResult, PromptSource,
     PromptSpec, PromptsSpec, WorkflowPromptRef, render_template,
