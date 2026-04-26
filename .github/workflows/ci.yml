@@ -61,7 +61,10 @@ jobs:
         with:
           key: tarpaulin
       - name: Install cargo-tarpaulin
-        run: cargo install cargo-tarpaulin --locked
+        # --locked pinned to tarpaulin's own Cargo.lock which pulls in
+        # cargo-platform@0.3.3 (requires rustc 1.91). Drop --locked so cargo
+        # resolves a compatible version for the current stable toolchain.
+        run: cargo install cargo-tarpaulin
       - name: Run Rust coverage
         run: vx just rust-cov
       - name: Upload Rust coverage to Codecov
