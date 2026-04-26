@@ -187,10 +187,15 @@ pub struct McpHttpConfig {
     /// Per-backend request timeout (milliseconds) used by the gateway when
     /// fanning out `tools/list` / `tools/call` to live DCC instances.
     ///
-    /// Default: `10_000` (10 seconds). Increase for DCC workflows that
-    /// routinely produce long-running calls (e.g. heavy scene import,
-    /// simulation bake) so the gateway does not reply with a transport
-    /// timeout error while the backend is still legitimately working.
+    /// Default: `120_000` (120 seconds / 2 minutes). DCC scene operations
+    /// (mesh import, simulation bake, render, complex keyframe setup) regularly
+    /// take tens of seconds. The previous default of 10 s caused the gateway to
+    /// cancel legitimate tool calls while the backend was still working, logging
+    /// "tool call cancelled cooperatively" on the DCC side at exactly 10 s.
+    ///
+    /// For truly long-running operations (renders, heavy simulations) prefer
+    /// async dispatch (`_meta.dcc.async = true`) which returns a `job_id`
+    /// immediately and lets the client poll via `jobs.get_status`.
     ///
     /// Only the gateway fan-out uses this value — per-instance servers
     /// bound to a DCC execute inline and are governed by
@@ -407,7 +412,7 @@ impl McpHttpConfig {
             bare_tool_names: true,
             spawn_mode: ServerSpawnMode::Ambient,
             self_probe_timeout_ms: 200,
-            backend_timeout_ms: 10_000,
+            backend_timeout_ms: 120_000,
             gateway_async_dispatch_timeout_ms: 60_000,
             gateway_wait_terminal_timeout_ms: 600_000,
             gateway_route_ttl_secs: 60 * 60 * 24,

@@ -289,6 +289,7 @@ fn test_skill_metadata_serde_round_trip() {
         groups: Vec::new(),
         legacy_extension_fields: Vec::new(),
         prompts_file: None,
+        layer: Some("domain".to_string()),
     };
     let json = serde_json::to_string(&meta).unwrap();
     let back: SkillMetadata = serde_json::from_str(&json).unwrap();

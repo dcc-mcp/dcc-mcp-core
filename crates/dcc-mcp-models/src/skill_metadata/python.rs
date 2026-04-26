@@ -57,6 +57,7 @@ impl SkillMetadata {
             groups: Vec::new(),
             legacy_extension_fields: Vec::new(),
             prompts_file: None,
+            layer: None,
         }
     }
 
@@ -311,6 +312,16 @@ impl SkillMetadata {
     #[getter]
     fn legacy_extension_fields(&self) -> Vec<String> {
         self.legacy_extension_fields.clone()
+    }
+
+    #[getter]
+    fn layer(&self) -> Option<String> {
+        self.layer.clone()
+    }
+
+    #[setter]
+    fn set_layer(&mut self, value: Option<String>) {
+        self.layer = value;
     }
 
     #[pyo3(name = "required_capabilities")]

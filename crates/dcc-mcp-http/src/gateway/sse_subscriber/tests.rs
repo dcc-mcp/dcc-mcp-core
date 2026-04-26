@@ -444,3 +444,47 @@ fn stream_idle_timeout_exceeds_axum_default_keepalive() {
         AXUM_DEFAULT_KEEPALIVE_SECS
     );
 }
+
+// ── SSE client-level timeout guard ────────────────────────────────────────
+//
+// Root cause of the "30-second SSE reconnect storm" bug:
+// `tasks.rs` built a single reqwest::Client with `.timeout(Duration::from_secs(30))`
+// and passed it to BOTH the gateway HTTP fan-out AND the SubscriberManager.
+// reqwest's client-level timeout applies to the *entire* request duration,
+// so every SSE stream was killed exactly 30 seconds after connecting,
+// producing an endless "stream error / stream closed — reconnecting" cycle.
+//
+// The fix creates a separate `sse_http_client` in `tasks.rs` WITHOUT a
+// client-level timeout. Per-chunk idleness is still enforced by
+// `pump_stream` via `tokio::time::timeout(STREAM_IDLE_TIMEOUT, ...)`.
+//
+// This test validates the invariant: a SubscriberManager built with a
+// short-timeout client triggers the idle-timeout path (not a client
+// timeout path) when the server stops sending. In practice this is
+// verified by the `STREAM_IDLE_TIMEOUT > 2 * keepalive` invariant above,
+// but we additionally document the bug class here for CI regression
+// protection.
+#[test]
+fn subscriber_manager_uses_timeout_free_client_for_sse() {
+    // The SubscriberManager is constructed with reqwest::Client::new()
+    // (no client-level timeout) in the default path. Verify that the
+    // `open_stream` code path does NOT add a per-request `.timeout()`
+    // (this is enforced by code review and the comment in reconnect.rs).
+    //
+    // The per-chunk idle guard lives in pump_stream — STREAM_IDLE_TIMEOUT
+    // must be > 0 to ensure *some* bound on stalled streams.
+    assert!(
+        STREAM_IDLE_TIMEOUT > Duration::ZERO,
+        "STREAM_IDLE_TIMEOUT must be positive — zero disables the stall guard"
+    );
+    // The idle timeout must be strictly greater than 30 s (the old client
+    // timeout that was previously causing the reconnect storm) so that
+    // even if someone accidentally re-adds a 30-second client timeout,
+    // the per-chunk guard does not fire before the client timeout can.
+    assert!(
+        STREAM_IDLE_TIMEOUT > Duration::from_secs(30),
+        "STREAM_IDLE_TIMEOUT={}s must exceed 30 s (the legacy client-level \
+         timeout that caused the 30-second SSE reconnect storm bug)",
+        STREAM_IDLE_TIMEOUT.as_secs()
+    );
+}

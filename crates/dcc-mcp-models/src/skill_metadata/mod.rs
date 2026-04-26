@@ -241,6 +241,26 @@ pub struct SkillMetadata {
     /// scan / load time.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompts_file: Option<String>,
+
+    /// Architectural layer for skill routing and search partitioning.
+    ///
+    /// Set from `metadata.dcc-mcp.layer` in SKILL.md frontmatter. Valid values:
+    ///
+    /// - `"infrastructure"` — low-level mechanism skill (diagnostics, scripting,
+    ///   scene I/O). Not intended as the final answer to user intent; use when
+    ///   the domain skill's `on-failure` chain calls it.
+    /// - `"domain"` — intent-oriented skill mapping user workflows to DCC calls
+    ///   (geometry, animation, lighting, rendering). This is the primary entry
+    ///   point for AI agents.
+    /// - `"example"` — authoring reference or tutorial skill; not for production.
+    ///
+    /// Unset (`None`) is allowed for backward compatibility; tools that need to
+    /// filter by layer treat `None` as "any layer".
+    ///
+    /// See `skills/README.md#skill-layering` and `AGENTS.md` for the layering
+    /// rules that govern description prefixes and `search-hint` partitioning.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layer: Option<String>,
 }
 
 mod execution;

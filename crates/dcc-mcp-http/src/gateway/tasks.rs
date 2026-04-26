@@ -48,12 +48,27 @@ pub(crate) async fn start_gateway_tasks(
     let (events_tx, _) = broadcast::channel::<String>(128);
     let events_tx = Arc::new(events_tx);
 
-    // ── Shared HTTP client for backend fan-out ─────────────────────────────
+    // ── Shared HTTP client for backend fan-out (JSON-RPC calls) ───────────
     // Reused by both the tools-list watcher task and the facade /mcp handler
     // via GatewayState so connection pooling is shared across all consumers.
+    // A 30-second timeout is appropriate for regular request/response calls.
     let http_client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
         .build()?;
+
+    // ── Separate HTTP client for the backend SSE subscriber (issue #TODO) ──
+    // MUST NOT have a client-level timeout. reqwest's `.timeout()` applies to
+    // the *entire* request including the streaming response body, so a 30-second
+    // client timeout would kill every long-lived SSE connection exactly 30 s
+    // after it was established — producing the recurring "error decoding response
+    // body / stream closed — reconnecting" log storm seen in production.
+    //
+    // The per-chunk idle timeout is enforced inside `pump_stream` via
+    // `tokio::time::timeout(STREAM_IDLE_TIMEOUT, ...)` on each chunk read
+    // (currently 60 s), which correctly keeps the stream alive through
+    // normal server-side SSE keep-alive heartbeats while still failing fast
+    // when the backend goes genuinely silent.
+    let sse_http_client = reqwest::Client::builder().build()?;
 
     // ── Stale cleanup + sentinel heartbeat + dead-PID pruning (every 15 s) ─
     //
@@ -211,8 +226,10 @@ pub(crate) async fn start_gateway_tasks(
     // ── Backend SSE subscriber manager (#320) ─────────────────────────────
     // Multiplexes per-backend SSE notifications back to originating client
     // sessions. Each `ensure_subscribed` spawns a reconnecting task.
+    // Uses `sse_http_client` (no client-level timeout) so the long-lived
+    // SSE streams are not killed by a 30-second request timeout.
     let subscriber = sse_subscriber::SubscriberManager::with_limits(
-        http_client.clone(),
+        sse_http_client,
         route_ttl,
         max_routes_per_session,
     );

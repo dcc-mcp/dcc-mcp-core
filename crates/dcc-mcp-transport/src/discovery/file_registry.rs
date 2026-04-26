@@ -106,7 +106,10 @@ impl FileRegistry {
         if let Err(e) = self.load_from_file() {
             tracing::warn!("FileRegistry hot-reload failed: {}", e);
         } else {
-            tracing::debug!("FileRegistry hot-reloaded from disk");
+            // Downgraded to TRACE: hot-reload fires every heartbeat_secs (default 5 s)
+            // because each DCC instance updates services.json on every heartbeat.
+            // DEBUG level produces excessive log noise in production.
+            tracing::trace!("FileRegistry hot-reloaded from disk");
         }
         Ok(())
     }
