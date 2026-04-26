@@ -40,7 +40,9 @@ serde_yaml_ng = { workspace = true }
 tokio-util = { version = "0.7", features = ["rt"] }
 
 # HTTP server
-axum = { version = "0.8", features = ["http1", "http2", "tokio"] }
+# MCP Streamable HTTP uses HTTP/1.1 SSE; http2 is not required and pulls in
+# the heavy `h2` crate — keep it disabled for faster builds.
+axum = { version = "0.8", features = ["http1", "tokio"] }
 tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.6", features = ["cors", "trace"] }
 http = "1.0"

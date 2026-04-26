@@ -15,7 +15,6 @@ publish = false
 
 ### BEGIN HAKARI SECTION
 [dependencies]
-axum = { version = "0.8.9", features = ["http2"] }
 chrono = { version = "0.4.44", features = ["serde"] }
 clap = { version = "4.6.1", features = ["derive", "env"] }
 clap_builder = { version = "4.6.0", default-features = false, features = ["color", "env", "help", "std", "suggestions", "usage"] }
@@ -27,7 +26,7 @@ futures-executor = { version = "0.3.32" }
 futures-task = { version = "0.3.32", default-features = false, features = ["std"] }
 futures-util = { version = "0.3.32", features = ["channel", "io", "sink"] }
 hyper = { version = "1.9.0", features = ["client", "http1", "http2", "server"] }
-hyper-util = { version = "0.1.20", features = ["client-legacy", "http1", "http2", "server", "service"] }
+hyper-util = { version = "0.1.20", features = ["client-legacy", "http1", "server", "service"] }
 log = { version = "0.4.29", default-features = false, features = ["std"] }
 memchr = { version = "2.8.0" }
 num-bigint = { version = "0.4.6" }

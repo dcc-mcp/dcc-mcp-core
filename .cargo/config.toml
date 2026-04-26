@@ -13,11 +13,21 @@ lto = false
 split-debuginfo = "packed"
 
 [profile.test]
-# Speed up test builds
+# Speed up test builds: fewer codegen units + line-tables-only debug info.
+# Full DWARF (debug=2) is not needed to run tests; line tables are sufficient
+# for backtraces. On Windows this shrinks per-binary .pdb files ~70%, which
+# cuts link time significantly.
 codegen-units = 16
+debug = 1
 
 [profile.dev]
+# debug=1 (line-tables-only): strips type/variable metadata but keeps file:line
+# info for backtraces. Reduces PDB/DWARF by ~70% which speeds up the linker.
+# Use `debug = 2` (or `CARGO_PROFILE_DEV_DEBUG=2`) when you need full
+# variable inspection in a debugger.
+debug = 1
 # macOS: "packed" avoids dsymutil which is the #1 macOS link bottleneck.
+# Windows/Linux: ignored.
 split-debuginfo = "packed"
 
 # ── Compiler cache (sccache) ────────────────────────────────────────────────

@@ -29,7 +29,8 @@ anyhow.workspace = true
 tokio-tungstenite.workspace = true
 futures-util.workspace = true
 reqwest.workspace = true
-axum = { version = "0.8", features = ["http1", "http2", "tokio"] }
+# MCP Streamable HTTP uses HTTP/1.1 SSE only; http2 feature removed to avoid h2 crate.
+axum = { version = "0.8", features = ["http1", "tokio"] }
 tower-http = { version = "0.6", features = ["cors", "trace"] }
 clap = { version = "4", features = ["derive", "env"] }
 sysinfo.workspace = true

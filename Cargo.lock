@@ -5300,7 +5300,6 @@ dependencies = [
 name = "workspace-hack"
 version = "0.1.0"
 dependencies = [
- "axum",
  "bitflags 2.11.1",
  "cc",
  "chrono",
