@@ -42,6 +42,35 @@ repos:
         pass_filenames: false
         stages: [pre-push]
 
+  # workspace-hack maintenance (cargo-hakari)
+  # cargo-hakari speeds up workspace builds by unifying feature flags across
+  # all crates. The generated crates/workspace-hack/Cargo.toml must be kept
+  # in sync whenever Cargo.toml or Cargo.lock changes, otherwise CI fails with
+  # "satisfies path dependency `workspace-hack` … versions that meet the
+  # requirements `^X.Y.Z` are: …" (version mismatch caused by stale hakari output).
+  #
+  # Two-stage guard:
+  #   pre-commit — auto-regenerates workspace-hack whenever Cargo files change.
+  #                If hakari updates the file, pre-commit aborts the commit so
+  #                you can `git add crates/workspace-hack/Cargo.toml` and retry.
+  #   pre-push   — verifies that the committed workspace-hack is still correct;
+  #                last-resort safety net before the branch reaches CI.
+  - repo: local
+    hooks:
+      - id: cargo-hakari-generate
+        name: cargo hakari generate (workspace-hack sync)
+        entry: cargo hakari generate
+        language: system
+        pass_filenames: false
+        files: ^(Cargo\.(toml|lock)|crates/[^/]+/Cargo\.toml)$
+        stages: [pre-commit]
+      - id: cargo-hakari-verify
+        name: cargo hakari verify (workspace-hack up-to-date)
+        entry: cargo hakari verify
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+
   # Docs dead-link check (pre-push only — requires npm ci)
   - repo: local
     hooks:

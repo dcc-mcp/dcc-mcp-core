@@ -35,6 +35,10 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           key: preflight
+      - name: Install cargo-hakari
+        run: cargo install cargo-hakari --locked
+      - name: Verify workspace-hack is up to date
+        run: cargo hakari verify
       - name: Preflight (check + clippy + fmt + test)
         run: vx just preflight
 
