@@ -31,12 +31,23 @@ pub async fn route_tools_call(
 
     // ── Prefixed backend tool ───────────────────────────────────────────
     let Some((prefix, original)) = decode_tool_name(tool) else {
-        return (
+        // Detect the common "skill__toolname" internal-format mistake and emit
+        // a targeted hint instead of the generic "Unknown tool" message.
+        let hint = if tool.contains("__") {
             format!(
-                "Unknown tool: {tool}. Call list_dcc_instances or search_skills to discover tools."
-            ),
-            true,
-        );
+                "Unknown tool: '{tool}'. \
+                 '{tool}' looks like an internal action name (double-underscore format). \
+                 Gateway tools are published as '{{id8}}.{{bare_name}}' (e.g. 'a1b2c3d.execute_python'). \
+                 Call tools/list to discover the exact names, or use search_skills to find the right tool."
+            )
+        } else {
+            format!(
+                "Unknown tool: '{tool}'. \
+                 Call tools/list (or search_skills) to discover available tool names. \
+                 Gateway tools use the form '{{id8}}.{{tool_name}}'."
+            )
+        };
+        return (hint, true);
     };
 
     let Some(entry) = find_instance_by_prefix(gs, prefix).await else {
