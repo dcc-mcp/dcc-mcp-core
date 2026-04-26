@@ -11,6 +11,36 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.14.14](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.13...v0.14.14) (2026-04-26)
+
+
+### Features
+
+* implement dynamic tool registration ([#462](https://github.com/loonghao/dcc-mcp-core/issues/462)) and output:// resource ([#461](https://github.com/loonghao/dcc-mcp-core/issues/461)) ([835c156](https://github.com/loonghao/dcc-mcp-core/commit/835c156286a7c91012688ee6940e8439ef6bb9cd))
+* **skills:** add accumulated evolved skills discovery and persistence ([f8a449e](https://github.com/loonghao/dcc-mcp-core/commit/f8a449e696fe8d27cd9a663b0a7f128482c16b81))
+
+
+### Bug Fixes
+
+* **ci:** drop --locked from cargo-tarpaulin install to allow rustc 1.90 compatible deps ([c46a98f](https://github.com/loonghao/dcc-mcp-core/commit/c46a98f4b2329a6eb2e44118b0c3df61c9576cd1))
+* **ci:** pin cargo-tarpaulin to ~0.31 to avoid cargo-platform 0.3.3 rustc&gt;=1.91 constraint ([2e3049b](https://github.com/loonghao/dcc-mcp-core/commit/2e3049b7c98fb108374cfb80cc0941c252f356b1))
+* **ci:** use nightly toolchain for rust-coverage job to satisfy cargo-tarpaulin rustc&gt;=1.91 requirement ([bd958cf](https://github.com/loonghao/dcc-mcp-core/commit/bd958cf3eace03e3ff017d1a6333b65534011e41))
+* **ci:** use taiki-e/install-action for cargo-tarpaulin ([db78f20](https://github.com/loonghao/dcc-mcp-core/commit/db78f20d37f9c6a5431258e3f63a0d71a8d122ca))
+* commit Cargo.lock and use exact versions in workspace-hack ([913f62c](https://github.com/loonghao/dcc-mcp-core/commit/913f62ce2f1f8d5117ebb5ab7672b69021301067))
+* exclude pyo3 from workspace-hack to fix stubgen build ([df5e34e](https://github.com/loonghao/dcc-mcp-core/commit/df5e34e71338fe4ee1a4e3bd985be12c9c55ae3f))
+* **gateway:** improve 'unknown tool' error message for internal action name format ([699dbb1](https://github.com/loonghao/dcc-mcp-core/commit/699dbb1c9c26ecf5e866ca17e8f3d64a6300a17d))
+* **gateway:** SSE 30s disconnect, tool call cancellation, log noise, and layer metadata ([ee49c87](https://github.com/loonghao/dcc-mcp-core/commit/ee49c874692d04cfc29c3209c8e782bb79d874ac))
+* **tests:** add register_tool/deregister_tool/list_dynamic_tools to Python test core-tool sets ([37001ac](https://github.com/loonghao/dcc-mcp-core/commit/37001acefef7f7ff3a9d0edca55778e205c47de8))
+* **tests:** update backend_timeout_ms assertions from 10s to 120s default ([ccda28c](https://github.com/loonghao/dcc-mcp-core/commit/ccda28c2cd4407bcb1d3fabcb9ad394adc3f2311))
+* **tests:** update tool counts and is_core list for 3 new dynamic-tool methods ([#462](https://github.com/loonghao/dcc-mcp-core/issues/462)) ([04f891a](https://github.com/loonghao/dcc-mcp-core/commit/04f891a52b0487ba7654c4509635965347b87986))
+
+
+### Performance Improvements
+
+* add workspace-hack via cargo-hakari and optimize build speed ([e307411](https://github.com/loonghao/dcc-mcp-core/commit/e307411767beedc59013850305e30e909459ae16))
+* optimize build speed with workspace-hack and macOS fixes ([1e7a4e9](https://github.com/loonghao/dcc-mcp-core/commit/1e7a4e96d6238a6e3afda9a9aff3069eea540df3))
+* reduce dev build time via debug=1, test consolidation, and axum http2 removal ([0102bb6](https://github.com/loonghao/dcc-mcp-core/commit/0102bb603a985de2fbc91915922a867ef7309848))
+
 ## [0.14.13](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.12...v0.14.13) (2026-04-25)
 
 
