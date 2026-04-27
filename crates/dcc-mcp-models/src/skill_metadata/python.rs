@@ -58,6 +58,8 @@ impl SkillMetadata {
             legacy_extension_fields: Vec::new(),
             prompts_file: None,
             layer: None,
+            recipes_file: None,
+            introspection_file: None,
         }
     }
 
