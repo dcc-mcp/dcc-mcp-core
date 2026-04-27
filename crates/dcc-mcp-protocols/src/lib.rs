@@ -22,7 +22,7 @@ pub use bridge::{
 };
 pub use error_envelope::DccMcpError;
 pub use types::{
-    PromptArgument, PromptDefinition, ResourceAnnotations, ResourceDefinition,
+    DEFAULT_MIME_TYPE, PromptArgument, PromptDefinition, ResourceAnnotations, ResourceDefinition,
     ResourceTemplateDefinition, ToolAnnotations, ToolDefinition,
 };
 

@@ -6,7 +6,7 @@ use crate::constants::{
     ENV_LOG_DIR, ENV_LOG_FILE, ENV_LOG_FILE_PREFIX, ENV_LOG_MAX_FILES, ENV_LOG_MAX_SIZE,
     ENV_LOG_ROTATION,
 };
-use dcc_mcp_utils::filesystem::get_log_dir;
+use dcc_mcp_paths::get_log_dir;
 
 use std::io;
 use std::path::PathBuf;

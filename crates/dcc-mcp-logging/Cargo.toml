@@ -14,9 +14,8 @@ pyo3 = { workspace = true, optional = true }
 pyo3-stub-gen = { workspace = true, optional = true }
 pyo3-stub-gen-derive = { workspace = true, optional = true }
 
-# Internal — required for the platform `get_log_dir()` resolver. After
-# issue #485 lands the dependency will swap to `dcc-mcp-paths`.
-dcc-mcp-utils = { workspace = true }
+# Internal — required for the platform `get_log_dir()` resolver.
+dcc-mcp-paths = { workspace = true }
 
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }

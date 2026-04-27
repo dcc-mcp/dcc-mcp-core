@@ -13,6 +13,7 @@ pub use dcc_mcp_capture as capture;
 pub use dcc_mcp_http as http;
 pub use dcc_mcp_models as models;
 pub use dcc_mcp_naming as naming;
+pub use dcc_mcp_paths as paths;
 pub use dcc_mcp_process as process;
 pub use dcc_mcp_protocols as protocols;
 pub use dcc_mcp_sandbox as sandbox;
@@ -21,7 +22,6 @@ pub use dcc_mcp_skills as skills;
 pub use dcc_mcp_telemetry as telemetry;
 pub use dcc_mcp_transport as transport;
 pub use dcc_mcp_usd as usd;
-pub use dcc_mcp_utils as utils;
 
 #[cfg(feature = "workflow")]
 pub use dcc_mcp_workflow as workflow;
@@ -217,11 +217,11 @@ fn register_transport(m: &Bound<'_, PyModule>) -> PyResult<()> {
 fn register_utils(m: &Bound<'_, PyModule>) -> PyResult<()> {
     add_functions!(
         m,
-        dcc_mcp_utils::filesystem::py_get_platform_dir,
-        dcc_mcp_utils::filesystem::py_get_config_dir,
-        dcc_mcp_utils::filesystem::py_get_data_dir,
-        dcc_mcp_utils::filesystem::py_get_log_dir,
-        dcc_mcp_utils::filesystem::py_get_tools_dir,
+        dcc_mcp_paths::py_get_platform_dir,
+        dcc_mcp_paths::py_get_config_dir,
+        dcc_mcp_paths::py_get_data_dir,
+        dcc_mcp_paths::py_get_log_dir,
+        dcc_mcp_paths::py_get_tools_dir,
         dcc_mcp_skills::paths::py_get_skills_dir,
         dcc_mcp_skills::paths::py_get_skill_paths_from_env,
         dcc_mcp_skills::paths::py_get_app_skill_paths_from_env,
@@ -321,14 +321,13 @@ fn register_scheduler(m: &Bound<'_, PyModule>) -> PyResult<()> {
 fn register_constants(m: &Bound<'_, PyModule>) -> PyResult<()> {
     use dcc_mcp_logging::constants as log_constants;
     use dcc_mcp_skills::constants as skill_constants;
-    use dcc_mcp_utils::constants;
     add_constants!(
         m,
-        "APP_NAME"           => constants::APP_NAME,
-        "APP_AUTHOR"         => constants::APP_AUTHOR,
-        "DEFAULT_DCC"        => constants::DEFAULT_DCC,
-        "DEFAULT_VERSION"    => constants::DEFAULT_VERSION,
-        "DEFAULT_MIME_TYPE"  => constants::DEFAULT_MIME_TYPE,
+        "APP_NAME"           => dcc_mcp_paths::APP_NAME,
+        "APP_AUTHOR"         => dcc_mcp_paths::APP_AUTHOR,
+        "DEFAULT_DCC"        => dcc_mcp_naming::DEFAULT_DCC,
+        "DEFAULT_VERSION"    => dcc_mcp_naming::DEFAULT_VERSION,
+        "DEFAULT_MIME_TYPE"  => dcc_mcp_protocols::DEFAULT_MIME_TYPE,
         "SKILL_METADATA_FILE"=> skill_constants::SKILL_METADATA_FILE,
         "SKILL_SCRIPTS_DIR"  => skill_constants::SKILL_SCRIPTS_DIR,
         "SKILL_METADATA_DIR" => skill_constants::SKILL_METADATA_DIR,

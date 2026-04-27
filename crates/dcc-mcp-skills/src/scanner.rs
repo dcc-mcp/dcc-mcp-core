@@ -6,7 +6,7 @@ use pyo3::prelude::*;
 use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pyfunction, gen_stub_pymethods};
 
 use crate::constants::{MTIME_EPSILON_SECS, SKILL_METADATA_FILE};
-use dcc_mcp_utils::filesystem::path_to_string;
+use dcc_mcp_paths::path_to_string;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 

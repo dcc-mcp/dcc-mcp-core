@@ -12,10 +12,20 @@ use dashmap::DashMap;
 use std::sync::Arc;
 
 #[cfg(feature = "python-bindings")]
-use dcc_mcp_utils::constants::{DEFAULT_DCC, DEFAULT_VERSION};
+use dcc_mcp_naming::{DEFAULT_DCC, DEFAULT_VERSION};
 
+/// Default JSON schema for action input/output when none is provided.
+///
+/// Backed by a [`std::sync::LazyLock`] so the value is allocated at most once
+/// per process. Callers that need ownership should `.clone()` the returned
+/// reference.
 #[cfg(feature = "python-bindings")]
-use dcc_mcp_utils::constants::default_schema;
+fn default_schema() -> &'static serde_json::Value {
+    use std::sync::LazyLock;
+    static DEFAULT_SCHEMA: LazyLock<serde_json::Value> =
+        LazyLock::new(|| serde_json::json!({"type": "object", "properties": {}}));
+    &DEFAULT_SCHEMA
+}
 
 mod meta;
 #[cfg(feature = "python-bindings")]

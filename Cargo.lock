@@ -657,8 +657,8 @@ version = "0.14.15"
 dependencies = [
  "dashmap",
  "dcc-mcp-models",
+ "dcc-mcp-naming",
  "dcc-mcp-pybridge",
- "dcc-mcp-utils",
  "parking_lot",
  "pyo3",
  "pyo3-stub-gen",
@@ -718,6 +718,7 @@ dependencies = [
  "dcc-mcp-logging",
  "dcc-mcp-models",
  "dcc-mcp-naming",
+ "dcc-mcp-paths",
  "dcc-mcp-process",
  "dcc-mcp-protocols",
  "dcc-mcp-pybridge",
@@ -728,7 +729,6 @@ dependencies = [
  "dcc-mcp-telemetry",
  "dcc-mcp-transport",
  "dcc-mcp-usd",
- "dcc-mcp-utils",
  "dcc-mcp-workflow",
  "pyo3",
  "pyo3-stub-gen",
@@ -787,7 +787,7 @@ dependencies = [
 name = "dcc-mcp-logging"
 version = "0.14.15"
 dependencies = [
- "dcc-mcp-utils",
+ "dcc-mcp-paths",
  "parking_lot",
  "pyo3",
  "pyo3-stub-gen",
@@ -803,8 +803,8 @@ dependencies = [
 name = "dcc-mcp-models"
 version = "0.14.15"
 dependencies = [
+ "dcc-mcp-naming",
  "dcc-mcp-pybridge",
- "dcc-mcp-utils",
  "pyo3",
  "pyo3-stub-gen",
  "pyo3-stub-gen-derive",
@@ -823,6 +823,18 @@ dependencies = [
  "pyo3-stub-gen",
  "pyo3-stub-gen-derive",
  "thiserror 2.0.18",
+ "workspace-hack",
+]
+
+[[package]]
+name = "dcc-mcp-paths"
+version = "0.14.15"
+dependencies = [
+ "dirs",
+ "pyo3",
+ "pyo3-stub-gen",
+ "pyo3-stub-gen-derive",
+ "serde_json",
  "workspace-hack",
 ]
 
@@ -849,7 +861,6 @@ dependencies = [
 name = "dcc-mcp-protocols"
 version = "0.14.15"
 dependencies = [
- "dcc-mcp-utils",
  "parking_lot",
  "pyo3",
  "pyo3-stub-gen",
@@ -975,8 +986,8 @@ dependencies = [
  "dcc-mcp-actions",
  "dcc-mcp-models",
  "dcc-mcp-naming",
+ "dcc-mcp-paths",
  "dcc-mcp-pybridge",
- "dcc-mcp-utils",
  "notify",
  "parking_lot",
  "pyo3",
@@ -1054,20 +1065,6 @@ dependencies = [
  "thiserror 2.0.18",
  "tracing",
  "uuid",
- "workspace-hack",
-]
-
-[[package]]
-name = "dcc-mcp-utils"
-version = "0.14.15"
-dependencies = [
- "dirs",
- "pyo3",
- "pyo3-stub-gen",
- "pyo3-stub-gen-derive",
- "serde",
- "serde_json",
- "tracing",
  "workspace-hack",
 ]
 
@@ -5356,6 +5353,8 @@ dependencies = [
  "num-traits",
  "phf 0.11.3",
  "phf_shared 0.11.3",
+ "proc-macro2",
+ "quote",
  "rand 0.8.6",
  "rand 0.9.4",
  "rand_core 0.6.4",

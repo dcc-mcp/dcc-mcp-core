@@ -17,6 +17,33 @@ use dcc_mcp_pybridge::py_json::{
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+// ── ActionResult-related constants (moved from dcc-mcp-utils in #485) ──
+
+/// Default error type when the error message doesn't follow the `Type: details` pattern.
+#[cfg(feature = "python-bindings")]
+const DEFAULT_ERROR_TYPE: &str = "Exception";
+/// Default user-facing prompt for exception-based results.
+#[cfg(feature = "python-bindings")]
+const DEFAULT_ERROR_PROMPT: &str = "Please check error details and retry";
+/// Default success message for wrapped non-dict results.
+#[cfg(feature = "python-bindings")]
+const DEFAULT_SUCCESS_MESSAGE: &str = "Successfully processed result";
+/// Context key for the error type string.
+#[cfg(feature = "python-bindings")]
+const CTX_KEY_ERROR_TYPE: &str = "error_type";
+/// Context key for the traceback string.
+#[cfg(feature = "python-bindings")]
+const CTX_KEY_TRACEBACK: &str = "traceback";
+/// Context key for the wrapped value.
+#[cfg(feature = "python-bindings")]
+const CTX_KEY_VALUE: &str = "value";
+/// Context key for possible solutions list.
+#[cfg(feature = "python-bindings")]
+const CTX_KEY_POSSIBLE_SOLUTIONS: &str = "possible_solutions";
+/// Standard keys extracted from a dict during `validate_action_result`.
+#[cfg(feature = "python-bindings")]
+const ACTION_RESULT_KNOWN_KEYS: &[&str] = &["success", "message", "prompt", "error"];
+
 // RTK-inspired: limit context depth and array size to reduce token consumption
 fn compact_json_value(
     value: &serde_json::Value,
@@ -399,11 +426,6 @@ mod py_factories {
     use pyo3::types::PyDict;
 
     use dcc_mcp_pybridge::py_json::{py_any_to_json_value, py_dict_to_json_map};
-    use dcc_mcp_utils::constants::{
-        ACTION_RESULT_KNOWN_KEYS, CTX_KEY_ERROR_TYPE, CTX_KEY_POSSIBLE_SOLUTIONS,
-        CTX_KEY_TRACEBACK, CTX_KEY_VALUE, DEFAULT_ERROR_PROMPT, DEFAULT_ERROR_TYPE,
-        DEFAULT_SUCCESS_MESSAGE,
-    };
 
     pub(super) fn extract_context(
         context: Option<&Bound<'_, PyDict>>,

@@ -1,9 +1,10 @@
 //! Skill version manifest, archival snapshots and ISO-like timestamping.
 //!
-//! Moved from `dcc-mcp-utils::filesystem` (issue #498).
+//! Skill-specific filesystem layer; the underlying [`FilesystemError`] is
+//! re-used from [`dcc-mcp-paths`].
 
 use crate::paths::copy_dir_recursive;
-use dcc_mcp_utils::filesystem::FilesystemError;
+use dcc_mcp_paths::FilesystemError;
 use std::path::Path;
 
 /// Version manifest for an evolved skill.

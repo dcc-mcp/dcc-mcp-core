@@ -9,7 +9,7 @@ pub const ENV_LOG_LEVEL: &str = "MCP_LOG_LEVEL";
 /// value enables it (defaults to disabled).
 pub const ENV_LOG_FILE: &str = "DCC_MCP_LOG_FILE";
 /// Environment variable overriding the log directory.
-/// Falls back to `dcc_mcp_utils::filesystem::get_log_dir` when unset.
+/// Falls back to `dcc_mcp_paths::get_log_dir` when unset.
 pub const ENV_LOG_DIR: &str = "DCC_MCP_LOG_DIR";
 /// Environment variable overriding the maximum bytes per log file
 /// before a rollover is triggered.

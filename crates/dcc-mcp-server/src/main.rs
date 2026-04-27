@@ -172,7 +172,7 @@ struct Args {
     log_file: bool,
 
     /// Directory for rotated log files. Defaults to the platform log dir
-    /// (`dcc_mcp_utils::filesystem::get_log_dir()`).
+    /// (`dcc_mcp_paths::get_log_dir()`).
     #[arg(long, env = "DCC_MCP_LOG_DIR", value_name = "PATH")]
     log_dir: Option<PathBuf>,
 

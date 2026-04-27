@@ -109,7 +109,7 @@ import typing
 __version__: builtins.str = {version:?}
 __author__: builtins.str = {author:?}
 
-# ── Constants (from dcc_mcp_utils::constants, registered via m.add()) ──
+# ── Constants (registered via m.add() in src/lib.rs::register_constants) ──
 
 APP_NAME: builtins.str
 APP_AUTHOR: builtins.str

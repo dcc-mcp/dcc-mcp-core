@@ -4,7 +4,7 @@ use crate::constants::{
     DEPENDS_FILE, SKILL_METADATA_DIR, SKILL_SCRIPTS_DIR, is_supported_extension,
 };
 use dcc_mcp_models::SkillMetadata;
-use dcc_mcp_utils::filesystem::path_to_string;
+use dcc_mcp_paths::path_to_string;
 
 /// Enumerate files in a directory matching a filter predicate on the file extension.
 fn enumerate_files_by_ext(dir: &Path, filter: impl Fn(&str) -> bool) -> Vec<String> {

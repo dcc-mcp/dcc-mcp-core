@@ -17,7 +17,7 @@ pyo3-stub-gen-derive = { workspace = true, optional = true }
 dcc-mcp-models = { workspace = true }
 dcc-mcp-actions = { workspace = true }
 dcc-mcp-naming = { workspace = true }
-dcc-mcp-utils = { workspace = true }
+dcc-mcp-paths = { workspace = true }
 dcc-mcp-pybridge = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -34,6 +34,6 @@ tempfile = "3"
 
 [features]
 default = []
-python-bindings = ["pyo3", "dcc-mcp-models/python-bindings", "dcc-mcp-actions/python-bindings", "dcc-mcp-utils/python-bindings", "dep:dcc-mcp-pybridge", "dcc-mcp-pybridge/python-bindings"]
+python-bindings = ["pyo3", "dcc-mcp-models/python-bindings", "dcc-mcp-actions/python-bindings", "dcc-mcp-paths/python-bindings", "dep:dcc-mcp-pybridge", "dcc-mcp-pybridge/python-bindings"]
 # Enable `pyo3-stub-gen` annotations on this crate's PyO3 types.
 stub-gen = ["python-bindings", "dep:pyo3-stub-gen", "dep:pyo3-stub-gen-derive"]

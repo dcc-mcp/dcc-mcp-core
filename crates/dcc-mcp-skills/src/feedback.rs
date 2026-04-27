@@ -2,7 +2,7 @@
 //!
 //! Moved from `dcc-mcp-utils::filesystem` (issue #498).
 
-use dcc_mcp_utils::filesystem::FilesystemError;
+use dcc_mcp_paths::FilesystemError;
 use std::path::Path;
 
 /// Feedback entry for an evolved skill execution.

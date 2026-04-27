@@ -13,7 +13,7 @@ use pyo3_stub_gen_derive::gen_stub_pyfunction;
 
 use crate::constants::SKILL_METADATA_FILE;
 use dcc_mcp_models::{SkillGroup, SkillMetadata, ToolDeclaration};
-use dcc_mcp_utils::filesystem::path_to_string;
+use dcc_mcp_paths::path_to_string;
 use std::path::Path;
 
 /// Namespace prefix for agentskills.io-compliant dcc-mcp-core metadata keys

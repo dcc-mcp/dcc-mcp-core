@@ -26,6 +26,17 @@
 - If a PR-creation tool injects such a footer automatically, strip it
   before submitting (or edit the PR body afterwards to remove it).
 
+## PR Merge Workflow
+
+- **Always rebase onto the latest `main` before merging.** Never use a
+  merge commit to bring `main` into a feature branch, and never let
+  GitHub's "Update branch" button fast-forward via a merge commit.
+- For stacked PRs (a branch based on another open PR), rebase the
+  downstream branch onto `main` as soon as the upstream PR merges, then
+  force-push so the diff collapses to just the new work.
+- Final history on `main` must be linear: every PR lands as one (or a
+  few) clean commits on top of `main`, no "Merge branch …" noise.
+
 ## Document Hierarchy
 
 | Layer | File | When to read it |

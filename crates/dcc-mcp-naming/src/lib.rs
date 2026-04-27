@@ -52,6 +52,22 @@ pub const ACTION_ID_RE: &str = r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)*$";
 /// to leave room for gateway prefixes).
 pub const MAX_TOOL_NAME_LEN: usize = 48;
 
+/// Default DCC name used when a skill / action does not declare one.
+///
+/// Lives here because the choice of fallback DCC is a naming-policy decision
+/// (it determines which DCC namespace owns un-tagged actions); every other
+/// crate that needs a default DCC must read this constant rather than
+/// re-defining its own.
+pub const DEFAULT_DCC: &str = "python";
+
+/// Default version string for skills / actions that omit one.
+///
+/// Lives here as the companion identity component to [`DEFAULT_DCC`]: a
+/// `(dcc, version)` pair fully addresses an action namespace. Kept as a
+/// plain `&str` so consumers can place it in `pyo3(signature = …)`
+/// defaults without runtime allocation.
+pub const DEFAULT_VERSION: &str = "1.0.0";
+
 /// Reasons a name can fail validation.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum NamingError {

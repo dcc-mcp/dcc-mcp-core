@@ -15,7 +15,7 @@ use pyo3::prelude::*;
 #[cfg(feature = "stub-gen")]
 use pyo3_stub_gen_derive::gen_stub_pyclass;
 
-use dcc_mcp_utils::constants::{DEFAULT_DCC, DEFAULT_VERSION};
+use dcc_mcp_naming::{DEFAULT_DCC, DEFAULT_VERSION};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 

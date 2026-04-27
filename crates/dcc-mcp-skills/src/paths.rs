@@ -1,16 +1,17 @@
 //! Skill-search-path resolution and skill-scope directories.
 //!
-//! Moved from `dcc-mcp-utils::filesystem` (issue #498). The platform-dir
-//! helpers (`get_data_dir`, `get_config_dir`, …) and [`FilesystemError`] still
-//! live in `dcc-mcp-utils` because they are not skill-specific.
+//! Skill-specific layer over [`dcc-mcp-paths`]. The platform-dir helpers
+//! (`get_data_dir`, `get_config_dir`, …) and [`FilesystemError`] live in
+//! [`dcc-mcp-paths`] because they are not skill-specific; this module
+//! adds the SKILL.md / scope-aware semantics on top.
 //!
-//! [`FilesystemError`]: dcc_mcp_utils::filesystem::FilesystemError
+//! [`FilesystemError`]: dcc_mcp_paths::FilesystemError
 
 use crate::constants::{
     ENV_SKILL_PATHS, ENV_TEAM_SKILL_PATHS, ENV_USER_SKILL_PATHS, SKILL_METADATA_FILE,
     app_skill_paths_env_key, team_skill_paths_env_key, user_skill_paths_env_key,
 };
-use dcc_mcp_utils::filesystem::{FilesystemError, get_data_dir, path_to_string};
+use dcc_mcp_paths::{FilesystemError, get_data_dir, path_to_string};
 use std::env;
 use std::path::{Path, PathBuf};
 
@@ -316,7 +317,7 @@ pub(crate) fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> 
 #[cfg(feature = "python-bindings")]
 mod py_bindings {
     use super::*;
-    use dcc_mcp_utils::filesystem::path_to_string;
+    use dcc_mcp_paths::path_to_string;
     use pyo3::prelude::*;
 
     #[pyfunction]

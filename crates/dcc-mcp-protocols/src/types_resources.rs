@@ -1,7 +1,8 @@
 //! MCP resource type definitions.
 
-#[cfg(feature = "python-bindings")]
-use dcc_mcp_utils::constants::DEFAULT_MIME_TYPE;
+/// Default MIME type assigned to MCP resources when the producer does not
+/// declare one. Per the MCP spec resources are inherently text-shaped.
+pub const DEFAULT_MIME_TYPE: &str = "text/plain";
 #[cfg(feature = "python-bindings")]
 use pyo3::prelude::*;
 #[cfg(feature = "stub-gen")]

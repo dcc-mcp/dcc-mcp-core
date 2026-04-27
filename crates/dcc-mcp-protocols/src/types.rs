@@ -11,5 +11,7 @@ mod resources;
 mod tools;
 
 pub use prompts::{PromptArgument, PromptDefinition};
-pub use resources::{ResourceAnnotations, ResourceDefinition, ResourceTemplateDefinition};
+pub use resources::{
+    DEFAULT_MIME_TYPE, ResourceAnnotations, ResourceDefinition, ResourceTemplateDefinition,
+};
 pub use tools::{ToolAnnotations, ToolDefinition};

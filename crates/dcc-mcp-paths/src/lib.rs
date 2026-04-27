@@ -1,12 +1,30 @@
-//! Platform-specific directory helpers — replaces platformdirs with the `dirs` crate.
+//! # dcc-mcp-paths
 //!
-//! Skill-specific filesystem helpers (`SkillFeedback`, `SkillVersionManifest`,
-//! `get_*_skill_paths_from_env`, `get_*_skills_dir`, `copy_skill_to_*_dir`,
-//! `record_skill_feedback`, …) were moved to `dcc-mcp-skills` in
-//! [issue #498](https://github.com/loonghao/dcc-mcp-core/issues/498).
+//! Cross-platform application directory helpers for the DCC-MCP ecosystem.
+//!
+//! Backed by the [`dirs`] crate. Resolves and creates standard
+//! per-user directories under a single [`APP_NAME`]-rooted subtree:
+//!
+//! * [`get_config_dir`] — `$XDG_CONFIG_HOME/dcc-mcp` (Linux) /
+//!   `%APPDATA%\dcc-mcp` (Windows) / `~/Library/Application Support/dcc-mcp` (macOS)
+//! * [`get_data_dir`] — `$XDG_DATA_HOME/dcc-mcp` etc.
+//! * [`get_log_dir`] — local data dir + `log/`
+//! * [`get_tools_dir`] — DCC-scoped action storage under data dir
+//!
+//! All helpers are infallible from the API perspective (return
+//! [`FilesystemError`]) and create the directory as a side-effect.
+//!
+//! Skill-domain path resolution (search-path env vars, scope-aware
+//! discovery, `copy_skill_to_*_dir`) lives in
+//! [`dcc-mcp-skills`](https://docs.rs/dcc-mcp-skills) — this crate is
+//! intentionally restricted to the platform-dir building blocks.
 
-use crate::constants::APP_NAME;
 use std::path::{Path, PathBuf};
+
+/// Application name used for platform-specific directory resolution.
+pub const APP_NAME: &str = "dcc-mcp";
+/// Application author identifier (exposed to Python consumers).
+pub const APP_AUTHOR: &str = "dcc-mcp";
 
 /// Structured error type for filesystem operations.
 #[derive(Debug)]
@@ -179,6 +197,11 @@ pub use py_bindings::*;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_app_name_not_empty() {
+        assert_eq!(APP_NAME, "dcc-mcp");
+    }
 
     #[test]
     fn test_get_platform_dir_config() {
