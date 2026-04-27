@@ -6,7 +6,7 @@
 # `-f examples/compose/gateway-ha/Dockerfile .` from the repo root).
 
 # ─── Stage 1: build ──────────────────────────────────────────────────────────
-FROM rust:1.85-slim AS builder
+FROM rust:1.95-slim AS builder
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends pkg-config libssl-dev \
