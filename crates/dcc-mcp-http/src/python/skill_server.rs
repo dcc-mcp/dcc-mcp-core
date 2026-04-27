@@ -194,11 +194,10 @@ impl PyMcpHttpServer {
                 Python::attach(|gil| {
                     use dcc_mcp_utils::py_json::{json_value_to_bound_py, py_any_to_json_value};
 
-                    let py_path = script_path.into_py(gil);
                     let py_params = json_value_to_bound_py(gil, &params)
                         .map_err(|e| format!("failed to convert params: {e}"))?;
                     let raw = executor_ref
-                        .call1(gil, (py_path, py_params))
+                        .call1(gil, (script_path, py_params))
                         .map_err(|e| format!("executor error: {e}"))?;
                     py_any_to_json_value(raw.bind(gil)).map_err(|e| e.to_string())
                 })
