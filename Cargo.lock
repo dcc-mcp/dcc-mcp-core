@@ -653,7 +653,7 @@ checksum = "a4ae5f15dda3c708c0ade84bfee31ccab44a3da4f88015ed22f63732abe300c8"
 
 [[package]]
 name = "dcc-mcp-actions"
-version = "0.14.14"
+version = "0.14.15"
 dependencies = [
  "dashmap",
  "dcc-mcp-models",
@@ -670,7 +670,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-artefact"
-version = "0.14.14"
+version = "0.14.15"
 dependencies = [
  "chrono",
  "hex",
@@ -690,7 +690,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-capture"
-version = "0.14.14"
+version = "0.14.15"
 dependencies = [
  "image",
  "libc",
@@ -708,7 +708,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-core"
-version = "0.14.14"
+version = "0.14.15"
 dependencies = [
  "dcc-mcp-actions",
  "dcc-mcp-artefact",
@@ -735,7 +735,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-http"
-version = "0.14.14"
+version = "0.14.15"
 dependencies = [
  "axum",
  "axum-test",
@@ -782,7 +782,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-models"
-version = "0.14.14"
+version = "0.14.15"
 dependencies = [
  "dcc-mcp-utils",
  "pyo3",
@@ -797,7 +797,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-naming"
-version = "0.14.14"
+version = "0.14.15"
 dependencies = [
  "pyo3",
  "pyo3-stub-gen",
@@ -808,7 +808,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-process"
-version = "0.14.14"
+version = "0.14.15"
 dependencies = [
  "ipckit",
  "parking_lot",
@@ -827,7 +827,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-protocols"
-version = "0.14.14"
+version = "0.14.15"
 dependencies = [
  "dcc-mcp-utils",
  "parking_lot",
@@ -842,7 +842,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-sandbox"
-version = "0.14.14"
+version = "0.14.15"
 dependencies = [
  "parking_lot",
  "pyo3",
@@ -858,7 +858,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-scheduler"
-version = "0.14.14"
+version = "0.14.15"
 dependencies = [
  "axum",
  "bytes",
@@ -889,7 +889,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-server"
-version = "0.14.14"
+version = "0.14.15"
 dependencies = [
  "anyhow",
  "axum",
@@ -916,7 +916,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-shm"
-version = "0.14.14"
+version = "0.14.15"
 dependencies = [
  "ipckit",
  "libc",
@@ -935,7 +935,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-skills"
-version = "0.14.14"
+version = "0.14.15"
 dependencies = [
  "dashmap",
  "dcc-mcp-actions",
@@ -958,7 +958,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-telemetry"
-version = "0.14.14"
+version = "0.14.15"
 dependencies = [
  "opentelemetry",
  "opentelemetry-otlp",
@@ -982,7 +982,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-transport"
-version = "0.14.14"
+version = "0.14.15"
 dependencies = [
  "criterion",
  "dashmap",
@@ -1008,7 +1008,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-usd"
-version = "0.14.14"
+version = "0.14.15"
 dependencies = [
  "dcc-mcp-protocols",
  "pyo3",
@@ -1024,7 +1024,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-utils"
-version = "0.14.14"
+version = "0.14.15"
 dependencies = [
  "dirs",
  "parking_lot",
@@ -1043,7 +1043,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-workflow"
-version = "0.14.14"
+version = "0.14.15"
 dependencies = [
  "base64",
  "chrono",
