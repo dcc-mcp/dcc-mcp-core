@@ -107,9 +107,9 @@ pub fn scan_and_load_user(
     dcc_name: Option<&str>,
 ) -> Result<LoadResult, ResolveError> {
     let user_paths = if let Some(dcc) = dcc_name {
-        dcc_mcp_utils::filesystem::get_app_user_skill_paths_from_env(dcc)
+        crate::paths::get_app_user_skill_paths_from_env(dcc)
     } else {
-        dcc_mcp_utils::filesystem::get_user_skill_paths_from_env()
+        crate::paths::get_user_skill_paths_from_env()
     };
     let mut all_paths = user_paths;
     if let Some(extra) = extra_paths {
@@ -131,9 +131,9 @@ pub fn scan_and_load_team(
     dcc_name: Option<&str>,
 ) -> Result<LoadResult, ResolveError> {
     let team_paths = if let Some(dcc) = dcc_name {
-        dcc_mcp_utils::filesystem::get_app_team_skill_paths_from_env(dcc)
+        crate::paths::get_app_team_skill_paths_from_env(dcc)
     } else {
-        dcc_mcp_utils::filesystem::get_team_skill_paths_from_env()
+        crate::paths::get_team_skill_paths_from_env()
     };
     let mut all_paths = team_paths;
     if let Some(extra) = extra_paths {
@@ -155,9 +155,9 @@ pub fn scan_and_load_user_lenient(
     dcc_name: Option<&str>,
 ) -> Result<LoadResult, ResolveError> {
     let user_paths = if let Some(dcc) = dcc_name {
-        dcc_mcp_utils::filesystem::get_app_user_skill_paths_from_env(dcc)
+        crate::paths::get_app_user_skill_paths_from_env(dcc)
     } else {
-        dcc_mcp_utils::filesystem::get_user_skill_paths_from_env()
+        crate::paths::get_user_skill_paths_from_env()
     };
     let mut all_paths = user_paths;
     if let Some(extra) = extra_paths {
@@ -179,9 +179,9 @@ pub fn scan_and_load_team_lenient(
     dcc_name: Option<&str>,
 ) -> Result<LoadResult, ResolveError> {
     let team_paths = if let Some(dcc) = dcc_name {
-        dcc_mcp_utils::filesystem::get_app_team_skill_paths_from_env(dcc)
+        crate::paths::get_app_team_skill_paths_from_env(dcc)
     } else {
-        dcc_mcp_utils::filesystem::get_team_skill_paths_from_env()
+        crate::paths::get_team_skill_paths_from_env()
     };
     let mut all_paths = team_paths;
     if let Some(extra) = extra_paths {

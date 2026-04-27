@@ -11,8 +11,8 @@ use pyo3::prelude::*;
 #[cfg(feature = "stub-gen")]
 use pyo3_stub_gen_derive::gen_stub_pyfunction;
 
+use crate::constants::SKILL_METADATA_FILE;
 use dcc_mcp_models::{SkillGroup, SkillMetadata, ToolDeclaration};
-use dcc_mcp_utils::constants::SKILL_METADATA_FILE;
 use dcc_mcp_utils::filesystem::path_to_string;
 use std::path::Path;
 

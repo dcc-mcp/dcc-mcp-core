@@ -1,7 +1,7 @@
 //! Global bridge context registry and helper functions.
 
 use super::*;
-use dcc_mcp_utils::filesystem::get_app_skill_paths_from_env;
+use dcc_mcp_skills::paths::get_app_skill_paths_from_env;
 use std::sync::OnceLock;
 
 /// Global bridge context registry (for gateway mode).
@@ -351,7 +351,7 @@ pub fn py_create_skill_server(
 
     // Discover accumulated user/team skills unless disabled
     let accumulated_disabled =
-        std::env::var(dcc_mcp_utils::constants::ENV_DISABLE_ACCUMULATED_SKILLS)
+        std::env::var(dcc_mcp_skills::constants::ENV_DISABLE_ACCUMULATED_SKILLS)
             .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
             .unwrap_or(false);
     if accumulated && !accumulated_disabled {

@@ -1,4 +1,9 @@
 //! Constants for the DCC-MCP ecosystem.
+//!
+//! Logging-related constants live in `dcc-mcp-logging::constants` (issue #496).
+//! Skill-domain constants (`SKILL_*`, `ENV_*_SKILL_*`, `*_env_key`,
+//! `MTIME_EPSILON_SECS`, `SUPPORTED_SCRIPT_EXTENSIONS`, `is_supported_extension`,
+//! `get_script_type`) live in `dcc-mcp-skills::constants` (issue #498).
 
 use std::sync::LazyLock;
 
@@ -7,69 +12,6 @@ pub const APP_NAME: &str = "dcc-mcp";
 /// Application author identifier (exposed to Python consumers).
 pub const APP_AUTHOR: &str = "dcc-mcp";
 
-// Logging-related constants (`ENV_LOG_*`, `DEFAULT_LOG_*`) live in
-// `dcc-mcp-logging::constants` since issue #496.
-
-/// Filename expected at the root of every skill package.
-pub const SKILL_METADATA_FILE: &str = "SKILL.md";
-/// Environment variable containing additional skill search paths.
-pub const ENV_SKILL_PATHS: &str = "DCC_MCP_SKILL_PATHS";
-/// Template for per-app skill search paths: `DCC_MCP_{APP}_SKILL_PATHS`.
-/// Substitute `{APP}` with the uppercase DCC app name.
-/// Example: `DCC_MCP_MAYA_SKILL_PATHS`, `DCC_MCP_BLENDER_SKILL_PATHS`.
-pub const ENV_APP_SKILL_PATHS_TEMPLATE: &str = "DCC_MCP_{APP}_SKILL_PATHS";
-
-/// Environment variable containing user-level accumulated skill search paths.
-pub const ENV_USER_SKILL_PATHS: &str = "DCC_MCP_USER_SKILL_PATHS";
-/// Template for per-app user skill search paths: `DCC_MCP_USER_{APP}_SKILL_PATHS`.
-pub const ENV_USER_APP_SKILL_PATHS_TEMPLATE: &str = "DCC_MCP_USER_{APP}_SKILL_PATHS";
-
-/// Environment variable containing team-level accumulated skill search paths.
-pub const ENV_TEAM_SKILL_PATHS: &str = "DCC_MCP_TEAM_SKILL_PATHS";
-/// Template for per-app team skill search paths: `DCC_MCP_TEAM_{APP}_SKILL_PATHS`.
-pub const ENV_TEAM_APP_SKILL_PATHS_TEMPLATE: &str = "DCC_MCP_TEAM_{APP}_SKILL_PATHS";
-
-/// Environment variable to disable automatic discovery of accumulated skills.
-pub const ENV_DISABLE_ACCUMULATED_SKILLS: &str = "DCC_MCP_DISABLE_ACCUMULATED_SKILLS";
-
-/// Build the per-app env var name for a given app/DCC name.
-///
-/// `app_name = "maya"` → `"DCC_MCP_MAYA_SKILL_PATHS"`
-#[must_use]
-pub fn app_skill_paths_env_key(app_name: &str) -> String {
-    format!(
-        "DCC_MCP_{}_SKILL_PATHS",
-        app_name.to_uppercase().replace('-', "_")
-    )
-}
-
-/// Build the per-app user skill paths env var name.
-///
-/// `app_name = "maya"` → `"DCC_MCP_USER_MAYA_SKILL_PATHS"`
-#[must_use]
-pub fn user_skill_paths_env_key(app_name: &str) -> String {
-    format!(
-        "DCC_MCP_USER_{}_SKILL_PATHS",
-        app_name.to_uppercase().replace('-', "_")
-    )
-}
-
-/// Build the per-app team skill paths env var name.
-///
-/// `app_name = "maya"` → `"DCC_MCP_TEAM_MAYA_SKILL_PATHS"`
-#[must_use]
-pub fn team_skill_paths_env_key(app_name: &str) -> String {
-    format!(
-        "DCC_MCP_TEAM_{}_SKILL_PATHS",
-        app_name.to_uppercase().replace('-', "_")
-    )
-}
-/// Subdirectory inside a skill package that holds executable scripts.
-pub const SKILL_SCRIPTS_DIR: &str = "scripts";
-/// Subdirectory inside a skill package that holds auxiliary metadata files.
-pub const SKILL_METADATA_DIR: &str = "metadata";
-/// Filename for the dependency listing inside the metadata/ directory.
-pub const DEPENDS_FILE: &str = "depends.md";
 /// Default DCC name when none is specified.
 pub const DEFAULT_DCC: &str = "python";
 /// Default version string for skills and actions.
@@ -116,158 +58,9 @@ pub fn default_schema() -> &'static serde_json::Value {
     &DEFAULT_SCHEMA
 }
 
-/// Tolerance in seconds for file modification time comparison in cache checks.
-pub const MTIME_EPSILON_SECS: f64 = 0.001;
-
-/// Supported script extensions → script type name (compile-time constant).
-pub const SUPPORTED_SCRIPT_EXTENSIONS: &[(&str, &str)] = &[
-    (".py", "python"),
-    (".mel", "mel"),
-    (".ms", "maxscript"),
-    (".bat", "batch"),
-    (".cmd", "batch"),
-    (".sh", "shell"),
-    (".bash", "shell"),
-    (".ps1", "powershell"),
-    (".vbs", "vbscript"),
-    (".jsx", "javascript"),
-    (".js", "javascript"),
-];
-
-/// Normalize an extension to bare form (strip optional leading dot).
-fn normalize_ext(ext: &str) -> &str {
-    ext.strip_prefix('.').unwrap_or(ext)
-}
-
-/// Check if a file extension is a supported script extension.
-///
-/// Accepts both dotted (`.py`) and bare (`py`) forms; comparison is case-insensitive.
-#[must_use]
-pub fn is_supported_extension(ext: &str) -> bool {
-    let bare = normalize_ext(ext);
-    SUPPORTED_SCRIPT_EXTENSIONS.iter().any(|(e, _)| {
-        e.strip_prefix('.')
-            .is_some_and(|b| b.eq_ignore_ascii_case(bare))
-    })
-}
-
-/// Look up the script type name for a file extension.
-///
-/// Accepts both dotted (`.py`) and bare (`py`) forms; comparison is case-insensitive.
-/// Returns `None` if the extension is not recognized.
-#[must_use]
-pub fn get_script_type(ext: &str) -> Option<&'static str> {
-    let bare = normalize_ext(ext);
-    SUPPORTED_SCRIPT_EXTENSIONS.iter().find_map(|(e, t)| {
-        e.strip_prefix('.')
-            .filter(|b| b.eq_ignore_ascii_case(bare))
-            .map(|_| *t)
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // ── is_supported_extension ──────────────────────────────────────────────────
-
-    #[test]
-    fn test_is_supported_extension_valid() {
-        // Both dotted and bare forms work
-        assert!(is_supported_extension(".py"));
-        assert!(is_supported_extension("py"));
-        assert!(is_supported_extension(".sh"));
-        assert!(is_supported_extension("sh"));
-        assert!(is_supported_extension(".js"));
-        assert!(is_supported_extension("PY")); // case-insensitive
-    }
-
-    #[test]
-    fn test_is_supported_extension_all_supported() {
-        for (ext, _) in SUPPORTED_SCRIPT_EXTENSIONS {
-            assert!(
-                is_supported_extension(ext),
-                "expected {ext} to be supported"
-            );
-            // bare form (strip leading dot)
-            let bare = ext.strip_prefix('.').unwrap_or(ext);
-            assert!(is_supported_extension(bare), "bare form {bare} should work");
-        }
-    }
-
-    #[test]
-    fn test_is_supported_extension_invalid() {
-        assert!(!is_supported_extension(".txt"));
-        assert!(!is_supported_extension(".rs"));
-        assert!(!is_supported_extension("txt"));
-        assert!(!is_supported_extension(""));
-        assert!(!is_supported_extension("toml"));
-        assert!(!is_supported_extension(".json"));
-    }
-
-    #[test]
-    fn test_is_supported_extension_case_insensitive() {
-        assert!(is_supported_extension("PY"));
-        assert!(is_supported_extension(".MEL"));
-        assert!(is_supported_extension("MS"));
-        assert!(is_supported_extension(".PS1"));
-    }
-
-    // ── get_script_type ─────────────────────────────────────────────────────────
-
-    #[test]
-    fn test_get_script_type() {
-        // Both dotted and bare forms work
-        assert_eq!(get_script_type(".py"), Some("python"));
-        assert_eq!(get_script_type("py"), Some("python"));
-        assert_eq!(get_script_type(".sh"), Some("shell"));
-        assert_eq!(get_script_type(".bat"), Some("batch"));
-        assert_eq!(get_script_type(".js"), Some("javascript"));
-        assert_eq!(get_script_type(".mel"), Some("mel"));
-        assert_eq!(get_script_type(".txt"), None);
-        assert_eq!(get_script_type("PY"), Some("python")); // case-insensitive
-    }
-
-    #[test]
-    fn test_get_script_type_all_supported() {
-        for (ext, expected_type) in SUPPORTED_SCRIPT_EXTENSIONS {
-            let result = get_script_type(ext);
-            assert_eq!(
-                result,
-                Some(*expected_type),
-                "ext={ext} should map to {expected_type}"
-            );
-        }
-    }
-
-    #[test]
-    fn test_get_script_type_unknown_returns_none() {
-        assert!(get_script_type(".rs").is_none());
-        assert!(get_script_type(".md").is_none());
-        assert!(get_script_type("").is_none());
-    }
-
-    #[test]
-    fn test_get_script_type_batch_variants() {
-        // Both .bat and .cmd map to "batch"
-        assert_eq!(get_script_type(".bat"), Some("batch"));
-        assert_eq!(get_script_type(".cmd"), Some("batch"));
-    }
-
-    #[test]
-    fn test_get_script_type_shell_variants() {
-        // Both .sh and .bash map to "shell"
-        assert_eq!(get_script_type(".sh"), Some("shell"));
-        assert_eq!(get_script_type(".bash"), Some("shell"));
-    }
-
-    #[test]
-    fn test_get_script_type_jsx_is_javascript() {
-        assert_eq!(get_script_type(".jsx"), Some("javascript"));
-        assert_eq!(get_script_type(".js"), Some("javascript"));
-    }
-
-    // ── default_schema ───────────────────────────────────────────────────────────
 
     #[test]
     fn test_default_schema() {
@@ -278,13 +71,10 @@ mod tests {
 
     #[test]
     fn test_default_schema_is_same_instance() {
-        // LazyLock should return the same pointer
         let a = default_schema() as *const _;
         let b = default_schema() as *const _;
         assert_eq!(a, b);
     }
-
-    // ── ACTION_RESULT_KNOWN_KEYS ─────────────────────────────────────────────────
 
     #[test]
     fn test_action_result_known_keys() {
@@ -295,8 +85,6 @@ mod tests {
         assert!(!ACTION_RESULT_KNOWN_KEYS.contains(&"context"));
         assert!(!ACTION_RESULT_KNOWN_KEYS.contains(&""));
     }
-
-    // ── String constants ─────────────────────────────────────────────────────────
 
     #[test]
     fn test_app_name_not_empty() {
@@ -315,22 +103,6 @@ mod tests {
             parts.len() >= 2,
             "DEFAULT_VERSION should be semver-like, got: {DEFAULT_VERSION}"
         );
-    }
-
-    #[test]
-    fn test_mtime_epsilon_positive() {
-        assert_eq!(MTIME_EPSILON_SECS, 0.001);
-    }
-
-    #[test]
-    fn test_skill_metadata_file_constant() {
-        assert_eq!(SKILL_METADATA_FILE, "SKILL.md");
-        assert!(SKILL_METADATA_FILE.ends_with(".md"));
-    }
-
-    #[test]
-    fn test_env_var_constants_not_empty() {
-        assert_eq!(ENV_SKILL_PATHS, "DCC_MCP_SKILL_PATHS");
     }
 
     #[test]

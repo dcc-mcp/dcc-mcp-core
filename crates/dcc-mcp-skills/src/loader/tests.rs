@@ -1,6 +1,6 @@
 use super::*;
 
-use dcc_mcp_utils::constants::{DEPENDS_FILE, SKILL_METADATA_DIR, SKILL_METADATA_FILE};
+use crate::constants::{DEPENDS_FILE, SKILL_METADATA_DIR, SKILL_METADATA_FILE};
 
 // ── extract_frontmatter ──
 
@@ -46,7 +46,7 @@ mod test_extract_frontmatter {
 
 mod test_enumerate {
     use super::*;
-    use dcc_mcp_utils::constants::SKILL_SCRIPTS_DIR;
+    use crate::constants::SKILL_SCRIPTS_DIR;
 
     #[test]
     fn enumerate_scripts_discovers_supported_files() {
@@ -231,7 +231,7 @@ mod test_parse_skill_md {
         let content = skill_md("scripted", "blender", &[]);
         std::fs::write(tmp.path().join(SKILL_METADATA_FILE), &content).unwrap();
 
-        use dcc_mcp_utils::constants::SKILL_SCRIPTS_DIR;
+        use crate::constants::SKILL_SCRIPTS_DIR;
         let scripts_dir = tmp.path().join(SKILL_SCRIPTS_DIR);
         std::fs::create_dir_all(&scripts_dir).unwrap();
         std::fs::write(scripts_dir.join("run.py"), "print('hello')").unwrap();

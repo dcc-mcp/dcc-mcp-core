@@ -2,7 +2,7 @@
 
 use super::filter::{is_skill_related, should_reload};
 use super::*;
-use dcc_mcp_utils::constants::SKILL_METADATA_FILE;
+use crate::constants::SKILL_METADATA_FILE;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;

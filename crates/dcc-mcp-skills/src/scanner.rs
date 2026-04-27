@@ -5,8 +5,8 @@ use pyo3::prelude::*;
 #[cfg(feature = "stub-gen")]
 use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pyfunction, gen_stub_pymethods};
 
-use dcc_mcp_utils::constants::{MTIME_EPSILON_SECS, SKILL_METADATA_FILE};
-use dcc_mcp_utils::filesystem::{self, path_to_string};
+use crate::constants::{MTIME_EPSILON_SECS, SKILL_METADATA_FILE};
+use dcc_mcp_utils::filesystem::path_to_string;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -79,14 +79,14 @@ impl SkillScanner {
 
         // 2. Per-app env var paths (DCC_MCP_{APP}_SKILL_PATHS) + global fallback
         if let Some(dcc) = dcc_name {
-            search_paths.extend(filesystem::get_app_skill_paths_from_env(dcc));
+            search_paths.extend(crate::paths::get_app_skill_paths_from_env(dcc));
         } else {
             // No dcc_name — only global env var
-            search_paths.extend(filesystem::get_skill_paths_from_env());
+            search_paths.extend(crate::paths::get_skill_paths_from_env());
         }
 
         // 3. Platform-specific skills directory
-        if let Ok(platform_dir) = filesystem::get_skills_dir(dcc_name) {
+        if let Ok(platform_dir) = crate::paths::get_skills_dir(dcc_name) {
             if Path::new(&platform_dir).is_dir() {
                 search_paths.push(platform_dir);
             }
@@ -94,7 +94,7 @@ impl SkillScanner {
 
         // Also check global skills dir if dcc_name was specified
         if dcc_name.is_some() {
-            if let Ok(global_dir) = filesystem::get_skills_dir(None) {
+            if let Ok(global_dir) = crate::paths::get_skills_dir(None) {
                 if Path::new(&global_dir).is_dir() {
                     search_paths.push(global_dir);
                 }

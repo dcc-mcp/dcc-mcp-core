@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 use std::path::Path;
 
+use crate::constants::is_supported_extension;
 use dcc_mcp_models::SkillMetadata;
-use dcc_mcp_utils::constants::is_supported_extension;
 
 use crate::loader::extract_frontmatter;
 

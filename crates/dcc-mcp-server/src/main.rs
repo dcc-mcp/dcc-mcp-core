@@ -83,7 +83,6 @@ use dcc_mcp_http::gateway::{GatewayConfig, GatewayRunner};
 use dcc_mcp_http::{McpHttpConfig, McpHttpServer};
 use dcc_mcp_skills::SkillCatalog;
 use dcc_mcp_transport::discovery::types::ServiceEntry;
-use dcc_mcp_utils::filesystem;
 use sysinfo::{Pid, ProcessesToUpdate, System};
 
 // ── CLI ───────────────────────────────────────────────────────────────────────
@@ -449,18 +448,18 @@ async fn main() -> anyhow::Result<()> {
 
     let mut skill_paths: Vec<PathBuf> = args.skill_paths.clone();
     skill_paths.extend(
-        filesystem::get_skill_paths_from_env()
+        dcc_mcp_skills::paths::get_skill_paths_from_env()
             .into_iter()
             .map(PathBuf::from),
     );
     if !args.dcc.is_empty() {
         skill_paths.extend(
-            filesystem::get_app_skill_paths_from_env(&args.dcc)
+            dcc_mcp_skills::paths::get_app_skill_paths_from_env(&args.dcc)
                 .into_iter()
                 .map(PathBuf::from),
         );
     }
-    if let Ok(bundled) = filesystem::get_skills_dir(None) {
+    if let Ok(bundled) = dcc_mcp_skills::paths::get_skills_dir(None) {
         let p = PathBuf::from(bundled);
         if p.exists() {
             skill_paths.push(p);

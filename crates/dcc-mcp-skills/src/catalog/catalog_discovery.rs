@@ -178,7 +178,7 @@ impl SkillCatalog {
 
     /// Discover user-level and team-level accumulated skills from environment variables.
     pub fn discover_user_and_team(&self, dcc_name: Option<&str>) -> usize {
-        use dcc_mcp_utils::filesystem::{
+        use crate::paths::{
             get_app_team_skill_paths_from_env, get_app_user_skill_paths_from_env,
             get_team_skill_paths_from_env, get_user_skill_paths_from_env,
         };
