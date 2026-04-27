@@ -149,6 +149,76 @@ impl PyMcpHttpServer {
         self.dispatcher.has_handler(action_name)
     }
 
+    /// Register a Python callable as the **in-process** script executor.
+    ///
+    /// This is the recommended way to wire DCC-specific execution into the
+    /// Skills-First workflow (issues #464, #465).  Call this **before** any
+    /// ``load_skill()`` calls so that all skill handlers are registered with
+    /// the in-process path from the start, eliminating the timing race that
+    /// occurred when handlers were overridden one-by-one after loading.
+    ///
+    /// The callable receives two positional arguments:
+    ///
+    /// - ``script_path`` (``str``) — absolute path to the skill's ``.py`` file.
+    /// - ``params`` (``dict``) — tool input parameters.
+    ///
+    /// It must return a JSON-serialisable value (``dict``, ``list``, scalar…).
+    ///
+    /// When called, ``load_skill()`` will register **in-process** handlers for
+    /// every tool in the loaded skill instead of spawning subprocesses.
+    ///
+    /// Example::
+    ///
+    ///     import runpy
+    ///
+    ///     def my_executor(script_path, params):
+    ///         ns = runpy.run_path(script_path, init_globals={"params": params})
+    ///         return ns.get("result", {})
+    ///
+    ///     server = create_skill_server("maya")
+    ///     server.set_in_process_executor(my_executor)
+    ///     server.load_skill("maya-scene")   # handlers: in-process ✓
+    ///
+    /// Raises:
+    ///     TypeError: If ``executor`` is not callable.
+    #[pyo3(signature = (executor))]
+    fn set_in_process_executor(&self, py: Python<'_>, executor: Py<PyAny>) -> PyResult<()> {
+        if !executor.bind(py).is_callable() {
+            return Err(pyo3::exceptions::PyTypeError::new_err(
+                "executor must be callable",
+            ));
+        }
+        let executor_ref = executor.clone_ref(py);
+        self.catalog
+            .set_in_process_executor(move |script_path, params| {
+                Python::attach(|gil| {
+                    use dcc_mcp_utils::py_json::{json_value_to_bound_py, py_any_to_json_value};
+
+                    let py_path = script_path.into_py(gil);
+                    let py_params = json_value_to_bound_py(gil, &params)
+                        .map_err(|e| format!("failed to convert params: {e}"))?;
+                    let raw = executor_ref
+                        .call1(gil, (py_path, py_params))
+                        .map_err(|e| format!("executor error: {e}"))?;
+                    py_any_to_json_value(raw.bind(gil)).map_err(|e| e.to_string())
+                })
+            });
+        tracing::info!(
+            "McpHttpServer: in-process executor registered — \
+             load_skill() will use in-process handlers (issue #464)"
+        );
+        Ok(())
+    }
+
+    /// Remove the in-process executor, reverting future ``load_skill()`` calls
+    /// to subprocess execution.
+    ///
+    /// Already-loaded skills retain their existing handlers; call
+    /// ``unload_skill()`` and ``load_skill()`` again to switch them.
+    fn clear_in_process_executor(&self) {
+        self.catalog.clear_in_process_executor();
+    }
+
     /// The server's :class:`ToolRegistry`.
     ///
     /// Returned value shares the underlying storage with the server —

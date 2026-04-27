@@ -77,8 +77,8 @@ impl SkillCatalog {
                 let script_path_owned = script_path.clone();
                 let action_name_clone = action_name.clone();
                 let dcc_owned = metadata.dcc.clone();
-                if let Some(executor) = &self.script_executor {
-                    let executor = Arc::clone(executor);
+                let maybe_executor = self.script_executor.read().clone();
+                if let Some(executor) = maybe_executor {
                     dispatcher.register_handler(&action_name_clone, move |params| {
                         executor(script_path_owned.clone(), params)
                     });
@@ -127,8 +127,8 @@ impl SkillCatalog {
                     let script_path_owned = script_path.clone();
                     let action_name_clone = action_name.clone();
                     let dcc_owned = metadata.dcc.clone();
-                    if let Some(executor) = &self.script_executor {
-                        let executor = Arc::clone(executor);
+                    let maybe_executor = self.script_executor.read().clone();
+                    if let Some(executor) = maybe_executor {
                         dispatcher.register_handler(&action_name_clone, move |params| {
                             executor(script_path_owned.clone(), params)
                         });
@@ -149,7 +149,7 @@ impl SkillCatalog {
         }
         self.loaded.insert(skill_name.to_string());
 
-        let handler_mode = match (&self.dispatcher, &self.script_executor) {
+        let handler_mode = match (&self.dispatcher, &*self.script_executor.read()) {
             (Some(_), Some(_)) => "in-process",
             (Some(_), None) => "subprocess",
             (None, _) => "none",

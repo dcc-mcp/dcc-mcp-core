@@ -346,6 +346,34 @@ pub fn py_shutdown_telemetry() {
     provider::shutdown();
 }
 
+/// Initialise a minimal no-op telemetry provider if one has not been set yet.
+///
+/// Silences the ``NoopMeterProvider`` warning that OpenTelemetry emits when
+/// ``global::meter()`` is called before any provider has been registered
+/// (issue #467).  Safe to call multiple times — a no-op when already
+/// initialised.
+///
+/// Example::
+///
+///     from dcc_mcp_core import init_default_telemetry
+///
+///     # At server startup, before any MCP tools run:
+///     init_default_telemetry()
+///
+/// Raises:
+///     RuntimeError: If provider initialisation fails for a reason other than
+///         "already initialized".
+#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
+#[pyfunction]
+#[pyo3(name = "init_default_telemetry")]
+pub fn py_init_default_telemetry() -> PyResult<()> {
+    match provider::try_init_default() {
+        Ok(()) => Ok(()),
+        Err(crate::error::TelemetryError::AlreadyInitialized) => Ok(()),
+        Err(e) => Err(PyRuntimeError::new_err(e.to_string())),
+    }
+}
+
 // ── Registration ──────────────────────────────────────────────────────────────
 
 /// Register all telemetry classes and functions on a Python module.
@@ -356,5 +384,6 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyRecordingGuard>()?;
     m.add_function(wrap_pyfunction!(py_is_telemetry_initialized, m)?)?;
     m.add_function(wrap_pyfunction!(py_shutdown_telemetry, m)?)?;
+    m.add_function(wrap_pyfunction!(py_init_default_telemetry, m)?)?;
     Ok(())
 }

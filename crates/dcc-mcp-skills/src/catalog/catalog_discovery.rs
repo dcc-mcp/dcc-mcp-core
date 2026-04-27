@@ -8,7 +8,7 @@ impl SkillCatalog {
             loaded: DashSet::new(),
             registry,
             dispatcher: None,
-            script_executor: None,
+            script_executor: RwLock::new(None),
             active_groups: DashSet::new(),
         }
     }
@@ -23,7 +23,7 @@ impl SkillCatalog {
             loaded: DashSet::new(),
             registry,
             dispatcher: Some(dispatcher),
-            script_executor: None,
+            script_executor: RwLock::new(None),
             active_groups: DashSet::new(),
         }
     }
@@ -35,31 +35,42 @@ impl SkillCatalog {
     }
 
     /// Register an **in-process** script executor (builder-style).
-    pub fn with_in_process_executor<F>(mut self, executor: F) -> Self
+    pub fn with_in_process_executor<F>(self, executor: F) -> Self
     where
         F: Fn(String, serde_json::Value) -> Result<serde_json::Value, String>
             + Send
             + Sync
             + 'static,
     {
-        self.script_executor = Some(Arc::new(executor));
+        *self.script_executor.write() = Some(Arc::new(executor));
         self
     }
 
     /// Replace the in-process executor after construction.
-    pub fn set_in_process_executor<F>(&mut self, executor: F)
+    ///
+    /// Unlike the builder-style [`with_in_process_executor`](Self::with_in_process_executor),
+    /// this method works on a shared `Arc<SkillCatalog>` (issue #464) — DCC
+    /// adapters can call it between construction and the first `load_skill()`.
+    pub fn set_in_process_executor<F>(&self, executor: F)
     where
         F: Fn(String, serde_json::Value) -> Result<serde_json::Value, String>
             + Send
             + Sync
             + 'static,
     {
-        self.script_executor = Some(Arc::new(executor));
+        *self.script_executor.write() = Some(Arc::new(executor));
+    }
+
+    /// Replace the in-process executor with a pre-boxed `Arc<ScriptExecutorFn>`.
+    ///
+    /// Useful when the executor is already in `Arc` form (e.g. from PyO3 bindings).
+    pub fn set_in_process_executor_arc(&self, executor: Arc<ScriptExecutorFn>) {
+        *self.script_executor.write() = Some(executor);
     }
 
     /// Remove the in-process executor, reverting to subprocess execution.
-    pub fn clear_in_process_executor(&mut self) {
-        self.script_executor = None;
+    pub fn clear_in_process_executor(&self) {
+        *self.script_executor.write() = None;
     }
 
     /// Discover skills from the standard scan paths.

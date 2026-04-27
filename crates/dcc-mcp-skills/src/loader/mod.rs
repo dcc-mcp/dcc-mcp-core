@@ -286,6 +286,24 @@ fn apply_dcc_mcp_metadata_overrides(
                     }
                 }
             }
+            "recipes" => {
+                // Sibling-file reference for pre-composed parameter templates
+                // (issue #466). Parsing is deferred; store the path for lazy loading.
+                if let Some(s) = value.as_str() {
+                    if !s.is_empty() {
+                        meta.recipes_file = Some(s.to_string());
+                    }
+                }
+            }
+            "introspection" => {
+                // Sibling-file reference for capability-probe / version-check
+                // metadata (issue #466). Parsing is deferred; store for lazy loading.
+                if let Some(s) = value.as_str() {
+                    if !s.is_empty() {
+                        meta.introspection_file = Some(s.to_string());
+                    }
+                }
+            }
             _ => {
                 tracing::debug!(
                     "skill {}: unknown metadata.dcc-mcp.{} key — ignoring",

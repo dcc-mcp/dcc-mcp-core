@@ -261,6 +261,29 @@ pub struct SkillMetadata {
     /// rules that govern description prefixes and `search-hint` partitioning.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub layer: Option<String>,
+
+    /// Sibling-file reference for skill recipes (issue #466).
+    ///
+    /// Set from `metadata.dcc-mcp.recipes` in SKILL.md frontmatter. The value
+    /// is a path relative to the skill root pointing to a TOML or YAML file
+    /// that declares pre-composed parameter templates for common workflows.
+    ///
+    /// Parsing is deferred; the path is stored here so callers can load it
+    /// lazily on demand.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recipes_file: Option<String>,
+
+    /// Sibling-file reference for skill introspection metadata (issue #466).
+    ///
+    /// Set from `metadata.dcc-mcp.introspection` in SKILL.md frontmatter.
+    /// The value is a path relative to the skill root pointing to a YAML file
+    /// that describes capability probes, version checks, or runtime-discovery
+    /// hooks used by agents to verify skill compatibility before invocation.
+    ///
+    /// Parsing is deferred; the path is stored here so callers can load it
+    /// lazily on demand.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub introspection_file: Option<String>,
 }
 
 mod execution;

@@ -53,6 +53,7 @@ use dcc_mcp_actions::{
     registry::{ActionMeta, ActionRegistry},
 };
 use dcc_mcp_models::{SkillGroup, SkillMetadata, SkillScope};
+use parking_lot::RwLock;
 use std::sync::Arc;
 
 use crate::loader;
@@ -103,7 +104,7 @@ pub struct SkillCatalog {
     /// instead of being dispatched to a subprocess.  DCC adapters should
     /// register one of these via [`with_in_process_executor`](Self::with_in_process_executor)
     /// so that `maya.cmds`, `bpy`, `hou`, etc. are available to the scripts.
-    pub(super) script_executor: Option<Arc<ScriptExecutorFn>>,
+    pub(super) script_executor: RwLock<Option<Arc<ScriptExecutorFn>>>,
     /// Tool groups currently active (`"<skill>:<group>"` keys).
     pub(super) active_groups: DashSet<String>,
 }

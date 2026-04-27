@@ -112,6 +112,36 @@ pub fn is_initialized() -> bool {
     HANDLE.get().is_some()
 }
 
+/// Initialise a minimal no-op telemetry provider if one has not been set yet.
+///
+/// This silences the `NoopMeterProvider` / `NoopTracerProvider` warnings that
+/// OpenTelemetry emits when `global::meter()` or `global::tracer()` is called
+/// before any provider has been registered (issue #467).
+///
+/// - If the global provider is already set (by a prior `init()` call or by the
+///   application configuring OTLP / Stdout exporters), this function does
+///   nothing and returns `Ok(())`.
+/// - Otherwise it installs a minimal `SdkMeterProvider` with no exporters so
+///   metrics are silently discarded but the warning is suppressed.
+///
+/// Call this early in your server startup if you don't need full telemetry:
+///
+/// ```no_run
+/// dcc_mcp_telemetry::provider::try_init_default().ok();
+/// ```
+pub fn try_init_default() -> Result<(), TelemetryError> {
+    if HANDLE.get().is_some() {
+        return Ok(());
+    }
+    let cfg = TelemetryConfig {
+        enable_metrics: true,
+        enable_tracing: false,
+        exporter: crate::types::ExporterBackend::Noop,
+        ..TelemetryConfig::default()
+    };
+    init(&cfg)
+}
+
 // ── Named tracer / meter accessors ────────────────────────────────────────────
 
 /// Get a named [`Tracer`] from the global provider.
