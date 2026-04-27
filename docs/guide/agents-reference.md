@@ -715,7 +715,7 @@ Key invariants:
 2. **Cancellation cascades through `tokio_util::sync::CancellationToken`.**
    Never spawn a step future that drops the token — always pass it into
    every `ToolCaller::call` / `RemoteCaller::call` / `tokio::select!`.
-3. **Idempotency short-circuit happens _before_ retry attempts.** A
+3. **Idempotency short-circuit happens *before* retry attempts.** A
    cache hit skips the step entirely; retries only guard live calls.
 4. **SQLite recovery flips non-terminal rows to `interrupted` — never
    auto-resumes.** Resume is explicit opt-in via a separate tool.
