@@ -77,10 +77,10 @@ impl SkillCatalog {
     ///
     /// Pass ``None`` to revert to subprocess execution.
     #[pyo3(name = "set_in_process_executor")]
-    fn py_set_in_process_executor(&mut self, executor: Option<Py<PyAny>>) -> PyResult<()> {
+    fn py_set_in_process_executor(&self, executor: Option<Py<PyAny>>) -> PyResult<()> {
         match executor {
             None => {
-                self.script_executor = None;
+                self.clear_in_process_executor();
             }
             Some(py_fn) => {
                 let executor_fn = move |script_path: String,
@@ -99,7 +99,7 @@ impl SkillCatalog {
                     .ok_or_else(|| "Python interpreter not attached".to_string())
                     .and_then(|r| r)
                 };
-                self.script_executor = Some(Arc::new(executor_fn));
+                self.set_in_process_executor(executor_fn);
             }
         }
         Ok(())
