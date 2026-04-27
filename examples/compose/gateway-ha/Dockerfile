@@ -21,7 +21,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
  && cp /src/target/release/dcc-mcp-server /usr/local/bin/dcc-mcp-server
 
 # ─── Stage 2: runtime ────────────────────────────────────────────────────────
-FROM debian:12-slim
+FROM debian:13-slim
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl \
