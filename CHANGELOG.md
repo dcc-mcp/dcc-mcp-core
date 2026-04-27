@@ -11,6 +11,25 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.14.15](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.14...v0.14.15) (2026-04-27)
+
+
+### Bug Fixes
+
+* **ci:** extend cargo-clippy conflict workaround to Linux runners ([101df5f](https://github.com/loonghao/dcc-mcp-core/commit/101df5f2449eefe373ccbb5b66111521cd32b1a8))
+* **ci:** remove pre-installed cargo-clippy on macOS before toolchain setup ([3bec807](https://github.com/loonghao/dcc-mcp-core/commit/3bec807a9cb5dc7fb27f0e3b97d7f559f1891524))
+* **deps:** update rust dependencies ([77eecb2](https://github.com/loonghao/dcc-mcp-core/commit/77eecb24ec9d52859165b63d2672c0f489714b09))
+* **http:** replace into_py() with direct tuple arg for PyO3 0.28 compat ([6276862](https://github.com/loonghao/dcc-mcp-core/commit/62768623e4705c6cf90239d61116d710c9f8cc20))
+* **models:** add missing recipes_file/introspection_file to SkillMetadata Python constructor ([4f100e9](https://github.com/loonghao/dcc-mcp-core/commit/4f100e9493002318e7f19b3ea1f6d67b3f1be279))
+* resolve issues [#464](https://github.com/loonghao/dcc-mcp-core/issues/464) [#465](https://github.com/loonghao/dcc-mcp-core/issues/465) [#466](https://github.com/loonghao/dcc-mcp-core/issues/466) [#467](https://github.com/loonghao/dcc-mcp-core/issues/467) ([b7ad70d](https://github.com/loonghao/dcc-mcp-core/commit/b7ad70d0bdec33afae951091de885851c8f8e5d4))
+* **skills:** update SkillCatalog.set_in_process_executor in python.rs to use RwLock API ([16a59bf](https://github.com/loonghao/dcc-mcp-core/commit/16a59bf1d9e7f7956df6206903b2a89639a1e198))
+* **workspace-hack:** remove invalid rand/rand_core features removed in 0.10, regenerate with hakari ([a396a9b](https://github.com/loonghao/dcc-mcp-core/commit/a396a9baa4850250af8bb5da767086427a14e2d0))
+
+
+### Documentation
+
+* sync AI-facing docs with latest API surface ([e611c93](https://github.com/loonghao/dcc-mcp-core/commit/e611c9383425afb31600744ee907bd32d806a2dc))
+
 ## [0.14.14](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.13...v0.14.14) (2026-04-26)
 
 
