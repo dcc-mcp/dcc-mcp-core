@@ -327,8 +327,7 @@ pub fn py_create_skill_server(
         cfg.spawn_mode = ServerSpawnMode::Dedicated;
     }
 
-    let runtime =
-        Runtime::new().map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+    let runtime = super::build_python_runtime()?;
 
     let reg = Arc::new(ActionRegistry::new());
     let dispatcher = Arc::new(ActionDispatcher::new((*reg).clone()));

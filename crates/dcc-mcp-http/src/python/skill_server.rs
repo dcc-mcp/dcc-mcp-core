@@ -42,8 +42,7 @@ impl PyMcpHttpServer {
     fn new(registry: &ActionRegistry, config: Option<&PyMcpHttpConfig>) -> PyResult<Self> {
         let cfg = config.map(|c| c.inner.clone()).unwrap_or_default();
 
-        let runtime =
-            Runtime::new().map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let runtime = super::build_python_runtime()?;
 
         let reg = Arc::new(registry.clone());
         let dispatcher = Arc::new(ActionDispatcher::new((*reg).clone()));

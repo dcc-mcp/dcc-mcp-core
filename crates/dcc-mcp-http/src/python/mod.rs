@@ -28,3 +28,12 @@ use crate::{
 };
 use dcc_mcp_actions::{ActionDispatcher, ActionRegistry};
 use dcc_mcp_skills::SkillCatalog;
+
+/// Build the Tokio runtime used by every PyO3 entry-point in this crate.
+///
+/// Centralised so future tuning (worker thread count, stack size, lifetime
+/// telemetry, …) only has to change here instead of every `Runtime::new()`
+/// callsite spread across `bridge.rs` and `skill_server.rs`.
+pub(crate) fn build_python_runtime() -> PyResult<Runtime> {
+    Runtime::new().map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))
+}

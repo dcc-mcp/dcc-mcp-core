@@ -49,10 +49,30 @@ pub mod tool_builder_core;
 pub mod tool_builder_skill;
 pub mod tools_call;
 
-pub(crate) use job_tools::*;
-pub(crate) use lazy_actions::*;
-pub(crate) use resources_prompts::*;
-pub(crate) use skill_tools::*;
-pub(crate) use tool_builder_core::*;
-pub(crate) use tool_builder_skill::*;
-pub(crate) use tools_call::*;
+// Explicit re-exports — keeping the surface auditable so a single grep over
+// this file enumerates everything `crate::handler::*` and `crate::handlers::*`
+// can resolve to.  Adding a new public function in a submodule must be
+// reflected here (compiler will complain otherwise once a caller appears).
+pub(crate) use job_tools::{
+    handle_activate_tool_group, handle_deactivate_tool_group, handle_jobs_cleanup,
+    handle_jobs_get_status, handle_search_tools,
+};
+pub(crate) use lazy_actions::{
+    handle_call_action, handle_describe_action, handle_list_actions, json_error_response,
+    json_has_id, notify_message, notify_tools_changed, parse_body, parse_raw_values,
+    refresh_roots_cache_for_session, request_id_to_string,
+};
+pub(crate) use resources_prompts::{
+    handle_elicitation_create, handle_logging_set_level, handle_prompts_get, handle_prompts_list,
+    handle_resources_list, handle_resources_read, handle_resources_subscribe,
+    handle_resources_unsubscribe, notify_prompts_list_changed_all,
+};
+pub(crate) use skill_tools::{
+    handle_get_skill_info, handle_list_skills, handle_load_skill, handle_unload_skill,
+};
+pub(crate) use tool_builder_core::build_core_tools;
+pub(crate) use tool_builder_skill::{
+    action_meta_to_mcp_tool, build_group_stub, build_lazy_action_tools, build_skill_stub,
+    handle_search_skills, missing_capabilities,
+};
+pub(crate) use tools_call::{handle_tools_call, handle_tools_call_inner};

@@ -234,7 +234,7 @@ async fn bind_tcp(host: &str, port: u16) -> TransportResult<IpcListener> {
             })?;
 
     tracing::debug!(
-        local_addr = %listener.local_addr().unwrap(),
+        local_addr = ?listener.local_addr().ok(),
         "TCP listener bound"
     );
 

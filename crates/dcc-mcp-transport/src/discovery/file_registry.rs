@@ -91,8 +91,10 @@ impl FileRegistry {
             return Ok(());
         };
 
-        // Compare with cached mtime
-        let mut cached = self.last_mtime.lock().unwrap();
+        // Compare with cached mtime. Recover from a poisoned lock: the
+        // protected value is just an Option<SystemTime>, so a previous
+        // panicking holder cannot leave it in an inconsistent state.
+        let mut cached = self.last_mtime.lock().unwrap_or_else(|e| e.into_inner());
         if *cached == Some(current_mtime) {
             // File hasn't changed — fast path, no I/O
             return Ok(());
@@ -128,7 +130,7 @@ impl FileRegistry {
             return Ok(());
         };
 
-        let mut cached = self.last_mtime.lock().unwrap();
+        let mut cached = self.last_mtime.lock().unwrap_or_else(|e| e.into_inner());
         *cached = Some(mtime);
         Ok(())
     }

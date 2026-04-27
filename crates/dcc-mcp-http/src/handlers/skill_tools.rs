@@ -184,9 +184,9 @@ pub async fn handle_load_skill(
         "tools":            tool_schemas,
     });
     if !errors.is_empty() {
-        body.as_object_mut()
-            .unwrap()
-            .insert("errors".to_string(), json!(errors));
+        if let Some(obj) = body.as_object_mut() {
+            obj.insert("errors".to_string(), json!(errors));
+        }
     }
 
     let text = serde_json::to_string_pretty(&body).unwrap_or_default();
