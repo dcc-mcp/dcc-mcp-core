@@ -3,6 +3,9 @@
   "extends": [
     "config:recommended"
   ],
+  "ignorePaths": [
+    "crates/workspace-hack/Cargo.toml"
+  ],
   "packageRules": [
     {
       "matchManagers": ["cargo"],

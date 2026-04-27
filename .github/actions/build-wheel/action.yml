@@ -40,6 +40,16 @@ runs:
       with:
         python-version: ${{ inputs.python-version }}
 
+    - name: Remove pre-installed cargo-clippy (macOS aarch64 conflict workaround)
+      # The macos-latest runner (Apple Silicon) pre-installs Rust with cargo-clippy.
+      # When rustup tries to install the pinned toolchain's clippy component it
+      # finds 'bin/cargo-clippy' already present and rolls back the whole install,
+      # causing the "detected conflict: 'bin/cargo-clippy'" error seen in CI.
+      # Removing the stale binary before toolchain setup lets rustup install cleanly.
+      if: runner.os == 'macOS'
+      shell: bash
+      run: rm -f ~/.cargo/bin/cargo-clippy ~/.cargo/bin/cargo-fmt || true
+
     - name: Setup Rust
       uses: dtolnay/rust-toolchain@master
       with:
