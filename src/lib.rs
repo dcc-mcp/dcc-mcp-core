@@ -61,7 +61,7 @@ macro_rules! add_constants {
 #[cfg(feature = "python-bindings")]
 #[pymodule]
 fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    dcc_mcp_utils::log_config::init_logging();
+    dcc_mcp_logging::init_logging();
 
     register_models(m)?;
     register_actions(m)?;
@@ -239,10 +239,10 @@ fn register_utils(m: &Bound<'_, PyModule>) -> PyResult<()> {
         dcc_mcp_utils::type_wrappers::py_unwrap_value,
         dcc_mcp_utils::type_wrappers::py_unwrap_parameters,
         dcc_mcp_utils::type_wrappers::py_wrap_value,
-        dcc_mcp_utils::file_logging::python::py_init_file_logging,
-        dcc_mcp_utils::file_logging::python::py_shutdown_file_logging,
-        dcc_mcp_utils::file_logging::python::py_flush_logs,
-        dcc_mcp_utils::file_logging::python::py_default_settings,
+        dcc_mcp_logging::python::py_init_file_logging,
+        dcc_mcp_logging::python::py_shutdown_file_logging,
+        dcc_mcp_logging::python::py_flush_logs,
+        dcc_mcp_logging::python::py_default_settings,
         dcc_mcp_utils::py_json::json_dumps,
         dcc_mcp_utils::py_json::json_loads,
         dcc_mcp_utils::py_yaml::yaml_loads,
@@ -257,7 +257,7 @@ fn register_utils(m: &Bound<'_, PyModule>) -> PyResult<()> {
         dcc_mcp_utils::filesystem::SkillFeedback,
         dcc_mcp_utils::filesystem::SkillVersionManifest,
         dcc_mcp_utils::filesystem::SkillVersionEntry,
-        dcc_mcp_utils::file_logging::python::PyFileLoggingConfig,
+        dcc_mcp_logging::python::PyFileLoggingConfig,
     );
     Ok(())
 }
@@ -319,6 +319,7 @@ fn register_scheduler(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
 #[cfg(feature = "python-bindings")]
 fn register_constants(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    use dcc_mcp_logging::constants as log_constants;
     use dcc_mcp_utils::constants;
     add_constants!(
         m,
@@ -334,19 +335,22 @@ fn register_constants(m: &Bound<'_, PyModule>) -> PyResult<()> {
         "ENV_USER_SKILL_PATHS" => constants::ENV_USER_SKILL_PATHS,
         "ENV_TEAM_SKILL_PATHS" => constants::ENV_TEAM_SKILL_PATHS,
         "ENV_DISABLE_ACCUMULATED_SKILLS" => constants::ENV_DISABLE_ACCUMULATED_SKILLS,
-        "ENV_LOG_LEVEL"      => constants::ENV_LOG_LEVEL,
-        "DEFAULT_LOG_LEVEL"  => constants::DEFAULT_LOG_LEVEL,
-        "ENV_LOG_FILE"       => constants::ENV_LOG_FILE,
-        "ENV_LOG_DIR"        => constants::ENV_LOG_DIR,
-        "ENV_LOG_MAX_SIZE"   => constants::ENV_LOG_MAX_SIZE,
-        "ENV_LOG_MAX_FILES"  => constants::ENV_LOG_MAX_FILES,
-        "ENV_LOG_ROTATION"   => constants::ENV_LOG_ROTATION,
-        "ENV_LOG_FILE_PREFIX"=> constants::ENV_LOG_FILE_PREFIX,
-        "DEFAULT_LOG_FILE_PREFIX" => constants::DEFAULT_LOG_FILE_PREFIX,
-        "DEFAULT_LOG_ROTATION"   => constants::DEFAULT_LOG_ROTATION,
+        "ENV_LOG_LEVEL"      => log_constants::ENV_LOG_LEVEL,
+        "DEFAULT_LOG_LEVEL"  => log_constants::DEFAULT_LOG_LEVEL,
+        "ENV_LOG_FILE"       => log_constants::ENV_LOG_FILE,
+        "ENV_LOG_DIR"        => log_constants::ENV_LOG_DIR,
+        "ENV_LOG_MAX_SIZE"   => log_constants::ENV_LOG_MAX_SIZE,
+        "ENV_LOG_MAX_FILES"  => log_constants::ENV_LOG_MAX_FILES,
+        "ENV_LOG_ROTATION"   => log_constants::ENV_LOG_ROTATION,
+        "ENV_LOG_FILE_PREFIX"=> log_constants::ENV_LOG_FILE_PREFIX,
+        "DEFAULT_LOG_FILE_PREFIX" => log_constants::DEFAULT_LOG_FILE_PREFIX,
+        "DEFAULT_LOG_ROTATION"   => log_constants::DEFAULT_LOG_ROTATION,
     );
-    m.add("DEFAULT_LOG_MAX_SIZE", constants::DEFAULT_LOG_MAX_SIZE)?;
-    m.add("DEFAULT_LOG_MAX_FILES", constants::DEFAULT_LOG_MAX_FILES)?;
+    m.add("DEFAULT_LOG_MAX_SIZE", log_constants::DEFAULT_LOG_MAX_SIZE)?;
+    m.add(
+        "DEFAULT_LOG_MAX_FILES",
+        log_constants::DEFAULT_LOG_MAX_FILES,
+    )?;
     Ok(())
 }
 

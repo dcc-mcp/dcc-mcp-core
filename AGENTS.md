@@ -152,6 +152,7 @@ docs/            # guides + API reference
 - Don't add Python runtime deps → **zero-dep by design**
 - Don't manually bump versions → **Release Please handles this**
 - Don't import `SkillScope` from Python → **it's Rust-only; use `SkillMetadata` methods**
+- Don't add a generic `utils` / `common` / `helpers` crate → **route helpers to their owner: domain crate, `dcc-mcp-paths`, `dcc-mcp-logging`, or `dcc-mcp-pybridge`** ([rationale](docs/guide/agents-reference.md#workspace-boundary-rationale))
 
 Full list with code examples → [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md)
 

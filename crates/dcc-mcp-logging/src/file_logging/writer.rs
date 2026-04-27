@@ -1,4 +1,4 @@
-//! Rolling writer implementation for [`crate::file_logging`].
+//! Rolling writer implementation for [`super`].
 //!
 //! Contains the `RollingFileWriter` public type, its private `Inner`
 //! rotation state, and the filesystem helpers (`open_append`,

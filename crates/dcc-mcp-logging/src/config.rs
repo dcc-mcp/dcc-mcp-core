@@ -120,7 +120,7 @@ impl std::fmt::Display for FileLayerInstallError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NotInitialized => f.write_str(
-                "tracing subscriber not initialized — call dcc_mcp_utils::log_config::init_logging() first",
+                "tracing subscriber not initialized — call dcc_mcp_logging::init_logging() first",
             ),
             Self::Reload(msg) => write!(f, "failed to reload file-logging layer: {msg}"),
         }

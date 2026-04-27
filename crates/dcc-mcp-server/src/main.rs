@@ -386,7 +386,7 @@ async fn run_ws_bridge(port: u16, server_name: String, server_version: String) {
 async fn main() -> anyhow::Result<()> {
     // Install the shared subscriber (stderr fmt-layer + reload slot for the
     // optional file-logging layer). Safe to call multiple times.
-    dcc_mcp_utils::log_config::init_logging();
+    dcc_mcp_logging::init_logging();
 
     let args = Args::parse();
 
@@ -403,9 +403,9 @@ async fn main() -> anyhow::Result<()> {
         || args.log_max_files.is_some()
         || args.log_rotation.is_some()
         || args.log_file_prefix.is_some()
-        || dcc_mcp_utils::file_logging::FileLoggingConfig::enabled_by_env()
+        || dcc_mcp_logging::FileLoggingConfig::enabled_by_env()
     {
-        let mut cfg = dcc_mcp_utils::file_logging::FileLoggingConfig::from_env_with_defaults()
+        let mut cfg = dcc_mcp_logging::FileLoggingConfig::from_env_with_defaults()
             .map_err(|e| anyhow::anyhow!("invalid file-logging env vars: {e}"))?;
         if let Some(dir) = args.log_dir.clone() {
             cfg.directory = Some(dir);
@@ -417,7 +417,7 @@ async fn main() -> anyhow::Result<()> {
             cfg.max_files = n;
         }
         if let Some(ref rot) = args.log_rotation {
-            cfg.rotation = dcc_mcp_utils::file_logging::RotationPolicy::parse(rot)
+            cfg.rotation = dcc_mcp_logging::RotationPolicy::parse(rot)
                 .map_err(|e| anyhow::anyhow!("invalid --log-rotation: {e}"))?;
         }
         if let Some(ref prefix) = args.log_file_prefix {
@@ -425,7 +425,7 @@ async fn main() -> anyhow::Result<()> {
                 cfg.file_name_prefix = prefix.clone();
             }
         }
-        match dcc_mcp_utils::file_logging::init_file_logging(cfg) {
+        match dcc_mcp_logging::init_file_logging(cfg) {
             Ok(dir) => tracing::info!(
                 path = %dir.display(),
                 "rolling file logging enabled",

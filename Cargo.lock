@@ -714,6 +714,7 @@ dependencies = [
  "dcc-mcp-artefact",
  "dcc-mcp-capture",
  "dcc-mcp-http",
+ "dcc-mcp-logging",
  "dcc-mcp-models",
  "dcc-mcp-naming",
  "dcc-mcp-process",
@@ -777,6 +778,22 @@ dependencies = [
  "tower-http",
  "tracing",
  "uuid",
+ "workspace-hack",
+]
+
+[[package]]
+name = "dcc-mcp-logging"
+version = "0.14.15"
+dependencies = [
+ "dcc-mcp-utils",
+ "parking_lot",
+ "pyo3",
+ "pyo3-stub-gen",
+ "pyo3-stub-gen-derive",
+ "time",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
  "workspace-hack",
 ]
 
@@ -896,6 +913,7 @@ dependencies = [
  "clap",
  "dcc-mcp-actions",
  "dcc-mcp-http",
+ "dcc-mcp-logging",
  "dcc-mcp-protocols",
  "dcc-mcp-skills",
  "dcc-mcp-transport",
@@ -1027,17 +1045,13 @@ name = "dcc-mcp-utils"
 version = "0.14.15"
 dependencies = [
  "dirs",
- "parking_lot",
  "pyo3",
  "pyo3-stub-gen",
  "pyo3-stub-gen-derive",
  "serde",
  "serde_json",
  "serde_yaml_ng",
- "time",
  "tracing",
- "tracing-appender",
- "tracing-subscriber",
  "workspace-hack",
 ]
 

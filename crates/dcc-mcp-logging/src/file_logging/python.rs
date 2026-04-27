@@ -1,5 +1,5 @@
-//! PyO3 wrappers for [`crate::file_logging::FileLoggingConfig`] and
-//! the install / shutdown / flush entry points.
+//! PyO3 wrappers for [`super::FileLoggingConfig`] and the install /
+//! shutdown / flush entry points.
 
 use super::config::{FileLoggingConfig, RotationPolicy};
 use super::{init_file_logging, shutdown_file_logging};
@@ -164,7 +164,6 @@ impl PyFileLoggingConfig {
         self.inner
     }
 }
-
 /// Install (or replace) file logging. Returns the resolved log directory.
 #[pyfunction]
 #[pyo3(name = "init_file_logging", signature = (config = None))]

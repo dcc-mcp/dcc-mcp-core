@@ -1,19 +1,19 @@
-//! Configuration and error types for [`crate::file_logging`].
+//! Configuration and error types for [`super`].
 
+use crate::config::FileLayerInstallError;
 use crate::constants::{
     DEFAULT_LOG_FILE_PREFIX, DEFAULT_LOG_MAX_FILES, DEFAULT_LOG_MAX_SIZE, DEFAULT_LOG_ROTATION,
     ENV_LOG_DIR, ENV_LOG_FILE, ENV_LOG_FILE_PREFIX, ENV_LOG_MAX_FILES, ENV_LOG_MAX_SIZE,
     ENV_LOG_ROTATION,
 };
-use crate::filesystem::get_log_dir;
-use crate::log_config::FileLayerInstallError;
+use dcc_mcp_utils::filesystem::get_log_dir;
 
 use std::io;
 use std::path::PathBuf;
 
 // ── Rotation policy ──────────────────────────────────────────────────────────
 
-/// Rotation policy used by [`crate::file_logging::RollingFileWriter`].
+/// Rotation policy used by [`super::RollingFileWriter`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RotationPolicy {
     /// Rotate only when the configured size threshold is surpassed.
@@ -81,7 +81,7 @@ pub struct FileLoggingConfig {
     pub rotation: RotationPolicy,
     /// Keep the console `fmt::Layer` active in parallel with the file
     /// layer. Informational for now — the console layer is managed by
-    /// [`crate::log_config::init_logging`] and is always installed; this
+    /// [`crate::config::init_logging`] and is always installed; this
     /// flag is surfaced for future parity with Python where a user may
     /// wish to silence stderr when redirecting to a file.
     pub include_console: bool,
@@ -180,7 +180,7 @@ pub enum FileLoggingError {
     Config(String),
     /// Underlying I/O failure while creating the directory or log file.
     Io(io::Error),
-    /// The reload mechanism in [`crate::log_config`] is not yet initialized
+    /// The reload mechanism in [`crate::config`] is not yet initialized
     /// or refused the swap.
     Install(FileLayerInstallError),
 }

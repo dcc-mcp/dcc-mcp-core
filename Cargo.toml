@@ -8,6 +8,7 @@ members = [
     "crates/dcc-mcp-actions",
     "crates/dcc-mcp-skills",
     "crates/dcc-mcp-protocols",
+    "crates/dcc-mcp-logging",
     "crates/dcc-mcp-utils",
     "crates/dcc-mcp-transport",
     "crates/dcc-mcp-process",
@@ -40,6 +41,7 @@ dcc-mcp-models = { path = "crates/dcc-mcp-models" }
 dcc-mcp-actions = { path = "crates/dcc-mcp-actions" }
 dcc-mcp-skills = { path = "crates/dcc-mcp-skills" }
 dcc-mcp-protocols = { path = "crates/dcc-mcp-protocols" }
+dcc-mcp-logging = { path = "crates/dcc-mcp-logging" }
 dcc-mcp-utils = { path = "crates/dcc-mcp-utils" }
 dcc-mcp-transport = { path = "crates/dcc-mcp-transport" }
 dcc-mcp-process = { path = "crates/dcc-mcp-process" }
@@ -117,6 +119,7 @@ dcc-mcp-models.workspace = true
 dcc-mcp-actions.workspace = true
 dcc-mcp-skills.workspace = true
 dcc-mcp-protocols.workspace = true
+dcc-mcp-logging.workspace = true
 dcc-mcp-utils.workspace = true
 dcc-mcp-transport.workspace = true
 dcc-mcp-process.workspace = true
@@ -160,7 +163,7 @@ strip = true
 
 [features]
 default = []
-python-bindings = ["pyo3", "dcc-mcp-naming/python-bindings", "dcc-mcp-models/python-bindings", "dcc-mcp-actions/python-bindings", "dcc-mcp-skills/python-bindings", "dcc-mcp-protocols/python-bindings", "dcc-mcp-utils/python-bindings", "dcc-mcp-transport/python-bindings", "dcc-mcp-process/python-bindings", "dcc-mcp-telemetry/python-bindings", "dcc-mcp-sandbox/python-bindings", "dcc-mcp-shm/python-bindings", "dcc-mcp-capture/python-bindings", "dcc-mcp-usd/python-bindings", "dcc-mcp-http/python-bindings", "dcc-mcp-artefact/python-bindings", "dcc-mcp-workflow?/python-bindings", "dcc-mcp-scheduler?/python-bindings"]
+python-bindings = ["pyo3", "dcc-mcp-naming/python-bindings", "dcc-mcp-models/python-bindings", "dcc-mcp-actions/python-bindings", "dcc-mcp-skills/python-bindings", "dcc-mcp-protocols/python-bindings", "dcc-mcp-logging/python-bindings", "dcc-mcp-utils/python-bindings", "dcc-mcp-transport/python-bindings", "dcc-mcp-process/python-bindings", "dcc-mcp-telemetry/python-bindings", "dcc-mcp-sandbox/python-bindings", "dcc-mcp-shm/python-bindings", "dcc-mcp-capture/python-bindings", "dcc-mcp-usd/python-bindings", "dcc-mcp-http/python-bindings", "dcc-mcp-artefact/python-bindings", "dcc-mcp-workflow?/python-bindings", "dcc-mcp-scheduler?/python-bindings"]
 # Opt into the first-class Workflow primitive (issue #348). Off by default
 # for one release — enables WorkflowSpec/WorkflowStatus in Python and the
 # workflows.* built-in tools in Rust. Step execution is stubbed; see #348.
@@ -191,6 +194,7 @@ stub-gen = [
     "dcc-mcp-actions/stub-gen",
     "dcc-mcp-skills/stub-gen",
     "dcc-mcp-protocols/stub-gen",
+    "dcc-mcp-logging/stub-gen",
     "dcc-mcp-utils/stub-gen",
     "dcc-mcp-transport/stub-gen",
     "dcc-mcp-process/stub-gen",

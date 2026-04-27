@@ -6,36 +6,9 @@ use std::sync::LazyLock;
 pub const APP_NAME: &str = "dcc-mcp";
 /// Application author identifier (exposed to Python consumers).
 pub const APP_AUTHOR: &str = "dcc-mcp";
-/// Default log level when `ENV_LOG_LEVEL` is not set.
-pub const DEFAULT_LOG_LEVEL: &str = "DEBUG";
-/// Environment variable name for overriding the log level.
-pub const ENV_LOG_LEVEL: &str = "MCP_LOG_LEVEL";
 
-/// Environment variable toggling file-logging. Any non-empty, non-`0`/`false`
-/// value enables it (defaults to disabled).
-pub const ENV_LOG_FILE: &str = "DCC_MCP_LOG_FILE";
-/// Environment variable overriding the log directory.
-/// Falls back to [`crate::filesystem::get_log_dir`] when unset.
-pub const ENV_LOG_DIR: &str = "DCC_MCP_LOG_DIR";
-/// Environment variable overriding the maximum bytes per log file
-/// before a rollover is triggered.
-pub const ENV_LOG_MAX_SIZE: &str = "DCC_MCP_LOG_MAX_SIZE";
-/// Environment variable overriding the retention count (how many rolled files to keep).
-pub const ENV_LOG_MAX_FILES: &str = "DCC_MCP_LOG_MAX_FILES";
-/// Environment variable overriding the rotation policy.
-/// Accepts `size`, `daily`, `both` (case-insensitive).
-pub const ENV_LOG_ROTATION: &str = "DCC_MCP_LOG_ROTATION";
-/// Environment variable overriding the log file-name prefix.
-pub const ENV_LOG_FILE_PREFIX: &str = "DCC_MCP_LOG_FILE_PREFIX";
-
-/// Default maximum log file size in bytes before rotation (10 MiB).
-pub const DEFAULT_LOG_MAX_SIZE: u64 = 10 * 1024 * 1024;
-/// Default retention — keep this many rolled files in addition to the current one.
-pub const DEFAULT_LOG_MAX_FILES: usize = 7;
-/// Default log file-name prefix (the full filename is `<prefix>.<timestamp>.log`).
-pub const DEFAULT_LOG_FILE_PREFIX: &str = "dcc-mcp";
-/// Default rotation policy — `"both"` means rotate on size OR calendar-date change.
-pub const DEFAULT_LOG_ROTATION: &str = "both";
+// Logging-related constants (`ENV_LOG_*`, `DEFAULT_LOG_*`) live in
+// `dcc-mcp-logging::constants` since issue #496.
 
 /// Filename expected at the root of every skill package.
 pub const SKILL_METADATA_FILE: &str = "SKILL.md";
@@ -358,7 +331,6 @@ mod tests {
     #[test]
     fn test_env_var_constants_not_empty() {
         assert_eq!(ENV_SKILL_PATHS, "DCC_MCP_SKILL_PATHS");
-        assert_eq!(ENV_LOG_LEVEL, "MCP_LOG_LEVEL");
     }
 
     #[test]

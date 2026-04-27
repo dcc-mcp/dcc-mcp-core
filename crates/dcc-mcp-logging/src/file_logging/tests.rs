@@ -1,4 +1,4 @@
-//! Unit tests for [`crate::file_logging`].
+//! Unit tests for [`super`].
 
 use super::writer::{CalendarDate, prune_old};
 use super::*;

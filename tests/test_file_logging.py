@@ -3,7 +3,7 @@
 These exercise the Python surface (``FileLoggingConfig`` /
 ``init_file_logging`` / ``shutdown_file_logging``) — the rotation and
 retention semantics themselves are covered by the Rust unit tests in
-``crates/dcc-mcp-utils/src/file_logging.rs``.
+``crates/dcc-mcp-logging/src/file_logging/``.
 
 The global ``tracing`` subscriber is a process-wide resource, so each
 test swaps the file layer onto a per-test ``tmp_path`` and tears it

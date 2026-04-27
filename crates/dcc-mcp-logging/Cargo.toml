@@ -1,11 +1,11 @@
 [package]
-name = "dcc-mcp-utils"
+name = "dcc-mcp-logging"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "Utilities for the DCC-MCP ecosystem (filesystem, constants, type wrappers, Python<->JSON bridges)"
+description = "Tracing subscriber bootstrap and rolling file-logging layer for the dcc-mcp ecosystem"
 
 [dependencies]
 pyo3 = { workspace = true, optional = true }
@@ -14,13 +14,15 @@ pyo3 = { workspace = true, optional = true }
 pyo3-stub-gen = { workspace = true, optional = true }
 pyo3-stub-gen-derive = { workspace = true, optional = true }
 
-serde = { workspace = true }
-serde_json = { workspace = true }
-serde_yaml_ng = { workspace = true }
-dirs = { workspace = true }
-# `tracing` only — `tracing-subscriber` / `tracing-appender` /
-# `time` / `parking_lot` moved to `dcc-mcp-logging` (issue #496).
+# Internal — required for the platform `get_log_dir()` resolver. After
+# issue #485 lands the dependency will swap to `dcc-mcp-paths`.
+dcc-mcp-utils = { workspace = true }
+
 tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-appender = { workspace = true }
+time = { workspace = true }
+parking_lot = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [features]

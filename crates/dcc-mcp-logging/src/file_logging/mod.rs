@@ -2,8 +2,8 @@
 //!
 //! The writer rotates on **either** a configured byte size **or** a
 //! calendar-date change (local time). It plugs into the subscriber
-//! that [`crate::log_config::init_logging`] installs via a reload
-//! handle, so callers can opt in at any time — including from Python
+//! that [`crate::config::init_logging`] installs via a reload handle,
+//! so callers can opt in at any time — including from Python
 //! (`init_file_logging`) after the `_core` module has already loaded.
 //!
 //! ## Design
@@ -34,37 +34,26 @@
 //!
 //! ## Maintainer layout
 //!
-//! This module is a **thin facade**. Responsibilities are divided
-//! across sibling files, each under ~300 lines:
-//!
 //! | File | Responsibility |
 //! |------|----------------|
-//! | `file_logging_config.rs` | `RotationPolicy`, `FileLoggingConfig`, `FileLoggingError`, env-var parsing |
-//! | `file_logging_writer.rs` | `RollingFileWriter`, `Inner`, `CalendarDate`, filesystem helpers |
-//! | `file_logging_python.rs` | `#[pyclass] PyFileLoggingConfig` + `py_*` entry points |
-//! | `file_logging_tests.rs`  | Unit tests (rotation, retention, install/shutdown idempotency) |
-//!
-//! This file keeps the public install / shutdown / flush entry points
-//! and the process-wide handles (`FileLoggingHandles`).
+//! | `config.rs` | `RotationPolicy`, `FileLoggingConfig`, `FileLoggingError`, env-var parsing |
+//! | `writer.rs` | `RollingFileWriter`, `Inner`, `CalendarDate`, filesystem helpers |
+//! | `python.rs` | `#[pyclass] PyFileLoggingConfig` + `py_*` entry points |
+//! | `tests.rs`  | Unit tests (rotation, retention, install/shutdown idempotency) |
 
-#[path = "file_logging_config.rs"]
 mod config;
-
-#[path = "file_logging_writer.rs"]
 mod writer;
 
 #[cfg(feature = "python-bindings")]
-#[path = "file_logging_python.rs"]
 pub mod python;
 
 #[cfg(test)]
-#[path = "file_logging_tests.rs"]
 mod tests;
 
 pub use config::{FileLoggingConfig, FileLoggingError, RotationPolicy};
 pub use writer::RollingFileWriter;
 
-use crate::log_config::{BoxedLayer, install_file_layer_boxed};
+use crate::config::{BoxedLayer, install_file_layer_boxed};
 
 use parking_lot::Mutex;
 use std::path::PathBuf;
@@ -97,7 +86,7 @@ fn handles_slot() -> &'static parking_lot::Mutex<Option<FileLoggingHandles>> {
 
 /// Install (or replace) the rolling-file layer on the global subscriber.
 ///
-/// Calls [`crate::log_config::init_logging`] first to make sure the
+/// Calls [`crate::config::init_logging`] first to make sure the
 /// reload handle exists. Subsequent calls swap the layer atomically —
 /// useful for tests that point at different directories.
 ///
@@ -107,7 +96,7 @@ fn handles_slot() -> &'static parking_lot::Mutex<Option<FileLoggingHandles>> {
 /// - [`FileLoggingError::Install`] if the reload handle refuses the swap.
 pub fn init_file_logging(config: FileLoggingConfig) -> Result<PathBuf, FileLoggingError> {
     // Ensure the subscriber (and its reload handle) exist.
-    crate::log_config::init_logging();
+    crate::config::init_logging();
 
     let writer = RollingFileWriter::new(&config)?;
     let writer_inner = writer.inner.clone();

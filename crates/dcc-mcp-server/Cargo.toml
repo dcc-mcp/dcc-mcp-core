@@ -17,6 +17,7 @@ dcc-mcp-http.workspace = true
 dcc-mcp-actions.workspace = true
 dcc-mcp-skills.workspace = true
 dcc-mcp-protocols.workspace = true
+dcc-mcp-logging.workspace = true
 dcc-mcp-utils.workspace = true
 dcc-mcp-transport.workspace = true
 serde.workspace = true

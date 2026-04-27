@@ -424,6 +424,7 @@ json_str = result.to_json()    # JSON string
 - Don't reference `ActionMeta.enabled` in Python — use `ToolRegistry.set_tool_enabled()` instead
 - Don't use `json.dumps()` on `ToolResult` — use `result.to_json()` or `serialize_result()`
 - Don't guess tool names — use `search_skills(query)` to discover the right tool.
+- **Don't add a generic `utils` / `common` / `helpers` crate** — every helper has a natural owner (a domain crate, `dcc-mcp-paths`, `dcc-mcp-logging`, or `dcc-mcp-pybridge`). See the Workspace Boundary Rationale section.
 
 ---
 
@@ -526,6 +527,68 @@ When adding a Rust type/function that needs to be callable from Python:
 - Docs-only changes skip Rust rebuild → CI passes quickly
 - Squash merge convention for PRs
 
+
+---
+
+## Workspace Boundary Rationale
+
+The Rust workspace deliberately has **no `utils` / `common` / `helpers`
+crate**. This is a hard architectural constraint, not a stylistic
+preference: a previous `dcc-mcp-utils` crate accreted five unrelated
+concerns (filesystem helpers, file logging, PyO3 bridges, skill-domain
+logic, a constants bag) and forced every other crate to transitively pull
+`tracing-appender`, `tracing-subscriber`, `time`, `pyo3`, etc. — even pure
+data crates like `dcc-mcp-models` and `dcc-mcp-naming`. The Phase 0
+re-cut (issues #485, #496, #497, #498) deleted that crate and
+redistributed its contents by ownership.
+
+### Where each kind of helper lives
+
+| Helper kind | Crate | Notes |
+|-------------|-------|-------|
+| Platform directories (`get_config_dir`, `get_data_dir`, `get_cache_dir`, `get_log_dir`) | `dcc-mcp-paths` | Deps limited to `dirs` + `std` — zero PyO3 / tracing |
+| `ensure_directory`, `path_to_string` | `dcc-mcp-paths` | Generic FS plumbing only |
+| File logging (`init_file_logging`, `FileLoggingConfig`, `RotationPolicy`, rolling writer) | `dcc-mcp-logging` | Depends on `tracing-subscriber` + `tracing-appender`; NEVER imported by base data crates |
+| Tracing-subscriber bootstrap (`init_logging`) | `dcc-mcp-logging` | Same |
+| `LOG_*` env vars and defaults | `dcc-mcp-logging::constants` | Co-located with the consumer |
+| PyO3 ↔ JSON bridges (`json_value_to_pyobject`, `py_any_to_json_value`, `py_dict_to_json_map`) | `dcc-mcp-pybridge` | Feature-gated `python-bindings`; pulled only by crates that actually expose Python |
+| PyO3 ↔ YAML bridges (`yaml_dumps`, `yaml_loads`) | `dcc-mcp-pybridge` | Same |
+| `BooleanWrapper`, `FloatWrapper`, `unwrap_to_json_value` | `dcc-mcp-pybridge` | Pure PyO3 surface — zero Rust call sites |
+| Skill paths (`get_skill_paths_from_env`, `get_user_skills_dir`, `get_team_skills_dir`, `copy_skill_to_user_dir`) | `dcc-mcp-skills::paths` | Owned by the only consumer |
+| Skill versioning (`archive_skill_version`, `update_version_manifest`) | `dcc-mcp-skills::versioning` | Domain logic |
+| Skill feedback (`record_skill_feedback`, `FeedbackEntry`) | `dcc-mcp-skills::feedback` | Domain logic |
+| Skill evolution (`archive_evolved_skill`, `save_evolved_skill_version`) | `dcc-mcp-skills::evolution` | Domain logic |
+| `SKILL_*` / `ENV_*_SKILL_*` constants, `SUPPORTED_SCRIPT_EXTENSIONS`, `is_supported_extension`, `MTIME_EPSILON_SECS` | `dcc-mcp-skills::constants` | Co-located with consumer |
+| `DEFAULT_DCC`, `DEFAULT_VERSION` | `dcc-mcp-naming` | Co-located with consumer |
+| `DEFAULT_MIME_TYPE` | `dcc-mcp-protocols` | Co-located with consumer |
+| `DEFAULT_ERROR_TYPE`, `DEFAULT_ERROR_PROMPT`, `DEFAULT_SUCCESS_MESSAGE`, `CTX_KEY_*`, `ACTION_RESULT_KNOWN_KEYS`, `default_schema()` | `dcc-mcp-models` | Co-located with consumer |
+| `APP_NAME`, `APP_AUTHOR` | `dcc-mcp-paths::constants` | Used to derive platform dirs |
+
+### Decision rule for new helpers
+
+When you reach for a "tiny shared helper" ask in this order:
+
+1. **Does an existing domain crate consume it?** Put it there. A helper
+   used only by `dcc-mcp-skills` belongs in `dcc-mcp-skills`, even if it
+   is "generic-looking".
+2. **Is it a platform-dir or pathbuf helper used by ≥2 unrelated crates?**
+   Put it in `dcc-mcp-paths`.
+3. **Is it a logging concern?** Put it in `dcc-mcp-logging`.
+4. **Is it PyO3 conversion plumbing?** Put it in `dcc-mcp-pybridge`
+   under `feature = "python-bindings"`.
+5. **None of the above?** Inline it at the call site. Do not create a
+   new utility module just to share three lines of code, and never
+   resurrect a `utils` / `common` crate.
+
+### Compile-time invariants
+
+- `cargo tree -p dcc-mcp-models --no-default-features` MUST NOT list
+  `tracing-appender`, `tracing-subscriber`, or `pyo3`.
+- `cargo tree -p dcc-mcp-naming` and `cargo tree -p dcc-mcp-protocols`
+  MUST stay at the same dep-count baseline as `dcc-mcp-models`.
+- The top-level `dcc-mcp-core` crate is the only place that re-exports
+  PyO3 symbols across crate boundaries; every other crate uses the
+  `python-bindings` feature gate locally.
 
 ---
 
