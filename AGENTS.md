@@ -38,8 +38,10 @@
 | Expose DCC tools over MCP | `DccServerBase` → subclass → `start()` |
 | Zero-code tool registration | `SKILL.md` + `scripts/` ([agentskills.io](https://agentskills.io/specification)) |
 | Structured results | `success_result()` / `error_result()` |
+| Rich error with traceback | `skill_error_with_trace()` |
 | Bridge non-Python DCC | `DccBridge` (WebSocket JSON-RPC 2.0) |
 | IPC | `IpcChannelAdapter` / `SocketServerAdapter` + `DccLinkFrame` |
+| Hand off files between tools | `FileRef` + `artefact_put_file()` / `artefact_get_bytes()` |
 | Multi-DCC gateway | `McpHttpConfig(gateway_port=9765)` |
 | Gateway failover | `DccGatewayElection(dcc_name, server)` — auto-promote on gateway failure |
 | Skill scoping | `SkillScope` (Repo → User → System → Admin) — Rust-only |
@@ -54,10 +56,14 @@
 | In-process skill execution (embedded DCC) | `SkillCatalog.set_in_process_executor(callable)` |
 | Skill scanning | `scan_and_load(dcc_name=...)` → always unpack `(skills, skipped)` tuple |
 | Tolerate broken SKILL.md | `scan_and_load_lenient(...)` instead of `scan_and_load` |
+| Discover team-level skills | `scan_and_load_team()` / `scan_and_load_team_lenient()` |
+| Discover user-level skills | `scan_and_load_user()` / `scan_and_load_user_lenient()` |
+| Disable evolved skills | `ENV_DISABLE_ACCUMULATED_SKILLS` |
 | MCP HTTP (recommended) | `create_skill_server("maya", McpHttpConfig(port=8765))` |
 | MCP HTTP (manual) | `McpHttpServer(registry, McpHttpConfig(port=8765))` |
 | Full-screen capture | `Capturer.new_auto().capture()` |
 | Single-window capture | `Capturer.new_window_auto().capture_window(...)` |
+| Capture DCC output streams | `OutputCapture` — stdout/stderr/script-editor as `output://` resource |
 | Cooperative cancellation | `check_cancelled()` in long-running skill scripts |
 | Checkpoint/resume | `save_checkpoint(job_id, state)` / `get_checkpoint(job_id)` |
 | Agent-facing docs resources | `register_docs_server(server)` → `docs://` MCP resources |

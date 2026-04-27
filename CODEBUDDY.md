@@ -33,8 +33,8 @@ When you need information, read in this order — stop when you find what you ne
 2. Add PyO3 bindings in the crate's `python.rs` module (`#[pyclass]` / `#[pymethods]`)
 3. Register in `src/lib.rs` in the corresponding `register_*()` function
 4. Re-export in `python/dcc_mcp_core/__init__.py` (both import and `__all__`)
-5. Update `python/dcc_mcp_core/_core.pyi` stubs
-6. Add pytest tests in `tests/test_<module>.py`
+5. Add pytest tests in `tests/test_<module>.py`
+6. Regenerate type stubs via `vx just stubgen` (produces `_core.pyi`)
 
 ### When Working With Skills
 
@@ -43,6 +43,11 @@ When you need information, read in this order — stop when you find what you ne
 - Action naming: `{skill_name}__{script_stem}` (double underscore, hyphens→underscores)
 - Use `scan_and_load()` or `scan_and_load_lenient()` — not the old `scan_and_load_skills()`
 - **`scan_and_load` returns a 2-tuple**: `(List[SkillMetadata], List[str])` — always unpack both
+- **`search-hint` in SKILL.md**: add `search-hint: "keyword1, keyword2"` to improve `search_skills` matching without loading full schemas
+- **On-demand discovery**: `tools/list` returns skill stubs (`__skill__<name>`) for unloaded skills; use `search_skills(query)` then `load_skill(name)` to activate. As of #340 `search_skills` takes `query`/`tags`/`dcc`/`scope`/`limit` (all optional — empty call browses by trust scope)
+- **Bundled skills**: 2 core skills shipped inside the wheel (`dcc_mcp_core/skills/`): `dcc-diagnostics`, `workflow` — use `get_bundled_skills_dir()` / `get_bundled_skill_paths()` to get the path. DCC adapters include these by default (`include_bundled=True`)
+- **Skill authoring templates**: `skills/templates/` provides three starter templates: `minimal` (1 tool, 1 script), `dcc-specific` (DCC binding + required_capabilities + next-tools chaining), `with-groups` (tool groups for progressive exposure). See `skills/README.md` for quick-start guide
+- **DCC integration architectures**: `skills/integration-guide.md` covers three patterns: Embedded Python (`DccServerBase`) — Maya, Blender, Houdini, Unreal; WebSocket Bridge (`DccBridge`) — Photoshop, ZBrush, Unity, After Effects; WebView Host (`WebViewAdapter`) — AuroraView, Electron panels
 - See `examples/skills/` for 11 reference implementations
 
 ### When Using MCP HTTP Server

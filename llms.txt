@@ -42,6 +42,13 @@
 | Singleton DCC server factory | `create_dcc_server(instance_holder, lock, server_class, ...)` / `make_start_stop(ServerClass)` — zero-boilerplate singleton server pattern |
 | Skill validation | `validate_skill(skill_dir)` → `SkillValidationReport` with `SkillValidationIssue` list |
 | Rust-powered JSON/YAML | `json_dumps(obj)` / `json_loads(s)` / `yaml_dumps(obj)` / `yaml_loads(s)` — zero-dependency serialization |
+| Discover team-level skills | `scan_and_load_team()` / `scan_and_load_team_lenient()` |
+| Discover user-level skills | `scan_and_load_user()` / `scan_and_load_user_lenient()` |
+| Reference files across tool calls (artefacts) | `FileRef` + `artefact_put_file()` / `artefact_get_bytes()` / `artefact_list()` |
+| Capture DCC stdout/stderr/script-editor output | `OutputCapture` |
+| Rich skill error with traceback | `skill_error_with_trace()` |
+| Skill warning / exception helpers | `skill_warning()` / `skill_exception()` |
+| Disable accumulated/evolved skills | `ENV_DISABLE_ACCUMULATED_SKILLS` |
 
 ## Quick Start
 
@@ -159,11 +166,25 @@ Pure-Python modules: cancellation, checkpoint, docs_resources, feedback, introsp
 - `scan_skill_paths(extra_paths=None, dcc_name=None) -> List[str]`
 - `scan_and_load(dcc_name=None, extra_paths=None) -> tuple[List[SkillMetadata], List[str]]` — **(skills, skipped_dirs)**
 - `scan_and_load_lenient(dcc_name=None, extra_paths=None) -> tuple[List[SkillMetadata], List[str]]` — same, skips errors
+- `scan_and_load_team(dcc_name=None, extra_paths=None) -> tuple[List[SkillMetadata], List[str]]`
+- `scan_and_load_team_lenient(dcc_name=None, extra_paths=None) -> tuple[List[SkillMetadata], List[str]]`
+- `scan_and_load_user(dcc_name=None, extra_paths=None) -> tuple[List[SkillMetadata], List[str]]`
+- `scan_and_load_user_lenient(dcc_name=None, extra_paths=None) -> tuple[List[SkillMetadata], List[str]]`
 - `resolve_dependencies(skills) -> List[SkillMetadata]`
 - `expand_transitive_dependencies(skills, skill_name) -> List[str]`
 - `validate_dependencies(skills) -> List[str]` — returns error messages
 - `get_skill_paths_from_env() -> List[str]` — reads `DCC_MCP_SKILL_PATHS` env var
 - `get_app_skill_paths_from_env(app_name: str) -> List[str]` — reads `DCC_MCP_{APP}_SKILL_PATHS` env var
+- `skill_error(message, error, prompt=None, possible_solutions=None, **context) -> dict` — zero-boilerplate error result for skill scripts
+- `skill_error_with_trace(message, error=None, prompt=None, **context) -> dict` — same as `skill_error` but includes traceback
+- `skill_warning(message, prompt=None, **context) -> dict` — warning-level result
+- `skill_exception(message, exc_info=None, prompt=None, **context) -> dict` — exception-style result
+- `run_main(skill_dir, params=None) -> dict` — convenience entry point for standalone skill script execution
+- `SkillFeedback` — feedback data model
+- `get_skill_feedback(skill_name) -> List[SkillFeedback]`
+- `record_skill_feedback(skill_name, feedback)`
+- `SkillVersionEntry`, `SkillVersionManifest`
+- `get_skill_version_manifest(skill_dir) -> SkillVersionManifest`
 
 **SkillCatalog** — progressive skill loading with thread-safe state:
 - `SkillCatalog(registry)` — construct with a `ToolRegistry`
@@ -211,6 +232,8 @@ tools:
 ### MCP Protocol Types (`dcc_mcp_core`)
 
 - `ToolDefinition(name, description, input_schema, output_schema=None, annotations=None)`
+- `ToolDeclaration(name, description, input_schema, annotations=None)` — lightweight tool declaration without output schema
+- `ToolSpec(name, description, input_schema, output_schema=None, annotations=None)` — full tool specification for registry use
 - `ToolAnnotations(title=None, read_only_hint=None, destructive_hint=None, idempotent_hint=None, open_world_hint=None, deferred_hint=None)`
 - `ResourceAnnotations(audience=None, priority=None)`
 - `ResourceDefinition(uri, name, description, mime_type="text/plain", annotations=None)`
@@ -322,6 +345,10 @@ tools:
 - `register_diagnostic_handlers(...)` — the IPC-path equivalent (used by `DccServerBase.start()`)
 - Bundled `dcc-diagnostics` skill's `screenshot.py` tries `DCC_MCP_OWNER_IPC` → `channel.call("take_screenshot")` first and falls back to `Capturer.new_auto()` when no owner IPC is set
 
+### Output Capture (`dcc_mcp_core`)
+
+- `OutputCapture` — capture DCC stdout/stderr/script-editor output as `output://` MCP resource (issue #461)
+
 ### USD (`dcc_mcp_core`)
 
 - `UsdStage`, `UsdPrim`, `SdfPath`, `VtValue`, `SceneInfo`, `SceneStatistics`
@@ -341,6 +368,14 @@ tools:
 - `BridgeContext` — bridge context with name, description, metadata
 - `register_bridge(name, ctx)` — register a named bridge
 - `get_bridge_context(name) -> Optional[BridgeContext]` — retrieve bridge by name
+
+### Artefacts (`dcc_mcp_core`)
+
+- `FileRef(path, mime_type=None, name=None, metadata=None)` — reference to a file for cross-tool hand-off
+- `artefact_put_file(path, name=None, metadata=None) -> FileRef`
+- `artefact_put_bytes(data, name, mime_type="application/octet-stream", metadata=None) -> FileRef`
+- `artefact_get_bytes(ref) -> bytes`
+- `artefact_list() -> list[FileRef]`
 
 ### DccBridge — WebSocket Bridge (`dcc_mcp_core.bridge`)
 
@@ -481,6 +516,22 @@ tools:
 - `get_config_dir()`, `get_data_dir()`, `get_log_dir()`, `get_platform_dir(dir_type)`
 - `get_tools_dir(dcc_name)`, `get_skills_dir(dcc_name=None)`
 - `get_skill_paths_from_env() -> List[str]` — reads `DCC_MCP_SKILL_PATHS`
+- `get_team_skill_paths_from_env() -> List[str]` — reads `DCC_MCP_TEAM_SKILL_PATHS`
+- `get_user_skill_paths_from_env() -> List[str]` — reads `DCC_MCP_USER_SKILL_PATHS`
+- `get_app_team_skill_paths_from_env(app_name) -> List[str]` — reads `DCC_MCP_{APP}_TEAM_SKILL_PATHS`
+- `get_app_user_skill_paths_from_env(app_name) -> List[str]` — reads `DCC_MCP_{APP}_USER_SKILL_PATHS`
+- `get_team_skills_dir() -> str` — team-level skills directory
+- `get_user_skills_dir() -> str` — user-level skills directory
+- `get_bundled_skills_dir() -> str` — bundled skills directory shipped with the package
+- `get_bundled_skill_paths() -> List[str]` — list containing the bundled skills directory when it exists
+- `copy_skill_to_team_dir(skill_dir) -> str` — copy a skill to the team directory
+- `copy_skill_to_user_dir(skill_dir) -> str` — copy a skill to the user directory
+
+### Scheduler (`dcc_mcp_core`)
+
+- `ScheduleSpec` — scheduling specification for recurring or delayed tasks
+- `TriggerSpec` — trigger definition for event-driven scheduling
+- `parse_schedules_yaml(path) -> List[ScheduleSpec]` — load and parse schedule definitions from YAML
 
 ### File Logging (`dcc_mcp_core`)
 
@@ -495,7 +546,7 @@ tools:
 - `APP_NAME = "dcc-mcp"`, `APP_AUTHOR = "dcc-mcp"`
 - `DEFAULT_DCC = "python"`, `DEFAULT_LOG_LEVEL = "DEBUG"`, `DEFAULT_MIME_TYPE = "text/plain"`, `DEFAULT_VERSION = "1.0.0"`
 - `SKILL_METADATA_FILE = "SKILL.md"`, `SKILL_SCRIPTS_DIR = "scripts"`, `SKILL_METADATA_DIR = "metadata"`
-- `ENV_SKILL_PATHS = "DCC_MCP_SKILL_PATHS"`, `ENV_LOG_LEVEL = "MCP_LOG_LEVEL"
+- `ENV_SKILL_PATHS = "DCC_MCP_SKILL_PATHS"`, `ENV_LOG_LEVEL = "MCP_LOG_LEVEL"`, `ENV_DISABLE_ACCUMULATED_SKILLS` — set to "1" to disable accumulated/evolved skills discovery, `ENV_TEAM_SKILL_PATHS` / `ENV_USER_SKILL_PATHS` — team-level and user-level skill path env vars
 - `TOOL_NAME_RE` / `ACTION_ID_RE` — SEP-986 regex patterns for tool names and action IDs
 - `MAX_TOOL_NAME_LEN = 48` — maximum tool name length
 
@@ -647,6 +698,10 @@ cimd = oauth.to_cimd_document(redirect_uri="http://localhost:8765/oauth/callback
 
 # Manual validation inside a pure-Python handler
 ok = validate_bearer_token(request_headers, expected_token=os.environ["DCC_MCP_API_KEY"])
+
+# HMAC utilities for webhook / hub signature verification
+signature = hmac_sha256_hex(secret, payload)
+ok = verify_hub_signature_256(secret, payload, signature)
 ```
 
 ### Batch Dispatch (`#406`, `dcc_mcp_core.batch`)

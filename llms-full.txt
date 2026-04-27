@@ -34,6 +34,13 @@
 | Wrap values for safe RPyC transport | `wrap_value()` / `unwrap_value()` |
 | Handle multiple versions of an action | `VersionedRegistry` + `VersionConstraint` |
 | Expose DCC tools over HTTP/MCP | `create_skill_server("maya", McpHttpConfig(port=8765))` — Skills-First one-call setup; falls back to `McpHttpServer(registry, config)` for manual registry wiring |
+| Discover team-level skills | `scan_and_load_team()` / `scan_and_load_team_lenient()` |
+| Discover user-level skills | `scan_and_load_user()` / `scan_and_load_user_lenient()` |
+| Reference files across tool calls (artefacts) | `FileRef` + `artefact_put_file()` / `artefact_get_bytes()` / `artefact_list()` |
+| Capture DCC stdout/stderr/script-editor output | `OutputCapture` |
+| Rich skill error with traceback | `skill_error_with_trace()` |
+| Skill warning / exception helpers | `skill_warning()` / `skill_exception()` |
+| Disable accumulated/evolved skills | `ENV_DISABLE_ACCUMULATED_SKILLS` |
 
 ---
 
@@ -561,6 +568,79 @@ for s in skills:
     # Action names: f"{s.name.replace('-', '_')}__{stem}" for stem in script stems
 ```
 
+### scan_and_load_team / scan_and_load_team_lenient
+
+```python
+# Discover team-level skills (shared / accumulated / evolved skills)
+skills, skipped = dcc_mcp_core.scan_and_load_team(dcc_name="maya")
+skills, skipped = dcc_mcp_core.scan_and_load_team_lenient(dcc_name="maya")
+# Same return type as scan_and_load: (List[SkillMetadata], List[str])
+# Reads DCC_MCP_TEAM_SKILL_PATHS env var + platform team skills dir
+```
+
+### scan_and_load_user / scan_and_load_user_lenient
+
+```python
+# Discover user-level skills (personal skill directories)
+skills, skipped = dcc_mcp_core.scan_and_load_user(dcc_name="maya")
+skills, skipped = dcc_mcp_core.scan_and_load_user_lenient(dcc_name="maya")
+# Same return type as scan_and_load: (List[SkillMetadata], List[str])
+# Reads DCC_MCP_USER_SKILL_PATHS env var + platform user skills dir
+```
+
+### Skill Feedback
+
+```python
+from dcc_mcp_core import SkillFeedback, get_skill_feedback, record_skill_feedback
+
+# Record feedback for a skill (e.g., from agent or user)
+record_skill_feedback("maya-geometry", "success: created sphere quickly")
+
+# Retrieve feedback history
+entries: list[SkillFeedback] = get_skill_feedback("maya-geometry")
+for entry in entries:
+    print(entry.text)   # str feedback text
+    print(entry.timestamp_ms)
+```
+
+### Skill Version Manifest
+
+```python
+from dcc_mcp_core import SkillVersionEntry, SkillVersionManifest, get_skill_version_manifest
+
+manifest = get_skill_version_manifest("/path/to/skill-dir")
+# manifest.entries: list[SkillVersionEntry]
+# Each entry: version (str), created_at (int ms), description (str), author (str)
+```
+
+### Skill Script Helpers (Rust-level)
+
+```python
+from dcc_mcp_core import skill_error_with_trace, skill_warning, skill_exception
+
+# Error with automatic traceback capture
+result = skill_error_with_trace("Export failed", error="File not found", prompt="Check path")
+
+# Warning-level result (success=True with warning note)
+result = skill_warning("Export completed", prompt="Review normals", warning="Some UVs overlap")
+
+# Exception wrapper (captures current exception info)
+try:
+    risky_op()
+except Exception:
+    result = skill_exception("Operation failed", prompt="Retry with different params")
+```
+
+### run_main
+
+```python
+from dcc_mcp_core import run_main
+
+# Convenience entry point for standalone skill script execution
+# Executes main_fn, serializes result, prints JSON to stdout, exits 0/1
+run_main(skill_dir, params=None) -> dict
+```
+
 ### Dependency Resolution
 
 ```python
@@ -974,6 +1054,28 @@ td.source_file   # str   — relative path within skill's scripts/ dir
 `tools:` array in SKILL.md frontmatter (v0.12+ format). Each entry corresponds to one MCP tool
 that the skill exposes. The `source_file` field links the declaration back to the script that
 implements it.
+
+### ToolSpec
+
+Full tool specification for registry use, including optional output schema and annotations.
+
+```python
+from dcc_mcp_core import ToolSpec
+
+ts = ToolSpec(
+    name="create_sphere",
+    description="Create a polygon sphere",
+    input_schema='{"type": "object", "required": ["radius"], "properties": {"radius": {"type": "number"}}}',
+    output_schema='{"type": "object", "properties": {"name": {"type": "string"}}}',
+    annotations=dcc_mcp_core.ToolAnnotations(
+        title="Create Sphere",
+        read_only_hint=False,
+        destructive_hint=False,
+    ),
+)
+```
+
+**Fields:** `.name`, `.description`, `.input_schema`, `.output_schema` (optional), `.annotations` (optional).
 
 ### ResourceDefinition / ResourceTemplateDefinition
 
@@ -1831,6 +1933,21 @@ to `Capturer.new_auto()` when no owner IPC is configured.
 
 ---
 
+## Output Capture (`dcc_mcp_core`)
+
+Capture DCC stdout, stderr, and script-editor output as an `output://` MCP resource.
+Useful for streaming logs from long-running DCC operations to the agent.
+
+```python
+from dcc_mcp_core import OutputCapture
+
+# OutputCapture is available when the compiled extension supports it.
+# Register on an McpHttpServer before .start() to enable output:// resource serving.
+# The resource URI format: output://<dcc_name>/<channel>  (e.g., output://maya/stdout)
+```
+
+---
+
 ## USD Scene Description (`dcc_mcp_core`)
 
 Lightweight USD-like scene exchange format for DCC interoperability.
@@ -1969,6 +2086,43 @@ ctx = get_bridge_context("rpyc")  # -> BridgeContext or None
 
 ---
 
+## Artefacts (`dcc_mcp_core`)
+
+Cross-tool file hand-off via the artefact store. Files are referenced by `FileRef` objects
+and served as `artefact://` MCP resources when `McpHttpConfig.enable_artefact_resources=True`.
+
+```python
+from dcc_mcp_core import FileRef, artefact_put_file, artefact_put_bytes, artefact_get_bytes, artefact_list
+
+# Store a file from disk
+ref = artefact_put_file("/tmp/render.png", name="frame_001", metadata={"shot": "sh010"})
+# ref.path — original path
+# ref.mime_type — auto-detected or "application/octet-stream"
+# ref.name — "frame_001"
+# ref.metadata — {"shot": "sh010"}
+
+# Store raw bytes
+ref2 = artefact_put_bytes(
+    b"...",
+    name="report.json",
+    mime_type="application/json",
+    metadata={"job_id": "abc"},
+)
+
+# Retrieve bytes by FileRef
+data = artefact_get_bytes(ref2)  # -> bytes
+
+# List all stored artefacts
+refs = artefact_list()  # -> list[FileRef]
+```
+
+**`FileRef` constructor:**
+```python
+FileRef(path, mime_type=None, name=None, metadata=None)
+```
+
+---
+
 ## Scene Data Model (`dcc_mcp_core`)
 
 Structured scene data types for representing DCC scene hierarchy and geometry.
@@ -2076,6 +2230,55 @@ get_app_skill_paths_from_env("maya")   # -> List[str] from DCC_MCP_MAYA_SKILL_PA
 get_app_skill_paths_from_env("blender") # -> List[str] from DCC_MCP_BLENDER_SKILL_PATHS env var
 ```
 
+### Team / User / Bundled Skill Paths
+
+```python
+from dcc_mcp_core import (
+    get_team_skill_paths_from_env, get_user_skill_paths_from_env,
+    get_app_team_skill_paths_from_env, get_app_user_skill_paths_from_env,
+    get_team_skills_dir, get_user_skills_dir,
+    get_bundled_skills_dir, get_bundled_skill_paths,
+    copy_skill_to_team_dir, copy_skill_to_user_dir,
+)
+
+# Env-var readers for team / user skill paths
+get_team_skill_paths_from_env()          # DCC_MCP_TEAM_SKILL_PATHS
+get_user_skill_paths_from_env()          # DCC_MCP_USER_SKILL_PATHS
+get_app_team_skill_paths_from_env("maya")   # DCC_MCP_MAYA_TEAM_SKILL_PATHS
+get_app_user_skill_paths_from_env("maya")   # DCC_MCP_MAYA_USER_SKILL_PATHS
+
+# Platform directories
+get_team_skills_dir()     # -> str  (team-level skills directory)
+get_user_skills_dir()     # -> str  (user-level skills directory)
+get_bundled_skills_dir()  # -> str  (bundled skills directory shipped with package)
+get_bundled_skill_paths() # -> List[str]  (list containing bundled dir when it exists)
+
+# Copy a skill directory into team / user scope
+team_path = copy_skill_to_team_dir("/path/to/my-skill")   # -> str (destination path)
+user_path = copy_skill_to_user_dir("/path/to/my-skill")   # -> str (destination path)
+```
+
+---
+
+## Scheduler (`dcc_mcp_core`)
+
+Declarative scheduling for recurring or event-driven skill execution.
+
+```python
+from dcc_mcp_core import ScheduleSpec, TriggerSpec, parse_schedules_yaml
+
+# Load schedule definitions from a YAML file
+schedules: list[ScheduleSpec] = parse_schedules_yaml("/path/to/schedules.yaml")
+for spec in schedules:
+    print(spec.name, spec.cron, spec.trigger)
+```
+
+**`ScheduleSpec` fields:** `.name`, `.cron` (optional), `.trigger` (`TriggerSpec|None`), `.tool` (str), `.inputs` (dict), `.enabled` (bool).
+
+**`TriggerSpec` fields:** `.event` (str), `.condition` (str|None).
+
+---
+
 ## File Logging (`dcc_mcp_core`)
 
 Rolling file logging for durable, multi-process debugging. Console output (stderr) is unaffected.
@@ -2146,6 +2349,9 @@ shutdown_file_logging()
 | `SKILL_METADATA_DIR` | `"metadata"` | Skill metadata subdirectory name |
 | `ENV_SKILL_PATHS` | `"DCC_MCP_SKILL_PATHS"` | Environment variable for skill search paths |
 | `ENV_LOG_LEVEL` | `"MCP_LOG_LEVEL"` | Environment variable for log level override |
+| `ENV_DISABLE_ACCUMULATED_SKILLS` | `"DCC_MCP_DISABLE_ACCUMULATED_SKILLS"` | Set to `"1"` to disable accumulated/evolved skills discovery |
+| `ENV_TEAM_SKILL_PATHS` | `"DCC_MCP_TEAM_SKILL_PATHS"` | Environment variable for team-level skill paths |
+| `ENV_USER_SKILL_PATHS` | `"DCC_MCP_USER_SKILL_PATHS"` | Environment variable for user-level skill paths |
 
 ---
 
@@ -2599,6 +2805,8 @@ Declarative auth configuration + Bearer-token validation.
 - `CimdDocument(client_name, redirect_uris, grant_types=["authorization_code"], response_types=["code"], token_endpoint_auth_method="none", scope=None, logo_uri=None, client_uri=None, contacts=[])` — `.to_dict()` produces the JSON served from `GET /.well-known/oauth-client-metadata`.
 - `validate_bearer_token(headers, *, expected_token, header_name="Authorization") -> bool` — constant-time compare via `secrets.compare_digest`; case-insensitive header lookup; `expected_token=None` disables auth with a warning.
 - `generate_api_key(length=32) -> str` — URL-safe base64 from `secrets.token_urlsafe`.
+- `hmac_sha256_hex(secret, payload) -> str` — HMAC-SHA256 digest as lowercase hex string.
+- `verify_hub_signature_256(secret, payload, signature) -> bool` — constant-time verification of HMAC-SHA256 signatures (e.g., webhook / hub callbacks).
 - `TokenValidationError` — exception type (reserved; `validate_bearer_token` returns bool).
 
 Status: API key path ships today via `McpHttpConfig.api_key`. OAuth Rust-side enforcement (serving CIMD well-known + enforcing `/mcp` Bearer) tracked in #408.
