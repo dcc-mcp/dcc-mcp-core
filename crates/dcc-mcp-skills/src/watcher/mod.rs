@@ -35,26 +35,21 @@
 //!
 //! # Maintainer layout
 //!
-//! This module is a **thin facade** over three focused siblings so the
-//! public `SkillWatcher` surface stays compact:
+//! This module is a directory module split into focused sub-files:
 //!
-//! - [`watcher_inner`](super::watcher_inner) — `WatcherInner` shared state
-//!   (snapshot, watched paths, debounce atomic, on-reload callbacks) and the
-//!   public `WatcherError` type.
-//! - [`watcher_filter`](super::watcher_filter) — `should_reload` /
-//!   `is_skill_related` heuristics that decide which filesystem events matter.
-//! - [`watcher_python`](super::watcher_python) — `PySkillWatcher` PyO3 wrapper
+//! - [`inner`] — `WatcherInner` shared state (snapshot, watched paths,
+//!   debounce atomic, on-reload callbacks) and the public `WatcherError` type.
+//! - [`filter`] — `should_reload` / `is_skill_related` heuristics that decide
+//!   which filesystem events matter.
+//! - [`crate::python::watcher`] — `PySkillWatcher` PyO3 wrapper
 //!   (compiled only with the `python-bindings` feature).
-//! - [`watcher_tests`](super::watcher_tests) — unit tests for the three
-//!   modules above (gated on `#[cfg(test)]`).
+//! - [`tests`] — unit tests (gated on `#[cfg(test)]`).
 
-#[path = "watcher_inner.rs"]
+mod filter;
 mod inner;
 
-#[path = "watcher_filter.rs"]
-mod filter;
-
-// PyO3 bindings live in `crate::python::watcher`.
+#[cfg(test)]
+mod tests;
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -100,27 +95,13 @@ impl SkillWatcher {
     /// Events within `debounce` of each other are coalesced into a single
     /// reload. A value of 300 ms is a reasonable default.
     ///
-    /// # Design note — single debounce thread
-    ///
-    /// The previous implementation spawned a new OS thread per filesystem event
-    /// (`thread::sleep(debounce); reload()`).  A rapid burst of changes (e.g.
-    /// `git checkout` touching 100 files) would spawn 100 threads, all sleeping
-    /// concurrently, saturating the thread pool.
-    ///
-    /// The new design uses a single, long-lived background thread that polls an
-    /// `AtomicU64` timestamp every 50 ms.  The notify callback only writes the
-    /// current epoch-ms into the atomic — zero allocation, no spawn.  The poll
-    /// thread fires a reload exactly once per quiet period (no new events for
-    /// `debounce` ms), regardless of how many raw events arrived.
-    ///
     /// # Errors
     ///
     /// Returns [`WatcherError::Init`] if the underlying notify watcher cannot
-    /// be created (unlikely outside of test environments).
+    /// be created.
     pub fn new(debounce: Duration) -> Result<Self, WatcherError> {
         let inner = WatcherInner::new();
 
-        // ── Notify callback: only stamps the atomic, never sleeps ──────────
         let inner_cb = Arc::clone(&inner);
         let watcher = notify::recommended_watcher(move |res: notify::Result<Event>| match res {
             Ok(event) => {
@@ -134,9 +115,6 @@ impl SkillWatcher {
             }
         })?;
 
-        // ── Single background poll thread ───────────────────────────────────
-        // Polls every 50 ms.  When the last event is older than `debounce` and
-        // hasn't been fired yet, it triggers a reload and records that it did.
         let inner_poll = Arc::clone(&inner);
         let debounce_ms = debounce.as_millis() as u64;
         std::thread::Builder::new()
@@ -150,7 +128,7 @@ impl SkillWatcher {
 
                     let last_event = inner_poll.last_event_ms.load(Ordering::Acquire);
                     if last_event == 0 || last_event == last_fired_ms {
-                        continue; // nothing new
+                        continue;
                     }
 
                     let now_ms = SystemTime::now()
@@ -159,7 +137,6 @@ impl SkillWatcher {
                         .as_millis() as u64;
 
                     if now_ms.saturating_sub(last_event) >= debounce_ms {
-                        // Quiet window elapsed — fire exactly one reload.
                         inner_poll.reload();
                         last_fired_ms = last_event;
                     }
@@ -175,14 +152,6 @@ impl SkillWatcher {
     }
 
     /// Add a directory to the watch list and trigger an immediate reload.
-    ///
-    /// The directory is watched **recursively** so changes deep in a skill's
-    /// `scripts/` or `metadata/` subdirectories are captured.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`WatcherError::Watch`] if the directory cannot be watched
-    /// (e.g. it does not exist or insufficient permissions).
     pub fn watch<P: AsRef<Path>>(&mut self, path: P) -> Result<(), WatcherError> {
         let path = path.as_ref().to_path_buf();
 
@@ -196,16 +165,12 @@ impl SkillWatcher {
         self.inner.watched_paths.write().push(path.clone());
         tracing::info!("SkillWatcher: watching '{}'", path.display());
 
-        // Immediate scan so the caller sees skills without waiting for a change.
         self.inner.reload();
 
         Ok(())
     }
 
     /// Stop watching a previously added directory.
-    ///
-    /// Returns `true` if the directory was being watched and has now been
-    /// removed; `false` if it was not in the watch list.
     pub fn unwatch<P: AsRef<Path>>(&mut self, path: P) -> bool {
         let path = path.as_ref();
         let _ = self._watcher.unwatch(path);
@@ -216,7 +181,7 @@ impl SkillWatcher {
         let removed = paths.len() < before;
 
         if removed {
-            drop(paths); // release write lock before reload
+            drop(paths);
             self.inner.reload();
         }
 
@@ -224,9 +189,6 @@ impl SkillWatcher {
     }
 
     /// Return a snapshot of all currently loaded skills.
-    ///
-    /// This is a cloned, immutable snapshot — it does not block the background
-    /// reload thread.
     #[must_use]
     pub fn skills(&self) -> Vec<SkillMetadata> {
         self.inner.skills.read().clone()
@@ -245,36 +207,11 @@ impl SkillWatcher {
     }
 
     /// Manually trigger a reload without waiting for a filesystem event.
-    ///
-    /// Useful in tests or when you know a change has occurred outside the
-    /// normal watcher loop.
     pub fn reload(&self) {
         self.inner.reload();
     }
 
     /// Register a callback that is invoked **after every reload**.
-    ///
-    /// Use this to connect external caches to the watcher so they are
-    /// automatically invalidated whenever skills change on disk.
-    ///
-    /// The callback runs synchronously on the debounce thread, so it must
-    /// complete quickly (e.g. clearing a flag or calling `.clear_cache()`).
-    ///
-    /// # Example
-    ///
-    /// ```no_run
-    /// use dcc_mcp_skills::watcher::SkillWatcher;
-    /// use dcc_mcp_skills::manager::SkillsManager;
-    /// use std::sync::Arc;
-    /// use std::time::Duration;
-    ///
-    /// let manager = Arc::new(SkillsManager::new(/* ... */ todo!()));
-    /// let mut watcher = SkillWatcher::new(Duration::from_millis(300)).unwrap();
-    ///
-    /// // Invalidate the manager's cache every time skills are reloaded.
-    /// let mgr = manager.clone();
-    /// watcher.on_reload(move || mgr.clear_cache());
-    /// ```
     pub fn on_reload(&self, callback: impl Fn() + Send + Sync + 'static) {
         self.inner.add_on_reload_callback(Box::new(callback));
     }
@@ -282,7 +219,3 @@ impl SkillWatcher {
 
 #[cfg(feature = "python-bindings")]
 pub use crate::python::watcher::PySkillWatcher;
-
-#[cfg(test)]
-#[path = "watcher_tests.rs"]
-mod tests;

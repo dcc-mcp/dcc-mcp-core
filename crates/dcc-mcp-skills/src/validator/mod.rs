@@ -4,12 +4,9 @@
 //! a programmatic way to check that a skill directory follows the dcc-mcp-core
 //! specification before it is loaded at runtime.
 
-#[path = "validator_rules.rs"]
 mod rules;
 #[cfg(test)]
-#[path = "validator_tests.rs"]
 mod tests;
-#[path = "validator_types.rs"]
 mod types;
 
 pub use rules::validate_skill_dir;
