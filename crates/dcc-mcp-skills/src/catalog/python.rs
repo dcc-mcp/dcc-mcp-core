@@ -86,7 +86,7 @@ impl SkillCatalog {
                 let executor_fn = move |script_path: String,
                                         params: serde_json::Value|
                       -> Result<serde_json::Value, String> {
-                    use dcc_mcp_utils::py_json::{json_value_to_pyobject, py_any_to_json_value};
+                    use dcc_mcp_pybridge::py_json::{json_value_to_pyobject, py_any_to_json_value};
                     Python::try_attach(|py| {
                         let py_params = json_value_to_pyobject(py, &params)
                             .map_err(|e| format!("params → Python: {e}"))?;
@@ -164,7 +164,7 @@ impl SkillCatalog {
     /// Python dict (serialized via serde_json).
     #[pyo3(name = "get_skill_info")]
     fn py_get_skill_info(&self, py: Python<'_>, skill_name: &str) -> PyResult<Option<Py<PyAny>>> {
-        use dcc_mcp_utils::py_json::json_value_to_pyobject;
+        use dcc_mcp_pybridge::py_json::json_value_to_pyobject;
         match self.get_skill_info(skill_name) {
             Some(info) => {
                 let val = serde_json::to_value(&info)

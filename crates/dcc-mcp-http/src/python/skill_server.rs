@@ -129,7 +129,7 @@ impl PyMcpHttpServer {
         self.dispatcher
             .register_handler(action_name, move |params| {
                 Python::attach(|gil| {
-                    use dcc_mcp_utils::py_json::{json_value_to_bound_py, py_any_to_json_value};
+                    use dcc_mcp_pybridge::py_json::{json_value_to_bound_py, py_any_to_json_value};
 
                     let py_params = json_value_to_bound_py(gil, &params)
                         .map_err(|e| format!("failed to convert params: {e}"))?;
@@ -191,7 +191,7 @@ impl PyMcpHttpServer {
         self.catalog
             .set_in_process_executor(move |script_path, params| {
                 Python::attach(|gil| {
-                    use dcc_mcp_utils::py_json::{json_value_to_bound_py, py_any_to_json_value};
+                    use dcc_mcp_pybridge::py_json::{json_value_to_bound_py, py_any_to_json_value};
 
                     let py_params = json_value_to_bound_py(gil, &params)
                         .map_err(|e| format!("failed to convert params: {e}"))?;
@@ -276,7 +276,7 @@ impl PyMcpHttpServer {
     /// List all skills with their load status.
     #[pyo3(signature = (status=None))]
     fn list_skills(&self, py: Python<'_>, status: Option<&str>) -> PyResult<Vec<Py<PyAny>>> {
-        use dcc_mcp_utils::py_json::json_value_to_pyobject;
+        use dcc_mcp_pybridge::py_json::json_value_to_pyobject;
         self.catalog
             .list_skills(status)
             .into_iter()
@@ -299,7 +299,7 @@ impl PyMcpHttpServer {
         scope: Option<&str>,
         limit: Option<usize>,
     ) -> PyResult<Vec<Py<PyAny>>> {
-        use dcc_mcp_utils::py_json::json_value_to_pyobject;
+        use dcc_mcp_pybridge::py_json::json_value_to_pyobject;
         let tag_refs: Vec<&str> = tags.iter().map(String::as_str).collect();
         let scope_enum = match scope {
             None => None,
@@ -334,7 +334,7 @@ impl PyMcpHttpServer {
     ///
     /// Returns ``None`` if the skill is not found.
     fn get_skill_info(&self, py: Python<'_>, skill_name: &str) -> PyResult<Option<Py<PyAny>>> {
-        use dcc_mcp_utils::py_json::json_value_to_pyobject;
+        use dcc_mcp_pybridge::py_json::json_value_to_pyobject;
         match self.catalog.get_skill_info(skill_name) {
             Some(info) => {
                 let val = serde_json::to_value(&info)

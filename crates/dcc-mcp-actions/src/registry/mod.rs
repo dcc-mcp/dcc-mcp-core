@@ -6,7 +6,7 @@ use pyo3::prelude::*;
 use pyo3_stub_gen_derive::gen_stub_pyclass;
 
 #[cfg(feature = "python-bindings")]
-use dcc_mcp_utils::py_json::json_value_to_pyobject;
+use dcc_mcp_pybridge::py_json::json_value_to_pyobject;
 
 use dashmap::DashMap;
 use std::sync::Arc;

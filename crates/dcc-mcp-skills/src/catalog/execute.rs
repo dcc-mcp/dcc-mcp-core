@@ -64,7 +64,7 @@ pub(crate) fn execute_script_in_process(
     script_path: &str,
     params: serde_json::Value,
 ) -> Result<serde_json::Value, String> {
-    use dcc_mcp_utils::py_json::{json_value_to_pyobject, py_any_to_json_value};
+    use dcc_mcp_pybridge::py_json::{json_value_to_pyobject, py_any_to_json_value};
     use pyo3::prelude::*;
     use pyo3::types::PyDict;
 

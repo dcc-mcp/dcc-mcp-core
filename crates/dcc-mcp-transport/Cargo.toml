@@ -23,7 +23,7 @@ thiserror = { workspace = true }
 uuid = { workspace = true }
 tokio = { workspace = true }
 rmp-serde = { workspace = true }
-dcc-mcp-utils = { workspace = true, optional = true }
+dcc-mcp-pybridge = { workspace = true, optional = true }
 sysinfo.workspace = true
 ipckit.workspace = true
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
@@ -48,6 +48,6 @@ harness = false
 
 [features]
 default = []
-python-bindings = ["pyo3", "dcc-mcp-utils/python-bindings"]
+python-bindings = ["pyo3", "dep:dcc-mcp-pybridge", "dcc-mcp-pybridge/python-bindings"]
 # Enable `pyo3-stub-gen` annotations on this crate's PyO3 types.
 stub-gen = ["python-bindings", "dep:pyo3-stub-gen", "dep:pyo3-stub-gen-derive"]

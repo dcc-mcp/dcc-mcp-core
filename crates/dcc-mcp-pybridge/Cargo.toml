@@ -1,11 +1,11 @@
 [package]
-name = "dcc-mcp-utils"
+name = "dcc-mcp-pybridge"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "Filesystem helpers, shared constants and skill-feedback artefacts for the DCC-MCP ecosystem"
+description = "Python<->Rust bridge helpers for the dcc-mcp ecosystem (PyAny<->serde_json::Value conversions, type wrappers, JSON/YAML pyfunctions)"
 
 [dependencies]
 pyo3 = { workspace = true, optional = true }
@@ -16,11 +16,7 @@ pyo3-stub-gen-derive = { workspace = true, optional = true }
 
 serde = { workspace = true }
 serde_json = { workspace = true }
-dirs = { workspace = true }
-# `tracing` only — `tracing-subscriber` / `tracing-appender` /
-# `time` / `parking_lot` moved to `dcc-mcp-logging` (issue #496).
-# `serde_yaml_ng` and `pyo3`-heavy bridge code moved to
-# `dcc-mcp-pybridge` (issue #497).
+serde_yaml_ng = { workspace = true }
 tracing = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 

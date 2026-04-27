@@ -657,6 +657,7 @@ version = "0.14.15"
 dependencies = [
  "dashmap",
  "dcc-mcp-models",
+ "dcc-mcp-pybridge",
  "dcc-mcp-utils",
  "parking_lot",
  "pyo3",
@@ -719,6 +720,7 @@ dependencies = [
  "dcc-mcp-naming",
  "dcc-mcp-process",
  "dcc-mcp-protocols",
+ "dcc-mcp-pybridge",
  "dcc-mcp-sandbox",
  "dcc-mcp-scheduler",
  "dcc-mcp-shm",
@@ -749,6 +751,7 @@ dependencies = [
  "dcc-mcp-models",
  "dcc-mcp-naming",
  "dcc-mcp-protocols",
+ "dcc-mcp-pybridge",
  "dcc-mcp-sandbox",
  "dcc-mcp-skills",
  "dcc-mcp-telemetry",
@@ -801,6 +804,7 @@ dependencies = [
 name = "dcc-mcp-models"
 version = "0.14.15"
 dependencies = [
+ "dcc-mcp-pybridge",
  "dcc-mcp-utils",
  "pyo3",
  "pyo3-stub-gen",
@@ -854,6 +858,20 @@ dependencies = [
  "serde",
  "serde_json",
  "uuid",
+ "workspace-hack",
+]
+
+[[package]]
+name = "dcc-mcp-pybridge"
+version = "0.14.15"
+dependencies = [
+ "pyo3",
+ "pyo3-stub-gen",
+ "pyo3-stub-gen-derive",
+ "serde",
+ "serde_json",
+ "serde_yaml_ng",
+ "tracing",
  "workspace-hack",
 ]
 
@@ -959,6 +977,7 @@ dependencies = [
  "dcc-mcp-actions",
  "dcc-mcp-models",
  "dcc-mcp-naming",
+ "dcc-mcp-pybridge",
  "dcc-mcp-utils",
  "notify",
  "parking_lot",
@@ -1004,7 +1023,7 @@ version = "0.14.15"
 dependencies = [
  "criterion",
  "dashmap",
- "dcc-mcp-utils",
+ "dcc-mcp-pybridge",
  "ipckit",
  "parking_lot",
  "pyo3",
@@ -1050,7 +1069,6 @@ dependencies = [
  "pyo3-stub-gen-derive",
  "serde",
  "serde_json",
- "serde_yaml_ng",
  "tracing",
  "workspace-hack",
 ]

@@ -212,7 +212,7 @@ impl SkillMetadata {
 
     #[getter]
     fn metadata(&self, py: pyo3::Python<'_>) -> pyo3::PyResult<Py<PyAny>> {
-        use dcc_mcp_utils::py_json::json_value_to_pyobject;
+        use dcc_mcp_pybridge::py_json::json_value_to_pyobject;
         let value = if self.metadata.is_null() {
             serde_json::json!({})
         } else {
@@ -223,7 +223,7 @@ impl SkillMetadata {
 
     #[setter]
     fn set_metadata(&mut self, py: pyo3::Python<'_>, value: Py<PyAny>) -> pyo3::PyResult<()> {
-        use dcc_mcp_utils::py_json::py_any_to_json_value;
+        use dcc_mcp_pybridge::py_json::py_any_to_json_value;
         self.metadata = py_any_to_json_value(value.bind(py))
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
         Ok(())

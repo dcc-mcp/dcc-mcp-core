@@ -10,7 +10,9 @@ use pyo3::types::PyDict;
 use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pyclass_enum, gen_stub_pymethods};
 
 #[cfg(feature = "python-bindings")]
-use dcc_mcp_utils::py_json::{json_value_to_bound_py, py_any_to_json_value, py_dict_to_json_map};
+use dcc_mcp_pybridge::py_json::{
+    json_value_to_bound_py, py_any_to_json_value, py_dict_to_json_map,
+};
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -396,12 +398,12 @@ mod py_factories {
     use super::*;
     use pyo3::types::PyDict;
 
+    use dcc_mcp_pybridge::py_json::{py_any_to_json_value, py_dict_to_json_map};
     use dcc_mcp_utils::constants::{
         ACTION_RESULT_KNOWN_KEYS, CTX_KEY_ERROR_TYPE, CTX_KEY_POSSIBLE_SOLUTIONS,
         CTX_KEY_TRACEBACK, CTX_KEY_VALUE, DEFAULT_ERROR_PROMPT, DEFAULT_ERROR_TYPE,
         DEFAULT_SUCCESS_MESSAGE,
     };
-    use dcc_mcp_utils::py_json::{py_any_to_json_value, py_dict_to_json_map};
 
     pub(super) fn extract_context(
         context: Option<&Bound<'_, PyDict>>,

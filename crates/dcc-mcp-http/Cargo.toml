@@ -16,6 +16,7 @@ dcc-mcp-protocols = { path = "../dcc-mcp-protocols" }
 dcc-mcp-models = { path = "../dcc-mcp-models" }
 dcc-mcp-skills = { path = "../dcc-mcp-skills" }
 dcc-mcp-utils = { path = "../dcc-mcp-utils" }
+dcc-mcp-pybridge = { path = "../dcc-mcp-pybridge", optional = true }
 dcc-mcp-transport = { path = "../dcc-mcp-transport" }
 dcc-mcp-sandbox = { path = "../dcc-mcp-sandbox" }
 dcc-mcp-capture = { path = "../dcc-mcp-capture" }
@@ -72,7 +73,7 @@ dcc-mcp-sandbox = { path = "../dcc-mcp-sandbox" }
 
 [features]
 default = []
-python-bindings = ["pyo3", "dcc-mcp-utils/python-bindings", "dcc-mcp-actions/python-bindings", "dcc-mcp-skills/python-bindings", "dcc-mcp-artefact/python-bindings"]
+python-bindings = ["pyo3", "dcc-mcp-utils/python-bindings", "dcc-mcp-actions/python-bindings", "dcc-mcp-skills/python-bindings", "dcc-mcp-artefact/python-bindings", "dep:dcc-mcp-pybridge", "dcc-mcp-pybridge/python-bindings"]
 # Enable `pyo3-stub-gen` annotations on this crate's PyO3 types.
 stub-gen = ["python-bindings", "dep:pyo3-stub-gen", "dep:pyo3-stub-gen-derive"]
 # Enable the Prometheus `/metrics` endpoint (issue #331). Pulls in the
