@@ -1,4 +1,9 @@
-//! Python bindings for DCC adapter data types via PyO3.
+//! PyO3 bindings for `dcc-mcp-protocols`.
+//!
+//! Per workspace convention (#501), every `#[pymethods]` /
+//! `#[pyfunction]` block in this crate lives below `src/python/`.
+//! The previous `adapters_python/` directory has been renamed to
+//! `python/adapters/` for naming consistency.
 //!
 //! Exposes `PyDccInfo`, `PyScriptResult`, `PyScriptLanguage`, `PySceneInfo`,
 //! `PySceneStatistics`, `PyDccCapabilities`, `PyDccError`, `PyDccErrorCode`,
@@ -8,6 +13,13 @@
 mod data;
 mod enums;
 mod scene_node;
+
+#[cfg(feature = "python-bindings")]
+mod types_prompts;
+#[cfg(feature = "python-bindings")]
+mod types_resources;
+#[cfg(feature = "python-bindings")]
+mod types_tools;
 
 #[cfg(feature = "python-bindings")]
 pub use data::{

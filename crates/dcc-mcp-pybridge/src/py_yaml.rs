@@ -1,49 +1,11 @@
-//! Rust-powered YAML serialization/deserialization exposed to Python.
+//! Rust-powered YAML <-> JSON conversion helpers.
 //!
-//! Provides `yaml_loads` and `yaml_dumps` pyfunctions that use `serde_yaml_ng`
-//! as a zero-dependency (from Python's perspective) replacement for PyYAML.
-
-use pyo3::prelude::*;
-
-use crate::py_json::py_any_to_json_value;
-
-/// Deserialize a YAML string to a Python object using Rust's serde_yaml_ng.
-///
-/// This is a high-performance, zero-dependency drop-in replacement for
-/// `yaml.safe_load()`.  Returns a Python dict, list, string, number, bool,
-/// or None.
-///
-/// Parameters
-/// ----------
-/// s : str
-///     The YAML string to deserialize.
-#[pyfunction]
-pub fn yaml_loads(py: Python, s: &str) -> PyResult<Py<PyAny>> {
-    let value: serde_yaml_ng::Value = serde_yaml_ng::from_str(s)
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-    let json_value: serde_json::Value = yaml_value_to_json(value);
-    crate::py_json::json_value_to_pyobject(py, &json_value)
-}
-
-/// Serialize a Python object to a YAML string using Rust's serde_yaml_ng.
-///
-/// This is a zero-dependency drop-in replacement for `yaml.safe_dump()` /
-/// `yaml.dump()`.
-///
-/// Parameters
-/// ----------
-/// obj : object
-///     The Python object to serialize.
-#[pyfunction]
-pub fn yaml_dumps(_py: Python, obj: &Bound<'_, PyAny>) -> PyResult<String> {
-    let json_value = py_any_to_json_value(obj)?;
-    let yaml_value = json_value_to_yaml(&json_value);
-    serde_yaml_ng::to_string(&yaml_value)
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
-}
+//! `yaml_loads` / `yaml_dumps` `#[pyfunction]` exports live in
+//! `crate::python::py_yaml`. The conversion helpers below remain here so
+//! other crates can call them directly.
 
 /// Convert a `serde_yaml_ng::Value` to a `serde_json::Value`.
-fn yaml_value_to_json(val: serde_yaml_ng::Value) -> serde_json::Value {
+pub(crate) fn yaml_value_to_json(val: serde_yaml_ng::Value) -> serde_json::Value {
     match val {
         serde_yaml_ng::Value::Null => serde_json::Value::Null,
         serde_yaml_ng::Value::Bool(b) => serde_json::Value::Bool(b),
@@ -78,7 +40,7 @@ fn yaml_value_to_json(val: serde_yaml_ng::Value) -> serde_json::Value {
 }
 
 /// Convert a `serde_json::Value` to a `serde_yaml_ng::Value`.
-fn json_value_to_yaml(val: &serde_json::Value) -> serde_yaml_ng::Value {
+pub(crate) fn json_value_to_yaml(val: &serde_json::Value) -> serde_yaml_ng::Value {
     match val {
         serde_json::Value::Null => serde_yaml_ng::Value::Null,
         serde_json::Value::Bool(b) => serde_yaml_ng::Value::Bool(*b),

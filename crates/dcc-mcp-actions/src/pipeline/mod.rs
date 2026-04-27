@@ -53,8 +53,6 @@ pub mod python;
 mod rate_limit;
 mod timing;
 
-#[cfg(all(test, feature = "python-bindings"))]
-mod python_tests;
 #[cfg(test)]
 mod tests;
 

@@ -12,6 +12,9 @@ pub mod validator;
 pub mod versioning;
 pub mod watcher;
 
+#[cfg(feature = "python-bindings")]
+pub(crate) mod python;
+
 pub use catalog::{SkillCatalog, SkillDetail, SkillState, SkillSummary};
 pub use feedback::{SkillFeedback, get_skill_feedback, record_skill_feedback};
 pub use loader::{

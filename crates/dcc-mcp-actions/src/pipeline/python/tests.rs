@@ -16,7 +16,7 @@ use crate::pipeline::{
 use crate::registry::ActionMeta;
 use crate::registry::ActionRegistry;
 
-use super::python::{SharedAuditMiddleware, SharedRateLimitMiddleware, SharedTimingMiddleware};
+use super::{SharedAuditMiddleware, SharedRateLimitMiddleware, SharedTimingMiddleware};
 
 fn make_pipeline() -> ActionPipeline {
     let reg = ActionRegistry::new();

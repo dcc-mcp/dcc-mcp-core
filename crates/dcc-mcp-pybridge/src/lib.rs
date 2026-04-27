@@ -15,3 +15,9 @@ pub mod py_json;
 #[cfg(feature = "python-bindings")]
 pub mod py_yaml;
 pub mod type_wrappers;
+
+#[cfg(feature = "python-bindings")]
+pub mod python;
+
+#[cfg(feature = "python-bindings")]
+pub use python::{json_dumps, json_loads, yaml_dumps, yaml_loads};

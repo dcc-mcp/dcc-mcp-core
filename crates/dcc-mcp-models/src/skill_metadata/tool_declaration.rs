@@ -6,14 +6,10 @@ use serde::{Deserialize, Serialize};
 
 use super::{ExecutionMode, ThreadAffinity};
 
-#[cfg(feature = "python-bindings")]
-use pyo3::prelude::*;
 #[cfg(feature = "stub-gen")]
 use pyo3_stub_gen_derive::gen_stub_pyclass;
 
-#[cfg(feature = "python-bindings")]
-#[path = "tool_declaration_python.rs"]
-mod python_impl;
+// PyO3 bindings for these types live in `crate::python::tool_declaration`.
 
 // ── ToolAnnotations ───────────────────────────────────────────────────────
 
@@ -131,7 +127,7 @@ impl ToolAnnotations {
 #[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg_attr(
     feature = "python-bindings",
-    pyclass(name = "ToolDeclaration", eq, from_py_object)
+    pyo3::pyclass(name = "ToolDeclaration", eq, from_py_object)
 )]
 pub struct ToolDeclaration {
     /// Tool name (unique within the skill).
@@ -470,7 +466,7 @@ pub struct NextTools {
 #[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg_attr(
     feature = "python-bindings",
-    pyclass(name = "SkillGroup", eq, from_py_object)
+    pyo3::pyclass(name = "SkillGroup", eq, from_py_object)
 )]
 pub struct SkillGroup {
     /// Group identifier — unique within the skill (kebab-case recommended).

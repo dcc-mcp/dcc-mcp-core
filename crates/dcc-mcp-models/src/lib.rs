@@ -4,6 +4,9 @@ mod action_result;
 mod skill_metadata;
 pub mod skill_scope;
 
+#[cfg(feature = "python-bindings")]
+mod python;
+
 pub use action_result::ActionResultModel as ToolResult;
 pub use action_result::{ActionResultModel, ActionResultModelData, SerializeFormat};
 pub use skill_metadata::{
@@ -13,7 +16,7 @@ pub use skill_metadata::{
 pub use skill_scope::SkillScope;
 
 #[cfg(feature = "python-bindings")]
-pub use action_result::{
+pub use python::{
     py_deserialize_result, py_error_result, py_from_exception, py_serialize_result,
     py_success_result, py_validate_action_result,
 };

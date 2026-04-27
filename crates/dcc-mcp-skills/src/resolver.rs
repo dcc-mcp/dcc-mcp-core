@@ -314,50 +314,11 @@ fn dfs_find_cycle(
     None
 }
 
-// ── Python bindings ──
-
-/// Python wrapper for resolve_dependencies.
-///
-/// Returns a list of SkillMetadata in dependency order.
-/// Raises ValueError on missing deps or cycles.
+// PyO3 bindings live in `crate::python::resolver`.
 #[cfg(feature = "python-bindings")]
-#[pyo3::prelude::pyfunction]
-#[pyo3(name = "resolve_dependencies")]
-pub fn py_resolve_dependencies(
-    skills: Vec<dcc_mcp_models::SkillMetadata>,
-) -> pyo3::PyResult<Vec<dcc_mcp_models::SkillMetadata>> {
-    resolve_dependencies(&skills)
-        .map(|r| r.ordered)
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
-}
-
-/// Python wrapper for validate_dependencies.
-///
-/// Returns a list of error message strings for all missing dependencies.
-#[cfg(feature = "python-bindings")]
-#[pyo3::prelude::pyfunction]
-#[pyo3(name = "validate_dependencies")]
-pub fn py_validate_dependencies(skills: Vec<dcc_mcp_models::SkillMetadata>) -> Vec<String> {
-    validate_dependencies(&skills)
-        .into_iter()
-        .map(|e| e.to_string())
-        .collect()
-}
-
-/// Python wrapper for expand_transitive_dependencies.
-///
-/// Returns a list of skill names that `skill_name` transitively depends on.
-/// Raises ValueError on missing deps or cycles.
-#[cfg(feature = "python-bindings")]
-#[pyo3::prelude::pyfunction]
-#[pyo3(name = "expand_transitive_dependencies")]
-pub fn py_expand_transitive_dependencies(
-    skills: Vec<dcc_mcp_models::SkillMetadata>,
-    skill_name: &str,
-) -> pyo3::PyResult<Vec<String>> {
-    expand_transitive_dependencies(&skills, skill_name)
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
-}
+pub use crate::python::resolver::{
+    py_expand_transitive_dependencies, py_resolve_dependencies, py_validate_dependencies,
+};
 
 #[cfg(test)]
 #[path = "resolver_tests.rs"]

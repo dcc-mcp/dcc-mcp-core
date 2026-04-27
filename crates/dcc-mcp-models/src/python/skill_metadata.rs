@@ -1,4 +1,12 @@
-use super::*;
+//! PyO3 bindings for `SkillMetadata`.
+
+use pyo3::prelude::*;
+
+use dcc_mcp_naming::{DEFAULT_DCC, DEFAULT_VERSION};
+
+use crate::skill_metadata::{
+    SkillDependencies, SkillGroup, SkillMetadata, SkillPolicy, ToolDeclaration,
+};
 
 #[pymethods]
 impl SkillMetadata {

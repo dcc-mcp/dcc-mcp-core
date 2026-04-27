@@ -6,10 +6,7 @@
 //! - [`scan_and_load`]: Full pipeline — scan directories, load all skills, resolve dependencies.
 //! - [`scan_and_load_lenient`]: Same pipeline but skips skills with missing deps instead of failing.
 
-#[cfg(feature = "python-bindings")]
-use pyo3::prelude::*;
-#[cfg(feature = "stub-gen")]
-use pyo3_stub_gen_derive::gen_stub_pyfunction;
+// PyO3 bindings live in `crate::python::loader`.
 
 use crate::constants::SKILL_METADATA_FILE;
 use dcc_mcp_models::{SkillGroup, SkillMetadata, ToolDeclaration};
@@ -608,139 +605,13 @@ pub(crate) fn extract_frontmatter(content: &str) -> Option<&str> {
     Some(after_first[..end].trim())
 }
 
-// ── Python bindings ──
+// ── Python bindings live in `crate::python::loader` ──
 
-/// Python wrapper for parse_skill_md.
-///
-/// Accepts either a skill directory path or a direct path to a `SKILL.md` file.
-/// If a file path is given, the parent directory is used automatically.
-///
-/// Returns `None` if the directory contains no valid `SKILL.md`.
-/// Raises `FileNotFoundError` if the path does not exist at all.
 #[cfg(feature = "python-bindings")]
-#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
-#[pyfunction]
-#[pyo3(name = "parse_skill_md")]
-pub fn py_parse_skill_md(skill_dir: &str) -> pyo3::PyResult<Option<SkillMetadata>> {
-    let raw = Path::new(skill_dir);
-
-    // Resolve: if the user passed a path to `SKILL.md` (or any file), use the parent dir.
-    let dir = if raw.is_file() {
-        raw.parent()
-            .ok_or_else(|| {
-                pyo3::exceptions::PyValueError::new_err(format!(
-                    "parse_skill_md: cannot determine parent directory of file: {skill_dir}"
-                ))
-            })?
-            .to_owned()
-    } else if raw.is_dir() {
-        raw.to_owned()
-    } else {
-        // Path doesn't exist at all — raise a clear error instead of silently returning None.
-        return Err(pyo3::exceptions::PyFileNotFoundError::new_err(format!(
-            "parse_skill_md: path does not exist: {skill_dir}"
-        )));
-    };
-
-    Ok(parse_skill_md(&dir))
-}
-
-/// Python wrapper for scan_and_load (strict mode).
-///
-/// Returns a tuple of (ordered_skills, skipped_dirs).
-/// Raises ValueError on missing dependencies or cycles.
-#[cfg(feature = "python-bindings")]
-#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
-#[pyfunction]
-#[pyo3(name = "scan_and_load")]
-#[pyo3(signature = (extra_paths=None, dcc_name=None))]
-pub fn py_scan_and_load(
-    extra_paths: Option<Vec<String>>,
-    dcc_name: Option<&str>,
-) -> pyo3::PyResult<(Vec<SkillMetadata>, Vec<String>)> {
-    let result = scan_and_load(extra_paths.as_deref(), dcc_name)
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-    Ok((result.skills, result.skipped))
-}
-
-/// Python wrapper for scan_and_load_lenient.
-///
-/// Returns a tuple of (ordered_skills, skipped_dirs).
-/// Skills with missing dependencies are skipped instead of raising errors.
-/// Only raises ValueError on cyclic dependencies.
-#[cfg(feature = "python-bindings")]
-#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
-#[pyfunction]
-#[pyo3(name = "scan_and_load_lenient")]
-#[pyo3(signature = (extra_paths=None, dcc_name=None))]
-pub fn py_scan_and_load_lenient(
-    extra_paths: Option<Vec<String>>,
-    dcc_name: Option<&str>,
-) -> pyo3::PyResult<(Vec<SkillMetadata>, Vec<String>)> {
-    let result = scan_and_load_lenient(extra_paths.as_deref(), dcc_name)
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-    Ok((result.skills, result.skipped))
-}
-
-/// Python wrapper for scan_and_load_user (strict mode).
-#[cfg(feature = "python-bindings")]
-#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
-#[pyfunction]
-#[pyo3(name = "scan_and_load_user")]
-#[pyo3(signature = (extra_paths=None, dcc_name=None))]
-pub fn py_scan_and_load_user(
-    extra_paths: Option<Vec<String>>,
-    dcc_name: Option<&str>,
-) -> pyo3::PyResult<(Vec<SkillMetadata>, Vec<String>)> {
-    let result = scan_and_load_user(extra_paths.as_deref(), dcc_name)
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-    Ok((result.skills, result.skipped))
-}
-
-/// Python wrapper for scan_and_load_team (strict mode).
-#[cfg(feature = "python-bindings")]
-#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
-#[pyfunction]
-#[pyo3(name = "scan_and_load_team")]
-#[pyo3(signature = (extra_paths=None, dcc_name=None))]
-pub fn py_scan_and_load_team(
-    extra_paths: Option<Vec<String>>,
-    dcc_name: Option<&str>,
-) -> pyo3::PyResult<(Vec<SkillMetadata>, Vec<String>)> {
-    let result = scan_and_load_team(extra_paths.as_deref(), dcc_name)
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-    Ok((result.skills, result.skipped))
-}
-
-/// Python wrapper for scan_and_load_user_lenient.
-#[cfg(feature = "python-bindings")]
-#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
-#[pyfunction]
-#[pyo3(name = "scan_and_load_user_lenient")]
-#[pyo3(signature = (extra_paths=None, dcc_name=None))]
-pub fn py_scan_and_load_user_lenient(
-    extra_paths: Option<Vec<String>>,
-    dcc_name: Option<&str>,
-) -> pyo3::PyResult<(Vec<SkillMetadata>, Vec<String>)> {
-    let result = scan_and_load_user_lenient(extra_paths.as_deref(), dcc_name)
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-    Ok((result.skills, result.skipped))
-}
-
-/// Python wrapper for scan_and_load_team_lenient.
-#[cfg(feature = "python-bindings")]
-#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
-#[pyfunction]
-#[pyo3(name = "scan_and_load_team_lenient")]
-#[pyo3(signature = (extra_paths=None, dcc_name=None))]
-pub fn py_scan_and_load_team_lenient(
-    extra_paths: Option<Vec<String>>,
-    dcc_name: Option<&str>,
-) -> pyo3::PyResult<(Vec<SkillMetadata>, Vec<String>)> {
-    let result = scan_and_load_team_lenient(extra_paths.as_deref(), dcc_name)
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-    Ok((result.skills, result.skipped))
-}
+pub use crate::python::loader::{
+    py_parse_skill_md, py_scan_and_load, py_scan_and_load_lenient, py_scan_and_load_team,
+    py_scan_and_load_team_lenient, py_scan_and_load_user, py_scan_and_load_user_lenient,
+};
 
 // ── Tests ──
 

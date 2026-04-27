@@ -119,63 +119,13 @@ pub fn py_dict_to_json_map(
     Ok(py_dict_to_json_object(dict)?.into_iter().collect())
 }
 
-// ---------------------------------------------------------------------------
-// High-performance Python-accessible JSON functions
-// ---------------------------------------------------------------------------
-
-/// Serialize a Python object to a JSON string using Rust's serde_json.
-///
-/// This is a high-performance drop-in replacement for `json.dumps()`.
-/// Supports dicts, lists, strings, numbers, booleans, and None.
-/// Non-serializable objects are converted to their string representation.
-///
-/// Parameters
-/// ----------
-/// obj : object
-///     The Python object to serialize.
-/// ensure_ascii : bool, optional
-///     If True (default), escape non-ASCII characters. If False, output
-///     raw Unicode characters.
-/// indent : int or None, optional
-///     If given, pretty-print with the specified number of spaces.
-#[pyfunction]
-#[pyo3(signature = (obj, *, ensure_ascii=true, indent=None))]
-pub fn json_dumps(
-    _py: Python,
-    obj: &Bound<'_, PyAny>,
-    ensure_ascii: bool,
-    indent: Option<usize>,
-) -> PyResult<String> {
-    let value = py_any_to_json_value(obj)?;
-    let s = match indent {
-        Some(_) => serde_json::to_string_pretty(&value),
-        None => serde_json::to_string(&value),
-    }
-    .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-
-    if ensure_ascii {
-        Ok(s)
-    } else {
-        // serde_json always escapes non-ASCII; for ensure_ascii=False we
-        // post-process the output to replace \uXXXX escapes with raw chars.
-        Ok(unescape_unicode_json(&s))
-    }
-}
-
-/// Deserialize a JSON string to a Python object using Rust's serde_json.
-///
-/// This is a high-performance drop-in replacement for `json.loads()`.
-/// Returns a Python dict, list, string, number, bool, or None.
-#[pyfunction]
-pub fn json_loads(py: Python, s: &str) -> PyResult<Py<PyAny>> {
-    let value: serde_json::Value = serde_json::from_str(s)
-        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
-    json_value_to_pyobject(py, &value)
-}
+// `json_dumps` / `json_loads` `#[pyfunction]` exports live in
+// `crate::python::py_json`. The helpers above remain here because they're
+// shared with other crates that build their own bindings on top.
 
 /// Replace `\uXXXX` escape sequences with their actual Unicode characters
 /// in a JSON string, for `ensure_ascii=False` support.
-fn unescape_unicode_json(s: &str) -> String {
+pub(crate) fn unescape_unicode_json(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
     let mut chars = s.chars().peekable();
     while let Some(c) = chars.next() {

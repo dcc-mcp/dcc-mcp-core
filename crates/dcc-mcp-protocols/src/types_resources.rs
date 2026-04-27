@@ -1,12 +1,12 @@
 //! MCP resource type definitions.
+//!
+//! PyO3 bindings live in `crate::python::types_resources`.
 
 /// Default MIME type assigned to MCP resources when the producer does not
 /// declare one. Per the MCP spec resources are inherently text-shaped.
 pub const DEFAULT_MIME_TYPE: &str = "text/plain";
-#[cfg(feature = "python-bindings")]
-use pyo3::prelude::*;
 #[cfg(feature = "stub-gen")]
-use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pymethods};
+use pyo3_stub_gen_derive::gen_stub_pyclass;
 use serde::{Deserialize, Serialize};
 
 /// Annotations for MCP Resource behavior hints.
@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg_attr(
     feature = "python-bindings",
-    pyclass(name = "ResourceAnnotations", get_all, set_all, from_py_object)
+    pyo3::pyclass(name = "ResourceAnnotations", get_all, set_all, from_py_object)
 )]
 pub struct ResourceAnnotations {
     /// Describes who the intended audience is.
@@ -28,24 +28,6 @@ pub struct ResourceAnnotations {
     pub priority: Option<f64>,
 }
 
-#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
-#[cfg(feature = "python-bindings")]
-#[pymethods]
-impl ResourceAnnotations {
-    #[new]
-    #[pyo3(signature = (audience=vec![], priority=None))]
-    fn new(audience: Vec<String>, priority: Option<f64>) -> Self {
-        Self { audience, priority }
-    }
-
-    fn __repr__(&self) -> String {
-        format!(
-            "ResourceAnnotations(audience={:?}, priority={:?})",
-            self.audience, self.priority
-        )
-    }
-}
-
 /// MCP Resource definition.
 ///
 /// Per MCP spec (2025-11-25), a resource has a URI, name, description, MIME type,
@@ -54,7 +36,7 @@ impl ResourceAnnotations {
 #[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg_attr(
     feature = "python-bindings",
-    pyclass(name = "ResourceDefinition", get_all, set_all, from_py_object)
+    pyo3::pyclass(name = "ResourceDefinition", get_all, set_all, from_py_object)
 )]
 pub struct ResourceDefinition {
     pub uri: String,
@@ -67,36 +49,6 @@ pub struct ResourceDefinition {
     pub annotations: Option<ResourceAnnotations>,
 }
 
-#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
-#[cfg(feature = "python-bindings")]
-#[pymethods]
-impl ResourceDefinition {
-    #[new]
-    #[pyo3(signature = (uri, name, description, mime_type=DEFAULT_MIME_TYPE.to_string(), annotations=None))]
-    fn new(
-        uri: String,
-        name: String,
-        description: String,
-        mime_type: String,
-        annotations: Option<ResourceAnnotations>,
-    ) -> Self {
-        Self {
-            uri,
-            name,
-            description,
-            mime_type,
-            annotations,
-        }
-    }
-
-    fn __repr__(&self) -> String {
-        format!(
-            "ResourceDefinition(name={:?}, uri={:?})",
-            self.name, self.uri
-        )
-    }
-}
-
 /// MCP Resource Template definition.
 ///
 /// Per MCP spec (2025-11-25), a resource template has a URI template, name,
@@ -105,7 +57,7 @@ impl ResourceDefinition {
 #[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg_attr(
     feature = "python-bindings",
-    pyclass(name = "ResourceTemplateDefinition", get_all, set_all, from_py_object)
+    pyo3::pyclass(name = "ResourceTemplateDefinition", get_all, set_all, from_py_object)
 )]
 pub struct ResourceTemplateDefinition {
     #[serde(rename = "uriTemplate")]
@@ -117,36 +69,6 @@ pub struct ResourceTemplateDefinition {
     /// Optional annotations for this resource template.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub annotations: Option<ResourceAnnotations>,
-}
-
-#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
-#[cfg(feature = "python-bindings")]
-#[pymethods]
-impl ResourceTemplateDefinition {
-    #[new]
-    #[pyo3(signature = (uri_template, name, description, mime_type=DEFAULT_MIME_TYPE.to_string(), annotations=None))]
-    fn new(
-        uri_template: String,
-        name: String,
-        description: String,
-        mime_type: String,
-        annotations: Option<ResourceAnnotations>,
-    ) -> Self {
-        Self {
-            uri_template,
-            name,
-            description,
-            mime_type,
-            annotations,
-        }
-    }
-
-    fn __repr__(&self) -> String {
-        format!(
-            "ResourceTemplateDefinition(name={:?}, uri_template={:?})",
-            self.name, self.uri_template
-        )
-    }
 }
 
 #[cfg(test)]

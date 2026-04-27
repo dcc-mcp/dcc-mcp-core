@@ -1,9 +1,9 @@
 //! dcc-mcp-protocols: MCP protocol type definitions and DCC adapter traits.
 
 pub mod adapters;
-pub mod adapters_python;
 pub mod bridge;
 pub mod error_envelope;
+pub mod python;
 
 #[cfg(test)]
 pub mod mock;
@@ -27,7 +27,7 @@ pub use types::{
 };
 
 #[cfg(feature = "python-bindings")]
-pub use adapters_python::{
+pub use python::{
     PyBoundingBox, PyCaptureResult, PyDccCapabilities, PyDccError, PyDccErrorCode, PyDccInfo,
     PyFrameRange, PyObjectTransform, PyRenderOutput, PySceneInfo, PySceneNode, PySceneObject,
     PySceneStatistics, PyScriptLanguage, PyScriptResult,

@@ -10,8 +10,6 @@
 //!
 //! The same SKILL.md file can satisfy all three formats simultaneously.
 
-#[cfg(feature = "python-bindings")]
-use pyo3::prelude::*;
 #[cfg(feature = "stub-gen")]
 use pyo3_stub_gen_derive::gen_stub_pyclass;
 
@@ -20,8 +18,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 mod methods;
-#[cfg(feature = "python-bindings")]
-mod python;
 mod serde_impl;
 
 use serde_impl::{
@@ -74,7 +70,7 @@ use serde_impl::{
 #[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg_attr(
     feature = "python-bindings",
-    pyclass(name = "SkillMetadata", from_py_object)
+    pyo3::pyclass(name = "SkillMetadata", from_py_object)
 )]
 pub struct SkillMetadata {
     /// Skill identifier — lowercase, hyphens only.

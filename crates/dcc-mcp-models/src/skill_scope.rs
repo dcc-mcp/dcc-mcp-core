@@ -1,9 +1,9 @@
 //! [`SkillScope`] — trust level / origin of a skill.
+//!
+//! PyO3 bindings live in `crate::python::skill_scope`.
 
-#[cfg(feature = "python-bindings")]
-use pyo3::prelude::*;
 #[cfg(feature = "stub-gen")]
-use pyo3_stub_gen_derive::{gen_stub_pyclass_enum, gen_stub_pymethods};
+use pyo3_stub_gen_derive::gen_stub_pyclass_enum;
 
 use serde::{Deserialize, Serialize};
 
@@ -32,7 +32,7 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(feature = "stub-gen", gen_stub_pyclass_enum)]
 #[cfg_attr(
     feature = "python-bindings",
-    pyclass(name = "SkillScope", eq, skip_from_py_object)
+    pyo3::pyclass(name = "SkillScope", eq, skip_from_py_object)
 )]
 pub enum SkillScope {
     /// Project-local skill (e.g. `./<project>/.dcc_skills/`).
@@ -75,19 +75,6 @@ impl SkillScope {
 impl std::fmt::Display for SkillScope {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.label())
-    }
-}
-
-#[cfg(feature = "python-bindings")]
-#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
-#[pymethods]
-impl SkillScope {
-    fn __repr__(&self) -> String {
-        format!("SkillScope.{}", self.label())
-    }
-
-    fn __str__(&self) -> String {
-        self.label().to_string()
     }
 }
 

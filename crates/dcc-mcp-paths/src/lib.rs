@@ -163,36 +163,10 @@ pub fn get_tools_dir(dcc_name: &str) -> Result<String, FilesystemError> {
 // ── Python bindings ──
 
 #[cfg(feature = "python-bindings")]
-mod py_bindings {
-    use super::*;
-    use pyo3::prelude::*;
-
-    macro_rules! py_dir_binding {
-        ($py_fn:ident, $pyo3_name:literal, $rust_fn:ident) => {
-            #[pyfunction]
-            #[pyo3(name = $pyo3_name)]
-            pub fn $py_fn() -> PyResult<String> {
-                Ok($rust_fn()?)
-            }
-        };
-        ($py_fn:ident, $pyo3_name:literal, $rust_fn:ident, $arg:ident : $ty:ty) => {
-            #[pyfunction]
-            #[pyo3(name = $pyo3_name)]
-            pub fn $py_fn($arg: $ty) -> PyResult<String> {
-                Ok($rust_fn($arg)?)
-            }
-        };
-    }
-
-    py_dir_binding!(py_get_config_dir, "get_config_dir", get_config_dir);
-    py_dir_binding!(py_get_data_dir, "get_data_dir", get_data_dir);
-    py_dir_binding!(py_get_log_dir, "get_log_dir", get_log_dir);
-    py_dir_binding!(py_get_platform_dir, "get_platform_dir", get_platform_dir, dir_type: &str);
-    py_dir_binding!(py_get_tools_dir, "get_tools_dir", get_tools_dir, dcc_name: &str);
-}
+pub mod python;
 
 #[cfg(feature = "python-bindings")]
-pub use py_bindings::*;
+pub use python::*;
 
 #[cfg(test)]
 mod tests {

@@ -54,9 +54,7 @@ mod inner;
 #[path = "watcher_filter.rs"]
 mod filter;
 
-#[cfg(feature = "python-bindings")]
-#[path = "watcher_python.rs"]
-mod python_impl;
+// PyO3 bindings live in `crate::python::watcher`.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -283,7 +281,7 @@ impl SkillWatcher {
 }
 
 #[cfg(feature = "python-bindings")]
-pub use python_impl::PySkillWatcher;
+pub use crate::python::watcher::PySkillWatcher;
 
 #[cfg(test)]
 #[path = "watcher_tests.rs"]

@@ -33,17 +33,13 @@
 
 use pyo3::prelude::*;
 
-#[path = "python_helpers.rs"]
 mod helpers;
-
-#[path = "python_middleware.rs"]
 mod middleware;
-
-#[path = "python_shared.rs"]
+mod pipeline;
 mod shared;
 
-#[path = "python_pipeline.rs"]
-mod pipeline;
+#[cfg(test)]
+mod tests;
 
 pub use middleware::{
     PyAuditMiddleware, PyLoggingMiddleware, PyRateLimitMiddleware, PyTimingMiddleware,

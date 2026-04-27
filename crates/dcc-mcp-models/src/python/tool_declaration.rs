@@ -1,9 +1,11 @@
+//! PyO3 bindings for `SkillGroup` / `ToolDeclaration` / `ToolAnnotations`.
+
 use pyo3::prelude::*;
 use pyo3::types::{PyAnyMethods, PyDictMethods};
 #[cfg(feature = "stub-gen")]
 use pyo3_stub_gen_derive::gen_stub_pymethods;
 
-use super::{
+use crate::skill_metadata::{
     ExecutionMode, NextTools, SkillGroup, ThreadAffinity, ToolAnnotations, ToolDeclaration,
 };
 

@@ -42,8 +42,6 @@ pub use types::{SkillDetail, SkillEntry, SkillState, SkillSummary};
 
 use execute::{ScriptExecutorFn, execute_script, resolve_tool_script};
 
-#[cfg(feature = "python-bindings")]
-use pyo3::prelude::*;
 #[cfg(feature = "stub-gen")]
 use pyo3_stub_gen_derive::gen_stub_pyclass;
 
@@ -61,9 +59,9 @@ use crate::loader;
 #[allow(clippy::module_inception)]
 mod catalog;
 mod groups;
-mod helpers;
-#[cfg(feature = "python-bindings")]
-mod python;
+pub(crate) mod helpers;
+
+// PyO3 bindings live in `crate::python::catalog`.
 
 #[cfg(test)]
 pub(crate) use helpers::parse_scope_str;
@@ -88,7 +86,7 @@ pub(crate) use helpers::parse_scope_str;
 /// - **Subprocess** (default): each skill script is executed as a child
 ///   process. Suitable for standalone / non-DCC environments.
 #[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
-#[cfg_attr(feature = "python-bindings", pyclass(name = "SkillCatalog"))]
+#[cfg_attr(feature = "python-bindings", pyo3::pyclass(name = "SkillCatalog"))]
 pub struct SkillCatalog {
     /// All discovered skill entries, keyed by skill name.
     pub(super) entries: DashMap<String, SkillEntry>,

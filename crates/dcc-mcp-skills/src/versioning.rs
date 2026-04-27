@@ -190,19 +190,6 @@ fn is_leap_year(year: u32) -> bool {
     (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
 }
 
-// ── Python bindings ──
-
+// PyO3 bindings live in `crate::python::versioning`.
 #[cfg(feature = "python-bindings")]
-mod py_bindings {
-    use super::*;
-    use pyo3::prelude::*;
-
-    #[pyfunction]
-    #[pyo3(name = "get_skill_version_manifest")]
-    pub fn py_get_skill_version_manifest(skill_dir: &str) -> PyResult<SkillVersionManifest> {
-        Ok(get_skill_version_manifest(Path::new(skill_dir))?)
-    }
-}
-
-#[cfg(feature = "python-bindings")]
-pub use py_bindings::*;
+pub use crate::python::versioning::py_get_skill_version_manifest;

@@ -1,6 +1,15 @@
-use super::*;
+//! PyO3 bindings for `SkillCatalog`.
+
+use std::sync::Arc;
+
+use pyo3::prelude::*;
 #[cfg(feature = "stub-gen")]
 use pyo3_stub_gen_derive::gen_stub_pymethods;
+
+use dcc_mcp_actions::registry::ActionRegistry;
+use dcc_mcp_models::{SkillMetadata, SkillScope};
+
+use crate::catalog::{SkillCatalog, SkillSummary, helpers};
 
 #[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]

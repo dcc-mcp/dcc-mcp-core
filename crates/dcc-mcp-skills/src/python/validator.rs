@@ -1,13 +1,13 @@
-#[cfg(feature = "python-bindings")]
+//! PyO3 bindings for the skill validator.
+
 use pyo3::prelude::*;
 
-#[cfg(feature = "python-bindings")]
-use super::{IssueSeverity, SkillValidationIssue, SkillValidationReport, validate_skill_dir};
+use crate::validator::{
+    IssueSeverity, SkillValidationIssue, SkillValidationReport, validate_skill_dir,
+};
 
-#[cfg(feature = "python-bindings")]
 use std::path::Path;
 
-#[cfg(feature = "python-bindings")]
 #[pyclass(name = "SkillValidationIssue", from_py_object)]
 #[derive(Clone)]
 pub struct PySkillValidationIssue {
@@ -19,7 +19,6 @@ pub struct PySkillValidationIssue {
     pub message: String,
 }
 
-#[cfg(feature = "python-bindings")]
 #[pyclass(name = "SkillValidationReport", from_py_object)]
 #[derive(Clone)]
 pub struct PySkillValidationReport {
@@ -33,7 +32,6 @@ pub struct PySkillValidationReport {
     pub is_clean: bool,
 }
 
-#[cfg(feature = "python-bindings")]
 #[pyfunction(name = "validate_skill")]
 pub fn py_validate_skill(skill_dir: &str) -> PyResult<PySkillValidationReport> {
     let path = Path::new(skill_dir);
@@ -41,7 +39,6 @@ pub fn py_validate_skill(skill_dir: &str) -> PyResult<PySkillValidationReport> {
     Ok(report.into())
 }
 
-#[cfg(feature = "python-bindings")]
 impl From<SkillValidationReport> for PySkillValidationReport {
     fn from(report: SkillValidationReport) -> Self {
         Self {
@@ -53,7 +50,6 @@ impl From<SkillValidationReport> for PySkillValidationReport {
     }
 }
 
-#[cfg(feature = "python-bindings")]
 impl From<SkillValidationIssue> for PySkillValidationIssue {
     fn from(issue: SkillValidationIssue) -> Self {
         Self {
@@ -67,7 +63,6 @@ impl From<SkillValidationIssue> for PySkillValidationIssue {
     }
 }
 
-#[cfg(feature = "python-bindings")]
 /// Register Python bindings for the validator module.
 pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySkillValidationIssue>()?;

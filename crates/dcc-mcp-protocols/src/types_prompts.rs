@@ -1,9 +1,9 @@
 //! MCP prompt type definitions.
+//!
+//! PyO3 bindings live in `crate::python::types_prompts`.
 
-#[cfg(feature = "python-bindings")]
-use pyo3::prelude::*;
 #[cfg(feature = "stub-gen")]
-use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pymethods};
+use pyo3_stub_gen_derive::gen_stub_pyclass;
 use serde::{Deserialize, Serialize};
 
 /// MCP Prompt argument.
@@ -14,34 +14,12 @@ use serde::{Deserialize, Serialize};
 #[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg_attr(
     feature = "python-bindings",
-    pyclass(name = "PromptArgument", eq, get_all, set_all, from_py_object)
+    pyo3::pyclass(name = "PromptArgument", eq, get_all, set_all, from_py_object)
 )]
 pub struct PromptArgument {
     pub name: String,
     pub description: String,
     pub required: bool,
-}
-
-#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
-#[cfg(feature = "python-bindings")]
-#[pymethods]
-impl PromptArgument {
-    #[new]
-    #[pyo3(signature = (name, description, required=false))]
-    fn new(name: String, description: String, required: bool) -> Self {
-        Self {
-            name,
-            description,
-            required,
-        }
-    }
-
-    fn __repr__(&self) -> String {
-        format!(
-            "PromptArgument(name={:?}, required={})",
-            self.name, self.required
-        )
-    }
 }
 
 /// MCP Prompt definition.
@@ -52,7 +30,7 @@ impl PromptArgument {
 #[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg_attr(
     feature = "python-bindings",
-    pyclass(name = "PromptDefinition", eq, get_all, set_all, from_py_object)
+    pyo3::pyclass(name = "PromptDefinition", eq, get_all, set_all, from_py_object)
 )]
 pub struct PromptDefinition {
     pub name: String,
@@ -60,29 +38,6 @@ pub struct PromptDefinition {
     /// Optional list of arguments the prompt accepts.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub arguments: Vec<PromptArgument>,
-}
-
-#[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
-#[cfg(feature = "python-bindings")]
-#[pymethods]
-impl PromptDefinition {
-    #[new]
-    #[pyo3(signature = (name, description, arguments=vec![]))]
-    fn new(name: String, description: String, arguments: Vec<PromptArgument>) -> Self {
-        Self {
-            name,
-            description,
-            arguments,
-        }
-    }
-
-    fn __repr__(&self) -> String {
-        format!(
-            "PromptDefinition(name={:?}, arguments={})",
-            self.name,
-            self.arguments.len()
-        )
-    }
 }
 
 #[cfg(test)]

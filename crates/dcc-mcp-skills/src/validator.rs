@@ -4,8 +4,6 @@
 //! a programmatic way to check that a skill directory follows the dcc-mcp-core
 //! specification before it is loaded at runtime.
 
-#[path = "validator_python.rs"]
-mod python;
 #[path = "validator_rules.rs"]
 mod rules;
 #[cfg(test)]
@@ -17,5 +15,8 @@ mod types;
 pub use rules::validate_skill_dir;
 pub use types::{IssueCategory, IssueSeverity, SkillValidationIssue, SkillValidationReport};
 
+// PyO3 bindings live in `crate::python::validator`.
 #[cfg(feature = "python-bindings")]
-pub use python::*;
+pub use crate::python::validator::{
+    PySkillValidationIssue, PySkillValidationReport, py_validate_skill,
+};

@@ -1,4 +1,4 @@
-//! Python bindings for [`SkillWatcher`](super::SkillWatcher).
+//! Python bindings for [`SkillWatcher`].
 //!
 //! Only compiled when the `python-bindings` Cargo feature is enabled.
 
@@ -10,7 +10,7 @@ use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pymethods};
 
 use dcc_mcp_models::SkillMetadata;
 
-use super::SkillWatcher;
+use crate::watcher::SkillWatcher;
 
 /// Python-facing wrapper for [`SkillWatcher`].
 #[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]

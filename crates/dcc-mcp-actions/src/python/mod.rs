@@ -15,6 +15,9 @@
 //! This sidesteps the pyo3 0.28 restriction that `Python::with_gil` was removed;
 //! the GIL is already held inside `#[pymethods]` so no re-acquisition is needed.
 
+mod events;
+pub(crate) mod versioned;
+
 use std::collections::HashMap;
 
 use pyo3::Py;
