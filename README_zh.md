@@ -67,7 +67,7 @@
 | **安全性** | 沙箱 + 审计日志 | 手动 | 手动 | 无 |
 | **跨平台** | Windows / macOS / Linux | 是 | 有限 | 仅浏览器 |
 
-AI 友好文档：[AGENTS.md](AGENTS.md) · [CLAUDE.md](CLAUDE.md) · [GEMINI.md](GEMINI.md) · [CODEBUDDY.md](CODEBUDDY.md) · [`.agents/skills/dcc-mcp-core/SKILL.md`](.agents/skills/dcc-mcp-core/SKILL.md)
+AI 友好文档：[AGENTS.md](AGENTS.md) · [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md) · [`.agents/skills/dcc-mcp-core/SKILL.md`](.agents/skills/dcc-mcp-core/SKILL.md)
 
 ---
 
@@ -651,10 +651,8 @@ MIT —— 详情见 [LICENSE](LICENSE)。
 
 如果你是 AI 编码 Agent，同时请阅读：
 
-- [AGENTS.md](AGENTS.md) —— 面向所有 AI Agent 的完整导航图（架构、命令、API 参考、陷阱）。
-- [CLAUDE.md](CLAUDE.md) —— Claude 专用指引和工作流。
-- [GEMINI.md](GEMINI.md) —— Gemini 专用指引和工作流。
-- [CODEBUDDY.md](CODEBUDDY.md) —— CodeBuddy Code 专用指引和工作流。
+- [AGENTS.md](AGENTS.md) —— AI Agent 导航图（入口、决策表、Top traps）。
+- [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md) —— Agent 详细规则、陷阱、代码风格与项目专属架构约束。
 - [`.agents/skills/dcc-mcp-core/SKILL.md`](.agents/skills/dcc-mcp-core/SKILL.md) —— 完整 API skill 定义。
 - [`python/dcc_mcp_core/__init__.py`](python/dcc_mcp_core/__init__.py) —— 完整公开 API（~180 符号）。
 - [`python/dcc_mcp_core/_core.pyi`](python/dcc_mcp_core/_core.pyi) —— 真实类型 stub（参数名、类型、签名）。

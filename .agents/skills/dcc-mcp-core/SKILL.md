@@ -313,9 +313,8 @@ print(f'Loaded: {[s.name for s in skills]}')
 
 | File | Purpose |
 |------|---------|
-| `AGENTS.md` | AI agent guide — architecture, commands, pitfalls |
-| `CLAUDE.md` | Claude-specific workflows and tips |
-| `GEMINI.md` | Gemini-specific workflows and tips |
+| `AGENTS.md` | AI agent navigation map — entry point, decision tables, top traps |
+| `docs/guide/agents-reference.md` | Detailed agent rules — traps, do/don't, code style, project-specific architecture |
 | `llms.txt` | Concise API reference for LLMs |
 | `llms-full.txt` | Comprehensive API reference with all examples |
 | `python/dcc_mcp_core/__init__.py` | Complete public API (~180 symbols, ground truth for imports) |

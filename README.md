@@ -67,7 +67,7 @@ This isn't reinventing MCP — it's **solving MCP's blind spots for desktop auto
 | **Security** | Sandbox + audit log | Manual | Manual | None |
 | **Cross-Platform** | Windows / macOS / Linux | Yes | Limited | Browser only |
 
-AI-friendly docs: [AGENTS.md](AGENTS.md) · [CLAUDE.md](CLAUDE.md) · [GEMINI.md](GEMINI.md) · [CODEBUDDY.md](CODEBUDDY.md) · [`.agents/skills/dcc-mcp-core/SKILL.md`](.agents/skills/dcc-mcp-core/SKILL.md)
+AI-friendly docs: [AGENTS.md](AGENTS.md) · [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md) · [`.agents/skills/dcc-mcp-core/SKILL.md`](.agents/skills/dcc-mcp-core/SKILL.md)
 
 ---
 
@@ -651,10 +651,8 @@ MIT — see the [LICENSE](LICENSE) file.
 
 If you're an AI coding agent, also read:
 
-- [AGENTS.md](AGENTS.md) — Comprehensive navigation map for all AI agents (architecture, commands, API reference, traps).
-- [CLAUDE.md](CLAUDE.md) — Claude-specific instructions and workflows.
-- [GEMINI.md](GEMINI.md) — Gemini-specific instructions and workflows.
-- [CODEBUDDY.md](CODEBUDDY.md) — CodeBuddy Code-specific instructions and workflows.
+- [AGENTS.md](AGENTS.md) — Navigation map for AI agents (entry point, decision tables, top traps).
+- [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md) — Detailed agent rules, traps, code style, and project-specific architecture constraints.
 - [`.agents/skills/dcc-mcp-core/SKILL.md`](.agents/skills/dcc-mcp-core/SKILL.md) — Complete API skill definition.
 - [`python/dcc_mcp_core/__init__.py`](python/dcc_mcp_core/__init__.py) — Full public API surface (~180 symbols).
 - [`python/dcc_mcp_core/_core.pyi`](python/dcc_mcp_core/_core.pyi) — Ground-truth type stubs (parameter names, types, signatures).

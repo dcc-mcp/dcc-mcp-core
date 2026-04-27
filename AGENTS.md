@@ -4,6 +4,16 @@
 > Follow the links; don't read everything upfront.
 > Detailed rules, traps, and code examples → [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md)
 
+## Response Language
+
+- Reply to the user in **Simplified Chinese** (中文简体) by default.
+- Keep all code, identifiers, commit messages, branch names, docstrings,
+  comments, and file contents in **English** — this rule governs only the
+  conversational/assistant-facing output, not anything written to disk or
+  pushed to git.
+- If the user explicitly requests another language for a specific reply,
+  follow that request for that turn.
+
 ## Document Hierarchy
 
 | Layer | File | When to read it |
@@ -13,7 +23,6 @@
 | Full index | `llms-full.txt` | When `llms.txt` lacks detail |
 | Detailed rules | [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md) | Before writing code — traps, do/don't, code style |
 | Conceptual docs | `docs/guide/` + `docs/api/` | Building a new adapter or skill |
-| LLM-specific | `CLAUDE.md` / `GEMINI.md` / `CODEBUDDY.md` | Agent-specific workflows |
 | Skill authoring | `skills/README.md` + `examples/skills/` | Creating or modifying skills |
 
 ---

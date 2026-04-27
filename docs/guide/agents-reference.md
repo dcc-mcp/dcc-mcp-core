@@ -525,3 +525,304 @@ When adding a Rust type/function that needs to be callable from Python:
 - PyPI: Trusted Publishing (no tokens)
 - Docs-only changes skip Rust rebuild → CI passes quickly
 - Squash merge convention for PRs
+
+
+---
+
+## Project-Specific Architecture & Constraints
+
+This section collects the runtime invariants and config-knob details that
+agents must respect when modifying core subsystems. They are derived from
+shipped issue resolutions and MUST NOT regress.
+
+### Skills Pipeline (end-to-end flow)
+
+```
+DCC_MCP_SKILL_PATHS env var
+        ↓
+  SkillScanner.scan()           # discovers directories with SKILL.md
+        ↓
+  parse_skill_md(dir)           # parses YAML frontmatter + enumerates scripts/
+        ↓
+  resolve_dependencies(skills)  # topological sort by 'depends' field
+        ↓
+  SkillCatalog.load_skill(name) # on-demand: registers actions into ToolRegistry
+        ↓
+  ToolDefinition(...)           # expose as MCP tool to LLM
+```
+
+Action naming: `{skill_name}__{script_stem}` (hyphens → underscores, `__` separator).
+
+`tools/list` returns three tiers:
+1. **Core tools** (always): `list_skills`, `get_skill_info`, `load_skill`, `unload_skill`, `search_skills`
+2. **Loaded skill tools** — full `input_schema` from `ToolRegistry`
+3. **Unloaded skill stubs** — `__skill__<name>` with one-line description only
+
+Workflow: `search_skills(query="keyword")` → `load_skill("skill-name")` → use tools.
+Calling a stub returns a `load_skill` hint, not a missing-handler error.
+
+### Bundled Skills
+
+Two core skills ship inside the wheel under `dcc_mcp_core/skills/`:
+`dcc-diagnostics`, `workflow`.
+
+```python
+from dcc_mcp_core import get_bundled_skills_dir, get_bundled_skill_paths
+paths = get_bundled_skill_paths()       # [".../dcc_mcp_core/skills"]
+paths = get_bundled_skill_paths(False)  # [] — opt-out
+```
+
+DCC adapters include these by default (`include_bundled=True`).
+
+### DCC Integration Architectures
+
+`skills/integration-guide.md` covers three patterns:
+
+- **Embedded Python** (`DccServerBase`) — Maya, Blender, Houdini, Unreal
+- **WebSocket Bridge** (`DccBridge`) — Photoshop, ZBrush, Unity, After Effects
+- **WebView Host** (`WebViewAdapter`) — AuroraView, Electron panels
+
+### MCP HTTP Server Spawn Modes (issue #303)
+
+`McpHttpConfig.spawn_mode` picks how listeners are driven:
+
+- **`Ambient`** — listeners run as `tokio::spawn` tasks on the caller's runtime.
+  Correct for `#[tokio::main]` binaries like `dcc-mcp-server` where a driver
+  thread persists for the process lifetime.
+- **`Dedicated`** — each listener runs on its own OS thread with a
+  `current_thread` Tokio runtime. Default for PyO3-embedded hosts
+  (Maya/Blender/Houdini). Prevents the "is_gateway=true but port
+  unreachable" failure mode observed on Windows mayapy.
+
+The Python `McpHttpConfig` defaults `spawn_mode = "dedicated"`;
+`McpHttpServer.start()` self-probes the new listener and refuses to
+return a handle that claims to be bound when it actually is not.
+If you write new code that constructs `McpHttpServer` from Rust inside
+a PyO3 binding, set `spawn_mode = ServerSpawnMode::Dedicated` explicitly.
+
+### Gateway Lifecycle Invariants (issue #303)
+
+These hold after v0.14 and MUST NOT regress:
+
+1. **`handle.is_gateway == True` ⇒ the gateway port is reachable.** The
+   election code runs a loopback `TcpStream::connect` self-probe before
+   declaring victory; if the probe fails it falls back to plain-instance
+   mode and returns `is_gateway = false`. Do not skip this probe.
+2. **The gateway supervisor `JoinHandle` must outlive `GatewayHandle`.**
+   Earlier versions dropped the JoinHandle at the end of
+   `start_gateway_tasks`; under PyO3-embedded hosts that detached the
+   accept loop and made it unreachable. Keep the `JoinHandle` in the
+   `GatewayHandle` struct.
+3. **Socket setup errors must not be silenced with `.ok()?`.**
+   `try_bind_port` returns `io::Result`; only `AddrInUse` is treated as
+   a lost election, all other errors are logged at warn level.
+4. **Python / PyO3 callers default to `ServerSpawnMode::Dedicated`.**
+   `PyMcpHttpConfig::new` sets this automatically; `py_create_skill_server`
+   also coerces `Ambient` → `Dedicated`. Do not revert to Ambient inside
+   Python bindings.
+
+### Gateway Async-Dispatch + Wait-For-Terminal (issue #321)
+
+The gateway now uses three per-request timeouts instead of one:
+
+- **Sync call** (no `_meta.dcc.async`, no `progressToken`): governed by
+  `McpHttpConfig.backend_timeout_ms` (default 10 s, #314).
+- **Async opt-in** (`_meta.dcc.async=true` *or* `_meta.progressToken`
+  present): governed by
+  `McpHttpConfig.gateway_async_dispatch_timeout_ms` (default 60 s).
+  Only the **queuing** step spends this budget — the backend replies
+  with `{status:"pending", job_id:"…"}` once the job is enqueued.
+- **Wait-for-terminal** (`_meta.dcc.wait_for_terminal=true` *and* an
+  async opt-in): the gateway blocks the `tools/call` response until
+  `$/dcc.jobUpdated` reports a terminal status (`completed` / `failed`
+  / `cancelled` / `interrupted`). Governed by
+  `McpHttpConfig.gateway_wait_terminal_timeout_ms` (default 10 min).
+  On timeout, the response is the last-known envelope annotated with
+  `_meta.dcc.timed_out = true`; the job keeps running on the backend.
+
+```python
+from dcc_mcp_core import McpHttpConfig
+cfg = McpHttpConfig(
+    port=8765,
+    gateway_async_dispatch_timeout_ms=60_000,   # queuing budget
+    gateway_wait_terminal_timeout_ms=600_000,   # wait-for-terminal budget
+)
+```
+
+Wire-level contract:
+
+```jsonc
+// POST /mcp — client request
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{
+  "name":"maya__bake_simulation","arguments":{...},
+  "_meta":{"dcc":{"async":true,"wait_for_terminal":true}}
+}}
+// Gateway blocks the response until $/dcc.jobUpdated status=terminal;
+// wait_for_terminal is STRIPPED before forwarding to the backend so
+// the backend contract remains unchanged.
+```
+
+Implementation notes for maintainers:
+
+- Detection helpers live in `crates/dcc-mcp-http/src/gateway/aggregator.rs`
+  (`meta_signals_async_dispatch`, `meta_wants_wait_for_terminal`,
+  `strip_gateway_meta_flags`).
+- The per-job broadcast bus is owned by `SubscriberManager`
+  (`job_event_buses`, `job_event_channel`, `publish_job_event`,
+  `forget_job_bus`). The bus is created **before** the outbound
+  `tools/call` so terminal events arriving in the tiny window between
+  the backend reply and the waiter installing its subscription are
+  not lost.
+- Backend disconnect during a wait surfaces as `-32000 backend
+  disconnected` and the job stays in whatever state on the backend
+  (may later become `interrupted` per #328).
+
+### Workflow Execution Pipeline (issue #348)
+
+`dcc-mcp-workflow` ships the full execution engine. Pipeline sketch:
+
+```
+WorkflowExecutor::run(spec, inputs, parent_job)
+   → validate spec
+   → create root job + CancellationToken
+   → spawn tokio driver
+      → drive(steps) sequentially
+         → per step: retry + timeout + idempotency_key short-circuit
+            → dispatch by StepKind:
+               ├─ Tool        → ToolCaller::call
+               ├─ ToolRemote  → RemoteCaller::call (via gateway)
+               ├─ Foreach     → JSONPath items → drive(body) per item
+               ├─ Parallel    → tokio::join! branches (on_any_fail)
+               ├─ Approve     → ApprovalGate::wait_handle + timeout
+               └─ Branch      → JSONPath cond → then | else
+            → artefact handoff (FileRef → ArtefactStore)
+            → emit $/dcc.workflowUpdated (enter / exit)
+            → sqlite upsert (if job-persist-sqlite)
+      → emit workflow_terminal
+   → return WorkflowRunHandle { workflow_id, root_job_id, cancel_token, join }
+```
+
+Use `WorkflowHost` as the stable entry point — it wraps `WorkflowExecutor`
+with a run registry keyed by `workflow_id`, so the three mutating MCP
+tools (`workflows.run` / `workflows.get_status` / `workflows.cancel`)
+can be wired with `register_workflow_handlers(&dispatcher, &host)` after
+`register_builtin_workflow_tools(&registry)` has been called.
+
+Key invariants:
+
+1. **Every transition emits `$/dcc.workflowUpdated`.** If you add a
+   new state, route it through `RunState::emit`.
+2. **Cancellation cascades through `tokio_util::sync::CancellationToken`.**
+   Never spawn a step future that drops the token — always pass it into
+   every `ToolCaller::call` / `RemoteCaller::call` / `tokio::select!`.
+3. **Idempotency short-circuit happens _before_ retry attempts.** A
+   cache hit skips the step entirely; retries only guard live calls.
+4. **SQLite recovery flips non-terminal rows to `interrupted` — never
+   auto-resumes.** Resume is explicit opt-in via a separate tool.
+5. **Approve gates block on `notifications/$/dcc.approveResponse`.**
+   The HTTP handler for that notification calls
+   `ApprovalGate::resolve(workflow_id, step_id, response)`.
+
+### Artefact Hand-Off (issue #349)
+
+```python
+from dcc_mcp_core import (
+    FileRef,
+    artefact_put_file, artefact_put_bytes,
+    artefact_get_bytes, artefact_list,
+)
+
+# Content-addressed SHA-256 store. Duplicate bytes → same URI.
+ref = artefact_put_bytes(b"hello", mime="text/plain")
+ref.uri          # "artefact://sha256/<hex>"
+ref.size_bytes   # 5
+ref.digest       # "sha256:<hex>"
+assert artefact_get_bytes(ref.uri) == b"hello"
+
+# When McpHttpConfig.enable_artefact_resources=True the server exposes
+# every FileRef as an MCP resource — clients resources/read the uri.
+```
+
+Rust side: `dcc_mcp_artefact::{FilesystemArtefactStore, InMemoryArtefactStore,
+ArtefactStore, ArtefactBody, ArtefactFilter, put_bytes, put_file, resolve}`.
+`FilesystemArtefactStore` persists at `<root>/<sha256>.bin` + `.json`.
+
+### Resources Primitive (issue #350)
+
+`McpHttpConfig.enable_resources` defaults to `True`. Built-in URIs:
+
+- `scene://current` — JSON; update via `server.resources().set_scene(...)` in Rust.
+- `capture://current_window` — PNG blob; Windows HWND `PrintWindow` backend only.
+- `audit://recent?limit=N` — JSON; wire via `server.resources().wire_audit_log(log)` in Rust.
+- `artefact://sha256/<hex>` — content-addressed artefact (#349); toggle via `enable_artefact_resources`.
+
+```python
+cfg = McpHttpConfig(port=8765)
+cfg.enable_resources = True            # advertise capability + built-ins
+cfg.enable_artefact_resources = False  # default: artefact:// returns JSON-RPC -32002
+```
+
+### Prompts Primitive (issues #351, #355)
+
+`McpHttpConfig.enable_prompts` defaults to `True`. Prompts come from each
+loaded skill's sibling file referenced by `metadata["dcc-mcp.prompts"]` —
+either a single `prompts.yaml` (top-level `prompts:` + `workflows:` lists)
+or a `prompts/*.prompt.yaml` glob. Workflows referenced by the spec
+auto-generate a summary prompt.
+
+Template engine is minimal: only `{{arg_name}}` substitution; missing
+required args return JSON-RPC `INVALID_PARAMS`.
+`notifications/prompts/list_changed` fires on skill load / unload.
+
+### Job Lifecycle Notifications (issue #326)
+
+Every `tools/call` emits SSE frames:
+
+- `notifications/progress` — when `_meta.progressToken` is set.
+- `notifications/$/dcc.jobUpdated` — gated by `enable_job_notifications` (default `True`).
+- `notifications/$/dcc.workflowUpdated` — same gate; #348 executor populates it.
+
+```python
+cfg = McpHttpConfig(port=8765)
+cfg.enable_job_notifications = False  # opt the $/dcc.* channels out
+```
+
+Polling fallback: **`jobs.get_status`** (#319, always registered) returns
+the full job-state envelope for a given `job_id`. Use **`jobs.cleanup`**
+(#328) with `older_than_hours` to prune terminal jobs; combine with
+`McpHttpConfig.job_storage_path` + Cargo feature `job-persist-sqlite`
+for restart-safe job history (pending/running rows become `Interrupted`
+on reboot).
+
+### Scheduler (issue #352)
+
+Opt in with Cargo feature `scheduler`.
+
+```python
+from dcc_mcp_core import (
+    ScheduleSpec, TriggerSpec, parse_schedules_yaml,
+    hmac_sha256_hex, verify_hub_signature_256,
+)
+cfg = McpHttpConfig(port=8765)
+cfg.enable_scheduler = True
+cfg.schedules_dir = "/opt/dcc-mcp/schedules"   # loads *.schedules.yaml
+```
+
+`ScheduleSpec` / `TriggerSpec` are declarative; the `SchedulerService`
+runtime is driven from Rust. Schedules live in sibling
+`schedules.yaml` files (never embedded in `SKILL.md` frontmatter —
+follow the #356 sibling-file pattern). Cron format is 6-field:
+`"sec min hour day month weekday"`. Webhook HMAC-SHA256 via
+`X-Hub-Signature-256`; secret read from `secret_env` at startup.
+On terminal workflow status, host calls
+`SchedulerHandle::mark_terminal(schedule_id)` to release `max_concurrent`.
+
+### Prometheus `/metrics` Exporter (issue #331)
+
+Opt-in behind the `prometheus` Cargo feature — **off by default**.
+When compiled in, enable at runtime via
+`McpHttpConfig(enable_prometheus=True, prometheus_basic_auth=(u, p))`.
+Metric names live in [`docs/api/observability.md`](../api/observability.md);
+see there for Grafana PromQL examples. Counters advance from the
+`tools/call` wrapper in `handler.rs` — do not add recording sites
+elsewhere.
