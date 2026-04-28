@@ -11,6 +11,41 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.14.16](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.15...v0.14.16) (2026-04-28)
+
+
+### Bug Fixes
+
+* **http,process:** add missing module files for audit refactor ([06f4313](https://github.com/loonghao/dcc-mcp-core/commit/06f431321922345ee2bc4f12c146ee407a504449))
+
+
+### Code Refactoring
+
+* **actions:** extract VersionMatcher + ValidationStrategy traits ([#493](https://github.com/loonghao/dcc-mcp-core/issues/493)) ([cc2824c](https://github.com/loonghao/dcc-mcp-core/commit/cc2824c67406aed322af93a08dd04de61cad9f51))
+* **core:** extract Registry&lt;V&gt; trait + share contract test ([#489](https://github.com/loonghao/dcc-mcp-core/issues/489)) ([406f43d](https://github.com/loonghao/dcc-mcp-core/commit/406f43dace61c42c3152fe806377f0a25dd8ce58))
+* **dcc-mcp-http:** introduce NotificationBuilder for JSON-RPC envelopes ([d4b1948](https://github.com/loonghao/dcc-mcp-core/commit/d4b1948d4314d51b23cfbafda69a204953605347))
+* **dcc-mcp-skills:** reorganize validator_*.rs and watcher_*.rs into directory modules ([140e389](https://github.com/loonghao/dcc-mcp-core/commit/140e389c22b25966ac7363298d7b6c13842b6b6b)), closes [#482](https://github.com/loonghao/dcc-mcp-core/issues/482) [#483](https://github.com/loonghao/dcc-mcp-core/issues/483)
+* **http,process,transport:** apply audit findings ([36276f7](https://github.com/loonghao/dcc-mcp-core/commit/36276f707f833a3a579707c7fb959994bce764d0))
+* **http:** introduce MethodHandler trait + extensible MethodRouter ([#492](https://github.com/loonghao/dcc-mcp-core/issues/492)) ([413d9a9](https://github.com/loonghao/dcc-mcp-core/commit/413d9a98c4b04b5bfb7090cdac28fd48c727b0f7))
+* introduce DccName newtype + typed scanner entry point ([9182554](https://github.com/loonghao/dcc-mcp-core/commit/91825542ee51c6faa6b87bb5b49dd9a4da2526f0))
+* introduce shared DccMcpError + From impls for HttpError, ProcessError ([417c026](https://github.com/loonghao/dcc-mcp-core/commit/417c026047d99a0f9163797a675b153c4f278964))
+* **pyo3:** add wrapper helpers + drift-detection test ([#490](https://github.com/loonghao/dcc-mcp-core/issues/490)) ([cb5cc79](https://github.com/loonghao/dcc-mcp-core/commit/cb5cc79de10218b62180b089e026d56fb0b70c56))
+* **python:** extract shared register_tools() helper ([59b41e5](https://github.com/loonghao/dcc-mcp-core/commit/59b41e5be267e7d5c28d3db590ba83cda5d6d275))
+* **python:** introduce typed ToolResult envelope + constants module ([819e8c4](https://github.com/loonghao/dcc-mcp-core/commit/819e8c4c15d810e1c4184b3e63381ada5a1e0491))
+* **server:** decompose DccServerBase into focused collaborators ([24ec80d](https://github.com/loonghao/dcc-mcp-core/commit/24ec80d405edbdfe2865c54f17e0a4af92a5c799))
+* **workspace:** consolidate per-crate pyclass impls under src/python/ ([22e197e](https://github.com/loonghao/dcc-mcp-core/commit/22e197ea8f3f49e7aa3182d1a92203cf65f47e27)), closes [#501](https://github.com/loonghao/dcc-mcp-core/issues/501) [#495](https://github.com/loonghao/dcc-mcp-core/issues/495)
+* **workspace:** extract dcc-mcp-logging crate from dcc-mcp-utils ([a3882a2](https://github.com/loonghao/dcc-mcp-core/commit/a3882a2e59299c589b9cb564675ba3f19aa9db14))
+* **workspace:** extract dcc-mcp-paths and delete dcc-mcp-utils ([a6bc5fc](https://github.com/loonghao/dcc-mcp-core/commit/a6bc5fcf88f9c672eaf206f6fb473be477b909b3))
+* **workspace:** extract dcc-mcp-pybridge crate from dcc-mcp-utils ([dc3b844](https://github.com/loonghao/dcc-mcp-core/commit/dc3b844a9d853f24f729113e976d384d6b7762e5))
+* **workspace:** migrate skill-domain code from dcc-mcp-utils to dcc-mcp-skills ([f66c63a](https://github.com/loonghao/dcc-mcp-core/commit/f66c63a705b22e1f9cff38bc4351e181e8568fae))
+
+
+### Documentation
+
+* **agents:** forbid AI-attribution footers in PRs and commits ([222c479](https://github.com/loonghao/dcc-mcp-core/commit/222c479d4b046b26accf7b596bd1e6bf167a69cb))
+* consolidate per-LLM agent rules into AGENTS.md + agents-reference.md ([fdedd52](https://github.com/loonghao/dcc-mcp-core/commit/fdedd5219907bd3b759a6fc5d92dbbcebdfb2e35))
+* fix MD049 emphasis style in agents-reference.md ([b881d6d](https://github.com/loonghao/dcc-mcp-core/commit/b881d6dc48abaf550c122bb2c630388a6a84662b))
+
 ## [0.14.15](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.14...v0.14.15) (2026-04-27)
 
 
