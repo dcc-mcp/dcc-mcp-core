@@ -49,6 +49,15 @@
 | Rich skill error with traceback | `skill_error_with_trace()` |
 | Skill warning / exception helpers | `skill_warning()` / `skill_exception()` |
 | Disable accumulated/evolved skills | `ENV_DISABLE_ACCUMULATED_SKILLS` |
+| Typed Python tool handler return | `from dcc_mcp_core.result_envelope import ToolResult` → `ToolResult.ok("msg", **ctx).to_dict()` / `ToolResult.fail("msg", error="code").to_dict()` (also `success_`/`error_`, plus `not_found(entity_type, name)` / `invalid_input(msg)` shortcuts). **Note**: `success`/`error` are dataclass fields, not factories; calling `ToolResult.success(...)` raises `AttributeError` (#487) |
+| Centralised metadata key constants | `from dcc_mcp_core.constants import METADATA_RECIPES_KEY, METADATA_LAYER_KEY, LAYER_THIN_HARNESS, CATEGORY_DIAGNOSTICS, ...` — every `"dcc-mcp.<feature>"` string lives here (#487) |
+| Custom JSON-RPC method (Rust) | `dcc_mcp_http::handler::{MethodRouter, MethodHandler, HandlerFuture}` — `router.register("ping", Arc::new(handler))`; capability gating lives in the handler, not the router (#492) |
+| Custom action validation (Rust) | `dcc_mcp_actions::validation_strategy::{ValidationStrategy, ValidationOutcome, NoOpValidator, SchemaValidator, select_strategy}` — adding a flavour does not touch `dispatch()` (#493) |
+| Custom version constraint shape (Rust) | `dcc_mcp_actions::versioned::matcher::{VersionMatcher, AnyMatcher, ExactMatcher, AtLeastMatcher, GreaterThanMatcher, AtMostMatcher, LessThanMatcher, CaretMatcher, TildeMatcher}` — adding a shape = enum variant + matcher impl + `with_matcher` arm; `matches()` / `Display` untouched (#493) |
+| Build a registry-like container (Rust) | `dcc_mcp_models::registry::{Registry, RegistryEntry, DefaultRegistry, SearchQuery}` — `ActionRegistry`, `SkillCatalog`, `WorkflowCatalog` all `impl Registry<V>`; shared contract test in `registry::testing` (feature `testing`) (#489) |
+| Build a JSON-RPC notification (Rust) | `dcc_mcp_http::protocol::{NotificationBuilder, JsonRpcRequestBuilder}` — single source for the `{"jsonrpc":"2.0","method":..,"params":..}` shape; `.as_sse_event()` for SSE frames (#484) |
+| Typed DCC name (Rust) | `dcc_mcp_models::DccName` — canonical enum + `parse(s)` (case-insensitive aliases) + `as_str()` round-trip; `DccName::Other(String)` preserves unknown values (#491) |
+| Unified workspace error (Rust) | `dcc_mcp_models::DccMcpError` — single error enum with `From<HttpError>` / `From<ProcessError>` impls; per-crate enums are `From`-converted at the boundary (#488) |
 
 ## Quick Start
 
@@ -95,14 +104,16 @@ meta = dcc_mcp_core.parse_skill_md(dirs[0])  # -> SkillMetadata or None
 
 ## Architecture
 
-Rust workspace (15 crates) with PyO3 bindings. All logic in Rust sub-crates; Python gets a single `dcc_mcp_core._core` extension module. The `dcc_mcp_core` package re-exports all ~275 public symbols from `_core` plus pure-Python helpers (DccServerBase, DccGatewayElection, DccSkillHotReloader, factory, skill helpers).
+Rust workspace (21 crates, including `workspace-hack`) with PyO3 bindings. All logic in Rust sub-crates; Python gets a single `dcc_mcp_core._core` extension module. The `dcc_mcp_core` package re-exports all ~275 public symbols from `_core` plus pure-Python helpers (DccServerBase, DccGatewayElection, DccSkillHotReloader, factory, skill helpers, ToolResult dataclass, constants).
 
 ```
 crates/
 ├── dcc-mcp-naming/      # SEP-986 tool-name / action-id validators (TOOL_NAME_RE, validate_tool_name)
-├── dcc-mcp-models/      # ToolResult, SkillMetadata
-├── dcc-mcp-actions/     # ToolRegistry, ToolDispatcher, ToolValidator, EventBus, ToolPipeline
-├── dcc-mcp-skills/      # SkillScanner, SkillWatcher, parse_skill_md, dependency resolver
+├── dcc-mcp-models/      # SkillMetadata, ToolResult, DccName (#491), DccMcpError (#488), Registry<V> trait (#489)
+├── dcc-mcp-actions/     # ToolRegistry, ToolDispatcher, ToolValidator, EventBus, ToolPipeline,
+│                        # ValidationStrategy (#493), VersionMatcher (#493)
+├── dcc-mcp-skills/      # SkillScanner, SkillWatcher (in watcher/ submodule #483), parse_skill_md,
+│                        # validator/ submodule (#482), dependency resolver
 ├── dcc-mcp-protocols/   # MCP type definitions (Tool, Resource, Prompt, DccAdapter)
 ├── dcc-mcp-transport/   # IPC transport (ipckit), DccLinkFrame, IpcChannelAdapter, SocketServerAdapter
 ├── dcc-mcp-process/     # PyDccLauncher, ProcessMonitor, ProcessWatcher, CrashRecovery
@@ -111,12 +122,19 @@ crates/
 ├── dcc-mcp-shm/         # PyBufferPool, PySharedBuffer, LZ4 compression
 ├── dcc-mcp-capture/     # Capturer, CaptureFrame, CaptureResult
 ├── dcc-mcp-usd/         # UsdStage, UsdPrim, SdfPath, scene info bridge
-├── dcc-mcp-http/        # McpHttpServer, McpHttpConfig, McpServerHandle (MCP Streamable HTTP 2025-03-26)
+├── dcc-mcp-http/        # McpHttpServer, McpHttpConfig, McpServerHandle, MethodRouter (#492),
+│                        # NotificationBuilder (#484) — MCP Streamable HTTP 2025-03-26
 ├── dcc-mcp-server/      # Binary entry point, gateway runner
-└── dcc-mcp-utils/       # Filesystem, constants, type wrappers, JSON conversion
+├── dcc-mcp-scheduler/   # ScheduleSpec, TriggerSpec, SchedulerService (cron + webhook HMAC)
+├── dcc-mcp-workflow/    # WorkflowCatalog, YAML workflow loader
+├── dcc-mcp-artefact/    # FilesystemArtefactStore, FileRef, content-addressed handoff
+├── dcc-mcp-logging/     # File logging + LOG_* constants (former dcc-mcp-utils logging slice)
+├── dcc-mcp-paths/       # Path helpers (former dcc-mcp-utils path slice)
+└── dcc-mcp-pybridge/    # PyO3 helpers — repr_pairs! / to_dict_pairs! macros (#490),
+                         # py_json / py_yaml; reduces wrapper boilerplate across crates
 ```
 
-Pure-Python modules: cancellation, checkpoint, docs_resources, feedback, introspect, recipes, workflow_yaml, bridge, gateway_election, hotreload, factory, dcc_server, server_base, adapters, auth, batch, elicitation, rich_content, plugin_manifest, dcc_api_executor, skill, workflow_yaml
+Pure-Python modules: cancellation, checkpoint, constants (#487), result_envelope (#487), _server/{observability,skill_query,window_resolver} (#486), _tool_registration (#481), docs_resources, feedback, introspect, recipes, workflow_yaml, bridge, gateway_election, hotreload, factory, dcc_server, server_base, adapters, auth, batch, elicitation, rich_content, plugin_manifest, dcc_api_executor, skill
 
 ## Core Concepts
 

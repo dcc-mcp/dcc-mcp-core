@@ -107,7 +107,20 @@
 | Singleton server factory | `make_start_stop(ServerClass)` → `(start_fn, stop_fn)` |
 | Skill validation | `validate_skill(skill_dir)` → `SkillValidationReport` |
 | Zero-dep JSON/YAML | `json_dumps/loads` / `yaml_dumps/loads` (Rust-powered) |
+| Typed handler return envelope | `ToolResult.ok("msg", **ctx).to_dict()` / `ToolResult.fail("msg", error="code").to_dict()` from `dcc_mcp_core.result_envelope` — note the underscored aliases `success_`/`error_`; `success`/`error` are dataclass fields, **not** factories (#487) |
+| Centralised metadata keys | `from dcc_mcp_core.constants import METADATA_*, LAYER_*, CATEGORY_*` — never inline `"dcc-mcp.recipes"` etc. (#487) |
+| Custom JSON-RPC method (Rust) | `MethodRouter::register(method, Arc::new(handler))` — implement `MethodHandler` trait (#492) |
+| Custom action validation (Rust) | implement `ValidationStrategy` and return it from `select_strategy(...)` (#493) |
+| Custom version constraint shape (Rust) | implement `VersionMatcher` + wrap in `VersionConstraint::Custom` (#493) |
+| Build a registry-like container (Rust) | implement `Registry<V>` over your storage, or use `DefaultRegistry<V>` (#489) |
+| Build a JSON-RPC notification (Rust) | `NotificationBuilder::new("notifications/...").with_params(json).as_sse_event()` (#484) |
+| Typed DCC name (Rust) | `DccName::parse("Maya")` → `DccName::Maya`; canonicalises + hashes safely (#491) |
 
+### Skill layer taxonomy (`metadata.dcc-mcp.layer`)
+
+| Layer | Purpose |
+|-------|---------|
+| `thin-harness` | One Python script + minimal SKILL.md — agents wrap a single CLI/API |
 | `infrastructure` | Safety, diagnostics, introspection |
 | `domain` | Pipeline-level intent (shot export, render farm) |
 | `example` | Authoring reference only |
@@ -123,13 +136,15 @@
 
 ---
 
-## Top 5 Traps — Memorize These
+## Top Traps — Memorize These
 
 1. **`scan_and_load` returns a 2-tuple** → `skills, skipped = scan_and_load(...)` — never iterate directly
 2. **`success_result` kwargs → context** → `success_result("msg", count=5)` — do NOT use `context=`
 3. **`ToolDispatcher` uses `.dispatch()`** → never `.call()`
 4. **Register ALL handlers BEFORE `server.start()`** — server reads registry at startup
 5. **SKILL.md extensions use `metadata.dcc-mcp.<feature>`** → sibling files, never top-level keys (v0.15+ / #356)
+6. **Use `dcc_mcp_core.constants.*` for metadata strings** → no inline `"dcc-mcp.recipes"` / `"thin-harness"` literals (#487)
+7. **Return `ToolResult` from Python tool handlers** → `ToolResult.ok("...", **ctx).to_dict()` (or `success_(...)`); `success`/`error` are dataclass *fields*, the factories are `success_`/`error_` / `ok`/`fail` (#487)
 
 Full trap list + code examples → [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md)
 
@@ -144,11 +159,14 @@ Full trap list + code examples → [`docs/guide/agents-reference.md`](docs/guide
 ## Repo Layout (What Lives Where)
 
 ```
-crates/          # Rust — 15 crates
+crates/          # Rust — 21 crates
 python/dcc_mcp_core/__init__.py  # ← every public symbol
 python/dcc_mcp_core/_core.pyi   # ← parameter names & types
+python/dcc_mcp_core/result_envelope.py  # ← typed ToolResult dataclass (#487)
+python/dcc_mcp_core/constants.py        # ← metadata key / layer / category constants (#487)
+python/dcc_mcp_core/_server/            # ← DccServerBase collaborators (observability, skill_query, window_resolver) (#486)
 tests/           # 120+ integration tests
-examples/skills/ # 11 complete SKILL.md packages
+examples/skills/ # 13 complete SKILL.md packages
 docs/            # guides + API reference
 ```
 
@@ -159,11 +177,15 @@ docs/            # guides + API reference
 ### Do ✅
 - Use `create_skill_server()` — Skills-First entry point
 - Use `success_result("msg", count=5)` — kwargs become context
+- Use `ToolResult.ok("...", **ctx).to_dict()` (or `.success_(...)`) from `result_envelope`; `.fail(msg, error="...")` for errors; `.not_found("Skill", name)` / `.invalid_input(msg)` for the common error codes (#487)
+- Import metadata strings from `dcc_mcp_core.constants` (`METADATA_*`, `LAYER_*`, `CATEGORY_*`) (#487)
 - Use `ToolAnnotations` — safety hints for AI clients
 - Use `search_skills(query)` — don't guess tool names
 - Use `metadata.dcc-mcp.<feature>` keys + sibling files for all SKILL.md extensions
 - Tag every skill with `metadata.dcc-mcp.layer`
 - Unpack `scan_and_load()`: `skills, skipped = scan_and_load(...)`
+- Use `DccName::parse(s)` at Rust API boundaries instead of `&str` (#491)
+- Use `MethodRouter::with_builtins()` then `.register(...)` to add custom JSON-RPC methods (#492)
 - Use Conventional Commits: `feat:`, `fix:`, `docs:`, `refactor:`
 - Use `vx just dev` before `vx just test`
 
@@ -172,6 +194,12 @@ docs/            # guides + API reference
 - Don't use `context=` kwarg in `success_result()` → **pass kwargs directly**
 - Don't call `ToolDispatcher.call()` → **use `.dispatch(name, json_str)`**
 - Don't put SKILL.md extensions at top level → **use `metadata.dcc-mcp.<feature>` + sibling file**
+- Don't hand-roll `{"success": ..., "context": ...}` dicts in handlers → **return `ToolResult.ok(...).to_dict()`** (the factory is `ok`/`success_`, NOT `success`) (#487)
+- Don't write inline `"dcc-mcp.recipes"` / `"thin-harness"` literals → **import from `constants.py`** (#487)
+- Don't pass raw `&str` DCC names through Rust APIs → **`DccName::parse(s)` at the boundary** (#491)
+- Don't extend the JSON-RPC `match` arm in `dispatch.rs` → **register a `MethodHandler` on `MethodRouter`** (#492)
+- Don't hand-roll JSON-RPC envelopes → **`NotificationBuilder` / `JsonRpcRequestBuilder`** (#484)
+- Don't add per-crate `*Error` enums → **return `DccMcpError` via `From` impls** (#488)
 - Don't add Python runtime deps → **zero-dep by design**
 - Don't manually bump versions → **Release Please handles this**
 - Don't import `SkillScope` from Python → **it's Rust-only; use `SkillMetadata` methods**

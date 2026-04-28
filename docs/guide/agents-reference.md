@@ -175,6 +175,46 @@ from dcc_mcp_core._core import DeferredExecutor   # direct import required
 This includes `register_diagnostic_mcp_tools(...)` for instance-bound diagnostics —
 register them before calling `server.start()`, never after.
 
+**Return `ToolResult` from Python tool handlers (#487) — never hand-roll the dict:**
+```python
+from dcc_mcp_core.result_envelope import ToolResult
+
+# ✓ typed envelope; serialises to the same wire shape clients already see.
+# Factory methods are `success_` / `error_` (trailing underscore avoids
+# shadowing the dataclass fields), with shorter aliases `ok` / `fail`.
+return ToolResult.ok("Loaded skill", name=name).to_dict()
+return ToolResult.fail("Skill missing", error="not_found",
+                       prompt="Try `recipes__list`.").to_dict()
+# `ToolResult.not_found("Skill", name)` and `ToolResult.invalid_input(msg)`
+# are convenience constructors for the two most common error codes.
+
+# ✗ ad-hoc dict — no field validation, drifts when the wire shape evolves
+return {"success": True, "message": "...", "context": {"name": name}}
+```
+The dataclass mirrors the Rust `ToolResult` model; empty fields are pruned
+by `.to_dict()` so feature-flag toggles do not perturb the JSON envelope.
+
+> **Trap (#487):** there is no `ToolResult.success(...)` / `ToolResult.error(...)`
+> classmethod — `success` and `error` are *dataclass fields*, so the factories
+> are spelled `success_` / `error_` (or the cleaner aliases `ok` / `fail`).
+> Calling `ToolResult.success("...")` raises
+> `AttributeError: type object 'ToolResult' has no attribute 'success'`.
+
+**Import metadata key strings from `constants.py` (#487):**
+```python
+from dcc_mcp_core.constants import (
+    METADATA_RECIPES_KEY,    # "dcc-mcp.recipes"
+    METADATA_LAYER_KEY,      # "dcc-mcp.layer"
+    LAYER_THIN_HARNESS,      # "thin-harness"
+    CATEGORY_RECIPES,        # "recipes"
+)
+# ✗ never inline literals — renaming a key now means editing one file
+```
+Every `"dcc-mcp.<feature>"` metadata key, every `metadata.dcc-mcp.layer` value,
+and every `category` tag on `ToolRegistry.register(...)` lives in
+`dcc_mcp_core.constants`. Adding a new key? Add it to `constants.py` first,
+import it everywhere it appears.
+
 **Connection-scoped tool cache (issue #438):**
 `tools/list` caches a per-session snapshot by default (`enable_tool_cache=True`).
 The cache is invalidated automatically on skill load/unload and group
@@ -889,3 +929,136 @@ Metric names live in [`docs/api/observability.md`](../api/observability.md);
 see there for Grafana PromQL examples. Counters advance from the
 `tools/call` wrapper in `handler.rs` — do not add recording sites
 elsewhere.
+
+---
+
+## Rust Extension Points (post-EPIC #495)
+
+Five trait-shaped extension points landed during the EPIC #495 architecture
+audit. Each follows the same recipe: **"add a behaviour without editing the
+upstream `match` table."** All are Rust-only; they live below the PyO3 layer.
+
+### `MethodHandler` + `MethodRouter` — custom JSON-RPC methods (#492)
+
+Crate: `dcc-mcp-http`, module `handler::router`.
+
+```rust
+use std::sync::Arc;
+use dcc_mcp_http::handler::{MethodRouter, MethodHandler, HandlerFuture};
+use dcc_mcp_http::handler::state::AppState;
+use dcc_mcp_http::protocol::{JsonRpcRequest, JsonRpcResponse};
+use dcc_mcp_http::error::HttpError;
+
+struct PingHandler;
+impl MethodHandler for PingHandler {
+    fn handle<'a>(
+        &'a self,
+        _state: &'a AppState,
+        req: &'a JsonRpcRequest,
+        _session: Option<&'a str>,
+    ) -> HandlerFuture<'a> {
+        Box::pin(async move {
+            Ok(JsonRpcResponse::success(req.id.clone(), serde_json::json!("pong")))
+        })
+    }
+}
+
+let router = MethodRouter::with_builtins();   // initializes, prompts, ...
+router.register("ping", Arc::new(PingHandler));
+// hand `router` to `AppState::with_method_router(...)`
+```
+
+Capability gating (`enable_resources`, `enable_prompts`) lives in the handler
+itself — return `HttpError::method_not_found(...)` when a feature is off, never
+add another arm to the dispatcher. Closures that match the
+`Fn(&AppState, &JsonRpcRequest, Option<&str>) -> HandlerFuture` shape implement
+`MethodHandler` automatically; reach for a struct only when you need state.
+
+### `Registry<V>` + `RegistryEntry` — registry-shaped containers (#489)
+
+Crate: `dcc-mcp-models`, module `registry`.
+
+`ActionRegistry`, `SkillCatalog`, and `WorkflowCatalog` all `impl Registry<V>`
+over their existing storage (per-DCC `DashMap`, file-hash `DashMap`, ordered
+`RwLock<Vec>`). New registries that need only the contract — not specialised
+indexes — can use `DefaultRegistry<V>` directly.
+
+The shared contract test lives in `dcc_mcp_models::registry::testing::assert_registry_contract`
+behind the `testing` feature flag; every implementor calls it once with a
+fixture so register / get / list / remove / count / search semantics stay in
+lockstep.
+
+### `ValidationStrategy` + `select_strategy` — pluggable action validation (#493)
+
+Crate: `dcc-mcp-actions`, module `validation_strategy`.
+
+Built-ins: `NoOpValidator` (no metadata / empty schema) and
+`SchemaValidator<'_>` (borrowed-meta JSON Schema check). `ActionDispatcher::dispatch`
+calls `select_strategy(meta, skip_empty_schema_validation)` to pick one per call;
+adding a new flavour (cached compiled schemas, sandbox precheck, contract-test
+mode) means a new `impl ValidationStrategy` and one extra arm in
+`select_strategy` — `dispatch()` is unaffected. The trait returns
+`ValidationOutcome { skipped: bool }` so the dispatcher can record metrics
+without re-deriving "did this actually run?".
+
+### `VersionMatcher` — pluggable version-constraint shapes (#493)
+
+Crate: `dcc-mcp-actions`, module `versioned::matcher`.
+
+Built-in matchers (one per `VersionConstraint` variant): `AnyMatcher`,
+`ExactMatcher`, `AtLeastMatcher`, `GreaterThanMatcher`, `AtMostMatcher`,
+`LessThanMatcher`, `CaretMatcher`, `TildeMatcher`. Both
+`VersionConstraint::matches(version)` and `Display::fmt` route through
+`VersionConstraint::with_matcher(...)`, so adding a new constraint shape
+takes exactly three edits, none of them in caller code:
+
+1. one new `VersionConstraint` enum variant in `versioned/mod.rs`,
+2. a new matcher struct + `impl VersionMatcher` in `versioned/matcher.rs`,
+3. one extra arm in `with_matcher`.
+
+`matches()` and `Display::fmt` need no edits at all.
+
+### `NotificationBuilder` + `JsonRpcRequestBuilder` — JSON-RPC envelope construction (#484)
+
+Crate: `dcc-mcp-http`, module `protocol::notification_builder`.
+
+Six call sites previously hand-rolled
+`json!({"jsonrpc":"2.0","method":..,"params":..})`. The builders are now the
+single source of truth for that wire shape:
+
+```rust
+use dcc_mcp_http::protocol::NotificationBuilder;
+
+let sse_frame = NotificationBuilder::new("notifications/tools/list_changed")
+    .with_params(serde_json::json!({}))
+    .as_sse_event();   // ready to push onto the per-session stream
+```
+
+`.build()` returns a typed `JsonRpcNotification`; `.to_value()` returns the raw
+`serde_json::Value`. `JsonRpcRequestBuilder` is the symmetric helper for
+*requests* (gateway backend client) — it owns the `id` field.
+
+### `DccName` — typed DCC identifier (#491)
+
+Crate: `dcc-mcp-models`.
+
+`DccName::parse("Maya")` → `DccName::Maya`; case-insensitive aliases (`"3dsmax"`,
+`"max"`, `"threedsmax"` all map to `ThreedsMax`). Round-trips through
+`serde_json::to_value(...)` ↔ `serde_json::from_value(...)` losslessly via the
+`#[serde(from = "String", into = "String")]` annotation. Unknown values become
+`DccName::Other(String)` so the enum can grow without breaking external
+callers. Aliases live in `DccName::parse(...)` itself: `"3dsmax"`, `"max"`,
+and `"threedsmax"` all map to `DccName::ThreedsMax`; `"c4d"` and `"cinema4d"`
+to `DccName::Cinema4d`; `"photoshop"` and `"ps"` to `DccName::Photoshop`.
+Use the type at every new Rust API boundary that previously would have taken
+`&str`; existing call sites such as `ActionRegistry::list_actions_for_dcc(&str)`
+remain `&str` for backward compat and can be migrated lazily.
+
+### `DccMcpError` — unified workspace error (#488)
+
+Crate: `dcc-mcp-models`.
+
+A single error enum with `From<HttpError>`, `From<ProcessError>`, … impls.
+Crates keep their domain-specific enums (`HttpError`, `ProcessError`, …) and
+convert to `DccMcpError` at the public boundary. New top-level helpers should
+return `Result<T, DccMcpError>` rather than introducing yet another error type.
