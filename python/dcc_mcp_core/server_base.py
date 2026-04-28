@@ -65,6 +65,8 @@ from dcc_mcp_core._server import JobPersistenceManager
 from dcc_mcp_core._server import SkillQueryClient
 from dcc_mcp_core._server import TelemetryManager
 from dcc_mcp_core._server import WindowResolver
+from dcc_mcp_core._server.inprocess_executor import BaseDccCallableDispatcher
+from dcc_mcp_core._server.inprocess_executor import build_inprocess_executor
 from dcc_mcp_core._server.minimal_mode import MinimalModeConfig
 from dcc_mcp_core._server.minimal_mode import apply_minimal_mode
 from dcc_mcp_core.gateway_election import DccGatewayElection
@@ -431,6 +433,48 @@ class DccServerBase:
             "job_db": getattr(self._config, "job_storage_path", None),
             "telemetry": self._enable_telemetry,
         }
+
+    # ── in-process executor wiring (issue #521) ───────────────────────────────
+
+    def register_inprocess_executor(
+        self,
+        dispatcher: BaseDccCallableDispatcher | None = None,
+    ) -> None:
+        """Wire the standard in-process Python skill executor.
+
+        Lifts the ``_wire_in_process_executor`` pattern that
+        ``dcc-mcp-maya`` 0.2.19 implements into the core so every
+        embedded DCC plugin (Maya, Houdini, Unreal, Blender Python …)
+        gets the same in-process execution flow without re-implementing
+        ~150 LOC.
+
+        Must be called **before** any
+        :meth:`register_builtin_actions` so all subsequently loaded
+        skills register their handlers against the in-process path
+        (avoids the timing race documented in issue #464/#465).
+
+        Args:
+            dispatcher: Optional :class:`BaseDccCallableDispatcher`
+                that marshals the script call onto the host's UI /
+                main thread. ``None`` (the default — useful for
+                ``mayapy``, headless Houdini, pytest) runs the script
+                inline on the calling thread.
+
+        """
+        executor = build_inprocess_executor(dispatcher)
+        try:
+            self._server.set_in_process_executor(executor)
+            logger.info(
+                "[%s] In-process executor registered (dispatcher=%s)",
+                self._dcc_name,
+                type(dispatcher).__name__ if dispatcher is not None else "inline",
+            )
+        except Exception as exc:
+            logger.warning(
+                "[%s] register_inprocess_executor failed: %s",
+                self._dcc_name,
+                exc,
+            )
 
     # ── gateway & is_gateway ──────────────────────────────────────────────────
 

@@ -278,6 +278,7 @@ except ImportError:  # pragma: no cover — feature off
 
 # Adapters (pure-Python, non-DccServerBase)
 # Cooperative cancellation (pure-Python, no _core dependency)
+from dcc_mcp_core._server import BaseDccCallableDispatcher
 from dcc_mcp_core._server import MinimalModeConfig
 from dcc_mcp_core.adapters import CAPABILITY_KEYS
 from dcc_mcp_core.adapters import WEBVIEW_DEFAULT_CAPABILITIES
@@ -445,6 +446,7 @@ __all__ = [
     "AuditLog",
     "AuditMiddleware",
     "BackoffKind",
+    "BaseDccCallableDispatcher",
     "BooleanWrapper",
     "BoundingBox",
     "BridgeConnectionError",
