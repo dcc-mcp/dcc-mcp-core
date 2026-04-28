@@ -40,13 +40,28 @@ from __future__ import annotations
 
 # Import built-in modules
 import contextvars
+import sys
 import threading
 from typing import TYPE_CHECKING
-from typing import Protocol
-from typing import runtime_checkable
 
 if TYPE_CHECKING:
     pass
+
+# `typing.Protocol` and `typing.runtime_checkable` are 3.8+. The package
+# still claims `requires-python = ">=3.7"`, so on 3.7 we expose
+# `JobHandle` as a plain duck-typed class with the same `cancelled`
+# attribute contract; concrete impls don't need to inherit from it
+# either way (the `current_job` ContextVar is annotated, so the type
+# is only used for static analysis and runtime `isinstance` on 3.8+).
+if sys.version_info >= (3, 8):
+    from typing import Protocol
+    from typing import runtime_checkable
+else:  # pragma: no cover - py3.7 only
+    def runtime_checkable(cls):
+        return cls
+
+    class Protocol:  # type: ignore[no-redef]
+        pass
 
 __all__ = [
     "CancelToken",
