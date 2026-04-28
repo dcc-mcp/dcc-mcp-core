@@ -34,18 +34,39 @@ import contextvars
 from dataclasses import dataclass
 from dataclasses import field
 import logging
+import sys
 import threading
 import time
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import Callable
-from typing import Literal
-from typing import Protocol
-from typing import runtime_checkable
 import uuid
 
 if TYPE_CHECKING:
     pass
+
+# `typing.Protocol`, `typing.runtime_checkable` and `typing.Literal` are
+# 3.8+. The package still claims `requires-python = ">=3.7"`, so on 3.7
+# we expose `BaseDccCallableDispatcherFull` / `BaseDccPump` as plain
+# duck-typed classes with the same attribute contracts; concrete
+# dispatchers do not need to inherit from them either way.
+if sys.version_info >= (3, 8):
+    from typing import Literal
+    from typing import Protocol
+    from typing import runtime_checkable
+else:  # pragma: no cover - py3.7 only
+
+    def runtime_checkable(cls):
+        return cls
+
+    class Protocol:  # type: ignore[no-redef]
+        pass
+
+    class _LiteralFallback:
+        def __getitem__(self, _item):
+            return str
+
+    Literal = _LiteralFallback()  # type: ignore[assignment,misc]
 
 logger = logging.getLogger(__name__)
 
