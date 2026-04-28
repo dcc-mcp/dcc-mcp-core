@@ -21,3 +21,13 @@ pub mod python;
 
 #[cfg(feature = "python-bindings")]
 pub use python::{json_dumps, json_loads, yaml_dumps, yaml_loads};
+
+/// Shared helpers for PyO3 wrapper boilerplate (issue #490).
+///
+/// Exposes [`python::wrapper_helpers::build_repr`] and
+/// [`python::wrapper_helpers::build_dict`] so other crates can import them as:
+/// ```rust,ignore
+/// use dcc_mcp_pybridge::python::wrapper_helpers::{build_repr, build_dict};
+/// ```
+#[cfg(feature = "python-bindings")]
+pub use python::wrapper_helpers;

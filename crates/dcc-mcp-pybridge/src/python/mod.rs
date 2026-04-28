@@ -9,6 +9,7 @@
 mod py_json;
 mod py_yaml;
 mod type_wrappers;
+pub mod wrapper_helpers;
 
 pub use py_json::{json_dumps, json_loads};
 pub use py_yaml::{yaml_dumps, yaml_loads};

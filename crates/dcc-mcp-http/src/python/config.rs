@@ -566,9 +566,102 @@ impl PyMcpHttpConfig {
     }
 
     fn __repr__(&self) -> String {
-        format!(
-            "McpHttpConfig(port={}, name={}, gateway_port={})",
-            self.inner.port, self.inner.server_name, self.inner.gateway_port
+        dcc_mcp_pybridge::repr_pairs!(
+            "McpHttpConfig",
+            [
+                ("port", self.inner.port),
+                ("name", self.inner.server_name),
+                ("gateway_port", self.inner.gateway_port),
+            ]
         )
+    }
+}
+
+// ── Drift-detection tests ─────────────────────────────────────────────────────
+//
+// Every field in `McpHttpConfig` that Python callers should be able to read
+// must have a matching `#[getter]` on `PyMcpHttpConfig`.
+//
+// When you add a new field:
+//   1. Add a `#[getter]` in the `#[pymethods]` block above.
+//   2. Add `let _ = cfg.field_name();` to the test below.
+//
+// The test fails to **compile** if a getter is removed — that is the intended
+// safety net against silent drift between the Rust config and the Python API.
+#[cfg(test)]
+mod drift_tests {
+    use super::*;
+    use crate::config::McpHttpConfig;
+
+    fn default_cfg() -> PyMcpHttpConfig {
+        PyMcpHttpConfig {
+            inner: McpHttpConfig::default(),
+        }
+    }
+
+    #[test]
+    fn all_mcp_http_config_fields_have_py_getters() {
+        let cfg = default_cfg();
+
+        // ── Core server ────────────────────────────────────────────────────
+        let _ = cfg.port();
+        let _ = cfg.host();
+        let _ = cfg.endpoint_path();
+        let _ = cfg.server_name();
+        let _ = cfg.server_version();
+        let _ = cfg.max_sessions();
+        let _ = cfg.request_timeout_ms();
+        let _ = cfg.enable_cors();
+        let _ = cfg.session_ttl_secs();
+        let _ = cfg.spawn_mode();
+        let _ = cfg.self_probe_timeout_ms();
+        let _ = cfg.backend_timeout_ms();
+        let _ = cfg.bare_tool_names();
+        let _ = cfg.declared_capabilities();
+        let _ = cfg.enable_tool_cache();
+
+        // ── Features ───────────────────────────────────────────────────────
+        let _ = cfg.lazy_actions();
+        let _ = cfg.enable_workflows();
+        let _ = cfg.enable_job_notifications();
+        let _ = cfg.job_storage_path();
+
+        // ── Prometheus ─────────────────────────────────────────────────────
+        let _ = cfg.enable_prometheus();
+        let _ = cfg.prometheus_basic_auth();
+
+        // ── Gateway ────────────────────────────────────────────────────────
+        let _ = cfg.gateway_port();
+        let _ = cfg.registry_dir();
+        let _ = cfg.stale_timeout_secs();
+        let _ = cfg.heartbeat_secs();
+        let _ = cfg.gateway_async_dispatch_timeout_ms();
+        let _ = cfg.gateway_wait_terminal_timeout_ms();
+        let _ = cfg.gateway_route_ttl_secs();
+        let _ = cfg.gateway_max_routes_per_session();
+
+        // ── Instance registration metadata ─────────────────────────────────
+        let _ = cfg.dcc_type();
+        let _ = cfg.dcc_version();
+        let _ = cfg.scene();
+
+        // ── MCP primitives ─────────────────────────────────────────────────
+        let _ = cfg.enable_resources();
+        let _ = cfg.enable_artefact_resources();
+        let _ = cfg.enable_prompts();
+    }
+
+    #[test]
+    fn repr_contains_port() {
+        let cfg = PyMcpHttpConfig {
+            inner: McpHttpConfig::new(1234),
+        };
+        assert!(cfg.__repr__().contains("1234"));
+    }
+
+    #[test]
+    fn repr_contains_class_name() {
+        let cfg = default_cfg();
+        assert!(cfg.__repr__().contains("McpHttpConfig"));
     }
 }

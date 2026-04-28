@@ -434,13 +434,15 @@ pub struct PyServiceEntry {
 #[pymethods]
 impl PyServiceEntry {
     fn __repr__(&self) -> String {
-        format!(
-            "ServiceEntry(dcc_type={:?}, host={:?}, port={}, instance_id={:?}, status={})",
-            self.dcc_type,
-            self.host,
-            self.port,
-            self.instance_id,
-            self.status.__str__()
+        dcc_mcp_pybridge::repr_pairs!(
+            "ServiceEntry",
+            [
+                ("dcc_type", self.dcc_type),
+                ("host", self.host),
+                ("port", self.port),
+                ("instance_id", self.instance_id),
+                ("status", self.status.__str__()),
+            ]
         )
     }
 

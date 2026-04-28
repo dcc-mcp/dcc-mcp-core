@@ -160,10 +160,12 @@ impl ActionResultModel {
     }
 
     fn __repr__(&self) -> String {
-        format!(
-            "ToolResult(success={}, message={:?})",
-            self.data().success,
-            self.data().message
+        dcc_mcp_pybridge::repr_pairs!(
+            "ToolResult",
+            [
+                ("success", self.data().success),
+                ("message", self.data().message),
+            ]
         )
     }
 
