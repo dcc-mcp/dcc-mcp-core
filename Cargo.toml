@@ -24,6 +24,9 @@ members = [
     "crates/dcc-mcp-workflow",
     "crates/dcc-mcp-scheduler",
     "crates/dcc-mcp-artefact",
+    "crates/dcc-mcp-tunnel-protocol",
+    "crates/dcc-mcp-tunnel-relay",
+    "crates/dcc-mcp-tunnel-agent",
     "crates/workspace-hack",
 ]
 resolver = "2"
@@ -59,6 +62,9 @@ dcc-mcp-server = { path = "crates/dcc-mcp-server" }
 dcc-mcp-workflow = { path = "crates/dcc-mcp-workflow" }
 dcc-mcp-scheduler = { path = "crates/dcc-mcp-scheduler" }
 dcc-mcp-artefact = { path = "crates/dcc-mcp-artefact" }
+dcc-mcp-tunnel-protocol = { path = "crates/dcc-mcp-tunnel-protocol" }
+dcc-mcp-tunnel-relay = { path = "crates/dcc-mcp-tunnel-relay" }
+dcc-mcp-tunnel-agent = { path = "crates/dcc-mcp-tunnel-agent" }
 
 # Shared dependencies (single version across workspace)
 pyo3 = { version = "0.28", features = ["multiple-pymethods"] }
@@ -93,6 +99,10 @@ base64 = "0.22"
 # only when the `job-persist-sqlite` feature is enabled on `dcc-mcp-http`;
 # otherwise zero SQLite code compiles into the wheel.
 rusqlite = { version = "0.39", features = ["bundled"] }
+
+# JWT bearer auth for the tunnel relay (issue #504). HS256 today; RS256/EdDSA
+# can be added in a later PR without touching the protocol crate's public API.
+jsonwebtoken = { version = "9.3", default-features = false }
 
 # Type-stub generation (opt-in via `stub-gen` feature). Used only by the
 # `stub_gen` binary target — never pulled into wheels or library consumers.

@@ -75,6 +75,7 @@
 | IPC | `IpcChannelAdapter` / `SocketServerAdapter` + `DccLinkFrame` |
 | Hand off files between tools | `FileRef` + `artefact_put_file()` / `artefact_get_bytes()` |
 | Multi-DCC gateway | `McpHttpConfig(gateway_port=9765)` |
+| Remote MCP relay (zero-config tunnel) | `dcc-mcp-tunnel-protocol` (frame codec + JWT) + `dcc-mcp-tunnel-relay` (server) + `dcc-mcp-tunnel-agent` (local sidecar) — issue #504; **skeleton only in v0.14**, control / data planes land in follow-up PRs |
 | Gateway failover | `DccGatewayElection(dcc_name, server)` — auto-promote on gateway failure |
 | Skill scoping | `SkillScope` (Repo → User → System → Admin) — Rust-only |
 | Progressive tool exposure | `SkillGroup` + `activate_tool_group()` |

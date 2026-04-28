@@ -1,0 +1,16 @@
+[package]
+name = "dcc-mcp-tunnel-agent"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Local sidecar that bridges a DCC's MCP HTTP server to a public dcc-mcp-tunnel-relay (issue #504). Maintains the WebSocket leg, handles per-session multiplexing, reconnects on transient failures."
+
+[dependencies]
+dcc-mcp-tunnel-protocol = { workspace = true }
+
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }

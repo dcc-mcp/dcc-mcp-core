@@ -1,0 +1,19 @@
+[package]
+name = "dcc-mcp-tunnel-relay"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Public-facing relay for the DCC-MCP zero-config remote access tunnel (issue #504). Accepts WebSocket registrations from local agents and forwards multiplexed MCP sessions from remote AI assistants."
+
+[dependencies]
+dcc-mcp-tunnel-protocol = { workspace = true }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+parking_lot = { workspace = true }
+dashmap = { workspace = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }

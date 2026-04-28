@@ -1065,6 +1065,43 @@ dependencies = [
 ]
 
 [[package]]
+name = "dcc-mcp-tunnel-agent"
+version = "0.14.16"
+dependencies = [
+ "dcc-mcp-tunnel-protocol",
+ "serde",
+ "thiserror 2.0.18",
+ "tracing",
+ "workspace-hack",
+]
+
+[[package]]
+name = "dcc-mcp-tunnel-protocol"
+version = "0.14.16"
+dependencies = [
+ "jsonwebtoken",
+ "rmp-serde",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "workspace-hack",
+]
+
+[[package]]
+name = "dcc-mcp-tunnel-relay"
+version = "0.14.16"
+dependencies = [
+ "dashmap",
+ "dcc-mcp-tunnel-protocol",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tracing",
+ "workspace-hack",
+]
+
+[[package]]
 name = "dcc-mcp-usd"
 version = "0.14.16"
 dependencies = [
@@ -2092,6 +2129,19 @@ dependencies = [
  "regex",
  "serde_json",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "jsonwebtoken"
+version = "9.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a87cc7a48537badeae96744432de36f4be2b4a34a05a5ef32e9dd8a1c169dde"
+dependencies = [
+ "base64",
+ "js-sys",
+ "ring",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -5352,6 +5402,7 @@ dependencies = [
  "futures-executor",
  "futures-task",
  "futures-util",
+ "getrandom 0.2.17",
  "getrandom 0.4.2",
  "hyper",
  "hyper-util",
