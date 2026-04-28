@@ -1,12 +1,18 @@
 //! PyO3 bindings for `SkillMetadata`.
+//!
+//! Trivial String / `Vec<T>` getters and setters are emitted by
+//! `#[derive(PyWrapper)]` on the struct itself
+//! (`crate::skill_metadata::SkillMetadata`); see issue #528 M3.3. This
+//! module retains only the methods that need custom logic: the `#[new]`
+//! constructor, the curated `__repr__` / `__str__` / `__eq__`, the
+//! JSON-bridging `metadata` accessor pair, the serde-round-tripping
+//! `policy` / `external_deps` accessor pairs, and every `py_*` method.
 
 use pyo3::prelude::*;
 
-use dcc_mcp_naming::{DEFAULT_DCC, DEFAULT_VERSION};
+use crate::skill_metadata::{SkillDependencies, SkillMetadata, SkillPolicy, ToolDeclaration};
 
-use crate::skill_metadata::{
-    SkillDependencies, SkillGroup, SkillMetadata, SkillPolicy, ToolDeclaration,
-};
+use dcc_mcp_naming::{DEFAULT_DCC, DEFAULT_VERSION};
 
 #[pymethods]
 impl SkillMetadata {
@@ -83,140 +89,14 @@ impl SkillMetadata {
         self == other
     }
 
-    #[getter]
-    fn name(&self) -> &str {
-        &self.name
-    }
-    #[setter]
-    fn set_name(&mut self, value: String) {
-        self.name = value;
-    }
-
-    #[getter]
-    fn description(&self) -> &str {
-        &self.description
-    }
-    #[setter]
-    fn set_description(&mut self, value: String) {
-        self.description = value;
-    }
-
-    #[getter]
-    fn dcc(&self) -> &str {
-        &self.dcc
-    }
-    #[setter]
-    fn set_dcc(&mut self, value: String) {
-        self.dcc = value;
-    }
-
-    #[getter]
-    fn version(&self) -> &str {
-        &self.version
-    }
-    #[setter]
-    fn set_version(&mut self, value: String) {
-        self.version = value;
-    }
-
-    #[getter]
-    fn license(&self) -> &str {
-        &self.license
-    }
-    #[setter]
-    fn set_license(&mut self, value: String) {
-        self.license = value;
-    }
-
-    #[getter]
-    fn compatibility(&self) -> &str {
-        &self.compatibility
-    }
-    #[setter]
-    fn set_compatibility(&mut self, value: String) {
-        self.compatibility = value;
-    }
-
-    #[getter]
-    fn skill_path(&self) -> &str {
-        &self.skill_path
-    }
-    #[setter]
-    fn set_skill_path(&mut self, value: String) {
-        self.skill_path = value;
-    }
-
-    #[getter]
-    fn tags(&self) -> Vec<String> {
-        self.tags.clone()
-    }
-    #[setter]
-    fn set_tags(&mut self, value: Vec<String>) {
-        self.tags = value;
-    }
-
-    #[getter]
-    fn search_hint(&self) -> &str {
-        &self.search_hint
-    }
-    #[setter]
-    fn set_search_hint(&mut self, value: String) {
-        self.search_hint = value;
-    }
-
-    #[getter]
-    fn scripts(&self) -> Vec<String> {
-        self.scripts.clone()
-    }
-    #[setter]
-    fn set_scripts(&mut self, value: Vec<String>) {
-        self.scripts = value;
-    }
-
-    #[getter]
-    fn depends(&self) -> Vec<String> {
-        self.depends.clone()
-    }
-    #[setter]
-    fn set_depends(&mut self, value: Vec<String>) {
-        self.depends = value;
-    }
-
-    #[getter]
-    fn metadata_files(&self) -> Vec<String> {
-        self.metadata_files.clone()
-    }
-    #[setter]
-    fn set_metadata_files(&mut self, value: Vec<String>) {
-        self.metadata_files = value;
-    }
-
-    #[getter]
-    fn allowed_tools(&self) -> Vec<String> {
-        self.allowed_tools.clone()
-    }
-    #[setter]
-    fn set_allowed_tools(&mut self, value: Vec<String>) {
-        self.allowed_tools = value;
-    }
-
-    #[getter]
-    fn tools(&self) -> Vec<ToolDeclaration> {
-        self.tools.clone()
-    }
-    #[setter]
-    fn set_tools(&mut self, value: Vec<ToolDeclaration>) {
-        self.tools = value;
-    }
-
-    #[getter]
-    fn groups(&self) -> Vec<SkillGroup> {
-        self.groups.clone()
-    }
-    #[setter]
-    fn set_groups(&mut self, value: Vec<SkillGroup>) {
-        self.groups = value;
-    }
+    // ── Trivial accessors emitted by `#[derive(PyWrapper)]` (#528 M3.3) ─
+    // `name`, `description`, `dcc`, `version`, `license`, `compatibility`,
+    // `skill_path`, `search_hint` (String → &str + setter), `tags`,
+    // `scripts`, `depends`, `metadata_files`, `allowed_tools`, `tools`,
+    // `groups`, `legacy_extension_fields`, `layer` (Vec<T> / Option<T>
+    // clone + setter, except `legacy_extension_fields` which is read-only).
+    // See `crate::skill_metadata::SkillMetadata`'s `#[py_wrapper(...)]`
+    // table for the canonical list.
 
     #[getter]
     fn metadata(&self, py: pyo3::Python<'_>) -> pyo3::PyResult<Py<PyAny>> {
@@ -317,21 +197,6 @@ impl SkillMetadata {
     #[pyo3(name = "is_spec_compliant")]
     fn py_is_spec_compliant(&self) -> bool {
         SkillMetadata::is_spec_compliant(self)
-    }
-
-    #[getter]
-    fn legacy_extension_fields(&self) -> Vec<String> {
-        self.legacy_extension_fields.clone()
-    }
-
-    #[getter]
-    fn layer(&self) -> Option<String> {
-        self.layer.clone()
-    }
-
-    #[setter]
-    fn set_layer(&mut self, value: Option<String>) {
-        self.layer = value;
     }
 
     #[pyo3(name = "required_capabilities")]

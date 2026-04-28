@@ -72,6 +72,40 @@ use serde_impl::{
     feature = "python-bindings",
     pyo3::pyclass(name = "SkillMetadata", from_py_object)
 )]
+// `#[derive(PyWrapper)]` (#528 M3.3) emits the trivial String / Vec<T>
+// getters and setters as a sibling `#[pymethods]` block. Custom logic
+// (`metadata` JSON round-trip, `policy` / `external_deps` serde, the
+// curated `__repr__`, plus every `py_*` method) stays hand-written in
+// `crate::python::skill_metadata`. The attribute is gated on
+// `python-bindings` because the macro and its `py_wrapper(...)` inert
+// attribute live in `dcc-mcp-pybridge-derive`, which is itself only
+// linked under that feature.
+#[cfg_attr(
+    feature = "python-bindings",
+    derive(dcc_mcp_pybridge::derive::PyWrapper)
+)]
+#[cfg_attr(
+    feature = "python-bindings",
+    py_wrapper(fields(
+        name: String => [get(by_str), set],
+        description: String => [get(by_str), set],
+        license: String => [get(by_str), set],
+        compatibility: String => [get(by_str), set],
+        allowed_tools: Vec<String> => [get(clone), set],
+        dcc: String => [get(by_str), set],
+        tags: Vec<String> => [get(clone), set],
+        search_hint: String => [get(by_str), set],
+        scripts: Vec<String> => [get(clone), set],
+        skill_path: String => [get(by_str), set],
+        version: String => [get(by_str), set],
+        depends: Vec<String> => [get(clone), set],
+        metadata_files: Vec<String> => [get(clone), set],
+        tools: Vec<crate::skill_metadata::ToolDeclaration> => [get(clone), set],
+        groups: Vec<crate::skill_metadata::SkillGroup> => [get(clone), set],
+        legacy_extension_fields: Vec<String> => [get(clone)],
+        layer: Option<String> => [get(clone), set],
+    ))
+)]
 pub struct SkillMetadata {
     /// Skill identifier — lowercase, hyphens only.
     /// Must match the parent directory name (agentskills.io requirement).
