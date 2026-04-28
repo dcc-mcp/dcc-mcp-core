@@ -1,5 +1,10 @@
 """E2E regression test: gateway SSE → load_skill → tools/list_changed.
 
+CI status: this file is part of the standard ``pytest tests/`` run on every
+matrix cell (ubuntu/windows/macos x py3.8-3.13) and completes in ~10 s. Do
+**not** add it to local ``--ignore`` lists in CI workflows or shared scripts;
+the e2e SSE invariant guarded here regressed once already (#303).
+
 This test replaces the coverage gap left by the removal of
 ``tests/test_e2e_gateway_skills_progressive.py`` in the
 ``fix(http,transport)!: gateway lifecycle`` commit. It does **not** re-add

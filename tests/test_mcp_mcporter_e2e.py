@@ -17,6 +17,14 @@ Requirements:
     dcc_mcp_core Python package installed (Rust wheel)
 
 The tests are skipped automatically when ``npx`` is not found.
+
+CI status: this file runs in the dedicated ``mcporter-e2e`` job
+(``.github/workflows/ci.yml``) which installs ``mcporter`` globally via
+``npm install -g mcporter`` and executes ``pytest tests/test_mcp_mcporter_e2e.py``
+against a Linux wheel built earlier in the run. It also auto-skips inside the
+standard ``pytest tests/`` matrix cells because ``npx`` is absent there. Do
+**not** add this file to local ``--ignore`` lists in CI workflows or shared
+scripts.
 """
 
 from __future__ import annotations
