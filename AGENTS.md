@@ -88,6 +88,7 @@
 | Plugin bundle | `build_plugin_manifest()` / `server.plugin_manifest()` |
 | In-process skill execution (embedded DCC) | `SkillCatalog.set_in_process_executor(callable)` |
 | In-process skill execution wired through DccServerBase | `DccServerBase.register_inprocess_executor(dispatcher=...)` (#521); pass a `BaseDccCallableDispatcher` to route onto the host UI thread |
+| Full callable-payload dispatch protocol for DCC plugins | `BaseDccCallableDispatcherFull` + `BaseDccPump` + `JobOutcome` / `PendingEnvelope` (#520); use `InProcessCallableDispatcher` as reference impl for `mayapy` / headless / pytest |
 | Skill scanning | `scan_and_load(dcc_name=...)` → always unpack `(skills, skipped)` tuple |
 | Tolerate broken SKILL.md | `scan_and_load_lenient(...)` instead of `scan_and_load` |
 | Discover team-level skills | `scan_and_load_team()` / `scan_and_load_team_lenient()` |

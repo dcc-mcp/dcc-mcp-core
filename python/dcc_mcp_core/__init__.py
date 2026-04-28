@@ -279,7 +279,14 @@ except ImportError:  # pragma: no cover — feature off
 # Adapters (pure-Python, non-DccServerBase)
 # Cooperative cancellation (pure-Python, no _core dependency)
 from dcc_mcp_core._server import BaseDccCallableDispatcher
+from dcc_mcp_core._server import BaseDccCallableDispatcherFull
+from dcc_mcp_core._server import BaseDccPump
+from dcc_mcp_core._server import InProcessCallableDispatcher
+from dcc_mcp_core._server import JobEntry
+from dcc_mcp_core._server import JobOutcome
 from dcc_mcp_core._server import MinimalModeConfig
+from dcc_mcp_core._server import PendingEnvelope
+from dcc_mcp_core._server import current_callable_job
 from dcc_mcp_core.adapters import CAPABILITY_KEYS
 from dcc_mcp_core.adapters import WEBVIEW_DEFAULT_CAPABILITIES
 from dcc_mcp_core.adapters import WebViewAdapter
@@ -447,6 +454,8 @@ __all__ = [
     "AuditMiddleware",
     "BackoffKind",
     "BaseDccCallableDispatcher",
+    "BaseDccCallableDispatcherFull",
+    "BaseDccPump",
     "BooleanWrapper",
     "BoundingBox",
     "BridgeConnectionError",
@@ -487,10 +496,13 @@ __all__ = [
     "FrameRange",
     "GracefulIpcChannelAdapter",
     "GuiExecutableHint",
+    "InProcessCallableDispatcher",
     "InputValidator",
     "IntWrapper",
     "IpcChannelAdapter",
+    "JobEntry",
     "JobHandle",
+    "JobOutcome",
     "LoggingMiddleware",
     "McpHttpConfig",
     "McpHttpServer",
@@ -499,6 +511,7 @@ __all__ = [
     "OAuthConfig",
     "ObjectTransform",
     "OutputCapture",
+    "PendingEnvelope",
     "PluginManifest",
     "PromptArgument",
     "PromptDefinition",
@@ -603,6 +616,7 @@ __all__ = [
     "correct_python_executable",
     "create_dcc_server",
     "create_skill_server",
+    "current_callable_job",
     "current_cancel_token",
     "current_job",
     "deserialize_result",
