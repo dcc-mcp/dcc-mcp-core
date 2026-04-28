@@ -1,5 +1,6 @@
 //! Error types for the dcc-mcp-process crate.
 
+use dcc_mcp_models::DccMcpError;
 use thiserror::Error;
 
 /// Errors that can occur during DCC process operations.
@@ -50,6 +51,29 @@ impl ProcessError {
     /// Convenience constructor for `Internal`.
     pub fn internal(msg: impl Into<String>) -> Self {
         Self::Internal(msg.into())
+    }
+}
+
+/// Bubble `ProcessError` into the shared `DccMcpError` taxonomy (#488).
+///
+/// Maps each fine-grained variant to the closest cross-crate kind so the
+/// gateway / MCP error-code mapping stays consistent regardless of which
+/// crate produced the error.
+impl From<ProcessError> for DccMcpError {
+    fn from(err: ProcessError) -> Self {
+        match &err {
+            ProcessError::NotFound { .. } => DccMcpError::NotFound(err.to_string()),
+            ProcessError::LaunchTimeout { timeout_ms, .. } => {
+                DccMcpError::Timeout { ms: *timeout_ms }
+            }
+            ProcessError::Io { .. } => DccMcpError::Io(err.to_string()),
+            ProcessError::SpawnFailed { .. }
+            | ProcessError::TerminateFailed { .. }
+            | ProcessError::MaxRestartsExceeded { .. } => DccMcpError::Validation(err.to_string()),
+            ProcessError::MonitorShutdown | ProcessError::Internal(_) => {
+                DccMcpError::Internal(err.to_string())
+            }
+        }
     }
 }
 
@@ -158,6 +182,43 @@ mod tests {
         fn internal_constructor() {
             let err = ProcessError::internal("bad state");
             assert!(matches!(err, ProcessError::Internal(s) if s == "bad state"));
+        }
+    }
+
+    mod test_into_dcc_mcp_error {
+        use super::*;
+
+        #[test]
+        fn not_found_maps_to_not_found() {
+            let err: DccMcpError = ProcessError::NotFound { pid: 7 }.into();
+            assert!(matches!(err, DccMcpError::NotFound(_)));
+            assert_eq!(err.code(), "not_found");
+        }
+
+        #[test]
+        fn launch_timeout_carries_timeout_ms() {
+            let err: DccMcpError = ProcessError::LaunchTimeout {
+                command: "x".into(),
+                timeout_ms: 1234,
+            }
+            .into();
+            assert!(matches!(err, DccMcpError::Timeout { ms: 1234 }));
+        }
+
+        #[test]
+        fn spawn_failed_maps_to_validation() {
+            let err: DccMcpError = ProcessError::SpawnFailed {
+                command: "x".into(),
+                reason: "y".into(),
+            }
+            .into();
+            assert!(matches!(err, DccMcpError::Validation(_)));
+        }
+
+        #[test]
+        fn monitor_shutdown_maps_to_internal() {
+            let err: DccMcpError = ProcessError::MonitorShutdown.into();
+            assert!(matches!(err, DccMcpError::Internal(_)));
         }
     }
 

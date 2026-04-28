@@ -19,6 +19,7 @@ dcc-mcp-pybridge = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 rmp-serde = { workspace = true }
+thiserror = { workspace = true }
 uuid = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 

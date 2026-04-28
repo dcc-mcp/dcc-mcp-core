@@ -811,6 +811,7 @@ dependencies = [
  "rmp-serde",
  "serde",
  "serde_json",
+ "thiserror 2.0.18",
  "uuid",
  "workspace-hack",
 ]
@@ -842,6 +843,7 @@ dependencies = [
 name = "dcc-mcp-process"
 version = "0.14.15"
 dependencies = [
+ "dcc-mcp-models",
  "ipckit",
  "parking_lot",
  "pyo3",

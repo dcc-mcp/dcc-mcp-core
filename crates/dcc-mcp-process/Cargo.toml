@@ -21,6 +21,7 @@ pyo3-stub-gen = { workspace = true, optional = true }
 pyo3-stub-gen-derive = { workspace = true, optional = true }
 
 ipckit.workspace = true
+dcc-mcp-models = { path = "../dcc-mcp-models" }
 
 # Cross-platform system/process information
 sysinfo = { workspace = true }
