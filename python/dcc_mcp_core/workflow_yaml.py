@@ -62,6 +62,10 @@ from dcc_mcp_core import json_loads
 from dcc_mcp_core import yaml_loads
 from dcc_mcp_core._tool_registration import ToolSpec
 from dcc_mcp_core._tool_registration import register_tools
+from dcc_mcp_core.constants import CATEGORY_WORKFLOWS
+from dcc_mcp_core.constants import METADATA_DCC_MCP
+from dcc_mcp_core.constants import METADATA_WORKFLOWS_KEY
+from dcc_mcp_core.result_envelope import ToolResult
 
 logger = logging.getLogger(__name__)
 
@@ -294,9 +298,9 @@ def get_workflow_path(metadata: Any, glob_match_first: bool = True) -> str | Non
     """
     meta_dict: dict[str, Any] = getattr(metadata, "metadata", {}) or {}
 
-    wf_rel = meta_dict.get("dcc-mcp.workflows")
+    wf_rel = meta_dict.get(METADATA_WORKFLOWS_KEY)
     if wf_rel is None:
-        nested = meta_dict.get("dcc-mcp")
+        nested = meta_dict.get(METADATA_DCC_MCP)
         if isinstance(nested, dict):
             wf_rel = nested.get("workflows")
 
@@ -400,11 +404,11 @@ def register_workflow_yaml_tools(
 
     def _handle_list(_params: Any) -> Any:
         summaries = [wf.to_summary_dict() for wf in workflow_map.values()]
-        return {
-            "success": True,
-            "message": f"{len(summaries)} workflow(s) available.",
-            "context": {"workflows": summaries, "count": len(summaries)},
-        }
+        return ToolResult.ok(
+            f"{len(summaries)} workflow(s) available.",
+            workflows=summaries,
+            count=len(summaries),
+        ).to_dict()
 
     def _handle_describe(params: Any) -> Any:
         args: dict[str, Any] = json_loads(params) if isinstance(params, str) else (params or {})
@@ -412,16 +416,16 @@ def register_workflow_yaml_tools(
         wf = workflow_map.get(name)
         if wf is None:
             available = list(workflow_map.keys())
-            return {
-                "success": False,
-                "message": f"Workflow '{name}' not found.",
-                "context": {"available": available},
-            }
-        return {
-            "success": True,
-            "message": f"Workflow '{name}': {wf.goal}",
-            "context": wf.to_summary_dict(),
-        }
+            return ToolResult(
+                success=False,
+                message=f"Workflow '{name}' not found.",
+                context={"available": available},
+            ).to_dict()
+        return ToolResult(
+            success=True,
+            message=f"Workflow '{name}': {wf.goal}",
+            context=wf.to_summary_dict(),
+        ).to_dict()
 
     specs = [
         ToolSpec(
@@ -429,14 +433,14 @@ def register_workflow_yaml_tools(
             description=_WORKFLOWS_LIST_DESCRIPTION,
             input_schema=_WORKFLOWS_LIST_SCHEMA,
             handler=_handle_list,
-            category="workflows",
+            category=CATEGORY_WORKFLOWS,
         ),
         ToolSpec(
             name="workflows.describe",
             description=_WORKFLOWS_DESCRIBE_DESCRIPTION,
             input_schema=_WORKFLOWS_DESCRIBE_SCHEMA,
             handler=_handle_describe,
-            category="workflows",
+            category=CATEGORY_WORKFLOWS,
         ),
     ]
     register_tools(

@@ -70,6 +70,10 @@ from typing import Any
 from dcc_mcp_core import json_loads
 from dcc_mcp_core._tool_registration import ToolSpec
 from dcc_mcp_core._tool_registration import register_tools
+from dcc_mcp_core.constants import CATEGORY_RECIPES
+from dcc_mcp_core.constants import METADATA_DCC_MCP
+from dcc_mcp_core.constants import METADATA_RECIPES_KEY
+from dcc_mcp_core.result_envelope import ToolResult
 
 logger = logging.getLogger(__name__)
 
@@ -105,11 +109,11 @@ def get_recipes_path(metadata: Any) -> str | None:
     meta_dict: dict[str, Any] = getattr(metadata, "metadata", {}) or {}
 
     # Flat form: "dcc-mcp.recipes": "path"
-    recipes_rel = meta_dict.get("dcc-mcp.recipes")
+    recipes_rel = meta_dict.get(METADATA_RECIPES_KEY)
 
     # Nested form: {"dcc-mcp": {"recipes": "path"}}
     if recipes_rel is None:
-        dcc_mcp_nested = meta_dict.get("dcc-mcp")
+        dcc_mcp_nested = meta_dict.get(METADATA_DCC_MCP)
         if isinstance(dcc_mcp_nested, dict):
             recipes_rel = dcc_mcp_nested.get("recipes")
 
@@ -288,24 +292,26 @@ def register_recipes_tools(
         skill_name = args.get("skill", "")
         skill_md = skill_map.get(skill_name)
         if skill_md is None:
-            return {
-                "success": False,
-                "message": f"Skill '{skill_name}' not found.",
-                "context": {"skill": skill_name, "anchors": []},
-            }
+            return ToolResult(
+                success=False,
+                message=f"Skill '{skill_name}' not found.",
+                context={"skill": skill_name, "anchors": []},
+            ).to_dict()
         rp = get_recipes_path(skill_md)
         if not rp:
-            return {
-                "success": True,
-                "message": f"Skill '{skill_name}' has no recipes file.",
-                "context": {"skill": skill_name, "anchors": [], "path": None},
-            }
+            return ToolResult.ok(
+                f"Skill '{skill_name}' has no recipes file.",
+                skill=skill_name,
+                anchors=[],
+                path=None,
+            ).to_dict()
         anchors = parse_recipe_anchors(rp)
-        return {
-            "success": True,
-            "message": f"Found {len(anchors)} recipes.",
-            "context": {"skill": skill_name, "anchors": anchors, "path": rp},
-        }
+        return ToolResult.ok(
+            f"Found {len(anchors)} recipes.",
+            skill=skill_name,
+            anchors=anchors,
+            path=rp,
+        ).to_dict()
 
     def _handle_get(params: Any) -> Any:
         args: dict[str, Any] = json_loads(params) if isinstance(params, str) else (params or {})
@@ -313,22 +319,23 @@ def register_recipes_tools(
         anchor = args.get("anchor", "")
         skill_md = skill_map.get(skill_name)
         if skill_md is None:
-            return {"success": False, "message": f"Skill '{skill_name}' not found."}
+            return ToolResult(success=False, message=f"Skill '{skill_name}' not found.").to_dict()
         rp = get_recipes_path(skill_md)
         if not rp:
-            return {"success": False, "message": f"Skill '{skill_name}' has no recipes file."}
+            return ToolResult(success=False, message=f"Skill '{skill_name}' has no recipes file.").to_dict()
         content = get_recipe_content(rp, anchor)
         if content is None:
-            return {
-                "success": False,
-                "message": f"Anchor '{anchor}' not found in {rp}.",
-                "context": {"available_anchors": parse_recipe_anchors(rp)},
-            }
-        return {
-            "success": True,
-            "message": f"Recipe '{anchor}'",
-            "context": {"skill": skill_name, "anchor": anchor, "content": content},
-        }
+            return ToolResult(
+                success=False,
+                message=f"Anchor '{anchor}' not found in {rp}.",
+                context={"available_anchors": parse_recipe_anchors(rp)},
+            ).to_dict()
+        return ToolResult.ok(
+            f"Recipe '{anchor}'",
+            skill=skill_name,
+            anchor=anchor,
+            content=content,
+        ).to_dict()
 
     specs = [
         ToolSpec(
@@ -336,14 +343,14 @@ def register_recipes_tools(
             description=_RECIPES_LIST_DESCRIPTION,
             input_schema=_LIST_SCHEMA,
             handler=_handle_list,
-            category="recipes",
+            category=CATEGORY_RECIPES,
         ),
         ToolSpec(
             name="recipes__get",
             description=_RECIPES_GET_DESCRIPTION,
             input_schema=_GET_SCHEMA,
             handler=_handle_get,
-            category="recipes",
+            category=CATEGORY_RECIPES,
         ),
     ]
     register_tools(

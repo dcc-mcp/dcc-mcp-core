@@ -34,6 +34,8 @@ from typing import Any
 from dcc_mcp_core import json_loads
 from dcc_mcp_core._tool_registration import ToolSpec
 from dcc_mcp_core._tool_registration import register_tools
+from dcc_mcp_core.constants import CATEGORY_INTROSPECT
+from dcc_mcp_core.result_envelope import ToolResult
 
 logger = logging.getLogger(__name__)
 
@@ -75,22 +77,19 @@ def introspect_list_module(module_name: str, *, limit: int = _MAX_NAMES) -> dict
     """
     mod, err = _import_module(module_name)
     if err:
-        return {"success": False, "message": err}
+        return ToolResult(success=False, message=err).to_dict()
 
     names = list(mod.__all__) if hasattr(mod, "__all__") else [n for n in dir(mod) if not n.startswith("_")]
 
     names.sort()
     truncated = len(names) > limit
-    return {
-        "success": True,
-        "message": f"{len(names)} names in {module_name}" + (" (truncated)" if truncated else ""),
-        "context": {
-            "module": module_name,
-            "names": names[:limit],
-            "count": len(names),
-            "truncated": truncated,
-        },
-    }
+    return ToolResult.ok(
+        f"{len(names)} names in {module_name}" + (" (truncated)" if truncated else ""),
+        module=module_name,
+        names=names[:limit],
+        count=len(names),
+        truncated=truncated,
+    ).to_dict()
 
 
 def introspect_signature(qualname: str) -> dict[str, Any]:
@@ -116,11 +115,11 @@ def introspect_signature(qualname: str) -> dict[str, Any]:
 
     mod, err = _import_module(module_name)
     if err:
-        return {"success": False, "message": err}
+        return ToolResult(success=False, message=err).to_dict()
 
     obj = getattr(mod, attr, None)
     if obj is None:
-        return {"success": False, "message": f"'{attr}' not found in '{module_name}'"}
+        return ToolResult(success=False, message=f"'{attr}' not found in '{module_name}'").to_dict()
 
     # Signature
     sig_str = ""
@@ -140,17 +139,14 @@ def introspect_signature(qualname: str) -> dict[str, Any]:
     with contextlib.suppress(TypeError, OSError):
         source_file = inspect.getfile(obj)
 
-    return {
-        "success": True,
-        "message": f"Signature for {qualname}",
-        "context": {
-            "qualname": qualname,
-            "signature": sig_str,
-            "doc": doc,
-            "source_file": source_file,
-            "kind": type(obj).__name__,
-        },
-    }
+    return ToolResult.ok(
+        f"Signature for {qualname}",
+        qualname=qualname,
+        signature=sig_str,
+        doc=doc,
+        source_file=source_file,
+        kind=type(obj).__name__,
+    ).to_dict()
 
 
 def introspect_search(
@@ -179,11 +175,11 @@ def introspect_search(
     try:
         regex = re.compile(pattern, re.IGNORECASE)
     except re.error as exc:
-        return {"success": False, "message": f"Invalid regex '{pattern}': {exc}"}
+        return ToolResult(success=False, message=f"Invalid regex '{pattern}': {exc}").to_dict()
 
     mod, err = _import_module(module_name)
     if err:
-        return {"success": False, "message": err}
+        return ToolResult(success=False, message=err).to_dict()
 
     all_names: list[str] = list(getattr(mod, "__all__", None) or [n for n in dir(mod) if not n.startswith("_")])
     hits: list[dict[str, str]] = []
@@ -201,17 +197,14 @@ def introspect_search(
         if len(hits) >= limit:
             break
 
-    return {
-        "success": True,
-        "message": f"{len(hits)} matches for '{pattern}' in '{module_name}'",
-        "context": {
-            "pattern": pattern,
-            "module": module_name,
-            "hits": hits,
-            "count": len(hits),
-            "truncated": len(hits) >= limit,
-        },
-    }
+    return ToolResult.ok(
+        f"{len(hits)} matches for '{pattern}' in '{module_name}'",
+        pattern=pattern,
+        module=module_name,
+        hits=hits,
+        count=len(hits),
+        truncated=len(hits) >= limit,
+    ).to_dict()
 
 
 def introspect_eval(expression: str) -> dict[str, Any]:
@@ -239,10 +232,10 @@ def introspect_eval(expression: str) -> dict[str, Any]:
     _BANNED = ("import ", "=", "def ", "class ", "for ", "while ", "exec(", "eval(", "__import__")
     for banned in _BANNED:
         if banned in stripped:
-            return {
-                "success": False,
-                "message": f"Expression contains disallowed construct: '{banned}'",
-            }
+            return ToolResult(
+                success=False,
+                message=f"Expression contains disallowed construct: '{banned}'",
+            ).to_dict()
 
     try:
         result = eval(stripped, {"__builtins__": __builtins__})  # intentional: sandboxed read-only eval
@@ -251,17 +244,13 @@ def introspect_eval(expression: str) -> dict[str, Any]:
             repr_str = repr_str[:_REPR_MAX_CHARS] + "...(truncated)"
     except Exception:
         tb = traceback.format_exc()
-        return {
-            "success": False,
-            "message": f"Evaluation failed: {tb.splitlines()[-1]}",
-            "context": {"traceback": tb},
-        }
+        return ToolResult(
+            success=False,
+            message=f"Evaluation failed: {tb.splitlines()[-1]}",
+            context={"traceback": tb},
+        ).to_dict()
 
-    return {
-        "success": True,
-        "message": "Expression evaluated.",
-        "context": {"expression": expression, "repr": repr_str},
-    }
+    return ToolResult.ok("Expression evaluated.", expression=expression, repr=repr_str).to_dict()
 
 
 # ── JSON schemas for MCP tools ─────────────────────────────────────────────
@@ -404,28 +393,28 @@ def register_introspect_tools(
             description=_LIST_MODULE_DESCRIPTION,
             input_schema=_LIST_MODULE_SCHEMA,
             handler=_handler(lambda module, limit=_MAX_NAMES: introspect_list_module(module, limit=limit)),
-            category="introspect",
+            category=CATEGORY_INTROSPECT,
         ),
         ToolSpec(
             name="dcc_introspect__signature",
             description=_SIGNATURE_DESCRIPTION,
             input_schema=_SIGNATURE_SCHEMA,
             handler=_handler(lambda qualname: introspect_signature(qualname)),
-            category="introspect",
+            category=CATEGORY_INTROSPECT,
         ),
         ToolSpec(
             name="dcc_introspect__search",
             description=_SEARCH_DESCRIPTION,
             input_schema=_SEARCH_SCHEMA,
             handler=_handler(lambda pattern, module, limit=_MAX_HITS: introspect_search(pattern, module, limit=limit)),
-            category="introspect",
+            category=CATEGORY_INTROSPECT,
         ),
         ToolSpec(
             name="dcc_introspect__eval",
             description=_EVAL_DESCRIPTION,
             input_schema=_EVAL_SCHEMA,
             handler=_handler(lambda expression: introspect_eval(expression)),
-            category="introspect",
+            category=CATEGORY_INTROSPECT,
         ),
     ]
 
