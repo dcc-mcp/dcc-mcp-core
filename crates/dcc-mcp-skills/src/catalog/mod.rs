@@ -50,7 +50,8 @@ use dcc_mcp_actions::{
     ActionDispatcher,
     registry::{ActionMeta, ActionRegistry},
 };
-use dcc_mcp_models::{SkillGroup, SkillMetadata, SkillScope};
+use dcc_mcp_models::registry::{Registry, SearchQuery};
+use dcc_mcp_models::{RegistryEntry as _, SkillGroup, SkillMetadata, SkillScope};
 use parking_lot::RwLock;
 use std::sync::Arc;
 
@@ -137,6 +138,55 @@ pub(crate) fn group_default_active(groups: &[SkillGroup], group_name: &str) -> b
         .find(|g| g.name == group_name)
         .map(|g| g.default_active)
         .unwrap_or(false)
+}
+
+// ── impl Registry<SkillEntry> ────────────────────────────────────────────────
+
+/// Satisfy the shared [`Registry<SkillEntry>`] contract.
+///
+/// Delegates to the internal `DashMap<String, SkillEntry>` directly so that
+/// file-hash tracking, `loaded` bookkeeping, and per-DCC indexing are
+/// unaffected.  Callers that need those richer features should use the
+/// dedicated methods (`add_skill`, `load_skill`, `remove_skill`, …) instead.
+impl Registry<SkillEntry> for SkillCatalog {
+    fn register(&self, entry: SkillEntry) {
+        self.entries.insert(entry.key(), entry);
+    }
+
+    fn get(&self, key: &str) -> Option<SkillEntry> {
+        self.entries.get(key).map(|e| e.value().clone())
+    }
+
+    fn list(&self) -> Vec<SkillEntry> {
+        self.entries.iter().map(|e| e.value().clone()).collect()
+    }
+
+    fn remove(&self, key: &str) -> bool {
+        self.entries.remove(key).is_some()
+    }
+
+    fn count(&self) -> usize {
+        self.entries.len()
+    }
+
+    fn search(&self, query: &SearchQuery) -> Vec<SkillEntry> {
+        let q = query.query.to_ascii_lowercase();
+        let mut results: Vec<SkillEntry> = self
+            .entries
+            .iter()
+            .filter(|e| {
+                e.value()
+                    .search_tags()
+                    .iter()
+                    .any(|tag| tag.to_ascii_lowercase().contains(&q))
+            })
+            .map(|e| e.value().clone())
+            .collect();
+        if let Some(limit) = query.limit {
+            results.truncate(limit);
+        }
+        results
+    }
 }
 
 #[cfg(test)]

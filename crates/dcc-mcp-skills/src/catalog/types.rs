@@ -1,6 +1,6 @@
 //! Data types for the skill catalog: state, entries, summary, and detail.
 
-use dcc_mcp_models::{SkillMetadata, SkillScope, ToolDeclaration};
+use dcc_mcp_models::{RegistryEntry, SkillMetadata, SkillScope, ToolDeclaration};
 #[cfg(feature = "stub-gen")]
 use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pymethods};
 use serde::Serializer;
@@ -41,7 +41,7 @@ impl std::fmt::Display for SkillState {
 // ── Skill entry ──
 
 /// A skill entry in the catalog, tracking its metadata and load state.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SkillEntry {
     /// Parsed skill metadata from SKILL.md.
     pub metadata: SkillMetadata,
@@ -105,6 +105,28 @@ pub struct SkillDetail {
     pub implicit_invocation: bool,
     /// Number of declared external dependencies (MCP servers, env vars, binaries).
     pub dependency_count: usize,
+}
+
+// ── RegistryEntry impl ───────────────────────────────────────────────────────
+
+impl RegistryEntry for SkillEntry {
+    /// The stable lookup key is the skill's unique name.
+    fn key(&self) -> String {
+        self.metadata.name.clone()
+    }
+
+    /// Search tokens: name, description, DCC name, and declared tags.
+    fn search_tags(&self) -> Vec<String> {
+        let mut tags = vec![
+            self.metadata.name.clone(),
+            self.metadata.description.clone(),
+            self.metadata.dcc.clone(),
+            self.metadata.search_hint.clone(),
+        ];
+        tags.extend(self.metadata.tags.iter().cloned());
+        tags.retain(|t| !t.is_empty());
+        tags
+    }
 }
 
 // ── Python bindings for summary ──

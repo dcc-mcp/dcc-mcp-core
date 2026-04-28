@@ -222,6 +222,25 @@ async fn register_workflow_handlers_wires_run_and_cancel() {
     assert_eq!(cancelled["cancelled"], true);
 }
 
+// ── Registry<WorkflowSummary> contract test ─────────────────────────────
+
+#[test]
+fn workflow_catalog_satisfies_registry_contract() {
+    use dcc_mcp_models::registry::testing::assert_registry_contract;
+
+    use crate::WorkflowCatalog;
+    use crate::catalog::WorkflowSummary;
+
+    let sample = WorkflowSummary {
+        name: "vendor_intake".to_string(),
+        skill: "vendor-skill".to_string(),
+        description: "Import vendor files".to_string(),
+        inputs: serde_json::Value::Null,
+        path: "/tmp/vendor_intake.workflow.yaml".to_string(),
+    };
+    assert_registry_contract(WorkflowCatalog::new, sample);
+}
+
 // ── catalog glob reader ─────────────────────────────────────────────────
 
 #[test]
@@ -254,7 +273,9 @@ fn catalog_reads_glob_from_skill_metadata() {
     });
 
     let cat = WorkflowCatalog::from_skill(&meta, skill_root).unwrap();
-    let names: Vec<&str> = cat.entries().iter().map(|e| e.name.as_str()).collect();
+    // entries() now returns Vec<WorkflowSummary> (interior mutability via RwLock)
+    let all_entries = cat.entries();
+    let names: Vec<&str> = all_entries.iter().map(|e| e.name.as_str()).collect();
     assert!(names.contains(&"vendor_intake"), "got: {names:?}");
     assert!(names.contains(&"nightly_cleanup"), "got: {names:?}");
 

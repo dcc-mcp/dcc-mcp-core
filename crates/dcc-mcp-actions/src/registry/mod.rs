@@ -9,6 +9,7 @@ use pyo3_stub_gen_derive::gen_stub_pyclass;
 use dcc_mcp_pybridge::py_json::json_value_to_pyobject;
 
 use dashmap::DashMap;
+use dcc_mcp_models::registry::{Registry, SearchQuery};
 use std::sync::Arc;
 
 #[cfg(feature = "python-bindings")]
@@ -388,6 +389,54 @@ impl ActionRegistry {
             }
         }
         seen
+    }
+}
+
+// ── impl Registry<ActionMeta> ────────────────────────────────────────────────
+
+/// Satisfy the shared [`Registry<ActionMeta>`] contract.
+///
+/// Delegates to the existing `register_action` / `get_action` / `list_actions`
+/// / `unregister` methods so all per-DCC indexing is preserved byte-for-byte.
+impl Registry<ActionMeta> for ActionRegistry {
+    fn register(&self, entry: ActionMeta) {
+        self.register_action(entry);
+    }
+
+    fn get(&self, key: &str) -> Option<ActionMeta> {
+        self.get_action(key, None)
+    }
+
+    fn list(&self) -> Vec<ActionMeta> {
+        self.list_actions(None)
+    }
+
+    fn remove(&self, key: &str) -> bool {
+        self.unregister(key, None)
+    }
+
+    fn count(&self) -> usize {
+        self.len()
+    }
+
+    fn search(&self, query: &SearchQuery) -> Vec<ActionMeta> {
+        use dcc_mcp_models::RegistryEntry as _;
+        let q = query.query.to_ascii_lowercase();
+        let mut results: Vec<ActionMeta> = self
+            .actions
+            .iter()
+            .filter(|e| {
+                e.value()
+                    .search_tags()
+                    .iter()
+                    .any(|tag| tag.to_ascii_lowercase().contains(&q))
+            })
+            .map(|e| e.value().clone())
+            .collect();
+        if let Some(limit) = query.limit {
+            results.truncate(limit);
+        }
+        results
     }
 }
 

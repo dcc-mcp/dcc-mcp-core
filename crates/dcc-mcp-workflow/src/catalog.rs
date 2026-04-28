@@ -10,7 +10,9 @@
 
 use std::path::{Path, PathBuf};
 
-use dcc_mcp_models::SkillMetadata;
+use dcc_mcp_models::registry::{Registry, SearchQuery};
+use dcc_mcp_models::{RegistryEntry, SkillMetadata};
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 
 use crate::error::WorkflowError;
@@ -46,9 +48,21 @@ pub struct WorkflowSummary {
 ///
 /// Populated by [`Self::from_skill`] per skill; callers may merge multiple
 /// skills into one catalog with [`Self::extend_from_skill`].
-#[derive(Debug, Default, Clone)]
+///
+/// Interior mutability via `parking_lot::RwLock` allows the catalog to
+/// implement [`Registry<WorkflowSummary>`] (which requires `&self`) while
+/// still supporting mutation through `extend_from_skill`.
+#[derive(Debug, Default)]
 pub struct WorkflowCatalog {
-    entries: Vec<WorkflowSummary>,
+    entries: RwLock<Vec<WorkflowSummary>>,
+}
+
+impl Clone for WorkflowCatalog {
+    fn clone(&self) -> Self {
+        Self {
+            entries: RwLock::new(self.entries.read().clone()),
+        }
+    }
 }
 
 impl WorkflowCatalog {
@@ -68,24 +82,27 @@ impl WorkflowCatalog {
     /// YAML parse failures are logged and skipped — a malformed workflow
     /// must not kill the catalog for the rest of the skill.
     pub fn from_skill(meta: &SkillMetadata, skill_root: &Path) -> Result<Self, WorkflowError> {
-        let mut cat = Self::new();
+        let cat = Self::new();
         cat.extend_from_skill(meta, skill_root)?;
         Ok(cat)
     }
 
     /// Merge workflow summaries from another skill into this catalog.
     ///
+    /// Takes `&self` (interior mutability via `RwLock`) so the catalog can
+    /// implement [`Registry<WorkflowSummary>`] which requires `&self`.
+    ///
     /// # Errors
     ///
     /// Returns [`WorkflowError::Io`] on glob-pattern failure.
     pub fn extend_from_skill(
-        &mut self,
+        &self,
         meta: &SkillMetadata,
         skill_root: &Path,
     ) -> Result<(), WorkflowError> {
         for path in resolve_workflow_paths(meta, skill_root)? {
             match read_summary(&path, &meta.name) {
-                Ok(summary) => self.entries.push(summary),
+                Ok(summary) => self.entries.write().push(summary),
                 Err(e) => {
                     tracing::warn!(
                         "workflow catalog: failed to summarise {}: {e}",
@@ -97,32 +114,115 @@ impl WorkflowCatalog {
         Ok(())
     }
 
-    /// All recorded summaries.
+    /// All recorded summaries (cloned — interior mutability prevents returning
+    /// a reference into the locked `Vec`).
     #[must_use]
-    pub fn entries(&self) -> &[WorkflowSummary] {
-        &self.entries
+    pub fn entries(&self) -> Vec<WorkflowSummary> {
+        self.entries.read().clone()
     }
 
     /// Look up a single summary by `(skill, name)`.
     #[must_use]
-    pub fn get(&self, skill: &str, name: &str) -> Option<&WorkflowSummary> {
+    pub fn get(&self, skill: &str, name: &str) -> Option<WorkflowSummary> {
         self.entries
+            .read()
             .iter()
             .find(|s| s.skill == skill && s.name == name)
+            .cloned()
     }
 
     /// Search summaries by a free-text query (substring match, case-insensitive)
     /// against `name` + `description`. Used by `workflows.lookup`.
     #[must_use]
-    pub fn search(&self, query: &str) -> Vec<&WorkflowSummary> {
+    pub fn search(&self, query: &str) -> Vec<WorkflowSummary> {
         let q = query.to_ascii_lowercase();
         self.entries
+            .read()
             .iter()
             .filter(|s| {
                 s.name.to_ascii_lowercase().contains(&q)
                     || s.description.to_ascii_lowercase().contains(&q)
             })
+            .cloned()
             .collect()
+    }
+}
+
+// ── RegistryEntry impl ────────────────────────────────────────────────────────
+
+impl RegistryEntry for WorkflowSummary {
+    /// Composite key: `"<skill>::<name>"` to avoid name collisions across
+    /// skills that may declare workflows with the same local name.
+    fn key(&self) -> String {
+        format!("{}::{}", self.skill, self.name)
+    }
+
+    /// Search tokens: name, skill, and description.
+    fn search_tags(&self) -> Vec<String> {
+        [
+            self.name.clone(),
+            self.skill.clone(),
+            self.description.clone(),
+        ]
+        .into_iter()
+        .filter(|s| !s.is_empty())
+        .collect()
+    }
+}
+
+// ── impl Registry<WorkflowSummary> ───────────────────────────────────────────
+
+/// Satisfy the shared [`Registry<WorkflowSummary>`] contract.
+///
+/// Preserves insertion order (unlike `HashMap`-based `DefaultRegistry`) by
+/// using the `Vec` as the backing store. Upserts overwrite in place to keep
+/// ordering stable for existing entries.
+impl Registry<WorkflowSummary> for WorkflowCatalog {
+    fn register(&self, entry: WorkflowSummary) {
+        let mut guard = self.entries.write();
+        let key = entry.key();
+        match guard.iter().position(|e| e.key() == key) {
+            Some(pos) => guard[pos] = entry,
+            None => guard.push(entry),
+        }
+    }
+
+    fn get(&self, key: &str) -> Option<WorkflowSummary> {
+        self.entries.read().iter().find(|e| e.key() == key).cloned()
+    }
+
+    fn list(&self) -> Vec<WorkflowSummary> {
+        self.entries.read().clone()
+    }
+
+    fn remove(&self, key: &str) -> bool {
+        let mut guard = self.entries.write();
+        let before = guard.len();
+        guard.retain(|e| e.key() != key);
+        guard.len() < before
+    }
+
+    fn count(&self) -> usize {
+        self.entries.read().len()
+    }
+
+    fn search(&self, query: &SearchQuery) -> Vec<WorkflowSummary> {
+        let q = query.query.to_ascii_lowercase();
+        let mut results: Vec<WorkflowSummary> = self
+            .entries
+            .read()
+            .iter()
+            .filter(|v| {
+                v.search_tags()
+                    .iter()
+                    .any(|tag| tag.to_ascii_lowercase().contains(&q))
+            })
+            .cloned()
+            .collect();
+        if let Some(limit) = query.limit {
+            results.truncate(limit);
+        }
+        results
     }
 }
 

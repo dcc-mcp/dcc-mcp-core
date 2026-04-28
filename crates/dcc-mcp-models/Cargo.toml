@@ -28,3 +28,6 @@ default = []
 python-bindings = ["pyo3", "dcc-mcp-naming/python-bindings", "dep:dcc-mcp-pybridge", "dcc-mcp-pybridge/python-bindings"]
 # Enable `pyo3-stub-gen` annotations on this crate's PyO3 types.
 stub-gen = ["python-bindings", "dep:pyo3-stub-gen", "dep:pyo3-stub-gen-derive"]
+# Expose the shared `registry::testing` harness so downstream crates can call
+# `dcc_mcp_models::registry::testing::assert_registry_contract` in their tests.
+testing = []

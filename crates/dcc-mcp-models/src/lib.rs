@@ -3,6 +3,7 @@
 mod action_result;
 mod dcc_name;
 mod error;
+pub mod registry;
 mod skill_metadata;
 pub mod skill_scope;
 
@@ -13,6 +14,7 @@ pub use action_result::ActionResultModel as ToolResult;
 pub use action_result::{ActionResultModel, ActionResultModelData, SerializeFormat};
 pub use dcc_name::DccName;
 pub use error::DccMcpError;
+pub use registry::{DefaultRegistry, Registry, RegistryEntry, SearchQuery};
 pub use skill_metadata::{
     ExecutionMode, NextTools, SkillDependencies, SkillDependency, SkillDependencyType, SkillGroup,
     SkillMetadata, SkillPolicy, ThreadAffinity, ToolAnnotations, ToolDeclaration,

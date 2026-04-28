@@ -24,6 +24,9 @@ tracing = { workspace = true }
 parking_lot = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
+[dev-dependencies]
+dcc-mcp-models = { workspace = true, features = ["testing"] }
+
 [features]
 default = []
 python-bindings = ["pyo3", "dcc-mcp-naming/python-bindings", "dcc-mcp-models/python-bindings", "dep:dcc-mcp-pybridge", "dcc-mcp-pybridge/python-bindings"]

@@ -1,4 +1,4 @@
-use dcc_mcp_models::{ExecutionMode, NextTools, ThreadAffinity, ToolAnnotations};
+use dcc_mcp_models::{ExecutionMode, NextTools, RegistryEntry, ThreadAffinity, ToolAnnotations};
 use serde::{Deserialize, Serialize};
 
 /// Metadata about a registered Action (stored in Rust).
@@ -127,5 +127,27 @@ impl Default for ActionMeta {
             annotations: ToolAnnotations::default(),
             next_tools: NextTools::default(),
         }
+    }
+}
+
+// ── RegistryEntry impl ───────────────────────────────────────────────────────
+
+impl RegistryEntry for ActionMeta {
+    /// The stable lookup key is the action's unique name.
+    fn key(&self) -> String {
+        self.name.clone()
+    }
+
+    /// Search tokens: name, category, DCC name, and all declared tags.
+    fn search_tags(&self) -> Vec<String> {
+        let mut tags = vec![
+            self.name.clone(),
+            self.category.clone(),
+            self.dcc.clone(),
+            self.description.clone(),
+        ];
+        tags.extend(self.tags.iter().cloned());
+        tags.retain(|t| !t.is_empty());
+        tags
     }
 }
