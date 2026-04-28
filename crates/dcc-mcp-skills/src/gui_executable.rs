@@ -149,7 +149,43 @@ fn locate_sibling(gui_path: &Path, stems: &[&str]) -> Option<PathBuf> {
             candidate.set_extension(extension);
         }
         if candidate.exists() {
-            return Some(candidate);
+            // Strict-case hit. On case-insensitive filesystems (macOS APFS,
+            // Windows NTFS) the underlying file may carry mixed casing;
+            // recover the real casing so callers comparing against
+            // `Path::canonicalize` stay sound.
+            return Some(real_case(parent, &candidate).unwrap_or(candidate));
+        }
+        // Strict-case miss. On case-sensitive filesystems (Linux ext4) the
+        // vendor-shipped binary may use mixed casing (e.g.
+        // `UnrealEditor-Cmd.exe`) which `Path::exists` will not match against
+        // our lowercase candidate. Fall back to a case-insensitive scan of
+        // the parent directory.
+        if let Some(found) = real_case(parent, &candidate) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+/// Recover the on-disk casing for `candidate`'s file name by scanning
+/// `parent`. Used in two ways:
+///
+/// 1. After a strict-case `exists()` hit, to upgrade the lookup-table's
+///    lowercase stem to the real on-disk casing (case-insensitive FS).
+/// 2. As a fallback when the strict-case path does not exist, so that a
+///    vendor-shipped mixed-case binary on a case-sensitive FS (Linux ext4)
+///    is still discovered.
+///
+/// Returns `None` when the directory cannot be read or no matching entry
+/// exists.
+fn real_case(parent: &Path, candidate: &Path) -> Option<PathBuf> {
+    let target = candidate.file_name()?.to_str()?.to_ascii_lowercase();
+    for entry in std::fs::read_dir(parent).ok()?.flatten() {
+        let name = entry.file_name();
+        if let Some(s) = name.to_str() {
+            if s.to_ascii_lowercase() == target {
+                return Some(parent.join(s));
+            }
         }
     }
     None
@@ -221,6 +257,30 @@ mod tests {
 
         let hint = is_gui_executable(&maya).unwrap();
         assert_eq!(hint.recommended_replacement, Some(mayapy));
+    }
+
+    /// Regression: on case-insensitive filesystems (macOS APFS, Windows NTFS)
+    /// the candidate path is built from the lookup table's lowercase stem,
+    /// but the on-disk file may carry mixed casing (e.g. `UnrealEditor-Cmd.exe`).
+    /// Callers that compare against `Path::canonicalize` would otherwise see
+    /// a false mismatch — exercise the recovery path explicitly so the bug
+    /// can't silently come back.
+    #[test]
+    fn preserves_disk_casing_for_unreal_cmd_sibling() {
+        let dir = tempdir().unwrap();
+        let gui = dir.path().join("UnrealEditor.exe");
+        let cmd = dir.path().join("UnrealEditor-Cmd.exe");
+        fs::write(&gui, b"").unwrap();
+        fs::write(&cmd, b"").unwrap();
+
+        let hint = is_gui_executable(&gui).expect("UnrealEditor.exe must be detected");
+        let suggested = hint
+            .recommended_replacement
+            .expect("sibling must be located");
+        // The returned path must match the on-disk casing so that a caller's
+        // `Path::canonicalize`/`resolve()` comparison stays sound on every
+        // platform.
+        assert_eq!(suggested.file_name(), cmd.file_name());
     }
 
     #[test]
