@@ -1068,9 +1068,11 @@ dependencies = [
 name = "dcc-mcp-tunnel-agent"
 version = "0.14.16"
 dependencies = [
+ "dashmap",
  "dcc-mcp-tunnel-protocol",
  "serde",
  "thiserror 2.0.18",
+ "tokio",
  "tracing",
  "workspace-hack",
 ]
@@ -1092,12 +1094,15 @@ name = "dcc-mcp-tunnel-relay"
 version = "0.14.16"
 dependencies = [
  "dashmap",
+ "dcc-mcp-tunnel-agent",
  "dcc-mcp-tunnel-protocol",
  "parking_lot",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
+ "tokio",
  "tracing",
+ "uuid",
  "workspace-hack",
 ]
 

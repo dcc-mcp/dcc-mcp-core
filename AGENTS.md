@@ -75,7 +75,9 @@
 | IPC | `IpcChannelAdapter` / `SocketServerAdapter` + `DccLinkFrame` |
 | Hand off files between tools | `FileRef` + `artefact_put_file()` / `artefact_get_bytes()` |
 | Multi-DCC gateway | `McpHttpConfig(gateway_port=9765)` |
-| Remote MCP relay (zero-config tunnel) | `dcc-mcp-tunnel-protocol` (frame codec + JWT) + `dcc-mcp-tunnel-relay` (server) + `dcc-mcp-tunnel-agent` (local sidecar) — issue #504; **skeleton only in v0.14**, control / data planes land in follow-up PRs |
+| Remote MCP relay (zero-config tunnel) | `RelayServer::start(RelayConfig, agent_bind, frontend_bind).await` — accepts agent registrations on `agent_bind`, multiplexes remote-client TCP from `frontend_bind` to the agent's local MCP server (issue #504) |
+| Spawn the local tunnel agent | `dcc_mcp_tunnel_agent::run_once(AgentConfig::new(relay_url, jwt, dcc, local_target)).await` — registers, holds the connection open, bridges per-session bytes to the local DCC HTTP server |
+| Mint a tunnel JWT | `dcc_mcp_tunnel_protocol::auth::issue(&TunnelClaims { sub, iat, exp, iss, allowed_dcc }, secret)` — relay uses `auth::validate` to enforce DCC scope on every registration |
 | Gateway failover | `DccGatewayElection(dcc_name, server)` — auto-promote on gateway failure |
 | Skill scoping | `SkillScope` (Repo → User → System → Admin) — Rust-only |
 | Progressive tool exposure | `SkillGroup` + `activate_tool_group()` |

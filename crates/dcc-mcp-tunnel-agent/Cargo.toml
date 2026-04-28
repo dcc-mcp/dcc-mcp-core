@@ -13,4 +13,6 @@ dcc-mcp-tunnel-protocol = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
+tokio = { workspace = true }
+dashmap = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }

@@ -5,12 +5,15 @@
 //! lock-free at the per-tunnel level (via `dashmap`) so a remote-client
 //! lookup never blocks behind an unrelated heartbeat.
 
+use std::sync::Arc;
 use std::time::Instant;
 
 use dashmap::DashMap;
 use parking_lot::RwLock;
 
 use dcc_mcp_tunnel_protocol::{TunnelId, frame::PROTOCOL_VERSION};
+
+use crate::handle::TunnelHandle;
 
 /// One row of the tunnel registry. Mutable fields are wrapped in an
 /// `RwLock` so heartbeat updates don't conflict with `/tunnels` reads.
@@ -36,6 +39,13 @@ pub struct TunnelEntry {
     /// Last heartbeat received. Updated under [`Self::touch`] without
     /// taking a write-lock on the whole registry.
     pub last_heartbeat: RwLock<Instant>,
+
+    /// Frame router for this tunnel. The frontend listener clones this to
+    /// send `OpenSession` / `Data` / `CloseSession` toward the agent and to
+    /// register per-session inbound channels. `Arc`'d so the control-plane
+    /// reader, the data-plane writer, and the eviction sweeper can all hold
+    /// references without locking the registry.
+    pub handle: Arc<TunnelHandle>,
 }
 
 impl TunnelEntry {
@@ -125,6 +135,7 @@ mod tests {
     use super::*;
 
     fn entry(id: &str, dcc: &str) -> TunnelEntry {
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
         TunnelEntry {
             tunnel_id: id.into(),
             dcc: dcc.into(),
@@ -132,6 +143,7 @@ mod tests {
             agent_version: "test/0.0".into(),
             registered_at: Instant::now(),
             last_heartbeat: RwLock::new(Instant::now()),
+            handle: Arc::new(TunnelHandle::new(tx)),
         }
     }
 

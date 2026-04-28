@@ -1,10 +1,17 @@
 //! Public-facing relay for the DCC-MCP zero-config remote-access tunnel.
 //!
-//! Issue #504 ships in five PRs; this crate is the **server** half. The
-//! current PR (#1 of 5) only lands configuration types and the in-memory
-//! tunnel registry — no network listeners yet. Subsequent PRs add the
-//! control-plane WebSocket handler, the data-plane multiplexer, and the
-//! frontend transports (WSS / TCP / HTTP-SSE).
+//! Issue #504. The MVP deliverables wired up here:
+//!
+//! - **Control plane** ([`control`]) — TCP agent listener, JWT validation,
+//!   registration, heartbeat tracking, per-tunnel writer task.
+//! - **Data plane** ([`data`]) — TCP frontend listener, `select_tunnel`
+//!   preamble, per-session multiplexing, full-duplex byte forwarding.
+//! - **Routing surface** ([`handle::TunnelHandle`]) — per-tunnel session
+//!   allocator + bounded outbound frame queue.
+//! - **Eviction** ([`eviction`]) — periodic sweeper that drops tunnels
+//!   silent past `RelayConfig::stale_timeout`.
+//! - **Server entry** ([`server::RelayServer`]) — binds both listeners,
+//!   spawns the sweeper, exposes the resolved addresses.
 //!
 //! See `dcc-mcp-tunnel-protocol` for the on-the-wire frame format and
 //! `dcc-mcp-tunnel-agent` for the local sidecar that registers here.
@@ -13,7 +20,15 @@
 #![warn(missing_docs, rust_2018_idioms)]
 
 pub mod config;
+pub mod control;
+pub mod data;
+pub mod eviction;
+pub mod handle;
 pub mod registry;
+pub mod server;
+pub mod transport;
 
 pub use config::RelayConfig;
+pub use handle::TunnelHandle;
 pub use registry::{TunnelEntry, TunnelRegistry};
+pub use server::RelayServer;

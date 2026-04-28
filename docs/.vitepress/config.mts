@@ -46,6 +46,7 @@ export default defineConfig({
                 { text: 'Thin Harness', link: '/guide/thin-harness' },
                 { text: 'Gateway Election', link: '/guide/gateway-election' },
                 { text: 'Gateway', link: '/guide/gateway' },
+                { text: 'Tunnel Relay', link: '/guide/tunnel-relay' },
                 { text: 'Remote Server', link: '/guide/remote-server' },
                 { text: 'Production Deployment', link: '/guide/production-deployment' },
               ]
@@ -177,6 +178,7 @@ export default defineConfig({
                 { text: 'Thin Harness', link: '/zh/guide/thin-harness' },
                 { text: '网关选举机制', link: '/zh/guide/gateway-election' },
                 { text: 'Gateway', link: '/zh/guide/gateway' },
+                { text: '隧道中继', link: '/zh/guide/tunnel-relay' },
                 { text: '远程服务器', link: '/zh/guide/remote-server' },
                 { text: '生产环境部署', link: '/zh/guide/production-deployment' },
               ]

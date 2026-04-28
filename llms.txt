@@ -44,6 +44,8 @@
 | YAML declarative workflows (issue #439) | `WorkflowYaml` + `load_workflow_yaml(path)` + `register_workflow_yaml_tools(server)` — task vs step semantics for multi-step DCC workflows |
 | WebSocket bridge for non-Python DCCs | `DccBridge(host, port)` — WebSocket JSON-RPC 2.0 bridge; `.call(method, **params)` for synchronous RPC to DCC plugin |
 | Gateway failover election | `DccGatewayElection(dcc_name, server)` — automatic gateway failover via first-wins socket election |
+| Zero-config remote MCP relay (issue #504) | `RelayServer::start(RelayConfig, agent_bind, frontend_bind).await` (server) + `dcc_mcp_tunnel_agent::run_once(AgentConfig::new(relay_url, jwt, dcc, local_target)).await` (sidecar) — agent registers, frontend TCP clients select the tunnel via 2-byte length-prefixed id and full-duplex byte-stream over multiplexed sessions |
+| Mint a tunnel JWT | `dcc_mcp_tunnel_protocol::auth::issue(&TunnelClaims { sub, iat, exp, iss, allowed_dcc }, secret)` — relay validates `allowed_dcc` scope on every registration |
 | Skill hot-reload without server restart | `DccSkillHotReloader(dcc_name, server)` — monitors skill directories and auto-reloads on change |
 | Singleton DCC server factory | `create_dcc_server(instance_holder, lock, server_class, ...)` / `make_start_stop(ServerClass)` — zero-boilerplate singleton server pattern |
 | Skill validation | `validate_skill(skill_dir)` → `SkillValidationReport` with `SkillValidationIssue` list |
