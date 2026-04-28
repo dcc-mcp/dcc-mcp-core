@@ -51,7 +51,7 @@ use parking_lot::Mutex;
 use serde_json::Value;
 
 use crate::registry::{ActionMeta, ActionRegistry};
-use crate::validator::ActionValidator;
+use crate::validation_strategy::select_strategy;
 
 // ── Handler type aliases ──────────────────────────────────────────────────────
 
@@ -243,10 +243,8 @@ impl ActionDispatcher {
         let handler =
             handler.ok_or_else(|| DispatchError::HandlerNotFound(action_name.to_string()))?;
 
-        // 2. Look up metadata for validation
+        // 2. Metadata + progressive-exposure gate.
         let meta_opt: Option<ActionMeta> = self.registry.get_action(action_name, None);
-
-        // 2a. Enforce progressive-exposure "enabled" flag.
         if let Some(meta) = &meta_opt
             && !meta.enabled
         {
@@ -256,36 +254,18 @@ impl ActionDispatcher {
             });
         }
 
-        let validation_skipped = match &meta_opt {
-            None => true,
-            Some(meta) => {
-                let schema = &meta.input_schema;
-                let is_empty = schema.is_null()
-                    || schema.as_object().map(|o| o.is_empty()).unwrap_or(false)
-                    || is_default_schema(schema);
-                if is_empty && self.skip_empty_schema_validation {
-                    true
-                } else {
-                    // 3. Validate
-                    let validator = ActionValidator::new(meta);
-                    let result = validator.validate_input(&params);
-                    if !result.is_valid() {
-                        return Err(DispatchError::ValidationFailed(
-                            result.into_result().unwrap_err(),
-                        ));
-                    }
-                    false
-                }
-            }
-        };
+        // 3. Validation via pluggable strategy (#493).
+        let outcome = select_strategy(meta_opt.as_ref(), self.skip_empty_schema_validation)
+            .validate(&params)
+            .map_err(DispatchError::ValidationFailed)?;
 
-        // 4. Call handler
+        // 4. Call handler.
         let output = handler(params).map_err(DispatchError::HandlerError)?;
 
         Ok(DispatchResult {
             action: action_name.to_string(),
             output,
-            validation_skipped,
+            validation_skipped: outcome.skipped,
         })
     }
 
@@ -301,7 +281,7 @@ impl ActionDispatcher {
 /// Returns `true` if the schema carries no real constraints — i.e. it is the
 /// default placeholder `{"type":"object","properties":{}}` or any schema that
 /// has no `required` fields and only an empty `properties` map.
-fn is_default_schema(schema: &Value) -> bool {
+pub(crate) fn is_default_schema(schema: &Value) -> bool {
     let Some(obj) = schema.as_object() else {
         return false;
     };

@@ -7,6 +7,7 @@ pub mod pipeline;
 #[cfg(feature = "python-bindings")]
 pub mod python;
 pub mod registry;
+pub mod validation_strategy;
 pub mod validator;
 pub mod versioned;
 

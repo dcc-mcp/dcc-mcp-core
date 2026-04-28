@@ -442,3 +442,59 @@ mod test_router {
         );
     }
 }
+
+// ── Strategy trait (#493) ────────────────────────────────────────────
+
+mod test_version_matcher_strategy {
+    use super::super::matcher::*;
+    use super::*;
+
+    #[test]
+    fn any_matcher_is_total() {
+        let m = AnyMatcher;
+        assert!(m.matches(SemVer::new(0, 0, 0)));
+        assert!(m.matches(SemVer::new(99, 0, 0)));
+        assert_eq!(format!("{m}"), "*");
+    }
+
+    #[test]
+    fn caret_matcher_pins_major() {
+        let m = CaretMatcher(SemVer::new(1, 2, 3));
+        assert!(m.matches(SemVer::new(1, 2, 3)));
+        assert!(m.matches(SemVer::new(1, 9, 0)));
+        assert!(!m.matches(SemVer::new(2, 0, 0)));
+        assert!(!m.matches(SemVer::new(1, 2, 2)));
+        assert_eq!(format!("{m}"), "^1.2.3");
+    }
+
+    #[test]
+    fn tilde_matcher_pins_major_minor() {
+        let m = TildeMatcher(SemVer::new(1, 2, 3));
+        assert!(m.matches(SemVer::new(1, 2, 4)));
+        assert!(!m.matches(SemVer::new(1, 3, 0)));
+        assert_eq!(format!("{m}"), "~1.2.3");
+    }
+
+    #[test]
+    fn enum_facade_delegates_to_strategy() {
+        // Same trip via the public enum should yield identical answers
+        // to the strategy struct (proves with_matcher fan-out is wired
+        // correctly).
+        let v = SemVer::new(1, 5, 0);
+        let pairs: Vec<(VersionConstraint, Box<dyn VersionMatcher>)> = vec![
+            (VersionConstraint::Any, Box::new(AnyMatcher)),
+            (
+                VersionConstraint::Exact(SemVer::new(1, 5, 0)),
+                Box::new(ExactMatcher(SemVer::new(1, 5, 0))),
+            ),
+            (
+                VersionConstraint::Caret(SemVer::new(1, 0, 0)),
+                Box::new(CaretMatcher(SemVer::new(1, 0, 0))),
+            ),
+        ];
+        for (c, m) in pairs {
+            assert_eq!(c.matches(v), m.matches(v), "{c} vs {m}");
+            assert_eq!(format!("{c}"), format!("{m}"));
+        }
+    }
+}

@@ -50,6 +50,9 @@ use crate::registry::ActionMeta;
 // PyO3 bindings for SemVer / PyVersionConstraint / VersionedRegistry live in
 // `crate::python::versioned`.
 
+pub mod matcher;
+pub use matcher::VersionMatcher;
+
 #[cfg(test)]
 mod tests;
 
@@ -187,35 +190,34 @@ pub enum VersionConstraint {
 
 impl VersionConstraint {
     /// Test whether `version` satisfies this constraint.
+    ///
+    /// Delegates to the per-shape strategy in [`matcher`]; see #493.
     #[must_use]
     pub fn matches(&self, version: SemVer) -> bool {
+        self.with_matcher(|m| m.matches(version))
+    }
+
+    /// Borrow the variant's behaviour as a [`VersionMatcher`] and run
+    /// `f` against it. Centralises the variant fan-out so neither
+    /// [`Self::matches`] nor `Display::fmt` need to enumerate variants.
+    fn with_matcher<R>(&self, f: impl FnOnce(&dyn VersionMatcher) -> R) -> R {
+        use matcher::*;
         match self {
-            Self::Any => true,
-            Self::Exact(v) => version == *v,
-            Self::AtLeast(v) => version >= *v,
-            Self::GreaterThan(v) => version > *v,
-            Self::AtMost(v) => version <= *v,
-            Self::LessThan(v) => version < *v,
-            Self::Caret(v) => version.major == v.major && version >= *v,
-            Self::Tilde(v) => {
-                version.major == v.major && version.minor == v.minor && version.patch >= v.patch
-            }
+            Self::Any => f(&AnyMatcher),
+            Self::Exact(v) => f(&ExactMatcher(*v)),
+            Self::AtLeast(v) => f(&AtLeastMatcher(*v)),
+            Self::GreaterThan(v) => f(&GreaterThanMatcher(*v)),
+            Self::AtMost(v) => f(&AtMostMatcher(*v)),
+            Self::LessThan(v) => f(&LessThanMatcher(*v)),
+            Self::Caret(v) => f(&CaretMatcher(*v)),
+            Self::Tilde(v) => f(&TildeMatcher(*v)),
         }
     }
 }
 
 impl fmt::Display for VersionConstraint {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Any => write!(f, "*"),
-            Self::Exact(v) => write!(f, "={v}"),
-            Self::AtLeast(v) => write!(f, ">={v}"),
-            Self::GreaterThan(v) => write!(f, ">{v}"),
-            Self::AtMost(v) => write!(f, "<={v}"),
-            Self::LessThan(v) => write!(f, "<{v}"),
-            Self::Caret(v) => write!(f, "^{v}"),
-            Self::Tilde(v) => write!(f, "~{v}"),
-        }
+        self.with_matcher(|m| fmt::Display::fmt(m, f))
     }
 }
 
