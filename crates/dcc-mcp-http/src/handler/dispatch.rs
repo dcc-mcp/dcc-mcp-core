@@ -12,15 +12,13 @@ use super::state::AppState;
 use crate::error::HttpError;
 use crate::handlers::{
     action_meta_to_mcp_tool, build_core_tools, build_group_stub, build_lazy_action_tools,
-    build_skill_stub, handle_elicitation_create, handle_logging_set_level, handle_prompts_get,
-    handle_prompts_list, handle_resources_list, handle_resources_read, handle_resources_subscribe,
-    handle_resources_unsubscribe, handle_tools_call, refresh_roots_cache_for_session,
+    build_skill_stub, refresh_roots_cache_for_session,
 };
 use crate::protocol::{
     DELTA_TOOLS_UPDATE_CAP, ElicitationCapability, InitializeResult, JsonRpcRequest,
-    JsonRpcResponse, LOGGING_SET_LEVEL_METHOD, ListToolsResult, LoggingCapability, McpTool,
-    PromptsCapability, ResourcesCapability, ServerCapabilities, ServerInfo, TOOLS_LIST_PAGE_SIZE,
-    ToolsCapability, decode_cursor, encode_cursor, negotiate_protocol_version,
+    JsonRpcResponse, ListToolsResult, LoggingCapability, McpTool, PromptsCapability,
+    ResourcesCapability, ServerCapabilities, ServerInfo, TOOLS_LIST_PAGE_SIZE, ToolsCapability,
+    decode_cursor, encode_cursor, negotiate_protocol_version,
 };
 
 pub(crate) async fn dispatch_request(
@@ -32,26 +30,10 @@ pub(crate) async fn dispatch_request(
     if let Some(id) = session_id {
         state.sessions.touch(id);
     }
-    match req.method.as_str() {
-        "initialize" => handle_initialize(state, req, session_id).await,
-        "notifications/initialized" => Ok(JsonRpcResponse::success(req.id.clone(), json!({}))),
-        LOGGING_SET_LEVEL_METHOD => handle_logging_set_level(state, req, session_id).await,
-        "tools/list" => handle_tools_list(state, req, session_id).await,
-        "tools/call" => handle_tools_call(state, req, session_id).await,
-        "resources/list" if state.enable_resources => handle_resources_list(state, req).await,
-        "resources/read" if state.enable_resources => handle_resources_read(state, req).await,
-        "resources/subscribe" if state.enable_resources => {
-            handle_resources_subscribe(state, req, session_id).await
-        }
-        "resources/unsubscribe" if state.enable_resources => {
-            handle_resources_unsubscribe(state, req, session_id).await
-        }
-        "prompts/list" if state.enable_prompts => handle_prompts_list(state, req).await,
-        "prompts/get" if state.enable_prompts => handle_prompts_get(state, req).await,
-        "elicitation/create" => handle_elicitation_create(state, req, session_id).await,
-        "ping" => Ok(JsonRpcResponse::success(req.id.clone(), json!({}))),
-        other => Ok(JsonRpcResponse::method_not_found(req.id.clone(), other)),
-    }
+    // Pluggable method router (#492). Built-ins are pre-registered by
+    // `AppState::default_method_router`; embedders may add custom
+    // handlers via `AppState::register_method` before serving.
+    state.method_router.dispatch(state, req, session_id).await
 }
 
 pub(crate) async fn handle_initialize(

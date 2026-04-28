@@ -66,6 +66,7 @@ fn make_app_state() -> AppState {
         enable_prompts: true,
         registry_generation: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
         enable_tool_cache: true,
+        method_router: crate::handler::AppState::default_method_router(),
     }
 }
 
@@ -120,6 +121,7 @@ mod elicitation;
 mod initialize;
 mod jobs;
 mod logging;
+mod method_router;
 mod on_demand_loading;
 mod pagination;
 mod search_skills;

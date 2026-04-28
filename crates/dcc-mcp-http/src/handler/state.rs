@@ -157,6 +157,15 @@ pub struct AppState {
     /// servers that do not opt in.
     #[cfg(feature = "prometheus")]
     pub prometheus: Option<dcc_mcp_telemetry::PrometheusExporter>,
+    /// Pluggable JSON-RPC method router (issue #492).
+    ///
+    /// Built-in MCP methods (`initialize`, `tools/*`, `resources/*`,
+    /// `prompts/*`, `elicitation/create`, `ping`,
+    /// `notifications/initialized`, `logging/setLevel`) are pre-registered
+    /// by [`AppState::default_method_router`]. Embedders can register
+    /// additional handlers via [`AppState::register_method`] before the
+    /// server starts serving requests.
+    pub method_router: Arc<super::router::MethodRouter>,
 }
 
 impl AppState {
@@ -184,5 +193,22 @@ impl AppState {
     /// Read the current registry generation counter (issue #438).
     pub fn current_registry_generation(&self) -> u64 {
         self.registry_generation.load(Ordering::Relaxed)
+    }
+
+    /// Build a default [`MethodRouter`](super::router::MethodRouter)
+    /// pre-populated with every built-in MCP method (issue #492).
+    pub fn default_method_router() -> Arc<super::router::MethodRouter> {
+        Arc::new(super::router::MethodRouter::with_builtins())
+    }
+
+    /// Register a custom [`MethodHandler`](super::router::MethodHandler)
+    /// for `method`. Replaces any previously-registered handler for the
+    /// same method (issue #492).
+    pub fn register_method(
+        &self,
+        method: impl Into<String>,
+        handler: Arc<dyn super::router::MethodHandler>,
+    ) {
+        self.method_router.register(method, handler);
     }
 }

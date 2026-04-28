@@ -385,6 +385,7 @@ impl McpHttpServer {
             enable_tool_cache: self.config.enable_tool_cache,
             #[cfg(feature = "prometheus")]
             prometheus: prometheus.clone(),
+            method_router: AppState::default_method_router(),
         };
 
         let endpoint = self.config.endpoint_path.clone();

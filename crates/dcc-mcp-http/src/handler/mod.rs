@@ -18,11 +18,14 @@
 //! `pub(crate) use crate::handlers::*;` re-export below so existing call sites
 //! can keep referencing them through `crate::handler::`.
 
+mod builtins;
 mod dispatch;
 mod notifications;
+mod router;
 mod routes;
 mod state;
 
+pub use router::{HandlerFuture, MethodHandler, MethodRouter};
 pub use routes::{handle_delete, handle_get, handle_post};
 pub use state::AppState;
 
