@@ -1,6 +1,7 @@
 //! Python-visible MCP HTTP server configuration.
 
 use super::*;
+use dcc_mcp_pybridge::derive::PyWrapper;
 
 /// Python-visible MCP HTTP server configuration.
 ///
@@ -8,8 +9,241 @@ use super::*;
 ///
 ///     from dcc_mcp_core import McpHttpConfig
 ///     config = McpHttpConfig(port=8765, server_name="my-dcc")
+///
+/// Most accessors are emitted by [`PyWrapper`](dcc_mcp_pybridge::derive::PyWrapper)
+/// from the `#[py_wrapper(...)]` table below (issue #528 M3.2). Three
+/// accessor families remain hand-written because they require non-trivial
+/// conversions the macro grammar cannot express:
+///
+/// - `spawn_mode` / `set_spawn_mode` — enum ↔ `&str` with `PyResult` validation.
+/// - `job_storage_path` / `set_job_storage_path` — `Option<PathBuf>` ↔ `Option<String>`.
+/// - `registry_dir` / `set_registry_dir` — same `PathBuf` shape as above.
+/// - `__repr__` — selects three identifying fields with one renamed
+///   (`server_name` → `name`) via the shared `repr_pairs!` helper.
 #[pyclass(name = "McpHttpConfig", skip_from_py_object)]
-#[derive(Clone)]
+#[derive(Clone, PyWrapper)]
+#[py_wrapper(
+    inner = "McpHttpConfig",
+    fields(
+        // ── Core server (read-only after construction) ───────────────────
+        port: u16 => [get],
+        host: String => [get(to_string)],
+        endpoint_path: String => [get(by_str)],
+        server_name: String => [get(by_str)],
+        server_version: String => [get(by_str)],
+        max_sessions: usize => [get],
+        request_timeout_ms: u64 => [get],
+        enable_cors: bool => [get],
+
+        // ── Sessions ─────────────────────────────────────────────────────
+        /// Idle session TTL in seconds. Sessions not touched within this window
+        /// are automatically evicted. Default: 3600 (1 hour). Set to 0 to disable.
+        session_ttl_secs: u64 => [get, set],
+
+        // ── Prometheus (issue #331) ──────────────────────────────────────
+        /// Enable the Prometheus ``/metrics`` endpoint (issue #331).
+        ///
+        /// When ``True``, ``McpHttpServer.start()`` mounts a ``GET /metrics``
+        /// route alongside ``/mcp``. The payload is a standard Prometheus
+        /// text-exposition body (``text/plain; version=0.0.4``) suitable
+        /// for direct scraping by Prometheus, VictoriaMetrics, or any
+        /// OpenMetrics-compatible collector.
+        ///
+        /// Requires the ``prometheus`` Cargo feature to be enabled at
+        /// wheel-build time. On wheels built without the feature this
+        /// flag is accepted but silently has no effect.
+        enable_prometheus: bool => [get, set],
+
+        /// Optional HTTP Basic auth for ``/metrics`` (issue #331).
+        ///
+        /// Tuple of ``(username, password)`` or ``None``. When set,
+        /// scrapers must present a matching
+        /// ``Authorization: Basic base64(user:pass)`` header or the
+        /// endpoint responds with ``401 Unauthorized``. ``None`` leaves
+        /// the endpoint open — appropriate for localhost-only dev, but
+        /// configure credentials for anything exposed beyond that.
+        prometheus_basic_auth: Option<(String, String)> => [get(clone), set],
+
+        // ── Feature toggles ──────────────────────────────────────────────
+        /// Enable the opt-in lazy-actions fast-path (#254).
+        ///
+        /// When ``True``, ``tools/list`` also surfaces three meta-tools:
+        /// ``list_actions``, ``describe_action`` and ``call_action``. Useful
+        /// for agents whose context budget cannot afford a full ``tools/list``
+        /// paging session. Default: ``False``.
+        lazy_actions: bool => [get, set],
+
+        /// Enable the built-in ``workflows.*`` tools (issue #348).
+        ///
+        /// Default: ``False``. Step execution is stubbed in the skeleton —
+        /// see :class:`WorkflowSpec` for the parse/validate surface that is
+        /// already usable.
+        enable_workflows: bool => [get, set],
+
+        /// Emit the ``$/dcc.jobUpdated`` and ``$/dcc.workflowUpdated`` SSE
+        /// channels (issue #326).
+        ///
+        /// Default: ``True``. When ``False``, the server still emits the
+        /// spec-mandated ``notifications/progress`` channel for callers that
+        /// supplied ``_meta.progressToken``, but the ``$/dcc.*`` vendor
+        /// extensions are suppressed.
+        enable_job_notifications: bool => [get, set],
+
+        // ── Gateway configuration ────────────────────────────────────────
+        /// Gateway port to compete for. First process to bind wins.
+        /// ``0`` disables gateway (default).
+        ///
+        /// Example::
+        ///
+        ///     config = McpHttpConfig(port=0, server_name="maya")
+        ///     config.gateway_port = 9765   # join the gateway competition
+        ///     config.dcc_type = "maya"
+        ///     server = McpHttpServer(registry, config)
+        ///     handle = server.start()
+        ///     print(handle.is_gateway)   # True if this process won
+        gateway_port: u16 => [get, set],
+
+        /// Seconds without heartbeat before an instance is stale. Default: 30.
+        stale_timeout_secs: u64 => [get, set],
+
+        /// Heartbeat interval in seconds. ``0`` disables heartbeat. Default: 5.
+        heartbeat_secs: u64 => [get, set],
+
+        // ── Instance registration metadata ───────────────────────────────
+        /// DCC application type (e.g. ``"maya"``). Reported in the shared registry.
+        dcc_type: Option<String> => [get(clone), set],
+
+        /// DCC application version (e.g. ``"2025.1"``).
+        dcc_version: Option<String> => [get(clone), set],
+
+        /// Currently open scene/file. Improves routing accuracy.
+        scene: Option<String> => [get(clone), set],
+
+        /// Self-probe timeout in milliseconds. 0 disables the probe.
+        /// Default: 200. Issue #303 guard.
+        self_probe_timeout_ms: u64 => [get, set],
+
+        /// Publish skill-scoped tools under their **bare action name** when no
+        /// collision exists on this instance (#307).
+        ///
+        /// When ``True`` (default), ``tools/list`` emits ``execute_python``
+        /// rather than ``maya-scripting.execute_python`` whenever the bare name
+        /// is unique within the instance's loaded skills. Collisions fall back
+        /// to the full ``<skill>.<action>`` form, and ``tools/call`` accepts
+        /// both shapes for one release cycle.
+        bare_tool_names: bool => [get, set],
+
+        /// DCC capabilities this adapter provides (issue #354).
+        ///
+        /// Freeform string tags (e.g. ``"usd"``, ``"scene.mutate"``,
+        /// ``"filesystem.read"``) consumed by the capability gate in
+        /// ``tools/call``. Tools whose ``required_capabilities`` are not fully
+        /// covered still surface in ``tools/list`` but fail the call with
+        /// JSON-RPC error ``-32001 capability_missing`` and carry
+        /// ``_meta.dcc.missing_capabilities`` in the list response so clients
+        /// can filter them out of the menu.
+        ///
+        /// Defaults to an empty list. Hard-code the capabilities your DCC
+        /// adapter knows it provides; there is no runtime introspection.
+        declared_capabilities: Vec<String> => [get(clone), set],
+
+        // ── Gateway timeouts (#314, #321, #322) ──────────────────────────
+        /// Per-backend gateway fan-out timeout in milliseconds (issue #314).
+        ///
+        /// Default: ``10_000`` (10 seconds). Raise this for DCC workflows that
+        /// legitimately run backend tools longer than 10 seconds (scene import,
+        /// simulation bake, large USD composition) to avoid spurious transport
+        /// timeout errors on the gateway fan-out path.
+        backend_timeout_ms: u64 => [get, set],
+
+        /// Gateway timeout (ms) for async-dispatch `tools/call` requests
+        /// (issue #321). Default: ``60_000``.
+        ///
+        /// Applies when the outbound call carries ``_meta.dcc.async == true``,
+        /// a ``_meta.progressToken``, or targets a tool whose ``ActionMeta``
+        /// declares ``execution: async`` / a ``timeout_hint_secs``. Only the
+        /// **queuing** step uses this budget — the backend replies with
+        /// ``{status: "pending"}`` as soon as the job is enqueued.
+        gateway_async_dispatch_timeout_ms: u64 => [get, set],
+
+        /// Gateway timeout (ms) for the opt-in wait-for-terminal passthrough
+        /// mode (issue #321). Default: ``600_000`` (10 minutes).
+        ///
+        /// When the client sets ``_meta.dcc.wait_for_terminal = true`` along
+        /// with an async opt-in, the gateway blocks the ``tools/call``
+        /// response until a ``$/dcc.jobUpdated`` with a terminal status
+        /// arrives. On timeout the gateway returns the last known status
+        /// with ``_meta.dcc.timed_out = true`` and leaves the job running
+        /// on the backend.
+        gateway_wait_terminal_timeout_ms: u64 => [get, set],
+
+        /// Gateway routing-cache TTL (seconds) for `JobRoute` entries
+        /// (issue #322). Default: ``86_400`` (24 hours).
+        ///
+        /// Routes that don't see a terminal notification within this window
+        /// are evicted by a background GC task so the cache cannot grow
+        /// without bound under pathological agents or crashed backends.
+        gateway_route_ttl_secs: u64 => [get, set],
+
+        /// Per-session ceiling on concurrent live gateway routes (issue
+        /// #322). ``0`` disables the cap. Default: ``1_000``.
+        ///
+        /// When a client session is already holding this many live routes,
+        /// new async ``tools/call`` requests are rejected with JSON-RPC
+        /// ``-32005 too_many_in_flight_jobs``.
+        gateway_max_routes_per_session: u64 => [get, set],
+
+        // ── MCP primitives (#350, #349, #351, #355) ──────────────────────
+        /// Advertise the MCP Resources primitive (issue #350).
+        ///
+        /// When ``True`` (default), the server advertises
+        /// ``resources: { subscribe, listChanged }`` in its ``initialize``
+        /// response and handles ``resources/list`` / ``resources/read`` /
+        /// ``resources/subscribe`` / ``resources/unsubscribe``. Built-in
+        /// producers surface ``scene://current`` (JSON), ``audit://recent``
+        /// (JSON) and ``capture://current_window`` (PNG, when a real window
+        /// backend is available).
+        enable_resources: bool => [get, set],
+
+        /// Expose ``artefact://`` resources (issue #349).
+        ///
+        /// Default ``False``. The full artefact store lands in issue #349;
+        /// this flag merely gates whether the ``artefact://`` scheme appears
+        /// in ``resources/list`` and whether reads return a descriptive
+        /// ``-32002`` error versus a normal not-found.
+        enable_artefact_resources: bool => [get, set],
+
+        /// Advertise the MCP Prompts primitive (issues #351, #355).
+        ///
+        /// When ``True`` (default), the server advertises
+        /// ``prompts: { listChanged }`` in its ``initialize`` response and
+        /// handles ``prompts/list`` + ``prompts/get``. Prompts are sourced
+        /// from each loaded skill's sibling ``prompts.yaml`` (pointed at by
+        /// ``metadata.dcc-mcp.prompts`` in SKILL.md) plus workflow-derived
+        /// auto-generated entries.
+        enable_prompts: bool => [get, set],
+
+        /// Enable connection-scoped tool-list caching (issue #438).
+        ///
+        /// When ``True`` (default), ``tools/list`` stores a per-session
+        /// snapshot of the full tool list. On subsequent ``tools/list``
+        /// calls within the same session, if the registry has not changed
+        /// (no skill load/unload, no group activation/deactivation), the
+        /// cached snapshot is returned directly — avoiding redundant
+        /// registry scans and tool-construction overhead.
+        ///
+        /// The cache is automatically invalidated when:
+        /// - A skill is loaded or unloaded
+        /// - A tool group is activated or deactivated
+        /// - The session is evicted (TTL expiry)
+        /// - The client sends ``tools/list`` with ``_meta.dcc.refresh = true``
+        ///
+        /// Set to ``False`` to disable caching (every ``tools/list`` call
+        /// rebuilds the full list from scratch). Useful for debugging or
+        /// when tool definitions are mutated externally.
+        enable_tool_cache: bool => [get, set],
+    ),
+)]
 pub struct PyMcpHttpConfig {
     pub(crate) inner: McpHttpConfig,
 }
@@ -58,144 +292,17 @@ impl PyMcpHttpConfig {
         Self { inner: cfg }
     }
 
-    #[getter]
-    fn port(&self) -> u16 {
-        self.inner.port
-    }
-
-    #[getter]
-    fn host(&self) -> String {
-        self.inner.host.to_string()
-    }
-
-    #[getter]
-    fn endpoint_path(&self) -> &str {
-        &self.inner.endpoint_path
-    }
-
-    #[getter]
-    fn server_name(&self) -> &str {
-        &self.inner.server_name
-    }
-
-    #[getter]
-    fn server_version(&self) -> &str {
-        &self.inner.server_version
-    }
-
-    #[getter]
-    fn max_sessions(&self) -> usize {
-        self.inner.max_sessions
-    }
-
-    #[getter]
-    fn request_timeout_ms(&self) -> u64 {
-        self.inner.request_timeout_ms
-    }
-
-    #[getter]
-    fn enable_cors(&self) -> bool {
-        self.inner.enable_cors
-    }
-
-    /// Enable the Prometheus ``/metrics`` endpoint (issue #331).
-    ///
-    /// When ``True``, ``McpHttpServer.start()`` mounts a ``GET /metrics``
-    /// route alongside ``/mcp``. The payload is a standard Prometheus
-    /// text-exposition body (``text/plain; version=0.0.4``) suitable
-    /// for direct scraping by Prometheus, VictoriaMetrics, or any
-    /// OpenMetrics-compatible collector.
-    ///
-    /// Requires the ``prometheus`` Cargo feature to be enabled at
-    /// wheel-build time. On wheels built without the feature this
-    /// flag is accepted but silently has no effect.
-    #[getter]
-    fn enable_prometheus(&self) -> bool {
-        self.inner.enable_prometheus
-    }
-
-    #[setter]
-    fn set_enable_prometheus(&mut self, enabled: bool) {
-        self.inner.enable_prometheus = enabled;
-    }
-
-    /// Optional HTTP Basic auth for ``/metrics`` (issue #331).
-    ///
-    /// Tuple of ``(username, password)`` or ``None``. When set,
-    /// scrapers must present a matching
-    /// ``Authorization: Basic base64(user:pass)`` header or the
-    /// endpoint responds with ``401 Unauthorized``. ``None`` leaves
-    /// the endpoint open — appropriate for localhost-only dev, but
-    /// configure credentials for anything exposed beyond that.
-    #[getter]
-    fn prometheus_basic_auth(&self) -> Option<(String, String)> {
-        self.inner.prometheus_basic_auth.clone()
-    }
-
-    #[setter]
-    fn set_prometheus_basic_auth(&mut self, auth: Option<(String, String)>) {
-        self.inner.prometheus_basic_auth = auth;
-    }
-
-    /// Idle session TTL in seconds. Sessions not touched within this window are
-    /// automatically evicted. Default: 3600 (1 hour). Set to 0 to disable.
-    #[getter]
-    fn session_ttl_secs(&self) -> u64 {
-        self.inner.session_ttl_secs
-    }
-
-    #[setter]
-    fn set_session_ttl_secs(&mut self, secs: u64) {
-        self.inner.session_ttl_secs = secs;
-    }
-
-    /// Enable the opt-in lazy-actions fast-path (#254).
-    ///
-    /// When ``True``, ``tools/list`` also surfaces three meta-tools:
-    /// ``list_actions``, ``describe_action`` and ``call_action``. Useful
-    /// for agents whose context budget cannot afford a full ``tools/list``
-    /// paging session. Default: ``False``.
-    #[getter]
-    fn lazy_actions(&self) -> bool {
-        self.inner.lazy_actions
-    }
-
-    #[setter]
-    fn set_lazy_actions(&mut self, enabled: bool) {
-        self.inner.lazy_actions = enabled;
-    }
-
-    /// Enable the built-in ``workflows.*`` tools (issue #348).
-    ///
-    /// Default: ``False``. Step execution is stubbed in the skeleton —
-    /// see :class:`WorkflowSpec` for the parse/validate surface that is
-    /// already usable.
-    #[getter]
-    fn enable_workflows(&self) -> bool {
-        self.inner.enable_workflows
-    }
-
-    #[setter]
-    fn set_enable_workflows(&mut self, enabled: bool) {
-        self.inner.enable_workflows = enabled;
-    }
-
-    /// Emit the ``$/dcc.jobUpdated`` and ``$/dcc.workflowUpdated`` SSE
-    /// channels (issue #326).
-    ///
-    /// Default: ``True``. When ``False``, the server still emits the
-    /// spec-mandated ``notifications/progress`` channel for callers that
-    /// supplied ``_meta.progressToken``, but the ``$/dcc.*`` vendor
-    /// extensions are suppressed.
-    #[getter]
-    fn enable_job_notifications(&self) -> bool {
-        self.inner.enable_job_notifications
-    }
-
-    #[setter]
-    fn set_enable_job_notifications(&mut self, enabled: bool) {
-        self.inner.enable_job_notifications = enabled;
-    }
+    // All trivial getters/setters are emitted by `#[derive(PyWrapper)]`
+    // via the `#[py_wrapper(...)]` table on the struct above (issue #528
+    // M3.2). Only conversions the macro grammar cannot express remain
+    // hand-written here:
+    //
+    //  - `spawn_mode` / `set_spawn_mode` — `&str` ↔ enum with `PyResult`.
+    //  - `job_storage_path` / `set_job_storage_path` — `Option<PathBuf>`
+    //    ↔ `Option<String>` (lossy round-trip).
+    //  - `registry_dir` / `set_registry_dir` — same shape as above.
+    //  - `__repr__` — selects three identifying fields with one renamed
+    //    (`server_name` → `name`) via the shared `repr_pairs!` helper.
 
     /// Optional filesystem path to a SQLite database used to persist
     /// tracked jobs across server restarts (issue #328).
@@ -224,29 +331,6 @@ impl PyMcpHttpConfig {
         self.inner.job_storage_path = path.map(std::path::PathBuf::from);
     }
 
-    // ── Gateway configuration ────────────────────────────────────────────────
-
-    /// Gateway port to compete for. First process to bind wins.
-    /// ``0`` disables gateway (default).
-    ///
-    /// Example::
-    ///
-    ///     config = McpHttpConfig(port=0, server_name="maya")
-    ///     config.gateway_port = 9765   # join the gateway competition
-    ///     config.dcc_type = "maya"
-    ///     server = McpHttpServer(registry, config)
-    ///     handle = server.start()
-    ///     print(handle.is_gateway)   # True if this process won
-    #[getter]
-    fn gateway_port(&self) -> u16 {
-        self.inner.gateway_port
-    }
-
-    #[setter]
-    fn set_gateway_port(&mut self, port: u16) {
-        self.inner.gateway_port = port;
-    }
-
     /// Shared FileRegistry directory path. ``None`` uses a system temp dir.
     #[getter]
     fn registry_dir(&self) -> Option<String> {
@@ -259,63 +343,6 @@ impl PyMcpHttpConfig {
     #[setter]
     fn set_registry_dir(&mut self, dir: Option<String>) {
         self.inner.registry_dir = dir.map(std::path::PathBuf::from);
-    }
-
-    /// Seconds without heartbeat before an instance is stale. Default: 30.
-    #[getter]
-    fn stale_timeout_secs(&self) -> u64 {
-        self.inner.stale_timeout_secs
-    }
-
-    #[setter]
-    fn set_stale_timeout_secs(&mut self, secs: u64) {
-        self.inner.stale_timeout_secs = secs;
-    }
-
-    /// Heartbeat interval in seconds. ``0`` disables heartbeat. Default: 5.
-    #[getter]
-    fn heartbeat_secs(&self) -> u64 {
-        self.inner.heartbeat_secs
-    }
-
-    #[setter]
-    fn set_heartbeat_secs(&mut self, secs: u64) {
-        self.inner.heartbeat_secs = secs;
-    }
-
-    // ── Instance registration metadata ───────────────────────────────────────
-
-    /// DCC application type (e.g. ``"maya"``). Reported in the shared registry.
-    #[getter]
-    fn dcc_type(&self) -> Option<String> {
-        self.inner.dcc_type.clone()
-    }
-
-    #[setter]
-    fn set_dcc_type(&mut self, v: Option<String>) {
-        self.inner.dcc_type = v;
-    }
-
-    /// DCC application version (e.g. ``"2025.1"``).
-    #[getter]
-    fn dcc_version(&self) -> Option<String> {
-        self.inner.dcc_version.clone()
-    }
-
-    #[setter]
-    fn set_dcc_version(&mut self, v: Option<String>) {
-        self.inner.dcc_version = v;
-    }
-
-    /// Currently open scene/file. Improves routing accuracy.
-    #[getter]
-    fn scene(&self) -> Option<String> {
-        self.inner.scene.clone()
-    }
-
-    #[setter]
-    fn set_scene(&mut self, v: Option<String>) {
-        self.inner.scene = v;
     }
 
     /// Listener spawn strategy (issue #303).
@@ -347,224 +374,6 @@ impl PyMcpHttpConfig {
         Ok(())
     }
 
-    /// Self-probe timeout in milliseconds. 0 disables the probe.
-    /// Default: 200. Issue #303 guard.
-    #[getter]
-    fn self_probe_timeout_ms(&self) -> u64 {
-        self.inner.self_probe_timeout_ms
-    }
-
-    #[setter]
-    fn set_self_probe_timeout_ms(&mut self, ms: u64) {
-        self.inner.self_probe_timeout_ms = ms;
-    }
-
-    /// Publish skill-scoped tools under their **bare action name** when no
-    /// collision exists on this instance (#307).
-    ///
-    /// When ``True`` (default), ``tools/list`` emits ``execute_python``
-    /// rather than ``maya-scripting.execute_python`` whenever the bare name
-    /// is unique within the instance's loaded skills. Collisions fall back
-    /// to the full ``<skill>.<action>`` form, and ``tools/call`` accepts
-    /// both shapes for one release cycle.
-    #[getter]
-    fn bare_tool_names(&self) -> bool {
-        self.inner.bare_tool_names
-    }
-
-    #[setter]
-    fn set_bare_tool_names(&mut self, enabled: bool) {
-        self.inner.bare_tool_names = enabled;
-    }
-
-    /// DCC capabilities this adapter provides (issue #354).
-    ///
-    /// Freeform string tags (e.g. ``"usd"``, ``"scene.mutate"``,
-    /// ``"filesystem.read"``) consumed by the capability gate in
-    /// ``tools/call``. Tools whose ``required_capabilities`` are not fully
-    /// covered still surface in ``tools/list`` but fail the call with
-    /// JSON-RPC error ``-32001 capability_missing`` and carry
-    /// ``_meta.dcc.missing_capabilities`` in the list response so clients
-    /// can filter them out of the menu.
-    ///
-    /// Defaults to an empty list. Hard-code the capabilities your DCC
-    /// adapter knows it provides; there is no runtime introspection.
-    #[getter]
-    fn declared_capabilities(&self) -> Vec<String> {
-        self.inner.declared_capabilities.clone()
-    }
-
-    #[setter]
-    fn set_declared_capabilities(&mut self, caps: Vec<String>) {
-        self.inner.declared_capabilities = caps;
-    }
-
-    /// Per-backend gateway fan-out timeout in milliseconds (issue #314).
-    ///
-    /// Default: ``10_000`` (10 seconds). Raise this for DCC workflows that
-    /// legitimately run backend tools longer than 10 seconds (scene import,
-    /// simulation bake, large USD composition) to avoid spurious transport
-    /// timeout errors on the gateway fan-out path.
-    #[getter]
-    fn backend_timeout_ms(&self) -> u64 {
-        self.inner.backend_timeout_ms
-    }
-
-    #[setter]
-    fn set_backend_timeout_ms(&mut self, ms: u64) {
-        self.inner.backend_timeout_ms = ms;
-    }
-
-    /// Gateway timeout (ms) for async-dispatch `tools/call` requests
-    /// (issue #321). Default: ``60_000``.
-    ///
-    /// Applies when the outbound call carries ``_meta.dcc.async == true``,
-    /// a ``_meta.progressToken``, or targets a tool whose ``ActionMeta``
-    /// declares ``execution: async`` / a ``timeout_hint_secs``. Only the
-    /// **queuing** step uses this budget — the backend replies with
-    /// ``{status: "pending"}`` as soon as the job is enqueued.
-    #[getter]
-    fn gateway_async_dispatch_timeout_ms(&self) -> u64 {
-        self.inner.gateway_async_dispatch_timeout_ms
-    }
-
-    #[setter]
-    fn set_gateway_async_dispatch_timeout_ms(&mut self, ms: u64) {
-        self.inner.gateway_async_dispatch_timeout_ms = ms;
-    }
-
-    /// Gateway timeout (ms) for the opt-in wait-for-terminal passthrough
-    /// mode (issue #321). Default: ``600_000`` (10 minutes).
-    ///
-    /// When the client sets ``_meta.dcc.wait_for_terminal = true`` along
-    /// with an async opt-in, the gateway blocks the ``tools/call``
-    /// response until a ``$/dcc.jobUpdated`` with a terminal status
-    /// arrives. On timeout the gateway returns the last known status
-    /// with ``_meta.dcc.timed_out = true`` and leaves the job running
-    /// on the backend.
-    #[getter]
-    fn gateway_wait_terminal_timeout_ms(&self) -> u64 {
-        self.inner.gateway_wait_terminal_timeout_ms
-    }
-
-    #[setter]
-    fn set_gateway_wait_terminal_timeout_ms(&mut self, ms: u64) {
-        self.inner.gateway_wait_terminal_timeout_ms = ms;
-    }
-
-    /// Gateway routing-cache TTL (seconds) for `JobRoute` entries
-    /// (issue #322). Default: ``86_400`` (24 hours).
-    ///
-    /// Routes that don't see a terminal notification within this window
-    /// are evicted by a background GC task so the cache cannot grow
-    /// without bound under pathological agents or crashed backends.
-    #[getter]
-    fn gateway_route_ttl_secs(&self) -> u64 {
-        self.inner.gateway_route_ttl_secs
-    }
-
-    #[setter]
-    fn set_gateway_route_ttl_secs(&mut self, secs: u64) {
-        self.inner.gateway_route_ttl_secs = secs;
-    }
-
-    /// Per-session ceiling on concurrent live gateway routes (issue
-    /// #322). ``0`` disables the cap. Default: ``1_000``.
-    ///
-    /// When a client session is already holding this many live routes,
-    /// new async ``tools/call`` requests are rejected with JSON-RPC
-    /// ``-32005 too_many_in_flight_jobs``.
-    #[getter]
-    fn gateway_max_routes_per_session(&self) -> u64 {
-        self.inner.gateway_max_routes_per_session
-    }
-
-    #[setter]
-    fn set_gateway_max_routes_per_session(&mut self, cap: u64) {
-        self.inner.gateway_max_routes_per_session = cap;
-    }
-
-    /// Advertise the MCP Resources primitive (issue #350).
-    ///
-    /// When ``True`` (default), the server advertises
-    /// ``resources: { subscribe, listChanged }`` in its ``initialize``
-    /// response and handles ``resources/list`` / ``resources/read`` /
-    /// ``resources/subscribe`` / ``resources/unsubscribe``. Built-in
-    /// producers surface ``scene://current`` (JSON), ``audit://recent``
-    /// (JSON) and ``capture://current_window`` (PNG, when a real window
-    /// backend is available).
-    #[getter]
-    fn enable_resources(&self) -> bool {
-        self.inner.enable_resources
-    }
-
-    #[setter]
-    fn set_enable_resources(&mut self, enabled: bool) {
-        self.inner.enable_resources = enabled;
-    }
-
-    /// Expose ``artefact://`` resources (issue #349).
-    ///
-    /// Default ``False``. The full artefact store lands in issue #349;
-    /// this flag merely gates whether the ``artefact://`` scheme appears
-    /// in ``resources/list`` and whether reads return a descriptive
-    /// ``-32002`` error versus a normal not-found.
-    #[getter]
-    fn enable_artefact_resources(&self) -> bool {
-        self.inner.enable_artefact_resources
-    }
-
-    #[setter]
-    fn set_enable_artefact_resources(&mut self, enabled: bool) {
-        self.inner.enable_artefact_resources = enabled;
-    }
-
-    /// Advertise the MCP Prompts primitive (issues #351, #355).
-    ///
-    /// When ``True`` (default), the server advertises
-    /// ``prompts: { listChanged }`` in its ``initialize`` response and
-    /// handles ``prompts/list`` + ``prompts/get``. Prompts are sourced
-    /// from each loaded skill's sibling ``prompts.yaml`` (pointed at by
-    /// ``metadata.dcc-mcp.prompts`` in SKILL.md) plus workflow-derived
-    /// auto-generated entries.
-    #[getter]
-    fn enable_prompts(&self) -> bool {
-        self.inner.enable_prompts
-    }
-
-    #[setter]
-    fn set_enable_prompts(&mut self, enabled: bool) {
-        self.inner.enable_prompts = enabled;
-    }
-
-    /// Enable connection-scoped tool-list caching (issue #438).
-    ///
-    /// When ``True`` (default), ``tools/list`` stores a per-session
-    /// snapshot of the full tool list. On subsequent ``tools/list``
-    /// calls within the same session, if the registry has not changed
-    /// (no skill load/unload, no group activation/deactivation), the
-    /// cached snapshot is returned directly — avoiding redundant
-    /// registry scans and tool-construction overhead.
-    ///
-    /// The cache is automatically invalidated when:
-    /// - A skill is loaded or unloaded
-    /// - A tool group is activated or deactivated
-    /// - The session is evicted (TTL expiry)
-    /// - The client sends ``tools/list`` with ``_meta.dcc.refresh = true``
-    ///
-    /// Set to ``False`` to disable caching (every ``tools/list`` call
-    /// rebuilds the full list from scratch). Useful for debugging or
-    /// when tool definitions are mutated externally.
-    #[getter]
-    fn enable_tool_cache(&self) -> bool {
-        self.inner.enable_tool_cache
-    }
-
-    #[setter]
-    fn set_enable_tool_cache(&mut self, enabled: bool) {
-        self.inner.enable_tool_cache = enabled;
-    }
-
     fn __repr__(&self) -> String {
         dcc_mcp_pybridge::repr_pairs!(
             "McpHttpConfig",
@@ -580,10 +389,14 @@ impl PyMcpHttpConfig {
 // ── Drift-detection tests ─────────────────────────────────────────────────────
 //
 // Every field in `McpHttpConfig` that Python callers should be able to read
-// must have a matching `#[getter]` on `PyMcpHttpConfig`.
+// must have a matching getter on `PyMcpHttpConfig`. Most are emitted by
+// `#[derive(PyWrapper)]` from the `#[py_wrapper(...)]` table on the struct
+// (see #528 M3.2); the remainder are hand-written in the `#[pymethods]`
+// block.
 //
 // When you add a new field:
-//   1. Add a `#[getter]` in the `#[pymethods]` block above.
+//   1. Add it to the `fields(...)` list in `#[py_wrapper(...)]`, **or** add
+//      a hand-written `#[getter]` if the conversion is non-trivial.
 //   2. Add `let _ = cfg.field_name();` to the test below.
 //
 // The test fails to **compile** if a getter is removed — that is the intended

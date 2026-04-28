@@ -18,7 +18,7 @@
 
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
-use syn::{Ident, LitStr, Token, Type, bracketed, parenthesized};
+use syn::{Attribute, Ident, LitStr, Token, Type, bracketed, parenthesized};
 
 /// How a field is exposed to Python. A single field can carry multiple
 /// modes (eg `[get, set, repr]`).
@@ -45,6 +45,11 @@ pub enum FieldMode {
 /// One row of the `fields(...)` table.
 #[derive(Clone, Debug)]
 pub struct FieldDecl {
+    /// Outer attributes captured before the field declaration. `///` doc
+    /// comments are picked up here (they desugar to `#[doc = "..."]`) so
+    /// the generated getter/setter can carry them through to PyO3 and on
+    /// to Python's `help()` output.
+    pub attrs: Vec<Attribute>,
     pub name: Ident,
     pub ty: Type,
     pub modes: Vec<FieldMode>,
@@ -105,6 +110,7 @@ impl Parse for PyWrapperAttr {
 
 impl Parse for FieldDecl {
     fn parse(input: ParseStream) -> syn::Result<Self> {
+        let attrs = input.call(Attribute::parse_outer)?;
         let name: Ident = input.parse()?;
         input.parse::<Token![:]>()?;
         let ty: Type = input.parse()?;
@@ -120,7 +126,12 @@ impl Parse for FieldDecl {
                 format!("field `{name}`: at least one mode required (get/set/repr/dict)"),
             ));
         }
-        Ok(Self { name, ty, modes })
+        Ok(Self {
+            attrs,
+            name,
+            ty,
+            modes,
+        })
     }
 }
 
@@ -235,5 +246,19 @@ mod tests {
     fn rejects_field_without_modes() {
         let err = parse(r#"fields(x: u8 => [])"#).unwrap_err();
         assert!(err.to_string().contains("at least one mode required"));
+    }
+
+    #[test]
+    fn captures_doc_comment_on_field() {
+        let attr = parse(
+            r#"fields(
+                /// Enable the Prometheus endpoint.
+                enable_prometheus: bool => [get, set]
+            )"#,
+        )
+        .unwrap();
+        assert_eq!(attr.fields.len(), 1);
+        assert_eq!(attr.fields[0].attrs.len(), 1);
+        assert!(attr.fields[0].attrs[0].path().is_ident("doc"));
     }
 }

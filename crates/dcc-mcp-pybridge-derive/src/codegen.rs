@@ -64,26 +64,36 @@ fn base_path(inner_field: Option<&Ident>) -> TokenStream2 {
 fn emit_accessor(field: &FieldDecl, mode: FieldMode, base: &TokenStream2) -> Option<TokenStream2> {
     let name = &field.name;
     let ty = &field.ty;
+    // Per Python convention `pyo3` attaches docs to the **getter** so that
+    // `help(SomeClass.field)` and `SomeClass.field.__doc__` both resolve.
+    // Setters reuse the same doc transparently. Emit the captured `///`
+    // comments on every accessor for consistency — pyo3 ignores duplicates.
+    let attrs = &field.attrs;
     Some(match mode {
         FieldMode::Get => quote! {
+            #(#attrs)*
             #[getter]
             fn #name(&self) -> #ty { #base #name }
         },
         FieldMode::GetByStr => quote! {
+            #(#attrs)*
             #[getter]
             fn #name(&self) -> &str { & #base #name }
         },
         FieldMode::GetClone => quote! {
+            #(#attrs)*
             #[getter]
             fn #name(&self) -> #ty { #base #name .clone() }
         },
         FieldMode::GetToString => quote! {
+            #(#attrs)*
             #[getter]
             fn #name(&self) -> #ty { #base #name .to_string() }
         },
         FieldMode::Set => {
             let setter = format_ident!("set_{}", name);
             quote! {
+                #(#attrs)*
                 #[setter]
                 fn #setter (&mut self, value: #ty) { #base #name = value; }
             }
