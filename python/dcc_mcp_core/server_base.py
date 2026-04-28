@@ -60,6 +60,11 @@ from typing import Any
 # get_bundled_skill_paths) are deferred inside methods to avoid a circular
 # import: __init__.py imports DccServerBase from this module, so this module
 # cannot import from dcc_mcp_core at module level.
+from dcc_mcp_core._server import FileLoggingManager
+from dcc_mcp_core._server import JobPersistenceManager
+from dcc_mcp_core._server import SkillQueryClient
+from dcc_mcp_core._server import TelemetryManager
+from dcc_mcp_core._server import WindowResolver
 from dcc_mcp_core.gateway_election import DccGatewayElection
 from dcc_mcp_core.hotreload import DccSkillHotReloader
 
@@ -146,7 +151,9 @@ class DccServerBase:
         self._handle: Any | None = None
         self._enable_gateway_failover = enable_gateway_failover
 
-        # Observability flags (env var can override at runtime)
+        # Observability flags (env var can override at runtime). These mirror
+        # the collaborators' `enabled` state so external consumers and tests
+        # can introspect / patch them directly.
         self._enable_file_logging: bool = (
             enable_file_logging and os.environ.get("DCC_MCP_DISABLE_FILE_LOGGING", "0") != "1"
         )
@@ -155,7 +162,8 @@ class DccServerBase:
         )
         self._enable_telemetry: bool = enable_telemetry and os.environ.get("DCC_MCP_DISABLE_TELEMETRY", "0") != "1"
 
-        # Instance-bound DCC diagnostic context
+        # Instance-bound DCC diagnostic context (kept as direct attributes
+        # for backward compatibility — WindowResolver wraps them below).
         self._dcc_pid: int = dcc_pid if dcc_pid is not None else os.getpid()
         self._dcc_window_title: str | None = dcc_window_title
         self._dcc_window_handle: int | None = dcc_window_handle
@@ -204,140 +212,78 @@ class DccServerBase:
         # Create the inner skill manager (registry + dispatcher + catalog)
         self._server: Any = create_skill_server(dcc_name, self._config)
 
+        # Composed collaborators (#486) — constructed eagerly here, but the
+        # `_skill_client` / `_window_resolver` properties below also fall
+        # back to lazy construction so test doubles built via
+        # ``object.__new__`` (which skips this ``__init__``) still work.
+        self._skill_client = SkillQueryClient(self._server, dcc_name)
+        self._window_resolver = WindowResolver(
+            dcc_name=dcc_name,
+            dcc_pid=self._dcc_pid,
+            dcc_window_handle=dcc_window_handle,
+            dcc_window_title=dcc_window_title,
+        )
+
         # Lazy-initialised helpers
         self._hot_reloader: Any | None = None
         self._gateway_election: Any | None = None
 
-    # ── observability helpers ─────────────────────────────────────────────────
+    def __getattr__(self, name: str) -> Any:
+        """Lazily reconstruct collaborators for instances built via ``object.__new__``.
+
+        Some test doubles bypass ``__init__`` and only set the legacy
+        attributes (``_server``, ``_dcc_name``, ``_dcc_pid`` …). When such
+        an instance accesses ``_skill_client`` or ``_window_resolver``, build
+        a fresh collaborator on demand from those attributes and cache it.
+        """
+        if name == "_skill_client":
+            client = SkillQueryClient(self.__dict__["_server"], self.__dict__["_dcc_name"])
+            self.__dict__[name] = client
+            return client
+        if name == "_window_resolver":
+            resolver = WindowResolver(
+                dcc_name=self.__dict__["_dcc_name"],
+                dcc_pid=self.__dict__.get("_dcc_pid", 0),
+                dcc_window_handle=self.__dict__.get("_dcc_window_handle"),
+                dcc_window_title=self.__dict__.get("_dcc_window_title"),
+            )
+            self.__dict__[name] = resolver
+            return resolver
+        raise AttributeError(name)
+
+    # ── observability helpers (delegated to collaborators, #486) ──────────────
 
     def _init_file_logging(self, dcc_name: str) -> str:
         """Initialise rolling file logging for this DCC server.
 
-        Returns the resolved log directory path (empty string on failure).
-        Failures are non-fatal: a ``logger.warning`` is emitted and the
-        server continues without file logging.
-
-        Log files are named ``dcc-mcp-<dcc_name>.<pid>.<YYYYMMDD>.log`` and live in:
-        1. ``DCC_MCP_LOG_DIR`` env var (if set)
-        2. ``<platform log dir>/dcc-mcp/`` (macOS: ``~/Library/Logs``,
-           Windows: ``%LOCALAPPDATA%``, Linux: ``~/.local/share``)
+        Delegates to :class:`FileLoggingManager`. Returns the resolved log
+        directory path (empty string on failure or when disabled). Failures
+        are non-fatal: the manager logs a warning and the server continues.
         """
-        if not self._enable_file_logging:
-            return ""
-        try:
-            from dcc_mcp_core import FileLoggingConfig
-            from dcc_mcp_core import get_log_dir
-            from dcc_mcp_core import init_file_logging
-
-            log_dir = os.environ.get("DCC_MCP_LOG_DIR") or get_log_dir()
-            # Include the PID in the prefix so multiple instances of the same
-            # DCC (e.g. two Maya sessions) write to distinct files and never
-            # interleave their log lines. Issue #402.
-            pid = os.getpid()
-            cfg = FileLoggingConfig(
-                directory=log_dir,
-                file_name_prefix=f"dcc-mcp-{dcc_name}.{pid}",
-                # Keep 14 daily files (two weeks of history)
-                max_files=14,
-                # 20 MiB per file — enough for a busy session without filling disks
-                max_size_bytes=20 * 1024 * 1024,
-                rotation="both",
-            )
-            resolved = init_file_logging(cfg)
-            logger.info(
-                "[%s] File logging enabled → %s/dcc-mcp-%s.%s.*.log",
-                dcc_name,
-                resolved,
-                dcc_name,
-                pid,
-            )
-            return resolved
-        except Exception as exc:
-            logger.warning("[%s] Could not enable file logging: %s", dcc_name, exc)
-            return ""
+        manager = FileLoggingManager(dcc_name, enabled=self._enable_file_logging)
+        return manager.init()
 
     def _init_job_persistence(self, dcc_name: str) -> None:
         """Wire a SQLite job-history database into ``McpHttpConfig``.
 
-        The database is placed alongside the log files so that a single
-        directory gives full post-mortem visibility.  Errors are non-fatal.
-
-        If the compiled extension lacks the ``job-persist-sqlite`` Cargo
-        feature, this method silently skips enabling persistence so the
-        server can fall back to the in-memory ``JobManager``.
+        Delegates to :class:`JobPersistenceManager`. The probe step detects
+        whether the ``job-persist-sqlite`` Cargo feature is compiled in and
+        falls back to the in-memory ``JobManager`` when it is not.
         """
-        if not self._enable_job_persistence:
-            return
-        db_path = None
-        try:
-            import os as _os
-
-            from dcc_mcp_core import get_log_dir
-
-            db_dir = self._log_dir or _os.environ.get("DCC_MCP_LOG_DIR") or get_log_dir()
-            db_path = str(Path(db_dir) / f"dcc-mcp-{dcc_name}-jobs.db")
-        except Exception as exc:
-            logger.debug("[%s] Could not resolve job persistence path: %s", dcc_name, exc)
-            return
-
-        # Probe whether the job-persist-sqlite feature is compiled in by
-        # starting a throw-away server with the same db path.  This avoids
-        # the heavy recovery dance (re-discover + re-load skills) that would
-        # otherwise be needed when the real server.start() fails mid-way.
-        try:
-            from dcc_mcp_core import McpHttpConfig
-            from dcc_mcp_core import create_skill_server
-
-            probe_cfg = McpHttpConfig(port=0, server_name="probe")
-            probe_cfg.job_storage_path = db_path
-            probe_srv = create_skill_server(dcc_name, probe_cfg)
-            probe_handle = probe_srv.start()
-            probe_handle.shutdown()
-            # Probe succeeded — feature is available.
-            self._config.job_storage_path = db_path
-            logger.info("[%s] Job persistence enabled → %s", dcc_name, db_path)
-        except RuntimeError as exc:
-            err_msg = str(exc)
-            if "job-persist-sqlite" in err_msg and "job_storage_path" in err_msg:
-                logger.warning(
-                    "[%s] job-persist-sqlite feature not compiled in; job persistence disabled (in-memory fallback)",
-                    dcc_name,
-                )
-            else:
-                # Some other RuntimeError during probe — be conservative
-                # and leave job_storage_path unset.
-                logger.debug("[%s] Job persistence probe failed: %s", dcc_name, exc)
-        except Exception as exc:
-            logger.debug("[%s] Job persistence probe failed: %s", dcc_name, exc)
+        manager = JobPersistenceManager(dcc_name, enabled=self._enable_job_persistence, log_dir=self._log_dir)
+        manager.init(self._config)
 
     def _init_telemetry(self) -> None:
         """Initialise in-process metrics so ``diagnostics__tool_metrics`` has data.
 
         Uses the noop exporter (no network traffic) — metrics stay in memory
         and are served exclusively through the ``diagnostics__tool_metrics``
-        MCP tool.  Call this once, just before ``server.start()``.
+        MCP tool. Call this once, just before ``server.start()``. Delegates
+        to :class:`TelemetryManager`.
         """
         if not self._enable_telemetry:
             return
-        try:
-            from dcc_mcp_core import TelemetryConfig
-            from dcc_mcp_core import is_telemetry_initialized
-
-            if is_telemetry_initialized():
-                return  # already set up (e.g. by the adapter)
-
-            (
-                TelemetryConfig(f"dcc-mcp-{self._dcc_name}")
-                .with_noop_exporter()
-                .set_enable_metrics(True)
-                .set_enable_tracing(False)  # tracing spans go to the log file instead
-                .with_attribute("dcc.name", self._dcc_name)
-                .with_attribute("dcc.pid", str(self._dcc_pid))
-                .init()
-            )
-            logger.info("[%s] In-process telemetry (metrics) enabled", self._dcc_name)
-        except Exception as exc:
-            logger.debug("[%s] Could not enable telemetry: %s", self._dcc_name, exc)
+        TelemetryManager(self._dcc_name, self._dcc_pid, enabled=True).init()
 
     # ── skill search path helpers ─────────────────────────────────────────────
 
@@ -504,39 +450,25 @@ class DccServerBase:
     def _resolve_window_handle(self) -> int | None:
         """Resolve the DCC window handle from the available context.
 
-        Priority: explicit ``dcc_window_handle`` → cached lookup → PID lookup
-        via :class:`WindowFinder` → title lookup → ``None``.
+        Delegates to :class:`WindowResolver` (#486). Priority: explicit
+        ``dcc_window_handle`` → cached lookup → PID lookup via
+        :class:`WindowFinder` → title lookup → ``None``.
         """
-        if self._dcc_window_handle is not None:
-            return self._dcc_window_handle
-        if self._cached_hwnd is not None:
-            return self._cached_hwnd
-        try:
-            from dcc_mcp_core import CaptureTarget
-            from dcc_mcp_core import WindowFinder
-
-            finder = WindowFinder()
-            info = None
-            if self._dcc_pid:
-                info = finder.find(CaptureTarget.process_id(self._dcc_pid))
-            if info is None and self._dcc_window_title:
-                info = finder.find(CaptureTarget.window_title(self._dcc_window_title))
-            if info is not None:
-                self._cached_hwnd = int(info.handle)
-            return self._cached_hwnd
-        except Exception as exc:
-            logger.debug("[%s] _resolve_window_handle failed: %s", self._dcc_name, exc)
-            return None
+        hwnd = self._window_resolver.resolve()
+        # Mirror the resolved handle back onto the instance so direct
+        # attribute reads (used by historical screenshot helpers) keep
+        # observing the cached value.
+        if hwnd is not None and self._cached_hwnd is None:
+            self._cached_hwnd = hwnd
+        return hwnd
 
     # ── skill query methods (generic — 100% identical across all DCCs) ────────
+    # Delegated to SkillQueryClient collaborator (#486).
 
     @property
     def registry(self) -> Any | None:
         """The underlying ``ToolRegistry``, or ``None`` if unavailable."""
-        try:
-            return self._server.registry
-        except Exception:
-            return None
+        return self._skill_client.registry
 
     def list_actions(self, dcc_name: str | None = None) -> list[Any]:
         """List all registered actions for this DCC.
@@ -548,15 +480,7 @@ class DccServerBase:
             List of ``ActionInfo`` objects.
 
         """
-        registry = self.registry
-        if registry is None:
-            return []
-        effective_dcc = dcc_name if dcc_name is not None else self._dcc_name
-        try:
-            return list(registry.list_actions(dcc_name=effective_dcc))
-        except Exception as exc:
-            logger.debug("[%s] list_actions failed: %s", self._dcc_name, exc)
-            return []
+        return self._skill_client.list_actions(dcc_name)
 
     def list_skills(self) -> list[Any]:
         """List all discovered skills (loaded and unloaded).
@@ -565,11 +489,7 @@ class DccServerBase:
             List of ``SkillSummary`` objects.
 
         """
-        try:
-            return list(self._server.list_skills())
-        except Exception as exc:
-            logger.debug("[%s] list_skills failed: %s", self._dcc_name, exc)
-            return []
+        return self._skill_client.list_skills()
 
     def search_skills(
         self,
@@ -579,58 +499,16 @@ class DccServerBase:
         scope: str | None = None,
         limit: int | None = None,
     ) -> list[Any]:
-        """Search for skills by query, tags, DCC, scope, and/or limit.
-
-        Args:
-            query: Search query string.
-            tags: Filter by tags.
-            dcc: Filter by DCC name.
-            scope: Filter by scope (``"repo"`` | ``"user"`` | ``"system"`` | ``"admin"``).
-            limit: Maximum number of results.
-
-        Returns:
-            List of ``SkillSummary`` objects.
-
-        """
-        try:
-            return list(self._server.search_skills(query=query, tags=tags or [], dcc=dcc, scope=scope, limit=limit))
-        except Exception as exc:
-            logger.debug("[%s] search_skills failed: %s", self._dcc_name, exc)
-            return []
+        """Search for skills by query, tags, DCC, scope, and/or limit."""
+        return self._skill_client.search_skills(query=query, tags=tags, dcc=dcc, scope=scope, limit=limit)
 
     def load_skill(self, name: str) -> bool:
-        """Load a skill by name.
-
-        Args:
-            name: Skill name as discovered (e.g. ``"maya-scene"``).
-
-        Returns:
-            ``True`` on success.
-
-        """
-        try:
-            self._server.load_skill(name)
-            return True
-        except Exception as exc:
-            logger.debug("[%s] load_skill(%r) failed: %s", self._dcc_name, name, exc)
-            return False
+        """Load a skill by name."""
+        return self._skill_client.load_skill(name)
 
     def unload_skill(self, name: str) -> bool:
-        """Unload a skill by name.
-
-        Args:
-            name: Skill name.
-
-        Returns:
-            ``True`` on success.
-
-        """
-        try:
-            self._server.unload_skill(name)
-            return True
-        except Exception as exc:
-            logger.debug("[%s] unload_skill(%r) failed: %s", self._dcc_name, name, exc)
-            return False
+        """Unload a skill by name."""
+        return self._skill_client.unload_skill(name)
 
     def search_actions(
         self,
@@ -642,110 +520,28 @@ class DccServerBase:
 
         Delegates to :meth:`ToolRegistry.search_actions` which filters by
         exact category match, all-tags-present, and optional DCC scope.
-
-        Args:
-            category: Exact category name to filter by (``None`` = no filter).
-            tags: All listed tags must be present on the action (empty = no filter).
-            dcc_name: Override the DCC filter.
-
-        Returns:
-            List of matching ``ActionInfo`` dicts.
-
         """
-        registry = self.registry
-        if registry is None:
-            return []
-        effective_dcc = dcc_name if dcc_name is not None else self._dcc_name
-        try:
-            return list(registry.search_actions(category=category, tags=tags or [], dcc_name=effective_dcc))
-        except Exception as exc:
-            logger.debug("[%s] search_actions failed: %s", self._dcc_name, exc)
-            return []
+        return self._skill_client.search_actions(category=category, tags=tags, dcc_name=dcc_name)
 
     def get_skill_categories(self) -> list[str]:
-        """Return all unique action categories.
-
-        Returns:
-            Sorted list of category strings.
-
-        """
-        registry = self.registry
-        if registry is None:
-            return []
-        try:
-            return list(registry.get_categories())
-        except Exception as exc:
-            logger.debug("[%s] get_categories failed: %s", self._dcc_name, exc)
-            return []
+        """Return all unique action categories."""
+        return self._skill_client.get_skill_categories()
 
     def get_skill_tags(self, dcc_name: str | None = None) -> list[str]:
-        """Return all unique tags for this DCC.
-
-        Args:
-            dcc_name: Override the DCC filter.
-
-        Returns:
-            Sorted list of tag strings.
-
-        """
-        registry = self.registry
-        if registry is None:
-            return []
-        effective_dcc = dcc_name if dcc_name is not None else self._dcc_name
-        try:
-            return list(registry.get_tags(dcc_name=effective_dcc))
-        except Exception as exc:
-            logger.debug("[%s] get_tags failed: %s", self._dcc_name, exc)
-            return []
+        """Return all unique tags for this DCC."""
+        return self._skill_client.get_skill_tags(dcc_name)
 
     def unregister_skill(self, name: str, dcc_name: str | None = None) -> None:
-        """Unregister a skill from the action registry.
-
-        Args:
-            name: Canonical action name (e.g. ``"blender_scene__create_cube"``).
-            dcc_name: Scope to a specific DCC; ``None`` means global.
-
-        """
-        registry = self.registry
-        if registry is None:
-            logger.warning("[%s] Registry unavailable; cannot unregister %r", self._dcc_name, name)
-            return
-        try:
-            registry.unregister(name, dcc_name=dcc_name)
-        except Exception as exc:
-            logger.debug("[%s] unregister(%r) failed: %s", self._dcc_name, name, exc)
+        """Unregister a skill from the action registry."""
+        self._skill_client.unregister_skill(name, dcc_name)
 
     def is_skill_loaded(self, name: str) -> bool:
-        """Check whether a skill is currently loaded.
-
-        Args:
-            name: Skill name.
-
-        Returns:
-            ``True`` if loaded.
-
-        """
-        try:
-            return bool(self._server.is_loaded(name))
-        except Exception as exc:
-            logger.debug("[%s] is_loaded(%r) failed: %s", self._dcc_name, name, exc)
-            return False
+        """Check whether a skill is currently loaded."""
+        return self._skill_client.is_skill_loaded(name)
 
     def get_skill_info(self, name: str) -> Any | None:
-        """Return full metadata for a skill.
-
-        Args:
-            name: Skill name.
-
-        Returns:
-            ``SkillMetadata`` or ``None`` if not found.
-
-        """
-        try:
-            return self._server.get_skill_info(name)
-        except Exception as exc:
-            logger.debug("[%s] get_skill_info(%r) failed: %s", self._dcc_name, name, exc)
-            return None
+        """Return full metadata for a skill."""
+        return self._skill_client.get_skill_info(name)
 
     # ── hot-reload ────────────────────────────────────────────────────────────
 
