@@ -277,6 +277,8 @@ except ImportError:  # pragma: no cover — feature off
     verify_hub_signature_256 = None  # type: ignore[assignment,misc]
 
 # Adapters (pure-Python, non-DccServerBase)
+# Cooperative cancellation (pure-Python, no _core dependency)
+from dcc_mcp_core._server import MinimalModeConfig
 from dcc_mcp_core.adapters import CAPABILITY_KEYS
 from dcc_mcp_core.adapters import WEBVIEW_DEFAULT_CAPABILITIES
 from dcc_mcp_core.adapters import WebViewAdapter
@@ -300,8 +302,6 @@ from dcc_mcp_core.bridge import BridgeError
 from dcc_mcp_core.bridge import BridgeRpcError
 from dcc_mcp_core.bridge import BridgeTimeoutError
 from dcc_mcp_core.bridge import DccBridge
-
-# Cooperative cancellation (pure-Python, no _core dependency)
 from dcc_mcp_core.cancellation import CancelledError
 from dcc_mcp_core.cancellation import CancelToken
 from dcc_mcp_core.cancellation import JobHandle
@@ -493,6 +493,7 @@ __all__ = [
     "McpHttpConfig",
     "McpHttpServer",
     "McpServerHandle",
+    "MinimalModeConfig",
     "OAuthConfig",
     "ObjectTransform",
     "OutputCapture",

@@ -65,6 +65,8 @@ from dcc_mcp_core._server import JobPersistenceManager
 from dcc_mcp_core._server import SkillQueryClient
 from dcc_mcp_core._server import TelemetryManager
 from dcc_mcp_core._server import WindowResolver
+from dcc_mcp_core._server.minimal_mode import MinimalModeConfig
+from dcc_mcp_core._server.minimal_mode import apply_minimal_mode
 from dcc_mcp_core.gateway_election import DccGatewayElection
 from dcc_mcp_core.hotreload import DccSkillHotReloader
 
@@ -356,16 +358,25 @@ class DccServerBase:
         self,
         extra_skill_paths: list[str] | None = None,
         include_bundled: bool = True,
+        minimal_mode: MinimalModeConfig | None = None,
     ) -> None:
-        """Discover and load all skills from the search path.
+        """Discover and (optionally) progressively load skills.
 
         Builds the ordered skill search path via
         :meth:`collect_skill_search_paths` and calls
-        ``SkillCatalog.discover_and_load_all``.
+        ``McpHttpServer.discover``. When ``minimal_mode`` is provided,
+        only the named skills are loaded eagerly, and the listed tool
+        groups inside those skills are deactivated; the remaining
+        discovered skills stay as ``__skill__<name>`` stubs until an
+        agent calls ``load_skill``.
 
         Args:
             extra_skill_paths: Additional directories to scan.
             include_bundled: Include dcc-mcp-core bundled skills.
+            minimal_mode: Declarative descriptor for progressive
+                loading (issue #525). ``None`` (default) preserves the
+                pre-existing behaviour of discovering everything and
+                leaving every skill as a stub.
 
         """
         skill_paths = self.collect_skill_search_paths(
@@ -381,6 +392,22 @@ class DccServerBase:
             logger.info("[%s] Skills discovered: %d from %d path(s)", self._dcc_name, count, len(skill_paths))
         except Exception as exc:
             logger.warning("[%s] register_builtin_actions failed: %s", self._dcc_name, exc)
+            return
+
+        if minimal_mode is not None:
+            try:
+                loaded = apply_minimal_mode(
+                    self._server,
+                    minimal_mode,
+                    dcc_name=self._dcc_name,
+                )
+                logger.info(
+                    "[%s] Minimal mode: %d skill(s) loaded eagerly",
+                    self._dcc_name,
+                    loaded,
+                )
+            except Exception as exc:
+                logger.warning("[%s] minimal_mode application failed: %s", self._dcc_name, exc)
 
     # ── gateway & is_gateway ──────────────────────────────────────────────────
 

@@ -6,6 +6,7 @@ underscore-prefixed because they are an implementation detail; the public
 contract remains :class:`dcc_mcp_core.server_base.DccServerBase`.
 """
 
+from dcc_mcp_core._server.minimal_mode import MinimalModeConfig
 from dcc_mcp_core._server.observability import FileLoggingManager
 from dcc_mcp_core._server.observability import JobPersistenceManager
 from dcc_mcp_core._server.observability import TelemetryManager
@@ -15,6 +16,7 @@ from dcc_mcp_core._server.window_resolver import WindowResolver
 __all__ = [
     "FileLoggingManager",
     "JobPersistenceManager",
+    "MinimalModeConfig",
     "SkillQueryClient",
     "TelemetryManager",
     "WindowResolver",
