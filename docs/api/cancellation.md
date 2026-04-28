@@ -1,10 +1,10 @@
 # Cancellation API
 
-Cooperative cancellation support for DCC-MCP skill scripts (issue #318, #332).
+Cooperative cancellation support for DCC-MCP skill scripts (issue #318, #332, #522).
 
 Skill scripts executed inside a `tools/call` request run as regular Python code and cannot be interrupted by the dispatcher. The MCP spec's `notifications/cancelled` message only helps if the running code checks for cancellation at appropriate points.
 
-**Exported symbols:** `CancelToken`, `CancelledError`, `check_cancelled`, `current_cancel_token`, `reset_cancel_token`, `set_cancel_token`
+**Exported symbols:** `CancelToken`, `CancelledError`, `JobHandle`, `check_cancelled`, `check_dcc_cancelled`, `current_cancel_token`, `current_job`, `reset_cancel_token`, `reset_current_job`, `set_cancel_token`, `set_current_job`
 
 ## CancelToken
 
@@ -101,3 +101,51 @@ Return the `CancelToken` installed in the current context, or `None` when no dis
 ::: tip
 Use `current_cancel_token()` to poll the cancellation flag without raising, e.g. to flush partial progress before returning.
 :::
+
+## Per-job cancellation (issue #522)
+
+Skill scripts launched **outside** an MCP request context — queued batch renders, `scriptJob` callbacks, simulation runners — cannot rely on `check_cancelled()` because no `CancelToken` is installed. DCC plugins (Maya, Houdini, Unreal …) submit each callable to their own UI-thread dispatcher and need to flag in-flight jobs for cancellation through a per-job handle.
+
+The four symbols below give the dispatcher a way to publish that handle and skill code a single probe (`check_dcc_cancelled`) that honours **both** layers.
+
+### JobHandle
+
+```python
+from dcc_mcp_core import JobHandle
+```
+
+A `typing.Protocol` (runtime-checkable) describing the per-job handle a host dispatcher publishes through `set_current_job`. Only one attribute is contractual:
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `cancelled` (property) | `bool` | `True` when the host dispatcher has signalled cancellation. |
+
+Concrete implementations are free to expose additional fields (request id, progress token, `threading.Event`, …) for their own bookkeeping.
+
+### check_dcc_cancelled
+
+```python
+check_dcc_cancelled() -> None
+```
+
+Cheap probe that raises `CancelledError` if **either** the active MCP `CancelToken` *or* the per-job `JobHandle` reports cancellation. Skill scripts that can run outside a request context should call this instead of `check_cancelled`.
+
+```python
+from dcc_mcp_core import check_dcc_cancelled, skill_success
+
+def run(frames: list[int]) -> dict:
+    for frame in frames:
+        check_dcc_cancelled()  # honours both MCP token and dispatcher
+        render_frame(frame)
+    return skill_success("rendered", count=len(frames))
+```
+
+### set_current_job / reset_current_job / current_job
+
+```python
+set_current_job(job: JobHandle | None) -> contextvars.Token
+reset_current_job(reset: contextvars.Token) -> None
+current_job: contextvars.ContextVar[JobHandle | None]
+```
+
+Dispatcher-only API for installing the active `JobHandle`. Pair every `set_current_job` with a `reset_current_job` in a `finally` block; the contextvar is per-context, so threads spawned with `threading.Thread` start with the default `None` (use `contextvars.copy_context()` if propagation is desired).

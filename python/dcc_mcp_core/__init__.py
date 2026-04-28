@@ -301,10 +301,15 @@ from dcc_mcp_core.bridge import DccBridge
 # Cooperative cancellation (pure-Python, no _core dependency)
 from dcc_mcp_core.cancellation import CancelledError
 from dcc_mcp_core.cancellation import CancelToken
+from dcc_mcp_core.cancellation import JobHandle
 from dcc_mcp_core.cancellation import check_cancelled
+from dcc_mcp_core.cancellation import check_dcc_cancelled
 from dcc_mcp_core.cancellation import current_cancel_token
+from dcc_mcp_core.cancellation import current_job
 from dcc_mcp_core.cancellation import reset_cancel_token
+from dcc_mcp_core.cancellation import reset_current_job
 from dcc_mcp_core.cancellation import set_cancel_token
+from dcc_mcp_core.cancellation import set_current_job
 
 # Checkpoint/resume for long-running tool executions (issue #436)
 from dcc_mcp_core.checkpoint import CheckpointStore
@@ -479,6 +484,7 @@ __all__ = [
     "InputValidator",
     "IntWrapper",
     "IpcChannelAdapter",
+    "JobHandle",
     "LoggingMiddleware",
     "McpHttpConfig",
     "McpHttpServer",
@@ -580,6 +586,7 @@ __all__ = [
     "batch_dispatch",
     "build_plugin_manifest",
     "check_cancelled",
+    "check_dcc_cancelled",
     "checkpoint_every",
     "clear_checkpoint",
     "clear_feedback",
@@ -589,6 +596,7 @@ __all__ = [
     "create_dcc_server",
     "create_skill_server",
     "current_cancel_token",
+    "current_job",
     "deserialize_result",
     "elicit_form",
     "elicit_form_sync",
@@ -659,6 +667,7 @@ __all__ = [
     "register_recipes_tools",
     "register_workflow_yaml_tools",
     "reset_cancel_token",
+    "reset_current_job",
     "resolve_dependencies",
     "run_main",
     "save_checkpoint",
@@ -672,6 +681,7 @@ __all__ = [
     "scene_info_json_to_stage",
     "serialize_result",
     "set_cancel_token",
+    "set_current_job",
     "shutdown_file_logging",
     "shutdown_telemetry",
     "skill_entry",

@@ -96,7 +96,8 @@
 | Full-screen capture | `Capturer.new_auto().capture()` |
 | Single-window capture | `Capturer.new_window_auto().capture_window(...)` |
 | Capture DCC output streams | `OutputCapture` — stdout/stderr/script-editor as `output://` resource |
-| Cooperative cancellation | `check_cancelled()` in long-running skill scripts |
+| Cooperative cancellation (MCP request) | `check_cancelled()` in long-running skill scripts |
+| Cooperative cancellation (DCC dispatcher + MCP) | `check_dcc_cancelled()` — combines MCP token + per-job `JobHandle` (#522) |
 | Checkpoint/resume | `save_checkpoint(job_id, state)` / `get_checkpoint(job_id)` |
 | Agent-facing docs resources | `register_docs_server(server)` → `docs://` MCP resources |
 | Agent feedback | `register_feedback_tool(server)` → `dcc_feedback__report` tool |

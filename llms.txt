@@ -29,7 +29,8 @@
 | Inline chart / table / image result (MCP Apps, issue #409) | `skill_success_with_chart(msg, spec)` / `skill_success_with_table(msg, headers, rows)` / `skill_success_with_image(msg, image_data=...)` |
 | Run skill scripts inside embedded DCC (no subprocess) | `SkillCatalog.set_in_process_executor(callable)` on the server's catalog — callable receives `(script_path, params) -> dict` |
 | Claude Code one-click plugin bundle (issue #410) | `build_plugin_manifest(dcc_name, mcp_url, skill_paths, api_key=...)` + `export_plugin_manifest(manifest, path)` or `server.plugin_manifest(version=...)` |
-| Cooperative cancellation in skill scripts | `check_cancelled()` — raises `CancelledError` when the active request was cancelled; dispatcher sets `CancelToken` via `set_cancel_token()` |
+| Cooperative cancellation in skill scripts (MCP-only) | `check_cancelled()` — raises `CancelledError` when the active request was cancelled; dispatcher sets `CancelToken` via `set_cancel_token()` |
+| Cooperative cancellation in DCC dispatcher skills (#522) | `check_dcc_cancelled()` — also honours per-job `JobHandle` published via `set_current_job(handle)`; required for skills launched outside an MCP request context (queued batch render, `scriptJob` callback, simulation runner) |
 | Checkpoint/resume long-running tool executions (issue #436) | `save_checkpoint(job_id, state)` / `get_checkpoint(job_id)` / `checkpoint_every(n, job_id, state_fn)` — persist progress at intervals so interrupted jobs resume from last checkpoint |
 | Agent-facing docs:// MCP resources (issue #435) | `register_docs_server(server)` — serves `docs://output-format/*` and `docs://skill-authoring/*` resources; agents fetch only specs they need |
 | Agent feedback / rationale (issues #433, #434) | `register_feedback_tool(server)` / `extract_rationale(params)` / `make_rationale_meta(text)` — `dcc_feedback__report` tool + `_meta.dcc.rationale` extraction |
@@ -411,8 +412,13 @@ tools:
 ### Cancellation (`dcc_mcp_core.cancellation`)
 
 - `CancelToken()` — thread-safe cancellation flag; `.cancel()`, `.cancelled -> bool`
-- `CancelledError(Exception)` — raised by `check_cancelled()` when the active request was cancelled
-- `check_cancelled() -> None` — raise `CancelledError` if the active request was cancelled (no-op outside request context)
+- `CancelledError(Exception)` — raised by `check_cancelled()` / `check_dcc_cancelled()` when cancellation was signalled
+- `check_cancelled() -> None` — raise `CancelledError` if the active MCP request was cancelled (no-op outside request context)
+- `check_dcc_cancelled() -> None` (#522) — combines `check_cancelled()` with a per-job check; raises if either the MCP token OR the per-job `JobHandle` reports cancellation; use this in skills launched from a DCC dispatcher rather than an MCP request
+- `JobHandle` (`Protocol`, runtime-checkable) — contract for the per-job handle a host dispatcher publishes; only `cancelled: bool` is contractual
+- `current_job: ContextVar[JobHandle | None]` — read-only contextvar (default `None`) holding the active per-job handle
+- `set_current_job(job) -> contextvars.Token` — install a `JobHandle` (dispatcher use only)
+- `reset_current_job(reset) -> None` — restore previous job handle (pair with `set_current_job`)
 - `set_cancel_token(token) -> contextvars.Token` — install a CancelToken (dispatcher use only)
 - `reset_cancel_token(reset) -> None` — restore previous token (pair with set_cancel_token)
 - `current_cancel_token() -> CancelToken | None` — return the active token

@@ -13,10 +13,15 @@ import pytest
 # Import local modules
 from dcc_mcp_core import CancelledError
 from dcc_mcp_core import CancelToken
+from dcc_mcp_core import JobHandle
 from dcc_mcp_core import check_cancelled
+from dcc_mcp_core import check_dcc_cancelled
 from dcc_mcp_core import current_cancel_token
+from dcc_mcp_core import current_job
 from dcc_mcp_core import reset_cancel_token
+from dcc_mcp_core import reset_current_job
 from dcc_mcp_core import set_cancel_token
+from dcc_mcp_core import set_current_job
 
 
 def test_exports_available() -> None:
@@ -185,3 +190,119 @@ def test_cancelled_error_is_exception_subclass() -> None:
         raise CancelledError("x")
     except Exception as exc:
         assert isinstance(exc, CancelledError)
+
+
+# ── check_dcc_cancelled / JobHandle (issue #522) ───────────────────────────
+
+
+class _FakeJob:
+    """Minimal :class:`JobHandle` impl used by the per-job cancel tests."""
+
+    def __init__(self) -> None:
+        self.cancelled = False
+
+
+def test_dcc_exports_available() -> None:
+    """The four new per-job symbols must be re-exported from the top level."""
+    # Import local modules
+    import dcc_mcp_core
+
+    for name in (
+        "JobHandle",
+        "check_dcc_cancelled",
+        "current_job",
+        "set_current_job",
+        "reset_current_job",
+    ):
+        assert hasattr(dcc_mcp_core, name), name
+        assert name in dcc_mcp_core.__all__
+
+
+def test_check_dcc_cancelled_no_op_without_either_layer() -> None:
+    """No token, no job → must not raise."""
+    check_dcc_cancelled()
+
+
+def test_check_dcc_cancelled_honours_mcp_token() -> None:
+    """The MCP-side token short-circuits before the per-job check."""
+    token = CancelToken()
+    reset_token = set_cancel_token(token)
+    try:
+        token.cancel()
+        with pytest.raises(CancelledError, match="Request cancelled"):
+            check_dcc_cancelled()
+    finally:
+        reset_cancel_token(reset_token)
+
+
+def test_check_dcc_cancelled_honours_per_job_handle() -> None:
+    """A cancelled JobHandle raises even when the MCP token is clear."""
+    job = _FakeJob()
+    reset = set_current_job(job)
+    try:
+        check_dcc_cancelled()  # not yet cancelled → no-op
+        job.cancelled = True
+        with pytest.raises(CancelledError, match="Job cancelled by dispatcher"):
+            check_dcc_cancelled()
+    finally:
+        reset_current_job(reset)
+
+
+def test_check_dcc_cancelled_clears_per_thread() -> None:
+    """Per-job handle is contextvar-scoped; threads do not inherit by default."""
+    job = _FakeJob()
+    job.cancelled = True
+    reset = set_current_job(job)
+    try:
+        seen: list[bool] = []
+
+        def worker() -> None:
+            # New OS thread → fresh contextvar copy is empty → no-op.
+            try:
+                check_dcc_cancelled()
+            except CancelledError:
+                seen.append(False)
+            else:
+                seen.append(True)
+
+        t = threading.Thread(target=worker)
+        t.start()
+        t.join()
+        assert seen == [True]
+    finally:
+        reset_current_job(reset)
+
+
+def test_jobhandle_protocol_runtime_check() -> None:
+    """``isinstance(_, JobHandle)`` works because the protocol is runtime-checkable."""
+    job = _FakeJob()
+    assert isinstance(job, JobHandle)
+
+
+def test_set_current_job_returns_token_for_reset() -> None:
+    """The return value of set_current_job round-trips through reset_current_job."""
+    job_a = _FakeJob()
+    job_b = _FakeJob()
+    reset_a = set_current_job(job_a)
+    reset_b = set_current_job(job_b)
+    assert current_job.get() is job_b
+    reset_current_job(reset_b)
+    assert current_job.get() is job_a
+    reset_current_job(reset_a)
+    assert current_job.get() is None
+
+
+def test_check_dcc_cancelled_token_takes_priority_over_job() -> None:
+    """When both layers signal cancel, the MCP-token message is reported."""
+    job = _FakeJob()
+    job.cancelled = True
+    token = CancelToken()
+    token.cancel()
+    reset_t = set_cancel_token(token)
+    reset_j = set_current_job(job)
+    try:
+        with pytest.raises(CancelledError, match="Request cancelled"):
+            check_dcc_cancelled()
+    finally:
+        reset_current_job(reset_j)
+        reset_cancel_token(reset_t)

@@ -41,14 +41,25 @@ from __future__ import annotations
 # Import built-in modules
 import contextvars
 import threading
+from typing import TYPE_CHECKING
+from typing import Protocol
+from typing import runtime_checkable
+
+if TYPE_CHECKING:
+    pass
 
 __all__ = [
     "CancelToken",
     "CancelledError",
+    "JobHandle",
     "check_cancelled",
+    "check_dcc_cancelled",
     "current_cancel_token",
+    "current_job",
     "reset_cancel_token",
+    "reset_current_job",
     "set_cancel_token",
+    "set_current_job",
 ]
 
 
@@ -190,3 +201,96 @@ def reset_cancel_token(reset: contextvars.Token) -> None:
 
     """
     _current_token.reset(reset)
+
+
+# ── Per-job cooperative cancellation (issue #522) ──────────────────────────
+
+
+@runtime_checkable
+class JobHandle(Protocol):
+    """Protocol for the per-job handle a host dispatcher publishes.
+
+    DCC plugins (Maya, Houdini, Unreal …) submit each callable to their
+    own UI-thread dispatcher and need a way to flag in-flight jobs for
+    cancellation **outside** of an MCP request context (queued batch
+    renders, ``scriptJob`` callbacks, simulation runners). The
+    dispatcher allocates a :class:`JobHandle` per submission and
+    publishes it through :func:`set_current_job` so cooperative probes
+    inside the running script can call :func:`check_dcc_cancelled`.
+
+    Only the ``cancelled`` attribute is contractual. Concrete
+    implementations are free to expose additional fields (request id,
+    progress token, ``threading.Event``, …) for their own bookkeeping.
+    """
+
+    @property
+    def cancelled(self) -> bool:
+        """``True`` when the host dispatcher has signalled cancellation."""
+        ...
+
+
+current_job: contextvars.ContextVar[JobHandle | None] = contextvars.ContextVar(
+    "dcc_mcp_core_current_job",
+    default=None,
+)
+
+
+def check_dcc_cancelled() -> None:
+    """Honour both MCP-request and DCC-dispatcher cancellation signals.
+
+    Raises :class:`CancelledError` when either the active MCP request or
+    the owning host dispatcher has signalled cancellation. Two layers
+    are checked in order:
+
+    1. The ambient :class:`CancelToken` (set by the MCP request handler
+       on receipt of ``notifications/cancelled``) — same as
+       :func:`check_cancelled`.
+    2. The per-job :class:`JobHandle` published by the host dispatcher
+       (Maya ``MayaUiDispatcher``, Houdini equivalent, …).
+
+    Cheap no-op when neither layer is active, so it is safe to call from
+    unit tests, REPLs, or DCC hosts that have not wired the per-job
+    contextvar. Skill scripts launched **outside** an MCP request
+    context (queued batch render, ``scriptJob`` callback, simulation
+    runner) should call :func:`check_dcc_cancelled` rather than
+    :func:`check_cancelled` so dispatcher-driven cancels are honoured.
+
+    Raises:
+        CancelledError: If the MCP token or the per-job handle reports
+            cancellation.
+
+    """
+    check_cancelled()
+    job = current_job.get()
+    if job is not None and job.cancelled:
+        raise CancelledError("Job cancelled by dispatcher")
+
+
+def set_current_job(job: JobHandle | None) -> contextvars.Token:
+    """Install *job* as the active per-job handle for the current context.
+
+    Intended for **dispatcher** use only — skill authors should call
+    :func:`check_dcc_cancelled` instead. Pair every call with
+    :func:`reset_current_job` in a ``finally`` block.
+
+    Args:
+        job: The handle to install, or ``None`` to clear an inherited
+            handle in this context.
+
+    Returns:
+        A :class:`contextvars.Token` recording the previous value;
+        pass it to :func:`reset_current_job`.
+
+    """
+    return current_job.set(job)
+
+
+def reset_current_job(reset: contextvars.Token) -> None:
+    """Restore the per-job contextvar to its previous value.
+
+    Args:
+        reset: The token returned by the matching
+            :func:`set_current_job` call.
+
+    """
+    current_job.reset(reset)
