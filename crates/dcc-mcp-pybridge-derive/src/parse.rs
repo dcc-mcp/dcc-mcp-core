@@ -12,8 +12,9 @@
 //! )
 //! ```
 //!
-//! `<mode>` is one of: `get` | `get(by_str)` | `get(clone)` | `set` |
-//! `repr` | `dict`. See [`FieldMode`] for semantics.
+//! `<mode>` is one of: `get` | `get(by_str)` | `get(clone)` |
+//! `get(to_string)` | `set` | `repr` | `dict`. See [`FieldMode`] for
+//! semantics.
 
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
@@ -29,6 +30,10 @@ pub enum FieldMode {
     GetByStr,
     /// `#[getter] fn x(&self) -> T { self.<base>.x.clone() }` for owned types.
     GetClone,
+    /// `#[getter] fn x(&self) -> T { self.<base>.x.to_string() }` for
+    /// types whose `Display` impl is the canonical Python serialisation
+    /// (e.g. `Url`, `IpAddr`, `PathBuf`).
+    GetToString,
     /// `#[setter] fn set_x(&mut self, value: T) { self.<base>.x = value; }`.
     Set,
     /// Field appears in the auto-generated `__repr__` body via `{:?}`.
@@ -131,11 +136,12 @@ impl Parse for FieldMode {
                     match variant.to_string().as_str() {
                         "by_str" => FieldMode::GetByStr,
                         "clone" => FieldMode::GetClone,
+                        "to_string" => FieldMode::GetToString,
                         other => {
                             return Err(syn::Error::new(
                                 variant.span(),
                                 format!(
-                                    "unknown get variant `{other}`; expected `by_str` or `clone`"
+                                    "unknown get variant `{other}`; expected `by_str`, `clone`, or `to_string`"
                                 ),
                             ));
                         }
@@ -211,6 +217,12 @@ mod tests {
     fn rejects_unknown_get_variant() {
         let err = parse(r#"fields(x: u8 => [get(weird)])"#).unwrap_err();
         assert!(err.to_string().contains("unknown get variant"));
+    }
+
+    #[test]
+    fn parses_get_to_string() {
+        let attr = parse(r#"fields(host: String => [get(to_string)])"#).unwrap();
+        assert_eq!(attr.fields[0].modes, vec![FieldMode::GetToString]);
     }
 
     #[test]

@@ -86,3 +86,52 @@ impl DirectStyle {
 fn direct_pattern_compiles() {
     let _ = std::mem::size_of::<DirectStyle>();
 }
+
+// --------------------------------------------------------- get(to_string) mode
+
+/// A type whose canonical Python serialisation is `Display`. Mimics the
+/// real-world pattern in `PyMcpHttpConfig::host()` where the inner field
+/// is a non-`String` type (e.g. `IpAddr`, `Url`) but Python sees a plain
+/// `str` produced via `to_string()`.
+#[derive(Default)]
+pub struct DisplayHolder {
+    pub label: u32,
+}
+
+impl std::fmt::Display for DisplayHolder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "label-{}", self.label)
+    }
+}
+
+#[derive(Default)]
+pub struct InnerToString {
+    pub label: DisplayHolder,
+}
+
+#[pyclass(name = "ToStringWrapper")]
+#[derive(PyWrapper)]
+#[py_wrapper(
+    inner = "InnerToString",
+    fields(
+        label: String => [get(to_string)],
+    ),
+)]
+pub struct ToStringWrapper {
+    pub inner: InnerToString,
+}
+
+#[pymethods]
+impl ToStringWrapper {
+    #[new]
+    fn new() -> Self {
+        Self {
+            inner: InnerToString::default(),
+        }
+    }
+}
+
+#[test]
+fn to_string_mode_compiles() {
+    let _ = std::mem::size_of::<ToStringWrapper>();
+}

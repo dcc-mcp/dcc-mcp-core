@@ -77,6 +77,10 @@ fn emit_accessor(field: &FieldDecl, mode: FieldMode, base: &TokenStream2) -> Opt
             #[getter]
             fn #name(&self) -> #ty { #base #name .clone() }
         },
+        FieldMode::GetToString => quote! {
+            #[getter]
+            fn #name(&self) -> #ty { #base #name .to_string() }
+        },
         FieldMode::Set => {
             let setter = format_ident!("set_{}", name);
             quote! {
