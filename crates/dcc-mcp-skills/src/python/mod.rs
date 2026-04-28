@@ -5,6 +5,7 @@
 
 pub(crate) mod catalog;
 pub(crate) mod feedback;
+pub(crate) mod gui_executable;
 pub(crate) mod loader;
 pub(crate) mod paths;
 pub(crate) mod resolver;

@@ -98,6 +98,8 @@
 | Capture DCC output streams | `OutputCapture` — stdout/stderr/script-editor as `output://` resource |
 | Cooperative cancellation (MCP request) | `check_cancelled()` in long-running skill scripts |
 | Cooperative cancellation (DCC dispatcher + MCP) | `check_dcc_cancelled()` — combines MCP token + per-job `JobHandle` (#522) |
+| Detect a misconfigured GUI binary as `DCC_MCP_PYTHON_EXECUTABLE` | `is_gui_executable(path)` → `GuiExecutableHint(dcc_kind, recommended_replacement)` (#524) |
+| Auto-correct GUI binary to its headless sibling | `correct_python_executable(path)` — falls back to original path if no sibling found (#524) |
 | Checkpoint/resume | `save_checkpoint(job_id, state)` / `get_checkpoint(job_id)` |
 | Agent-facing docs resources | `register_docs_server(server)` → `docs://` MCP resources |
 | Agent feedback | `register_feedback_tool(server)` → `dcc_feedback__report` tool |

@@ -177,6 +177,7 @@ fn register_skills(m: &Bound<'_, PyModule>) -> PyResult<()> {
         dcc_mcp_skills::SkillSummary,
         dcc_mcp_skills::PySkillValidationIssue,
         dcc_mcp_skills::PySkillValidationReport,
+        dcc_mcp_skills::PyGuiExecutableHint,
         dcc_mcp_models::ToolDeclaration,
     );
     add_functions!(
@@ -193,6 +194,8 @@ fn register_skills(m: &Bound<'_, PyModule>) -> PyResult<()> {
         dcc_mcp_skills::py_scan_and_load_user_lenient,
         dcc_mcp_skills::py_scan_and_load_team_lenient,
         dcc_mcp_skills::py_validate_skill,
+        dcc_mcp_skills::py_is_gui_executable,
+        dcc_mcp_skills::py_correct_python_executable,
     );
     Ok(())
 }

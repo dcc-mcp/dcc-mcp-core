@@ -245,34 +245,9 @@ const DCC_NAMES_REQUIRING_HOST_PYTHON: &[&str] = &[
     "motionbuilder",
 ];
 
-/// Known DCC GUI executable names (case-insensitive).  Used to detect
-/// when `DCC_MCP_PYTHON_EXECUTABLE` has been mistakenly pointed at a
-/// GUI binary instead of the headless interpreter.
-const DCC_GUI_EXECUTABLES: &[&str] = &[
-    "maya",
-    "maya.exe",
-    "maya.bin",
-    "blender",
-    "blender.exe",
-    "houdini",
-    "houdini.exe",
-    "houdinifx",
-    "houdinicore",
-    "3dsmax",
-    "3dsmax.exe",
-    "nuke",
-    "nuke.exe",
-    "nukestudio",
-    "modo",
-    "modo.exe",
-    "motionbuilder",
-    "motionbuilder.exe",
-    "cinema4d",
-    "cinema4d.exe",
-    "c4d",
-    "katana",
-    "katana.exe",
-];
+// GUI-binary detection moved to `crate::gui_executable` (issue #524) so
+// every DCC plugin can reach the same lookup table via
+// `dcc_mcp_skills::is_gui_executable`.
 
 pub(crate) fn execute_script(
     script_path: &str,
@@ -334,26 +309,27 @@ pub(crate) fn execute_script(
         }
     }
 
-    // Guard against accidentally pointing DCC_MCP_PYTHON_EXECUTABLE at a GUI
-    // executable (e.g. maya.exe, Maya, blender.exe).  Spawning a GUI as a
-    // Python interpreter will open a second DCC window instead of running the
-    // skill script.
+    // Guard against accidentally pointing DCC_MCP_PYTHON_EXECUTABLE at a
+    // GUI executable (e.g. maya.exe, Maya, blender.exe).  Spawning a GUI
+    // as a Python interpreter will open a second DCC window instead of
+    // running the skill script. Detection lives in
+    // `crate::gui_executable` (issue #524) so other DCC plugins reach the
+    // same lookup table.
     if let Some(ref exe) = python_exe_override {
-        if let Some(stem) = std::path::Path::new(exe)
-            .file_stem()
-            .and_then(|s| s.to_str())
-        {
-            let stem_lc = stem.to_lowercase();
-            if DCC_GUI_EXECUTABLES.iter().any(|g| g == &stem_lc.as_str()) {
-                let msg = format!(
-                    "DCC_MCP_PYTHON_EXECUTABLE points to a GUI executable '{exe}' ({stem}). \
-                     This will spawn a new DCC window instead of running the skill script. \
-                     Use the command-line interpreter (e.g. mayapy, blender --python, hython) \
-                     or leave DCC_MCP_PYTHON_EXECUTABLE unset to use the in-process executor."
-                );
-                tracing::error!(target: "dcc_mcp_skills::execute", exe, "{}", msg);
-                return Err(msg);
-            }
+        if let Some(hint) = crate::gui_executable::is_gui_executable(std::path::Path::new(exe)) {
+            let suggestion = match hint.recommended_replacement.as_ref() {
+                Some(p) => format!("Use the command-line interpreter at '{}'.", p.display()),
+                None => "Use the command-line interpreter (e.g. mayapy, blender --python, hython) \
+                         or leave DCC_MCP_PYTHON_EXECUTABLE unset to use the in-process executor."
+                    .to_string(),
+            };
+            let msg = format!(
+                "DCC_MCP_PYTHON_EXECUTABLE points to a {} GUI executable '{}'. \
+                 This will spawn a new DCC window instead of running the skill script. {}",
+                hint.dcc_kind, exe, suggestion,
+            );
+            tracing::error!(target: "dcc_mcp_skills::execute", exe, dcc_kind = hint.dcc_kind, "{}", msg);
+            return Err(msg);
         }
     }
 

@@ -72,6 +72,7 @@ from dcc_mcp_core._core import FileRef
 from dcc_mcp_core._core import FloatWrapper
 from dcc_mcp_core._core import FrameRange
 from dcc_mcp_core._core import GracefulIpcChannelAdapter
+from dcc_mcp_core._core import GuiExecutableHint
 from dcc_mcp_core._core import InputValidator
 from dcc_mcp_core._core import IntWrapper
 from dcc_mcp_core._core import IpcChannelAdapter
@@ -179,6 +180,7 @@ from dcc_mcp_core._core import artefact_put_bytes
 from dcc_mcp_core._core import artefact_put_file
 from dcc_mcp_core._core import copy_skill_to_team_dir
 from dcc_mcp_core._core import copy_skill_to_user_dir
+from dcc_mcp_core._core import correct_python_executable
 from dcc_mcp_core._core import create_skill_server
 from dcc_mcp_core._core import deserialize_result
 from dcc_mcp_core._core import error_result
@@ -204,6 +206,7 @@ from dcc_mcp_core._core import get_tools_dir
 from dcc_mcp_core._core import get_user_skill_paths_from_env
 from dcc_mcp_core._core import get_user_skills_dir
 from dcc_mcp_core._core import init_file_logging
+from dcc_mcp_core._core import is_gui_executable
 from dcc_mcp_core._core import is_telemetry_initialized
 from dcc_mcp_core._core import json_dumps
 from dcc_mcp_core._core import json_loads
@@ -481,6 +484,7 @@ __all__ = [
     "FormElicitation",
     "FrameRange",
     "GracefulIpcChannelAdapter",
+    "GuiExecutableHint",
     "InputValidator",
     "IntWrapper",
     "IpcChannelAdapter",
@@ -593,6 +597,7 @@ __all__ = [
     "configure_checkpoint_store",
     "copy_skill_to_team_dir",
     "copy_skill_to_user_dir",
+    "correct_python_executable",
     "create_dcc_server",
     "create_skill_server",
     "current_cancel_token",
@@ -642,6 +647,7 @@ __all__ = [
     "introspect_list_module",
     "introspect_search",
     "introspect_signature",
+    "is_gui_executable",
     "is_telemetry_initialized",
     "json_dumps",
     "json_loads",

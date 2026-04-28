@@ -3,6 +3,7 @@
 pub mod catalog;
 pub mod constants;
 pub mod feedback;
+pub mod gui_executable;
 mod loader;
 pub mod manager;
 pub mod paths;
@@ -17,6 +18,7 @@ pub(crate) mod python;
 
 pub use catalog::{SkillCatalog, SkillDetail, SkillState, SkillSummary};
 pub use feedback::{SkillFeedback, get_skill_feedback, record_skill_feedback};
+pub use gui_executable::{GuiExecutableHint, correct_python_executable, is_gui_executable};
 pub use loader::{
     LoadResult, parse_skill_md, scan_and_load, scan_and_load_lenient, scan_and_load_team,
     scan_and_load_team_lenient, scan_and_load_user, scan_and_load_user_lenient,
@@ -39,6 +41,8 @@ pub use watcher::{SkillWatcher, WatcherError};
 
 #[cfg(feature = "python-bindings")]
 pub use feedback::{py_get_skill_feedback, py_record_skill_feedback};
+#[cfg(feature = "python-bindings")]
+pub use gui_executable::{PyGuiExecutableHint, py_correct_python_executable, py_is_gui_executable};
 #[cfg(feature = "python-bindings")]
 pub use loader::{
     py_parse_skill_md, py_scan_and_load, py_scan_and_load_lenient, py_scan_and_load_team,
