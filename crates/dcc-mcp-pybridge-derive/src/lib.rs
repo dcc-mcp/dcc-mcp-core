@@ -9,13 +9,12 @@
 //!
 //! ## Status
 //!
-//! M1 (skeleton). The `#[derive(PyWrapper)]` derive currently parses
-//! the input but emits **no code**. Field-level attribute parsing and
-//! code generation land in M2 (PR for issue #528). This skeleton lets
-//! downstream crates start importing the symbol so the M2 PR is a pure
-//! diff inside this crate.
+//! M2: full codegen. `#[derive(PyWrapper)]` reads the
+//! `#[py_wrapper(inner = "Foo", fields(...))]` attribute and emits a
+//! `#[pyo3::pymethods]` impl block containing one accessor per requested
+//! mode plus aggregated `__repr__` / `to_dict` if any field opts in.
 //!
-//! ## Usage (planned, M2)
+//! ## Usage
 //!
 //! ```ignore
 //! use dcc_mcp_pybridge::derive::PyWrapper;
@@ -24,8 +23,9 @@
 //! #[py_wrapper(
 //!     inner = "McpHttpConfig",
 //!     fields(
-//!         port: u16   => [get, set, repr],
+//!         port: u16    => [get, set, repr],
 //!         host: String => [get(by_str), repr],
+//!         tags: Vec<String> => [get(clone), set],
 //!     ),
 //! )]
 //! #[pyclass(name = "McpHttpConfig")]
@@ -36,20 +36,56 @@
 //!
 //! See issue #528 for the full design and grammar.
 
+mod codegen;
+mod parse;
+
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{DeriveInput, parse_macro_input};
 
-/// Procedural derive that generates `#[pymethods]` accessors from a
-/// `#[py_wrapper(\u2026)]` field declaration table.
+use crate::parse::PyWrapperAttr;
+
+/// Procedural derive that generates `#[pyo3::pymethods]` accessors from
+/// a `#[py_wrapper(...)]` field declaration table.
 ///
-/// **M1 (skeleton)**: parses the input but emits no code. Useful only to
-/// reserve the symbol so downstream crates can wire imports ahead of the
-/// M2 codegen PR. Applying the derive on a struct compiles cleanly and
-/// has zero effect on the resulting binary.
+/// Returns a compile error if the input struct lacks a `#[py_wrapper(...)]`
+/// attribute, or if the attribute fails to parse.
 #[proc_macro_derive(PyWrapper, attributes(py_wrapper))]
 pub fn derive_py_wrapper(input: TokenStream) -> TokenStream {
-    let _input = parse_macro_input!(input as DeriveInput);
-    // M1 stub: no-op codegen. The full implementation lands in M2.
-    quote!().into()
+    let input = parse_macro_input!(input as DeriveInput);
+    let struct_ident = input.ident.clone();
+
+    // Collect the (one and only) `#[py_wrapper(...)]` attribute.
+    let attrs: Vec<&syn::Attribute> = input
+        .attrs
+        .iter()
+        .filter(|a| a.path().is_ident("py_wrapper"))
+        .collect();
+    let attr = match attrs.as_slice() {
+        [] => {
+            return syn::Error::new_spanned(
+                &input.ident,
+                "PyWrapper: missing required `#[py_wrapper(...)]` attribute",
+            )
+            .to_compile_error()
+            .into();
+        }
+        [a] => *a,
+        [first, second, ..] => {
+            let mut err = syn::Error::new_spanned(
+                second,
+                "PyWrapper: only one `#[py_wrapper(...)]` attribute permitted",
+            );
+            err.combine(syn::Error::new_spanned(first, "first attribute is here"));
+            return err.to_compile_error().into();
+        }
+    };
+
+    let parsed: PyWrapperAttr = match attr.parse_args() {
+        Ok(p) => p,
+        Err(e) => return e.to_compile_error().into(),
+    };
+
+    let generated = codegen::generate(&struct_ident, &parsed);
+    quote! { #generated }.into()
 }
