@@ -31,3 +31,22 @@ pub use python::{json_dumps, json_loads, yaml_dumps, yaml_loads};
 /// ```
 #[cfg(feature = "python-bindings")]
 pub use python::wrapper_helpers;
+
+/// Procedural-derive macros for wrapper boilerplate (issue #528).
+///
+/// Re-exports the [`PyWrapper`](derive::PyWrapper) derive from the
+/// `dcc-mcp-pybridge-derive` crate so downstream wrappers only need a
+/// `dcc-mcp-pybridge` dependency:
+///
+/// ```rust,ignore
+/// use dcc_mcp_pybridge::derive::PyWrapper;
+///
+/// #[derive(PyWrapper)]
+/// #[py_wrapper(\u2026)]
+/// pub struct PyMcpHttpConfig { /* \u2026 */ }
+/// ```
+///
+/// The derive is currently a no-op stub (M1); full codegen lands in M2.
+pub mod derive {
+    pub use dcc_mcp_pybridge_derive::PyWrapper;
+}

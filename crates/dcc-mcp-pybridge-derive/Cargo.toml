@@ -1,0 +1,21 @@
+[package]
+name = "dcc-mcp-pybridge-derive"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Procedural derive macros for the dcc-mcp pybridge wrapper-helper layer (issue #528)"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "2", features = ["full", "extra-traits"] }
+quote = "1"
+proc-macro2 = "1"
+
+[dev-dependencies]
+# Smoke-tests live in the consumer crate (`dcc-mcp-pybridge`) so that the
+# macro is exercised in a non-proc-macro build context. See
+# crates/dcc-mcp-pybridge/tests/derive_smoke.rs.

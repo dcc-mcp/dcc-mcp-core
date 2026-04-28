@@ -10,6 +10,7 @@ members = [
     "crates/dcc-mcp-protocols",
     "crates/dcc-mcp-logging",
     "crates/dcc-mcp-pybridge",
+    "crates/dcc-mcp-pybridge-derive",
     "crates/dcc-mcp-paths",
     "crates/dcc-mcp-transport",
     "crates/dcc-mcp-process",
@@ -44,6 +45,7 @@ dcc-mcp-skills = { path = "crates/dcc-mcp-skills" }
 dcc-mcp-protocols = { path = "crates/dcc-mcp-protocols" }
 dcc-mcp-logging = { path = "crates/dcc-mcp-logging" }
 dcc-mcp-pybridge = { path = "crates/dcc-mcp-pybridge" }
+dcc-mcp-pybridge-derive = { path = "crates/dcc-mcp-pybridge-derive" }
 dcc-mcp-paths = { path = "crates/dcc-mcp-paths" }
 dcc-mcp-transport = { path = "crates/dcc-mcp-transport" }
 dcc-mcp-process = { path = "crates/dcc-mcp-process" }

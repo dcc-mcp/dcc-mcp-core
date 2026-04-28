@@ -10,6 +10,10 @@ description = "Python<->Rust bridge helpers for the dcc-mcp ecosystem (PyAny<->s
 [dependencies]
 pyo3 = { workspace = true, optional = true }
 
+# Procedural-derive macros (issue #528). Re-exported through
+# `dcc_mcp_pybridge::derive` so downstream crates only pull `dcc-mcp-pybridge`.
+dcc-mcp-pybridge-derive = { workspace = true }
+
 # Type-stub generation (opt-in via `stub-gen` feature).
 pyo3-stub-gen = { workspace = true, optional = true }
 pyo3-stub-gen-derive = { workspace = true, optional = true }
