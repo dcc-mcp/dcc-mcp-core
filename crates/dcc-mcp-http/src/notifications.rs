@@ -27,7 +27,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::job::{JobEvent, JobStatus};
-use crate::protocol::format_sse_event;
+use crate::protocol::NotificationBuilder;
 use crate::session::SessionManager;
 
 // ── Workflow types ───────────────────────────────────────────────────────
@@ -183,26 +183,21 @@ impl JobNotifier {
         // ── Channel A: notifications/progress ────────────────────────────
         if let Some(token) = link.progress_token.as_ref() {
             let (progress, total, message) = progress_mapping(&event);
-            let notification = json!({
-                "jsonrpc": "2.0",
-                "method": "notifications/progress",
-                "params": {
+            let frame = NotificationBuilder::new("notifications/progress")
+                .with_params(json!({
                     "progressToken": token,
                     "progress": progress,
                     "total": total,
                     "message": message,
-                },
-            });
-            self.sessions
-                .push_event(&link.session_id, format_sse_event(&notification, None));
+                }))
+                .as_sse_event();
+            self.sessions.push_event(&link.session_id, frame);
         }
 
         // ── Channel B: notifications/$/dcc.jobUpdated ────────────────────
         if self.job_updates_enabled && self.job_sessions.contains_key(&link.session_id) {
-            let notification = json!({
-                "jsonrpc": "2.0",
-                "method": "notifications/$/dcc.jobUpdated",
-                "params": {
+            let frame = NotificationBuilder::new("notifications/$/dcc.jobUpdated")
+                .with_params(json!({
                     "job_id": event.id,
                     "parent_job_id": Value::Null,
                     "tool": event.tool_name,
@@ -210,10 +205,9 @@ impl JobNotifier {
                     "started_at": started_at(&event),
                     "completed_at": completed_at(&event),
                     "error": event.error,
-                },
-            });
-            self.sessions
-                .push_event(&link.session_id, format_sse_event(&notification, None));
+                }))
+                .as_sse_event();
+            self.sessions.push_event(&link.session_id, frame);
         }
 
         if event.status.is_terminal() {
@@ -227,24 +221,12 @@ impl JobNotifier {
     /// ships the emit API and routing; the executor will invoke this once
     /// step execution is implemented.
     pub fn emit_workflow_update(&self, upd: WorkflowUpdate) {
-        let notification = json!({
-            "jsonrpc": "2.0",
-            "method": "notifications/$/dcc.workflowUpdated",
-            "params": {
-                "workflow_id": upd.workflow_id.to_string(),
-                "job_id": upd.job_id.to_string(),
-                "status": upd.status.as_str(),
-                "current_step_id": upd.current_step_id,
-                "progress": {
-                    "completed_steps": upd.progress.completed_steps,
-                    "total_steps": upd.progress.total_steps,
-                },
-            },
-        });
         if !self.job_updates_enabled {
             return;
         }
-        let event = format_sse_event(&notification, None);
+        let event = NotificationBuilder::new("notifications/$/dcc.workflowUpdated")
+            .with_params(workflow_update_params(&upd))
+            .as_sse_event();
         for kv in self.workflow_sessions.iter() {
             self.sessions.push_event(kv.key(), event.clone());
         }
@@ -255,21 +237,23 @@ impl JobNotifier {
     /// Useful for tests that want to assert the payload shape without
     /// standing up a full session.
     pub fn workflow_update_payload(upd: &WorkflowUpdate) -> Value {
-        json!({
-            "jsonrpc": "2.0",
-            "method": "notifications/$/dcc.workflowUpdated",
-            "params": {
-                "workflow_id": upd.workflow_id.to_string(),
-                "job_id": upd.job_id.to_string(),
-                "status": upd.status.as_str(),
-                "current_step_id": upd.current_step_id,
-                "progress": {
-                    "completed_steps": upd.progress.completed_steps,
-                    "total_steps": upd.progress.total_steps,
-                },
-            },
-        })
+        NotificationBuilder::new("notifications/$/dcc.workflowUpdated")
+            .with_params(workflow_update_params(upd))
+            .to_value()
     }
+}
+
+fn workflow_update_params(upd: &WorkflowUpdate) -> Value {
+    json!({
+        "workflow_id": upd.workflow_id.to_string(),
+        "job_id": upd.job_id.to_string(),
+        "status": upd.status.as_str(),
+        "current_step_id": upd.current_step_id,
+        "progress": {
+            "completed_steps": upd.progress.completed_steps,
+            "total_steps": upd.progress.total_steps,
+        },
+    })
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────

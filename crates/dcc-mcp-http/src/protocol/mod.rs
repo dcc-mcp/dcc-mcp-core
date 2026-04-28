@@ -18,9 +18,11 @@
 //! | `protocol_resources.rs` | `McpResource` / `ListResourcesResult` / `ReadResource*` / `ResourceContents` / `SubscribeResourceParams` + `RESOURCE_NOT_ENABLED_ERROR` |
 //! | `protocol_prompts.rs`   | `McpPrompt` / `McpPromptArgument` / `ListPromptsResult` / `GetPrompt*` / `McpPromptMessage` / `McpPromptContent` |
 //! | `protocol_sse.rs`       | `format_sse_event` + `encode_cursor` / `decode_cursor` pagination helpers |
+//! | `notification_builder.rs` | `NotificationBuilder` / `JsonRpcRequestBuilder` — fluent envelope construction (#484) |
 
 mod jsonrpc;
 mod lifecycle;
+mod notification_builder;
 mod prompts;
 mod resources;
 mod sse;
@@ -36,6 +38,7 @@ pub use lifecycle::{
     LoggingSetLevelParams, PromptsCapability, ResourcesCapability, RootsListResult,
     ServerCapabilities, ServerInfo, ToolsCapability,
 };
+pub use notification_builder::{JsonRpcRequestBuilder, NotificationBuilder};
 pub use prompts::{
     GetPromptParams, GetPromptResult, ListPromptsResult, McpPrompt, McpPromptArgument,
     McpPromptContent, McpPromptMessage,

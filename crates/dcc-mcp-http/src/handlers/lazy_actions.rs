@@ -206,12 +206,9 @@ pub fn resolve_action_by_id(
 
 /// Send a `notifications/tools/list_changed` event to a session's SSE subscribers.
 pub fn notify_tools_list_changed(sessions: &SessionManager, session_id: &str) {
-    let notification = json!({
-        "jsonrpc": "2.0",
-        "method": "notifications/tools/list_changed",
-        "params": {}
-    });
-    let event = format_sse_event(&notification, None);
+    let event = NotificationBuilder::new("notifications/tools/list_changed")
+        .with_empty_params()
+        .as_sse_event();
     sessions.push_event(session_id, event);
     tracing::debug!("Sent tools/list_changed notification to session {session_id}");
 }
@@ -224,12 +221,9 @@ pub fn notify_tools_changed(
     removed: &[String],
 ) {
     if sessions.supports_delta_tools(session_id) {
-        let notification = json!({
-            "jsonrpc": "2.0",
-            "method": DELTA_TOOLS_METHOD,
-            "params": { "added": added, "removed": removed }
-        });
-        let event = format_sse_event(&notification, None);
+        let event = NotificationBuilder::new(DELTA_TOOLS_METHOD)
+            .with_params(json!({ "added": added, "removed": removed }))
+            .as_sse_event();
         sessions.push_event(session_id, event);
         tracing::debug!(
             session_id,
@@ -256,16 +250,13 @@ pub fn notify_message(sessions: &SessionManager, session_id: &str, entry: Sessio
         return;
     }
 
-    let notification = json!({
-        "jsonrpc": "2.0",
-        "method": "notifications/message",
-        "params": {
+    let event = NotificationBuilder::new("notifications/message")
+        .with_params(json!({
             "level": emit_level.as_str(),
             "logger": logger.clone(),
             "data": data,
-        },
-    });
-    let event = format_sse_event(&notification, None);
+        }))
+        .as_sse_event();
     sessions.push_event(session_id, event);
     tracing::debug!(
         session_id,
@@ -335,13 +326,9 @@ pub async fn refresh_roots_cache_for_session(
     sessions: &SessionManager,
     session_id: &str,
 ) -> Vec<crate::protocol::ClientRoot> {
-    let request = json!({
-        "jsonrpc": "2.0",
-        "id": format!("roots-refresh-{session_id}"),
-        "method": "roots/list",
-        "params": {}
-    });
-    let event = format_sse_event(&request, None);
+    let event = JsonRpcRequestBuilder::new(format!("roots-refresh-{session_id}"), "roots/list")
+        .with_params(json!({}))
+        .as_sse_event();
     sessions.push_event(session_id, event);
 
     // Current low-risk phase: opportunistically keep existing cache.

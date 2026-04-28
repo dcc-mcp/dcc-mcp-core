@@ -176,12 +176,9 @@ pub(crate) fn notify_prompts_list_changed_all(state: &AppState) {
     if !state.enable_prompts {
         return;
     }
-    let notification = json!({
-        "jsonrpc": "2.0",
-        "method": "notifications/prompts/list_changed",
-        "params": {}
-    });
-    let event = format_sse_event(&notification, None);
+    let event = NotificationBuilder::new("notifications/prompts/list_changed")
+        .with_empty_params()
+        .as_sse_event();
     for sid in state.sessions.all_ids() {
         state.sessions.push_event(&sid, event.clone());
     }
@@ -293,16 +290,13 @@ pub async fn handle_elicitation_create(
     let (tx, rx) = oneshot::channel::<ElicitationCreateResult>();
     state.pending_elicitations.insert(req_id.clone(), tx);
 
-    let notification = json!({
-        "jsonrpc": "2.0",
-        "method": "elicitation/create",
-        "params": {
+    let event = NotificationBuilder::new("elicitation/create")
+        .with_params(json!({
             "id": elicit_id,
             "message": params.message,
             "requestedSchema": params.requested_schema,
-        }
-    });
-    let event = format_sse_event(&notification, None);
+        }))
+        .as_sse_event();
     state.sessions.push_event(sid, event);
 
     let waited = tokio::time::timeout(ELICITATION_TIMEOUT, rx).await;

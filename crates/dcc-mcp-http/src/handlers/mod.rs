@@ -21,9 +21,9 @@ pub(crate) use crate::{
     protocol::{
         self, CallToolParams, CallToolResult, DELTA_TOOLS_METHOD, ElicitationCreateParams,
         ElicitationCreateResult, GetPromptParams, JsonRpcBatch, JsonRpcMessage, JsonRpcRequest,
-        JsonRpcResponse, ListPromptsResult, ListResourcesResult, LoggingSetLevelParams, McpTool,
-        McpToolAnnotations, RESOURCE_NOT_ENABLED_ERROR, ReadResourceParams,
-        SubscribeResourceParams, format_sse_event,
+        JsonRpcRequestBuilder, JsonRpcResponse, ListPromptsResult, ListResourcesResult,
+        LoggingSetLevelParams, McpTool, McpToolAnnotations, NotificationBuilder,
+        RESOURCE_NOT_ENABLED_ERROR, ReadResourceParams, SubscribeResourceParams,
     },
     resources::ResourceError,
     session::{SessionLogLevel, SessionLogMessage, SessionManager},

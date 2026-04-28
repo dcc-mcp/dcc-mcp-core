@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use crate::protocol::{JsonRpcResponse, McpTool};
+use crate::protocol::{JsonRpcRequestBuilder, JsonRpcResponse, McpTool};
 
 /// Call a JSON-RPC method on a backend `/mcp` endpoint.
 ///
@@ -33,20 +33,9 @@ pub async fn call_backend(
     timeout: Duration,
 ) -> Result<Value, String> {
     let id = request_id.unwrap_or_else(uuid_like_id);
-    let req_body = if let Some(p) = params {
-        json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "method": method,
-            "params": p,
-        })
-    } else {
-        json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "method": method,
-        })
-    };
+    let req_body = JsonRpcRequestBuilder::new(id, method)
+        .with_optional_params(params)
+        .to_value();
 
     let resp = client
         .post(mcp_url)
