@@ -222,3 +222,64 @@ while True:
                 watcher.track(info["pid"], "maya")
     time.sleep(0.1)
 ```
+
+---
+
+## GUI 可执行文件探测（issue #524）
+
+DCC 适配器在派生子进程前需要回答两个问题：*这个路径是会弹窗的 GUI 二进制吗？*
+以及*是否有 headless 的 Python 兄弟应该优先使用？*。下面两个工具函数加上
+`GuiExecutableHint` 把这套逻辑从每个插件的 `server.py` 抽到 `dcc_mcp_core`
+内部的厂商表。
+
+**导出符号：** `is_gui_executable`、`correct_python_executable`、`GuiExecutableHint`。
+
+### is_gui_executable
+
+```python
+is_gui_executable(path: str) -> GuiExecutableHint | None
+```
+
+对照内置 DCC 表探测 `path`。Python 解释器（`python.exe`、`mayapy`、`hython` …）
+和未知厂商二进制返回 `None`。
+
+```python
+from dcc_mcp_core import is_gui_executable
+
+hint = is_gui_executable(r"C:\Program Files\Autodesk\Maya2024\bin\maya.exe")
+if hint is not None:
+    print(hint.dcc_kind)               # "maya"
+    print(hint.recommended_replacement) # PosixPath('.../bin/mayapy.exe')
+```
+
+### correct_python_executable
+
+```python
+correct_python_executable(path: str) -> pathlib.Path
+```
+
+如果 `path` 是已知的 DCC GUI 二进制并且磁盘上存在 headless-Python 兄弟，
+则返回兄弟路径；否则原样返回。一行修正派生 launcher 子进程前
+`DCC_MCP_PYTHON_EXECUTABLE` 的便捷 API：
+
+```python
+import os
+from dcc_mcp_core import correct_python_executable
+
+os.environ["DCC_MCP_PYTHON_EXECUTABLE"] = str(
+    correct_python_executable(os.environ.get("DCC_MCP_PYTHON_EXECUTABLE", ""))
+)
+```
+
+### GuiExecutableHint
+
+`is_gui_executable` 返回的不可变值类型，用户不可实例化。
+
+| 属性 | 类型 | 描述 |
+|----------|------|-------------|
+| `gui_path` | `pathlib.Path` | 被探测的路径 |
+| `dcc_kind` | `str` | DCC 家族名（`"maya"`、`"houdini"`、`"unreal"`、`"blender"`、`"3dsmax"` …） |
+| `recommended_replacement` | `pathlib.Path \| None` | 磁盘上解析到的 headless 兄弟，找不到为 `None` |
+
+`dcc_kind` 是稳定的 wire 字符串 —— 适配器可以据此切换 skill 作用域
+（例如仅当 `dcc_kind == "maya"` 时自动加载 `maya/*` skill）。

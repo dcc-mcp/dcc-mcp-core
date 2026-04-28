@@ -113,6 +113,25 @@ rig_handle = create_skill_server("maya", cfg).start()
 > accessed either via the gateway HTTP API or the `ServiceEntry` Python
 > class directly.
 
+### PID-liveness auto-eviction (issue #523)
+
+`FileRegistry::read_alive(allow_pid_zero)` returns the same entries as
+`read()` but **transparently drops** any entry whose `pid` no longer maps to
+a live process and rewrites the registry file to persist the eviction. Use
+this when you build dashboards or routing tables that must not enumerate
+crashed-host stragglers — there is no separate cleanup loop to run.
+
+```rust
+use dcc_mcp_transport::discovery::FileRegistry;
+
+let registry = FileRegistry::new("/var/run/dcc-mcp/registry.json")?;
+// allow_pid_zero=true keeps pid=0 entries (sentinels like __gateway__).
+let alive = registry.read_alive(true)?;
+```
+
+The DCC-Gateway HTTP `/instances` route already calls this internally, so
+clients consuming the gateway API see the same auto-evicted view.
+
 ## Listener lifecycle under PyO3-embedded hosts (issue #303)
 
 On Windows `mayapy` and any other PyO3-embedded interpreter, the default

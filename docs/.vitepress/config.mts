@@ -135,6 +135,7 @@ export default defineConfig({
                 { text: 'Gateway Election', link: '/api/gateway-election' },
                 { text: 'Hot Reload', link: '/api/hot-reload' },
                 { text: 'Server Factory', link: '/api/factory' },
+                { text: 'Callable Dispatcher', link: '/api/dispatcher' },
               ],
             }
           ]
@@ -265,6 +266,7 @@ export default defineConfig({
                 { text: '网关选举', link: '/zh/api/gateway-election' },
                 { text: '热重载', link: '/zh/api/hot-reload' },
                 { text: '服务器工厂', link: '/zh/api/factory' },
+                { text: '可调用对象调度器', link: '/zh/api/dispatcher' },
               ],
             }
           ]

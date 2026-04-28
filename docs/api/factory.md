@@ -54,3 +54,49 @@ get_server_instance(instance_holder: list) -> server | None
 ```
 
 Return the current singleton instance (or `None` if not started).
+
+---
+
+## Embedded-host wiring (issues #521, #525)
+
+Embedded DCC plugins (Maya, Houdini, Unreal Python, Blender) typically need
+two pieces of glue beyond the bare server:
+
+1. A **callable dispatcher** that routes skill scripts onto the host's
+   UI / main thread.
+2. A **declarative skill list** so launch-on-startup is reproducible across
+   sessions.
+
+`DccServerBase` exposes `register_inprocess_executor()` and
+`register_builtin_actions(minimal_mode=...)` for exactly this:
+
+```python
+from dcc_mcp_core import (
+    DccServerBase, McpHttpConfig,
+    InProcessCallableDispatcher, build_inprocess_executor,
+    MinimalModeConfig,
+)
+
+class MayaDccServer(DccServerBase):
+    @classmethod
+    def dcc_name(cls) -> str: return "maya"
+
+server = MayaDccServer(McpHttpConfig(port=8765))
+
+# 1) Wire the in-process executor BEFORE registering builtins.
+dispatcher = InProcessCallableDispatcher()    # or your Maya UI-thread subclass
+server.register_inprocess_executor(build_inprocess_executor(dispatcher))
+
+# 2) Pin the boot-time skill set declaratively.
+server.register_builtin_actions(minimal_mode=MinimalModeConfig(
+    skills=("scene_inspector", "render_queue"),
+    deactivate_groups={"render_queue": ("submit",)},
+    env_var_minimal="DCC_MCP_MAYA_MINIMAL",
+))
+
+server.start()
+```
+
+See [Callable Dispatcher API](./dispatcher.md) for the full
+`BaseDccCallableDispatcher` / `BaseDccCallableDispatcherFull` / `BaseDccPump`
+contract and the `MinimalModeConfig` resolution order.

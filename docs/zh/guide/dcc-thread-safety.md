@@ -6,6 +6,11 @@
 > `DeferredExecutor` 是 Tokio HTTP 工作线程与主线程之间**唯一被官方支持**的桥梁。
 > 长耗时任务必须被切分为每帧（per-tick）的小块，并且必须使用 `poll_pending_bounded(max=N)`，
 > 不要使用 `poll_pending()`。
+>
+> 如果是 Python 端的派发场景（在宿主 UI 线程上执行整段 skill *脚本* 而不仅仅是
+> 一段 Rust callable），见 [可调用对象调度器 API](../api/dispatcher.md) ——
+> 它与 `DeferredExecutor` 互补，是每个嵌入式 Python 适配器
+> （`mayapy`、`hython`、`unreal-python`）应当继承的基础协议。
 
 ## 为什么主线程亲和性是强制的
 

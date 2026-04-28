@@ -222,3 +222,67 @@ while True:
                 watcher.track(info["pid"], "maya")
     time.sleep(0.1)
 ```
+
+---
+
+## GUI Executable Detection (issue #524)
+
+DCC adapters routinely need to answer two questions before spawning a child
+process: *is this path a GUI binary that will pop a window?* and *is there a
+headless Python sibling I should prefer?*. The two helpers below + the
+`GuiExecutableHint` value type lift that logic out of every plugin's
+`server.py` and into a vendor-curated table in `dcc_mcp_core`.
+
+**Exported symbols:** `is_gui_executable`, `correct_python_executable`,
+`GuiExecutableHint`.
+
+### is_gui_executable
+
+```python
+is_gui_executable(path: str) -> GuiExecutableHint | None
+```
+
+Probe `path` against the bundled DCC table. Returns `None` for Python
+interpreters (`python.exe`, `mayapy`, `hython` …) and unknown vendor binaries.
+
+```python
+from dcc_mcp_core import is_gui_executable
+
+hint = is_gui_executable(r"C:\Program Files\Autodesk\Maya2024\bin\maya.exe")
+if hint is not None:
+    print(hint.dcc_kind)               # "maya"
+    print(hint.recommended_replacement) # PosixPath('.../bin/mayapy.exe')
+```
+
+### correct_python_executable
+
+```python
+correct_python_executable(path: str) -> pathlib.Path
+```
+
+If `path` is a known DCC GUI binary with a headless-Python sibling on disk,
+return that sibling path; otherwise return `path` unchanged. Convenience for
+one-shot fixing of `DCC_MCP_PYTHON_EXECUTABLE` before spawning a launcher
+child:
+
+```python
+import os
+from dcc_mcp_core import correct_python_executable
+
+os.environ["DCC_MCP_PYTHON_EXECUTABLE"] = str(
+    correct_python_executable(os.environ.get("DCC_MCP_PYTHON_EXECUTABLE", ""))
+)
+```
+
+### GuiExecutableHint
+
+Frozen value type returned by `is_gui_executable`. Not user-instantiable.
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `gui_path` | `pathlib.Path` | The path that was probed |
+| `dcc_kind` | `str` | DCC family name (`"maya"`, `"houdini"`, `"unreal"`, `"blender"`, `"3dsmax"`, …) |
+| `recommended_replacement` | `pathlib.Path \| None` | Headless sibling resolved on disk, or `None` |
+
+`dcc_kind` is a stable wire string — adapters can pivot on it for skill scope
+selection (e.g. only auto-load `maya/*` skills when `dcc_kind == "maya"`).

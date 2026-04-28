@@ -93,6 +93,23 @@ server = create_skill_server("maya", McpHttpConfig(port=8765))
 handle = server.start()
 ```
 
+### PID-liveness 自动剔除（issue #523）
+
+`FileRegistry::read_alive(allow_pid_zero)` 返回与 `read()` 同样的条目集合，
+但会**透明地剔除** `pid` 已不再对应活进程的条目并把驱逐结果写回 registry 文件。
+用于面板和路由表场景 —— 不会再列出已崩溃宿主的残留条目，也不需要单独跑清理任务。
+
+```rust
+use dcc_mcp_transport::discovery::FileRegistry;
+
+let registry = FileRegistry::new("/var/run/dcc-mcp/registry.json")?;
+// allow_pid_zero=true 保留 pid=0 的哨兵条目（如 __gateway__）。
+let alive = registry.read_alive(true)?;
+```
+
+DCC-Gateway 的 HTTP `/instances` 路由内部已调用本方法，所以
+通过网关 API 的客户端看到的也是同一份自动剔除后的视图。
+
 ## 文档追踪
 
 对于多文档 DCC（Photoshop、After Effects），网关通过 `McpHttpConfig.scene` 追踪活跃文档：

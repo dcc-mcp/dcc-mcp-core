@@ -7,6 +7,12 @@
 > `DeferredExecutor` is the only supported bridge between Tokio HTTP workers
 > and that main thread. Long-running jobs must be chunked into per-tick units
 > and must use `poll_pending_bounded(max=N)`, never `poll_pending()`.
+>
+> For Python-side dispatch (running an entire skill *script* on the host's
+> UI thread instead of just a Rust callable), see the
+> [Callable Dispatcher API](../api/dispatcher.md) — it complements
+> `DeferredExecutor` and is the primitive every embedded-Python adapter
+> (`mayapy`, `hython`, `unreal-python`) should subclass.
 
 ## Why main-thread affinity exists
 
