@@ -129,6 +129,31 @@ impl ToolAnnotations {
     feature = "python-bindings",
     pyo3::pyclass(name = "ToolDeclaration", eq, from_py_object)
 )]
+// `#[derive(PyWrapper)]` (#528 M3.4) emits the trivial String / bool /
+// Option<u32> / Vec<String> getters and setters as a sibling
+// `#[pymethods]` block. Custom logic (`input_schema` / `output_schema`
+// JSON round-trip, `execution` enum<->str, `annotations` and
+// `next_tools` dict marshalling, the curated `__repr__`) stays
+// hand-written in `crate::python::tool_declaration`.
+#[cfg_attr(
+    feature = "python-bindings",
+    derive(dcc_mcp_pybridge::derive::PyWrapper)
+)]
+#[cfg_attr(
+    feature = "python-bindings",
+    py_wrapper(fields(
+        name: String => [get(by_str), set],
+        description: String => [get(by_str), set],
+        read_only: bool => [get, set],
+        destructive: bool => [get, set],
+        idempotent: bool => [get, set],
+        defer_loading: bool => [get, set],
+        source_file: String => [get(by_str), set],
+        group: String => [get(by_str), set],
+        timeout_hint_secs: Option<u32> => [get, set],
+        required_capabilities: Vec<String> => [get(clone), set],
+    ))
+)]
 pub struct ToolDeclaration {
     /// Tool name (unique within the skill).
     #[serde(default)]
@@ -467,6 +492,23 @@ pub struct NextTools {
 #[cfg_attr(
     feature = "python-bindings",
     pyo3::pyclass(name = "SkillGroup", eq, from_py_object)
+)]
+// All four fields are read-only on the Python side (constructed via
+// `SkillGroup(...)` and never mutated in place) so the macro emits
+// getters only. `__repr__` stays hand-written because it picks `tools.len()`
+// rather than the full vector.
+#[cfg_attr(
+    feature = "python-bindings",
+    derive(dcc_mcp_pybridge::derive::PyWrapper)
+)]
+#[cfg_attr(
+    feature = "python-bindings",
+    py_wrapper(fields(
+        name: String => [get(by_str)],
+        description: String => [get(by_str)],
+        tools: Vec<String> => [get(clone)],
+        default_active: bool => [get],
+    ))
 )]
 pub struct SkillGroup {
     /// Group identifier — unique within the skill (kebab-case recommended).

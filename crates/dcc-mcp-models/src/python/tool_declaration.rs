@@ -23,25 +23,9 @@ impl SkillGroup {
         }
     }
 
-    #[getter]
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    #[getter]
-    fn description(&self) -> &str {
-        &self.description
-    }
-
-    #[getter]
-    fn tools(&self) -> Vec<String> {
-        self.tools.clone()
-    }
-
-    #[getter]
-    fn default_active(&self) -> bool {
-        self.default_active
-    }
+    // Trivial getters (`name`, `description`, `tools`, `default_active`)
+    // are emitted by `#[derive(PyWrapper)]` (#528 M3.4) on the struct;
+    // see `crate::skill_metadata::SkillGroup`'s `#[py_wrapper(...)]` table.
 
     fn __repr__(&self) -> String {
         format!(
@@ -102,16 +86,12 @@ impl ToolDeclaration {
         })
     }
 
-    /// Declared DCC capabilities required for this tool (issue #354).
-    #[getter]
-    fn required_capabilities(&self) -> Vec<String> {
-        self.required_capabilities.clone()
-    }
-
-    #[setter]
-    fn set_required_capabilities(&mut self, value: Vec<String>) {
-        self.required_capabilities = value;
-    }
+    // ── Trivial accessors emitted by `#[derive(PyWrapper)]` (#528 M3.4) ─
+    // `name`, `description`, `read_only`, `destructive`, `idempotent`,
+    // `defer_loading`, `source_file`, `group` (read+write), plus
+    // `timeout_hint_secs` (Option<u32>) and `required_capabilities`
+    // (Vec<String>). See `crate::skill_metadata::ToolDeclaration`'s
+    // `#[py_wrapper(...)]` table for the canonical list.
 
     #[getter]
     fn execution(&self) -> &'static str {
@@ -127,48 +107,8 @@ impl ToolDeclaration {
         Ok(())
     }
 
-    #[getter]
-    fn timeout_hint_secs(&self) -> Option<u32> {
-        self.timeout_hint_secs
-    }
-
-    #[setter]
-    fn set_timeout_hint_secs(&mut self, value: Option<u32>) {
-        self.timeout_hint_secs = value;
-    }
-
-    #[getter]
-    fn group(&self) -> &str {
-        &self.group
-    }
-
-    #[setter]
-    fn set_group(&mut self, value: String) {
-        self.group = value;
-    }
-
     fn __repr__(&self) -> String {
         format!("ToolDeclaration(name={:?})", self.name)
-    }
-
-    #[getter]
-    fn name(&self) -> &str {
-        &self.name
-    }
-
-    #[setter]
-    fn set_name(&mut self, value: String) {
-        self.name = value;
-    }
-
-    #[getter]
-    fn description(&self) -> &str {
-        &self.description
-    }
-
-    #[setter]
-    fn set_description(&mut self, value: String) {
-        self.description = value;
     }
 
     #[getter]
@@ -198,56 +138,6 @@ impl ToolDeclaration {
         } else {
             serde_json::from_str(&value).unwrap_or(serde_json::Value::Null)
         };
-    }
-
-    #[getter]
-    fn read_only(&self) -> bool {
-        self.read_only
-    }
-
-    #[setter]
-    fn set_read_only(&mut self, value: bool) {
-        self.read_only = value;
-    }
-
-    #[getter]
-    fn destructive(&self) -> bool {
-        self.destructive
-    }
-
-    #[setter]
-    fn set_destructive(&mut self, value: bool) {
-        self.destructive = value;
-    }
-
-    #[getter]
-    fn idempotent(&self) -> bool {
-        self.idempotent
-    }
-
-    #[setter]
-    fn set_idempotent(&mut self, value: bool) {
-        self.idempotent = value;
-    }
-
-    #[getter]
-    fn defer_loading(&self) -> bool {
-        self.defer_loading
-    }
-
-    #[setter]
-    fn set_defer_loading(&mut self, value: bool) {
-        self.defer_loading = value;
-    }
-
-    #[getter]
-    fn source_file(&self) -> &str {
-        &self.source_file
-    }
-
-    #[setter]
-    fn set_source_file(&mut self, value: String) {
-        self.source_file = value;
     }
 
     #[getter]
