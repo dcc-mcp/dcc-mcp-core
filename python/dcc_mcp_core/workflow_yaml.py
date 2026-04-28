@@ -58,9 +58,10 @@ from pathlib import Path
 import re
 from typing import Any
 
-from dcc_mcp_core import json_dumps
 from dcc_mcp_core import json_loads
 from dcc_mcp_core import yaml_loads
+from dcc_mcp_core._tool_registration import ToolSpec
+from dcc_mcp_core._tool_registration import register_tools
 
 logger = logging.getLogger(__name__)
 
@@ -422,32 +423,29 @@ def register_workflow_yaml_tools(
             "context": wf.to_summary_dict(),
         }
 
-    try:
-        registry = server.registry
-    except Exception as exc:
-        logger.warning("register_workflow_yaml_tools: server.registry unavailable: %s", exc)
-        return
-
-    for name, desc, schema, handler in [
-        ("workflows.list", _WORKFLOWS_LIST_DESCRIPTION, _WORKFLOWS_LIST_SCHEMA, _handle_list),
-        ("workflows.describe", _WORKFLOWS_DESCRIBE_DESCRIPTION, _WORKFLOWS_DESCRIBE_SCHEMA, _handle_describe),
-    ]:
-        try:
-            registry.register(
-                name=name,
-                description=desc,
-                input_schema=json_dumps(schema),
-                dcc=dcc_name,
-                category="workflows",
-                version="1.0.0",
-            )
-        except Exception as exc:
-            logger.warning("register_workflow_yaml_tools: register(%s) failed: %s", name, exc)
-            continue
-        try:
-            server.register_handler(name, handler)
-        except Exception as exc:
-            logger.warning("register_workflow_yaml_tools: register_handler(%s) failed: %s", name, exc)
+    specs = [
+        ToolSpec(
+            name="workflows.list",
+            description=_WORKFLOWS_LIST_DESCRIPTION,
+            input_schema=_WORKFLOWS_LIST_SCHEMA,
+            handler=_handle_list,
+            category="workflows",
+        ),
+        ToolSpec(
+            name="workflows.describe",
+            description=_WORKFLOWS_DESCRIBE_DESCRIPTION,
+            input_schema=_WORKFLOWS_DESCRIBE_SCHEMA,
+            handler=_handle_describe,
+            category="workflows",
+        ),
+    ]
+    register_tools(
+        server,
+        specs,
+        dcc_name=dcc_name,
+        log_prefix="register_workflow_yaml_tools",
+        logger=logger,
+    )
 
 
 # ── Public API ─────────────────────────────────────────────────────────────

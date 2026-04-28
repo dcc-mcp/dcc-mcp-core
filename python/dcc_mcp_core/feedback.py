@@ -60,6 +60,8 @@ import uuid
 
 from dcc_mcp_core import json_dumps
 from dcc_mcp_core import json_loads
+from dcc_mcp_core._tool_registration import ToolSpec
+from dcc_mcp_core._tool_registration import register_tools
 
 logger = logging.getLogger(__name__)
 
@@ -308,24 +310,6 @@ def register_feedback_tool(
         handle = server.start()
 
     """
-    try:
-        registry = server.registry
-    except Exception as exc:
-        logger.warning("register_feedback_tool: server.registry unavailable: %s", exc)
-        return
-
-    try:
-        registry.register(
-            name="dcc_feedback__report",
-            description=_FEEDBACK_TOOL_DESCRIPTION,
-            input_schema=json_dumps(_FEEDBACK_SCHEMA),
-            dcc=dcc_name,
-            category="feedback",
-            version="1.0.0",
-        )
-    except Exception as exc:
-        logger.warning("register_feedback_tool: register failed: %s", exc)
-        return
 
     def _mcp_handler(params: Any) -> Any:
         params_str = json_dumps(params) if not isinstance(params, str) else params
@@ -335,10 +319,21 @@ def register_feedback_tool(
         except (TypeError, ValueError):
             return {"success": False, "message": "Invalid handler output"}
 
-    try:
-        server.register_handler("dcc_feedback__report", _mcp_handler)
-    except Exception as exc:
-        logger.warning("register_feedback_tool: register_handler failed: %s", exc)
+    register_tools(
+        server,
+        [
+            ToolSpec(
+                name="dcc_feedback__report",
+                description=_FEEDBACK_TOOL_DESCRIPTION,
+                input_schema=_FEEDBACK_SCHEMA,
+                handler=_mcp_handler,
+                category="feedback",
+            ),
+        ],
+        dcc_name=dcc_name,
+        log_prefix="register_feedback_tool",
+        logger=logger,
+    )
 
 
 # ── Public API ─────────────────────────────────────────────────────────────

@@ -31,8 +31,9 @@ import re
 import traceback
 from typing import Any
 
-from dcc_mcp_core import json_dumps
 from dcc_mcp_core import json_loads
+from dcc_mcp_core._tool_registration import ToolSpec
+from dcc_mcp_core._tool_registration import register_tools
 
 logger = logging.getLogger(__name__)
 
@@ -387,11 +388,6 @@ def register_introspect_tools(
         handle = server.start()
 
     """
-    try:
-        registry = server.registry
-    except Exception as exc:
-        logger.warning("register_introspect_tools: server.registry unavailable: %s", exc)
-        return
 
     def _handler(fn):
         """Wrap a function to accept JSON string or dict params."""
@@ -402,50 +398,44 @@ def register_introspect_tools(
 
         return wrapper
 
-    tools = [
-        (
-            "dcc_introspect__list_module",
-            _LIST_MODULE_DESCRIPTION,
-            _LIST_MODULE_SCHEMA,
-            lambda module, limit=_MAX_NAMES: introspect_list_module(module, limit=limit),
+    specs = [
+        ToolSpec(
+            name="dcc_introspect__list_module",
+            description=_LIST_MODULE_DESCRIPTION,
+            input_schema=_LIST_MODULE_SCHEMA,
+            handler=_handler(lambda module, limit=_MAX_NAMES: introspect_list_module(module, limit=limit)),
+            category="introspect",
         ),
-        (
-            "dcc_introspect__signature",
-            _SIGNATURE_DESCRIPTION,
-            _SIGNATURE_SCHEMA,
-            lambda qualname: introspect_signature(qualname),
+        ToolSpec(
+            name="dcc_introspect__signature",
+            description=_SIGNATURE_DESCRIPTION,
+            input_schema=_SIGNATURE_SCHEMA,
+            handler=_handler(lambda qualname: introspect_signature(qualname)),
+            category="introspect",
         ),
-        (
-            "dcc_introspect__search",
-            _SEARCH_DESCRIPTION,
-            _SEARCH_SCHEMA,
-            lambda pattern, module, limit=_MAX_HITS: introspect_search(pattern, module, limit=limit),
+        ToolSpec(
+            name="dcc_introspect__search",
+            description=_SEARCH_DESCRIPTION,
+            input_schema=_SEARCH_SCHEMA,
+            handler=_handler(lambda pattern, module, limit=_MAX_HITS: introspect_search(pattern, module, limit=limit)),
+            category="introspect",
         ),
-        (
-            "dcc_introspect__eval",
-            _EVAL_DESCRIPTION,
-            _EVAL_SCHEMA,
-            lambda expression: introspect_eval(expression),
+        ToolSpec(
+            name="dcc_introspect__eval",
+            description=_EVAL_DESCRIPTION,
+            input_schema=_EVAL_SCHEMA,
+            handler=_handler(lambda expression: introspect_eval(expression)),
+            category="introspect",
         ),
     ]
 
-    for name, desc, schema, fn in tools:
-        try:
-            registry.register(
-                name=name,
-                description=desc,
-                input_schema=json_dumps(schema),
-                dcc=dcc_name,
-                category="introspect",
-                version="1.0.0",
-            )
-        except Exception as exc:
-            logger.warning("register_introspect_tools: register(%s) failed: %s", name, exc)
-            continue
-        try:
-            server.register_handler(name, _handler(fn))
-        except Exception as exc:
-            logger.warning("register_introspect_tools: register_handler(%s) failed: %s", name, exc)
+    register_tools(
+        server,
+        specs,
+        dcc_name=dcc_name,
+        log_prefix="register_introspect_tools",
+        logger=logger,
+    )
 
 
 # ── Public API ─────────────────────────────────────────────────────────────

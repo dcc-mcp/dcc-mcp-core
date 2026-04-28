@@ -67,8 +67,9 @@ from pathlib import Path
 import re
 from typing import Any
 
-from dcc_mcp_core import json_dumps
 from dcc_mcp_core import json_loads
+from dcc_mcp_core._tool_registration import ToolSpec
+from dcc_mcp_core._tool_registration import register_tools
 
 logger = logging.getLogger(__name__)
 
@@ -329,32 +330,29 @@ def register_recipes_tools(
             "context": {"skill": skill_name, "anchor": anchor, "content": content},
         }
 
-    try:
-        registry = server.registry
-    except Exception as exc:
-        logger.warning("register_recipes_tools: server.registry unavailable: %s", exc)
-        return
-
-    for name, desc, schema, handler in [
-        ("recipes__list", _RECIPES_LIST_DESCRIPTION, _LIST_SCHEMA, _handle_list),
-        ("recipes__get", _RECIPES_GET_DESCRIPTION, _GET_SCHEMA, _handle_get),
-    ]:
-        try:
-            registry.register(
-                name=name,
-                description=desc,
-                input_schema=json_dumps(schema),
-                dcc=dcc_name,
-                category="recipes",
-                version="1.0.0",
-            )
-        except Exception as exc:
-            logger.warning("register_recipes_tools: register(%s) failed: %s", name, exc)
-            continue
-        try:
-            server.register_handler(name, handler)
-        except Exception as exc:
-            logger.warning("register_recipes_tools: register_handler(%s) failed: %s", name, exc)
+    specs = [
+        ToolSpec(
+            name="recipes__list",
+            description=_RECIPES_LIST_DESCRIPTION,
+            input_schema=_LIST_SCHEMA,
+            handler=_handle_list,
+            category="recipes",
+        ),
+        ToolSpec(
+            name="recipes__get",
+            description=_RECIPES_GET_DESCRIPTION,
+            input_schema=_GET_SCHEMA,
+            handler=_handle_get,
+            category="recipes",
+        ),
+    ]
+    register_tools(
+        server,
+        specs,
+        dcc_name=dcc_name,
+        log_prefix="register_recipes_tools",
+        logger=logger,
+    )
 
 
 # ── Public API ─────────────────────────────────────────────────────────────
