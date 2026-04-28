@@ -295,3 +295,100 @@ fn test_file_registry_update_metadata() {
             .unwrap()
     );
 }
+
+// ── read_alive auto-eviction (issue #523) ─────────────────────────────────
+
+#[test]
+fn test_read_alive_evicts_ghost_and_returns_live() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = FileRegistry::new(dir.path()).unwrap();
+
+    // Live entry (auto-populated pid == our own process id).
+    let live = ServiceEntry::new("maya", "127.0.0.1", 18812);
+    let live_key = live.key();
+    registry.register(live).unwrap();
+
+    // Ghost entry with a clearly-dead PID.
+    let ghost = ServiceEntry::new("maya", "127.0.0.1", 18813).with_pid(u32::MAX);
+    let ghost_key = ghost.key();
+    registry.register(ghost).unwrap();
+
+    let (entries, evicted) = registry.read_alive().unwrap();
+    assert_eq!(evicted, 1, "exactly one ghost row must be evicted");
+    assert_eq!(entries.len(), 1, "only the live row must remain");
+    assert!(registry.get(&live_key).is_some());
+    assert!(registry.get(&ghost_key).is_none());
+}
+
+#[test]
+fn test_read_alive_returns_zero_evicted_when_all_live() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = FileRegistry::new(dir.path()).unwrap();
+
+    let entry_a = ServiceEntry::new("maya", "127.0.0.1", 18812);
+    let entry_b = ServiceEntry::new("blender", "127.0.0.1", 9090);
+    registry.register(entry_a).unwrap();
+    registry.register(entry_b).unwrap();
+
+    let (entries, evicted) = registry.read_alive().unwrap();
+    assert_eq!(evicted, 0);
+    assert_eq!(entries.len(), 2);
+}
+
+#[test]
+fn test_read_alive_idempotent_after_first_call() {
+    // Once a ghost has been evicted, subsequent read_alive calls report
+    // evicted == 0 and the file rewrite is not repeated.
+    let dir = tempfile::tempdir().unwrap();
+    let registry = FileRegistry::new(dir.path()).unwrap();
+
+    let live = ServiceEntry::new("maya", "127.0.0.1", 18812);
+    registry.register(live).unwrap();
+    let ghost = ServiceEntry::new("maya", "127.0.0.1", 18813).with_pid(u32::MAX);
+    registry.register(ghost).unwrap();
+
+    let (_, evicted_first) = registry.read_alive().unwrap();
+    assert_eq!(evicted_first, 1);
+    let (entries, evicted_second) = registry.read_alive().unwrap();
+    assert_eq!(evicted_second, 0);
+    assert_eq!(entries.len(), 1);
+}
+
+#[test]
+fn test_read_alive_with_log_returns_same_result() {
+    // The logging variant must behave identically apart from emitting a
+    // warn on the threshold cross — verify the data path here, leave the
+    // log assertion to a manual smoke (tracing-test would be a heavy dep).
+    let dir = tempfile::tempdir().unwrap();
+    let registry = FileRegistry::new(dir.path()).unwrap();
+
+    let live = ServiceEntry::new("maya", "127.0.0.1", 18812);
+    registry.register(live).unwrap();
+    let ghost = ServiceEntry::new("maya", "127.0.0.1", 18813).with_pid(u32::MAX);
+    registry.register(ghost).unwrap();
+
+    // Threshold larger than the eviction count → no warn, but counts match.
+    let (entries, evicted) = registry.read_alive_with_log(100).unwrap();
+    assert_eq!(evicted, 1);
+    assert_eq!(entries.len(), 1);
+}
+
+#[test]
+fn test_read_alive_handles_multiple_ghosts_for_dcc_maya_126() {
+    // Reproduces loonghao/dcc-mcp-maya#126: gateway sees N stale instances
+    // because Maya crashed N times without cleanup. read_alive should
+    // evict them all in a single sweep.
+    let dir = tempfile::tempdir().unwrap();
+    let registry = FileRegistry::new(dir.path()).unwrap();
+
+    for port in 18812..18812 + 5 {
+        let ghost = ServiceEntry::new("maya", "127.0.0.1", port).with_pid(u32::MAX - port as u32);
+        registry.register(ghost).unwrap();
+    }
+    let live = ServiceEntry::new("maya", "127.0.0.1", 19000);
+    registry.register(live).unwrap();
+
+    let (entries, evicted) = registry.read_alive().unwrap();
+    assert_eq!(evicted, 5);
+    assert_eq!(entries.len(), 1);
+}

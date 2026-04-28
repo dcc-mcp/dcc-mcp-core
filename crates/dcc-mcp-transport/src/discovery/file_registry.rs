@@ -400,6 +400,49 @@ impl FileRegistry {
         Ok(count)
     }
 
+    /// Read all live entries, evicting any whose owning OS process is dead.
+    ///
+    /// Combines the reload-if-stale + [`Self::prune_dead_pids`] + [`Self::list_all`]
+    /// dance into a single call so external readers (gateway aggregator,
+    /// gateway election (#523), `dcc-mcp-cli`, third-party tools) get
+    /// auto-eviction at read time without re-implementing the pattern.
+    ///
+    /// Returns `(live_entries, evicted_count)`. `evicted_count` is `0` on the
+    /// happy path, so callers can fall back to a simple `read_alive()?.0` if
+    /// they only care about the rows. The atomic temp+rename rewrite of
+    /// `services.json` happens automatically inside `prune_dead_pids` whenever
+    /// at least one entry is evicted.
+    ///
+    /// Closes loonghao/dcc-mcp-maya#126.
+    pub fn read_alive(&self) -> TransportResult<(Vec<ServiceEntry>, usize)> {
+        let evicted = self.prune_dead_pids()?;
+        Ok((self.list_all(), evicted))
+    }
+
+    /// [`Self::read_alive`] + a `tracing::warn!` whenever the eviction count
+    /// crosses `warn_threshold`.
+    ///
+    /// Intended for the gateway's startup audit and any background reaper
+    /// task that wants visibility on chronic ghost-row accumulation. The
+    /// default threshold for callers that don't care about precision is
+    /// `10` — small enough to surface real problems, large enough to absorb
+    /// a single noisy crash on startup without spamming the log.
+    pub fn read_alive_with_log(
+        &self,
+        warn_threshold: usize,
+    ) -> TransportResult<(Vec<ServiceEntry>, usize)> {
+        let (entries, evicted) = self.read_alive()?;
+        if evicted >= warn_threshold {
+            tracing::warn!(
+                evicted,
+                warn_threshold,
+                kept = entries.len(),
+                "FileRegistry::read_alive evicted ghost entries above warn threshold"
+            );
+        }
+        Ok((entries, evicted))
+    }
+
     /// Get the number of registered services.
     pub fn len(&self) -> usize {
         self.services.len()
