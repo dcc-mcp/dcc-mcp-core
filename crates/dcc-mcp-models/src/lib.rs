@@ -1,6 +1,7 @@
-//! dcc-mcp-models: ActionResultModel, SkillMetadata, SkillScope, DccMcpError.
+//! dcc-mcp-models: ActionResultModel, SkillMetadata, SkillScope, DccMcpError, DccName.
 
 mod action_result;
+mod dcc_name;
 mod error;
 mod skill_metadata;
 pub mod skill_scope;
@@ -10,6 +11,7 @@ mod python;
 
 pub use action_result::ActionResultModel as ToolResult;
 pub use action_result::{ActionResultModel, ActionResultModelData, SerializeFormat};
+pub use dcc_name::DccName;
 pub use error::DccMcpError;
 pub use skill_metadata::{
     ExecutionMode, NextTools, SkillDependencies, SkillDependency, SkillDependencyType, SkillGroup,

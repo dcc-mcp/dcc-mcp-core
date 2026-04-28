@@ -37,6 +37,23 @@ impl SkillScanner {
         }
     }
 
+    /// Scan all configured paths for Skill packages, taking a typed
+    /// [`dcc_mcp_models::DccName`] (#491).
+    ///
+    /// Thin wrapper around [`Self::scan`] that converts the typed value
+    /// to its canonical lowercase string form before delegating. New
+    /// callers should prefer this entry point so the DCC identifier is
+    /// validated and normalised at the boundary.
+    pub fn scan_for_dcc(
+        &mut self,
+        extra_paths: Option<&[String]>,
+        dcc: Option<&dcc_mcp_models::DccName>,
+        force_refresh: bool,
+    ) -> Vec<String> {
+        let dcc_str = dcc.map(|d| d.as_str());
+        self.scan(extra_paths, dcc_str, force_refresh)
+    }
+
     /// Scan all configured paths for Skill packages.
     pub fn scan(
         &mut self,
@@ -231,6 +248,18 @@ mod tests {
     fn test_scanner_empty() {
         let mut scanner = SkillScanner::new();
         let result = scanner.scan(Some(&["/nonexistent".to_string()]), None, false);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_scan_for_dcc_typed_entry_point() {
+        use dcc_mcp_models::DccName;
+
+        // Typed entry point delegates to scan() with the canonical
+        // lowercase string form (#491).
+        let mut scanner = SkillScanner::new();
+        let dcc = DccName::Maya;
+        let result = scanner.scan_for_dcc(Some(&["/nonexistent".to_string()]), Some(&dcc), false);
         assert!(result.is_empty());
     }
 }
