@@ -217,6 +217,7 @@ from dcc_mcp_core._core import register_bridge
 from dcc_mcp_core._core import resolve_dependencies
 from dcc_mcp_core._core import scan_and_load
 from dcc_mcp_core._core import scan_and_load_lenient
+from dcc_mcp_core._core import scan_and_load_strict
 from dcc_mcp_core._core import scan_and_load_team
 from dcc_mcp_core._core import scan_and_load_team_lenient
 from dcc_mcp_core._core import scan_and_load_user
@@ -696,6 +697,7 @@ __all__ = [
     "save_checkpoint",
     "scan_and_load",
     "scan_and_load_lenient",
+    "scan_and_load_strict",
     "scan_and_load_team",
     "scan_and_load_team_lenient",
     "scan_and_load_user",

@@ -48,6 +48,13 @@ pub struct GatewayConfig {
     /// with `dcc_type: "unknown"` should not leak tools into the gateway
     /// façade unless this is explicitly enabled for development (issue #555).
     pub allow_unknown_tools: bool,
+    /// Adapter package version recorded on the `__gateway__` sentinel
+    /// (e.g. `dcc_mcp_maya = "0.3.0"`). Used by the second tier of the
+    /// election comparison (issue maya#137).
+    pub adapter_version: Option<String>,
+    /// DCC type the adapter is bound to (e.g. `"maya"`). Used by the
+    /// third-tier real-DCC tiebreaker (issue maya#137).
+    pub adapter_dcc: Option<String>,
 }
 
 impl Default for GatewayConfig {
@@ -67,6 +74,8 @@ impl Default for GatewayConfig {
             route_ttl_secs: 60 * 60 * 24,
             max_routes_per_session: 1_000,
             allow_unknown_tools: false,
+            adapter_version: None,
+            adapter_dcc: None,
         }
     }
 }

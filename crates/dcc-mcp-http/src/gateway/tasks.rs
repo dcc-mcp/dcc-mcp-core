@@ -40,6 +40,8 @@ pub(crate) async fn start_gateway_tasks(
     own_host: String,
     own_port: u16,
     allow_unknown_tools: bool,
+    adapter_version: Option<String>,
+    adapter_dcc: Option<String>,
 ) -> Result<GatewayTasks, Box<dyn std::error::Error + Send + Sync>> {
     // ── Yield channel ─────────────────────────────────────────────────────
     let (yield_tx, mut yield_rx) = watch::channel(false);
@@ -83,6 +85,8 @@ pub(crate) async fn start_gateway_tasks(
     // plugin crashes after registering but before its own heartbeat starts.
     let reg_cleanup = registry.clone();
     let own_version = server_version.clone();
+    let own_adapter_version = adapter_version.clone();
+    let own_adapter_dcc = adapter_dcc.clone();
     let yield_tx_cleanup = yield_tx.clone();
     let sentinel_key_cleanup = sentinel_key.clone();
     let cleanup_handle = tokio::spawn(async move {
@@ -107,9 +111,19 @@ pub(crate) async fn start_gateway_tasks(
                 _ => {}
             }
 
-            if has_newer_sentinel(&r, &own_version, stale_timeout) {
+            // Issue maya#137: include adapter_version + adapter_dcc in the
+            // self-yield decision so a freshly-installed Maya plugin (real
+            // DCC) can preempt an older standalone (`unknown`) gateway.
+            let own_info = ElectionInfo::new(
+                &own_version,
+                own_adapter_version.as_deref(),
+                own_adapter_dcc.as_deref(),
+            );
+            if has_newer_sentinel(&r, own_info, stale_timeout) {
                 tracing::info!(
                     current = %own_version,
+                    adapter_version = ?own_adapter_version,
+                    adapter_dcc = ?own_adapter_dcc,
                     "Gateway: newer-version sentinel detected — initiating voluntary yield"
                 );
                 let _ = yield_tx_cleanup.send(true);
@@ -342,6 +356,8 @@ pub(crate) async fn start_gateway_tasks(
         pending_calls: Arc::new(RwLock::new(HashMap::new())),
         subscriber,
         allow_unknown_tools,
+        adapter_version,
+        adapter_dcc,
     };
     let gw_router = build_gateway_router(gw_state);
 

@@ -91,6 +91,21 @@ pub struct ServiceEntry {
     pub transport_address: Option<TransportAddress>,
     /// DCC application version (e.g. "2024.2").
     pub version: Option<String>,
+    /// Adapter package version (e.g. `dcc_mcp_maya = "0.3.0"`).
+    ///
+    /// Recorded on the `__gateway__` sentinel alongside the embedded
+    /// `dcc-mcp-http` crate version so gateway election can compare both
+    /// (issue maya#137).  Plain DCC rows may also set this — agents use it
+    /// to disambiguate two adapter releases serving the same DCC type.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adapter_version: Option<String>,
+    /// DCC type the adapter is bound to (e.g. `"maya"`).
+    ///
+    /// On the `__gateway__` sentinel this is the host DCC of the gateway
+    /// owner — used as the third tiebreaker so a real-DCC adapter wins
+    /// over a generic standalone server (issue maya#137).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adapter_dcc: Option<String>,
     /// Currently active scene / document.
     ///
     /// For single-document DCCs (Maya, Blender) this is the open file path.
@@ -154,6 +169,8 @@ impl ServiceEntry {
             port,
             transport_address: None,
             version: None,
+            adapter_version: None,
+            adapter_dcc: None,
             scene: None,
             documents: Vec::new(),
             pid: Some(std::process::id()),
@@ -184,6 +201,8 @@ impl ServiceEntry {
             port,
             transport_address: Some(address),
             version: None,
+            adapter_version: None,
+            adapter_dcc: None,
             scene: None,
             documents: Vec::new(),
             pid: Some(std::process::id()),
@@ -199,6 +218,24 @@ impl ServiceEntry {
     /// Override the owning process PID (useful when registering on behalf of a bridge).
     pub fn with_pid(mut self, pid: u32) -> Self {
         self.pid = Some(pid);
+        self
+    }
+
+    /// Stamp the adapter package version (e.g. `dcc_mcp_maya = "0.3.0"`).
+    ///
+    /// Set on the gateway sentinel so peers can apply the second-tier
+    /// election comparison (issue maya#137).
+    pub fn with_adapter_version(mut self, version: impl Into<String>) -> Self {
+        self.adapter_version = Some(version.into());
+        self
+    }
+
+    /// Stamp the DCC type the adapter is bound to (e.g. `"maya"`).
+    ///
+    /// Drives the third-tier "prefer real DCC over unknown standalone"
+    /// tiebreaker in gateway election (issue maya#137).
+    pub fn with_adapter_dcc(mut self, dcc: impl Into<String>) -> Self {
+        self.adapter_dcc = Some(dcc.into());
         self
     }
 
@@ -278,6 +315,37 @@ mod tests {
     fn test_service_entry_with_pid_override() {
         let entry = ServiceEntry::new("maya", "127.0.0.1", 18812).with_pid(42);
         assert_eq!(entry.pid, Some(42));
+    }
+
+    // Issue maya#137: adapter_version and adapter_dcc must round-trip
+    // through the on-disk JSON and stay absent from the wire format when
+    // unset, preserving the existing services.json shape.
+    #[test]
+    fn test_service_entry_adapter_metadata_roundtrip() {
+        let entry = ServiceEntry::new("__gateway__", "127.0.0.1", 9765)
+            .with_adapter_version("0.3.0")
+            .with_adapter_dcc("maya");
+        let json = serde_json::to_string(&entry).unwrap();
+        assert!(json.contains("\"adapter_version\":\"0.3.0\""));
+        assert!(json.contains("\"adapter_dcc\":\"maya\""));
+
+        let parsed: ServiceEntry = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.adapter_version.as_deref(), Some("0.3.0"));
+        assert_eq!(parsed.adapter_dcc.as_deref(), Some("maya"));
+    }
+
+    #[test]
+    fn test_service_entry_adapter_metadata_omitted_when_unset() {
+        let entry = ServiceEntry::new("maya", "127.0.0.1", 18812);
+        let json = serde_json::to_string(&entry).unwrap();
+        assert!(
+            !json.contains("\"adapter_version\""),
+            "unset adapter_version must be skipped: {json}"
+        );
+        assert!(
+            !json.contains("\"adapter_dcc\""),
+            "unset adapter_dcc must be skipped: {json}"
+        );
     }
 
     #[test]

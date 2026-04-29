@@ -29,6 +29,11 @@ pub(crate) async fn start_gateway_runner(
         route_ttl_secs: config.gateway_route_ttl_secs,
         max_routes_per_session: config.gateway_max_routes_per_session,
         allow_unknown_tools: config.allow_unknown_tools,
+        adapter_version: config.adapter_version.clone(),
+        adapter_dcc: config
+            .adapter_dcc
+            .clone()
+            .or_else(|| config.dcc_type.clone()),
     };
 
     let runner = match GatewayRunner::new(gateway_config) {
@@ -46,6 +51,11 @@ pub(crate) async fn start_gateway_runner(
     );
     entry.version = config.dcc_version.clone();
     entry.scene = config.scene.clone();
+    entry.adapter_version = config.adapter_version.clone();
+    entry.adapter_dcc = config
+        .adapter_dcc
+        .clone()
+        .or_else(|| config.dcc_type.clone());
 
     let metadata_provider = Some(build_metadata_provider(Arc::clone(live_meta)));
     match runner.start(entry, metadata_provider).await {

@@ -33,6 +33,31 @@ pub fn scan_and_load(
     })
 }
 
+/// Strict pipeline: identical to [`scan_and_load`] but rejects the load
+/// when any scanned directory failed to produce a loadable skill.
+///
+/// Issue maya#138 — operators repeatedly hit the failure mode where a
+/// bad `SKILL.md` (missing frontmatter, malformed YAML, wrong filename)
+/// caused the scanner to silently elide the directory at `tracing::debug`,
+/// leaving a hard-to-diagnose "tool went missing" symptom at run-time.
+/// `scan_and_load_strict` surfaces those skipped directories as a
+/// [`ResolveError::SkippedDirectories`] so embedders can fail start-up
+/// loudly instead.  Dependency resolution still runs first to keep error
+/// ordering deterministic (cycle / missing-dep errors win over skipped
+/// directories).
+pub fn scan_and_load_strict(
+    extra_paths: Option<&[String]>,
+    dcc_name: Option<&str>,
+) -> Result<LoadResult, ResolveError> {
+    let result = scan_and_load(extra_paths, dcc_name)?;
+    if !result.skipped.is_empty() {
+        return Err(ResolveError::SkippedDirectories {
+            directories: result.skipped,
+        });
+    }
+    Ok(result)
+}
+
 /// Lenient pipeline: scan, load, and resolve dependencies but skip unresolvable skills.
 pub fn scan_and_load_lenient(
     extra_paths: Option<&[String]>,
@@ -81,6 +106,14 @@ pub fn scan_and_load_lenient(
 }
 
 /// Load all skill metadata from a list of directories.
+///
+/// Issue maya#138: skipped directories are now reported at `warn` level
+/// (was `debug`) so operators can immediately see why a skill they
+/// expected went missing.  The per-failure root cause — missing
+/// `SKILL.md`, malformed YAML, missing required field — is logged at
+/// `warn` from inside [`parse_skill_md`]; the line emitted here is the
+/// summary marker that ties those low-level diagnostics back to the
+/// scan pipeline.
 pub(crate) fn load_all_skills(dirs: &[String]) -> (Vec<SkillMetadata>, Vec<String>) {
     let mut skills = Vec::new();
     let mut skipped = Vec::new();
@@ -90,7 +123,12 @@ pub(crate) fn load_all_skills(dirs: &[String]) -> (Vec<SkillMetadata>, Vec<Strin
         match parse_skill_md(dir) {
             Some(meta) => skills.push(meta),
             None => {
-                tracing::debug!("Skipping directory (failed to parse): {dir_str}");
+                tracing::warn!(
+                    directory = %dir_str,
+                    "Skipping skill directory: SKILL.md missing or failed validation \
+                     (see preceding parse warnings for the specific cause). \
+                     Use scan_and_load_strict() to fail-fast on such directories."
+                );
                 skipped.push(dir_str.clone());
             }
         }

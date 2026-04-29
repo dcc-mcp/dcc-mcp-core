@@ -188,6 +188,8 @@ impl GatewayRunner {
         let route_ttl = Duration::from_secs(self.config.route_ttl_secs);
         let max_routes_per_session = self.config.max_routes_per_session as usize;
         let own_version = self.config.server_version.clone();
+        let own_adapter_version = self.config.adapter_version.clone();
+        let own_adapter_dcc = self.config.adapter_dcc.clone();
 
         match try_bind_port_opt(&self.config.host, self.config.gateway_port).await {
             // ── We won the port ───────────────────────────────────────────
@@ -196,12 +198,19 @@ impl GatewayRunner {
                 // `ServiceEntry::new` auto-populates `pid` with our process id,
                 // so a crash of *this* process makes the sentinel prunable by
                 // `prune_dead_pids` on other peers (issue #227).
+                //
+                // Issue maya#137: stamp adapter_version + adapter_dcc on the
+                // sentinel so peers can apply the three-tier election
+                // comparison (crate version → adapter version → real-DCC
+                // tiebreaker).
                 let mut sentinel = ServiceEntry::new(
                     GATEWAY_SENTINEL_DCC_TYPE,
                     &self.config.host,
                     self.config.gateway_port,
                 );
                 sentinel.version = Some(own_version.clone());
+                sentinel.adapter_version = own_adapter_version.clone();
+                sentinel.adapter_dcc = own_adapter_dcc.clone();
                 let sentinel_key = sentinel.key();
                 {
                     let reg = self.registry.read().await;
@@ -223,6 +232,8 @@ impl GatewayRunner {
                     self.config.host.clone(),
                     self.config.gateway_port,
                     self.config.allow_unknown_tools,
+                    own_adapter_version.clone(),
+                    own_adapter_dcc.clone(),
                 )
                 .await
                 {
@@ -259,21 +270,49 @@ impl GatewayRunner {
 
             // ── Port is taken — version-aware challenger logic ────────────
             None => {
-                // Read the sentinel to discover the current gateway's version.
-                let gw_version = {
+                // Read the sentinel to discover the current gateway's full
+                // election profile (crate version + adapter metadata).
+                // Issue maya#137: the previous lookup only fetched `version`,
+                // so a freshly-released DCC adapter could never preempt an
+                // older standalone server pinned to a newer crate version.
+                let resident = {
                     let reg = self.registry.read().await;
                     reg.list_instances(GATEWAY_SENTINEL_DCC_TYPE)
                         .into_iter()
                         .next()
-                        .and_then(|e| e.version)
-                        .unwrap_or_default()
                 };
 
-                if !gw_version.is_empty() && is_newer_version(&own_version, &gw_version) {
+                let gw_version = resident
+                    .as_ref()
+                    .and_then(|e| e.version.clone())
+                    .unwrap_or_default();
+                let gw_adapter_version = resident.as_ref().and_then(|e| e.adapter_version.clone());
+                let gw_adapter_dcc = resident.as_ref().and_then(|e| e.adapter_dcc.clone());
+
+                let own_info = ElectionInfo::new(
+                    &own_version,
+                    own_adapter_version.as_deref(),
+                    own_adapter_dcc.as_deref(),
+                );
+                let gw_info = ElectionInfo::new(
+                    if gw_version.is_empty() {
+                        "0.0.0"
+                    } else {
+                        &gw_version
+                    },
+                    gw_adapter_version.as_deref(),
+                    gw_adapter_dcc.as_deref(),
+                );
+
+                if !gw_version.is_empty() && is_newer_election(own_info, gw_info) {
                     tracing::info!(
                         own = %own_version,
+                        own_adapter_version = ?own_adapter_version,
+                        own_adapter_dcc = ?own_adapter_dcc,
                         gateway = %gw_version,
-                        "We are newer than the current gateway — entering challenger mode"
+                        gateway_adapter_version = ?gw_adapter_version,
+                        gateway_adapter_dcc = ?gw_adapter_dcc,
+                        "We outrank the current gateway — entering challenger mode"
                     );
                     let challenger_abort = self.spawn_challenger_loop(&own_version, &gw_version);
                     // Return as non-gateway for now; challenger loop will promote us later.
@@ -288,8 +327,12 @@ impl GatewayRunner {
                     tracing::info!(
                         port = self.config.gateway_port,
                         gateway_version = %gw_version,
+                        gateway_adapter_version = ?gw_adapter_version,
+                        gateway_adapter_dcc = ?gw_adapter_dcc,
                         own_version = %own_version,
-                        "Gateway port taken by same-or-newer version — running as plain DCC instance"
+                        own_adapter_version = ?own_adapter_version,
+                        own_adapter_dcc = ?own_adapter_dcc,
+                        "Gateway port held by same-or-stronger candidate — running as plain DCC instance"
                     );
                     Ok(ElectionOutcome {
                         is_gateway: false,
@@ -324,6 +367,8 @@ impl GatewayRunner {
         let server_name = self.config.server_name.clone();
         let timeout_secs = self.config.challenger_timeout_secs;
         let allow_unknown_tools = self.config.allow_unknown_tools;
+        let adapter_version = self.config.adapter_version.clone();
+        let adapter_dcc = self.config.adapter_dcc.clone();
 
         let handle = tokio::spawn(async move {
             // ── Cooperative yield request ─────────────────────────────────
@@ -365,9 +410,12 @@ impl GatewayRunner {
                         "Challenger: won gateway port — starting gateway tasks"
                     );
 
-                    // Update sentinel with our version.
+                    // Update sentinel with our version + adapter info so
+                    // peers see the same election profile we used to win.
                     let mut sentinel = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, &host, port);
                     sentinel.version = Some(own_ver.clone());
+                    sentinel.adapter_version = adapter_version.clone();
+                    sentinel.adapter_dcc = adapter_dcc.clone();
                     let sentinel_key = sentinel.key();
                     {
                         let reg = registry.read().await;
@@ -389,6 +437,8 @@ impl GatewayRunner {
                         host.clone(),
                         port,
                         allow_unknown_tools,
+                        adapter_version.clone(),
+                        adapter_dcc.clone(),
                     )
                     .await
                     {

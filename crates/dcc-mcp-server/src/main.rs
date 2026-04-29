@@ -558,6 +558,15 @@ async fn main() -> anyhow::Result<()> {
         wait_terminal_timeout_ms: 600_000,
         route_ttl_secs: 60 * 60 * 24,
         max_routes_per_session: 1_000,
+        // Issue maya#137: standalone server has no adapter package, so the
+        // election treats it as the lowest tier and yields to any real
+        // DCC adapter at equal crate version.
+        adapter_version: None,
+        adapter_dcc: if args.dcc.is_empty() {
+            None
+        } else {
+            Some(args.dcc.clone())
+        },
     };
 
     let runner = GatewayRunner::new(gateway_cfg)

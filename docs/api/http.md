@@ -298,6 +298,55 @@ Each namespaced backend tool also carries `_instance_id`, `_instance_short`, and
 
 The gateway advertises `capabilities.tools.listChanged: true` and polls backends every 3 s; when the aggregated set changes (skill loaded / unloaded anywhere) it broadcasts `notifications/tools/list_changed` to every connected SSE client.
 
+#### `list_dcc_instances` — operator view (issue maya#138)
+
+`list_dcc_instances` returns every parseable row in the registry directory
+(`$TEMP/dcc-mcp-registry/`), regardless of `dcc_type`, and surfaces stale
+sentinels with `status: "stale"` so operators can see why a registration
+is no longer routable instead of having it silently elided.
+
+The response shape is:
+
+```json
+{
+  "total": 3,
+  "stale_count": 1,
+  "instances": [
+    {
+      "instance_id": "a1b2c3d4-…",
+      "dcc_type": "maya",
+      "host": "127.0.0.1",
+      "port": 18812,
+      "mcp_url": "http://127.0.0.1:18812/mcp",
+      "status": "available",
+      "scene": "/proj/shot01.ma",
+      "documents": [],
+      "pid": 1234,
+      "display_name": "Maya-Rigging",
+      "version": "2024",
+      "adapter_version": "0.3.0",
+      "adapter_dcc": "maya",
+      "metadata": {},
+      "stale": false
+    },
+    {
+      "instance_id": "f9e8d7c6-…",
+      "dcc_type": "maya",
+      "host": "127.0.0.1",
+      "port": 18813,
+      "status": "stale",
+      "stale": true,
+      "...": "fields above also present"
+    }
+  ],
+  "tip": "Some rows have status='stale' (no recent heartbeat). …"
+}
+```
+
+Pass `include_stale: false` to hide stale rows for callers that only want
+routable instances; the bookkeeping `__gateway__` sentinel and the
+gateway's own self-row are always filtered.
+
 ### Python example
 
 ```python

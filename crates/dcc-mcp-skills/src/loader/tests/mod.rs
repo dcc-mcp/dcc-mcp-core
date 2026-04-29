@@ -13,4 +13,5 @@ mod test_next_tools;
 mod test_parse_skill_md;
 mod test_scan_and_load;
 mod test_scan_and_load_lenient;
+mod test_scan_and_load_strict;
 mod test_tool_annotations;

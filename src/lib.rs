@@ -189,6 +189,7 @@ fn register_skills(m: &Bound<'_, PyModule>) -> PyResult<()> {
         dcc_mcp_skills::py_expand_transitive_dependencies,
         dcc_mcp_skills::py_scan_and_load,
         dcc_mcp_skills::py_scan_and_load_lenient,
+        dcc_mcp_skills::py_scan_and_load_strict,
         dcc_mcp_skills::py_scan_and_load_user,
         dcc_mcp_skills::py_scan_and_load_team,
         dcc_mcp_skills::py_scan_and_load_user_lenient,

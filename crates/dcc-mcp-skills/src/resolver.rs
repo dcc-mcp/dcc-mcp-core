@@ -28,6 +28,19 @@ pub enum ResolveError {
         /// The cycle path, e.g. `["A", "B", "C", "A"]`.
         cycle: Vec<String>,
     },
+    /// One or more directories matched the scan but failed to produce a
+    /// loadable skill (e.g. no `SKILL.md`, malformed YAML frontmatter,
+    /// missing required field).
+    ///
+    /// Returned exclusively by [`crate::loader::scan_and_load_strict`]
+    /// (issue maya#138) so embedders that prefer fail-fast over the
+    /// silent-skip default can surface the bad directories to operators
+    /// at start-up instead of discovering missing tools at run-time.
+    SkippedDirectories {
+        /// Absolute paths of directories that were skipped during
+        /// [`crate::loader::load_all_skills`].
+        directories: Vec<String>,
+    },
 }
 
 impl std::fmt::Display for ResolveError {
@@ -42,6 +55,16 @@ impl std::fmt::Display for ResolveError {
             }
             Self::CyclicDependency { cycle } => {
                 write!(f, "Circular dependency detected: {}", cycle.join(" → "))
+            }
+            Self::SkippedDirectories { directories } => {
+                write!(
+                    f,
+                    "Strict scan rejected {} directory/directories that failed to load: {}. \
+                     Inspect the SKILL.md files for missing/invalid YAML frontmatter or \
+                     re-run with scan_and_load_lenient to tolerate them.",
+                    directories.len(),
+                    directories.join(", ")
+                )
             }
         }
     }

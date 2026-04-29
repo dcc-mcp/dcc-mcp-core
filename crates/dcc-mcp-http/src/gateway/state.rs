@@ -93,6 +93,14 @@ pub struct GatewayState {
     ///
     /// When `false` (default), `live_instances` filters them out.
     pub allow_unknown_tools: bool,
+    /// Adapter package version (e.g. `dcc_mcp_maya = "0.3.0"`) advertised
+    /// by this gateway on its `__gateway__` sentinel and used by the
+    /// version-aware election comparison (issue maya#137).
+    pub adapter_version: Option<String>,
+    /// DCC type the adapter is bound to (e.g. `"maya"`) — drives the
+    /// real-DCC vs `"unknown"` tiebreaker in gateway election
+    /// (issue maya#137).
+    pub adapter_dcc: Option<String>,
 }
 
 impl GatewayState {
@@ -124,6 +132,28 @@ impl GatewayState {
             })
             .collect()
     }
+
+    /// Return every parseable registry row that an operator-facing tool
+    /// (e.g. `list_dcc_instances`) should expose, regardless of liveness.
+    ///
+    /// Issue maya#138: the previous implementation reused [`live_instances`],
+    /// which silently dropped stale, shutting-down, and `dcc_type == "unknown"`
+    /// rows.  Operators eyeballing the registry directory then saw three
+    /// sentinels but only one row in the tool output, with no signal as to
+    /// why the others vanished.  The expanded view excludes only the bookkeeping
+    /// `__gateway__` sentinel and the gateway's own self row, so callers can
+    /// render a full picture and downgrade stale entries via the surface
+    /// `status` field instead.
+    pub fn all_instances(&self, registry: &FileRegistry) -> Vec<ServiceEntry> {
+        registry
+            .list_all()
+            .into_iter()
+            .filter(|e| {
+                e.dcc_type != GATEWAY_SENTINEL_DCC_TYPE
+                    && !super::is_own_instance(e, &self.own_host, self.own_port)
+            })
+            .collect()
+    }
 }
 
 /// Serialize a `ServiceEntry` to a JSON `Value` suitable for gateway responses.
@@ -131,28 +161,43 @@ impl GatewayState {
 /// The returned object always contains every field so that MCP clients can
 /// display a rich disambiguation prompt when multiple instances of the same
 /// DCC type are live at the same time.
+///
+/// Issue maya#138: when the entry is past `stale_timeout` the surface
+/// `status` field is reported as `"stale"` so operators inspecting
+/// `list_dcc_instances` can immediately tell why a registry row is no
+/// longer routable.  The original `ServiceStatus` is preserved verbatim
+/// when the row is still live, and the redundant `stale: bool` field is
+/// kept for clients that prefer to branch on a boolean.
 pub fn entry_to_json(e: &ServiceEntry, stale_timeout: Duration) -> Value {
+    let stale = e.is_stale(stale_timeout);
+    let status = if stale {
+        "stale".to_string()
+    } else {
+        e.status.to_string()
+    };
     json!({
-        "instance_id":  e.instance_id.to_string(),
-        "dcc_type":     e.dcc_type,
-        "host":         e.host,
-        "port":         e.port,
-        "mcp_url":      format!("http://{}:{}/mcp", e.host, e.port),
-        "status":       e.status.to_string(),
+        "instance_id":     e.instance_id.to_string(),
+        "dcc_type":        e.dcc_type,
+        "host":            e.host,
+        "port":            e.port,
+        "mcp_url":         format!("http://{}:{}/mcp", e.host, e.port),
+        "status":          status,
         // ── document / scene ───────────────────────────────────────────────
         // `scene` is the active / primary document (same field as before).
         // `documents` is the full list for multi-document apps (Photoshop etc.).
-        "scene":        e.scene,
-        "documents":    e.documents,
+        "scene":           e.scene,
+        "documents":       e.documents,
         // ── disambiguation helpers ─────────────────────────────────────────
         // Both fields are null when not set; agents should skip null values
         // when building the disambiguation prompt for users.
-        "pid":          e.pid,
-        "display_name": e.display_name,
+        "pid":             e.pid,
+        "display_name":    e.display_name,
         // ── misc ───────────────────────────────────────────────────────────
-        "version":      e.version,
-        "metadata":     e.metadata,
-        "stale":        e.is_stale(stale_timeout),
+        "version":         e.version,
+        "adapter_version": e.adapter_version,
+        "adapter_dcc":     e.adapter_dcc,
+        "metadata":        e.metadata,
+        "stale":           stale,
     })
 }
 
@@ -201,6 +246,8 @@ mod tests {
             pending_calls: Arc::new(RwLock::new(HashMap::new())),
             subscriber: crate::gateway::sse_subscriber::SubscriberManager::default(),
             allow_unknown_tools,
+            adapter_version: None,
+            adapter_dcc: None,
         }
     }
 
@@ -347,5 +394,71 @@ mod tests {
                 .any(|e| e.dcc_type.eq_ignore_ascii_case("unknown")),
             "unknown dcc_type must be present when allow_unknown_tools is true"
         );
+    }
+
+    /// Issue maya#138: `all_instances` keeps stale and `unknown` rows
+    /// (dropping only the gateway sentinel and the gateway's own
+    /// self-row) so the operator-facing `list_dcc_instances` tool can
+    /// surface a complete picture of the registry directory.
+    #[tokio::test]
+    async fn test_all_instances_keeps_stale_and_unknown() {
+        let dir = tempfile::tempdir().unwrap();
+        let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+
+        {
+            let r = registry.read().await;
+            // The bookkeeping sentinel — must always be filtered.
+            let mut sentinel = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 9765);
+            sentinel.version = Some("0.14.18".into());
+            r.register(sentinel).unwrap();
+
+            // The standalone server's "unknown" row — kept by all_instances
+            // so operators can see why connect_to_dcc cannot route to it.
+            let unknown = ServiceEntry::new("unknown", "127.0.0.1", 18900);
+            r.register(unknown).unwrap();
+
+            // A live Maya plugin.
+            let maya = ServiceEntry::new("maya", "127.0.0.1", 18812);
+            r.register(maya).unwrap();
+
+            // A stale Maya plugin (heartbeat 10 minutes ago).
+            let mut stale = ServiceEntry::new("maya", "127.0.0.1", 18813);
+            stale.last_heartbeat = std::time::SystemTime::now() - Duration::from_secs(600);
+            r.register(stale).unwrap();
+        }
+
+        let gs =
+            test_gateway_state_with_own_and_unknown(registry.clone(), "127.0.0.1", 9765, false);
+        let all = gs.all_instances(&*registry.read().await);
+
+        assert_eq!(
+            all.len(),
+            3,
+            "expected unknown + live maya + stale maya, got {all:?}"
+        );
+        assert!(
+            !all.iter().any(|e| e.dcc_type == GATEWAY_SENTINEL_DCC_TYPE),
+            "gateway sentinel must always be filtered from operator output"
+        );
+        assert!(
+            all.iter().any(|e| e.dcc_type == "unknown"),
+            "unknown row must be retained even when allow_unknown_tools is false"
+        );
+        assert!(
+            all.iter().any(|e| e.is_stale(gs.stale_timeout)),
+            "stale row must be retained for diagnostics"
+        );
+    }
+
+    /// Issue maya#138: `entry_to_json` reports `status: "stale"` once a
+    /// row has aged past `stale_timeout`, regardless of the original
+    /// `ServiceStatus`, so callers can branch without a separate field.
+    #[test]
+    fn test_entry_to_json_status_stale_for_aged_row() {
+        let mut e = ServiceEntry::new("maya", "127.0.0.1", 18812);
+        e.last_heartbeat = std::time::SystemTime::now() - Duration::from_secs(600);
+        let json = entry_to_json(&e, Duration::from_secs(30));
+        assert_eq!(json["status"].as_str(), Some("stale"));
+        assert_eq!(json["stale"].as_bool(), Some(true));
     }
 }

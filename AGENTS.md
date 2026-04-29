@@ -102,6 +102,8 @@
 | Full callable-payload dispatch protocol for DCC plugins | `BaseDccCallableDispatcherFull` + `BaseDccPump` + `JobOutcome` / `PendingEnvelope` (#520); use `InProcessCallableDispatcher` as reference impl for `mayapy` / headless / pytest |
 | Skill scanning | `scan_and_load(dcc_name=...)` → always unpack `(skills, skipped)` tuple |
 | Tolerate broken SKILL.md | `scan_and_load_lenient(...)` instead of `scan_and_load` |
+| Fail-fast on broken SKILL.md | `scan_and_load_strict(...)` — raises `ValueError` listing every skipped directory (issue maya#138) |
+| Stamp gateway sentinel for election | `McpHttpConfig(..., adapter_version=..., adapter_dcc=...)` or `.with_adapter_version().with_adapter_dcc()` (issue maya#137) |
 | Discover team-level skills | `scan_and_load_team()` / `scan_and_load_team_lenient()` |
 | Discover user-level skills | `scan_and_load_user()` / `scan_and_load_user_lenient()` |
 | Disable evolved skills | `ENV_DISABLE_ACCUMULATED_SKILLS` |

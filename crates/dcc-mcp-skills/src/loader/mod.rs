@@ -63,7 +63,7 @@ pub(crate) use files::{enumerate_metadata_files, enumerate_scripts, merge_depend
 #[cfg(test)]
 pub(crate) use scan::load_all_skills;
 pub use scan::{
-    LoadResult, scan_and_load, scan_and_load_lenient, scan_and_load_team,
+    LoadResult, scan_and_load, scan_and_load_lenient, scan_and_load_strict, scan_and_load_team,
     scan_and_load_team_lenient, scan_and_load_user, scan_and_load_user_lenient,
 };
 
@@ -609,8 +609,9 @@ pub(crate) fn extract_frontmatter(content: &str) -> Option<&str> {
 
 #[cfg(feature = "python-bindings")]
 pub use crate::python::loader::{
-    py_parse_skill_md, py_scan_and_load, py_scan_and_load_lenient, py_scan_and_load_team,
-    py_scan_and_load_team_lenient, py_scan_and_load_user, py_scan_and_load_user_lenient,
+    py_parse_skill_md, py_scan_and_load, py_scan_and_load_lenient, py_scan_and_load_strict,
+    py_scan_and_load_team, py_scan_and_load_team_lenient, py_scan_and_load_user,
+    py_scan_and_load_user_lenient,
 };
 
 // ── Tests ──

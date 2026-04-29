@@ -218,6 +218,7 @@ from dcc_mcp_core import (
     scan_skill_paths,
     scan_and_load,
     scan_and_load_lenient,
+    scan_and_load_strict,
 )
 
 os.environ["DCC_MCP_SKILL_PATHS"] = "/path/to/skills"
@@ -225,6 +226,32 @@ os.environ["DCC_MCP_SKILL_PATHS"] = "/path/to/skills"
 # One-shot scan + load + dependency sort → returns (skills, skipped_dirs)
 skills, skipped = scan_and_load(extra_paths=["/my/skills"], dcc_name="maya")
 skills_lenient, skipped = scan_and_load_lenient(dcc_name="maya")  # skip errors
+
+# Strict variant (issue maya#138): raises ValueError when any directory
+# was silently skipped, so embedders can fail start-up loudly instead of
+# discovering the missing tools at run-time. The exception message lists
+# every offending directory and points at scan_and_load_lenient as the
+# opt-out for installations that genuinely want the silent-skip default.
+try:
+    skills, _ = scan_and_load_strict(dcc_name="maya")
+except ValueError as exc:
+    # Wire this into your DCC plugin's start-up error reporting.
+    raise SystemExit(f"Refusing to start: {exc}") from exc
+```
+
+::: tip Choosing the right entry point
+- `scan_and_load` — default; logs a `warn`-level summary for every skipped
+  directory (issue maya#138) and a per-failure `warn` from
+  `parse_skill_md`. Good for production where missing skills should be
+  visible in logs but not block start-up.
+- `scan_and_load_lenient` — same return shape but tolerates resolver
+  errors (missing dependency, dependency cycle).
+- `scan_and_load_strict` — fails fast when the scanner skipped any
+  directory. Use in CI / packaged adapter releases where a malformed
+  `SKILL.md` should be a blocking error rather than a silent omission.
+:::
+
+```python
 
 # Scan directories for SKILL.md files
 scanner = SkillScanner()

@@ -51,20 +51,46 @@ Maya v0.12.6 (gateway)           Maya v0.12.29 (new)
 
 When a gateway starts, it writes a special entry to the FileRegistry:
 ```json
-{"dcc_type": "__gateway__", "version": "0.12.29"}
+{
+  "dcc_type":        "__gateway__",
+  "version":         "0.14.18",
+  "adapter_version": "0.3.0",
+  "adapter_dcc":     "maya"
+}
 ```
 
-New instances read this to know who the gateway is and what version it runs.
+New instances read this to know who the gateway is, which `dcc-mcp-http`
+crate it embeds, which adapter package shipped that crate, and which DCC
+the adapter is bound to.
 
-**2. Semantic Version Comparison**
+**2. Three-Tier Election Comparison** (issue maya#137)
 
-Versions are compared numerically (not alphabetically):
+The challenger compares its own profile against the resident sentinel in
+this order — each tier is only consulted when the previous tier ties:
+
+| Tier | Field             | Rule                                                                 |
+|------|-------------------|----------------------------------------------------------------------|
+| 1    | `version`         | `dcc-mcp-http` crate semver — newer wins.                            |
+| 2    | `adapter_version` | Adapter package semver — newer wins; `None` is below any value.      |
+| 3    | `adapter_dcc`     | Real DCC (`"maya"`, `"houdini"`…) preempts `None` / `"unknown"`.     |
+
+The third tier resolves the production failure reported in maya#137: a
+generic standalone `dcc-mcp-server` pinned to a newer crate could keep
+the gateway forever, so the freshly-installed Maya plugin never got to
+serve its own tools. With the tiebreaker the Maya adapter wins at equal
+crate + adapter versions, while two real DCCs at identical versions
+remain tied (the existing first-wins port-bind contract takes over).
+
 ```
-0.12.6  vs  0.12.29
-↓              ↓
-[0, 12, 6]  [0, 12, 29]
-                 29 > 6 → v0.12.29 is newer ✓
+0.14.18  vs  0.14.18
+adapter 0.3.0 vs adapter 0.3.0
+adapter_dcc "maya" vs "unknown" → maya wins ✓
 ```
+
+Versions are still parsed numerically (`"2024"` from a Maya host version
+field would otherwise look newer than the `0.14.18` crate version — see
+issue #228 — so only the `__gateway__` sentinel row contributes to the
+self-yield decision).
 
 **3. Voluntary Yield**
 
@@ -73,6 +99,34 @@ The cleanup task (every 15s) checks for newer challengers. If found, it shuts do
 **4. Challenger Retry Loop**
 
 New instances poll the port every 10s for up to 120s. As soon as the port is free, they take over.
+
+### Stamping the Sentinel
+
+`McpHttpConfig` exposes the two new fields so adapters can declare them
+when wiring up the server:
+
+```rust
+let cfg = McpHttpConfig::new("maya", 18812)
+    .with_gateway(9765)
+    .with_adapter_version(env!("CARGO_PKG_VERSION"))
+    .with_adapter_dcc("maya");
+```
+
+In Python:
+
+```python
+McpHttpConfig(
+    dcc_type="maya",
+    port=18812,
+    gateway_port=9765,
+    adapter_version="0.3.0",
+    adapter_dcc="maya",
+)
+```
+
+Both fields are optional; leaving them `None` reproduces the legacy
+crate-version-only comparison and is treated as the lowest tier in the
+new election.
 
 ## Multi-Instance Registration
 

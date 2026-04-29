@@ -62,6 +62,8 @@ async fn make_state(
         pending_calls: Arc::new(RwLock::new(std::collections::HashMap::new())),
         subscriber: SubscriberManager::default(),
         allow_unknown_tools: false,
+        adapter_version: None,
+        adapter_dcc: None,
     };
     (state, registry, dir)
 }

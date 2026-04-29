@@ -90,7 +90,7 @@ pub use handle::GatewayHandle;
 pub use runner::GatewayRunner;
 pub(crate) use sentinel::{has_newer_sentinel, is_own_instance};
 pub(crate) use tasks::start_gateway_tasks;
-pub(crate) use version::is_newer_version;
+pub(crate) use version::{ElectionInfo, is_newer_election, is_newer_version};
 
 #[cfg(test)]
 pub(crate) use tasks::self_probe_listener;

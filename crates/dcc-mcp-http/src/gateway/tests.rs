@@ -3,6 +3,13 @@ use dcc_mcp_transport::discovery::types::ServiceEntry;
 
 const TEST_OWN_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// Build the `ElectionInfo` representing this process — crate-only, no
+/// adapter metadata — used by the issue #228 regressions where adapter
+/// info is irrelevant.
+fn own_crate_only() -> ElectionInfo<'static> {
+    ElectionInfo::new(TEST_OWN_VERSION, None, None)
+}
+
 #[test]
 fn test_parse_semver_basic() {
     assert_eq!(parse_semver("0.12.29"), (0, 12, 29));
@@ -18,6 +25,57 @@ fn test_is_newer_version_ordering() {
     assert!(is_newer_version("1.0.0", "0.99.99"));
     assert!(!is_newer_version("0.12.6", "0.12.6"));
     assert!(!is_newer_version("0.12.5", "0.12.6"));
+}
+
+// Issue maya#137 — three-tier election order.
+#[test]
+fn test_is_newer_election_crate_version_dominates() {
+    let cand = ElectionInfo::new("0.15.0", Some("0.3.0"), Some("maya"));
+    let cur = ElectionInfo::new("0.14.0", Some("9.9.9"), Some("maya"));
+    assert!(
+        is_newer_election(cand, cur),
+        "crate version must dominate adapter version"
+    );
+}
+
+#[test]
+fn test_is_newer_election_adapter_version_breaks_crate_tie() {
+    let cand = ElectionInfo::new("0.14.0", Some("0.3.1"), Some("maya"));
+    let cur = ElectionInfo::new("0.14.0", Some("0.3.0"), Some("maya"));
+    assert!(is_newer_election(cand, cur));
+    assert!(!is_newer_election(cur, cand));
+}
+
+#[test]
+fn test_is_newer_election_real_dcc_beats_unknown() {
+    // The reproduction from maya#137: standalone server pinned to a
+    // newer crate (0.14.18) is `unknown`; Maya plugin (0.3.0 adapter)
+    // ships with a real DCC. After the fix the Maya plugin should win
+    // when the crate versions are equal.
+    let cand = ElectionInfo::new("0.14.18", Some("0.3.0"), Some("maya"));
+    let cur = ElectionInfo::new("0.14.18", None, Some("unknown"));
+    assert!(
+        is_newer_election(cand, cur),
+        "real DCC must preempt unknown standalone at equal versions"
+    );
+}
+
+#[test]
+fn test_is_newer_election_two_real_dccs_remain_tied() {
+    // Two real DCCs at identical crate+adapter versions must not flip
+    // each other — the first-wins port-bind contract takes over.
+    let a = ElectionInfo::new("0.14.18", Some("0.3.0"), Some("maya"));
+    let b = ElectionInfo::new("0.14.18", Some("0.3.0"), Some("houdini"));
+    assert!(!is_newer_election(a, b));
+    assert!(!is_newer_election(b, a));
+}
+
+#[test]
+fn test_is_newer_election_missing_adapter_loses_to_present() {
+    let cand = ElectionInfo::new("0.14.0", Some("0.3.0"), Some("maya"));
+    let cur = ElectionInfo::new("0.14.0", None, Some("maya"));
+    assert!(is_newer_election(cand, cur));
+    assert!(!is_newer_election(cur, cand));
 }
 
 // Regression test for issue #228: Maya's host version ("2024") must not
@@ -36,7 +94,7 @@ fn test_has_newer_sentinel_ignores_dcc_host_version() {
     reg.register(maya).unwrap();
 
     assert!(
-        !has_newer_sentinel(&reg, TEST_OWN_VERSION, Duration::from_secs(30)),
+        !has_newer_sentinel(&reg, own_crate_only(), Duration::from_secs(30)),
         "Maya 2024 host version must not appear as a newer gateway"
     );
 }
@@ -53,7 +111,7 @@ fn test_has_newer_sentinel_detects_newer_gateway() {
     reg.register(sentinel).unwrap();
 
     assert!(
-        has_newer_sentinel(&reg, TEST_OWN_VERSION, Duration::from_secs(30)),
+        has_newer_sentinel(&reg, own_crate_only(), Duration::from_secs(30)),
         "a newer-version sentinel must trigger yield"
     );
 }
@@ -70,7 +128,7 @@ fn test_has_newer_sentinel_ignores_own_version() {
     reg.register(sentinel).unwrap();
 
     assert!(
-        !has_newer_sentinel(&reg, TEST_OWN_VERSION, Duration::from_secs(30)),
+        !has_newer_sentinel(&reg, own_crate_only(), Duration::from_secs(30)),
         "identical version sentinel must not trigger yield"
     );
 }
@@ -88,8 +146,50 @@ fn test_has_newer_sentinel_ignores_stale_sentinel() {
     reg.register(sentinel).unwrap();
 
     assert!(
-        !has_newer_sentinel(&reg, TEST_OWN_VERSION, Duration::from_secs(30)),
+        !has_newer_sentinel(&reg, own_crate_only(), Duration::from_secs(30)),
         "stale sentinel (crashed gateway) must not block newer takeover"
+    );
+}
+
+// Issue maya#137 — `has_newer_sentinel` must yield to a peer that has
+// the same crate version, the same adapter version, but a real DCC type
+// while the resident sentinel is `unknown`.
+#[test]
+fn test_has_newer_sentinel_real_dcc_preempts_unknown_standalone() {
+    let dir = tempfile::tempdir().unwrap();
+    let reg = FileRegistry::new(dir.path()).unwrap();
+
+    let mut sentinel = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 9765);
+    sentinel.version = Some(TEST_OWN_VERSION.to_string());
+    sentinel.adapter_version = Some("0.3.0".to_string());
+    sentinel.adapter_dcc = Some("maya".to_string());
+    reg.register(sentinel).unwrap();
+
+    // We are an `unknown` standalone at the same crate + adapter version
+    // → must defer to the resident Maya gateway.
+    let own = ElectionInfo::new(TEST_OWN_VERSION, Some("0.3.0"), Some("unknown"));
+    assert!(
+        has_newer_sentinel(&reg, own, Duration::from_secs(30)),
+        "real DCC sentinel must preempt unknown standalone"
+    );
+}
+
+// Issue maya#137 (negative): an `unknown` resident sentinel must not
+// trip self-yield for a real-DCC owner of the same crate version.
+#[test]
+fn test_has_newer_sentinel_real_dcc_owner_ignores_unknown() {
+    let dir = tempfile::tempdir().unwrap();
+    let reg = FileRegistry::new(dir.path()).unwrap();
+
+    let mut sentinel = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 9765);
+    sentinel.version = Some(TEST_OWN_VERSION.to_string());
+    sentinel.adapter_dcc = Some("unknown".to_string());
+    reg.register(sentinel).unwrap();
+
+    let own = ElectionInfo::new(TEST_OWN_VERSION, Some("0.3.0"), Some("maya"));
+    assert!(
+        !has_newer_sentinel(&reg, own, Duration::from_secs(30)),
+        "real DCC owner must not yield to an unknown peer at equal crate version"
     );
 }
 

@@ -33,14 +33,49 @@ fn document_matches(e: &ServiceEntry, hint: &str) -> bool {
 
 // ── tools ──────────────────────────────────────────────────────────────────
 
-/// `list_dcc_instances` — list all live DCC servers, optionally filtered by type.
+/// `list_dcc_instances` — list every parseable DCC server registered in the
+/// shared registry, optionally filtered by `dcc_type`.
+///
+/// Issue maya#138: prior to this change the tool reused
+/// [`GatewayState::live_instances`], which silently dropped stale rows,
+/// shutting-down rows, and any registration with `dcc_type == "unknown"`.
+/// Operators inspecting `$TEMP/dcc-mcp-registry/` then saw three sentinels
+/// on disk but only one row in the tool output, with no signal as to why
+/// the others vanished — making it nearly impossible to diagnose why their
+/// Maya plugin was missing or why the standalone server appeared to "win"
+/// the gateway.  The tool now surfaces:
+///
+/// * Every parseable row except the bookkeeping `__gateway__` sentinel
+///   and the gateway's own self-row.
+/// * Stale rows with `status: "stale"` so callers can render them as
+///   crashed/abandoned without dropping them silently.
+/// * `unknown` rows unconditionally, since this view is operator-facing
+///   and the existing `allow_unknown_tools` guard still governs whether
+///   their tools are routable through the gateway façade.
+///
+/// Pass `include_stale: false` (boolean) to opt out of stale rows for
+/// callers that genuinely want only routable instances.
 pub async fn tool_list_instances(gs: &GatewayState, args: &Value) -> Result<String, String> {
     let dcc_filter = args.get("dcc_type").and_then(|v| v.as_str());
+    let include_stale = args
+        .get("include_stale")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+
     let reg = gs.registry.read().await;
-    let mut instances: Vec<Value> = gs
-        .live_instances(&reg)
+    let raw = gs.all_instances(&reg);
+
+    let mut stale_count: usize = 0;
+    let mut instances: Vec<Value> = raw
         .iter()
         .filter(|e| dcc_filter.is_none_or(|f| e.dcc_type == f))
+        .filter(|e| {
+            let stale = e.is_stale(gs.stale_timeout);
+            if stale {
+                stale_count += 1;
+            }
+            include_stale || !stale
+        })
         .map(|e| entry_to_json(e, gs.stale_timeout))
         .collect();
 
@@ -52,7 +87,11 @@ pub async fn tool_list_instances(gs: &GatewayState, args: &Value) -> Result<Stri
     });
 
     let tip = if instances.is_empty() {
-        "No live DCC instances. Start dcc-mcp-server for each DCC application."
+        "No DCC instances in the registry. Start dcc-mcp-server for each DCC application."
+    } else if stale_count > 0 && include_stale {
+        "Some rows have status='stale' (no recent heartbeat). \
+         Use connect_to_dcc(dcc_type=..., scene=...) to route to a live one — \
+         pass `scene`, `document`, `display_name`, or `instance_id` to disambiguate."
     } else {
         "Use connect_to_dcc(dcc_type=..., scene=...) to get the direct MCP URL. \
          When multiple instances of the same DCC type are running, pass `scene`, \
@@ -60,9 +99,10 @@ pub async fn tool_list_instances(gs: &GatewayState, args: &Value) -> Result<Stri
     };
 
     serde_json::to_string_pretty(&json!({
-        "total": instances.len(),
-        "instances": instances,
-        "tip": tip
+        "total":        instances.len(),
+        "stale_count":  stale_count,
+        "instances":    instances,
+        "tip":          tip,
     }))
     .map_err(|e| e.to_string())
 }
@@ -286,15 +326,22 @@ pub fn gateway_tool_defs() -> serde_json::Value {
     json!([
         {
             "name": "list_dcc_instances",
-            "description": "List all running DCC server instances. \
-                Returns type, port, scene, documents, pid, display_name, and status. \
-                Call this first to discover what's available.",
+            "description": "List every DCC server instance registered in the shared registry. \
+                Returns type, port, scene, documents, pid, display_name, version, adapter_version, \
+                adapter_dcc, and status. Stale rows (no recent heartbeat) are reported with \
+                status='stale' so operators can see why a registration is no longer routable; \
+                pass include_stale=false to hide them. Call this first to discover what's available.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "dcc_type": {
                         "type": "string",
                         "description": "Filter by DCC type (e.g. 'maya', 'photoshop'). Omit for all."
+                    },
+                    "include_stale": {
+                        "type": "boolean",
+                        "description": "Include rows with status='stale' (default: true). Set to false for routable-only output.",
+                        "default": true
                     }
                 }
             }

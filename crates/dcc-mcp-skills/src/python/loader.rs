@@ -9,7 +9,7 @@ use pyo3_stub_gen_derive::gen_stub_pyfunction;
 use dcc_mcp_models::SkillMetadata;
 
 use crate::loader::{
-    parse_skill_md, scan_and_load, scan_and_load_lenient, scan_and_load_team,
+    parse_skill_md, scan_and_load, scan_and_load_lenient, scan_and_load_strict, scan_and_load_team,
     scan_and_load_team_lenient, scan_and_load_user, scan_and_load_user_lenient,
 };
 
@@ -67,6 +67,23 @@ pub fn py_scan_and_load_lenient(
     dcc_name: Option<&str>,
 ) -> PyResult<(Vec<SkillMetadata>, Vec<String>)> {
     let result = scan_and_load_lenient(extra_paths.as_deref(), dcc_name)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+    Ok((result.skills, result.skipped))
+}
+
+/// Strict pipeline (issue maya#138) — same as [`py_scan_and_load`] but
+/// raises `ValueError` when any directory was silently skipped, so
+/// embedders can fail start-up loudly instead of discovering missing
+/// tools at run-time.
+#[cfg_attr(feature = "stub-gen", gen_stub_pyfunction)]
+#[pyfunction]
+#[pyo3(name = "scan_and_load_strict")]
+#[pyo3(signature = (extra_paths=None, dcc_name=None))]
+pub fn py_scan_and_load_strict(
+    extra_paths: Option<Vec<String>>,
+    dcc_name: Option<&str>,
+) -> PyResult<(Vec<SkillMetadata>, Vec<String>)> {
+    let result = scan_and_load_strict(extra_paths.as_deref(), dcc_name)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
     Ok((result.skills, result.skipped))
 }

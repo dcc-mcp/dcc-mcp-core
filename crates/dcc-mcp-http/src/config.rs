@@ -395,6 +395,24 @@ pub struct McpHttpConfig {
     /// `"unknown"` (case-insensitive). Set to `true` only for development
     /// or when intentionally running a standalone server without a real DCC.
     pub allow_unknown_tools: bool,
+
+    /// Adapter package version (e.g. `dcc_mcp_maya = "0.3.0"`) recorded
+    /// on the `__gateway__` sentinel and used as the second tier of the
+    /// version-aware gateway election (issue maya#137).
+    ///
+    /// Default: `None`. Adapters that ship the gateway should set this so
+    /// peers can compare adapter releases when the embedded
+    /// `dcc-mcp-http` crate version is identical.
+    pub adapter_version: Option<String>,
+
+    /// DCC type the adapter is bound to (e.g. `"maya"`).  Drives the
+    /// third-tier "real DCC over generic standalone" tiebreaker in
+    /// gateway election (issue maya#137).
+    ///
+    /// Default: `None`. When unset (or set to `"unknown"`), the runner
+    /// is treated as a generic standalone server and yields to a real
+    /// DCC adapter at equal versions.
+    pub adapter_dcc: Option<String>,
 }
 
 impl McpHttpConfig {
@@ -439,7 +457,24 @@ impl McpHttpConfig {
             schedules_dir: None,
             enable_tool_cache: true,
             allow_unknown_tools: false,
+            adapter_version: None,
+            adapter_dcc: None,
         }
+    }
+
+    /// Builder: stamp the adapter package version onto the gateway
+    /// sentinel for version-aware election (issue maya#137).
+    pub fn with_adapter_version(mut self, version: impl Into<String>) -> Self {
+        self.adapter_version = Some(version.into());
+        self
+    }
+
+    /// Builder: declare the DCC type this adapter is bound to so the
+    /// gateway election can prefer real DCCs over generic standalone
+    /// servers (issue maya#137).
+    pub fn with_adapter_dcc(mut self, dcc: impl Into<String>) -> Self {
+        self.adapter_dcc = Some(dcc.into());
+        self
     }
 
     /// Builder: enable the scheduler subsystem and point at a directory

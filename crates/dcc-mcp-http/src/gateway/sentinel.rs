@@ -50,19 +50,31 @@ pub(crate) fn is_own_instance(
 /// of "is there a newer gateway challenger on the network". Any comparison must
 /// therefore be restricted to the sentinel row, and it must ignore our own
 /// sentinel write (same version, same host, same port).
+///
+/// Issue maya#137: the comparison now goes through [`super::is_newer_election`],
+/// which layers crate version → adapter version → real-DCC tiebreaker on
+/// top of the original semver check.  `own` carries the crate + adapter
+/// info this process is willing to advertise.
 pub(crate) fn has_newer_sentinel(
     reg: &FileRegistry,
-    own_version: &str,
+    own: super::ElectionInfo<'_>,
     stale_timeout: Duration,
 ) -> bool {
     reg.list_instances(GATEWAY_SENTINEL_DCC_TYPE)
         .into_iter()
         .any(|e| {
-            !e.is_stale(stale_timeout)
-                && e.version
-                    .as_deref()
-                    .map(|v| is_newer_version(v, own_version))
-                    .unwrap_or(false)
+            if e.is_stale(stale_timeout) {
+                return false;
+            }
+            let Some(crate_v) = e.version.as_deref() else {
+                return false;
+            };
+            let resident = super::ElectionInfo::new(
+                crate_v,
+                e.adapter_version.as_deref(),
+                e.adapter_dcc.as_deref(),
+            );
+            super::is_newer_election(resident, own)
         })
 }
 
