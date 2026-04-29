@@ -457,11 +457,30 @@ pub(crate) fn execute_script(
     // Append CLI flags after the script path (or after the -c "..." snippet)
     args.extend(cli_extra);
 
-    let mut child = Command::new(&program)
+    let mut command = Command::new(&program);
+    command
         .args(&args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+    // Force UTF-8 on Python child processes regardless of the host locale.
+    // Windows defaults Python's stdio to the legacy ANSI code page (e.g.
+    // cp1252), which silently corrupts non-ASCII params we ship as UTF-8
+    // through stdin and any non-ASCII the script prints to stdout. Setting
+    // both env vars below pins the child to UTF-8 on every platform; for
+    // non-Python interpreters (bash, cmd, powershell) the variables are
+    // simply ignored. PYTHONUTF8=1 also covers the open() / Path text I/O
+    // the script itself does, which is the much more common bug surface.
+    let interpreter_lower = std::path::Path::new(&program)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .map(str::to_ascii_lowercase)
+        .unwrap_or_default();
+    if interpreter_lower.starts_with("python") || interpreter_lower.starts_with("py") {
+        command.env("PYTHONIOENCODING", "utf-8");
+        command.env("PYTHONUTF8", "1");
+    }
+    let mut child = command
         .spawn()
         .map_err(|e| format!("Failed to spawn '{script_path}': {e}"))?;
 

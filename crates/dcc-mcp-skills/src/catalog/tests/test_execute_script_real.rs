@@ -213,10 +213,15 @@ fn test_real_python_unicode_params_round_trip_via_stdin() {
     if !have_program("python") {
         return;
     }
+    // The Rust dispatcher pins PYTHONIOENCODING=utf-8 and PYTHONUTF8=1 on
+    // every Python child so this test does NOT need to wrap sys.stdin /
+    // sys.stdout manually. If we ever regress that pinning, this test will
+    // fail on Windows (cp1252 host) with classic mojibake — that is the
+    // exact production trap we want to keep guarding against.
     let body = r#"
-import json, sys, io
-# Force UTF-8 stdout so Windows cp1252 default does not corrupt non-ASCII.
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+import json, sys
+assert (sys.stdin.encoding or "").lower().replace("-", "") in ("utf8", ""), \
+    f"stdin encoding must be UTF-8, got {sys.stdin.encoding!r}"
 params = json.loads(sys.stdin.read() or "{}")
 print(json.dumps({"success": True, "got": params["greeting"]}, ensure_ascii=False))
 "#;
