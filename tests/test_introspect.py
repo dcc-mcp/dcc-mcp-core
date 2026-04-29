@@ -222,9 +222,7 @@ class TestRegisterIntrospectTools:
     def test_search_handler_works(self) -> None:
         server, handlers = self._make_server()
         register_introspect_tools(server)
-        result = handlers["dcc_introspect__search"](
-            json.dumps({"pattern": "sqrt", "module": "math"})
-        )
+        result = handlers["dcc_introspect__search"](json.dumps({"pattern": "sqrt", "module": "math"}))
         assert result["success"] is True
 
     def test_eval_handler_works(self) -> None:

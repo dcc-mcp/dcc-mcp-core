@@ -57,11 +57,13 @@ if sys.version_info >= (3, 8):
     from typing import Protocol
     from typing import runtime_checkable
 else:  # pragma: no cover - py3.7 only
+
     def runtime_checkable(cls):
         return cls
 
     class Protocol:  # type: ignore[no-redef]
         pass
+
 
 __all__ = [
     "CancelToken",

@@ -68,6 +68,10 @@ disable_error_code = ["type-arg", "misc", "no-any-return"]
 line-length = 120
 target-version = "py37"
 src = ["python/dcc_mcp_core", "tests", "examples"]
+# `_core.pyi` is regenerated from the Rust extension by `pyo3-stub-gen`
+# on every build; running ruff against it produces ~1k spurious diffs
+# that would just get clobbered the next time `maturin develop` runs.
+extend-exclude = ["python/dcc_mcp_core/_core.pyi"]
 
 [tool.ruff.lint]
 select = [

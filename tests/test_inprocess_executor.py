@@ -76,10 +76,7 @@ def test_run_skill_script_systemexit_returns_mcp_result(tmp_path: Path) -> None:
     """Mirrors Maya's existing convention used by some skills."""
     p = _write_script(
         tmp_path,
-        "import sys\n"
-        "__mcp_result__ = {'ok': True, 'frames': 12}\n"
-        "def main(**_):\n"
-        "    sys.exit(0)\n",
+        "import sys\n__mcp_result__ = {'ok': True, 'frames': 12}\ndef main(**_):\n    sys.exit(0)\n",
     )
     assert run_skill_script(str(p), {}) == {"ok": True, "frames": 12}
 
@@ -87,8 +84,7 @@ def test_run_skill_script_systemexit_returns_mcp_result(tmp_path: Path) -> None:
 def test_run_skill_script_systemexit_at_module_level(tmp_path: Path) -> None:
     p = _write_script(
         tmp_path,
-        "__mcp_result__ = {'fast_path': True}\n"
-        "raise SystemExit(0)\n",
+        "__mcp_result__ = {'fast_path': True}\nraise SystemExit(0)\n",
     )
     assert run_skill_script(str(p), {}) == {"fast_path": True}
 

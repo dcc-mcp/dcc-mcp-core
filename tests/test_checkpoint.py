@@ -99,6 +99,7 @@ class TestModuleLevelHelpers:
     def setup_method(self) -> None:
         # Ensure a clean store for each test
         from dcc_mcp_core import checkpoint as cp_mod
+
         cp_mod._DEFAULT_STORE = CheckpointStore()
 
     def test_save_and_get_checkpoint(self) -> None:

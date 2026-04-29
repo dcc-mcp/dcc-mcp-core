@@ -128,9 +128,7 @@ def test_submit_async_returns_pending_envelope_then_completes() -> None:
         barrier.wait(timeout=2.0)
         return 99
 
-    pending = d.submit_async_callable(
-        "r1", task, on_complete=completed.append, progress_token="p1"
-    )
+    pending = d.submit_async_callable("r1", task, on_complete=completed.append, progress_token="p1")
     assert isinstance(pending, PendingEnvelope)
     assert pending.request_id == "r1"
     assert pending.job_id  # uuid hex
