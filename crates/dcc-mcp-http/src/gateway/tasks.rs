@@ -345,6 +345,9 @@ pub(crate) async fn start_gateway_tasks(
     };
     let gw_router = build_gateway_router(gw_state);
 
+    #[cfg(feature = "prometheus")]
+    let gw_router = super::metrics::attach_gateway_metrics_route(gw_router);
+
     let actual = listener.local_addr()?;
     tracing::info!(
         "Gateway listening on http://{}  (GET /mcp = SSE stream, POST /mcp = MCP endpoint)",
@@ -454,7 +457,57 @@ pub(crate) async fn start_gateway_tasks(
         }
     });
 
+    // ── Prometheus metrics updater (issue #559) ───────────────────────────
+    #[cfg(feature = "prometheus")]
+    let metrics_handle = {
+        let reg_metrics = registry.clone();
+        let stale_timeout_metrics = stale_timeout;
+        tokio::spawn(async move {
+            let exporter = dcc_mcp_telemetry::PrometheusExporter::new();
+            let mut interval = tokio::time::interval(Duration::from_secs(5));
+            loop {
+                interval.tick().await;
+                let r = reg_metrics.read().await;
+                let all = r.list_all();
+                let active = all
+                    .iter()
+                    .filter(|e| {
+                        e.dcc_type != GATEWAY_SENTINEL_DCC_TYPE
+                            && !e.is_stale(stale_timeout_metrics)
+                            && !matches!(
+                                e.status,
+                                dcc_mcp_transport::discovery::types::ServiceStatus::ShuttingDown
+                                    | dcc_mcp_transport::discovery::types::ServiceStatus::Unreachable
+                            )
+                    })
+                    .count() as i64;
+                let stale = all
+                    .iter()
+                    .filter(|e| {
+                        e.dcc_type != GATEWAY_SENTINEL_DCC_TYPE && e.is_stale(stale_timeout_metrics)
+                    })
+                    .count() as i64;
+                exporter.set_instances_total("active", active);
+                exporter.set_instances_total("stale", stale);
+            }
+        })
+    };
+
     // Combine all tasks under one abort handle.
+    #[cfg(feature = "prometheus")]
+    let combined = tokio::spawn(async move {
+        let _ = tokio::join!(
+            cleanup_handle,
+            watcher_handle,
+            tools_watcher_handle,
+            backend_sub_handle,
+            route_gc_handle,
+            health_check_handle,
+            gw_handle,
+            metrics_handle
+        );
+    });
+    #[cfg(not(feature = "prometheus"))]
     let combined = tokio::spawn(async move {
         let _ = tokio::join!(
             cleanup_handle,

@@ -34,6 +34,9 @@ pub mod sse_subscriber;
 pub mod state;
 pub mod tools;
 
+#[cfg(feature = "prometheus")]
+pub mod metrics;
+
 pub use router::build_gateway_router;
 pub use state::{GatewayState, entry_to_json};
 

@@ -79,6 +79,11 @@ struct Inner {
     active_sessions: IntGauge,
     registered_tools: IntGauge,
 
+    instances_total: IntGaugeVec,
+    tools_total: IntGaugeVec,
+    request_duration_seconds: HistogramVec,
+    requests_failed_total: IntCounterVec,
+
     #[allow(dead_code)]
     build_info: GaugeVec,
 
@@ -210,6 +215,55 @@ impl PrometheusExporter {
             .with_label_values(&[env!("CARGO_PKG_VERSION"), env!("CARGO_PKG_NAME")])
             .set(1.0);
 
+        let instances_total = IntGaugeVec::new(
+            Opts::new(
+                "dcc_mcp_instances_total",
+                "Number of registered DCC instances by status.",
+            ),
+            &["status"],
+        )
+        .expect("static metric definition");
+        registry
+            .register(Box::new(instances_total.clone()))
+            .expect("unique registration");
+
+        let tools_total = IntGaugeVec::new(
+            Opts::new(
+                "dcc_mcp_tools_total",
+                "Number of tools exposed by DCC type.",
+            ),
+            &["dcc_type"],
+        )
+        .expect("static metric definition");
+        registry
+            .register(Box::new(tools_total.clone()))
+            .expect("unique registration");
+
+        let request_duration_seconds = HistogramVec::new(
+            HistogramOpts::new(
+                "dcc_mcp_request_duration_seconds",
+                "Gateway request duration in seconds.",
+            )
+            .buckets(DURATION_BUCKETS_SECONDS.to_vec()),
+            &["method"],
+        )
+        .expect("static metric definition");
+        registry
+            .register(Box::new(request_duration_seconds.clone()))
+            .expect("unique registration");
+
+        let requests_failed_total = IntCounterVec::new(
+            Opts::new(
+                "dcc_mcp_requests_failed_total",
+                "Total number of failed gateway requests by method.",
+            ),
+            &["method"],
+        )
+        .expect("static metric definition");
+        registry
+            .register(Box::new(requests_failed_total.clone()))
+            .expect("unique registration");
+
         Self {
             inner: Arc::new(Inner {
                 registry,
@@ -221,6 +275,10 @@ impl PrometheusExporter {
                 notifications_sent_total,
                 active_sessions,
                 registered_tools,
+                instances_total,
+                tools_total,
+                request_duration_seconds,
+                requests_failed_total,
                 build_info,
                 recorder: Mutex::new(None),
             }),
@@ -303,6 +361,35 @@ impl PrometheusExporter {
     /// Set the registered-tool gauge to an absolute value.
     pub fn set_registered_tools(&self, n: i64) {
         self.inner.registered_tools.set(n);
+    }
+
+    /// Set the instance count gauge for a given status label.
+    pub fn set_instances_total(&self, status: &str, n: i64) {
+        self.inner
+            .instances_total
+            .with_label_values(&[status])
+            .set(n);
+    }
+
+    /// Set the tool count gauge for a given DCC type label.
+    pub fn set_tools_total(&self, dcc_type: &str, n: i64) {
+        self.inner.tools_total.with_label_values(&[dcc_type]).set(n);
+    }
+
+    /// Observe a gateway request duration.
+    pub fn observe_request_duration(&self, method: &str, duration: std::time::Duration) {
+        self.inner
+            .request_duration_seconds
+            .with_label_values(&[method])
+            .observe(duration.as_secs_f64());
+    }
+
+    /// Increment the failed request counter for a method.
+    pub fn inc_requests_failed(&self, method: &str) {
+        self.inner
+            .requests_failed_total
+            .with_label_values(&[method])
+            .inc();
     }
 
     /// Render the current metric state as a Prometheus text-exposition
