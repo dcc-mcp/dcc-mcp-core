@@ -11,6 +11,34 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.14.19](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.18...v0.14.19) (2026-04-29)
+
+
+### Features
+
+* **build:** optimize Windows build speed with sccache and LLD linker ([4c56606](https://github.com/loonghao/dcc-mcp-core/commit/4c5660664ec278fdd6360ceedaccb82d6688ecd9))
+* **http:** JobRecoveryPolicy contract for McpHttpConfig ([#567](https://github.com/loonghao/dcc-mcp-core/issues/567)) ([3612aa6](https://github.com/loonghao/dcc-mcp-core/commit/3612aa60e29f67d5d765ddd04e77a7391410e434))
+* Prometheus metrics endpoint for gateway observability ([#559](https://github.com/loonghao/dcc-mcp-core/issues/559)) ([730dd8b](https://github.com/loonghao/dcc-mcp-core/commit/730dd8b7d48476708441f3e3d782697624187473))
+* **workflow:** persistent idempotency cache via SqliteIdempotencyStore ([#566](https://github.com/loonghao/dcc-mcp-core/issues/566)) ([c494182](https://github.com/loonghao/dcc-mcp-core/commit/c49418235d4a21c59f17a3411c8ff17f4767ca19))
+* **workflow:** workflows.resume MCP tool + executor.resume() ([#565](https://github.com/loonghao/dcc-mcp-core/issues/565)) ([8c37f11](https://github.com/loonghao/dcc-mcp-core/commit/8c37f11d3311ad82c8e545f383313c14ae06af66))
+
+
+### Bug Fixes
+
+* **build:** make sccache opt-in via shell env (regression from 4c56606) ([05af2f2](https://github.com/loonghao/dcc-mcp-core/commit/05af2f217bf584dff23d7869e3147b9d0176b915))
+* gateway reliability, security, and logging defaults ([#551](https://github.com/loonghao/dcc-mcp-core/issues/551), [#552](https://github.com/loonghao/dcc-mcp-core/issues/552), [#553](https://github.com/loonghao/dcc-mcp-core/issues/553), [#554](https://github.com/loonghao/dcc-mcp-core/issues/554), [#555](https://github.com/loonghao/dcc-mcp-core/issues/555), [#556](https://github.com/loonghao/dcc-mcp-core/issues/556), [#557](https://github.com/loonghao/dcc-mcp-core/issues/557), [#558](https://github.com/loonghao/dcc-mcp-core/issues/558)) ([#560](https://github.com/loonghao/dcc-mcp-core/issues/560)) ([7749079](https://github.com/loonghao/dcc-mcp-core/commit/7749079e9b092271fce2475193890024610d516d))
+* **gateway,skills:** three-tier election + stale-aware list_dcc_instances + strict scan ([#568](https://github.com/loonghao/dcc-mcp-core/issues/568)) ([282eafe](https://github.com/loonghao/dcc-mcp-core/commit/282eafe8c4caac08796c26f590cfcf2e27c3d500))
+* **skills:** pin Python child stdio to UTF-8 across platforms ([bc8f5cb](https://github.com/loonghao/dcc-mcp-core/commit/bc8f5cbb9dcc30385397f740a35c909c2ba7be4c))
+* **skills:** use ptrace TracerPid detection to skip real-exec tests under tarpaulin ([#570](https://github.com/loonghao/dcc-mcp-core/issues/570)) ([9339462](https://github.com/loonghao/dcc-mcp-core/commit/93394621755f5504a9620898508043ec10e24fb3))
+* **transport:** drop exclusive heartbeat lock that dropped concurrent writes ([459492c](https://github.com/loonghao/dcc-mcp-core/commit/459492cd95fe9747b522a2d53e540987c378d2f3))
+
+
+### Documentation
+
+* **agents:** document gateway reliability, security, logging defaults, and Prometheus metrics ([#551](https://github.com/loonghao/dcc-mcp-core/issues/551)-[#559](https://github.com/loonghao/dcc-mcp-core/issues/559)) ([b8a5e57](https://github.com/loonghao/dcc-mcp-core/commit/b8a5e57fc9e6ecf03e9eae79a30ae4b692da8ff3))
+* fix VitePress mustache + markdownlint dash style in workflows.md ([3dd78e1](https://github.com/loonghao/dcc-mcp-core/commit/3dd78e16e69e02f150a579193049aaf65c67c474))
+* **skills:** layered architecture guide for complex skills ([#575](https://github.com/loonghao/dcc-mcp-core/issues/575)) ([949e1e7](https://github.com/loonghao/dcc-mcp-core/commit/949e1e768c391b8f89e87122ca1eac771de20e18))
+
 ## [0.14.18](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.17...v0.14.18) (2026-04-29)
 
 
