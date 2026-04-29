@@ -102,7 +102,11 @@ rusqlite = { version = "0.39", features = ["bundled"] }
 
 # JWT bearer auth for the tunnel relay (issue #504). HS256 today; RS256/EdDSA
 # can be added in a later PR without touching the protocol crate's public API.
-jsonwebtoken = { version = "9.3", default-features = false }
+# jsonwebtoken 10.x is a security upgrade (CVE-2026-25537 — TryParse
+# type-confusion bypass). v10 made the crypto backend non-default; we pick
+# `rust_crypto` for portability across the wheels we ship (it works on every
+# host without `aws-lc-rs`'s build-time C toolchain requirement).
+jsonwebtoken = { version = "10.3", default-features = false, features = ["rust_crypto"] }
 
 # Type-stub generation (opt-in via `stub-gen` feature). Used only by the
 # `stub_gen` binary target — never pulled into wheels or library consumers.

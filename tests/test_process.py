@@ -453,7 +453,15 @@ class TestPyProcessWatcher:
             assert hb["name"] == "self"
 
     def test_poll_events_drains_queue(self) -> None:
-        """Second poll_events() call returns empty list (queue was drained)."""
+        """Second poll_events() call returns empty list (queue was drained).
+
+        Stop the watcher before draining and then give the background loop a
+        brief grace window to finish any in-flight poll iteration; otherwise a
+        last heartbeat can land in the queue between ``stop()`` and the second
+        ``poll_events()``. We drain whatever the watcher pushed during that
+        window, then assert the *next* drain is empty — that's the contract
+        ``poll_events`` actually offers.
+        """
         import time
 
         watcher = dcc_mcp_core.PyProcessWatcher(poll_interval_ms=100)
@@ -462,10 +470,13 @@ class TestPyProcessWatcher:
         try:
             time.sleep(0.25)
             watcher.poll_events()  # first drain
-            events2 = watcher.poll_events()  # should be empty
-            assert events2 == []
         finally:
             watcher.stop()
+        # Settle: ensure no in-flight poll iteration is mid-push.
+        time.sleep(0.2)
+        watcher.poll_events()  # absorb any last in-flight events
+        events_after_settle = watcher.poll_events()
+        assert events_after_settle == []
 
     def test_tracked_count_alias(self) -> None:
         """tracked_count() is an alias for watch_count()."""
