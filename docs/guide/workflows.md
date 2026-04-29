@@ -287,7 +287,7 @@ For long-running workflows that survive a server restart, `workflows.resume`
 re-drives the persisted spec from the first non-completed step. The
 executor reads the persisted spec + inputs + per-step status from
 `WorkflowStorage`, hydrates its context with every recorded
-`completed` step's output (so downstream `{{ steps.X.output }}`
+`completed` step's output (so downstream `steps.X.output` Mustache
 references stay live), then drives forward — emitting a single
 `step_skipped_resume` event per skipped step.
 
@@ -313,8 +313,8 @@ reached `completed`.
 
 Resume requires that the executor was built with both:
 
-* `WorkflowExecutorBuilder::storage(Arc<WorkflowStorage>)`, and
-* the `dcc-mcp-workflow/job-persist-sqlite` Cargo feature.
+- `WorkflowExecutorBuilder::storage(Arc<WorkflowStorage>)`, and
+- the `dcc-mcp-workflow/job-persist-sqlite` Cargo feature.
 
 Without storage, `workflows.resume` returns `NoStorage` immediately.
 
