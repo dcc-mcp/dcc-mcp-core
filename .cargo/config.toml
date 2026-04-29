@@ -26,13 +26,23 @@ debug = 1
 # Use `debug = 2` (or `CARGO_PROFILE_DEV_DEBUG=2`) when you need full
 # variable inspection in a debugger.
 debug = 1
+opt-level = 1
+codegen-units = 16
 # macOS: "packed" avoids dsymutil which is the #1 macOS link bottleneck.
 # Windows/Linux: ignored.
 split-debuginfo = "packed"
 
+# ── Faster linker for Windows (requires LLVM/LLD installed) ─────────────────
+# Install LLVM: winget install LLVM.LLVM
+# This replaces the slow MSVC link.exe with LLD (10-30% faster links).
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+
 # ── Compiler cache (sccache) ────────────────────────────────────────────────
-# Install: cargo install sccache
+# Install: cargo install sccache --locked
 # Then set env: SCCACHE_DIR=<cache-dir> RUSTC_WRAPPER=sccache
 # To disable: comment out the next line or unset RUSTC_WRAPPER.
-# [env]
-# RUSTC_WRAPPER = "sccache"
+[env]
+RUSTC_WRAPPER = "sccache"
+SCCACHE_DIR = { value = "~/.cache/sccache", relative = false }
+SCCACHE_CACHE_SIZE = "2G"
