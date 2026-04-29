@@ -249,6 +249,43 @@ const DCC_NAMES_REQUIRING_HOST_PYTHON: &[&str] = &[
 // every DCC plugin can reach the same lookup table via
 // `dcc_mcp_skills::is_gui_executable`.
 
+/// Maximum byte length for a string parameter to be expanded as a `--key value`
+/// CLI flag. Strings beyond this threshold still reach the script via the
+/// stdin JSON payload but are omitted from `argv` so they can not exceed the
+/// platform command-line limit (Windows `CreateProcess` caps the full command
+/// line at 32 768 chars). 8 KiB is a conservative ceiling that leaves headroom
+/// for the script path, other flags, and the interpreter wrapper.
+const MAX_CLI_FLAG_VALUE_BYTES: usize = 8 * 1024;
+
+/// Return `true` when a command-line `program` is resolvable on PATH.
+///
+/// Used by the `.ps1` dispatch arm to prefer PowerShell 7 (`pwsh`) when it
+/// is installed and fall back to the Windows-builtin `powershell` otherwise.
+fn which_program(program: &str) -> bool {
+    let path_var = match std::env::var_os("PATH") {
+        Some(v) => v,
+        None => return false,
+    };
+    let exts: Vec<String> = if cfg!(windows) {
+        std::env::var("PATHEXT")
+            .unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_string())
+            .split(';')
+            .map(|s| s.to_string())
+            .collect()
+    } else {
+        vec![String::new()]
+    };
+    for dir in std::env::split_paths(&path_var) {
+        for ext in &exts {
+            let candidate = dir.join(format!("{program}{ext}"));
+            if candidate.is_file() {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 pub(crate) fn execute_script(
     script_path: &str,
     params: serde_json::Value,
@@ -335,13 +372,29 @@ pub(crate) fn execute_script(
 
     // Build CLI args that argparse-based scripts can consume.
     // Only scalar values (string, number, bool) are expanded; objects/arrays
-    // are left for the stdin JSON path.
+    // are left for the stdin JSON path. String values longer than
+    // [`MAX_CLI_FLAG_VALUE_BYTES`] are also dropped from the CLI flags so
+    // they can not blow past the platform's command-line limit (Windows
+    // CreateProcess caps at 32 768 chars; *nix ARG_MAX is much larger but
+    // still finite). Large values still reach the script via the stdin
+    // JSON payload, so no information is lost.
     let mut cli_extra: Vec<String> = Vec::new();
     if let Some(obj) = params.as_object() {
         for (key, val) in obj {
             let flag = format!("--{}", key.replace('_', "-"));
             match val {
                 serde_json::Value::String(s) => {
+                    if s.len() > MAX_CLI_FLAG_VALUE_BYTES {
+                        tracing::debug!(
+                            target: "dcc_mcp_skills::execute",
+                            key = %key,
+                            value_bytes = s.len(),
+                            limit_bytes = MAX_CLI_FLAG_VALUE_BYTES,
+                            "skipping CLI flag expansion for oversized string param; \
+                             value still delivered via stdin JSON"
+                        );
+                        continue;
+                    }
                     cli_extra.push(flag);
                     cli_extra.push(s.clone());
                 }
@@ -379,6 +432,24 @@ pub(crate) fn execute_script(
         "bat" | "cmd" => (
             "cmd".to_string(),
             vec!["/C".to_string(), script_path.to_string()],
+        ),
+        "ps1" => (
+            // pwsh (PowerShell 7+) is preferred when available; fall back to
+            // the legacy `powershell` shipped with Windows. The launcher resolves
+            // via PATH so both names work on the systems that have them.
+            if which_program("pwsh") {
+                "pwsh".to_string()
+            } else {
+                "powershell".to_string()
+            },
+            vec![
+                "-NoProfile".to_string(),
+                "-NonInteractive".to_string(),
+                "-ExecutionPolicy".to_string(),
+                "Bypass".to_string(),
+                "-File".to_string(),
+                script_path.to_string(),
+            ],
         ),
         "mel" | "lua" | "hscript" | "maxscript" => (python_exe, vec![script_path.to_string()]),
         _ => (python_exe, vec![script_path.to_string()]),
