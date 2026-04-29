@@ -38,11 +38,24 @@ split-debuginfo = "packed"
 [target.x86_64-pc-windows-msvc]
 rustflags = ["-C", "link-arg=-fuse-ld=lld"]
 
-# ── Compiler cache (sccache) ────────────────────────────────────────────────
-# Install: cargo install sccache --locked
-# Then set env: SCCACHE_DIR=<cache-dir> RUSTC_WRAPPER=sccache
-# To disable: comment out the next line or unset RUSTC_WRAPPER.
-[env]
-RUSTC_WRAPPER = "sccache"
-SCCACHE_DIR = { value = "~/.cache/sccache", relative = false }
-SCCACHE_CACHE_SIZE = "2G"
+# ── Compiler cache (sccache) — opt-in ───────────────────────────────────────
+# sccache is enabled via shell environment, *not* via this file, so a fresh
+# clone or a CI runner without sccache installed does not break `cargo *`
+# (cargo metadata in particular fails immediately if RUSTC_WRAPPER points to
+# a missing binary — see #4c56606 regression in rust-coverage CI).
+#
+# Local dev — bash:
+#     export RUSTC_WRAPPER=sccache
+#     export SCCACHE_DIR=~/.cache/sccache
+#     export SCCACHE_CACHE_SIZE=2G
+#
+# Local dev — PowerShell:
+#     $env:RUSTC_WRAPPER  = 'sccache'
+#     $env:SCCACHE_DIR    = "$HOME/.cache/sccache"
+#     $env:SCCACHE_CACHE_SIZE = '2G'
+#
+# Install:
+#     cargo install sccache --locked    (or: winget install Mozilla.sccache)
+#
+# CI: enable on a per-job basis by exporting RUSTC_WRAPPER in the workflow
+# step *after* `taiki-e/install-action` (or equivalent) installs sccache.
