@@ -576,3 +576,196 @@ async fn idempotency_persists_across_executor_rebuild_via_sqlite() {
          skip the underlying tool call"
     );
 }
+
+#[cfg(feature = "job-persist-sqlite")]
+mod resume_tests {
+    use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    use crate::error::WorkflowResumeError;
+    use crate::executor::resume::ResumeOptions;
+    use crate::sqlite::{WorkflowStorage, compute_spec_hash};
+
+    fn instrumented_caller(counter: Arc<AtomicU32>) -> Arc<MockToolCaller> {
+        let m = Arc::new(MockToolCaller::new());
+        m.add("a", {
+            let c = counter.clone();
+            move |_| {
+                c.fetch_add(1, Ordering::SeqCst);
+                Ok(json!({"step": "a"}))
+            }
+        });
+        m.add("b", {
+            let c = counter.clone();
+            move |_| {
+                c.fetch_add(1, Ordering::SeqCst);
+                Ok(json!({"step": "b"}))
+            }
+        });
+        m
+    }
+
+    fn two_step_spec() -> WorkflowSpec {
+        spec_with_steps(vec![
+            tool_step("a", "a", Value::Null),
+            tool_step("b", "b", Value::Null),
+        ])
+    }
+
+    #[tokio::test]
+    async fn resume_returns_not_found_for_unknown_id() {
+        let storage = Arc::new(WorkflowStorage::open_in_memory().unwrap());
+        let exe = WorkflowExecutor::builder()
+            .tool_caller(Arc::new(MockToolCaller::new()))
+            .storage(storage)
+            .build();
+        let err = exe
+            .resume(Uuid::new_v4(), ResumeOptions::default())
+            .unwrap_err();
+        assert!(matches!(err, WorkflowResumeError::NotFound(_)));
+    }
+
+    #[tokio::test]
+    async fn resume_skips_already_completed_steps_and_runs_the_rest() {
+        let calls = Arc::new(AtomicU32::new(0));
+        let storage = Arc::new(WorkflowStorage::open_in_memory().unwrap());
+
+        let exe1 = WorkflowExecutor::builder()
+            .tool_caller(instrumented_caller(calls.clone()))
+            .storage(Arc::clone(&storage))
+            .build();
+        let h = exe1.run(two_step_spec(), Value::Null, None).unwrap();
+        let workflow_id = h.workflow_id;
+        assert_eq!(h.wait().await, WorkflowStatus::Completed);
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+
+        // Force the row back to Failed so it is eligible for resume.
+        storage
+            .update_workflow_status(workflow_id, WorkflowStatus::Failed, Some("a"))
+            .unwrap();
+        // Pretend step "a" completed but "b" did not.
+        storage
+            .upsert_step(workflow_id, "b", "interrupted", None, None)
+            .unwrap();
+
+        // Build a fresh executor + caller — counts only resume-time calls.
+        let calls2 = Arc::new(AtomicU32::new(0));
+        let exe2 = WorkflowExecutor::builder()
+            .tool_caller(instrumented_caller(calls2.clone()))
+            .storage(Arc::clone(&storage))
+            .build();
+        let handle = exe2.resume(workflow_id, ResumeOptions::default()).unwrap();
+        assert_eq!(handle.wait().await, WorkflowStatus::Completed);
+        assert_eq!(
+            calls2.load(Ordering::SeqCst),
+            1,
+            "resume must skip step 'a' (completed) and re-run step 'b' (interrupted) only"
+        );
+    }
+
+    #[tokio::test]
+    async fn resume_force_steps_re_runs_completed_steps() {
+        let calls = Arc::new(AtomicU32::new(0));
+        let storage = Arc::new(WorkflowStorage::open_in_memory().unwrap());
+        let exe1 = WorkflowExecutor::builder()
+            .tool_caller(instrumented_caller(calls.clone()))
+            .storage(Arc::clone(&storage))
+            .build();
+        let wid = exe1
+            .run(two_step_spec(), Value::Null, None)
+            .unwrap()
+            .workflow_id;
+        // Wait by polling — handle.wait() consumes the join.
+        for _ in 0..50 {
+            if storage
+                .load_resume_snapshot(wid)
+                .unwrap()
+                .map(|s| s.status == WorkflowStatus::Completed)
+                .unwrap_or(false)
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+
+        // Both 'a' and 'b' are completed. Force re-run of 'a'.
+        let calls2 = Arc::new(AtomicU32::new(0));
+        let exe2 = WorkflowExecutor::builder()
+            .tool_caller(instrumented_caller(calls2.clone()))
+            .storage(Arc::clone(&storage))
+            .build();
+        let opts = ResumeOptions {
+            force_steps: vec!["a".to_string()],
+            ..Default::default()
+        };
+        let h = exe2.resume(wid, opts).unwrap();
+        assert_eq!(h.wait().await, WorkflowStatus::Completed);
+        assert_eq!(
+            calls2.load(Ordering::SeqCst),
+            1,
+            "force_steps=['a'] must re-run step 'a' but skip 'b' (completed and not forced)"
+        );
+    }
+
+    #[tokio::test]
+    async fn resume_strict_mode_refuses_when_spec_hash_mismatches() {
+        let storage = Arc::new(WorkflowStorage::open_in_memory().unwrap());
+        let calls = Arc::new(AtomicU32::new(0));
+        let exe = WorkflowExecutor::builder()
+            .tool_caller(instrumented_caller(calls))
+            .storage(Arc::clone(&storage))
+            .build();
+        let wid = exe
+            .run(two_step_spec(), Value::Null, None)
+            .unwrap()
+            .workflow_id;
+        // Wait for terminal.
+        for _ in 0..50 {
+            if matches!(
+                storage.load_resume_snapshot(wid).unwrap().map(|s| s.status),
+                Some(WorkflowStatus::Completed)
+            ) {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        storage
+            .update_workflow_status(wid, WorkflowStatus::Failed, None)
+            .unwrap();
+        let opts = ResumeOptions {
+            expected_spec_hash: Some("definitely-not-the-real-hash".to_string()),
+            strict: true,
+            ..Default::default()
+        };
+        let err = exe.resume(wid, opts).unwrap_err();
+        assert!(matches!(err, WorkflowResumeError::SpecChanged { .. }));
+    }
+
+    #[test]
+    fn resume_returns_no_storage_when_executor_lacks_storage() {
+        let exe = WorkflowExecutor::builder()
+            .tool_caller(Arc::new(MockToolCaller::new()))
+            .build();
+        let err = exe
+            .resume(Uuid::new_v4(), ResumeOptions::default())
+            .unwrap_err();
+        assert!(matches!(err, WorkflowResumeError::NoStorage));
+    }
+
+    #[test]
+    fn compute_spec_hash_is_deterministic_and_changes_with_spec() {
+        let s1 = two_step_spec();
+        let s2 = two_step_spec();
+        assert_eq!(
+            compute_spec_hash(&s1),
+            compute_spec_hash(&s2),
+            "identical specs must hash identically"
+        );
+        let s3 = spec_with_steps(vec![tool_step("c", "c", Value::Null)]);
+        assert_ne!(
+            compute_spec_hash(&s1),
+            compute_spec_hash(&s3),
+            "different specs must hash differently"
+        );
+    }
+}

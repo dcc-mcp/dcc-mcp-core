@@ -380,6 +380,108 @@ impl WorkflowStorage {
         })?;
         Ok(n as usize)
     }
+
+    // ── Resume helpers (issue #565) ────────────────────────────────────
+
+    /// Fetch every artefact needed by [`crate::WorkflowExecutor::resume`]:
+    /// the persisted spec, the original inputs, and the per-step status
+    /// + cached outputs. Returns `None` if the workflow id is unknown.
+    pub fn load_resume_snapshot(
+        &self,
+        workflow_id: Uuid,
+    ) -> Result<Option<ResumeSnapshot>, WorkflowStorageError> {
+        let conn = self.conn.lock();
+        let row: Option<(String, String, String, String)> = conn
+            .query_row(
+                "SELECT status, spec_json, inputs_json, step_outputs_json \
+                 FROM workflows WHERE id = ?1",
+                params![workflow_id.to_string()],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            )
+            .optional()?;
+        let Some((status_str, spec_json, inputs_json, outputs_json)) = row else {
+            return Ok(None);
+        };
+        let mut stmt = conn.prepare(
+            "SELECT step_id, status, result_json FROM workflow_steps \
+             WHERE workflow_id = ?1",
+        )?;
+        let mut completed: Vec<(String, Value)> = Vec::new();
+        let rows = stmt.query_map(params![workflow_id.to_string()], |r| {
+            let id: String = r.get(0)?;
+            let status: String = r.get(1)?;
+            let out: Option<String> = r.get(2)?;
+            Ok((id, status, out))
+        })?;
+        for r in rows {
+            let (id, status, out) = r?;
+            if status == "completed" {
+                let parsed = match out {
+                    Some(s) => serde_json::from_str(&s)?,
+                    None => Value::Null,
+                };
+                completed.push((id, parsed));
+            }
+        }
+        Ok(Some(ResumeSnapshot {
+            status: parse_status(&status_str),
+            spec_json,
+            inputs_json,
+            outputs_json,
+            completed_steps: completed,
+        }))
+    }
+
+    /// Reset a workflow row's status back to `Pending` so a resume run
+    /// can drive it forward again. Clears `current_step_id` and
+    /// `error_msg`. Does NOT touch `spec_json`, `inputs_json`, or
+    /// existing `workflow_steps` rows.
+    pub fn reset_for_resume(&self, workflow_id: Uuid) -> Result<(), WorkflowStorageError> {
+        let conn = self.conn.lock();
+        conn.execute(
+            "UPDATE workflows SET status = 'pending', current_step_id = NULL, \
+                 error_msg = NULL, started_at = strftime('%s', 'now') \
+             WHERE id = ?1",
+            params![workflow_id.to_string()],
+        )?;
+        Ok(())
+    }
+}
+
+/// All persisted state needed to plan a resume — see
+/// [`WorkflowStorage::load_resume_snapshot`].
+#[derive(Debug, Clone)]
+pub struct ResumeSnapshot {
+    /// Last-persisted workflow status.
+    pub status: WorkflowStatus,
+    /// Original spec serialised at first run.
+    pub spec_json: String,
+    /// Original inputs serialised at first run.
+    pub inputs_json: String,
+    /// Latest persisted step-output bag (keyed by step id at the
+    /// outer-spec level — used for context restoration).
+    pub outputs_json: String,
+    /// `(step_id, output)` for every step that reached `completed`.
+    pub completed_steps: Vec<(String, Value)>,
+}
+
+/// Compute the canonical SHA-256 hex digest of a workflow spec. Two
+/// specs that hash the same will produce identical executor behaviour;
+/// adapters can compare this hash across catalog reloads to detect
+/// drift before issuing `workflows.resume`.
+#[must_use]
+pub fn compute_spec_hash(spec: &WorkflowSpec) -> String {
+    use sha2::{Digest, Sha256};
+    use std::fmt::Write;
+    let canonical = serde_json::to_string(spec).expect("WorkflowSpec serialises");
+    let mut hasher = Sha256::new();
+    hasher.update(canonical.as_bytes());
+    let bytes = hasher.finalize();
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        write!(out, "{b:02x}").expect("writes to String never fail");
+    }
+    out
 }
 
 /// Compose the `workflow_id` column value for a cache row. Global rows

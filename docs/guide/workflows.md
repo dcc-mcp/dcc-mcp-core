@@ -279,6 +279,44 @@ handlers are bound by `register_workflow_handlers(&dispatcher, &host)`.
 | `workflows.get_status` | Poll terminal status + progress.                 | `read_only_hint=true, idempotent_hint=true`   |
 | `workflows.cancel`     | Cancel a run by `workflow_id` (cascade).         | `destructive_hint=true, idempotent_hint=true` |
 | `workflows.lookup`     | Catalog search (read-only).                      | `read_only_hint=true`                         |
+| `workflows.resume`     | Resume a persisted run from storage; skips `completed` steps; honours `force_steps` + `expected_spec_hash` (#565). Requires the executor to be built with `WorkflowStorage`. | `destructive_hint=true, idempotent_hint=true, open_world_hint=true` |
+
+### Resume (issue #565)
+
+For long-running workflows that survive a server restart, `workflows.resume`
+re-drives the persisted spec from the first non-completed step. The
+executor reads the persisted spec + inputs + per-step status from
+`WorkflowStorage`, hydrates its context with every recorded
+`completed` step's output (so downstream `{{ steps.X.output }}`
+references stay live), then drives forward — emitting a single
+`step_skipped_resume` event per skipped step.
+
+Wire shape:
+
+```jsonc
+{
+  "workflow_id": "<uuid>",
+  "force_steps": ["qc"],                 // optional: re-run even if completed
+  "expected_spec_hash": "abc123...",     // optional: caller-asserted hash
+  "strict": true                          // optional: refuse on hash mismatch
+}
+```
+
+`expected_spec_hash` is the SHA-256 hex of the canonical spec JSON;
+compute it with `dcc_mcp_core::workflow::sqlite::compute_spec_hash`. With
+`strict=false` (default) a hash mismatch logs a `WARN` and proceeds
+using the persisted spec. With `strict=true` resume returns
+`SpecChanged` and the operator must reconcile the catalog before
+retrying. `force_steps` is the "re-export this step after a downstream
+correction" knob; it is the only way to re-run a step that already
+reached `completed`.
+
+Resume requires that the executor was built with both:
+
+* `WorkflowExecutorBuilder::storage(Arc<WorkflowStorage>)`, and
+* the `dcc-mcp-workflow/job-persist-sqlite` Cargo feature.
+
+Without storage, `workflows.resume` returns `NoStorage` immediately.
 
 ### Approval gating
 

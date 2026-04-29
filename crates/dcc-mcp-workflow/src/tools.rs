@@ -39,6 +39,12 @@ pub mod names {
     pub const CANCEL: &str = "workflows.cancel";
     /// Read-only catalog lookup — enumerate or filter known workflows.
     pub const LOOKUP: &str = "workflows.lookup";
+    /// Resume a previously-persisted workflow run from storage (#565).
+    /// Only functional when the executor was built with persistent
+    /// storage; the metadata is registered unconditionally so
+    /// `tools/list` advertises the surface even before storage is
+    /// configured.
+    pub const RESUME: &str = "workflows.resume";
 }
 
 /// Register all four `workflows.*` built-in tools on `registry`.
@@ -53,6 +59,7 @@ pub fn register_builtin_workflow_tools(registry: &ActionRegistry) {
     registry.register_action(meta_get_status());
     registry.register_action(meta_cancel());
     registry.register_action(meta_lookup());
+    registry.register_action(meta_resume());
 }
 
 /// Register **functional** handlers for the three mutating workflow tools
@@ -74,6 +81,13 @@ pub fn register_workflow_handlers(dispatcher: &ActionDispatcher, host: &Workflow
     dispatcher.register_handler(names::GET_STATUS, move |args| get_status_handler(&h, args));
     let h = host.clone();
     dispatcher.register_handler(names::CANCEL, move |args| cancel_handler(&h, args));
+    #[cfg(feature = "job-persist-sqlite")]
+    {
+        let h = host.clone();
+        dispatcher.register_handler(names::RESUME, move |args| {
+            crate::host::resume_handler(&h, args)
+        });
+    }
 }
 
 fn meta_run() -> ActionMeta {
@@ -210,6 +224,66 @@ fn meta_lookup() -> ActionMeta {
         },
         ..Default::default()
     }
+}
+
+fn meta_resume() -> ActionMeta {
+    ActionMeta {
+        name: names::RESUME.to_string(),
+        description:
+            "Resume a previously-persisted workflow run from storage. Hydrates completed step \
+             outputs, re-runs only steps that were Pending / Running / Interrupted at \
+             persistence time. Optional `force_steps` re-runs even completed steps; optional \
+             `expected_spec_hash` + `strict=true` aborts when the persisted spec drifts. \
+             Requires the executor to be built with WorkflowStorage."
+                .to_string(),
+        category: "workflow".to_string(),
+        dcc: "core".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        input_schema: json!({
+            "type": "object",
+            "required": ["workflow_id"],
+            "properties": {
+                "workflow_id": {"type": "string", "format": "uuid"},
+                "force_steps": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Step ids to re-run even if previously completed.",
+                },
+                "expected_spec_hash": {
+                    "type": "string",
+                    "description": "SHA-256 hex of the canonical spec JSON the caller asserts.",
+                },
+                "strict": {
+                    "type": "boolean",
+                    "description": "When true and `expected_spec_hash` mismatches the persisted spec, refuse with SpecChanged.",
+                    "default": false,
+                },
+            },
+        }),
+        output_schema: resume_output_schema(),
+        annotations: ToolAnnotations {
+            destructive_hint: Some(true),
+            read_only_hint: Some(false),
+            idempotent_hint: Some(true),
+            open_world_hint: Some(true),
+            ..Default::default()
+        },
+        ..Default::default()
+    }
+}
+
+fn resume_output_schema() -> Value {
+    json!({
+        "type": "object",
+        "required": ["workflow_id", "root_job_id", "status", "resumed"],
+        "properties": {
+            "workflow_id": {"type": "string", "format": "uuid"},
+            "root_job_id": {"type": "string", "format": "uuid"},
+            "status": {"type": "string", "enum": ["pending", "running"]},
+            "resumed": {"type": "boolean", "const": true},
+            "force_steps": {"type": "array", "items": {"type": "string"}},
+        },
+    })
 }
 
 fn run_output_schema() -> Value {

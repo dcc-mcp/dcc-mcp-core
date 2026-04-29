@@ -107,3 +107,62 @@ impl From<std::io::Error> for WorkflowError {
         Self::Io(e.to_string())
     }
 }
+
+/// Errors returned by [`crate::WorkflowExecutor::resume`] (issue #565).
+#[derive(Debug, Error)]
+pub enum WorkflowResumeError {
+    /// No row found in `workflows` for this id.
+    #[error("workflow {0} not found in storage")]
+    NotFound(uuid::Uuid),
+
+    /// The row exists but is in a state where resume makes no sense
+    /// (e.g. `Completed`, `Cancelled`, or already `Running` in another
+    /// process).
+    #[error(
+        "workflow {workflow_id} is in state {status}; only Failed / Interrupted / Pending workflows can be resumed"
+    )]
+    NotResumable {
+        /// Workflow id under inspection.
+        workflow_id: uuid::Uuid,
+        /// Stringified current status.
+        status: String,
+    },
+
+    /// The persisted spec hash differs from the caller-supplied
+    /// `expected_spec_hash` and `strict=true` was requested.
+    #[error("spec drift detected for workflow {workflow_id}: expected {expected}, found {actual}")]
+    SpecChanged {
+        /// Workflow id under inspection.
+        workflow_id: uuid::Uuid,
+        /// Hash the caller asserted.
+        expected: String,
+        /// Hash actually persisted on the row.
+        actual: String,
+    },
+
+    /// Persistence is not configured on the executor (no
+    /// `WorkflowStorage` was supplied at build time).
+    #[error("resume requires a WorkflowStorage configured on the executor")]
+    NoStorage,
+
+    /// The persisted spec failed to deserialise. Indicates corruption
+    /// or a forward-incompatible schema change; the caller should
+    /// re-run the workflow from scratch.
+    #[error("failed to deserialise persisted spec for workflow {workflow_id}: {reason}")]
+    CorruptSpec {
+        /// Workflow id under inspection.
+        workflow_id: uuid::Uuid,
+        /// Underlying parse error message.
+        reason: String,
+    },
+
+    /// The re-validated spec failed validation (e.g. references a tool
+    /// that has since been removed from the registry).
+    #[error("spec for workflow {1} failed re-validation: {0}")]
+    Validation(#[source] ValidationError, uuid::Uuid),
+
+    /// Underlying storage layer I/O error.
+    #[cfg(feature = "job-persist-sqlite")]
+    #[error("storage error: {0}")]
+    Storage(#[from] crate::sqlite::WorkflowStorageError),
+}

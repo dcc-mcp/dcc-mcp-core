@@ -119,6 +119,7 @@
 | Checkpoint/resume | `save_checkpoint(job_id, state)` / `get_checkpoint(job_id)` |
 | Job recovery policy on restart | `McpHttpConfig.with_job_recovery(JobRecoveryPolicy::Drop\|Requeue)` / Python `cfg.job_recovery = "drop"\|"requeue"` — `Requeue` is reserved (degrades to `Drop` + `WARN` until tool-arg persistence lands) (#567) |
 | Persistent workflow idempotency cache | `WorkflowExecutor::builder().idempotency_store(SqliteIdempotencyStore::new(workflow_storage)).build()` — survives restarts; honours per-step `idempotency_ttl_secs`; cascade-deletes workflow-scoped rows when their parent workflow row is removed (#566, gated on `dcc-mcp-workflow/job-persist-sqlite`) |
+| Resume a persisted workflow run | `executor.resume(workflow_id, ResumeOptions { force_steps, expected_spec_hash, strict })` / MCP tool `workflows.resume`. Skips steps already recorded `completed`; re-runs `force_steps`; refuses on hash drift when `strict=true` (#565, gated on `dcc-mcp-workflow/job-persist-sqlite`) |
 | Agent-facing docs resources | `register_docs_server(server)` → `docs://` MCP resources |
 | Agent feedback | `register_feedback_tool(server)` → `dcc_feedback__report` tool |
 | Runtime introspection | `register_introspect_tools(server)` → `dcc_introspect__*` tools |

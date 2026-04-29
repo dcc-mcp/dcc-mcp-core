@@ -65,6 +65,9 @@ pub mod helpers;
 pub mod output;
 /// Step-policy enforcement wrapper (retry, timeout, idempotency).
 pub mod policy_wrapper;
+/// Resume previously-persisted workflow runs (issue #565).
+#[cfg(feature = "job-persist-sqlite")]
+pub mod resume;
 /// Per-[`StepKind`] driver implementations.
 pub mod step_drivers;
 #[cfg(test)]
@@ -97,6 +100,9 @@ pub struct RunState {
     /// Snapshot accumulator so the executor can expose `step_outputs` to
     /// the outer MCP tool at any time.
     outputs_snapshot: Arc<parking_lot::RwLock<HashMap<String, Value>>>,
+    /// Step ids whose cached output is already in `context` and which
+    /// the executor must skip (issue #565). Empty for fresh runs.
+    preloaded_steps: Arc<std::collections::HashSet<String>>,
 }
 
 impl RunState {

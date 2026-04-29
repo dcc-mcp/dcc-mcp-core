@@ -202,6 +202,19 @@ impl WorkflowHost {
             terminal_status: *r.terminal.lock(),
         })
     }
+
+    /// Resume a previously-persisted workflow run from storage.
+    /// Available only when the executor was built with a
+    /// `WorkflowStorage` and the `job-persist-sqlite` feature is on.
+    #[cfg(feature = "job-persist-sqlite")]
+    pub fn resume(
+        &self,
+        workflow_id: Uuid,
+        opts: crate::executor::resume::ResumeOptions,
+    ) -> Result<(Uuid, Uuid), crate::error::WorkflowResumeError> {
+        let handle = self.executor.resume(workflow_id, opts)?;
+        Ok(self.track(handle))
+    }
 }
 
 // ── Structured handler outputs ───────────────────────────────────────────
@@ -255,6 +268,46 @@ pub fn cancel_handler(host: &WorkflowHost, args: Value) -> Result<Value, String>
     Ok(json!({
         "workflow_id": id.to_string(),
         "cancelled": cancelled,
+    }))
+}
+
+/// Handler for the `workflows.resume` MCP tool (issue #565).
+///
+/// Accepts `{ workflow_id, force_steps?, expected_spec_hash?, strict? }`
+/// and returns `{ workflow_id, root_job_id, status, resumed: true,
+/// preloaded_steps: [...] }` on success. Any error from
+/// [`crate::error::WorkflowResumeError`] is rendered as a string.
+#[cfg(feature = "job-persist-sqlite")]
+pub fn resume_handler(host: &WorkflowHost, args: Value) -> Result<Value, String> {
+    let id = parse_workflow_id(&args)?;
+    let force_steps: Vec<String> = args
+        .get("force_steps")
+        .and_then(Value::as_array)
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    let expected_spec_hash = args
+        .get("expected_spec_hash")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let strict = args.get("strict").and_then(Value::as_bool).unwrap_or(false);
+    let opts = crate::executor::resume::ResumeOptions {
+        force_steps: force_steps.clone(),
+        expected_spec_hash,
+        strict,
+    };
+    let (workflow_id, root_job_id) = host
+        .resume(id, opts)
+        .map_err(|e| format!("workflow resume failed: {e}"))?;
+    Ok(json!({
+        "workflow_id": workflow_id.to_string(),
+        "root_job_id": root_job_id.to_string(),
+        "status": WorkflowStatus::Pending.as_str(),
+        "resumed": true,
+        "force_steps": force_steps,
     }))
 }
 

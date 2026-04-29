@@ -191,6 +191,7 @@ handlers are bound by `register_workflow_handlers(&dispatcher, &host)`.
 | `workflows.run` | Start a run (YAML or JSON spec + inputs). | `destructive_hint=true, open_world_hint=true` |
 | `workflows.get_status` | Poll terminal status + progress. | `read_only_hint=true, idempotent_hint=true` |
 | `workflows.cancel` | Cancel a run by `workflow_id` (cascade). | `destructive_hint=true, idempotent_hint=true` |
+| `workflows.resume` | Resume a persisted run from storage. Optional `force_steps` re-runs completed steps; optional `expected_spec_hash` + `strict=true` rejects on spec drift. Requires `WorkflowStorage` + `job-persist-sqlite`. (#565) | `destructive_hint=true, idempotent_hint=true, open_world_hint=true` |
 | `workflows.lookup` | Catalog search (read-only). | `read_only_hint=true` |
 
 ## Python surface

@@ -54,7 +54,11 @@ pub use callers::{
 };
 pub use catalog::{WorkflowCatalog, WorkflowSummary};
 pub use context::{StepOutput, TemplateError, WorkflowContext};
+#[cfg(feature = "job-persist-sqlite")]
+pub use error::WorkflowResumeError;
 pub use error::{ValidationError, WorkflowError};
+#[cfg(feature = "job-persist-sqlite")]
+pub use executor::resume::ResumeOptions;
 pub use executor::{WorkflowExecutor, WorkflowExecutorBuilder, WorkflowRunHandle};
 pub use host::{
     RunSnapshot, WorkflowHost, WorkflowRegistry, cancel_handler, get_status_handler, run_handler,

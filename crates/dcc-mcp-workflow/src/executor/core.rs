@@ -73,6 +73,7 @@ impl WorkflowExecutor {
             total_steps,
             completed: Arc::new(parking_lot::Mutex::new(0)),
             outputs_snapshot: Arc::new(parking_lot::RwLock::new(HashMap::new())),
+            preloaded_steps: Arc::new(std::collections::HashSet::new()),
         };
 
         // Persist initial row.
@@ -162,6 +163,25 @@ impl WorkflowExecutor {
                 return StepOutcome::Cancelled;
             }
             let step_id = step.id.clone();
+
+            // Resume short-circuit: if this step's id is in the
+            // preloaded set, its cached output is already in the
+            // executor's context and the row is already `completed` in
+            // storage. Skip the underlying call, emit a single
+            // `step_skipped_resume` event for observers, and move on.
+            if state.preloaded_steps.contains(step_id.as_str()) {
+                state.emit(
+                    WorkflowStatus::Running,
+                    Some(step_id.as_str()),
+                    serde_json::json!({
+                        "kind": "step_skipped_resume",
+                        "step_id": step_id.0,
+                    }),
+                );
+                state.inc_completed();
+                return StepOutcome::Ok;
+            }
+
             state.emit(
                 WorkflowStatus::Running,
                 Some(step_id.as_str()),
