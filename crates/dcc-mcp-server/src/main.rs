@@ -166,10 +166,10 @@ struct Args {
     watch_pid: Option<u32>,
 
     // ── File logging ──
-    /// Enable logging to rotating files. Defaults to disabled; when `true`
-    /// the server also keeps emitting to stderr.
-    #[arg(long, env = "DCC_MCP_LOG_FILE", default_value = "false")]
-    log_file: bool,
+    /// Disable logging to rotating files. By default file logging is enabled
+    /// unless this flag is passed.
+    #[arg(long, env = "DCC_MCP_NO_LOG_FILE", default_value = "false")]
+    no_log_file: bool,
 
     /// Directory for rotated log files. Defaults to the platform log dir
     /// (`dcc_mcp_paths::get_log_dir()`).
@@ -188,9 +188,17 @@ struct Args {
     #[arg(long, env = "DCC_MCP_LOG_ROTATION", value_name = "POLICY")]
     log_rotation: Option<String>,
 
-    /// File-name prefix (full file is `<prefix>.<YYYYMMDD>.log`).
+    /// File-name prefix (full file is `<prefix>.<pid>.<YYYYMMDD>.log`).
     #[arg(long, env = "DCC_MCP_LOG_FILE_PREFIX", value_name = "PREFIX")]
     log_file_prefix: Option<String>,
+
+    /// Log retention in days (0 = disable age pruning). Default: 7.
+    #[arg(long, env = "DCC_MCP_LOG_RETENTION_DAYS", value_name = "DAYS")]
+    log_retention_days: Option<u32>,
+
+    /// Maximum total log directory size in MiB (0 = disable size pruning). Default: 100.
+    #[arg(long, env = "DCC_MCP_LOG_MAX_TOTAL_SIZE_MB", value_name = "MB")]
+    log_max_total_size_mb: Option<u32>,
 }
 
 struct PidFileGuard {
@@ -394,14 +402,16 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    // Wire up rolling-file logging if the operator asked for it via CLI
-    // or any of the `DCC_MCP_LOG_*` env vars. CLI flags win over env.
-    if args.log_file
+    // Wire up rolling-file logging by default unless --no-log-file is passed.
+    // Any explicit DCC_MCP_LOG_* env var or CLI flag also enables it.
+    if !args.no_log_file
         || args.log_dir.is_some()
         || args.log_max_size.is_some()
         || args.log_max_files.is_some()
         || args.log_rotation.is_some()
         || args.log_file_prefix.is_some()
+        || args.log_retention_days.is_some()
+        || args.log_max_total_size_mb.is_some()
         || dcc_mcp_logging::FileLoggingConfig::enabled_by_env()
     {
         let mut cfg = dcc_mcp_logging::FileLoggingConfig::from_env_with_defaults()
@@ -423,6 +433,15 @@ async fn main() -> anyhow::Result<()> {
             if !prefix.trim().is_empty() {
                 cfg.file_name_prefix = prefix.clone();
             }
+        } else {
+            // PID-based naming for multi-instance debugging.
+            cfg.file_name_prefix = format!("dcc-mcp-server.{}", std::process::id());
+        }
+        if let Some(days) = args.log_retention_days {
+            cfg.retention_days = days;
+        }
+        if let Some(mb) = args.log_max_total_size_mb {
+            cfg.max_total_size_mb = mb;
         }
         match dcc_mcp_logging::init_file_logging(cfg) {
             Ok(dir) => tracing::info!(
@@ -532,6 +551,7 @@ async fn main() -> anyhow::Result<()> {
         server_name: args.server_name.clone(),
         server_version: env!("CARGO_PKG_VERSION").to_string(),
         registry_dir: registry_dir_path,
+        allow_unknown_tools: false,
         challenger_timeout_secs: 120,
         backend_timeout_ms: 10_000,
         async_dispatch_timeout_ms: 60_000,

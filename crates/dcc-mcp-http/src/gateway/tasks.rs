@@ -1,5 +1,7 @@
 use super::*;
 
+use dcc_mcp_transport::error::TransportResult;
+
 /// Outcome of [`start_gateway_tasks`] for the ambient (shared-runtime) path.
 pub(crate) struct GatewayTasks {
     /// AbortHandle for the combined supervisor task (cleanup + watcher +
@@ -37,6 +39,7 @@ pub(crate) async fn start_gateway_tasks(
     sentinel_key: ServiceKey,
     own_host: String,
     own_port: u16,
+    allow_unknown_tools: bool,
 ) -> Result<GatewayTasks, Box<dyn std::error::Error + Send + Sync>> {
     // ── Yield channel ─────────────────────────────────────────────────────
     let (yield_tx, mut yield_rx) = watch::channel(false);
@@ -237,7 +240,7 @@ pub(crate) async fn start_gateway_tasks(
     // their TTL. Terminal jobs are auto-evicted in `deliver`.
     let route_gc_handle = subscriber.spawn_route_gc();
 
-    // ── Pre-subscribe registry hygiene (issue #419) ───────────────────────
+    // ── Pre-subscribe registry hygiene (issue #419 + #556) ────────────────
     //
     // Before the backend subscriber loop starts fanning SSE connections at
     // everything in the registry, do a one-shot synchronous cleanup so we
@@ -246,6 +249,9 @@ pub(crate) async fn start_gateway_tasks(
     // cadence; without this synchronous pass, the subscriber would see
     // stale / dead-PID entries during the first ~15 s and pay the full
     // exponential-backoff retry cost trying to reach them.
+    //
+    // Issue #556: also probe every registered port and immediately deregister
+    // instances whose TCP port is closed, even if the PID still appears alive.
     {
         let r = registry.read().await;
         match r.prune_dead_pids() {
@@ -266,6 +272,17 @@ pub(crate) async fn start_gateway_tasks(
                 );
             }
             Err(e) => tracing::warn!("Gateway: pre-subscribe stale sweep error: {e}"),
+            _ => {}
+        }
+        // Startup port probe: evict any instance whose port is unreachable.
+        match probe_and_evict_dead_instances(&r, stale_timeout, &own_host, own_port).await {
+            Ok(n) if n > 0 => {
+                tracing::info!(
+                    evicted = n,
+                    "Gateway: startup port probe evicted unreachable instance(s)"
+                );
+            }
+            Err(e) => tracing::warn!("Gateway: startup port probe error: {e}"),
             _ => {}
         }
     }
@@ -308,14 +325,14 @@ pub(crate) async fn start_gateway_tasks(
 
     // ── Gateway HTTP server ────────────────────────────────────────────────
     let gw_state = GatewayState {
-        registry,
+        registry: registry.clone(),
         stale_timeout,
         backend_timeout,
         async_dispatch_timeout,
         wait_terminal_timeout,
         server_name,
         server_version,
-        own_host,
+        own_host: own_host.clone(),
         own_port,
         http_client,
         yield_tx: yield_tx.clone(),
@@ -324,8 +341,10 @@ pub(crate) async fn start_gateway_tasks(
         resource_subscriptions: Arc::new(RwLock::new(HashMap::new())),
         pending_calls: Arc::new(RwLock::new(HashMap::new())),
         subscriber,
+        allow_unknown_tools,
     };
     let gw_router = build_gateway_router(gw_state);
+
     let actual = listener.local_addr()?;
     tracing::info!(
         "Gateway listening on http://{}  (GET /mcp = SSE stream, POST /mcp = MCP endpoint)",
@@ -349,6 +368,92 @@ pub(crate) async fn start_gateway_tasks(
             .ok();
     });
 
+    // ── Periodic health-check task (issue #556) ───────────────────────────
+    // Every 30 s, attempt a lightweight TCP connect to every registered
+    // instance. After 2 consecutive failures mark it Unreachable; after 3
+    // stale rounds auto-deregister it.
+    let reg_health = registry.clone();
+    let health_own_host = own_host.clone();
+    let health_own_port = own_port;
+    let health_check_handle = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(30));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        // failure_count keyed by "dcc_type:instance_id"
+        let mut failure_counts: std::collections::HashMap<String, u32> =
+            std::collections::HashMap::new();
+        loop {
+            interval.tick().await;
+            let entries = {
+                let r = reg_health.read().await;
+                r.list_all()
+                    .into_iter()
+                    .filter(|e| {
+                        e.dcc_type != GATEWAY_SENTINEL_DCC_TYPE
+                            && !is_own_instance(e, &health_own_host, health_own_port)
+                    })
+                    .collect::<Vec<_>>()
+            };
+
+            for entry in entries {
+                let addr = format!("{}:{}", entry.host, entry.port);
+                let reachable = tokio::time::timeout(
+                    Duration::from_secs(5),
+                    tokio::net::TcpStream::connect(&addr),
+                )
+                .await
+                .is_ok_and(|r| r.is_ok());
+
+                let key = format!("{}:{}", entry.dcc_type, entry.instance_id);
+                if reachable {
+                    if failure_counts.remove(&key).is_some() {
+                        // Instance recovered — mark Available again.
+                        let r = reg_health.read().await;
+                        let _ = r.update_status(
+                            &entry.key(),
+                            dcc_mcp_transport::discovery::types::ServiceStatus::Available,
+                        );
+                        tracing::info!(
+                            dcc_type = %entry.dcc_type,
+                            instance_id = %entry.instance_id,
+                            "Health check recovered — marking Available"
+                        );
+                    }
+                    continue;
+                }
+
+                let count = failure_counts.entry(key.clone()).or_insert(0);
+                *count += 1;
+                tracing::warn!(
+                    dcc_type = %entry.dcc_type,
+                    instance_id = %entry.instance_id,
+                    consecutive_failures = *count,
+                    "Health check failed"
+                );
+
+                if *count >= 2 {
+                    // Mark Unreachable so live_instances filters it out.
+                    let r = reg_health.read().await;
+                    let _ = r.update_status(
+                        &entry.key(),
+                        dcc_mcp_transport::discovery::types::ServiceStatus::Unreachable,
+                    );
+                }
+
+                if *count >= 3 {
+                    // Auto-deregister after persistent unreachability.
+                    let r = reg_health.read().await;
+                    let _ = r.deregister(&entry.key());
+                    failure_counts.remove(&key);
+                    tracing::info!(
+                        dcc_type = %entry.dcc_type,
+                        instance_id = %entry.instance_id,
+                        "Auto-deregistered after 3 consecutive health-check failures"
+                    );
+                }
+            }
+        }
+    });
+
     // Combine all tasks under one abort handle.
     let combined = tokio::spawn(async move {
         let _ = tokio::join!(
@@ -357,6 +462,7 @@ pub(crate) async fn start_gateway_tasks(
             tools_watcher_handle,
             backend_sub_handle,
             route_gc_handle,
+            health_check_handle,
             gw_handle
         );
     });
@@ -402,6 +508,50 @@ pub(crate) async fn start_gateway_tasks(
 /// runtime a chance to schedule the `axum::serve` task — necessary under
 /// PyO3-embedded hosts where workers are slow to pick up newly spawned tasks
 /// (issue #303).
+/// On gateway startup, probe every registered instance's TCP port and
+/// deregister any that are unreachable. Complements `prune_dead_pids`
+/// which only checks PID liveness — a process may be alive but its MCP
+/// listener already shut down (issue #556).
+pub(crate) async fn probe_and_evict_dead_instances(
+    registry: &FileRegistry,
+    stale_timeout: Duration,
+    own_host: &str,
+    own_port: u16,
+) -> TransportResult<usize> {
+    let entries: Vec<_> = registry
+        .list_all()
+        .into_iter()
+        .filter(|e| {
+            e.dcc_type != GATEWAY_SENTINEL_DCC_TYPE
+                && !e.is_stale(stale_timeout)
+                && !is_own_instance(e, own_host, own_port)
+        })
+        .collect();
+
+    let mut evicted = 0usize;
+    for entry in entries {
+        let addr = format!("{}:{}", entry.host, entry.port);
+        let reachable = tokio::time::timeout(
+            Duration::from_secs(3),
+            tokio::net::TcpStream::connect(&addr),
+        )
+        .await
+        .is_ok_and(|r| r.is_ok());
+
+        if !reachable {
+            registry.deregister(&entry.key())?;
+            evicted += 1;
+            tracing::info!(
+                dcc_type = %entry.dcc_type,
+                instance_id = %entry.instance_id,
+                addr = %addr,
+                "Startup probe: instance unreachable — deregistered"
+            );
+        }
+    }
+    Ok(evicted)
+}
+
 pub(crate) async fn self_probe_listener(addr: std::net::SocketAddr) -> Result<(), std::io::Error> {
     const MAX_ATTEMPTS: u32 = 10;
     const ATTEMPT_TIMEOUT: Duration = Duration::from_millis(200);

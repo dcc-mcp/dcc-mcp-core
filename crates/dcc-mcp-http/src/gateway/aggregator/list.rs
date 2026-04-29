@@ -21,7 +21,17 @@ pub async fn aggregate_tools_list(gs: &GatewayState, cursor: Option<&str>) -> Va
     tools.extend(skill_management_tool_defs());
 
     // Tier 3: fan out to every live backend.
-    let instances = live_backends(gs).await;
+    // Issue #556: skip Unreachable instances so stale tools are not exposed.
+    let instances: Vec<_> = live_backends(gs)
+        .await
+        .into_iter()
+        .filter(|e| {
+            !matches!(
+                e.status,
+                dcc_mcp_transport::discovery::types::ServiceStatus::Unreachable
+            )
+        })
+        .collect();
     let client = &gs.http_client;
     let backend_timeout = gs.backend_timeout;
     let futs = instances.iter().map(|entry| async move {

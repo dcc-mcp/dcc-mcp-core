@@ -28,6 +28,7 @@ pub(crate) async fn start_gateway_runner(
         wait_terminal_timeout_ms: config.gateway_wait_terminal_timeout_ms,
         route_ttl_secs: config.gateway_route_ttl_secs,
         max_routes_per_session: config.gateway_max_routes_per_session,
+        allow_unknown_tools: config.allow_unknown_tools,
     };
 
     let runner = match GatewayRunner::new(gateway_config) {

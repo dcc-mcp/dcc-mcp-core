@@ -51,7 +51,7 @@ pub mod python;
 mod tests;
 
 pub use config::{FileLoggingConfig, FileLoggingError, RotationPolicy};
-pub use writer::RollingFileWriter;
+pub use writer::{RollingFileWriter, prune_old_logs};
 
 use crate::config::{BoxedLayer, install_file_layer_boxed};
 
@@ -101,6 +101,14 @@ pub fn init_file_logging(config: FileLoggingConfig) -> Result<PathBuf, FileLoggi
     let writer = RollingFileWriter::new(&config)?;
     let writer_inner = writer.inner.clone();
     let directory = writer_inner.lock().directory.clone();
+
+    // Prune old logs by age and total size before starting new writer.
+    prune_old_logs(
+        &directory,
+        &config.file_name_prefix,
+        config.retention_days,
+        config.max_total_size_mb,
+    );
 
     let (non_blocking, guard): (NonBlocking, WorkerGuard) = tracing_appender::non_blocking(writer);
 

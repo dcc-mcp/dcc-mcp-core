@@ -39,6 +39,8 @@ fn size_rotation_creates_rolled_file() {
         max_files: 3,
         rotation: RotationPolicy::Size,
         include_console: true,
+        retention_days: 0,
+        max_total_size_mb: 0,
     };
     let mut writer = RollingFileWriter::new(&cfg).unwrap();
 
@@ -114,6 +116,8 @@ fn init_and_shutdown_are_idempotent() {
         max_files: 2,
         rotation: RotationPolicy::Both,
         include_console: true,
+        retention_days: 0,
+        max_total_size_mb: 0,
     };
 
     let resolved = init_file_logging(cfg.clone()).unwrap();

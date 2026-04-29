@@ -63,6 +63,7 @@ async fn make_state(
         resource_subscriptions: Arc::new(RwLock::new(std::collections::HashMap::new())),
         pending_calls: Arc::new(RwLock::new(std::collections::HashMap::new())),
         subscriber: dcc_mcp_http::gateway::sse_subscriber::SubscriberManager::default(),
+        allow_unknown_tools: false,
     };
     (state, registry, dir)
 }

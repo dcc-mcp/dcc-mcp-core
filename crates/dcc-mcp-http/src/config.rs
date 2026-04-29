@@ -386,6 +386,15 @@ pub struct McpHttpConfig {
     /// Set to `false` to disable caching (every `tools/list` call
     /// rebuilds the full list from scratch).
     pub enable_tool_cache: bool,
+
+    /// Allow instances with `dcc_type == "unknown"` to expose their tools
+    /// via the gateway (issue #555).
+    ///
+    /// Default: `false`. When `false`, the gateway's `tools/list` and
+    /// `connect_to_dcc` ignore any instance whose `dcc_type` is
+    /// `"unknown"` (case-insensitive). Set to `true` only for development
+    /// or when intentionally running a standalone server without a real DCC.
+    pub allow_unknown_tools: bool,
 }
 
 impl McpHttpConfig {
@@ -429,6 +438,7 @@ impl McpHttpConfig {
             enable_scheduler: false,
             schedules_dir: None,
             enable_tool_cache: true,
+            allow_unknown_tools: false,
         }
     }
 

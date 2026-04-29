@@ -21,6 +21,8 @@ pub const ENV_LOG_MAX_FILES: &str = "DCC_MCP_LOG_MAX_FILES";
 pub const ENV_LOG_ROTATION: &str = "DCC_MCP_LOG_ROTATION";
 /// Environment variable overriding the log file-name prefix.
 pub const ENV_LOG_FILE_PREFIX: &str = "DCC_MCP_LOG_FILE_PREFIX";
+/// Environment variable overriding log retention in days (0 = disable age pruning).
+pub const ENV_LOG_RETENTION_DAYS: &str = "DCC_MCP_LOG_RETENTION_DAYS";
 
 /// Default maximum log file size in bytes before rotation (10 MiB).
 pub const DEFAULT_LOG_MAX_SIZE: u64 = 10 * 1024 * 1024;
@@ -30,6 +32,10 @@ pub const DEFAULT_LOG_MAX_FILES: usize = 7;
 pub const DEFAULT_LOG_FILE_PREFIX: &str = "dcc-mcp";
 /// Default rotation policy — `"both"` means rotate on size OR calendar-date change.
 pub const DEFAULT_LOG_ROTATION: &str = "both";
+/// Default retention period in days for old log files (7 days).
+pub const DEFAULT_LOG_RETENTION_DAYS: u32 = 7;
+/// Default maximum total log directory size in MiB (100 MiB).
+pub const DEFAULT_LOG_MAX_TOTAL_SIZE_MB: u32 = 100;
 
 #[cfg(test)]
 mod tests {

@@ -2,8 +2,9 @@
 
 use crate::config::FileLayerInstallError;
 use crate::constants::{
-    DEFAULT_LOG_FILE_PREFIX, DEFAULT_LOG_MAX_FILES, DEFAULT_LOG_MAX_SIZE, DEFAULT_LOG_ROTATION,
-    ENV_LOG_DIR, ENV_LOG_FILE, ENV_LOG_FILE_PREFIX, ENV_LOG_MAX_FILES, ENV_LOG_MAX_SIZE,
+    DEFAULT_LOG_FILE_PREFIX, DEFAULT_LOG_MAX_FILES, DEFAULT_LOG_MAX_SIZE,
+    DEFAULT_LOG_MAX_TOTAL_SIZE_MB, DEFAULT_LOG_RETENTION_DAYS, DEFAULT_LOG_ROTATION, ENV_LOG_DIR,
+    ENV_LOG_FILE, ENV_LOG_FILE_PREFIX, ENV_LOG_MAX_FILES, ENV_LOG_MAX_SIZE, ENV_LOG_RETENTION_DAYS,
     ENV_LOG_ROTATION,
 };
 use dcc_mcp_paths::get_log_dir;
@@ -85,6 +86,10 @@ pub struct FileLoggingConfig {
     /// flag is surfaced for future parity with Python where a user may
     /// wish to silence stderr when redirecting to a file.
     pub include_console: bool,
+    /// Delete log files older than this many days. `0` disables age-based pruning.
+    pub retention_days: u32,
+    /// Maximum total size of the log directory in MiB. `0` disables size-based pruning.
+    pub max_total_size_mb: u32,
 }
 
 impl Default for FileLoggingConfig {
@@ -96,6 +101,8 @@ impl Default for FileLoggingConfig {
             max_files: DEFAULT_LOG_MAX_FILES,
             rotation: RotationPolicy::parse(DEFAULT_LOG_ROTATION).unwrap_or(RotationPolicy::Both),
             include_console: true,
+            retention_days: DEFAULT_LOG_RETENTION_DAYS,
+            max_total_size_mb: DEFAULT_LOG_MAX_TOTAL_SIZE_MB,
         }
     }
 }
@@ -109,6 +116,7 @@ impl FileLoggingConfig {
     /// - [`ENV_LOG_MAX_SIZE`] — bytes (integer).
     /// - [`ENV_LOG_MAX_FILES`] — retention count (integer).
     /// - [`ENV_LOG_ROTATION`] — `size`/`daily`/`both`.
+    /// - [`ENV_LOG_RETENTION_DAYS`] — days (integer, 0 = disable).
     ///
     /// # Errors
     /// Returns an error if any env var is set to an invalid value.
@@ -139,6 +147,13 @@ impl FileLoggingConfig {
         }
         if let Ok(raw) = std::env::var(ENV_LOG_ROTATION) {
             cfg.rotation = RotationPolicy::parse(&raw).map_err(FileLoggingError::Config)?;
+        }
+        if let Ok(raw) = std::env::var(ENV_LOG_RETENTION_DAYS) {
+            cfg.retention_days = raw.parse().map_err(|_| {
+                FileLoggingError::Config(format!(
+                    "{ENV_LOG_RETENTION_DAYS}='{raw}' is not a valid u32"
+                ))
+            })?;
         }
 
         Ok(cfg)

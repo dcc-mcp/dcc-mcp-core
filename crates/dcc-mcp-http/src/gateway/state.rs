@@ -88,6 +88,11 @@ pub struct GatewayState {
     /// `$/dcc.workflowUpdated` are routed to the originating client
     /// session via `progressToken` and `job_id` correlation.
     pub subscriber: super::sse_subscriber::SubscriberManager,
+    /// Allow instances with `dcc_type == "unknown"` to expose their tools
+    /// and be selectable via `connect_to_dcc` (issue #555).
+    ///
+    /// When `false` (default), `live_instances` filters them out.
+    pub allow_unknown_tools: bool,
 }
 
 impl GatewayState {
@@ -115,6 +120,7 @@ impl GatewayState {
                         ServiceStatus::ShuttingDown | ServiceStatus::Unreachable
                     )
                     && !super::is_own_instance(e, &self.own_host, self.own_port)
+                    && (self.allow_unknown_tools || !e.dcc_type.eq_ignore_ascii_case("unknown"))
             })
             .collect()
     }
@@ -166,6 +172,15 @@ mod tests {
         own_host: &str,
         own_port: u16,
     ) -> GatewayState {
+        test_gateway_state_with_own_and_unknown(reg, own_host, own_port, false)
+    }
+
+    fn test_gateway_state_with_own_and_unknown(
+        reg: Arc<RwLock<FileRegistry>>,
+        own_host: &str,
+        own_port: u16,
+        allow_unknown_tools: bool,
+    ) -> GatewayState {
         let (yield_tx, _) = watch::channel(false);
         let (events_tx, _) = broadcast::channel::<String>(8);
         GatewayState {
@@ -185,6 +200,7 @@ mod tests {
             resource_subscriptions: Arc::new(RwLock::new(HashMap::new())),
             pending_calls: Arc::new(RwLock::new(HashMap::new())),
             subscriber: crate::gateway::sse_subscriber::SubscriberManager::default(),
+            allow_unknown_tools,
         }
     }
 
@@ -275,6 +291,61 @@ mod tests {
         assert!(
             live.is_empty(),
             "self row with localhost alias must be filtered; got {live:#?}"
+        );
+    }
+
+    /// Issue #555: instances with `dcc_type == "unknown"` must be hidden from
+    /// `live_instances` when `allow_unknown_tools` is `false` (the default).
+    #[tokio::test]
+    async fn test_live_instances_hides_unknown_by_default() {
+        let dir = tempfile::tempdir().unwrap();
+        let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+
+        {
+            let r = registry.read().await;
+            let unknown = ServiceEntry::new("unknown", "127.0.0.1", 18812);
+            r.register(unknown).unwrap();
+
+            let maya = ServiceEntry::new("maya", "127.0.0.1", 18813);
+            r.register(maya).unwrap();
+        }
+
+        let gs =
+            test_gateway_state_with_own_and_unknown(registry.clone(), "127.0.0.1", 9765, false);
+        let live = gs.live_instances(&*registry.read().await);
+        assert_eq!(live.len(), 1, "only the maya row should be returned");
+        assert_eq!(live[0].dcc_type, "maya");
+        assert!(
+            !live
+                .iter()
+                .any(|e| e.dcc_type.eq_ignore_ascii_case("unknown")),
+            "unknown dcc_type must be filtered when allow_unknown_tools is false"
+        );
+    }
+
+    /// Issue #555: when `allow_unknown_tools` is `true`, unknown instances
+    /// survive the filter.
+    #[tokio::test]
+    async fn test_live_instances_shows_unknown_when_allowed() {
+        let dir = tempfile::tempdir().unwrap();
+        let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+
+        {
+            let r = registry.read().await;
+            let unknown = ServiceEntry::new("unknown", "127.0.0.1", 18812);
+            r.register(unknown).unwrap();
+
+            let maya = ServiceEntry::new("maya", "127.0.0.1", 18813);
+            r.register(maya).unwrap();
+        }
+
+        let gs = test_gateway_state_with_own_and_unknown(registry.clone(), "127.0.0.1", 9765, true);
+        let live = gs.live_instances(&*registry.read().await);
+        assert_eq!(live.len(), 2, "both rows should be returned when allowed");
+        assert!(
+            live.iter()
+                .any(|e| e.dcc_type.eq_ignore_ascii_case("unknown")),
+            "unknown dcc_type must be present when allow_unknown_tools is true"
         );
     }
 }

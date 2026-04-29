@@ -1,5 +1,18 @@
 use super::*;
 
+use futures::FutureExt;
+
+/// Extract a human-readable message from a panic payload.
+fn panic_message(info: &dyn std::any::Any) -> String {
+    if let Some(s) = info.downcast_ref::<&str>() {
+        (*s).to_string()
+    } else if let Some(s) = info.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "unknown panic".to_string()
+    }
+}
+
 /// Orchestrates FileRegistry registration, heartbeat, stale cleanup, and the
 /// optional gateway HTTP server.
 pub struct GatewayRunner {
@@ -72,39 +85,65 @@ impl GatewayRunner {
         // when a metadata_provider is present.  This keeps the `scene` field
         // in FileRegistry current so that list_dcc_instances always reflects
         // the currently open DCC scene without requiring a server restart.
+        //
+        // The task is wrapped in a restart loop so that a panic does not silently
+        // abort heartbeats (issue #554).
         let heartbeat_abort = if self.config.heartbeat_secs > 0 {
             let reg = self.registry.clone();
             let key = service_key.clone();
             let secs = self.config.heartbeat_secs;
             let provider = metadata_provider;
             let h = tokio::spawn(async move {
-                let mut tick = tokio::time::interval(Duration::from_secs(secs));
                 loop {
-                    tick.tick().await;
-                    let r = reg.read().await;
-                    if let Some(ref prov) = provider {
-                        let snap = prov();
-                        if !snap.documents.is_empty() {
-                            // Multi-document DCC (Photoshop, After Effects…):
-                            // update active document + full open-document list + label.
-                            let _ = r.update_documents(
-                                &key,
-                                snap.scene.as_deref(),
-                                &snap.documents,
-                                snap.display_name.as_deref(),
-                            );
-                        } else {
-                            // Single-document DCC (Maya, Blender, Houdini…):
-                            // update scene path and version only.
-                            let _ = r.update_metadata(
-                                &key,
-                                snap.scene.as_deref(),
-                                snap.version.as_deref(),
-                            );
+                    let reg = reg.clone();
+                    let key_inner = key.clone();
+                    let provider = provider.clone();
+                    let result = std::panic::AssertUnwindSafe(async move {
+                        let mut tick = tokio::time::interval(Duration::from_secs(secs));
+                        loop {
+                            tick.tick().await;
+                            let r = reg.read().await;
+                            if let Some(ref prov) = provider {
+                                let snap = prov();
+                                if !snap.documents.is_empty() {
+                                    // Multi-document DCC (Photoshop, After Effects…):
+                                    // update active document + full open-document list + label.
+                                    let _ = r.update_documents(
+                                        &key_inner,
+                                        snap.scene.as_deref(),
+                                        &snap.documents,
+                                        snap.display_name.as_deref(),
+                                    );
+                                } else {
+                                    // Single-document DCC (Maya, Blender, Houdini…):
+                                    // update scene path and version only.
+                                    let _ = r.update_metadata(
+                                        &key_inner,
+                                        snap.scene.as_deref(),
+                                        snap.version.as_deref(),
+                                    );
+                                }
+                            } else {
+                                let _ = r.heartbeat(&key_inner);
+                            }
                         }
-                    } else {
-                        let _ = r.heartbeat(&key);
-                    }
+                    })
+                    .catch_unwind()
+                    .await;
+
+                    let msg = match result {
+                        Err(panic_info) => panic_message(&*panic_info),
+                        Ok(()) => {
+                            // Normal loop exit (should not happen)
+                            break;
+                        }
+                    };
+                    tracing::error!(
+                        instance = %key.instance_id,
+                        panic = %msg,
+                        "Heartbeat task panicked — restarting in 5s"
+                    );
+                    tokio::time::sleep(Duration::from_secs(5)).await;
                 }
             });
             Some(h.abort_handle())
@@ -183,6 +222,7 @@ impl GatewayRunner {
                     sentinel_key,
                     self.config.host.clone(),
                     self.config.gateway_port,
+                    self.config.allow_unknown_tools,
                 )
                 .await
                 {
@@ -283,6 +323,7 @@ impl GatewayRunner {
         let max_routes_per_session = self.config.max_routes_per_session as usize;
         let server_name = self.config.server_name.clone();
         let timeout_secs = self.config.challenger_timeout_secs;
+        let allow_unknown_tools = self.config.allow_unknown_tools;
 
         let handle = tokio::spawn(async move {
             // ── Cooperative yield request ─────────────────────────────────
@@ -347,6 +388,7 @@ impl GatewayRunner {
                         sentinel_key,
                         host.clone(),
                         port,
+                        allow_unknown_tools,
                     )
                     .await
                     {

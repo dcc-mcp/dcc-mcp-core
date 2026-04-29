@@ -62,6 +62,7 @@ pub(crate) async fn compute_tools_fingerprint_with_own(
                         Some(h) => !super::super::is_own_instance(e, h, own_port),
                         None => true,
                     }
+                    && !e.dcc_type.eq_ignore_ascii_case("unknown")
             })
             .collect()
     };

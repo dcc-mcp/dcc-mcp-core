@@ -41,6 +41,13 @@ pub struct GatewayConfig {
     /// Per-session ceiling on concurrent live routes (issue #322). `0`
     /// disables the cap. Default: `1_000`.
     pub max_routes_per_session: u64,
+    /// Allow instances with `dcc_type == "unknown"` to expose their tools
+    /// via the gateway's `tools/list` and be reachable through `connect_to_dcc`.
+    ///
+    /// Default: `false`. Standalone `dcc-mcp-server` binaries that register
+    /// with `dcc_type: "unknown"` should not leak tools into the gateway
+    /// façade unless this is explicitly enabled for development (issue #555).
+    pub allow_unknown_tools: bool,
 }
 
 impl Default for GatewayConfig {
@@ -59,6 +66,7 @@ impl Default for GatewayConfig {
             wait_terminal_timeout_ms: 600_000,
             route_ttl_secs: 60 * 60 * 24,
             max_routes_per_session: 1_000,
+            allow_unknown_tools: false,
         }
     }
 }

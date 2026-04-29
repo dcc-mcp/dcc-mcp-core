@@ -247,3 +247,75 @@ pub(crate) fn prune_old(directory: &Path, prefix: &str, max_files: usize) {
         let _ = std::fs::remove_file(path);
     }
 }
+
+/// Prune log files by age and total directory size.
+///
+/// * `retention_days` — files whose modification time is older than this many
+///   days are deleted. `0` disables age-based pruning.
+/// * `max_total_size_mb` — when the total size of **all** `.log` files matching
+///   the prefix exceeds this many MiB, oldest files are deleted until the total
+///   is under the limit. `0` disables size-based pruning.
+///
+/// The current day's file (`<prefix>.<YYYYMMDD>.log`) is never deleted.
+pub fn prune_old_logs(directory: &Path, prefix: &str, retention_days: u32, max_total_size_mb: u32) {
+    let Ok(read_dir) = std::fs::read_dir(directory) else {
+        return;
+    };
+
+    let today_stem = format!("{prefix}.{}", CalendarDate::today_local().as_basename());
+    let cutoff = if retention_days > 0 {
+        let now = std::time::SystemTime::now();
+        let duration = std::time::Duration::from_secs(u64::from(retention_days) * 24 * 60 * 60);
+        Some(now - duration)
+    } else {
+        None
+    };
+
+    let mut files: Vec<(std::time::SystemTime, u64, PathBuf)> = Vec::new();
+    let mut total_size: u64 = 0;
+
+    for entry in read_dir.flatten() {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        if !name.starts_with(&format!("{prefix}.")) || !name.ends_with(".log") {
+            continue;
+        }
+        let stem = name.trim_end_matches(".log");
+        if stem == today_stem {
+            continue;
+        }
+        let modified = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .unwrap_or(std::time::UNIX_EPOCH);
+        let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
+
+        // Age pruning — unconditional.
+        if let Some(cutoff) = cutoff {
+            if modified < cutoff {
+                let _ = std::fs::remove_file(&path);
+                continue;
+            }
+        }
+
+        total_size += size;
+        files.push((modified, size, path));
+    }
+
+    // Size pruning — sort oldest first, delete until under limit.
+    if max_total_size_mb > 0 {
+        let limit_bytes = u64::from(max_total_size_mb) * 1024 * 1024;
+        if total_size > limit_bytes {
+            files.sort_by_key(|entry| entry.0);
+            for (_, size, path) in files {
+                if total_size <= limit_bytes {
+                    break;
+                }
+                let _ = std::fs::remove_file(&path);
+                total_size = total_size.saturating_sub(size);
+            }
+        }
+    }
+}

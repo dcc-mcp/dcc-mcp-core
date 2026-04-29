@@ -4,6 +4,8 @@
 //! Uses `(dcc_type, instance_id)` as key to support multiple instances per DCC type.
 
 use std::fs;
+#[cfg(windows)]
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
@@ -459,16 +461,101 @@ impl FileRegistry {
         self.registry_dir.join(REGISTRY_FILE)
     }
 
-    /// Load services from the JSON file into memory.
+    /// Flush the in-memory services to the JSON file atomically.
+    ///
+    /// Uses a temp-file + rename pattern so readers never see a partially-
+    /// written file. On Windows an OS-level advisory lock is taken for the
+    /// duration of the write to prevent competing processes from clobbering
+    /// each other (issue #554).
+    fn flush_to_file(&self) -> TransportResult<()> {
+        let entries: Vec<ServiceEntry> = self.list_all();
+        let content = serde_json::to_string_pretty(&entries).map_err(|e| {
+            TransportError::Serialization(format!("failed to serialize registry: {}", e))
+        })?;
+
+        let path = self.registry_file_path();
+        Self::write_atomic(&path, content)?;
+
+        // Update cached mtime after write
+        let _ = self.update_mtime();
+
+        Ok(())
+    }
+
+    /// Atomically write `content` to `path` using a temp file + rename.
+    ///
+    /// On Windows this also acquires an OS-level advisory lock on the target
+    /// file so that concurrent `flush_to_file` calls from other processes do
+    /// not interleave (issue #554).
+    fn write_atomic(path: &PathBuf, content: String) -> TransportResult<()> {
+        let dir = path.parent().unwrap_or_else(|| std::path::Path::new("."));
+        let temp_path = dir.join(format!(".tmp.{}.services.json", std::process::id()));
+
+        // Write to temp file first
+        fs::write(&temp_path, content).map_err(|e| {
+            TransportError::RegistryFile(format!(
+                "failed to write temp file {}: {}",
+                temp_path.display(),
+                e
+            ))
+        })?;
+
+        // On Windows, take an advisory lock on the target file while renaming.
+        // This prevents another process from reading a stale snapshot between
+        // our rename and their own concurrent write.
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            let lock_path = path.with_extension("lock");
+            let mut lock_file = std::fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .share_mode(0) // exclusive lock
+                .open(&lock_path)
+                .map_err(|e| {
+                    TransportError::RegistryFile(format!(
+                        "failed to acquire registry lock {}: {}",
+                        lock_path.display(),
+                        e
+                    ))
+                })?;
+            let _ = lock_file.write_all(b"lock");
+            let result = fs::rename(&temp_path, path);
+            let _ = std::fs::remove_file(&lock_path);
+            result.map_err(|e| {
+                TransportError::RegistryFile(format!(
+                    "failed to rename {} -> {}: {}",
+                    temp_path.display(),
+                    path.display(),
+                    e
+                ))
+            })?;
+        }
+
+        #[cfg(not(windows))]
+        {
+            fs::rename(&temp_path, path).map_err(|e| {
+                TransportError::RegistryFile(format!(
+                    "failed to rename {} -> {}: {}",
+                    temp_path.display(),
+                    path.display(),
+                    e
+                ))
+            })?;
+        }
+
+        Ok(())
+    }
+
+    /// Load services from the JSON file into memory with advisory locking on Windows.
     fn load_from_file(&self) -> TransportResult<()> {
         let path = self.registry_file_path();
         if !path.exists() {
             return Ok(());
         }
 
-        let content = fs::read_to_string(&path).map_err(|e| {
-            TransportError::RegistryFile(format!("failed to read {}: {}", path.display(), e))
-        })?;
+        let content = Self::read_locked(&path)?;
 
         if content.trim().is_empty() {
             return Ok(());
@@ -487,22 +574,29 @@ impl FileRegistry {
         Ok(())
     }
 
-    /// Flush the in-memory services to the JSON file.
-    fn flush_to_file(&self) -> TransportResult<()> {
-        let entries: Vec<ServiceEntry> = self.list_all();
-        let content = serde_json::to_string_pretty(&entries).map_err(|e| {
-            TransportError::Serialization(format!("failed to serialize registry: {}", e))
-        })?;
+    /// Read the registry file, waiting briefly for any concurrent Windows lock to clear.
+    #[cfg(windows)]
+    fn read_locked(path: &PathBuf) -> TransportResult<String> {
+        let lock_path = path.with_extension("lock");
+        let max_wait = Duration::from_secs(5);
+        let poll = Duration::from_millis(50);
+        let mut waited = Duration::ZERO;
 
-        let path = self.registry_file_path();
-        fs::write(&path, content).map_err(|e| {
-            TransportError::RegistryFile(format!("failed to write {}: {}", path.display(), e))
-        })?;
+        while lock_path.exists() && waited < max_wait {
+            std::thread::sleep(poll);
+            waited += poll;
+        }
 
-        // Update cached mtime after write
-        let _ = self.update_mtime();
+        fs::read_to_string(path).map_err(|e| {
+            TransportError::RegistryFile(format!("failed to read {}: {}", path.display(), e))
+        })
+    }
 
-        Ok(())
+    #[cfg(not(windows))]
+    fn read_locked(path: &PathBuf) -> TransportResult<String> {
+        fs::read_to_string(path).map_err(|e| {
+            TransportError::RegistryFile(format!("failed to read {}: {}", path.display(), e))
+        })
     }
 }
 
