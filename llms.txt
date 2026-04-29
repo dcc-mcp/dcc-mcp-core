@@ -66,7 +66,7 @@
 | Skill warning / exception helpers | `skill_warning()` / `skill_exception()` |
 | Disable accumulated/evolved skills | `ENV_DISABLE_ACCUMULATED_SKILLS` |
 | Typed Python tool handler return | `from dcc_mcp_core.result_envelope import ToolResult` → `ToolResult.ok("msg", **ctx).to_dict()` / `ToolResult.fail("msg", error="code").to_dict()` (also `success_`/`error_`, plus `not_found(entity_type, name)` / `invalid_input(msg)` shortcuts). **Note**: `success`/`error` are dataclass fields, not factories; calling `ToolResult.success(...)` raises `AttributeError` (#487) |
-| Centralised metadata key constants | `from dcc_mcp_core.constants import METADATA_RECIPES_KEY, METADATA_LAYER_KEY, LAYER_THIN_HARNESS, CATEGORY_DIAGNOSTICS, ...` — every `"dcc-mcp.<feature>"` string lives here (#487) |
+| Centralised metadata key constants | `from dcc_mcp_core import METADATA_RECIPES_KEY, METADATA_LAYER_KEY, LAYER_THIN_HARNESS, CATEGORY_DIAGNOSTICS, ...` — re-exported at top level; also `from dcc_mcp_core.constants import ...`. Every `"dcc-mcp.<feature>"` string lives here. Available constants: `METADATA_DCC_MCP`, `METADATA_RECIPES_KEY`, `METADATA_WORKFLOWS_KEY`, `METADATA_LAYER_KEY`, `METADATA_DCC_KEY`, `METADATA_VERSION_KEY`, `METADATA_TOOLS_KEY`, `METADATA_GROUPS_KEY`, `METADATA_SEARCH_HINT_KEY`, `METADATA_TAGS_KEY`, `METADATA_EXTERNAL_DEPS_KEY`, `LAYER_THIN_HARNESS`, `LAYER_DOMAIN`, `LAYER_INFRASTRUCTURE`, `LAYER_EXAMPLE`, `CATEGORY_DIAGNOSTICS`, `CATEGORY_FEEDBACK`, `CATEGORY_INTROSPECT`, `CATEGORY_RECIPES`, `CATEGORY_WORKFLOWS`, `CATEGORY_DOCS`, `CATEGORY_GENERAL` (#487) |
 | Custom JSON-RPC method (Rust) | `dcc_mcp_http::handler::{MethodRouter, MethodHandler, HandlerFuture}` — `router.register("ping", Arc::new(handler))`; capability gating lives in the handler, not the router (#492) |
 | Custom action validation (Rust) | `dcc_mcp_actions::validation_strategy::{ValidationStrategy, ValidationOutcome, NoOpValidator, SchemaValidator, select_strategy}` — adding a flavour does not touch `dispatch()` (#493) |
 | Custom version constraint shape (Rust) | `dcc_mcp_actions::versioned::matcher::{VersionMatcher, AnyMatcher, ExactMatcher, AtLeastMatcher, GreaterThanMatcher, AtMostMatcher, LessThanMatcher, CaretMatcher, TildeMatcher}` — adding a shape = enum variant + matcher impl + `with_matcher` arm; `matches()` / `Display` untouched (#493) |
@@ -200,6 +200,7 @@ Pure-Python modules: cancellation, checkpoint, constants (#487), result_envelope
 - `scan_skill_paths(extra_paths=None, dcc_name=None) -> List[str]`
 - `scan_and_load(dcc_name=None, extra_paths=None) -> tuple[List[SkillMetadata], List[str]]` — **(skills, skipped_dirs)**
 - `scan_and_load_lenient(dcc_name=None, extra_paths=None) -> tuple[List[SkillMetadata], List[str]]` — same, skips errors
+- `scan_and_load_strict(dcc_name=None, extra_paths=None)` — fail-fast variant; raises `ValueError` listing every skipped directory (use for CI/validation; issue maya#138)
 - `scan_and_load_team(dcc_name=None, extra_paths=None) -> tuple[List[SkillMetadata], List[str]]`
 - `scan_and_load_team_lenient(dcc_name=None, extra_paths=None) -> tuple[List[SkillMetadata], List[str]]`
 - `scan_and_load_user(dcc_name=None, extra_paths=None) -> tuple[List[SkillMetadata], List[str]]`
@@ -792,7 +793,7 @@ resp = elicit_form_sync(message="...", schema={...}, fallback_values={"confirm":
 resp = await elicit_url(message="Authorize Shotgrid access", url="https://.../oauth/authorize?...")
 ```
 
-Status: stubs return `accepted=False, message="elicitation_not_supported"` until Rust transport wires `notifications/elicitation/request`. Design handlers today — they upgrade automatically.
+Status: **STUB** — `elicit_form` / `elicit_url` / `elicit_form_sync` currently return `accepted=False, message="elicitation_not_supported"` because the Rust transport does not yet wire `notifications/elicitation/request`. You can write handlers today (they upgrade automatically when transport lands), but do NOT rely on elicitation for critical control flow. Design fallback paths.
 
 ### Rich Content / MCP Apps (`#409`, `dcc_mcp_core.rich_content`)
 

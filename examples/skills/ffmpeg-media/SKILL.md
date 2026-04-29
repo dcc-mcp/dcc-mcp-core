@@ -11,9 +11,11 @@ compatibility: Requires ffmpeg and ffprobe binaries on PATH
 allowed-tools: Bash Read Write
 metadata:
   dcc-mcp.dcc: python
+  dcc-mcp.version: "1.0.0"
   dcc-mcp.layer: infrastructure
   dcc-mcp.search-hint: "ffmpeg, video transcode, audio convert, extract frames, resize video, image sequence, media processing"
   dcc-mcp.tags: "media, video, audio, ffmpeg, conversion, infrastructure"
+  dcc-mcp.tools: tools.yaml
   openclaw:
     requires:
       bins:
@@ -25,31 +27,6 @@ metadata:
         bins: [ffmpeg, ffprobe]
     emoji: "🎬"
     homepage: https://ffmpeg.org
-dcc: python
-version: "1.0.0"
-search-hint: "ffmpeg, video, audio, media conversion, transcode, extract frames, resize"
-tools:
-  - name: convert
-    description: Convert a media file to a different format
-    input_schema:
-      type: object
-      required: [input, output]
-      properties:
-        input: {type: string, description: Input file path}
-        output: {type: string, description: Output file path}
-        codec: {type: string, description: Output codec (e.g. h264, vp9)}
-    source_file: scripts/convert.py
-
-  - name: extract_frames
-    description: Extract video frames as image files
-    input_schema:
-      type: object
-      required: [input, output_dir]
-      properties:
-        input: {type: string, description: Input video path}
-        output_dir: {type: string, description: Directory to save frames}
-        fps: {type: number, description: Frames per second to extract, default 1}
-    source_file: scripts/extract_frames.py
 ---
 
 # FFmpeg Media Tools

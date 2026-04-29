@@ -15,6 +15,7 @@ metadata:
   dcc-mcp.layer: infrastructure
   dcc-mcp.search-hint: "USD stage, prim, schema validation, layer stack, usda, usdc, usdz, usdchecker, usdcat, raw USD file"
   dcc-mcp.tags: "usd, openusd, scene inspection, validation, infrastructure"
+  dcc-mcp.tools: tools.yaml
   openclaw:
     requires:
       bins:
@@ -22,29 +23,6 @@ metadata:
         - usdchecker
     emoji: "🎬"
     homepage: https://openusd.org
-tools:
-  - name: inspect
-    description: Print the contents of a USD file in human-readable form
-    input_schema:
-      type: object
-      required: [file]
-      properties:
-        file: {type: string, description: Path to the USD file}
-        flatten: {type: boolean, description: Flatten all layers, default false}
-    read_only: true
-    idempotent: true
-    source_file: scripts/inspect.py
-
-  - name: validate
-    description: Run USD compliance checks on a file
-    input_schema:
-      type: object
-      required: [file]
-      properties:
-        file: {type: string, description: Path to the USD file to validate}
-    read_only: true
-    idempotent: true
-    source_file: scripts/validate.py
 ---
 
 # OpenUSD Tools

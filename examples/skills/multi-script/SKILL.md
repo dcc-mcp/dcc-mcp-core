@@ -13,46 +13,7 @@ metadata:
   dcc-mcp.layer: example
   dcc-mcp.search-hint: "multi-script, cross-platform, python shell batch, script types, authoring reference"
   dcc-mcp.tags: "example, multi-language, cross-platform"
-  author: dcc-mcp-core
-tools:
-  - name: action_python
-    description: Runs the Python implementation of the action
-    input_schema:
-      type: object
-      properties:
-        message:
-          type: string
-          description: Message to process
-          default: hello
-    read_only: true
-    idempotent: true
-    source_file: scripts/action_python.py
-
-  - name: action_shell
-    description: Runs the Shell (bash) implementation of the action (Linux/macOS)
-    input_schema:
-      type: object
-      properties:
-        message:
-          type: string
-          description: Message to process
-          default: hello
-    read_only: true
-    idempotent: true
-    source_file: scripts/action_shell.sh
-
-  - name: action_batch
-    description: Runs the Batch (cmd) implementation of the action (Windows)
-    input_schema:
-      type: object
-      properties:
-        message:
-          type: string
-          description: Message to process
-          default: hello
-    read_only: true
-    idempotent: true
-    source_file: scripts/action_batch.bat
+  dcc-mcp.tools: tools.yaml
 ---
 
 # Multi-Script Skill

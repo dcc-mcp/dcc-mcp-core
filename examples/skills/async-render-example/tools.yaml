@@ -1,0 +1,8 @@
+tools:
+  - name: render_frames
+    description: "Pretend to render a frame range. Long-running; the server surfaces `deferredHint: true` and `_meta.dcc.timeoutHintSecs`."
+    execution: async
+    timeout_hint_secs: 600
+  - name: quick_status
+    description: "Return the current (fake) render status. Fast, sync."
+    execution: sync

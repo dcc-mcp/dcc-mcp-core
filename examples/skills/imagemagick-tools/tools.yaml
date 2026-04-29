@@ -1,0 +1,57 @@
+tools:
+  - name: resize
+    description: Resize an image to specified dimensions with fit mode control
+    input_schema:
+      type: object
+      required: [input, output]
+      properties:
+        input:
+          type: string
+          description: Input image path
+        output:
+          type: string
+          description: Output image path
+        width:
+          type: integer
+          description: Target width in pixels
+        height:
+          type: integer
+          description: Target height in pixels
+        fit:
+          type: string
+          enum: [cover, contain, exact, fill]
+          description: Resize mode
+          default: contain
+    read_only: false
+    destructive: false
+    idempotent: true
+    source_file: scripts/resize.py
+
+  - name: composite
+    description: Composite (overlay) two images with a blend mode
+    input_schema:
+      type: object
+      required: [base, overlay, output]
+      properties:
+        base:
+          type: string
+          description: Base image path
+        overlay:
+          type: string
+          description: Overlay image path
+        output:
+          type: string
+          description: Output image path
+        blend:
+          type: string
+          enum: [over, multiply, screen, overlay, dissolve]
+          description: Blend mode
+          default: over
+        opacity:
+          type: number
+          description: Overlay opacity (0.0-1.0)
+          default: 1.0
+    read_only: false
+    destructive: false
+    idempotent: true
+    source_file: scripts/composite.py

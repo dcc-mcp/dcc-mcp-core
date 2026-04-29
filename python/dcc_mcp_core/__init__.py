@@ -82,6 +82,30 @@ from dcc_mcp_core._core import McpHttpServer
 from dcc_mcp_core._core import McpServerHandle
 from dcc_mcp_core._core import ObjectTransform
 
+# Re-export constants for convenient access (dcc_mcp_core.constants.* also works)
+from dcc_mcp_core.constants import CATEGORY_DIAGNOSTICS
+from dcc_mcp_core.constants import CATEGORY_DOCS
+from dcc_mcp_core.constants import CATEGORY_FEEDBACK
+from dcc_mcp_core.constants import CATEGORY_GENERAL
+from dcc_mcp_core.constants import CATEGORY_INTROSPECT
+from dcc_mcp_core.constants import CATEGORY_RECIPES
+from dcc_mcp_core.constants import CATEGORY_WORKFLOWS
+from dcc_mcp_core.constants import LAYER_DOMAIN
+from dcc_mcp_core.constants import LAYER_EXAMPLE
+from dcc_mcp_core.constants import LAYER_INFRASTRUCTURE
+from dcc_mcp_core.constants import LAYER_THIN_HARNESS
+from dcc_mcp_core.constants import METADATA_DCC_KEY
+from dcc_mcp_core.constants import METADATA_DCC_MCP
+from dcc_mcp_core.constants import METADATA_EXTERNAL_DEPS_KEY
+from dcc_mcp_core.constants import METADATA_GROUPS_KEY
+from dcc_mcp_core.constants import METADATA_LAYER_KEY
+from dcc_mcp_core.constants import METADATA_RECIPES_KEY
+from dcc_mcp_core.constants import METADATA_SEARCH_HINT_KEY
+from dcc_mcp_core.constants import METADATA_TAGS_KEY
+from dcc_mcp_core.constants import METADATA_TOOLS_KEY
+from dcc_mcp_core.constants import METADATA_VERSION_KEY
+from dcc_mcp_core.constants import METADATA_WORKFLOWS_KEY
+
 # DCC output capture — expose stdout/stderr/script-editor as output:// resource (issue #461).
 # Only present after the wheel is rebuilt with the new dcc-mcp-http code.
 try:
@@ -424,6 +448,13 @@ __all__ = [
     "APP_AUTHOR",
     "APP_NAME",
     "CAPABILITY_KEYS",
+    "CATEGORY_DIAGNOSTICS",
+    "CATEGORY_DOCS",
+    "CATEGORY_FEEDBACK",
+    "CATEGORY_GENERAL",
+    "CATEGORY_INTROSPECT",
+    "CATEGORY_RECIPES",
+    "CATEGORY_WORKFLOWS",
     "DEFAULT_DCC",
     "DEFAULT_LOG_FILE_PREFIX",
     "DEFAULT_LOG_LEVEL",
@@ -443,7 +474,22 @@ __all__ = [
     "ENV_SKILL_PATHS",
     "ENV_TEAM_SKILL_PATHS",
     "ENV_USER_SKILL_PATHS",
+    "LAYER_DOMAIN",
+    "LAYER_EXAMPLE",
+    "LAYER_INFRASTRUCTURE",
+    "LAYER_THIN_HARNESS",
     "MAX_TOOL_NAME_LEN",
+    "METADATA_DCC_KEY",
+    "METADATA_DCC_MCP",
+    "METADATA_EXTERNAL_DEPS_KEY",
+    "METADATA_GROUPS_KEY",
+    "METADATA_LAYER_KEY",
+    "METADATA_RECIPES_KEY",
+    "METADATA_SEARCH_HINT_KEY",
+    "METADATA_TAGS_KEY",
+    "METADATA_TOOLS_KEY",
+    "METADATA_VERSION_KEY",
+    "METADATA_WORKFLOWS_KEY",
     "SKILL_METADATA_DIR",
     "SKILL_METADATA_FILE",
     "SKILL_SCRIPTS_DIR",

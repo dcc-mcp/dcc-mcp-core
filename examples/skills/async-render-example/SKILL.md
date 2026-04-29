@@ -13,14 +13,7 @@ metadata:
   dcc-mcp.layer: example
   dcc-mcp.search-hint: "async tool, long-running, deferred hint, timeout hint, render async, authoring reference"
   dcc-mcp.tags: "example, async, render, deferred"
-tools:
-  - name: render_frames
-    description: "Pretend to render a frame range. Long-running; the server surfaces `deferredHint: true` and `_meta.dcc.timeoutHintSecs`."
-    execution: async
-    timeout_hint_secs: 600
-  - name: quick_status
-    description: "Return the current (fake) render status. Fast, sync."
-    execution: sync
+  dcc-mcp.tools: tools.yaml
 ---
 
 # Async Render Example (issue #317)

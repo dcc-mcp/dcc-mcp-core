@@ -1,0 +1,45 @@
+tools:
+  - name: setup_project
+    description: Create a Maya project directory structure with standard folders
+    input_schema:
+      type: object
+      required: [project_path]
+      properties:
+        project_path:
+          type: string
+          description: Absolute path where the Maya project will be created
+        project_name:
+          type: string
+          description: Name of the Maya project
+    read_only: false
+    destructive: false
+    idempotent: true
+    source_file: scripts/setup_project.py
+    next-tools:
+      on-success: [maya_geometry__create_sphere, maya_pipeline__export_usd]
+      on-failure: [dcc_diagnostics__audit_log]
+
+  - name: export_usd
+    description: Export the current Maya scene to a USD file
+    input_schema:
+      type: object
+      required: [output_path]
+      properties:
+        output_path:
+          type: string
+          description: Destination USD file path (.usd, .usda, .usdz)
+        selection_only:
+          type: boolean
+          description: Export only selected objects
+          default: false
+        animation:
+          type: boolean
+          description: Include animation data
+          default: true
+    read_only: false
+    destructive: false
+    idempotent: false
+    source_file: scripts/export_usd.py
+    next-tools:
+      on-success: [usd_tools__inspect, usd_tools__validate]
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]

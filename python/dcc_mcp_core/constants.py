@@ -20,6 +20,11 @@ METADATA_WORKFLOWS_KEY: str = f"{METADATA_DCC_MCP}.workflows"
 METADATA_LAYER_KEY: str = f"{METADATA_DCC_MCP}.layer"
 METADATA_DCC_KEY: str = f"{METADATA_DCC_MCP}.dcc"
 METADATA_VERSION_KEY: str = f"{METADATA_DCC_MCP}.version"
+METADATA_TOOLS_KEY: str = f"{METADATA_DCC_MCP}.tools"
+METADATA_GROUPS_KEY: str = f"{METADATA_DCC_MCP}.groups"
+METADATA_SEARCH_HINT_KEY: str = f"{METADATA_DCC_MCP}.search-hint"
+METADATA_TAGS_KEY: str = f"{METADATA_DCC_MCP}.tags"
+METADATA_EXTERNAL_DEPS_KEY: str = f"{METADATA_DCC_MCP}.external-deps"
 
 # ── SKILL layer taxonomy ────────────────────────────────────────────────────
 # A skill's ``metadata.dcc-mcp.layer`` tag declares its architectural role.
@@ -52,8 +57,13 @@ __all__ = [
     "LAYER_THIN_HARNESS",
     "METADATA_DCC_KEY",
     "METADATA_DCC_MCP",
+    "METADATA_EXTERNAL_DEPS_KEY",
+    "METADATA_GROUPS_KEY",
     "METADATA_LAYER_KEY",
     "METADATA_RECIPES_KEY",
+    "METADATA_SEARCH_HINT_KEY",
+    "METADATA_TAGS_KEY",
+    "METADATA_TOOLS_KEY",
     "METADATA_VERSION_KEY",
     "METADATA_WORKFLOWS_KEY",
 ]

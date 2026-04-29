@@ -1,0 +1,63 @@
+tools:
+  - name: create_sphere
+    description: Create a polygon sphere with the given radius and subdivisions
+    group: modeling
+    input_schema:
+      type: object
+      properties:
+        radius:
+          type: number
+          description: Sphere radius in Maya units
+          default: 1.0
+        subdivisionsX:
+          type: integer
+          description: Subdivisions around the equator
+          default: 20
+        subdivisionsY:
+          type: integer
+          description: Subdivisions from pole to pole
+          default: 20
+    read_only: false
+    destructive: false
+    idempotent: false
+    source_file: scripts/create_sphere.py
+    next-tools:
+      on-success: [maya_geometry__bevel_edges, maya_pipeline__export_usd]
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
+
+  - name: bevel_edges
+    description: Apply bevel to selected polygon edges
+    group: modeling
+    input_schema:
+      type: object
+      properties:
+        offset:
+          type: number
+          description: Bevel offset distance
+          default: 0.1
+        segments:
+          type: integer
+          description: Number of bevel segments
+          default: 1
+    read_only: false
+    destructive: false
+    idempotent: false
+    source_file: scripts/bevel_edges.py
+    next-tools:
+      on-success: [maya_pipeline__export_usd]
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
+
+  - name: create_joint
+    description: Create a skinning joint at the current selection (rigging group — inactive by default)
+    group: rigging
+    input_schema:
+      type: object
+      properties:
+        name:
+          type: string
+          description: Joint node name
+          default: joint1
+    read_only: false
+    destructive: false
+    idempotent: false
+    source_file: scripts/create_joint.py

@@ -46,7 +46,7 @@
 | AI-friendly index | `llms.txt` | When you need to *use* APIs |
 | Full index | `llms-full.txt` | When `llms.txt` lacks detail |
 | Detailed rules | [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md) | Before writing code — traps, do/don't, code style |
-| Conceptual docs | `docs/guide/` + `docs/api/` | Building a new adapter or skill |
+| Conceptual docs | [`docs/guide/INDEX.md`](docs/guide/INDEX.md) + `docs/api/` | Building a new adapter or skill — see INDEX.md for topic list |
 | Skill authoring | `skills/README.md` + `examples/skills/` | Creating or modifying skills |
 
 ---
@@ -131,7 +131,7 @@
 | Skill validation | `validate_skill(skill_dir)` → `SkillValidationReport` |
 | Zero-dep JSON/YAML | `json_dumps/loads` / `yaml_dumps/loads` (Rust-powered) |
 | Typed handler return envelope | `ToolResult.ok("msg", **ctx).to_dict()` / `ToolResult.fail("msg", error="code").to_dict()` from `dcc_mcp_core.result_envelope` — note the underscored aliases `success_`/`error_`; `success`/`error` are dataclass fields, **not** factories (#487) |
-| Centralised metadata keys | `from dcc_mcp_core.constants import METADATA_*, LAYER_*, CATEGORY_*` — never inline `"dcc-mcp.recipes"` etc. (#487) |
+| Centralised metadata keys | `from dcc_mcp_core import METADATA_*, LAYER_*, CATEGORY_*` — re-exported at top level; also available from `dcc_mcp_core.constants`. Never inline `"dcc-mcp.recipes"` etc. (#487) |
 | Custom JSON-RPC method (Rust) | `MethodRouter::register(method, Arc::new(handler))` — implement `MethodHandler` trait (#492) |
 | Custom action validation (Rust) | implement `ValidationStrategy` and return it from `select_strategy(...)` (#493) |
 | Custom version constraint shape (Rust) | implement `VersionMatcher` + wrap in `VersionConstraint::Custom` (#493) |
@@ -166,7 +166,7 @@
 3. **`ToolDispatcher` uses `.dispatch()`** → never `.call()`
 4. **Register ALL handlers BEFORE `server.start()`** — server reads registry at startup
 5. **SKILL.md extensions use `metadata.dcc-mcp.<feature>`** → sibling files, never top-level keys (v0.15+ / #356)
-6. **Use `dcc_mcp_core.constants.*` for metadata strings** → no inline `"dcc-mcp.recipes"` / `"thin-harness"` literals (#487)
+6. **Use `dcc_mcp_core.METADATA_*` / `LAYER_*` / `CATEGORY_*`** → re-exported at top level (also in `constants` sub-module); no inline `"dcc-mcp.recipes"` / `"thin-harness"` literals (#487)
 7. **Return `ToolResult` from Python tool handlers** → `ToolResult.ok("...", **ctx).to_dict()` (or `success_(...)`); `success`/`error` are dataclass *fields*, the factories are `success_`/`error_` / `ok`/`fail` (#487)
 
 Full trap list + code examples → [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md)
@@ -201,7 +201,7 @@ docs/            # guides + API reference
 - Use `create_skill_server()` — Skills-First entry point
 - Use `success_result("msg", count=5)` — kwargs become context
 - Use `ToolResult.ok("...", **ctx).to_dict()` (or `.success_(...)`) from `result_envelope`; `.fail(msg, error="...")` for errors; `.not_found("Skill", name)` / `.invalid_input(msg)` for the common error codes (#487)
-- Import metadata strings from `dcc_mcp_core.constants` (`METADATA_*`, `LAYER_*`, `CATEGORY_*`) (#487)
+- Import metadata strings from `dcc_mcp_core` (`METADATA_*`, `LAYER_*`, `CATEGORY_*` re-exported at top level; `dcc_mcp_core.constants.*` also works) (#487)
 - Use `ToolAnnotations` — safety hints for AI clients
 - Use `search_skills(query)` — don't guess tool names
 - Use `metadata.dcc-mcp.<feature>` keys + sibling files for all SKILL.md extensions
@@ -218,7 +218,7 @@ docs/            # guides + API reference
 - Don't call `ToolDispatcher.call()` → **use `.dispatch(name, json_str)`**
 - Don't put SKILL.md extensions at top level → **use `metadata.dcc-mcp.<feature>` + sibling file**
 - Don't hand-roll `{"success": ..., "context": ...}` dicts in handlers → **return `ToolResult.ok(...).to_dict()`** (the factory is `ok`/`success_`, NOT `success`) (#487)
-- Don't write inline `"dcc-mcp.recipes"` / `"thin-harness"` literals → **import from `constants.py`** (#487)
+- Don't write inline `"dcc-mcp.recipes"` / `"thin-harness"` literals → **import from `dcc_mcp_core`** (constants re-exported at top level) (#487)
 - Don't pass raw `&str` DCC names through Rust APIs → **`DccName::parse(s)` at the boundary** (#491)
 - Don't extend the JSON-RPC `match` arm in `dispatch.rs` → **register a `MethodHandler` on `MethodRouter`** (#492)
 - Don't hand-roll JSON-RPC envelopes → **`NotificationBuilder` / `JsonRpcRequestBuilder`** (#484)

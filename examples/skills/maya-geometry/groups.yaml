@@ -1,0 +1,9 @@
+groups:
+  - name: modeling
+    description: Polygon modeling primitives and edits (always active by default)
+    default-active: true
+    tools: [create_sphere, bevel_edges]
+  - name: rigging
+    description: Skeleton and deformation tools (activate with activate_tool_group)
+    default-active: false
+    tools: [create_joint]
