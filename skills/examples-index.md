@@ -18,6 +18,7 @@ Each demonstrates a specific skill system feature.
 | **clawhub-compat** | python | example | (scripts only) | Full **OpenClaw/ClawHub** compatibility reference |
 | **dcc-diagnostics** | python | diagnostics | screenshot, audit_log, tool_metrics, process_status | **Also bundled** in wheel |
 | **workflow** | python | workflow | run_chain | **Also bundled** in wheel |
+| **example-layered-skill** | python | example | create_asset, publish_asset, validate_asset | **Layered architecture** — Tools / Services / Utils internal split (issue #575) |
 
 ## By Feature
 
@@ -35,6 +36,10 @@ Each demonstrates a specific skill system feature.
 
 ### Cross-Platform Scripts
 - **multi-script** — Python + Shell + Batch in one skill
+
+### Internal Layered Architecture (Tools / Services / Utils)
+- **example-layered-skill** — reference layout for complex skills with shared
+  business logic; see `docs/guide/skills.md` "Complex Skill Architecture"
 
 ### Next-Tools Chaining
 - **maya-geometry** — `on-success: [maya_pipeline__export_usd]`, `on-failure: [dcc_diagnostics__screenshot]`

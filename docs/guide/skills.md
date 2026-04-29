@@ -399,6 +399,153 @@ Before opening a PR for a new domain skill, verify:
 - [ ] `depends:` lists every infrastructure skill referenced in `next-tools.on-failure`
 - [ ] Every tool has `on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]`
 
+## Complex Skill Architecture
+
+The "Layered Skill Architecture" section above is about **discovery layers**
+(`infrastructure` / `domain` / `example`) — how a skill is positioned for
+agent routing. This section is about the **internal** organisation of the
+files inside a single skill once it grows past one script.
+
+### When to use a layered internal structure
+
+The default single-file pattern (`scripts/execute.py`) is the right
+starting point. Reach for an internal Tools / Services / Utils split when:
+
+- multiple tools share orchestration logic,
+- DCC commands need to be sequenced rather than called one-shot,
+- helper functions deserve their own unit tests,
+- one `execute.py` file has grown past ~200 lines.
+
+Reference implementation:
+[`examples/skills/example-layered-skill/`](https://github.com/loonghao/dcc-mcp-core/tree/main/examples/skills/example-layered-skill).
+
+### Recommended layout
+
+```text
+my-complex-skill/
+├── SKILL.md                ← agentskills.io frontmatter + prose
+├── tools.yaml              ← MCP tool declarations (sibling, per #356)
+├── scripts/
+│   ├── __init__.py
+│   ├── tools/              ← thin adapter layer (entry points)
+│   │   ├── __init__.py
+│   │   └── create_asset.py
+│   ├── services/           ← business-logic layer (orchestration)
+│   │   ├── __init__.py
+│   │   └── asset_service.py
+│   └── utils/              ← pure helpers (no I/O, no DCC calls)
+│       ├── __init__.py
+│       └── path_utils.py
+└── prompts/
+    └── system.md           ← optional system-prompt sidecar
+```
+
+### Layer responsibilities
+
+| Layer | Responsibility | Imports allowed | Size guidance |
+|-------|----------------|-----------------|---------------|
+| `tools/` | Read JSON from stdin, validate, delegate, return `success/error` envelope. | `services/`, stdlib. | < 30 lines per file |
+| `services/` | Orchestrate DCC commands. Raise typed exceptions on failure. No MCP knowledge. | `utils/`, DCC SDK. | grows with feature |
+| `utils/` | Pure helpers — path/name normalisation, primitive math. No side effects. | stdlib only. | grows with feature |
+
+### Wiring `source_file` to nested scripts
+
+Because the SKILL.md scanner only auto-enumerates the **top level** of
+`scripts/`, every tool whose entry point lives under `scripts/tools/`
+must declare an explicit `source_file:` in `tools.yaml`:
+
+```yaml
+# tools.yaml
+tools:
+  - name: create_asset
+    description: Create a new asset record on disk.
+    source_file: scripts/tools/create_asset.py
+    input_schema:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        kind: { type: string, default: model }
+```
+
+Relative `source_file` paths are resolved against the skill root.
+
+### Cross-layer imports
+
+Tool adapters need to import from sibling `services/` and `utils/`
+packages. Add a small `sys.path` shim at the top of each tool entry
+point so the imports work whether the script is run via the dcc-mcp-core
+subprocess executor, an in-process executor, or directly with
+`python scripts/tools/create_asset.py`:
+
+```python
+from pathlib import Path
+import sys
+
+_SCRIPTS_DIR = Path(__file__).resolve().parent.parent
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+
+from services.asset_service import AssetService  # noqa: E402
+```
+
+### Tool adapter template
+
+```python
+"""Tool entry point — create_asset (thin adapter)."""
+from __future__ import annotations
+import json, sys
+from pathlib import Path
+
+_SCRIPTS_DIR = Path(__file__).resolve().parent.parent
+if str(_SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS_DIR))
+
+from services.asset_service import AssetError, AssetService  # noqa: E402
+
+
+def main() -> dict:
+    params = json.loads(sys.stdin.read() or "{}")
+    if not params.get("name"):
+        return {"success": False, "message": "`name` is required"}
+    try:
+        asset = AssetService().create(name=params["name"], kind=params.get("kind", "model"))
+    except AssetError as exc:
+        return {"success": False, "message": str(exc)}
+    return {
+        "success": True,
+        "message": f"Created asset {asset.id}",
+        "context": {"asset_id": asset.id, "state": asset.state},
+    }
+
+
+if __name__ == "__main__":
+    print(json.dumps(main()))
+```
+
+### Anti-patterns to avoid
+
+- **Business logic in `tools/`** — adapters must stay under ~30 lines and
+  only translate between MCP envelopes and service calls.
+- **`utils/` doing I/O** — anything in `utils/` must be pure so it can be
+  unit-tested without a DCC, a filesystem, or network access.
+- **Cross-skill imports via relative paths** — share code by promoting it
+  to its own infrastructure skill instead of `from ../other_skill ...`.
+- **Returning envelopes from `services/`** — services raise typed
+  exceptions; only the adapter wraps the outcome with `success_result()`
+  / `error_result()`.
+- **Auto-discovering nested scripts** — only top-level `scripts/*.py` are
+  enumerated; nested entry points must be declared via `source_file`.
+
+### Checklist for a new layered skill
+
+- [ ] Entry points live under `scripts/tools/` and stay under ~30 lines
+- [ ] Shared logic lives in `scripts/services/` and raises typed exceptions
+- [ ] Pure helpers live in `scripts/utils/` and have no side effects
+- [ ] Every tool in `tools.yaml` has an explicit `source_file:`
+- [ ] Each adapter installs the `sys.path` shim shown above
+- [ ] `metadata.dcc-mcp.tools: tools.yaml` is set in SKILL.md frontmatter
+
 ## Dependency Resolution
 
 Skills can declare dependencies on other skills using the `depends:` field in SKILL.md:

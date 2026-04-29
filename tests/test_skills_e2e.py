@@ -39,6 +39,7 @@ ALL_EXAMPLE_SKILLS = {
     "usd-tools",
     "clawhub-compat",
     "maya-pipeline",
+    "example-layered-skill",
 }
 
 
@@ -112,6 +113,22 @@ class TestSkillParsingE2E:
         assert ".py" in extensions
         assert ".sh" in extensions
         assert ".bat" in extensions
+
+    def test_parse_example_layered_skill(self, examples_dir: str) -> None:
+        # Issue #575: reference layout for the internal Tools/Services/Utils split.
+        # Tool entry points live under scripts/tools/ and are wired via an
+        # explicit `source_file` in the sibling tools.yaml.
+        skill_dir = str(Path(examples_dir) / "example-layered-skill")
+        meta = dcc_mcp_core.parse_skill_md(skill_dir)
+        assert meta is not None
+        assert meta.name == "example-layered-skill"
+        assert meta.dcc == "python"
+        assert meta.metadata.get("dcc-mcp.layer") == "example"
+
+        tool_names = {t.name for t in meta.tools}
+        assert tool_names == {"create_asset", "publish_asset", "validate_asset"}
+        for tool in meta.tools:
+            assert tool.source_file.startswith("scripts/tools/"), tool.source_file
 
     def test_skill_metadata_fields(self, examples_dir: str) -> None:
         skill_dir = str(Path(examples_dir) / "hello-world")

@@ -1,0 +1,57 @@
+# Sibling tool declarations referenced from SKILL.md via
+# `metadata.dcc-mcp.tools: tools.yaml`. See docs/guide/skills.md for the
+# layered architecture pattern this file participates in.
+tools:
+  - name: create_asset
+    description: Create a new asset record on disk under the project root.
+    source_file: scripts/tools/create_asset.py
+    input_schema:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          description: Logical asset name (snake_case)
+        kind:
+          type: string
+          description: Asset kind (model, rig, anim, …)
+          default: model
+    annotations:
+      readOnlyHint: false
+      destructiveHint: false
+      idempotentHint: false
+    next-tools:
+      on-success: [example_layered_skill__validate_asset]
+      on-failure: [dcc_diagnostics__audit_log]
+
+  - name: publish_asset
+    description: Publish an existing asset by promoting it to the publish/ directory.
+    source_file: scripts/tools/publish_asset.py
+    input_schema:
+      type: object
+      required: [asset_id]
+      properties:
+        asset_id:
+          type: string
+          description: Identifier returned by create_asset
+    annotations:
+      readOnlyHint: false
+      destructiveHint: false
+      idempotentHint: true
+    next-tools:
+      on-failure: [dcc_diagnostics__audit_log]
+
+  - name: validate_asset
+    description: Validate an asset against project naming and structure rules.
+    source_file: scripts/tools/validate_asset.py
+    input_schema:
+      type: object
+      required: [asset_id]
+      properties:
+        asset_id:
+          type: string
+          description: Identifier returned by create_asset
+    annotations:
+      readOnlyHint: true
+      destructiveHint: false
+      idempotentHint: true
