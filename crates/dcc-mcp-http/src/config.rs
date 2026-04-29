@@ -40,6 +40,52 @@ pub enum ServerSpawnMode {
     Dedicated,
 }
 
+/// What [`McpHttpServer::start`](crate::McpHttpServer::start) does with rows
+/// that the previous process left in `Pending` / `Running` after a crash or
+/// restart (issue #567).
+///
+/// | Variant | Behaviour |
+/// |---------|-----------|
+/// | [`JobRecoveryPolicy::Drop`]    | Each in-flight row is rewritten to [`JobStatus::Interrupted`](crate::job::JobStatus::Interrupted) with `error = "server restart"`. Clients re-subscribing after reconnect see one clean terminal transition. **This is today's behaviour and the default.** |
+/// | [`JobRecoveryPolicy::Requeue`] | Reserved for a future release that persists the original tool arguments alongside the `jobs` row. Until that lands the variant is **accepted but treated as `Drop`** — the server logs a `WARN` at startup so operators know the requested policy is not yet active, but startup itself never fails. The accepted-but-degraded contract gives DCC adapters (`dcc-mcp-maya`, `dcc-mcp-houdini`) a stable knob to plumb through today without forcing a config-shape break when the real implementation lands. |
+///
+/// String form (used by the Python binding and the upcoming `--job-recovery`
+/// CLI flag): `"drop"` / `"requeue"`. Defaults to `Drop`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum JobRecoveryPolicy {
+    /// Rewrite every `Pending` / `Running` row to `Interrupted` on startup.
+    /// Always safe; never re-runs a partially-applied tool.
+    #[default]
+    Drop,
+    /// Reserved policy: would re-submit idempotent in-flight jobs from the
+    /// persisted spec. Accepted today but treated as [`Self::Drop`] with a
+    /// `WARN` log at startup until tool-arg persistence lands.
+    Requeue,
+}
+
+impl JobRecoveryPolicy {
+    /// Lower-case wire identifier used by docs, the Python binding, and the
+    /// `--job-recovery` CLI flag.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Drop => "drop",
+            Self::Requeue => "requeue",
+        }
+    }
+
+    /// Parse the wire identifier. `&str` is matched case-insensitively to
+    /// be tolerant of env-var plumbing (`DCC_MCP_*_JOB_RECOVERY=Requeue`).
+    pub fn parse(value: &str) -> Result<Self, String> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "drop" => Ok(Self::Drop),
+            "requeue" => Ok(Self::Requeue),
+            other => Err(format!(
+                "unknown job_recovery policy {other:?}; expected \"drop\" or \"requeue\""
+            )),
+        }
+    }
+}
+
 /// Configuration for [`McpHttpServer`](crate::McpHttpServer).
 #[derive(Debug, Clone)]
 pub struct McpHttpConfig {
@@ -329,6 +375,18 @@ pub struct McpHttpConfig {
     /// Default: `None` (in-memory storage; no persistence).
     pub job_storage_path: Option<PathBuf>,
 
+    /// What to do with rows the previous process left in `Pending` /
+    /// `Running` after a crash or restart (issue #567).
+    ///
+    /// See [`JobRecoveryPolicy`] for the per-variant semantics. Today only
+    /// [`JobRecoveryPolicy::Drop`] (the default) does any real work; the
+    /// `Requeue` variant is accepted but degrades to `Drop` with a `WARN`
+    /// log so adapters can plumb the knob now and pick up the real
+    /// behaviour transparently when tool-arg persistence lands.
+    ///
+    /// Default: [`JobRecoveryPolicy::Drop`].
+    pub job_recovery: JobRecoveryPolicy,
+
     /// Capabilities declared by the DCC adapter hosting this server (issue #354).
     ///
     /// Each tool may list [`required_capabilities`] in its sibling
@@ -452,6 +510,7 @@ impl McpHttpConfig {
             prometheus_basic_auth: None,
             enable_job_notifications: true,
             job_storage_path: None,
+            job_recovery: JobRecoveryPolicy::Drop,
             declared_capabilities: Vec::new(),
             enable_scheduler: false,
             schedules_dir: None,
@@ -493,6 +552,20 @@ impl McpHttpConfig {
     /// with a descriptive error at startup.
     pub fn with_job_storage_path(mut self, path: impl Into<PathBuf>) -> Self {
         self.job_storage_path = Some(path.into());
+        self
+    }
+
+    /// Builder: choose how the next [`McpHttpServer::start`](crate::McpHttpServer::start)
+    /// reacts to in-flight rows persisted by a previous run (issue #567).
+    ///
+    /// See [`JobRecoveryPolicy`] for the supported variants. Today
+    /// `Requeue` is accepted but degrades to `Drop` with a `WARN` log;
+    /// the contract is reserved so adapter code (`dcc-mcp-maya`,
+    /// `dcc-mcp-houdini`) can wire the knob through now and pick up
+    /// the real behaviour transparently when tool-arg persistence
+    /// lands.
+    pub fn with_job_recovery(mut self, policy: JobRecoveryPolicy) -> Self {
+        self.job_recovery = policy;
         self
     }
 
@@ -668,5 +741,52 @@ impl McpHttpConfig {
 impl Default for McpHttpConfig {
     fn default() -> Self {
         Self::new(8765)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Issue #567: the policy enum defaults to `Drop` so existing callers
+    /// inherit today's behaviour without touching their config.
+    #[test]
+    fn job_recovery_default_is_drop() {
+        let cfg = McpHttpConfig::new(8765);
+        assert_eq!(cfg.job_recovery, JobRecoveryPolicy::Drop);
+    }
+
+    /// Issue #567: the builder takes the policy by value and round-trips
+    /// to the same wire identifier the Python binding exposes.
+    #[test]
+    fn job_recovery_builder_round_trips() {
+        let cfg = McpHttpConfig::new(8765).with_job_recovery(JobRecoveryPolicy::Requeue);
+        assert_eq!(cfg.job_recovery, JobRecoveryPolicy::Requeue);
+        assert_eq!(cfg.job_recovery.as_str(), "requeue");
+    }
+
+    /// Issue #567: env-var plumbing (`DCC_MCP_*_JOB_RECOVERY=Requeue`) and
+    /// the Python setter share the same case-insensitive parser.
+    #[test]
+    fn job_recovery_parse_is_case_insensitive() {
+        for raw in ["drop", "Drop", "DROP", "  drop  "] {
+            assert_eq!(JobRecoveryPolicy::parse(raw), Ok(JobRecoveryPolicy::Drop));
+        }
+        for raw in ["requeue", "Requeue", "REQUEUE"] {
+            assert_eq!(
+                JobRecoveryPolicy::parse(raw),
+                Ok(JobRecoveryPolicy::Requeue)
+            );
+        }
+    }
+
+    /// Issue #567: unknown policies surface a descriptive error that
+    /// names the rejected value and the accepted set.
+    #[test]
+    fn job_recovery_parse_rejects_unknown() {
+        let err = JobRecoveryPolicy::parse("retry").unwrap_err();
+        assert!(err.contains("retry"), "error message: {err}");
+        assert!(err.contains("drop"), "error message: {err}");
+        assert!(err.contains("requeue"), "error message: {err}");
     }
 }

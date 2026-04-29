@@ -486,9 +486,19 @@ Set `McpHttpConfig.job_storage_path` to persist `JobManager` state so in-flight 
 ```python
 cfg = McpHttpConfig(port=8765)
 cfg.job_storage_path = "/var/lib/dcc-mcp/jobs.sqlite3"
+cfg.job_recovery = "drop"        # default; "requeue" reserved (issue #567)
 ```
 
-On startup, any `pending` / `running` rows from a previous run are rewritten to the new terminal `interrupted` status with `error = "server restart"` and surfaced via `$/dcc.jobUpdated`. Full design and operational guidance: [`docs/guide/job-persistence.md`](../guide/job-persistence.md).
+On startup, any `pending` / `running` rows from a previous run are rewritten to the new terminal `interrupted` status with `error = "server restart"` and surfaced via `$/dcc.jobUpdated`.
+
+`McpHttpConfig.job_recovery` selects the policy applied to those rows (issue #567):
+
+| Value       | Behaviour                                                                                                                                                                                                                                                                  |
+|-------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `"drop"`    | **Default.** Rows are flipped to `interrupted`; clients re-running the work must re-submit explicitly.                                                                                                                                                                     |
+| `"requeue"` | **Reserved.** Accepted today but degrades to `"drop"` with a `WARN` log (`requested_policy=requeue effective_policy=drop`). True requeue requires persisting the original tool arguments alongside the row, which lands in a future release. Setting this today is forward-compatible: the same config will pick up real requeue when it ships. |
+
+Full design and operational guidance: [`docs/guide/job-persistence.md`](../guide/job-persistence.md).
 
 ## CORS Configuration
 

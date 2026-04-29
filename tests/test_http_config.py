@@ -49,3 +49,48 @@ def test_backend_timeout_ms_accepts_wide_range(value: int) -> None:
     """
     cfg = McpHttpConfig(port=8765, backend_timeout_ms=value)
     assert cfg.backend_timeout_ms == value
+
+
+# ── Issue #567: job_recovery policy contract ─────────────────────────────
+
+
+def test_job_recovery_default_is_drop() -> None:
+    """Existing callers inherit today's behaviour without touching their
+    config. ``"drop"`` is the only policy that's actually implemented.
+    """
+    cfg = McpHttpConfig(port=8765)
+    assert cfg.job_recovery == "drop"
+
+
+@pytest.mark.parametrize("policy", ["drop", "requeue"])
+def test_job_recovery_setter_round_trips(policy: str) -> None:
+    """Both wire identifiers round-trip through the setter. ``"requeue"``
+    is accepted today (degrades to ``"drop"`` at server startup) so DCC
+    adapters can plumb the knob now and pick up real requeue without a
+    config-shape break when it ships.
+    """
+    cfg = McpHttpConfig(port=8765)
+    cfg.job_recovery = policy
+    assert cfg.job_recovery == policy
+
+
+@pytest.mark.parametrize("raw", ["DROP", "Drop", "Requeue", "  requeue  "])
+def test_job_recovery_setter_is_case_insensitive(raw: str) -> None:
+    """Tolerates env-var plumbing such as ``DCC_MCP_*_JOB_RECOVERY=Requeue``
+    where adapters may emit canonical-case strings.
+    """
+    cfg = McpHttpConfig(port=8765)
+    cfg.job_recovery = raw
+    assert cfg.job_recovery == raw.strip().lower()
+
+
+def test_job_recovery_setter_rejects_unknown_value() -> None:
+    """Unknown policies surface a descriptive ``ValueError`` that names
+    the rejected value and the accepted set, so misconfigured adapters
+    fail loudly instead of silently.
+    """
+    cfg = McpHttpConfig(port=8765)
+    with pytest.raises(ValueError) as info:
+        cfg.job_recovery = "retry"
+    msg = str(info.value)
+    assert "retry" in msg and "drop" in msg and "requeue" in msg

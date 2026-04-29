@@ -73,6 +73,37 @@ Recovery failures are logged at `error` level and do **not** abort startup — t
 in-process map simply starts empty and the process continues to serve new
 requests.
 
+### Recovery policy (issue #567)
+
+`McpHttpConfig::job_recovery` selects how the recovery sweep treats in-flight
+rows. Two values are accepted today:
+
+| Value (Rust)                  | Wire string | Effect                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+|-------------------------------|-------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `JobRecoveryPolicy::Drop`     | `"drop"`    | **Default.** Every `Pending` / `Running` row is rewritten to `Interrupted`. Always safe — never re-runs a partially-applied tool. Matches the behaviour described above.                                                                                                                                                                                                                                                                     |
+| `JobRecoveryPolicy::Requeue`  | `"requeue"` | **Reserved.** The contract is "re-submit idempotent in-flight jobs from the persisted spec". Today the `jobs` row stores only `tool_name`, not the original arguments, so true requeue is not yet possible. The variant is **accepted but degrades to `Drop`** — startup logs a `WARN` (`requested_policy=requeue effective_policy=drop`) and the recovery sweep behaves identically to `Drop`. The accepted-but-degraded contract lets DCC adapters (`dcc-mcp-maya`, `dcc-mcp-houdini`) plumb the knob today; the real implementation will land alongside tool-arg persistence without a config-shape break. |
+
+```python
+from dcc_mcp_core import McpHttpConfig
+
+config = McpHttpConfig(port=8765)
+config.job_storage_path = "/var/lib/dcc-mcp/jobs.sqlite3"
+config.job_recovery = "requeue"   # accepted, currently behaves as "drop" + WARN
+```
+
+```rust
+use dcc_mcp_http::config::{JobRecoveryPolicy, McpHttpConfig};
+
+let cfg = McpHttpConfig::new(8765)
+    .with_job_storage_path("/var/lib/dcc-mcp/jobs.sqlite3")
+    .with_job_recovery(JobRecoveryPolicy::Requeue);
+```
+
+If you want to *guarantee* drop semantics regardless of future releases, leave
+`job_recovery` at its default. If you want to opt in to true requeue when it
+ships, set `job_recovery = "requeue"` today and the same configuration will
+pick up the new behaviour automatically.
+
 ## `jobs.cleanup` built-in tool
 
 A SEP-986-compliant built-in MCP tool prunes terminal jobs:
@@ -136,3 +167,4 @@ JSON-serialized — the schema stays stable even if internal `Job` fields evolve
 - #326 — `$/dcc.jobUpdated` notifications
 - #371 — `jobs.get_status` tool
 - **#328** — this document
+- **#567** — `job_recovery` policy contract (`drop` / `requeue`)

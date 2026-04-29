@@ -16,6 +16,7 @@ use dcc_mcp_pybridge::derive::PyWrapper;
 /// conversions the macro grammar cannot express:
 ///
 /// - `spawn_mode` / `set_spawn_mode` — enum ↔ `&str` with `PyResult` validation.
+/// - `job_recovery` / `set_job_recovery` — same shape as `spawn_mode` (#567).
 /// - `job_storage_path` / `set_job_storage_path` — `Option<PathBuf>` ↔ `Option<String>`.
 /// - `registry_dir` / `set_registry_dir` — same `PathBuf` shape as above.
 /// - `__repr__` — selects three identifying fields with one renamed
@@ -374,6 +375,27 @@ impl PyMcpHttpConfig {
         Ok(())
     }
 
+    /// Lower-case wire identifier of the configured job-recovery policy
+    /// (issue #567). Returns ``"drop"`` (default) or ``"requeue"``.
+    ///
+    /// ``"drop"`` rewrites every ``Pending`` / ``Running`` row left over
+    /// by a previous process to ``Interrupted`` on startup.
+    /// ``"requeue"`` is reserved for a future release that persists tool
+    /// arguments alongside the job row; today it is accepted but
+    /// degrades to ``"drop"`` semantics with a ``WARN`` log so adapters
+    /// can plumb the knob through now.
+    #[getter]
+    fn job_recovery(&self) -> &'static str {
+        self.inner.job_recovery.as_str()
+    }
+
+    #[setter]
+    fn set_job_recovery(&mut self, policy: &str) -> PyResult<()> {
+        self.inner.job_recovery = crate::config::JobRecoveryPolicy::parse(policy)
+            .map_err(pyo3::exceptions::PyValueError::new_err)?;
+        Ok(())
+    }
+
     fn __repr__(&self) -> String {
         dcc_mcp_pybridge::repr_pairs!(
             "McpHttpConfig",
@@ -438,6 +460,7 @@ mod drift_tests {
         let _ = cfg.enable_workflows();
         let _ = cfg.enable_job_notifications();
         let _ = cfg.job_storage_path();
+        let _ = cfg.job_recovery();
 
         // ── Prometheus ─────────────────────────────────────────────────────
         let _ = cfg.enable_prometheus();

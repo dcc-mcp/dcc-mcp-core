@@ -346,15 +346,41 @@ impl McpHttpServer {
         // mark them Interrupted. Emits `$/dcc.jobUpdated` through the
         // just-wired notifier. Errors are logged but not fatal — the
         // server continues with an empty in-process map.
+        //
+        // Issue #567: `job_recovery = Requeue` is accepted but
+        // currently degrades to `Drop`. Tool arguments are not
+        // persisted on the `jobs` row yet, so reconstructing the
+        // original `JobSpec` for re-submission isn't possible. We
+        // emit a `WARN` once at startup so operators who plumbed
+        // `Requeue` through their adapter know the requested policy
+        // is reserved-but-not-active, then fall through to the same
+        // `recover_from_storage` (Drop semantics) path.
         if jobs.storage().is_some() {
+            if matches!(
+                self.config.job_recovery,
+                crate::config::JobRecoveryPolicy::Requeue
+            ) {
+                tracing::warn!(
+                    requested_policy = "requeue",
+                    effective_policy = "drop",
+                    issue = "loonghao/dcc-mcp-core#567",
+                    "job_recovery=Requeue is accepted but degrades to Drop until tool-arg persistence lands; \
+                     in-flight rows will be marked Interrupted as if Drop were configured"
+                );
+            }
             match jobs.recover_from_storage() {
                 Ok(n) if n > 0 => tracing::info!(
                     interrupted_jobs = n,
+                    policy = self.config.job_recovery.as_str(),
                     "JobManager recovered pending/running rows from storage and marked them Interrupted"
                 ),
-                Ok(_) => tracing::debug!("JobManager storage recovery found no in-flight rows"),
+                Ok(_) => tracing::debug!(
+                    policy = self.config.job_recovery.as_str(),
+                    "JobManager storage recovery found no in-flight rows"
+                ),
                 Err(e) => tracing::error!(
                     error = %e,
+                    policy = self.config.job_recovery.as_str(),
                     "JobManager storage recovery failed — in-process map stays empty"
                 ),
             }

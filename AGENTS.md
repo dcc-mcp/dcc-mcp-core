@@ -117,6 +117,7 @@
 | Detect a misconfigured GUI binary as `DCC_MCP_PYTHON_EXECUTABLE` | `is_gui_executable(path)` → `GuiExecutableHint(dcc_kind, recommended_replacement)` (#524) |
 | Auto-correct GUI binary to its headless sibling | `correct_python_executable(path)` — falls back to original path if no sibling found (#524) |
 | Checkpoint/resume | `save_checkpoint(job_id, state)` / `get_checkpoint(job_id)` |
+| Job recovery policy on restart | `McpHttpConfig.with_job_recovery(JobRecoveryPolicy::Drop\|Requeue)` / Python `cfg.job_recovery = "drop"\|"requeue"` — `Requeue` is reserved (degrades to `Drop` + `WARN` until tool-arg persistence lands) (#567) |
 | Agent-facing docs resources | `register_docs_server(server)` → `docs://` MCP resources |
 | Agent feedback | `register_feedback_tool(server)` → `dcc_feedback__report` tool |
 | Runtime introspection | `register_introspect_tools(server)` → `dcc_introspect__*` tools |
