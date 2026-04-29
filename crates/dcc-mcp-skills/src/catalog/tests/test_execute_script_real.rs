@@ -17,6 +17,17 @@ use tempfile::TempDir;
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
+/// `true` when running under `cargo tarpaulin`. Tarpaulin instruments the
+/// test binary via ptrace, which historically interferes with the
+/// `Stdio::piped()` / `wait_with_output()` pattern these tests rely on
+/// (see tarpaulin issues #843, #1011 et al.) — the child process either
+/// loses its stdin write or the wait returns prematurely. The non-tarpaulin
+/// `cargo test` runs on Linux, macOS and Windows already exercise this
+/// code path, so we skip rather than chase ptrace artefacts in coverage.
+fn under_tarpaulin() -> bool {
+    std::env::var_os("CARGO_TARPAULIN").is_some() || std::env::var_os("TARPAULIN").is_some()
+}
+
 /// `true` when an executable named `program` is resolvable on PATH (with the
 /// usual Windows PATHEXT extensions). Used to skip per-language tests when
 /// the interpreter is not installed.
@@ -52,6 +63,15 @@ fn write_script(name: &str, body: &str) -> (TempDir, PathBuf) {
     (dir, path)
 }
 
+/// Combined precondition guard for every test in this module: skip when the
+/// requested interpreter is missing OR when running under tarpaulin coverage
+/// instrumentation (which historically interferes with subprocess Stdio
+/// pipes — see `under_tarpaulin` above). Returns `true` when the test should
+/// be skipped.
+fn skip_real_exec(interpreter: &str) -> bool {
+    under_tarpaulin() || !have_program(interpreter)
+}
+
 // ── Python (.py) — stdin / CLI / file processing ───────────────────────────
 
 const PY_COPY_VIA_STDIN: &str = r#"
@@ -65,7 +85,7 @@ print(json.dumps({"success": True, "bytes": dst.stat().st_size}))
 
 #[test]
 fn test_real_python_processes_file_via_stdin_params() {
-    if !have_program("python") {
+    if skip_real_exec("python") {
         return;
     }
     let (_dir, script) = write_script("copy.py", PY_COPY_VIA_STDIN);
@@ -108,7 +128,7 @@ print(json.dumps({"success": True, "len": len(out)}))
 
 #[test]
 fn test_real_python_processes_file_via_cli_argparse() {
-    if !have_program("python") {
+    if skip_real_exec("python") {
         return;
     }
     let (_dir, script) = write_script("argparse_copy.py", PY_COPY_VIA_ARGPARSE);
@@ -135,7 +155,7 @@ fn test_real_python_processes_file_via_cli_argparse() {
 
 #[test]
 fn test_real_python_complex_params_only_via_stdin_not_cli() {
-    if !have_program("python") {
+    if skip_real_exec("python") {
         return;
     }
     // Object/array values must NOT be expanded as `--key value` flags;
@@ -164,7 +184,7 @@ print(json.dumps({"success": True, "argv": argv}))
 
 #[test]
 fn test_real_python_nonzero_exit_returns_error_with_stderr() {
-    if !have_program("python") {
+    if skip_real_exec("python") {
         return;
     }
     let body = r#"
@@ -184,7 +204,7 @@ sys.exit(7)
 
 #[test]
 fn test_real_python_plain_text_stdout_is_wrapped_as_message() {
-    if !have_program("python") {
+    if skip_real_exec("python") {
         return;
     }
     let body = "print('not json, just text')\n";
@@ -197,7 +217,7 @@ fn test_real_python_plain_text_stdout_is_wrapped_as_message() {
 
 #[test]
 fn test_real_python_empty_stdout_default_success() {
-    if !have_program("python") {
+    if skip_real_exec("python") {
         return;
     }
     let body = "pass\n";
@@ -210,7 +230,7 @@ fn test_real_python_empty_stdout_default_success() {
 
 #[test]
 fn test_real_python_unicode_params_round_trip_via_stdin() {
-    if !have_program("python") {
+    if skip_real_exec("python") {
         return;
     }
     // The Rust dispatcher pins PYTHONIOENCODING=utf-8 and PYTHONUTF8=1 on
@@ -245,7 +265,7 @@ fn test_real_python_large_string_param_reaches_via_stdin_not_argv() {
     // CreateProcess 32 KiB command-line limit. The dispatcher now skips
     // CLI expansion for strings beyond MAX_CLI_FLAG_VALUE_BYTES (8 KiB)
     // and the value still reaches the script via the stdin JSON payload.
-    if !have_program("python") {
+    if skip_real_exec("python") {
         return;
     }
     let body = r#"
@@ -273,7 +293,7 @@ fn test_real_python_short_string_param_reaches_via_argv() {
     // Counterpart to the oversized test above: short scalar strings must
     // still be expanded as `--key value` so argparse-based scripts keep
     // working. The threshold lives at MAX_CLI_FLAG_VALUE_BYTES (8 KiB).
-    if !have_program("python") {
+    if skip_real_exec("python") {
         return;
     }
     let body = r#"
@@ -297,7 +317,7 @@ print(json.dumps({"success": True, "from_argv": sys.argv[i + 1]}))
 #[cfg(unix)]
 #[test]
 fn test_real_bash_processes_file_via_cli_flags() {
-    if !have_program("bash") {
+    if skip_real_exec("bash") {
         return;
     }
     // Bash receives the same scalar params as `--key value` flags. The
@@ -347,7 +367,7 @@ printf '{"success": true, "wrote": "%s"}\n' "$output"
 #[cfg(unix)]
 #[test]
 fn test_real_bash_nonzero_exit_returns_error_with_stderr() {
-    if !have_program("bash") {
+    if skip_real_exec("bash") {
         return;
     }
     let body = r#"#!/usr/bin/env bash
