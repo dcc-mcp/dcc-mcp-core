@@ -95,7 +95,9 @@ where
                         step.policy.idempotency_scope,
                         state.workflow_id,
                         rendered_key,
+                        step.id.as_str(),
                         step_out.output.clone(),
+                        step.policy.idempotency_ttl_secs,
                     );
                 }
                 return StepOutcome::Ok;

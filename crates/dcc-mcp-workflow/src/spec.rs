@@ -252,6 +252,7 @@ const STEP_POLICY_FIELDS: &[&str] = &[
     "retry",
     "idempotency_key",
     "idempotency_scope",
+    "idempotency_ttl_secs",
 ];
 
 impl Serialize for Step {
@@ -293,6 +294,9 @@ impl Serialize for Step {
             crate::policy::IdempotencyScope::Workflow
         ) {
             map.serialize_entry("idempotency_scope", &self.policy.idempotency_scope)?;
+        }
+        if let Some(ttl) = self.policy.idempotency_ttl_secs {
+            map.serialize_entry("idempotency_ttl_secs", &ttl)?;
         }
         map.end()
     }

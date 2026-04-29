@@ -48,7 +48,7 @@ use crate::callers::{
 };
 use crate::context::{StepOutput, WorkflowContext};
 use crate::error::WorkflowError;
-use crate::idempotency::IdempotencyCache;
+use crate::idempotency::{IdempotencyCache, SharedIdempotencyStore};
 use crate::notifier::{NullNotifier, SharedNotifier, WorkflowUpdate, WorkflowUpdateProgress};
 use crate::policy::{BackoffKind, IdempotencyScope, RetryPolicy, StepPolicy};
 use crate::spec::{Step, StepId, StepKind, WorkflowSpec, WorkflowStatus};
@@ -87,7 +87,7 @@ pub struct RunState {
     artefacts: Option<SharedArtefactStore>,
     tool_caller: SharedToolCaller,
     remote_caller: SharedRemoteCaller,
-    idempotency: IdempotencyCache,
+    idempotency: SharedIdempotencyStore,
     approval_gate: ApprovalGate,
     cancel_token: CancellationToken,
     #[cfg(feature = "job-persist-sqlite")]
@@ -150,7 +150,7 @@ pub struct WorkflowExecutor {
     remote_caller: SharedRemoteCaller,
     notifier: SharedNotifier,
     artefacts: Option<SharedArtefactStore>,
-    idempotency: IdempotencyCache,
+    idempotency: SharedIdempotencyStore,
     approval_gate: ApprovalGate,
     #[cfg(feature = "job-persist-sqlite")]
     storage: Option<Arc<crate::sqlite::WorkflowStorage>>,
@@ -163,7 +163,6 @@ impl std::fmt::Debug for WorkflowExecutor {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("WorkflowExecutor")
             .field("has_artefacts", &self.artefacts.is_some())
-            .field("idempotency_entries", &self.idempotency.len())
             .field("pending_approvals", &self.approval_gate.pending_count())
             .finish()
     }

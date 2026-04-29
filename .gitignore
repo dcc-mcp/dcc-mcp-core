@@ -89,3 +89,5 @@ memory/
 
 # Generated type stubs (produced by `just stubgen` at wheel-build time)
 python/dcc_mcp_core/_core.pyi
+/.show_checks.py
+/.checks.json

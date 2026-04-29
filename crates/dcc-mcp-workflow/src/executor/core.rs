@@ -12,9 +12,9 @@ impl WorkflowExecutor {
         self.approval_gate.clone()
     }
 
-    /// Access the idempotency cache.
-    pub fn idempotency(&self) -> IdempotencyCache {
-        self.idempotency.clone()
+    /// Access the configured idempotency store (trait object).
+    pub fn idempotency(&self) -> SharedIdempotencyStore {
+        Arc::clone(&self.idempotency)
     }
 
     /// Recover any interrupted workflows from persistence (issue #348).
@@ -65,7 +65,7 @@ impl WorkflowExecutor {
             artefacts: self.artefacts.clone(),
             tool_caller: Arc::clone(&self.tool_caller),
             remote_caller: Arc::clone(&self.remote_caller),
-            idempotency: self.idempotency.clone(),
+            idempotency: Arc::clone(&self.idempotency),
             approval_gate: self.approval_gate.clone(),
             cancel_token: cancel_token.clone(),
             #[cfg(feature = "job-persist-sqlite")]

@@ -59,7 +59,7 @@ pub use executor::{WorkflowExecutor, WorkflowExecutorBuilder, WorkflowRunHandle}
 pub use host::{
     RunSnapshot, WorkflowHost, WorkflowRegistry, cancel_handler, get_status_handler, run_handler,
 };
-pub use idempotency::IdempotencyCache;
+pub use idempotency::{IdempotencyCache, IdempotencyStore, SharedIdempotencyStore};
 pub use job::{WorkflowJob, WorkflowProgress};
 pub use notifier::{
     NullNotifier, RecordingNotifier, SharedNotifier, WorkflowNotifier, WorkflowUpdate,

@@ -58,6 +58,7 @@ steps:
       retry_on: ["transient", "timeout"]
     idempotency_key: "export_{{scene_id}}_{{frame_range}}"
     idempotency_scope: workflow     # or "global" (default: "workflow")
+    idempotency_ttl_secs: 86400     # optional; None / 0 = no expiry within scope
 ```
 :::
 
@@ -115,9 +116,38 @@ found, the prior result is returned and the step is skipped.
   workflow invocation. Set `idempotency_scope: global` to make the key
   unique across every workflow invocation (use this for idempotency
   against a downstream service like an asset-tracking DB).
+- **TTL.** Optional `idempotency_ttl_secs` bounds how long a cached
+  entry survives. Defaults to `None` (and `Some(0)` is normalised to
+  `None` so env-var plumbing such as `DCC_MCP_*_IDEMPOTENCY_TTL=0`
+  cannot accidentally produce instant-expire rows).
 
-Persistent idempotency tracking across server restarts is tied to the
-SQLite persistence work in issue #328 and is out of scope for #353.
+### Persistent idempotency cache (issue #566)
+
+By default, `IdempotencyCache` is process-local — entries die with the
+executor. To survive server restarts so a re-run of the same spec
+short-circuits steps that were already completed, plug in
+`SqliteIdempotencyStore`:
+
+```rust
+use dcc_mcp_core::workflow::{
+    IdempotencyStore, WorkflowExecutor,
+    sqlite::{SqliteIdempotencyStore, WorkflowStorage},
+};
+use std::sync::Arc;
+
+let storage = Arc::new(WorkflowStorage::open("workflows.db")?);
+let executor = WorkflowExecutor::builder()
+    .tool_caller(my_caller)
+    .storage(Arc::clone(&storage))
+    .idempotency_store(SqliteIdempotencyStore::new(storage))
+    .build();
+```
+
+The store reuses the same SQLite connection pool that backs
+`WorkflowStorage`; no second DB file is opened. Workflow-scoped rows
+cascade-delete when their owning workflow row is removed (via an
+`AFTER DELETE` trigger). Global-scoped rows live until their TTL fires
+or until [`IdempotencyStore::purge_expired`] is called explicitly.
 
 ## Python surface
 

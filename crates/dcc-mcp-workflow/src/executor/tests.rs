@@ -512,3 +512,67 @@ fn is_truthy_sanity() {
     assert!(is_truthy(&json!([1])));
     assert!(is_truthy(&json!({"a": 1})));
 }
+
+#[cfg(feature = "job-persist-sqlite")]
+#[tokio::test]
+async fn idempotency_persists_across_executor_rebuild_via_sqlite() {
+    // Locks in the issue #566 acceptance criterion: a workflow with an
+    // idempotency key writes through to SQLite, and a *different*
+    // executor instance built against the same on-disk DB short-circuits
+    // the next call. This is the round-trip the in-memory cache could
+    // never deliver and is the foundation #565 (workflows.resume) builds
+    // on for skip-on-replay semantics.
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    use crate::sqlite::{SqliteIdempotencyStore, WorkflowStorage};
+
+    let db = tempfile::NamedTempFile::new().unwrap();
+    let storage_a = Arc::new(WorkflowStorage::open(db.path()).unwrap());
+
+    let calls = Arc::new(AtomicU32::new(0));
+    let calls_c = calls.clone();
+    let mock_a = Arc::new(MockToolCaller::new());
+    mock_a.add("op", move |_| {
+        calls_c.fetch_add(1, Ordering::SeqCst);
+        Ok(json!({"n": 1}))
+    });
+
+    let exe_a = WorkflowExecutor::builder()
+        .tool_caller(mock_a.clone())
+        .idempotency_store(SqliteIdempotencyStore::new(Arc::clone(&storage_a)))
+        .storage(Arc::clone(&storage_a))
+        .build();
+    let mut step = tool_step("s", "op", Value::Null);
+    step.policy.idempotency_key = Some("export-fixed".to_string());
+    step.policy.idempotency_scope = IdempotencyScope::Global;
+    let spec1 = spec_with_steps(vec![step.clone()]);
+    let h1 = exe_a.run(spec1, Value::Null, None).unwrap();
+    assert_eq!(h1.wait().await, WorkflowStatus::Completed);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    drop(exe_a);
+    drop(storage_a);
+
+    // Rebuild executor + storage from scratch over the same DB file —
+    // simulating a server restart.
+    let storage_b = Arc::new(WorkflowStorage::open(db.path()).unwrap());
+    let mock_b = Arc::new(MockToolCaller::new());
+    let calls_c2 = calls.clone();
+    mock_b.add("op", move |_| {
+        calls_c2.fetch_add(1, Ordering::SeqCst);
+        Ok(json!({"n": 1}))
+    });
+    let exe_b = WorkflowExecutor::builder()
+        .tool_caller(mock_b.clone())
+        .idempotency_store(SqliteIdempotencyStore::new(Arc::clone(&storage_b)))
+        .storage(storage_b)
+        .build();
+    let spec2 = spec_with_steps(vec![step]);
+    let h2 = exe_b.run(spec2, Value::Null, None).unwrap();
+    assert_eq!(h2.wait().await, WorkflowStatus::Completed);
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "post-restart run must hit the persisted idempotency cache and \
+         skip the underlying tool call"
+    );
+}

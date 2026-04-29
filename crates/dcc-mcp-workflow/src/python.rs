@@ -175,6 +175,13 @@ impl PyStepPolicy {
         self.inner.idempotency_scope.as_str()
     }
 
+    /// Optional TTL for cached idempotency entries, in seconds. ``None``
+    /// means the entry lives until its scope is purged.
+    #[getter]
+    fn idempotency_ttl_secs(&self) -> Option<u64> {
+        self.inner.idempotency_ttl_secs
+    }
+
     /// Whether every knob is at its default.
     #[getter]
     fn is_empty(&self) -> bool {

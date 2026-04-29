@@ -168,6 +168,11 @@ pub struct StepPolicy {
     pub idempotency_key: Option<String>,
     /// Scope for the rendered idempotency key.
     pub idempotency_scope: IdempotencyScope,
+    /// Optional time-to-live for cached entries, in seconds. `None` (or
+    /// `Some(0)`) means the cached entry lives until its scope is
+    /// purged. Persistent backends honour this via `expires_at`; the
+    /// in-memory cache treats it as an `Instant + Duration` deadline.
+    pub idempotency_ttl_secs: Option<u64>,
 }
 
 impl StepPolicy {
@@ -179,6 +184,7 @@ impl StepPolicy {
             && self.retry.is_none()
             && self.idempotency_key.is_none()
             && matches!(self.idempotency_scope, IdempotencyScope::Workflow)
+            && self.idempotency_ttl_secs.is_none()
     }
 }
 
@@ -223,6 +229,9 @@ pub struct RawStepPolicy {
     /// See [`StepPolicy::idempotency_scope`]. Defaults to `workflow`.
     #[serde(default)]
     pub idempotency_scope: Option<IdempotencyScope>,
+    /// See [`StepPolicy::idempotency_ttl_secs`]. Seconds.
+    #[serde(default)]
+    pub idempotency_ttl_secs: Option<u64>,
 }
 
 impl RawStepPolicy {
@@ -270,6 +279,7 @@ impl RawStepPolicy {
             retry,
             idempotency_key: self.idempotency_key,
             idempotency_scope: self.idempotency_scope.unwrap_or_default(),
+            idempotency_ttl_secs: self.idempotency_ttl_secs.filter(|n| *n > 0),
         })
     }
 }
@@ -580,6 +590,7 @@ mod tests {
             }),
             idempotency_key: Some("export_{{scene_id}}_{{frame_range}}".into()),
             idempotency_scope: Some(IdempotencyScope::Global),
+            idempotency_ttl_secs: Some(86_400),
         };
         let p = raw
             .into_policy("export_fbx", &known(&["scene_id", "frame_range"]))
@@ -590,6 +601,21 @@ mod tests {
         assert_eq!(r.backoff, BackoffKind::Exponential);
         assert_eq!(r.jitter, 0.25);
         assert_eq!(p.idempotency_scope, IdempotencyScope::Global);
+        assert_eq!(p.idempotency_ttl_secs, Some(86_400));
+    }
+
+    #[test]
+    fn raw_step_policy_treats_zero_ttl_as_no_ttl() {
+        let raw = RawStepPolicy {
+            idempotency_ttl_secs: Some(0),
+            ..Default::default()
+        };
+        let p = raw.into_policy("s1", &known(&[])).unwrap();
+        assert_eq!(
+            p.idempotency_ttl_secs, None,
+            "Some(0) must collapse to None so adapters can plumb env vars without \
+             accidentally creating already-expired entries"
+        );
     }
 
     #[test]

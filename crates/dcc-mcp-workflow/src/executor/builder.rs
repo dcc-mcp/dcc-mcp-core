@@ -1,4 +1,5 @@
 use super::*;
+use crate::idempotency::IdempotencyStore;
 
 /// Builder for [`WorkflowExecutor`].
 #[derive(Default)]
@@ -7,7 +8,7 @@ pub struct WorkflowExecutorBuilder {
     remote_caller: Option<SharedRemoteCaller>,
     notifier: Option<SharedNotifier>,
     artefacts: Option<SharedArtefactStore>,
-    idempotency: Option<IdempotencyCache>,
+    idempotency: Option<SharedIdempotencyStore>,
     approval_gate: Option<ApprovalGate>,
     #[cfg(feature = "job-persist-sqlite")]
     storage: Option<Arc<crate::sqlite::WorkflowStorage>>,
@@ -53,9 +54,24 @@ impl WorkflowExecutorBuilder {
         self
     }
 
-    /// Attach a shared idempotency cache (defaults to a fresh one).
+    /// Attach a shared in-memory idempotency cache (defaults to a fresh
+    /// one). Convenience for the historical concrete-type API.
     pub fn idempotency(mut self, cache: IdempotencyCache) -> Self {
-        self.idempotency = Some(cache);
+        self.idempotency = Some(Arc::new(cache));
+        self
+    }
+
+    /// Attach an arbitrary [`IdempotencyStore`] implementation. Use this
+    /// to plug in `crate::sqlite::SqliteIdempotencyStore` for persistent
+    /// idempotency that survives server restarts.
+    pub fn idempotency_store<S: IdempotencyStore + 'static>(mut self, store: S) -> Self {
+        self.idempotency = Some(Arc::new(store));
+        self
+    }
+
+    /// Attach a pre-wrapped [`SharedIdempotencyStore`].
+    pub fn shared_idempotency(mut self, store: SharedIdempotencyStore) -> Self {
+        self.idempotency = Some(store);
         self
     }
 
@@ -86,7 +102,9 @@ impl WorkflowExecutorBuilder {
                 .unwrap_or_else(|| Arc::new(NullRemoteCaller)),
             notifier: self.notifier.unwrap_or_else(|| Arc::new(NullNotifier)),
             artefacts: self.artefacts,
-            idempotency: self.idempotency.unwrap_or_default(),
+            idempotency: self
+                .idempotency
+                .unwrap_or_else(|| Arc::new(IdempotencyCache::new())),
             approval_gate: self.approval_gate.unwrap_or_default(),
             #[cfg(feature = "job-persist-sqlite")]
             storage: self.storage,

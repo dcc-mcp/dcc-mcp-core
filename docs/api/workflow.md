@@ -153,6 +153,7 @@ steps:
       retry_on: ["transient", "timeout"]
     idempotency_key: "export_{{scene_id}}_{{frame_range}}"
     idempotency_scope: workflow
+    idempotency_ttl_secs: 86400
 ```
 
 | Field | Type | Default | Notes |
@@ -166,6 +167,7 @@ steps:
 | `retry.retry_on` | `[String]` | all errors | Error-kind allowlist. |
 | `idempotency_key` | string | none | Mustache template rendered before execution. |
 | `idempotency_scope` | enum | `workflow` | `workflow` or `global`. |
+| `idempotency_ttl_secs` | `u64` | none | Per-entry TTL. `0` is normalised to `None`. Honoured by both `IdempotencyCache` (in-memory) and `SqliteIdempotencyStore` (persistent, gated on `job-persist-sqlite`). See [`crate::sqlite::SqliteIdempotencyStore`] for the persistent backend. |
 
 Backoff formula: `min(base(attempt), max_delay) * (1 + rand(-jitter, +jitter))`
 where `base` is `initial_delay` (fixed), `initial_delay * (n-1)` (linear),
