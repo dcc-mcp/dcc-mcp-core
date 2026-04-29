@@ -11,6 +11,47 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.14.17](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.16...v0.14.17) (2026-04-29)
+
+
+### Features
+
+* **cancellation:** add check_dcc_cancelled + JobHandle ([#522](https://github.com/loonghao/dcc-mcp-core/issues/522)) ([cdf33b4](https://github.com/loonghao/dcc-mcp-core/commit/cdf33b40808219058263cd2b2b8192bfc8b486a4))
+* **http:** migrate PyMcpHttpConfig to #[derive(PyWrapper)] ([#528](https://github.com/loonghao/dcc-mcp-core/issues/528) M3.2) ([05b8fb5](https://github.com/loonghao/dcc-mcp-core/commit/05b8fb5f400e6af7507e5a6f4df73516622bb913))
+* **pybridge-derive:** add get(to_string) field mode ([#528](https://github.com/loonghao/dcc-mcp-core/issues/528) M3.1) ([a171bbd](https://github.com/loonghao/dcc-mcp-core/commit/a171bbd0b110b214ab21f96a664f370b300ce1e3))
+* **pybridge-derive:** full codegen for #[derive(PyWrapper)] ([#528](https://github.com/loonghao/dcc-mcp-core/issues/528) M2) ([3b94abe](https://github.com/loonghao/dcc-mcp-core/commit/3b94abea73a4ab0c1de2549fec1186691cf40f1d))
+* **pybridge:** scaffold dcc-mcp-pybridge-derive proc-macro crate ([781804b](https://github.com/loonghao/dcc-mcp-core/commit/781804b65767f75df3139f3b2916b1f806854576)), closes [#528](https://github.com/loonghao/dcc-mcp-core/issues/528)
+* **server-base:** callable-payload dispatch protocols + reference impl ([#520](https://github.com/loonghao/dcc-mcp-core/issues/520)) ([9774093](https://github.com/loonghao/dcc-mcp-core/commit/977409336a82fbb1bbde069646b037083cadf41a))
+* **server-base:** MinimalModeConfig declarative progressive loading ([#525](https://github.com/loonghao/dcc-mcp-core/issues/525)) ([b3c5c39](https://github.com/loonghao/dcc-mcp-core/commit/b3c5c3992790e41d130cc969622b02059d13ec63))
+* **server-base:** register_inprocess_executor + BaseDccCallableDispatcher ([#521](https://github.com/loonghao/dcc-mcp-core/issues/521)) ([0f93bac](https://github.com/loonghao/dcc-mcp-core/commit/0f93baceb398be0694aca01c36b07f402b826906))
+* **skills:** public is_gui_executable + correct_python_executable ([#524](https://github.com/loonghao/dcc-mcp-core/issues/524)) ([ef313b0](https://github.com/loonghao/dcc-mcp-core/commit/ef313b09a3dca8df0a3e11079857adc02de942ca))
+* **transport:** add FileRegistry::read_alive auto-eviction ([#523](https://github.com/loonghao/dcc-mcp-core/issues/523)) ([1f49122](https://github.com/loonghao/dcc-mcp-core/commit/1f49122d7863d32b94c236d9d0f81eb0bd91b2c1))
+* **tunnel:** control + data plane + e2e MVP for relay ([#504](https://github.com/loonghao/dcc-mcp-core/issues/504)) ([ed096c6](https://github.com/loonghao/dcc-mcp-core/commit/ed096c694ebbf96f0d5f1bb9f145f3f91fbe4874))
+* **tunnel:** scaffold dcc-mcp-tunnel-{protocol,relay,agent} crates ([#504](https://github.com/loonghao/dcc-mcp-core/issues/504) PR 1/5) ([2f6ec41](https://github.com/loonghao/dcc-mcp-core/commit/2f6ec413f6f2cbb25efe04ab448060e97679c2d8))
+
+
+### Bug Fixes
+
+* **callable-dispatcher:** py3.7 compatibility for Protocol/runtime_checkable/Literal ([7af122c](https://github.com/loonghao/dcc-mcp-core/commit/7af122c1e5e7b7857e1bae54edafc6fe96fb4f4e))
+* **cancellation:** py3.7 compatibility for Protocol/runtime_checkable ([5fc65b8](https://github.com/loonghao/dcc-mcp-core/commit/5fc65b84e85a34de81a80733082818a4eea608c6)), closes [#522](https://github.com/loonghao/dcc-mcp-core/issues/522)
+* **inprocess-executor:** py3.7 compatibility for Protocol/runtime_checkable ([ef6abdd](https://github.com/loonghao/dcc-mcp-core/commit/ef6abdd522d9efe08f4a6233ae8bf92fef47b19d))
+* **release:** unblock 0.14.17 - jsonwebtoken security upgrade + flaky test ([4e825a8](https://github.com/loonghao/dcc-mcp-core/commit/4e825a81b44122e9b4cfd0b6de77bf3c04aade12))
+* **skills:** preserve on-disk casing in locate_sibling for case-insensitive FS ([58dcb36](https://github.com/loonghao/dcc-mcp-core/commit/58dcb36dd7b20e015e136428cae5cfd7ae4be3d5))
+
+
+### Code Refactoring
+
+* **models:** migrate SkillMetadata to #[derive(PyWrapper)] ([#528](https://github.com/loonghao/dcc-mcp-core/issues/528) M3.3) ([adbf3c0](https://github.com/loonghao/dcc-mcp-core/commit/adbf3c06231160e5c4aeee9bcc3ec802e6edff00))
+* **models:** migrate ToolDeclaration + SkillGroup to #[derive(PyWrapper)] ([#528](https://github.com/loonghao/dcc-mcp-core/issues/528) M3.4) ([167152c](https://github.com/loonghao/dcc-mcp-core/commit/167152cc7420e1fa8427943ce179c45cbe72d1e4))
+
+
+### Documentation
+
+* **agent:** API reference + guide pages for [#520](https://github.com/loonghao/dcc-mcp-core/issues/520)-[#525](https://github.com/loonghao/dcc-mcp-core/issues/525) host integration ([eb4b3b8](https://github.com/loonghao/dcc-mcp-core/commit/eb4b3b8c949b607b30f3a4b7d404da6bdb1044b5))
+* AGENTS.md decision-table now points at the working APIs (RelayServer::start, run_once, auth::issue). llms.txt gains the same entries. New docs/guide/tunnel-relay.md (+ docs/zh/guide/tunnel-relay.md) covers architecture, minimal example, wire format, JWT scoping, eviction, and the MVP-vs-follow-up matrix. ([ed096c6](https://github.com/loonghao/dcc-mcp-core/commit/ed096c694ebbf96f0d5f1bb9f145f3f91fbe4874))
+* refresh agent-facing docs after EPIC [#495](https://github.com/loonghao/dcc-mcp-core/issues/495) ([f15f494](https://github.com/loonghao/dcc-mcp-core/commit/f15f4941919f8383098c0fd1d6037296b17161e0))
+* **tests:** note e2e test files are CI-active, not to be --ignored ([9cb2ba6](https://github.com/loonghao/dcc-mcp-core/commit/9cb2ba67a8efda32fefa5e94ac6bd6446881bb9d)), closes [#526](https://github.com/loonghao/dcc-mcp-core/issues/526)
+
 ## [0.14.16](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.15...v0.14.16) (2026-04-28)
 
 
