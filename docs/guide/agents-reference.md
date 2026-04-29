@@ -724,6 +724,64 @@ These hold after v0.14 and MUST NOT regress:
    also coerces `Ambient` → `Dedicated`. Do not revert to Ambient inside
    Python bindings.
 
+### Gateway Reliability + Security Defaults (issues #551–#558)
+
+After the v0.14.18 reliability batch, four invariants protect the
+gateway from stale or hostile FileRegistry state:
+
+1. **Heartbeat writes are atomic.** `FileRegistry::heartbeat` serialises
+   to a sibling tempfile and uses `tempfile::NamedTempFile::persist`
+   (atomic rename on POSIX, `MoveFileExW` on Windows). Concurrent
+   processes can never produce a half-written entry. On Windows, an
+   advisory `LockFileEx`/`UnlockFileEx` cycle around `persist` prevents
+   two writers from racing the rename. Do not bypass the helper — direct
+   `fs::write` would re-introduce the stomp window.
+2. **Dead instances are evicted by active probe, not just by TTL.** The
+   gateway runtime spawns a TCP probe loop (`tasks.rs::health_check_handle`)
+   that connects to each backend's listener every
+   `health_check_interval` (default 10 s); after
+   `health_check_max_failures` consecutive misses (default 3) the entry
+   is `deregister`-ed. The same probe runs once at startup so an entry
+   left behind by a crashed process disappears within the first cycle.
+3. **`allow_unknown_tools` defaults to `false`.** The `tools/list`
+   aggregator drops any backend whose `dcc_type` is not in the
+   gateway-side known-DCC registry. This blocks a hijacked or typo'd
+   FileRegistry entry from injecting tools the user never asked for.
+   Tests/local development that need to surface a brand-new DCC must
+   flip `McpHttpConfig.allow_unknown_tools = true` explicitly.
+4. **File logging has sane defaults.** New deployments should use
+   `default_file_logging_config()` instead of hand-rolling a
+   `FileLoggingConfig` — it picks the platform log directory and a
+   daily rotation policy. Pair it with `prune_old_logs(retention_days,
+   max_total_size_mb)` (call from a `tokio::spawn` ticker or at
+   process startup) to enforce both age- and size-based retention so
+   long-lived gateways don't fill the disk.
+
+### Gateway Prometheus Metrics (issue #559)
+
+`/metrics` is **off by default**. To turn it on, build any consumer of
+`dcc-mcp-http` with the `prometheus` feature
+(`cargo add dcc-mcp-http --features prometheus`). With the feature on:
+
+- `gateway::tasks::start_gateway_runtime` calls
+  `super::metrics::attach_gateway_metrics_route(router)` to mount
+  `GET /metrics` on the same axum `Router<()>` that serves MCP traffic
+  — the helper takes an `Arc<PrometheusExporter>` closure so it does
+  **not** change the router's `S` (state) type, which keeps it
+  compatible with the rest of the gateway stack.
+- A 5 s background task refreshes
+  `dcc_mcp_instances_total{status="active"|"stale"}` from a
+  `FileRegistry` snapshot. Other gauges (`dcc_mcp_tools_total`,
+  `dcc_mcp_request_duration_seconds`, `dcc_mcp_requests_failed_total`)
+  live on `dcc_mcp_telemetry::PrometheusExporter` and are intended for
+  middleware to update on every request.
+
+When you add new gauges, put the metric definition in
+`crates/dcc-mcp-telemetry/src/prometheus.rs` (so non-gateway consumers
+can reuse it) and the wiring in
+`crates/dcc-mcp-http/src/gateway/metrics.rs` (so it stays behind the
+`prometheus` cfg gate).
+
 ### Gateway Async-Dispatch + Wait-For-Terminal (issue #321)
 
 The gateway now uses three per-request timeouts instead of one:
