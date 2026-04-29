@@ -11,6 +11,13 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.14.18](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.17...v0.14.18) (2026-04-29)
+
+
+### Features
+
+* **tunnel:** WS frontend, /tunnels admin endpoint, agent reconnect ([#504](https://github.com/loonghao/dcc-mcp-core/issues/504)) ([2a142c8](https://github.com/loonghao/dcc-mcp-core/commit/2a142c8bcf4c19dd1a29af76f70e455cabdfb01e))
+
 ## [0.14.17](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.16...v0.14.17) (2026-04-29)
 
 
