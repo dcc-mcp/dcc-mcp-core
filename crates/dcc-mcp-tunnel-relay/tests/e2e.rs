@@ -17,7 +17,9 @@ use tokio::time::timeout;
 
 use dcc_mcp_tunnel_agent::{AgentConfig, run_once};
 use dcc_mcp_tunnel_protocol::{TunnelClaims, auth};
-use dcc_mcp_tunnel_relay::{RelayConfig, RelayServer, data::write_select_tunnel};
+use dcc_mcp_tunnel_relay::{
+    OptionalBinds, RelayConfig, RelayServer, TunnelSummary, data::write_select_tunnel,
+};
 
 const SECRET: &[u8] = b"e2e-test-secret-must-exceed-32-bytes";
 
@@ -162,4 +164,120 @@ async fn wait_for_tunnel(registry: &dcc_mcp_tunnel_relay::TunnelRegistry) -> Str
     })
     .await
     .expect("registry never saw the tunnel")
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn admin_endpoint_lists_live_tunnel() {
+    let echo = spawn_echo_server().await;
+    let cfg = RelayConfig {
+        jwt_secret: SECRET.to_vec(),
+        ..RelayConfig::default()
+    };
+    let relay = RelayServer::start_with(
+        cfg,
+        "127.0.0.1:0".parse().unwrap(),
+        "127.0.0.1:0".parse().unwrap(),
+        OptionalBinds {
+            ws_frontend: None,
+            admin: Some("127.0.0.1:0".parse().unwrap()),
+        },
+    )
+    .await
+    .unwrap();
+    let admin_addr = relay.admin_addr.expect("admin endpoint must be bound");
+    let claims = TunnelClaims {
+        sub: "admin-test".into(),
+        iat: now_secs(),
+        exp: now_secs() + 600,
+        iss: "e2e".into(),
+        allowed_dcc: vec!["houdini".into()],
+    };
+    let token = auth::issue(&claims, SECRET).unwrap();
+    let agent_cfg = AgentConfig::new(
+        relay.agent_addr.to_string(),
+        token,
+        "houdini",
+        echo.to_string(),
+    );
+    let agent_task = tokio::spawn(async move { run_once(agent_cfg).await });
+    wait_for_tunnel(&relay.registry).await;
+
+    let body = reqwest::get(format!("http://{admin_addr}/tunnels"))
+        .await
+        .expect("admin /tunnels reachable")
+        .json::<Vec<TunnelSummary>>()
+        .await
+        .expect("response is well-formed JSON");
+    assert_eq!(body.len(), 1);
+    assert_eq!(body[0].dcc, "houdini");
+    assert_eq!(body[0].session_count, 0);
+
+    let health = reqwest::get(format!("http://{admin_addr}/healthz"))
+        .await
+        .unwrap();
+    assert!(health.status().is_success());
+
+    relay.shutdown();
+    agent_task.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ws_frontend_round_trips_through_relay() {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message;
+
+    let echo = spawn_echo_server().await;
+    let cfg = RelayConfig {
+        jwt_secret: SECRET.to_vec(),
+        ..RelayConfig::default()
+    };
+    let relay = RelayServer::start_with(
+        cfg,
+        "127.0.0.1:0".parse().unwrap(),
+        "127.0.0.1:0".parse().unwrap(),
+        OptionalBinds {
+            ws_frontend: Some("127.0.0.1:0".parse().unwrap()),
+            admin: None,
+        },
+    )
+    .await
+    .unwrap();
+    let ws_addr = relay.ws_frontend_addr.expect("ws frontend must be bound");
+    let claims = TunnelClaims {
+        sub: "ws-test".into(),
+        iat: now_secs(),
+        exp: now_secs() + 600,
+        iss: "e2e".into(),
+        allowed_dcc: vec!["blender".into()],
+    };
+    let token = auth::issue(&claims, SECRET).unwrap();
+    let agent_cfg = AgentConfig::new(
+        relay.agent_addr.to_string(),
+        token,
+        "blender",
+        echo.to_string(),
+    );
+    let agent_task = tokio::spawn(async move { run_once(agent_cfg).await });
+    let tunnel_id = wait_for_tunnel(&relay.registry).await;
+
+    let url = format!("ws://{ws_addr}/tunnel/{tunnel_id}");
+    let (mut ws, _resp) = tokio_tungstenite::connect_async(url)
+        .await
+        .expect("ws connect");
+    let payload = b"hello-ws-frontend";
+    ws.send(Message::Binary(payload.to_vec().into()))
+        .await
+        .unwrap();
+    let reply = timeout(Duration::from_secs(3), ws.next())
+        .await
+        .expect("ws reply timed out")
+        .expect("ws stream closed unexpectedly")
+        .expect("ws read error");
+    match reply {
+        Message::Binary(bytes) => assert_eq!(&bytes[..], payload),
+        other => panic!("expected binary frame, got {other:?}"),
+    }
+    let _ = ws.close(None).await;
+    relay.shutdown();
+    agent_task.abort();
 }

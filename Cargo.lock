@@ -149,6 +149,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "31b698c5f9a010f6573133b09e0de5408834d0c82f8d7475a89fc1867a71cd90"
 dependencies = [
  "axum-core",
+ "base64",
  "bytes",
  "form_urlencoded",
  "futures-util",
@@ -167,8 +168,10 @@ dependencies = [
  "serde_json",
  "serde_path_to_error",
  "serde_urlencoded",
+ "sha1",
  "sync_wrapper",
  "tokio",
+ "tokio-tungstenite",
  "tower",
  "tower-layer",
  "tower-service",
@@ -710,7 +713,7 @@ checksum = "a4ae5f15dda3c708c0ade84bfee31ccab44a3da4f88015ed22f63732abe300c8"
 
 [[package]]
 name = "dcc-mcp-actions"
-version = "0.14.16"
+version = "0.14.17"
 dependencies = [
  "dashmap",
  "dcc-mcp-models",
@@ -728,7 +731,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-artefact"
-version = "0.14.16"
+version = "0.14.17"
 dependencies = [
  "chrono",
  "hex",
@@ -748,7 +751,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-capture"
-version = "0.14.16"
+version = "0.14.17"
 dependencies = [
  "image",
  "libc",
@@ -766,7 +769,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-core"
-version = "0.14.16"
+version = "0.14.17"
 dependencies = [
  "dcc-mcp-actions",
  "dcc-mcp-artefact",
@@ -795,7 +798,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-http"
-version = "0.14.16"
+version = "0.14.17"
 dependencies = [
  "axum",
  "axum-test",
@@ -842,7 +845,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-logging"
-version = "0.14.16"
+version = "0.14.17"
 dependencies = [
  "dcc-mcp-paths",
  "parking_lot",
@@ -858,7 +861,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-models"
-version = "0.14.16"
+version = "0.14.17"
 dependencies = [
  "dcc-mcp-naming",
  "dcc-mcp-pybridge",
@@ -875,7 +878,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-naming"
-version = "0.14.16"
+version = "0.14.17"
 dependencies = [
  "pyo3",
  "pyo3-stub-gen",
@@ -886,7 +889,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-paths"
-version = "0.14.16"
+version = "0.14.17"
 dependencies = [
  "dirs",
  "pyo3",
@@ -898,7 +901,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-process"
-version = "0.14.16"
+version = "0.14.17"
 dependencies = [
  "dcc-mcp-models",
  "ipckit",
@@ -918,7 +921,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-protocols"
-version = "0.14.16"
+version = "0.14.17"
 dependencies = [
  "parking_lot",
  "pyo3",
@@ -932,7 +935,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-pybridge"
-version = "0.14.16"
+version = "0.14.17"
 dependencies = [
  "dcc-mcp-pybridge-derive",
  "pyo3",
@@ -947,7 +950,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-pybridge-derive"
-version = "0.14.16"
+version = "0.14.17"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -956,7 +959,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-sandbox"
-version = "0.14.16"
+version = "0.14.17"
 dependencies = [
  "parking_lot",
  "pyo3",
@@ -972,7 +975,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-scheduler"
-version = "0.14.16"
+version = "0.14.17"
 dependencies = [
  "axum",
  "bytes",
@@ -1003,7 +1006,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-server"
-version = "0.14.16"
+version = "0.14.17"
 dependencies = [
  "anyhow",
  "axum",
@@ -1030,7 +1033,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-shm"
-version = "0.14.16"
+version = "0.14.17"
 dependencies = [
  "ipckit",
  "libc",
@@ -1049,7 +1052,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-skills"
-version = "0.14.16"
+version = "0.14.17"
 dependencies = [
  "dashmap",
  "dcc-mcp-actions",
@@ -1073,7 +1076,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-telemetry"
-version = "0.14.16"
+version = "0.14.17"
 dependencies = [
  "opentelemetry",
  "opentelemetry-otlp",
@@ -1097,7 +1100,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-transport"
-version = "0.14.16"
+version = "0.14.17"
 dependencies = [
  "criterion",
  "dashmap",
@@ -1123,7 +1126,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-tunnel-agent"
-version = "0.14.16"
+version = "0.14.17"
 dependencies = [
  "dashmap",
  "dcc-mcp-tunnel-protocol",
@@ -1136,7 +1139,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-tunnel-protocol"
-version = "0.14.16"
+version = "0.14.17"
 dependencies = [
  "jsonwebtoken",
  "rmp-serde",
@@ -1148,16 +1151,20 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-tunnel-relay"
-version = "0.14.16"
+version = "0.14.17"
 dependencies = [
+ "axum",
  "dashmap",
  "dcc-mcp-tunnel-agent",
  "dcc-mcp-tunnel-protocol",
+ "futures-util",
  "parking_lot",
+ "reqwest 0.13.3",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-tungstenite",
  "tracing",
  "uuid",
  "workspace-hack",
@@ -1165,7 +1172,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-usd"
-version = "0.14.16"
+version = "0.14.17"
 dependencies = [
  "dcc-mcp-protocols",
  "pyo3",
@@ -1181,7 +1188,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-workflow"
-version = "0.14.16"
+version = "0.14.17"
 dependencies = [
  "base64",
  "chrono",
@@ -5729,6 +5736,7 @@ dependencies = [
 name = "workspace-hack"
 version = "0.1.0"
 dependencies = [
+ "axum",
  "bitflags 2.11.1",
  "cc",
  "chrono",
@@ -5741,6 +5749,7 @@ dependencies = [
  "errno",
  "futures-channel",
  "futures-executor",
+ "futures-sink",
  "futures-task",
  "futures-util",
  "generic-array",

@@ -76,7 +76,9 @@
 | Hand off files between tools | `FileRef` + `artefact_put_file()` / `artefact_get_bytes()` |
 | Multi-DCC gateway | `McpHttpConfig(gateway_port=9765)` |
 | Remote MCP relay (zero-config tunnel) | `RelayServer::start(RelayConfig, agent_bind, frontend_bind).await` — accepts agent registrations on `agent_bind`, multiplexes remote-client TCP from `frontend_bind` to the agent's local MCP server (issue #504) |
+| Enable WS frontend / `/tunnels` admin | `RelayServer::start_with(cfg, agent_bind, frontend_bind, OptionalBinds { ws_frontend, admin })` — opt-in WS upgrade endpoint at `/tunnel/<id>` and read-only `GET /tunnels` + `/healthz` |
 | Spawn the local tunnel agent | `dcc_mcp_tunnel_agent::run_once(AgentConfig::new(relay_url, jwt, dcc, local_target)).await` — registers, holds the connection open, bridges per-session bytes to the local DCC HTTP server |
+| Long-lived agent with back-off | `dcc_mcp_tunnel_agent::run_with_reconnect(cfg, shutdown_rx).await` — wraps `run_once` in a reconnect loop honouring `AgentConfig::reconnect` (Constant or Exponential); fails fast on `Rejected` |
 | Mint a tunnel JWT | `dcc_mcp_tunnel_protocol::auth::issue(&TunnelClaims { sub, iat, exp, iss, allowed_dcc }, secret)` — relay uses `auth::validate` to enforce DCC scope on every registration |
 | Gateway failover | `DccGatewayElection(dcc_name, server)` — auto-promote on gateway failure |
 | Skill scoping | `SkillScope` (Repo → User → System → Admin) — Rust-only |

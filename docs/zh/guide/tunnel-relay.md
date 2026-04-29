@@ -77,10 +77,14 @@ println!("公网 URL: {:?}", registered.public_url);
 # Ok(()) }
 ```
 
-## 前端客户端线协议
+## 前端传输
 
-在 HTTP / WSS 前端落地前（PR 4 of #504），远端客户端使用普通 TCP，
-首个有效载荷必须是 2 字节大端长度前缀的 tunnel id：
+远端客户端有两种方式接入已注册的隧道。
+
+### 1. 纯 TCP（原始字节流）
+
+连接中继的前端端口，首个有效载荷必须是 2 字节大端长度前缀的
+tunnel id，之后开始交换原始 MCP 流量：
 
 ```text
 [u16 BE: tunnel_id_len][tunnel_id_bytes][... 后续 MCP 流量 ...]
@@ -91,6 +95,68 @@ println!("公网 URL: {:?}", registered.public_url);
 ```rust
 use dcc_mcp_tunnel_relay::data::write_select_tunnel;
 write_select_tunnel(&mut tcp_stream, &tunnel_id).await?;
+```
+
+### 2. WebSocket（浏览器与代理友好）
+
+在中继上填入
+[`OptionalBinds::ws_frontend`](https://docs.rs/dcc-mcp-tunnel-relay)
+即可启用 WS 前端，连接到：
+
+```text
+ws://<host>:<ws_port>/tunnel/<tunnel_id>
+```
+
+每个二进制 WS 消息映射为一份 MCP 载荷（双向）。Text 帧会被忽略
+（线协议是二进制）。如需 TLS，请在反向代理（`nginx` / `caddy` / 云
+负载均衡）上终结 —— 中继本身只跑明文 HTTP/1.1，跟 `dcc-mcp-http` 的
+部署模式一致。
+
+## 管理端点 (`/tunnels`)
+
+填入 [`OptionalBinds::admin`](https://docs.rs/dcc-mcp-tunnel-relay)
+后中继会在独立端口上暴露只读 HTTP：
+
+| 路径 | 返回 |
+|---|---|
+| `GET /tunnels` | JSON 数组，每条对应一条活跃隧道（[`TunnelSummary`]） |
+| `GET /healthz` | 进程存活时返回 `200 OK` `"ok"` |
+
+示例：
+
+```bash
+curl -s http://relay.example.com:9003/tunnels | jq
+# [{
+#   "tunnel_id": "01J…",
+#   "dcc": "maya",
+#   "capabilities": ["scene.read"],
+#   "agent_version": "dcc-mcp-tunnel-agent/0.14",
+#   "registered_at_ms_ago": 31204,
+#   "last_heartbeat_ms_ago": 1450,
+#   "session_count": 2
+# }]
+```
+
+接口完全只读；由于会泄露活跃 tunnel id 列表，请用防火墙限制到
+运维内网。
+
+## Agent 重连与退避
+
+长连接 agent 请用
+[`run_with_reconnect`](https://docs.rs/dcc-mcp-tunnel-agent) 替代
+[`run_once`]，它会遵循
+[`AgentConfig::reconnect`](https://docs.rs/dcc-mcp-tunnel-agent)
+策略（默认指数退避：1 s → 60 s 翻倍）。注册一次成功就把延迟重置回
+`initial`；若中继返回 `RegisterAck { ok: false }`，会立即返回
+[`ReconnectExit::Fatal`] 不再重试，从而让 JWT 配错的情况快速失败。
+
+```rust
+use tokio::sync::watch;
+let (shutdown_tx, shutdown_rx) = watch::channel(false);
+let task = tokio::spawn(dcc_mcp_tunnel_agent::run_with_reconnect(cfg, shutdown_rx));
+// ... 之后 ...
+shutdown_tx.send(true)?;
+let _ = task.await;
 ```
 
 ## 鉴权与作用域
@@ -106,20 +172,20 @@ JWT 应短期签发（分钟到小时级），轮换由运维处理。
 `RelayConfig::stale_timeout` 的隧道都会被丢弃 —— 出站队列随之关闭，
 per-tunnel 任务被回收。被剔除隧道上的活跃会话会感受到 TCP RST。
 
-## MVP 之外的能力
+## 能力矩阵
 
 | 能力 | 状态 |
 |---|---|
-| 纯 TCP 传输（agent + 前端） | ✅ MVP |
-| JWT 鉴权 + DCC 作用域 | ✅ MVP |
-| 单 tunnel 1:N 会话多路复用 | ✅ MVP |
-| 周期性失活剔除 | ✅ MVP |
-| WebSocket Secure 传输（浏览器友好） | 后续 |
+| 纯 TCP 传输（agent + 前端） | ✅ 已上线 |
+| JWT 鉴权 + DCC 作用域 | ✅ 已上线 |
+| 单 tunnel 1:N 会话多路复用 | ✅ 已上线 |
+| 周期性失活剔除 | ✅ 已上线 |
+| WebSocket 前端（`ws://` —— 配合反代 TLS 即可得到 `wss://`） | ✅ 已上线 |
+| `/tunnels` + `/healthz` 管理端点 | ✅ 已上线 |
+| Agent 退避重连 | ✅ 已上线 |
 | HTTP+SSE 前端 + `/dcc/<name>/<tunnel_id>` 路由 | 后续 |
-| `/tunnels` 列表端点 + 管理指标 | 后续 |
-| Agent 退避重连 | 后续 |
-
-MVP 已能端到端跑通协议，并满足 #504 的验收条件 1-5。
+| 中继自身内置 TLS 终结 | 后续 —— 让运维处理 |
+| 生产级基准（与直连 TCP 的 p50/p99 对比） | 后续 |
 
 ## 相关
 

@@ -78,11 +78,15 @@ println!("public URL: {:?}", registered.public_url);
 # Ok(()) }
 ```
 
-## Frontend client wire format
+## Frontend transports
 
-Until the HTTP / WSS frontends land (PR 4 of #504), remote clients use
-plain TCP and a 2-byte length-prefixed tunnel id as the very first
-payload:
+Two ways for a remote client to attach to a registered tunnel.
+
+### 1. Plain TCP (raw byte stream)
+
+Connect to the relay's frontend port and send a 2-byte length-prefixed
+tunnel id as the very first payload, then start exchanging raw MCP
+traffic:
 
 ```text
 [u16 BE: tunnel_id_len][tunnel_id_bytes][... raw MCP traffic ...]
@@ -93,6 +97,70 @@ Helper exposed for tests + SDKs:
 ```rust
 use dcc_mcp_tunnel_relay::data::write_select_tunnel;
 write_select_tunnel(&mut tcp_stream, &tunnel_id).await?;
+```
+
+### 2. WebSocket (browser- and proxy-friendly)
+
+Enable the WS frontend by populating
+[`OptionalBinds::ws_frontend`](https://docs.rs/dcc-mcp-tunnel-relay) on
+the relay, then connect to:
+
+```text
+ws://<host>:<ws_port>/tunnel/<tunnel_id>
+```
+
+Each binary WS message becomes one MCP payload in either direction.
+Text frames are ignored (the wire is binary). For TLS, terminate at a
+reverse proxy (`nginx` / `caddy` / cloud LB) — the relay itself speaks
+plain HTTP/1.1, mirroring how `dcc-mcp-http` is deployed.
+
+## Admin endpoint (`/tunnels`)
+
+When [`OptionalBinds::admin`](https://docs.rs/dcc-mcp-tunnel-relay) is
+populated, the relay exposes a read-only HTTP surface on a separate
+port:
+
+| Path | Returns |
+|---|---|
+| `GET /tunnels` | JSON array of [`TunnelSummary`] rows (one per live tunnel) |
+| `GET /healthz` | `200 OK` `"ok"` while the process is up |
+
+Example:
+
+```bash
+curl -s http://relay.example.com:9003/tunnels | jq
+# [{
+#   "tunnel_id": "01J…",
+#   "dcc": "maya",
+#   "capabilities": ["scene.read"],
+#   "agent_version": "dcc-mcp-tunnel-agent/0.14",
+#   "registered_at_ms_ago": 31204,
+#   "last_heartbeat_ms_ago": 1450,
+#   "session_count": 2
+# }]
+```
+
+The endpoint is mutation-free; firewall it to your operator network
+because it leaks the live tunnel id list.
+
+## Agent reconnect & back-off
+
+For long-lived agents use
+[`run_with_reconnect`](https://docs.rs/dcc-mcp-tunnel-agent) instead of
+[`run_once`]. It honours
+[`AgentConfig::reconnect`](https://docs.rs/dcc-mcp-tunnel-agent), which
+defaults to exponential back-off (1 s → 60 s, doubling). A successful
+registration resets the delay to `initial`; a `RegisterAck { ok: false }`
+returns [`ReconnectExit::Fatal`] without retrying so a misconfigured
+JWT fails fast.
+
+```rust
+use tokio::sync::watch;
+let (shutdown_tx, shutdown_rx) = watch::channel(false);
+let task = tokio::spawn(dcc_mcp_tunnel_agent::run_with_reconnect(cfg, shutdown_rx));
+// ... later ...
+shutdown_tx.send(true)?;
+let _ = task.await;
 ```
 
 ## Authentication & scoping
@@ -110,21 +178,20 @@ last heartbeat is older than `RelayConfig::stale_timeout` is dropped,
 which closes its outbound queue and tears down per-tunnel tasks. Active
 sessions on an evicted tunnel see a TCP RST.
 
-## What's not (yet) in the MVP
+## Capability matrix
 
 | Capability | Status |
 |---|---|
-| Plain TCP transport (agent + frontend) | ✅ MVP |
-| JWT auth + DCC scoping | ✅ MVP |
-| 1:N session multiplexing per tunnel | ✅ MVP |
-| Periodic eviction | ✅ MVP |
-| WebSocket Secure transport (browser-friendly) | follow-up |
+| Plain TCP transport (agent + frontend) | ✅ shipped |
+| JWT auth + DCC scoping | ✅ shipped |
+| 1:N session multiplexing per tunnel | ✅ shipped |
+| Periodic eviction | ✅ shipped |
+| WebSocket frontend (`ws://` — pair with reverse-proxy TLS for `wss://`) | ✅ shipped |
+| `/tunnels` + `/healthz` admin endpoint | ✅ shipped |
+| Reconnect-with-back-off on the agent | ✅ shipped |
 | HTTP+SSE frontend with `/dcc/<name>/<tunnel_id>` routing | follow-up |
-| `/tunnels` listing endpoint + admin metrics | follow-up |
-| Reconnect-with-back-off on the agent | follow-up |
-
-The MVP is good enough to validate the protocol end-to-end and to
-unblock dependent work (issue #504 acceptance criteria 1-5).
+| Built-in TLS termination on the relay itself | follow-up — defer to ops |
+| Production benchmark (latency p50/p99 vs direct TCP) | follow-up |
 
 ## See also
 
