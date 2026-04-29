@@ -392,3 +392,59 @@ fn test_read_alive_handles_multiple_ghosts_for_dcc_maya_126() {
     assert_eq!(evicted, 5);
     assert_eq!(entries.len(), 1);
 }
+
+/// Regression for the #560 follow-up: two threads heartbeating different
+/// `ServiceEntry` rows at the same time must both succeed and the resulting
+/// `services.json` must contain *both* entries, not just one.
+///
+/// The original #554 implementation used a single shared `services.lock`
+/// file with `share_mode(0)` (exclusive) — concurrent writers would fail
+/// the lock open with `PermissionDenied` and silently drop their entry,
+/// which manifested as the gateway facade only seeing one of two backends
+/// in `tests/test_gateway_facade_aggregation.py` on Windows.
+#[test]
+fn test_concurrent_heartbeat_does_not_drop_entries() {
+    use std::sync::Arc;
+    use std::thread;
+
+    let dir = tempfile::tempdir().unwrap();
+    let registry = Arc::new(FileRegistry::new(dir.path()).unwrap());
+
+    // Pre-register both rows so each thread only heartbeats (the path that
+    // hammered `flush_to_file` in production).
+    let maya = ServiceEntry::new("maya", "127.0.0.1", 18900);
+    let blender = ServiceEntry::new("blender", "127.0.0.1", 18901);
+    let maya_key = maya.key();
+    let blender_key = blender.key();
+    registry.register(maya).unwrap();
+    registry.register(blender).unwrap();
+
+    let r1 = Arc::clone(&registry);
+    let r2 = Arc::clone(&registry);
+    let t1 = thread::spawn(move || {
+        for _ in 0..50 {
+            r1.heartbeat(&maya_key).unwrap();
+        }
+    });
+    let t2 = thread::spawn(move || {
+        for _ in 0..50 {
+            r2.heartbeat(&blender_key).unwrap();
+        }
+    });
+    t1.join().unwrap();
+    t2.join().unwrap();
+
+    // Re-load from disk in a second registry to verify both entries
+    // survived every flush, not just the in-memory snapshot.
+    let reread = FileRegistry::new(dir.path()).unwrap();
+    let dccs: std::collections::HashSet<_> =
+        reread.list_all().into_iter().map(|e| e.dcc_type).collect();
+    assert!(
+        dccs.contains("maya"),
+        "maya entry lost in concurrent heartbeat"
+    );
+    assert!(
+        dccs.contains("blender"),
+        "blender entry lost in concurrent heartbeat"
+    );
+}

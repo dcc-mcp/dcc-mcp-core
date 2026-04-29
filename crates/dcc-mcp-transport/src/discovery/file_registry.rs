@@ -4,8 +4,6 @@
 //! Uses `(dcc_type, instance_id)` as key to support multiple instances per DCC type.
 
 use std::fs;
-#[cfg(windows)]
-use std::io::Write;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
@@ -484,14 +482,38 @@ impl FileRegistry {
 
     /// Atomically write `content` to `path` using a temp file + rename.
     ///
-    /// On Windows this also acquires an OS-level advisory lock on the target
-    /// file so that concurrent `flush_to_file` calls from other processes do
-    /// not interleave (issue #554).
+    /// The original implementation of issue #554 used an exclusive
+    /// `share_mode(0)` advisory lock file plus a temp filename keyed only on
+    /// the process id. Both choices caused regressions: concurrent in-process
+    /// writers (sentinel heartbeat + multiple backend heartbeats) raced on
+    /// the same temp path, and the exclusive lock file made one of two
+    /// concurrent writers fail outright with `PermissionDenied` so the loser's
+    /// entry never reached `services.json`. The downstream symptom was the
+    /// gateway facade only seeing one of two backends in
+    /// `test_gateway_facade_aggregation` (issue #560 follow-up).
+    ///
+    /// The lock has been removed in favour of two cheaper, cross-platform
+    /// invariants that still satisfy the original "no half-written file"
+    /// requirement of #554:
+    ///
+    /// 1. The temp filename is unique per write — process id, thread id, and
+    ///    a process-wide monotonic counter — so two writers in the same
+    ///    process never share a temp path.
+    /// 2. The temp file is renamed onto the target with a small bounded retry
+    ///    loop, because Windows can return `PermissionDenied` /
+    ///    `AccessDenied` if a concurrent reader has the target file briefly
+    ///    open. POSIX `rename` is already atomic and never needs the retry,
+    ///    but the loop is harmless on other platforms.
     fn write_atomic(path: &PathBuf, content: String) -> TransportResult<()> {
-        let dir = path.parent().unwrap_or_else(|| std::path::Path::new("."));
-        let temp_path = dir.join(format!(".tmp.{}.services.json", std::process::id()));
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
 
-        // Write to temp file first
+        let dir = path.parent().unwrap_or_else(|| std::path::Path::new("."));
+        let pid = std::process::id();
+        let tid = format!("{:?}", std::thread::current().id());
+        let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let temp_path = dir.join(format!(".tmp.{pid}.{tid}.{seq}.services.json"));
+
         fs::write(&temp_path, content).map_err(|e| {
             TransportError::RegistryFile(format!(
                 "failed to write temp file {}: {}",
@@ -500,62 +522,49 @@ impl FileRegistry {
             ))
         })?;
 
-        // On Windows, take an advisory lock on the target file while renaming.
-        // This prevents another process from reading a stale snapshot between
-        // our rename and their own concurrent write.
-        #[cfg(windows)]
-        {
-            use std::os::windows::fs::OpenOptionsExt;
-            let lock_path = path.with_extension("lock");
-            let mut lock_file = std::fs::OpenOptions::new()
-                .create(true)
-                .write(true)
-                .truncate(true)
-                .share_mode(0) // exclusive lock
-                .open(&lock_path)
-                .map_err(|e| {
-                    TransportError::RegistryFile(format!(
-                        "failed to acquire registry lock {}: {}",
-                        lock_path.display(),
-                        e
-                    ))
-                })?;
-            let _ = lock_file.write_all(b"lock");
-            let result = fs::rename(&temp_path, path);
-            let _ = std::fs::remove_file(&lock_path);
-            result.map_err(|e| {
-                TransportError::RegistryFile(format!(
-                    "failed to rename {} -> {}: {}",
-                    temp_path.display(),
-                    path.display(),
-                    e
-                ))
-            })?;
+        // Bounded retry around `fs::rename` — Windows can briefly return
+        // `PermissionDenied` if another process has the target file open for
+        // reading at the exact instant we try to swap it in.
+        const MAX_ATTEMPTS: u32 = 8;
+        const BACKOFF_MS: u64 = 10;
+        let mut last_err: Option<std::io::Error> = None;
+        for attempt in 0..MAX_ATTEMPTS {
+            match fs::rename(&temp_path, path) {
+                Ok(()) => return Ok(()),
+                Err(e) => {
+                    last_err = Some(e);
+                    std::thread::sleep(Duration::from_millis(BACKOFF_MS * (attempt as u64 + 1)));
+                }
+            }
         }
-
-        #[cfg(not(windows))]
-        {
-            fs::rename(&temp_path, path).map_err(|e| {
-                TransportError::RegistryFile(format!(
-                    "failed to rename {} -> {}: {}",
-                    temp_path.display(),
-                    path.display(),
-                    e
-                ))
-            })?;
-        }
-
-        Ok(())
+        // Best-effort temp cleanup so we don't leak `.tmp.*` files on
+        // persistent failure.
+        let _ = fs::remove_file(&temp_path);
+        Err(TransportError::RegistryFile(format!(
+            "failed to rename {} -> {} after {} attempts: {}",
+            temp_path.display(),
+            path.display(),
+            MAX_ATTEMPTS,
+            last_err
+                .map(|e| e.to_string())
+                .unwrap_or_else(|| "unknown error".to_string())
+        )))
     }
 
-    /// Load services from the JSON file into memory with advisory locking on Windows.
+    /// Load services from the JSON file into memory.
+    ///
+    /// Readers do not take a lock — `write_atomic` swaps the target file in
+    /// via `rename`, so the worst case for a racing reader is briefly seeing
+    /// the previous snapshot. With a small bounded retry on
+    /// `read_to_string` we also tolerate the narrow Windows window where a
+    /// concurrent `rename` returns `PermissionDenied` to the reader.
     fn load_from_file(&self) -> TransportResult<()> {
         let path = self.registry_file_path();
         if !path.exists() {
             return Ok(());
         }
 
-        let content = Self::read_locked(&path)?;
+        let content = Self::read_with_retry(&path)?;
 
         if content.trim().is_empty() {
             return Ok(());
@@ -574,29 +583,30 @@ impl FileRegistry {
         Ok(())
     }
 
-    /// Read the registry file, waiting briefly for any concurrent Windows lock to clear.
-    #[cfg(windows)]
-    fn read_locked(path: &PathBuf) -> TransportResult<String> {
-        let lock_path = path.with_extension("lock");
-        let max_wait = Duration::from_secs(5);
-        let poll = Duration::from_millis(50);
-        let mut waited = Duration::ZERO;
-
-        while lock_path.exists() && waited < max_wait {
-            std::thread::sleep(poll);
-            waited += poll;
+    /// Read the registry file with a short bounded retry to tolerate the
+    /// Windows "file briefly held by another process" `PermissionDenied`
+    /// race that can happen during a concurrent `rename`.
+    fn read_with_retry(path: &PathBuf) -> TransportResult<String> {
+        const MAX_ATTEMPTS: u32 = 5;
+        const BACKOFF_MS: u64 = 5;
+        let mut last_err: Option<std::io::Error> = None;
+        for attempt in 0..MAX_ATTEMPTS {
+            match fs::read_to_string(path) {
+                Ok(s) => return Ok(s),
+                Err(e) => {
+                    last_err = Some(e);
+                    std::thread::sleep(Duration::from_millis(BACKOFF_MS * (attempt as u64 + 1)));
+                }
+            }
         }
-
-        fs::read_to_string(path).map_err(|e| {
-            TransportError::RegistryFile(format!("failed to read {}: {}", path.display(), e))
-        })
-    }
-
-    #[cfg(not(windows))]
-    fn read_locked(path: &PathBuf) -> TransportResult<String> {
-        fs::read_to_string(path).map_err(|e| {
-            TransportError::RegistryFile(format!("failed to read {}: {}", path.display(), e))
-        })
+        Err(TransportError::RegistryFile(format!(
+            "failed to read {} after {} attempts: {}",
+            path.display(),
+            MAX_ATTEMPTS,
+            last_err
+                .map(|e| e.to_string())
+                .unwrap_or_else(|| "unknown error".to_string())
+        )))
     }
 }
 
