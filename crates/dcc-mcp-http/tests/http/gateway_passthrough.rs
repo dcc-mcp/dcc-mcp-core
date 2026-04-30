@@ -267,6 +267,29 @@ fn encoded_tool_name(instance_id: uuid::Uuid, tool: &str) -> String {
     format!("{short}.{tool}")
 }
 
+async fn collect_tool_names(state: &GatewayState) -> Vec<String> {
+    let mut cursor: Option<String> = None;
+    let mut names = Vec::new();
+    loop {
+        let result = aggregate_tools_list(state, cursor.as_deref()).await;
+        names.extend(
+            result["tools"]
+                .as_array()
+                .expect("tools array")
+                .iter()
+                .filter_map(|tool| tool.get("name").and_then(Value::as_str))
+                .map(str::to_string),
+        );
+        cursor = result
+            .get("nextCursor")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        if cursor.is_none() {
+            return names;
+        }
+    }
+}
+
 // ── Single-instance bare-name aliases (#583) ───────────────────────────────
 
 #[tokio::test]
@@ -281,20 +304,14 @@ async fn single_backend_tools_list_publishes_bare_alias() {
     let entry = register_backend(&registry, backend.port).await;
     let encoded = encoded_tool_name(entry.instance_id, "slow_tool");
 
-    let result = aggregate_tools_list(&state, None).await;
-    let names: Vec<&str> = result["tools"]
-        .as_array()
-        .expect("tools array")
-        .iter()
-        .filter_map(|tool| tool.get("name").and_then(Value::as_str))
-        .collect();
+    let names = collect_tool_names(&state).await;
 
     assert!(
-        names.contains(&encoded.as_str()),
+        names.contains(&encoded),
         "prefixed tool name missing from tools/list: {names:?}"
     );
     assert!(
-        names.contains(&"slow_tool"),
+        names.contains(&"slow_tool".to_string()),
         "single-instance bare alias missing from tools/list: {names:?}"
     );
 }
