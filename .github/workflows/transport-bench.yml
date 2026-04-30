@@ -1,0 +1,44 @@
+name: Transport Benchmark
+
+# Transport benchmarks are trend signals, not PR merge gates. Run them on a
+# schedule or manually when investigating transport performance.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  transport-bench:
+    name: Transport benchmark
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: transport-bench
+
+      - name: DccLink criterion bench
+        run: |
+          cargo bench -p dcc-mcp-transport --bench dcclink_ipc -- \
+            --sample-size 50 --measurement-time 5
+        shell: bash
+        env:
+          CRITERION_CI: "1"
+
+      - name: Upload criterion HTML report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: criterion-report
+          path: target/criterion/
+          if-no-files-found: ignore
