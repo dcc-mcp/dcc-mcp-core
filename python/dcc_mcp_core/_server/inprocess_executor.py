@@ -26,6 +26,7 @@ import importlib.util
 import logging
 from pathlib import Path
 import sys
+import traceback
 from typing import TYPE_CHECKING
 from typing import Any
 from typing import Callable
@@ -57,8 +58,36 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "BaseDccCallableDispatcher",
     "build_inprocess_executor",
+    "exception_to_error_envelope",
     "run_skill_script",
 ]
+
+
+def exception_to_error_envelope(exc: BaseException, *, message: str | None = None) -> dict[str, Any]:
+    """Render *exc* as a structured ``ToolResult``-shaped error dict.
+
+    The returned envelope mirrors the wire shape clients already receive
+    on success — ``success`` / ``message`` / ``error`` (issue #589) — so
+    Rust ``CallToolResult`` construction can flag ``isError: true`` from
+    the same ``success: false`` heuristic without any extra string
+    parsing on the client side.
+
+    The traceback is folded into ``error.traceback`` (single string,
+    pre-formatted) so MCP clients can render it inline. Skill authors
+    catching exceptions inside ``main`` can reuse this helper to keep
+    the envelope shape consistent across in-process and subprocess
+    execution.
+    """
+    msg = message if message is not None else f"Execution failed: {exc}"
+    return {
+        "success": False,
+        "message": msg,
+        "error": {
+            "type": type(exc).__name__,
+            "message": str(exc),
+            "traceback": "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
+        },
+    }
 
 
 @runtime_checkable
@@ -161,11 +190,19 @@ def build_inprocess_executor(
     if dispatcher is None:
 
         def _inline(script_path: str, params: Mapping[str, Any]) -> Any:
-            return runner(script_path, params)
+            try:
+                return runner(script_path, params)
+            except Exception as exc:
+                logger.exception("In-process skill %s failed", script_path)
+                return exception_to_error_envelope(exc)
 
         return _inline
 
     def _routed(script_path: str, params: Mapping[str, Any]) -> Any:
-        return dispatcher.dispatch_callable(runner, script_path, params)
+        try:
+            return dispatcher.dispatch_callable(runner, script_path, params)
+        except Exception as exc:
+            logger.exception("In-process skill %s failed via dispatcher", script_path)
+            return exception_to_error_envelope(exc)
 
     return _routed

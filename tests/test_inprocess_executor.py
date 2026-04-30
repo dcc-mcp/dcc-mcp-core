@@ -15,6 +15,7 @@ import pytest
 import dcc_mcp_core
 from dcc_mcp_core._server.inprocess_executor import BaseDccCallableDispatcher
 from dcc_mcp_core._server.inprocess_executor import build_inprocess_executor
+from dcc_mcp_core._server.inprocess_executor import exception_to_error_envelope
 from dcc_mcp_core._server.inprocess_executor import run_skill_script
 
 # ── public surface ───────────────────────────────────────────────────────────
@@ -135,7 +136,12 @@ def test_executor_routes_through_dispatcher(tmp_path: Path) -> None:
     assert kwargs == {}
 
 
-def test_executor_propagates_dispatcher_exceptions(tmp_path: Path) -> None:
+def test_executor_dispatcher_exception_becomes_error_envelope(tmp_path: Path) -> None:
+    """Issue #589 — dispatcher / runner failures must surface as structured
+    error dicts so Rust ``CallToolResult`` can flag ``isError: true`` from
+    the ``success: false`` heuristic without forcing clients to do a second
+    JSON parse on the content text.
+    """
     p = _write_script(tmp_path, "def main(): return None\n")
 
     class _BoomDispatcher:
@@ -148,8 +154,44 @@ def test_executor_propagates_dispatcher_exceptions(tmp_path: Path) -> None:
             raise RuntimeError("UI thread shutdown")
 
     executor = build_inprocess_executor(_BoomDispatcher())
-    with pytest.raises(RuntimeError, match="UI thread shutdown"):
-        executor(str(p), {})
+    result = executor(str(p), {})
+    assert isinstance(result, dict)
+    assert result["success"] is False
+    assert "UI thread shutdown" in result["message"]
+    assert result["error"]["type"] == "RuntimeError"
+    assert result["error"]["message"] == "UI thread shutdown"
+    assert "Traceback" in result["error"]["traceback"]
+
+
+def test_executor_inline_exception_becomes_error_envelope(tmp_path: Path) -> None:
+    p = _write_script(
+        tmp_path,
+        "def main(): raise ValueError('bad input')\n",
+    )
+    executor = build_inprocess_executor(None)
+    result = executor(str(p), {})
+    assert isinstance(result, dict)
+    assert result["success"] is False
+    assert result["error"]["type"] == "ValueError"
+    assert result["error"]["message"] == "bad input"
+    assert "Traceback" in result["error"]["traceback"]
+
+
+def test_exception_to_error_envelope_overrides_message() -> None:
+    try:
+        raise KeyError("missing")
+    except KeyError as exc:
+        envelope = exception_to_error_envelope(exc, message="custom summary")
+    assert envelope == {
+        "success": False,
+        "message": "custom summary",
+        "error": {
+            "type": "KeyError",
+            "message": "'missing'",
+            "traceback": envelope["error"]["traceback"],
+        },
+    }
+    assert "KeyError" in envelope["error"]["traceback"]
 
 
 def test_executor_uses_custom_runner() -> None:

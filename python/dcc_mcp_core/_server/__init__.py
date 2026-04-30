@@ -18,6 +18,7 @@ from dcc_mcp_core._server.callable_dispatcher import PumpStats
 from dcc_mcp_core._server.callable_dispatcher import current_callable_job
 from dcc_mcp_core._server.inprocess_executor import BaseDccCallableDispatcher
 from dcc_mcp_core._server.inprocess_executor import build_inprocess_executor
+from dcc_mcp_core._server.inprocess_executor import exception_to_error_envelope
 from dcc_mcp_core._server.inprocess_executor import run_skill_script
 from dcc_mcp_core._server.minimal_mode import MinimalModeConfig
 from dcc_mcp_core._server.observability import FileLoggingManager
@@ -45,5 +46,6 @@ __all__ = [
     "WindowResolver",
     "build_inprocess_executor",
     "current_callable_job",
+    "exception_to_error_envelope",
     "run_skill_script",
 ]
