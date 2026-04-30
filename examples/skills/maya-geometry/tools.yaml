@@ -61,3 +61,6 @@ tools:
     destructive: false
     idempotent: false
     source_file: scripts/create_joint.py
+    next-tools:
+      on-success: [maya_geometry__create_sphere]
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]

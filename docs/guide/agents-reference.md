@@ -502,6 +502,113 @@ contract is enforced by `tests/test_tool_descriptions.py`.
 
 ---
 
+## MCP Tool Design — Best Practices (Based on MCP Specification)
+
+These practices are derived from the [MCP Best Practices guide](https://mcp-best-practice.github.io/mcp-best-practice/best-practice/)
+and the [MCP specification](https://modelcontextprotocol.io/specification/2025-03-26).
+They apply to every tool registered in the dcc-mcp-core ecosystem.
+
+### Single Responsibility
+
+One tool = one clear purpose. Avoid "kitchen-sink" tools that try to do
+everything. A tool called `create_sphere` is better than a generic
+`create_geometry` that takes a `type` parameter and branches internally.
+
+**Why**: AI agents select tools by matching descriptions to user intent.
+Monolithic tools produce ambiguous matches and reduce the agent's ability
+to chain tools correctly.
+
+### Contracts First
+
+Strict input/output schemas, explicit side effects, documented errors.
+
+- Every tool MUST have an `input_schema` (JSON Schema) with per-parameter
+  descriptions (≤100 chars each).
+- Every tool handler MUST return `ToolResult` — never raw dicts.
+- Every error MUST include an actionable `prompt` suggesting a recovery step.
+
+### Safety Annotations
+
+Always set `ToolAnnotations` so AI clients can make informed choices:
+
+```python
+from dcc_mcp_core import ToolAnnotations
+
+annotations = ToolAnnotations(
+    read_only_hint=True,       # tool only reads data, no side effects
+    destructive_hint=False,    # tool may cause irreversible changes
+    idempotent_hint=True,      # repeated calls produce same result
+    open_world_hint=False,     # tool may interact with external systems
+)
+```
+
+### Follow-Up Guidance
+
+Use `next-tools` to guide agents to the logical next step:
+
+- `on-success`: What the agent should do after this tool succeeds
+- `on-failure`: Diagnostic/recovery tools (always point to `dcc_diagnostics__*`)
+
+This is the primary mechanism for **tool chaining** — the agent doesn't
+need to guess what comes next.
+
+### Progressive Discovery
+
+Keep `tools/list` small by default:
+
+- Use tool groups with `default_active: false` for power-user features
+- Use `search_skills()` for discovery — don't enumerate all tools
+- Use `SkillCatalog.load_skill()` to activate only what's needed
+
+### Description Quality
+
+The `description` field is the **most important factor for AI tool selection**.
+It must include:
+
+1. **What the tool does** (present tense, one sentence)
+2. **When to use it** (specific triggers and keywords)
+3. **When NOT to use it** (negative routing to prevent mismatches)
+
+```yaml
+# ✓ Good — specific, includes when-to-use and counter-examples
+description: >-
+  Create a polygon sphere with configurable radius and subdivisions.
+  Use when the user asks to create a sphere, ball, or round 3D object.
+  Not for creating other primitives — use create_cube or create_cylinder.
+
+# ✗ Bad — vague, no trigger, no counter-examples
+description: "Create geometry."
+```
+
+### Error Recovery Design
+
+Every tool should provide structured error recovery:
+
+```python
+from dcc_mcp_core import error_result, ToolResult
+
+# ✓ Good — specific error code + actionable prompt
+return ToolResult.fail(
+    "Sphere creation failed",
+    error="invalid_radius",
+    prompt="Radius must be positive. Try create_sphere with radius=1.0.",
+).to_dict()
+
+# ✗ Bad — generic error, no guidance
+return ToolResult.fail("Error", error="failed").to_dict()
+```
+
+### Stateless by Default
+
+Keep tool execution stateless. Externalize state to:
+- `CheckpointStore` for long-running progress
+- `ArtefactStore` for cross-tool file handoff
+- `FileRegistry` for gateway instance metadata
+
+Stateless tools are easier to test, retry, and compose into workflows.
+
+---
+
 ## Adding a New Public Symbol — Checklist
 
 When adding a Rust type/function that needs to be callable from Python:

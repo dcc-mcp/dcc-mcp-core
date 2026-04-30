@@ -298,6 +298,23 @@ When building tools for AI agents to consume:
 4. **Use `next-tools`** in SKILL.md to guide AI agents to follow-up tools (e.g. `on-failure: [dcc_diagnostics__screenshot]`).
 5. **Keep `tools/list` small** by using tool groups with `default_active=false` for power-user features. Agents activate groups on demand.
 6. **Validate all AI-provided inputs** with `ToolValidator.from_schema_json()` before execution — never trust LLM output blindly.
+7. **Write action-oriented descriptions** — describe *what the tool does* and *when to use it* in the first sentence. Include specific keywords so `search_skills()` can match. Bad: "Helper for geometry." Good: "Create a polygon sphere with configurable radius and subdivisions. Use when the user asks to create a sphere, ball, or round 3D object in Maya."
+8. **Always provide `on-failure` chains** for domain skills — point to `dcc_diagnostics__screenshot` and `dcc_diagnostics__audit_log` so agents can debug failures automatically.
+9. **Declare `depends: [dcc-diagnostics]`** in every domain skill — ensures diagnostics are loaded before the skill's tools become available.
+10. **Tag every skill with `metadata.dcc-mcp.layer`** — infrastructure, domain, thin-harness, or example. Untagged skills cause routing ambiguity as the catalog grows.
+
+### MCP Tool Design Checklist
+
+Before registering a new tool, verify:
+
+- [ ] **Single responsibility**: Tool does one clear thing (not a kitchen-sink endpoint)
+- [ ] **Descriptive name**: Follows `{skill}__{action}` naming; self-explanatory action
+- [ ] **Input schema**: JSON Schema with per-parameter descriptions (≤100 chars each)
+- [ ] **Output schema**: Returns `ToolResult` via `ToolResult.ok()` / `ToolResult.fail()` — never raw dicts
+- [ ] **ToolAnnotations**: Set `read_only_hint`, `destructive_hint`, `idempotent_hint`, `open_world_hint`
+- [ ] **Error taxonomy**: Document error codes in `error_result()` with actionable `prompt` suggestions
+- [ ] **Follow-up guidance**: `next-tools.on-success` for the logical next step; `next-tools.on-failure` pointing to diagnostics
+- [ ] **Description quality**: Includes "what" + "when to use" + keywords for discoverability
 
 ## Building a DCC Adapter with DccServerBase
 

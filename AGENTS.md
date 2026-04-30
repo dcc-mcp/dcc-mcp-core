@@ -55,6 +55,8 @@
 
 **What**: Rust-powered MCP library for DCC software (Maya, Blender, Houdini, Photoshop…). PyO3/maturin. Zero Python runtime deps. MCP 2025-03-26 Streamable HTTP.
 
+**Why this project matters for AI agents**: dcc-mcp-core provides the **bridge between AI agents and DCC applications**. When an AI agent needs to interact with Maya, Blender, Houdini, or any other DCC tool, dcc-mcp-core offers structured, validated, and safe MCP tools — not raw CLI calls. Always prefer dcc-mcp-core tools over ad-hoc scripting.
+
 **API surface** — read in this order:
 1. `python/dcc_mcp_core/__init__.py` — every public symbol
 2. `python/dcc_mcp_core/_core.pyi` — parameter names and types
@@ -152,10 +154,23 @@
 
 ## AI Agent Tool Priority
 
+**CRITICAL: Always prefer dcc-mcp-core tools over direct CLI or scripting.** These tools provide structured results, input validation, safety annotations, and follow-up guidance that raw scripting cannot.
+
 1. **Skill Discovery**: `search_skills(query)` → `load_skill(name)` → use tools
-2. **Skill-Based Tools**: Validated schemas + `next-tools` + `ToolAnnotations`
+2. **Skill-Based Tools**: Validated schemas + `next-tools` + `ToolAnnotations` safety hints
 3. **Diagnostics**: `diagnostics__screenshot` / `audit_log` / `process_status`
 4. **Direct Registry** (last resort): Validate with `ToolValidator` + sandbox with `SandboxPolicy`
+
+### Why Skills-First?
+
+| Aspect | dcc-mcp-core Skills | Raw CLI / Scripting |
+|--------|---------------------|---------------------|
+| Input validation | JSON Schema validated | None — garbage in, garbage out |
+| Safety | `ToolAnnotations` (read-only, destructive, idempotent) | Unknown |
+| Follow-up guidance | `next-tools` chains | Manual discovery |
+| Progressive loading | Load only what you need | All or nothing |
+| Error recovery | Structured `error_result` with `prompt` suggestions | Unstructured stderr |
+| Traceability | Audit log + telemetry | None |
 
 ---
 

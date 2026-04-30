@@ -9,10 +9,12 @@ license: MIT
 compatibility: Requires curl binary on PATH
 allowed-tools: Bash Read
 metadata:
-  dcc-mcp.dcc: python
-  dcc-mcp.layer: example
-  dcc-mcp.search-hint: "clawhub, openclaw, marketplace, skill format, compatibility reference"
-  dcc-mcp.tags: "example, clawhub, openclaw, compatibility"
+  dcc-mcp:
+    dcc: python
+    layer: example
+    version: "1.0.0"
+    search-hint: "clawhub, openclaw, marketplace, skill format, compatibility reference"
+    tags: "example, clawhub, openclaw, compatibility"
   openclaw:
     requires:
       env:
@@ -26,10 +28,6 @@ metadata:
       - kind: node
         package: prettier
         bins: [prettier]
-tags: [example, clawhub, openclaw, compatibility]
-dcc: python
-version: "1.0.0"
-search-hint: "clawhub, openclaw, compatibility, marketplace, example format"
 ---
 
 # ClawHub Compatible Skill

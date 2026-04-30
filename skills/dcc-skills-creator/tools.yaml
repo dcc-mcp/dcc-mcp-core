@@ -1,0 +1,30 @@
+tools:
+  - name: create_skill
+    description: "Scaffold a new skill directory with SKILL.md, scripts/, and metadata/ structure."
+    source_file: scripts/create_skill.py
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+    next-tools:
+      on-success: [dcc_skills_creator__validate_skill_dir]
+      on-failure: [dcc_diagnostics__audit_log]
+
+  - name: validate_skill_dir
+    description: "Validate a skill directory against the dcc-mcp-core specification. Returns structured errors, warnings, and info."
+    source_file: scripts/validate_skill_dir.py
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false
+
+  - name: skill_template
+    description: "Return a SKILL.md template with all supported fields and documentation."
+    source_file: scripts/skill_template.py
+    annotations:
+      read_only_hint: true
+      destructive_hint: false
+      idempotent_hint: true
+      open_world_hint: false

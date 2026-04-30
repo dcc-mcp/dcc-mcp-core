@@ -3,6 +3,18 @@
 Quick-reference index for the `docs/guide/` directory. Use this to find the right
 document without scanning every file.
 
+## AI Agent Quick Path
+
+**Start here if you're an AI agent** — read these documents in order:
+
+| Priority | Document | Why |
+|----------|----------|-----|
+| 1 | [agents-reference.md](agents-reference.md) | **Critical** — traps, do/don't, code style, constants |
+| 2 | [skills.md](skills.md) | How to write and register skills |
+| 3 | [getting-started.md](getting-started.md) | Install, first server, AI agent best practices |
+| 4 | [thin-harness.md](thin-harness.md) | Thin-harness layer pattern for scripting skills |
+| 5 | [skill-scopes-policies.md](skill-scopes-policies.md) | SkillScope (trust levels) and SkillPolicy |
+
 ## Getting Started
 
 | Document | Purpose |

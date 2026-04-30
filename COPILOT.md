@@ -5,7 +5,7 @@
 
 ## Quick Start
 
-This project uses the [agents.md](AGENTS.md) standard. Read `AGENTS.md` first — it is the navigation map that points to all other documentation.
+This project uses the [AGENTS.md](AGENTS.md) standard. Read `AGENTS.md` first — it is the navigation map that points to all other documentation.
 
 ## Document Hierarchy
 
@@ -27,10 +27,20 @@ This project uses the [agents.md](AGENTS.md) standard. Read `AGENTS.md` first �
 
 **What**: Rust-powered MCP library for DCC software (Maya, Blender, Houdini, Photoshop…). PyO3/maturin. Zero Python runtime deps. MCP 2025-03-26 Streamable HTTP.
 
+**Why this matters**: When the user asks to interact with a DCC application, **always prefer dcc-mcp-core Skills-First tools** over raw CLI or scripting. The skill system provides validated, safe, and discoverable tools with built-in follow-up guidance via `next-tools`.
+
 **Key entry points**:
 - `python/dcc_mcp_core/__init__.py` — every public Python symbol
 - `llms.txt` — compressed API index for AI agents
 - `AGENTS.md` — navigation map (this document chain starts here)
+
+## Preferred Workflow for DCC Tasks
+
+1. **Discover**: `search_skills(query="keyword")` → find the right skill
+2. **Activate**: `load_skill("skill-name")` → expose the tools
+3. **Execute**: Call the specific tool with validated parameters
+4. **Follow up**: Check `next-tools.on-success` for suggested next steps
+5. **Debug on failure**: Use `dcc_diagnostics__screenshot` or `audit_log`
 
 ## Build & Test
 
@@ -49,3 +59,5 @@ See [AGENTS.md → Top Traps](AGENTS.md#top-traps--memorize-these) and [docs/gui
 3. **`ToolDispatcher` uses `.dispatch()`** — never `.call()`
 4. **Register ALL handlers BEFORE `server.start()`**
 5. **SKILL.md extensions use `metadata.dcc-mcp.<feature>`** — never top-level keys (v0.15+ / #356)
+6. **Use `dcc_mcp_core.METADATA_*` / `LAYER_*` / `CATEGORY_*`** — re-exported at top level; no inline `"dcc-mcp.recipes"` literals (#487)
+7. **Return `ToolResult` from Python tool handlers** — `ToolResult.ok("...", **ctx).to_dict()`; `success`/`error` are dataclass *fields*, not factories (#487)
