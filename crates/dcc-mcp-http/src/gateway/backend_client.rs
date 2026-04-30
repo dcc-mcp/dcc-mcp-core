@@ -15,6 +15,35 @@ use serde_json::{Value, json};
 
 use crate::protocol::{JsonRpcRequestBuilder, JsonRpcResponse, McpTool};
 
+/// Build the lightweight HTTP health URL that identifies a real MCP backend.
+pub(crate) fn health_url_from_mcp_url(mcp_url: &str) -> String {
+    mcp_url
+        .trim_end_matches('/')
+        .strip_suffix("/mcp")
+        .map(|base| format!("{base}/health"))
+        .unwrap_or_else(|| format!("{}/health", mcp_url.trim_end_matches('/')))
+}
+
+/// Return true when the target looks like a DCC MCP HTTP server.
+///
+/// This deliberately probes `GET /health` before sending JSON-RPC to `/mcp`.
+/// Maya `commandPort` can also accept TCP bytes, but posting JSON-RPC to it
+/// triggers a modal commandPort security warning that blocks the main thread.
+pub(crate) async fn probe_mcp_health(
+    client: &reqwest::Client,
+    mcp_url: &str,
+    timeout: Duration,
+) -> bool {
+    let health_url = health_url_from_mcp_url(mcp_url);
+    client
+        .get(&health_url)
+        .timeout(timeout)
+        .header("accept", "application/json")
+        .send()
+        .await
+        .is_ok_and(|resp| resp.status().is_success())
+}
+
 /// Call a JSON-RPC method on a backend `/mcp` endpoint.
 ///
 /// Returns the raw `result` value on success, or an error string on transport
@@ -32,6 +61,12 @@ pub async fn call_backend(
     request_id: Option<String>,
     timeout: Duration,
 ) -> Result<Value, String> {
+    if !probe_mcp_health(client, mcp_url, timeout).await {
+        return Err(format!(
+            "{mcp_url}: not a DCC MCP HTTP endpoint (GET /health failed)"
+        ));
+    }
+
     let id = request_id.unwrap_or_else(uuid_like_id);
     let req_body = JsonRpcRequestBuilder::new(id, method)
         .with_optional_params(params)
@@ -157,6 +192,18 @@ mod tests {
         assert_ne!(a, b);
         assert!(a.starts_with("gw-"));
         assert!(b.starts_with("gw-"));
+    }
+
+    #[test]
+    fn builds_health_url_from_mcp_url() {
+        assert_eq!(
+            health_url_from_mcp_url("http://127.0.0.1:64954/mcp"),
+            "http://127.0.0.1:64954/health"
+        );
+        assert_eq!(
+            health_url_from_mcp_url("http://127.0.0.1:64954/mcp/"),
+            "http://127.0.0.1:64954/health"
+        );
     }
 
     /// Helper used only in tests — parse a canned JSON-RPC response body the

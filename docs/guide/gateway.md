@@ -109,6 +109,11 @@ user to restart a DCC instance. `tools/list` is assembled from the current
 registry on each call, so instances registered after gateway startup are picked
 up without a restart.
 
+Before the gateway sends JSON-RPC to a backend, it verifies that the target
+responds to `GET /health`. This avoids treating non-MCP listeners such as Maya
+`commandPort` as routable backends; posting MCP JSON-RPC to commandPort can
+trigger Maya's modal commandPort security dialog and block the DCC main thread.
+
 Gateway-native diagnostics tools are always present, even when no backend is
 routable:
 

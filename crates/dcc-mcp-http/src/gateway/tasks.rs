@@ -348,7 +348,7 @@ pub(crate) async fn start_gateway_tasks(
         server_version,
         own_host: own_host.clone(),
         own_port,
-        http_client,
+        http_client: http_client.clone(),
         yield_tx: yield_tx.clone(),
         events_tx,
         protocol_version: Arc::new(RwLock::new(None)),
@@ -388,10 +388,13 @@ pub(crate) async fn start_gateway_tasks(
     });
 
     // ── Periodic health-check task (issue #556) ───────────────────────────
-    // Every 30 s, attempt a lightweight TCP connect to every registered
-    // instance. After 2 consecutive failures mark it Unreachable; after 3
-    // stale rounds auto-deregister it.
+    // Every 30 s, attempt a lightweight `GET /health` against every registered
+    // instance. TCP reachability alone is not enough: Maya commandPort also
+    // accepts TCP bytes, but it is not an MCP HTTP backend and JSON-RPC POSTs to
+    // it can trigger a modal security dialog (#592). After 2 consecutive
+    // failures mark the row Unreachable; after 3 stale rounds auto-deregister.
     let reg_health = registry.clone();
+    let health_http_client = http_client.clone();
     let health_own_host = own_host.clone();
     let health_own_port = own_port;
     let health_check_handle = tokio::spawn(async move {
@@ -414,13 +417,13 @@ pub(crate) async fn start_gateway_tasks(
             };
 
             for entry in entries {
-                let addr = format!("{}:{}", entry.host, entry.port);
-                let reachable = tokio::time::timeout(
+                let mcp_url = format!("http://{}:{}/mcp", entry.host, entry.port);
+                let reachable = crate::gateway::backend_client::probe_mcp_health(
+                    &health_http_client,
+                    &mcp_url,
                     Duration::from_secs(5),
-                    tokio::net::TcpStream::connect(&addr),
                 )
-                .await
-                .is_ok_and(|r| r.is_ok());
+                .await;
 
                 let key = format!("{}:{}", entry.dcc_type, entry.instance_id);
                 if reachable {
