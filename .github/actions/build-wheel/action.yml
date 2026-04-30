@@ -101,11 +101,22 @@ runs:
         sccache: ${{ inputs.use-sccache == 'true' }}
         manylinux: auto
 
+    - name: Setup Python for wheel metadata check
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.11'
+
     - name: Check wheel metadata
       shell: bash
       run: |
-        pip install twine
-        twine check --strict dist/*
+        python -m pip install --upgrade twine
+        python -m twine check --strict dist/*
+
+    - name: Restore requested Python for wheel test
+      if: inputs.test-wheel == 'true'
+      uses: actions/setup-python@v6
+      with:
+        python-version: ${{ inputs.python-version }}
 
     - name: Test wheel
       if: inputs.test-wheel == 'true'
