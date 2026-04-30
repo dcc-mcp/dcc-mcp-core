@@ -317,6 +317,7 @@ fn build_call_result(
 }
 
 fn success_result(state: &AppState, session_id: Option<&str>, output: Value) -> CallToolResult {
+    let is_error = output_indicates_error(&output);
     let text = match &output {
         Value::String(s) => s.clone(),
         Value::Null => String::new(),
@@ -342,8 +343,22 @@ fn success_result(state: &AppState, session_id: Option<&str>, output: Value) -> 
     CallToolResult {
         content,
         structured_content,
-        is_error: false,
+        is_error,
         meta: None,
+    }
+}
+
+fn output_indicates_error(output: &Value) -> bool {
+    match output {
+        Value::Object(obj) => {
+            obj.get("success").and_then(Value::as_bool) == Some(false)
+                || obj.get("isError").and_then(Value::as_bool) == Some(true)
+        }
+        Value::String(text) => serde_json::from_str::<Value>(text)
+            .ok()
+            .as_ref()
+            .is_some_and(output_indicates_error),
+        _ => false,
     }
 }
 

@@ -54,6 +54,50 @@ pub fn make_router_with_handler() -> axum::Router {
         .with_state(state)
 }
 
+fn make_router_with_handler_output(output: Value) -> axum::Router {
+    use crate::handler::{handle_delete, handle_get, handle_post};
+    use axum::{Router, routing};
+
+    let registry = Arc::new(make_registry());
+    let catalog = Arc::new(SkillCatalog::new(registry.clone()));
+    let dispatcher = Arc::new(ActionDispatcher::new((*registry).clone()));
+    dispatcher.register_handler("get_scene_info", move |_params| Ok(output.clone()));
+    let state = AppState {
+        registry,
+        dispatcher,
+        catalog,
+        sessions: SessionManager::new(),
+        executor: None,
+        bridge_registry: crate::BridgeRegistry::new(),
+        server_name: "test-dcc".to_string(),
+        server_version: "0.1.0".to_string(),
+        cancelled_requests: std::sync::Arc::new(dashmap::DashMap::new()),
+        in_flight: crate::inflight::InFlightRequests::new(),
+        pending_elicitations: std::sync::Arc::new(dashmap::DashMap::new()),
+        lazy_actions: false,
+        bare_tool_names: true,
+        declared_capabilities: std::sync::Arc::new(Vec::new()),
+        jobs: std::sync::Arc::new(crate::job::JobManager::new()),
+        job_notifier: crate::notifications::JobNotifier::new(SessionManager::new(), true),
+        resources: crate::resources::ResourceRegistry::new(true, false),
+        enable_resources: true,
+        prompts: crate::prompts::PromptRegistry::new(true),
+        enable_prompts: true,
+        registry_generation: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+        enable_tool_cache: true,
+        method_router: crate::handler::AppState::default_method_router(),
+    };
+
+    Router::new()
+        .route(
+            "/mcp",
+            routing::post(handle_post)
+                .get(handle_get)
+                .delete(handle_delete),
+        )
+        .with_state(state)
+}
+
 #[tokio::test]
 pub async fn test_tools_call_with_registered_handler() {
     let server = TestServer::new(make_router_with_handler());
@@ -82,6 +126,72 @@ pub async fn test_tools_call_with_registered_handler() {
     let text = body["result"]["content"][0]["text"].as_str().unwrap_or("");
     // The JSON output from the handler should be present
     assert!(text.contains("test_scene") || text.contains("objects"));
+}
+
+#[tokio::test]
+pub async fn test_tools_call_success_false_sets_is_error() {
+    let server = TestServer::new(make_router_with_handler_output(json!({
+        "success": false,
+        "message": "Execution failed",
+        "error": "SyntaxError",
+    })));
+
+    let resp = server
+        .post("/mcp")
+        .add_header(
+            axum::http::header::ACCEPT,
+            "application/json".parse::<HeaderValue>().unwrap(),
+        )
+        .json(&json!({
+            "jsonrpc": "2.0",
+            "id": 43,
+            "method": "tools/call",
+            "params": {
+                "name": "get_scene_info",
+                "arguments": {}
+            }
+        }))
+        .await;
+
+    resp.assert_status_ok();
+    let body: Value = resp.json();
+    assert_eq!(body["result"]["isError"], true);
+    let text = body["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let parsed: Value = serde_json::from_str(text).unwrap();
+    assert_eq!(parsed["success"], false);
+    assert_eq!(parsed["error"], "SyntaxError");
+}
+
+#[tokio::test]
+pub async fn test_tools_call_json_string_success_false_sets_is_error() {
+    let server = TestServer::new(make_router_with_handler_output(json!(
+        r#"{"success":false,"message":"Execution failed","error":"SyntaxError"}"#
+    )));
+
+    let resp = server
+        .post("/mcp")
+        .add_header(
+            axum::http::header::ACCEPT,
+            "application/json".parse::<HeaderValue>().unwrap(),
+        )
+        .json(&json!({
+            "jsonrpc": "2.0",
+            "id": 44,
+            "method": "tools/call",
+            "params": {
+                "name": "get_scene_info",
+                "arguments": {}
+            }
+        }))
+        .await;
+
+    resp.assert_status_ok();
+    let body: Value = resp.json();
+    assert_eq!(body["result"]["isError"], true);
+    let text = body["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let parsed: Value = serde_json::from_str(text).unwrap();
+    assert_eq!(parsed["success"], false);
+    assert_eq!(parsed["error"], "SyntaxError");
 }
 
 #[tokio::test]
