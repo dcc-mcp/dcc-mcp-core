@@ -125,6 +125,12 @@ def _tool_names(mcp_url: str) -> set[str]:
     return {tool["name"] for tool in _post_mcp(mcp_url, "tools/list")["result"]["tools"]}
 
 
+def _tool_call_json(mcp_url: str, tool_name: str, arguments: dict) -> tuple[bool, dict]:
+    response = _post_mcp(mcp_url, "tools/call", {"name": tool_name, "arguments": arguments})
+    result = response["result"]
+    return bool(result.get("isError")), json.loads(result["content"][0]["text"])
+
+
 def _write_rez_stub_packages(root: Path) -> None:
     for name in [
         "dcc_mcp_core",
@@ -311,6 +317,61 @@ def test_rez_example_skills_are_searchable_by_context_metadata() -> None:
     by_profile = {skill.metadata["dcc-mcp.toolset-profile"]: skill.name for skill in skills}
     assert by_profile["film-shot-animation"] == "film-animation-blocking"
     assert by_profile["film-shot-fx"] == "film-fx-cache-review"
+
+
+def test_rez_skill_surface_stays_stubbed_until_context_load() -> None:
+    """Context packages should not expose every Rez tool before explicit load."""
+    examples = Path(__file__).resolve().parents[1] / "examples" / "rez-skills"
+    skill_roots = [str(path / "skills") for path in examples.iterdir() if (path / "skills").exists()]
+
+    server = McpHttpServer(ToolRegistry(), McpHttpConfig(port=0, server_name="rez-surface-test"))
+    server.discover(extra_paths=skill_roots)
+    handle = server.start()
+    try:
+        url = handle.mcp_url()
+        before = _tool_names(url)
+        registered_tool = "film_animation_blocking__summarize_blocking"
+        visible_tool = "summarize_blocking"
+
+        assert "__skill__film-animation-blocking" in before
+        assert visible_tool not in before
+
+        bad_is_error, bad_payload = _tool_call_json(url, "load_skill", {"skill_name": "not-a-context-skill"})
+        assert bad_is_error is True
+        assert bad_payload["loaded"] is False
+        assert bad_payload["tool_count"] == 0
+        assert _tool_names(url) == before
+
+        load_is_error, load_payload = _tool_call_json(url, "load_skill", {"skill_name": "film-animation-blocking"})
+        loaded = _tool_names(url)
+        assert load_is_error is False
+        assert load_payload["loaded"] is True
+        assert load_payload["tool_count"] == 1
+        assert registered_tool in load_payload["registered_tools"]
+        assert "__group__review" in loaded
+        assert visible_tool not in loaded
+        assert "__skill__film-animation-blocking" not in loaded
+        # Loading one context replaces its stub with one real tool; it must not
+        # expand the prompt-visible surface by loading unrelated Rez packages.
+        assert len(loaded) == len(before)
+
+        activate_is_error, activate_payload = _tool_call_json(url, "activate_tool_group", {"group": "review"})
+        activated = _tool_names(url)
+        assert activate_is_error is False
+        assert activate_payload["success"] is True
+        assert visible_tool in activated
+        assert "__group__review" not in activated
+        assert len(activated) == len(before)
+
+        unload_is_error, unload_payload = _tool_call_json(
+            url, "unload_skill", {"skill_name": "film-animation-blocking"}
+        )
+        assert unload_is_error is False
+        assert unload_payload["unloaded"] is True
+        assert unload_payload["tools_removed"] == 1
+        assert _tool_names(url) == before
+    finally:
+        handle.shutdown()
 
 
 @pytest.mark.parametrize("case", REZ_CONTEXT_CASES, ids=[case["package"] for case in REZ_CONTEXT_CASES])
