@@ -313,6 +313,19 @@ from dcc_mcp_core._server import JobOutcome
 from dcc_mcp_core._server import MinimalModeConfig
 from dcc_mcp_core._server import PendingEnvelope
 from dcc_mcp_core._server import current_callable_job
+from dcc_mcp_core.adapter_context import AdapterInstructionSet
+from dcc_mcp_core.adapter_context import DccApiDocEntry
+from dcc_mcp_core.adapter_context import DccApiDocIndex
+from dcc_mcp_core.adapter_context import DccContextSnapshot
+from dcc_mcp_core.adapter_context import DccToolsetProfile
+from dcc_mcp_core.adapter_context import ResponseShapePolicy
+from dcc_mcp_core.adapter_context import ToolsetProfileRegistry
+from dcc_mcp_core.adapter_context import VisualFeedbackPolicy
+from dcc_mcp_core.adapter_context import append_context_snapshot
+from dcc_mcp_core.adapter_context import build_visual_feedback_context
+from dcc_mcp_core.adapter_context import register_adapter_instruction_resources
+from dcc_mcp_core.adapter_context import register_dcc_api_docs
+from dcc_mcp_core.adapter_context import shape_response
 from dcc_mcp_core.adapters import CAPABILITY_KEYS
 from dcc_mcp_core.adapters import WEBVIEW_DEFAULT_CAPABILITIES
 from dcc_mcp_core.adapters import WebViewAdapter
@@ -505,6 +518,7 @@ __all__ = [
     "SKILL_SCRIPTS_DIR",
     "TOOL_NAME_RE",
     "WEBVIEW_DEFAULT_CAPABILITIES",
+    "AdapterInstructionSet",
     "ApiKeyConfig",
     "AuditEntry",
     "AuditLog",
@@ -531,10 +545,13 @@ __all__ = [
     "CheckpointStore",
     "CimdDocument",
     "DccApiCatalog",
+    "DccApiDocEntry",
+    "DccApiDocIndex",
     "DccApiExecutor",
     "DccBlockedCall",
     "DccBridge",
     "DccCapabilities",
+    "DccContextSnapshot",
     "DccError",
     "DccErrorCode",
     "DccGatewayElection",
@@ -543,6 +560,7 @@ __all__ = [
     "DccLinkFrame",
     "DccServerBase",
     "DccSkillHotReloader",
+    "DccToolsetProfile",
     "DccWeakSandbox",
     "ElicitationMode",
     "ElicitationRequest",
@@ -592,6 +610,7 @@ __all__ = [
     "ResourceAnnotations",
     "ResourceDefinition",
     "ResourceTemplateDefinition",
+    "ResponseShapePolicy",
     "RetryPolicy",
     "RichContent",
     "RichContentKind",
@@ -642,6 +661,7 @@ __all__ = [
     "ToolResult",
     "ToolSpec",
     "ToolValidator",
+    "ToolsetProfileRegistry",
     "TransportAddress",
     "TransportScheme",
     "TriggerSpec",
@@ -650,6 +670,7 @@ __all__ = [
     "UsdStage",
     "VersionConstraint",
     "VersionedRegistry",
+    "VisualFeedbackPolicy",
     "VtValue",
     "WebViewAdapter",
     "WebViewContext",
@@ -663,6 +684,7 @@ __all__ = [
     "WorkspaceRoots",
     "__author__",
     "__version__",
+    "append_context_snapshot",
     "artefact_get_bytes",
     "artefact_list",
     "artefact_put_bytes",
@@ -670,6 +692,7 @@ __all__ = [
     "attach_rich_content",
     "batch_dispatch",
     "build_plugin_manifest",
+    "build_visual_feedback_context",
     "check_cancelled",
     "check_dcc_cancelled",
     "checkpoint_every",
@@ -743,8 +766,10 @@ __all__ = [
     "parse_schedules_yaml",
     "parse_skill_md",
     "record_skill_feedback",
+    "register_adapter_instruction_resources",
     "register_bridge",
     "register_checkpoint_tools",
+    "register_dcc_api_docs",
     "register_dcc_api_executor",
     "register_diagnostic_handlers",
     "register_diagnostic_mcp_tools",
@@ -772,6 +797,7 @@ __all__ = [
     "serialize_result",
     "set_cancel_token",
     "set_current_job",
+    "shape_response",
     "shutdown_file_logging",
     "shutdown_telemetry",
     "skill_entry",

@@ -149,6 +149,7 @@ class DccServerBase:
         enable_file_logging: bool = True,
         enable_job_persistence: bool = True,
         enable_telemetry: bool = True,
+        snapshot_provider: Any | None = None,
     ) -> None:
         # Deferred: circular import — __init__.py imports DccServerBase from
         # this module, so we cannot import from dcc_mcp_core at module level.
@@ -242,6 +243,7 @@ class DccServerBase:
         # Lazy-initialised helpers
         self._hot_reloader: Any | None = None
         self._gateway_election: Any | None = None
+        self._snapshot_provider: Any | None = snapshot_provider
 
     def __getattr__(self, name: str) -> Any:
         """Lazily reconstruct collaborators for instances built via ``object.__new__``.
@@ -265,6 +267,26 @@ class DccServerBase:
             self.__dict__[name] = resolver
             return resolver
         raise AttributeError(name)
+
+    # ── adapter context helpers (#608, #609) ────────────────────────────────
+
+    def register_adapter_instructions(self, instruction_set: Any) -> list[str]:
+        """Register standard adapter instruction/capability resources."""
+        from dcc_mcp_core.adapter_context import register_adapter_instruction_resources
+
+        return register_adapter_instruction_resources(self._server, instruction_set)
+
+    def set_context_snapshot_provider(self, provider: Any | None) -> None:
+        """Set an optional callable used to append post-tool context snapshots."""
+        self._snapshot_provider = provider
+
+    def append_context_snapshot(self, result: dict[str, Any], *, policy: Any | None = None) -> dict[str, Any]:
+        """Attach the configured post-tool context snapshot to a result envelope."""
+        if self._snapshot_provider is None:
+            return dict(result)
+        from dcc_mcp_core.adapter_context import append_context_snapshot
+
+        return append_context_snapshot(result, self._snapshot_provider, policy=policy)
 
     @staticmethod
     def _context_metadata_from_env(dcc_name: str) -> dict[str, str]:
