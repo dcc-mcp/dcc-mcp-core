@@ -346,9 +346,14 @@ from dcc_mcp_core.batch import batch_dispatch
 # Pure-Python DCC adapter base classes (no _core dependency)
 from dcc_mcp_core.bridge import BridgeConnectionError
 from dcc_mcp_core.bridge import BridgeError
+from dcc_mcp_core.bridge import BridgeFallbackClient
+from dcc_mcp_core.bridge import BridgeRetryPolicy
 from dcc_mcp_core.bridge import BridgeRpcError
 from dcc_mcp_core.bridge import BridgeTimeoutError
+from dcc_mcp_core.bridge import BridgeTransportStrategy
 from dcc_mcp_core.bridge import DccBridge
+from dcc_mcp_core.bridge import ReverseBridgeRequest
+from dcc_mcp_core.bridge import ReverseBridgeSession
 from dcc_mcp_core.cancellation import CancelledError
 from dcc_mcp_core.cancellation import CancelToken
 from dcc_mcp_core.cancellation import JobHandle
@@ -532,9 +537,12 @@ __all__ = [
     "BridgeConnectionError",
     "BridgeContext",
     "BridgeError",
+    "BridgeFallbackClient",
     "BridgeRegistry",
+    "BridgeRetryPolicy",
     "BridgeRpcError",
     "BridgeTimeoutError",
+    "BridgeTransportStrategy",
     "CancelToken",
     "CancelledError",
     "CaptureBackendKind",
@@ -612,6 +620,8 @@ __all__ = [
     "ResourceTemplateDefinition",
     "ResponseShapePolicy",
     "RetryPolicy",
+    "ReverseBridgeRequest",
+    "ReverseBridgeSession",
     "RichContent",
     "RichContentKind",
     "SandboxContext",

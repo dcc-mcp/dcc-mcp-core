@@ -29,9 +29,15 @@ from __future__ import annotations
 
 import asyncio
 from concurrent.futures import Future
+from dataclasses import dataclass
 import logging
+import queue
 import threading
+import time
 from typing import Any
+from typing import Callable
+from typing import Iterable
+from typing import Mapping
 import uuid
 
 from dcc_mcp_core import json_dumps
@@ -97,6 +103,235 @@ INVALID_PARAMS = -32602
 INTERNAL_ERROR = -32603
 NO_ACTIVE_DOCUMENT = -32001
 DCC_ERROR = -32000
+
+
+__all__ = [
+    "BridgeConnectionError",
+    "BridgeError",
+    "BridgeFallbackClient",
+    "BridgeRetryPolicy",
+    "BridgeRpcError",
+    "BridgeTimeoutError",
+    "BridgeTransportStrategy",
+    "DccBridge",
+    "ReverseBridgeRequest",
+    "ReverseBridgeSession",
+]
+
+
+@dataclass(frozen=True)
+class BridgeRetryPolicy:
+    """Reusable retry/backoff policy for bridge connection attempts."""
+
+    attempts: int = 3
+    initial_delay_secs: float = 0.1
+    max_delay_secs: float = 2.0
+    multiplier: float = 2.0
+    retry_on: tuple[type[BaseException], ...] = (BridgeConnectionError, BridgeTimeoutError, OSError)
+
+    def __post_init__(self) -> None:
+        if self.attempts < 1:
+            raise ValueError("attempts must be >= 1")
+        if self.initial_delay_secs < 0:
+            raise ValueError("initial_delay_secs must be >= 0")
+        if self.max_delay_secs < self.initial_delay_secs:
+            raise ValueError("max_delay_secs must be >= initial_delay_secs")
+        if self.multiplier < 1:
+            raise ValueError("multiplier must be >= 1")
+
+    def delays(self) -> list[float]:
+        """Return delays between attempts."""
+        delay = self.initial_delay_secs
+        values: list[float] = []
+        for _ in range(max(0, self.attempts - 1)):
+            values.append(min(delay, self.max_delay_secs))
+            delay *= self.multiplier
+        return values
+
+    def run(self, operation: Callable[[], Any]) -> Any:
+        """Run *operation* with retry/backoff."""
+        last_error: BaseException | None = None
+        delays = self.delays()
+        for attempt in range(self.attempts):
+            try:
+                return operation()
+            except self.retry_on as exc:
+                last_error = exc
+                if attempt >= self.attempts - 1:
+                    break
+                time.sleep(delays[attempt])
+        if last_error is not None:
+            raise last_error
+        raise BridgeConnectionError("Bridge retry operation failed without an exception.")
+
+
+class BridgeTransportStrategy:
+    """Duck-typed transport strategy for DCC bridge calls."""
+
+    name = "custom"
+
+    def connect(self) -> None:
+        """Open the transport connection."""
+        raise NotImplementedError
+
+    def disconnect(self) -> None:
+        """Close the transport connection."""
+        raise NotImplementedError
+
+    def is_connected(self) -> bool:
+        """Return whether this transport can currently serve calls."""
+        raise NotImplementedError
+
+    def call(self, method: str, **params: Any) -> Any:
+        """Invoke a bridge method."""
+        raise NotImplementedError
+
+
+class BridgeFallbackClient:
+    """Try multiple bridge transports in order and fail over on connection loss."""
+
+    def __init__(
+        self,
+        strategies: Iterable[BridgeTransportStrategy],
+        *,
+        retry_policy: BridgeRetryPolicy | None = None,
+    ) -> None:
+        self._strategies = list(strategies)
+        if not self._strategies:
+            raise ValueError("at least one bridge strategy is required")
+        self._retry_policy = retry_policy or BridgeRetryPolicy()
+        self._active: BridgeTransportStrategy | None = None
+
+    @property
+    def active_strategy(self) -> BridgeTransportStrategy | None:
+        return self._active
+
+    def connect(self) -> BridgeTransportStrategy:
+        return self._connect_candidates(self._strategies)
+
+    def _connect_candidates(self, strategies: Iterable[BridgeTransportStrategy]) -> BridgeTransportStrategy:
+        errors: list[str] = []
+        for strategy in strategies:
+            try:
+                self._retry_policy.run(strategy.connect)
+                if strategy.is_connected():
+                    self._active = strategy
+                    return strategy
+            except Exception as exc:
+                errors.append(f"{strategy.name}: {exc}")
+        raise BridgeConnectionError("No bridge transport strategy connected: " + "; ".join(errors))
+
+    def disconnect(self) -> None:
+        for strategy in self._strategies:
+            try:
+                strategy.disconnect()
+            except Exception:
+                logger.debug("Bridge strategy disconnect failed: %s", strategy.name, exc_info=True)
+        self._active = None
+
+    def call(self, method: str, **params: Any) -> Any:
+        if self._active is None or not self._active.is_connected():
+            self.connect()
+        assert self._active is not None
+        try:
+            return self._active.call(method, **params)
+        except BridgeConnectionError:
+            failed = self._active
+            self._active = None
+            if failed in self._strategies:
+                failed_idx = self._strategies.index(failed)
+                candidates = self._strategies[failed_idx + 1 :] + self._strategies[:failed_idx]
+            else:
+                candidates = self._strategies
+            self._connect_candidates(candidates)
+            assert self._active is not None
+            return self._active.call(method, **params)
+
+
+@dataclass(frozen=True)
+class ReverseBridgeRequest:
+    """Request envelope consumed by a reverse-connection DCC plugin."""
+
+    id: int
+    method: str
+    params: dict[str, Any]
+
+    def to_jsonrpc(self) -> dict[str, Any]:
+        message: dict[str, Any] = {"jsonrpc": "2.0", "id": self.id, "method": self.method}
+        if self.params:
+            message["params"] = dict(self.params)
+        return message
+
+
+class ReverseBridgeSession:
+    """In-memory reverse bridge for plugins that poll for host work.
+
+    The host calls :meth:`call`, while a constrained DCC plugin repeatedly calls
+    :meth:`next_request` and answers with :meth:`submit_response`.
+    """
+
+    def __init__(self, *, timeout: float = 30.0) -> None:
+        self._timeout = timeout
+        self._queue: queue.Queue[ReverseBridgeRequest] = queue.Queue()
+        self._pending: dict[int, Future] = {}
+        self._pending_lock = threading.Lock()
+        self._next_id = 0
+        self._id_lock = threading.Lock()
+        self._closed = False
+
+    def call(self, method: str, **params: Any) -> Any:
+        if self._closed:
+            raise BridgeConnectionError("Reverse bridge session is closed.")
+        request = ReverseBridgeRequest(id=self._next_request_id(), method=method, params=dict(params))
+        future: Future = Future()
+        with self._pending_lock:
+            self._pending[request.id] = future
+        self._queue.put(request)
+        try:
+            return future.result(timeout=self._timeout)
+        except TimeoutError as exc:
+            with self._pending_lock:
+                self._pending.pop(request.id, None)
+            raise BridgeTimeoutError(f"Method '{method}' (id={request.id}) timed out after {self._timeout}s.") from exc
+
+    def next_request(self, timeout: float | None = None) -> ReverseBridgeRequest | None:
+        if self._closed:
+            return None
+        try:
+            return self._queue.get(timeout=self._timeout if timeout is None else timeout)
+        except queue.Empty:
+            return None
+
+    def submit_response(self, request_id: int, *, result: Any = None, error: Mapping[str, Any] | None = None) -> bool:
+        with self._pending_lock:
+            future = self._pending.pop(request_id, None)
+        if future is None or future.done():
+            return False
+        if error is not None:
+            future.set_exception(
+                BridgeRpcError(
+                    code=int(error.get("code", INTERNAL_ERROR)),
+                    message=str(error.get("message", "unknown error")),
+                    data=error.get("data"),
+                )
+            )
+        else:
+            future.set_result(result)
+        return True
+
+    def close(self, reason: str = "Reverse bridge session closed.") -> None:
+        self._closed = True
+        with self._pending_lock:
+            for future in self._pending.values():
+                if not future.done():
+                    future.set_exception(BridgeConnectionError(reason))
+            self._pending.clear()
+
+    def _next_request_id(self) -> int:
+        with self._id_lock:
+            request_id = self._next_id
+            self._next_id += 1
+        return request_id
 
 
 # ── DccBridge ─────────────────────────────────────────────────────────────────
