@@ -6,6 +6,8 @@ underscore-prefixed because they are an implementation detail; the public
 contract remains :class:`dcc_mcp_core.server_base.DccServerBase`.
 """
 
+from dcc_mcp_core._server.callable_dispatcher import AdaptivePumpPolicy
+from dcc_mcp_core._server.callable_dispatcher import AdaptivePumpStats
 from dcc_mcp_core._server.callable_dispatcher import Affinity
 from dcc_mcp_core._server.callable_dispatcher import BaseDccCallableDispatcherFull
 from dcc_mcp_core._server.callable_dispatcher import BaseDccPump
@@ -29,6 +31,8 @@ from dcc_mcp_core._server.skill_query import SkillQueryClient
 from dcc_mcp_core._server.window_resolver import WindowResolver
 
 __all__ = [
+    "AdaptivePumpPolicy",
+    "AdaptivePumpStats",
     "Affinity",
     "BaseDccCallableDispatcher",
     "BaseDccCallableDispatcherFull",

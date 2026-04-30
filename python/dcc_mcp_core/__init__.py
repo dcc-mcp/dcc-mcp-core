@@ -303,6 +303,8 @@ except ImportError:  # pragma: no cover — feature off
 
 # Adapters (pure-Python, non-DccServerBase)
 # Cooperative cancellation (pure-Python, no _core dependency)
+from dcc_mcp_core._server import AdaptivePumpPolicy
+from dcc_mcp_core._server import AdaptivePumpStats
 from dcc_mcp_core._server import BaseDccCallableDispatcher
 from dcc_mcp_core._server import BaseDccCallableDispatcherFull
 from dcc_mcp_core._server import BaseDccPump
@@ -524,6 +526,8 @@ __all__ = [
     "TOOL_NAME_RE",
     "WEBVIEW_DEFAULT_CAPABILITIES",
     "AdapterInstructionSet",
+    "AdaptivePumpPolicy",
+    "AdaptivePumpStats",
     "ApiKeyConfig",
     "AuditEntry",
     "AuditLog",

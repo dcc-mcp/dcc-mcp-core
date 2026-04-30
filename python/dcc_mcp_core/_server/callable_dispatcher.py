@@ -71,6 +71,8 @@ else:  # pragma: no cover - py3.7 only
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "AdaptivePumpPolicy",
+    "AdaptivePumpStats",
     "Affinity",
     "BaseDccCallableDispatcherFull",
     "BaseDccPump",
@@ -123,6 +125,140 @@ class PumpStats:
     ticks: int = 0
     drained: int = 0
     overrun_cycles: int = 0
+
+
+@dataclass
+class AdaptivePumpStats:
+    """Cumulative counters for :class:`AdaptivePumpPolicy`."""
+
+    ticks: int = 0
+    drained_jobs: int = 0
+    overrun_cycles: int = 0
+    active_transitions: int = 0
+    idle_transitions: int = 0
+    mode: str = "active"
+    last_interval_secs: float = 0.0
+
+
+class AdaptivePumpPolicy:
+    """Reusable active/idle timing policy for embedded DCC pump callbacks.
+
+    Host adapters still own the actual timer primitive (Maya ``scriptJob``,
+    Blender ``bpy.app.timers``, Photoshop event-loop hook, etc.). This policy
+    only decides the next interval and records shared counters.
+    """
+
+    def __init__(
+        self,
+        active_interval_secs: float = 0.05,
+        idle_interval_secs: float = 1.0,
+        idle_delay_secs: float = 5.0,
+        max_client_idle_secs: float | None = 10.0,
+        *,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        if active_interval_secs <= 0:
+            raise ValueError("active_interval_secs must be > 0")
+        if idle_interval_secs <= 0:
+            raise ValueError("idle_interval_secs must be > 0")
+        if idle_delay_secs < 0:
+            raise ValueError("idle_delay_secs must be >= 0")
+        if max_client_idle_secs is not None and max_client_idle_secs < 0:
+            raise ValueError("max_client_idle_secs must be >= 0 or None")
+
+        self.active_interval_secs = active_interval_secs
+        self.idle_interval_secs = idle_interval_secs
+        self.idle_delay_secs = idle_delay_secs
+        self.max_client_idle_secs = max_client_idle_secs
+        self._clock = clock
+        now = clock()
+        self._last_work_at = now
+        self._last_client_activity_at = now
+        self._mode = "active"
+        self._stats = AdaptivePumpStats(mode=self._mode, last_interval_secs=active_interval_secs)
+
+    @property
+    def stats(self) -> AdaptivePumpStats:
+        """Return cumulative pump-policy counters."""
+        return self._stats
+
+    @property
+    def mode(self) -> str:
+        """Current policy mode: ``"active"`` or ``"idle"``."""
+        return self._mode
+
+    def mark_client_activity(self) -> None:
+        """Record that an MCP client or adapter submitted work recently."""
+        self._last_client_activity_at = self._clock()
+
+    def mark_work_done(
+        self,
+        drained: int = 1,
+        *,
+        elapsed_ms: float = 0.0,
+        overrun: bool = False,
+    ) -> None:
+        """Record completed pump work and keep the policy in active mode."""
+        self.record_tick(drained=drained, elapsed_ms=elapsed_ms, overrun=overrun)
+
+    def record_tick(
+        self,
+        drained: int = 0,
+        *,
+        elapsed_ms: float = 0.0,
+        overrun: bool = False,
+    ) -> None:
+        """Record one host pump tick.
+
+        Args:
+            drained: Number of jobs/callables drained by this tick.
+            elapsed_ms: Tick duration for adapter metrics. Currently retained
+                only through the overrun flag so adapters can compute their own
+                host-specific timings.
+            overrun: Whether the tick exceeded the adapter's budget.
+
+        """
+        if drained < 0:
+            raise ValueError("drained must be >= 0")
+        self._stats.ticks += 1
+        self._stats.drained_jobs += drained
+        if overrun:
+            self._stats.overrun_cycles += 1
+        if drained > 0:
+            self._last_work_at = self._clock()
+        _ = elapsed_ms
+
+    def next_interval(
+        self,
+        *,
+        has_pending: bool = False,
+        deferred_pending: bool = False,
+    ) -> float:
+        """Return the next host timer interval in seconds.
+
+        ``has_pending`` represents queued dispatcher work; ``deferred_pending``
+        represents host-native operations that are still waiting for completion.
+        Either one keeps the pump active.
+        """
+        now = self._clock()
+        client_recent = (
+            self.max_client_idle_secs is None or now - self._last_client_activity_at <= self.max_client_idle_secs
+        )
+        should_stay_active = (
+            has_pending or deferred_pending or (client_recent and now - self._last_work_at < self.idle_delay_secs)
+        )
+        mode = "active" if should_stay_active else "idle"
+        if mode != self._mode:
+            if mode == "active":
+                self._stats.active_transitions += 1
+            else:
+                self._stats.idle_transitions += 1
+            self._mode = mode
+            self._stats.mode = mode
+
+        interval = self.active_interval_secs if mode == "active" else self.idle_interval_secs
+        self._stats.last_interval_secs = interval
+        return interval
 
 
 @dataclass

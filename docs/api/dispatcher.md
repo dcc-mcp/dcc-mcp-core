@@ -10,10 +10,10 @@ event loop, return a JSON-serialisable result. This module lifts that pattern
 into reusable contracts so each adapter only supplies host-specific glue.
 
 **Exported symbols:** `BaseDccCallableDispatcher`, `InProcessExecutionContext`,
-`BaseDccCallableDispatcherFull`, `BaseDccPump`, `InProcessCallableDispatcher`,
-`JobEntry`, `JobOutcome`, `PendingEnvelope`, `DrainStats`, `PumpStats`,
-`current_callable_job`, `MinimalModeConfig`, `build_inprocess_executor`,
-`run_skill_script`.
+`BaseDccCallableDispatcherFull`, `BaseDccPump`, `AdaptivePumpPolicy`,
+`AdaptivePumpStats`, `InProcessCallableDispatcher`, `JobEntry`, `JobOutcome`,
+`PendingEnvelope`, `DrainStats`, `PumpStats`, `current_callable_job`,
+`MinimalModeConfig`, `build_inprocess_executor`, `run_skill_script`.
 
 ## When to use what
 
@@ -22,6 +22,7 @@ into reusable contracts so each adapter only supplies host-specific glue.
 | Wire a single `dispatch_callable(func, *args, **kwargs)` shim | `BaseDccCallableDispatcher` (#521) |
 | Full submit / cancel / shutdown contract | `BaseDccCallableDispatcherFull` (#520) |
 | Cooperative idle-tick that drains a queue (Maya `scriptJob(event=['idle', …])`) | `BaseDccPump` (#520) |
+| Shared active/idle timer backoff for host pump callbacks | `AdaptivePumpPolicy` (#606) |
 | Reference single-thread implementation for `mayapy` / pytest / batch | `InProcessCallableDispatcher` |
 | Per-job cancellation handle reachable from skill scripts | `current_callable_job` ContextVar |
 | Declarative progressive skill loading at startup | `MinimalModeConfig` (#525) |
@@ -106,6 +107,41 @@ class MyPump:
 
 `DrainStats(drained, elapsed_ms, overrun)` reports a single tick;
 `PumpStats(ticks, drained, overrun_cycles)` is the cumulative counter.
+
+## AdaptivePumpPolicy
+
+`AdaptivePumpPolicy` gives embedded adapters the same active/idle timing rules
+while leaving the host-specific timer install in adapter code:
+
+```python
+from dcc_mcp_core import AdaptivePumpPolicy
+
+policy = AdaptivePumpPolicy(
+    active_interval_secs=0.05,
+    idle_interval_secs=1.0,
+    idle_delay_secs=5.0,
+    max_client_idle_secs=10.0,
+)
+
+def blender_timer_callback():
+    stats = dispatcher.drain_queue(budget_ms=8)
+    policy.record_tick(
+        drained=stats.drained,
+        elapsed_ms=stats.elapsed_ms,
+        overrun=stats.overrun,
+    )
+    return policy.next_interval(
+        has_pending=dispatcher.has_pending(),
+        deferred_pending=render_job_is_running(),
+    )
+```
+
+Use `mark_work_done(drained=N)` as shorthand when the adapter only knows that
+work completed. Use `mark_client_activity()` when a new MCP request or plugin
+event should keep the pump responsive for `max_client_idle_secs`.
+
+`policy.stats` exposes cumulative `ticks`, `drained_jobs`, `overrun_cycles`,
+`active_transitions`, `idle_transitions`, `mode`, and `last_interval_secs`.
 
 ## InProcessCallableDispatcher (reference)
 
