@@ -102,7 +102,7 @@ class _CaptureStream(io.TextIOBase):
         return self._buffer.getvalue()
 
 
-class ScriptExecutionCapture(AbstractContextManager["ScriptExecutionCapture"]):
+class ScriptExecutionCapture(AbstractContextManager):
     """Capture ``sys.stdout`` and ``sys.stderr`` during host script execution.
 
     ``tee=True`` keeps host-console visibility while still collecting output
