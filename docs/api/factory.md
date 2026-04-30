@@ -110,29 +110,35 @@ Return the current singleton instance (or `None` if not started).
 
 ---
 
-## Embedded-host wiring (issues #521, #525)
+## Embedded-host wiring (issues #521, #525, #599)
 
 Embedded DCC plugins (Maya, Houdini, Unreal Python, Blender) typically need
 two pieces of glue beyond the bare server:
 
-1. A **callable dispatcher** that routes skill scripts onto the host's
-   UI / main thread.
+1. A **host execution bridge** that routes skill scripts and direct
+   callables onto the host's UI / main thread.
 2. A **declarative skill list** so launch-on-startup is reproducible across
    sessions.
 
-`DccServerBase` exposes `register_inprocess_executor()` and
+`DccServerBase` exposes `HostExecutionBridge` and
 `register_builtin_actions(minimal_mode=...)` for exactly this:
 
 ```python
-from dcc_mcp_core import DccServerBase, InProcessCallableDispatcher, MinimalModeConfig
+from dcc_mcp_core import (
+    DccServerBase,
+    HostExecutionBridge,
+    InProcessCallableDispatcher,
+    MinimalModeConfig,
+)
 
 class MayaDccServer(DccServerBase):
     @classmethod
     def dcc_name(cls) -> str: return "maya"
 
-# 1) Pass the dispatcher into the constructor BEFORE registering builtins.
+# 1) Pass the execution bridge into the constructor BEFORE registering builtins.
 dispatcher = InProcessCallableDispatcher()    # or your Maya UI-thread subclass
-server = MayaDccServer(port=8765, dispatcher=dispatcher)
+bridge = HostExecutionBridge(dispatcher=dispatcher)
+server = MayaDccServer(port=8765, execution_bridge=bridge)
 
 # 2) Pin the boot-time skill set declaratively.
 server.register_builtin_actions(minimal_mode=MinimalModeConfig(
@@ -143,6 +149,11 @@ server.register_builtin_actions(minimal_mode=MinimalModeConfig(
 
 server.start()
 ```
+
+`dispatcher=...` and `register_inprocess_executor(...)` remain supported for
+existing adapters. New adapters should keep the bridge and use
+`bridge.dispatch_callable(...)` for direct host work so skill scripts and
+dynamic calls share the same affinity metadata and error normalization.
 
 See [Callable Dispatcher API](./dispatcher.md) for the full
 `BaseDccCallableDispatcher` / `BaseDccCallableDispatcherFull` / `BaseDccPump`

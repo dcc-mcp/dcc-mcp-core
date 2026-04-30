@@ -308,6 +308,7 @@ from dcc_mcp_core._server import AdaptivePumpStats
 from dcc_mcp_core._server import BaseDccCallableDispatcher
 from dcc_mcp_core._server import BaseDccCallableDispatcherFull
 from dcc_mcp_core._server import BaseDccPump
+from dcc_mcp_core._server import HostExecutionBridge
 from dcc_mcp_core._server import InProcessCallableDispatcher
 from dcc_mcp_core._server import InProcessExecutionContext
 from dcc_mcp_core._server import JobEntry
@@ -586,6 +587,7 @@ __all__ = [
     "FrameRange",
     "GracefulIpcChannelAdapter",
     "GuiExecutableHint",
+    "HostExecutionBridge",
     "InProcessCallableDispatcher",
     "InProcessExecutionContext",
     "InputValidator",

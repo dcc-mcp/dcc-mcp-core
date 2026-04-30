@@ -66,6 +66,7 @@ from dcc_mcp_core._server import SkillQueryClient
 from dcc_mcp_core._server import TelemetryManager
 from dcc_mcp_core._server import WindowResolver
 from dcc_mcp_core._server.inprocess_executor import BaseDccCallableDispatcher
+from dcc_mcp_core._server.inprocess_executor import HostExecutionBridge
 from dcc_mcp_core._server.inprocess_executor import build_inprocess_executor
 from dcc_mcp_core._server.minimal_mode import MinimalModeConfig
 from dcc_mcp_core._server.minimal_mode import apply_minimal_mode
@@ -122,6 +123,10 @@ class DccServerBase:
             subsequent ``register_builtin_actions()`` / skill loading call.
             Embedded adapters should pass their UI/main-thread dispatcher here
             instead of attaching it after startup.
+        execution_bridge: Optional :class:`HostExecutionBridge` that owns
+            in-process script execution and direct host callable dispatch.
+            Prefer this for new adapters; ``dispatcher`` remains as the
+            lightweight compatibility shortcut.
         enable_telemetry: Initialise in-process metrics collection via
             ``TelemetryConfig`` so that ``diagnostics__tool_metrics`` returns
             real latency and success-rate data.  Set
@@ -146,6 +151,7 @@ class DccServerBase:
         dcc_window_title: str | None = None,
         dcc_window_handle: int | None = None,
         dispatcher: BaseDccCallableDispatcher | None = None,
+        execution_bridge: HostExecutionBridge | None = None,
         enable_file_logging: bool = True,
         enable_job_persistence: bool = True,
         enable_telemetry: bool = True,
@@ -178,7 +184,12 @@ class DccServerBase:
         self._dcc_pid: int = dcc_pid if dcc_pid is not None else os.getpid()
         self._dcc_window_title: str | None = dcc_window_title
         self._dcc_window_handle: int | None = dcc_window_handle
-        self._dcc_dispatcher: BaseDccCallableDispatcher | None = dispatcher
+        if dispatcher is not None and execution_bridge is not None:
+            raise ValueError("Pass either dispatcher or execution_bridge, not both")
+        self._execution_bridge: HostExecutionBridge | None = execution_bridge
+        self._dcc_dispatcher: BaseDccCallableDispatcher | None = (
+            execution_bridge.dispatcher if execution_bridge is not None else dispatcher
+        )
         self._inprocess_executor_registered: bool = False
         self._cached_hwnd: int | None = None
 
@@ -225,7 +236,9 @@ class DccServerBase:
 
         # Create the inner skill manager (registry + dispatcher + catalog)
         self._server: Any = create_skill_server(dcc_name, self._config)
-        if dispatcher is not None:
+        if execution_bridge is not None:
+            self.register_host_execution_bridge(execution_bridge)
+        elif dispatcher is not None:
             self.register_inprocess_executor(dispatcher)
 
         # Composed collaborators (#486) — constructed eagerly here, but the
@@ -499,7 +512,32 @@ class DccServerBase:
             "telemetry": self._enable_telemetry,
         }
 
-    # ── in-process executor wiring (issue #521) ───────────────────────────────
+    # ── host execution bridge / in-process executor wiring (#599, #521) ───────
+
+    def register_host_execution_bridge(self, bridge: HostExecutionBridge) -> None:
+        """Wire the adapter-facing host execution bridge.
+
+        New embedded adapters should keep a single :class:`HostExecutionBridge`
+        for both direct host callables and in-process skill scripts. The
+        bridge still registers through ``McpHttpServer.set_in_process_executor``
+        so the existing Rust server path remains unchanged.
+        """
+        self._execution_bridge = bridge
+        self._dcc_dispatcher = bridge.dispatcher
+        try:
+            self._server.set_in_process_executor(bridge.as_inprocess_executor())
+            self._inprocess_executor_registered = True
+            logger.info(
+                "[%s] Host execution bridge registered (dispatcher=%s)",
+                self._dcc_name,
+                type(bridge.dispatcher).__name__ if bridge.dispatcher is not None else "inline",
+            )
+        except Exception as exc:
+            logger.warning(
+                "[%s] register_host_execution_bridge failed: %s",
+                self._dcc_name,
+                exc,
+            )
 
     def register_inprocess_executor(
         self,
@@ -527,6 +565,7 @@ class DccServerBase:
 
         """
         self._dcc_dispatcher = dispatcher
+        self._execution_bridge = HostExecutionBridge(dispatcher=dispatcher)
         executor = build_inprocess_executor(dispatcher)
         try:
             self._server.set_in_process_executor(executor)

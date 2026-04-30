@@ -58,6 +58,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "BaseDccCallableDispatcher",
+    "HostExecutionBridge",
     "InProcessExecutionContext",
     "build_inprocess_executor",
     "exception_to_error_envelope",
@@ -147,6 +148,129 @@ class BaseDccCallableDispatcher(Protocol):
         ...
 
 
+@dataclass
+class HostExecutionBridge:
+    """Adapter-facing bridge for host-owned Python execution.
+
+    The bridge is the single Python object adapters can keep around for
+    in-process skill scripts and direct callable dispatch. It deliberately
+    wraps the existing ``set_in_process_executor`` callable contract so
+    current Rust/PyO3 wiring remains unchanged while adapters get one
+    concept to configure.
+    """
+
+    dispatcher: BaseDccCallableDispatcher | None = None
+    runner: Callable[[str, Mapping[str, Any]], Any] | None = None
+    default_thread_affinity: str = "any"
+    default_execution: str = "sync"
+    default_timeout_hint_secs: int | None = None
+
+    def execution_context(
+        self,
+        *,
+        action_name: str = "",
+        skill_name: str | None = None,
+        thread_affinity: str | None = None,
+        execution: str | None = None,
+        timeout_hint_secs: int | None = None,
+    ) -> InProcessExecutionContext:
+        """Build the normalized metadata envelope passed to dispatchers."""
+        return _context_from_kwargs(
+            action_name=action_name,
+            skill_name=skill_name,
+            thread_affinity=thread_affinity or self.default_thread_affinity,
+            execution=execution or self.default_execution,
+            timeout_hint_secs=timeout_hint_secs if timeout_hint_secs is not None else self.default_timeout_hint_secs,
+        )
+
+    def dispatch_callable(
+        self,
+        func: Callable[..., Any],
+        *args: Any,
+        action_name: str = "",
+        skill_name: str | None = None,
+        thread_affinity: str | None = None,
+        execution: str | None = None,
+        timeout_hint_secs: int | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Run a Python callable through the configured host dispatcher."""
+        context = self.execution_context(
+            action_name=action_name,
+            skill_name=skill_name,
+            thread_affinity=thread_affinity,
+            execution=execution,
+            timeout_hint_secs=timeout_hint_secs,
+        )
+
+        def _invoke(*_args: Any, **_kwargs: Any) -> Any:
+            return func(*args, **kwargs)
+
+        try:
+            if self.dispatcher is None:
+                return _invoke()
+            return self.dispatcher.dispatch_callable(
+                _invoke,
+                affinity=context.thread_affinity,
+                context=context,
+                action_name=context.action_name,
+                skill_name=context.skill_name,
+                execution=context.execution,
+                timeout_hint_secs=context.timeout_hint_secs,
+            )
+        except Exception as exc:
+            logger.exception("Host callable %s failed", getattr(func, "__name__", repr(func)))
+            return exception_to_error_envelope(exc)
+
+    def execute_script(
+        self,
+        script_path: str,
+        params: Mapping[str, Any],
+        *,
+        action_name: str = "",
+        skill_name: str | None = None,
+        thread_affinity: str | None = None,
+        execution: str | None = None,
+        timeout_hint_secs: int | None = None,
+    ) -> Any:
+        """Execute a skill script using the same bridge as direct callables."""
+        return self.dispatch_callable(
+            self.runner or run_skill_script,
+            script_path,
+            params,
+            action_name=action_name,
+            skill_name=skill_name,
+            thread_affinity=thread_affinity,
+            execution=execution,
+            timeout_hint_secs=timeout_hint_secs,
+        )
+
+    def as_inprocess_executor(self) -> Callable[..., Any]:
+        """Return the callable expected by ``set_in_process_executor``."""
+
+        def _executor(
+            script_path: str,
+            params: Mapping[str, Any],
+            *,
+            action_name: str = "",
+            skill_name: str | None = None,
+            thread_affinity: str = "any",
+            execution: str = "sync",
+            timeout_hint_secs: int | None = None,
+        ) -> Any:
+            return self.execute_script(
+                script_path,
+                params,
+                action_name=action_name,
+                skill_name=skill_name,
+                thread_affinity=thread_affinity,
+                execution=execution,
+                timeout_hint_secs=timeout_hint_secs,
+            )
+
+        return _executor
+
+
 def run_skill_script(script_path: str, params: Mapping[str, Any]) -> Any:
     """Lazy-import a skill script and call its ``main(**params)``.
 
@@ -218,66 +342,4 @@ def build_inprocess_executor(
         two-argument callers remain supported because all metadata is optional.
 
     """
-    if dispatcher is None:
-
-        def _inline(
-            script_path: str,
-            params: Mapping[str, Any],
-            *,
-            action_name: str = "",
-            skill_name: str | None = None,
-            thread_affinity: str = "any",
-            execution: str = "sync",
-            timeout_hint_secs: int | None = None,
-        ) -> Any:
-            try:
-                _context_from_kwargs(
-                    action_name=action_name,
-                    skill_name=skill_name,
-                    thread_affinity=thread_affinity,
-                    execution=execution,
-                    timeout_hint_secs=timeout_hint_secs,
-                )
-                return runner(script_path, params)
-            except Exception as exc:
-                logger.exception("In-process skill %s failed", script_path)
-                return exception_to_error_envelope(exc)
-
-        return _inline
-
-    def _routed(
-        script_path: str,
-        params: Mapping[str, Any],
-        *,
-        action_name: str = "",
-        skill_name: str | None = None,
-        thread_affinity: str = "any",
-        execution: str = "sync",
-        timeout_hint_secs: int | None = None,
-    ) -> Any:
-        context = _context_from_kwargs(
-            action_name=action_name,
-            skill_name=skill_name,
-            thread_affinity=thread_affinity,
-            execution=execution,
-            timeout_hint_secs=timeout_hint_secs,
-        )
-
-        def _invoke(*_args: Any, **_kwargs: Any) -> Any:
-            return runner(script_path, params)
-
-        try:
-            return dispatcher.dispatch_callable(
-                _invoke,
-                affinity=context.thread_affinity,
-                context=context,
-                action_name=context.action_name,
-                skill_name=context.skill_name,
-                execution=context.execution,
-                timeout_hint_secs=context.timeout_hint_secs,
-            )
-        except Exception as exc:
-            logger.exception("In-process skill %s failed via dispatcher", script_path)
-            return exception_to_error_envelope(exc)
-
-    return _routed
+    return HostExecutionBridge(dispatcher=dispatcher, runner=runner).as_inprocess_executor()

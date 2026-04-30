@@ -14,6 +14,7 @@ import pytest
 # Import local modules
 import dcc_mcp_core
 from dcc_mcp_core._server.inprocess_executor import BaseDccCallableDispatcher
+from dcc_mcp_core._server.inprocess_executor import HostExecutionBridge
 from dcc_mcp_core._server.inprocess_executor import InProcessExecutionContext
 from dcc_mcp_core._server.inprocess_executor import build_inprocess_executor
 from dcc_mcp_core._server.inprocess_executor import exception_to_error_envelope
@@ -25,6 +26,8 @@ from dcc_mcp_core._server.inprocess_executor import run_skill_script
 def test_base_dispatcher_exported_from_top_level() -> None:
     assert hasattr(dcc_mcp_core, "BaseDccCallableDispatcher")
     assert "BaseDccCallableDispatcher" in dcc_mcp_core.__all__
+    assert hasattr(dcc_mcp_core, "HostExecutionBridge")
+    assert "HostExecutionBridge" in dcc_mcp_core.__all__
     assert hasattr(dcc_mcp_core, "InProcessExecutionContext")
     assert "InProcessExecutionContext" in dcc_mcp_core.__all__
 
@@ -32,11 +35,13 @@ def test_base_dispatcher_exported_from_top_level() -> None:
 def test_helpers_exported_from_underscore_server() -> None:
     # Import local modules
     from dcc_mcp_core._server import BaseDccCallableDispatcher as B
+    from dcc_mcp_core._server import HostExecutionBridge as HEB
     from dcc_mcp_core._server import InProcessExecutionContext as IEC
     from dcc_mcp_core._server import build_inprocess_executor as BIE
     from dcc_mcp_core._server import run_skill_script as RSS
 
     assert B is BaseDccCallableDispatcher
+    assert HEB is HostExecutionBridge
     assert BIE is build_inprocess_executor
     assert IEC is InProcessExecutionContext
     assert RSS is run_skill_script
@@ -261,6 +266,68 @@ def test_executor_passes_execution_context_to_dispatcher() -> None:
     )
 
 
+# ── HostExecutionBridge ─────────────────────────────────────────────────────
+
+
+def test_host_execution_bridge_executes_script_inline(tmp_path: Path) -> None:
+    p = _write_script(tmp_path, "def main(x): return {'value': x + 2}\n")
+    bridge = HostExecutionBridge()
+
+    assert bridge.execute_script(str(p), {"x": 40}) == {"value": 42}
+
+
+def test_host_execution_bridge_routes_direct_callable_with_context() -> None:
+    class _DispatcherSpy:
+        def __init__(self) -> None:
+            self.kwargs: dict[str, Any] = {}
+
+        def dispatch_callable(
+            self,
+            func: Callable[..., Any],
+            *args: Any,
+            **kwargs: Any,
+        ) -> Any:
+            self.kwargs = kwargs
+            return func(*args, **kwargs)
+
+    spy = _DispatcherSpy()
+    bridge = HostExecutionBridge(dispatcher=spy)
+
+    result = bridge.dispatch_callable(
+        lambda value: value * 2,
+        21,
+        action_name="demo__call",
+        skill_name="demo",
+        thread_affinity="main",
+        execution="async",
+        timeout_hint_secs=10,
+    )
+
+    assert result == 42
+    assert spy.kwargs["affinity"] == "main"
+    assert spy.kwargs["context"] == InProcessExecutionContext(
+        action_name="demo__call",
+        skill_name="demo",
+        thread_affinity="main",
+        execution="async",
+        timeout_hint_secs=10,
+    )
+
+
+def test_host_execution_bridge_as_inprocess_executor_uses_runner() -> None:
+    seen: list[tuple[str, Mapping[str, Any]]] = []
+
+    def _fake_runner(script_path: str, params: Mapping[str, Any]) -> dict[str, Any]:
+        seen.append((script_path, params))
+        return {"ok": True}
+
+    bridge = HostExecutionBridge(runner=_fake_runner)
+    executor = bridge.as_inprocess_executor()
+
+    assert executor("/tmp/skill.py", {"k": "v"}) == {"ok": True}
+    assert seen == [("/tmp/skill.py", {"k": "v"})]
+
+
 # ── DccServerBase.register_inprocess_executor integration ───────────────────
 
 
@@ -360,6 +427,42 @@ def test_dcc_server_base_constructor_registers_dispatcher_before_discovery(
         tmp_path,
         port=0,
         dispatcher=_Dispatcher(),
+        enable_file_logging=False,
+        enable_job_persistence=False,
+        enable_telemetry=False,
+    )
+    base.register_builtin_actions(include_bundled=False)
+
+    assert events == ["set_in_process_executor", "discover"]
+
+
+def test_dcc_server_base_constructor_registers_execution_bridge_before_discovery(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Import local modules
+    from dcc_mcp_core.server_base import DccServerBase
+
+    events: list[str] = []
+
+    class _Server:
+        def set_in_process_executor(self, executor: Callable[..., Any]) -> None:
+            events.append("set_in_process_executor")
+            self.executor = executor
+
+        def discover(self, extra_paths: list[str]) -> int:
+            events.append("discover")
+            return len(extra_paths)
+
+    fake_server = _Server()
+    monkeypatch.setattr(dcc_mcp_core, "create_skill_server", lambda *_args, **_kwargs: fake_server)
+
+    bridge = HostExecutionBridge()
+    base = DccServerBase(
+        "test_host_bridge_ctor",
+        tmp_path,
+        port=0,
+        execution_bridge=bridge,
         enable_file_logging=False,
         enable_job_persistence=False,
         enable_telemetry=False,
