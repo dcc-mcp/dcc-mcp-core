@@ -5,15 +5,43 @@
 # relevant test file (split from the original test_integration_dcc.py).
 #
 # Triggered by:
-#   - Push / PR to main (same as core CI, but independent)
+#   - Push / PR to main when DCC-relevant files change
 #   - Manual dispatch (useful for running a subset via workflow_dispatch)
 #   - workflow_call (invoked from release.yml or other workflows)
 
 on:
   push:
     branches: [main]
+    paths:
+      - ".github/actions/build-wheel/**"
+      - ".github/workflows/dcc-integration.yml"
+      - "crates/**"
+      - "examples/**"
+      - "python/**"
+      - "skills/**"
+      - "tests/conftest.py"
+      - "tests/test_integration_dcc_*.py"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "justfile"
+      - "pyproject.toml"
+      - "vx.toml"
   pull_request:
     branches: [main]
+    paths:
+      - ".github/actions/build-wheel/**"
+      - ".github/workflows/dcc-integration.yml"
+      - "crates/**"
+      - "examples/**"
+      - "python/**"
+      - "skills/**"
+      - "tests/conftest.py"
+      - "tests/test_integration_dcc_*.py"
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "justfile"
+      - "pyproject.toml"
+      - "vx.toml"
   workflow_dispatch:
     inputs:
       dcc:

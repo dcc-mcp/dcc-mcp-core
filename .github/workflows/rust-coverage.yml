@@ -1,0 +1,50 @@
+name: Rust Coverage
+
+# Coverage is a trend signal uploaded to Codecov. Keep it out of PR merge
+# gates unless the repository adds an explicit coverage threshold.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: "41 3 * * 1"
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust-coverage:
+    name: Rust coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: loonghao/vx@v0.8.33
+      - name: Cache Cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: tarpaulin
+      - name: Install cargo-tarpaulin
+        # cargo-tarpaulin >=0.35 pulls in cargo-platform@0.3.3 (rust-version=1.91).
+        # Use taiki-e/install-action to download prebuilt binaries instead of
+        # compiling from source, avoiding rustc version constraints entirely.
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-tarpaulin
+      - name: Run Rust coverage
+        run: vx just rust-cov
+      - name: Upload Rust coverage to Codecov
+        uses: codecov/codecov-action@v6
+        with:
+          files: coverage/cobertura.xml
+          flags: rust
+          name: rust-coverage
+          use_oidc: true
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false

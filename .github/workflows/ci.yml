@@ -6,8 +6,16 @@ name: CI
 on:
   pull_request:
     branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - "llms*.txt"
   push:
     branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - "llms*.txt"
 
 permissions:
   contents: read
@@ -42,43 +50,6 @@ jobs:
       - name: Preflight (check + clippy + fmt + test)
         run: vx just preflight
 
-  # ── Rust code coverage (tarpaulin, Linux only) ──
-  rust-coverage:
-    name: Rust coverage
-    needs: [rust-check]
-    runs-on: ubuntu-latest
-    # id-token: write is required for Codecov tokenless OIDC upload on
-    # protected branches. See https://docs.codecov.com/docs/codecov-tokens
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: loonghao/vx@v0.8.33
-      - name: Cache Cargo
-        uses: Swatinem/rust-cache@v2
-        with:
-          key: tarpaulin
-      - name: Install cargo-tarpaulin
-        # cargo-tarpaulin >=0.35 pulls in cargo-platform@0.3.3 (rust-version=1.91).
-        # Use taiki-e/install-action to download prebuilt binaries instead of
-        # compiling from source, avoiding rustc version constraints entirely.
-        uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-tarpaulin
-      - name: Run Rust coverage
-        run: vx just rust-cov
-      - name: Upload Rust coverage to Codecov
-        uses: codecov/codecov-action@v6
-        with:
-          files: coverage/cobertura.xml
-          flags: rust
-          name: rust-coverage
-          use_oidc: ${{ !(github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) }}
-          token: ${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: false
-
   # ── Build ABI3 wheel (one per OS, reused by python-test) ──
   build-wheel:
     name: Build wheel (${{ matrix.os }})
@@ -105,6 +76,7 @@ jobs:
           name: wheel-${{ matrix.os }}
           # `vx just build` outputs to `dist/` (see root justfile `build` recipe)
           path: dist/*.whl
+          retention-days: 1
 
   # ── Python tests: matrix over OS × Python versions ──
   python-test:
@@ -226,7 +198,7 @@ jobs:
       # Install mcporter globally to avoid per-test npx download timeouts.
       # The global binary is detected by the test suite and used directly.
       - name: Install mcporter globally
-        run: npm install -g mcporter
+        run: npm install -g mcporter@0.9.0
         shell: bash
 
       - name: Verify mcporter
