@@ -42,7 +42,7 @@
 | Layer | File | When to read it |
 |-------|------|-----------------|
 | Navigation | `AGENTS.md` (this file) | First contact |
-| AI agent entry points | `CLAUDE.md`, `GEMINI.md`, `COPILOT.md` | Agent-specific onboarding (reference this file) |
+| AI agent entry points | `CLAUDE.md`, `GEMINI.md`, `COPILOT.md`, `CODEBUDDY.md` | Agent-specific onboarding (reference this file) |
 | AI-friendly index | `llms.txt` | When you need to *use* APIs |
 | Full index | `llms-full.txt` | When `llms.txt` lacks detail |
 | Detailed rules | [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md) | Before writing code — traps, do/don't, code style |
