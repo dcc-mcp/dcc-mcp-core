@@ -23,7 +23,10 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use axum::{Json, Router, routing::post};
+use axum::{
+    Json, Router,
+    routing::{get, post},
+};
 use serde_json::{Value, json};
 use tokio::sync::{RwLock, broadcast, watch};
 
@@ -93,13 +96,15 @@ async fn spawn_slow_backend(delay: Duration) -> u16 {
         }))
     }
 
-    let app = Router::new().route("/mcp", post(handler)).with_state(delay);
+    let app = Router::new()
+        .route("/health", get(|| async { "ok" }))
+        .route("/mcp", post(handler))
+        .with_state(delay);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     tokio::spawn(async move {
         axum::serve(listener, app).await.ok();
     });
-    // Give the listener a beat to start accepting before the test dials it.
     tokio::time::sleep(Duration::from_millis(25)).await;
     port
 }

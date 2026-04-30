@@ -23,13 +23,18 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::{Json, Router, routing::post};
+use axum::{
+    Json, Router,
+    routing::{get, post},
+};
 use serde_json::{Value, json};
 use tokio::sync::{RwLock, broadcast, watch};
 
+use dcc_mcp_actions::{ActionDispatcher, ActionMeta, ActionRegistry};
 use dcc_mcp_http::gateway::aggregator::{aggregate_tools_list, route_tools_call};
 use dcc_mcp_http::gateway::sse_subscriber::SubscriberManager;
 use dcc_mcp_http::gateway::state::GatewayState;
+use dcc_mcp_http::{McpHttpConfig, McpHttpServer, McpServerHandle};
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
 use dcc_mcp_transport::discovery::types::ServiceEntry;
 
@@ -71,17 +76,59 @@ async fn make_state(
 /// Spawn a backend that always replies `{pending, job_id: "job-1"}` for
 /// `tools/call`, optionally sleeping for `delay` first. `tools/list`
 /// returns a single `slow_tool` so the gateway's prefix-match succeeds.
-async fn spawn_pending_backend(delay: Duration) -> u16 {
-    #[derive(Clone)]
-    struct State {
-        delay: Duration,
-    }
+async fn spawn_pending_backend(delay: Duration) -> McpServerHandle {
+    let registry = Arc::new(ActionRegistry::new());
+    registry.register_action(ActionMeta {
+        name: "slow_tool".into(),
+        description: "slow".into(),
+        category: "test".into(),
+        version: "1.0.0".into(),
+        ..Default::default()
+    });
+    let dispatcher = Arc::new(ActionDispatcher::new((*registry).clone()));
+    dispatcher.register_handler("slow_tool", move |_params| {
+        std::thread::sleep(delay);
+        Ok(json!({
+            "job_id": "job-1",
+            "status": "pending",
+            "_meta": {"dcc": {"jobId": "job-1"}}
+        }))
+    });
 
+    McpHttpServer::new(
+        registry,
+        McpHttpConfig::new(0).with_name("pending-real-backend"),
+    )
+    .with_dispatcher(dispatcher)
+    .start()
+    .await
+    .expect("real pending backend must start")
+}
+
+async fn register_backend(registry: &Arc<RwLock<FileRegistry>>, port: u16) -> ServiceEntry {
+    let entry = ServiceEntry::new("maya", "127.0.0.1", port);
+    let reg = registry.read().await;
+    reg.register(entry.clone()).unwrap();
+    entry
+}
+
+async fn register_backend_with_dcc(
+    registry: &Arc<RwLock<FileRegistry>>,
+    port: u16,
+    dcc: &str,
+) -> ServiceEntry {
+    let entry = ServiceEntry::new(dcc, "127.0.0.1", port);
+    let reg = registry.read().await;
+    reg.register(entry.clone()).unwrap();
+    entry
+}
+
+async fn spawn_mock_pending_backend(delay: Duration) -> u16 {
     async fn handler(
-        axum::extract::State(s): axum::extract::State<State>,
+        axum::extract::State(delay): axum::extract::State<Duration>,
         Json(req): Json<Value>,
     ) -> Json<Value> {
-        tokio::time::sleep(s.delay).await;
+        tokio::time::sleep(delay).await;
         let id = req.get("id").cloned().unwrap_or(Value::Null);
         let method = req
             .get("method")
@@ -121,8 +168,9 @@ async fn spawn_pending_backend(delay: Duration) -> u16 {
     }
 
     let app = Router::new()
+        .route("/health", get(|| async { "ok" }))
         .route("/mcp", post(handler))
-        .with_state(State { delay });
+        .with_state(delay);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     tokio::spawn(async move {
@@ -132,25 +180,7 @@ async fn spawn_pending_backend(delay: Duration) -> u16 {
     port
 }
 
-async fn register_backend(registry: &Arc<RwLock<FileRegistry>>, port: u16) -> ServiceEntry {
-    let entry = ServiceEntry::new("maya", "127.0.0.1", port);
-    let reg = registry.read().await;
-    reg.register(entry.clone()).unwrap();
-    entry
-}
-
-async fn register_backend_with_dcc(
-    registry: &Arc<RwLock<FileRegistry>>,
-    port: u16,
-    dcc: &str,
-) -> ServiceEntry {
-    let entry = ServiceEntry::new(dcc, "127.0.0.1", port);
-    let reg = registry.read().await;
-    reg.register(entry.clone()).unwrap();
-    entry
-}
-
-async fn spawn_skill_backend(dcc: &str, skill_name: &str) -> u16 {
+async fn spawn_mock_skill_backend(dcc: &str, skill_name: &str) -> u16 {
     #[derive(Clone)]
     struct State {
         dcc: String,
@@ -216,6 +246,7 @@ async fn spawn_skill_backend(dcc: &str, skill_name: &str) -> u16 {
     }
 
     let app = Router::new()
+        .route("/health", get(|| async { "ok" }))
         .route("/mcp", post(handler))
         .with_state(State {
             dcc: dcc.to_string(),
@@ -240,14 +271,14 @@ fn encoded_tool_name(instance_id: uuid::Uuid, tool: &str) -> String {
 
 #[tokio::test]
 async fn single_backend_tools_list_publishes_bare_alias() {
-    let port = spawn_pending_backend(Duration::ZERO).await;
+    let backend = spawn_pending_backend(Duration::ZERO).await;
     let (state, registry, _tmp) = make_state(
         Duration::from_secs(1),
         Duration::from_secs(1),
         Duration::from_secs(1),
     )
     .await;
-    let entry = register_backend(&registry, port).await;
+    let entry = register_backend(&registry, backend.port).await;
     let encoded = encoded_tool_name(entry.instance_id, "slow_tool");
 
     let result = aggregate_tools_list(&state, None).await;
@@ -270,14 +301,14 @@ async fn single_backend_tools_list_publishes_bare_alias() {
 
 #[tokio::test]
 async fn single_backend_tools_call_accepts_bare_name() {
-    let port = spawn_pending_backend(Duration::ZERO).await;
+    let backend = spawn_pending_backend(Duration::ZERO).await;
     let (state, registry, _tmp) = make_state(
         Duration::from_secs(1),
         Duration::from_secs(1),
         Duration::from_secs(1),
     )
     .await;
-    register_backend(&registry, port).await;
+    register_backend(&registry, backend.port).await;
 
     let (text, is_error) = route_tools_call(
         &state,
@@ -295,16 +326,16 @@ async fn single_backend_tools_call_accepts_bare_name() {
 
 #[tokio::test]
 async fn multiple_backends_keep_bare_name_ambiguous() {
-    let port_a = spawn_pending_backend(Duration::ZERO).await;
-    let port_b = spawn_pending_backend(Duration::ZERO).await;
+    let backend_a = spawn_pending_backend(Duration::ZERO).await;
+    let backend_b = spawn_pending_backend(Duration::ZERO).await;
     let (state, registry, _tmp) = make_state(
         Duration::from_secs(1),
         Duration::from_secs(1),
         Duration::from_secs(1),
     )
     .await;
-    register_backend(&registry, port_a).await;
-    register_backend(&registry, port_b).await;
+    register_backend(&registry, backend_a.port).await;
+    register_backend(&registry, backend_b.port).await;
 
     let result = aggregate_tools_list(&state, None).await;
     let names: Vec<&str> = result["tools"]
@@ -336,8 +367,8 @@ async fn multiple_backends_keep_bare_name_ambiguous() {
 
 #[tokio::test]
 async fn search_skills_returns_flat_gateway_skill_list() {
-    let maya_port = spawn_skill_backend("maya", "maya-python").await;
-    let blender_port = spawn_skill_backend("blender", "blender-python").await;
+    let maya_port = spawn_mock_skill_backend("maya", "maya-python").await;
+    let blender_port = spawn_mock_skill_backend("blender", "blender-python").await;
     let (state, registry, _tmp) = make_state(
         Duration::from_secs(1),
         Duration::from_secs(1),
@@ -377,7 +408,7 @@ async fn search_skills_returns_flat_gateway_skill_list() {
 
 #[tokio::test]
 async fn list_skills_returns_flat_gateway_skill_list() {
-    let port = spawn_skill_backend("maya", "maya-modeling").await;
+    let port = spawn_mock_skill_backend("maya", "maya-modeling").await;
     let (state, registry, _tmp) = make_state(
         Duration::from_secs(1),
         Duration::from_secs(1),
@@ -412,7 +443,7 @@ async fn list_skills_returns_flat_gateway_skill_list() {
 /// as it stays under `async_dispatch_timeout`.
 #[tokio::test]
 async fn async_dispatch_respects_longer_timeout() {
-    let port = spawn_pending_backend(Duration::from_millis(250)).await;
+    let backend = spawn_pending_backend(Duration::from_millis(250)).await;
     // Short sync timeout (100 ms) — would fail — but async timeout is 1s.
     let (state, registry, _tmp) = make_state(
         Duration::from_millis(100),
@@ -420,7 +451,7 @@ async fn async_dispatch_respects_longer_timeout() {
         Duration::from_secs(5),
     )
     .await;
-    let entry = register_backend(&registry, port).await;
+    let entry = register_backend(&registry, backend.port).await;
     let tool = encoded_tool_name(entry.instance_id, "slow_tool");
     let args = json!({});
     let meta = json!({"dcc": {"async": true}});
@@ -445,14 +476,14 @@ async fn async_dispatch_respects_longer_timeout() {
 /// proving the async path took the longer timeout, not the shared one.
 #[tokio::test]
 async fn sync_call_still_uses_short_backend_timeout() {
-    let port = spawn_pending_backend(Duration::from_millis(250)).await;
+    let backend = spawn_pending_backend(Duration::from_millis(250)).await;
     let (state, registry, _tmp) = make_state(
         Duration::from_millis(100),
         Duration::from_secs(1),
         Duration::from_secs(5),
     )
     .await;
-    let entry = register_backend(&registry, port).await;
+    let entry = register_backend(&registry, backend.port).await;
     let tool = encoded_tool_name(entry.instance_id, "slow_tool");
     let args = json!({});
 
@@ -479,7 +510,7 @@ async fn sync_call_still_uses_short_backend_timeout() {
 /// published, and the final envelope carries the backend's `result`.
 #[tokio::test]
 async fn wait_for_terminal_returns_completed_envelope() {
-    let port = spawn_pending_backend(Duration::ZERO).await;
+    let port = spawn_mock_pending_backend(Duration::ZERO).await;
     let (state, registry, _tmp) = make_state(
         Duration::from_secs(1),
         Duration::from_secs(5),
@@ -529,7 +560,7 @@ async fn wait_for_terminal_returns_completed_envelope() {
 /// with `isError=true` and a wait_for_terminal timeout message.
 #[tokio::test]
 async fn wait_for_terminal_times_out_with_timed_out_flag() {
-    let port = spawn_pending_backend(Duration::ZERO).await;
+    let port = spawn_mock_pending_backend(Duration::ZERO).await;
     let (state, registry, _tmp) = make_state(
         Duration::from_secs(1),
         Duration::from_secs(5),
@@ -572,7 +603,7 @@ async fn wait_for_terminal_times_out_with_timed_out_flag() {
 /// assert we still observe completion.
 #[tokio::test]
 async fn wait_for_terminal_no_race_on_fast_completion() {
-    let port = spawn_pending_backend(Duration::ZERO).await;
+    let port = spawn_mock_pending_backend(Duration::ZERO).await;
     let (state, registry, _tmp) = make_state(
         Duration::from_secs(1),
         Duration::from_secs(5),

@@ -1,7 +1,8 @@
 //! The main `McpHttpServer` type.
 
-use axum::{Router, routing};
+use axum::{Json, Router, routing};
 use parking_lot::RwLock;
+use serde_json::json;
 use std::sync::Arc;
 use tokio::{net::TcpListener, sync::watch, task::JoinHandle};
 use tower_http::cors::{Any, CorsLayer};
@@ -417,6 +418,10 @@ impl McpHttpServer {
         let endpoint = self.config.endpoint_path.clone();
 
         let mut router = Router::new()
+            .route(
+                "/health",
+                routing::get(|| async { Json(json!({"ok": true, "service": "dcc-mcp-http"})) }),
+            )
             .route(
                 &endpoint,
                 routing::post(handle_post)
