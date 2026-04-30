@@ -206,6 +206,7 @@ class DccServerBase:
             self._config.scene = scene
         # Always stamp the DCC type so gateway registry knows which DCC this is
         self._config.dcc_type = dcc_name
+        self._config.instance_metadata = self._context_metadata_from_env(dcc_name)
 
         # ── Job persistence ───────────────────────────────────────────────────
         # Wire a per-DCC SQLite database for job history so that tool-call
@@ -254,6 +255,35 @@ class DccServerBase:
             self.__dict__[name] = resolver
             return resolver
         raise AttributeError(name)
+
+    @staticmethod
+    def _context_metadata_from_env(dcc_name: str) -> dict[str, str]:
+        """Collect Rez-resolved context metadata for gateway discovery."""
+        env_map = {
+            "context_bundle": "DCC_MCP_CONTEXT_BUNDLE",
+            "production_domain": "DCC_MCP_PRODUCTION_DOMAIN",
+            "context_kind": "DCC_MCP_CONTEXT_KIND",
+            "project": "DCC_MCP_PROJECT",
+            "sequence": "DCC_MCP_SEQUENCE",
+            "shot": "DCC_MCP_SHOT",
+            "asset": "DCC_MCP_ASSET",
+            "asset_type": "DCC_MCP_ASSET_TYPE",
+            "task": "DCC_MCP_TASK",
+            "toolset_profile": "DCC_MCP_TOOLSET_PROFILE",
+            "package_provenance": "DCC_MCP_PACKAGE_PROVENANCE",
+            "skill_paths": "DCC_MCP_SKILL_PATHS",
+            "resource_paths": "DCC_MCP_RESOURCE_PATHS",
+            "prompt_paths": "DCC_MCP_PROMPT_PATHS",
+        }
+        metadata: dict[str, str] = {}
+        for key, env_name in env_map.items():
+            value = os.environ.get(env_name, "")
+            if value:
+                metadata[key] = value
+        dcc_skill_paths = os.environ.get(f"DCC_MCP_{dcc_name.upper()}_SKILL_PATHS", "")
+        if dcc_skill_paths:
+            metadata["dcc_skill_paths"] = dcc_skill_paths
+        return metadata
 
     # ── observability helpers (delegated to collaborators, #486) ──────────────
 

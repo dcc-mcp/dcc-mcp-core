@@ -1,0 +1,14 @@
+tools:
+  - name: review_product_render
+    description: Summarize product render readiness and missing lookdev inputs
+    group: review
+    input_schema:
+      type: object
+      properties:
+        asset:
+          type: string
+          description: Product asset name
+    read_only: true
+    destructive: false
+    idempotent: true
+    source_file: scripts/review_product_render.py

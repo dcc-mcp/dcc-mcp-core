@@ -1,5 +1,6 @@
 //! Server configuration.
 
+use std::collections::HashMap;
 use std::net::IpAddr;
 use std::path::PathBuf;
 
@@ -146,6 +147,13 @@ pub struct McpHttpConfig {
 
     /// Currently open scene/file. Improves routing accuracy.
     pub scene: Option<String>,
+
+    /// Arbitrary instance metadata recorded in FileRegistry.
+    ///
+    /// Rez/package launchers use this for context-bundle fields such as
+    /// `context_bundle`, `production_domain`, `context_kind`, `project`,
+    /// `task`, `toolset_profile`, and `package_provenance`.
+    pub instance_metadata: HashMap<String, String>,
 
     // ── Experimental: lazy-actions fast-path (#254) ───────────────────────
     /// Enable the opt-in lazy-actions meta-tools: ``list_actions``,
@@ -493,6 +501,7 @@ impl McpHttpConfig {
             dcc_type: None,
             dcc_version: None,
             scene: None,
+            instance_metadata: HashMap::new(),
             lazy_actions: false,
             bare_tool_names: true,
             spawn_mode: ServerSpawnMode::Ambient,
@@ -533,6 +542,20 @@ impl McpHttpConfig {
     /// servers (issue maya#137).
     pub fn with_adapter_dcc(mut self, dcc: impl Into<String>) -> Self {
         self.adapter_dcc = Some(dcc.into());
+        self
+    }
+
+    /// Builder: attach context/provenance metadata to the FileRegistry row.
+    pub fn with_instance_metadata<I, K, V>(mut self, metadata: I) -> Self
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: Into<String>,
+        V: Into<String>,
+    {
+        self.instance_metadata = metadata
+            .into_iter()
+            .map(|(key, value)| (key.into(), value.into()))
+            .collect();
         self
     }
 

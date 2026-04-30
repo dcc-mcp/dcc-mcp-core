@@ -1,0 +1,14 @@
+tools:
+  - name: summarize_blocking
+    description: Summarize shot blocking status from a Maya animation scene
+    group: review
+    input_schema:
+      type: object
+      properties:
+        shot:
+          type: string
+          description: Shot identifier
+    read_only: true
+    destructive: false
+    idempotent: true
+    source_file: scripts/summarize_blocking.py

@@ -1,0 +1,7 @@
+prompts:
+  - name: review_level_layout
+    description: Review game level layout readiness.
+    arguments: []
+    messages:
+      - role: user
+        content: "Summarize placement, scale, collision, navmesh, and gameplay-space risks."

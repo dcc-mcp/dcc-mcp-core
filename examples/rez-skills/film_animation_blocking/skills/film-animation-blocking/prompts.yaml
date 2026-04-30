@@ -1,0 +1,7 @@
+prompts:
+  - name: review_animation_blocking
+    description: Review a Maya shot blocking pass.
+    arguments: []
+    messages:
+      - role: user
+        content: "Summarize blocking clarity, timeline range, pose coverage, and playblast follow-ups."

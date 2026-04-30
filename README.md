@@ -53,6 +53,14 @@ We **reuse and extend** the existing MCP ecosystem, adding:
 
 This isn't reinventing MCP — it's **solving MCP's blind spots for desktop automation**.
 
+For production pipelines, skills can be distributed as Rez packages and composed
+into context bundles before a DCC starts. A resolved launch context sets
+`DCC_MCP_*` environment variables for project, task, asset, provenance, and
+skill paths; the adapter records those values in gateway metadata so clients
+discover only the active project/task/asset surface instead of every studio
+tool. See [Context Bundles](docs/guide/context-bundles.md) and
+[Rez Skill Packages](docs/guide/rez-skill-packages.md).
+
 ---
 
 ## Why dcc-mcp-core Over Alternatives?

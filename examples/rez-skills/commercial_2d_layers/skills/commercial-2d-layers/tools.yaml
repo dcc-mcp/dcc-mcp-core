@@ -1,0 +1,14 @@
+tools:
+  - name: summarize_layers
+    description: Summarize layer groups and naming risks for a Photoshop deliverable
+    group: review
+    input_schema:
+      type: object
+      properties:
+        document:
+          type: string
+          description: Optional document path or display name
+    read_only: true
+    destructive: false
+    idempotent: true
+    source_file: scripts/summarize_layers.py

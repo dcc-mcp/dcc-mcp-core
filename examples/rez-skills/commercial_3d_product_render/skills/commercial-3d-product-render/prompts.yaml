@@ -1,0 +1,7 @@
+prompts:
+  - name: review_product_lookdev
+    description: Review product render readiness.
+    arguments: []
+    messages:
+      - role: user
+        content: "Summarize camera, material, lighting, and render-preview readiness for this product."

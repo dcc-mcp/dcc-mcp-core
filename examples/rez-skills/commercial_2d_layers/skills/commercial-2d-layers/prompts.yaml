@@ -1,0 +1,7 @@
+prompts:
+  - name: review_layer_handoff
+    description: Review a Photoshop layer stack for motion handoff.
+    arguments: []
+    messages:
+      - role: user
+        content: "Summarize layer groups, naming risks, and export notes for this deliverable."

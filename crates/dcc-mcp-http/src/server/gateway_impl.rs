@@ -56,6 +56,7 @@ pub(crate) async fn start_gateway_runner(
         .adapter_dcc
         .clone()
         .or_else(|| config.dcc_type.clone());
+    entry.metadata = config.instance_metadata.clone();
 
     let metadata_provider = Some(build_metadata_provider(Arc::clone(live_meta)));
     match runner.start(entry, metadata_provider).await {

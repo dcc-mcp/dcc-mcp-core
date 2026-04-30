@@ -1,0 +1,7 @@
+prompts:
+  - name: review_fx_cache
+    description: Review FX cache readiness for a shot.
+    arguments: []
+    messages:
+      - role: user
+        content: "Summarize simulation status, cache versions, USD handoff risks, and visual-review needs."

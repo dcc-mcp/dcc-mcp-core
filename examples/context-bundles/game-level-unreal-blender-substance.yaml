@@ -1,0 +1,37 @@
+context_bundle: game-demo.level.city-block.layout
+production_domain: game
+context_kind: level
+project: game-demo
+asset: city-block
+task: level-layout
+dcc:
+  primary: unreal
+  companions: [blender, substance-painter]
+rez_packages:
+  - dcc_mcp_core
+  - dcc_mcp_unreal
+  - game_level_layout
+skill_paths:
+  shared: ["${REZ_GAME_LEVEL_LAYOUT_ROOT}/skills"]
+  unreal: ["${REZ_GAME_LEVEL_LAYOUT_ROOT}/skills"]
+toolset_profile: game-level-layout
+resources: ["${REZ_GAME_LEVEL_LAYOUT_ROOT}/resources"]
+prompts: ["${REZ_GAME_LEVEL_LAYOUT_ROOT}/prompts"]
+instructions: "Prefer placement, metrics, collision, and navmesh checks over render-only tools."
+response_policy:
+  max_text_chars: 9000
+  include_level_metrics: true
+visual_feedback:
+  capture_after_mutation: true
+  include_editor_viewport: true
+env:
+  DCC_MCP_CONTEXT_BUNDLE: game-demo.level.city-block.layout
+  DCC_MCP_PRODUCTION_DOMAIN: game
+  DCC_MCP_CONTEXT_KIND: level
+  DCC_MCP_PROJECT: game-demo
+  DCC_MCP_ASSET: city-block
+  DCC_MCP_TASK: level-layout
+  DCC_MCP_TOOLSET_PROFILE: game-level-layout
+  DCC_MCP_UNREAL_SKILL_PATHS: "${REZ_GAME_LEVEL_LAYOUT_ROOT}/skills"
+  DCC_MCP_PACKAGE_PROVENANCE: game_level_layout-1.0.0
+docs: ../../docs/guide/rez-skill-packages.md

@@ -20,6 +20,8 @@ document without scanning every file.
 | [thin-harness.md](thin-harness.md) | Thin-harness layer: `execute_python` + recipes pattern |
 | [mcp-skills-integration.md](mcp-skills-integration.md) | How skills integrate with the MCP HTTP server |
 | [skill-scopes-policies.md](skill-scopes-policies.md) | SkillScope (trust levels) and SkillPolicy |
+| [context-bundles.md](context-bundles.md) | Project/task/asset-specific skill loading via resolved launch context |
+| [rez-skill-packages.md](rez-skill-packages.md) | Rez package layout and env-var contract for distributing skills |
 
 ## MCP Server & HTTP
 

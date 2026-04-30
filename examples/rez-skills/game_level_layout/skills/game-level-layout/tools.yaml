@@ -1,0 +1,14 @@
+tools:
+  - name: summarize_level_layout
+    description: Summarize level-layout context and likely review checks
+    group: review
+    input_schema:
+      type: object
+      properties:
+        level:
+          type: string
+          description: Optional level name
+    read_only: true
+    destructive: false
+    idempotent: true
+    source_file: scripts/summarize_level_layout.py

@@ -1,0 +1,39 @@
+context_bundle: show-a.seq010.shot020.animation
+production_domain: film
+context_kind: shot
+project: show-a
+sequence: seq010
+shot: shot020
+task: animation
+dcc:
+  primary: maya
+  companions: [rv]
+rez_packages:
+  - dcc_mcp_core
+  - dcc_mcp_maya
+  - film_animation_blocking
+skill_paths:
+  shared: ["${REZ_FILM_ANIMATION_BLOCKING_ROOT}/skills"]
+  maya: ["${REZ_FILM_ANIMATION_BLOCKING_ROOT}/skills"]
+toolset_profile: film-shot-animation
+resources: ["${REZ_FILM_ANIMATION_BLOCKING_ROOT}/resources"]
+prompts: ["${REZ_FILM_ANIMATION_BLOCKING_ROOT}/prompts"]
+instructions: "Expose blocking, playblast, and selection tools; hide lighting and FX tools."
+response_policy:
+  max_text_chars: 8000
+  include_timeline_summary: true
+visual_feedback:
+  capture_after_mutation: true
+  include_playblast_reference: true
+env:
+  DCC_MCP_CONTEXT_BUNDLE: show-a.seq010.shot020.animation
+  DCC_MCP_PRODUCTION_DOMAIN: film
+  DCC_MCP_CONTEXT_KIND: shot
+  DCC_MCP_PROJECT: show-a
+  DCC_MCP_SEQUENCE: seq010
+  DCC_MCP_SHOT: shot020
+  DCC_MCP_TASK: animation
+  DCC_MCP_TOOLSET_PROFILE: film-shot-animation
+  DCC_MCP_MAYA_SKILL_PATHS: "${REZ_FILM_ANIMATION_BLOCKING_ROOT}/skills"
+  DCC_MCP_PACKAGE_PROVENANCE: film_animation_blocking-1.0.0
+docs: ../../docs/guide/rez-skill-packages.md

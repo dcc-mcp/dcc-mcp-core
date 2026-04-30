@@ -2,6 +2,7 @@
 
 use super::*;
 use dcc_mcp_pybridge::derive::PyWrapper;
+use std::collections::HashMap;
 
 /// Python-visible MCP HTTP server configuration.
 ///
@@ -346,6 +347,22 @@ impl PyMcpHttpConfig {
         self.inner.registry_dir = dir.map(std::path::PathBuf::from);
     }
 
+    /// Arbitrary FileRegistry metadata for this running instance.
+    ///
+    /// Rez launchers commonly set context fields such as ``context_bundle``,
+    /// ``production_domain``, ``context_kind``, ``project``, ``task``,
+    /// ``toolset_profile`` and ``package_provenance`` so gateway discovery can
+    /// route by the resolved package context.
+    #[getter]
+    fn instance_metadata(&self) -> HashMap<String, String> {
+        self.inner.instance_metadata.clone()
+    }
+
+    #[setter]
+    fn set_instance_metadata(&mut self, metadata: HashMap<String, String>) {
+        self.inner.instance_metadata = metadata;
+    }
+
     /// Listener spawn strategy (issue #303).
     ///
     /// - ``"ambient"`` — listener runs as ``tokio::spawn`` on the caller's
@@ -480,6 +497,7 @@ mod drift_tests {
         let _ = cfg.dcc_type();
         let _ = cfg.dcc_version();
         let _ = cfg.scene();
+        let _ = cfg.instance_metadata();
 
         // ── MCP primitives ─────────────────────────────────────────────────
         let _ = cfg.enable_resources();

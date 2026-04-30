@@ -1,0 +1,14 @@
+tools:
+  - name: validate_material_export
+    description: Summarize material export readiness for an asset context
+    group: review
+    input_schema:
+      type: object
+      properties:
+        material:
+          type: string
+          description: Optional material identifier
+    read_only: true
+    destructive: false
+    idempotent: true
+    source_file: scripts/validate_material_export.py

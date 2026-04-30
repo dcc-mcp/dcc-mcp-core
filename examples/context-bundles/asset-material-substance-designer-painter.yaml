@@ -1,0 +1,37 @@
+context_bundle: asset.materials.fabric-library.authoring
+production_domain: asset
+context_kind: asset
+project: shared-assets
+asset: fabric-library
+asset_type: material
+task: material-authoring
+dcc:
+  primary: substance-designer
+  companions: [substance-painter, blender]
+rez_packages:
+  - dcc_mcp_core
+  - asset_material_authoring
+skill_paths:
+  shared: ["${REZ_ASSET_MATERIAL_AUTHORING_ROOT}/skills"]
+toolset_profile: asset-material-authoring
+resources: ["${REZ_ASSET_MATERIAL_AUTHORING_ROOT}/resources"]
+prompts: ["${REZ_ASSET_MATERIAL_AUTHORING_ROOT}/prompts"]
+instructions: "Expose material graph, texture export, and preview validation tools."
+response_policy:
+  max_text_chars: 7000
+  include_texture_manifest: true
+visual_feedback:
+  capture_after_mutation: true
+  include_material_preview: true
+env:
+  DCC_MCP_CONTEXT_BUNDLE: asset.materials.fabric-library.authoring
+  DCC_MCP_PRODUCTION_DOMAIN: asset
+  DCC_MCP_CONTEXT_KIND: asset
+  DCC_MCP_PROJECT: shared-assets
+  DCC_MCP_ASSET: fabric-library
+  DCC_MCP_ASSET_TYPE: material
+  DCC_MCP_TASK: material-authoring
+  DCC_MCP_TOOLSET_PROFILE: asset-material-authoring
+  DCC_MCP_SKILL_PATHS: "${REZ_ASSET_MATERIAL_AUTHORING_ROOT}/skills"
+  DCC_MCP_PACKAGE_PROVENANCE: asset_material_authoring-1.0.0
+docs: ../../docs/guide/rez-skill-packages.md

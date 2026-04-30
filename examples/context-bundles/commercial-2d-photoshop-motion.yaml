@@ -1,0 +1,35 @@
+context_bundle: ad-spot.deliverable.social-16x9.motion
+production_domain: advertising
+context_kind: deliverable
+project: ad-spot
+task: motion-2d
+dcc:
+  primary: photoshop
+  companions: [aftereffects]
+rez_packages:
+  - dcc_mcp_core
+  - dcc_mcp_photoshop
+  - commercial_2d_layers
+skill_paths:
+  shared: ["${REZ_COMMERCIAL_2D_LAYERS_ROOT}/skills"]
+  photoshop: ["${REZ_COMMERCIAL_2D_LAYERS_ROOT}/skills"]
+toolset_profile: commercial-2d-motion
+resources: ["${REZ_COMMERCIAL_2D_LAYERS_ROOT}/resources"]
+prompts: ["${REZ_COMMERCIAL_2D_LAYERS_ROOT}/prompts"]
+instructions: "Keep edits layered, non-destructive, and export-review oriented."
+response_policy:
+  max_text_chars: 6000
+  prefer_summary: true
+visual_feedback:
+  capture_after_mutation: true
+  include_active_document_thumbnail: true
+env:
+  DCC_MCP_CONTEXT_BUNDLE: ad-spot.deliverable.social-16x9.motion
+  DCC_MCP_PRODUCTION_DOMAIN: advertising
+  DCC_MCP_CONTEXT_KIND: deliverable
+  DCC_MCP_PROJECT: ad-spot
+  DCC_MCP_TASK: motion-2d
+  DCC_MCP_TOOLSET_PROFILE: commercial-2d-motion
+  DCC_MCP_PHOTOSHOP_SKILL_PATHS: "${REZ_COMMERCIAL_2D_LAYERS_ROOT}/skills"
+  DCC_MCP_PACKAGE_PROVENANCE: commercial_2d_layers-1.0.0
+docs: ../../docs/guide/rez-skill-packages.md

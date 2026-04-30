@@ -1,0 +1,14 @@
+tools:
+  - name: review_cache_manifest
+    description: Summarize FX cache versions expected by the current shot context
+    group: review
+    input_schema:
+      type: object
+      properties:
+        cache_root:
+          type: string
+          description: Optional cache root to inspect
+    read_only: true
+    destructive: false
+    idempotent: true
+    source_file: scripts/review_cache_manifest.py

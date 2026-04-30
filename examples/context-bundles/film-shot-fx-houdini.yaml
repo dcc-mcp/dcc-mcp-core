@@ -1,0 +1,39 @@
+context_bundle: show-a.seq010.shot020.fx
+production_domain: film
+context_kind: shot
+project: show-a
+sequence: seq010
+shot: shot020
+task: fx
+dcc:
+  primary: houdini
+  companions: [maya, rv]
+rez_packages:
+  - dcc_mcp_core
+  - dcc_mcp_houdini
+  - film_fx_cache_review
+skill_paths:
+  shared: ["${REZ_FILM_FX_CACHE_REVIEW_ROOT}/skills"]
+  houdini: ["${REZ_FILM_FX_CACHE_REVIEW_ROOT}/skills"]
+toolset_profile: film-shot-fx
+resources: ["${REZ_FILM_FX_CACHE_REVIEW_ROOT}/resources"]
+prompts: ["${REZ_FILM_FX_CACHE_REVIEW_ROOT}/prompts"]
+instructions: "Expose cache review, sim status, and USD handoff tools."
+response_policy:
+  max_text_chars: 10000
+  truncate_geometry_samples: true
+visual_feedback:
+  capture_after_mutation: true
+  include_viewport_preview: true
+env:
+  DCC_MCP_CONTEXT_BUNDLE: show-a.seq010.shot020.fx
+  DCC_MCP_PRODUCTION_DOMAIN: film
+  DCC_MCP_CONTEXT_KIND: shot
+  DCC_MCP_PROJECT: show-a
+  DCC_MCP_SEQUENCE: seq010
+  DCC_MCP_SHOT: shot020
+  DCC_MCP_TASK: fx
+  DCC_MCP_TOOLSET_PROFILE: film-shot-fx
+  DCC_MCP_HOUDINI_SKILL_PATHS: "${REZ_FILM_FX_CACHE_REVIEW_ROOT}/skills"
+  DCC_MCP_PACKAGE_PROVENANCE: film_fx_cache_review-1.0.0
+docs: ../../docs/guide/rez-skill-packages.md

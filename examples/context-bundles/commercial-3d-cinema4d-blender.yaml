@@ -1,0 +1,37 @@
+context_bundle: product.launch-pack.hero-render.lookdev
+production_domain: advertising
+context_kind: product
+project: launch-pack
+asset: hero-product
+task: product-render
+dcc:
+  primary: blender
+  companions: [cinema4d]
+rez_packages:
+  - dcc_mcp_core
+  - dcc_mcp_blender
+  - commercial_3d_product_render
+skill_paths:
+  shared: ["${REZ_COMMERCIAL_3D_PRODUCT_RENDER_ROOT}/skills"]
+  blender: ["${REZ_COMMERCIAL_3D_PRODUCT_RENDER_ROOT}/skills"]
+toolset_profile: commercial-3d-product-render
+resources: ["${REZ_COMMERCIAL_3D_PRODUCT_RENDER_ROOT}/resources"]
+prompts: ["${REZ_COMMERCIAL_3D_PRODUCT_RENDER_ROOT}/prompts"]
+instructions: "Favor camera/material/render-preview tools over rigging or FX tools."
+response_policy:
+  max_text_chars: 8000
+  include_render_settings: true
+visual_feedback:
+  capture_after_mutation: true
+  include_viewport_preview: true
+env:
+  DCC_MCP_CONTEXT_BUNDLE: product.launch-pack.hero-render.lookdev
+  DCC_MCP_PRODUCTION_DOMAIN: advertising
+  DCC_MCP_CONTEXT_KIND: product
+  DCC_MCP_PROJECT: launch-pack
+  DCC_MCP_ASSET: hero-product
+  DCC_MCP_TASK: product-render
+  DCC_MCP_TOOLSET_PROFILE: commercial-3d-product-render
+  DCC_MCP_BLENDER_SKILL_PATHS: "${REZ_COMMERCIAL_3D_PRODUCT_RENDER_ROOT}/skills"
+  DCC_MCP_PACKAGE_PROVENANCE: commercial_3d_product_render-1.0.0
+docs: ../../docs/guide/rez-skill-packages.md
