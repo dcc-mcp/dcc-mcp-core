@@ -121,6 +121,7 @@ pub(crate) async fn dispatch_single_request(
         "ping" => Some(json!({"jsonrpc":"2.0","id":id,"result":{}})),
         "notifications/initialized" => Some(json!({"jsonrpc":"2.0","id":id,"result":{}})),
         "tools/list" => Some(handle_tools_list(gs, id, req).await),
+        "instances/list" => Some(handle_instances_list(gs, id, req).await),
         "resources/list" => Some(handle_resources_list(gs, id).await),
         "resources/read" => Some(handle_resources_read(gs, id, req).await),
         "resources/subscribe" => {
@@ -174,6 +175,22 @@ async fn handle_initialize(gs: &GatewayState, id: Value, req: &JsonRpcRequest) -
                  Subscribe to GET /mcp (SSE) for push notifications."
         }
     })
+}
+
+async fn handle_instances_list(gs: &GatewayState, id: Value, req: &JsonRpcRequest) -> Value {
+    let args = req.params.as_ref().cloned().unwrap_or_else(|| json!({}));
+    match aggregator::tool_list_instances(gs, &args).await {
+        Ok(text) => {
+            let result =
+                serde_json::from_str::<Value>(&text).unwrap_or_else(|_| json!({"text": text}));
+            json!({"jsonrpc": "2.0", "id": id, "result": result})
+        }
+        Err(message) => json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "error": {"code": -32000, "message": message}
+        }),
+    }
 }
 
 async fn handle_tools_list(gs: &GatewayState, id: Value, req: &JsonRpcRequest) -> Value {

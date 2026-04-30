@@ -18,6 +18,15 @@ pub async fn route_tools_call(
         "list_dcc_instances" => return to_text_result(tool_list_instances(gs, args).await),
         "get_dcc_instance" => return to_text_result(tool_get_instance(gs, args).await),
         "connect_to_dcc" => return to_text_result(tool_connect_to_dcc(gs, args).await),
+        "diagnostics__process_status" => {
+            return to_text_result(tool_diagnostics_process_status(gs, args).await);
+        }
+        "diagnostics__audit_log" => {
+            return to_text_result(tool_diagnostics_audit_log(gs, args).await);
+        }
+        "diagnostics__tool_metrics" => {
+            return to_text_result(tool_diagnostics_tool_metrics(gs, args).await);
+        }
         _ => {}
     }
 

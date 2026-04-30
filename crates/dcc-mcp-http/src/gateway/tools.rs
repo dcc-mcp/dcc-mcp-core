@@ -250,6 +250,98 @@ pub async fn tool_connect_to_dcc(gs: &GatewayState, args: &Value) -> Result<Stri
     Err("Provide instance_id or dcc_type".to_string())
 }
 
+/// Gateway-native `diagnostics__process_status`.
+pub async fn tool_diagnostics_process_status(
+    gs: &GatewayState,
+    args: &Value,
+) -> Result<String, String> {
+    let reg = gs.registry.read().await;
+    let all = gs.all_instances(&reg);
+    let dcc_filter = args.get("dcc_type").and_then(|v| v.as_str());
+
+    let mut live_count = 0usize;
+    let mut stale_count = 0usize;
+    let mut unhealthy_count = 0usize;
+    let instances: Vec<Value> = all
+        .iter()
+        .filter(|e| dcc_filter.is_none_or(|f| e.dcc_type == f))
+        .map(|e| {
+            let stale = e.is_stale(gs.stale_timeout);
+            if stale {
+                stale_count += 1;
+            } else if matches!(
+                e.status,
+                dcc_mcp_transport::discovery::types::ServiceStatus::Available
+                    | dcc_mcp_transport::discovery::types::ServiceStatus::Busy
+            ) {
+                live_count += 1;
+            } else {
+                unhealthy_count += 1;
+            }
+            entry_to_json(e, gs.stale_timeout)
+        })
+        .collect();
+
+    serde_json::to_string_pretty(&json!({
+        "success": true,
+        "message": "Gateway process status",
+        "gateway": {
+            "server_name": gs.server_name,
+            "server_version": gs.server_version,
+            "own_host": gs.own_host,
+            "own_port": gs.own_port,
+        },
+        "instances": instances,
+        "counts": {
+            "total": instances.len(),
+            "live": live_count,
+            "stale": stale_count,
+            "unhealthy": unhealthy_count,
+        }
+    }))
+    .map_err(|e| e.to_string())
+}
+
+/// Gateway-native `diagnostics__audit_log`.
+pub async fn tool_diagnostics_audit_log(
+    gs: &GatewayState,
+    _args: &Value,
+) -> Result<String, String> {
+    let pending_calls = gs.pending_calls.read().await.len();
+    let subscriptions = gs.resource_subscriptions.read().await.len();
+    serde_json::to_string_pretty(&json!({
+        "success": true,
+        "message": "Gateway audit summary",
+        "entries": [],
+        "summary": {
+            "pending_calls": pending_calls,
+            "resource_subscription_sessions": subscriptions,
+            "note": "Gateway-native audit history is not persisted; backend audit logs remain available via prefixed diagnostics tools when exposed by a DCC instance."
+        }
+    }))
+    .map_err(|e| e.to_string())
+}
+
+/// Gateway-native `diagnostics__tool_metrics`.
+pub async fn tool_diagnostics_tool_metrics(
+    gs: &GatewayState,
+    _args: &Value,
+) -> Result<String, String> {
+    let reg = gs.registry.read().await;
+    let live_instances = gs.live_instances(&reg);
+    serde_json::to_string_pretty(&json!({
+        "success": true,
+        "message": "Gateway tool metrics summary",
+        "metrics": {
+            "gateway_local_tools": gateway_tool_defs().as_array().map_or(0, Vec::len),
+            "live_instances": live_instances.len(),
+            "backend_timeout_ms": gs.backend_timeout.as_millis(),
+            "async_dispatch_timeout_ms": gs.async_dispatch_timeout.as_millis(),
+        }
+    }))
+    .map_err(|e| e.to_string())
+}
+
 // ── private helpers ────────────────────────────────────────────────────────
 
 fn format_connect_response(entry: &ServiceEntry) -> Result<String, String> {
@@ -381,6 +473,26 @@ pub fn gateway_tool_defs() -> serde_json::Value {
                     "display_name":  {"type": "string", "description": "Human-readable label set by the bridge plugin"}
                 }
             }
+        },
+        {
+            "name": "diagnostics__process_status",
+            "description": "Gateway-native process and instance health summary. Lists live, stale, and unhealthy DCC registrations without requiring a backend instance.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "dcc_type": {"type": "string", "description": "Optional DCC type filter."}
+                }
+            }
+        },
+        {
+            "name": "diagnostics__audit_log",
+            "description": "Gateway-native audit summary for pending calls and resource subscriptions. Backend audit logs remain available through instance tools.",
+            "inputSchema": {"type": "object", "properties": {}}
+        },
+        {
+            "name": "diagnostics__tool_metrics",
+            "description": "Gateway-native tool metrics summary for local gateway tools and live backend count.",
+            "inputSchema": {"type": "object", "properties": {}}
         }
     ])
 }

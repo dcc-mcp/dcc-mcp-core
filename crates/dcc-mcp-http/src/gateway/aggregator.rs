@@ -22,6 +22,7 @@ mod skill_mgmt;
 mod tests;
 mod wait_terminal;
 
+pub(crate) use super::tools::tool_list_instances;
 pub use call::route_tools_call;
 pub use fingerprint::compute_tools_fingerprint;
 pub(crate) use fingerprint::compute_tools_fingerprint_with_own;
@@ -47,7 +48,8 @@ use super::backend_client::{call_backend, fetch_tools, forward_tools_call};
 use super::namespace::{decode_tool_name, encode_tool_name, instance_short, is_local_tool};
 use super::state::GatewayState;
 use super::tools::{
-    gateway_tool_defs, tool_connect_to_dcc, tool_get_instance, tool_list_instances,
+    gateway_tool_defs, tool_connect_to_dcc, tool_diagnostics_audit_log,
+    tool_diagnostics_process_status, tool_diagnostics_tool_metrics, tool_get_instance,
 };
 use crate::protocol::{TOOLS_LIST_PAGE_SIZE, decode_cursor, encode_cursor};
 use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry};

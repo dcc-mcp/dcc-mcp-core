@@ -94,6 +94,33 @@ Two invariants prevent this:
    crash would eat the full exponential-backoff retry budget during
    the first ~15 s of gateway lifetime.
 
+### Instance and Diagnostics Discovery
+
+The gateway exposes instance health through both the MCP tool surface and a
+native JSON-RPC method:
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"instances/list","params":{"include_stale":true}}
+```
+
+The response matches `list_dcc_instances` and includes live, stale, and
+unhealthy rows so clients can decide whether to route, reconnect, or ask the
+user to restart a DCC instance. `tools/list` is assembled from the current
+registry on each call, so instances registered after gateway startup are picked
+up without a restart.
+
+Gateway-native diagnostics tools are always present, even when no backend is
+routable:
+
+| Tool | Purpose |
+|------|---------|
+| `diagnostics__process_status` | Gateway process metadata plus live/stale/unhealthy instance counts |
+| `diagnostics__audit_log` | Gateway pending-call and subscription summary |
+| `diagnostics__tool_metrics` | Gateway-local tool count, live backend count, and timeout settings |
+
+Backend diagnostics tools remain available as normal prefixed instance tools
+when a DCC exposes them.
+
 ## Code pointers
 
 | Piece | File |

@@ -62,6 +62,18 @@ async fn test_gateway_mcp_tools_list() {
         names.contains(&"connect_to_dcc"),
         "connect_to_dcc missing: {names:?}"
     );
+    assert!(
+        names.contains(&"diagnostics__process_status"),
+        "diagnostics__process_status missing: {names:?}"
+    );
+    assert!(
+        names.contains(&"diagnostics__audit_log"),
+        "diagnostics__audit_log missing: {names:?}"
+    );
+    assert!(
+        names.contains(&"diagnostics__tool_metrics"),
+        "diagnostics__tool_metrics missing: {names:?}"
+    );
 }
 
 #[tokio::test]
@@ -115,6 +127,100 @@ async fn test_gateway_mcp_list_dcc_instances_with_entry() {
     let result: serde_json::Value = serde_json::from_str(text).unwrap();
     assert_eq!(result["total"], 1);
     assert_eq!(result["instances"][0]["dcc_type"], "houdini");
+}
+
+#[tokio::test]
+async fn test_gateway_mcp_instances_list_method_with_entry() {
+    let state = make_gateway_state();
+    {
+        let reg = state.registry.read().await;
+        let entry = ServiceEntry::new("maya", "127.0.0.1", 19766);
+        reg.register(entry).unwrap();
+    }
+    let server = TestServer::new(build_gateway_router(state));
+    let resp = server
+        .post("/mcp")
+        .add_header(
+            axum::http::header::CONTENT_TYPE,
+            "application/json".parse::<HeaderValue>().unwrap(),
+        )
+        .json(&serde_json::json!({
+            "jsonrpc": "2.0", "id": 11, "method": "instances/list", "params": {}
+        }))
+        .await;
+    resp.assert_status_ok();
+    let body: serde_json::Value = resp.json();
+    assert_eq!(body["result"]["total"], 1);
+    assert_eq!(body["result"]["instances"][0]["dcc_type"], "maya");
+}
+
+#[tokio::test]
+async fn test_gateway_diagnostics_tools_are_native() {
+    let state = make_gateway_state();
+    {
+        let reg = state.registry.read().await;
+        let entry = ServiceEntry::new("maya", "127.0.0.1", 19767);
+        reg.register(entry).unwrap();
+    }
+    let server = TestServer::new(build_gateway_router(state));
+    let resp = server
+        .post("/mcp")
+        .add_header(
+            axum::http::header::CONTENT_TYPE,
+            "application/json".parse::<HeaderValue>().unwrap(),
+        )
+        .json(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 12,
+            "method": "tools/call",
+            "params": {"name": "diagnostics__process_status", "arguments": {}}
+        }))
+        .await;
+    resp.assert_status_ok();
+    let body: serde_json::Value = resp.json();
+    assert_eq!(body["result"]["isError"], false);
+    let text = body["result"]["content"][0]["text"]
+        .as_str()
+        .expect("no text content");
+    let result: serde_json::Value = serde_json::from_str(text).unwrap();
+    assert_eq!(result["success"], true);
+    assert_eq!(result["counts"]["total"], 1);
+    assert_eq!(result["instances"][0]["dcc_type"], "maya");
+}
+
+#[tokio::test]
+async fn test_connect_to_dcc_succeeds_for_available_instance_prefix() {
+    let state = make_gateway_state();
+    let prefix = {
+        let reg = state.registry.read().await;
+        let entry = ServiceEntry::new("maya", "127.0.0.1", 19768);
+        let prefix = entry.instance_id.to_string()[..8].to_string();
+        reg.register(entry).unwrap();
+        prefix
+    };
+    let server = TestServer::new(build_gateway_router(state));
+    let resp = server
+        .post("/mcp")
+        .add_header(
+            axum::http::header::CONTENT_TYPE,
+            "application/json".parse::<HeaderValue>().unwrap(),
+        )
+        .json(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 13,
+            "method": "tools/call",
+            "params": {"name": "connect_to_dcc", "arguments": {"instance_id": prefix}}
+        }))
+        .await;
+    resp.assert_status_ok();
+    let body: serde_json::Value = resp.json();
+    assert_eq!(body["result"]["isError"], false);
+    let text = body["result"]["content"][0]["text"]
+        .as_str()
+        .expect("no text content");
+    let result: serde_json::Value = serde_json::from_str(text).unwrap();
+    assert_eq!(result["dcc_type"], "maya");
+    assert_eq!(result["mcp_url"], "http://127.0.0.1:19768/mcp");
 }
 
 #[tokio::test]
