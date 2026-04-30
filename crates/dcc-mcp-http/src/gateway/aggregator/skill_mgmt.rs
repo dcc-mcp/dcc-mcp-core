@@ -98,6 +98,10 @@ pub(crate) async fn skill_mgmt_dispatch(
             });
             let results = join_all(futs).await;
 
+            if matches!(tool, "list_skills" | "search_skills") {
+                return flatten_skill_list_results(results);
+            }
+
             let merged: Vec<Value> = results
                 .into_iter()
                 .map(|(iid, dcc, res)| match res {
@@ -137,6 +141,83 @@ pub(crate) async fn skill_mgmt_dispatch(
             )
         }
     }
+}
+
+fn flatten_skill_list_results(
+    results: Vec<(Uuid, String, Result<Value, String>)>,
+) -> (String, bool) {
+    let mut skills: Vec<Value> = Vec::new();
+    let mut instances: Vec<Value> = Vec::new();
+    let mut ok_count = 0usize;
+
+    for (iid, dcc, res) in results {
+        match res {
+            Ok(value) => {
+                ok_count += 1;
+                let text = call_tool_text(&value)
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| serde_json::to_string_pretty(&value).unwrap_or_default());
+
+                match serde_json::from_str::<Value>(&text) {
+                    Ok(parsed) => {
+                        let before = skills.len();
+                        if let Some(items) = parsed.get("skills").and_then(Value::as_array) {
+                            for item in items {
+                                let mut skill = item.clone();
+                                inject_instance_metadata(&mut skill, &iid, &dcc);
+                                skills.push(skill);
+                            }
+                        }
+                        let skill_count = skills.len() - before;
+                        instances.push(json!({
+                            "instance_id": iid.to_string(),
+                            "instance_short": instance_short(&iid),
+                            "dcc_type": dcc,
+                            "skill_count": skill_count,
+                            "total": parsed.get("total").cloned().unwrap_or(json!(skill_count)),
+                        }));
+                    }
+                    Err(_) => {
+                        instances.push(json!({
+                            "instance_id": iid.to_string(),
+                            "instance_short": instance_short(&iid),
+                            "dcc_type": dcc,
+                            "skill_count": 0,
+                            "message": text,
+                        }));
+                    }
+                }
+            }
+            Err(error) => {
+                instances.push(json!({
+                    "instance_id": iid.to_string(),
+                    "instance_short": instance_short(&iid),
+                    "dcc_type": dcc,
+                    "error": error,
+                }));
+            }
+        }
+    }
+
+    let total = skills.len();
+    let payload = json!({
+        "skills": skills,
+        "total": total,
+        "instances": instances,
+    });
+    (
+        serde_json::to_string_pretty(&payload).unwrap_or_default(),
+        ok_count == 0,
+    )
+}
+
+fn call_tool_text(value: &Value) -> Option<&str> {
+    value
+        .get("content")
+        .and_then(Value::as_array)
+        .and_then(|arr| arr.first())
+        .and_then(|content| content.get("text"))
+        .and_then(Value::as_str)
 }
 
 /// JSON-Schema definitions for the six skill-management tools the gateway

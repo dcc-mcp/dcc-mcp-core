@@ -139,6 +139,97 @@ async fn register_backend(registry: &Arc<RwLock<FileRegistry>>, port: u16) -> Se
     entry
 }
 
+async fn register_backend_with_dcc(
+    registry: &Arc<RwLock<FileRegistry>>,
+    port: u16,
+    dcc: &str,
+) -> ServiceEntry {
+    let entry = ServiceEntry::new(dcc, "127.0.0.1", port);
+    let reg = registry.read().await;
+    reg.register(entry.clone()).unwrap();
+    entry
+}
+
+async fn spawn_skill_backend(dcc: &str, skill_name: &str) -> u16 {
+    #[derive(Clone)]
+    struct State {
+        dcc: String,
+        skill_name: String,
+    }
+
+    async fn handler(
+        axum::extract::State(s): axum::extract::State<State>,
+        Json(req): Json<Value>,
+    ) -> Json<Value> {
+        let id = req.get("id").cloned().unwrap_or(Value::Null);
+        let method = req
+            .get("method")
+            .and_then(|m| m.as_str())
+            .unwrap_or_default();
+        match method {
+            "tools/list" => Json(json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": {"tools": []}
+            })),
+            "tools/call" => {
+                let name = req
+                    .get("params")
+                    .and_then(|p| p.get("name"))
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                match name {
+                    "list_skills" | "search_skills" => {
+                        let text = serde_json::to_string(&json!({
+                            "total": 1,
+                            "skills": [{
+                                "name": s.skill_name,
+                                "description": format!("{} skill", s.dcc),
+                                "tools": 1,
+                                "loaded": false,
+                                "dcc": s.dcc,
+                            }]
+                        }))
+                        .unwrap();
+                        Json(json!({
+                            "jsonrpc": "2.0",
+                            "id": id,
+                            "result": {
+                                "content": [{"type": "text", "text": text}],
+                                "isError": false
+                            }
+                        }))
+                    }
+                    other => Json(json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": {"code": -32601, "message": format!("unknown tool: {other}")}
+                    })),
+                }
+            }
+            other => Json(json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "error": {"code": -32601, "message": format!("unknown method: {other}")}
+            })),
+        }
+    }
+
+    let app = Router::new()
+        .route("/mcp", post(handler))
+        .with_state(State {
+            dcc: dcc.to_string(),
+            skill_name: skill_name.to_string(),
+        });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.ok();
+    });
+    tokio::time::sleep(Duration::from_millis(25)).await;
+    port
+}
+
 fn encoded_tool_name(instance_id: uuid::Uuid, tool: &str) -> String {
     // Mirror `encode_tool_name` — 8-char prefix + '.' + tool name.
     let short = &instance_id.to_string().replace('-', "")[..8];
@@ -239,6 +330,79 @@ async fn multiple_backends_keep_bare_name_ambiguous() {
 
     assert!(is_error, "ambiguous bare call must fail; text={text}");
     assert!(text.contains("Unknown tool"));
+}
+
+// ── Flat skill-management aggregation (#582) ───────────────────────────────
+
+#[tokio::test]
+async fn search_skills_returns_flat_gateway_skill_list() {
+    let maya_port = spawn_skill_backend("maya", "maya-python").await;
+    let blender_port = spawn_skill_backend("blender", "blender-python").await;
+    let (state, registry, _tmp) = make_state(
+        Duration::from_secs(1),
+        Duration::from_secs(1),
+        Duration::from_secs(1),
+    )
+    .await;
+    register_backend_with_dcc(&registry, maya_port, "maya").await;
+    register_backend_with_dcc(&registry, blender_port, "blender").await;
+
+    let (text, is_error) = route_tools_call(
+        &state,
+        "search_skills",
+        &json!({"query": "python"}),
+        None,
+        Some("req-search-skills".into()),
+        Some("sess-search-skills"),
+    )
+    .await;
+
+    assert!(!is_error, "search_skills fan-out failed: {text}");
+    let result: Value = serde_json::from_str(&text).expect("flat JSON payload");
+    let skills = result["skills"].as_array().expect("skills array");
+    assert_eq!(result["total"], 2);
+    assert_eq!(skills.len(), 2);
+    assert!(skills.iter().any(|skill| skill["name"] == "maya-python"));
+    assert!(skills.iter().any(|skill| skill["name"] == "blender-python"));
+    for skill in skills {
+        assert!(skill["_instance_id"].as_str().is_some());
+        assert!(skill["_instance_short"].as_str().is_some());
+        assert!(skill["_dcc_type"].as_str().is_some());
+    }
+
+    let instances = result["instances"].as_array().expect("instances array");
+    assert_eq!(instances.len(), 2);
+    assert!(instances.iter().all(|inst| inst["skill_count"] == 1));
+}
+
+#[tokio::test]
+async fn list_skills_returns_flat_gateway_skill_list() {
+    let port = spawn_skill_backend("maya", "maya-modeling").await;
+    let (state, registry, _tmp) = make_state(
+        Duration::from_secs(1),
+        Duration::from_secs(1),
+        Duration::from_secs(1),
+    )
+    .await;
+    register_backend_with_dcc(&registry, port, "maya").await;
+
+    let (text, is_error) = route_tools_call(
+        &state,
+        "list_skills",
+        &json!({}),
+        None,
+        Some("req-list-skills".into()),
+        Some("sess-list-skills"),
+    )
+    .await;
+
+    assert!(!is_error, "list_skills fan-out failed: {text}");
+    let result: Value = serde_json::from_str(&text).expect("flat JSON payload");
+    let skills = result["skills"].as_array().expect("skills array");
+    assert_eq!(result["total"], 1);
+    assert_eq!(skills[0]["name"], "maya-modeling");
+    assert_eq!(skills[0]["_dcc_type"], "maya");
+    assert_eq!(result["instances"][0]["skill_count"], 1);
 }
 
 // ── Async dispatch timeout ────────────────────────────────────────────────
