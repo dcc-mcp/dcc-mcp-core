@@ -101,6 +101,12 @@ runs:
         sccache: ${{ inputs.use-sccache == 'true' }}
         manylinux: auto
 
+    - name: Check wheel metadata
+      shell: bash
+      run: |
+        pip install twine
+        twine check --strict dist/*
+
     - name: Test wheel
       if: inputs.test-wheel == 'true'
       shell: bash
@@ -114,6 +120,7 @@ runs:
         fi
 
         pip install --no-index --find-links dist dcc-mcp-core --force-reinstall --no-deps
+        pip check
 
         python -c "
         import dcc_mcp_core

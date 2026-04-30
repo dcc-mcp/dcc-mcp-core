@@ -66,11 +66,14 @@ jobs:
         with:
           python-version: "3.14"
       - uses: loonghao/vx@v0.8.33
-      - name: Install maturin
-        run: pip install maturin
+      - name: Install build tools
+        run: pip install maturin twine
         shell: bash
       - name: Build wheel
         run: vx just build
+      - name: Check wheel metadata
+        run: twine check --strict dist/*
+        shell: bash
       - uses: actions/upload-artifact@v7
         with:
           name: wheel-${{ matrix.os }}
