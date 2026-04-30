@@ -395,6 +395,9 @@ from dcc_mcp_core.feedback import get_feedback_entries
 from dcc_mcp_core.feedback import make_rationale_meta
 from dcc_mcp_core.feedback import register_feedback_tool
 from dcc_mcp_core.gateway_election import DccGatewayElection
+from dcc_mcp_core.guardrails import DccBlockedCall
+from dcc_mcp_core.guardrails import DccGuardrailError
+from dcc_mcp_core.guardrails import DccWeakSandbox
 from dcc_mcp_core.hotreload import DccSkillHotReloader
 
 # Runtime namespace introspection tools (issue #426)
@@ -529,15 +532,18 @@ __all__ = [
     "CimdDocument",
     "DccApiCatalog",
     "DccApiExecutor",
+    "DccBlockedCall",
     "DccBridge",
     "DccCapabilities",
     "DccError",
     "DccErrorCode",
     "DccGatewayElection",
+    "DccGuardrailError",
     "DccInfo",
     "DccLinkFrame",
     "DccServerBase",
     "DccSkillHotReloader",
+    "DccWeakSandbox",
     "ElicitationMode",
     "ElicitationRequest",
     "ElicitationResponse",
