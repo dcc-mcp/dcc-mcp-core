@@ -21,7 +21,9 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 from typing import Any
+import urllib.request
 
 # Import local modules
 from conftest import REPO_ROOT
@@ -545,3 +547,88 @@ class TestInProcessExecutor:
 
         # Skill was loaded — executor contract is verified structurally
         assert catalog.is_loaded("my-skill")
+
+    def test_in_process_executor_receives_tool_execution_metadata(self, tmp_path: Path) -> None:
+        """Loaded skill tools pass ActionMeta affinity/execution into Python executors."""
+        skill_dir = tmp_path / "affinity-skill"
+        (skill_dir / "scripts").mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(
+            "---\n"
+            "name: affinity-skill\n"
+            "description: Test affinity metadata\n"
+            "metadata:\n"
+            "  dcc-mcp.dcc: python\n"
+            "  dcc-mcp.tools: tools.yaml\n"
+            "---\n",
+            encoding="utf-8",
+        )
+        (skill_dir / "tools.yaml").write_text(
+            "tools:\n"
+            "  - name: host_scene\n"
+            "    description: Host scene tool\n"
+            "    source_file: scripts/host_scene.py\n"
+            "    thread_affinity: main\n"
+            "    execution: async\n"
+            "    timeout_hint_secs: 45\n"
+            "  - name: pure_file\n"
+            "    description: Pure filesystem tool\n"
+            "    source_file: scripts/pure_file.py\n"
+            "    thread_affinity: any\n",
+            encoding="utf-8",
+        )
+        (skill_dir / "scripts" / "host_scene.py").write_text(
+            "def main(**_): return {'success': True}\n", encoding="utf-8"
+        )
+        (skill_dir / "scripts" / "pure_file.py").write_text(
+            "def main(**_): return {'success': True}\n", encoding="utf-8"
+        )
+
+        seen: list[dict[str, Any]] = []
+
+        def capture_exec(script_path: str, params: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+            seen.append({"script": Path(script_path).name, "params": params, **kwargs})
+            return {"success": True, "message": kwargs["action_name"]}
+
+        server = dcc_mcp_core.create_skill_server("python", dcc_mcp_core.McpHttpConfig(port=0))
+        server.set_in_process_executor(capture_exec)
+        server.discover(extra_paths=[str(tmp_path)])
+        loaded = server.load_skill("affinity-skill")
+        assert loaded == ["affinity_skill__host_scene", "affinity_skill__pure_file"]
+
+        handle = server.start()
+        time.sleep(0.25)
+        try:
+            url = handle.mcp_url()
+
+            def _call(name: str) -> None:
+                body = json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": name,
+                        "method": "tools/call",
+                        "params": {"name": name, "arguments": {"value": 1}},
+                    }
+                ).encode()
+                req = urllib.request.Request(
+                    url,
+                    data=body,
+                    headers={"Content-Type": "application/json", "Accept": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    result = json.loads(resp.read())
+                assert result["result"]["isError"] is False
+
+            _call("affinity_skill__host_scene")
+            _call("affinity_skill__pure_file")
+        finally:
+            handle.shutdown()
+
+        by_tool = {entry["action_name"]: entry for entry in seen}
+        assert by_tool["affinity_skill__host_scene"]["thread_affinity"] == "main"
+        assert by_tool["affinity_skill__host_scene"]["execution"] == "async"
+        assert by_tool["affinity_skill__host_scene"]["timeout_hint_secs"] == 45
+        assert by_tool["affinity_skill__host_scene"]["skill_name"] == "affinity-skill"
+        assert by_tool["affinity_skill__pure_file"]["thread_affinity"] == "any"
+        assert by_tool["affinity_skill__pure_file"]["execution"] == "sync"
+        assert by_tool["affinity_skill__pure_file"]["timeout_hint_secs"] is None

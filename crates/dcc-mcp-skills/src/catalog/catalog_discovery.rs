@@ -37,7 +37,11 @@ impl SkillCatalog {
     /// Register an **in-process** script executor (builder-style).
     pub fn with_in_process_executor<F>(self, executor: F) -> Self
     where
-        F: Fn(String, serde_json::Value) -> Result<serde_json::Value, String>
+        F: Fn(
+                String,
+                serde_json::Value,
+                crate::catalog::execute::ScriptExecutionContext,
+            ) -> Result<serde_json::Value, String>
             + Send
             + Sync
             + 'static,
@@ -53,7 +57,11 @@ impl SkillCatalog {
     /// adapters can call it between construction and the first `load_skill()`.
     pub fn set_in_process_executor<F>(&self, executor: F)
     where
-        F: Fn(String, serde_json::Value) -> Result<serde_json::Value, String>
+        F: Fn(
+                String,
+                serde_json::Value,
+                crate::catalog::execute::ScriptExecutionContext,
+            ) -> Result<serde_json::Value, String>
             + Send
             + Sync
             + 'static,

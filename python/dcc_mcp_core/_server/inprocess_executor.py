@@ -22,6 +22,7 @@ through.
 # Import built-in modules
 from __future__ import annotations
 
+from dataclasses import dataclass
 import importlib.util
 import logging
 from pathlib import Path
@@ -57,10 +58,39 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "BaseDccCallableDispatcher",
+    "InProcessExecutionContext",
     "build_inprocess_executor",
     "exception_to_error_envelope",
     "run_skill_script",
 ]
+
+
+@dataclass(frozen=True)
+class InProcessExecutionContext:
+    """Execution metadata for a single in-process skill-script call."""
+
+    action_name: str = ""
+    skill_name: str | None = None
+    thread_affinity: str = "any"
+    execution: str = "sync"
+    timeout_hint_secs: int | None = None
+
+
+def _context_from_kwargs(
+    *,
+    action_name: str = "",
+    skill_name: str | None = None,
+    thread_affinity: str = "any",
+    execution: str = "sync",
+    timeout_hint_secs: int | None = None,
+) -> InProcessExecutionContext:
+    return InProcessExecutionContext(
+        action_name=action_name,
+        skill_name=skill_name,
+        thread_affinity=thread_affinity or "any",
+        execution=execution or "sync",
+        timeout_hint_secs=timeout_hint_secs,
+    )
 
 
 def exception_to_error_envelope(exc: BaseException, *, message: str | None = None) -> dict[str, Any]:
@@ -163,7 +193,7 @@ def build_inprocess_executor(
     dispatcher: BaseDccCallableDispatcher | None,
     *,
     runner: Callable[[str, Mapping[str, Any]], Any] = run_skill_script,
-) -> Callable[[str, Mapping[str, Any]], Any]:
+) -> Callable[..., Any]:
     """Return an executor callable suitable for ``set_in_process_executor``.
 
     When *dispatcher* is ``None`` (e.g. ``mayapy``, Houdini batch,
@@ -183,14 +213,31 @@ def build_inprocess_executor(
             :func:`run_skill_script`). Mostly useful for tests.
 
     Returns:
-        A ``(script_path, params) -> Any`` callable that
-        :meth:`McpHttpServer.set_in_process_executor` accepts.
+        A callable accepting ``(script_path, params, *, action_name,
+        skill_name, thread_affinity, execution, timeout_hint_secs)``. Older
+        two-argument callers remain supported because all metadata is optional.
 
     """
     if dispatcher is None:
 
-        def _inline(script_path: str, params: Mapping[str, Any]) -> Any:
+        def _inline(
+            script_path: str,
+            params: Mapping[str, Any],
+            *,
+            action_name: str = "",
+            skill_name: str | None = None,
+            thread_affinity: str = "any",
+            execution: str = "sync",
+            timeout_hint_secs: int | None = None,
+        ) -> Any:
             try:
+                _context_from_kwargs(
+                    action_name=action_name,
+                    skill_name=skill_name,
+                    thread_affinity=thread_affinity,
+                    execution=execution,
+                    timeout_hint_secs=timeout_hint_secs,
+                )
                 return runner(script_path, params)
             except Exception as exc:
                 logger.exception("In-process skill %s failed", script_path)
@@ -198,9 +245,37 @@ def build_inprocess_executor(
 
         return _inline
 
-    def _routed(script_path: str, params: Mapping[str, Any]) -> Any:
+    def _routed(
+        script_path: str,
+        params: Mapping[str, Any],
+        *,
+        action_name: str = "",
+        skill_name: str | None = None,
+        thread_affinity: str = "any",
+        execution: str = "sync",
+        timeout_hint_secs: int | None = None,
+    ) -> Any:
+        context = _context_from_kwargs(
+            action_name=action_name,
+            skill_name=skill_name,
+            thread_affinity=thread_affinity,
+            execution=execution,
+            timeout_hint_secs=timeout_hint_secs,
+        )
+
+        def _invoke(*_args: Any, **_kwargs: Any) -> Any:
+            return runner(script_path, params)
+
         try:
-            return dispatcher.dispatch_callable(runner, script_path, params)
+            return dispatcher.dispatch_callable(
+                _invoke,
+                affinity=context.thread_affinity,
+                context=context,
+                action_name=context.action_name,
+                skill_name=context.skill_name,
+                execution=context.execution,
+                timeout_hint_secs=context.timeout_hint_secs,
+            )
         except Exception as exc:
             logger.exception("In-process skill %s failed via dispatcher", script_path)
             return exception_to_error_envelope(exc)

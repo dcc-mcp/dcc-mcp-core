@@ -9,10 +9,11 @@ the same pattern: receive an MCP `tools/call`, route the script to the host's
 event loop, return a JSON-serialisable result. This module lifts that pattern
 into reusable contracts so each adapter only supplies host-specific glue.
 
-**Exported symbols:** `BaseDccCallableDispatcher`, `BaseDccCallableDispatcherFull`,
-`BaseDccPump`, `InProcessCallableDispatcher`, `JobEntry`, `JobOutcome`,
-`PendingEnvelope`, `DrainStats`, `PumpStats`, `current_callable_job`,
-`MinimalModeConfig`, `build_inprocess_executor`, `run_skill_script`.
+**Exported symbols:** `BaseDccCallableDispatcher`, `InProcessExecutionContext`,
+`BaseDccCallableDispatcherFull`, `BaseDccPump`, `InProcessCallableDispatcher`,
+`JobEntry`, `JobOutcome`, `PendingEnvelope`, `DrainStats`, `PumpStats`,
+`current_callable_job`, `MinimalModeConfig`, `build_inprocess_executor`,
+`run_skill_script`.
 
 ## When to use what
 
@@ -44,6 +45,24 @@ assert isinstance(MyDispatcher(), BaseDccCallableDispatcher)
 The single `dispatch_callable(func, *args, **kwargs) -> Any` method is the **only**
 contractual surface — kept narrow so the simplest hosts can satisfy it with one
 line of glue. Use the *Full* variant below when you also need cancellation.
+
+When skill tools execute in-process, core passes execution metadata through the
+executor and into `dispatch_callable`:
+
+```python
+from dcc_mcp_core import InProcessExecutionContext
+
+def dispatch_callable(self, func, *args, **kwargs):
+    context: InProcessExecutionContext = kwargs["context"]
+    if context.thread_affinity == "main":
+        return run_on_ui_thread(lambda: func())
+    return func()
+```
+
+The keyword arguments include `affinity`, `context`, `action_name`,
+`skill_name`, `execution`, and `timeout_hint_secs`. Dispatchers may ignore the
+extra fields, but should use `affinity` / `context.thread_affinity` to avoid
+routing pure filesystem tools through the DCC UI thread.
 
 ## BaseDccCallableDispatcherFull (cancellable)
 
@@ -96,6 +115,17 @@ from dcc_mcp_core import InProcessCallableDispatcher, build_inprocess_executor
 dispatcher = InProcessCallableDispatcher()
 executor = build_inprocess_executor(dispatcher)
 # Pass `executor` to McpHttpServer.set_in_process_executor / DccServerBase.register_inprocess_executor.
+
+# Core calls the executor with metadata from ActionMeta/tools.yaml:
+executor(
+    "/path/to/script.py",
+    {"root": "/show/shot010"},
+    action_name="review__cache_manifest",
+    skill_name="review",
+    thread_affinity="any",
+    execution="sync",
+    timeout_hint_secs=None,
+)
 
 # Standalone fallback for mayapy / batch — runs scripts inline:
 inline_executor = build_inprocess_executor(None)

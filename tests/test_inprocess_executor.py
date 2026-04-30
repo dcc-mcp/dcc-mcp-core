@@ -14,6 +14,7 @@ import pytest
 # Import local modules
 import dcc_mcp_core
 from dcc_mcp_core._server.inprocess_executor import BaseDccCallableDispatcher
+from dcc_mcp_core._server.inprocess_executor import InProcessExecutionContext
 from dcc_mcp_core._server.inprocess_executor import build_inprocess_executor
 from dcc_mcp_core._server.inprocess_executor import exception_to_error_envelope
 from dcc_mcp_core._server.inprocess_executor import run_skill_script
@@ -24,16 +25,20 @@ from dcc_mcp_core._server.inprocess_executor import run_skill_script
 def test_base_dispatcher_exported_from_top_level() -> None:
     assert hasattr(dcc_mcp_core, "BaseDccCallableDispatcher")
     assert "BaseDccCallableDispatcher" in dcc_mcp_core.__all__
+    assert hasattr(dcc_mcp_core, "InProcessExecutionContext")
+    assert "InProcessExecutionContext" in dcc_mcp_core.__all__
 
 
 def test_helpers_exported_from_underscore_server() -> None:
     # Import local modules
     from dcc_mcp_core._server import BaseDccCallableDispatcher as B
+    from dcc_mcp_core._server import InProcessExecutionContext as IEC
     from dcc_mcp_core._server import build_inprocess_executor as BIE
     from dcc_mcp_core._server import run_skill_script as RSS
 
     assert B is BaseDccCallableDispatcher
     assert BIE is build_inprocess_executor
+    assert IEC is InProcessExecutionContext
     assert RSS is run_skill_script
 
 
@@ -131,9 +136,10 @@ def test_executor_routes_through_dispatcher(tmp_path: Path) -> None:
     assert executor(str(p), {"x": 41}) == 42
     assert len(spy.calls) == 1
     func, args, kwargs = spy.calls[0]
-    assert func is run_skill_script
-    assert args == (str(p), {"x": 41})
-    assert kwargs == {}
+    assert callable(func)
+    assert args == ()
+    assert kwargs["affinity"] == "any"
+    assert kwargs["context"] == InProcessExecutionContext()
 
 
 def test_executor_dispatcher_exception_becomes_error_envelope(tmp_path: Path) -> None:
@@ -205,6 +211,54 @@ def test_executor_uses_custom_runner() -> None:
     out = executor("/tmp/skill.py", {"k": "v"})
     assert seen == [("/tmp/skill.py", {"k": "v"})]
     assert out == "/tmp/skill.py|{'k': 'v'}"
+
+
+def test_executor_passes_execution_context_to_dispatcher() -> None:
+    seen: list[tuple[str, Mapping[str, Any]]] = []
+
+    def _fake_runner(script_path: str, params: Mapping[str, Any]) -> dict[str, Any]:
+        seen.append((script_path, params))
+        return {"ok": True}
+
+    class _DispatcherSpy:
+        def __init__(self) -> None:
+            self.kwargs: dict[str, Any] = {}
+
+        def dispatch_callable(
+            self,
+            func: Callable[..., Any],
+            *args: Any,
+            **kwargs: Any,
+        ) -> Any:
+            self.kwargs = kwargs
+            return func(*args, **kwargs)
+
+    spy = _DispatcherSpy()
+    executor = build_inprocess_executor(spy, runner=_fake_runner)
+    result = executor(
+        "/tmp/tool.py",
+        {"value": 1},
+        action_name="demo__tool",
+        skill_name="demo",
+        thread_affinity="main",
+        execution="async",
+        timeout_hint_secs=30,
+    )
+
+    assert result == {"ok": True}
+    assert seen == [("/tmp/tool.py", {"value": 1})]
+    assert spy.kwargs["affinity"] == "main"
+    assert spy.kwargs["action_name"] == "demo__tool"
+    assert spy.kwargs["skill_name"] == "demo"
+    assert spy.kwargs["execution"] == "async"
+    assert spy.kwargs["timeout_hint_secs"] == 30
+    assert spy.kwargs["context"] == InProcessExecutionContext(
+        action_name="demo__tool",
+        skill_name="demo",
+        thread_affinity="main",
+        execution="async",
+        timeout_hint_secs=30,
+    )
 
 
 # ── DccServerBase.register_inprocess_executor integration ───────────────────

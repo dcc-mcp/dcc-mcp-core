@@ -156,12 +156,19 @@ impl PyMcpHttpServer {
     /// the in-process path from the start, eliminating the timing race that
     /// occurred when handlers were overridden one-by-one after loading.
     ///
-    /// The callable receives two positional arguments:
+    /// The callable receives two positional arguments plus execution metadata:
     ///
     /// - ``script_path`` (``str``) — absolute path to the skill's ``.py`` file.
     /// - ``params`` (``dict``) — tool input parameters.
     ///
+    /// - ``action_name`` (kw-only ``str``) — registered MCP tool name.
+    /// - ``skill_name`` (kw-only ``str | None``) — owning skill name.
+    /// - ``thread_affinity`` (kw-only ``"main" | "any"``).
+    /// - ``execution`` (kw-only ``"sync" | "async"``).
+    /// - ``timeout_hint_secs`` (kw-only ``int | None``).
+    ///
     /// It must return a JSON-serialisable value (``dict``, ``list``, scalar…).
+    /// Legacy two-argument callables remain supported.
     ///
     /// When called, ``load_skill()`` will register **in-process** handlers for
     /// every tool in the loaded skill instead of spawning subprocesses.
@@ -189,15 +196,49 @@ impl PyMcpHttpServer {
         }
         let executor_ref = executor.clone_ref(py);
         self.catalog
-            .set_in_process_executor(move |script_path, params| {
+            .set_in_process_executor(move |script_path, params, context| {
                 Python::attach(|gil| {
+                    use dcc_mcp_models::ExecutionMode;
                     use dcc_mcp_pybridge::py_json::{json_value_to_bound_py, py_any_to_json_value};
+                    use pyo3::types::PyDict;
 
                     let py_params = json_value_to_bound_py(gil, &params)
                         .map_err(|e| format!("failed to convert params: {e}"))?;
-                    let raw = executor_ref
-                        .call1(gil, (script_path, py_params))
-                        .map_err(|e| format!("executor error: {e}"))?;
+                    let kwargs = PyDict::new(gil);
+                    kwargs
+                        .set_item("action_name", &context.action_name)
+                        .map_err(|e| format!("executor kwargs: {e}"))?;
+                    kwargs
+                        .set_item("skill_name", context.skill_name.as_deref())
+                        .map_err(|e| format!("executor kwargs: {e}"))?;
+                    kwargs
+                        .set_item("thread_affinity", context.thread_affinity.as_str())
+                        .map_err(|e| format!("executor kwargs: {e}"))?;
+                    kwargs
+                        .set_item(
+                            "execution",
+                            match context.execution {
+                                ExecutionMode::Sync => "sync",
+                                ExecutionMode::Async => "async",
+                            },
+                        )
+                        .map_err(|e| format!("executor kwargs: {e}"))?;
+                    kwargs
+                        .set_item("timeout_hint_secs", context.timeout_hint_secs)
+                        .map_err(|e| format!("executor kwargs: {e}"))?;
+                    let args = (script_path.as_str(), py_params);
+                    let raw = match executor_ref.call(gil, args, Some(&kwargs)) {
+                        Ok(value) => value,
+                        Err(err) if err.is_instance_of::<pyo3::exceptions::PyTypeError>(gil) => {
+                            drop(err);
+                            let py_params = json_value_to_bound_py(gil, &params)
+                                .map_err(|e| format!("failed to convert params: {e}"))?;
+                            executor_ref
+                                .call1(gil, (script_path, py_params))
+                                .map_err(|e| format!("executor error: {e}"))?
+                        }
+                        Err(err) => return Err(format!("executor error: {err}")),
+                    };
                     py_any_to_json_value(raw.bind(gil)).map_err(|e| e.to_string())
                 })
             });

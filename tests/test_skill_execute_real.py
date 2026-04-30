@@ -27,13 +27,9 @@ import textwrap
 from typing import Any
 from typing import Callable
 
-# Import third-party modules
-import pytest
-
 # Import local modules
 import dcc_mcp_core
 from dcc_mcp_core._server.inprocess_executor import build_inprocess_executor
-from dcc_mcp_core._server.inprocess_executor import run_skill_script
 
 # ── helpers ────────────────────────────────────────────────────────────────
 
@@ -135,9 +131,9 @@ class TestInProcessSkillProcessesFile:
         # Dispatcher must have been routed through (UI-thread contract).
         assert len(dispatcher.calls) == 1
         func, args, kwargs = dispatcher.calls[0]
-        assert func is run_skill_script
-        assert args[0] == str(script)
-        assert kwargs == {}
+        assert callable(func)
+        assert args == ()
+        assert kwargs["affinity"] == "any"
 
     def test_executor_runs_script_that_writes_json_manifest(self, tmp_path: Path) -> None:
         """A common DCC skill pattern: scan a directory, emit a JSON manifest."""
@@ -262,11 +258,13 @@ class TestSkillScriptErrorPropagation:
         )
 
         executor = build_inprocess_executor(None)
-        with pytest.raises(RuntimeError, match="skill failed: invalid input"):
-            executor(
-                str(skill_dir / "scripts" / "boom.py"),
-                {"reason": "invalid input"},
-            )
+        result = executor(
+            str(skill_dir / "scripts" / "boom.py"),
+            {"reason": "invalid input"},
+        )
+        assert result["success"] is False
+        assert result["error"]["type"] == "RuntimeError"
+        assert result["error"]["message"] == "skill failed: invalid input"
 
     def test_dispatcher_errors_are_visible_to_caller(self, tmp_path: Path) -> None:
         """If the host dispatcher's UI thread fails (e.g. Maya viewport closed),
@@ -290,8 +288,10 @@ class TestSkillScriptErrorPropagation:
                 raise RuntimeError("UI thread shutting down")
 
         executor = build_inprocess_executor(_BoomDispatcher())
-        with pytest.raises(RuntimeError, match="UI thread shutting down"):
-            executor(str(skill_dir / "scripts" / "noop.py"), {})
+        result = executor(str(skill_dir / "scripts" / "noop.py"), {})
+        assert result["success"] is False
+        assert result["error"]["type"] == "RuntimeError"
+        assert result["error"]["message"] == "UI thread shutting down"
 
     def test_missing_main_callable_raises_attribute_error(self, tmp_path: Path) -> None:
         skill_dir = _write_skill(
@@ -302,8 +302,10 @@ class TestSkillScriptErrorPropagation:
             },
         )
         executor = build_inprocess_executor(None)
-        with pytest.raises(AttributeError, match="`main` callable"):
-            executor(str(skill_dir / "scripts" / "module_only.py"), {})
+        result = executor(str(skill_dir / "scripts" / "module_only.py"), {})
+        assert result["success"] is False
+        assert result["error"]["type"] == "AttributeError"
+        assert "`main` callable" in result["error"]["message"]
 
 
 # ── catalog ↔ executor wiring round-trip ───────────────────────────────────

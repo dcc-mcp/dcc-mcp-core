@@ -69,7 +69,9 @@ impl SkillCatalog {
     ///
     /// The callable signature must be::
     ///
-    ///     def executor(script_path: str, params: dict) -> dict:
+    ///     def executor(script_path: str, params: dict, *, action_name: str,
+    ///                  skill_name: str | None, thread_affinity: str,
+    ///                  execution: str, timeout_hint_secs: int | None) -> dict:
     ///         ...
     ///
     /// Example (Maya adapter)::
@@ -92,22 +94,69 @@ impl SkillCatalog {
                 self.clear_in_process_executor();
             }
             Some(py_fn) => {
-                let executor_fn = move |script_path: String,
-                                        params: serde_json::Value|
-                      -> Result<serde_json::Value, String> {
-                    use dcc_mcp_pybridge::py_json::{json_value_to_pyobject, py_any_to_json_value};
-                    Python::try_attach(|py| {
-                        let py_params = json_value_to_pyobject(py, &params)
-                            .map_err(|e| format!("params → Python: {e}"))?;
-                        let result = py_fn
-                            .call1(py, (script_path, py_params))
-                            .map_err(|e| format!("in-process executor failed: {e}"))?;
-                        let bound = result.into_bound(py);
-                        py_any_to_json_value(&bound).map_err(|e| format!("result → JSON: {e}"))
-                    })
-                    .ok_or_else(|| "Python interpreter not attached".to_string())
-                    .and_then(|r| r)
-                };
+                let executor_fn =
+                    move |script_path: String,
+                          params: serde_json::Value,
+                          context: crate::catalog::execute::ScriptExecutionContext|
+                          -> Result<serde_json::Value, String> {
+                        use dcc_mcp_models::ExecutionMode;
+                        use dcc_mcp_pybridge::py_json::{
+                            json_value_to_pyobject, py_any_to_json_value,
+                        };
+                        use pyo3::types::PyDict;
+                        Python::try_attach(|py| {
+                            let py_params = json_value_to_pyobject(py, &params)
+                                .map_err(|e| format!("params → Python: {e}"))?;
+                            let kwargs = PyDict::new(py);
+                            kwargs
+                                .set_item("action_name", &context.action_name)
+                                .map_err(|e| format!("executor kwargs: {e}"))?;
+                            kwargs
+                                .set_item("skill_name", context.skill_name.as_deref())
+                                .map_err(|e| format!("executor kwargs: {e}"))?;
+                            kwargs
+                                .set_item("thread_affinity", context.thread_affinity.as_str())
+                                .map_err(|e| format!("executor kwargs: {e}"))?;
+                            kwargs
+                                .set_item(
+                                    "execution",
+                                    match context.execution {
+                                        ExecutionMode::Sync => "sync",
+                                        ExecutionMode::Async => "async",
+                                    },
+                                )
+                                .map_err(|e| format!("executor kwargs: {e}"))?;
+                            kwargs
+                                .set_item("timeout_hint_secs", context.timeout_hint_secs)
+                                .map_err(|e| format!("executor kwargs: {e}"))?;
+                            let args = (script_path.as_str(), py_params);
+                            let result = match py_fn.call(py, args, Some(&kwargs)) {
+                                Ok(value) => value,
+                                Err(err)
+                                    if err.is_instance_of::<pyo3::exceptions::PyTypeError>(py) =>
+                                {
+                                    drop(err);
+                                    py_fn
+                                        .call1(
+                                            py,
+                                            (
+                                                script_path,
+                                                json_value_to_pyobject(py, &params)
+                                                    .map_err(|e| format!("params → Python: {e}"))?,
+                                            ),
+                                        )
+                                        .map_err(|e| format!("in-process executor failed: {e}"))?
+                                }
+                                Err(err) => {
+                                    return Err(format!("in-process executor failed: {err}"));
+                                }
+                            };
+                            let bound = result.into_bound(py);
+                            py_any_to_json_value(&bound).map_err(|e| format!("result → JSON: {e}"))
+                        })
+                        .ok_or_else(|| "Python interpreter not attached".to_string())
+                        .and_then(|r| r)
+                    };
                 self.set_in_process_executor(executor_fn);
             }
         }

@@ -23,7 +23,17 @@
 //! [`SkillCatalog::with_in_process_executor`]) it is used; otherwise the
 //! subprocess path is taken.
 
-use dcc_mcp_models::ToolDeclaration;
+use dcc_mcp_models::{ExecutionMode, ThreadAffinity, ToolDeclaration};
+
+/// Metadata passed to an in-process skill executor for a specific tool call.
+#[derive(Clone, Debug)]
+pub struct ScriptExecutionContext {
+    pub action_name: String,
+    pub skill_name: Option<String>,
+    pub thread_affinity: ThreadAffinity,
+    pub execution: ExecutionMode,
+    pub timeout_hint_secs: Option<u32>,
+}
 
 /// A pluggable script executor that runs a skill script inside the **current**
 /// process rather than spawning a child process.
@@ -36,10 +46,12 @@ use dcc_mcp_models::ToolDeclaration;
 /// The closure receives:
 /// - `script_path` — absolute path to the `.py` script to execute.
 /// - `params`      — the tool's input parameters as a `serde_json::Value`.
+/// - `context`     — action/execution metadata used by host dispatchers.
 ///
 /// It must return `Ok(Value)` on success or `Err(String)` on failure.
-pub type ScriptExecutorFn =
-    dyn Fn(String, serde_json::Value) -> Result<serde_json::Value, String> + Send + Sync;
+pub type ScriptExecutorFn = dyn Fn(String, serde_json::Value, ScriptExecutionContext) -> Result<serde_json::Value, String>
+    + Send
+    + Sync;
 
 /// Execute a skill script **in-process** using PyO3.
 ///

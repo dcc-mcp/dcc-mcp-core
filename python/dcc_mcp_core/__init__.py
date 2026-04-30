@@ -307,6 +307,7 @@ from dcc_mcp_core._server import BaseDccCallableDispatcher
 from dcc_mcp_core._server import BaseDccCallableDispatcherFull
 from dcc_mcp_core._server import BaseDccPump
 from dcc_mcp_core._server import InProcessCallableDispatcher
+from dcc_mcp_core._server import InProcessExecutionContext
 from dcc_mcp_core._server import JobEntry
 from dcc_mcp_core._server import JobOutcome
 from dcc_mcp_core._server import MinimalModeConfig
@@ -550,6 +551,7 @@ __all__ = [
     "GracefulIpcChannelAdapter",
     "GuiExecutableHint",
     "InProcessCallableDispatcher",
+    "InProcessExecutionContext",
     "InputValidator",
     "IntWrapper",
     "IpcChannelAdapter",

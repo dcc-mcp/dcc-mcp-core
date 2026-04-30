@@ -87,8 +87,15 @@ impl SkillCatalog {
                 let action_name_clone = action_name.clone();
                 let dcc_owned = metadata.dcc.clone();
                 if let Some(executor) = maybe_executor {
+                    let context = execute::ScriptExecutionContext {
+                        action_name: action_name.clone(),
+                        skill_name: Some(skill_name.to_string()),
+                        thread_affinity: tool_decl.thread_affinity,
+                        execution: tool_decl.execution,
+                        timeout_hint_secs: tool_decl.timeout_hint_secs,
+                    };
                     dispatcher.register_handler(&action_name_clone, move |params| {
-                        executor(script_path_owned.clone(), params)
+                        executor(script_path_owned.clone(), params, context.clone())
                     });
                 } else {
                     dispatcher.register_handler(&action_name_clone, move |params| {
@@ -137,8 +144,15 @@ impl SkillCatalog {
                     let dcc_owned = metadata.dcc.clone();
                     let maybe_executor = self.script_executor.read().clone();
                     if let Some(executor) = maybe_executor {
+                        let context = execute::ScriptExecutionContext {
+                            action_name: action_name.clone(),
+                            skill_name: Some(skill_name.to_string()),
+                            thread_affinity: dcc_mcp_models::ThreadAffinity::Any,
+                            execution: dcc_mcp_models::ExecutionMode::Sync,
+                            timeout_hint_secs: None,
+                        };
                         dispatcher.register_handler(&action_name_clone, move |params| {
-                            executor(script_path_owned.clone(), params)
+                            executor(script_path_owned.clone(), params, context.clone())
                         });
                     } else {
                         dispatcher.register_handler(&action_name_clone, move |params| {

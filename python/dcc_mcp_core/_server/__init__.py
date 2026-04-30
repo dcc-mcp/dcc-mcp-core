@@ -17,6 +17,7 @@ from dcc_mcp_core._server.callable_dispatcher import PendingEnvelope
 from dcc_mcp_core._server.callable_dispatcher import PumpStats
 from dcc_mcp_core._server.callable_dispatcher import current_callable_job
 from dcc_mcp_core._server.inprocess_executor import BaseDccCallableDispatcher
+from dcc_mcp_core._server.inprocess_executor import InProcessExecutionContext
 from dcc_mcp_core._server.inprocess_executor import build_inprocess_executor
 from dcc_mcp_core._server.inprocess_executor import exception_to_error_envelope
 from dcc_mcp_core._server.inprocess_executor import run_skill_script
@@ -35,6 +36,7 @@ __all__ = [
     "DrainStats",
     "FileLoggingManager",
     "InProcessCallableDispatcher",
+    "InProcessExecutionContext",
     "JobEntry",
     "JobOutcome",
     "JobPersistenceManager",
