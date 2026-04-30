@@ -16,11 +16,15 @@ mod issue_317_tests {
         // Issue #344 — tools with no declared annotations omit the spec
         // `annotations` field entirely. `deferred_hint` is a dcc-mcp-core
         // extension that rides in `_meta` (never in the spec `annotations`
-        // map) and for a sync tool it is simply absent.
+        // map) and for a sync tool it is simply absent. Issue #588 added
+        // the `_meta.dcc.incompleteSchema` marker, which only surfaces
+        // when the author skipped `inputSchema`; declare a real schema
+        // here so this test stays focused on the annotations contract.
         let meta = ActionMeta {
             name: "quick".into(),
             description: "Fast".into(),
             execution: ExecutionMode::Sync,
+            input_schema: serde_json::json!({"type": "object"}),
             ..Default::default()
         };
         let tool = action_meta_to_mcp_tool(&meta, false, &empty_eligible(), &[]);
@@ -168,5 +172,73 @@ mod issue_317_tests {
         );
         assert!(v.pointer("/annotations/destructiveHint").is_none());
         assert!(v.pointer("/annotations/openWorldHint").is_none());
+    }
+}
+
+mod issue_588_input_schema_marker {
+    //! Issue #588 — surface `_meta.dcc.incompleteSchema` when the catalog
+    //! had to fall back to the permissive `{"type": "object"}` placeholder.
+    use super::*;
+    use dcc_mcp_actions::registry::ActionMeta;
+
+    fn empty_eligible() -> std::collections::HashSet<(String, String)> {
+        std::collections::HashSet::new()
+    }
+
+    #[test]
+    fn null_input_schema_emits_incomplete_schema_marker_and_hint() {
+        let meta = ActionMeta {
+            name: "execute_python".into(),
+            description: "Run python in the host DCC".into(),
+            input_schema: serde_json::Value::Null,
+            ..Default::default()
+        };
+        let tool = action_meta_to_mcp_tool(&meta, false, &empty_eligible(), &[]);
+        let v = serde_json::to_value(&tool).unwrap();
+
+        assert_eq!(
+            v.pointer("/inputSchema/type").and_then(|x| x.as_str()),
+            Some("object"),
+            "fallback inputSchema must remain `{{type: object}}` for backwards compatibility",
+        );
+        assert_eq!(
+            v.pointer("/_meta/dcc/incompleteSchema")
+                .and_then(|x| x.as_bool()),
+            Some(true),
+            "incompleteSchema must surface in _meta when the author skipped inputSchema",
+        );
+        let hint = v
+            .pointer("/_meta/dcc/schemaHint")
+            .and_then(|x| x.as_str())
+            .unwrap_or_default();
+        assert!(
+            hint.contains("did not declare an input schema"),
+            "schemaHint must explain the situation to the agent: got {hint:?}",
+        );
+    }
+
+    #[test]
+    fn declared_input_schema_skips_marker() {
+        let meta = ActionMeta {
+            name: "create_sphere".into(),
+            description: "Make a sphere".into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "required": ["radius"],
+                "properties": {"radius": {"type": "number"}},
+            }),
+            ..Default::default()
+        };
+        let tool = action_meta_to_mcp_tool(&meta, false, &empty_eligible(), &[]);
+        let v = serde_json::to_value(&tool).unwrap();
+
+        assert!(
+            v.pointer("/_meta/dcc/incompleteSchema").is_none(),
+            "tools with a real input schema must not carry the incomplete-schema marker",
+        );
+        assert!(
+            v.pointer("/_meta/dcc/schemaHint").is_none(),
+            "schemaHint pairs with incompleteSchema and must be absent here",
+        );
     }
 }

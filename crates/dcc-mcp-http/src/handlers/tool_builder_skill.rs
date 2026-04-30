@@ -114,7 +114,12 @@ pub fn action_meta_to_mcp_tool(
     bare_eligible: &std::collections::HashSet<(String, String)>,
     declared_capabilities: &[String],
 ) -> McpTool {
-    let input_schema = if meta.input_schema.is_null() {
+    // Issue #588 — record whether we had to fall back to the permissive
+    // `{"type": "object"}` placeholder so MCP clients can warn the user
+    // that the tool author did not declare an input schema. The marker
+    // rides in `_meta.dcc.incompleteSchema` (built below).
+    let schema_is_incomplete = meta.input_schema.is_null();
+    let input_schema = if schema_is_incomplete {
         json!({"type": "object"})
     } else {
         meta.input_schema.clone()
@@ -171,7 +176,7 @@ pub fn action_meta_to_mcp_tool(
         input_schema,
         output_schema,
         annotations,
-        meta: build_tool_meta(meta, declared_capabilities),
+        meta: build_tool_meta(meta, declared_capabilities, schema_is_incomplete),
     }
 }
 
@@ -188,11 +193,18 @@ pub fn action_meta_to_mcp_tool(
 ///   value is `true` when either the skill author declared
 ///   `deferred_hint: true` in `tools.yaml` **or** the author declared
 ///   `execution: async` (which implies deferred).
+/// * `dcc.incompleteSchema` — `true` when the skill author did not
+///   declare an input schema and the catalog had to fall back to the
+///   permissive `{"type": "object"}` placeholder. Pairs with
+///   `dcc.schemaHint` so MCP clients (and the agents driving them) can
+///   warn the user before invoking a tool whose argument shape is
+///   unspecified (issue #588).
 ///
 /// Returns `None` when there is nothing to emit.
 pub fn build_tool_meta(
     meta: &dcc_mcp_actions::registry::ActionMeta,
     declared_capabilities: &[String],
+    schema_is_incomplete: bool,
 ) -> Option<serde_json::Map<String, serde_json::Value>> {
     let deferred = meta
         .annotations
@@ -205,7 +217,7 @@ pub fn build_tool_meta(
     // out before asking the user to invoke them.
     let missing = missing_capabilities(&meta.required_capabilities, declared_capabilities);
     let has_required_caps = !meta.required_capabilities.is_empty();
-    if !has_timeout && !deferred && !has_required_caps {
+    if !has_timeout && !deferred && !has_required_caps && !schema_is_incomplete {
         return None;
     }
 
@@ -227,6 +239,16 @@ pub fn build_tool_meta(
                 serde_json::json!(missing),
             );
         }
+    }
+    if schema_is_incomplete {
+        dcc_meta.insert("incompleteSchema".to_string(), serde_json::json!(true));
+        dcc_meta.insert(
+            "schemaHint".to_string(),
+            serde_json::json!(
+                "Tool author did not declare an input schema; arguments are unvalidated. \
+                 Inspect the source script or skill docs before calling."
+            ),
+        );
     }
     let mut out = serde_json::Map::new();
     out.insert("dcc".to_string(), serde_json::Value::Object(dcc_meta));
