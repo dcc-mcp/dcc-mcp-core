@@ -274,3 +274,42 @@ def test_register_inprocess_executor_with_dispatcher_routes(tmp_path: Path) -> N
     p = _write_script(tmp_path, "def main(x): return x * 3\n")
     assert captured[0](str(p), {"x": 7}) == 21
     assert dispatcher.count == 1
+
+
+def test_dcc_server_base_constructor_registers_dispatcher_before_discovery(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Import local modules
+    from dcc_mcp_core.server_base import DccServerBase
+
+    events: list[str] = []
+
+    class _Server:
+        def set_in_process_executor(self, executor: Callable[..., Any]) -> None:
+            events.append("set_in_process_executor")
+            self.executor = executor
+
+        def discover(self, extra_paths: list[str]) -> int:
+            events.append("discover")
+            return len(extra_paths)
+
+    fake_server = _Server()
+    monkeypatch.setattr(dcc_mcp_core, "create_skill_server", lambda *_args, **_kwargs: fake_server)
+
+    class _Dispatcher:
+        def dispatch_callable(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+            return func(*args, **kwargs)
+
+    base = DccServerBase(
+        "test_inproc_ctor",
+        tmp_path,
+        port=0,
+        dispatcher=_Dispatcher(),
+        enable_file_logging=False,
+        enable_job_persistence=False,
+        enable_telemetry=False,
+    )
+    base.register_builtin_actions(include_bundled=False)
+
+    assert events == ["set_in_process_executor", "discover"]

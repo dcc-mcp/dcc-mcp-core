@@ -183,6 +183,29 @@ architectural rationale.
 
 [chunked]: https://github.com/loonghao/dcc-mcp-core/issues/332
 
+## Dispatcher-first server construction
+
+Embedded adapters should create their host dispatcher before skill discovery and
+pass it into `DccServerBase`:
+
+```python
+dispatcher = create_blender_dispatcher()
+server = BlenderMcpServer(port=8765, dispatcher=dispatcher)
+server.register_builtin_actions()
+handle = server.start()
+```
+
+`DccServerBase` installs the in-process executor immediately after the inner
+`McpHttpServer` is created, so any later `register_builtin_actions()` or
+`load_skill()` call wires scripts through the dispatcher. This avoids the late
+attachment race where a main-thread skill is discovered before the adapter has
+registered its UI-thread bridge.
+
+For plugin entry points, prefer `start_embedded_dcc_server(...)` or
+`make_start_stop(..., dispatcher_factory=...)`; both create the dispatcher before
+constructing the server singleton and before skill loading. See
+[Server Factory API](../api/factory.md).
+
 ### Python usage
 
 ```python

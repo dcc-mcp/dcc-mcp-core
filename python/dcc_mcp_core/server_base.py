@@ -117,6 +117,11 @@ class DccServerBase:
             ``job-persist-sqlite`` wheel feature; silently skipped when the
             feature is absent.  Set ``DCC_MCP_DISABLE_JOB_PERSISTENCE=1`` to
             override.  Default ``True``.
+        dispatcher: Optional host callable dispatcher installed immediately
+            after the inner ``McpHttpServer`` is created and before any
+            subsequent ``register_builtin_actions()`` / skill loading call.
+            Embedded adapters should pass their UI/main-thread dispatcher here
+            instead of attaching it after startup.
         enable_telemetry: Initialise in-process metrics collection via
             ``TelemetryConfig`` so that ``diagnostics__tool_metrics`` returns
             real latency and success-rate data.  Set
@@ -140,6 +145,7 @@ class DccServerBase:
         dcc_pid: int | None = None,
         dcc_window_title: str | None = None,
         dcc_window_handle: int | None = None,
+        dispatcher: BaseDccCallableDispatcher | None = None,
         enable_file_logging: bool = True,
         enable_job_persistence: bool = True,
         enable_telemetry: bool = True,
@@ -171,6 +177,8 @@ class DccServerBase:
         self._dcc_pid: int = dcc_pid if dcc_pid is not None else os.getpid()
         self._dcc_window_title: str | None = dcc_window_title
         self._dcc_window_handle: int | None = dcc_window_handle
+        self._dcc_dispatcher: BaseDccCallableDispatcher | None = dispatcher
+        self._inprocess_executor_registered: bool = False
         self._cached_hwnd: int | None = None
 
         # Resolve gateway port
@@ -216,6 +224,8 @@ class DccServerBase:
 
         # Create the inner skill manager (registry + dispatcher + catalog)
         self._server: Any = create_skill_server(dcc_name, self._config)
+        if dispatcher is not None:
+            self.register_inprocess_executor(dispatcher)
 
         # Composed collaborators (#486) — constructed eagerly here, but the
         # `_skill_client` / `_window_resolver` properties below also fall
@@ -411,6 +421,9 @@ class DccServerBase:
                 leaving every skill as a stub.
 
         """
+        if self._dcc_dispatcher is not None and not self._inprocess_executor_registered:
+            self.register_inprocess_executor(self._dcc_dispatcher)
+
         skill_paths = self.collect_skill_search_paths(
             extra_paths=extra_skill_paths,
             include_bundled=include_bundled,
@@ -491,9 +504,11 @@ class DccServerBase:
                 inline on the calling thread.
 
         """
+        self._dcc_dispatcher = dispatcher
         executor = build_inprocess_executor(dispatcher)
         try:
             self._server.set_in_process_executor(executor)
+            self._inprocess_executor_registered = True
             logger.info(
                 "[%s] In-process executor registered (dispatcher=%s)",
                 self._dcc_name,

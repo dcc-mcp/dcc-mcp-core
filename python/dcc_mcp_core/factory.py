@@ -66,6 +66,8 @@ def create_dcc_server(
     lock: threading.Lock,
     server_class: type[Any],
     port: int = 8765,
+    dispatcher: Any | None = None,
+    dispatcher_factory: Callable[[], Any | None] | None = None,
     register_builtins: bool = True,
     extra_skill_paths: list[str] | None = None,
     include_bundled: bool = True,
@@ -86,6 +88,13 @@ def create_dcc_server(
         server_class: The :class:`~dcc_mcp_core.server_base.DccServerBase`
             subclass to instantiate.
         port: TCP port for the MCP HTTP server.
+        dispatcher: Optional pre-created host dispatcher. When supplied and
+            ``server_kwargs`` does not already contain ``dispatcher``, it is
+            forwarded to ``server_class`` before skill discovery.
+        dispatcher_factory: Optional zero-argument factory called while creating
+            a new server instance. Use this when the dispatcher should be
+            constructed immediately before the server and not on repeated
+            ``start_server()`` calls that return an existing singleton.
         register_builtins: If ``True``, call ``register_builtin_actions()``
             after creating the server.
         extra_skill_paths: Additional skill directories.
@@ -117,6 +126,12 @@ def create_dcc_server(
     with lock:
         instance: Any | None = instance_holder[0]
         if instance is None or not instance.is_running:
+            effective_dispatcher = dispatcher
+            if effective_dispatcher is None and dispatcher_factory is not None:
+                effective_dispatcher = dispatcher_factory()
+            if effective_dispatcher is not None and "dispatcher" not in server_kwargs:
+                server_kwargs["dispatcher"] = effective_dispatcher
+
             instance = server_class(port=port, **server_kwargs)
 
             if register_builtins:
@@ -144,9 +159,61 @@ def create_dcc_server(
         return instance_holder[0].start()
 
 
+def start_embedded_dcc_server(
+    *,
+    dcc_name: str,
+    instance_holder: list[Any | None],
+    lock: threading.Lock,
+    server_class: type[Any],
+    port: int = 8765,
+    dispatcher_factory: Callable[[], Any | None] | None = None,
+    dispatcher: Any | None = None,
+    env_prefix: str | None = None,
+    register_builtins: bool = True,
+    extra_skill_paths: list[str] | None = None,
+    include_bundled: bool = True,
+    enable_hot_reload: bool = False,
+    hot_reload_env_var: str | None = None,
+    **server_kwargs: Any,
+) -> Any:
+    """Start an embedded DCC server with the safe dispatcher-first ordering.
+
+    This is a small adapter bootstrap for hosts such as Blender, Photoshop,
+    Houdini, Unreal, and Maya. It standardizes the lifecycle that adapters used
+    to open-code:
+
+    1. Create or receive the host dispatcher.
+    2. Construct the ``DccServerBase`` subclass with that dispatcher.
+    3. Discover/load skills.
+    4. Start the HTTP server and optional gateway registration.
+
+    Args mirror :func:`create_dcc_server`. ``env_prefix`` can be used to infer
+    a hot-reload variable such as ``DCC_MCP_BLENDER_HOT_RELOAD``.
+    """
+    inferred_hot_reload = hot_reload_env_var
+    if inferred_hot_reload is None and env_prefix:
+        inferred_hot_reload = f"{env_prefix.rstrip('_')}_HOT_RELOAD"
+
+    return create_dcc_server(
+        instance_holder=instance_holder,
+        lock=lock,
+        server_class=server_class,
+        port=port,
+        dispatcher=dispatcher,
+        dispatcher_factory=dispatcher_factory,
+        register_builtins=register_builtins,
+        extra_skill_paths=extra_skill_paths,
+        include_bundled=include_bundled,
+        enable_hot_reload=enable_hot_reload,
+        hot_reload_env_var=inferred_hot_reload,
+        **server_kwargs,
+    )
+
+
 def make_start_stop(
     server_class: type[Any],
     hot_reload_env_var: str | None = None,
+    dispatcher_factory: Callable[[], Any | None] | None = None,
 ) -> tuple[Callable[..., Any], Callable[[], None]]:
     """Generate a ``(start_server, stop_server)`` function pair for a DCC adapter.
 
@@ -157,6 +224,8 @@ def make_start_stop(
         server_class: The :class:`~dcc_mcp_core.server_base.DccServerBase` subclass.
         hot_reload_env_var: Env var to check for hot-reload (e.g.
             ``"DCC_MCP_BLENDER_HOT_RELOAD"``).
+        dispatcher_factory: Optional factory used to create the host dispatcher
+            before constructing the server singleton.
 
     Returns:
         Tuple of ``(start_server_fn, stop_server_fn)``.
@@ -185,6 +254,7 @@ def make_start_stop(
             lock=_lock,
             server_class=server_class,
             port=port,
+            dispatcher_factory=dispatcher_factory,
             register_builtins=register_builtins,
             extra_skill_paths=extra_skill_paths,
             include_bundled=include_bundled,

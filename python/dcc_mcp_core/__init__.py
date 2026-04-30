@@ -385,6 +385,7 @@ from dcc_mcp_core.elicitation import elicit_url
 from dcc_mcp_core.factory import create_dcc_server
 from dcc_mcp_core.factory import get_server_instance
 from dcc_mcp_core.factory import make_start_stop
+from dcc_mcp_core.factory import start_embedded_dcc_server
 
 # Agent feedback + rationale utilities (issues #433, #434)
 from dcc_mcp_core.feedback import clear_feedback
@@ -775,6 +776,7 @@ __all__ = [
     "skill_success_with_table",
     "skill_warning",
     "stage_to_scene_info_json",
+    "start_embedded_dcc_server",
     "success_result",
     "units_to_mpu",
     "unwrap_parameters",
