@@ -299,14 +299,6 @@ pub fn parse_body(body: &str) -> Result<JsonRpcBatch, serde_json::Error> {
     }
 }
 
-/// Return true only if the raw JSON object has an explicit "id" key
-/// (even if its value is null). Used to distinguish request from notification.
-pub fn json_has_id(raw: &Value) -> bool {
-    raw.as_object()
-        .map(|o| o.contains_key("id"))
-        .unwrap_or(false)
-}
-
 pub fn json_error_response(
     status: StatusCode,
     id: Option<Value>,

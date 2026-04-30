@@ -285,6 +285,36 @@ class TestMcpHttpProtocol:
         assert body["error"]["code"] == -32602
         assert "tools/call" in body["error"]["message"]
 
+    def test_missing_method_returns_invalid_request(self, running_server):
+        """A request-like object with id but no method must not be silently accepted."""
+        _, _, url = running_server
+        code, body = _post_json(url, {"jsonrpc": "2.0", "id": 9})
+
+        assert code == 200
+        assert body["jsonrpc"] == "2.0"
+        assert body["id"] is None
+        assert body["error"]["code"] == -32600
+        assert "Invalid Request" in body["error"]["message"]
+
+    def test_empty_batch_returns_invalid_request(self, running_server):
+        """JSON-RPC empty batches are invalid and should produce a controlled error."""
+        _, _, url = running_server
+        code, body = _post_json(url, [])
+
+        assert code == 200
+        assert body["jsonrpc"] == "2.0"
+        assert body["id"] is None
+        assert body["error"]["code"] == -32600
+        assert "empty batch" in body["error"]["message"]
+
+    def test_client_response_message_is_accepted_without_response(self, running_server):
+        """Client responses to server-initiated requests are acknowledgements, not new requests."""
+        _, _, url = running_server
+        code, text = _post_raw(url, b'{"jsonrpc":"2.0","id":"roots-1","result":{"roots":[]}}')
+
+        assert code == 202
+        assert text == ""
+
     def test_notification_returns_202(self, running_server):
         """Notifications (no id) must return 202, not 200."""
         _, _, url = running_server

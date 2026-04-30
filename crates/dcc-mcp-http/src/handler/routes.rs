@@ -20,10 +20,19 @@ use tokio_stream::wrappers::BroadcastStream;
 use super::dispatch::dispatch_request;
 use super::notifications::{handle_notification, handle_response_message};
 use super::state::AppState;
-use crate::handlers::{json_error_response, json_has_id, parse_body, parse_raw_values};
+use crate::handlers::{json_error_response, parse_body, parse_raw_values};
 use crate::protocol::{
     self, JsonRpcBatch, JsonRpcMessage, JsonRpcResponse, MCP_SESSION_HEADER, format_sse_event,
 };
+
+fn invalid_request_response(message: impl Into<String>) -> Response {
+    json_error_response(
+        StatusCode::OK,
+        None,
+        protocol::error_codes::INVALID_REQUEST,
+        message,
+    )
+}
 
 /// Handle `POST /mcp`: accept JSON-RPC message(s) and return response.
 pub async fn handle_post(
@@ -48,6 +57,23 @@ pub async fn handle_post(
             );
         }
     };
+    if raw_values.is_empty() {
+        return invalid_request_response("Invalid Request: empty batch");
+    }
+    for raw in &raw_values {
+        let Some(obj) = raw.as_object() else {
+            return invalid_request_response("Invalid Request: message must be an object");
+        };
+        if obj.contains_key("id")
+            && !obj.contains_key("method")
+            && !obj.contains_key("result")
+            && !obj.contains_key("error")
+        {
+            return invalid_request_response(
+                "Invalid Request: message with id must include method, result, or error",
+            );
+        }
+    }
 
     let messages: JsonRpcBatch = match parse_body(&body) {
         Ok(m) => m,
@@ -61,8 +87,11 @@ pub async fn handle_post(
         }
     };
 
-    // A message is a "request" (needs a response) iff it has an explicit "id" field.
-    let has_requests = raw_values.iter().any(json_has_id);
+    // Only JSON-RPC requests need responses. Client responses may also carry
+    // `id`, but they are acknowledgements for server-initiated requests.
+    let has_requests = messages
+        .iter()
+        .any(|msg| matches!(msg, JsonRpcMessage::Request(req) if req.id.is_some()));
 
     // Always process notifications (fire-and-forget — no id) so that
     // `notifications/cancelled` can abort in-flight tool calls.

@@ -59,7 +59,7 @@ pub(crate) use job_tools::{
 };
 pub(crate) use lazy_actions::{
     handle_call_action, handle_describe_action, handle_list_actions, json_error_response,
-    json_has_id, notify_message, notify_tools_changed, parse_body, parse_raw_values,
+    notify_message, notify_tools_changed, parse_body, parse_raw_values,
     refresh_roots_cache_for_session, request_id_to_string,
 };
 pub(crate) use resources_prompts::{
