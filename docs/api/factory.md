@@ -110,7 +110,7 @@ Return the current singleton instance (or `None` if not started).
 
 ---
 
-## Embedded-host wiring (issues #521, #525, #599)
+## Embedded-host wiring (issues #521, #525, #599, #604)
 
 Embedded DCC plugins (Maya, Houdini, Unreal Python, Blender) typically need
 two pieces of glue beyond the bare server:
@@ -154,6 +154,32 @@ server.start()
 existing adapters. New adapters should keep the bridge and use
 `bridge.dispatch_callable(...)` for direct host work so skill scripts and
 dynamic calls share the same affinity metadata and error normalization.
+
+Long-running host-native operations can return `DeferredToolResult` from the
+skill runner or a direct bridge callable. The bridge polls the completion
+callback until it returns a final JSON-serialisable value; when the original
+`tools/call` used the async job path (`execution: async`, timeout hint, or
+`_meta.dcc.async`), the existing `JobManager` row remains `running` until that
+final value completes or the deferred result times out:
+
+```python
+from dcc_mcp_core import DeferredToolResult, skill_success
+
+def start_render(params):
+    job = host_render_start(params)
+
+    def check_done():
+        if not host_render_finished(job):
+            return None
+        return skill_success("Render complete", output_path=host_render_path(job))
+
+    return DeferredToolResult(
+        check_is_finished=check_done,
+        timeout_secs=3600,
+        poll_interval_secs=0.25,
+        stdout="Render submitted",
+    )
+```
 
 See [Callable Dispatcher API](./dispatcher.md) for the full
 `BaseDccCallableDispatcher` / `BaseDccCallableDispatcherFull` / `BaseDccPump`

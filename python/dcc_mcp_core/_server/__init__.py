@@ -19,6 +19,7 @@ from dcc_mcp_core._server.callable_dispatcher import PendingEnvelope
 from dcc_mcp_core._server.callable_dispatcher import PumpStats
 from dcc_mcp_core._server.callable_dispatcher import current_callable_job
 from dcc_mcp_core._server.inprocess_executor import BaseDccCallableDispatcher
+from dcc_mcp_core._server.inprocess_executor import DeferredToolResult
 from dcc_mcp_core._server.inprocess_executor import HostExecutionBridge
 from dcc_mcp_core._server.inprocess_executor import InProcessExecutionContext
 from dcc_mcp_core._server.inprocess_executor import build_inprocess_executor
@@ -38,6 +39,7 @@ __all__ = [
     "BaseDccCallableDispatcher",
     "BaseDccCallableDispatcherFull",
     "BaseDccPump",
+    "DeferredToolResult",
     "DrainStats",
     "FileLoggingManager",
     "HostExecutionBridge",

@@ -14,6 +14,7 @@ import pytest
 # Import local modules
 import dcc_mcp_core
 from dcc_mcp_core._server.inprocess_executor import BaseDccCallableDispatcher
+from dcc_mcp_core._server.inprocess_executor import DeferredToolResult
 from dcc_mcp_core._server.inprocess_executor import HostExecutionBridge
 from dcc_mcp_core._server.inprocess_executor import InProcessExecutionContext
 from dcc_mcp_core._server.inprocess_executor import build_inprocess_executor
@@ -26,6 +27,8 @@ from dcc_mcp_core._server.inprocess_executor import run_skill_script
 def test_base_dispatcher_exported_from_top_level() -> None:
     assert hasattr(dcc_mcp_core, "BaseDccCallableDispatcher")
     assert "BaseDccCallableDispatcher" in dcc_mcp_core.__all__
+    assert hasattr(dcc_mcp_core, "DeferredToolResult")
+    assert "DeferredToolResult" in dcc_mcp_core.__all__
     assert hasattr(dcc_mcp_core, "HostExecutionBridge")
     assert "HostExecutionBridge" in dcc_mcp_core.__all__
     assert hasattr(dcc_mcp_core, "InProcessExecutionContext")
@@ -35,12 +38,14 @@ def test_base_dispatcher_exported_from_top_level() -> None:
 def test_helpers_exported_from_underscore_server() -> None:
     # Import local modules
     from dcc_mcp_core._server import BaseDccCallableDispatcher as B
+    from dcc_mcp_core._server import DeferredToolResult as DTR
     from dcc_mcp_core._server import HostExecutionBridge as HEB
     from dcc_mcp_core._server import InProcessExecutionContext as IEC
     from dcc_mcp_core._server import build_inprocess_executor as BIE
     from dcc_mcp_core._server import run_skill_script as RSS
 
     assert B is BaseDccCallableDispatcher
+    assert DTR is DeferredToolResult
     assert HEB is HostExecutionBridge
     assert BIE is build_inprocess_executor
     assert IEC is InProcessExecutionContext
@@ -326,6 +331,100 @@ def test_host_execution_bridge_as_inprocess_executor_uses_runner() -> None:
 
     assert executor("/tmp/skill.py", {"k": "v"}) == {"ok": True}
     assert seen == [("/tmp/skill.py", {"k": "v"})]
+
+
+def test_host_execution_bridge_resolves_deferred_tool_result() -> None:
+    attempts = 0
+
+    def _check() -> dict[str, Any] | None:
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            return None
+        return {"success": True, "value": 42}
+
+    bridge = HostExecutionBridge()
+
+    result = bridge.dispatch_callable(
+        lambda: DeferredToolResult(
+            check_is_finished=_check,
+            timeout_secs=1,
+            poll_interval_secs=0.001,
+            stdout="started render",
+        ),
+        execution="async",
+    )
+
+    assert result == {
+        "success": True,
+        "value": 42,
+        "_meta": {
+            "dcc.deferred": {
+                "stdout": "started render",
+                "stderr": "",
+            },
+        },
+    }
+    assert attempts == 3
+
+
+def test_host_execution_bridge_polls_deferred_via_dispatcher() -> None:
+    calls: list[str] = []
+
+    class _DispatcherSpy:
+        def dispatch_callable(
+            self,
+            func: Callable[..., Any],
+            *args: Any,
+            **kwargs: Any,
+        ) -> Any:
+            calls.append(kwargs["context"].execution)
+            return func(*args, **kwargs)
+
+    bridge = HostExecutionBridge(dispatcher=_DispatcherSpy())
+    result = bridge.dispatch_callable(
+        lambda: DeferredToolResult(
+            check_is_finished=lambda: {"done": True},
+            timeout_secs=1,
+            poll_interval_secs=0.001,
+        ),
+        execution="async",
+    )
+
+    assert result == {"done": True}
+    assert calls == ["async", "async"]
+
+
+def test_deferred_tool_result_timeout_becomes_error_envelope() -> None:
+    bridge = HostExecutionBridge()
+
+    result = bridge.dispatch_callable(
+        lambda: DeferredToolResult(
+            check_is_finished=lambda: None,
+            timeout_secs=0.001,
+            poll_interval_secs=0.001,
+            stderr="still rendering",
+        ),
+    )
+
+    assert result["success"] is False
+    assert result["error"]["type"] == "TimeoutError"
+    assert result["_meta"]["dcc.deferred"]["stderr"] == "still rendering"
+
+
+def test_deferred_tool_result_non_serialisable_result_is_error() -> None:
+    bridge = HostExecutionBridge()
+
+    result = bridge.dispatch_callable(
+        lambda: DeferredToolResult(
+            check_is_finished=lambda: {"bad": object()},
+            timeout_secs=1,
+            poll_interval_secs=0.001,
+        ),
+    )
+
+    assert result["success"] is False
+    assert result["message"] == "Deferred tool returned a non-serialisable result"
 
 
 # ── DccServerBase.register_inprocess_executor integration ───────────────────

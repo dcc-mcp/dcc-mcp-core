@@ -24,9 +24,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import importlib.util
+import json
 import logging
 from pathlib import Path
 import sys
+import time
 import traceback
 from typing import TYPE_CHECKING
 from typing import Any
@@ -58,6 +60,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "BaseDccCallableDispatcher",
+    "DeferredToolResult",
     "HostExecutionBridge",
     "InProcessExecutionContext",
     "build_inprocess_executor",
@@ -75,6 +78,31 @@ class InProcessExecutionContext:
     thread_affinity: str = "any"
     execution: str = "sync"
     timeout_hint_secs: int | None = None
+
+
+@dataclass
+class DeferredToolResult:
+    """Deferred completion handle returned by long-running host operations.
+
+    A skill script or direct host callable may return this object after it
+    starts a host-native background operation. ``HostExecutionBridge`` polls
+    ``check_is_finished`` until it returns a final JSON-serialisable result.
+    Returning ``None`` means "still running".
+    """
+
+    check_is_finished: Callable[[], Any]
+    timeout_secs: float = 3600.0
+    poll_interval_secs: float = 0.1
+    stdout: str = ""
+    stderr: str = ""
+
+    def __post_init__(self) -> None:
+        if not callable(self.check_is_finished):
+            raise TypeError("check_is_finished must be callable")
+        if self.timeout_secs <= 0:
+            raise ValueError("timeout_secs must be > 0")
+        if self.poll_interval_secs <= 0:
+            raise ValueError("poll_interval_secs must be > 0")
 
 
 def _context_from_kwargs(
@@ -117,6 +145,31 @@ def exception_to_error_envelope(exc: BaseException, *, message: str | None = Non
             "type": type(exc).__name__,
             "message": str(exc),
             "traceback": "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
+        },
+    }
+
+
+def _attach_deferred_streams(result: Any, deferred: DeferredToolResult) -> Any:
+    """Attach initial stdout/stderr captured before deferred completion."""
+    if not deferred.stdout and not deferred.stderr:
+        return result
+
+    meta = {
+        "stdout": deferred.stdout,
+        "stderr": deferred.stderr,
+    }
+    if isinstance(result, dict):
+        enriched = dict(result)
+        existing_meta = enriched.get("_meta")
+        merged_meta = dict(existing_meta) if isinstance(existing_meta, dict) else {}
+        merged_meta["dcc.deferred"] = meta
+        enriched["_meta"] = merged_meta
+        return enriched
+
+    return {
+        "result": result,
+        "_meta": {
+            "dcc.deferred": meta,
         },
     }
 
@@ -202,6 +255,17 @@ class HostExecutionBridge:
             execution=execution,
             timeout_hint_secs=timeout_hint_secs,
         )
+        result = self._dispatch_raw(func, args, kwargs, context)
+        return self._resolve_deferred_result(result, context)
+
+    def _dispatch_raw(
+        self,
+        func: Callable[..., Any],
+        args: tuple[Any, ...],
+        kwargs: Mapping[str, Any],
+        context: InProcessExecutionContext,
+    ) -> Any:
+        """Dispatch a callable without resolving DeferredToolResult values."""
 
         def _invoke(*_args: Any, **_kwargs: Any) -> Any:
             return func(*args, **kwargs)
@@ -221,6 +285,53 @@ class HostExecutionBridge:
         except Exception as exc:
             logger.exception("Host callable %s failed", getattr(func, "__name__", repr(func)))
             return exception_to_error_envelope(exc)
+
+    def _resolve_deferred_result(
+        self,
+        result: Any,
+        context: InProcessExecutionContext,
+    ) -> Any:
+        """Poll a DeferredToolResult until it yields a final result."""
+        if not isinstance(result, DeferredToolResult):
+            return result
+
+        deadline = time.monotonic() + result.timeout_secs
+        while True:
+            if time.monotonic() >= deadline:
+                envelope = exception_to_error_envelope(
+                    TimeoutError(f"Deferred tool timed out after {result.timeout_secs:g}s"),
+                    message="Deferred tool did not finish before timeout",
+                )
+                return _attach_deferred_streams(envelope, result)
+
+            try:
+                finished = self._dispatch_raw(
+                    result.check_is_finished,
+                    (),
+                    {},
+                    context,
+                )
+            except Exception as exc:  # pragma: no cover - _dispatch_raw normalises
+                finished = exception_to_error_envelope(exc)
+
+            if finished is not None:
+                if isinstance(finished, DeferredToolResult):
+                    envelope = exception_to_error_envelope(
+                        TypeError("Nested DeferredToolResult is not supported"),
+                        message="Deferred tool returned another deferred result",
+                    )
+                    return _attach_deferred_streams(envelope, result)
+                try:
+                    json.dumps(finished)
+                except TypeError as exc:
+                    envelope = exception_to_error_envelope(
+                        exc,
+                        message="Deferred tool returned a non-serialisable result",
+                    )
+                    return _attach_deferred_streams(envelope, result)
+                return _attach_deferred_streams(finished, result)
+
+            time.sleep(result.poll_interval_secs)
 
     def execute_script(
         self,
