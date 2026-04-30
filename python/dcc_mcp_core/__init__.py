@@ -433,6 +433,10 @@ from dcc_mcp_core.introspect import register_introspect_tools
 from dcc_mcp_core.plugin_manifest import PluginManifest
 from dcc_mcp_core.plugin_manifest import build_plugin_manifest
 from dcc_mcp_core.plugin_manifest import export_plugin_manifest
+from dcc_mcp_core.project import PROJECT_DIR_NAME
+from dcc_mcp_core.project import PROJECT_STATE_FILE
+from dcc_mcp_core.project import DccProject
+from dcc_mcp_core.project import ProjectState
 
 # Recipes system: metadata.dcc-mcp.recipes + recipes__list/get tools (issue #428)
 from dcc_mcp_core.recipes import RecipeDefinition
@@ -528,6 +532,8 @@ __all__ = [
     "METADATA_TOOLS_KEY",
     "METADATA_VERSION_KEY",
     "METADATA_WORKFLOWS_KEY",
+    "PROJECT_DIR_NAME",
+    "PROJECT_STATE_FILE",
     "SKILL_METADATA_DIR",
     "SKILL_METADATA_FILE",
     "SKILL_SCRIPTS_DIR",
@@ -578,6 +584,7 @@ __all__ = [
     "DccGuardrailError",
     "DccInfo",
     "DccLinkFrame",
+    "DccProject",
     "DccServerBase",
     "DccSkillHotReloader",
     "DccToolsetProfile",
@@ -614,6 +621,7 @@ __all__ = [
     "OutputCapture",
     "PendingEnvelope",
     "PluginManifest",
+    "ProjectState",
     "PromptArgument",
     "PromptDefinition",
     "PyBufferPool",
