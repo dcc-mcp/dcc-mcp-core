@@ -396,7 +396,7 @@ def _matches_json_type(value: Any, expected: Any) -> bool:
     for item in expected_types:
         if item == "string" and isinstance(value, str):
             return True
-        if item == "number" and isinstance(value, int | float) and not isinstance(value, bool):
+        if item == "number" and isinstance(value, (int, float)) and not isinstance(value, bool):
             return True
         if item == "integer" and isinstance(value, int) and not isinstance(value, bool):
             return True

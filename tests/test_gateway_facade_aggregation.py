@@ -68,6 +68,22 @@ def _post_mcp(url: str, method: str, params: dict | None = None, rpc_id: int = 1
         return json.loads(resp.read())
 
 
+def _list_all_tools(url: str) -> list[dict]:
+    """Collect every tools/list page from a paginated gateway response."""
+    tools: list[dict] = []
+    cursor: str | None = None
+    rpc_id = 1
+    while True:
+        params = {"cursor": cursor} if cursor is not None else None
+        resp = _post_mcp(url, "tools/list", params=params, rpc_id=rpc_id)
+        result = resp["result"]
+        tools.extend(result["tools"])
+        cursor = result.get("nextCursor")
+        if cursor is None:
+            return tools
+        rpc_id += 1
+
+
 def _split_gateway_prefixed_tool(name: str) -> tuple[str, str] | None:
     """Return ``(instance_prefix, tool_name)`` for ``<id8>.<tool>`` names."""
     if name.startswith("__"):
@@ -169,8 +185,7 @@ class TestFacadeToolsAggregation:
     """``tools/list`` on the gateway merges every backend's tools into one list."""
 
     def test_aggregated_list_contains_local_and_backend_tools(self, facade_cluster):
-        resp = _post_mcp(facade_cluster["gateway_url"], "tools/list")
-        tools = resp["result"]["tools"]
+        tools = _list_all_tools(facade_cluster["gateway_url"])
         names = {t["name"] for t in tools}
 
         # Tier 1 — gateway discovery meta-tools.
@@ -199,8 +214,7 @@ class TestFacadeToolsAggregation:
         )
 
     def test_backend_tools_carry_instance_metadata(self, facade_cluster):
-        resp = _post_mcp(facade_cluster["gateway_url"], "tools/list")
-        tools = resp["result"]["tools"]
+        tools = _list_all_tools(facade_cluster["gateway_url"])
         backend_tools = [t for t in tools if _split_gateway_prefixed_tool(t["name"]) is not None]
         assert backend_tools, "no namespaced backend tools were aggregated"
 

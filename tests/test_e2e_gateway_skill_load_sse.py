@@ -104,6 +104,22 @@ def _post_mcp(url: str, method: str, params: dict | None = None, rpc_id: int = 1
         return json.loads(resp.read())
 
 
+def _list_all_tools(url: str) -> list[dict[str, Any]]:
+    """Collect every tools/list page from a paginated MCP endpoint."""
+    tools: list[dict[str, Any]] = []
+    cursor: str | None = None
+    rpc_id = 1
+    while True:
+        params = {"cursor": cursor} if cursor is not None else None
+        resp = _post_mcp(url, "tools/list", params=params, rpc_id=rpc_id)
+        result = resp["result"]
+        tools.extend(result["tools"])
+        cursor = result.get("nextCursor")
+        if cursor is None:
+            return tools
+        rpc_id += 1
+
+
 def _wait_tcp_reachable(host: str, port: int, budget: float = 3.0) -> bool:
     """Poll until TCP connect succeeds or budget expires."""
     deadline = time.time() + budget
@@ -270,8 +286,8 @@ class TestGatewayLoadSkillSsePropagation:
         The real tool ``hello_world__greet`` MUST NOT be in ``tools/list``.
         This guards the progressive-loading contract.
         """
-        resp = _post_mcp(gateway_with_skill_backend["gateway_url"], "tools/list")
-        names = {t["name"] for t in resp["result"]["tools"]}
+        tools = _list_all_tools(gateway_with_skill_backend["gateway_url"])
+        names = {t["name"] for t in tools}
 
         # The skill stub is how the gateway (and client) discovers that
         # hello-world exists without paying to register its tools yet.
@@ -363,8 +379,7 @@ class TestGatewayLoadSkillSsePropagation:
             deadline = time.time() + AGGREGATOR_TICK_S + 2.0
             active_names: set[str] = set()
             while time.time() < deadline:
-                resp = _post_mcp(gateway_url, "tools/list")
-                active_names = {t["name"] for t in resp["result"]["tools"]}
+                active_names = {t["name"] for t in _list_all_tools(gateway_url)}
                 if any(n.endswith(".greet") for n in active_names):
                     break
                 time.sleep(0.5)
