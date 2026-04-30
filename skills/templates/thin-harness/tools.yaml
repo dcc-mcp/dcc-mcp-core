@@ -6,6 +6,33 @@ tools:
       a working DCC API snippet. How to use: pass the full script as
       'code'; check references/RECIPES.md first; read
       _meta.dcc.raw_trace on error.
+    input_schema:
+      type: object
+      properties:
+        code:
+          type: string
+          description: Python source to execute.
+          aliases: [script, source]
+        script:
+          type: string
+          description: Alias for code.
+        source:
+          type: string
+          description: Alias for code.
+        timeout_secs:
+          type: integer
+          minimum: 1
+          default: 30
+          description: Execution timeout hint in seconds.
+          aliases: [timeout]
+        timeout:
+          type: integer
+          minimum: 1
+          description: Alias for timeout_secs.
+      anyOf:
+        - required: [code]
+        - required: [script]
+        - required: [source]
     annotations:
       read_only_hint: false
       destructive_hint: true

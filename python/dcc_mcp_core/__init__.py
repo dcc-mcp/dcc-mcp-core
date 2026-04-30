@@ -421,8 +421,10 @@ from dcc_mcp_core.rich_content import skill_success_with_chart
 from dcc_mcp_core.rich_content import skill_success_with_image
 from dcc_mcp_core.rich_content import skill_success_with_table
 from dcc_mcp_core.script_execution import ScriptExecutionCapture
+from dcc_mcp_core.script_execution import ScriptExecutionParams
 from dcc_mcp_core.script_execution import ScriptExecutionResult
 from dcc_mcp_core.script_execution import ScriptExecutionSerializationError
+from dcc_mcp_core.script_execution import normalize_script_execution_params
 from dcc_mcp_core.server_base import DccServerBase
 
 # Pure-Python skill script helpers (no _core dependency)
@@ -592,6 +594,7 @@ __all__ = [
     "SceneStatistics",
     "ScheduleSpec",
     "ScriptExecutionCapture",
+    "ScriptExecutionParams",
     "ScriptExecutionResult",
     "ScriptExecutionSerializationError",
     "ScriptLanguage",
@@ -726,6 +729,7 @@ __all__ = [
     "make_rationale_meta",
     "make_start_stop",
     "mpu_to_units",
+    "normalize_script_execution_params",
     "parse_recipe_anchors",
     "parse_schedules_yaml",
     "parse_skill_md",
