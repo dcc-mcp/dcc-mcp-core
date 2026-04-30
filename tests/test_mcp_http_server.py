@@ -55,6 +55,25 @@ def _post_json(url: str, body: dict[str, Any], headers: dict[str, str] | None = 
         return e.code, {}
 
 
+def _post_raw(url: str, data: bytes, headers: dict[str, str] | None = None) -> tuple[int, str]:
+    """POST raw bytes and return (status_code, response_text), including HTTP errors."""
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            **(headers or {}),
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return resp.status, resp.read().decode()
+    except urllib.error.HTTPError as e:
+        return e.code, e.read().decode()
+
+
 def _make_registry() -> ToolRegistry:
     reg = ToolRegistry()
     reg.register(
@@ -234,6 +253,37 @@ class TestMcpHttpProtocol:
         )
         assert code == 200
         assert body["error"]["code"] == -32601
+
+    def test_malformed_json_returns_parse_error(self, running_server):
+        """Malformed JSON must fail as JSON-RPC parse error, not hang or 500."""
+        _, _, url = running_server
+        code, text = _post_raw(url, b'{"jsonrpc":"2.0","id":7,"method":')
+        body = json.loads(text)
+
+        assert code == 400
+        assert body["jsonrpc"] == "2.0"
+        assert body["id"] is None
+        assert body["error"]["code"] == -32700
+        assert "Parse error" in body["error"]["message"]
+
+    def test_tools_call_missing_name_returns_invalid_params(self, running_server):
+        """A malformed tools/call request is client input error, not server internal error."""
+        _, _, url = running_server
+        code, body = _post_json(
+            url,
+            {
+                "jsonrpc": "2.0",
+                "id": 8,
+                "method": "tools/call",
+                "params": {"arguments": {}},
+            },
+        )
+
+        assert code == 200
+        assert body["jsonrpc"] == "2.0"
+        assert body["id"] == 8
+        assert body["error"]["code"] == -32602
+        assert "tools/call" in body["error"]["message"]
 
     def test_notification_returns_202(self, running_server):
         """Notifications (no id) must return 202, not 200."""

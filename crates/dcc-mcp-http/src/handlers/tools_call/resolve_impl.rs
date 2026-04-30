@@ -20,11 +20,20 @@ pub(super) async fn resolve_tool_call(
     req: &JsonRpcRequest,
     session_id: Option<&str>,
 ) -> Result<ToolCallResolution, HttpError> {
-    let params: CallToolParams = req
+    let params: CallToolParams = match req
         .params
         .as_ref()
         .and_then(|p| serde_json::from_value(p.clone()).ok())
-        .ok_or_else(|| HttpError::Internal("invalid tools/call params".to_string()))?;
+    {
+        Some(params) => params,
+        None => {
+            return Ok(ToolCallResolution::Response(JsonRpcResponse::error(
+                req.id.clone(),
+                protocol::error_codes::INVALID_PARAMS,
+                "Invalid tools/call params (expected {name: string, arguments?: object})",
+            )));
+        }
+    };
 
     let tool_name = params.name.clone();
 
