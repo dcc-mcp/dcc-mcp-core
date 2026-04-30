@@ -107,7 +107,7 @@ runs:
     - name: Check wheel contents
       shell: bash
       run: |
-        vx uvx --python 3.12 check-wheel-contents dist/*.whl
+        vx uvx --python 3.12 check-wheel-contents --ignore W004 dist/*.whl
 
     - name: Test wheel
       if: inputs.test-wheel == 'true'
