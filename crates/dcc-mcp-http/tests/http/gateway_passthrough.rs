@@ -27,7 +27,7 @@ use axum::{Json, Router, routing::post};
 use serde_json::{Value, json};
 use tokio::sync::{RwLock, broadcast, watch};
 
-use dcc_mcp_http::gateway::aggregator::route_tools_call;
+use dcc_mcp_http::gateway::aggregator::{aggregate_tools_list, route_tools_call};
 use dcc_mcp_http::gateway::sse_subscriber::SubscriberManager;
 use dcc_mcp_http::gateway::state::GatewayState;
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
@@ -143,6 +143,102 @@ fn encoded_tool_name(instance_id: uuid::Uuid, tool: &str) -> String {
     // Mirror `encode_tool_name` — 8-char prefix + '.' + tool name.
     let short = &instance_id.to_string().replace('-', "")[..8];
     format!("{short}.{tool}")
+}
+
+// ── Single-instance bare-name aliases (#583) ───────────────────────────────
+
+#[tokio::test]
+async fn single_backend_tools_list_publishes_bare_alias() {
+    let port = spawn_pending_backend(Duration::ZERO).await;
+    let (state, registry, _tmp) = make_state(
+        Duration::from_secs(1),
+        Duration::from_secs(1),
+        Duration::from_secs(1),
+    )
+    .await;
+    let entry = register_backend(&registry, port).await;
+    let encoded = encoded_tool_name(entry.instance_id, "slow_tool");
+
+    let result = aggregate_tools_list(&state, None).await;
+    let names: Vec<&str> = result["tools"]
+        .as_array()
+        .expect("tools array")
+        .iter()
+        .filter_map(|tool| tool.get("name").and_then(Value::as_str))
+        .collect();
+
+    assert!(
+        names.contains(&encoded.as_str()),
+        "prefixed tool name missing from tools/list: {names:?}"
+    );
+    assert!(
+        names.contains(&"slow_tool"),
+        "single-instance bare alias missing from tools/list: {names:?}"
+    );
+}
+
+#[tokio::test]
+async fn single_backend_tools_call_accepts_bare_name() {
+    let port = spawn_pending_backend(Duration::ZERO).await;
+    let (state, registry, _tmp) = make_state(
+        Duration::from_secs(1),
+        Duration::from_secs(1),
+        Duration::from_secs(1),
+    )
+    .await;
+    register_backend(&registry, port).await;
+
+    let (text, is_error) = route_tools_call(
+        &state,
+        "slow_tool",
+        &json!({}),
+        None,
+        Some("req-bare".into()),
+        Some("sess-bare"),
+    )
+    .await;
+
+    assert!(!is_error, "bare single-instance call failed: {text}");
+    assert!(text.contains("job-1") || text.contains("Job"));
+}
+
+#[tokio::test]
+async fn multiple_backends_keep_bare_name_ambiguous() {
+    let port_a = spawn_pending_backend(Duration::ZERO).await;
+    let port_b = spawn_pending_backend(Duration::ZERO).await;
+    let (state, registry, _tmp) = make_state(
+        Duration::from_secs(1),
+        Duration::from_secs(1),
+        Duration::from_secs(1),
+    )
+    .await;
+    register_backend(&registry, port_a).await;
+    register_backend(&registry, port_b).await;
+
+    let result = aggregate_tools_list(&state, None).await;
+    let names: Vec<&str> = result["tools"]
+        .as_array()
+        .expect("tools array")
+        .iter()
+        .filter_map(|tool| tool.get("name").and_then(Value::as_str))
+        .collect();
+    assert!(
+        !names.contains(&"slow_tool"),
+        "multi-instance tools/list must not expose ambiguous bare aliases: {names:?}"
+    );
+
+    let (text, is_error) = route_tools_call(
+        &state,
+        "slow_tool",
+        &json!({}),
+        None,
+        Some("req-ambiguous".into()),
+        Some("sess-ambiguous"),
+    )
+    .await;
+
+    assert!(is_error, "ambiguous bare call must fail; text={text}");
+    assert!(text.contains("Unknown tool"));
 }
 
 // ── Async dispatch timeout ────────────────────────────────────────────────

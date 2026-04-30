@@ -40,6 +40,7 @@ pub async fn aggregate_tools_list(gs: &GatewayState, cursor: Option<&str>) -> Va
         (entry.instance_id, entry.dcc_type.clone(), backend_tools)
     });
     let results = join_all(futs).await;
+    let publish_bare_aliases = instances.len() == 1;
 
     for (iid, dcc_type, backend_tools) in results {
         for mut tool in backend_tools {
@@ -49,11 +50,19 @@ pub async fn aggregate_tools_list(gs: &GatewayState, cursor: Option<&str>) -> Va
             if is_local_tool(&tool.name) {
                 continue;
             }
+            let bare_name = tool.name.clone();
             let encoded = encode_tool_name(&iid, &tool.name);
             tool.name = encoded;
             let mut json_val = serde_json::to_value(&tool).unwrap_or(Value::Null);
             inject_instance_metadata(&mut json_val, &iid, &dcc_type);
             tools.push(json_val);
+
+            if publish_bare_aliases {
+                tool.name = bare_name;
+                let mut alias_val = serde_json::to_value(&tool).unwrap_or(Value::Null);
+                inject_instance_metadata(&mut alias_val, &iid, &dcc_type);
+                tools.push(alias_val);
+            }
         }
     }
 
