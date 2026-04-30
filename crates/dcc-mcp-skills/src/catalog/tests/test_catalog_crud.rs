@@ -1,4 +1,4 @@
-use super::fixtures::{make_test_catalog, make_test_skill};
+use super::fixtures::{make_catalog_with_dispatcher, make_test_catalog, make_test_skill};
 use super::*;
 use dcc_mcp_models::ToolDeclaration;
 
@@ -54,6 +54,38 @@ fn test_load_skill_with_action_meta_skill_name() {
         .get_action("my_skill__tool1", None)
         .unwrap();
     assert_eq!(meta.skill_name, Some("my-skill".to_string()));
+}
+
+#[test]
+fn test_load_main_affinity_script_requires_in_process_executor() {
+    let (catalog, _dispatcher) = make_catalog_with_dispatcher();
+    let mut skill = make_test_skill("main-thread", "maya", &[]);
+    skill.tools = vec![ToolDeclaration {
+        name: "execute_python".to_string(),
+        source_file: "scripts/execute_python.py".to_string(),
+        thread_affinity: dcc_mcp_models::ThreadAffinity::Main,
+        ..Default::default()
+    }];
+    catalog.add_skill(skill);
+
+    let err = catalog
+        .load_skill("main-thread")
+        .expect_err("main-affined script tools need an in-process executor");
+    assert!(
+        err.contains("requires thread_affinity='main'"),
+        "error should explain the main-thread requirement: {err}"
+    );
+    assert!(
+        err.contains("set_in_process_executor()"),
+        "error should tell DCC adapters how to fix the setup: {err}"
+    );
+    assert!(
+        catalog
+            .registry()
+            .get_action("main_thread__execute_python", None)
+            .is_none(),
+        "failed loads must not leave partially registered actions"
+    );
 }
 
 #[test]

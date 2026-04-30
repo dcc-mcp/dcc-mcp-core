@@ -38,6 +38,15 @@ impl SkillCatalog {
             };
 
             let script_path = resolve_tool_script(tool_decl, &metadata.scripts, skill_path);
+            let maybe_executor = self.script_executor.read().clone();
+            if tool_decl.thread_affinity.is_main() && maybe_executor.is_none() {
+                return Err(format!(
+                    "Tool '{}' requires thread_affinity='main', but no in-process executor is set. \
+                     Ensure the DCC adapter calls set_in_process_executor() before loading skills.",
+                    action_name
+                ));
+            }
+
             let meta = ActionMeta {
                 name: action_name.clone(),
                 description: if tool_decl.description.is_empty() {
@@ -77,7 +86,6 @@ impl SkillCatalog {
                 let script_path_owned = script_path.clone();
                 let action_name_clone = action_name.clone();
                 let dcc_owned = metadata.dcc.clone();
-                let maybe_executor = self.script_executor.read().clone();
                 if let Some(executor) = maybe_executor {
                     dispatcher.register_handler(&action_name_clone, move |params| {
                         executor(script_path_owned.clone(), params)
