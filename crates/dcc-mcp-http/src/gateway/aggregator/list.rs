@@ -3,7 +3,9 @@ use super::*;
 /// Build the unified `tools/list` result by aggregating every live backend.
 ///
 /// Tool order:
-/// 1. Gateway discovery meta-tools (`list_dcc_instances`, `get_dcc_instance`, `connect_to_dcc`).
+/// 1. Gateway discovery / pooling meta-tools (`list_dcc_instances`,
+///    `get_dcc_instance`, `connect_to_dcc`, `acquire_dcc_instance`,
+///    `release_dcc_instance`).
 /// 2. Skill-management tools (one canonical set for the whole gateway).
 /// 3. Backend-provided tools from every live instance, prefixed with the
 ///    8-char instance id, annotated with `_instance_id` / `_dcc_type` in the

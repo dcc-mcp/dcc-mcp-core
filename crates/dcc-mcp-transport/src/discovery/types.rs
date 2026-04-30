@@ -7,6 +7,14 @@ use uuid::Uuid;
 
 use crate::ipc::TransportAddress;
 
+fn default_capacity() -> u32 {
+    1
+}
+
+fn is_default_capacity(capacity: &u32) -> bool {
+    *capacity == default_capacity()
+}
+
 /// `dcc_type` used for the gateway sentinel entry in the `FileRegistry`.
 ///
 /// The sentinel entry carries the current gateway's version so that newly
@@ -150,6 +158,21 @@ pub struct ServiceEntry {
     /// Current status.
     #[serde(default)]
     pub status: ServiceStatus,
+    /// Optional pool capacity for this instance. Defaults to a single lease.
+    #[serde(
+        default = "default_capacity",
+        skip_serializing_if = "is_default_capacity"
+    )]
+    pub capacity: u32,
+    /// Current lease owner, when this instance is reserved for a workflow/client.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lease_owner: Option<String>,
+    /// Current job id associated with the lease or busy operation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_job_id: Option<String>,
+    /// Wall-clock expiry for the current lease.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lease_expires_at: Option<SystemTime>,
 }
 
 impl ServiceEntry {
@@ -180,6 +203,10 @@ impl ServiceEntry {
             registered_at: now,
             last_heartbeat: now,
             status: ServiceStatus::Available,
+            capacity: default_capacity(),
+            lease_owner: None,
+            current_job_id: None,
+            lease_expires_at: None,
         }
     }
 
@@ -212,6 +239,10 @@ impl ServiceEntry {
             registered_at: now,
             last_heartbeat: now,
             status: ServiceStatus::Available,
+            capacity: default_capacity(),
+            lease_owner: None,
+            current_job_id: None,
+            lease_expires_at: None,
         }
     }
 
@@ -236,6 +267,12 @@ impl ServiceEntry {
     /// tiebreaker in gateway election (issue maya#137).
     pub fn with_adapter_dcc(mut self, dcc: impl Into<String>) -> Self {
         self.adapter_dcc = Some(dcc.into());
+        self
+    }
+
+    /// Set optional pool capacity for this service entry.
+    pub fn with_capacity(mut self, capacity: u32) -> Self {
+        self.capacity = capacity.max(1);
         self
     }
 
@@ -267,6 +304,35 @@ impl ServiceEntry {
     /// Update the heartbeat timestamp.
     pub fn touch(&mut self) {
         self.last_heartbeat = SystemTime::now();
+    }
+
+    /// Whether the current lease has passed its wall-clock expiry.
+    pub fn lease_expired(&self, now: SystemTime) -> bool {
+        self.lease_expires_at
+            .is_some_and(|expires_at| expires_at <= now)
+    }
+
+    /// Clear any active lease and mark the instance available.
+    pub fn clear_lease(&mut self) {
+        self.lease_owner = None;
+        self.current_job_id = None;
+        self.lease_expires_at = None;
+        self.status = ServiceStatus::Available;
+        self.touch();
+    }
+
+    /// Reserve this instance for a workflow/client.
+    pub fn acquire_lease(
+        &mut self,
+        owner: impl Into<String>,
+        current_job_id: Option<String>,
+        lease_expires_at: Option<SystemTime>,
+    ) {
+        self.lease_owner = Some(owner.into());
+        self.current_job_id = current_job_id;
+        self.lease_expires_at = lease_expires_at;
+        self.status = ServiceStatus::Busy;
+        self.touch();
     }
 
     /// Check if the service is considered stale (no heartbeat within given duration).
@@ -346,6 +412,38 @@ mod tests {
             !json.contains("\"adapter_dcc\""),
             "unset adapter_dcc must be skipped: {json}"
         );
+    }
+
+    #[test]
+    fn test_service_entry_pool_fields_roundtrip_when_set() {
+        let mut entry = ServiceEntry::new("maya", "127.0.0.1", 18812).with_capacity(2);
+        entry.acquire_lease(
+            "workflow-1",
+            Some("job-1".to_string()),
+            Some(SystemTime::now() + Duration::from_secs(60)),
+        );
+
+        let json = serde_json::to_string(&entry).unwrap();
+        assert!(json.contains("\"capacity\":2"));
+        assert!(json.contains("\"lease_owner\":\"workflow-1\""));
+        assert!(json.contains("\"current_job_id\":\"job-1\""));
+
+        let parsed: ServiceEntry = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.capacity, 2);
+        assert_eq!(parsed.status, ServiceStatus::Busy);
+        assert_eq!(parsed.lease_owner.as_deref(), Some("workflow-1"));
+        assert_eq!(parsed.current_job_id.as_deref(), Some("job-1"));
+        assert!(parsed.lease_expires_at.is_some());
+    }
+
+    #[test]
+    fn test_service_entry_default_pool_fields_omitted() {
+        let entry = ServiceEntry::new("maya", "127.0.0.1", 18812);
+        let json = serde_json::to_string(&entry).unwrap();
+        assert!(!json.contains("\"capacity\""));
+        assert!(!json.contains("\"lease_owner\""));
+        assert!(!json.contains("\"current_job_id\""));
+        assert!(!json.contains("\"lease_expires_at\""));
     }
 
     #[test]

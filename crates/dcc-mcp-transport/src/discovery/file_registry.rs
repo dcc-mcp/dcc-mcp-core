@@ -214,6 +214,76 @@ impl FileRegistry {
         Ok(found)
     }
 
+    /// Acquire an optional pool lease for an idle instance.
+    ///
+    /// When `instance_id` is supplied it may be the full UUID or a unique prefix.
+    /// Expired leases are cleared opportunistically before selection.
+    pub fn acquire_lease(
+        &self,
+        dcc_type: &str,
+        instance_id: Option<&str>,
+        owner: impl Into<String>,
+        current_job_id: Option<String>,
+        ttl: Option<Duration>,
+    ) -> TransportResult<Option<ServiceEntry>> {
+        let owner = owner.into();
+        let now = SystemTime::now();
+        let expires_at = ttl.map(|duration| now + duration);
+        let mut selected: Option<ServiceEntry> = None;
+        let mut changed = false;
+
+        for mut item in self.services.iter_mut() {
+            let entry = item.value_mut();
+            if entry.lease_expired(now) {
+                entry.clear_lease();
+                changed = true;
+            }
+            if selected.is_some() || !entry.dcc_type.eq_ignore_ascii_case(dcc_type) {
+                continue;
+            }
+            if let Some(id) = instance_id {
+                let full = entry.instance_id.to_string();
+                if full != id && !full.starts_with(id) {
+                    continue;
+                }
+            }
+            if entry.status == ServiceStatus::Available && entry.lease_owner.is_none() {
+                entry.acquire_lease(owner.clone(), current_job_id.clone(), expires_at);
+                selected = Some(entry.clone());
+                changed = true;
+            }
+        }
+
+        if changed {
+            self.flush_to_file()?;
+        }
+        Ok(selected)
+    }
+
+    /// Release a pool lease. When `owner` is supplied it must match the holder.
+    pub fn release_lease(
+        &self,
+        key: &ServiceKey,
+        owner: Option<&str>,
+    ) -> TransportResult<Option<ServiceEntry>> {
+        let released = if let Some(mut entry) = self.services.get_mut(key) {
+            let owner_matches =
+                owner.is_none_or(|expected| entry.value().lease_owner.as_deref() == Some(expected));
+            if owner_matches && entry.value().lease_owner.is_some() {
+                entry.value_mut().clear_lease();
+                Some(entry.value().clone())
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+        if released.is_some() {
+            self.flush_to_file()?;
+        }
+        Ok(released)
+    }
+
     /// Update scene and/or version metadata for a service, and refresh heartbeat.
     ///
     /// This is the primary way for a running instance to report that the user

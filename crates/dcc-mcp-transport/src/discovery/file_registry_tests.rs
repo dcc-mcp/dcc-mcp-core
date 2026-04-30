@@ -189,6 +189,74 @@ fn test_file_registry_multiple_instances_same_dcc() {
 }
 
 #[test]
+fn test_file_registry_acquire_and_release_lease() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = FileRegistry::new(dir.path()).unwrap();
+
+    let entry = ServiceEntry::new("maya", "127.0.0.1", 18812);
+    let key = entry.key();
+    registry.register(entry).unwrap();
+
+    let leased = registry
+        .acquire_lease(
+            "maya",
+            None,
+            "workflow-1",
+            Some("job-1".to_string()),
+            Some(Duration::from_secs(60)),
+        )
+        .unwrap()
+        .expect("idle instance should be leased");
+    assert_eq!(leased.status, ServiceStatus::Busy);
+    assert_eq!(leased.lease_owner.as_deref(), Some("workflow-1"));
+    assert_eq!(leased.current_job_id.as_deref(), Some("job-1"));
+
+    assert!(
+        registry
+            .acquire_lease("maya", None, "workflow-2", None, None)
+            .unwrap()
+            .is_none(),
+        "busy leased instance must not be acquired twice"
+    );
+
+    let released = registry
+        .release_lease(&key, Some("workflow-1"))
+        .unwrap()
+        .expect("matching owner can release");
+    assert_eq!(released.status, ServiceStatus::Available);
+    assert!(released.lease_owner.is_none());
+}
+
+#[test]
+fn test_file_registry_acquire_clears_expired_lease() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = FileRegistry::new(dir.path()).unwrap();
+
+    let mut entry = ServiceEntry::new("maya", "127.0.0.1", 18812);
+    entry.acquire_lease(
+        "old-owner",
+        Some("old-job".to_string()),
+        Some(SystemTime::now() - Duration::from_secs(1)),
+    );
+    registry.register(entry).unwrap();
+
+    let leased = registry
+        .acquire_lease(
+            "maya",
+            None,
+            "new-owner",
+            None,
+            Some(Duration::from_secs(60)),
+        )
+        .unwrap()
+        .expect("expired lease should be reusable");
+
+    assert_eq!(leased.status, ServiceStatus::Busy);
+    assert_eq!(leased.lease_owner.as_deref(), Some("new-owner"));
+    assert!(leased.current_job_id.is_none());
+}
+
+#[test]
 fn test_file_registry_hot_reload() {
     let dir = tempfile::tempdir().unwrap();
     let registry = FileRegistry::new(dir.path()).unwrap();

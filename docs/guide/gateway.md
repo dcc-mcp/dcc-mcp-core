@@ -109,6 +109,35 @@ user to restart a DCC instance. `tools/list` is assembled from the current
 registry on each call, so instances registered after gateway startup are picked
 up without a restart.
 
+### Optional Instance Pooling
+
+Instances can opt into warm-pool semantics through the registry fields surfaced
+under `pool` in `list_dcc_instances` / `instances/list`:
+
+```json
+{
+  "status": "busy",
+  "pool": {
+    "capacity": 1,
+    "lease_owner": "workflow-42",
+    "current_job_id": "render-001",
+    "lease_expires_at": 1770000000,
+    "available": false
+  }
+}
+```
+
+Gateway-local tools manage these leases:
+
+| Tool | Purpose |
+|------|---------|
+| `acquire_dcc_instance` | Reserve an idle instance by `dcc_type` (or a specific `instance_id`) and mark it `busy` |
+| `release_dcc_instance` | Release the lease and mark the instance `available` again |
+
+Pooling is optional. Adapters that never call these tools keep the previous
+single-instance behavior: entries default to `capacity: 1`, no lease owner, and
+`status: "available"`.
+
 Before the gateway sends JSON-RPC to a backend, it verifies that the target
 responds to `GET /health`. This avoids treating non-MCP listeners such as Maya
 `commandPort` as routable backends; posting MCP JSON-RPC to commandPort can

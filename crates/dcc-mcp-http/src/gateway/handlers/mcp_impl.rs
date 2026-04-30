@@ -163,7 +163,7 @@ async fn handle_initialize(gs: &GatewayState, id: Value, req: &JsonRpcRequest) -
                 "DCC-MCP Gateway — unified MCP endpoint across every live DCC.\n\
                  \n\
                  tools/list returns:\n\
-                 • 3 discovery meta-tools (list_dcc_instances / get_dcc_instance / connect_to_dcc)\n\
+                 • Gateway discovery and pooling meta-tools (list/get/connect/acquire/release DCC instance)\n\
                  • 6 skill-management tools (list/find/search/get_info/load/unload_skill)\n\
                  • Every backend tool, prefixed with an 8-char instance id\n\
                  \n\

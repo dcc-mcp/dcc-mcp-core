@@ -197,6 +197,15 @@ pub fn entry_to_json(e: &ServiceEntry, stale_timeout: Duration) -> Value {
         "adapter_version": e.adapter_version,
         "adapter_dcc":     e.adapter_dcc,
         "metadata":        e.metadata,
+        "pool": {
+            "capacity": e.capacity,
+            "lease_owner": e.lease_owner,
+            "current_job_id": e.current_job_id,
+            "lease_expires_at": e.lease_expires_at
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs()),
+            "available": !stale && e.status == ServiceStatus::Available && e.lease_owner.is_none(),
+        },
         "stale":           stale,
     })
 }
@@ -460,5 +469,24 @@ mod tests {
         let json = entry_to_json(&e, Duration::from_secs(30));
         assert_eq!(json["status"].as_str(), Some("stale"));
         assert_eq!(json["stale"].as_bool(), Some(true));
+    }
+
+    #[test]
+    fn test_entry_to_json_includes_pool_state() {
+        let mut e = ServiceEntry::new("maya", "127.0.0.1", 18812).with_capacity(2);
+        e.acquire_lease(
+            "workflow-1",
+            Some("job-1".to_string()),
+            Some(std::time::SystemTime::now() + Duration::from_secs(60)),
+        );
+
+        let json = entry_to_json(&e, Duration::from_secs(30));
+
+        assert_eq!(json["status"].as_str(), Some("busy"));
+        assert_eq!(json["pool"]["capacity"].as_u64(), Some(2));
+        assert_eq!(json["pool"]["lease_owner"].as_str(), Some("workflow-1"));
+        assert_eq!(json["pool"]["current_job_id"].as_str(), Some("job-1"));
+        assert_eq!(json["pool"]["available"].as_bool(), Some(false));
+        assert!(json["pool"]["lease_expires_at"].as_u64().is_some());
     }
 }
