@@ -42,7 +42,7 @@
 | Agent-facing docs:// MCP resources (issue #435) | `register_docs_server(server)` — serves `docs://output-format/*` and `docs://skill-authoring/*` resources; agents fetch only specs they need |
 | Agent feedback / rationale (issues #433, #434) | `register_feedback_tool(server)` / `extract_rationale(params)` / `make_rationale_meta(text)` — `dcc_feedback__report` tool + `_meta.dcc.rationale` extraction |
 | Runtime DCC namespace introspection (issue #426) | `register_introspect_tools(server)` — `dcc_introspect__list_module`, `dcc_introspect__signature`, `dcc_introspect__search`, `dcc_introspect__eval` |
-| Skill recipe anchors (issue #428) | `register_recipes_tools(server, skills=...)` — `recipes__list` and `recipes__get` tools for thin-harness skill recipe lookup |
+| Skill/domain recipes (issues #428, #616) | `register_recipes_tools(server, skills=...)` — `recipes__list/search/get/validate/apply` tools for Markdown anchors and structured YAML recipe packs |
 | YAML declarative workflows (issue #439) | `WorkflowYaml` + `load_workflow_yaml(path)` + `register_workflow_yaml_tools(server)` — task vs step semantics for multi-step DCC workflows |
 | WebSocket bridge for non-Python DCCs | `DccBridge(host, port)` — WebSocket JSON-RPC 2.0 bridge; `.call(method, **params)` for synchronous RPC to DCC plugin |
 | Gateway failover election | `DccGatewayElection(dcc_name, server)` — automatic gateway failover via first-wins socket election |
@@ -481,9 +481,13 @@ tools:
 ### Recipes (`dcc_mcp_core.recipes`)
 
 - `get_recipes_path(metadata) -> str | None` — extract recipes file path from SkillMetadata
+- `get_recipes_paths(metadata) -> list[str]` — extract filename/glob/list recipe sibling files
 - `parse_recipe_anchors(recipes_path) -> list[str]` — list anchor names from a RECIPES.md file
 - `get_recipe_content(recipes_path, anchor) -> str | None` — fetch content of a specific anchor section
-- `register_recipes_tools(server, *, skills, dcc_name="dcc")` — register `recipes__list` and `recipes__get` tools
+- `load_recipe_pack(path) -> list[RecipeDefinition]` — load YAML `recipes:` packs with inputs schema, steps, output contract, and provenance (#616)
+- `list_recipe_entries(skill_metadata) -> list[dict]` / `find_recipe_entry(skill_metadata, name)` — merge Markdown anchors and structured recipe pack entries
+- `validate_recipe_inputs(recipe, inputs) -> list[str]` — zero-dep required/type validation for recipe input schemas
+- `register_recipes_tools(server, *, skills, dcc_name="dcc")` — register `recipes__list/search/get/validate/apply` tools
 
 ### YAML Workflows (`dcc_mcp_core.workflow_yaml`)
 

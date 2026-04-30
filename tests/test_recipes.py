@@ -12,8 +12,12 @@ import pytest
 
 from dcc_mcp_core.recipes import get_recipe_content
 from dcc_mcp_core.recipes import get_recipes_path
+from dcc_mcp_core.recipes import get_recipes_paths
+from dcc_mcp_core.recipes import list_recipe_entries
+from dcc_mcp_core.recipes import load_recipe_pack
 from dcc_mcp_core.recipes import parse_recipe_anchors
 from dcc_mcp_core.recipes import register_recipes_tools
+from dcc_mcp_core.recipes import validate_recipe_inputs
 
 # ── Fixtures ──────────────────────────────────────────────────────────────
 
@@ -52,6 +56,38 @@ def recipes_md(tmp_path: Path) -> Path:
         """
     )
     p = tmp_path / "RECIPES.md"
+    p.write_text(content, encoding="utf-8")
+    return p
+
+
+@pytest.fixture()
+def recipe_pack_yaml(tmp_path: Path) -> Path:
+    content = textwrap.dedent(
+        """\
+        recipes:
+          - name: build_pbr_material
+            dcc: maya
+            description: Build a PBR material network.
+            inputs_schema:
+              type: object
+              required: [material_name, roughness]
+              properties:
+                material_name:
+                  type: string
+                roughness:
+                  type: number
+            steps:
+              - tool: maya_materials__create
+                arguments:
+                  name: ${material_name}
+              - tool: maya_materials__set_roughness
+                arguments:
+                  value: ${roughness}
+            output_contract: material_graph
+            toolset_profiles: [lookdev, surfacing]
+        """
+    )
+    p = tmp_path / "recipes.yaml"
     p.write_text(content, encoding="utf-8")
     return p
 
@@ -107,6 +143,19 @@ class TestGetRecipesPath:
         md.metadata = None
         md.skill_path = None
         assert get_recipes_path(md) is None
+
+    def test_get_recipes_paths_expands_glob(self, tmp_path: Path) -> None:
+        skill_dir = tmp_path / "my-skill"
+        recipe_dir = skill_dir / "recipes"
+        recipe_dir.mkdir(parents=True)
+        (recipe_dir / "a.yaml").write_text("recipes: []\n", encoding="utf-8")
+        (recipe_dir / "b.yaml").write_text("recipes: []\n", encoding="utf-8")
+        md = _make_metadata(str(skill_dir), "recipes/*.yaml", nested=True)
+
+        assert get_recipes_paths(md) == [
+            str(recipe_dir / "a.yaml"),
+            str(recipe_dir / "b.yaml"),
+        ]
 
 
 # ── parse_recipe_anchors ──────────────────────────────────────────────────
@@ -175,6 +224,41 @@ class TestGetRecipeContent:
         assert not result.endswith("\n")
 
 
+# ── structured recipe packs ────────────────────────────────────────────────
+
+
+class TestRecipePacks:
+    def test_load_recipe_pack_returns_structured_recipe(self, recipe_pack_yaml: Path) -> None:
+        recipes = load_recipe_pack(str(recipe_pack_yaml), skill_name="maya-domain")
+
+        assert len(recipes) == 1
+        payload = recipes[0].to_dict()
+        assert payload["name"] == "build_pbr_material"
+        assert payload["dcc"] == "maya"
+        assert payload["inputs_schema"]["required"] == ["material_name", "roughness"]
+        assert payload["steps"][0]["tool"] == "maya_materials__create"
+        assert payload["provenance"]["skill"] == "maya-domain"
+
+    def test_list_recipe_entries_includes_yaml_pack(self, recipe_pack_yaml: Path, tmp_path: Path) -> None:
+        skill_dir = tmp_path / "maya-domain"
+        skill_dir.mkdir()
+        md = _make_metadata(str(skill_dir), str(recipe_pack_yaml), nested=True)
+        md.name = "maya-domain"
+
+        entries = list_recipe_entries(md)
+
+        assert [entry["name"] for entry in entries] == ["build_pbr_material"]
+        assert entries[0]["provenance"]["format"] == "recipe-pack"
+
+    def test_validate_recipe_inputs_reports_missing_and_type_errors(self, recipe_pack_yaml: Path) -> None:
+        recipe = load_recipe_pack(str(recipe_pack_yaml))[0].to_dict()
+
+        errors = validate_recipe_inputs(recipe, {"material_name": "mat", "roughness": "high"})
+
+        assert errors == ["Input 'roughness' expected number, got str"]
+        assert validate_recipe_inputs(recipe, {"material_name": "mat", "roughness": 0.5}) == []
+
+
 # ── register_recipes_tools ────────────────────────────────────────────────
 
 
@@ -198,6 +282,9 @@ class TestRegisterRecipesTools:
         calls = [c.kwargs["name"] for c in server.registry.register.call_args_list]
         assert "recipes__list" in calls
         assert "recipes__get" in calls
+        assert "recipes__search" in calls
+        assert "recipes__validate" in calls
+        assert "recipes__apply" in calls
 
     def test_list_handler_returns_anchors(self, recipes_md: Path, tmp_path: Path) -> None:
         skill_dir = tmp_path / "maya-scripting"
@@ -254,6 +341,85 @@ class TestRegisterRecipesTools:
         result = handlers["recipes__list"](json.dumps({"skill": "no-recipes-skill"}))
         assert result["success"] is True
         assert result["context"]["anchors"] == []
+
+    def test_list_handler_returns_structured_recipes(self, recipe_pack_yaml: Path, tmp_path: Path) -> None:
+        skill_dir = tmp_path / "maya-domain"
+        skill_dir.mkdir()
+        md = _make_metadata(str(skill_dir), str(recipe_pack_yaml), nested=True)
+        md.name = "maya-domain"
+        server, handlers = self._make_server([md])
+        register_recipes_tools(server, skills=[md])
+
+        result = handlers["recipes__list"](json.dumps({"skill": "maya-domain"}))
+
+        assert result["success"] is True
+        assert result["context"]["anchors"] == []
+        assert result["context"]["recipes"][0]["name"] == "build_pbr_material"
+
+    def test_get_handler_returns_structured_recipe(self, recipe_pack_yaml: Path, tmp_path: Path) -> None:
+        skill_dir = tmp_path / "maya-domain"
+        skill_dir.mkdir()
+        md = _make_metadata(str(skill_dir), str(recipe_pack_yaml), nested=True)
+        md.name = "maya-domain"
+        server, handlers = self._make_server([md])
+        register_recipes_tools(server, skills=[md])
+
+        result = handlers["recipes__get"](json.dumps({"skill": "maya-domain", "anchor": "build_pbr_material"}))
+
+        assert result["success"] is True
+        assert result["context"]["recipe"]["output_contract"] == "material_graph"
+
+    def test_search_handler_finds_structured_recipe(self, recipe_pack_yaml: Path, tmp_path: Path) -> None:
+        skill_dir = tmp_path / "maya-domain"
+        skill_dir.mkdir()
+        md = _make_metadata(str(skill_dir), str(recipe_pack_yaml), nested=True)
+        md.name = "maya-domain"
+        server, handlers = self._make_server([md])
+        register_recipes_tools(server, skills=[md])
+
+        result = handlers["recipes__search"](json.dumps({"query": "pbr", "dcc": "maya"}))
+
+        assert result["success"] is True
+        assert result["context"]["recipes"][0]["name"] == "build_pbr_material"
+
+    def test_validate_handler_checks_recipe_inputs(self, recipe_pack_yaml: Path, tmp_path: Path) -> None:
+        skill_dir = tmp_path / "maya-domain"
+        skill_dir.mkdir()
+        md = _make_metadata(str(skill_dir), str(recipe_pack_yaml), nested=True)
+        md.name = "maya-domain"
+        server, handlers = self._make_server([md])
+        register_recipes_tools(server, skills=[md])
+
+        result = handlers["recipes__validate"](
+            json.dumps({"skill": "maya-domain", "recipe": "build_pbr_material", "inputs": {"material_name": "mat"}}),
+        )
+
+        assert result["success"] is True
+        assert result["context"]["valid"] is False
+        assert "Missing required input: roughness" in result["context"]["errors"]
+
+    def test_apply_handler_returns_application_plan(self, recipe_pack_yaml: Path, tmp_path: Path) -> None:
+        skill_dir = tmp_path / "maya-domain"
+        skill_dir.mkdir()
+        md = _make_metadata(str(skill_dir), str(recipe_pack_yaml), nested=True)
+        md.name = "maya-domain"
+        server, handlers = self._make_server([md])
+        register_recipes_tools(server, skills=[md])
+
+        result = handlers["recipes__apply"](
+            json.dumps(
+                {
+                    "skill": "maya-domain",
+                    "recipe": "build_pbr_material",
+                    "inputs": {"material_name": "mat", "roughness": 0.5},
+                    "target": "scene",
+                },
+            ),
+        )
+
+        assert result["success"] is True
+        assert result["context"]["steps"][0]["tool"] == "maya_materials__create"
+        assert result["context"]["output_contract"] == "material_graph"
 
     def test_no_registry_logs_warning(self) -> None:
         class _BadServer:

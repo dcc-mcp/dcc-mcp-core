@@ -435,10 +435,16 @@ from dcc_mcp_core.plugin_manifest import build_plugin_manifest
 from dcc_mcp_core.plugin_manifest import export_plugin_manifest
 
 # Recipes system: metadata.dcc-mcp.recipes + recipes__list/get tools (issue #428)
+from dcc_mcp_core.recipes import RecipeDefinition
+from dcc_mcp_core.recipes import find_recipe_entry
 from dcc_mcp_core.recipes import get_recipe_content
 from dcc_mcp_core.recipes import get_recipes_path
+from dcc_mcp_core.recipes import get_recipes_paths
+from dcc_mcp_core.recipes import list_recipe_entries
+from dcc_mcp_core.recipes import load_recipe_pack
 from dcc_mcp_core.recipes import parse_recipe_anchors
 from dcc_mcp_core.recipes import register_recipes_tools
+from dcc_mcp_core.recipes import validate_recipe_inputs
 
 # MCP Apps rich content (issue #409)
 from dcc_mcp_core.rich_content import RichContent
@@ -621,6 +627,7 @@ __all__ = [
     "PySharedSceneBuffer",
     "PyStandaloneDispatcher",
     "RateLimitMiddleware",
+    "RecipeDefinition",
     "RecordingGuard",
     "RenderOutput",
     "ResourceAnnotations",
@@ -733,6 +740,7 @@ __all__ = [
     "expand_transitive_dependencies",
     "export_plugin_manifest",
     "extract_rationale",
+    "find_recipe_entry",
     "flush_logs",
     "from_exception",
     "gc_orphans",
@@ -753,6 +761,7 @@ __all__ = [
     "get_platform_dir",
     "get_recipe_content",
     "get_recipes_path",
+    "get_recipes_paths",
     "get_server_instance",
     "get_skill_feedback",
     "get_skill_paths_from_env",
@@ -775,6 +784,8 @@ __all__ = [
     "json_dumps",
     "json_loads",
     "list_checkpoints",
+    "list_recipe_entries",
+    "load_recipe_pack",
     "load_workflow_yaml",
     "make_rationale_meta",
     "make_start_stop",
@@ -837,6 +848,7 @@ __all__ = [
     "validate_action_result",
     "validate_bearer_token",
     "validate_dependencies",
+    "validate_recipe_inputs",
     "validate_skill",
     "validate_tool_name",
     "verify_hub_signature_256",
