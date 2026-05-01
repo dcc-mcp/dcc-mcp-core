@@ -59,6 +59,12 @@ pin-project-lite = "0.2"
 # the small strings (tool names, summaries) we feed it.
 nucleo-matcher = "0.3"
 
+# Compile-time OpenAPI 3.1 document generation for the per-DCC REST
+# skill API surface (#658 / #660). Using `utoipa` keeps the contract
+# in lock-step with the Rust types — no hand-maintained JSON — while
+# pulling in no runtime cost (everything is expanded in proc-macros).
+utoipa = { version = "5.4", features = ["axum_extras"] }
+
 # PyO3 (optional)
 pyo3 = { workspace = true, optional = true }
 

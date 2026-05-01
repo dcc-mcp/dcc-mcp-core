@@ -42,6 +42,7 @@ document without scanning every file.
 | [remote-server.md](remote-server.md) | Cloud-hosted MCP agents: auth, batch, elicitation, rich content |
 | [gateway.md](gateway.md) | Multi-DCC gateway: aggregation, tool routing |
 | [gateway-election.md](gateway-election.md) | `DccGatewayElection` — automatic failover |
+| [dcc-rest-skill-api.md](dcc-rest-skill-api.md) | Per-DCC RESTful skill API surface (#658 / #660) |
 | [tunnel-relay.md](tunnel-relay.md) | Zero-config remote MCP relay (`RelayServer` + tunnel agent) |
 | [production-deployment.md](production-deployment.md) | Production checklist: logging, health probes, monitoring |
 | [protocols.md](protocols.md) | MCP protocol types and versioning |

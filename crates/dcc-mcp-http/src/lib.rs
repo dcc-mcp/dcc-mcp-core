@@ -57,6 +57,7 @@ pub mod resource_link;
 pub mod resources;
 pub mod server;
 pub mod session;
+pub mod skill_rest;
 pub mod workspace;
 
 #[cfg(feature = "prometheus")]
@@ -87,6 +88,12 @@ pub use resources::{
 };
 pub use server::{McpHttpServer, McpServerHandle};
 pub use session::SessionManager;
+pub use skill_rest::{
+    AllowLocalhostGate, AuditEvent, AuditOutcome, AuditSink, AuthGate, BearerTokenGate,
+    NoopAuditSink, Principal, ReadinessProbe, ReadinessReport, ServiceError, ServiceErrorKind,
+    SkillRestConfig, SkillRestService, StaticReadiness, ToolInvoker, ToolSlug, VecAuditSink,
+    build_skill_rest_router,
+};
 pub use workspace::{WorkspaceResolveError, WorkspaceRoots};
 
 #[cfg(feature = "python-bindings")]
