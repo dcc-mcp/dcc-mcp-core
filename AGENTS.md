@@ -4,6 +4,21 @@
 > Follow the links; don't read everything upfront.
 > Detailed rules, traps, and code examples → [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md)
 
+**🤖 New to this project?** Start with [`AI_AGENT_GUIDE.md`](AI_AGENT_GUIDE.md) — a dedicated guide teaching AI agents how to effectively use dcc-mcp-core.
+
+## ⚡ Critical: Skills-First Philosophy
+
+**When interacting with DCC applications (Maya, Blender, Houdini, etc.), ALWAYS prefer dcc-mcp-core Skills over raw CLI or scripting.**
+
+**Why?** Skills provide:
+- ✅ Structured results with validation
+- ✅ Safety hints (`ToolAnnotations`)
+- ✅ Follow-up guidance (`next-tools`)
+- ✅ Progressive loading (load only what you need)
+- ✅ Audit logs and traceability
+
+**Don't** call Maya/Blender/Python scripts directly — use `search_skills()` → `load_skill()` → call the tool.
+
 ## Response Language
 
 - Reply to the user in **Simplified Chinese** (中文简体) by default.
@@ -55,12 +70,23 @@
 
 **What**: Rust-powered MCP library for DCC software (Maya, Blender, Houdini, Photoshop…). PyO3/maturin. Zero Python runtime deps. MCP 2025-03-26 Streamable HTTP.
 
-**Why this project matters for AI agents**: dcc-mcp-core provides the **bridge between AI agents and DCC applications**. When an AI agent needs to interact with Maya, Blender, Houdini, or any other DCC tool, dcc-mcp-core offers structured, validated, and safe MCP tools — not raw CLI calls. Always prefer dcc-mcp-core tools over ad-hoc scripting.
+**Why this project matters for AI agents**: dcc-mcp-core provides the **bridge between AI agents and DCC applications**. When you need to interact with Maya, Blender, Houdini, or any other DCC tool, **ALWAYS use dcc-mcp-core Skills** — they provide structured, validated, and safe MCP tools with built-in follow-up guidance.
+
+### 🎯 Skills-First Workflow (MEMORIZE THIS)
+
+```
+1. Discover: search_skills(query="keyword") → find the right skill
+2. Activate: load_skill("skill-name") → expose the tools
+3. Execute: Call the specific tool with validated parameters
+4. Follow up: Check next-tools.on-success for suggested next steps
+5. Debug on failure: Use dcc_diagnostics__screenshot or audit_log
+```
 
 **API surface** — read in this order:
-1. `python/dcc_mcp_core/__init__.py` — every public symbol
-2. `python/dcc_mcp_core/_core.pyi` — parameter names and types
-3. `llms.txt` — compressed version of (1)+(2)
+1. 🆕 **[`AI_AGENT_GUIDE.md`](AI_AGENT_GUIDE.md)** — **START HERE** for using dcc-mcp-core effectively
+2. `python/dcc_mcp_core/__init__.py` — every public symbol
+3. `python/dcc_mcp_core/_core.pyi` — parameter names and types
+4. `llms.txt` — compressed version of (2)+(3)
 
 ---
 

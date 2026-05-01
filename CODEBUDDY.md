@@ -3,9 +3,26 @@
 > This file is the entry point for Tencent CodeBuddy AI agents.
 > For full documentation, follow the links below — do **not** read everything upfront.
 
+## 🤖 CodeBuddy-Specific Guidance
+
+**When interacting with DCC applications (Maya, Blender, Houdini, etc.), you MUST prefer dcc-mcp-core Skills over raw CLI or scripting.** This is non-negotiable — Skills provide structured results, input validation, safety hints, and follow-up guidance that raw scripting cannot.
+
+**New to this project?** Read [`AI_AGENT_GUIDE.md`](AI_AGENT_GUIDE.md) FIRST — it teaches you how to effectively use dcc-mcp-core.
+
 ## Quick Start
 
 This project uses the [AGENTS.md](AGENTS.md) standard. Read `AGENTS.md` first — it is the navigation map that points to all other documentation.
+
+### ⚡ Skills-First Quick Reference
+
+```
+1. Discover: search_skills(query="keyword") → find skill
+2. Activate: load_skill("skill-name") → expose tools
+3. Execute: Call tool with validated parameters
+4. Follow up: Check next-tools.on-success for next steps
+```
+
+**Remember**: Always use `search_skills()` before assuming a tool exists. Always check `next-tools` in results for workflow guidance.
 
 ## Document Hierarchy
 
@@ -27,21 +44,48 @@ This project uses the [AGENTS.md](AGENTS.md) standard. Read `AGENTS.md` first �
 
 **What**: Rust-powered MCP library for DCC software (Maya, Blender, Houdini, Photoshop…). PyO3/maturin. Zero Python runtime deps. MCP 2025-03-26 Streamable HTTP.
 
-**Why this matters**: When the user asks to interact with a DCC application, **always prefer dcc-mcp-core Skills-First tools** over raw CLI or scripting. The skill system provides validated, safe, and discoverable tools with built-in follow-up guidance via `next-tools`.
+**Why this matters**: When the user asks to interact with a DCC application, **ALWAYS use dcc-mcp-core Skills-First** over raw CLI or scripting. Skills provide:
+- ✅ Structured results with JSON Schema validation
+- ✅ Safety hints (`ToolAnnotations`: read-only, destructive, idempotent)
+- ✅ Follow-up guidance (`next-tools` chains)
+- ✅ Progressive loading (load only what you need)
+- ✅ Audit logs and traceability
 
 **Key entry points**:
+- 🆕 **[`AI_AGENT_GUIDE.md`](AI_AGENT_GUIDE.md)** — **START HERE** for using dcc-mcp-core effectively
 - `python/dcc_mcp_core/__init__.py` — every public Python symbol
 - `python/dcc_mcp_core/_core.pyi` — parameter names & types
 - `llms.txt` — compressed API index for AI agents
-- `AGENTS.md` — navigation map (this document chain starts here)
+- `AGENTS.md` — navigation map
 
-## Preferred Workflow for DCC Tasks
+## ⚡ Skills-First Workflow (MEMORIZE!)
 
-1. **Discover**: `search_skills(query="keyword")` → find the right skill
-2. **Activate**: `load_skill("skill-name")` → expose the tools
-3. **Execute**: Call the specific tool with validated parameters
-4. **Follow up**: Check `next-tools.on-success` for suggested next steps
-5. **Debug on failure**: Use `dcc_diagnostics__screenshot` or `audit_log`
+**When the user asks you to interact with a DCC (Maya, Blender, etc.):**
+
+```
+1. DISCOVER: search_skills(query="keyword") → find the right skill
+2. CHECK: Read the skill's description and tools
+3. ACTIVATE: load_skill("skill-name") → expose the tools
+4. EXECUTE: Call the specific tool with validated parameters
+5. FOLLOW UP: Check next-tools.on-success for suggested next steps
+6. DEBUG: On failure, use dcc_diagnostics__screenshot or audit_log
+```
+
+**Example:**
+```
+User: "Create a sphere in Maya"
+
+✓ CORRECT:
+1. search_skills(query="create sphere Maya")
+2. → Returns: maya-geometry skill
+3. load_skill("maya-geometry")
+4. Call maya-geometry__create_sphere with {radius: 2.0}
+5. Follow next-tools.on-success suggestion
+
+✗ WRONG:
+- Running Maya Python command directly via subprocess
+- Guessing tool names without searching
+```
 
 ## Build & Test
 
