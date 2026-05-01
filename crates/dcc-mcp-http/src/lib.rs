@@ -43,21 +43,48 @@ pub mod config;
 pub mod dynamic_tools;
 pub mod error;
 pub mod executor;
-pub mod gateway;
+/// Re-export of [`dcc_mcp_gateway`] under the historical
+/// `dcc_mcp_http::gateway` path.
+///
+/// The multi-DCC gateway lives in its own crate now (it is the
+/// largest module by far — ~11k LoC across 53 files). Touching
+/// gateway internals no longer triggers a full rebuild of the
+/// embedded MCP HTTP server, and downstream binaries that don't
+/// participate in gateway election can avoid pulling it in.
+pub use dcc_mcp_gateway as gateway;
 pub mod handler;
 pub(crate) mod handlers;
 pub mod inflight;
-pub mod job;
-pub mod job_storage;
+/// Re-export of [`dcc_mcp_job::job`] under the historical
+/// `dcc_mcp_http::job` path. The job tracker now lives in its own
+/// crate so embedders can use it without pulling in axum.
+pub use dcc_mcp_job::job;
+/// Re-export of [`dcc_mcp_job::job_storage`] under the historical
+/// `dcc_mcp_http::job_storage` path. The optional SQLite backend is
+/// gated by the `job-persist-sqlite` feature, which is forwarded
+/// through this crate.
+pub use dcc_mcp_job::job_storage;
 pub mod notifications;
 pub mod output;
+/// Re-export of [`dcc_mcp_jsonrpc`] under the historical
+/// `dcc_mcp_http::protocol` path.
+///
+/// The MCP wire types live in their own crate now; this alias keeps
+/// every existing `use crate::protocol::*` and downstream
+/// `dcc_mcp_http::protocol::*` import working without a code change.
+pub use dcc_mcp_jsonrpc as protocol;
 pub mod prompts;
-pub mod protocol;
 pub mod resource_link;
 pub mod resources;
 pub mod server;
 pub mod session;
-pub mod skill_rest;
+/// Re-export of [`dcc_mcp_skill_rest`] under the historical
+/// `dcc_mcp_http::skill_rest` path.
+///
+/// The per-DCC RESTful skill surface (#658, #660) lives in its own
+/// crate now; this alias keeps every existing import working without
+/// a code change.
+pub use dcc_mcp_skill_rest as skill_rest;
 pub mod workspace;
 
 #[cfg(feature = "prometheus")]

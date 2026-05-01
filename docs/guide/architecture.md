@@ -416,7 +416,7 @@ If you need custom middleware or fine-grained control, assemble the stack manual
 
 ## Python Bindings
 
-All 24 crates (+ workspace-hack) are compiled into a single PyO3 native extension (`dcc_mcp_core._core`) via `maturin`.
+All 28 crates (+ workspace-hack) are compiled into a single PyO3 native extension (`dcc_mcp_core._core`) via `maturin`.
 
 ```toml
 # pyproject.toml

@@ -73,7 +73,7 @@ use serde_json::{Value, json};
 use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 
-use crate::protocol::format_sse_event;
+use dcc_mcp_jsonrpc::format_sse_event;
 
 /// How long a notification with an unknown target may sit in the pending
 /// buffer before being dropped.

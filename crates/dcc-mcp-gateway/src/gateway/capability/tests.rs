@@ -5,7 +5,7 @@
 //! invariants agents rely on end-to-end.
 
 use super::*;
-use crate::protocol::McpTool;
+use dcc_mcp_jsonrpc::McpTool;
 use serde_json::json;
 use uuid::Uuid;
 

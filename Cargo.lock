@@ -797,6 +797,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "dcc-mcp-gateway"
+version = "0.14.21"
+dependencies = [
+ "axum",
+ "chrono",
+ "dashmap",
+ "dcc-mcp-jsonrpc",
+ "dcc-mcp-naming",
+ "dcc-mcp-telemetry",
+ "dcc-mcp-transport",
+ "futures",
+ "http",
+ "nucleo-matcher",
+ "parking_lot",
+ "reqwest 0.13.3",
+ "serde",
+ "serde_json",
+ "socket2",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "tower",
+ "tower-http",
+ "tracing",
+ "uuid",
+ "workspace-hack",
+]
+
+[[package]]
 name = "dcc-mcp-http"
 version = "0.14.21"
 dependencies = [
@@ -808,18 +839,21 @@ dependencies = [
  "dcc-mcp-actions",
  "dcc-mcp-artefact",
  "dcc-mcp-capture",
+ "dcc-mcp-gateway",
+ "dcc-mcp-job",
+ "dcc-mcp-jsonrpc",
  "dcc-mcp-models",
  "dcc-mcp-naming",
  "dcc-mcp-protocols",
  "dcc-mcp-pybridge",
  "dcc-mcp-sandbox",
+ "dcc-mcp-skill-rest",
  "dcc-mcp-skills",
  "dcc-mcp-telemetry",
  "dcc-mcp-transport",
  "dcc-mcp-workflow",
  "futures",
  "http",
- "nucleo-matcher",
  "parking_lot",
  "pin-project-lite",
  "pyo3",
@@ -827,7 +861,6 @@ dependencies = [
  "pyo3-stub-gen-derive",
  "reqwest 0.13.3",
  "rstest",
- "rusqlite",
  "serde",
  "serde_json",
  "serde_yaml_ng",
@@ -840,8 +873,33 @@ dependencies = [
  "tower",
  "tower-http",
  "tracing",
- "utoipa",
  "uuid",
+ "workspace-hack",
+]
+
+[[package]]
+name = "dcc-mcp-job"
+version = "0.14.21"
+dependencies = [
+ "chrono",
+ "dashmap",
+ "parking_lot",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio-util",
+ "tracing",
+ "uuid",
+ "workspace-hack",
+]
+
+[[package]]
+name = "dcc-mcp-jsonrpc"
+version = "0.14.21"
+dependencies = [
+ "serde",
+ "serde_json",
  "workspace-hack",
 ]
 
@@ -1048,6 +1106,26 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.18",
  "tracing",
+ "uuid",
+ "workspace-hack",
+]
+
+[[package]]
+name = "dcc-mcp-skill-rest"
+version = "0.14.21"
+dependencies = [
+ "axum",
+ "axum-test",
+ "chrono",
+ "dcc-mcp-actions",
+ "dcc-mcp-models",
+ "dcc-mcp-skills",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "utoipa",
  "uuid",
  "workspace-hack",
 ]

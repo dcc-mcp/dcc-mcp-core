@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use crate::protocol::{JsonRpcRequestBuilder, JsonRpcResponse, McpTool};
+use dcc_mcp_jsonrpc::{JsonRpcRequestBuilder, JsonRpcResponse, McpTool};
 
 /// Build the lightweight HTTP health URL that identifies a real MCP backend.
 pub(crate) fn health_url_from_mcp_url(mcp_url: &str) -> String {

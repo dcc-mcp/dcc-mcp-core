@@ -1,0 +1,31 @@
+[package]
+name = "dcc-mcp-job"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "In-process async job tracker + pluggable persistence (issues #316, #328) — extracted from dcc-mcp-http"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { version = "0.4", features = ["serde"] }
+parking_lot = { workspace = true }
+dashmap = { workspace = true }
+thiserror = { workspace = true }
+tokio-util = { version = "0.7", features = ["rt"] }
+tracing = { workspace = true }
+uuid = { workspace = true }
+
+# Optional SQLite JobStorage backend (issue #328). Gated behind the
+# `job-persist-sqlite` feature so the default build has zero SQLite cost.
+rusqlite = { workspace = true, optional = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[features]
+default = []
+# Persist tracked Jobs in a SQLite database so they survive a server
+# restart (issue #328). Pulls in the bundled `rusqlite` driver.
+job-persist-sqlite = ["dep:rusqlite"]

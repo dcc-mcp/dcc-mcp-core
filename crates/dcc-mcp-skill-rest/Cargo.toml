@@ -1,0 +1,35 @@
+[package]
+name = "dcc-mcp-skill-rest"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Per-DCC RESTful skill API surface (issues #658, #660) — extracted from dcc-mcp-http"
+
+[dependencies]
+# Internal
+dcc-mcp-actions = { path = "../dcc-mcp-actions" }
+dcc-mcp-models = { path = "../dcc-mcp-models" }
+dcc-mcp-skills = { path = "../dcc-mcp-skills" }
+
+# Workspace shared
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { version = "0.4", features = ["serde"] }
+parking_lot = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+
+# HTTP server
+axum = { version = "0.8", features = ["http1", "tokio"] }
+
+# OpenAPI generation
+utoipa = { version = "5.4", features = ["axum_extras"] }
+
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
+axum-test = "20"

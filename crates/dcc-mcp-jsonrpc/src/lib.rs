@@ -2,22 +2,24 @@
 //!
 //! Reference: <https://modelcontextprotocol.io/specification/2025-03-26/basic/transports>
 //!
+//! Extracted from `dcc-mcp-http` so that downstream crates (clients,
+//! CLIs, alternative transports) can depend on the wire types without
+//! pulling in axum/tokio/reqwest.
+//!
 //! ## Maintainer layout
 //!
-//! This module is a **thin facade** keeping only protocol-level
-//! constants + version negotiation. Every type is split by MCP
-//! primitive (lifecycle / tools / resources / prompts) so that
-//! downstream readers can jump straight to the file that matches the
-//! JSON-RPC method they are inspecting:
+//! Every type is split by MCP primitive (lifecycle / tools / resources
+//! / prompts) so that downstream readers can jump straight to the file
+//! that matches the JSON-RPC method they are inspecting:
 //!
 //! | File | Contents |
 //! |------|----------|
-//! | `protocol_jsonrpc.rs`   | `JsonRpcRequest` / `JsonRpcResponse` / `JsonRpcError` / `JsonRpcNotification` / `JsonRpcMessage` / `JsonRpcBatch` + `error_codes` module |
-//! | `protocol_lifecycle.rs` | `initialize` / `ServerCapabilities` / `ClientRoot` / `RootsListResult` / `LoggingSetLevelParams` / `ElicitationCreate*` |
-//! | `protocol_tools.rs`     | `ListToolsResult` / `McpTool` / `McpToolAnnotations` / `CallTool*` / `ToolContent` |
-//! | `protocol_resources.rs` | `McpResource` / `ListResourcesResult` / `ReadResource*` / `ResourceContents` / `SubscribeResourceParams` + `RESOURCE_NOT_ENABLED_ERROR` |
-//! | `protocol_prompts.rs`   | `McpPrompt` / `McpPromptArgument` / `ListPromptsResult` / `GetPrompt*` / `McpPromptMessage` / `McpPromptContent` |
-//! | `protocol_sse.rs`       | `format_sse_event` + `encode_cursor` / `decode_cursor` pagination helpers |
+//! | `jsonrpc.rs`              | `JsonRpcRequest` / `JsonRpcResponse` / `JsonRpcError` / `JsonRpcNotification` / `JsonRpcMessage` / `JsonRpcBatch` + `error_codes` module |
+//! | `lifecycle.rs`            | `initialize` / `ServerCapabilities` / `ClientRoot` / `RootsListResult` / `LoggingSetLevelParams` / `ElicitationCreate*` |
+//! | `tools.rs`                | `ListToolsResult` / `McpTool` / `McpToolAnnotations` / `CallTool*` / `ToolContent` |
+//! | `resources.rs`            | `McpResource` / `ListResourcesResult` / `ReadResource*` / `ResourceContents` / `SubscribeResourceParams` + `RESOURCE_NOT_ENABLED_ERROR` |
+//! | `prompts.rs`              | `McpPrompt` / `McpPromptArgument` / `ListPromptsResult` / `GetPrompt*` / `McpPromptMessage` / `McpPromptContent` |
+//! | `sse.rs`                  | `format_sse_event` + `encode_cursor` / `decode_cursor` pagination helpers |
 //! | `notification_builder.rs` | `NotificationBuilder` / `JsonRpcRequestBuilder` — fluent envelope construction (#484) |
 
 mod jsonrpc;

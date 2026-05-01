@@ -13,7 +13,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::gateway::namespace::{decode_skill_tool_name, extract_bare_tool_name};
-use crate::protocol::McpTool;
+use dcc_mcp_jsonrpc::McpTool;
 
 use super::index::InstanceFingerprint;
 use super::record::{CapabilityRecord, SCHEMA_AVAILABLE, is_valid_dcc_bucket, tool_slug};
@@ -170,7 +170,7 @@ fn extract_skill_and_bare(name: &str) -> (Option<String>, String) {
 /// backend populates becomes search-visible without needing a schema
 /// change.
 fn extract_tags(
-    annotations: &Option<crate::protocol::McpToolAnnotations>,
+    annotations: &Option<dcc_mcp_jsonrpc::McpToolAnnotations>,
     meta: Option<&serde_json::Map<String, Value>>,
 ) -> Vec<String> {
     let mut tags: Vec<String> = Vec::new();
@@ -408,7 +408,7 @@ mod unit_tests {
     fn annotation_hints_surface_as_tags() {
         let iid = Uuid::from_u128(7);
         let mut t = tool("read_scene", "read", json!({"type": "object"}));
-        t.annotations = Some(crate::protocol::McpToolAnnotations {
+        t.annotations = Some(dcc_mcp_jsonrpc::McpToolAnnotations {
             title: Some("Scene Reader".to_string()),
             read_only_hint: Some(true),
             idempotent_hint: Some(true),

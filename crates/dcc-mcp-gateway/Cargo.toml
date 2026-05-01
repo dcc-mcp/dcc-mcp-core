@@ -1,0 +1,51 @@
+[package]
+name = "dcc-mcp-gateway"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Multi-DCC MCP gateway: aggregation, routing, capability index, REST/MCP dynamic-capability surface (#653/#654/#655) — extracted from dcc-mcp-http"
+
+[dependencies]
+# Internal
+dcc-mcp-jsonrpc = { path = "../dcc-mcp-jsonrpc" }
+dcc-mcp-naming = { path = "../dcc-mcp-naming" }
+dcc-mcp-transport = { path = "../dcc-mcp-transport" }
+dcc-mcp-telemetry = { path = "../dcc-mcp-telemetry", optional = true }
+
+# Workspace shared
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+uuid = { workspace = true }
+dashmap = { workspace = true }
+reqwest = { workspace = true }
+socket2 = { workspace = true }
+parking_lot = { workspace = true }
+chrono = { version = "0.4", features = ["serde"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+
+# HTTP server
+axum = { version = "0.8", features = ["http1", "tokio"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+http = "1.0"
+futures = "0.3"
+tokio-stream = { version = "0.1", features = ["sync", "tokio-util"] }
+
+# High-performance fuzzy matcher for the capability search layer (#659).
+nucleo-matcher = "0.3"
+
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[features]
+default = []
+prometheus = ["dep:dcc-mcp-telemetry", "dcc-mcp-telemetry/prometheus"]
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }

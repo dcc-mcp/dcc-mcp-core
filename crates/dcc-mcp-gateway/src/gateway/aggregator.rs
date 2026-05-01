@@ -52,7 +52,7 @@ use super::tools::{
     tool_describe_tool, tool_diagnostics_audit_log, tool_diagnostics_process_status,
     tool_diagnostics_tool_metrics, tool_get_instance, tool_release_instance, tool_search_tools,
 };
-use crate::protocol::{TOOLS_LIST_PAGE_SIZE, decode_cursor, encode_cursor};
+use dcc_mcp_jsonrpc::{TOOLS_LIST_PAGE_SIZE, decode_cursor, encode_cursor};
 use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry};
 
 /// Terminal job statuses that end a wait-for-terminal block (#321).

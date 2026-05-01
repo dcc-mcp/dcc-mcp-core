@@ -129,7 +129,18 @@ meta = dcc_mcp_core.parse_skill_md(dirs[0])  # -> SkillMetadata or None
 
 ## Architecture
 
-Rust workspace (25 crates, including `workspace-hack`) with PyO3 bindings. All logic in Rust sub-crates; Python gets a single `dcc_mcp_core._core` extension module. The `dcc_mcp_core` package re-exports all ~275 public symbols from `_core` plus pure-Python helpers (DccServerBase, DccGatewayElection, DccSkillHotReloader, factory, skill helpers, ToolResult dataclass, constants).
+Rust workspace (29 crates, including `workspace-hack`) with PyO3 bindings. All logic in Rust sub-crates; Python gets a single `dcc_mcp_core._core` extension module. The `dcc_mcp_core` package re-exports all ~275 public symbols from `_core` plus pure-Python helpers (DccServerBase, DccGatewayElection, DccSkillHotReloader, factory, skill helpers, ToolResult dataclass, constants).
+
+### dcc-mcp-http SOLID extraction (PR #667)
+
+The historical god-crate `dcc-mcp-http` was decomposed into four cohesive crates with **zero behaviour change** — every existing import keeps working through `pub use` aliases on `dcc_mcp_http`:
+
+- **`dcc-mcp-jsonrpc`** — MCP 2025-03-26 Streamable HTTP wire types (was `dcc_mcp_http::protocol`). Zero axum/tokio dependency, so standalone clients/CLIs can use it.
+- **`dcc-mcp-job`** — async job tracker + pluggable persistence (was `dcc_mcp_http::{job, job_storage}`). Owns the optional `job-persist-sqlite` feature; `dcc-mcp-http` forwards the flag.
+- **`dcc-mcp-skill-rest`** — per-DCC `/v1/*` REST skill API (was `dcc_mcp_http::skill_rest`). Owns the `utoipa` OpenAPI generator.
+- **`dcc-mcp-gateway`** — multi-DCC gateway, capability index, dynamic-capability MCP wrappers (was `dcc_mcp_http::gateway`, ~11k LoC). Owns the `nucleo-matcher` fuzzy index. Touching gateway code no longer triggers a rebuild of the embedded server, and vice versa.
+
+`dcc-mcp-http` remains the embedded MCP HTTP server core (handlers, server, session, config, executor, prompts, resources, dynamic_tools) and depends on the four extracted crates.
 
 ```
 crates/

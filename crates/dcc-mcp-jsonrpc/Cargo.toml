@@ -1,0 +1,14 @@
+[package]
+name = "dcc-mcp-jsonrpc"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "JSON-RPC 2.0 + MCP 2025-03-26 Streamable HTTP wire types (no transport, no axum)"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }

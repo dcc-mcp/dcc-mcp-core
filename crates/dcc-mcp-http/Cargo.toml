@@ -13,6 +13,10 @@ description = "MCP Streamable HTTP server for DCC applications (axum-based, thre
 dcc-mcp-actions = { path = "../dcc-mcp-actions" }
 dcc-mcp-naming = { path = "../dcc-mcp-naming" }
 dcc-mcp-protocols = { path = "../dcc-mcp-protocols" }
+dcc-mcp-jsonrpc = { path = "../dcc-mcp-jsonrpc" }
+dcc-mcp-job = { path = "../dcc-mcp-job" }
+dcc-mcp-skill-rest = { path = "../dcc-mcp-skill-rest" }
+dcc-mcp-gateway = { path = "../dcc-mcp-gateway" }
 dcc-mcp-models = { path = "../dcc-mcp-models" }
 dcc-mcp-skills = { path = "../dcc-mcp-skills" }
 dcc-mcp-pybridge = { path = "../dcc-mcp-pybridge", optional = true }
@@ -51,19 +55,7 @@ tokio-stream = { version = "0.1", features = ["sync", "tokio-util"] }
 pin-project-lite = "0.2"
 
 # High-performance fuzzy matcher for the capability search layer
-# (issue #659). `nucleo-matcher` is the standalone matcher extracted
-# from the `nucleo` picker used by the Helix editor — it carries no
-# async / TUI dependencies, only the bare scoring engine. It gives us
-# Smith-Waterman-style fuzzy matching with typo tolerance and
-# case/pre-fix weighting, and benchmarks sub-microsecond per match on
-# the small strings (tool names, summaries) we feed it.
-nucleo-matcher = "0.3"
-
-# Compile-time OpenAPI 3.1 document generation for the per-DCC REST
-# skill API surface (#658 / #660). Using `utoipa` keeps the contract
-# in lock-step with the Rust types — no hand-maintained JSON — while
-# pulling in no runtime cost (everything is expanded in proc-macros).
-utoipa = { version = "5.4", features = ["axum_extras"] }
+# (issue #659). Now lives in the extracted `dcc-mcp-gateway` crate.
 
 # PyO3 (optional)
 pyo3 = { workspace = true, optional = true }
@@ -74,7 +66,8 @@ pyo3-stub-gen-derive = { workspace = true, optional = true }
 
 # Optional SQLite JobStorage backend (issue #328). Gated behind the
 # `job-persist-sqlite` feature so the default build has zero SQLite cost.
-rusqlite = { workspace = true, optional = true }
+# Now actually lives in `dcc-mcp-job`; this crate just forwards the
+# feature flag for backwards compatibility.
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
@@ -93,8 +86,9 @@ stub-gen = ["python-bindings", "dep:pyo3-stub-gen", "dep:pyo3-stub-gen-derive"]
 # Enable the Prometheus `/metrics` endpoint (issue #331). Pulls in the
 # matching `prometheus` feature of dcc-mcp-telemetry. Off by default so
 # zero Prometheus code compiles into the wheel when not requested.
-prometheus = ["dep:dcc-mcp-telemetry", "dcc-mcp-telemetry/prometheus"]
+prometheus = ["dep:dcc-mcp-telemetry", "dcc-mcp-telemetry/prometheus", "dcc-mcp-gateway/prometheus"]
 # Persist tracked Jobs in a SQLite database so they survive a server
-# restart (issue #328). Pulls in the bundled `rusqlite` driver.
-# Off by default — the wheel's default build uses the in-memory store.
-job-persist-sqlite = ["dep:rusqlite"]
+# restart (issue #328). Pulls in the bundled `rusqlite` driver via the
+# extracted `dcc-mcp-job` crate. Off by default — the wheel's default
+# build uses the in-memory store.
+job-persist-sqlite = ["dcc-mcp-job/job-persist-sqlite"]

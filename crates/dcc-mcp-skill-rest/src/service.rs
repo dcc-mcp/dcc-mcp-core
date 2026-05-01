@@ -853,10 +853,10 @@ mod tests {
         let hit = &resp.hits[0];
         let serialised = serde_json::to_string(hit).unwrap();
         assert!(
-            serialised.len() < super::super::SEARCH_HIT_BUDGET_BYTES,
+            serialised.len() < crate::SEARCH_HIT_BUDGET_BYTES,
             "search hit serialised to {} bytes (>{} budget) — probable schema expansion",
             serialised.len(),
-            super::super::SEARCH_HIT_BUDGET_BYTES,
+            crate::SEARCH_HIT_BUDGET_BYTES,
         );
     }
 }
