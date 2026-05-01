@@ -12,6 +12,7 @@
 | I want to… | Use this API |
 |-------------|--------------|
 | Register a script/tool for AI to call | `ToolRegistry.register()` |
+| Derive `inputSchema` / `outputSchema` from a typed Python handler (issue #242) | `tool_spec_from_callable(handler)` — zero-dep, reads `@dataclass` / `TypedDict` / `typing` annotations, refuses untyped handlers |
 | Return a result from a DCC action | `success_result()` / `error_result()` |
 | Auto-discover skill packages from directories | `scan_and_load()` / `SkillScanner` |
 | Watch a skills directory for live updates | `SkillWatcher` |

@@ -171,6 +171,85 @@ decl = ToolDeclaration(
 | `defer_loading` | `bool` | `False` | Accepts `defer-loading` / `defer_loading` in SKILL.md and marks the declaration as discovery-oriented |
 | `source_file` | `str` | `""` | Explicit path to the script (relative to skill dir) |
 
+### Deriving `input_schema` / `output_schema` from Python types (#242)
+
+Hand-writing JSON Schema is error-prone — agent-authored actions drift,
+cached schemas diverge from runtime code, and the schema text is noisy
+to review. `dcc_mcp_core.schema` derives both schemas from Python type
+annotations using only the standard library (no `pydantic`, no
+`jsonschema`, no `attrs`).
+
+Write a typed handler:
+
+```python
+from dataclasses import dataclass, field
+from typing import Literal
+
+from dcc_mcp_core import tool_spec_from_callable
+from dcc_mcp_core._tool_registration import register_tools
+
+
+@dataclass
+class ExportInput:
+    scene_path: str = field(metadata={"description": "Scene file to export."})
+    format: Literal["fbx", "abc", "usd"] = "fbx"
+    frame_range: tuple[int, int] = (1, 100)
+
+
+@dataclass
+class ExportResult:
+    path: str
+    size_bytes: int
+    took_ms: int
+
+
+def export_scene(args: ExportInput) -> ExportResult:
+    """Export a scene to an interchange format."""
+    ...
+
+
+spec = tool_spec_from_callable(export_scene)
+register_tools(server, [spec], dcc_name="maya")
+```
+
+`tool_spec_from_callable` understands two signature styles:
+
+- **Single dataclass / TypedDict parameter** — the whole parameter becomes
+  the `inputSchema` (used above).
+- **Multiple primitive-typed parameters** — each parameter becomes a
+  property of an `object` `inputSchema`.
+
+The return annotation, when present, becomes the `outputSchema` so MCP
+2025-06-18 clients can validate `structuredContent` payloads. Untyped
+handlers raise `TypeError` rather than silently falling back to a
+permissive `{"type": "object"}` — this closes the #588-era footgun.
+
+Supported types (stdlib only): `bool`, `int`, `float`, `str`, `bytes`,
+`None`, `list[X]`, `tuple[X, ...]`, `tuple[A, B, ...]` (fixed),
+`dict[str, V]`, `Optional[X]` / `X | None`, `Union[A, B]`,
+`Literal[...]`, `Enum`, `datetime.datetime`, `datetime.date`,
+`pathlib.Path`, `uuid.UUID`, `@dataclass`, `TypedDict`. Unsupported
+types raise `TypeError` with a clear escape hatch: pass an explicit
+`input_schema=...` dict or use pydantic's `MyModel.model_json_schema()`.
+
+::: tip Why not pydantic?
+We intentionally stay zero-dependency. Adding `pydantic` for this one
+feature would drag in a 3MB wheel plus `pydantic-core` and is too
+heavy for authors who only want a few dataclass handlers. For callers
+who already use pydantic, the emitted shape matches pydantic's
+conventions (`title`, `$defs`, `$ref`, `anyOf`, `required`), so
+swapping in `MyModel.model_json_schema()` is a drop-in replacement.
+
+`pydantic-core` (Rust) was evaluated for reuse and doesn't help here:
+pydantic's own architecture doc confirms JSON Schema generation lives
+entirely in the Python package — the Rust crate only runs validation
+and serialization, never introspecting Python type annotations.
+:::
+
+See `examples/skills/typed-schema-demo/` for a runnable example, and
+`tests/test_schema.py` for the full type-mapping table in executable
+form.
+
 ### `next-tools` — Follow-Up Tool Hints (dcc-mcp-core extension)
 
 The `next-tools` field guides AI agents to appropriate follow-up actions after a tool

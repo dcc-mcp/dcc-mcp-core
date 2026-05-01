@@ -175,6 +175,60 @@ decl = ToolDeclaration(
 
 `tools/list` 返回的未加载 skill stub 还会显式带上 `annotations.deferredHint = true`。调用 `load_skill(...)` 后，stub 会被真实工具替换，且这些工具返回 `deferredHint = false`。
 
+### 从 Python 类型派生 `input_schema` / `output_schema`（#242）
+
+手写 JSON Schema 易出错 —— 代理生成的 action 会漂移、缓存 schema 会和运行时代码分叉、schema 文本在 review 时难读。`dcc_mcp_core.schema` 只用标准库（无 `pydantic`、无 `jsonschema`、无 `attrs`）从 Python 类型注解派生这两份 schema。
+
+写一个带类型标注的 handler 即可：
+
+```python
+from dataclasses import dataclass, field
+from typing import Literal
+
+from dcc_mcp_core import tool_spec_from_callable
+from dcc_mcp_core._tool_registration import register_tools
+
+
+@dataclass
+class ExportInput:
+    scene_path: str = field(metadata={"description": "需要导出的场景文件。"})
+    format: Literal["fbx", "abc", "usd"] = "fbx"
+    frame_range: tuple[int, int] = (1, 100)
+
+
+@dataclass
+class ExportResult:
+    path: str
+    size_bytes: int
+    took_ms: int
+
+
+def export_scene(args: ExportInput) -> ExportResult:
+    """Export a scene to an interchange format."""
+    ...
+
+
+spec = tool_spec_from_callable(export_scene)
+register_tools(server, [spec], dcc_name="maya")
+```
+
+`tool_spec_from_callable` 能识别两种签名风格：
+
+- **单个 dataclass / TypedDict 参数** —— 整个参数就是 `inputSchema`（上例即为此类）。
+- **多个原子类型参数** —— 每个参数成为 `object` 型 `inputSchema` 的一个 property。
+
+若有返回类型标注，会作为 `outputSchema`，MCP 2025-06-18 的客户端即可用它校验 `structuredContent`。未类型化的 handler 抛 `TypeError`，不会静默回退成宽松的 `{"type": "object"}`（修掉 #588 同代的陷阱）。
+
+支持的类型（全标准库）：`bool`、`int`、`float`、`str`、`bytes`、`None`、`list[X]`、`tuple[X, ...]`、定长 `tuple[A, B, ...]`、`dict[str, V]`、`Optional[X]` / `X | None`、`Union[A, B]`、`Literal[...]`、`Enum`、`datetime.datetime`、`datetime.date`、`pathlib.Path`、`uuid.UUID`、`@dataclass`、`TypedDict`。不支持的类型会抛 `TypeError` 并附一条明确的"逃生通道"：显式传 `input_schema=...` dict 或用 pydantic 的 `MyModel.model_json_schema()`。
+
+::: tip 为什么不用 pydantic？
+我们刻意保持 0 依赖。仅为此特性引入 `pydantic` 会拉进 3MB wheel 再加 `pydantic-core`，对只想写几个 dataclass handler 的作者成本过高。对于已经在用 pydantic 的调用方，派生出的 shape 与 pydantic 的约定一致（`title`、`$defs`、`$ref`、`anyOf`、`required`），因此换成 `MyModel.model_json_schema()` 是即插即用的。
+
+`pydantic-core`（Rust）也被评估过，结论：对我们没帮助 —— pydantic 官方架构文档确认 JSON Schema 生成完全在 Python 层做（`pydantic.json_schema.GenerateJsonSchema`），Rust crate 只做校验和序列化，不看 Python 类型注解。
+:::
+
+完整示例见 `examples/skills/typed-schema-demo/`；完整类型映射表以可执行形式见 `tests/test_schema.py`。
+
 ## 脚本查找优先级
 
 加载 Skill 时，目录按以下优先级解析每个 ToolDeclaration 对应的脚本：

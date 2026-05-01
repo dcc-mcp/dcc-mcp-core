@@ -91,6 +91,16 @@ removed = reg.unregister("create_sphere")                  # global: True if fou
 removed = reg.unregister("create_sphere", dcc_name="maya") # scoped to maya only
 ```
 
+::: tip Derive schemas from Python types (issue #242)
+
+Rather than hand-writing the `input_schema` JSON string, use
+`tool_spec_from_callable(handler)` to derive both `inputSchema` and
+`outputSchema` from a typed Python handler with zero extra
+dependencies. See the [Structured Schema Derivation](../guide/skills.md#deriving-input-schema-output-schema-from-python-types-242)
+section of the skills guide for the full type-mapping table and a
+runnable example.
+:::
+
 ### Capability-Based Filtering
 
 Tools may declare the host-DCC capabilities they rely on at registration time.
