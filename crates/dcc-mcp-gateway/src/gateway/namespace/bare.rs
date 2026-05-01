@@ -46,7 +46,7 @@ pub struct BareNameInput<'a> {
 ///
 /// # Examples
 /// ```
-/// # use dcc_mcp_http::gateway::namespace::{resolve_bare_names, BareNameInput};
+/// # use dcc_mcp_gateway::gateway::namespace::{resolve_bare_names, BareNameInput};
 /// let inputs = [
 ///     BareNameInput { skill_name: "maya-anim", action_name: "maya_anim__set_keyframe" },
 ///     BareNameInput { skill_name: "maya-geo",  action_name: "maya_geo__create_sphere" },

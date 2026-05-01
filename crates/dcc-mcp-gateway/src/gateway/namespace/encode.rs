@@ -26,7 +26,7 @@ use super::constants::{
 ///
 /// # Examples
 /// ```
-/// # use dcc_mcp_http::gateway::namespace::extract_bare_tool_name;
+/// # use dcc_mcp_gateway::gateway::namespace::extract_bare_tool_name;
 /// assert_eq!(extract_bare_tool_name("maya-animation", "maya_animation__set_keyframe"),
 ///            "set_keyframe");
 /// assert_eq!(extract_bare_tool_name("", "get_scene_info"), "get_scene_info");
@@ -45,7 +45,7 @@ pub fn extract_bare_tool_name<'a>(skill_name: &str, action_name: &'a str) -> &'a
 ///
 /// # Examples
 /// ```
-/// # use dcc_mcp_http::gateway::namespace::skill_tool_name;
+/// # use dcc_mcp_gateway::gateway::namespace::skill_tool_name;
 /// assert_eq!(skill_tool_name("maya-animation", "maya_animation__set_keyframe"),
 ///            Some("maya-animation.set_keyframe".to_string()));
 /// assert_eq!(skill_tool_name("", "set_keyframe"), None);

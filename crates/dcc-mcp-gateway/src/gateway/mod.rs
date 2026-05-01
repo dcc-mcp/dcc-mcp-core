@@ -6,7 +6,14 @@
 //!
 //! # Quick start (Rust)
 //!
-//! ```rust,no_run
+//! The gateway is started transparently by the embedded MCP HTTP server:
+//!
+//! ```rust,ignore
+//! // This example runs in the context of the `dcc-mcp-http` crate,
+//! // which owns `McpHttpConfig` / `McpHttpServer`. `dcc-mcp-gateway`
+//! // itself only exposes the low-level `GatewayConfig` / `GatewayRunner`
+//! // primitives — see `dcc_mcp_gateway::gateway::{GatewayConfig,
+//! // GatewayRunner}` for the direct API.
 //! use dcc_mcp_http::{McpHttpConfig, McpHttpServer};
 //! use dcc_mcp_actions::ActionRegistry;
 //! use std::sync::Arc;
