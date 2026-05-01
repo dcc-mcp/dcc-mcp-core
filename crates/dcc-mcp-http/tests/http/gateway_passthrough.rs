@@ -69,6 +69,7 @@ async fn make_state(
         allow_unknown_tools: false,
         adapter_version: None,
         adapter_dcc: None,
+        tool_exposure: dcc_mcp_http::gateway::GatewayToolExposure::Full,
     };
     (state, registry, dir)
 }

@@ -479,6 +479,17 @@ pub struct McpHttpConfig {
     /// is treated as a generic standalone server and yields to a real
     /// DCC adapter at equal versions.
     pub adapter_dcc: Option<String>,
+
+    /// Gateway tool-exposure mode (issue #652).
+    ///
+    /// Controls whether the gateway's public `tools/list` fans out to
+    /// every live backend (`Full` / `Both`) or stays bounded at the
+    /// gateway meta-tools + skill-management surface (`Slim` / `Rest`).
+    ///
+    /// Default: [`crate::gateway::GatewayToolExposure::Full`] — preserves
+    /// pre-#652 behavior so existing deployments see no change until
+    /// they explicitly opt into a bounded mode.
+    pub gateway_tool_exposure: crate::gateway::GatewayToolExposure,
 }
 
 impl McpHttpConfig {
@@ -527,6 +538,7 @@ impl McpHttpConfig {
             allow_unknown_tools: false,
             adapter_version: None,
             adapter_dcc: None,
+            gateway_tool_exposure: crate::gateway::GatewayToolExposure::Full,
         }
     }
 
@@ -542,6 +554,20 @@ impl McpHttpConfig {
     /// servers (issue maya#137).
     pub fn with_adapter_dcc(mut self, dcc: impl Into<String>) -> Self {
         self.adapter_dcc = Some(dcc.into());
+        self
+    }
+
+    /// Builder: set the gateway tool-exposure mode (issue #652).
+    ///
+    /// ```
+    /// use dcc_mcp_http::{McpHttpConfig, gateway::GatewayToolExposure};
+    ///
+    /// let cfg = McpHttpConfig::new(0)
+    ///     .with_gateway_tool_exposure(GatewayToolExposure::Slim);
+    /// assert_eq!(cfg.gateway_tool_exposure, GatewayToolExposure::Slim);
+    /// ```
+    pub fn with_gateway_tool_exposure(mut self, mode: crate::gateway::GatewayToolExposure) -> Self {
+        self.gateway_tool_exposure = mode;
         self
     }
 

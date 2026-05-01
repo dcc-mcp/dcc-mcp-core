@@ -87,6 +87,18 @@ use sysinfo::{Pid, ProcessesToUpdate, System};
 
 // ── CLI ───────────────────────────────────────────────────────────────────────
 
+/// Clap [`value_parser`](clap::Arg::value_parser) for `--gateway-tool-exposure`.
+///
+/// Parses the documented `full | slim | both | rest` vocabulary
+/// case-insensitively and surfaces the full list of accepted values on
+/// error so operators can fix typos without digging into docs.
+fn parse_gateway_tool_exposure(
+    s: &str,
+) -> Result<dcc_mcp_http::gateway::GatewayToolExposure, String> {
+    s.parse()
+        .map_err(|e: dcc_mcp_http::gateway::ParseGatewayToolExposureError| e.to_string())
+}
+
 /// DCC-MCP server with integrated auto-gateway.
 #[derive(Debug, Parser)]
 #[command(name = "dcc-mcp-server", about, version)]
@@ -132,6 +144,24 @@ struct Args {
     /// 0 = gateway disabled entirely.
     #[arg(long, env = "DCC_MCP_GATEWAY_PORT", default_value = "9765")]
     gateway_port: u16,
+
+    /// Gateway tool-exposure mode (issue #652).
+    ///
+    /// * `full` — publish every live backend tool through `tools/list`
+    ///   (legacy behavior; default for compatibility).
+    /// * `slim` — publish only gateway meta-tools + skill management;
+    ///   backend capabilities reached via dynamic wrappers.
+    /// * `both` — alias of `full` today; reserved for the transition
+    ///   window once dynamic wrapper tools land (#657).
+    /// * `rest` — same bounded surface as `slim`; signals that REST is
+    ///   the canonical capability API.
+    #[arg(
+        long,
+        env = "DCC_MCP_GATEWAY_TOOL_EXPOSURE",
+        default_value = "full",
+        value_parser = parse_gateway_tool_exposure,
+    )]
+    gateway_tool_exposure: dcc_mcp_http::gateway::GatewayToolExposure,
 
     /// Directory for the shared FileRegistry (auto-created if missing).
     #[arg(long, env = "DCC_MCP_REGISTRY_DIR")]
@@ -567,6 +597,7 @@ async fn main() -> anyhow::Result<()> {
         } else {
             Some(args.dcc.clone())
         },
+        tool_exposure: args.gateway_tool_exposure,
     };
 
     let runner = GatewayRunner::new(gateway_cfg)

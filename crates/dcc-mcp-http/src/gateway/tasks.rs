@@ -42,6 +42,7 @@ pub(crate) async fn start_gateway_tasks(
     allow_unknown_tools: bool,
     adapter_version: Option<String>,
     adapter_dcc: Option<String>,
+    tool_exposure: super::config::GatewayToolExposure,
 ) -> Result<GatewayTasks, Box<dyn std::error::Error + Send + Sync>> {
     // ── Yield channel ─────────────────────────────────────────────────────
     let (yield_tx, mut yield_rx) = watch::channel(false);
@@ -358,6 +359,7 @@ pub(crate) async fn start_gateway_tasks(
         allow_unknown_tools,
         adapter_version,
         adapter_dcc,
+        tool_exposure,
     };
     let gw_router = build_gateway_router(gw_state);
 

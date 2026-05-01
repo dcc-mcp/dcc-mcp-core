@@ -392,6 +392,39 @@ impl PyMcpHttpConfig {
         Ok(())
     }
 
+    /// Gateway tool-exposure mode (issue #652).
+    ///
+    /// Returns one of ``"full" | "slim" | "both" | "rest"``. See
+    /// :attr:`set_gateway_tool_exposure` for the meaning of each value.
+    #[getter]
+    fn gateway_tool_exposure(&self) -> &'static str {
+        self.inner.gateway_tool_exposure.as_str()
+    }
+
+    /// Set the gateway tool-exposure mode (issue #652).
+    ///
+    /// Accepts ``"full" | "slim" | "both" | "rest"`` (case-insensitive).
+    /// Unknown values raise ``ValueError`` instead of silently falling
+    /// back so configuration typos are surfaced immediately.
+    ///
+    /// * ``"full"`` — publish every live backend tool through
+    ///   ``tools/list`` (legacy behaviour; default).
+    /// * ``"slim"`` — only gateway meta-tools + skill management are
+    ///   visible; backend capabilities reached via dynamic wrappers.
+    /// * ``"both"`` — alias of ``"full"`` today, reserved for the
+    ///   transition window once dynamic wrapper tools land (#657).
+    /// * ``"rest"`` — same bounded surface as ``"slim"``; signals that
+    ///   REST is the canonical capability API.
+    #[setter]
+    fn set_gateway_tool_exposure(&mut self, mode: &str) -> PyResult<()> {
+        self.inner.gateway_tool_exposure =
+            mode.parse()
+                .map_err(|e: crate::gateway::ParseGatewayToolExposureError| {
+                    pyo3::exceptions::PyValueError::new_err(e.to_string())
+                })?;
+        Ok(())
+    }
+
     /// Lower-case wire identifier of the configured job-recovery policy
     /// (issue #567). Returns ``"drop"`` (default) or ``"requeue"``.
     ///

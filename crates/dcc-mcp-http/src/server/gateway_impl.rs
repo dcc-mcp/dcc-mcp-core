@@ -34,6 +34,7 @@ pub(crate) async fn start_gateway_runner(
             .adapter_dcc
             .clone()
             .or_else(|| config.dcc_type.clone()),
+        tool_exposure: config.gateway_tool_exposure,
     };
 
     let runner = match GatewayRunner::new(gateway_config) {

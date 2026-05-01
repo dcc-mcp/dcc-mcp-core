@@ -101,6 +101,12 @@ pub struct GatewayState {
     /// real-DCC vs `"unknown"` tiebreaker in gateway election
     /// (issue maya#137).
     pub adapter_dcc: Option<String>,
+    /// Gateway tool-exposure mode (issue #652).
+    ///
+    /// Controls whether `tools/list` fans out to every live backend
+    /// (`Full` / `Both`) or stays bounded at the gateway meta-tools +
+    /// skill-management surface (`Slim` / `Rest`). Default: `Full`.
+    pub tool_exposure: super::config::GatewayToolExposure,
 }
 
 impl GatewayState {
@@ -257,6 +263,7 @@ mod tests {
             allow_unknown_tools,
             adapter_version: None,
             adapter_dcc: None,
+            tool_exposure: crate::gateway::GatewayToolExposure::Full,
         }
     }
 

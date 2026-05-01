@@ -22,6 +22,9 @@ mod gateway_passthrough;
 #[path = "http/gateway_reachability.rs"]
 mod gateway_reachability;
 
+#[path = "http/gateway_tool_exposure.rs"]
+mod gateway_tool_exposure;
+
 #[path = "http/job_persistence.rs"]
 mod job_persistence;
 
