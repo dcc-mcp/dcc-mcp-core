@@ -45,7 +45,7 @@ flowchart LR
 
 ## 架构
 
-DCC-MCP-Core 是一个包含 **14 个子 crate** 的 Rust workspace，通过 maturin 编译为单一 Python 扩展模块 `dcc_mcp_core._core`：
+DCC-MCP-Core 是一个包含 **24 个子 crate（+ workspace-hack）** 的 Rust workspace，通过 maturin 编译为单一 Python 扩展模块 `dcc_mcp_core._core`：
 
 ```
 dcc-mcp-core/
@@ -64,7 +64,9 @@ dcc-mcp-core/
 │   ├── dcc-mcp-usd/            # UsdStage, UsdPrim, VtValue, SdfPath
 │   ├── dcc-mcp-http/           # McpHttpServer, McpHttpConfig, McpServerHandle, Gateway
 │   ├── dcc-mcp-server/         # dcc-mcp-server CLI, Gateway runner
-│   └── dcc-mcp-utils/          # 文件系统, 常量, 类型包装器, JSON 工具
+│   ├── dcc-mcp-logging/      # 文件日志（原 dcc-mcp-utils 拆分）
+│   ├── dcc-mcp-paths/        # 平台路径帮助函数（原 dcc-mcp-utils 拆分）
+│   └── dcc-mcp-pybridge/     # PyO3 帮助函数（原 dcc-mcp-utils 拆分）
 └── python/
     └── dcc_mcp_core/
         ├── __init__.py          # 从 _core 重导出约 140 个公开符号
@@ -74,7 +76,7 @@ dcc-mcp-core/
 
 ## Python API 概览
 
-所有公开 API 均可从顶层包 `dcc_mcp_core` 访问，包含约 140 个公开符号，跨越 14 个领域：
+所有公开 API 均可从顶层包 `dcc_mcp_core` 访问，包含约 275 个公开符号，跨越 24 个领域：
 
 ```python
 from dcc_mcp_core import (

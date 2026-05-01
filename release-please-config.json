@@ -36,6 +36,10 @@
         {
           "type": "generic",
           "path": "docs/zh/guide/what-is-dcc-mcp-core.md"
+        },
+        {
+          "type": "generic",
+          "path": "llms.txt"
         }
       ]
     }

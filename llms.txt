@@ -124,7 +124,7 @@ meta = dcc_mcp_core.parse_skill_md(dirs[0])  # -> SkillMetadata or None
 
 ## Architecture
 
-Rust workspace (21 crates, including `workspace-hack`) with PyO3 bindings. All logic in Rust sub-crates; Python gets a single `dcc_mcp_core._core` extension module. The `dcc_mcp_core` package re-exports all ~275 public symbols from `_core` plus pure-Python helpers (DccServerBase, DccGatewayElection, DccSkillHotReloader, factory, skill helpers, ToolResult dataclass, constants).
+Rust workspace (25 crates, including `workspace-hack`) with PyO3 bindings. All logic in Rust sub-crates; Python gets a single `dcc_mcp_core._core` extension module. The `dcc_mcp_core` package re-exports all ~275 public symbols from `_core` plus pure-Python helpers (DccServerBase, DccGatewayElection, DccSkillHotReloader, factory, skill helpers, ToolResult dataclass, constants).
 
 ```
 crates/
@@ -150,8 +150,12 @@ crates/
 ├── dcc-mcp-artefact/    # FilesystemArtefactStore, FileRef, content-addressed handoff
 ├── dcc-mcp-logging/     # File logging + LOG_* constants (former dcc-mcp-utils logging slice)
 ├── dcc-mcp-paths/       # Path helpers (former dcc-mcp-utils path slice)
+├── dcc-mcp-pybridge-derive/ # derive macros for PyO3 helpers
 └── dcc-mcp-pybridge/    # PyO3 helpers — repr_pairs! / to_dict_pairs! macros (#490),
                          # py_json / py_yaml; reduces wrapper boilerplate across crates
+├── dcc-mcp-tunnel-agent/   # Tunnel agent for remote MCP relay
+├── dcc-mcp-tunnel-protocol # Tunnel protocol types and auth
+└── dcc-mcp-tunnel-relay   # RelayServer for zero-config tunnel
 ```
 
 Pure-Python modules: cancellation, checkpoint, constants (#487), result_envelope (#487), _server/{observability,skill_query,window_resolver} (#486), _tool_registration (#481), docs_resources, feedback, introspect, recipes, workflow_yaml, bridge, gateway_election, hotreload, factory, dcc_server, server_base, adapters, auth, batch, elicitation, rich_content, plugin_manifest, dcc_api_executor, skill

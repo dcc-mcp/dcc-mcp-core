@@ -43,26 +43,37 @@ DCC-MCP-Core is a Rust workspace with Python bindings via PyO3. It provides:
 
 - **Zero third-party runtime dependencies** in the Rust core
 - **Optional Python bindings** via PyO3 for DCC integration
-- **15 modular crates** for selective dependency usage
+- **24 modular crates + workspace-hack** for selective dependency usage
 
 ## Crate Structure
 
 ```
 dcc-mcp-core (workspace root)
-├── dcc-mcp-models       # ToolResult, SkillMetadata, DCC types
-├── dcc-mcp-actions      # ToolRegistry, EventBus, ToolDispatcher, Pipeline
-├── dcc-mcp-skills       # SkillScanner, SkillCatalog, SkillWatcher, Resolver
-├── dcc-mcp-protocols    # MCP types: ToolDefinition, ResourceDefinition, Prompt, DccAdapter, BridgeKind
-├── dcc-mcp-transport    # IPC (ipckit), DccLinkFrame, IpcChannelAdapter, SocketServerAdapter
-├── dcc-mcp-process      # PyDccLauncher, ProcessMonitor, ProcessWatcher, CrashRecovery
-├── dcc-mcp-telemetry    # Tracing/recording: ToolRecorder, TelemetryConfig
-├── dcc-mcp-sandbox      # Security: SandboxPolicy, SandboxContext, AuditLog
-├── dcc-mcp-shm          # Shared memory: PySharedBuffer, PyBufferPool
-├── dcc-mcp-capture      # Screen capture: Capturer, CaptureFrame
-├── dcc-mcp-usd          # USD scene description: UsdStage, SdfPath, VtValue
-├── dcc-mcp-http         # MCP HTTP server: McpHttpServer, McpHttpConfig, Gateway
-├── dcc-mcp-server       # Binary entry point: dcc-mcp-server, gateway runner
-└── dcc-mcp-utils       # Filesystem, type wrappers, constants
+├── dcc-mcp-models         # ToolResult, SkillMetadata, DCC types
+├── dcc-mcp-actions        # ToolRegistry, EventBus, ToolDispatcher, Pipeline
+├── dcc-mcp-skills         # SkillScanner, SkillCatalog, SkillWatcher, Resolver
+├── dcc-mcp-protocols      # MCP types: ToolDefinition, ResourceDefinition, Prompt, DccAdapter, BridgeKind
+├── dcc-mcp-transport      # IPC (ipckit), DccLinkFrame, IpcChannelAdapter, SocketServerAdapter
+├── dcc-mcp-process        # PyDccLauncher, ProcessMonitor, ProcessWatcher, CrashRecovery
+├── dcc-mcp-telemetry      # Tracing/recording: ToolRecorder, TelemetryConfig
+├── dcc-mcp-sandbox        # Security: SandboxPolicy, SandboxContext, AuditLog
+├── dcc-mcp-shm            # Shared memory: PySharedBuffer, PyBufferPool
+├── dcc-mcp-capture        # Screen capture: Capturer, CaptureFrame
+├── dcc-mcp-usd            # USD scene description: UsdStage, SdfPath, VtValue
+├── dcc-mcp-http           # MCP HTTP server: McpHttpServer, McpHttpConfig, Gateway
+├── dcc-mcp-server         # Binary entry point: dcc-mcp-server, gateway runner
+├── dcc-mcp-logging        # File logging (split from dcc-mcp-utils)
+├── dcc-mcp-paths          # Platform path helpers (split from dcc-mcp-utils)
+├── dcc-mcp-pybridge       # PyO3 helpers (split from dcc-mcp-utils)
+├── dcc-mcp-naming         # SEP-986 tool-name / action-id validators
+├── dcc-mcp-scheduler      # ScheduleSpec, TriggerSpec, SchedulerService
+├── dcc-mcp-workflow       # WorkflowCatalog, YAML workflow loader
+├── dcc-mcp-artefact       # FilesystemArtefactStore, FileRef
+├── dcc-mcp-pybridge-derive # derive macros for PyO3 helpers
+├── dcc-mcp-tunnel-agent   # Tunnel agent for remote MCP relay
+├── dcc-mcp-tunnel-protocol # Tunnel protocol types and auth
+├── dcc-mcp-tunnel-relay   # RelayServer for zero-config tunnel
+└── workspace-hack         # Workspace dependency deduplication
 ```
 
 ### Dependency Graph
@@ -336,22 +347,35 @@ dcc-mcp-server ← dcc-mcp-http
 
 **Dependencies**: `dcc-mcp-http`
 
-### dcc-mcp-utils
+### dcc-mcp-logging
 
-**Purpose**: Shared utility functions and constants.
+**Purpose**: File logging with rotation and retention pruning.
+
+**Modules**:
+- `file_logging` — Rolling-file `tracing` subscriber with size/daily rotation
+- `file_logging_config` — `FileLoggingConfig`, `RotationPolicy`
+- `file_logging_writer` — `RollingFileWriter`, rotation state machine
+
+**Dependencies**: `dirs`, `tracing`, `tracing-subscriber`, `tracing-appender`, `parking_lot`, `time`
+
+### dcc-mcp-paths
+
+**Purpose**: Platform-specific path helpers.
 
 **Modules**:
 - `filesystem` — Platform-specific directories via `dirs` crate
-- `type_wrappers` — RPyC-safe wrappers (BooleanWrapper, IntWrapper, FloatWrapper, StringWrapper)
-- `constants` — App metadata and environment variable names
-- `file_logging` — Rolling-file `tracing` subscriber with size/daily rotation and retention pruning
-- `log_config` — Global subscriber bootstrap + reload handle for swapping the file layer
 
-**Maintainer layout**:
-- `file_logging.rs` is a thin facade that keeps the public install / shutdown / `flush_logs` entry points and the process-wide handles. Configuration types (`RotationPolicy`, `FileLoggingConfig`, `FileLoggingError`) live in `file_logging_config.rs`; the `RollingFileWriter`, `Inner` rotation state, `CalendarDate`, and filesystem helpers live in `file_logging_writer.rs`; the PyO3 wrappers live in `file_logging_python.rs`; and unit tests live in `file_logging_tests.rs`.
-- This keeps the install-pipeline easy to follow without mixing rotation bookkeeping, env-var parsing, and PyO3 translation in one block.
+**Dependencies**: `dirs`
 
-**Dependencies**: `dirs`, `tracing`, `tracing-subscriber`, `tracing-appender`, `parking_lot`, `time`
+### dcc-mcp-pybridge
+
+**Purpose**: PyO3 helpers — `repr_pairs!` / `to_dict_pairs!` macros.
+
+**Modules**:
+- `py_json` — `py_json()` / `py_yaml()` serialization helpers
+- `pybridge_derive` — `#[derive(ReprPairs)]` derive macro (in `dcc-mcp-pybridge-derive`)
+
+**Dependencies**: `pyo3`
 
 ## Skills-First Architecture
 
@@ -392,7 +416,7 @@ If you need custom middleware or fine-grained control, assemble the stack manual
 
 ## Python Bindings
 
-All 15 crates are compiled into a single PyO3 native extension (`dcc_mcp_core._core`) via `maturin`.
+All 24 crates (+ workspace-hack) are compiled into a single PyO3 native extension (`dcc_mcp_core._core`) via `maturin`.
 
 ```toml
 # pyproject.toml
