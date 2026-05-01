@@ -178,3 +178,29 @@ def test_dcc_project_resume_session_payload(tmp_path: Path) -> None:
     assert payload["session_id"] == project.state.session_id
     assert "created_at" in payload
     assert "updated_at" in payload
+
+
+def test_dcc_project_checkpoints_property_returns_store_rooted_at_project_dir(
+    tmp_path: Path,
+) -> None:
+    from dcc_mcp_core.checkpoint import CheckpointStore
+
+    project = DccProject.open(tmp_path / "shot_cp.ma")
+
+    store = project.checkpoints
+
+    assert isinstance(store, CheckpointStore)
+    # Same instance on re-access (lazy init, cached).
+    assert project.checkpoints is store
+
+    store.save("job-cp", state={"processed": 3}, progress_hint="3/10")
+
+    checkpoint_file = project.project_dir / "checkpoints.json"
+    assert checkpoint_file.is_file()
+
+    # Reload a fresh DccProject and confirm the store reads the same file.
+    fresh = DccProject.load(project.project_dir)
+    reloaded = fresh.checkpoints.get("job-cp")
+    assert reloaded is not None
+    assert reloaded["progress_hint"] == "3/10"
+    assert reloaded["context"] == {"processed": 3}

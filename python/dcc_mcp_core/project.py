@@ -84,6 +84,7 @@ class DccProject:
         self.project_dir = Path(project_dir)
         self.state_path = self.project_dir / PROJECT_STATE_FILE
         self.state = state or ProjectState()
+        self._checkpoints: Any = None  # lazy CheckpointStore (avoid import cycle)
 
     @classmethod
     def open(cls, scene_path: str | Path) -> DccProject:
@@ -162,6 +163,28 @@ class DccProject:
     def update_metadata(self, **metadata: Any) -> None:
         self.state.metadata.update(metadata)
         self.save()
+
+    @property
+    def checkpoints(self) -> Any:
+        """Return a :class:`CheckpointStore` rooted at ``<project_dir>/checkpoints.json``.
+
+        The store is created lazily on first access so the module does not
+        eagerly import :mod:`dcc_mcp_core.checkpoint` (which would be wasteful
+        for callers that only touch ``ProjectState``).  Subsequent accesses
+        return the same instance, so writes are visible within a session
+        without explicit flushing — ``CheckpointStore`` already persists on
+        every mutation.
+
+        Part of issue #576's "integrate with existing CheckpointStore"
+        acceptance criterion.
+        """
+        if self._checkpoints is None:
+            # Local import to avoid circular module-load during package init.
+            from dcc_mcp_core.checkpoint import CheckpointStore
+
+            self.project_dir.mkdir(parents=True, exist_ok=True)
+            self._checkpoints = CheckpointStore(path=self.project_dir / "checkpoints.json")
+        return self._checkpoints
 
     def resume_session(self) -> dict[str, Any]:
         """Return the persisted context adapters need to restore a session."""
