@@ -426,3 +426,369 @@ async fn every_success_emits_one_audit_event() {
         assert!(matches!(e.outcome, AuditOutcome::Success));
     }
 }
+
+// ── Real-world scenarios ─────────────────────────────────────────────
+//
+// The following block simulates a busy DCC instance: multiple skills,
+// multiple DCCs in the registry, and dozens of actions. These are the
+// shapes an agent actually sees in production, and they exercise the
+// search/describe/call contract end-to-end through axum, not just the
+// service-layer unit tests above.
+
+/// Build a realistic catalog: two loaded Maya skills (`spheres`,
+/// `lighting`) plus one *unloaded* Blender skill (`rigging`). Three
+/// actions on each skill, for nine total. The handlers are wired so
+/// the entire flow — including /v1/call — works against the fixture.
+fn fixture_multi_skill() -> (SkillRestService, Arc<VecAuditSink>) {
+    let registry = Arc::new(ActionRegistry::new());
+
+    // Keep schema identical so we can focus on list/search/filter.
+    let num_schema = json!({
+        "type": "object",
+        "properties": {"n": {"type": "number"}},
+        "required": ["n"]
+    });
+
+    // Maya · spheres (loaded) — 3 actions.
+    for name in ["create_sphere", "scale_sphere", "delete_sphere"] {
+        registry.register_action(ActionMeta {
+            name: name.into(),
+            dcc: "maya".into(),
+            description: format!("Spheres toolkit: {name}"),
+            tags: vec!["geometry".into(), "poly".into()],
+            input_schema: num_schema.clone(),
+            skill_name: Some("spheres".into()),
+            enabled: true,
+            ..Default::default()
+        });
+    }
+
+    // Maya · lighting (loaded) — 3 actions. Shares one tag with
+    // spheres (`scene`) and has its own (`light`).
+    for name in ["create_light", "set_intensity", "delete_light"] {
+        registry.register_action(ActionMeta {
+            name: name.into(),
+            dcc: "maya".into(),
+            description: format!("Lighting toolkit: {name}"),
+            tags: vec!["scene".into(), "light".into()],
+            input_schema: num_schema.clone(),
+            skill_name: Some("lighting".into()),
+            enabled: true,
+            ..Default::default()
+        });
+    }
+
+    // Blender · rigging (UNloaded) — 3 actions. Should be filtered
+    // out of /v1/search by default (loaded_only == true) and also
+    // rejected by /v1/call with kind=skill-not-loaded.
+    for name in ["add_bone", "weight_paint", "remove_bone"] {
+        registry.register_action(ActionMeta {
+            name: name.into(),
+            dcc: "blender".into(),
+            description: format!("Rigging toolkit: {name}"),
+            tags: vec!["rig".into()],
+            input_schema: num_schema.clone(),
+            skill_name: Some("rigging".into()),
+            enabled: true,
+            ..Default::default()
+        });
+    }
+
+    let dispatcher = Arc::new(ActionDispatcher::new((*registry).clone()));
+    // Single generic handler — every action just echoes `n` so the
+    // REST call path can succeed on any loaded slug.
+    for action in [
+        "create_sphere",
+        "scale_sphere",
+        "delete_sphere",
+        "create_light",
+        "set_intensity",
+        "delete_light",
+    ] {
+        dispatcher.register_handler(action, |params: Value| {
+            let n = params.get("n").and_then(Value::as_f64).unwrap_or(0.0);
+            Ok(json!({"echo": n}))
+        });
+    }
+
+    let catalog = Arc::new(SkillCatalog::new_with_dispatcher(
+        registry.clone(),
+        dispatcher.clone(),
+    ));
+
+    for (name, dcc, loaded) in [
+        ("spheres", "maya", true),
+        ("lighting", "maya", true),
+        ("rigging", "blender", false),
+    ] {
+        catalog.add_skill(SkillMetadata {
+            name: name.into(),
+            dcc: dcc.into(),
+            description: format!("{name} toolkit"),
+            ..Default::default()
+        });
+        if loaded {
+            let _ = catalog.load_skill(name);
+        }
+    }
+
+    let svc = SkillRestService::from_catalog_and_dispatcher(catalog, dispatcher);
+    let sink = Arc::new(VecAuditSink::new());
+    (svc, sink)
+}
+
+/// Wire a router around an existing audit sink (re-using `build_server`
+/// is nice but we need to share the sink across test steps here).
+fn build_server_with_audit(svc: SkillRestService, sink: Arc<VecAuditSink>) -> TestServer {
+    let cfg = SkillRestConfig::new(svc)
+        .with_audit(sink)
+        .with_readiness(Arc::new(StaticReadiness::fully_ready()))
+        .with_auth(Arc::new(AllowLocalhostGate::new()));
+    TestServer::new(build_skill_rest_router(cfg))
+}
+
+/// Real-world agent flow: search by DCC + tag, pick a hit, describe
+/// it, call it. Verifies the multi-skill, multi-DCC instance case
+/// that #658 was designed for.
+#[tokio::test]
+async fn multi_skill_agent_flow_filters_by_dcc_and_tag() {
+    let (svc, sink) = fixture_multi_skill();
+    let server = build_server_with_audit(svc, sink.clone());
+
+    // Narrow by dcc=maya AND tag=light — only lighting survives.
+    let resp = server
+        .post("/v1/search")
+        .json(&json!({"dcc_type": "maya", "tags": ["light"]}))
+        .await;
+    resp.assert_status_ok();
+    let body: Value = resp.json();
+    assert_eq!(body["total"], 3, "expected 3 lighting actions, got {body}");
+
+    let skills: Vec<&str> = body["hits"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|h| h["skill"].as_str().unwrap())
+        .collect();
+    for s in &skills {
+        assert_eq!(*s, "lighting", "filter leaked a non-lighting skill: {s}");
+    }
+
+    // Describe + call on a slug we just discovered.
+    let slug = body["hits"][0]["slug"].as_str().unwrap().to_owned();
+    let desc = server
+        .post("/v1/describe")
+        .json(&json!({"tool_slug": slug, "include_schema": true}))
+        .await;
+    desc.assert_status_ok();
+    let desc_body: Value = desc.json();
+    assert_eq!(desc_body["entry"]["skill"], "lighting");
+
+    let call = server
+        .post("/v1/call")
+        .json(&json!({"tool_slug": slug, "params": {"n": 4.0}}))
+        .await;
+    call.assert_status_ok();
+    let call_body: Value = call.json();
+    assert_eq!(call_body["output"]["echo"], 4.0);
+
+    // One audit event per HTTP call (search + describe + call = 3).
+    assert_eq!(sink.events().len(), 3);
+}
+
+/// Calls into an *unloaded* skill must be rejected at /v1/call with
+/// kind=skill-not-loaded, even when the slug is otherwise well-formed.
+/// This is the key multi-DCC safety property for #658.
+#[tokio::test]
+async fn call_rejects_unloaded_skill_in_multi_skill_catalog() {
+    let (svc, _) = fixture_multi_skill();
+    let (server, _) = build_server(svc);
+
+    // rigging is unloaded in the fixture.
+    let resp = server
+        .post("/v1/call")
+        .json(&json!({
+            "tool_slug": "blender.rigging.add_bone",
+            "params": {"n": 1.0}
+        }))
+        .await;
+
+    // 409 Conflict is the REST mapping of ServiceErrorKind::SkillNotLoaded.
+    assert_eq!(resp.status_code().as_u16(), 409);
+    let body: Value = resp.json();
+    assert_eq!(body["kind"], "skill-not-loaded");
+    assert!(
+        body["hint"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("load_skill"),
+        "expected a load_skill remediation hint, got {body}"
+    );
+}
+
+/// `loaded_only=false` returns unloaded actions too, but they come
+/// back with `loaded: false` so an agent can decide whether to load
+/// the owning skill or pick a loaded alternative.
+#[tokio::test]
+async fn search_loaded_only_false_surfaces_unloaded_skills() {
+    let (svc, _) = fixture_multi_skill();
+    let (server, _) = build_server(svc);
+
+    let resp = server
+        .post("/v1/search")
+        .json(&json!({"loaded_only": false}))
+        .await;
+    resp.assert_status_ok();
+    let body: Value = resp.json();
+    assert_eq!(body["total"], 9, "expected all 9 actions exposed");
+
+    let unloaded: Vec<_> = body["hits"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|h| h["loaded"] == false)
+        .collect();
+    assert_eq!(unloaded.len(), 3, "rigging has 3 unloaded actions");
+    for h in &unloaded {
+        assert_eq!(h["skill"], "rigging");
+        assert_eq!(h["dcc"], "blender");
+    }
+}
+
+/// The whole `/v1/search` response — not just one hit — must stay
+/// compact enough to enumerate realistic DCC instances in a single
+/// agent turn. Asserts a generous-but-finite ceiling that still
+/// regresses if someone accidentally re-introduces `input_schema`
+/// into `SkillListEntry`.
+///
+/// At 9 actions the response must fit well under 8 KiB. Rationale:
+/// modern LLM context windows treat 8 KiB ≈ 2 k tokens; that's the
+/// threshold where "cheap to enumerate" stops being true.
+#[tokio::test]
+async fn search_total_response_fits_token_budget_for_nine_actions() {
+    let (svc, _) = fixture_multi_skill();
+    let (server, _) = build_server(svc);
+
+    let resp = server
+        .post("/v1/search")
+        .json(&json!({"loaded_only": false}))
+        .await;
+    resp.assert_status_ok();
+
+    // Per-instance ceiling derived from SEARCH_HIT_BUDGET_BYTES plus
+    // envelope overhead; covers the `{total, hits:[]}` framing.
+    let bytes: Value = resp.json();
+    let serialised = serde_json::to_string(&bytes).unwrap();
+    let ceiling = SEARCH_HIT_BUDGET_BYTES * 9 + 256;
+    assert!(
+        serialised.len() < ceiling,
+        "full /v1/search response was {} bytes, exceeds {} ceiling — \
+         likely schema re-expansion or duplicated fields",
+        serialised.len(),
+        ceiling,
+    );
+}
+
+/// HTTP-layer `limit` must truncate wire hits *before* they reach
+/// the caller. Important: the service unit test already covers the
+/// logic; this one proves the axum bridge does not silently drop the
+/// option.
+#[tokio::test]
+async fn search_http_layer_honours_limit() {
+    let (svc, _) = fixture_multi_skill();
+    let (server, _) = build_server(svc);
+
+    let resp = server
+        .post("/v1/search")
+        .json(&json!({"loaded_only": false, "limit": 3}))
+        .await;
+    resp.assert_status_ok();
+    let body: Value = resp.json();
+    assert_eq!(body["total"], 3);
+    assert_eq!(body["hits"].as_array().unwrap().len(), 3);
+}
+
+/// Describe with `include_schema=false` must be materially smaller
+/// than the schema-expanded form. This is the token-saving contract
+/// an agent relies on when it only needs metadata.
+#[tokio::test]
+async fn describe_without_schema_is_materially_smaller() {
+    let (svc, _) = fixture_multi_skill();
+    let (server, _) = build_server(svc);
+
+    let slug = "maya.spheres.create_sphere";
+
+    let with_schema = server
+        .post("/v1/describe")
+        .json(&json!({"tool_slug": slug, "include_schema": true}))
+        .await;
+    with_schema.assert_status_ok();
+    let with_bytes = serde_json::to_vec(&with_schema.json::<Value>()).unwrap();
+
+    let without_schema = server
+        .post("/v1/describe")
+        .json(&json!({"tool_slug": slug, "include_schema": false}))
+        .await;
+    without_schema.assert_status_ok();
+    let without_bytes = serde_json::to_vec(&without_schema.json::<Value>()).unwrap();
+
+    assert!(
+        without_bytes.len() < with_bytes.len(),
+        "include_schema=false ({} B) should be smaller than \
+         include_schema=true ({} B)",
+        without_bytes.len(),
+        with_bytes.len(),
+    );
+    // And the schema field is genuinely absent, not just shorter.
+    let no_schema: Value = serde_json::from_slice(&without_bytes).unwrap();
+    assert!(no_schema.get("input_schema").is_none());
+}
+
+/// The cornerstone parity test for the whole #658 / #660 effort:
+/// every hit returned by `/v1/search` is reachable through the same
+/// `SkillRestService.search()` the MCP gateway wrapper uses. This
+/// verifies — in a multi-skill, multi-DCC instance — that REST and
+/// MCP clients see the *same* list of tools, in the *same* order,
+/// with *byte-identical* slugs.
+///
+/// A regression here would mean the two surfaces diverge, forcing
+/// agents to learn two tool catalogs and doubling the token cost of
+/// discovery.
+#[tokio::test]
+async fn rest_and_mcp_surfaces_agree_on_multi_skill_catalog() {
+    let (svc, _) = fixture_multi_skill();
+
+    // "MCP wrapper" path — what gateway::capability_service::search
+    // invokes on this instance.
+    let mcp_hits = svc.search(&super::service::SearchRequest {
+        loaded_only: false,
+        ..Default::default()
+    });
+
+    // REST path — what non-MCP callers see.
+    let (server, _) = build_server(svc);
+    let resp = server
+        .post("/v1/search")
+        .json(&json!({"loaded_only": false}))
+        .await;
+    resp.assert_status_ok();
+    let rest_body: Value = resp.json();
+    let rest_slugs: Vec<String> = rest_body["hits"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|h| h["slug"].as_str().unwrap().to_owned())
+        .collect();
+    let mcp_slugs: Vec<String> = mcp_hits.hits.iter().map(|h| h.slug.0.clone()).collect();
+
+    assert_eq!(
+        mcp_slugs, rest_slugs,
+        "REST and MCP surfaces returned different slug lists; \
+         agents would need two catalogs — token waste + drift risk"
+    );
+    assert_eq!(
+        rest_body["total"].as_u64().unwrap() as usize,
+        mcp_hits.total,
+        "total mismatch between REST and MCP"
+    );
+}
