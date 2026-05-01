@@ -45,6 +45,12 @@ class ToolSpec:
         Tool category tag; defaults to ``"general"``.
     version:
         Tool version string; defaults to ``"1.0.0"``.
+    output_schema:
+        Optional JSON Schema for the tool's return payload (MCP 2025-06-18
+        ``outputSchema``). When provided, the registry publishes it so
+        clients on 2025-06-18 sessions can validate ``structuredContent``;
+        the gateway drops it for 2025-03-26 sessions automatically (see
+        ``crates/dcc-mcp-http/src/handler/dispatch.rs``).
 
     """
 
@@ -54,6 +60,7 @@ class ToolSpec:
     handler: Callable[[Any], Any]
     category: str = "general"
     version: str = "1.0.0"
+    output_schema: dict[str, Any] | None = None
 
 
 def register_tools(
@@ -105,15 +112,37 @@ def register_tools(
 
     attached = 0
     for spec in specs:
+        register_kwargs: dict[str, Any] = {
+            "name": spec.name,
+            "description": spec.description,
+            "input_schema": json_dumps(spec.input_schema),
+            "dcc": dcc_name,
+            "category": spec.category,
+            "version": spec.version,
+        }
+        if spec.output_schema is not None:
+            register_kwargs["output_schema"] = json_dumps(spec.output_schema)
         try:
-            registry.register(
-                name=spec.name,
-                description=spec.description,
-                input_schema=json_dumps(spec.input_schema),
-                dcc=dcc_name,
-                category=spec.category,
-                version=spec.version,
-            )
+            registry.register(**register_kwargs)
+        except TypeError as exc:
+            # Older ToolRegistry builds may not accept ``output_schema`` yet.
+            # Drop it and retry once rather than losing the whole registration.
+            if spec.output_schema is not None and "output_schema" in str(exc):
+                log.warning(
+                    "%s: registry.register(%s) does not accept output_schema; retrying without it (%s)",
+                    log_prefix,
+                    spec.name,
+                    exc,
+                )
+                register_kwargs.pop("output_schema", None)
+                try:
+                    registry.register(**register_kwargs)
+                except Exception as exc2:  # pragma: no cover - defensive
+                    log.warning("%s: register(%s) failed: %s", log_prefix, spec.name, exc2)
+                    continue
+            else:
+                log.warning("%s: register(%s) failed: %s", log_prefix, spec.name, exc)
+                continue
         except Exception as exc:
             log.warning("%s: register(%s) failed: %s", log_prefix, spec.name, exc)
             continue
