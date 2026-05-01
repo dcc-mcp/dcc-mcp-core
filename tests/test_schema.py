@@ -501,3 +501,39 @@ class TestToolSpecFromCallable:
         assert spec.description == "custom desc"
         assert spec.category == "custom"
         assert spec.version == "2.0.0"
+
+
+def test_typed_schema_demo_example_imports_cleanly() -> None:
+    """Protect examples/skills/typed-schema-demo from bitrot.
+
+    We import the demo module by path (directory name has a hyphen so it's
+    not a valid Python package name) and assert that its derived ``spec``
+    has the expected schema fields.
+    """
+    import importlib.util
+    from pathlib import Path
+    import sys
+
+    repo_root = Path(__file__).resolve().parent.parent
+    demo_py = repo_root / "examples" / "skills" / "typed-schema-demo" / "scripts" / "demo.py"
+    assert demo_py.is_file(), f"demo script missing at {demo_py}"
+
+    mod_name = "_typed_schema_demo"
+    spec = importlib.util.spec_from_file_location(mod_name, demo_py)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    # dataclasses with ``from __future__ import annotations`` need the module
+    # present in sys.modules so ``typing.get_type_hints`` can resolve string
+    # annotations against the module's namespace.
+    sys.modules[mod_name] = module
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.modules.pop(mod_name, None)
+
+    tool_spec = module.spec
+    assert tool_spec.name == "typed_schema_demo__export"
+    assert tool_spec.input_schema["type"] == "object"
+    assert "scene_path" in tool_spec.input_schema["properties"]
+    assert tool_spec.output_schema is not None
+    assert tool_spec.output_schema["title"] == "ExportResult"
