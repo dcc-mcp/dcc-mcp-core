@@ -175,6 +175,22 @@ pub struct GatewayConfig {
     ///   reserved for the transition window once dynamic wrapper tools
     ///   land so operators can run both modes side-by-side.
     pub tool_exposure: GatewayToolExposure,
+
+    /// Emit Cursor-safe gateway tool names (`i_<id8>__<escaped>`)
+    /// instead of the SEP-986 dotted form (`<id8>.<tool>`). Issue #656.
+    ///
+    /// Default: `true`. Some MCP clients — notably Cursor — only
+    /// accept names matching `^[A-Za-z0-9_]+$`, which excludes the
+    /// SEP-986-legal `.` and `-` separators the gateway used
+    /// pre-#656. Emitting cursor-safe names by default keeps agents
+    /// discoverable across every known client; the legacy dotted form
+    /// is still decoded for one release window so in-flight requests
+    /// from older clients continue to route correctly.
+    ///
+    /// Set to `false` only if you need the gateway to advertise
+    /// SEP-986 dotted names for diagnostic parity with a backend
+    /// that still publishes them directly.
+    pub cursor_safe_tool_names: bool,
 }
 
 impl Default for GatewayConfig {
@@ -197,6 +213,12 @@ impl Default for GatewayConfig {
             adapter_version: None,
             adapter_dcc: None,
             tool_exposure: GatewayToolExposure::Full,
+            // #656: default to Cursor-safe on because breakage with
+            // Cursor is silent (it just hides the tools from the agent
+            // with no visible error), and the legacy dotted form is
+            // still decoded for the compatibility window so existing
+            // clients keep working.
+            cursor_safe_tool_names: true,
         }
     }
 }

@@ -16,6 +16,9 @@ mod async_dispatch_cancel;
 #[path = "http/backend_timeout.rs"]
 mod backend_timeout;
 
+#[path = "http/gateway_cursor_safe_names.rs"]
+mod gateway_cursor_safe_names;
+
 #[path = "http/gateway_passthrough.rs"]
 mod gateway_passthrough;
 

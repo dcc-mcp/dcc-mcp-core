@@ -107,6 +107,11 @@ pub struct GatewayState {
     /// (`Full` / `Both`) or stays bounded at the gateway meta-tools +
     /// skill-management surface (`Slim` / `Rest`). Default: `Full`.
     pub tool_exposure: super::config::GatewayToolExposure,
+
+    /// Emit Cursor-safe tool names (`i_<id8>__<escaped>`) when fanning
+    /// out to backends (issue #656). Default: `true`. Only consulted
+    /// when [`Self::tool_exposure`] is a fan-out mode.
+    pub cursor_safe_tool_names: bool,
 }
 
 impl GatewayState {
@@ -264,6 +269,7 @@ mod tests {
             adapter_version: None,
             adapter_dcc: None,
             tool_exposure: crate::gateway::GatewayToolExposure::Full,
+            cursor_safe_tool_names: true,
         }
     }
 

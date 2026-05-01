@@ -70,6 +70,7 @@ async fn make_state(
         adapter_version: None,
         adapter_dcc: None,
         tool_exposure: dcc_mcp_http::gateway::GatewayToolExposure::Full,
+        cursor_safe_tool_names: true,
     };
     (state, registry, dir)
 }
@@ -263,9 +264,21 @@ async fn spawn_mock_skill_backend(dcc: &str, skill_name: &str) -> u16 {
 }
 
 fn encoded_tool_name(instance_id: uuid::Uuid, tool: &str) -> String {
-    // Mirror `encode_tool_name` — 8-char prefix + '.' + tool name.
-    let short = &instance_id.to_string().replace('-', "")[..8];
-    format!("{short}.{tool}")
+    // Mirror `encode_tool_name_cursor_safe` (#656 default). The helper
+    // intentionally matches the emitter the default gateway state uses
+    // so these tests exercise the wire form real clients see.
+    let short = instance_id.to_string().replace('-', "")[..8].to_string();
+    let escaped: String = tool
+        .bytes()
+        .map(|b| match b {
+            b'_' => "_U_".to_string(),
+            b'.' => "_D_".to_string(),
+            b'-' => "_H_".to_string(),
+            other if other.is_ascii_alphanumeric() => (other as char).to_string(),
+            other => panic!("unexpected byte {other:#04x} in backend tool name {tool:?}"),
+        })
+        .collect();
+    format!("i_{short}__{escaped}")
 }
 
 async fn collect_tool_names(state: &GatewayState) -> Vec<String> {

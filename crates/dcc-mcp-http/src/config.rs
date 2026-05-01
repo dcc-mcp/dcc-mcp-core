@@ -490,6 +490,18 @@ pub struct McpHttpConfig {
     /// pre-#652 behavior so existing deployments see no change until
     /// they explicitly opt into a bounded mode.
     pub gateway_tool_exposure: crate::gateway::GatewayToolExposure,
+
+    /// Emit Cursor-safe gateway tool names (`i_<id8>__<escaped>`)
+    /// instead of the pre-#656 SEP-986 dotted form (`<id8>.<tool>`).
+    ///
+    /// Default: `true`. Cursor and several other MCP clients only
+    /// accept tool names matching `^[A-Za-z0-9_]+$`; emitting the old
+    /// dotted form against those clients silently drops every backend
+    /// tool from the agent's view. Setting this to `false` restores
+    /// the pre-#656 behavior — typically only useful for diagnostic
+    /// parity with a single-instance server that already publishes
+    /// SEP-986 dotted names directly.
+    pub gateway_cursor_safe_tool_names: bool,
 }
 
 impl McpHttpConfig {
@@ -539,6 +551,12 @@ impl McpHttpConfig {
             adapter_version: None,
             adapter_dcc: None,
             gateway_tool_exposure: crate::gateway::GatewayToolExposure::Full,
+            // #656: default to Cursor-safe gateway tool names because
+            // breakage is silent on that client — the tools simply
+            // never appear. The legacy dotted form is still decoded
+            // for the compatibility window so in-flight clients keep
+            // routing.
+            gateway_cursor_safe_tool_names: true,
         }
     }
 
@@ -568,6 +586,28 @@ impl McpHttpConfig {
     /// ```
     pub fn with_gateway_tool_exposure(mut self, mode: crate::gateway::GatewayToolExposure) -> Self {
         self.gateway_tool_exposure = mode;
+        self
+    }
+
+    /// Builder: choose the gateway tool-name wire form (issue #656).
+    ///
+    /// When `true` (the default), the gateway emits Cursor-safe names
+    /// of the form `i_<id8>__<escaped_tool>` that survive the stricter
+    /// `^[A-Za-z0-9_]+$` regex enforced by Cursor and several other
+    /// MCP clients. When `false`, the gateway falls back to the
+    /// pre-#656 SEP-986 dotted form `<id8>.<tool>`; use this only when
+    /// you need diagnostic parity with a single-instance server that
+    /// publishes dotted names directly.
+    ///
+    /// ```
+    /// use dcc_mcp_http::McpHttpConfig;
+    ///
+    /// let cfg = McpHttpConfig::new(0)
+    ///     .with_gateway_cursor_safe_tool_names(false);
+    /// assert!(!cfg.gateway_cursor_safe_tool_names);
+    /// ```
+    pub fn with_gateway_cursor_safe_tool_names(mut self, enabled: bool) -> Self {
+        self.gateway_cursor_safe_tool_names = enabled;
         self
     }
 

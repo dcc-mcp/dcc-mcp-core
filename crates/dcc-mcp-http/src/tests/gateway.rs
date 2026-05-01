@@ -37,6 +37,7 @@ fn make_gateway_state() -> GatewayState {
         adapter_version: None,
         adapter_dcc: None,
         tool_exposure: crate::gateway::GatewayToolExposure::Full,
+        cursor_safe_tool_names: true,
     }
 }
 

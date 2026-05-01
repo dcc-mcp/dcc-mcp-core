@@ -425,6 +425,29 @@ impl PyMcpHttpConfig {
         Ok(())
     }
 
+    /// Whether the gateway emits Cursor-safe tool names (#656).
+    ///
+    /// When ``True`` (the default), the gateway publishes tool names
+    /// of the form ``i_<id8>__<escaped_tool>`` that contain only
+    /// ``[A-Za-z0-9_]``. When ``False``, the gateway falls back to the
+    /// pre-#656 SEP-986 dotted form ``<id8>.<tool>``.
+    #[getter]
+    fn gateway_cursor_safe_tool_names(&self) -> bool {
+        self.inner.gateway_cursor_safe_tool_names
+    }
+
+    /// Enable or disable Cursor-safe gateway tool names (#656).
+    ///
+    /// Flip to ``False`` only when you need diagnostic parity with a
+    /// single-instance server that publishes SEP-986 dotted names
+    /// directly. Cursor and several other MCP clients silently hide
+    /// any tool name containing ``.`` or ``-`` from the agent, so
+    /// leaving this ``True`` is strongly recommended.
+    #[setter]
+    fn set_gateway_cursor_safe_tool_names(&mut self, enabled: bool) {
+        self.inner.gateway_cursor_safe_tool_names = enabled;
+    }
+
     /// Lower-case wire identifier of the configured job-recovery policy
     /// (issue #567). Returns ``"drop"`` (default) or ``"requeue"``.
     ///

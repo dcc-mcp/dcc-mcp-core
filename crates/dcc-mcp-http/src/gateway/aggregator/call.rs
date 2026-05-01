@@ -41,12 +41,13 @@ pub async fn route_tools_call(
     }
 
     // ── Backend tool routing ────────────────────────────────────────────
-    // Preferred gateway names are prefixed (`{id8}.{tool}`), but with a
-    // single live backend a bare tool name is unambiguous and easier for
-    // clients to call (#583).
+    // Preferred gateway names come in two Cursor-safe / SEP-986 forms
+    // (both accepted by `decode_tool_name`), but with a single live
+    // backend a bare tool name is unambiguous and easier for clients
+    // to call (#583).
     let (entry, original) = match decode_tool_name(tool) {
         Some((prefix, original)) => {
-            let Some(entry) = find_instance_by_prefix(gs, prefix).await else {
+            let Some(entry) = find_instance_by_prefix(gs, &prefix).await else {
                 return (
                     format!("No live DCC instance matches prefix '{prefix}' in tool '{tool}'."),
                     true,
@@ -57,7 +58,7 @@ pub async fn route_tools_call(
         None => {
             let instances = live_backends(gs).await;
             if instances.len() == 1 {
-                (instances.into_iter().next().unwrap(), tool)
+                (instances.into_iter().next().unwrap(), tool.to_string())
             } else {
                 // Detect the common "skill__toolname" internal-format mistake and emit
                 // a targeted hint instead of the generic "Unknown tool" message.
@@ -65,14 +66,17 @@ pub async fn route_tools_call(
                     format!(
                         "Unknown tool: '{tool}'. \
                          '{tool}' looks like an internal action name (double-underscore format). \
-                         Gateway tools are published as '{{id8}}.{{bare_name}}' (e.g. 'a1b2c3d.execute_python'). \
-                         Call tools/list to discover the exact names, or use search_skills to find the right tool."
+                         Gateway tools are published as 'i_{{id8}}__{{escaped_name}}' (Cursor-safe) \
+                         or '{{id8}}.{{bare_name}}' during the compatibility window. \
+                         In slim / rest mode, use `search_tools`, `describe_tool`, and `call_tool` \
+                         to discover and invoke backend capabilities dynamically."
                     )
                 } else {
                     format!(
                         "Unknown tool: '{tool}'. \
                          Call tools/list (or search_skills) to discover available tool names. \
-                         Gateway tools use the form '{{id8}}.{{tool_name}}'."
+                         Gateway tools use the form 'i_{{id8}}__{{escaped_tool}}' (Cursor-safe); \
+                         in slim / rest mode, use `search_tools`, `describe_tool`, and `call_tool`."
                     )
                 };
                 return (hint, true);
@@ -122,7 +126,7 @@ pub async fn route_tools_call(
     let forward = forward_tools_call(
         &gs.http_client,
         &url,
-        original,
+        &original,
         Some(args.clone()),
         forwarded_meta,
         request_id.clone(),
@@ -149,7 +153,7 @@ pub async fn route_tools_call(
                     .and_then(|p| p.as_str());
                 if let Err(e) = gs
                     .subscriber
-                    .bind_job_route(jid, sid, &url, original, parent)
+                    .bind_job_route(jid, sid, &url, &original, parent)
                 {
                     tracing::warn!(
                         session = %sid,

@@ -72,6 +72,7 @@ fn make_state(
         adapter_version: None,
         adapter_dcc: None,
         tool_exposure,
+        cursor_safe_tool_names: true,
     }
 }
 

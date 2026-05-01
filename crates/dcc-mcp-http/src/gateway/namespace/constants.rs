@@ -43,6 +43,31 @@ pub const LEGACY_NAMESPACE_SEP: &str = "__";
 /// Skill→tool separator (unchanged; already SEP-986-compliant).
 pub const SKILL_TOOL_SEP: &str = ".";
 
+/// Cursor-safe gateway tool-name prefix (issue #656).
+///
+/// Some MCP clients — notably Cursor — filter out tool names that
+/// contain anything other than `[A-Za-z0-9_]`, which excludes the
+/// SEP-986-legal `.` and `-` separators the gateway has historically
+/// emitted. The cursor-safe form `i_<id8>__<escaped_tool>` keeps every
+/// published byte inside that stricter alphabet while staying
+/// reversible thanks to the escape vocabulary in
+/// [`encode::escape_cursor_safe`](super::encode).
+///
+/// The leading `i_` (for *instance*) exists to disambiguate encoded
+/// names from bare backend tools such as `create_sphere` without
+/// requiring callers to peek at the id byte itself — an 8-hex-char
+/// string like `abcdef01` is a perfectly valid bare tool name on its
+/// own.
+pub const CURSOR_SAFE_PREFIX: &str = "i_";
+
+/// Separator between the cursor-safe instance prefix and the escaped
+/// backend tool name (issue #656). Chosen as `__` because the outer
+/// tool-name regex allows `_`, and a double-underscore is cheap to
+/// `split_once` while remaining visually distinct from the single
+/// underscores used inside the escape vocabulary (`_U_` / `_D_` /
+/// `_H_`).
+pub const CURSOR_SAFE_SEP: &str = "__";
+
 pub fn is_local_tool(name: &str) -> bool {
     GATEWAY_LOCAL_TOOLS.contains(&name)
 }

@@ -163,6 +163,26 @@ struct Args {
     )]
     gateway_tool_exposure: dcc_mcp_http::gateway::GatewayToolExposure,
 
+    /// Emit Cursor-safe gateway tool names (`i_<id8>__<escaped>`) instead
+    /// of the pre-#656 SEP-986 dotted form (`<id8>.<tool>`). Issue #656.
+    ///
+    /// When `true` (the default), every gateway-published tool name
+    /// matches the stricter `^[A-Za-z0-9_]+$` regex enforced by Cursor
+    /// and several other MCP clients, which silently hide names
+    /// containing `.` or `-`. The legacy dotted form is still decoded
+    /// for the compatibility window so in-flight clients keep routing.
+    ///
+    /// Set to `false` only when you need diagnostic parity with a
+    /// single-instance server that publishes SEP-986 dotted names
+    /// directly.
+    #[arg(
+        long,
+        env = "DCC_MCP_GATEWAY_CURSOR_SAFE_TOOL_NAMES",
+        default_value = "true",
+        action = clap::ArgAction::Set,
+    )]
+    gateway_cursor_safe_tool_names: bool,
+
     /// Directory for the shared FileRegistry (auto-created if missing).
     #[arg(long, env = "DCC_MCP_REGISTRY_DIR")]
     registry_dir: Option<String>,
@@ -598,6 +618,7 @@ async fn main() -> anyhow::Result<()> {
             Some(args.dcc.clone())
         },
         tool_exposure: args.gateway_tool_exposure,
+        cursor_safe_tool_names: args.gateway_cursor_safe_tool_names,
     };
 
     let runner = GatewayRunner::new(gateway_cfg)

@@ -235,6 +235,7 @@ impl GatewayRunner {
                     own_adapter_version.clone(),
                     own_adapter_dcc.clone(),
                     self.config.tool_exposure,
+                    self.config.cursor_safe_tool_names,
                 )
                 .await
                 {
@@ -371,6 +372,7 @@ impl GatewayRunner {
         let adapter_version = self.config.adapter_version.clone();
         let adapter_dcc = self.config.adapter_dcc.clone();
         let tool_exposure = self.config.tool_exposure;
+        let cursor_safe_tool_names = self.config.cursor_safe_tool_names;
 
         let handle = tokio::spawn(async move {
             // ── Cooperative yield request ─────────────────────────────────
@@ -442,6 +444,7 @@ impl GatewayRunner {
                         adapter_version.clone(),
                         adapter_dcc.clone(),
                         tool_exposure,
+                        cursor_safe_tool_names,
                     )
                     .await
                     {

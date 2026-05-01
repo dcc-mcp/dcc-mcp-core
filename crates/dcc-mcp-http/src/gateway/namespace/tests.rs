@@ -96,6 +96,177 @@ fn local_tools_decode_to_none() {
     }
 }
 
+// ── #656 Cursor-safe encoding ────────────────────────────────────────────
+//
+// Locks down every client-side regex the `i_<id8>__<escaped>` form has to
+// clear, plus the round-trip / collision / error-path guarantees the
+// decoder depends on for safe routing.
+
+#[test]
+fn cursor_safe_encode_produces_only_alnum_and_underscore() {
+    // Cursor's tool-name regex is stricter than SEP-986 (`[A-Za-z0-9_]+`).
+    // Every input that survives SEP-986 must come out clean here — this
+    // test is the contract the gateway signs with the client.
+    let id = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
+    for tool in [
+        "create_sphere",               // plain identifier
+        "maya-animation.set_keyframe", // skill-prefixed with dot + hyphen
+        "CamelCase",                   // mixed case
+        "scene.object.transform",      // multiple dots
+        "hello-world-greeting",        // multiple hyphens
+        "a",                           // single byte
+        "0",                           // digit-only leading byte
+        "v2.dotted.chain_name",        // dots and underscores together
+    ] {
+        let enc = encode_tool_name_cursor_safe(&id, tool);
+        assert!(
+            is_cursor_safe_alphabet(&enc),
+            "cursor-safe encoding of {tool:?} yielded {enc:?} with disallowed chars",
+        );
+        assert!(
+            !enc.contains('.') && !enc.contains('-') && !enc.contains('/'),
+            "cursor-safe encoding of {tool:?} yielded {enc:?} which still contains a forbidden separator",
+        );
+        assert!(
+            validate_tool_name(&enc).is_ok(),
+            "cursor-safe encoding of {tool:?} yielded {enc:?} which fails SEP-986",
+        );
+        assert!(
+            enc.starts_with("i_abcdef01__"),
+            "cursor-safe encoding must carry the instance prefix verbatim: got {enc:?}",
+        );
+    }
+}
+
+#[test]
+fn cursor_safe_encode_escape_vocabulary_is_exhaustive() {
+    // Pin the escape table so a future refactor cannot silently drop or
+    // rename a mapping.
+    assert_eq!(escape_cursor_safe("a.b"), "a_D_b");
+    assert_eq!(escape_cursor_safe("a-b"), "a_H_b");
+    assert_eq!(escape_cursor_safe("a_b"), "a_U_b");
+    assert_eq!(escape_cursor_safe("plain"), "plain");
+    assert_eq!(escape_cursor_safe(""), "");
+    // Back-to-back specials must not merge or collide.
+    assert_eq!(escape_cursor_safe("._-"), "_D__U__H_");
+}
+
+#[test]
+fn cursor_safe_decode_is_inverse_of_encode_for_every_valid_backend_name() {
+    // Every backend tool name that passes SEP-986 validation must
+    // round-trip losslessly through cursor-safe encoding. This keeps
+    // the gateway from quietly renaming tools on its way to Cursor.
+    let id = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
+    for tool in [
+        "create_sphere",
+        "maya-animation.set_keyframe",
+        "scene.object.transform",
+        "CamelCase",
+        "x",
+        "hello-world",
+        "dotted.name.with_underscore",
+        "with.dot-and-dash",
+    ] {
+        let enc = encode_tool_name_cursor_safe(&id, tool);
+        let (p, o) = decode_tool_name(&enc)
+            .unwrap_or_else(|| panic!("decode_tool_name lost cursor-safe name {enc:?}"));
+        assert_eq!(p, "abcdef01");
+        assert_eq!(o, tool, "round-trip of {tool:?} via {enc:?} dropped bytes");
+    }
+}
+
+#[test]
+fn cursor_safe_decode_accepts_backend_tool_names_with_dots() {
+    // The spec explicitly requires support for backend names that
+    // themselves contain dots. If this regresses, any Maya skill-prefixed
+    // action (e.g. `maya-animation.set_keyframe`) becomes unreachable
+    // through Cursor.
+    let id = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
+    let enc = encode_tool_name_cursor_safe(&id, "maya-animation.set_keyframe");
+    assert_eq!(enc, "i_abcdef01__maya_H_animation_D_set_U_keyframe");
+    let (p, o) = decode_tool_name(&enc).unwrap();
+    assert_eq!(p, "abcdef01");
+    assert_eq!(o, "maya-animation.set_keyframe");
+}
+
+#[test]
+fn cursor_safe_decode_rejects_malformed_escape_sequences() {
+    // A lone `_` never appears in a well-formed cursor-safe payload;
+    // decoding one must fail rather than silently produce a corrupted
+    // backend name that would then be routed to the wrong tool.
+    assert!(unescape_cursor_safe("abc_").is_none());
+    assert!(unescape_cursor_safe("abc_Z_").is_none()); // unknown escape
+    assert!(unescape_cursor_safe("abc_D").is_none()); // truncated
+    assert!(unescape_cursor_safe("abc_Dx").is_none()); // wrong terminator
+    // But valid escapes still round-trip:
+    assert_eq!(unescape_cursor_safe("abc_D_").unwrap(), "abc.");
+}
+
+#[test]
+fn cursor_safe_decode_falls_through_on_bad_payload() {
+    // `i_abcdef01__` prefix matches the shape, but the payload `bad_`
+    // is not a valid escape sequence. The decoder must NOT route this
+    // as a cursor-safe name (that would silently drop the `_`) — it
+    // either falls through to legacy arms or returns None. Either way,
+    // the caller sees no phantom tool.
+    let decoded = decode_tool_name("i_abcdef01__bad_");
+    assert!(
+        decoded.is_none(),
+        "malformed cursor-safe payload must not decode as cursor-safe: got {decoded:?}",
+    );
+}
+
+#[test]
+fn decode_prefers_cursor_safe_over_legacy_underscore() {
+    // Both arms split on `__`, so order matters. A cursor-safe name
+    // `i_abcdef01__foo` must NEVER be routed as a pre-#258 legacy name
+    // `(i, abcdef01__foo)` — the `i_` prefix guards the cursor-safe
+    // arm, so legacy prefixes that happen to be the byte `i` followed
+    // by an 8-hex-ish chunk don't count as legacy.
+    let (p, o) = decode_tool_name("i_abcdef01__create_U_sphere").unwrap();
+    assert_eq!(p, "abcdef01");
+    assert_eq!(o, "create_sphere");
+}
+
+#[test]
+fn cursor_safe_pre_656_dot_form_still_decodes_during_compat_window() {
+    // Until every client has rolled over, the old SEP-986 dot form
+    // must keep working so agents that haven't upgraded don't see
+    // Unknown tool errors.
+    let (p, o) = decode_tool_name("abcdef01.create_sphere").unwrap();
+    assert_eq!(p, "abcdef01");
+    assert_eq!(o, "create_sphere");
+}
+
+#[test]
+fn cursor_safe_encode_length_budget_fits_in_48() {
+    // MAX_TOOL_NAME_LEN is 48 in dcc-mcp-naming. The `i_<id8>__`
+    // prefix is 12 bytes, leaving 36 bytes for the escaped payload.
+    // The worst-case expansion ratio is 3x (every input byte becomes
+    // `_?_`), so a backend name ≤ 12 bytes is guaranteed to fit. Pin
+    // that budget explicitly so future tool-name caps (or prefix
+    // growth) notice the regression here rather than at runtime.
+    let id = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
+    // 12-byte name entirely made of dots → 36-byte payload → 48 total.
+    let worst = ".".repeat(12);
+    let enc = encode_tool_name_cursor_safe(&id, &worst);
+    assert_eq!(enc.len(), 48);
+    assert!(validate_tool_name(&enc).is_ok());
+}
+
+#[test]
+fn is_cursor_safe_alphabet_matches_cursor_regex() {
+    assert!(is_cursor_safe_alphabet("create_sphere"));
+    assert!(is_cursor_safe_alphabet("i_abcdef01__foo"));
+    assert!(is_cursor_safe_alphabet("A"));
+    // `.` `-` `/` and whitespace are all rejected.
+    assert!(!is_cursor_safe_alphabet("tool.name"));
+    assert!(!is_cursor_safe_alphabet("tool-name"));
+    assert!(!is_cursor_safe_alphabet("tool/name"));
+    assert!(!is_cursor_safe_alphabet("tool name"));
+    assert!(!is_cursor_safe_alphabet(""));
+}
+
 #[test]
 fn extract_bare_name_strips_prefix() {
     assert_eq!(
