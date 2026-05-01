@@ -50,6 +50,15 @@ futures = "0.3"
 tokio-stream = { version = "0.1", features = ["sync", "tokio-util"] }
 pin-project-lite = "0.2"
 
+# High-performance fuzzy matcher for the capability search layer
+# (issue #659). `nucleo-matcher` is the standalone matcher extracted
+# from the `nucleo` picker used by the Helix editor — it carries no
+# async / TUI dependencies, only the bare scoring engine. It gives us
+# Smith-Waterman-style fuzzy matching with typo tolerance and
+# case/pre-fix weighting, and benchmarks sub-microsecond per match on
+# the small strings (tool names, summaries) we feed it.
+nucleo-matcher = "0.3"
+
 # PyO3 (optional)
 pyo3 = { workspace = true, optional = true }
 

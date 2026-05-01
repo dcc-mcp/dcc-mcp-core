@@ -59,6 +59,7 @@ mod index;
 mod record;
 mod refresh;
 mod search;
+mod search_ranking;
 
 #[cfg(test)]
 mod tests;
@@ -67,4 +68,7 @@ pub use builder::{BuildInput, BuildOutcome, build_records_from_backend};
 pub use index::{CapabilityIndex, IndexSnapshot, InstanceFingerprint};
 pub use record::{CapabilityRecord, SCHEMA_AVAILABLE, parse_slug, tool_slug};
 pub use refresh::{RefreshReason, refresh_instance, remove_instance};
-pub use search::{DEFAULT_LIMIT, MAX_LIMIT, SearchHit, SearchQuery, search};
+pub use search::{
+    DEFAULT_LIMIT, MAX_LIMIT, SearchHit, SearchMode, SearchPage, SearchQuery, search, search_page,
+};
+pub use search_ranking::{FuzzyScorer, Scorer, SubstringScorer};
