@@ -65,6 +65,7 @@ document without scanning every file.
 | [scheduler.md](scheduler.md) | ScheduleSpec, TriggerSpec, cron/webhook scheduling |
 | [workflows.md](workflows.md) | WorkflowSpec engine: step kinds, policies, persistence |
 | [job-persistence.md](job-persistence.md) | SQLite-backed job/workflow persistence and resume |
+| [project-persistence.md](project-persistence.md) | Project-level state (scene, assets, active skills) across sessions |
 | [prompts.md](prompts.md) | MCP Prompt definitions |
 | [capabilities.md](capabilities.md) | DccCapabilities and feature detection |
 | [faq.md](faq.md) | Frequently asked questions |
