@@ -19,6 +19,9 @@ mod backend_timeout;
 #[path = "http/gateway_cursor_safe_names.rs"]
 mod gateway_cursor_safe_names;
 
+#[path = "http/gateway_dynamic_capabilities.rs"]
+mod gateway_dynamic_capabilities;
+
 #[path = "http/gateway_passthrough.rs"]
 mod gateway_passthrough;
 

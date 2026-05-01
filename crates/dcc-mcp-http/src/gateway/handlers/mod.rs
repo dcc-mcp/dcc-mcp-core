@@ -30,7 +30,10 @@ mod sse_impl;
 
 pub use mcp_impl::handle_gateway_mcp;
 pub use proxy_impl::{handle_proxy_dcc, handle_proxy_instance};
-pub use rest_impl::{handle_gateway_yield, handle_health, handle_instances};
+pub use rest_impl::{
+    handle_gateway_yield, handle_health, handle_instances, handle_v1_call, handle_v1_describe,
+    handle_v1_search,
+};
 pub use sse_impl::handle_gateway_get;
 
 pub(crate) use mcp_impl::JsonRpcRequest;

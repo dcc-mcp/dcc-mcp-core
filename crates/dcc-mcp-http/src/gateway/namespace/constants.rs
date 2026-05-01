@@ -17,6 +17,13 @@ pub const GATEWAY_LOCAL_TOOLS: &[&str] = &[
     "get_skill_info",
     "load_skill",
     "unload_skill",
+    // #655 dynamic-capability wrappers (shared service with the REST
+    // API). Registered as local so the fan-out path never tries to
+    // forward them to a backend — the wrappers route through the
+    // gateway's capability index instead.
+    "search_tools",
+    "describe_tool",
+    "call_tool",
 ];
 
 /// Core per-DCC tools that keep bare names (no skill prefix).

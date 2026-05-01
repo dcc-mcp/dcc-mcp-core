@@ -26,6 +26,8 @@
 
 pub mod aggregator;
 pub mod backend_client;
+pub mod capability;
+pub mod capability_service;
 pub mod handlers;
 pub mod namespace;
 pub mod proxy;

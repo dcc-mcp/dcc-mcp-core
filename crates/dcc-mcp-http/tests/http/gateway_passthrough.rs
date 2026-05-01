@@ -71,6 +71,7 @@ async fn make_state(
         adapter_dcc: None,
         tool_exposure: dcc_mcp_http::gateway::GatewayToolExposure::Full,
         cursor_safe_tool_names: true,
+        capability_index: Arc::new(dcc_mcp_http::gateway::capability::CapabilityIndex::new()),
     };
     (state, registry, dir)
 }

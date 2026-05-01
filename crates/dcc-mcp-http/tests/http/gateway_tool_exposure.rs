@@ -73,6 +73,9 @@ fn make_state(
         adapter_dcc: None,
         tool_exposure,
         cursor_safe_tool_names: true,
+        capability_index: std::sync::Arc::new(
+            dcc_mcp_http::gateway::capability::CapabilityIndex::new(),
+        ),
     }
 }
 

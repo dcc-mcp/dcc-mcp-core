@@ -362,6 +362,7 @@ pub(crate) async fn start_gateway_tasks(
         adapter_dcc,
         tool_exposure,
         cursor_safe_tool_names,
+        capability_index: Arc::new(crate::gateway::capability::CapabilityIndex::new()),
     };
     let gw_router = build_gateway_router(gw_state);
 

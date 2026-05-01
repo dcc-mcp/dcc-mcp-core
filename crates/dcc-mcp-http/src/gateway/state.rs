@@ -112,6 +112,15 @@ pub struct GatewayState {
     /// out to backends (issue #656). Default: `true`. Only consulted
     /// when [`Self::tool_exposure`] is a fan-out mode.
     pub cursor_safe_tool_names: bool,
+
+    /// Gateway-scoped capability index (issue #653). Populated by the
+    /// refresh loop and queried by the REST / MCP dynamic-capability
+    /// wrappers (#654 / #655).
+    ///
+    /// `Arc` so every handler can hold an owned, cheaply-cloned
+    /// reference; the inner `RwLock` is held only for the
+    /// milliseconds it takes to swap a single instance's slice.
+    pub capability_index: Arc<super::capability::CapabilityIndex>,
 }
 
 impl GatewayState {
@@ -270,6 +279,7 @@ mod tests {
             adapter_dcc: None,
             tool_exposure: crate::gateway::GatewayToolExposure::Full,
             cursor_safe_tool_names: true,
+            capability_index: Arc::new(crate::gateway::capability::CapabilityIndex::new()),
         }
     }
 
