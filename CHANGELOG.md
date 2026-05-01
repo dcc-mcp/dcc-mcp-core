@@ -11,6 +11,52 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.14.20](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.19...v0.14.20) (2026-05-01)
+
+
+### Features
+
+* add adapter context policy helpers ([cb54c13](https://github.com/loonghao/dcc-mcp-core/commit/cb54c136cd6042b1f73c325e8af7f7d8133fd5b5))
+* add adaptive pump policy ([226c87e](https://github.com/loonghao/dcc-mcp-core/commit/226c87eae8823f55ef91d80d3f547d4c85b871ad))
+* add bridge resilience strategies ([11bc11c](https://github.com/loonghao/dcc-mcp-core/commit/11bc11cec5bee91b21de645a25c2fc172fe56206))
+* add deferred tool result polling ([30272b6](https://github.com/loonghao/dcc-mcp-core/commit/30272b65896874d1a92642f6282822426919ef01))
+* add embedded dispatcher bootstrap ([61e24a5](https://github.com/loonghao/dcc-mcp-core/commit/61e24a5209b4290564513257b107683903f56a7d))
+* add gateway instance pooling leases ([69d34d7](https://github.com/loonghao/dcc-mcp-core/commit/69d34d7920ddef8e4732b190f1d6a67c0adf01e5))
+* add host execution bridge ([db9d1f4](https://github.com/loonghao/dcc-mcp-core/commit/db9d1f435afa5286813bf3ed2c24e89310e363bb))
+* add project state persistence ([51c88eb](https://github.com/loonghao/dcc-mcp-core/commit/51c88eb2a027e6d44fd83b45bf5fdeed0e84c1f9))
+* add Rez context bundle skill examples ([b92c92c](https://github.com/loonghao/dcc-mcp-core/commit/b92c92cc76691889758de6936aeb0965f977559d))
+* add script execution envelopes ([c9874f0](https://github.com/loonghao/dcc-mcp-core/commit/c9874f08b112bb424c623ec288040231572f0235))
+* add structured recipe packs ([48fb309](https://github.com/loonghao/dcc-mcp-core/commit/48fb309c39426ce8a68764d95a5fb2a4fe5f9fe0))
+* add weak DCC execution guardrails ([403a1f9](https://github.com/loonghao/dcc-mcp-core/commit/403a1f9ee91d0598fa965233b6bf7e4161f52aef))
+* expose gateway instance diagnostics ([b79c047](https://github.com/loonghao/dcc-mcp-core/commit/b79c047bb83c143b34c5e46173d00d7d7a2a3cd0))
+* mark tools with fallback input schemas in _meta ([3a75431](https://github.com/loonghao/dcc-mcp-core/commit/3a75431227b67d1332bf0883d54a90d2bea2cab3))
+* pass in-process execution metadata ([675a913](https://github.com/loonghao/dcc-mcp-core/commit/675a913d5b9acecfeea4b5618827b85836adac6c))
+
+
+### Bug Fixes
+
+* allow bare gateway tools for single instance ([2bec3e1](https://github.com/loonghao/dcc-mcp-core/commit/2bec3e1bd1d6194a3209cce6772d3fb0acae914e)), closes [#583](https://github.com/loonghao/dcc-mcp-core/issues/583)
+* expose health on MCP instance servers ([c52c635](https://github.com/loonghao/dcc-mcp-core/commit/c52c635fb48c74608a74833a40bda459b7953fa8))
+* flatten gateway skill aggregation results ([131f93f](https://github.com/loonghao/dcc-mcp-core/commit/131f93f0f1652a00487dea0f08dd83fefc7f7480)), closes [#582](https://github.com/loonghao/dcc-mcp-core/issues/582)
+* keep Python tests compatible with pagination ([#646](https://github.com/loonghao/dcc-mcp-core/issues/646)) ([560f98f](https://github.com/loonghao/dcc-mcp-core/commit/560f98fef0da75066527bc5f345be0d661c842d9))
+* keep script execution capture compatible with py38 ([9ac118c](https://github.com/loonghao/dcc-mcp-core/commit/9ac118cd4f3e91f9673f86fc3847ca396e41ffc0))
+* normalize script execution parameters ([0f293d2](https://github.com/loonghao/dcc-mcp-core/commit/0f293d29a432ec1ca395d631089a610215644b9b)), closes [#591](https://github.com/loonghao/dcc-mcp-core/issues/591)
+* propagate tool result error flag ([b5da89e](https://github.com/loonghao/dcc-mcp-core/commit/b5da89e33a955f76d1e01e68242b18237ebb95c4))
+* require executor for main-affined skills ([51a8e5d](https://github.com/loonghao/dcc-mcp-core/commit/51a8e5dc514f76be4914af88768810bca25fc8c2))
+* require MCP health before gateway fanout ([a7f7a7a](https://github.com/loonghao/dcc-mcp-core/commit/a7f7a7a2696fc8a244b5b3fbe6db7a33afa2f5bc))
+* surface in-process skill errors as structured envelopes ([f13c782](https://github.com/loonghao/dcc-mcp-core/commit/f13c7824f9e7c0f922301a75f4c6295ebe2b4246))
+* tighten JSON-RPC request boundary handling ([cc5b81f](https://github.com/loonghao/dcc-mcp-core/commit/cc5b81f73f40675b3503bffb151a8f6e930859a1))
+
+
+### Documentation
+
+* add AI agent entry points (CLAUDE.md, GEMINI.md, COPILOT.md) ([ea49dab](https://github.com/loonghao/dcc-mcp-core/commit/ea49dab2a9bd4d01d3f01213430ec8062be0f08a))
+* add CODEBUDDY.md for CodeBuddy AI agent support ([b08c980](https://github.com/loonghao/dcc-mcp-core/commit/b08c980f4a5b6b741ed09ca2d95df0a7b823cd83))
+* migrate skills to v0.15+ sibling-file format, add constants re-exports ([6b071b2](https://github.com/loonghao/dcc-mcp-core/commit/6b071b29733d69a0f7546a8402ce48f060a53398))
+* optimize AI agent onboarding, skill discoverability, and tool design guidance ([#647](https://github.com/loonghao/dcc-mcp-core/issues/647)) ([fc2cb88](https://github.com/loonghao/dcc-mcp-core/commit/fc2cb883f645e18fd36c75ce75ff5bbed25be806))
+* update AGENTS.md to reference AI agent entry points ([8f3916f](https://github.com/loonghao/dcc-mcp-core/commit/8f3916fb7e2dd1686cdc2774466c320d55b2c0a0))
+* update version in llms.txt to 0.14.19 ([3c4ad99](https://github.com/loonghao/dcc-mcp-core/commit/3c4ad9971f2fc80d98cbce710efba4c0c3e9ee1d))
+
 ## [0.14.19](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.18...v0.14.19) (2026-04-29)
 
 
