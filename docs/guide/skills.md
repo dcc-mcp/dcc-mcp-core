@@ -183,7 +183,7 @@ Write a typed handler:
 
 ```python
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Tuple
 
 from dcc_mcp_core import tool_spec_from_callable
 from dcc_mcp_core._tool_registration import register_tools
@@ -192,8 +192,8 @@ from dcc_mcp_core._tool_registration import register_tools
 @dataclass
 class ExportInput:
     scene_path: str = field(metadata={"description": "Scene file to export."})
-    format: Literal["fbx", "abc", "usd"] = "fbx"
-    frame_range: tuple[int, int] = (1, 100)
+    format: str = "fbx"
+    frame_range: Tuple[int, int] = (1, 100)
 
 
 @dataclass
@@ -228,7 +228,11 @@ Supported types (stdlib only): `bool`, `int`, `float`, `str`, `bytes`,
 `None`, `list[X]`, `tuple[X, ...]`, `tuple[A, B, ...]` (fixed),
 `dict[str, V]`, `Optional[X]` / `X | None`, `Union[A, B]`,
 `Literal[...]`, `Enum`, `datetime.datetime`, `datetime.date`,
-`pathlib.Path`, `uuid.UUID`, `@dataclass`, `TypedDict`. Unsupported
+`pathlib.Path`, `uuid.UUID`, `@dataclass`, `TypedDict`. On Python 3.7,
+spell containers and unions with `typing.List`, `typing.Dict`,
+`typing.Tuple`, `typing.Optional`, and `typing.Union`; `Literal` and
+`TypedDict` require `typing_extensions` in the skill author's environment.
+The core package still imports with zero runtime dependencies. Unsupported
 types raise `TypeError` with a clear escape hatch: pass an explicit
 `input_schema=...` dict or use pydantic's `MyModel.model_json_schema()`.
 

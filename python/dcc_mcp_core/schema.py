@@ -38,10 +38,38 @@ import types
 import typing
 from typing import Any
 from typing import Callable
-from typing import get_args
-from typing import get_origin
-from typing import get_type_hints
+from typing import get_type_hints as _typing_get_type_hints
 import uuid
+
+try:
+    from typing import get_args
+    from typing import get_origin
+except ImportError:  # pragma: no cover - Python 3.7 only
+
+    def get_args(tp: Any) -> tuple[Any, ...]:
+        return getattr(tp, "__args__", ()) or ()
+
+    def get_origin(tp: Any) -> Any | None:
+        return getattr(tp, "__origin__", None)
+
+
+_UNION_ORIGINS = (typing.Union,)
+_union_type = getattr(types, "UnionType", None)
+if _union_type is not None:  # pragma: no cover - Python 3.10+
+    _UNION_ORIGINS = (*_UNION_ORIGINS, _union_type)
+
+_LITERAL_TYPE = getattr(typing, "Literal", None)
+_TYPEDDICT_META = getattr(typing, "_TypedDictMeta", None)
+
+
+def _get_type_hints(obj: Any, *, include_extras: bool = False) -> dict[str, Any]:
+    if include_extras:
+        try:
+            return _typing_get_type_hints(obj, include_extras=True)
+        except TypeError:  # pragma: no cover - Python 3.8 and earlier
+            pass
+    return _typing_get_type_hints(obj)
+
 
 # JSON Schema draft + MCP protocol pair we target.
 _JSON_SCHEMA_DRAFT = "https://json-schema.org/draft/2020-12/schema"
@@ -56,7 +84,7 @@ def _is_optional(tp: Any) -> tuple[bool, Any]:
     For non-optional types returns ``(False, tp)``.
     """
     origin = get_origin(tp)
-    if origin is typing.Union or origin is types.UnionType:
+    if origin in _UNION_ORIGINS:
         args = [a for a in get_args(tp) if a is not type(None)]
         had_none = len(args) != len(get_args(tp))
         if had_none:
@@ -101,7 +129,8 @@ def _primitive_schema(tp: Any) -> dict[str, Any] | None:
 
 def _literal_schema(tp: Any) -> dict[str, Any] | None:
     """Return a schema for ``Literal[...]`` or ``None`` if *tp* is not one."""
-    if get_origin(tp) is typing.Literal:
+    origin = get_origin(tp)
+    if _LITERAL_TYPE is not None and origin is _LITERAL_TYPE:
         values = list(get_args(tp))
         types_seen = {type(v) for v in values}
         # If all values share a single primitive type, pin it — this helps
@@ -185,7 +214,7 @@ def _dataclass_schema(tp: type, defs: dict[str, dict[str, Any]]) -> dict[str, An
     # Reserve the slot *before* recursing so cycles terminate.
     defs[title] = {}  # placeholder
 
-    hints = get_type_hints(tp)
+    hints = _get_type_hints(tp)
     properties: dict[str, Any] = {}
     required: list[str] = []
     for f in dataclass_fields(tp):
@@ -217,6 +246,8 @@ def _dataclass_schema(tp: type, defs: dict[str, dict[str, Any]]) -> dict[str, An
 
 
 def _is_typeddict(tp: Any) -> bool:
+    if _TYPEDDICT_META is not None and isinstance(tp, _TYPEDDICT_META):
+        return True
     return isinstance(tp, type) and issubclass(tp, dict) and hasattr(tp, "__required_keys__")
 
 
@@ -226,7 +257,7 @@ def _typeddict_schema(tp: type, defs: dict[str, dict[str, Any]]) -> dict[str, An
         return {"$ref": f"#/$defs/{title}"}
     defs[title] = {}  # placeholder for cycle safety
 
-    hints = get_type_hints(tp)
+    hints = _get_type_hints(tp)
     properties: dict[str, Any] = {}
     for key, annotation in hints.items():
         is_opt, inner = _is_optional(annotation)
@@ -240,7 +271,11 @@ def _typeddict_schema(tp: type, defs: dict[str, dict[str, Any]]) -> dict[str, An
         "title": title,
         "properties": properties,
     }
-    required = sorted(tp.__required_keys__)
+    required_keys = getattr(tp, "__required_keys__", None)
+    if required_keys is None:  # pragma: no cover - Python 3.8 only
+        required = sorted(hints) if getattr(tp, "__total__", True) else []
+    else:
+        required = sorted(required_keys)
     if required:
         schema["required"] = required
     schema["additionalProperties"] = False
@@ -284,7 +319,7 @@ def _derive(tp: Any, defs: dict[str, dict[str, Any]]) -> dict[str, Any]:
 
     # Union (non-optional).
     origin = get_origin(tp)
-    if origin is typing.Union or origin is types.UnionType:
+    if origin in _UNION_ORIGINS:
         return {"anyOf": [_derive(a, defs) for a in get_args(tp)]}
 
     # Dataclass / TypedDict.
@@ -361,7 +396,7 @@ def derive_parameters_schema(fn: Callable[..., Any]) -> dict[str, Any]:
     "accept anything" fallback (the #588-era footgun).
     """
     sig = inspect.signature(fn)
-    hints = get_type_hints(fn, include_extras=True)
+    hints = _get_type_hints(fn, include_extras=True)
 
     param_descriptions = schema_from_doc(fn)
 
@@ -587,7 +622,7 @@ def tool_spec_from_callable(
     resolved_description = description if description is not None else first_line
 
     sig = inspect.signature(handler)
-    hints = get_type_hints(handler, include_extras=True)
+    hints = _get_type_hints(handler, include_extras=True)
     real_params = [
         p
         for p in sig.parameters.values()

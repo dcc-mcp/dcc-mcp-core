@@ -12,10 +12,13 @@ Run this module standalone to print the derived schemas::
 
 from __future__ import annotations
 
+# ruff: noqa: I001, UP006
+
 from dataclasses import dataclass
 from dataclasses import field
 import json
 from typing import Literal
+from typing import Tuple
 
 from dcc_mcp_core import tool_spec_from_callable
 from dcc_mcp_core._tool_registration import ToolSpec
@@ -32,7 +35,7 @@ class ExportInput:
         default="fbx",
         metadata={"description": "Interchange format; one of fbx / abc / usd."},
     )
-    frame_range: tuple[int, int] = field(
+    frame_range: Tuple[int, int] = field(
         default=(1, 100),
         metadata={"description": "Inclusive frame range (start, end)."},
     )

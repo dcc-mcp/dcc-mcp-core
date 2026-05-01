@@ -1,5 +1,7 @@
 """Tests for dcc_mcp_core.schema — zero-dep type → JSON Schema derivation (#242)."""
 
+# ruff: noqa: UP006, UP045
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -7,8 +9,13 @@ from dataclasses import field
 import datetime
 import enum
 from pathlib import Path
+import sys
 from typing import Any
+from typing import Dict
+from typing import List
 from typing import Literal
+from typing import Optional
+from typing import Tuple
 from typing import TypedDict
 from typing import Union
 import uuid
@@ -69,19 +76,19 @@ class TestPrimitiveTypes:
 
 class TestContainers:
     def test_list_of_str(self) -> None:
-        assert derive_schema(list[str]) == {
+        assert derive_schema(List[str]) == {
             "type": "array",
             "items": {"type": "string"},
         }
 
     def test_homogeneous_tuple(self) -> None:
-        assert derive_schema(tuple[int, ...]) == {
+        assert derive_schema(Tuple[int, ...]) == {
             "type": "array",
             "items": {"type": "integer"},
         }
 
     def test_fixed_tuple(self) -> None:
-        assert derive_schema(tuple[int, str, bool]) == {
+        assert derive_schema(Tuple[int, str, bool]) == {
             "type": "array",
             "prefixItems": [
                 {"type": "integer"},
@@ -93,13 +100,13 @@ class TestContainers:
         }
 
     def test_dict_str_v(self) -> None:
-        assert derive_schema(dict[str, int]) == {
+        assert derive_schema(Dict[str, int]) == {
             "type": "object",
             "additionalProperties": {"type": "integer"},
         }
 
     def test_nested_list_of_list(self) -> None:
-        assert derive_schema(list[list[int]]) == {
+        assert derive_schema(List[List[int]]) == {
             "type": "array",
             "items": {
                 "type": "array",
@@ -113,12 +120,13 @@ class TestContainers:
 
 class TestUnionAndLiterals:
     def test_optional_unwraps_to_anyof_with_null(self) -> None:
-        assert derive_schema(int | None) == {
+        assert derive_schema(Optional[int]) == {
             "anyOf": [{"type": "integer"}, {"type": "null"}],
         }
 
     def test_pep604_union_none(self) -> None:
-        # Same as above, kept as a separate assertion to spell out the intent.
+        if sys.version_info < (3, 10):
+            pytest.skip("PEP 604 unions require Python 3.10+")
         assert derive_schema(int | None) == {
             "anyOf": [{"type": "integer"}, {"type": "null"}],
         }
@@ -173,13 +181,13 @@ class TestUnionAndLiterals:
 class Point:
     x: float
     y: float
-    label: str | None = None
+    label: Optional[str] = None
 
 
 @dataclass
 class Polygon:
     name: str
-    vertices: list[Point]
+    vertices: List[Point]
     closed: bool = True
 
 
@@ -229,7 +237,7 @@ class TestDataclasses:
         @dataclass
         class WithList:
             name: str
-            tags: list[str] = field(default_factory=list)
+            tags: List[str] = field(default_factory=list)
 
         schema = derive_schema(WithList)
         assert schema["required"] == ["name"]
@@ -311,7 +319,7 @@ class TestDeriveParametersSchema:
         assert schema["required"] == ["radius"]
 
     def test_optional_param_is_not_required(self) -> None:
-        def fn(x: int, y: int | None = None) -> None: ...
+        def fn(x: int, y: Optional[int] = None) -> None: ...
 
         schema = derive_parameters_schema(fn)
         assert schema["required"] == ["x"]
@@ -406,7 +414,7 @@ class TestSchemaFromDoc:
 
 class TestEdgeCases:
     def test_optional_dataclass(self) -> None:
-        schema = derive_schema(Point | None)
+        schema = derive_schema(Optional[Point])
         assert schema["anyOf"][1] == {"type": "null"}
         # First branch is the Point object schema.
         first = schema["anyOf"][0]
@@ -450,7 +458,7 @@ class TestToolSpecFromCallable:
         assert spec.output_schema["title"] == "_ExportResult"
 
     def test_multi_primitive_params(self) -> None:
-        def make_sphere(radius: float, segments: int = 16) -> dict[str, int]:
+        def make_sphere(radius: float, segments: int = 16) -> Dict[str, int]:
             return {"radius": int(radius), "segments": segments}
 
         spec = tool_spec_from_callable(make_sphere)
@@ -459,7 +467,7 @@ class TestToolSpecFromCallable:
         assert spec.input_schema["type"] == "object"
         assert set(spec.input_schema["properties"]) == {"radius", "segments"}
         assert spec.input_schema["required"] == ["radius"]
-        # Return type dict[str, int] → outputSchema is an object with additionalProperties.
+        # Return type Dict[str, int] → outputSchema is an object with additionalProperties.
         assert spec.output_schema == {
             "type": "object",
             "additionalProperties": {"type": "integer"},

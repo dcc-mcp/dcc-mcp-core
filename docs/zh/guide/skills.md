@@ -183,7 +183,7 @@ decl = ToolDeclaration(
 
 ```python
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Tuple
 
 from dcc_mcp_core import tool_spec_from_callable
 from dcc_mcp_core._tool_registration import register_tools
@@ -191,9 +191,9 @@ from dcc_mcp_core._tool_registration import register_tools
 
 @dataclass
 class ExportInput:
-    scene_path: str = field(metadata={"description": "需要导出的场景文件。"})
-    format: Literal["fbx", "abc", "usd"] = "fbx"
-    frame_range: tuple[int, int] = (1, 100)
+    scene_path: str = field(metadata={"description": "Scene file to export."})
+    format: str = "fbx"
+    frame_range: Tuple[int, int] = (1, 100)
 
 
 @dataclass
@@ -219,7 +219,7 @@ register_tools(server, [spec], dcc_name="maya")
 
 若有返回类型标注，会作为 `outputSchema`，MCP 2025-06-18 的客户端即可用它校验 `structuredContent`。未类型化的 handler 抛 `TypeError`，不会静默回退成宽松的 `{"type": "object"}`（修掉 #588 同代的陷阱）。
 
-支持的类型（全标准库）：`bool`、`int`、`float`、`str`、`bytes`、`None`、`list[X]`、`tuple[X, ...]`、定长 `tuple[A, B, ...]`、`dict[str, V]`、`Optional[X]` / `X | None`、`Union[A, B]`、`Literal[...]`、`Enum`、`datetime.datetime`、`datetime.date`、`pathlib.Path`、`uuid.UUID`、`@dataclass`、`TypedDict`。不支持的类型会抛 `TypeError` 并附一条明确的"逃生通道"：显式传 `input_schema=...` dict 或用 pydantic 的 `MyModel.model_json_schema()`。
+支持的类型（全标准库）：`bool`、`int`、`float`、`str`、`bytes`、`None`、`list[X]`、`tuple[X, ...]`、定长 `tuple[A, B, ...]`、`dict[str, V]`、`Optional[X]` / `X | None`、`Union[A, B]`、`Literal[...]`、`Enum`、`datetime.datetime`、`datetime.date`、`pathlib.Path`、`uuid.UUID`、`@dataclass`、`TypedDict`。Python 3.7 中请用 `typing.List`、`typing.Dict`、`typing.Tuple`、`typing.Optional`、`typing.Union` 来书写容器与联合类型；`Literal` 与 `TypedDict` 需要由 skill 作者环境提供 `typing_extensions`。核心包自身仍保持零运行时依赖。不支持的类型会抛 `TypeError` 并附一条明确的"逃生通道"：显式传 `input_schema=...` dict 或用 pydantic 的 `MyModel.model_json_schema()`。
 
 ::: tip 为什么不用 pydantic？
 我们刻意保持 0 依赖。仅为此特性引入 `pydantic` 会拉进 3MB wheel 再加 `pydantic-core`，对只想写几个 dataclass handler 的作者成本过高。对于已经在用 pydantic 的调用方，派生出的 shape 与 pydantic 的约定一致（`title`、`$defs`、`$ref`、`anyOf`、`required`），因此换成 `MyModel.model_json_schema()` 是即插即用的。

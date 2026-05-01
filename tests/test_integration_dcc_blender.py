@@ -193,6 +193,44 @@ class TestBlenderIntegration:
         assert out["success"] is True
         assert out["major"] >= 3
 
+    def test_blender_py37_can_load_schema_derivation_helper(self) -> None:
+        schema_path = Path(dcc_mcp_core.__file__).resolve().parent / "schema.py"
+        script = textwrap.dedent(f"""\
+            import importlib.util, json
+            from dataclasses import dataclass
+            from typing import List, Optional, Tuple
+
+            spec = importlib.util.spec_from_file_location("dcc_mcp_schema", r"{schema_path}")
+            schema = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(schema)
+
+            @dataclass
+            class BlenderExportInput:
+                object_names: List[str]
+                frame_range: Tuple[int, int]
+                collection: Optional[str] = None
+
+            derived = schema.derive_schema(BlenderExportInput)
+            props = derived["properties"]
+            print(json.dumps({{
+                "success": True,
+                "title": derived["title"],
+                "required": sorted(derived["required"]),
+                "object_names_type": props["object_names"]["type"],
+                "frame_range_items": len(props["frame_range"]["prefixItems"]),
+                "collection_anyof": len(props["collection"]["anyOf"]),
+            }}))
+        """)
+        out = _run_blender_script(script)
+        assert out == {
+            "success": True,
+            "title": "BlenderExportInput",
+            "required": ["frame_range", "object_names"],
+            "object_names_type": "array",
+            "frame_range_items": 2,
+            "collection_anyof": 2,
+        }
+
 
 @blender_available
 class TestBlenderSkillPipeline:

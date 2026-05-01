@@ -11,7 +11,7 @@ use std::path::Path;
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(
     feature = "python-bindings",
-    pyo3::pyclass(name = "SkillVersionManifest", get_all, set_all)
+    pyo3::pyclass(name = "SkillVersionManifest", get_all, set_all, skip_from_py_object)
 )]
 pub struct SkillVersionManifest {
     /// Current semantic version.
@@ -24,7 +24,7 @@ pub struct SkillVersionManifest {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(
     feature = "python-bindings",
-    pyo3::pyclass(name = "SkillVersionEntry", get_all, set_all)
+    pyo3::pyclass(name = "SkillVersionEntry", get_all, set_all, from_py_object)
 )]
 pub struct SkillVersionEntry {
     /// Version string at this point.

@@ -9,7 +9,7 @@ use std::path::Path;
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(
     feature = "python-bindings",
-    pyo3::pyclass(name = "SkillFeedback", get_all, set_all)
+    pyo3::pyclass(name = "SkillFeedback", get_all, set_all, skip_from_py_object)
 )]
 pub struct SkillFeedback {
     /// ISO-8601 timestamp.
