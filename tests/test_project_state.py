@@ -117,8 +117,12 @@ def test_dcc_project_preserves_created_at_across_saves(tmp_path: Path) -> None:
     project.activate_skill("skill-a")
 
     restored = DccProject.load(scene)
-    assert restored.state.created_at == original_created_at
-    assert restored.state.updated_at >= original_created_at
+    # JSON round-trip loses a bit of float precision on some platforms
+    # (e.g. 1777608237.0767953 → 1777608237.076795), so compare with a
+    # millisecond tolerance: the invariant we care about is that created_at
+    # is not silently regenerated, not bit-exact round-trip.
+    assert abs(restored.state.created_at - original_created_at) < 1e-3
+    assert restored.state.updated_at >= restored.state.created_at
 
 
 def test_dcc_project_loads_legacy_project_json_without_new_fields(tmp_path: Path) -> None:
