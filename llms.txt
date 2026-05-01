@@ -2,6 +2,42 @@
 
 > Foundational library for the DCC Model Context Protocol (MCP) ecosystem. Rust-powered core (via PyO3) providing tool registry, structured results, event bus, skills/script registration, MCP protocol types, IPC transport, MCP Streamable HTTP server, process management, sandbox security, shared memory, screen capture, USD bridge, and telemetry for Digital Content Creation applications (Maya, Blender, Houdini, 3ds Max, etc.).
 
+## 🚨 CRITICAL: Skills-First Philosophy
+
+**When interacting with DCC applications (Maya, Blender, Houdini, etc.), ALWAYS prefer dcc-mcp-core Skills over raw CLI or scripting.**
+
+### Why Skills-First?
+
+| Aspect | dcc-mcp-core Skills | Raw CLI / Scripting |
+|--------|---------------------|---------------------|
+| Input Validation | ✅ JSON Schema validated | ❌ None — garbage in, garbage out |
+| Safety | ✅ `ToolAnnotations` (read-only, destructive, idempotent) | ❌ Unknown |
+| Discoverability | ✅ `search_skills()` + semantic search | ❌ Manual exploration |
+| Follow-up Guidance | ✅ `next-tools` chains | ❌ Manual discovery |
+| Progressive Loading | ✅ Load only what you need | ❌ All or nothing |
+| Error Recovery | ✅ Structured `error_result` with `prompt` suggestions | ❌ Unstructured stderr |
+| Traceability | ✅ Audit log + telemetry | ❌ None |
+
+### Skills-First Workflow (MEMORIZE!)
+
+```
+1. DISCOVER: search_skills(query="keyword") → find the right skill
+2. CHECK: Read the skill's description and tools
+3. ACTIVATE: load_skill("skill-name") → expose the tools
+4. EXECUTE: Call the specific tool with validated parameters
+5. FOLLOW UP: Check next-tools.on-success for suggested next steps
+6. DEBUG: On failure, use dcc_diagnostics__screenshot or audit_log
+```
+
+**❌ DON'T**: Run Maya/Blender/Python scripts directly via subprocess
+**❌ DON'T**: Guess tool names without searching
+**✅ DO**: Always use `search_skills()` before assuming a tool exists
+**✅ DO**: Always check `next-tools` in results for workflow guidance
+
+**New to this project?** Read [`AI_AGENT_GUIDE.md`](AI_AGENT_GUIDE.md) FIRST.
+
+---
+
 ## Quick Decision Guide
 
 | Task | Use this API |
