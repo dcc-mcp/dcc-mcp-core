@@ -513,8 +513,121 @@ def schema_from_doc(fn: Callable[..., Any]) -> dict[str, str]:
     return out
 
 
+# ── ToolSpec bridge (issue #242 acceptance criterion) ─────────────────────
+
+
+def _is_schema_object_type(tp: Any) -> bool:
+    """Return True if *tp* should become a full object schema on its own."""
+    if is_dataclass(tp) and isinstance(tp, type):
+        return True
+    return bool(_is_typeddict(tp))
+
+
+def tool_spec_from_callable(
+    handler: Callable[..., Any],
+    *,
+    name: str | None = None,
+    description: str | None = None,
+    category: str = "general",
+    version: str = "1.0.0",
+) -> Any:
+    """Build a :class:`ToolSpec` by introspecting *handler*'s type annotations.
+
+    The handler may use either of two signature styles:
+
+    1. **Single dataclass / TypedDict parameter** — the whole parameter becomes
+       the ``inputSchema``::
+
+           @dataclass
+           class ExportInput:
+               scene_path: str
+               format: Literal["fbx", "abc"] = "fbx"
+
+           def export_scene(args: ExportInput) -> ExportResult: ...
+
+    2. **Multiple primitive-typed parameters** — each parameter becomes a
+       property of an ``object`` ``inputSchema``::
+
+           def make_sphere(radius: float, segments: int = 16) -> SphereResult: ...
+
+    The return annotation, if present and typed, becomes the ``outputSchema``.
+
+    Refuses untyped handlers (``raise TypeError``) so authors get explicit
+    feedback rather than a silently-too-permissive ``{"type": "object"}``
+    fallback — the failure mode that #588 tracked.
+
+    Parameters
+    ----------
+    handler:
+        The tool's Python callable.
+    name:
+        MCP tool name; defaults to ``handler.__name__``.
+    description:
+        Tool description; defaults to the first non-empty line of the handler's
+        docstring.
+    category, version:
+        Passed through to :class:`ToolSpec`.
+
+    Returns
+    -------
+    ToolSpec
+        Ready to pass to :func:`dcc_mcp_core._tool_registration.register_tools`.
+
+    """
+    # Local import to avoid a circular dependency at module-load time
+    # (_tool_registration is itself a small module but shared with many callers).
+    from dcc_mcp_core._tool_registration import ToolSpec
+
+    resolved_name = name or getattr(handler, "__name__", None)
+    if not resolved_name:
+        raise TypeError("tool_spec_from_callable: handler has no __name__; pass name=...")
+
+    doc = inspect.getdoc(handler) or ""
+    first_line = next((line for line in doc.splitlines() if line.strip()), "") if doc else ""
+    resolved_description = description if description is not None else first_line
+
+    sig = inspect.signature(handler)
+    hints = get_type_hints(handler, include_extras=True)
+    real_params = [
+        p
+        for p in sig.parameters.values()
+        if p.name != "self" and p.kind not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
+    ]
+
+    if len(real_params) == 1:
+        only = real_params[0]
+        annotation = hints.get(only.name, only.annotation)
+        if annotation is not inspect.Parameter.empty and _is_schema_object_type(annotation):
+            input_schema = derive_schema(annotation)
+        else:
+            input_schema = derive_parameters_schema(handler)
+    else:
+        input_schema = derive_parameters_schema(handler)
+
+    output_schema: dict[str, Any] | None = None
+    return_annotation = hints.get("return", sig.return_annotation)
+    if return_annotation not in (inspect.Parameter.empty, None, type(None)):
+        try:
+            output_schema = derive_schema(return_annotation)
+        except TypeError:
+            # Unsupported return type — leave outputSchema unset rather than
+            # failing registration. MCP treats outputSchema as optional.
+            output_schema = None
+
+    return ToolSpec(
+        name=resolved_name,
+        description=resolved_description,
+        input_schema=input_schema,
+        output_schema=output_schema,
+        handler=handler,
+        category=category,
+        version=version,
+    )
+
+
 __all__ = [
     "derive_parameters_schema",
     "derive_schema",
     "schema_from_doc",
+    "tool_spec_from_callable",
 ]

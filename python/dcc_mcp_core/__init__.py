@@ -458,6 +458,12 @@ from dcc_mcp_core.rich_content import attach_rich_content
 from dcc_mcp_core.rich_content import skill_success_with_chart
 from dcc_mcp_core.rich_content import skill_success_with_image
 from dcc_mcp_core.rich_content import skill_success_with_table
+
+# Zero-dep type → JSON Schema derivation (issue #242)
+from dcc_mcp_core.schema import derive_parameters_schema
+from dcc_mcp_core.schema import derive_schema
+from dcc_mcp_core.schema import schema_from_doc
+from dcc_mcp_core.schema import tool_spec_from_callable
 from dcc_mcp_core.script_execution import ScriptExecutionCapture
 from dcc_mcp_core.script_execution import ScriptExecutionParams
 from dcc_mcp_core.script_execution import ScriptExecutionResult
@@ -741,6 +747,8 @@ __all__ = [
     "current_callable_job",
     "current_cancel_token",
     "current_job",
+    "derive_parameters_schema",
+    "derive_schema",
     "deserialize_result",
     "elicit_form",
     "elicit_form_sync",
@@ -833,6 +841,7 @@ __all__ = [
     "scan_and_load_user_lenient",
     "scan_skill_paths",
     "scene_info_json_to_stage",
+    "schema_from_doc",
     "serialize_result",
     "set_cancel_token",
     "set_current_job",
@@ -851,6 +860,7 @@ __all__ = [
     "stage_to_scene_info_json",
     "start_embedded_dcc_server",
     "success_result",
+    "tool_spec_from_callable",
     "units_to_mpu",
     "unwrap_parameters",
     "unwrap_value",

@@ -18,6 +18,7 @@ import pytest
 from dcc_mcp_core.schema import derive_parameters_schema
 from dcc_mcp_core.schema import derive_schema
 from dcc_mcp_core.schema import schema_from_doc
+from dcc_mcp_core.schema import tool_spec_from_callable
 
 # ── Primitives ─────────────────────────────────────────────────────────────
 
@@ -410,3 +411,93 @@ class TestEdgeCases:
         # First branch is the Point object schema.
         first = schema["anyOf"][0]
         assert first.get("$ref") == "#/$defs/Point" or first.get("title") == "Point"
+
+
+# ── tool_spec_from_callable ────────────────────────────────────────────────
+
+
+@dataclass
+class _ExportInput:
+    scene_path: str
+    format: Literal["fbx", "abc", "usd"] = "fbx"
+
+
+@dataclass
+class _ExportResult:
+    path: str
+    size_bytes: int
+
+
+class _NotAThing: ...
+
+
+class TestToolSpecFromCallable:
+    def test_single_dataclass_param(self) -> None:
+        def export_scene(args: _ExportInput) -> _ExportResult:
+            """Export a scene to an interchange format."""
+            return _ExportResult(path=args.scene_path, size_bytes=0)
+
+        spec = tool_spec_from_callable(export_scene)
+
+        assert spec.name == "export_scene"
+        assert spec.description == "Export a scene to an interchange format."
+        # Single-dataclass style: inputSchema IS the dataclass schema.
+        assert spec.input_schema["type"] == "object"
+        assert spec.input_schema["title"] == "_ExportInput"
+        assert "scene_path" in spec.input_schema["properties"]
+        # outputSchema derived from return annotation.
+        assert spec.output_schema is not None
+        assert spec.output_schema["title"] == "_ExportResult"
+
+    def test_multi_primitive_params(self) -> None:
+        def make_sphere(radius: float, segments: int = 16) -> dict[str, int]:
+            return {"radius": int(radius), "segments": segments}
+
+        spec = tool_spec_from_callable(make_sphere)
+
+        # Multi-primitive style: inputSchema is an object with each param as a property.
+        assert spec.input_schema["type"] == "object"
+        assert set(spec.input_schema["properties"]) == {"radius", "segments"}
+        assert spec.input_schema["required"] == ["radius"]
+        # Return type dict[str, int] → outputSchema is an object with additionalProperties.
+        assert spec.output_schema == {
+            "type": "object",
+            "additionalProperties": {"type": "integer"},
+        }
+
+    def test_refuses_untyped_handler(self) -> None:
+        def fn(x, y): ...  # no annotations
+
+        with pytest.raises(TypeError, match="untyped parameters"):
+            tool_spec_from_callable(fn)
+
+    def test_no_return_annotation_leaves_output_schema_unset(self) -> None:
+        def fn(x: int) -> None: ...
+
+        spec = tool_spec_from_callable(fn)
+        assert spec.output_schema is None
+
+    def test_unsupported_return_type_silently_drops_output_schema(self) -> None:
+        def fn(x: int) -> _NotAThing:
+            raise NotImplementedError
+
+        spec = tool_spec_from_callable(fn)
+        # Input schema still derived from the typed parameter.
+        assert spec.input_schema["properties"] == {"x": {"type": "integer"}}
+        # Unsupported return → outputSchema left out, but registration still works.
+        assert spec.output_schema is None
+
+    def test_name_and_description_overrides(self) -> None:
+        def fn(x: int) -> None: ...
+
+        spec = tool_spec_from_callable(
+            fn,
+            name="custom.name",
+            description="custom desc",
+            category="custom",
+            version="2.0.0",
+        )
+        assert spec.name == "custom.name"
+        assert spec.description == "custom desc"
+        assert spec.category == "custom"
+        assert spec.version == "2.0.0"
