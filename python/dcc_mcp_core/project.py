@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from dataclasses import field
+import logging
 from pathlib import Path
 import time
 from typing import Any
@@ -17,6 +18,8 @@ import uuid
 
 from dcc_mcp_core import json_dumps
 from dcc_mcp_core import json_loads
+
+logger = logging.getLogger(__name__)
 
 PROJECT_DIR_NAME = ".dcc-mcp"
 PROJECT_STATE_FILE = "project.json"
@@ -215,9 +218,234 @@ class DccProject:
         return True
 
 
+# ── MCP tools (issue #576) ────────────────────────────────────────────────
+
+_PROJECT_SAVE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "scene_path": {
+            "type": "string",
+            "description": "Path to the scene/document whose project should be opened or created.",
+        },
+    },
+    "required": ["scene_path"],
+}
+
+_PROJECT_LOAD_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "scene_path": {
+            "type": "string",
+            "description": "Path to a scene file; resolves to the sibling .dcc-mcp/ dir.",
+        },
+        "project_dir": {
+            "type": "string",
+            "description": "Direct path to an existing .dcc-mcp/ project directory.",
+        },
+    },
+}
+
+_PROJECT_RESUME_SCHEMA: dict[str, Any] = _PROJECT_LOAD_SCHEMA
+_PROJECT_STATUS_SCHEMA: dict[str, Any] = _PROJECT_LOAD_SCHEMA
+
+_PROJECT_SAVE_DESCRIPTION = (
+    "Save the DCC project state for a scene. "
+    "When to use: after opening or modifying a scene to persist asset list, "
+    "active skills/tool groups, and session metadata. "
+    "How to use: pass scene_path; creates .dcc-mcp/project.json next to the "
+    "scene and returns the full ProjectState."
+)
+
+_PROJECT_LOAD_DESCRIPTION = (
+    "Load a previously-saved DCC project state. "
+    "When to use: at the start of a session to recover context for a scene. "
+    "How to use: pass scene_path or project_dir; returns success=false if no "
+    "project.json exists at that location (no silent creation)."
+)
+
+_PROJECT_RESUME_DESCRIPTION = (
+    "Return the full resume payload for a scene: scene_path, loaded_assets, "
+    "active_skills, active_tool_groups, checkpoint_ids, and metadata. "
+    "When to use: after a crash or reload to restore DCC session state. "
+    "How to use: pass scene_path or project_dir."
+)
+
+_PROJECT_STATUS_DESCRIPTION = (
+    "Inspect the current project state without mutating it. "
+    "When to use: to report what the session knows about loaded assets and "
+    "active skills. "
+    "How to use: pass scene_path or project_dir; returns success=false if the "
+    "project has never been saved."
+)
+
+
+def _resolve_project_target(args: dict[str, Any], default_project: DccProject | None) -> DccProject | None:
+    """Resolve a DccProject from either tool args or a caller-bound default."""
+    project_dir = args.get("project_dir")
+    scene_path = args.get("scene_path")
+    if project_dir:
+        return DccProject.load(Path(str(project_dir)))
+    if scene_path:
+        return DccProject.load(Path(str(scene_path)))
+    return default_project
+
+
+def register_project_tools(
+    server: Any,
+    *,
+    dcc_name: str = "dcc",
+    project: DccProject | None = None,
+) -> None:
+    """Register ``project.save`` / ``load`` / ``resume`` / ``status`` on *server*.
+
+    Part of issue #576 acceptance criteria.  Adapters call this once during
+    server bootstrap to expose project-level state persistence to MCP agents.
+    The tools always act on the filesystem (``.dcc-mcp/project.json``) so they
+    work uniformly whether invoked from inside a DCC or from the standalone
+    gateway.
+
+    Parameters
+    ----------
+    server:
+        An ``McpHttpServer`` compatible object exposing ``registry`` and
+        ``register_handler(name, fn)``.
+    dcc_name:
+        DCC name to tag in the tool metadata.
+    project:
+        Optional caller-bound default ``DccProject``.  When set, tool calls
+        that omit both ``scene_path`` and ``project_dir`` operate on it;
+        otherwise those calls return ``success: false`` with a clear message.
+
+    """
+    try:
+        registry = server.registry
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.warning("register_project_tools: server.registry unavailable: %s", exc)
+        return
+
+    def _parse(params: Any) -> dict[str, Any]:
+        if isinstance(params, str):
+            return json_loads(params) or {}
+        return dict(params or {})
+
+    def _handle_save(params: Any) -> dict[str, Any]:
+        args = _parse(params)
+        scene_path = args.get("scene_path")
+        if not scene_path and project is None:
+            return {
+                "success": False,
+                "message": "project.save requires scene_path (no default project bound).",
+                "context": {},
+            }
+        target = (
+            DccProject.open(Path(str(scene_path))) if scene_path else project  # type: ignore[assignment]
+        )
+        assert target is not None  # narrowed by guard above
+        target.save()
+        return {
+            "success": True,
+            "message": f"Project saved at {target.state_path}",
+            "context": {
+                "state": target.state.to_dict(),
+                "project_dir": str(target.project_dir),
+                "state_path": str(target.state_path),
+            },
+        }
+
+    def _handle_load(params: Any) -> dict[str, Any]:
+        args = _parse(params)
+        scene_path = args.get("scene_path")
+        project_dir = args.get("project_dir")
+        if not scene_path and not project_dir:
+            return {
+                "success": False,
+                "message": "project.load requires scene_path or project_dir.",
+                "context": {},
+            }
+        # Determine whether a project.json actually exists — do not auto-create.
+        raw = Path(str(project_dir if project_dir else scene_path))
+        candidate_dir = raw if raw.name == PROJECT_DIR_NAME else raw.parent / PROJECT_DIR_NAME
+        if not (candidate_dir / PROJECT_STATE_FILE).is_file():
+            return {
+                "success": False,
+                "message": f"No project.json found at {candidate_dir}.",
+                "context": {"project_dir": str(candidate_dir)},
+            }
+        target = DccProject.load(raw)
+        return {
+            "success": True,
+            "message": f"Project loaded from {target.state_path}",
+            "context": {
+                "state": target.state.to_dict(),
+                "project_dir": str(target.project_dir),
+                "state_path": str(target.state_path),
+            },
+        }
+
+    def _handle_resume(params: Any) -> dict[str, Any]:
+        args = _parse(params)
+        target = _resolve_project_target(args, project)
+        if target is None:
+            return {
+                "success": False,
+                "message": "project.resume requires scene_path or project_dir (no default bound).",
+                "context": {},
+            }
+        return {
+            "success": True,
+            "message": f"Resume payload for {target.state_path}",
+            "context": target.resume_session(),
+        }
+
+    def _handle_status(params: Any) -> dict[str, Any]:
+        args = _parse(params)
+        target = _resolve_project_target(args, project)
+        if target is None:
+            return {
+                "success": False,
+                "message": "project.status requires scene_path or project_dir (no default bound).",
+                "context": {},
+            }
+        return {
+            "success": True,
+            "message": f"Project state for {target.state_path}",
+            "context": {
+                "state": target.state.to_dict(),
+                "project_dir": str(target.project_dir),
+                "state_path": str(target.state_path),
+            },
+        }
+
+    tools: list[tuple[str, str, dict[str, Any], Any]] = [
+        ("project.save", _PROJECT_SAVE_DESCRIPTION, _PROJECT_SAVE_SCHEMA, _handle_save),
+        ("project.load", _PROJECT_LOAD_DESCRIPTION, _PROJECT_LOAD_SCHEMA, _handle_load),
+        ("project.resume", _PROJECT_RESUME_DESCRIPTION, _PROJECT_RESUME_SCHEMA, _handle_resume),
+        ("project.status", _PROJECT_STATUS_DESCRIPTION, _PROJECT_STATUS_SCHEMA, _handle_status),
+    ]
+
+    for name, desc, schema, handler in tools:
+        try:
+            registry.register(
+                name=name,
+                description=desc,
+                input_schema=json_dumps(schema),
+                dcc=dcc_name,
+                category="project",
+                version="1.0.0",
+            )
+        except Exception as exc:
+            logger.warning("register_project_tools: register(%s) failed: %s", name, exc)
+            continue
+        try:
+            server.register_handler(name, handler)
+        except Exception as exc:
+            logger.warning("register_project_tools: register_handler(%s) failed: %s", name, exc)
+
+
 __all__ = [
     "PROJECT_DIR_NAME",
     "PROJECT_STATE_FILE",
     "DccProject",
     "ProjectState",
+    "register_project_tools",
 ]

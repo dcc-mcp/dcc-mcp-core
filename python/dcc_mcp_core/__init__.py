@@ -437,6 +437,7 @@ from dcc_mcp_core.project import PROJECT_DIR_NAME
 from dcc_mcp_core.project import PROJECT_STATE_FILE
 from dcc_mcp_core.project import DccProject
 from dcc_mcp_core.project import ProjectState
+from dcc_mcp_core.project import register_project_tools
 
 # Recipes system: metadata.dcc-mcp.recipes + recipes__list/get tools (issue #428)
 from dcc_mcp_core.recipes import RecipeDefinition
@@ -815,6 +816,7 @@ __all__ = [
     "register_docs_server",
     "register_feedback_tool",
     "register_introspect_tools",
+    "register_project_tools",
     "register_recipes_tools",
     "register_workflow_yaml_tools",
     "reset_cancel_token",
