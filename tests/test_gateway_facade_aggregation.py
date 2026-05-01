@@ -84,15 +84,67 @@ def _list_all_tools(url: str) -> list[dict]:
         rpc_id += 1
 
 
+def _unescape_cursor_safe(escaped: str) -> str | None:
+    """Inverse of the Cursor-safe escape table introduced in #656.
+
+    Returns ``None`` on malformed input so the caller can treat it as
+    "not a cursor-safe gateway tool" instead of routing a corrupted
+    backend name.
+    """
+    out: list[str] = []
+    i = 0
+    n = len(escaped)
+    while i < n:
+        ch = escaped[i]
+        if ch == "_":
+            # Every ``_`` opens a 3-byte ``_?_`` envelope; anything else
+            # is a bug in the emitter.
+            if i + 2 >= n or escaped[i + 2] != "_":
+                return None
+            mapped = {"U": "_", "D": ".", "H": "-"}.get(escaped[i + 1])
+            if mapped is None:
+                return None
+            out.append(mapped)
+            i += 3
+        elif ch.isascii() and ch.isalnum():
+            out.append(ch)
+            i += 1
+        else:
+            return None
+    return "".join(out)
+
+
 def _split_gateway_prefixed_tool(name: str) -> tuple[str, str] | None:
-    """Return ``(instance_prefix, tool_name)`` for ``<id8>.<tool>`` names."""
+    """Return ``(instance_prefix, tool_name)`` for every gateway wire form.
+
+    Accepts both the pre-#656 SEP-986 dotted form ``<id8>.<tool>`` and
+    the cursor-safe form ``i_<id8>__<escaped>``. Returns ``None`` for
+    anything else so the caller can keep its existing "is this a
+    gateway-encoded tool?" filter semantics.
+    """
     if name.startswith("__"):
         return None
+
+    # Cursor-safe form first (#656): ``i_<id8>__<escaped>``.
+    if name.startswith("i_"):
+        rest = name[len("i_") :]
+        sep_idx = rest.find("__")
+        if sep_idx == 8:
+            prefix = rest[:8]
+            escaped = rest[10:]
+            if all(ch in "0123456789abcdef" for ch in prefix):
+                decoded = _unescape_cursor_safe(escaped)
+                if decoded is not None:
+                    return prefix, decoded
+
+    # Legacy SEP-986 dotted form, still accepted during the
+    # compatibility window opened by #656.
     prefix, sep, suffix = name.partition(".")
     if not sep:
         return None
     if len(prefix) != 8 or not all(ch.isascii() and ch in "0123456789abcdef" for ch in prefix):
         return None
+    return prefix, suffix
     return prefix, suffix
 
 
