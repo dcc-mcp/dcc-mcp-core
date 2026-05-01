@@ -11,6 +11,21 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.14.21](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.20...v0.14.21) (2026-05-01)
+
+
+### Features
+
+* **project:** add active_tool_groups and created_at fields ([#576](https://github.com/loonghao/dcc-mcp-core/issues/576)) ([b3f793c](https://github.com/loonghao/dcc-mcp-core/commit/b3f793c5c01adb470ac71895990dd9a800ad2c34))
+* **project:** add register_project_tools with 4 MCP tools ([#576](https://github.com/loonghao/dcc-mcp-core/issues/576)) ([76fe945](https://github.com/loonghao/dcc-mcp-core/commit/76fe945441058224c7e19a9c46c53d28c6c9e8ee))
+* **project:** integrate CheckpointStore as DccProject.checkpoints ([#576](https://github.com/loonghao/dcc-mcp-core/issues/576)) ([b535aba](https://github.com/loonghao/dcc-mcp-core/commit/b535aba639e4bc9012aa06ebd07c13bfae23321f))
+
+
+### Documentation
+
+* **project:** add project-persistence guide (EN + ZH) ([#576](https://github.com/loonghao/dcc-mcp-core/issues/576)) ([f85967f](https://github.com/loonghao/dcc-mcp-core/commit/f85967f497ffa9ab492986a76e226612a651fb5f))
+* update outdated crate references and version numbers ([103e6b5](https://github.com/loonghao/dcc-mcp-core/commit/103e6b53987b575cb715ffbb69023ffcdb02a063))
+
 ## [0.14.20](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.19...v0.14.20) (2026-05-01)
 
 
