@@ -69,7 +69,7 @@ from ever breaking a round-trip assertion.
 
 ## Writing a verifier skill
 
-The template lives at [`skills/templates/verifier-harness/`](../../skills/templates/verifier-harness/).
+The template lives at `skills/templates/verifier-harness/`.
 To create a verifier for a new DCC:
 
 1. Copy the template directory into your downstream repo (e.g.
@@ -121,7 +121,7 @@ if __name__ == "__main__":
 That belongs in whichever downstream repo owns the producer or verifier
 binary, because only those repos pin the DCC version matrix. The
 invariant core asserts is shape-only, exercised by
-[`tests/test_verifier_contract.py`](../../tests/test_verifier_contract.py).
+`tests/test_verifier_contract.py`.
 
 Downstream repos following this contract should add a CI job along
 these lines:

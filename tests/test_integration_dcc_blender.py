@@ -166,6 +166,7 @@ class TestBlenderIntegration:
 
         import_script = textwrap.dedent(f"""\
             import bpy, json
+            from mathutils import Vector
             bpy.ops.object.select_all(action="SELECT")
             bpy.ops.object.delete()
             bpy.ops.import_scene.fbx(filepath=r"{fbx_file}")
@@ -173,7 +174,7 @@ class TestBlenderIntegration:
             vertex_count = sum(len(obj.data.vertices) for obj in meshes)
             bounds = []
             for obj in meshes:
-                bounds.extend([obj.matrix_world @ corner for corner in obj.bound_box])
+                bounds.extend([obj.matrix_world @ Vector(corner) for corner in obj.bound_box])
             bbox = {{
                 "min": [min(v[i] for v in bounds) for i in range(3)] if bounds else [],
                 "max": [max(v[i] for v in bounds) for i in range(3)] if bounds else [],
