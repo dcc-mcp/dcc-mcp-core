@@ -119,3 +119,35 @@ class TestCrossDCCPipeline:
             assert meta is not None
             assert meta.version != "", f"Missing version for {meta.name}"
             assert meta.dcc in _ALL_DCC_LIST, f"Unexpected DCC: {meta.dcc}"
+
+    def test_cross_dcc_scene_stats_manifest_contract(self) -> None:
+        """Producer/verifier SceneStats round-trip through success_result context.
+
+        Demonstrates the pattern downstream CI uses when one DCC exports an
+        asset and another DCC imports it back: the verifier payload is a
+        ``SceneStats.to_dict()`` blob nested in a ``success_result`` context,
+        and the core ``SceneStats.matches()`` helper adjudicates round-trip
+        fidelity without any DCC binary being involved.
+        """
+        produced = dcc_mcp_core.SceneStats(
+            object_count=1,
+            vertex_count=482,
+            has_mesh=True,
+            extra={"producer_dcc": "blender"},
+        )
+
+        # Simulate the verifier's final wrap: ToolResult context nests the
+        # stats dict alongside a human-readable status message.
+        verifier_result = dcc_mcp_core.success_result(
+            "Imported and inspected asset",
+            verifier_dcc="godot",
+            stats=produced.to_dict(),
+        )
+        assert verifier_result.success is True
+        nested = verifier_result.context["stats"]
+        observed = dcc_mcp_core.SceneStats.from_dict(nested)
+
+        # Observed stats survive the producer → JSON → verifier round-trip.
+        assert observed == produced
+        assert produced.matches(observed, vertex_tolerance=0.05)
+        assert observed.extra == {"producer_dcc": "blender"}

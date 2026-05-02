@@ -482,6 +482,9 @@ from dcc_mcp_core.skill import skill_exception
 from dcc_mcp_core.skill import skill_success
 from dcc_mcp_core.skill import skill_warning
 
+# Cross-DCC verifier contract (issue #688)
+from dcc_mcp_core.verifier import SceneStats
+
 # YAML declarative workflow definitions (issue #439)
 from dcc_mcp_core.workflow_yaml import WorkflowTask
 from dcc_mcp_core.workflow_yaml import WorkflowYaml
@@ -660,6 +663,7 @@ __all__ = [
     "SceneNode",
     "SceneObject",
     "SceneStatistics",
+    "SceneStats",
     "ScheduleSpec",
     "ScriptExecutionCapture",
     "ScriptExecutionParams",

@@ -28,6 +28,7 @@
 | Capture a DCC viewport screenshot | `Capturer.new_auto().capture()` (full-screen) / `Capturer.new_window_auto().capture_window(process_id=pid)` (single window) |
 | Bind diagnostics MCP tools to a specific DCC instance | `DccServerBase(..., dcc_pid=pid, dcc_window_title=title)` |
 | Expose a group of tools only when asked | Declare `groups:` in SKILL.md + `activate_tool_group` / `deactivate_tool_group` |
+| Assert a producer→file→verifier round-trip between two DCCs (#688) | `dcc_mcp_core.SceneStats(object_count, vertex_count, has_mesh, extra={})` + `SceneStats.matches(other, vertex_tolerance=0.05)`; verifier skills inherit the `skills/templates/verifier-harness/` template. DCC-specific implementations live in downstream repos. |
 | Exchange scene data via USD format | `UsdStage` + `scene_info_json_to_stage()` |
 | Bridge DCC protocols | `BridgeRegistry` + `register_bridge()` / `get_bridge_context()` |
 | Describe scene hierarchy | `SceneNode` + `SceneObject` + `ObjectTransform` + `BoundingBox` |
