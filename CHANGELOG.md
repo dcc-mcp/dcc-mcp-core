@@ -11,6 +11,40 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.14.22](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.21...v0.14.22) (2026-05-02)
+
+
+### Features
+
+* **_tool_registration:** add output_schema to ToolSpec ([#242](https://github.com/loonghao/dcc-mcp-core/issues/242)) ([5fb5904](https://github.com/loonghao/dcc-mcp-core/commit/5fb5904555953bed97655deab300e03b83170939))
+* **examples:** typed-schema-demo skill using derived schema ([#242](https://github.com/loonghao/dcc-mcp-core/issues/242)) ([47b0ee9](https://github.com/loonghao/dcc-mcp-core/commit/47b0ee94798b6b033f6967249078b25bbeb989bd))
+* **gateway:** add capability index + REST/MCP dynamic-capability wrappers ([#653](https://github.com/loonghao/dcc-mcp-core/issues/653), [#654](https://github.com/loonghao/dcc-mcp-core/issues/654), [#655](https://github.com/loonghao/dcc-mcp-core/issues/655)) ([#664](https://github.com/loonghao/dcc-mcp-core/issues/664)) ([64c3ebc](https://github.com/loonghao/dcc-mcp-core/commit/64c3ebc2dd48234d2296e40a4457b234c66bb252))
+* **gateway:** add configurable slim/rest tool-exposure mode ([#652](https://github.com/loonghao/dcc-mcp-core/issues/652)) ([#661](https://github.com/loonghao/dcc-mcp-core/issues/661)) ([e111232](https://github.com/loonghao/dcc-mcp-core/commit/e111232246bd1a62542eb4f014087deb14bf6f10))
+* **gateway:** emit Cursor-safe tool names and keep legacy dotted decode ([#656](https://github.com/loonghao/dcc-mcp-core/issues/656)) ([968199a](https://github.com/loonghao/dcc-mcp-core/commit/968199af7a388b88f28c19ed63d3a33246b222e6))
+* **gateway:** high-performance fuzzy search over capability metadata ([#659](https://github.com/loonghao/dcc-mcp-core/issues/659)) ([992ac8f](https://github.com/loonghao/dcc-mcp-core/commit/992ac8f7e032c167f0ca5e70e99c436b55c8e931))
+* **schema:** tool_spec_from_callable helper ([#242](https://github.com/loonghao/dcc-mcp-core/issues/242)) ([2d5ee9a](https://github.com/loonghao/dcc-mcp-core/commit/2d5ee9a1053070b0eb6af624e4e5ee46568f58e7))
+* **schema:** zero-dep type to JSON Schema helper ([#242](https://github.com/loonghao/dcc-mcp-core/issues/242)) ([6639bbb](https://github.com/loonghao/dcc-mcp-core/commit/6639bbb14473382dda49413b62ce35f02a4a954a))
+* **skill-rest:** per-DCC RESTful skill API surface ([#658](https://github.com/loonghao/dcc-mcp-core/issues/658), [#660](https://github.com/loonghao/dcc-mcp-core/issues/660)) ([136036c](https://github.com/loonghao/dcc-mcp-core/commit/136036cbe68af7fa48ab37699a65cf1394d52cc2))
+
+
+### Bug Fixes
+
+* **gateway:** update doctest imports after crate extraction ([9a1905a](https://github.com/loonghao/dcc-mcp-core/commit/9a1905a7e1494454d94bdf33ae05ce2f6822a76b))
+* keep schema helpers py37 compatible ([50d2a6d](https://github.com/loonghao/dcc-mcp-core/commit/50d2a6dbe147bb5fe69734e45bb2327b652f6466))
+
+
+### Code Refactoring
+
+* **http:** split dcc-mcp-http into 4 SOLID-aligned crates ([94dca59](https://github.com/loonghao/dcc-mcp-core/commit/94dca59f20fddd5263ab20839fbc92eaefe7e30f))
+
+
+### Documentation
+
+* document structured schema derivation ([#242](https://github.com/loonghao/dcc-mcp-core/issues/242)) ([eb611d3](https://github.com/loonghao/dcc-mcp-core/commit/eb611d3a98cb1e330f0fa9880201dbda93a0eebe))
+* optimize AI agent documentation and Skills-First emphasis ([36d182d](https://github.com/loonghao/dcc-mcp-core/commit/36d182d20accbe872ecf0e93869ccff643ee120c))
+* optimize documentation for AI agent discoverability and Skills-First emphasis ([3a0b65d](https://github.com/loonghao/dcc-mcp-core/commit/3a0b65d441e8ee7d12ec7ff4ac8f59b17cf456ab))
+* update version in llms.txt to 0.14.21 ([fa65bec](https://github.com/loonghao/dcc-mcp-core/commit/fa65bece482fccc2545848d6e93cc6ed7b40907b))
+
 ## [0.14.21](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.20...v0.14.21) (2026-05-01)
 
 
