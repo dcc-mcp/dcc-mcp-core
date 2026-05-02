@@ -183,10 +183,10 @@ pub async fn handle_load_skill(
         "already_loaded":   already_loaded,
         "tools":            tool_schemas,
     });
-    if !errors.is_empty() {
-        if let Some(obj) = body.as_object_mut() {
-            obj.insert("errors".to_string(), json!(errors));
-        }
+    if !errors.is_empty()
+        && let Some(obj) = body.as_object_mut()
+    {
+        obj.insert("errors".to_string(), json!(errors));
     }
 
     let text = serde_json::to_string_pretty(&body).unwrap_or_default();

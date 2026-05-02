@@ -112,12 +112,12 @@ impl SandboxPolicy {
                 action: action.to_owned(),
             });
         }
-        if let Some(ref allowed) = self.allowed_actions {
-            if !allowed.contains(action) {
-                return Err(SandboxError::ActionNotAllowed {
-                    action: action.to_owned(),
-                });
-            }
+        if let Some(ref allowed) = self.allowed_actions
+            && !allowed.contains(action)
+        {
+            return Err(SandboxError::ActionNotAllowed {
+                action: action.to_owned(),
+            });
         }
         Ok(())
     }

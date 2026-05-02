@@ -142,15 +142,15 @@ pub async fn tool_get_instance(gs: &GatewayState, args: &Value) -> Result<String
         }
 
         // display_name match
-        if let Some(name) = args.get("display_name").and_then(|v| v.as_str()) {
-            if let Some(e) = candidates.iter().find(|e| {
+        if let Some(name) = args.get("display_name").and_then(|v| v.as_str())
+            && let Some(e) = candidates.iter().find(|e| {
                 e.display_name
                     .as_deref()
                     .is_some_and(|n| n.to_lowercase().contains(&name.to_lowercase()))
-            }) {
-                return serde_json::to_string_pretty(&entry_to_json(e, gs.stale_timeout))
-                    .map_err(|e| e.to_string());
-            }
+            })
+        {
+            return serde_json::to_string_pretty(&entry_to_json(e, gs.stale_timeout))
+                .map_err(|e| e.to_string());
         }
 
         // scene / document hint
@@ -158,14 +158,13 @@ pub async fn tool_get_instance(gs: &GatewayState, args: &Value) -> Result<String
             .get("scene")
             .or_else(|| args.get("document"))
             .and_then(|v| v.as_str());
-        if let Some(hint) = scene_hint {
-            if let Some(e) = candidates
+        if let Some(hint) = scene_hint
+            && let Some(e) = candidates
                 .iter()
                 .find(|e| scene_matches(e, hint) || document_matches(e, hint))
-            {
-                return serde_json::to_string_pretty(&entry_to_json(e, gs.stale_timeout))
-                    .map_err(|e| e.to_string());
-            }
+        {
+            return serde_json::to_string_pretty(&entry_to_json(e, gs.stale_timeout))
+                .map_err(|e| e.to_string());
         }
 
         // Single unambiguous candidate
@@ -214,14 +213,14 @@ pub async fn tool_connect_to_dcc(gs: &GatewayState, args: &Value) -> Result<Stri
         }
 
         // display_name match
-        if let Some(name) = args.get("display_name").and_then(|v| v.as_str()) {
-            if let Some(e) = candidates.iter().find(|e| {
+        if let Some(name) = args.get("display_name").and_then(|v| v.as_str())
+            && let Some(e) = candidates.iter().find(|e| {
                 e.display_name
                     .as_deref()
                     .is_some_and(|n| n.to_lowercase().contains(&name.to_lowercase()))
-            }) {
-                return format_connect_response(e);
-            }
+            })
+        {
+            return format_connect_response(e);
         }
 
         // scene / document hint
@@ -229,13 +228,12 @@ pub async fn tool_connect_to_dcc(gs: &GatewayState, args: &Value) -> Result<Stri
             .get("scene")
             .or_else(|| args.get("document"))
             .and_then(|v| v.as_str());
-        if let Some(hint) = scene_hint {
-            if let Some(e) = candidates
+        if let Some(hint) = scene_hint
+            && let Some(e) = candidates
                 .iter()
                 .find(|e| scene_matches(e, hint) || document_matches(e, hint))
-            {
-                return format_connect_response(e);
-            }
+        {
+            return format_connect_response(e);
         }
 
         // Single unambiguous candidate

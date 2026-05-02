@@ -182,10 +182,10 @@ fn real_case(parent: &Path, candidate: &Path) -> Option<PathBuf> {
     let target = candidate.file_name()?.to_str()?.to_ascii_lowercase();
     for entry in std::fs::read_dir(parent).ok()?.flatten() {
         let name = entry.file_name();
-        if let Some(s) = name.to_str() {
-            if s.to_ascii_lowercase() == target {
-                return Some(parent.join(s));
-            }
+        if let Some(s) = name.to_str()
+            && s.to_ascii_lowercase() == target
+        {
+            return Some(parent.join(s));
         }
     }
     None

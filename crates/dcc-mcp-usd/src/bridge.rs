@@ -186,10 +186,10 @@ pub fn stage_to_scene_info(stage: &UsdStage) -> SceneInfo {
         info.statistics.camera_count = get_u64("dcc:cameraCount");
 
         // Source format
-        if let Some(attr) = world.get_attribute("dcc:sourceFormat") {
-            if let Some(s) = attr.default_value.as_ref().and_then(|v| v.as_str()) {
-                info.format = s.to_string();
-            }
+        if let Some(attr) = world.get_attribute("dcc:sourceFormat")
+            && let Some(s) = attr.default_value.as_ref().and_then(|v| v.as_str())
+        {
+            info.format = s.to_string();
         }
     }
 

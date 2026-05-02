@@ -171,42 +171,41 @@ pub(crate) async fn handle_tools_list(
     let current_gen = state.current_registry_generation();
 
     // ── Fast path: return cached snapshot if available and still valid ──
-    if state.enable_tool_cache && !force_refresh {
-        if let Some(sid) = session_id {
-            if let Some(snapshot) = state.sessions.get_tool_list_snapshot(sid) {
-                if snapshot.generation == current_gen {
-                    // Cache hit — apply cursor pagination on the cached list
-                    // and return without rebuilding.
-                    let cursor: usize = req
-                        .params
-                        .as_ref()
-                        .and_then(|p| p.get("cursor"))
-                        .and_then(|v| v.as_str())
-                        .and_then(decode_cursor)
-                        .unwrap_or(0);
-                    let total = snapshot.total;
-                    let page_end = (cursor + TOOLS_LIST_PAGE_SIZE).min(total);
-                    let page: Vec<McpTool> = if cursor < total {
-                        snapshot.tools[cursor..page_end].to_vec()
-                    } else {
-                        Vec::new()
-                    };
-                    let next_cursor = if page_end < total {
-                        Some(encode_cursor(page_end))
-                    } else {
-                        None
-                    };
-                    let result = ListToolsResult {
-                        tools: page,
-                        next_cursor,
-                    };
-                    return Ok(JsonRpcResponse::success(
-                        req.id.clone(),
-                        serde_json::to_value(result)?,
-                    ));
-                }
-            }
-        }
+    if state.enable_tool_cache
+        && !force_refresh
+        && let Some(sid) = session_id
+        && let Some(snapshot) = state.sessions.get_tool_list_snapshot(sid)
+        && snapshot.generation == current_gen
+    {
+        // Cache hit — apply cursor pagination on the cached list
+        // and return without rebuilding.
+        let cursor: usize = req
+            .params
+            .as_ref()
+            .and_then(|p| p.get("cursor"))
+            .and_then(|v| v.as_str())
+            .and_then(decode_cursor)
+            .unwrap_or(0);
+        let total = snapshot.total;
+        let page_end = (cursor + TOOLS_LIST_PAGE_SIZE).min(total);
+        let page: Vec<McpTool> = if cursor < total {
+            snapshot.tools[cursor..page_end].to_vec()
+        } else {
+            Vec::new()
+        };
+        let next_cursor = if page_end < total {
+            Some(encode_cursor(page_end))
+        } else {
+            None
+        };
+        let result = ListToolsResult {
+            tools: page,
+            next_cursor,
+        };
+        return Ok(JsonRpcResponse::success(
+            req.id.clone(),
+            serde_json::to_value(result)?,
+        ));
     }
 
     // ── Slow path: rebuild the full tool list from the registry ──
@@ -292,15 +291,15 @@ pub(crate) async fn handle_tools_list(
     let total = tools.len();
 
     // ── Store the snapshot for future cache hits (issue #438) ──
-    if state.enable_tool_cache {
-        if let Some(sid) = session_id {
-            let snapshot = crate::session::ToolListSnapshot {
-                tools: tools.clone(),
-                generation: current_gen,
-                total,
-            };
-            state.sessions.set_tool_list_snapshot(sid, snapshot);
-        }
+    if state.enable_tool_cache
+        && let Some(sid) = session_id
+    {
+        let snapshot = crate::session::ToolListSnapshot {
+            tools: tools.clone(),
+            generation: current_gen,
+            total,
+        };
+        state.sessions.set_tool_list_snapshot(sid, snapshot);
     }
 
     // 4. Session-scoped dynamic tools (issue #462).

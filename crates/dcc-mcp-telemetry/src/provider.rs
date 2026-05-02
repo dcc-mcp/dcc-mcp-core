@@ -30,15 +30,15 @@ pub struct TelemetryHandle {
 impl TelemetryHandle {
     /// Flush all pending spans/metrics and shut down the exporters gracefully.
     pub fn shutdown(&self) {
-        if let Some(ref tp) = self.tracer_provider {
-            if let Err(e) = tp.shutdown() {
-                tracing::warn!("tracer provider shutdown error: {e}");
-            }
+        if let Some(ref tp) = self.tracer_provider
+            && let Err(e) = tp.shutdown()
+        {
+            tracing::warn!("tracer provider shutdown error: {e}");
         }
-        if let Some(ref mp) = self.meter_provider {
-            if let Err(e) = mp.shutdown() {
-                tracing::warn!("meter provider shutdown error: {e}");
-            }
+        if let Some(ref mp) = self.meter_provider
+            && let Err(e) = mp.shutdown()
+        {
+            tracing::warn!("meter provider shutdown error: {e}");
         }
     }
 }

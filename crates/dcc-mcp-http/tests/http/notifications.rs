@@ -18,10 +18,10 @@ use tokio::sync::broadcast;
 fn drain(rx: &mut broadcast::Receiver<String>) -> Vec<Value> {
     let mut out = Vec::new();
     while let Ok(frame) = rx.try_recv() {
-        if let Some(body) = frame.strip_prefix("data: ") {
-            if let Ok(v) = serde_json::from_str::<Value>(body.trim()) {
-                out.push(v);
-            }
+        if let Some(body) = frame.strip_prefix("data: ")
+            && let Ok(v) = serde_json::from_str::<Value>(body.trim())
+        {
+            out.push(v);
         }
     }
     out

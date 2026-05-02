@@ -33,10 +33,10 @@ fn enumerate_files_by_ext(dir: &Path, filter: impl Fn(&str) -> bool) -> Vec<Stri
             };
             if file_type.is_file() {
                 let path = entry.path();
-                if let Some(ext) = path.extension().and_then(|ext| ext.to_str()) {
-                    if filter(ext) {
-                        files.push(path_to_string(&path));
-                    }
+                if let Some(ext) = path.extension().and_then(|ext| ext.to_str())
+                    && filter(ext)
+                {
+                    files.push(path_to_string(&path));
                 }
             }
         }

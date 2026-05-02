@@ -105,10 +105,10 @@ impl IdempotencyStore for IdempotencyCache {
         let now = Instant::now();
         let guard = self.inner.read();
         let entry = guard.get(&k)?;
-        if let Some(exp) = entry.expires_at {
-            if exp <= now {
-                return None;
-            }
+        if let Some(exp) = entry.expires_at
+            && exp <= now
+        {
+            return None;
         }
         Some(entry.value.clone())
     }

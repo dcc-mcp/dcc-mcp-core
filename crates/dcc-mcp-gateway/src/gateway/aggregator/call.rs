@@ -115,10 +115,10 @@ pub async fn route_tools_call(
     //     session → token mapping so `notifications/progress` from the
     //     backend can be routed back here.
     gs.subscriber.ensure_subscribed(&url);
-    if let (Some(sid), Some(m)) = (client_session_id, meta) {
-        if let Some(token) = m.get("progressToken") {
-            gs.subscriber.bind_progress_token(token, sid);
-        }
+    if let (Some(sid), Some(m)) = (client_session_id, meta)
+        && let Some(token) = m.get("progressToken")
+    {
+        gs.subscriber.bind_progress_token(token, sid);
     }
 
     // ── #321: pick the right timeout ──────────────────────────────────
@@ -200,20 +200,18 @@ pub async fn route_tools_call(
             }
 
             // ── #321: wait-for-terminal passthrough ────────────────────
-            if wait_for_terminal {
-                if let Some(jid) = job_id.as_deref() {
-                    return wait_for_terminal_reply(
-                        gs,
-                        jid,
-                        &mut result,
-                        &entry,
-                        gs.wait_terminal_timeout,
-                    )
-                    .await;
-                }
-                // Synchronous reply on an async-opt-in path: nothing to
-                // wait for — fall through and return the envelope as-is.
+            if wait_for_terminal && let Some(jid) = job_id.as_deref() {
+                return wait_for_terminal_reply(
+                    gs,
+                    jid,
+                    &mut result,
+                    &entry,
+                    gs.wait_terminal_timeout,
+                )
+                .await;
             }
+            // Synchronous reply on an async-opt-in path: nothing to
+            // wait for — fall through and return the envelope as-is.
 
             inject_instance_metadata(&mut result, &entry.instance_id, &entry.dcc_type);
             envelope_to_text_result(&result)

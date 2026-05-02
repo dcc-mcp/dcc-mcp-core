@@ -42,10 +42,10 @@ pub(crate) fn is_skill_related(path: &Path) -> bool {
     }
 
     // Script files (check extension against supported list)
-    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-        if crate::constants::is_supported_extension(ext) {
-            return true;
-        }
+    if let Some(ext) = path.extension().and_then(|e| e.to_str())
+        && crate::constants::is_supported_extension(ext)
+    {
+        return true;
     }
 
     false

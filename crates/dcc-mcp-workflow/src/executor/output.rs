@@ -73,11 +73,11 @@ pub fn maybe_upload_inline_refs(
     };
 
     uploaders("file_refs", output);
-    if let Some(ctx) = output.get_mut("context") {
-        if let Some(arr) = ctx.get_mut("file_refs").and_then(Value::as_array_mut) {
-            for entry in arr.iter_mut() {
-                upload_one(entry);
-            }
+    if let Some(ctx) = output.get_mut("context")
+        && let Some(arr) = ctx.get_mut("file_refs").and_then(Value::as_array_mut)
+    {
+        for entry in arr.iter_mut() {
+            upload_one(entry);
         }
     }
     // Squash unused warning when `root_job_id` not needed.

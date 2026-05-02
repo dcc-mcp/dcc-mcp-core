@@ -410,15 +410,17 @@ impl SkillRestService {
                 if req.loaded_only && !a.loaded {
                     return false;
                 }
-                if let Some(d) = &req.dcc_type {
-                    if !d.is_empty() && !a.dcc.eq_ignore_ascii_case(d) {
-                        return false;
-                    }
+                if let Some(d) = &req.dcc_type
+                    && !d.is_empty()
+                    && !a.dcc.eq_ignore_ascii_case(d)
+                {
+                    return false;
                 }
-                if let Some(scope_filter) = &req.scope {
-                    if !scope_filter.is_empty() && !a.scope.eq_ignore_ascii_case(scope_filter) {
-                        return false;
-                    }
+                if let Some(scope_filter) = &req.scope
+                    && !scope_filter.is_empty()
+                    && !a.scope.eq_ignore_ascii_case(scope_filter)
+                {
+                    return false;
                 }
                 for t in &tags_lower {
                     if !a.tags.iter().any(|x| x.to_ascii_lowercase() == *t) {

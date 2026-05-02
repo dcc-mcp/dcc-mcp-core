@@ -13,7 +13,7 @@ inputs:
   rust-version:
     description: 'Rust toolchain version'
     required: false
-    default: '1.90.0'
+    default: '1.95.0'
   maturin-extra-args:
     description: 'Extra maturin args (e.g. --sdist, -i python3.7). Features
       and --release/--out are set by this action from the justfile.'

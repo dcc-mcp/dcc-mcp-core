@@ -244,20 +244,20 @@ pub fn hash_file_sha256(path: &Path) -> io::Result<String> {
 }
 
 fn apply_filter(fr: &FileRef, filter: &ArtefactFilter) -> bool {
-    if let Some(job) = filter.producer_job_id {
-        if fr.producer_job_id != Some(job) {
-            return false;
-        }
+    if let Some(job) = filter.producer_job_id
+        && fr.producer_job_id != Some(job)
+    {
+        return false;
     }
-    if let Some(ref mime) = filter.mime {
-        if fr.mime.as_deref() != Some(mime.as_str()) {
-            return false;
-        }
+    if let Some(ref mime) = filter.mime
+        && fr.mime.as_deref() != Some(mime.as_str())
+    {
+        return false;
     }
-    if let Some(since) = filter.created_since {
-        if fr.created_at < since {
-            return false;
-        }
+    if let Some(since) = filter.created_since
+        && fr.created_at < since
+    {
+        return false;
     }
     true
 }

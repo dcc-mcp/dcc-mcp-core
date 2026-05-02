@@ -339,22 +339,21 @@ pub(crate) fn execute_script(
             .ok()
             .as_deref()
             != Some("1")
+        && let Some(dcc) = skill_dcc
     {
-        if let Some(dcc) = skill_dcc {
-            let dcc_lc = dcc.to_ascii_lowercase();
-            if DCC_NAMES_REQUIRING_HOST_PYTHON.contains(&dcc_lc.as_str()) {
-                let msg = format!(
-                    "Skill for DCC '{dcc}' cannot run with the ambient Python on PATH: \
+        let dcc_lc = dcc.to_ascii_lowercase();
+        if DCC_NAMES_REQUIRING_HOST_PYTHON.contains(&dcc_lc.as_str()) {
+            let msg = format!(
+                "Skill for DCC '{dcc}' cannot run with the ambient Python on PATH: \
                      `import {dcc_lc}.cmds` (or the equivalent) is either missing or a stub. \
                      Export DCC_MCP_PYTHON_EXECUTABLE to the DCC's host interpreter \
                      (e.g. mayapy, hython, 'blender --python') and DCC_MCP_PYTHON_INIT_SNIPPET \
                      to the per-DCC bootstrap code before starting the MCP server. \
                      Set DCC_MCP_ALLOW_AMBIENT_PYTHON=1 only for tests / stubs. \
                      See issue #231 for the contract."
-                );
-                tracing::error!(target: "dcc_mcp_skills::execute", %dcc, "{}", msg);
-                return Err(msg);
-            }
+            );
+            tracing::error!(target: "dcc_mcp_skills::execute", %dcc, "{}", msg);
+            return Err(msg);
         }
     }
 
@@ -364,22 +363,22 @@ pub(crate) fn execute_script(
     // running the skill script. Detection lives in
     // `crate::gui_executable` (issue #524) so other DCC plugins reach the
     // same lookup table.
-    if let Some(ref exe) = python_exe_override {
-        if let Some(hint) = crate::gui_executable::is_gui_executable(std::path::Path::new(exe)) {
-            let suggestion = match hint.recommended_replacement.as_ref() {
-                Some(p) => format!("Use the command-line interpreter at '{}'.", p.display()),
-                None => "Use the command-line interpreter (e.g. mayapy, blender --python, hython) \
+    if let Some(ref exe) = python_exe_override
+        && let Some(hint) = crate::gui_executable::is_gui_executable(std::path::Path::new(exe))
+    {
+        let suggestion = match hint.recommended_replacement.as_ref() {
+            Some(p) => format!("Use the command-line interpreter at '{}'.", p.display()),
+            None => "Use the command-line interpreter (e.g. mayapy, blender --python, hython) \
                          or leave DCC_MCP_PYTHON_EXECUTABLE unset to use the in-process executor."
-                    .to_string(),
-            };
-            let msg = format!(
-                "DCC_MCP_PYTHON_EXECUTABLE points to a {} GUI executable '{}'. \
+                .to_string(),
+        };
+        let msg = format!(
+            "DCC_MCP_PYTHON_EXECUTABLE points to a {} GUI executable '{}'. \
                  This will spawn a new DCC window instead of running the skill script. {}",
-                hint.dcc_kind, exe, suggestion,
-            );
-            tracing::error!(target: "dcc_mcp_skills::execute", exe, dcc_kind = hint.dcc_kind, "{}", msg);
-            return Err(msg);
-        }
+            hint.dcc_kind, exe, suggestion,
+        );
+        tracing::error!(target: "dcc_mcp_skills::execute", exe, dcc_kind = hint.dcc_kind, "{}", msg);
+        return Err(msg);
     }
 
     // Build CLI args that argparse-based scripts can consume.

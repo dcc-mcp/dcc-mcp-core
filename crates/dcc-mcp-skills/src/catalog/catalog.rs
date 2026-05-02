@@ -43,10 +43,11 @@ impl SkillCatalog {
                     }
                 }
 
-                if let Some(dcc_filter) = dcc {
-                    if !dcc_filter.is_empty() && !meta.dcc.eq_ignore_ascii_case(dcc_filter) {
-                        return false;
-                    }
+                if let Some(dcc_filter) = dcc
+                    && !dcc_filter.is_empty()
+                    && !meta.dcc.eq_ignore_ascii_case(dcc_filter)
+                {
+                    return false;
                 }
 
                 true

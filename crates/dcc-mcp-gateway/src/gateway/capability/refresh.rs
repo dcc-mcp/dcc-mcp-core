@@ -68,16 +68,17 @@ pub async fn refresh_instance(
 
     // Short-circuit when nothing changed. This is the common path —
     // most periodic refreshes find an identical tool list.
-    if let Some(prev) = index.fingerprint_for(instance_id) {
-        if prev == outcome.fingerprint && !outcome.records.is_empty() {
-            tracing::trace!(
-                instance = %instance_id,
-                reason = reason.as_str(),
-                records = outcome.records.len(),
-                "capability index: no-op refresh (fingerprint unchanged)",
-            );
-            return false;
-        }
+    if let Some(prev) = index.fingerprint_for(instance_id)
+        && prev == outcome.fingerprint
+        && !outcome.records.is_empty()
+    {
+        tracing::trace!(
+            instance = %instance_id,
+            reason = reason.as_str(),
+            records = outcome.records.len(),
+            "capability index: no-op refresh (fingerprint unchanged)",
+        );
+        return false;
     }
 
     let records_len = outcome.records.len();

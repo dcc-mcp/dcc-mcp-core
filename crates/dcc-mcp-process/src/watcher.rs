@@ -252,15 +252,15 @@ async fn poll_once(inner: &WatcherInner, event_tx: &mpsc::Sender<ProcessEvent>) 
 
         let old_status_opt = status_updates.get(idx).and_then(|(_, _, old)| *old);
 
-        if let Some(old_status) = old_status_opt {
-            if old_status != new_status {
-                debug!(pid, ?old_status, ?new_status, "process status changed");
+        if let Some(old_status) = old_status_opt
+            && old_status != new_status
+        {
+            debug!(pid, ?old_status, ?new_status, "process status changed");
 
-                let name = info.name.clone();
+            let name = info.name.clone();
 
-                let event = if new_status == ProcessStatus::Stopped
-                    || new_status == ProcessStatus::Crashed
-                {
+            let event =
+                if new_status == ProcessStatus::Stopped || new_status == ProcessStatus::Crashed {
                     // Treat stopped/crashed as an Exited event for convenience
                     ProcessEvent::Exited {
                         pid,
@@ -275,9 +275,8 @@ async fn poll_once(inner: &WatcherInner, event_tx: &mpsc::Sender<ProcessEvent>) 
                     }
                 };
 
-                if event_tx.send(event).await.is_err() {
-                    return;
-                }
+            if event_tx.send(event).await.is_err() {
+                return;
             }
         }
     }

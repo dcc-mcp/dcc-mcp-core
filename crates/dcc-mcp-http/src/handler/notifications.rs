@@ -28,13 +28,13 @@ pub(crate) async fn handle_notification(state: &AppState, method: &str, params: 
                 other => serde_json::to_string(other).unwrap_or_default(),
             });
 
-            if let Some(id) = id_str {
-                if !id.is_empty() {
-                    tracing::info!(request_id = %id, "MCP request cancelled by client");
-                    state.cancelled_requests.insert(id.clone(), Instant::now());
-                    if state.in_flight.request_cancel(&id) {
-                        tracing::debug!(request_id = %id, "cancel flag set on in-flight request");
-                    }
+            if let Some(id) = id_str
+                && !id.is_empty()
+            {
+                tracing::info!(request_id = %id, "MCP request cancelled by client");
+                state.cancelled_requests.insert(id.clone(), Instant::now());
+                if state.in_flight.request_cancel(&id) {
+                    tracing::debug!(request_id = %id, "cancel flag set on in-flight request");
                 }
             }
         }

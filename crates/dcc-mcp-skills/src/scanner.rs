@@ -103,19 +103,18 @@ impl SkillScanner {
         }
 
         // 3. Platform-specific skills directory
-        if let Ok(platform_dir) = crate::paths::get_skills_dir(dcc_name) {
-            if Path::new(&platform_dir).is_dir() {
-                search_paths.push(platform_dir);
-            }
+        if let Ok(platform_dir) = crate::paths::get_skills_dir(dcc_name)
+            && Path::new(&platform_dir).is_dir()
+        {
+            search_paths.push(platform_dir);
         }
 
         // Also check global skills dir if dcc_name was specified
-        if dcc_name.is_some() {
-            if let Ok(global_dir) = crate::paths::get_skills_dir(None) {
-                if Path::new(&global_dir).is_dir() {
-                    search_paths.push(global_dir);
-                }
-            }
+        if dcc_name.is_some()
+            && let Ok(global_dir) = crate::paths::get_skills_dir(None)
+            && Path::new(&global_dir).is_dir()
+        {
+            search_paths.push(global_dir);
         }
 
         // Deduplicate while preserving order
@@ -145,15 +144,13 @@ impl SkillScanner {
         if self_skill_md.is_file() {
             let abs_path = path_to_string(path);
             let current_mtime = Self::file_mtime_secs(&self_skill_md);
-            if !force_refresh {
-                if let (Some(&cached_mtime), Some(mtime)) =
+            if !force_refresh
+                && let (Some(&cached_mtime), Some(mtime)) =
                     (self.cache.get(&abs_path), current_mtime)
-                {
-                    if (mtime - cached_mtime).abs() < MTIME_EPSILON_SECS {
-                        results.push(abs_path);
-                        return results;
-                    }
-                }
+                && (mtime - cached_mtime).abs() < MTIME_EPSILON_SECS
+            {
+                results.push(abs_path);
+                return results;
             }
             if let Some(mtime) = current_mtime {
                 self.cache.insert(abs_path.clone(), mtime);
@@ -197,15 +194,13 @@ impl SkillScanner {
             let current_mtime = Self::file_mtime_secs(&skill_md_path);
 
             // Check cache — skip re-processing if mtime unchanged
-            if !force_refresh {
-                if let (Some(&cached_mtime), Some(mtime)) =
+            if !force_refresh
+                && let (Some(&cached_mtime), Some(mtime)) =
                     (self.cache.get(&abs_path), current_mtime)
-                {
-                    if (mtime - cached_mtime).abs() < MTIME_EPSILON_SECS {
-                        results.push(abs_path);
-                        continue;
-                    }
-                }
+                && (mtime - cached_mtime).abs() < MTIME_EPSILON_SECS
+            {
+                results.push(abs_path);
+                continue;
             }
 
             // Update cache with current mtime (before moving abs_path)

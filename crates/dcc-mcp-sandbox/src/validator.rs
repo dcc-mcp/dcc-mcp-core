@@ -47,83 +47,81 @@ impl ValidationRule {
                 _ => Ok(()),
             },
             ValidationRule::IsString => {
-                if let Some(v) = value {
-                    if !v.is_string() {
-                        return Err(SandboxError::ValidationFailed {
-                            field: field.to_owned(),
-                            reason: format!("expected string, got {}", json_type_name(v)),
-                        });
-                    }
+                if let Some(v) = value
+                    && !v.is_string()
+                {
+                    return Err(SandboxError::ValidationFailed {
+                        field: field.to_owned(),
+                        reason: format!("expected string, got {}", json_type_name(v)),
+                    });
                 }
                 Ok(())
             }
             ValidationRule::IsNumber => {
-                if let Some(v) = value {
-                    if !v.is_number() {
-                        return Err(SandboxError::ValidationFailed {
-                            field: field.to_owned(),
-                            reason: format!("expected number, got {}", json_type_name(v)),
-                        });
-                    }
+                if let Some(v) = value
+                    && !v.is_number()
+                {
+                    return Err(SandboxError::ValidationFailed {
+                        field: field.to_owned(),
+                        reason: format!("expected number, got {}", json_type_name(v)),
+                    });
                 }
                 Ok(())
             }
             ValidationRule::IsBoolean => {
-                if let Some(v) = value {
-                    if !v.is_boolean() {
-                        return Err(SandboxError::ValidationFailed {
-                            field: field.to_owned(),
-                            reason: format!("expected boolean, got {}", json_type_name(v)),
-                        });
-                    }
+                if let Some(v) = value
+                    && !v.is_boolean()
+                {
+                    return Err(SandboxError::ValidationFailed {
+                        field: field.to_owned(),
+                        reason: format!("expected boolean, got {}", json_type_name(v)),
+                    });
                 }
                 Ok(())
             }
             ValidationRule::MaxLength(max) => {
-                if let Some(Value::String(s)) = value {
-                    if s.len() > *max {
-                        return Err(SandboxError::ValidationFailed {
-                            field: field.to_owned(),
-                            reason: format!("string length {} exceeds maximum {}", s.len(), max),
-                        });
-                    }
+                if let Some(Value::String(s)) = value
+                    && s.len() > *max
+                {
+                    return Err(SandboxError::ValidationFailed {
+                        field: field.to_owned(),
+                        reason: format!("string length {} exceeds maximum {}", s.len(), max),
+                    });
                 }
                 Ok(())
             }
             ValidationRule::MinLength(min) => {
-                if let Some(Value::String(s)) = value {
-                    if s.len() < *min {
-                        return Err(SandboxError::ValidationFailed {
-                            field: field.to_owned(),
-                            reason: format!("string length {} is below minimum {}", s.len(), min),
-                        });
-                    }
+                if let Some(Value::String(s)) = value
+                    && s.len() < *min
+                {
+                    return Err(SandboxError::ValidationFailed {
+                        field: field.to_owned(),
+                        reason: format!("string length {} is below minimum {}", s.len(), min),
+                    });
                 }
                 Ok(())
             }
             ValidationRule::MaxValue(max) => {
-                if let Some(v) = value {
-                    if let Some(n) = v.as_f64() {
-                        if n > *max {
-                            return Err(SandboxError::ValidationFailed {
-                                field: field.to_owned(),
-                                reason: format!("value {n} exceeds maximum {max}"),
-                            });
-                        }
-                    }
+                if let Some(v) = value
+                    && let Some(n) = v.as_f64()
+                    && n > *max
+                {
+                    return Err(SandboxError::ValidationFailed {
+                        field: field.to_owned(),
+                        reason: format!("value {n} exceeds maximum {max}"),
+                    });
                 }
                 Ok(())
             }
             ValidationRule::MinValue(min) => {
-                if let Some(v) = value {
-                    if let Some(n) = v.as_f64() {
-                        if n < *min {
-                            return Err(SandboxError::ValidationFailed {
-                                field: field.to_owned(),
-                                reason: format!("value {n} is below minimum {min}"),
-                            });
-                        }
-                    }
+                if let Some(v) = value
+                    && let Some(n) = v.as_f64()
+                    && n < *min
+                {
+                    return Err(SandboxError::ValidationFailed {
+                        field: field.to_owned(),
+                        reason: format!("value {n} is below minimum {min}"),
+                    });
                 }
                 Ok(())
             }

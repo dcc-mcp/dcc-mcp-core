@@ -159,10 +159,11 @@ fn extract_skill_and_bare(name: &str) -> (Option<String>, String) {
     // (`<skill>__<action>`) for backends that register with the
     // underscore form — we still want the skill dimension available
     // for search ranking.
-    if let Some((skill, action)) = name.split_once("__") {
-        if !skill.is_empty() && !action.is_empty() {
-            return (Some(skill.to_string()), action.to_string());
-        }
+    if let Some((skill, action)) = name.split_once("__")
+        && !skill.is_empty()
+        && !action.is_empty()
+    {
+        return (Some(skill.to_string()), action.to_string());
     }
     (None, extract_bare_tool_name("", name).to_string())
 }
@@ -190,12 +191,12 @@ fn extract_tags(
             tags.push("destructive".to_string());
         }
     }
-    if let Some(m) = meta {
-        if let Some(t) = m.get("dcc.tags").and_then(Value::as_array) {
-            for v in t {
-                if let Some(s) = v.as_str() {
-                    tags.push(s.to_string());
-                }
+    if let Some(m) = meta
+        && let Some(t) = m.get("dcc.tags").and_then(Value::as_array)
+    {
+        for v in t {
+            if let Some(s) = v.as_str() {
+                tags.push(s.to_string());
             }
         }
     }

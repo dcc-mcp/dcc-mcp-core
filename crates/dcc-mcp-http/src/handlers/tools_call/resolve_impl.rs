@@ -46,12 +46,11 @@ pub(super) async fn resolve_tool_call(
     }
 
     // Check session-scoped dynamic tools before the global registry (issue #462).
-    if tool_name.starts_with(crate::dynamic_tools::DYNAMIC_TOOL_PREFIX) {
-        if let Some(response) =
+    if tool_name.starts_with(crate::dynamic_tools::DYNAMIC_TOOL_PREFIX)
+        && let Some(response) =
             route_dynamic_tool_call(state, req, session_id, &params, &tool_name)?
-        {
-            return Ok(ToolCallResolution::Response(response));
-        }
+    {
+        return Ok(ToolCallResolution::Response(response));
     }
 
     let call_params = params.arguments.clone().unwrap_or(json!({}));

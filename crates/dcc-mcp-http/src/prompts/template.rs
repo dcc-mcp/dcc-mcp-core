@@ -23,23 +23,25 @@ pub fn render_template(template: &str, args: &HashMap<String, String>) -> Prompt
     let mut i = 0;
     while i < bytes.len() {
         // Look for `{{`
-        if i + 1 < bytes.len() && bytes[i] == b'{' && bytes[i + 1] == b'{' {
-            if let Some(end_rel) = template[i + 2..].find("}}") {
-                let raw = &template[i + 2..i + 2 + end_rel];
-                let name = raw.trim();
-                if !name.is_empty() && is_valid_placeholder(name) {
-                    match args.get(name) {
-                        Some(v) => out.push_str(v),
-                        None => return Err(PromptError::MissingArg(name.to_string())),
-                    }
-                    i = i + 2 + end_rel + 2;
-                    continue;
+        if i + 1 < bytes.len()
+            && bytes[i] == b'{'
+            && bytes[i + 1] == b'{'
+            && let Some(end_rel) = template[i + 2..].find("}}")
+        {
+            let raw = &template[i + 2..i + 2 + end_rel];
+            let name = raw.trim();
+            if !name.is_empty() && is_valid_placeholder(name) {
+                match args.get(name) {
+                    Some(v) => out.push_str(v),
+                    None => return Err(PromptError::MissingArg(name.to_string())),
                 }
-                // Not a valid placeholder — emit `{{` literally and advance by 1.
-                out.push_str("{{");
-                i += 2;
+                i = i + 2 + end_rel + 2;
                 continue;
             }
+            // Not a valid placeholder — emit `{{` literally and advance by 1.
+            out.push_str("{{");
+            i += 2;
+            continue;
         }
         // Regular char — UTF-8 safe advance.
         let ch_end = next_char_boundary(template, i);

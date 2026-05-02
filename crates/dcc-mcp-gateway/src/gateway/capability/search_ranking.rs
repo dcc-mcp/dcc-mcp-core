@@ -91,12 +91,11 @@ impl Scorer for SubstringScorer {
             }
         }
 
-        if let Some(hint) = scene_hint {
-            if r.summary.to_ascii_lowercase().contains(hint)
-                || r.tags.iter().any(|t| t.to_ascii_lowercase() == hint)
-            {
-                score += 2;
-            }
+        if let Some(hint) = scene_hint
+            && (r.summary.to_ascii_lowercase().contains(hint)
+                || r.tags.iter().any(|t| t.to_ascii_lowercase() == hint))
+        {
+            score += 2;
         }
 
         score
@@ -266,12 +265,11 @@ impl Scorer for FuzzyScorer {
             score += best_schema;
         }
 
-        if let Some(hint) = scene_hint {
-            if r.summary.to_ascii_lowercase().contains(hint)
-                || r.tags.iter().any(|t| t.to_ascii_lowercase() == hint)
-            {
-                score += 2;
-            }
+        if let Some(hint) = scene_hint
+            && (r.summary.to_ascii_lowercase().contains(hint)
+                || r.tags.iter().any(|t| t.to_ascii_lowercase() == hint))
+        {
+            score += 2;
         }
 
         score

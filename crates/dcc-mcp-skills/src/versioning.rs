@@ -187,7 +187,7 @@ fn time_from_secs(secs: u64) -> (u32, u32, u32, u32, u32, u32) {
 }
 
 fn is_leap_year(year: u32) -> bool {
-    (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
+    (year.is_multiple_of(4) && !year.is_multiple_of(100)) || year.is_multiple_of(400)
 }
 
 // PyO3 bindings live in `crate::python::versioning`.

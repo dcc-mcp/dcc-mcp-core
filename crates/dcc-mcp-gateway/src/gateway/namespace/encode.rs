@@ -70,10 +70,10 @@ pub fn decode_skill_tool_name(namespaced: &str) -> Option<(&str, &str)> {
         return None;
     }
     // Reject gateway-encoded form — the gateway prefix owns the first dot.
-    if let Some((head, _)) = namespaced.split_once(SKILL_TOOL_SEP) {
-        if is_instance_prefix(head) {
-            return None;
-        }
+    if let Some((head, _)) = namespaced.split_once(SKILL_TOOL_SEP)
+        && is_instance_prefix(head)
+    {
+        return None;
     }
     namespaced.split_once(SKILL_TOOL_SEP)
 }
@@ -133,46 +133,45 @@ pub fn decode_tool_name(prefixed: &str) -> Option<(String, String)> {
     //    than fall through to a legacy arm (which would happily
     //    rewrite `i_abcdef01__bad_` into `(i, abcdef01__bad_)` and
     //    silently route to the wrong tool).
-    if let Some(rest) = prefixed.strip_prefix(CURSOR_SAFE_PREFIX) {
-        if let Some((p, escaped)) = rest.split_once(CURSOR_SAFE_SEP) {
-            if is_instance_prefix(p) {
-                return unescape_cursor_safe(escaped).map(|u| (p.to_string(), u));
-            }
-        }
+    if let Some(rest) = prefixed.strip_prefix(CURSOR_SAFE_PREFIX)
+        && let Some((p, escaped)) = rest.split_once(CURSOR_SAFE_SEP)
+        && is_instance_prefix(p)
+    {
+        return unescape_cursor_safe(escaped).map(|u| (p.to_string(), u));
     }
 
     // 2. SEP-986 dot form: `{id8}.{tool}`. Still legal during the
     //    compatibility window so existing clients keep working while
     //    rollout is in progress.
-    if let Some((p, r)) = prefixed.split_once(INSTANCE_SEP) {
-        if is_instance_prefix(p) {
-            return Some((p.to_string(), r.to_string()));
-        }
+    if let Some((p, r)) = prefixed.split_once(INSTANCE_SEP)
+        && is_instance_prefix(p)
+    {
+        return Some((p.to_string(), r.to_string()));
     }
 
     // 3. Deprecated: `{id8}/{tool}` — the unreleased format fixed in #261.
-    if let Some((p, r)) = prefixed.split_once(DEPRECATED_SLASH_SEP) {
-        if is_instance_prefix(p) {
-            tracing::warn!(
-                tool = prefixed,
-                "Deprecated `/` gateway separator (pre-#261). Use `i_{{id8}}__{{tool}}`."
-            );
-            return Some((p.to_string(), r.to_string()));
-        }
+    if let Some((p, r)) = prefixed.split_once(DEPRECATED_SLASH_SEP)
+        && is_instance_prefix(p)
+    {
+        tracing::warn!(
+            tool = prefixed,
+            "Deprecated `/` gateway separator (pre-#261). Use `i_{{id8}}__{{tool}}`."
+        );
+        return Some((p.to_string(), r.to_string()));
     }
 
     // 4. Legacy: `{id8}__{tool}` — pre-#258. Deliberately checked last:
     //    the cursor-safe form also uses `__`, but its `i_` prefix
     //    disambiguates it above; without that prefix the `__` arm is
     //    only the pre-#258 shape.
-    if let Some((p, r)) = prefixed.split_once(LEGACY_NAMESPACE_SEP) {
-        if is_instance_prefix(p) {
-            tracing::warn!(
-                tool = prefixed,
-                "Deprecated `__` gateway separator (pre-#258). Use `i_{{id8}}__{{tool}}`."
-            );
-            return Some((p.to_string(), r.to_string()));
-        }
+    if let Some((p, r)) = prefixed.split_once(LEGACY_NAMESPACE_SEP)
+        && is_instance_prefix(p)
+    {
+        tracing::warn!(
+            tool = prefixed,
+            "Deprecated `__` gateway separator (pre-#258). Use `i_{{id8}}__{{tool}}`."
+        );
+        return Some((p.to_string(), r.to_string()));
     }
     None
 }

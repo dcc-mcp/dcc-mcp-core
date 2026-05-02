@@ -131,10 +131,9 @@ pub fn parse_skill_md(skill_dir: &Path) -> Option<SkillMetadata> {
     if let Some(raw_metadata) = raw_value
         .as_mapping()
         .and_then(|m| m.get(serde_yaml_ng::Value::String("metadata".into())))
+        && let Some(j) = yaml_to_json(raw_metadata)
     {
-        if let Some(j) = yaml_to_json(raw_metadata) {
-            meta.metadata = j;
-        }
+        meta.metadata = j;
     }
 
     // Apply the agentskills.io-compliant `metadata.dcc-mcp.*` overrides
@@ -246,20 +245,20 @@ fn apply_dcc_mcp_metadata_overrides(
                 }
             }
             "tools" => {
-                if let Some(s) = value.as_str() {
-                    if let Some((tools, groups)) = load_sibling_tools_file(skill_dir, s) {
-                        meta.tools = tools;
-                        if let Some(g) = groups {
-                            meta.groups = g;
-                        }
+                if let Some(s) = value.as_str()
+                    && let Some((tools, groups)) = load_sibling_tools_file(skill_dir, s)
+                {
+                    meta.tools = tools;
+                    if let Some(g) = groups {
+                        meta.groups = g;
                     }
                 }
             }
             "groups" => {
-                if let Some(s) = value.as_str() {
-                    if let Some(groups) = load_sibling_groups_file(skill_dir, s) {
-                        meta.groups = groups;
-                    }
+                if let Some(s) = value.as_str()
+                    && let Some(groups) = load_sibling_groups_file(skill_dir, s)
+                {
+                    meta.groups = groups;
                 }
             }
             "prompts" => {
@@ -267,38 +266,38 @@ fn apply_dcc_mcp_metadata_overrides(
                 // prompts primitive. Parsing is deferred; we just record
                 // the path (relative to skill root) so the MCP server can
                 // load it lazily on `prompts/list` / `prompts/get`.
-                if let Some(s) = value.as_str() {
-                    if !s.is_empty() {
-                        meta.prompts_file = Some(s.to_string());
-                    }
+                if let Some(s) = value.as_str()
+                    && !s.is_empty()
+                {
+                    meta.prompts_file = Some(s.to_string());
                 }
             }
             "layer" => {
                 // Architectural layer for skill routing and search partitioning.
                 // Valid values: "infrastructure", "domain", "example".
                 // See skills/README.md#skill-layering and AGENTS.md.
-                if let Some(s) = value.as_str() {
-                    if !s.is_empty() {
-                        meta.layer = Some(s.to_string());
-                    }
+                if let Some(s) = value.as_str()
+                    && !s.is_empty()
+                {
+                    meta.layer = Some(s.to_string());
                 }
             }
             "recipes" => {
                 // Sibling-file reference for pre-composed parameter templates
                 // (issue #466). Parsing is deferred; store the path for lazy loading.
-                if let Some(s) = value.as_str() {
-                    if !s.is_empty() {
-                        meta.recipes_file = Some(s.to_string());
-                    }
+                if let Some(s) = value.as_str()
+                    && !s.is_empty()
+                {
+                    meta.recipes_file = Some(s.to_string());
                 }
             }
             "introspection" => {
                 // Sibling-file reference for capability-probe / version-check
                 // metadata (issue #466). Parsing is deferred; store for lazy loading.
-                if let Some(s) = value.as_str() {
-                    if !s.is_empty() {
-                        meta.introspection_file = Some(s.to_string());
-                    }
+                if let Some(s) = value.as_str()
+                    && !s.is_empty()
+                {
+                    meta.introspection_file = Some(s.to_string());
                 }
             }
             _ => {
@@ -339,12 +338,12 @@ fn collect_dcc_mcp_overrides(raw: &serde_yaml_ng::Value) -> Vec<(String, serde_y
         // Nested form: `metadata: { dcc-mcp: { dcc: maya, ... } }` —
         // canonical agentskills.io-compliant shape (issue #356) and the
         // shape produced by the sibling-file migration tool.
-        if ks == "dcc-mcp" {
-            if let Some(inner) = v.as_mapping() {
-                for (ik, iv) in inner.iter() {
-                    let Some(iks) = ik.as_str() else { continue };
-                    out.push((iks.to_string(), iv.clone()));
-                }
+        if ks == "dcc-mcp"
+            && let Some(inner) = v.as_mapping()
+        {
+            for (ik, iv) in inner.iter() {
+                let Some(iks) = ik.as_str() else { continue };
+                out.push((iks.to_string(), iv.clone()));
             }
         }
     }

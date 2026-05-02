@@ -293,11 +293,11 @@ pub fn prune_old_logs(directory: &Path, prefix: &str, retention_days: u32, max_t
         let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
 
         // Age pruning — unconditional.
-        if let Some(cutoff) = cutoff {
-            if modified < cutoff {
-                let _ = std::fs::remove_file(&path);
-                continue;
-            }
+        if let Some(cutoff) = cutoff
+            && modified < cutoff
+        {
+            let _ = std::fs::remove_file(&path);
+            continue;
         }
 
         total_size += size;

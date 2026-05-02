@@ -60,10 +60,10 @@ fn extract_file_refs(output: &Value) -> Vec<FileRef> {
     if let Some(v) = output.get("file_refs") {
         try_extract(v, &mut out);
     }
-    if let Some(ctx) = output.get("context") {
-        if let Some(v) = ctx.get("file_refs") {
-            try_extract(v, &mut out);
-        }
+    if let Some(ctx) = output.get("context")
+        && let Some(v) = ctx.get("file_refs")
+    {
+        try_extract(v, &mut out);
     }
     out
 }

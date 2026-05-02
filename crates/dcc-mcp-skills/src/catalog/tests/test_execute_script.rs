@@ -14,10 +14,10 @@ fn test_execute_script_stdin_json_params() {
         None,
     );
     // Skip gracefully if Python is not available in this environment.
-    if let Err(ref e) = result {
-        if e.contains("Failed to spawn") || e.contains("No such file") {
-            return;
-        }
+    if let Err(ref e) = result
+        && (e.contains("Failed to spawn") || e.contains("No such file"))
+    {
+        return;
     }
     let _ = result;
 }
@@ -31,10 +31,10 @@ fn test_execute_script_cli_flags_passed_for_scalar_params() {
         serde_json::json!({"name": "Alice", "count": 3, "verbose": true}),
         None,
     );
-    if let Err(ref e) = result {
-        if e.contains("Failed to spawn") || e.contains("No such file") {
-            return;
-        }
+    if let Err(ref e) = result
+        && (e.contains("Failed to spawn") || e.contains("No such file"))
+    {
+        return;
     }
     let _ = result;
 }
@@ -52,10 +52,10 @@ fn test_execute_script_complex_values_not_expanded_as_flags() {
         }),
         None,
     );
-    if let Err(ref e) = result {
-        if e.contains("Failed to spawn") || e.contains("No such file") {
-            return;
-        }
+    if let Err(ref e) = result
+        && (e.contains("Failed to spawn") || e.contains("No such file"))
+    {
+        return;
     }
     let _ = result;
 }

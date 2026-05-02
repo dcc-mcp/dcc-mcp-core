@@ -146,19 +146,19 @@ impl SandboxContext {
         }
 
         // ── 3. Input validation ───────────────────────────────────────────────
-        if let Some(v) = validator {
-            if let Err(e) = v.validate_value(params) {
-                warn!(action, error = %e, "sandbox: input validation failed");
-                self.emit_audit(
-                    action,
-                    params,
-                    start.elapsed(),
-                    AuditOutcome::Denied {
-                        reason: e.to_string(),
-                    },
-                );
-                return Err(e);
-            }
+        if let Some(v) = validator
+            && let Err(e) = v.validate_value(params)
+        {
+            warn!(action, error = %e, "sandbox: input validation failed");
+            self.emit_audit(
+                action,
+                params,
+                start.elapsed(),
+                AuditOutcome::Denied {
+                    reason: e.to_string(),
+                },
+            );
+            return Err(e);
         }
 
         // ── 4. Determine effective timeout ────────────────────────────────────
@@ -188,14 +188,14 @@ impl SandboxContext {
             // Basic timeout: check elapsed time *before* calling the handler.
             // For true async timeout, callers should use tokio::time::timeout
             // around the whole execute() call.
-            if let Some(timeout) = effective_timeout {
-                if start.elapsed() >= timeout {
-                    let err = SandboxError::Timeout {
-                        timeout_ms: timeout.as_millis() as u64,
-                    };
-                    self.emit_audit(action, params, start.elapsed(), AuditOutcome::Timeout);
-                    return Err(err);
-                }
+            if let Some(timeout) = effective_timeout
+                && start.elapsed() >= timeout
+            {
+                let err = SandboxError::Timeout {
+                    timeout_ms: timeout.as_millis() as u64,
+                };
+                self.emit_audit(action, params, start.elapsed(), AuditOutcome::Timeout);
+                return Err(err);
             }
 
             match h(params_map) {

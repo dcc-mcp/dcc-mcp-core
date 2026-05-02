@@ -33,7 +33,7 @@ impl MockBackend {
     fn make_image(&self) -> ImageBuffer<Rgba<u8>, Vec<u8>> {
         let tile = 16u32;
         ImageBuffer::from_fn(self.width, self.height, |x, y| {
-            let is_light = ((x / tile) + (y / tile)) % 2 == 0;
+            let is_light = ((x / tile) + (y / tile)).is_multiple_of(2);
             if is_light {
                 Rgba([200u8, 200, 200, 255])
             } else {

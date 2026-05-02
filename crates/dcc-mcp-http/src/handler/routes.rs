@@ -118,10 +118,10 @@ pub async fn handle_post(
     let mut use_sse = false;
 
     // Check if client accepts SSE
-    if let Some(accept) = headers.get(header::ACCEPT) {
-        if accept.to_str().unwrap_or("").contains("text/event-stream") {
-            use_sse = true;
-        }
+    if let Some(accept) = headers.get(header::ACCEPT)
+        && accept.to_str().unwrap_or("").contains("text/event-stream")
+    {
+        use_sse = true;
     }
 
     for msg in &messages {

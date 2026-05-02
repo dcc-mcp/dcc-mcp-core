@@ -158,10 +158,11 @@ impl ActionRegistry {
             .into_iter()
             .filter(|meta| {
                 // Category filter: if provided, must match exactly
-                if let Some(cat) = category {
-                    if !cat.is_empty() && meta.category != cat {
-                        return false;
-                    }
+                if let Some(cat) = category
+                    && !cat.is_empty()
+                    && meta.category != cat
+                {
+                    return false;
                 }
                 // Tags filter: action must contain ALL requested tags
                 if !tags.is_empty() {

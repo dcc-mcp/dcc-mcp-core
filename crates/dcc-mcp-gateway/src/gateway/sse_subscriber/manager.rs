@@ -257,10 +257,10 @@ impl SubscriberManager {
     pub fn forget_job(&self, job_id: &str) {
         let removed = self.inner.job_routes.remove(job_id);
         self.inner.job_event_buses.remove(job_id);
-        if let Some((_, route)) = removed {
-            if let Some(set) = self.inner.session_jobs.get(&route.client_session_id) {
-                set.value().remove(job_id);
-            }
+        if let Some((_, route)) = removed
+            && let Some(set) = self.inner.session_jobs.get(&route.client_session_id)
+        {
+            set.value().remove(job_id);
         }
         self.inner
             .request_to_job

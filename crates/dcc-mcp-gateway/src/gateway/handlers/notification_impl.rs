@@ -68,10 +68,10 @@ async fn cascade_cancel(gs: &GatewayState, request_id: Value) {
 
     if forwarded_to.is_empty() {
         let pending = gs.pending_calls.read().await;
-        if let Some(call) = pending.get(&request_id_str) {
-            if !call.backend_url.is_empty() {
-                forward_cancel(gs, &call.backend_url, &request_id, "").await;
-            }
+        if let Some(call) = pending.get(&request_id_str)
+            && !call.backend_url.is_empty()
+        {
+            forward_cancel(gs, &call.backend_url, &request_id, "").await;
         }
     }
 }

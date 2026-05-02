@@ -212,10 +212,10 @@ pub async fn handle_search_tools(
         // Skill stubs: every non-loaded skill whose metadata matches the
         // query gets surfaced as `__skill__<name>`.
         for summary in state.catalog.list_skills(Some("unloaded")) {
-            if let Some(filter) = dcc {
-                if !summary.dcc.eq_ignore_ascii_case(filter) {
-                    continue;
-                }
+            if let Some(filter) = dcc
+                && !summary.dcc.eq_ignore_ascii_case(filter)
+            {
+                continue;
             }
             let haystack = format!(
                 "{} {} {} {} {}",
@@ -479,10 +479,11 @@ pub async fn handle_jobs_get_status(
             None => Value::Null,
         },
     );
-    if include_result && job.status.is_terminal() {
-        if let Some(ref r) = job.result {
-            envelope.insert("result".into(), r.clone());
-        }
+    if include_result
+        && job.status.is_terminal()
+        && let Some(ref r) = job.result
+    {
+        envelope.insert("result".into(), r.clone());
     }
     drop(job);
 

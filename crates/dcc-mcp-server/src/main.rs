@@ -257,20 +257,20 @@ struct PidFileGuard {
 
 impl Drop for PidFileGuard {
     fn drop(&mut self) {
-        if let Err(error) = std::fs::remove_file(&self.path) {
-            if error.kind() != std::io::ErrorKind::NotFound {
-                tracing::warn!(path = %self.path.display(), %error, "failed to remove PID file");
-            }
+        if let Err(error) = std::fs::remove_file(&self.path)
+            && error.kind() != std::io::ErrorKind::NotFound
+        {
+            tracing::warn!(path = %self.path.display(), %error, "failed to remove PID file");
         }
     }
 }
 
 impl PidFileGuard {
     fn remove_now(&mut self) {
-        if let Err(error) = std::fs::remove_file(&self.path) {
-            if error.kind() != std::io::ErrorKind::NotFound {
-                tracing::warn!(path = %self.path.display(), %error, "failed to remove PID file");
-            }
+        if let Err(error) = std::fs::remove_file(&self.path)
+            && error.kind() != std::io::ErrorKind::NotFound
+        {
+            tracing::warn!(path = %self.path.display(), %error, "failed to remove PID file");
         }
     }
 }
@@ -318,10 +318,10 @@ fn acquire_pid_file(path: &std::path::Path, force: bool) -> anyhow::Result<PidFi
         }
     }
 
-    if let Some(parent) = path.parent() {
-        if !parent.as_os_str().is_empty() {
-            std::fs::create_dir_all(parent)?;
-        }
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(parent)?;
     }
 
     std::fs::write(path, format!("{current_pid}\n"))?;
@@ -361,10 +361,10 @@ fn spawn_pid_cleanup_watcher(path: &std::path::Path, pid: u32) {
 fn run_pid_cleanup_watcher(path: PathBuf, pid: u32) {
     loop {
         if !is_process_alive(pid) {
-            if let Err(error) = std::fs::remove_file(&path) {
-                if error.kind() != std::io::ErrorKind::NotFound {
-                    tracing::warn!(path = %path.display(), %error, "PID cleanup watcher failed to remove file");
-                }
+            if let Err(error) = std::fs::remove_file(&path)
+                && error.kind() != std::io::ErrorKind::NotFound
+            {
+                tracing::warn!(path = %path.display(), %error, "PID cleanup watcher failed to remove file");
             }
             break;
         }

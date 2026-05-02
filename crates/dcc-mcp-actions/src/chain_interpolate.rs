@@ -55,10 +55,11 @@ pub(crate) fn interpolate_string(s: &str, context: &Value) -> Value {
     if s.starts_with('{') && s.ends_with('}') && s.len() > 2 {
         let key = &s[1..s.len() - 1];
         // Only treat as placeholder if key has no inner braces
-        if !key.contains('{') && !key.contains('}') {
-            if let Some(v) = context.get(key) {
-                return v.clone();
-            }
+        if !key.contains('{')
+            && !key.contains('}')
+            && let Some(v) = context.get(key)
+        {
+            return v.clone();
         }
     }
 

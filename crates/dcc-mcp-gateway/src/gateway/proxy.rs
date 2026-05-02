@@ -20,10 +20,9 @@ pub async fn proxy_request(
         if matches!(
             name.as_str(),
             "content-type" | "accept" | "mcp-session-id" | "authorization"
-        ) {
-            if let Ok(v) = val.to_str() {
-                req = req.header(key.as_str(), v);
-            }
+        ) && let Ok(v) = val.to_str()
+        {
+            req = req.header(key.as_str(), v);
         }
     }
 

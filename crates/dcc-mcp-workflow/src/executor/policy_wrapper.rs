@@ -26,18 +26,18 @@ where
         },
         None => None,
     };
-    if let Some(ref rendered_key) = idem_key {
-        if let Some(cached) = state.idempotency.get(
+    if let Some(ref rendered_key) = idem_key
+        && let Some(cached) = state.idempotency.get(
             step.policy.idempotency_scope,
             state.workflow_id,
             rendered_key,
-        ) {
-            debug!(step_id = %step.id, key = %rendered_key, "idempotency cache hit");
-            let step_out = ingest_output(state, &step.id, cached);
-            state.context.record_step(&step.id, step_out.clone());
-            state.record_output_snapshot(step.id.as_str(), &step_out.output);
-            return StepOutcome::Ok;
-        }
+        )
+    {
+        debug!(step_id = %step.id, key = %rendered_key, "idempotency cache hit");
+        let step_out = ingest_output(state, &step.id, cached);
+        state.context.record_step(&step.id, step_out.clone());
+        state.record_output_snapshot(step.id.as_str(), &step_out.output);
+        return StepOutcome::Ok;
     }
 
     // Retry loop.

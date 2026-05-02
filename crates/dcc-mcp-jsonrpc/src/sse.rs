@@ -22,7 +22,7 @@ pub fn encode_cursor(offset: usize) -> String {
 
 /// Decode a cursor produced by [`encode_cursor`]. Returns `None` if malformed.
 pub fn decode_cursor(cursor: &str) -> Option<usize> {
-    if cursor.len() % 2 != 0 {
+    if !cursor.len().is_multiple_of(2) {
         return None;
     }
     let bytes: Option<Vec<u8>> = (0..cursor.len())

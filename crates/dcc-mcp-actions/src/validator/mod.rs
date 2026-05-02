@@ -160,85 +160,85 @@ pub(crate) fn validate_value(
     }
 
     // ── enum check ──
-    if let Some(Value::Array(variants)) = schema_obj.get("enum") {
-        if !variants.contains(value) {
+    if let Some(Value::Array(variants)) = schema_obj.get("enum")
+        && !variants.contains(value)
+    {
+        errors.push(ValidationError {
+            path: path.to_string(),
+            message: format!(
+                "value must be one of: {}",
+                variants
+                    .iter()
+                    .map(|v| v.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        });
+    }
+
+    // ── string constraints ──
+    if let Value::String(s) = value {
+        if let Some(max) = schema_obj.get("maxLength").and_then(|v| v.as_u64())
+            && s.chars().count() as u64 > max
+        {
             errors.push(ValidationError {
                 path: path.to_string(),
                 message: format!(
-                    "value must be one of: {}",
-                    variants
-                        .iter()
-                        .map(|v| v.to_string())
-                        .collect::<Vec<_>>()
-                        .join(", ")
+                    "string length {} exceeds maxLength {max}",
+                    s.chars().count()
+                ),
+            });
+        }
+        if let Some(min) = schema_obj.get("minLength").and_then(|v| v.as_u64())
+            && (s.chars().count() as u64) < min
+        {
+            errors.push(ValidationError {
+                path: path.to_string(),
+                message: format!(
+                    "string length {} is less than minLength {min}",
+                    s.chars().count()
                 ),
             });
         }
     }
 
-    // ── string constraints ──
-    if let Value::String(s) = value {
-        if let Some(max) = schema_obj.get("maxLength").and_then(|v| v.as_u64()) {
-            if s.chars().count() as u64 > max {
-                errors.push(ValidationError {
-                    path: path.to_string(),
-                    message: format!(
-                        "string length {} exceeds maxLength {max}",
-                        s.chars().count()
-                    ),
-                });
-            }
-        }
-        if let Some(min) = schema_obj.get("minLength").and_then(|v| v.as_u64()) {
-            if (s.chars().count() as u64) < min {
-                errors.push(ValidationError {
-                    path: path.to_string(),
-                    message: format!(
-                        "string length {} is less than minLength {min}",
-                        s.chars().count()
-                    ),
-                });
-            }
-        }
-    }
-
     // ── numeric constraints ──
     if let Some(n) = value.as_f64() {
-        if let Some(min) = schema_obj.get("minimum").and_then(|v| v.as_f64()) {
-            if n < min {
-                errors.push(ValidationError {
-                    path: path.to_string(),
-                    message: format!("{n} is less than minimum {min}"),
-                });
-            }
+        if let Some(min) = schema_obj.get("minimum").and_then(|v| v.as_f64())
+            && n < min
+        {
+            errors.push(ValidationError {
+                path: path.to_string(),
+                message: format!("{n} is less than minimum {min}"),
+            });
         }
-        if let Some(max) = schema_obj.get("maximum").and_then(|v| v.as_f64()) {
-            if n > max {
-                errors.push(ValidationError {
-                    path: path.to_string(),
-                    message: format!("{n} exceeds maximum {max}"),
-                });
-            }
+        if let Some(max) = schema_obj.get("maximum").and_then(|v| v.as_f64())
+            && n > max
+        {
+            errors.push(ValidationError {
+                path: path.to_string(),
+                message: format!("{n} exceeds maximum {max}"),
+            });
         }
     }
 
     // ── array constraints ──
     if let Value::Array(arr) = value {
-        if let Some(min) = schema_obj.get("minItems").and_then(|v| v.as_u64()) {
-            if (arr.len() as u64) < min {
-                errors.push(ValidationError {
-                    path: path.to_string(),
-                    message: format!("array length {} is less than minItems {min}", arr.len()),
-                });
-            }
+        if let Some(min) = schema_obj.get("minItems").and_then(|v| v.as_u64())
+            && (arr.len() as u64) < min
+        {
+            errors.push(ValidationError {
+                path: path.to_string(),
+                message: format!("array length {} is less than minItems {min}", arr.len()),
+            });
         }
-        if let Some(max) = schema_obj.get("maxItems").and_then(|v| v.as_u64()) {
-            if arr.len() as u64 > max {
-                errors.push(ValidationError {
-                    path: path.to_string(),
-                    message: format!("array length {} exceeds maxItems {max}", arr.len()),
-                });
-            }
+        if let Some(max) = schema_obj.get("maxItems").and_then(|v| v.as_u64())
+            && arr.len() as u64 > max
+        {
+            errors.push(ValidationError {
+                path: path.to_string(),
+                message: format!("array length {} exceeds maxItems {max}", arr.len()),
+            });
         }
         // items schema
         if let Some(items_schema) = schema_obj.get("items") {
@@ -253,13 +253,13 @@ pub(crate) fn validate_value(
         // required fields
         if let Some(Value::Array(required)) = schema_obj.get("required") {
             for req in required {
-                if let Some(field) = req.as_str() {
-                    if !obj.contains_key(field) {
-                        errors.push(ValidationError {
-                            path: path.to_string(),
-                            message: format!("missing required field '{field}'"),
-                        });
-                    }
+                if let Some(field) = req.as_str()
+                    && !obj.contains_key(field)
+                {
+                    errors.push(ValidationError {
+                        path: path.to_string(),
+                        message: format!("missing required field '{field}'"),
+                    });
                 }
             }
         }

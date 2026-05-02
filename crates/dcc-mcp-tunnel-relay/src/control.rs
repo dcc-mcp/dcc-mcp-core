@@ -230,10 +230,10 @@ where
                 session_id,
                 payload,
             } => {
-                if let Some(inbox) = handle.session_inbox(session_id) {
-                    if inbox.send(payload).await.is_err() {
-                        handle.close_session(session_id);
-                    }
+                if let Some(inbox) = handle.session_inbox(session_id)
+                    && inbox.send(payload).await.is_err()
+                {
+                    handle.close_session(session_id);
                 }
             }
             Frame::CloseSession { session_id, .. } => {

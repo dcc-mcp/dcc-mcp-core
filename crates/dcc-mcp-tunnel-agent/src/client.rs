@@ -100,10 +100,10 @@ pub async fn run_once(config: AgentConfig) -> Result<Registered, ClientError> {
                 session_id,
                 payload,
             } => {
-                if let Some(tx) = sessions_for_dispatch.get(&session_id).map(|s| s.clone()) {
-                    if tx.send(payload).await.is_err() {
-                        sessions_for_dispatch.remove(&session_id);
-                    }
+                if let Some(tx) = sessions_for_dispatch.get(&session_id).map(|s| s.clone())
+                    && tx.send(payload).await.is_err()
+                {
+                    sessions_for_dispatch.remove(&session_id);
                 }
             }
             Frame::CloseSession { session_id, .. } => {

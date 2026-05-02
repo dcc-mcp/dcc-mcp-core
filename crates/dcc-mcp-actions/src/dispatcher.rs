@@ -286,16 +286,16 @@ pub(crate) fn is_default_schema(schema: &Value) -> bool {
         return false;
     };
     // Must not have a "required" key with a non-empty array
-    if let Some(req) = obj.get("required") {
-        if req.as_array().map(|a| !a.is_empty()).unwrap_or(false) {
-            return false;
-        }
+    if let Some(req) = obj.get("required")
+        && req.as_array().map(|a| !a.is_empty()).unwrap_or(false)
+    {
+        return false;
     }
     // Properties must be absent or an empty object
-    if let Some(props) = obj.get("properties") {
-        if props.as_object().map(|p| !p.is_empty()).unwrap_or(false) {
-            return false;
-        }
+    if let Some(props) = obj.get("properties")
+        && props.as_object().map(|p| !p.is_empty()).unwrap_or(false)
+    {
+        return false;
     }
     // No additional constraint keywords
     let constraint_keys = [

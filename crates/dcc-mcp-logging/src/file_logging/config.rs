@@ -123,15 +123,15 @@ impl FileLoggingConfig {
     pub fn from_env_with_defaults() -> Result<Self, FileLoggingError> {
         let mut cfg = Self::default();
 
-        if let Ok(dir) = std::env::var(ENV_LOG_DIR) {
-            if !dir.trim().is_empty() {
-                cfg.directory = Some(PathBuf::from(dir));
-            }
+        if let Ok(dir) = std::env::var(ENV_LOG_DIR)
+            && !dir.trim().is_empty()
+        {
+            cfg.directory = Some(PathBuf::from(dir));
         }
-        if let Ok(prefix) = std::env::var(ENV_LOG_FILE_PREFIX) {
-            if !prefix.trim().is_empty() {
-                cfg.file_name_prefix = prefix;
-            }
+        if let Ok(prefix) = std::env::var(ENV_LOG_FILE_PREFIX)
+            && !prefix.trim().is_empty()
+        {
+            cfg.file_name_prefix = prefix;
         }
         if let Ok(raw) = std::env::var(ENV_LOG_MAX_SIZE) {
             cfg.max_size_bytes = raw.parse().map_err(|_| {

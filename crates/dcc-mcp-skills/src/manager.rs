@@ -103,13 +103,12 @@ impl SkillsManager {
         let key = Self::paths_fingerprint(extra_paths, dcc_name);
 
         // Fast path: check read lock first
-        if let Ok(cache) = self.by_paths.read() {
-            if let Some(entry) = cache.get(&key) {
-                if entry.is_fresh() {
-                    tracing::debug!(key = %key, "SkillsManager: paths cache hit");
-                    return entry.count;
-                }
-            }
+        if let Ok(cache) = self.by_paths.read()
+            && let Some(entry) = cache.get(&key)
+            && entry.is_fresh()
+        {
+            tracing::debug!(key = %key, "SkillsManager: paths cache hit");
+            return entry.count;
         }
 
         // Cache miss — run the real scan
@@ -142,13 +141,12 @@ impl SkillsManager {
     ) -> usize {
         let key = Self::config_fingerprint(extra_paths, dcc_name, config_overrides);
 
-        if let Ok(cache) = self.by_config.read() {
-            if let Some(entry) = cache.get(&key) {
-                if entry.is_fresh() {
-                    tracing::debug!(key = %key, "SkillsManager: config cache hit");
-                    return entry.count;
-                }
-            }
+        if let Ok(cache) = self.by_config.read()
+            && let Some(entry) = cache.get(&key)
+            && entry.is_fresh()
+        {
+            tracing::debug!(key = %key, "SkillsManager: config cache hit");
+            return entry.count;
         }
 
         let count = self.catalog.discover(extra_paths, dcc_name);
@@ -185,13 +183,12 @@ impl SkillsManager {
         all_paths.sort_unstable();
         let key = format!("scoped:{}:{}", all_paths.join("|"), dcc_name.unwrap_or(""));
 
-        if let Ok(cache) = self.by_paths.read() {
-            if let Some(entry) = cache.get(&key) {
-                if entry.is_fresh() {
-                    tracing::debug!(key = %key, "SkillsManager: scoped paths cache hit");
-                    return entry.count;
-                }
-            }
+        if let Ok(cache) = self.by_paths.read()
+            && let Some(entry) = cache.get(&key)
+            && entry.is_fresh()
+        {
+            tracing::debug!(key = %key, "SkillsManager: scoped paths cache hit");
+            return entry.count;
         }
 
         let count = self.catalog.discover_scoped(scoped_paths, dcc_name);
