@@ -58,12 +58,12 @@ See ``docs/guide/host-adapter.md`` for the full authoring guide and
 # Import future modules
 from __future__ import annotations
 
-from collections.abc import Callable
-
 # Import built-in modules
 import contextlib
 import threading
 from typing import TYPE_CHECKING
+from typing import Callable
+from typing import Optional
 
 # Import local modules — re-export the shared protocol so subclass
 # authors can type against ``TickableDispatcher`` from a single
@@ -80,7 +80,11 @@ __all__ = ["HostAdapter", "TickableDispatcher"]
 
 
 # Type alias kept short so override signatures read clearly.
-TickFn = Callable[[], "float | None"]
+# Uses ``typing.Callable`` + ``typing.Optional`` rather than
+# ``collections.abc.Callable`` / PEP-604 ``|`` syntax so the module
+# imports cleanly on Python 3.7 and 3.8 — the wheel is ABI3-py37 so
+# users may run this on any supported interpreter.
+TickFn = Callable[[], Optional[float]]
 
 
 class HostAdapter:
