@@ -354,11 +354,19 @@ mod tests {
     fn test_drain_since_filters() {
         let buf = OutputBuffer::new("inst");
         buf.push_stdout("line1");
+        // Sleep on both sides of `cutoff` so `line1`'s timestamp is
+        // provably earlier than the cutoff and `line2`'s provably
+        // later. 15ms covers Windows' wall-clock resolution (the
+        // default SystemTime::now() granularity on Windows is
+        // ~10-16 ms, so 1 ms was flaky — line1 and cutoff could
+        // round to the same nanosecond count and the `>= cutoff`
+        // filter would include line1).
+        std::thread::sleep(std::time::Duration::from_millis(20));
         let cutoff = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        std::thread::sleep(std::time::Duration::from_millis(1));
+        std::thread::sleep(std::time::Duration::from_millis(20));
         buf.push_stdout("line2");
         let after = buf.drain_since(cutoff);
         assert_eq!(after.len(), 1);
