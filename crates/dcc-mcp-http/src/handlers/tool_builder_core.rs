@@ -272,18 +272,22 @@ pub fn build_core_tools_inner() -> Vec<McpTool> {
         },
         McpTool {
             name: "search_tools".to_string(),
-            description: "Full-text search over already-registered tools, matching name, description, category, and tags and ranking enabled tools first.\n\n\
-                          When to use: Use after skills are loaded to locate a specific tool without dumping the whole tools/list. If nothing matches, fall back to search_skills — the tool may live in an unloaded skill.\n\n\
+            description: "Full-text search over registered tools and, by default, the metadata of unloaded skills (#677).\n\n\
+                          When to use: Locate a capability by keyword without dumping the whole tools/list. Hits include both loaded tools and unloaded-skill candidates; the latter carry `requires_load_skill: true` and a ready-to-send `load_hint` so an agent can follow up with `load_skill`.\n\n\
                           How to use:\n\
-                          - Keep the query short; set include_disabled=true only when inspecting inactive groups.\n\
-                          - Call the returned tool directly by its name."
+                          - Keep the query short; matches scan name, description, category, tags, and input-schema property names.\n\
+                          - `include_disabled=true` reveals tools inside inactive tool groups.\n\
+                          - `include_unloaded_skills=false` restricts results to loaded tools only.\n\
+                          - `include_stubs=true` exposes progressive-loading `__skill__*` / `__group__*` stubs for debugging. They are filtered out by default.\n\
+                          - `limit` caps each of `tools` and `skill_candidates` (default 25, max 100).\n\
+                          - For unloaded skills, call `load_skill` with the returned `skill_name` before invoking tools."
                 .to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "Keyword matched against tool name, description, category, and tags."
+                        "description": "Keyword matched against tool name, description, category, tags, and input-schema property names; also forwarded to the skill-catalog scorer for unloaded-skill discovery."
                     },
                     "dcc": {
                         "type": "string",
@@ -293,6 +297,23 @@ pub fn build_core_tools_inner() -> Vec<McpTool> {
                         "type": "boolean",
                         "default": false,
                         "description": "Also search tools inside inactive tool groups."
+                    },
+                    "include_unloaded_skills": {
+                        "type": "boolean",
+                        "default": true,
+                        "description": "Include matching unloaded skills as `skill_candidate` results with a load_hint."
+                    },
+                    "include_stubs": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "Expose progressive-loading `__skill__*` / `__group__*` stubs. Debug-only — leave false for agent consumers."
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 100,
+                        "default": 25,
+                        "description": "Maximum entries returned for each of `tools` and `skill_candidates`."
                     }
                 },
                 "required": ["query"]

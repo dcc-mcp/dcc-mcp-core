@@ -87,70 +87,198 @@ pub async fn handle_deactivate_tool_group(
     ))
 }
 
-/// Handle ``search_tools`` — free-text search across every registered tool.
+/// Handle ``search_tools`` — free-text search across every registered tool
+/// and, by default, the metadata of unloaded skills the catalog knows about.
+///
+/// Behaviour (issue #677):
+///
+/// * **Stubs are filtered by default.** Progressive-loading discovery names
+///   like `__skill__<name>` and `__group__<name>` never appear as regular
+///   tool hits unless the caller opts in with `include_stubs=true`. This
+///   matches what [`super::super::gateway::capability::builder::should_skip`]
+///   already does on the MCP-gateway side so both paths behave the same.
+/// * **Unloaded skills are searchable.** When `include_unloaded_skills` is
+///   unset or `true`, the handler also runs the query through
+///   [`SkillCatalog::search_skills`] (BM25-lite over name, description,
+///   `search-hint`, tags and `tools.yaml` names) and returns each unloaded
+///   hit as a **skill candidate** with `requires_load_skill: true` and a
+///   ready-to-send `load_hint` describing the `load_skill` call needed to
+///   expose the underlying tools.
+/// * **Schema property names are indexed.** The haystack for loaded tools
+///   includes the top-level property keys of `input_schema`, so a query
+///   like `radius` matches `create_sphere({radius}) ` even if no tag,
+///   description or tool name contains the word.
+///
+/// Output envelope (stable, additive — old fields kept):
+///
+/// ```json
+/// {
+///   "total": N,
+///   "query": "...",
+///   "tools": [...],              // loaded tools, kind = "tool"
+///   "skill_candidates": [...]    // unloaded skills, kind = "skill_candidate"
+/// }
+/// ```
 pub async fn handle_search_tools(
     state: &AppState,
     req: &JsonRpcRequest,
     params: &CallToolParams,
 ) -> Result<JsonRpcResponse, HttpError> {
-    let query = params
-        .arguments
-        .as_ref()
+    let args = params.arguments.as_ref();
+
+    let query_raw = args
         .and_then(|a| a.get("query"))
         .and_then(Value::as_str)
         .unwrap_or_default()
-        .to_lowercase();
-    if query.is_empty() {
+        .trim();
+    if query_raw.is_empty() {
         return Ok(JsonRpcResponse::success(
             req.id.clone(),
             serde_json::to_value(CallToolResult::error("Missing required parameter: query"))?,
         ));
     }
-    let dcc = params
-        .arguments
-        .as_ref()
-        .and_then(|a| a.get("dcc"))
-        .and_then(Value::as_str);
-    let include_disabled = params
-        .arguments
-        .as_ref()
+    let query = query_raw.to_lowercase();
+
+    let dcc = args.and_then(|a| a.get("dcc")).and_then(Value::as_str);
+    let include_disabled = args
         .and_then(|a| a.get("include_disabled"))
         .and_then(Value::as_bool)
         .unwrap_or(false);
+    let include_stubs = args
+        .and_then(|a| a.get("include_stubs"))
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let include_unloaded_skills = args
+        .and_then(|a| a.get("include_unloaded_skills"))
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
+    let limit = args
+        .and_then(|a| a.get("limit"))
+        .and_then(Value::as_u64)
+        .map(|n| n.clamp(1, 100) as usize)
+        .unwrap_or(25);
 
-    let mut matches: Vec<serde_json::Value> = Vec::new();
+    // ── 1. Loaded-tool hits ───────────────────────────────────────────
+    let mut tool_hits: Vec<serde_json::Value> = Vec::new();
     for meta in state.registry.list_actions(dcc) {
         if !include_disabled && !meta.enabled {
             continue;
         }
+        if !include_stubs && is_progressive_stub(&meta.name) {
+            continue;
+        }
+        // Pull top-level input-schema property keys into the haystack so
+        // queries that name a parameter (`radius`, `force`, ...) still hit
+        // the action that declares them.
+        let schema_props = schema_property_names(&meta.input_schema);
         let haystack = format!(
-            "{} {} {} {}",
+            "{} {} {} {} {}",
             meta.name,
             meta.description,
             meta.category,
-            meta.tags.join(" ")
+            meta.tags.join(" "),
+            schema_props.join(" "),
         )
         .to_lowercase();
-        if haystack.contains(&query) {
-            matches.push(serde_json::json!({
-                "name": meta.name,
-                "description": meta.description,
-                "category": meta.category,
-                "group": meta.group,
-                "enabled": meta.enabled,
-                "dcc": meta.dcc,
+        if !haystack.contains(&query) {
+            continue;
+        }
+        let mut hit = serde_json::json!({
+            "kind": "tool",
+            "name": meta.name,
+            "description": meta.description,
+            "category": meta.category,
+            "group": meta.group,
+            "enabled": meta.enabled,
+            "dcc": meta.dcc,
+        });
+        if let Some(skill) = &meta.skill_name {
+            hit["skill_name"] = Value::String(skill.clone());
+        }
+        tool_hits.push(hit);
+        if tool_hits.len() >= limit {
+            break;
+        }
+    }
+
+    // ── 2. Unloaded-skill candidates ──────────────────────────────────
+    let mut skill_candidates: Vec<serde_json::Value> = Vec::new();
+    if include_unloaded_skills {
+        let candidates = state
+            .catalog
+            .search_skills(Some(query_raw), &[], dcc, None, Some(limit));
+        for summary in candidates {
+            if summary.loaded {
+                continue; // already surfaced through registry hits above
+            }
+            let detail = state.catalog.get_skill_info(&summary.name);
+            let matching_tools = detail
+                .as_ref()
+                .map(|d| {
+                    d.tools
+                        .iter()
+                        .filter(|t| {
+                            t.name.to_lowercase().contains(&query)
+                                || t.description.to_lowercase().contains(&query)
+                        })
+                        .map(|t| t.name.clone())
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            skill_candidates.push(serde_json::json!({
+                "kind": "skill_candidate",
+                "skill_name": summary.name,
+                "description": summary.description,
+                "tags": summary.tags,
+                "dcc": summary.dcc,
+                "scope": summary.scope,
+                "tool_count": summary.tool_count,
+                "matching_tools": matching_tools,
+                "requires_load_skill": true,
+                "load_hint": {
+                    "tool": "load_skill",
+                    "arguments": { "skill_name": summary.name },
+                },
             }));
         }
     }
+
+    let total = tool_hits.len() + skill_candidates.len();
     let result = serde_json::json!({
-        "total": matches.len(),
+        "total": total,
         "query": query,
-        "tools": matches,
+        "tools": tool_hits,
+        "skill_candidates": skill_candidates,
     });
     Ok(JsonRpcResponse::success(
         req.id.clone(),
         serde_json::to_value(CallToolResult::text(serde_json::to_string(&result)?))?,
     ))
+}
+
+/// `true` when `name` matches a progressive-loading discovery stub.
+///
+/// These names — `__skill__<name>`, `__group__<name>`, or a dotted form
+/// `<ns>.__skill__<name>` — describe *how to load* a capability, not a
+/// capability you can invoke, so `search_tools` hides them by default.
+fn is_progressive_stub(name: &str) -> bool {
+    name.starts_with("__skill__")
+        || name.starts_with("__group__")
+        || name.contains(".__skill__")
+        || name.contains(".__group__")
+}
+
+/// Collect top-level property names from a JSON Schema object.
+///
+/// Returns an empty vector for schemas without a `properties` map. Used by
+/// `handle_search_tools` to index parameter names (e.g. `radius`, `force`)
+/// so they become matchable by keyword queries.
+fn schema_property_names(schema: &Value) -> Vec<String> {
+    schema
+        .get("properties")
+        .and_then(Value::as_object)
+        .map(|props| props.keys().cloned().collect())
+        .unwrap_or_default()
 }
 
 // ── Built-in `jobs.get_status` (#319) ─────────────────────────────────────

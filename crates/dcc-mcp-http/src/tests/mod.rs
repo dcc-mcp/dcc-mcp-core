@@ -125,6 +125,7 @@ mod method_router;
 mod on_demand_loading;
 mod pagination;
 mod search_skills;
+mod search_tools;
 mod session;
 mod skill_discovery;
 mod tools_call;
