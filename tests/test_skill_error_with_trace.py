@@ -114,45 +114,48 @@ def test_default_prompt_present():
     assert result["prompt"]
 
 
-def test_skill_entry_import_error_uses_bridge_dcc_name_from_module():
+@pytest.mark.parametrize(
+    ("exc", "expected_label"),
+    [
+        (
+            ImportError("No module named 'photoshop.api' while probing Maya fallback", name="photoshop.api"),
+            "Photoshop",
+        ),
+        (ImportError("No module named 'zbrush' while loading bridge adapter"), "ZBrush"),
+        (ImportError("No module named 'krita.api'", name="krita.api"), "krita"),
+    ],
+)
+def test_skill_entry_import_error_reports_actual_bridge_host(exc, expected_label):
     from dcc_mcp_core.skill import skill_entry
 
     @skill_entry
-    def photoshop_bridge_tool():
-        raise ImportError("No module named 'photoshop.api'", name="photoshop.api")
+    def bridge_tool():
+        raise exc
 
-    result = photoshop_bridge_tool()
+    result = bridge_tool()
 
     assert result["success"] is False
-    assert result["message"] == "Photoshop is not available in this environment"
-    assert "Photoshop is running" in result["prompt"]
-    assert "Maya" not in result["message"]
+    assert result["message"] == f"{expected_label} is not available in this environment"
+    assert f"{expected_label} is running" in result["prompt"]
+    assert "Maya is not available" not in result["message"]
     assert "Maya" not in result["prompt"]
 
 
-def test_skill_entry_import_error_uses_bridge_dcc_name_from_message():
+def test_run_main_emits_non_maya_bridge_error_json(capsys):
+    import json
+
+    from dcc_mcp_core.skill import run_main
     from dcc_mcp_core.skill import skill_entry
 
     @skill_entry
     def zbrush_bridge_tool():
         raise ImportError("No module named 'zbrush' while loading bridge adapter")
 
-    result = zbrush_bridge_tool()
+    with pytest.raises(SystemExit) as exit_info:
+        run_main(zbrush_bridge_tool)
 
-    assert result["success"] is False
-    assert result["message"] == "ZBrush is not available in this environment"
-    assert "ZBrush is running" in result["prompt"]
-
-
-def test_skill_entry_import_error_preserves_unknown_custom_dcc_module():
-    from dcc_mcp_core.skill import skill_entry
-
-    @skill_entry
-    def custom_dcc_tool():
-        raise ImportError("No module named 'krita.api'", name="krita.api")
-
-    result = custom_dcc_tool()
-
-    assert result["success"] is False
-    assert result["message"] == "krita is not available in this environment"
-    assert "krita is running" in result["prompt"]
+    assert exit_info.value.code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["success"] is False
+    assert payload["message"] == "ZBrush is not available in this environment"
+    assert "Maya" not in payload["prompt"]

@@ -252,14 +252,55 @@ mod tests {
     }
 
     #[test]
-    fn test_scan_for_dcc_typed_entry_point() {
+    fn test_scan_for_dcc_uses_non_maya_typed_env_paths() {
         use dcc_mcp_models::DccName;
+        use std::fs;
 
-        // Typed entry point delegates to scan() with the canonical
-        // lowercase string form (#491).
+        fn write_skill_dir(root: &Path, name: &str) -> String {
+            let dir = root.join(name);
+            fs::create_dir_all(&dir).unwrap();
+            fs::write(
+                dir.join(crate::constants::SKILL_METADATA_FILE),
+                format!("name: {name}\nversion: 1.0.0\n"),
+            )
+            .unwrap();
+            path_to_string(&dir)
+        }
+
+        let tmp = tempfile::tempdir().unwrap();
+        let photoshop_skill = write_skill_dir(tmp.path(), "photoshop-retouch");
+        let krita_skill = write_skill_dir(tmp.path(), "krita-paintover");
+
+        let saved_photoshop = std::env::var("DCC_MCP_PHOTOSHOP_SKILL_PATHS").ok();
+        let saved_krita = std::env::var("DCC_MCP_KRITA_SKILL_PATHS").ok();
+        unsafe {
+            std::env::set_var("DCC_MCP_PHOTOSHOP_SKILL_PATHS", &photoshop_skill);
+            std::env::set_var("DCC_MCP_KRITA_SKILL_PATHS", &krita_skill);
+        }
+
         let mut scanner = SkillScanner::new();
-        let dcc = DccName::Maya;
-        let result = scanner.scan_for_dcc(Some(&["/nonexistent".to_string()]), Some(&dcc), false);
-        assert!(result.is_empty());
+        let photoshop = scanner.scan_for_dcc(None, Some(&DccName::Photoshop), true);
+        scanner.clear_cache();
+        let custom = scanner.scan_for_dcc(None, Some(&DccName::Other("krita".into())), true);
+
+        unsafe {
+            match saved_photoshop {
+                Some(value) => std::env::set_var("DCC_MCP_PHOTOSHOP_SKILL_PATHS", value),
+                None => std::env::remove_var("DCC_MCP_PHOTOSHOP_SKILL_PATHS"),
+            }
+            match saved_krita {
+                Some(value) => std::env::set_var("DCC_MCP_KRITA_SKILL_PATHS", value),
+                None => std::env::remove_var("DCC_MCP_KRITA_SKILL_PATHS"),
+            }
+        }
+
+        assert!(
+            photoshop.contains(&photoshop_skill),
+            "photoshop scan returned {photoshop:?}"
+        );
+        assert!(
+            custom.contains(&krita_skill),
+            "custom DCC scan returned {custom:?}"
+        );
     }
 }

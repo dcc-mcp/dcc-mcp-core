@@ -174,6 +174,40 @@ mod tests {
         assert_eq!(unk, back);
     }
 
+    #[derive(Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+    struct GatewayRegistration {
+        dcc_type: DccName,
+        app_name: String,
+        tools: Vec<String>,
+    }
+
+    #[test]
+    fn serde_preserves_real_gateway_registration_dcc_types() {
+        let payloads = [
+            (
+                r#"{"dcc_type":"photoshop","app_name":"Photoshop 2026","tools":["photoshop.layers.list"]}"#,
+                DccName::Photoshop,
+            ),
+            (
+                r#"{"dcc_type":"zbrush","app_name":"ZBrush 2026","tools":["zbrush.subtool.list"]}"#,
+                DccName::Zbrush,
+            ),
+            (
+                r#"{"dcc_type":"krita","app_name":"Krita Studio","tools":["krita.document.active"]}"#,
+                DccName::Other("krita".into()),
+            ),
+        ];
+
+        for (payload, expected_dcc) in payloads {
+            let registration: GatewayRegistration = serde_json::from_str(payload).unwrap();
+            assert_eq!(registration.dcc_type, expected_dcc);
+            assert_eq!(
+                serde_json::to_value(&registration).unwrap()["dcc_type"],
+                serde_json::Value::String(registration.dcc_type.to_string())
+            );
+        }
+    }
+
     #[test]
     fn display_uses_as_str() {
         assert_eq!(DccName::Maya.to_string(), "maya");
