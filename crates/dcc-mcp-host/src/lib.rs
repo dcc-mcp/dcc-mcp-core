@@ -107,20 +107,27 @@ pub struct TickOutcome {
 ///
 /// Every DCC adapter in this workspace wires its native idle primitive
 /// to call [`DccDispatcher::tick`]. The MCP HTTP server layer calls
-/// [`DccDispatcher::post`] from its tokio workers.
+/// [`DccDispatcher::post`] (via the [`DccDispatcherExt`] convenience
+/// extension) from its tokio workers.
+///
+/// # Dyn compatibility
+///
+/// This trait is intentionally dyn-compatible (no generic methods in
+/// the main surface) so consumers can hold `Arc<dyn DccDispatcher>`.
+/// The ergonomic generic `post<F, R>(job)` lives on
+/// [`DccDispatcherExt`], which is blanket-implemented for every
+/// `DccDispatcher` and available whenever that trait is in scope.
 pub trait DccDispatcher: Send + Sync + 'static {
-    /// Enqueue a job for main-thread execution and return a future
-    /// that resolves to the job's return value.
+    /// Enqueue a type-erased job for main-thread execution and return
+    /// a future that resolves with the job's boxed result.
     ///
-    /// The job closure is `FnOnce() -> R + Send + 'static`; any type
-    /// that is `Send + 'static` can flow back to the awaiting future.
-    ///
-    /// This method is safe to call from any thread and is the primary
-    /// entry point for request handlers that need to touch DCC state.
-    fn post<F, R>(&self, job: F) -> PostHandle<R>
-    where
-        F: FnOnce() -> R + Send + 'static,
-        R: Send + 'static;
+    /// This is the dyn-safe primitive: every other `post*` method
+    /// (including [`DccDispatcherExt::post`]) funnels through here.
+    /// Callers who just want to schedule a closure and await a typed
+    /// result should use the generic
+    /// [`DccDispatcherExt::post`] instead — that wraps this method
+    /// and handles the down-cast.
+    fn post_boxed(&self, job: BoxedJob) -> PostHandle<BoxedResult>;
 
     /// Drain at most `max_jobs` entries from the queue and run them
     /// **on the calling thread**.
@@ -149,6 +156,39 @@ pub trait DccDispatcher: Send + Sync + 'static {
     fn is_shutdown(&self) -> bool;
 }
 
+/// Type-erased closure the dispatcher stores in its queue.
+pub type BoxedJob = Box<dyn FnOnce() -> BoxedResult + Send + 'static>;
+
+/// Type-erased return value shipped back via [`PostHandle`]. The
+/// generic [`DccDispatcherExt::post`] downcasts this transparently.
+pub type BoxedResult = Box<dyn std::any::Any + Send + 'static>;
+
+/// Convenience extension giving every [`DccDispatcher`] the ergonomic
+/// generic `post<F, R>(job)` API. Blanket-implemented — callers don't
+/// need to implement this trait themselves.
+///
+/// Keeping this out of the core trait is what makes
+/// [`DccDispatcher`] dyn-compatible.
+pub trait DccDispatcherExt: DccDispatcher {
+    /// Enqueue a `FnOnce() -> R` for main-thread execution and return
+    /// a future that resolves to `R` directly (no boxing visible at
+    /// the call site).
+    fn post<F, R>(&self, job: F) -> PostHandle<R>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        let boxed_job: BoxedJob = Box::new(move || {
+            let r = job();
+            Box::new(r) as BoxedResult
+        });
+        let raw = self.post_boxed(boxed_job);
+        PostHandle::downcasting::<R>(raw)
+    }
+}
+
+impl<T: DccDispatcher + ?Sized> DccDispatcherExt for T {}
+
 /// Handle to a posted job. Awaiting it yields the job's return value
 /// once the main thread ticks, or [`DispatchError`] on failure.
 pub struct PostHandle<R> {
@@ -158,6 +198,64 @@ pub struct PostHandle<R> {
 impl<R> PostHandle<R> {
     fn new(rx: oneshot::Receiver<Result<R, DispatchError>>) -> Self {
         Self { inner: rx }
+    }
+}
+
+impl PostHandle<BoxedResult> {
+    /// Convert a type-erased [`PostHandle<BoxedResult>`] (as produced
+    /// by [`DccDispatcher::post_boxed`]) into a typed
+    /// [`PostHandle<R>`] by attaching an adapter task that performs
+    /// the runtime downcast.
+    ///
+    /// Used by [`DccDispatcherExt::post`] so users holding
+    /// `Arc<dyn DccDispatcher>` still get the ergonomic typed
+    /// return. The conversion is infallible in practice — the
+    /// extension trait is the only way to feed data in, and it
+    /// guarantees the boxed payload is `R` — but we still surface a
+    /// [`DispatchError::ResultDropped`] if the adapter channel is
+    /// torn down.
+    fn downcasting<R>(self) -> PostHandle<R>
+    where
+        R: Send + 'static,
+    {
+        let (tx, rx) = oneshot::channel::<Result<R, DispatchError>>();
+        // Spawn an adapter task only if we're inside a tokio runtime.
+        // When called from inside `DccDispatcherExt::post`, the caller
+        // is typically on a tokio worker (HTTP hot path) or inside a
+        // `tokio::runtime::Handle::block_on` (Python bindings), so a
+        // runtime is almost always present. In the rare non-runtime
+        // case we fall back to `std::thread::spawn` so the handle
+        // still resolves correctly.
+        let inner = self.inner;
+        let forward = async move {
+            let outcome = match inner.await {
+                Ok(Ok(boxed)) => match boxed.downcast::<R>() {
+                    Ok(concrete) => Ok(*concrete),
+                    Err(_) => Err(DispatchError::Panic(
+                        "post_boxed payload downcast failed — internal bug".to_string(),
+                    )),
+                },
+                Ok(Err(err)) => Err(err),
+                Err(_) => Err(DispatchError::ResultDropped),
+            };
+            let _ = tx.send(outcome);
+        };
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => {
+                handle.spawn(forward);
+            }
+            Err(_) => {
+                std::thread::spawn(move || {
+                    // Minimal current-thread runtime for the adapter.
+                    let rt = tokio::runtime::Builder::new_current_thread()
+                        .enable_time()
+                        .build()
+                        .expect("failed to build fallback runtime for PostHandle downcast");
+                    rt.block_on(forward);
+                });
+            }
+        }
+        PostHandle::new(rx)
     }
 }
 
@@ -469,10 +567,17 @@ impl QueueDispatcher {
             shared: Shared::new(),
         }
     }
-}
 
-impl DccDispatcher for QueueDispatcher {
-    fn post<F, R>(&self, job: F) -> PostHandle<R>
+    /// Inherent generic `post<F, R>` — the fast path when the caller
+    /// holds a concrete `QueueDispatcher`.
+    ///
+    /// Avoids the double-box the dyn-safe
+    /// [`DccDispatcher::post_boxed`] path incurs: the closure and its
+    /// return type are preserved statically until the tick thread
+    /// runs them. The ergonomic
+    /// [`DccDispatcherExt::post`] method provides the same signature
+    /// when the caller holds an `Arc<dyn DccDispatcher>`.
+    pub fn post<F, R>(&self, job: F) -> PostHandle<R>
     where
         F: FnOnce() -> R + Send + 'static,
         R: Send + 'static,
@@ -486,6 +591,15 @@ impl DccDispatcher for QueueDispatcher {
             rejected.cancel();
         }
         PostHandle::new(rx)
+    }
+}
+
+impl DccDispatcher for QueueDispatcher {
+    fn post_boxed(&self, job: BoxedJob) -> PostHandle<BoxedResult> {
+        // Dyn-safe primitive: the generic closure shape has already
+        // been erased by the caller, so we just stash the boxed job
+        // in the same `Runnable` plumbing the inherent `post` uses.
+        self.post(job)
     }
 
     fn tick(&self, max_jobs: usize) -> TickOutcome {
@@ -553,6 +667,17 @@ impl BlockingDispatcher {
         }
     }
 
+    /// Inherent generic `post<F, R>` — see
+    /// [`QueueDispatcher::post`] for why we keep this outside the
+    /// trait.
+    pub fn post<F, R>(&self, job: F) -> PostHandle<R>
+    where
+        F: FnOnce() -> R + Send + 'static,
+        R: Send + 'static,
+    {
+        self.inner.post(job)
+    }
+
     /// Drain up to `max_jobs` from the queue, blocking up to `timeout`
     /// waiting for the first job if none are immediately available.
     ///
@@ -585,12 +710,8 @@ impl BlockingDispatcher {
 }
 
 impl DccDispatcher for BlockingDispatcher {
-    fn post<F, R>(&self, job: F) -> PostHandle<R>
-    where
-        F: FnOnce() -> R + Send + 'static,
-        R: Send + 'static,
-    {
-        self.inner.post(job)
+    fn post_boxed(&self, job: BoxedJob) -> PostHandle<BoxedResult> {
+        self.inner.post_boxed(job)
     }
 
     fn tick(&self, max_jobs: usize) -> TickOutcome {

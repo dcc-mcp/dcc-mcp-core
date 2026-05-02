@@ -28,6 +28,11 @@ pub struct PyMcpHttpServer {
     /// Shared live metadata — written by Python via `update_scene()` /
     /// `update_gateway_metadata()`; propagated to FileRegistry each heartbeat.
     pub(crate) live_meta: Arc<RwLock<LiveMetaInner>>,
+    /// Optional DCC main-thread executor attached via
+    /// [`PyMcpHttpServer::attach_dispatcher`]. Consumed exactly once
+    /// by [`PyMcpHttpServer::start`]; further `attach_dispatcher`
+    /// calls after start are rejected.
+    pub(crate) attached_executor: parking_lot::Mutex<Option<crate::executor::DccExecutorHandle>>,
 }
 
 #[pymethods]
@@ -64,20 +69,81 @@ impl PyMcpHttpServer {
             config: cfg,
             runtime: Arc::new(runtime),
             live_meta,
+            attached_executor: parking_lot::Mutex::new(None),
         })
+    }
+
+    /// Route every ``tools/call`` through the given dispatcher's main-thread queue.
+    ///
+    /// ``dispatcher`` must be a :class:`~dcc_mcp_core.host.QueueDispatcher`
+    /// or :class:`~dcc_mcp_core.host.BlockingDispatcher`. Once attached,
+    /// every synchronous ``tools/call`` handler runs on the thread that
+    /// drains the dispatcher (typically the DCC main thread, or the
+    /// :class:`~dcc_mcp_core.host.StandaloneHost` driver thread in tests).
+    ///
+    /// Must be called **before** :meth:`start`. Re-attaching after the
+    /// server has started is rejected with :class:`RuntimeError` — hot
+    /// swap is out of scope for this API and belongs to a dedicated
+    /// lifecycle method we may add later.
+    ///
+    /// Args:
+    ///     dispatcher: a ``QueueDispatcher`` or ``BlockingDispatcher``.
+    ///
+    /// Raises:
+    ///     TypeError: dispatcher is not one of the supported types.
+    ///     RuntimeError: ``attach_dispatcher`` was already called once
+    ///         on this server. Build a fresh ``McpHttpServer`` to swap
+    ///         the backing dispatcher.
+    fn attach_dispatcher(&self, py: Python<'_>, dispatcher: Py<PyAny>) -> PyResult<()> {
+        use dcc_mcp_host::python::{PyBlockingDispatcher, PyQueueDispatcher};
+
+        let bound = dispatcher.bind(py);
+        let shared: Arc<dyn dcc_mcp_host::DccDispatcher> =
+            if let Ok(queue) = bound.cast::<PyQueueDispatcher>() {
+                queue.borrow().arc_inner()
+            } else if let Ok(blocking) = bound.cast::<PyBlockingDispatcher>() {
+                blocking.borrow().arc_inner()
+            } else {
+                return Err(pyo3::exceptions::PyTypeError::new_err(
+                    "attach_dispatcher expects a QueueDispatcher or BlockingDispatcher",
+                ));
+            };
+
+        let mut slot = self.attached_executor.lock();
+        if slot.is_some() {
+            return Err(pyo3::exceptions::PyRuntimeError::new_err(
+                "attach_dispatcher was already called on this McpHttpServer — \
+                 build a fresh server to swap dispatchers",
+            ));
+        }
+        let executor =
+            crate::host_bridge::dispatcher_to_executor_handle(shared, self.runtime.handle());
+        *slot = Some(executor);
+        tracing::info!(
+            "McpHttpServer: main-thread dispatcher attached — tools/call will \
+             route through DccDispatcher::post"
+        );
+        Ok(())
     }
 
     /// Start the server and return a :class:`McpServerHandle`.
     ///
     /// This call returns immediately; the server runs in a background thread.
     fn start(&self) -> PyResult<PyServerHandle> {
-        let server = McpHttpServer::with_catalog(
+        let mut server = McpHttpServer::with_catalog(
             self.registry.clone(),
             self.catalog.clone(),
             self.config.clone(),
         )
         .with_dispatcher(self.dispatcher.clone())
         .with_live_meta(self.live_meta.clone());
+        // If a dispatcher was attached, drain it into the server's
+        // main-thread executor slot. Consumed once — further
+        // attach_dispatcher calls after start will be rejected by
+        // the None-vs-Some check there.
+        if let Some(executor) = self.attached_executor.lock().take() {
+            server = server.with_executor(executor);
+        }
         let handle = self
             .runtime
             .block_on(server.start())

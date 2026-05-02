@@ -30,15 +30,33 @@ use tokio_util::sync::CancellationToken;
 pub type DccTaskFn = Box<dyn FnOnce() -> String + Send + 'static>;
 
 /// A pending DCC task with its result channel.
-struct DccTask {
-    func: DccTaskFn,
-    result_tx: oneshot::Sender<String>,
+///
+/// `pub(crate)` so [`crate::host_bridge`] can construct the mpsc
+/// channel that backs a bridged [`DccExecutorHandle`]. External
+/// crates still cannot see this type — they use the public
+/// [`DccExecutorHandle::execute`] API.
+pub(crate) struct DccTask {
+    pub(crate) func: DccTaskFn,
+    pub(crate) result_tx: oneshot::Sender<String>,
 }
 
 /// Handle owned by the HTTP server to submit tasks to the DCC main thread.
 #[derive(Clone)]
 pub struct DccExecutorHandle {
     tx: mpsc::Sender<DccTask>,
+}
+
+impl DccExecutorHandle {
+    /// Build a `DccExecutorHandle` from an externally-owned sender.
+    ///
+    /// Used by [`crate::host_bridge::dispatcher_to_executor_handle`]
+    /// to bridge a portable [`dcc_mcp_host::DccDispatcher`] into the
+    /// HTTP server's main-thread executor. `pub(crate)` keeps the
+    /// module-private `tx` field invariant for normal callers while
+    /// giving the bridge a single, documented seam.
+    pub(crate) fn from_sender(tx: mpsc::Sender<DccTask>) -> Self {
+        Self { tx }
+    }
 }
 
 impl DccExecutorHandle {

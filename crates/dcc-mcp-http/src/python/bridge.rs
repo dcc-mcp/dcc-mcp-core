@@ -373,5 +373,6 @@ pub fn py_create_skill_server(
         config: cfg,
         runtime: Arc::new(runtime),
         live_meta,
+        attached_executor: parking_lot::Mutex::new(None),
     })
 }

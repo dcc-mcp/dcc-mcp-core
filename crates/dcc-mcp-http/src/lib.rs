@@ -43,6 +43,7 @@ pub mod config;
 pub mod dynamic_tools;
 pub mod error;
 pub mod executor;
+pub mod host_bridge;
 /// Re-export of [`dcc_mcp_gateway`] under the historical
 /// `dcc_mcp_http::gateway` path.
 ///

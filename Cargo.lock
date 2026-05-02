@@ -855,6 +855,7 @@ dependencies = [
  "dcc-mcp-artefact",
  "dcc-mcp-capture",
  "dcc-mcp-gateway",
+ "dcc-mcp-host",
  "dcc-mcp-job",
  "dcc-mcp-jsonrpc",
  "dcc-mcp-models",

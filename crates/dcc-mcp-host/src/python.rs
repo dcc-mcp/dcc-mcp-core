@@ -227,6 +227,19 @@ pub struct PyQueueDispatcher {
     inner: Arc<QueueDispatcher>,
 }
 
+impl PyQueueDispatcher {
+    /// Hand out the shared Rust dispatcher so another crate (e.g.
+    /// `dcc-mcp-http::host_bridge`) can route tasks into it without
+    /// going through Python.
+    ///
+    /// Exposed at crate level only — this is an internal seam, not a
+    /// Python-visible method. SRP: the class stays focused on the
+    /// Python surface; integration crates reach in by name.
+    pub fn arc_inner(&self) -> Arc<dyn DccDispatcher> {
+        self.inner.clone() as Arc<dyn DccDispatcher>
+    }
+}
+
 #[pymethods]
 impl PyQueueDispatcher {
     /// Construct a fresh dispatcher with an empty queue.
@@ -294,6 +307,13 @@ impl PyQueueDispatcher {
 #[pyclass(name = "BlockingDispatcher", module = "dcc_mcp_core._core")]
 pub struct PyBlockingDispatcher {
     inner: Arc<BlockingDispatcher>,
+}
+
+impl PyBlockingDispatcher {
+    /// Hand out the shared Rust dispatcher. See [`PyQueueDispatcher::arc_inner`].
+    pub fn arc_inner(&self) -> Arc<dyn DccDispatcher> {
+        self.inner.clone() as Arc<dyn DccDispatcher>
+    }
 }
 
 #[pymethods]

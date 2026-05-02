@@ -249,10 +249,10 @@ fn validate_from_dict(dict: &Bound<'_, PyDict>) -> PyResult<ActionResultModel> {
 
     let mut ctx = HashMap::new();
     for (k, v) in dict.iter() {
-        if let Ok(key) = k.extract::<String>() {
-            if !ACTION_RESULT_KNOWN_KEYS.contains(&key.as_str()) {
-                ctx.insert(key, py_any_to_json_value(&v)?);
-            }
+        if let Ok(key) = k.extract::<String>()
+            && !ACTION_RESULT_KNOWN_KEYS.contains(&key.as_str())
+        {
+            ctx.insert(key, py_any_to_json_value(&v)?);
         }
     }
 

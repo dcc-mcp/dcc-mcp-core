@@ -26,6 +26,7 @@ dcc-mcp-capture = { path = "../dcc-mcp-capture" }
 dcc-mcp-telemetry = { path = "../dcc-mcp-telemetry", optional = true }
 dcc-mcp-workflow = { path = "../dcc-mcp-workflow" }
 dcc-mcp-artefact = { path = "../dcc-mcp-artefact" }
+dcc-mcp-host = { path = "../dcc-mcp-host" }
 
 # Workspace shared
 serde = { workspace = true }
@@ -80,7 +81,7 @@ dcc-mcp-sandbox = { path = "../dcc-mcp-sandbox" }
 
 [features]
 default = []
-python-bindings = ["pyo3", "dcc-mcp-actions/python-bindings", "dcc-mcp-skills/python-bindings", "dcc-mcp-artefact/python-bindings", "dep:dcc-mcp-pybridge", "dcc-mcp-pybridge/python-bindings"]
+python-bindings = ["pyo3", "dcc-mcp-actions/python-bindings", "dcc-mcp-skills/python-bindings", "dcc-mcp-artefact/python-bindings", "dep:dcc-mcp-pybridge", "dcc-mcp-pybridge/python-bindings", "dcc-mcp-host/python-bindings"]
 # Enable `pyo3-stub-gen` annotations on this crate's PyO3 types.
 stub-gen = ["python-bindings", "dep:pyo3-stub-gen", "dep:pyo3-stub-gen-derive"]
 # Enable the Prometheus `/metrics` endpoint (issue #331). Pulls in the
