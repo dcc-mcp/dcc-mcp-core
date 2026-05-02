@@ -272,22 +272,19 @@ pub fn build_core_tools_inner() -> Vec<McpTool> {
         },
         McpTool {
             name: "search_tools".to_string(),
-            description: "Full-text search over registered tools and, by default, the metadata of unloaded skills (#677).\n\n\
-                          When to use: Locate a capability by keyword without dumping the whole tools/list. Hits include both loaded tools and unloaded-skill candidates; the latter carry `requires_load_skill: true` and a ready-to-send `load_hint` so an agent can follow up with `load_skill`.\n\n\
+            description: "Full-text search over loaded tools and unloaded skill metadata. Unloaded hits come back as `skill_candidate` with `requires_load_skill: true` and a ready `load_hint` (#677).\n\n\
+                          When to use: Find a capability by keyword. If a hit is a skill_candidate, call `load_skill` with its `skill_name` first.\n\n\
                           How to use:\n\
-                          - Keep the query short; matches scan name, description, category, tags, and input-schema property names.\n\
-                          - `include_disabled=true` reveals tools inside inactive tool groups.\n\
-                          - `include_unloaded_skills=false` restricts results to loaded tools only.\n\
-                          - `include_stubs=true` exposes progressive-loading `__skill__*` / `__group__*` stubs for debugging. They are filtered out by default.\n\
-                          - `limit` caps each of `tools` and `skill_candidates` (default 25, max 100).\n\
-                          - For unloaded skills, call `load_skill` with the returned `skill_name` before invoking tools."
+                          - Short query; matches name, description, tags, schema keys.\n\
+                          - `include_stubs=true` shows `__skill__*` / `__group__*` for debug.\n\
+                          - `limit` caps each hit array (default 25, max 100)."
                 .to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "Keyword matched against tool name, description, category, tags, and input-schema property names; also forwarded to the skill-catalog scorer for unloaded-skill discovery."
+                        "description": "Keyword matched against tool name, description, category, tags, and input-schema property names."
                     },
                     "dcc": {
                         "type": "string",
@@ -306,7 +303,7 @@ pub fn build_core_tools_inner() -> Vec<McpTool> {
                     "include_stubs": {
                         "type": "boolean",
                         "default": false,
-                        "description": "Expose progressive-loading `__skill__*` / `__group__*` stubs. Debug-only — leave false for agent consumers."
+                        "description": "Expose `__skill__*` / `__group__*` progressive-loading stubs. Debug-only."
                     },
                     "limit": {
                         "type": "integer",
