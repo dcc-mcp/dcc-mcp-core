@@ -1042,3 +1042,350 @@ class TestConcurrencyBoundary:
         tool_names = [t["name"] if isinstance(t, dict) else t for t in tools]
         count = tool_names.count("greet")
         assert count <= 1, f"greet duplicated: {count} occurrences"
+
+
+# ---------------------------------------------------------------------------
+# search_tools (issue #677) — stub filtering + unloaded skill candidates
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="class")
+def server_for_search_tools():
+    """Isolated server for search_tools coverage.
+
+    Registers a tool whose input schema declares a ``radius`` property so we
+    can verify schema-property indexing (new in #677), and discovers the
+    examples catalog so unloaded skills become eligible for
+    ``skill_candidates`` hits.
+    """
+    if not Path(EXAMPLES_SKILLS_DIR).is_dir():
+        pytest.skip("examples/skills directory not found")
+
+    reg = ToolRegistry()
+    reg.register(
+        "create_sphere",
+        description="Create a polygon sphere.",
+        category="geometry",
+        tags=["create", "mesh"],
+        dcc="test",
+        version="1.0.0",
+        input_schema=json.dumps(
+            {
+                "type": "object",
+                "properties": {"radius": {"type": "number"}},
+            }
+        ),
+    )
+
+    config = McpHttpConfig(port=0, server_name="search-tools-e2e")
+    server = McpHttpServer(reg, config)
+    server.register_handler("create_sphere", lambda params: {"radius": params.get("radius", 1.0)})
+    server.discover(extra_paths=[EXAMPLES_SKILLS_DIR])
+
+    handle = server.start()
+    url = handle.mcp_url()
+    time.sleep(0.2)
+
+    yield server, handle, url, "search-tools-e2e"
+    handle.shutdown()
+
+
+@pytest.mark.skipif(not NPX_AVAILABLE, reason="npx / mcporter not available")
+class TestMcporterSearchTools:
+    """search_tools acceptance criteria (#677) via the mcporter CLI."""
+
+    def test_search_tools_filters_stubs_by_default(self, server_for_search_tools):
+        """Default search never surfaces ``__skill__*`` / ``__group__*`` entries."""
+        _, _, url, name = server_for_search_tools
+        # `hello-world` is discovered but not loaded — its stub exists.
+        result = _mcporter_call(url, name, "search_tools", {"query": "hello"})
+        data = _parse_content_json(result)
+        tool_names = [t.get("name", "") for t in data.get("tools", [])]
+        assert not any(n.startswith("__skill__") for n in tool_names), (
+            f"__skill__* stubs leaked into default search: {tool_names}"
+        )
+        assert not any(n.startswith("__group__") for n in tool_names), (
+            f"__group__* stubs leaked into default search: {tool_names}"
+        )
+
+    def test_search_tools_include_stubs_true_surfaces_stubs(self, server_for_search_tools):
+        """The include_stubs escape hatch exposes progressive-loading stubs for debugging."""
+        _, _, url, name = server_for_search_tools
+        result = _mcporter_call(
+            url,
+            name,
+            "search_tools",
+            {"query": "hello", "include_stubs": True},
+        )
+        data = _parse_content_json(result)
+        tool_names = [t.get("name", "") for t in data.get("tools", [])]
+        # Either a __skill__ or __group__ stub should now appear among hits.
+        has_stub = any(n.startswith("__skill__") or n.startswith("__group__") for n in tool_names)
+        assert has_stub, f"include_stubs=true must surface at least one stub, got: {tool_names}"
+
+    def test_search_tools_matches_schema_property_name(self, server_for_search_tools):
+        """Queries on input-schema property names hit the owning tool (#677)."""
+        _, _, url, name = server_for_search_tools
+        result = _mcporter_call(url, name, "search_tools", {"query": "radius"})
+        data = _parse_content_json(result)
+        tool_names = [t.get("name", "") for t in data.get("tools", [])]
+        assert "create_sphere" in tool_names, (
+            f"schema property `radius` must make create_sphere discoverable, got: {tool_names}"
+        )
+
+    def test_search_tools_unloaded_skill_candidate_carries_load_hint(self, server_for_search_tools):
+        """Unloaded-skill hits arrive as skill_candidates with a usable load_hint."""
+        _, _, url, name = server_for_search_tools
+        # Make sure hello-world is unloaded so it shows up as a candidate.
+        _mcporter_call(url, name, "unload_skill", {"skill_name": "hello-world"})
+
+        result = _mcporter_call(url, name, "search_tools", {"query": "hello"})
+        data = _parse_content_json(result)
+        candidates = data.get("skill_candidates", [])
+        names = [c.get("skill_name") for c in candidates]
+        assert "hello-world" in names, f"unloaded hello-world must appear as a skill_candidate, got: {names}"
+        hello = next(c for c in candidates if c.get("skill_name") == "hello-world")
+        assert hello.get("kind") == "skill_candidate"
+        assert hello.get("requires_load_skill") is True
+        load_hint = hello.get("load_hint", {})
+        assert load_hint.get("tool") == "load_skill"
+        assert load_hint.get("arguments", {}).get("skill_name") == "hello-world"
+
+
+# ---------------------------------------------------------------------------
+# Tool-group progressive activation (activate_tool_group / deactivate_tool_group)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="class")
+def server_for_tool_groups():
+    """Isolated server that loads ``maya-geometry`` so its groups are live.
+
+    We do NOT invoke the Maya-specific tools themselves (there is no Maya in
+    CI). The test only inspects tools/list transitions around
+    activate_tool_group / deactivate_tool_group.
+    """
+    if not Path(EXAMPLES_SKILLS_DIR).is_dir():
+        pytest.skip("examples/skills directory not found")
+    if not Path(EXAMPLES_SKILLS_DIR, "maya-geometry", "groups.yaml").is_file():
+        pytest.skip("maya-geometry groups.yaml missing — skill shape changed")
+
+    reg = ToolRegistry()
+    config = McpHttpConfig(port=0, server_name="tool-groups-e2e")
+    server = McpHttpServer(reg, config)
+    server.discover(extra_paths=[EXAMPLES_SKILLS_DIR])
+    handle = server.start()
+    url = handle.mcp_url()
+    time.sleep(0.2)
+
+    # Load maya-geometry so both groups (modeling: default-active=true,
+    # rigging: default-active=false) become the catalog's canonical state.
+    _mcporter_call(url, "tool-groups-e2e", "load_skill", {"skill_name": "maya-geometry"})
+
+    yield server, handle, url, "tool-groups-e2e"
+    handle.shutdown()
+
+
+@pytest.mark.skipif(not NPX_AVAILABLE, reason="npx / mcporter not available")
+class TestMcporterToolGroupActivation:
+    """Progressive tool-group activation via the core `activate_tool_group` tool."""
+
+    def test_default_active_group_members_are_exposed(self, server_for_tool_groups):
+        _, _, url, name = server_for_tool_groups
+        tools = _mcporter_list_tools(url, name)
+        tool_names = {t["name"] if isinstance(t, dict) else t for t in tools}
+        # modeling group has default-active: true → its members must be live.
+        assert "create_sphere" in tool_names, f"modeling-group tool create_sphere missing from tools/list: {tool_names}"
+
+    def test_inactive_group_is_collapsed_into_stub(self, server_for_tool_groups):
+        _, _, url, name = server_for_tool_groups
+        # Ensure rigging is deactivated before asserting the stub shape.
+        _mcporter_call(url, name, "deactivate_tool_group", {"group": "rigging"})
+        tools = _mcporter_list_tools(url, name)
+        tool_names = {t["name"] if isinstance(t, dict) else t for t in tools}
+        assert "__group__rigging" in tool_names, (
+            f"rigging group must collapse to __group__rigging stub, got: {tool_names}"
+        )
+        assert "create_joint" not in tool_names, (
+            f"create_joint must be hidden while rigging is inactive, got: {tool_names}"
+        )
+
+    def test_activate_tool_group_expands_members(self, server_for_tool_groups):
+        _, _, url, name = server_for_tool_groups
+        result = _mcporter_call(url, name, "activate_tool_group", {"group": "rigging"})
+        # activate_tool_group returns a JSON envelope in the text content.
+        text = _extract_content_text(result)
+        assert "rigging" in text, f"activate response should mention group name: {text}"
+
+        tools = _mcporter_list_tools(url, name)
+        tool_names = {t["name"] if isinstance(t, dict) else t for t in tools}
+        assert "create_joint" in tool_names, f"create_joint must surface after activating rigging, got: {tool_names}"
+        assert "__group__rigging" not in tool_names, (
+            f"__group__rigging stub must disappear after activation, got: {tool_names}"
+        )
+
+    def test_deactivate_tool_group_collapses_members_again(self, server_for_tool_groups):
+        _, _, url, name = server_for_tool_groups
+        # Make sure it's active first (idempotent); then deactivate.
+        _mcporter_call(url, name, "activate_tool_group", {"group": "rigging"})
+        _mcporter_call(url, name, "deactivate_tool_group", {"group": "rigging"})
+
+        tools = _mcporter_list_tools(url, name)
+        tool_names = {t["name"] if isinstance(t, dict) else t for t in tools}
+        assert "create_joint" not in tool_names
+        assert "__group__rigging" in tool_names
+
+    def test_activate_unknown_group_does_not_crash(self, server_for_tool_groups):
+        """Activating a non-existent group should return a structured response, never panic."""
+        _, _, url, name = server_for_tool_groups
+        result = _mcporter_call(
+            url,
+            name,
+            "activate_tool_group",
+            {"group": "no-such-group-xyz"},
+        )
+        # Either the envelope reports no change, or the server flags an error.
+        # Key guarantee: we got a valid response, not a transport failure.
+        text = _extract_content_text(result)
+        assert text, "activate_tool_group on unknown group must still return a response"
+
+
+# ---------------------------------------------------------------------------
+# jobs.get_status / jobs.cleanup — async execution lifecycle
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="class")
+def server_for_jobs():
+    """Isolated server that loads ``async-render-example`` for jobs coverage."""
+    if not Path(EXAMPLES_SKILLS_DIR, "async-render-example").is_dir():
+        pytest.skip("async-render-example skill missing")
+
+    reg = ToolRegistry()
+    config = McpHttpConfig(port=0, server_name="jobs-e2e")
+    server = McpHttpServer(reg, config)
+    server.discover(extra_paths=[EXAMPLES_SKILLS_DIR])
+    handle = server.start()
+    url = handle.mcp_url()
+    time.sleep(0.2)
+
+    _mcporter_call(url, "jobs-e2e", "load_skill", {"skill_name": "async-render-example"})
+
+    yield server, handle, url, "jobs-e2e"
+    handle.shutdown()
+
+
+def _poll_job_until_terminal(url: str, name: str, job_id: str, *, timeout_s: float = 20.0) -> dict:
+    """Poll ``jobs.get_status`` until the job reaches a terminal state.
+
+    Returns the final parsed envelope. Raises ``TimeoutError`` if the job has
+    not left the ``pending``/``running`` state within ``timeout_s`` seconds.
+    """
+    terminal = {"completed", "failed", "cancelled", "interrupted"}
+    deadline = time.time() + timeout_s
+    last_envelope: dict[str, Any] = {}
+    while time.time() < deadline:
+        result = _mcporter_call(url, name, "jobs.get_status", {"job_id": job_id})
+        # jobs.get_status emits structured content; _parse_content_json copes
+        # with both the wrapped and direct-data shapes.
+        try:
+            envelope = _parse_content_json(result)
+        except (json.JSONDecodeError, KeyError, TypeError):
+            envelope = result
+        last_envelope = envelope
+        status = envelope.get("status")
+        if status in terminal:
+            return envelope
+        time.sleep(0.25)
+    raise TimeoutError(
+        f"job {job_id} did not reach terminal state within {timeout_s}s (last envelope: {last_envelope})"
+    )
+
+
+def _extract_job_id(result: dict[str, Any]) -> str | None:
+    """Pull the job_id out of an async tools/call response envelope.
+
+    Async dispatch (#318) returns structuredContent ``{job_id, status,
+    parent_job_id, _meta: {dcc: {jobId}}}``. Depending on mcporter's handling
+    we may see the structured form directly or nested under ``structuredContent``.
+    """
+    if not isinstance(result, dict):
+        return None
+    direct = result.get("job_id")
+    if direct:
+        return str(direct)
+    struct = result.get("structuredContent")
+    if isinstance(struct, dict) and struct.get("job_id"):
+        return str(struct["job_id"])
+    meta = result.get("_meta", {})
+    if isinstance(meta, dict):
+        dcc = meta.get("dcc", {})
+        if isinstance(dcc, dict) and dcc.get("jobId"):
+            return str(dcc["jobId"])
+    return None
+
+
+@pytest.mark.skipif(not NPX_AVAILABLE, reason="npx / mcporter not available")
+class TestMcporterJobsLifecycle:
+    """Exercise jobs.get_status and jobs.cleanup through a real async tool call."""
+
+    def test_jobs_get_status_unknown_id_returns_error(self, server_for_jobs):
+        _, _, url, name = server_for_jobs
+        result = _mcporter_call(url, name, "jobs.get_status", {"job_id": "does-not-exist"})
+        text = _extract_content_text(result).lower()
+        is_error = result.get("isError") is True
+        assert is_error or "no job" in text or "not found" in text, (
+            f"unknown job_id must yield an error envelope, got: {result}"
+        )
+
+    def test_jobs_cleanup_zero_hours_is_safe(self, server_for_jobs):
+        _, _, url, name = server_for_jobs
+        result = _mcporter_call(url, name, "jobs.cleanup", {"older_than_hours": 0})
+        data = _parse_content_json(result)
+        assert "removed" in data, f"jobs.cleanup must return `removed` count: {data}"
+        assert isinstance(data["removed"], int)
+        assert data["removed"] >= 0
+
+    def test_async_tool_reaches_terminal_state(self, server_for_jobs):
+        """Call an async tool, follow the job to completion, assert state machine progresses."""
+        _, _, url, name = server_for_jobs
+        result = _mcporter_call(
+            url,
+            name,
+            "render_frames",
+            {"start": 1, "end": 3},
+        )
+        job_id = _extract_job_id(result)
+        assert job_id, f"render_frames must return a job_id, got: {result}"
+
+        final = _poll_job_until_terminal(url, name, job_id, timeout_s=20.0)
+        assert final.get("status") in {"completed", "failed", "cancelled", "interrupted"}, (
+            f"job never reached terminal state: {final}"
+        )
+        # render_frames sleeps 0.05s and writes success JSON — expect completed.
+        # If the environment blocks it we still accept ``failed`` as valid
+        # state-machine progression (we care about the lifecycle, not the
+        # payload content).
+
+    def test_jobs_cleanup_removes_terminal_entry(self, server_for_jobs):
+        """After a job is terminal, jobs.cleanup(older_than_hours=0) must prune it."""
+        _, _, url, name = server_for_jobs
+        # Fire another render so we have a fresh terminal row to prune.
+        result = _mcporter_call(url, name, "render_frames", {"start": 1, "end": 1})
+        job_id = _extract_job_id(result)
+        assert job_id, f"render_frames must return a job_id, got: {result}"
+        _poll_job_until_terminal(url, name, job_id, timeout_s=20.0)
+
+        cleanup = _mcporter_call(url, name, "jobs.cleanup", {"older_than_hours": 0})
+        cleanup_data = _parse_content_json(cleanup)
+        assert cleanup_data.get("removed", 0) >= 1, (
+            f"cleanup must prune at least the just-completed job, got: {cleanup_data}"
+        )
+
+        # Re-querying the pruned job_id must now fail.
+        after = _mcporter_call(url, name, "jobs.get_status", {"job_id": job_id})
+        text = _extract_content_text(after).lower()
+        is_error = after.get("isError") is True
+        assert is_error or "no job" in text or "not found" in text, (
+            f"pruned job must be unknown to jobs.get_status, got: {after}"
+        )

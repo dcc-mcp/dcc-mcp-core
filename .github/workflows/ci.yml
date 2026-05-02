@@ -172,6 +172,8 @@ jobs:
   # Exercises the full HTTP stack from outside the process:
   #   tools/list, tools/call, find_skills, load_skill, unload_skill,
   #   progressive loading (discover -> load -> call -> unload)
+  # See also .github/workflows/e2e-api.yml for the sectioned variant that
+  # runs the same test file split by concern for easier failure triage.
   mcporter-e2e:
     name: mcporter e2e
     needs: [build-wheel]
