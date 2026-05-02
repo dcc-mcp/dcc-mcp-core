@@ -295,3 +295,41 @@ pub async fn test_search_tools_no_results_envelope() {
     assert_eq!(result["tools"].as_array().unwrap().len(), 0);
     assert_eq!(result["skill_candidates"].as_array().unwrap().len(), 0);
 }
+
+// ── 5. Stub synthesis from the catalog (regression for PR #681 e2e bug) ──
+
+/// Regression: stubs are **not** stored in `ActionRegistry`; they are
+/// synthesised on demand by `tools/list` for unloaded skills and
+/// inactive tool groups. When `include_stubs=true`, `search_tools` must
+/// walk the catalog itself and emit the same synthetic entries — mere
+/// pass-through of registry rows is not enough because realistic
+/// deployments (e.g. `McpHttpServer.discover()`) never write stub-named
+/// actions into the registry.
+///
+/// PR #681 caught this gap in CI when running against a server built
+/// from the catalog alone:
+///
+/// ```text
+/// AssertionError: include_stubs=true must surface at least one stub, got: []
+/// ```
+#[tokio::test]
+pub async fn test_search_tools_include_stubs_synthesises_from_catalog() {
+    // Catalog-only server: no stub names pre-registered. The only way
+    // `include_stubs=true` can surface __skill__maya-bevel is by
+    // synthesising it from `SkillCatalog::list_skills("unloaded")`.
+    let server = TestServer::new(make_router_with_skills());
+
+    let body = call_search_tools(&server, json!({ "query": "bevel", "include_stubs": true })).await;
+    let result = parse_tool_result_text(&body);
+    let names: Vec<&str> = result["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["name"].as_str().unwrap())
+        .collect();
+    assert!(
+        names.contains(&"__skill__maya-bevel"),
+        "include_stubs=true must synthesise __skill__maya-bevel from the \
+         catalog even when no stub-named action exists in the registry, got: {names:?}"
+    );
+}

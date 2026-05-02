@@ -201,6 +201,89 @@ pub async fn handle_search_tools(
         }
     }
 
+    // ── 1b. Progressive-loading stubs (debug opt-in) ───────────────────
+    //
+    // Stubs are *not* stored in the ActionRegistry — they are synthesised
+    // on demand by `tools/list` for unloaded skills and inactive tool
+    // groups. When `include_stubs=true`, mirror that synthesis here so
+    // operators can verify the progressive-loading surface end-to-end
+    // from a single `search_tools` call.
+    if include_stubs && tool_hits.len() < limit {
+        // Skill stubs: every non-loaded skill whose metadata matches the
+        // query gets surfaced as `__skill__<name>`.
+        for summary in state.catalog.list_skills(Some("unloaded")) {
+            if let Some(filter) = dcc {
+                if !summary.dcc.eq_ignore_ascii_case(filter) {
+                    continue;
+                }
+            }
+            let haystack = format!(
+                "{} {} {} {} {}",
+                summary.name,
+                summary.description,
+                summary.search_hint,
+                summary.tags.join(" "),
+                summary.tool_names.join(" "),
+            )
+            .to_lowercase();
+            if !haystack.contains(&query) {
+                continue;
+            }
+            tool_hits.push(serde_json::json!({
+                "kind": "tool",
+                "name": format!("__skill__{}", summary.name),
+                "description": format!(
+                    "[stub] unloaded skill `{}` — call load_skill(\"{}\") to expose its {} tool(s)",
+                    summary.name, summary.name, summary.tool_count,
+                ),
+                "category": "stub",
+                "group": "",
+                "enabled": false,
+                "dcc": summary.dcc,
+                "skill_name": summary.name,
+            }));
+            if tool_hits.len() >= limit {
+                break;
+            }
+        }
+
+        // Group stubs: every declared-but-inactive tool group gets surfaced
+        // as `__group__<name>`. Names can repeat across skills, so we
+        // de-duplicate by group name.
+        if tool_hits.len() < limit {
+            let mut seen_groups: std::collections::HashSet<String> =
+                std::collections::HashSet::new();
+            for (skill, group, active) in state.catalog.list_groups() {
+                if active {
+                    continue;
+                }
+                if !seen_groups.insert(group.clone()) {
+                    continue;
+                }
+                let haystack = format!("__group__{} {} {}", group, group, skill).to_lowercase();
+                if !haystack.contains(&query) {
+                    continue;
+                }
+                tool_hits.push(serde_json::json!({
+                    "kind": "tool",
+                    "name": format!("__group__{}", group),
+                    "description": format!(
+                        "[stub] inactive tool group `{}` — call activate_tool_group(group=\"{}\") to expose its members",
+                        group, group,
+                    ),
+                    "category": "stub",
+                    "group": group,
+                    "enabled": false,
+                    "dcc": "",
+                    "skill_name": skill,
+                }));
+                if tool_hits.len() >= limit {
+                    break;
+                }
+            }
+        }
+    }
+
     // ── 2. Unloaded-skill candidates ──────────────────────────────────
     let mut skill_candidates: Vec<serde_json::Value> = Vec::new();
     if include_unloaded_skills {
