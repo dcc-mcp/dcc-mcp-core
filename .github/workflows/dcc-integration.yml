@@ -64,6 +64,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      # Pre-installed clippy from the runner image conflicts with the
+      # clippy component rustup installs when it honours rust-toolchain.toml.
+      # See the matching workaround in .github/actions/build-wheel/action.yml.
+      - name: Remove pre-installed cargo-clippy (conflict workaround)
+        run: rm -f ~/.cargo/bin/cargo-clippy ~/.cargo/bin/cargo-fmt || true
+        shell: bash
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-python@v6
         with:

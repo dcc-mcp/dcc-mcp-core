@@ -63,6 +63,12 @@ jobs:
       # ci.yml's build-wheel job. Keeps workflow_dispatch useful without a
       # prior ci.yml run.
       - uses: loonghao/vx@v0.8.33
+      # Pre-installed cargo-clippy on the runner image conflicts with the
+      # clippy component rustup installs when it honours rust-toolchain.toml.
+      # See .github/actions/build-wheel/action.yml for the matching fix.
+      - name: Remove pre-installed cargo-clippy (conflict workaround)
+        run: rm -f ~/.cargo/bin/cargo-clippy ~/.cargo/bin/cargo-fmt || true
+        shell: bash
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
