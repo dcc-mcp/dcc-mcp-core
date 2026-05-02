@@ -21,6 +21,10 @@ pyo3-stub-gen-derive = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "sync"] }
+# Enable `auto-initialize` only during testing so the in-crate Rust
+# tests that exercise the PyO3 surface can spin up an embedded Python
+# interpreter automatically. Production wheels do NOT pull this in.
+pyo3 = { workspace = true, features = ["auto-initialize"] }
 
 [features]
 default = []

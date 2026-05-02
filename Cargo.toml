@@ -155,6 +155,7 @@ dcc-mcp-capture.workspace = true
 dcc-mcp-usd.workspace = true
 dcc-mcp-http.workspace = true
 dcc-mcp-artefact.workspace = true
+dcc-mcp-host.workspace = true
 
 # Workflow crate — opt-in via the top-level `workflow` feature.
 dcc-mcp-workflow = { workspace = true, optional = true }
@@ -188,7 +189,7 @@ strip = true
 
 [features]
 default = []
-python-bindings = ["pyo3", "dcc-mcp-naming/python-bindings", "dcc-mcp-models/python-bindings", "dcc-mcp-actions/python-bindings", "dcc-mcp-skills/python-bindings", "dcc-mcp-protocols/python-bindings", "dcc-mcp-logging/python-bindings", "dcc-mcp-pybridge/python-bindings", "dcc-mcp-paths/python-bindings", "dcc-mcp-transport/python-bindings", "dcc-mcp-process/python-bindings", "dcc-mcp-telemetry/python-bindings", "dcc-mcp-sandbox/python-bindings", "dcc-mcp-shm/python-bindings", "dcc-mcp-capture/python-bindings", "dcc-mcp-usd/python-bindings", "dcc-mcp-http/python-bindings", "dcc-mcp-artefact/python-bindings", "dcc-mcp-workflow?/python-bindings", "dcc-mcp-scheduler?/python-bindings"]
+python-bindings = ["pyo3", "dcc-mcp-naming/python-bindings", "dcc-mcp-models/python-bindings", "dcc-mcp-actions/python-bindings", "dcc-mcp-skills/python-bindings", "dcc-mcp-protocols/python-bindings", "dcc-mcp-logging/python-bindings", "dcc-mcp-pybridge/python-bindings", "dcc-mcp-paths/python-bindings", "dcc-mcp-transport/python-bindings", "dcc-mcp-process/python-bindings", "dcc-mcp-telemetry/python-bindings", "dcc-mcp-sandbox/python-bindings", "dcc-mcp-shm/python-bindings", "dcc-mcp-capture/python-bindings", "dcc-mcp-usd/python-bindings", "dcc-mcp-http/python-bindings", "dcc-mcp-artefact/python-bindings", "dcc-mcp-host/python-bindings", "dcc-mcp-workflow?/python-bindings", "dcc-mcp-scheduler?/python-bindings"]
 # Opt into the first-class Workflow primitive (issue #348). Off by default
 # for one release — enables WorkflowSpec/WorkflowStatus in Python and the
 # workflows.* built-in tools in Rust. Step execution is stubbed; see #348.

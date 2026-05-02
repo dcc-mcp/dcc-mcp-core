@@ -64,6 +64,9 @@ use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
 
+#[cfg(feature = "python-bindings")]
+pub mod python;
+
 /// Error surfaced to the awaiting tokio future when a posted job cannot
 /// run to completion.
 #[derive(Debug, Error)]
