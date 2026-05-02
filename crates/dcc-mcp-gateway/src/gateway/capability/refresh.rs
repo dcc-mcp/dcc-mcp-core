@@ -138,6 +138,7 @@ mod unit_tests {
             vec![crate::gateway::capability::CapabilityRecord::new(
                 crate::gateway::capability::tool_slug("maya", &iid, "a"),
                 "a".into(),
+                "a".into(),
                 None,
                 "",
                 vec![],

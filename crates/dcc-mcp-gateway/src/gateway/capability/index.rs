@@ -213,6 +213,7 @@ mod unit_tests {
         CapabilityRecord::new(
             tool_slug(dcc, &id, tool),
             tool.to_string(),
+            tool.to_string(),
             None,
             "summary",
             Vec::new(),

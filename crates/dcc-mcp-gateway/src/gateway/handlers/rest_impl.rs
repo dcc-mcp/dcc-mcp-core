@@ -2,8 +2,8 @@ use super::*;
 
 use crate::gateway::capability::RefreshReason;
 use crate::gateway::capability_service::{
-    ServiceError, call_service, describe_service, parse_search_payload, refresh_all_live_backends,
-    search_service, service_error_to_json,
+    ServiceError, call_service, describe_tool_full, parse_search_payload,
+    refresh_all_live_backends, search_service, service_error_to_json,
 };
 
 /// `GET /health` — simple liveness probe.
@@ -127,17 +127,12 @@ pub async fn handle_v1_describe(
     };
     refresh_all_live_backends(&gs, RefreshReason::Periodic).await;
 
-    match describe_service(&gs.capability_index, slug) {
-        Ok(record) => (
+    match describe_tool_full(&gs, slug).await {
+        Ok((record, tool)) => (
             StatusCode::OK,
             Json(json!({
                 "record": record,
-                // The compact record is the primary payload; callers
-                // that need the full schema fetch it via
-                // `POST /v1/call` with a `dry_run: true` argument in a
-                // future iteration (deliberately out of scope for
-                // #654's first pass).
-                "tool": Value::Null,
+                "tool": tool,
             })),
         )
             .into_response(),
@@ -184,7 +179,7 @@ fn error_response(err: &ServiceError) -> (StatusCode, Json<Value>) {
         "unknown-slug" => StatusCode::NOT_FOUND,
         "ambiguous" => StatusCode::CONFLICT,
         "instance-offline" => StatusCode::SERVICE_UNAVAILABLE,
-        "backend-error" => StatusCode::BAD_GATEWAY,
+        "backend-error" | "schema-unavailable" => StatusCode::BAD_GATEWAY,
         _ => StatusCode::BAD_REQUEST,
     };
     (status, Json(service_error_to_json(err)))

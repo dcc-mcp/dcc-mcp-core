@@ -44,6 +44,16 @@ pub async fn route_tools_call(
         return skill_mgmt_dispatch(gs, tool, args).await;
     }
 
+    if !gs.tool_exposure.publishes_backend_tools() {
+        return (
+            format!(
+                "Tool '{tool}' is not available as a direct gateway MCP tool in {} mode. Use `search_tools`, `describe_tool`, and `call_tool` instead.",
+                gs.tool_exposure.as_str(),
+            ),
+            true,
+        );
+    }
+
     // ── Backend tool routing ────────────────────────────────────────────
     // Preferred gateway names come in two Cursor-safe / SEP-986 forms
     // (both accepted by `decode_tool_name`), but with a single live

@@ -112,6 +112,27 @@ pub async fn call_backend(
 
 /// Fetch `tools/list` from a backend and return the deserialised [`McpTool`] list.
 ///
+/// Unlike [`fetch_tools`], this reports transport / protocol failures to callers
+/// that need deterministic errors for a specific backend.
+pub async fn try_fetch_tools(
+    client: &reqwest::Client,
+    mcp_url: &str,
+    timeout: Duration,
+) -> Result<Vec<McpTool>, String> {
+    let val = call_backend(client, mcp_url, "tools/list", None, None, timeout).await?;
+    Ok(val
+        .get("tools")
+        .and_then(Value::as_array)
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| serde_json::from_value::<McpTool>(v.clone()).ok())
+                .collect()
+        })
+        .unwrap_or_default())
+}
+
+/// Fetch `tools/list` from a backend and return the deserialised [`McpTool`] list.
+///
 /// On any failure returns an empty vector and logs a warning — callers aggregate
 /// tools across many backends and should not fail the whole fan-out because one
 /// instance is unreachable.
@@ -120,16 +141,8 @@ pub async fn fetch_tools(
     mcp_url: &str,
     timeout: Duration,
 ) -> Vec<McpTool> {
-    match call_backend(client, mcp_url, "tools/list", None, None, timeout).await {
-        Ok(val) => val
-            .get("tools")
-            .and_then(Value::as_array)
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|v| serde_json::from_value::<McpTool>(v.clone()).ok())
-                    .collect()
-            })
-            .unwrap_or_default(),
+    match try_fetch_tools(client, mcp_url, timeout).await {
+        Ok(tools) => tools,
         Err(e) => {
             tracing::warn!(mcp_url = %mcp_url, error = %e, "Backend tools/list failed");
             Vec::new()

@@ -74,6 +74,25 @@ def _post_raw(url: str, data: bytes, headers: dict[str, str] | None = None) -> t
         return e.code, e.read().decode()
 
 
+def _get_json(url: str, headers: dict[str, str] | None = None) -> tuple[int, dict[str, Any]]:
+    """GET a JSON endpoint and return (status_code, response_body)."""
+    req = urllib.request.Request(
+        url,
+        headers={"Accept": "application/json", **(headers or {})},
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return resp.status, json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        return e.code, {}
+
+
+def _rest_base(mcp_url: str) -> str:
+    """Return the HTTP listener base URL for /v1 REST routes."""
+    return mcp_url.rsplit("/mcp", 1)[0]
+
+
 def _make_registry() -> ToolRegistry:
     reg = ToolRegistry()
     reg.register(
@@ -219,6 +238,59 @@ class TestMcpHttpProtocol:
             assert received == [{"count": 2, "label": "cube"}]
         finally:
             handle.shutdown()
+
+    def test_rest_routes_are_mounted_on_python_server(self, running_server):
+        _, _, url = running_server
+        base = _rest_base(url)
+
+        code, body = _get_json(f"{base}/v1/healthz")
+        assert code == 200
+        assert body["ok"] is True
+
+        code, body = _post_json(f"{base}/v1/search", {"query": "scene", "loaded_only": True})
+        assert code == 200
+        slugs = {hit["slug"] for hit in body["hits"]}
+        assert "test.core.get_scene_info" in slugs
+
+    def test_rest_describe_and_call_use_registered_python_handler(self, running_server):
+        _, _, url = running_server
+        base = _rest_base(url)
+        slug = "test.core.get_scene_info"
+
+        code, body = _post_json(f"{base}/v1/describe", {"tool_slug": slug, "include_schema": True})
+        assert code == 200
+        assert body["entry"]["slug"] == slug
+        assert body["entry"]["action"] == "get_scene_info"
+        assert "input_schema" in body
+
+        code, body = _post_json(f"{base}/v1/call", {"tool_slug": slug, "params": {}})
+        assert code == 200
+        assert body["slug"] == slug
+        assert body["output"]["scene"] == "test_scene"
+
+    def test_mcp_http_server_exposes_downstream_reuse_api(self, running_server):
+        server, _, _ = running_server
+        expected = {
+            "register_handler",
+            "has_handler",
+            "set_in_process_executor",
+            "clear_in_process_executor",
+            "discover",
+            "load_skill",
+            "unload_skill",
+            "list_skills",
+            "search_skills",
+            "get_skill_info",
+            "is_loaded",
+            "loaded_count",
+            "start",
+        }
+        missing = sorted(name for name in expected if not hasattr(server, name))
+        assert missing == []
+        assert hasattr(server, "registry")
+        assert hasattr(server.registry, "get_action")
+        assert hasattr(server.registry, "search_actions")
+        assert hasattr(server.registry, "list_actions")
 
     def test_tools_call_unknown(self, running_server):
         _, _, url = running_server

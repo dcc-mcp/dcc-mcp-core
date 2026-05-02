@@ -19,7 +19,9 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use super::backend_client::forward_tools_call;
+use dcc_mcp_jsonrpc::McpTool;
+
+use super::backend_client::{forward_tools_call, try_fetch_tools};
 use super::capability::{
     CapabilityIndex, CapabilityRecord, RefreshReason, SearchHit, SearchQuery, parse_slug,
     refresh_instance, remove_instance, search,
@@ -107,6 +109,50 @@ pub fn describe_service(
     }
 }
 
+/// Resolve `slug` and return the exact backend tool definition for that
+/// capability. This is the schema-bearing describe path shared by REST and MCP.
+pub async fn describe_tool_full(
+    gs: &GatewayState,
+    slug: &str,
+) -> Result<(CapabilityRecord, McpTool), ServiceError> {
+    let record = describe_service(&gs.capability_index, slug)?;
+    let reg = gs.registry.read().await;
+    let all = gs.live_instances(&reg);
+    let Some(entry) = all.iter().find(|e| e.instance_id == record.instance_id) else {
+        return Err(ServiceError::new(
+            "instance-offline",
+            format!(
+                "instance {} ({}) is no longer live; refresh and retry",
+                record.instance_id, record.dcc_type,
+            ),
+        ));
+    };
+    let url = format!("http://{}:{}/mcp", entry.host, entry.port);
+    drop(reg);
+
+    let tools = try_fetch_tools(&gs.http_client, &url, gs.backend_timeout)
+        .await
+        .map_err(|e| {
+            ServiceError::new(
+                "schema-unavailable",
+                format!("backend tools/list failed: {e}"),
+            )
+        })?;
+    let Some(tool) = tools
+        .into_iter()
+        .find(|tool| tool.name == record.callable_id)
+    else {
+        return Err(ServiceError::new(
+            "schema-unavailable",
+            format!(
+                "backend tool {:?} is no longer available on instance {}",
+                record.callable_id, record.instance_id,
+            ),
+        ));
+    };
+    Ok((record, tool))
+}
+
 /// Call a backend action by slug. Returns the raw backend
 /// `tools/call` envelope on success so REST and MCP wrappers can
 /// forward it verbatim.
@@ -137,7 +183,7 @@ pub async fn call_service(
     match forward_tools_call(
         &gs.http_client,
         &url,
-        &record.backend_tool,
+        &record.callable_id,
         Some(arguments),
         meta,
         None,
@@ -237,6 +283,7 @@ mod unit_tests {
     fn push(index: &CapabilityIndex, dcc: &str, iid: Uuid, backend_tool: &str) {
         let rec = CapabilityRecord::new(
             tool_slug(dcc, &iid, backend_tool),
+            backend_tool.to_string(),
             backend_tool.to_string(),
             None,
             "",

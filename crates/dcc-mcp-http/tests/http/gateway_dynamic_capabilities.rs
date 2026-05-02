@@ -368,6 +368,127 @@ async fn rest_and_mcp_wrapper_return_identical_search_hits() {
 /// the gateway slug) to the owning backend exactly once when the
 /// slug is already indexed. No extra token or HTTP round-trip cost.
 #[tokio::test]
+async fn mcp_describe_tool_returns_backend_schema() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let state = make_state(registry.clone(), GatewayToolExposure::Slim);
+
+    let (port, _) = spawn_backend(BackendSpec {
+        tools: vec![("screenshot", "Capture a screenshot")],
+    })
+    .await;
+    register_backend(&registry, "maya", port).await;
+    refresh_all_live_backends(&state, RefreshReason::InstanceJoined).await;
+    let hits = search_service(
+        &state.capability_index,
+        &parse_search_payload(&json!({"query": "screenshot"})),
+    );
+    assert_eq!(hits.len(), 1);
+
+    let (body, is_error) = route_tools_call(
+        &state,
+        "describe_tool",
+        &json!({"tool_slug": hits[0].record.tool_slug}),
+        None,
+        None,
+        None,
+    )
+    .await;
+    assert!(!is_error, "MCP describe_tool failed: {body}");
+    let parsed: Value = serde_json::from_str(&body).expect("describe_tool envelope is JSON");
+    assert_eq!(parsed["tool"]["name"].as_str(), Some("screenshot"));
+    assert_eq!(
+        parsed["tool"]["inputSchema"]["type"].as_str(),
+        Some("object")
+    );
+    assert_eq!(parsed["record"]["callable_id"].as_str(), Some("screenshot"));
+}
+
+#[tokio::test]
+async fn mcp_call_tool_forwards_namespaced_callable_id() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let state = make_state(registry.clone(), GatewayToolExposure::Slim);
+
+    let (port, call_count) = spawn_backend(BackendSpec {
+        tools: vec![("jobs.get_status", "Get a render job status")],
+    })
+    .await;
+    register_backend(&registry, "maya", port).await;
+    refresh_all_live_backends(&state, RefreshReason::InstanceJoined).await;
+    let hits = search_service(
+        &state.capability_index,
+        &parse_search_payload(&json!({"query": "status"})),
+    );
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].record.backend_tool, "jobs.get_status");
+    assert_eq!(hits[0].record.callable_id, "jobs.get_status");
+    let (_, _, slug_tool) = parse_slug(&hits[0].record.tool_slug).unwrap();
+    assert_eq!(slug_tool, "jobs.get_status");
+
+    let (body, is_error) = route_tools_call(
+        &state,
+        "call_tool",
+        &json!({"tool_slug": hits[0].record.tool_slug, "arguments": {"job_id": "abc"}}),
+        None,
+        None,
+        None,
+    )
+    .await;
+    assert!(!is_error, "MCP call_tool failed: {body}");
+    let parsed: Value = serde_json::from_str(&body).expect("call_tool envelope is JSON");
+    assert_eq!(
+        parsed["structuredContent"]["received_tool"].as_str(),
+        Some("jobs.get_status"),
+    );
+    assert_eq!(*call_count.read().await, 1);
+}
+
+#[tokio::test]
+async fn slim_mode_blocks_direct_backend_tool_but_call_tool_still_works() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let state = make_state(registry.clone(), GatewayToolExposure::Slim);
+
+    let (port, _) = spawn_backend(BackendSpec {
+        tools: vec![("direct_probe", "Direct call probe")],
+    })
+    .await;
+    let entry = register_backend(&registry, "maya", port).await;
+    refresh_all_live_backends(&state, RefreshReason::InstanceJoined).await;
+
+    let encoded = dcc_mcp_http::gateway::namespace::encode_tool_name_cursor_safe(
+        &entry.instance_id,
+        "direct_probe",
+    );
+    let (body, is_error) = route_tools_call(&state, &encoded, &json!({}), None, None, None).await;
+    assert!(
+        is_error,
+        "direct backend call must fail in Slim mode: {body}"
+    );
+    assert!(body.contains("call_tool"));
+
+    let hits = search_service(
+        &state.capability_index,
+        &parse_search_payload(&json!({"query": "direct"})),
+    );
+    assert_eq!(hits.len(), 1);
+    let (body, is_error) = route_tools_call(
+        &state,
+        "call_tool",
+        &json!({"tool_slug": hits[0].record.tool_slug, "arguments": {}}),
+        None,
+        None,
+        None,
+    )
+    .await;
+    assert!(
+        !is_error,
+        "call_tool should remain available in Slim mode: {body}"
+    );
+}
+
+#[tokio::test]
 async fn mcp_call_tool_forwards_original_backend_tool_exactly_once() {
     let dir = tempfile::tempdir().unwrap();
     let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
@@ -565,15 +686,16 @@ async fn capability_index_never_contains_skill_stubs_or_local_tools() {
         );
         assert_ne!(hit.record.backend_tool, "list_skills");
     }
-    // The real action is reachable — and its skill metadata is
-    // preserved so `search_tools(query="hello")` still matches.
+    // The real action is reachable with its exact callable id — and its
+    // skill metadata is preserved so `search_tools(query="hello")` still matches.
     assert!(
-        hits.iter().any(|h| h.record.backend_tool == "greet"),
+        hits.iter()
+            .any(|h| h.record.backend_tool == "hello-world.greet"),
         "real action must remain addressable: {hits:?}",
     );
     assert_eq!(
         hits.iter()
-            .find(|h| h.record.backend_tool == "greet")
+            .find(|h| h.record.backend_tool == "hello-world.greet")
             .and_then(|h| h.record.skill_name.as_deref()),
         Some("hello-world"),
     );

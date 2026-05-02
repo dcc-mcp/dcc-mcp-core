@@ -98,9 +98,12 @@ pub struct CapabilityRecord {
     /// Client-visible slug used to discover / describe / call the
     /// action. Built via [`tool_slug`].
     pub tool_slug: String,
-    /// Original backend action name (no gateway encoding). This is
-    /// what the backend's `tools/call` expects.
+    /// Exact backend action name (no gateway encoding). This is what
+    /// the backend's `tools/call` expects.
     pub backend_tool: String,
+    /// Alias of [`Self::backend_tool`] with an explicit routing name for
+    /// clients that distinguish display slugs from backend callables.
+    pub callable_id: String,
     /// Owning skill, if the backend advertised one; `None` for
     /// actions registered without a skill (unusual but possible).
     pub skill_name: Option<String>,
@@ -136,6 +139,7 @@ impl CapabilityRecord {
     pub fn new(
         tool_slug: String,
         backend_tool: String,
+        callable_id: String,
         skill_name: Option<String>,
         summary: &str,
         tags: Vec<String>,
@@ -146,6 +150,7 @@ impl CapabilityRecord {
         Self {
             tool_slug,
             backend_tool,
+            callable_id,
             skill_name,
             summary: normalise_summary(summary),
             tags,
@@ -242,6 +247,7 @@ mod unit_tests {
         let rec = CapabilityRecord::new(
             "x.abcdef01.a".into(),
             "a".into(),
+            "a".into(),
             None,
             &long,
             Vec::new(),
@@ -260,6 +266,7 @@ mod unit_tests {
     fn summary_under_cap_is_not_suffixed() {
         let rec = CapabilityRecord::new(
             "x.abcdef01.a".into(),
+            "a".into(),
             "a".into(),
             None,
             "short and sweet",

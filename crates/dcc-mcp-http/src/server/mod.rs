@@ -387,6 +387,16 @@ impl McpHttpServer {
             }
         }
 
+        let mut rest_config = dcc_mcp_skill_rest::SkillRestConfig::new(
+            dcc_mcp_skill_rest::SkillRestService::from_catalog_and_dispatcher(
+                catalog.clone(),
+                self.dispatcher.clone(),
+            ),
+        );
+        rest_config.server_title = self.config.server_name.clone();
+        rest_config.server_version = self.config.server_version.clone();
+        let rest_router = dcc_mcp_skill_rest::build_skill_rest_router(rest_config);
+
         let state = AppState {
             registry: self.registry,
             dispatcher: self.dispatcher,
@@ -429,6 +439,7 @@ impl McpHttpServer {
                     .delete(handle_delete),
             )
             .with_state(state)
+            .merge(rest_router)
             .layer(TraceLayer::new_for_http());
 
         // Prometheus `/metrics` endpoint (issue #331). Mounted on the

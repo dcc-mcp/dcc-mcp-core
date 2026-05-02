@@ -289,6 +289,7 @@ mod tests {
         CapabilityRecord::new(
             tool_slug("maya", &iid, name),
             name.to_string(),
+            name.to_string(),
             skill.map(String::from),
             summary,
             tags.iter().map(|t| t.to_string()).collect(),

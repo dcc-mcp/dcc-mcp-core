@@ -371,10 +371,10 @@ pub async fn tool_describe_tool(gs: &GatewayState, args: &Value) -> Result<Strin
         crate::gateway::capability::RefreshReason::Periodic,
     )
     .await;
-    match crate::gateway::capability_service::describe_service(&gs.capability_index, slug) {
-        Ok(record) => serde_json::to_string_pretty(&json!({
+    match crate::gateway::capability_service::describe_tool_full(gs, slug).await {
+        Ok((record, tool)) => serde_json::to_string_pretty(&json!({
             "record": record,
-            "tool":   Value::Null,
+            "tool":   tool,
         }))
         .map_err(|e| e.to_string()),
         Err(err) => {

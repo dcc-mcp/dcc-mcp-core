@@ -82,22 +82,24 @@ pub fn build_records_from_backend(input: BuildInput<'_>) -> BuildOutcome {
             continue;
         }
 
-        let (skill_name, backend_tool) = extract_skill_and_bare(&tool.name);
+        let (skill_name, _) = extract_skill_and_bare(&tool.name);
+        let callable_id = tool.name.clone();
         let tags = extract_tags(&tool.annotations, tool.meta.as_ref());
         let has_schema = has_meaningful_schema(&tool.input_schema);
         let summary = if tool.description.is_empty() && has_schema {
             // Keep the search text non-empty even when the backend
             // omitted the description — the input schema name still
             // gives `search_tools` something to score against.
-            format!("{} ({SCHEMA_AVAILABLE})", backend_tool)
+            format!("{} ({SCHEMA_AVAILABLE})", callable_id)
         } else {
             tool.description.clone()
         };
 
-        let slug = tool_slug(input.dcc_type, &input.instance_id, &backend_tool);
+        let slug = tool_slug(input.dcc_type, &input.instance_id, &callable_id);
         records.push(CapabilityRecord::new(
             slug,
-            backend_tool,
+            callable_id.clone(),
+            callable_id,
             skill_name,
             &summary,
             tags,
@@ -303,10 +305,21 @@ mod unit_tests {
             .map(|r| (r.backend_tool.as_str(), r))
             .collect();
         assert_eq!(
-            by_tool["set_keyframe"].skill_name.as_deref(),
+            by_tool["maya-animation.set_keyframe"].skill_name.as_deref(),
             Some("maya-animation"),
         );
-        assert_eq!(by_tool["greet"].skill_name.as_deref(), Some("hello_world"),);
+        assert_eq!(
+            by_tool["maya-animation.set_keyframe"].callable_id,
+            "maya-animation.set_keyframe",
+        );
+        assert_eq!(
+            by_tool["hello_world__greet"].skill_name.as_deref(),
+            Some("hello_world"),
+        );
+        assert_eq!(
+            by_tool["hello_world__greet"].callable_id,
+            "hello_world__greet"
+        );
         assert_eq!(by_tool["standalone_action"].skill_name, None);
     }
 

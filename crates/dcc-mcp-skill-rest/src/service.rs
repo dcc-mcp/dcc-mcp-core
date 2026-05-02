@@ -264,12 +264,22 @@ impl SkillCatalogSource for CatalogSource {
         }
 
         for meta in registry.list_actions(None) {
-            let skill_name = meta.skill_name.clone().unwrap_or_default();
-            let (loaded, scope, _dcc) = skill_info.get(&skill_name).cloned().unwrap_or((
-                false,
-                "repo".to_string(),
-                meta.dcc.clone(),
-            ));
+            let skill_name = meta
+                .skill_name
+                .clone()
+                .unwrap_or_else(|| "core".to_string());
+            let (loaded, scope, _dcc) = meta
+                .skill_name
+                .as_ref()
+                .and_then(|name| skill_info.get(name).cloned())
+                .unwrap_or_else(|| {
+                    // Actions registered directly on the server are not owned by a
+                    // loadable skill, but they are still callable through the
+                    // dispatcher. Give them a stable slug segment and treat them as
+                    // loaded so the REST surface works for plain Python
+                    // `registry.register(...)` + `server.register_handler(...)` users.
+                    (true, "core".to_string(), meta.dcc.clone())
+                });
             out.push(CatalogAction {
                 action_name: meta.name,
                 skill_name,

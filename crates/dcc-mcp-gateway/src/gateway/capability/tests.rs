@@ -126,13 +126,13 @@ fn end_to_end_two_backends_search_and_route() {
         },
     );
     assert_eq!(hits.len(), 1);
-    assert_eq!(hits[0].record.backend_tool, "create_sphere");
+    assert_eq!(hits[0].record.backend_tool, "maya-geometry.create_sphere");
     // The slug carries everything needed to route the call back to
     // the exact backend instance.
     let (dcc, id8, tool) = record::parse_slug(&hits[0].record.tool_slug).unwrap();
     assert_eq!(dcc, "maya");
     assert_eq!(id8, &maya_id.to_string().replace('-', "")[..8]);
-    assert_eq!(tool, "create_sphere");
+    assert_eq!(tool, "maya-geometry.create_sphere");
 
     // Phase 4: the same query without a dcc_type filter sees both
     // backends but still scores the Maya action first because its
@@ -145,7 +145,7 @@ fn end_to_end_two_backends_search_and_route() {
         },
     );
     assert_eq!(hits.len(), 1);
-    assert_eq!(hits[0].record.backend_tool, "create_sphere");
+    assert_eq!(hits[0].record.backend_tool, "maya-geometry.create_sphere");
 
     // Phase 5: removing the Maya instance drops every Maya row in
     // one O(n) swap and leaves the Blender rows intact.

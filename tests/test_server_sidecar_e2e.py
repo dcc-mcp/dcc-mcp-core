@@ -19,6 +19,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import socket
 import subprocess
 import sys
 import tempfile
@@ -58,6 +59,29 @@ def _post(url: str, body: dict, headers: dict | None = None) -> tuple[int, dict]
             return resp.status, json.loads(resp.read())
     except urllib.error.HTTPError as e:
         return e.code, {}
+
+
+def _get(url: str, headers: dict | None = None) -> tuple[int, dict]:
+    """GET a JSON body; return (status, response_dict)."""
+    req = urllib.request.Request(
+        url,
+        headers={"Accept": "application/json", **(headers or {})},
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            return resp.status, json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        return e.code, {}
+
+
+def _allocate_port() -> int:
+    """Return an OS-picked ephemeral port; release it immediately."""
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    port = s.getsockname()[1]
+    s.close()
+    return port
 
 
 def _initialize(url: str) -> str:
@@ -509,6 +533,66 @@ class TestServerBinarySidecar:
             timeout=10,
         )
         assert result.returncode == 0
+
+    def test_photoshop_binary_exposes_rest_routes(self, binary, tmp_path):
+        """Standalone binary path must expose /v1 for bridge DCCs such as Photoshop."""
+        mcp_port = _allocate_port()
+        registry_dir = tmp_path / "registry"
+        proc = subprocess.Popen(
+            [
+                str(binary),
+                "--mcp-port",
+                str(mcp_port),
+                "--gateway-port",
+                "0",
+                "--dcc",
+                "photoshop",
+                "--no-bridge",
+                "--registry-dir",
+                str(registry_dir),
+                "--no-log-file",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        try:
+            base = f"http://127.0.0.1:{mcp_port}"
+            deadline = time.monotonic() + 10.0
+            health = (0, {})
+            while time.monotonic() < deadline:
+                health = _get(f"{base}/health")
+                if health[0] == 200:
+                    break
+                if proc.poll() is not None:
+                    break
+                time.sleep(0.1)
+            if proc.poll() is not None:
+                out, err = proc.communicate(timeout=1)
+                pytest.fail(
+                    "dcc-mcp-server exited before health check "
+                    f"(code={proc.returncode})\nstdout={out.decode('utf-8', 'replace')[:1000]}\n"
+                    f"stderr={err.decode('utf-8', 'replace')[:1000]}"
+                )
+            assert health[0] == 200
+
+            code, body = _get(f"{base}/v1/healthz")
+            assert code == 200
+            assert body["ok"] is True
+
+            code, body = _post(f"{base}/v1/search", {"query": "", "loaded_only": False})
+            assert code == 200
+            assert body["total"] == 0
+            assert body["hits"] == []
+
+            sid = _initialize(f"{base}/mcp")
+            assert sid
+        finally:
+            proc.terminate()
+            try:
+                proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
 
     def test_pid_file_written_on_start(self, binary, tmp_path):
         """Server writes a PID file on startup and removes it on SIGTERM."""

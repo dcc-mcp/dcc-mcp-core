@@ -262,6 +262,7 @@ mod unit_tests {
         let rec = CapabilityRecord::new(
             tool_slug(dcc, &iid, name),
             name.to_string(),
+            name.to_string(),
             None,
             summary,
             tags.iter().map(|t| t.to_string()).collect(),
@@ -312,6 +313,7 @@ mod unit_tests {
                 CapabilityRecord::new(
                     tool_slug("maya", &a, "sphere"),
                     "sphere".into(),
+                    "sphere".into(),
                     None,
                     "",
                     vec![],
@@ -321,6 +323,7 @@ mod unit_tests {
                 ),
                 CapabilityRecord::new(
                     tool_slug("maya", &a, "create_sphere"),
+                    "create_sphere".into(),
                     "create_sphere".into(),
                     None,
                     "",
@@ -336,6 +339,7 @@ mod unit_tests {
             b,
             vec![CapabilityRecord::new(
                 tool_slug("maya", &b, "open"),
+                "open".into(),
                 "open".into(),
                 None,
                 "open a sphere scene",
@@ -420,6 +424,7 @@ mod unit_tests {
                 CapabilityRecord::new(
                     tool_slug("maya", &iid, &format!("t{i:03}")),
                     format!("t{i:03}"),
+                    format!("t{i:03}"),
                     None,
                     "",
                     vec![],
@@ -449,6 +454,7 @@ mod unit_tests {
             .map(|i| {
                 CapabilityRecord::new(
                     tool_slug("maya", &iid, &format!("t{i:03}")),
+                    format!("t{i:03}"),
                     format!("t{i:03}"),
                     None,
                     "",
@@ -604,6 +610,7 @@ mod unit_tests {
                 CapabilityRecord::new(
                     tool_slug("maya", &iid, &format!("tool_{i:03}")),
                     format!("tool_{i:03}"),
+                    format!("tool_{i:03}"),
                     None,
                     "",
                     vec![],
@@ -681,6 +688,7 @@ mod unit_tests {
             .map(|i| {
                 CapabilityRecord::new(
                     tool_slug("maya", &iid, &format!("tool_{i:03}")),
+                    format!("tool_{i:03}"),
                     format!("tool_{i:03}"),
                     None,
                     "shared summary text",
@@ -782,6 +790,7 @@ mod unit_tests {
                     .map(|i| {
                         CapabilityRecord::new(
                             tool_slug(dcc, &iid, &format!("action_{i:03}")),
+                            format!("action_{i:03}"),
                             format!("action_{i:03}"),
                             Some(format!("{dcc}-skill-{}", i % 10)),
                             "a realistic summary blurb mentioning scene and object ops",
