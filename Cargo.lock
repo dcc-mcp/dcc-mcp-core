@@ -828,6 +828,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "dcc-mcp-host"
+version = "0.14.22"
+dependencies = [
+ "parking_lot",
+ "pyo3",
+ "pyo3-stub-gen",
+ "pyo3-stub-gen-derive",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "workspace-hack",
+]
+
+[[package]]
 name = "dcc-mcp-http"
 version = "0.14.22"
 dependencies = [

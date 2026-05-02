@@ -28,6 +28,7 @@ members = [
     "crates/dcc-mcp-workflow",
     "crates/dcc-mcp-scheduler",
     "crates/dcc-mcp-artefact",
+    "crates/dcc-mcp-host",
     "crates/dcc-mcp-tunnel-protocol",
     "crates/dcc-mcp-tunnel-relay",
     "crates/dcc-mcp-tunnel-agent",
@@ -66,6 +67,7 @@ dcc-mcp-server = { path = "crates/dcc-mcp-server" }
 dcc-mcp-workflow = { path = "crates/dcc-mcp-workflow" }
 dcc-mcp-scheduler = { path = "crates/dcc-mcp-scheduler" }
 dcc-mcp-artefact = { path = "crates/dcc-mcp-artefact" }
+dcc-mcp-host = { path = "crates/dcc-mcp-host" }
 dcc-mcp-tunnel-protocol = { path = "crates/dcc-mcp-tunnel-protocol" }
 dcc-mcp-tunnel-relay = { path = "crates/dcc-mcp-tunnel-relay" }
 dcc-mcp-tunnel-agent = { path = "crates/dcc-mcp-tunnel-agent" }
