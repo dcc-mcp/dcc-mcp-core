@@ -29,13 +29,17 @@ from dcc_mcp_core._core import DispatchError
 from dcc_mcp_core._core import PostHandle
 from dcc_mcp_core._core import QueueDispatcher
 from dcc_mcp_core._core import TickOutcome
+from dcc_mcp_core.host._adapter import HostAdapter
+from dcc_mcp_core.host._adapter import TickableDispatcher
 from dcc_mcp_core.host._standalone import StandaloneHost
 
 __all__ = [
     "BlockingDispatcher",
     "DispatchError",
+    "HostAdapter",
     "PostHandle",
     "QueueDispatcher",
     "StandaloneHost",
     "TickOutcome",
+    "TickableDispatcher",
 ]

@@ -339,6 +339,11 @@ executor.execute(lambda: apply_to_scene(payload))  # main thread
 
 ## See also
 
+- [Writing a DCC host adapter](./host-adapter.md) — subclass
+  [`dcc_mcp_core.host.HostAdapter`][HostAdapter] to wire your DCC's
+  native idle primitive into the dispatcher in 3 small methods.
+  Recommended entry point for new DCC integrations
+  (`dcc-mcp-blender`, `dcc-mcp-maya`, `dcc-mcp-photoshop`, …).
 - [ADR 002 — DCC Main-Thread Affinity](../adr/002-dcc-main-thread-affinity.md)
   — the architectural rationale for this design.
 - [Getting Started → DeferredExecutor](./getting-started.md#deferredexecutor-dcc-main-thread-safety)
@@ -349,3 +354,5 @@ executor.execute(lambda: apply_to_scene(payload))  # main thread
   — cooperative cancellation for chunked jobs.
 - [Issue #332 — `@chunked_job`](https://github.com/loonghao/dcc-mcp-core/issues/332)
   — decorator that encodes the chunking + checkpoint rules.
+
+[HostAdapter]: https://github.com/loonghao/dcc-mcp-core/blob/main/python/dcc_mcp_core/host/_adapter.py
