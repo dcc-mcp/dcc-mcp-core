@@ -11,6 +11,31 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.14.23](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.22...v0.14.23) (2026-05-02)
+
+
+### Features
+
+* **host:** bridge DccDispatcher into McpHttpServer.tools/call via attach_dispatcher (P2b) ([ec44e4d](https://github.com/loonghao/dcc-mcp-core/commit/ec44e4d7e7c4a42661a4135155978142c25388eb))
+* **host:** expose DccDispatcher as Python primitives + StandaloneHost driver (P2a) ([109f7ab](https://github.com/loonghao/dcc-mcp-core/commit/109f7ab51cd4dc942d390ef16c16ea356b5ba4ee))
+* **host:** introduce dcc-mcp-host crate for cross-DCC main-thread dispatch ([94f7e1a](https://github.com/loonghao/dcc-mcp-core/commit/94f7e1a083180a67f3091d7c1b07ca1e45aaf5f9))
+* **host:** ship HostAdapter base class + authoring guide (P3 rescoped, closes [#687](https://github.com/loonghao/dcc-mcp-core/issues/687)) ([410cc3d](https://github.com/loonghao/dcc-mcp-core/commit/410cc3d07e0b3c425a8afdfe0291a9245b5430bc))
+
+
+### Bug Fixes
+
+* harden gateway dynamic capability routing ([f643610](https://github.com/loonghao/dcc-mcp-core/commit/f6436107d5acac48755dc6dbde58c9d3230d2330))
+* **host:** use typing.Callable + typing.Optional for Py3.7/3.8 compat ([be66bd7](https://github.com/loonghao/dcc-mcp-core/commit/be66bd7ab1dab49ccd943925993c1964eb2ff835))
+* **http:** filter stubs from search_tools and surface unloaded skills ([#677](https://github.com/loonghao/dcc-mcp-core/issues/677)) ([da322d8](https://github.com/loonghao/dcc-mcp-core/commit/da322d88bae878841f8d030915e3104429617c23))
+* **http:** synthesise progressive-loading stubs in search_tools ([83c4463](https://github.com/loonghao/dcc-mcp-core/commit/83c446376fc5e0b6ff3a872cf1dabd648b48f584))
+* **http:** trim search_tools description + include_stubs param under caps ([b33eb65](https://github.com/loonghao/dcc-mcp-core/commit/b33eb655d90d6e63241c5c05f9cb7ffc01036a3c))
+* remove Maya-only DCC assumptions ([a057b6d](https://github.com/loonghao/dcc-mcp-core/commit/a057b6d433bf51403904e0191602141f7ca5080e))
+
+
+### Documentation
+
+* update version in llms.txt to 0.14.22 ([6b46af9](https://github.com/loonghao/dcc-mcp-core/commit/6b46af928fa37bb0186276ab153903c56e8edbde))
+
 ## [0.14.22](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.21...v0.14.22) (2026-05-02)
 
 
