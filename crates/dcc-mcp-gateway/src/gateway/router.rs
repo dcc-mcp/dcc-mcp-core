@@ -6,7 +6,9 @@ use tower_http::trace::TraceLayer;
 
 use super::handlers::{
     handle_gateway_get, handle_gateway_mcp, handle_gateway_yield, handle_health, handle_instances,
-    handle_proxy_dcc, handle_proxy_instance, handle_v1_call, handle_v1_describe, handle_v1_search,
+    handle_proxy_dcc, handle_proxy_instance, handle_v1_call, handle_v1_context, handle_v1_describe,
+    handle_v1_describe_path, handle_v1_healthz, handle_v1_openapi, handle_v1_readyz,
+    handle_v1_search, handle_v1_skills,
 };
 use super::state::GatewayState;
 
@@ -40,9 +42,15 @@ pub fn build_gateway_router(state: GatewayState) -> Router {
         .route("/gateway/yield", routing::post(handle_gateway_yield))
         // ── #654 dynamic-capability REST API ─────────────────────────
         .route("/v1/instances", routing::get(handle_instances))
+        .route("/v1/healthz", routing::get(handle_v1_healthz))
+        .route("/v1/readyz", routing::get(handle_v1_readyz))
+        .route("/v1/openapi.json", routing::get(handle_v1_openapi))
+        .route("/v1/skills", routing::get(handle_v1_skills))
         .route("/v1/search", routing::post(handle_v1_search))
         .route("/v1/describe", routing::post(handle_v1_describe))
+        .route("/v1/tools/{slug}", routing::get(handle_v1_describe_path))
         .route("/v1/call", routing::post(handle_v1_call))
+        .route("/v1/context", routing::get(handle_v1_context))
         .with_state(state)
         .layer(TraceLayer::new_for_http())
         .layer(

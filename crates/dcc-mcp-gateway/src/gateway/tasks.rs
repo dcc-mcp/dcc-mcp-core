@@ -206,12 +206,9 @@ pub(crate) async fn start_gateway_tasks(
 
         loop {
             interval.tick().await;
-            // Skip polling when no clients are listening — keeps idle gateways
-            // from hammering backends.
-            if events_tx_tools.receiver_count() == 0 {
-                continue;
-            }
-
+            // Always compute the fingerprint so a subscriber that connects after
+            // startup does not inherit a stale empty baseline. Only the broadcast
+            // itself is gated on receivers below.
             let fingerprint = aggregator::compute_tools_fingerprint_with_own(
                 &reg_tools,
                 stale_timeout,
@@ -225,7 +222,9 @@ pub(crate) async fn start_gateway_tasks(
             if fingerprint != last_fingerprint {
                 // First tick always "changes" from empty-string → don't push
                 // on initial startup unless there are actually tools.
-                if !last_fingerprint.is_empty() || !fingerprint.is_empty() {
+                if (!last_fingerprint.is_empty() || !fingerprint.is_empty())
+                    && events_tx_tools.receiver_count() > 0
+                {
                     tracing::debug!(
                         "Gateway: aggregated tool set changed — broadcasting tools/list_changed"
                     );

@@ -168,7 +168,7 @@ async fn aggregate_tools_list_respects_long_backend_timeout() {
     let has_backend_tool = tools.iter().any(|t| {
         t.get("name")
             .and_then(Value::as_str)
-            .map(|n| n.contains("slow_tool"))
+            .map(|n| n.contains("slow_U_tool"))
             .unwrap_or(false)
     });
     assert!(
@@ -200,7 +200,7 @@ async fn aggregate_tools_list_drops_backend_when_timeout_is_exceeded() {
         !tools.iter().any(|t| {
             t.get("name")
                 .and_then(Value::as_str)
-                .map(|n| n.contains("slow_tool"))
+                .map(|n| n.contains("slow_U_tool"))
                 .unwrap_or(false)
         }),
         "backend tool must not appear when backend_timeout < backend delay; got tools={tools:#?}"

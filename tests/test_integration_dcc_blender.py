@@ -144,6 +144,73 @@ class TestBlenderIntegration:
         assert out["success"] is True
         assert out["file_size"] > 0
 
+    def test_blender_to_blender_fbx_round_trip(self, tmp_path: Path) -> None:
+        fbx_file = tmp_path / "sphere.fbx"
+        export_script = textwrap.dedent(f"""\
+            import bpy, os, json
+            bpy.ops.object.select_all(action="SELECT")
+            bpy.ops.object.delete()
+            bpy.ops.mesh.primitive_uv_sphere_add(segments=32, ring_count=16, radius=2.0, location=(0, 0, 0))
+            sphere = bpy.context.active_object
+            expected_vertices = len(sphere.data.vertices)
+            bpy.ops.export_scene.fbx(filepath=r"{fbx_file}", use_selection=False)
+            print(json.dumps({{
+                "success": os.path.isfile(r"{fbx_file}"),
+                "file_size": os.path.getsize(r"{fbx_file}") if os.path.isfile(r"{fbx_file}") else 0,
+                "expected_vertices": expected_vertices,
+            }}))
+        """)
+        exported = _run_blender_script(export_script, timeout=90)
+        assert exported["success"] is True
+        assert exported["file_size"] > 0
+
+        import_script = textwrap.dedent(f"""\
+            import bpy, json
+            bpy.ops.object.select_all(action="SELECT")
+            bpy.ops.object.delete()
+            bpy.ops.import_scene.fbx(filepath=r"{fbx_file}")
+            meshes = [obj for obj in bpy.context.scene.objects if obj.type == "MESH"]
+            vertex_count = sum(len(obj.data.vertices) for obj in meshes)
+            bounds = []
+            for obj in meshes:
+                bounds.extend([obj.matrix_world @ corner for corner in obj.bound_box])
+            bbox = {{
+                "min": [min(v[i] for v in bounds) for i in range(3)] if bounds else [],
+                "max": [max(v[i] for v in bounds) for i in range(3)] if bounds else [],
+            }}
+            print(json.dumps({{
+                "success": True,
+                "object_count": len(bpy.context.scene.objects),
+                "mesh_count": len(meshes),
+                "vertex_count": vertex_count,
+                "has_mesh": bool(meshes),
+                "bounding_box": bbox,
+            }}))
+        """)
+        inspected = _run_blender_script(import_script, timeout=90)
+        assert inspected["success"] is True
+        assert inspected["has_mesh"] is True
+        assert inspected["mesh_count"] >= 1
+        assert inspected["vertex_count"] >= exported["expected_vertices"] * 0.95
+        assert inspected["bounding_box"]["min"]
+        assert inspected["bounding_box"]["max"]
+
+    def test_blender_fbx_import_reports_bogus_path(self, tmp_path: Path) -> None:
+        bogus_file = tmp_path / "missing.fbx"
+        script = textwrap.dedent(f"""\
+            import bpy, json
+            try:
+                bpy.ops.import_scene.fbx(filepath=r"{bogus_file}")
+            except Exception as exc:
+                print(json.dumps({{"success": False, "error": type(exc).__name__, "message": str(exc)}}))
+            else:
+                print(json.dumps({{"success": True}}))
+        """)
+        out = _run_blender_script(script, timeout=60)
+        assert out["success"] is False
+        assert out["error"]
+        assert str(bogus_file) in out["message"] or "No such file" in out["message"]
+
     def test_blender_material_create(self) -> None:
         script = textwrap.dedent("""\
             import bpy, json

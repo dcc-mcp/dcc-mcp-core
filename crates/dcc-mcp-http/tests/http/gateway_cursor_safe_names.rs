@@ -319,11 +319,10 @@ async fn single_instance_bare_alias_is_suppressed_for_unsafe_names() {
     );
 }
 
-/// Conversely, a bare name that already fits the cursor-safe alphabet
-/// must still surface as an alias so single-backend ergonomics (#583)
-/// are preserved for the common case of plain-identifier tools.
+/// Plain backend names must also avoid bare aliases; the gateway should
+/// advertise only the instance-prefixed cursor-safe name (#693).
 #[tokio::test]
-async fn single_instance_bare_alias_is_kept_for_safe_names() {
+async fn single_instance_bare_alias_is_not_emitted_for_safe_names() {
     let dir = tempfile::tempdir().unwrap();
     let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
     let state = make_state(registry.clone(), GatewayToolExposure::Full, true);
@@ -333,8 +332,12 @@ async fn single_instance_bare_alias_is_kept_for_safe_names() {
 
     let names = tool_names(&aggregate_tools_list(&state, None).await);
     assert!(
-        names.iter().any(|n| n == "create_sphere"),
-        "cursor-safe bare alias must still be emitted for plain names; got {names:?}",
+        names.iter().any(|n| n.contains("create_U_sphere")),
+        "cursor-safe prefixed backend name must be emitted; got {names:?}",
+    );
+    assert!(
+        !names.iter().any(|n| n == "create_sphere"),
+        "cursor-safe bare alias must not be emitted; got {names:?}",
     );
 }
 

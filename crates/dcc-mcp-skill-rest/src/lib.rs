@@ -65,7 +65,7 @@
 mod audit;
 mod auth;
 mod errors;
-mod openapi;
+pub mod openapi;
 mod readiness;
 mod router;
 mod service;

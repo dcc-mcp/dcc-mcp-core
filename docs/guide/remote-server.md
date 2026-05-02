@@ -121,7 +121,7 @@ sends `Access-Control-Allow-Origin: *` — convenient for development but
 The minimal Docker setup for a public MCP server:
 
 ```dockerfile
-FROM python:3.11-slim
+FROM python:3.14-slim
 RUN pip install dcc-mcp-core
 COPY skills/ /opt/skills/
 ENV DCC_MCP_SKILL_PATHS=/opt/skills

@@ -76,7 +76,84 @@ pub async fn handle_instances(State(gs): State<GatewayState>) -> impl IntoRespon
     Json(json!({ "total": instances.len(), "instances": instances }))
 }
 
-// ── #654 dynamic-capability REST endpoints ────────────────────────────────
+// ── REST endpoints ────────────────────────────────────────────────────────
+
+/// `GET /v1/healthz` — REST liveness probe compatible with dcc-mcp-skill-rest.
+pub async fn handle_v1_healthz() -> impl IntoResponse {
+    (StatusCode::OK, Json(json!({"ok": true})))
+}
+
+/// `GET /v1/readyz` — gateway readiness probe.
+pub async fn handle_v1_readyz(State(gs): State<GatewayState>) -> impl IntoResponse {
+    let registry = gs.registry.read().await;
+    let live_instances = gs.live_instances(&registry).len();
+    (
+        StatusCode::OK,
+        Json(json!({
+            "ok": true,
+            "checks": [{"name": "gateway", "ok": true}],
+            "live_instance_count": live_instances,
+        })),
+    )
+}
+
+/// `GET /v1/openapi.json` — gateway REST contract.
+pub async fn handle_v1_openapi(State(gs): State<GatewayState>) -> impl IntoResponse {
+    let doc =
+        dcc_mcp_skill_rest::openapi::build_openapi_document("dcc-mcp-gateway", &gs.server_version);
+    (StatusCode::OK, Json(doc))
+}
+
+/// `GET /v1/skills` — aggregate gateway capability index as skill entries.
+pub async fn handle_v1_skills(State(gs): State<GatewayState>) -> impl IntoResponse {
+    refresh_all_live_backends(&gs, RefreshReason::Periodic).await;
+    let records = gs.capability_index.snapshot().records;
+    let skills: Vec<Value> = records
+        .iter()
+        .map(|record| {
+            json!({
+                "slug": record.tool_slug,
+                "skill": record.skill_name.clone().unwrap_or_else(|| record.backend_tool.clone()),
+                "action": &record.backend_tool,
+                "dcc": &record.dcc_type,
+                "summary": &record.summary,
+                "loaded": true,
+                "scope": "gateway",
+            })
+        })
+        .collect();
+    (
+        StatusCode::OK,
+        Json(json!({"total": skills.len(), "skills": skills})),
+    )
+}
+
+/// `GET /v1/context` — aggregate gateway context snapshot.
+pub async fn handle_v1_context(State(gs): State<GatewayState>) -> impl IntoResponse {
+    refresh_all_live_backends(&gs, RefreshReason::Periodic).await;
+    let registry = gs.registry.read().await;
+    let live_instances = gs.live_instances(&registry);
+    drop(registry);
+    let records = gs.capability_index.snapshot().records;
+    let loaded_skill_count = records
+        .iter()
+        .filter_map(|record| record.skill_name.as_deref())
+        .collect::<std::collections::HashSet<_>>()
+        .len();
+    (
+        StatusCode::OK,
+        Json(json!({
+            "scene": null,
+            "version": gs.server_version,
+            "dcc": "gateway",
+            "display_name": gs.server_name,
+            "documents": [],
+            "loaded_skill_count": loaded_skill_count,
+            "action_count": records.len(),
+            "live_instance_count": live_instances.len(),
+        })),
+    )
+}
 
 /// `POST /v1/search` — keyword + filter search over the capability
 /// index.
@@ -127,7 +204,20 @@ pub async fn handle_v1_describe(
     };
     refresh_all_live_backends(&gs, RefreshReason::Periodic).await;
 
-    match describe_tool_full(&gs, slug).await {
+    describe_slug_response(&gs, slug).await
+}
+
+/// `GET /v1/tools/{slug}` — path form of describe.
+pub async fn handle_v1_describe_path(
+    State(gs): State<GatewayState>,
+    Path(slug): Path<String>,
+) -> Response {
+    refresh_all_live_backends(&gs, RefreshReason::Periodic).await;
+    describe_slug_response(&gs, &slug).await
+}
+
+async fn describe_slug_response(gs: &GatewayState, slug: &str) -> Response {
+    match describe_tool_full(gs, slug).await {
         Ok((record, tool)) => (
             StatusCode::OK,
             Json(json!({

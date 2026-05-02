@@ -192,3 +192,104 @@ fn merge_job_update_into_envelope_timeout_sets_timed_out_flag() {
     );
     assert_eq!(merged["isError"], true);
 }
+
+#[tokio::test]
+async fn aggregate_tools_list_does_not_publish_single_instance_bare_aliases() {
+    let app = axum::Router::new()
+        .route(
+            "/health",
+            axum::routing::get(|| async { axum::Json(json!({"ok": true})) }),
+        )
+        .route(
+            "/mcp",
+            axum::routing::post(|| async {
+                axum::Json(json!({
+                    "jsonrpc": "2.0",
+                    "id": "gw-1",
+                    "result": {
+                        "tools": [
+                            {"name": "create_sphere", "description": "Create sphere", "inputSchema": {"type": "object"}}
+                        ]
+                    }
+                }))
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async {
+                let _ = shutdown_rx.await;
+            })
+            .await
+            .unwrap();
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    let dir = tempfile::tempdir().unwrap();
+    let registry = std::sync::Arc::new(tokio::sync::RwLock::new(
+        dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
+    ));
+    let instance_id = {
+        let r = registry.read().await;
+        let entry =
+            dcc_mcp_transport::discovery::types::ServiceEntry::new("maya", "127.0.0.1", port);
+        let id = entry.instance_id;
+        r.register(entry).unwrap();
+        id
+    };
+    let (yield_tx, _) = tokio::sync::watch::channel(false);
+    let (events_tx, _) = tokio::sync::broadcast::channel::<String>(8);
+    let gs = crate::gateway::GatewayState {
+        registry,
+        stale_timeout: std::time::Duration::from_secs(30),
+        backend_timeout: std::time::Duration::from_secs(10),
+        async_dispatch_timeout: std::time::Duration::from_secs(60),
+        wait_terminal_timeout: std::time::Duration::from_secs(600),
+        server_name: "test".into(),
+        server_version: env!("CARGO_PKG_VERSION").into(),
+        own_host: "127.0.0.1".into(),
+        own_port: 0,
+        http_client: reqwest::Client::new(),
+        yield_tx: std::sync::Arc::new(yield_tx),
+        events_tx: std::sync::Arc::new(events_tx),
+        protocol_version: std::sync::Arc::new(tokio::sync::RwLock::new(None)),
+        resource_subscriptions: std::sync::Arc::new(tokio::sync::RwLock::new(
+            std::collections::HashMap::new(),
+        )),
+        pending_calls: std::sync::Arc::new(tokio::sync::RwLock::new(
+            std::collections::HashMap::new(),
+        )),
+        subscriber: crate::gateway::sse_subscriber::SubscriberManager::default(),
+        allow_unknown_tools: false,
+        adapter_version: None,
+        adapter_dcc: None,
+        tool_exposure: crate::gateway::GatewayToolExposure::Full,
+        cursor_safe_tool_names: true,
+        capability_index: std::sync::Arc::new(crate::gateway::capability::CapabilityIndex::new()),
+    };
+
+    assert_eq!(gs.live_instances(&*gs.registry.read().await).len(), 1);
+
+    let result = aggregate_tools_list(&gs, None).await;
+    let names: Vec<&str> = result["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|tool| tool["name"].as_str())
+        .collect();
+
+    let prefix = format!("i_{}__", &instance_id.to_string()[..8]);
+    assert!(
+        names.iter().any(|name| name.starts_with(&prefix)),
+        "expected prefixed backend tool in {names:?}"
+    );
+    assert!(
+        !names.contains(&"create_sphere"),
+        "bare backend alias must not be published: {names:?}"
+    );
+
+    let _ = shutdown_tx.send(());
+    server.await.unwrap();
+}

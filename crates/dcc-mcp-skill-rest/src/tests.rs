@@ -360,6 +360,29 @@ async fn openapi_document_served() {
     }
 }
 
+#[tokio::test]
+async fn docs_ui_served_and_can_be_disabled() {
+    let (svc, _, _) = fixture_loaded_spheres();
+    let (server, _) = build_server(svc);
+
+    unsafe {
+        std::env::remove_var("DCC_MCP_DOCS_UI");
+    }
+    let resp = server.get("/docs").await;
+    resp.assert_status_ok();
+    let html = resp.text();
+    assert!(html.contains("scalar") || html.contains("Scalar"));
+
+    unsafe {
+        std::env::set_var("DCC_MCP_DOCS_UI", "0");
+    }
+    let disabled = server.get("/docs").await;
+    disabled.assert_status_not_found();
+    unsafe {
+        std::env::remove_var("DCC_MCP_DOCS_UI");
+    }
+}
+
 /// Context endpoint reports loaded skills and action count.
 #[tokio::test]
 async fn context_reports_counts() {

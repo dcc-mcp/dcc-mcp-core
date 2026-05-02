@@ -11,7 +11,7 @@ use axum::{
     Json, Router,
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
-    response::{IntoResponse, Response},
+    response::{Html, IntoResponse, Response},
     routing::{get, post},
 };
 use chrono::Utc;
@@ -74,6 +74,7 @@ pub fn build_skill_rest_router(config: SkillRestConfig) -> Router {
         .route("/v1/healthz", get(handle_healthz))
         .route("/v1/readyz", get(handle_readyz))
         .route("/v1/openapi.json", get(handle_openapi))
+        .route("/docs", get(handle_docs))
         .route("/v1/skills", get(handle_list_skills))
         .route("/v1/search", post(handle_search))
         .route("/v1/describe", post(handle_describe))
@@ -161,6 +162,15 @@ async fn handle_readyz(State(cfg): State<SkillRestConfig>) -> impl IntoResponse 
 async fn handle_openapi(State(cfg): State<SkillRestConfig>) -> impl IntoResponse {
     let doc = build_openapi_document(&cfg.server_title, &cfg.server_version);
     (StatusCode::OK, Json(doc))
+}
+
+async fn handle_docs(State(cfg): State<SkillRestConfig>) -> Response {
+    if std::env::var("DCC_MCP_DOCS_UI").is_ok_and(|value| value == "0") {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    let doc = build_openapi_document(&cfg.server_title, &cfg.server_version);
+    let html = utoipa_scalar::Scalar::new(doc).to_html();
+    (StatusCode::OK, Html(html)).into_response()
 }
 
 /// Pull a best-effort peer `SocketAddr` out of the request headers.

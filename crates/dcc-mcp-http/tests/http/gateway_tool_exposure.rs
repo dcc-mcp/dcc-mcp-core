@@ -170,10 +170,8 @@ async fn full_mode_publishes_backend_tools() {
     // The gateway local + skill tools are always present; the key
     // assertion here is that *some* form of the backend tool surfaces.
     assert!(
-        names
-            .iter()
-            .any(|n| n == "backend_probe" || n.ends_with(".backend_probe")),
-        "Full mode must publish backend tools; got {names:?}"
+        names.iter().any(|n| n.contains("backend_U_probe")),
+        "Full mode must publish prefixed backend tools; got {names:?}"
     );
 }
 
@@ -261,9 +259,7 @@ async fn both_mode_matches_full_behaviour_today() {
     let names = tool_names(&result);
 
     assert!(
-        names
-            .iter()
-            .any(|n| n == "both_probe" || n.ends_with(".both_probe")),
+        names.iter().any(|n| n.contains("both_U_probe")),
         "Both mode must publish backend tools like Full; got {names:?}"
     );
 }

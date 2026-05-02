@@ -305,10 +305,10 @@ async fn collect_tool_names(state: &GatewayState) -> Vec<String> {
     }
 }
 
-// ── Single-instance bare-name aliases (#583) ───────────────────────────────
+// ── Single-instance backend tools/list aliases (#693) ─────────────────────
 
 #[tokio::test]
-async fn single_backend_tools_list_publishes_bare_alias() {
+async fn single_backend_tools_list_does_not_publish_bare_alias() {
     let backend = spawn_pending_backend(Duration::ZERO).await;
     let (state, registry, _tmp) = make_state(
         Duration::from_secs(1),
@@ -326,8 +326,8 @@ async fn single_backend_tools_list_publishes_bare_alias() {
         "prefixed tool name missing from tools/list: {names:?}"
     );
     assert!(
-        names.contains(&"slow_tool".to_string()),
-        "single-instance bare alias missing from tools/list: {names:?}"
+        !names.contains(&"slow_tool".to_string()),
+        "single-instance bare alias must not be published in tools/list: {names:?}"
     );
 }
 

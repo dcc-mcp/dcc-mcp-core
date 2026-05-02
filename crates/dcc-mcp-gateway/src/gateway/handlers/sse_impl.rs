@@ -71,7 +71,21 @@ pub async fn handle_gateway_get(State(gs): State<GatewayState>, headers: HeaderM
     let endpoint_event = stream::once(async {
         Ok::<Event, Infallible>(Event::default().event("endpoint").data("/mcp"))
     });
-    let combined = endpoint_event.chain(broadcast_stream.merge(per_session_stream));
+    let initial_tools_changed = stream::once(async {
+        Ok::<Event, Infallible>(
+            Event::default().data(
+                json!({
+                    "jsonrpc": "2.0",
+                    "method": "notifications/tools/list_changed",
+                    "params": {}
+                })
+                .to_string(),
+            ),
+        )
+    });
+    let combined = endpoint_event
+        .chain(initial_tools_changed)
+        .chain(broadcast_stream.merge(per_session_stream));
     let guarded = GuardedStream::new(combined, cleanup);
 
     let mut response = Sse::new(guarded)

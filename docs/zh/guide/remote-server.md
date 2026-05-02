@@ -121,7 +121,7 @@ cfg.allowed_origins = [
 公开 MCP 服务器的最小 Docker 设置：
 
 ```dockerfile
-FROM python:3.11-slim
+FROM python:3.14-slim
 RUN pip install dcc-mcp-core
 COPY skills/ /opt/skills/
 ENV DCC_MCP_SKILL_PATHS=/opt/skills

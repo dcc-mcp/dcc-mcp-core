@@ -713,7 +713,7 @@ checksum = "a4ae5f15dda3c708c0ade84bfee31ccab44a3da4f88015ed22f63732abe300c8"
 
 [[package]]
 name = "dcc-mcp-actions"
-version = "0.14.22"
+version = "0.14.23"
 dependencies = [
  "dashmap",
  "dcc-mcp-models",
@@ -731,7 +731,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-artefact"
-version = "0.14.22"
+version = "0.14.23"
 dependencies = [
  "chrono",
  "hex",
@@ -751,7 +751,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-capture"
-version = "0.14.22"
+version = "0.14.23"
 dependencies = [
  "image",
  "libc",
@@ -769,7 +769,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-core"
-version = "0.14.22"
+version = "0.14.23"
 dependencies = [
  "dcc-mcp-actions",
  "dcc-mcp-artefact",
@@ -799,13 +799,14 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-gateway"
-version = "0.14.22"
+version = "0.14.23"
 dependencies = [
  "axum",
  "chrono",
  "dashmap",
  "dcc-mcp-jsonrpc",
  "dcc-mcp-naming",
+ "dcc-mcp-skill-rest",
  "dcc-mcp-telemetry",
  "dcc-mcp-transport",
  "futures",
@@ -830,7 +831,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-host"
-version = "0.14.22"
+version = "0.14.23"
 dependencies = [
  "parking_lot",
  "pyo3",
@@ -844,7 +845,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-http"
-version = "0.14.22"
+version = "0.14.23"
 dependencies = [
  "axum",
  "axum-test",
@@ -895,7 +896,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-job"
-version = "0.14.22"
+version = "0.14.23"
 dependencies = [
  "chrono",
  "dashmap",
@@ -912,7 +913,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-jsonrpc"
-version = "0.14.22"
+version = "0.14.23"
 dependencies = [
  "serde",
  "serde_json",
@@ -921,7 +922,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-logging"
-version = "0.14.22"
+version = "0.14.23"
 dependencies = [
  "dcc-mcp-paths",
  "parking_lot",
@@ -937,7 +938,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-models"
-version = "0.14.22"
+version = "0.14.23"
 dependencies = [
  "dcc-mcp-naming",
  "dcc-mcp-pybridge",
@@ -954,7 +955,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-naming"
-version = "0.14.22"
+version = "0.14.23"
 dependencies = [
  "pyo3",
  "pyo3-stub-gen",
@@ -965,7 +966,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-paths"
-version = "0.14.22"
+version = "0.14.23"
 dependencies = [
  "dirs",
  "pyo3",
@@ -977,7 +978,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-process"
-version = "0.14.22"
+version = "0.14.23"
 dependencies = [
  "dcc-mcp-models",
  "ipckit",
@@ -997,7 +998,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-protocols"
-version = "0.14.22"
+version = "0.14.23"
 dependencies = [
  "parking_lot",
  "pyo3",
@@ -1011,7 +1012,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-pybridge"
-version = "0.14.22"
+version = "0.14.23"
 dependencies = [
  "dcc-mcp-pybridge-derive",
  "pyo3",
@@ -1026,7 +1027,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-pybridge-derive"
-version = "0.14.22"
+version = "0.14.23"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1035,7 +1036,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-sandbox"
-version = "0.14.22"
+version = "0.14.23"
 dependencies = [
  "parking_lot",
  "pyo3",
@@ -1051,7 +1052,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-scheduler"
-version = "0.14.22"
+version = "0.14.23"
 dependencies = [
  "axum",
  "bytes",
@@ -1082,7 +1083,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-server"
-version = "0.14.22"
+version = "0.14.23"
 dependencies = [
  "anyhow",
  "axum",
@@ -1109,7 +1110,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-shm"
-version = "0.14.22"
+version = "0.14.23"
 dependencies = [
  "ipckit",
  "libc",
@@ -1128,7 +1129,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-skill-rest"
-version = "0.14.22"
+version = "0.14.23"
 dependencies = [
  "axum",
  "axum-test",
@@ -1142,13 +1143,14 @@ dependencies = [
  "tokio",
  "tracing",
  "utoipa",
+ "utoipa-scalar",
  "uuid",
  "workspace-hack",
 ]
 
 [[package]]
 name = "dcc-mcp-skills"
-version = "0.14.22"
+version = "0.14.23"
 dependencies = [
  "dashmap",
  "dcc-mcp-actions",
@@ -1172,7 +1174,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-telemetry"
-version = "0.14.22"
+version = "0.14.23"
 dependencies = [
  "opentelemetry",
  "opentelemetry-otlp",
@@ -1196,7 +1198,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-transport"
-version = "0.14.22"
+version = "0.14.23"
 dependencies = [
  "criterion",
  "dashmap",
@@ -1222,7 +1224,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-tunnel-agent"
-version = "0.14.22"
+version = "0.14.23"
 dependencies = [
  "dashmap",
  "dcc-mcp-tunnel-protocol",
@@ -1235,7 +1237,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-tunnel-protocol"
-version = "0.14.22"
+version = "0.14.23"
 dependencies = [
  "jsonwebtoken",
  "rmp-serde",
@@ -1247,7 +1249,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-tunnel-relay"
-version = "0.14.22"
+version = "0.14.23"
 dependencies = [
  "axum",
  "dashmap",
@@ -1268,7 +1270,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-usd"
-version = "0.14.22"
+version = "0.14.23"
 dependencies = [
  "dcc-mcp-protocols",
  "pyo3",
@@ -1284,7 +1286,7 @@ dependencies = [
 
 [[package]]
 name = "dcc-mcp-workflow"
-version = "0.14.22"
+version = "0.14.23"
 dependencies = [
  "base64",
  "chrono",
@@ -5182,6 +5184,17 @@ dependencies = [
  "quote",
  "regex",
  "syn",
+]
+
+[[package]]
+name = "utoipa-scalar"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "59559e1509172f6b26c1cdbc7247c4ddd1ac6560fe94b584f81ee489b141f719"
+dependencies = [
+ "serde",
+ "serde_json",
+ "utoipa",
 ]
 
 [[package]]

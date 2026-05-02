@@ -31,8 +31,9 @@ mod sse_impl;
 pub use mcp_impl::handle_gateway_mcp;
 pub use proxy_impl::{handle_proxy_dcc, handle_proxy_instance};
 pub use rest_impl::{
-    handle_gateway_yield, handle_health, handle_instances, handle_v1_call, handle_v1_describe,
-    handle_v1_search,
+    handle_gateway_yield, handle_health, handle_instances, handle_v1_call, handle_v1_context,
+    handle_v1_describe, handle_v1_describe_path, handle_v1_healthz, handle_v1_openapi,
+    handle_v1_readyz, handle_v1_search, handle_v1_skills,
 };
 pub use sse_impl::handle_gateway_get;
 
