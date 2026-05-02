@@ -112,3 +112,47 @@ def test_default_prompt_present():
 
     result = skill_error_with_trace("msg", "err")
     assert result["prompt"]
+
+
+def test_skill_entry_import_error_uses_bridge_dcc_name_from_module():
+    from dcc_mcp_core.skill import skill_entry
+
+    @skill_entry
+    def photoshop_bridge_tool():
+        raise ImportError("No module named 'photoshop.api'", name="photoshop.api")
+
+    result = photoshop_bridge_tool()
+
+    assert result["success"] is False
+    assert result["message"] == "Photoshop is not available in this environment"
+    assert "Photoshop is running" in result["prompt"]
+    assert "Maya" not in result["message"]
+    assert "Maya" not in result["prompt"]
+
+
+def test_skill_entry_import_error_uses_bridge_dcc_name_from_message():
+    from dcc_mcp_core.skill import skill_entry
+
+    @skill_entry
+    def zbrush_bridge_tool():
+        raise ImportError("No module named 'zbrush' while loading bridge adapter")
+
+    result = zbrush_bridge_tool()
+
+    assert result["success"] is False
+    assert result["message"] == "ZBrush is not available in this environment"
+    assert "ZBrush is running" in result["prompt"]
+
+
+def test_skill_entry_import_error_preserves_unknown_custom_dcc_module():
+    from dcc_mcp_core.skill import skill_entry
+
+    @skill_entry
+    def custom_dcc_tool():
+        raise ImportError("No module named 'krita.api'", name="krita.api")
+
+    result = custom_dcc_tool()
+
+    assert result["success"] is False
+    assert result["message"] == "krita is not available in this environment"
+    assert "krita is running" in result["prompt"]

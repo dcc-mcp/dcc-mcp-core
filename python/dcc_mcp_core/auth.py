@@ -33,9 +33,9 @@ Usage
     # OAuth 2.1 + CIMD (recommended for production)
     oauth_cfg = OAuthConfig(
         provider_url="https://auth.shotgrid.example.com",
-        client_id="maya-mcp-client",
+        client_id="dcc-mcp-client",
         scopes=["scene:read", "render:write"],
-        client_name="Maya MCP Server",
+        client_name="DCC MCP Server",
     )
     cimd_doc = oauth_cfg.to_cimd_document(redirect_uri="http://localhost:8765/oauth/callback")
 
@@ -162,7 +162,7 @@ class OAuthConfig:
         cfg = OAuthConfig(
             provider_url="https://auth.shotgrid.example.com",
             scopes=["scene:read", "render:write"],
-            client_name="Maya MCP Server",
+            client_name="DCC MCP Server",
         )
         doc = cfg.to_cimd_document(redirect_uri="http://localhost:8765/oauth/callback")
 

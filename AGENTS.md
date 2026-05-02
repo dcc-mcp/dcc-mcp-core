@@ -82,6 +82,24 @@
 5. Debug on failure: Use dcc_diagnostics__screenshot or audit_log
 ```
 
+### Multi-DCC Guardrails
+
+- This repository must support multiple DCC hosts (Maya, Blender, Houdini,
+  Photoshop, ZBrush, Unreal, Unity, Figma, and custom studio hosts). Do not
+  introduce Maya-only assumptions in core code, gateway routing, skill
+  discovery, auth examples, error messages, or tests.
+- Keep DCC identity parameterized (`dcc_name`, `dcc_type`, `app_name`,
+  `DccName::parse`) and preserve unknown/custom DCC names instead of rejecting
+  them unless a boundary explicitly requires a known host.
+- When fixing an issue, add realistic Rust **and** Python regression tests when
+  the behavior crosses Rust/Python or downstream APIs. Use real-looking DCC
+  examples from at least two host families where practical (for example Maya +
+  Photoshop/ZBrush/custom), not only synthetic single-DCC fixtures.
+- For MCP/gateway changes, include an E2E-style validation path that exercises
+  actual `tools/list` / `tools/call` / REST or gateway routing. If a real DCC is
+  unavailable, use the closest executable/server path and state the gap in the
+  PR.
+
 **API surface** — read in this order:
 1. 🆕 **[`AI_AGENT_GUIDE.md`](AI_AGENT_GUIDE.md)** — **START HERE** for using dcc-mcp-core effectively
 2. `python/dcc_mcp_core/__init__.py` — every public symbol
@@ -136,7 +154,7 @@
 | Discover team-level skills | `scan_and_load_team()` / `scan_and_load_team_lenient()` |
 | Discover user-level skills | `scan_and_load_user()` / `scan_and_load_user_lenient()` |
 | Disable evolved skills | `ENV_DISABLE_ACCUMULATED_SKILLS` |
-| MCP HTTP (recommended) | `create_skill_server("maya", McpHttpConfig(port=8765))` |
+| MCP HTTP (recommended) | `create_skill_server("<dcc>", McpHttpConfig(port=8765))` |
 | MCP HTTP (manual) | `McpHttpServer(registry, McpHttpConfig(port=8765))` |
 | Full-screen capture | `Capturer.new_auto().capture()` |
 | Single-window capture | `Capturer.new_window_auto().capture_window(...)` |
@@ -249,6 +267,7 @@ docs/            # guides + API reference
 - Tag every skill with `metadata.dcc-mcp.layer`
 - Unpack `scan_and_load()`: `skills, skipped = scan_and_load(...)`
 - Use `DccName::parse(s)` at Rust API boundaries instead of `&str` (#491)
+- Keep core code DCC-agnostic; parameterize `dcc_name` / `dcc_type` and cover multi-DCC behavior in Rust + Python tests
 - Use `MethodRouter::with_builtins()` then `.register(...)` to add custom JSON-RPC methods (#492)
 - Use Conventional Commits: `feat:`, `fix:`, `docs:`, `refactor:`
 - Use `vx just dev` before `vx just test`
@@ -261,6 +280,8 @@ docs/            # guides + API reference
 - Don't hand-roll `{"success": ..., "context": ...}` dicts in handlers → **return `ToolResult.ok(...).to_dict()`** (the factory is `ok`/`success_`, NOT `success`) (#487)
 - Don't write inline `"dcc-mcp.recipes"` / `"thin-harness"` literals → **import from `dcc_mcp_core`** (constants re-exported at top level) (#487)
 - Don't pass raw `&str` DCC names through Rust APIs → **`DccName::parse(s)` at the boundary** (#491)
+- Don't hardcode Maya as the default/example for generic core behavior → **use generic DCC examples or at least two DCCs in tests**
+- Don't fix issues with Rust-only or Python-only coverage when both surfaces are affected → **add realistic tests on both sides**
 - Don't extend the JSON-RPC `match` arm in `dispatch.rs` → **register a `MethodHandler` on `MethodRouter`** (#492)
 - Don't hand-roll JSON-RPC envelopes → **`NotificationBuilder` / `JsonRpcRequestBuilder`** (#484)
 - Don't add per-crate `*Error` enums → **return `DccMcpError` via `From` impls** (#488)

@@ -31,6 +31,14 @@ pub enum DccName {
     Cinema4d,
     /// Adobe Photoshop
     Photoshop,
+    /// Pixologic ZBrush
+    Zbrush,
+    /// Epic Unreal Engine
+    Unreal,
+    /// Unity Editor
+    Unity,
+    /// Figma
+    Figma,
     /// Foundry Nuke
     Nuke,
     /// Any DCC not covered by the canonical variants — preserves the
@@ -51,6 +59,10 @@ impl DccName {
             "3dsmax" | "max" | "threedsmax" => Self::ThreedsMax,
             "c4d" | "cinema4d" => Self::Cinema4d,
             "photoshop" | "ps" => Self::Photoshop,
+            "zbrush" => Self::Zbrush,
+            "unreal" | "ue" | "ue5" => Self::Unreal,
+            "unity" => Self::Unity,
+            "figma" => Self::Figma,
             "nuke" => Self::Nuke,
             _ => Self::Other(lower),
         }
@@ -65,6 +77,10 @@ impl DccName {
             Self::ThreedsMax => "3dsmax",
             Self::Cinema4d => "c4d",
             Self::Photoshop => "photoshop",
+            Self::Zbrush => "zbrush",
+            Self::Unreal => "unreal",
+            Self::Unity => "unity",
+            Self::Figma => "figma",
             Self::Nuke => "nuke",
             Self::Other(s) => s.as_str(),
         }
@@ -117,6 +133,11 @@ mod tests {
         assert_eq!(DccName::parse("blender"), DccName::Blender);
         assert_eq!(DccName::parse("houdini"), DccName::Houdini);
         assert_eq!(DccName::parse("c4d"), DccName::Cinema4d);
+        assert_eq!(DccName::parse("photoshop"), DccName::Photoshop);
+        assert_eq!(DccName::parse("zbrush"), DccName::Zbrush);
+        assert_eq!(DccName::parse("unreal"), DccName::Unreal);
+        assert_eq!(DccName::parse("unity"), DccName::Unity);
+        assert_eq!(DccName::parse("figma"), DccName::Figma);
         assert_eq!(DccName::parse("nuke"), DccName::Nuke);
     }
 
@@ -125,6 +146,8 @@ mod tests {
         assert_eq!(DccName::parse("MAYA"), DccName::Maya);
         assert_eq!(DccName::parse("  Blender  "), DccName::Blender);
         assert_eq!(DccName::parse("3DsMax"), DccName::ThreedsMax);
+        assert_eq!(DccName::parse("PS"), DccName::Photoshop);
+        assert_eq!(DccName::parse("UE5"), DccName::Unreal);
     }
 
     #[test]
@@ -154,6 +177,10 @@ mod tests {
     #[test]
     fn display_uses_as_str() {
         assert_eq!(DccName::Maya.to_string(), "maya");
+        assert_eq!(DccName::Zbrush.to_string(), "zbrush");
+        assert_eq!(DccName::Unreal.to_string(), "unreal");
+        assert_eq!(DccName::Unity.to_string(), "unity");
+        assert_eq!(DccName::Figma.to_string(), "figma");
         assert_eq!(DccName::Other("krita".into()).to_string(), "krita");
     }
 

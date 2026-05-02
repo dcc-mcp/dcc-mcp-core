@@ -620,14 +620,30 @@ def _serialize_result(result: ResultDict) -> str:
         )
 
 
+_DCC_IMPORT_LABELS = {
+    "maya": "Maya",
+    "houdini": "Houdini",
+    "nuke": "Nuke",
+    "blender": "Blender",
+    "cinema4d": "Cinema 4D",
+    "c4d": "Cinema 4D",
+    "3dsmax": "3ds Max",
+    "unreal": "Unreal",
+    "unity": "Unity",
+    "photoshop": "Photoshop",
+    "zbrush": "ZBrush",
+    "figma": "Figma",
+}
+
+
 def _guess_dcc_from_import_error(exc: ImportError) -> str:
     """Best-effort guess of the DCC name from an ImportError message."""
-    msg = str(exc).lower()
-    for dcc in ("maya", "houdini", "nuke", "blender", "cinema4d", "3dsmax", "unreal"):
-        if dcc in msg:
-            return dcc.capitalize()
-    # Check module name if available (Python 3.6+)
     if exc.name:
-        top = exc.name.split(".")[0]
-        return top
+        top = exc.name.split(".")[0].lower()
+        return _DCC_IMPORT_LABELS.get(top, top)
+
+    msg = str(exc).lower()
+    for dcc, label in _DCC_IMPORT_LABELS.items():
+        if dcc in msg:
+            return label
     return "DCC"
