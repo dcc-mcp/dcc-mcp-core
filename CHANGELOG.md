@@ -11,6 +11,13 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.14.25](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.24...v0.14.25) (2026-05-03)
+
+
+### Bug Fixes
+
+* **skills:** reject invalid strict scan directories ([87cf1db](https://github.com/loonghao/dcc-mcp-core/commit/87cf1dbe110946ca6952ae1fcd1bcc6515e3e1fd))
+
 ## [0.14.24](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.23...v0.14.24) (2026-05-03)
 
 
