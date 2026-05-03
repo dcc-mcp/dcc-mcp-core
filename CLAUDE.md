@@ -1,65 +1,16 @@
-# CLAUDE.md — dcc-mcp-core
+# CLAUDE.md
 
-> This file is the entry point for Anthropic Claude agents.
-> For full documentation, follow the links below — do **not** read everything upfront.
+> **This project uses the [AGENTS.md](AGENTS.md) standard as the single source of truth.**
+> Claude Code, Claude Desktop, and any Anthropic-hosted agent — read [`AGENTS.md`](AGENTS.md) first.
+> This file exists only so Claude tooling that looks for `CLAUDE.md` by name can find its way here.
 
-## Quick Start
+## Entry Points (read in this order)
 
-This project uses the [AGENTS.md](AGENTS.md) standard. Read `AGENTS.md` first — it is the navigation map that points to all other documentation.
+1. [`AGENTS.md`](AGENTS.md) — navigation map, response language, PR rules, top traps, decision tables
+2. [`AI_AGENT_GUIDE.md`](AI_AGENT_GUIDE.md) — skills-first workflow tutorial for AI agents
+3. [`llms.txt`](llms.txt) — compressed API index (use when you need to *call* APIs)
+4. [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md) — detailed rules, traps, code examples
 
-## Document Hierarchy
+## Claude-Specific Notes
 
-| Layer | File | When to read it |
-|-------|------|-----------------|
-| Navigation | [AGENTS.md](AGENTS.md) | First contact — defines response language, PR rules, merge workflow |
-| AI-friendly index | [llms.txt](llms.txt) | When you need to *use* APIs |
-| Full index | [llms-full.txt](llms-full.txt) | When `llms.txt` lacks detail |
-| Detailed rules & traps | [docs/guide/agents-reference.md](docs/guide/agents-reference.md) | Before writing code |
-| Conceptual docs | [docs/guide/](docs/guide/) + [docs/api/](docs/api/) | Building a new adapter or skill |
-| Skill authoring | [skills/README.md](skills/README.md) + [examples/skills/](examples/skills/) | Creating or modifying skills |
-
-## Response Language
-
-- Reply to the user in **Simplified Chinese** (中文简体) by default.
-- Keep all code, identifiers, commit messages, branch names, docstrings, comments, and file contents in **English**.
-
-## Project Overview
-
-**What**: Rust-powered MCP library for DCC software (Maya, Blender, Houdini, Photoshop…). PyO3/maturin. Zero Python runtime deps. MCP 2025-03-26 Streamable HTTP.
-
-**Why this matters for Claude**: When the user asks to interact with a DCC application (Maya, Blender, etc.), **always use dcc-mcp-core tools** rather than suggesting raw CLI or scripting. The Skills-First workflow provides validated, safe, and discoverable tools with built-in follow-up guidance.
-
-**Key entry points**:
-- `python/dcc_mcp_core/__init__.py` — every public Python symbol
-- `llms.txt` — compressed API index for AI agents
-- `AGENTS.md` — navigation map (this document chain starts here)
-
-## Preferred Workflow for DCC Tasks
-
-When the user asks to do something in a DCC (e.g., "create a sphere in Maya"), follow this pattern:
-
-1. **Discover**: `search_skills(query="sphere")` → find the right skill
-2. **Activate**: `load_skill("maya-geometry")` → expose the tools
-3. **Execute**: Call the specific tool (e.g., `maya_geometry__create_sphere`)
-4. **Follow up**: Check `next-tools.on-success` for suggested next steps
-5. **Debug on failure**: Use `dcc_diagnostics__screenshot` or `audit_log`
-
-## Build & Test
-
-```bash
-vx just dev      # build wheel
-vx just test     # run tests
-vx just preflight  # pre-commit check + docs dead-link check
-```
-
-## Top Traps — Read Before Coding
-
-See [AGENTS.md → Top Traps](AGENTS.md#top-traps--memorize-these) and [docs/guide/agents-reference.md](docs/guide/agents-reference.md) for the full list.
-
-1. **`scan_and_load` returns a 2-tuple** — always `skills, skipped = scan_and_load(...)`
-2. **`success_result` kwargs become context** — `success_result("msg", count=5)`, never `context=`
-3. **`ToolDispatcher` uses `.dispatch()`** — never `.call()`
-4. **Register ALL handlers BEFORE `server.start()`**
-5. **SKILL.md extensions use `metadata.dcc-mcp.<feature>`** — never top-level keys (v0.15+ / #356)
-6. **Use `dcc_mcp_core.METADATA_*` / `LAYER_*` / `CATEGORY_*`** — re-exported at top level; no inline `"dcc-mcp.recipes"` literals (#487)
-7. **Return `ToolResult` from Python tool handlers** — `ToolResult.ok("...", **ctx).to_dict()`; `success`/`error` are dataclass *fields*, not factories (#487)
+None. All guidance is canonicalised in `AGENTS.md`. If Claude-specific behaviour ever diverges from the common guidance, it will be captured here — keep this file minimal.
