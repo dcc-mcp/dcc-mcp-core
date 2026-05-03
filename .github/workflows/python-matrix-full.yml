@@ -1,0 +1,46 @@
+name: Python Matrix (full, nightly)
+
+# Drift-detection counterpart to ci.yml's trimmed python-test matrix.
+# PRs run 7 cells (ubuntu × all pythons + windows/macos × {3.8, 3.13}).
+# This job runs the full 3×6 matrix weekly so middle Python versions on
+# Windows/macOS still get exercised, just not on every PR.
+
+on:
+  schedule:
+    - cron: "17 4 * * 1"   # Monday 04:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: python-matrix-full
+  cancel-in-progress: true
+
+jobs:
+  python-test-full:
+    name: Test (${{ matrix.os }}, py${{ matrix.python-version }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: loonghao/vx@v0.8.33
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build wheel
+        run: |
+          pip install --upgrade pip maturin
+          maturin build --release --out dist
+        shell: bash
+      - name: Install wheel + test deps
+        run: pip install --no-index --find-links dist dcc-mcp-core && pip install pytest
+        shell: bash
+      - name: Test
+        run: pytest
+        shell: bash

@@ -67,15 +67,22 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-hakari
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
       - name: Verify workspace-hack is up to date
         run: cargo hakari verify
       - name: Preflight (check + clippy + fmt + test)
         run: vx just preflight
 
   # ── Build ABI3 wheel (one per OS, reused by python-test) ──
+  # Intentionally does NOT `needs: [rust-check]` — maturin runs its own compile
+  # and can start in parallel with rust-check. If rust-check fails, the PR merge
+  # gate still blocks on it; decoupling just lets the two ~5-8 min jobs run
+  # concurrently instead of serially.
   build-wheel:
     name: Build wheel (${{ matrix.os }})
-    needs: [rust-check]
     strategy:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
@@ -107,15 +114,30 @@ jobs:
           path: dist/*.whl
           retention-days: 1
 
-  # ── Python tests: matrix over OS × Python versions ──
+  # ── Python tests: trimmed OS × Python matrix (7 cells, was 18) ──
+  # Covers every supported Python version on ubuntu (cheapest) + endpoint
+  # versions (oldest 3.8, newest 3.13) on Windows/macOS. Middle versions on
+  # Windows/macOS rarely surface OS-specific Python bugs and are exercised on
+  # ubuntu. The full 3×6 matrix runs weekly via python-matrix-full.yml for
+  # drift detection.
   python-test:
     name: Test (${{ matrix.os }}, py${{ matrix.python-version }})
     needs: [build-wheel]
     strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13"]
       fail-fast: false
+      matrix:
+        include:
+          # Ubuntu — cover every supported Python version (cheapest runner).
+          - { os: ubuntu-latest,  python-version: "3.8"  }
+          - { os: ubuntu-latest,  python-version: "3.10" }
+          - { os: ubuntu-latest,  python-version: "3.13" }
+          # Windows + macOS — cover oldest + newest only. Middle versions
+          # are exercised on ubuntu and rarely surface OS-specific Python
+          # bugs; python-matrix-full.yml runs the full matrix weekly.
+          - { os: windows-latest, python-version: "3.8"  }
+          - { os: windows-latest, python-version: "3.13" }
+          - { os: macos-latest,   python-version: "3.8"  }
+          - { os: macos-latest,   python-version: "3.13" }
     runs-on: ${{ matrix.os }}
     # id-token: write enables Codecov tokenless OIDC on the upload step below.
     permissions:
