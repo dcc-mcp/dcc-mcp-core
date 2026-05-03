@@ -63,9 +63,12 @@ fmt:
 fmt-check:
     cargo fmt --all -- --check
 
-# Run Rust unit/integration tests
+# Run Rust unit/integration tests (nextest for unit/integration, cargo test for doctests).
+# nextest runs each test in its own process (≈2-3× faster on Windows-MSVC) but does
+# not run doctests, so we chain a `cargo test --doc` pass to preserve coverage.
 test-rust:
-    cargo test --workspace
+    cargo nextest run --workspace
+    cargo test --workspace --doc
 
 # Rust test coverage via cargo-tarpaulin (install: cargo install cargo-tarpaulin)
 rust-cov:
