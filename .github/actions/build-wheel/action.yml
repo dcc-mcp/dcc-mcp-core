@@ -64,7 +64,8 @@ runs:
     - name: Cache Cargo
       uses: Swatinem/rust-cache@v2
       with:
-        key: wheel-${{ inputs.target || 'default' }}-py${{ inputs.python-version }}
+        key: rust-${{ runner.os }}
+        shared-key: rust-${{ runner.os }}
 
     - name: Resolve features from justfile
       id: resolve-features
