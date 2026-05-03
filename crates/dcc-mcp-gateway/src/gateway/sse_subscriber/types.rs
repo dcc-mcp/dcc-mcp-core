@@ -70,3 +70,25 @@ pub(crate) struct Pending {
     pub(crate) inserted_at: Instant,
     pub(crate) value: Value,
 }
+
+/// A single client's subscription to a backend resource (#732).
+///
+/// The gateway tracks `(backend_url, backend_uri)` → `{ClientRoute}` so
+/// that a backend-emitted `notifications/resources/updated` can be fanned
+/// out to every subscribing client session with the URI rewritten back
+/// to the gateway-prefixed form the client originally subscribed with.
+///
+/// Stored inside a `DashSet`, so `Eq` / `Hash` must be total over the
+/// fields that uniquely identify a subscription; two subscribers that
+/// differ only in `client_uri` still count as distinct entries because
+/// the outbound notification rewrites the URI per-route.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct ResourceSubscriberRoute {
+    /// Owning client session — key into `client_sinks`.
+    pub(crate) client_session_id: ClientSessionId,
+    /// The gateway-prefixed URI the client originally subscribed with.
+    /// Written back into `params.uri` on every outbound
+    /// `notifications/resources/updated`, so the client sees the URI
+    /// shape it originally requested (not the raw backend URI).
+    pub(crate) client_uri: String,
+}

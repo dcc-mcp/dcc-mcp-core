@@ -51,6 +51,7 @@
 mod bare;
 mod constants;
 mod encode;
+mod resource_uri;
 
 pub use bare::{BareNameInput, resolve_bare_names, warn_legacy_prefixed_once};
 pub use constants::{
@@ -63,6 +64,7 @@ pub use encode::{
     encode_tool_name_cursor_safe, escape_cursor_safe, extract_bare_tool_name,
     is_cursor_safe_alphabet, skill_tool_name, unescape_cursor_safe,
 };
+pub use resource_uri::{decode_resource_uri, encode_resource_uri};
 
 #[cfg(test)]
 pub use bare::__reset_warn_state_for_tests;

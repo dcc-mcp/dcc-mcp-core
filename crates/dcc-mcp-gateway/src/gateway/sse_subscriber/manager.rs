@@ -39,6 +39,15 @@ pub(crate) struct SubscriberManagerInner {
     /// forwarding an async `tools/call` so the waiter cannot miss a
     /// terminal event that arrives while the POST reply is in flight.
     pub(crate) job_event_buses: DashMap<String, broadcast::Sender<Value>>,
+    /// Resource-subscription routes (issue #732).
+    ///
+    /// Key: `(backend_url, backend_uri)` — uniquely identifies a
+    /// backend resource. Value: set of `ResourceSubscriberRoute`s
+    /// that must receive every `notifications/resources/updated`
+    /// frame for that resource, each carrying the client-visible
+    /// prefixed URI so the gateway can rewrite the notification's
+    /// `params.uri` before forwarding.
+    pub(crate) resource_subscriptions: DashMap<(String, String), DashSet<ResourceSubscriberRoute>>,
     /// Shared HTTP client with connection pooling.
     pub(crate) http_client: reqwest::Client,
     /// TTL beyond which a non-terminal route is evicted by the GC task
@@ -82,6 +91,7 @@ impl SubscriberManager {
                 backend_inflight: DashMap::new(),
                 client_sinks: DashMap::new(),
                 job_event_buses: DashMap::new(),
+                resource_subscriptions: DashMap::new(),
                 http_client,
                 route_ttl,
                 max_routes_per_session,
@@ -133,6 +143,12 @@ impl SubscriberManager {
         self.inner
             .progress_token_routes
             .retain(|_, sid| sid.as_str() != session_id);
+        // #732: drop any resource subscriptions owned by this session.
+        // We deliberately do NOT forward `resources/unsubscribe` to the
+        // backend here — the session's broken SSE stream already means
+        // the backend cannot reach this client, and other sessions on
+        // the same gateway may still be subscribed to the same resource.
+        let _ = self.forget_client_resource_subs(session_id);
     }
 
     // ── Correlation updates ────────────────────────────────────────────

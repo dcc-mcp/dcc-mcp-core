@@ -207,32 +207,12 @@ async fn handle_tools_list(gs: &GatewayState, id: Value, req: &JsonRpcRequest) -
 }
 
 async fn handle_resources_list(gs: &GatewayState, id: Value) -> Value {
-    let registry = gs.registry.read().await;
-    let resources: Vec<Value> = gs
-        .live_instances(&registry)
-        .into_iter()
-        .filter(|entry| entry.dcc_type != "__gateway__")
-        .map(|entry| {
-            let name = match entry.scene.as_deref() {
-                Some(scene) if !scene.is_empty() => {
-                    format!(
-                        "{} — {} ({}:{})",
-                        entry.dcc_type, scene, entry.host, entry.port
-                    )
-                }
-                _ => format!("{} @ {}:{}", entry.dcc_type, entry.host, entry.port),
-            };
-            json!({
-                "uri":         format!("dcc://{}/{}", entry.dcc_type, entry.instance_id),
-                "name":        name,
-                "description": format!("Live {} DCC instance. Version: {}.",
-                    entry.dcc_type,
-                    entry.version.as_deref().unwrap_or("unknown")),
-                "mimeType":    "application/json"
-            })
-        })
-        .collect();
-    json!({"jsonrpc":"2.0","id":id,"result":{"resources": resources}})
+    // #732: fan-out `resources/list` to every live backend and merge the
+    // results with the existing `dcc://<type>/<id>` admin pointers.
+    // Fail-soft: a backend that cannot be reached contributes zero
+    // entries; healthy backends' resources are still returned.
+    let result = aggregator::aggregate_resources_list(gs).await;
+    json!({"jsonrpc": "2.0", "id": id, "result": result})
 }
 
 async fn handle_resources_read(gs: &GatewayState, id: Value, req: &JsonRpcRequest) -> Value {
@@ -241,9 +221,43 @@ async fn handle_resources_read(gs: &GatewayState, id: Value, req: &JsonRpcReques
         .as_ref()
         .and_then(|params| params.get("uri"))
         .and_then(|value| value.as_str())
-        .unwrap_or("");
-    let parts: Vec<&str> = uri.trim_start_matches("dcc://").splitn(2, '/').collect();
+        .unwrap_or("")
+        .to_owned();
 
+    // #732: gateway-prefixed URIs (`<scheme>://<id8>/<rest>`) are
+    // forwarded to the owning backend, preserving the raw `result`
+    // payload — including `contents[].blob` entries for binary
+    // mime-types — byte-for-byte.
+    if let Some((id8, backend_uri)) = crate::gateway::namespace::decode_resource_uri(&uri) {
+        let owning = aggregator::find_instance_by_prefix(gs, &id8).await;
+        return match owning {
+            Some(entry) => {
+                let url = format!("http://{}:{}/mcp", entry.host, entry.port);
+                match crate::gateway::backend_client::read_resource(
+                    &gs.http_client,
+                    &url,
+                    &backend_uri,
+                    gs.backend_timeout,
+                )
+                .await
+                {
+                    Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
+                    Err(e) => json!({
+                        "jsonrpc": "2.0", "id": id,
+                        "error": {"code": -32002, "message": format!("Backend resources/read failed: {e}")}
+                    }),
+                }
+            }
+            None => json!({
+                "jsonrpc": "2.0", "id": id,
+                "error": {"code": -32002, "message": format!("Resource not found: {uri} (no live instance matches prefix '{id8}')")}
+            }),
+        };
+    }
+
+    // Fallback: the legacy `dcc://<type>/<id>` admin pointer format —
+    // the gateway renders the same instance metadata it did pre-#732.
+    let parts: Vec<&str> = uri.trim_start_matches("dcc://").splitn(2, '/').collect();
     let registry = gs.registry.read().await;
     let found = gs.live_instances(&registry).into_iter().find(|entry| {
         parts.len() == 2
@@ -286,15 +300,93 @@ async fn handle_resource_subscription(
         .and_then(|value| value.as_str())
         .unwrap_or("")
         .to_owned();
-    let mut subscriptions = gs.resource_subscriptions.write().await;
-    if subscribe {
-        subscriptions
-            .entry(session_id.to_owned())
-            .or_default()
-            .insert(uri);
-    } else if let Some(set) = subscriptions.get_mut(session_id) {
-        set.remove(&uri);
+
+    // Always track the session-level subscription set so the legacy
+    // behaviour (admin `dcc://` pointers, bookkeeping) is preserved
+    // verbatim — callers pre-#732 relied on this map being authoritative.
+    {
+        let mut subscriptions = gs.resource_subscriptions.write().await;
+        if subscribe {
+            subscriptions
+                .entry(session_id.to_owned())
+                .or_default()
+                .insert(uri.clone());
+        } else if let Some(set) = subscriptions.get_mut(session_id) {
+            set.remove(&uri);
+        }
     }
+
+    // #732: when the URI names a gateway-prefixed backend resource,
+    // forward the subscription to the owning backend and register a
+    // routing entry so the per-backend SSE loop can fan any
+    // `notifications/resources/updated` frames back to this session.
+    if let Some((id8, backend_uri)) = crate::gateway::namespace::decode_resource_uri(&uri) {
+        let owning = aggregator::find_instance_by_prefix(gs, &id8).await;
+        return match owning {
+            Some(entry) => {
+                let backend_url = format!("http://{}:{}/mcp", entry.host, entry.port);
+                // Register the gateway-side routing table entry **before**
+                // telling the backend to subscribe, so the very first
+                // update the backend emits cannot race the bookkeeping.
+                if subscribe {
+                    gs.subscriber.bind_resource_subscription(
+                        &backend_url,
+                        &backend_uri,
+                        session_id,
+                        &uri,
+                    );
+                    // Ensure an SSE subscriber is running for this backend
+                    // (idempotent — no-op when the periodic task already
+                    // spawned one).
+                    gs.subscriber.ensure_subscribed(&backend_url);
+                } else {
+                    gs.subscriber.unbind_resource_subscription(
+                        &backend_url,
+                        &backend_uri,
+                        session_id,
+                        &uri,
+                    );
+                }
+
+                match crate::gateway::backend_client::subscribe_resource(
+                    &gs.http_client,
+                    &backend_url,
+                    &backend_uri,
+                    subscribe,
+                    gs.backend_timeout,
+                )
+                .await
+                {
+                    Ok(_) => json!({"jsonrpc": "2.0", "id": id, "result": {}}),
+                    Err(e) => {
+                        // Forwarding failed — undo the routing entry so
+                        // we do not leak a ghost subscriber. We keep the
+                        // session-level bookkeeping either way; the next
+                        // client-driven unsubscribe will tidy it.
+                        if subscribe {
+                            gs.subscriber.unbind_resource_subscription(
+                                &backend_url,
+                                &backend_uri,
+                                session_id,
+                                &uri,
+                            );
+                        }
+                        json!({
+                            "jsonrpc": "2.0", "id": id,
+                            "error": {"code": -32002, "message": format!("Backend resources/{}: {e}", if subscribe { "subscribe" } else { "unsubscribe" })}
+                        })
+                    }
+                }
+            }
+            None => json!({
+                "jsonrpc": "2.0", "id": id,
+                "error": {"code": -32002, "message": format!("Resource not found: {uri} (no live instance matches prefix '{id8}')")}
+            }),
+        };
+    }
+
+    // Legacy admin-pointer subscription (no backend fan-out needed —
+    // the gateway itself does not emit updates for these URIs today).
     json!({"jsonrpc":"2.0","id":id,"result":{}})
 }
 

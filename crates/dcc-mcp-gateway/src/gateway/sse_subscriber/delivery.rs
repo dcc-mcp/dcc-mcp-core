@@ -20,6 +20,18 @@ impl SubscriberManager {
         if let Some(jid) = terminal_job_id(&value) {
             self.forget_job(&jid);
         }
+        // #732: `notifications/resources/updated` is fanned out to every
+        // client session that subscribed to the owning backend resource.
+        // Delivery is independent of the progress / job-id correlation
+        // routes — it keys off `(backend_url, backend_uri)` directly.
+        if value
+            .get("method")
+            .and_then(|m| m.as_str())
+            .is_some_and(|m| m == "notifications/resources/updated")
+            && self.dispatch_resource_updated(&value, &backend_shared.url)
+        {
+            return;
+        }
         let session = resolve_target(&self.inner, &value);
         match session {
             Some(sid) => {

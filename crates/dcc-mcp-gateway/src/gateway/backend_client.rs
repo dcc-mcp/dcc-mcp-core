@@ -345,6 +345,91 @@ pub async fn fetch_prompts(
     }
 }
 
+/// Fetch `resources/list` from a backend and return the raw `resources` array.
+///
+/// Unlike [`fetch_resources`], this reports transport / protocol failures to callers
+/// that need deterministic errors for a specific backend.
+pub async fn try_fetch_resources(
+    client: &reqwest::Client,
+    mcp_url: &str,
+    timeout: Duration,
+) -> Result<Vec<Value>, String> {
+    let val = call_backend(client, mcp_url, "resources/list", None, None, timeout).await?;
+    Ok(val
+        .get("resources")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default())
+}
+
+/// Fetch `resources/list` from a backend and return the raw `resources` array.
+///
+/// On any failure returns an empty vector and logs a warning — callers aggregate
+/// resources across many backends and should not fail the whole fan-out because
+/// one instance is unreachable. Mirrors [`fetch_tools`] for resources.
+pub async fn fetch_resources(
+    client: &reqwest::Client,
+    mcp_url: &str,
+    timeout: Duration,
+) -> Vec<Value> {
+    match try_fetch_resources(client, mcp_url, timeout).await {
+        Ok(resources) => resources,
+        Err(e) => {
+            tracing::warn!(mcp_url = %mcp_url, error = %e, "Backend resources/list failed");
+            Vec::new()
+        }
+    }
+}
+
+/// Forward a `resources/read` to a backend and return the raw `result` JSON.
+///
+/// The result is returned unchanged (including `contents[].blob` entries for
+/// binary mime-types), so byte-for-byte round-trip through the gateway is
+/// preserved.
+pub async fn read_resource(
+    client: &reqwest::Client,
+    mcp_url: &str,
+    uri: &str,
+    timeout: Duration,
+) -> Result<Value, String> {
+    call_backend(
+        client,
+        mcp_url,
+        "resources/read",
+        Some(json!({"uri": uri})),
+        None,
+        timeout,
+    )
+    .await
+}
+
+/// Forward a `resources/subscribe` (or `resources/unsubscribe` when `subscribe`
+/// is `false`) to a backend.
+///
+/// Returns the raw `result` JSON — typically `{}`.
+pub async fn subscribe_resource(
+    client: &reqwest::Client,
+    mcp_url: &str,
+    uri: &str,
+    subscribe: bool,
+    timeout: Duration,
+) -> Result<Value, String> {
+    let method = if subscribe {
+        "resources/subscribe"
+    } else {
+        "resources/unsubscribe"
+    };
+    call_backend(
+        client,
+        mcp_url,
+        method,
+        Some(json!({"uri": uri})),
+        None,
+        timeout,
+    )
+    .await
+}
+
 /// Forward a `tools/call` to a backend and return the raw result JSON.
 ///
 /// `request_id` is forwarded as the JSON-RPC `id` so that the gateway can
@@ -759,6 +844,178 @@ mod tests {
         assert!(
             !hit.load(Ordering::SeqCst),
             "call_backend must not post to /mcp while backend is red"
+        );
+        let _ = stop.send(());
+    }
+
+    // ── #732 integration tests: resources forwarding helpers ─────────────
+
+    /// Router that answers `/health` green plus a single JSON-RPC method
+    /// handler at `/mcp`. Keeps test routers compact.
+    fn healthy_mcp_router<H, Fut>(handler: H) -> axum::Router
+    where
+        H: Fn(axum::Json<Value>) -> Fut + Clone + Send + Sync + 'static,
+        Fut: std::future::Future<Output = axum::Json<Value>> + Send,
+    {
+        axum::Router::new()
+            .route(
+                "/health",
+                axum::routing::get(|| async { axum::Json(json!({"ok": true})) }),
+            )
+            .route(
+                "/mcp",
+                axum::routing::post(move |body: axum::Json<Value>| {
+                    let handler = handler.clone();
+                    async move { handler(body).await }
+                }),
+            )
+    }
+
+    #[tokio::test]
+    async fn try_fetch_resources_returns_backend_resources() {
+        let app = healthy_mcp_router(|body: axum::Json<Value>| async move {
+            assert_eq!(
+                body.get("method").and_then(|m| m.as_str()),
+                Some("resources/list")
+            );
+            axum::Json(json!({
+                "jsonrpc": "2.0",
+                "id": body.get("id").cloned().unwrap_or(json!("gw-test")),
+                "result": {
+                    "resources": [
+                        {"uri": "scene://current", "name": "Current scene", "mimeType": "application/json"},
+                        {"uri": "capture://current_window", "name": "Window capture", "mimeType": "image/png"}
+                    ]
+                }
+            }))
+        });
+        let (mcp_url, stop) = spawn_fake_backend(app).await;
+
+        let client = reqwest::Client::new();
+        let resources = try_fetch_resources(&client, &mcp_url, Duration::from_secs(2))
+            .await
+            .expect("resources/list must succeed");
+        assert_eq!(resources.len(), 2);
+        assert_eq!(resources[0]["uri"], json!("scene://current"));
+        assert_eq!(resources[1]["mimeType"], json!("image/png"));
+        let _ = stop.send(());
+    }
+
+    #[tokio::test]
+    async fn fetch_resources_returns_empty_on_error() {
+        // Backend responds with an error envelope — fail-soft contract
+        // says: swallow the error, log a warn, return empty vector.
+        let app = healthy_mcp_router(|body: axum::Json<Value>| async move {
+            axum::Json(json!({
+                "jsonrpc": "2.0",
+                "id": body.get("id").cloned().unwrap_or(json!("gw-test")),
+                "error": {"code": -32601, "message": "Method not found"}
+            }))
+        });
+        let (mcp_url, stop) = spawn_fake_backend(app).await;
+
+        let client = reqwest::Client::new();
+        let resources = fetch_resources(&client, &mcp_url, Duration::from_secs(2)).await;
+        assert!(
+            resources.is_empty(),
+            "fetch_resources must fail-soft to an empty vector"
+        );
+        let _ = stop.send(());
+    }
+
+    #[tokio::test]
+    async fn read_resource_preserves_blob_bytes() {
+        // A capture://current_window response carries a base64 `blob` —
+        // the gateway must not corrupt it on the way through.
+        const BLOB_B64: &str = "aGVsbG8sIHdvcmxkIQ=="; // "hello, world!"
+        let app = healthy_mcp_router(move |body: axum::Json<Value>| async move {
+            assert_eq!(
+                body.get("method").and_then(|m| m.as_str()),
+                Some("resources/read")
+            );
+            assert_eq!(
+                body.get("params")
+                    .and_then(|p| p.get("uri"))
+                    .and_then(|u| u.as_str()),
+                Some("capture://current_window")
+            );
+            axum::Json(json!({
+                "jsonrpc": "2.0",
+                "id": body.get("id").cloned().unwrap_or(json!("gw-test")),
+                "result": {
+                    "contents": [{
+                        "uri": "capture://current_window",
+                        "mimeType": "image/png",
+                        "blob": BLOB_B64,
+                    }]
+                }
+            }))
+        });
+        let (mcp_url, stop) = spawn_fake_backend(app).await;
+
+        let client = reqwest::Client::new();
+        let result = read_resource(
+            &client,
+            &mcp_url,
+            "capture://current_window",
+            Duration::from_secs(2),
+        )
+        .await
+        .expect("resources/read must succeed");
+        let content = &result["contents"][0];
+        assert_eq!(content["mimeType"], json!("image/png"));
+        assert_eq!(content["blob"], json!(BLOB_B64));
+        let _ = stop.send(());
+    }
+
+    #[tokio::test]
+    async fn subscribe_resource_forwards_subscribe_and_unsubscribe_methods() {
+        // Verify the helper uses the correct method name and payload
+        // for both subscribe and unsubscribe.
+        let hits = Arc::new(parking_lot::Mutex::new(Vec::<String>::new()));
+        let hits_clone = hits.clone();
+        let app = healthy_mcp_router(move |body: axum::Json<Value>| {
+            let hits = hits_clone.clone();
+            async move {
+                let method = body
+                    .get("method")
+                    .and_then(|m| m.as_str())
+                    .unwrap_or("")
+                    .to_owned();
+                hits.lock().push(method);
+                axum::Json(json!({
+                    "jsonrpc": "2.0",
+                    "id": body.get("id").cloned().unwrap_or(json!("gw-test")),
+                    "result": {}
+                }))
+            }
+        });
+        let (mcp_url, stop) = spawn_fake_backend(app).await;
+
+        let client = reqwest::Client::new();
+        subscribe_resource(
+            &client,
+            &mcp_url,
+            "scene://current",
+            true,
+            Duration::from_secs(2),
+        )
+        .await
+        .expect("subscribe must succeed");
+        subscribe_resource(
+            &client,
+            &mcp_url,
+            "scene://current",
+            false,
+            Duration::from_secs(2),
+        )
+        .await
+        .expect("unsubscribe must succeed");
+
+        let recorded = hits.lock().clone();
+        assert_eq!(
+            recorded,
+            vec!["resources/subscribe", "resources/unsubscribe"]
         );
         let _ = stop.send(());
     }

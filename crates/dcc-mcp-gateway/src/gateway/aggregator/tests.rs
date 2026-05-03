@@ -723,3 +723,218 @@ async fn compute_prompts_fingerprint_changes_when_backend_prompt_set_mutates() {
     let _ = shutdown_tx.send(());
     server.await.unwrap();
 }
+
+// ── #732: resources/list aggregation ──────────────────────────────────
+
+/// Spawn a fake backend that answers `/health` green and serves a canned
+/// `resources/list` payload. Returns `(port, shutdown_tx)`.
+async fn spawn_resources_backend(resources: Vec<Value>) -> (u16, tokio::sync::oneshot::Sender<()>) {
+    let app = axum::Router::new()
+        .route(
+            "/health",
+            axum::routing::get(|| async { axum::Json(json!({"ok": true})) }),
+        )
+        .route(
+            "/mcp",
+            axum::routing::post({
+                let resources = resources.clone();
+                move |body: axum::Json<Value>| {
+                    let resources = resources.clone();
+                    async move {
+                        let method = body.get("method").and_then(|m| m.as_str()).unwrap_or("");
+                        let id = body.get("id").cloned().unwrap_or(json!("gw-test"));
+                        let result = match method {
+                            "resources/list" => json!({"resources": resources}),
+                            _ => json!({}),
+                        };
+                        axum::Json(json!({"jsonrpc": "2.0", "id": id, "result": result}))
+                    }
+                }
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+    tokio::spawn(async move {
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async {
+                let _ = rx.await;
+            })
+            .await
+            .unwrap();
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    (port, tx)
+}
+
+/// Build a GatewayState around a shared registry, pre-filled with the
+/// given `(dcc_type, port)` rows. Returns `(state, instance_ids)`.
+async fn gateway_state_with_instances(
+    instances: &[(&str, u16)],
+) -> (
+    crate::gateway::GatewayState,
+    tempfile::TempDir,
+    Vec<uuid::Uuid>,
+) {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = std::sync::Arc::new(tokio::sync::RwLock::new(
+        dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
+    ));
+    let mut ids = Vec::new();
+    {
+        let r = registry.read().await;
+        for (dcc_type, port) in instances {
+            let entry = dcc_mcp_transport::discovery::types::ServiceEntry::new(
+                *dcc_type,
+                "127.0.0.1",
+                *port,
+            );
+            ids.push(entry.instance_id);
+            r.register(entry).unwrap();
+        }
+    }
+    let (yield_tx, _) = tokio::sync::watch::channel(false);
+    let (events_tx, _) = tokio::sync::broadcast::channel::<String>(8);
+    let state = crate::gateway::GatewayState {
+        registry,
+        stale_timeout: std::time::Duration::from_secs(30),
+        backend_timeout: std::time::Duration::from_secs(10),
+        async_dispatch_timeout: std::time::Duration::from_secs(60),
+        wait_terminal_timeout: std::time::Duration::from_secs(600),
+        server_name: "test".into(),
+        server_version: env!("CARGO_PKG_VERSION").into(),
+        own_host: "127.0.0.1".into(),
+        own_port: 0,
+        http_client: reqwest::Client::new(),
+        yield_tx: std::sync::Arc::new(yield_tx),
+        events_tx: std::sync::Arc::new(events_tx),
+        protocol_version: std::sync::Arc::new(tokio::sync::RwLock::new(None)),
+        resource_subscriptions: std::sync::Arc::new(tokio::sync::RwLock::new(
+            std::collections::HashMap::new(),
+        )),
+        pending_calls: std::sync::Arc::new(tokio::sync::RwLock::new(
+            std::collections::HashMap::new(),
+        )),
+        subscriber: crate::gateway::sse_subscriber::SubscriberManager::default(),
+        allow_unknown_tools: false,
+        adapter_version: None,
+        adapter_dcc: None,
+        tool_exposure: crate::gateway::GatewayToolExposure::Rest,
+        cursor_safe_tool_names: true,
+        capability_index: std::sync::Arc::new(crate::gateway::capability::CapabilityIndex::new()),
+    };
+    (state, dir, ids)
+}
+
+fn id8(id: &uuid::Uuid) -> String {
+    let mut s = id.simple().to_string();
+    s.truncate(8);
+    s
+}
+
+#[tokio::test]
+async fn aggregate_resources_list_merges_admin_pointers_and_backend_resources() {
+    // Two backends, disjoint resource sets. The gateway's
+    // resources/list must return admin pointers ∪ each backend's
+    // resources with the per-instance prefix.
+    let (port_a, stop_a) = spawn_resources_backend(vec![
+        json!({"uri": "scene://current", "name": "A scene", "mimeType": "application/json"}),
+    ])
+    .await;
+    let (port_b, stop_b) = spawn_resources_backend(vec![
+        json!({"uri": "capture://current_window", "name": "B capture", "mimeType": "image/png"}),
+        json!({"uri": "audit://recent", "name": "B audit", "mimeType": "application/json"}),
+    ])
+    .await;
+
+    let (gs, _dir, ids) =
+        gateway_state_with_instances(&[("maya", port_a), ("blender", port_b)]).await;
+    let id_a = ids[0];
+    let id_b = ids[1];
+
+    let result = aggregate_resources_list(&gs).await;
+    let resources = result["resources"]
+        .as_array()
+        .expect("resources must be an array");
+    let uris: Vec<&str> = resources.iter().filter_map(|r| r["uri"].as_str()).collect();
+
+    // Admin pointers: one per instance.
+    assert!(
+        uris.iter().any(|u| u.starts_with("dcc://maya/")),
+        "admin pointer for maya instance missing: {uris:?}",
+    );
+    assert!(
+        uris.iter().any(|u| u.starts_with("dcc://blender/")),
+        "admin pointer for blender instance missing: {uris:?}",
+    );
+
+    // Backend resources with prefix.
+    let prefix_a = id8(&id_a);
+    let prefix_b = id8(&id_b);
+    assert!(
+        uris.contains(&&*format!("scene://{prefix_a}/current")),
+        "prefixed scene URI missing: {uris:?}",
+    );
+    assert!(
+        uris.contains(&&*format!("capture://{prefix_b}/current_window")),
+        "prefixed capture URI missing: {uris:?}",
+    );
+    assert!(
+        uris.contains(&&*format!("audit://{prefix_b}/recent")),
+        "prefixed audit URI missing: {uris:?}",
+    );
+
+    // No unprefixed backend URIs — the gateway must not leak raw
+    // backend URIs that would collide across instances.
+    assert!(
+        !uris.contains(&"scene://current"),
+        "unprefixed backend URI leaked: {uris:?}",
+    );
+
+    let _ = stop_a.send(());
+    let _ = stop_b.send(());
+}
+
+#[tokio::test]
+async fn aggregate_resources_list_fail_soft_when_one_backend_is_dead() {
+    // One backend answers normally; the other's port is closed. The
+    // gateway must still return the healthy backend's resources plus
+    // the admin pointer for the dead backend — a dead backend does
+    // not take down the whole list.
+    let (port_live, stop_live) = spawn_resources_backend(vec![
+        json!({"uri": "scene://current", "name": "live scene", "mimeType": "application/json"}),
+    ])
+    .await;
+    // Pick a port that almost certainly has nothing listening.
+    let dead_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let dead_port = dead_listener.local_addr().unwrap().port();
+    drop(dead_listener); // close it — now no one's home.
+
+    let (gs, _dir, ids) =
+        gateway_state_with_instances(&[("maya", port_live), ("blender", dead_port)]).await;
+    let id_live = ids[0];
+
+    let result = aggregate_resources_list(&gs).await;
+    let resources = result["resources"]
+        .as_array()
+        .expect("resources must be an array");
+    let uris: Vec<&str> = resources.iter().filter_map(|r| r["uri"].as_str()).collect();
+
+    // Live backend's resource is present.
+    assert!(
+        uris.contains(&&*format!("scene://{}/current", id8(&id_live))),
+        "live backend's prefixed URI missing: {uris:?}",
+    );
+    // Admin pointers for both instances are still present (fail-soft:
+    // the registry row survives).
+    assert!(
+        uris.iter().any(|u| u.starts_with("dcc://maya/")),
+        "live maya admin pointer missing: {uris:?}",
+    );
+    assert!(
+        uris.iter().any(|u| u.starts_with("dcc://blender/")),
+        "dead blender admin pointer missing: {uris:?}",
+    );
+
+    let _ = stop_live.send(());
+}
