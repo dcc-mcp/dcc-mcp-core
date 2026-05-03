@@ -17,6 +17,7 @@ mod call;
 mod fingerprint;
 mod helpers;
 mod list;
+mod prompts;
 mod skill_mgmt;
 #[cfg(test)]
 mod tests;
@@ -32,6 +33,10 @@ pub(crate) use helpers::{
     strip_gateway_meta_flags, targets_for_fanout, to_text_result,
 };
 pub use list::aggregate_tools_list;
+pub(crate) use prompts::compute_prompts_fingerprint_with_own;
+pub use prompts::{
+    PromptsGetError, aggregate_prompts_list, compute_prompts_fingerprint, route_prompts_get,
+};
 pub(crate) use skill_mgmt::{skill_management_tool_defs, skill_mgmt_dispatch};
 #[cfg(test)]
 pub(crate) use wait_terminal::merge_job_update_into_envelope;

@@ -241,6 +241,57 @@ pub(crate) async fn start_gateway_tasks(
         }
     });
 
+    // ── Aggregated prompts/list_changed watcher (every 3 s) ────────────
+    // Mirror of the tools watcher — polls every live backend's
+    // `prompts/list`, fingerprints the `{instance_id}:{prompt_name}` set,
+    // and broadcasts one `notifications/prompts/list_changed` to gateway
+    // SSE subscribers when the aggregated set changes.
+    //
+    // Skills opt into prompts by dropping a sibling `prompts.yaml`
+    // (issues #351 / #355), so the cadence here matches the tools
+    // watcher: skill load/unload is the same workflow trigger.
+    let reg_prompts = registry.clone();
+    let events_tx_prompts = events_tx.clone();
+    let http_client_prompts = http_client.clone();
+    let prompts_own_host = own_host.clone();
+    let prompts_own_port = own_port;
+    let prompts_watcher_handle = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(3));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        let mut last_fingerprint = String::new();
+
+        loop {
+            interval.tick().await;
+            let fingerprint = aggregator::compute_prompts_fingerprint_with_own(
+                &reg_prompts,
+                stale_timeout,
+                &http_client_prompts,
+                backend_timeout,
+                Some(prompts_own_host.as_str()),
+                prompts_own_port,
+            )
+            .await;
+
+            if fingerprint != last_fingerprint {
+                if (!last_fingerprint.is_empty() || !fingerprint.is_empty())
+                    && events_tx_prompts.receiver_count() > 0
+                {
+                    tracing::debug!(
+                        "Gateway: aggregated prompt set changed — broadcasting prompts/list_changed"
+                    );
+                    let notif = serde_json::to_string(&serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "method": "notifications/prompts/list_changed",
+                        "params": {}
+                    }))
+                    .unwrap_or_default();
+                    let _ = events_tx_prompts.send(notif);
+                }
+                last_fingerprint = fingerprint;
+            }
+        }
+    });
+
     // ── Backend SSE subscriber manager (#320) ─────────────────────────────
     // Multiplexes per-backend SSE notifications back to originating client
     // sessions. Each `ensure_subscribed` spawns a reconnecting task.
@@ -563,6 +614,7 @@ pub(crate) async fn start_gateway_tasks(
             cleanup_handle,
             watcher_handle,
             tools_watcher_handle,
+            prompts_watcher_handle,
             backend_sub_handle,
             route_gc_handle,
             health_check_handle,
@@ -576,6 +628,7 @@ pub(crate) async fn start_gateway_tasks(
             cleanup_handle,
             watcher_handle,
             tools_watcher_handle,
+            prompts_watcher_handle,
             backend_sub_handle,
             route_gc_handle,
             health_check_handle,

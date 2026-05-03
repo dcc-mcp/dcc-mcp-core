@@ -130,6 +130,8 @@ pub(crate) async fn dispatch_single_request(
         "resources/unsubscribe" => {
             Some(handle_resource_subscription(gs, id, req, session_id, false).await)
         }
+        "prompts/list" => Some(handle_prompts_list(gs, id).await),
+        "prompts/get" => Some(handle_prompts_get(gs, id, &id_str, req).await),
         "tools/call" => Some(handle_tools_call(gs, id, &id_str, req, session_id).await),
         other => Some(json!({
             "jsonrpc": "2.0", "id": id,
@@ -156,7 +158,8 @@ async fn handle_initialize(gs: &GatewayState, id: Value, req: &JsonRpcRequest) -
             "protocolVersion": negotiated,
             "capabilities": {
                 "tools": {"listChanged": true},
-                "resources": {"listChanged": true, "subscribe": true}
+                "resources": {"listChanged": true, "subscribe": true},
+                "prompts": {"listChanged": true}
             },
             "serverInfo": {"name": gs.server_name, "version": gs.server_version},
             "instructions":
@@ -350,4 +353,55 @@ async fn handle_tools_call(
         "jsonrpc": "2.0", "id": id,
         "result": {"content": [{"type": "text", "text": text}], "isError": is_error}
     })
+}
+
+/// `prompts/list` — fan out to every live backend, namespace entries by
+/// instance, and return the merged list (issue #731).
+///
+/// A zero-backend gateway returns `{"prompts": []}` rather than a
+/// `Method not found` so MCP clients can uniformly discover prompts
+/// through the facade.
+async fn handle_prompts_list(gs: &GatewayState, id: Value) -> Value {
+    let result = aggregator::aggregate_prompts_list(gs).await;
+    json!({"jsonrpc": "2.0", "id": id, "result": result})
+}
+
+/// `prompts/get` — decode the namespaced prompt name and forward to the
+/// owning backend (issue #731). Errors are surfaced as JSON-RPC errors
+/// with codes matching the resolution failure (`-32602` for routing,
+/// `-32000` for backend failure).
+async fn handle_prompts_get(
+    gs: &GatewayState,
+    id: Value,
+    id_str: &str,
+    req: &JsonRpcRequest,
+) -> Value {
+    let name = req
+        .params
+        .as_ref()
+        .and_then(|p| p.get("name"))
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    if name.is_empty() {
+        return json!({
+            "jsonrpc": "2.0", "id": id,
+            "error": {
+                "code": -32602,
+                "message": "prompts/get requires a non-empty 'name' parameter"
+            }
+        });
+    }
+    let arguments = req
+        .params
+        .as_ref()
+        .and_then(|p| p.get("arguments"))
+        .cloned();
+
+    match aggregator::route_prompts_get(gs, name, arguments, Some(id_str.to_string())).await {
+        Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
+        Err(e) => json!({
+            "jsonrpc": "2.0", "id": id,
+            "error": {"code": e.code(), "message": e.message()}
+        }),
+    }
 }
