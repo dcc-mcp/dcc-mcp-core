@@ -55,15 +55,38 @@ fn document_matches(e: &ServiceEntry, hint: &str) -> bool {
 ///
 /// Pass `include_stale: false` (boolean) to opt out of stale rows for
 /// callers that genuinely want only routable instances.
+///
+/// Issue #719: the read path is now self-healing. By default the tool
+/// consults [`GatewayState::read_alive_instances`], which evicts rows
+/// whose PID is no longer alive before returning them. Agents no longer
+/// see "available" entries for backends that crashed without
+/// deregistering (heartbeats stayed fresh because the gateway sweep
+/// hadn't run yet). The number of rows evicted is surfaced as
+/// `evicted_dead` so operators notice the transition.
+///
+/// Pass `include_dead: true` (boolean) to fall back to the raw view
+/// (unchanged pre-#719 behaviour) — useful when inspecting the registry
+/// for debugging, or when running the tool from a watchdog that wants
+/// to see every row the file system holds.
 pub async fn tool_list_instances(gs: &GatewayState, args: &Value) -> Result<String, String> {
     let dcc_filter = args.get("dcc_type").and_then(|v| v.as_str());
     let include_stale = args
         .get("include_stale")
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
+    // Issue #719: default to the prune-on-read path. Operators that
+    // genuinely want the unfiltered view opt in with `include_dead: true`.
+    let include_dead = args
+        .get("include_dead")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 
     let reg = gs.registry.read().await;
-    let raw = gs.all_instances(&reg);
+    let (raw, evicted_dead) = if include_dead {
+        (gs.all_instances(&reg), 0usize)
+    } else {
+        gs.read_alive_instances(&reg).map_err(|e| e.to_string())?
+    };
 
     let mut stale_count: usize = 0;
     let mut instances: Vec<Value> = raw
@@ -88,6 +111,11 @@ pub async fn tool_list_instances(gs: &GatewayState, args: &Value) -> Result<Stri
 
     let tip = if instances.is_empty() {
         "No DCC instances in the registry. Start dcc-mcp-server for each DCC application."
+    } else if evicted_dead > 0 {
+        "Some rows had dead PIDs and were pruned from services.json. \
+         If a backend you expected is missing, start it again — the previous \
+         process exited without deregistering. Pass include_dead=true to see \
+         the raw registry view for debugging."
     } else if stale_count > 0 && include_stale {
         "Some rows have status='stale' (no recent heartbeat). \
          Use connect_to_dcc(dcc_type=..., scene=...) to route to a live one — \
@@ -99,10 +127,11 @@ pub async fn tool_list_instances(gs: &GatewayState, args: &Value) -> Result<Stri
     };
 
     serde_json::to_string_pretty(&json!({
-        "total":        instances.len(),
-        "stale_count":  stale_count,
-        "instances":    instances,
-        "tip":          tip,
+        "total":         instances.len(),
+        "stale_count":   stale_count,
+        "evicted_dead":  evicted_dead,
+        "instances":     instances,
+        "tip":           tip,
     }))
     .map_err(|e| e.to_string())
 }
@@ -630,7 +659,9 @@ pub fn gateway_tool_defs() -> serde_json::Value {
                 Returns type, port, scene, documents, pid, display_name, version, adapter_version, \
                 adapter_dcc, and status. Stale rows (no recent heartbeat) are reported with \
                 status='stale' so operators can see why a registration is no longer routable; \
-                pass include_stale=false to hide them. Call this first to discover what's available.",
+                pass include_stale=false to hide them. Dead-PID rows are pruned by default (\
+                issue #719) — pass include_dead=true for the raw registry view. Call this first \
+                to discover what's available.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -642,6 +673,11 @@ pub fn gateway_tool_defs() -> serde_json::Value {
                         "type": "boolean",
                         "description": "Include rows with status='stale' (default: true). Set to false for routable-only output.",
                         "default": true
+                    },
+                    "include_dead": {
+                        "type": "boolean",
+                        "description": "Include rows whose owning process has exited (default: false). Dead-PID rows are pruned from services.json on every read when this is false; set true for debugging the raw registry view.",
+                        "default": false
                     }
                 }
             }

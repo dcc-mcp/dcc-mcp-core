@@ -176,6 +176,49 @@ impl GatewayState {
             })
             .collect()
     }
+
+    /// Return operator-facing registry rows with dead-PID entries pruned.
+    ///
+    /// Issue #719: before this method existed, `list_dcc_instances` could
+    /// return rows whose owning DCC process had already exited — for up to
+    /// `stale_timeout_secs` (default 30 s) after the process died, or
+    /// indefinitely if no gateway process was running the periodic sweep.
+    /// Agents then routed `call_tool` / `acquire_dcc_instance` to a dead
+    /// backend and hit connection-refused.
+    ///
+    /// This is a self-healing read path: every call consults
+    /// [`FileRegistry::read_alive`] which probes each row's `pid` field via
+    /// `sysinfo` and evicts dead-PID rows from both the in-memory view and
+    /// the on-disk `services.json` before returning. The same
+    /// sentinel / self-row filters that [`Self::all_instances`] uses are
+    /// applied after the prune so the caller sees the identical view
+    /// minus the zombies.
+    ///
+    /// Fail-open contract (#227): rows with no `pid` are considered alive
+    /// and survive the prune. `FileRegistry::read_alive` enforces this
+    /// internally; we do not re-check it here.
+    ///
+    /// Returns `(alive_entries, evicted_count)`. `evicted_count` is the
+    /// total number of dead-PID rows the registry dropped — callers can
+    /// surface it so operators notice when a backend crashed without
+    /// deregistering. Note that the count reflects every dead row the
+    /// registry held, not just rows that would have passed the gateway's
+    /// own filters (e.g. a zombie `__gateway__` sentinel still bumps the
+    /// count even though it is filtered out of the returned slice).
+    pub fn read_alive_instances(
+        &self,
+        registry: &FileRegistry,
+    ) -> dcc_mcp_transport::TransportResult<(Vec<ServiceEntry>, usize)> {
+        let (raw, evicted) = registry.read_alive()?;
+        let filtered = raw
+            .into_iter()
+            .filter(|e| {
+                e.dcc_type != GATEWAY_SENTINEL_DCC_TYPE
+                    && !super::is_own_instance(e, &self.own_host, self.own_port)
+            })
+            .collect();
+        Ok((filtered, evicted))
+    }
 }
 
 /// Serialize a `ServiceEntry` to a JSON `Value` suitable for gateway responses.
@@ -513,5 +556,136 @@ mod tests {
         assert_eq!(json["pool"]["current_job_id"].as_str(), Some("job-1"));
         assert_eq!(json["pool"]["available"].as_bool(), Some(false));
         assert!(json["pool"]["lease_expires_at"].as_u64().is_some());
+    }
+
+    // ── Issue #719: read_alive_instances ───────────────────────────────────
+
+    /// A row whose PID points at a live process survives the prune; a row
+    /// whose PID points at a dead process is evicted — even if its
+    /// heartbeat was freshly written. Dead rows also disappear from the
+    /// on-disk `services.json`, not just from the returned slice.
+    #[tokio::test]
+    async fn test_read_alive_instances_prunes_dead_pid() {
+        let dir = tempfile::tempdir().unwrap();
+        let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+
+        let live_id;
+        let dead_id;
+        {
+            let r = registry.read().await;
+            // Live row — uses the current test process's pid, guaranteed alive.
+            let mut live = ServiceEntry::new("maya", "127.0.0.1", 18812);
+            live.pid = Some(std::process::id());
+            live_id = live.instance_id;
+            r.register(live).unwrap();
+
+            // Dead row — a pid that cannot plausibly belong to a real process
+            // on any supported platform. `u32::MAX - 1` lives above the Linux
+            // `pid_max` ceiling and above the Windows PID space as well.
+            let mut dead = ServiceEntry::new("blender", "127.0.0.1", 18813);
+            dead.pid = Some(u32::MAX - 1);
+            dead_id = dead.instance_id;
+            r.register(dead).unwrap();
+        }
+
+        let gs = test_gateway_state(registry.clone());
+        let (alive, evicted) = gs
+            .read_alive_instances(&*registry.read().await)
+            .expect("read_alive_instances must succeed");
+
+        assert_eq!(evicted, 1, "exactly one dead row must be evicted");
+        assert_eq!(alive.len(), 1, "only the live row survives");
+        assert_eq!(alive[0].instance_id, live_id);
+        assert_ne!(alive[0].instance_id, dead_id);
+
+        // The dead row must also be gone from services.json — not just
+        // filtered out of the returned slice.
+        let raw = gs.all_instances(&*registry.read().await);
+        assert!(
+            raw.iter().all(|e| e.instance_id != dead_id),
+            "dead row must be purged from the on-disk registry after read_alive_instances",
+        );
+    }
+
+    /// Fail-open guard (#227): a row without a `pid` is assumed alive and
+    /// must survive the prune — older registrations predate the pid field.
+    #[tokio::test]
+    async fn test_read_alive_instances_keeps_rows_without_pid() {
+        let dir = tempfile::tempdir().unwrap();
+        let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+
+        {
+            let r = registry.read().await;
+            // `ServiceEntry::new` defaults pid to the current process; null
+            // it out to simulate a legacy registration that predates the
+            // pid field.
+            let mut legacy = ServiceEntry::new("photoshop", "127.0.0.1", 18814);
+            legacy.pid = None;
+            r.register(legacy).unwrap();
+        }
+
+        let gs = test_gateway_state(registry.clone());
+        let (alive, evicted) = gs
+            .read_alive_instances(&*registry.read().await)
+            .expect("read_alive_instances must succeed");
+
+        assert_eq!(evicted, 0);
+        assert_eq!(alive.len(), 1, "pid-less rows must survive (#227 contract)");
+        assert_eq!(alive[0].dcc_type, "photoshop");
+        assert!(
+            alive[0].pid.is_none(),
+            "pid must remain null after read_alive"
+        );
+    }
+
+    /// Regression guard for maya#138 and #419: the PID-pruned path must
+    /// still filter out the bookkeeping `__gateway__` sentinel and the
+    /// gateway's own self-row. Otherwise a gateway that crashed and
+    /// re-bound would briefly expose its own sentinel to agents.
+    #[tokio::test]
+    async fn test_read_alive_instances_filters_sentinel_and_self() {
+        let dir = tempfile::tempdir().unwrap();
+        let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+
+        {
+            let r = registry.read().await;
+
+            // Sentinel row — carries the current pid (looks alive) but
+            // must still be excluded.
+            let mut sentinel = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 9765);
+            sentinel.pid = Some(std::process::id());
+            r.register(sentinel).unwrap();
+
+            // Gateway's own plain-instance row (same host/port as the
+            // facade under test).
+            let mut self_row = ServiceEntry::new("maya", "127.0.0.1", 9765);
+            self_row.pid = Some(std::process::id());
+            r.register(self_row).unwrap();
+
+            // A real, non-self Maya instance on another port — must
+            // survive.
+            let mut other = ServiceEntry::new("maya", "127.0.0.1", 18815);
+            other.pid = Some(std::process::id());
+            r.register(other).unwrap();
+        }
+
+        let gs = test_gateway_state_with_own(registry.clone(), "127.0.0.1", 9765);
+        let (alive, evicted) = gs
+            .read_alive_instances(&*registry.read().await)
+            .expect("read_alive_instances must succeed");
+
+        assert_eq!(evicted, 0, "no rows were dead; nothing should be evicted");
+        assert_eq!(
+            alive.len(),
+            1,
+            "only the non-self non-sentinel maya row should remain; got {alive:#?}",
+        );
+        assert_eq!(alive[0].port, 18815);
+        assert!(
+            !alive
+                .iter()
+                .any(|e| e.dcc_type == GATEWAY_SENTINEL_DCC_TYPE),
+            "sentinel must never appear in read_alive_instances output",
+        );
     }
 }
