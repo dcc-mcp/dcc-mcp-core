@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use dcc_mcp_jsonrpc::{JsonRpcRequestBuilder, JsonRpcResponse, McpTool};
+use dcc_mcp_jsonrpc::{JsonRpcRequestBuilder, JsonRpcResponse, McpPrompt, McpTool};
 use dcc_mcp_skill_rest::ReadinessReport;
 
 /// Build the lightweight HTTP health URL that identifies a real MCP backend.
@@ -304,6 +304,47 @@ pub async fn fetch_tools(
     }
 }
 
+/// Fetch `prompts/list` from a backend and return the deserialised [`McpPrompt`] list.
+///
+/// Unlike [`fetch_prompts`], this reports transport / protocol failures to callers
+/// that need deterministic errors for a specific backend. Mirrors
+/// [`try_fetch_tools`] for the prompts primitive (issue #731).
+pub async fn try_fetch_prompts(
+    client: &reqwest::Client,
+    mcp_url: &str,
+    timeout: Duration,
+) -> Result<Vec<McpPrompt>, String> {
+    let val = call_backend(client, mcp_url, "prompts/list", None, None, timeout).await?;
+    Ok(val
+        .get("prompts")
+        .and_then(Value::as_array)
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| serde_json::from_value::<McpPrompt>(v.clone()).ok())
+                .collect()
+        })
+        .unwrap_or_default())
+}
+
+/// Fetch `prompts/list` from a backend and return the deserialised [`McpPrompt`] list.
+///
+/// On any failure returns an empty vector and logs a warning — mirrors
+/// [`fetch_tools`] so the prompts aggregator can fan out fail-soft across
+/// every live backend (issue #731).
+pub async fn fetch_prompts(
+    client: &reqwest::Client,
+    mcp_url: &str,
+    timeout: Duration,
+) -> Vec<McpPrompt> {
+    match try_fetch_prompts(client, mcp_url, timeout).await {
+        Ok(prompts) => prompts,
+        Err(e) => {
+            tracing::warn!(mcp_url = %mcp_url, error = %e, "Backend prompts/list failed");
+            Vec::new()
+        }
+    }
+}
+
 /// Forward a `tools/call` to a backend and return the raw result JSON.
 ///
 /// `request_id` is forwarded as the JSON-RPC `id` so that the gateway can
@@ -328,6 +369,36 @@ pub async fn forward_tools_call(
         client,
         mcp_url,
         "tools/call",
+        Some(params),
+        request_id,
+        timeout,
+    )
+    .await
+}
+
+/// Forward a `prompts/get` to a backend and return the raw result JSON
+/// (issue #731).
+///
+/// `prompt_name` is the **backend-local** prompt name — callers must decode
+/// the gateway-prefixed wire name with [`super::namespace::decode_tool_name`]
+/// before invoking this helper, so the request that reaches the backend
+/// carries the same name the backend published in `prompts/list`.
+pub async fn forward_prompts_get(
+    client: &reqwest::Client,
+    mcp_url: &str,
+    prompt_name: &str,
+    arguments: Option<Value>,
+    request_id: Option<String>,
+    timeout: Duration,
+) -> Result<Value, String> {
+    let mut params = json!({ "name": prompt_name });
+    if let Some(args) = arguments {
+        params["arguments"] = args;
+    }
+    call_backend(
+        client,
+        mcp_url,
+        "prompts/get",
         Some(params),
         request_id,
         timeout,
