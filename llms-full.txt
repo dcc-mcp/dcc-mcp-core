@@ -42,6 +42,7 @@
 | Capture DCC stdout/stderr/script-editor output | `OutputCapture` |
 | Rich skill error with traceback | `skill_error_with_trace()` |
 | Skill warning / exception helpers | `skill_warning()` / `skill_exception()` |
+| Drive a DCC main-thread dispatcher (interactive/headless) | `HostAdapter` (subclass for your DCC) + `StandaloneHost` (pure-Python driver) + `QueueDispatcher` / `BlockingDispatcher` (Rust-backed primitives). Wire via `McpHttpServer.attach_dispatcher()`. See [`docs/guide/host-adapter.md`](docs/guide/host-adapter.md) |
 | Disable accumulated/evolved skills | `ENV_DISABLE_ACCUMULATED_SKILLS` |
 
 ---
