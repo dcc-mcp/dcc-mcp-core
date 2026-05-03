@@ -282,7 +282,13 @@ mod tests {
     use crate::gateway::capability::record::tool_slug;
     use uuid::Uuid;
 
-    fn rec(name: &str, summary: &str, skill: Option<&str>, tags: &[&str]) -> CapabilityRecord {
+    fn rec(
+        name: &str,
+        summary: &str,
+        skill: Option<&str>,
+        tags: &[&str],
+        loaded: bool,
+    ) -> CapabilityRecord {
         let iid = Uuid::from_u128(0x1234_5678_0000_0000_0000_0000_0000_0001);
         CapabilityRecord::new(
             tool_slug("maya", &iid, name),
@@ -293,7 +299,8 @@ mod tests {
             tags.iter().map(|t| t.to_string()).collect(),
             "maya".to_string(),
             iid,
-            false,
+            false, // has_schema
+            loaded,
         )
     }
 
@@ -302,14 +309,14 @@ mod tests {
         let mut s = SubstringScorer;
         // "create_sphere" is also a substring of "create_sphere"; the
         // scorer takes the exact branch (10) and stops.
-        let r = rec("create_sphere", "make a sphere", None, &["geo"]);
+        let r = rec("create_sphere", "make a sphere", None, &["geo"], true);
         assert_eq!(s.score(&r, "create_sphere", None), 10);
     }
 
     #[test]
     fn substring_scorer_substring_plus_summary() {
         let mut s = SubstringScorer;
-        let r = rec("create_sphere", "make a sphere", None, &["geo"]);
+        let r = rec("create_sphere", "make a sphere", None, &["geo"], true);
         // Substring hit on the tool name (6) + summary contains
         // "sphere" (2) = 8.
         assert_eq!(s.score(&r, "sphere", None), 6 + 2);
@@ -318,21 +325,21 @@ mod tests {
     #[test]
     fn substring_scorer_exact_tag() {
         let mut s = SubstringScorer;
-        let r = rec("create_sphere", "", None, &["geo"]);
+        let r = rec("create_sphere", "", None, &["geo"], true);
         assert_eq!(s.score(&r, "geo", None), 5);
     }
 
     #[test]
     fn substring_scorer_zero_on_miss() {
         let mut s = SubstringScorer;
-        let r = rec("create_sphere", "make a sphere", None, &["geo"]);
+        let r = rec("create_sphere", "make a sphere", None, &["geo"], true);
         assert_eq!(s.score(&r, "xylophone", None), 0);
     }
 
     #[test]
     fn fuzzy_scorer_tolerates_single_character_typo() {
         let mut s = FuzzyScorer::new();
-        let r = rec("create_sphere", "", None, &[]);
+        let r = rec("create_sphere", "", None, &[], true);
         // Missing final `e` in the needle — legacy substring matcher
         // would miss this entirely; fuzzy must produce a positive
         // score so the agent still sees the right tool.
@@ -342,7 +349,11 @@ mod tests {
             "fuzzy must tolerate a typo; got {typo_score}"
         );
         // An exact match still wins.
-        let exact_score = s.score(&rec("create_sphere", "", None, &[]), "create_sphere", None);
+        let exact_score = s.score(
+            &rec("create_sphere", "", None, &[], true),
+            "create_sphere",
+            None,
+        );
         assert!(
             exact_score >= typo_score,
             "exact ({exact_score}) should outrank typo ({typo_score})",
@@ -352,8 +363,8 @@ mod tests {
     #[test]
     fn fuzzy_scorer_ranks_prefix_above_substring() {
         let mut s = FuzzyScorer::new();
-        let prefix_hit = s.score(&rec("create_sphere", "", None, &[]), "create", None);
-        let substring_hit = s.score(&rec("recreate_plane", "", None, &[]), "create", None);
+        let prefix_hit = s.score(&rec("create_sphere", "", None, &[], true), "create", None);
+        let substring_hit = s.score(&rec("recreate_plane", "", None, &[], true), "create", None);
         assert!(
             prefix_hit > substring_hit,
             "prefix match ({prefix_hit}) must outrank substring ({substring_hit})",
@@ -364,7 +375,7 @@ mod tests {
     fn fuzzy_scorer_matches_subsequence() {
         // Subsequence "cs" should match "create_sphere" (c…s).
         let mut s = FuzzyScorer::new();
-        let hit = s.score(&rec("create_sphere", "", None, &[]), "cs", None);
+        let hit = s.score(&rec("create_sphere", "", None, &[], true), "cs", None);
         assert!(hit > 0, "subsequence match should score > 0");
     }
 
@@ -375,7 +386,7 @@ mod tests {
         // so every field is a 0 fuzzy score and we fall through the
         // zero-filter.
         let hit = s.score(
-            &rec("create_sphere", "geometry tool", None, &[]),
+            &rec("create_sphere", "geometry tool", None, &[], true),
             "xyzzy",
             None,
         );
@@ -385,9 +396,9 @@ mod tests {
     #[test]
     fn fuzzy_scorer_weights_tool_name_above_summary() {
         let mut s = FuzzyScorer::new();
-        let via_tool = s.score(&rec("keyframe", "", None, &[]), "keyframe", None);
+        let via_tool = s.score(&rec("keyframe", "", None, &[], true), "keyframe", None);
         let via_summary = s.score(
-            &rec("unrelated", "keyframe in summary", None, &[]),
+            &rec("unrelated", "keyframe in summary", None, &[], true),
             "keyframe",
             None,
         );
@@ -402,7 +413,7 @@ mod tests {
         let mut s = FuzzyScorer::new();
         // `anim` is a fuzzy prefix of `animation` — tag scoring must
         // return > 0.
-        let hit = s.score(&rec("misc", "", None, &["animation"]), "anim", None);
+        let hit = s.score(&rec("misc", "", None, &["animation"], true), "anim", None);
         assert!(hit > 0, "tag fuzzy match must contribute; got {hit}");
     }
 
@@ -410,7 +421,13 @@ mod tests {
     fn fuzzy_scorer_credits_schema_field_tag() {
         let mut s = FuzzyScorer::new();
         let hit = s.score(
-            &rec("set_anim", "", None, &["schema:frame", "schema:value"]),
+            &rec(
+                "set_anim",
+                "",
+                None,
+                &["schema:frame", "schema:value"],
+                true,
+            ),
             "frame",
             None,
         );
@@ -421,7 +438,7 @@ mod tests {
     fn scene_hint_adds_boost_even_without_query() {
         let mut s = FuzzyScorer::new();
         let hit = s.score(
-            &rec("open", "rig scene ready", None, &["scene"]),
+            &rec("open", "rig scene ready", None, &["scene"], true),
             "",
             Some("scene"),
         );
@@ -438,6 +455,7 @@ mod tests {
             "makes a sphere",
             Some("maya-geo"),
             &["geo"],
+            true,
         );
         let scores: Vec<u32> = (0..16)
             .map(|_| FuzzyScorer::new().score(&r, "sphere", None))

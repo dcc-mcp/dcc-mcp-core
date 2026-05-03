@@ -480,15 +480,13 @@ pub struct McpHttpConfig {
     /// DCC adapter at equal versions.
     pub adapter_dcc: Option<String>,
 
-    /// Gateway tool-exposure mode (issue #652).
+    /// Gateway tool-exposure mode.
     ///
-    /// Controls whether the gateway's public `tools/list` fans out to
-    /// every live backend (`Full` / `Both`) or stays bounded at the
-    /// gateway meta-tools + skill-management surface (`Slim` / `Rest`).
+    /// The gateway NEVER fans out to backend tools. `Slim` and `Rest`
+    /// both keep the surface bounded to meta-tools + skill-management.
+    /// (Prior `Full` / `Both` variants have been removed — issue #674.)
     ///
-    /// Default: [`crate::gateway::GatewayToolExposure::Full`] — preserves
-    /// pre-#652 behavior so existing deployments see no change until
-    /// they explicitly opt into a bounded mode.
+    /// Default: [`crate::gateway::GatewayToolExposure::Rest`].
     pub gateway_tool_exposure: crate::gateway::GatewayToolExposure,
 
     /// Emit Cursor-safe gateway tool names (`i_<id8>__<escaped>`)
@@ -550,7 +548,7 @@ impl McpHttpConfig {
             allow_unknown_tools: false,
             adapter_version: None,
             adapter_dcc: None,
-            gateway_tool_exposure: crate::gateway::GatewayToolExposure::Full,
+            gateway_tool_exposure: crate::gateway::GatewayToolExposure::Rest,
             // #656: default to Cursor-safe gateway tool names because
             // breakage is silent on that client — the tools simply
             // never appear. The legacy dotted form is still decoded

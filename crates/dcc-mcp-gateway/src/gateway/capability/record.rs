@@ -122,6 +122,13 @@ pub struct CapabilityRecord {
     /// Agents should check this before calling `describe_tool` —
     /// actions with no schema can be invoked with an empty object.
     pub has_schema: bool,
+    /// True when the owning backend instance is currently connected
+    /// (loaded). False for records built from unloaded skill metadata.
+    ///
+    /// `search_tools` uses this field to allow discovering unloaded
+    /// skills; the agent can then call `load_skill` before invoking
+    /// the tool.
+    pub loaded: bool,
 }
 
 impl CapabilityRecord {
@@ -132,7 +139,7 @@ impl CapabilityRecord {
 
     /// Build a record by normalising `summary` to fit the size cap.
     ///
-    /// The eight-argument signature is deliberate: every field of a
+    /// The nine-argument signature is deliberate: every field of a
     /// `CapabilityRecord` is routing-relevant, and grouping them into
     /// a builder would trade one cursor of boilerplate for another.
     #[allow(clippy::too_many_arguments)]
@@ -146,6 +153,7 @@ impl CapabilityRecord {
         dcc_type: String,
         instance_id: Uuid,
         has_schema: bool,
+        loaded: bool,
     ) -> Self {
         Self {
             tool_slug,
@@ -157,6 +165,42 @@ impl CapabilityRecord {
             dcc_type,
             instance_id,
             has_schema,
+            loaded,
+        }
+    }
+}
+
+impl CapabilityRecord {
+    /// Build a record for a tool from an **unloaded** skill's metadata.
+    ///
+    /// Used by [`CapabilityIndex::update_unloaded_skills`] to index
+    /// skills that exist in the [`SkillCatalog`] but are not yet loaded.
+    ///
+    /// The `instance_id` is set to `Uuid::nil()` (sentinel value)
+    /// because there is no backend instance yet. The `tool_slug` is
+    /// still computable (it wil be `dcc.00000000.tool_name`), which
+    /// is fine for **search discovery** — the agent calls `load_skill`
+    /// before invoking the tool, at which point the real instance's
+    /// records replace these sentinel ones.
+    pub fn from_skill_tool(
+        skill_name: &str,
+        tool_name: &str,
+        tool_description: &str,
+        dcc_type: &str,
+    ) -> Self {
+        let nil = Uuid::nil();
+        let slug = tool_slug(dcc_type, &nil, tool_name);
+        Self {
+            tool_slug: slug,
+            backend_tool: tool_name.to_string(),
+            callable_id: tool_name.to_string(),
+            skill_name: Some(skill_name.to_string()),
+            summary: normalise_summary(tool_description),
+            tags: Vec::new(),
+            dcc_type: dcc_type.to_string(),
+            instance_id: nil,
+            has_schema: false, // unknown until loaded
+            loaded: false,
         }
     }
 }
@@ -254,6 +298,7 @@ mod unit_tests {
             "x".into(),
             Uuid::nil(),
             false,
+            false,
         );
         assert!(rec.summary.len() <= CapabilityRecord::MAX_SUMMARY_LEN + 3);
         assert!(rec.summary.ends_with("..."));
@@ -273,6 +318,7 @@ mod unit_tests {
             Vec::new(),
             "x".into(),
             Uuid::nil(),
+            false,
             false,
         );
         assert_eq!(rec.summary, "short and sweet");

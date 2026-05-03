@@ -145,7 +145,8 @@ mod unit_tests {
                 vec![],
                 "maya".into(),
                 iid,
-                false,
+                false, // has_schema
+                true,  // loaded
             )],
             InstanceFingerprint(1),
         );

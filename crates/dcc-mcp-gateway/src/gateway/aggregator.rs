@@ -45,7 +45,7 @@ use tokio::sync::broadcast;
 use uuid::Uuid;
 
 use super::backend_client::{call_backend, fetch_tools, forward_tools_call};
-use super::namespace::{decode_tool_name, encode_tool_name, instance_short, is_local_tool};
+use super::namespace::{decode_tool_name, instance_short, is_local_tool};
 use super::state::GatewayState;
 use super::tools::{
     gateway_tool_defs, tool_acquire_instance, tool_call_tool, tool_connect_to_dcc,

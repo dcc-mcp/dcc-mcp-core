@@ -162,7 +162,7 @@ pub fn search_page(snapshot: &IndexSnapshot, query: &SearchQuery) -> SearchPage 
         .iter()
         .filter(|r| dcc_filter.is_none_or(|f| r.dcc_type == f))
         .filter(|r| instance_filter.is_none_or(|iid| r.instance_id == iid))
-        .filter(|r| loaded_filter != Some(true) || r.has_schema)
+        .filter(|r| loaded_filter != Some(true) || r.loaded)
         .filter(|r| {
             tags_filter
                 .iter()
@@ -250,6 +250,7 @@ mod unit_tests {
     use std::time::Instant;
     use uuid::Uuid;
 
+    #[allow(clippy::too_many_arguments)]
     fn push_one(
         idx: &CapabilityIndex,
         dcc: &str,
@@ -258,6 +259,7 @@ mod unit_tests {
         summary: &str,
         tags: &[&str],
         has_schema: bool,
+        loaded: bool,
     ) {
         let rec = CapabilityRecord::new(
             tool_slug(dcc, &iid, name),
@@ -269,6 +271,7 @@ mod unit_tests {
             dcc.to_string(),
             iid,
             has_schema,
+            loaded,
         );
         // Overwrite the per-instance slice with a single record for
         // focused tests; real builders always ship sorted arrays.
@@ -297,6 +300,7 @@ mod unit_tests {
             "make a sphere",
             &["geo"],
             true,
+            true, // loaded
         );
         let snap = idx.snapshot();
         let hits = search(&snap, &SearchQuery::default());
@@ -320,6 +324,7 @@ mod unit_tests {
                     "maya".into(),
                     a,
                     true,
+                    true, // loaded
                 ),
                 CapabilityRecord::new(
                     tool_slug("maya", &a, "create_sphere"),
@@ -331,6 +336,7 @@ mod unit_tests {
                     "maya".into(),
                     a,
                     true,
+                    true, // loaded
                 ),
             ],
             InstanceFingerprint(1),
@@ -347,6 +353,7 @@ mod unit_tests {
                 "maya".into(),
                 b,
                 false,
+                false, // not loaded
             )],
             InstanceFingerprint(1),
         );
@@ -367,8 +374,8 @@ mod unit_tests {
     #[test]
     fn dcc_type_filter_drops_cross_dcc_matches() {
         let (idx, a, b) = fresh_index();
-        push_one(&idx, "maya", a, "create_sphere", "", &[], true);
-        push_one(&idx, "blender", b, "create_sphere", "", &[], true);
+        push_one(&idx, "maya", a, "create_sphere", "", &[], true, true);
+        push_one(&idx, "blender", b, "create_sphere", "", &[], true, true);
         let snap = idx.snapshot();
         let hits = search(
             &snap,
@@ -393,8 +400,18 @@ mod unit_tests {
             "",
             &["read-only", "scene"],
             true,
+            true, // loaded
         );
-        push_one(&idx, "maya", b, "export_fbx", "", &["destructive"], true);
+        push_one(
+            &idx,
+            "maya",
+            b,
+            "export_fbx",
+            "",
+            &["destructive"],
+            true,
+            true,
+        );
         let snap = idx.snapshot();
         let hits = search(
             &snap,
@@ -431,6 +448,7 @@ mod unit_tests {
                     "maya".into(),
                     iid,
                     false,
+                    false, // not loaded (has_schema=false)
                 )
             })
             .collect();
@@ -462,6 +480,7 @@ mod unit_tests {
                     "maya".into(),
                     iid,
                     false,
+                    false, // not loaded
                 )
             })
             .collect();
@@ -482,7 +501,7 @@ mod unit_tests {
     #[test]
     fn scene_hint_boosts_matching_records() {
         let (idx, a, b) = fresh_index();
-        push_one(&idx, "maya", a, "export_fbx", "", &[], true);
+        push_one(&idx, "maya", a, "export_fbx", "", &[], true, true);
         push_one(
             &idx,
             "maya",
@@ -491,6 +510,7 @@ mod unit_tests {
             "open a rig scene for character work",
             &["scene"],
             true,
+            true, // loaded
         );
         let snap = idx.snapshot();
         let hits = search(
@@ -514,7 +534,7 @@ mod unit_tests {
         // typo; agents relying on recall would see nothing. Fuzzy
         // mode (the new default) must surface the record.
         let (idx, a, _) = fresh_index();
-        push_one(&idx, "maya", a, "create_sphere", "", &[], true);
+        push_one(&idx, "maya", a, "create_sphere", "", &[], true, true);
         let snap = idx.snapshot();
         let hits = search(
             &snap,
@@ -531,9 +551,9 @@ mod unit_tests {
     fn fuzzy_mode_ranks_prefix_above_substring() {
         let (idx, a, b) = fresh_index();
         // `create_sphere` — query is a prefix.
-        push_one(&idx, "maya", a, "create_sphere", "", &[], true);
+        push_one(&idx, "maya", a, "create_sphere", "", &[], true, true);
         // `recreate_plane` — query is a mid-string substring.
-        push_one(&idx, "maya", b, "recreate_plane", "", &[], true);
+        push_one(&idx, "maya", b, "recreate_plane", "", &[], true, true);
         let snap = idx.snapshot();
         let hits = search(
             &snap,
@@ -549,8 +569,8 @@ mod unit_tests {
     #[test]
     fn instance_id_filter_drops_other_instances() {
         let (idx, a, b) = fresh_index();
-        push_one(&idx, "maya", a, "create_sphere", "", &[], true);
-        push_one(&idx, "maya", b, "create_sphere", "", &[], true);
+        push_one(&idx, "maya", a, "create_sphere", "", &[], true, true);
+        push_one(&idx, "maya", b, "create_sphere", "", &[], true, true);
         let snap = idx.snapshot();
         let hits = search(
             &snap,
@@ -568,8 +588,8 @@ mod unit_tests {
     fn loaded_only_filter_drops_unloaded_records() {
         let (idx, a, b) = fresh_index();
         // Instance `a` carries the schema (loaded), `b` does not.
-        push_one(&idx, "maya", a, "load_heavy", "", &[], true);
-        push_one(&idx, "maya", b, "load_heavy", "", &[], false);
+        push_one(&idx, "maya", a, "load_heavy", "", &[], true, true);
+        push_one(&idx, "maya", b, "load_heavy", "", &[], false, false);
         let snap = idx.snapshot();
         let all = search(
             &snap,
@@ -617,6 +637,7 @@ mod unit_tests {
                     "maya".into(),
                     iid,
                     false,
+                    false, // not loaded
                 )
             })
             .collect();
@@ -696,6 +717,7 @@ mod unit_tests {
                     "maya".into(),
                     iid,
                     true,
+                    true, // loaded (has_schema=true)
                 )
             })
             .collect();
@@ -732,7 +754,16 @@ mod unit_tests {
         let maya_a = Uuid::from_u128(0xaaaa_0000_0000_0000_0000_0000_0000_0001);
         let maya_b = Uuid::from_u128(0xaaaa_0000_0000_0000_0000_0000_0000_0002);
         let blender_c = Uuid::from_u128(0xbbbb_0000_0000_0000_0000_0000_0000_0001);
-        push_one(&idx, "maya", maya_a, "read_scene", "", &["read-only"], true);
+        push_one(
+            &idx,
+            "maya",
+            maya_a,
+            "read_scene",
+            "",
+            &["read-only"],
+            true,
+            true,
+        );
         push_one(
             &idx,
             "maya",
@@ -741,6 +772,7 @@ mod unit_tests {
             "",
             &["destructive"],
             true,
+            true, // loaded
         );
         push_one(
             &idx,
@@ -750,6 +782,7 @@ mod unit_tests {
             "",
             &["read-only"],
             false,
+            false, // not loaded
         );
         let snap = idx.snapshot();
         let hits = search(
@@ -797,7 +830,8 @@ mod unit_tests {
                             vec!["animation".into(), "schema:frame".into()],
                             (*dcc).into(),
                             iid,
-                            i % 2 == 0,
+                            i % 2 == 0, // has_schema
+                            i % 2 == 0, // loaded (same as has_schema in this test)
                         )
                     })
                     .collect();

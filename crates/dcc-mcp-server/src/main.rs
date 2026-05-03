@@ -81,6 +81,7 @@ use clap::Parser;
 use dcc_mcp_actions::{ActionDispatcher, ActionRegistry};
 use dcc_mcp_http::gateway::{GatewayConfig, GatewayRunner};
 use dcc_mcp_http::{McpHttpConfig, McpHttpServer};
+use dcc_mcp_logging::file_logging::prune_old_logs;
 use dcc_mcp_skills::SkillCatalog;
 use dcc_mcp_transport::discovery::types::ServiceEntry;
 use sysinfo::{Pid, ProcessesToUpdate, System};
@@ -89,7 +90,7 @@ use sysinfo::{Pid, ProcessesToUpdate, System};
 
 /// Clap [`value_parser`](clap::Arg::value_parser) for `--gateway-tool-exposure`.
 ///
-/// Parses the documented `full | slim | both | rest` vocabulary
+/// Parses the documented `slim | rest` vocabulary
 /// case-insensitively and surfaces the full list of accepted values on
 /// error so operators can fix typos without digging into docs.
 fn parse_gateway_tool_exposure(
@@ -147,18 +148,14 @@ struct Args {
 
     /// Gateway tool-exposure mode (issue #652).
     ///
-    /// * `full` — publish every live backend tool through `tools/list`
-    ///   (legacy behavior; default for compatibility).
     /// * `slim` — publish only gateway meta-tools + skill management;
     ///   backend capabilities reached via dynamic wrappers.
-    /// * `both` — alias of `full` today; reserved for the transition
-    ///   window once dynamic wrapper tools land (#657).
-    /// * `rest` — same bounded surface as `slim`; signals that REST is
-    ///   the canonical capability API.
+    /// * `rest` — same bounded surface as `slim`; the default mode,
+    ///   signals that REST is the canonical capability API.
     #[arg(
         long,
         env = "DCC_MCP_GATEWAY_TOOL_EXPOSURE",
-        default_value = "full",
+        default_value = "rest",
         value_parser = parse_gateway_tool_exposure,
     )]
     gateway_tool_exposure: dcc_mcp_http::gateway::GatewayToolExposure,
@@ -243,7 +240,12 @@ struct Args {
     log_file_prefix: Option<String>,
 
     /// Log retention in days (0 = disable age pruning). Default: 7.
-    #[arg(long, env = "DCC_MCP_LOG_RETENTION_DAYS", value_name = "DAYS")]
+    #[arg(
+        long,
+        env = "DCC_MCP_LOG_RETENTION_DAYS",
+        value_name = "DAYS",
+        default_value = "7"
+    )]
     log_retention_days: Option<u32>,
 
     /// Maximum total log directory size in MiB (0 = disable size pruning). Default: 100.
@@ -493,11 +495,19 @@ async fn main() -> anyhow::Result<()> {
         if let Some(mb) = args.log_max_total_size_mb {
             cfg.max_total_size_mb = mb;
         }
+        // Save retention settings before cfg is moved into init_file_logging.
+        let retention = cfg.retention_days;
+        let max_size = cfg.max_total_size_mb;
+        let prefix = cfg.file_name_prefix.clone();
         match dcc_mcp_logging::init_file_logging(cfg) {
-            Ok(dir) => tracing::info!(
-                path = %dir.display(),
-                "rolling file logging enabled",
-            ),
+            Ok(dir) => {
+                tracing::info!(
+                    path = %dir.display(),
+                    "rolling file logging enabled",
+                );
+                // Prune old log files on startup (issue #558).
+                prune_old_logs(&dir, &prefix, retention, max_size);
+            }
             Err(e) => {
                 tracing::warn!(%e, "failed to enable file logging; continuing with stderr only")
             }

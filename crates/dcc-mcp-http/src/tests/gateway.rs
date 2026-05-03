@@ -36,7 +36,7 @@ fn make_gateway_state() -> GatewayState {
         allow_unknown_tools: false,
         adapter_version: None,
         adapter_dcc: None,
-        tool_exposure: crate::gateway::GatewayToolExposure::Full,
+        tool_exposure: crate::gateway::GatewayToolExposure::Rest,
         cursor_safe_tool_names: true,
         capability_index: std::sync::Arc::new(crate::gateway::capability::CapabilityIndex::new()),
     }

@@ -280,7 +280,7 @@ mod unit_tests {
     use crate::gateway::capability::{CapabilityRecord, InstanceFingerprint, tool_slug};
     use uuid::Uuid;
 
-    fn push(index: &CapabilityIndex, dcc: &str, iid: Uuid, backend_tool: &str) {
+    fn push(index: &CapabilityIndex, dcc: &str, iid: Uuid, backend_tool: &str, loaded: bool) {
         let rec = CapabilityRecord::new(
             tool_slug(dcc, &iid, backend_tool),
             backend_tool.to_string(),
@@ -290,7 +290,8 @@ mod unit_tests {
             Vec::new(),
             dcc.to_string(),
             iid,
-            false,
+            false, // has_schema
+            loaded,
         );
         index.upsert_instance(iid, vec![rec], InstanceFingerprint(1));
     }
@@ -299,7 +300,7 @@ mod unit_tests {
     fn describe_returns_record_for_known_slug() {
         let idx = CapabilityIndex::new();
         let iid = Uuid::from_u128(0xabcd);
-        push(&idx, "maya", iid, "create_sphere");
+        push(&idx, "maya", iid, "create_sphere", true);
         let slug = tool_slug("maya", &iid, "create_sphere");
         let rec = describe_service(&idx, &slug).expect("slug should resolve");
         assert_eq!(rec.backend_tool, "create_sphere");
@@ -331,8 +332,8 @@ mod unit_tests {
         // checking the outputs are byte-identical.
         let idx = CapabilityIndex::new();
         let iid = Uuid::from_u128(1);
-        push(&idx, "maya", iid, "create_sphere");
-        push(&idx, "maya", iid, "open_scene");
+        push(&idx, "maya", iid, "create_sphere", true);
+        push(&idx, "maya", iid, "open_scene", true);
 
         let q = SearchQuery {
             query: "sphere".into(),

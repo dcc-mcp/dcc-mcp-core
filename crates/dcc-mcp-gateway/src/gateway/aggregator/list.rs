@@ -1,4 +1,4 @@
-use super::super::namespace::encode_tool_name_cursor_safe;
+use super::super::namespace::{encode_tool_name, encode_tool_name_cursor_safe};
 use super::*;
 
 /// Build the unified `tools/list` result by aggregating every live backend.
@@ -13,26 +13,23 @@ use super::*;
 ///    tool's `annotations` map so agents can display origin context.
 ///
 /// Tier 3 fan-out is skipped entirely when the gateway is configured with
-/// [`GatewayToolExposure::Slim`] or [`GatewayToolExposure::Rest`]
-/// (issue #652). In those modes the visible surface stays bounded to Tier
-/// 1 + 2 regardless of how many live backends are registered; agents are
-/// expected to discover and invoke backend capabilities through the
-/// dynamic wrapper layer described in #657.
+/// [`GatewayToolExposure::Slim`] (#652 / #674). In that mode the visible
+/// surface stays bounded to Tier 1 + 2 regardless of how many live backends
+/// are registered; agents discover backend capabilities through the dynamic
+/// wrapper layer.
 ///
 /// The Tier 3 encoding is selected by
 /// [`GatewayState::cursor_safe_tool_names`](super::super::state::GatewayState::cursor_safe_tool_names)
 /// (issue #656). When `true` (default), tools are published as
 /// `i_<id8>__<escaped>` names that survive the stricter
-/// `^[A-Za-z0-9_]+$` regex enforced by Cursor and other MCP clients;
-/// no bare aliases are emitted from the gateway; the prefixed form is
-/// the only advertised backend tool identifier. When `false`, pre-#656
-/// SEP-986 dotted names are emitted for diagnostic parity.
+/// `^[A-Za-z0-9_]+$` regex enforced by Cursor and other MCP clients.
+/// When `false`, pre-#656 SEP-986 `<id8>.<tool>` dotted names are emitted
+/// for diagnostic parity.
 ///
 /// Pagination uses the same cursor scheme as the per-DCC server:
 /// `cursor` is an opaque hex-encoded offset into the flat tool list.
 ///
 /// [`GatewayToolExposure::Slim`]: super::super::config::GatewayToolExposure::Slim
-/// [`GatewayToolExposure::Rest`]: super::super::config::GatewayToolExposure::Rest
 pub async fn aggregate_tools_list(gs: &GatewayState, cursor: Option<&str>) -> Value {
     let mut tools: Vec<Value> = Vec::new();
 
@@ -43,9 +40,8 @@ pub async fn aggregate_tools_list(gs: &GatewayState, cursor: Option<&str>) -> Va
     tools.extend(skill_management_tool_defs());
 
     // Tier 3: fan out to every live backend — but only in modes that
-    // publish per-backend tools (#652). Slim / Rest keep the gateway
-    // surface bounded so multi-instance setups do not blow up client
-    // context.
+    // publish per-backend tools. `Slim` keeps the gateway surface bounded
+    // so multi-instance setups do not blow up client context.
     if gs.tool_exposure.publishes_backend_tools() {
         // Issue #556: skip Unreachable instances so stale tools are not exposed.
         let instances: Vec<_> = live_backends(gs)

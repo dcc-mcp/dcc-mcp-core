@@ -277,7 +277,7 @@ mod tests {
             allow_unknown_tools,
             adapter_version: None,
             adapter_dcc: None,
-            tool_exposure: crate::gateway::GatewayToolExposure::Full,
+            tool_exposure: crate::gateway::GatewayToolExposure::Rest,
             cursor_safe_tool_names: true,
             capability_index: Arc::new(crate::gateway::capability::CapabilityIndex::new()),
         }

@@ -1,25 +1,18 @@
-//! Regression coverage for issue #652 — configurable slim/rest gateway
-//! tool-exposure mode.
+//! Regression coverage for gateway tool-exposure mode (`Slim` / `Rest`).
 //!
-//! The gateway must
+//! The gateway must **never** publish Tier 3 backend tools — `Slim` and
+//! `Rest` both keep the visible surface bounded to meta-tools +
+//! skill-management layer regardless of how many live backends are
+//! registered.
 //!
-//! 1. Preserve today's fan-out behaviour in `Full` mode so existing
-//!    multi-instance deployments see no change until they opt in.
-//! 2. Stop publishing Tier 3 backend tools when the operator selects
-//!    `Slim` or `Rest`, keeping the gateway's visible surface bounded at
-//!    the meta-tools + skill-management layer regardless of how many
-//!    live backends are registered.
-//! 3. Keep `Both` behaving identically to `Full` so operators can pin
-//!    the config token today and have it stay valid through the
-//!    transition window planned in #657.
-//! 4. Advertise the configured mode through
-//!    `diagnostics__tool_metrics` so operators can verify a running
-//!    gateway without reaching for process args.
+//! `Full` and `Both` variants have been removed (issue #674); the
+//! correct and unique behaviour is tested here.
+//!
+//! The mode is also advertised through `diagnostics__tool_metrics` so
+//! operators can verify a running gateway without reading process args.
 //!
 //! The tests use a real in-process axum backend registered through the
-//! same `FileRegistry` that the gateway aggregator consults, so the
-//! fan-out code path (including the 1-backend bare-alias branch) is
-//! exercised end-to-end rather than mocked out.
+//! same `FileRegistry` that the gateway aggregator consults.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -150,31 +143,6 @@ fn tool_names(result: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
-// ── Full mode: pre-#652 behaviour is preserved ──────────────────────────────
-
-/// Regression for issue #652: the default `Full` mode must keep
-/// publishing Tier 3 backend tools so existing deployments see no change
-/// when they upgrade.
-#[tokio::test]
-async fn full_mode_publishes_backend_tools() {
-    let dir = tempfile::tempdir().unwrap();
-    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
-    let state = make_state(registry.clone(), GatewayToolExposure::Full);
-
-    let port = spawn_backend_advertising("backend_probe").await;
-    register_maya_backend(&registry, port).await;
-
-    let result = aggregate_tools_list(&state, None).await;
-    let names = tool_names(&result);
-
-    // The gateway local + skill tools are always present; the key
-    // assertion here is that *some* form of the backend tool surfaces.
-    assert!(
-        names.iter().any(|n| n.contains("backend_U_probe")),
-        "Full mode must publish prefixed backend tools; got {names:?}"
-    );
-}
-
 // ── Slim / Rest: bounded surface regardless of live backends ────────────────
 
 /// Issue #652 acceptance: a gateway in `Slim` mode must not expose any
@@ -239,31 +207,6 @@ async fn rest_mode_hides_backend_tools_like_slim() {
     );
 }
 
-// ── Both mode: compatibility alias for Full during the transition window ────
-
-/// Issue #652: `Both` is currently an alias of `Full`. The token is
-/// reserved so operators can pin it in config today and keep that pin
-/// valid once the REST wrapper tools land in #655. This test guards
-/// that alias so nobody quietly flips `Both` to a hybrid mode without
-/// a migration note.
-#[tokio::test]
-async fn both_mode_matches_full_behaviour_today() {
-    let dir = tempfile::tempdir().unwrap();
-    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
-    let state = make_state(registry.clone(), GatewayToolExposure::Both);
-
-    let port = spawn_backend_advertising("both_probe").await;
-    register_maya_backend(&registry, port).await;
-
-    let result = aggregate_tools_list(&state, None).await;
-    let names = tool_names(&result);
-
-    assert!(
-        names.iter().any(|n| n.contains("both_U_probe")),
-        "Both mode must publish backend tools like Full; got {names:?}"
-    );
-}
-
 // ── Bounded surface: no backends → identical list in every mode ─────────────
 
 /// With no live backends, every mode must return the exact same tier
@@ -272,12 +215,7 @@ async fn both_mode_matches_full_behaviour_today() {
 /// regardless of the exposure token.
 #[tokio::test]
 async fn zero_backend_list_is_mode_invariant() {
-    let modes = [
-        GatewayToolExposure::Full,
-        GatewayToolExposure::Slim,
-        GatewayToolExposure::Both,
-        GatewayToolExposure::Rest,
-    ];
+    let modes = [GatewayToolExposure::Slim, GatewayToolExposure::Rest];
 
     let mut outputs = Vec::new();
     for mode in modes {
@@ -290,12 +228,12 @@ async fn zero_backend_list_is_mode_invariant() {
         outputs.push((mode, names));
     }
 
-    // Every mode's name-set must equal the first (Full) mode's output.
+    // Slim and Rest must return identical tool sets.
     let (_, baseline) = &outputs[0];
     for (mode, names) in &outputs[1..] {
         assert_eq!(
             names, baseline,
-            "{mode} returned a different empty-registry tool set than Full; divergence means the mode enum is leaking into the gateway/skill tables"
+            "{mode} returned a different empty-registry tool set than Slim; divergence means the mode enum is leaking into the gateway/skill tables"
         );
     }
 }

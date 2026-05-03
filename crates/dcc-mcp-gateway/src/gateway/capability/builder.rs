@@ -106,6 +106,7 @@ pub fn build_records_from_backend(input: BuildInput<'_>) -> BuildOutcome {
             input.dcc_type.to_string(),
             input.instance_id,
             has_schema,
+            true, // loaded: from live backend
         ));
     }
 

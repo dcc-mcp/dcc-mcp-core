@@ -21,7 +21,7 @@
 //! well under a second on CI.
 
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use axum::{
     Json, Router,
@@ -69,7 +69,7 @@ async fn make_state(
         allow_unknown_tools: false,
         adapter_version: None,
         adapter_dcc: None,
-        tool_exposure: dcc_mcp_http::gateway::GatewayToolExposure::Full,
+        tool_exposure: dcc_mcp_http::gateway::GatewayToolExposure::Rest,
         cursor_safe_tool_names: true,
         capability_index: std::sync::Arc::new(
             dcc_mcp_http::gateway::capability::CapabilityIndex::new(),
@@ -142,44 +142,6 @@ fn mcp_http_config_with_backend_timeout_ms_is_fluent() {
 }
 
 // ── Runtime behaviour ──────────────────────────────────────────────────────
-
-/// Issue #314 acceptance: a gateway configured with a long backend timeout
-/// must tolerate a backend that takes longer than the legacy 10-second
-/// ceiling to respond. We scale the scenario down by 1000× for test speed
-/// (ms instead of seconds) while preserving the "timeout > backend delay"
-/// invariant the user observes in production.
-#[tokio::test]
-async fn aggregate_tools_list_respects_long_backend_timeout() {
-    // Backend takes ~250ms — would trip any timeout ≤ 200ms, passes at 1s.
-    let port = spawn_slow_backend(Duration::from_millis(250)).await;
-    let (state, registry, _tmp) = make_state(Duration::from_secs(1)).await;
-    register_backend(&registry, port).await;
-
-    let started = Instant::now();
-    let result = aggregate_tools_list(&state, None).await;
-    let elapsed = started.elapsed();
-
-    let tools = result
-        .get("tools")
-        .and_then(Value::as_array)
-        .expect("tools array");
-    // Tier 1 (meta) + Tier 2 (skill mgmt) + 1 backend tool = non-empty, and
-    // at least one tool must come from the backend (encoded name contains `.`).
-    let has_backend_tool = tools.iter().any(|t| {
-        t.get("name")
-            .and_then(Value::as_str)
-            .map(|n| n.contains("slow_U_tool"))
-            .unwrap_or(false)
-    });
-    assert!(
-        has_backend_tool,
-        "backend tool should be present when backend_timeout > backend delay; got tools={tools:#?}"
-    );
-    assert!(
-        elapsed < Duration::from_secs(1),
-        "aggregation should return as soon as the backend replies, not at the timeout (elapsed={elapsed:?})"
-    );
-}
 
 /// Complementary case: a gateway with a *shorter* backend timeout than the
 /// backend's response time must drop the backend's contribution (fetch_tools

@@ -3,65 +3,53 @@ use super::*;
 /// How the gateway publishes backend-provided tools through MCP `tools/list`
 /// (issue #652).
 ///
-/// In multi-instance setups, fan-out of every live backend tool makes the
-/// gateway's visible tool list grow linearly with instance count × skill
-/// count, causing context blow-up on the client side. This enum lets the
-/// operator bound the surface explicitly.
+/// After #674, only two modes remain:
 ///
-/// See the tracking issue [#657] for the REST-backed capability redesign
-/// that `Slim` / `Rest` unlock.
-///
-/// [#657]: https://github.com/loonghao/dcc-mcp-core/issues/657
+/// - [`Self::Rest`] (default) — publish gateway meta-tools + skill-management
+///   tools + backend tools (Tier 1 + 2 + 3). This is the canonical mode that
+///   matches the MCP spec expectation that `tools/list` returns every
+///   callable tool. Cursor-safe `i_<id8>__<name>` names are used for backend
+///   tools so agents can invoke them directly via `tools/call`.
+/// - [`Self::Slim`] — publish only Tier 1 + 2 (gateway meta + skill
+///   management). Backend capabilities are reachable only through
+///   `search_tools` / `describe_tool` / `call_tool` wrappers. Useful when
+///   the client's context budget cannot fit every instance's tools.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum GatewayToolExposure {
-    /// Current behavior: gateway meta-tools + skill-management tools +
-    /// every live backend tool (Tier 1 + 2 + 3). Preserved as the default
-    /// for compatibility during rollout.
-    Full,
     /// Emit only gateway meta-tools + skill-management tools (Tier 1 + 2).
-    /// Backend capabilities are expected to be discovered and invoked
-    /// through dynamic `search_tools` / `describe_tool` / `call_tool`
-    /// wrappers in a later phase of #657.
+    /// Backend capabilities are discovered and invoked through dynamic
+    /// `search_tools` / `describe_tool` / `call_tool` wrappers.
     Slim,
-    /// Alias of [`Self::Full`] retained for forward compatibility with
-    /// the documented `full | slim | both | rest` configuration surface.
-    /// Behaves identically to `Full` today; may diverge once REST-backed
-    /// dynamic tools land so that operators can run both static fan-out
-    /// and dynamic wrappers side-by-side during migration.
-    Both,
-    /// Same bounded surface as [`Self::Slim`]; kept as a distinct variant
-    /// so the gateway can signal "REST is the canonical capability API"
-    /// in diagnostics and future routing decisions without another
-    /// config migration.
+    /// Publish Tier 1 + 2 + 3 — gateway meta, skill management, and
+    /// fanned-out backend tools. This is the default mode and matches the
+    /// MCP spec expectation that `tools/list` returns every callable tool.
     Rest,
 }
 
 impl GatewayToolExposure {
-    /// Return `true` when the gateway should fan out to every live
-    /// backend and publish each tool as an individual MCP tool.
+    /// True when this mode fans out to backend tools in `tools/list`.
     ///
-    /// `Full` and `Both` both fan out today; `Slim` and `Rest` never do.
+    /// `Rest` publishes backend tools (cursor-safe `i_<id8>__<name>` form);
+    /// `Slim` does not.
     pub const fn publishes_backend_tools(self) -> bool {
-        matches!(self, Self::Full | Self::Both)
+        matches!(self, Self::Rest)
     }
 
     /// Human-readable token matching the documented config vocabulary
-    /// (`full | slim | both | rest`). Used by diagnostics and the CLI.
+    /// (`slim | rest`). Used by diagnostics and the CLI.
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::Full => "full",
             Self::Slim => "slim",
-            Self::Both => "both",
             Self::Rest => "rest",
         }
     }
 }
 
 impl Default for GatewayToolExposure {
-    /// Keep the pre-#652 behavior as the default so existing deployments
-    /// see no change until they opt in.
+    /// `Rest` is the default — publishes backend tools via cursor-safe names.
+    /// `Full` and `Both` have been removed (#674).
     fn default() -> Self {
-        Self::Full
+        Self::Rest
     }
 }
 
@@ -80,9 +68,7 @@ impl std::str::FromStr for GatewayToolExposure {
     /// back to the default (which would mask operator typos).
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.trim().to_ascii_lowercase().as_str() {
-            "full" => Ok(Self::Full),
             "slim" => Ok(Self::Slim),
-            "both" => Ok(Self::Both),
             "rest" => Ok(Self::Rest),
             other => Err(ParseGatewayToolExposureError(other.to_string())),
         }
@@ -98,7 +84,7 @@ impl std::fmt::Display for ParseGatewayToolExposureError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "unknown gateway tool-exposure mode '{}' (expected one of: full, slim, both, rest)",
+            "unknown gateway tool-exposure mode '{}' (expected one of: slim, rest)",
             self.0
         )
     }
@@ -164,16 +150,11 @@ pub struct GatewayConfig {
     /// How the gateway publishes backend tools through MCP `tools/list`
     /// (issue #652).
     ///
-    /// * [`GatewayToolExposure::Full`] — current behavior: every live
-    ///   backend tool is visible on the gateway. Default for
-    ///   compatibility during rollout.
-    /// * [`GatewayToolExposure::Slim`] /
-    ///   [`GatewayToolExposure::Rest`] — only gateway meta-tools and
+    /// * [`GatewayToolExposure::Slim`] — only gateway meta-tools and
     ///   skill-management tools are visible; backend capabilities must
     ///   be reached via the dynamic wrapper layer described in #657.
-    /// * [`GatewayToolExposure::Both`] — currently an alias of `Full`,
-    ///   reserved for the transition window once dynamic wrapper tools
-    ///   land so operators can run both modes side-by-side.
+    /// * [`GatewayToolExposure::Rest`] — same bounded surface as `Slim`;
+    ///   the default mode, signals that REST is the canonical API.
     pub tool_exposure: GatewayToolExposure,
 
     /// Emit Cursor-safe gateway tool names (`i_<id8>__<escaped>`)
@@ -212,7 +193,7 @@ impl Default for GatewayConfig {
             allow_unknown_tools: false,
             adapter_version: None,
             adapter_dcc: None,
-            tool_exposure: GatewayToolExposure::Full,
+            tool_exposure: GatewayToolExposure::Rest,
             // #656: default to Cursor-safe on because breakage with
             // Cursor is silent (it just hides the tools from the agent
             // with no visible error), and the legacy dotted form is
@@ -236,16 +217,8 @@ mod tests {
     #[test]
     fn parses_every_canonical_token() {
         assert_eq!(
-            "full".parse::<GatewayToolExposure>().unwrap(),
-            GatewayToolExposure::Full
-        );
-        assert_eq!(
             "slim".parse::<GatewayToolExposure>().unwrap(),
             GatewayToolExposure::Slim
-        );
-        assert_eq!(
-            "both".parse::<GatewayToolExposure>().unwrap(),
-            GatewayToolExposure::Both
         );
         assert_eq!(
             "rest".parse::<GatewayToolExposure>().unwrap(),
@@ -258,10 +231,6 @@ mod tests {
         // CLI / env sources vary in casing discipline; we accept all of
         // them and normalise, but still reject typos loudly (see the
         // next test).
-        assert_eq!(
-            "  FULL ".parse::<GatewayToolExposure>().unwrap(),
-            GatewayToolExposure::Full
-        );
         assert_eq!(
             "Slim".parse::<GatewayToolExposure>().unwrap(),
             GatewayToolExposure::Slim
@@ -284,7 +253,7 @@ mod tests {
         let msg = err.to_string();
         assert!(msg.contains("ful"), "error must echo the bad token: {msg}");
         assert!(
-            msg.contains("full") && msg.contains("slim") && msg.contains("rest"),
+            msg.contains("slim") && msg.contains("rest"),
             "error must enumerate the accepted tokens: {msg}"
         );
     }
@@ -301,27 +270,21 @@ mod tests {
     // ── Semantics: publishes_backend_tools ───────────────────────────────
     //
     // This predicate is the single branch point in `aggregate_tools_list`
-    // (#652). The test freezes the expected truth table so nobody can
-    // quietly flip Slim/Rest back into a fan-out mode.
+    // (#652 / #674). The test freezes the expected truth table: after
+    // #674, `Rest` publishes backend tools (replacing the old `Full`
+    // mode's behaviour), while `Slim` keeps the gateway surface bounded.
 
     #[test]
     fn publishes_backend_tools_truth_table_is_stable() {
-        assert!(GatewayToolExposure::Full.publishes_backend_tools());
-        assert!(GatewayToolExposure::Both.publishes_backend_tools());
         assert!(!GatewayToolExposure::Slim.publishes_backend_tools());
-        assert!(!GatewayToolExposure::Rest.publishes_backend_tools());
+        assert!(GatewayToolExposure::Rest.publishes_backend_tools());
     }
 
     #[test]
     fn as_str_matches_parser_vocabulary() {
         // Round-trip: `as_str` output must parse back to the same variant
         // so diagnostics / CLI help / docs never drift.
-        for mode in [
-            GatewayToolExposure::Full,
-            GatewayToolExposure::Slim,
-            GatewayToolExposure::Both,
-            GatewayToolExposure::Rest,
-        ] {
+        for mode in [GatewayToolExposure::Slim, GatewayToolExposure::Rest] {
             let round_trip: GatewayToolExposure = mode.as_str().parse().unwrap();
             assert_eq!(round_trip, mode, "round-trip broke for {mode}");
         }
@@ -331,31 +294,25 @@ mod tests {
     fn display_impl_uses_lowercase_token() {
         // Several downstream callers (diagnostics JSON, log lines) rely
         // on the Display impl. Lock the format so they stay readable.
-        assert_eq!(format!("{}", GatewayToolExposure::Full), "full");
         assert_eq!(format!("{}", GatewayToolExposure::Slim), "slim");
-        assert_eq!(format!("{}", GatewayToolExposure::Both), "both");
         assert_eq!(format!("{}", GatewayToolExposure::Rest), "rest");
     }
 
     #[test]
-    fn default_is_full_for_compatibility() {
-        // Pre-#652 behaviour must remain the default so existing
-        // deployments see no change until they explicitly opt into a
-        // bounded mode.
+    fn default_is_rest() {
+        // `Rest` is the correct and unique default.
         assert_eq!(
             GatewayToolExposure::default(),
-            GatewayToolExposure::Full,
-            "changing the default without a migration would regress every \
-             existing gateway deployment; guard it with this test."
+            GatewayToolExposure::Rest,
+            "`Rest` must be the default; `Full` and `Both` have been removed."
         );
     }
 
     #[test]
-    fn gateway_config_default_carries_full_exposure() {
+    fn gateway_config_default_carries_rest_exposure() {
         // `GatewayConfig::default()` is used by tests and `..Default::default()`
-        // struct updates in the runner / standalone server. Keep the
-        // field in lockstep with `GatewayToolExposure::default()`.
+        // struct updates in the runner / standalone server.
         let cfg = GatewayConfig::default();
-        assert_eq!(cfg.tool_exposure, GatewayToolExposure::Full);
+        assert_eq!(cfg.tool_exposure, GatewayToolExposure::Rest);
     }
 }

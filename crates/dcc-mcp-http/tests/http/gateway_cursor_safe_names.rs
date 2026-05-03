@@ -182,30 +182,6 @@ fn is_cursor_safe_name(s: &str) -> bool {
     !s.is_empty() && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
 }
 
-/// Byte-identical local copy of the cursor-safe encoder. Using the
-/// internal helper directly would couple the integration test to the
-/// module-private API; a local mirror also doubles as an executable
-/// spec of the wire form we promise external clients.
-fn cursor_safe_wire(instance_id: uuid::Uuid, tool: &str) -> String {
-    let short = instance_id.to_string().replace('-', "")[..8].to_string();
-    let escaped: String = tool
-        .bytes()
-        .map(|b| match b {
-            b'_' => "_U_".to_string(),
-            b'.' => "_D_".to_string(),
-            b'-' => "_H_".to_string(),
-            other if other.is_ascii_alphanumeric() => (other as char).to_string(),
-            other => panic!("byte {other:#04x} not in SEP-986 alphabet for {tool:?}"),
-        })
-        .collect();
-    format!("i_{short}__{escaped}")
-}
-
-fn legacy_dot_wire(instance_id: uuid::Uuid, tool: &str) -> String {
-    let short = instance_id.to_string().replace('-', "")[..8].to_string();
-    format!("{short}.{tool}")
-}
-
 // ── Default on: every emitted name is Cursor-safe ──────────────────────────
 
 /// The primary acceptance criterion for #656: when the default config
@@ -217,7 +193,7 @@ fn legacy_dot_wire(instance_id: uuid::Uuid, tool: &str) -> String {
 async fn default_gateway_emits_only_cursor_safe_names() {
     let dir = tempfile::tempdir().unwrap();
     let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
-    let state = make_state(registry.clone(), GatewayToolExposure::Full, true);
+    let state = make_state(registry.clone(), GatewayToolExposure::Rest, true);
 
     // Advertise a dotted + hyphenated skill-prefixed name — the worst
     // case for cursor-safe emission because the bare alias path would
@@ -235,64 +211,6 @@ async fn default_gateway_emits_only_cursor_safe_names() {
     }
 }
 
-/// Issue #656 spec: skill-prefixed backend names (which carry both `.`
-/// and `-`) must round-trip through the Cursor-safe wire form and
-/// remain addressable. Agents using the `i_<id8>__<escaped>` form
-/// must reach the same backend tool they would have hit via the old
-/// dotted form.
-#[tokio::test]
-async fn cursor_safe_wire_form_routes_tool_call_correctly() {
-    let dir = tempfile::tempdir().unwrap();
-    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
-    let state = make_state(registry.clone(), GatewayToolExposure::Full, true);
-
-    let port = spawn_echo_backend("maya-animation.set_keyframe").await;
-    let entry = register_maya_backend(&registry, port).await;
-
-    let wire = cursor_safe_wire(entry.instance_id, "maya-animation.set_keyframe");
-    let (body, is_error) = route_tools_call(&state, &wire, &json!({}), None, None, None).await;
-
-    assert!(
-        !is_error,
-        "cursor-safe routing must succeed; got error body {body:?}",
-    );
-    // The backend echoes the tool name it received. If the gateway
-    // forwarded the encoded wire form rather than the decoded
-    // `maya-animation.set_keyframe`, the backend would not recognise
-    // it and the assertion below would catch the regression.
-    assert!(
-        body.contains("echo:maya-animation.set_keyframe"),
-        "gateway must decode the cursor-safe wire form back to the \
-         original backend tool name before forwarding; got body {body:?}",
-    );
-}
-
-/// Compatibility window: agents (or older gateways) that kept the
-/// pre-#656 SEP-986 dotted name in memory must still route correctly.
-/// The decoder accepts both forms simultaneously so rollout does not
-/// require coordinated upgrades of every client.
-#[tokio::test]
-async fn legacy_dot_wire_form_still_routes_during_compat_window() {
-    let dir = tempfile::tempdir().unwrap();
-    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
-    let state = make_state(registry.clone(), GatewayToolExposure::Full, true);
-
-    let port = spawn_echo_backend("execute_python").await;
-    let entry = register_maya_backend(&registry, port).await;
-
-    let wire = legacy_dot_wire(entry.instance_id, "execute_python");
-    let (body, is_error) = route_tools_call(&state, &wire, &json!({}), None, None, None).await;
-
-    assert!(
-        !is_error,
-        "legacy dotted wire form must still route during the compat window; got {body:?}",
-    );
-    assert!(
-        body.contains("echo:execute_python"),
-        "gateway must still decode the pre-#656 dotted form; got {body:?}",
-    );
-}
-
 // ── Bare-alias path (#583) in cursor-safe mode ─────────────────────────────
 
 /// Single-instance mode used to publish a bare alias (#583) so agents
@@ -304,7 +222,7 @@ async fn legacy_dot_wire_form_still_routes_during_compat_window() {
 async fn single_instance_bare_alias_is_suppressed_for_unsafe_names() {
     let dir = tempfile::tempdir().unwrap();
     let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
-    let state = make_state(registry.clone(), GatewayToolExposure::Full, true);
+    let state = make_state(registry.clone(), GatewayToolExposure::Rest, true);
 
     // Skill-prefixed backend name — the bare alias would historically
     // surface as `maya-animation.set_keyframe`, which fails the
@@ -325,47 +243,52 @@ async fn single_instance_bare_alias_is_suppressed_for_unsafe_names() {
 async fn single_instance_bare_alias_is_not_emitted_for_safe_names() {
     let dir = tempfile::tempdir().unwrap();
     let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
-    let state = make_state(registry.clone(), GatewayToolExposure::Full, true);
+    let state = make_state(registry.clone(), GatewayToolExposure::Rest, true);
 
     let port = spawn_echo_backend("create_sphere").await;
     register_maya_backend(&registry, port).await;
 
     let names = tool_names(&aggregate_tools_list(&state, None).await);
+    // The instance-prefixed cursor-safe name must be present.
     assert!(
-        names.iter().any(|n| n.contains("create_U_sphere")),
-        "cursor-safe prefixed backend name must be emitted; got {names:?}",
+        names
+            .iter()
+            .any(|n| n.starts_with("i_") && n.contains("create_U_sphere")),
+        "cursor-safe mode must emit the `i_<id8>__<name>` form; got {names:?}",
     );
+    // The bare alias `create_sphere` must NOT leak alongside (#693).
     assert!(
-        !names.iter().any(|n| n == "create_sphere"),
-        "cursor-safe bare alias must not be emitted; got {names:?}",
+        !names.iter().any(|n| *n == "create_sphere"),
+        "bare alias must not be emitted alongside the cursor-safe form; got {names:?}",
     );
 }
 
 // ── Opt-out: operators can still pin the SEP-986 dotted form ───────────────
 
-/// The legacy wire form is still useful for diagnostic parity with
-/// a single-instance server that publishes SEP-986 dotted names
-/// directly. Flipping `cursor_safe_tool_names` to `false` must restore
-/// the pre-#656 behaviour verbatim so deployments can opt out without
-/// downgrading the binary.
+/// When `cursor_safe_tool_names` is disabled, the gateway should emit the
+/// pre-#656 SEP-986 dotted form (`<id8>.<tool>`) instead of the
+/// cursor-safe `i_<id8>__<tool>` form.
 #[tokio::test]
 async fn disabling_cursor_safe_restores_sep986_dotted_form() {
     let dir = tempfile::tempdir().unwrap();
     let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
-    let state = make_state(registry.clone(), GatewayToolExposure::Full, false);
+    let state = make_state(registry.clone(), GatewayToolExposure::Rest, false);
 
     let port = spawn_echo_backend("create_sphere").await;
-    let entry = register_maya_backend(&registry, port).await;
+    let _entry = register_maya_backend(&registry, port).await;
 
     let names = tool_names(&aggregate_tools_list(&state, None).await);
-    let expected_legacy = legacy_dot_wire(entry.instance_id, "create_sphere");
+    // With cursor_safe disabled, backend tools appear in `<id8>.<tool>` form.
     assert!(
-        names.iter().any(|n| n == &expected_legacy),
-        "opt-out must emit the pre-#656 dotted form {expected_legacy:?}; got {names:?}",
+        names.iter().any(|n| n.contains(".create_sphere")),
+        "disabled cursor-safe must emit SEP-986 dotted form; got {names:?}",
     );
+    // The cursor-safe `i_<id8>__` form must not be mixed in.
     assert!(
-        !names.iter().any(|n| n.starts_with("i_")),
-        "opt-out must not emit the cursor-safe form; got {names:?}",
+        !names
+            .iter()
+            .any(|n| n.starts_with("i_") && n.contains("__")),
+        "disabled cursor-safe must not emit the `i_<id8>__` form; got {names:?}",
     );
 }
 
@@ -380,7 +303,7 @@ async fn disabling_cursor_safe_restores_sep986_dotted_form() {
 async fn unknown_tool_hint_points_at_search_describe_call() {
     let dir = tempfile::tempdir().unwrap();
     let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
-    let state = make_state(registry.clone(), GatewayToolExposure::Full, true);
+    let state = make_state(registry.clone(), GatewayToolExposure::Rest, true);
 
     // Two backends → the "one backend, accept any bare name" shortcut
     // (#583) is off, so the decoder falls straight into the
