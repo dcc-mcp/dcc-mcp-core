@@ -1,0 +1,43 @@
+tools:
+  - name: create_cube
+    description: Create a CAD cube with the given edge length
+    input_schema:
+      type: object
+      properties:
+        edge:
+          type: number
+          description: Cube edge length in model units
+          default: 1.0
+        marker:
+          type: string
+          description: Unique marker proving which service handled the call
+          default: ""
+    read_only: false
+    destructive: false
+    idempotent: false
+    source_file: scripts/create_cube.py
+    next-tools:
+      on-success: []
+      on-failure: [dcc_diagnostics__audit_log]
+
+  - name: create_cylinder
+    description: Create a CAD cylinder with the given radius and height
+    input_schema:
+      type: object
+      properties:
+        radius:
+          type: number
+          description: Cylinder base radius
+          default: 1.0
+        height:
+          type: number
+          description: Cylinder height
+          default: 2.0
+        marker:
+          type: string
+          description: Unique marker proving which service handled the call
+          default: ""
+    read_only: false
+    destructive: false
+    idempotent: true
+    source_file: scripts/create_cylinder.py
