@@ -73,6 +73,16 @@ pub struct McpServerHandle {
 impl McpServerHandle {
     /// Gracefully shut down the server and wait for it to stop.
     pub async fn shutdown(mut self) {
+        // Issue #718: deregister from FileRegistry *before* waiting for
+        // the serve loop to finish. Peers reading `services.json` should
+        // see the row disappear as soon as `shutdown()` is invoked rather
+        // than waiting the full `stale_timeout_secs` (default 30 s). The
+        // call is idempotent — the `GatewayHandle::Drop` path is still a
+        // correctness safety net for callers who skip `shutdown()`.
+        if let Some(gw) = self._gateway.as_mut() {
+            gw.deregister_all();
+        }
+
         let _ = self.shutdown_tx.send(true);
         if let Some(join) = self.join.take() {
             let _ = join.await;

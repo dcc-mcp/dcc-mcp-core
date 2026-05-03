@@ -152,19 +152,36 @@ impl GatewayRunner {
         };
 
         // ── Gateway election ──────────────────────────────────────────────
-        let (is_gateway, gateway_abort, challenger_abort, gateway_supervisor, gateway_thread) =
-            if self.config.gateway_port > 0 {
-                let outcome = self.run_election().await?;
-                (
-                    outcome.is_gateway,
-                    outcome.gateway_abort,
-                    outcome.challenger_abort,
-                    outcome.gateway_supervisor,
-                    outcome.gateway_thread,
-                )
-            } else {
-                (false, None, None, None, None)
-            };
+        let (
+            is_gateway,
+            gateway_abort,
+            challenger_abort,
+            gateway_supervisor,
+            gateway_thread,
+            sentinel_key,
+        ) = if self.config.gateway_port > 0 {
+            let outcome = self.run_election().await?;
+            (
+                outcome.is_gateway,
+                outcome.gateway_abort,
+                outcome.challenger_abort,
+                outcome.gateway_supervisor,
+                outcome.gateway_thread,
+                outcome.sentinel_key,
+            )
+        } else {
+            (false, None, None, None, None, None)
+        };
+
+        // Issue #718: on clean shutdown the `Drop` impl deregisters every
+        // key we own (the instance row, plus the gateway sentinel if we
+        // won the election), so `services.json` no longer carries zombie
+        // "available" rows for the full `stale_timeout_secs` window.
+        let mut pending_deregister = Vec::with_capacity(2);
+        pending_deregister.push(service_key.clone());
+        if let Some(k) = sentinel_key {
+            pending_deregister.push(k);
+        }
 
         Ok(GatewayHandle {
             is_gateway,
@@ -174,6 +191,8 @@ impl GatewayRunner {
             gateway_supervisor,
             gateway_thread,
             challenger_abort,
+            registry: self.registry.clone(),
+            pending_deregister,
         })
     }
 
@@ -228,7 +247,7 @@ impl GatewayRunner {
                     max_routes_per_session,
                     format!("{} (gateway)", self.config.server_name),
                     own_version.clone(),
-                    sentinel_key,
+                    sentinel_key.clone(),
                     self.config.host.clone(),
                     self.config.gateway_port,
                     self.config.allow_unknown_tools,
@@ -247,6 +266,9 @@ impl GatewayRunner {
                             challenger_abort: None,
                             gateway_supervisor: Some(tasks.supervisor),
                             gateway_thread: None,
+                            // Issue #718: winners must also deregister the
+                            // `__gateway__` sentinel on clean shutdown.
+                            sentinel_key: Some(sentinel_key),
                         })
                     }
                     // Issue #303: bind() succeeded but the accept-loop never
@@ -259,12 +281,20 @@ impl GatewayRunner {
                             version = %own_version,
                             "Gateway tasks failed to become healthy — falling back to plain-instance mode"
                         );
+                        // Issue #718: the sentinel was written before
+                        // `start_gateway_tasks` failed. Clean it up now
+                        // so peers don't see a phantom gateway.
+                        {
+                            let reg = self.registry.read().await;
+                            let _ = reg.deregister(&sentinel_key);
+                        }
                         Ok(ElectionOutcome {
                             is_gateway: false,
                             gateway_abort: None,
                             challenger_abort: None,
                             gateway_supervisor: None,
                             gateway_thread: None,
+                            sentinel_key: None,
                         })
                     }
                 }
@@ -324,6 +354,7 @@ impl GatewayRunner {
                         challenger_abort: Some(challenger_abort),
                         gateway_supervisor: None,
                         gateway_thread: None,
+                        sentinel_key: None,
                     })
                 } else {
                     tracing::info!(
@@ -342,6 +373,7 @@ impl GatewayRunner {
                         challenger_abort: None,
                         gateway_supervisor: None,
                         gateway_thread: None,
+                        sentinel_key: None,
                     })
                 }
             }

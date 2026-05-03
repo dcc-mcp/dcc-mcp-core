@@ -271,3 +271,170 @@ async fn test_self_probe_listener_fails_for_dead_port() {
         "probe must fail when nothing is listening on {addr}"
     );
 }
+
+// ── Regression tests for issue #718 ──────────────────────────────────
+//
+// `GatewayHandle::Drop` must call `FileRegistry::deregister` for every
+// key it owns (instance row + sentinel for winners) so peers don't see
+// a zombie "available" row for the full `stale_timeout_secs` window.
+
+/// Build a `GatewayRunner` with a dedicated registry dir and a chosen
+/// gateway port so the tests can run in parallel without colliding.
+fn make_runner_in(dir: &std::path::Path, port: u16) -> GatewayRunner {
+    let cfg = GatewayConfig {
+        host: "127.0.0.1".to_string(),
+        gateway_port: port,
+        // Disable the heartbeat loop — we don't want a background task
+        // touching `services.json` while we assert on its contents.
+        heartbeat_secs: 0,
+        registry_dir: Some(dir.to_path_buf()),
+        ..GatewayConfig::default()
+    };
+    GatewayRunner::new(cfg).unwrap()
+}
+
+/// Pick an unused high port the OS just released. Good enough for
+/// test-local first-wins elections; the runner's `try_bind_port_opt`
+/// will still behave correctly under a race.
+fn ephemeral_port() -> u16 {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    drop(listener);
+    port
+}
+
+#[tokio::test]
+async fn test_gateway_handle_drop_deregisters_instance_row() {
+    // Point gateway_port at something that is already bound so we land
+    // on the `port taken` branch and the handle holds only the instance
+    // row (no sentinel). Drop must still remove that row.
+    let dir = tempfile::tempdir().unwrap();
+    let occupied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = occupied.local_addr().unwrap().port();
+
+    let runner = make_runner_in(dir.path(), port);
+    let entry = ServiceEntry::new("maya", "127.0.0.1", 0);
+    let key = entry.key();
+    let handle = runner.start(entry, None).await.unwrap();
+    assert!(!handle.is_gateway, "port is occupied — must be non-winner");
+
+    // Row must exist while the handle is alive.
+    {
+        let reg = runner.registry.read().await;
+        assert!(
+            reg.get(&key).is_some(),
+            "instance row must be present before Drop"
+        );
+    }
+
+    // Drop the handle → `Drop::drop` must deregister the instance row.
+    drop(handle);
+
+    let reg = runner.registry.read().await;
+    assert!(
+        reg.get(&key).is_none(),
+        "GatewayHandle::Drop must remove the instance row from FileRegistry (issue #718)"
+    );
+    drop(occupied);
+}
+
+#[tokio::test]
+async fn test_explicit_deregister_all_is_idempotent() {
+    // `McpServerHandle::shutdown` calls `deregister_all` explicitly
+    // before dropping the gateway. Verify both the explicit path and
+    // the follow-up Drop produce the same end state and do not double-
+    // log / double-remove.
+    let dir = tempfile::tempdir().unwrap();
+    let occupied = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = occupied.local_addr().unwrap().port();
+
+    let runner = make_runner_in(dir.path(), port);
+    let entry = ServiceEntry::new("blender", "127.0.0.1", 0);
+    let key = entry.key();
+    let mut handle = runner.start(entry, None).await.unwrap();
+
+    // Explicit shutdown path — does NOT rely on Drop.
+    handle.deregister_all();
+
+    {
+        let reg = runner.registry.read().await;
+        assert!(
+            reg.get(&key).is_none(),
+            "explicit deregister_all must remove instance row immediately (issue #718)"
+        );
+    }
+
+    // Idempotency: a subsequent Drop must be a clean no-op.
+    drop(handle);
+    let reg = runner.registry.read().await;
+    assert!(
+        reg.get(&key).is_none(),
+        "second deregister (via Drop) must remain a no-op"
+    );
+    drop(occupied);
+}
+
+#[tokio::test]
+async fn test_gateway_winner_drop_deregisters_instance_and_sentinel() {
+    // Winner path: the handle must carry both the instance key and the
+    // `__gateway__` sentinel key, and Drop must purge both rows.
+    //
+    // We bind a real loopback listener and register the instance under
+    // that port so the gateway's startup `probe_and_evict_dead_instances`
+    // sweep keeps the row alive. Without this the probe would evict our
+    // fake port=0 instance before we could observe it.
+    let dir = tempfile::tempdir().unwrap();
+    let gw_port = ephemeral_port();
+
+    // Keep an instance listener alive for the duration of the test so
+    // the gateway's port probe finds it reachable.
+    let instance_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let instance_port = instance_listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        loop {
+            // Accept and immediately drop — all we need is a listening socket.
+            let _ = instance_listener.accept().await;
+        }
+    });
+
+    let runner = make_runner_in(dir.path(), gw_port);
+    let entry = ServiceEntry::new("maya", "127.0.0.1", instance_port);
+    let instance_key = entry.key();
+    let handle = runner.start(entry, None).await.unwrap();
+
+    // In CI the port may have been snatched back by another test before
+    // `try_bind_port_opt` got there; only assert the sentinel-deregister
+    // semantics when we actually won.
+    if handle.is_gateway {
+        {
+            let reg = runner.registry.read().await;
+            assert!(
+                reg.get(&instance_key).is_some(),
+                "instance row must exist before shutdown"
+            );
+            assert_eq!(
+                reg.list_instances(GATEWAY_SENTINEL_DCC_TYPE).len(),
+                1,
+                "winner must have written one __gateway__ sentinel row"
+            );
+        }
+
+        drop(handle);
+
+        let reg = runner.registry.read().await;
+        assert!(
+            reg.get(&instance_key).is_none(),
+            "winner Drop must remove the instance row (issue #718)"
+        );
+        assert_eq!(
+            reg.list_instances(GATEWAY_SENTINEL_DCC_TYPE).len(),
+            0,
+            "winner Drop must remove the __gateway__ sentinel (issue #718)"
+        );
+    } else {
+        // Non-winner fallback — at least the instance row must go.
+        drop(handle);
+        let reg = runner.registry.read().await;
+        assert!(reg.get(&instance_key).is_none());
+    }
+}
