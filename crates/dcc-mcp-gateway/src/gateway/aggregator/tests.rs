@@ -296,3 +296,430 @@ async fn aggregate_tools_list_does_not_publish_single_instance_bare_aliases() {
     let _ = shutdown_tx.send(());
     server.await.unwrap();
 }
+
+// ── #731: prompts/list + prompts/get aggregation ─────────────────────
+//
+// Mirror of the tools aggregation tests above. Two fake backends with
+// disjoint prompt sets exercise:
+//   1. `aggregate_prompts_list` returns the merged set with correct
+//      per-backend cursor-safe prefixes.
+//   2. `route_prompts_get` decodes the prefix and routes to the
+//      owning backend.
+//   3. Zero-backend gateway returns `{"prompts": []}` instead of an
+//      error — a hard acceptance criterion from the issue.
+
+/// Spawn a tiny axum server that answers both `tools/list` (empty) and
+/// `prompts/list` / `prompts/get` with canned fixtures.
+///
+/// The caller supplies the per-backend prompt name and a marker text
+/// that the `prompts/get` route echoes back so we can assert the
+/// request landed on the intended backend.
+async fn spawn_prompts_backend(
+    prompt_name: &'static str,
+    echo_text: &'static str,
+) -> (String, tokio::sync::oneshot::Sender<()>) {
+    let app = axum::Router::new()
+        .route(
+            "/health",
+            axum::routing::get(|| async { axum::Json(json!({"ok": true})) }),
+        )
+        .route(
+            "/mcp",
+            axum::routing::post(move |body: axum::Json<Value>| async move {
+                let method = body.get("method").and_then(Value::as_str).unwrap_or("");
+                let id = body.get("id").cloned().unwrap_or(json!("gw-1"));
+                let result: Value = match method {
+                    "tools/list" => json!({"tools": []}),
+                    "prompts/list" => json!({
+                        "prompts": [{
+                            "name": prompt_name,
+                            "description": format!("Prompt from {echo_text}"),
+                            "arguments": [],
+                        }]
+                    }),
+                    "prompts/get" => {
+                        let requested = body
+                            .get("params")
+                            .and_then(|p| p.get("name"))
+                            .and_then(Value::as_str)
+                            .unwrap_or("");
+                        json!({
+                            "description": format!("Echo from {echo_text}"),
+                            "messages": [{
+                                "role": "user",
+                                "content": {
+                                    "type": "text",
+                                    "text": format!("{echo_text}:{requested}"),
+                                }
+                            }]
+                        })
+                    }
+                    _ => json!({}),
+                };
+                axum::Json(json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": result,
+                }))
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (tx, rx) = tokio::sync::oneshot::channel::<()>();
+    tokio::spawn(async move {
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async {
+                let _ = rx.await;
+            })
+            .await
+            .ok();
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    (format!("127.0.0.1:{port}"), tx)
+}
+
+/// Build a GatewayState with the supplied registry — same shape as the
+/// tools-aggregator test helper but extracted for reuse.
+async fn make_gateway_state(
+    registry: std::sync::Arc<
+        tokio::sync::RwLock<dcc_mcp_transport::discovery::file_registry::FileRegistry>,
+    >,
+) -> crate::gateway::GatewayState {
+    let (yield_tx, _) = tokio::sync::watch::channel(false);
+    let (events_tx, _) = tokio::sync::broadcast::channel::<String>(8);
+    crate::gateway::GatewayState {
+        registry,
+        stale_timeout: std::time::Duration::from_secs(30),
+        backend_timeout: std::time::Duration::from_secs(10),
+        async_dispatch_timeout: std::time::Duration::from_secs(60),
+        wait_terminal_timeout: std::time::Duration::from_secs(600),
+        server_name: "test".into(),
+        server_version: env!("CARGO_PKG_VERSION").into(),
+        own_host: "127.0.0.1".into(),
+        own_port: 0,
+        http_client: reqwest::Client::new(),
+        yield_tx: std::sync::Arc::new(yield_tx),
+        events_tx: std::sync::Arc::new(events_tx),
+        protocol_version: std::sync::Arc::new(tokio::sync::RwLock::new(None)),
+        resource_subscriptions: std::sync::Arc::new(tokio::sync::RwLock::new(
+            std::collections::HashMap::new(),
+        )),
+        pending_calls: std::sync::Arc::new(tokio::sync::RwLock::new(
+            std::collections::HashMap::new(),
+        )),
+        subscriber: crate::gateway::sse_subscriber::SubscriberManager::default(),
+        allow_unknown_tools: false,
+        adapter_version: None,
+        adapter_dcc: None,
+        tool_exposure: crate::gateway::GatewayToolExposure::Rest,
+        cursor_safe_tool_names: true,
+        capability_index: std::sync::Arc::new(crate::gateway::capability::CapabilityIndex::new()),
+    }
+}
+
+#[tokio::test]
+async fn aggregate_prompts_list_zero_backends_returns_empty_array() {
+    // Acceptance criterion: a gateway with no live backends must return
+    // `{"prompts": []}` — never `Method not found`.
+    let dir = tempfile::tempdir().unwrap();
+    let registry = std::sync::Arc::new(tokio::sync::RwLock::new(
+        dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
+    ));
+    let gs = make_gateway_state(registry).await;
+
+    let result = aggregate_prompts_list(&gs).await;
+    assert_eq!(result["prompts"], json!([]));
+}
+
+#[tokio::test]
+async fn aggregate_prompts_list_merges_and_prefixes_across_backends() {
+    let (addr_a, stop_a) = spawn_prompts_backend("bake_animation", "maya-A").await;
+    let (addr_b, stop_b) = spawn_prompts_backend("render_frame", "blender-B").await;
+
+    let dir = tempfile::tempdir().unwrap();
+    let registry = std::sync::Arc::new(tokio::sync::RwLock::new(
+        dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
+    ));
+    let (iid_a, iid_b) = {
+        let r = registry.read().await;
+        let (host_a, port_a) = parse_addr(&addr_a);
+        let (host_b, port_b) = parse_addr(&addr_b);
+        let entry_a =
+            dcc_mcp_transport::discovery::types::ServiceEntry::new("maya", host_a, port_a);
+        let entry_b =
+            dcc_mcp_transport::discovery::types::ServiceEntry::new("blender", host_b, port_b);
+        let ia = entry_a.instance_id;
+        let ib = entry_b.instance_id;
+        r.register(entry_a).unwrap();
+        r.register(entry_b).unwrap();
+        (ia, ib)
+    };
+
+    let gs = make_gateway_state(registry).await;
+    let result = aggregate_prompts_list(&gs).await;
+
+    let names: Vec<String> = result["prompts"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|p| p["name"].as_str().map(str::to_owned))
+        .collect();
+
+    let short_a = &iid_a.to_string().replace('-', "")[..8];
+    let short_b = &iid_b.to_string().replace('-', "")[..8];
+    let expected_a = format!("i_{short_a}__bake_U_animation");
+    let expected_b = format!("i_{short_b}__render_U_frame");
+
+    assert!(
+        names.iter().any(|n| n == &expected_a),
+        "expected {expected_a} in {names:?}"
+    );
+    assert!(
+        names.iter().any(|n| n == &expected_b),
+        "expected {expected_b} in {names:?}"
+    );
+    assert_eq!(names.len(), 2, "merged list must be the union: {names:?}");
+
+    let _ = stop_a.send(());
+    let _ = stop_b.send(());
+}
+
+#[tokio::test]
+async fn route_prompts_get_decodes_prefix_and_routes_to_owning_backend() {
+    let (addr_a, stop_a) = spawn_prompts_backend("bake_animation", "maya-A").await;
+    let (addr_b, stop_b) = spawn_prompts_backend("render_frame", "blender-B").await;
+
+    let dir = tempfile::tempdir().unwrap();
+    let registry = std::sync::Arc::new(tokio::sync::RwLock::new(
+        dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
+    ));
+    let (iid_a, iid_b) = {
+        let r = registry.read().await;
+        let (host_a, port_a) = parse_addr(&addr_a);
+        let (host_b, port_b) = parse_addr(&addr_b);
+        let entry_a =
+            dcc_mcp_transport::discovery::types::ServiceEntry::new("maya", host_a, port_a);
+        let entry_b =
+            dcc_mcp_transport::discovery::types::ServiceEntry::new("blender", host_b, port_b);
+        let ia = entry_a.instance_id;
+        let ib = entry_b.instance_id;
+        r.register(entry_a).unwrap();
+        r.register(entry_b).unwrap();
+        (ia, ib)
+    };
+
+    let gs = make_gateway_state(registry).await;
+    let short_a = &iid_a.to_string().replace('-', "")[..8];
+    let short_b = &iid_b.to_string().replace('-', "")[..8];
+    let wire_a = format!("i_{short_a}__bake_U_animation");
+    let wire_b = format!("i_{short_b}__render_U_frame");
+
+    let res_a = route_prompts_get(&gs, &wire_a, None, Some("rid-a".into()))
+        .await
+        .expect("routing to backend A must succeed");
+    let echo_a = res_a["messages"][0]["content"]["text"].as_str().unwrap();
+    assert_eq!(
+        echo_a, "maya-A:bake_animation",
+        "backend A must have seen the decoded bare name"
+    );
+
+    let res_b = route_prompts_get(&gs, &wire_b, None, Some("rid-b".into()))
+        .await
+        .expect("routing to backend B must succeed");
+    let echo_b = res_b["messages"][0]["content"]["text"].as_str().unwrap();
+    assert_eq!(echo_b, "blender-B:render_frame");
+
+    let _ = stop_a.send(());
+    let _ = stop_b.send(());
+}
+
+#[tokio::test]
+async fn route_prompts_get_with_unknown_prefix_returns_routing_error() {
+    // `decode_tool_name` succeeds (valid 8-hex prefix shape) but no
+    // backend owns that prefix — this path must surface a -32602
+    // without touching any backend.
+    let dir = tempfile::tempdir().unwrap();
+    let registry = std::sync::Arc::new(tokio::sync::RwLock::new(
+        dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
+    ));
+    let gs = make_gateway_state(registry).await;
+
+    let err = route_prompts_get(&gs, "i_deadbeef__whatever", None, None)
+        .await
+        .expect_err("unknown prefix must fail");
+    assert_eq!(err.code(), -32602);
+    assert!(err.message().contains("deadbeef"), "msg: {}", err.message());
+}
+
+/// Parse `127.0.0.1:12345` back into `(host, port)`.
+fn parse_addr(addr: &str) -> (&str, u16) {
+    let (h, p) = addr.rsplit_once(':').unwrap();
+    (h, p.parse().unwrap())
+}
+
+#[tokio::test]
+async fn gateway_mcp_initialize_advertises_prompts_capability() {
+    // End-to-end contract check: POST /mcp initialize must include
+    // `prompts: { listChanged: true }` in its capabilities object —
+    // hard acceptance criterion for issue #731.
+    let dir = tempfile::tempdir().unwrap();
+    let registry = std::sync::Arc::new(tokio::sync::RwLock::new(
+        dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
+    ));
+    let gs = make_gateway_state(registry).await;
+    let router = crate::gateway::build_gateway_router(gs);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, router)
+            .with_graceful_shutdown(async {
+                let _ = shutdown_rx.await;
+            })
+            .await
+            .unwrap();
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    let client = reqwest::Client::new();
+    let resp: Value = client
+        .post(format!("http://127.0.0.1:{port}/mcp"))
+        .json(&json!({
+            "jsonrpc": "2.0", "id": 1, "method": "initialize",
+            "params": {"protocolVersion": "2025-03-26"}
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    let caps = &resp["result"]["capabilities"];
+    assert_eq!(
+        caps["prompts"]["listChanged"],
+        json!(true),
+        "initialize response must advertise prompts.listChanged=true: {caps}"
+    );
+
+    // Zero-backend prompts/list MUST return `{"prompts": []}`, not a
+    // -32601 Method not found (issue #731 acceptance criterion).
+    let resp: Value = client
+        .post(format!("http://127.0.0.1:{port}/mcp"))
+        .json(&json!({
+            "jsonrpc": "2.0", "id": 2, "method": "prompts/list"
+        }))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(resp.get("error").is_none(), "must not be an error: {resp}");
+    assert_eq!(resp["result"]["prompts"], json!([]));
+
+    let _ = shutdown_tx.send(());
+    server.await.unwrap();
+}
+
+#[tokio::test]
+async fn compute_prompts_fingerprint_changes_when_backend_prompt_set_mutates() {
+    // The prompts watcher task broadcasts
+    // `notifications/prompts/list_changed` iff this fingerprint
+    // differs between polls. Verify that swapping a backend's
+    // published prompt produces a different fingerprint — this is
+    // the hysteresis unit the watcher's broadcast relies on.
+    use std::sync::{Arc, Mutex};
+
+    let state: Arc<Mutex<&'static str>> = Arc::new(Mutex::new("bake_animation"));
+    let state_clone = state.clone();
+
+    let app = axum::Router::new()
+        .route(
+            "/health",
+            axum::routing::get(|| async { axum::Json(json!({"ok": true})) }),
+        )
+        .route(
+            "/mcp",
+            axum::routing::post(move |body: axum::Json<Value>| {
+                let state = state_clone.clone();
+                async move {
+                    let method = body.get("method").and_then(Value::as_str).unwrap_or("");
+                    let id = body.get("id").cloned().unwrap_or(json!("gw-1"));
+                    let result: Value = match method {
+                        "prompts/list" => {
+                            let name = *state.lock().unwrap();
+                            json!({
+                                "prompts": [{
+                                    "name": name,
+                                    "description": "dynamic",
+                                    "arguments": [],
+                                }]
+                            })
+                        }
+                        _ => json!({"tools": []}),
+                    };
+                    axum::Json(json!({"jsonrpc":"2.0","id":id,"result":result}))
+                }
+            }),
+        );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app)
+            .with_graceful_shutdown(async {
+                let _ = shutdown_rx.await;
+            })
+            .await
+            .unwrap();
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    let dir = tempfile::tempdir().unwrap();
+    let registry = std::sync::Arc::new(tokio::sync::RwLock::new(
+        dcc_mcp_transport::discovery::file_registry::FileRegistry::new(dir.path()).unwrap(),
+    ));
+    {
+        let r = registry.read().await;
+        let entry =
+            dcc_mcp_transport::discovery::types::ServiceEntry::new("maya", "127.0.0.1", port);
+        r.register(entry).unwrap();
+    }
+    let client = reqwest::Client::new();
+
+    let fp_before = compute_prompts_fingerprint(
+        &registry,
+        std::time::Duration::from_secs(30),
+        &client,
+        std::time::Duration::from_secs(2),
+    )
+    .await;
+    assert!(
+        fp_before.contains("bake_animation"),
+        "initial fingerprint should include the first prompt name: {fp_before}"
+    );
+
+    // Swap the prompt set on the backend and re-fingerprint — the
+    // aggregated string must change, which is what drives the
+    // watcher's broadcast decision.
+    *state.lock().unwrap() = "render_frame";
+    let fp_after = compute_prompts_fingerprint(
+        &registry,
+        std::time::Duration::from_secs(30),
+        &client,
+        std::time::Duration::from_secs(2),
+    )
+    .await;
+    assert!(
+        fp_after.contains("render_frame"),
+        "post-swap fingerprint should include new prompt: {fp_after}"
+    );
+    assert_ne!(
+        fp_before, fp_after,
+        "mutation in backend prompt set must produce a different fingerprint"
+    );
+
+    let _ = shutdown_tx.send(());
+    server.await.unwrap();
+}
