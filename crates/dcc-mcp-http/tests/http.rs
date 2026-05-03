@@ -46,6 +46,9 @@ mod notifications;
 #[path = "http/prometheus_endpoint.rs"]
 mod prometheus_endpoint;
 
+#[path = "http/queue_readiness_harness.rs"]
+mod queue_readiness_harness;
+
 #[path = "http/resources.rs"]
 mod resources;
 
