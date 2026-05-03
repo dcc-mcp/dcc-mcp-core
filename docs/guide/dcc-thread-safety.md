@@ -140,6 +140,33 @@ Key invariants:
    no DCC host), the handler falls back to `spawn_blocking` and logs
    `tracing::warn!` so the misconfiguration is visible.
 
+### Sync-path parity (issue #716)
+
+The **sync** `tools/call` path follows the same rule as the async path:
+routing is driven by `ActionMeta.thread_affinity`, not by whether a
+`DeferredExecutor` happens to be wired. Before #716 the sync branch
+always ran through the executor whenever one existed, so every
+`ThreadAffinity::Any` sync tool contended with `Main`-affined tools for
+the same single-slot UI dispatcher.
+
+The invariant is now:
+
+> **`affinity: any` tools never block the host UI thread, regardless of
+> transport (sync or async) or DCC.**
+
+Concretely:
+
+- `ThreadAffinity::Main` + executor present → runs on DCC main thread via
+  `DeferredExecutor`.
+- `ThreadAffinity::Main` + no executor → falls back to `spawn_blocking`
+  with a warning (scene API calls would be unsafe).
+- `ThreadAffinity::Any` → always runs on a Tokio worker via
+  `spawn_blocking`, even when an executor is wired.
+
+Sync and async paths share this decision via
+`use_main_thread_route(thread_affinity, executor_present)` in
+`crates/dcc-mcp-http/src/handlers/tools_call/mod.rs`.
+
 #### Long-running async tools (cooperative contract)
 
 If your tool declares `long_running: true` or `timeout_hint_secs > 1`,

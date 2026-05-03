@@ -52,6 +52,7 @@ pub(super) async fn dispatch_sync_tool_call(
         &resolved.resolved_name,
         resolved.call_params.clone(),
         cancel_token.clone(),
+        resolved.action_meta.thread_affinity,
     )
     .await;
 
@@ -189,8 +190,29 @@ async fn execute_sync_dispatch(
     resolved_name: &str,
     call_params: Value,
     cancel_token: CancelToken,
+    thread_affinity: dcc_mcp_models::ThreadAffinity,
 ) -> Result<Value, String> {
-    if let Some(executor) = &state.executor {
+    // Issue #716: route based on the tool's declared `ThreadAffinity`, not on
+    // whether an executor is wired. `Any` tools must bypass the UI dispatcher
+    // even when we have one, or they fight `Main` tools for the same
+    // single-slot queue. See `super::use_main_thread_route` for the shared
+    // decision between sync and async paths.
+    let executor_present = state.executor.is_some();
+    let on_main = super::use_main_thread_route(thread_affinity, executor_present);
+
+    if matches!(thread_affinity, dcc_mcp_models::ThreadAffinity::Main) && !executor_present {
+        tracing::warn!(
+            tool = %resolved_name,
+            "sync tool declares thread_affinity=main but no DeferredExecutor is wired; \
+             falling back to Tokio worker — scene API calls will be unsafe"
+        );
+    }
+
+    if on_main {
+        let executor = state
+            .executor
+            .as_ref()
+            .expect("executor presence gated by use_main_thread_route");
         run_on_main_thread(
             state,
             executor,

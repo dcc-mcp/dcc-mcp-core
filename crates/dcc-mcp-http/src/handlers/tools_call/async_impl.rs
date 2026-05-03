@@ -98,9 +98,11 @@ fn spawn_async_execution(
     let spawn_job_id = job_id.clone();
     let spawn_name = resolved_name.clone();
     let spawn_params = call_params;
-    let use_main_thread = matches!(thread_affinity, dcc_mcp_models::ThreadAffinity::Main);
+    // Issue #716: use the shared routing helper so sync and async paths
+    // agree on "does this call need the UI dispatcher?".
+    let use_main_thread = super::use_main_thread_route(thread_affinity, executor.is_some());
 
-    if use_main_thread && executor.is_none() {
+    if matches!(thread_affinity, dcc_mcp_models::ThreadAffinity::Main) && executor.is_none() {
         tracing::warn!(
             tool = %spawn_name,
             "tool declares thread_affinity=main but no DeferredExecutor is wired; \

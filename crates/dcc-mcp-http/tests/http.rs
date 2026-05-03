@@ -48,3 +48,6 @@ mod prometheus_endpoint;
 
 #[path = "http/resources.rs"]
 mod resources;
+
+#[path = "http/sync_affinity_routing.rs"]
+mod sync_affinity_routing;
