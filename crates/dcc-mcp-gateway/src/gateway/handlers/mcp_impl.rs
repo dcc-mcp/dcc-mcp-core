@@ -225,9 +225,12 @@ async fn handle_resources_read(gs: &GatewayState, id: Value, req: &JsonRpcReques
         .to_owned();
 
     // #732: gateway-prefixed URIs (`<scheme>://<id8>/<rest>`) are
-    // forwarded to the owning backend, preserving the raw `result`
-    // payload — including `contents[].blob` entries for binary
-    // mime-types — byte-for-byte.
+    // forwarded to the owning backend. The raw `result` payload —
+    // including `contents[].blob` entries for binary mime-types — is
+    // preserved byte-for-byte; the only rewrite applied is
+    // `contents[].uri`, which is flipped from the backend URI back
+    // to the client-visible prefixed form so agents can match the
+    // returned resource to the URI they originally asked for.
     if let Some((id8, backend_uri)) = crate::gateway::namespace::decode_resource_uri(&uri) {
         let owning = aggregator::find_instance_by_prefix(gs, &id8).await;
         return match owning {
@@ -241,7 +244,10 @@ async fn handle_resources_read(gs: &GatewayState, id: Value, req: &JsonRpcReques
                 )
                 .await
                 {
-                    Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
+                    Ok(mut result) => {
+                        rewrite_content_uris(&mut result, &backend_uri, &uri);
+                        json!({"jsonrpc": "2.0", "id": id, "result": result})
+                    }
                     Err(e) => json!({
                         "jsonrpc": "2.0", "id": id,
                         "error": {"code": -32002, "message": format!("Backend resources/read failed: {e}")}
@@ -283,6 +289,27 @@ async fn handle_resources_read(gs: &GatewayState, id: Value, req: &JsonRpcReques
             "jsonrpc": "2.0", "id": id,
             "error": {"code": -32002, "message": format!("Resource not found: {uri}")}
         }),
+    }
+}
+
+/// Rewrite every ``contents[].uri`` in a `resources/read` result so it
+/// matches the client's original prefixed URI rather than the raw
+/// backend URI. Mirrors the `params.uri` rewrite performed in
+/// [`super::super::sse_subscriber::dispatch_resource_updated`]: both
+/// surfaces return the URI the client subscribed / read with (#732).
+fn rewrite_content_uris(result: &mut Value, backend_uri: &str, client_uri: &str) {
+    let Some(contents) = result.get_mut("contents").and_then(Value::as_array_mut) else {
+        return;
+    };
+    for entry in contents {
+        if let Some(obj) = entry.as_object_mut()
+            && obj
+                .get("uri")
+                .and_then(Value::as_str)
+                .is_some_and(|u| u == backend_uri)
+        {
+            obj.insert("uri".to_string(), Value::String(client_uri.to_string()));
+        }
     }
 }
 
@@ -348,11 +375,40 @@ async fn handle_resource_subscription(
                     );
                 }
 
+                // #732: the backend binds its per-session
+                // `notifications/resources/updated` fan-out to whichever
+                // `Mcp-Session-Id` the subscribe POST carried. Send the
+                // gateway's stable backend-session id so the backend
+                // pushes updates onto the same SSE stream the gateway
+                // subscriber loop is already reading. The id is minted
+                // by the subscriber's `initialize` handshake; wait a
+                // few hundred ms for it to land when `ensure_subscribed`
+                // only just spawned the loop.
+                let Some(backend_session_id) = gs
+                    .subscriber
+                    .wait_for_backend_session_id(&backend_url, std::time::Duration::from_secs(3))
+                    .await
+                else {
+                    if subscribe {
+                        gs.subscriber.unbind_resource_subscription(
+                            &backend_url,
+                            &backend_uri,
+                            session_id,
+                            &uri,
+                        );
+                    }
+                    return json!({
+                        "jsonrpc": "2.0", "id": id,
+                        "error": {"code": -32002, "message": format!("Backend {backend_url} SSE subscriber not yet ready; retry")}
+                    });
+                };
+
                 match crate::gateway::backend_client::subscribe_resource(
                     &gs.http_client,
                     &backend_url,
                     &backend_uri,
                     subscribe,
+                    &backend_session_id,
                     gs.backend_timeout,
                 )
                 .await

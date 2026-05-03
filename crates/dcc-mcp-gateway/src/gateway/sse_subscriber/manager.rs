@@ -308,6 +308,45 @@ impl SubscriberManager {
         );
     }
 
+    /// Return the stable `Mcp-Session-Id` the gateway uses for every
+    /// request to `backend_url` — both the long-lived SSE GET and any
+    /// forwarded JSON-RPC POST that must land on the same backend
+    /// session (e.g. `resources/subscribe` / `resources/unsubscribe`
+    /// under #732).
+    ///
+    /// Returns `None` when no subscriber exists for that URL yet, OR
+    /// when the subscriber has started but has not yet completed its
+    /// `initialize` handshake with the backend. Callers that hit this
+    /// path can retry after a short delay; in practice the handshake
+    /// completes within milliseconds of `ensure_subscribed`.
+    pub fn backend_session_id(&self, backend_url: &str) -> Option<String> {
+        self.inner
+            .backends
+            .get(backend_url)
+            .and_then(|entry| entry.shared.session_id.lock().clone())
+    }
+
+    /// Wait up to `budget` for the backend SSE subscriber to complete
+    /// its `initialize` handshake and publish a session id. Returns
+    /// `None` when either the subscriber does not exist or the
+    /// handshake did not land before the deadline.
+    pub async fn wait_for_backend_session_id(
+        &self,
+        backend_url: &str,
+        budget: std::time::Duration,
+    ) -> Option<String> {
+        let deadline = std::time::Instant::now() + budget;
+        loop {
+            if let Some(id) = self.backend_session_id(backend_url) {
+                return Some(id);
+            }
+            if std::time::Instant::now() >= deadline {
+                return None;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+    }
+
     /// Abort and remove any subscriber whose URL is **not** in `live_urls`.
     ///
     /// Called after each `FileRegistry` scan so that dead backends (ports that

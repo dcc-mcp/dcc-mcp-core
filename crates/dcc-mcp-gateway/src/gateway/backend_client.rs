@@ -406,12 +406,18 @@ pub async fn read_resource(
 /// Forward a `resources/subscribe` (or `resources/unsubscribe` when `subscribe`
 /// is `false`) to a backend.
 ///
+/// `session_id` is sent as `Mcp-Session-Id` so the backend binds the
+/// subscription to the gateway's long-lived SSE session — that is the
+/// only stream onto which the backend will push
+/// `notifications/resources/updated` for this URI (#732).
+///
 /// Returns the raw `result` JSON — typically `{}`.
 pub async fn subscribe_resource(
     client: &reqwest::Client,
     mcp_url: &str,
     uri: &str,
     subscribe: bool,
+    session_id: &str,
     timeout: Duration,
 ) -> Result<Value, String> {
     let method = if subscribe {
@@ -419,15 +425,47 @@ pub async fn subscribe_resource(
     } else {
         "resources/unsubscribe"
     };
-    call_backend(
-        client,
-        mcp_url,
-        method,
-        Some(json!({"uri": uri})),
-        None,
-        timeout,
-    )
-    .await
+    let req_body = JsonRpcRequestBuilder::new(uuid_like_id(), method)
+        .with_optional_params(Some(json!({"uri": uri})))
+        .to_value();
+
+    let resp = client
+        .post(mcp_url)
+        .timeout(timeout)
+        .header("content-type", "application/json")
+        .header("accept", "application/json")
+        .header("Mcp-Session-Id", session_id)
+        .body(req_body.to_string())
+        .send()
+        .await
+        .map_err(|e| format!("{mcp_url}: transport error: {e}"))?;
+
+    if !resp.status().is_success() {
+        return Err(format!(
+            "{mcp_url}: HTTP {}: {}",
+            resp.status(),
+            resp.text().await.unwrap_or_default()
+        ));
+    }
+
+    let text = resp
+        .text()
+        .await
+        .map_err(|e| format!("{mcp_url}: read body: {e}"))?;
+
+    let parsed: JsonRpcResponse = serde_json::from_str(&text)
+        .map_err(|e| format!("{mcp_url}: invalid JSON-RPC response: {e}"))?;
+
+    if let Some(err) = parsed.error {
+        return Err(format!(
+            "{mcp_url}: backend error {}: {}",
+            err.code, err.message
+        ));
+    }
+
+    parsed
+        .result
+        .ok_or_else(|| format!("{mcp_url}: empty JSON-RPC result"))
 }
 
 /// Forward a `tools/call` to a backend and return the raw result JSON.
@@ -970,26 +1008,42 @@ mod tests {
 
     #[tokio::test]
     async fn subscribe_resource_forwards_subscribe_and_unsubscribe_methods() {
-        // Verify the helper uses the correct method name and payload
-        // for both subscribe and unsubscribe.
-        let hits = Arc::new(parking_lot::Mutex::new(Vec::<String>::new()));
+        // Verify the helper uses the correct method name, payload, and
+        // Mcp-Session-Id header for both subscribe and unsubscribe.
+        let hits = Arc::new(parking_lot::Mutex::new(
+            Vec::<(String, Option<String>)>::new(),
+        ));
         let hits_clone = hits.clone();
-        let app = healthy_mcp_router(move |body: axum::Json<Value>| {
-            let hits = hits_clone.clone();
-            async move {
-                let method = body
-                    .get("method")
-                    .and_then(|m| m.as_str())
-                    .unwrap_or("")
-                    .to_owned();
-                hits.lock().push(method);
-                axum::Json(json!({
-                    "jsonrpc": "2.0",
-                    "id": body.get("id").cloned().unwrap_or(json!("gw-test")),
-                    "result": {}
-                }))
-            }
-        });
+        let app = axum::Router::new()
+            .route(
+                "/health",
+                axum::routing::get(|| async { axum::Json(json!({"ok": true})) }),
+            )
+            .route(
+                "/mcp",
+                axum::routing::post(
+                    move |headers: axum::http::HeaderMap, body: axum::Json<Value>| {
+                        let hits = hits_clone.clone();
+                        async move {
+                            let method = body
+                                .get("method")
+                                .and_then(|m| m.as_str())
+                                .unwrap_or("")
+                                .to_owned();
+                            let session = headers
+                                .get("mcp-session-id")
+                                .and_then(|v| v.to_str().ok())
+                                .map(str::to_owned);
+                            hits.lock().push((method, session));
+                            axum::Json(json!({
+                                "jsonrpc": "2.0",
+                                "id": body.get("id").cloned().unwrap_or(json!("gw-test")),
+                                "result": {}
+                            }))
+                        }
+                    },
+                ),
+            );
         let (mcp_url, stop) = spawn_fake_backend(app).await;
 
         let client = reqwest::Client::new();
@@ -998,6 +1052,7 @@ mod tests {
             &mcp_url,
             "scene://current",
             true,
+            "gw-sub-abc123",
             Duration::from_secs(2),
         )
         .await
@@ -1007,15 +1062,25 @@ mod tests {
             &mcp_url,
             "scene://current",
             false,
+            "gw-sub-abc123",
             Duration::from_secs(2),
         )
         .await
         .expect("unsubscribe must succeed");
 
         let recorded = hits.lock().clone();
+        assert_eq!(recorded.len(), 2);
+        assert_eq!(recorded[0].0, "resources/subscribe");
+        assert_eq!(recorded[1].0, "resources/unsubscribe");
         assert_eq!(
-            recorded,
-            vec!["resources/subscribe", "resources/unsubscribe"]
+            recorded[0].1.as_deref(),
+            Some("gw-sub-abc123"),
+            "Mcp-Session-Id must be forwarded on subscribe",
+        );
+        assert_eq!(
+            recorded[1].1.as_deref(),
+            Some("gw-sub-abc123"),
+            "Mcp-Session-Id must be forwarded on unsubscribe",
         );
         let _ = stop.send(());
     }
