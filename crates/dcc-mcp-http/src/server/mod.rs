@@ -114,7 +114,9 @@ impl McpServerHandle {
 /// temp dir when no registry dir is configured). Wiring the Python
 /// helpers to the same store is the caller's responsibility — see
 /// `dcc_mcp_artefact::python::set_default_store` for that path.
-fn build_resource_registry(config: &McpHttpConfig) -> crate::resources::ResourceRegistry {
+pub(crate) fn build_resource_registry(
+    config: &McpHttpConfig,
+) -> crate::resources::ResourceRegistry {
     if config.enable_artefact_resources {
         let root = config
             .registry_dir
@@ -300,6 +302,21 @@ impl McpHttpServer {
     /// returned `PyServerHandle`).
     pub fn with_live_meta(mut self, live_meta: LiveMeta) -> Self {
         self.live_meta = live_meta;
+        self
+    }
+
+    /// Replace the [`ResourceRegistry`](crate::resources::ResourceRegistry)
+    /// with a caller-supplied one (issue #730).
+    ///
+    /// Use this when the embedding layer needs to retain a handle to
+    /// the registry so it can push scene snapshots, register custom
+    /// producers, or wire an `OutputBuffer` **after** the server has
+    /// been constructed. The canonical caller is the PyO3 binding in
+    /// `crate::python::skill_server`, where `PyMcpHttpServer` pre-builds
+    /// the registry at construction time so `server.resources()` can
+    /// return the same instance both before and after `start()`.
+    pub fn with_resources(mut self, resources: crate::resources::ResourceRegistry) -> Self {
+        self.resources = resources;
         self
     }
 

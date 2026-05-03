@@ -215,7 +215,7 @@ fn json_value_to_py<'py>(py: Python<'py>, v: &serde_json::Value) -> PyResult<Bou
 ///     from dcc_mcp_core import McpHttpServer, McpHttpConfig
 ///     registry = ...
 ///     server = McpHttpServer(registry, McpHttpConfig(port=8765))
-///     server.resources().register_output_buffer(capture._buffer)
+///     server.resources().register_output_buffer(capture)
 ///     handle = server.start()
 #[pyclass(name = "OutputCapture")]
 pub struct PyOutputCapture {
