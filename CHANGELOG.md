@@ -11,6 +11,18 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.14.26](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.25...v0.14.26) (2026-05-03)
+
+
+### Bug Fixes
+
+* **release-please:** add x-release-please-version marker to llms.txt ([e0dc096](https://github.com/loonghao/dcc-mcp-core/commit/e0dc0961d31fbd27a4bc5c8ee13fa846431835f9))
+
+
+### Documentation
+
+* collapse per-agent MD files into thin shims pointing at AGENTS.md ([05f2f74](https://github.com/loonghao/dcc-mcp-core/commit/05f2f742d09f8359a766f70b8aed89b0da00cddf))
+
 ## [0.14.25](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.24...v0.14.25) (2026-05-03)
 
 
