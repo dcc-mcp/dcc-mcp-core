@@ -1,0 +1,23 @@
+prompts:
+  - name: bake_animation
+    description: Guide for baking a Maya rig animation to keyframes
+    arguments:
+      - name: frame_range
+        description: Frame range to bake (e.g. "1-100")
+        required: true
+      - name: sample_rate
+        description: Samples per frame
+        required: false
+    template: |
+      Bake the selected Maya rig across frames {{frame_range}} using
+      sample rate {{sample_rate}}. Report the final keyframe count.
+
+  - name: render_preview
+    description: Short render-preview instruction for Maya viewport
+    arguments:
+      - name: camera
+        description: Viewport camera name
+        required: true
+    template: |
+      Render a preview pass through camera {{camera}} at half
+      resolution. Save to the scene's images/ directory.

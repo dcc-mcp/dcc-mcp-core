@@ -28,6 +28,9 @@ mod gateway_dynamic_capabilities;
 #[path = "http/gateway_passthrough.rs"]
 mod gateway_passthrough;
 
+#[path = "http/gateway_prompts_e2e.rs"]
+mod gateway_prompts_e2e;
+
 #[path = "http/gateway_reachability.rs"]
 mod gateway_reachability;
 
