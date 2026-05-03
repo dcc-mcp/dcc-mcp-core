@@ -38,6 +38,13 @@ pub enum ServiceStatus {
     Unreachable,
     /// Service is shutting down.
     ShuttingDown,
+    /// Service process is alive but its embedded DCC host is still
+    /// initialising (`GET /v1/readyz` returns `503` with `dcc=false`
+    /// or `dispatcher=false`). Introduced in #713 to distinguish the
+    /// "Maya main thread busy with plugin init" window from a truly
+    /// dead backend — the row stays in the registry but no traffic
+    /// should be routed to it until readiness flips green.
+    Booting,
 }
 
 impl std::fmt::Display for ServiceStatus {
@@ -47,6 +54,7 @@ impl std::fmt::Display for ServiceStatus {
             Self::Busy => write!(f, "busy"),
             Self::Unreachable => write!(f, "unreachable"),
             Self::ShuttingDown => write!(f, "shutting_down"),
+            Self::Booting => write!(f, "booting"),
         }
     }
 }

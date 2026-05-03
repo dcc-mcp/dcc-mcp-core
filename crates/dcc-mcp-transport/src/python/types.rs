@@ -44,6 +44,11 @@ pub enum PyServiceStatus {
     /// Service is shutting down.
     #[pyo3(name = "SHUTTING_DOWN")]
     ShuttingDown,
+    /// Service process is alive but its embedded DCC host is still
+    /// initialising (three-state readiness probe returns red).
+    /// Introduced in dcc-mcp-core#713.
+    #[pyo3(name = "BOOTING")]
+    Booting,
 }
 
 #[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
@@ -60,6 +65,7 @@ impl PyServiceStatus {
             Self::Busy => "BUSY",
             Self::Unreachable => "UNREACHABLE",
             Self::ShuttingDown => "SHUTTING_DOWN",
+            Self::Booting => "BOOTING",
         }
     }
 }
@@ -72,6 +78,7 @@ impl From<ServiceStatus> for PyServiceStatus {
             ServiceStatus::Busy => PyServiceStatus::Busy,
             ServiceStatus::Unreachable => PyServiceStatus::Unreachable,
             ServiceStatus::ShuttingDown => PyServiceStatus::ShuttingDown,
+            ServiceStatus::Booting => PyServiceStatus::Booting,
         }
     }
 }

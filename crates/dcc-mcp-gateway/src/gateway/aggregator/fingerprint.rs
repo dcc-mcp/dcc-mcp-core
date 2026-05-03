@@ -57,6 +57,7 @@ pub(crate) async fn compute_tools_fingerprint_with_own(
                         e.status,
                         dcc_mcp_transport::discovery::types::ServiceStatus::ShuttingDown
                             | dcc_mcp_transport::discovery::types::ServiceStatus::Unreachable
+                            | dcc_mcp_transport::discovery::types::ServiceStatus::Booting
                     )
                     && match own_host {
                         Some(h) => !super::super::is_own_instance(e, h, own_port),

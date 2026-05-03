@@ -44,6 +44,11 @@ pub async fn aggregate_tools_list(gs: &GatewayState, cursor: Option<&str>) -> Va
     // so multi-instance setups do not blow up client context.
     if gs.tool_exposure.publishes_backend_tools() {
         // Issue #556: skip Unreachable instances so stale tools are not exposed.
+        // Issue #713: also skip Booting instances — their /v1/readyz is red so
+        // listing their tools would surface tool names the agent cannot yet
+        // invoke, producing the same "phantom tool" confusion we saw in the
+        // pre-#713 race. Both states keep their registry rows; only status
+        // Available is routable.
         let instances: Vec<_> = live_backends(gs)
             .await
             .into_iter()
@@ -51,6 +56,7 @@ pub async fn aggregate_tools_list(gs: &GatewayState, cursor: Option<&str>) -> Va
                 !matches!(
                     e.status,
                     dcc_mcp_transport::discovery::types::ServiceStatus::Unreachable
+                        | dcc_mcp_transport::discovery::types::ServiceStatus::Booting
                 )
             })
             .collect();

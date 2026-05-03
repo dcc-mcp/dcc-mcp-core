@@ -422,7 +422,11 @@ pub(crate) async fn start_gateway_tasks(
 
             for entry in entries {
                 let mcp_url = format!("http://{}:{}/mcp", entry.host, entry.port);
-                let reachable = crate::gateway::backend_client::probe_mcp_health(
+                // #713: three-state probe — distinguishes a booting
+                // backend (process alive, `/v1/readyz` returns 503) from
+                // a process-dead one. Booting backends keep their row
+                // but get status Booting until readiness flips green.
+                let outcome = crate::gateway::backend_client::probe_mcp_readiness(
                     &health_http_client,
                     &mcp_url,
                     Duration::from_secs(5),
@@ -430,9 +434,15 @@ pub(crate) async fn start_gateway_tasks(
                 .await;
 
                 let key = format!("{}:{}", entry.dcc_type, entry.instance_id);
-                if reachable {
-                    if failure_counts.remove(&key).is_some() {
-                        // Instance recovered — mark Available again.
+
+                // ── Ready ──────────────────────────────────────────
+                if outcome.is_ready() {
+                    let recovered_from_failure = failure_counts.remove(&key).is_some();
+                    let was_not_available = !matches!(
+                        entry.status,
+                        dcc_mcp_transport::discovery::types::ServiceStatus::Available,
+                    );
+                    if recovered_from_failure || was_not_available {
                         let r = reg_health.read().await;
                         let _ = r.update_status(
                             &entry.key(),
@@ -441,12 +451,42 @@ pub(crate) async fn start_gateway_tasks(
                         tracing::info!(
                             dcc_type = %entry.dcc_type,
                             instance_id = %entry.instance_id,
-                            "Health check recovered — marking Available"
+                            previous_status = %entry.status,
+                            "Readiness probe green — marking Available"
                         );
                     }
                     continue;
                 }
 
+                // ── Booting (alive but red) ────────────────────────
+                // Issue #713: don't count a booting backend as a
+                // consecutive failure and don't deregister it. We
+                // just flip its status to Booting so `list_dcc_instances`
+                // and the aggregator can filter traffic away from it.
+                if outcome.is_alive() {
+                    if !matches!(
+                        entry.status,
+                        dcc_mcp_transport::discovery::types::ServiceStatus::Booting,
+                    ) {
+                        let r = reg_health.read().await;
+                        let _ = r.update_status(
+                            &entry.key(),
+                            dcc_mcp_transport::discovery::types::ServiceStatus::Booting,
+                        );
+                        tracing::info!(
+                            dcc_type = %entry.dcc_type,
+                            instance_id = %entry.instance_id,
+                            previous_status = %entry.status,
+                            "Backend booting (GET /v1/readyz red) — marking Booting without deregister"
+                        );
+                    }
+                    // Clear any prior consecutive-failure tally: the
+                    // backend is alive, just not ready yet.
+                    failure_counts.remove(&key);
+                    continue;
+                }
+
+                // ── Unreachable ────────────────────────────────────
                 let count = failure_counts.entry(key.clone()).or_insert(0);
                 *count += 1;
                 tracing::warn!(

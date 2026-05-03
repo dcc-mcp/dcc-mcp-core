@@ -145,7 +145,9 @@ impl GatewayState {
                     && !e.is_stale(self.stale_timeout)
                     && !matches!(
                         e.status,
-                        ServiceStatus::ShuttingDown | ServiceStatus::Unreachable
+                        ServiceStatus::ShuttingDown
+                            | ServiceStatus::Unreachable
+                            | ServiceStatus::Booting
                     )
                     && !super::is_own_instance(e, &self.own_host, self.own_port)
                     && (self.allow_unknown_tools || !e.dcc_type.eq_ignore_ascii_case("unknown"))
