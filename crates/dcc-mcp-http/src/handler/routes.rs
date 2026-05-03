@@ -220,9 +220,18 @@ pub async fn handle_get(State(state): State<AppState>, headers: HeaderMap) -> Re
     let sse_stream = BroadcastStream::new(rx)
         .filter_map(|res| res.ok())
         .map(|data| {
-            // Each item is already a formatted SSE event string
-            // Parse it back to send as axum SSE Event
-            Ok::<_, std::convert::Infallible>(Event::default().data(data))
+            // `data` is already a formatted SSE record (ends with `\n\n`).
+            // Strip the outer `data: ` / trailing blank line so that
+            // axum's `Event::data()` re-wraps a *bare* JSON payload —
+            // otherwise the wire output is `data: data: {json}` which
+            // breaks every downstream SSE parser (including the
+            // gateway's own subscriber loop, #732).
+            let payload = data
+                .strip_prefix("data: ")
+                .and_then(|v| v.strip_suffix("\n\n"))
+                .map(str::to_owned)
+                .unwrap_or(data);
+            Ok::<_, std::convert::Infallible>(Event::default().data(payload))
         });
 
     Sse::new(sse_stream)
