@@ -49,13 +49,33 @@ pub fn scan_and_load_strict(
     extra_paths: Option<&[String]>,
     dcc_name: Option<&str>,
 ) -> Result<LoadResult, ResolveError> {
-    let result = scan_and_load(extra_paths, dcc_name)?;
-    if !result.skipped.is_empty() {
+    let mut scanner = SkillScanner::new();
+    let dirs = scanner.scan(extra_paths, dcc_name, false);
+    let missing_skill_md = SkillScanner::scan_explicit_directories_missing_skill_md(extra_paths);
+
+    let (skills, mut skipped) = load_all_skills(&dirs);
+    let resolved = resolver::resolve_dependencies(&skills)?;
+
+    for dir in missing_skill_md {
+        if !skipped.contains(&dir) {
+            tracing::warn!(
+                directory = %dir,
+                "Strict skill scan found a directory without SKILL.md; rejecting discovery"
+            );
+            skipped.push(dir);
+        }
+    }
+
+    if !skipped.is_empty() {
         return Err(ResolveError::SkippedDirectories {
-            directories: result.skipped,
+            directories: skipped,
         });
     }
-    Ok(result)
+
+    Ok(LoadResult {
+        skills: resolved.ordered,
+        skipped,
+    })
 }
 
 /// Lenient pipeline: scan, load, and resolve dependencies but skip unresolvable skills.

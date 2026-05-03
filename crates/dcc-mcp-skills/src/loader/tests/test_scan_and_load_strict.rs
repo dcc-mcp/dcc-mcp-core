@@ -23,6 +23,12 @@ fn write_broken_skill(base: &std::path::Path, name: &str) {
     .unwrap();
 }
 
+fn write_directory_without_skill_md(base: &std::path::Path, name: &str) {
+    let dir = base.join(name);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("README.md"), "# Not a skill\n").unwrap();
+}
+
 #[test]
 fn strict_returns_skills_when_no_directories_skipped() {
     let tmp = tempfile::tempdir().unwrap();
@@ -55,6 +61,27 @@ fn strict_errors_on_skipped_directory() {
         crate::resolver::ResolveError::SkippedDirectories { directories } => {
             assert_eq!(directories.len(), 1, "got: {directories:?}");
             assert!(directories[0].ends_with("broken"));
+        }
+        other => panic!("expected SkippedDirectories, got {other:?}"),
+    }
+}
+
+#[test]
+fn strict_errors_on_child_directory_without_skill_md() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_skill(tmp.path(), "good");
+    write_directory_without_skill_md(tmp.path(), "missing-skill-md");
+
+    let err = crate::loader::scan_and_load_strict(
+        Some(&[tmp.path().to_string_lossy().to_string()]),
+        None,
+    )
+    .unwrap_err();
+
+    match err {
+        crate::resolver::ResolveError::SkippedDirectories { directories } => {
+            assert_eq!(directories.len(), 1, "got: {directories:?}");
+            assert!(directories[0].ends_with("missing-skill-md"));
         }
         other => panic!("expected SkippedDirectories, got {other:?}"),
     }

@@ -109,7 +109,11 @@ impl SkillCatalog {
         }
 
         if !result.skipped.is_empty() {
-            tracing::debug!("SkillCatalog: skipped {} directories", result.skipped.len());
+            tracing::warn!(
+                count = result.skipped.len(),
+                skipped = ?result.skipped,
+                "SkillCatalog: skipped invalid or non-compliant skill directories during discovery"
+            );
         }
 
         tracing::info!(
@@ -159,6 +163,15 @@ impl SkillCatalog {
                         continue;
                     }
                 };
+
+            if !result.skipped.is_empty() {
+                tracing::warn!(
+                    scope = %scope,
+                    count = result.skipped.len(),
+                    skipped = ?result.skipped,
+                    "SkillCatalog::discover_scoped: skipped invalid or non-compliant skill directories during discovery"
+                );
+            }
 
             for skill in result.skills {
                 let name = skill.name.clone();

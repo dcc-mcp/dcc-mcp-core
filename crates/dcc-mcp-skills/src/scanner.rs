@@ -78,6 +78,67 @@ impl SkillScanner {
         self.skill_dirs.to_vec()
     }
 
+    /// Find child directories under explicit search paths that cannot be
+    /// loaded because they do not contain `SKILL.md`.
+    pub(crate) fn scan_explicit_directories_missing_skill_md(
+        extra_paths: Option<&[String]>,
+    ) -> Vec<String> {
+        let Some(extra_paths) = extra_paths else {
+            return Vec::new();
+        };
+        let mut seen = HashSet::new();
+        let unique_paths: Vec<String> = extra_paths
+            .iter()
+            .filter(|p| {
+                let abs = std::fs::canonicalize(p).unwrap_or_else(|e| {
+                    tracing::debug!("canonicalize({p:?}) failed ({e}), using raw path for dedup");
+                    PathBuf::from(p)
+                });
+                seen.insert(path_to_string(&abs))
+            })
+            .cloned()
+            .collect();
+        let mut missing = Vec::new();
+
+        for search_path in &unique_paths {
+            let path = Path::new(search_path);
+            if !path.is_dir() || path.join(SKILL_METADATA_FILE).is_file() {
+                continue;
+            }
+
+            let entries = match std::fs::read_dir(path) {
+                Ok(e) => e,
+                Err(e) => {
+                    tracing::warn!("Error scanning directory {}: {}", search_path, e);
+                    continue;
+                }
+            };
+
+            for entry in entries.filter_map(|e| match e {
+                Ok(entry) => Some(entry),
+                Err(err) => {
+                    tracing::warn!("Skipping unreadable entry in {search_path}: {err}");
+                    None
+                }
+            }) {
+                let ft = match entry.file_type() {
+                    Ok(ft) => ft,
+                    Err(_) => continue,
+                };
+                if !ft.is_dir() {
+                    continue;
+                }
+
+                let entry_path = entry.path();
+                if !entry_path.join(SKILL_METADATA_FILE).is_file() {
+                    missing.push(path_to_string(&entry_path));
+                }
+            }
+        }
+
+        missing
+    }
+
     /// Collect and deduplicate all skill search paths from various sources.
     ///
     /// Priority order (highest → lowest):
