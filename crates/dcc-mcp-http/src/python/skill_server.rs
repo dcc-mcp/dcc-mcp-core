@@ -33,6 +33,13 @@ pub struct PyMcpHttpServer {
     /// by [`PyMcpHttpServer::start`]; further `attach_dispatcher`
     /// calls after start are rejected.
     pub(crate) attached_executor: parking_lot::Mutex<Option<crate::executor::DccExecutorHandle>>,
+    /// Optional shared [`ReadinessProbe`] installed via
+    /// [`PyMcpHttpServer::set_readiness_probe`] (issue #714). When
+    /// present, it is wired into both the MCP `tools/call` gate and
+    /// the REST `POST /v1/call` handler, so adapters only need to
+    /// flip the bits on this one instance.
+    pub(crate) readiness_probe:
+        parking_lot::Mutex<Option<Arc<dyn dcc_mcp_skill_rest::ReadinessProbe>>>,
 }
 
 #[pymethods]
@@ -70,6 +77,7 @@ impl PyMcpHttpServer {
             runtime: Arc::new(runtime),
             live_meta,
             attached_executor: parking_lot::Mutex::new(None),
+            readiness_probe: parking_lot::Mutex::new(None),
         })
     }
 
@@ -144,6 +152,11 @@ impl PyMcpHttpServer {
         if let Some(executor) = self.attached_executor.lock().take() {
             server = server.with_executor(executor);
         }
+        // Issue #714 — propagate the shared readiness probe into the
+        // Rust server so both `/mcp` and `/v1/call` consult it.
+        if let Some(probe) = self.readiness_probe.lock().as_ref().cloned() {
+            server = server.with_readiness(probe);
+        }
         let handle = self
             .runtime
             .block_on(server.start())
@@ -161,6 +174,31 @@ impl PyMcpHttpServer {
             is_gateway,
             live_meta: self.live_meta.clone(),
         })
+    }
+
+    /// Install a shared :class:`ReadinessProbe` that gates DCC-touching
+    /// ``tools/call`` and ``POST /v1/call`` dispatches (issue #714).
+    ///
+    /// Call this **before** :meth:`start`. The same probe instance
+    /// backs both the MCP and REST surfaces, so a single
+    /// ``probe.set_dispatcher_ready(True); probe.set_dcc_ready(True)``
+    /// from the DCC adapter's boot-complete hook flips readiness
+    /// for every surface at once.
+    ///
+    /// Without a probe installed, the server defaults to the legacy
+    /// fully-ready behaviour — tests and standalone servers are
+    /// unaffected.
+    ///
+    /// Args:
+    ///     probe: A :class:`dcc_mcp_core.ReadinessProbe` instance.
+    #[pyo3(signature = (probe))]
+    fn set_readiness_probe(&self, probe: PyRef<'_, super::PyReadinessProbe>) -> PyResult<()> {
+        *self.readiness_probe.lock() = Some(probe.as_dyn());
+        tracing::info!(
+            "McpHttpServer: readiness probe installed — /mcp and /v1/call \
+             will share it (issue #714)"
+        );
+        Ok(())
     }
 
     /// Register a Python callable as the handler for ``action_name``.

@@ -40,6 +40,7 @@ pub fn make_app_state_many_tools() -> AppState {
         registry_generation: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
         enable_tool_cache: true,
         method_router: crate::handler::AppState::default_method_router(),
+        readiness: crate::handler::AppState::default_readiness(),
     }
 }
 

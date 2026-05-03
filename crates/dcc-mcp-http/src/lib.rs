@@ -125,7 +125,9 @@ pub use skill_rest::{
 pub use workspace::{WorkspaceResolveError, WorkspaceRoots};
 
 #[cfg(feature = "python-bindings")]
-pub use python::{PyMcpHttpConfig, PyMcpHttpServer, PyServerHandle, PyWorkspaceRoots};
+pub use python::{
+    PyMcpHttpConfig, PyMcpHttpServer, PyReadinessProbe, PyServerHandle, PyWorkspaceRoots,
+};
 
 #[cfg(test)]
 mod tests;

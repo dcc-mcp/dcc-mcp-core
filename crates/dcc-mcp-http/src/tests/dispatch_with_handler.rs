@@ -36,6 +36,7 @@ pub fn make_app_state_with_handler() -> AppState {
         registry_generation: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
         enable_tool_cache: true,
         method_router: crate::handler::AppState::default_method_router(),
+        readiness: crate::handler::AppState::default_readiness(),
     }
 }
 
@@ -86,6 +87,7 @@ fn make_router_with_handler_output(output: Value) -> axum::Router {
         registry_generation: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
         enable_tool_cache: true,
         method_router: crate::handler::AppState::default_method_router(),
+        readiness: crate::handler::AppState::default_readiness(),
     };
 
     Router::new()
@@ -261,6 +263,7 @@ pub async fn test_tools_call_handler_error() {
         registry_generation: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
         enable_tool_cache: true,
         method_router: crate::handler::AppState::default_method_router(),
+        readiness: crate::handler::AppState::default_readiness(),
     };
 
     use crate::handler::{handle_delete, handle_get, handle_post};

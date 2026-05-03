@@ -251,6 +251,9 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyBridgeContext>()?;
     m.add_class::<PyBridgeRegistry>()?;
     m.add_class::<PyWorkspaceRoots>()?;
+    // Shared readiness probe (issue #714) — adapters install one
+    // `ReadinessProbe` and both `/mcp` and `/v1/call` consult it.
+    m.add_class::<super::PyReadinessProbe>()?;
     // Dynamic tools + output capture (issues #462, #461)
     super::output_dynamic::register(m)?;
     m.add_function(wrap_pyfunction!(py_create_skill_server, m)?)?;
@@ -374,5 +377,6 @@ pub fn py_create_skill_server(
         runtime: Arc::new(runtime),
         live_meta,
         attached_executor: parking_lot::Mutex::new(None),
+        readiness_probe: parking_lot::Mutex::new(None),
     })
 }

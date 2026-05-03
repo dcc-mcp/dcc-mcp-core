@@ -17,6 +17,7 @@ use crate::{
     session::SessionManager,
 };
 use dcc_mcp_actions::{ActionDispatcher, ActionRegistry};
+use dcc_mcp_skill_rest::ReadinessProbe;
 use dcc_mcp_skills::SkillCatalog;
 
 mod background_impl;
@@ -144,6 +145,11 @@ pub struct McpHttpServer {
     /// Live scene/version that is sync'd to FileRegistry on every heartbeat.
     /// Updated via [`McpHttpServer::update_live_scene`].
     live_meta: LiveMeta,
+    /// Optional shared [`ReadinessProbe`] gating DCC-touching
+    /// `tools/call` dispatches (issue #714). When `None`, the server
+    /// falls back to [`AppState::default_readiness`] (fully-ready) so
+    /// existing embedders keep working unchanged.
+    readiness: Option<Arc<dyn ReadinessProbe>>,
 }
 
 impl McpHttpServer {
@@ -174,6 +180,7 @@ impl McpHttpServer {
             resources,
             prompts,
             live_meta,
+            readiness: None,
         }
     }
 
@@ -203,6 +210,7 @@ impl McpHttpServer {
             resources,
             prompts,
             live_meta,
+            readiness: None,
         }
     }
 
@@ -282,6 +290,22 @@ impl McpHttpServer {
     /// returned `PyServerHandle`).
     pub fn with_live_meta(mut self, live_meta: LiveMeta) -> Self {
         self.live_meta = live_meta;
+        self
+    }
+
+    /// Install a shared three-state [`ReadinessProbe`] (issue #714).
+    ///
+    /// The same probe is wired into **both** the MCP `tools/call`
+    /// handler and the REST `POST /v1/call` handler, so a single
+    /// `probe.set_dispatcher_ready(true); probe.set_dcc_ready(true)`
+    /// from the hosting DCC adapter (e.g. `dcc-mcp-maya`) flips
+    /// readiness for every surface at once.
+    ///
+    /// When not installed, the server defaults to
+    /// [`AppState::default_readiness`] (fully-ready) so existing
+    /// standalone embedders and tests do not regress.
+    pub fn with_readiness(mut self, probe: Arc<dyn ReadinessProbe>) -> Self {
+        self.readiness = Some(probe);
         self
     }
 
@@ -387,12 +411,21 @@ impl McpHttpServer {
             }
         }
 
+        // Issue #714 — the same ReadinessProbe instance backs both
+        // `POST /v1/call` (REST) and `POST /mcp` (MCP tools/call), so
+        // one flip from the DCC adapter gates every surface at once.
+        let readiness = self
+            .readiness
+            .clone()
+            .unwrap_or_else(AppState::default_readiness);
+
         let mut rest_config = dcc_mcp_skill_rest::SkillRestConfig::new(
             dcc_mcp_skill_rest::SkillRestService::from_catalog_and_dispatcher(
                 catalog.clone(),
                 self.dispatcher.clone(),
             ),
-        );
+        )
+        .with_readiness(readiness.clone());
         rest_config.server_title = self.config.server_name.clone();
         rest_config.server_version = self.config.server_version.clone();
         let rest_router = dcc_mcp_skill_rest::build_skill_rest_router(rest_config);
@@ -423,6 +456,7 @@ impl McpHttpServer {
             #[cfg(feature = "prometheus")]
             prometheus: prometheus.clone(),
             method_router: AppState::default_method_router(),
+            readiness,
         };
 
         let endpoint = self.config.endpoint_path.clone();

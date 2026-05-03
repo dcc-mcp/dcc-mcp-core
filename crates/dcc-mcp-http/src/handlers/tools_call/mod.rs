@@ -100,6 +100,18 @@ pub async fn handle_tools_call_inner(
         ToolCallResolution::Dispatch(resolved) => *resolved,
     };
 
+    // Issue #714 — readiness gate. Runs *after* `resolve_tool_call` so
+    // discovery/introspection tools (`list_skills`, `search_skills`,
+    // `load_skill`, `list_dynamic_tools`, `jobs.get_status`, …) — which
+    // take the early-return `ToolCallResolution::Response` branch —
+    // bypass the gate. Only DCC-touching actions reach this point, so a
+    // red probe reliably refuses work that would otherwise queue on
+    // `DeferredExecutor` / `QueueDispatcher` while the DCC is still
+    // booting.
+    if let Some(response) = readiness_gate(state, req, &resolved.tool_name) {
+        return Ok(response);
+    }
+
     if let Some(async_cfg) = async_dispatch_config(&resolved.params, &resolved.action_meta) {
         return dispatch_async_job(
             state,
@@ -115,4 +127,50 @@ pub async fn handle_tools_call_inner(
     }
 
     dispatch_sync_tool_call(state, req, session_id, resolved).await
+}
+
+/// Refuse DCC-touching `tools/call` dispatches when the shared
+/// [`ReadinessProbe`](dcc_mcp_skill_rest::ReadinessProbe) is red
+/// (issue #714).
+///
+/// Returns `None` when the probe reports ready, so the caller can
+/// continue with the normal dispatch path. When the probe is red,
+/// returns a `JsonRpcResponse` carrying error code
+/// [`BACKEND_NOT_READY`](crate::protocol::error_codes::BACKEND_NOT_READY)
+/// with a structured `data` payload echoing the three-state report so
+/// clients can back off with context.
+fn readiness_gate(
+    state: &AppState,
+    req: &JsonRpcRequest,
+    tool_name: &str,
+) -> Option<JsonRpcResponse> {
+    let report = state.readiness.report();
+    if report.is_ready() {
+        return None;
+    }
+    tracing::warn!(
+        tool = tool_name,
+        readiness.process = report.process,
+        readiness.dispatcher = report.dispatcher,
+        readiness.dcc = report.dcc,
+        "tools/call refused: backend not ready (issue #714)"
+    );
+    Some(JsonRpcResponse::error_with_data(
+        req.id.clone(),
+        crate::protocol::error_codes::BACKEND_NOT_READY,
+        format!(
+            "Backend is not ready yet: process={}, dispatcher={}, dcc={}. \
+             Refusing to queue `tools/call` for `{tool_name}` — retry once \
+             `/v1/readyz` reports ready.",
+            report.process, report.dispatcher, report.dcc
+        ),
+        Some(serde_json::json!({
+            "tool": tool_name,
+            "readiness": {
+                "process": report.process,
+                "dispatcher": report.dispatcher,
+                "dcc": report.dcc,
+            },
+        })),
+    ))
 }

@@ -68,6 +68,17 @@ pub mod error_codes {
     /// advertise any MCP `roots` on this session. The error `data` carries
     /// the original path.
     pub const NO_WORKSPACE_ROOTS: i64 = -32602;
+
+    /// Issue #714 — the hosting DCC backend has not finished initialising
+    /// yet (dispatcher not wired or DCC host still booting), so a
+    /// `tools/call` that would otherwise be queued on the
+    /// `DeferredExecutor` / `QueueDispatcher` is refused synchronously.
+    ///
+    /// The error `data` payload carries the three-state
+    /// [`ReadinessReport`](../../dcc_mcp_skill_rest/readiness/struct.ReadinessReport.html)
+    /// (`process`, `dispatcher`, `dcc`) plus the requested `tool` name so
+    /// clients can surface context in their back-off messaging.
+    pub const BACKEND_NOT_READY: i64 = -32002;
 }
 
 impl JsonRpcResponse {

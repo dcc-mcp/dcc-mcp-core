@@ -58,6 +58,7 @@ use crate::{
     session::SessionManager,
 };
 use dcc_mcp_actions::{ActionDispatcher, ActionRegistry};
+use dcc_mcp_skill_rest::{ReadinessProbe, StaticReadiness};
 use dcc_mcp_skills::SkillCatalog;
 
 /// How long a cancellation record is kept before being garbage-collected.
@@ -166,6 +167,21 @@ pub struct AppState {
     /// additional handlers via [`AppState::register_method`] before the
     /// server starts serving requests.
     pub method_router: Arc<super::router::MethodRouter>,
+    /// Shared three-state readiness probe gating DCC-touching
+    /// `tools/call` dispatches (issue #714).
+    ///
+    /// This is the **same** `Arc<dyn ReadinessProbe>` that is wired
+    /// into the sibling `dcc_mcp_skill_rest` router, so `POST /mcp`
+    /// (JSON-RPC `tools/call`) and `POST /v1/call` (REST) consult a
+    /// single source of truth about whether the backend is ready.
+    ///
+    /// Defaults to [`StaticReadiness::fully_ready`] for standalone
+    /// embedders and existing tests; DCC adapters (Maya, Blender…)
+    /// should install a probe they flip from `false → true` once the
+    /// host has finished booting. Control tools (`list_skills`,
+    /// `search_skills`, `load_skill`, …) **bypass** the gate so agents
+    /// can still discover and introspect during boot.
+    pub readiness: Arc<dyn ReadinessProbe>,
 }
 
 impl AppState {
@@ -199,6 +215,19 @@ impl AppState {
     /// pre-populated with every built-in MCP method (issue #492).
     pub fn default_method_router() -> Arc<super::router::MethodRouter> {
         Arc::new(super::router::MethodRouter::with_builtins())
+    }
+
+    /// Build the default [`ReadinessProbe`] — a `StaticReadiness`
+    /// locked to the fully-ready state (issue #714).
+    ///
+    /// This preserves the pre-#714 behaviour for existing tests and
+    /// standalone embedders that do not wire a real probe. DCC
+    /// adapters should install their own `Arc<dyn ReadinessProbe>`
+    /// via [`McpHttpServer::with_readiness`](crate::McpHttpServer::with_readiness)
+    /// so the state can be flipped from `false → true` once the host
+    /// has finished booting.
+    pub fn default_readiness() -> Arc<dyn ReadinessProbe> {
+        Arc::new(StaticReadiness::fully_ready())
     }
 
     /// Register a custom [`MethodHandler`](super::router::MethodHandler)
