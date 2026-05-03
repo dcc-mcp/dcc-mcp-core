@@ -170,6 +170,7 @@ Gateway / slim / REST exposure:
 | Full-screen capture | `Capturer.new_auto().capture()` |
 | Single-window capture | `Capturer.new_window_auto().capture_window(...)` |
 | Capture DCC output streams | `OutputCapture` — stdout/stderr/script-editor as `output://` resource |
+| Register a custom DCC resource | `server.resources().register_producer("maya-cmds://", cb)` — also `set_scene({...})`, `notify_updated(uri)`, `register_output_buffer(capture)` (#730) |
 | Cooperative cancellation (MCP request) | `check_cancelled()` in long-running skill scripts |
 | Cooperative cancellation (DCC dispatcher + MCP) | `check_dcc_cancelled()` — combines MCP token + per-job `JobHandle` (#522) |
 | Detect a misconfigured GUI binary as `DCC_MCP_PYTHON_EXECUTABLE` | `is_gui_executable(path)` → `GuiExecutableHint(dcc_kind, recommended_replacement)` (#524) |

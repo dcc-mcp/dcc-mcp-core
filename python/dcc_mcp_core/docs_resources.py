@@ -436,15 +436,16 @@ def register_docs_resource(
     """Register a single ``docs://`` resource on *server*.
 
     The resource is added to the in-process docs registry and served via
-    ``resources/list`` + ``resources/read``.
+    ``resources/list`` + ``resources/read`` by pushing a Python producer
+    into the shared ``ResourceRegistry`` (issue #730).
 
     Parameters
     ----------
     server:
-        An ``McpHttpServer`` or compatible object exposing
-        ``server.add_docs_resource(uri, name, description, content, mime)``.
-        If the method is not present, this function logs a warning and returns
-        gracefully so callers do not need to guard against older server versions.
+        An ``McpHttpServer`` exposing ``server.resources()`` (issue #730).
+        If ``server.resources`` is unavailable (older wheel), this function
+        logs a debug message and returns gracefully so callers do not need
+        to guard against older server versions.
     uri:
         Full URI string starting with ``docs://``.
     name:
@@ -461,12 +462,52 @@ def register_docs_resource(
         logger.warning("register_docs_resource: URI must start with 'docs://' — got %r", uri)
         return
     _DOCS[uri] = {"name": name, "description": description, "mime": mime, "content": content}
-    try:
-        server.add_docs_resource(uri=uri, name=name, description=description, content=content, mime=mime)
-    except AttributeError:
-        logger.debug("register_docs_resource: server.add_docs_resource not available (Rust-side pending)")
-    except Exception as exc:
-        logger.warning("register_docs_resource: %s", exc)
+
+    # Prefer the new Rust-backed surface (issue #730). Fall back to the
+    # legacy ``server.add_docs_resource(...)`` method for hand-rolled
+    # fakes that predate the binding — test fixtures in this repo and
+    # downstream adapters still rely on the old API.
+    get_resources = getattr(server, "resources", None)
+    if callable(get_resources):
+        try:
+            handle = get_resources()
+        except Exception as exc:
+            logger.warning("register_docs_resource: server.resources() failed: %s", exc)
+            handle = None
+        register_producer = getattr(handle, "register_producer", None) if handle is not None else None
+        if register_producer is not None:
+
+            def _producer(_uri: str) -> dict[str, str]:
+                entry = _DOCS.get(_uri)
+                if entry is None:
+                    # The MCP reader already validated the scheme; unknown
+                    # path under docs:// means the caller asked for a URI
+                    # we don't know about. Return an empty body to keep
+                    # the surface honest without raising a hard error.
+                    return {"mimeType": "text/plain", "text": ""}
+                return {
+                    "mimeType": entry.get("mime", "text/markdown"),
+                    "text": entry["content"],
+                }
+
+            try:
+                register_producer(uri, _producer)
+            except Exception as exc:
+                logger.warning("register_docs_resource: register_producer failed: %s", exc)
+            return
+
+    add_docs_resource = getattr(server, "add_docs_resource", None)
+    if callable(add_docs_resource):
+        try:
+            add_docs_resource(uri=uri, name=name, description=description, content=content, mime=mime)
+        except Exception as exc:
+            logger.warning("register_docs_resource: add_docs_resource failed: %s", exc)
+        return
+
+    logger.debug(
+        "register_docs_resource: neither server.resources() nor server.add_docs_resource "
+        "available — rebuild the dcc-mcp-core wheel",
+    )
 
 
 def register_docs_resources_from_dir(

@@ -128,9 +128,40 @@ def test_register_docs_server():
     server = MagicMock()
     register_docs_server(server)
 
-    # add_docs_resource should have been called for each built-in
+    # After issue #730 the shim routes each resource through
+    # ``server.resources().register_producer(uri, callable)`` — assert
+    # one call per built-in URI and that each URI is preserved.
     expected_count = len(get_builtin_docs_uris())
-    assert server.add_docs_resource.call_count == expected_count
+    handle = server.resources.return_value
+    assert handle.register_producer.call_count == expected_count
+    registered_uris = {call.args[0] for call in handle.register_producer.call_args_list}
+    assert registered_uris == set(get_builtin_docs_uris())
+
+
+def test_register_docs_resource_producer_returns_payload():
+    """Issue #730 — the callable handed to register_producer must return
+    ``{"mimeType": ..., "text": ...}`` so the Rust side can wrap it into
+    a ``ProducerContent::Text``.
+    """
+    from dcc_mcp_core.docs_resources import register_docs_resource
+
+    server = MagicMock()
+    register_docs_resource(
+        server,
+        uri="docs://custom/test-payload",
+        name="Payload Test",
+        description="Fixture for the producer callable round-trip.",
+        content="# Hello",
+        mime="text/markdown",
+    )
+
+    handle = server.resources.return_value
+    assert handle.register_producer.call_count == 1
+    args = handle.register_producer.call_args.args
+    assert args[0] == "docs://custom/test-payload"
+    callable_fn = args[1]
+    out = callable_fn("docs://custom/test-payload")
+    assert out == {"mimeType": "text/markdown", "text": "# Hello"}
 
 
 def test_importable_from_top_level():

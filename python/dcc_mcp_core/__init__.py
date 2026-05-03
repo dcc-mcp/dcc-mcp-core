@@ -113,6 +113,14 @@ try:
 except ImportError:  # pragma: no cover — pre-built wheel
     OutputCapture = None  # type: ignore[assignment,misc]
 
+# ResourceRegistry PyO3 handle — let adapters push scene snapshots,
+# register custom producers, and wire output buffers (issue #730).
+# Only present after the wheel is rebuilt with the new dcc-mcp-http code.
+try:
+    from dcc_mcp_core._core import ResourceHandle  # type: ignore[attr-defined]
+except ImportError:  # pragma: no cover — pre-built wheel
+    ResourceHandle = None  # type: ignore[assignment,misc]
+
 from dcc_mcp_core._core import PromptArgument
 from dcc_mcp_core._core import PromptDefinition
 
@@ -650,6 +658,7 @@ __all__ = [
     "RenderOutput",
     "ResourceAnnotations",
     "ResourceDefinition",
+    "ResourceHandle",
     "ResourceTemplateDefinition",
     "ResponseShapePolicy",
     "RetryPolicy",

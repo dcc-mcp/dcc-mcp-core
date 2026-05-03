@@ -28,6 +28,13 @@ pub struct PyMcpHttpServer {
     /// Shared live metadata — written by Python via `update_scene()` /
     /// `update_gateway_metadata()`; propagated to FileRegistry each heartbeat.
     pub(crate) live_meta: Arc<RwLock<LiveMetaInner>>,
+    /// Shared [`crate::resources::ResourceRegistry`] (issue #730).
+    ///
+    /// Built at construction time using the same
+    /// [`crate::server::build_resource_registry`] the server would
+    /// have used internally, so `server.resources()` returns the same
+    /// registry that backs `/mcp` both before and after `start()`.
+    pub(crate) resources: crate::resources::ResourceRegistry,
     /// Optional DCC main-thread executor attached via
     /// [`PyMcpHttpServer::attach_dispatcher`]. Consumed exactly once
     /// by [`PyMcpHttpServer::start`]; further `attach_dispatcher`
@@ -69,6 +76,11 @@ impl PyMcpHttpServer {
             version: cfg.dcc_version.clone(),
             ..Default::default()
         }));
+        // Issue #730 — build the ResourceRegistry up-front and share it
+        // between this Python handle and the inner McpHttpServer when
+        // start() runs. Using the canonical `build_resource_registry`
+        // keeps artefact-store wiring consistent with the Rust path.
+        let resources = crate::server::build_resource_registry(&cfg);
         Ok(Self {
             registry: reg,
             dispatcher,
@@ -76,6 +88,7 @@ impl PyMcpHttpServer {
             config: cfg,
             runtime: Arc::new(runtime),
             live_meta,
+            resources,
             attached_executor: parking_lot::Mutex::new(None),
             readiness_probe: parking_lot::Mutex::new(None),
         })
@@ -144,7 +157,8 @@ impl PyMcpHttpServer {
             self.config.clone(),
         )
         .with_dispatcher(self.dispatcher.clone())
-        .with_live_meta(self.live_meta.clone());
+        .with_live_meta(self.live_meta.clone())
+        .with_resources(self.resources.clone());
         // If a dispatcher was attached, drain it into the server's
         // main-thread executor slot. Consumed once — further
         // attach_dispatcher calls after start will be rejected by
@@ -419,6 +433,28 @@ impl PyMcpHttpServer {
     #[getter]
     fn registry(&self) -> ActionRegistry {
         (*self.registry).clone()
+    }
+
+    /// Access the server's :class:`ResourceHandle` for pushing scene
+    /// snapshots, registering custom producers, and wiring output
+    /// buffers (issue #730).
+    ///
+    /// The returned handle is a thin wrapper around the shared
+    /// [`crate::resources::ResourceRegistry`]: mutations take effect
+    /// immediately and are reflected in ``resources/list`` /
+    /// ``resources/read`` both before and after :meth:`start`.
+    ///
+    /// Example::
+    ///
+    ///     server = McpHttpServer(registry, McpHttpConfig(port=8765))
+    ///     server.resources().set_scene({"nodes": []})
+    ///     server.resources().register_producer(
+    ///         "maya-cmds://",
+    ///         lambda uri: {"mimeType": "text/plain", "text": "ls -l"},
+    ///     )
+    ///     handle = server.start()
+    fn resources(&self) -> super::resources_handle::PyResourceHandle {
+        super::resources_handle::PyResourceHandle::new(self.resources.clone())
     }
 
     /// Access the server's SkillCatalog for progressive skill loading.

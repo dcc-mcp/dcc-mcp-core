@@ -256,6 +256,8 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<super::PyReadinessProbe>()?;
     // Dynamic tools + output capture (issues #462, #461)
     super::output_dynamic::register(m)?;
+    // ResourceRegistry PyO3 handle (issue #730)
+    super::resources_handle::register(m)?;
     m.add_function(wrap_pyfunction!(py_create_skill_server, m)?)?;
     m.add_function(wrap_pyfunction!(py_get_bridge_context, m)?)?;
     m.add_function(wrap_pyfunction!(py_register_bridge, m)?)?;
@@ -369,6 +371,7 @@ pub fn py_create_skill_server(
         version: cfg.dcc_version.clone(),
         ..Default::default()
     }));
+    let resources = crate::server::build_resource_registry(&cfg);
     Ok(PyMcpHttpServer {
         registry: reg,
         dispatcher,
@@ -376,6 +379,7 @@ pub fn py_create_skill_server(
         config: cfg,
         runtime: Arc::new(runtime),
         live_meta,
+        resources,
         attached_executor: parking_lot::Mutex::new(None),
         readiness_probe: parking_lot::Mutex::new(None),
     })

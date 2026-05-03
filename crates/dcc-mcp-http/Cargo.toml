@@ -78,6 +78,11 @@ axum-test = "20"
 rstest = "0.26"
 tempfile = "3"
 dcc-mcp-sandbox = { path = "../dcc-mcp-sandbox" }
+# Enable `auto-initialize` only during testing so the in-crate Rust
+# tests that exercise PyO3 surface (e.g. `python::resources_handle`
+# issue #730) can spin up an embedded Python interpreter automatically.
+# Production wheels do NOT pull this in.
+pyo3 = { workspace = true, features = ["auto-initialize"] }
 
 [features]
 default = []
