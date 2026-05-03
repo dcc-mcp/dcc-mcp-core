@@ -6,16 +6,36 @@ name: CI
 on:
   pull_request:
     branches: [main]
-    paths-ignore:
-      - "docs/**"
-      - "**/*.md"
-      - "llms*.txt"
+    paths:
+      - "crates/**"
+      - "python/**"
+      - "src/**"
+      - "tests/**"
+      - "examples/**"
+      - "skills/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "justfile"
+      - "pyproject.toml"
+      - "rust-toolchain.toml"
+      - ".github/workflows/ci.yml"
+      - ".github/actions/build-wheel/**"
   push:
     branches: [main]
-    paths-ignore:
-      - "docs/**"
-      - "**/*.md"
-      - "llms*.txt"
+    paths:
+      - "crates/**"
+      - "python/**"
+      - "src/**"
+      - "tests/**"
+      - "examples/**"
+      - "skills/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "justfile"
+      - "pyproject.toml"
+      - "rust-toolchain.toml"
+      - ".github/workflows/ci.yml"
+      - ".github/actions/build-wheel/**"
 
 permissions:
   contents: read
@@ -69,12 +89,16 @@ jobs:
           python-version: "3.14"
       - uses: loonghao/vx@v0.8.33
       - name: Install build tools
-        run: pip install maturin twine
+        run: pip install maturin
         shell: bash
       - name: Build wheel
         run: vx just build
-      - name: Check wheel metadata
-        run: twine check --strict dist/*
+      - name: Check wheel contents
+        # Single validation step per wheel build: check-wheel-contents covers
+        # metadata + structure. The composite action at .github/actions/build-wheel
+        # runs the same check (action.yml:108). We intentionally do not run
+        # `twine check` here to avoid duplicate overlapping validation.
+        run: vx uvx --python 3.12 check-wheel-contents --ignore W004 dist/*.whl
         shell: bash
       - uses: actions/upload-artifact@v7
         with:
@@ -174,8 +198,8 @@ jobs:
   # Exercises the full HTTP stack from outside the process:
   #   tools/list, tools/call, find_skills, load_skill, unload_skill,
   #   progressive loading (discover -> load -> call -> unload)
-  # See also .github/workflows/e2e-api.yml for the sectioned variant that
-  # runs the same test file split by concern for easier failure triage.
+  # Reuses the wheel artifact from `build-wheel` (ubuntu-latest) to avoid
+  # rebuilding the same wheel in a separate workflow.
   mcporter-e2e:
     name: mcporter e2e
     needs: [build-wheel]
