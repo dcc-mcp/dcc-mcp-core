@@ -54,6 +54,7 @@ import contextlib
 import logging
 import os
 from pathlib import Path
+import sys
 from typing import Any
 
 # NOTE: dcc_mcp_core imports (McpHttpConfig, create_skill_server, get_*,
@@ -206,6 +207,18 @@ class DccServerBase:
         # Start as early as possible so that config / skill-scan errors land in
         # the log file, not just on stderr (which most DCCs swallow).
         self._log_dir: str = self._init_file_logging(dcc_name)
+
+        # Emit a single version banner so CI logs and user bug reports always
+        # identify the dcc-mcp-core release in use (pid/platform included to
+        # disambiguate multi-process DCCs like Maya + mayapy subprocesses).
+        logger.info(
+            "[%s] dcc-mcp-core %s (pid=%d, python=%s, platform=%s)",
+            dcc_name,
+            _pkg_version,
+            self._dcc_pid,
+            "{}.{}.{}".format(*sys.version_info[:3]),
+            sys.platform,
+        )
 
         # Build McpHttpConfig — port must be passed at construction time (read-only after init)
         self._config = McpHttpConfig(

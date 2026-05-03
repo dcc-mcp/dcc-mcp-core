@@ -98,7 +98,7 @@ def test_python_forgecad_skill_discovers_loads_and_calls_over_mcp_and_rest_http(
     handle = server.start()
     try:
         mcp_url = handle.mcp_url()
-        rest_url = mcp_url.removesuffix("/mcp")
+        rest_url = mcp_url[: -len("/mcp")] if mcp_url.endswith("/mcp") else mcp_url
 
         listed = _mcp_post(
             mcp_url,
