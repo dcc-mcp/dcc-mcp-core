@@ -11,6 +11,25 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.14.24](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.23...v0.14.24) (2026-05-03)
+
+
+### Features
+
+* **verifier:** ship SceneStats contract + verifier skill template ([#688](https://github.com/loonghao/dcc-mcp-core/issues/688)) ([a8f8787](https://github.com/loonghao/dcc-mcp-core/commit/a8f87873ee2b5dba7b1f3f583a639cc20a09275b))
+
+
+### Bug Fixes
+
+* address CI regressions ([c3dda55](https://github.com/loonghao/dcc-mcp-core/commit/c3dda55bdd3dbb34ecb874db5f9f13acdf8b9330))
+* resolve gateway REST and docs issues ([a49a58e](https://github.com/loonghao/dcc-mcp-core/commit/a49a58ef83e410f0cc9baba195627398d52f242d))
+
+
+### Documentation
+
+* add HostAdapter/StandaloneHost to llms-full.txt ([5db08fd](https://github.com/loonghao/dcc-mcp-core/commit/5db08fdacc67a326ffee0746faf35f2a83acb51d))
+* update version in llms.txt to 0.14.23 ([d86c3e0](https://github.com/loonghao/dcc-mcp-core/commit/d86c3e0b2b60953ff6868fab6eb7f46b709210ac))
+
 ## [0.14.23](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.22...v0.14.23) (2026-05-02)
 
 
