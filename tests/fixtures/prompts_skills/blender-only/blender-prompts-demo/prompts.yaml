@@ -1,0 +1,13 @@
+prompts:
+  - name: export_gltf
+    description: Blender-side glTF export instruction
+    arguments:
+      - name: output_path
+        description: Destination .glb or .gltf file path
+        required: true
+      - name: include_animations
+        description: Whether to bake animations into the export
+        required: false
+    template: |
+      Export the current Blender scene to glTF at {{output_path}}.
+      Include animations: {{include_animations}}.
