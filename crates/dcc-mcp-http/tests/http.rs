@@ -34,6 +34,9 @@ mod gateway_prompts_e2e;
 #[path = "http/gateway_reachability.rs"]
 mod gateway_reachability;
 
+#[path = "http/gateway_resources.rs"]
+mod gateway_resources;
+
 #[path = "http/gateway_tool_exposure.rs"]
 mod gateway_tool_exposure;
 
