@@ -46,12 +46,14 @@ mod helpers;
 mod job_bus;
 mod manager;
 mod reconnect;
+mod resource_subs;
 mod route_gc;
 #[cfg(test)]
 mod tests;
 mod types;
 
 pub use manager::SubscriberManager;
+pub(crate) use types::ResourceSubscriberRoute;
 pub use types::{BackendId, BindJobError, ClientSessionId, JobRoute};
 
 #[cfg(test)]

@@ -69,6 +69,7 @@ fn empty_inner() -> SubscriberManagerInner {
         backend_inflight: DashMap::new(),
         client_sinks: DashMap::new(),
         job_event_buses: DashMap::new(),
+        resource_subscriptions: DashMap::new(),
         http_client: reqwest::Client::new(),
         route_ttl: DEFAULT_ROUTE_TTL,
         max_routes_per_session: DEFAULT_MAX_ROUTES_PER_SESSION,
@@ -487,4 +488,95 @@ fn subscriber_manager_uses_timeout_free_client_for_sse() {
          timeout that caused the 30-second SSE reconnect storm bug)",
         STREAM_IDLE_TIMEOUT.as_secs()
     );
+}
+
+// ── #732: resource-subscription routing ───────────────────────────────
+
+#[tokio::test]
+async fn dispatch_resource_updated_rewrites_uri_and_forwards_to_subscribers() {
+    // One backend, two subscribers of the same resource via different
+    // client-visible prefixed URIs. Both must receive the notification
+    // with `params.uri` rewritten to each client's own prefixed URI.
+    let mgr = SubscriberManager::default();
+    let session_one = "client-one";
+    let session_two = "client-two";
+    let mut rx_one = mgr.register_client(session_one);
+    let mut rx_two = mgr.register_client(session_two);
+
+    let backend_url = "http://127.0.0.1:9999/mcp";
+    let backend_uri = "scene://current";
+    let uri_one = "scene://aaaaaaaa/current";
+    let uri_two = "scene://bbbbbbbb/current";
+
+    assert!(mgr.bind_resource_subscription(backend_url, backend_uri, session_one, uri_one));
+    assert!(mgr.bind_resource_subscription(backend_url, backend_uri, session_two, uri_two));
+
+    let update = serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "notifications/resources/updated",
+        "params": {"uri": backend_uri}
+    });
+    assert!(mgr.dispatch_resource_updated(&update, backend_url));
+
+    let event_one = rx_one.try_recv().expect("session one must receive update");
+    assert!(
+        event_one.contains(uri_one),
+        "session one's event should carry its own URI: {event_one}"
+    );
+    assert!(
+        !event_one.contains(backend_uri) || event_one.contains(uri_one),
+        "session one must not see the raw backend URI: {event_one}"
+    );
+
+    let event_two = rx_two.try_recv().expect("session two must receive update");
+    assert!(
+        event_two.contains(uri_two),
+        "session two's event should carry its own URI: {event_two}"
+    );
+
+    // Cleanup: unbind session one — session two still subscribed, so
+    // the set is non-empty.
+    assert!(
+        !mgr.unbind_resource_subscription(backend_url, backend_uri, session_one, uri_one),
+        "set must not be empty yet"
+    );
+    // Unbind session two — last route, set becomes empty.
+    assert!(
+        mgr.unbind_resource_subscription(backend_url, backend_uri, session_two, uri_two),
+        "set must report empty after last unbind"
+    );
+
+    // A further update with no subscribers goes nowhere.
+    assert!(!mgr.dispatch_resource_updated(&update, backend_url));
+}
+
+#[tokio::test]
+async fn forget_client_drops_resource_subscriptions() {
+    let mgr = SubscriberManager::default();
+    let session = "ghost";
+    let _ = mgr.register_client(session);
+
+    mgr.bind_resource_subscription(
+        "http://127.0.0.1:9999/mcp",
+        "scene://current",
+        session,
+        "scene://aaaaaaaa/current",
+    );
+    mgr.bind_resource_subscription(
+        "http://127.0.0.1:9999/mcp",
+        "audit://recent",
+        session,
+        "audit://aaaaaaaa/recent",
+    );
+
+    // `forget_client_resource_subs` reports the two keys that became empty.
+    let emptied = mgr.forget_client_resource_subs(session);
+    assert_eq!(emptied.len(), 2, "both resources should have been dropped");
+
+    // Subsequent dispatch finds no route.
+    let update = serde_json::json!({
+        "method": "notifications/resources/updated",
+        "params": {"uri": "scene://current"}
+    });
+    assert!(!mgr.dispatch_resource_updated(&update, "http://127.0.0.1:9999/mcp"));
 }

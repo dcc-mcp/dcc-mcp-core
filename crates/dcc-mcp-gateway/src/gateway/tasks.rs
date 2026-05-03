@@ -292,6 +292,62 @@ pub(crate) async fn start_gateway_tasks(
         }
     });
 
+    // ── Aggregated resources/list_changed watcher (every 3 s) ─────────────
+    // Polls every live backend's `resources/list`, computes a set-fingerprint
+    // of "{instance_id}:{backend_uri}" tuples, and broadcasts one
+    // `notifications/resources/list_changed` to gateway SSE subscribers when
+    // the aggregated set changes (resource added / removed on any DCC).
+    //
+    // Parallel to the tools watcher above. Same 3-second cadence, same
+    // hysteresis (no broadcast on the empty→empty first tick), same
+    // fail-soft semantics (unreachable backends contribute zero resources).
+    //
+    // #732: the instance-change watcher above already emits
+    // `resources/list_changed` when the set of live DCC instances changes;
+    // this watcher adds the second, finer signal — a resource added on an
+    // existing backend, without any membership change.
+    let reg_resources = registry.clone();
+    let events_tx_resources = events_tx.clone();
+    let http_client_resources = http_client.clone();
+    let resources_own_host = own_host.clone();
+    let resources_own_port = own_port;
+    let resources_watcher_handle = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(3));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        let mut last_fingerprint = String::new();
+
+        loop {
+            interval.tick().await;
+            let fingerprint = aggregator::compute_resources_fingerprint_with_own(
+                &reg_resources,
+                stale_timeout,
+                &http_client_resources,
+                backend_timeout,
+                Some(resources_own_host.as_str()),
+                resources_own_port,
+            )
+            .await;
+
+            if fingerprint != last_fingerprint {
+                if (!last_fingerprint.is_empty() || !fingerprint.is_empty())
+                    && events_tx_resources.receiver_count() > 0
+                {
+                    tracing::debug!(
+                        "Gateway: aggregated resource set changed — broadcasting resources/list_changed"
+                    );
+                    let notif = serde_json::to_string(&serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "method": "notifications/resources/list_changed",
+                        "params": {}
+                    }))
+                    .unwrap_or_default();
+                    let _ = events_tx_resources.send(notif);
+                }
+                last_fingerprint = fingerprint;
+            }
+        }
+    });
+
     // ── Backend SSE subscriber manager (#320) ─────────────────────────────
     // Multiplexes per-backend SSE notifications back to originating client
     // sessions. Each `ensure_subscribed` spawns a reconnecting task.
@@ -615,6 +671,7 @@ pub(crate) async fn start_gateway_tasks(
             watcher_handle,
             tools_watcher_handle,
             prompts_watcher_handle,
+            resources_watcher_handle,
             backend_sub_handle,
             route_gc_handle,
             health_check_handle,
@@ -629,6 +686,7 @@ pub(crate) async fn start_gateway_tasks(
             watcher_handle,
             tools_watcher_handle,
             prompts_watcher_handle,
+            resources_watcher_handle,
             backend_sub_handle,
             route_gc_handle,
             health_check_handle,
