@@ -80,6 +80,9 @@ test_rust_err.txt
 ruff_out.txt
 test_result.txt
 
+# Live upstream test caches (fetched on demand, gated behind env vars)
+tests/_cache/
+
 # Temporary / commit message files
 *.tmp
 .commit-msg*
