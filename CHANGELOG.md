@@ -11,6 +11,25 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.14.27](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.26...v0.14.27) (2026-05-03)
+
+
+### Features
+
+* **gateway:** probe /v1/readyz three-state readiness instead of /health ([#713](https://github.com/loonghao/dcc-mcp-core/issues/713)) ([#727](https://github.com/loonghao/dcc-mcp-core/issues/727)) ([203d412](https://github.com/loonghao/dcc-mcp-core/commit/203d412e0a1d03e8b13b7009f9a78d0999f2bf50))
+* **http+rest:** gate tools/call on shared ReadinessProbe ([#714](https://github.com/loonghao/dcc-mcp-core/issues/714)) ([#724](https://github.com/loonghao/dcc-mcp-core/issues/724)) ([af8816d](https://github.com/loonghao/dcc-mcp-core/commit/af8816d63824761e7dc9b175fb2d5b6c63525fec))
+* **queue:** observability + configurable backpressure for DeferredExecutor / host_bridge / QueueDispatcher ([#715](https://github.com/loonghao/dcc-mcp-core/issues/715)) ([#726](https://github.com/loonghao/dcc-mcp-core/issues/726)) ([0ca9da2](https://github.com/loonghao/dcc-mcp-core/commit/0ca9da2996aabb76d12d9a0e06e26c7ce3607d52))
+
+
+### Bug Fixes
+
+* **gateway+transport:** graceful shutdown deregisters from FileRegistry ([#718](https://github.com/loonghao/dcc-mcp-core/issues/718)) ([#725](https://github.com/loonghao/dcc-mcp-core/issues/725)) ([eeba019](https://github.com/loonghao/dcc-mcp-core/commit/eeba019dcfa31354f96d6afa876f60bd6037f591))
+* **gateway:** prune dead PIDs on list_dcc_instances read path ([#719](https://github.com/loonghao/dcc-mcp-core/issues/719)) ([3a34b86](https://github.com/loonghao/dcc-mcp-core/commit/3a34b86a58923f521a4669c4d721e964c85f04eb))
+* **http:** expose thread_affinity kwarg on Python register_handler ([#716](https://github.com/loonghao/dcc-mcp-core/issues/716)) ([#728](https://github.com/loonghao/dcc-mcp-core/issues/728)) ([7b36766](https://github.com/loonghao/dcc-mcp-core/commit/7b36766738f4c9e8839e335df24534ff658f748f))
+* **http:** honour ThreadAffinity on sync tools/call path ([#716](https://github.com/loonghao/dcc-mcp-core/issues/716)) ([1b672a5](https://github.com/loonghao/dcc-mcp-core/commit/1b672a5145f04437c2e17593178b256e95a4b4a8))
+* **tests:** replace str.removesuffix with slice for py3.7/3.8 compatibility ([bf1a145](https://github.com/loonghao/dcc-mcp-core/commit/bf1a145c6aba3bba90df76cfd2a0e4e97bd77f6e))
+* unloaded skill search, GatewayToolExposure cleanup, log retention ([#677](https://github.com/loonghao/dcc-mcp-core/issues/677), [#674](https://github.com/loonghao/dcc-mcp-core/issues/674)) ([#721](https://github.com/loonghao/dcc-mcp-core/issues/721)) ([3e33a90](https://github.com/loonghao/dcc-mcp-core/commit/3e33a9041e486eda89817dd92d711703bde976ff))
+
 ## [0.14.26](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.25...v0.14.26) (2026-05-03)
 
 
