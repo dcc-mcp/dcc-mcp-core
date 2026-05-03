@@ -206,24 +206,73 @@ impl PyMcpHttpServer {
     /// The callable receives a single argument: a dict of action parameters.
     /// It must return a JSON-serialisable value.
     ///
+    /// Args:
+    ///     action_name: The MCP tool name.
+    ///     handler: The Python callable.
+    ///     thread_affinity: Optional routing hint — ``"any"`` (default)
+    ///         runs the handler on a Tokio worker via ``spawn_blocking``;
+    ///         ``"main"`` routes it through the attached
+    ///         :class:`~dcc_mcp_core.host.DccDispatcher` so it executes
+    ///         on the DCC main thread (issue #716). If the action is
+    ///         already registered in the backing :class:`ToolRegistry`,
+    ///         the existing ``ActionMeta.thread_affinity`` is overwritten.
+    ///         If no ``ActionMeta`` exists yet, the kwarg is recorded as
+    ///         a best-effort — register the action first via
+    ///         ``ToolRegistry.register(...)`` or let ``load_skill()``
+    ///         create it.
+    ///
     /// Example::
     ///
     ///     server.register_handler("get_scene_info", lambda params: {"scene": "untitled"})
+    ///     server.register_handler("bake_lighting", bake_fn, thread_affinity="main")
     ///
     /// Raises:
     ///     TypeError: If ``handler`` is not callable.
-    #[pyo3(signature = (action_name, handler))]
+    ///     ValueError: If ``thread_affinity`` is not ``"any"`` or
+    ///         ``"main"`` (case-insensitive).
+    #[pyo3(signature = (action_name, handler, thread_affinity=None))]
     fn register_handler(
         &self,
         py: Python<'_>,
         action_name: &str,
         handler: Py<PyAny>,
+        thread_affinity: Option<&str>,
     ) -> PyResult<()> {
         if !handler.bind(py).is_callable() {
             return Err(pyo3::exceptions::PyTypeError::new_err(
                 "handler must be callable",
             ));
         }
+
+        // If the caller asked for a specific affinity, patch the existing
+        // ActionMeta in the registry so the sync `tools/call` path (#716)
+        // routes accordingly. Parse up front so an invalid string surfaces
+        // before any Python-side state is mutated.
+        if let Some(affinity_str) = thread_affinity {
+            let parsed = dcc_mcp_models::ThreadAffinity::parse(affinity_str).ok_or_else(|| {
+                pyo3::exceptions::PyValueError::new_err(format!(
+                    "thread_affinity must be 'any' or 'main' (got {affinity_str:?})"
+                ))
+            })?;
+            // Fetch-patch-reregister: `register_action` is an upsert and
+            // takes an owned `ActionMeta`, so cloning is the simplest way
+            // to mutate a single field without racing concurrent writers.
+            // If the action isn't registered yet, we silently skip —
+            // the handler itself does not belong in the action registry,
+            // and `load_skill()` / `ToolRegistry.register()` will install
+            // an `ActionMeta` with the correct affinity at the right moment.
+            if let Some(mut meta) = self.registry.get_action(action_name, None) {
+                meta.thread_affinity = parsed;
+                self.registry.register_action(meta);
+            } else {
+                tracing::debug!(
+                    action = action_name,
+                    affinity = %parsed,
+                    "register_handler: no ActionMeta yet — affinity kwarg recorded as best-effort"
+                );
+            }
+        }
+
         // Store a Rust closure in the dispatcher that calls the Python callable.
         // The closure re-acquires the GIL via Python::attach (pyo3 0.28+)
         // and converts both params and return values through serde_json so the

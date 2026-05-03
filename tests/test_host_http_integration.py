@@ -85,7 +85,7 @@ def test_tools_call_routes_through_dispatcher() -> None:
         captured["tid"] = threading.get_ident()
         return {"tid": captured["tid"]}
 
-    server.register_handler("thread_probe", _probe)
+    server.register_handler("thread_probe", _probe, thread_affinity="main")
 
     dispatcher = QueueDispatcher()
     server.attach_dispatcher(dispatcher)
@@ -161,7 +161,7 @@ def test_dispatcher_shutdown_during_call_surfaces_error() -> None:
         time.sleep(0.2)
         return {"ok": True}
 
-    server.register_handler("thread_probe", _slow)
+    server.register_handler("thread_probe", _slow, thread_affinity="main")
 
     dispatcher = QueueDispatcher()
     server.attach_dispatcher(dispatcher)
@@ -185,3 +185,61 @@ def test_dispatcher_shutdown_during_call_surfaces_error() -> None:
         assert is_tool_error or is_rpc_error, f"expected a clean error envelope after shutdown, got: {resp}"
     finally:
         handle.shutdown()
+
+
+def test_any_affinity_bypasses_dispatcher() -> None:
+    """Regression guard for core#716 from the Python side.
+
+    A handler declared ``thread_affinity="any"`` MUST NOT route through
+    the attached dispatcher even when one is wired. Instead it runs on
+    a tokio worker — which means the captured thread id is **different**
+    from the dispatcher tick thread, and specifically not equal to it.
+
+    The pre-#716 bug was that any declared handler would get pulled
+    through the UI dispatcher whenever an executor existed, serialising
+    pure-compute calls behind scene-mutating ones. This test locks in
+    the fixed behaviour.
+    """
+    server, _reg = _make_server("p2b-any-bypass")
+
+    captured: dict[str, int | None] = {"tid": None}
+
+    def _probe(_params: dict) -> dict:
+        captured["tid"] = threading.get_ident()
+        return {"tid": captured["tid"]}
+
+    # Explicit `any` — post-#716, this must bypass the attached
+    # dispatcher and run on a tokio worker.
+    server.register_handler("thread_probe", _probe, thread_affinity="any")
+
+    dispatcher = QueueDispatcher()
+    server.attach_dispatcher(dispatcher)
+
+    host = StandaloneHost(dispatcher, tick_interval=0.005)
+    host.start()
+    handle = server.start()
+    try:
+        time.sleep(0.2)
+        resp = _call_tool(handle.mcp_url(), "thread_probe")
+        assert resp.get("error") is None, resp
+        assert captured["tid"] is not None, "handler did not run"
+
+        tick_tid = host._thread.ident  # type: ignore[union-attr]
+        assert captured["tid"] != tick_tid, (
+            f"`any`-affinity handler unexpectedly ran on the dispatcher tick thread "
+            f"({tick_tid}) — the #716 bypass is not engaged"
+        )
+        # Poster thread is also not a valid landing spot for a tokio
+        # worker, but a second equality assertion would couple the
+        # test to the poster's identity. The tick-thread inequality is
+        # what matters.
+    finally:
+        handle.shutdown()
+        host.stop()
+
+
+def test_register_handler_rejects_bad_affinity() -> None:
+    """Invalid ``thread_affinity`` values surface as ``ValueError``."""
+    server, _reg = _make_server("p2b-bad-affinity")
+    with pytest.raises(ValueError, match="thread_affinity must be"):
+        server.register_handler("thread_probe", lambda _params: {"ok": True}, thread_affinity="sometimes")
