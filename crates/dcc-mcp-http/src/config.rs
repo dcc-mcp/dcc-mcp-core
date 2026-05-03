@@ -500,6 +500,59 @@ pub struct McpHttpConfig {
     /// parity with a single-instance server that already publishes
     /// SEP-986 dotted names directly.
     pub gateway_cursor_safe_tool_names: bool,
+
+    // ── Issue #715: queue observability + backpressure ────────────────────
+    /// Capacity of the HTTP → `DccExecutor` mpsc channel (issue #715).
+    ///
+    /// Controls how many outstanding `tools/call` submissions may queue
+    /// up before the backpressure path kicks in. When the channel is
+    /// full, the HTTP worker blocks for up to [`Self::queue_send_timeout_ms`]
+    /// waiting for the DCC main thread to drain; if the drain does not
+    /// happen in time, the call returns a structured
+    /// [`crate::error::HttpError::QueueOverloaded`].
+    ///
+    /// Default: `16`. Override via
+    /// `--queue-deferred-cap=<N>` / `MCP_QUEUE_DEFERRED_CAP`.
+    pub deferred_queue_depth: usize,
+
+    /// Capacity of the `DeferredExecutor` → `host_bridge` mpsc channel
+    /// (issue #715).
+    ///
+    /// Previously hard-coded to `16`. Exposed as a config knob so
+    /// operators can tune the bridge depth without patching the crate.
+    /// Set to `0` to fall back to [`crate::host_bridge::DEFAULT_BRIDGE_QUEUE_DEPTH`]
+    /// — this keeps misconfigured env-vars (`MCP_QUEUE_BRIDGE_CAP=0`)
+    /// from silently disabling backpressure.
+    ///
+    /// Default: `16`. Override via
+    /// `--queue-bridge-cap=<N>` / `MCP_QUEUE_BRIDGE_CAP`.
+    pub bridge_queue_depth: usize,
+
+    /// Capacity of the host-side `QueueDispatcher` (issue #715).
+    ///
+    /// When non-zero, applies to
+    /// [`dcc_mcp_host::QueueDispatcher::with_capacity`] so posts that
+    /// pile up past `N` surface
+    /// [`dcc_mcp_host::DispatchError::QueueOverloaded`] instead of
+    /// growing an unbounded queue. When zero (default), the dispatcher
+    /// stays unbounded — matches today's behaviour.
+    ///
+    /// Default: `0` (unbounded). Override via
+    /// `--queue-dispatcher-cap=<N>` / `MCP_QUEUE_DISPATCHER_CAP`.
+    pub host_queue_depth: usize,
+
+    /// How long an HTTP worker will block on a full executor channel
+    /// before returning [`crate::error::HttpError::QueueOverloaded`]
+    /// (issue #715).
+    ///
+    /// Chose "block with timeout" over "immediate error" so healthy
+    /// bursty workloads still make progress when the main thread
+    /// yields momentarily — the typed `QueueOverloaded` only fires on
+    /// sustained saturation. Same strategy across all three layers.
+    ///
+    /// Default: `2_000` ms. Override via
+    /// `--queue-send-timeout-ms=<N>` / `MCP_QUEUE_SEND_TIMEOUT_MS`.
+    pub queue_send_timeout_ms: u64,
 }
 
 impl McpHttpConfig {
@@ -555,6 +608,14 @@ impl McpHttpConfig {
             // for the compatibility window so in-flight clients keep
             // routing.
             gateway_cursor_safe_tool_names: true,
+            // #715: the three queue caps default to the pre-#715
+            // behaviour (16 / 16 / unbounded) so existing callers are
+            // unaffected until they opt into bounded mode via env var
+            // or builder.
+            deferred_queue_depth: 16,
+            bridge_queue_depth: 16,
+            host_queue_depth: 0,
+            queue_send_timeout_ms: 2_000,
         }
     }
 
@@ -823,6 +884,78 @@ impl McpHttpConfig {
         self.enable_tool_cache = false;
         self
     }
+
+    /// Builder: set the deferred-executor queue capacity (issue #715).
+    ///
+    /// Threaded down into [`crate::executor::DeferredExecutor::new`] at
+    /// startup. Setting this to `0` is a logic bug (it would create an
+    /// executor that can never accept a task) so the runtime clamps to
+    /// `1` at server-start time.
+    pub fn with_deferred_queue_depth(mut self, depth: usize) -> Self {
+        self.deferred_queue_depth = depth;
+        self
+    }
+
+    /// Builder: set the host-bridge queue capacity (issue #715).
+    ///
+    /// Threaded down into
+    /// [`crate::host_bridge::dispatcher_to_executor_handle_with_capacity`].
+    /// `0` degrades to [`crate::host_bridge::DEFAULT_BRIDGE_QUEUE_DEPTH`]
+    /// so misconfigured env-vars cannot silently disable backpressure.
+    pub fn with_bridge_queue_depth(mut self, depth: usize) -> Self {
+        self.bridge_queue_depth = depth;
+        self
+    }
+
+    /// Builder: set the host-side `QueueDispatcher` capacity (issue #715).
+    ///
+    /// `0` (the default) keeps the dispatcher unbounded — the historical
+    /// behaviour. Non-zero values activate the
+    /// [`dcc_mcp_host::DispatchError::QueueOverloaded`] path once the
+    /// queue hits capacity.
+    pub fn with_host_queue_depth(mut self, depth: usize) -> Self {
+        self.host_queue_depth = depth;
+        self
+    }
+
+    /// Builder: set the send-timeout applied to the bounded channels
+    /// (issue #715).
+    pub fn with_queue_send_timeout_ms(mut self, ms: u64) -> Self {
+        self.queue_send_timeout_ms = ms;
+        self
+    }
+
+    /// Load the queue-stack knobs from the environment (issue #715).
+    ///
+    /// Honours four optional env-vars:
+    /// - `MCP_QUEUE_DEFERRED_CAP`
+    /// - `MCP_QUEUE_BRIDGE_CAP`
+    /// - `MCP_QUEUE_DISPATCHER_CAP`
+    /// - `MCP_QUEUE_SEND_TIMEOUT_MS`
+    ///
+    /// Unset or unparsable values leave the existing field untouched
+    /// so a typo never silently flips the cap.
+    pub fn apply_queue_env_overrides(mut self) -> Self {
+        fn load_usize(key: &str) -> Option<usize> {
+            std::env::var(key).ok().and_then(|v| v.trim().parse().ok())
+        }
+        fn load_u64(key: &str) -> Option<u64> {
+            std::env::var(key).ok().and_then(|v| v.trim().parse().ok())
+        }
+        if let Some(v) = load_usize("MCP_QUEUE_DEFERRED_CAP") {
+            self.deferred_queue_depth = v.max(1);
+        }
+        if let Some(v) = load_usize("MCP_QUEUE_BRIDGE_CAP") {
+            self.bridge_queue_depth = v;
+        }
+        if let Some(v) = load_usize("MCP_QUEUE_DISPATCHER_CAP") {
+            self.host_queue_depth = v;
+        }
+        if let Some(v) = load_u64("MCP_QUEUE_SEND_TIMEOUT_MS") {
+            self.queue_send_timeout_ms = v;
+        }
+        self
+    }
 }
 
 impl Default for McpHttpConfig {
@@ -875,5 +1008,45 @@ mod tests {
         assert!(err.contains("retry"), "error message: {err}");
         assert!(err.contains("drop"), "error message: {err}");
         assert!(err.contains("requeue"), "error message: {err}");
+    }
+
+    /// Issue #715: the three queue caps default to the pre-#715
+    /// values so existing callers are unaffected.
+    #[test]
+    fn queue_caps_default_to_pre_715_values() {
+        let cfg = McpHttpConfig::new(8765);
+        assert_eq!(cfg.deferred_queue_depth, 16);
+        assert_eq!(cfg.bridge_queue_depth, 16);
+        assert_eq!(cfg.host_queue_depth, 0);
+        assert_eq!(cfg.queue_send_timeout_ms, 2_000);
+    }
+
+    /// Issue #715: env-var overrides are applied and bad values are
+    /// silently ignored (typo safety).
+    #[test]
+    fn queue_env_overrides_apply_and_ignore_typos() {
+        // Use a unique key prefix so parallel tests do not collide.
+        // SAFETY: we only touch the four #715 env-vars here; no other
+        // test reads them.
+        unsafe {
+            std::env::set_var("MCP_QUEUE_DEFERRED_CAP", "32");
+            std::env::set_var("MCP_QUEUE_BRIDGE_CAP", "64");
+            std::env::set_var("MCP_QUEUE_DISPATCHER_CAP", "128");
+            std::env::set_var("MCP_QUEUE_SEND_TIMEOUT_MS", "bogus");
+        }
+        let cfg = McpHttpConfig::new(0).apply_queue_env_overrides();
+        assert_eq!(cfg.deferred_queue_depth, 32);
+        assert_eq!(cfg.bridge_queue_depth, 64);
+        assert_eq!(cfg.host_queue_depth, 128);
+        assert_eq!(
+            cfg.queue_send_timeout_ms, 2_000,
+            "unparsable value is ignored (typo safety)"
+        );
+        unsafe {
+            std::env::remove_var("MCP_QUEUE_DEFERRED_CAP");
+            std::env::remove_var("MCP_QUEUE_BRIDGE_CAP");
+            std::env::remove_var("MCP_QUEUE_DISPATCHER_CAP");
+            std::env::remove_var("MCP_QUEUE_SEND_TIMEOUT_MS");
+        }
     }
 }

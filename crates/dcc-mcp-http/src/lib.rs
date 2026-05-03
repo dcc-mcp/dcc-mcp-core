@@ -99,7 +99,7 @@ pub use bridge_registry::{BridgeContext, BridgeRegistry};
 pub use config::{McpHttpConfig, ServerSpawnMode};
 pub use dynamic_tools::{DYNAMIC_TOOL_PREFIX, DynamicToolError, SessionDynamicTools, ToolSpec};
 pub use error::{HttpError, HttpResult};
-pub use executor::{DccExecutorHandle, DeferredExecutor};
+pub use executor::{DccExecutorHandle, DeferredExecutor, ExecutorQueueStats};
 pub use gateway::{GatewayConfig, GatewayHandle, GatewayRunner};
 pub use job::{Job, JobEvent, JobManager, JobProgress, JobStatus, JobSubscriber};
 #[cfg(feature = "job-persist-sqlite")]

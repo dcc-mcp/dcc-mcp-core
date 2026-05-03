@@ -54,13 +54,15 @@
 #![deny(missing_docs)]
 #![forbid(unsafe_code)]
 
+use std::collections::VecDeque;
 use std::future::Future;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 use std::sync::Once;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::time::Duration;
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::time::{Duration, Instant};
 
+use parking_lot::Mutex;
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot};
 
@@ -75,6 +77,25 @@ pub enum DispatchError {
     /// it shut down before the tick loop could drain the job.
     #[error("dispatcher is shut down")]
     Shutdown,
+    /// The dispatcher's queue was full and did not drain within the
+    /// configured send timeout. Callers should retry after
+    /// `retry_after_secs`. This variant only fires when a
+    /// capacity-bounded dispatcher is explicitly configured via
+    /// [`QueueDispatcher::with_capacity`] or [`BlockingDispatcher::with_capacity`].
+    ///
+    /// Introduced in #715 to give orchestrators a stable, unambiguous
+    /// signal that the backend is alive but saturated (as opposed to
+    /// [`DispatchError::Shutdown`] or [`DispatchError::ResultDropped`]
+    /// which both indicate the dispatcher is gone).
+    #[error("queue overloaded (depth={depth}/{capacity}); retry in {retry_after_secs}s")]
+    QueueOverloaded {
+        /// Observed queue depth when the post was rejected.
+        depth: usize,
+        /// Configured capacity.
+        capacity: usize,
+        /// Suggested backoff window in seconds before retry.
+        retry_after_secs: u64,
+    },
     /// The result one-shot was dropped before the caller could observe
     /// the value. Usually means the caller cancelled the awaiting
     /// future before tick ran.
@@ -154,6 +175,18 @@ pub trait DccDispatcher: Send + Sync + 'static {
 
     /// `true` once [`DccDispatcher::shutdown`] has been called.
     fn is_shutdown(&self) -> bool;
+
+    /// Observability snapshot for the dispatcher's queue (issue #715).
+    ///
+    /// Default implementation returns a zeroed snapshot with
+    /// `capacity = None`. Concrete dispatchers that wrap a
+    /// [`QueueDispatcher`] should override this to surface real
+    /// counters so the HTTP layer's
+    /// `diagnostics__process_status.queue.host_*` fields reflect what
+    /// is actually happening on the main thread.
+    fn stats(&self) -> QueueStats {
+        QueueStats::default()
+    }
 }
 
 /// Type-erased closure the dispatcher stores in its queue.
@@ -293,6 +326,11 @@ trait Runnable: Send {
     fn run(self: Box<Self>) -> bool;
     /// Report shutdown to the awaiting caller without executing the job.
     fn cancel(self: Box<Self>);
+    /// Report a specific [`DispatchError`] to the awaiting caller
+    /// without executing the job. Used by the bounded-mode
+    /// [`DispatchError::QueueOverloaded`] path so the caller sees
+    /// the right error taxonomy instead of the generic `Shutdown`.
+    fn cancel_with_error(self: Box<Self>, err: DispatchError);
 }
 
 struct Job<F, R>
@@ -345,6 +383,12 @@ where
             let _ = tx.send(Err(DispatchError::Shutdown));
         }
     }
+
+    fn cancel_with_error(mut self: Box<Self>, err: DispatchError) {
+        if let Some(tx) = self.result_tx.take() {
+            let _ = tx.send(Err(err));
+        }
+    }
 }
 
 // Captures the message of the *most recent* panic on the current
@@ -390,40 +434,170 @@ fn install_panic_hook_once() {
 
 // ── Shared queue state ──────────────────────────────────────────────
 
+/// Point-in-time observability snapshot for a queue-backed dispatcher
+/// (issue #715). Stable JSON field names are chosen so downstream
+/// `diagnostics__process_status` / `/v1/diagnostics/queues` output
+/// does not leak internal struct names.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct QueueStats {
+    /// Current approximate depth.
+    pub pending: usize,
+    /// Configured capacity. `None` means unbounded.
+    pub capacity: Option<usize>,
+    /// Total number of successful enqueues over the dispatcher's lifetime.
+    pub total_enqueued: u64,
+    /// Total number of jobs drained (regardless of panic outcome).
+    pub total_dequeued: u64,
+    /// Total number of jobs rejected with
+    /// [`DispatchError::QueueOverloaded`] (bounded mode only).
+    pub total_rejected: u64,
+    /// Approximate wait time of the oldest still-pending job, in
+    /// milliseconds. `None` when the queue is empty.
+    pub oldest_wait_ms: Option<u64>,
+    /// p50 wait-time across the most recent completed jobs.
+    pub wait_p50_ms: Option<u64>,
+    /// p95 wait-time across the most recent completed jobs.
+    pub wait_p95_ms: Option<u64>,
+    /// p99 wait-time across the most recent completed jobs.
+    pub wait_p99_ms: Option<u64>,
+}
+
+/// Fixed-size ring of recent wait-times (enqueue → dequeue). Kept at
+/// 256 samples so the percentile compute stays O(n log n) over a
+/// small n; operators who need higher-resolution histograms scrape
+/// Prometheus instead.
+struct WaitTimeRing {
+    samples: VecDeque<u64>,
+}
+
+impl WaitTimeRing {
+    const CAPACITY: usize = 256;
+
+    fn new() -> Self {
+        Self {
+            samples: VecDeque::with_capacity(Self::CAPACITY),
+        }
+    }
+
+    fn observe(&mut self, wait_ms: u64) {
+        if self.samples.len() == Self::CAPACITY {
+            self.samples.pop_front();
+        }
+        self.samples.push_back(wait_ms);
+    }
+
+    fn percentiles(&self) -> (Option<u64>, Option<u64>, Option<u64>) {
+        if self.samples.is_empty() {
+            return (None, None, None);
+        }
+        let mut sorted: Vec<u64> = self.samples.iter().copied().collect();
+        sorted.sort_unstable();
+        let pick = |q: f64| -> u64 {
+            let n = sorted.len();
+            let idx = ((q * n as f64).ceil() as usize)
+                .saturating_sub(1)
+                .min(n - 1);
+            sorted[idx]
+        };
+        (Some(pick(0.50)), Some(pick(0.95)), Some(pick(0.99)))
+    }
+}
+
+/// Wrapper carrying a submit timestamp alongside the type-erased job
+/// so the drain paths can observe the wait-time histogram.
+struct Enqueued {
+    job: Box<dyn Runnable>,
+    submitted_at: Instant,
+}
+
+/// Reason an enqueue attempt failed (internal taxonomy).
+enum EnqueueReject {
+    /// Dispatcher is already shut down.
+    Shutdown(Box<dyn Runnable>),
+    /// Bounded-mode capacity reached.
+    Overloaded {
+        job: Box<dyn Runnable>,
+        depth: usize,
+        capacity: usize,
+    },
+}
+
 struct Shared {
     /// Sender half. Cloned into every [`QueueDispatcher::post`] call.
-    tx: mpsc::UnboundedSender<Box<dyn Runnable>>,
+    tx: mpsc::UnboundedSender<Enqueued>,
     /// Receiver half. Wrapped in a tokio mutex so both the sync
     /// `tick()` path (via [`tokio::sync::Mutex::try_lock`]) and the
     /// async `drain_awaiting` path (via `.lock().await`) can share
     /// exclusive drain access without the
     /// `clippy::await_holding_lock` footgun that `parking_lot` brings.
-    rx: tokio::sync::Mutex<mpsc::UnboundedReceiver<Box<dyn Runnable>>>,
+    rx: tokio::sync::Mutex<mpsc::UnboundedReceiver<Enqueued>>,
     pending: AtomicUsize,
     shutdown: AtomicBool,
+    /// Hard capacity cap. `0` means unbounded (the
+    /// [`QueueDispatcher::new`] default; matches today's behaviour).
+    /// Any non-zero value activates the
+    /// [`DispatchError::QueueOverloaded`] path (issue #715).
+    capacity: usize,
+    total_enqueued: AtomicU64,
+    total_dequeued: AtomicU64,
+    total_rejected: AtomicU64,
+    /// Submit timestamps of currently-queued jobs in FIFO order. Used
+    /// to compute the oldest-wait-time metric without scanning the
+    /// mpsc buffer.
+    submit_times: Mutex<VecDeque<Instant>>,
+    /// Bounded ring of recent completed-job wait-times for percentile
+    /// surfacing.
+    wait_samples: Mutex<WaitTimeRing>,
 }
 
 impl Shared {
     fn new() -> Arc<Self> {
-        let (tx, rx) = mpsc::unbounded_channel::<Box<dyn Runnable>>();
+        Self::with_capacity(0)
+    }
+
+    fn with_capacity(capacity: usize) -> Arc<Self> {
+        let (tx, rx) = mpsc::unbounded_channel::<Enqueued>();
         Arc::new(Self {
             tx,
             rx: tokio::sync::Mutex::new(rx),
             pending: AtomicUsize::new(0),
             shutdown: AtomicBool::new(false),
+            capacity,
+            total_enqueued: AtomicU64::new(0),
+            total_dequeued: AtomicU64::new(0),
+            total_rejected: AtomicU64::new(0),
+            submit_times: Mutex::new(VecDeque::new()),
+            wait_samples: Mutex::new(WaitTimeRing::new()),
         })
     }
 
-    fn enqueue(&self, job: Box<dyn Runnable>) -> Result<(), Box<dyn Runnable>> {
+    fn enqueue(&self, job: Box<dyn Runnable>) -> Result<(), EnqueueReject> {
         if self.shutdown.load(Ordering::Acquire) {
-            return Err(job);
+            return Err(EnqueueReject::Shutdown(job));
         }
-        match self.tx.send(job) {
+        // Bounded-mode capacity check. The load / store race with a
+        // concurrent drain is acceptable: `pending` is advisory and
+        // "slightly over cap on a burst" is fine.
+        if self.capacity > 0 && self.pending.load(Ordering::Acquire) >= self.capacity {
+            self.total_rejected.fetch_add(1, Ordering::Release);
+            return Err(EnqueueReject::Overloaded {
+                job,
+                depth: self.pending.load(Ordering::Acquire),
+                capacity: self.capacity,
+            });
+        }
+        let envelope = Enqueued {
+            job,
+            submitted_at: Instant::now(),
+        };
+        match self.tx.send(envelope) {
             Ok(()) => {
                 self.pending.fetch_add(1, Ordering::Release);
+                self.total_enqueued.fetch_add(1, Ordering::Release);
+                self.submit_times.lock().push_back(Instant::now());
                 Ok(())
             }
-            Err(mpsc::error::SendError(job)) => Err(job),
+            Err(mpsc::error::SendError(env)) => Err(EnqueueReject::Shutdown(env.job)),
         }
     }
 
@@ -441,18 +615,23 @@ impl Shared {
             // We'll catch up on the next tick.
             return (out, true);
         };
+        let now = Instant::now();
         for _ in 0..max_jobs {
             match rx.try_recv() {
-                Ok(job) => out.push(job),
+                Ok(env) => {
+                    self.observe_dequeue(now, env.submitted_at);
+                    out.push(env.job);
+                }
                 Err(mpsc::error::TryRecvError::Empty) => break,
                 Err(mpsc::error::TryRecvError::Disconnected) => break,
             }
         }
         let more = match rx.try_recv() {
-            Ok(job) => {
+            Ok(env) => {
                 // We peeked by popping — put it back at the front of
                 // our batch so ordering is preserved.
-                out.push(job);
+                self.observe_dequeue(now, env.submitted_at);
+                out.push(env.job);
                 true
             }
             Err(_) => false,
@@ -475,30 +654,44 @@ impl Shared {
         let mut rx = self.rx.lock().await;
         // Wait for the first job with a bounded timeout.
         let first = match tokio::time::timeout(timeout, rx.recv()).await {
-            Ok(Some(job)) => Some(job),
+            Ok(Some(env)) => Some(env),
             Ok(None) | Err(_) => None,
         };
         let Some(first) = first else {
             return (Vec::new(), false);
         };
+        let now = Instant::now();
+        self.observe_dequeue(now, first.submitted_at);
         let mut out = Vec::with_capacity(max_jobs.min(16));
-        out.push(first);
+        out.push(first.job);
         // Drain any extra items that happen to be ready without blocking.
         for _ in 1..max_jobs {
             match rx.try_recv() {
-                Ok(job) => out.push(job),
+                Ok(env) => {
+                    self.observe_dequeue(now, env.submitted_at);
+                    out.push(env.job);
+                }
                 Err(_) => break,
             }
         }
         let more = match rx.try_recv() {
-            Ok(job) => {
-                out.push(job);
+            Ok(env) => {
+                self.observe_dequeue(now, env.submitted_at);
+                out.push(env.job);
                 true
             }
             Err(_) => false,
         };
         self.pending.fetch_sub(out.len(), Ordering::Release);
         (out, more)
+    }
+
+    /// Bookkeeping on dequeue.
+    fn observe_dequeue(&self, now: Instant, submitted_at: Instant) {
+        let wait = now.saturating_duration_since(submitted_at);
+        let _ = self.submit_times.lock().pop_front();
+        self.wait_samples.lock().observe(wait.as_millis() as u64);
+        self.total_dequeued.fetch_add(1, Ordering::Release);
     }
 
     fn shutdown(&self) {
@@ -534,9 +727,37 @@ impl Shared {
                 }
             }
         };
-        while let Ok(job) = rx.try_recv() {
-            job.cancel();
+        while let Ok(env) = rx.try_recv() {
+            env.job.cancel();
             self.pending.fetch_sub(1, Ordering::Release);
+        }
+        // Submit-time ledger is now meaningless — clear it so the
+        // observability snapshot doesn't claim a ghost oldest-wait.
+        self.submit_times.lock().clear();
+    }
+
+    /// Build a point-in-time snapshot for operators and diagnostics.
+    fn snapshot(&self) -> QueueStats {
+        let (p50, p95, p99) = self.wait_samples.lock().percentiles();
+        let oldest_wait_ms = self
+            .submit_times
+            .lock()
+            .front()
+            .map(|t| t.elapsed().as_millis() as u64);
+        QueueStats {
+            pending: self.pending.load(Ordering::Acquire),
+            capacity: if self.capacity == 0 {
+                None
+            } else {
+                Some(self.capacity)
+            },
+            total_enqueued: self.total_enqueued.load(Ordering::Acquire),
+            total_dequeued: self.total_dequeued.load(Ordering::Acquire),
+            total_rejected: self.total_rejected.load(Ordering::Acquire),
+            oldest_wait_ms,
+            wait_p50_ms: p50,
+            wait_p95_ms: p95,
+            wait_p99_ms: p99,
         }
     }
 }
@@ -562,10 +783,34 @@ impl Default for QueueDispatcher {
 
 impl QueueDispatcher {
     /// Construct a fresh dispatcher with an empty queue.
+    ///
+    /// The queue is **unbounded** — matches the historical behaviour.
+    /// Prefer [`Self::with_capacity`] for DCC hosts where the
+    /// idle/tick callback can legitimately starve (#715).
     pub fn new() -> Self {
         Self {
             shared: Shared::new(),
         }
+    }
+
+    /// Construct a dispatcher with a bounded queue (#715).
+    ///
+    /// When the queue reaches `capacity`, further [`Self::post`] calls
+    /// surface [`DispatchError::QueueOverloaded`] immediately — callers
+    /// can distinguish this from [`DispatchError::Shutdown`] and decide
+    /// whether to retry after `retry_after_secs`. `capacity = 0`
+    /// degrades to the unbounded [`Self::new`] behaviour so operators
+    /// can disable the cap without a code change.
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            shared: Shared::with_capacity(capacity),
+        }
+    }
+
+    /// Point-in-time observability snapshot (#715). Safe to call from
+    /// any thread.
+    pub fn stats(&self) -> QueueStats {
+        self.shared.snapshot()
     }
 
     /// Inherent generic `post<F, R>` — the fast path when the caller
@@ -587,8 +832,18 @@ impl QueueDispatcher {
             func: Some(job),
             result_tx: Some(tx),
         });
-        if let Err(rejected) = self.shared.enqueue(boxed) {
-            rejected.cancel();
+        match self.shared.enqueue(boxed) {
+            Ok(()) => {}
+            Err(EnqueueReject::Shutdown(rejected)) => rejected.cancel(),
+            Err(EnqueueReject::Overloaded {
+                job,
+                depth,
+                capacity,
+            }) => job.cancel_with_error(DispatchError::QueueOverloaded {
+                depth,
+                capacity,
+                retry_after_secs: 1,
+            }),
         }
         PostHandle::new(rx)
     }
@@ -637,6 +892,10 @@ impl DccDispatcher for QueueDispatcher {
     fn is_shutdown(&self) -> bool {
         self.shared.shutdown.load(Ordering::Acquire)
     }
+
+    fn stats(&self) -> QueueStats {
+        self.shared.snapshot()
+    }
 }
 
 // ── BlockingDispatcher: headless-mode wrapper ───────────────────────
@@ -665,6 +924,20 @@ impl BlockingDispatcher {
         Self {
             inner: QueueDispatcher::new(),
         }
+    }
+
+    /// Construct a bounded headless dispatcher (#715). Mirrors
+    /// [`QueueDispatcher::with_capacity`] for the headless /
+    /// `blender --background` / `mayapy` path.
+    pub fn with_capacity(capacity: usize) -> Self {
+        Self {
+            inner: QueueDispatcher::with_capacity(capacity),
+        }
+    }
+
+    /// Observability snapshot (#715).
+    pub fn stats(&self) -> QueueStats {
+        self.inner.stats()
     }
 
     /// Inherent generic `post<F, R>` — see
@@ -732,6 +1005,10 @@ impl DccDispatcher for BlockingDispatcher {
 
     fn is_shutdown(&self) -> bool {
         self.inner.is_shutdown()
+    }
+
+    fn stats(&self) -> QueueStats {
+        self.inner.stats()
     }
 }
 
@@ -1000,5 +1277,66 @@ mod tests {
             assert!(matches!(h.await, Err(DispatchError::Shutdown)));
         }
         assert_eq!(d.pending(), 0);
+    }
+
+    /// Issue #715: a bounded dispatcher rejects posts beyond capacity
+    /// with `DispatchError::QueueOverloaded` rather than growing an
+    /// unbounded queue.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn bounded_dispatcher_rejects_overload_with_typed_error() {
+        let d = Arc::new(QueueDispatcher::with_capacity(2));
+        let _h1 = d.post(|| 1_u32);
+        let _h2 = d.post(|| 2_u32);
+        let h3: PostHandle<u32> = d.post(|| 3_u32);
+
+        // The third post must resolve with QueueOverloaded without
+        // ever running on the main thread.
+        match h3.await.unwrap_err() {
+            DispatchError::QueueOverloaded {
+                depth,
+                capacity,
+                retry_after_secs,
+            } => {
+                assert_eq!(capacity, 2);
+                assert!(depth >= 2, "depth reported saturation");
+                assert!(retry_after_secs >= 1);
+            }
+            other => panic!("expected QueueOverloaded, got {other:?}"),
+        }
+
+        let stats = d.stats();
+        assert_eq!(stats.capacity, Some(2));
+        assert!(stats.total_rejected >= 1);
+    }
+
+    /// Issue #715: `stats()` reflects pending / enqueued / dequeued /
+    /// oldest-wait and populates percentiles after a drain.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn stats_track_lifecycle_and_percentiles() {
+        let d = Arc::new(QueueDispatcher::new());
+        let _h1 = d.post(|| ());
+        let _h2 = d.post(|| ());
+        // Give the enqueue a moment to land.
+        tokio::time::sleep(Duration::from_millis(5)).await;
+        let pre = d.stats();
+        assert_eq!(pre.total_enqueued, 2);
+        assert_eq!(pre.total_dequeued, 0);
+        assert_eq!(pre.pending, 2);
+        assert!(pre.oldest_wait_ms.is_some());
+        assert!(pre.wait_p50_ms.is_none());
+        assert_eq!(
+            pre.capacity, None,
+            "unbounded dispatcher reports capacity=None"
+        );
+
+        // Pump both jobs from the main thread.
+        let out = d.tick(16);
+        assert_eq!(out.jobs_executed, 2);
+
+        let post = d.stats();
+        assert_eq!(post.total_dequeued, 2);
+        assert_eq!(post.pending, 0);
+        assert!(post.oldest_wait_ms.is_none());
+        assert!(post.wait_p50_ms.is_some(), "percentiles populated");
     }
 }

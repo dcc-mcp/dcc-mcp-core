@@ -20,9 +20,119 @@
 //! For non-DCC environments (testing, pure Python), a simple in-process
 //! executor runs tasks directly on the calling thread.
 
+use std::collections::VecDeque;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
+
+/// Shared observability state for a [`DccExecutorHandle`] and its
+/// backing channel (issue #715).
+///
+/// Cloned (via `Arc`) alongside the handle so every sender and the
+/// owning [`DeferredExecutor`] see the same counters and submit-time
+/// ledger. The hot-path writers (submit / deliver) only take short
+/// `parking_lot` mutexes for two bounded `VecDeque`s; everything else
+/// is atomic.
+#[derive(Debug)]
+pub(crate) struct ExecutorStats {
+    /// Configured channel capacity (`send_timeout` blocks when full).
+    pub capacity: usize,
+    /// How long `execute` will block on a full channel before
+    /// surfacing [`crate::error::HttpError::QueueOverloaded`].
+    pub send_timeout: Duration,
+    pub total_enqueued: AtomicU64,
+    pub total_dequeued: AtomicU64,
+    pub total_rejected: AtomicU64,
+    /// Submit timestamps of currently-queued jobs, oldest first. Used
+    /// to surface `oldest_submit_age`.
+    pub submit_times: parking_lot::Mutex<VecDeque<Instant>>,
+    /// Wait-time samples for completed jobs (bounded ring of 256).
+    pub wait_samples: parking_lot::Mutex<VecDeque<u64>>,
+}
+
+impl ExecutorStats {
+    pub(crate) fn new(capacity: usize, send_timeout: Duration) -> Arc<Self> {
+        Arc::new(Self {
+            capacity,
+            send_timeout,
+            total_enqueued: AtomicU64::new(0),
+            total_dequeued: AtomicU64::new(0),
+            total_rejected: AtomicU64::new(0),
+            submit_times: parking_lot::Mutex::new(VecDeque::new()),
+            wait_samples: parking_lot::Mutex::new(VecDeque::with_capacity(256)),
+        })
+    }
+
+    pub(crate) fn record_submit(&self, at: Instant) {
+        self.total_enqueued.fetch_add(1, Ordering::Release);
+        self.submit_times.lock().push_back(at);
+    }
+
+    pub(crate) fn record_dequeue(&self, now: Instant) {
+        let submitted_at = self.submit_times.lock().pop_front();
+        if let Some(submitted) = submitted_at {
+            let wait_ms = now.saturating_duration_since(submitted).as_millis() as u64;
+            let mut ring = self.wait_samples.lock();
+            if ring.len() == 256 {
+                ring.pop_front();
+            }
+            ring.push_back(wait_ms);
+        }
+        self.total_dequeued.fetch_add(1, Ordering::Release);
+    }
+
+    pub(crate) fn record_reject(&self) {
+        self.total_rejected.fetch_add(1, Ordering::Release);
+    }
+
+    /// Approximate current queue depth — `enqueued - dequeued`,
+    /// saturating at zero.
+    pub(crate) fn pending(&self) -> usize {
+        let enq = self.total_enqueued.load(Ordering::Acquire);
+        let deq = self.total_dequeued.load(Ordering::Acquire);
+        enq.saturating_sub(deq) as usize
+    }
+
+    pub(crate) fn oldest_wait(&self) -> Option<Duration> {
+        self.submit_times.lock().front().map(|t| t.elapsed())
+    }
+
+    pub(crate) fn percentiles(&self) -> (Option<u64>, Option<u64>, Option<u64>) {
+        let ring = self.wait_samples.lock();
+        if ring.is_empty() {
+            return (None, None, None);
+        }
+        let mut sorted: Vec<u64> = ring.iter().copied().collect();
+        drop(ring);
+        sorted.sort_unstable();
+        let pick = |q: f64| -> u64 {
+            let n = sorted.len();
+            let idx = ((q * n as f64).ceil() as usize)
+                .saturating_sub(1)
+                .min(n - 1);
+            sorted[idx]
+        };
+        (Some(pick(0.50)), Some(pick(0.95)), Some(pick(0.99)))
+    }
+}
+
+/// Public observability snapshot for the DCC main-thread executor
+/// queue (issue #715). Field names are the stable wire shape
+/// consumed by `diagnostics__process_status.queue.executor_*`.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ExecutorQueueStats {
+    pub pending: usize,
+    pub capacity: usize,
+    pub total_enqueued: u64,
+    pub total_dequeued: u64,
+    pub total_rejected: u64,
+    pub oldest_wait_ms: Option<u64>,
+    pub wait_p50_ms: Option<u64>,
+    pub wait_p95_ms: Option<u64>,
+    pub wait_p99_ms: Option<u64>,
+}
 
 /// A boxed async-compatible task that runs on the DCC main thread.
 ///
@@ -44,6 +154,7 @@ pub(crate) struct DccTask {
 #[derive(Clone)]
 pub struct DccExecutorHandle {
     tx: mpsc::Sender<DccTask>,
+    stats: Arc<ExecutorStats>,
 }
 
 impl DccExecutorHandle {
@@ -54,21 +165,92 @@ impl DccExecutorHandle {
     /// HTTP server's main-thread executor. `pub(crate)` keeps the
     /// module-private `tx` field invariant for normal callers while
     /// giving the bridge a single, documented seam.
-    pub(crate) fn from_sender(tx: mpsc::Sender<DccTask>) -> Self {
-        Self { tx }
+    pub(crate) fn from_sender(tx: mpsc::Sender<DccTask>, capacity: usize) -> Self {
+        Self {
+            tx,
+            stats: ExecutorStats::new(capacity, Duration::from_millis(2_000)),
+        }
+    }
+
+    /// Current approximate queue depth (issue #715). Safe to call
+    /// from any thread.
+    pub fn pending(&self) -> usize {
+        self.stats.pending()
+    }
+
+    /// Configured channel capacity (issue #715).
+    pub fn capacity(&self) -> usize {
+        self.stats.capacity
+    }
+
+    /// Wait-time of the oldest queued task (issue #715). `None` when
+    /// the queue is empty.
+    pub fn oldest_submit_age(&self) -> Option<Duration> {
+        self.stats.oldest_wait()
+    }
+
+    /// Observability snapshot for diagnostics (issue #715).
+    pub fn queue_stats(&self) -> ExecutorQueueStats {
+        let (p50, p95, p99) = self.stats.percentiles();
+        ExecutorQueueStats {
+            pending: self.stats.pending(),
+            capacity: self.stats.capacity,
+            total_enqueued: self.stats.total_enqueued.load(Ordering::Acquire),
+            total_dequeued: self.stats.total_dequeued.load(Ordering::Acquire),
+            total_rejected: self.stats.total_rejected.load(Ordering::Acquire),
+            oldest_wait_ms: self.stats.oldest_wait().map(|d| d.as_millis() as u64),
+            wait_p50_ms: p50,
+            wait_p95_ms: p95,
+            wait_p99_ms: p99,
+        }
     }
 }
 
 impl DccExecutorHandle {
     /// Submit a task to the DCC main thread and await its result.
     ///
-    /// Returns `Err` if the DCC executor has been shut down.
+    /// Backpressure semantics (issue #715): when the channel is at
+    /// capacity, the caller blocks for up to the handle's configured
+    /// send-timeout (default 2 s) waiting for the main thread to
+    /// drain. If it still does not drain, the call returns
+    /// [`crate::error::HttpError::QueueOverloaded`] — callers can
+    /// distinguish this from [`crate::error::HttpError::ExecutorClosed`]
+    /// and decide whether to retry or fail over.
     pub async fn execute(&self, func: DccTaskFn) -> Result<String, crate::error::HttpError> {
         let (result_tx, result_rx) = oneshot::channel();
-        self.tx
-            .send(DccTask { func, result_tx })
-            .await
-            .map_err(|_| crate::error::HttpError::ExecutorClosed)?;
+        let submit_attempted_at = Instant::now();
+        let timeout = self.stats.send_timeout;
+        let send_res = if timeout.is_zero() {
+            // Opt-out of backpressure: caller asked for no bound.
+            self.tx
+                .send(DccTask { func, result_tx })
+                .await
+                .map_err(|_| ())
+        } else {
+            match tokio::time::timeout(timeout, self.tx.send(DccTask { func, result_tx })).await {
+                Ok(Ok(())) => Ok(()),
+                Ok(Err(_)) => Err(()), // channel closed
+                Err(_) => {
+                    // Timed out waiting on a full channel. Canonical
+                    // overload signal.
+                    self.stats.record_reject();
+                    return Err(crate::error::HttpError::QueueOverloaded {
+                        depth: self.stats.pending(),
+                        capacity: self.stats.capacity,
+                        retry_after_secs: 1,
+                    });
+                }
+            }
+        };
+        match send_res {
+            Ok(()) => {
+                self.stats.record_submit(submit_attempted_at);
+            }
+            Err(()) => {
+                self.stats.record_reject();
+                return Err(crate::error::HttpError::ExecutorClosed);
+            }
+        }
 
         result_rx
             .await
@@ -139,29 +321,26 @@ impl DccExecutorHandle {
         // `.await`; cancelling while the mpsc is backed up drops the
         // request entirely without ever surfacing it to the pump.
         let tx = self.tx.clone();
+        let stats = self.stats.clone();
         tokio::spawn(async move {
             let task = DccTask {
                 func: wrapped,
                 result_tx,
             };
             // Race `cancel_token.cancelled()` against `tx.send(task)`.
-            // Select would require moving `task` into the send branch; a
-            // two-step await is simpler and equally correct because the
-            // mpsc send is the only branch that owns the task.
             tokio::select! {
                 biased;
                 _ = cancel_token.cancelled() => {
-                    // The wrapper owns its own `result_tx`; dropping the
-                    // DccTask here drops that sender and the receiver
-                    // observes `RecvError`. Caller selects on
-                    // `cancel_token.cancelled()` to translate this into a
-                    // proper CANCELLED outcome.
                     drop(task);
                 }
                 res = tx.reserve() => {
                     match res {
-                        Ok(permit) => permit.send(task),
+                        Ok(permit) => {
+                            stats.record_submit(Instant::now());
+                            permit.send(task);
+                        }
                         Err(_) => {
+                            stats.record_reject();
                             tracing::warn!(
                                 "submit_deferred: DeferredExecutor mpsc closed"
                             );
@@ -203,11 +382,21 @@ pub struct DeferredExecutor {
 
 impl DeferredExecutor {
     /// Create a new executor with a bounded queue depth.
+    ///
+    /// The default send-timeout for backpressure is 2 s — use
+    /// [`Self::with_send_timeout`] to override it.
     pub fn new(queue_depth: usize) -> Self {
+        Self::with_send_timeout(queue_depth, Duration::from_millis(2_000))
+    }
+
+    /// Create a new executor with a bounded queue depth and a custom
+    /// send-timeout for the backpressure path (issue #715).
+    pub fn with_send_timeout(queue_depth: usize, send_timeout: Duration) -> Self {
         let (tx, rx) = mpsc::channel(queue_depth);
+        let stats = ExecutorStats::new(queue_depth, send_timeout);
         Self {
             rx,
-            handle: DccExecutorHandle { tx },
+            handle: DccExecutorHandle { tx, stats },
         }
     }
 
@@ -221,7 +410,9 @@ impl DeferredExecutor {
     /// Call this from your DCC event loop. Returns the number of tasks processed.
     pub fn poll_pending(&mut self) -> usize {
         let mut count = 0;
+        let stats = self.handle.stats.clone();
         while let Ok(task) = self.rx.try_recv() {
+            stats.record_dequeue(Instant::now());
             let result = (task.func)();
             let _ = task.result_tx.send(result);
             count += 1;
@@ -232,8 +423,10 @@ impl DeferredExecutor {
     /// Process at most `max` tasks. Useful to bound latency per tick.
     pub fn poll_pending_bounded(&mut self, max: usize) -> usize {
         let mut count = 0;
+        let stats = self.handle.stats.clone();
         while count < max {
             if let Ok(task) = self.rx.try_recv() {
+                stats.record_dequeue(Instant::now());
                 let result = (task.func)();
                 let _ = task.result_tx.send(result);
                 count += 1;
@@ -260,13 +453,16 @@ impl InProcessExecutor {
     /// Wrap as a [`DccExecutorHandle`] backed by a dedicated Tokio task.
     pub fn into_handle(self) -> (DccExecutorHandle, Arc<tokio::task::JoinHandle<()>>) {
         let (tx, mut rx) = mpsc::channel::<DccTask>(256);
+        let stats = ExecutorStats::new(256, Duration::from_millis(2_000));
+        let drain_stats = stats.clone();
         let join = tokio::spawn(async move {
             while let Some(task) = rx.recv().await {
+                drain_stats.record_dequeue(Instant::now());
                 let result = (task.func)();
                 let _ = task.result_tx.send(result);
             }
         });
-        (DccExecutorHandle { tx }, Arc::new(join))
+        (DccExecutorHandle { tx, stats }, Arc::new(join))
     }
 }
 
@@ -444,5 +640,81 @@ mod tests {
             tick_count.load(Ordering::SeqCst) >= 1,
             "pump processed at least one task"
         );
+    }
+
+    /// Issue #715: saturating the executor channel without pumping
+    /// surfaces a structured `QueueOverloaded` after the send-timeout
+    /// — not a silent hang, and not `ExecutorClosed`.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn execute_returns_queue_overloaded_on_saturation() {
+        // Tiny channel + short send-timeout so the test stays fast.
+        let _exec = DeferredExecutor::with_send_timeout(2, Duration::from_millis(50));
+        let handle = _exec.handle();
+
+        // Fill the channel: neither of these awaits resolves because
+        // no one pumps. We don't await them here; we just let them
+        // occupy the two slots.
+        let h1 = handle.clone();
+        let h2 = handle.clone();
+        let _t1 = tokio::spawn(async move {
+            let _ = h1.execute(Box::new(|| "one".to_string())).await;
+        });
+        let _t2 = tokio::spawn(async move {
+            let _ = h2.execute(Box::new(|| "two".to_string())).await;
+        });
+        // Let them land in the channel.
+        tokio::time::sleep(Duration::from_millis(20)).await;
+
+        // The third submit should hit the send-timeout and bubble
+        // QueueOverloaded.
+        let err = handle
+            .execute(Box::new(|| "three".to_string()))
+            .await
+            .expect_err("saturation must fail");
+        match err {
+            crate::error::HttpError::QueueOverloaded {
+                depth,
+                capacity,
+                retry_after_secs,
+            } => {
+                assert_eq!(capacity, 2, "capacity reflects config");
+                assert!(depth >= 1, "depth reported non-zero");
+                assert!(retry_after_secs >= 1, "retry hint is non-zero");
+            }
+            other => panic!("expected QueueOverloaded, got {other:?}"),
+        }
+        let stats = handle.queue_stats();
+        assert!(stats.total_rejected >= 1, "reject counter bumped");
+        assert_eq!(stats.capacity, 2, "capacity reported in snapshot");
+    }
+
+    /// Issue #715: the queue-stats snapshot tracks enqueued/dequeued
+    /// and reports a non-zero oldest-wait-age while jobs are parked.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn queue_stats_track_enqueue_dequeue_and_age() {
+        let mut exec = DeferredExecutor::new(8);
+        let handle = exec.handle();
+
+        let h = handle.clone();
+        let submitter = tokio::spawn(async move { h.execute(Box::new(|| "r".to_string())).await });
+        // Let the submit land.
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        let pre = handle.queue_stats();
+        assert_eq!(pre.total_enqueued, 1, "one submit recorded");
+        assert_eq!(pre.total_dequeued, 0, "nothing drained yet");
+        assert!(pre.oldest_wait_ms.unwrap_or(0) > 0, "wait-age reported");
+        assert_eq!(pre.pending, 1);
+
+        // Pump.
+        let drained = exec.poll_pending();
+        assert_eq!(drained, 1);
+        let res = submitter.await.expect("join").expect("execute");
+        assert_eq!(res, "r");
+
+        let post = handle.queue_stats();
+        assert_eq!(post.total_dequeued, 1, "drain recorded");
+        assert_eq!(post.pending, 0);
+        assert!(post.oldest_wait_ms.is_none(), "oldest cleared after drain");
+        assert!(post.wait_p50_ms.is_some(), "p50 populated from sample");
     }
 }

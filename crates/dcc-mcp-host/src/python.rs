@@ -85,6 +85,13 @@ fn dispatch_error_to_py(err: DispatchError) -> PyErr {
             DispatchErrorPy::new_err("dropped: job result channel was dropped before delivery")
         }
         DispatchError::Panic(msg) => DispatchErrorPy::new_err(format!("panic: {msg}")),
+        DispatchError::QueueOverloaded {
+            depth,
+            capacity,
+            retry_after_secs,
+        } => DispatchErrorPy::new_err(format!(
+            "queue-overloaded: depth={depth}/{capacity}; retry in {retry_after_secs}s"
+        )),
     }
 }
 

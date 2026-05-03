@@ -44,14 +44,22 @@ use tokio::sync::mpsc;
 
 use crate::executor::{DccExecutorHandle, DccTask};
 
-/// Queue depth mirrors [`crate::executor::DeferredExecutor::new`]'s
-/// default (16) so back-pressure behaviour is identical to the native
-/// HTTP executor.
-const BRIDGE_QUEUE_DEPTH: usize = 16;
+/// Historical default bridge queue depth. Kept only as the fallback
+/// used by [`dispatcher_to_executor_handle`] when the caller has no
+/// `McpHttpConfig` in hand. Prefer
+/// [`dispatcher_to_executor_handle_with_capacity`] so operators can
+/// tune the depth via [`crate::McpHttpConfig::bridge_queue_depth`]
+/// / `MCP_QUEUE_BRIDGE_CAP` (issue #715).
+pub const DEFAULT_BRIDGE_QUEUE_DEPTH: usize = 16;
 
 /// Convert any [`Arc<dyn DccDispatcher>`] into a [`DccExecutorHandle`]
 /// the HTTP server can plug straight into
 /// [`crate::server::McpHttpServer::with_executor`].
+///
+/// Uses [`DEFAULT_BRIDGE_QUEUE_DEPTH`] so existing call-sites see
+/// identical behaviour to pre-#715. New code paths should prefer
+/// [`dispatcher_to_executor_handle_with_capacity`] so operators can
+/// tune the depth via [`crate::McpHttpConfig::bridge_queue_depth`].
 ///
 /// A single background tokio task (spawned on `runtime`) drains the
 /// synthesized handle's mpsc, forwards each closure into
@@ -70,7 +78,25 @@ pub fn dispatcher_to_executor_handle(
     dispatcher: Arc<dyn DccDispatcher>,
     runtime: &Handle,
 ) -> DccExecutorHandle {
-    let (tx, mut rx) = mpsc::channel::<DccTask>(BRIDGE_QUEUE_DEPTH);
+    dispatcher_to_executor_handle_with_capacity(dispatcher, runtime, DEFAULT_BRIDGE_QUEUE_DEPTH)
+}
+
+/// Like [`dispatcher_to_executor_handle`] but accepts an explicit
+/// queue capacity (issue #715).
+///
+/// `capacity == 0` degrades gracefully to [`DEFAULT_BRIDGE_QUEUE_DEPTH`]
+/// so misconfigured env-vars cannot silently disable backpressure.
+pub fn dispatcher_to_executor_handle_with_capacity(
+    dispatcher: Arc<dyn DccDispatcher>,
+    runtime: &Handle,
+    capacity: usize,
+) -> DccExecutorHandle {
+    let depth = if capacity == 0 {
+        DEFAULT_BRIDGE_QUEUE_DEPTH
+    } else {
+        capacity
+    };
+    let (tx, mut rx) = mpsc::channel::<DccTask>(depth);
 
     runtime.spawn(async move {
         while let Some(DccTask { func, result_tx }) = rx.recv().await {
@@ -86,7 +112,7 @@ pub fn dispatcher_to_executor_handle(
         }
     });
 
-    DccExecutorHandle::from_sender(tx)
+    DccExecutorHandle::from_sender(tx, depth)
 }
 
 /// Encode a [`DispatchError`] as the `{"__dispatch_error": "..."}`
@@ -100,6 +126,7 @@ fn encode_dispatch_error(err: &DispatchError) -> String {
         DispatchError::Shutdown => "shutdown",
         DispatchError::ResultDropped => "dropped",
         DispatchError::Panic(_) => "panic",
+        DispatchError::QueueOverloaded { .. } => "queue-overloaded",
     };
     serde_json::to_string(&serde_json::json!({
         "__dispatch_error": format!("{tag}: {err}"),

@@ -32,6 +32,21 @@ pub enum HttpError {
     #[error("executor channel closed")]
     ExecutorClosed,
 
+    /// The DCC main-thread queue refused a new task because it is at
+    /// capacity and did not drain within the configured send timeout
+    /// (issue #715).
+    ///
+    /// Distinct from [`Self::ExecutorClosed`] (dispatcher gone) so
+    /// orchestrators can decide between "retry after `retry_after_secs`"
+    /// vs. "fail over to a different backend". `depth` / `capacity` are
+    /// exposed for operator diagnostics.
+    #[error("queue overloaded (depth={depth}/{capacity}); retry in {retry_after_secs}s")]
+    QueueOverloaded {
+        depth: usize,
+        capacity: usize,
+        retry_after_secs: u64,
+    },
+
     #[error("action dispatch error: {0}")]
     Dispatch(String),
 
@@ -54,6 +69,7 @@ impl HttpError {
             Self::RateLimit(_) => 429,
             Self::AlreadyRunning | Self::NotRunning => 409,
             Self::Timeout { .. } => 504,
+            Self::QueueOverloaded { .. } => 503,
             _ => 500,
         }
     }
