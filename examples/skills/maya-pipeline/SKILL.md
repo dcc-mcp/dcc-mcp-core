@@ -16,9 +16,7 @@ metadata:
   dcc-mcp.search-hint: "Maya project setup, export scene USD, asset pipeline, Maya export workflow, DCC pipeline orchestration"
   dcc-mcp.tags: "maya, pipeline, export, project setup, domain"
   dcc-mcp.tools: tools.yaml
-depends:
-  - maya-geometry
-  - usd-tools
+  dcc-mcp.depends: "maya-geometry, usd-tools"
 ---
 
 # Maya Pipeline Skill (Advanced)
