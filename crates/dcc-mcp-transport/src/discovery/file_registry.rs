@@ -3,12 +3,14 @@
 //! Stores service entries as JSON in a registry directory.
 //! Uses `(dcc_type, instance_id)` as key to support multiple instances per DCC type.
 
-use std::fs;
-use std::path::PathBuf;
+use std::fs::{self, File, OpenOptions};
+use std::io::ErrorKind;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 
 use dashmap::DashMap;
+use fs4::{FileExt, TryLockError};
 use sysinfo::{Pid, ProcessesToUpdate, System};
 use tracing;
 
@@ -29,6 +31,7 @@ fn is_pid_alive(pid: u32) -> bool {
 
 /// File name for the registry JSON.
 const REGISTRY_FILE: &str = "services.json";
+const LOCKS_DIR: &str = "locks";
 
 /// File-based service registry with instance-level keying.
 ///
@@ -44,6 +47,8 @@ pub struct FileRegistry {
     services: DashMap<ServiceKey, ServiceEntry>,
     /// Directory where registry file is stored.
     registry_dir: PathBuf,
+    /// Sentinel lock files owned by entries registered in this process.
+    sentinel_handles: DashMap<ServiceKey, File>,
     /// Last-seen modification time of services.json.
     /// Used to detect external writes (hot-reload).
     last_mtime: Mutex<Option<SystemTime>>,
@@ -64,6 +69,7 @@ impl FileRegistry {
         let registry = Self {
             services: DashMap::new(),
             registry_dir,
+            sentinel_handles: DashMap::new(),
             last_mtime: Mutex::new(None),
         };
 
@@ -135,8 +141,75 @@ impl FileRegistry {
         Ok(())
     }
 
+    fn locks_dir(&self) -> PathBuf {
+        self.registry_dir.join(LOCKS_DIR)
+    }
+
+    fn sentinel_path_for(&self, key: &ServiceKey) -> PathBuf {
+        self.locks_dir()
+            .join(format!("{}-{}.lock", key.dcc_type, key.instance_id))
+    }
+
+    fn create_sentinel(&self, key: &ServiceKey) -> TransportResult<(PathBuf, File)> {
+        let locks_dir = self.locks_dir();
+        fs::create_dir_all(&locks_dir).map_err(|e| {
+            TransportError::RegistryFile(format!(
+                "failed to create sentinel dir {}: {}",
+                locks_dir.display(),
+                e
+            ))
+        })?;
+        let path = self.sentinel_path_for(key);
+        let file = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(&path)
+            .map_err(|e| {
+                TransportError::RegistryFile(format!(
+                    "failed to open sentinel {}: {}",
+                    path.display(),
+                    e
+                ))
+            })?;
+        FileExt::lock(&file).map_err(|e| {
+            TransportError::RegistryFile(format!(
+                "failed to lock sentinel {}: {}",
+                path.display(),
+                e
+            ))
+        })?;
+        Ok((path, file))
+    }
+
+    fn sentinel_is_dead(&self, key: &ServiceKey, path: &Path) -> bool {
+        if self.sentinel_handles.contains_key(key) {
+            return false;
+        }
+        let file = match OpenOptions::new().read(true).write(true).open(path) {
+            Ok(file) => file,
+            Err(err) if err.kind() == ErrorKind::NotFound => return true,
+            Err(err) => {
+                tracing::warn!(sentinel = %path.display(), error = %err, "failed to open sentinel; keeping entry");
+                return false;
+            }
+        };
+        match FileExt::try_lock(&file) {
+            Ok(()) => {
+                let _ = file.unlock();
+                true
+            }
+            Err(TryLockError::WouldBlock) => false,
+            Err(TryLockError::Error(err)) => {
+                tracing::warn!(sentinel = %path.display(), error = %err, "failed to probe sentinel; keeping entry");
+                false
+            }
+        }
+    }
+
     /// Register a service.
-    pub fn register(&self, entry: ServiceEntry) -> TransportResult<()> {
+    pub fn register(&self, mut entry: ServiceEntry) -> TransportResult<()> {
         let key = entry.key();
         tracing::info!(
             dcc_type = %entry.dcc_type,
@@ -145,6 +218,9 @@ impl FileRegistry {
             port = entry.port,
             "registering service"
         );
+        let (sentinel_path, sentinel_file) = self.create_sentinel(&key)?;
+        entry.sentinel_path = Some(sentinel_path);
+        self.sentinel_handles.insert(key.clone(), sentinel_file);
         self.services.insert(key, entry);
         self.flush_to_file()
     }
@@ -152,6 +228,14 @@ impl FileRegistry {
     /// Deregister a service by key.
     pub fn deregister(&self, key: &ServiceKey) -> TransportResult<Option<ServiceEntry>> {
         let removed = self.services.remove(key).map(|(_, entry)| entry);
+        if let Some((_, file)) = self.sentinel_handles.remove(key) {
+            let _ = file.unlock();
+        }
+        if let Some(entry) = &removed
+            && let Some(path) = &entry.sentinel_path
+        {
+            let _ = fs::remove_file(path);
+        }
         if removed.is_some() {
             tracing::info!(
                 dcc_type = %key.dcc_type,
@@ -437,30 +521,38 @@ impl FileRegistry {
 
     /// Remove entries whose owning OS process is no longer running.
     ///
-    /// Complements [`Self::cleanup_stale`]: a plugin that crashes during
-    /// `initializePlugin` (after `bind_and_register` wrote its row but before
-    /// the heartbeat task started) would otherwise leak a ghost entry for up
-    /// to `stale_timeout` seconds. This check runs a PID liveness probe and
-    /// removes entries with dead PIDs immediately — including the gateway
-    /// sentinel, since a dead gateway process must not keep the sentinel alive.
-    ///
-    /// Entries without a `pid` set are left untouched (fail-open — we cannot
-    /// probe what we cannot identify). See issue #227.
-    pub fn prune_dead_pids(&self) -> TransportResult<usize> {
+    /// Sentinel locks are checked before PID liveness: if another process can
+    /// acquire the sentinel lock, the owner is gone even if the PID has already
+    /// been reused. Rows from older versions without a sentinel fall back to the
+    /// PID probe. Includes the gateway sentinel.
+    pub fn prune_dead_entries(&self) -> TransportResult<usize> {
         let dead_keys: Vec<ServiceKey> = self
             .services
             .iter()
-            .filter(|r| r.value().pid.is_some_and(|p| !is_pid_alive(p)))
+            .filter(|r| {
+                let entry = r.value();
+                if let Some(path) = entry.sentinel_path.as_deref() {
+                    self.sentinel_is_dead(r.key(), path)
+                } else {
+                    entry.pid.is_some_and(|p| !is_pid_alive(p))
+                }
+            })
             .map(|r| r.key().clone())
             .collect();
 
         let count = dead_keys.len();
         for key in &dead_keys {
-            self.services.remove(key);
+            let removed = self.services.remove(key).map(|(_, entry)| entry);
+            self.sentinel_handles.remove(key);
+            if let Some(entry) = removed
+                && let Some(path) = entry.sentinel_path
+            {
+                let _ = fs::remove_file(path);
+            }
             tracing::info!(
                 dcc_type = %key.dcc_type,
                 instance_id = %key.instance_id,
-                "removed ghost entry (owning process is dead)"
+                "removed ghost entry (owner sentinel/PID is dead)"
             );
         }
 
@@ -468,6 +560,11 @@ impl FileRegistry {
             self.flush_to_file()?;
         }
         Ok(count)
+    }
+
+    /// Backward-compatible name for [`Self::prune_dead_entries`].
+    pub fn prune_dead_pids(&self) -> TransportResult<usize> {
+        self.prune_dead_entries()
     }
 
     /// Read all live entries, evicting any whose owning OS process is dead.
@@ -485,7 +582,7 @@ impl FileRegistry {
     ///
     /// Closes loonghao/dcc-mcp-maya#126.
     pub fn read_alive(&self) -> TransportResult<(Vec<ServiceEntry>, usize)> {
-        let evicted = self.prune_dead_pids()?;
+        let evicted = self.prune_dead_entries()?;
         Ok((self.list_all(), evicted))
     }
 

@@ -143,6 +143,7 @@ Gateway / slim / REST exposure:
 | Hide unknown DCC types from gateway | `McpHttpConfig.allow_unknown_tools = false` (default) — drops tools whose `dcc_type` is not registered with the gateway (#553, #555) |
 | Auto-evict dead gateway instances | Gateway runs a TCP probe loop; deregisters after 3 consecutive failures, also runs a startup probe to evict instances whose listener died while the registry entry survived (#551, #552, #556) |
 | Crash-safe heartbeat | `FileRegistry::heartbeat` writes via `tempfile::persist` + Windows `LockFileEx` so concurrent processes can't stomp each other's entry (#554) |
+| Crash-resilient liveness check | `FileRegistry` sentinel lock files — `read_alive()` / `prune_dead_entries()` evict rows whose owner process released its OS-held lock (#748) |
 | Default rolling file logging | `default_file_logging_config()` from `dcc_mcp_logging::file_logging` — rolling daily files under the platform log dir (#557) |
 | Trim old log files | `prune_old_logs(retention_days, max_total_size_mb)` — call on a schedule or at startup to enforce retention (#558) |
 | Prometheus `/metrics` (gateway) | Build `dcc-mcp-http` with `--features prometheus`; `attach_gateway_metrics_route` + `dcc_mcp_telemetry::PrometheusExporter` expose `dcc_mcp_instances_total{status}`, `dcc_mcp_tools_total{dcc_type}`, request duration / failure counters at `GET /metrics` (#559) |

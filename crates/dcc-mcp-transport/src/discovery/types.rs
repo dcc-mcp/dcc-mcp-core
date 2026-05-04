@@ -140,6 +140,14 @@ pub struct ServiceEntry {
     /// same scene open (e.g. two Maya sessions reviewing the same asset).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pid: Option<u32>,
+    /// OS-held sentinel lock file for crash-resilient liveness checks.
+    ///
+    /// The owning process holds an exclusive lock while registered. Readers can
+    /// take the lock only after the owner exits or crashes, avoiding PID reuse
+    /// races while remaining backward-compatible with rows that omit this field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sentinel_path: Option<std::path::PathBuf>,
+    /// Human-readable label for this instance.
     /// Human-readable label for this instance.
     ///
     /// Set by the DCC plugin at registration time (e.g. `"Maya-Rigging"`,
@@ -205,6 +213,7 @@ impl ServiceEntry {
             scene: None,
             documents: Vec::new(),
             pid: Some(std::process::id()),
+            sentinel_path: None,
             display_name: None,
             metadata: HashMap::new(),
             extras: HashMap::new(),
@@ -241,6 +250,7 @@ impl ServiceEntry {
             scene: None,
             documents: Vec::new(),
             pid: Some(std::process::id()),
+            sentinel_path: None,
             display_name: None,
             metadata: HashMap::new(),
             extras: HashMap::new(),

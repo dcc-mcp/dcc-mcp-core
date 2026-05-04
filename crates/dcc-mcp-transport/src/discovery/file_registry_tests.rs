@@ -3,6 +3,13 @@
 use super::*;
 use uuid::Uuid;
 
+fn remove_sentinel_for_pid_fallback(registry: &FileRegistry, key: &ServiceKey) {
+    registry.sentinel_handles.remove(key);
+    if let Some(mut entry) = registry.services.get_mut(key) {
+        entry.sentinel_path = None;
+    }
+}
+
 #[test]
 fn test_file_registry_register_and_list() {
     let dir = tempfile::tempdir().unwrap();
@@ -141,6 +148,7 @@ fn test_file_registry_prune_dead_pids() {
     let ghost = ServiceEntry::new("maya", "127.0.0.1", 18813).with_pid(u32::MAX);
     let ghost_key = ghost.key();
     registry.register(ghost).unwrap();
+    remove_sentinel_for_pid_fallback(&registry, &ghost_key);
 
     let pruned = registry.prune_dead_pids().unwrap();
     assert_eq!(pruned, 1, "exactly one ghost entry should be pruned");
@@ -149,6 +157,37 @@ fn test_file_registry_prune_dead_pids() {
         registry.get(&ghost_key).is_none(),
         "ghost entry must be removed"
     );
+}
+
+#[test]
+fn test_file_registry_sentinel_survives_dead_pid_while_lock_held() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = FileRegistry::new(dir.path()).unwrap();
+
+    let entry = ServiceEntry::new("maya", "127.0.0.1", 18812).with_pid(u32::MAX);
+    let key = entry.key();
+    registry.register(entry).unwrap();
+
+    assert_eq!(registry.prune_dead_entries().unwrap(), 0);
+    assert!(registry.get(&key).is_some());
+}
+
+#[test]
+fn test_file_registry_sentinel_prunes_after_owner_drops_lock() {
+    let dir = tempfile::tempdir().unwrap();
+    let key = {
+        let registry = FileRegistry::new(dir.path()).unwrap();
+        let entry = ServiceEntry::new("maya", "127.0.0.1", 18812);
+        let key = entry.key();
+        registry.register(entry).unwrap();
+        key
+    };
+
+    let reader = FileRegistry::new(dir.path()).unwrap();
+    let pruned = reader.prune_dead_entries().unwrap();
+
+    assert_eq!(pruned, 1);
+    assert!(reader.get(&key).is_none());
 }
 
 #[test]
@@ -380,6 +419,7 @@ fn test_read_alive_evicts_ghost_and_returns_live() {
     let ghost = ServiceEntry::new("maya", "127.0.0.1", 18813).with_pid(u32::MAX);
     let ghost_key = ghost.key();
     registry.register(ghost).unwrap();
+    remove_sentinel_for_pid_fallback(&registry, &ghost_key);
 
     let (entries, evicted) = registry.read_alive().unwrap();
     assert_eq!(evicted, 1, "exactly one ghost row must be evicted");
@@ -413,7 +453,9 @@ fn test_read_alive_idempotent_after_first_call() {
     let live = ServiceEntry::new("maya", "127.0.0.1", 18812);
     registry.register(live).unwrap();
     let ghost = ServiceEntry::new("maya", "127.0.0.1", 18813).with_pid(u32::MAX);
+    let ghost_key = ghost.key();
     registry.register(ghost).unwrap();
+    remove_sentinel_for_pid_fallback(&registry, &ghost_key);
 
     let (_, evicted_first) = registry.read_alive().unwrap();
     assert_eq!(evicted_first, 1);
@@ -433,7 +475,9 @@ fn test_read_alive_with_log_returns_same_result() {
     let live = ServiceEntry::new("maya", "127.0.0.1", 18812);
     registry.register(live).unwrap();
     let ghost = ServiceEntry::new("maya", "127.0.0.1", 18813).with_pid(u32::MAX);
+    let ghost_key = ghost.key();
     registry.register(ghost).unwrap();
+    remove_sentinel_for_pid_fallback(&registry, &ghost_key);
 
     // Threshold larger than the eviction count → no warn, but counts match.
     let (entries, evicted) = registry.read_alive_with_log(100).unwrap();
@@ -451,7 +495,9 @@ fn test_read_alive_handles_multiple_ghosts_for_dcc_maya_126() {
 
     for port in 18812..18812 + 5 {
         let ghost = ServiceEntry::new("maya", "127.0.0.1", port).with_pid(u32::MAX - port as u32);
+        let ghost_key = ghost.key();
         registry.register(ghost).unwrap();
+        remove_sentinel_for_pid_fallback(&registry, &ghost_key);
     }
     let live = ServiceEntry::new("maya", "127.0.0.1", 19000);
     registry.register(live).unwrap();
