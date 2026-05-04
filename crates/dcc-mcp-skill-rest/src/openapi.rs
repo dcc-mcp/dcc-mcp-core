@@ -116,4 +116,61 @@ mod tests {
         let v = doc["openapi"].as_str().unwrap_or_default();
         assert!(v.starts_with("3."), "expected OpenAPI 3.x, got {v}");
     }
+
+    /// Contract lock (PR A, MCP surface convergence): the REST invocation
+    /// payload shape must stay stable so MCP `call_tool` (which routes
+    /// through the same `call_service` code path on the gateway) and
+    /// REST `/v1/call` callers can share a single request envelope.
+    ///
+    /// Any change to this test means a downstream-visible contract break
+    /// and should be paired with an explicit CHANGELOG entry + migration
+    /// note in `docs/guide/rest-api-surface.md`.
+    #[test]
+    fn call_request_schema_contract_is_stable() {
+        let doc = build_openapi_document("x", "1.0.0");
+        let schema = &doc["components"]["schemas"]["CallRequest"];
+        assert!(
+            schema.is_object(),
+            "CallRequest schema missing from OpenAPI doc: {doc:#}"
+        );
+        let required: Vec<&str> = schema["required"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
+            .unwrap_or_default();
+        assert!(
+            required.contains(&"tool_slug"),
+            "CallRequest must require tool_slug; got required = {required:?}"
+        );
+        let props = schema["properties"]
+            .as_object()
+            .expect("CallRequest must declare properties");
+        for field in ["tool_slug", "params"] {
+            assert!(
+                props.contains_key(field),
+                "CallRequest is missing property {field}: {props:#?}"
+            );
+        }
+    }
+
+    /// Contract lock: the REST `/v1/call` success envelope must stay
+    /// stable. Gateway MCP `call_tool` serialises the same `CallOutcome`
+    /// so any drift here ripples through both transports.
+    #[test]
+    fn call_outcome_schema_contract_is_stable() {
+        let doc = build_openapi_document("x", "1.0.0");
+        let schema = &doc["components"]["schemas"]["CallOutcome"];
+        assert!(
+            schema.is_object(),
+            "CallOutcome schema missing from OpenAPI doc: {doc:#}"
+        );
+        let props = schema["properties"]
+            .as_object()
+            .expect("CallOutcome must declare properties");
+        for field in ["slug", "output", "validation_skipped"] {
+            assert!(
+                props.contains_key(field),
+                "CallOutcome is missing property {field}: {props:#?}"
+            );
+        }
+    }
 }
