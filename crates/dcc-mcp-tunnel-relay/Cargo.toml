@@ -7,6 +7,11 @@ authors.workspace = true
 license.workspace = true
 description = "Public-facing relay for the DCC-MCP zero-config remote access tunnel (issue #504). Accepts WebSocket registrations from local agents and forwards multiplexed MCP sessions from remote AI assistants."
 
+[[bin]]
+name = "dcc-mcp-tunnel-relay"
+path = "src/bin/dcc-mcp-tunnel-relay.rs"
+required-features = ["bin"]
+
 [dependencies]
 dcc-mcp-tunnel-protocol = { workspace = true }
 
@@ -24,6 +29,15 @@ axum = { version = "0.8", features = ["http1", "tokio", "ws"] }
 tokio-tungstenite = { workspace = true }
 futures-util = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+# Binary-only dependencies, gated behind the `bin` feature so the library
+# stays dependency-light for embedders.
+anyhow = { workspace = true, optional = true }
+clap = { version = "4", features = ["derive", "env"], optional = true }
+tracing-subscriber = { workspace = true, optional = true }
+
+[features]
+bin = ["dep:anyhow", "dep:clap", "dep:tracing-subscriber"]
 
 [dev-dependencies]
 dcc-mcp-tunnel-agent = { workspace = true }
