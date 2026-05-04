@@ -11,6 +11,39 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.14.28](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.27...v0.14.28) (2026-05-04)
+
+
+### Features
+
+* **gateway:** aggregate prompts/list + prompts/get across backends ([#731](https://github.com/loonghao/dcc-mcp-core/issues/731)) ([fd850d3](https://github.com/loonghao/dcc-mcp-core/commit/fd850d38cfb1d624892ab0fecef39b130decf07f))
+* **gateway:** forward backend resources with namespaced URIs ([#732](https://github.com/loonghao/dcc-mcp-core/issues/732)) ([64872b2](https://github.com/loonghao/dcc-mcp-core/commit/64872b2c261c8f297d8c5b85a1cb42a60ebff4fa))
+* **http:** expose ResourceRegistry mutating API to Python ([#730](https://github.com/loonghao/dcc-mcp-core/issues/730)) ([2d1bc6c](https://github.com/loonghao/dcc-mcp-core/commit/2d1bc6c73e049c37eba8d2f3c4319799a0254f49))
+* **http:** expose ResourceRegistry mutating API to Python ([#730](https://github.com/loonghao/dcc-mcp-core/issues/730)) ([#751](https://github.com/loonghao/dcc-mcp-core/issues/751)) ([669b01b](https://github.com/loonghao/dcc-mcp-core/commit/669b01bd6097225e93fd980a4a2855b5333435e2))
+* **python:** add defensive handle shutdown ([#754](https://github.com/loonghao/dcc-mcp-core/issues/754)) ([0502638](https://github.com/loonghao/dcc-mcp-core/commit/05026384c0c31891a7a9a0a58b49bbbffc06a415))
+* **server:** add DCC quit hooks ([#753](https://github.com/loonghao/dcc-mcp-core/issues/753)) ([f23ad7b](https://github.com/loonghao/dcc-mcp-core/commit/f23ad7bd239620a7d1bcfab076cf13ccf87d277c))
+* **server:** handle shutdown signals ([#756](https://github.com/loonghao/dcc-mcp-core/issues/756)) ([12eec51](https://github.com/loonghao/dcc-mcp-core/commit/12eec5142e374609e7b05a86f81f028160fe95e6))
+* **skills:** declare static MCP resources from YAML ([#752](https://github.com/loonghao/dcc-mcp-core/issues/752)) ([b18d271](https://github.com/loonghao/dcc-mcp-core/commit/b18d2719a41b4d14cdfba48527f29b509cc2e1bb))
+* **transport:** add registry sentinel locks ([#755](https://github.com/loonghao/dcc-mcp-core/issues/755)) ([4b6f563](https://github.com/loonghao/dcc-mcp-core/commit/4b6f5633619679e271dd2c668d817d982595fb43))
+
+
+### Bug Fixes
+
+* **gateway:** bind forwarded resources/subscribe to backend SSE session ([#732](https://github.com/loonghao/dcc-mcp-core/issues/732)) ([b5efef4](https://github.com/loonghao/dcc-mcp-core/commit/b5efef4b488f6180efa1ad1023b79a7c825ad773))
+* **gateway:** reload registry before pruning ghost rows, test cross-process eviction ([66772b0](https://github.com/loonghao/dcc-mcp-core/commit/66772b08dd415def9d402ee287589bfea86d20e7))
+* **tests:** gateway resources subscribe test must target backend B explicitly ([7d3efb3](https://github.com/loonghao/dcc-mcp-core/commit/7d3efb3fdbcf0348ab84c0113c1606352911e632))
+* **tests:** keep writer registry handles alive to simulate real ownership ([9828aa1](https://github.com/loonghao/dcc-mcp-core/commit/9828aa1ede0d3adcd5f2762d37a3aedf01fa0d37))
+
+
+### Code Refactoring
+
+* **gateway:** split SOLID responsibilities, adopt Rust 1.95 cfg_select ([57e63df](https://github.com/loonghao/dcc-mcp-core/commit/57e63dfae7415e892b131bd9f46becbda9961248))
+
+
+### Documentation
+
+* refresh AI agent onboarding ([3200aa8](https://github.com/loonghao/dcc-mcp-core/commit/3200aa8c2943360b57b1ddecbfa08c995eedc281))
+
 ## [0.14.27](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.26...v0.14.27) (2026-05-03)
 
 
