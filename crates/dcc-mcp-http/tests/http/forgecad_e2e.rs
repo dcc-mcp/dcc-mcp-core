@@ -28,14 +28,8 @@ fn write_forgecad_skill(root: &std::path::Path) {
     let skill_dir = root.join("forgecad-make-a-model");
     std::fs::create_dir_all(skill_dir.join("scripts")).unwrap();
     std::fs::write(
-        skill_dir.join("SKILL.md"),
-        r#"---
-name: forgecad-make-a-model
-description: Create new ForgeCAD (.forge.js) models in the active CAD project. Handles file placement, invokes the forgecad skill for API guidance, and validates the result.
-dcc: forgecad
-forgecad-public: true
-tags: [forgecad, cad, third-party]
-tools:
+        skill_dir.join("tools.yaml"),
+        r#"tools:
   - name: create_model
     description: Create a ForgeCAD model from a brief and return the generated file path.
     source_file: scripts/create_model.py
@@ -45,6 +39,19 @@ tools:
         brief:
           type: string
       required: [brief]
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        skill_dir.join("SKILL.md"),
+        r#"---
+name: forgecad-make-a-model
+description: Create new ForgeCAD (.forge.js) models in the active CAD project. Handles file placement, invokes the forgecad skill for API guidance, and validates the result.
+metadata:
+  forgecad-public: true
+  dcc-mcp.dcc: forgecad
+  dcc-mcp.tags: "forgecad, cad, third-party"
+  dcc-mcp.tools: tools.yaml
 ---
 # Make a Model
 

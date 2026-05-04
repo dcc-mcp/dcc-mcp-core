@@ -102,7 +102,6 @@ use serde_impl::{
         metadata_files: Vec<String> => [get(clone), set],
         tools: Vec<crate::skill_metadata::ToolDeclaration> => [get(clone), set],
         groups: Vec<crate::skill_metadata::SkillGroup> => [get(clone), set],
-        legacy_extension_fields: Vec<String> => [get(clone)],
         layer: Option<String> => [get(clone), set],
     ))
 )]
@@ -248,16 +247,6 @@ pub struct SkillMetadata {
     /// the catalog auto-inserts an inactive placeholder group at load time.
     #[serde(default)]
     pub groups: Vec<SkillGroup>,
-
-    /// Names of legacy top-level extension fields detected while parsing
-    /// this skill's SKILL.md (issue #356).
-    ///
-    /// Populated by the loader, not by serde. When empty the skill uses the
-    /// agentskills.io-compliant `metadata.dcc-mcp.*` form exclusively; when
-    /// non-empty the skill still relies on deprecated top-level extension
-    /// keys. See [`SkillMetadata::is_spec_compliant`].
-    #[serde(default, skip_serializing, skip_deserializing)]
-    pub legacy_extension_fields: Vec<String>,
 
     /// Sibling-file reference for the MCP prompts primitive (issues #351, #355).
     ///

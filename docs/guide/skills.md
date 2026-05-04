@@ -1000,9 +1000,9 @@ The `tags` and `dcc` filter arguments are applied *before* scoring.
 
 ## Migrating pre-0.15 SKILL.md
 
-Starting with dcc-mcp-core 0.15 (issue [#356](https://github.com/loonghao/dcc-mcp-core/issues/356)), dcc-mcp-core-specific extension keys (`dcc`, `version`, `tags`, `tools`, …) should live under the agentskills.io-compliant `metadata.dcc-mcp.*` namespace rather than at the top level of SKILL.md frontmatter. Top-level extension keys continue to parse but emit a one-shot deprecation warning per skill, and `SkillMetadata.is_spec_compliant()` returns `False` for them.
+Starting with dcc-mcp-core 0.15 (issue [#356](https://github.com/loonghao/dcc-mcp-core/issues/356)), dcc-mcp-core-specific extension keys (`dcc`, `version`, `tags`, `tools`, …) MUST live under the agentskills.io-compliant `metadata.dcc-mcp.*` namespace rather than at the top level of SKILL.md frontmatter. The loader rejects any top-level key outside the agentskills.io 1.0 spec (`name`, `description`, `license`, `compatibility`, `metadata`, `allowed-tools`): a SKILL.md with legacy top-level keys fails to load and emits a `tracing::error!`.
 
-### Before (pre-0.15, legacy — still works, now deprecated)
+### Before (pre-0.15 legacy form — no longer accepted)
 
 ```yaml
 ---
@@ -1135,40 +1135,39 @@ skill-load time. Invalid entries are dropped with a `tracing::warn!`
 and the rest of the skill loads normally — a single malformed name
 will not fail the whole skill.
 
-A legacy top-level `next-tools:` block on SKILL.md still parses for
-backward compatibility but emits a deprecation warning and flips
-`SkillMetadata.is_spec_compliant()` to `False` (`next-tools` appears
-in `legacy_extension_fields`).
+A top-level `next-tools:` block on SKILL.md is rejected by the loader
+(issue #356 strict mode) — move per-tool `next-tools` entries into
+`tools.yaml` alongside the tool they belong to.
 
 ### Metadata key reference
 
-| Legacy top-level                | Spec-compliant `metadata` key                | Value type            |
-| ------------------------------- | -------------------------------------------- | --------------------- |
-| `dcc: maya`                     | `metadata["dcc-mcp.dcc"]`                    | string                |
-| `version: 1.0.0`                | `metadata["dcc-mcp.version"]`                | string                |
-| `tags: [a, b]`                  | `metadata["dcc-mcp.tags"]`                   | comma-separated string |
-| `search-hint: "…"`              | `metadata["dcc-mcp.search-hint"]`            | string                |
-| `depends: [x, y]`               | `metadata["dcc-mcp.depends"]`                | comma-separated string |
-| `products: [maya]`              | `metadata["dcc-mcp.products"]`               | comma-separated string |
-| `allow_implicit_invocation`     | `metadata["dcc-mcp.allow-implicit-invocation"]` | `"true"` / `"false"` |
-| `external_deps: {...}`          | `metadata["dcc-mcp.external-deps"]`          | JSON string           |
-| `tools: [...]` inline block     | `metadata["dcc-mcp.tools"]`                  | sibling `.yaml` file  |
-| `groups: [...]` inline block    | `metadata["dcc-mcp.groups"]`                 | sibling `.yaml` file  |
-| *(MCP prompts primitive)*       | `metadata["dcc-mcp.prompts"]`                | sibling `.yaml` file or `prompts/*.prompt.yaml` glob |
-| *(MCP resources primitive)*     | `metadata["dcc-mcp.resources"]`              | sibling `.yaml` file, directory, or `resources/*.resource.yaml` glob |
+| Legacy top-level (no longer accepted) | Spec-compliant `metadata` key                | Value type            |
+| ------------------------------------- | -------------------------------------------- | --------------------- |
+| `dcc: maya`                           | `metadata["dcc-mcp.dcc"]`                    | string                |
+| `version: 1.0.0`                      | `metadata["dcc-mcp.version"]`                | string                |
+| `tags: [a, b]`                        | `metadata["dcc-mcp.tags"]`                   | comma-separated string |
+| `search-hint: "…"`                    | `metadata["dcc-mcp.search-hint"]`            | string                |
+| `depends: [x, y]`                     | `metadata["dcc-mcp.depends"]`                | comma-separated string |
+| `products: [maya]`                    | `metadata["dcc-mcp.products"]`               | comma-separated string |
+| `allow_implicit_invocation`           | `metadata["dcc-mcp.allow-implicit-invocation"]` | `"true"` / `"false"` |
+| `external_deps: {...}`                | `metadata["dcc-mcp.external-deps"]`          | JSON string           |
+| `tools: [...]` inline block           | `metadata["dcc-mcp.tools"]`                  | sibling `.yaml` file  |
+| `groups: [...]` inline block          | `metadata["dcc-mcp.groups"]`                 | sibling `.yaml` file  |
+| *(MCP prompts primitive)*             | `metadata["dcc-mcp.prompts"]`                | sibling `.yaml` file or `prompts/*.prompt.yaml` glob |
+| *(MCP resources primitive)*           | `metadata["dcc-mcp.resources"]`              | sibling `.yaml` file, directory, or `resources/*.resource.yaml` glob |
 
-### Priority rules
+### Validating your skill
 
-- When both forms are present, the `metadata.dcc-mcp.*` value wins.
-- If only the legacy top-level field is present, it is still read (backward compatibility) and the loader emits a single `tracing::warn!` per skill.
-- Checking compliance programmatically:
+`validate_skill()` reports any non-spec top-level key as a frontmatter
+error. Use it from a pre-commit hook or CI to catch migrations that
+were missed:
 
-  ```python
-  skills, _skipped = dcc_mcp_core.scan_and_load(dcc_name="maya")
-  for s in skills:
-      if not s.is_spec_compliant():
-          print(f"{s.name}: legacy fields={s.legacy_extension_fields}")
-  ```
+```python
+report = dcc_mcp_core.validate_skill("/path/to/my-skill")
+if report.has_errors:
+    for issue in report.issues:
+        print(f"[{issue.severity}] {issue.category}: {issue.message}")
+```
 
 A one-shot CLI migrator (`dcc-mcp-migrate-skill`) is planned as a follow-up; see the tracking issue for status.
 

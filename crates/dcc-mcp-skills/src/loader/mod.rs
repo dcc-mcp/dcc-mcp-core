@@ -14,13 +14,13 @@ use dcc_mcp_paths::path_to_string;
 use std::path::Path;
 
 /// Namespace prefix for agentskills.io-compliant dcc-mcp-core metadata keys
-/// (issue #356). Keys under `metadata.dcc-mcp.*` take priority over the
-/// legacy top-level form.
+/// (issue #356). All dcc-mcp-core extensions live under `metadata.dcc-mcp.*`.
 const DCC_MCP_PREFIX: &str = "dcc-mcp.";
 
-/// Top-level YAML keys allowed by the agentskills.io 1.0 spec; any other
-/// extension key observed at the frontmatter root is considered legacy
-/// (see issue #356).
+/// Top-level YAML keys allowed by the agentskills.io 1.0 spec. Any other
+/// key at the frontmatter root causes [`parse_skill_md`] to reject the
+/// skill. All dcc-mcp-core extensions must be expressed under
+/// `metadata.dcc-mcp.*` (see issue #356).
 const AGENTSKILLS_SPEC_KEYS: &[&str] = &[
     "name",
     "description",
@@ -29,31 +29,6 @@ const AGENTSKILLS_SPEC_KEYS: &[&str] = &[
     "metadata",
     "allowed-tools",
     "allowed_tools",
-];
-
-/// Legacy top-level extension keys we still dual-read for backward
-/// compatibility. Collected into `SkillMetadata::legacy_extension_fields`
-/// so callers can surface a deprecation warning. See issue #356.
-const LEGACY_EXTENSION_KEYS: &[&str] = &[
-    "dcc",
-    "version",
-    "tags",
-    "search-hint",
-    "search_hint",
-    "depends",
-    "tools",
-    "groups",
-    "policy",
-    "external_deps",
-    "external-deps",
-    "products",
-    "allow_implicit_invocation",
-    "allow-implicit-invocation",
-    // Issue #342 — per-tool `next-tools` MUST live in the sibling
-    // tools.yaml file. A top-level `next-tools:` in SKILL.md is the
-    // legacy form and is treated as spec-non-compliant.
-    "next-tools",
-    "next_tools",
 ];
 
 mod files;
@@ -89,9 +64,10 @@ pub fn parse_skill_md(skill_dir: &Path) -> Option<SkillMetadata> {
     // Extract YAML frontmatter between --- delimiters
     let frontmatter = extract_frontmatter(&content)?;
 
-    // Parse once into a raw YAML value so we can inspect which top-level
-    // keys the author declared; this drives the legacy/spec-compliant
-    // detection in issue #356 without breaking the existing deserializer.
+    // Parse once into a raw YAML value so we can validate top-level keys
+    // before handing off to serde. All dcc-mcp-core extensions must live
+    // under `metadata.dcc-mcp.*` (issue #356); any legacy top-level
+    // extension key causes the skill to be rejected.
     let raw_value: serde_yaml_ng::Value = match serde_yaml_ng::from_str(frontmatter) {
         Ok(v) => v,
         Err(e) => {
@@ -103,6 +79,28 @@ pub fn parse_skill_md(skill_dir: &Path) -> Option<SkillMetadata> {
             return None;
         }
     };
+
+    // Reject any top-level key that is not part of the agentskills.io
+    // 1.0 spec. This replaces the pre-0.15 dual-read path that silently
+    // accepted legacy top-level extension keys.
+    if let Some(map) = raw_value.as_mapping() {
+        let mut offending: Vec<&str> = map
+            .iter()
+            .filter_map(|(k, _)| k.as_str())
+            .filter(|k| !AGENTSKILLS_SPEC_KEYS.contains(k))
+            .collect();
+        if !offending.is_empty() {
+            offending.sort_unstable();
+            offending.dedup();
+            tracing::error!(
+                "skill at {}: non-spec top-level key(s) {:?}; move them under metadata.dcc-mcp.* \
+                 (see docs/guide/skills.md#migrating-pre-015-skillmd)",
+                skill_md_path.display(),
+                offending,
+            );
+            return None;
+        }
+    }
 
     let mut meta: SkillMetadata = match serde_yaml_ng::from_value(raw_value.clone()) {
         Ok(m) => m,
@@ -136,19 +134,8 @@ pub fn parse_skill_md(skill_dir: &Path) -> Option<SkillMetadata> {
         meta.metadata = j;
     }
 
-    // Apply the agentskills.io-compliant `metadata.dcc-mcp.*` overrides
-    // and collect any legacy top-level extension keys that were used.
-    let legacy_fields = detect_legacy_extension_fields(&raw_value);
+    // Apply the agentskills.io-compliant `metadata.dcc-mcp.*` overrides.
     apply_dcc_mcp_metadata_overrides(skill_dir, &raw_value, &mut meta);
-    if !legacy_fields.is_empty() {
-        tracing::warn!(
-            "skill {name}: legacy top-level field(s) {legacy:?}; use metadata.dcc-mcp.* instead \
-             (see docs/guide/skills.md#migrating-pre-015-skillmd)",
-            name = meta.name,
-            legacy = legacy_fields,
-        );
-    }
-    meta.legacy_extension_fields = legacy_fields;
 
     // Enumerate scripts
     meta.scripts = enumerate_scripts(skill_dir);
@@ -165,36 +152,11 @@ pub fn parse_skill_md(skill_dir: &Path) -> Option<SkillMetadata> {
 
 // ── Issue #356: agentskills.io-compliant metadata.dcc-mcp.* support ──
 
-/// Collect the names of legacy top-level extension keys that were
-/// declared in the raw YAML frontmatter.  Returns an empty vec when the
-/// skill already uses the `metadata.dcc-mcp.*` form exclusively.
-fn detect_legacy_extension_fields(root: &serde_yaml_ng::Value) -> Vec<String> {
-    let Some(map) = root.as_mapping() else {
-        return Vec::new();
-    };
-    let mut out = Vec::new();
-    for (key, _) in map.iter() {
-        let Some(k) = key.as_str() else { continue };
-        if AGENTSKILLS_SPEC_KEYS.contains(&k) {
-            continue;
-        }
-        if LEGACY_EXTENSION_KEYS.contains(&k) {
-            let normalized = k.to_string();
-            if !out.iter().any(|x: &String| x == &normalized) {
-                out.push(normalized);
-            }
-        }
-    }
-    out
-}
-
 /// Apply `metadata.dcc-mcp.*` overrides onto `meta`.
 ///
-/// Priority: a value present under `metadata.dcc-mcp.<field>` wins over
-/// the legacy top-level form.  Missing keys leave the existing value
-/// untouched so the legacy path remains functional.  Sibling-file
-/// references for `tools` / `groups` are resolved relative to
-/// `skill_dir`.
+/// Missing keys leave the corresponding field at its serde default.
+/// Sibling-file references for `tools` / `groups` are resolved relative
+/// to `skill_dir`.
 fn apply_dcc_mcp_metadata_overrides(
     skill_dir: &Path,
     raw: &serde_yaml_ng::Value,

@@ -97,11 +97,6 @@ impl SkillMetadata {
             .unwrap_or_default()
     }
 
-    /// Returns `true` iff no legacy top-level extension fields were used.
-    pub fn is_spec_compliant(&self) -> bool {
-        self.legacy_extension_fields.is_empty()
-    }
-
     /// Returns true if this skill has any validation warnings.
     pub fn validate(&self) -> Vec<String> {
         let mut warnings = Vec::new();

@@ -24,7 +24,6 @@ metadata:
 "#,
     );
     let meta = parse_skill_md(&dir).expect("parsed");
-    assert!(meta.is_spec_compliant());
     assert_eq!(
         meta.layer.as_deref(),
         Some("domain"),
@@ -49,7 +48,6 @@ metadata:
 "#,
     );
     let meta = parse_skill_md(&dir).expect("parsed");
-    assert!(meta.is_spec_compliant());
     assert_eq!(
         meta.layer.as_deref(),
         Some("infrastructure"),

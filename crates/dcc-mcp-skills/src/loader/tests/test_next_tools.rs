@@ -30,7 +30,6 @@ metadata:
 "#;
     std::fs::write(dir.join(SKILL_METADATA_FILE), body).unwrap();
     let meta = parse_skill_md(&dir).expect("parsed");
-    assert!(meta.is_spec_compliant());
     assert_eq!(meta.tools.len(), 1);
     let nt = &meta.tools[0].next_tools;
     assert_eq!(
@@ -44,27 +43,18 @@ metadata:
 }
 
 #[test]
-fn top_level_next_tools_is_legacy_and_non_compliant() {
+fn top_level_next_tools_is_rejected() {
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().join("legacy_nt");
     let body = r#"---
 name: legacy_nt
-dcc: maya
 next-tools:
   on-success: [foo]
 ---
 "#;
     write_skill(&dir, body);
-    let meta = parse_skill_md(&dir).expect("parsed");
     assert!(
-        !meta.is_spec_compliant(),
-        "top-level next-tools must be flagged as legacy",
-    );
-    assert!(
-        meta.legacy_extension_fields
-            .iter()
-            .any(|s| s == "next-tools"),
-        "legacy_extension_fields must name next-tools; got {:?}",
-        meta.legacy_extension_fields,
+        parse_skill_md(&dir).is_none(),
+        "top-level next-tools must cause the skill to be rejected"
     );
 }
