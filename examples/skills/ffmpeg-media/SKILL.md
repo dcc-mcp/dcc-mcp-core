@@ -10,12 +10,6 @@ license: MIT
 compatibility: Requires ffmpeg and ffprobe binaries on PATH
 allowed-tools: Bash Read Write
 metadata:
-  dcc-mcp.dcc: python
-  dcc-mcp.version: "1.0.0"
-  dcc-mcp.layer: infrastructure
-  dcc-mcp.search-hint: "ffmpeg, video transcode, audio convert, extract frames, resize video, image sequence, media processing"
-  dcc-mcp.tags: "media, video, audio, ffmpeg, conversion, infrastructure"
-  dcc-mcp.tools: tools.yaml
   openclaw:
     requires:
       bins:
@@ -27,6 +21,13 @@ metadata:
         bins: [ffmpeg, ffprobe]
     emoji: "🎬"
     homepage: https://ffmpeg.org
+  dcc-mcp:
+    dcc: python
+    version: "1.0.0"
+    layer: infrastructure
+    search-hint: "ffmpeg, video transcode, audio convert, extract frames, resize video, image sequence, media processing"
+    tags: "media, video, audio, ffmpeg, conversion, infrastructure"
+    tools: tools.yaml
 ---
 
 # FFmpeg Media Tools

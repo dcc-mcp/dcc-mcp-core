@@ -4,15 +4,16 @@ description: "Maya blocking helpers for film shot animation contexts."
 license: MIT
 allowed-tools: Bash Read Write
 metadata:
-  dcc-mcp.dcc: maya
-  dcc-mcp.version: "1.0.0"
-  dcc-mcp.layer: domain
-  dcc-mcp.search-hint: "maya animation blocking, shot, timeline, playblast"
-  dcc-mcp.tags: "film, maya, animation, shot"
-  dcc-mcp.tools: tools.yaml
-  dcc-mcp.prompts: prompts.yaml
-  dcc-mcp.toolset-profile: film-shot-animation
-  dcc-mcp.package-provenance: film_animation_blocking-1.0.0
+  dcc-mcp:
+    dcc: maya
+    version: "1.0.0"
+    layer: domain
+    search-hint: "maya animation blocking, shot, timeline, playblast"
+    tags: "film, maya, animation, shot"
+    tools: tools.yaml
+    prompts: prompts.yaml
+    toolset-profile: film-shot-animation
+    package-provenance: film_animation_blocking-1.0.0
 ---
 
 # Film Animation Blocking

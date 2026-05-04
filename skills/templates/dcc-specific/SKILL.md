@@ -6,11 +6,12 @@ compatibility: Maya 2022+, Python 3.7+
 metadata:
   category: scene
   author: your-name
-  dcc-mcp.dcc: maya
-  dcc-mcp.version: "1.0.0"
-  dcc-mcp.tags: "maya, example"
-  dcc-mcp.search-hint: "maya, scene, geometry, example"
-  dcc-mcp.tools: tools.yaml
+  dcc-mcp:
+    dcc: maya
+    version: "1.0.0"
+    tags: "maya, example"
+    search-hint: "maya, scene, geometry, example"
+    tools: tools.yaml
 ---
 
 # my-dcc-skill

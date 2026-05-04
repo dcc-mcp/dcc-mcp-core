@@ -8,12 +8,13 @@ description: >-
 license: MIT
 compatibility: Python 3.7+
 metadata:
-  dcc-mcp.dcc: python
-  dcc-mcp.version: "1.0.0"
-  dcc-mcp.layer: example
-  dcc-mcp.search-hint: "async tool, long-running, deferred hint, timeout hint, render async, authoring reference"
-  dcc-mcp.tags: "example, async, render, deferred"
-  dcc-mcp.tools: tools.yaml
+  dcc-mcp:
+    dcc: python
+    version: "1.0.0"
+    layer: example
+    search-hint: "async tool, long-running, deferred hint, timeout hint, render async, authoring reference"
+    tags: "example, async, render, deferred"
+    tools: tools.yaml
 ---
 
 # Async Render Example (issue #317)

@@ -8,11 +8,12 @@ description: >-
 license: MIT
 compatibility: Python 3.7+
 metadata:
-  dcc-mcp.dcc: maya
-  dcc-mcp.version: "1.0.0"
-  dcc-mcp.layer: example
-  dcc-mcp.search-hint: "bake animation, render frame, prompts fixture"
-  dcc-mcp.prompts: prompts.yaml
+  dcc-mcp:
+    dcc: maya
+    version: "1.0.0"
+    layer: example
+    search-hint: "bake animation, render frame, prompts fixture"
+    prompts: prompts.yaml
 ---
 
 # Maya prompts demo

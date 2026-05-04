@@ -10,18 +10,19 @@ license: MIT
 compatibility: Requires git on PATH
 allowed-tools: Bash Read
 metadata:
-  dcc-mcp.dcc: python
-  dcc-mcp.version: "1.0.0"
-  dcc-mcp.layer: infrastructure
-  dcc-mcp.search-hint: "git commit, git diff, git branch, git log, version control, codebase analysis, git history"
-  dcc-mcp.tags: "git, vcs, automation, devops, infrastructure"
-  dcc-mcp.tools: tools.yaml
   openclaw:
     requires:
       bins:
         - git
     emoji: "🔀"
     homepage: https://git-scm.com
+  dcc-mcp:
+    dcc: python
+    version: "1.0.0"
+    layer: infrastructure
+    search-hint: "git commit, git diff, git branch, git log, version control, codebase analysis, git history"
+    tags: "git, vcs, automation, devops, infrastructure"
+    tools: tools.yaml
 ---
 
 # Git Automation Tools

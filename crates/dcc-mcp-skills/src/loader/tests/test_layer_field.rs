@@ -1,22 +1,27 @@
 //! Tests for metadata.dcc-mcp.layer field parsing.
 //!
-//! Before the fix, `metadata.dcc-mcp.layer` produced a DEBUG warning
-//! "unknown metadata.dcc-mcp.layer key — ignoring" because the loader's
-//! apply_dcc_mcp_metadata_overrides() had no match arm for "layer".
+//! Since the flat-form shorthand was dropped, only the canonical nested
+//! `metadata.dcc-mcp.*` shape feeds the typed `SkillMetadata::layer`
+//! field. The legacy flat form (`metadata: { "dcc-mcp.layer": ... }`)
+//! no longer populates the typed field — the frontmatter key has a
+//! literal dot inside and is treated as an opaque custom key; it is
+//! still preserved in `SkillMetadata::metadata` for callers that
+//! inspect the raw map but does NOT drive the typed extensions.
 use super::fixtures::write_skill;
 use super::*;
 
 #[test]
-fn layer_field_is_parsed_flat_form() {
-    // Skill authors (dcc-mcp-maya uses this key on all 14 skills) would
-    // see spurious warnings and the field was silently dropped.
+fn flat_form_layer_is_no_longer_parsed_into_typed_field() {
+    // Legacy flat form: the loader no longer recognises
+    // `metadata.dcc-mcp.layer`. The field must stay `None`, surfacing
+    // the migration need clearly (vs. silently using a stale value).
     let tmp = tempfile::tempdir().unwrap();
-    let dir = tmp.path().join("layered");
+    let dir = tmp.path().join("flat_legacy");
     write_skill(
         &dir,
         r#"---
-name: layered
-description: A domain skill for Maya geometry.
+name: flat-legacy
+description: A pre-0.15 skill using the dropped flat-form shorthand.
 metadata:
   dcc-mcp.dcc: maya
   dcc-mcp.layer: domain
@@ -24,10 +29,10 @@ metadata:
 "#,
     );
     let meta = parse_skill_md(&dir).expect("parsed");
-    assert_eq!(
-        meta.layer.as_deref(),
-        Some("domain"),
-        "dcc-mcp.layer must be parsed into SkillMetadata::layer"
+    assert!(
+        meta.layer.is_none(),
+        "legacy flat-form dcc-mcp.layer must not populate the typed field any more; \
+         migrate to `metadata: {{ dcc-mcp: {{ layer: domain }} }}`",
     );
 }
 

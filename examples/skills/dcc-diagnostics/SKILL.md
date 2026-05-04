@@ -9,12 +9,13 @@ description: >-
   operations.
 license: MIT
 metadata:
-  dcc-mcp.dcc: python
-  dcc-mcp.version: "1.0.0"
-  dcc-mcp.layer: infrastructure
-  dcc-mcp.search-hint: "screenshot, capture, audit log, metrics, performance, process monitor, diagnostics, debug, health check, observability"
-  dcc-mcp.tags: "diagnostics, observability, screenshot, audit, metrics, debug, infrastructure"
-  dcc-mcp.tools: tools.yaml
+  dcc-mcp:
+    dcc: python
+    version: "1.0.0"
+    layer: infrastructure
+    search-hint: "screenshot, capture, audit log, metrics, performance, process monitor, diagnostics, debug, health check, observability"
+    tags: "diagnostics, observability, screenshot, audit, metrics, debug, infrastructure"
+    tools: tools.yaml
 ---
 
 # DCC Diagnostics

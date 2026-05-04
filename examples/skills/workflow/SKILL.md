@@ -8,12 +8,13 @@ description: >-
   for those.
 license: MIT
 metadata:
-  dcc-mcp.dcc: python
-  dcc-mcp.version: "1.0.0"
-  dcc-mcp.layer: infrastructure
-  dcc-mcp.search-hint: "chain, sequence, pipeline, multi-step, orchestration, workflow, batch, run steps, automate"
-  dcc-mcp.tags: "workflow, orchestration, chain, pipeline, automation, infrastructure"
-  dcc-mcp.tools: tools.yaml
+  dcc-mcp:
+    dcc: python
+    version: "1.0.0"
+    layer: infrastructure
+    search-hint: "chain, sequence, pipeline, multi-step, orchestration, workflow, batch, run steps, automate"
+    tags: "workflow, orchestration, chain, pipeline, automation, infrastructure"
+    tools: tools.yaml
 ---
 
 # Workflow Orchestration

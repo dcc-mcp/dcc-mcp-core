@@ -10,12 +10,6 @@ license: Apache-2.0
 compatibility: Requires usdcat and usdchecker from the OpenUSD distribution
 allowed-tools: Bash Read
 metadata:
-  dcc-mcp.dcc: python
-  dcc-mcp.version: "1.0.0"
-  dcc-mcp.layer: infrastructure
-  dcc-mcp.search-hint: "USD stage, prim, schema validation, layer stack, usda, usdc, usdz, usdchecker, usdcat, raw USD file"
-  dcc-mcp.tags: "usd, openusd, scene inspection, validation, infrastructure"
-  dcc-mcp.tools: tools.yaml
   openclaw:
     requires:
       bins:
@@ -23,6 +17,13 @@ metadata:
         - usdchecker
     emoji: "🎬"
     homepage: https://openusd.org
+  dcc-mcp:
+    dcc: python
+    version: "1.0.0"
+    layer: infrastructure
+    search-hint: "USD stage, prim, schema validation, layer stack, usda, usdc, usdz, usdchecker, usdcat, raw USD file"
+    tags: "usd, openusd, scene inspection, validation, infrastructure"
+    tools: tools.yaml
 ---
 
 # OpenUSD Tools

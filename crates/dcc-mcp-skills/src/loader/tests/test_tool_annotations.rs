@@ -13,7 +13,7 @@ fn annotations_canonical_nested_map_parses() {
         "tools:\n  - name: delete_keyframes\n    description: danger\n    annotations:\n      read_only_hint: false\n      destructive_hint: true\n      idempotent_hint: true\n      open_world_hint: false\n      deferred_hint: false\n",
     )
     .unwrap();
-    let body = "---\nname: canon\nmetadata:\n  dcc-mcp.tools: tools.yaml\n---\n";
+    let body = "---\nname: canon\nmetadata:\n  dcc-mcp:\n    tools: tools.yaml\n---\n";
     std::fs::write(dir.join(SKILL_METADATA_FILE), body).unwrap();
 
     let meta = parse_skill_md(&dir).expect("parsed");
@@ -37,7 +37,7 @@ fn annotations_shorthand_flat_keys_parse() {
         "tools:\n  - name: get_keyframes\n    read_only_hint: true\n    idempotent_hint: true\n",
     )
     .unwrap();
-    let body = "---\nname: short\nmetadata:\n  dcc-mcp.tools: tools.yaml\n---\n";
+    let body = "---\nname: short\nmetadata:\n  dcc-mcp:\n    tools: tools.yaml\n---\n";
     std::fs::write(dir.join(SKILL_METADATA_FILE), body).unwrap();
 
     let meta = parse_skill_md(&dir).expect("parsed");
@@ -66,7 +66,7 @@ fn annotations_nested_wins_over_shorthand() {
         "tools:\n  - name: risky\n    read_only_hint: true\n    idempotent_hint: true\n    annotations:\n      destructive_hint: true\n",
     )
     .unwrap();
-    let body = "---\nname: mixed\nmetadata:\n  dcc-mcp.tools: tools.yaml\n---\n";
+    let body = "---\nname: mixed\nmetadata:\n  dcc-mcp:\n    tools: tools.yaml\n---\n";
     std::fs::write(dir.join(SKILL_METADATA_FILE), body).unwrap();
 
     let meta = parse_skill_md(&dir).expect("parsed");
@@ -93,7 +93,7 @@ fn annotations_absent_is_empty() {
         "tools:\n  - name: plain\n    description: nothing special\n",
     )
     .unwrap();
-    let body = "---\nname: bare\nmetadata:\n  dcc-mcp.tools: tools.yaml\n---\n";
+    let body = "---\nname: bare\nmetadata:\n  dcc-mcp:\n    tools: tools.yaml\n---\n";
     std::fs::write(dir.join(SKILL_METADATA_FILE), body).unwrap();
 
     let meta = parse_skill_md(&dir).expect("parsed");

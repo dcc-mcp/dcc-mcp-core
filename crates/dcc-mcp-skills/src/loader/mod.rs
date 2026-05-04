@@ -13,10 +13,6 @@ use dcc_mcp_models::{SkillGroup, SkillMetadata, ToolDeclaration};
 use dcc_mcp_paths::path_to_string;
 use std::path::Path;
 
-/// Namespace prefix for agentskills.io-compliant dcc-mcp-core metadata keys
-/// (issue #356). All dcc-mcp-core extensions live under `metadata.dcc-mcp.*`.
-const DCC_MCP_PREFIX: &str = "dcc-mcp.";
-
 /// Top-level YAML keys allowed by the agentskills.io 1.0 spec. Any other
 /// key at the frontmatter root causes [`parse_skill_md`] to reject the
 /// skill. All dcc-mcp-core extensions must be expressed under
@@ -126,11 +122,26 @@ pub fn parse_skill_md(skill_dir: &Path) -> Option<SkillMetadata> {
     // for arbitrary YAML mappings — do the conversion manually so callers
     // that rely on `SkillMetadata::metadata` (flat_metadata, openclaw, …)
     // continue to work.
+    //
+    // SKILL.md files declare dcc-mcp-core extensions under the nested
+    // `metadata: { dcc-mcp: { key: value } }` shape (issue #356). Downstream
+    // callers look them up with flat keys like `metadata["dcc-mcp.workflows"]`
+    // / `metadata["dcc-mcp.layer"]` — we preserve that wire contract by
+    // flattening the nested sub-map into the top-level metadata JSON before
+    // handing it off.
     if let Some(raw_metadata) = raw_value
         .as_mapping()
         .and_then(|m| m.get(serde_yaml_ng::Value::String("metadata".into())))
-        && let Some(j) = yaml_to_json(raw_metadata)
+        && let Some(mut j) = yaml_to_json(raw_metadata)
     {
+        if let Some(obj) = j.as_object_mut()
+            && let Some(inner) = obj.remove("dcc-mcp")
+            && let Some(inner_map) = inner.as_object()
+        {
+            for (k, v) in inner_map {
+                obj.insert(format!("dcc-mcp.{k}"), v.clone());
+            }
+        }
         meta.metadata = j;
     }
 
@@ -291,15 +302,13 @@ fn collect_dcc_mcp_overrides(raw: &serde_yaml_ng::Value) -> Vec<(String, serde_y
     };
     for (k, v) in meta_map.iter() {
         let Some(ks) = k.as_str() else { continue };
-        // Flat form: `metadata: { "dcc-mcp.dcc": "maya", ... }` — pre-0.15
-        // shorthand preserved for back-compat.
-        if let Some(rest) = ks.strip_prefix(DCC_MCP_PREFIX) {
-            out.push((rest.to_string(), v.clone()));
-            continue;
-        }
-        // Nested form: `metadata: { dcc-mcp: { dcc: maya, ... } }` —
-        // canonical agentskills.io-compliant shape (issue #356) and the
-        // shape produced by the sibling-file migration tool.
+        // Canonical agentskills.io-compliant shape (issue #356) and the
+        // shape produced by the sibling-file migration tool:
+        //   `metadata: { dcc-mcp: { dcc: maya, ... } }`.
+        //
+        // The legacy flat form `metadata: { "dcc-mcp.dcc": "maya" }` used
+        // in pre-0.15 skills is no longer accepted. Authors should use the
+        // nested form above; see `docs/guide/skills.md` for the migration.
         if ks == "dcc-mcp"
             && let Some(inner) = v.as_mapping()
         {

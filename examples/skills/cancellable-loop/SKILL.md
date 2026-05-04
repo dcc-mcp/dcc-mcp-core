@@ -8,11 +8,12 @@ description: >-
 license: MIT
 compatibility: Python 3.7+
 metadata:
-  dcc-mcp.dcc: python
-  dcc-mcp.version: "1.0.0"
-  dcc-mcp.layer: example
-  dcc-mcp.search-hint: "cancellation, cancel, long-running, cooperative, check_cancelled, abort, authoring reference"
-  dcc-mcp.tags: "example, cancellation, long-running"
+  dcc-mcp:
+    dcc: python
+    version: "1.0.0"
+    layer: example
+    search-hint: "cancellation, cancel, long-running, cooperative, check_cancelled, abort, authoring reference"
+    tags: "example, cancellation, long-running"
 ---
 
 # Cancellable Loop

@@ -2,15 +2,15 @@ use super::fixtures::SkillTestFixture;
 use super::*;
 
 /// Helper: produce a minimal spec-compliant SKILL.md content string
-/// (agentskills.io 1.0 + `metadata.dcc-mcp.*`).
+/// (agentskills.io 1.0 + `metadata.dcc-mcp.*` nested form).
 fn skill_md(name: &str, dcc: &str, deps: &[&str]) -> String {
     let deps_str = if deps.is_empty() {
         String::new()
     } else {
-        format!("\n  dcc-mcp.depends: \"{}\"", deps.join(", "))
+        format!("\n    depends: \"{}\"", deps.join(", "))
     };
     format!(
-        "---\nname: {name}\ndescription: test skill\nmetadata:\n  dcc-mcp.dcc: {dcc}{deps_str}\n---\n# {name}\n\nDescription text.",
+        "---\nname: {name}\ndescription: test skill\nmetadata:\n  dcc-mcp:\n    dcc: {dcc}{deps_str}\n---\n# {name}\n\nDescription text.",
     )
 }
 
@@ -58,7 +58,7 @@ fn parse_skill_with_metadata_depends() {
 #[test]
 fn parse_skill_fallback_name_from_dir() {
     let fx = SkillTestFixture::with_body(
-        "---\nname: \"\"\ndescription: unnamed\nmetadata:\n  dcc-mcp.dcc: python\n---\n# Unnamed",
+        "---\nname: \"\"\ndescription: unnamed\nmetadata:\n  dcc-mcp:\n    dcc: pytho\n---\n# Unnamed",
     );
     let meta = parse_skill_md(fx.path()).unwrap();
     // Name should be the directory name (tempdir's last component)
@@ -68,7 +68,7 @@ fn parse_skill_fallback_name_from_dir() {
 #[test]
 fn parse_skill_with_tool_defer_loading_aliases() {
     let fx = SkillTestFixture::with_body(
-        "---\nname: deferred-skill\ndescription: defer\nmetadata:\n  dcc-mcp.dcc: python\n  dcc-mcp.tools: tools.yaml\n---\n# Deferred\n",
+        "---\nname: deferred-skill\ndescription: defer\nmetadata:\n  dcc-mcp:\n    dcc: python\n    tools: tools.yaml\n---\n# Deferred\n",
     );
     fx.write_file(
         "tools.yaml",
@@ -84,7 +84,7 @@ fn parse_skill_with_tool_defer_loading_aliases() {
 fn parse_skill_with_tool_execution_async() {
     // Issue #317 — `execution: async` and `timeout_hint_secs` round-trip.
     let fx = SkillTestFixture::with_body(
-        "---\nname: render-farm\ndescription: render\nmetadata:\n  dcc-mcp.dcc: python\n  dcc-mcp.tools: tools.yaml\n---\n# Render\n",
+        "---\nname: render-farm\ndescription: render\nmetadata:\n  dcc-mcp:\n    dcc: python\n    tools: tools.yaml\n---\n# Render\n",
     );
     fx.write_file(
         "tools.yaml",
@@ -108,7 +108,7 @@ fn parse_skill_rejects_user_level_deferred_flag() {
     // The bad value lives in the sibling tools.yaml; the loader must
     // still reject the skill as a whole.
     let fx = SkillTestFixture::with_body(
-        "---\nname: bad\ndescription: bad\nmetadata:\n  dcc-mcp.dcc: python\n  dcc-mcp.tools: tools.yaml\n---\n# Bad\n",
+        "---\nname: bad\ndescription: bad\nmetadata:\n  dcc-mcp:\n    dcc: python\n    tools: tools.yaml\n---\n# Bad\n",
     );
     fx.write_file("tools.yaml", "tools:\n  - name: x\n    deferred: true\n");
     let meta = parse_skill_md(fx.path());
@@ -130,7 +130,7 @@ fn parse_skill_rejects_unknown_execution_value() {
     // Issue #317 — an unknown `execution` value must not silently produce
     // a tool declaration. The value lives in the sibling tools.yaml.
     let fx = SkillTestFixture::with_body(
-        "---\nname: bad\ndescription: bad\nmetadata:\n  dcc-mcp.dcc: python\n  dcc-mcp.tools: tools.yaml\n---\n# Bad\n",
+        "---\nname: bad\ndescription: bad\nmetadata:\n  dcc-mcp:\n    dcc: python\n    tools: tools.yaml\n---\n# Bad\n",
     );
     fx.write_file(
         "tools.yaml",
@@ -152,7 +152,7 @@ fn parse_skill_without_execution_defaults_to_sync() {
     // Issue #317 — a SKILL.md that does not set `execution` must
     // continue to load; tools default to Sync with no timeout hint.
     let fx = SkillTestFixture::with_body(
-        "---\nname: no-exec\ndescription: no exec\nmetadata:\n  dcc-mcp.dcc: python\n  dcc-mcp.tools: tools.yaml\n---\n# No Exec\n",
+        "---\nname: no-exec\ndescription: no exec\nmetadata:\n  dcc-mcp:\n    dcc: python\n    tools: tools.yaml\n---\n# No Exec\n",
     );
     fx.write_file(
         "tools.yaml",

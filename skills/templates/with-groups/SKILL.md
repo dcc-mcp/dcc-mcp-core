@@ -3,12 +3,13 @@ name: my-grouped-skill
 description: "A skill template demonstrating tool groups for progressive exposure. Basic tools are active by default; advanced tools require explicit activation via activate_tool_group."
 license: MIT
 metadata:
-  dcc-mcp.dcc: python
-  dcc-mcp.version: "1.0.0"
-  dcc-mcp.tags: "example, groups"
-  dcc-mcp.search-hint: "groups, progressive, exposure, example"
-  dcc-mcp.tools: tools.yaml
-  dcc-mcp.groups: groups.yaml
+  dcc-mcp:
+    dcc: python
+    version: "1.0.0"
+    tags: "example, groups"
+    search-hint: "groups, progressive, exposure, example"
+    tools: tools.yaml
+    groups: groups.yaml
 ---
 
 # my-grouped-skill

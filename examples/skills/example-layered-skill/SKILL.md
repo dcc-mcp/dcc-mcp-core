@@ -10,13 +10,14 @@ license: MIT
 compatibility: Python 3.8+
 allowed-tools: Bash Read
 metadata:
-  dcc-mcp.dcc: python
-  dcc-mcp.version: "1.0.0"
-  dcc-mcp.layer: example
-  dcc-mcp.search-hint: "layered architecture, complex skill, services, utils, tools, asset pipeline reference, authoring reference"
-  dcc-mcp.tags: "example, architecture, layered, advanced, authoring reference"
-  dcc-mcp.tools: tools.yaml
-  dcc-mcp.prompts: prompts/system.md
+  dcc-mcp:
+    dcc: python
+    version: "1.0.0"
+    layer: example
+    search-hint: "layered architecture, complex skill, services, utils, tools, asset pipeline reference, authoring reference"
+    tags: "example, architecture, layered, advanced, authoring reference"
+    tools: tools.yaml
+    prompts: prompts/system.md
 ---
 
 # Layered Skill Architecture — Reference

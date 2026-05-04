@@ -8,11 +8,12 @@ license: MIT
 compatibility: Python 3.7+
 allowed-tools: Bash Read
 metadata:
-  dcc-mcp.dcc: python
-  dcc-mcp.version: "1.0.0"
-  dcc-mcp.layer: example
-  dcc-mcp.search-hint: "greeting, hello, example, demo, test skill, starter"
-  dcc-mcp.tags: "example, beginner, demo"
+  dcc-mcp:
+    dcc: python
+    version: "1.0.0"
+    layer: example
+    search-hint: "greeting, hello, example, demo, test skill, starter"
+    tags: "example, beginner, demo"
 ---
 
 # Hello World
