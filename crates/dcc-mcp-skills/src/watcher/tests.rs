@@ -13,7 +13,9 @@ use tempfile::tempdir;
 fn write_skill(dir: &Path, name: &str) {
     let skill_dir = dir.join(name);
     fs::create_dir_all(&skill_dir).unwrap();
-    let content = format!("---\nname: {name}\ndcc: python\n---\n# {name}\n\nTest skill.");
+    let content = format!(
+        "---\nname: {name}\ndescription: test skill\nmetadata:\n  dcc-mcp.dcc: python\n---\n# {name}\n\nTest skill.",
+    );
     fs::write(skill_dir.join(SKILL_METADATA_FILE), &content).unwrap();
 }
 
