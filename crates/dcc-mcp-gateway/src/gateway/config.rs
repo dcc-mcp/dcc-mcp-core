@@ -1,97 +1,5 @@
 use super::*;
 
-/// How the gateway publishes backend-provided tools through MCP `tools/list`
-/// (issue #652).
-///
-/// After #674, only two modes remain:
-///
-/// - [`Self::Rest`] (default) — publish gateway meta-tools + skill-management
-///   tools + backend tools (Tier 1 + 2 + 3). This is the canonical mode that
-///   matches the MCP spec expectation that `tools/list` returns every
-///   callable tool. Cursor-safe `i_<id8>__<name>` names are used for backend
-///   tools so agents can invoke them directly via `tools/call`.
-/// - [`Self::Slim`] — publish only Tier 1 + 2 (gateway meta + skill
-///   management). Backend capabilities are reachable only through
-///   `search_tools` / `describe_tool` / `call_tool` wrappers. Useful when
-///   the client's context budget cannot fit every instance's tools.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum GatewayToolExposure {
-    /// Emit only gateway meta-tools + skill-management tools (Tier 1 + 2).
-    /// Backend capabilities are discovered and invoked through dynamic
-    /// `search_tools` / `describe_tool` / `call_tool` wrappers.
-    Slim,
-    /// Publish Tier 1 + 2 + 3 — gateway meta, skill management, and
-    /// fanned-out backend tools. This is the default mode and matches the
-    /// MCP spec expectation that `tools/list` returns every callable tool.
-    Rest,
-}
-
-impl GatewayToolExposure {
-    /// True when this mode fans out to backend tools in `tools/list`.
-    ///
-    /// `Rest` publishes backend tools (cursor-safe `i_<id8>__<name>` form);
-    /// `Slim` does not.
-    pub const fn publishes_backend_tools(self) -> bool {
-        matches!(self, Self::Rest)
-    }
-
-    /// Human-readable token matching the documented config vocabulary
-    /// (`slim | rest`). Used by diagnostics and the CLI.
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Slim => "slim",
-            Self::Rest => "rest",
-        }
-    }
-}
-
-impl Default for GatewayToolExposure {
-    /// `Rest` is the default — publishes backend tools via cursor-safe names.
-    /// `Full` and `Both` have been removed (#674).
-    fn default() -> Self {
-        Self::Rest
-    }
-}
-
-impl std::fmt::Display for GatewayToolExposure {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-impl std::str::FromStr for GatewayToolExposure {
-    type Err = ParseGatewayToolExposureError;
-
-    /// Parse the documented config tokens. Matching is case-insensitive
-    /// so that CLI / env sources do not need to agree on casing; unknown
-    /// values return a descriptive error instead of silently falling
-    /// back to the default (which would mask operator typos).
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.trim().to_ascii_lowercase().as_str() {
-            "slim" => Ok(Self::Slim),
-            "rest" => Ok(Self::Rest),
-            other => Err(ParseGatewayToolExposureError(other.to_string())),
-        }
-    }
-}
-
-/// Error returned by [`GatewayToolExposure::from_str`] for an unrecognised
-/// token.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ParseGatewayToolExposureError(pub String);
-
-impl std::fmt::Display for ParseGatewayToolExposureError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "unknown gateway tool-exposure mode '{}' (expected one of: slim, rest)",
-            self.0
-        )
-    }
-}
-
-impl std::error::Error for ParseGatewayToolExposureError {}
-
 /// Configuration for the optional gateway.
 pub struct GatewayConfig {
     /// Host to bind the gateway port on (default: `"127.0.0.1"`).
@@ -147,30 +55,18 @@ pub struct GatewayConfig {
     /// DCC type the adapter is bound to (e.g. `"maya"`). Used by the
     /// third-tier real-DCC tiebreaker (issue maya#137).
     pub adapter_dcc: Option<String>,
-    /// How the gateway publishes backend tools through MCP `tools/list`
-    /// (issue #652).
-    ///
-    /// * [`GatewayToolExposure::Slim`] — only gateway meta-tools and
-    ///   skill-management tools are visible; backend capabilities must
-    ///   be reached via the dynamic wrapper layer described in #657.
-    /// * [`GatewayToolExposure::Rest`] — same bounded surface as `Slim`;
-    ///   the default mode, signals that REST is the canonical API.
-    pub tool_exposure: GatewayToolExposure,
 
-    /// Emit Cursor-safe gateway tool names (`i_<id8>__<escaped>`)
-    /// instead of the SEP-986 dotted form (`<id8>.<tool>`). Issue #656.
+    /// Emit Cursor-safe names (`i_<id8>__<escaped>`) when fanning prompts
+    /// out to backends (issue #656). Default: `true`.
     ///
-    /// Default: `true`. Some MCP clients — notably Cursor — only
-    /// accept names matching `^[A-Za-z0-9_]+$`, which excludes the
-    /// SEP-986-legal `.` and `-` separators the gateway used
-    /// pre-#656. Emitting cursor-safe names by default keeps agents
-    /// discoverable across every known client; the legacy dotted form
-    /// is still decoded for one release window so in-flight requests
-    /// from older clients continue to route correctly.
-    ///
-    /// Set to `false` only if you need the gateway to advertise
-    /// SEP-986 dotted names for diagnostic parity with a backend
-    /// that still publishes them directly.
+    /// Tools no longer fan out to `tools/list` — the gateway MCP surface
+    /// is converged to discovery + dispatch primitives — but prompts
+    /// still go through the per-instance aggregator so clients that talk
+    /// to multiple DCCs keep a unique address per prompt. Cursor and
+    /// other strict MCP clients filter out any name containing characters
+    /// outside `[A-Za-z0-9_]`, so the cursor-safe form stays the default.
+    /// Flip to `false` only to emit the SEP-986 dotted form for
+    /// diagnostic parity.
     pub cursor_safe_tool_names: bool,
 }
 
@@ -193,126 +89,10 @@ impl Default for GatewayConfig {
             allow_unknown_tools: false,
             adapter_version: None,
             adapter_dcc: None,
-            tool_exposure: GatewayToolExposure::Rest,
-            // #656: default to Cursor-safe on because breakage with
-            // Cursor is silent (it just hides the tools from the agent
-            // with no visible error), and the legacy dotted form is
-            // still decoded for the compatibility window so existing
-            // clients keep working.
+            // Default to Cursor-safe on because breakage with Cursor is
+            // silent (it just hides prompts from the agent with no
+            // visible error).
             cursor_safe_tool_names: true,
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    // ── Parser: happy paths ──────────────────────────────────────────────
-    //
-    // The exposure token is surfaced through CLI, env var, and Python, so
-    // every variant must parse without ambiguity. These tests also pin the
-    // canonical lowercase spelling the rest of the codebase relies on.
-
-    #[test]
-    fn parses_every_canonical_token() {
-        assert_eq!(
-            "slim".parse::<GatewayToolExposure>().unwrap(),
-            GatewayToolExposure::Slim
-        );
-        assert_eq!(
-            "rest".parse::<GatewayToolExposure>().unwrap(),
-            GatewayToolExposure::Rest
-        );
-    }
-
-    #[test]
-    fn parser_is_case_insensitive_and_trims_whitespace() {
-        // CLI / env sources vary in casing discipline; we accept all of
-        // them and normalise, but still reject typos loudly (see the
-        // next test).
-        assert_eq!(
-            "Slim".parse::<GatewayToolExposure>().unwrap(),
-            GatewayToolExposure::Slim
-        );
-        assert_eq!(
-            "REST".parse::<GatewayToolExposure>().unwrap(),
-            GatewayToolExposure::Rest
-        );
-    }
-
-    // ── Parser: error paths ──────────────────────────────────────────────
-    //
-    // A typo'd exposure mode must surface at startup, not mask itself as
-    // the default — that is the whole reason `from_str` returns `Result`
-    // instead of falling back via `unwrap_or_default`.
-
-    #[test]
-    fn parser_rejects_unknown_token_with_descriptive_error() {
-        let err = "ful".parse::<GatewayToolExposure>().unwrap_err();
-        let msg = err.to_string();
-        assert!(msg.contains("ful"), "error must echo the bad token: {msg}");
-        assert!(
-            msg.contains("slim") && msg.contains("rest"),
-            "error must enumerate the accepted tokens: {msg}"
-        );
-    }
-
-    #[test]
-    fn parser_rejects_empty_string() {
-        // Empty input is a distinct failure mode (env var set but blank)
-        // and must still produce a named error rather than silently
-        // defaulting to Full.
-        assert!("".parse::<GatewayToolExposure>().is_err());
-        assert!("   ".parse::<GatewayToolExposure>().is_err());
-    }
-
-    // ── Semantics: publishes_backend_tools ───────────────────────────────
-    //
-    // This predicate is the single branch point in `aggregate_tools_list`
-    // (#652 / #674). The test freezes the expected truth table: after
-    // #674, `Rest` publishes backend tools (replacing the old `Full`
-    // mode's behaviour), while `Slim` keeps the gateway surface bounded.
-
-    #[test]
-    fn publishes_backend_tools_truth_table_is_stable() {
-        assert!(!GatewayToolExposure::Slim.publishes_backend_tools());
-        assert!(GatewayToolExposure::Rest.publishes_backend_tools());
-    }
-
-    #[test]
-    fn as_str_matches_parser_vocabulary() {
-        // Round-trip: `as_str` output must parse back to the same variant
-        // so diagnostics / CLI help / docs never drift.
-        for mode in [GatewayToolExposure::Slim, GatewayToolExposure::Rest] {
-            let round_trip: GatewayToolExposure = mode.as_str().parse().unwrap();
-            assert_eq!(round_trip, mode, "round-trip broke for {mode}");
-        }
-    }
-
-    #[test]
-    fn display_impl_uses_lowercase_token() {
-        // Several downstream callers (diagnostics JSON, log lines) rely
-        // on the Display impl. Lock the format so they stay readable.
-        assert_eq!(format!("{}", GatewayToolExposure::Slim), "slim");
-        assert_eq!(format!("{}", GatewayToolExposure::Rest), "rest");
-    }
-
-    #[test]
-    fn default_is_rest() {
-        // `Rest` is the correct and unique default.
-        assert_eq!(
-            GatewayToolExposure::default(),
-            GatewayToolExposure::Rest,
-            "`Rest` must be the default; `Full` and `Both` have been removed."
-        );
-    }
-
-    #[test]
-    fn gateway_config_default_carries_rest_exposure() {
-        // `GatewayConfig::default()` is used by tests and `..Default::default()`
-        // struct updates in the runner / standalone server.
-        let cfg = GatewayConfig::default();
-        assert_eq!(cfg.tool_exposure, GatewayToolExposure::Rest);
     }
 }

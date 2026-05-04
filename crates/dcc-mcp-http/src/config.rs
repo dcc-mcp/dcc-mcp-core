@@ -487,25 +487,18 @@ pub struct McpHttpConfig {
     /// DCC adapter at equal versions.
     pub adapter_dcc: Option<String>,
 
-    /// Gateway tool-exposure mode.
+    /// Emit Cursor-safe gateway prompt names (`i_<id8>__<escaped>`)
+    /// instead of the SEP-986 dotted form (`<id8>.<name>`).
     ///
-    /// The gateway NEVER fans out to backend tools. `Slim` and `Rest`
-    /// both keep the surface bounded to meta-tools + skill-management.
-    /// (Prior `Full` / `Both` variants have been removed — issue #674.)
-    ///
-    /// Default: [`crate::gateway::GatewayToolExposure::Rest`].
-    pub gateway_tool_exposure: crate::gateway::GatewayToolExposure,
-
-    /// Emit Cursor-safe gateway tool names (`i_<id8>__<escaped>`)
-    /// instead of the pre-#656 SEP-986 dotted form (`<id8>.<tool>`).
-    ///
-    /// Default: `true`. Cursor and several other MCP clients only
-    /// accept tool names matching `^[A-Za-z0-9_]+$`; emitting the old
-    /// dotted form against those clients silently drops every backend
-    /// tool from the agent's view. Setting this to `false` restores
-    /// the pre-#656 behavior — typically only useful for diagnostic
-    /// parity with a single-instance server that already publishes
-    /// SEP-986 dotted names directly.
+    /// Default: `true`. The gateway no longer fans out backend tools
+    /// into `tools/list` — its MCP surface is converged to discovery +
+    /// dispatch primitives — but it still fans out `prompts/list` so
+    /// clients can address prompts across multiple DCCs. Cursor and
+    /// several other MCP clients only accept names matching
+    /// `^[A-Za-z0-9_]+$`, so the cursor-safe form stays the default.
+    /// Setting this to `false` emits the SEP-986 dotted form for
+    /// diagnostic parity with a single-instance server that publishes
+    /// dotted names directly.
     pub gateway_cursor_safe_tool_names: bool,
 
     // ── Issue #715: queue observability + backpressure ────────────────────
@@ -609,12 +602,9 @@ impl McpHttpConfig {
             allow_unknown_tools: false,
             adapter_version: None,
             adapter_dcc: None,
-            gateway_tool_exposure: crate::gateway::GatewayToolExposure::Rest,
-            // #656: default to Cursor-safe gateway tool names because
-            // breakage is silent on that client — the tools simply
-            // never appear. The legacy dotted form is still decoded
-            // for the compatibility window so in-flight clients keep
-            // routing.
+            // #656: default to Cursor-safe gateway prompt names because
+            // breakage is silent on that client — prompts would simply
+            // never appear.
             gateway_cursor_safe_tool_names: true,
             // #715: the three queue caps default to the pre-#715
             // behaviour (16 / 16 / unbounded) so existing callers are
@@ -639,20 +629,6 @@ impl McpHttpConfig {
     /// servers (issue maya#137).
     pub fn with_adapter_dcc(mut self, dcc: impl Into<String>) -> Self {
         self.adapter_dcc = Some(dcc.into());
-        self
-    }
-
-    /// Builder: set the gateway tool-exposure mode (issue #652).
-    ///
-    /// ```
-    /// use dcc_mcp_http::{McpHttpConfig, gateway::GatewayToolExposure};
-    ///
-    /// let cfg = McpHttpConfig::new(0)
-    ///     .with_gateway_tool_exposure(GatewayToolExposure::Slim);
-    /// assert_eq!(cfg.gateway_tool_exposure, GatewayToolExposure::Slim);
-    /// ```
-    pub fn with_gateway_tool_exposure(mut self, mode: crate::gateway::GatewayToolExposure) -> Self {
-        self.gateway_tool_exposure = mode;
         self
     }
 

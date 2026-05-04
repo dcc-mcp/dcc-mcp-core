@@ -93,7 +93,7 @@ mod tasks;
 mod version;
 
 pub(crate) use bind::try_bind_port_opt;
-pub use config::{GatewayConfig, GatewayToolExposure, ParseGatewayToolExposureError};
+pub use config::GatewayConfig;
 pub(crate) use handle::ElectionOutcome;
 pub use handle::GatewayHandle;
 pub use runner::GatewayRunner;

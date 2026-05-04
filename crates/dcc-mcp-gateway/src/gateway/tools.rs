@@ -572,8 +572,8 @@ pub async fn tool_diagnostics_tool_metrics(
             "live_instances": live_instances.len(),
             "backend_timeout_ms": gs.backend_timeout.as_millis(),
             "async_dispatch_timeout_ms": gs.async_dispatch_timeout.as_millis(),
-            "tool_exposure": gs.tool_exposure.as_str(),
-            "publishes_backend_tools": gs.tool_exposure.publishes_backend_tools(),
+            "mcp_surface": "discover+dispatch",
+            "publishes_backend_tools": false,
         }
     }))
     .map_err(|e| e.to_string())

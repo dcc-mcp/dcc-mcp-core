@@ -400,57 +400,29 @@ impl PyMcpHttpConfig {
         Ok(())
     }
 
-    /// Gateway tool-exposure mode (issue #652).
+    /// Whether the gateway emits Cursor-safe prompt names (#656).
     ///
-    /// Returns one of ``"full" | "slim" | "both" | "rest"``. See
-    /// :attr:`set_gateway_tool_exposure` for the meaning of each value.
-    #[getter]
-    fn gateway_tool_exposure(&self) -> &'static str {
-        self.inner.gateway_tool_exposure.as_str()
-    }
-
-    /// Set the gateway tool-exposure mode (issue #652).
-    ///
-    /// Accepts ``"full" | "slim" | "both" | "rest"`` (case-insensitive).
-    /// Unknown values raise ``ValueError`` instead of silently falling
-    /// back so configuration typos are surfaced immediately.
-    ///
-    /// * ``"full"`` — publish every live backend tool through
-    ///   ``tools/list`` (legacy behaviour; default).
-    /// * ``"slim"`` — only gateway meta-tools + skill management are
-    ///   visible; backend capabilities reached via dynamic wrappers.
-    /// * ``"both"`` — alias of ``"full"`` today, reserved for the
-    ///   transition window once dynamic wrapper tools land (#657).
-    /// * ``"rest"`` — same bounded surface as ``"slim"``; signals that
-    ///   REST is the canonical capability API.
-    #[setter]
-    fn set_gateway_tool_exposure(&mut self, mode: &str) -> PyResult<()> {
-        self.inner.gateway_tool_exposure =
-            mode.parse()
-                .map_err(|e: crate::gateway::ParseGatewayToolExposureError| {
-                    pyo3::exceptions::PyValueError::new_err(e.to_string())
-                })?;
-        Ok(())
-    }
-
-    /// Whether the gateway emits Cursor-safe tool names (#656).
-    ///
-    /// When ``True`` (the default), the gateway publishes tool names
-    /// of the form ``i_<id8>__<escaped_tool>`` that contain only
+    /// When ``True`` (the default), the gateway publishes prompt names
+    /// of the form ``i_<id8>__<escaped>`` that contain only
     /// ``[A-Za-z0-9_]``. When ``False``, the gateway falls back to the
-    /// pre-#656 SEP-986 dotted form ``<id8>.<tool>``.
+    /// pre-#656 SEP-986 dotted form ``<id8>.<name>``.
+    ///
+    /// The gateway no longer fans out backend tools into
+    /// ``tools/list`` — its MCP surface is converged to discovery +
+    /// dispatch primitives — but it still fans out ``prompts/list``
+    /// so this flag still applies to prompt aggregation.
     #[getter]
     fn gateway_cursor_safe_tool_names(&self) -> bool {
         self.inner.gateway_cursor_safe_tool_names
     }
 
-    /// Enable or disable Cursor-safe gateway tool names (#656).
+    /// Enable or disable Cursor-safe gateway prompt names (#656).
     ///
     /// Flip to ``False`` only when you need diagnostic parity with a
     /// single-instance server that publishes SEP-986 dotted names
     /// directly. Cursor and several other MCP clients silently hide
-    /// any tool name containing ``.`` or ``-`` from the agent, so
-    /// leaving this ``True`` is strongly recommended.
+    /// any name containing ``.`` or ``-`` from the agent, so leaving
+    /// this ``True`` is strongly recommended.
     #[setter]
     fn set_gateway_cursor_safe_tool_names(&mut self, enabled: bool) {
         self.inner.gateway_cursor_safe_tool_names = enabled;

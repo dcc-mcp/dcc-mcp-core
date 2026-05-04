@@ -69,7 +69,6 @@ async fn make_state(
         allow_unknown_tools: false,
         adapter_version: None,
         adapter_dcc: None,
-        tool_exposure: dcc_mcp_http::gateway::GatewayToolExposure::Rest,
         cursor_safe_tool_names: true,
         capability_index: std::sync::Arc::new(
             dcc_mcp_http::gateway::capability::CapabilityIndex::new(),

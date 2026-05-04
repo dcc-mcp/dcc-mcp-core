@@ -19,9 +19,6 @@ mod backend_timeout;
 #[path = "http/forgecad_e2e.rs"]
 mod forgecad_e2e;
 
-#[path = "http/gateway_cursor_safe_names.rs"]
-mod gateway_cursor_safe_names;
-
 #[path = "http/gateway_dynamic_capabilities.rs"]
 mod gateway_dynamic_capabilities;
 
@@ -36,9 +33,6 @@ mod gateway_reachability;
 
 #[path = "http/gateway_resources.rs"]
 mod gateway_resources;
-
-#[path = "http/gateway_tool_exposure.rs"]
-mod gateway_tool_exposure;
 
 #[path = "http/job_persistence.rs"]
 mod job_persistence;

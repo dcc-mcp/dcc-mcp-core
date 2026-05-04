@@ -27,7 +27,6 @@ use axum::{
 use serde_json::{Value, json};
 use tokio::sync::{RwLock, broadcast, watch};
 
-use dcc_mcp_http::gateway::GatewayToolExposure;
 use dcc_mcp_http::gateway::aggregator::{aggregate_tools_list, route_tools_call};
 use dcc_mcp_http::gateway::capability::{CapabilityIndex, RefreshReason, SearchQuery, parse_slug};
 use dcc_mcp_http::gateway::capability_service::{
@@ -40,7 +39,7 @@ use dcc_mcp_transport::discovery::types::ServiceEntry;
 
 // ── Fixture helpers ────────────────────────────────────────────────────────
 
-fn make_state(registry: Arc<RwLock<FileRegistry>>, exposure: GatewayToolExposure) -> GatewayState {
+fn make_state(registry: Arc<RwLock<FileRegistry>>) -> GatewayState {
     let (yield_tx, _) = watch::channel(false);
     let (events_tx, _) = broadcast::channel::<String>(16);
     GatewayState {
@@ -63,7 +62,6 @@ fn make_state(registry: Arc<RwLock<FileRegistry>>, exposure: GatewayToolExposure
         allow_unknown_tools: false,
         adapter_version: None,
         adapter_dcc: None,
-        tool_exposure: exposure,
         cursor_safe_tool_names: true,
         capability_index: Arc::new(CapabilityIndex::new()),
     }
@@ -190,7 +188,7 @@ async fn register_backend(
 async fn slim_mode_tools_list_stays_bounded_with_many_backends() {
     let dir = tempfile::tempdir().unwrap();
     let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
-    let state = make_state(registry.clone(), GatewayToolExposure::Slim);
+    let state = make_state(registry.clone());
 
     // Register three DCC backends, each advertising 20 tools. In
     // pre-#657 Full mode this would bloat tools/list to >60 rows.
@@ -250,7 +248,7 @@ async fn slim_mode_tools_list_stays_bounded_with_many_backends() {
 async fn rest_search_describe_call_roundtrip() {
     let dir = tempfile::tempdir().unwrap();
     let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
-    let state = make_state(registry.clone(), GatewayToolExposure::Slim);
+    let state = make_state(registry.clone());
 
     let (port, call_count) = spawn_backend(BackendSpec {
         tools: vec![
@@ -309,7 +307,7 @@ async fn rest_search_describe_call_roundtrip() {
 async fn rest_and_mcp_wrapper_return_identical_search_hits() {
     let dir = tempfile::tempdir().unwrap();
     let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
-    let state = make_state(registry.clone(), GatewayToolExposure::Slim);
+    let state = make_state(registry.clone());
 
     let (port_a, _) = spawn_backend(BackendSpec {
         tools: vec![
@@ -371,7 +369,7 @@ async fn rest_and_mcp_wrapper_return_identical_search_hits() {
 async fn mcp_describe_tool_returns_backend_schema() {
     let dir = tempfile::tempdir().unwrap();
     let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
-    let state = make_state(registry.clone(), GatewayToolExposure::Slim);
+    let state = make_state(registry.clone());
 
     let (port, _) = spawn_backend(BackendSpec {
         tools: vec![("screenshot", "Capture a screenshot")],
@@ -408,7 +406,7 @@ async fn mcp_describe_tool_returns_backend_schema() {
 async fn mcp_call_tool_forwards_namespaced_callable_id() {
     let dir = tempfile::tempdir().unwrap();
     let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
-    let state = make_state(registry.clone(), GatewayToolExposure::Slim);
+    let state = make_state(registry.clone());
 
     let (port, call_count) = spawn_backend(BackendSpec {
         tools: vec![("jobs.get_status", "Get a render job status")],
@@ -448,7 +446,7 @@ async fn mcp_call_tool_forwards_namespaced_callable_id() {
 async fn slim_mode_blocks_direct_backend_tool_but_call_tool_still_works() {
     let dir = tempfile::tempdir().unwrap();
     let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
-    let state = make_state(registry.clone(), GatewayToolExposure::Slim);
+    let state = make_state(registry.clone());
 
     let (port, _) = spawn_backend(BackendSpec {
         tools: vec![("direct_probe", "Direct call probe")],
@@ -492,7 +490,7 @@ async fn slim_mode_blocks_direct_backend_tool_but_call_tool_still_works() {
 async fn mcp_call_tool_forwards_original_backend_tool_exactly_once() {
     let dir = tempfile::tempdir().unwrap();
     let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
-    let state = make_state(registry.clone(), GatewayToolExposure::Slim);
+    let state = make_state(registry.clone());
 
     let (port, call_count) = spawn_backend(BackendSpec {
         tools: vec![("export_fbx", "Export the scene as FBX")],
@@ -551,7 +549,7 @@ async fn mcp_call_tool_forwards_original_backend_tool_exactly_once() {
 async fn mcp_call_tool_retries_unknown_slug_after_refresh() {
     let dir = tempfile::tempdir().unwrap();
     let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
-    let state = make_state(registry.clone(), GatewayToolExposure::Slim);
+    let state = make_state(registry.clone());
 
     let (port, call_count) = spawn_backend(BackendSpec {
         tools: vec![("late_action", "Action that appeared after the last refresh")],
@@ -602,7 +600,7 @@ async fn mcp_call_tool_retries_unknown_slug_after_refresh() {
 async fn call_tool_reports_instance_offline_when_backend_is_gone() {
     let dir = tempfile::tempdir().unwrap();
     let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
-    let state = make_state(registry.clone(), GatewayToolExposure::Slim);
+    let state = make_state(registry.clone());
 
     let (port, _) = spawn_backend(BackendSpec {
         tools: vec![("do_thing", "Do a thing")],
@@ -662,7 +660,7 @@ async fn call_tool_reports_instance_offline_when_backend_is_gone() {
 async fn capability_index_never_contains_skill_stubs_or_local_tools() {
     let dir = tempfile::tempdir().unwrap();
     let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
-    let state = make_state(registry.clone(), GatewayToolExposure::Slim);
+    let state = make_state(registry.clone());
 
     // Backend ships exactly the shape a real skill-enabled DCC ships:
     // one skill stub, one gateway-local meta-tool, and one real action.

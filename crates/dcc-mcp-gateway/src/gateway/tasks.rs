@@ -42,7 +42,6 @@ pub(crate) async fn start_gateway_tasks(
     allow_unknown_tools: bool,
     adapter_version: Option<String>,
     adapter_dcc: Option<String>,
-    tool_exposure: super::config::GatewayToolExposure,
     cursor_safe_tool_names: bool,
 ) -> Result<GatewayTasks, Box<dyn std::error::Error + Send + Sync>> {
     // ── Yield channel ─────────────────────────────────────────────────────
@@ -466,7 +465,6 @@ pub(crate) async fn start_gateway_tasks(
         allow_unknown_tools,
         adapter_version,
         adapter_dcc,
-        tool_exposure,
         cursor_safe_tool_names,
         capability_index: Arc::new(crate::gateway::capability::CapabilityIndex::new()),
     };

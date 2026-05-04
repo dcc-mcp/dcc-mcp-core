@@ -88,18 +88,6 @@ use sysinfo::{Pid, ProcessesToUpdate, System};
 
 // ── CLI ───────────────────────────────────────────────────────────────────────
 
-/// Clap [`value_parser`](clap::Arg::value_parser) for `--gateway-tool-exposure`.
-///
-/// Parses the documented `slim | rest` vocabulary
-/// case-insensitively and surfaces the full list of accepted values on
-/// error so operators can fix typos without digging into docs.
-fn parse_gateway_tool_exposure(
-    s: &str,
-) -> Result<dcc_mcp_http::gateway::GatewayToolExposure, String> {
-    s.parse()
-        .map_err(|e: dcc_mcp_http::gateway::ParseGatewayToolExposureError| e.to_string())
-}
-
 /// DCC-MCP server with integrated auto-gateway.
 #[derive(Debug, Parser)]
 #[command(name = "dcc-mcp-server", about, version)]
@@ -150,32 +138,19 @@ struct Args {
     #[arg(long, env = "DCC_MCP_GATEWAY_PORT", default_value = "9765")]
     gateway_port: u16,
 
-    /// Gateway tool-exposure mode (issue #652).
+    /// Emit Cursor-safe gateway prompt names (`i_<id8>__<escaped>`) instead
+    /// of the pre-#656 SEP-986 dotted form (`<id8>.<name>`). Issue #656.
     ///
-    /// * `slim` — publish only gateway meta-tools + skill management;
-    ///   backend capabilities reached via dynamic wrappers.
-    /// * `rest` — same bounded surface as `slim`; the default mode,
-    ///   signals that REST is the canonical capability API.
-    #[arg(
-        long,
-        env = "DCC_MCP_GATEWAY_TOOL_EXPOSURE",
-        default_value = "rest",
-        value_parser = parse_gateway_tool_exposure,
-    )]
-    gateway_tool_exposure: dcc_mcp_http::gateway::GatewayToolExposure,
-
-    /// Emit Cursor-safe gateway tool names (`i_<id8>__<escaped>`) instead
-    /// of the pre-#656 SEP-986 dotted form (`<id8>.<tool>`). Issue #656.
+    /// The gateway MCP surface is minimal (`tools/list` only returns the
+    /// discover+dispatch primitives), so this flag only affects
+    /// `prompts/list` aggregation across multiple live DCC backends.
     ///
-    /// When `true` (the default), every gateway-published tool name
+    /// When `true` (the default), every gateway-published prompt name
     /// matches the stricter `^[A-Za-z0-9_]+$` regex enforced by Cursor
     /// and several other MCP clients, which silently hide names
-    /// containing `.` or `-`. The legacy dotted form is still decoded
-    /// for the compatibility window so in-flight clients keep routing.
-    ///
-    /// Set to `false` only when you need diagnostic parity with a
-    /// single-instance server that publishes SEP-986 dotted names
-    /// directly.
+    /// containing `.` or `-`. Set to `false` only when you need
+    /// diagnostic parity with a single-instance server that publishes
+    /// SEP-986 dotted names directly.
     #[arg(
         long,
         env = "DCC_MCP_GATEWAY_CURSOR_SAFE_TOOL_NAMES",
@@ -668,7 +643,6 @@ async fn main() -> anyhow::Result<()> {
         } else {
             Some(args.dcc.clone())
         },
-        tool_exposure: args.gateway_tool_exposure,
         cursor_safe_tool_names: args.gateway_cursor_safe_tool_names,
     };
 

@@ -34,7 +34,6 @@ pub(crate) async fn start_gateway_runner(
             .adapter_dcc
             .clone()
             .or_else(|| config.dcc_type.clone()),
-        tool_exposure: config.gateway_tool_exposure,
         cursor_safe_tool_names: config.gateway_cursor_safe_tool_names,
     };
 
