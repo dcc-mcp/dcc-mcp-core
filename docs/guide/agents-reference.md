@@ -302,7 +302,7 @@ tools:
       on-failure: [dcc_diagnostics__screenshot]   # debug on failure
 ```
 - `next-tools` is a dcc-mcp-core extension (not in agentskills.io spec)
-- Lives inside each tool entry in `tools.yaml`. Top-level `next-tools:` on SKILL.md is legacy, emits a deprecation warn, and flips `is_spec_compliant() → False`.
+- Lives inside each tool entry in `tools.yaml`. Top-level `next-tools:` on SKILL.md is rejected by the loader.
 - Surfaces on `CallToolResult._meta["dcc.next_tools"]` — server attaches `on_success` after success and `on_failure` after error; omitted entirely when not declared.
 - Invalid tool names are dropped at load-time with a warn — skill still loads.
 - Both `on-success` and `on-failure` accept lists of fully-qualified tool names.
@@ -450,7 +450,7 @@ json_str = result.to_json()    # JSON string
 - Don't import `DeferredExecutor` from public `__init__` — use `from dcc_mcp_core._core import DeferredExecutor`
 - Don't call `.new_auto()` then `.capture_window()` — use `.new_window_auto()` for single-window capture
 - Don't use legacy APIs: `ActionManager`, `create_action_manager()`, `MiddlewareChain`, `Action` — removed in v0.12+
-- Don't put ANY dcc-mcp-core extension at the top level of a new SKILL.md (v0.15+ / #356) — **the rule is architectural, not a list of specific fields**. `tools`, `groups`, `workflows`, `prompts`, `next-tools` behaviour chains, `examples` packs, and any future extension MUST be a `metadata.dcc-mcp.<feature>` key pointing at a sibling file. See the "SKILL.md sibling-file pattern" trap for the full rationale. Legacy top-level `dcc:`/`tags:`/`tools:`/`groups:`/`depends:`/`search-hint:` still parse for backward compat but emit a deprecation warn and make `is_spec_compliant()` return `False`. See `docs/guide/skills.md#migrating-pre-015-skillmd`.
+- Don't put ANY dcc-mcp-core extension at the top level of a SKILL.md (v0.15+ / #356) — **the rule is architectural, not a list of specific fields**. `tools`, `groups`, `workflows`, `prompts`, `next-tools` behaviour chains, `examples` packs, and any future extension MUST be a `metadata.dcc-mcp.<feature>` key pointing at a sibling file. See the "SKILL.md sibling-file pattern" trap for the full rationale. The loader rejects any non-spec top-level key outright (not a warning) — a SKILL.md with top-level `dcc:`/`tags:`/`tools:`/`groups:`/`depends:`/`search-hint:` fails to load. See `docs/guide/skills.md#migrating-pre-015-skillmd`.
 - Don't inline large payloads (workflow specs, prompt templates, example dialogues, annotation tables) into SKILL.md frontmatter or body, even under `metadata:` — use sibling files. SKILL.md body stays ≤500 lines / ≤5000 tokens.
 - **Don't create a skill without `metadata.dcc-mcp.layer`** — untagged skills cause routing ambiguity as the catalog grows
 - **Don't write a domain skill `description` without a "Not for X" sentence** — agents need explicit counter-examples to avoid picking the wrong skill

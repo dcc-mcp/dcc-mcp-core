@@ -1,25 +1,24 @@
-//! Tests for issue #356: metadata.dcc-mcp.* compatibility (basic form tests).
+//! Tests for issue #356: metadata.dcc-mcp.* parsing and strict
+//! rejection of legacy top-level extension keys.
 use super::fixtures::write_skill;
 use super::*;
 
 #[test]
-fn legacy_form_flags_non_compliant() {
+fn legacy_top_level_keys_are_rejected() {
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().join("legacy");
     write_skill(
         &dir,
         "---\nname: legacy\ndcc: maya\nversion: \"2.0.0\"\ntags: [a, b]\n---\n# body\n",
     );
-    let meta = parse_skill_md(&dir).expect("parsed");
-    assert_eq!(meta.dcc, "maya");
-    assert_eq!(meta.version, "2.0.0");
-    assert_eq!(meta.tags, vec!["a".to_string(), "b".to_string()]);
-    assert!(!meta.is_spec_compliant());
-    assert!(meta.legacy_extension_fields.iter().any(|s| s == "dcc"));
+    assert!(
+        parse_skill_md(&dir).is_none(),
+        "legacy top-level keys must cause the skill to be rejected"
+    );
 }
 
 #[test]
-fn new_form_is_spec_compliant() {
+fn new_form_parses_successfully() {
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().join("new");
     let body = r#"---
@@ -36,7 +35,6 @@ metadata:
 "#;
     write_skill(&dir, body);
     let meta = parse_skill_md(&dir).expect("parsed");
-    assert!(meta.is_spec_compliant(), "expected spec compliant");
     assert_eq!(meta.dcc, "maya");
     assert_eq!(meta.version, "2.0.0");
     assert_eq!(meta.tags, vec!["a".to_string(), "b".to_string()]);
@@ -45,26 +43,7 @@ metadata:
 }
 
 #[test]
-fn new_form_overrides_legacy_when_both_present() {
-    let tmp = tempfile::tempdir().unwrap();
-    let dir = tmp.path().join("both");
-    let body = r#"---
-name: both
-dcc: blender
-metadata:
-  dcc-mcp.dcc: maya
----
-# body
-"#;
-    write_skill(&dir, body);
-    let meta = parse_skill_md(&dir).expect("parsed");
-    assert_eq!(meta.dcc, "maya", "metadata.dcc-mcp.dcc must win");
-    // still marked legacy because top-level dcc was present
-    assert!(!meta.is_spec_compliant());
-}
-
-#[test]
-fn nested_form_is_spec_compliant() {
+fn nested_form_parses_successfully() {
     // Canonical agentskills.io shape — `metadata.dcc-mcp` is a nested map.
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().join("nested");
@@ -89,7 +68,6 @@ metadata:
 "#;
     std::fs::write(dir.join(SKILL_METADATA_FILE), body).unwrap();
     let meta = parse_skill_md(&dir).expect("parsed");
-    assert!(meta.is_spec_compliant(), "nested form must be compliant");
     assert_eq!(meta.dcc, "maya");
     assert_eq!(meta.version, "1.0.0");
     assert_eq!(meta.tags, vec!["maya".to_string(), "animation".to_string()]);
@@ -118,7 +96,6 @@ metadata:
 "#;
     std::fs::write(dir.join(SKILL_METADATA_FILE), body).unwrap();
     let meta = parse_skill_md(&dir).expect("parsed");
-    assert!(meta.is_spec_compliant());
     assert_eq!(meta.tools.len(), 2);
     assert_eq!(meta.tools[0].name, "create_sphere");
     assert_eq!(meta.tools[0].description, "make a sphere");
@@ -148,38 +125,4 @@ metadata:
         vec!["maya".to_string(), "houdini".to_string()]
     );
     assert_eq!(policy.allow_implicit_invocation, Some(false));
-}
-
-#[test]
-fn both_forms_produce_same_values() {
-    let tmp = tempfile::tempdir().unwrap();
-
-    let legacy_dir = tmp.path().join("legacy");
-    write_skill(
-        &legacy_dir,
-        "---\nname: same\ndcc: maya\nversion: \"1.2.3\"\ntags: [x, y]\nsearch-hint: hello\n---\n",
-    );
-    let legacy = parse_skill_md(&legacy_dir).expect("parsed");
-
-    let new_dir = tmp.path().join("new");
-    write_skill(
-        &new_dir,
-        r#"---
-name: same
-metadata:
-  dcc-mcp.dcc: maya
-  dcc-mcp.version: "1.2.3"
-  dcc-mcp.tags: "x, y"
-  dcc-mcp.search-hint: hello
----
-"#,
-    );
-    let newf = parse_skill_md(&new_dir).expect("parsed");
-
-    assert_eq!(legacy.dcc, newf.dcc);
-    assert_eq!(legacy.version, newf.version);
-    assert_eq!(legacy.tags, newf.tags);
-    assert_eq!(legacy.search_hint, newf.search_hint);
-    assert!(!legacy.is_spec_compliant());
-    assert!(newf.is_spec_compliant());
 }

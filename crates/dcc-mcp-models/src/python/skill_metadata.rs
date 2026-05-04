@@ -69,7 +69,6 @@ impl SkillMetadata {
             policy: None,
             external_deps: None,
             groups: Vec::new(),
-            legacy_extension_fields: Vec::new(),
             prompts_file: None,
             layer: None,
             recipes_file: None,
@@ -93,8 +92,7 @@ impl SkillMetadata {
     // `name`, `description`, `dcc`, `version`, `license`, `compatibility`,
     // `skill_path`, `search_hint` (String → &str + setter), `tags`,
     // `scripts`, `depends`, `metadata_files`, `allowed_tools`, `tools`,
-    // `groups`, `legacy_extension_fields`, `layer` (Vec<T> / Option<T>
-    // clone + setter, except `legacy_extension_fields` which is read-only).
+    // `groups`, `layer` (Vec<T> / Option<T> clone + setter).
     // See `crate::skill_metadata::SkillMetadata`'s `#[py_wrapper(...)]`
     // table for the canonical list.
 
@@ -192,11 +190,6 @@ impl SkillMetadata {
     #[pyo3(name = "validate")]
     fn py_validate(&self) -> Vec<String> {
         SkillMetadata::validate(self)
-    }
-
-    #[pyo3(name = "is_spec_compliant")]
-    fn py_is_spec_compliant(&self) -> bool {
-        SkillMetadata::is_spec_compliant(self)
     }
 
     #[pyo3(name = "required_capabilities")]

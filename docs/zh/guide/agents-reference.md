@@ -244,7 +244,7 @@ tools:
       on-failure: [dcc_diagnostics__screenshot]   # 失败时调试
 ```
 - `next-tools` 是 dcc-mcp-core 扩展（不在 agentskills.io 规范中）
-- 位于 `tools.yaml` 中每个工具条目内。SKILL.md 顶层 `next-tools:` 是旧式写法，会发出弃用警告并使 `is_spec_compliant() → False`。
+- 位于 `tools.yaml` 中每个工具条目内。SKILL.md 顶层 `next-tools:` 会被 loader 直接拒绝加载。
 - 出现在 `CallToolResult._meta["dcc.next_tools"]` — 服务器在成功后附加 `on_success`，在错误后附加 `on_failure`；未声明时完全省略。
 - 无效的工具名在加载时被丢弃并发出警告 — skill 仍会加载。
 - `on-success` 和 `on-failure` 都接受全限定工具名列表。
@@ -392,7 +392,7 @@ json_str = result.to_json()    # JSON 字符串
 - 不要从公共 `__init__` 导入 `DeferredExecutor` — 使用 `from dcc_mcp_core._core import DeferredExecutor`
 - 不要先调用 `.new_auto()` 再调用 `.capture_window()` — 单窗口捕获用 `.new_window_auto()`
 - 不要使用旧式 API：`ActionManager`、`create_action_manager()`、`MiddlewareChain`、`Action` — 在 v0.12+ 中已移除
-- 不要在新的 SKILL.md 顶层放置**任何** dcc-mcp-core 扩展 (v0.15+ / #356) — **此规则是架构性的，不是特定字段列表**。`tools`、`groups`、`workflows`、`prompts`、`next-tools` 行为链、`examples` 包以及任何未来扩展必须是 `metadata.dcc-mcp.<feature>` 键指向同级文件。完整理由参见"SKILL.md 同级文件模式"陷阱。旧式顶层 `dcc:`/`tags:`/`tools:`/`groups:`/`depends:`/`search-hint:` 仍可解析以保持向后兼容但会发出弃用警告并使 `is_spec_compliant()` 返回 `False`。参见 `docs/guide/skills.md#migrating-pre-015-skillmd`。
+- 不要在 SKILL.md 顶层放置**任何** dcc-mcp-core 扩展 (v0.15+ / #356) — **此规则是架构性的，不是特定字段列表**。`tools`、`groups`、`workflows`、`prompts`、`next-tools` 行为链、`examples` 包以及任何未来扩展必须是 `metadata.dcc-mcp.<feature>` 键指向同级文件。完整理由参见"SKILL.md 同级文件模式"陷阱。Loader 会直接拒绝（不是警告）任何非 spec 的顶层键 — 带有顶层 `dcc:`/`tags:`/`tools:`/`groups:`/`depends:`/`search-hint:` 的 SKILL.md 将加载失败。参见 `docs/guide/skills.md#migrating-pre-015-skillmd`。
 - 不要将大型载荷（workflow 规格、prompt 模板、示例对话、注解表）内联到 SKILL.md frontmatter 或 body 中，即使在 `metadata:` 下 — 使用同级文件。SKILL.md body 保持在 ≤500 行 / ≤5000 token。
 - **不要创建没有 `metadata.dcc-mcp.layer` 的 skill** — 未标记的 skill 随目录增长会造成路由歧义
 - **不要在 domain skill `description` 中省略"Not for X"句** — 代理需要显式反例以避免选择错误的 skill

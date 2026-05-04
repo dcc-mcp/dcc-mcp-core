@@ -345,7 +345,8 @@ metadata:
 Only: ``name``, ``description``, ``license``, ``compatibility``,
 ``metadata``, ``allowed-tools``.
 
-Any other key at the top level is legacy and emits a deprecation warning.
+Any other key at the top level causes the loader to reject the skill
+(issue #356 strict mode).
 
 ## Why this is non-negotiable
 

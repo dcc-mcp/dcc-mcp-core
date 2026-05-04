@@ -287,7 +287,6 @@ fn test_skill_metadata_serde_round_trip() {
         policy: None,
         external_deps: None,
         groups: Vec::new(),
-        legacy_extension_fields: Vec::new(),
         prompts_file: None,
         layer: Some("domain".to_string()),
         recipes_file: None,

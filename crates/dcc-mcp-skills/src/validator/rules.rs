@@ -74,14 +74,17 @@ pub fn validate_skill_dir(skill_dir: &Path) -> SkillValidationReport {
     validate_sidecars(skill_dir, &raw_value, &mut report);
     validate_dependencies(skill_dir, &meta, &mut report);
 
-    let legacy = detect_legacy_fields(&raw_value);
-    if !legacy.is_empty() {
+    let non_spec = detect_non_spec_top_level_fields(&raw_value);
+    if !non_spec.is_empty() {
         report.issues.push(SkillValidationIssue::error(
             IssueCategory::Frontmatter,
             format!(
-                "Legacy top-level extension field(s) detected: {:?}. \
-                 Use metadata.dcc-mcp.* form instead (see migration guide).",
-                legacy
+                "Non-spec top-level key(s) detected: {:?}. \
+                 The loader rejects any key outside the agentskills.io 1.0 \
+                 spec (name, description, license, compatibility, metadata, \
+                 allowed-tools). Move dcc-mcp-core extensions under \
+                 metadata.dcc-mcp.*.",
+                non_spec
             ),
         ));
     }
@@ -401,7 +404,7 @@ fn validate_dependencies(
     }
 }
 
-fn detect_legacy_fields(root: &serde_yaml_ng::Value) -> Vec<String> {
+fn detect_non_spec_top_level_fields(root: &serde_yaml_ng::Value) -> Vec<String> {
     const SPEC_KEYS: &[&str] = &[
         "name",
         "description",
@@ -410,22 +413,6 @@ fn detect_legacy_fields(root: &serde_yaml_ng::Value) -> Vec<String> {
         "metadata",
         "allowed-tools",
         "allowed_tools",
-    ];
-    const LEGACY_KEYS: &[&str] = &[
-        "dcc",
-        "version",
-        "tags",
-        "search-hint",
-        "search_hint",
-        "depends",
-        "tools",
-        "groups",
-        "policy",
-        "external_deps",
-        "external-deps",
-        "products",
-        "allow_implicit_invocation",
-        "allow-implicit-invocation",
     ];
 
     let Some(map) = root.as_mapping() else {
@@ -439,7 +426,7 @@ fn detect_legacy_fields(root: &serde_yaml_ng::Value) -> Vec<String> {
         if SPEC_KEYS.contains(&key_str) {
             continue;
         }
-        if LEGACY_KEYS.contains(&key_str) && !out.iter().any(|seen: &String| seen == key_str) {
+        if !out.iter().any(|seen: &String| seen == key_str) {
             out.push(key_str.to_string());
         }
     }
