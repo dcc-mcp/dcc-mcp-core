@@ -16,12 +16,28 @@ The Skills-First approach discovers `SKILL.md` packages via environment variable
 ---
 name: maya-geometry
 description: Maya geometry creation tools
-version: 1.0.0
-dcc: maya
-tags: [geometry, create]
+license: MIT
+compatibility: maya>=2022
+metadata:
+  dcc-mcp.dcc: maya
+  dcc-mcp.version: "1.0.0"
+  dcc-mcp.layer: domain
+  dcc-mcp.tags: [geometry, create]
+  dcc-mcp.tools: tools.yaml
+---
+
+# Maya Geometry Tools
+
+A toolset for creating and editing geometry in Maya.
+```
+
+`tools.yaml`:
+
+```yaml
 tools:
   - name: create_sphere
-    description: Create a polygon sphere
+    description: Create a polygon sphere.
+    source_file: scripts/create_sphere.py
     input_schema: |
       {
         "type": "object",
@@ -31,13 +47,6 @@ tools:
           "name": {"type": "string"}
         }
       }
-scripts:
-  - create_sphere.py
----
-
-# Maya Geometry Tools
-
-A toolset for creating and editing geometry in Maya.
 ```
 
 ### Step 2: Implement the Script
@@ -54,17 +63,18 @@ def create_sphere(radius: float = 1.0, name: str | None = None):
         sphere = cmds.polySphere(r=radius, n=name)[0]
         return success_result(
             message=f"Created sphere: {sphere}",
-            context={"object_name": sphere, "radius": radius}
+            object_name=sphere,
+            radius=radius,
         )
     except Exception as e:
-        return error_result(str(e))
+        return error_result("Failed to create sphere", str(e))
 ```
 
 ### Step 3: Register via Environment Variable and Start
 
 ```python
 import os
-from dcc_mcp_core import create_skill_server
+from dcc_mcp_core import McpHttpConfig, create_skill_server
 
 os.environ["DCC_MCP_MAYA_SKILL_PATHS"] = "/path/to/my/skills"
 

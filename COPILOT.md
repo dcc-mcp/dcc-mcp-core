@@ -1,16 +1,30 @@
-# COPILOT.md
+# COPILOT.md — dcc-mcp-core
 
-> **This project uses the [AGENTS.md](AGENTS.md) standard as the single source of truth.**
-> GitHub Copilot Chat, Copilot Workspace, and any Copilot-hosted agent — read [`AGENTS.md`](AGENTS.md) first.
-> This file exists only so Copilot tooling that looks for `COPILOT.md` by name can find its way here.
+> Entry point for GitHub Copilot agents.
+> This file is an agent-specific entry point. It intentionally delegates to
+> `AGENTS.md` so project rules stay single-sourced and progressively disclosed.
+>
+> Do not copy detailed project guidance here. Update `AGENTS.md`, `llms.txt`,
+> `llms-full.txt`, or `docs/guide/*` instead.
 
-## Entry Points (read in this order)
+## Read Order
 
-1. [`AGENTS.md`](AGENTS.md) — navigation map, response language, PR rules, top traps, decision tables
-2. [`AI_AGENT_GUIDE.md`](AI_AGENT_GUIDE.md) — skills-first workflow tutorial for AI agents
-3. [`llms.txt`](llms.txt) — compressed API index (use when you need to *call* APIs)
-4. [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md) — detailed rules, traps, code examples
+1. `AGENTS.md` — navigation map, response rules, PR/merge rules, and top traps.
+2. `AI_AGENT_GUIDE.md` — how an AI agent should use dcc-mcp-core effectively.
+3. `llms.txt` — compact API index when you need to use APIs.
+4. `llms-full.txt` — complete API index when `llms.txt` lacks detail.
+5. `docs/guide/agents-reference.md` — detailed rules, examples, and rationale before coding.
 
-## Copilot-Specific Notes
+## Mandatory DCC Workflow
 
-None. All guidance is canonicalised in `AGENTS.md`. If Copilot-specific behaviour ever diverges from the common guidance, it will be captured here — keep this file minimal.
+When interacting with Maya, Blender, Houdini, Photoshop, ZBrush, Unreal, Unity,
+Figma, or any custom DCC host, use the Skills-First workflow from `AGENTS.md`.
+Prefer `search_skills` → `load_skill` → tool call on a per-DCC server, or
+`search_tools` → `describe_tool` → `call_tool` on a gateway/slim REST surface.
+Do not jump straight to raw subprocesses or host scripting unless the docs say a
+low-level fallback is required.
+
+## Build & Test
+
+Use `vx just dev`, `vx just test`, and `vx just preflight`. For docs-only changes,
+still run the fastest available docs validation before opening a PR.

@@ -107,20 +107,25 @@ crates/                      # Rust workspace crates (core logic)
 ├── dcc-mcp-shm/             # PyBufferPool, PySharedBuffer, LZ4 compression
 ├── dcc-mcp-capture/         # Capturer, cross-platform backends
 ├── dcc-mcp-usd/             # UsdStage, UsdPrim, scene info bridge
-├── dcc-mcp-http/            # McpHttpServer, McpHttpConfig, Gateway (first-wins competition)
-├── dcc-mcp-server/          # dcc-mcp-server binary, gateway runner
-└── dcc-mcp-utils/           # Filesystem, constants, type wrappers, JSON
+├── dcc-mcp-http/            # Embedded MCP Streamable HTTP server core
+├── dcc-mcp-gateway/         # Multi-DCC gateway + dynamic capability index
+├── dcc-mcp-skill-rest/      # Per-DCC /v1/* REST skill API
+├── dcc-mcp-logging/         # Rolling file logging
+├── dcc-mcp-paths/           # Platform path helpers
+├── dcc-mcp-pybridge*/       # PyO3 helper crates
+└── dcc-mcp-tunnel-*/        # Remote MCP tunnel protocol, relay, and agent
 src/
 └── lib.rs                   # PyO3 module entry point (_core)
 python/
 └── dcc_mcp_core/
-    ├── __init__.py           # Public API re-exports (~177 symbols) from _core
-    ├── _core.pyi             # Type stubs
+    ├── __init__.py           # Top-level public re-exports
     ├── skill.py              # Pure-Python skill script helpers (no _core dependency)
+    ├── result_envelope.py    # Typed ToolResult helpers
     └── py.typed              # PEP 561 marker
+    # _core.pyi is generated after a stub-gen/dev build, not checked in
 tests/                       # Python integration tests
 examples/
-└── skills/                  # Example SKILL.md packages (11 examples)
+└── skills/                  # Example SKILL.md packages (15 examples)
 ```
 
 ## Release Process

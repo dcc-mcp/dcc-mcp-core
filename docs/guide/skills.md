@@ -1,6 +1,6 @@
 # Skills System
 
-The Skills system allows you to register any script (Python, MEL, MaxScript, BAT, Shell, etc.) as an MCP-discoverable tool with **zero Python code**. It follows the [agentskills.io V1.0](https://agentskills.io/specification) specification for SKILL.md format, with DCC-specific extensions (`dcc`, `search-hint`, `tools`, `groups`, `depends`, `external_deps`).
+The Skills system registers scripts (Python, MEL, MaxScript, BAT, Shell, etc.) as MCP-discoverable tools with **zero Python glue code**. `SKILL.md` follows the agentskills.io V1.0 frontmatter shape; dcc-mcp-core extensions live under `metadata.dcc-mcp.*` and point to sibling files such as `tools.yaml` and `groups.yaml`. Keep extension data out of top-level `SKILL.md` keys so generic agentskills.io readers can still parse the package.
 
 ## Quick Start
 
@@ -9,38 +9,56 @@ The Skills system allows you to register any script (Python, MEL, MaxScript, BAT
 ```
 maya-geometry/
 ├── SKILL.md
+├── tools.yaml
 └── scripts/
     ├── create_sphere.py
-    ├── batch_rename.mel
     └── export_fbx.bat
 ```
 
-### 2. Write the SKILL.md
+### 2. Write `SKILL.md` and `tools.yaml`
+
+`SKILL.md`:
 
 ```yaml
 ---
 name: maya-geometry
-description: "Maya geometry creation and modification tools"
-version: "1.0.0"
-dcc: maya
-tags: ["geometry", "create"]
-search-hint: "polygon modeling, sphere, bevel, extrude, mesh editing"
-tools:
-  - name: create_sphere
-    description: "Create a polygon sphere with the given radius"
-    source_file: scripts/create_sphere.py
-    read_only: false
-  - name: export_fbx
-    description: "Export selected objects to FBX"
-    source_file: scripts/export_fbx.bat
+description: >-
+  Domain skill — Maya geometry creation and modification tools.
+  Use when the user asks to create, inspect, or export polygon meshes in Maya.
+  Not for render-farm submission — use maya-render-farm for that.
+license: MIT
+compatibility: maya>=2022
+metadata:
+  dcc-mcp.dcc: maya
+  dcc-mcp.version: "1.0.0"
+  dcc-mcp.layer: domain
+  dcc-mcp.tags: [geometry, create]
+  dcc-mcp.search-hint: "polygon modeling, sphere, bevel, extrude, mesh editing"
+  dcc-mcp.tools: tools.yaml
 ---
 # Maya Geometry Skill
 
 Use these tools to create and modify geometry in Maya.
 ```
 
-The `search-hint` field provides comma-separated keywords for efficient skill discovery
-via `search_skills` without loading full tool schemas.
+```yaml
+# tools.yaml
+tools:
+  - name: create_sphere
+    description: Create a polygon sphere with the given radius.
+    source_file: scripts/create_sphere.py
+    annotations:
+      read_only_hint: false
+      destructive_hint: false
+      idempotent_hint: false
+    next-tools:
+      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
+  - name: export_fbx
+    description: Export selected objects to FBX.
+    source_file: scripts/export_fbx.bat
+```
+
+The `metadata.dcc-mcp.search-hint` field provides comma-separated keywords for efficient skill discovery via `search_skills` without loading full tool schemas.
 
 ### 3. Set Environment Variable
 
@@ -120,17 +138,19 @@ info = catalog.get_skill_info("maya-geometry")  # dict with full details or None
 |-------|------|-------------|
 | `name` | `str` | Skill name |
 | `description` | `str` | Short description |
-| `search_hint` | `str` | Keyword hint for discovery (from `search-hint:` in SKILL.md; falls back to `description`) |
+| `search_hint` | `str` | Keyword hint for discovery (from `metadata.dcc-mcp.search-hint`; falls back to `description`) |
 | `tags` | `List[str]` | Skill tags |
 | `dcc` | `str` | Target DCC (e.g. `"maya"`) |
 | `version` | `str` | Skill version |
 | `tool_count` | `int` | Number of declared tools |
 | `tool_names` | `List[str]` | Names of declared tools |
 | `loaded` | `bool` | Whether the skill is currently loaded |
+| `scope` | `str` | Trust scope such as `repo`, `user`, `system`, or `admin` |
+| `implicit_invocation` | `bool` | Whether tools may be invoked without an explicit `load_skill` step |
 
 ## ToolDeclaration
 
-A `ToolDeclaration` describes a single tool within a skill. Declared in the `tools:` list in SKILL.md frontmatter:
+A `ToolDeclaration` describes a single tool within a skill. Declare tools in the sibling `tools.yaml` file referenced by `metadata.dcc-mcp.tools`. Legacy top-level `tools:` frontmatter is still parsed for compatibility, but new skills should not use it:
 
 ```yaml
 tools:
@@ -712,35 +732,46 @@ moment. Tool groups let a skill ship several related toolsets and let the
 client activate only the ones it needs — keeping `tools/list` small while all
 tools remain discoverable.
 
-### Declaring Groups in SKILL.md
+### Declaring Groups with Sibling Files
 
-Groups are declared in the top-level `groups:` section. Each tool can then
-reference a group name via its `group:` field:
+Declare groups in `groups.yaml`, referenced from `SKILL.md` via `metadata.dcc-mcp.groups`. Tools then reference a group name through their `group:` field in `tools.yaml`:
 
 ```yaml
+# SKILL.md frontmatter
 ---
 name: maya-geometry
-description: "Maya geometry, modeling, and rigging tools"
-dcc: maya
+description: "Domain skill — Maya geometry, modeling, and rigging tools. Use when ..."
+metadata:
+  dcc-mcp.dcc: maya
+  dcc-mcp.tools: tools.yaml
+  dcc-mcp.groups: groups.yaml
+---
+```
+
+```yaml
+# groups.yaml
 groups:
   - name: modeling
-    description: "Polygon modeling and UV tools"
-    default_active: true          # active at load time (no activation needed)
+    description: Polygon modeling and UV tools.
+    default_active: true
     tools: [create_sphere, create_cube, extrude]
   - name: rigging
-    description: "Skeleton, joints and skinning"
-    default_active: false         # inactive until activate_tool_group is called
+    description: Skeleton, joints, and skinning.
+    default_active: false
     tools: [create_joint]
+```
+
+```yaml
+# tools.yaml
 tools:
   - name: create_sphere
-    description: "Create a polygon sphere"
+    description: Create a polygon sphere.
     group: modeling
     source_file: scripts/create_sphere.py
   - name: create_joint
-    description: "Create a joint chain"
+    description: Create a joint chain.
     group: rigging
     source_file: scripts/create_joint.py
----
 ```
 
 ### `SkillGroup` Fields
@@ -761,24 +792,26 @@ When `SkillCatalog.load_skill("maya-geometry")` runs:
 2. Tools in groups where `default_active=false` are hidden from
    `tools/list`. They remain in the registry (visible via `list_actions()`)
    and become active once the group is activated.
-3. `SkillCatalog.active_groups(skill_name)` returns the initially-active groups.
+3. `SkillCatalog.active_groups()` returns the active group names. `SkillCatalog.list_groups()` returns `(skill_name, group_name, active)` tuples for all declared groups.
 
 ### Controlling Groups at Runtime
 
 ```python
-from dcc_mcp_core import SkillCatalog, ToolRegistry, create_skill_server
+from dcc_mcp_core import SkillCatalog, ToolRegistry
 
-# Via the high-level catalog
-catalog.activate_group("maya-geometry", "rigging")     # enables rigging tools
-catalog.deactivate_group("maya-geometry", "rigging")   # disables them again
-groups   = catalog.list_groups("maya-geometry")         # -> List[SkillGroup]
-tools    = catalog.list_tools_catalog("maya-geometry")  # group -> tools map
+registry = ToolRegistry()
+catalog = SkillCatalog(registry)
 
-# Or via the registry directly (emits tools/list_changed notifications)
-registry.activate_tool_group("maya-geometry", "rigging")
-registry.deactivate_tool_group("maya-geometry", "rigging")
-enabled_tools = registry.list_tools_in_group("maya-geometry", "modeling")
-enabled_only  = registry.list_actions_enabled()
+# Via the high-level catalog: group names are global registry group keys.
+changed = catalog.activate_group("rigging")      # enables rigging tools
+changed = catalog.deactivate_group("rigging")    # disables them again
+groups = catalog.list_groups()                    # -> [(skill_name, group_name, active)]
+active = catalog.active_groups()                  # -> ["modeling", ...]
+
+# Or via the registry directly (the HTTP server emits tools/list_changed notifications).
+changed = registry.set_group_enabled("rigging", True)
+group_tools = registry.list_actions_in_group("modeling")
+enabled_only = registry.list_actions_enabled()
 ```
 
 ### MCP Tools for Group Management
@@ -788,8 +821,8 @@ group control in addition to the six skill-discovery tools:
 
 | Tool | Description |
 |------|-------------|
-| `activate_tool_group` | Activate a group; emits `notifications/tools/list_changed` so clients refresh their view |
-| `deactivate_tool_group` | Deactivate a group |
+| `activate_tool_group` | Activate a group by `{ "group": "rigging" }`; emits `notifications/tools/list_changed` so clients refresh their view |
+| `deactivate_tool_group` | Deactivate a group by `{ "group": "rigging" }` |
 | `search_tools` | Keyword search across currently-enabled tools (name, description, tags) |
 
 `tools/list` also returns `__group__<skill>.<group>` stubs for any group
@@ -922,7 +955,7 @@ Calling an unloaded skill stub (`__skill__<name>`) returns an error with a hint:
 
 Searches across: `name`, `description`, `search_hint`, `tags`, `dcc`, and the
 sibling `tools.yaml` entries (`name` + `description`). The `search_hint` field
-(from SKILL.md `search-hint:`) improves keyword matching without loading full
+(from `metadata.dcc-mcp.search-hint`) improves keyword matching without loading full
 schemas.
 
 #### How `search_skills` ranks results

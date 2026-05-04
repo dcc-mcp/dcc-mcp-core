@@ -35,7 +35,7 @@
 | Serialize result for transport | `serialize_result()` / `deserialize_result()` with `SerializeFormat` |
 | Wrap values for safe RPyC transport | `wrap_value()` / `unwrap_value()` |
 | Handle multiple versions of an action | `VersionedRegistry` + `VersionConstraint` |
-| Expose DCC tools over HTTP/MCP | `create_skill_server("maya", McpHttpConfig(port=8765))` — Skills-First one-call setup; falls back to `McpHttpServer(registry, config)` for manual registry wiring |
+| Expose DCC tools over HTTP/MCP | `create_skill_server("maya", McpHttpConfig(port=8765))` — Skills-First one-call setup; gateway/slim agents use `search_tools` → `describe_tool` → `call_tool`; falls back to `McpHttpServer(registry, config)` for manual registry wiring |
 | Discover team-level skills | `scan_and_load_team()` / `scan_and_load_team_lenient()` |
 | Discover user-level skills | `scan_and_load_user()` / `scan_and_load_user_lenient()` |
 | Reference files across tool calls (artefacts) | `FileRef` + `artefact_put_file()` / `artefact_get_bytes()` / `artefact_list()` |
@@ -49,29 +49,41 @@
 
 ## Architecture
 
-dcc-mcp-core is a **Rust workspace** with Python bindings via PyO3. All logic lives in Rust
+dcc-mcp-core is a **Rust workspace** with Python bindings via PyO3. All logic lives in focused Rust
 sub-crates; the root crate re-exports everything into a single `dcc_mcp_core._core` Python
-extension module. The Python package `dcc_mcp_core` re-exports all public APIs from `_core`.
+extension module. The Python package `dcc_mcp_core` re-exports the supported public APIs from `_core`
+and pure-Python helpers.
 
-**15 crates** — **Zero runtime Python dependencies** — install with just `pip install dcc-mcp-core`.
+**30 workspace members** (29 functional crates + `workspace-hack`) — **Zero runtime Python dependencies** — install with just `pip install dcc-mcp-core`.
 
 ```
 crates/
-├── dcc-mcp-naming/       # SEP-986 tool-name / action-id validators (TOOL_NAME_RE, validate_tool_name)
-├── dcc-mcp-models/       # ToolResult, SkillMetadata
+├── dcc-mcp-naming/       # SEP-986 tool-name / action-id validators
+├── dcc-mcp-models/       # ToolResult, SkillMetadata, DccName, shared errors
 ├── dcc-mcp-actions/      # ToolRegistry, ToolDispatcher, ToolValidator, EventBus, ToolPipeline
-├── dcc-mcp-skills/       # SkillScanner, SkillWatcher, parse_skill_md, dependency resolver
-├── dcc-mcp-protocols/    # MCP type definitions (Tool, Resource, Prompt, DccAdapter)
-├── dcc-mcp-transport/    # DccLink IPC adapters (IpcChannelAdapter, GracefulIpcChannelAdapter, SocketServerAdapter)
-├── dcc-mcp-http/         # McpHttpServer, McpHttpConfig, McpServerHandle (MCP Streamable HTTP 2025-03-26)
-├── dcc-mcp-process/      # PyDccLauncher, PyProcessMonitor, PyProcessWatcher, PyCrashRecoveryPolicy
+├── dcc-mcp-skills/       # SkillScanner, SkillCatalog, SkillWatcher, parse_skill_md, dependency resolver
+├── dcc-mcp-protocols/    # MCP-facing Tool/Resource/Prompt/DccAdapter models
+├── dcc-mcp-jsonrpc/      # MCP 2025-03-26 JSON-RPC wire types
+├── dcc-mcp-job/          # Async job tracker + optional persistence
+├── dcc-mcp-skill-rest/   # Per-DCC /v1/* REST skill API
+├── dcc-mcp-gateway/      # Multi-DCC gateway + dynamic capability index
+├── dcc-mcp-http/         # Embedded MCP Streamable HTTP server core
+├── dcc-mcp-transport/    # DccLink IPC adapters
+├── dcc-mcp-process/      # PyDccLauncher, monitors, crash recovery
 ├── dcc-mcp-telemetry/    # TelemetryConfig, RecordingGuard, ToolMetrics, ToolRecorder
-├── dcc-mcp-sandbox/      # SandboxPolicy, SandboxContext, InputValidator, AuditLog, AuditEntry
-├── dcc-mcp-shm/          # PyBufferPool, PySharedBuffer, PySharedSceneBuffer, LZ4 compression
-├── dcc-mcp-capture/      # Capturer, CaptureFrame, CaptureResult, CaptureTarget, WindowFinder (HWND on Windows)
-├── dcc-mcp-usd/          # UsdStage, UsdPrim, SdfPath, VtValue, scene info bridge
+├── dcc-mcp-sandbox/      # SandboxPolicy, SandboxContext, InputValidator, AuditLog
+├── dcc-mcp-shm/          # Shared buffers and LZ4 compression
+├── dcc-mcp-capture/      # Screen/window capture
+├── dcc-mcp-usd/          # USD scene bridge
 ├── dcc-mcp-server/       # Binary entry point, gateway runner
-└── dcc-mcp-utils/        # Filesystem, constants, type wrappers, JSON conversion
+├── dcc-mcp-logging/      # Rolling file logging
+├── dcc-mcp-paths/        # Platform path helpers
+├── dcc-mcp-pybridge*/    # PyO3 helper crates
+├── dcc-mcp-workflow/     # WorkflowCatalog and YAML workflows
+├── dcc-mcp-scheduler/    # ScheduleSpec, TriggerSpec, scheduler service
+├── dcc-mcp-artefact/     # FileRef and content-addressed handoff
+├── dcc-mcp-host/         # Host execution bridge contracts
+└── dcc-mcp-tunnel-*/     # Remote MCP tunnel protocol, relay, and agent
 ```
 
 **Key import pattern** (always use the top-level package):

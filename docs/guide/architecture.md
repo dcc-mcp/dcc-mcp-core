@@ -43,37 +43,42 @@ DCC-MCP-Core is a Rust workspace with Python bindings via PyO3. It provides:
 
 - **Zero third-party runtime dependencies** in the Rust core
 - **Optional Python bindings** via PyO3 for DCC integration
-- **24 modular crates + workspace-hack** for selective dependency usage
+- **30 workspace members** (29 functional crates + `workspace-hack`) for selective dependency usage; root `Cargo.toml` is the source of truth
 
 ## Crate Structure
 
 ```
 dcc-mcp-core (workspace root)
-├── dcc-mcp-models         # ToolResult, SkillMetadata, DCC types
-├── dcc-mcp-actions        # ToolRegistry, EventBus, ToolDispatcher, Pipeline
-├── dcc-mcp-skills         # SkillScanner, SkillCatalog, SkillWatcher, Resolver
-├── dcc-mcp-protocols      # MCP types: ToolDefinition, ResourceDefinition, Prompt, DccAdapter, BridgeKind
-├── dcc-mcp-transport      # IPC (ipckit), DccLinkFrame, IpcChannelAdapter, SocketServerAdapter
-├── dcc-mcp-process        # PyDccLauncher, ProcessMonitor, ProcessWatcher, CrashRecovery
-├── dcc-mcp-telemetry      # Tracing/recording: ToolRecorder, TelemetryConfig
-├── dcc-mcp-sandbox        # Security: SandboxPolicy, SandboxContext, AuditLog
-├── dcc-mcp-shm            # Shared memory: PySharedBuffer, PyBufferPool
-├── dcc-mcp-capture        # Screen capture: Capturer, CaptureFrame
-├── dcc-mcp-usd            # USD scene description: UsdStage, SdfPath, VtValue
-├── dcc-mcp-http           # MCP HTTP server: McpHttpServer, McpHttpConfig, Gateway
-├── dcc-mcp-server         # Binary entry point: dcc-mcp-server, gateway runner
-├── dcc-mcp-logging        # File logging (split from dcc-mcp-utils)
-├── dcc-mcp-paths          # Platform path helpers (split from dcc-mcp-utils)
-├── dcc-mcp-pybridge       # PyO3 helpers (split from dcc-mcp-utils)
-├── dcc-mcp-naming         # SEP-986 tool-name / action-id validators
-├── dcc-mcp-scheduler      # ScheduleSpec, TriggerSpec, SchedulerService
-├── dcc-mcp-workflow       # WorkflowCatalog, YAML workflow loader
-├── dcc-mcp-artefact       # FilesystemArtefactStore, FileRef
+├── dcc-mcp-naming        # SEP-986 tool-name / action-id validators
+├── dcc-mcp-models        # ToolResult, SkillMetadata, DccName, shared errors
+├── dcc-mcp-actions       # ToolRegistry, EventBus, ToolDispatcher, validation
+├── dcc-mcp-skills        # SkillScanner, SkillCatalog, SkillWatcher, resolver
+├── dcc-mcp-protocols     # MCP-facing Tool/Resource/Prompt/DccAdapter models
+├── dcc-mcp-jsonrpc       # MCP 2025-03-26 JSON-RPC wire types
+├── dcc-mcp-job           # Async job tracking + optional persistence
+├── dcc-mcp-skill-rest    # Per-DCC /v1/* REST skill API
+├── dcc-mcp-gateway       # Multi-DCC gateway + dynamic capability index
+├── dcc-mcp-http          # Embedded MCP Streamable HTTP server core
+├── dcc-mcp-server        # Binary entry point and gateway runner
+├── dcc-mcp-logging       # Rolling file logging
+├── dcc-mcp-paths         # Platform path helpers
+├── dcc-mcp-pybridge      # PyO3 helper macros / JSON / YAML bridge
 ├── dcc-mcp-pybridge-derive # derive macros for PyO3 helpers
-├── dcc-mcp-tunnel-agent   # Tunnel agent for remote MCP relay
-├── dcc-mcp-tunnel-protocol # Tunnel protocol types and auth
-├── dcc-mcp-tunnel-relay   # RelayServer for zero-config tunnel
-└── workspace-hack         # Workspace dependency deduplication
+├── dcc-mcp-transport     # IPC transport, frames, channel adapters
+├── dcc-mcp-process       # Launch, monitor, watcher, crash recovery
+├── dcc-mcp-telemetry     # Tool metrics and recorders
+├── dcc-mcp-sandbox       # SandboxPolicy, validation, audit log
+├── dcc-mcp-shm           # Shared memory buffers
+├── dcc-mcp-capture       # Screen/window capture
+├── dcc-mcp-usd           # USD scene description bridge
+├── dcc-mcp-workflow      # WorkflowCatalog and YAML workflows
+├── dcc-mcp-scheduler     # ScheduleSpec, TriggerSpec, scheduler service
+├── dcc-mcp-artefact      # FileRef and content-addressed handoff
+├── dcc-mcp-host          # Host execution bridge / adapter-facing contracts
+├── dcc-mcp-tunnel-protocol # Remote MCP tunnel protocol + auth
+├── dcc-mcp-tunnel-relay  # RelayServer
+├── dcc-mcp-tunnel-agent  # Local tunnel sidecar
+└── workspace-hack        # Workspace dependency deduplication
 ```
 
 ### Dependency Graph
@@ -416,7 +421,7 @@ If you need custom middleware or fine-grained control, assemble the stack manual
 
 ## Python Bindings
 
-All 28 crates (+ workspace-hack) are compiled into a single PyO3 native extension (`dcc_mcp_core._core`) via `maturin`.
+The workspace builds a single PyO3 native extension (`dcc_mcp_core._core`) via `maturin`; optional feature crates are included according to `pyproject.toml` / the root `justfile`.
 
 ```toml
 # pyproject.toml
@@ -429,9 +434,12 @@ dependencies = []  # Zero runtime dependencies
 
 ```
 python/dcc_mcp_core/
-├── __init__.py     # Public API (re-exports ~177 symbols from _core)
-├── _core.pyi       # Type stubs (auto-generated from Rust)
+├── __init__.py     # Public top-level re-exports from _core + pure-Python helpers
+├── *.py            # Pure-Python helpers (server base, skill helpers, envelopes, constants)
 └── py.typed        # PEP 561 marker
+
+# Generated after a stub-gen/dev build, not checked in as source of truth:
+# python/dcc_mcp_core/_core.pyi
 ```
 
 ## Design Decisions
@@ -443,14 +451,14 @@ The native extension bundles all Rust code — no `pip install` for PyO3, tokio,
 - Predictable behavior across Maya/Blender/Houdini/3ds Max
 - Minimal import latency
 
-### 2. PyO3 0.22+ / Maturin
+### 2. PyO3 0.28+ / Maturin
 
 Using PyO3 with:
 - `multiple-pymethods` — Multiple `#[pymethods]` per struct
 - `abi3-py38` — Stable ABI for Python 3.8+ (CI tests 3.7–3.13)
 - `extension-module` — Allow loading from any Python path
 
-### 3. Rust Edition 2024, MSRV 1.85
+### 3. Rust Edition 2024, MSRV 1.95
 
 ### 4. Tokio for Async Runtime
 

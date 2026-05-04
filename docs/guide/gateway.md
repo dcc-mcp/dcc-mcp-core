@@ -80,7 +80,7 @@ Two invariants prevent this:
 
 1. **Self-exclusion in every fan-out path.** `GatewayState::live_instances`
    skips rows whose `(host, port)` matches the gateway's own binding,
-   using `is_own_instance` from `crates/dcc-mcp-http/src/gateway/sentinel.rs`.
+   using `is_own_instance` from `crates/dcc-mcp-gateway/src/gateway/sentinel.rs`.
    The helper normalises localhost aliases (`localhost`, `::1`,
    `0.0.0.0`, `[::]`) to `127.0.0.1` so an adapter that advertises its
    host as `"localhost"` is still filtered when the gateway is bound
@@ -155,14 +155,42 @@ routable:
 Backend diagnostics tools remain available as normal prefixed instance tools
 when a DCC exposes them.
 
+## Dynamic Capability Index and Bounded Tool Exposure (#652-#657)
+
+For large multi-DCC deployments, the gateway should not publish every backend
+tool directly through `tools/list`. Use `McpHttpConfig.gateway_tool_exposure`
+to choose the surface:
+
+| Mode | Behavior | Agent workflow |
+|------|----------|----------------|
+| `full` | Historical fan-out: backend tools appear directly in `tools/list` | Call the prefixed/cursor-safe backend tool directly |
+| `slim` | Bounded gateway meta-tools plus skill-management tools | `search_tools` → `describe_tool` → `call_tool` |
+| `rest` | Same bounded MCP surface; REST `/v1/*` is the primary integration | `POST /v1/search` → `/v1/describe` → `/v1/call` |
+| `both` | Forward-compatible alias for the full transition window | Prefer the dynamic workflow for new agents |
+
+The gateway capability index stores compact records keyed by
+`<dcc>.<id8>.<tool>` and refreshes on demand, so the first agent query after
+startup or `load_skill` sees fresh results without a polling delay. The fixed
+MCP wrappers are cursor-safe and stable:
+
+| Tool | Purpose |
+|------|---------|
+| `search_tools` | Search compact capability records by query, DCC type, tags, instance, and pagination options |
+| `describe_tool` | Fetch the full schema and annotations for a selected `tool_slug` |
+| `call_tool` | Invoke the selected backend capability with validated arguments |
+
+Use this flow whenever an agent is connected to a gateway/slim endpoint. Use the
+per-DCC Skills-First flow (`search_skills` → `load_skill` → tool call) when the
+agent is connected directly to one DCC server.
+
 ## Code pointers
 
 | Piece | File |
 |-------|------|
-| Subscriber manager, reconnect loop | `crates/dcc-mcp-http/src/gateway/sse_subscriber.rs` |
-| Per-session SSE plumbing | `crates/dcc-mcp-http/src/gateway/handlers.rs` (`handle_gateway_get`) |
-| `tools/call` correlation hooks | `crates/dcc-mcp-http/src/gateway/aggregator.rs` (`route_tools_call`) |
-| Subscription watcher | `crates/dcc-mcp-http/src/gateway/mod.rs` (`backend_sub_handle`) |
+| Subscriber manager, reconnect loop | `crates/dcc-mcp-gateway/src/gateway/sse_subscriber.rs` |
+| Per-session SSE plumbing | `crates/dcc-mcp-gateway/src/gateway/handlers/` (`handle_gateway_get`) |
+| `tools/call` correlation hooks | `crates/dcc-mcp-gateway/src/gateway/aggregator.rs` / `aggregator/` |
+| Subscription watcher and runtime tasks | `crates/dcc-mcp-gateway/src/gateway/tasks.rs` |
 
 ## Waiting for terminal results from the gateway (#321)
 

@@ -201,7 +201,7 @@ Call ``load_skill(skill_name="maya-geometry")`` to replace the stub with real to
 ## Tool groups (inactive tools)
 
 Tools in groups with ``default_active: false`` are hidden from ``tools/list``.
-Activate via ``activate_tool_group(skill=..., group=...)``.
+Activate via ``activate_tool_group(group=...)``.
 """,
     },
     "docs://skill-authoring/tools-yaml": {

@@ -23,13 +23,14 @@
 ### 1. Discover Relevant Skills
 
 ```python
-from dcc_mcp_core import scan_and_load, SkillCatalog
+from dcc_mcp_core import SkillCatalog, ToolRegistry, scan_and_load
 
-# Always start by discovering what's available
-# Returns: (List[SkillMetadata], List[str] skipped_dirs)
+# Always start by discovering what's available.
+# Returns: (List[SkillMetadata], List[str] skipped_dirs).
 skills, skipped = scan_and_load(dcc_name="maya")
 
-# For AI agents: use search_skills for semantic discovery
+# For AI agents: use search_skills for semantic discovery.
+registry = ToolRegistry()
 catalog = SkillCatalog(registry)
 results = catalog.search_skills(query="create sphere geometry")
 ```
@@ -61,6 +62,19 @@ else:
 ### 4. Follow next-tools Guidance
 
 When a tool returns `next-tools.on-success` or `next-tools.on-failure`, **always consider calling those tools next**. This creates a guided workflow chain.
+
+### Gateway / Slim / REST Surfaces
+
+If your MCP connection is the multi-DCC gateway, especially with `gateway_tool_exposure="slim"` or `"rest"`, do not expect every backend tool to appear in `tools/list`. Use the bounded dynamic-capability workflow instead:
+
+```python
+# Gateway MCP wrapper flow
+hits = search_tools(query="create sphere", dcc_type="maya", limit=5)
+info = describe_tool(tool_slug=hits["hits"][0]["tool_slug"])
+result = call_tool(tool_slug=info["tool_slug"], arguments={"radius": 2.0})
+```
+
+Non-MCP clients use the equivalent REST endpoints: `POST /v1/search`, `POST /v1/describe`, and `POST /v1/call`. See `docs/guide/gateway.md` and `docs/guide/dcc-rest-skill-api.md`.
 
 ## 📚 Key Concepts You Must Understand
 
@@ -104,14 +118,13 @@ Tools declare their safety hints via `ToolAnnotations`:
 Skills can expose tools progressively:
 
 ```python
-# List available groups
-groups = catalog.list_groups("maya-geometry")
+# List all declared groups as (skill_name, group_name, active) tuples.
+groups = catalog.list_groups()
 
-# Activate a group to expose its tools
-catalog.activate_group("maya-geometry", "advanced")
-
-# Deactivate to hide tools
-catalog.deactivate_group("maya-geometry", "experimental")
+# Activate/deactivate by group name.
+catalog.activate_group("advanced")
+catalog.deactivate_group("experimental")
+active = catalog.active_groups()
 ```
 
 ## 🔧 Common Tasks — Which API to Use
@@ -119,7 +132,7 @@ catalog.deactivate_group("maya-geometry", "experimental")
 | Task | Use this API |
 |------|---------------|
 | **Expose DCC tools over MCP** | `DccServerBase` → subclass → `start()` |
-| **Zero-code tool registration** | `SKILL.md` + `scripts/` (agentskills.io format) |
+| **Zero-code tool registration** | `SKILL.md` + sibling `tools.yaml` + `scripts/` (agentskills.io-compatible format) |
 | **Return structured results** | `success_result()` / `error_result()` |
 | **Rich error with traceback** | `skill_error_with_trace()` |
 | **Bridge non-Python DCC** | `DccBridge` (WebSocket JSON-RPC 2.0) |
@@ -177,7 +190,7 @@ tools:
 2. **`success_result` kwargs become context** → `success_result("msg", count=5)` — never `context=`
 3. **`ToolDispatcher` uses `.dispatch()`** → never `.call()`
 4. **Register ALL handlers BEFORE `server.start()`**
-5. **SKILL.md extensions use `metadata.dcc-mcp.<feature>`** → sibling files, never top-level keys (v0.15+)
+5. **SKILL.md extensions use `metadata.dcc-mcp.<feature>`** → sibling files, never top-level extension keys
 6. **Use `dcc_mcp_core.METADATA_*` / `LAYER_*` / `CATEGORY_*`** → re-exported at top level
 7. **Return `ToolResult` from Python tool handlers** → `ToolResult.ok("...", **ctx).to_dict()`
 
@@ -185,8 +198,8 @@ tools:
 
 - **Navigation map**: [`AGENTS.md`](AGENTS.md) — start here for detailed rules
 - **API index**: [`llms.txt`](llms.txt) — compressed API reference for AI agents
-- **Skill authoring**: [`skills/README.md`](skills/README.md) — creating new skills
-- **Examples**: [`examples/skills/`](examples/skills/) — 13 complete SKILL.md packages
+- **Skill authoring guide**: [`docs/guide/skills.md`](docs/guide/skills.md) — current SKILL.md + sibling-file pattern
+- **Bundled templates/examples**: [`skills/README.md`](skills/README.md) and [`examples/skills/`](examples/skills/) — 15 complete SKILL.md packages
 - **Detailed traps**: [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md)
 
 ## 💡 Pro Tips for AI Agents

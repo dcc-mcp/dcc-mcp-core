@@ -125,7 +125,7 @@ AI-friendly docs: [AGENTS.md](AGENTS.md) · [`docs/guide/agents-reference.md`](d
 # From PyPI (pre-built wheels for Python 3.7+)
 pip install dcc-mcp-core
 
-# Or from source (requires Rust 1.85+)
+# Or from source (requires Rust 1.95+)
 git clone https://github.com/loonghao/dcc-mcp-core.git
 cd dcc-mcp-core
 vx just dev           # recommended — uses the project's canonical feature set
@@ -441,13 +441,13 @@ tools/list response (Maya session, nothing loaded yet):
 - **Screen capture** — Full-screen or per-window (HWND `PrintWindow`) viewport capture for AI visual feedback.
 - **USD integration** — Universal Scene Description read/write bridge.
 - **Structured telemetry** — Tracing, recording, optional Prometheus `/metrics` exporter.
-- **~180 public Python symbols** with full type stubs (`python/dcc_mcp_core/_core.pyi`).
+- **~180 public Python symbols** via top-level re-exports; `_core.pyi` is generated after a stub-gen/dev build rather than hand-edited source.
 
 ---
 
-## Architecture Overview — 18 Rust Crates
+## Architecture Overview — 30 Workspace Members
 
-`dcc-mcp-core` is organised as a **Rust workspace of 18 crates**, compiled into a single native Python extension (`_core`) via PyO3 / maturin:
+`dcc-mcp-core` is organised as a **Rust workspace of 30 members** (29 functional crates + `workspace-hack`), compiled into a single native Python extension (`_core`) via PyO3 / maturin. Selected crates:
 
 | Crate | Responsibility | Key Types |
 |---|---|---|
@@ -455,7 +455,11 @@ tools/list response (Maya session, nothing loaded yet):
 | `dcc-mcp-models` | Data models | `ToolResult`, `SkillMetadata`, `ToolDeclaration` |
 | `dcc-mcp-actions` | Tool execution lifecycle | `ToolRegistry`, `ToolDispatcher`, `ToolValidator`, `ToolPipeline`, `EventBus` |
 | `dcc-mcp-skills` | Skills discovery & loading | `SkillScanner`, `SkillCatalog`, `SkillWatcher`, dependency resolver |
-| `dcc-mcp-protocols` | MCP protocol types | `ToolDefinition`, `ResourceDefinition`, `PromptDefinition`, `ToolAnnotations`, `BridgeKind` |
+| `dcc-mcp-protocols` | MCP protocol-facing models | `ToolDefinition`, `ResourceDefinition`, `PromptDefinition`, `ToolAnnotations`, `BridgeKind` |
+| `dcc-mcp-jsonrpc` | MCP JSON-RPC wire types | `JsonRpcRequest`, `JsonRpcResponse`, notifications |
+| `dcc-mcp-job` | Async job tracking | `JobManager`, persistence traits |
+| `dcc-mcp-skill-rest` | Per-DCC REST skill API | `SkillRestService`, `SkillRestConfig`, `/v1/*` router |
+| `dcc-mcp-gateway` | Multi-DCC gateway | capability index, dynamic `search_tools` / `describe_tool` / `call_tool` |
 | `dcc-mcp-transport` | IPC communication | `DccLinkFrame`, `IpcChannelAdapter`, `GracefulIpcChannelAdapter`, `SocketServerAdapter`, `FileRegistry` |
 | `dcc-mcp-process` | Process management | `PyDccLauncher`, `PyProcessMonitor`, `PyProcessWatcher`, `PyCrashRecoveryPolicy`, `HostDispatcher` |
 | `dcc-mcp-sandbox` | Security | `SandboxPolicy`, `SandboxContext`, `InputValidator`, `AuditLog` |
@@ -468,7 +472,11 @@ tools/list response (Maya session, nothing loaded yet):
 | `dcc-mcp-workflow` | Workflow engine (opt-in) | `WorkflowSpec`, `WorkflowExecutor`, `WorkflowHost`, `StepPolicy`, `RetryPolicy` |
 | `dcc-mcp-scheduler` | Cron + webhook scheduler (opt-in) | `ScheduleSpec`, `TriggerSpec`, `SchedulerService`, HMAC verification |
 | `dcc-mcp-artefact` | Content-addressed artefact store | `FileRef`, `FilesystemArtefactStore`, `InMemoryArtefactStore` |
-| `dcc-mcp-utils` | Infrastructure | Filesystem helpers, type wrappers, constants, JSON |
+| `dcc-mcp-logging` | Rolling file logging | `FileLoggingConfig`, log retention helpers |
+| `dcc-mcp-paths` | Platform path helpers | cache/config/data directory helpers |
+| `dcc-mcp-pybridge` | PyO3 bridge helpers | repr/to-dict macros, JSON/YAML bridge |
+| `dcc-mcp-host` | Host execution bridge | adapter-facing execution contracts |
+| `dcc-mcp-tunnel-*` | Remote MCP relay | tunnel protocol, relay, and local agent |
 
 ---
 
