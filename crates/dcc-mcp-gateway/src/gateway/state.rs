@@ -101,16 +101,14 @@ pub struct GatewayState {
     /// real-DCC vs `"unknown"` tiebreaker in gateway election
     /// (issue maya#137).
     pub adapter_dcc: Option<String>,
-    /// Gateway tool-exposure mode (issue #652).
+    /// Emit Cursor-safe names (`i_<id8>__<escaped>`) when fanning prompts
+    /// out to backends (issue #656). Default: `true`.
     ///
-    /// Controls whether `tools/list` fans out to every live backend
-    /// (`Full` / `Both`) or stays bounded at the gateway meta-tools +
-    /// skill-management surface (`Slim` / `Rest`). Default: `Full`.
-    pub tool_exposure: super::config::GatewayToolExposure,
-
-    /// Emit Cursor-safe tool names (`i_<id8>__<escaped>`) when fanning
-    /// out to backends (issue #656). Default: `true`. Only consulted
-    /// when [`Self::tool_exposure`] is a fan-out mode.
+    /// Tools no longer fan out to `tools/list` — the gateway exposes only
+    /// its discover+dispatch primitives there — but prompts still go
+    /// through the per-instance aggregator so clients that talk to
+    /// multiple DCCs keep a unique address per prompt. Kept `true` by
+    /// default so Cursor and other strict clients see every prompt.
     pub cursor_safe_tool_names: bool,
 
     /// Gateway-scoped capability index (issue #653). Populated by the
@@ -322,7 +320,6 @@ mod tests {
             allow_unknown_tools,
             adapter_version: None,
             adapter_dcc: None,
-            tool_exposure: crate::gateway::GatewayToolExposure::Rest,
             cursor_safe_tool_names: true,
             capability_index: Arc::new(crate::gateway::capability::CapabilityIndex::new()),
         }

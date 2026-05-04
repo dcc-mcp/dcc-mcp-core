@@ -73,147 +73,27 @@ fn to_text_result_maps_err_to_error() {
     assert!(is_error);
 }
 
-// ── #320: extract_job_id covers both sync (None) and async (#318) envelopes.
-
-#[test]
-fn extract_job_id_reads_structured_content_first() {
-    let v = json!({
-        "content": [],
-        "structuredContent": {"job_id": "job-42", "status": "pending"},
-        "isError": false,
-    });
-    assert_eq!(extract_job_id(&v).as_deref(), Some("job-42"));
-}
-
-#[test]
-fn extract_job_id_falls_back_to_meta_dcc_jobid() {
-    let v = json!({
-        "content": [],
-        "_meta": {"dcc": {"jobId": "job-99", "parentJobId": null}},
-        "isError": false,
-    });
-    assert_eq!(extract_job_id(&v).as_deref(), Some("job-99"));
-}
-
-#[test]
-fn extract_job_id_returns_none_for_sync_reply() {
-    let v = json!({"content": [{"type": "text", "text": "ok"}], "isError": false});
-    assert!(extract_job_id(&v).is_none());
-}
-
-// ── #321: async opt-in detection + envelope merging ────────────────
-
-#[test]
-fn meta_signals_async_dispatch_picks_up_async_flag() {
-    let meta = json!({"dcc": {"async": true}});
-    assert!(meta_signals_async_dispatch(Some(&meta)));
-}
-
-#[test]
-fn meta_signals_async_dispatch_picks_up_progress_token() {
-    let meta = json!({"progressToken": "tok"});
-    assert!(meta_signals_async_dispatch(Some(&meta)));
-}
-
-#[test]
-fn meta_signals_async_dispatch_is_false_for_sync_requests() {
-    assert!(!meta_signals_async_dispatch(None));
-    let meta = json!({"dcc": {"parentJobId": "abc"}});
-    assert!(!meta_signals_async_dispatch(Some(&meta)));
-}
-
-#[test]
-fn meta_wants_wait_for_terminal_reads_dcc_flag() {
-    let meta = json!({"dcc": {"async": true, "wait_for_terminal": true}});
-    assert!(meta_wants_wait_for_terminal(Some(&meta)));
-
-    let meta = json!({"dcc": {"async": true}});
-    assert!(!meta_wants_wait_for_terminal(Some(&meta)));
-}
-
-#[test]
-fn strip_gateway_meta_flags_removes_wait_for_terminal_only() {
-    let meta = json!({"dcc": {"async": true, "wait_for_terminal": true, "parentJobId": "p"}});
-    let stripped = strip_gateway_meta_flags(meta);
-    assert_eq!(stripped["dcc"]["async"], true);
-    assert_eq!(stripped["dcc"]["parentJobId"], "p");
-    assert!(stripped["dcc"].get("wait_for_terminal").is_none());
-}
-
-#[test]
-fn merge_job_update_into_envelope_completed_sets_status_and_result() {
-    let pending = json!({
-        "content": [{"type": "text", "text": "Job x queued"}],
-        "structuredContent": {"job_id": "x", "status": "pending", "_meta": {"dcc": {"jobId": "x"}}},
-        "isError": false,
-    });
-    let update = json!({
-        "method": "notifications/$/dcc.jobUpdated",
-        "params": {"job_id": "x", "status": "completed", "result": {"rows": 42}}
-    });
-    let merged = merge_job_update_into_envelope(pending, &update, false);
-    assert_eq!(merged["structuredContent"]["status"], "completed");
-    assert_eq!(merged["structuredContent"]["result"]["rows"], 42);
-    assert_eq!(
-        merged["structuredContent"]["_meta"]["dcc"]["status"],
-        "completed"
-    );
-    assert_eq!(merged["isError"], false);
-}
-
-#[test]
-fn merge_job_update_into_envelope_failed_marks_is_error() {
-    let pending = json!({
-        "content": [{"type": "text", "text": "Job x queued"}],
-        "structuredContent": {"job_id": "x", "status": "pending"},
-        "isError": false,
-    });
-    let update = json!({
-        "method": "notifications/$/dcc.jobUpdated",
-        "params": {"job_id": "x", "status": "failed", "error": "boom"}
-    });
-    let merged = merge_job_update_into_envelope(pending, &update, false);
-    assert_eq!(merged["structuredContent"]["status"], "failed");
-    assert_eq!(merged["structuredContent"]["error"], "boom");
-    assert_eq!(merged["isError"], true);
-}
-
-#[test]
-fn merge_job_update_into_envelope_timeout_sets_timed_out_flag() {
-    let pending = json!({
-        "content": [{"type": "text", "text": "Job x queued"}],
-        "structuredContent": {"job_id": "x", "status": "pending"},
-        "isError": false,
-    });
-    let merged = merge_job_update_into_envelope(pending, &Value::Null, true);
-    assert_eq!(
-        merged["structuredContent"]["_meta"]["dcc"]["timed_out"],
-        true
-    );
-    assert_eq!(merged["isError"], true);
-}
-
 #[tokio::test]
-async fn aggregate_tools_list_does_not_publish_single_instance_bare_aliases() {
+async fn aggregate_tools_list_returns_only_minimal_gateway_surface() {
     let app = axum::Router::new()
-        .route(
-            "/health",
-            axum::routing::get(|| async { axum::Json(json!({"ok": true})) }),
-        )
-        .route(
-            "/mcp",
-            axum::routing::post(|| async {
-                axum::Json(json!({
-                    "jsonrpc": "2.0",
-                    "id": "gw-1",
-                    "result": {
-                        "tools": [
-                            {"name": "create_sphere", "description": "Create sphere", "inputSchema": {"type": "object"}}
-                        ]
-                    }
-                }))
-            }),
-        );
+            .route(
+                "/health",
+                axum::routing::get(|| async { axum::Json(json!({"ok": true})) }),
+            )
+            .route(
+                "/mcp",
+                axum::routing::post(|| async {
+                    axum::Json(json!({
+                        "jsonrpc": "2.0",
+                        "id": "gw-1",
+                        "result": {
+                            "tools": [
+                                {"name": "create_sphere", "description": "Create sphere", "inputSchema": {"type": "object"}}
+                            ]
+                        }
+                    }))
+                }),
+            );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
@@ -265,7 +145,6 @@ async fn aggregate_tools_list_does_not_publish_single_instance_bare_aliases() {
         allow_unknown_tools: false,
         adapter_version: None,
         adapter_dcc: None,
-        tool_exposure: crate::gateway::GatewayToolExposure::Rest,
         cursor_safe_tool_names: true,
         capability_index: std::sync::Arc::new(crate::gateway::capability::CapabilityIndex::new()),
     };
@@ -280,18 +159,34 @@ async fn aggregate_tools_list_does_not_publish_single_instance_bare_aliases() {
         .filter_map(|tool| tool["name"].as_str())
         .collect();
 
-    // In Rest mode (default), backend tools ARE fanned out under the
-    // cursor-safe `i_<id8>__<name>` form, but bare aliases are not
-    // published (the encoded form is the single canonical identifier).
+    // The gateway MCP surface is minimal: only discover+dispatch
+    // primitives and skill-management tools. Per-action backend tools
+    // are NOT published here — agents discover them through
+    // `search_tools` / `describe_tool` / `call_tool`.
     let prefix = format!("i_{}__", &instance_id.to_string().replace('-', "")[..8]);
     assert!(
-        names.iter().any(|name| name.starts_with(&prefix)),
-        "Rest mode must fan out backend tools with the cursor-safe prefix: {names:?}"
+        !names.iter().any(|name| name.starts_with(&prefix)),
+        "gateway must not fan out backend tools under any prefix: {names:?}"
     );
     assert!(
         !names.contains(&"create_sphere"),
-        "bare backend alias must not be published: {names:?}"
+        "bare backend tool name must not appear on the gateway surface: {names:?}"
     );
+    // Positive assertion: the primitives we DO expect must all be there.
+    for expected in [
+        "list_dcc_instances",
+        "connect_to_dcc",
+        "search_tools",
+        "describe_tool",
+        "call_tool",
+        "search_skills",
+        "load_skill",
+    ] {
+        assert!(
+            names.contains(&expected),
+            "missing core gateway tool {expected} in: {names:?}",
+        );
+    }
 
     let _ = shutdown_tx.send(());
     server.await.unwrap();
@@ -411,7 +306,6 @@ async fn make_gateway_state(
         allow_unknown_tools: false,
         adapter_version: None,
         adapter_dcc: None,
-        tool_exposure: crate::gateway::GatewayToolExposure::Rest,
         cursor_safe_tool_names: true,
         capability_index: std::sync::Arc::new(crate::gateway::capability::CapabilityIndex::new()),
     }
@@ -819,7 +713,6 @@ async fn gateway_state_with_instances(
         allow_unknown_tools: false,
         adapter_version: None,
         adapter_dcc: None,
-        tool_exposure: crate::gateway::GatewayToolExposure::Rest,
         cursor_safe_tool_names: true,
         capability_index: std::sync::Arc::new(crate::gateway::capability::CapabilityIndex::new()),
     };
