@@ -333,6 +333,7 @@ fn validate_sidecars(
     validate_sidecar_file(skill_dir, mapping, "tools", report);
     validate_sidecar_file(skill_dir, mapping, "groups", report);
     validate_sidecar_file(skill_dir, mapping, "prompts", report);
+    validate_sidecar_file(skill_dir, mapping, "resources", report);
 }
 
 fn validate_sidecar_file(
@@ -350,7 +351,12 @@ fn validate_sidecar_file(
         .and_then(|value| value.as_str())
     {
         let path = skill_dir.join(sidecar_ref);
-        if !path.is_file() {
+        let exists = if sidecar_ref.contains('*') || sidecar_ref.contains('?') {
+            path.parent().map(|parent| parent.is_dir()).unwrap_or(false)
+        } else {
+            path.is_file() || path.is_dir()
+        };
+        if !exists {
             report.issues.push(SkillValidationIssue::error(
                 IssueCategory::Sidecars,
                 format!(

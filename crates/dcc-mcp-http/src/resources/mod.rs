@@ -33,6 +33,7 @@
 //! | `resources_tests.rs`     | Unit + `tokio::test` suite |
 
 mod producers;
+mod skill_resources;
 mod types;
 
 #[cfg(test)]
@@ -48,6 +49,7 @@ use serde_json::Value;
 use tokio::sync::broadcast;
 
 use self::producers::{ArtefactProducer, AuditProducer, CaptureProducer, SceneProducer};
+use self::skill_resources::{SkillResourceProducer, SkillResourceState};
 use self::types::uri_scheme;
 use crate::protocol::{McpResource, ReadResourceResult};
 
@@ -81,6 +83,9 @@ struct ResourceRegistryInner {
     /// registration time and kept here so callers can hand it back to
     /// tools/workflow steps via [`ResourceRegistry::artefact_store`].
     artefact_store: Option<SharedArtefactStore>,
+    /// Cache of resources declared by loaded skills via
+    /// `metadata.dcc-mcp.resources`.
+    skill_resources: Arc<RwLock<SkillResourceState>>,
 }
 
 impl ResourceRegistry {
@@ -121,6 +126,7 @@ impl ResourceRegistry {
     ) -> Self {
         let (updated_tx, _) = broadcast::channel(64);
         let scene_snapshot = Arc::new(RwLock::new(None));
+        let skill_resources = Arc::new(RwLock::new(SkillResourceState::default()));
         let inner = Arc::new(ResourceRegistryInner {
             producers: RwLock::new(Vec::new()),
             subscriptions: RwLock::new(std::collections::HashMap::new()),
@@ -129,6 +135,7 @@ impl ResourceRegistry {
             enabled,
             artefact_enabled,
             artefact_store: store.clone(),
+            skill_resources: skill_resources.clone(),
         });
         let registry = Self { inner };
         if enabled {
@@ -141,6 +148,7 @@ impl ResourceRegistry {
                 enabled: artefact_enabled,
                 store,
             }));
+            registry.add_producer(Arc::new(SkillResourceProducer::new(skill_resources)));
         }
         registry
     }
@@ -159,6 +167,17 @@ impl ResourceRegistry {
     /// `initialize` (mirrors `McpHttpConfig::enable_resources`).
     pub fn is_enabled(&self) -> bool {
         self.inner.enabled
+    }
+
+    /// Refresh the static resources declared by currently loaded skills.
+    pub fn sync_skill_resources<F>(&self, walk_loaded: F)
+    where
+        F: FnMut(&mut dyn FnMut(&dcc_mcp_models::SkillMetadata)),
+    {
+        if !self.inner.enabled {
+            return;
+        }
+        skill_resources::sync_skill_resources(&self.inner.skill_resources, walk_loaded);
     }
 
     /// Register an additional producer.
@@ -244,13 +263,20 @@ impl ResourceRegistry {
             let producers = self.inner.producers.read();
             producers.iter().find(|p| p.scheme() == scheme).cloned()
         };
-        let Some(producer) = producer else {
-            return Err(ResourceError::NotFound(uri.to_string()));
-        };
-        let content = producer.read(uri)?;
-        Ok(ReadResourceResult {
-            contents: vec![content.into_contents()],
-        })
+        if let Some(producer) = producer {
+            let content = producer.read(uri)?;
+            return Ok(ReadResourceResult {
+                contents: vec![content.into_contents()],
+            });
+        }
+        if let Some(result) = skill_resources::read_skill_resource(&self.inner.skill_resources, uri)
+        {
+            let content = result?;
+            return Ok(ReadResourceResult {
+                contents: vec![content.into_contents()],
+            });
+        }
+        Err(ResourceError::NotFound(uri.to_string()))
     }
 
     /// Record a subscription for `session_id -> uri`.

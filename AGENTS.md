@@ -127,6 +127,7 @@ Gateway / slim / REST exposure:
 |------|----------|
 | Expose DCC tools over MCP | `DccServerBase` → subclass → `start()` |
 | Zero-code tool registration | `SKILL.md` + `scripts/` ([agentskills.io](https://agentskills.io/specification)) |
+| Zero-code static MCP resources | `metadata.dcc-mcp.resources` → `resources/*.resource.yaml` with `source.type: file` |
 | Structured results | `success_result()` / `error_result()` |
 | Rich error with traceback | `skill_error_with_trace()` |
 | Bridge non-Python DCC | `DccBridge` (WebSocket JSON-RPC 2.0) |

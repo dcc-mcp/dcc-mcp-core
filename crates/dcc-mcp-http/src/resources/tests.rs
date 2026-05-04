@@ -139,3 +139,81 @@ fn enabled_artefact_read_unknown_uri_returns_not_found() {
     let err = reg.read("artefact://sha256/deadbeef").unwrap_err();
     assert!(matches!(err, ResourceError::NotFound(_)));
 }
+
+#[test]
+fn skill_resources_list_and_read_text_and_binary_files() {
+    let tmp = tempfile::tempdir().unwrap();
+    let resources_dir = tmp.path().join("resources");
+    let data_dir = resources_dir.join("data");
+    std::fs::create_dir_all(&data_dir).unwrap();
+    std::fs::write(data_dir.join("help.txt"), "polySphere help").unwrap();
+    std::fs::write(data_dir.join("preset.bin"), [0_u8, 1, 2, 3]).unwrap();
+    std::fs::write(
+        resources_dir.join("static.resource.yaml"),
+        r#"
+resources:
+  - uri: maya-cmds://help/polySphere
+    name: cmds.polySphere help
+    mimeType: text/plain
+    source:
+      type: file
+      path: data/help.txt
+  - uri: preset://binary/cube
+    name: cube preset
+    mimeType: application/octet-stream
+    source:
+      type: file
+      path: data/preset.bin
+"#,
+    )
+    .unwrap();
+
+    let reg = ResourceRegistry::new(true, false);
+    let metadata = dcc_mcp_models::SkillMetadata {
+        name: "maya-docs".to_string(),
+        skill_path: tmp.path().to_string_lossy().into_owned(),
+        metadata: json!({"dcc-mcp": {"resources": "resources/"}}),
+        ..Default::default()
+    };
+    reg.sync_skill_resources(|visit| visit(&metadata));
+
+    let uris: Vec<_> = reg
+        .list()
+        .into_iter()
+        .map(|resource| resource.uri)
+        .collect();
+    assert!(uris.iter().any(|uri| uri == "maya-cmds://help/polySphere"));
+    assert!(uris.iter().any(|uri| uri == "preset://binary/cube"));
+
+    let text = reg.read("maya-cmds://help/polySphere").unwrap();
+    assert_eq!(text.contents[0].text.as_deref(), Some("polySphere help"));
+
+    let blob = reg.read("preset://binary/cube").unwrap();
+    let decoded = BASE64_STANDARD
+        .decode(blob.contents[0].blob.as_deref().unwrap())
+        .unwrap();
+    assert_eq!(decoded, [0_u8, 1, 2, 3]);
+}
+
+#[test]
+fn malformed_skill_resource_yaml_is_skipped() {
+    let tmp = tempfile::tempdir().unwrap();
+    let resources_dir = tmp.path().join("resources");
+    std::fs::create_dir_all(&resources_dir).unwrap();
+    std::fs::write(resources_dir.join("bad.resource.yaml"), "resources: [").unwrap();
+
+    let reg = ResourceRegistry::new(true, false);
+    let metadata = dcc_mcp_models::SkillMetadata {
+        name: "bad-docs".to_string(),
+        skill_path: tmp.path().to_string_lossy().into_owned(),
+        metadata: json!({"dcc-mcp": {"resources": "resources/"}}),
+        ..Default::default()
+    };
+    reg.sync_skill_resources(|visit| visit(&metadata));
+
+    assert!(
+        !reg.list()
+            .iter()
+            .any(|resource| resource.uri.starts_with("bad://"))
+    );
+}

@@ -6,6 +6,10 @@ pub async fn handle_resources_list(
     state: &AppState,
     req: &JsonRpcRequest,
 ) -> Result<JsonRpcResponse, HttpError> {
+    let catalog = state.catalog.clone();
+    state.resources.sync_skill_resources(|visit| {
+        catalog.for_each_loaded_metadata(|md| visit(md));
+    });
     let resources = state.resources.list();
     let result = ListResourcesResult {
         resources,
@@ -33,6 +37,10 @@ pub async fn handle_resources_read(
         ));
     };
 
+    let catalog = state.catalog.clone();
+    state.resources.sync_skill_resources(|visit| {
+        catalog.for_each_loaded_metadata(|md| visit(md));
+    });
     match state.resources.read(&params.uri) {
         Ok(result) => Ok(JsonRpcResponse::success(
             req.id.clone(),
