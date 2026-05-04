@@ -186,12 +186,20 @@ async fn register_backend_async(
     registry_dir: &std::path::Path,
     dcc: &str,
     port: u16,
-) -> ServiceEntry {
+) -> (
+    ServiceEntry,
+    dcc_mcp_transport::discovery::file_registry::FileRegistry,
+) {
+    // The returned `FileRegistry` holds the sentinel lock for the
+    // registered row. Callers MUST keep it alive for the duration of
+    // the test; dropping it would release the lock and a gateway
+    // startup sweep (`prune_dead_pids`) would immediately evict the
+    // row, leaving the facade with an empty `prompts/list`.
     let reg = dcc_mcp_transport::discovery::file_registry::FileRegistry::new(registry_dir).unwrap();
     let entry = ServiceEntry::new(dcc, "127.0.0.1", port);
     let out = entry.clone();
     reg.register(entry).unwrap();
-    out
+    (out, reg)
 }
 
 // ── JSON-RPC client helpers ─────────────────────────────────────────────────
@@ -258,10 +266,13 @@ async fn e2e_merges_and_routes_across_real_backends() {
 
     // Register the two fake backends in the shared registry dir BEFORE
     // the gateway starts so its startup port probe keeps both rows.
+    // The `_reg_*` handles MUST stay in scope — dropping them would
+    // release the sentinel lock and the gateway's startup reap would
+    // immediately evict the corresponding row.
     let (port_a, _state_a) = spawn_fake_prompts_backend("bake_animation", "maya-A").await;
     let (port_b, state_b) = spawn_fake_prompts_backend("export_gltf", "blender-B").await;
-    let entry_a = register_backend_async(dir.path(), "maya", port_a).await;
-    let entry_b = register_backend_async(dir.path(), "blender", port_b).await;
+    let (entry_a, _reg_a) = register_backend_async(dir.path(), "maya", port_a).await;
+    let (entry_b, _reg_b) = register_backend_async(dir.path(), "blender", port_b).await;
 
     let (_handle, gw_url) = start_gateway_winner(dir.path(), gw_port).await;
 
@@ -328,7 +339,8 @@ async fn e2e_prompts_list_changed_fires_on_backend_mutation() {
     let gw_port = pick_free_port();
 
     let (port_a, state_a) = spawn_fake_prompts_backend("bake_animation", "maya-A").await;
-    register_backend_async(dir.path(), "maya", port_a).await;
+    // Keep `_reg_a` in scope so the sentinel lock survives the test.
+    let (_entry_a, _reg_a) = register_backend_async(dir.path(), "maya", port_a).await;
 
     let (_handle, gw_url) = start_gateway_winner(dir.path(), gw_port).await;
 

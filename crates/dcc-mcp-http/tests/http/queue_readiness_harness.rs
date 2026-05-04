@@ -380,10 +380,12 @@ async fn cancel_while_waiting_drops_queued_job() {
 
 /// Seed two rows into a `FileRegistry`:
 ///   1. A "crashed" backend whose PID is above any real PID space
-///      (emulates an unclean exit — heartbeat was fresh but the
-///      process is gone).
+///      (emulates an unclean exit — the writer handle is dropped to
+///      release its sentinel lock, mirroring what happens when the
+///      owning DCC process actually exits).
 ///   2. A "freshly-restarted" backend on the same `dcc_type` with
-///      the current test-process PID (alive).
+///      the current test-process PID and a still-held sentinel lock
+///      (alive).
 ///
 /// After one `read_alive()` call — the self-healing read path that
 /// #719 added to `GatewayState::read_alive_instances` — the dead
@@ -392,13 +394,26 @@ async fn cancel_while_waiting_drops_queued_job() {
 #[tokio::test(flavor = "multi_thread")]
 async fn restart_cycle_prunes_dead_row_and_keeps_fresh_one() {
     let dir = tempfile::tempdir().unwrap();
-    let registry = FileRegistry::new(dir.path()).unwrap();
 
     // Dead row — a PID that cannot exist on any supported platform.
-    let mut dead = ServiceEntry::new("maya", "127.0.0.1", 18901);
-    dead.pid = Some(u32::MAX - 1);
-    let dead_id = dead.instance_id;
-    registry.register(dead).unwrap();
+    // Register it through a short-lived writer handle that is dropped
+    // before the probe so its sentinel lock is released, matching the
+    // real crashed-process flow the reader must self-heal against.
+    let dead_id = {
+        let writer = FileRegistry::new(dir.path()).unwrap();
+        let mut dead = ServiceEntry::new("maya", "127.0.0.1", 18901);
+        dead.pid = Some(u32::MAX - 1);
+        let dead_id = dead.instance_id;
+        writer.register(dead).unwrap();
+        dead_id
+        // `writer` dropped here → its sentinel lock is released.
+    };
+
+    // Reader handle represents the gateway process. The fresh row
+    // below is registered through it so its sentinel lock stays held
+    // for the duration of the test — otherwise the read path would
+    // treat it as another crashed row.
+    let registry = FileRegistry::new(dir.path()).unwrap();
 
     // Fresh restart — same dcc_type, different port, PID = current.
     let mut fresh = ServiceEntry::new("maya", "127.0.0.1", 18902);
