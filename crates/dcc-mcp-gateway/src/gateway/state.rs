@@ -561,32 +561,40 @@ mod tests {
     // ── Issue #719: read_alive_instances ───────────────────────────────────
 
     /// A row whose PID points at a live process survives the prune; a row
-    /// whose PID points at a dead process is evicted — even if its
-    /// heartbeat was freshly written. Dead rows also disappear from the
-    /// on-disk `services.json`, not just from the returned slice.
+    /// whose owning process has exited (simulated by dropping a separate
+    /// `FileRegistry` handle) is evicted — even if its heartbeat was
+    /// freshly written. Dead rows also disappear from the on-disk
+    /// `services.json`, not just from the returned slice.
     #[tokio::test]
     async fn test_read_alive_instances_prunes_dead_pid() {
         let dir = tempfile::tempdir().unwrap();
+
+        // Reader handle represents the gateway process — keeps the
+        // `live` row's sentinel lock held for the duration of the test.
         let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
 
         let live_id;
-        let dead_id;
         {
             let r = registry.read().await;
-            // Live row — uses the current test process's pid, guaranteed alive.
             let mut live = ServiceEntry::new("maya", "127.0.0.1", 18812);
             live.pid = Some(std::process::id());
             live_id = live.instance_id;
             r.register(live).unwrap();
+        }
 
-            // Dead row — a pid that cannot plausibly belong to a real process
-            // on any supported platform. `u32::MAX - 1` lives above the Linux
-            // `pid_max` ceiling and above the Windows PID space as well.
+        // Separate "writer" handle simulates a crashed DCC process: it
+        // registers a row, then its `FileRegistry` is dropped which
+        // releases the sentinel lock and leaves a ghost row on disk
+        // for the reader handle to find.
+        let dead_id = {
+            let writer = FileRegistry::new(dir.path()).unwrap();
             let mut dead = ServiceEntry::new("blender", "127.0.0.1", 18813);
             dead.pid = Some(u32::MAX - 1);
-            dead_id = dead.instance_id;
-            r.register(dead).unwrap();
-        }
+            let dead_id = dead.instance_id;
+            writer.register(dead).unwrap();
+            dead_id
+            // `writer` dropped here → its sentinel lock is released.
+        };
 
         let gs = test_gateway_state(registry.clone());
         let (alive, evicted) = gs
