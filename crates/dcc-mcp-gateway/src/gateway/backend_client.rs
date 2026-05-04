@@ -9,6 +9,7 @@
 //! in `handler.rs`), which keeps the client trivial and race-free under
 //! parallel fan-out.
 
+use std::fmt;
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -75,6 +76,74 @@ impl ProbeOutcome {
     /// [`ServiceStatus::Unreachable`](dcc_mcp_transport::discovery::types::ServiceStatus::Unreachable).
     pub(crate) fn is_alive(self) -> bool {
         matches!(self, Self::Ready | Self::Booting)
+    }
+}
+
+#[derive(Debug)]
+enum BackendCallError {
+    Booting {
+        mcp_url: String,
+    },
+    Unreachable {
+        mcp_url: String,
+    },
+    Transport {
+        mcp_url: String,
+        reason: String,
+    },
+    Http {
+        mcp_url: String,
+        status: String,
+        body: String,
+    },
+    ReadBody {
+        mcp_url: String,
+        reason: String,
+    },
+    InvalidJson {
+        mcp_url: String,
+        reason: String,
+    },
+    Backend {
+        mcp_url: String,
+        code: i64,
+        message: String,
+    },
+    EmptyResult {
+        mcp_url: String,
+    },
+}
+
+impl fmt::Display for BackendCallError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Booting { mcp_url } => write!(
+                f,
+                "{mcp_url}: backend not ready (GET /v1/readyz reports not ready — host DCC still initialising)"
+            ),
+            Self::Unreachable { mcp_url } => write!(
+                f,
+                "{mcp_url}: not a DCC MCP HTTP endpoint (GET /v1/readyz and /health both failed)"
+            ),
+            Self::Transport { mcp_url, reason } => {
+                write!(f, "{mcp_url}: transport error: {reason}")
+            }
+            Self::Http {
+                mcp_url,
+                status,
+                body,
+            } => write!(f, "{mcp_url}: HTTP {status}: {body}"),
+            Self::ReadBody { mcp_url, reason } => write!(f, "{mcp_url}: read body: {reason}"),
+            Self::InvalidJson { mcp_url, reason } => {
+                write!(f, "{mcp_url}: invalid JSON-RPC response: {reason}")
+            }
+            Self::Backend {
+                mcp_url,
+                code,
+                message,
+            } => write!(f, "{mcp_url}: backend error {code}: {message}"),
+            Self::EmptyResult { mcp_url } => write!(f, "{mcp_url}: empty JSON-RPC result"),
+        }
     }
 }
 
@@ -166,6 +235,7 @@ pub(crate) async fn probe_mcp_readiness(
 /// falling back to `/health` only when the readiness surface is missing.
 /// A backend whose host DCC is still initialising now reports `false`
 /// instead of silently routing traffic.
+#[cfg(test)]
 pub(crate) async fn probe_mcp_health(
     client: &reqwest::Client,
     mcp_url: &str,
@@ -193,31 +263,19 @@ pub async fn call_backend(
     request_id: Option<String>,
     timeout: Duration,
 ) -> Result<Value, String> {
-    if !probe_mcp_health(client, mcp_url, timeout).await {
-        // #713: disambiguate "process dead" vs "booting" — an embedded-DCC
-        // backend can be alive with `/v1/readyz` still red for 10–30 s
-        // while Maya's main thread finishes plugin init, and blindly
-        // forwarding JSON-RPC into that window is the source of the
-        // "silent queue up until timeout" bug. Re-run the three-state
-        // probe once more (cheap, same cache warmth) so the error
-        // message tells callers which kind of not-ready it is.
-        match probe_mcp_readiness(client, mcp_url, timeout).await {
-            ProbeOutcome::Booting => {
-                return Err(format!(
-                    "{mcp_url}: backend not ready (GET /v1/readyz reports not ready — host DCC still initialising)"
-                ));
+    match probe_mcp_readiness(client, mcp_url, timeout).await {
+        ProbeOutcome::Ready => {}
+        ProbeOutcome::Booting => {
+            return Err(BackendCallError::Booting {
+                mcp_url: mcp_url.to_string(),
             }
-            ProbeOutcome::Unreachable => {
-                return Err(format!(
-                    "{mcp_url}: not a DCC MCP HTTP endpoint (GET /v1/readyz and /health both failed)"
-                ));
+            .to_string());
+        }
+        ProbeOutcome::Unreachable => {
+            return Err(BackendCallError::Unreachable {
+                mcp_url: mcp_url.to_string(),
             }
-            ProbeOutcome::Ready => {
-                // Race between the two probes — the backend flipped to
-                // green between the initial `probe_mcp_health` returning
-                // false and this re-probe. Proceed with the JSON-RPC
-                // call rather than return a spurious error.
-            }
+            .to_string());
         }
     }
 
@@ -226,42 +284,9 @@ pub async fn call_backend(
         .with_optional_params(params)
         .to_value();
 
-    let resp = client
-        .post(mcp_url)
-        .timeout(timeout)
-        .header("content-type", "application/json")
-        .header("accept", "application/json")
-        .body(req_body.to_string())
-        .send()
+    post_jsonrpc(client, mcp_url, req_body, None, timeout)
         .await
-        .map_err(|e| format!("{mcp_url}: transport error: {e}"))?;
-
-    if !resp.status().is_success() {
-        return Err(format!(
-            "{mcp_url}: HTTP {}: {}",
-            resp.status(),
-            resp.text().await.unwrap_or_default()
-        ));
-    }
-
-    let text = resp
-        .text()
-        .await
-        .map_err(|e| format!("{mcp_url}: read body: {e}"))?;
-
-    let parsed: JsonRpcResponse = serde_json::from_str(&text)
-        .map_err(|e| format!("{mcp_url}: invalid JSON-RPC response: {e}"))?;
-
-    if let Some(err) = parsed.error {
-        return Err(format!(
-            "{mcp_url}: backend error {}: {}",
-            err.code, err.message
-        ));
-    }
-
-    parsed
-        .result
-        .ok_or_else(|| format!("{mcp_url}: empty JSON-RPC result"))
+        .map_err(|e| e.to_string())
 }
 
 /// Fetch `tools/list` from a backend and return the deserialised [`McpTool`] list.
@@ -429,43 +454,9 @@ pub async fn subscribe_resource(
         .with_optional_params(Some(json!({"uri": uri})))
         .to_value();
 
-    let resp = client
-        .post(mcp_url)
-        .timeout(timeout)
-        .header("content-type", "application/json")
-        .header("accept", "application/json")
-        .header("Mcp-Session-Id", session_id)
-        .body(req_body.to_string())
-        .send()
+    post_jsonrpc(client, mcp_url, req_body, Some(session_id), timeout)
         .await
-        .map_err(|e| format!("{mcp_url}: transport error: {e}"))?;
-
-    if !resp.status().is_success() {
-        return Err(format!(
-            "{mcp_url}: HTTP {}: {}",
-            resp.status(),
-            resp.text().await.unwrap_or_default()
-        ));
-    }
-
-    let text = resp
-        .text()
-        .await
-        .map_err(|e| format!("{mcp_url}: read body: {e}"))?;
-
-    let parsed: JsonRpcResponse = serde_json::from_str(&text)
-        .map_err(|e| format!("{mcp_url}: invalid JSON-RPC response: {e}"))?;
-
-    if let Some(err) = parsed.error {
-        return Err(format!(
-            "{mcp_url}: backend error {}: {}",
-            err.code, err.message
-        ));
-    }
-
-    parsed
-        .result
-        .ok_or_else(|| format!("{mcp_url}: empty JSON-RPC result"))
+        .map_err(|e| e.to_string())
 }
 
 /// Forward a `tools/call` to a backend and return the raw result JSON.
@@ -527,6 +518,69 @@ pub async fn forward_prompts_get(
         timeout,
     )
     .await
+}
+
+async fn post_jsonrpc(
+    client: &reqwest::Client,
+    mcp_url: &str,
+    req_body: Value,
+    session_id: Option<&str>,
+    timeout: Duration,
+) -> Result<Value, BackendCallError> {
+    let mut request = client
+        .post(mcp_url)
+        .timeout(timeout)
+        .header("content-type", "application/json")
+        .header("accept", "application/json")
+        .body(req_body.to_string());
+    if let Some(session_id) = session_id {
+        request = request.header("Mcp-Session-Id", session_id);
+    }
+
+    let resp = request
+        .send()
+        .await
+        .map_err(|e| BackendCallError::Transport {
+            mcp_url: mcp_url.to_string(),
+            reason: e.to_string(),
+        })?;
+
+    if !resp.status().is_success() {
+        let status = resp.status().to_string();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(BackendCallError::Http {
+            mcp_url: mcp_url.to_string(),
+            status,
+            body,
+        });
+    }
+
+    let text = resp.text().await.map_err(|e| BackendCallError::ReadBody {
+        mcp_url: mcp_url.to_string(),
+        reason: e.to_string(),
+    })?;
+
+    parse_jsonrpc_result(mcp_url, &text)
+}
+
+fn parse_jsonrpc_result(mcp_url: &str, text: &str) -> Result<Value, BackendCallError> {
+    let parsed: JsonRpcResponse =
+        serde_json::from_str(text).map_err(|e| BackendCallError::InvalidJson {
+            mcp_url: mcp_url.to_string(),
+            reason: e.to_string(),
+        })?;
+
+    if let Some(err) = parsed.error {
+        return Err(BackendCallError::Backend {
+            mcp_url: mcp_url.to_string(),
+            code: err.code,
+            message: err.message,
+        });
+    }
+
+    parsed.result.ok_or_else(|| BackendCallError::EmptyResult {
+        mcp_url: mcp_url.to_string(),
+    })
 }
 
 /// Short non-cryptographic unique ID for JSON-RPC request correlation.

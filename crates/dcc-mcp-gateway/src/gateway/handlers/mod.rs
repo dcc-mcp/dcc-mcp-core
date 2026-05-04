@@ -25,6 +25,7 @@ pub(crate) use dcc_mcp_transport::discovery::types::ServiceStatus;
 mod mcp_impl;
 mod notification_impl;
 mod proxy_impl;
+mod resources;
 mod rest_impl;
 mod sse_impl;
 

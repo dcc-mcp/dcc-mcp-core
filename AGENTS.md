@@ -90,6 +90,11 @@ Gateway / slim / REST exposure:
 2. Inspect: describe_tool(tool_slug) → read schema + annotations
 3. Execute: call_tool(tool_slug, arguments={...})
 4. For non-MCP clients, use the matching /v1/search, /v1/describe, /v1/call REST endpoints.
+
+Gateway resources:
+1. List hand-off artefacts with resources/list; gateway-prefixed URIs identify the owning DCC instance.
+2. Read the exact URI returned by resources/list; do not strip the instance prefix.
+3. Subscribe only to URIs you plan to react to, and unsubscribe when done.
 ```
 
 ### Multi-DCC Guardrails
