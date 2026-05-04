@@ -580,3 +580,129 @@ async fn forget_client_drops_resource_subscriptions() {
     });
     assert!(!mgr.dispatch_resource_updated(&update, "http://127.0.0.1:9999/mcp"));
 }
+
+// ── SubscriberManagerInner direct helper tests (post-refactor) ─────────
+
+/// `forget_client_job_routes` must remove every JobRoute owned by the
+/// target session, scrub `session_jobs`, and drop the matching
+/// `job_event_buses` entries — but leave routes for other sessions
+/// alone. This is the core invariant `forget_client` orchestrates.
+#[tokio::test]
+async fn forget_client_job_routes_scrubs_target_session_only() {
+    let mgr = SubscriberManager::default();
+    mgr.bind_job_route("j-keep", "sess-other", "http://back/mcp", "t1", None)
+        .unwrap();
+    mgr.bind_job_route("j-drop-1", "sess-target", "http://back/mcp", "t2", None)
+        .unwrap();
+    mgr.bind_job_route("j-drop-2", "sess-target", "http://back/mcp", "t3", None)
+        .unwrap();
+    // Create event buses so we can verify they get dropped too.
+    let _ = mgr.job_event_channel("j-drop-1");
+    let _ = mgr.job_event_channel("j-keep");
+
+    let dropped = mgr.inner.forget_client_job_routes("sess-target");
+
+    let mut dropped_sorted = dropped.clone();
+    dropped_sorted.sort();
+    assert_eq!(
+        dropped_sorted,
+        vec!["j-drop-1".to_string(), "j-drop-2".to_string()]
+    );
+    assert!(
+        mgr.inner.job_routes.contains_key("j-keep"),
+        "other sessions' routes must survive",
+    );
+    assert!(!mgr.inner.job_routes.contains_key("j-drop-1"));
+    assert!(!mgr.inner.job_routes.contains_key("j-drop-2"));
+    assert!(
+        !mgr.inner.session_jobs.contains_key("sess-target"),
+        "reverse index entry for target session must be gone",
+    );
+    assert!(
+        !mgr.inner.job_event_buses.contains_key("j-drop-1"),
+        "event buses for the dropped jobs must be released",
+    );
+    assert!(
+        mgr.inner.job_event_buses.contains_key("j-keep"),
+        "event buses for other sessions' jobs must survive",
+    );
+}
+
+/// `forget_client_reverse_indexes` must purge the two secondary maps
+/// that can otherwise leak after the primary job-route scrub:
+/// `request_to_job` entries pointing at dropped jobs, and every
+/// `progress_token_routes` row bound to the target session.
+#[test]
+fn forget_client_reverse_indexes_drops_orphans_and_session_tokens() {
+    let mgr = SubscriberManager::default();
+    // Seed inner maps directly to keep the test narrow.
+    mgr.inner
+        .request_to_job
+        .insert("req-1".to_string(), "j-drop".to_string());
+    mgr.inner
+        .request_to_job
+        .insert("req-2".to_string(), "j-keep".to_string());
+    mgr.inner
+        .progress_token_routes
+        .insert("tok-target".to_string(), "sess-target".into());
+    mgr.inner
+        .progress_token_routes
+        .insert("tok-other".to_string(), "sess-other".into());
+
+    mgr.inner
+        .forget_client_reverse_indexes("sess-target", &["j-drop".to_string()]);
+
+    assert!(
+        !mgr.inner.request_to_job.contains_key("req-1"),
+        "request → job pointing at a dropped job must be scrubbed",
+    );
+    assert!(
+        mgr.inner.request_to_job.contains_key("req-2"),
+        "request → job pointing at a surviving job stays",
+    );
+    assert!(
+        !mgr.inner.progress_token_routes.contains_key("tok-target"),
+        "progress tokens for the target session are scrubbed",
+    );
+    assert!(
+        mgr.inner.progress_token_routes.contains_key("tok-other"),
+        "progress tokens for other sessions survive",
+    );
+}
+
+/// `forget_client_backend_inflight` removes the target session from
+/// every backend's in-flight set but keeps the backend key around so
+/// other sessions still routing to that backend see no disruption.
+#[test]
+fn forget_client_backend_inflight_removes_only_target_session() {
+    let mgr = SubscriberManager::default();
+    let inflight: DashSet<ClientSessionId> = DashSet::new();
+    inflight.insert("sess-target".into());
+    inflight.insert("sess-other".into());
+    mgr.inner
+        .backend_inflight
+        .insert("http://back-a/mcp".to_string(), inflight);
+
+    let inflight_b: DashSet<ClientSessionId> = DashSet::new();
+    inflight_b.insert("sess-other".into());
+    mgr.inner
+        .backend_inflight
+        .insert("http://back-b/mcp".to_string(), inflight_b);
+
+    mgr.inner.forget_client_backend_inflight("sess-target");
+
+    let a = mgr
+        .inner
+        .backend_inflight
+        .get("http://back-a/mcp")
+        .expect("backend A entry preserved");
+    assert!(!a.contains("sess-target"));
+    assert!(a.contains("sess-other"));
+
+    let b = mgr
+        .inner
+        .backend_inflight
+        .get("http://back-b/mcp")
+        .expect("backend B entry preserved");
+    assert!(b.contains("sess-other"));
+}

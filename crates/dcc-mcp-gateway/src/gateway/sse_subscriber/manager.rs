@@ -66,7 +66,7 @@ pub(crate) struct SubscriberManagerInner {
 }
 
 impl SubscriberManagerInner {
-    fn forget_client_job_routes(&self, session_id: &str) -> Vec<String> {
+    pub(crate) fn forget_client_job_routes(&self, session_id: &str) -> Vec<String> {
         let mut dropped_jobs: Vec<String> = Vec::new();
         self.job_routes.retain(|job_id, route| {
             let keep = route.client_session_id.as_str() != session_id;
@@ -82,14 +82,14 @@ impl SubscriberManagerInner {
         dropped_jobs
     }
 
-    fn forget_client_reverse_indexes(&self, session_id: &str, dropped_jobs: &[String]) {
+    pub(crate) fn forget_client_reverse_indexes(&self, session_id: &str, dropped_jobs: &[String]) {
         self.request_to_job
             .retain(|_, jid| !dropped_jobs.iter().any(|d| d == jid));
         self.progress_token_routes
             .retain(|_, sid| sid.as_str() != session_id);
     }
 
-    fn forget_client_backend_inflight(&self, session_id: &str) {
+    pub(crate) fn forget_client_backend_inflight(&self, session_id: &str) {
         for entry in self.backend_inflight.iter() {
             entry.value().remove(session_id);
         }

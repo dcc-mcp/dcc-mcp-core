@@ -205,6 +205,57 @@ fn test_file_registry_prune_dead_pids_skips_unknown_pid() {
     assert_eq!(registry.len(), 1);
 }
 
+/// Regression for issue #719: a reader `FileRegistry` that never saw
+/// another process's writes must still evict that process's ghost
+/// rows when it next calls `prune_dead_entries`. Before the
+/// `reload_if_stale()` guard at the top of `prune_dead_entries` the
+/// reader's in-memory cache stayed empty, so there was nothing to
+/// iterate and the ghost survived every sweep.
+#[test]
+fn test_prune_dead_entries_reloads_before_iterating() {
+    let dir = tempfile::tempdir().unwrap();
+
+    // Writer registers a ghost row, then drops — releasing the
+    // sentinel lock as a real crashed DCC process would.
+    let ghost_key = {
+        let writer = FileRegistry::new(dir.path()).unwrap();
+        let entry = ServiceEntry::new("maya", "127.0.0.1", 18812);
+        let key = entry.key();
+        writer.register(entry).unwrap();
+        key
+    };
+
+    // Reader is created AFTER the writer dropped — so `new()` does
+    // load_from_file and sees the row, but that's the one code path
+    // that already reloads. To prove `prune_dead_entries` itself now
+    // reloads, we need a reader that was already alive when the
+    // ghost was written.
+    let dir2 = tempfile::tempdir().unwrap();
+    let early_reader = FileRegistry::new(dir2.path()).unwrap();
+    assert!(early_reader.is_empty());
+
+    // Writer appears in the same dir as `early_reader`.
+    let ghost_key2 = {
+        let writer = FileRegistry::new(dir2.path()).unwrap();
+        let entry = ServiceEntry::new("blender", "127.0.0.1", 18813);
+        let key = entry.key();
+        writer.register(entry).unwrap();
+        key
+    };
+
+    // Before reload `early_reader` has nothing in memory — a pre-#719
+    // prune would iterate an empty map and return 0. The current
+    // impl must reload, see the row, notice the sentinel lock is
+    // released, and evict it.
+    let pruned = early_reader.prune_dead_entries().unwrap();
+    assert_eq!(pruned, 1, "early reader must evict the cross-process ghost");
+    assert!(early_reader.get(&ghost_key2).is_none());
+
+    // Keep the first-dir ghost_key referenced so the block above is
+    // not optimised out under strict lint profiles.
+    assert!(!ghost_key.instance_id.is_nil());
+}
+
 #[test]
 fn test_file_registry_multiple_instances_same_dcc() {
     let dir = tempfile::tempdir().unwrap();

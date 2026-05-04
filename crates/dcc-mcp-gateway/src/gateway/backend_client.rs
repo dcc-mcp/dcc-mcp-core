@@ -654,6 +654,194 @@ mod tests {
         assert!(!ProbeOutcome::Unreachable.is_alive());
     }
 
+    /// Every `BackendCallError` variant must stringify in the format
+    /// gateway callers already match on (e.g. `probe_test_refuses_forward_while_backend_is_booting`
+    /// asserts on "backend not ready" + "/v1/readyz"). A future refactor
+    /// must not silently drop or rephrase these markers.
+    #[test]
+    fn backend_call_error_display_is_stable() {
+        let cases: &[(BackendCallError, &[&str])] = &[
+            (
+                BackendCallError::Booting {
+                    mcp_url: "http://127.0.0.1:9/mcp".into(),
+                },
+                &[
+                    "http://127.0.0.1:9/mcp",
+                    "backend not ready",
+                    "/v1/readyz",
+                    "host DCC still initialising",
+                ],
+            ),
+            (
+                BackendCallError::Unreachable {
+                    mcp_url: "http://127.0.0.1:9/mcp".into(),
+                },
+                &[
+                    "http://127.0.0.1:9/mcp",
+                    "not a DCC MCP HTTP endpoint",
+                    "/v1/readyz",
+                    "/health",
+                ],
+            ),
+            (
+                BackendCallError::Transport {
+                    mcp_url: "http://x/mcp".into(),
+                    reason: "connection refused".into(),
+                },
+                &["http://x/mcp", "transport error", "connection refused"],
+            ),
+            (
+                BackendCallError::Http {
+                    mcp_url: "http://x/mcp".into(),
+                    status: "500 Internal Server Error".into(),
+                    body: "oops".into(),
+                },
+                &["http://x/mcp", "HTTP ", "500 Internal Server Error", "oops"],
+            ),
+            (
+                BackendCallError::ReadBody {
+                    mcp_url: "http://x/mcp".into(),
+                    reason: "eof".into(),
+                },
+                &["http://x/mcp", "read body", "eof"],
+            ),
+            (
+                BackendCallError::InvalidJson {
+                    mcp_url: "http://x/mcp".into(),
+                    reason: "expected value".into(),
+                },
+                &[
+                    "http://x/mcp",
+                    "invalid JSON-RPC response",
+                    "expected value",
+                ],
+            ),
+            (
+                BackendCallError::Backend {
+                    mcp_url: "http://x/mcp".into(),
+                    code: -32601,
+                    message: "Method not found".into(),
+                },
+                &[
+                    "http://x/mcp",
+                    "backend error",
+                    "-32601",
+                    "Method not found",
+                ],
+            ),
+            (
+                BackendCallError::EmptyResult {
+                    mcp_url: "http://x/mcp".into(),
+                },
+                &["http://x/mcp", "empty JSON-RPC result"],
+            ),
+        ];
+
+        for (err, needles) in cases {
+            let rendered = err.to_string();
+            for needle in *needles {
+                assert!(
+                    rendered.contains(needle),
+                    "variant {err:?} missing {needle:?} in output: {rendered}",
+                );
+            }
+        }
+    }
+
+    /// `post_jsonrpc` forwards `session_id` as `Mcp-Session-Id`. The
+    /// gateway's resource-subscribe path depends on this header reaching
+    /// the backend — without it the backend would bind its
+    /// `notifications/resources/updated` fan-out to the wrong SSE
+    /// stream. Intercept the request via a fake backend and assert the
+    /// header round-trips.
+    #[tokio::test]
+    async fn post_jsonrpc_forwards_session_header_when_provided() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let saw_header = Arc::new(AtomicBool::new(false));
+        let saw_header_clone = saw_header.clone();
+        let app = axum::Router::new().route(
+            "/mcp",
+            axum::routing::post(
+                move |headers: axum::http::HeaderMap, _body: axum::body::Bytes| {
+                    let saw = saw_header_clone.clone();
+                    async move {
+                        if headers.get("mcp-session-id").and_then(|v| v.to_str().ok())
+                            == Some("session-abc")
+                        {
+                            saw.store(true, Ordering::SeqCst);
+                        }
+                        axum::Json(json!({"jsonrpc":"2.0","id":"x","result":{"ok":true}}))
+                    }
+                },
+            ),
+        );
+        let (mcp_url, stop) = spawn_fake_backend(app).await;
+
+        let client = reqwest::Client::new();
+        let body = json!({"jsonrpc":"2.0","id":"x","method":"ping"});
+        let result = post_jsonrpc(
+            &client,
+            &mcp_url,
+            body,
+            Some("session-abc"),
+            Duration::from_secs(2),
+        )
+        .await
+        .expect("post_jsonrpc must succeed against the fake backend");
+        assert_eq!(result, json!({"ok": true}));
+        assert!(
+            saw_header.load(Ordering::SeqCst),
+            "backend must observe the Mcp-Session-Id header the caller requested",
+        );
+        let _ = stop.send(());
+    }
+
+    /// Omitting `session_id` must NOT attach an empty `Mcp-Session-Id`
+    /// header — a stray value would trigger the backend's per-session
+    /// routing and cause notifications to fan out to a phantom SSE
+    /// stream. Confirm absence rather than just shape.
+    #[tokio::test]
+    async fn post_jsonrpc_omits_session_header_when_none() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let had_header = Arc::new(AtomicBool::new(false));
+        let had_header_clone = had_header.clone();
+        let app = axum::Router::new().route(
+            "/mcp",
+            axum::routing::post(
+                move |headers: axum::http::HeaderMap, _body: axum::body::Bytes| {
+                    let h = had_header_clone.clone();
+                    async move {
+                        if headers.get("mcp-session-id").is_some() {
+                            h.store(true, Ordering::SeqCst);
+                        }
+                        axum::Json(json!({"jsonrpc":"2.0","id":"x","result":{}}))
+                    }
+                },
+            ),
+        );
+        let (mcp_url, stop) = spawn_fake_backend(app).await;
+
+        let client = reqwest::Client::new();
+        let _ = post_jsonrpc(
+            &client,
+            &mcp_url,
+            json!({"jsonrpc":"2.0","id":"x","method":"ping"}),
+            None,
+            Duration::from_secs(2),
+        )
+        .await
+        .expect("must succeed");
+        assert!(
+            !had_header.load(Ordering::SeqCst),
+            "no session id → no Mcp-Session-Id header leaks to the backend",
+        );
+        let _ = stop.send(());
+    }
+
     /// Helper used only in tests — parse a canned JSON-RPC response body the
     /// same way `call_backend` does after HTTP success, so we can unit-test the
     /// error / empty-result / tools-list-extraction branches without spinning

@@ -204,3 +204,67 @@ pub(crate) async fn compute_resources_fingerprint_with_own(
     parts.sort_unstable();
     parts.join("|")
 }
+
+#[cfg(test)]
+mod eligibility_tests {
+    use super::*;
+    use dcc_mcp_transport::discovery::types::{
+        GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry, ServiceStatus,
+    };
+
+    fn entry(dcc_type: &str, status: ServiceStatus) -> ServiceEntry {
+        let mut e = ServiceEntry::new(dcc_type, "127.0.0.1", 18812);
+        e.status = status;
+        e
+    }
+
+    #[test]
+    fn eligible_when_healthy_dcc_row() {
+        assert!(is_registry_row_eligible_for_resources(&entry(
+            "maya",
+            ServiceStatus::Available,
+        )));
+    }
+
+    #[test]
+    fn rejects_sentinel_dcc_type() {
+        assert!(!is_registry_row_eligible_for_resources(&entry(
+            GATEWAY_SENTINEL_DCC_TYPE,
+            ServiceStatus::Available,
+        )));
+    }
+
+    #[test]
+    fn rejects_unknown_dcc_type_case_insensitive() {
+        // The fingerprint path excludes `unknown` regardless of the
+        // runtime `allow_unknown_tools` toggle so churning the toggle
+        // does not trigger a spurious `resources/list_changed`.
+        for label in ["unknown", "Unknown", "UNKNOWN"] {
+            assert!(
+                !is_registry_row_eligible_for_resources(&entry(label, ServiceStatus::Available)),
+                "row with dcc_type={label:?} must be excluded from fingerprint",
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_shutting_down_unreachable_and_booting() {
+        for status in [
+            ServiceStatus::ShuttingDown,
+            ServiceStatus::Unreachable,
+            ServiceStatus::Booting,
+        ] {
+            assert!(
+                !is_registry_row_eligible_for_resources(&entry("maya", status)),
+                "row with status={status:?} must be excluded",
+            );
+        }
+    }
+
+    #[test]
+    fn backend_mcp_url_uses_entry_host_and_port() {
+        let mut e = ServiceEntry::new("maya", "192.168.1.10", 12345);
+        e.status = ServiceStatus::Available;
+        assert_eq!(backend_mcp_url(&e), "http://192.168.1.10:12345/mcp");
+    }
+}
