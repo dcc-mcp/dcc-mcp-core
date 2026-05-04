@@ -20,30 +20,49 @@ use super::super::state::GatewayState;
 use super::helpers::live_backends;
 use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry, ServiceStatus};
 
+fn backend_mcp_url(entry: &ServiceEntry) -> String {
+    format!("http://{}:{}/mcp", entry.host, entry.port)
+}
+
+/// Full eligibility filter used by the fingerprint path, which starts
+/// from the raw `FileRegistry::list_all()` and must therefore replicate
+/// every filter `live_instances` applies — minus the `allow_unknown_tools`
+/// toggle, which the fingerprint keeps permissive to avoid emitting a
+/// spurious `resources/list_changed` when the toggle flips.
+fn is_registry_row_eligible_for_resources(entry: &ServiceEntry) -> bool {
+    entry.dcc_type != GATEWAY_SENTINEL_DCC_TYPE
+        && !entry.dcc_type.eq_ignore_ascii_case("unknown")
+        && !matches!(
+            entry.status,
+            ServiceStatus::ShuttingDown | ServiceStatus::Unreachable | ServiceStatus::Booting
+        )
+}
+
+async fn fetch_resources_for_entries(
+    entries: &[ServiceEntry],
+    client: &reqwest::Client,
+    backend_timeout: Duration,
+) -> Vec<(uuid::Uuid, String, Vec<Value>)> {
+    let futs = entries.iter().map(|entry| async move {
+        let url = backend_mcp_url(entry);
+        let resources = fetch_resources(client, &url, backend_timeout).await;
+        (entry.instance_id, entry.dcc_type.clone(), resources)
+    });
+    join_all(futs).await
+}
+
 /// Fetch every live backend's `resources/list` and return `(instance_id, dcc_type, resources)`
 /// triples. Backends that fail the fetch contribute an empty vector (see
 /// [`fetch_resources`] — fail-soft by design).
 pub(crate) async fn fetch_backend_resources(
     gs: &GatewayState,
 ) -> Vec<(uuid::Uuid, String, Vec<Value>)> {
-    let instances: Vec<ServiceEntry> = live_backends(gs)
-        .await
-        .into_iter()
-        .filter(|e| {
-            !matches!(
-                e.status,
-                ServiceStatus::Unreachable | ServiceStatus::Booting
-            )
-        })
-        .collect();
-    let client = &gs.http_client;
-    let backend_timeout = gs.backend_timeout;
-    let futs = instances.iter().map(|entry| async move {
-        let url = format!("http://{}:{}/mcp", entry.host, entry.port);
-        let resources = fetch_resources(client, &url, backend_timeout).await;
-        (entry.instance_id, entry.dcc_type.clone(), resources)
-    });
-    join_all(futs).await
+    // `live_instances` already filters out sentinel rows, own row, stale
+    // rows, and rows in `ShuttingDown | Unreachable | Booting`, and
+    // respects the `allow_unknown_tools` toggle — no further filter is
+    // needed here.
+    let instances = live_backends(gs).await;
+    fetch_resources_for_entries(&instances, &gs.http_client, gs.backend_timeout).await
 }
 
 /// Build the unified `resources/list` result.
@@ -158,32 +177,20 @@ pub(crate) async fn compute_resources_fingerprint_with_own(
             .into_iter()
             .filter(|e| {
                 !e.is_stale(stale_timeout)
-                    && e.dcc_type != GATEWAY_SENTINEL_DCC_TYPE
-                    && !matches!(
-                        e.status,
-                        ServiceStatus::ShuttingDown
-                            | ServiceStatus::Unreachable
-                            | ServiceStatus::Booting
-                    )
+                    && is_registry_row_eligible_for_resources(e)
                     && match own_host {
                         Some(h) => !super::super::is_own_instance(e, h, own_port),
                         None => true,
                     }
-                    && !e.dcc_type.eq_ignore_ascii_case("unknown")
             })
             .collect()
     };
 
-    let futs = instances.iter().map(|entry| async move {
-        let url = format!("http://{}:{}/mcp", entry.host, entry.port);
-        let resources = fetch_resources(http_client, &url, backend_timeout).await;
-        (entry.instance_id, resources)
-    });
-    let results = join_all(futs).await;
+    let results = fetch_resources_for_entries(&instances, http_client, backend_timeout).await;
 
     let mut parts: Vec<String> = results
         .into_iter()
-        .flat_map(|(iid, resources)| {
+        .flat_map(|(iid, _, resources)| {
             resources
                 .into_iter()
                 .filter_map(|r| {

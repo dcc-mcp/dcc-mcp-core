@@ -280,16 +280,11 @@ mod tests {
         async fn launch_real_process() {
             let launcher = DccLauncher::new();
 
-            // Use a cross-platform trivial command that exits quickly
-            #[cfg(windows)]
-            let executable = "cmd";
-            #[cfg(not(windows))]
-            let executable = "sh";
-
-            #[cfg(windows)]
-            let args = ["/C", "timeout /T 5 /NOBREAK > nul"];
-            #[cfg(not(windows))]
-            let args = vec!["-c", "sleep 5"];
+            // Use a cross-platform trivial command that exits quickly.
+            let (executable, args): (&str, &[&str]) = core::cfg_select! {
+                windows => ("cmd", &["/C", "timeout /T 5 /NOBREAK > nul"]),
+                _ => ("sh", &["-c", "sleep 5"]),
+            };
 
             let mut cfg = DccProcessConfig::new("test-echo", executable);
             cfg.args = args.iter().map(|s| s.to_string()).collect();

@@ -8,7 +8,10 @@ pub struct SubscriberManager {
 }
 
 pub(crate) struct SubscriberManagerInner {
+    // Backend subscription store.
     pub(crate) backends: DashMap<String, BackendSubscriber>,
+
+    // Job and progress routing stores.
     /// `job_id` → full [`JobRoute`] (issue #322).
     ///
     /// Before v0.15 this was `DashMap<String, ClientSessionId>`; callers
@@ -29,6 +32,8 @@ pub(crate) struct SubscriberManagerInner {
     /// Backend URL → set of client sessions with in-flight jobs on that
     /// backend. Used for `$/dcc.gatewayReconnect` fan-out.
     pub(crate) backend_inflight: DashMap<String, DashSet<ClientSessionId>>,
+
+    // Client delivery stores.
     /// Client session → broadcast::Sender used by the GET /mcp handler.
     pub(crate) client_sinks: DashMap<ClientSessionId, broadcast::Sender<String>>,
     /// Per-`job_id` broadcast of parsed `$/dcc.jobUpdated` / `workflowUpdated`
@@ -39,6 +44,8 @@ pub(crate) struct SubscriberManagerInner {
     /// forwarding an async `tools/call` so the waiter cannot miss a
     /// terminal event that arrives while the POST reply is in flight.
     pub(crate) job_event_buses: DashMap<String, broadcast::Sender<Value>>,
+
+    // Resource subscription store.
     /// Resource-subscription routes (issue #732).
     ///
     /// Key: `(backend_url, backend_uri)` — uniquely identifies a
@@ -56,6 +63,37 @@ pub(crate) struct SubscriberManagerInner {
     /// Per-session ceiling on concurrent live routes (issue #322). `0`
     /// disables the cap.
     pub(crate) max_routes_per_session: usize,
+}
+
+impl SubscriberManagerInner {
+    fn forget_client_job_routes(&self, session_id: &str) -> Vec<String> {
+        let mut dropped_jobs: Vec<String> = Vec::new();
+        self.job_routes.retain(|job_id, route| {
+            let keep = route.client_session_id.as_str() != session_id;
+            if !keep {
+                dropped_jobs.push(job_id.clone());
+            }
+            keep
+        });
+        for jid in &dropped_jobs {
+            self.job_event_buses.remove(jid);
+        }
+        self.session_jobs.remove(session_id);
+        dropped_jobs
+    }
+
+    fn forget_client_reverse_indexes(&self, session_id: &str, dropped_jobs: &[String]) {
+        self.request_to_job
+            .retain(|_, jid| !dropped_jobs.iter().any(|d| d == jid));
+        self.progress_token_routes
+            .retain(|_, sid| sid.as_str() != session_id);
+    }
+
+    fn forget_client_backend_inflight(&self, session_id: &str) {
+        for entry in self.backend_inflight.iter() {
+            entry.value().remove(session_id);
+        }
+    }
 }
 
 impl Default for SubscriberManager {
@@ -114,35 +152,10 @@ impl SubscriberManager {
     /// notifications destined for this session are dropped silently.
     pub fn forget_client(&self, session_id: &str) {
         self.inner.client_sinks.remove(session_id);
-        // Scrub the backend_inflight index so a later reconnect on some
-        // backend does not try to notify this long-gone session.
-        for entry in self.inner.backend_inflight.iter() {
-            entry.value().remove(session_id);
-        }
-        // Scrub routing tables to avoid memory growth. We don't scan
-        // `progress_token_routes` keys eagerly (tokens are short-lived)
-        // but removing job_routes bound to this session is cheap.
-        let mut dropped_jobs: Vec<String> = Vec::new();
-        self.inner.job_routes.retain(|job_id, route| {
-            let keep = route.client_session_id.as_str() != session_id;
-            if !keep {
-                dropped_jobs.push(job_id.clone());
-            }
-            keep
-        });
-        for jid in &dropped_jobs {
-            self.inner.job_event_buses.remove(jid);
-        }
-        // The reverse index for this session is now redundant.
-        self.inner.session_jobs.remove(session_id);
-        // Orphaned request_to_job entries would be cheap to keep, but
-        // may as well scrub them.
+        self.inner.forget_client_backend_inflight(session_id);
+        let dropped_jobs = self.inner.forget_client_job_routes(session_id);
         self.inner
-            .request_to_job
-            .retain(|_, jid| !dropped_jobs.iter().any(|d| d == jid));
-        self.inner
-            .progress_token_routes
-            .retain(|_, sid| sid.as_str() != session_id);
+            .forget_client_reverse_indexes(session_id, &dropped_jobs);
         // #732: drop any resource subscriptions owned by this session.
         // We deliberately do NOT forward `resources/unsubscribe` to the
         // backend here — the session's broken SSE stream already means

@@ -199,26 +199,24 @@ async fn bind_inner(addr: &TransportAddress) -> TransportResult<IpcListener> {
     match addr {
         TransportAddress::Tcp { host, port } => bind_tcp(host, *port).await,
 
-        #[cfg(windows)]
-        TransportAddress::NamedPipe { path } => bind_named_pipe(path).await,
+        TransportAddress::NamedPipe { path } => core::cfg_select! {
+            windows => bind_named_pipe(path).await,
+            _ => Err(TransportError::IpcNotSupported {
+                transport: "named_pipe".to_string(),
+                reason: format!("Named Pipes are only supported on Windows (attempted path: {path})"),
+            }),
+        },
 
-        #[cfg(not(windows))]
-        TransportAddress::NamedPipe { path } => Err(TransportError::IpcNotSupported {
-            transport: "named_pipe".to_string(),
-            reason: format!("Named Pipes are only supported on Windows (attempted path: {path})"),
-        }),
-
-        #[cfg(unix)]
-        TransportAddress::UnixSocket { path } => bind_unix_socket(path).await,
-
-        #[cfg(not(unix))]
-        TransportAddress::UnixSocket { path } => Err(TransportError::IpcNotSupported {
-            transport: "unix_socket".to_string(),
-            reason: format!(
-                "Unix Domain Sockets are only supported on macOS/Linux (attempted path: {})",
-                path.display()
-            ),
-        }),
+        TransportAddress::UnixSocket { path } => core::cfg_select! {
+            unix => bind_unix_socket(path).await,
+            _ => Err(TransportError::IpcNotSupported {
+                transport: "unix_socket".to_string(),
+                reason: format!(
+                    "Unix Domain Sockets are only supported on macOS/Linux (attempted path: {})",
+                    path.display()
+                ),
+            }),
+        },
     }
 }
 
