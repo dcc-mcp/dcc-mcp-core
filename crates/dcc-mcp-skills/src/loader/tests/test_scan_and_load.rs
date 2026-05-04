@@ -7,10 +7,10 @@ fn create_skill(base: &std::path::Path, name: &str, dcc: &str, deps: &[&str]) {
     let deps_str = if deps.is_empty() {
         String::new()
     } else {
-        format!("\n  dcc-mcp.depends: \"{}\"", deps.join(", "))
+        format!("\n    depends: \"{}\"", deps.join(", "))
     };
     let content = format!(
-        "---\nname: {name}\ndescription: test skill\nmetadata:\n  dcc-mcp.dcc: {dcc}{deps_str}\n---\n# {name}\n\nBody.",
+        "---\nname: {name}\ndescription: test skill\nmetadata:\n  dcc-mcp:\n    dcc: {dcc}{deps_str}\n---\n# {name}\n\nBody.",
     );
     std::fs::write(skill_dir.join(SKILL_METADATA_FILE), &content).unwrap();
 }

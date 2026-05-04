@@ -10,12 +10,6 @@ license: MIT
 compatibility: Requires ImageMagick (magick binary) on PATH
 allowed-tools: Bash Read Write
 metadata:
-  dcc-mcp.dcc: python
-  dcc-mcp.version: "1.0.0"
-  dcc-mcp.layer: infrastructure
-  dcc-mcp.search-hint: "imagemagick, resize image, convert texture, composite, watermark, batch image, thumbnail"
-  dcc-mcp.tags: "image, processing, imagemagick, texture, compositing, infrastructure"
-  dcc-mcp.tools: tools.yaml
   openclaw:
     requires:
       bins:
@@ -26,6 +20,13 @@ metadata:
         bins: [magick]
     emoji: "🖼️"
     homepage: https://imagemagick.org
+  dcc-mcp:
+    dcc: python
+    version: "1.0.0"
+    layer: infrastructure
+    search-hint: "imagemagick, resize image, convert texture, composite, watermark, batch image, thumbnail"
+    tags: "image, processing, imagemagick, texture, compositing, infrastructure"
+    tools: tools.yaml
 ---
 
 # ImageMagick Tools

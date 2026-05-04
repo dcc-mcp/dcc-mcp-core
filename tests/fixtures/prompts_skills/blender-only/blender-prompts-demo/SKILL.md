@@ -8,11 +8,12 @@ description: >-
 license: MIT
 compatibility: Python 3.7+
 metadata:
-  dcc-mcp.dcc: blender
-  dcc-mcp.version: "1.0.0"
-  dcc-mcp.layer: example
-  dcc-mcp.search-hint: "export gltf, prompts fixture"
-  dcc-mcp.prompts: prompts.yaml
+  dcc-mcp:
+    dcc: blender
+    version: "1.0.0"
+    layer: example
+    search-hint: "export gltf, prompts fixture"
+    prompts: prompts.yaml
 ---
 
 # Blender prompts demo

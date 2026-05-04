@@ -10,13 +10,14 @@ license: MIT
 compatibility: Maya 2022+, Python 3.7+, requires usd-tools and maya-geometry skills
 allowed-tools: Bash Read Write
 metadata:
-  dcc-mcp.dcc: maya
-  dcc-mcp.version: "2.0.0"
-  dcc-mcp.layer: domain
-  dcc-mcp.search-hint: "Maya project setup, export scene USD, asset pipeline, Maya export workflow, DCC pipeline orchestration"
-  dcc-mcp.tags: "maya, pipeline, export, project setup, domain"
-  dcc-mcp.tools: tools.yaml
-  dcc-mcp.depends: "maya-geometry, usd-tools"
+  dcc-mcp:
+    dcc: maya
+    version: "2.0.0"
+    layer: domain
+    search-hint: "Maya project setup, export scene USD, asset pipeline, Maya export workflow, DCC pipeline orchestration"
+    tags: "maya, pipeline, export, project setup, domain"
+    tools: tools.yaml
+    depends: "maya-geometry, usd-tools"
 ---
 
 # Maya Pipeline Skill (Advanced)

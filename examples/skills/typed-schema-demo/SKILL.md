@@ -8,11 +8,12 @@ description: >-
 license: MIT
 compatibility: Python 3.10+
 metadata:
-  dcc-mcp.dcc: python
-  dcc-mcp.version: "1.0.0"
-  dcc-mcp.layer: example
-  dcc-mcp.search-hint: "structured schema, dataclass, json schema, inputSchema, outputSchema, typed handler, pydantic-free"
-  dcc-mcp.tags: "example, schema, structured"
+  dcc-mcp:
+    dcc: python
+    version: "1.0.0"
+    layer: example
+    search-hint: "structured schema, dataclass, json schema, inputSchema, outputSchema, typed handler, pydantic-free"
+    tags: "example, schema, structured"
 ---
 
 # Typed Schema Demo (issue #242)

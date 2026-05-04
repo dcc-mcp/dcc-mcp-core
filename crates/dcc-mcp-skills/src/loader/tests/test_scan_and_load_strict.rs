@@ -6,7 +6,7 @@ fn write_skill(base: &std::path::Path, name: &str) {
     let dir = base.join(name);
     std::fs::create_dir_all(&dir).unwrap();
     let content = format!(
-        "---\nname: {name}\ndescription: test skill\nmetadata:\n  dcc-mcp.dcc: python\n---\n# {name}\n\nBody.",
+        "---\nname: {name}\ndescription: test skill\nmetadata:\n  dcc-mcp:\n    dcc: pytho\n---\n# {name}\n\nBody.",
     );
     std::fs::write(dir.join(SKILL_METADATA_FILE), &content).unwrap();
 }

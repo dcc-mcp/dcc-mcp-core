@@ -5,10 +5,11 @@ description: >-
   connectivity and skill discovery. Not for production use.
 license: MIT
 metadata:
-  dcc-mcp.layer: example
-  dcc-mcp.search-hint: "greeting, hello, test, connectivity check"
-  dcc-mcp.tags: "example, demo"
-  dcc-mcp.tools: "tools.yaml"
+  dcc-mcp:
+    layer: example
+    search-hint: "greeting, hello, test, connectivity check"
+    tags: "example, demo"
+    tools: "tools.yaml"
 ---
 
 # Hello World

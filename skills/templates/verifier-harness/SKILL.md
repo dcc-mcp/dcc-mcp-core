@@ -6,12 +6,13 @@ compatibility: Python 3.7+
 metadata:
   category: diagnostics
   author: your-name
-  dcc-mcp.dcc: blender
-  dcc-mcp.version: "1.0.0"
-  dcc-mcp.tags: "verifier, round-trip, contract, example"
-  dcc-mcp.search-hint: "verify, import, inspect, fbx, round-trip, scene-stats"
-  dcc-mcp.contract: scene-stats
-  dcc-mcp.tools: tools.yaml
+  dcc-mcp:
+    dcc: blender
+    version: "1.0.0"
+    tags: "verifier, round-trip, contract, example"
+    search-hint: "verify, import, inspect, fbx, round-trip, scene-stats"
+    contract: scene-stats
+    tools: tools.yaml
 ---
 
 # my-asset-verifier

@@ -8,12 +8,13 @@ license: MIT
 compatibility: Python 3.7+; bash required on Linux/macOS; cmd on Windows
 allowed-tools: Bash Read
 metadata:
-  dcc-mcp.dcc: python
-  dcc-mcp.version: "1.0.0"
-  dcc-mcp.layer: example
-  dcc-mcp.search-hint: "multi-script, cross-platform, python shell batch, script types, authoring reference"
-  dcc-mcp.tags: "example, multi-language, cross-platform"
-  dcc-mcp.tools: tools.yaml
+  dcc-mcp:
+    dcc: python
+    version: "1.0.0"
+    layer: example
+    search-hint: "multi-script, cross-platform, python shell batch, script types, authoring reference"
+    tags: "example, multi-language, cross-platform"
+    tools: tools.yaml
 ---
 
 # Multi-Script Skill

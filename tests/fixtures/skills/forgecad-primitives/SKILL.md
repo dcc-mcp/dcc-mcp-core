@@ -9,12 +9,13 @@ license: MIT
 compatibility: Python 3.7+
 allowed-tools: Bash Read
 metadata:
-  dcc-mcp.dcc: forgecad
-  dcc-mcp.version: "1.0.0"
-  dcc-mcp.layer: domain
-  dcc-mcp.search-hint: "create cube, create cylinder, create cone, forgecad, cad primitives"
-  dcc-mcp.tags: "forgecad, cad, geometry, primitives, domain"
-  dcc-mcp.tools: tools.yaml
+  dcc-mcp:
+    dcc: forgecad
+    version: "1.0.0"
+    layer: domain
+    search-hint: "create cube, create cylinder, create cone, forgecad, cad primitives"
+    tags: "forgecad, cad, geometry, primitives, domain"
+    tools: tools.yaml
 ---
 
 # ForgeCAD Primitives

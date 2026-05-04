@@ -1,5 +1,10 @@
 //! Tests for issue #356: metadata.dcc-mcp.* parsing and strict
 //! rejection of legacy top-level extension keys.
+//!
+//! The pre-0.15 flat-form shorthand (`metadata: { "dcc-mcp.dcc": ... }`)
+//! is no longer recognised; only the nested form
+//! (`metadata: { dcc-mcp: { dcc: ... } }`) drives the typed
+//! `SkillMetadata` extensions.
 use super::fixtures::write_skill;
 use super::*;
 
@@ -18,18 +23,54 @@ fn legacy_top_level_keys_are_rejected() {
 }
 
 #[test]
-fn new_form_parses_successfully() {
+fn legacy_flat_form_does_not_populate_typed_fields() {
+    // The pre-0.15 flat shorthand is no longer parsed into
+    // `SkillMetadata` typed fields; the skill parses (the YAML itself
+    // is valid) but every typed override stays at its default so the
+    // author notices the gap and migrates.
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().join("flat_legacy");
+    let body = r#"---
+name: flat-legacy
+description: pre-0.15 shorthand
+metadata:
+  dcc-mcp.dcc: maya
+  dcc-mcp.version: "2.0.0"
+  dcc-mcp.tags: "a, b"
+---
+# body
+"#;
+    write_skill(&dir, body);
+    let meta = parse_skill_md(&dir).expect("parsed");
+    assert_ne!(
+        meta.dcc, "maya",
+        "flat-form `dcc-mcp.dcc: maya` must NOT populate the typed field; \
+         it should fall back to the serde default"
+    );
+    assert_ne!(
+        meta.version, "2.0.0",
+        "flat-form `dcc-mcp.version` must NOT populate the typed field"
+    );
+    assert!(
+        meta.tags.is_empty(),
+        "flat-form tags must NOT be recognised"
+    );
+}
+
+#[test]
+fn nested_form_parses_successfully() {
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().join("new");
     let body = r#"---
 name: new
 description: new-form skill
 metadata:
-  dcc-mcp.dcc: maya
-  dcc-mcp.version: "2.0.0"
-  dcc-mcp.tags: "a, b"
-  dcc-mcp.search-hint: "hint words"
-  dcc-mcp.depends: "other-skill"
+  dcc-mcp:
+    dcc: maya
+    version: "2.0.0"
+    tags: "a, b"
+    search-hint: "hint words"
+    depends: "other-skill"
 ---
 # body
 "#;
@@ -43,7 +84,7 @@ metadata:
 }
 
 #[test]
-fn nested_form_parses_successfully() {
+fn nested_form_with_inline_tools_list_parses() {
     // Canonical agentskills.io shape — `metadata.dcc-mcp` is a nested map.
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().join("nested");
@@ -77,7 +118,7 @@ metadata:
 }
 
 #[test]
-fn new_form_sibling_tools_yaml_resolves() {
+fn nested_form_sibling_tools_yaml_resolves() {
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().join("sidecar");
     std::fs::create_dir_all(&dir).unwrap();
@@ -89,8 +130,9 @@ fn new_form_sibling_tools_yaml_resolves() {
     let body = r#"---
 name: sidecar
 metadata:
-  dcc-mcp.dcc: maya
-  dcc-mcp.tools: tools.yaml
+  dcc-mcp:
+    dcc: maya
+    tools: tools.yaml
 ---
 # body
 "#;
@@ -106,14 +148,15 @@ metadata:
 }
 
 #[test]
-fn new_form_products_and_implicit_invocation() {
+fn nested_form_products_and_implicit_invocation() {
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().join("policy");
     let body = r#"---
 name: policy
 metadata:
-  dcc-mcp.products: "maya, houdini"
-  dcc-mcp.allow-implicit-invocation: "false"
+  dcc-mcp:
+    products: "maya, houdini"
+    allow-implicit-invocation: "false"
 ---
 # body
 "#;

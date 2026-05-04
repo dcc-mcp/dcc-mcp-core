@@ -8,20 +8,21 @@ description: >-
 license: MIT
 compatibility: <DCC> <version>+, Python 3.7+
 metadata:
-  dcc-mcp.dcc: maya
-  dcc-mcp.version: "1.0.0"
-  dcc-mcp.layer: domain
   # Intent-oriented keywords — describe the user's goal, not the mechanism.
   # Do NOT duplicate keywords that belong to an infrastructure skill
   # (e.g. "usd stage", "ffmpeg", "git commit").
-  dcc-mcp.search-hint: "intent keyword 1, intent keyword 2, task phrase 3"
-  dcc-mcp.tags: "maya, your-category, domain"
-  dcc-mcp.tools: tools.yaml
   # Declare infrastructure skills this domain skill depends on.
   # Load them before loading this skill.
-  dcc-mcp.depends: "dcc-diagnostics"
   # Uncomment when tools export USD:
   # dcc-mcp.depends: "dcc-diagnostics, usd-tools"
+  dcc-mcp:
+    dcc: maya
+    version: "1.0.0"
+    layer: domain
+    search-hint: "intent keyword 1, intent keyword 2, task phrase 3"
+    tags: "maya, your-category, domain"
+    tools: tools.yaml
+    depends: "dcc-diagnostics"
 ---
 
 # my-domain-skill

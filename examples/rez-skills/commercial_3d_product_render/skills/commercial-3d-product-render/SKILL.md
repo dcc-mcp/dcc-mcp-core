@@ -4,15 +4,16 @@ description: "Product lookdev and render-review helpers for commercial 3D work."
 license: MIT
 allowed-tools: Bash Read Write
 metadata:
-  dcc-mcp.dcc: blender
-  dcc-mcp.version: "1.0.0"
-  dcc-mcp.layer: domain
-  dcc-mcp.search-hint: "product render, lookdev, camera, material, turntable"
-  dcc-mcp.tags: "advertising, blender, product, render"
-  dcc-mcp.tools: tools.yaml
-  dcc-mcp.prompts: prompts.yaml
-  dcc-mcp.toolset-profile: commercial-3d-product-render
-  dcc-mcp.package-provenance: commercial_3d_product_render-1.0.0
+  dcc-mcp:
+    dcc: blender
+    version: "1.0.0"
+    layer: domain
+    search-hint: "product render, lookdev, camera, material, turntable"
+    tags: "advertising, blender, product, render"
+    tools: tools.yaml
+    prompts: prompts.yaml
+    toolset-profile: commercial-3d-product-render
+    package-provenance: commercial_3d_product_render-1.0.0
 ---
 
 # Commercial 3D Product Render

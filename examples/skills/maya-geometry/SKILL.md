@@ -10,13 +10,14 @@ license: MIT
 compatibility: Maya 2022+, Python 3.7+
 allowed-tools: Bash Read Write
 metadata:
-  dcc-mcp.dcc: maya
-  dcc-mcp.version: "1.0.0"
-  dcc-mcp.layer: domain
-  dcc-mcp.search-hint: "create sphere, create cube, bevel edges, extrude faces, polygon modeling, Maya mesh, 3D primitives, rigging joint"
-  dcc-mcp.tags: "maya, geometry, modeling, polygon, domain"
-  dcc-mcp.tools: tools.yaml
-  dcc-mcp.groups: groups.yaml
+  dcc-mcp:
+    dcc: maya
+    version: "1.0.0"
+    layer: domain
+    search-hint: "create sphere, create cube, bevel edges, extrude faces, polygon modeling, Maya mesh, 3D primitives, rigging joint"
+    tags: "maya, geometry, modeling, polygon, domain"
+    tools: tools.yaml
+    groups: groups.yaml
 ---
 
 # Maya Geometry Tools

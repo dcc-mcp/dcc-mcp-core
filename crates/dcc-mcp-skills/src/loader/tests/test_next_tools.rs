@@ -24,8 +24,9 @@ fn sibling_tools_yaml_parses_next_tools() {
     let body = r#"---
 name: nt
 metadata:
-  dcc-mcp.dcc: maya
-  dcc-mcp.tools: tools.yaml
+  dcc-mcp:
+    dcc: maya
+    tools: tools.yaml
 ---
 "#;
     std::fs::write(dir.join(SKILL_METADATA_FILE), body).unwrap();
