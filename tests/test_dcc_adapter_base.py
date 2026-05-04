@@ -379,6 +379,69 @@ class TestDccServerBase:
         assert h1 is h2
         server.stop()
 
+    def test_quit_hooks_run_lifo_once_on_stop(self, tmp_path):
+        server = self._make_server(tmp_path)
+        calls = []
+        server.register_quit_hook(lambda: calls.append("first"))
+        server.register_quit_hook(lambda: calls.append("second"))
+
+        server.stop()
+        server.stop()
+
+        assert calls == ["second", "first"]
+
+    def test_quit_hook_exception_does_not_block_later_hooks(self, tmp_path, caplog):
+        server = self._make_server(tmp_path)
+        calls = []
+
+        def broken():
+            calls.append("broken")
+            raise RuntimeError("boom")
+
+        server.register_quit_hook(lambda: calls.append("first"))
+        server.register_quit_hook(broken)
+        server.register_quit_hook(lambda: calls.append("last"))
+
+        server.stop()
+
+        assert calls == ["last", "broken", "first"]
+        assert "Quit hook failed" in caplog.text
+
+    def test_unregister_quit_hook(self, tmp_path):
+        server = self._make_server(tmp_path)
+        calls = []
+
+        def hook():
+            calls.append("hook")
+
+        assert server.register_quit_hook(hook) is hook
+        assert server.unregister_quit_hook(hook) is True
+        assert server.unregister_quit_hook(hook) is False
+        server.stop()
+        assert calls == []
+
+    def test_context_manager_starts_and_stops(self, tmp_path):
+        server = self._make_server(tmp_path)
+        with server as handle:
+            assert handle is not None
+            assert server.is_running
+        assert not server.is_running
+
+    def test_start_installs_weak_atexit_hook(self, tmp_path, monkeypatch):
+        import dcc_mcp_core.server_base as server_base
+        from dcc_mcp_core.server_base import DccServerBase
+
+        server = self._make_server(tmp_path)
+        registrations = []
+        monkeypatch.setattr(server_base.atexit, "register", lambda *args: registrations.append(args))
+
+        server.start()
+
+        assert len(registrations) == 1
+        callback, ref = registrations[0]
+        assert callback is DccServerBase._stop_from_atexit
+        assert ref() is server
+
     def test_list_skills_returns_list(self, tmp_path):
         server = self._make_server(tmp_path)
         assert isinstance(server.list_skills(), list)
