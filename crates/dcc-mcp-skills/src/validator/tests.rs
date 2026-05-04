@@ -146,7 +146,7 @@ fn test_missing_source_file() {
 }
 
 #[test]
-fn test_legacy_fields_error() {
+fn test_non_spec_top_level_keys_error() {
     let tmp = tempfile::tempdir().unwrap();
     let dir = make_skill_dir(
         &tmp,
@@ -155,7 +155,7 @@ fn test_legacy_fields_error() {
     );
     let report = validate_skill_dir(&dir);
     assert!(report.issues.iter().any(|issue| {
-        issue.severity == IssueSeverity::Error && issue.message.contains("Legacy")
+        issue.severity == IssueSeverity::Error && issue.message.contains("Non-spec top-level")
     }));
 }
 
