@@ -138,6 +138,11 @@ from dcc_mcp_core._core import PySharedBuffer
 from dcc_mcp_core._core import PySharedSceneBuffer
 from dcc_mcp_core._core import PyStandaloneDispatcher
 from dcc_mcp_core._core import RateLimitMiddleware
+
+# Readiness probe — DCC adapters flip this when the host is ready to
+# accept traffic (issue #713). Exposed so Python-side adapters can
+# construct their own probe and hand it to `McpHttpServer`.
+from dcc_mcp_core._core import ReadinessProbe
 from dcc_mcp_core._core import RecordingGuard
 from dcc_mcp_core._core import RenderOutput
 from dcc_mcp_core._core import ResourceAnnotations
@@ -167,6 +172,7 @@ from dcc_mcp_core._core import SkillFeedback
 from dcc_mcp_core._core import SkillGroup
 from dcc_mcp_core._core import SkillMetadata
 from dcc_mcp_core._core import SkillScanner
+from dcc_mcp_core._core import SkillScope
 from dcc_mcp_core._core import SkillSummary
 from dcc_mcp_core._core import SkillValidationIssue
 from dcc_mcp_core._core import SkillValidationReport
@@ -653,6 +659,7 @@ __all__ = [
     "PySharedSceneBuffer",
     "PyStandaloneDispatcher",
     "RateLimitMiddleware",
+    "ReadinessProbe",
     "RecipeDefinition",
     "RecordingGuard",
     "RenderOutput",
@@ -691,6 +698,7 @@ __all__ = [
     "SkillGroup",
     "SkillMetadata",
     "SkillScanner",
+    "SkillScope",
     "SkillSummary",
     "SkillValidationIssue",
     "SkillValidationReport",
