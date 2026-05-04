@@ -332,8 +332,6 @@ from dcc_mcp_core._server import MinimalModeConfig
 from dcc_mcp_core._server import PendingEnvelope
 from dcc_mcp_core._server import current_callable_job
 from dcc_mcp_core.adapter_context import AdapterInstructionSet
-from dcc_mcp_core.adapter_context import DccApiDocEntry
-from dcc_mcp_core.adapter_context import DccApiDocIndex
 from dcc_mcp_core.adapter_context import DccContextSnapshot
 from dcc_mcp_core.adapter_context import DccToolsetProfile
 from dcc_mcp_core.adapter_context import ResponseShapePolicy
@@ -342,7 +340,6 @@ from dcc_mcp_core.adapter_context import VisualFeedbackPolicy
 from dcc_mcp_core.adapter_context import append_context_snapshot
 from dcc_mcp_core.adapter_context import build_visual_feedback_context
 from dcc_mcp_core.adapter_context import register_adapter_instruction_resources
-from dcc_mcp_core.adapter_context import register_dcc_api_docs
 from dcc_mcp_core.adapter_context import shape_response
 from dcc_mcp_core.adapters import CAPABILITY_KEYS
 from dcc_mcp_core.adapters import WEBVIEW_DEFAULT_CAPABILITIES
@@ -595,8 +592,6 @@ __all__ = [
     "CheckpointStore",
     "CimdDocument",
     "DccApiCatalog",
-    "DccApiDocEntry",
-    "DccApiDocIndex",
     "DccApiExecutor",
     "DccBlockedCall",
     "DccBridge",
@@ -836,7 +831,6 @@ __all__ = [
     "register_adapter_instruction_resources",
     "register_bridge",
     "register_checkpoint_tools",
-    "register_dcc_api_docs",
     "register_dcc_api_executor",
     "register_diagnostic_handlers",
     "register_diagnostic_mcp_tools",

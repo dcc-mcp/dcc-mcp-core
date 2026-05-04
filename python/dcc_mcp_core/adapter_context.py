@@ -19,8 +19,6 @@ from dcc_mcp_core.docs_resources import register_docs_resource
 
 __all__ = [
     "AdapterInstructionSet",
-    "DccApiDocEntry",
-    "DccApiDocIndex",
     "DccContextSnapshot",
     "DccToolsetProfile",
     "ResponseShapePolicy",
@@ -29,7 +27,6 @@ __all__ = [
     "append_context_snapshot",
     "build_visual_feedback_context",
     "register_adapter_instruction_resources",
-    "register_dcc_api_docs",
     "shape_response",
 ]
 
@@ -159,60 +156,6 @@ class ToolsetProfileRegistry:
         return [self._profiles[name] for name in sorted(self._active)]
 
 
-@dataclass(frozen=True)
-class DccApiDocEntry:
-    """Searchable DCC host API documentation entry."""
-
-    symbol: str
-    summary: str
-    body: str = ""
-    uri: str | None = None
-    version: str | None = None
-    tags: tuple[str, ...] = ()
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "symbol": self.symbol,
-            "summary": self.summary,
-            "body": self.body,
-            "uri": self.uri,
-            "version": self.version,
-            "tags": list(self.tags),
-        }
-
-
-class DccApiDocIndex:
-    """Tiny searchable docs index for adapter-provided API references."""
-
-    def __init__(self, dcc: str, entries: Iterable[DccApiDocEntry] = (), version: str | None = None) -> None:
-        self.dcc = dcc
-        self.version = version
-        self._entries = {entry.symbol: entry for entry in entries}
-
-    def add(self, entry: DccApiDocEntry) -> None:
-        self._entries[entry.symbol] = entry
-
-    def get(self, symbol: str) -> DccApiDocEntry | None:
-        return self._entries.get(symbol)
-
-    def search(self, query: str, *, limit: int = 10) -> list[dict[str, Any]]:
-        needle = query.casefold()
-        scored: list[tuple[int, DccApiDocEntry]] = []
-        for entry in self._entries.values():
-            haystack = " ".join([entry.symbol, entry.summary, entry.body, " ".join(entry.tags)]).casefold()
-            if needle in haystack:
-                score = 0 if entry.symbol.casefold() == needle else haystack.find(needle)
-                scored.append((score, entry))
-        return [entry.to_dict() for _, entry in sorted(scored, key=lambda item: (item[0], item[1].symbol))[:limit]]
-
-    def to_resource_manifest(self) -> dict[str, Any]:
-        return {
-            "dcc": self.dcc,
-            "version": self.version,
-            "entries": [entry.to_dict() for entry in sorted(self._entries.values(), key=lambda item: item.symbol)],
-        }
-
-
 def register_adapter_instruction_resources(
     server: Any,
     instruction_set: AdapterInstructionSet,
@@ -329,33 +272,6 @@ def shape_response(data: Any, policy: ResponseShapePolicy | None = None) -> dict
             }
         }
     return result
-
-
-def register_dcc_api_docs(server: Any, index: DccApiDocIndex, *, uri_prefix: str | None = None) -> list[str]:
-    """Register a searchable API docs index as resource-backed Markdown/JSON."""
-    prefix = (uri_prefix or f"docs://adapter/{index.dcc}/api").rstrip("/")
-    manifest_uri = f"{prefix}/index"
-    register_docs_resource(
-        server,
-        uri=manifest_uri,
-        name=f"{index.dcc} API docs index",
-        description="Searchable adapter-provided DCC API documentation index.",
-        content=json.dumps(index.to_resource_manifest(), indent=2, sort_keys=True),
-        mime="application/json",
-    )
-    registered = [manifest_uri]
-    for entry in index.to_resource_manifest()["entries"]:
-        uri = f"{prefix}/{entry['symbol']}"
-        register_docs_resource(
-            server,
-            uri=uri,
-            name=entry["symbol"],
-            description=entry["summary"],
-            content=entry["body"] or entry["summary"],
-            mime="text/markdown",
-        )
-        registered.append(uri)
-    return registered
 
 
 def _shape_value(value: Any, policy: ResponseShapePolicy) -> tuple[Any, list[dict[str, Any]]]:

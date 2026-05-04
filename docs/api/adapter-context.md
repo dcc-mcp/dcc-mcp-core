@@ -83,21 +83,3 @@ context = build_visual_feedback_context(
 `DccToolsetProfile` and `ToolsetProfileRegistry` provide a high-level layer over
 skill groups for adapter modes such as `modeling-basic`, `rendering`, or
 `photoshop-layer-editing`.
-
-## API Docs
-
-Adapters can expose bundled or generated host API docs without arbitrary runtime
-introspection:
-
-```python
-from dcc_mcp_core import DccApiDocEntry, DccApiDocIndex, register_dcc_api_docs
-
-index = DccApiDocIndex(
-    "blender",
-    [DccApiDocEntry("bpy.ops.mesh.primitive_cube_add", "Add a cube")],
-    version="4.0",
-)
-register_dcc_api_docs(server, index)
-```
-
-This registers `docs://adapter/<dcc>/api/index` and one resource per symbol.
