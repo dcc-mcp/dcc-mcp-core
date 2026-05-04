@@ -792,6 +792,24 @@ DCC adapters include these by default (`include_bundled=True`).
 - **WebSocket Bridge** (`DccBridge`) — Photoshop, ZBrush, Unity, After Effects
 - **WebView Host** (`WebViewAdapter`) — AuroraView, Electron panels
 
+### Lifecycle: quit hooks (issue #747)
+
+Embedded adapters can register cleanup callbacks with
+`DccServerBase.register_quit_hook(callback)`. Hooks run in LIFO order and
+are best-effort: exceptions are logged and do not block later hooks or core
+shutdown.
+
+```python
+server.register_quit_hook(remove_menu)
+server.register_quit_hook(flush_scene_snapshot)
+with server as handle:
+    ...
+# quit hooks run, then the MCP server shuts down
+```
+
+The same hook path is used by explicit `server.stop()`, context-manager
+exit, and the weak atexit fallback installed by `server.start()`.
+
 ### MCP HTTP Server Spawn Modes (issue #303)
 
 `McpHttpConfig.spawn_mode` picks how listeners are driven:

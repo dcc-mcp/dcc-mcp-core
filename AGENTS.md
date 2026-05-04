@@ -151,6 +151,7 @@ Gateway / slim / REST exposure:
 | Declarative progressive loading on startup | `MinimalModeConfig(skills=…, deactivate_groups=…)` → pass to `register_builtin_actions(minimal_mode=…)` (#525) |
 | Connection-scoped cache | `McpHttpConfig(enable_tool_cache=True)` — per-session `tools/list` snapshot (#438) |
 | Instance-bound diagnostics | `DccServerBase(..., dcc_pid=pid)` |
+| Run code on DCC exit | `DccServerBase.register_quit_hook(callback)` — LIFO best-effort hooks run on `stop()`, context-manager exit, and atexit fallback (#747) |
 | Remote auth | `ApiKeyConfig` / `OAuthConfig` / `validate_bearer_token` |
 | Batch / orchestration | `batch_dispatch()`, `EvalContext`, `DccApiExecutor` |
 | Mid-call user input | `elicit_form()` / `elicit_url()` |

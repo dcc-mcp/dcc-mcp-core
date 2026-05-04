@@ -48,6 +48,7 @@ Some DCCs may need to override:
 # Import future modules
 from __future__ import annotations
 
+import atexit
 import contextlib
 
 # Import built-in modules
@@ -56,6 +57,8 @@ import os
 from pathlib import Path
 import sys
 from typing import Any
+from typing import Callable
+import weakref
 
 # NOTE: dcc_mcp_core imports (McpHttpConfig, create_skill_server, get_*,
 # get_bundled_skill_paths) are deferred inside methods to avoid a circular
@@ -270,6 +273,9 @@ class DccServerBase:
         self._hot_reloader: Any | None = None
         self._gateway_election: Any | None = None
         self._snapshot_provider: Any | None = snapshot_provider
+        self._quit_hooks: list[Callable[[], Any]] = []
+        self._quit_hooks_ran: bool = False
+        self._atexit_registered: bool = False
 
     def __getattr__(self, name: str) -> Any:
         """Lazily reconstruct collaborators for instances built via ``object.__new__``.
@@ -776,7 +782,58 @@ class DccServerBase:
 
     # ── lifecycle ─────────────────────────────────────────────────────────────
 
-    def start(self) -> Any:
+    @staticmethod
+    def _stop_from_atexit(ref: weakref.ReferenceType[DccServerBase]) -> None:
+        server = ref()
+        if server is not None:
+            server.stop()
+
+    def _ensure_quit_hook_state(self) -> None:
+        if "_quit_hooks" not in self.__dict__:
+            self._quit_hooks = []
+        if "_quit_hooks_ran" not in self.__dict__:
+            self._quit_hooks_ran = False
+        if "_atexit_registered" not in self.__dict__:
+            self._atexit_registered = False
+
+    def register_quit_hook(self, callback: Callable[[], Any]) -> Callable[[], Any]:
+        """Register a callback to run before the server shuts down.
+
+        Hooks run once per server lifetime in LIFO order. Exceptions are
+        logged and swallowed so one broken hook cannot block shutdown.
+        """
+        if not callable(callback):
+            raise TypeError("quit hook must be callable")
+        self._ensure_quit_hook_state()
+        self._quit_hooks.append(callback)
+        return callback
+
+    def unregister_quit_hook(self, callback: Callable[[], Any]) -> bool:
+        """Remove a previously registered quit hook.
+
+        Returns ``True`` when a hook was removed.
+        """
+        self._ensure_quit_hook_state()
+        for idx in range(len(self._quit_hooks) - 1, -1, -1):
+            if self._quit_hooks[idx] is callback:
+                del self._quit_hooks[idx]
+                return True
+        return False
+
+    def _run_quit_hooks(self) -> None:
+        """Run registered quit hooks in LIFO order exactly once."""
+        self._ensure_quit_hook_state()
+        if self._quit_hooks_ran:
+            return
+        self._quit_hooks_ran = True
+        while self._quit_hooks:
+            hook = self._quit_hooks.pop()
+            try:
+                hook()
+            except Exception as exc:
+                logger.warning("[%s] Quit hook failed: %s", self._dcc_name, exc, exc_info=True)
+
+    def start(self, *, install_atexit_hook: bool = True) -> Any:
         """Start the MCP HTTP server.
 
         Starts the gateway election thread if ``enable_gateway_failover`` is
@@ -786,6 +843,7 @@ class DccServerBase:
             ``McpServerHandle`` with ``.mcp_url()``, ``.port``, ``.shutdown()``.
 
         """
+        self._ensure_quit_hook_state()
         if self._handle is not None:
             logger.warning(
                 "[%s] Server already running on port %d",
@@ -793,6 +851,10 @@ class DccServerBase:
                 self._handle.port,
             )
             return self._handle
+        self._quit_hooks_ran = False
+        if install_atexit_hook and not self._atexit_registered:
+            atexit.register(DccServerBase._stop_from_atexit, weakref.ref(self))
+            self._atexit_registered = True
 
         # Register instance-bound diagnostic IPC handlers before the server
         # starts so skill subprocesses can call take_screenshot / audit_log.
@@ -847,6 +909,8 @@ class DccServerBase:
 
     def stop(self) -> None:
         """Gracefully stop the server and gateway election thread."""
+        self._run_quit_hooks()
+
         if self._gateway_election is not None:
             try:
                 self._gateway_election.stop()
@@ -867,6 +931,14 @@ class DccServerBase:
             finally:
                 self._handle = None
             logger.info("[%s] MCP server stopped", self._dcc_name)
+
+    def __enter__(self) -> Any:
+        """Start the server and return its handle for ``with`` blocks."""
+        return self.start()
+
+    def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        """Stop the server when leaving a ``with`` block."""
+        self.stop()
 
     @property
     def is_running(self) -> bool:
