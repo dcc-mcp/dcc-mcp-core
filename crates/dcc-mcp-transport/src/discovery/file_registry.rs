@@ -525,7 +525,16 @@ impl FileRegistry {
     /// acquire the sentinel lock, the owner is gone even if the PID has already
     /// been reused. Rows from older versions without a sentinel fall back to the
     /// PID probe. Includes the gateway sentinel.
+    ///
+    /// Issue #719 follow-up: reload the on-disk registry before pruning
+    /// so rows written by a separate (now-crashed) process become
+    /// visible to this handle's in-memory cache. Without the reload a
+    /// gateway reader would never see ghost rows left behind by a DCC
+    /// that crashed after registering itself in a different
+    /// `FileRegistry` instance.
     pub fn prune_dead_entries(&self) -> TransportResult<usize> {
+        let _ = self.reload_if_stale();
+
         let dead_keys: Vec<ServiceKey> = self
             .services
             .iter()
