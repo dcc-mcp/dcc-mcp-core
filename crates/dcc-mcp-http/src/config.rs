@@ -351,6 +351,13 @@ pub struct McpHttpConfig {
     /// today and pick up real execution when the follow-up PR lands.
     pub enable_workflows: bool,
 
+    /// Best-effort safety net for Python callers that drop a
+    /// `McpServerHandle` without calling `shutdown()`.
+    ///
+    /// Default: `false`. Prefer explicit `handle.shutdown()` or Python
+    /// context-manager usage for deterministic shutdown.
+    pub shutdown_on_drop: bool,
+
     /// Emit the `notifications/$/dcc.jobUpdated` and
     /// `notifications/$/dcc.workflowUpdated` SSE channels (issue #326).
     ///
@@ -592,6 +599,7 @@ impl McpHttpConfig {
             enable_prometheus: false,
             prometheus_basic_auth: None,
             enable_job_notifications: true,
+            shutdown_on_drop: false,
             job_storage_path: None,
             job_recovery: JobRecoveryPolicy::Drop,
             declared_capabilities: Vec::new(),

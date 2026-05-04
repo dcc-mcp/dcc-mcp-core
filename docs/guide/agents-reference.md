@@ -810,6 +810,18 @@ with server as handle:
 The same hook path is used by explicit `server.stop()`, context-manager
 exit, and the weak atexit fallback installed by `server.start()`.
 
+For the lower-level PyO3 handle, prefer deterministic cleanup:
+
+```python
+with server.start() as handle:
+    ...
+# handle.shutdown() is called by __exit__
+```
+
+`McpHttpConfig(shutdown_on_drop=True)` is available as a loud, opt-in
+safety net for tests and one-shot scripts that accidentally drop the final
+`McpServerHandle` reference without calling `shutdown()`.
+
 ### MCP HTTP Server Spawn Modes (issue #303)
 
 `McpHttpConfig.spawn_mode` picks how listeners are driven:

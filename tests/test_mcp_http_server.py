@@ -16,6 +16,7 @@ always run since they only require the standard library.
 from __future__ import annotations
 
 # Import built-in modules
+import gc
 import json
 from threading import Thread
 import time
@@ -93,6 +94,17 @@ def _rest_base(mcp_url: str) -> str:
     return mcp_url.rsplit("/mcp", 1)[0]
 
 
+def _wait_unreachable(url: str, timeout: float = 2.0) -> None:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            urllib.request.urlopen(url, timeout=0.2)
+        except Exception:
+            return
+        time.sleep(0.05)
+    raise AssertionError(f"server still reachable at {url}")
+
+
 def _make_registry() -> ToolRegistry:
     reg = ToolRegistry()
     reg.register(
@@ -131,6 +143,34 @@ def running_server():
     url = handle.mcp_url()
     yield server, handle, url
     handle.shutdown()
+
+
+# ── handle lifecycle tests ────────────────────────────────────────────────
+
+
+def test_handle_context_manager_shutdowns_server():
+    reg = _make_registry()
+    server = McpHttpServer(reg, McpHttpConfig(port=0, server_name="ctx-test"))
+    with server.start() as handle:
+        url = handle.mcp_url()
+        code, _ = _post_json(url, {"jsonrpc": "2.0", "id": 1, "method": "ping"})
+        assert code == 200
+    _wait_unreachable(url)
+
+
+def test_handle_shutdown_on_drop_stops_server():
+    reg = _make_registry()
+    config = McpHttpConfig(port=0, server_name="drop-test", shutdown_on_drop=True)
+    server = McpHttpServer(reg, config)
+    handle = server.start()
+    url = handle.mcp_url()
+    code, _ = _post_json(url, {"jsonrpc": "2.0", "id": 1, "method": "ping"})
+    assert code == 200
+
+    del handle
+    gc.collect()
+
+    _wait_unreachable(url)
 
 
 # ── basic HTTP protocol tests (stdlib only) ───────────────────────────────

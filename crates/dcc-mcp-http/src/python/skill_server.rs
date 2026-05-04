@@ -187,6 +187,7 @@ impl PyMcpHttpServer {
             bind_addr,
             is_gateway,
             live_meta: self.live_meta.clone(),
+            shutdown_on_drop: self.config.shutdown_on_drop,
         })
     }
 

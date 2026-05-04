@@ -1,6 +1,7 @@
 //! Handle returned by `McpHttpServer.start()`.
 
 use super::*;
+use std::time::Duration;
 
 /// Handle returned by `McpHttpServer.start()`.
 ///
@@ -21,6 +22,51 @@ pub struct PyServerHandle {
     /// can push scene/version/documents updates that flow into FileRegistry
     /// on the next heartbeat tick.
     pub(crate) live_meta: Arc<RwLock<LiveMetaInner>>,
+    /// Opt-in safety net for forgotten explicit shutdown calls.
+    pub(crate) shutdown_on_drop: bool,
+}
+
+impl PyServerHandle {
+    fn shutdown_inner(&mut self) {
+        if let Some(handle) = self.inner.take() {
+            self.runtime.block_on(handle.shutdown());
+        }
+    }
+
+    fn shutdown_on_drop_inner(&mut self) {
+        let Some(handle) = self.inner.take() else {
+            return;
+        };
+        if tokio::runtime::Handle::try_current().is_ok() {
+            tracing::error!(
+                "McpServerHandle dropped inside a Tokio runtime; graceful shutdown would deadlock, skipping"
+            );
+            return;
+        }
+        match self.runtime.block_on(async {
+            tokio::time::timeout(Duration::from_secs(5), handle.shutdown()).await
+        }) {
+            Ok(()) => tracing::warn!(
+                "McpServerHandle dropped without explicit shutdown(); shutdown_on_drop completed"
+            ),
+            Err(_) => tracing::error!("McpServerHandle drop shutdown timed out after 5s"),
+        }
+    }
+}
+
+impl Drop for PyServerHandle {
+    fn drop(&mut self) {
+        if self.inner.is_none() {
+            return;
+        }
+        if !self.shutdown_on_drop {
+            tracing::warn!(
+                "McpServerHandle dropped without explicit shutdown(); call shutdown() or set McpHttpConfig.shutdown_on_drop=True"
+            );
+            return;
+        }
+        self.shutdown_on_drop_inner();
+    }
 }
 
 #[pymethods]
@@ -44,9 +90,20 @@ impl PyServerHandle {
 
     /// Gracefully shut down the server.
     fn shutdown(&mut self) {
-        if let Some(handle) = self.inner.take() {
-            self.runtime.block_on(handle.shutdown());
-        }
+        self.shutdown_inner();
+    }
+
+    fn __enter__(slf: PyRefMut<'_, Self>) -> PyRefMut<'_, Self> {
+        slf
+    }
+
+    fn __exit__(
+        mut slf: PyRefMut<'_, Self>,
+        _exc_type: Py<PyAny>,
+        _exc: Py<PyAny>,
+        _tb: Py<PyAny>,
+    ) {
+        slf.shutdown_inner();
     }
 
     /// Signal shutdown without blocking.

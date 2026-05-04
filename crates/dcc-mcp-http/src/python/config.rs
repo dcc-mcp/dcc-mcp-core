@@ -82,6 +82,12 @@ use std::collections::HashMap;
         /// already usable.
         enable_workflows: bool => [get, set],
 
+        /// Best-effort safety net for Python callers that drop a
+        /// ``McpServerHandle`` without explicitly calling ``shutdown()``.
+        /// Default: ``False``. Prefer ``with server.start() as handle`` or
+        /// explicit ``handle.shutdown()`` for deterministic shutdown.
+        shutdown_on_drop: bool => [get, set],
+
         /// Emit the ``$/dcc.jobUpdated`` and ``$/dcc.workflowUpdated`` SSE
         /// channels (issue #326).
         ///
@@ -254,7 +260,7 @@ pub struct PyMcpHttpConfig {
 impl PyMcpHttpConfig {
     /// Create a new config. ``port=0`` binds to any available port.
     #[new]
-    #[pyo3(signature = (port=8765, server_name=None, server_version=None, enable_cors=false, request_timeout_ms=30000, backend_timeout_ms=120_000, enable_prometheus=false, prometheus_basic_auth=None, gateway_async_dispatch_timeout_ms=60_000, gateway_wait_terminal_timeout_ms=600_000, gateway_route_ttl_secs=86_400, gateway_max_routes_per_session=1_000))]
+    #[pyo3(signature = (port=8765, server_name=None, server_version=None, enable_cors=false, request_timeout_ms=30000, backend_timeout_ms=120_000, enable_prometheus=false, prometheus_basic_auth=None, gateway_async_dispatch_timeout_ms=60_000, gateway_wait_terminal_timeout_ms=600_000, gateway_route_ttl_secs=86_400, gateway_max_routes_per_session=1_000, shutdown_on_drop=false))]
     #[allow(clippy::too_many_arguments)]
     fn new(
         port: u16,
@@ -269,6 +275,7 @@ impl PyMcpHttpConfig {
         gateway_wait_terminal_timeout_ms: u64,
         gateway_route_ttl_secs: u64,
         gateway_max_routes_per_session: u64,
+        shutdown_on_drop: bool,
     ) -> Self {
         let mut cfg = McpHttpConfig::new(port);
         if let Some(name) = server_name {
@@ -286,6 +293,7 @@ impl PyMcpHttpConfig {
         cfg.gateway_wait_terminal_timeout_ms = gateway_wait_terminal_timeout_ms;
         cfg.gateway_route_ttl_secs = gateway_route_ttl_secs;
         cfg.gateway_max_routes_per_session = gateway_max_routes_per_session;
+        cfg.shutdown_on_drop = shutdown_on_drop;
         // Issue #303: PyO3-embedded hosts (Maya on Windows etc.) cannot
         // rely on shared tokio worker threads to drive the accept loop
         // after `block_on` returns. Default to `Dedicated` so the listener
@@ -532,6 +540,7 @@ mod drift_tests {
         let _ = cfg.lazy_actions();
         let _ = cfg.enable_workflows();
         let _ = cfg.enable_job_notifications();
+        let _ = cfg.shutdown_on_drop();
         let _ = cfg.job_storage_path();
         let _ = cfg.job_recovery();
 
