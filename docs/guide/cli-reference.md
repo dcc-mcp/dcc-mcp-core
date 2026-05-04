@@ -1,0 +1,234 @@
+# CLI Reference
+
+This repository ships three operator-facing binaries. This page is the
+single source of truth for every flag, every environment variable, and the
+five deployment scenarios they cover. Flags on each binary map 1:1 onto an
+`DCC_MCP_*` environment variable, so any deployment manifest can drive the
+same configuration surface.
+
+| Binary | Role | Source |
+|---|---|---|
+| [`dcc-mcp-server`](#dcc-mcp-server) | Per-DCC MCP + REST server, with an integrated auto-gateway. | `crates/dcc-mcp-server/` |
+| [`dcc-mcp-tunnel-relay`](#dcc-mcp-tunnel-relay) | Public-facing WebSocket relay for the zero-config remote tunnel (#504). | `crates/dcc-mcp-tunnel-relay/` |
+| [`dcc-mcp-tunnel-agent`](#dcc-mcp-tunnel-agent) | Local sidecar that registers with the relay and forwards MCP traffic. | `crates/dcc-mcp-tunnel-agent/` |
+
+Development helper binaries (`stub_gen`) are documented in
+[`AGENTS.md`](https://github.com/loonghao/dcc-mcp-core/blob/main/AGENTS.md).
+
+---
+
+## `dcc-mcp-server`
+
+Standalone server that runs one per-DCC MCP + REST server **and** competes
+for the shared gateway port. The first process to bind the gateway port
+wins the role; later arrivals still register themselves as regular DCC
+instances that the winner aggregates.
+
+### Core flags
+
+| Flag | Env | Default | Meaning |
+|---|---|---|---|
+| `--mcp-port` | `DCC_MCP_MCP_PORT` | `0` | MCP Streamable HTTP port. `0` = OS-assigned. |
+| `--ws-port` | `DCC_MCP_WS_PORT` | `9001` | WebSocket bridge port for non-Python DCC plugins. |
+| `--dcc` | `DCC_MCP_DCC` | `""` | DCC tag (`"maya"`, `"blender"`, `"photoshop"`, …). Feeds skill discovery + the registry row. |
+| `--skill-paths` | — | `[]` | Additional skill search paths (repeatable). |
+| `--server-name` | `DCC_MCP_SERVER_NAME` | `"dcc-mcp-server"` | Server name advertised to MCP clients. |
+| `--no-bridge` | — | `false` | Disable the WebSocket bridge; MCP HTTP only. |
+| `--host` | — | `127.0.0.1` | Host to bind to. |
+| `--pid-file` | — | — | Write the server PID to this file while running. |
+| `--force` | — | `false` | Overwrite an existing PID file even if it points at a live process. |
+| `--shutdown-timeout-secs` | `DCC_MCP_SHUTDOWN_TIMEOUT_SECS` | `10` | Graceful shutdown deadline. |
+
+### Gateway flags
+
+| Flag | Env | Default | Meaning |
+|---|---|---|---|
+| `--gateway-port` | `DCC_MCP_GATEWAY_PORT` | `9765` | Well-known port to compete for. `0` disables the gateway role entirely. |
+| `--gateway-cursor-safe-tool-names` | `DCC_MCP_GATEWAY_CURSOR_SAFE_TOOL_NAMES` | `true` | Emit cursor-safe `i_<id8>__<escaped>` names for fanned-out **prompts** (after PR A the gateway no longer fans out tools — this flag applies to prompts only). |
+| `--registry-dir` | `DCC_MCP_REGISTRY_DIR` | platform temp dir | Shared `FileRegistry` directory. |
+| `--stale-timeout-secs` | `DCC_MCP_STALE_TIMEOUT` | `30` | Seconds without heartbeat before an instance is considered stale. |
+| `--dcc-version` | `DCC_MCP_DCC_VERSION` | — | DCC version (e.g., `"2024.2"`); recorded in the registry. |
+| `--scene` | `DCC_MCP_SCENE` | — | Currently-open scene / document; recorded in the registry, used by multi-instance disambiguation. |
+| `--heartbeat-secs` | `DCC_MCP_HEARTBEAT_INTERVAL` | `5` | Heartbeat cadence in seconds. `0` disables. |
+
+> **Removed in PR A** — `--gateway-tool-exposure` /
+> `DCC_MCP_GATEWAY_TOOL_EXPOSURE` are gone. The gateway surface is now
+> unconditionally minimal (see `docs/guide/rest-api-surface.md`).
+
+### File-logging flags
+
+| Flag | Env | Default | Meaning |
+|---|---|---|---|
+| `--no-log-file` | `DCC_MCP_NO_LOG_FILE` | `false` | Disable the rotating file logger (stderr logging stays on). |
+| `--log-dir` | `DCC_MCP_LOG_DIR` | platform default | Log file directory. |
+| `--log-max-size` | `DCC_MCP_LOG_MAX_SIZE` | 10 MiB | Max bytes per log file before size-triggered rotation. |
+| `--log-max-files` | `DCC_MCP_LOG_MAX_FILES` | `7` | How many rolled files to retain. |
+| `--log-rotation` | `DCC_MCP_LOG_ROTATION` | `"both"` | Rotation policy: `size`, `daily`, `both`. |
+| `--log-file-prefix` | `DCC_MCP_LOG_FILE_PREFIX` | `"dcc-mcp"` | Filename prefix. Full filename: `<prefix>.<pid>.<YYYYMMDD>.log`. |
+| `--log-retention-days` | `DCC_MCP_LOG_RETENTION_DAYS` | `7` | Age-based retention. `0` disables. |
+| `--log-max-total-size-mb` | `DCC_MCP_LOG_MAX_TOTAL_SIZE_MB` | `100` | Total directory cap in MiB. `0` disables. |
+
+### Typical invocations
+
+```bash
+# 1) Single standalone server on an OS-assigned MCP port, no gateway.
+dcc-mcp-server --dcc maya --gateway-port 0
+
+# 2) Gateway-winner on a workstation with multiple DCCs.
+#    First terminal wins the gateway port, subsequent ones register as plain instances.
+dcc-mcp-server --dcc maya --server-name maya-shotgun-alpha \
+               --scene /shots/ep101/sh0200/shot.ma \
+               --log-dir /var/log/dcc-mcp
+
+# 3) Workstation-wide gateway listening on 0.0.0.0 (careful: auth is
+#    localhost-only by default; install BearerTokenGate before exposing).
+dcc-mcp-server --dcc generic --host 0.0.0.0 \
+               --mcp-port 9765 \
+               --registry-dir /var/lib/dcc-mcp
+```
+
+---
+
+## `dcc-mcp-tunnel-relay`
+
+Public-facing WebSocket relay that accepts registrations from local tunnel
+agents and forwards multiplexed MCP sessions from remote AI assistants.
+
+Build with `cargo build --bin dcc-mcp-tunnel-relay --features bin`.
+
+| Flag | Env | Default | Meaning |
+|---|---|---|---|
+| `--jwt-secret-file` | `DCC_MCP_TUNNEL_RELAY_JWT_SECRET_FILE` | **required** | Path to a file containing the HS256 JWT secret. ≥32 bytes in production (`openssl rand -base64 48`). The file is read so the bytes never appear in `ps` output. |
+| `--public-host` | `DCC_MCP_TUNNEL_RELAY_PUBLIC_HOST` | `localhost` | Public hostname embedded in minted tunnel URLs (ends up in the JWT `iss` claim). |
+| `--base-url` | `DCC_MCP_TUNNEL_RELAY_BASE_URL` | `ws://localhost:9870` | WebSocket base URL; prepended to per-tunnel paths in `RegisterAck.public_url`. |
+| `--agent-bind` | `DCC_MCP_TUNNEL_RELAY_AGENT_BIND` | `0.0.0.0:9870` | TCP bind for the agent control plane. |
+| `--frontend-bind` | `DCC_MCP_TUNNEL_RELAY_FRONTEND_BIND` | `0.0.0.0:9871` | TCP bind for the remote-client frontend. |
+| `--ws-frontend-bind` | `DCC_MCP_TUNNEL_RELAY_WS_FRONTEND_BIND` | — | Optional WebSocket frontend bind (`/tunnel/<id>` upgrade). Omit to disable. |
+| `--admin-bind` | `DCC_MCP_TUNNEL_RELAY_ADMIN_BIND` | — | Optional read-only admin endpoint bind (`GET /tunnels`, `GET /healthz`). Omit to disable. |
+| `--stale-timeout-secs` | `DCC_MCP_TUNNEL_RELAY_STALE_TIMEOUT_SECS` | `30` | Seconds without heartbeat before a tunnel is evicted from the registry. |
+| `--max-tunnels` | `DCC_MCP_TUNNEL_RELAY_MAX_TUNNELS` | `0` | Hard cap on simultaneously-registered tunnels. `0` disables the cap. |
+
+Shutdown: SIGINT / SIGTERM (or Ctrl+C on Windows) drains the accept loops
+and waits for live sessions to close.
+
+```bash
+dcc-mcp-tunnel-relay \
+    --jwt-secret-file /etc/dcc-mcp/tunnel-secret \
+    --public-host relay.example.com \
+    --base-url wss://relay.example.com \
+    --agent-bind 0.0.0.0:9870 \
+    --frontend-bind 0.0.0.0:9871 \
+    --ws-frontend-bind 0.0.0.0:9880 \
+    --admin-bind 127.0.0.1:9877
+```
+
+---
+
+## `dcc-mcp-tunnel-agent`
+
+Local sidecar that registers with a relay and bridges per-session traffic
+to a local DCC MCP server. Keeps the connection alive across transient
+failures with a configurable reconnect policy.
+
+Build with `cargo build --bin dcc-mcp-tunnel-agent --features bin`.
+
+| Flag | Env | Default | Meaning |
+|---|---|---|---|
+| `--relay-url` | `DCC_MCP_TUNNEL_AGENT_RELAY_URL` | **required** | Relay WebSocket URL (`wss://relay.example.com`). |
+| `--token-file` | `DCC_MCP_TUNNEL_AGENT_TOKEN_FILE` | **required** | Path to the bearer JWT file (minted by `dcc_mcp_tunnel_protocol::auth::issue`). |
+| `--dcc` | `DCC_MCP_TUNNEL_AGENT_DCC` | **required** | DCC tag this agent identifies with; must be in the JWT's `allowed_dcc` list. |
+| `--local-target` | `DCC_MCP_TUNNEL_AGENT_LOCAL_TARGET` | **required** | Local MCP HTTP server address (`host:port`) to bridge to. |
+| `--heartbeat-secs` | `DCC_MCP_TUNNEL_AGENT_HEARTBEAT_SECS` | `10` | Heartbeat cadence. Stay comfortably under the relay's `--stale-timeout-secs`. |
+| `--reconnect-policy` | `DCC_MCP_TUNNEL_AGENT_RECONNECT_POLICY` | `exponential` | `constant` or `exponential`. |
+| `--reconnect-initial-secs` | `DCC_MCP_TUNNEL_AGENT_RECONNECT_INITIAL_SECS` | `2` | Exponential: first-retry delay. |
+| `--reconnect-max-secs` | `DCC_MCP_TUNNEL_AGENT_RECONNECT_MAX_SECS` | `60` | Exponential: hard cap on retry delay. |
+| `--reconnect-constant-secs` | `DCC_MCP_TUNNEL_AGENT_RECONNECT_CONSTANT_SECS` | `5` | Constant: flat delay. |
+| `--capabilities` | `DCC_MCP_TUNNEL_AGENT_CAPABILITIES` | `[]` | Comma-separated capability tags forwarded to remote clients via `/tunnels`. |
+
+A non-retryable `Rejected` error (bad JWT, DCC-type mismatch) exits the
+process with a non-zero code so supervisors don't restart-loop on a
+misconfiguration.
+
+```bash
+dcc-mcp-tunnel-agent \
+    --relay-url wss://relay.example.com \
+    --token-file ~/.config/dcc-mcp/tunnel.jwt \
+    --dcc maya \
+    --local-target 127.0.0.1:8765 \
+    --heartbeat-secs 10 \
+    --reconnect-policy exponential \
+    --reconnect-initial-secs 2 \
+    --reconnect-max-secs 60
+```
+
+---
+
+## Deployment scenarios
+
+### Scenario 1 — Embedded in a DCC host
+
+The Maya / Blender / Houdini plug-in loads `dcc_mcp_core` into the host's
+Python interpreter and calls `create_skill_server()` directly. No external
+binary involved. Most end-user deployments look like this.
+
+See `examples/host_adapter_template.py` for the plug-in skeleton.
+
+### Scenario 2 — Standalone per-DCC server
+
+One `dcc-mcp-server` process per workstation launched by the DCC supervisor
+or by a user autostart. Covers headless studios running things like
+`mayapy` batch or a Python-only renderer that still wants to expose
+capabilities via MCP + REST.
+
+```bash
+dcc-mcp-server --dcc maya --scene /shots/ep101/sh0200/shot.ma
+```
+
+### Scenario 3 — Gateway aggregating multiple DCC servers
+
+Multiple `dcc-mcp-server` processes on the same workstation. The first one
+binds the gateway port `9765` and aggregates the others. Everything else
+connects to `127.0.0.1:9765/mcp` (or `/v1/*`) and gets every DCC through
+one endpoint.
+
+Example manifests: `examples/compose/gateway-ha/` and
+`examples/k8s/gateway-ha/`.
+
+### Scenario 4 — Remote relay + tunnel agent
+
+The public relay runs on an operator-owned host; each artist workstation
+runs an agent that registers with it. SaaS AI clients (Claude.ai, Cursor
+desktop behind an enterprise firewall, etc.) connect to the relay's
+frontend and get forwarded to the workstation's local MCP server.
+
+```bash
+# On the relay host (public internet):
+dcc-mcp-tunnel-relay \
+    --jwt-secret-file /etc/dcc-mcp/tunnel-secret \
+    --public-host relay.example.com \
+    --base-url wss://relay.example.com
+
+# On the artist's workstation:
+dcc-mcp-tunnel-agent \
+    --relay-url wss://relay.example.com \
+    --token-file ~/.config/dcc-mcp/tunnel.jwt \
+    --dcc maya --local-target 127.0.0.1:8765
+```
+
+Mint JWTs with `dcc_mcp_tunnel_protocol::auth::issue`; scope them per
+artist / per DCC via the `allowed_dcc` claim.
+
+### Scenario 5 — CI / test harness
+
+Integration tests spin up an in-process `McpHttpServer` and hit its
+`/v1/*` endpoints directly. No external binary; no gateway.
+
+See `crates/dcc-mcp-skill-rest/src/tests.rs` and
+`crates/dcc-mcp-http/tests/http/` for reference patterns.
+
+---
+
+## Related reading
+
+- [REST API surface](rest-api-surface.md) — the `/v1/*` contract.
+- [Gateway diagnostics](gateway-diagnostics.md) — how to read logs + metrics when multiple servers contend for the gateway.
