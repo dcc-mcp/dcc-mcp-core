@@ -140,6 +140,10 @@ struct Args {
     #[arg(long, default_value = "false")]
     force: bool,
 
+    /// Seconds to wait for graceful shutdown before exiting.
+    #[arg(long, env = "DCC_MCP_SHUTDOWN_TIMEOUT_SECS", default_value = "10")]
+    shutdown_timeout_secs: u64,
+
     // ── Gateway ──
     /// Gateway port to compete for. First instance to bind wins the gateway.
     /// 0 = gateway disabled entirely.
@@ -439,6 +443,43 @@ async fn run_ws_bridge(port: u16, server_name: String, server_version: String) {
     }
 }
 
+// ── shutdown signals ─────────────────────────────────────────────────────────
+
+async fn select_shutdown_signal() -> anyhow::Result<&'static str> {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+        let mut sigterm = signal(SignalKind::terminate())?;
+        let mut sighup = signal(SignalKind::hangup())?;
+        tokio::select! {
+            result = tokio::signal::ctrl_c() => {
+                result?;
+                Ok("ctrl_c")
+            }
+            _ = sigterm.recv() => Ok("sigterm"),
+            _ = sighup.recv() => Ok("sighup"),
+        }
+    }
+    #[cfg(windows)]
+    {
+        let mut ctrl_break = tokio::signal::windows::ctrl_break()?;
+        let mut ctrl_shutdown = tokio::signal::windows::ctrl_shutdown()?;
+        tokio::select! {
+            result = tokio::signal::ctrl_c() => {
+                result?;
+                Ok("ctrl_c")
+            }
+            _ = ctrl_break.recv() => Ok("ctrl_break"),
+            _ = ctrl_shutdown.recv() => Ok("ctrl_shutdown"),
+        }
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        tokio::signal::ctrl_c().await?;
+        Ok("ctrl_c")
+    }
+}
+
 // ── main ──────────────────────────────────────────────────────────────────────
 
 #[tokio::main]
@@ -669,17 +710,22 @@ async fn main() -> anyhow::Result<()> {
         tokio::spawn(async move { run_ws_bridge(ws_port, sn, sv).await });
     }
 
-    // ── Wait for Ctrl+C ───────────────────────────────────────────────────
+    // ── Wait for shutdown signal ──────────────────────────────────────────
 
-    tokio::signal::ctrl_c().await?;
-    tracing::info!("Shutting down…");
+    let shutdown_reason = select_shutdown_signal().await?;
+    tracing::info!(shutdown_reason, "Shutdown signal received");
 
     if is_gateway {
         tracing::info!("Gateway port released");
     }
     // gw_handle dropped here — aborts heartbeat, cleanup, and gateway tasks automatically
+    drop(gw_handle);
 
-    handle.shutdown().await;
+    let deadline = Duration::from_secs(args.shutdown_timeout_secs);
+    match tokio::time::timeout(deadline, handle.shutdown()).await {
+        Ok(()) => tracing::info!("Graceful shutdown complete"),
+        Err(_) => tracing::error!(?deadline, "Graceful shutdown exceeded deadline, exiting"),
+    }
     if let Some(guard) = pid_file_guard.as_mut() {
         guard.remove_now();
     }
