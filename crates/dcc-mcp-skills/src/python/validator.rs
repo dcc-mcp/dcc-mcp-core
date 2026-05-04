@@ -64,6 +64,7 @@ impl From<SkillValidationIssue> for PySkillValidationIssue {
 }
 
 /// Register Python bindings for the validator module.
+#[allow(dead_code)]
 pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PySkillValidationIssue>()?;
     m.add_class::<PySkillValidationReport>()?;

@@ -1155,6 +1155,7 @@ in `legacy_extension_fields`).
 | `tools: [...]` inline block     | `metadata["dcc-mcp.tools"]`                  | sibling `.yaml` file  |
 | `groups: [...]` inline block    | `metadata["dcc-mcp.groups"]`                 | sibling `.yaml` file  |
 | *(MCP prompts primitive)*       | `metadata["dcc-mcp.prompts"]`                | sibling `.yaml` file or `prompts/*.prompt.yaml` glob |
+| *(MCP resources primitive)*     | `metadata["dcc-mcp.resources"]`              | sibling `.yaml` file, directory, or `resources/*.resource.yaml` glob |
 
 ### Priority rules
 
@@ -1186,6 +1187,7 @@ Concrete applications (shipped or in flight):
 | Tool declarations + groups | `metadata["dcc-mcp.tools"]`, `metadata["dcc-mcp.groups"]` | `tools.yaml` | #356 |
 | Workflow specs | `metadata["dcc-mcp.workflows"]` | `workflows/*.workflow.yaml` | #348 |
 | Prompts / templates | `metadata["dcc-mcp.prompts"]` | `prompts/*.prompt.yaml` | #351, #355 |
+| Static MCP resources | `metadata["dcc-mcp.resources"]` | `resources/*.resource.yaml` | #733 |
 | Example dialogues | `metadata["dcc-mcp.examples"]` | `references/EXAMPLES.md` or `examples/*.md` | (future) |
 | Tool annotation packs | `metadata["dcc-mcp.annotations"]` | `annotations.yaml` or carried in `tools.yaml` | #344 |
 | next-tools behaviour chains | (carried inline inside `tools.yaml`) | n/a — never a top-level SKILL.md field | #342 |
@@ -1201,6 +1203,10 @@ my-skill/
 │   └── nightly_cleanup.workflow.yaml
 ├── prompts/                 # many files — one per prompt template
 │   └── review_scene.prompt.yaml
+├── resources/               # many files — one per MCP resource bundle
+│   ├── cmds_help.resource.yaml
+│   └── help/
+│       └── polySphere.txt
 └── references/              # Markdown reference material (agentskills.io standard)
     ├── EXAMPLES.md
     └── REFERENCE.md
@@ -1220,6 +1226,36 @@ Why the rule holds:
 If a feature you are designing can't fit this pattern, that is a
 signal to write a proposal under `docs/proposals/` and discuss the
 frontmatter impact before implementing.
+
+### Declaring static MCP resources
+
+A skill can expose static reference material through MCP `resources/list`
+and `resources/read` without Python glue. Point `metadata.dcc-mcp.resources`
+at a resources directory, glob, or single YAML file:
+
+```yaml
+metadata:
+  dcc-mcp:
+    resources: resources/
+```
+
+Each `.resource.yaml` file may contain one resource, a top-level list, or a
+`resources:` list. Static file resources use paths relative to the YAML file:
+
+```yaml
+resources:
+  - uri: maya-cmds://help/polySphere
+    name: cmds.polySphere help
+    mimeType: text/plain
+    description: Output of cmds.help('polySphere') captured at skill build time.
+    source:
+      type: file
+      path: help/polySphere.txt
+```
+
+Loaded skills contribute these entries to `resources/list`; `resources/read`
+returns text for `text/*`, JSON, YAML, XML, and JavaScript MIME types, and a
+base64 `blob` for other MIME types.
 
 ## Validating Skills
 
