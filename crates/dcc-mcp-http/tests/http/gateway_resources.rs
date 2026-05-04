@@ -548,15 +548,26 @@ async fn gateway_resources_subscribe_propagates_updated_frame_within_deadline() 
     let gw_url = format!("http://127.0.0.1:{gw_port}/mcp");
     let client = reqwest::Client::new();
 
-    // 1. Discover backend B's prefixed scene URI.
+    // 1. Discover backend B's prefixed scene URI. Both A and B publish
+    //    a `scene://` resource and the gateway does not filter A's
+    //    self-row out when its DCC listener is on a different port than
+    //    the gateway facade (that filter is host:port based). Pick the
+    //    resource whose `_dcc_type` annotation says `blender` so we
+    //    target B specifically — subscribing to A's self-scene would
+    //    race against the gateway-owner's per-session fan-out.
     let list_reply = post_rpc(&client, &gw_url, "resources/list", None, 1).await;
     let resources = resources_from_reply(&list_reply);
     let prefixed_scene = resources
         .iter()
-        .filter_map(|r| r.get("uri").and_then(Value::as_str))
-        .find(|u| u.starts_with("scene://") && id8_from_prefixed(u).is_some())
-        .unwrap_or_else(|| panic!("no prefixed scene URI: {resources:#?}"))
-        .to_owned();
+        .find(|r| {
+            r.get("uri")
+                .and_then(Value::as_str)
+                .map(|u| u.starts_with("scene://") && id8_from_prefixed(u).is_some())
+                .unwrap_or(false)
+                && r.get("_dcc_type").and_then(Value::as_str) == Some("blender")
+        })
+        .and_then(|r| r.get("uri").and_then(Value::as_str).map(str::to_owned))
+        .unwrap_or_else(|| panic!("no prefixed scene URI for backend B: {resources:#?}"));
 
     // 2. Open an SSE stream on the gateway with a stable session id,
     //    then consume frames on a background task.
