@@ -1,133 +1,199 @@
 # 什么是 DCC-MCP-Core？
 
-DCC-MCP-Core 是 DCC（数字内容创建）Model Context Protocol (MCP) 生态系统的**基础 Rust 库（含 Python 绑定）**。它使 AI 助手能够通过统一的高性能接口与 DCC 软件（Maya、Blender、Houdini、3ds Max 等）进行交互。
+**DCC-MCP-Core** 是一套 Rust 基础库（含 Python 绑定），把 DCC（数字内容创作）软件中的"能力"—— Maya、Blender、Houdini、Photoshop、ZBrush、Unreal、Unity、Figma 等 ——分层暴露给两类消费者：
 
-基于 **Rust 核心**，通过 [PyO3](https://pyo3.rs/) 和 [maturin](https://github.com/PyO3/maturin) 编译为 Python 扩展模块，将 Rust 的性能与线程安全和 Python 的易用性相结合。
+- **AI 助手** → 通过**少量、固定、可渐进发现**的 **MCP 工具**（`search_skills` / `load_skill` / `search_tools` / `describe_tool` / `call_tool` …）。
+- **传统调用方** →（cURL / CI / 任意 HTTP 客户端）通过**完整的 `/v1/*` REST 服务**。
 
-## 核心工作流程
+底层是 Rust，通过 [PyO3](https://pyo3.rs/) + [maturin](https://github.com/PyO3/maturin) 编译成一个 Python 扩展模块。零 Python 运行时依赖。
+
+---
+
+## 核心工作流程（2026-05 更新）
 
 ```mermaid
 flowchart LR
-    AI([AI 助手]):::aiNode
-    MCP{{MCP 服务器}}:::serverNode
-    Core{{DCC-MCP-Core}}:::coreNode
-    DCC[/DCC 软件/]:::dccNode
+    subgraph Author["Skill 作者"]
+      direction TB
+      SKILL[(SKILL.md + scripts/)]:::yaml
+      SCAN[scan_and_load]:::rust
+      CAT[SkillCatalog]:::rust
+      SKILL --> SCAN --> CAT
+    end
 
-    AI -->|1. 请求| MCP
-    MCP -->|2. 发现 Actions| Core
-    Core -->|3. 在 DCC 中执行| DCC
-    DCC -->|4. 结果| Core
-    Core -->|5. 结构化结果| MCP
-    MCP -->|6. 响应| AI
+    subgraph Runtime["运行时"]
+      direction TB
+      PERDCC["per-DCC 服务 (REST + 轻量 MCP)"]:::server
+      GW["网关 (最小 MCP + REST 汇聚)"]:::server
+      CAT --> PERDCC
+      PERDCC --> GW
+    end
 
-    classDef aiNode fill:#f9d,stroke:#f06,stroke-width:2px,color:#333
-    classDef serverNode fill:#bbf,stroke:#66f,stroke-width:2px,color:#333
-    classDef coreNode fill:#fbb,stroke:#f66,stroke-width:2px,color:#333
-    classDef dccNode fill:#bfb,stroke:#6b6,stroke-width:2px,color:#333
+    AGENT([AI 助手]):::client
+    TRAD([cURL / CI / 传统后端]):::client
+
+    AGENT -->|MCP: search_tools<br/>describe_tool<br/>call_tool| GW
+    TRAD -->|REST: POST /v1/search<br/>/describe /call| GW
+    TRAD -.->|直连 per-DCC REST| PERDCC
+    GW -->|/v1/call 路由到具体 DCC| PERDCC
+
+    classDef yaml fill:#fff3b0,stroke:#bb9,color:#333
+    classDef rust fill:#fbb,stroke:#f66,color:#333
+    classDef server fill:#bbf,stroke:#66f,color:#333
+    classDef client fill:#f9d,stroke:#f06,color:#333
 ```
+
+**关键架构决策**：
+
+1. **MCP 表面最小化（#657/#674，PR A 落地）** —— 网关的 `tools/list` **永远**只返回发现+派发的基础工具集，不管连了多少 DCC。per-action 的后端工具通过 `search_tools` / `describe_tool` / `call_tool` 动态发现和调用，绝不在 `tools/list` 里扇出。
+2. **REST 是调用面** —— 每个 per-DCC 服务都暴露完整的 `/v1/*` REST API，网关也把同样形状作为汇聚面板暴露。任何语言、任何客户端都能直接调用，不需要 MCP 协议栈。
+3. **单一契约** —— 网关 MCP 的 `call_tool` 和 REST `POST /v1/call` 走同一条 `call_service` 代码路径，输入/输出 envelope 完全一致（由 OpenAPI snapshot 测试锁定）。
+4. **渐进式发现** —— Agent 按需付费：`search_skills` → `load_skill` → `search_tools` → `describe_tool` → `call_tool`。
+
+---
 
 ## 核心特性
 
-- **ToolRegistry** — 线程安全的 Action 注册、搜索和版本管理
-- **SkillCatalog** — 渐进式 Skill 发现与加载；脚本通过 SKILL.md 自动注册为 MCP 工具（v0.12.10 起支持 Skills-First 架构）
-- **EventBus** — DCC 生命周期事件的发布/订阅系统
-- **MCP HTTP 服务器** — 符合 2025-03-26 规范的流式 HTTP 服务器，将 DCC 工具暴露给 AI 客户端
-- **MCP 协议类型** — Tools、Resources、Prompts 和 Annotations 的类型安全定义
-- **传输层** — DCC 通信的连接池、服务发现和会话管理（TCP、命名管道、Unix Socket）
-- **共享内存** — DCC 与 Agent 进程之间的零拷贝场景数据传输
-- **进程管理** — DCC 进程启动、监控和崩溃恢复
-- **遥测** — 基于 OpenTelemetry 的追踪与指标基础设施
-- **沙箱** — AI 操作的安全策略、输入验证和审计日志
-- **截图捕获** — DCC 视口截图捕获
-- **USD 桥接** — 通过 OpenUSD Stage 进行场景交换
-- **类型包装器** — RPyC 安全包装器（BooleanWrapper、IntWrapper、FloatWrapper、StringWrapper）
-- **零 Python 运行时依赖** — 纯 Rust 核心编译为原生 Python 扩展
+- **Skills-First** —— 任何脚本目录带上一个 `SKILL.md`（agentskills.io 1.0 + `metadata.dcc-mcp.*` 扩展）就能自动注册成 MCP 工具和 REST 路由。
+- **最小 MCP 网关** —— `tools/list` 是静态的少量工具，缓存一次。上下文占用随 DCC 数量变化为 0。
+- **per-DCC REST** —— `/v1/healthz`、`/v1/readyz`（三态 Ready / Booting / Unreachable）、`/v1/search`、`/v1/describe`、`/v1/call`、`/v1/context`、`/v1/openapi.json`。完整的 OpenAPI 3.x。
+- **多 DCC 网关汇聚** —— 文件型服务注册表 + TCP 心跳探测，自动剔除 3 连失败的实例、清理 ghost 行，基于 `crate_version → adapter_version → adapter_dcc` 的三级选举仲裁。
+- **Tool Slug 契约** —— `<dcc>.<id8>.<tool>` 三段 slug 是唯一的全局寻址方式，网关据此路由 `call_tool` 到正确的后端。
+- **Tunnel（#504）** —— `dcc-mcp-tunnel-relay` + `dcc-mcp-tunnel-agent` 两个可执行二进制，让远程 AI 客户端直接访问工作站上的 DCC。
+- **PyO3 绑定** —— Rust 加速的一切从 Python 透明可用；零 Python 运行时依赖。
+
+---
 
 ## 架构
 
-DCC-MCP-Core 是一个包含 **24 个子 crate（+ workspace-hack）** 的 Rust workspace，通过 maturin 编译为单一 Python 扩展模块 `dcc_mcp_core._core`：
+仓库是一个 30 个 crate 的 Rust workspace（29 功能 crate + workspace-hack），由 maturin 编译成单一 Python 扩展 `dcc_mcp_core._core`：
 
 ```
 dcc-mcp-core/
-├── src/lib.rs                  # PyO3 模块入口点 (_core)
+├── src/lib.rs                       # PyO3 模块入口 (_core)
 ├── crates/
-│   ├── dcc-mcp-models/         # ToolResult, SkillMetadata, ToolDeclaration
-│   ├── dcc-mcp-actions/        # ToolRegistry, EventBus, Pipeline, Dispatcher, Validator
-│   ├── dcc-mcp-skills/         # SkillScanner, SkillCatalog, SkillWatcher, Resolver
-│   ├── dcc-mcp-protocols/      # MCP 类型：ToolDefinition, ResourceDefinition, Prompt, DccAdapter
-│   ├── dcc-mcp-transport/      # IPC (ipckit), DccLinkFrame, IpcChannelAdapter, SocketServerAdapter
-│   ├── dcc-mcp-process/        # PyDccLauncher, ProcessMonitor, CrashRecovery
-│   ├── dcc-mcp-telemetry/      # ToolRecorder, ToolMetrics, TelemetryConfig
-│   ├── dcc-mcp-sandbox/        # SandboxPolicy, SandboxContext, AuditLog, InputValidator
-│   ├── dcc-mcp-shm/            # PySharedBuffer, PyBufferPool, PySharedSceneBuffer
-│   ├── dcc-mcp-capture/        # Capturer, CaptureFrame
-│   ├── dcc-mcp-usd/            # UsdStage, UsdPrim, VtValue, SdfPath
-│   ├── dcc-mcp-http/           # McpHttpServer, McpHttpConfig, McpServerHandle, Gateway
-│   ├── dcc-mcp-server/         # dcc-mcp-server CLI, Gateway runner
-│   ├── dcc-mcp-logging/      # 文件日志（原 dcc-mcp-utils 拆分）
-│   ├── dcc-mcp-paths/        # 平台路径帮助函数（原 dcc-mcp-utils 拆分）
-│   └── dcc-mcp-pybridge/     # PyO3 帮助函数（原 dcc-mcp-utils 拆分）
+│   ├── dcc-mcp-models/              # ToolResult, SkillMetadata, ToolDeclaration
+│   ├── dcc-mcp-actions/             # ToolRegistry, EventBus, Pipeline, Dispatcher, Validator
+│   ├── dcc-mcp-skills/              # SkillScanner, SkillCatalog, SkillWatcher
+│   ├── dcc-mcp-protocols/           # MCP 类型定义
+│   ├── dcc-mcp-jsonrpc/             # JSON-RPC 构造器与分发（#484 / #492）
+│   ├── dcc-mcp-transport/           # FileRegistry、IPC、WebSocket 桥
+│   ├── dcc-mcp-process/             # 启动 / 监控 / 崩溃恢复
+│   ├── dcc-mcp-telemetry/           # Prometheus exporter
+│   ├── dcc-mcp-sandbox/             # 安全策略与审计
+│   ├── dcc-mcp-shm/                 # 跨进程零拷贝场景缓冲
+│   ├── dcc-mcp-capture/             # 视口截图
+│   ├── dcc-mcp-usd/                 # USD Stage 桥
+│   ├── dcc-mcp-job/                 # DCC 作业调度核心
+│   ├── dcc-mcp-host/                # DccServerBase 主机骨架
+│   ├── dcc-mcp-workflow/            # YAML 声明式工作流
+│   ├── dcc-mcp-scheduler/           # cron / 定时器
+│   ├── dcc-mcp-artefact/            # 工具之间的文件/数据交接
+│   ├── dcc-mcp-http/                # McpHttpServer, McpHttpConfig
+│   ├── dcc-mcp-skill-rest/          # per-DCC REST 路由(`/v1/*`)
+│   ├── dcc-mcp-gateway/             # 多实例网关 + 最小 MCP 表面
+│   ├── dcc-mcp-server/              # `dcc-mcp-server` CLI
+│   ├── dcc-mcp-tunnel-protocol/     # 隧道帧格式 + JWT
+│   ├── dcc-mcp-tunnel-relay/        # `dcc-mcp-tunnel-relay` CLI + 库
+│   ├── dcc-mcp-tunnel-agent/        # `dcc-mcp-tunnel-agent` CLI + 库
+│   ├── dcc-mcp-logging/             # 文件日志 + 滚动策略
+│   ├── dcc-mcp-paths/               # 平台路径帮助函数
+│   ├── dcc-mcp-pybridge/            # PyO3 工具
+│   ├── dcc-mcp-naming/              # SEP-986 工具名校验
+│   └── workspace-hack/              # cargo-hakari 统一特性
 └── python/
     └── dcc_mcp_core/
-        ├── __init__.py          # 从 _core 重导出约 140 个公开符号
-        ├── skill.py             # 纯 Python Skill 脚本辅助（无 _core 依赖）
-        └── _core.pyi            # 所有公开 API 的类型存根
+        ├── __init__.py              # 从 _core 重导出公共 API
+        ├── constants.py             # METADATA_*, LAYER_*, CATEGORY_*（#487）
+        ├── result_envelope.py       # ToolResult 工厂（#487）
+        ├── _server/                 # DccServerBase 协作者（#486）
+        └── _core.pyi                # 所有公开 API 的类型桩
 ```
+
+---
 
 ## Python API 概览
 
-所有公开 API 均可从顶层包 `dcc_mcp_core` 访问；AI agent 优先阅读 `llms.txt` 获取精简索引，需要完整索引时再读 `llms-full.txt`：
+所有公共 API 都能从顶层 `dcc_mcp_core` 直接导入。AI Agent 建议先读 [`llms.txt`](https://github.com/loonghao/dcc-mcp-core/blob/main/llms.txt)（精简索引），再按需翻 [`llms-full.txt`](https://github.com/loonghao/dcc-mcp-core/blob/main/llms-full.txt)（完整索引）：
 
 ```python
 from dcc_mcp_core import (
+    # Skills-First 入口
+    DccServerBase, create_skill_server,
+    SkillCatalog, SkillMetadata, ToolDeclaration,
+    scan_and_load, scan_and_load_lenient, scan_and_load_strict,
+    scan_and_load_team, scan_and_load_user,
+
+    # 结果封装（#487）
+    ToolResult, success_result, error_result,
+    skill_success_with_chart, skill_success_with_table, skill_success_with_image,
+
+    # 元数据常量（#487）
+    METADATA_DCC_MCP, METADATA_RECIPES_KEY, METADATA_WORKFLOWS_KEY,
+    LAYER_THIN_HARNESS, LAYER_INFRASTRUCTURE, LAYER_DOMAIN, LAYER_EXAMPLE,
+    CATEGORY_DIAGNOSTICS, CATEGORY_FEEDBACK,
+
     # Actions
     ToolRegistry, ToolDispatcher, ToolPipeline, ToolValidator,
     ToolRecorder, ToolMetrics, EventBus,
-    ToolResult, success_result, error_result,
-
-    # Skills — Skills-First 架构
-    SkillCatalog, SkillSummary, SkillMetadata, ToolDeclaration,
-    SkillScanner, SkillWatcher, scan_and_load,
 
     # MCP HTTP 服务器
-    McpHttpServer, McpHttpConfig,
+    McpHttpServer, McpHttpConfig, MinimalModeConfig,
 
-    # 传输层
-    IpcChannelAdapter, GracefulIpcChannelAdapter, SocketServerAdapter, DccLinkFrame,
+    # 渐进式加载与生命周期
+    register_quit_hook, check_dcc_cancelled, check_cancelled,
+    BaseDccCallableDispatcherFull, HostExecutionBridge, DeferredToolResult,
+
+    # 多 DCC 网关
+    DccGatewayElection,
 
     # 协议类型
     ToolDefinition, ToolAnnotations, ResourceDefinition, PromptDefinition,
 
-    # 共享内存
-    PySharedSceneBuffer, PySharedBuffer, PyBufferPool,
-
-    # 进程管理
-    PyDccLauncher, PyProcessWatcher, PyCrashRecoveryPolicy,
-
-    # 遥测
-    TelemetryConfig, is_telemetry_initialized,
-
-    # 沙箱
-    SandboxPolicy, SandboxContext, InputValidator, AuditLog,
-
-    # 截图捕获
-    Capturer, CaptureFrame,
-
-    # USD
-    UsdStage, UsdPrim, VtValue, SdfPath,
+    # 其他领域
+    IpcChannelAdapter, PySharedSceneBuffer,
+    Capturer, CaptureFrame, UsdStage, UsdPrim,
 )
 ```
 
-完整的符号说明请参阅 [API 参考](/zh/api/actions)。
+完整符号清单见 [API 参考](/zh/api/actions)。
 
-## 版本与 Python 支持
+---
+
+## 最近的破坏性更改（2026-05）
+
+> 这一节专门给升级中的调用方。完整历史见 [`CHANGELOG.md`](https://github.com/loonghao/dcc-mcp-core/blob/main/CHANGELOG.md)。
+
+| 变更 | 影响 | 迁移 |
+|---|---|---|
+| **网关 MCP 表面收敛** | `GatewayToolExposure` 枚举、`tool_exposure` / `publishes_backend_tools` 配置、`--gateway-tool-exposure` CLI 标志全部移除 | 删掉对应代码/配置/环境变量；网关现在只有一种（最小）表面 |
+| **删除 SKILL.md flat-form 解析** | `metadata: { "dcc-mcp.dcc": ... }` 不再填充典型字段 | 改用 nested form：`metadata: { dcc-mcp: { dcc: ... } }` |
+| **删除 `register_dcc_api_docs` / `DccApiDoc*`** | 相关 Python API 不再存在 | 用 `register_docs_resource()` 替代 |
+| **拒绝顶层 SKILL.md 扩展键** | `recipes:`、`workflows:` 等在 frontmatter 顶层不再被接受 | 移到 `metadata.dcc-mcp.*` 命名空间 |
+| **IPC 处理程序重命名（#486）** | `get_action_metrics` → `get_tool_metrics`，`dispatch_action` → `dispatch_tool` | 更新 IPC 调用方 |
+
+---
+
+## 版本 / 语言支持
 
 - **当前版本**：0.14.28 <!-- x-release-please-version -->
-- **Python**：3.7–3.13（abi3-py38 wheel，CI 全版本测试）
-- **Rust**：Edition 2024，MSRV 1.85
-- **构建**：maturin + PyO3；零运行时 Python 依赖
+- **Python**：3.7–3.13（`abi3-py38` wheel）
+- **Rust**：Edition 2024；MSRV 见仓库根 `rust-toolchain.toml`
+- **构建**：maturin + PyO3
+
+---
+
+## 下一步
+
+- [REST API 接入指南](/zh/guide/rest-api-surface) —— `/v1/search`、`/v1/describe`、`/v1/call`、`tool_slug` 格式、OpenAPI snapshot
+- [CLI 参考](/zh/guide/cli-reference) —— `dcc-mcp-server`、`dcc-mcp-tunnel-relay`、`dcc-mcp-tunnel-agent` 的完整旗标 + 典型部署场景
+- [网关争用与调试](/zh/guide/gateway-diagnostics) —— 多实例竞争、选举、心跳、ghost 清除、故障排查手册
+- [`AGENTS.md`](https://github.com/loonghao/dcc-mcp-core/blob/main/AGENTS.md) —— AI Agent 接入核心规则
+- [`AI_AGENT_GUIDE.md`](https://github.com/loonghao/dcc-mcp-core/blob/main/AI_AGENT_GUIDE.md) —— AI Agent 使用 dcc-mcp-core 的最佳实践
 
 ## 相关项目
 
-- [dcc-mcp-rpyc](https://github.com/loonghao/dcc-mcp-rpyc) — 远程 DCC 操作的 RPyC 桥接
-- [dcc-mcp-maya](https://github.com/loonghao/dcc-mcp-maya) — Maya MCP 服务器实现
+- [dcc-mcp-maya](https://github.com/loonghao/dcc-mcp-maya) — Maya 适配器
+- [dcc-mcp-blender](https://github.com/loonghao/dcc-mcp-blender) — Blender 适配器
+- [dcc-mcp-houdini](https://github.com/loonghao/dcc-mcp-houdini) — Houdini 适配器
+- [dcc-mcp-photoshop](https://github.com/loonghao/dcc-mcp-photoshop) — Photoshop 适配器
