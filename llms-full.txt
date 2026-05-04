@@ -2856,8 +2856,9 @@ Point SKILL.md at sibling workflow YAML files via a single metadata key:
 name: vendor-intake
 description: "Nightly vendor intake; import, QC, export, handoff."
 metadata:
-  dcc-mcp.workflows: "workflows/*.workflow.yaml"
-  dcc-mcp.workflows.search-hint: "vendor intake, nightly cleanup"
+  dcc-mcp:
+    workflows: "workflows/*.workflow.yaml"
+    workflows.search-hint: "vendor intake, nightly cleanup"
 ---
 ```
 
