@@ -7,8 +7,6 @@ from typing import Any
 
 import dcc_mcp_core
 from dcc_mcp_core import AdapterInstructionSet
-from dcc_mcp_core import DccApiDocEntry
-from dcc_mcp_core import DccApiDocIndex
 from dcc_mcp_core import DccContextSnapshot
 from dcc_mcp_core import DccToolsetProfile
 from dcc_mcp_core import ResponseShapePolicy
@@ -17,7 +15,6 @@ from dcc_mcp_core import VisualFeedbackPolicy
 from dcc_mcp_core import append_context_snapshot
 from dcc_mcp_core import build_visual_feedback_context
 from dcc_mcp_core import register_adapter_instruction_resources
-from dcc_mcp_core import register_dcc_api_docs
 from dcc_mcp_core import shape_response
 from dcc_mcp_core.server_base import DccServerBase
 
@@ -38,10 +35,7 @@ def test_adapter_context_symbols_exported() -> None:
         "ResponseShapePolicy",
         "DccToolsetProfile",
         "ToolsetProfileRegistry",
-        "DccApiDocEntry",
-        "DccApiDocIndex",
         "register_adapter_instruction_resources",
-        "register_dcc_api_docs",
     ):
         assert hasattr(dcc_mcp_core, name)
         assert name in dcc_mcp_core.__all__
@@ -124,24 +118,6 @@ def test_toolset_profile_registry_tracks_active_profiles() -> None:
     assert names == ["modeling-basic", "rendering"]
     registry.deactivate("modeling-basic")
     assert [profile.name for profile in registry.active_profiles()] == ["rendering"]
-
-
-def test_api_docs_index_search_and_resource_registration() -> None:
-    server = _FakeServer()
-    index = DccApiDocIndex(
-        "blender",
-        [
-            DccApiDocEntry("bpy.ops.mesh.primitive_cube_add", "Add a cube", tags=("mesh",)),
-            DccApiDocEntry("bpy.ops.wm.quit_blender", "Quit Blender", tags=("dangerous",)),
-        ],
-        version="4.0",
-    )
-
-    results = index.search("cube")
-    assert results[0]["symbol"] == "bpy.ops.mesh.primitive_cube_add"
-    uris = register_dcc_api_docs(server, index)
-    assert "docs://adapter/blender/api/index" in uris
-    assert "docs://adapter/blender/api/bpy.ops.mesh.primitive_cube_add" in uris
 
 
 def test_dcc_server_base_snapshot_and_instruction_wrappers() -> None:
