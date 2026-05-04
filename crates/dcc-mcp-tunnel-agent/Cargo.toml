@@ -7,6 +7,11 @@ authors.workspace = true
 license.workspace = true
 description = "Local sidecar that bridges a DCC's MCP HTTP server to a public dcc-mcp-tunnel-relay (issue #504). Maintains the WebSocket leg, handles per-session multiplexing, reconnects on transient failures."
 
+[[bin]]
+name = "dcc-mcp-tunnel-agent"
+path = "src/bin/dcc-mcp-tunnel-agent.rs"
+required-features = ["bin"]
+
 [dependencies]
 dcc-mcp-tunnel-protocol = { workspace = true }
 
@@ -16,3 +21,11 @@ tracing = { workspace = true }
 tokio = { workspace = true }
 dashmap = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+# Binary-only dependencies, gated behind the `bin` feature.
+anyhow = { workspace = true, optional = true }
+clap = { version = "4", features = ["derive", "env"], optional = true }
+tracing-subscriber = { workspace = true, optional = true }
+
+[features]
+bin = ["dep:anyhow", "dep:clap", "dep:tracing-subscriber"]

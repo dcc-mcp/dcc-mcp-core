@@ -1227,12 +1227,15 @@ dependencies = [
 name = "dcc-mcp-tunnel-agent"
 version = "0.14.28"
 dependencies = [
+ "anyhow",
+ "clap",
  "dashmap",
  "dcc-mcp-tunnel-protocol",
  "serde",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+ "tracing-subscriber",
  "workspace-hack",
 ]
 
@@ -1252,7 +1255,9 @@ dependencies = [
 name = "dcc-mcp-tunnel-relay"
 version = "0.14.28"
 dependencies = [
+ "anyhow",
  "axum",
+ "clap",
  "dashmap",
  "dcc-mcp-tunnel-agent",
  "dcc-mcp-tunnel-protocol",
@@ -1265,6 +1270,7 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "tracing",
+ "tracing-subscriber",
  "uuid",
  "workspace-hack",
 ]
