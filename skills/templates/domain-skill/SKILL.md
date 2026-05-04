@@ -16,53 +16,12 @@ metadata:
   # (e.g. "usd stage", "ffmpeg", "git commit").
   dcc-mcp.search-hint: "intent keyword 1, intent keyword 2, task phrase 3"
   dcc-mcp.tags: "maya, your-category, domain"
-# Declare infrastructure skills this domain skill depends on.
-# Load them before loading this skill.
-depends:
-  - dcc-diagnostics   # always required for on-failure chains
-  # - usd-tools       # uncomment if tools export USD
-tools:
-  - name: primary_action
-    description: >-
-      <What this tool does in one sentence>. <When to call it>.
-      Returns <what the output looks like>.
-    input_schema:
-      type: object
-      required: [required_param]
-      properties:
-        required_param:
-          type: string
-          description: "<≤100 chars description>"
-        optional_param:
-          type: number
-          description: "<≤100 chars description>"
-          default: 1.0
-    read_only: false
-    destructive: false
-    idempotent: false
-    source_file: scripts/primary_action.py
-    next-tools:
-      # Point to the next logical step on success.
-      on-success: []
-      # Always point to diagnostics on failure so the agent can recover.
-      on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
-
-  - name: read_only_query
-    description: >-
-      <What this tool queries>. Returns <structured output>.
-      Safe to call without side effects.
-    input_schema:
-      type: object
-      properties:
-        filter:
-          type: string
-          description: "Optional filter string"
-    read_only: true
-    idempotent: true
-    source_file: scripts/read_only_query.py
-    next-tools:
-      on-success: [my_domain_skill__primary_action]
-      on-failure: [dcc_diagnostics__audit_log]
+  dcc-mcp.tools: tools.yaml
+  # Declare infrastructure skills this domain skill depends on.
+  # Load them before loading this skill.
+  dcc-mcp.depends: "dcc-diagnostics"
+  # Uncomment when tools export USD:
+  # dcc-mcp.depends: "dcc-diagnostics, usd-tools"
 ---
 
 # my-domain-skill
