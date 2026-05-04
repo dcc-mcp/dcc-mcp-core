@@ -54,10 +54,11 @@ def create_sphere(radius: float = 1.0, name: str | None = None):
         sphere = cmds.polySphere(r=radius, n=name)[0]
         return success_result(
             message=f"已创建球体：{sphere}",
-            context={"object_name": sphere, "radius": radius}
+            object_name=sphere,
+            radius=radius,
         )
     except Exception as e:
-        return error_result(str(e))
+        return error_result("创建球体失败", str(e))
 ```
 
 ### 第三步：通过环境变量注册并启动

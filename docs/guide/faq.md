@@ -44,7 +44,7 @@ Python 3.7–3.13 are tested in CI. Wheels are built with `abi3-py38` for maximu
 pip install dcc-mcp-core
 ```
 
-**From source (requires Rust 1.85+ and maturin):**
+**From source (requires Rust 1.95+ and maturin):**
 ```bash
 git clone https://github.com/loonghao/dcc-mcp-core.git
 cd dcc-mcp-core
@@ -90,7 +90,7 @@ print(result["output"])  # {"name": "sphere1"}
 from dcc_mcp_core import success_result, error_result, from_exception
 
 # Success
-result = success_result("Sphere created", context={"name": "sphere1"})
+result = success_result("Sphere created", name="sphere1")
 print(result.success)   # True
 print(result.context)   # {"name": "sphere1"}
 
@@ -344,7 +344,7 @@ Please open an issue on [GitHub](https://github.com/loonghao/dcc-mcp-core/issues
 
 See the [CONTRIBUTING.md](https://github.com/loonghao/dcc-mcp-core/blob/main/CONTRIBUTING.md) guide. Key steps:
 
-1. Install Rust 1.85+ and Python 3.8+
+1. Install Rust 1.95+ and Python 3.8+
 2. Clone the repository
 3. Run `vx just dev` to build and install in dev mode
 4. Run `vx just test` to run the test suite

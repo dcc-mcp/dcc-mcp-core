@@ -45,36 +45,49 @@ flowchart LR
 
 ## Architecture
 
-DCC-MCP-Core is a Rust workspace with **14 sub-crates**, compiled into a single Python extension module `dcc_mcp_core._core` via maturin:
+DCC-MCP-Core is a Rust workspace with **30 workspace members** (29 functional crates + `workspace-hack`), compiled into a single Python extension module `dcc_mcp_core._core` via maturin:
 
 ```
 dcc-mcp-core/
 ├── src/lib.rs                  # PyO3 module entry point (_core)
 ├── crates/
-│   ├── dcc-mcp-models/         # ToolResult, SkillMetadata, ToolDeclaration
-│   ├── dcc-mcp-actions/        # ToolRegistry, EventBus, Pipeline, Dispatcher, Validator
+│   ├── dcc-mcp-models/         # ToolResult, SkillMetadata, DccName, shared errors
+│   ├── dcc-mcp-actions/        # ToolRegistry, EventBus, Dispatcher, Validator
 │   ├── dcc-mcp-skills/         # SkillScanner, SkillCatalog, SkillWatcher, Resolver
-│   ├── dcc-mcp-protocols/      # MCP types: ToolDefinition, ResourceDefinition, Prompt, DccAdapter
-│   ├── dcc-mcp-transport/      # IPC (ipckit), DccLinkFrame, IpcChannelAdapter, SocketServerAdapter
-│   ├── dcc-mcp-process/        # PyDccLauncher, ProcessMonitor, CrashRecovery
-│   ├── dcc-mcp-telemetry/      # ToolRecorder, ToolMetrics, TelemetryConfig
-│   ├── dcc-mcp-sandbox/        # SandboxPolicy, SandboxContext, AuditLog, InputValidator
-│   ├── dcc-mcp-shm/            # PySharedBuffer, PyBufferPool, PySharedSceneBuffer
-│   ├── dcc-mcp-capture/        # Capturer, CaptureFrame
-│   ├── dcc-mcp-usd/            # UsdStage, UsdPrim, VtValue, SdfPath
-│   ├── dcc-mcp-http/           # McpHttpServer, McpHttpConfig, McpServerHandle, Gateway
+│   ├── dcc-mcp-protocols/      # MCP Tool/Resource/Prompt/DccAdapter models
+│   ├── dcc-mcp-jsonrpc/        # MCP 2025-03-26 JSON-RPC wire types
+│   ├── dcc-mcp-job/            # Async jobs + optional persistence
+│   ├── dcc-mcp-skill-rest/     # Per-DCC /v1/* REST skill API
+│   ├── dcc-mcp-gateway/        # Multi-DCC gateway + capability index
+│   ├── dcc-mcp-http/           # Embedded MCP Streamable HTTP server core
 │   ├── dcc-mcp-server/         # Binary entry point, gateway runner
-│   └── dcc-mcp-utils/          # Filesystem, constants, type wrappers, JSON helpers
+│   ├── dcc-mcp-logging/        # Rolling file logging
+│   ├── dcc-mcp-paths/          # Platform path helpers
+│   ├── dcc-mcp-pybridge*/      # PyO3 helper crates
+│   ├── dcc-mcp-transport/      # IPC transport and channel adapters
+│   ├── dcc-mcp-process/        # Launch, monitor, crash recovery
+│   ├── dcc-mcp-telemetry/      # Tool metrics and recorders
+│   ├── dcc-mcp-sandbox/        # SandboxPolicy, validation, audit log
+│   ├── dcc-mcp-shm/            # Shared memory buffers
+│   ├── dcc-mcp-capture/        # Screen/window capture
+│   ├── dcc-mcp-usd/            # USD scene description bridge
+│   ├── dcc-mcp-workflow/       # WorkflowCatalog and YAML workflows
+│   ├── dcc-mcp-scheduler/      # ScheduleSpec, TriggerSpec, scheduler service
+│   ├── dcc-mcp-artefact/       # FileRef and content-addressed handoff
+│   ├── dcc-mcp-host/           # Host execution bridge contracts
+│   └── dcc-mcp-tunnel-*/       # Remote MCP tunnel protocol, relay, and agent
 └── python/
     └── dcc_mcp_core/
-        ├── __init__.py          # Re-exports ~140 public symbols from _core
+        ├── __init__.py          # Top-level public re-exports
         ├── skill.py             # Pure-Python skill script helpers
-        └── _core.pyi            # Type stubs for all public APIs
+        ├── result_envelope.py   # Typed ToolResult helpers
+        └── py.typed             # PEP 561 marker
+        # _core.pyi is generated after a stub-gen/dev build, not checked in
 ```
 
 ## Python API Surface
 
-All public APIs are available from the top-level `dcc_mcp_core` package. The library exports ~140 public symbols across 14 domains:
+All public APIs are available from the top-level `dcc_mcp_core` package. Use `llms.txt` for the compact AI-facing index and `llms-full.txt` for the complete index before falling back to source inspection:
 
 ```python
 from dcc_mcp_core import (

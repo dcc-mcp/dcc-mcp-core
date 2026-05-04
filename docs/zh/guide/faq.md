@@ -62,7 +62,7 @@ Python 3.7–3.13 在 CI 中全部测试。使用 `abi3-py38` 构建 wheel 以�
 pip install dcc-mcp-core
 ```
 
-**从源码编译（需要 Rust 1.85+ 和 maturin）：**
+**从源码编译（需要 Rust 1.95+ 和 maturin）：**
 ```bash
 git clone https://github.com/loonghao/dcc-mcp-core.git
 cd dcc-mcp-core
@@ -108,7 +108,7 @@ print(result["output"])  # {"name": "sphere1"}
 from dcc_mcp_core import success_result, error_result, from_exception
 
 # 成功
-result = success_result("球体已创建", context={"name": "sphere1"})
+result = success_result("球体已创建", name="sphere1")
 print(result.success)   # True
 print(result.context)   # {"name": "sphere1"}
 
@@ -363,7 +363,7 @@ cfg.init()
 
 参阅 [CONTRIBUTING.md](https://github.com/loonghao/dcc-mcp-core/blob/main/CONTRIBUTING.md)。关键步骤：
 
-1. 安装 Rust 1.85+ 和 Python 3.8+
+1. 安装 Rust 1.95+ 和 Python 3.8+
 2. 克隆仓库
 3. 运行 `vx just dev` 以开发模式构建安装
 4. 运行 `vx just test` 执行测试套件

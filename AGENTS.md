@@ -1,7 +1,10 @@
 # AGENTS.md — dcc-mcp-core
 
 > **Navigation map, not a reference manual.**
-> Follow the links; don't read everything upfront.
+> Follow the links; don't read everything upfront. Keep detailed API guidance
+> in `llms.txt` / `llms-full.txt` and detailed human-readable explanations in
+> `docs/guide/*`. Agent-specific files (`CLAUDE.md`, `GEMINI.md`, `COPILOT.md`,
+> `CODEBUDDY.md`) intentionally point back here.
 > Detailed rules, traps, and code examples → [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md)
 
 **🤖 New to this project?** Start with [`AI_AGENT_GUIDE.md`](AI_AGENT_GUIDE.md) — a dedicated guide teaching AI agents how to effectively use dcc-mcp-core.
@@ -75,11 +78,18 @@
 ### 🎯 Skills-First Workflow (MEMORIZE THIS)
 
 ```
+Per-DCC MCP server:
 1. Discover: search_skills(query="keyword") → find the right skill
 2. Activate: load_skill("skill-name") → expose the tools
-3. Execute: Call the specific tool with validated parameters
-4. Follow up: Check next-tools.on-success for suggested next steps
-5. Debug on failure: Use dcc_diagnostics__screenshot or audit_log
+3. Execute: call the specific tool with validated parameters
+4. Follow up: check next-tools.on-success for suggested next steps
+5. Debug on failure: use dcc_diagnostics__screenshot or audit_log
+
+Gateway / slim / REST exposure:
+1. Discover: search_tools(query="keyword", dcc_type="maya") → get tool_slug
+2. Inspect: describe_tool(tool_slug) → read schema + annotations
+3. Execute: call_tool(tool_slug, arguments={...})
+4. For non-MCP clients, use the matching /v1/search, /v1/describe, /v1/call REST endpoints.
 ```
 
 ### Multi-DCC Guardrails
@@ -102,9 +112,10 @@
 
 **API surface** — read in this order:
 1. 🆕 **[`AI_AGENT_GUIDE.md`](AI_AGENT_GUIDE.md)** — **START HERE** for using dcc-mcp-core effectively
-2. `python/dcc_mcp_core/__init__.py` — every public symbol
-3. `python/dcc_mcp_core/_core.pyi` — parameter names and types
-4. `llms.txt` — compressed version of (2)+(3)
+2. `llms.txt` — compact AI-friendly API index
+3. `llms-full.txt` — complete AI-friendly API index
+4. `python/dcc_mcp_core/__init__.py` — every top-level Python re-export
+5. Generated stub `python/dcc_mcp_core/_core.pyi` — parameter names/types after a `stub-gen` or development build; do not treat it as checked-in source of truth
 
 ---
 
@@ -241,15 +252,14 @@ Full trap list + code examples → [`docs/guide/agents-reference.md`](docs/guide
 ## Repo Layout (What Lives Where)
 
 ```
-crates/          # Rust — 21 crates
-python/dcc_mcp_core/__init__.py  # ← every public symbol
-python/dcc_mcp_core/_core.pyi   # ← parameter names & types
+crates/          # Rust workspace — 30 members including workspace-hack; `Cargo.toml` is source of truth
+python/dcc_mcp_core/__init__.py  # ← top-level Python public re-exports
 python/dcc_mcp_core/result_envelope.py  # ← typed ToolResult dataclass (#487)
 python/dcc_mcp_core/constants.py        # ← metadata key / layer / category constants (#487)
 python/dcc_mcp_core/_server/            # ← DccServerBase collaborators (observability, skill_query, window_resolver) (#486)
-tests/           # 120+ integration tests
-examples/skills/ # 13 complete SKILL.md packages
-docs/            # guides + API reference
+tests/           # integration/regression tests
+examples/skills/ # 15 complete SKILL.md packages
+docs/            # human-readable guides + API reference
 ```
 
 ---

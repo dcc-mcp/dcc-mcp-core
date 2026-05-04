@@ -74,7 +74,7 @@ facade 抖动都会浪费 socket 并塞满重连日志。
 
 1. **所有 fan-out 路径都排除自身。** `GatewayState::live_instances`
    会跳过 `(host, port)` 等于 Gateway 自身绑定地址的行，使用
-   `crates/dcc-mcp-http/src/gateway/sentinel.rs` 中的
+   `crates/dcc-mcp-gateway/src/gateway/sentinel.rs` 中的
    `is_own_instance` 辅助函数。该函数将 localhost 别名
    （`localhost` / `::1` / `0.0.0.0` / `[::]`）规范化为
    `127.0.0.1`，这样即便适配器把 host 写成 `"localhost"`，当
@@ -91,10 +91,10 @@ facade 抖动都会浪费 socket 并塞满重连日志。
 
 | 组件 | 文件 |
 |------|------|
-| 订阅管理器、重连循环 | `crates/dcc-mcp-http/src/gateway/sse_subscriber.rs` |
-| 每会话 SSE 管道 | `crates/dcc-mcp-http/src/gateway/handlers.rs` (`handle_gateway_get`) |
-| `tools/call` 关联钩子 | `crates/dcc-mcp-http/src/gateway/aggregator.rs` (`route_tools_call`) |
-| 订阅观察者 | `crates/dcc-mcp-http/src/gateway/mod.rs` (`backend_sub_handle`) |
+| 订阅管理器、重连循环 | `crates/dcc-mcp-gateway/src/gateway/sse_subscriber.rs` |
+| 每会话 SSE 管道 | `crates/dcc-mcp-gateway/src/gateway/handlers/` (`handle_gateway_get`) |
+| `tools/call` 关联钩子 | `crates/dcc-mcp-gateway/src/gateway/aggregator.rs` (`route_tools_call`) |
+| 订阅观察者和运行时任务 | `crates/dcc-mcp-gateway/src/gateway/tasks.rs` |
 
 ## 从 Gateway 等待终止结果 (#321)
 

@@ -76,7 +76,7 @@ dcc-mcp-core/
 
 ## Python API 概览
 
-所有公开 API 均可从顶层包 `dcc_mcp_core` 访问，包含约 275 个公开符号，跨越 24 个领域：
+所有公开 API 均可从顶层包 `dcc_mcp_core` 访问；AI agent 优先阅读 `llms.txt` 获取精简索引，需要完整索引时再读 `llms-full.txt`：
 
 ```python
 from dcc_mcp_core import (

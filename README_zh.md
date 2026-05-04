@@ -117,7 +117,7 @@ AI 友好文档：[AGENTS.md](AGENTS.md) · [`docs/guide/agents-reference.md`](d
 # 从 PyPI 安装（Python 3.7+ 预构建 wheel）
 pip install dcc-mcp-core
 
-# 从源码构建（需要 Rust 1.85+）
+# 从源码构建（需要 Rust 1.95+）
 git clone https://github.com/loonghao/dcc-mcp-core.git
 cd dcc-mcp-core
 vx just dev           # 推荐 —— 使用项目标准 feature 集合
@@ -433,13 +433,13 @@ tools/list 响应（Maya 会话、尚未加载任何 skill）：
 - **屏幕捕获** —— 全屏或单窗口（HWND `PrintWindow`）视口捕获，供 AI 视觉反馈。
 - **USD 集成** —— Universal Scene Description 读写桥。
 - **结构化遥测** —— 追踪、录制，可选 Prometheus `/metrics` 导出器。
-- **~180 个公开 Python 符号** —— 带完整类型 stub（`python/dcc_mcp_core/_core.pyi`）。
+- **~180 个公开 Python 符号** —— 通过顶层重导出提供；`_core.pyi` 是 stub-gen/dev 构建后的生成产物，不是手写源码。
 
 ---
 
-## 架构总览 —— 18 个 Rust crate
+## 架构总览 —— 30 个 Workspace 成员
 
-`dcc-mcp-core` 组织为 **18 crate 的 Rust workspace**，通过 PyO3 / maturin 编译为单个原生 Python 扩展（`_core`）：
+`dcc-mcp-core` 组织为 **30 个成员的 Rust workspace**（29 个功能 crate + `workspace-hack`），通过 PyO3 / maturin 编译为单个原生 Python 扩展（`_core`）。精选 crate：
 
 | Crate | 职责 | 关键类型 |
 |---|---|---|
@@ -460,7 +460,11 @@ tools/list 响应（Maya 会话、尚未加载任何 skill）：
 | `dcc-mcp-workflow` | 工作流引擎（可选） | `WorkflowSpec`、`WorkflowExecutor`、`WorkflowHost`、`StepPolicy`、`RetryPolicy` |
 | `dcc-mcp-scheduler` | Cron + Webhook 调度器（可选） | `ScheduleSpec`、`TriggerSpec`、`SchedulerService`、HMAC 校验 |
 | `dcc-mcp-artefact` | 内容寻址 artefact 存储 | `FileRef`、`FilesystemArtefactStore`、`InMemoryArtefactStore` |
-| `dcc-mcp-utils` | 基础设施 | 文件系统辅助、类型封装、常量、JSON |
+| `dcc-mcp-logging` | 滚动文件日志 | `FileLoggingConfig`、日志保留辅助函数 |
+| `dcc-mcp-paths` | 平台路径辅助 | cache/config/data 目录辅助函数 |
+| `dcc-mcp-pybridge` | PyO3 桥接辅助 | repr/to-dict 宏、JSON/YAML bridge |
+| `dcc-mcp-host` | Host execution bridge | 面向 adapter 的执行契约 |
+| `dcc-mcp-tunnel-*` | Remote MCP relay | tunnel protocol、relay、本地 agent |
 
 ---
 

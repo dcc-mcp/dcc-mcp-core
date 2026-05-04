@@ -617,7 +617,7 @@ When adding a Rust type/function that needs to be callable from Python:
 2. Add `#[pyclass]` / `#[pymethods]` bindings in the crate's `python.rs`
 3. Register in `src/lib.rs` via the appropriate `register_*()` function
 4. Re-export in `python/dcc_mcp_core/__init__.py` (import + add to `__all__`)
-5. Add stub to `python/dcc_mcp_core/_core.pyi`
+5. Re-export in the generated stub by running the stub generation/dev build (`cargo run --bin stub_gen --features stub-gen` or the project build path); `_core.pyi` is generated output, not hand-edited source
 6. Add tests in `tests/test_<module>.py`
 7. Run `vx just dev` to rebuild, then `vx just test`
 
@@ -886,7 +886,7 @@ gateway from stale or hostile FileRegistry state:
 When you add new gauges, put the metric definition in
 `crates/dcc-mcp-telemetry/src/prometheus.rs` (so non-gateway consumers
 can reuse it) and the wiring in
-`crates/dcc-mcp-http/src/gateway/metrics.rs` (so it stays behind the
+`crates/dcc-mcp-gateway/src/gateway/metrics.rs` (so it stays behind the
 `prometheus` cfg gate).
 
 ### Gateway Async-Dispatch + Wait-For-Terminal (issue #321)
@@ -932,7 +932,7 @@ Wire-level contract:
 
 Implementation notes for maintainers:
 
-- Detection helpers live in `crates/dcc-mcp-http/src/gateway/aggregator.rs`
+- Detection helpers live in `crates/dcc-mcp-gateway/src/gateway/aggregator.rs`
   (`meta_signals_async_dispatch`, `meta_wants_wait_for_terminal`,
   `strip_gateway_meta_flags`).
 - The per-job broadcast bus is owned by `SubscriberManager`
