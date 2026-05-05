@@ -667,6 +667,42 @@ pub struct QueueConfig {
     /// Default: `2_000` ms. Override via
     /// `--queue-send-timeout-ms=<N>` / `MCP_QUEUE_SEND_TIMEOUT_MS`.
     pub queue_send_timeout_ms: u64,
+
+    // ── Issue #771: framework-enforced payload size limits ────────────────
+    /// Maximum allowed size (bytes) for an incoming request body (issue #771).
+    ///
+    /// Enforced via `tower_http::limit::RequestBodyLimitLayer` at the axum
+    /// router level. Requests exceeding this size are rejected with
+    /// `413 Payload Too Large` before the JSON-RPC layer even sees the body.
+    ///
+    /// Default: `4_194_304` (4 MiB). Override via
+    /// `MCP_MAX_REQUEST_BODY_BYTES`.
+    pub max_request_body_bytes: usize,
+
+    /// Maximum content size (bytes) for a single resource, prompt, or tool
+    /// call result before the response is truncated (issue #771).
+    ///
+    /// When a response payload exceeds this limit the server wraps it in a
+    /// `TruncationEnvelope`:
+    /// ```json
+    /// {"content": "...", "truncated": true, "original_size": N, "truncated_size": M}
+    /// ```
+    ///
+    /// Default: `1_048_576` (1 MiB). Override via
+    /// `MCP_MAX_RESPONSE_CONTENT_BYTES`.
+    pub max_response_content_bytes: usize,
+
+    /// Target chunk size (bytes) for SSE event payloads (issue #771).
+    ///
+    /// Large SSE events are automatically split into sequential `chunk` /
+    /// `chunk_end` events so that a single oversized event cannot stall the
+    /// connection's read loop on the client side.
+    ///
+    /// Set to `0` to disable SSE chunking.
+    ///
+    /// Default: `65_536` (64 KiB). Override via
+    /// `MCP_SSE_CHUNK_SIZE_BYTES`.
+    pub sse_chunk_size_bytes: usize,
 }
 
 impl Default for QueueConfig {
@@ -676,6 +712,10 @@ impl Default for QueueConfig {
             bridge_queue_depth: 16,
             host_queue_depth: 0,
             queue_send_timeout_ms: 2_000,
+            // #771: payload size limits and SSE chunking
+            max_request_body_bytes: 4 * 1024 * 1024, // 4 MiB
+            max_response_content_bytes: 1024 * 1024, // 1 MiB
+            sse_chunk_size_bytes: 64 * 1024,         // 64 KiB
         }
     }
 }
@@ -712,6 +752,34 @@ impl QueueConfig {
             s.queue_send_timeout_ms = v;
         }
         s
+    }
+
+    /// Builder: set the maximum request body size (issue #771).
+    ///
+    /// Requests larger than `bytes` are rejected with 413 at the axum router
+    /// level via `tower_http::limit::RequestBodyLimitLayer`.
+    pub fn with_max_request_body_bytes(mut self, bytes: usize) -> Self {
+        self.max_request_body_bytes = bytes;
+        self
+    }
+
+    /// Builder: set the maximum response content size before truncation
+    /// (issue #771).
+    ///
+    /// Resource, prompt and tool-call responses larger than `bytes` are
+    /// wrapped in a [`TruncationEnvelope`](crate::payload::TruncationEnvelope).
+    pub fn with_max_response_content_bytes(mut self, bytes: usize) -> Self {
+        self.max_response_content_bytes = bytes;
+        self
+    }
+
+    /// Builder: set the SSE chunking threshold (issue #771).
+    ///
+    /// SSE events larger than `bytes` are split into sequential
+    /// `chunk` / `chunk_end` frames. Set to `0` to disable chunking.
+    pub fn with_sse_chunk_size_bytes(mut self, bytes: usize) -> Self {
+        self.sse_chunk_size_bytes = bytes;
+        self
     }
 }
 
@@ -1209,5 +1277,26 @@ mod tests {
             std::env::remove_var("MCP_QUEUE_DISPATCHER_CAP");
             std::env::remove_var("MCP_QUEUE_SEND_TIMEOUT_MS");
         }
+    }
+
+    /// Issue #771: payload size limits have sane defaults.
+    #[test]
+    fn payload_limits_default_values() {
+        let cfg = McpHttpConfig::new(8765);
+        assert_eq!(cfg.max_request_body_bytes, 4 * 1024 * 1024);
+        assert_eq!(cfg.max_response_content_bytes, 1024 * 1024);
+        assert_eq!(cfg.sse_chunk_size_bytes, 64 * 1024);
+    }
+
+    /// Issue #771: builder methods override the defaults.
+    #[test]
+    fn payload_limits_builders_override_defaults() {
+        let cfg = McpHttpConfig::new(8765)
+            .with_max_request_body_bytes(8 * 1024 * 1024)
+            .with_max_response_content_bytes(512 * 1024)
+            .with_sse_chunk_size_bytes(32 * 1024);
+        assert_eq!(cfg.max_request_body_bytes, 8 * 1024 * 1024);
+        assert_eq!(cfg.max_response_content_bytes, 512 * 1024);
+        assert_eq!(cfg.sse_chunk_size_bytes, 32 * 1024);
     }
 }

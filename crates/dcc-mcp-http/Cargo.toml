@@ -49,7 +49,7 @@ tokio-util = { version = "0.7", features = ["rt"] }
 # the heavy `h2` crate — keep it disabled for faster builds.
 axum = { version = "0.8", features = ["http1", "tokio"] }
 tower = { version = "0.5", features = ["util"] }
-tower-http = { version = "0.6", features = ["cors", "trace"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "limit"] }
 http = "1.0"
 futures = "0.3"
 tokio-stream = { version = "0.1", features = ["sync", "tokio-util"] }
