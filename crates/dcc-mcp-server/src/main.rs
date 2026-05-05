@@ -77,7 +77,7 @@ use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::time::Duration;
 
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use dcc_mcp_actions::{ActionDispatcher, ActionRegistry};
 use dcc_mcp_http::gateway::{GatewayConfig, GatewayRunner};
 use dcc_mcp_http::{McpHttpConfig, McpHttpServer};
@@ -85,13 +85,15 @@ use dcc_mcp_logging::file_logging::prune_old_logs;
 use dcc_mcp_skills::SkillCatalog;
 use dcc_mcp_transport::discovery::types::ServiceEntry;
 use sysinfo::{Pid, ProcessesToUpdate, System};
-
 // ── CLI ───────────────────────────────────────────────────────────────────────
 
 /// DCC-MCP server with integrated auto-gateway.
 #[derive(Debug, Parser)]
 #[command(name = "dcc-mcp-server", about, version)]
 struct Args {
+    /// Catalog subcommand (search or describe).
+    #[command(subcommand)]
+    catalog_cmd: Option<CatalogCommand>,
     /// MCP Streamable HTTP server port. Default 0 = OS-assigned.
     #[arg(long, env = "DCC_MCP_MCP_PORT", default_value = "0")]
     mcp_port: u16,
@@ -230,6 +232,59 @@ struct Args {
     /// Maximum total log directory size in MiB (0 = disable size pruning). Default: 100.
     #[arg(long, env = "DCC_MCP_LOG_MAX_TOTAL_SIZE_MB", value_name = "MB")]
     log_max_total_size_mb: Option<u32>,
+}
+
+// ── Catalog subcommands ───────────────────────────────────────────────────────
+
+/// Catalog subcommand: query the public DCC-MCP catalog.
+#[derive(Debug, Subcommand)]
+enum CatalogCommand {
+    /// Catalog commands.
+    Catalog {
+        #[command(subcommand)]
+        action: CatalogAction,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum CatalogAction {
+    /// Search the catalog by keyword (name, description, DCC type, tags).
+    Search {
+        /// Keyword to search for. Omit to list all entries.
+        #[arg(long, default_value = "")]
+        query: String,
+    },
+    /// Show full details for a single catalog entry by exact name.
+    Describe {
+        /// Exact catalog entry name (e.g. dcc-mcp-maya-skills).
+        #[arg(long)]
+        name: String,
+    },
+}
+
+fn run_catalog_cmd(action: &CatalogAction) -> anyhow::Result<()> {
+    let catalog_path = if let Ok(p) = std::env::var("DCC_MCP_CATALOG_PATH") {
+        PathBuf::from(p)
+    } else {
+        PathBuf::from("dcc-mcp-catalog.yml")
+    };
+
+    let entries = dcc_mcp_catalog::load_from_file(&catalog_path)?;
+
+    match action {
+        CatalogAction::Search { query } => {
+            let hits = dcc_mcp_catalog::search(&entries, query);
+            println!("{}", serde_json::to_string_pretty(&hits)?);
+        }
+        CatalogAction::Describe { name } => match dcc_mcp_catalog::describe(&entries, name) {
+            Some(entry) => println!("{}", serde_json::to_string_pretty(&entry)?),
+            None => {
+                eprintln!("catalog entry '{}' not found", name);
+                std::process::exit(1);
+            }
+        },
+    }
+    Ok(())
 }
 
 struct PidFileGuard {
@@ -492,6 +547,11 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let args = Args::parse();
+
+    // Dispatch catalog subcommand without starting the server.
+    if let Some(CatalogCommand::Catalog { action }) = &args.catalog_cmd {
+        return run_catalog_cmd(action);
+    }
 
     if let (Some(path), Some(pid)) = (args.pid_cleanup_watch.clone(), args.watch_pid) {
         run_pid_cleanup_watcher(path, pid);

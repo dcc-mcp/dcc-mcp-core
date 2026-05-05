@@ -579,6 +579,70 @@ pub async fn tool_diagnostics_tool_metrics(
     .map_err(|e| e.to_string())
 }
 
+/// `dcc_catalog__search` — search the public DCC-MCP catalog by keyword.
+///
+/// Accepts an optional `query` string; an empty / absent query returns all
+/// entries.  Results are sorted by name and serialised as a JSON array.
+pub fn tool_catalog_search(args: &Value) -> Result<String, String> {
+    let query = args
+        .get("query")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+
+    let catalog_path = catalog_yml_path();
+    let entries = dcc_mcp_catalog::load_from_file(&catalog_path)
+        .map_err(|e| format!("catalog load error: {e}"))?;
+
+    let mut hits = dcc_mcp_catalog::search(&entries, query);
+    hits.sort_by(|a, b| a.name.cmp(&b.name));
+
+    serde_json::to_string_pretty(&json!({
+        "total": hits.len(),
+        "query": query,
+        "entries": hits,
+    }))
+    .map_err(|e| e.to_string())
+}
+
+/// `dcc_catalog__describe` — look up a single catalog entry by exact name.
+pub fn tool_catalog_describe(args: &Value) -> Result<String, String> {
+    let name = args
+        .get("name")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "missing required argument: name".to_string())?;
+
+    let catalog_path = catalog_yml_path();
+    let entries = dcc_mcp_catalog::load_from_file(&catalog_path)
+        .map_err(|e| format!("catalog load error: {e}"))?;
+
+    match dcc_mcp_catalog::describe(&entries, name) {
+        Some(entry) => serde_json::to_string_pretty(&entry).map_err(|e| e.to_string()),
+        None => Err(format!("catalog entry '{name}' not found")),
+    }
+}
+
+/// Resolve the path to `dcc-mcp-catalog.yml`.
+///
+/// Priority:
+/// 1. `DCC_MCP_CATALOG_PATH` env var (absolute path override)
+/// 2. Adjacent to the running executable (`exe_dir/dcc-mcp-catalog.yml`)
+/// 3. Current working directory
+fn catalog_yml_path() -> std::path::PathBuf {
+    if let Ok(p) = std::env::var("DCC_MCP_CATALOG_PATH") {
+        return std::path::PathBuf::from(p);
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        let candidate = exe
+            .parent()
+            .unwrap_or(std::path::Path::new("."))
+            .join("dcc-mcp-catalog.yml");
+        if candidate.exists() {
+            return candidate;
+        }
+    }
+    std::path::PathBuf::from("dcc-mcp-catalog.yml")
+}
+
 // ── private helpers ────────────────────────────────────────────────────────
 
 fn format_connect_response(entry: &ServiceEntry) -> Result<String, String> {
@@ -813,6 +877,36 @@ pub fn gateway_tool_defs() -> serde_json::Value {
             "name": "diagnostics__tool_metrics",
             "description": "Gateway-native tool metrics summary for local gateway tools and live backend count.",
             "inputSchema": {"type": "object", "properties": {}}
+        },
+        {
+            "name": "dcc_catalog__search",
+            "description": "Search the public DCC-MCP catalog for adapters, skill packs, and plugins. \
+                Pass a `query` string to filter by name, description, DCC type, or tag. \
+                Omit `query` (or pass an empty string) to list every catalog entry.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Keyword to search for (matched against name, description, dcc, tags). Omit for all entries."
+                    }
+                }
+            }
+        },
+        {
+            "name": "dcc_catalog__describe",
+            "description": "Return the full catalog record for a single DCC-MCP package. \
+                Use the exact `name` returned by `dcc_catalog__search`.",
+            "inputSchema": {
+                "type": "object",
+                "required": ["name"],
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Exact catalog entry name (e.g. 'dcc-mcp-maya-skills')."
+                    }
+                }
+            }
         }
     ])
 }

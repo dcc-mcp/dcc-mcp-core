@@ -1,0 +1,48 @@
+# DCC-MCP Public Catalog
+# Ecosystem index for DCC adapters, skill packs, and plugins.
+#
+# Schema version: "1"
+# Fields:
+#   name        - Unique package / adapter name (required)
+#   description - Human-readable description (required)
+#   dcc         - DCC target(s): maya, blender, houdini, photoshop, ... (list)
+#   url         - Canonical URL (GitHub repo, docs, PyPI, ...) (optional)
+#   tags        - Searchable tags (list, optional)
+
+version: "1"
+entries:
+  - name: "dcc-mcp-maya-skills"
+    description: "Official Maya skill pack for DCC-MCP — scene, render, and rigging tools"
+    dcc: ["maya"]
+    url: "https://github.com/loonghao/dcc-mcp-maya-skills"
+    tags: ["skills", "maya", "official", "rigging", "render"]
+
+  - name: "dcc-mcp-blender-skills"
+    description: "Official Blender skill pack for DCC-MCP — modeling, shading, and render tools"
+    dcc: ["blender"]
+    url: "https://github.com/loonghao/dcc-mcp-blender-skills"
+    tags: ["skills", "blender", "official", "modeling", "render"]
+
+  - name: "dcc-mcp-houdini-skills"
+    description: "Official Houdini skill pack for DCC-MCP — VFX, procedural, and simulation tools"
+    dcc: ["houdini"]
+    url: "https://github.com/loonghao/dcc-mcp-houdini-skills"
+    tags: ["skills", "houdini", "official", "vfx", "simulation"]
+
+  - name: "dcc-mcp-photoshop-skills"
+    description: "Official Photoshop skill pack for DCC-MCP — layer, adjustment, and export tools"
+    dcc: ["photoshop"]
+    url: "https://github.com/loonghao/dcc-mcp-photoshop-skills"
+    tags: ["skills", "photoshop", "official", "compositing"]
+
+  - name: "dcc-mcp-unreal-skills"
+    description: "Official Unreal Engine skill pack for DCC-MCP — asset, level, and sequencer tools"
+    dcc: ["unreal"]
+    url: "https://github.com/loonghao/dcc-mcp-unreal-skills"
+    tags: ["skills", "unreal", "official", "game", "engine"]
+
+  - name: "dcc-mcp-core"
+    description: "Foundational Rust + Python library for the DCC-MCP ecosystem"
+    dcc: []
+    url: "https://github.com/loonghao/dcc-mcp-core"
+    tags: ["core", "official", "rust", "python", "library"]

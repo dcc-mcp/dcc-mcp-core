@@ -804,6 +804,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "dcc-mcp-catalog"
+version = "0.14.28"
+dependencies = [
+ "serde",
+ "serde_json",
+ "serde_yaml_ng",
+ "tempfile",
+ "thiserror 2.0.18",
+ "workspace-hack",
+]
+
+[[package]]
 name = "dcc-mcp-core"
 version = "0.14.28"
 dependencies = [
@@ -841,6 +853,7 @@ dependencies = [
  "chrono",
  "criterion 0.5.1",
  "dashmap",
+ "dcc-mcp-catalog",
  "dcc-mcp-jsonrpc",
  "dcc-mcp-naming",
  "dcc-mcp-skill-rest",
@@ -1126,6 +1139,7 @@ dependencies = [
  "axum",
  "clap",
  "dcc-mcp-actions",
+ "dcc-mcp-catalog",
  "dcc-mcp-http",
  "dcc-mcp-logging",
  "dcc-mcp-protocols",
@@ -5999,6 +6013,7 @@ dependencies = [
  "num-integer",
  "num-iter",
  "num-traits",
+ "once_cell",
  "phf 0.11.3",
  "phf_shared 0.11.3",
  "proc-macro2",
