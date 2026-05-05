@@ -85,15 +85,29 @@ use dcc_mcp_logging::file_logging::prune_old_logs;
 use dcc_mcp_skills::SkillCatalog;
 use dcc_mcp_transport::discovery::types::ServiceEntry;
 use sysinfo::{Pid, ProcessesToUpdate, System};
+mod translate;
+
 // ── CLI ───────────────────────────────────────────────────────────────────────
+
+/// DCC-MCP subcommands.
+#[derive(Debug, Subcommand)]
+enum SubCmd {
+    /// Bridge any stdio MCP server to HTTP/SSE/Streamable-HTTP.
+    Translate(translate::TranslateArgs),
+    /// Catalog commands (search or describe DCC-MCP adapters).
+    Catalog {
+        #[command(subcommand)]
+        action: CatalogAction,
+    },
+}
 
 /// DCC-MCP server with integrated auto-gateway.
 #[derive(Debug, Parser)]
 #[command(name = "dcc-mcp-server", about, version)]
 struct Args {
-    /// Catalog subcommand (search or describe).
+    /// Optional subcommand. If omitted, runs as a DCC MCP server.
     #[command(subcommand)]
-    catalog_cmd: Option<CatalogCommand>,
+    command: Option<SubCmd>,
     /// MCP Streamable HTTP server port. Default 0 = OS-assigned.
     #[arg(long, env = "DCC_MCP_MCP_PORT", default_value = "0")]
     mcp_port: u16,
@@ -238,15 +252,6 @@ struct Args {
 
 /// Catalog subcommand: query the public DCC-MCP catalog.
 #[derive(Debug, Subcommand)]
-enum CatalogCommand {
-    /// Catalog commands.
-    Catalog {
-        #[command(subcommand)]
-        action: CatalogAction,
-    },
-}
-
-#[derive(Debug, Subcommand)]
 enum CatalogAction {
     /// Search the catalog by keyword (name, description, DCC type, tags).
     Search {
@@ -311,13 +316,16 @@ impl PidFileGuard {
     }
 }
 
-fn is_process_alive(pid: u32) -> bool {
+pub(crate) fn is_process_alive(pid: u32) -> bool {
     let mut sys = System::new();
     sys.refresh_processes(ProcessesToUpdate::Some(&[Pid::from_u32(pid)]), true);
     sys.process(Pid::from_u32(pid)).is_some()
 }
 
-fn acquire_pid_file(path: &std::path::Path, force: bool) -> anyhow::Result<PidFileGuard> {
+pub(crate) fn acquire_pid_file(
+    path: &std::path::Path,
+    force: bool,
+) -> anyhow::Result<PidFileGuard> {
     let current_pid = std::process::id();
 
     if path.exists() {
@@ -366,7 +374,7 @@ fn acquire_pid_file(path: &std::path::Path, force: bool) -> anyhow::Result<PidFi
     })
 }
 
-fn spawn_pid_cleanup_watcher(path: &std::path::Path, pid: u32) {
+pub(crate) fn spawn_pid_cleanup_watcher(path: &std::path::Path, pid: u32) {
     let Ok(exe) = std::env::current_exe() else {
         tracing::warn!("failed to resolve current executable for PID cleanup watcher");
         return;
@@ -475,7 +483,7 @@ async fn run_ws_bridge(port: u16, server_name: String, server_version: String) {
 
 // ── shutdown signals ─────────────────────────────────────────────────────────
 
-async fn select_shutdown_signal() -> anyhow::Result<&'static str> {
+pub(crate) async fn select_shutdown_signal() -> anyhow::Result<&'static str> {
     #[cfg(unix)]
     {
         use tokio::signal::unix::{SignalKind, signal};
@@ -548,9 +556,11 @@ async fn main() -> anyhow::Result<()> {
 
     let args = Args::parse();
 
-    // Dispatch catalog subcommand without starting the server.
-    if let Some(CatalogCommand::Catalog { action }) = &args.catalog_cmd {
-        return run_catalog_cmd(action);
+    // ── Dispatch to subcommands ───────────────────────────────────────────
+    match args.command {
+        Some(SubCmd::Translate(translate_args)) => return translate::run(translate_args).await,
+        Some(SubCmd::Catalog { action }) => return run_catalog_cmd(&action),
+        None => {}
     }
 
     if let (Some(path), Some(pid)) = (args.pid_cleanup_watch.clone(), args.watch_pid) {
