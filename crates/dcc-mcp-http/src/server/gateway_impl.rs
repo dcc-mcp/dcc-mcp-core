@@ -36,6 +36,7 @@ pub(crate) async fn start_gateway_runner(
             .clone()
             .or_else(|| config.instance.dcc_type.clone()),
         cursor_safe_tool_names: config.gateway.gateway_cursor_safe_tool_names,
+        middleware_chain: dcc_mcp_gateway::gateway::middleware::MiddlewareChain::new(),
     };
 
     let runner = match GatewayRunner::new(gateway_config) {
