@@ -53,7 +53,7 @@ prometheus = ["dep:dcc-mcp-telemetry", "dcc-mcp-telemetry/prometheus", "dep:prom
 [dev-dependencies]
 tempfile = "3"
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion = { version = "0.8", features = ["html_reports"] }
 tower = { version = "0.5", features = ["util"] }
 
 [[bench]]
