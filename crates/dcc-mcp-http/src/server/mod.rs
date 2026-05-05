@@ -6,6 +6,7 @@ use serde_json::json;
 use std::sync::Arc;
 use tokio::{net::TcpListener, sync::watch, task::JoinHandle};
 use tower_http::cors::{Any, CorsLayer};
+use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::trace::TraceLayer;
 
 use crate::{
@@ -507,6 +508,9 @@ impl McpHttpServer {
             )
             .with_state(state)
             .merge(rest_router)
+            .layer(RequestBodyLimitLayer::new(
+                self.config.max_request_body_bytes,
+            ))
             .layer(TraceLayer::new_for_http());
 
         // Prometheus `/metrics` endpoint (issue #331). Mounted on the

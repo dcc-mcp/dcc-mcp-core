@@ -67,6 +67,7 @@ pub use dcc_mcp_job::job;
 pub use dcc_mcp_job::job_storage;
 pub mod notifications;
 pub mod output;
+pub mod payload;
 /// Re-export of [`dcc_mcp_jsonrpc`] under the historical
 /// `dcc_mcp_http::protocol` path.
 ///
@@ -107,6 +108,7 @@ pub use job_storage::SqliteStorage;
 pub use job_storage::{InMemoryStorage, JobFilter, JobStorage, JobStorageError};
 pub use notifications::{JobNotifier, WorkflowProgress, WorkflowUpdate};
 pub use output::{OutputBuffer, OutputCapture, OutputEntry, OutputStream};
+pub use payload::{SseChunkFrame, TruncationEnvelope, chunk_sse_data, format_chunked_sse};
 pub use prompts::{
     PromptArgumentSpec, PromptEntry, PromptError, PromptRegistry, PromptResult, PromptSource,
     PromptSpec, PromptsSpec, WorkflowPromptRef, render_template,
