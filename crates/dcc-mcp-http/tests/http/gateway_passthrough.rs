@@ -56,6 +56,9 @@ async fn make_state(
         cursor_safe_tool_names: true,
         capability_index: Arc::new(dcc_mcp_http::gateway::capability::CapabilityIndex::new()),
         event_log: std::sync::Arc::new(dcc_mcp_http::gateway::event_log::EventLog::new()),
+        middleware_chain: std::sync::Arc::new(
+            dcc_mcp_gateway::gateway::middleware::MiddlewareChain::new(),
+        ),
         #[cfg(feature = "prometheus")]
         gateway_metrics: std::sync::Arc::new(
             dcc_mcp_http::gateway::event_log::GatewayMetrics::new(),
