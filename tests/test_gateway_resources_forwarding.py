@@ -155,11 +155,14 @@ class TestResourcesListMerge:
         uris = {r["uri"] for r in resources}
 
         # Every `<scheme>://` URI that isn't the `dcc://` admin pointer
+        # or the `resources://gateway/` internal gateway resource (issue #766)
         # must carry an 8-hex-char instance-id segment immediately
         # after the scheme — that's the #732 namespacing contract.
         for uri in uris:
             if uri.startswith("dcc://"):
                 continue
+            if uri.startswith("resources://gateway/"):
+                continue  # gateway-internal event log, no instance prefix needed
             parts = _split_gateway_prefixed_uri(uri)
             assert parts is not None, f"backend URI {uri!r} is not prefixed with an 8-hex id"
 
