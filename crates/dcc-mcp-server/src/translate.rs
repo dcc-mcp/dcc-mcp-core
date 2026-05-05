@@ -589,6 +589,9 @@ pub async fn run(args: TranslateArgs) -> anyhow::Result<()> {
             adapter_version: None,
             adapter_dcc: Some(args.dcc_type.clone()),
             cursor_safe_tool_names: true,
+            middleware_chain: dcc_mcp_http::gateway::middleware::MiddlewareChain::new(),
+            admin_enabled: false,
+            admin_path: "/admin".to_string(),
         };
 
         let runner = GatewayRunner::new(gateway_cfg)
