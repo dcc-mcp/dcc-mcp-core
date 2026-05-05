@@ -28,7 +28,54 @@ use super::state::GatewayState;
 /// - `POST /v1/search`    — keyword + filter search over the capability index
 /// - `POST /v1/describe`  — resolve one capability slug
 /// - `POST /v1/call`      — invoke a backend action by slug
+///
+/// Admin UI (#772, `admin` feature):
+/// - `GET  /admin`              — HTML dashboard
+/// - `GET  /admin/api/*`        — JSON API endpoints
 pub fn build_gateway_router(state: GatewayState) -> Router {
+    build_base_router(state)
+        .layer(TraceLayer::new_for_http())
+        .layer(
+            CorsLayer::new()
+                .allow_origin(Any)
+                .allow_methods(Any)
+                .allow_headers(Any),
+        )
+}
+
+/// Build the gateway router, optionally attaching the admin UI sub-router.
+///
+/// When `admin_state` is `Some`, the admin routes are mounted at `admin_path`.
+/// This is called from `start_gateway_tasks` when `admin_enabled = true` and
+/// the `admin` feature is compiled in.
+pub fn build_gateway_router_with_admin(
+    state: GatewayState,
+    #[cfg(feature = "admin")] admin_state: Option<super::admin::state::AdminState>,
+    #[cfg(feature = "admin")] admin_path: &str,
+) -> Router {
+    let router = build_base_router(state);
+
+    // ── #772 admin UI (opt-in feature + runtime flag) ─────────────────────
+    #[cfg(feature = "admin")]
+    let router = if let Some(admin_st) = admin_state {
+        let admin_router = super::admin::build_admin_router(admin_st);
+        // nest adds the prefix; requests to e.g. `/admin/api/health` are
+        // forwarded to the sub-router as `/api/health`.
+        tracing::info!("Admin UI mounted at {admin_path}");
+        router.nest(admin_path, admin_router)
+    } else {
+        router
+    };
+
+    router.layer(TraceLayer::new_for_http()).layer(
+        CorsLayer::new()
+            .allow_origin(Any)
+            .allow_methods(Any)
+            .allow_headers(Any),
+    )
+}
+
+fn build_base_router(state: GatewayState) -> Router {
     Router::new()
         .route("/health", routing::get(handle_health))
         .route("/instances", routing::get(handle_instances))
@@ -52,11 +99,4 @@ pub fn build_gateway_router(state: GatewayState) -> Router {
         .route("/v1/call", routing::post(handle_v1_call))
         .route("/v1/context", routing::get(handle_v1_context))
         .with_state(state)
-        .layer(TraceLayer::new_for_http())
-        .layer(
-            CorsLayer::new()
-                .allow_origin(Any)
-                .allow_methods(Any)
-                .allow_headers(Any),
-        )
 }

@@ -47,12 +47,14 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [features]
 default = []
+admin = []
 prometheus = ["dep:dcc-mcp-telemetry", "dcc-mcp-telemetry/prometheus", "dep:prometheus"]
 
 [dev-dependencies]
 tempfile = "3"
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
 criterion = { version = "0.5", features = ["html_reports"] }
+tower = { version = "0.5", features = ["util"] }
 
 [[bench]]
 name = "search_bench"

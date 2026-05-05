@@ -70,21 +70,19 @@ pub struct GatewayConfig {
     pub cursor_safe_tool_names: bool,
 
     /// Pre-registered middleware chain applied to every `tools/call` (issue #770).
-    ///
-    /// Use the builder API to attach cross-cutting policies:
-    ///
-    /// ```rust,ignore
-    /// use dcc_mcp_gateway::gateway::middleware::{AuditMiddleware, QuotaMiddleware};
-    /// use std::sync::Arc;
-    ///
-    /// let config = GatewayConfig {
-    ///     middleware_chain: MiddlewareChain::new()
-    ///         .with_before(Arc::new(AuditMiddleware::default()))
-    ///         .with_before(Arc::new(QuotaMiddleware::new(100))),
-    ///     ..GatewayConfig::default()
-    /// };
-    /// ```
     pub middleware_chain: super::middleware::MiddlewareChain,
+
+    /// Enable the read-only `/admin` web UI (issue #772).
+    ///
+    /// Default: `false`. Must be explicitly opted in. When `true`, the
+    /// gateway mounts the admin dashboard under `admin_path`.
+    pub admin_enabled: bool,
+
+    /// URL prefix for the admin dashboard (issue #772).
+    ///
+    /// Default: `"/admin"`. The gateway mounts all admin routes under
+    /// this prefix.
+    pub admin_path: String,
 }
 
 impl Default for GatewayConfig {
@@ -111,6 +109,8 @@ impl Default for GatewayConfig {
             // visible error).
             cursor_safe_tool_names: true,
             middleware_chain: super::middleware::MiddlewareChain::new(),
+            admin_enabled: false,
+            admin_path: "/admin".to_string(),
         }
     }
 }
