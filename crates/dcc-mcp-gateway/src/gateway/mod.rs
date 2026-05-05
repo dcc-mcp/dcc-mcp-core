@@ -39,6 +39,7 @@ pub mod event_log;
 pub mod handlers;
 pub mod middleware;
 pub mod namespace;
+pub mod openapi;
 pub mod proxy;
 pub mod router;
 pub mod sse_subscriber;
