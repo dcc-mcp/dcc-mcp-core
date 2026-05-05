@@ -41,6 +41,7 @@ fn make_gateway_state() -> GatewayState {
         event_log: std::sync::Arc::new(crate::gateway::event_log::EventLog::new()),
         #[cfg(feature = "prometheus")]
         gateway_metrics: std::sync::Arc::new(crate::gateway::event_log::GatewayMetrics::new()),
+        middleware_chain: std::sync::Arc::new(crate::gateway::middleware::MiddlewareChain::new()),
     }
 }
 
