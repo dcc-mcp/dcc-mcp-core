@@ -11,6 +11,64 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.15.0](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.28...v0.15.0) (2026-05-05)
+
+
+### ⚠ BREAKING CHANGES
+
+* **skills:** align fixtures with nested metadata.dcc-mcp.* contract
+* **skills:** SKILL.md authors using the flat-form shorthand must migrate to the nested form. The flat-form keys will still parse as YAML (the loader does not reject them) but they stop populating the typed SkillMetadata fields, so meta.dcc, meta.layer, meta.tags, etc. will all fall back to their serde defaults.
+* **gateway:** 
+* **adapter:** `DccApiDocEntry`, `DccApiDocIndex`, and `register_dcc_api_docs` are removed from the public Python API (`dcc_mcp_core.adapter_context` and `dcc_mcp_core.__all__`). No known downstream consumer imports these symbols.
+* **skills:** SKILL.md files that declare dcc-mcp-core extensions (dcc, version, tags, tools, groups, depends, search-hint, next-tools, policy, products, external_deps, allow_implicit_invocation) at the YAML frontmatter root are no longer accepted. Move these keys under `metadata.dcc-mcp.*` (nested or flat form) per agentskills.io 1.0. The PyO3 surface `SkillMetadata.is_spec_compliant()` and `SkillMetadata.legacy_extension_fields` are removed; a successful parse now implies spec compliance, and `validate_skill()` reports any non-spec top-level key as a frontmatter error.
+
+### Features
+
+* **catalog:** public DCC-MCP catalog + dcc_catalog__search/describe MCP tools + CLI ([64ac075](https://github.com/loonghao/dcc-mcp-core/commit/64ac075b3fb857c16ab5c3160aaef40f8948311c))
+* **gateway:** bundled zero-build /admin web UI (read-only instances/tools/calls/logs/sessions/health) ([b805db6](https://github.com/loonghao/dcc-mcp-core/commit/b805db6bd64be5268b023f487f707dc8765ccaef))
+* **gateway:** pluggable BeforeCall/AfterCall middleware chain for cross-cutting policies ([710af57](https://github.com/loonghao/dcc-mcp-core/commit/710af57b692fdde52752b5201946bffc27561bac))
+* **http:** framework-enforced payload size limits + SSE chunking + truncation envelope ([#780](https://github.com/loonghao/dcc-mcp-core/issues/780)) ([81cbeb2](https://github.com/loonghao/dcc-mcp-core/commit/81cbeb2c1c07381da1b6fff96e0f35737acfd91c))
+* **observability:** export gateway contention events as resources + metrics ([b616bd6](https://github.com/loonghao/dcc-mcp-core/commit/b616bd60f687db99c35eb11974a227ef1fc68905))
+* **rest:** OpenAPI-to-MCP mount helper — auto-expose REST endpoints as MCP tools ([6e9306b](https://github.com/loonghao/dcc-mcp-core/commit/6e9306bb7daf2c4e28b60245f0d6d2ea18a3d119))
+* **server:** add 'translate' subcommand to expose any stdio MCP server over HTTP/SSE/Streamable-HTTP ([87d0fb1](https://github.com/loonghao/dcc-mcp-core/commit/87d0fb12705906672e60dbbe0745cecd7e7c0bf4))
+* **telemetry:** wire OTLP gRPC exporter behind existing otlp-exporter feature ([e935b4f](https://github.com/loonghao/dcc-mcp-core/commit/e935b4fd3f194240df5028ccd19a718dfd6cc877))
+* **tunnel:** add dcc-mcp-tunnel-relay and dcc-mcp-tunnel-agent CLI binaries ([daa0231](https://github.com/loonghao/dcc-mcp-core/commit/daa023148b5f668862a6726bc1953f829ffc9ff3))
+
+
+### Bug Fixes
+
+* **admin:** add middleware_chain to all GatewayState test constructors ([2869bbb](https://github.com/loonghao/dcc-mcp-core/commit/2869bbb0eadff83108748111eb3d348edf077522))
+* **admin:** add missing middleware_chain+admin fields in translate.rs GatewayConfig ([76c05e9](https://github.com/loonghao/dcc-mcp-core/commit/76c05e9b90a2d13f5acf2f2fad3f5831e775edfa))
+* **http:** correct field path after McpHttpConfig sub-config split ([2385a97](https://github.com/loonghao/dcc-mcp-core/commit/2385a97486ac184da98aba9488dff41f32f71774))
+* **http:** correct field path after McpHttpConfig sub-config split ([#788](https://github.com/loonghao/dcc-mcp-core/issues/788)) ([d3e8a0a](https://github.com/loonghao/dcc-mcp-core/commit/d3e8a0a503054a390b16c4111724215775ae5f24))
+* **http:** fix field-to-method access in background_impl.rs for prometheus feature ([825361c](https://github.com/loonghao/dcc-mcp-core/commit/825361c41da233adccf9eb080d455d715d287334))
+* **observability:** use OnceLock singletons for Prometheus counters to prevent AlreadyReg panic on multi-gateway process ([e995509](https://github.com/loonghao/dcc-mcp-core/commit/e995509245cebe2bc00775a5c96ac1bacc72a307))
+* **test:** allow resources://gateway/ URIs without 8-hex prefix in resources forwarding test ([bdd1d7d](https://github.com/loonghao/dcc-mcp-core/commit/bdd1d7dc639f15109e9c8397df8c8dbdc6e1e220))
+
+
+### Code Refactoring
+
+* **adapter:** drop unused register_dcc_api_docs helper and DccApiDoc types ([f86214b](https://github.com/loonghao/dcc-mcp-core/commit/f86214b930fdc8f7e4d58b34f1156c8f34c231ea))
+* **gateway:** converge MCP surface to discover+dispatch primitives ([396ec68](https://github.com/loonghao/dcc-mcp-core/commit/396ec6834da2434f705b280769eb1829b41c3a85))
+* **http:** split McpHttpConfig into cohesive sub-configs (closes [#764](https://github.com/loonghao/dcc-mcp-core/issues/764)) ([6f1b55c](https://github.com/loonghao/dcc-mcp-core/commit/6f1b55c82c3d4a08f5eb03259086849b02d589f1))
+* **search:** strategy-pattern for SearchMode + Scorer ([5e146bc](https://github.com/loonghao/dcc-mcp-core/commit/5e146bca7a71dfeccdcc4c66a28cc63360f6e202))
+* **skills:** drop flat-form SKILL.md metadata parser ([69ff3a9](https://github.com/loonghao/dcc-mcp-core/commit/69ff3a9d7b5ed45196df1dc37feb6bfb3a925046))
+* **skills:** reject legacy top-level SKILL.md keys; drop compat API ([591b936](https://github.com/loonghao/dcc-mcp-core/commit/591b936fd3d58e28a5e04c85c1bf5ab1b147f4fe))
+
+
+### Documentation
+
+* add REST, CLI, and gateway-diagnostics guides (zh+en) ([9a213c5](https://github.com/loonghao/dcc-mcp-core/commit/9a213c5cf1eac6fbd176cf8db03dffc7fb598d9e))
+* **agents:** steer custom-resource callers to helpers before server.resources() ([2542744](https://github.com/loonghao/dcc-mcp-core/commit/2542744fb831cd038d96db855ff9290c09623aea))
+* **guide:** rewrite what-is-dcc-mcp-core around gateway MCP + DCC REST ([b235412](https://github.com/loonghao/dcc-mcp-core/commit/b235412e736913a7dd6508a3d83dc0a74ff66251))
+* **llms:** refresh llms.txt and llms-full.txt for minimal MCP surface ([60e812e](https://github.com/loonghao/dcc-mcp-core/commit/60e812e4d1f61b1c6355d77790958ccac987956e))
+* refresh agent skill metadata guidance ([7f297ac](https://github.com/loonghao/dcc-mcp-core/commit/7f297acb88b88aa888d1e63001c16cc2ea567366))
+
+
+### Tests
+
+* **skills:** align fixtures with nested metadata.dcc-mcp.* contract ([daa8bf1](https://github.com/loonghao/dcc-mcp-core/commit/daa8bf1f9936bd4e3a1c96dbef3272c2cce1dd20))
+
 ## [0.14.28](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.27...v0.14.28) (2026-05-04)
 
 
