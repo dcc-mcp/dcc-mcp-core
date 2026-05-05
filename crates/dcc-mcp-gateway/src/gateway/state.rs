@@ -7,6 +7,8 @@ use std::time::Duration;
 use serde_json::{Value, json};
 use tokio::sync::{RwLock, broadcast, watch};
 
+use super::event_log::EventLog;
+
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
 use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry, ServiceStatus};
 
@@ -119,6 +121,21 @@ pub struct GatewayState {
     /// reference; the inner `RwLock` is held only for the
     /// milliseconds it takes to swap a single instance's slice.
     pub capability_index: Arc<super::capability::CapabilityIndex>,
+
+    /// Contention event log (issue #766).
+    ///
+    /// Append-only JSONL ring buffer (bounded to [`EventLog::CAPACITY`]).
+    /// Exposed as the MCP resource `resources://gateway/events`.
+    /// Also drives Prometheus counters when the `prometheus` feature is on.
+    pub event_log: Arc<EventLog>,
+
+    /// Prometheus contention counters (issue #766).
+    ///
+    /// Compiled only when `prometheus` feature is enabled. Shared via `Arc`
+    /// so both `tasks.rs` (instrumentation points) and `metrics.rs`
+    /// (endpoint handler) refer to the same registered counter objects.
+    #[cfg(feature = "prometheus")]
+    pub gateway_metrics: Arc<super::event_log::GatewayMetrics>,
 }
 
 impl GatewayState {
@@ -322,6 +339,9 @@ mod tests {
             adapter_dcc: None,
             cursor_safe_tool_names: true,
             capability_index: Arc::new(crate::gateway::capability::CapabilityIndex::new()),
+            event_log: Arc::new(crate::gateway::event_log::EventLog::new()),
+            #[cfg(feature = "prometheus")]
+            gateway_metrics: Arc::new(crate::gateway::event_log::GatewayMetrics::new()),
         }
     }
 

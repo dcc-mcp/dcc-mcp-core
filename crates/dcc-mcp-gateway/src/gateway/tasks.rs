@@ -76,6 +76,11 @@ pub(crate) async fn start_gateway_tasks(
     // when the backend goes genuinely silent.
     let sse_http_client = reqwest::Client::builder().build()?;
 
+    // ── Contention event log + Prometheus counters (issue #766) ───────────
+    let contention_log = Arc::new(crate::gateway::event_log::EventLog::new());
+    #[cfg(feature = "prometheus")]
+    let gateway_metrics = Arc::new(crate::gateway::event_log::GatewayMetrics::new());
+
     // ── Stale cleanup + sentinel heartbeat + dead-PID pruning (every 15 s) ─
     //
     // Issue #229: the sentinel row is heartbeated here — without this, it
@@ -90,6 +95,10 @@ pub(crate) async fn start_gateway_tasks(
     let own_adapter_dcc = adapter_dcc.clone();
     let yield_tx_cleanup = yield_tx.clone();
     let sentinel_key_cleanup = sentinel_key.clone();
+    let cleanup_event_log = contention_log.clone();
+    #[cfg(feature = "prometheus")]
+    let cleanup_metrics = gateway_metrics.clone();
+    let cleanup_own_version = server_version.clone();
     let cleanup_handle = tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(15));
         loop {
@@ -101,13 +110,36 @@ pub(crate) async fn start_gateway_tasks(
             let _ = r.heartbeat(&sentinel_key_cleanup);
 
             match r.cleanup_stale(stale_timeout) {
-                Ok(n) if n > 0 => tracing::info!("Gateway: evicted {} stale instance(s)", n),
+                Ok(n) if n > 0 => {
+                    tracing::info!("Gateway: evicted {} stale instance(s)", n);
+                    // Record one synthetic stale-eviction event per batch.
+                    crate::gateway::event_log::record_event(
+                        &cleanup_event_log,
+                        #[cfg(feature = "prometheus")]
+                        &cleanup_metrics,
+                        crate::gateway::event_log::EventKind::GhostReaped,
+                        "gateway",
+                        "cleanup",
+                        Some(format!("stale cleanup evicted {n} instance(s)")),
+                    );
+                }
                 Err(e) => tracing::warn!("Gateway: stale cleanup error: {e}"),
                 _ => {}
             }
 
             match r.prune_dead_pids() {
-                Ok(n) if n > 0 => tracing::info!("Gateway: reaped {} ghost entry/entries", n),
+                Ok(n) if n > 0 => {
+                    tracing::info!("Gateway: reaped {} ghost entry/entries", n);
+                    crate::gateway::event_log::record_event(
+                        &cleanup_event_log,
+                        #[cfg(feature = "prometheus")]
+                        &cleanup_metrics,
+                        crate::gateway::event_log::EventKind::GhostReaped,
+                        "gateway",
+                        "cleanup",
+                        Some(format!("dead-PID sweep reaped {n} ghost entry/entries")),
+                    );
+                }
                 Err(e) => tracing::warn!("Gateway: ghost-entry reap error: {e}"),
                 _ => {}
             }
@@ -126,6 +158,17 @@ pub(crate) async fn start_gateway_tasks(
                     adapter_version = ?own_adapter_version,
                     adapter_dcc = ?own_adapter_dcc,
                     "Gateway: newer-version sentinel detected — initiating voluntary yield"
+                );
+                crate::gateway::event_log::record_event(
+                    &cleanup_event_log,
+                    #[cfg(feature = "prometheus")]
+                    &cleanup_metrics,
+                    crate::gateway::event_log::EventKind::VoluntaryYield,
+                    "gateway",
+                    "self",
+                    Some(format!(
+                        "yielded to newer challenger; own={cleanup_own_version}"
+                    )),
                 );
                 let _ = yield_tx_cleanup.send(true);
                 break;
@@ -467,6 +510,9 @@ pub(crate) async fn start_gateway_tasks(
         adapter_dcc,
         cursor_safe_tool_names,
         capability_index: Arc::new(crate::gateway::capability::CapabilityIndex::new()),
+        event_log: contention_log.clone(),
+        #[cfg(feature = "prometheus")]
+        gateway_metrics: gateway_metrics.clone(),
     };
     let gw_router = build_gateway_router(gw_state);
 
@@ -506,6 +552,9 @@ pub(crate) async fn start_gateway_tasks(
     let health_http_client = http_client.clone();
     let health_own_host = own_host.clone();
     let health_own_port = own_port;
+    let health_event_log = contention_log.clone();
+    #[cfg(feature = "prometheus")]
+    let health_metrics = gateway_metrics.clone();
     let health_check_handle = tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(30));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -539,6 +588,7 @@ pub(crate) async fn start_gateway_tasks(
                 .await;
 
                 let key = format!("{}:{}", entry.dcc_type, entry.instance_id);
+                let id8 = entry.instance_id.to_string()[..8].to_string();
 
                 // ── Ready ──────────────────────────────────────────
                 if outcome.is_ready() {
@@ -560,6 +610,10 @@ pub(crate) async fn start_gateway_tasks(
                             "Readiness probe green — marking Available"
                         );
                     }
+                    // Only bump the Prometheus counter; do not flood the ring
+                    // buffer with a "ready" entry on every 30-second tick.
+                    #[cfg(feature = "prometheus")]
+                    health_metrics.inc_probe("ready");
                     continue;
                 }
 
@@ -583,6 +637,15 @@ pub(crate) async fn start_gateway_tasks(
                             instance_id = %entry.instance_id,
                             previous_status = %entry.status,
                             "Backend booting (GET /v1/readyz red) — marking Booting without deregister"
+                        );
+                        crate::gateway::event_log::record_event(
+                            &health_event_log,
+                            #[cfg(feature = "prometheus")]
+                            &health_metrics,
+                            crate::gateway::event_log::EventKind::ProbeBooting,
+                            &entry.dcc_type,
+                            &id8,
+                            None,
                         );
                     }
                     // Clear any prior consecutive-failure tally: the
@@ -608,6 +671,15 @@ pub(crate) async fn start_gateway_tasks(
                         &entry.key(),
                         dcc_mcp_transport::discovery::types::ServiceStatus::Unreachable,
                     );
+                    crate::gateway::event_log::record_event(
+                        &health_event_log,
+                        #[cfg(feature = "prometheus")]
+                        &health_metrics,
+                        crate::gateway::event_log::EventKind::ProbeUnreachable,
+                        &entry.dcc_type,
+                        &id8,
+                        Some(format!("{} consecutive failures", *count)),
+                    );
                 }
 
                 if *count >= 3 {
@@ -619,6 +691,15 @@ pub(crate) async fn start_gateway_tasks(
                         dcc_type = %entry.dcc_type,
                         instance_id = %entry.instance_id,
                         "Auto-deregistered after 3 consecutive health-check failures"
+                    );
+                    crate::gateway::event_log::record_event(
+                        &health_event_log,
+                        #[cfg(feature = "prometheus")]
+                        &health_metrics,
+                        crate::gateway::event_log::EventKind::AutoDeregister,
+                        &entry.dcc_type,
+                        &id8,
+                        Some("3 consecutive health-check failures".into()),
                     );
                 }
             }

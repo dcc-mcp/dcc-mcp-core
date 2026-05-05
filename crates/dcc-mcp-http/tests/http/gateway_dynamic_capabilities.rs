@@ -64,6 +64,11 @@ fn make_state(registry: Arc<RwLock<FileRegistry>>) -> GatewayState {
         adapter_dcc: None,
         cursor_safe_tool_names: true,
         capability_index: Arc::new(CapabilityIndex::new()),
+        event_log: std::sync::Arc::new(dcc_mcp_http::gateway::event_log::EventLog::new()),
+        #[cfg(feature = "prometheus")]
+        gateway_metrics: std::sync::Arc::new(
+            dcc_mcp_http::gateway::event_log::GatewayMetrics::new(),
+        ),
     }
 }
 

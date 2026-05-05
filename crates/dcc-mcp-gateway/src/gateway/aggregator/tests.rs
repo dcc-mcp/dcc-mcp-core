@@ -147,6 +147,9 @@ async fn aggregate_tools_list_returns_only_minimal_gateway_surface() {
         adapter_dcc: None,
         cursor_safe_tool_names: true,
         capability_index: std::sync::Arc::new(crate::gateway::capability::CapabilityIndex::new()),
+        event_log: std::sync::Arc::new(crate::gateway::event_log::EventLog::new()),
+        #[cfg(feature = "prometheus")]
+        gateway_metrics: std::sync::Arc::new(crate::gateway::event_log::GatewayMetrics::new()),
     };
 
     assert_eq!(gs.live_instances(&*gs.registry.read().await).len(), 1);
@@ -308,6 +311,9 @@ async fn make_gateway_state(
         adapter_dcc: None,
         cursor_safe_tool_names: true,
         capability_index: std::sync::Arc::new(crate::gateway::capability::CapabilityIndex::new()),
+        event_log: std::sync::Arc::new(crate::gateway::event_log::EventLog::new()),
+        #[cfg(feature = "prometheus")]
+        gateway_metrics: std::sync::Arc::new(crate::gateway::event_log::GatewayMetrics::new()),
     }
 }
 
@@ -715,6 +721,9 @@ async fn gateway_state_with_instances(
         adapter_dcc: None,
         cursor_safe_tool_names: true,
         capability_index: std::sync::Arc::new(crate::gateway::capability::CapabilityIndex::new()),
+        event_log: std::sync::Arc::new(crate::gateway::event_log::EventLog::new()),
+        #[cfg(feature = "prometheus")]
+        gateway_metrics: std::sync::Arc::new(crate::gateway::event_log::GatewayMetrics::new()),
     };
     (state, dir, ids)
 }

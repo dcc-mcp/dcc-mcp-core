@@ -1,5 +1,8 @@
 use super::*;
 
+/// URI for the gateway's own contention event log (issue #766).
+pub(crate) const GATEWAY_EVENTS_URI: &str = "resources://gateway/events";
+
 pub(super) async fn handle_resources_list(gs: &GatewayState, id: Value) -> Value {
     let result = aggregator::aggregate_resources_list(gs).await;
     json!({"jsonrpc": "2.0", "id": id, "result": result})
@@ -17,6 +20,21 @@ pub(super) async fn handle_resources_read(
         .and_then(|value| value.as_str())
         .unwrap_or("")
         .to_owned();
+
+    // ── Gateway-internal event log (issue #766) ──────────────────────────
+    if uri == GATEWAY_EVENTS_URI {
+        let jsonl = gs.event_log.as_jsonl();
+        return json!({
+            "jsonrpc": "2.0", "id": id,
+            "result": {
+                "contents": [{
+                    "uri":      GATEWAY_EVENTS_URI,
+                    "mimeType": "application/x-ndjson",
+                    "text":     jsonl
+                }]
+            }
+        });
+    }
 
     if let Some((id8, backend_uri)) = crate::gateway::namespace::decode_resource_uri(&uri) {
         let owning = aggregator::find_instance_by_prefix(gs, &id8).await;
@@ -201,6 +219,116 @@ pub(super) async fn handle_resource_subscription(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::gateway::event_log::{ContendEvent, EventKind};
+    use crate::gateway::handlers::mcp_impl::JsonRpcRequest;
+    use crate::gateway::state::GatewayState;
+    use dcc_mcp_transport::discovery::file_registry::FileRegistry;
+    use serde_json::json;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use tokio::sync::{RwLock, broadcast, watch};
+
+    fn test_gs_with_events(events: Vec<ContendEvent>) -> GatewayState {
+        let dir = tempfile::tempdir().unwrap();
+        let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+        let (yield_tx, _) = watch::channel(false);
+        let (events_tx, _) = broadcast::channel::<String>(8);
+        let log = Arc::new(crate::gateway::event_log::EventLog::new());
+        for e in events {
+            log.push(e);
+        }
+        GatewayState {
+            registry,
+            stale_timeout: std::time::Duration::from_secs(30),
+            backend_timeout: std::time::Duration::from_secs(10),
+            async_dispatch_timeout: std::time::Duration::from_secs(60),
+            wait_terminal_timeout: std::time::Duration::from_secs(600),
+            server_name: "test".into(),
+            server_version: env!("CARGO_PKG_VERSION").into(),
+            own_host: "127.0.0.1".into(),
+            own_port: 9765,
+            http_client: reqwest::Client::new(),
+            yield_tx: Arc::new(yield_tx),
+            events_tx: Arc::new(events_tx),
+            protocol_version: Arc::new(RwLock::new(None)),
+            resource_subscriptions: Arc::new(RwLock::new(HashMap::new())),
+            pending_calls: Arc::new(RwLock::new(HashMap::new())),
+            subscriber: crate::gateway::sse_subscriber::SubscriberManager::default(),
+            allow_unknown_tools: false,
+            adapter_version: None,
+            adapter_dcc: None,
+            cursor_safe_tool_names: true,
+            capability_index: Arc::new(crate::gateway::capability::CapabilityIndex::new()),
+            event_log: log,
+            #[cfg(feature = "prometheus")]
+            gateway_metrics: Arc::new(crate::gateway::event_log::GatewayMetrics::new()),
+        }
+    }
+
+    fn make_read_req(uri: &str) -> JsonRpcRequest {
+        JsonRpcRequest {
+            jsonrpc: Some("2.0".into()),
+            id: Some(json!(1)),
+            method: "resources/read".into(),
+            params: Some(json!({"uri": uri})),
+        }
+    }
+
+    /// Issue #766: `resources://gateway/events` must return JSONL text content
+    /// containing every event pushed to the ring buffer.
+    #[tokio::test]
+    async fn gateway_events_resource_returns_jsonl() {
+        let events = vec![
+            ContendEvent::new(EventKind::ElectionWon, "gateway", "abcd1234", None),
+            ContendEvent::new(
+                EventKind::ProbeBooting,
+                "maya",
+                "ef012345",
+                Some("still starting".into()),
+            ),
+        ];
+        let gs = test_gs_with_events(events);
+
+        let req = make_read_req(GATEWAY_EVENTS_URI);
+        let resp = handle_resources_read(&gs, json!(1), &req).await;
+
+        let text = resp["result"]["contents"][0]["text"]
+            .as_str()
+            .expect("response must contain text content");
+        let mime = resp["result"]["contents"][0]["mimeType"]
+            .as_str()
+            .expect("response must contain mimeType");
+
+        assert_eq!(mime, "application/x-ndjson");
+
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 2, "expected 2 JSONL lines, got: {text:?}");
+
+        let first: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
+        assert_eq!(first["event"], "election_won");
+        assert_eq!(first["dcc_type"], "gateway");
+
+        let second: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
+        assert_eq!(second["event"], "probe_booting");
+        assert_eq!(second["reason"], "still starting");
+    }
+
+    /// Issue #766: empty event log returns an empty string (not an error).
+    #[tokio::test]
+    async fn gateway_events_resource_empty_log() {
+        let gs = test_gs_with_events(vec![]);
+        let req = make_read_req(GATEWAY_EVENTS_URI);
+        let resp = handle_resources_read(&gs, json!(1), &req).await;
+
+        assert!(
+            resp.get("error").is_none(),
+            "empty log must not return an error; got {resp}"
+        );
+        let text = resp["result"]["contents"][0]["text"]
+            .as_str()
+            .expect("must return text content");
+        assert!(text.is_empty(), "empty log text must be empty string");
+    }
 
     #[test]
     fn rewrites_matching_content_uris_only() {

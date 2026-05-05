@@ -863,6 +863,7 @@ dependencies = [
  "http",
  "nucleo-matcher",
  "parking_lot",
+ "prometheus",
  "reqwest 0.13.3",
  "serde",
  "serde_json",
