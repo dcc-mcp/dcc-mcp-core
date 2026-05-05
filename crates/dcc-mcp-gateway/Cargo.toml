@@ -15,6 +15,7 @@ dcc-mcp-naming = { path = "../dcc-mcp-naming" }
 dcc-mcp-transport = { path = "../dcc-mcp-transport" }
 dcc-mcp-telemetry = { path = "../dcc-mcp-telemetry", optional = true }
 dcc-mcp-skill-rest = { path = "../dcc-mcp-skill-rest" }
+dcc-mcp-catalog = { path = "../dcc-mcp-catalog" }
 
 # Workspace shared
 serde = { workspace = true }

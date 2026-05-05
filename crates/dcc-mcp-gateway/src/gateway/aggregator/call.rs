@@ -35,6 +35,9 @@ pub async fn route_tools_call(
         "diagnostics__tool_metrics" => {
             return to_text_result(tool_diagnostics_tool_metrics(gs, args).await);
         }
+        // ── #774 public catalog tools ────────────────────────────────
+        "dcc_catalog__search" => return to_text_result(tool_catalog_search(args)),
+        "dcc_catalog__describe" => return to_text_result(tool_catalog_describe(args)),
         // ── #655 dynamic-capability MCP wrappers ────────────────────
         "search_tools" => return to_text_result(tool_search_tools(gs, args).await),
         "describe_tool" => return to_text_result(tool_describe_tool(gs, args).await),
