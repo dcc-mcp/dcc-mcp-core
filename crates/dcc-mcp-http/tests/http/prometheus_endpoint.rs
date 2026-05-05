@@ -44,7 +44,9 @@ fn make_server(config: McpHttpConfig) -> McpHttpServer {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn metrics_endpoint_exposes_prometheus_payload() {
-    let cfg = McpHttpConfig::new(0).with_name("prom-basic");
+    let cfg = McpHttpConfig::default()
+        .with_port(0)
+        .with_name("prom-basic");
     let mut cfg = cfg;
     cfg.enable_prometheus = true;
 
@@ -83,7 +85,9 @@ async fn metrics_endpoint_exposes_prometheus_payload() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn tool_calls_increment_counter() {
-    let mut cfg = McpHttpConfig::new(0).with_name("prom-counter");
+    let mut cfg = McpHttpConfig::default()
+        .with_port(0)
+        .with_name("prom-counter");
     cfg.enable_prometheus = true;
 
     let server = make_server(cfg);
@@ -153,7 +157,7 @@ async fn tool_calls_increment_counter() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn basic_auth_rejects_without_header() {
-    let mut cfg = McpHttpConfig::new(0).with_name("prom-auth");
+    let mut cfg = McpHttpConfig::default().with_port(0).with_name("prom-auth");
     cfg.enable_prometheus = true;
     cfg.prometheus_basic_auth = Some(("admin".to_string(), "s3cret".to_string()));
 
@@ -204,7 +208,7 @@ async fn basic_auth_rejects_without_header() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn metrics_endpoint_absent_when_flag_is_off() {
-    let cfg = McpHttpConfig::new(0).with_name("prom-off");
+    let cfg = McpHttpConfig::default().with_port(0).with_name("prom-off");
     // enable_prometheus is false by default.
     let server = make_server(cfg);
     let handle = server.start().await.expect("server must start");

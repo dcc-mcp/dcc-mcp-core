@@ -83,7 +83,9 @@ async fn spawn_pending_backend(delay: Duration) -> McpServerHandle {
 
     McpHttpServer::new(
         registry,
-        McpHttpConfig::new(0).with_name("pending-real-backend"),
+        McpHttpConfig::default()
+            .with_port(0)
+            .with_name("pending-real-backend"),
     )
     .with_dispatcher(dispatcher)
     .start()

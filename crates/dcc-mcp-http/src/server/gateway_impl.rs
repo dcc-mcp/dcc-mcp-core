@@ -10,31 +10,32 @@ pub(crate) async fn start_gateway_runner(
     port: u16,
     live_meta: &LiveMeta,
 ) -> Option<crate::gateway::GatewayHandle> {
-    if config.gateway_port == 0 {
+    if config.gateway.gateway_port == 0 {
         return None;
     }
 
     let gateway_config = GatewayConfig {
-        host: config.host.to_string(),
-        gateway_port: config.gateway_port,
-        stale_timeout_secs: config.stale_timeout_secs,
-        heartbeat_secs: config.heartbeat_secs,
-        server_name: config.server_name.clone(),
-        server_version: config.server_version.clone(),
-        registry_dir: config.registry_dir.clone(),
+        host: config.server.host.to_string(),
+        gateway_port: config.gateway.gateway_port,
+        stale_timeout_secs: config.gateway.stale_timeout_secs,
+        heartbeat_secs: config.gateway.heartbeat_secs,
+        server_name: config.server.server_name.clone(),
+        server_version: config.server.server_version.clone(),
+        registry_dir: config.gateway.registry_dir.clone(),
         challenger_timeout_secs: 120,
-        backend_timeout_ms: config.backend_timeout_ms,
-        async_dispatch_timeout_ms: config.gateway_async_dispatch_timeout_ms,
-        wait_terminal_timeout_ms: config.gateway_wait_terminal_timeout_ms,
-        route_ttl_secs: config.gateway_route_ttl_secs,
-        max_routes_per_session: config.gateway_max_routes_per_session,
-        allow_unknown_tools: config.allow_unknown_tools,
-        adapter_version: config.adapter_version.clone(),
+        backend_timeout_ms: config.gateway.backend_timeout_ms,
+        async_dispatch_timeout_ms: config.gateway.gateway_async_dispatch_timeout_ms,
+        wait_terminal_timeout_ms: config.gateway.gateway_wait_terminal_timeout_ms,
+        route_ttl_secs: config.gateway.gateway_route_ttl_secs,
+        max_routes_per_session: config.gateway.gateway_max_routes_per_session,
+        allow_unknown_tools: config.gateway.allow_unknown_tools,
+        adapter_version: config.gateway.adapter_version.clone(),
         adapter_dcc: config
+            .gateway
             .adapter_dcc
             .clone()
-            .or_else(|| config.dcc_type.clone()),
-        cursor_safe_tool_names: config.gateway_cursor_safe_tool_names,
+            .or_else(|| config.instance.dcc_type.clone()),
+        cursor_safe_tool_names: config.gateway.gateway_cursor_safe_tool_names,
     };
 
     let runner = match GatewayRunner::new(gateway_config) {
@@ -46,18 +47,19 @@ pub(crate) async fn start_gateway_runner(
     };
 
     let mut entry = ServiceEntry::new(
-        config.dcc_type.as_deref().unwrap_or("unknown"),
-        config.host.to_string(),
+        config.instance.dcc_type.as_deref().unwrap_or("unknown"),
+        config.server.host.to_string(),
         port,
     );
-    entry.version = config.dcc_version.clone();
-    entry.scene = config.scene.clone();
-    entry.adapter_version = config.adapter_version.clone();
+    entry.version = config.instance.dcc_version.clone();
+    entry.scene = config.instance.scene.clone();
+    entry.adapter_version = config.gateway.adapter_version.clone();
     entry.adapter_dcc = config
+        .gateway
         .adapter_dcc
         .clone()
-        .or_else(|| config.dcc_type.clone());
-    entry.metadata = config.instance_metadata.clone();
+        .or_else(|| config.instance.dcc_type.clone());
+    entry.metadata = config.instance.instance_metadata.clone();
 
     let metadata_provider = Some(build_metadata_provider(Arc::clone(live_meta)));
     match runner.start(entry, metadata_provider).await {

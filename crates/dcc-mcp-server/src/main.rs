@@ -591,10 +591,10 @@ async fn main() -> anyhow::Result<()> {
 
     // ── Start MCP HTTP server (DCC-specific tools) ────────────────────────
 
-    let mut config = McpHttpConfig::new(args.mcp_port)
-        .with_name(args.server_name.clone())
-        .with_cors();
-    config.host = args
+    let mut config = McpHttpConfig::default();
+    config.server.port = args.mcp_port;
+    config = config.with_name(args.server_name.clone()).with_cors();
+    config.server.host = args
         .host
         .parse()
         .map_err(|e| anyhow::anyhow!("Invalid --host '{}': {e}", args.host))?;

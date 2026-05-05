@@ -12,9 +12,9 @@ use serde_json::json;
 
 fn make_server(enable: bool, artefact: bool) -> McpHttpServer {
     let registry = Arc::new(ActionRegistry::new());
-    let mut cfg = McpHttpConfig::new(0);
-    cfg.enable_resources = enable;
-    cfg.enable_artefact_resources = artefact;
+    let mut cfg = McpHttpConfig::default();
+    cfg.set_enable_resources(enable);
+    cfg.set_enable_artefact_resources(artefact);
     McpHttpServer::new(registry, cfg)
 }
 

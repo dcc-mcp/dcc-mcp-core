@@ -320,16 +320,16 @@ pub fn py_create_skill_server(
 
     // Build config with app_name as default server name
     let mut cfg = config.map(|c| c.inner.clone()).unwrap_or_default();
-    if cfg.server_name == "dcc-mcp-server" || cfg.server_name.is_empty() {
-        cfg.server_name = format!("{app_name}-mcp");
+    if cfg.server_name() == "dcc-mcp-server" || cfg.server_name().is_empty() {
+        cfg.set_server_name(format!("{app_name}-mcp"));
     }
     // Issue #303: force Dedicated mode for PyO3 callers, which matches
     // what PyMcpHttpConfig's constructor picks when called from Python.
     // Callers that really know what they're doing (i.e. running inside a
     // persistent #[tokio::main] driver) can still set spawn_mode back to
     // "ambient" on the config before passing it in.
-    if matches!(cfg.spawn_mode, ServerSpawnMode::Ambient) {
-        cfg.spawn_mode = ServerSpawnMode::Dedicated;
+    if matches!(cfg.spawn_mode(), ServerSpawnMode::Ambient) {
+        cfg.set_spawn_mode(ServerSpawnMode::Dedicated);
     }
 
     let runtime = super::build_python_runtime()?;
@@ -367,8 +367,8 @@ pub fn py_create_skill_server(
     }
 
     let live_meta = Arc::new(RwLock::new(LiveMetaInner {
-        scene: cfg.scene.clone(),
-        version: cfg.dcc_version.clone(),
+        scene: cfg.scene().clone(),
+        version: cfg.dcc_version().clone(),
         ..Default::default()
     }));
     let resources = crate::server::build_resource_registry(&cfg);

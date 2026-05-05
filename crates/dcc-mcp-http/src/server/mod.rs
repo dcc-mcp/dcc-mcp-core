@@ -117,8 +117,9 @@ impl McpServerHandle {
 pub(crate) fn build_resource_registry(
     config: &McpHttpConfig,
 ) -> crate::resources::ResourceRegistry {
-    if config.enable_artefact_resources {
+    if config.features.enable_artefact_resources {
         let root = config
+            .gateway
             .registry_dir
             .clone()
             .unwrap_or_else(std::env::temp_dir)
@@ -127,7 +128,7 @@ pub(crate) fn build_resource_registry(
             Ok(store) => {
                 let shared: dcc_mcp_artefact::SharedArtefactStore = Arc::new(store);
                 return crate::resources::ResourceRegistry::new_with_artefact_store(
-                    config.enable_resources,
+                    config.features.enable_resources,
                     true,
                     shared,
                 );
@@ -141,8 +142,8 @@ pub(crate) fn build_resource_registry(
         }
     }
     crate::resources::ResourceRegistry::new(
-        config.enable_resources,
-        config.enable_artefact_resources,
+        config.features.enable_resources,
+        config.features.enable_artefact_resources,
     )
 }
 
@@ -177,10 +178,10 @@ impl McpHttpServer {
             dispatcher.clone(),
         ));
         let resources = build_resource_registry(&config);
-        let prompts = crate::prompts::PromptRegistry::new(config.enable_prompts);
+        let prompts = crate::prompts::PromptRegistry::new(config.features.enable_prompts);
         let live_meta: LiveMeta = Arc::new(RwLock::new(LiveMetaInner {
-            scene: config.scene.clone(),
-            version: config.dcc_version.clone(),
+            scene: config.instance.scene.clone(),
+            version: config.instance.dcc_version.clone(),
             ..Default::default()
         }));
         Self {
@@ -207,10 +208,10 @@ impl McpHttpServer {
             .cloned()
             .unwrap_or_else(|| Arc::new(ActionDispatcher::new((*registry).clone())));
         let resources = build_resource_registry(&config);
-        let prompts = crate::prompts::PromptRegistry::new(config.enable_prompts);
+        let prompts = crate::prompts::PromptRegistry::new(config.features.enable_prompts);
         let live_meta: LiveMeta = Arc::new(RwLock::new(LiveMetaInner {
-            scene: config.scene.clone(),
-            version: config.dcc_version.clone(),
+            scene: config.instance.scene.clone(),
+            version: config.instance.dcc_version.clone(),
             ..Default::default()
         }));
         Self {
@@ -352,7 +353,10 @@ impl McpHttpServer {
 
         let sessions = SessionManager::new();
 
-        background_impl::spawn_session_eviction_task(&sessions, self.config.session_ttl_secs);
+        background_impl::spawn_session_eviction_task(
+            &sessions,
+            self.config.session.session_ttl_secs,
+        );
 
         let cancelled_requests: std::sync::Arc<dashmap::DashMap<String, std::time::Instant>> =
             std::sync::Arc::new(dashmap::DashMap::new());
@@ -373,7 +377,7 @@ impl McpHttpServer {
         let prompts = self.prompts.clone();
 
         background_impl::spawn_resource_update_forwarder(
-            self.config.enable_resources,
+            self.config.features.enable_resources,
             &resources,
             &sessions,
         );
@@ -389,7 +393,7 @@ impl McpHttpServer {
         let jobs = build_job_manager(&self.config)?;
         let job_notifier = crate::notifications::JobNotifier::new(
             sessions.clone(),
-            self.config.enable_job_notifications,
+            self.config.features.enable_job_notifications,
         );
         // Bridge JobManager transitions onto the notifier (#326).
         let notifier_cb = job_notifier.clone();
@@ -409,7 +413,7 @@ impl McpHttpServer {
         // `recover_from_storage` (Drop semantics) path.
         if jobs.storage().is_some() {
             if matches!(
-                self.config.job_recovery,
+                self.config.job.job_recovery,
                 crate::config::JobRecoveryPolicy::Requeue
             ) {
                 tracing::warn!(
@@ -423,16 +427,16 @@ impl McpHttpServer {
             match jobs.recover_from_storage() {
                 Ok(n) if n > 0 => tracing::info!(
                     interrupted_jobs = n,
-                    policy = self.config.job_recovery.as_str(),
+                    policy = self.config.job.job_recovery.as_str(),
                     "JobManager recovered pending/running rows from storage and marked them Interrupted"
                 ),
                 Ok(_) => tracing::debug!(
-                    policy = self.config.job_recovery.as_str(),
+                    policy = self.config.job.job_recovery.as_str(),
                     "JobManager storage recovery found no in-flight rows"
                 ),
                 Err(e) => tracing::error!(
                     error = %e,
-                    policy = self.config.job_recovery.as_str(),
+                    policy = self.config.job.job_recovery.as_str(),
                     "JobManager storage recovery failed — in-process map stays empty"
                 ),
             }
@@ -453,8 +457,8 @@ impl McpHttpServer {
             ),
         )
         .with_readiness(readiness.clone());
-        rest_config.server_title = self.config.server_name.clone();
-        rest_config.server_version = self.config.server_version.clone();
+        rest_config.server_title = self.config.server.server_name.clone();
+        rest_config.server_version = self.config.server.server_version.clone();
         let rest_router = dcc_mcp_skill_rest::build_skill_rest_router(rest_config);
 
         let state = AppState {
@@ -464,29 +468,31 @@ impl McpHttpServer {
             sessions,
             executor: self.executor,
             bridge_registry: crate::BridgeRegistry::new(),
-            server_name: self.config.server_name.clone(),
-            server_version: self.config.server_version.clone(),
+            server_name: self.config.server.server_name.clone(),
+            server_version: self.config.server.server_version.clone(),
             cancelled_requests,
             in_flight: InFlightRequests::new(),
             pending_elicitations: std::sync::Arc::new(dashmap::DashMap::new()),
-            lazy_actions: self.config.lazy_actions,
-            bare_tool_names: self.config.bare_tool_names,
-            declared_capabilities: std::sync::Arc::new(self.config.declared_capabilities.clone()),
+            lazy_actions: self.config.features.lazy_actions,
+            bare_tool_names: self.config.features.bare_tool_names,
+            declared_capabilities: std::sync::Arc::new(
+                self.config.instance.declared_capabilities.clone(),
+            ),
             jobs,
             job_notifier,
             resources,
-            enable_resources: self.config.enable_resources,
+            enable_resources: self.config.features.enable_resources,
             prompts,
-            enable_prompts: self.config.enable_prompts,
+            enable_prompts: self.config.features.enable_prompts,
             registry_generation: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
-            enable_tool_cache: self.config.enable_tool_cache,
+            enable_tool_cache: self.config.session.enable_tool_cache,
             #[cfg(feature = "prometheus")]
             prometheus: prometheus.clone(),
             method_router: AppState::default_method_router(),
             readiness,
         };
 
-        let endpoint = self.config.endpoint_path.clone();
+        let endpoint = self.config.server.endpoint_path.clone();
 
         let mut router = Router::new()
             .route(
@@ -517,7 +523,7 @@ impl McpHttpServer {
             );
         }
 
-        if self.config.enable_cors {
+        if self.config.server.enable_cors {
             router = router.layer(
                 CorsLayer::new()
                     .allow_origin(Any)
@@ -544,7 +550,7 @@ impl McpHttpServer {
 
         tracing::info!(
             "MCP HTTP server listening on http://{actual_bind}{}",
-            self.config.endpoint_path
+            self.config.server.endpoint_path
         );
 
         // ── Optional gateway competition ──────────────────────────────────────
@@ -611,7 +617,7 @@ pub fn start_in_runtime(
 /// compiled in (issue #328) — we must not silently run without the
 /// persistence the deployment expected.
 fn build_job_manager(config: &McpHttpConfig) -> HttpResult<Arc<crate::job::JobManager>> {
-    match &config.job_storage_path {
+    match &config.job.job_storage_path {
         Some(path) => {
             #[cfg(feature = "job-persist-sqlite")]
             {

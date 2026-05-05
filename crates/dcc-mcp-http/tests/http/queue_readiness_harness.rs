@@ -548,11 +548,12 @@ async fn heartbeat_starvation_produces_red_readiness_report() {
 
 #[test]
 fn queue_depth_knobs_plumb_through_mcp_http_config() {
-    let cfg = McpHttpConfig::new(0)
+    let cfg = McpHttpConfig::default()
+        .with_port(0)
         .with_deferred_queue_depth(4)
         .with_bridge_queue_depth(8)
         .with_host_queue_depth(16);
-    assert_eq!(cfg.deferred_queue_depth, 4);
-    assert_eq!(cfg.bridge_queue_depth, 8);
-    assert_eq!(cfg.host_queue_depth, 16);
+    assert_eq!(cfg.deferred_queue_depth(), 4);
+    assert_eq!(cfg.bridge_queue_depth(), 8);
+    assert_eq!(cfg.host_queue_depth(), 16);
 }

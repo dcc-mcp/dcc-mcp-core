@@ -120,7 +120,7 @@ pub async fn test_elicitation_create_requires_2025_06_18() {
 #[tokio::test]
 pub async fn test_elicitation_create_roundtrip_via_sse_response() {
     let registry = Arc::new(make_registry());
-    let config = McpHttpConfig::new(0);
+    let config = McpHttpConfig::default().with_port(0);
     let server = McpHttpServer::new(registry, config);
     let handle = server.start().await.unwrap();
     let mcp_url = format!("http://{}{}/", handle.bind_addr, "/mcp");

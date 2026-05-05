@@ -13,7 +13,7 @@ pub(crate) async fn spawn_http_server(
     shutdown_tx: watch::Sender<bool>,
     shutdown_rx: watch::Receiver<bool>,
 ) -> HttpResult<(Option<JoinHandle<()>>, Option<std::thread::JoinHandle<()>>)> {
-    match config.spawn_mode {
+    match config.server.spawn_mode {
         ServerSpawnMode::Ambient => {
             spawn_ambient(
                 listener,
@@ -67,14 +67,14 @@ async fn spawn_ambient(
         tracing::info!("MCP HTTP server stopped");
     });
 
-    if config.self_probe_timeout_ms > 0 {
-        let probe_host = if config.host.is_unspecified() {
+    if config.server.self_probe_timeout_ms > 0 {
+        let probe_host = if config.server.host.is_unspecified() {
             "127.0.0.1".to_string()
         } else {
-            config.host.to_string()
+            config.server.host.to_string()
         };
         let probe_addr = format!("{probe_host}:{port}");
-        if !self_probe(&probe_addr, config.self_probe_timeout_ms).await {
+        if !self_probe(&probe_addr, config.server.self_probe_timeout_ms).await {
             let _ = shutdown_tx.send(true);
             let _ = join.await;
             return Err(HttpError::BindFailed {
@@ -103,7 +103,7 @@ async fn spawn_dedicated(
     drop(listener);
 
     let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel::<Result<(), std::io::Error>>(1);
-    let self_probe_timeout_ms = config.self_probe_timeout_ms;
+    let self_probe_timeout_ms = config.server.self_probe_timeout_ms;
     let probe_bind = actual_bind.clone();
 
     let thread = std::thread::Builder::new()
