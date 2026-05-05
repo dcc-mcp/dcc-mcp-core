@@ -15,6 +15,7 @@ use futures::future::join_all;
 use serde_json::{Value, json};
 
 use super::super::backend_client::fetch_resources;
+use super::super::handlers::resources::GATEWAY_EVENTS_URI;
 use super::super::namespace::encode_resource_uri;
 use super::super::state::GatewayState;
 use super::helpers::live_backends;
@@ -110,9 +111,20 @@ pub async fn aggregate_resources_list(gs: &GatewayState) -> Value {
             .collect()
     };
 
+    // Tier 0: gateway-internal event log (issue #766).
+    // Always visible so operators and agents can request the contention log.
+    let events_pointer = json!({
+        "uri":         GATEWAY_EVENTS_URI,
+        "name":        "Gateway contention events",
+        "description": "Append-only JSONL stream of gateway election, eviction, and probe events (ring buffer, last 1000 entries).",
+        "mimeType":    "application/x-ndjson"
+    });
+
     // Tier 2: every backend's resources, with URIs rewritten to the
     // gateway-prefixed form so clients can disambiguate.
-    let mut merged: Vec<Value> = admin_pointers;
+    let mut merged: Vec<Value> = std::iter::once(events_pointer)
+        .chain(admin_pointers)
+        .collect();
     for (iid, dcc_type, backend_resources) in fetch_backend_resources(gs).await {
         for mut resource in backend_resources {
             let backend_uri = resource

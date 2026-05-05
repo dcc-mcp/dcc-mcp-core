@@ -73,6 +73,11 @@ async fn make_state(
         capability_index: std::sync::Arc::new(
             dcc_mcp_http::gateway::capability::CapabilityIndex::new(),
         ),
+        event_log: std::sync::Arc::new(dcc_mcp_http::gateway::event_log::EventLog::new()),
+        #[cfg(feature = "prometheus")]
+        gateway_metrics: std::sync::Arc::new(
+            dcc_mcp_http::gateway::event_log::GatewayMetrics::new(),
+        ),
     };
     (state, registry, dir)
 }

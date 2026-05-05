@@ -38,6 +38,9 @@ fn make_gateway_state() -> GatewayState {
         adapter_dcc: None,
         cursor_safe_tool_names: true,
         capability_index: std::sync::Arc::new(crate::gateway::capability::CapabilityIndex::new()),
+        event_log: std::sync::Arc::new(crate::gateway::event_log::EventLog::new()),
+        #[cfg(feature = "prometheus")]
+        gateway_metrics: std::sync::Arc::new(crate::gateway::event_log::GatewayMetrics::new()),
     }
 }
 
