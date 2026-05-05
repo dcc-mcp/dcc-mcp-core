@@ -1093,6 +1093,7 @@ dependencies = [
  "dcc-mcp-logging",
  "dcc-mcp-protocols",
  "dcc-mcp-skills",
+ "dcc-mcp-telemetry",
  "dcc-mcp-transport",
  "futures-util",
  "reqwest 0.13.3",

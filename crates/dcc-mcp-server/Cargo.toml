@@ -19,6 +19,7 @@ dcc-mcp-skills.workspace = true
 dcc-mcp-protocols.workspace = true
 dcc-mcp-logging.workspace = true
 dcc-mcp-transport.workspace = true
+dcc-mcp-telemetry = { path = "../dcc-mcp-telemetry", optional = true }
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
@@ -35,3 +36,8 @@ tower-http = { version = "0.6", features = ["cors", "trace"] }
 clap = { version = "4", features = ["derive", "env"] }
 sysinfo.workspace = true
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[features]
+default = []
+otlp-exporter = ["dcc-mcp-telemetry/otlp-exporter", "dep:dcc-mcp-telemetry"]
+telemetry = ["dep:dcc-mcp-telemetry"]
