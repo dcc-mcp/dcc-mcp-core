@@ -99,19 +99,19 @@ session_id = mgr.get_or_create_session("maya", instance_id)
 ### Skills 系统
 
 ```
-SKILL.md（元数据）                     scripts/
-─────────────────────────────────────────────────
-name: maya-geometry                    create_sphere.py
-dcc: maya                              bevel.py
-scope: repo                            export_fbx.bat
-policy:                                ──────────────
-  products: ["maya"]                   ↓ 注册为 MCP 工具
-  allow_implicit_invocation: false     maya_geometry__create_sphere
-                                       maya_geometry__bevel
-                                       maya_geometry__export_fbx
+SKILL.md（agentskills.io）        tools.yaml + scripts/
+────────────────────────────────────────────────────────
+name: maya-geometry              tools: create_sphere → scripts/create_sphere.py
+metadata.dcc-mcp.dcc: maya              bevel         → scripts/bevel.py
+metadata.dcc-mcp.products: [maya]        export_fbx    → scripts/export_fbx.bat
+metadata.dcc-mcp.tools: tools.yaml       ──────────────
+metadata.dcc-mcp.allow-implicit-         ↓ 注册为 MCP 工具
+  invocation: false               maya_geometry__create_sphere
+                                  maya_geometry__bevel
+                                  maya_geometry__export_fbx
 ```
 
-零 Python 胶水代码。元数据 + 脚本 = MCP 工具。
+零 Python 胶水代码。agentskills.io 元数据 + 同级文件 + 脚本 = MCP 工具。
 
 ### 渐进式发现
 
@@ -120,9 +120,9 @@ policy:                                ─────────────�
 | 过滤器 | 条件 | 结果 |
 |--------|------|------|
 | **DCC 类型** | 会话绑定到 Maya | 只显示 Maya 工具 |
-| **产品** | `policy.products: ["maya"]` | Houdini 工具隐藏 |
-| **作用域** | `scope: system` | 不能被 repo 技能覆盖 |
-| **隐式调用** | `allow_implicit_invocation: false` | 需先显式调用 `load_skill` |
+| **产品** | `metadata.dcc-mcp.products: ["maya"]` | Houdini 工具隐藏 |
+| **作用域** | 发现路径为 `System` | 不能被 repo 技能覆盖 |
+| **隐式调用** | `metadata.dcc-mcp.allow-implicit-invocation: false` | 需先显式调用 `load_skill` |
 
 ## 快速开始
 
@@ -137,6 +137,7 @@ pip install dcc-mcp-core
 ```
 my-tools/
 ├── SKILL.md
+├── tools.yaml
 └── scripts/
     └── create_sphere.py
 ```
@@ -145,14 +146,24 @@ my-tools/
 ```yaml
 ---
 name: my-tools
-dcc: maya
-scope: repo
-policy:
-  allow_implicit_invocation: true
-  products: ["maya"]
+description: "自定义 Maya 几何体工具。用于创建简单几何体。"
+metadata:
+  dcc-mcp:
+    dcc: maya
+    products: ["maya"]
+    allow-implicit-invocation: true
+    tools: tools.yaml
 ---
 # 我的 Maya 工具
 自定义几何体工具。
+```
+
+**tools.yaml：**
+```yaml
+tools:
+  - name: create_sphere
+    description: 创建多边形球体。
+    source_file: scripts/create_sphere.py
 ```
 
 ### 3. 启动服务器

@@ -51,17 +51,17 @@ result = dispatcher.dispatch("maya-geometry__create_sphere", '{"radius": 2.0}')
 # Always check the result structure
 if result.get("success"):
     print(f"Tool succeeded: {result.get('message')}")
-    # Check for next-tools guidance
-    if "next-tools" in result:
-        print(f"Suggested next tools: {result['next-tools']}")
 else:
     print(f"Tool failed: {result.get('error')}")
     print(f"Suggestion: {result.get('prompt')}")
+
+# Over MCP, follow-up hints are attached to CallToolResult._meta["dcc.next_tools"].
+# Use .on_success after successful calls and .on_failure after errors when present.
 ```
 
 ### 4. Follow next-tools Guidance
 
-When a tool returns `next-tools.on-success` or `next-tools.on-failure`, **always consider calling those tools next**. This creates a guided workflow chain.
+When an MCP `tools/call` response includes `CallToolResult._meta["dcc.next_tools"].on_success` or `.on_failure`, **always consider calling those tools next**. This creates a guided workflow chain; the declarations live per tool in sibling `tools.yaml`, not as top-level `SKILL.md` keys.
 
 ### Gateway / Slim / REST Surfaces
 
@@ -76,14 +76,15 @@ result = call_tool(tool_slug=info["tool_slug"], arguments={"radius": 2.0})
 
 Non-MCP clients use the equivalent REST endpoints: `POST /v1/search`, `POST /v1/describe`, and `POST /v1/call`. See `docs/guide/gateway.md` and `docs/guide/dcc-rest-skill-api.md`.
 
-### Gateway Resources
+### Gateway Resources and Prompts
 
 Use MCP resources for files, scene artefacts, thumbnails, diagnostics, and other hand-off data that should not be squeezed into tool text output:
 
-1. Call `resources/list` and keep the returned URI exactly as-is. Gateway-prefixed URIs encode the owning DCC instance.
+1. Call `resources/list` and keep the returned URI exactly as-is. Gateway-prefixed URIs encode the owning DCC instance (`dcc://<type>/<id>` or `<scheme>://<id8>/<rest>`).
 2. Call `resources/read` with that exact URI. Do not remove or rewrite the instance prefix client-side.
 3. Use `resources/subscribe` only when you need live `notifications/resources/updated` events, then call `resources/unsubscribe` when done.
 4. Prefer resources over ad-hoc local file paths in tool messages; resources are portable across DCC hosts and easier for agents to trace.
+5. For reusable prompt templates, call gateway `prompts/list` and then `prompts/get` with the returned namespaced prompt name.
 
 ## 📚 Key Concepts You Must Understand
 
@@ -141,7 +142,7 @@ active = catalog.active_groups()
 | Task | Use this API |
 |------|---------------|
 | **Expose DCC tools over MCP** | `DccServerBase` → subclass → `start()` |
-| **Zero-code tool registration** | `SKILL.md` + sibling `tools.yaml` + `scripts/` (agentskills.io-compatible format) |
+| **Zero-code tool registration** | agentskills.io `SKILL.md` + `metadata.dcc-mcp.tools` pointing at sibling `tools.yaml` + `scripts/` |
 | **Return structured results** | `success_result()` / `error_result()` |
 | **Rich error with traceback** | `skill_error_with_trace()` |
 | **Bridge non-Python DCC** | `DccBridge` (WebSocket JSON-RPC 2.0) |
@@ -178,18 +179,20 @@ Include specific keywords that AI agents will match against:
 
 ```yaml
 metadata:
-  dcc-mcp.search-hint: "polygon modeling, bevel, extrude, mesh creation, Maya geometry"
+  dcc-mcp:
+    search-hint: "polygon modeling, bevel, extrude, mesh creation, Maya geometry"
 ```
 
 ### next-tools Chains
 
-Always provide follow-up guidance:
+Always provide follow-up guidance in the sibling `tools.yaml` referenced by `metadata.dcc-mcp.tools`:
 
 ```yaml
+# tools.yaml
 tools:
   - name: create_sphere
     next-tools:
-      on-success: [maya-geometry__bevel_edges, maya-geometry__apply_material]
+      on-success: [maya_geometry__bevel_edges, maya_geometry__apply_material]
       on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
 ```
 

@@ -91,7 +91,7 @@ dcc-mcp-server ← dcc-mcp-http
 - `SkillScanner` — 基于 mtime 缓存的目录扫描器，发现 SKILL.md 包
 - `SkillCatalog` — 渐进式技能发现与加载管理（推荐 API）
 - `SkillWatcher` — 平台原生文件系统监听器（inotify/FSEvents/ReadDirectoryChangesW）
-- `SkillMetadata` — 从 SKILL.md frontmatter 解析的元数据
+- `SkillMetadata` — 从 agentskills.io `SKILL.md` 以及 `metadata.dcc-mcp.*` 指向的同级文件解析的元数据
 - 依赖解析：`resolve_dependencies`、`expand_transitive_dependencies`、`validate_dependencies`
 
 **技能包格式**：`SKILL.md` 含 YAML frontmatter（`name`、`version`、`description`、`tools`、`dcc`、`tags`、`depends`、`search-hint`）

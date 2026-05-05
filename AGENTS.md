@@ -91,10 +91,11 @@ Gateway / slim / REST exposure:
 3. Execute: call_tool(tool_slug, arguments={...})
 4. For non-MCP clients, use the matching /v1/search, /v1/describe, /v1/call REST endpoints.
 
-Gateway resources:
+Gateway resources/prompts:
 1. List hand-off artefacts with resources/list; gateway-prefixed URIs identify the owning DCC instance.
-2. Read the exact URI returned by resources/list; do not strip the instance prefix.
-3. Subscribe only to URIs you plan to react to, and unsubscribe when done.
+2. Read/subscribe with the exact URI returned by resources/list; do not strip `dcc://<type>/<id>` or backend-resource prefixes.
+3. Use prompts/list and prompts/get through the gateway when prompt templates are aggregated from multiple DCC instances.
+4. Subscribe only to URIs you plan to react to, and unsubscribe when done.
 ```
 
 ### Multi-DCC Guardrails
@@ -139,6 +140,9 @@ Gateway resources:
 | IPC | `IpcChannelAdapter` / `SocketServerAdapter` + `DccLinkFrame` |
 | Hand off files between tools | `FileRef` + `artefact_put_file()` / `artefact_get_bytes()` |
 | Multi-DCC gateway | `McpHttpConfig(gateway_port=9765)` |
+| Gateway dynamic capabilities | `search_tools` → `describe_tool` → `call_tool` or REST `/v1/search` → `/v1/describe` → `/v1/call` |
+| Gateway resources/prompts | `resources/list` / `resources/read` with exact gateway-returned URIs; `prompts/list` / `prompts/get` for aggregated backend prompt templates |
+| Persist project state | `DccProject.open/load(...)` + `register_project_tools(server, ...)` exposing `project.save/load/resume/status` |
 | Remote MCP relay (zero-config tunnel) | `RelayServer::start(RelayConfig, agent_bind, frontend_bind).await` — accepts agent registrations on `agent_bind`, multiplexes remote-client TCP from `frontend_bind` to the agent's local MCP server (issue #504) |
 | Enable WS frontend / `/tunnels` admin | `RelayServer::start_with(cfg, agent_bind, frontend_bind, OptionalBinds { ws_frontend, admin })` — opt-in WS upgrade endpoint at `/tunnel/<id>` and read-only `GET /tunnels` + `/healthz` |
 | Spawn the local tunnel agent | `dcc_mcp_tunnel_agent::run_once(AgentConfig::new(relay_url, jwt, dcc, local_target)).await` — registers, holds the connection open, bridges per-session bytes to the local DCC HTTP server |

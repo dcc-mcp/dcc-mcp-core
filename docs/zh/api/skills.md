@@ -118,7 +118,7 @@ print(f"已移除 {removed} 个 action")
 
 ## ToolDeclaration
 
-Skill 中的单个工具声明，从 SKILL.md frontmatter 的 `tools:` 列表解析。
+Skill 中的单个工具声明，从 `metadata.dcc-mcp.tools` 指向的同级 `tools.yaml` 解析；旧的 SKILL.md 顶层 `tools:` 不再是有效新格式。
 
 ```python
 from dcc_mcp_core import ToolDeclaration

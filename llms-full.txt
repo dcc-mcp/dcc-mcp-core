@@ -27,7 +27,7 @@
 | Share large data between processes | `PySharedSceneBuffer` (LZ4 compressed) |
 | Capture a DCC viewport screenshot | `Capturer.new_auto().capture()` (full-screen) / `Capturer.new_window_auto().capture_window(process_id=pid)` (single window) |
 | Bind diagnostics MCP tools to a specific DCC instance | `DccServerBase(..., dcc_pid=pid, dcc_window_title=title)` |
-| Expose a group of tools only when asked | Declare `groups:` in SKILL.md + `activate_tool_group` / `deactivate_tool_group` |
+| Expose a group of tools only when asked | Declare `metadata.dcc-mcp.groups` pointing to sibling `groups.yaml` / `tools.yaml`, then use `activate_tool_group` / `deactivate_tool_group` |
 | Assert a producer→file→verifier round-trip between two DCCs (#688) | `dcc_mcp_core.SceneStats(object_count, vertex_count, has_mesh, extra={})` + `SceneStats.matches(other, vertex_tolerance=0.05)`; verifier skills inherit the `skills/templates/verifier-harness/` template. DCC-specific implementations live in downstream repos. |
 | Exchange scene data via USD format | `UsdStage` + `scene_info_json_to_stage()` |
 | Bridge DCC protocols | `BridgeRegistry` + `register_bridge()` / `get_bridge_context()` |
@@ -36,6 +36,8 @@
 | Wrap values for safe RPyC transport | `wrap_value()` / `unwrap_value()` |
 | Handle multiple versions of an action | `VersionedRegistry` + `VersionConstraint` |
 | Expose DCC tools over HTTP/MCP | `create_skill_server("maya", McpHttpConfig(port=8765))` — Skills-First one-call setup; gateway/slim agents use `search_tools` → `describe_tool` → `call_tool`; falls back to `McpHttpServer(registry, config)` for manual registry wiring |
+| Persist and resume DCC project state | `DccProject.open/load(...)` + `register_project_tools(server, ...)` exposing `project.save/load/resume/status` |
+| Share resources/prompts through a gateway | `resources/list/read/subscribe` with exact gateway-returned URIs; `prompts/list/get` for namespaced backend prompts |
 | Discover team-level skills | `scan_and_load_team()` / `scan_and_load_team_lenient()` |
 | Discover user-level skills | `scan_and_load_user()` / `scan_and_load_user_lenient()` |
 | Reference files across tool calls (artefacts) | `FileRef` + `artefact_put_file()` / `artefact_get_bytes()` / `artefact_list()` |
@@ -146,7 +148,7 @@ validated = validate_action_result(None)     # returns a success result
 
 ### SkillMetadata
 
-Metadata parsed from SKILL.md frontmatter. All fields are get/set.
+Metadata parsed from agentskills.io `SKILL.md` frontmatter plus sibling files referenced by `metadata.dcc-mcp.*`. All fields are get/set.
 
 **Fields:**
 - `name: str` — Unique identifier (used in action naming)
@@ -675,16 +677,24 @@ all_deps = expand_transitive_dependencies(skills, "my-skill")  # -> List[str] na
 
 ```yaml
 ---
-name: maya-geometry          # Required: unique identifier (kebab-case, max 64 chars)
-description: "Maya geometry creation and modification tools. Use when creating or modifying polygon geometry."
+name: maya-geometry          # Required agentskills.io identifier (kebab-case, max 64 chars)
+description: >-
+  Maya geometry creation and modification tools. Use when creating or
+  modifying polygon geometry.
 allowed-tools: Bash(git:*) Read  # Space-separated pre-approved tools (agentskills.io spec, experimental)
-tags: ["maya", "geometry"]   # Classification tags
-dcc: maya                    # Target DCC: maya, blender, houdini, 3dsmax, python
-version: "1.0.0"             # Semantic version
 license: "MIT"               # License identifier (agentskills.io spec)
 compatibility: "Maya 2024+"  # Environment requirements, max 500 chars (agentskills.io spec)
-depends: ["other-skill"]     # Names of required skills (optional)
-search-hint: "polygon modeling, sphere, bevel, extrude"  # dcc-mcp-core extension: keyword hints
+metadata:
+  dcc-mcp:
+    dcc: maya
+    version: "1.0.0"
+    tags: ["maya", "geometry"]
+    search-hint: "polygon modeling, sphere, bevel, extrude"
+    tools: tools.yaml
+    groups: groups.yaml
+    depends: ["other-skill"]
+    resources: "resources/*.resource.yaml"
+    external-deps: external_deps.yaml
 ---
 # Human-readable description (markdown body)
 
@@ -693,7 +703,7 @@ Include: purpose, usage examples, expected environment, prerequisites.
 ```
 
 **agentskills.io standard fields** (V1.0 spec, 2025-12-18): `name` (required), `description` (required), `license`, `compatibility`, `metadata`, `allowed-tools` (experimental — space-separated tool strings like `Bash(git:*) Read`).
-**dcc-mcp-core extensions**: `dcc`, `tags`, `search-hint`, `tools`, `groups`, `depends`, `external_deps`, `next-tools`.
+**dcc-mcp-core extensions**: live under `metadata.dcc-mcp.*` and point to sibling files when payloads are non-trivial: `.dcc`, `.version`, `.tags`, `.search-hint`, `.tools`, `.groups`, `.depends`, `.resources`, `.workflows`, `.prompts`, `.external-deps`. Legacy top-level extension keys are rejected by the strict loader.
 
 ### Supported Script Extensions
 
@@ -762,15 +772,26 @@ catalog.list_tools_catalog("maya-geometry")        # -> {group_name: [tool_names
 
 ### Tool Groups (Progressive Exposure)
 
-Large skills can declare **tool groups** in SKILL.md so the AI client activates
-only the toolsets it needs, keeping `tools/list` compact while all tools stay
-discoverable via `search_tools`.
+Large skills can declare **tool groups** in the sibling file referenced by
+`metadata.dcc-mcp.groups` (often the same `tools.yaml` referenced by
+`metadata.dcc-mcp.tools`) so the AI client activates only the toolsets it needs,
+keeping `tools/list` compact while all tools stay discoverable via `search_tools`.
 
 ```yaml
 # SKILL.md frontmatter
 ---
 name: maya-geometry
-dcc: maya
+description: "Maya geometry tools. Use when creating or editing polygon meshes."
+metadata:
+  dcc-mcp:
+    dcc: maya
+    tools: tools.yaml
+    groups: tools.yaml
+---
+```
+
+```yaml
+# tools.yaml
 groups:
   - name: modeling
     description: "Polygon modeling and UV tools"
@@ -787,7 +808,6 @@ tools:
   - name: create_joint
     group: rigging
     source_file: scripts/create_joint.py
----
 ```
 
 **`SkillGroup` fields:** `.name`, `.description`, `.default_active` (bool), `.tools` (`List[str]`).
@@ -826,8 +846,10 @@ group-control tools alongside the six skill-discovery tools:
 
 The `next-tools` field guides AI agents to appropriate follow-up actions after a tool
 executes. This is a dcc-mcp-core extension, not part of the agentskills.io specification.
+Declare it per tool inside the sibling `tools.yaml` file referenced by `metadata.dcc-mcp.tools`.
 
 ```yaml
+# tools.yaml
 tools:
   - name: create_sphere
     description: "Create a polygon sphere"
@@ -842,7 +864,7 @@ tools:
 | `on-success` | `List[str]` | Suggested tools after successful execution |
 | `on-failure` | `List[str]` | Debugging/recovery tools on failure |
 
-Both accept fully-qualified tool names in `{skill_name}__{tool_name}` format.
+Both accept fully-qualified tool names in `{skill_name}__{tool_name}` format. Runtime results expose successful hints at `CallToolResult._meta["dcc.next_tools"].on_success` and failure hints at `.on_failure` when declarations exist.
 
 ### Action Naming Convention
 
@@ -1037,7 +1059,7 @@ ann = dcc_mcp_core.ToolAnnotations(
 
 ### ToolDeclaration
 
-Declaration of a single MCP tool provided by a Skill, parsed from SKILL.md frontmatter.
+Declaration of a single MCP tool provided by a Skill, parsed from the sibling file referenced by `metadata.dcc-mcp.tools` (usually `tools.yaml`).
 Lightweight discovery-time object — no script execution needed.
 
 ```python
@@ -1066,9 +1088,9 @@ td.source_file   # str   — relative path within skill's scripts/ dir
 ```
 
 **Relation to SkillMetadata**: `skill.tools` is a `List[ToolDeclaration]` populated from the
-`tools:` array in SKILL.md frontmatter (v0.12+ format). Each entry corresponds to one MCP tool
-that the skill exposes. The `source_file` field links the declaration back to the script that
-implements it.
+sibling file referenced by `metadata.dcc-mcp.tools` (usually `tools.yaml`). Each entry corresponds
+to one MCP tool that the skill exposes. The `source_file` field links the declaration back to the
+script that implements it.
 
 ### ToolSpec
 
@@ -1114,6 +1136,42 @@ rtd = dcc_mcp_core.ResourceTemplateDefinition(
     mime_type="application/json",
 )
 ```
+
+### ResourceHandle and Gateway Resources
+
+Python adapters can mutate the MCP resource registry without reaching into private server internals:
+
+```python
+resources = server.resources()
+resources.set_scene({"path": "/show/shot/scene.ma", "dcc": "maya"})
+resources.notify_updated("scene://current")
+resources.register_output_buffer(output_capture)
+resources.register_producer("maya-cmds://", lambda uri: {"contents": [{"uri": uri, "text": "..."}]})
+```
+
+Static resources declared by skills use `metadata.dcc-mcp.resources` pointing to sibling `*.resource.yaml` files. Current supported static source is `source.type: file`.
+
+Gateway resources preserve backend ownership in the URI. Agents must pass the exact URI returned by `resources/list` to `resources/read` / `resources/subscribe`:
+
+- `dcc://<type>/<id>` — gateway management pointer for a DCC instance.
+- `<scheme>://<id8>/<rest>` — forwarded backend resource URI with the instance prefix.
+
+Gateway prompt aggregation follows the same progressive discovery principle: use `prompts/list` to see namespaced prompt templates from every live backend and `prompts/get` with the returned name to fetch one template.
+
+### Project Persistence MCP Tools
+
+```python
+from dcc_mcp_core import register_project_tools
+from dcc_mcp_core.project import DccProject
+
+project = DccProject.open("/show/shot/scene.ma")
+project.activate_skill("maya-lookdev")
+project.activate_tool_group("maya-lookdev-tools")
+project.update_metadata(units="cm", up_axis="y")
+register_project_tools(server, dcc_name="maya", project=project)
+```
+
+`register_project_tools` exposes `project.save`, `project.load`, `project.resume`, and `project.status` so agents can recover scene paths, loaded assets, active skills/groups, checkpoints, and adapter metadata across DCC restarts.
 
 ### PromptDefinition / PromptArgument
 

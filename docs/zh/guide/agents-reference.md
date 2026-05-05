@@ -197,8 +197,8 @@ return success_result("done", count=5)      # → ToolResult 实例
 # 这防止了项目本地 skill 劫持企业管理 skill。
 # 注意：SkillScope/SkillPolicy 是 Rust 层类型，不导出到 Python。
 # 通过 SkillMetadata 访问作用域信息：metadata.is_implicit_invocation_allowed()，
-# metadata.matches_product(dcc_name)。通过 SKILL.md frontmatter 配置：
-#   allow_implicit_invocation: false
+# metadata.matches_product(dcc_name)。通过 metadata.dcc-mcp.* 配置：
+#   allow-implicit-invocation: false
 #   products: ["maya", "blender"]
 ```
 
@@ -278,7 +278,7 @@ md.external_deps = json.dumps({
 # 读取：
 deps = json.loads(md.external_deps) if md.external_deps else None
 ```
-- 在 SKILL.md frontmatter 中声明为 `external_deps:`（YAML 映射）
+- 在 `metadata.dcc-mcp.external-deps` / `metadata.dcc-mcp.external_deps` 指向的同级文件中声明；不要在 `SKILL.md` 顶层放 `external_deps:`。
 - 解析为 `SkillMetadata.external_deps` JSON 字符串
 - 通过 `json.loads(metadata.external_deps)` 访问 — 未设置时返回 `None`
 - 完整 schema 参见 [Skill 作用域与策略](/guide/skill-scopes-policies)

@@ -165,20 +165,30 @@ This automatically creates an `ToolRegistry`, `ToolDispatcher`, `SkillCatalog`, 
 
 ### What is the Skills system?
 
-The Skills system allows zero-code script registration. Place scripts in a directory with a `SKILL.md` file and they are automatically discovered and registered as MCP tools:
+The Skills system allows zero-code script registration. Place scripts in a directory with an agentskills.io `SKILL.md` file plus sibling declaration files and they are automatically discovered and registered as MCP tools:
+
+`SKILL.md`:
 
 ```markdown
 ---
 name: maya-geometry
-description: "Geometry creation tools"
-version: "1.0.0"
-dcc: maya
-tags: ["geometry"]
+description: "Geometry creation tools. Use when creating or editing Maya meshes."
+metadata:
+  dcc-mcp:
+    dcc: maya
+    version: "1.0.0"
+    tags: ["geometry"]
+    tools: tools.yaml
+---
+```
+
+`tools.yaml`:
+
+```yaml
 tools:
   - name: create_sphere
     description: "Create a sphere"
     source_file: scripts/create_sphere.py
----
 ```
 
 ### How do I discover and load skills?
