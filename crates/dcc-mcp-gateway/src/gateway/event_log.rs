@@ -144,70 +144,83 @@ impl Default for EventLog {
 
 // ── Prometheus counters ─────────────────────────────────────────────────────
 
-/// Thin wrapper around the three gateway contention counters.
-///
-/// Each counter is registered once in the default Prometheus registry when
-/// `GatewayMetrics::new()` is called. Subsequent calls to `inc_*` are cheap
-/// atomic increments.
+// Process-wide singletons via std::sync::OnceLock: registered exactly once per
+// process lifetime. This prevents `AlreadyReg` panics when multiple Gateway
+// instances are created in the same process (e.g., Python integration tests).
 #[cfg(feature = "prometheus")]
-pub struct GatewayMetrics {
-    elections: prometheus::CounterVec,
-    evictions: prometheus::CounterVec,
-    probes: prometheus::CounterVec,
-}
-
-#[cfg(feature = "prometheus")]
-impl GatewayMetrics {
-    /// Register the three counters in the default Prometheus registry.
-    ///
-    /// Panics at startup if Prometheus registration fails (name collision or
-    /// malformed help string) — this is intentional because a metric that
-    /// cannot be registered is a programming error that must be caught early.
-    pub fn new() -> Self {
-        let elections = prometheus::register_counter_vec!(
+fn elections_counter() -> &'static prometheus::CounterVec {
+    static CELL: std::sync::OnceLock<prometheus::CounterVec> = std::sync::OnceLock::new();
+    CELL.get_or_init(|| {
+        prometheus::register_counter_vec!(
             prometheus::opts!(
                 "dcc_mcp_gateway_elections_total",
                 "Gateway port-election outcomes"
             ),
             &["outcome"]
         )
-        .expect("dcc_mcp_gateway_elections_total registration must succeed");
+        .expect("dcc_mcp_gateway_elections_total registration must succeed")
+    })
+}
 
-        let evictions = prometheus::register_counter_vec!(
+#[cfg(feature = "prometheus")]
+fn evictions_counter() -> &'static prometheus::CounterVec {
+    static CELL: std::sync::OnceLock<prometheus::CounterVec> = std::sync::OnceLock::new();
+    CELL.get_or_init(|| {
+        prometheus::register_counter_vec!(
             prometheus::opts!(
                 "dcc_mcp_gateway_evictions_total",
                 "Gateway registry-eviction events"
             ),
             &["reason"]
         )
-        .expect("dcc_mcp_gateway_evictions_total registration must succeed");
+        .expect("dcc_mcp_gateway_evictions_total registration must succeed")
+    })
+}
 
-        let probes = prometheus::register_counter_vec!(
+#[cfg(feature = "prometheus")]
+fn probes_counter() -> &'static prometheus::CounterVec {
+    static CELL: std::sync::OnceLock<prometheus::CounterVec> = std::sync::OnceLock::new();
+    CELL.get_or_init(|| {
+        prometheus::register_counter_vec!(
             prometheus::opts!(
                 "dcc_mcp_gateway_probes_total",
                 "Gateway backend readiness-probe outcomes"
             ),
             &["outcome"]
         )
-        .expect("dcc_mcp_gateway_probes_total registration must succeed");
+        .expect("dcc_mcp_gateway_probes_total registration must succeed")
+    })
+}
 
-        GatewayMetrics {
-            elections,
-            evictions,
-            probes,
-        }
+/// Thin wrapper around the three gateway contention counters.
+///
+/// The underlying `CounterVec`s are process-wide singletons (via
+/// `std::sync::OnceLock`). Multiple `GatewayMetrics` instances in the same
+/// process safely share the same counters without re-registration.
+#[cfg(feature = "prometheus")]
+pub struct GatewayMetrics;
+
+#[cfg(feature = "prometheus")]
+impl GatewayMetrics {
+    /// Ensure counters are registered (initialization happens at most once
+    /// per process via `OnceLock::get_or_init`).
+    pub fn new() -> Self {
+        let _ = elections_counter();
+        let _ = evictions_counter();
+        let _ = probes_counter();
+        GatewayMetrics
     }
 
     pub fn inc_election(&self, outcome: &str) {
-        self.elections.with_label_values(&[outcome]).inc();
+        elections_counter().with_label_values(&[outcome]).inc();
     }
 
     pub fn inc_eviction(&self, reason: &str) {
-        self.evictions.with_label_values(&[reason]).inc();
+        evictions_counter().with_label_values(&[reason]).inc();
     }
 
     pub fn inc_probe(&self, outcome: &str) {
-        self.probes.with_label_values(&[outcome]).inc();
+        probes_counter().with_label_values(&[outcome]).inc();
     }
 }
 
