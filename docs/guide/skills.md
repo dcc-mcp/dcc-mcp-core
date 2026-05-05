@@ -150,7 +150,7 @@ info = catalog.get_skill_info("maya-geometry")  # dict with full details or None
 
 ## ToolDeclaration
 
-A `ToolDeclaration` describes a single tool within a skill. Declare tools in the sibling `tools.yaml` file referenced by `metadata.dcc-mcp.tools`. Legacy top-level `tools:` frontmatter is still parsed for compatibility, but new skills should not use it:
+A `ToolDeclaration` describes a single tool within a skill. Declare tools in the sibling `tools.yaml` file referenced by `metadata.dcc-mcp.tools`. Legacy top-level `tools:` frontmatter is rejected by the strict loader; migrate old skills to the sibling-file pattern:
 
 ```yaml
 tools:
@@ -704,14 +704,14 @@ my-skill/
 
 ## SkillMetadata Fields
 
-Parsed from SKILL.md frontmatter. Supports [agentskills.io](https://agentskills.io/specification) standard fields, ClawHub/OpenClaw, and dcc-mcp-core extensions simultaneously.
+Parsed from agentskills.io `SKILL.md` frontmatter plus sibling files referenced by `metadata.dcc-mcp.*`. Top-level extension keys are rejected by the strict loader; keep dcc-mcp-core payloads in the namespace and sibling files.
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `name` | `str` | Unique skill name |
 | `description` | `str` | Short description (should describe what the skill does and when to use it) |
-| `search_hint` | `str` | Keyword hint for `search_skills` (SKILL.md `search-hint:` field; falls back to `description`) |
-| `tools` | `List[ToolDeclaration]` | Tool declarations from frontmatter (use `.name` to get tool names) |
+| `search_hint` | `str` | Keyword hint for `search_skills` (`metadata.dcc-mcp.search-hint`; falls back to `description`) |
+| `tools` | `List[ToolDeclaration]` | Tool declarations from `metadata.dcc-mcp.tools` sibling file (use `.name` to get tool names) |
 | `dcc` | `str` | Target DCC application (default: `"python"`) |
 | `tags` | `List[str]` | Classification tags |
 | `scripts` | `List[str]` | Discovered script file paths |

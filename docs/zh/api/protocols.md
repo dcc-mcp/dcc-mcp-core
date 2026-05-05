@@ -39,7 +39,7 @@ ann = ToolAnnotations(read_only_hint=True)
 
 ## ToolDeclaration
 
-Skill 提供的单个 MCP 工具的轻量声明。从 SKILL.md frontmatter 的 `tools:` 数组中解析而来——
+Skill 提供的单个 MCP 工具的轻量声明。从 `metadata.dcc-mcp.tools` 指向的同级 `tools.yaml` 解析而来——
 无需执行脚本即可完成发现。
 
 | 字段 | 类型 | 默认值 | 说明 |

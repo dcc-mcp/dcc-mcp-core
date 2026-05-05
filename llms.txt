@@ -77,7 +77,7 @@
 | Full callable-payload dispatch contract for DCC adapters (#520) | `BaseDccCallableDispatcherFull` Protocol — `submit_callable(request_id, task, affinity, timeout_ms) -> JobOutcome`, `submit_async_callable(...) -> PendingEnvelope`, `cancel(request_id) -> bool`, `shutdown(reason) -> int`. Companion `BaseDccPump` for cooperative idle-tick draining. Reference impl `InProcessCallableDispatcher` runs jobs inline for `mayapy` / headless / pytest; production hosts (Maya UI thread, Houdini …) compose or subclass it. Per-job `current_callable_job` ContextVar enables cooperative-cancel probes from inside the task. |
 | Cross-DCC asset round-trip contract (#688) | `dcc_mcp_core.SceneStats(object_count, vertex_count, has_mesh, extra={})` + `skills/templates/verifier-harness/` — minimal shape every DCC verifier skill returns from `import_and_inspect(file_path)`; `SceneStats.matches(other, vertex_tolerance=0.05)` adjudicates producer→file→verifier drift. DCC-specific implementations live in downstream repos (`dcc-mcp-blender`, `dcc-mcp-maya`, ...). See `docs/guide/cross-dcc-verification.md`. |
 | Checkpoint/resume long-running tool executions (issue #436) | `save_checkpoint(job_id, state)` / `get_checkpoint(job_id)` / `checkpoint_every(n, job_id, state_fn)` — persist progress at intervals so interrupted jobs resume from last checkpoint |
-| Project-level state persistence (#576) | `DccProject.open(scene_path)` creates/loads `.dcc-mcp/project.json`; mutate `project.state` via `add_asset`, `activate_skill`, `add_checkpoint_id`, `update_metadata`, then `resume_session()` to recover scene/assets/skills/checkpoints across DCC restarts |
+| Project-level state persistence (#576) | `DccProject.open(scene_path)` creates/loads `.dcc-mcp/project.json`; mutate via `add_asset`, `activate_skill`, `activate_tool_group`, `add_checkpoint_id`, `update_metadata`; call `register_project_tools(server, ...)` to expose `project.save/load/resume/status`; use `resume_session()` to recover scene/assets/skills/checkpoints across DCC restarts |
 | Agent-facing docs:// MCP resources (issue #435) | `register_docs_server(server)` — serves `docs://output-format/*` and `docs://skill-authoring/*` resources; agents fetch only specs they need |
 | Agent feedback / rationale (issues #433, #434) | `register_feedback_tool(server)` / `extract_rationale(params)` / `make_rationale_meta(text)` — `dcc_feedback__report` tool + `_meta.dcc.rationale` extraction |
 | Runtime DCC namespace introspection (issue #426) | `register_introspect_tools(server)` — `dcc_introspect__list_module`, `dcc_introspect__signature`, `dcc_introspect__search`, `dcc_introspect__eval` |
@@ -90,7 +90,7 @@
 | Bound gateway `tools/list` in multi-instance setups (issue #652) | `McpHttpConfig.gateway_tool_exposure = "full" \| "slim" \| "both" \| "rest"` — `"full"` (default) keeps pre-#652 fan-out; `"slim"`/`"rest"` publish only gateway meta-tools + skill management so backend capabilities must be reached via dynamic wrappers; `"both"` is a forward-compat alias of `"full"` for the transition window planned in #657. Also exposed on `dcc-mcp-server` as `--gateway-tool-exposure` / `DCC_MCP_GATEWAY_TOOL_EXPOSURE`. The enum `dcc_mcp_http::gateway::GatewayToolExposure` is public; diagnostics surface `metrics.tool_exposure` + `metrics.publishes_backend_tools` via `diagnostics__tool_metrics`. |
 | Cursor-safe gateway tool names (issue #656) | `McpHttpConfig.gateway_cursor_safe_tool_names = true` (default). Gateway emits `i_<id8>__<escaped_tool>` instead of pre-#656 `<id8>.<tool>` so clients that only accept `^[A-Za-z0-9_]+$` (Cursor, and other MCP clients with the same regex) still see every backend tool. The escape vocabulary is `_D_` → `.`, `_H_` → `-`, `_U_` → `_` (reversible). `decode_tool_name` still accepts the SEP-986 dotted form and the deprecated `/` / `__` forms during the compatibility window. Single-instance bare aliases (#583) are suppressed for backend names that are not already cursor-safe. Also exposed on `dcc-mcp-server` as `--gateway-cursor-safe-tool-names` / `DCC_MCP_GATEWAY_CURSOR_SAFE_TOOL_NAMES`. Set to `false` only for diagnostic parity with servers that publish SEP-986 dotted names directly. |
 | Dynamic DCC capability index + REST API + MCP wrappers (issues #653 / #654 / #655, tracking #657) | `dcc_mcp_http::gateway::capability::CapabilityIndex` stores compact (~200 B) per-action records (`tool_slug`, `backend_tool`, `skill_name`, `summary`, `tags`, `dcc_type`, `instance_id`, `has_schema`) keyed by slug `<dcc>.<id8>.<tool>`; the pure-function `dcc_mcp_http::gateway::capability_service` routes REST and MCP surfaces through the same code path. REST endpoints on the gateway: `POST /v1/search`, `POST /v1/describe`, `POST /v1/call`, `GET /v1/instances` (mirrors `/instances`). MCP wrappers exposed through `tools/list` as fixed, cursor-safe names: `search_tools {query, dcc_type, instance_id, tags, scene_hint, limit, offset, loaded_only, mode}` (default `mode: "fuzzy"` uses `nucleo-matcher` for typo/prefix tolerance per #659; set `mode: "exact"` for pre-#659 substring table; `search_page(...)` returns `{hits, total, offset, limit}` for pagination), `describe_tool {tool_slug}`, `call_tool {tool_slug, arguments, meta}`. The index is refreshed on demand before each search/describe call (short-circuited via per-instance fingerprint) so the first agent query after startup or `load_skill` sees fresh data without waiting for a periodic tick; instances that leave the registry are evicted. Skill stubs (`__skill__*`), gateway-local, and skill-management tools are filtered out of the index so they never appear twice. Slim / Rest `tools/list` stays bounded (~16 entries) regardless of how many backends are live — the whole point of the #657 redesign. Ambiguous / offline routing produces structured `{error: {kind, message, candidates}}` envelopes (`kind` ∈ `unknown-slug`, `ambiguous`, `instance-offline`, `backend-error`, `bad-request`). |
-| Per-DCC RESTful skill API surface (issues #658 / #660) | `dcc_mcp_http::skill_rest::{SkillRestService, SkillRestConfig, build_skill_rest_router}` mounts a tiny `/v1/*` router on the *per-DCC* `McpHttpServer` so non-MCP agents and remote enterprise platforms can call DCC skills without going through the gateway. Routes: `GET /v1/healthz` (liveness), `GET /v1/readyz` (3-state readiness: process/dispatcher/dcc), `GET /v1/openapi.json` (utoipa-generated OpenAPI 3.x), `GET /v1/skills` (loaded actions), `POST /v1/search` (compact hits, schema-omitted; <512 B/hit token budget), `POST /v1/describe` & `GET /v1/tools/{slug}` (schema + annotations), `POST /v1/call` (invoke; respects skill thread-affinity & main-thread executor), `GET /v1/context` (scene/document snapshot). SOLID: every collaborator is a trait — `SkillCatalogSource`, `ToolInvoker`, `AuthGate`, `AuditSink`, `ReadinessProbe` — defaults wire to existing `SkillCatalog` + `ActionDispatcher`; adapters swap impls without touching the router. Auth defaults to `AllowLocalhostGate` (loopback-only); remote callers must install `BearerTokenGate::new(vec![token])`. Errors share one envelope `ServiceError {kind, message, hint?, request_id?, candidates?}` with kebab-case `kind` ∈ `unknown-slug` `ambiguous` `skill-not-loaded` `invalid-params` `unauthorized` `bad-request` `affinity-violation` `not-ready` `backend-error` `internal`. Every call emits one `AuditEvent` via the configured `AuditSink`. The exact same `SkillRestService` powers gateway MCP wrappers, guaranteeing REST/MCP envelope parity (regression-tested). |
+| Per-DCC RESTful skill API surface (issues #658 / #660) | `dcc_mcp_http::skill_rest::{SkillRestService, SkillRestConfig, build_skill_rest_router}` mounts a tiny `/v1/*` router on the *per-DCC* `McpHttpServer` so non-MCP agents and remote enterprise platforms can call DCC skills without going through the gateway. Routes: `GET /v1/healthz` (liveness), `GET /v1/readyz` (3-state readiness: process/dispatcher/dcc), `GET /v1/openapi.json` (utoipa-generated OpenAPI 3.x), `GET /v1/skills` (loaded actions), `POST /v1/search` (compact hits, schema-omitted; <512 B/hit token budget), `POST /v1/describe` & `GET /v1/tools/{slug}` (schema + annotations), `POST /v1/call` (invoke; respects skill thread-affinity & main-thread executor), `GET /v1/context` (scene/document snapshot). SOLID: every collaborator is a trait — `SkillCatalogSource`, `ToolInvoker`, `AuthGate`, `AuditSink`, `ReadinessProbe` — defaults wire to existing `SkillCatalog` + `ActionDispatcher`; adapters swap impls without touching the router. Auth defaults to `AllowLocalhostGate` (loopback-only); remote callers must install `BearerTokenGate::new(vec![token])`. Errors share one envelope `ServiceError {kind, message, hint?, request_id?, candidates?}` with kebab-case `kind` ∈ `unknown-slug` `ambiguous` `skill-not-loaded` `invalid-params` `unauthorized` `bad-request` `affinity-violation` `not-ready` `backend-error` `internal`. Every call emits one `AuditEvent` via the configured `AuditSink`. The exact same `SkillRestService` powers gateway MCP wrappers, guaranteeing REST/MCP envelope parity (regression-tested). Gateway probes prefer `/v1/readyz` and fall back to `/health` only when the readiness endpoint is absent. |
 | Auto-evict dead gateway instances (issues #551, #552, #556) | Built-in TCP probe task in `dcc_mcp_http::gateway::tasks::start_gateway_runtime` — connects to each backend's listener, deregisters after `health_check_max_failures` consecutive misses (default 3) and immediately on startup probe miss; expose tuning via `McpHttpConfig.health_check_*` |
 | Crash-safe FileRegistry heartbeat (issue #554) | `FileRegistry::heartbeat` writes via `tempfile::NamedTempFile::persist` (atomic rename) plus Windows `LockFileEx`/`UnlockFileEx` so concurrent processes never produce a half-written or stomped registry entry |
 | Default rolling file logging (issue #557) | `dcc_mcp_logging::file_logging::default_file_logging_config()` returns a `FileLoggingConfig` with daily rotation under the platform-standard log directory; pair with `init_file_logging(cfg)` |
@@ -300,7 +300,7 @@ Pure-Python modules: cancellation, checkpoint, constants (#487), result_envelope
 - **SKILL.md description quality**: The `description` field (1-1024 chars) should describe **what the skill does AND when to use it** — include specific keywords so AI agents can match tasks. Bad: "Helps with geometry." Good: "Creates and modifies polygon geometry in Maya. Use when user asks to create spheres, cubes, bevel edges, or extrude faces."
 - **Progressive disclosure**: Keep `SKILL.md` body < 500 lines / < 5000 tokens; move details to `references/` (loaded on demand by agents)
 
-**SkillGroup fields:** `.name`, `.description`, `.default_active` (bool), `.tools` (List[str]) — declared in SKILL.md `groups:` frontmatter for progressive tool exposure
+**SkillGroup fields:** `.name`, `.description`, `.default_active` (bool), `.tools` (List[str]) — declared in the sibling file referenced by `metadata.dcc-mcp.groups` (usually `groups.yaml` or `tools.yaml`) for progressive tool exposure
 
 **Tool groups (progressive exposure):**
 - `ToolRegistry.activate_tool_group(skill, group) -> int`, `.deactivate_tool_group(skill, group) -> int` — enable/disable tools in a group; emits `notifications/tools/list_changed`
@@ -310,8 +310,9 @@ Pure-Python modules: cancellation, checkpoint, constants (#487), result_envelope
 
 **Action naming**: `{skill_name}__{script_stem}` — hyphens in skill names replaced by underscores. SEP-986 dot-namespacing (`skill.tool_name`) also supported — see `docs/guide/naming.md` for validation rules (`validate_tool_name`, `validate_action_id`)
 
-**`next-tools` (dcc-mcp-core extension):** Declared per-tool in SKILL.md frontmatter to guide AI agents to follow-up tools:
+**`next-tools` (dcc-mcp-core extension):** Declared per-tool in the sibling `tools.yaml` file referenced by `metadata.dcc-mcp.tools` to guide AI agents to follow-up tools:
 ```yaml
+# tools.yaml
 tools:
   - name: create_sphere
     next-tools:
@@ -321,7 +322,7 @@ tools:
 - `on-success`: suggested tools after successful execution
 - `on-failure`: debugging/recovery tools on failure
 - Both accept lists of fully-qualified tool names (`skill_name__tool_name` format)
-- This is a dcc-mcp-core extension, not part of the agentskills.io specification
+- This is a dcc-mcp-core extension, not part of the agentskills.io specification; successful calls expose `CallToolResult._meta["dcc.next_tools"].on_success`, failed calls expose `.on_failure`
 
 **AI Agent Tool Priority**: When interacting with DCCs, prefer: (1) Skill Discovery (`search_skills` → `load_skill`), (2) Skill-based tools (validated schemas + `next-tools` + `ToolAnnotations` safety hints), (3) Diagnostics tools (`diagnostics__screenshot` etc.), (4) Direct registry access (last resort). Skills-first provides safety, discoverability, chainability, progressive exposure, and input validation.
 
@@ -388,11 +389,11 @@ tools:
   - `.port -> int`, `.bind_addr -> str`
   - `.shutdown()` — blocks until stopped; `.signal_shutdown()` — non-blocking
 
-**Resources primitive** (#350, Rust-only API — Python exposure is via the HTTP methods):
-- `server.resources()` (Rust) — get the `ResourceRegistry`
-- `registry.set_scene(Option<Value>)` — update `scene://current`; fires `notifications/resources/updated`
-- `registry.wire_audit_log(&AuditLog)` — forward `AuditLog.record()` to `audit://recent` subscribers
-- `registry.add_producer(Arc<dyn ResourceProducer>)` — register a custom scheme
+**Resources primitive** (#350, #730, #732):
+- Python: `server.resources()` returns `ResourceHandle`; use `.set_scene(dict|None)`, `.notify_updated(uri)`, `.register_output_buffer(OutputCapture)`, `.register_producer(scheme_or_uri, callable)`.
+- Rust: `server.resources()` returns `ResourceRegistry`; use `set_scene`, `wire_audit_log`, and `add_producer(Arc<dyn ResourceProducer>)`.
+- Static skill resources: declare `metadata.dcc-mcp.resources` pointing to `resources/*.resource.yaml` with `source.type: file`.
+- Gateway: `resources/list` returns gateway-owned management URIs (`dcc://<type>/<id>`) and forwarded backend resource URIs (`<scheme>://<id8>/<rest>`); always pass the exact returned URI to `resources/read` / `resources/subscribe`.
 - JSON-RPC: `resources/list`, `resources/read`, `resources/subscribe`, `resources/unsubscribe`
 - Errors: `-32601` method-not-found (resources disabled), `-32602` invalid params, `-32002` resource-not-enabled (artefact://), `-32603` producer read failure
 
@@ -590,12 +591,12 @@ tools:
 
 ### Skill Scopes & Policies (`dcc_mcp_core`)
 
-- `SkillScope` — enum: `Repo`, `User`, `System`, `Admin` (ascending trust; higher shadows lower). **Rust-only type — not importable from Python.** Configure via SKILL.md frontmatter and access via `SkillMetadata` methods.
+- `SkillScope` — enum: `Repo`, `User`, `System`, `Admin` (ascending trust; higher shadows lower). **Rust-only type — not importable from Python.** Scope comes from the discovery path; access via `SkillMetadata` / `SkillSummary` fields.
   - `Repo` — project-local (e.g. `./<project>/.dcc_skills/`)
   - `User` — user-level (e.g. `~/.dcc_mcp/skills/`)
   - `System` — system-wide (e.g. `/opt/dcc_mcp/skills/`)
   - `Admin` — enterprise-managed (elevated privilege)
-- `SkillPolicy` — declared in SKILL.md frontmatter. **Rust-only type — not importable from Python.** Access via `SkillMetadata`:
+- `SkillPolicy` — declared under `metadata.dcc-mcp.allow-implicit-invocation` / `metadata.dcc-mcp.products`. **Rust-only type — not importable from Python.** Access via `SkillMetadata`:
   - `allow_implicit_invocation: bool` (default `True`) — when `False`, skill must be explicitly `load_skill()`'d
   - `products: list[str]` — DCC type whitelist (case-insensitive)
   - `SkillMetadata.is_implicit_invocation_allowed()` — check policy
@@ -713,30 +714,32 @@ maya-geometry/
 
 ### SKILL.md Format
 
-Follows [agentskills.io](https://agentskills.io/specification) specification.
+Follows [agentskills.io](https://agentskills.io/specification) specification. Keep top-level frontmatter limited to agentskills.io fields; put every dcc-mcp-core extension under `metadata.dcc-mcp.*` and point large payloads to sibling files.
 
 ```yaml
 ---
 name: maya-geometry
-description: "Maya geometry creation tools"
+description: >-
+  Maya geometry creation tools. Use when creating or modifying polygon meshes.
 allowed-tools: Bash Read  # space-separated (agentskills.io spec), NOT a YAML list
-tags: ["maya", "geometry"]
-dcc: maya
-version: "1.0.0"
-depends: ["other-skill"]  # optional
 license: MIT              # optional (agentskills.io spec)
 compatibility: "Maya 2024+" # optional (agentskills.io spec) — environment requirements
-metadata:                 # optional (agentskills.io spec)
-  author: example-org
-  version: "1.0"
-search-hint: "polygon modeling, bevel, extrude"  # dcc-mcp-core extension
+metadata:
+  dcc-mcp:
+    dcc: maya
+    version: "1.0.0"
+    tags: ["maya", "geometry"]
+    search-hint: "polygon modeling, bevel, extrude"
+    tools: tools.yaml
+    groups: groups.yaml
+    external-deps: external_deps.yaml
 ---
 # Markdown description body (keep < 500 lines, < 5000 tokens recommended)
 ```
 
 **agentskills.io standard fields** (V1.0 spec, 2025-12-18): `name` (required), `description` (required), `license`, `compatibility`, `metadata`, `allowed-tools` (experimental — space-separated pre-approved tool strings like `Bash(git:*) Read`).
 
-**dcc-mcp-core extensions**: `dcc`, `tags`, `search-hint`, `tools`, `groups`, `depends`, `external_deps`, `next-tools`.
+**dcc-mcp-core extensions**: `metadata.dcc-mcp.dcc`, `.version`, `.tags`, `.search-hint`, `.tools`, `.groups`, `.depends`, `.external-deps`, `.resources`, `.workflows`, `.prompts`. Legacy top-level extension keys such as `dcc:`, `tools:`, `groups:`, `depends:`, `search-hint:`, or `external_deps:` are rejected by the strict loader.
 
 ### Supported Script Types
 

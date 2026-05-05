@@ -77,14 +77,17 @@ Create a skill in three steps:
 # 1. Create the skill directory structure
 mkdir -p my-skill/scripts
 
-# 2. Write SKILL.md (follows agentskills.io specification)
+# 2. Write SKILL.md (agentskills.io top-level fields + metadata.dcc-mcp pointers)
 cat > my-skill/SKILL.md << 'EOF'
 ---
 name: my-skill
 description: "Does something useful in Maya. Use when user asks to do X."
-dcc: maya
-version: "1.0.0"
-search-hint: "keyword1, keyword2, related task"
+metadata:
+  dcc-mcp:
+    dcc: maya
+    version: "1.0.0"
+    search-hint: "keyword1, keyword2, related task"
+    tools: tools.yaml
 ---
 
 # My Skill
@@ -92,7 +95,15 @@ search-hint: "keyword1, keyword2, related task"
 Instructions for the AI agent on how to use this skill.
 EOF
 
-# 3. Add a script
+# 3. Declare tools in a sibling file
+cat > my-skill/tools.yaml << 'EOF'
+tools:
+  - name: do_thing
+    description: Do a useful Maya task.
+    source_file: scripts/do_thing.py
+EOF
+
+# 4. Add a script
 cat > my-skill/scripts/do_thing.py << 'EOF'
 import sys, json
 
@@ -283,7 +294,7 @@ cargo build --workspace --features python-bindings 2>&1 | grep -E "error|warning
 | `success_result` context is empty | Pass kwargs directly: `success_result("msg", count=5)` — NOT `context={"count":5}` |
 | `ToolDispatcher.call()` not found | Use `.dispatch(name, json_str)` — there is no `.call()` method |
 | `McpHttpServer` tools not appearing | Register all tools BEFORE `server.start()` — the server reads the registry at startup |
-| `SkillScope` / `SkillPolicy` ImportError | These are Rust-only types. Use SKILL.md frontmatter and `SkillMetadata` methods instead |
+| `SkillScope` / `SkillPolicy` ImportError | These are Rust-only types. Use discovery paths plus `metadata.dcc-mcp.*` policy keys, then inspect via `SkillMetadata` methods |
 | `DeferredExecutor` ImportError | Import directly: `from dcc_mcp_core._core import DeferredExecutor` |
 | Skill scripts not discovered | Check `DCC_MCP_SKILL_PATHS` env var and `dcc:` field in SKILL.md matches your filter |
 | `ActionMeta` AttributeError | Rust-only type. Use `ToolRegistry.set_tool_enabled()` and `list_tools_in_group()` instead |

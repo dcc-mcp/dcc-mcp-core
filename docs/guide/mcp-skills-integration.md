@@ -97,19 +97,19 @@ The gateway reads this to know:
 ### Skills System
 
 ```
-SKILL.md  (metadata)          scripts/
-──────────────────────────────────────────────
-name: maya-geometry           create_sphere.py
-dcc: maya                     bevel.py
-scope: repo                   export_fbx.bat
-policy:                       ──────────────
-  products: ["maya"]          ↓ registered as
-  allow_implicit_invocation:  maya_geometry__create_sphere
-    false                     maya_geometry__bevel
-                              maya_geometry__export_fbx
+SKILL.md (agentskills.io)      tools.yaml + scripts/
+────────────────────────────────────────────────────────
+name: maya-geometry            tools: create_sphere → scripts/create_sphere.py
+metadata.dcc-mcp.dcc: maya            bevel         → scripts/bevel.py
+metadata.dcc-mcp.products: [maya]      export_fbx    → scripts/export_fbx.bat
+metadata.dcc-mcp.tools: tools.yaml     ──────────────
+metadata.dcc-mcp.allow-implicit-       ↓ registered as
+  invocation: false             maya_geometry__create_sphere
+                                maya_geometry__bevel
+                                maya_geometry__export_fbx
 ```
 
-Zero Python glue code. metadata + scripts = MCP tools.
+Zero Python glue code. agentskills.io metadata + sibling files + scripts = MCP tools.
 
 ### Progressive Discovery
 
@@ -118,9 +118,9 @@ Tools are revealed gradually based on context:
 | Filter | Criteria | Result |
 |--------|----------|--------|
 | **DCC type** | Session is pinned to Maya | Only Maya tools visible |
-| **Product** | `policy.products: ["maya"]` | Houdini tools hidden |
-| **Scope** | `scope: system` | Can't be overridden by repo skills |
-| **Implicit** | `allow_implicit_invocation: false` | Requires explicit `load_skill` first |
+| **Product** | `metadata.dcc-mcp.products: ["maya"]` | Houdini tools hidden |
+| **Scope** | Discovery path is `System` | Can't be overridden by repo skills |
+| **Implicit** | `metadata.dcc-mcp.allow-implicit-invocation: false` | Requires explicit `load_skill` first |
 
 ## Quick Start
 
@@ -135,6 +135,7 @@ pip install dcc-mcp-core
 ```
 my-tools/
 ├── SKILL.md
+├── tools.yaml
 └── scripts/
     └── create_sphere.py
 ```
@@ -143,14 +144,24 @@ my-tools/
 ```yaml
 ---
 name: my-tools
-dcc: maya
-scope: repo
-policy:
-  allow_implicit_invocation: true
-  products: ["maya"]
+description: "Custom Maya geometry tools. Use when creating simple geometry."
+metadata:
+  dcc-mcp:
+    dcc: maya
+    products: ["maya"]
+    allow-implicit-invocation: true
+    tools: tools.yaml
 ---
 # My Maya Tools
 Custom geometry tools.
+```
+
+**tools.yaml:**
+```yaml
+tools:
+  - name: create_sphere
+    description: Create a polygon sphere.
+    source_file: scripts/create_sphere.py
 ```
 
 ### 3. Start the server

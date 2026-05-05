@@ -336,7 +336,7 @@ md.external_deps = json.dumps({
 # Read it back:
 deps = json.loads(md.external_deps) if md.external_deps else None
 ```
-- Declared in SKILL.md frontmatter as `external_deps:` (YAML mapping)
+- Declared in a sibling file referenced by `metadata.dcc-mcp.external-deps` / `metadata.dcc-mcp.external_deps`; do not put `external_deps:` at top level in `SKILL.md`.
 - Parsed into `SkillMetadata.external_deps` as a JSON string
 - Access via `json.loads(metadata.external_deps)` — returns `None` if not set
 - See [Skill Scopes & Policies](/guide/skill-scopes-policies) for the full schema
@@ -924,7 +924,7 @@ can reuse it) and the wiring in
 The gateway now uses three per-request timeouts instead of one:
 
 - **Sync call** (no `_meta.dcc.async`, no `progressToken`): governed by
-  `McpHttpConfig.backend_timeout_ms` (default 10 s, #314).
+  `McpHttpConfig.backend_timeout_ms` (default 120 s, #314).
 - **Async opt-in** (`_meta.dcc.async=true` *or* `_meta.progressToken`
   present): governed by
   `McpHttpConfig.gateway_async_dispatch_timeout_ms` (default 60 s).

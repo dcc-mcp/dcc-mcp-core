@@ -183,20 +183,30 @@ print(handle.mcp_url())  # http://127.0.0.1:8765/mcp
 
 ### Skills 系统是什么？
 
-Skills 系统允许零代码脚本注册。将脚本放入带有 `SKILL.md` 文件的目录，它们就会被自动发现并注册为 MCP 工具：
+Skills 系统允许零代码脚本注册。将脚本放入带有 agentskills.io `SKILL.md` 和同级声明文件的目录，它们就会被自动发现并注册为 MCP 工具：
+
+`SKILL.md`:
 
 ```markdown
 ---
 name: maya-geometry
-description: "几何体创建工具"
-version: "1.0.0"
-dcc: maya
-tags: ["geometry"]
+description: "几何体创建工具。用于创建或编辑 Maya 网格。"
+metadata:
+  dcc-mcp:
+    dcc: maya
+    version: "1.0.0"
+    tags: ["geometry"]
+    tools: tools.yaml
+---
+```
+
+`tools.yaml`:
+
+```yaml
 tools:
   - name: create_sphere
     description: "创建球体"
     source_file: scripts/create_sphere.py
----
 ```
 
 ### 如何发现并加载 Skill？

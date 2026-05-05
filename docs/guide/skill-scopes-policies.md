@@ -55,15 +55,17 @@ for s in summaries:
 
 ## SkillPolicy: Invocation Control
 
-Declare in `SKILL.md` frontmatter how AI agents may invoke a skill:
+Declare invocation policy under `metadata.dcc-mcp.*`; do not add a top-level `policy:` block:
 
 ```yaml
 ---
 name: maya-cleanup
-dcc: maya
-policy:
-  allow_implicit_invocation: false   # Require explicit load_skill call
-  products: ["maya", "houdini"]      # Only visible for these DCCs
+description: "Cleanup helpers. Use when removing unused Maya scene data."
+metadata:
+  dcc-mcp:
+    dcc: maya
+    allow-implicit-invocation: false  # Require explicit load_skill call
+    products: ["maya", "houdini"]     # Only visible for these DCCs
 ---
 ```
 
@@ -97,10 +99,11 @@ md.is_implicit_invocation_allowed()  # → False
 Restrict skill visibility to specific DCC applications:
 
 ```yaml
-policy:
-  products: ["maya"]           # Only in Maya sessions
-  # products: ["maya", "houdini"]  # Both Maya and Houdini
-  # products: []               # All DCCs (default when policy is absent)
+metadata:
+  dcc-mcp:
+    products: ["maya"]              # Only in Maya sessions
+    # products: ["maya", "houdini"] # Both Maya and Houdini
+    # products: []                  # All DCCs (default when policy is absent)
 ```
 
 This prevents Maya MEL scripts from appearing in a Blender session.
@@ -122,24 +125,32 @@ md.matches_product("Maya")    # → True
 
 ## SkillDependencies: External Contracts
 
-Declare what your skill requires before execution:
+Declare what your skill requires before execution. `SKILL.md` points to a sibling file:
 
 ```yaml
 ---
 name: usd-validator
-external_deps:
-  tools:
-    - type: mcp
-      value: "pixar-usd"
-      description: "USD validation MCP server"
-      transport: "ipc"
-    - type: env_var
-      value: "PYTHONPATH"
-      description: "Must include USD site-packages"
-    - type: bin
-      value: "usdview"
-      description: "USD inspection tool"
+description: "USD validation tools. Use when checking USD files and environment dependencies."
+metadata:
+  dcc-mcp:
+    external-deps: external_deps.yaml
 ---
+```
+
+`external_deps.yaml`:
+
+```yaml
+tools:
+  - type: mcp
+    value: "pixar-usd"
+    description: "USD validation MCP server"
+    transport: "ipc"
+  - type: env_var
+    value: "PYTHONPATH"
+    description: "Must include USD site-packages"
+  - type: bin
+    value: "usdview"
+    description: "USD inspection tool"
 ```
 
 ### Dependency Types
@@ -176,26 +187,17 @@ print(md.external_deps)  # JSON string or None
 ```yaml
 ---
 name: maya-scene-publisher
-version: "2.0.0"
-description: "Production scene publishing with validation"
-dcc: maya
-scope: repo           # Project-local skill
-
-policy:
-  allow_implicit_invocation: false   # User must explicitly load
-  products: ["maya"]                  # Maya only
-
-external_deps:
-  tools:
-    - type: env_var
-      value: "PIPELINE_ROOT"
-      description: "Pipeline root directory"
-    - type: mcp
-      value: "asset-tracker"
-      description: "Asset tracking MCP service"
-    - type: bin
-      value: "mayapy"
-      description: "Maya Python interpreter"
+description: "Production scene publishing with validation. Use when publishing validated Maya scenes."
+license: MIT
+compatibility: "Maya 2024+"
+metadata:
+  dcc-mcp:
+    dcc: maya
+    version: "2.0.0"
+    tags: [publish, validation]
+    allow-implicit-invocation: false  # User must explicitly load
+    products: ["maya"]                # Maya only
+    external-deps: external_deps.yaml
 ---
 
 # Maya Scene Publisher
@@ -203,9 +205,24 @@ external_deps:
 Validates and publishes scenes to the production pipeline.
 ```
 
+`external_deps.yaml`:
+
+```yaml
+tools:
+  - type: env_var
+    value: PIPELINE_ROOT
+    description: Pipeline root directory
+  - type: mcp
+    value: asset-tracker
+    description: Asset tracking MCP service
+  - type: bin
+    value: mayapy
+    description: Maya Python interpreter
+```
+
 When this skill loads:
 
-1. 🔒 **Scope**: `repo` — can be overridden by User/System skills
-2. 🔐 **Policy**: `allow_implicit_invocation: false` — requires explicit `load_skill`
+1. 🔒 **Scope**: determined by the discovery path (`Repo`, `User`, `System`, or `Admin`); higher scopes shadow lower scopes
+2. 🔐 **Policy**: `allow-implicit-invocation: false` — requires explicit `load_skill`
 3. 🎯 **Product**: Only visible in Maya sessions; hidden in Blender/Houdini
 4. 📋 **Deps**: Validates `PIPELINE_ROOT`, `asset-tracker`, `mayapy` before first call

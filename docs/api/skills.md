@@ -112,7 +112,7 @@ Lightweight summary returned by `SkillCatalog.search_skills()` and `list_skills(
 
 ## ToolDeclaration
 
-A single tool declaration within a skill, parsed from SKILL.md frontmatter `tools:` list.
+A single tool declaration within a skill, parsed from the sibling file referenced by `metadata.dcc-mcp.tools` (usually `tools.yaml`).
 
 ```python
 from dcc_mcp_core import ToolDeclaration

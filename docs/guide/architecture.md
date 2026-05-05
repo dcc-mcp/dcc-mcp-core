@@ -148,10 +148,10 @@ dcc-mcp-server ← dcc-mcp-http
 - `SkillScanner` — mtime-cached directory scanner for SKILL.md packages
 - `SkillCatalog` — Progressive skill loading with on-demand discovery (register actions on `load_skill`)
 - `SkillWatcher` — Platform-native filesystem watcher (inotify/FSEvents/ReadDirectoryChangesW)
-- `SkillMetadata` — Parsed metadata from SKILL.md frontmatter
+- `SkillMetadata` — Parsed metadata from agentskills.io `SKILL.md` plus `metadata.dcc-mcp.*` sibling files
 - Dependency resolution: `resolve_dependencies`, `expand_transitive_dependencies`, `validate_dependencies`
 
-**Skill Package Format**: `SKILL.md` with YAML frontmatter (`name`, `version`, `description`, `tools`, `dcc`, `tags`, `depends`)
+**Skill Package Format**: agentskills.io `SKILL.md` frontmatter (`name`, `description`, optional `license` / `compatibility` / `allowed-tools`) plus `metadata.dcc-mcp.*` pointers to sibling files such as `tools.yaml`, `groups.yaml`, workflows, prompts, resources, and external dependency declarations. Legacy top-level dcc-mcp extension keys are rejected by the strict loader.
 
 **Dependencies**: `dcc-mcp-actions`, `dcc-mcp-models`
 

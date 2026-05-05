@@ -86,7 +86,7 @@ validate_action_result("hello")                         # wrap as success
 
 ## SkillMetadata
 
-Metadata parsed from SKILL.md frontmatter. All fields are readable and writable.
+Metadata parsed from agentskills.io `SKILL.md` frontmatter plus sibling files referenced by `metadata.dcc-mcp.*`. All fields are readable and writable.
 
 ### Fields
 
@@ -94,7 +94,7 @@ Metadata parsed from SKILL.md frontmatter. All fields are readable and writable.
 |-------|------|---------|-------------|
 | `name` | `str` | — | Unique identifier |
 | `description` | `str` | `""` | Human-readable description |
-| `tools` | `list[ToolDeclaration]` | `[]` | Declared tools parsed from SKILL.md |
+| `tools` | `list[ToolDeclaration]` | `[]` | Declared tools parsed from the `metadata.dcc-mcp.tools` sibling file |
 | `dcc` | `str` | `"python"` | Target DCC application |
 | `tags` | `list[str]` | `[]` | Classification tags |
 | `scripts` | `list[str]` | `[]` | Discovered script file paths |

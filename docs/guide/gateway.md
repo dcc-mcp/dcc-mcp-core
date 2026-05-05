@@ -139,7 +139,8 @@ single-instance behavior: entries default to `capacity: 1`, no lease owner, and
 `status: "available"`.
 
 Before the gateway sends JSON-RPC to a backend, it verifies that the target
-responds to `GET /health`. This avoids treating non-MCP listeners such as Maya
+responds to `GET /v1/readyz` and falls back to `GET /health` only when the
+readiness surface is absent. This avoids treating non-MCP listeners such as Maya
 `commandPort` as routable backends; posting MCP JSON-RPC to commandPort can
 trigger Maya's modal commandPort security dialog and block the DCC main thread.
 
@@ -183,6 +184,27 @@ Use this flow whenever an agent is connected to a gateway/slim endpoint. Use the
 per-DCC Skills-First flow (`search_skills` → `load_skill` → tool call) when the
 agent is connected directly to one DCC server.
 
+## Resources and Prompts Aggregation (#731, #732)
+
+The gateway also forwards MCP resources and prompts so agents can exchange
+hand-off artefacts and prompt templates across all live DCC instances without
+opening per-backend sessions.
+
+**Resources workflow:**
+
+1. Call `resources/list` on the gateway.
+2. Treat every returned URI as opaque. Gateway-owned management resources use
+   `dcc://<type>/<id>`; forwarded backend resources use
+   `<scheme>://<id8>/<rest>` so the gateway can route reads/subscriptions.
+3. Pass the exact URI returned by `resources/list` to `resources/read`,
+   `resources/subscribe`, or `resources/unsubscribe`. Do not strip the
+   instance prefix or rebuild URIs manually.
+
+**Prompts workflow:** use `prompts/list` on the gateway to browse prompt
+templates from all live backends, then call `prompts/get` with the returned
+namespaced prompt name. Backend prompt changes are surfaced through
+`notifications/prompts/list_changed`.
+
 ## Code pointers
 
 | Piece | File |
@@ -199,7 +221,7 @@ The gateway applies two separate request budgets to an outbound
 
 | Case | Timeout | Source |
 |------|---------|--------|
-| Sync call (no `_meta.dcc.async`, no `progressToken`) | `backend_timeout_ms` (default 10 s) | `McpHttpConfig` |
+| Sync call (no `_meta.dcc.async`, no `progressToken`) | `backend_timeout_ms` (default 120 s) | `McpHttpConfig` |
 | Async opt-in call (`_meta.dcc.async=true` or `_meta.progressToken`) | `gateway_async_dispatch_timeout_ms` (default 60 s) | `McpHttpConfig` |
 | Async opt-in **with** `_meta.dcc.wait_for_terminal=true` | `gateway_wait_terminal_timeout_ms` (default 10 min) for the wait, `gateway_async_dispatch_timeout_ms` for the initial queuing step | `McpHttpConfig` |
 

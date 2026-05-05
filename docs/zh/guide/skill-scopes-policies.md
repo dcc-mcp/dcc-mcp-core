@@ -55,15 +55,17 @@ for s in summaries:
 
 ## SkillPolicy：调用控制
 
-在 `SKILL.md` 前置元数据中声明 AI 智能体的调用方式：
+在 `metadata.dcc-mcp.*` 下声明 AI 智能体的调用方式；不要添加顶层 `policy:`：
 
 ```yaml
 ---
 name: maya-cleanup
-dcc: maya
-policy:
-  allow_implicit_invocation: false   # 需要先显式调用 load_skill
-  products: ["maya", "houdini"]      # 仅在这些 DCC 中可见
+description: "Maya 清理工具。用于删除未使用的场景数据。"
+metadata:
+  dcc-mcp:
+    dcc: maya
+    allow-implicit-invocation: false  # 需要先显式调用 load_skill
+    products: ["maya", "houdini"]     # 仅在这些 DCC 中可见
 ---
 ```
 
@@ -97,10 +99,11 @@ md.is_implicit_invocation_allowed()  # → False
 将技能可见性限制到特定 DCC 应用：
 
 ```yaml
-policy:
-  products: ["maya"]             # 仅在 Maya 会话中
-  # products: ["maya", "houdini"]  # Maya 和 Houdini 都有
-  # products: []                   # 所有 DCC（策略缺失时的默认行为）
+metadata:
+  dcc-mcp:
+    products: ["maya"]              # 仅在 Maya 会话中
+    # products: ["maya", "houdini"] # Maya 和 Houdini 都有
+    # products: []                  # 所有 DCC（策略缺失时的默认行为）
 ```
 
 这可以防止 Maya MEL 脚本出现在 Blender 会话中。
@@ -124,22 +127,32 @@ md.matches_product("Maya")    # → True
 
 声明技能执行前需要的外部资源：
 
+`SKILL.md` 中只放同级文件指针：
+
 ```yaml
 ---
 name: usd-validator
-external_deps:
-  tools:
-    - type: mcp
-      value: "pixar-usd"
-      description: "USD 验证 MCP 服务器"
-      transport: "ipc"
-    - type: env_var
-      value: "PYTHONPATH"
-      description: "必须包含 USD site-packages"
-    - type: bin
-      value: "usdview"
-      description: "USD 检查工具"
+description: "USD 验证工具。用于检查 USD 文件和依赖环境。"
+metadata:
+  dcc-mcp:
+    external-deps: external_deps.yaml
 ---
+```
+
+`external_deps.yaml`:
+
+```yaml
+tools:
+  - type: mcp
+    value: "pixar-usd"
+    description: "USD 验证 MCP 服务器"
+    transport: "ipc"
+  - type: env_var
+    value: "PYTHONPATH"
+    description: "必须包含 USD site-packages"
+  - type: bin
+    value: "usdview"
+    description: "USD 检查工具"
 ```
 
 ### 依赖类型
@@ -176,26 +189,17 @@ print(md.external_deps)  # JSON 字符串或 None
 ```yaml
 ---
 name: maya-scene-publisher
-version: "2.0.0"
-description: "包含验证的生产场景发布工具"
-dcc: maya
-scope: repo           # 项目本地技能
-
-policy:
-  allow_implicit_invocation: false   # 用户必须显式加载
-  products: ["maya"]                  # 仅限 Maya
-
-external_deps:
-  tools:
-    - type: env_var
-      value: "PIPELINE_ROOT"
-      description: "Pipeline 根目录"
-    - type: mcp
-      value: "asset-tracker"
-      description: "资产追踪 MCP 服务"
-    - type: bin
-      value: "mayapy"
-      description: "Maya Python 解释器"
+description: "包含验证的生产场景发布工具。用于发布已验证的 Maya 场景。"
+license: MIT
+compatibility: "Maya 2024+"
+metadata:
+  dcc-mcp:
+    dcc: maya
+    version: "2.0.0"
+    tags: [publish, validation]
+    allow-implicit-invocation: false  # 用户必须显式加载
+    products: ["maya"]                # 仅限 Maya
+    external-deps: external_deps.yaml
 ---
 
 # Maya 场景发布器
@@ -203,9 +207,24 @@ external_deps:
 验证并将场景发布到生产管线。
 ```
 
+`external_deps.yaml`:
+
+```yaml
+tools:
+  - type: env_var
+    value: "PIPELINE_ROOT"
+    description: "Pipeline 根目录"
+  - type: mcp
+    value: "asset-tracker"
+    description: "资产追踪 MCP 服务"
+  - type: bin
+    value: "mayapy"
+    description: "Maya Python 解释器"
+```
+
 加载此技能时：
 
-1. 🔒 **作用域**：`repo` — 可被 User/System 技能覆盖
-2. 🔐 **策略**：`allow_implicit_invocation: false` — 需要显式调用 `load_skill`
+1. 🔒 **作用域**：由发现路径决定（Repo/User/System/Admin），高作用域会遮蔽低作用域
+2. 🔐 **策略**：`allow-implicit-invocation: false` — 需要显式调用 `load_skill`
 3. 🎯 **产品**：仅在 Maya 会话中可见；在 Blender/Houdini 中隐藏
 4. 📋 **依赖**：首次调用前验证 `PIPELINE_ROOT`、`asset-tracker`、`mayapy`
