@@ -119,7 +119,10 @@ mod admin_tests {
     async fn test_admin_html_contains_api_references() {
         let (_, _, html) = body_html(admin_router(), "/").await;
         for endpoint in &["instances", "tools", "health"] {
-            assert!(html.contains(endpoint), "HTML missing reference to '{endpoint}'");
+            assert!(
+                html.contains(endpoint),
+                "HTML missing reference to '{endpoint}'"
+            );
         }
     }
 
@@ -127,7 +130,10 @@ mod admin_tests {
     async fn test_admin_html_is_valid_doctype() {
         let (_, _, html) = body_html(admin_router(), "/").await;
         let trimmed = html.trim_start().to_lowercase();
-        assert!(trimmed.starts_with("<!doctype html>"), "HTML must start with <!DOCTYPE html>");
+        assert!(
+            trimmed.starts_with("<!doctype html>"),
+            "HTML must start with <!DOCTYPE html>"
+        );
     }
 
     // ── /api/instances ────────────────────────────────────────────────────
@@ -136,7 +142,10 @@ mod admin_tests {
     async fn test_admin_instances_returns_json_array() {
         let (status, body) = body_json(admin_router(), "/api/instances").await;
         assert_eq!(status, StatusCode::OK);
-        assert!(body["instances"].is_array(), "expected 'instances' array, got {body}");
+        assert!(
+            body["instances"].is_array(),
+            "expected 'instances' array, got {body}"
+        );
     }
 
     #[tokio::test]
@@ -151,13 +160,20 @@ mod admin_tests {
     async fn test_admin_health_returns_ok() {
         let (status, body) = body_json(admin_router(), "/api/health").await;
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(body["status"].as_str(), Some("ok"), "expected status=ok, got {body}");
+        assert_eq!(
+            body["status"].as_str(),
+            Some("ok"),
+            "expected status=ok, got {body}"
+        );
     }
 
     #[tokio::test]
     async fn test_admin_health_has_uptime_secs() {
         let (_, body) = body_json(admin_router(), "/api/health").await;
-        assert!(body["uptime_secs"].as_u64().is_some(), "expected uptime_secs >= 0");
+        assert!(
+            body["uptime_secs"].as_u64().is_some(),
+            "expected uptime_secs >= 0"
+        );
     }
 
     #[tokio::test]
@@ -169,7 +185,10 @@ mod admin_tests {
     #[tokio::test]
     async fn test_admin_health_has_instances_ready_field() {
         let (_, body) = body_json(admin_router(), "/api/health").await;
-        assert!(body.get("instances_ready").is_some(), "expected instances_ready field");
+        assert!(
+            body.get("instances_ready").is_some(),
+            "expected instances_ready field"
+        );
     }
 
     // ── /api/tools ────────────────────────────────────────────────────────
@@ -178,7 +197,10 @@ mod admin_tests {
     async fn test_admin_tools_returns_json_array() {
         let (status, body) = body_json(admin_router(), "/api/tools").await;
         assert_eq!(status, StatusCode::OK);
-        assert!(body["tools"].is_array(), "expected 'tools' array, got {body}");
+        assert!(
+            body["tools"].is_array(),
+            "expected 'tools' array, got {body}"
+        );
     }
 
     #[tokio::test]
@@ -218,8 +240,14 @@ mod admin_tests {
         let calls = body["calls"].as_array().unwrap();
         assert_eq!(calls.len(), 2);
         // API may return in insertion order or reverse; verify both records present
-        let successes: Vec<_> = calls.iter().filter(|c| c["success"].as_bool() == Some(true)).collect();
-        let failures: Vec<_> = calls.iter().filter(|c| c["success"].as_bool() == Some(false)).collect();
+        let successes: Vec<_> = calls
+            .iter()
+            .filter(|c| c["success"].as_bool() == Some(true))
+            .collect();
+        let failures: Vec<_> = calls
+            .iter()
+            .filter(|c| c["success"].as_bool() == Some(false))
+            .collect();
         assert_eq!(successes.len(), 1, "expected 1 successful call");
         assert_eq!(failures.len(), 1, "expected 1 failed call");
         assert!(failures[0]["error"].is_string());
@@ -227,19 +255,20 @@ mod admin_tests {
 
     #[tokio::test]
     async fn test_admin_calls_single_success_has_action_field() {
-        let audit_log: Arc<AuditLog> = Arc::new(parking_lot::Mutex::new(vec![
-            AdminAuditRecord {
-                timestamp: std::time::SystemTime::now(),
-                action: "tools/call:photoshop__save".to_string(),
-                success: true,
-                error: None,
-            },
-        ]));
+        let audit_log: Arc<AuditLog> = Arc::new(parking_lot::Mutex::new(vec![AdminAuditRecord {
+            timestamp: std::time::SystemTime::now(),
+            action: "tools/call:photoshop__save".to_string(),
+            success: true,
+            error: None,
+        }]));
         let state = AdminState::new(make_gateway_state()).with_audit_log(audit_log);
         let (_, body) = body_json(build_admin_router(state), "/api/calls").await;
         let calls = body["calls"].as_array().unwrap();
         assert_eq!(calls.len(), 1);
-        assert!(calls[0].get("tool").is_some(), "expected 'tool' field in call record");
+        assert!(
+            calls[0].get("tool").is_some(),
+            "expected 'tool' field in call record"
+        );
     }
 
     // ── /api/logs ─────────────────────────────────────────────────────────
@@ -270,8 +299,14 @@ mod admin_tests {
         assert_eq!(logs.len(), 2);
         // Both events present (order may vary)
         let events: Vec<_> = logs.iter().filter_map(|l| l["event"].as_str()).collect();
-        assert!(events.contains(&"election_won"), "missing election_won event");
-        assert!(events.contains(&"ghost_reaped"), "missing ghost_reaped event");
+        assert!(
+            events.contains(&"election_won"),
+            "missing election_won event"
+        );
+        assert!(
+            events.contains(&"ghost_reaped"),
+            "missing ghost_reaped event"
+        );
         let dcc_types: Vec<_> = logs.iter().filter_map(|l| l["dcc_type"].as_str()).collect();
         assert!(dcc_types.contains(&"maya"), "missing maya dcc_type");
         assert!(dcc_types.contains(&"blender"), "missing blender dcc_type");
@@ -297,7 +332,13 @@ mod admin_tests {
 
     #[tokio::test]
     async fn test_json_endpoints_content_type() {
-        for uri in ["/api/instances", "/api/health", "/api/tools", "/api/calls", "/api/logs"] {
+        for uri in [
+            "/api/instances",
+            "/api/health",
+            "/api/tools",
+            "/api/calls",
+            "/api/logs",
+        ] {
             let resp = admin_router()
                 .oneshot(
                     Request::builder()
