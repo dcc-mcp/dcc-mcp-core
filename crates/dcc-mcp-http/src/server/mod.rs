@@ -509,7 +509,7 @@ impl McpHttpServer {
             .with_state(state)
             .merge(rest_router)
             .layer(RequestBodyLimitLayer::new(
-                self.config.max_request_body_bytes,
+                self.config.queue.max_request_body_bytes,
             ))
             .layer(TraceLayer::new_for_http());
 

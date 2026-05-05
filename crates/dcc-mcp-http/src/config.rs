@@ -1282,21 +1282,27 @@ mod tests {
     /// Issue #771: payload size limits have sane defaults.
     #[test]
     fn payload_limits_default_values() {
-        let cfg = McpHttpConfig::new(8765);
-        assert_eq!(cfg.max_request_body_bytes, 4 * 1024 * 1024);
-        assert_eq!(cfg.max_response_content_bytes, 1024 * 1024);
-        assert_eq!(cfg.sse_chunk_size_bytes, 64 * 1024);
+        let cfg = McpHttpConfig::default();
+        assert_eq!(cfg.queue.max_request_body_bytes, 4 * 1024 * 1024);
+        assert_eq!(cfg.queue.max_response_content_bytes, 1024 * 1024);
+        assert_eq!(cfg.queue.sse_chunk_size_bytes, 64 * 1024);
     }
 
     /// Issue #771: builder methods override the defaults.
     #[test]
     fn payload_limits_builders_override_defaults() {
-        let cfg = McpHttpConfig::new(8765)
-            .with_max_request_body_bytes(8 * 1024 * 1024)
-            .with_max_response_content_bytes(512 * 1024)
-            .with_sse_chunk_size_bytes(32 * 1024);
-        assert_eq!(cfg.max_request_body_bytes, 8 * 1024 * 1024);
-        assert_eq!(cfg.max_response_content_bytes, 512 * 1024);
-        assert_eq!(cfg.sse_chunk_size_bytes, 32 * 1024);
+        let cfg = McpHttpConfig::default();
+        let cfg = McpHttpConfig {
+            queue: QueueConfig {
+                max_request_body_bytes: 8 * 1024 * 1024,
+                max_response_content_bytes: 512 * 1024,
+                sse_chunk_size_bytes: 32 * 1024,
+                ..cfg.queue
+            },
+            ..cfg
+        };
+        assert_eq!(cfg.queue.max_request_body_bytes, 8 * 1024 * 1024);
+        assert_eq!(cfg.queue.max_response_content_bytes, 512 * 1024);
+        assert_eq!(cfg.queue.sse_chunk_size_bytes, 32 * 1024);
     }
 }
