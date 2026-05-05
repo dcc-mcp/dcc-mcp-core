@@ -260,15 +260,57 @@ async fn handle_tools_call(
         );
     }
 
+    // ── Middleware: BeforeCall ────────────────────────────────────────────
+    let mut ctx = crate::gateway::middleware::CallContext::new("tools/call", id_str, args.clone())
+        .with_tool_slug(tool)
+        .with_session_id(session_id);
+
+    // Run before-middlewares; abort the call if any rejects.
+    if !gs.middleware_chain.is_empty()
+        && let Err(e) = gs.middleware_chain.run_before(&mut ctx).await
+    {
+        let mut pending = gs.pending_calls.write().await;
+        pending.remove(id_str);
+        let msg = e.to_string();
+        return json!({
+            "jsonrpc": "2.0", "id": id,
+            "result": {"content": [{"type": "text", "text": msg}], "isError": true}
+        });
+    }
+
+    // Use potentially-redacted args from context.
+    let effective_args = if gs.middleware_chain.is_empty() {
+        args
+    } else {
+        ctx.args.clone()
+    };
+
     let (text, is_error) = aggregator::route_tools_call(
         gs,
         tool,
-        &args,
+        &effective_args,
         meta.as_ref(),
         Some(id_str.to_string()),
         Some(session_id),
     )
     .await;
+
+    // ── Middleware: AfterCall ────────────────────────────────────────────
+    let mut call_result = crate::gateway::middleware::CallResult::from_tuple(&text, is_error);
+
+    if !gs.middleware_chain.is_empty()
+        && let Err(e) = gs.middleware_chain.run_after(&ctx, &mut call_result).await
+    {
+        let mut pending = gs.pending_calls.write().await;
+        pending.remove(id_str);
+        let msg = e.to_string();
+        return json!({
+            "jsonrpc": "2.0", "id": id,
+            "result": {"content": [{"type": "text", "text": msg}], "isError": true}
+        });
+    }
+
+    let (final_text, final_is_error) = call_result.into_tuple();
 
     {
         let mut pending = gs.pending_calls.write().await;
@@ -277,7 +319,7 @@ async fn handle_tools_call(
 
     json!({
         "jsonrpc": "2.0", "id": id,
-        "result": {"content": [{"type": "text", "text": text}], "isError": is_error}
+        "result": {"content": [{"type": "text", "text": final_text}], "isError": final_is_error}
     })
 }
 

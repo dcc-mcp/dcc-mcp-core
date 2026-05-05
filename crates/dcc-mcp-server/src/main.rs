@@ -742,6 +742,7 @@ async fn main() -> anyhow::Result<()> {
             Some(args.dcc.clone())
         },
         cursor_safe_tool_names: args.gateway_cursor_safe_tool_names,
+        middleware_chain: dcc_mcp_http::gateway::middleware::MiddlewareChain::new(),
     };
 
     let runner = GatewayRunner::new(gateway_cfg)

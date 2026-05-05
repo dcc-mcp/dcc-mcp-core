@@ -513,6 +513,7 @@ pub(crate) async fn start_gateway_tasks(
         event_log: contention_log.clone(),
         #[cfg(feature = "prometheus")]
         gateway_metrics: gateway_metrics.clone(),
+        middleware_chain: Arc::new(crate::gateway::middleware::MiddlewareChain::new()),
     };
     let gw_router = build_gateway_router(gw_state);
 

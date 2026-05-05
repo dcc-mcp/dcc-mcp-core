@@ -68,6 +68,23 @@ pub struct GatewayConfig {
     /// Flip to `false` only to emit the SEP-986 dotted form for
     /// diagnostic parity.
     pub cursor_safe_tool_names: bool,
+
+    /// Pre-registered middleware chain applied to every `tools/call` (issue #770).
+    ///
+    /// Use the builder API to attach cross-cutting policies:
+    ///
+    /// ```rust,ignore
+    /// use dcc_mcp_gateway::gateway::middleware::{AuditMiddleware, QuotaMiddleware};
+    /// use std::sync::Arc;
+    ///
+    /// let config = GatewayConfig {
+    ///     middleware_chain: MiddlewareChain::new()
+    ///         .with_before(Arc::new(AuditMiddleware::default()))
+    ///         .with_before(Arc::new(QuotaMiddleware::new(100))),
+    ///     ..GatewayConfig::default()
+    /// };
+    /// ```
+    pub middleware_chain: super::middleware::MiddlewareChain,
 }
 
 impl Default for GatewayConfig {
@@ -93,6 +110,7 @@ impl Default for GatewayConfig {
             // silent (it just hides prompts from the agent with no
             // visible error).
             cursor_safe_tool_names: true,
+            middleware_chain: super::middleware::MiddlewareChain::new(),
         }
     }
 }

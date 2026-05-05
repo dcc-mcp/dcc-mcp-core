@@ -37,12 +37,15 @@ pub mod capability;
 pub mod capability_service;
 pub mod event_log;
 pub mod handlers;
+pub mod middleware;
 pub mod namespace;
 pub mod proxy;
 pub mod router;
 pub mod sse_subscriber;
 pub mod state;
 pub mod tools;
+
+pub use middleware::MiddlewareChain;
 
 #[cfg(feature = "prometheus")]
 pub mod metrics;

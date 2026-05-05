@@ -12,6 +12,8 @@ use super::event_log::EventLog;
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
 use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry, ServiceStatus};
 
+use super::middleware::MiddlewareChain;
+
 /// A call that the gateway has forwarded to a backend and is still awaiting.
 #[derive(Debug, Clone)]
 pub struct PendingCall {
@@ -136,6 +138,11 @@ pub struct GatewayState {
     /// (endpoint handler) refer to the same registered counter objects.
     #[cfg(feature = "prometheus")]
     pub gateway_metrics: Arc<super::event_log::GatewayMetrics>,
+
+    /// Pluggable middleware chain applied to every `tools/call` dispatch
+    /// (issue #770). Empty by default; operators register middlewares via
+    /// [`GatewayConfig::middleware_chain`] or the builder API.
+    pub middleware_chain: Arc<MiddlewareChain>,
 }
 
 impl GatewayState {
@@ -342,6 +349,7 @@ mod tests {
             event_log: Arc::new(crate::gateway::event_log::EventLog::new()),
             #[cfg(feature = "prometheus")]
             gateway_metrics: Arc::new(crate::gateway::event_log::GatewayMetrics::new()),
+            middleware_chain: Arc::new(MiddlewareChain::new()),
         }
     }
 
