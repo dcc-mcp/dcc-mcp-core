@@ -103,7 +103,7 @@ runs:
         manylinux: auto
 
     - name: Install uv
-      uses: loonghao/vx@v0.8.35
+      uses: loonghao/vx@v0.8.36
 
     - name: Check wheel contents
       shell: bash
