@@ -21,11 +21,18 @@ def _write_skill(base: Path, name: str, dcc: str = "python", deps: list[str] | N
     """Write a minimal SKILL.md under *base*/*name* and return the skill dir."""
     skill_dir = base / name
     skill_dir.mkdir(parents=True, exist_ok=True)
-    dep_block = ""
+    lines = [
+        f"name: {name}",
+        "metadata:",
+        "  dcc-mcp:",
+        f"    dcc: {dcc}",
+    ]
     if deps:
-        dep_lines = "\n".join(f"  - {d}" for d in deps)
-        dep_block = f"depends:\n{dep_lines}\n"
-    content = f"---\nname: {name}\ndcc: {dcc}\n{dep_block}---\n# {name}\n"
+        lines.append("    depends:")
+        for d in deps:
+            lines.append(f"      - {d}")
+    front = "\n".join(lines)
+    content = f"---\n{front}\n---\n# {name}\n"
     (skill_dir / "SKILL.md").write_text(content, encoding="utf-8")
     return skill_dir
 
@@ -331,7 +338,7 @@ class TestScanAndLoadSkipped:
         skill_dir = tmp_path / "tagged-skill"
         skill_dir.mkdir()
         (skill_dir / "SKILL.md").write_text(
-            "---\nname: tagged-skill\ntags:\n  - render\n  - shading\n---\n",
+            "---\nname: tagged-skill\nmetadata:\n  dcc-mcp:\n    tags:\n      - render\n      - shading\n---\n",
             encoding="utf-8",
         )
         skills, _ = dcc_mcp_core.scan_and_load(extra_paths=[str(tmp_path)])

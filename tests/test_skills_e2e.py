@@ -505,7 +505,7 @@ class TestInProcessExecutor:
         skill_dir = tmp_path / "my-skill"
         skill_dir.mkdir()
         (skill_dir / "SKILL.md").write_text(
-            "---\nname: my-skill\ndescription: Test\nmetadata:\n  dcc-mcp.dcc: python\n---\n",
+            "---\nname: my-skill\ndescription: Test\nmetadata:\n  dcc-mcp:\n    dcc: python\n---\n",
             encoding="utf-8",
         )
         script = skill_dir / "do_thing.py"
@@ -557,8 +557,9 @@ class TestInProcessExecutor:
             "name: affinity-skill\n"
             "description: Test affinity metadata\n"
             "metadata:\n"
-            "  dcc-mcp.dcc: python\n"
-            "  dcc-mcp.tools: tools.yaml\n"
+            "  dcc-mcp:\n"
+            "    dcc: python\n"
+            "    tools: tools.yaml\n"
             "---\n",
             encoding="utf-8",
         )

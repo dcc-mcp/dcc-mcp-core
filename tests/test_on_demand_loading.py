@@ -389,13 +389,14 @@ def stub_server_with_hint(tmp_path_factory):
         "---\n"
         "name: with-hint\n"
         'description: "A skill that has a search hint"\n'
-        "dcc: python\n"
-        'search-hint: "alpha, beta, gamma"\n'
-        "tools:\n"
-        "  - name: do_thing\n"
-        '    description: "Does a thing"\n'
+        "metadata:\n"
+        "  dcc-mcp:\n"
+        "    dcc: python\n"
+        '    search-hint: "alpha, beta, gamma"\n'
+        "    tools: tools.yaml\n"
         "---\n"
     )
+    (hint_dir / "tools.yaml").write_text('tools:\n  - name: do_thing\n    description: "Does a thing"\n')
     (hint_dir / "scripts" / "do_thing.py").write_text('import json, sys\nprint(json.dumps({"ok": True}))\n')
 
     # Skill WITHOUT search-hint (but with tools declared for preview)
@@ -405,12 +406,13 @@ def stub_server_with_hint(tmp_path_factory):
         "---\n"
         "name: no-hint\n"
         'description: "A skill without any search hint"\n'
-        "dcc: python\n"
-        "tools:\n"
-        "  - name: run_it\n"
-        '    description: "Runs something"\n'
+        "metadata:\n"
+        "  dcc-mcp:\n"
+        "    dcc: python\n"
+        "    tools: tools.yaml\n"
         "---\n"
     )
+    (nohint_dir / "tools.yaml").write_text('tools:\n  - name: run_it\n    description: "Runs something"\n')
     (nohint_dir / "scripts" / "run_it.py").write_text('import json, sys\nprint(json.dumps({"ok": True}))\n')
 
     reg = ToolRegistry()

@@ -532,16 +532,22 @@ SKILL_MD_CONTENT = """\
 ---
 name: test-skill-{idx}
 description: A test skill number {idx}.
-dcc: maya
-tags: [test, auto]
-version: "1.0.{idx}"
-tools:
-  - name: do_thing_{idx}
-    description: Does something {idx}
+metadata:
+  dcc-mcp:
+    dcc: maya
+    tags: [test, auto]
+    version: "1.0.{idx}"
+    tools: tools.yaml
 ---
 # Test Skill {idx}
 
 This is a test skill.
+"""
+
+TOOLS_YAML_CONTENT = """\
+tools:
+  - name: do_thing_{idx}
+    description: Does something {idx}
 """
 
 
@@ -551,6 +557,7 @@ def _make_skill_dir(tmp_path, idx: int) -> str:
     skill_dir.mkdir()
     skill_file = skill_dir / "SKILL.md"
     skill_file.write_text(SKILL_MD_CONTENT.format(idx=idx), encoding="utf-8")
+    (skill_dir / "tools.yaml").write_text(TOOLS_YAML_CONTENT.format(idx=idx), encoding="utf-8")
     return str(skill_dir)
 
 

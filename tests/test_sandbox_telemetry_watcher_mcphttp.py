@@ -36,7 +36,9 @@ def _make_skill_dir(root: str, name: str = "test_skill") -> str:
     skill_dir = Path(root) / name
     skill_dir.mkdir(parents=True, exist_ok=True)
     (skill_dir / "SKILL.md").write_text(
-        f"---\nname: {name}\nversion: 1.0.0\ndescription: A test skill\nauthor: test\ntags: [test]\n---\n\n# {name}\n"
+        f"---\nname: {name}\ndescription: A test skill\n"
+        f"metadata:\n  dcc-mcp:\n    version: 1.0.0\n    tags: [test]\n  author: test\n"
+        f"---\n\n# {name}\n"
     )
     return root
 

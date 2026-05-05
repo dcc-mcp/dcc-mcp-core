@@ -27,12 +27,16 @@ def create_skill_dir(
 ) -> str:
     """Create a temporary skill directory with a SKILL.md file.
 
+    Auto-generated frontmatter emits the agentskills.io 1.0-compliant
+    nested ``metadata.dcc-mcp.*`` form (issue #356). Top-level keys
+    outside the spec allowlist are rejected by ``parse_skill_md``.
+
     Args:
         base_dir: Parent directory to create the skill under.
         name: Skill directory name.
         frontmatter: Raw YAML frontmatter (excluding delimiters). If empty,
             a minimal ``name: <name>`` block is generated.
-        dcc: Optional DCC field to add to auto-generated frontmatter.
+        dcc: Optional DCC field placed under ``metadata.dcc-mcp.dcc``.
         body: Optional body text after the frontmatter.
 
     Returns:
@@ -44,7 +48,7 @@ def create_skill_dir(
     if not frontmatter:
         lines = [f"name: {name}"]
         if dcc:
-            lines.append(f"dcc: {dcc}")
+            lines.extend(["metadata:", "  dcc-mcp:", f"    dcc: {dcc}"])
         frontmatter = "\n".join(lines)
     content = f"---\n{frontmatter}\n---\n{body}"
     (skill_path / "SKILL.md").write_text(content, encoding="utf-8")

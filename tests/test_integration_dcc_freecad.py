@@ -209,7 +209,16 @@ class TestFreeCADSkillPipeline:
         create_skill_dir(
             str(tmp_path),
             "freecad-parametric",
-            frontmatter="name: freecad-parametric\ndcc: freecad\ntags:\n  - cad\n  - parametric\nversion: 1.0.0",
+            frontmatter=(
+                "name: freecad-parametric\n"
+                "metadata:\n"
+                "  dcc-mcp:\n"
+                "    dcc: freecad\n"
+                "    version: 1.0.0\n"
+                "    tags:\n"
+                "      - cad\n"
+                "      - parametric"
+            ),
         )
         meta = dcc_mcp_core.parse_skill_md(str(tmp_path / "freecad-parametric"))
         assert meta is not None

@@ -22,10 +22,21 @@ def _write_forgecad_skill(root: Path) -> None:
         """---
 name: forgecad-make-a-model
 description: Create new ForgeCAD (.forge.js) models in the active CAD project. Handles file placement, invokes the forgecad skill for API guidance, and validates the result.
-dcc: forgecad
-forgecad-public: true
-tags: [forgecad, cad, third-party]
-tools:
+metadata:
+  dcc-mcp:
+    dcc: forgecad
+    tags: [forgecad, cad, third-party]
+    tools: tools.yaml
+  forgecad-public: true
+---
+# Make a Model
+
+Create new ForgeCAD models in the user's active ForgeCAD project.
+""",
+        encoding="utf-8",
+    )
+    (skill_dir / "tools.yaml").write_text(
+        """tools:
   - name: create_model
     description: Create a ForgeCAD model from a brief and return the generated file path.
     source_file: scripts/create_model.py
@@ -35,10 +46,6 @@ tools:
         brief:
           type: string
       required: [brief]
----
-# Make a Model
-
-Create new ForgeCAD models in the user's active ForgeCAD project.
 """,
         encoding="utf-8",
     )

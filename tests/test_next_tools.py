@@ -59,8 +59,9 @@ def test_sibling_tools_yaml_parses_next_tools(tmp_path: Path) -> None:
 name: nt-skill
 description: next-tools sibling-file test
 metadata:
-  dcc-mcp.dcc: maya
-  dcc-mcp.tools: tools.yaml
+  dcc-mcp:
+    dcc: maya
+    tools: tools.yaml
 ---
 # body
 """,
@@ -155,8 +156,9 @@ print(json.dumps({"success": True, "message": "pong"}))
 name: nt-success
 description: Success skill for #342 end-to-end test
 metadata:
-  dcc-mcp.dcc: test
-  dcc-mcp.tools: tools.yaml
+  dcc-mcp:
+    dcc: test
+    tools: tools.yaml
 ---
 """,
     )
@@ -195,8 +197,9 @@ sys.exit(1)
 name: nt-failure
 description: Failure skill for #342 end-to-end test
 metadata:
-  dcc-mcp.dcc: test
-  dcc-mcp.tools: tools.yaml
+  dcc-mcp:
+    dcc: test
+    tools: tools.yaml
 ---
 """,
     )
@@ -230,8 +233,9 @@ print(json.dumps({"success": True, "message": "ok"}))
 name: nt-plain
 description: No next-tools declared
 metadata:
-  dcc-mcp.dcc: test
-  dcc-mcp.tools: tools.yaml
+  dcc-mcp:
+    dcc: test
+    tools: tools.yaml
 ---
 """,
     )

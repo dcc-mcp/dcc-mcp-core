@@ -72,15 +72,17 @@ def _make_skill_dir(
     (skill_dir / "scripts").mkdir(parents=True, exist_ok=True)
     deps_str = ""
     if deps:
-        deps_str = "\ndepends:\n" + "".join(f"  - {dep}\n" for dep in deps)
+        deps_str = "\n    depends:\n" + "".join(f"      - {dep}\n" for dep in deps)
     content = (
         f"---\n"
         f"name: {name}\n"
         f"description: Test skill {name}\n"
-        f"dcc: {dcc}\n"
-        f"version: {version}\n"
-        f"tools: []\n"
-        f"tags: [test]{deps_str}\n"
+        f"metadata:\n"
+        f"  dcc-mcp:\n"
+        f"    dcc: {dcc}\n"
+        f"    version: {version}\n"
+        f"    tags: [test]"
+        f"{deps_str}\n"
         f"---\n\n"
         f"# {name}\n"
     )
@@ -1144,7 +1146,7 @@ class TestAccumulatedSkills:
 
             # Update skill (second version)
             skill_md = Path(src_tmp) / skill_name / "SKILL.md"
-            skill_md.write_text("---\nname: evolvable-skill\nversion: 2.0.0\n---\n")
+            skill_md.write_text("---\nname: evolvable-skill\nmetadata:\n  dcc-mcp:\n    version: 2.0.0\n---\n")
             dest2 = copy_skill_to_user_dir(str(Path(src_tmp) / skill_name))
             assert dest2 == dest
 

@@ -560,7 +560,10 @@ class TestServerBinarySidecar:
             deadline = time.monotonic() + 10.0
             health = (0, {})
             while time.monotonic() < deadline:
-                health = _get(f"{base}/health")
+                # The standalone binary at `--gateway-port 0` does not bind
+                # `/health` (that lives on the gateway router); probe the
+                # REST skill surface health endpoint instead.
+                health = _get(f"{base}/v1/healthz")
                 if health[0] == 200:
                     break
                 if proc.poll() is not None:

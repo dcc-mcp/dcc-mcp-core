@@ -33,26 +33,32 @@ def _write_skill(
     search_hint: str = "",
     tools_yaml: str | None = None,
 ) -> None:
-    """Create a SKILL.md directory (with optional sibling tools.yaml)."""
+    """Create a SKILL.md directory (with optional sibling tools.yaml).
+
+    All dcc-mcp-core extension keys (dcc, version, tags, search-hint, tools)
+    live under ``metadata.dcc-mcp.*`` per the agentskills.io 1.0 contract.
+    """
     skill_dir = root / name
     skill_dir.mkdir(parents=True, exist_ok=True)
 
-    tags_block = "tags: []\n" if not tags else "tags:\n" + "".join(f"  - {t}\n" for t in tags)
-    hint_line = f'search-hint: "{search_hint}"\n' if search_hint else ""
-    tools_meta = (
-        "metadata:\n  dcc-mcp.dcc: " + dcc + "\n  dcc-mcp.tools: tools.yaml\n" if tools_yaml is not None else ""
-    )
-    body = (
-        f"---\n"
-        f"name: {name}\n"
-        f"version: 1.0.0\n"
-        f'description: "{description}"\n'
-        f"dcc: {dcc}\n"
-        f"{tags_block}"
-        f"{hint_line}"
-        f"{tools_meta}"
-        f"---\n\n# {name}\n"
-    )
+    meta_lines = [
+        "metadata:",
+        "  dcc-mcp:",
+        f"    dcc: {dcc}",
+        "    version: 1.0.0",
+    ]
+    if tags:
+        meta_lines.append("    tags:")
+        for t in tags:
+            meta_lines.append(f"      - {t}")
+    else:
+        meta_lines.append("    tags: []")
+    if search_hint:
+        meta_lines.append(f'    search-hint: "{search_hint}"')
+    if tools_yaml is not None:
+        meta_lines.append("    tools: tools.yaml")
+
+    body = f'---\nname: {name}\ndescription: "{description}"\n' + "\n".join(meta_lines) + f"\n---\n\n# {name}\n"
     (skill_dir / "SKILL.md").write_text(body, encoding="utf-8")
 
     if tools_yaml is not None:

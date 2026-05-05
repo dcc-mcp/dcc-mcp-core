@@ -110,7 +110,7 @@ class TestCrossDCCPipeline:
             create_skill_dir(
                 str(tmp_path),
                 f"{dcc}-skill-v{i}",
-                frontmatter=f"name: {dcc}-skill\ndcc: {dcc}\nversion: {version}",
+                frontmatter=(f"name: {dcc}-skill\nmetadata:\n  dcc-mcp:\n    dcc: {dcc}\n    version: {version}"),
             )
         scanner = dcc_mcp_core.SkillScanner()
         dirs = scanner.scan(extra_paths=[str(tmp_path)])

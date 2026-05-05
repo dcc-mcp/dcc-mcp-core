@@ -170,7 +170,15 @@ class TestOpenSCADSkillPipeline:
         create_skill_dir(
             str(tmp_path),
             "openscad-primitives",
-            frontmatter="name: openscad-primitives\ndcc: openscad\ntags:\n  - geometry\n  - cad",
+            frontmatter=(
+                "name: openscad-primitives\n"
+                "metadata:\n"
+                "  dcc-mcp:\n"
+                "    dcc: openscad\n"
+                "    tags:\n"
+                "      - geometry\n"
+                "      - cad"
+            ),
         )
         meta = dcc_mcp_core.parse_skill_md(str(tmp_path / "openscad-primitives"))
         assert meta is not None
