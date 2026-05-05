@@ -260,6 +260,7 @@ mod tests {
             cursor_safe_tool_names: true,
             capability_index: Arc::new(crate::gateway::capability::CapabilityIndex::new()),
             event_log: log,
+        middleware_chain: std::sync::Arc::new(crate::gateway::middleware::MiddlewareChain::new()),
             #[cfg(feature = "prometheus")]
             gateway_metrics: Arc::new(crate::gateway::event_log::GatewayMetrics::new()),
         }
