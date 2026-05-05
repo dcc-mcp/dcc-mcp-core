@@ -249,7 +249,16 @@ class TestGodotSkillPipeline:
         create_skill_dir(
             str(tmp_path),
             "godot-scene-builder",
-            frontmatter=("name: godot-scene-builder\ndcc: godot\ntags:\n  - game\n  - scene\nversion: 1.0.0"),
+            frontmatter=(
+                "name: godot-scene-builder\n"
+                "metadata:\n"
+                "  dcc-mcp:\n"
+                "    dcc: godot\n"
+                "    version: 1.0.0\n"
+                "    tags:\n"
+                "      - game\n"
+                "      - scene"
+            ),
         )
         meta = dcc_mcp_core.parse_skill_md(str(tmp_path / "godot-scene-builder"))
         assert meta is not None

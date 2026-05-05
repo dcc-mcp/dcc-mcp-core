@@ -128,17 +128,17 @@ class TestVerifierHarnessTemplate:
         assert meta is not None, "parse_skill_md returned None for verifier template"
 
     def test_template_schema_shape(self) -> None:
-        """The import_and_inspect tool input schema declares file_path + format."""
-        # SkillMetadata doesn't expose raw tool input_schema through its frozen
-        # Rust surface, so re-parse the frontmatter directly to assert shape.
-        content = (VERIFIER_TEMPLATE_DIR / "SKILL.md").read_text(encoding="utf-8")
-        # Extract YAML frontmatter between the first pair of "---" delimiters.
-        assert content.startswith("---\n"), "SKILL.md must start with YAML frontmatter"
-        _, frontmatter, _ = content.split("---\n", 2)
+        """The import_and_inspect tool input schema declares file_path + format.
 
-        # Allow both PyYAML and stdlib fallback — yaml is a test-time dep.
+        Tool declarations live in the sibling ``tools.yaml`` per the
+        agentskills.io 1.0 nested-metadata contract; SKILL.md's frontmatter
+        only references it via ``metadata.dcc-mcp.tools: tools.yaml``.
+        """
+        tools_yaml = VERIFIER_TEMPLATE_DIR / "tools.yaml"
+        assert tools_yaml.is_file(), f"sibling tools.yaml missing at {tools_yaml}"
+
         yaml = pytest.importorskip("yaml")
-        parsed = yaml.safe_load(frontmatter)
+        parsed = yaml.safe_load(tools_yaml.read_text(encoding="utf-8"))
 
         tools = parsed["tools"]
         assert len(tools) == 1, "verifier template must declare exactly one tool"

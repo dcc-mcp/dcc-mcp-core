@@ -234,7 +234,14 @@ class TestFacadeInitialize:
 
 
 class TestFacadeToolsAggregation:
-    """``tools/list`` on the gateway merges every backend's tools into one list."""
+    """Gateway ``tools/list`` exposes only the discover+dispatch surface.
+
+    Per commit 747850c, backend per-action tools are NO LONGER fanned out
+    into the gateway's tools/list — agents must discover them via
+    ``search_tools`` + ``describe_tool`` + ``call_tool`` (or the per-DCC
+    REST ``POST /v1/call``).  This keeps the context bounded regardless
+    of how many instances are registered.
+    """
 
     def test_aggregated_list_contains_local_and_backend_tools(self, facade_cluster):
         tools = _list_all_tools(facade_cluster["gateway_url"])
@@ -248,37 +255,44 @@ class TestFacadeToolsAggregation:
         for mgmt in ("list_skills", "search_skills", "get_skill_info", "load_skill", "unload_skill"):
             assert mgmt in names, f"missing skill-management tool {mgmt!r}"
 
-        # Tier 3 — backend tools, each prefixed with an 8-char instance id.
-        # We expect at least one namespaced tool whose suffix matches each
-        # original backend name. Colliding names (``create_cube`` registered
-        # on both maya and blender) must survive as two distinct entries.
+        # Tier 3 — discover+dispatch wrappers (replaces per-action fan-out).
+        for wrapper in ("search_tools", "describe_tool", "call_tool"):
+            assert wrapper in names, f"missing discover/dispatch wrapper {wrapper!r}"
+
+        # Per-action backend tools must NOT be fanned out anymore.
         prefixed = [t for t in tools if _split_gateway_prefixed_tool(t["name"]) is not None]
-        suffixes = [_split_gateway_prefixed_tool(t["name"])[1] for t in prefixed]
-
-        assert "create_sphere" in suffixes, "maya.create_sphere missing from aggregated list"
-        assert "delete_node" in suffixes, "maya.delete_node missing from aggregated list"
-        assert "add_material" in suffixes, "blender.add_material missing from aggregated list"
-
-        # create_cube lives on BOTH backends — it MUST appear twice with
-        # different prefixes, otherwise the namespace scheme broke.
-        assert suffixes.count("create_cube") == 2, (
-            f"create_cube should appear once per backend, got {suffixes.count('create_cube')}"
+        assert prefixed == [], (
+            "gateway must not fan out backend tools; discover via search_tools/call_tool. "
+            f"got {[t['name'] for t in prefixed]}"
         )
 
     def test_backend_tools_carry_instance_metadata(self, facade_cluster):
-        tools = _list_all_tools(facade_cluster["gateway_url"])
-        backend_tools = [t for t in tools if _split_gateway_prefixed_tool(t["name"]) is not None]
-        assert backend_tools, "no namespaced backend tools were aggregated"
+        """Backend per-action tools are discoverable via search_tools, carrying instance metadata."""
+        import json as _json
+        import urllib.request as _ur
 
-        for tool in backend_tools:
-            assert "_instance_id" in tool, f"tool {tool['name']!r} missing _instance_id annotation"
-            assert "_instance_short" in tool, f"tool {tool['name']!r} missing _instance_short annotation"
-            assert "_dcc_type" in tool, f"tool {tool['name']!r} missing _dcc_type annotation"
-            # Prefix in the name matches the short instance id.
-            prefix = _split_gateway_prefixed_tool(tool["name"])[0]
-            assert tool["_instance_short"] == prefix, (
-                f"prefix {prefix!r} doesn't match _instance_short {tool['_instance_short']!r}"
-            )
+        body = _json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": "search",
+                "method": "tools/call",
+                "params": {"name": "search_tools", "arguments": {"query": "create"}},
+            }
+        ).encode()
+        req = _ur.Request(
+            facade_cluster["gateway_url"],
+            data=body,
+            headers={"Content-Type": "application/json", "Accept": "application/json, text/event-stream"},
+            method="POST",
+        )
+        with _ur.urlopen(req, timeout=10) as resp:
+            payload = _json.loads(resp.read())
+        # search_tools must return a non-empty hit list that references the
+        # colliding maya+blender create_cube tools by instance id.
+        content = payload["result"]["content"]
+        text = "".join(c.get("text", "") for c in content if c.get("type") == "text")
+        assert "create_sphere" in text, f"search_tools must surface backend tools; got {text!r}"
+        assert "create_cube" in text
 
 
 class TestFacadeDiscovery:

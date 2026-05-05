@@ -18,12 +18,18 @@ import pytest
 import dcc_mcp_core
 
 
-def _write_skill(base: Path, name: str, frontmatter_body: str) -> Path:
-    """Write a SKILL.md with the given frontmatter body under base/name."""
+def _write_skill(base: Path, name: str, tools_yaml_body: str) -> Path:
+    """Write a SKILL.md + sibling tools.yaml under base/name and return the skill dir.
+
+    ``tools_yaml_body`` is the YAML content (excluding the top-level ``tools:`` key)
+    that will be placed inside ``tools.yaml`` and referenced via the
+    ``metadata.dcc-mcp.tools`` sibling-file pointer (issue #356).
+    """
     skill_dir = base / name
     skill_dir.mkdir(parents=True, exist_ok=True)
-    content = f"---\nname: {name}\ndcc: python\n{frontmatter_body}---\n# {name}\n"
-    (skill_dir / "SKILL.md").write_text(content, encoding="utf-8")
+    skill_md = f"---\nname: {name}\nmetadata:\n  dcc-mcp:\n    dcc: python\n    tools: tools.yaml\n---\n# {name}\n"
+    (skill_dir / "SKILL.md").write_text(skill_md, encoding="utf-8")
+    (skill_dir / "tools.yaml").write_text("tools:\n" + tools_yaml_body, encoding="utf-8")
     return skill_dir
 
 
@@ -32,7 +38,7 @@ class TestSkillMdExecution:
         skill_dir = _write_skill(
             tmp_path,
             "render-farm",
-            "tools:\n  - name: render_frames\n    execution: async\n    timeout_hint_secs: 600\n",
+            "  - name: render_frames\n    execution: async\n    timeout_hint_secs: 600\n",
         )
         meta = dcc_mcp_core.parse_skill_md(str(skill_dir))
         assert meta is not None
@@ -44,7 +50,7 @@ class TestSkillMdExecution:
         skill_dir = _write_skill(
             tmp_path,
             "quick-skill",
-            "tools:\n  - name: do_thing\n",
+            "  - name: do_thing\n",
         )
         meta = dcc_mcp_core.parse_skill_md(str(skill_dir))
         assert meta is not None
@@ -52,32 +58,36 @@ class TestSkillMdExecution:
         assert meta.tools[0].timeout_hint_secs is None
 
     def test_deferred_user_flag_rejected(self, tmp_path: Path) -> None:
-        """`deferred: true` at the user level must be rejected (server-set only)."""
+        """`deferred: true` at the user level must be rejected (server-set only).
+
+        With sibling tools.yaml the skill itself still parses, but the
+        tools list is empty because every tool entry fails validation.
+        """
         skill_dir = _write_skill(
             tmp_path,
             "bad-skill",
-            "tools:\n  - name: x\n    deferred: true\n",
+            "  - name: x\n    deferred: true\n",
         )
-        # parse_skill_md swallows YAML errors and returns None — the point
-        # is that the skill does NOT load with a silent success.
         meta = dcc_mcp_core.parse_skill_md(str(skill_dir))
-        assert meta is None, "deferred: true must cause a load failure"
+        assert meta is not None
+        assert meta.tools == [], "deferred: true must not yield a tool declaration"
 
     def test_unknown_execution_value_rejected(self, tmp_path: Path) -> None:
         skill_dir = _write_skill(
             tmp_path,
             "bad-skill",
-            "tools:\n  - name: x\n    execution: background\n",
+            "  - name: x\n    execution: background\n",
         )
         meta = dcc_mcp_core.parse_skill_md(str(skill_dir))
-        assert meta is None
+        assert meta is not None
+        assert meta.tools == [], "unknown execution value must not yield a tool declaration"
 
     def test_backward_compat_pre_change_skill_md(self, tmp_path: Path) -> None:
         """Existing SKILL.md files (no `execution` field) still load."""
         skill_dir = _write_skill(
             tmp_path,
             "legacy-skill",
-            "tools:\n  - name: legacy_tool\n    description: old style\n",
+            "  - name: legacy_tool\n    description: old style\n",
         )
         meta = dcc_mcp_core.parse_skill_md(str(skill_dir))
         assert meta is not None

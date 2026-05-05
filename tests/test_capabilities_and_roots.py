@@ -86,7 +86,7 @@ def test_sibling_tools_yaml_parses_required_capabilities(tmp_path):
     skill_dir = tmp_path / "cap-skill"
     skill_dir.mkdir()
     (skill_dir / "SKILL.md").write_text(
-        "---\nname: cap-skill\ndescription: test\nmetadata:\n  dcc-mcp.tools: tools.yaml\n---\n",
+        "---\nname: cap-skill\ndescription: test\nmetadata:\n  dcc-mcp:\n    tools: tools.yaml\n---\n",
         encoding="utf-8",
     )
     (skill_dir / "tools.yaml").write_text(

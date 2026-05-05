@@ -34,7 +34,7 @@ def _write_skill(base: Path, name: str, dcc: str = "python") -> Path:
     """Write a minimal SKILL.md under *base*/*name* and return the skill dir."""
     skill_dir = base / name
     skill_dir.mkdir(parents=True, exist_ok=True)
-    content = f"---\nname: {name}\ndcc: {dcc}\n---\n# {name}\n\nTest skill."
+    content = f"---\nname: {name}\nmetadata:\n  dcc-mcp:\n    dcc: {dcc}\n---\n# {name}\n\nTest skill."
     (skill_dir / "SKILL.md").write_text(content, encoding="utf-8")
     return skill_dir
 
@@ -279,14 +279,20 @@ class TestSkillWatcherReload:
         """Manual reload picks up changed SKILL.md content."""
         skill_dir = tmp_path / "mutable-skill"
         skill_dir.mkdir()
-        (skill_dir / "SKILL.md").write_text("---\nname: mutable-skill\ndcc: maya\n---\n", encoding="utf-8")
+        (skill_dir / "SKILL.md").write_text(
+            "---\nname: mutable-skill\nmetadata:\n  dcc-mcp:\n    dcc: maya\n---\n",
+            encoding="utf-8",
+        )
 
         w = dcc_mcp_core.SkillWatcher(debounce_ms=50)
         w.watch(str(tmp_path))
         assert w.skills()[0].dcc == "maya"
 
         # Change the DCC field
-        (skill_dir / "SKILL.md").write_text("---\nname: mutable-skill\ndcc: blender\n---\n", encoding="utf-8")
+        (skill_dir / "SKILL.md").write_text(
+            "---\nname: mutable-skill\nmetadata:\n  dcc-mcp:\n    dcc: blender\n---\n",
+            encoding="utf-8",
+        )
         w.reload()
         assert w.skills()[0].dcc == "blender"
 
@@ -440,7 +446,10 @@ class TestSkillWatcherEdgeCases:
         """Skill with a scripts/ subdirectory is loaded and scripts list is populated."""
         skill_dir = tmp_path / "scripted-skill"
         skill_dir.mkdir()
-        (skill_dir / "SKILL.md").write_text("---\nname: scripted-skill\ndcc: maya\n---\n", encoding="utf-8")
+        (skill_dir / "SKILL.md").write_text(
+            "---\nname: scripted-skill\nmetadata:\n  dcc-mcp:\n    dcc: maya\n---\n",
+            encoding="utf-8",
+        )
         scripts_dir = skill_dir / "scripts"
         scripts_dir.mkdir()
         (scripts_dir / "run.py").write_text("print('hello')", encoding="utf-8")
@@ -502,7 +511,7 @@ class TestSkillWatcherEdgeCases:
         skill_dir = tmp_path / "versioned"
         skill_dir.mkdir()
         (skill_dir / "SKILL.md").write_text(
-            "---\nname: versioned\ndcc: python\nversion: 2.3.1\n---\n",
+            "---\nname: versioned\nmetadata:\n  dcc-mcp:\n    dcc: python\n    version: 2.3.1\n---\n",
             encoding="utf-8",
         )
         w = dcc_mcp_core.SkillWatcher(debounce_ms=50)

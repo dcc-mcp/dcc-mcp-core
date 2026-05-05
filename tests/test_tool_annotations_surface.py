@@ -39,8 +39,9 @@ _SKILL_MD_TEMPLATE = """---
 name: {name}
 description: test skill
 metadata:
-  dcc-mcp.dcc: python
-  dcc-mcp.tools: tools.yaml
+  dcc-mcp:
+    dcc: python
+    tools: tools.yaml
 ---
 # body
 """

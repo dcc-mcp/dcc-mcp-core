@@ -281,37 +281,28 @@ class TestGatewayLoadSkillSsePropagation:
         )
 
     def test_hello_world_surfaces_as_skill_stub_before_load(self, gateway_with_skill_backend):
-        """Before ``load_skill``, hello-world appears only as a ``__skill__hello-world`` stub.
+        """Before ``load_skill``, hello-world is discoverable via ``search_skills``.
 
-        The real tool ``hello_world__greet`` MUST NOT be in ``tools/list``.
-        This guards the progressive-loading contract.
+        Per commit 747850c the gateway no longer fans out per-skill stubs —
+        ``tools/list`` exposes only the discover+dispatch surface. Clients
+        find unloaded skills through the ``search_skills`` MCP tool, which
+        returns stubs with ``loaded: false``.
         """
-        tools = _list_all_tools(gateway_with_skill_backend["gateway_url"])
+        gateway_url = gateway_with_skill_backend["gateway_url"]
+        resp = _post_mcp(
+            gateway_url,
+            "tools/call",
+            {"name": "search_skills", "arguments": {"query": "hello"}},
+        )
+        assert "error" not in resp, f"search_skills errored: {resp.get('error')}"
+        content = resp["result"]["content"]
+        text = "".join(c.get("text", "") for c in content if c.get("type") == "text")
+        assert "hello-world" in text, f"expected hello-world in search_skills output before load; got: {text[:500]!r}"
+
+        # The per-action tool must NOT be in the minimal tools/list before load.
+        tools = _list_all_tools(gateway_url)
         names = {t["name"] for t in tools}
 
-        # The skill stub is how the gateway (and client) discovers that
-        # hello-world exists without paying to register its tools yet.
-        # Since #656 the gateway defaults to the Cursor-safe wire form
-        # ``i_<id8>__<escaped>`` where ``-`` is escaped as ``_H_`` and
-        # ``_`` as ``_U_``; so ``__skill__hello-world`` encodes to
-        # ``_U__U_skill_U__U_hello_H_world`` after the instance prefix.
-        # We accept either form so the assertion keeps working through
-        # the compatibility window.
-        def _is_skill_stub(n: str) -> bool:
-            return n.endswith("__skill__hello-world") or n.endswith("_U__U_skill_U__U_hello_H_world")
-
-        assert any(_is_skill_stub(n) for n in names), (
-            f"expected ``__skill__hello-world`` stub (cursor-safe or legacy) in "
-            f"aggregated tools/list, got: {sorted(names)[:20]}..."
-        )
-
-        # And the active tool must NOT be present yet. The tool is
-        # ``greet`` (bare form introduced by #307; unique within the
-        # single-skill instance) — before load_skill runs, only the
-        # ``__skill__hello-world`` stub exists. Match every encoding
-        # the gateway could emit: the legacy dotted form, the bare
-        # alias from #583, and the cursor-safe ``__greet`` tail from
-        # #656.
         def _is_active_greet(n: str) -> bool:
             return n == "greet" or n.endswith(".greet") or n.endswith("__greet") or n.endswith("hello-world.greet")
 
@@ -320,13 +311,13 @@ class TestGatewayLoadSkillSsePropagation:
         )
 
     def test_load_skill_triggers_tools_list_changed_via_sse(self, gateway_with_skill_backend):
-        """The full regression: SSE subscribe → load_skill → list_changed + tool visible.
+        """SSE subscribe → load_skill → list_changed + tool discoverable via search_tools.
 
-        This is the core invariant that was implicitly covered by the
-        deleted ``test_e2e_gateway_skills_progressive.py``. If the
-        aggregating watcher regresses (stops polling, wrong fingerprint,
-        broadcast broken) OR the gateway listener regresses (issue #303),
-        this test fails.
+        Under the discover+dispatch gateway surface (commit 747850c),
+        ``tools/list`` stays bounded, but ``search_tools`` must return
+        the newly loaded skill's per-action tools, and the SSE stream
+        MUST still emit ``notifications/tools/list_changed`` when the
+        backend's aggregated fingerprint changes.
         """
         gateway_url = gateway_with_skill_backend["gateway_url"]
 
@@ -355,10 +346,6 @@ class TestGatewayLoadSkillSsePropagation:
                 {"name": "load_skill", "arguments": {"skill_name": "hello-world"}},
             )
             assert "error" not in load_resp, f"load_skill returned JSON-RPC error: {load_resp.get('error')}"
-            # The load_skill tool returns a structured result; we do not
-            # assert its exact shape here because it is covered by the
-            # skills-layer unit tests. The only contract we need is that
-            # the call did not surface an error.
             assert "result" in load_resp, f"load_skill missing result: {load_resp}"
 
             # Now wait for tools/list_changed — the aggregating watcher
@@ -376,41 +363,29 @@ class TestGatewayLoadSkillSsePropagation:
             assert notif.get("jsonrpc") == "2.0"
             assert notif.get("method") == "notifications/tools/list_changed"
 
-            # And now tools/list must expose the loaded tool. Allow a brief
-            # retry window because tools/list aggregation caches backend
-            # responses for up to one watcher tick.
-            #
-            # Since #307 the backend-tool for a loaded skill is the bare
-            # action name when unique within the instance — here ``greet``
-            # (the hello-world skill exposes a single action). Since
-            # #656 the gateway wraps fan-out names in the Cursor-safe
-            # form ``i_<id8>__<escaped>`` by default, so we accept
-            # every emitter form: the bare alias (#583), the
-            # legacy dotted ``<id8>.greet``, and the cursor-safe
-            # ``i_<id8>__greet``. Any one of them is enough.
-            def _sees_greet(n: str) -> bool:
-                return n == "greet" or n.endswith(".greet") or n.endswith("__greet")
-
-            def _sees_skill_stub(n: str) -> bool:
-                return n.endswith("__skill__hello-world") or n.endswith("_U__U_skill_U__U_hello_H_world")
-
+            # The loaded skill's per-action tool must now be discoverable
+            # through ``search_tools`` (the converge+dispatch contract).
+            # Allow a brief retry window because the backend's action
+            # catalog propagates to the search index within one watcher
+            # tick.
             deadline = time.time() + AGGREGATOR_TICK_S + 2.0
-            active_names: set[str] = set()
-            while time.time() < deadline:
-                active_names = {t["name"] for t in _list_all_tools(gateway_url)}
-                if any(_sees_greet(n) for n in active_names):
-                    break
+            found = False
+            while time.time() < deadline and not found:
+                search_resp = _post_mcp(
+                    gateway_url,
+                    "tools/call",
+                    {"name": "search_tools", "arguments": {"query": "greet"}},
+                )
+                if "error" not in search_resp:
+                    content = search_resp["result"]["content"]
+                    text = "".join(c.get("text", "") for c in content if c.get("type") == "text")
+                    if "greet" in text:
+                        found = True
+                        break
                 time.sleep(0.5)
 
-            assert any(_sees_greet(n) for n in active_names), (
-                "load_skill succeeded and SSE fired, but greet is still absent "
-                f"from aggregated tools/list: sample={sorted(active_names)[:30]}"
-            )
-
-            # The stub should have been replaced by the real tool once the
-            # skill is loaded — enforces the progressive-loading contract.
-            assert not any(_sees_skill_stub(n) for n in active_names), (
-                "__skill__hello-world stub must be gone from tools/list after load_skill"
+            assert found, (
+                "load_skill succeeded and SSE fired, but ``greet`` is still absent from ``search_tools`` output"
             )
         finally:
             stop.set()

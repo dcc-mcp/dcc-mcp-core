@@ -39,7 +39,9 @@ def make_skill_dir(tmp_path: Path, name: str, dcc: str = "maya") -> Path:
         [
             "---",
             f"name: {name}",
-            f"dcc: {dcc}",
+            "metadata:",
+            "  dcc-mcp:",
+            f"    dcc: {dcc}",
             "---",
             f"# {name}",
             "A test skill.",

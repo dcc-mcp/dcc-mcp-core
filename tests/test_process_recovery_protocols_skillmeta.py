@@ -45,14 +45,16 @@ def _make_skill_dir(
     """Create a minimal SKILL.md directory and return its path."""
     skill_dir = tmp_path / name
     skill_dir.mkdir(parents=True, exist_ok=True)
-    tags_block = "tags: []\n" if not tags else "tags:\n" + "".join(f"  - {t}\n" for t in tags)
-    depends_block = "depends: []\n" if not depends else "depends:\n" + "".join(f"  - {d}\n" for d in depends)
+    tags_block = "    tags:\n" + "".join(f"      - {t}\n" for t in tags) if tags else "    tags: []\n"
+    depends_block = "    depends:\n" + "".join(f"      - {d}\n" for d in depends) if depends else "    depends: []\n"
     content = (
         f"---\n"
         f"name: {name}\n"
-        f"version: {version}\n"
         f"description: {description}\n"
-        f"dcc: {dcc}\n"
+        f"metadata:\n"
+        f"  dcc-mcp:\n"
+        f"    dcc: {dcc}\n"
+        f"    version: {version}\n"
         f"{tags_block}"
         f"{depends_block}"
         f"{extra_frontmatter}"

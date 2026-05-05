@@ -73,16 +73,19 @@ def _make_skill_dir(
 
     depends_str = ""
     if depends:
-        depends_str = "\ndepends: " + str(depends)
+        depends_str = "\n    depends: " + str(depends)
 
     with (skill_dir / "SKILL.md").open("w") as f:
         f.write(
             f"---\n"
             f"name: {skill_name}\n"
             f'description: "Test skill {skill_name}"\n'
-            f"dcc: {dcc}\n"
-            f'version: "{version}"\n'
-            f'tags: ["test"]{depends_str}\n'
+            f"metadata:\n"
+            f"  dcc-mcp:\n"
+            f"    dcc: {dcc}\n"
+            f'    version: "{version}"\n'
+            f'    tags: ["test"]'
+            f"{depends_str}\n"
             f"---\n\n"
             f"# {skill_name}\n\nA test skill.\n"
         )

@@ -156,7 +156,8 @@ class TestScanSkillPaths:
 class TestParseSkillMd:
     def test_parse_valid(self, tmp_path: Path) -> None:
         (tmp_path / "SKILL.md").write_text(
-            "---\nname: test-skill\ndcc: maya\ntags:\n  - geo\n---\n# Body\n", encoding="utf-8"
+            "---\nname: test-skill\nmetadata:\n  dcc-mcp:\n    dcc: maya\n    tags:\n      - geo\n---\n# Body\n",
+            encoding="utf-8",
         )
         tmpdir = str(tmp_path)
         meta = dcc_mcp_core.parse_skill_md(tmpdir)
@@ -193,7 +194,7 @@ class TestParseSkillMd:
     def test_parse_depends_single(self, tmp_path: Path) -> None:
         """A single-item depends list is parsed into SkillMetadata.depends."""
         (tmp_path / "SKILL.md").write_text(
-            "---\nname: child\ndcc: maya\ndepends:\n  - parent-skill\n---\n",
+            "---\nname: child\nmetadata:\n  dcc-mcp:\n    dcc: maya\n    depends:\n      - parent-skill\n---\n",
             encoding="utf-8",
         )
         meta = dcc_mcp_core.parse_skill_md(str(tmp_path))
@@ -203,7 +204,7 @@ class TestParseSkillMd:
     def test_parse_depends_multiple(self, tmp_path: Path) -> None:
         """Multiple items in depends are all present in SkillMetadata.depends."""
         (tmp_path / "SKILL.md").write_text(
-            "---\nname: child\ndepends:\n  - dep-a\n  - dep-b\n  - dep-c\n---\n",
+            "---\nname: child\nmetadata:\n  dcc-mcp:\n    depends:\n      - dep-a\n      - dep-b\n      - dep-c\n---\n",
             encoding="utf-8",
         )
         meta = dcc_mcp_core.parse_skill_md(str(tmp_path))
@@ -223,7 +224,7 @@ class TestParseSkillMd:
     def test_parse_tags_multiple(self, tmp_path: Path) -> None:
         """Tags field with multiple values is parsed into meta.tags list."""
         (tmp_path / "SKILL.md").write_text(
-            "---\nname: tagged\ntags:\n  - geo\n  - render\n  - shading\n---\n",
+            "---\nname: tagged\nmetadata:\n  dcc-mcp:\n    tags:\n      - geo\n      - render\n      - shading\n---\n",
             encoding="utf-8",
         )
         meta = dcc_mcp_core.parse_skill_md(str(tmp_path))
@@ -235,12 +236,12 @@ class TestParseSkillMd:
     def test_parse_tools_multiple(self, tmp_path: Path) -> None:
         """Tools field with multiple values is parsed into meta.tools list."""
         (tmp_path / "SKILL.md").write_text(
-            "---\nname: tooled\ntools:\n  - Bash\n  - Read\n  - Write\n---\n",
+            "---\nname: tooled\nallowed-tools:\n  - Bash\n  - Read\n  - Write\n---\n",
             encoding="utf-8",
         )
         meta = dcc_mcp_core.parse_skill_md(str(tmp_path))
         assert meta is not None
-        tool_names = [t.name for t in meta.tools]
+        tool_names = list(meta.allowed_tools)
         assert "Bash" in tool_names
         assert "Read" in tool_names
         assert "Write" in tool_names
