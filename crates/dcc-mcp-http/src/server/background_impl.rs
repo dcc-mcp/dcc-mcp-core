@@ -71,7 +71,7 @@ pub(crate) fn prometheus_gauge_context(
     Arc<dcc_mcp_actions::ActionRegistry>,
     crate::session::SessionManager,
 )> {
-    if config.enable_prometheus {
+    if config.enable_prometheus() {
         Some((registry, sessions))
     } else {
         None
@@ -83,7 +83,7 @@ pub(crate) fn build_prometheus_exporter(
     config: &crate::config::McpHttpConfig,
     registry: &dcc_mcp_actions::ActionRegistry,
 ) -> Option<dcc_mcp_telemetry::PrometheusExporter> {
-    if !config.enable_prometheus {
+    if !config.enable_prometheus() {
         return None;
     }
 
@@ -105,7 +105,7 @@ pub(crate) fn attach_metrics_route(
     if let Some(exporter) = exporter.as_ref() {
         let metrics_state = crate::metrics::MetricsState::new(
             exporter.clone(),
-            config.prometheus_basic_auth.clone(),
+            config.prometheus_basic_auth().clone(),
         );
         let metrics_router = axum::Router::new()
             .route(
