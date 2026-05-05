@@ -6013,7 +6013,6 @@ dependencies = [
  "num-integer",
  "num-iter",
  "num-traits",
- "once_cell",
  "phf 0.11.3",
  "phf_shared 0.11.3",
  "proc-macro2",
