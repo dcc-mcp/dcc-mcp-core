@@ -1,5 +1,5 @@
 //! Pluggable ranking strategies for the capability search layer
-//! (issue [#659]).
+//! (issues [#659] / [#765]).
 //!
 //! The original search ([`super::search`]) shipped a hand-rolled
 //! substring scorer. That gave correct answers for exact queries
@@ -17,21 +17,31 @@
 //! applied to ranking — adding a future Tantivy- or FST-backed
 //! scorer only requires implementing the trait.
 //!
-//! The two scorers shipped today are:
+//! ## Strategy seam (issue [#765])
 //!
-//! * [`SubstringScorer`] — the original exact/substring table,
-//!   preserved byte-for-byte so regressions surface in dedicated
+//! [`StrategyScorer`] is the **public extension point** for embedders
+//! that want to plug in a custom ranking algorithm (BM25, embedding
+//! vectors, studio lexicons, …) without touching the handler code.
+//! [`ScorerFactory`] selects a concrete `StrategyScorer` box from a
+//! [`super::search::SearchMode`] variant or a free-form string tag so
+//! callers outside this crate can use the same dispatch logic.
+//!
+//! The two built-in implementations are:
+//!
+//! * [`FuzzyScorer`] / [`StrategyFuzzyScorer`] — wraps `nucleo-matcher`
+//!   (the Helix editor's fuzzy engine) and adds prefix bonuses plus
+//!   multi-field weighting per the #659 acceptance criteria.
+//! * [`SubstringScorer`] / [`ExactScorer`] — the original exact/substring
+//!   table, preserved byte-for-byte so regressions surface in dedicated
 //!   unit tests rather than in integration tests that happen to
 //!   exercise search.
-//! * [`FuzzyScorer`] — wraps `nucleo-matcher` (the Helix editor's
-//!   fuzzy engine) and adds prefix bonuses plus multi-field
-//!   weighting per the #659 acceptance criteria.
 //!
-//! Both scorers return scores on the **same scale** (`0` = no match,
-//! higher = better) so the zero-filter in [`super::search::search`]
+//! Both internal scorers return scores on the **same scale** (`0` = no
+//! match, higher = better) so the zero-filter in [`super::search::search`]
 //! stays valid for either strategy.
 //!
 //! [#659]: https://github.com/loonghao/dcc-mcp-core/issues/659
+//! [#765]: https://github.com/loonghao/dcc-mcp-core/issues/765
 
 use nucleo_matcher::{
     Config, Matcher, Utf32Str,
@@ -39,6 +49,7 @@ use nucleo_matcher::{
 };
 
 use super::record::CapabilityRecord;
+use super::search::SearchMode;
 
 /// A pluggable scoring strategy for the capability index.
 ///
@@ -273,6 +284,171 @@ impl Scorer for FuzzyScorer {
         }
 
         score
+    }
+}
+
+/// `SubstringScorer` re-exported under the name used in issue #765
+/// acceptance criteria ("ExactScorer"). The implementation is identical
+/// to [`SubstringScorer`]; the alias exists so external callers can
+/// refer to the concept by a more descriptive name.
+pub type ExactScorer = SubstringScorer;
+
+// ============================================================================
+// Public strategy seam (issue #765)
+// ============================================================================
+
+/// Simplified, `Send + Sync` scoring strategy intended for **embedders**
+/// that want to plug a custom algorithm into the gateway without touching
+/// the filter/pagination/sort pipeline.
+///
+/// The signature intentionally differs from the internal [`Scorer`] trait:
+///
+/// * `&self` — no mutable state required; thread-safe by contract.
+/// * Plain `&str` inputs — the caller passes the pre-processed query and
+///   a single candidate string (tool name, summary, …) rather than an
+///   entire [`CapabilityRecord`].  This lets custom scorers be unit-tested
+///   without constructing gateway-internal types.
+/// * `f32` return — a normalised `[0.0, 1.0]` range is idiomatic for
+///   pluggable ML/embedding scorers; the gateway quantises to `u32` before
+///   writing a [`super::search::SearchHit`].
+///
+/// # Thread safety
+///
+/// Implementations **must** be `Send + Sync` so the same box can be
+/// shared across the async Axum worker threads without wrapping in a
+/// `Mutex`.
+///
+/// # Example
+///
+/// ```rust
+/// use dcc_mcp_gateway::StrategyScorer;
+///
+/// struct PrefixScorer;
+///
+/// impl StrategyScorer for PrefixScorer {
+///     fn score(&self, query: &str, candidate: &str) -> f32 {
+///         if candidate.starts_with(query) { 1.0 } else { 0.0 }
+///     }
+/// }
+/// ```
+pub trait StrategyScorer: Send + Sync {
+    /// Return a relevance score for `candidate` relative to `query`.
+    ///
+    /// * `query` — lower-cased, trimmed free-text query from the caller.
+    /// * `candidate` — one field extracted from a [`CapabilityRecord`]
+    ///   (tool name, summary, tag, …); pre-processing is the caller's
+    ///   responsibility.
+    ///
+    /// Return `0.0` to signal "no match"; any positive value to signal a
+    /// match.  Values above `1.0` are accepted but the gateway clamps the
+    /// quantised `u32` at `FUZZY_FIELD_CAP` / `10`, so saturating above
+    /// that threshold has no effect on ranking.
+    fn score(&self, query: &str, candidate: &str) -> f32;
+}
+
+/// [`StrategyScorer`] adapter backed by [`FuzzyScorer`] (nucleo-matcher).
+///
+/// Constructs a fresh internal [`FuzzyScorer`] per call so the adapter is
+/// `Sync` without a `Mutex`. The allocation cost (~few KB) is negligible
+/// compared with the nucleo scoring itself.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct StrategyFuzzyScorer;
+
+impl StrategyScorer for StrategyFuzzyScorer {
+    fn score(&self, query: &str, candidate: &str) -> f32 {
+        if query.is_empty() || candidate.is_empty() {
+            return 0.0;
+        }
+        let pattern = Pattern::new(
+            query,
+            CaseMatching::Ignore,
+            Normalization::Smart,
+            AtomKind::Fuzzy,
+        );
+        let mut matcher = Matcher::new(Config::DEFAULT);
+        let mut buf: Vec<char> = Vec::with_capacity(candidate.len());
+        let hs = Utf32Str::new(candidate, &mut buf);
+        let raw = pattern.score(hs, &mut matcher).unwrap_or(0);
+        if raw == 0 {
+            return 0.0;
+        }
+        let bucket = (raw / FUZZY_QUANTISE_DIVISOR).clamp(1, FUZZY_FIELD_CAP);
+        bucket as f32 / FUZZY_FIELD_CAP as f32
+    }
+}
+
+/// [`StrategyScorer`] adapter backed by [`SubstringScorer`] / [`ExactScorer`].
+///
+/// Mirrors the weight table in [`SubstringScorer`] but applied to a single
+/// candidate string so it can satisfy the [`StrategyScorer`] contract.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct StrategyExactScorer;
+
+impl StrategyScorer for StrategyExactScorer {
+    fn score(&self, query: &str, candidate: &str) -> f32 {
+        if query.is_empty() || candidate.is_empty() {
+            return 0.0;
+        }
+        let cand_lower = candidate.to_ascii_lowercase();
+        if cand_lower == query {
+            1.0
+        } else if cand_lower.contains(query) {
+            0.6
+        } else {
+            0.0
+        }
+    }
+}
+
+/// Factory that constructs a boxed [`StrategyScorer`] from a
+/// [`SearchMode`] variant or a free-form string tag.
+///
+/// This is the primary extension point for callers outside this crate:
+/// they can match on [`SearchMode`] without knowing the concrete scorer
+/// type, and add new strategies by extending the string-tag arm of
+/// [`ScorerFactory::from_tag`].
+///
+/// # Example
+///
+/// ```rust
+/// use dcc_mcp_gateway::{ScorerFactory, SearchMode};
+///
+/// let scorer = ScorerFactory::from_mode(SearchMode::Fuzzy);
+/// let s = scorer.score("sphere", "create_sphere");
+/// assert!(s > 0.0);
+/// ```
+pub struct ScorerFactory;
+
+impl ScorerFactory {
+    /// Return a [`StrategyScorer`] box appropriate for `mode`.
+    ///
+    /// | `mode`              | scorer                   |
+    /// |---------------------|--------------------------|
+    /// | [`SearchMode::Fuzzy`] | [`StrategyFuzzyScorer`] |
+    /// | [`SearchMode::Exact`] | [`StrategyExactScorer`] |
+    pub fn from_mode(mode: SearchMode) -> Box<dyn StrategyScorer> {
+        match mode {
+            SearchMode::Fuzzy => Box::new(StrategyFuzzyScorer),
+            SearchMode::Exact => Box::new(StrategyExactScorer),
+        }
+    }
+
+    /// Return a [`StrategyScorer`] box identified by a free-form string tag.
+    ///
+    /// Recognised tags (case-insensitive):
+    ///
+    /// | tag        | scorer                   |
+    /// |------------|--------------------------|
+    /// | `"fuzzy"`  | [`StrategyFuzzyScorer`] |
+    /// | `"exact"`  | [`StrategyExactScorer`] |
+    ///
+    /// Unknown tags fall back to [`StrategyFuzzyScorer`] so existing
+    /// configurations that add a new tag do not silently break.
+    pub fn from_tag(tag: &str) -> Box<dyn StrategyScorer> {
+        match tag.to_ascii_lowercase().as_str() {
+            "exact" | "substring" => Box::new(StrategyExactScorer),
+            _ => Box::new(StrategyFuzzyScorer),
+        }
     }
 }
 

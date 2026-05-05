@@ -71,4 +71,7 @@ pub use refresh::{RefreshReason, refresh_instance, remove_instance};
 pub use search::{
     DEFAULT_LIMIT, MAX_LIMIT, SearchHit, SearchMode, SearchPage, SearchQuery, search, search_page,
 };
-pub use search_ranking::{FuzzyScorer, Scorer, SubstringScorer};
+pub use search_ranking::{
+    ExactScorer, FuzzyScorer, Scorer, ScorerFactory, StrategyExactScorer, StrategyFuzzyScorer,
+    StrategyScorer, SubstringScorer,
+};
