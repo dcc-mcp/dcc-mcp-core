@@ -127,7 +127,8 @@ async fn forgecad_skill_discovers_loads_and_calls_over_mcp_and_rest_http() {
     let discovered = catalog.discover(Some(&[tmp.path().to_string_lossy().to_string()]), None);
     assert_eq!(discovered, 1, "ForgeCAD fixture should be discovered");
 
-    let server = McpHttpServer::with_catalog(registry, catalog, McpHttpConfig::new(0));
+    let server =
+        McpHttpServer::with_catalog(registry, catalog, McpHttpConfig::default().with_port(0));
     let handle = server.start().await.expect("server must start");
     let addr = handle.bind_addr.clone();
     assert!(wait_reachable(&addr).await, "server unreachable");

@@ -87,9 +87,13 @@ impl JobRecoveryPolicy {
     }
 }
 
-/// Configuration for [`McpHttpServer`](crate::McpHttpServer).
+// ─────────────────────────────────────────────────────────────────────────────
+// Sub-config structs — one per orthogonal concern
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Core server identity & transport configuration.
 #[derive(Debug, Clone)]
-pub struct McpHttpConfig {
+pub struct ServerConfig {
     /// Port to listen on. Default: 8765.
     pub port: u16,
 
@@ -114,30 +118,322 @@ pub struct McpHttpConfig {
     /// Whether to enable CORS for browser-based MCP clients. Default: false.
     pub enable_cors: bool,
 
-    /// Idle session TTL in seconds. Sessions that have not received any
-    /// request within this window are automatically evicted by a background
-    /// task started in [`McpHttpServer::start`]. Default: 3600 (1 hour).
-    /// Set to 0 to disable automatic eviction.
-    pub session_ttl_secs: u64,
+    /// How listener tasks (per-instance MCP endpoint and the optional
+    /// gateway) are driven. See [`ServerSpawnMode`] for the tradeoffs.
+    ///
+    /// Default: [`ServerSpawnMode::Ambient`]. PyO3-embedded users should
+    /// set this to [`ServerSpawnMode::Dedicated`] (the Python bindings do
+    /// so automatically). Fixes issue #303.
+    pub spawn_mode: ServerSpawnMode,
 
-    // ── Gateway configuration ──────────────────────────────────────────────
-    /// Gateway port to compete for. First process to bind wins the gateway
-    /// and starts serving `/instances`, `/mcp`, `/mcp/{id}`, `/mcp/dcc/{type}`.
-    /// `0` disables the gateway entirely. Default: 0 (disabled).
-    pub gateway_port: u16,
+    /// Maximum time to wait when self-probing a freshly bound listener to
+    /// confirm it is actually accepting connections before reporting
+    /// success. Applied per attempt; up to 5 attempts are made. Set to 0
+    /// to disable self-probing (not recommended). Default: 200.
+    pub self_probe_timeout_ms: u64,
+}
 
-    /// Shared `FileRegistry` directory. `None` uses a system temp dir.
-    pub registry_dir: Option<PathBuf>,
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self {
+            port: 8765,
+            host: IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
+            endpoint_path: "/mcp".to_string(),
+            server_name: "dcc-mcp".to_string(),
+            server_version: env!("CARGO_PKG_VERSION").to_string(),
+            max_sessions: 100,
+            request_timeout_ms: 30_000,
+            enable_cors: false,
+            spawn_mode: ServerSpawnMode::Ambient,
+            self_probe_timeout_ms: 200,
+        }
+    }
+}
 
-    /// Seconds without a heartbeat before an instance is considered stale.
-    /// Default: 30.
-    pub stale_timeout_secs: u64,
+// ── Pass-through getters/setters so PyWrapper macro-generated ──
+//  `self.inner.port()` etc. call these methods and compile.
+impl McpHttpConfig {
+    pub fn port(&self) -> u16 {
+        self.server.port
+    }
+    pub fn set_port(&mut self, v: u16) {
+        self.server.port = v;
+    }
+    pub fn host(&self) -> String {
+        self.server.host.to_string()
+    }
+    pub fn set_host(&mut self, v: &str) {
+        self.server.host = v.parse().unwrap();
+    }
+    pub fn endpoint_path(&self) -> String {
+        self.server.endpoint_path.clone()
+    }
+    pub fn set_endpoint_path(&mut self, v: String) {
+        self.server.endpoint_path = v;
+    }
+    pub fn server_name(&self) -> String {
+        self.server.server_name.clone()
+    }
+    pub fn set_server_name(&mut self, v: String) {
+        self.server.server_name = v;
+    }
+    pub fn server_version(&self) -> String {
+        self.server.server_version.clone()
+    }
+    pub fn set_server_version(&mut self, v: String) {
+        self.server.server_version = v;
+    }
+    pub fn max_sessions(&self) -> usize {
+        self.server.max_sessions
+    }
+    pub fn set_max_sessions(&mut self, v: usize) {
+        self.server.max_sessions = v;
+    }
+    pub fn request_timeout_ms(&self) -> u64 {
+        self.server.request_timeout_ms
+    }
+    pub fn set_request_timeout_ms(&mut self, v: u64) {
+        self.server.request_timeout_ms = v;
+    }
+    pub fn enable_cors(&self) -> bool {
+        self.server.enable_cors
+    }
+    pub fn set_enable_cors(&mut self, v: bool) {
+        self.server.enable_cors = v;
+    }
+    pub fn self_probe_timeout_ms(&self) -> u64 {
+        self.server.self_probe_timeout_ms
+    }
+    pub fn set_self_probe_timeout_ms(&mut self, v: u64) {
+        self.server.self_probe_timeout_ms = v;
+    }
+    pub fn spawn_mode(&self) -> ServerSpawnMode {
+        self.server.spawn_mode
+    }
+    pub fn set_spawn_mode(&mut self, v: ServerSpawnMode) {
+        self.server.spawn_mode = v;
+    }
+    pub fn session_ttl_secs(&self) -> u64 {
+        self.session.session_ttl_secs
+    }
+    pub fn set_session_ttl_secs(&mut self, v: u64) {
+        self.session.session_ttl_secs = v;
+    }
+    pub fn enable_tool_cache(&self) -> bool {
+        self.session.enable_tool_cache
+    }
+    pub fn set_enable_tool_cache(&mut self, v: bool) {
+        self.session.enable_tool_cache = v;
+    }
+    pub fn gateway_port(&self) -> u16 {
+        self.gateway.gateway_port
+    }
+    pub fn set_gateway_port(&mut self, v: u16) {
+        self.gateway.gateway_port = v;
+    }
+    pub fn stale_timeout_secs(&self) -> u64 {
+        self.gateway.stale_timeout_secs
+    }
+    pub fn set_stale_timeout_secs(&mut self, v: u64) {
+        self.gateway.stale_timeout_secs = v;
+    }
+    pub fn heartbeat_secs(&self) -> u64 {
+        self.gateway.heartbeat_secs
+    }
+    pub fn set_heartbeat_secs(&mut self, v: u64) {
+        self.gateway.heartbeat_secs = v;
+    }
+    pub fn backend_timeout_ms(&self) -> u64 {
+        self.gateway.backend_timeout_ms
+    }
+    pub fn set_backend_timeout_ms(&mut self, v: u64) {
+        self.gateway.backend_timeout_ms = v;
+    }
+    pub fn gateway_async_dispatch_timeout_ms(&self) -> u64 {
+        self.gateway.gateway_async_dispatch_timeout_ms
+    }
+    pub fn set_gateway_async_dispatch_timeout_ms(&mut self, v: u64) {
+        self.gateway.gateway_async_dispatch_timeout_ms = v;
+    }
+    pub fn gateway_wait_terminal_timeout_ms(&self) -> u64 {
+        self.gateway.gateway_wait_terminal_timeout_ms
+    }
+    pub fn set_gateway_wait_terminal_timeout_ms(&mut self, v: u64) {
+        self.gateway.gateway_wait_terminal_timeout_ms = v;
+    }
+    pub fn gateway_route_ttl_secs(&self) -> u64 {
+        self.gateway.gateway_route_ttl_secs
+    }
+    pub fn set_gateway_route_ttl_secs(&mut self, v: u64) {
+        self.gateway.gateway_route_ttl_secs = v;
+    }
+    pub fn gateway_max_routes_per_session(&self) -> u64 {
+        self.gateway.gateway_max_routes_per_session
+    }
+    pub fn set_gateway_max_routes_per_session(&mut self, v: u64) {
+        self.gateway.gateway_max_routes_per_session = v;
+    }
+    pub fn gateway_cursor_safe_tool_names(&self) -> bool {
+        self.gateway.gateway_cursor_safe_tool_names
+    }
+    pub fn set_gateway_cursor_safe_tool_names(&mut self, v: bool) {
+        self.gateway.gateway_cursor_safe_tool_names = v;
+    }
+    pub fn adapter_version(&self) -> Option<String> {
+        self.gateway.adapter_version.clone()
+    }
+    pub fn set_adapter_version(&mut self, v: Option<String>) {
+        self.gateway.adapter_version = v;
+    }
+    pub fn adapter_dcc(&self) -> Option<String> {
+        self.gateway.adapter_dcc.clone()
+    }
+    pub fn set_adapter_dcc(&mut self, v: Option<String>) {
+        self.gateway.adapter_dcc = v;
+    }
+    pub fn allow_unknown_tools(&self) -> bool {
+        self.gateway.allow_unknown_tools
+    }
+    pub fn set_allow_unknown_tools(&mut self, v: bool) {
+        self.gateway.allow_unknown_tools = v;
+    }
+    pub fn deferred_queue_depth(&self) -> usize {
+        self.queue.deferred_queue_depth
+    }
+    pub fn set_deferred_queue_depth(&mut self, v: usize) {
+        self.queue.deferred_queue_depth = v;
+    }
+    pub fn bridge_queue_depth(&self) -> usize {
+        self.queue.bridge_queue_depth
+    }
+    pub fn set_bridge_queue_depth(&mut self, v: usize) {
+        self.queue.bridge_queue_depth = v;
+    }
+    pub fn host_queue_depth(&self) -> usize {
+        self.queue.host_queue_depth
+    }
+    pub fn set_host_queue_depth(&mut self, v: usize) {
+        self.queue.host_queue_depth = v;
+    }
+    pub fn queue_send_timeout_ms(&self) -> u64 {
+        self.queue.queue_send_timeout_ms
+    }
+    pub fn set_queue_send_timeout_ms(&mut self, v: u64) {
+        self.queue.queue_send_timeout_ms = v;
+    }
+    pub fn enable_prometheus(&self) -> bool {
+        self.telemetry.enable_prometheus
+    }
+    pub fn set_enable_prometheus(&mut self, v: bool) {
+        self.telemetry.enable_prometheus = v;
+    }
+    pub fn prometheus_basic_auth(&self) -> Option<(String, String)> {
+        self.telemetry.prometheus_basic_auth.clone()
+    }
+    pub fn set_prometheus_basic_auth(&mut self, v: Option<(String, String)>) {
+        self.telemetry.prometheus_basic_auth = v;
+    }
+    pub fn lazy_actions(&self) -> bool {
+        self.features.lazy_actions
+    }
+    pub fn set_lazy_actions(&mut self, v: bool) {
+        self.features.lazy_actions = v;
+    }
+    pub fn enable_workflows(&self) -> bool {
+        self.workflow.enable_workflows
+    }
+    pub fn set_enable_workflows(&mut self, v: bool) {
+        self.workflow.enable_workflows = v;
+    }
+    pub fn shutdown_on_drop(&self) -> bool {
+        self.features.shutdown_on_drop
+    }
+    pub fn set_shutdown_on_drop(&mut self, v: bool) {
+        self.features.shutdown_on_drop = v;
+    }
+    pub fn enable_job_notifications(&self) -> bool {
+        self.features.enable_job_notifications
+    }
+    pub fn set_enable_job_notifications(&mut self, v: bool) {
+        self.features.enable_job_notifications = v;
+    }
+    pub fn enable_resources(&self) -> bool {
+        self.features.enable_resources
+    }
+    pub fn set_enable_resources(&mut self, v: bool) {
+        self.features.enable_resources = v;
+    }
+    pub fn enable_prompts(&self) -> bool {
+        self.features.enable_prompts
+    }
+    pub fn set_enable_prompts(&mut self, v: bool) {
+        self.features.enable_prompts = v;
+    }
+    pub fn enable_artefact_resources(&self) -> bool {
+        self.features.enable_artefact_resources
+    }
+    pub fn set_enable_artefact_resources(&mut self, v: bool) {
+        self.features.enable_artefact_resources = v;
+    }
+    pub fn dcc_type(&self) -> Option<String> {
+        self.instance.dcc_type.clone()
+    }
+    pub fn set_dcc_type(&mut self, v: Option<String>) {
+        self.instance.dcc_type = v;
+    }
+    pub fn dcc_version(&self) -> Option<String> {
+        self.instance.dcc_version.clone()
+    }
+    pub fn set_dcc_version(&mut self, v: Option<String>) {
+        self.instance.dcc_version = v;
+    }
+    pub fn scene(&self) -> Option<String> {
+        self.instance.scene.clone()
+    }
+    pub fn set_scene(&mut self, v: Option<String>) {
+        self.instance.scene = v;
+    }
+    pub fn instance_metadata(&self) -> HashMap<String, String> {
+        self.instance.instance_metadata.clone()
+    }
+    pub fn set_instance_metadata(&mut self, v: HashMap<String, String>) {
+        self.instance.instance_metadata = v;
+    }
+    pub fn declared_capabilities(&self) -> Vec<String> {
+        self.instance.declared_capabilities.clone()
+    }
+    pub fn set_declared_capabilities(&mut self, v: Vec<String>) {
+        self.instance.declared_capabilities = v;
+    }
+    pub fn job_storage_path(&self) -> Option<PathBuf> {
+        self.job.job_storage_path.clone()
+    }
+    pub fn set_job_storage_path(&mut self, v: Option<PathBuf>) {
+        self.job.job_storage_path = v;
+    }
+    pub fn job_recovery(&self) -> JobRecoveryPolicy {
+        self.job.job_recovery
+    }
+    pub fn set_job_recovery(&mut self, v: JobRecoveryPolicy) {
+        self.job.job_recovery = v;
+    }
+    pub fn enable_scheduler(&self) -> bool {
+        self.workflow.enable_scheduler
+    }
+    pub fn set_enable_scheduler(&mut self, v: bool) {
+        self.workflow.enable_scheduler = v;
+    }
+    pub fn schedules_dir(&self) -> Option<PathBuf> {
+        self.workflow.schedules_dir.clone()
+    }
+    pub fn set_schedules_dir(&mut self, v: Option<PathBuf>) {
+        self.workflow.schedules_dir = v;
+    }
+}
 
-    /// Heartbeat interval in seconds. `0` disables the heartbeat task.
-    /// Default: 5.
-    pub heartbeat_secs: u64,
-
-    // ── Instance registration metadata ────────────────────────────────────
+/// DCC instance registration metadata.
+#[derive(Debug, Clone, Default)]
+pub struct InstanceConfig {
     /// DCC application type (e.g. `"maya"`, `"blender"`). Reported in the
     /// shared `FileRegistry` so the gateway can route by DCC type.
     pub dcc_type: Option<String>,
@@ -155,88 +451,80 @@ pub struct McpHttpConfig {
     /// `task`, `toolset_profile`, and `package_provenance`.
     pub instance_metadata: HashMap<String, String>,
 
-    // ── Experimental: lazy-actions fast-path (#254) ───────────────────────
-    /// Enable the opt-in lazy-actions meta-tools: ``list_actions``,
-    /// ``describe_action`` and ``call_action``.
+    /// Capabilities declared by the DCC adapter hosting this server (issue #354).
     ///
-    /// When `true`, `tools/list` additionally surfaces these three meta-tools
-    /// so agents with tight context budgets can drive an arbitrarily large
-    /// action catalog through a single page of 3 stubs instead of paging
-    /// through every loaded skill's tools. Default: `false`.
+    /// Each tool may list [`required_capabilities`] in its sibling
+    /// `tools.yaml`; on `tools/call` the server intersects the tool's
+    /// requirements against this declared set. Missing capabilities
+    /// surface as a `-32001 capability_missing` MCP error. Tools with
+    /// unmet capabilities still appear in `tools/list` but carry
+    /// `_meta.dcc.missing_capabilities = [...]` so clients can filter.
     ///
-    /// Clients may also flip this on via
-    /// `initialize.capabilities.experimental["dcc_mcp_core/lazyActions"]`
-    /// (per-session, negotiated at initialize time).
-    pub lazy_actions: bool,
+    /// The list is freeform — conventionally lowercase dotted identifiers
+    /// like `"usd"`, `"scene.mutate"`, `"filesystem.read"`. Adapters hard-code
+    /// it at construction time; there is no runtime introspection of the DCC.
+    ///
+    /// Default: empty (no capabilities declared — any tool with declared
+    /// requirements will report them as missing).
+    pub declared_capabilities: Vec<String>,
+}
 
-    /// Publish skill-scoped tools under their **bare action name** when no
-    /// collision exists on this instance (#307).
-    ///
-    /// When `true` (default), `tools/list` emits `execute_python` rather than
-    /// `maya-scripting.execute_python` whenever the bare name is unique
-    /// within the instance's loaded skills. Collisions fall back to the
-    /// full `<skill>.<action>` form, and `tools/call` accepts both shapes
-    /// for one release cycle.
-    ///
-    /// Downstream clients that hard-coded the prefixed form can opt out by
-    /// setting this to `false` (or flipping `DCC_MCP_BARE_TOOL_NAMES=0`
-    /// at the binary level).
-    pub bare_tool_names: bool,
+/// Session lifecycle & tool-cache configuration.
+#[derive(Debug, Clone)]
+pub struct SessionConfig {
+    /// Idle session TTL in seconds. Sessions that have not received any
+    /// request within this window are automatically evicted by a background
+    /// task started in [`McpHttpServer::start`]. Default: 3600 (1 hour).
+    /// Set to 0 to disable automatic eviction.
+    pub session_ttl_secs: u64,
 
-    /// How listener tasks (per-instance MCP endpoint and the optional
-    /// gateway) are driven. See [`ServerSpawnMode`] for the tradeoffs.
+    /// Enable connection-scoped tool-list caching (issue #438).
     ///
-    /// Default: [`ServerSpawnMode::Ambient`]. PyO3-embedded users should
-    /// set this to [`ServerSpawnMode::Dedicated`] (the Python bindings do
-    /// so automatically). Fixes issue #303.
-    pub spawn_mode: ServerSpawnMode,
+    /// When `true` (default), `tools/list` stores a per-session snapshot
+    /// of the full tool list. On subsequent `tools/list` calls within the
+    /// same session, if the registry generation has not changed (no skill
+    /// load/unload, no group activation/deactivation), the cached
+    /// snapshot is returned directly — avoiding redundant registry scans,
+    /// bare-name resolution, and `McpTool` construction.
+    ///
+    /// The cache is automatically invalidated when:
+    /// - A skill is loaded or unloaded
+    /// - A tool group is activated or deactivated
+    /// - The session is evicted (TTL expiry)
+    /// - The client sends `tools/list` with `_meta.dcc.refresh = true`
+    ///
+    /// Set to `false` to disable caching (every `tools/list` call
+    /// rebuilds the full list from scratch).
+    pub enable_tool_cache: bool,
+}
 
-    /// Maximum time to wait when self-probing a freshly bound listener to
-    /// confirm it is actually accepting connections before reporting
-    /// success. Applied per attempt; up to 5 attempts are made. Set to 0
-    /// to disable self-probing (not recommended). Default: 200.
-    pub self_probe_timeout_ms: u64,
+impl Default for SessionConfig {
+    fn default() -> Self {
+        Self {
+            session_ttl_secs: 3_600,
+            enable_tool_cache: true,
+        }
+    }
+}
 
-    /// Advertise the MCP Resources primitive (issue #350).
-    ///
-    /// When `true` (default), the server:
-    /// - Advertises `resources: { subscribe: true, listChanged: true }`
-    ///   in its `initialize` response.
-    /// - Handles `resources/list`, `resources/read`, `resources/subscribe`
-    ///   and `resources/unsubscribe` JSON-RPC methods.
-    /// - Surfaces four URI schemes: `scene://current` (JSON scene summary),
-    ///   `capture://current_window` (PNG snapshot of the DCC window, only
-    ///   enabled when a real window backend is available), `audit://recent`
-    ///   (tail of the `AuditLog`), and `artefact://…` (stub reserved for
-    ///   issue #349).
-    ///
-    /// Set to `false` to hide the capability entirely — useful for minimal
-    /// servers or when Resources are provided by an external MCP host.
-    pub enable_resources: bool,
+/// Gateway election, routing, and discovery configuration.
+#[derive(Debug, Clone)]
+pub struct GatewayConfig {
+    /// Gateway port to compete for. First process to bind wins the gateway
+    /// and starts serving `/instances`, `/mcp`, `/mcp/{id}`, `/mcp/dcc/{type}`.
+    /// `0` disables the gateway entirely. Default: 0 (disabled).
+    pub gateway_port: u16,
 
-    /// Advertise the MCP Prompts primitive (issues #351, #355).
-    ///
-    /// When `true` (default), the server:
-    /// - Advertises `prompts: { listChanged: true }` in `initialize`.
-    /// - Handles `prompts/list` and `prompts/get` JSON-RPC methods.
-    /// - Parses the sibling `prompts.yaml` file referenced by
-    ///   `metadata.dcc-mcp.prompts` on each loaded skill and merges its
-    ///   `prompts:` and workflow-derived entries into `prompts/list`.
-    /// - Emits `notifications/prompts/list_changed` on skill load/unload.
-    ///
-    /// Set to `false` to hide the capability — appropriate for minimal
-    /// servers, or when prompts are provided by an external MCP host.
-    pub enable_prompts: bool,
+    /// Shared `FileRegistry` directory. `None` uses a system temp dir.
+    pub registry_dir: Option<PathBuf>,
 
-    /// Expose `artefact://` resources (issue #349).
-    ///
-    /// The full artefact store ships separately in issue #349. When this
-    /// flag is `false` (default), `resources/list` omits `artefact://`
-    /// entries and `resources/read` returns a
-    /// [`protocol::RESOURCE_NOT_ENABLED_ERROR`](crate::protocol::RESOURCE_NOT_ENABLED_ERROR)
-    /// JSON-RPC error so callers can distinguish "scheme unknown" from
-    /// "scheme recognized but backing store not enabled yet".
-    pub enable_artefact_resources: bool,
+    /// Seconds without a heartbeat before an instance is considered stale.
+    /// Default: 30.
+    pub stale_timeout_secs: u64,
+
+    /// Heartbeat interval in seconds. `0` disables the heartbeat task.
+    /// Default: 5.
+    pub heartbeat_secs: u64,
 
     /// Per-backend request timeout (milliseconds) used by the gateway when
     /// fanning out `tools/list` / `tools/call` to live DCC instances.
@@ -258,234 +546,18 @@ pub struct McpHttpConfig {
 
     /// Per-backend request timeout (milliseconds) applied by the gateway
     /// when the client has opted into **async dispatch** (issue #321).
-    ///
-    /// Triggered when any of the following signals are present on the
-    /// outbound `tools/call`:
-    ///
-    /// * `_meta.dcc.async == true` (explicit client opt-in).
-    /// * `_meta.progressToken` is set (MCP 2025-03-26 long-running hint).
-    /// * The target tool declares `execution: async` or a non-zero
-    ///   `timeout_hint_secs` in its [`dcc_mcp_models::ActionMeta`].
-    ///
-    /// The async dispatch path only has to **queue** the job on the
-    /// backend (reply is `{status:"pending", job_id:"..."}`), but cold
-    /// starts or heavy imports can still legitimately push the queuing
-    /// step past [`Self::backend_timeout_ms`]. This longer timeout
-    /// prevents the gateway from returning a spurious transport error
-    /// while the backend is still starting the job.
-    ///
-    /// Default: `60_000` (60 seconds).
     pub gateway_async_dispatch_timeout_ms: u64,
 
     /// Gateway timeout (milliseconds) for the opt-in wait-for-terminal
     /// response-stitching mode (issue #321).
-    ///
-    /// When a client sends `_meta.dcc.wait_for_terminal = true` on an
-    /// async `tools/call`, the gateway blocks the POST response until
-    /// a `notifications/$/dcc.jobUpdated` with a terminal status
-    /// (`completed`, `failed`, `cancelled`) arrives over the backend
-    /// SSE stream. On timeout the gateway returns the last known job
-    /// envelope annotated with `_meta.dcc.timed_out = true` and leaves
-    /// the job running on the backend — the caller can keep polling
-    /// `jobs.get_status` or reconnect SSE to collect the result later.
-    ///
-    /// Default: `600_000` (10 minutes).
     pub gateway_wait_terminal_timeout_ms: u64,
 
-    /// TTL (seconds) for the gateway's per-job routing cache (issue
-    /// #322). Controls how long a `JobRoute` may live without seeing a
-    /// terminal notification before a background GC task evicts it.
-    ///
-    /// The routing cache maps `job_id → backend_id` so client-initiated
-    /// `notifications/cancelled` can be forwarded to the correct
-    /// backend. Terminal notifications (`completed`, `failed`,
-    /// `cancelled`, `interrupted`) auto-evict routes; this TTL is the
-    /// safety net for jobs whose terminal event is never delivered
-    /// (backend crash, SSE drop that never recovers, …).
-    ///
-    /// Default: `86_400` (24 hours).
+    /// TTL (seconds) for the gateway's per-job routing cache (issue #322).
     pub gateway_route_ttl_secs: u64,
 
     /// Per-session ceiling on concurrent live routes in the gateway
     /// routing cache (issue #322). `0` disables the cap.
-    ///
-    /// When a client session is already holding `cap` live routes, a
-    /// new async `tools/call` is rejected with JSON-RPC error code
-    /// `-32005 too_many_in_flight_jobs`. This prevents a runaway agent
-    /// from causing unbounded memory growth in the gateway.
-    ///
-    /// Default: `1_000`.
     pub gateway_max_routes_per_session: u64,
-
-    /// Enable the Prometheus `/metrics` endpoint (issue #331).
-    ///
-    /// Requires the `prometheus` Cargo feature on both `dcc-mcp-http`
-    /// and `dcc-mcp-telemetry`. When `true`, [`McpHttpServer::start`]
-    /// mounts a `GET /metrics` route on the same Axum router that
-    /// serves `/mcp`; the body is a standard Prometheus text-exposition
-    /// payload (`text/plain; version=0.0.4`).
-    ///
-    /// Defaults to `false`: the endpoint is opt-in, and when the
-    /// feature is compiled out this flag has no effect.
-    pub enable_prometheus: bool,
-
-    /// Optional HTTP Basic auth guard for `/metrics` (issue #331).
-    ///
-    /// When `Some((user, pass))`, scrapers must present a matching
-    /// `Authorization: Basic ...` header or the endpoint responds with
-    /// `401 Unauthorized`. When `None` (default), the endpoint is
-    /// unauthenticated — acceptable for localhost-only development but
-    /// strongly discouraged in production.
-    pub prometheus_basic_auth: Option<(String, String)>,
-
-    /// Enable the built-in `workflows.*` tools (issue #348).
-    ///
-    /// Default: `false`. When `true`, [`McpHttpServer::start`] registers
-    /// `workflows.run` / `workflows.get_status` / `workflows.cancel` /
-    /// `workflows.lookup` on the registry before the listener comes up.
-    ///
-    /// **Skeleton note**: in this release the three execution-facing tools
-    /// return a structured `"step execution pending follow-up PR"` error;
-    /// `workflows.lookup` is fully functional against the `WorkflowCatalog`.
-    /// Surface-area is stable so downstream adapters can wire the tools
-    /// today and pick up real execution when the follow-up PR lands.
-    pub enable_workflows: bool,
-
-    /// Best-effort safety net for Python callers that drop a
-    /// `McpServerHandle` without calling `shutdown()`.
-    ///
-    /// Default: `false`. Prefer explicit `handle.shutdown()` or Python
-    /// context-manager usage for deterministic shutdown.
-    pub shutdown_on_drop: bool,
-
-    /// Emit the `notifications/$/dcc.jobUpdated` and
-    /// `notifications/$/dcc.workflowUpdated` SSE channels (issue #326).
-    ///
-    /// Default: `true`. When `false`, the server still emits the
-    /// spec-mandated `notifications/progress` channel for callers that
-    /// supplied `_meta.progressToken`, but the `$/dcc.*` vendor extensions
-    /// are suppressed.
-    ///
-    /// The flag is checked at server start — disabling it after `start()`
-    /// has no effect. Use a capability-gated per-session opt-in (future
-    /// work, see #326 amendment) for per-client control.
-    pub enable_job_notifications: bool,
-
-    /// Path to a SQLite database file for persisting tracked jobs
-    /// (issue #328).
-    ///
-    /// When set **and** the `job-persist-sqlite` Cargo feature is
-    /// enabled, [`McpHttpServer::start`] opens the file, runs schema
-    /// migrations, and attaches it to `JobManager` as a write-through
-    /// store. On startup, any pre-existing rows whose status is
-    /// `Pending` or `Running` are rewritten to
-    /// [`JobStatus::Interrupted`](crate::job::JobStatus::Interrupted)
-    /// with `error = "server restart"` so clients never see silently
-    /// "lost" jobs.
-    ///
-    /// When set but the feature is **not** compiled in, `start()`
-    /// returns a descriptive error — the server refuses to silently
-    /// run without the persistence the caller asked for.
-    ///
-    /// Default: `None` (in-memory storage; no persistence).
-    pub job_storage_path: Option<PathBuf>,
-
-    /// What to do with rows the previous process left in `Pending` /
-    /// `Running` after a crash or restart (issue #567).
-    ///
-    /// See [`JobRecoveryPolicy`] for the per-variant semantics. Today only
-    /// [`JobRecoveryPolicy::Drop`] (the default) does any real work; the
-    /// `Requeue` variant is accepted but degrades to `Drop` with a `WARN`
-    /// log so adapters can plumb the knob now and pick up the real
-    /// behaviour transparently when tool-arg persistence lands.
-    ///
-    /// Default: [`JobRecoveryPolicy::Drop`].
-    pub job_recovery: JobRecoveryPolicy,
-
-    /// Capabilities declared by the DCC adapter hosting this server (issue #354).
-    ///
-    /// Each tool may list [`required_capabilities`] in its sibling
-    /// `tools.yaml`; on `tools/call` the server intersects the tool's
-    /// requirements against this declared set. Missing capabilities
-    /// surface as a `-32001 capability_missing` MCP error. Tools with
-    /// unmet capabilities still appear in `tools/list` but carry
-    /// `_meta.dcc.missing_capabilities = [...]` so clients can filter.
-    ///
-    /// The list is freeform — conventionally lowercase dotted identifiers
-    /// like `"usd"`, `"scene.mutate"`, `"filesystem.read"`. Adapters hard-code
-    /// it at construction time; there is no runtime introspection of the DCC.
-    ///
-    /// Default: empty (no capabilities declared — any tool with declared
-    /// requirements will report them as missing).
-    ///
-    /// [`required_capabilities`]: dcc_mcp_models::ToolDeclaration::required_capabilities
-    pub declared_capabilities: Vec<String>,
-
-    /// Enable the cron + webhook scheduler subsystem (issue #352).
-    ///
-    /// Default: `false`. When `true`, the server loads every
-    /// `*.schedules.yaml` file in [`Self::schedules_dir`] at startup,
-    /// spawns one Tokio task per enabled cron schedule, and mounts each
-    /// declared webhook route on the main Axum router.
-    ///
-    /// The scheduler is provided by the optional `dcc-mcp-scheduler`
-    /// crate (feature-gated at the workspace root). When the crate is not
-    /// compiled in, this flag has no effect.
-    pub enable_scheduler: bool,
-
-    /// Directory holding `*.schedules.yaml` files for the scheduler
-    /// subsystem (issue #352).
-    ///
-    /// Only consulted when [`Self::enable_scheduler`] is `true`. Paths
-    /// are loaded non-recursively. A `None` value pairs with
-    /// `enable_scheduler = true` as a no-op (empty schedule set).
-    pub schedules_dir: Option<PathBuf>,
-
-    /// Enable connection-scoped tool-list caching (issue #438).
-    ///
-    /// When `true` (default), `tools/list` stores a per-session snapshot
-    /// of the full tool list. On subsequent `tools/list` calls within the
-    /// same session, if the registry generation has not changed (no skill
-    /// load/unload, no group activation/deactivation), the cached
-    /// snapshot is returned directly — avoiding redundant registry scans,
-    /// bare-name resolution, and `McpTool` construction.
-    ///
-    /// The cache is automatically invalidated when:
-    /// - A skill is loaded or unloaded
-    /// - A tool group is activated or deactivated
-    /// - The session is evicted (TTL expiry)
-    /// - The client sends `tools/list` with `_meta.dcc.refresh = true`
-    ///
-    /// Set to `false` to disable caching (every `tools/list` call
-    /// rebuilds the full list from scratch).
-    pub enable_tool_cache: bool,
-
-    /// Allow instances with `dcc_type == "unknown"` to expose their tools
-    /// via the gateway (issue #555).
-    ///
-    /// Default: `false`. When `false`, the gateway's `tools/list` and
-    /// `connect_to_dcc` ignore any instance whose `dcc_type` is
-    /// `"unknown"` (case-insensitive). Set to `true` only for development
-    /// or when intentionally running a standalone server without a real DCC.
-    pub allow_unknown_tools: bool,
-
-    /// Adapter package version (e.g. `dcc_mcp_maya = "0.3.0"`) recorded
-    /// on the `__gateway__` sentinel and used as the second tier of the
-    /// version-aware gateway election (issue maya#137).
-    ///
-    /// Default: `None`. Adapters that ship the gateway should set this so
-    /// peers can compare adapter releases when the embedded
-    /// `dcc-mcp-http` crate version is identical.
-    pub adapter_version: Option<String>,
-
-    /// DCC type the adapter is bound to (e.g. `"maya"`).  Drives the
-    /// third-tier "real DCC over generic standalone" tiebreaker in
-    /// gateway election (issue maya#137).
-    ///
-    /// Default: `None`. When unset (or set to `"unknown"`), the runner
-    /// is treated as a generic standalone server and yields to a real
-    /// DCC adapter at equal versions.
-    pub adapter_dcc: Option<String>,
 
     /// Emit Cursor-safe gateway prompt names (`i_<id8>__<escaped>`)
     /// instead of the SEP-986 dotted form (`<id8>.<name>`).
@@ -501,7 +573,49 @@ pub struct McpHttpConfig {
     /// dotted names directly.
     pub gateway_cursor_safe_tool_names: bool,
 
-    // ── Issue #715: queue observability + backpressure ────────────────────
+    /// Adapter package version (e.g. `dcc_mcp_maya = "0.3.0"`) recorded
+    /// on the `__gateway__` sentinel and used as the second tier of the
+    /// version-aware gateway election (issue maya#137).
+    pub adapter_version: Option<String>,
+
+    /// DCC type the adapter is bound to (e.g. `"maya"`). Drives the
+    /// third-tier "real DCC over generic standalone" tiebreaker in
+    /// gateway election (issue maya#137).
+    pub adapter_dcc: Option<String>,
+
+    /// Allow instances with `dcc_type == "unknown"` to expose their tools
+    /// via the gateway (issue #555).
+    ///
+    /// Default: `false`. When `false`, the gateway's `tools/list` and
+    /// `connect_to_dcc` ignore any instance whose `dcc_type` is
+    /// `"unknown"` (case-insensitive). Set to `true` only for development
+    /// or when intentionally running a standalone server without a real DCC.
+    pub allow_unknown_tools: bool,
+}
+
+impl Default for GatewayConfig {
+    fn default() -> Self {
+        Self {
+            gateway_port: 0,
+            registry_dir: None,
+            stale_timeout_secs: 30,
+            heartbeat_secs: 5,
+            backend_timeout_ms: 120_000,
+            gateway_async_dispatch_timeout_ms: 60_000,
+            gateway_wait_terminal_timeout_ms: 600_000,
+            gateway_route_ttl_secs: 60 * 60 * 24,
+            gateway_max_routes_per_session: 1_000,
+            gateway_cursor_safe_tool_names: true,
+            adapter_version: None,
+            adapter_dcc: None,
+            allow_unknown_tools: false,
+        }
+    }
+}
+
+/// Queue depth & backpressure configuration (issue #715).
+#[derive(Debug, Clone)]
+pub struct QueueConfig {
     /// Capacity of the HTTP → `DccExecutor` mpsc channel (issue #715).
     ///
     /// Controls how many outstanding `tools/call` submissions may queue
@@ -555,360 +669,18 @@ pub struct McpHttpConfig {
     pub queue_send_timeout_ms: u64,
 }
 
-impl McpHttpConfig {
-    /// Create a config with the given port and sensible defaults.
-    pub fn new(port: u16) -> Self {
+impl Default for QueueConfig {
+    fn default() -> Self {
         Self {
-            port,
-            host: IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
-            endpoint_path: "/mcp".to_string(),
-            server_name: "dcc-mcp".to_string(),
-            server_version: env!("CARGO_PKG_VERSION").to_string(),
-            max_sessions: 100,
-            request_timeout_ms: 30_000,
-            enable_cors: false,
-            session_ttl_secs: 3_600,
-            gateway_port: 0,
-            registry_dir: None,
-            stale_timeout_secs: 30,
-            heartbeat_secs: 5,
-            dcc_type: None,
-            dcc_version: None,
-            scene: None,
-            instance_metadata: HashMap::new(),
-            lazy_actions: false,
-            bare_tool_names: true,
-            spawn_mode: ServerSpawnMode::Ambient,
-            self_probe_timeout_ms: 200,
-            backend_timeout_ms: 120_000,
-            gateway_async_dispatch_timeout_ms: 60_000,
-            gateway_wait_terminal_timeout_ms: 600_000,
-            gateway_route_ttl_secs: 60 * 60 * 24,
-            gateway_max_routes_per_session: 1_000,
-            enable_resources: true,
-            enable_artefact_resources: false,
-            enable_prompts: true,
-            enable_workflows: false,
-            enable_prometheus: false,
-            prometheus_basic_auth: None,
-            enable_job_notifications: true,
-            shutdown_on_drop: false,
-            job_storage_path: None,
-            job_recovery: JobRecoveryPolicy::Drop,
-            declared_capabilities: Vec::new(),
-            enable_scheduler: false,
-            schedules_dir: None,
-            enable_tool_cache: true,
-            allow_unknown_tools: false,
-            adapter_version: None,
-            adapter_dcc: None,
-            // #656: default to Cursor-safe gateway prompt names because
-            // breakage is silent on that client — prompts would simply
-            // never appear.
-            gateway_cursor_safe_tool_names: true,
-            // #715: the three queue caps default to the pre-#715
-            // behaviour (16 / 16 / unbounded) so existing callers are
-            // unaffected until they opt into bounded mode via env var
-            // or builder.
             deferred_queue_depth: 16,
             bridge_queue_depth: 16,
             host_queue_depth: 0,
             queue_send_timeout_ms: 2_000,
         }
     }
+}
 
-    /// Builder: stamp the adapter package version onto the gateway
-    /// sentinel for version-aware election (issue maya#137).
-    pub fn with_adapter_version(mut self, version: impl Into<String>) -> Self {
-        self.adapter_version = Some(version.into());
-        self
-    }
-
-    /// Builder: declare the DCC type this adapter is bound to so the
-    /// gateway election can prefer real DCCs over generic standalone
-    /// servers (issue maya#137).
-    pub fn with_adapter_dcc(mut self, dcc: impl Into<String>) -> Self {
-        self.adapter_dcc = Some(dcc.into());
-        self
-    }
-
-    /// Builder: choose the gateway tool-name wire form (issue #656).
-    ///
-    /// When `true` (the default), the gateway emits Cursor-safe names
-    /// of the form `i_<id8>__<escaped_tool>` that survive the stricter
-    /// `^[A-Za-z0-9_]+$` regex enforced by Cursor and several other
-    /// MCP clients. When `false`, the gateway falls back to the
-    /// pre-#656 SEP-986 dotted form `<id8>.<tool>`; use this only when
-    /// you need diagnostic parity with a single-instance server that
-    /// publishes dotted names directly.
-    ///
-    /// ```
-    /// use dcc_mcp_http::McpHttpConfig;
-    ///
-    /// let cfg = McpHttpConfig::new(0)
-    ///     .with_gateway_cursor_safe_tool_names(false);
-    /// assert!(!cfg.gateway_cursor_safe_tool_names);
-    /// ```
-    pub fn with_gateway_cursor_safe_tool_names(mut self, enabled: bool) -> Self {
-        self.gateway_cursor_safe_tool_names = enabled;
-        self
-    }
-
-    /// Builder: attach context/provenance metadata to the FileRegistry row.
-    pub fn with_instance_metadata<I, K, V>(mut self, metadata: I) -> Self
-    where
-        I: IntoIterator<Item = (K, V)>,
-        K: Into<String>,
-        V: Into<String>,
-    {
-        self.instance_metadata = metadata
-            .into_iter()
-            .map(|(key, value)| (key.into(), value.into()))
-            .collect();
-        self
-    }
-
-    /// Builder: enable the scheduler subsystem and point at a directory
-    /// of `*.schedules.yaml` files (issue #352).
-    pub fn with_scheduler(mut self, dir: impl Into<PathBuf>) -> Self {
-        self.enable_scheduler = true;
-        self.schedules_dir = Some(dir.into());
-        self
-    }
-
-    /// Builder: persist tracked jobs in a SQLite database at `path`
-    /// (issue #328).
-    ///
-    /// Requires the `job-persist-sqlite` Cargo feature; otherwise
-    /// [`McpHttpServer::start`](crate::McpHttpServer::start) fails
-    /// with a descriptive error at startup.
-    pub fn with_job_storage_path(mut self, path: impl Into<PathBuf>) -> Self {
-        self.job_storage_path = Some(path.into());
-        self
-    }
-
-    /// Builder: choose how the next [`McpHttpServer::start`](crate::McpHttpServer::start)
-    /// reacts to in-flight rows persisted by a previous run (issue #567).
-    ///
-    /// See [`JobRecoveryPolicy`] for the supported variants. Today
-    /// `Requeue` is accepted but degrades to `Drop` with a `WARN` log;
-    /// the contract is reserved so adapter code (`dcc-mcp-maya`,
-    /// `dcc-mcp-houdini`) can wire the knob through now and pick up
-    /// the real behaviour transparently when tool-arg persistence
-    /// lands.
-    pub fn with_job_recovery(mut self, policy: JobRecoveryPolicy) -> Self {
-        self.job_recovery = policy;
-        self
-    }
-
-    /// Builder: declare the DCC capabilities this host provides (issue #354).
-    ///
-    /// Replaces any existing capability list. Pass freeform string tags like
-    /// `"usd"`, `"scene.mutate"`, `"filesystem.read"`.
-    pub fn with_declared_capabilities<I, S>(mut self, caps: I) -> Self
-    where
-        I: IntoIterator<Item = S>,
-        S: Into<String>,
-    {
-        self.declared_capabilities = caps.into_iter().map(Into::into).collect();
-        self
-    }
-
-    /// Builder: enable the built-in `workflows.*` tools (issue #348).
-    ///
-    /// See [`Self::enable_workflows`] for the full contract.
-    pub fn with_workflows(mut self) -> Self {
-        self.enable_workflows = true;
-        self
-    }
-
-    /// Builder: enable the lazy-actions fast-path (#254).
-    ///
-    /// Surfaces `list_actions`, `describe_action` and `call_action` as
-    /// core MCP tools. Useful for agents whose context budget cannot
-    /// afford paging through every skill's full schema.
-    pub fn with_lazy_actions(mut self) -> Self {
-        self.lazy_actions = true;
-        self
-    }
-
-    /// Builder: force the legacy `<skill>.<action>` form even when bare
-    /// names would be unique (#307).
-    ///
-    /// Useful for downstream clients that hard-coded the prefixed shape and
-    /// cannot be updated in lock-step with the server.
-    pub fn without_bare_tool_names(mut self) -> Self {
-        self.bare_tool_names = false;
-        self
-    }
-
-    /// Returns the full socket address string, e.g. `127.0.0.1:8765`.
-    pub fn bind_addr(&self) -> String {
-        format!("{}:{}", self.host, self.port)
-    }
-
-    /// Builder: set server name.
-    pub fn with_name(mut self, name: impl Into<String>) -> Self {
-        self.server_name = name.into();
-        self
-    }
-
-    /// Builder: set server version.
-    pub fn with_version(mut self, version: impl Into<String>) -> Self {
-        self.server_version = version.into();
-        self
-    }
-
-    /// Builder: allow all interfaces (0.0.0.0). Use with caution.
-    pub fn with_all_interfaces(mut self) -> Self {
-        self.host = IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED);
-        self
-    }
-
-    /// Builder: enable CORS (for browser clients).
-    pub fn with_cors(mut self) -> Self {
-        self.enable_cors = true;
-        self
-    }
-
-    /// Builder: set request timeout.
-    pub fn with_timeout_ms(mut self, ms: u64) -> Self {
-        self.request_timeout_ms = ms;
-        self
-    }
-
-    /// Builder: set the idle session TTL. 0 disables background eviction.
-    pub fn with_session_ttl_secs(mut self, secs: u64) -> Self {
-        self.session_ttl_secs = secs;
-        self
-    }
-
-    /// Builder: enable gateway competition on the given port.
-    ///
-    /// The first process to bind this port becomes the gateway. Others run as
-    /// plain DCC instances and register themselves in the shared `FileRegistry`.
-    pub fn with_gateway(mut self, port: u16) -> Self {
-        self.gateway_port = port;
-        self
-    }
-
-    /// Builder: set the shared FileRegistry directory.
-    pub fn with_registry_dir(mut self, dir: impl Into<PathBuf>) -> Self {
-        self.registry_dir = Some(dir.into());
-        self
-    }
-
-    /// Builder: set the DCC application type (e.g. `"maya"`).
-    pub fn with_dcc_type(mut self, dcc_type: impl Into<String>) -> Self {
-        self.dcc_type = Some(dcc_type.into());
-        self
-    }
-
-    /// Builder: select the listener spawn strategy (issue #303).
-    ///
-    /// Defaults to [`ServerSpawnMode::Ambient`]. Use
-    /// [`ServerSpawnMode::Dedicated`] for PyO3-embedded callers so that
-    /// listener accept loops are not starved of scheduling time when the
-    /// parent runtime has no active driver thread.
-    pub fn with_spawn_mode(mut self, mode: ServerSpawnMode) -> Self {
-        self.spawn_mode = mode;
-        self
-    }
-
-    /// Builder: override the per-backend gateway fan-out timeout (issue #314).
-    ///
-    /// Default: `10_000` ms. Raise this for workflows whose backend tools
-    /// legitimately run longer than 10 seconds (scene import, simulation
-    /// bake, large USD composition) so the gateway does not short-circuit
-    /// them with a transport timeout error.
-    pub fn with_backend_timeout_ms(mut self, ms: u64) -> Self {
-        self.backend_timeout_ms = ms;
-        self
-    }
-
-    /// Builder: override the gateway's async-dispatch timeout (issue #321).
-    ///
-    /// See [`Self::gateway_async_dispatch_timeout_ms`] for the full contract.
-    pub fn with_gateway_async_dispatch_timeout_ms(mut self, ms: u64) -> Self {
-        self.gateway_async_dispatch_timeout_ms = ms;
-        self
-    }
-
-    /// Builder: override the gateway wait-for-terminal timeout (issue #321).
-    ///
-    /// See [`Self::gateway_wait_terminal_timeout_ms`] for the full contract.
-    pub fn with_gateway_wait_terminal_timeout_ms(mut self, ms: u64) -> Self {
-        self.gateway_wait_terminal_timeout_ms = ms;
-        self
-    }
-
-    /// Builder: override the gateway's routing-cache TTL (issue #322).
-    ///
-    /// See [`Self::gateway_route_ttl_secs`] for the full contract.
-    pub fn with_gateway_route_ttl_secs(mut self, secs: u64) -> Self {
-        self.gateway_route_ttl_secs = secs;
-        self
-    }
-
-    /// Builder: override the gateway's per-session route cap (issue #322).
-    ///
-    /// See [`Self::gateway_max_routes_per_session`] for the full contract.
-    pub fn with_gateway_max_routes_per_session(mut self, cap: u64) -> Self {
-        self.gateway_max_routes_per_session = cap;
-        self
-    }
-
-    /// Builder: disable the connection-scoped tool-list cache (issue #438).
-    ///
-    /// By default the cache is enabled. Use this to force every `tools/list`
-    /// call to rebuild the full list from scratch (e.g. for debugging or
-    /// when tool definitions are mutated externally and no registry
-    /// generation bump occurs).
-    pub fn without_tool_cache(mut self) -> Self {
-        self.enable_tool_cache = false;
-        self
-    }
-
-    /// Builder: set the deferred-executor queue capacity (issue #715).
-    ///
-    /// Threaded down into [`crate::executor::DeferredExecutor::new`] at
-    /// startup. Setting this to `0` is a logic bug (it would create an
-    /// executor that can never accept a task) so the runtime clamps to
-    /// `1` at server-start time.
-    pub fn with_deferred_queue_depth(mut self, depth: usize) -> Self {
-        self.deferred_queue_depth = depth;
-        self
-    }
-
-    /// Builder: set the host-bridge queue capacity (issue #715).
-    ///
-    /// Threaded down into
-    /// [`crate::host_bridge::dispatcher_to_executor_handle_with_capacity`].
-    /// `0` degrades to [`crate::host_bridge::DEFAULT_BRIDGE_QUEUE_DEPTH`]
-    /// so misconfigured env-vars cannot silently disable backpressure.
-    pub fn with_bridge_queue_depth(mut self, depth: usize) -> Self {
-        self.bridge_queue_depth = depth;
-        self
-    }
-
-    /// Builder: set the host-side `QueueDispatcher` capacity (issue #715).
-    ///
-    /// `0` (the default) keeps the dispatcher unbounded — the historical
-    /// behaviour. Non-zero values activate the
-    /// [`dcc_mcp_host::DispatchError::QueueOverloaded`] path once the
-    /// queue hits capacity.
-    pub fn with_host_queue_depth(mut self, depth: usize) -> Self {
-        self.host_queue_depth = depth;
-        self
-    }
-
-    /// Builder: set the send-timeout applied to the bounded channels
-    /// (issue #715).
-    pub fn with_queue_send_timeout_ms(mut self, ms: u64) -> Self {
-        self.queue_send_timeout_ms = ms;
-        self
-    }
-
+impl QueueConfig {
     /// Load the queue-stack knobs from the environment (issue #715).
     ///
     /// Honours four optional env-vars:
@@ -919,32 +691,437 @@ impl McpHttpConfig {
     ///
     /// Unset or unparsable values leave the existing field untouched
     /// so a typo never silently flips the cap.
-    pub fn apply_queue_env_overrides(mut self) -> Self {
+    pub fn apply_env_overrides(self) -> Self {
         fn load_usize(key: &str) -> Option<usize> {
             std::env::var(key).ok().and_then(|v| v.trim().parse().ok())
         }
         fn load_u64(key: &str) -> Option<u64> {
             std::env::var(key).ok().and_then(|v| v.trim().parse().ok())
         }
+        let mut s = self;
         if let Some(v) = load_usize("MCP_QUEUE_DEFERRED_CAP") {
-            self.deferred_queue_depth = v.max(1);
+            s.deferred_queue_depth = v.max(1);
         }
         if let Some(v) = load_usize("MCP_QUEUE_BRIDGE_CAP") {
-            self.bridge_queue_depth = v;
+            s.bridge_queue_depth = v;
         }
         if let Some(v) = load_usize("MCP_QUEUE_DISPATCHER_CAP") {
-            self.host_queue_depth = v;
+            s.host_queue_depth = v;
         }
         if let Some(v) = load_u64("MCP_QUEUE_SEND_TIMEOUT_MS") {
-            self.queue_send_timeout_ms = v;
+            s.queue_send_timeout_ms = v;
         }
-        self
+        s
     }
 }
 
-impl Default for McpHttpConfig {
+/// Prometheus metrics configuration.
+#[derive(Debug, Clone, Default)]
+pub struct TelemetryConfig {
+    /// Enable the Prometheus `/metrics` endpoint (issue #331).
+    ///
+    /// Requires the `prometheus` Cargo feature on both `dcc-mcp-http`
+    /// and `dcc-mcp-telemetry`. When `true`, [`McpHttpServer::start`]
+    /// mounts a `GET /metrics` route on the same Axum router that
+    /// serves `/mcp`; the body is a standard Prometheus text-exposition
+    /// payload (`text/plain; version=0.0.4`).
+    ///
+    /// Defaults to `false`: the endpoint is opt-in, and when the
+    /// feature is compiled out this flag has no effect.
+    pub enable_prometheus: bool,
+
+    /// Optional HTTP Basic auth guard for `/metrics` (issue #331).
+    ///
+    /// When `Some((user, pass))`, scrapers must present a matching
+    /// `Authorization: Basic ...` header or the endpoint responds with
+    /// `401 Unauthorized`. When `None` (default), the endpoint is
+    /// unauthenticated — acceptable for localhost-only development but
+    /// strongly discouraged in production.
+    pub prometheus_basic_auth: Option<(String, String)>,
+}
+
+/// Opt-in capability switches.
+#[derive(Debug, Clone)]
+pub struct FeatureFlags {
+    /// Enable the opt-in lazy-actions meta-tools: ``list_actions``,
+    /// ``describe_action`` and ``call_action``.
+    ///
+    /// When `true`, `tools/list` additionally surfaces these three meta-tools
+    /// so agents with tight context budgets can drive an arbitrarily large
+    /// action catalog through a single page of 3 stubs instead of paging
+    /// through every loaded skill's tools. Default: `false`.
+    pub lazy_actions: bool,
+
+    /// Publish skill-scoped tools under their **bare action name** when no
+    /// collision exists on this instance (#307).
+    ///
+    /// When `true` (default), `tools/list` emits `execute_python` rather than
+    /// `maya-scripting.execute_python` whenever the bare name is unique
+    /// within the instance's loaded skills. Collisions fall back to the
+    /// full `<skill>.<action>` form, and `tools/call` accepts both shapes
+    /// for one release cycle.
+    pub bare_tool_names: bool,
+
+    /// Advertise the MCP Resources primitive (issue #350).
+    pub enable_resources: bool,
+
+    /// Advertise the MCP Prompts primitive (issues #351, #355).
+    pub enable_prompts: bool,
+
+    /// Expose `artefact://` resources (issue #349).
+    pub enable_artefact_resources: bool,
+
+    /// Emit the `notifications/$/dcc.jobUpdated` and
+    /// `notifications/$/dcc.workflowUpdated` SSE channels (issue #326).
+    pub enable_job_notifications: bool,
+
+    /// Best-effort safety net for Python callers that drop a
+    /// `McpServerHandle` without calling `shutdown()`.
+    pub shutdown_on_drop: bool,
+}
+
+impl Default for FeatureFlags {
     fn default() -> Self {
-        Self::new(8765)
+        Self {
+            lazy_actions: false,
+            bare_tool_names: true,
+            enable_resources: true,
+            enable_prompts: true,
+            enable_artefact_resources: false,
+            enable_job_notifications: true,
+            shutdown_on_drop: false,
+        }
+    }
+}
+
+/// Workflow & scheduler configuration.
+#[derive(Debug, Clone, Default)]
+pub struct WorkflowConfig {
+    /// Enable the built-in `workflows.*` tools (issue #348).
+    pub enable_workflows: bool,
+
+    /// Enable the cron + webhook scheduler subsystem (issue #352).
+    pub enable_scheduler: bool,
+
+    /// Directory holding `*.schedules.yaml` files for the scheduler
+    /// subsystem (issue #352).
+    pub schedules_dir: Option<PathBuf>,
+}
+
+/// Job persistence & recovery configuration.
+#[derive(Debug, Clone)]
+pub struct JobConfig {
+    /// Path to a SQLite database file for persisting tracked jobs
+    /// (issue #328).
+    pub job_storage_path: Option<PathBuf>,
+
+    /// What to do with rows the previous process left in `Pending` /
+    /// `Running` after a crash or restart (issue #567).
+    pub job_recovery: JobRecoveryPolicy,
+}
+
+impl Default for JobConfig {
+    fn default() -> Self {
+        Self {
+            job_storage_path: None,
+            job_recovery: JobRecoveryPolicy::Drop,
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// McpHttpConfig — thin aggregate of the 9 sub-configs above.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Configuration for [`McpHttpServer`](crate::McpHttpServer).
+///
+/// This is a **thin aggregate** of 9 cohesive sub-config structs,
+/// each owning one orthogonal concern:
+///
+/// | Field | Struct | Concern |
+/// |-------|--------|----------|
+/// | `server` | [`ServerConfig`] | Core server identity & transport |
+/// | `instance` | [`InstanceConfig`] | DCC registration metadata |
+/// | `session` | [`SessionConfig`] | Session lifecycle & tool-cache |
+/// | `gateway` | [`GatewayConfig`] | Gateway election, routing, discovery |
+/// | `queue` | [`QueueConfig`] | Queue depth & backpressure |
+/// | `telemetry` | [`TelemetryConfig`] | Prometheus metrics |
+/// | `features` | [`FeatureFlags`] | Opt-in capability switches |
+/// | `workflow` | [`WorkflowConfig`] | Workflow & scheduler |
+/// | `job` | [`JobConfig`] | Job persistence & recovery |
+///
+/// Use [`McpHttpConfig::default()`] for sensible defaults, or the
+/// builder-pattern methods (`.with_*()`) for customization.
+///
+/// `#[deprecated]` `::new(port)` is kept for one minor release to avoid
+/// breaking existing callers.
+#[derive(Debug, Clone, Default)]
+pub struct McpHttpConfig {
+    /// Core server identity & transport.
+    pub server: ServerConfig,
+
+    /// DCC instance registration metadata.
+    pub instance: InstanceConfig,
+
+    /// Session lifecycle & tool-cache.
+    pub session: SessionConfig,
+
+    /// Gateway election, routing, and discovery.
+    pub gateway: GatewayConfig,
+
+    /// Queue depth & backpressure.
+    pub queue: QueueConfig,
+
+    /// Prometheus metrics.
+    pub telemetry: TelemetryConfig,
+
+    /// Opt-in capability switches.
+    pub features: FeatureFlags,
+
+    /// Workflow & scheduler.
+    pub workflow: WorkflowConfig,
+
+    /// Job persistence & recovery.
+    pub job: JobConfig,
+}
+
+impl McpHttpConfig {
+    /// Create a config with the given port and sensible defaults.
+    ///
+    /// # Deprecated
+    ///
+    /// Use [`McpHttpConfig::default()`] or the builder pattern instead.
+    /// This method will be removed in a future minor release.
+    #[deprecated(note = "use McpHttpConfig::default() or the builder pattern")]
+    pub fn new(port: u16) -> Self {
+        let mut cfg = Self::default();
+        cfg.server.port = port;
+        cfg
+    }
+
+    pub fn with_port(mut self, port: u16) -> Self {
+        self.server.port = port;
+        self
+    }
+
+    /// Builder: stamp the adapter package version onto the gateway
+    /// sentinel for version-aware election (issue maya#137).
+    pub fn with_adapter_version(mut self, version: impl Into<String>) -> Self {
+        self.gateway.adapter_version = Some(version.into());
+        self
+    }
+
+    /// Builder: declare the DCC type this adapter is bound to so the
+    /// gateway election can prefer real DCCs over generic standalone
+    /// servers (issue maya#137).
+    pub fn with_adapter_dcc(mut self, dcc: impl Into<String>) -> Self {
+        self.gateway.adapter_dcc = Some(dcc.into());
+        self
+    }
+
+    /// Builder: choose the gateway tool-name wire form (issue #656).
+    pub fn with_gateway_cursor_safe_tool_names(mut self, enabled: bool) -> Self {
+        self.gateway.gateway_cursor_safe_tool_names = enabled;
+        self
+    }
+
+    /// Builder: attach context/provenance metadata to the FileRegistry row.
+    pub fn with_instance_metadata<I, K, V>(mut self, metadata: I) -> Self
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: Into<String>,
+        V: Into<String>,
+    {
+        self.instance.instance_metadata = metadata
+            .into_iter()
+            .map(|(key, value)| (key.into(), value.into()))
+            .collect();
+        self
+    }
+
+    /// Builder: enable the scheduler subsystem and point at a directory
+    /// of `*.schedules.yaml` files (issue #352).
+    pub fn with_scheduler(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.workflow.enable_scheduler = true;
+        self.workflow.schedules_dir = Some(dir.into());
+        self
+    }
+
+    /// Builder: persist tracked jobs in a SQLite database at `path`
+    /// (issue #328).
+    pub fn with_job_storage_path(mut self, path: impl Into<PathBuf>) -> Self {
+        self.job.job_storage_path = Some(path.into());
+        self
+    }
+
+    /// Builder: choose how the next [`McpHttpServer::start`](crate::McpHttpServer::start)
+    /// reacts to in-flight rows persisted by a previous run (issue #567).
+    pub fn with_job_recovery(mut self, policy: JobRecoveryPolicy) -> Self {
+        self.job.job_recovery = policy;
+        self
+    }
+
+    /// Builder: declare the DCC capabilities this host provides (issue #354).
+    pub fn with_declared_capabilities<I, S>(mut self, caps: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.instance.declared_capabilities = caps.into_iter().map(Into::into).collect();
+        self
+    }
+
+    /// Builder: enable the built-in `workflows.*` tools (issue #348).
+    pub fn with_workflows(mut self) -> Self {
+        self.workflow.enable_workflows = true;
+        self
+    }
+
+    /// Builder: enable the lazy-actions fast-path (#254).
+    pub fn with_lazy_actions(mut self) -> Self {
+        self.features.lazy_actions = true;
+        self
+    }
+
+    /// Builder: force the legacy `<skill>.<action>` form even when bare
+    /// names would be unique (#307).
+    pub fn without_bare_tool_names(mut self) -> Self {
+        self.features.bare_tool_names = false;
+        self
+    }
+
+    /// Returns the full socket address string, e.g. `127.0.0.1:8765`.
+    pub fn bind_addr(&self) -> String {
+        format!("{}:{}", self.server.host, self.server.port)
+    }
+
+    /// Builder: set server name.
+    pub fn with_name(mut self, name: impl Into<String>) -> Self {
+        self.server.server_name = name.into();
+        self
+    }
+
+    /// Builder: set server version.
+    pub fn with_version(mut self, version: impl Into<String>) -> Self {
+        self.server.server_version = version.into();
+        self
+    }
+
+    /// Builder: allow all interfaces (0.0.0.0). Use with caution.
+    pub fn with_all_interfaces(mut self) -> Self {
+        self.server.host = IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED);
+        self
+    }
+
+    /// Builder: enable CORS (for browser clients).
+    pub fn with_cors(mut self) -> Self {
+        self.server.enable_cors = true;
+        self
+    }
+
+    /// Builder: set request timeout.
+    pub fn with_timeout_ms(mut self, ms: u64) -> Self {
+        self.server.request_timeout_ms = ms;
+        self
+    }
+
+    /// Builder: set the idle session TTL. 0 disables background eviction.
+    pub fn with_session_ttl_secs(mut self, secs: u64) -> Self {
+        self.session.session_ttl_secs = secs;
+        self
+    }
+
+    /// Builder: enable gateway competition on the given port.
+    pub fn with_gateway(mut self, port: u16) -> Self {
+        self.gateway.gateway_port = port;
+        self
+    }
+
+    /// Builder: set the shared FileRegistry directory.
+    pub fn with_registry_dir(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.gateway.registry_dir = Some(dir.into());
+        self
+    }
+
+    /// Builder: set the DCC application type (e.g. `"maya"`).
+    pub fn with_dcc_type(mut self, dcc_type: impl Into<String>) -> Self {
+        self.instance.dcc_type = Some(dcc_type.into());
+        self
+    }
+
+    /// Builder: select the listener spawn strategy (issue #303).
+    pub fn with_spawn_mode(mut self, mode: ServerSpawnMode) -> Self {
+        self.server.spawn_mode = mode;
+        self
+    }
+
+    /// Builder: override the per-backend gateway fan-out timeout (issue #314).
+    pub fn with_backend_timeout_ms(mut self, ms: u64) -> Self {
+        self.gateway.backend_timeout_ms = ms;
+        self
+    }
+
+    /// Builder: override the gateway's async-dispatch timeout (issue #321).
+    pub fn with_gateway_async_dispatch_timeout_ms(mut self, ms: u64) -> Self {
+        self.gateway.gateway_async_dispatch_timeout_ms = ms;
+        self
+    }
+
+    /// Builder: override the gateway wait-for-terminal timeout (issue #321).
+    pub fn with_gateway_wait_terminal_timeout_ms(mut self, ms: u64) -> Self {
+        self.gateway.gateway_wait_terminal_timeout_ms = ms;
+        self
+    }
+
+    /// Builder: override the gateway's routing-cache TTL (issue #322).
+    pub fn with_gateway_route_ttl_secs(mut self, secs: u64) -> Self {
+        self.gateway.gateway_route_ttl_secs = secs;
+        self
+    }
+
+    /// Builder: override the gateway's per-session route cap (issue #322).
+    pub fn with_gateway_max_routes_per_session(mut self, cap: u64) -> Self {
+        self.gateway.gateway_max_routes_per_session = cap;
+        self
+    }
+
+    /// Builder: disable the connection-scoped tool-list cache (issue #438).
+    pub fn without_tool_cache(mut self) -> Self {
+        self.session.enable_tool_cache = false;
+        self
+    }
+
+    /// Builder: set the deferred-executor queue capacity (issue #715).
+    pub fn with_deferred_queue_depth(mut self, depth: usize) -> Self {
+        self.queue.deferred_queue_depth = depth;
+        self
+    }
+
+    /// Builder: set the host-bridge queue capacity (issue #715).
+    pub fn with_bridge_queue_depth(mut self, depth: usize) -> Self {
+        self.queue.bridge_queue_depth = depth;
+        self
+    }
+
+    /// Builder: set the host-side `QueueDispatcher` capacity (issue #715).
+    pub fn with_host_queue_depth(mut self, depth: usize) -> Self {
+        self.queue.host_queue_depth = depth;
+        self
+    }
+
+    /// Builder: set the send-timeout applied to the bounded channels
+    /// (issue #715).
+    pub fn with_queue_send_timeout_ms(mut self, ms: u64) -> Self {
+        self.queue.queue_send_timeout_ms = ms;
+        self
+    }
+
+    /// Load the queue-stack knobs from the environment (issue #715).
+    ///
+    /// Delegates to [`QueueConfig::apply_env_overrides`].
+    pub fn apply_queue_env_overrides(mut self) -> Self {
+        self.queue = self.queue.apply_env_overrides();
+        self
     }
 }
 
@@ -956,17 +1133,17 @@ mod tests {
     /// inherit today's behaviour without touching their config.
     #[test]
     fn job_recovery_default_is_drop() {
-        let cfg = McpHttpConfig::new(8765);
-        assert_eq!(cfg.job_recovery, JobRecoveryPolicy::Drop);
+        let cfg = McpHttpConfig::default();
+        assert_eq!(cfg.job.job_recovery, JobRecoveryPolicy::Drop);
     }
 
     /// Issue #567: the builder takes the policy by value and round-trips
     /// to the same wire identifier the Python binding exposes.
     #[test]
     fn job_recovery_builder_round_trips() {
-        let cfg = McpHttpConfig::new(8765).with_job_recovery(JobRecoveryPolicy::Requeue);
-        assert_eq!(cfg.job_recovery, JobRecoveryPolicy::Requeue);
-        assert_eq!(cfg.job_recovery.as_str(), "requeue");
+        let cfg = McpHttpConfig::default().with_job_recovery(JobRecoveryPolicy::Requeue);
+        assert_eq!(cfg.job.job_recovery, JobRecoveryPolicy::Requeue);
+        assert_eq!(cfg.job.job_recovery.as_str(), "requeue");
     }
 
     /// Issue #567: env-var plumbing (`DCC_MCP_*_JOB_RECOVERY=Requeue`) and
@@ -998,11 +1175,11 @@ mod tests {
     /// values so existing callers are unaffected.
     #[test]
     fn queue_caps_default_to_pre_715_values() {
-        let cfg = McpHttpConfig::new(8765);
-        assert_eq!(cfg.deferred_queue_depth, 16);
-        assert_eq!(cfg.bridge_queue_depth, 16);
-        assert_eq!(cfg.host_queue_depth, 0);
-        assert_eq!(cfg.queue_send_timeout_ms, 2_000);
+        let cfg = McpHttpConfig::default();
+        assert_eq!(cfg.queue.deferred_queue_depth, 16);
+        assert_eq!(cfg.queue.bridge_queue_depth, 16);
+        assert_eq!(cfg.queue.host_queue_depth, 0);
+        assert_eq!(cfg.queue.queue_send_timeout_ms, 2_000);
     }
 
     /// Issue #715: env-var overrides are applied and bad values are
@@ -1018,12 +1195,12 @@ mod tests {
             std::env::set_var("MCP_QUEUE_DISPATCHER_CAP", "128");
             std::env::set_var("MCP_QUEUE_SEND_TIMEOUT_MS", "bogus");
         }
-        let cfg = McpHttpConfig::new(0).apply_queue_env_overrides();
-        assert_eq!(cfg.deferred_queue_depth, 32);
-        assert_eq!(cfg.bridge_queue_depth, 64);
-        assert_eq!(cfg.host_queue_depth, 128);
+        let cfg = McpHttpConfig::default().apply_queue_env_overrides();
+        assert_eq!(cfg.queue.deferred_queue_depth, 32);
+        assert_eq!(cfg.queue.bridge_queue_depth, 64);
+        assert_eq!(cfg.queue.host_queue_depth, 128);
         assert_eq!(
-            cfg.queue_send_timeout_ms, 2_000,
+            cfg.queue.queue_send_timeout_ms, 2_000,
             "unparsable value is ignored (typo safety)"
         );
         unsafe {

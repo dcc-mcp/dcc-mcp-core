@@ -56,7 +56,8 @@ async fn spawn_backend_with_scene(
     initial_scene: Value,
 ) -> (McpServerHandle, dcc_mcp_http::ResourceRegistry) {
     let action_registry = Arc::new(ActionRegistry::new());
-    let cfg = McpHttpConfig::new(0)
+    let cfg = McpHttpConfig::default()
+        .with_port(0)
         .with_name(format!("{dcc_type}-resources-e2e"))
         .with_gateway(gw_port)
         .with_dcc_type(dcc_type)
@@ -376,7 +377,8 @@ async fn gateway_resources_read_preserves_blob_bytes_end_to_end() {
     let expected_b64 = base64::engine::general_purpose::STANDARD.encode(&raw);
 
     let action_registry = Arc::new(ActionRegistry::new());
-    let cfg = McpHttpConfig::new(0)
+    let cfg = McpHttpConfig::default()
+        .with_port(0)
         .with_name("maya-blob-e2e")
         .with_gateway(gw_port)
         .with_dcc_type("maya")
@@ -775,7 +777,8 @@ async fn gateway_resources_list_changed_fires_when_backend_resource_set_changes(
     let registry_dir = tempfile::tempdir().unwrap();
     let gw_port = pick_free_port();
     let action_registry = Arc::new(ActionRegistry::new());
-    let cfg = McpHttpConfig::new(0)
+    let cfg = McpHttpConfig::default()
+        .with_port(0)
         .with_name("maya-listchanged-e2e")
         .with_gateway(gw_port)
         .with_dcc_type("maya")

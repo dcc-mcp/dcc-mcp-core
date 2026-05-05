@@ -88,7 +88,9 @@ async fn sync_any_affinity_bypasses_blocked_ui_dispatcher() {
     let executor = DeferredExecutor::new(16);
     let handle = executor.handle();
 
-    let cfg = McpHttpConfig::new(0).with_name("sync-affinity-any");
+    let cfg = McpHttpConfig::default()
+        .with_port(0)
+        .with_name("sync-affinity-any");
     let server = McpHttpServer::new(registry, cfg)
         .with_dispatcher(dispatcher)
         .with_executor(handle);
@@ -136,7 +138,9 @@ async fn sync_main_affinity_still_routes_through_executor() {
     let executor = DeferredExecutor::new(16);
     let handle = executor.handle();
 
-    let cfg = McpHttpConfig::new(0).with_name("sync-affinity-main");
+    let cfg = McpHttpConfig::default()
+        .with_port(0)
+        .with_name("sync-affinity-main");
     let server = McpHttpServer::new(registry, cfg)
         .with_dispatcher(dispatcher)
         .with_executor(handle);
@@ -169,7 +173,9 @@ async fn sync_main_affinity_still_routes_through_executor() {
 async fn sync_calls_succeed_without_executor_for_both_affinities() {
     let (registry, dispatcher) = make_registry_with_both_affinities();
 
-    let cfg = McpHttpConfig::new(0).with_name("sync-affinity-no-executor");
+    let cfg = McpHttpConfig::default()
+        .with_port(0)
+        .with_name("sync-affinity-no-executor");
     let server = McpHttpServer::new(registry, cfg).with_dispatcher(dispatcher);
 
     let server_handle = server.start().await.expect("server starts");

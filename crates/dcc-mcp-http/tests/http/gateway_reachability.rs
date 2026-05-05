@@ -28,7 +28,8 @@ use dcc_mcp_http::{McpHttpConfig, McpHttpServer, ServerSpawnMode};
 async fn instance_listener_is_reachable_when_handle_is_returned_ambient() {
     for round in 0..5 {
         let registry = Arc::new(ActionRegistry::new());
-        let cfg = McpHttpConfig::new(0)
+        let cfg = McpHttpConfig::default()
+            .with_port(0)
             .with_name(format!("reach-test-{round}"))
             .with_spawn_mode(ServerSpawnMode::Ambient);
 
@@ -65,7 +66,8 @@ async fn instance_listener_is_reachable_when_handle_is_returned_ambient() {
 async fn instance_listener_is_reachable_when_handle_is_returned_dedicated() {
     for round in 0..5 {
         let registry = Arc::new(ActionRegistry::new());
-        let cfg = McpHttpConfig::new(0)
+        let cfg = McpHttpConfig::default()
+            .with_port(0)
             .with_name(format!("reach-test-dedicated-{round}"))
             .with_spawn_mode(ServerSpawnMode::Dedicated);
 
@@ -103,7 +105,9 @@ async fn dropping_handle_releases_port() {
 
     // Bind the first server on port 0, capture the OS-assigned port,
     // shut it down, then ensure we can bind the same port immediately.
-    let cfg = McpHttpConfig::new(0).with_name("drop-release-test");
+    let cfg = McpHttpConfig::default()
+        .with_port(0)
+        .with_name("drop-release-test");
     let handle = McpHttpServer::new(registry.clone(), cfg)
         .start()
         .await
@@ -115,7 +119,9 @@ async fn dropping_handle_releases_port() {
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     // Second server on the same port should succeed.
-    let cfg2 = McpHttpConfig::new(port).with_name("drop-release-test-2");
+    let cfg2 = McpHttpConfig::default()
+        .with_port(port)
+        .with_name("drop-release-test-2");
     let handle2 = McpHttpServer::new(registry, cfg2).start().await;
 
     // On Windows TIME_WAIT can occasionally deny immediate re-bind;
@@ -127,7 +133,9 @@ async fn dropping_handle_releases_port() {
     } else {
         // Ensure the OS-level port is at least not held by our process —
         // a fresh bind on 0 must still succeed.
-        let cfg3 = McpHttpConfig::new(0).with_name("drop-release-test-3");
+        let cfg3 = McpHttpConfig::default()
+            .with_port(0)
+            .with_name("drop-release-test-3");
         let h3 = McpHttpServer::new(Arc::new(ActionRegistry::new()), cfg3)
             .start()
             .await
@@ -148,7 +156,8 @@ async fn occupied_gateway_port_yields_plain_instance() {
     let squatter_port = squatter.local_addr().unwrap().port();
 
     let registry = Arc::new(ActionRegistry::new());
-    let cfg = McpHttpConfig::new(0)
+    let cfg = McpHttpConfig::default()
+        .with_port(0)
         .with_name("plain-instance-test")
         .with_gateway(squatter_port)
         .with_dcc_type("test");

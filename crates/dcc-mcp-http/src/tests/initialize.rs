@@ -253,7 +253,7 @@ pub async fn test_get_without_sse_accept_returns_405() {
 #[tokio::test]
 pub async fn test_server_start_stop() {
     let registry = Arc::new(make_registry());
-    let config = McpHttpConfig::new(0);
+    let config = McpHttpConfig::default().with_port(0);
     let server = McpHttpServer::new(registry, config);
     let handle = server.start().await.unwrap();
     assert!(handle.port > 0);

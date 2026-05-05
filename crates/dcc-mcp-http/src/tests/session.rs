@@ -147,17 +147,21 @@ pub fn test_session_evict_stale_does_not_touch_initialized_flag() {
 
 #[test]
 pub fn test_config_session_ttl_default_is_one_hour() {
-    let cfg = McpHttpConfig::new(8765);
-    assert_eq!(cfg.session_ttl_secs, 3600);
+    let cfg = McpHttpConfig::default().with_port(8765);
+    assert_eq!(cfg.session_ttl_secs(), 3600);
 }
 
 #[test]
 pub fn test_config_session_ttl_builder() {
-    let cfg = McpHttpConfig::new(8765).with_session_ttl_secs(0);
-    assert_eq!(cfg.session_ttl_secs, 0);
+    let cfg = McpHttpConfig::default()
+        .with_port(8765)
+        .with_session_ttl_secs(0);
+    assert_eq!(cfg.session_ttl_secs(), 0);
 
-    let cfg2 = McpHttpConfig::new(8765).with_session_ttl_secs(300);
-    assert_eq!(cfg2.session_ttl_secs, 300);
+    let cfg2 = McpHttpConfig::default()
+        .with_port(8765)
+        .with_session_ttl_secs(300);
+    assert_eq!(cfg2.session_ttl_secs(), 300);
 }
 
 // ── dispatch_request touches session TTL ─────────────────────────────
@@ -225,7 +229,9 @@ pub async fn test_dispatch_touches_session_on_each_request() {
 #[tokio::test]
 pub async fn test_server_start_with_ttl_zero() {
     let registry = Arc::new(make_registry());
-    let config = McpHttpConfig::new(0).with_session_ttl_secs(0);
+    let config = McpHttpConfig::default()
+        .with_port(0)
+        .with_session_ttl_secs(0);
     let server = McpHttpServer::new(registry, config);
     let handle = server.start().await.unwrap();
     assert!(handle.port > 0);

@@ -130,7 +130,8 @@ async fn server_start_with_drop_policy_marks_inflight_interrupted() {
     let db = dir.path().join("jobs.sqlite3");
     let running_id = seed_running_row(&db);
 
-    let cfg = McpHttpConfig::new(0)
+    let cfg = McpHttpConfig::default()
+        .with_port(0)
         .with_name("recovery-drop-test")
         .with_job_storage_path(&db);
     assert_eq!(cfg.job_recovery, JobRecoveryPolicy::Drop, "default policy");
@@ -156,7 +157,8 @@ async fn server_start_with_requeue_policy_degrades_to_drop_today() {
     let db = dir.path().join("jobs.sqlite3");
     let running_id = seed_running_row(&db);
 
-    let cfg = McpHttpConfig::new(0)
+    let cfg = McpHttpConfig::default()
+        .with_port(0)
         .with_name("recovery-requeue-test")
         .with_job_storage_path(&db)
         .with_job_recovery(JobRecoveryPolicy::Requeue);

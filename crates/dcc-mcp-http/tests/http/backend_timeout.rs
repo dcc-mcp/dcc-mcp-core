@@ -123,21 +123,24 @@ async fn register_backend(registry: &Arc<RwLock<FileRegistry>>, port: u16) {
 
 #[test]
 fn mcp_http_config_default_backend_timeout_is_two_minutes() {
-    let cfg = McpHttpConfig::new(8765);
+    let cfg = McpHttpConfig::default().with_port(8765);
     // Default raised from 10 s to 120 s: DCC scene operations (mesh import,
     // simulation bake, complex keyframe setup) routinely take tens of seconds.
     // A 10-second ceiling caused spurious gateway cancellations logged as
     // "tool call cancelled cooperatively" on the DCC backend at exactly 10 s.
     assert_eq!(
-        cfg.backend_timeout_ms, 120_000,
+        cfg.backend_timeout_ms(),
+        120_000,
         "default backend_timeout_ms should be 120_000 (2 minutes)"
     );
 }
 
 #[test]
 fn mcp_http_config_with_backend_timeout_ms_is_fluent() {
-    let cfg = McpHttpConfig::new(8765).with_backend_timeout_ms(120_000);
-    assert_eq!(cfg.backend_timeout_ms, 120_000);
+    let cfg = McpHttpConfig::default()
+        .with_port(8765)
+        .with_backend_timeout_ms(120_000);
+    assert_eq!(cfg.backend_timeout_ms(), 120_000);
 }
 
 // ── Runtime behaviour ──────────────────────────────────────────────────────

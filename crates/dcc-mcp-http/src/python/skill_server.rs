@@ -72,8 +72,8 @@ impl PyMcpHttpServer {
         ));
 
         let live_meta = Arc::new(RwLock::new(LiveMetaInner {
-            scene: cfg.scene.clone(),
-            version: cfg.dcc_version.clone(),
+            scene: cfg.scene().clone(),
+            version: cfg.dcc_version().clone(),
             ..Default::default()
         }));
         // Issue #730 — build the ResourceRegistry up-front and share it
@@ -187,7 +187,7 @@ impl PyMcpHttpServer {
             bind_addr,
             is_gateway,
             live_meta: self.live_meta.clone(),
-            shutdown_on_drop: self.config.shutdown_on_drop,
+            shutdown_on_drop: self.config.shutdown_on_drop(),
         })
     }
 
@@ -589,7 +589,8 @@ impl PyMcpHttpServer {
     fn __repr__(&self) -> String {
         format!(
             "McpHttpServer(name={}, port={})",
-            self.config.server_name, self.config.port
+            self.config.server_name(),
+            self.config.port()
         )
     }
 }
