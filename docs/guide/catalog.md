@@ -1,0 +1,89 @@
+# DCC-MCP Public Catalog
+
+The DCC-MCP catalog is a community-maintained registry of adapters and skill packs for the DCC-MCP ecosystem (issue #774).
+
+## Catalog File Format
+
+`dcc-mcp-catalog.yml` in the repository root:
+
+```yaml
+version: "1"
+entries:
+  - name: dcc-mcp-maya-skills
+    description: "Official Maya skill pack for DCC-MCP"
+    dcc: [maya]
+    url: "https://github.com/example/dcc-mcp-maya-skills"
+    tags: [skills, maya, official]
+
+  - name: dcc-mcp-blender-skills
+    description: "Community Blender skill pack"
+    dcc: [blender]
+    url: "https://github.com/example/dcc-mcp-blender-skills"
+    tags: [skills, blender, community]
+
+  - name: dcc-mcp-houdini-adapter
+    description: "Houdini DCC adapter for DCC-MCP"
+    dcc: [houdini]
+    url: "https://github.com/example/dcc-mcp-houdini"
+    tags: [adapter, houdini, official]
+```
+
+## Entry Fields
+
+| Field | Required | Type | Description |
+|-------|----------|------|-------------|
+| `name` | ✅ | string | Unique identifier (kebab-case recommended) |
+| `description` | ✅ | string | One-sentence human-readable description |
+| `dcc` | ✅ | list[string] | Supported DCC types (e.g. `[maya, blender]`) |
+| `url` | ✅ | string | Repository or documentation URL |
+| `tags` | ❌ | list[string] | Searchable tags (e.g. `skills`, `adapter`, `official`, `community`) |
+
+## CLI Usage
+
+```bash
+# Search by keyword (matches name, description, DCC type, or tag)
+dcc-mcp-server catalog search --query maya
+
+# Search with no query → list all entries
+dcc-mcp-server catalog search
+
+# Describe a specific entry by exact name
+dcc-mcp-server catalog describe --name dcc-mcp-maya-skills
+```
+
+Output is JSON-formatted for easy parsing.
+
+## MCP Tool Usage
+
+The gateway automatically registers two MCP tools from the catalog:
+
+```python
+# In an AI agent or DCC skill
+result = tools.call("dcc_catalog__search", {"query": "blender"})
+# Returns: [{"name": "...", "description": "...", "dcc": [...], "url": "...", "tags": [...]}]
+
+result = tools.call("dcc_catalog__describe", {"name": "dcc-mcp-blender-skills"})
+# Returns: single entry or error if not found
+```
+
+## Custom Catalog Path
+
+Override the default `dcc-mcp-catalog.yml` location:
+
+```bash
+DCC_MCP_CATALOG_PATH=/path/to/my-catalog.yml dcc-mcp-server ...
+```
+
+Or set programmatically before calling the gateway tools.
+
+## Search Behavior
+
+- Case-insensitive substring match on `name`, `description`, `dcc`, and `tags`
+- Empty query returns all entries
+- `describe` requires an exact `name` match (case-sensitive)
+
+## See also
+
+- [skills.md](skills.md) — how to author a skill pack
+- [mcp-skills-integration.md](mcp-skills-integration.md) — registering skills on the server
+- [rez-skill-packages.md](rez-skill-packages.md) — Rez package layout for distributing skills

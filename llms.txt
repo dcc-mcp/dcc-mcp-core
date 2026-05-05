@@ -963,3 +963,108 @@ Full guide: `docs/guide/remote-server.md`. Per-module API: `docs/api/{auth,batch
 
 - [dcc-mcp-rpyc](https://github.com/loonghao/dcc-mcp-rpyc) — RPyC bridge for remote DCC operations
 - [dcc-mcp-maya](https://github.com/loonghao/dcc-mcp-maya) — Maya MCP server implementation
+
+---
+
+## New Gateway Features (issues #764–#774)
+
+### Quick Decision — New APIs
+
+| I want to… | Use this |
+|------------|---------|
+| Bridge stdio MCP server to HTTP/SSE | `dcc-mcp-server translate --stdio "cmd" --port N --transport sse` |
+| Search DCC-MCP adapter catalog | `dcc_catalog__search({"query":"..."})` MCP tool or `dcc-mcp-server catalog search` |
+| Mount OpenAPI REST API as MCP tools | `GatewayBuilder::mount_openapi(OpenApiMount::from_url(...).auth(...))` |
+| Add audit/quota/redact to gateway calls | `GatewayConfig::middleware_chain` with built-in middleware |
+| Enable gateway admin dashboard | `GatewayConfig { admin_enabled: true }` → `GET /admin` |
+| Enforce payload size + SSE chunking | `McpHttpConfig.queue.max_request_body_bytes` (default 4 MiB) |
+| Wire OTLP distributed tracing | Set `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317` at startup |
+| Watch gateway contention events | MCP resource `resources://gateway/events` (JSONL ring buffer) |
+
+### Middleware Chain (#770)
+
+```rust
+let config = GatewayConfig {
+    middleware_chain: MiddlewareChain::new()
+        .with_before(Arc::new(AuditMiddleware::default()))
+        .with_before(Arc::new(QuotaMiddleware::new(100)))  // 100 calls/min
+        .with_before(Arc::new(RedactionMiddleware::new(["api_key"]))),
+    ..GatewayConfig::default()
+};
+```
+
+Built-in middleware: `AuditMiddleware` (structured tracing log), `QuotaMiddleware` (rate limit → 429), `RedactionMiddleware` (field scrubbing).
+Custom: implement `BeforeCallMiddleware` or `AfterCallMiddleware` traits. `CallContext` fields: `method`, `tool_slug`, `dcc_type`, `session_id`, `request_id`, `args`, `metadata`.
+
+### OpenAPI → MCP Bridge (#773)
+
+```rust
+gateway_builder.mount_openapi(
+    OpenApiMount::from_url("https://api.example.com/openapi.json")
+        .base_url("https://api.example.com")
+        .auth(AuthConfig::bearer("$MY_API_TOKEN"))
+        .tool_prefix("example"),
+)
+```
+
+One config block exposes all OpenAPI paths as MCP tools with preserved auth + schemas. Auth types: `bearer()`, `api_key()`, `basic()`. `$ENV_VAR` references resolved at call time.
+
+### stdio → HTTP Bridge (#769)
+
+```bash
+dcc-mcp-server translate \
+  --stdio "npx @modelcontextprotocol/server-filesystem /tmp" \
+  --dcc-type filesystem --port 3333 --transport sse
+```
+
+Flags: `--no-register` (standalone), `--restart-on-exit` (supervisor), `--max-restarts N`.
+
+### Admin Dashboard (#772)
+
+```rust
+GatewayConfig { admin_enabled: true, admin_path: "/admin".into(), .. }
+// requires: dcc-mcp-gateway = { features = ["admin"] }
+```
+
+Routes: `GET /admin` (HTML dashboard), `GET /admin/api/{instances,tools,calls,logs,health}` (JSON APIs).
+Default: disabled (`admin_enabled: false`).
+
+### OTLP Distributed Tracing (#768)
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 dcc-mcp-server ...
+```
+
+Standard env vars: `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES`, `OTEL_EXPORTER_OTLP_HEADERS`.
+DCC span attrs: `dcc.type`, `dcc.instance_id`, `dcc.scene`, `mcp.method`, `mcp.tool_slug`, `mcp.session_id`, `mcp.request_id`, `dcc.job_id`.
+
+### DCC-MCP Catalog (#774)
+
+```bash
+dcc-mcp-server catalog search --query maya
+dcc-mcp-server catalog describe --name dcc-mcp-maya-skills
+```
+
+MCP tools: `dcc_catalog__search({"query":"..."})`, `dcc_catalog__describe({"name":"..."})`.
+Override catalog path: `DCC_MCP_CATALOG_PATH=/path/to/dcc-mcp-catalog.yml`.
+
+### Gateway Observability (#766)
+
+Prometheus counters (under `prometheus` Cargo feature):
+- `dcc_mcp_gateway_elections_total{outcome="won|yielded|lost"}`
+- `dcc_mcp_gateway_evictions_total{reason="stale|ghost|probe_fail"}`
+- `dcc_mcp_gateway_probes_total{outcome="ready|booting|unreachable"}`
+
+MCP resource `resources://gateway/events`: JSONL ring buffer, last 1000 contention events.
+
+### Payload Limits (#771)
+
+| Config field | Default | Effect |
+|-------------|---------|--------|
+| `McpHttpConfig.queue.max_request_body_bytes` | 4 MiB | 413 Payload Too Large |
+| `McpHttpConfig.queue.max_response_content_bytes` | 1 MiB | `TruncationEnvelope` (`truncated`, `original_size`, `truncated_size`) |
+| `McpHttpConfig.queue.sse_chunk_size_bytes` | 64 KiB | Automatic SSE chunking |
+
+### McpHttpConfig Sub-configs (#764)
+
+`McpHttpConfig` is now a thin aggregate. Access via view methods: `.queue_config()` → `QueueConfig`, `.gateway_config()` → `HttpGatewayConfig`, `.session_config()` → `SessionConfig`, `.telemetry_config()` → `HttpTelemetryConfig`.

@@ -46,6 +46,11 @@ document without scanning every file.
 | [tunnel-relay.md](tunnel-relay.md) | Zero-config remote MCP relay (`RelayServer` + tunnel agent) |
 | [production-deployment.md](production-deployment.md) | Production checklist: logging, health probes, monitoring |
 | [protocols.md](protocols.md) | MCP protocol types and versioning |
+| [middleware.md](middleware.md) | Pluggable BeforeCall/AfterCall middleware chain: audit, quota, redaction |
+| [admin-ui.md](admin-ui.md) | Built-in zero-build `/admin` dashboard (instances, tools, calls, logs, health) |
+| [translate.md](translate.md) | `translate` subcommand: bridge any stdio MCP server to HTTP/SSE |
+| [openapi-mount.md](openapi-mount.md) | OpenAPI-to-MCP mount helper: expose any REST API as MCP tools |
+| [catalog.md](catalog.md) | DCC-MCP public adapter catalog: search and describe |
 
 ## Core Subsystems
 
@@ -63,6 +68,7 @@ document without scanning every file.
 | [usd.md](usd.md) | OpenUSD bridge: UsdStage, scene info JSON |
 | [artefacts.md](artefacts.md) | FileRef + ArtefactStore — cross-tool file handoff |
 | [telemetry.md](telemetry.md) | ToolMetrics, ToolRecorder, RecordingGuard |
+| [observability.md](observability.md) | OTLP exporter, gateway event log (`resources://gateway/events`), Prometheus counters |
 | [scheduler.md](scheduler.md) | ScheduleSpec, TriggerSpec, cron/webhook scheduling |
 | [workflows.md](workflows.md) | WorkflowSpec engine: step kinds, policies, persistence |
 | [job-persistence.md](job-persistence.md) | SQLite-backed job/workflow persistence and resume |
