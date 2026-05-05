@@ -910,3 +910,130 @@ pub fn gateway_tool_defs() -> serde_json::Value {
         }
     ])
 }
+
+// ── catalog tool tests ────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod catalog_tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    /// Write YAML content to a temp file and return the handle (keep it alive).
+    fn write_catalog_yaml(content: &str) -> NamedTempFile {
+        let mut f = NamedTempFile::new().unwrap();
+        f.write_all(content.as_bytes()).unwrap();
+        f
+    }
+
+    const TWO_ENTRY_YAML: &str = r#"
+version: "1"
+entries:
+  - name: maya-skills
+    description: Maya skill pack
+    dcc: [maya]
+    url: https://example.com/maya
+    tags: [skills]
+  - name: blender-skills
+    description: Blender skill pack
+    dcc: [blender]
+    url: https://example.com/blender
+    tags: [skills]
+"#;
+
+    const ONE_ENTRY_YAML: &str = r#"
+version: "1"
+entries:
+  - name: maya-skills
+    description: Maya skill pack
+    dcc: [maya]
+    url: https://example.com/maya
+    tags: [skills]
+"#;
+
+    #[test]
+    fn catalog_search_empty_query_returns_all() {
+        let f = write_catalog_yaml(TWO_ENTRY_YAML);
+        // SAFETY: single-threaded test; no concurrent env access
+        unsafe { std::env::set_var("DCC_MCP_CATALOG_PATH", f.path()) };
+
+        let args = serde_json::json!({"query": ""});
+        let result = tool_catalog_search(&args).expect("search should succeed");
+        let v: serde_json::Value = serde_json::from_str(&result).unwrap();
+
+        assert_eq!(v["total"], 2, "empty query should return all 2 entries");
+        // SAFETY: same as set_var above
+        unsafe { std::env::remove_var("DCC_MCP_CATALOG_PATH") };
+    }
+
+    #[test]
+    fn catalog_search_absent_query_returns_all() {
+        let f = write_catalog_yaml(TWO_ENTRY_YAML);
+        // SAFETY: single-threaded test; no concurrent env access
+        unsafe { std::env::set_var("DCC_MCP_CATALOG_PATH", f.path()) };
+
+        let args = serde_json::json!({});
+        let result = tool_catalog_search(&args).expect("search should succeed");
+        let v: serde_json::Value = serde_json::from_str(&result).unwrap();
+
+        assert_eq!(v["total"], 2, "absent query key should return all entries");
+        // SAFETY: same as set_var above
+        unsafe { std::env::remove_var("DCC_MCP_CATALOG_PATH") };
+    }
+
+    #[test]
+    fn catalog_search_keyword_filters_results() {
+        let f = write_catalog_yaml(TWO_ENTRY_YAML);
+        // SAFETY: single-threaded test; no concurrent env access
+        unsafe { std::env::set_var("DCC_MCP_CATALOG_PATH", f.path()) };
+
+        let args = serde_json::json!({"query": "maya"});
+        let result = tool_catalog_search(&args).expect("search should succeed");
+        let v: serde_json::Value = serde_json::from_str(&result).unwrap();
+
+        assert_eq!(v["total"], 1);
+        assert_eq!(v["entries"][0]["name"], "maya-skills");
+        // SAFETY: same as set_var above
+        unsafe { std::env::remove_var("DCC_MCP_CATALOG_PATH") };
+    }
+
+    #[test]
+    fn catalog_describe_existing_entry_returns_data() {
+        let f = write_catalog_yaml(ONE_ENTRY_YAML);
+        // SAFETY: single-threaded test; no concurrent env access
+        unsafe { std::env::set_var("DCC_MCP_CATALOG_PATH", f.path()) };
+
+        let args = serde_json::json!({"name": "maya-skills"});
+        let result = tool_catalog_describe(&args).expect("describe should succeed");
+        let v: serde_json::Value = serde_json::from_str(&result).unwrap();
+
+        assert_eq!(v["name"], "maya-skills");
+        assert_eq!(v["dcc"][0], "maya");
+        // SAFETY: same as set_var above
+        unsafe { std::env::remove_var("DCC_MCP_CATALOG_PATH") };
+    }
+
+    #[test]
+    fn catalog_describe_missing_name_returns_not_found() {
+        let f = write_catalog_yaml(ONE_ENTRY_YAML);
+        // SAFETY: single-threaded test; no concurrent env access
+        unsafe { std::env::set_var("DCC_MCP_CATALOG_PATH", f.path()) };
+
+        let args = serde_json::json!({"name": "does-not-exist"});
+        let err = tool_catalog_describe(&args).expect_err("missing entry should return Err");
+
+        assert!(
+            err.contains("not found"),
+            "error message should contain 'not found', got: {err}"
+        );
+        // SAFETY: same as set_var above
+        unsafe { std::env::remove_var("DCC_MCP_CATALOG_PATH") };
+    }
+
+    #[test]
+    fn catalog_describe_missing_name_arg_returns_error() {
+        let args = serde_json::json!({});
+        let err = tool_catalog_describe(&args).expect_err("missing 'name' arg should return Err");
+        assert!(err.contains("name"), "error should mention 'name': {err}");
+    }
+}
