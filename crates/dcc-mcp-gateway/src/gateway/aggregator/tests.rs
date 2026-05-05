@@ -150,6 +150,7 @@ async fn aggregate_tools_list_returns_only_minimal_gateway_surface() {
         event_log: std::sync::Arc::new(crate::gateway::event_log::EventLog::new()),
         #[cfg(feature = "prometheus")]
         gateway_metrics: std::sync::Arc::new(crate::gateway::event_log::GatewayMetrics::new()),
+        middleware_chain: std::sync::Arc::new(crate::gateway::middleware::MiddlewareChain::new()),
     };
 
     assert_eq!(gs.live_instances(&*gs.registry.read().await).len(), 1);
@@ -314,6 +315,7 @@ async fn make_gateway_state(
         event_log: std::sync::Arc::new(crate::gateway::event_log::EventLog::new()),
         #[cfg(feature = "prometheus")]
         gateway_metrics: std::sync::Arc::new(crate::gateway::event_log::GatewayMetrics::new()),
+        middleware_chain: std::sync::Arc::new(crate::gateway::middleware::MiddlewareChain::new()),
     }
 }
 
@@ -724,6 +726,7 @@ async fn gateway_state_with_instances(
         event_log: std::sync::Arc::new(crate::gateway::event_log::EventLog::new()),
         #[cfg(feature = "prometheus")]
         gateway_metrics: std::sync::Arc::new(crate::gateway::event_log::GatewayMetrics::new()),
+        middleware_chain: std::sync::Arc::new(crate::gateway::middleware::MiddlewareChain::new()),
     };
     (state, dir, ids)
 }
