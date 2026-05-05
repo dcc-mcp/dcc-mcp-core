@@ -49,6 +49,12 @@ pub mod metrics;
 pub use router::build_gateway_router;
 pub use state::{GatewayState, entry_to_json};
 
+// Strategy-pattern seam for search scoring (issue #765).
+pub use capability::{
+    ExactScorer, FuzzyScorer, Scorer, ScorerFactory, SearchMode, SearchQuery, StrategyExactScorer,
+    StrategyFuzzyScorer, StrategyScorer, SubstringScorer,
+};
+
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
