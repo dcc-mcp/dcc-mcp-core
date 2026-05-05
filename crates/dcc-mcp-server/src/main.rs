@@ -463,6 +463,34 @@ async fn main() -> anyhow::Result<()> {
     // optional file-logging layer). Safe to call multiple times.
     dcc_mcp_logging::init_logging();
 
+    // ── Auto-init telemetry from OTEL_EXPORTER_OTLP_ENDPOINT ─────────────
+    // If the standard OTel env var is present, wire up the OTLP gRPC exporter.
+    // Otherwise, install a minimal no-op provider to suppress OTel warnings.
+    #[cfg(feature = "telemetry")]
+    {
+        let otlp_endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").ok();
+        let telemetry_cfg = if let Some(ref endpoint) = otlp_endpoint {
+            tracing::info!(endpoint, "OTLP endpoint detected — enabling OTLP telemetry");
+            dcc_mcp_telemetry::types::TelemetryConfig::builder("dcc-mcp-server")
+                .with_otlp_exporter(endpoint.clone())
+                .build()
+        } else {
+            dcc_mcp_telemetry::types::TelemetryConfig {
+                enable_metrics: true,
+                enable_tracing: false,
+                exporter: dcc_mcp_telemetry::types::ExporterBackend::Noop,
+                ..dcc_mcp_telemetry::types::TelemetryConfig::default()
+            }
+        };
+        if let Err(e) = dcc_mcp_telemetry::provider::init(&telemetry_cfg) {
+            tracing::warn!(%e, "telemetry init skipped");
+        }
+    }
+    #[cfg(not(feature = "telemetry"))]
+    {
+        // No telemetry crate compiled in — nothing to do.
+    }
+
     let args = Args::parse();
 
     if let (Some(path), Some(pid)) = (args.pid_cleanup_watch.clone(), args.watch_pid) {

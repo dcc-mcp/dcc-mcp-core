@@ -186,6 +186,22 @@ impl TelemetryConfigBuilder {
 
 // ── Span attributes ───────────────────────────────────────────────────────────
 
+impl TelemetryConfig {
+    /// Returns the OTLP endpoint, honoring `OTEL_EXPORTER_OTLP_ENDPOINT` env var first.
+    pub fn otlp_endpoint(&self) -> String {
+        std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
+            .ok()
+            .filter(|s| !s.is_empty())
+            .or_else(|| self.otlp_endpoint.clone())
+            .unwrap_or_else(|| "http://localhost:4317".to_string())
+    }
+
+    /// Returns the OTLP export timeout (defaults to `batch_timeout`).
+    pub fn otlp_timeout(&self) -> Duration {
+        self.batch_timeout
+    }
+}
+
 /// Well-known span attribute keys used across the DCC-MCP ecosystem.
 pub mod span_keys {
     /// The DCC application name (e.g. `"maya"`, `"blender"`).
@@ -202,6 +218,28 @@ pub mod span_keys {
     pub const OPERATION_SUCCESS: &str = "operation.success";
     /// Error category when `operation.success == false`.
     pub const ERROR_KIND: &str = "error.kind";
+
+    // ── DCC-flavoured gateway/executor span keys ──────────────────────────────
+
+    /// DCC application type at the gateway/executor boundary (e.g. `"maya"`).
+    pub const DCC_TYPE: &str = "dcc.type";
+    /// DCC instance identifier (stable per running DCC process).
+    pub const DCC_INSTANCE_ID: &str = "dcc.instance_id";
+    /// Currently open scene file path.
+    pub const DCC_SCENE: &str = "dcc.scene";
+    /// DCC job identifier (e.g. render farm job id).
+    pub const DCC_JOB_ID: &str = "dcc.job_id";
+
+    /// MCP method being dispatched (e.g. `"tools/call"`).
+    pub const MCP_METHOD: &str = "mcp.method";
+    /// MCP tool slug (e.g. `"create_sphere"`).
+    pub const MCP_TOOL_SLUG: &str = "mcp.tool_slug";
+    /// MCP routing affinity hint (e.g. `"maya"`, `"photoshop"`).
+    pub const MCP_AFFINITY: &str = "mcp.affinity";
+    /// MCP session identifier.
+    pub const MCP_SESSION_ID: &str = "mcp.session_id";
+    /// MCP request identifier (JSON-RPC `id`).
+    pub const MCP_REQUEST_ID: &str = "mcp.request_id";
 }
 
 // ── Action metrics ────────────────────────────────────────────────────────────

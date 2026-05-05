@@ -131,6 +131,17 @@ impl PyTelemetryConfig {
         slf
     }
 
+    /// Use the OTLP gRPC exporter (requires the `otlp-exporter` Cargo feature).
+    ///
+    /// The endpoint defaults to `http://localhost:4317` if not set here.
+    /// The `OTEL_EXPORTER_OTLP_ENDPOINT` environment variable always overrides
+    /// the value supplied to this method.
+    pub fn with_otlp_exporter(mut slf: PyRefMut<'_, Self>, endpoint: String) -> PyRefMut<'_, Self> {
+        slf.inner.exporter = ExporterBackend::Otlp;
+        slf.inner.otlp_endpoint = Some(endpoint);
+        slf
+    }
+
     /// Use JSON log format.
     pub fn with_json_logs(mut slf: PyRefMut<'_, Self>) -> PyRefMut<'_, Self> {
         slf.inner.log_format = LogFormat::Json;
