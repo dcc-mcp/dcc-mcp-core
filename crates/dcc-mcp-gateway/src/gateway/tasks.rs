@@ -43,6 +43,8 @@ pub(crate) async fn start_gateway_tasks(
     adapter_version: Option<String>,
     adapter_dcc: Option<String>,
     cursor_safe_tool_names: bool,
+    #[cfg(feature = "admin")] admin_enabled: bool,
+    #[cfg(feature = "admin")] admin_path: String,
 ) -> Result<GatewayTasks, Box<dyn std::error::Error + Send + Sync>> {
     // ── Yield channel ─────────────────────────────────────────────────────
     let (yield_tx, mut yield_rx) = watch::channel(false);
@@ -515,6 +517,20 @@ pub(crate) async fn start_gateway_tasks(
         gateway_metrics: gateway_metrics.clone(),
         middleware_chain: Arc::new(crate::gateway::middleware::MiddlewareChain::new()),
     };
+
+    // ── Admin UI state (#772) ──────────────────────────────────────────────
+    #[cfg(feature = "admin")]
+    let gw_router = {
+        let admin_state_opt = if admin_enabled {
+            Some(crate::gateway::admin::state::AdminState::new(
+                gw_state.clone(),
+            ))
+        } else {
+            None
+        };
+        build_gateway_router_with_admin(gw_state, admin_state_opt, &admin_path)
+    };
+    #[cfg(not(feature = "admin"))]
     let gw_router = build_gateway_router(gw_state);
 
     #[cfg(feature = "prometheus")]

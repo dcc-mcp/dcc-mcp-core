@@ -51,7 +51,9 @@ pub use middleware::MiddlewareChain;
 #[cfg(feature = "prometheus")]
 pub mod metrics;
 
-pub use router::build_gateway_router;
+pub mod admin;
+
+pub use router::{build_gateway_router, build_gateway_router_with_admin};
 pub use state::{GatewayState, entry_to_json};
 
 // Strategy-pattern seam for search scoring (issue #765).

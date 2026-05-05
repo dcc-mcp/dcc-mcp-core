@@ -254,6 +254,10 @@ impl GatewayRunner {
                     own_adapter_version.clone(),
                     own_adapter_dcc.clone(),
                     self.config.cursor_safe_tool_names,
+                    #[cfg(feature = "admin")]
+                    self.config.admin_enabled,
+                    #[cfg(feature = "admin")]
+                    self.config.admin_path.clone(),
                 )
                 .await
                 {
@@ -403,6 +407,10 @@ impl GatewayRunner {
         let adapter_version = self.config.adapter_version.clone();
         let adapter_dcc = self.config.adapter_dcc.clone();
         let cursor_safe_tool_names = self.config.cursor_safe_tool_names;
+        #[cfg(feature = "admin")]
+        let admin_enabled = self.config.admin_enabled;
+        #[cfg(feature = "admin")]
+        let admin_path = self.config.admin_path.clone();
 
         let handle = tokio::spawn(async move {
             // ── Cooperative yield request ─────────────────────────────────
@@ -474,6 +482,10 @@ impl GatewayRunner {
                         adapter_version.clone(),
                         adapter_dcc.clone(),
                         cursor_safe_tool_names,
+                        #[cfg(feature = "admin")]
+                        admin_enabled,
+                        #[cfg(feature = "admin")]
+                        admin_path.clone(),
                     )
                     .await
                     {
