@@ -53,7 +53,7 @@
 | Sandbox AI actions | `SandboxPolicy` + `SandboxContext` |
 | Share large data zero-copy | `PySharedSceneBuffer.write()` with LZ4 compression |
 | Expose DCC tools over HTTP/MCP | `create_skill_server("maya", McpHttpConfig(port=8765))` — Skills-First setup; falls back to `McpHttpServer(registry, config)` for manual registry wiring |
-| Register MCP prompts from Python (issue #792) | `server.prompts().register_prompt(name, template, description=..., arguments=[...])` — returns `PromptHandle`; prompts appear in `prompts/list` and render via `prompts/get` without restarting |
+| Register MCP prompts from Python (issue #792) | `server.prompts().register_prompt(name, template, description=..., arguments=[...])` — returns `PromptHandle`; prompts appear in the next `prompts/list` call and render via `prompts/get` |
 | Build a DCC adapter | `DccServerBase(dcc_name, builtin_skills_dir)` — skill/lifecycle/gateway/hot-reload inherited |
 | Write skill scripts | `skill_entry` + `skill_success` / `skill_error` — zero-boilerplate skill authoring |
 | Control skill trust level | `SkillScope` (Repo < User < System < Admin) — higher scope shadows lower |

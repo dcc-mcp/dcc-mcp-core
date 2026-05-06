@@ -170,11 +170,14 @@ impl PromptRegistry {
         }
         self.refresh_if_needed(walk_loaded);
         let g = self.inner.read();
-        g.entries
-            .values()
-            .chain(g.manual_entries.values())
-            .map(PromptEntry::to_mcp)
-            .collect()
+        let mut by_name: BTreeMap<String, McpPrompt> = BTreeMap::new();
+        for entry in g.entries.values() {
+            by_name.insert(entry.name.clone(), entry.to_mcp());
+        }
+        for entry in g.manual_entries.values() {
+            by_name.insert(entry.name.clone(), entry.to_mcp());
+        }
+        by_name.into_values().collect()
     }
 
     /// Look up + render a single prompt (skill-loaded or manual).

@@ -30,6 +30,8 @@
 //! handle.clear()
 //! ```
 
+use std::collections::HashSet;
+
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 
@@ -38,9 +40,8 @@ use crate::prompts::{PromptArgumentSpec, PromptEntry, PromptRegistry, PromptSour
 /// Python-facing handle to the server's [`PromptRegistry`].
 ///
 /// Obtained via [`crate::python::PyMcpHttpServer::prompts`]. The
-/// underlying registry is shared with the running server, so
-/// `prompts/list` and `prompts/get` reflect registered prompts
-/// immediately without requiring a restart.
+/// underlying registry is shared with the running server, so the next
+/// `prompts/list` and `prompts/get` calls reflect registered prompts.
 #[pyclass(name = "PromptHandle", skip_from_py_object)]
 pub struct PyPromptHandle {
     pub(crate) inner: PromptRegistry,
@@ -60,8 +61,8 @@ impl PyPromptHandle {
     ///     name: Prompt name shown in `prompts/list`.
     ///     template: String with ``{{arg_name}}`` placeholders.
     ///     description: Optional human-readable description.
-    ///     arguments: Optional list of ``{"name": str, "required": bool}``
-    ///         dicts. Defaults to ``[]``.
+    ///     arguments: Optional list of ``{"name": str, "description": str,
+    ///         "required": bool}`` dicts. Defaults to ``[]``.
     ///
     /// Raises:
     ///     ValueError: If `name` or `template` is empty, or if
@@ -75,6 +76,7 @@ impl PyPromptHandle {
         description: Option<String>,
         arguments: Option<Py<PyAny>>,
     ) -> PyResult<()> {
+        let name = name.trim().to_string();
         if name.is_empty() {
             return Err(pyo3::exceptions::PyValueError::new_err(
                 "register_prompt: 'name' must not be empty",
@@ -87,6 +89,7 @@ impl PyPromptHandle {
         }
 
         let mut argspec: Vec<PromptArgumentSpec> = Vec::new();
+        let mut seen_args: HashSet<String> = HashSet::new();
         if let Some(obj) = arguments {
             let list = obj.bind(py).cast::<PyList>().map_err(|e| {
                 pyo3::exceptions::PyValueError::new_err(format!(
@@ -107,6 +110,21 @@ impl PyPromptHandle {
                         )
                     })?
                     .extract()?;
+                let arg_name = arg_name.trim().to_string();
+                if arg_name.is_empty() {
+                    return Err(pyo3::exceptions::PyValueError::new_err(
+                        "register_prompt: argument 'name' must not be empty",
+                    ));
+                }
+                if !seen_args.insert(arg_name.clone()) {
+                    return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                        "register_prompt: duplicate argument name: {arg_name}"
+                    )));
+                }
+                let description: Option<String> = dict
+                    .get_item("description")?
+                    .map(|v| v.extract())
+                    .transpose()?;
                 let required: bool = dict
                     .get_item("required")?
                     .map(|v| v.extract())
@@ -114,7 +132,7 @@ impl PyPromptHandle {
                     .unwrap_or(false);
                 argspec.push(PromptArgumentSpec {
                     name: arg_name,
-                    description: None,
+                    description,
                     required,
                 });
             }
@@ -143,8 +161,15 @@ impl PyPromptHandle {
         self.inner.unregister_prompt("manual", name);
     }
 
-    /// Remove every prompt registered via this handle.
+    /// Remove every manually registered prompt on this server.
     fn clear(&self) {
         self.inner.clear_manual_for_skill("manual");
     }
+}
+
+// ── Module registration ───────────────────────────────────────────────────────
+
+pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_class::<PyPromptHandle>()?;
+    Ok(())
 }
