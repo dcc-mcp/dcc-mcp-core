@@ -4,9 +4,11 @@ The gateway (`McpHttpConfig::gateway_port > 0`) is a first-wins HTTP
 façade that presents every live DCC instance under one MCP endpoint.
 A single client can talk to Maya, Blender and Houdini through the same
 `/mcp` URL; the gateway discovers live backends via `FileRegistry`,
-aggregates their `tools/list`, routes each `tools/call` to the right
-backend, and multiplexes server-pushed notifications back to the
-originating client session.
+keeps its MCP `tools/list` bounded to discover+dispatch primitives,
+indexes backend capabilities on demand, routes `search_tools` /
+`describe_tool` / `call_tool` (or REST `/v1/*`) to the right backend,
+and multiplexes server-pushed notifications back to the originating
+client session.
 
 ## Topology
 
@@ -158,16 +160,17 @@ when a DCC exposes them.
 
 ## Dynamic Capability Index and Bounded Tool Exposure (#652-#657)
 
-For large multi-DCC deployments, the gateway should not publish every backend
-tool directly through `tools/list`. Use `McpHttpConfig.gateway_tool_exposure`
-to choose the surface:
+For large multi-DCC deployments, the gateway **never** publishes every backend
+action directly through `tools/list`. The removed `GatewayToolExposure` enum,
+`McpHttpConfig.gateway_tool_exposure`, `publishes_backend_tools`, and
+`--gateway-tool-exposure` switch are pre-0.15 concepts. There is now one
+unconditional surface:
 
-| Mode | Behavior | Agent workflow |
-|------|----------|----------------|
-| `full` | Historical fan-out: backend tools appear directly in `tools/list` | Call the prefixed/cursor-safe backend tool directly |
-| `slim` | Bounded gateway meta-tools plus skill-management tools | `search_tools` → `describe_tool` → `call_tool` |
-| `rest` | Same bounded MCP surface; REST `/v1/*` is the primary integration | `POST /v1/search` → `/v1/describe` → `/v1/call` |
-| `both` | Forward-compatible alias for the full transition window | Prefer the dynamic workflow for new agents |
+| Surface | What appears in `tools/list` | Agent workflow |
+|---------|------------------------------|----------------|
+| Gateway MCP | Fixed discover+dispatch primitives: `list_dcc_instances`, `connect_to_dcc`, `search_skills`, `load_skill`, `search_tools`, `describe_tool`, `call_tool`, pooling tools, diagnostics | `search_tools` → `describe_tool` → `call_tool` |
+| Gateway REST | `/v1/search`, `/v1/describe`, `/v1/call`, `/v1/instances` | `POST /v1/search` → `/v1/describe` → `/v1/call` |
+| Direct per-DCC MCP | One DCC server's skills and loaded tools | `search_skills` → `load_skill` → tool call |
 
 The gateway capability index stores compact records keyed by
 `<dcc>.<id8>.<tool>` and refreshes on demand, so the first agent query after
@@ -176,13 +179,13 @@ MCP wrappers are cursor-safe and stable:
 
 | Tool | Purpose |
 |------|---------|
-| `search_tools` | Search compact capability records by query, DCC type, tags, instance, and pagination options |
-| `describe_tool` | Fetch the full schema and annotations for a selected `tool_slug` |
-| `call_tool` | Invoke the selected backend capability with validated arguments |
+| `search_tools` | Search compact capability records by query, DCC type, tags, instance, scene hint, and pagination options |
+| `describe_tool` | Fetch the full schema, annotations, and routing record for a selected `tool_slug` |
+| `call_tool` | Invoke the selected backend capability with validated arguments and optional MCP `_meta` |
 
-Use this flow whenever an agent is connected to a gateway/slim endpoint. Use the
-per-DCC Skills-First flow (`search_skills` → `load_skill` → tool call) when the
-agent is connected directly to one DCC server.
+Use this dynamic-capability flow whenever an agent is connected to the gateway.
+Use the per-DCC Skills-First flow (`search_skills` → `load_skill` → tool call)
+when the agent is connected directly to one DCC server.
 
 ## Resources and Prompts Aggregation (#731, #732)
 

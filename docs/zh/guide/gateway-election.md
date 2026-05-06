@@ -7,9 +7,10 @@
 **网关**是一个单一的 Rust HTTP 服务器（默认运行在 `localhost:9765`），负责：
 
 - 发现所有运行中的 DCC 实例（Maya、Blender、Houdini、Photoshop 等）
-- 将所有活跃后端的工具聚合到统一的 `/mcp` 端点（按 `{instance_short}__{name}` 命名空间化）
+- 提供统一且有界的 `/mcp` 端点，只暴露发现+派发原语，而不是扇出每个后端 action
+- 将 `search_tools` / `describe_tool` / `call_tool` 以及 `/v1/*` REST 调用路由到选中的后端能力
 - 对 skill 管理调用做扇出（`search_skills`、`list_skills`）或按实例路由（`load_skill`）
-- 当 skill 加载 / 卸载或实例进出时，通过 SSE 推送 `tools/list_changed` 和 `resources/list_changed`
+- 当实例进出时，通过 SSE 推送进度、作业/工作流、资源与 prompt 通知
 
 **每台机器只有一个网关**。当第一个 DCC 实例注册时自动启动。
 
@@ -130,11 +131,11 @@ handle = server.start()
 
 ## 会话隔离
 
-每个 AI 会话**绑定到一个实例**。通过聚合式网关，多个实例的工具都会出现在同一份 `tools/list` 中，通过 8 字符前缀区分，agent 可定向调用任一实例：
+每个 AI 会话**绑定到一个实例**。通过 Gateway 时，agent 先用 `search_tools` / `/v1/search` 选择带实例短 ID 的 `tool_slug`，再定向调用任一实例：
 
 ```
-a1b2c3d4__set_keyframe   ← maya-animation
-e5f6g7h8__mirror_joints  ← maya-rigging
+maya.a1b2c3d4.set_keyframe   ← maya-animation
+maya.e5f6g7h8.mirror_joints  ← maya-rigging
 ```
 
 ## 实例健康检查

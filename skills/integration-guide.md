@@ -696,14 +696,14 @@ handle = server.start()
 
 ### Multiple DCC instances
 
-The Gateway automatically discovers and aggregates tools from all running
-DCC instances. Each instance registers with a unique `instance_id` and its
-tools are namespaced as `<8char_prefix>__<tool_name>` in the Gateway's
-`tools/list` response.
+The Gateway automatically discovers all running DCC instances, but it keeps
+`tools/list` bounded to fixed discover+dispatch primitives. Each instance
+registers with a unique `instance_id`; backend actions are addressed by
+`tool_slug` values returned from `search_tools` / `/v1/search`.
 
 ```python
-# AI agent sees:
-# a1b2c3d4__create_sphere  (Maya instance 1)
-# e5f6g7h8__create_sphere  (Maya instance 2)
-# i9j0k1l2__add_material   (Blender instance 1)
+# AI agent flow:
+# hits = search_tools(query="create sphere", dcc_type="maya")
+# info = describe_tool(tool_slug=hits["hits"][0]["tool_slug"])
+# result = call_tool(tool_slug=info["record"]["tool_slug"], arguments={"radius": 1.0})
 ```

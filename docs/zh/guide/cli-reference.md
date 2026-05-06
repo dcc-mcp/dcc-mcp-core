@@ -181,8 +181,8 @@ dcc-mcp-server --dcc maya --scene /shots/ep101/sh0200/shot.ma
 ### 场景 3 —— 网关汇聚多个 DCC 服务
 
 同一工作站上多个 `dcc-mcp-server`。先起的绑定网关端口 `9765` 成为
-赢家，把其余汇聚起来。其他客户端只连 `127.0.0.1:9765/mcp`（或 `/v1/*`）
-就能访问所有 DCC。
+赢家，并索引其余实例。客户端只连 `127.0.0.1:9765/mcp`（或 `/v1/*`），
+再通过 `search_tools` / `describe_tool` / `call_tool` 或等价 REST 端点访问任意 DCC。
 
 示例清单：`examples/compose/gateway-ha/` 与 `examples/k8s/gateway-ha/`。
 

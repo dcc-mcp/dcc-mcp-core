@@ -13,7 +13,7 @@
 
 **面向 AI 辅助 DCC 工作流的生产级基础库** —— 结合 **模型上下文协议（MCP 2025-03-26 Streamable HTTP）** 与 **零代码 Skills 系统**，后者遵循 [agentskills.io 1.0](https://agentskills.io/specification) 规范。**Rust 核心 + PyO3 Python 绑定**，交付企业级性能、安全性与可扩展性；**运行时零 Python 依赖**。支持 Python 3.7–3.13。
 
-> **注意**：本项目处于积极开发中（v0.14+），API 可能演进；版本历史参见 `CHANGELOG.md`。
+> **注意**：本项目处于积极开发中（v0.15+），API 可能演进；版本历史参见 `CHANGELOG.md`。
 
 ---
 
@@ -433,7 +433,7 @@ tools/list 响应（Maya 会话、尚未加载任何 skill）：
 - **屏幕捕获** —— 全屏或单窗口（HWND `PrintWindow`）视口捕获，供 AI 视觉反馈。
 - **USD 集成** —— Universal Scene Description 读写桥。
 - **结构化遥测** —— 追踪、录制，可选 Prometheus `/metrics` 导出器。
-- **~180 个公开 Python 符号** —— 通过顶层重导出提供；`_core.pyi` 是 stub-gen/dev 构建后的生成产物，不是手写源码。
+- **380+ 个公开 Python 符号** —— 通过顶层重导出提供；`_core.pyi` 是 stub-gen/dev 构建后的生成产物，不是手写源码。
 
 ---
 
@@ -658,7 +658,7 @@ MIT —— 详情见 [LICENSE](LICENSE)。
 - [AGENTS.md](AGENTS.md) —— AI Agent 导航图（入口、决策表、Top traps）。
 - [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md) —— Agent 详细规则、陷阱、代码风格与项目专属架构约束。
 - [`.agents/skills/dcc-mcp-core/SKILL.md`](.agents/skills/dcc-mcp-core/SKILL.md) —— 完整 API skill 定义。
-- [`python/dcc_mcp_core/__init__.py`](python/dcc_mcp_core/__init__.py) —— 完整公开 API（~180 符号）。
+- [`python/dcc_mcp_core/__init__.py`](python/dcc_mcp_core/__init__.py) —— 完整公开 API（380+ 符号）。
 - [`python/dcc_mcp_core/_core.pyi`](python/dcc_mcp_core/_core.pyi) —— 真实类型 stub（参数名、类型、签名）。
 - [`llms.txt`](llms.txt) —— LLM 优化的简洁 API 参考。
 - [`llms-full.txt`](llms-full.txt) —— LLM 优化的完整 API 参考。

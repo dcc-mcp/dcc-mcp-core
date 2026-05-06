@@ -187,9 +187,10 @@ dcc-mcp-server --dcc maya --scene /shots/ep101/sh0200/shot.ma
 ### Scenario 3 — Gateway aggregating multiple DCC servers
 
 Multiple `dcc-mcp-server` processes on the same workstation. The first one
-binds the gateway port `9765` and aggregates the others. Everything else
-connects to `127.0.0.1:9765/mcp` (or `/v1/*`) and gets every DCC through
-one endpoint.
+binds the gateway port `9765` and indexes the others. Clients connect to
+`127.0.0.1:9765/mcp` (or `/v1/*`), then use `search_tools` /
+`describe_tool` / `call_tool` or the REST equivalents to reach any DCC
+through one endpoint.
 
 Example manifests: `examples/compose/gateway-ha/` and
 `examples/k8s/gateway-ha/`.

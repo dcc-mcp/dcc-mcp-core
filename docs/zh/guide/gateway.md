@@ -3,9 +3,10 @@
 Gateway（`McpHttpConfig::gateway_port > 0`）是一个 first-wins HTTP
 门面，将所有在线的 DCC 实例呈现在一个 MCP 端点下。
 单个客户端可以通过同一个 `/mcp` URL 与 Maya、Blender 和 Houdini
-通信；Gateway 通过 `FileRegistry` 发现在线后端，聚合它们的
-`tools/list`，将每个 `tools/call` 路由到正确的后端，并将
-服务器推送的通知多路复用回原始客户端会话。
+通信；Gateway 通过 `FileRegistry` 发现在线后端，将自身 MCP
+`tools/list` 固定为发现+派发原语，按需索引后端能力，并把
+`search_tools` / `describe_tool` / `call_tool`（或 REST `/v1/*`）
+路由到正确的后端，同时将服务器推送的通知多路复用回原始客户端会话。
 
 ## 拓扑
 
@@ -86,6 +87,32 @@ facade 抖动都会浪费 socket 并塞满重连日志。
    `prune_dead_pids()` + `cleanup_stale()`。周期性清理任务每 15
    秒才触发一次；没有这次同步前置扫描的话，上一次崩溃残留的幽灵
    行会在 Gateway 启动后的前 ~15 秒内耗尽完整的指数退避重连预算。
+
+## 动态能力索引与有界工具暴露 (#652-#657)
+
+在大型多 DCC 部署中，Gateway **永远不会**把每个后端 action 直接发布到
+`tools/list`。已移除的 `GatewayToolExposure` 枚举、
+`McpHttpConfig.gateway_tool_exposure`、`publishes_backend_tools` 与
+`--gateway-tool-exposure` 都是 0.15 之前的概念。现在只有一个无条件表面：
+
+| 表面 | `tools/list` 中出现什么 | Agent 工作流 |
+|------|--------------------------|--------------|
+| Gateway MCP | 固定的发现+派发原语：`list_dcc_instances`、`connect_to_dcc`、`search_skills`、`load_skill`、`search_tools`、`describe_tool`、`call_tool`、池化工具、诊断工具 | `search_tools` → `describe_tool` → `call_tool` |
+| Gateway REST | `/v1/search`、`/v1/describe`、`/v1/call`、`/v1/instances` | `POST /v1/search` → `/v1/describe` → `/v1/call` |
+| 直连 per-DCC MCP | 单个 DCC 服务的 skills 与已加载工具 | `search_skills` → `load_skill` → 调用工具 |
+
+Gateway capability index 使用 `<dcc>.<id8>.<tool>` 作为紧凑记录键，并按需刷新。
+因此启动后或 `load_skill` 后的第一次 agent 查询就能看到最新能力，不需要等待轮询。
+固定 MCP wrapper 是 cursor-safe 且稳定的：
+
+| 工具 | 用途 |
+|------|------|
+| `search_tools` | 按 query、DCC 类型、tag、实例、scene hint、分页参数搜索紧凑能力记录 |
+| `describe_tool` | 获取选中 `tool_slug` 的完整 schema、annotations 与路由记录 |
+| `call_tool` | 使用校验后的 arguments 和可选 MCP `_meta` 调用后端能力 |
+
+Agent 连接到 Gateway 时使用这条动态能力流程；直接连接某个 DCC 服务时使用
+per-DCC Skills-First 流程（`search_skills` → `load_skill` → 调用工具）。
 
 ## 代码指针
 
