@@ -36,7 +36,7 @@
 | Wrap values for safe RPyC transport | `wrap_value()` / `unwrap_value()` |
 | Handle multiple versions of an action | `VersionedRegistry` + `VersionConstraint` |
 | Expose DCC tools over HTTP/MCP | `create_skill_server("maya", McpHttpConfig(port=8765))` — Skills-First one-call setup; gateway/slim agents use `search_tools` → `describe_tool` → `call_tool`; falls back to `McpHttpServer(registry, config)` for manual registry wiring |
-| Register MCP prompts from Python (issue #792) | `server.prompts().register_prompt(name, template, description=..., arguments=[{"name": str, "required": bool}])` — returns `PromptHandle`; prompts visible in `prompts/list` and rendered by `prompts/get`; call before or after `start()` with immediate effect |
+| Register MCP prompts from Python (issue #792) | `server.prompts().register_prompt(name, template, description=..., arguments=[{"name": str, "description": str, "required": bool}])` — returns `PromptHandle`; prompts are visible in the next `prompts/list` call and rendered by `prompts/get` |
 | Persist and resume DCC project state | `DccProject.open/load(...)` + `register_project_tools(server, ...)` exposing `project.save/load/resume/status` |
 | Share resources/prompts through a gateway | `resources/list/read/subscribe` with exact gateway-returned URIs; `prompts/list/get` for namespaced backend prompts |
 | Discover team-level skills | `scan_and_load_team()` / `scan_and_load_team_lenient()` |
@@ -1172,7 +1172,7 @@ cfg.enable_prompts = True          # required to surface prompts/list
 
 server = McpHttpServer(registry, cfg)
 
-# Obtain handle — works before or after start()
+# Obtain handle; register startup prompts before start() so clients see them during initial discovery.
 handle = server.prompts()
 
 handle.register_prompt(
@@ -1180,9 +1180,9 @@ handle.register_prompt(
     description="Bake animation across a frame range",
     template="Please bake animation from {{start}} to {{end}} with sample rate {{sample_rate}}",
     arguments=[
-        {"name": "start",       "required": True},
-        {"name": "end",         "required": True},
-        {"name": "sample_rate", "required": False},
+        {"name": "start",       "description": "Start frame", "required": True},
+        {"name": "end",         "description": "End frame", "required": True},
+        {"name": "sample_rate", "description": "Frame step", "required": False},
     ],
 )
 
@@ -1191,15 +1191,15 @@ server_handle = server.start()
 # prompts/get {"name":"bake_animation","arguments":{"start":"1","end":"100"}}
 #   → messages[0].content.text = "Please bake animation from 1 to 100 with sample rate "
 
-# Dynamic update — takes effect immediately, no restart required
+# Dynamic updates are reflected by subsequent prompts/list and prompts/get calls.
 handle.unregister_prompt("bake_animation")
-handle.clear()                     # remove every prompt registered via this handle
+handle.clear()                     # remove every manually registered prompt on this server
 ```
 
 `PromptHandle` API:
-- `.register_prompt(name, template, *, description=None, arguments=None)` — upserts a prompt; `arguments` is a list of `{"name": str, "required": bool}` dicts
+- `.register_prompt(name, template, *, description=None, arguments=None)` — upserts a prompt; `arguments` is a list of `{"name": str, "description": str, "required": bool}` dicts; empty/duplicate argument names raise `ValueError`
 - `.unregister_prompt(name)` — removes one prompt (no-op if not found)
-- `.clear()` — removes all prompts registered through this handle
+- `.clear()` — removes all manually registered prompts on this server
 
 Template placeholder syntax: `{{arg_name}}` — replaced verbatim by `prompts/get` arguments. Missing required arguments return a JSON-RPC error.
 

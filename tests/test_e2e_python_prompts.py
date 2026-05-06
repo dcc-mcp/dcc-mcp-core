@@ -27,8 +27,6 @@ import socket
 import time
 import urllib.request
 
-import pytest
-
 from dcc_mcp_core import McpHttpConfig
 from dcc_mcp_core import McpHttpServer
 from dcc_mcp_core import PromptHandle
@@ -80,15 +78,18 @@ def test_python_prompt_registration_e2e():
     registry = ToolRegistry()
     server = McpHttpServer(registry, cfg)
 
+    assert PromptHandle is not None
+
     # Register a prompt before start()
     handle = server.prompts()
+    assert isinstance(handle, PromptHandle)
     handle.register_prompt(
         name="bake_animation",
         description="Bake animation across frame range",
         template="Bake from {{start}} to {{end}}",
         arguments=[
-            {"name": "start", "required": True},
-            {"name": "end", "required": True},
+            {"name": "start", "description": "Start frame", "required": True},
+            {"name": "end", "description": "End frame", "required": True},
         ],
     )
 
@@ -105,8 +106,10 @@ def test_python_prompt_registration_e2e():
         list_resp = _post_mcp(mcp_url, "prompts/list")
         assert "result" in list_resp, f"prompts/list failed: {list_resp}"
         prompts = list_resp["result"].get("prompts", [])
-        names = [p["name"] for p in prompts]
-        assert "bake_animation" in names, f"prompts/list missing 'bake_animation', got {names}"
+        by_name = {p["name"]: p for p in prompts}
+        assert "bake_animation" in by_name, f"prompts/list missing 'bake_animation', got {list(by_name)}"
+        args = by_name["bake_animation"].get("arguments", [])
+        assert args[0].get("description") == "Start frame"
 
         # 2. prompts/get with correct args must render template
         get_resp = _post_mcp(
