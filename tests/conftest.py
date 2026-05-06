@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 # Import built-in modules
+import os
 from pathlib import Path
 
 # Import third-party modules
@@ -15,6 +16,41 @@ import dcc_mcp_core
 # Resolve examples/skills relative to repo root
 REPO_ROOT = Path(__file__).resolve().parent.parent
 EXAMPLES_SKILLS_DIR = str(REPO_ROOT / "examples" / "skills")
+
+#: Environment variable read by the Rust GatewayRunner / McpHttpConfig to
+#: override the default shared registry directory (issue #793).
+_DCC_MCP_REGISTRY_ENV = "DCC_MCP_REGISTRY_DIR"
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _isolated_registry_dir(tmp_path_factory: pytest.TempPathFactory):
+    """Redirect the default registry directory to a session-scoped temp dir.
+
+    Many test modules start ``McpHttpServer`` / ``create_skill_server``
+    instances without an explicit ``registry_dir``.  When they do, the Rust
+    runtime falls back to ``<os-tmp>/dcc-mcp-registry`` — a **shared**
+    directory that persists between test runs and accumulates stale
+    ``services.json`` entries (issue #793).
+
+    Setting ``DCC_MCP_REGISTRY_DIR`` to a fresh temporary directory ensures
+    every server created during the session writes its registry entries in an
+    isolated location that pytest cleans up automatically at session teardown.
+
+    Tests that need a *distinct* registry (e.g. multi-service gateway tests)
+    should create their own sub-directory via ``tmp_path_factory.mktemp(...)``
+    and assign it to ``cfg.registry_dir`` explicitly — that explicit
+    assignment takes precedence and is unaffected by this fixture.
+    """
+    registry_dir = tmp_path_factory.mktemp("session-registry", numbered=True)
+    previous = os.environ.get(_DCC_MCP_REGISTRY_ENV)
+    os.environ[_DCC_MCP_REGISTRY_ENV] = str(registry_dir)
+    yield
+    # Restore (or remove) the env-var so we don't leak state into other
+    # processes that might be forked after the session ends.
+    if previous is None:
+        os.environ.pop(_DCC_MCP_REGISTRY_ENV, None)
+    else:
+        os.environ[_DCC_MCP_REGISTRY_ENV] = previous
 
 
 def create_skill_dir(
