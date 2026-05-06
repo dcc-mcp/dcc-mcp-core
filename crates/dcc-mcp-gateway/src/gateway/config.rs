@@ -74,8 +74,9 @@ pub struct GatewayConfig {
 
     /// Enable the read-only `/admin` web UI (issue #772).
     ///
-    /// Default: `false`. Must be explicitly opted in. When `true`, the
-    /// gateway mounts the admin dashboard under `admin_path`.
+    /// Default: `true`. Disable explicitly for locked-down deployments.
+    /// Only the process that wins the gateway election serves admin, so
+    /// multi-instance launches still expose exactly one dashboard.
     pub admin_enabled: bool,
 
     /// URL prefix for the admin dashboard (issue #772).
@@ -109,7 +110,7 @@ impl Default for GatewayConfig {
             // visible error).
             cursor_safe_tool_names: true,
             middleware_chain: super::middleware::MiddlewareChain::new(),
-            admin_enabled: false,
+            admin_enabled: true,
             admin_path: "/admin".to_string(),
         }
     }

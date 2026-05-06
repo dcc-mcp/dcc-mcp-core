@@ -41,7 +41,9 @@ cfg = McpHttpConfig(
 | `request_timeout_ms` | `int` | `30000` | 每个请求的超时时间（毫秒） |
 | `enable_cors` | `bool` | `False` | 是否启用浏览器客户端的 CORS |
 | `session_ttl_secs` | `int` | `3600` | 空闲会话 TTL 秒数（0 禁用自动清理） |
-| `gateway_port` | `int` | `0` | 竞争的网关端口（`0` = 禁用）。参见[网关](#网关) |
+| `gateway_port` | `int` | `9765`（Python） | 竞争的网关端口（`0` = 禁用）。参见[网关](#网关) |
+| `admin_enabled` | `bool` | `True` | 赢得选举的 gateway 提供只读 Admin UI（`GET /admin`） |
+| `admin_path` | `str` | `"/admin"` | Admin UI 的 URL 前缀 |
 | `registry_dir` | `str \| None` | `None` | 共享 `FileRegistry` JSON 目录（默认 OS 临时目录） |
 | `stale_timeout_secs` | `int` | `30` | 心跳超时秒数（实例视为过期） |
 | `heartbeat_secs` | `int` | `5` | 心跳间隔秒数（`0` = 禁用） |
@@ -210,7 +212,7 @@ print(f"Maya MCP 服务器: {handle.mcp_url()}")
 ### 工作原理
 
 - 每个实例在共享的 `FileRegistry`（磁盘上的 JSON 文件）中注册自身，并定期发送心跳。
-- **首个**绑定 `gateway_port`（默认：`9765`）的进程成为网关；其余为普通实例。
+- **首个**绑定 `gateway_port`（Python API 与 `dcc-mcp-server` 默认：`9765`）的进程成为网关；其余为普通实例。
 - 互斥使用 `SO_REUSEADDR=false`（通过 `socket2`），确保跨平台（包括 Windows）的首个获胜语义。
 - 网关自动清理过期实例（在 `stale_timeout_secs` 内未收到心跳）。
 - 进程退出时，`McpServerHandle` 被 drop，实例自动注销。
@@ -252,7 +254,8 @@ registry = ToolRegistry()
 registry.register("get_scene_info", description="获取场景信息", category="scene", dcc="maya")
 
 config = McpHttpConfig(port=0, server_name="maya-mcp")
-config.gateway_port = 9765    # 加入网关竞争；0 = 禁用
+# Python 默认：gateway_port=9765、admin_enabled=True、admin_path="/admin"。
+# 设置 gateway_port=0 可禁用 gateway/admin；或设置 admin_enabled=False 只保留 gateway。
 config.dcc_type = "maya"
 config.dcc_version = "2025"
 config.scene = "/proj/shot01.ma"  # 可选：帮助按场景路由
@@ -271,14 +274,15 @@ print(handle.mcp_url())         # 本实例的直接 MCP URL
 :::
 
 ::: info Skills-First + 网关
-`create_skill_server()` 默认**不**配置 `gateway_port`。如需参与网关，需在传入的 `McpHttpConfig` 上显式设置：
+`create_skill_server()` 使用传入的 `McpHttpConfig`。Python 新建的 `McpHttpConfig` 默认参与网关选举（`gateway_port=9765`），且赢得选举的进程默认提供 Admin。若需要隔离服务，可设置 `gateway_port=0`：
 
 ```python
 import os
 from dcc_mcp_core import create_skill_server, McpHttpConfig
 
 config = McpHttpConfig(port=0, server_name="maya")
-config.gateway_port = 9765
+# config.gateway_port = 0        # 取消注释可禁用 gateway/admin
+# config.admin_enabled = False   # 保留 gateway，但隐藏 Admin UI
 config.dcc_type = "maya"
 
 server = create_skill_server("maya", config)

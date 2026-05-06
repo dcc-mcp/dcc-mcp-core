@@ -21,6 +21,8 @@ from __future__ import annotations
 import socket
 import threading
 import time
+import urllib.error
+import urllib.request
 
 import pytest
 
@@ -50,6 +52,76 @@ def _wait_reachable(host: str, port: int, budget: float = 2.0) -> bool:
 
 def _empty_registry() -> ToolRegistry:
     return ToolRegistry()
+
+
+def _pick_free_port() -> int:
+    probe = socket.socket()
+    probe.bind(("127.0.0.1", 0))
+    port = probe.getsockname()[1]
+    probe.close()
+    time.sleep(0.05)
+    return port
+
+
+def _http_status(url: str) -> int:
+    try:
+        with urllib.request.urlopen(url, timeout=1.0) as resp:
+            return resp.status
+    except urllib.error.HTTPError as err:
+        return err.code
+
+
+class TestAdminDefaults:
+    """Admin/gateway defaults must match the documented Python API contract."""
+
+    def test_python_config_defaults_gateway_and_admin_on(self):
+        config = McpHttpConfig(port=0, server_name="admin-defaults")
+        assert config.gateway_port == 9765
+        assert config.admin_enabled is True
+        assert config.admin_path == "/admin"
+
+    def test_python_config_admin_setters_round_trip(self):
+        config = McpHttpConfig(port=0, server_name="admin-setters")
+        config.admin_enabled = False
+        config.admin_path = "/dcc-admin"
+        assert config.admin_enabled is False
+        assert config.admin_path == "/dcc-admin"
+
+    def test_elected_python_gateway_serves_admin_by_default(self, tmp_path):
+        gateway_port = _pick_free_port()
+        config = McpHttpConfig(port=0, server_name="admin-on")
+        config.gateway_port = gateway_port
+        config.registry_dir = str(tmp_path)
+        config.dcc_type = "admin-test"
+
+        server = McpHttpServer(_empty_registry(), config)
+        handle = server.start()
+        try:
+            if not handle.is_gateway:
+                pytest.skip(f"Race: port {gateway_port} taken before gateway election")
+            assert _wait_reachable("127.0.0.1", gateway_port, budget=2.0)
+            assert _http_status(f"http://127.0.0.1:{gateway_port}/admin") == 200
+            assert _http_status(f"http://127.0.0.1:{gateway_port}/admin/api/health") == 200
+        finally:
+            handle.shutdown()
+
+    def test_elected_python_gateway_can_disable_admin(self, tmp_path):
+        gateway_port = _pick_free_port()
+        config = McpHttpConfig(port=0, server_name="admin-off")
+        config.gateway_port = gateway_port
+        config.admin_enabled = False
+        config.registry_dir = str(tmp_path)
+        config.dcc_type = "admin-test"
+
+        server = McpHttpServer(_empty_registry(), config)
+        handle = server.start()
+        try:
+            if not handle.is_gateway:
+                pytest.skip(f"Race: port {gateway_port} taken before gateway election")
+            assert _wait_reachable("127.0.0.1", gateway_port, budget=2.0)
+            assert _http_status(f"http://127.0.0.1:{gateway_port}/admin") == 404
+        finally:
+            handle.shutdown()
 
 
 class TestInstanceListenerReachable:

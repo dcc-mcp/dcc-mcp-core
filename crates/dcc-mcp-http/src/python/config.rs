@@ -70,6 +70,7 @@ impl PyMcpHttpConfig {
         }
         cfg.server.enable_cors = enable_cors;
         cfg.server.request_timeout_ms = request_timeout_ms;
+        cfg.gateway.gateway_port = 9765;
         cfg.gateway.backend_timeout_ms = backend_timeout_ms;
         cfg.telemetry.enable_prometheus = enable_prometheus;
         cfg.telemetry.prometheus_basic_auth = prometheus_basic_auth;
@@ -298,6 +299,30 @@ impl PyMcpHttpConfig {
     #[setter]
     fn set_gateway_port(&mut self, v: u16) {
         self.inner.gateway.gateway_port = v;
+    }
+
+    /// Whether the elected gateway serves the read-only Admin UI.
+    #[getter]
+    fn admin_enabled(&self) -> bool {
+        self.inner.gateway.admin_enabled
+    }
+
+    /// Whether the elected gateway serves the read-only Admin UI.
+    #[setter]
+    fn set_admin_enabled(&mut self, v: bool) {
+        self.inner.gateway.admin_enabled = v;
+    }
+
+    /// URL prefix for the Admin UI (default ``/admin``).
+    #[getter]
+    fn admin_path(&self) -> String {
+        self.inner.gateway.admin_path.clone()
+    }
+
+    /// URL prefix for the Admin UI (default ``/admin``).
+    #[setter]
+    fn set_admin_path(&mut self, v: String) {
+        self.inner.gateway.admin_path = v;
     }
 
     /// Seconds without heartbeat before an instance is stale.

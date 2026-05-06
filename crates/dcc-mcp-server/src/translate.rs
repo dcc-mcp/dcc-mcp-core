@@ -103,9 +103,17 @@ pub struct TranslateArgs {
     #[arg(long, default_value = "10")]
     pub max_restarts: u32,
 
-    /// Gateway port for registration competition.
+    /// Gateway port for registration competition. 0 disables gateway/admin.
     #[arg(long, env = "DCC_MCP_GATEWAY_PORT", default_value = "9765")]
     pub gateway_port: u16,
+
+    /// Disable the read-only Admin UI on the elected gateway.
+    #[arg(long, env = "DCC_MCP_NO_ADMIN", default_value = "false")]
+    pub no_admin: bool,
+
+    /// URL prefix for the read-only Admin UI.
+    #[arg(long, env = "DCC_MCP_ADMIN_PATH", default_value = "/admin")]
+    pub admin_path: String,
 
     /// Directory for the shared FileRegistry.
     #[arg(long, env = "DCC_MCP_REGISTRY_DIR")]
@@ -590,8 +598,8 @@ pub async fn run(args: TranslateArgs) -> anyhow::Result<()> {
             adapter_dcc: Some(args.dcc_type.clone()),
             cursor_safe_tool_names: true,
             middleware_chain: dcc_mcp_http::gateway::middleware::MiddlewareChain::new(),
-            admin_enabled: false,
-            admin_path: "/admin".to_string(),
+            admin_enabled: !args.no_admin,
+            admin_path: args.admin_path.clone(),
         };
 
         let runner = GatewayRunner::new(gateway_cfg)

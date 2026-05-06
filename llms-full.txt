@@ -2614,8 +2614,10 @@ print(config.server_version) # "1.0.0"
 # (list_actions, describe_action, call_action) instead of all tools
 config.lazy_actions = True  # default: False
 
-# Gateway participation
-config.gateway_port = 9765  # 0 = disabled (default)
+# Gateway/admin participation (Python defaults: gateway_port=9765, admin on)
+config.gateway_port = 9765      # first process to bind wins; 0 disables gateway/admin
+config.admin_enabled = True     # default; set False to keep gateway but hide /admin
+config.admin_path = "/admin"    # default
 config.dcc_type = "maya"
 config.dcc_version = "2025"
 config.scene = "/proj/shot01.ma"  # optional: helps routing by scene
@@ -3144,11 +3146,31 @@ dcc-mcp-server translate \
 # Flags: --no-register, --restart-on-exit, --max-restarts N
 ```
 
-### Rust Gateway: Admin Dashboard (#772)
+### Gateway Admin Dashboard (#772)
+
+Default contract: the elected gateway serves one read-only Admin UI at `/admin`; non-winning instances never serve admin. `dcc-mcp-server` and Python `McpHttpConfig` both default to `gateway_port=9765` and admin enabled.
+
+```bash
+# server.exe / dcc-mcp-server
+# default: first process wins gateway/admin at http://127.0.0.1:9765/admin
+dcc-mcp-server --dcc maya
+
+# disable gateway and admin
+dcc-mcp-server --gateway-port 0
+
+# keep gateway, hide admin
+dcc-mcp-server --no-admin
+```
+
+```python
+cfg = McpHttpConfig(port=0)
+cfg.gateway_port = 0        # disable gateway/admin
+cfg.admin_enabled = False   # keep gateway, hide admin
+```
 
 ```rust
-GatewayConfig { admin_enabled: true, admin_path: "/admin".into(), .. }
-// requires: dcc-mcp-gateway = { features = ["admin"] }
+GatewayConfig { admin_enabled: true, admin_path: "/admin".into(), .. } // defaults
+// direct dcc-mcp-gateway users need feature "admin"; dcc-mcp-http/server enable it
 // routes: GET /admin (HTML), GET /admin/api/{instances,tools,calls,logs,health}
 ```
 
