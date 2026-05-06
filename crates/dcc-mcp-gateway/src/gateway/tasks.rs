@@ -43,6 +43,7 @@ pub(crate) async fn start_gateway_tasks(
     adapter_version: Option<String>,
     adapter_dcc: Option<String>,
     cursor_safe_tool_names: bool,
+    middleware_chain: crate::gateway::middleware::MiddlewareChain,
     #[cfg(feature = "admin")] admin_enabled: bool,
     #[cfg(feature = "admin")] admin_path: String,
 ) -> Result<GatewayTasks, Box<dyn std::error::Error + Send + Sync>> {
@@ -515,7 +516,7 @@ pub(crate) async fn start_gateway_tasks(
         event_log: contention_log.clone(),
         #[cfg(feature = "prometheus")]
         gateway_metrics: gateway_metrics.clone(),
-        middleware_chain: Arc::new(crate::gateway::middleware::MiddlewareChain::new()),
+        middleware_chain: Arc::new(middleware_chain),
     };
 
     // ── Admin UI state (#772) ──────────────────────────────────────────────
