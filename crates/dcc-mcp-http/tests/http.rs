@@ -43,6 +43,9 @@ mod jobs_get_status;
 #[path = "http/notifications.rs"]
 mod notifications;
 
+#[path = "http/operability_roadmap_e2e.rs"]
+mod operability_roadmap_e2e;
+
 #[path = "http/prometheus_endpoint.rs"]
 mod prometheus_endpoint;
 
