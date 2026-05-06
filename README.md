@@ -13,7 +13,7 @@
 
 **Production-grade foundation for AI-assisted DCC workflows** — combining the **Model Context Protocol (MCP 2025-03-26 Streamable HTTP)** with a **zero-code Skills system** built on [agentskills.io 1.0](https://agentskills.io/specification). A **Rust-powered core with Python bindings (PyO3)** delivering enterprise-grade performance, security, and scalability — all with **zero runtime Python dependencies**. Supports Python 3.7–3.13.
 
-> **Note**: This project is in active development (v0.14+). APIs may evolve; see `CHANGELOG.md` for version history.
+> **Note**: This project is in active development (v0.15+). APIs may evolve; see `CHANGELOG.md` for version history.
 
 ---
 
@@ -441,7 +441,7 @@ tools/list response (Maya session, nothing loaded yet):
 - **Screen capture** — Full-screen or per-window (HWND `PrintWindow`) viewport capture for AI visual feedback.
 - **USD integration** — Universal Scene Description read/write bridge.
 - **Structured telemetry** — Tracing, recording, optional Prometheus `/metrics` exporter.
-- **~180 public Python symbols** via top-level re-exports; `_core.pyi` is generated after a stub-gen/dev build rather than hand-edited source.
+- **380+ public Python symbols** via top-level re-exports; `_core.pyi` is generated after a stub-gen/dev build rather than hand-edited source.
 
 ---
 
@@ -670,7 +670,7 @@ If you're an AI coding agent, also read:
 - [AGENTS.md](AGENTS.md) — Navigation map for AI agents (entry point, decision tables, top traps).
 - [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md) — Detailed agent rules, traps, code style, and project-specific architecture constraints.
 - [`.agents/skills/dcc-mcp-core/SKILL.md`](.agents/skills/dcc-mcp-core/SKILL.md) — Complete API skill definition.
-- [`python/dcc_mcp_core/__init__.py`](python/dcc_mcp_core/__init__.py) — Full public API surface (~180 symbols).
+- [`python/dcc_mcp_core/__init__.py`](python/dcc_mcp_core/__init__.py) — Full public API surface (380+ symbols).
 - [`python/dcc_mcp_core/_core.pyi`](python/dcc_mcp_core/_core.pyi) — Ground-truth type stubs (parameter names, types, signatures).
 - [`llms.txt`](llms.txt) — Concise API reference optimised for LLMs.
 - [`llms-full.txt`](llms-full.txt) — Complete API reference optimised for LLMs.

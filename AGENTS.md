@@ -85,11 +85,12 @@ Per-DCC MCP server:
 4. Follow up: check next-tools.on-success for suggested next steps
 5. Debug on failure: use dcc_diagnostics__screenshot or audit_log
 
-Gateway / slim / REST exposure:
+Gateway dynamic-capability / REST exposure:
 1. Discover: search_tools(query="keyword", dcc_type="maya") → get tool_slug
 2. Inspect: describe_tool(tool_slug) → read schema + annotations
 3. Execute: call_tool(tool_slug, arguments={...})
-4. For non-MCP clients, use the matching /v1/search, /v1/describe, /v1/call REST endpoints.
+4. The gateway never fans out per-action backend tools into tools/list.
+5. For non-MCP clients, use the matching /v1/search, /v1/describe, /v1/call REST endpoints.
 
 Gateway resources/prompts:
 1. List hand-off artefacts with resources/list; gateway-prefixed URIs identify the owning DCC instance.
@@ -132,7 +133,7 @@ Gateway resources/prompts:
 | Need | Use this |
 |------|----------|
 | Expose DCC tools over MCP | `DccServerBase` → subclass → `start()` |
-| Zero-code tool registration | `SKILL.md` + `scripts/` ([agentskills.io](https://agentskills.io/specification)) |
+| Zero-code tool registration | agentskills.io `SKILL.md` + `metadata.dcc-mcp.tools` → sibling `tools.yaml` + `scripts/` |
 | Zero-code static MCP resources | `metadata.dcc-mcp.resources` → `resources/*.resource.yaml` with `source.type: file` |
 | Structured results | `success_result()` / `error_result()` |
 | Rich error with traceback | `skill_error_with_trace()` |

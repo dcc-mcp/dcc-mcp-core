@@ -20,7 +20,9 @@
 When interacting with Maya, Blender, Houdini, Photoshop, ZBrush, Unreal, Unity,
 Figma, or any custom DCC host, use the Skills-First workflow from `AGENTS.md`.
 Prefer `search_skills` → `load_skill` → tool call on a per-DCC server, or
-`search_tools` → `describe_tool` → `call_tool` on a gateway/slim REST surface.
+`search_tools` → `describe_tool` → `call_tool` on the gateway's bounded
+dynamic-capability surface. Non-MCP clients use the equivalent `/v1/search` →
+`/v1/describe` → `/v1/call` REST flow.
 Do not jump straight to raw subprocesses or host scripting unless the docs say a
 low-level fallback is required.
 

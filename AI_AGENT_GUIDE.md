@@ -63,9 +63,9 @@ else:
 
 When an MCP `tools/call` response includes `CallToolResult._meta["dcc.next_tools"].on_success` or `.on_failure`, **always consider calling those tools next**. This creates a guided workflow chain; the declarations live per tool in sibling `tools.yaml`, not as top-level `SKILL.md` keys.
 
-### Gateway / Slim / REST Surfaces
+### Gateway Dynamic-Capability / REST Surfaces
 
-If your MCP connection is the multi-DCC gateway, especially with `gateway_tool_exposure="slim"` or `"rest"`, do not expect every backend tool to appear in `tools/list`. Use the bounded dynamic-capability workflow instead:
+If your MCP connection is the multi-DCC gateway, do not expect backend actions to appear directly in `tools/list`. The gateway surface is intentionally fixed and bounded; use the dynamic-capability workflow instead:
 
 ```python
 # Gateway MCP wrapper flow

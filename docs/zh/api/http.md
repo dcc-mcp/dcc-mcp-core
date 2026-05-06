@@ -205,7 +205,7 @@ print(f"Maya MCP 服务器: {handle.mcp_url()}")
 
 ## 网关
 
-当多个 DCC 实例同时启动时，其中一个会自动成为**网关** — 一个统一的 `/mcp` 入口点，将所有运行中实例的工具**聚合**成单一 MCP 接口。
+当多个 DCC 实例同时启动时，其中一个会自动成为**网关** — 一个统一的 `/mcp` 入口点和 `/v1/*` REST 门面。自 v0.15 起，网关不会把所有后端 action 合并进 `tools/list`；它保持 MCP 表面有界，并通过 search/describe/call 原语路由后端能力。
 
 ### 工作原理
 
@@ -220,25 +220,28 @@ print(f"Maya MCP 服务器: {handle.mcp_url()}")
 | 端点 | 方法 | 说明 |
 |------|------|------|
 | `/instances` | GET | 所有活跃实例的 JSON 列表 |
+| `/v1/instances` | GET | 实例发现的 REST 别名 |
 | `/health` | GET | `{"ok": true}` 健康检查 |
-| `/mcp` | POST | 聚合 MCP 端点（合并所有后端工具） |
-| `/mcp` | GET | SSE 事件流 — 推送 `tools/list_changed` 与 `resources/list_changed` |
+| `/mcp` | POST | 有界 MCP 端点，只暴露网关发现+派发原语 |
+| `/mcp` | GET | SSE 事件流 — 进度、作业/工作流、资源、prompt 通知 |
+| `/v1/search` | POST | 搜索紧凑后端能力记录 |
+| `/v1/describe` | POST | 获取一个 `tool_slug` 的 schema、annotations 与路由记录 |
+| `/v1/call` | POST | 通过 `tool_slug` 调用一个后端能力 |
 | `/mcp/{instance_id}` | POST | 透明代理到指定实例（底层逃生通道） |
 | `/mcp/dcc/{dcc_type}` | POST | 代理到指定 DCC 类型的最佳实例 |
 
-### 聚合式 Facade
+### 有界 Facade
 
-网关的 `POST /mcp` 是一个统一 MCP 服务器，在单次 `tools/list` 响应中合并三层工具：
+网关的 `POST /mcp` 是一个统一 MCP 服务器，在 `tools/list` 中只暴露固定网关工具：
 
 | 层级 | 工具 | 用途 |
 |------|------|------|
 | 发现元工具 | `list_dcc_instances`、`get_dcc_instance`、`connect_to_dcc` | 枚举 / 查看活跃 DCC；需要直连时返回直接 MCP URL |
-| 技能管理 | `list_skills`、`search_skills`、`get_skill_info`、`load_skill`、`unload_skill` | 读操作向全部 DCC 扇出；`load_skill` / `unload_skill` 通过 `instance_id` / `dcc` 参数指向具体实例 |
-| 后端工具 | 所有活跃 DCC 自身的工具，带 8 字符实例前缀 — 例如 `a1b2c3d4__create_sphere` | 按前缀路由回原始后端 |
+| 技能管理 | `list_skills`、`search_skills`、`get_skill_info`、`load_skill`、`unload_skill` | 跨 DCC 搜索/加载 skills，或用 `instance_id` / `dcc` 指向具体实例 |
+| 动态能力 wrapper | `search_tools`、`describe_tool`、`call_tool` | 发现紧凑后端记录、拉取单个 schema、再按 `tool_slug` 调用 |
+| 运维工具 | `acquire_dcc_instance`、`release_dcc_instance`、诊断工具 | 预热实例池化和网关健康排障 |
 
-每个命名空间化的后端工具还会附带 `_instance_id`、`_instance_short`、`_dcc_type` 注解，以便 agent 消歧（比如 `create_cube` 在 Maya 和 Blender 上各注册一次时，会表现为两个带不同前缀的独立条目）。
-
-网关声明 `capabilities.tools.listChanged: true`，每 3 秒轮询后端；当聚合集合发生变化（任何一处加载 / 卸载 skill）时，向所有连接的 SSE 客户端广播 `notifications/tools/list_changed`。
+后端 action 通过 `tool_slug`（`<dcc>.<id8>.<tool>`）寻址。Agent 不应手写 slug；应从 `search_tools` 或 `POST /v1/search` 获取，然后调用 `describe_tool` / `call_tool` 或等价 REST 端点。
 
 ### Python 示例
 
@@ -264,7 +267,7 @@ print(handle.mcp_url())         # 本实例的直接 MCP URL
 ```
 
 ::: tip 多 DCC、单入口
-启动任意数量的 DCC 服务器 — 第一个赢得网关端口。Agent 始终连接 `http://localhost:9765/mcp`，在单一 `tools/list` 中看到所有后端工具（按实例命名空间化）。需要直连、不经代理时再使用 `list_dcc_instances` / `connect_to_dcc`。
+启动任意数量的 DCC 服务器 — 第一个赢得网关端口。Agent 连接 `http://localhost:9765/mcp` 后，先用 `search_tools` 发现后端能力，再用 `describe_tool` / `call_tool` 使用其中一个能力。需要直连、不经代理时再使用 `list_dcc_instances` / `connect_to_dcc`。
 :::
 
 ::: info Skills-First + 网关

@@ -7,9 +7,10 @@
 The **gateway** is a single Rust HTTP server (running on `localhost:9765` by default) that:
 
 - Discovers all running DCC instances (Maya, Blender, Houdini, Photoshop, etc.)
-- Aggregates every live backend's tools into one unified `/mcp` endpoint (namespaced by `{instance_short}__{name}`)
+- Keeps one unified, bounded `/mcp` endpoint with discover+dispatch primitives instead of fanning out every backend action
+- Routes `search_tools` / `describe_tool` / `call_tool` and `/v1/*` REST calls to the selected backend capability
 - Fans out skill-management calls (`search_skills`, `list_skills`) and routes targeted calls (`load_skill`) to a specific instance
-- Pushes `tools/list_changed` and `resources/list_changed` over SSE as skills load/unload or instances come and go
+- Pushes progress, job/workflow, resource, and prompt notifications over SSE as instances come and go
 
 **One gateway per machine**. It's started automatically when the first DCC instance registers.
 
@@ -262,10 +263,10 @@ session_b = mgr.get_or_create_session("maya", iid_rig)
 # Sessions are different — no context bleeding
 assert session_a != session_b
 
-# Through the aggregating gateway, both instances' tools appear in a single
-# tools/list with distinct 8-char prefixes, so the agent can target either:
-#   a1b2c3d4__set_keyframe   ← maya-animation
-#   e5f6g7h8__mirror_joints  ← maya-rigging
+# Through the gateway, the agent targets an instance by choosing a
+# tool_slug returned from search_tools / /v1/search:
+#   maya.a1b2c3d4.set_keyframe   ← maya-animation
+#   maya.e5f6g7h8.mirror_joints  ← maya-rigging
 ```
 
 ## Instance Health

@@ -6,7 +6,7 @@ description: >-
   an existing skill directory, or generate a SKILL.md template. Not for
   executing DCC commands — use domain-specific skills for that.
 license: MIT
-compatibility: "Python 3.7+, dcc-mcp-core 0.14.3+"
+compatibility: "Python 3.7+, dcc-mcp-core 0.15+"
 allowed-tools: Bash Read Write Edit
 metadata:
   dcc-mcp:
@@ -106,4 +106,4 @@ The validator checks:
 - **Script files**: `source_file` references exist in `scripts/`
 - **Sidecar files**: `metadata.dcc-mcp.tools/groups/prompts` references exist
 - **Dependencies**: `depends` vs `metadata/depends.md` consistency
-- **Legacy fields**: top-level extension keys (info-level notice)
+- **Spec compliance**: non-standard top-level keys are frontmatter errors; dcc-mcp-core extensions must live under `metadata.dcc-mcp.*` and point to sibling files
