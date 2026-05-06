@@ -1017,7 +1017,7 @@ One config block exposes all OpenAPI paths as MCP tools with preserved auth + sc
 ```bash
 dcc-mcp-server translate \
   --stdio "npx @modelcontextprotocol/server-filesystem /tmp" \
-  --dcc-type filesystem --port 3333 --transport sse
+  --app-type filesystem --port 3333 --transport sse
 ```
 
 Flags: `--no-register` (standalone), `--restart-on-exit` (supervisor), `--max-restarts N`.

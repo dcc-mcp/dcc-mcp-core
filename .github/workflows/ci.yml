@@ -90,6 +90,14 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
+      # Ubuntu images can ship rustup proxy binaries that conflict when
+      # rust-toolchain.toml requests clippy/rustfmt during `vx just build`.
+      # Remove them before dtolnay/rust-toolchain/vx lets rustup install the
+      # requested components. Mirrors .github/actions/build-wheel.
+      - name: Remove pre-installed cargo component proxies
+        if: runner.os == 'Linux'
+        run: rm -f ~/.cargo/bin/cargo-clippy ~/.cargo/bin/cargo-fmt || true
+        shell: bash
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-python@v6
         with:

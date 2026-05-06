@@ -178,7 +178,7 @@ Gateway resources/prompts:
 | Stamp gateway sentinel for election | `McpHttpConfig(..., adapter_version=..., adapter_dcc=...)` or `.with_adapter_version().with_adapter_dcc()` (issue maya#137) |
 | Discover team-level skills | `scan_and_load_team()` / `scan_and_load_team_lenient()` |
 | Discover user-level skills | `scan_and_load_user()` / `scan_and_load_user_lenient()` |
-| Bridge stdio MCP server to HTTP/SSE | `dcc-mcp-server translate --stdio "cmd" --dcc-type foo --port N` |
+| Bridge stdio MCP server to HTTP/SSE | `dcc-mcp-server translate --stdio "cmd" --app-type foo --port N` |
 | Add audit/quota/redact to all gateway calls | `GatewayConfig::middleware_chain` + `AuditMiddleware` / `QuotaMiddleware` / `RedactionMiddleware` |
 | Mount OpenAPI REST API as MCP tools | `GatewayBuilder::mount_openapi(OpenApiMount::from_url(...).auth(...))` |
 | Enable built-in gateway admin dashboard | `GatewayConfig { admin_enabled: true }` → open `GET /admin` |

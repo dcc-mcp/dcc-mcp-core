@@ -69,8 +69,8 @@ cross build --release --bin dcc-mcp-server --target x86_64-unknown-linux-gnu
 | `DCC_MCP_STALE_TIMEOUT` | `30` | 超过多少秒没有心跳则视为实例已死 |
 | `DCC_MCP_HEARTBEAT_INTERVAL` | `5` | 心跳间隔（秒） |
 | `DCC_MCP_SERVER_NAME` | `dcc-mcp-server` | 向 MCP 客户端广告的服务名 |
-| `DCC_MCP_DCC` | *（空）* | DCC 类型提示：`maya`、`blender`、`photoshop`…… |
-| `DCC_MCP_DCC_VERSION` | — | 写入注册表条目 |
+| `DCC_MCP_APP` | *（空）* | 应用类型提示：`maya`、`blender`、`photoshop`…… |
+| `DCC_MCP_APP_VERSION` | — | 写入注册表条目 |
 | `DCC_MCP_SCENE` | — | 当前场景文件名 |
 | `DCC_MCP_SKILL_PATHS` | — | `:` / `;` 分隔的额外 skill 目录 |
 | `DCC_MCP_LOG_FILE` | `false` | 在 stderr 之外启用滚动文件日志 |
@@ -80,7 +80,7 @@ cross build --release --bin dcc-mcp-server --target x86_64-unknown-linux-gnu
 
 ```bash
 # 终端 1
-dcc-mcp-server --dcc generic --mcp-port 18812
+dcc-mcp-server --app generic --mcp-port 18812
 
 # 终端 2
 curl -sf http://127.0.0.1:9765/health   # → {"ok":true}

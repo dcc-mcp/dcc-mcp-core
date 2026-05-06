@@ -3142,7 +3142,7 @@ Auth types: `bearer()`, `api_key()`, `basic()`. `$ENV_VAR` references resolved a
 ```bash
 dcc-mcp-server translate \
   --stdio "npx @modelcontextprotocol/server-filesystem /tmp" \
-  --dcc-type filesystem --port 3333 --transport sse
+  --app-type filesystem --port 3333 --transport sse
 # Flags: --no-register, --restart-on-exit, --max-restarts N
 ```
 
@@ -3153,7 +3153,7 @@ Default contract: the elected gateway serves one read-only Admin UI at `/admin`;
 ```bash
 # server.exe / dcc-mcp-server
 # default: first process wins gateway/admin at http://127.0.0.1:9765/admin
-dcc-mcp-server --dcc maya
+dcc-mcp-server --app maya
 
 # disable gateway and admin
 dcc-mcp-server --gateway-port 0

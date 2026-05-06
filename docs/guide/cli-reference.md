@@ -30,7 +30,7 @@ instances that the winner aggregates.
 |---|---|---|---|
 | `--mcp-port` | `DCC_MCP_MCP_PORT` | `0` | MCP Streamable HTTP port. `0` = OS-assigned. |
 | `--ws-port` | `DCC_MCP_WS_PORT` | `9001` | WebSocket bridge port for non-Python DCC plugins. |
-| `--dcc` | `DCC_MCP_DCC` | `""` | DCC tag (`"maya"`, `"blender"`, `"photoshop"`, …). Feeds skill discovery + the registry row. |
+| `--app` | `DCC_MCP_APP` | `""` | App tag (`"maya"`, `"blender"`, `"photoshop"`, …). Feeds skill discovery + the registry row. |
 | `--skill-paths` | — | `[]` | Additional skill search paths (repeatable). |
 | `--server-name` | `DCC_MCP_SERVER_NAME` | `"dcc-mcp-server"` | Server name advertised to MCP clients. |
 | `--no-bridge` | — | `false` | Disable the WebSocket bridge; MCP HTTP only. |
@@ -47,7 +47,7 @@ instances that the winner aggregates.
 | `--gateway-cursor-safe-tool-names` | `DCC_MCP_GATEWAY_CURSOR_SAFE_TOOL_NAMES` | `true` | Emit cursor-safe `i_<id8>__<escaped>` names for fanned-out **prompts** (after PR A the gateway no longer fans out tools — this flag applies to prompts only). |
 | `--registry-dir` | `DCC_MCP_REGISTRY_DIR` | platform temp dir | Shared `FileRegistry` directory. |
 | `--stale-timeout-secs` | `DCC_MCP_STALE_TIMEOUT` | `30` | Seconds without heartbeat before an instance is considered stale. |
-| `--dcc-version` | `DCC_MCP_DCC_VERSION` | — | DCC version (e.g., `"2024.2"`); recorded in the registry. |
+| `--app-version` | `DCC_MCP_APP_VERSION` | — | App version (e.g., `"2024.2"`); recorded in the registry. |
 | `--scene` | `DCC_MCP_SCENE` | — | Currently-open scene / document; recorded in the registry, used by multi-instance disambiguation. |
 | `--heartbeat-secs` | `DCC_MCP_HEARTBEAT_INTERVAL` | `5` | Heartbeat cadence in seconds. `0` disables. |
 
@@ -72,17 +72,17 @@ instances that the winner aggregates.
 
 ```bash
 # 1) Single standalone server on an OS-assigned MCP port, no gateway.
-dcc-mcp-server --dcc maya --gateway-port 0
+dcc-mcp-server --app maya --gateway-port 0
 
 # 2) Gateway-winner on a workstation with multiple DCCs.
 #    First terminal wins the gateway port, subsequent ones register as plain instances.
-dcc-mcp-server --dcc maya --server-name maya-shotgun-alpha \
+dcc-mcp-server --app maya --server-name maya-shotgun-alpha \
                --scene /shots/ep101/sh0200/shot.ma \
                --log-dir /var/log/dcc-mcp
 
 # 3) Workstation-wide gateway listening on 0.0.0.0 (careful: auth is
 #    localhost-only by default; install BearerTokenGate before exposing).
-dcc-mcp-server --dcc generic --host 0.0.0.0 \
+dcc-mcp-server --app generic --host 0.0.0.0 \
                --mcp-port 9765 \
                --registry-dir /var/lib/dcc-mcp
 ```
@@ -181,7 +181,7 @@ or by a user autostart. Covers headless studios running things like
 capabilities via MCP + REST.
 
 ```bash
-dcc-mcp-server --dcc maya --scene /shots/ep101/sh0200/shot.ma
+dcc-mcp-server --app maya --scene /shots/ep101/sh0200/shot.ma
 ```
 
 ### Scenario 3 — Gateway aggregating multiple DCC servers

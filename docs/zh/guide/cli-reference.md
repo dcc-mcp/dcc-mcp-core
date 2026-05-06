@@ -27,7 +27,7 @@
 |---|---|---|---|
 | `--mcp-port` | `DCC_MCP_MCP_PORT` | `0` | MCP Streamable HTTP 端口。`0` = OS 分配。 |
 | `--ws-port` | `DCC_MCP_WS_PORT` | `9001` | 给非 Python DCC 插件用的 WebSocket 桥端口。 |
-| `--dcc` | `DCC_MCP_DCC` | `""` | DCC 标签（`"maya"`、`"blender"`、`"photoshop"` …）。驱动 skill 发现 + 注册表行。 |
+| `--app` | `DCC_MCP_APP` | `""` | 应用标签（`"maya"`、`"blender"`、`"photoshop"` …）。驱动 skill 发现 + 注册表行。 |
 | `--skill-paths` | — | `[]` | 附加的 skill 搜索路径（可重复）。 |
 | `--server-name` | `DCC_MCP_SERVER_NAME` | `"dcc-mcp-server"` | 通告给 MCP 客户端的服务器名。 |
 | `--no-bridge` | — | `false` | 关闭 WebSocket 桥；仅 MCP HTTP。 |
@@ -44,7 +44,7 @@
 | `--gateway-cursor-safe-tool-names` | `DCC_MCP_GATEWAY_CURSOR_SAFE_TOOL_NAMES` | `true` | 为扇出的**提示（prompts）**发出 cursor-safe 的 `i_<id8>__<escaped>` 名字（PR A 后网关不再扇出工具，只影响 prompts）。 |
 | `--registry-dir` | `DCC_MCP_REGISTRY_DIR` | 平台 temp | 共享 `FileRegistry` 目录。 |
 | `--stale-timeout-secs` | `DCC_MCP_STALE_TIMEOUT` | `30` | 没心跳后多少秒实例被判为过期。 |
-| `--dcc-version` | `DCC_MCP_DCC_VERSION` | — | DCC 版本（如 `"2024.2"`）；记入注册表。 |
+| `--app-version` | `DCC_MCP_APP_VERSION` | — | 应用版本（如 `"2024.2"`）；记入注册表。 |
 | `--scene` | `DCC_MCP_SCENE` | — | 当前打开的场景 / 文档；记入注册表，多实例 disambiguation 使用。 |
 | `--heartbeat-secs` | `DCC_MCP_HEARTBEAT_INTERVAL` | `5` | 心跳周期。`0` 关闭。 |
 
@@ -69,17 +69,17 @@
 
 ```bash
 # 1) 单机服务，OS 分配 MCP 端口，不开网关。
-dcc-mcp-server --dcc maya --gateway-port 0
+dcc-mcp-server --app maya --gateway-port 0
 
 # 2) 工作站上多 DCC 的网关赢家。
 #    第一个终端赢网关端口，后续的注册成普通实例。
-dcc-mcp-server --dcc maya --server-name maya-shotgun-alpha \
+dcc-mcp-server --app maya --server-name maya-shotgun-alpha \
                --scene /shots/ep101/sh0200/shot.ma \
                --log-dir /var/log/dcc-mcp
 
 # 3) 整台工作站的网关，监听 0.0.0.0（注意：默认仅本机鉴权；
 #    对外暴露前先装 BearerTokenGate）。
-dcc-mcp-server --dcc generic --host 0.0.0.0 \
+dcc-mcp-server --app generic --host 0.0.0.0 \
                --mcp-port 9765 \
                --registry-dir /var/lib/dcc-mcp
 ```
@@ -175,7 +175,7 @@ Maya / Blender / Houdini 插件把 `dcc_mcp_core` 加载到宿主的 Python
 对外暴露能力的场景。
 
 ```bash
-dcc-mcp-server --dcc maya --scene /shots/ep101/sh0200/shot.ma
+dcc-mcp-server --app maya --scene /shots/ep101/sh0200/shot.ma
 ```
 
 ### 场景 3 —— 网关汇聚多个 DCC 服务

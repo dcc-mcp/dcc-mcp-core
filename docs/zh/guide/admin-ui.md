@@ -10,7 +10,7 @@
 
 ```bash
 # 默认：参与 :9765 网关选举；赢得选举的进程提供 /admin
-dcc-mcp-server --dcc maya
+dcc-mcp-server --app maya
 
 # 完全禁用网关（同时禁用 admin）
 dcc-mcp-server --gateway-port 0

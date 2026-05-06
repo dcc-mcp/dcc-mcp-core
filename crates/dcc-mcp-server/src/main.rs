@@ -10,13 +10,13 @@
 //!
 //! ```bash
 //! # Terminal 1 — Maya, gets OS-assigned port :18812, wins gateway :9765
-//! dcc-mcp-server --dcc maya
+//! dcc-mcp-server --app maya
 //!
 //! # Terminal 2 — Maya, gets :18813, gateway port already taken → plain instance
-//! dcc-mcp-server --dcc maya
+//! dcc-mcp-server --app maya
 //!
 //! # Terminal 3 — Photoshop, gets :18814, plain instance
-//! dcc-mcp-server --dcc photoshop
+//! dcc-mcp-server --app photoshop
 //! ```
 //!
 //! ```bash
@@ -66,7 +66,7 @@
 //! | `DCC_MCP_SKILL_PATHS`     | Colon/semicolon-separated skill dirs               |
 //! | `DCC_MCP_MCP_PORT`        | MCP HTTP server port (default 0 = OS-assigned)     |
 //! | `DCC_MCP_WS_PORT`         | WebSocket bridge port (default 9001)               |
-//! | `DCC_MCP_DCC`             | DCC name hint (e.g. "maya", "photoshop")           |
+//! | `DCC_MCP_APP`             | App name hint (e.g. "maya", "photoshop")           |
 //! | `DCC_MCP_SERVER_NAME`     | Server name advertised to MCP clients              |
 //! | `DCC_MCP_GATEWAY_PORT`    | Gateway port to compete for (default 9765, 0=off)  |
 //! | `DCC_MCP_NO_ADMIN`        | Disable read-only `/admin` on the elected gateway  |
@@ -118,9 +118,9 @@ struct Args {
     #[arg(long, env = "DCC_MCP_WS_PORT", default_value = "9001")]
     ws_port: u16,
 
-    /// DCC application type (e.g. "maya", "photoshop", "blender").
-    #[arg(long, env = "DCC_MCP_DCC", default_value = "")]
-    dcc: String,
+    /// Application type (e.g. "maya", "photoshop", "blender").
+    #[arg(long, env = "DCC_MCP_APP", default_value = "")]
+    app: String,
 
     /// Additional skill search paths (repeatable).
     #[arg(long, value_name = "PATH", num_args = 1..)]
@@ -193,9 +193,9 @@ struct Args {
     #[arg(long, env = "DCC_MCP_STALE_TIMEOUT", default_value = "30")]
     stale_timeout_secs: u64,
 
-    /// DCC application version (reported in registry, e.g. "2024.2").
-    #[arg(long, env = "DCC_MCP_DCC_VERSION")]
-    dcc_version: Option<String>,
+    /// Application version (reported in registry, e.g. "2024.2").
+    #[arg(long, env = "DCC_MCP_APP_VERSION")]
+    app_version: Option<String>,
 
     /// Currently open scene file (reported in registry, improves routing).
     #[arg(long, env = "DCC_MCP_SCENE")]
@@ -655,9 +655,9 @@ async fn main() -> anyhow::Result<()> {
             .into_iter()
             .map(PathBuf::from),
     );
-    if !args.dcc.is_empty() {
+    if !args.app.is_empty() {
         skill_paths.extend(
-            dcc_mcp_skills::paths::get_app_skill_paths_from_env(&args.dcc)
+            dcc_mcp_skills::paths::get_app_skill_paths_from_env(&args.app)
                 .into_iter()
                 .map(PathBuf::from),
         );
@@ -678,10 +678,10 @@ async fn main() -> anyhow::Result<()> {
         dispatcher.clone(),
     ));
 
-    let dcc_hint = if args.dcc.is_empty() {
+    let app_hint = if args.app.is_empty() {
         None
     } else {
-        Some(args.dcc.as_str())
+        Some(args.app.as_str())
     };
     let extra_dirs: Option<Vec<String>> = if skill_paths.is_empty() {
         None
@@ -694,7 +694,7 @@ async fn main() -> anyhow::Result<()> {
                 .collect(),
         )
     };
-    let n = catalog.discover(extra_dirs.as_deref(), dcc_hint);
+    let n = catalog.discover(extra_dirs.as_deref(), app_hint);
     tracing::info!("Discovered {} skill(s) in catalog", n);
 
     // ── Start MCP HTTP server (DCC-specific tools) ────────────────────────
@@ -713,13 +713,13 @@ async fn main() -> anyhow::Result<()> {
     let handle = mcp_server.start().await?;
 
     tracing::info!(
-        "MCP server listening on http://{}:{}/mcp  (dcc={})",
+        "MCP server listening on http://{}:{}/mcp  (app={})",
         args.host,
         handle.port,
-        if args.dcc.is_empty() {
+        if args.app.is_empty() {
             "generic"
         } else {
-            &args.dcc
+            &args.app
         }
     );
 
@@ -746,10 +746,10 @@ async fn main() -> anyhow::Result<()> {
         // election treats it as the lowest tier and yields to any real
         // DCC adapter at equal crate version.
         adapter_version: None,
-        adapter_dcc: if args.dcc.is_empty() {
+        adapter_dcc: if args.app.is_empty() {
             None
         } else {
-            Some(args.dcc.clone())
+            Some(args.app.clone())
         },
         cursor_safe_tool_names: args.gateway_cursor_safe_tool_names,
         middleware_chain: dcc_mcp_http::gateway::middleware::MiddlewareChain::new(),
@@ -761,15 +761,15 @@ async fn main() -> anyhow::Result<()> {
         .map_err(|e| anyhow::anyhow!("Failed to create GatewayRunner: {e}"))?;
 
     let mut entry = ServiceEntry::new(
-        if args.dcc.is_empty() {
+        if args.app.is_empty() {
             "unknown"
         } else {
-            &args.dcc
+            &args.app
         },
         &args.host,
         handle.port,
     );
-    entry.version = args.dcc_version.clone();
+    entry.version = args.app_version.clone();
     entry.scene = args.scene.clone();
     entry
         .metadata

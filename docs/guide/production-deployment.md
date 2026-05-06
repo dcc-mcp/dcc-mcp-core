@@ -70,8 +70,8 @@ The binary is configured entirely through CLI flags or environment variables
 | `DCC_MCP_STALE_TIMEOUT` | `30` | Seconds without a heartbeat before an instance is considered dead |
 | `DCC_MCP_HEARTBEAT_INTERVAL` | `5` | Heartbeat period in seconds |
 | `DCC_MCP_SERVER_NAME` | `dcc-mcp-server` | Name advertised to MCP clients |
-| `DCC_MCP_DCC` | *(empty)* | DCC hint: `maya`, `blender`, `photoshop`, … |
-| `DCC_MCP_DCC_VERSION` | — | Reported in registry entry |
+| `DCC_MCP_APP` | *(empty)* | App hint: `maya`, `blender`, `photoshop`, … |
+| `DCC_MCP_APP_VERSION` | — | Reported in registry entry |
 | `DCC_MCP_SCENE` | — | Current scene file reported to the gateway |
 | `DCC_MCP_SKILL_PATHS` | — | `:` / `;` separated extra skill directories |
 | `DCC_MCP_LOG_FILE` | `false` | Enable rotating file logs in addition to stderr |
@@ -81,7 +81,7 @@ The binary is configured entirely through CLI flags or environment variables
 
 ```bash
 # Terminal 1
-dcc-mcp-server --dcc generic --mcp-port 18812
+dcc-mcp-server --app generic --mcp-port 18812
 
 # Terminal 2
 curl -sf http://127.0.0.1:9765/health   # → {"ok":true}
