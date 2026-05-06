@@ -24,11 +24,17 @@ pub struct GatewayRunner {
 
 impl GatewayRunner {
     /// Create a new runner, initializing (or loading) the `FileRegistry` from
-    /// `config.registry_dir` (or a system temp dir if `None`).
+    /// `config.registry_dir`, the `DCC_MCP_REGISTRY_DIR` environment variable,
+    /// or a system temp dir (in that order of precedence).
     pub fn new(config: GatewayConfig) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let dir = config
             .registry_dir
             .clone()
+            .or_else(|| {
+                std::env::var("DCC_MCP_REGISTRY_DIR")
+                    .ok()
+                    .map(std::path::PathBuf::from)
+            })
             .unwrap_or_else(|| std::env::temp_dir().join("dcc-mcp-registry"));
         let registry = FileRegistry::new(&dir)?;
         Ok(Self {
