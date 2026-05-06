@@ -231,6 +231,18 @@ impl McpHttpConfig {
     pub fn set_gateway_port(&mut self, v: u16) {
         self.gateway.gateway_port = v;
     }
+    pub fn admin_enabled(&self) -> bool {
+        self.gateway.admin_enabled
+    }
+    pub fn set_admin_enabled(&mut self, v: bool) {
+        self.gateway.admin_enabled = v;
+    }
+    pub fn admin_path(&self) -> String {
+        self.gateway.admin_path.clone()
+    }
+    pub fn set_admin_path(&mut self, v: String) {
+        self.gateway.admin_path = v;
+    }
     pub fn stale_timeout_secs(&self) -> u64 {
         self.gateway.stale_timeout_secs
     }
@@ -591,6 +603,15 @@ pub struct GatewayConfig {
     /// `"unknown"` (case-insensitive). Set to `true` only for development
     /// or when intentionally running a standalone server without a real DCC.
     pub allow_unknown_tools: bool,
+
+    /// Enable the read-only gateway admin dashboard.
+    ///
+    /// Default: `true`. Only the elected gateway process mounts this path,
+    /// so a multi-instance process group still exposes a single admin UI.
+    pub admin_enabled: bool,
+
+    /// URL prefix for the admin dashboard. Default: `"/admin"`.
+    pub admin_path: String,
 }
 
 impl Default for GatewayConfig {
@@ -609,6 +630,8 @@ impl Default for GatewayConfig {
             adapter_version: None,
             adapter_dcc: None,
             allow_unknown_tools: false,
+            admin_enabled: true,
+            admin_path: "/admin".to_string(),
         }
     }
 }

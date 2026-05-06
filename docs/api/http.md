@@ -42,7 +42,9 @@ cfg = McpHttpConfig(
 | `enable_cors` | `bool` | `False` | Enable CORS headers for browser clients |
 | `session_ttl_secs` | `int` | `3600` | Idle session TTL in seconds (`0` = disable eviction) |
 | `lazy_actions` | `bool` | `False` | Opt-in: surface only 3 meta-tools (`list_actions`, `describe_action`, `call_action`) instead of all tools in `tools/list` |
-| `gateway_port` | `int` | `0` | Gateway port to compete for (`0` = disabled). See [Gateway](#gateway) |
+| `gateway_port` | `int` | `9765` (Python) | Gateway port to compete for (`0` = disabled). See [Gateway](#gateway) |
+| `admin_enabled` | `bool` | `True` | Elected gateway serves the read-only Admin UI (`GET /admin`) |
+| `admin_path` | `str` | `"/admin"` | URL prefix for the Admin UI |
 | `registry_dir` | `str \| None` | `None` | Directory for the shared `FileRegistry` JSON (defaults to OS temp dir) |
 | `stale_timeout_secs` | `int` | `30` | Seconds without a heartbeat before an instance is considered stale |
 | `heartbeat_secs` | `int` | `5` | Heartbeat interval in seconds (`0` = disabled) |
@@ -268,7 +270,7 @@ When multiple DCC instances start simultaneously, one automatically becomes the 
 ### How it works
 
 - Every instance registers itself in a shared `FileRegistry` (JSON file on disk) and sends periodic heartbeats.
-- The **first** process to bind `gateway_port` (default: `9765`) becomes the gateway; all others are plain instances.
+- The **first** process to bind `gateway_port` (default: `9765` for the Python API and `dcc-mcp-server`) becomes the gateway; all others are plain instances.
 - Mutual exclusion uses `SO_REUSEADDR=false` (via `socket2`), so the first-wins semantics are reliable across platforms including Windows.
 - The gateway probes `GET /v1/readyz` (falling back to `/health` for old backends) and evicts instances after consecutive failures.
 - When the process exits, `McpServerHandle` is dropped and the instance is automatically deregistered.
@@ -359,7 +361,8 @@ registry = ToolRegistry()
 registry.register("get_scene_info", description="Get scene info", category="scene", dcc="maya")
 
 config = McpHttpConfig(port=0, server_name="maya-mcp")
-config.gateway_port = 9765    # join gateway competition; 0 = disabled
+# Python default: gateway_port=9765, admin_enabled=True, admin_path="/admin".
+# Set gateway_port=0 to disable gateway/admin, or admin_enabled=False to keep gateway only.
 config.dcc_type = "maya"
 config.dcc_version = "2025"
 config.scene = "/proj/shot01.ma"  # optional: helps routing by scene
@@ -378,14 +381,15 @@ Start any number of DCC servers — the first one wins the gateway port. Agents 
 :::
 
 ::: info Skills-First + gateway
-`create_skill_server()` does **not** configure `gateway_port` by default. Set it explicitly on the `McpHttpConfig` passed to `create_skill_server()` if you want gateway participation:
+`create_skill_server()` uses the provided `McpHttpConfig`. A freshly constructed Python `McpHttpConfig` joins gateway election by default (`gateway_port=9765`) and exposes Admin on the elected gateway. Set `gateway_port=0` for an isolated server:
 
 ```python
 import os
 from dcc_mcp_core import create_skill_server, McpHttpConfig
 
 config = McpHttpConfig(port=0, server_name="maya")
-config.gateway_port = 9765
+# config.gateway_port = 0        # uncomment to disable gateway/admin
+# config.admin_enabled = False   # keep gateway, hide Admin UI
 config.dcc_type = "maya"
 
 server = create_skill_server("maya", config)

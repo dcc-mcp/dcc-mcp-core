@@ -69,6 +69,8 @@
 //! | `DCC_MCP_DCC`             | DCC name hint (e.g. "maya", "photoshop")           |
 //! | `DCC_MCP_SERVER_NAME`     | Server name advertised to MCP clients              |
 //! | `DCC_MCP_GATEWAY_PORT`    | Gateway port to compete for (default 9765, 0=off)  |
+//! | `DCC_MCP_NO_ADMIN`        | Disable read-only `/admin` on the elected gateway  |
+//! | `DCC_MCP_ADMIN_PATH`      | Admin URL prefix (default `/admin`)                |
 //! | `DCC_MCP_REGISTRY_DIR`    | Shared FileRegistry directory                      |
 //! | `DCC_MCP_STALE_TIMEOUT`   | Seconds without heartbeat = stale (default 30)     |
 
@@ -150,9 +152,17 @@ struct Args {
 
     // ── Gateway ──
     /// Gateway port to compete for. First instance to bind wins the gateway.
-    /// 0 = gateway disabled entirely.
+    /// 0 = gateway disabled entirely (and therefore disables admin too).
     #[arg(long, env = "DCC_MCP_GATEWAY_PORT", default_value = "9765")]
     gateway_port: u16,
+
+    /// Disable the read-only Admin UI on the elected gateway.
+    #[arg(long, env = "DCC_MCP_NO_ADMIN", default_value = "false")]
+    no_admin: bool,
+
+    /// URL prefix for the read-only Admin UI.
+    #[arg(long, env = "DCC_MCP_ADMIN_PATH", default_value = "/admin")]
+    admin_path: String,
 
     /// Emit Cursor-safe gateway prompt names (`i_<id8>__<escaped>`) instead
     /// of the pre-#656 SEP-986 dotted form (`<id8>.<name>`). Issue #656.
@@ -743,8 +753,8 @@ async fn main() -> anyhow::Result<()> {
         },
         cursor_safe_tool_names: args.gateway_cursor_safe_tool_names,
         middleware_chain: dcc_mcp_http::gateway::middleware::MiddlewareChain::new(),
-        admin_enabled: false,
-        admin_path: "/admin".to_string(),
+        admin_enabled: !args.no_admin,
+        admin_path: args.admin_path.clone(),
     };
 
     let runner = GatewayRunner::new(gateway_cfg)
