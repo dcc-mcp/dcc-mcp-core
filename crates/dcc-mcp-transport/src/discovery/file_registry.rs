@@ -786,44 +786,6 @@ impl FileRegistry {
     }
 }
 
-impl Drop for FileRegistry {
-    /// Remove all entries that were registered by **this process** (identified
-    /// via their sentinel lock file handles stored in `sentinel_handles`).
-    ///
-    /// This mirrors what `GatewayHandle::deregister_all` does, but at the
-    /// `FileRegistry` level so callers that hold a registry directly (e.g.
-    /// a test process that bypasses the gateway path) also clean up on drop.
-    ///
-    /// If the process crashes hard (SIGKILL / out-of-memory) Rust destructors
-    /// do not run, but the OS releases the sentinel lock files, so the next
-    /// caller to `prune_dead_entries` or `prune_dead_pids` will still evict
-    /// these rows.  This drop is therefore a *best-effort* fast path that
-    /// avoids the 15-second stale-cleanup window in normal exit scenarios
-    /// (issue #793).
-    fn drop(&mut self) {
-        if self.sentinel_handles.is_empty() {
-            return;
-        }
-        let keys: Vec<_> = self
-            .sentinel_handles
-            .iter()
-            .map(|r| r.key().clone())
-            .collect();
-        for key in &keys {
-            if let Err(e) = self.deregister(key) {
-                // Best-effort: log the error but continue dropping.
-                tracing::warn!(
-                    error = %e,
-                    dcc_type = %key.dcc_type,
-                    instance_id = %key.instance_id,
-                    "FileRegistry::deregister failed during drop — \
-                     entry will be evicted by stale-timeout cleanup"
-                );
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 #[path = "file_registry_tests.rs"]
 mod tests;
