@@ -11,6 +11,27 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.15.1](https://github.com/loonghao/dcc-mcp-core/compare/v0.15.0...v0.15.1) (2026-05-06)
+
+
+### Features
+
+* **gateway:** enable admin by default ([4253e73](https://github.com/loonghao/dcc-mcp-core/commit/4253e7345136822733a35de6e543d7fed688ce69))
+* **http:** expose prompts registration on Python McpHttpServer ([#792](https://github.com/loonghao/dcc-mcp-core/issues/792)) ([cdf31ae](https://github.com/loonghao/dcc-mcp-core/commit/cdf31ae96943fa99450a7cba36c46aa59fe1bbd7))
+* **server:** rename CLI dcc flags to app ([0f04f87](https://github.com/loonghao/dcc-mcp-core/commit/0f04f87455bcb124ac570c974b4d9f60b30d4c59))
+
+
+### Bug Fixes
+
+* **#793:** isolate test registry dirs and add FileRegistry drop cleanup ([cb88af3](https://github.com/loonghao/dcc-mcp-core/commit/cb88af3e9bb4215e62cad49d8843581ccc1ebcd9)), closes [#793](https://github.com/loonghao/dcc-mcp-core/issues/793)
+* **http:** tighten Python prompt registration API ([5ce717b](https://github.com/loonghao/dcc-mcp-core/commit/5ce717b3794acdb89993aa21bd02095dfb3ca9ba))
+* remove FileRegistry::Drop to fix test_read_alive_instances_prunes_dead_pid ([d47de8a](https://github.com/loonghao/dcc-mcp-core/commit/d47de8adb4aa1f056fa93ba4bd7ca263dceeb9a0))
+
+
+### Documentation
+
+* refresh gateway agent guidance ([fb9f7ab](https://github.com/loonghao/dcc-mcp-core/commit/fb9f7abc4943e1b90cc316e1e76304423cffc583))
+
 ## [0.15.0](https://github.com/loonghao/dcc-mcp-core/compare/v0.14.28...v0.15.0) (2026-05-05)
 
 
