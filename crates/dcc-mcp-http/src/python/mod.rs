@@ -3,6 +3,7 @@
 pub mod bridge;
 pub mod config;
 pub mod output_dynamic;
+pub mod prompts_handle;
 pub mod readiness;
 pub mod resources_handle;
 pub mod server;
@@ -15,6 +16,7 @@ pub use bridge::{
 };
 pub use config::PyMcpHttpConfig;
 pub use output_dynamic::{PyOutputCapture, PyToolSpec};
+pub use prompts_handle::PyPromptHandle;
 pub use readiness::PyReadinessProbe;
 pub use resources_handle::PyResourceHandle;
 pub use server::PyServerHandle;

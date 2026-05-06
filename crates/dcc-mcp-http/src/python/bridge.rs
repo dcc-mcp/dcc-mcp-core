@@ -372,6 +372,7 @@ pub fn py_create_skill_server(
         ..Default::default()
     }));
     let resources = crate::server::build_resource_registry(&cfg);
+    let prompts = crate::prompts::PromptRegistry::new(cfg.features.enable_prompts);
     Ok(PyMcpHttpServer {
         registry: reg,
         dispatcher,
@@ -380,6 +381,7 @@ pub fn py_create_skill_server(
         runtime: Arc::new(runtime),
         live_meta,
         resources,
+        prompts,
         attached_executor: parking_lot::Mutex::new(None),
         readiness_probe: parking_lot::Mutex::new(None),
     })
