@@ -47,6 +47,13 @@ pub struct PyMcpHttpServer {
     /// flip the bits on this one instance.
     pub(crate) readiness_probe:
         parking_lot::Mutex<Option<Arc<dyn dcc_mcp_skill_rest::ReadinessProbe>>>,
+    /// Shared [`crate::prompts::PromptRegistry`] (issue #792).
+    ///
+    /// Built at construction time using the same `PromptRegistry::new`
+    /// the server would use internally, so `server.prompts()` returns
+    /// the same registry that backs `/mcp` both before and after
+    /// `start()`.
+    pub(crate) prompts: crate::prompts::PromptRegistry,
 }
 
 #[pymethods]
@@ -81,6 +88,10 @@ impl PyMcpHttpServer {
         // start() runs. Using the canonical `build_resource_registry`
         // keeps artefact-store wiring consistent with the Rust path.
         let resources = crate::server::build_resource_registry(&cfg);
+        // Issue #792 — build the PromptRegistry up-front and share it
+        // between this Python handle and the inner McpHttpServer when
+        // start() runs.
+        let prompts = crate::prompts::PromptRegistry::new(cfg.features.enable_prompts);
         Ok(Self {
             registry: reg,
             dispatcher,
@@ -89,6 +100,7 @@ impl PyMcpHttpServer {
             runtime: Arc::new(runtime),
             live_meta,
             resources,
+            prompts,
             attached_executor: parking_lot::Mutex::new(None),
             readiness_probe: parking_lot::Mutex::new(None),
         })
@@ -158,7 +170,8 @@ impl PyMcpHttpServer {
         )
         .with_dispatcher(self.dispatcher.clone())
         .with_live_meta(self.live_meta.clone())
-        .with_resources(self.resources.clone());
+        .with_resources(self.resources.clone())
+        .with_prompts(self.prompts.clone());
         // If a dispatcher was attached, drain it into the server's
         // main-thread executor slot. Consumed once — further
         // attach_dispatcher calls after start will be rejected by
@@ -456,6 +469,29 @@ impl PyMcpHttpServer {
     ///     handle = server.start()
     fn resources(&self) -> super::resources_handle::PyResourceHandle {
         super::resources_handle::PyResourceHandle::new(self.resources.clone())
+    }
+
+    /// Access the server's prompt registry (issue #792).
+    ///
+    /// Returns a handle that can register, unregister, or clear
+    /// prompts programmatically from Python. Registered prompts
+    /// appear in ``prompts/list`` and can be rendered via
+    /// ``prompts/get``.
+    ///
+    /// Example::
+    ///
+    ///     server = McpHttpServer(registry, McpHttpConfig(port=8765))
+    ///     server.prompts().register_prompt(
+    ///         name="bake_animation",
+    ///         template="Bake from {{start}} to {{end}}",
+    ///         description="Bake animation",
+    ///         arguments=[{"name": "start", "required": True},
+    ///                    {"name": "end",   "required": True}],
+    ///     )
+    ///     handle = server.start()
+    ///     # prompts/list now includes "bake_animation"
+    fn prompts(&self) -> super::prompts_handle::PyPromptHandle {
+        super::prompts_handle::PyPromptHandle::new(self.prompts.clone())
     }
 
     /// Access the server's SkillCatalog for progressive skill loading.

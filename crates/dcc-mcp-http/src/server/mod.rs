@@ -322,6 +322,12 @@ impl McpHttpServer {
         self
     }
 
+    /// Use the given [`PromptRegistry`] instead of the default one.
+    pub fn with_prompts(mut self, prompts: crate::prompts::PromptRegistry) -> Self {
+        self.prompts = prompts;
+        self
+    }
+
     /// Install a shared three-state [`ReadinessProbe`] (issue #714).
     ///
     /// The same probe is wired into **both** the MCP `tools/call`

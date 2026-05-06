@@ -121,6 +121,13 @@ try:
 except ImportError:  # pragma: no cover — pre-built wheel
     ResourceHandle = None  # type: ignore[assignment,misc]
 
+# PromptRegistry PyO3 handle — register prompts from Python (issue #792).
+# Only present after the wheel is rebuilt with the new dcc-mcp-http code.
+try:
+    from dcc_mcp_core._core import PromptHandle  # type: ignore[attr-defined]
+except ImportError:  # pragma: no cover — pre-built wheel
+    PromptHandle = None  # type: ignore[assignment,misc]
+
 from dcc_mcp_core._core import PromptArgument
 from dcc_mcp_core._core import PromptDefinition
 
@@ -643,6 +650,7 @@ __all__ = [
     "ProjectState",
     "PromptArgument",
     "PromptDefinition",
+    "PromptHandle",
     "PyBufferPool",
     "PyCrashRecoveryPolicy",
     "PyDccLauncher",

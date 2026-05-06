@@ -89,6 +89,9 @@ struct PromptRegistryInner {
     /// Prompts keyed by (skill_name, prompt_name) so duplicate names across
     /// skills don't collide.
     entries: BTreeMap<(String, String), PromptEntry>,
+    /// Manually registered prompts (e.g. from Python). These survive
+    /// cache invalidations and are merged into `list()` / `get()`.
+    manual_entries: BTreeMap<(String, String), PromptEntry>,
     /// Names of the loaded skills this cache was built from. Used to
     /// short-circuit rebuilds — swapping this out atomically invalidates.
     loaded_skills: HashSet<String>,
@@ -120,13 +123,44 @@ impl PromptRegistry {
     ///
     /// Called by the server when a skill is loaded or unloaded — the cached
     /// entry set is cleared so the next request rescans all loaded skills.
+    /// Manual entries are preserved.
     pub fn invalidate(&self) {
         let mut g = self.inner.write();
         g.entries.clear();
         g.loaded_skills.clear();
     }
 
-    /// List every prompt known to the registry.
+    /// Register a prompt manually (e.g. from Python embedding).
+    ///
+    /// `skill_name` is used as the namespace (use `"manual"` for adapter-
+    /// registered prompts). Overwrites any existing entry with the same
+    /// `(skill_name, name)` key.
+    pub fn register_prompt(&self, skill_name: &str, entry: PromptEntry) {
+        let mut g = self.inner.write();
+        g.manual_entries
+            .insert((skill_name.to_string(), entry.name.clone()), entry);
+    }
+
+    /// Remove all manually registered prompts for a given skill namespace.
+    pub fn clear_manual_for_skill(&self, skill_name: &str) {
+        let mut g = self.inner.write();
+        g.manual_entries.retain(|(sn, _), _| sn != skill_name);
+    }
+
+    /// Clear every manually registered prompt.
+    pub fn clear_all_manual(&self) {
+        let mut g = self.inner.write();
+        g.manual_entries.clear();
+    }
+
+    /// Remove a single manually registered prompt by (skill_name, name).
+    pub fn unregister_prompt(&self, skill_name: &str, name: &str) {
+        let mut g = self.inner.write();
+        g.manual_entries
+            .remove(&(skill_name.to_string(), name.to_string()));
+    }
+
+    /// List every prompt known to the registry (skill-loaded + manual).
     pub fn list<F>(&self, walk_loaded: F) -> Vec<McpPrompt>
     where
         F: FnOnce(&mut dyn FnMut(&dcc_mcp_models::SkillMetadata)),
@@ -135,15 +169,15 @@ impl PromptRegistry {
             return Vec::new();
         }
         self.refresh_if_needed(walk_loaded);
-        self.inner
-            .read()
-            .entries
+        let g = self.inner.read();
+        g.entries
             .values()
+            .chain(g.manual_entries.values())
             .map(PromptEntry::to_mcp)
             .collect()
     }
 
-    /// Look up + render a single prompt.
+    /// Look up + render a single prompt (skill-loaded or manual).
     pub fn get<F>(
         &self,
         name: &str,
@@ -161,8 +195,11 @@ impl PromptRegistry {
         // with a named-parameter error.
         let entry = {
             let g = self.inner.read();
-            g.entries
+            // Search manual entries first (they are explicit registrations),
+            // then skill-loaded entries.
+            g.manual_entries
                 .values()
+                .chain(g.entries.values())
                 .find(|e| e.name == name)
                 .cloned()
                 .ok_or_else(|| PromptError::NotFound(name.to_string()))?

@@ -36,6 +36,7 @@
 | Wrap values for safe RPyC transport | `wrap_value()` / `unwrap_value()` |
 | Handle multiple versions of an action | `VersionedRegistry` + `VersionConstraint` |
 | Expose DCC tools over HTTP/MCP | `create_skill_server("maya", McpHttpConfig(port=8765))` — Skills-First one-call setup; gateway/slim agents use `search_tools` → `describe_tool` → `call_tool`; falls back to `McpHttpServer(registry, config)` for manual registry wiring |
+| Register MCP prompts from Python (issue #792) | `server.prompts().register_prompt(name, template, description=..., arguments=[{"name": str, "required": bool}])` — returns `PromptHandle`; prompts visible in `prompts/list` and rendered by `prompts/get`; call before or after `start()` with immediate effect |
 | Persist and resume DCC project state | `DccProject.open/load(...)` + `register_project_tools(server, ...)` exposing `project.save/load/resume/status` |
 | Share resources/prompts through a gateway | `resources/list/read/subscribe` with exact gateway-returned URIs; `prompts/list/get` for namespaced backend prompts |
 | Discover team-level skills | `scan_and_load_team()` / `scan_and_load_team_lenient()` |
@@ -1157,6 +1158,50 @@ Gateway resources preserve backend ownership in the URI. Agents must pass the ex
 - `<scheme>://<id8>/<rest>` — forwarded backend resource URI with the instance prefix.
 
 Gateway prompt aggregation follows the same progressive discovery principle: use `prompts/list` to see namespaced prompt templates from every live backend and `prompts/get` with the returned name to fetch one template.
+
+### PromptHandle — Registering Prompts from Python (issue #792)
+
+Python adapters can register MCP prompts directly without touching Rust code, mirroring the `ResourceHandle` pattern:
+
+```python
+from dcc_mcp_core import McpHttpServer, McpHttpConfig, ToolRegistry
+
+registry = ToolRegistry()
+cfg = McpHttpConfig(port=8765)
+cfg.enable_prompts = True          # required to surface prompts/list
+
+server = McpHttpServer(registry, cfg)
+
+# Obtain handle — works before or after start()
+handle = server.prompts()
+
+handle.register_prompt(
+    name="bake_animation",
+    description="Bake animation across a frame range",
+    template="Please bake animation from {{start}} to {{end}} with sample rate {{sample_rate}}",
+    arguments=[
+        {"name": "start",       "required": True},
+        {"name": "end",         "required": True},
+        {"name": "sample_rate", "required": False},
+    ],
+)
+
+server_handle = server.start()
+# prompts/list now includes "bake_animation"
+# prompts/get {"name":"bake_animation","arguments":{"start":"1","end":"100"}}
+#   → messages[0].content.text = "Please bake animation from 1 to 100 with sample rate "
+
+# Dynamic update — takes effect immediately, no restart required
+handle.unregister_prompt("bake_animation")
+handle.clear()                     # remove every prompt registered via this handle
+```
+
+`PromptHandle` API:
+- `.register_prompt(name, template, *, description=None, arguments=None)` — upserts a prompt; `arguments` is a list of `{"name": str, "required": bool}` dicts
+- `.unregister_prompt(name)` — removes one prompt (no-op if not found)
+- `.clear()` — removes all prompts registered through this handle
+
+Template placeholder syntax: `{{arg_name}}` — replaced verbatim by `prompts/get` arguments. Missing required arguments return a JSON-RPC error.
 
 ### Project Persistence MCP Tools
 
