@@ -14,7 +14,7 @@ The `translate` subcommand bridges any stdio MCP server to HTTP/SSE/Streamable-H
 ```bash
 dcc-mcp-server translate \
   --stdio "npx @modelcontextprotocol/server-filesystem /tmp" \
-  --dcc-type filesystem \
+  --app-type filesystem \
   --port 3333 \
   --transport sse
 ```
@@ -26,7 +26,7 @@ dcc-mcp-server translate \
 | `--stdio <cmd>` | required | Shell command to launch the stdio MCP server |
 | `--port <N>` | `0` (OS-assigned) | HTTP listen port |
 | `--transport <sse\|streamable-http>` | `sse` | HTTP transport protocol |
-| `--dcc-type <type>` | `stdio` | DCC type label for gateway registration |
+| `--app-type <type>` | `stdio` | Application type label for gateway registration |
 | `--host <addr>` | `127.0.0.1` | Listen address |
 | `--no-register` | false | Skip gateway election (run as standalone server) |
 | `--restart-on-exit` | false | Restart the stdio process if it exits (supervisor mode) |
@@ -41,7 +41,7 @@ dcc-mcp-server translate \
 ```bash
 dcc-mcp-server translate \
   --stdio "npx -y @modelcontextprotocol/server-filesystem /home/user/projects" \
-  --dcc-type filesystem \
+  --app-type filesystem \
   --port 4000
 ```
 
@@ -50,7 +50,7 @@ dcc-mcp-server translate \
 ```bash
 dcc-mcp-server translate \
   --stdio "uvx mcp-server-git --repository /path/to/repo" \
-  --dcc-type git \
+  --app-type git \
   --port 4001 \
   --restart-on-exit \
   --max-restarts 10

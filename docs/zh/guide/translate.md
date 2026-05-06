@@ -14,7 +14,7 @@
 ```bash
 dcc-mcp-server translate \
   --stdio "npx @modelcontextprotocol/server-filesystem /tmp" \
-  --dcc-type filesystem \
+  --app-type filesystem \
   --port 3333 \
   --transport sse
 ```
@@ -26,7 +26,7 @@ dcc-mcp-server translate \
 | `--stdio <cmd>` | 必填 | 启动 stdio MCP 服务器的 Shell 命令 |
 | `--port <N>` | `0`（OS 分配） | HTTP 监听端口 |
 | `--transport <sse\|streamable-http>` | `sse` | HTTP 传输协议 |
-| `--dcc-type <type>` | `stdio` | 用于网关注册的 DCC 类型标签 |
+| `--app-type <type>` | `stdio` | 用于网关注册的应用类型标签 |
 | `--host <addr>` | `127.0.0.1` | 监听地址 |
 | `--no-register` | false | 跳过网关选举（独立运行模式） |
 | `--restart-on-exit` | false | stdio 进程退出后自动重启（supervisor 模式） |
@@ -41,7 +41,7 @@ dcc-mcp-server translate \
 ```bash
 dcc-mcp-server translate \
   --stdio "npx -y @modelcontextprotocol/server-filesystem /home/user/projects" \
-  --dcc-type filesystem \
+  --app-type filesystem \
   --port 4000
 ```
 
@@ -50,7 +50,7 @@ dcc-mcp-server translate \
 ```bash
 dcc-mcp-server translate \
   --stdio "uvx mcp-server-git --repository /path/to/repo" \
-  --dcc-type git \
+  --app-type git \
   --port 4001 \
   --restart-on-exit \
   --max-restarts 10

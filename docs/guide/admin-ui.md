@@ -10,7 +10,7 @@ The gateway ships a zero-build, zero-dependency `/admin` web dashboard (issue #7
 
 ```bash
 # Default: joins gateway election on :9765; elected process serves /admin
-dcc-mcp-server --dcc maya
+dcc-mcp-server --app maya
 
 # Disable gateway entirely (also disables admin)
 dcc-mcp-server --gateway-port 0

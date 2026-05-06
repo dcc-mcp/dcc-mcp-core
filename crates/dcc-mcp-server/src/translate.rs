@@ -6,7 +6,7 @@
 //! # Bridge a single stdio server and register it with the local gateway:
 //! dcc-mcp-server translate \
 //!     --stdio "uvx mcp-server-git" \
-//!     --dcc-type git \
+//!     --app-type git \
 //!     --expose-streamable-http \
 //!     --port 0
 //!
@@ -71,9 +71,9 @@ pub struct TranslateArgs {
     #[arg(long, value_name = "CMD")]
     pub stdio: String,
 
-    /// DCC type label for gateway registration (e.g. "git", "filesystem").
+    /// Application type label for gateway registration (e.g. "git", "filesystem").
     #[arg(long, default_value = "external")]
-    pub dcc_type: String,
+    pub app_type: String,
 
     /// Expose MCP Streamable HTTP endpoint at /mcp (POST + SSE upgrade).
     #[arg(long, default_value = "true", action = clap::ArgAction::Set)]
@@ -531,7 +531,7 @@ pub async fn run(args: TranslateArgs) -> anyhow::Result<()> {
     let server_name = args
         .server_name
         .clone()
-        .unwrap_or_else(|| format!("translate-{}", args.dcc_type));
+        .unwrap_or_else(|| format!("translate-{}", args.app_type));
 
     // ── Start stdio bridge actor ──────────────────────────────────────────
     let (tx, rx) = mpsc::channel::<BridgeRequest>(128);
@@ -563,8 +563,8 @@ pub async fn run(args: TranslateArgs) -> anyhow::Result<()> {
     let bound_port = bound_addr.port();
 
     info!(
-        "translate bridge listening on http://{}:{}/mcp  (dcc_type={})",
-        args.host, bound_port, args.dcc_type
+        "translate bridge listening on http://{}:{}/mcp  (app_type={})",
+        args.host, bound_port, args.app_type
     );
     if args.expose_sse {
         info!(
@@ -595,7 +595,7 @@ pub async fn run(args: TranslateArgs) -> anyhow::Result<()> {
             route_ttl_secs: 60 * 60 * 24,
             max_routes_per_session: 1_000,
             adapter_version: None,
-            adapter_dcc: Some(args.dcc_type.clone()),
+            adapter_dcc: Some(args.app_type.clone()),
             cursor_safe_tool_names: true,
             middleware_chain: dcc_mcp_http::gateway::middleware::MiddlewareChain::new(),
             admin_enabled: !args.no_admin,
@@ -605,7 +605,7 @@ pub async fn run(args: TranslateArgs) -> anyhow::Result<()> {
         let runner = GatewayRunner::new(gateway_cfg)
             .map_err(|e| anyhow::anyhow!("Failed to create GatewayRunner: {e}"))?;
 
-        let mut entry = ServiceEntry::new(&args.dcc_type, &args.host, bound_port);
+        let mut entry = ServiceEntry::new(&args.app_type, &args.host, bound_port);
         entry
             .metadata
             .insert("server_name".to_string(), server_name.clone());
