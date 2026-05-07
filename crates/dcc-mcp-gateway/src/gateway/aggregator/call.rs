@@ -21,9 +21,6 @@ pub async fn route_tools_call(
 ) -> (String, bool) {
     // ── Local meta-tools ────────────────────────────────────────────────
     match tool {
-        "list_dcc_instances" => return to_text_result(tool_list_instances(gs, args).await),
-        "get_dcc_instance" => return to_text_result(tool_get_instance(gs, args).await),
-        "connect_to_dcc" => return to_text_result(tool_connect_to_dcc(gs, args).await),
         "acquire_dcc_instance" => return to_text_result(tool_acquire_instance(gs, args).await),
         "release_dcc_instance" => return to_text_result(tool_release_instance(gs, args).await),
         "diagnostics__process_status" => {

@@ -296,26 +296,39 @@ When multiple DCC instances start simultaneously, one automatically becomes the 
 
 | Tier | Tools | Purpose |
 |------|-------|---------|
-| Discovery meta | `list_dcc_instances`, `get_dcc_instance`, `connect_to_dcc` | Enumerate / inspect live DCCs; get a direct MCP URL when needed |
 | Skill management | `list_skills`, `search_skills`, `get_skill_info`, `load_skill`, `unload_skill` | Search/load skills across DCCs or target a specific instance via `instance_id` / `dcc` |
 | Dynamic capability wrappers | `search_tools`, `describe_tool`, `call_tool` | Discover compact backend records, fetch one schema, then invoke by `tool_slug` |
 | Operations | `acquire_dcc_instance`, `release_dcc_instance`, diagnostics tools | Pool warm instances and debug gateway health |
 
 Backend actions are addressed by `tool_slug` (`<dcc>.<id8>.<tool>`). Agents should not construct slugs by hand; obtain them from `search_tools` or `POST /v1/search`, then call `describe_tool` / `call_tool` or the equivalent REST endpoints.
 
-#### `list_dcc_instances` — operator view (issue maya#138)
+#### `gateway://instances` — DCC registry as an MCP resource (#813 phase 1)
 
-`list_dcc_instances` returns every parseable row in the registry directory
-(`$TEMP/dcc-mcp-registry/`), regardless of `dcc_type`, and surfaces stale
-sentinels with `status: "stale"` so operators can see why a registration
-is no longer routable instead of having it silently elided.
+The live DCC registry is published as a gateway-native MCP resource, not as
+a tool. Agents fetch it via `resources/read` instead of paying the
+`tools/list` token cost for instance-discovery verbs.
 
-The response shape is:
+```jsonc
+// Request: list every parseable row in the registry directory
+// (`$TEMP/dcc-mcp-registry/`), regardless of `dcc_type`. Stale sentinels
+// surface with `status: "stale"` so operators can see why a registration
+// is no longer routable instead of having it silently elided.
+{"jsonrpc":"2.0","id":1,"method":"resources/read",
+ "params":{"uri":"gateway://instances"}}
+
+// Optional URI query: hide stale rows / show the raw registry view
+// (default: stale visible, dead-PID rows pruned).
+//   gateway://instances?include_stale=false
+//   gateway://instances?include_dead=true
+```
+
+The payload returned in `contents[0].text` is a JSON document of shape:
 
 ```json
 {
   "total": 3,
   "stale_count": 1,
+  "evicted_dead": 0,
   "instances": [
     {
       "instance_id": "a1b2c3d4-…",
@@ -343,14 +356,17 @@ The response shape is:
       "stale": true,
       "...": "fields above also present"
     }
-  ],
-  "tip": "Some rows have status='stale' (no recent heartbeat). …"
+  ]
 }
 ```
 
-Pass `include_stale: false` to hide stale rows for callers that only want
-routable instances; the bookkeeping `__gateway__` sentinel and the
-gateway's own self-row are always filtered.
+Each entry already carries `mcp_url`, so a client that has read this
+resource has everything it needs to connect — no follow-up "connect"
+verb is required. To inspect a single instance, read
+`gateway://instances/{instance_id}` (full UUID or unique prefix).
+
+The bookkeeping `__gateway__` sentinel and the gateway's own self-row are
+always filtered.
 
 ### Python example
 
@@ -377,7 +393,7 @@ print(handle.mcp_url())         # direct MCP URL for this instance
 ```
 
 ::: tip Multiple DCCs, one endpoint
-Start any number of DCC servers — the first one wins the gateway port. Agents connect to `http://localhost:9765/mcp`, call `search_tools` to discover backend capabilities, then `describe_tool` / `call_tool` to use one capability. `list_dcc_instances` / `connect_to_dcc` are available when an agent wants a direct, un-proxied session.
+Start any number of DCC servers — the first one wins the gateway port. Agents connect to `http://localhost:9765/mcp`, call `search_tools` to discover backend capabilities, then `describe_tool` / `call_tool` to use one capability. Reading the `gateway://instances` MCP resource yields each backend's `mcp_url` directly when an agent wants a direct, un-proxied session.
 :::
 
 ::: info Skills-First + gateway

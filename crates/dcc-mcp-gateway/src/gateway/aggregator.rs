@@ -27,7 +27,6 @@ mod skill_mgmt;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use super::tools::tool_list_instances;
 pub use call::route_tools_call;
 pub use fingerprint::compute_tools_fingerprint;
 pub(crate) use fingerprint::compute_tools_fingerprint_with_own;
@@ -55,9 +54,9 @@ use super::namespace::{decode_tool_name, instance_short};
 use super::state::GatewayState;
 use super::tools::{
     gateway_tool_defs, tool_acquire_instance, tool_call_tool, tool_catalog_describe,
-    tool_catalog_search, tool_connect_to_dcc, tool_describe_tool, tool_diagnostics_audit_log,
-    tool_diagnostics_process_status, tool_diagnostics_tool_metrics, tool_get_instance,
-    tool_release_instance, tool_search_tools,
+    tool_catalog_search, tool_describe_tool, tool_diagnostics_audit_log,
+    tool_diagnostics_process_status, tool_diagnostics_tool_metrics, tool_release_instance,
+    tool_search_tools,
 };
 use dcc_mcp_jsonrpc::{TOOLS_LIST_PAGE_SIZE, decode_cursor, encode_cursor};
 use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry};

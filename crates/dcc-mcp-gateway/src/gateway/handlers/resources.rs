@@ -36,6 +36,26 @@ pub(super) async fn handle_resources_read(
         });
     }
 
+    // ── Gateway-native instance registry (issue #813 phase 1) ────────────
+    if let Some(query) = crate::gateway::native_resources::parse_instances_uri(&uri) {
+        return match crate::gateway::native_resources::build_payload(gs, &query).await {
+            Ok(payload) => json!({
+                "jsonrpc": "2.0", "id": id,
+                "result": {
+                    "contents": [{
+                        "uri":      uri,
+                        "mimeType": "application/json",
+                        "text":     serde_json::to_string_pretty(&payload).unwrap_or_default()
+                    }]
+                }
+            }),
+            Err(err) => json!({
+                "jsonrpc": "2.0", "id": id,
+                "error": {"code": -32002, "message": err}
+            }),
+        };
+    }
+
     if let Some((id8, backend_uri)) = crate::gateway::namespace::decode_resource_uri(&uri) {
         let owning = aggregator::find_instance_by_prefix(gs, &id8).await;
         return match owning {

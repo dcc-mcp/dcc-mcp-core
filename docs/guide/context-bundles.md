@@ -19,8 +19,9 @@ solve versions, or replace a studio package manager.
 4. Skills are discovered from `DCC_MCP_SKILL_PATHS` and
    `DCC_MCP_<DCC>_SKILL_PATHS`.
 5. The gateway records context metadata in `FileRegistry`.
-6. Clients call `list_dcc_instances`, `search_skills`, and `load_skill` against
-   the selected context instead of exposing every studio tool at once.
+6. Clients read the `gateway://instances` MCP resource (or `search_skills` /
+   `load_skill`) against the selected context instead of exposing every
+   studio tool at once.
 
 ## Metadata Keys
 
@@ -50,8 +51,8 @@ Adapters that do not use `DccServerBase` can set the same values explicitly via
 
 The gateway is intentionally a selector over already-launched contexts. It
 should not multiply every backend tool into one massive global surface. A client
-should first inspect `list_dcc_instances`, choose a matching bundle or DCC
-session, and then load/search skills in that selected context.
+should first read the `gateway://instances` MCP resource, choose a matching
+bundle or DCC session, and then load/search skills in that selected context.
 
 Example selection criteria:
 

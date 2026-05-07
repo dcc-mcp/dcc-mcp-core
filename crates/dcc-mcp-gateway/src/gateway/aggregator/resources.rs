@@ -17,6 +17,7 @@ use serde_json::{Value, json};
 use super::super::backend_client::fetch_resources;
 use super::super::handlers::resources::GATEWAY_EVENTS_URI;
 use super::super::namespace::encode_resource_uri;
+use super::super::native_resources::instances_pointer;
 use super::super::state::GatewayState;
 use super::helpers::live_backends;
 use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry, ServiceStatus};
@@ -120,9 +121,16 @@ pub async fn aggregate_resources_list(gs: &GatewayState) -> Value {
         "mimeType":    "application/x-ndjson"
     });
 
+    // Tier 0b: gateway-native instance registry (issue #813 phase 1).
+    // Single root pointer; per-instance reads use `gateway://instances/{id}`
+    // and are not enumerated here to keep `resources/list` token-stable as
+    // the registry grows.
+    let instances_root = instances_pointer();
+
     // Tier 2: every backend's resources, with URIs rewritten to the
     // gateway-prefixed form so clients can disambiguate.
     let mut merged: Vec<Value> = std::iter::once(events_pointer)
+        .chain(std::iter::once(instances_root))
         .chain(admin_pointers)
         .collect();
     for (iid, dcc_type, backend_resources) in fetch_backend_resources(gs).await {

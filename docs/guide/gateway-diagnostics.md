@@ -12,8 +12,8 @@ five recurring failure modes.
 ## Status matrix
 
 The gateway aggregates instances by their `ServiceStatus`. Operators see
-these values in `list_dcc_instances` (MCP), `GET /v1/readyz`, and the
-`/metrics` Prometheus export.
+these values in the `gateway://instances` MCP resource, `GET /v1/readyz`,
+and the `/metrics` Prometheus export.
 
 | Status | What it means | Who sets it | How to recover |
 |---|---|---|---|
@@ -40,7 +40,7 @@ cooperatively (issue #718). The comparison uses three tiers, in order:
    beats a generic standalone (`adapter_dcc = "unknown"` or missing).
 
 Fields live on the `__gateway__` sentinel row in the `FileRegistry`.
-Inspect them directly with `list_dcc_instances`:
+Inspect them by reading `gateway://instances`:
 
 ```jsonc
 {
@@ -140,9 +140,11 @@ primitives. Per-action tools live on `search_tools` / `describe_tool`.
 What's missing is probably the **instance**, not its tools.
 
 ```bash
-# Via MCP tool (any MCP client can run this)
-# → Returns every row with its status.
-call_tool list_dcc_instances {"include_stale": true}
+# Via the gateway-native MCP resource (any MCP client can run this)
+# → Returns every row with its status; each entry carries `mcp_url`.
+resources/read uri=gateway://instances
+# Optional URI query: gateway://instances?include_dead=true to see
+# rows whose owning process exited.
 
 # Via gateway REST
 curl -s http://127.0.0.1:9765/v1/context | jq .
@@ -159,7 +161,7 @@ Diagnose by status:
 
 ```bash
 # List everything, including rows the gateway has filtered out:
-call_tool list_dcc_instances {"include_stale": true}
+resources/read uri=gateway://instances?include_dead=true
 ```
 
 If you see a row with `pid` pointing at a long-dead process, the
@@ -233,7 +235,7 @@ problem).
 # List every known instance, live and dead.
 curl -s http://127.0.0.1:9765/mcp \
      -H 'content-type: application/json' \
-     -d '{"jsonrpc":"2.0","id":1,"method":"instances/list","params":{"include_stale":true}}' \
+     -d '{"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"gateway://instances?include_dead=true"}}' \
   | jq .
 
 # Probe an instance by hand.

@@ -73,8 +73,9 @@ def commands():
 ```
 
 `DccServerBase` copies these context values into `McpHttpConfig.instance_metadata`.
-The gateway then returns them from `list_dcc_instances`, so clients can route to
-the already-launched instance that matches the requested bundle.
+The gateway then surfaces them through the `gateway://instances` MCP resource,
+so clients can route to the already-launched instance that matches the
+requested bundle.
 
 ## Provenance
 
