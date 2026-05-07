@@ -815,3 +815,121 @@ async fn rest_and_mcp_surfaces_agree_on_multi_skill_catalog() {
         "total mismatch between REST and MCP"
     );
 }
+
+// ── #818 phase 1 — resource & prompt endpoints ────────────────────────
+
+/// `GET /v1/resources` returns an empty list for the default
+/// `EmptyResourceProvider`; the wire envelope is well-formed.
+#[tokio::test]
+async fn list_resources_default_is_empty() {
+    let (svc, _reg, _disp) = fixture_loaded_spheres();
+    let (server, _audit) = build_server(svc);
+
+    let resp = server.get("/v1/resources").await;
+    resp.assert_status_ok();
+    let body: Value = resp.json();
+    assert_eq!(body["total"], 0);
+    assert!(body["resources"].is_array());
+    assert_eq!(body["resources"].as_array().unwrap().len(), 0);
+    assert!(body["request_id"].is_string());
+}
+
+/// `GET /v1/resources/{uri}` against the default `EmptyResourceProvider`
+/// returns a structured 404 (not a panic, not a generic 500).
+#[tokio::test]
+async fn read_resource_default_returns_not_found() {
+    let (svc, _reg, _disp) = fixture_loaded_spheres();
+    let (server, _audit) = build_server(svc);
+
+    let resp = server.get("/v1/resources/file%3A%2F%2Fmissing").await;
+    resp.assert_status(axum::http::StatusCode::NOT_FOUND);
+    let body: Value = resp.json();
+    assert_eq!(body["kind"], "not-found");
+    assert!(body["message"].as_str().unwrap().contains("not found"));
+}
+
+/// `GET /v1/prompts` returns an empty list by default.
+#[tokio::test]
+async fn list_prompts_default_is_empty() {
+    let (svc, _reg, _disp) = fixture_loaded_spheres();
+    let (server, _audit) = build_server(svc);
+
+    let resp = server.get("/v1/prompts").await;
+    resp.assert_status_ok();
+    let body: Value = resp.json();
+    assert_eq!(body["total"], 0);
+    assert!(body["prompts"].is_array());
+}
+
+/// `GET /v1/prompts/{name}` against the default returns a structured 404.
+#[tokio::test]
+async fn get_prompt_default_returns_not_found() {
+    let (svc, _reg, _disp) = fixture_loaded_spheres();
+    let (server, _audit) = build_server(svc);
+
+    let resp = server.get("/v1/prompts/missing").await;
+    resp.assert_status(axum::http::StatusCode::NOT_FOUND);
+    let body: Value = resp.json();
+    assert_eq!(body["kind"], "not-found");
+}
+
+/// Wiring a real `ResourceProvider` via `with_resources` flows through
+/// to `GET /v1/resources` — proves the builder + DIP boundary works.
+#[tokio::test]
+async fn list_resources_with_custom_provider_returns_entries() {
+    use super::service::{
+        ResourceContent, ResourceListEntry, ResourceProvider, ResourceReadResponse,
+    };
+    use crate::errors::{ServiceError, ServiceErrorKind};
+
+    struct StaticProvider;
+    impl ResourceProvider for StaticProvider {
+        fn list(&self) -> Vec<ResourceListEntry> {
+            vec![ResourceListEntry {
+                uri: "scene://current".into(),
+                name: "Active scene".into(),
+                description: Some("Current Maya scene snapshot".into()),
+                mime_type: Some("application/json".into()),
+            }]
+        }
+        fn read(&self, uri: &str) -> Result<ResourceReadResponse, ServiceError> {
+            if uri == "scene://current" {
+                Ok(ResourceReadResponse {
+                    contents: vec![ResourceContent {
+                        uri: uri.into(),
+                        mime_type: Some("application/json".into()),
+                        text: Some(r#"{"objects":3}"#.into()),
+                        blob: None,
+                    }],
+                })
+            } else {
+                Err(ServiceError::new(
+                    ServiceErrorKind::NotFound,
+                    format!("not registered: {uri}"),
+                ))
+            }
+        }
+    }
+
+    let (svc, _reg, _disp) = fixture_loaded_spheres();
+    let svc = svc.with_resources(Arc::new(StaticProvider));
+    let (server, _audit) = build_server(svc);
+
+    // List.
+    let resp = server.get("/v1/resources").await;
+    resp.assert_status_ok();
+    let body: Value = resp.json();
+    assert_eq!(body["total"], 1);
+    assert_eq!(body["resources"][0]["uri"], "scene://current");
+
+    // Read existing.
+    let resp = server.get("/v1/resources/scene%3A%2F%2Fcurrent").await;
+    resp.assert_status_ok();
+    let body: Value = resp.json();
+    assert_eq!(body["contents"][0]["uri"], "scene://current");
+    assert_eq!(body["contents"][0]["text"], r#"{"objects":3}"#);
+
+    // Read missing → 404.
+    let resp = server.get("/v1/resources/scene%3A%2F%2Fmissing").await;
+    resp.assert_status(axum::http::StatusCode::NOT_FOUND);
+}

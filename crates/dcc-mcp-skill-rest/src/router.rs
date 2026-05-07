@@ -23,8 +23,9 @@ use super::errors::{ServiceError, ServiceErrorKind};
 use super::openapi::build_openapi_document;
 use super::readiness::{ReadinessProbe, StaticReadiness};
 use super::service::{
-    CallOutcome, CallRequest, ContextSnapshot, DescribeRequest, DescribeResponse, SearchRequest,
-    SearchResponse, SkillListEntry, SkillRestService, ToolSlug,
+    CallOutcome, CallRequest, ContextSnapshot, DescribeRequest, DescribeResponse,
+    PromptGetResponse, ResourceReadResponse, SearchRequest, SearchResponse, SkillListEntry,
+    SkillRestService, ToolSlug,
 };
 
 /// Runtime configuration for the REST surface.
@@ -81,6 +82,11 @@ pub fn build_skill_rest_router(config: SkillRestConfig) -> Router {
         .route("/v1/tools/{slug}", get(handle_describe_path))
         .route("/v1/call", post(handle_call))
         .route("/v1/context", get(handle_context))
+        // ── #818 phase 1 — resources & prompts as REST ────────────
+        .route("/v1/resources", get(handle_list_resources))
+        .route("/v1/resources/{uri}", get(handle_read_resource))
+        .route("/v1/prompts", get(handle_list_prompts))
+        .route("/v1/prompts/{name}", get(handle_get_prompt))
         .with_state(config)
 }
 
@@ -437,6 +443,155 @@ async fn handle_context(State(cfg): State<SkillRestConfig>, headers: HeaderMap) 
     (StatusCode::OK, Json(v)).into_response()
 }
 
+// ── #818 phase 1 — resources & prompts handlers ──────────────────────
+
+async fn handle_list_resources(State(cfg): State<SkillRestConfig>, headers: HeaderMap) -> Response {
+    let rid = request_id(&headers);
+    let principal = match principal_or_error(&cfg, peer(&headers), &headers, &rid) {
+        Ok(p) => p,
+        Err(r) => return *r,
+    };
+    let started = std::time::Instant::now();
+    let entries = cfg.service.resources().list();
+    emit_audit(
+        &cfg,
+        &rid,
+        "",
+        "GET /v1/resources",
+        &principal.subject,
+        AuditOutcome::Success,
+        started,
+    );
+    (
+        StatusCode::OK,
+        Json(json!({"total": entries.len(), "resources": entries, "request_id": rid})),
+    )
+        .into_response()
+}
+
+async fn handle_read_resource(
+    State(cfg): State<SkillRestConfig>,
+    Path(uri): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let rid = request_id(&headers);
+    let principal = match principal_or_error(&cfg, peer(&headers), &headers, &rid) {
+        Ok(p) => p,
+        Err(r) => return *r,
+    };
+    let started = std::time::Instant::now();
+    match cfg.service.resources().read(&uri) {
+        Ok(payload) => {
+            emit_audit(
+                &cfg,
+                &rid,
+                &uri,
+                "GET /v1/resources/{uri}",
+                &principal.subject,
+                AuditOutcome::Success,
+                started,
+            );
+            (
+                StatusCode::OK,
+                Json(serde_json::to_value(&payload).unwrap()),
+            )
+                .into_response()
+        }
+        Err(err) => {
+            let kind_str = serde_json::to_value(err.kind)
+                .ok()
+                .and_then(|v| v.as_str().map(ToOwned::to_owned))
+                .unwrap_or_else(|| "internal".into());
+            emit_audit(
+                &cfg,
+                &rid,
+                &uri,
+                "GET /v1/resources/{uri}",
+                &principal.subject,
+                AuditOutcome::Failure(kind_str),
+                started,
+            );
+            service_error_to_response(err.with_request_id(rid))
+        }
+    }
+}
+
+async fn handle_list_prompts(State(cfg): State<SkillRestConfig>, headers: HeaderMap) -> Response {
+    let rid = request_id(&headers);
+    let principal = match principal_or_error(&cfg, peer(&headers), &headers, &rid) {
+        Ok(p) => p,
+        Err(r) => return *r,
+    };
+    let started = std::time::Instant::now();
+    let entries = cfg.service.prompts().list();
+    emit_audit(
+        &cfg,
+        &rid,
+        "",
+        "GET /v1/prompts",
+        &principal.subject,
+        AuditOutcome::Success,
+        started,
+    );
+    (
+        StatusCode::OK,
+        Json(json!({"total": entries.len(), "prompts": entries, "request_id": rid})),
+    )
+        .into_response()
+}
+
+async fn handle_get_prompt(
+    State(cfg): State<SkillRestConfig>,
+    Path(name): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let rid = request_id(&headers);
+    let principal = match principal_or_error(&cfg, peer(&headers), &headers, &rid) {
+        Ok(p) => p,
+        Err(r) => return *r,
+    };
+    // Arguments come as a flat JSON object via `?args=<base64-or-json>`
+    // — for the v1 cut we accept them as nothing (`{}`); a follow-up
+    // can extend this to a richer query-string contract once a real
+    // caller needs it.
+    let arguments = json!({});
+    let started = std::time::Instant::now();
+    match cfg.service.prompts().get(&name, &arguments) {
+        Ok(payload) => {
+            emit_audit(
+                &cfg,
+                &rid,
+                &name,
+                "GET /v1/prompts/{name}",
+                &principal.subject,
+                AuditOutcome::Success,
+                started,
+            );
+            (
+                StatusCode::OK,
+                Json(serde_json::to_value(&payload).unwrap()),
+            )
+                .into_response()
+        }
+        Err(err) => {
+            let kind_str = serde_json::to_value(err.kind)
+                .ok()
+                .and_then(|v| v.as_str().map(ToOwned::to_owned))
+                .unwrap_or_else(|| "internal".into());
+            emit_audit(
+                &cfg,
+                &rid,
+                &name,
+                "GET /v1/prompts/{name}",
+                &principal.subject,
+                AuditOutcome::Failure(kind_str),
+                started,
+            );
+            service_error_to_response(err.with_request_id(rid))
+        }
+    }
+}
+
 // ── utoipa path-doc stubs ────────────────────────────────────────────
 //
 // These `op_*` functions exist purely to carry `#[utoipa::path(...)]`
@@ -574,3 +729,58 @@ pub fn op_call() {}
 )]
 #[allow(dead_code)]
 pub fn op_context() {}
+
+#[utoipa::path(
+    get,
+    path = "/v1/resources",
+    tag = "resources",
+    responses(
+        (status = 200, description = "list of MCP resources exposed by this DCC instance",
+         body = serde_json::Value),
+        (status = 401, description = "unauthorized", body = ServiceError),
+    )
+)]
+#[allow(dead_code)]
+pub fn op_list_resources() {}
+
+#[utoipa::path(
+    get,
+    path = "/v1/resources/{uri}",
+    tag = "resources",
+    params(("uri" = String, Path, description = "URL-encoded MCP resource URI")),
+    responses(
+        (status = 200, description = "resource contents", body = ResourceReadResponse),
+        (status = 401, description = "unauthorized", body = ServiceError),
+        (status = 404, description = "URI not registered", body = ServiceError),
+        (status = 500, description = "read failure", body = ServiceError),
+    )
+)]
+#[allow(dead_code)]
+pub fn op_read_resource() {}
+
+#[utoipa::path(
+    get,
+    path = "/v1/prompts",
+    tag = "prompts",
+    responses(
+        (status = 200, description = "list of MCP prompts exposed by this DCC instance",
+         body = serde_json::Value),
+        (status = 401, description = "unauthorized", body = ServiceError),
+    )
+)]
+#[allow(dead_code)]
+pub fn op_list_prompts() {}
+
+#[utoipa::path(
+    get,
+    path = "/v1/prompts/{name}",
+    tag = "prompts",
+    params(("name" = String, Path, description = "Prompt name")),
+    responses(
+        (status = 200, description = "rendered prompt messages", body = PromptGetResponse),
+        (status = 401, description = "unauthorized", body = ServiceError),
+        (status = 404, description = "prompt not found", body = ServiceError),
+    )
+)]
+#[allow(dead_code)]
+pub fn op_get_prompt() {}
