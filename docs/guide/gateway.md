@@ -98,23 +98,27 @@ Two invariants prevent this:
 
 ### Instance and Diagnostics Discovery
 
-The gateway exposes instance health through both the MCP tool surface and a
-native JSON-RPC method:
+The gateway exposes the live DCC registry as a gateway-native MCP resource
+(see also `docs/api/http.md`):
 
 ```json
-{"jsonrpc":"2.0","id":1,"method":"instances/list","params":{"include_stale":true}}
+{"jsonrpc":"2.0","id":1,"method":"resources/read",
+ "params":{"uri":"gateway://instances"}}
 ```
 
-The response matches `list_dcc_instances` and includes live, stale, and
-unhealthy rows so clients can decide whether to route, reconnect, or ask the
-user to restart a DCC instance. `tools/list` is assembled from the current
-registry on each call, so instances registered after gateway startup are picked
-up without a restart.
+The payload includes live, stale, and unhealthy rows so clients can decide
+whether to route, reconnect, or ask the user to restart a DCC instance.
+Each entry already carries `mcp_url`, so clients that have read this
+resource can connect directly. Optional URI query parameters
+(`?include_stale=false`, `?include_dead=true`) match the legacy tool
+flags. `tools/list` is assembled from the current registry on each call,
+so instances registered after gateway startup are picked up without a
+restart.
 
 ### Optional Instance Pooling
 
 Instances can opt into warm-pool semantics through the registry fields surfaced
-under `pool` in `list_dcc_instances` / `instances/list`:
+under `pool` in the `gateway://instances` resource:
 
 ```json
 {
@@ -168,7 +172,7 @@ unconditional surface:
 
 | Surface | What appears in `tools/list` | Agent workflow |
 |---------|------------------------------|----------------|
-| Gateway MCP | Fixed discover+dispatch primitives: `list_dcc_instances`, `connect_to_dcc`, `search_skills`, `load_skill`, `search_tools`, `describe_tool`, `call_tool`, pooling tools, diagnostics | `search_tools` → `describe_tool` → `call_tool` |
+| Gateway MCP | Fixed discover+dispatch primitives: `search_skills`, `load_skill`, `search_tools`, `describe_tool`, `call_tool`, pooling tools, diagnostics. The instance registry is exposed as the `gateway://instances` MCP resource (read via `resources/read`), not as tools — see #813 phase 1 | `resources/read uri=gateway://instances` (or skip it and go straight to `search_tools` → `describe_tool` → `call_tool`) |
 | Gateway REST | `/v1/search`, `/v1/describe`, `/v1/call`, `/v1/instances` | `POST /v1/search` → `/v1/describe` → `/v1/call` |
 | Direct per-DCC MCP | One DCC server's skills and loaded tools | `search_skills` → `load_skill` → tool call |
 

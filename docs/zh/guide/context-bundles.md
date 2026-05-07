@@ -15,7 +15,7 @@ Rez 上下文 -> 环境变量 -> DCC 启动 -> 技能扫描 -> 网关元数据 -
 3. DCC 适配器启动 `DccServerBase` 或 `McpHttpServer`
 4. 从 `DCC_MCP_SKILL_PATHS` 和 `DCC_MCP_<DCC>_SKILL_PATHS` 中发现技能
 5. 网关在 `FileRegistry` 中记录上下文元数据
-6. 客户端对选定的上下文调用 `list_dcc_instances`、`search_skills` 和 `load_skill`，而不是一次性暴露所有工作室工具
+6. 客户端对选定的上下文读取 `gateway://instances` MCP 资源（或调用 `search_skills` / `load_skill`），而不是一次性暴露所有工作室工具
 
 ## 元数据键
 
@@ -41,7 +41,7 @@ Rez 上下文 -> 环境变量 -> DCC 启动 -> 技能扫描 -> 网关元数据 -
 
 ## 网关路由
 
-网关本质上是对已启动上下文的选择器，不应将每个后端工具放大为一个庞大的全局接口。客户端应首先查看 `list_dcc_instances`，选择匹配的包或 DCC 会话，然后在该选定上下文中加载/搜索技能。
+网关本质上是对已启动上下文的选择器，不应将每个后端工具放大为一个庞大的全局接口。客户端应首先读取 `gateway://instances` MCP 资源，选择匹配的包或 DCC 会话，然后在该选定上下文中加载/搜索技能。
 
 选择标准示例：
 

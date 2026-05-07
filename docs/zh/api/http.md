@@ -238,12 +238,61 @@ print(f"Maya MCP 服务器: {handle.mcp_url()}")
 
 | 层级 | 工具 | 用途 |
 |------|------|------|
-| 发现元工具 | `list_dcc_instances`、`get_dcc_instance`、`connect_to_dcc` | 枚举 / 查看活跃 DCC；需要直连时返回直接 MCP URL |
 | 技能管理 | `list_skills`、`search_skills`、`get_skill_info`、`load_skill`、`unload_skill` | 跨 DCC 搜索/加载 skills，或用 `instance_id` / `dcc` 指向具体实例 |
 | 动态能力 wrapper | `search_tools`、`describe_tool`、`call_tool` | 发现紧凑后端记录、拉取单个 schema、再按 `tool_slug` 调用 |
 | 运维工具 | `acquire_dcc_instance`、`release_dcc_instance`、诊断工具 | 预热实例池化和网关健康排障 |
 
 后端 action 通过 `tool_slug`（`<dcc>.<id8>.<tool>`）寻址。Agent 不应手写 slug；应从 `search_tools` 或 `POST /v1/search` 获取，然后调用 `describe_tool` / `call_tool` 或等价 REST 端点。
+
+#### `gateway://instances` —— 把 DCC 注册表暴露为 MCP 资源（#813 phase 1）
+
+实时 DCC 注册表通过网关原生的 MCP 资源暴露，而不是工具。Agent 通过 `resources/read` 获取，不再为"实例发现"动词支付 `tools/list` 的 token 成本。
+
+```jsonc
+// 请求：列出 `$TEMP/dcc-mcp-registry/` 中所有可解析的注册行（不过滤
+// `dcc_type`）。stale 哨兵以 `status: "stale"` 显式呈现，让运维知道
+// 该注册为何无法路由，而不是被静默丢弃。
+{"jsonrpc":"2.0","id":1,"method":"resources/read",
+ "params":{"uri":"gateway://instances"}}
+
+// 可选 URI 查询参数：隐藏 stale 行 / 显示原始注册视图
+// （默认：stale 可见，dead-PID 行被裁剪）。
+//   gateway://instances?include_stale=false
+//   gateway://instances?include_dead=true
+```
+
+`contents[0].text` 中返回的 JSON 形如：
+
+```json
+{
+  "total": 3,
+  "stale_count": 1,
+  "evicted_dead": 0,
+  "instances": [
+    {
+      "instance_id": "a1b2c3d4-…",
+      "dcc_type": "maya",
+      "host": "127.0.0.1",
+      "port": 18812,
+      "mcp_url": "http://127.0.0.1:18812/mcp",
+      "status": "available",
+      "scene": "/proj/shot01.ma",
+      "documents": [],
+      "pid": 1234,
+      "display_name": "Maya-Rigging",
+      "version": "2024",
+      "adapter_version": "0.3.0",
+      "adapter_dcc": "maya",
+      "metadata": {},
+      "stale": false
+    }
+  ]
+}
+```
+
+每条记录已经携带 `mcp_url`，因此读取这个资源的客户端拥有连接所需的全部信息 —— 不再需要单独的 "connect" 动词。要查看单个实例，读取 `gateway://instances/{instance_id}`（完整 UUID 或唯一前缀）即可。
+
+簿记用的 `__gateway__` 哨兵行和网关自身的注册行始终被过滤。
 
 ### Python 示例
 
@@ -270,7 +319,7 @@ print(handle.mcp_url())         # 本实例的直接 MCP URL
 ```
 
 ::: tip 多 DCC、单入口
-启动任意数量的 DCC 服务器 — 第一个赢得网关端口。Agent 连接 `http://localhost:9765/mcp` 后，先用 `search_tools` 发现后端能力，再用 `describe_tool` / `call_tool` 使用其中一个能力。需要直连、不经代理时再使用 `list_dcc_instances` / `connect_to_dcc`。
+启动任意数量的 DCC 服务器 — 第一个赢得网关端口。Agent 连接 `http://localhost:9765/mcp` 后，先用 `search_tools` 发现后端能力，再用 `describe_tool` / `call_tool` 使用其中一个能力。需要直连、不经代理时，读取 `gateway://instances` MCP 资源即可拿到每个后端的 `mcp_url`。
 :::
 
 ::: info Skills-First + 网关

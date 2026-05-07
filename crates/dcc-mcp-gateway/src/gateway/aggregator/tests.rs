@@ -178,8 +178,8 @@ async fn aggregate_tools_list_returns_only_minimal_gateway_surface() {
     );
     // Positive assertion: the primitives we DO expect must all be there.
     for expected in [
-        "list_dcc_instances",
-        "connect_to_dcc",
+        "acquire_dcc_instance",
+        "release_dcc_instance",
         "search_tools",
         "describe_tool",
         "call_tool",

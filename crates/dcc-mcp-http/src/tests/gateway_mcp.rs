@@ -40,7 +40,12 @@ async fn test_gateway_mcp_ping() {
 }
 
 #[tokio::test]
-async fn test_gateway_mcp_tools_list() {
+async fn test_gateway_mcp_tools_list_omits_removed_instance_verbs() {
+    // The instance discovery triple (`list_dcc_instances`, `get_dcc_instance`,
+    // `connect_to_dcc`) was removed in #813 phase 1 in favour of the
+    // `gateway://instances` MCP resource. Their absence is part of the
+    // surface contract; assert it explicitly so a regression that
+    // re-adds them is loud.
     let server = TestServer::new(make_gateway_router());
     let resp = server
         .post("/mcp")
@@ -54,30 +59,32 @@ async fn test_gateway_mcp_tools_list() {
     let body: serde_json::Value = resp.json();
     let tools = body["result"]["tools"].as_array().unwrap();
     let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
-    assert!(
-        names.contains(&"list_dcc_instances"),
-        "list_dcc_instances missing: {names:?}"
-    );
-    assert!(
-        names.contains(&"connect_to_dcc"),
-        "connect_to_dcc missing: {names:?}"
-    );
-    assert!(
-        names.contains(&"diagnostics__process_status"),
-        "diagnostics__process_status missing: {names:?}"
-    );
-    assert!(
-        names.contains(&"diagnostics__audit_log"),
-        "diagnostics__audit_log missing: {names:?}"
-    );
-    assert!(
-        names.contains(&"diagnostics__tool_metrics"),
-        "diagnostics__tool_metrics missing: {names:?}"
-    );
+    for removed in ["list_dcc_instances", "get_dcc_instance", "connect_to_dcc"] {
+        assert!(
+            !names.contains(&removed),
+            "{removed} must not appear in tools/list (#813 phase 1 removed it): {names:?}",
+        );
+    }
+    // Lease verbs and dynamic-capability wrappers stay published.
+    for kept in [
+        "acquire_dcc_instance",
+        "release_dcc_instance",
+        "search_tools",
+        "describe_tool",
+        "call_tool",
+        "diagnostics__process_status",
+        "diagnostics__audit_log",
+        "diagnostics__tool_metrics",
+    ] {
+        assert!(
+            names.contains(&kept),
+            "{kept} should still be published: {names:?}",
+        );
+    }
 }
 
 #[tokio::test]
-async fn test_gateway_mcp_list_dcc_instances_empty() {
+async fn test_gateway_resources_list_includes_gateway_instances_pointer() {
     let server = TestServer::new(make_gateway_router());
     let resp = server
         .post("/mcp")
@@ -86,21 +93,45 @@ async fn test_gateway_mcp_list_dcc_instances_empty() {
             "application/json".parse::<HeaderValue>().unwrap(),
         )
         .json(&serde_json::json!({
-            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
-            "params": {"name": "list_dcc_instances", "arguments": {}}
+            "jsonrpc": "2.0", "id": 1, "method": "resources/list", "params": {}
         }))
         .await;
     resp.assert_status_ok();
     let body: serde_json::Value = resp.json();
-    let text = body["result"]["content"][0]["text"]
+    let resources = body["result"]["resources"].as_array().unwrap();
+    let uris: Vec<&str> = resources.iter().filter_map(|r| r["uri"].as_str()).collect();
+    assert!(
+        uris.contains(&"gateway://instances"),
+        "resources/list must include gateway://instances pointer: {uris:?}",
+    );
+}
+
+#[tokio::test]
+async fn test_gateway_resources_read_instances_empty() {
+    let server = TestServer::new(make_gateway_router());
+    let resp = server
+        .post("/mcp")
+        .add_header(
+            axum::http::header::CONTENT_TYPE,
+            "application/json".parse::<HeaderValue>().unwrap(),
+        )
+        .json(&serde_json::json!({
+            "jsonrpc": "2.0", "id": 1, "method": "resources/read",
+            "params": {"uri": "gateway://instances"}
+        }))
+        .await;
+    resp.assert_status_ok();
+    let body: serde_json::Value = resp.json();
+    let text = body["result"]["contents"][0]["text"]
         .as_str()
         .expect("no text content");
     let result: serde_json::Value = serde_json::from_str(text).unwrap();
     assert_eq!(result["total"], 0);
+    assert!(result["instances"].is_array());
 }
 
 #[tokio::test]
-async fn test_gateway_mcp_list_dcc_instances_with_entry() {
+async fn test_gateway_resources_read_instances_with_entry_carries_mcp_url() {
     let state = make_gateway_state();
     {
         let reg = state.registry.read().await;
@@ -115,28 +146,36 @@ async fn test_gateway_mcp_list_dcc_instances_with_entry() {
             "application/json".parse::<HeaderValue>().unwrap(),
         )
         .json(&serde_json::json!({
-            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
-            "params": {"name": "list_dcc_instances", "arguments": {}}
+            "jsonrpc": "2.0", "id": 1, "method": "resources/read",
+            "params": {"uri": "gateway://instances"}
         }))
         .await;
     resp.assert_status_ok();
     let body: serde_json::Value = resp.json();
-    let text = body["result"]["content"][0]["text"]
+    let text = body["result"]["contents"][0]["text"]
         .as_str()
         .expect("no text content");
     let result: serde_json::Value = serde_json::from_str(text).unwrap();
     assert_eq!(result["total"], 1);
     assert_eq!(result["instances"][0]["dcc_type"], "houdini");
+    // Each entry carries `mcp_url` so the client connects without a
+    // follow-up tool call.
+    assert_eq!(
+        result["instances"][0]["mcp_url"],
+        "http://127.0.0.1:19765/mcp"
+    );
 }
 
 #[tokio::test]
-async fn test_gateway_mcp_instances_list_method_with_entry() {
+async fn test_gateway_resources_read_single_instance_by_prefix() {
     let state = make_gateway_state();
-    {
+    let prefix = {
         let reg = state.registry.read().await;
-        let entry = ServiceEntry::new("maya", "127.0.0.1", 19766);
+        let entry = ServiceEntry::new("maya", "127.0.0.1", 19768);
+        let prefix = entry.instance_id.to_string()[..8].to_string();
         reg.register(entry).unwrap();
-    }
+        prefix
+    };
     let server = TestServer::new(build_gateway_router(state));
     let resp = server
         .post("/mcp")
@@ -145,13 +184,39 @@ async fn test_gateway_mcp_instances_list_method_with_entry() {
             "application/json".parse::<HeaderValue>().unwrap(),
         )
         .json(&serde_json::json!({
-            "jsonrpc": "2.0", "id": 11, "method": "instances/list", "params": {}
+            "jsonrpc": "2.0", "id": 1, "method": "resources/read",
+            "params": {"uri": format!("gateway://instances/{prefix}")}
         }))
         .await;
     resp.assert_status_ok();
     let body: serde_json::Value = resp.json();
-    assert_eq!(body["result"]["total"], 1);
-    assert_eq!(body["result"]["instances"][0]["dcc_type"], "maya");
+    let text = body["result"]["contents"][0]["text"]
+        .as_str()
+        .expect("no text content");
+    let result: serde_json::Value = serde_json::from_str(text).unwrap();
+    assert_eq!(result["dcc_type"], "maya");
+    assert_eq!(result["mcp_url"], "http://127.0.0.1:19768/mcp");
+}
+
+#[tokio::test]
+async fn test_gateway_resources_read_instances_query_filters() {
+    // `?include_stale=false` is parsed and forwarded to the underlying
+    // registry view (smoke test — verifies URI query plumbing).
+    let server = TestServer::new(make_gateway_router());
+    let resp = server
+        .post("/mcp")
+        .add_header(
+            axum::http::header::CONTENT_TYPE,
+            "application/json".parse::<HeaderValue>().unwrap(),
+        )
+        .json(&serde_json::json!({
+            "jsonrpc": "2.0", "id": 1, "method": "resources/read",
+            "params": {"uri": "gateway://instances?include_stale=false"}
+        }))
+        .await;
+    resp.assert_status_ok();
+    let body: serde_json::Value = resp.json();
+    assert!(body.get("error").is_none(), "got error: {body}");
 }
 
 #[tokio::test]
@@ -186,41 +251,6 @@ async fn test_gateway_diagnostics_tools_are_native() {
     assert_eq!(result["success"], true);
     assert_eq!(result["counts"]["total"], 1);
     assert_eq!(result["instances"][0]["dcc_type"], "maya");
-}
-
-#[tokio::test]
-async fn test_connect_to_dcc_succeeds_for_available_instance_prefix() {
-    let state = make_gateway_state();
-    let prefix = {
-        let reg = state.registry.read().await;
-        let entry = ServiceEntry::new("maya", "127.0.0.1", 19768);
-        let prefix = entry.instance_id.to_string()[..8].to_string();
-        reg.register(entry).unwrap();
-        prefix
-    };
-    let server = TestServer::new(build_gateway_router(state));
-    let resp = server
-        .post("/mcp")
-        .add_header(
-            axum::http::header::CONTENT_TYPE,
-            "application/json".parse::<HeaderValue>().unwrap(),
-        )
-        .json(&serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": 13,
-            "method": "tools/call",
-            "params": {"name": "connect_to_dcc", "arguments": {"instance_id": prefix}}
-        }))
-        .await;
-    resp.assert_status_ok();
-    let body: serde_json::Value = resp.json();
-    assert_eq!(body["result"]["isError"], false);
-    let text = body["result"]["content"][0]["text"]
-        .as_str()
-        .expect("no text content");
-    let result: serde_json::Value = serde_json::from_str(text).unwrap();
-    assert_eq!(result["dcc_type"], "maya");
-    assert_eq!(result["mcp_url"], "http://127.0.0.1:19768/mcp");
 }
 
 #[tokio::test]

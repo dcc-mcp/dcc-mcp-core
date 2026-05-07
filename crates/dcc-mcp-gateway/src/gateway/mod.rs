@@ -39,6 +39,7 @@ pub mod event_log;
 pub mod handlers;
 pub mod middleware;
 pub mod namespace;
+pub mod native_resources;
 pub mod openapi;
 pub mod proxy;
 pub mod router;

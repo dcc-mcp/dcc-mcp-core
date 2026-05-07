@@ -312,7 +312,7 @@ handle = server.start()
 print(handle.is_gateway)  # 如果此进程赢得了 Gateway 端口则为 True
 ```
 
-Agent 始终连接 `http://localhost:9765/mcp`，使用 `list_dcc_instances` / `connect_to_dcc` 发现并路由到特定 DCC 进程。
+Agent 始终连接 `http://localhost:9765/mcp`，通过读取 `gateway://instances` MCP 资源（`resources/read uri=gateway://instances`）发现并路由到特定 DCC 进程 —— 每条记录已经携带 `mcp_url`，无需额外的连接工具。
 
 ### BridgeKind 是什么？
 

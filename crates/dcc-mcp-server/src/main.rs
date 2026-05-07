@@ -22,19 +22,20 @@
 //! ```bash
 //! # Agent always talks to one endpoint regardless of how many DCCs are running
 //! curl http://localhost:9765/instances           # → [maya@18812, maya@18813, photoshop@18814]
-//! curl -X POST http://localhost:9765/mcp \       # → list_dcc_instances / connect_to_dcc
-//!      -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_dcc_instances"}}'
+//! curl -X POST http://localhost:9765/mcp \       # → read the gateway://instances resource
+//!      -d '{"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"gateway://instances"}}'
 //! ```
 //!
 //! ## Gateway behaviour
 //!
-//! The gateway exposes **three discovery meta-tools** via its own MCP endpoint:
-//!
-//! | Tool | Description |
-//! |------|-------------|
-//! | `list_dcc_instances` | List all live DCC servers (type, port, scene, status) |
-//! | `get_dcc_instance`   | Get info for a specific instance (by id or dcc_type+scene) |
-//! | `connect_to_dcc`     | Return the direct MCP URL for a DCC instance |
+//! The gateway publishes the live DCC registry as the
+//! `gateway://instances` MCP resource (read it via `resources/read`). Each
+//! entry carries `mcp_url`, so a client can connect directly without any
+//! follow-up tool call. The dynamic-capability surface
+//! (`search_tools` / `describe_tool` / `call_tool`) and lease verbs
+//! (`acquire_dcc_instance` / `release_dcc_instance`) are the only
+//! gateway-published tools — every per-DCC backend tool is reached through
+//! `call_tool` instead of being fanned out into `tools/list`.
 //!
 //! It also proxies tool calls transparently:
 //!

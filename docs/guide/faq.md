@@ -293,7 +293,7 @@ handle = server.start()
 print(handle.is_gateway)  # True if this process won the gateway port
 ```
 
-Agents always connect to `http://localhost:9765/mcp` and use `list_dcc_instances` / `connect_to_dcc` to discover and route to specific DCC processes.
+Agents always connect to `http://localhost:9765/mcp` and read the `gateway://instances` MCP resource (`resources/read uri=gateway://instances`) to discover and route to specific DCC processes — each entry already carries `mcp_url`.
 
 ### What is BridgeKind?
 

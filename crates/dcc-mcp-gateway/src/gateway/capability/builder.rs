@@ -270,7 +270,7 @@ mod unit_tests {
         let iid = Uuid::from_u128(1);
         let tools = vec![
             tool("__skill__hello-world", "stub", json!({"type": "object"})),
-            tool("list_dcc_instances", "local", json!({"type": "object"})),
+            tool("acquire_dcc_instance", "local", json!({"type": "object"})),
             tool("list_skills", "mgmt", json!({"type": "object"})),
             tool("create_sphere", "make a sphere", json!({"type": "object"})),
         ];

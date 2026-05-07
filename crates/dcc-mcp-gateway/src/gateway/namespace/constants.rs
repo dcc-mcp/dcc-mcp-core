@@ -7,9 +7,6 @@
 use uuid::Uuid;
 
 pub const GATEWAY_LOCAL_TOOLS: &[&str] = &[
-    "list_dcc_instances",
-    "get_dcc_instance",
-    "connect_to_dcc",
     "acquire_dcc_instance",
     "release_dcc_instance",
     "list_skills",
