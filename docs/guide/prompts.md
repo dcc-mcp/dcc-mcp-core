@@ -47,9 +47,10 @@ a sibling file from the `metadata.dcc-mcp` namespace:
 name: maya-geometry
 description: "Maya geometry primitives and editing."
 metadata:
-  dcc-mcp.dcc: maya
-  dcc-mcp.prompts: prompts.yaml     # single file, or
-  # dcc-mcp.prompts: prompts/*.prompt.yaml   # glob, one file per prompt
+  dcc-mcp:
+    dcc: maya
+    prompts: prompts.yaml     # single file, or
+    # prompts: prompts/*.prompt.yaml   # glob, one file per prompt
 ---
 ```
 
@@ -154,6 +155,38 @@ server.start()
 
 When disabled, the server omits the `prompts` capability and rejects
 `prompts/list` / `prompts/get` with `Method not found`.
+
+## Dynamic registration from Python
+
+Python adapters can also register prompt templates directly before or after
+server start. `server.prompts()` returns a `PromptHandle`; `register_prompt`
+upserts into that handle and does not return a new handle.
+
+```python
+from dcc_mcp_core import McpHttpConfig, McpHttpServer, ToolRegistry
+
+registry = ToolRegistry()
+server = McpHttpServer(registry, McpHttpConfig(port=8765))
+
+prompts = server.prompts()
+prompts.register_prompt(
+    name="bake_animation",
+    description="Guide an agent through baking animation keys.",
+    arguments=[
+        {"name": "frame_start", "description": "First frame", "required": True},
+        {"name": "frame_end", "description": "Last frame", "required": True},
+    ],
+    template="Bake the active animation from {{frame_start}} to {{frame_end}}.",
+)
+
+# Later dynamic updates are visible to subsequent prompts/list calls.
+prompts.unregister_prompt("bake_animation")
+prompts.clear()
+```
+
+Argument names must be non-empty and unique. Prefer sibling `prompts.yaml` for
+packaged skills; use dynamic registration for adapter-owned prompts that depend
+on runtime capabilities.
 
 ## `list_changed` invariants
 

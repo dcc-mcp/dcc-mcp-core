@@ -102,11 +102,11 @@ session_id = mgr.get_or_create_session("maya", instance_id)
 SKILL.md（agentskills.io）        tools.yaml + scripts/
 ────────────────────────────────────────────────────────
 name: maya-geometry              tools: create_sphere → scripts/create_sphere.py
-metadata.dcc-mcp.dcc: maya              bevel         → scripts/bevel.py
-metadata.dcc-mcp.products: [maya]        export_fbx    → scripts/export_fbx.bat
-metadata.dcc-mcp.tools: tools.yaml       ──────────────
-metadata.dcc-mcp.allow-implicit-         ↓ 注册为 MCP 工具
-  invocation: false               maya_geometry__create_sphere
+metadata:                              bevel         → scripts/bevel.py
+  dcc-mcp:                             export_fbx    → scripts/export_fbx.bat
+    dcc: maya                          ──────────────
+    products: [maya]                   ↓ 注册为 MCP 工具
+    tools: tools.yaml           maya_geometry__create_sphere
                                   maya_geometry__bevel
                                   maya_geometry__export_fbx
 ```

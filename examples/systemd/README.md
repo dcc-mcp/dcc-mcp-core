@@ -31,7 +31,7 @@ sudo systemctl edit dcc-mcp-gateway.service
 Environment=DCC_MCP_REGISTRY_DIR=/mnt/shared/dcc-mcp/registry
 # Bind publicly (only when behind a TLS-terminating proxy)
 ExecStart=
-ExecStart=/usr/local/bin/dcc-mcp-server --host 0.0.0.0 --dcc generic
+ExecStart=/usr/local/bin/dcc-mcp-server --host 0.0.0.0 --app generic
 ```
 
 Reload afterwards:

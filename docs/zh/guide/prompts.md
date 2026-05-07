@@ -44,9 +44,10 @@
 name: maya-geometry
 description: "Maya geometry primitives and editing."
 metadata:
-  dcc-mcp.dcc: maya
-  dcc-mcp.prompts: prompts.yaml     # 单文件，或
-  # dcc-mcp.prompts: prompts/*.prompt.yaml   # glob，每个 prompt 一个文件
+  dcc-mcp:
+    dcc: maya
+    prompts: prompts.yaml     # 单文件，或
+    # prompts: prompts/*.prompt.yaml   # glob，每个 prompt 一个文件
 ---
 ```
 
@@ -147,6 +148,36 @@ server.start()
 
 禁用时，服务器会省略 `prompts` 能力并以 `Method not found`
 拒绝 `prompts/list` / `prompts/get`。
+
+## Python 动态注册
+
+Python adapter 也可以在 server 启动前后直接注册 prompt 模板。
+`server.prompts()` 返回 `PromptHandle`；`register_prompt` 在该 handle 上
+原地 upsert，不会返回新的 handle。
+
+```python
+from dcc_mcp_core import McpHttpConfig, McpHttpServer, ToolRegistry
+
+registry = ToolRegistry()
+server = McpHttpServer(registry, McpHttpConfig(port=8765))
+
+prompts = server.prompts()
+prompts.register_prompt(
+    name="bake_animation",
+    description="Guide an agent through baking animation keys.",
+    arguments=[
+        {"name": "frame_start", "description": "First frame", "required": True},
+        {"name": "frame_end", "description": "Last frame", "required": True},
+    ],
+    template="Bake the active animation from {{frame_start}} to {{frame_end}}.",
+)
+
+prompts.unregister_prompt("bake_animation")
+prompts.clear()
+```
+
+参数名必须非空且唯一。打包 skill 优先使用同级 `prompts.yaml`；只有
+adapter 自有、依赖运行时能力的 prompt 才建议动态注册。
 
 ## `list_changed` 不变式
 

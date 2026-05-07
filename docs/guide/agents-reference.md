@@ -72,8 +72,8 @@ extension — `tools`, `groups`, `workflows`, `prompts`, behaviour
 chains, annotations, templates, examples packs, anything future —
 MUST be expressed as:
 
-1. A **namespaced key under `metadata:`** using the `dcc-mcp.<feature>` convention.
-2. The key's **value is a glob or filename** pointing at a sibling
+1. A **nested namespace under `metadata:`** named `dcc-mcp`.
+2. Each extension key's **value is a glob or filename** pointing at a sibling
    file (YAML or Markdown) that carries the actual payload.
 3. The sibling file lives **inside the skill directory**, not
    inline in `SKILL.md`.
@@ -86,30 +86,22 @@ description: >-
   set/query keyframes, change timeline range, or bake simulations.
 license: MIT
 metadata:
-  dcc-mcp.dcc: maya
-  dcc-mcp.tools: "tools.yaml"              # ✓ points at sibling
-  dcc-mcp.groups: "tools.yaml"             # ✓ same or separate file
-  dcc-mcp.workflows: "workflows/*.workflow.yaml"
-  dcc-mcp.prompts: "prompts/*.prompt.yaml"
-  dcc-mcp.examples: "references/EXAMPLES.md"
+  dcc-mcp:
+    dcc: maya
+    tools: "tools.yaml"              # ✓ points at sibling
+    groups: "tools.yaml"             # ✓ same or separate file
+    workflows: "workflows/*.workflow.yaml"
+    prompts: "prompts/*.prompt.yaml"
+    examples: "references/EXAMPLES.md"
 ---
 # body — human-readable instructions only
 ```
 
-The loader accepts **both** shapes interchangeably — flat dotted keys
-(`dcc-mcp.dcc: maya`) and the nested map produced by `yaml.safe_dump`
-and the migration tool:
+Use the nested form for all new and migrated skills. The pre-0.15 flat dotted
+form (`metadata: { "dcc-mcp.dcc": ... }`) no longer populates typed fields in
+strict v0.15+ loaders, even though some older examples may still parse as raw
+metadata.
 
-```yaml
-metadata:
-  dcc-mcp:
-    dcc: maya
-    tools: "tools.yaml"
-    groups: "groups.yaml"
-```
-
-Prefer the nested form for new skills; it round-trips through standard
-YAML tooling without per-key quoting.
 
 ```
 maya-animation/

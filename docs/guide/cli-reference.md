@@ -43,7 +43,9 @@ instances that the winner aggregates.
 
 | Flag | Env | Default | Meaning |
 |---|---|---|---|
-| `--gateway-port` | `DCC_MCP_GATEWAY_PORT` | `9765` | Well-known port to compete for. `0` disables the gateway role entirely. |
+| `--gateway-port` | `DCC_MCP_GATEWAY_PORT` | `9765` | Well-known port to compete for. `0` disables the gateway role entirely and therefore disables admin too. |
+| `--no-admin` | `DCC_MCP_NO_ADMIN` | `false` | Disable the read-only Admin UI on the elected gateway. Admin is enabled by default when a process wins the gateway role. |
+| `--admin-path` | `DCC_MCP_ADMIN_PATH` | `/admin` | URL prefix for the read-only Admin UI and its JSON APIs. |
 | `--gateway-cursor-safe-tool-names` | `DCC_MCP_GATEWAY_CURSOR_SAFE_TOOL_NAMES` | `true` | Emit cursor-safe `i_<id8>__<escaped>` names for fanned-out **prompts** (after PR A the gateway no longer fans out tools — this flag applies to prompts only). |
 | `--registry-dir` | `DCC_MCP_REGISTRY_DIR` | platform temp dir | Shared `FileRegistry` directory. |
 | `--stale-timeout-secs` | `DCC_MCP_STALE_TIMEOUT` | `30` | Seconds without heartbeat before an instance is considered stale. |

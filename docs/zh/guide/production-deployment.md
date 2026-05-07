@@ -73,8 +73,10 @@ cross build --release --bin dcc-mcp-server --target x86_64-unknown-linux-gnu
 | `DCC_MCP_APP_VERSION` | — | 写入注册表条目 |
 | `DCC_MCP_SCENE` | — | 当前场景文件名 |
 | `DCC_MCP_SKILL_PATHS` | — | `:` / `;` 分隔的额外 skill 目录 |
-| `DCC_MCP_LOG_FILE` | `false` | 在 stderr 之外启用滚动文件日志 |
+| `DCC_MCP_NO_LOG_FILE` | `false` | 禁用滚动文件日志；stderr 日志仍保留 |
 | `DCC_MCP_LOG_DIR` | 平台默认 | 滚动日志的输出目录 |
+| `DCC_MCP_NO_ADMIN` | `false` | 禁用获选网关的只读 `/admin` UI |
+| `DCC_MCP_ADMIN_PATH` | `/admin` | Admin UI URL 前缀 |
 
 ### 冒烟测试
 
@@ -99,7 +101,7 @@ curl -s http://127.0.0.1:9765/instances # → 已注册实例的 JSON 列表
 
 ```Dockerfile
 # 阶段 1 —— 构建
-FROM rust:1.85-slim AS builder
+FROM rust:1.95-slim AS builder
 WORKDIR /src
 COPY . .
 RUN cargo build --release --bin dcc-mcp-server
@@ -118,7 +120,7 @@ ENTRYPOINT ["/usr/local/bin/dcc-mcp-server"]
 ```bash
 docker build -t dcc-mcp-server:latest -f examples/compose/gateway-ha/Dockerfile .
 docker run --rm -p 9765:9765 dcc-mcp-server:latest \
-  --dcc generic --host 0.0.0.0
+  --app generic --host 0.0.0.0
 ```
 
 ### docker-compose 高可用
@@ -339,8 +341,10 @@ ALB 本身不支持按 header 做 hash，因此使用**应用级 Cookie 粘滞**
 - **systemd** —— `journalctl -u dcc-mcp-gateway.service -f`。
 - **Docker / compose** —— `docker compose logs -f gateway-a`。
 - **Kubernetes** —— `kubectl logs -f deploy/dcc-mcp-gateway`。
-- **滚动文件日志** —— 设置 `DCC_MCP_LOG_FILE=true` 和
-  `DCC_MCP_LOG_DIR=/var/log/dcc-mcp`，再用 promtail / fluentbit 收集。
+- **滚动文件日志** —— 默认开启；设置
+  `DCC_MCP_LOG_DIR=/var/log/dcc-mcp` 选择目录，或用
+  `DCC_MCP_NO_LOG_FILE=true` / `--no-log-file` 禁用。再用 promtail /
+  fluentbit 收集。
 
 ### 健康与就绪探针
 
@@ -360,14 +364,15 @@ livenessProbe:
   failureThreshold: 3
 ```
 
-> **说明**：当前没有 `/mcp/healthz` 端点 —— LB 友好的路径是
-> `/health`。同时检查注册表可达性的 `/readyz` 作为后续工作追踪。
+> **说明**：当前没有 `/mcp/healthz` 端点 —— LB 友好的路径仍是
+> `/health`。当挂载 REST skill API 时，用 `/v1/readyz` 做 per-DCC readiness。
 
 ### 指标
 
-Prometheus 抓取支持作为独立任务跟踪。在此之前请使用遥测组件
-（`DCC_MCP_LOG_FILE=true` 加日志衍生指标），或从 LB 访问日志导出
-请求计数。
+Prometheus 抓取支持已由 `prometheus` Cargo feature 提供。构建
+`dcc-mcp-http` / `dcc-mcp-server` 时启用该 feature，然后抓取
+`GET /metrics` 获取网关实例/工具计数以及请求延迟/失败指标。未启用该
+feature 时，可用滚动日志或 LB 访问日志导出请求计数。
 
 ---
 

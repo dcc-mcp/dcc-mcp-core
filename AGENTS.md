@@ -181,7 +181,7 @@ Gateway resources/prompts:
 | Bridge stdio MCP server to HTTP/SSE | `dcc-mcp-server translate --stdio "cmd" --app-type foo --port N` |
 | Add audit/quota/redact to all gateway calls | `GatewayConfig::middleware_chain` + `AuditMiddleware` / `QuotaMiddleware` / `RedactionMiddleware` |
 | Mount OpenAPI REST API as MCP tools | `GatewayBuilder::mount_openapi(OpenApiMount::from_url(...).auth(...))` |
-| Enable built-in gateway admin dashboard | `GatewayConfig { admin_enabled: true }` → open `GET /admin` |
+| Enable built-in gateway admin dashboard | Default ON for the elected gateway: open `GET /admin`; disable with `--no-admin`, `DCC_MCP_NO_ADMIN=true`, or `cfg.admin_enabled = False` |
 | Wire OTLP distributed tracing to Jaeger/Tempo/Grafana | Set `OTEL_EXPORTER_OTLP_ENDPOINT` env var at server startup |
 | Read gateway contention event history | MCP `resources/read` on `resources://gateway/events` |
 | Search public DCC-MCP adapter catalog | `dcc_catalog__search` MCP tool or `dcc-mcp-server catalog search --query ...` |
@@ -274,7 +274,7 @@ Full trap list + code examples → [`docs/guide/agents-reference.md`](docs/guide
 ## Repo Layout (What Lives Where)
 
 ```
-crates/          # Rust workspace — 30 members including workspace-hack; `Cargo.toml` is source of truth
+crates/          # Rust workspace — 31 members including workspace-hack; `Cargo.toml` is source of truth
 python/dcc_mcp_core/__init__.py  # ← top-level Python public re-exports
 python/dcc_mcp_core/result_envelope.py  # ← typed ToolResult dataclass (#487)
 python/dcc_mcp_core/constants.py        # ← metadata key / layer / category constants (#487)

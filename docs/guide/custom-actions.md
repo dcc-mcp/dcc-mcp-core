@@ -19,11 +19,12 @@ description: Maya geometry creation tools
 license: MIT
 compatibility: maya>=2022
 metadata:
-  dcc-mcp.dcc: maya
-  dcc-mcp.version: "1.0.0"
-  dcc-mcp.layer: domain
-  dcc-mcp.tags: [geometry, create]
-  dcc-mcp.tools: tools.yaml
+  dcc-mcp:
+    dcc: maya
+    version: "1.0.0"
+    layer: domain
+    tags: [geometry, create]
+    tools: tools.yaml
 ---
 
 # Maya Geometry Tools
