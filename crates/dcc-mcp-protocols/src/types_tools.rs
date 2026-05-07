@@ -10,6 +10,12 @@ use serde::{Deserialize, Serialize};
 ///
 /// Per MCP spec (2025-11-25), tools MAY include annotations that describe
 /// their destructive/idempotent nature and open-world safety.
+///
+/// This is the **canonical** wire-format type for tool annotations. The
+/// `dcc-mcp-jsonrpc` crate re-exports this under the historical
+/// `McpToolAnnotations` name (#812 part 1). The `dcc-mcp-models` crate
+/// owns a sibling type with snake_case + alias support for SKILL.md
+/// frontmatter parsing — convert with `From` when crossing layers.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[cfg_attr(
@@ -17,16 +23,17 @@ use serde::{Deserialize, Serialize};
     pyo3::pyclass(name = "ToolAnnotations", eq, get_all, set_all, from_py_object)
 )]
 pub struct ToolAnnotations {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
-    #[serde(rename = "readOnlyHint")]
+    #[serde(rename = "readOnlyHint", skip_serializing_if = "Option::is_none")]
     pub read_only_hint: Option<bool>,
-    #[serde(rename = "destructiveHint")]
+    #[serde(rename = "destructiveHint", skip_serializing_if = "Option::is_none")]
     pub destructive_hint: Option<bool>,
-    #[serde(rename = "idempotentHint")]
+    #[serde(rename = "idempotentHint", skip_serializing_if = "Option::is_none")]
     pub idempotent_hint: Option<bool>,
-    #[serde(rename = "openWorldHint")]
+    #[serde(rename = "openWorldHint", skip_serializing_if = "Option::is_none")]
     pub open_world_hint: Option<bool>,
-    #[serde(rename = "deferredHint")]
+    #[serde(rename = "deferredHint", skip_serializing_if = "Option::is_none")]
     pub deferred_hint: Option<bool>,
 }
 
