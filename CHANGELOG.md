@@ -11,6 +11,13 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.15.4](https://github.com/loonghao/dcc-mcp-core/compare/v0.15.3...v0.15.4) (2026-05-07)
+
+
+### Bug Fixes
+
+* cover py37 import compatibility ([62286d3](https://github.com/loonghao/dcc-mcp-core/commit/62286d3b6f337764d4aafe1fe149ae5abfd74d59))
+
 ## [0.15.3](https://github.com/loonghao/dcc-mcp-core/compare/v0.15.2...v0.15.3) (2026-05-07)
 
 
