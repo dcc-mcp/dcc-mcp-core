@@ -65,6 +65,9 @@ server = McpHttpServer(reg, cfg)
 # 2. 创建分发器。BlockingDispatcher 适用于 --background DCC；
 #    QueueDispatcher 适用于 GUI 会话。两者均被 HostAdapter、
 #    McpHttpServer.attach_dispatcher 和 StandaloneHost 接受（实践中的 LSP）。
+#    如果自定义 dispatcher 只需要类型契约，请从 dcc_mcp_core.host
+#    导入公开的 TickableDispatcher 协议；不要直接导入私有
+#    host protocol 模块。
 dispatcher = BlockingDispatcher()
 server.attach_dispatcher(dispatcher)
 

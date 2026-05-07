@@ -4,20 +4,15 @@
 from __future__ import annotations
 
 # Import built-in modules
-import importlib
-import pkgutil
+from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 # Import local modules
-import dcc_mcp_core
+from import_tests import collect_import_failures
 
 
 def test_dcc_mcp_core_modules_are_importable() -> None:
     """Every importable package module should load without side effects."""
-    failures: list[tuple[str, str]] = []
-    for module_info in pkgutil.walk_packages(dcc_mcp_core.__path__, prefix=f"{dcc_mcp_core.__name__}."):
-        try:
-            importlib.import_module(module_info.name)
-        except Exception as exc:  # pragma: no cover - assertion reports details
-            failures.append((module_info.name, f"{type(exc).__name__}: {exc}"))
-
-    assert failures == []
+    assert collect_import_failures() == []

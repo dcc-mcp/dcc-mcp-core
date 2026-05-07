@@ -75,7 +75,10 @@ server = McpHttpServer(reg, cfg)
 # 2. Create a dispatcher. BlockingDispatcher is right for --background
 #    DCCs; QueueDispatcher is right for GUI sessions. Either one is
 #    accepted by HostAdapter, McpHttpServer.attach_dispatcher, and
-#    StandaloneHost (LSP in practice).
+#    StandaloneHost (LSP in practice). If you need a type-only
+#    contract for custom dispatchers, import the public
+#    TickableDispatcher protocol from dcc_mcp_core.host; do not import
+#    private host protocol modules directly.
 dispatcher = BlockingDispatcher()
 server.attach_dispatcher(dispatcher)
 

@@ -55,6 +55,7 @@
 | Expose DCC tools over HTTP/MCP | `create_skill_server("maya", McpHttpConfig(port=8765))` — Skills-First setup; falls back to `McpHttpServer(registry, config)` for manual registry wiring |
 | Register MCP prompts from Python (issue #792) | `handle = server.prompts(); handle.register_prompt(name, template, description=..., arguments=[...])` — `server.prompts()` returns `PromptHandle`; registration upserts in-place and appears in the next `prompts/list` / `prompts/get` |
 | Build a DCC adapter | `DccServerBase(dcc_name, builtin_skills_dir)` — skill/lifecycle/gateway/hot-reload inherited |
+| Drive a DCC main-thread dispatcher | `from dcc_mcp_core.host import HostAdapter, StandaloneHost, TickableDispatcher, QueueDispatcher, BlockingDispatcher`; `TickableDispatcher` is the public minimal protocol (`tick`, `shutdown`, `is_shutdown`) for adapter typing. Do not import private host protocols. |
 | Write skill scripts | `skill_entry` + `skill_success` / `skill_error` — zero-boilerplate skill authoring |
 | Control skill trust level | `SkillScope` (Repo < User < System < Admin) — higher scope shadows lower |
 | Progressive tool exposure | `SkillGroup` with `default_active` + `activate_tool_group()` |

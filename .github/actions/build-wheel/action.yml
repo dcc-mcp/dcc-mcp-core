@@ -125,30 +125,7 @@ runs:
         pip install --no-index --find-links dist dcc-mcp-core --force-reinstall --no-deps
         pip check
 
-        python - <<'PY'
-        import importlib
-        import pkgutil
-
-        import dcc_mcp_core
-        print(f'Version: {dcc_mcp_core.__version__}')
-        from dcc_mcp_core._core import SkillScanner, ToolRegistry, ToolResult
-        result = ToolResult(success=True, message='Wheel test passed')
-        print(f'Result: {result}')
-        reg = ToolRegistry()
-        print(f'Registry: {reg}')
-
-        failures = []
-        for module_info in pkgutil.walk_packages(dcc_mcp_core.__path__, prefix=f'{dcc_mcp_core.__name__}.'):
-            try:
-                importlib.import_module(module_info.name)
-            except Exception as exc:
-                failures.append((module_info.name, f'{type(exc).__name__}: {exc}'))
-        if failures:
-            for name, error in failures:
-                print(f'Import failed: {name}: {error}')
-            raise SystemExit(1)
-        print('All imports OK!')
-        PY
+        python tests/import_tests.py
 
     - name: Upload wheel
       uses: actions/upload-artifact@v7
