@@ -40,12 +40,11 @@ async fn test_gateway_mcp_ping() {
 }
 
 #[tokio::test]
-async fn test_gateway_mcp_tools_list_omits_removed_instance_verbs() {
-    // The instance discovery triple (`list_dcc_instances`, `get_dcc_instance`,
-    // `connect_to_dcc`) was removed in #813 phase 1 in favour of the
-    // `gateway://instances` MCP resource. Their absence is part of the
-    // surface contract; assert it explicitly so a regression that
-    // re-adds them is loud.
+async fn test_gateway_mcp_tools_list_omits_removed_verbs() {
+    // The instance discovery triple (#813 phase 1) and the diagnostics +
+    // catalog tools (#813 phase 2) were removed in favour of MCP
+    // resources. Their absence is part of the surface contract; assert it
+    // explicitly so a regression that re-adds them is loud.
     let server = TestServer::new(make_gateway_router());
     let resp = server
         .post("/mcp")
@@ -59,10 +58,22 @@ async fn test_gateway_mcp_tools_list_omits_removed_instance_verbs() {
     let body: serde_json::Value = resp.json();
     let tools = body["result"]["tools"].as_array().unwrap();
     let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
-    for removed in ["list_dcc_instances", "get_dcc_instance", "connect_to_dcc"] {
+    for removed in [
+        // #813 phase 1
+        "list_dcc_instances",
+        "get_dcc_instance",
+        "connect_to_dcc",
+        // #813 phase 2 — diagnostics → resources
+        "diagnostics__process_status",
+        "diagnostics__audit_log",
+        "diagnostics__tool_metrics",
+        // #813 phase 2 — catalog → resources
+        "dcc_catalog__search",
+        "dcc_catalog__describe",
+    ] {
         assert!(
             !names.contains(&removed),
-            "{removed} must not appear in tools/list (#813 phase 1 removed it): {names:?}",
+            "{removed} must not appear in tools/list: {names:?}",
         );
     }
     // Lease verbs and dynamic-capability wrappers stay published.
@@ -72,19 +83,37 @@ async fn test_gateway_mcp_tools_list_omits_removed_instance_verbs() {
         "search_tools",
         "describe_tool",
         "call_tool",
-        "diagnostics__process_status",
-        "diagnostics__audit_log",
-        "diagnostics__tool_metrics",
     ] {
         assert!(
             names.contains(&kept),
             "{kept} should still be published: {names:?}",
         );
     }
+    // Skill-management tools also stay published (they are a separate
+    // namespace from the dispatch verbs and are still tools, not resources).
+    for skill_mgmt in [
+        "list_skills",
+        "search_skills",
+        "get_skill_info",
+        "load_skill",
+        "unload_skill",
+    ] {
+        assert!(
+            names.contains(&skill_mgmt),
+            "skill-management tool {skill_mgmt} should still be published: {names:?}",
+        );
+    }
+    // 5 dispatch verbs + 5 skill-management = 10 gateway meta-tools.
+    // Diagnostics + catalog moved to resources (#813 phase 2).
+    assert_eq!(
+        names.len(),
+        10,
+        "expected 10 gateway meta-tools (5 dispatch + 5 skill mgmt) after #813 phases 1+2, got: {names:?}",
+    );
 }
 
 #[tokio::test]
-async fn test_gateway_resources_list_includes_gateway_instances_pointer() {
+async fn test_gateway_resources_list_includes_all_native_pointers() {
     let server = TestServer::new(make_gateway_router());
     let resp = server
         .post("/mcp")
@@ -100,10 +129,18 @@ async fn test_gateway_resources_list_includes_gateway_instances_pointer() {
     let body: serde_json::Value = resp.json();
     let resources = body["result"]["resources"].as_array().unwrap();
     let uris: Vec<&str> = resources.iter().filter_map(|r| r["uri"].as_str()).collect();
-    assert!(
-        uris.contains(&"gateway://instances"),
-        "resources/list must include gateway://instances pointer: {uris:?}",
-    );
+    for required in [
+        "gateway://instances",
+        "gateway://diagnostics/process",
+        "gateway://diagnostics/audit",
+        "gateway://diagnostics/metrics",
+        "gateway://catalog",
+    ] {
+        assert!(
+            uris.contains(&required),
+            "{required} must appear in resources/list: {uris:?}",
+        );
+    }
 }
 
 #[tokio::test]
@@ -220,7 +257,7 @@ async fn test_gateway_resources_read_instances_query_filters() {
 }
 
 #[tokio::test]
-async fn test_gateway_diagnostics_tools_are_native() {
+async fn test_gateway_resources_read_diagnostics_process() {
     let state = make_gateway_state();
     {
         let reg = state.registry.read().await;
@@ -235,22 +272,84 @@ async fn test_gateway_diagnostics_tools_are_native() {
             "application/json".parse::<HeaderValue>().unwrap(),
         )
         .json(&serde_json::json!({
-            "jsonrpc": "2.0",
-            "id": 12,
-            "method": "tools/call",
-            "params": {"name": "diagnostics__process_status", "arguments": {}}
+            "jsonrpc": "2.0", "id": 1, "method": "resources/read",
+            "params": {"uri": "gateway://diagnostics/process"}
         }))
         .await;
     resp.assert_status_ok();
     let body: serde_json::Value = resp.json();
-    assert_eq!(body["result"]["isError"], false);
-    let text = body["result"]["content"][0]["text"]
+    let text = body["result"]["contents"][0]["text"]
         .as_str()
         .expect("no text content");
     let result: serde_json::Value = serde_json::from_str(text).unwrap();
     assert_eq!(result["success"], true);
     assert_eq!(result["counts"]["total"], 1);
     assert_eq!(result["instances"][0]["dcc_type"], "maya");
+}
+
+#[tokio::test]
+async fn test_gateway_resources_read_diagnostics_process_with_dcc_filter() {
+    let state = make_gateway_state();
+    {
+        let reg = state.registry.read().await;
+        reg.register(ServiceEntry::new("maya", "127.0.0.1", 19770))
+            .unwrap();
+        reg.register(ServiceEntry::new("blender", "127.0.0.1", 19771))
+            .unwrap();
+    }
+    let server = TestServer::new(build_gateway_router(state));
+    let resp = server
+        .post("/mcp")
+        .add_header(
+            axum::http::header::CONTENT_TYPE,
+            "application/json".parse::<HeaderValue>().unwrap(),
+        )
+        .json(&serde_json::json!({
+            "jsonrpc": "2.0", "id": 1, "method": "resources/read",
+            "params": {"uri": "gateway://diagnostics/process?dcc_type=maya"}
+        }))
+        .await;
+    resp.assert_status_ok();
+    let body: serde_json::Value = resp.json();
+    let text = body["result"]["contents"][0]["text"]
+        .as_str()
+        .expect("no text content");
+    let result: serde_json::Value = serde_json::from_str(text).unwrap();
+    assert_eq!(result["counts"]["total"], 1, "filter must apply");
+    assert_eq!(result["instances"][0]["dcc_type"], "maya");
+}
+
+#[tokio::test]
+async fn test_gateway_resources_read_diagnostics_audit_and_metrics() {
+    let server = TestServer::new(make_gateway_router());
+
+    for uri in [
+        "gateway://diagnostics/audit",
+        "gateway://diagnostics/metrics",
+    ] {
+        let resp = server
+            .post("/mcp")
+            .add_header(
+                axum::http::header::CONTENT_TYPE,
+                "application/json".parse::<HeaderValue>().unwrap(),
+            )
+            .json(&serde_json::json!({
+                "jsonrpc": "2.0", "id": 1, "method": "resources/read",
+                "params": {"uri": uri}
+            }))
+            .await;
+        resp.assert_status_ok();
+        let body: serde_json::Value = resp.json();
+        assert!(body.get("error").is_none(), "{uri} returned error: {body}",);
+        let text = body["result"]["contents"][0]["text"]
+            .as_str()
+            .expect("no text content");
+        let result: serde_json::Value = serde_json::from_str(text).unwrap();
+        assert_eq!(
+            result["success"], true,
+            "{uri} payload must report success: {result}",
+        );
+    }
 }
 
 #[tokio::test]

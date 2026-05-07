@@ -194,7 +194,7 @@ Gateway resources/prompts:
 | Enable built-in gateway admin dashboard | Default ON for the elected gateway: open `GET /admin`; disable with `--no-admin`, `DCC_MCP_NO_ADMIN=true`, or `cfg.admin_enabled = False` |
 | Wire OTLP distributed tracing to Jaeger/Tempo/Grafana | Set `OTEL_EXPORTER_OTLP_ENDPOINT` env var at server startup |
 | Read gateway contention event history | MCP `resources/read` on `resources://gateway/events` |
-| Search public DCC-MCP adapter catalog | `dcc_catalog__search` MCP tool or `dcc-mcp-server catalog search --query ...` |
+| Search public DCC-MCP adapter catalog | MCP `resources/read` on `gateway://catalog?query=...` (or `gateway://catalog/{name}` for a single entry); CLI: `dcc-mcp-server catalog search --query ...` |
 | Disable evolved skills | `ENV_DISABLE_ACCUMULATED_SKILLS` |
 | MCP HTTP (recommended) | `create_skill_server("<dcc>", McpHttpConfig(port=8765))` |
 | MCP HTTP (manual) | `McpHttpServer(registry, McpHttpConfig(port=8765))` |
@@ -245,7 +245,7 @@ Gateway resources/prompts:
 
 1. **Skill Discovery**: `search_skills(query)` → `load_skill(name)` → use tools
 2. **Skill-Based Tools**: Validated schemas + `next-tools` + `ToolAnnotations` safety hints
-3. **Diagnostics**: `diagnostics__screenshot` / `audit_log` / `process_status`
+3. **Diagnostics**: per-DCC `dcc_diagnostics__screenshot` / `dcc_diagnostics__audit_log` MCP tools; gateway-side `gateway://diagnostics/{process,audit,metrics}` MCP resources (`resources/read`).
 4. **Direct Registry** (last resort): Validate with `ToolValidator` + sandbox with `SandboxPolicy`
 
 ### Why Skills-First?

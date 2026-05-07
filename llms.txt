@@ -977,7 +977,7 @@ Full guide: `docs/guide/remote-server.md`. Per-module API: `docs/api/{auth,batch
 | I want to… | Use this |
 |------------|---------|
 | Bridge stdio MCP server to HTTP/SSE | `dcc-mcp-server translate --stdio "cmd" --port N --app-type external` — Streamable HTTP `/mcp` is on by default; add `--expose-sse true` only for legacy `/sse` clients |
-| Search DCC-MCP adapter catalog | `dcc_catalog__search({"query":"..."})` MCP tool or `dcc-mcp-server catalog search` |
+| Search DCC-MCP adapter catalog | MCP `resources/read uri=gateway://catalog?query=...` (or `gateway://catalog/{name}` for a single entry); CLI: `dcc-mcp-server catalog search` |
 | Mount OpenAPI REST API as MCP tools | `GatewayBuilder::mount_openapi(OpenApiMount::from_url(...).auth(...))` |
 | Add audit/quota/redact to gateway calls | `GatewayConfig::middleware_chain` with built-in middleware |
 | Gateway admin dashboard | Default ON for the elected gateway: `GET /admin`; disable with `--no-admin`, `DCC_MCP_NO_ADMIN=true`, or `cfg.admin_enabled = False` |
@@ -1050,7 +1050,7 @@ dcc-mcp-server catalog search --query maya
 dcc-mcp-server catalog describe --name dcc-mcp-maya-skills
 ```
 
-MCP tools: `dcc_catalog__search({"query":"..."})`, `dcc_catalog__describe({"name":"..."})`.
+MCP resources (#813 phase 2): `resources/read uri=gateway://catalog?query=...`, `resources/read uri=gateway://catalog/{name}`.
 Override catalog path: `DCC_MCP_CATALOG_PATH=/path/to/dcc-mcp-catalog.yml`.
 
 ### Gateway Observability (#766)
