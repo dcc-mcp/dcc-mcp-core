@@ -5,11 +5,9 @@ from __future__ import annotations
 
 # Import built-in modules
 import sys
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    # Import local modules
-    from dcc_mcp_core._core import TickOutcome
+# Import local modules
+from dcc_mcp_core._core import TickOutcome
 
 # `typing.Protocol` and `typing.runtime_checkable` are 3.8+. The package
 # still supports Python 3.7 for older embedded DCC runtimes such as Maya 2022
