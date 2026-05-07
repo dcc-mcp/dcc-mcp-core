@@ -101,6 +101,15 @@ impl PyMcpHttpConfig {
         self.inner.server.host.to_string()
     }
 
+    /// Bind address. Accepts any IPv4/IPv6 literal that ``std::net::IpAddr``
+    /// can parse. Raises ``ValueError`` for malformed input — never panics.
+    #[setter]
+    fn set_host(&mut self, v: &str) -> PyResult<()> {
+        self.inner.set_host(v).map(|_| ()).map_err(|e| {
+            pyo3::exceptions::PyValueError::new_err(format!("invalid host {v:?}: {e}"))
+        })
+    }
+
     /// MCP endpoint path (default ``"/mcp"``).
     #[getter]
     fn endpoint_path(&self) -> String {
