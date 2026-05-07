@@ -107,7 +107,19 @@ jobs:
         with:
           tool: cargo-nextest
       - name: Verify workspace-hack is up to date
-        run: cargo hakari verify
+        shell: bash
+        run: |
+          cargo hakari verify && exit 0
+
+          # If we get here, verify failed. Run generate and show the diff.
+          echo "::error::workspace-hack is out of date — run 'cargo hakari generate' locally"
+          echo ""
+          echo "Expected changes to crates/workspace-hack/Cargo.toml:"
+          cargo hakari generate
+          git diff --no-color crates/workspace-hack/Cargo.toml
+          echo ""
+          echo "::error::Run 'cargo hakari generate' and commit the changes to fix this CI step."
+          exit 1
       - name: Preflight (check + clippy + fmt + test)
         run: vx just preflight
 
