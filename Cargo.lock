@@ -930,6 +930,7 @@ dependencies = [
 name = "dcc-mcp-jsonrpc"
 version = "0.15.5"
 dependencies = [
+ "dcc-mcp-protocols",
  "serde",
  "serde_json",
  "workspace-hack",

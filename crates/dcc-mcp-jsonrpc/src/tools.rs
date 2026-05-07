@@ -3,6 +3,18 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+/// Re-export of [`dcc_mcp_protocols::ToolAnnotations`] under the historical
+/// `McpToolAnnotations` name used throughout the wire layer.
+///
+/// The two types had identical field sets (`title`, four spec hints, plus the
+/// dcc-mcp-core-specific `deferred_hint` extension) and identical camelCase
+/// serialisation, so they are now a single canonical type. Kept under the
+/// `McpToolAnnotations` alias here so existing `use dcc_mcp_jsonrpc::McpToolAnnotations`
+/// paths in `dcc-mcp-gateway` / `dcc-mcp-http` continue to compile unchanged.
+///
+/// Resolves the duplication tracked in #812 part 1.
+pub use dcc_mcp_protocols::ToolAnnotations as McpToolAnnotations;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ListToolsResult {
@@ -34,23 +46,6 @@ pub struct McpTool {
     /// reserved for spec-defined tool hints.
     #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
     pub meta: Option<serde_json::Map<String, Value>>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct McpToolAnnotations {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub title: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub read_only_hint: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub destructive_hint: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub idempotent_hint: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub open_world_hint: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub deferred_hint: Option<bool>,
 }
 
 /// `_meta` field carried in a `tools/call` request.
@@ -161,5 +156,68 @@ impl CallToolResult {
             is_error: true,
             meta: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Issue #812 part 1: `McpToolAnnotations` is now a re-export of
+    /// `dcc_mcp_protocols::ToolAnnotations`. The wire form must remain the
+    /// camelCase shape historically emitted by `tools/list`, with `None`
+    /// fields fully omitted (not serialised as `null`).
+    #[test]
+    fn mcp_tool_annotations_wire_form_is_camelcase_with_skipped_nones() {
+        let ann = McpToolAnnotations {
+            title: None,
+            read_only_hint: Some(true),
+            destructive_hint: None,
+            idempotent_hint: Some(false),
+            open_world_hint: None,
+            deferred_hint: Some(true),
+        };
+        let json = serde_json::to_string(&ann).unwrap();
+        // Set fields use spec camelCase keys.
+        assert!(json.contains("\"readOnlyHint\":true"), "json: {json}");
+        assert!(json.contains("\"idempotentHint\":false"), "json: {json}");
+        assert!(json.contains("\"deferredHint\":true"), "json: {json}");
+        // Unset fields are fully omitted, not serialised as `null`.
+        assert!(!json.contains("title"), "json: {json}");
+        assert!(!json.contains("destructiveHint"), "json: {json}");
+        assert!(!json.contains("openWorldHint"), "json: {json}");
+        assert!(!json.contains("null"), "json: {json}");
+    }
+
+    /// Issue #812 part 1: round-trip via `McpTool` (the `tools/list` row
+    /// type) keeps the annotations payload byte-stable across the alias
+    /// boundary.
+    #[test]
+    fn mcp_tool_annotations_roundtrip_through_mcp_tool() {
+        let tool = McpTool {
+            name: "delete_scene".to_string(),
+            description: "Delete the active scene".to_string(),
+            input_schema: serde_json::json!({"type": "object"}),
+            output_schema: None,
+            annotations: Some(McpToolAnnotations {
+                title: Some("Delete Scene".to_string()),
+                read_only_hint: Some(false),
+                destructive_hint: Some(true),
+                idempotent_hint: Some(true),
+                open_world_hint: None,
+                deferred_hint: Some(false),
+            }),
+            meta: None,
+        };
+        let json = serde_json::to_string(&tool).unwrap();
+        let parsed: McpTool = serde_json::from_str(&json).unwrap();
+        let parsed_ann = parsed.annotations.expect("annotations preserved");
+        let original_ann = tool.annotations.unwrap();
+        assert_eq!(parsed_ann.title, original_ann.title);
+        assert_eq!(parsed_ann.read_only_hint, original_ann.read_only_hint);
+        assert_eq!(parsed_ann.destructive_hint, original_ann.destructive_hint);
+        assert_eq!(parsed_ann.idempotent_hint, original_ann.idempotent_hint);
+        assert_eq!(parsed_ann.open_world_hint, original_ann.open_world_hint);
+        assert_eq!(parsed_ann.deferred_hint, original_ann.deferred_hint);
     }
 }

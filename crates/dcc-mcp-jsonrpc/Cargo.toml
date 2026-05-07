@@ -9,6 +9,7 @@ repository.workspace = true
 description = "JSON-RPC 2.0 + MCP 2025-03-26 Streamable HTTP wire types (no transport, no axum)"
 
 [dependencies]
+dcc-mcp-protocols = { path = "../dcc-mcp-protocols" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
