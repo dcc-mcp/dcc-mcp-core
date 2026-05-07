@@ -11,6 +11,13 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.15.5](https://github.com/loonghao/dcc-mcp-core/compare/v0.15.4...v0.15.5) (2026-05-07)
+
+
+### Bug Fixes
+
+* **http:** make McpHttpConfig::set_host return Result instead of panicking ([fc15902](https://github.com/loonghao/dcc-mcp-core/commit/fc15902426d8d459846c8be7c1f47ab9e01465de)), closes [#811](https://github.com/loonghao/dcc-mcp-core/issues/811)
+
 ## [0.15.4](https://github.com/loonghao/dcc-mcp-core/compare/v0.15.3...v0.15.4) (2026-05-07)
 
 
