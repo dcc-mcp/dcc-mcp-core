@@ -162,8 +162,9 @@ impl McpHttpConfig {
     pub fn host(&self) -> String {
         self.server.host.to_string()
     }
-    pub fn set_host(&mut self, v: &str) {
-        self.server.host = v.parse().unwrap();
+    pub fn set_host(&mut self, v: &str) -> Result<&mut Self, std::net::AddrParseError> {
+        self.server.host = v.parse()?;
+        Ok(self)
     }
     pub fn endpoint_path(&self) -> String {
         self.server.endpoint_path.clone()
@@ -1327,5 +1328,35 @@ mod tests {
         assert_eq!(cfg.queue.max_request_body_bytes, 8 * 1024 * 1024);
         assert_eq!(cfg.queue.max_response_content_bytes, 512 * 1024);
         assert_eq!(cfg.queue.sse_chunk_size_bytes, 32 * 1024);
+    }
+
+    /// Issue #811: `set_host` returns `Err` on malformed input instead of
+    /// panicking. Library/PyO3 callers can surface the error structurally.
+    #[test]
+    fn set_host_returns_err_on_invalid_input() {
+        let mut cfg = McpHttpConfig::default();
+        let original = cfg.server.host;
+        let err = cfg.set_host("not.an.ip.address").unwrap_err();
+        // The error type is the canonical std parse error; we mainly assert
+        // (a) we got `Err`, not a panic, and (b) the host field is untouched.
+        assert!(!err.to_string().is_empty());
+        assert_eq!(cfg.server.host, original);
+    }
+
+    /// Issue #811: `set_host` accepts a valid IPv4 literal and updates the
+    /// underlying `IpAddr` field.
+    #[test]
+    fn set_host_accepts_valid_ipv4() {
+        let mut cfg = McpHttpConfig::default();
+        cfg.set_host("10.0.0.5").expect("valid IPv4");
+        assert_eq!(cfg.server.host.to_string(), "10.0.0.5");
+    }
+
+    /// Issue #811: `set_host` accepts a valid IPv6 literal too.
+    #[test]
+    fn set_host_accepts_valid_ipv6() {
+        let mut cfg = McpHttpConfig::default();
+        cfg.set_host("::1").expect("valid IPv6");
+        assert_eq!(cfg.server.host.to_string(), "::1");
     }
 }
