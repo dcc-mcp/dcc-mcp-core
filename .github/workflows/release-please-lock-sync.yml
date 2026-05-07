@@ -1,0 +1,59 @@
+name: Release Please lock sync
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, edited]
+    branches: [main]
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "pyproject.toml"
+      - "release-please-config.json"
+
+permissions:
+  contents: write
+  pull-requests: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  sync-cargo-lock:
+    name: Sync Cargo.lock for Release Please
+    runs-on: ubuntu-latest
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      startsWith(github.event.pull_request.head.ref, 'release-please--branches--main') &&
+      startsWith(github.event.pull_request.title, 'chore(main): release ')
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: loonghao/vx@v0.8.36
+
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-hakari
+
+      - name: Sync generated Cargo metadata
+        run: |
+          cargo update -w
+          cargo hakari generate
+
+      - name: Commit and push changes
+        run: |
+          if git diff --quiet -- Cargo.lock crates/workspace-hack/Cargo.toml; then
+            echo "Cargo metadata is already in sync."
+            exit 0
+          fi
+
+          git config user.name "loonghao"
+          git config user.email "hal.long@outlook.com"
+          git add Cargo.lock crates/workspace-hack/Cargo.toml
+          git commit -m "chore(release): sync Cargo.lock"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
