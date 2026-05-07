@@ -125,7 +125,7 @@ runs:
         pip install --no-index --find-links dist dcc-mcp-core --force-reinstall --no-deps
         pip check
 
-        python tests/import_tests.py
+        python tests/test_imports.py
 
     - name: Upload wheel
       uses: actions/upload-artifact@v7

@@ -25,7 +25,7 @@ def collect_import_failures() -> list[tuple[str, str]]:
     return failures
 
 
-def run_import_smoke_test() -> None:
+def assert_import_smoke() -> None:
     """Run the same import smoke test used by wheel CI and pytest."""
     print(f"Version: {dcc_mcp_core.__version__}")
     result = ToolResult(success=True, message="Wheel test passed")
@@ -38,9 +38,14 @@ def run_import_smoke_test() -> None:
     if failures:
         for name, error in failures:
             print(f"Import failed: {name}: {error}")
-        raise SystemExit(1)
+    assert failures == []
     print("All imports OK!")
 
 
+def test_dcc_mcp_core_import_smoke() -> None:
+    """Every importable package module should load without side effects."""
+    assert_import_smoke()
+
+
 if __name__ == "__main__":
-    run_import_smoke_test()
+    assert_import_smoke()
