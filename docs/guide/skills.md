@@ -29,12 +29,13 @@ description: >-
 license: MIT
 compatibility: maya>=2022
 metadata:
-  dcc-mcp.dcc: maya
-  dcc-mcp.version: "1.0.0"
-  dcc-mcp.layer: domain
-  dcc-mcp.tags: [geometry, create]
-  dcc-mcp.search-hint: "polygon modeling, sphere, bevel, extrude, mesh editing"
-  dcc-mcp.tools: tools.yaml
+  dcc-mcp:
+    dcc: maya
+    version: "1.0.0"
+    layer: domain
+    tags: [geometry, create]
+    search-hint: "polygon modeling, sphere, bevel, extrude, mesh editing"
+    tools: tools.yaml
 ---
 # Maya Geometry Skill
 
@@ -449,7 +450,8 @@ Tag every skill with its layer so `search_skills` can filter by layer:
 
 ```yaml
 metadata:
-  dcc-mcp.layer: infrastructure   # or: domain | example
+  dcc-mcp:
+    layer: infrastructure   # or: domain | example
 ```
 
 ```python
@@ -466,14 +468,20 @@ Keep `search-hint` keywords non-overlapping across layers so `search_skills()`
 returns the most relevant skill:
 
 ```yaml
-# ✓ Infrastructure — mechanism-oriented (describes the tool/API itself)
-dcc-mcp.search-hint: "usd stage, prim, schema validation, usdcat, usdchecker"
+# Infrastructure — mechanism-oriented (describes the tool/API itself)
+metadata:
+  dcc-mcp:
+    search-hint: "usd stage, prim, schema validation, usdcat, usdchecker"
 
-# ✓ Domain — intent-oriented (describes the user's goal)
-dcc-mcp.search-hint: "export Maya scene to USD, asset pipeline, project setup"
+# Domain — intent-oriented (describes the user's goal)
+metadata:
+  dcc-mcp:
+    search-hint: "export Maya scene to USD, asset pipeline, project setup"
 
-# ✓ Example — append "authoring reference" to avoid production matches
-dcc-mcp.search-hint: "async tool, deferred hint, authoring reference"
+# Example — append "authoring reference" to avoid production matches
+metadata:
+  dcc-mcp:
+    search-hint: "async tool, deferred hint, authoring reference"
 ```
 
 ### Failure chain wiring
@@ -647,7 +655,7 @@ if __name__ == "__main__":
 - [ ] Pure helpers live in `scripts/utils/` and have no side effects
 - [ ] Every tool in `tools.yaml` has an explicit `source_file:`
 - [ ] Each adapter installs the `sys.path` shim shown above
-- [ ] `metadata.dcc-mcp.tools: tools.yaml` is set in SKILL.md frontmatter
+- [ ] `metadata.dcc-mcp.tools` is set to `tools.yaml` in nested SKILL.md frontmatter
 
 ## Dependency Resolution
 
@@ -742,9 +750,10 @@ Declare groups in `groups.yaml`, referenced from `SKILL.md` via `metadata.dcc-mc
 name: maya-geometry
 description: "Domain skill — Maya geometry, modeling, and rigging tools. Use when ..."
 metadata:
-  dcc-mcp.dcc: maya
-  dcc-mcp.tools: tools.yaml
-  dcc-mcp.groups: groups.yaml
+  dcc-mcp:
+    dcc: maya
+    tools: tools.yaml
+    groups: groups.yaml
 ---
 ```
 
@@ -1000,7 +1009,7 @@ The `tags` and `dcc` filter arguments are applied *before* scoring.
 
 ## Migrating pre-0.15 SKILL.md
 
-Starting with dcc-mcp-core 0.15 (issue [#356](https://github.com/loonghao/dcc-mcp-core/issues/356)), dcc-mcp-core-specific extension keys (`dcc`, `version`, `tags`, `tools`, …) MUST live under the agentskills.io-compliant `metadata.dcc-mcp.*` namespace rather than at the top level of SKILL.md frontmatter. The loader rejects any top-level key outside the agentskills.io 1.0 spec (`name`, `description`, `license`, `compatibility`, `metadata`, `allowed-tools`): a SKILL.md with legacy top-level keys fails to load and emits a `tracing::error!`.
+Starting with dcc-mcp-core 0.15 (issue [#356](https://github.com/loonghao/dcc-mcp-core/issues/356)), dcc-mcp-core-specific extension keys (`dcc`, `version`, `tags`, `tools`, …) MUST live under the agentskills.io-compliant nested `metadata.dcc-mcp` namespace rather than at the top level of SKILL.md frontmatter. The strict v0.15+ loader also no longer promotes the pre-0.15 flat dotted form (`metadata: { "dcc-mcp.dcc": ... }`) into typed fields. A SKILL.md with legacy top-level keys fails to load and emits a `tracing::error!`.
 
 ### Before (pre-0.15 legacy form — no longer accepted)
 
@@ -1027,11 +1036,12 @@ name: maya-geometry
 description: "Maya geometry creation and modification tools"
 license: MIT
 metadata:
-  dcc-mcp.dcc: maya
-  dcc-mcp.version: "1.0.0"
-  dcc-mcp.tags: "geometry, create"
-  dcc-mcp.search-hint: "polygon modeling, sphere, bevel, extrude"
-  dcc-mcp.tools: tools.yaml     # sibling file (relative to SKILL.md)
+  dcc-mcp:
+    dcc: maya
+    version: "1.0.0"
+    tags: [geometry, create]
+    search-hint: "polygon modeling, sphere, bevel, extrude"
+    tools: tools.yaml     # sibling file (relative to SKILL.md)
 ---
 ```
 

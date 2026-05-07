@@ -25,6 +25,6 @@ This skill is automatically discovered when `DCC_MCP_MAYA_SKILL_PATHS` or
 
 ## Notes
 
-- The `metadata.dcc-mcp.dcc: maya` field filters this skill to Maya-only servers.
+- The nested `metadata.dcc-mcp.dcc: maya` field filters this skill to Maya-only servers.
 - The `next-tools` field in `tools.yaml` guides the AI to capture a screenshot on failure.
 - Replace `execute.py` with your actual DCC integration logic.

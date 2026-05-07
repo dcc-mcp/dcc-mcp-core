@@ -437,9 +437,9 @@ tools/list 响应（Maya 会话、尚未加载任何 skill）：
 
 ---
 
-## 架构总览 —— 30 个 Workspace 成员
+## 架构总览 —— 31 个 Workspace 成员
 
-`dcc-mcp-core` 组织为 **30 个成员的 Rust workspace**（29 个功能 crate + `workspace-hack`），通过 PyO3 / maturin 编译为单个原生 Python 扩展（`_core`）。精选 crate：
+`dcc-mcp-core` 组织为 **31 个成员的 Rust workspace**（30 个功能 crate + `workspace-hack`），通过 PyO3 / maturin 编译为单个原生 Python 扩展（`_core`）。精选 crate：
 
 | Crate | 职责 | 关键类型 |
 |---|---|---|
@@ -448,6 +448,11 @@ tools/list 响应（Maya 会话、尚未加载任何 skill）：
 | `dcc-mcp-actions` | 工具执行生命周期 | `ToolRegistry`、`ToolDispatcher`、`ToolValidator`、`ToolPipeline`、`EventBus` |
 | `dcc-mcp-skills` | Skills 发现与加载 | `SkillScanner`、`SkillCatalog`、`SkillWatcher`、依赖解析器 |
 | `dcc-mcp-protocols` | MCP 协议类型 | `ToolDefinition`、`ResourceDefinition`、`PromptDefinition`、`ToolAnnotations`、`BridgeKind` |
+| `dcc-mcp-jsonrpc` | MCP JSON-RPC 线协议 | `JsonRpcRequest`、`JsonRpcResponse`、notifications |
+| `dcc-mcp-job` | 异步 Job 追踪 | `JobManager`、持久化 trait |
+| `dcc-mcp-skill-rest` | per-DCC REST skill API | `SkillRestService`、`SkillRestConfig`、`/v1/*` router |
+| `dcc-mcp-gateway` | 多 DCC 网关 | 能力索引、动态 `search_tools` / `describe_tool` / `call_tool` |
+| `dcc-mcp-catalog` | 公开适配器目录 | catalog search / describe CLI 与 MCP tools |
 | `dcc-mcp-transport` | IPC 通信 | `DccLinkFrame`、`IpcChannelAdapter`、`GracefulIpcChannelAdapter`、`SocketServerAdapter`、`FileRegistry` |
 | `dcc-mcp-process` | 进程管理 | `PyDccLauncher`、`PyProcessMonitor`、`PyProcessWatcher`、`PyCrashRecoveryPolicy`、`HostDispatcher` |
 | `dcc-mcp-sandbox` | 安全 | `SandboxPolicy`、`SandboxContext`、`InputValidator`、`AuditLog` |

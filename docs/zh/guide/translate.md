@@ -13,10 +13,9 @@
 
 ```bash
 dcc-mcp-server translate \
-  --stdio "npx @modelcontextprotocol/server-filesystem /tmp" \
+  --stdio "npx -y @modelcontextprotocol/server-filesystem /tmp" \
   --app-type filesystem \
-  --port 3333 \
-  --transport sse
+  --port 3333
 ```
 
 ## CLI 参数
@@ -24,13 +23,17 @@ dcc-mcp-server translate \
 | 参数 | 默认值 | 说明 |
 |------|--------|------|
 | `--stdio <cmd>` | 必填 | 启动 stdio MCP 服务器的 Shell 命令 |
+| `--app-type <type>` | `external` | 用于网关注册的应用类型标签 |
+| `--expose-streamable-http <bool>` | `true` | 在 `/mcp` 暴露 Streamable HTTP |
+| `--expose-sse <bool>` | `false` | 同时在 `/sse` 暴露旧版 SSE |
 | `--port <N>` | `0`（OS 分配） | HTTP 监听端口 |
-| `--transport <sse\|streamable-http>` | `sse` | HTTP 传输协议 |
-| `--app-type <type>` | `stdio` | 用于网关注册的应用类型标签 |
 | `--host <addr>` | `127.0.0.1` | 监听地址 |
-| `--no-register` | false | 跳过网关选举（独立运行模式） |
-| `--restart-on-exit` | false | stdio 进程退出后自动重启（supervisor 模式） |
-| `--max-restarts <N>` | `5` | supervisor 最大重启次数，超出后放弃 |
+| `--no-register` | `false` | 跳过 FileRegistry / 网关注册 |
+| `--restart-on-exit <bool>` | `true` | stdio 进程退出后自动重启；传 `false` 关闭 supervisor 模式 |
+| `--max-restarts <N>` | `10` | supervisor 最大重启次数；`0` 表示无限 |
+| `--gateway-port <N>` | `9765` | 网关注册竞争端口；`0` 禁用 gateway/admin |
+| `--no-admin` | `false` | 禁用获选网关上的只读 Admin UI |
+| `--admin-path <path>` | `/admin` | Admin UI URL 前缀 |
 | `--stale-timeout-secs <N>` | `30` | 网关选举的过期超时 |
 | `--registry-dir <path>` | 自动 | 自定义注册表目录 |
 
@@ -52,7 +55,6 @@ dcc-mcp-server translate \
   --stdio "uvx mcp-server-git --repository /path/to/repo" \
   --app-type git \
   --port 4001 \
-  --restart-on-exit \
   --max-restarts 10
 ```
 
@@ -67,30 +69,31 @@ dcc-mcp-server translate \
 
 ## Cursor / Claude Desktop 配置
 
-将 AI 客户端指向转换后的端点：
+将 AI 客户端指向默认的 Streamable HTTP 端点：
 
 ```json
 // .cursor/mcp.json 或 claude_desktop_config.json
 {
   "mcpServers": {
     "filesystem": {
-      "url": "http://localhost:4000/sse"
+      "url": "http://localhost:4000/mcp",
+      "transport": "streamable-http"
     },
     "git": {
-      "url": "http://localhost:4001/sse"
+      "url": "http://localhost:4001/mcp",
+      "transport": "streamable-http"
     }
   }
 }
 ```
 
-使用 Streamable HTTP 传输时：
+旧版 SSE 客户端需要启动时传 `--expose-sse true`，并指向 `/sse`：
 
 ```json
 {
   "mcpServers": {
     "filesystem": {
-      "url": "http://localhost:4000/mcp",
-      "transport": "streamable-http"
+      "url": "http://localhost:4000/sse"
     }
   }
 }

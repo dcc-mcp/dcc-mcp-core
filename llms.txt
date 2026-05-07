@@ -53,7 +53,7 @@
 | Sandbox AI actions | `SandboxPolicy` + `SandboxContext` |
 | Share large data zero-copy | `PySharedSceneBuffer.write()` with LZ4 compression |
 | Expose DCC tools over HTTP/MCP | `create_skill_server("maya", McpHttpConfig(port=8765))` — Skills-First setup; falls back to `McpHttpServer(registry, config)` for manual registry wiring |
-| Register MCP prompts from Python (issue #792) | `server.prompts().register_prompt(name, template, description=..., arguments=[...])` — returns `PromptHandle`; prompts appear in the next `prompts/list` call and render via `prompts/get` |
+| Register MCP prompts from Python (issue #792) | `handle = server.prompts(); handle.register_prompt(name, template, description=..., arguments=[...])` — `server.prompts()` returns `PromptHandle`; registration upserts in-place and appears in the next `prompts/list` / `prompts/get` |
 | Build a DCC adapter | `DccServerBase(dcc_name, builtin_skills_dir)` — skill/lifecycle/gateway/hot-reload inherited |
 | Write skill scripts | `skill_entry` + `skill_success` / `skill_error` — zero-boilerplate skill authoring |
 | Control skill trust level | `SkillScope` (Repo < User < System < Admin) — higher scope shadows lower |
@@ -167,7 +167,7 @@ meta = dcc_mcp_core.parse_skill_md(dirs[0])  # -> SkillMetadata or None
 
 ## Architecture
 
-Rust workspace (29 crates, including `workspace-hack`) with PyO3 bindings. All logic in Rust sub-crates; Python gets a single `dcc_mcp_core._core` extension module. The `dcc_mcp_core` package re-exports all ~275 public symbols from `_core` plus pure-Python helpers (DccServerBase, DccGatewayElection, DccSkillHotReloader, factory, skill helpers, ToolResult dataclass, constants).
+Rust workspace (31 members: 30 functional crates + `workspace-hack`) with PyO3 bindings. All logic lives in Rust sub-crates; Python gets a single `dcc_mcp_core._core` extension module. The `dcc_mcp_core` package re-exports all ~275 public symbols from `_core` plus pure-Python helpers (DccServerBase, DccGatewayElection, DccSkillHotReloader, factory, skill helpers, ToolResult dataclass, constants).
 
 ### dcc-mcp-http SOLID extraction (PR #667)
 
@@ -182,34 +182,34 @@ The historical god-crate `dcc-mcp-http` was decomposed into four cohesive crates
 
 ```
 crates/
-├── dcc-mcp-naming/      # SEP-986 tool-name / action-id validators (TOOL_NAME_RE, validate_tool_name)
-├── dcc-mcp-models/      # SkillMetadata, ToolResult, DccName (#491), DccMcpError (#488), Registry<V> trait (#489)
-├── dcc-mcp-actions/     # ToolRegistry, ToolDispatcher, ToolValidator, EventBus, ToolPipeline,
-│                        # ValidationStrategy (#493), VersionMatcher (#493)
-├── dcc-mcp-skills/      # SkillScanner, SkillWatcher (in watcher/ submodule #483), parse_skill_md,
-│                        # validator/ submodule (#482), dependency resolver
-├── dcc-mcp-protocols/   # MCP type definitions (Tool, Resource, Prompt, DccAdapter)
-├── dcc-mcp-transport/   # IPC transport (ipckit), DccLinkFrame, IpcChannelAdapter, SocketServerAdapter
-├── dcc-mcp-process/     # PyDccLauncher, ProcessMonitor, ProcessWatcher, CrashRecovery
-├── dcc-mcp-telemetry/   # TelemetryConfig, RecordingGuard, ToolMetrics, ToolRecorder
-├── dcc-mcp-sandbox/     # SandboxPolicy, InputValidator, AuditLog
-├── dcc-mcp-shm/         # PyBufferPool, PySharedBuffer, LZ4 compression
-├── dcc-mcp-capture/     # Capturer, CaptureFrame, CaptureResult
-├── dcc-mcp-usd/         # UsdStage, UsdPrim, SdfPath, scene info bridge
-├── dcc-mcp-http/        # McpHttpServer, McpHttpConfig, McpServerHandle, MethodRouter (#492),
-│                        # NotificationBuilder (#484) — MCP Streamable HTTP 2025-03-26
-├── dcc-mcp-server/      # Binary entry point, gateway runner
-├── dcc-mcp-scheduler/   # ScheduleSpec, TriggerSpec, SchedulerService (cron + webhook HMAC)
-├── dcc-mcp-workflow/    # WorkflowCatalog, YAML workflow loader
-├── dcc-mcp-artefact/    # FilesystemArtefactStore, FileRef, content-addressed handoff
-├── dcc-mcp-logging/     # File logging + LOG_* constants (former dcc-mcp-utils logging slice)
-├── dcc-mcp-paths/       # Path helpers (former dcc-mcp-utils path slice)
-├── dcc-mcp-pybridge-derive/ # derive macros for PyO3 helpers
-└── dcc-mcp-pybridge/    # PyO3 helpers — repr_pairs! / to_dict_pairs! macros (#490),
-                         # py_json / py_yaml; reduces wrapper boilerplate across crates
-├── dcc-mcp-tunnel-agent/   # Tunnel agent for remote MCP relay
-├── dcc-mcp-tunnel-protocol # Tunnel protocol types and auth
-└── dcc-mcp-tunnel-relay   # RelayServer for zero-config tunnel
+├── dcc-mcp-naming/         # SEP-986 tool-name / action-id validators
+├── dcc-mcp-models/         # SkillMetadata, ToolResult, DccName, DccMcpError
+├── dcc-mcp-actions/        # ToolRegistry, ToolDispatcher, EventBus, validation
+├── dcc-mcp-skills/         # SkillScanner, SkillCatalog, SkillWatcher, resolver
+├── dcc-mcp-protocols/      # MCP Tool/Resource/Prompt/DccAdapter models
+├── dcc-mcp-jsonrpc/        # JSON-RPC wire types and builders
+├── dcc-mcp-job/            # Async job tracker + optional persistence
+├── dcc-mcp-skill-rest/     # Per-DCC /v1/* REST skill API
+├── dcc-mcp-gateway/        # Multi-DCC gateway + dynamic capability index
+├── dcc-mcp-http/           # Embedded MCP Streamable HTTP server core
+├── dcc-mcp-server/         # Binary entry point and gateway runner
+├── dcc-mcp-logging/        # File logging + retention helpers
+├── dcc-mcp-paths/          # Platform cache/config/data path helpers
+├── dcc-mcp-pybridge*/      # PyO3 helper macros and derive crate
+├── dcc-mcp-transport/      # IPC transport, frames, channel adapters, FileRegistry
+├── dcc-mcp-process/        # Launch, monitor, watcher, crash recovery
+├── dcc-mcp-telemetry/      # Metrics, recorders, optional Prometheus exporter
+├── dcc-mcp-sandbox/        # SandboxPolicy, validation, audit log
+├── dcc-mcp-shm/            # Shared-memory buffers
+├── dcc-mcp-capture/        # Screen/window capture
+├── dcc-mcp-usd/            # USD stage bridge
+├── dcc-mcp-workflow/       # WorkflowCatalog and YAML workflows
+├── dcc-mcp-scheduler/      # Cron/webhook scheduler service
+├── dcc-mcp-artefact/       # FileRef and content-addressed handoff
+├── dcc-mcp-host/           # Host execution bridge / adapter contracts
+├── dcc-mcp-tunnel-*/       # Tunnel protocol, relay, and local agent
+├── dcc-mcp-catalog/        # Public adapter catalog search/describe
+└── workspace-hack/         # Cargo-hakari feature unification
 ```
 
 Pure-Python modules: cancellation, checkpoint, constants (#487), result_envelope (#487), _server/{observability,skill_query,window_resolver} (#486), _tool_registration (#481), docs_resources, feedback, introspect, recipes, workflow_yaml, bridge, gateway_election, hotreload, factory, dcc_server, server_base, adapters, auth, batch, elicitation, rich_content, plugin_manifest, dcc_api_executor, skill
@@ -975,7 +975,7 @@ Full guide: `docs/guide/remote-server.md`. Per-module API: `docs/api/{auth,batch
 
 | I want to… | Use this |
 |------------|---------|
-| Bridge stdio MCP server to HTTP/SSE | `dcc-mcp-server translate --stdio "cmd" --port N --transport sse` |
+| Bridge stdio MCP server to HTTP/SSE | `dcc-mcp-server translate --stdio "cmd" --port N --app-type external` — Streamable HTTP `/mcp` is on by default; add `--expose-sse true` only for legacy `/sse` clients |
 | Search DCC-MCP adapter catalog | `dcc_catalog__search({"query":"..."})` MCP tool or `dcc-mcp-server catalog search` |
 | Mount OpenAPI REST API as MCP tools | `GatewayBuilder::mount_openapi(OpenApiMount::from_url(...).auth(...))` |
 | Add audit/quota/redact to gateway calls | `GatewayConfig::middleware_chain` with built-in middleware |
@@ -1017,10 +1017,11 @@ One config block exposes all OpenAPI paths as MCP tools with preserved auth + sc
 ```bash
 dcc-mcp-server translate \
   --stdio "npx @modelcontextprotocol/server-filesystem /tmp" \
-  --app-type filesystem --port 3333 --transport sse
+  --app-type filesystem --port 3333
 ```
 
-Flags: `--no-register` (standalone), `--restart-on-exit` (supervisor), `--max-restarts N`.
+Default endpoint: `http://127.0.0.1:3333/mcp` (Streamable HTTP). Add `--expose-sse true` to also serve legacy `/sse`.
+Flags: `--no-register` (standalone), `--restart-on-exit false` (disable supervisor), `--max-restarts N` (default 10).
 
 ### Admin Dashboard (#772)
 
@@ -1030,7 +1031,7 @@ GatewayConfig { admin_enabled: true, admin_path: "/admin".into(), .. }
 ```
 
 Routes: `GET /admin` (HTML dashboard), `GET /admin/api/{instances,tools,calls,logs,health}` (JSON APIs).
-Default: disabled (`admin_enabled: false`).
+Default: enabled on the elected gateway. Disable with `--no-admin`, `DCC_MCP_NO_ADMIN=true`, or `cfg.admin_enabled = False`; `gateway_port=0` disables the gateway and therefore admin too.
 
 ### OTLP Distributed Tracing (#768)
 

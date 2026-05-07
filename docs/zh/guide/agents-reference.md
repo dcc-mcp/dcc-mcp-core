@@ -72,8 +72,8 @@ registry.register(name="my_tool", description="...", dcc="maya")
 扩展 — `tools`、`groups`、`workflows`、`prompts`、行为链、
 注解、模板、示例包以及任何未来的扩展 — 必须表示为：
 
-1. `metadata:` 下使用 `dcc-mcp.<feature>` 约定的**命名空间键**。
-2. 该键的**值是一个 glob 或文件名**，指向携带实际载荷的同级文件（YAML 或 Markdown）。
+1. `metadata:` 下使用名为 `dcc-mcp` 的**嵌套命名空间**。
+2. 每个扩展键的**值是一个 glob 或文件名**，指向携带实际载荷的同级文件（YAML 或 Markdown）。
 3. 同级文件位于**skill 目录内部**，而非内联在 `SKILL.md` 中。
 
 ```yaml
@@ -84,28 +84,21 @@ description: >-
   set/query keyframes, change timeline range, or bake simulations.
 license: MIT
 metadata:
-  dcc-mcp.dcc: maya
-  dcc-mcp.tools: "tools.yaml"              # ✓ 指向同级文件
-  dcc-mcp.groups: "tools.yaml"             # ✓ 同一或单独文件
-  dcc-mcp.workflows: "workflows/*.workflow.yaml"
-  dcc-mcp.prompts: "prompts/*.prompt.yaml"
-  dcc-mcp.examples: "references/EXAMPLES.md"
+  dcc-mcp:
+    dcc: maya
+    tools: "tools.yaml"              # ✓ 指向同级文件
+    groups: "tools.yaml"             # ✓ 同一或单独文件
+    workflows: "workflows/*.workflow.yaml"
+    prompts: "prompts/*.prompt.yaml"
+    examples: "references/EXAMPLES.md"
 ---
 # body — 仅人类可读的说明
 ```
 
-加载器可**互换**接受两种形式 — 平面点分键
-（`dcc-mcp.dcc: maya`）和 `yaml.safe_dump` 及迁移工具生成的嵌套映射：
+所有新建与迁移后的 skill 都使用嵌套形式。pre-0.15 的平面点分写法
+（`metadata: { "dcc-mcp.dcc": ... }`）在严格 v0.15+ loader 中不再填充 typed fields，
+即使某些旧示例仍可能作为原始 metadata 被读取。
 
-```yaml
-metadata:
-  dcc-mcp:
-    dcc: maya
-    tools: "tools.yaml"
-    groups: "groups.yaml"
-```
-
-新 skill 优先使用嵌套形式；它能通过标准 YAML 工具正确往返，无需逐键引号。
 
 ```
 maya-animation/

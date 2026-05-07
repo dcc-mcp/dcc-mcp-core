@@ -445,9 +445,9 @@ tools/list response (Maya session, nothing loaded yet):
 
 ---
 
-## Architecture Overview — 30 Workspace Members
+## Architecture Overview — 31 Workspace Members
 
-`dcc-mcp-core` is organised as a **Rust workspace of 30 members** (29 functional crates + `workspace-hack`), compiled into a single native Python extension (`_core`) via PyO3 / maturin. Selected crates:
+`dcc-mcp-core` is organised as a **Rust workspace of 31 members** (30 functional crates + `workspace-hack`), compiled into a single native Python extension (`_core`) via PyO3 / maturin. Selected crates:
 
 | Crate | Responsibility | Key Types |
 |---|---|---|
@@ -460,6 +460,7 @@ tools/list response (Maya session, nothing loaded yet):
 | `dcc-mcp-job` | Async job tracking | `JobManager`, persistence traits |
 | `dcc-mcp-skill-rest` | Per-DCC REST skill API | `SkillRestService`, `SkillRestConfig`, `/v1/*` router |
 | `dcc-mcp-gateway` | Multi-DCC gateway | capability index, dynamic `search_tools` / `describe_tool` / `call_tool` |
+| `dcc-mcp-catalog` | Public adapter catalog | catalog search / describe CLI and MCP tools |
 | `dcc-mcp-transport` | IPC communication | `DccLinkFrame`, `IpcChannelAdapter`, `GracefulIpcChannelAdapter`, `SocketServerAdapter`, `FileRegistry` |
 | `dcc-mcp-process` | Process management | `PyDccLauncher`, `PyProcessMonitor`, `PyProcessWatcher`, `PyCrashRecoveryPolicy`, `HostDispatcher` |
 | `dcc-mcp-sandbox` | Security | `SandboxPolicy`, `SandboxContext`, `InputValidator`, `AuditLog` |

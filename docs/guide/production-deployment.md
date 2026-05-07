@@ -74,8 +74,10 @@ The binary is configured entirely through CLI flags or environment variables
 | `DCC_MCP_APP_VERSION` | — | Reported in registry entry |
 | `DCC_MCP_SCENE` | — | Current scene file reported to the gateway |
 | `DCC_MCP_SKILL_PATHS` | — | `:` / `;` separated extra skill directories |
-| `DCC_MCP_LOG_FILE` | `false` | Enable rotating file logs in addition to stderr |
+| `DCC_MCP_NO_LOG_FILE` | `false` | Disable rotating file logs; stderr logging stays on |
 | `DCC_MCP_LOG_DIR` | platform log dir | Where rotated logs are written |
+| `DCC_MCP_NO_ADMIN` | `false` | Disable the elected gateway's read-only `/admin` UI |
+| `DCC_MCP_ADMIN_PATH` | `/admin` | Admin UI URL prefix |
 
 ### Smoke Test
 
@@ -99,7 +101,7 @@ for the canonical image. Sketch:
 
 ```Dockerfile
 # Stage 1 — build
-FROM rust:1.85-slim AS builder
+FROM rust:1.95-slim AS builder
 WORKDIR /src
 COPY . .
 RUN cargo build --release --bin dcc-mcp-server
@@ -118,7 +120,7 @@ Build and run once:
 ```bash
 docker build -t dcc-mcp-server:latest -f examples/compose/gateway-ha/Dockerfile .
 docker run --rm -p 9765:9765 dcc-mcp-server:latest \
-  --dcc generic --host 0.0.0.0
+  --app generic --host 0.0.0.0
 ```
 
 ### docker-compose for HA
@@ -355,13 +357,18 @@ will saturate the shared registry directory.
 - **systemd** — `journalctl -u dcc-mcp-gateway.service -f`.
 - **Docker / compose** — `docker compose logs -f gateway-a`.
 - **Kubernetes** — `kubectl logs -f deploy/dcc-mcp-gateway`.
-- **Rotating file logs** — set `DCC_MCP_LOG_FILE=true` and
-  `DCC_MCP_LOG_DIR=/var/log/dcc-mcp`. Ship with promtail / fluentbit.
+- **Rotating file logs** — enabled by default; set
+  `DCC_MCP_LOG_DIR=/var/log/dcc-mcp` to choose a directory, or
+  `DCC_MCP_NO_LOG_FILE=true` / `--no-log-file` to disable. Ship with
+  promtail / fluentbit.
 
 ### Health and Readiness Probes
 
 The gateway exposes `GET /health` returning `{"ok":true}` with status
-`200`. Use it for both liveness and readiness.
+`200`; use it for liveness and load-balancer health. Per-DCC REST servers
+also expose `GET /v1/readyz` with process / dispatcher / DCC readiness
+state, and the gateway probes that endpoint when available before falling
+back to `/health`.
 
 ```yaml
 readinessProbe:
@@ -377,14 +384,17 @@ livenessProbe:
 ```
 
 > **Note**: There is no `/mcp/healthz` endpoint today — the LB-friendly
-> path is `/health`. A dedicated `/readyz` that also checks registry
-> reachability is tracked as a follow-up.
+> path remains `/health`. Use `/v1/readyz` for per-DCC readiness when the
+> REST skill API is mounted.
 
 ### Metrics
 
-Prometheus scrape support is tracked separately. Until then, use the
-telemetry facility (`DCC_MCP_LOG_FILE=true` + log-based metrics) or
-derive request counts from the LB's access log.
+Prometheus scrape support is available behind the `prometheus` Cargo
+feature. Build `dcc-mcp-http` / `dcc-mcp-server` with that feature and
+scrape `GET /metrics` for gateway instance/tool counters and request
+latency/failure metrics. Without the feature, use rolling logs or derive
+request counts from the LB's access log.
+
 
 ---
 

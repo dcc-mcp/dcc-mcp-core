@@ -13,10 +13,9 @@ The `translate` subcommand bridges any stdio MCP server to HTTP/SSE/Streamable-H
 
 ```bash
 dcc-mcp-server translate \
-  --stdio "npx @modelcontextprotocol/server-filesystem /tmp" \
+  --stdio "npx -y @modelcontextprotocol/server-filesystem /tmp" \
   --app-type filesystem \
-  --port 3333 \
-  --transport sse
+  --port 3333
 ```
 
 ## CLI Flags
@@ -24,13 +23,17 @@ dcc-mcp-server translate \
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--stdio <cmd>` | required | Shell command to launch the stdio MCP server |
+| `--app-type <type>` | `external` | Application type label for gateway registration |
+| `--expose-streamable-http <bool>` | `true` | Expose Streamable HTTP at `/mcp` |
+| `--expose-sse <bool>` | `false` | Also expose legacy SSE at `/sse` |
 | `--port <N>` | `0` (OS-assigned) | HTTP listen port |
-| `--transport <sse\|streamable-http>` | `sse` | HTTP transport protocol |
-| `--app-type <type>` | `stdio` | Application type label for gateway registration |
 | `--host <addr>` | `127.0.0.1` | Listen address |
-| `--no-register` | false | Skip gateway election (run as standalone server) |
-| `--restart-on-exit` | false | Restart the stdio process if it exits (supervisor mode) |
-| `--max-restarts <N>` | `5` | Max supervisor restart attempts before giving up |
+| `--no-register` | `false` | Skip FileRegistry / gateway registration |
+| `--restart-on-exit <bool>` | `true` | Restart the stdio process if it exits; pass `false` to disable supervisor mode |
+| `--max-restarts <N>` | `10` | Max supervisor restart attempts before giving up; `0` = unlimited |
+| `--gateway-port <N>` | `9765` | Gateway port for registration competition; `0` disables gateway/admin |
+| `--no-admin` | `false` | Disable the read-only Admin UI on the elected gateway |
+| `--admin-path <path>` | `/admin` | Admin UI URL prefix |
 | `--stale-timeout-secs <N>` | `30` | Gateway election stale timeout |
 | `--registry-dir <path>` | auto | Custom registry directory |
 
@@ -52,7 +55,6 @@ dcc-mcp-server translate \
   --stdio "uvx mcp-server-git --repository /path/to/repo" \
   --app-type git \
   --port 4001 \
-  --restart-on-exit \
   --max-restarts 10
 ```
 
@@ -67,30 +69,31 @@ dcc-mcp-server translate \
 
 ## Cursor / Claude Desktop Configuration
 
-Point your AI client at the translated endpoint:
+Point your AI client at the default Streamable HTTP endpoint:
 
 ```json
 // .cursor/mcp.json or claude_desktop_config.json
 {
   "mcpServers": {
     "filesystem": {
-      "url": "http://localhost:4000/sse"
+      "url": "http://localhost:4000/mcp",
+      "transport": "streamable-http"
     },
     "git": {
-      "url": "http://localhost:4001/sse"
+      "url": "http://localhost:4001/mcp",
+      "transport": "streamable-http"
     }
   }
 }
 ```
 
-For Streamable HTTP transport:
+For legacy SSE clients, start the bridge with `--expose-sse true` and point them at `/sse`:
 
 ```json
 {
   "mcpServers": {
     "filesystem": {
-      "url": "http://localhost:4000/mcp",
-      "transport": "streamable-http"
+      "url": "http://localhost:4000/sse"
     }
   }
 }

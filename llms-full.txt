@@ -36,7 +36,7 @@
 | Wrap values for safe RPyC transport | `wrap_value()` / `unwrap_value()` |
 | Handle multiple versions of an action | `VersionedRegistry` + `VersionConstraint` |
 | Expose DCC tools over HTTP/MCP | `create_skill_server("maya", McpHttpConfig(port=8765))` — Skills-First one-call setup; gateway/slim agents use `search_tools` → `describe_tool` → `call_tool`; falls back to `McpHttpServer(registry, config)` for manual registry wiring |
-| Register MCP prompts from Python (issue #792) | `server.prompts().register_prompt(name, template, description=..., arguments=[{"name": str, "description": str, "required": bool}])` — returns `PromptHandle`; prompts are visible in the next `prompts/list` call and rendered by `prompts/get` |
+| Register MCP prompts from Python (issue #792) | `handle = server.prompts(); handle.register_prompt(name, template, description=..., arguments=[{"name": str, "description": str, "required": bool}])` — `server.prompts()` returns `PromptHandle`; registration upserts in-place and appears in the next `prompts/list` / `prompts/get` |
 | Persist and resume DCC project state | `DccProject.open/load(...)` + `register_project_tools(server, ...)` exposing `project.save/load/resume/status` |
 | Share resources/prompts through a gateway | `resources/list/read/subscribe` with exact gateway-returned URIs; `prompts/list/get` for namespaced backend prompts |
 | Discover team-level skills | `scan_and_load_team()` / `scan_and_load_team_lenient()` |
@@ -57,7 +57,7 @@ sub-crates; the root crate re-exports everything into a single `dcc_mcp_core._co
 extension module. The Python package `dcc_mcp_core` re-exports the supported public APIs from `_core`
 and pure-Python helpers.
 
-**30 workspace members** (29 functional crates + `workspace-hack`) — **Zero runtime Python dependencies** — install with just `pip install dcc-mcp-core`.
+**31 workspace members** (30 functional crates + `workspace-hack`) — **Zero runtime Python dependencies** — install with just `pip install dcc-mcp-core`.
 
 ```
 crates/
@@ -86,7 +86,9 @@ crates/
 ├── dcc-mcp-scheduler/    # ScheduleSpec, TriggerSpec, scheduler service
 ├── dcc-mcp-artefact/     # FileRef and content-addressed handoff
 ├── dcc-mcp-host/         # Host execution bridge contracts
-└── dcc-mcp-tunnel-*/     # Remote MCP tunnel protocol, relay, and agent
+├── dcc-mcp-tunnel-*/     # Remote MCP tunnel protocol, relay, and agent
+├── dcc-mcp-catalog/      # Public adapter catalog search/describe
+└── workspace-hack/       # Cargo-hakari feature unification
 ```
 
 **Key import pattern** (always use the top-level package):
@@ -1168,7 +1170,7 @@ from dcc_mcp_core import McpHttpServer, McpHttpConfig, ToolRegistry
 
 registry = ToolRegistry()
 cfg = McpHttpConfig(port=8765)
-cfg.enable_prompts = True          # required to surface prompts/list
+# Prompts are enabled by default; set cfg.enable_prompts = False only to opt out.
 
 server = McpHttpServer(registry, cfg)
 
@@ -3142,8 +3144,10 @@ Auth types: `bearer()`, `api_key()`, `basic()`. `$ENV_VAR` references resolved a
 ```bash
 dcc-mcp-server translate \
   --stdio "npx @modelcontextprotocol/server-filesystem /tmp" \
-  --app-type filesystem --port 3333 --transport sse
-# Flags: --no-register, --restart-on-exit, --max-restarts N
+  --app-type filesystem --port 3333
+# Default endpoint: http://127.0.0.1:3333/mcp
+# Add --expose-sse true only for legacy /sse clients.
+# Flags: --no-register, --restart-on-exit false, --max-restarts N (default 10)
 ```
 
 ### Gateway Admin Dashboard (#772)

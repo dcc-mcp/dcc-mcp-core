@@ -66,7 +66,7 @@ flowchart LR
 
 ## Architecture
 
-30-crate Rust workspace (29 functional crates + `workspace-hack`), compiled by maturin into a single Python extension `dcc_mcp_core._core`:
+31-member Rust workspace (30 functional crates + `workspace-hack`), compiled by maturin into a single Python extension `dcc_mcp_core._core`:
 
 ```
 dcc-mcp-core/
@@ -96,6 +96,7 @@ dcc-mcp-core/
 │   ├── dcc-mcp-tunnel-protocol/     # tunnel frame format + JWT
 │   ├── dcc-mcp-tunnel-relay/        # `dcc-mcp-tunnel-relay` CLI + library
 │   ├── dcc-mcp-tunnel-agent/        # `dcc-mcp-tunnel-agent` CLI + library
+│   ├── dcc-mcp-catalog/             # public adapter catalog search/describe
 │   ├── dcc-mcp-logging/             # file logging + rotation
 │   ├── dcc-mcp-paths/               # platform path helpers
 │   ├── dcc-mcp-pybridge/            # PyO3 utilities
