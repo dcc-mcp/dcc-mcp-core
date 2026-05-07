@@ -20,7 +20,10 @@ on:
         default: ""
 
 concurrency:
-  group: build-wheels-${{ github.event.pull_request.number || github.ref }}
+  # Scope by the resolved checkout target so a release-driven build for tag
+  # vX.Y.Z is never grouped with (and never cancelled by) another run for a
+  # different ref. Falls back to github.ref when no checkout-ref is provided.
+  group: build-wheels-${{ inputs.checkout-ref || github.event.pull_request.number || github.ref }}
   cancel-in-progress: false
 
 permissions:

@@ -28,14 +28,14 @@ permissions:
   actions: read
 
 jobs:
-  # ── Release Please (only on main branch push) ──
+  # ── Decide what to release (release-please for push, manual backfill for dispatch) ──
   release-please:
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
     outputs:
-      release_created: ${{ inputs.release_tag != '' && 'true' || steps.release.outputs.release_created }}
-      tag_name: ${{ inputs.release_tag || steps.release.outputs.tag_name }}
-      version: ${{ inputs.release_version || steps.release.outputs.version }}
+      release_created: ${{ steps.decide.outputs.release_created }}
+      tag_name: ${{ steps.decide.outputs.tag_name }}
+      version: ${{ steps.decide.outputs.version }}
     steps:
       - name: Validate manual release backfill inputs
         if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
@@ -61,6 +61,29 @@ jobs:
           token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+      - name: Decide release outputs
+        id: decide
+        env:
+          BACKFILL_TAG: ${{ inputs.release_tag }}
+          BACKFILL_VERSION: ${{ inputs.release_version }}
+          RP_RELEASE_CREATED: ${{ steps.release.outputs.release_created }}
+          RP_TAG_NAME: ${{ steps.release.outputs.tag_name }}
+          RP_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          if [ -n "$BACKFILL_TAG" ]; then
+            release_created=true
+            tag_name="$BACKFILL_TAG"
+            version="$BACKFILL_VERSION"
+          else
+            release_created="${RP_RELEASE_CREATED:-false}"
+            tag_name="$RP_TAG_NAME"
+            version="$RP_VERSION"
+          fi
+          echo "release_created=$release_created" >> "$GITHUB_OUTPUT"
+          echo "tag_name=$tag_name" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Release decision: created=$release_created tag=$tag_name version=$version"
 
   # ── Build standalone dcc-mcp-server binaries ──
   build-binaries:
@@ -168,22 +191,28 @@ jobs:
           from pathlib import Path
 
           release_version = os.environ["RELEASE_VERSION"]
-          versions = {
+          # Only the public-facing versions must match the release tag.
+          # Cargo.lock member-crate versions can lag behind for a single release
+          # cycle and are reconciled by release-please-lock-sync.yml; treating
+          # that drift as fatal here turned every minor lag into a missing
+          # PyPI/GitHub Release upload (see v0.15.2 post-mortem).
+          fatal = {
               "pyproject.toml": tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"],
               "Cargo.toml": tomllib.loads(Path("Cargo.toml").read_text())["workspace"]["package"]["version"],
           }
+          mismatches = {src: ver for src, ver in fatal.items() if ver != release_version}
+          if mismatches:
+              for src, ver in sorted(mismatches.items()):
+                  print(f"::error::{src} has {ver}, expected {release_version}", file=sys.stderr)
+              sys.exit(1)
 
           lock = tomllib.loads(Path("Cargo.lock").read_text())
           for package in lock["package"]:
               name = package["name"]
               if name == "dcc-mcp-core" or name.startswith("dcc-mcp-"):
-                  versions[f"Cargo.lock:{name}"] = package["version"]
-
-          mismatches = {source: version for source, version in versions.items() if version != release_version}
-          if mismatches:
-              for source, version in sorted(mismatches.items()):
-                  print(f"{source} has {version}, expected {release_version}", file=sys.stderr)
-              sys.exit(1)
+                  ver = package["version"]
+                  if ver != release_version:
+                      print(f"::warning::Cargo.lock:{name} has {ver}, expected {release_version}")
           PY
 
       - name: Download all wheel artifacts
@@ -195,8 +224,12 @@ jobs:
       - name: List wheels
         run: ls -la dist/
 
-      # Trusted Publishers — no credentials needed
+      # Trusted Publishers — no credentials needed.
+      # continue-on-error so that a PyPI failure (e.g. file already exists from
+      # a previous partial run) does not block the GitHub Release upload below.
       - name: Upload to PyPI
+        id: pypi
+        continue-on-error: true
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist
@@ -204,8 +237,17 @@ jobs:
           print-hash: true
           skip-existing: true
 
+      # Always attempt the GitHub Release upload, even if PyPI failed; this is
+      # the user-visible artifact set and must be complete per release tag.
       - name: Upload wheels to GitHub Release
+        if: always()
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.release-please.outputs.tag_name }}
           files: dist/*
+
+      - name: Fail job if PyPI upload failed
+        if: steps.pypi.outcome == 'failure'
+        run: |
+          echo "::error::PyPI upload failed; GitHub Release artifacts were still uploaded above."
+          exit 1
