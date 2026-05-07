@@ -150,14 +150,14 @@ readiness surface is absent. This avoids treating non-MCP listeners such as Maya
 `commandPort` as routable backends; posting MCP JSON-RPC to commandPort can
 trigger Maya's modal commandPort security dialog and block the DCC main thread.
 
-Gateway-native diagnostics tools are always present, even when no backend is
-routable:
+Gateway-native diagnostics are always available as MCP **resources**
+(read via `resources/read`), even when no backend is routable:
 
-| Tool | Purpose |
+| Resource URI | Purpose |
 |------|---------|
-| `diagnostics__process_status` | Gateway process metadata plus live/stale/unhealthy instance counts |
-| `diagnostics__audit_log` | Gateway pending-call and subscription summary |
-| `diagnostics__tool_metrics` | Gateway-local tool count, live backend count, and timeout settings |
+| `gateway://diagnostics/process` | Gateway process metadata plus live/stale/unhealthy instance counts. Optional `?dcc_type=<type>` filter. |
+| `gateway://diagnostics/audit` | Gateway pending-call and subscription summary |
+| `gateway://diagnostics/metrics` | Gateway-local tool count, live backend count, and timeout settings |
 
 Backend diagnostics tools remain available as normal prefixed instance tools
 when a DCC exposes them.

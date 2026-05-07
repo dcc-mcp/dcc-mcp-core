@@ -53,17 +53,19 @@ dcc-mcp-server catalog describe --name dcc-mcp-maya-skills
 
 Output is JSON-formatted for easy parsing.
 
-## MCP Tool Usage
+## MCP Resource Usage
 
-The gateway automatically registers two MCP tools from the catalog:
+The gateway publishes the catalog as MCP **resources** (#813 phase 2). Read
+them via `resources/read`:
 
 ```python
-# In an AI agent or DCC skill
-result = tools.call("dcc_catalog__search", {"query": "blender"})
-# Returns: [{"name": "...", "description": "...", "dcc": [...], "url": "...", "tags": [...]}]
+# Full index, optional ?query=... keyword filter
+result = client.resources_read("gateway://catalog?query=blender")
+# Returns: { "total": N, "query": "blender", "entries": [{"name": "...", "description": "...", "dcc": [...], "url": "...", "tags": [...]}] }
 
-result = tools.call("dcc_catalog__describe", {"name": "dcc-mcp-blender-skills"})
-# Returns: single entry or error if not found
+# Single entry by exact name
+result = client.resources_read("gateway://catalog/dcc-mcp-blender-skills")
+# Returns: single entry, or `-32002` error if not found
 ```
 
 ## Custom Catalog Path

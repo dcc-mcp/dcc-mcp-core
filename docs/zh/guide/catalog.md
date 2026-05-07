@@ -53,17 +53,18 @@ dcc-mcp-server catalog describe --name dcc-mcp-maya-skills
 
 输出为 JSON 格式，便于解析。
 
-## MCP 工具用法
+## MCP 资源用法
 
-网关会自动注册两个 MCP 工具：
+网关将 catalog 暴露为 MCP **资源**（#813 phase 2），通过 `resources/read` 读取：
 
 ```python
-# 在 AI Agent 或 DCC 技能中使用
-result = tools.call("dcc_catalog__search", {"query": "blender"})
-# 返回：[{"name": "...", "description": "...", "dcc": [...], "url": "...", "tags": [...]}]
+# 全量索引，可选 ?query=... 关键词过滤
+result = client.resources_read("gateway://catalog?query=blender")
+# 返回：{ "total": N, "query": "blender", "entries": [{"name": "...", "description": "...", "dcc": [...], "url": "...", "tags": [...]}] }
 
-result = tools.call("dcc_catalog__describe", {"name": "dcc-mcp-blender-skills"})
-# 返回：单个条目，或未找到时返回错误
+# 按精确名查单条
+result = client.resources_read("gateway://catalog/dcc-mcp-blender-skills")
+# 返回：单个条目，未找到时返回 `-32002` error
 ```
 
 ## 自定义目录路径

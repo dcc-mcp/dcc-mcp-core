@@ -36,9 +36,12 @@ pub(super) async fn handle_resources_read(
         });
     }
 
-    // ── Gateway-native instance registry (issue #813 phase 1) ────────────
-    if let Some(query) = crate::gateway::native_resources::parse_instances_uri(&uri) {
-        return match crate::gateway::native_resources::build_payload(gs, &query).await {
+    // ── Gateway-native resources (issues #813 phases 1+2) ────────────────
+    if let Some(req) = crate::gateway::native_resources::Request::parse(&uri) {
+        let tool_count = crate::gateway::tools::gateway_tool_defs()
+            .as_array()
+            .map_or(0, Vec::len);
+        return match req.build_payload(gs, tool_count).await {
             Ok(payload) => json!({
                 "jsonrpc": "2.0", "id": id,
                 "result": {
