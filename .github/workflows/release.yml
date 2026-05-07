@@ -4,10 +4,21 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Existing release tag to rebuild and publish, for example v0.15.4"
+        required: false
+        type: string
+        default: ""
+      release_version:
+        description: "Version for release_tag without the v prefix, for example 0.15.4"
+        required: false
+        type: string
+        default: ""
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -22,11 +33,29 @@ jobs:
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
     outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
-      tag_name: ${{ steps.release.outputs.tag_name }}
-      version: ${{ steps.release.outputs.version }}
+      release_created: ${{ inputs.release_tag != '' && 'true' || steps.release.outputs.release_created }}
+      tag_name: ${{ inputs.release_tag || steps.release.outputs.tag_name }}
+      version: ${{ inputs.release_version || steps.release.outputs.version }}
     steps:
+      - name: Validate manual release backfill inputs
+        if: github.event_name == 'workflow_dispatch' && inputs.release_tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+        run: |
+          if [ -z "$RELEASE_VERSION" ]; then
+            echo "::error::release_version is required when release_tag is set"
+            exit 1
+          fi
+          if [ "$RELEASE_TAG" != "v$RELEASE_VERSION" ]; then
+            echo "::error::release_tag must match release_version, expected v$RELEASE_VERSION"
+            exit 1
+          fi
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null
+
       - uses: googleapis/release-please-action@v5
+        if: github.event_name != 'workflow_dispatch' || inputs.release_tag == ''
         id: release
         with:
           token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
@@ -55,6 +84,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@master
@@ -102,6 +133,7 @@ jobs:
     uses: ./.github/workflows/build-wheels.yml
     with:
       test-wheel: 'true'
+      checkout-ref: ${{ needs.release-please.outputs.tag_name }}
 
   # ── Publish to PyPI ──
   publish:
@@ -118,6 +150,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
 
       - uses: actions/setup-python@v6
         with:
