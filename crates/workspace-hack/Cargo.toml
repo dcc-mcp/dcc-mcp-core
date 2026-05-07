@@ -62,7 +62,7 @@ tokio-util = { version = "0.7.18", features = ["codec", "io", "rt"] }
 toml_datetime = { version = "1.1.1", features = ["serde"] }
 toml_parser = { version = "1.1.2" }
 tower = { version = "0.5.3", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "log"] }
-tower-http = { version = "0.6.9", features = ["cors", "limit", "trace"] }
+tower-http = { version = "0.6.10", features = ["cors", "limit", "trace"] }
 tracing = { version = "0.1.44", features = ["log"] }
 tracing-core = { version = "0.1.36" }
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
@@ -122,7 +122,7 @@ tokio-util = { version = "0.7.18", features = ["codec", "io", "rt"] }
 toml_datetime = { version = "1.1.1", features = ["serde"] }
 toml_parser = { version = "1.1.2" }
 tower = { version = "0.5.3", default-features = false, features = ["balance", "buffer", "limit", "load-shed", "log"] }
-tower-http = { version = "0.6.9", features = ["cors", "limit", "trace"] }
+tower-http = { version = "0.6.10", features = ["cors", "limit", "trace"] }
 tracing = { version = "0.1.44", features = ["log"] }
 tracing-core = { version = "0.1.36" }
 tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
@@ -138,7 +138,7 @@ hyper-util = { version = "0.1.20", default-features = false, features = ["client
 libc = { version = "0.2.186", features = ["extra_traits"] }
 mio = { version = "1.2.0", features = ["net", "os-ext"] }
 tower = { version = "0.5.3", default-features = false, features = ["retry", "timeout"] }
-tower-http = { version = "0.6.9", default-features = false, features = ["follow-redirect"] }
+tower-http = { version = "0.6.10", default-features = false, features = ["follow-redirect"] }
 
 [target.x86_64-unknown-linux-gnu.build-dependencies]
 bitflags = { version = "2.11.1", default-features = false, features = ["std"] }
@@ -148,7 +148,7 @@ hyper-util = { version = "0.1.20", default-features = false, features = ["client
 libc = { version = "0.2.186", features = ["extra_traits"] }
 mio = { version = "1.2.0", features = ["net", "os-ext"] }
 tower = { version = "0.5.3", default-features = false, features = ["retry", "timeout"] }
-tower-http = { version = "0.6.9", default-features = false, features = ["follow-redirect"] }
+tower-http = { version = "0.6.10", default-features = false, features = ["follow-redirect"] }
 
 [target.aarch64-unknown-linux-gnu.dependencies]
 bitflags = { version = "2.11.1", default-features = false, features = ["std"] }
@@ -157,7 +157,7 @@ hyper-util = { version = "0.1.20", default-features = false, features = ["client
 libc = { version = "0.2.186", features = ["extra_traits"] }
 mio = { version = "1.2.0", features = ["net", "os-ext"] }
 tower = { version = "0.5.3", default-features = false, features = ["retry", "timeout"] }
-tower-http = { version = "0.6.9", default-features = false, features = ["follow-redirect"] }
+tower-http = { version = "0.6.10", default-features = false, features = ["follow-redirect"] }
 
 [target.aarch64-unknown-linux-gnu.build-dependencies]
 bitflags = { version = "2.11.1", default-features = false, features = ["std"] }
@@ -167,7 +167,7 @@ hyper-util = { version = "0.1.20", default-features = false, features = ["client
 libc = { version = "0.2.186", features = ["extra_traits"] }
 mio = { version = "1.2.0", features = ["net", "os-ext"] }
 tower = { version = "0.5.3", default-features = false, features = ["retry", "timeout"] }
-tower-http = { version = "0.6.9", default-features = false, features = ["follow-redirect"] }
+tower-http = { version = "0.6.10", default-features = false, features = ["follow-redirect"] }
 
 [target.x86_64-apple-darwin.dependencies]
 bitflags = { version = "2.11.1", default-features = false, features = ["std"] }
@@ -176,7 +176,7 @@ getrandom = { version = "0.4.2", default-features = false, features = ["std", "s
 hyper-util = { version = "0.1.20", default-features = false, features = ["client-proxy"] }
 libc = { version = "0.2.186", features = ["extra_traits"] }
 tower = { version = "0.5.3", default-features = false, features = ["retry", "timeout"] }
-tower-http = { version = "0.6.9", default-features = false, features = ["follow-redirect"] }
+tower-http = { version = "0.6.10", default-features = false, features = ["follow-redirect"] }
 
 [target.x86_64-apple-darwin.build-dependencies]
 bitflags = { version = "2.11.1", default-features = false, features = ["std"] }
@@ -186,7 +186,7 @@ getrandom = { version = "0.4.2", default-features = false, features = ["std", "s
 hyper-util = { version = "0.1.20", default-features = false, features = ["client-proxy"] }
 libc = { version = "0.2.186", features = ["extra_traits"] }
 tower = { version = "0.5.3", default-features = false, features = ["retry", "timeout"] }
-tower-http = { version = "0.6.9", default-features = false, features = ["follow-redirect"] }
+tower-http = { version = "0.6.10", default-features = false, features = ["follow-redirect"] }
 
 [target.aarch64-apple-darwin.dependencies]
 bitflags = { version = "2.11.1", default-features = false, features = ["std"] }
@@ -195,7 +195,7 @@ getrandom = { version = "0.4.2", default-features = false, features = ["std", "s
 hyper-util = { version = "0.1.20", default-features = false, features = ["client-proxy"] }
 libc = { version = "0.2.186", features = ["extra_traits"] }
 tower = { version = "0.5.3", default-features = false, features = ["retry", "timeout"] }
-tower-http = { version = "0.6.9", default-features = false, features = ["follow-redirect"] }
+tower-http = { version = "0.6.10", default-features = false, features = ["follow-redirect"] }
 
 [target.aarch64-apple-darwin.build-dependencies]
 bitflags = { version = "2.11.1", default-features = false, features = ["std"] }
@@ -205,25 +205,29 @@ getrandom = { version = "0.4.2", default-features = false, features = ["std", "s
 hyper-util = { version = "0.1.20", default-features = false, features = ["client-proxy"] }
 libc = { version = "0.2.186", features = ["extra_traits"] }
 tower = { version = "0.5.3", default-features = false, features = ["retry", "timeout"] }
-tower-http = { version = "0.6.9", default-features = false, features = ["follow-redirect"] }
+tower-http = { version = "0.6.10", default-features = false, features = ["follow-redirect"] }
 
 [target.x86_64-pc-windows-msvc.dependencies]
 getrandom = { version = "0.4.2", default-features = false, features = ["std", "sys_rng"] }
 hyper-util = { version = "0.1.20", default-features = false, features = ["client-proxy"] }
 tower = { version = "0.5.3", default-features = false, features = ["retry", "timeout"] }
-tower-http = { version = "0.6.9", default-features = false, features = ["follow-redirect"] }
+tower-http = { version = "0.6.10", default-features = false, features = ["follow-redirect"] }
 winapi = { version = "0.3.9", default-features = false, features = ["cfg", "evntrace", "in6addr", "inaddr", "minwinbase", "ntsecapi", "sysinfoapi", "windef", "winioctl"] }
 windows = { version = "0.62.2", features = ["Wdk_System_SystemInformation", "Wdk_System_SystemServices", "Wdk_System_Threading", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D11", "Win32_Graphics_Dxgi_Common", "Win32_Graphics_Gdi", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_NetworkManagement_NetManagement", "Win32_Networking_WinSock", "Win32_Security_Authentication_Identity", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_Storage_Xps", "Win32_System_Com", "Win32_System_Diagnostics_Debug", "Win32_System_Diagnostics_ToolHelp", "Win32_System_IO", "Win32_System_Ioctl", "Win32_System_Kernel", "Win32_System_Memory", "Win32_System_Ole", "Win32_System_Performance", "Win32_System_Power", "Win32_System_ProcessStatus", "Win32_System_Registry", "Win32_System_RemoteDesktop", "Win32_System_Rpc", "Win32_System_SystemInformation", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_Variant", "Win32_System_WindowsProgramming", "Win32_System_Wmi", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
-windows-sys = { version = "0.61.2", features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Wdk_System_IO", "Win32_Globalization", "Win32_Networking_WinSock", "Win32_Security_Authorization", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_Console", "Win32_System_IO", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Pipes", "Win32_System_SystemInformation", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_WindowsProgramming", "Win32_UI_Shell"] }
+windows-sys-4db8c43aad08e7ae = { package = "windows-sys", version = "0.60.2", features = ["Win32_Globalization", "Win32_Networking_WinSock", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_Console", "Win32_System_IO", "Win32_System_Threading", "Win32_System_WindowsProgramming", "Win32_UI_Shell"] }
+windows-sys-b21d60becc0929df = { package = "windows-sys", version = "0.52.0", features = ["Win32_Foundation", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_SystemInformation"] }
+windows-sys-d4189bed749088b6 = { package = "windows-sys", version = "0.61.2", features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Wdk_System_IO", "Win32_Networking_WinSock", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_IO", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Pipes", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_WindowsProgramming"] }
 
 [target.x86_64-pc-windows-msvc.build-dependencies]
 cc = { version = "1.2.61", default-features = false, features = ["parallel"] }
 getrandom = { version = "0.4.2", default-features = false, features = ["std", "sys_rng"] }
 hyper-util = { version = "0.1.20", default-features = false, features = ["client-proxy"] }
 tower = { version = "0.5.3", default-features = false, features = ["retry", "timeout"] }
-tower-http = { version = "0.6.9", default-features = false, features = ["follow-redirect"] }
+tower-http = { version = "0.6.10", default-features = false, features = ["follow-redirect"] }
 winapi = { version = "0.3.9", default-features = false, features = ["cfg", "evntrace", "in6addr", "inaddr", "minwinbase", "ntsecapi", "sysinfoapi", "windef", "winioctl"] }
 windows = { version = "0.62.2", features = ["Wdk_System_SystemInformation", "Wdk_System_SystemServices", "Wdk_System_Threading", "Win32_Graphics_Direct3D", "Win32_Graphics_Direct3D11", "Win32_Graphics_Dxgi_Common", "Win32_Graphics_Gdi", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_NetworkManagement_NetManagement", "Win32_Networking_WinSock", "Win32_Security_Authentication_Identity", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_Storage_Xps", "Win32_System_Com", "Win32_System_Diagnostics_Debug", "Win32_System_Diagnostics_ToolHelp", "Win32_System_IO", "Win32_System_Ioctl", "Win32_System_Kernel", "Win32_System_Memory", "Win32_System_Ole", "Win32_System_Performance", "Win32_System_Power", "Win32_System_ProcessStatus", "Win32_System_Registry", "Win32_System_RemoteDesktop", "Win32_System_Rpc", "Win32_System_SystemInformation", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_Variant", "Win32_System_WindowsProgramming", "Win32_System_Wmi", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging"] }
-windows-sys = { version = "0.61.2", features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Wdk_System_IO", "Win32_Globalization", "Win32_Networking_WinSock", "Win32_Security_Authorization", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_Console", "Win32_System_IO", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Pipes", "Win32_System_SystemInformation", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_WindowsProgramming", "Win32_UI_Shell"] }
+windows-sys-4db8c43aad08e7ae = { package = "windows-sys", version = "0.60.2", features = ["Win32_Globalization", "Win32_Networking_WinSock", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_Console", "Win32_System_IO", "Win32_System_Threading", "Win32_System_WindowsProgramming", "Win32_UI_Shell"] }
+windows-sys-b21d60becc0929df = { package = "windows-sys", version = "0.52.0", features = ["Win32_Foundation", "Win32_Security_Cryptography", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_SystemInformation"] }
+windows-sys-d4189bed749088b6 = { package = "windows-sys", version = "0.61.2", features = ["Wdk_Foundation", "Wdk_Storage_FileSystem", "Wdk_System_IO", "Win32_Networking_WinSock", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_Console", "Win32_System_IO", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_Pipes", "Win32_System_SystemServices", "Win32_System_Threading", "Win32_System_WindowsProgramming"] }
 
 ### END HAKARI SECTION

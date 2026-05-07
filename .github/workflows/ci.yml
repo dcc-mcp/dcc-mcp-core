@@ -45,6 +45,41 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  release-metadata:
+    name: Release metadata
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - name: Validate package versions
+        run: |
+          python - <<'PY'
+          import sys
+          import tomllib
+          from pathlib import Path
+
+          pyproject_version = tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"]
+          cargo_version = tomllib.loads(Path("Cargo.toml").read_text())["workspace"]["package"]["version"]
+          versions = {
+              "pyproject.toml": pyproject_version,
+              "Cargo.toml": cargo_version,
+          }
+
+          lock = tomllib.loads(Path("Cargo.lock").read_text())
+          for package in lock["package"]:
+              name = package["name"]
+              if name == "dcc-mcp-core" or name.startswith("dcc-mcp-"):
+                  versions[f"Cargo.lock:{name}"] = package["version"]
+
+          mismatches = {source: version for source, version in versions.items() if version != pyproject_version}
+          if mismatches:
+              for source, version in sorted(mismatches.items()):
+                  print(f"{source} has {version}, expected {pyproject_version}", file=sys.stderr)
+              sys.exit(1)
+          PY
+
   # ── Rust checks (check + clippy + fmt + cargo test) ──
   rust-check:
     name: Rust (${{ matrix.os }})

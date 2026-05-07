@@ -117,6 +117,41 @@ jobs:
       id-token: write
       contents: write
     steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Validate release version
+        env:
+          RELEASE_VERSION: ${{ needs.release-please.outputs.version }}
+        run: |
+          python - <<'PY'
+          import os
+          import sys
+          import tomllib
+          from pathlib import Path
+
+          release_version = os.environ["RELEASE_VERSION"]
+          versions = {
+              "pyproject.toml": tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"],
+              "Cargo.toml": tomllib.loads(Path("Cargo.toml").read_text())["workspace"]["package"]["version"],
+          }
+
+          lock = tomllib.loads(Path("Cargo.lock").read_text())
+          for package in lock["package"]:
+              name = package["name"]
+              if name == "dcc-mcp-core" or name.startswith("dcc-mcp-"):
+                  versions[f"Cargo.lock:{name}"] = package["version"]
+
+          mismatches = {source: version for source, version in versions.items() if version != release_version}
+          if mismatches:
+              for source, version in sorted(mismatches.items()):
+                  print(f"{source} has {version}, expected {release_version}", file=sys.stderr)
+              sys.exit(1)
+          PY
+
       - name: Download all wheel artifacts
         uses: actions/download-artifact@v8
         with:
@@ -133,6 +168,7 @@ jobs:
           packages-dir: dist
           verbose: true
           print-hash: true
+          skip-existing: true
 
       - name: Upload wheels to GitHub Release
         uses: softprops/action-gh-release@v3
