@@ -16,8 +16,10 @@ use utoipa::OpenApi;
 use super::errors::{ServiceError, ServiceErrorKind};
 use super::readiness::ReadinessReport;
 use super::service::{
-    CallOutcome, CallRequest, ContextSnapshot, DescribeRequest, DescribeResponse, SearchRequest,
-    SearchResponse, SkillListEntry, ToolSlug,
+    CallOutcome, CallRequest, ContextSnapshot, DescribeRequest, DescribeResponse,
+    PromptArgumentSpec, PromptContent, PromptGetResponse, PromptListEntry, PromptMessage,
+    ResourceContent, ResourceListEntry, ResourceReadResponse, SearchRequest, SearchResponse,
+    SkillListEntry, ToolSlug,
 };
 
 /// Compile-time `ToSchema` registry for the REST skill API surface.
@@ -42,6 +44,11 @@ use super::service::{
         super::router::op_describe_path,
         super::router::op_call,
         super::router::op_context,
+        // #818 phase 1
+        super::router::op_list_resources,
+        super::router::op_read_resource,
+        super::router::op_list_prompts,
+        super::router::op_get_prompt,
     ),
     components(schemas(
         ServiceError,
@@ -56,11 +63,22 @@ use super::service::{
         CallRequest,
         CallOutcome,
         ContextSnapshot,
+        // #818 phase 1
+        ResourceListEntry,
+        ResourceContent,
+        ResourceReadResponse,
+        PromptListEntry,
+        PromptArgumentSpec,
+        PromptMessage,
+        PromptContent,
+        PromptGetResponse,
     )),
     tags(
         (name = "skills", description = "List / search / describe / call"),
         (name = "health",  description = "Liveness and readiness probes"),
         (name = "meta",    description = "API self-description"),
+        (name = "resources", description = "MCP resources mirrored over REST (#818)"),
+        (name = "prompts",   description = "MCP prompts mirrored over REST (#818)"),
     ),
 )]
 pub struct SkillRestApiDoc;
@@ -97,6 +115,11 @@ mod tests {
             "/v1/healthz",
             "/v1/readyz",
             "/v1/openapi.json",
+            // #818 phase 1
+            "/v1/resources",
+            "/v1/resources/{uri}",
+            "/v1/prompts",
+            "/v1/prompts/{name}",
         ] {
             assert!(
                 doc["paths"].get(p).is_some(),

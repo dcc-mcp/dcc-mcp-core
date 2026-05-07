@@ -226,6 +226,142 @@ pub trait ToolInvoker: Send + Sync {
     fn invoke(&self, action_name: &str, params: Value) -> Result<CallOutcome, ServiceError>;
 }
 
+// ── Resource & prompt providers (#818 phase 1) ───────────────────────
+
+/// One MCP resource entry as returned by `GET /v1/resources`.
+///
+/// Mirrors the spec `ResourceDefinition` shape so a gateway can pass
+/// the payload straight through without re-mapping fields.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ResourceListEntry {
+    pub uri: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(rename = "mimeType", default, skip_serializing_if = "Option::is_none")]
+    pub mime_type: Option<String>,
+}
+
+/// One content blob as returned by `GET /v1/resources/{uri}`.
+///
+/// Either `text` or `blob` (base64) is set, not both.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ResourceContent {
+    pub uri: String,
+    #[serde(rename = "mimeType", default, skip_serializing_if = "Option::is_none")]
+    pub mime_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    /// Base64-encoded binary content.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blob: Option<String>,
+}
+
+/// `GET /v1/resources/{uri}` response envelope.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ResourceReadResponse {
+    pub contents: Vec<ResourceContent>,
+}
+
+/// One prompt definition as returned by `GET /v1/prompts`.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct PromptListEntry {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub arguments: Vec<PromptArgumentSpec>,
+}
+
+/// One declared argument on a prompt.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct PromptArgumentSpec {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub required: bool,
+}
+
+/// One rendered message returned by `GET /v1/prompts/{name}`.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct PromptMessage {
+    pub role: String,
+    pub content: PromptContent,
+}
+
+/// Body of a single prompt message.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum PromptContent {
+    Text { text: String },
+}
+
+/// `GET /v1/prompts/{name}` response envelope.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct PromptGetResponse {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub messages: Vec<PromptMessage>,
+}
+
+/// Anything that can list and read MCP-style resources.
+///
+/// Implementations live in the embedder (`dcc-mcp-http` wraps its
+/// `ResourceRegistry` to satisfy this trait). Keeping the trait here
+/// is a DIP boundary: the REST layer depends on the abstraction, not
+/// on the concrete `dcc-mcp-http::resources::*` types.
+pub trait ResourceProvider: Send + Sync {
+    /// List every available resource. Empty when the embedder did not
+    /// register any.
+    fn list(&self) -> Vec<ResourceListEntry>;
+    /// Read one resource by URI. `Err(NotFound)` when the URI is not
+    /// known; `Err(Internal)` on read failure.
+    fn read(&self, uri: &str) -> Result<ResourceReadResponse, ServiceError>;
+}
+
+/// Anything that can list MCP-style prompts and render one with
+/// supplied arguments.
+pub trait PromptProvider: Send + Sync {
+    fn list(&self) -> Vec<PromptListEntry>;
+    fn get(&self, name: &str, arguments: &Value) -> Result<PromptGetResponse, ServiceError>;
+}
+
+/// Default `ResourceProvider` returning an empty list — used when the
+/// embedder has not wired anything in yet so the endpoint stays valid
+/// with `200 OK` + `{ "resources": [] }` instead of 500-ing.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct EmptyResourceProvider;
+
+impl ResourceProvider for EmptyResourceProvider {
+    fn list(&self) -> Vec<ResourceListEntry> {
+        Vec::new()
+    }
+    fn read(&self, uri: &str) -> Result<ResourceReadResponse, ServiceError> {
+        Err(ServiceError::new(
+            ServiceErrorKind::NotFound,
+            format!("resource not found: {uri}"),
+        ))
+    }
+}
+
+/// Default `PromptProvider` returning an empty list — symmetrical to
+/// [`EmptyResourceProvider`].
+#[derive(Debug, Default, Clone, Copy)]
+pub struct EmptyPromptProvider;
+
+impl PromptProvider for EmptyPromptProvider {
+    fn list(&self) -> Vec<PromptListEntry> {
+        Vec::new()
+    }
+    fn get(&self, name: &str, _arguments: &Value) -> Result<PromptGetResponse, ServiceError> {
+        Err(ServiceError::new(
+            ServiceErrorKind::NotFound,
+            format!("prompt not found: {name}"),
+        ))
+    }
+}
+
 // ── Default impls ─────────────────────────────────────────────────────
 
 /// Wraps [`SkillCatalog`] + [`ActionDispatcher`]. Thread-safe clone.
@@ -351,6 +487,8 @@ impl ToolInvoker for DispatcherInvoker {
 pub struct SkillRestService {
     catalog: Arc<dyn SkillCatalogSource>,
     invoker: Arc<dyn ToolInvoker>,
+    resources: Arc<dyn ResourceProvider>,
+    prompts: Arc<dyn PromptProvider>,
     context: Arc<RwLock<ContextSnapshot>>,
 }
 
@@ -365,12 +503,43 @@ impl SkillRestService {
         Self::new(catalog_source, invoker)
     }
 
+    /// Construct with the catalog + invoker only. Resources and prompts
+    /// default to empty providers — wire real implementations in via
+    /// [`Self::with_resources`] and [`Self::with_prompts`] when the
+    /// embedder has them ready.
     pub fn new(catalog: Arc<dyn SkillCatalogSource>, invoker: Arc<dyn ToolInvoker>) -> Self {
         Self {
             catalog,
             invoker,
+            resources: Arc::new(EmptyResourceProvider),
+            prompts: Arc::new(EmptyPromptProvider),
             context: Arc::new(RwLock::new(ContextSnapshot::default())),
         }
+    }
+
+    /// Wire in a real [`ResourceProvider`]. Returns `Self` so the
+    /// builder pattern composes.
+    #[must_use]
+    pub fn with_resources(mut self, resources: Arc<dyn ResourceProvider>) -> Self {
+        self.resources = resources;
+        self
+    }
+
+    /// Wire in a real [`PromptProvider`].
+    #[must_use]
+    pub fn with_prompts(mut self, prompts: Arc<dyn PromptProvider>) -> Self {
+        self.prompts = prompts;
+        self
+    }
+
+    /// Read-only access to the resource provider for handlers.
+    pub fn resources(&self) -> &dyn ResourceProvider {
+        self.resources.as_ref()
+    }
+
+    /// Read-only access to the prompt provider for handlers.
+    pub fn prompts(&self) -> &dyn PromptProvider {
+        self.prompts.as_ref()
     }
 
     /// Update the DCC context snapshot surfaced through `/v1/context`.

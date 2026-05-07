@@ -33,6 +33,10 @@ pub enum ServiceErrorKind {
     AffinityViolation,
     /// The underlying DCC or dispatcher is not ready yet.
     NotReady,
+    /// Generic 404 — the addressed resource / prompt / object is not
+    /// known. Distinct from [`Self::UnknownSlug`] which is specific
+    /// to tool slugs.
+    NotFound,
     /// Catch-all for unexpected server failures.
     Internal,
 }
@@ -51,6 +55,7 @@ impl ServiceErrorKind {
             Self::BadRequest => 400,
             Self::AffinityViolation => 409,
             Self::NotReady => 503,
+            Self::NotFound => 404,
             Self::BackendError => 502,
             Self::Internal => 500,
         }
