@@ -78,6 +78,14 @@ rust-cov:
 bench:
     cargo bench -p dcc-mcp-transport
 
+# Regenerate workspace-hack (run after dependency updates to fix CI)
+hakari-generate:
+    cargo hakari generate
+
+# Verify workspace-hack is up to date (local preflight check)
+hakari-verify:
+    cargo hakari verify
+
 # ── Standalone binary (dcc-mcp-server) ───────────────────────────────────────
 
 # Build dcc-mcp-server for the current platform

@@ -20,29 +20,14 @@ from __future__ import annotations
 import contextlib
 import threading
 from typing import TYPE_CHECKING
-from typing import Protocol
-from typing import runtime_checkable
+
+# Import local modules
+from dcc_mcp_core.host._protocols import TickableDispatcher
 
 if TYPE_CHECKING:
     # Import local modules
     from dcc_mcp_core._core import BlockingDispatcher
     from dcc_mcp_core._core import QueueDispatcher
-    from dcc_mcp_core._core import TickOutcome
-
-
-@runtime_checkable
-class _TickableDispatcher(Protocol):
-    """Minimum surface :class:`StandaloneHost` needs from its dispatcher.
-
-    Keeps the class independent of the concrete dispatcher type (DIP)
-    and lets callers swap in test doubles without subclassing.
-    """
-
-    def tick(self, max_jobs: int = ...) -> TickOutcome: ...
-    def has_pending(self) -> bool: ...
-    def pending(self) -> int: ...
-    def shutdown(self) -> None: ...
-    def is_shutdown(self) -> bool: ...
 
 
 class StandaloneHost:
@@ -71,7 +56,7 @@ class StandaloneHost:
 
     def __init__(
         self,
-        dispatcher: QueueDispatcher | BlockingDispatcher | _TickableDispatcher,
+        dispatcher: QueueDispatcher | BlockingDispatcher | TickableDispatcher,
         *,
         tick_interval: float = 0.01,
         max_jobs_per_tick: int = 16,

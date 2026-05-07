@@ -68,7 +68,7 @@ from typing import Optional
 # Import local modules — re-export the shared protocol so subclass
 # authors can type against ``TickableDispatcher`` from a single
 # import.
-from dcc_mcp_core.host._standalone import _TickableDispatcher as TickableDispatcher
+from dcc_mcp_core.host._protocols import TickableDispatcher
 
 if TYPE_CHECKING:
     # Import local modules
