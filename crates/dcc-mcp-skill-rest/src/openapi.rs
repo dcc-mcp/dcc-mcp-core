@@ -16,10 +16,10 @@ use utoipa::OpenApi;
 use super::errors::{ServiceError, ServiceErrorKind};
 use super::readiness::ReadinessReport;
 use super::service::{
-    CallOutcome, CallRequest, ContextSnapshot, DescribeRequest, DescribeResponse,
+    CallOutcome, CallRequest, ContextSnapshot, DescribeRequest, DescribeResponse, JobEvent,
     PromptArgumentSpec, PromptContent, PromptGetResponse, PromptListEntry, PromptMessage,
-    ResourceContent, ResourceListEntry, ResourceReadResponse, SearchRequest, SearchResponse,
-    SkillListEntry, ToolSlug,
+    ResourceContent, ResourceEvent, ResourceListEntry, ResourceReadResponse, SearchRequest,
+    SearchResponse, SkillListEntry, ToolSlug,
 };
 
 /// Compile-time `ToSchema` registry for the REST skill API surface.
@@ -49,6 +49,10 @@ use super::service::{
         super::router::op_read_resource,
         super::router::op_list_prompts,
         super::router::op_get_prompt,
+        // #818 phase 1b
+        super::router::op_resource_events,
+        super::router::op_job_events,
+        super::router::op_job_cancel,
     ),
     components(schemas(
         ServiceError,
@@ -72,6 +76,9 @@ use super::service::{
         PromptMessage,
         PromptContent,
         PromptGetResponse,
+        // #818 phase 1b
+        ResourceEvent,
+        JobEvent,
     )),
     tags(
         (name = "skills", description = "List / search / describe / call"),
@@ -79,6 +86,7 @@ use super::service::{
         (name = "meta",    description = "API self-description"),
         (name = "resources", description = "MCP resources mirrored over REST (#818)"),
         (name = "prompts",   description = "MCP prompts mirrored over REST (#818)"),
+        (name = "jobs",      description = "Async job lifecycle: SSE events + cancel (#818 phase 1b)"),
     ),
 )]
 pub struct SkillRestApiDoc;
@@ -120,6 +128,10 @@ mod tests {
             "/v1/resources/{uri}",
             "/v1/prompts",
             "/v1/prompts/{name}",
+            // #818 phase 1b
+            "/v1/resources/{uri}/events",
+            "/v1/jobs/{id}/events",
+            "/v1/jobs/{id}",
         ] {
             assert!(
                 doc["paths"].get(p).is_some(),
