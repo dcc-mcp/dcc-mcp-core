@@ -11,6 +11,38 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.15.6](https://github.com/loonghao/dcc-mcp-core/compare/v0.15.5...v0.15.6) (2026-05-08)
+
+
+### Features
+
+* **gateway:** promote DCC instance registry to gateway://instances MCP resource ([#813](https://github.com/loonghao/dcc-mcp-core/issues/813) phase 1 / [#818](https://github.com/loonghao/dcc-mcp-core/issues/818) phase 0) ([f7ab97d](https://github.com/loonghao/dcc-mcp-core/commit/f7ab97d3826d0a91c8a165477c2bc27e05be2283))
+* **gateway:** promote diagnostics + catalog to MCP resources, refactor native_resources into SOLID submodules ([#813](https://github.com/loonghao/dcc-mcp-core/issues/813) phase 2 / [#818](https://github.com/loonghao/dcc-mcp-core/issues/818) phase 0) ([8c880f0](https://github.com/loonghao/dcc-mcp-core/commit/8c880f0a47498b150639da01d5617ae4dccdf39c))
+* **http:** wire ResourceRegistry + PromptRegistry into SkillRestService ([#818](https://github.com/loonghao/dcc-mcp-core/issues/818) bridge) ([56a09f4](https://github.com/loonghao/dcc-mcp-core/commit/56a09f403afb33aafc5cb07a57603bc737511807))
+* **skill-rest:** add SSE job/resource event streams + job cancel ([#818](https://github.com/loonghao/dcc-mcp-core/issues/818) phase 1b) ([de069ec](https://github.com/loonghao/dcc-mcp-core/commit/de069eceb753019d60cead2e58101d26962d562c))
+* **skill-rest:** expose MCP resources & prompts over REST ([#818](https://github.com/loonghao/dcc-mcp-core/issues/818) phase 1a) ([8700d76](https://github.com/loonghao/dcc-mcp-core/commit/8700d761b1f96f961136d0c10edebfd93166a2bd))
+
+
+### Bug Fixes
+
+* **ci:** quiet pytest failure logs ([1cd7dc5](https://github.com/loonghao/dcc-mcp-core/commit/1cd7dc5464397e442056a18246a930ad8ed6fd86))
+* **gateway:** forward prompt arguments over REST ([4c5d260](https://github.com/loonghao/dcc-mcp-core/commit/4c5d26058ecaa92d1d9b8d09b7aa1a2f6cc57cca))
+* **gateway:** route skill management via MCP ([c8e926e](https://github.com/loonghao/dcc-mcp-core/commit/c8e926e980f539d26b4a67d7eaa30e793191a561))
+* **tests:** fix integration test mock backends and try_fetch_tools for REST migration ([#818](https://github.com/loonghao/dcc-mcp-core/issues/818) phase 2) ([640d222](https://github.com/loonghao/dcc-mcp-core/commit/640d2226c806044be92531e5c22e22c2c99c8877))
+* **tests:** skip gateway-native URIs in resource-prefixing test ([#813](https://github.com/loonghao/dcc-mcp-core/issues/813) phase 2) ([9145d8a](https://github.com/loonghao/dcc-mcp-core/commit/9145d8a1c92e990894f8d59ce101385acb07b668))
+
+
+### Code Refactoring
+
+* **gateway:** switch backend communication from MCP JSON-RPC to REST ([#818](https://github.com/loonghao/dcc-mcp-core/issues/818) phase 2) ([cfff2af](https://github.com/loonghao/dcc-mcp-core/commit/cfff2af20a889f01a39ee946eb15f88fd4228efe))
+* **types:** collapse jsonrpc::McpToolAnnotations into protocols::ToolAnnotations ([#812](https://github.com/loonghao/dcc-mcp-core/issues/812) part 1) ([5652b9b](https://github.com/loonghao/dcc-mcp-core/commit/5652b9b618db8aafdeca7a960a3266f4c2d1ae04))
+
+
+### Documentation
+
+* fix markdown lint after gateway resource update ([80d0c48](https://github.com/loonghao/dcc-mcp-core/commit/80d0c48956f1eb002da493e0361ed0e264798e57))
+* refresh gateway instance resource guidance ([7c41d97](https://github.com/loonghao/dcc-mcp-core/commit/7c41d9755e212377121a146bdde96834815ff755))
+
 ## [0.15.5](https://github.com/loonghao/dcc-mcp-core/compare/v0.15.4...v0.15.5) (2026-05-07)
 
 
