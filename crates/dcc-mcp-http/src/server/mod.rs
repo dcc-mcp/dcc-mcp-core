@@ -457,13 +457,19 @@ impl McpHttpServer {
             .clone()
             .unwrap_or_else(AppState::default_readiness);
 
-        let mut rest_config = dcc_mcp_skill_rest::SkillRestConfig::new(
-            dcc_mcp_skill_rest::SkillRestService::from_catalog_and_dispatcher(
-                catalog.clone(),
-                self.dispatcher.clone(),
-            ),
+        let rest_service = dcc_mcp_skill_rest::SkillRestService::from_catalog_and_dispatcher(
+            catalog.clone(),
+            self.dispatcher.clone(),
         )
-        .with_readiness(readiness.clone());
+        .with_resources(std::sync::Arc::new(
+            crate::rest_providers::ResourceRegistryAdapter::new(resources.clone(), catalog.clone()),
+        ))
+        .with_prompts(std::sync::Arc::new(
+            crate::rest_providers::PromptRegistryAdapter::new(prompts.clone(), catalog.clone()),
+        ));
+
+        let mut rest_config = dcc_mcp_skill_rest::SkillRestConfig::new(rest_service)
+            .with_readiness(readiness.clone());
         rest_config.server_title = self.config.server.server_name.clone();
         rest_config.server_version = self.config.server.server_version.clone();
         let rest_router = dcc_mcp_skill_rest::build_skill_rest_router(rest_config);

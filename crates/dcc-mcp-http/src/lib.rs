@@ -78,6 +78,7 @@ pub use dcc_mcp_jsonrpc as protocol;
 pub mod prompts;
 pub mod resource_link;
 pub mod resources;
+pub(crate) mod rest_providers;
 pub mod server;
 pub mod session;
 /// Re-export of [`dcc_mcp_skill_rest`] under the historical
