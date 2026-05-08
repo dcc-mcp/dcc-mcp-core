@@ -76,15 +76,30 @@ result = call_tool(tool_slug=info["tool_slug"], arguments={"radius": 2.0})
 
 Non-MCP clients use the equivalent REST endpoints: `POST /v1/search`, `POST /v1/describe`, and `POST /v1/call`. See `docs/guide/gateway.md` and `docs/guide/dcc-rest-skill-api.md`.
 
+### Gateway Instance Discovery
+
+Usually you do **not** need to enumerate instances: let `search_tools` and `call_tool` route for you. When you must pick a concrete DCC session, inspect context metadata, or connect directly, read the gateway-native MCP resource instead of looking for instance-discovery tools:
+
+```python
+# MCP request shape; use your client's resources/read helper if it has one.
+{"method": "resources/read", "params": {"uri": "gateway://instances"}}
+{"method": "resources/read", "params": {"uri": "gateway://instances/{instance_id}"}}
+```
+
+Each entry carries `mcp_url`, so no separate connect verb is needed. The legacy `list_dcc_instances`, `get_dcc_instance`, `connect_to_dcc`, and non-standard `instances/list` surfaces were removed in #813 phase 1.
+
 ### Gateway Resources and Prompts
+
 
 Use MCP resources for files, scene artefacts, thumbnails, diagnostics, and other hand-off data that should not be squeezed into tool text output:
 
 1. Call `resources/list` and keep the returned URI exactly as-is. Gateway-prefixed URIs encode the owning DCC instance (`dcc://<type>/<id>` or `<scheme>://<id8>/<rest>`).
-2. Call `resources/read` with that exact URI. Do not remove or rewrite the instance prefix client-side.
-3. Use `resources/subscribe` only when you need live `notifications/resources/updated` events, then call `resources/unsubscribe` when done.
-4. Prefer resources over ad-hoc local file paths in tool messages; resources are portable across DCC hosts and easier for agents to trace.
-5. For reusable prompt templates, call gateway `prompts/list` and then `prompts/get` with the returned namespaced prompt name.
+2. `resources/list` advertises `gateway://instances` as one root pointer; read `gateway://instances/{id}` directly when you know an instance id because per-instance URIs are intentionally not fanned out.
+3. Call `resources/read` with that exact URI. Do not remove or rewrite the instance prefix client-side.
+4. Use `resources/subscribe` only when you need live `notifications/resources/updated` events, then call `resources/unsubscribe` when done.
+5. Prefer resources over ad-hoc local file paths in tool messages; resources are portable across DCC hosts and easier for agents to trace.
+6. For reusable prompt templates, call gateway `prompts/list` and then `prompts/get` with the returned namespaced prompt name.
+
 
 ## 📚 Key Concepts You Must Understand
 

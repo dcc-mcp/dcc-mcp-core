@@ -88,6 +88,23 @@ facade 抖动都会浪费 socket 并塞满重连日志。
    秒才触发一次；没有这次同步前置扫描的话，上一次崩溃残留的幽灵
    行会在 Gateway 启动后的前 ~15 秒内耗尽完整的指数退避重连预算。
 
+## 实例与诊断发现
+
+Gateway 将实时 DCC 注册表暴露为 Gateway 原生 MCP resource（也见
+`docs/zh/api/http.md`）：
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"resources/read",
+ "params":{"uri":"gateway://instances"}}
+```
+
+payload 会包含 live、stale 与 unhealthy 行，方便客户端决定是路由、
+重连，还是提示用户重启 DCC 实例。每条记录已经携带 `mcp_url`，因此
+读取这个 resource 后即可直连。可选 URI 查询参数
+（`?include_stale=false`、`?include_dead=true`）对应旧实例发现工具的
+过滤意图。`tools/list` 会在每次调用时基于当前注册表组装，因此
+Gateway 启动后新注册的实例不需要重启即可被发现。
+
 ## 动态能力索引与有界工具暴露 (#652-#657)
 
 在大型多 DCC 部署中，Gateway **永远不会**把每个后端 action 直接发布到
@@ -95,9 +112,11 @@ facade 抖动都会浪费 socket 并塞满重连日志。
 `McpHttpConfig.gateway_tool_exposure`、`publishes_backend_tools` 与
 `--gateway-tool-exposure` 都是 0.15 之前的概念。现在只有一个无条件表面：
 
+
 | 表面 | `tools/list` 中出现什么 | Agent 工作流 |
 |------|--------------------------|--------------|
-| Gateway MCP | 固定的发现+派发原语：`list_dcc_instances`、`connect_to_dcc`、`search_skills`、`load_skill`、`search_tools`、`describe_tool`、`call_tool`、池化工具、诊断工具 | `search_tools` → `describe_tool` → `call_tool` |
+| Gateway MCP | 固定的发现+派发原语：`search_skills`、`load_skill`、`search_tools`、`describe_tool`、`call_tool`、池化工具、诊断工具。实例注册表通过 `gateway://instances` MCP resource 暴露（用 `resources/read` 读取），而不是工具 — 见 #813 phase 1 | `resources/read uri=gateway://instances`（或跳过它，直接 `search_tools` → `describe_tool` → `call_tool`） |
+
 | Gateway REST | `/v1/search`、`/v1/describe`、`/v1/call`、`/v1/instances` | `POST /v1/search` → `/v1/describe` → `/v1/call` |
 | 直连 per-DCC MCP | 单个 DCC 服务的 skills 与已加载工具 | `search_skills` → `load_skill` → 调用工具 |
 

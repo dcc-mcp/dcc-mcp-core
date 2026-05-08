@@ -61,7 +61,7 @@ def commands():
     env.DCC_MCP_RESOURCE_PATHS.append("{root}/resources")
 ```
 
-`DccServerBase` 将这些上下文值复制到 `McpHttpConfig.instance_metadata`。网关随后从 `list_dcc_instances` 返回它们，客户端可以路由到匹配请求包的已启动实例。
+`DccServerBase` 将这些上下文值复制到 `McpHttpConfig.instance_metadata`。网关随后通过 `gateway://instances` MCP 资源返回它们，客户端可以路由到匹配请求包的已启动实例。
 
 ## 来源追踪
 

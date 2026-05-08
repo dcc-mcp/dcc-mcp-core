@@ -36,8 +36,10 @@
 | Wrap values for safe RPyC transport | `wrap_value()` / `unwrap_value()` |
 | Handle multiple versions of an action | `VersionedRegistry` + `VersionConstraint` |
 | Expose DCC tools over HTTP/MCP | `create_skill_server("maya", McpHttpConfig(port=8765))` — Skills-First one-call setup; gateway/slim agents use `search_tools` → `describe_tool` → `call_tool`; falls back to `McpHttpServer(registry, config)` for manual registry wiring |
+| Discover gateway DCC instances / direct MCP URLs (#813 phase 1) | `resources/read uri="gateway://instances"` or `gateway://instances/{id}` — entries include `mcp_url`; `resources/list` shows the root pointer only; legacy `list_dcc_instances` / `get_dcc_instance` / `connect_to_dcc` and non-standard `instances/list` are removed |
 | Register MCP prompts from Python (issue #792) | `handle = server.prompts(); handle.register_prompt(name, template, description=..., arguments=[{"name": str, "description": str, "required": bool}])` — `server.prompts()` returns `PromptHandle`; registration upserts in-place and appears in the next `prompts/list` / `prompts/get` |
 | Persist and resume DCC project state | `DccProject.open/load(...)` + `register_project_tools(server, ...)` exposing `project.save/load/resume/status` |
+
 | Share resources/prompts through a gateway | `resources/list/read/subscribe` with exact gateway-returned URIs; `prompts/list/get` for namespaced backend prompts |
 | Discover team-level skills | `scan_and_load_team()` / `scan_and_load_team_lenient()` |
 | Discover user-level skills | `scan_and_load_user()` / `scan_and_load_user_lenient()` |

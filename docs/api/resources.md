@@ -37,7 +37,28 @@ Resources are advertised in `initialize` as:
 `capture://current_window` is only listed when a real window-capture backend is available
 (currently Windows `HWND PrintWindow`). On other platforms it is hidden from `resources/list`.
 
+## Gateway-Native Resources
+
+When an agent is connected to the multi-DCC gateway, instance discovery is also
+modeled as an MCP resource instead of a tool:
+
+| URI | MIME | Description |
+|-----|------|-------------|
+| `gateway://instances` | `application/json` | Live DCC registry. Rows include `instance_id`, `dcc_type`, health/status fields, metadata, and `mcp_url` for direct sessions. |
+| `gateway://instances?include_stale=false` | `application/json` | Same registry with stale-but-parseable rows hidden. |
+| `gateway://instances?include_dead=true` | `application/json` | Rawer registry view including rows whose owner process has exited. |
+| `gateway://instances/{instance_id}` | `application/json` | One instance selected by full UUID or unique prefix. |
+| `resources://gateway/events` | `application/jsonl` | Gateway contention and election event ring buffer. |
+
+`resources/list` advertises only the `gateway://instances` root pointer; it does
+not enumerate every `gateway://instances/{id}` URI. Read the per-instance URI
+directly when you already know the id. The legacy gateway tools
+`list_dcc_instances`, `get_dcc_instance`, and `connect_to_dcc` were removed in
+#813 phase 1; entries already carry `mcp_url`, so no separate connect verb is
+required.
+
 ## Enabling / Disabling
+
 
 ```python
 from dcc_mcp_core import McpHttpConfig

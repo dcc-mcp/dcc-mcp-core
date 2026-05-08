@@ -166,8 +166,9 @@ MCP 请求使用 JSON-RPC 2.0：
 | `initialize` | 协议握手，返回服务器能力 |
 | `tools/list` | 列出注册表中的所有 Action |
 | `tools/call` | 按名称和参数调度 Action |
-| `resources/list` | 列出可用资源（当前实现为空） |
-| `prompts/list` | 列出可用提示（当前实现为空） |
+| `resources/list` | 列出可用资源；网关会包含 `gateway://instances` 根指针 |
+| `prompts/list` | 列出已注册 prompt；网关返回带命名空间的后端 prompt 模板 |
+
 | `ping` | 存活检查 |
 
 ## 完整示例：Maya MCP 服务器

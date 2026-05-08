@@ -39,7 +39,27 @@ Resources 在 `initialize` 中通告为：
 （目前为 Windows `HWND PrintWindow`）。在其他平台上它会从
 `resources/list` 中隐藏。
 
+## Gateway 原生 Resources
+
+当 Agent 连接到多 DCC Gateway 时，实例发现也建模为 MCP resource，
+而不是 tool：
+
+| URI | MIME | 说明 |
+|-----|------|------|
+| `gateway://instances` | `application/json` | 实时 DCC 注册表。行内包含 `instance_id`、`dcc_type`、健康/状态字段、metadata，以及用于直连会话的 `mcp_url`。 |
+| `gateway://instances?include_stale=false` | `application/json` | 隐藏 stale 但可解析行的同一注册表视图。 |
+| `gateway://instances?include_dead=true` | `application/json` | 更接近原始注册表的视图，包含拥有进程已退出的行。 |
+| `gateway://instances/{instance_id}` | `application/json` | 通过完整 UUID 或唯一前缀选择的单个实例。 |
+| `resources://gateway/events` | `application/jsonl` | Gateway 竞争和选举事件 ring buffer。 |
+
+`resources/list` 只通告 `gateway://instances` 根指针；不会枚举每个
+`gateway://instances/{id}` URI。当已知实例 id 时，直接读取单实例 URI。
+旧的 Gateway 工具 `list_dcc_instances`、`get_dcc_instance`、
+`connect_to_dcc` 已在 #813 phase 1 移除；每条记录已经携带 `mcp_url`，
+因此不需要单独的 connect 动词。
+
 ## 启用 / 禁用
+
 
 ```python
 from dcc_mcp_core import McpHttpConfig

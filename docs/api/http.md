@@ -178,8 +178,9 @@ MCP requests use JSON-RPC 2.0:
 | `initialize` | Protocol handshake, returns server capabilities |
 | `tools/list` | List all registered tools from the registry |
 | `tools/call` | Dispatch a tool by name with parameters |
-| `resources/list` | List available resources (empty in current impl) |
-| `prompts/list` | List available prompts (empty in current impl) |
+| `resources/list` | List available resources; gateways include the `gateway://instances` root pointer |
+| `prompts/list` | List registered prompts; gateways return namespaced backend prompt templates |
+
 | `ping` | Liveness check |
 
 ## Built-in Tools {#builtin-tools}
