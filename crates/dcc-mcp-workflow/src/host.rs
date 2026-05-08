@@ -1,7 +1,7 @@
 //! [`WorkflowHost`] — coordinator that owns a [`WorkflowExecutor`] plus a
 //! registry of in-flight runs, and exposes **synchronous** start / status /
 //! cancel entry points suitable for wiring into
-//! [`dcc_mcp_actions::dispatcher::ActionDispatcher`] handlers or Python /
+//! [`dcc_mcp_actions::dispatcher::ToolDispatcher`] handlers or Python /
 //! PyO3 call-sites.
 //!
 //! # Why a host?
@@ -17,7 +17,7 @@
 //!
 //! `WorkflowHost::start_sync` requires a running Tokio runtime (it calls
 //! [`tokio::spawn`] internally via [`WorkflowExecutor::run`]). Inside
-//! `ActionDispatcher::dispatch`, handlers are invoked on whichever thread
+//! `ToolDispatcher::dispatch`, handlers are invoked on whichever thread
 //! called `dispatch`; the HTTP server runs them on its Tokio runtime, so
 //! the spawn succeeds. Outside a Tokio runtime (pure unit tests), use
 //! [`WorkflowHost::start_with_handle`] with an explicit handle.

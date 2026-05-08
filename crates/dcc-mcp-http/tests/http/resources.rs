@@ -5,13 +5,13 @@
 
 use std::sync::Arc;
 
-use dcc_mcp_actions::ActionRegistry;
+use dcc_mcp_actions::ToolRegistry;
 use dcc_mcp_http::{McpHttpConfig, McpHttpServer, ResourceRegistry};
 use dcc_mcp_sandbox::{AuditEntry, AuditLog, AuditOutcome};
 use serde_json::json;
 
 fn make_server(enable: bool, artefact: bool) -> McpHttpServer {
-    let registry = Arc::new(ActionRegistry::new());
+    let registry = Arc::new(ToolRegistry::new());
     let mut cfg = McpHttpConfig::default();
     cfg.set_enable_resources(enable);
     cfg.set_enable_artefact_resources(artefact);

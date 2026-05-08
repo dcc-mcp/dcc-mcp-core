@@ -19,7 +19,7 @@ without touching the MCP protocol stack.
 |---|---|---|
 | `GET` | `/v1/healthz` | Liveness probe. `200 {"status": "ok"}` as long as the HTTP handler is up. |
 | `GET` | `/v1/readyz` | Three-state readiness: `200 Ready` / `503 Booting` / body omitted `Unreachable` (see below). |
-| `GET` | `/v1/skills` | Flat listing of loaded actions, deterministically sorted. |
+| `GET` | `/v1/skills` | Flat listing of loaded tools, deterministically sorted. |
 | `POST` | `/v1/search` | Fuzzy / exact search across loaded + unloaded skills. |
 | `POST` | `/v1/describe` | Return the full input schema + annotations for one `tool_slug`. |
 | `GET` | `/v1/tools/{slug}` | Alias of `/v1/describe` (read-only lookup via URL). |
@@ -204,7 +204,7 @@ deployments replace the ones that matter to them.
 | Trait | Default | Common overrides |
 |---|---|---|
 | `SkillCatalogSource` | Live `SkillCatalog` | A test fixture that returns a canned action list; a read-through cache against a remote registry. |
-| `ToolInvoker` | `DispatcherInvoker` over `ActionDispatcher` | A queue-backed invoker that posts jobs onto the DCC main thread via `QueueDispatcher`. |
+| `ToolInvoker` | `DispatcherInvoker` over `ToolDispatcher` | A queue-backed invoker that posts jobs onto the DCC main thread via `QueueDispatcher`. |
 | `AuthGate` | `AllowLocalhostGate` | `BearerTokenGate::new(vec![token])` for remote access; a studio SSO gate for enterprise. |
 | `AuditSink` | `NoopSink` | A `FileAuditSink` that appends JSONL rows; a Kafka producer for central audit. |
 | `ReadinessProbe` | Static `Ready` | A probe that checks the DCC host's own `ready` signal and goes red while the scene is loading. |

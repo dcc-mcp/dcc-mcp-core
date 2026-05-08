@@ -44,11 +44,11 @@ pub async fn test_list_roots_reports_cached_session_roots() {
     state.sessions.set_client_roots(
         &sid,
         vec![
-            crate::protocol::ClientRoot {
+            dcc_mcp_jsonrpc::ClientRoot {
                 uri: "file:///projects/demo".to_string(),
                 name: Some("Demo Root".to_string()),
             },
-            crate::protocol::ClientRoot {
+            dcc_mcp_jsonrpc::ClientRoot {
                 uri: "file:///projects/demo/assets".to_string(),
                 name: None,
             },
@@ -127,7 +127,7 @@ pub async fn test_list_roots_returns_cached_roots() {
     state.sessions.set_supports_roots(&sid, true);
     state.sessions.set_client_roots(
         &sid,
-        vec![crate::protocol::ClientRoot {
+        vec![dcc_mcp_jsonrpc::ClientRoot {
             uri: "file:///projects/demo".to_string(),
             name: Some("demo".to_string()),
         }],

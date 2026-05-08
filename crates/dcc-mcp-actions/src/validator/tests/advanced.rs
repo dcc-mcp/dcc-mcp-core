@@ -29,7 +29,7 @@ fn test_validation_result_into_result_err() {
 #[test]
 fn test_from_schema_direct() {
     let schema = json!({ "type": "string", "minLength": 1 });
-    let v = ActionValidator::from_schema(schema);
+    let v = ToolValidator::from_schema(schema);
     assert!(v.validate_input(&json!("hello")).is_valid());
     assert!(!v.validate_input(&json!("")).is_valid());
 }
@@ -39,7 +39,7 @@ fn test_from_schema_direct() {
 #[test]
 fn test_boolean_schema_true_accepts_anything() {
     // `true` schema: any value is valid
-    let v = ActionValidator::from_schema(json!(true));
+    let v = ToolValidator::from_schema(json!(true));
     assert!(v.validate_input(&json!(null)).is_valid());
     assert!(v.validate_input(&json!(42)).is_valid());
     assert!(v.validate_input(&json!("hello")).is_valid());
@@ -50,7 +50,7 @@ fn test_boolean_schema_true_accepts_anything() {
 fn test_boolean_schema_false_accepts_anything() {
     // Our validator skips validation for non-object schemas (incl. `false`)
     // so no errors are generated — matches lenient "unknown schema → skip" policy.
-    let v = ActionValidator::from_schema(json!(false));
+    let v = ToolValidator::from_schema(json!(false));
     assert!(v.validate_input(&json!(null)).is_valid());
 }
 
@@ -59,7 +59,7 @@ fn test_boolean_schema_false_accepts_anything() {
 #[test]
 fn test_nested_array_items_type_check() {
     // Array of arrays of numbers
-    let v = ActionValidator::from_schema(json!({
+    let v = ToolValidator::from_schema(json!({
         "type": "array",
         "items": {
             "type": "array",
@@ -78,7 +78,7 @@ fn test_nested_array_items_type_check() {
 
 #[test]
 fn test_enum_inside_property() {
-    let v = ActionValidator::from_schema(json!({
+    let v = ToolValidator::from_schema(json!({
         "type": "object",
         "properties": {
             "mode": { "enum": ["read", "write", "append"] }
@@ -94,7 +94,7 @@ fn test_enum_inside_property() {
 
 #[test]
 fn test_multiple_errors_accumulate() {
-    let v = ActionValidator::from_schema(json!({
+    let v = ToolValidator::from_schema(json!({
         "type": "object",
         "required": ["x", "y"],
         "properties": {
@@ -113,7 +113,7 @@ fn test_multiple_errors_accumulate() {
 
 #[test]
 fn test_array_min_items_and_items_schema() {
-    let v = ActionValidator::from_schema(json!({
+    let v = ToolValidator::from_schema(json!({
         "type": "array",
         "minItems": 2,
         "items": { "type": "number" }
@@ -130,7 +130,7 @@ fn test_array_min_items_and_items_schema() {
 
 #[test]
 fn test_string_exact_min_max_length() {
-    let v = ActionValidator::from_schema(json!({
+    let v = ToolValidator::from_schema(json!({
         "type": "string",
         "minLength": 3,
         "maxLength": 5
@@ -145,7 +145,7 @@ fn test_string_exact_min_max_length() {
 
 #[test]
 fn test_numeric_exact_min_max() {
-    let v = ActionValidator::from_schema(json!({
+    let v = ToolValidator::from_schema(json!({
         "type": "number",
         "minimum": 0.0,
         "maximum": 1.0

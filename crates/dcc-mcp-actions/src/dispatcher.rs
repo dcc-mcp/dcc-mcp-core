@@ -1,6 +1,6 @@
 //! Action dispatcher — routes incoming requests to registered handlers.
 //!
-//! The dispatcher bridges the [`ActionRegistry`] (metadata) with actual
+//! The dispatcher bridges the [`ToolRegistry`] (metadata) with actual
 //! callable handlers, providing:
 //!
 //! - **Registration**: associate handler functions with action names
@@ -14,15 +14,15 @@
 //! ## Usage
 //!
 //! ```no_run
-//! use dcc_mcp_actions::dispatcher::{ActionDispatcher, HandlerFn};
-//! use dcc_mcp_actions::registry::{ActionMeta, ActionRegistry};
+//! use dcc_mcp_actions::dispatcher::{ToolDispatcher, HandlerFn};
+//! use dcc_mcp_actions::registry::{ToolMeta, ToolRegistry};
 //! use serde_json::{json, Value};
 //!
-//! let registry = ActionRegistry::new();
-//! let mut dispatcher = ActionDispatcher::new(registry.clone());
+//! let registry = ToolRegistry::new();
+//! let mut dispatcher = ToolDispatcher::new(registry.clone());
 //!
 //! // 1. Register metadata
-//! registry.register_action(ActionMeta {
+//! registry.register_action(ToolMeta {
 //!     name: "create_sphere".into(),
 //!     dcc:  "maya".into(),
 //!     input_schema: json!({
@@ -50,7 +50,7 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 use serde_json::Value;
 
-use crate::registry::{ActionMeta, ActionRegistry};
+use crate::registry::{ToolMeta, ToolRegistry};
 use crate::validation_strategy::select_strategy;
 
 // ── Handler type aliases ──────────────────────────────────────────────────────
@@ -110,7 +110,7 @@ pub struct DispatchResult {
     pub validation_skipped: bool,
 }
 
-// ── ActionDispatcher ──────────────────────────────────────────────────────────
+// ── ToolDispatcher ──────────────────────────────────────────────────────────
 
 /// Routes action calls to registered handlers with automatic validation.
 ///
@@ -120,14 +120,14 @@ pub struct DispatchResult {
 /// # Example
 ///
 /// ```no_run
-/// use dcc_mcp_actions::dispatcher::ActionDispatcher;
-/// use dcc_mcp_actions::registry::{ActionMeta, ActionRegistry};
+/// use dcc_mcp_actions::dispatcher::ToolDispatcher;
+/// use dcc_mcp_actions::registry::{ToolMeta, ToolRegistry};
 /// use serde_json::json;
 ///
-/// let registry = ActionRegistry::new();
-/// let mut dispatcher = ActionDispatcher::new(registry.clone());
+/// let registry = ToolRegistry::new();
+/// let mut dispatcher = ToolDispatcher::new(registry.clone());
 ///
-/// registry.register_action(ActionMeta {
+/// registry.register_action(ToolMeta {
 ///     name: "echo".into(),
 ///     dcc: "python".into(),
 ///     ..Default::default()
@@ -138,25 +138,25 @@ pub struct DispatchResult {
 /// assert_eq!(result.output, json!({"msg": "hello"}));
 /// ```
 #[derive(Clone)]
-pub struct ActionDispatcher {
-    registry: ActionRegistry,
+pub struct ToolDispatcher {
+    registry: ToolRegistry,
     handlers: Arc<Mutex<HashMap<String, HandlerFn>>>,
     /// Whether to skip validation when the schema is `{}` or `null`.
     pub skip_empty_schema_validation: bool,
 }
 
-impl std::fmt::Debug for ActionDispatcher {
+impl std::fmt::Debug for ToolDispatcher {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ActionDispatcher")
+        f.debug_struct("ToolDispatcher")
             .field("handler_count", &self.handler_count())
             .finish()
     }
 }
 
-impl ActionDispatcher {
+impl ToolDispatcher {
     /// Create a new dispatcher backed by the given registry.
     #[must_use]
-    pub fn new(registry: ActionRegistry) -> Self {
+    pub fn new(registry: ToolRegistry) -> Self {
         Self {
             registry,
             handlers: Arc::new(Mutex::new(HashMap::new())),
@@ -244,7 +244,7 @@ impl ActionDispatcher {
             handler.ok_or_else(|| DispatchError::HandlerNotFound(action_name.to_string()))?;
 
         // 2. Metadata + progressive-exposure gate.
-        let meta_opt: Option<ActionMeta> = self.registry.get_action(action_name, None);
+        let meta_opt: Option<ToolMeta> = self.registry.get_action(action_name, None);
         if let Some(meta) = &meta_opt
             && !meta.enabled
         {
@@ -271,7 +271,7 @@ impl ActionDispatcher {
 
     /// Access the underlying registry.
     #[must_use]
-    pub fn registry(&self) -> &ActionRegistry {
+    pub fn registry(&self) -> &ToolRegistry {
         &self.registry
     }
 }
@@ -314,18 +314,18 @@ pub(crate) fn is_default_schema(schema: &Value) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::registry::ActionMeta;
+    use crate::registry::ToolMeta;
     use serde_json::json;
 
-    fn make_dispatcher_with_action(schema: Value) -> (ActionDispatcher, ActionRegistry) {
-        let reg = ActionRegistry::new();
-        reg.register_action(ActionMeta {
+    fn make_dispatcher_with_action(schema: Value) -> (ToolDispatcher, ToolRegistry) {
+        let reg = ToolRegistry::new();
+        reg.register_action(ToolMeta {
             name: "test_action".into(),
             dcc: "maya".into(),
             input_schema: schema,
             ..Default::default()
         });
-        let dispatcher = ActionDispatcher::new(reg.clone());
+        let dispatcher = ToolDispatcher::new(reg.clone());
         (dispatcher, reg)
     }
 
@@ -333,13 +333,13 @@ mod tests {
 
     #[test]
     fn test_dispatch_echo() {
-        let reg = ActionRegistry::new();
-        reg.register_action(ActionMeta {
+        let reg = ToolRegistry::new();
+        reg.register_action(ToolMeta {
             name: "echo".into(),
             dcc: "python".into(),
             ..Default::default()
         });
-        let dispatcher = ActionDispatcher::new(reg);
+        let dispatcher = ToolDispatcher::new(reg);
         dispatcher.register_handler("echo", Ok);
 
         let result = dispatcher
@@ -381,8 +381,8 @@ mod tests {
 
     #[test]
     fn test_dispatch_no_metadata_skips_validation() {
-        let reg = ActionRegistry::new();
-        let dispatcher = ActionDispatcher::new(reg);
+        let reg = ToolRegistry::new();
+        let dispatcher = ToolDispatcher::new(reg);
         dispatcher.register_handler("orphan", |_| Ok(json!("no meta needed")));
 
         let result = dispatcher.dispatch("orphan", json!(null)).unwrap();
@@ -393,8 +393,8 @@ mod tests {
 
     #[test]
     fn test_dispatch_handler_not_found() {
-        let reg = ActionRegistry::new();
-        let dispatcher = ActionDispatcher::new(reg);
+        let reg = ToolRegistry::new();
+        let dispatcher = ToolDispatcher::new(reg);
 
         let err = dispatcher.dispatch("missing", json!({})).unwrap_err();
         assert!(matches!(err, DispatchError::HandlerNotFound(_)));
@@ -430,8 +430,8 @@ mod tests {
 
     #[test]
     fn test_dispatch_handler_error() {
-        let reg = ActionRegistry::new();
-        let dispatcher = ActionDispatcher::new(reg);
+        let reg = ToolRegistry::new();
+        let dispatcher = ToolDispatcher::new(reg);
         dispatcher.register_handler("failing", |_| Err("something went wrong".into()));
 
         let err = dispatcher.dispatch("failing", json!({})).unwrap_err();
@@ -443,8 +443,8 @@ mod tests {
 
     #[test]
     fn test_has_handler() {
-        let reg = ActionRegistry::new();
-        let dispatcher = ActionDispatcher::new(reg);
+        let reg = ToolRegistry::new();
+        let dispatcher = ToolDispatcher::new(reg);
         assert!(!dispatcher.has_handler("my_action"));
         dispatcher.register_handler("my_action", |_| Ok(json!(null)));
         assert!(dispatcher.has_handler("my_action"));
@@ -452,8 +452,8 @@ mod tests {
 
     #[test]
     fn test_handler_count() {
-        let reg = ActionRegistry::new();
-        let dispatcher = ActionDispatcher::new(reg);
+        let reg = ToolRegistry::new();
+        let dispatcher = ToolDispatcher::new(reg);
         assert_eq!(dispatcher.handler_count(), 0);
         dispatcher.register_handler("a", |_| Ok(json!(null)));
         dispatcher.register_handler("b", |_| Ok(json!(null)));
@@ -462,8 +462,8 @@ mod tests {
 
     #[test]
     fn test_handler_names_sorted() {
-        let reg = ActionRegistry::new();
-        let dispatcher = ActionDispatcher::new(reg);
+        let reg = ToolRegistry::new();
+        let dispatcher = ToolDispatcher::new(reg);
         dispatcher.register_handler("zz", |_| Ok(json!(null)));
         dispatcher.register_handler("aa", |_| Ok(json!(null)));
         dispatcher.register_handler("mm", |_| Ok(json!(null)));
@@ -474,8 +474,8 @@ mod tests {
 
     #[test]
     fn test_remove_handler() {
-        let reg = ActionRegistry::new();
-        let dispatcher = ActionDispatcher::new(reg);
+        let reg = ToolRegistry::new();
+        let dispatcher = ToolDispatcher::new(reg);
         dispatcher.register_handler("to_remove", |_| Ok(json!(null)));
         assert!(dispatcher.has_handler("to_remove"));
         assert!(dispatcher.remove_handler("to_remove"));
@@ -485,8 +485,8 @@ mod tests {
 
     #[test]
     fn test_replace_handler() {
-        let reg = ActionRegistry::new();
-        let dispatcher = ActionDispatcher::new(reg);
+        let reg = ToolRegistry::new();
+        let dispatcher = ToolDispatcher::new(reg);
         dispatcher.register_handler("action", |_| Ok(json!("v1")));
         dispatcher.register_handler("action", |_| Ok(json!("v2")));
 
@@ -496,8 +496,8 @@ mod tests {
 
     #[test]
     fn test_register_handlers_batch() {
-        let reg = ActionRegistry::new();
-        let dispatcher = ActionDispatcher::new(reg);
+        let reg = ToolRegistry::new();
+        let dispatcher = ToolDispatcher::new(reg);
         dispatcher.register_handlers([
             ("a", (|_: Value| Ok(json!(1))) as fn(Value) -> _),
             ("b", |_| Ok(json!(2))),
@@ -512,8 +512,8 @@ mod tests {
 
     #[test]
     fn test_dispatcher_clone_shares_handlers() {
-        let reg = ActionRegistry::new();
-        let d1 = ActionDispatcher::new(reg);
+        let reg = ToolRegistry::new();
+        let d1 = ToolDispatcher::new(reg);
         d1.register_handler("shared", |_| Ok(json!("ok")));
         let d2 = d1.clone();
         // Both share the same Arc<Mutex<...>> handler map
@@ -522,10 +522,10 @@ mod tests {
 
     #[test]
     fn test_dispatcher_debug() {
-        let reg = ActionRegistry::new();
-        let dispatcher = ActionDispatcher::new(reg);
+        let reg = ToolRegistry::new();
+        let dispatcher = ToolDispatcher::new(reg);
         let s = format!("{dispatcher:?}");
-        assert!(s.contains("ActionDispatcher"));
+        assert!(s.contains("ToolDispatcher"));
     }
 
     // ── dispatch_error display ────────────────────────────────────────────────

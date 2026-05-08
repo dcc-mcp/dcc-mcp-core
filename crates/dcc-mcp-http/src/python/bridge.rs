@@ -273,7 +273,7 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
 /// This is the recommended entry-point for the **Skills-First** workflow.
 /// It automatically:
 ///
-/// 1. Creates an `ActionRegistry` and `ActionDispatcher`.
+/// 1. Creates an `ToolRegistry` and `ToolDispatcher`.
 /// 2. Creates a `SkillCatalog` wired to the dispatcher.
 /// 3. Discovers skills from **both** env vars (per-app + global):
 ///    - ``DCC_MCP_{APP}_SKILL_PATHS`` — e.g. ``DCC_MCP_MAYA_SKILL_PATHS``
@@ -336,8 +336,8 @@ pub fn py_create_skill_server(
 
     let runtime = super::build_python_runtime()?;
 
-    let reg = Arc::new(ActionRegistry::new());
-    let dispatcher = Arc::new(ActionDispatcher::new((*reg).clone()));
+    let reg = Arc::new(ToolRegistry::new());
+    let dispatcher = Arc::new(ToolDispatcher::new((*reg).clone()));
     let catalog = Arc::new(SkillCatalog::new_with_dispatcher(
         reg.clone(),
         dispatcher.clone(),

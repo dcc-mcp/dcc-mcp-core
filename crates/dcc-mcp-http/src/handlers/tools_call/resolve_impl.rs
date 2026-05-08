@@ -1,13 +1,13 @@
 use super::*;
 
-use dcc_mcp_actions::ActionMeta;
+use dcc_mcp_actions::ToolMeta;
 
 pub(super) struct ResolvedToolCall {
     pub params: CallToolParams,
     pub tool_name: String,
     pub resolved_name: String,
     pub call_params: Value,
-    pub action_meta: ActionMeta,
+    pub action_meta: ToolMeta,
 }
 
 pub(super) enum ToolCallResolution {
@@ -180,7 +180,7 @@ fn resolve_action_name(state: &AppState, tool_name: &str) -> String {
             .find(|m| extract_bare_tool_name(skill_part, &m.name) == bare_tool);
         if let Some(m) = matched {
             if state.bare_tool_names {
-                crate::gateway::namespace::warn_legacy_prefixed_once(tool_name);
+                dcc_mcp_gateway::namespace::warn_legacy_prefixed_once(tool_name);
             }
             return m.name;
         }
@@ -430,7 +430,7 @@ fn capability_gate(
     state: &AppState,
     req: &JsonRpcRequest,
     resolved_name: &str,
-    action_meta: &ActionMeta,
+    action_meta: &ToolMeta,
 ) -> Option<JsonRpcResponse> {
     let missing = missing_capabilities(
         &action_meta.required_capabilities,
@@ -447,7 +447,7 @@ fn capability_gate(
     );
     Some(JsonRpcResponse::error_with_data(
         req.id.clone(),
-        crate::protocol::error_codes::CAPABILITY_MISSING,
+        dcc_mcp_jsonrpc::error_codes::CAPABILITY_MISSING,
         msg,
         Some(serde_json::json!({
             "tool": resolved_name,

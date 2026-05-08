@@ -59,7 +59,7 @@ accepted for forward compatibility but `GET /metrics` returns 404.
 | `dcc_mcp_job_wait_seconds` | histogram | `tool` | Delay between job creation and first execution. |
 | `dcc_mcp_notifications_sent_total` | counter | `channel` (`sse`, `ws`) | MCP notifications pushed to clients (issue #326). |
 | `dcc_mcp_active_sessions` | gauge | — | Live MCP Streamable HTTP sessions. |
-| `dcc_mcp_registered_tools` | gauge | — | Tools currently registered in `ActionRegistry`. |
+| `dcc_mcp_registered_tools` | gauge | — | Tools currently registered in `ToolRegistry`. |
 | `dcc_mcp_build_info` | gauge | `version`, `crate` | Always `1`; labels identify the running binary. |
 
 Histograms use a log-ish ladder of buckets appropriate for DCC tool

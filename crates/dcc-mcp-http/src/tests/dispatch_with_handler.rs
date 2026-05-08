@@ -1,12 +1,12 @@
 use super::*;
 
-// ── Real ActionDispatcher dispatch tests ──────────────────────────────
+// ── Real ToolDispatcher dispatch tests ──────────────────────────────
 
 /// Helper: build an AppState with a dispatcher that has a real handler registered.
 pub fn make_app_state_with_handler() -> AppState {
     let registry = Arc::new(make_registry());
     let catalog = Arc::new(SkillCatalog::new(registry.clone()));
-    let dispatcher = Arc::new(ActionDispatcher::new((*registry).clone()));
+    let dispatcher = Arc::new(ToolDispatcher::new((*registry).clone()));
     // Register a real handler for get_scene_info
     dispatcher.register_handler("get_scene_info", |_params| {
         Ok(serde_json::json!({"scene": "test_scene", "objects": 3}))
@@ -61,7 +61,7 @@ fn make_router_with_handler_output(output: Value) -> axum::Router {
 
     let registry = Arc::new(make_registry());
     let catalog = Arc::new(SkillCatalog::new(registry.clone()));
-    let dispatcher = Arc::new(ActionDispatcher::new((*registry).clone()));
+    let dispatcher = Arc::new(ToolDispatcher::new((*registry).clone()));
     dispatcher.register_handler("get_scene_info", move |_params| Ok(output.clone()));
     let state = AppState {
         registry,
@@ -233,7 +233,7 @@ pub async fn test_tools_call_no_handler() {
 pub async fn test_tools_call_handler_error() {
     let registry = Arc::new(make_registry());
     let catalog = Arc::new(SkillCatalog::new(registry.clone()));
-    let dispatcher = Arc::new(ActionDispatcher::new((*registry).clone()));
+    let dispatcher = Arc::new(ToolDispatcher::new((*registry).clone()));
     // Register a handler that always fails
     dispatcher.register_handler("get_scene_info", |_params| {
         Err("simulated DCC error: scene not available".to_string())

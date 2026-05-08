@@ -8,7 +8,7 @@ use parking_lot::RwLock;
 use serde_json::{Value, json};
 
 use super::types::{ProducerContent, ResourceError, ResourceProducer, ResourceResult};
-use crate::protocol::McpResource;
+use dcc_mcp_jsonrpc::McpResource;
 
 pub(crate) struct SceneProducer {
     pub(crate) snapshot: Arc<RwLock<Option<Value>>>,

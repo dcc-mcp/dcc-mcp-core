@@ -27,7 +27,7 @@ use serde_json::json;
 
 use super::state::AppState;
 use crate::error::HttpError;
-use crate::protocol::{JsonRpcRequest, JsonRpcResponse};
+use dcc_mcp_jsonrpc::{JsonRpcRequest, JsonRpcResponse};
 
 /// Boxed future returned by [`MethodHandler::handle`].
 pub type HandlerFuture<'a> =

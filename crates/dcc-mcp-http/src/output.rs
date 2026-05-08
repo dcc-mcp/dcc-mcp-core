@@ -38,8 +38,8 @@ use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 
-use crate::protocol::McpResource;
 use crate::resources::{ProducerContent, ResourceError, ResourceProducer, ResourceResult};
+use dcc_mcp_jsonrpc::McpResource;
 
 // ── OutputEntry ────────────────────────────────────────────────────────────────
 

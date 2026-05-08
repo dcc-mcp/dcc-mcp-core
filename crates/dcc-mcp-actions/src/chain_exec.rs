@@ -8,7 +8,7 @@ use super::interpolate_impl::{interpolate, merge_into_context};
 use super::types::{
     ChainResult, ChainStep, ChainStepResult, ErrorAction, ErrorHandlerFn, StepParams,
 };
-use crate::dispatcher::{ActionDispatcher, DispatchError};
+use crate::dispatcher::{DispatchError, ToolDispatcher};
 
 // ── ActionChain ───────────────────────────────────────────────────────────────
 
@@ -128,7 +128,7 @@ impl ActionChain {
     /// [`ChainResult::success`].
     pub fn run(
         self,
-        dispatcher: &ActionDispatcher,
+        dispatcher: &ToolDispatcher,
         initial_context: Value,
     ) -> Result<ChainResult, String> {
         if self.steps.is_empty() {

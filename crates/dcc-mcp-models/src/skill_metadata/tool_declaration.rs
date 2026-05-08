@@ -120,7 +120,7 @@ impl ToolAnnotations {
 
 /// Declaration of a tool provided by a skill, parsed from SKILL.md frontmatter.
 ///
-/// Unlike `ActionMeta`, this is a lightweight declaration that can be discovered
+/// Unlike `ToolMeta`, this is a lightweight declaration that can be discovered
 /// without loading the skill's scripts. It carries enough information for agents
 /// to decide whether to load a skill.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]

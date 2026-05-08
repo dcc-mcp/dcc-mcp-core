@@ -7,13 +7,13 @@ use pyo3::prelude::*;
 use pyo3_stub_gen_derive::gen_stub_pymethods;
 
 use crate::catalog::{SkillCatalog, SkillSummary, helpers};
-use dcc_mcp_actions::registry::ActionRegistry;
+use dcc_mcp_actions::registry::ToolRegistry;
 
 #[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
 impl SkillCatalog {
     #[new]
-    fn py_new(registry: ActionRegistry) -> Self {
+    fn py_new(registry: ToolRegistry) -> Self {
         Self::new(Arc::new(registry))
     }
 

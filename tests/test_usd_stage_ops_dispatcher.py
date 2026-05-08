@@ -284,7 +284,7 @@ class TestUsdStageMetricsWithOps:
 # ---------------------------------------------------------------------------
 
 
-class TestActionDispatcherRemoveHandler:
+class TestToolDispatcherRemoveHandler:
     """remove_handler: returns True when removed, False when not found."""
 
     def _make_dispatcher(self):
@@ -327,7 +327,7 @@ class TestActionDispatcherRemoveHandler:
         assert d.has_handler("action_a") is False
 
 
-class TestActionDispatcherHasHandler:
+class TestToolDispatcherHasHandler:
     """has_handler: True if registered, False otherwise."""
 
     def _make_dispatcher(self):
@@ -349,7 +349,7 @@ class TestActionDispatcherHasHandler:
         assert d.has_handler("completely_unknown") is False
 
 
-class TestActionDispatcherHandlerNames:
+class TestToolDispatcherHandlerNames:
     """handler_names: sorted list of registered handler names."""
 
     def test_handler_names_empty(self):
@@ -402,7 +402,7 @@ class TestActionDispatcherHandlerNames:
         assert d.handler_count() == len(d.handler_names())
 
 
-class TestActionDispatcherSkipEmptySchema:
+class TestToolDispatcherSkipEmptySchema:
     """skip_empty_schema_validation property."""
 
     def test_default_is_true(self):
@@ -432,7 +432,7 @@ class TestActionDispatcherSkipEmptySchema:
             assert d.skip_empty_schema_validation is expected
 
 
-class TestActionDispatcherDispatchVariants:
+class TestToolDispatcherDispatchVariants:
     """dispatch: various validation/handler scenarios."""
 
     def _make(self, schema: str = ""):

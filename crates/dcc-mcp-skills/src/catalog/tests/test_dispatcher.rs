@@ -52,7 +52,7 @@ fn test_load_skill_with_tool_decl_and_source_file() {
     assert_eq!(actions.len(), 1);
     assert_eq!(actions[0], "explicit_skill__do_thing");
     assert!(dispatcher.has_handler("explicit_skill__do_thing"));
-    // Verify source_file propagated to ActionMeta
+    // Verify source_file propagated to ToolMeta
     let meta = dispatcher
         .registry()
         .get_action("explicit_skill__do_thing", None)

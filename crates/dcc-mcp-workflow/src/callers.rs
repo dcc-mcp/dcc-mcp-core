@@ -5,7 +5,7 @@
 //! [`RemoteCaller`] (for `tool_remote` steps) traits. Production wiring is
 //! provided by the server:
 //!
-//! - `dcc-mcp-actions` adapter → [`ActionDispatcherCaller`]
+//! - `dcc-mcp-actions` adapter → [`ToolDispatcherCaller`]
 //! - `dcc-mcp-http` gateway passthrough → an http-crate-side impl
 //!
 //! Each caller returns the raw tool output as JSON. The executor extracts
@@ -15,7 +15,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use dcc_mcp_actions::dispatcher::ActionDispatcher;
+use dcc_mcp_actions::dispatcher::ToolDispatcher;
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
@@ -59,7 +59,7 @@ pub type SharedRemoteCaller = Arc<dyn RemoteCaller>;
 
 // ── Dispatcher adapter ───────────────────────────────────────────────────
 
-/// Bridge a synchronous [`ActionDispatcher`] into the async [`ToolCaller`]
+/// Bridge a synchronous [`ToolDispatcher`] into the async [`ToolCaller`]
 /// trait.
 ///
 /// Dispatches are offloaded via [`tokio::task::spawn_blocking`] so they do
@@ -68,18 +68,18 @@ pub type SharedRemoteCaller = Arc<dyn RemoteCaller>;
 /// mid-call — cooperative checkpoints inside the handler (issue #329) are
 /// the right mechanism for fine-grained cancel inside long tools.
 #[derive(Clone)]
-pub struct ActionDispatcherCaller {
-    dispatcher: ActionDispatcher,
+pub struct ToolDispatcherCaller {
+    dispatcher: ToolDispatcher,
 }
 
-impl ActionDispatcherCaller {
+impl ToolDispatcherCaller {
     /// Wrap a dispatcher.
-    pub fn new(dispatcher: ActionDispatcher) -> Self {
+    pub fn new(dispatcher: ToolDispatcher) -> Self {
         Self { dispatcher }
     }
 }
 
-impl ToolCaller for ActionDispatcherCaller {
+impl ToolCaller for ToolDispatcherCaller {
     fn call<'a>(
         &'a self,
         tool_name: &'a str,

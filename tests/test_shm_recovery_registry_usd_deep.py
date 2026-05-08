@@ -356,7 +356,7 @@ class TestPyCrashRecoveryPolicyExponentialBackoff:
 # ─── ToolRegistry Thread Safety ────────────────────────────────────────────
 
 
-class TestActionRegistryThreadSafety:
+class TestToolRegistryThreadSafety:
     def test_concurrent_register_50_threads(self):
         reg = dcc_mcp_core.ToolRegistry()
         errors = []

@@ -54,7 +54,7 @@ pub(crate) fn spawn_resource_update_forwarder(
                 "method": "notifications/resources/updated",
                 "params": { "uri": uri }
             });
-            let event = crate::protocol::format_sse_event(&notification, None);
+            let event = dcc_mcp_jsonrpc::format_sse_event(&notification, None);
             for session_id in resources_bg.sessions_subscribed_to(&uri) {
                 sessions_bg.push_event(&session_id, event.clone());
             }
@@ -65,10 +65,10 @@ pub(crate) fn spawn_resource_update_forwarder(
 #[cfg(feature = "prometheus")]
 pub(crate) fn prometheus_gauge_context(
     config: &crate::config::McpHttpConfig,
-    registry: Arc<dcc_mcp_actions::ActionRegistry>,
+    registry: Arc<dcc_mcp_actions::ToolRegistry>,
     sessions: crate::session::SessionManager,
 ) -> Option<(
-    Arc<dcc_mcp_actions::ActionRegistry>,
+    Arc<dcc_mcp_actions::ToolRegistry>,
     crate::session::SessionManager,
 )> {
     if config.enable_prometheus() {
@@ -81,7 +81,7 @@ pub(crate) fn prometheus_gauge_context(
 #[cfg(feature = "prometheus")]
 pub(crate) fn build_prometheus_exporter(
     config: &crate::config::McpHttpConfig,
-    registry: &dcc_mcp_actions::ActionRegistry,
+    registry: &dcc_mcp_actions::ToolRegistry,
 ) -> Option<dcc_mcp_telemetry::PrometheusExporter> {
     if !config.enable_prometheus() {
         return None;
@@ -98,7 +98,7 @@ pub(crate) fn attach_metrics_route(
     exporter: &Option<dcc_mcp_telemetry::PrometheusExporter>,
     config: &crate::config::McpHttpConfig,
     gauge_ctx: Option<(
-        Arc<dcc_mcp_actions::ActionRegistry>,
+        Arc<dcc_mcp_actions::ToolRegistry>,
         crate::session::SessionManager,
     )>,
 ) -> axum::Router {

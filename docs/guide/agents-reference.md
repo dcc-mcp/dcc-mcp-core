@@ -38,7 +38,7 @@ result = dispatcher.dispatch("name", json_str)   # returns dict
 # with {job_id, status: "pending"}:
 #   1. Request carries _meta.dcc.async = true
 #   2. Request carries _meta.progressToken
-#   3. Tool's ActionMeta declares execution: async or timeout_hint_secs > 0
+#   3. Tool's ToolMeta declares execution: async or timeout_hint_secs > 0
 # Otherwise dispatch is synchronous (byte-identical to pre-#318 behaviour).
 body = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
     "name": "render_frames",
@@ -454,7 +454,7 @@ json_str = result.to_json()    # JSON string
 - Don't hardcode API keys, tokens, or passwords — use environment variables
 - Don't use `docs/` prefix in branch names — causes `refs/heads/docs/...` conflicts
 - Don't hard-code the legacy `<skill>.<action>` prefixed form in `tools/call` — bare names are the default since v0.14.2 (#307)
-- Don't reference `ActionMeta.enabled` in Python — use `ToolRegistry.set_tool_enabled()` instead
+- Don't reference `ToolMeta.enabled` in Python — use `ToolRegistry.set_tool_enabled()` instead
 - Don't use `json.dumps()` on `ToolResult` — use `result.to_json()` or `serialize_result()`
 - Don't guess tool names — use `search_skills(query)` to discover the right tool.
 - **Don't add a generic `utils` / `common` / `helpers` crate** — every helper has a natural owner (a domain crate, `dcc-mcp-paths`, `dcc-mcp-logging`, or `dcc-mcp-pybridge`). See the Workspace Boundary Rationale section.
@@ -1134,7 +1134,7 @@ Crate: `dcc-mcp-http`, module `handler::router`.
 use std::sync::Arc;
 use dcc_mcp_http::handler::{MethodRouter, MethodHandler, HandlerFuture};
 use dcc_mcp_http::handler::state::AppState;
-use dcc_mcp_http::protocol::{JsonRpcRequest, JsonRpcResponse};
+use dcc_mcp_jsonrpc::{JsonRpcRequest, JsonRpcResponse};
 use dcc_mcp_http::error::HttpError;
 
 struct PingHandler;
@@ -1166,7 +1166,7 @@ add another arm to the dispatcher. Closures that match the
 
 Crate: `dcc-mcp-models`, module `registry`.
 
-`ActionRegistry`, `SkillCatalog`, and `WorkflowCatalog` all `impl Registry<V>`
+`ToolRegistry`, `SkillCatalog`, and `WorkflowCatalog` all `impl Registry<V>`
 over their existing storage (per-DCC `DashMap`, file-hash `DashMap`, ordered
 `RwLock<Vec>`). New registries that need only the contract — not specialised
 indexes — can use `DefaultRegistry<V>` directly.
@@ -1181,7 +1181,7 @@ lockstep.
 Crate: `dcc-mcp-actions`, module `validation_strategy`.
 
 Built-ins: `NoOpValidator` (no metadata / empty schema) and
-`SchemaValidator<'_>` (borrowed-meta JSON Schema check). `ActionDispatcher::dispatch`
+`SchemaValidator<'_>` (borrowed-meta JSON Schema check). `ToolDispatcher::dispatch`
 calls `select_strategy(meta, skip_empty_schema_validation)` to pick one per call;
 adding a new flavour (cached compiled schemas, sandbox precheck, contract-test
 mode) means a new `impl ValidationStrategy` and one extra arm in
@@ -1208,14 +1208,14 @@ takes exactly three edits, none of them in caller code:
 
 ### `NotificationBuilder` + `JsonRpcRequestBuilder` — JSON-RPC envelope construction (#484)
 
-Crate: `dcc-mcp-http`, module `protocol::notification_builder`.
+Crate: `dcc-mcp-jsonrpc`, module `notification_builder`.
 
 Six call sites previously hand-rolled
 `json!({"jsonrpc":"2.0","method":..,"params":..})`. The builders are now the
 single source of truth for that wire shape:
 
 ```rust
-use dcc_mcp_http::protocol::NotificationBuilder;
+use dcc_mcp_jsonrpc::NotificationBuilder;
 
 let sse_frame = NotificationBuilder::new("notifications/tools/list_changed")
     .with_params(serde_json::json!({}))
@@ -1239,7 +1239,7 @@ callers. Aliases live in `DccName::parse(...)` itself: `"3dsmax"`, `"max"`,
 and `"threedsmax"` all map to `DccName::ThreedsMax`; `"c4d"` and `"cinema4d"`
 to `DccName::Cinema4d`; `"photoshop"` and `"ps"` to `DccName::Photoshop`.
 Use the type at every new Rust API boundary that previously would have taken
-`&str`; existing call sites such as `ActionRegistry::list_actions_for_dcc(&str)`
+`&str`; existing call sites such as `ToolRegistry::list_actions_for_dcc(&str)`
 remain `&str` for backward compat and can be migrated lazily.
 
 ### `DccMcpError` — unified workspace error (#488)

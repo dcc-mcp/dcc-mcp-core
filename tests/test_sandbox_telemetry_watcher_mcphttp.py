@@ -590,7 +590,7 @@ class TestTelemetryConfigBuilder:
 # ===========================================================================
 
 
-class TestActionRecorderMetrics:
+class TestToolRecorderMetrics:
     """Tests for ToolRecorder lifecycle and ToolMetrics fields."""
 
     def _recorder(self) -> ToolRecorder:

@@ -5,7 +5,7 @@ Covers:
 - Absence of `execution` defaults to "sync"
 - SKILL.md with `deferred: true` at the user level is rejected
 - Unknown `execution` values are rejected
-- ActionRegistry.register accepts `execution` / `timeout_hint_secs`
+- ToolRegistry.register accepts `execution` / `timeout_hint_secs`
 - Backward compat: pre-change SKILL.md files still load
 """
 

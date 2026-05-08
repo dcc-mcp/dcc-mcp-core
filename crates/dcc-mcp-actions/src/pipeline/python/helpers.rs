@@ -3,7 +3,7 @@
 //! - [`value_to_py`] — recursive conversion from [`serde_json::Value`] to a
 //!   Python object.
 //! - [`PyCallableHook`] — struct carrying optional `before_fn` / `after_fn`
-//!   Python callables attached via `PyActionPipeline::add_callable()`.
+//!   Python callables attached via `PyToolPipeline::add_callable()`.
 
 use pyo3::Py;
 use pyo3::prelude::*;
@@ -43,7 +43,7 @@ pub(super) fn value_to_py(py: Python<'_>, value: &Value) -> PyResult<Py<PyAny>> 
 /// Python callable pair that acts as middleware.
 ///
 /// Unlike the Rust `ActionMiddleware` trait, these are called directly from
-/// `PyActionPipeline::dispatch()` because they need the GIL, which is already
+/// `PyToolPipeline::dispatch()` because they need the GIL, which is already
 /// held inside `#[pymethods]`.
 pub(super) struct PyCallableHook {
     pub(super) before_fn: Option<Py<PyAny>>,

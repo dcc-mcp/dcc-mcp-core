@@ -94,7 +94,7 @@ fn request_id_string(req: &JsonRpcRequest) -> Option<String> {
     req.id.as_ref().map(|id| match id {
         Value::String(s) => s.clone(),
         Value::Number(n) => n.to_string(),
-        other => serde_json::to_string(other).unwrap_or_default(),
+        other => serde_json::to_string(&other).unwrap_or_default(),
     })
 }
 
@@ -414,7 +414,7 @@ fn error_result(
             "NO_HANDLER",
             format!("Tool '{tool_name}' is registered but has no handler."),
         )
-        .with_hint("Register a handler via ActionDispatcher.register_handler().")
+        .with_hint("Register a handler via ToolDispatcher.register_handler().")
     } else {
         DccMcpError::new("instance", "EXECUTION_FAILED", err_msg)
     };

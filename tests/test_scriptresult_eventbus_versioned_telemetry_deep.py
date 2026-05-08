@@ -578,7 +578,7 @@ class TestTelemetryConfigCreate:
 # ---------------------------------------------------------------------------
 
 
-class TestActionRecorderBasic:
+class TestToolRecorderBasic:
     """ToolRecorder basic guard usage."""
 
     def test_start_returns_guard(self) -> None:
@@ -651,7 +651,7 @@ class TestActionRecorderBasic:
         assert len(all_m) == 3
 
 
-class TestActionMetrics:
+class TestToolMetrics:
     """ToolMetrics field types and values."""
 
     def test_action_name_str(self) -> None:

@@ -27,13 +27,13 @@ use axum::{
 use serde_json::{Value, json};
 use tokio::sync::{RwLock, broadcast, watch};
 
-use dcc_mcp_http::gateway::aggregator::{aggregate_tools_list, route_tools_call};
-use dcc_mcp_http::gateway::capability::{CapabilityIndex, RefreshReason, SearchQuery, parse_slug};
-use dcc_mcp_http::gateway::capability_service::{
+use dcc_mcp_gateway::aggregator::{aggregate_tools_list, route_tools_call};
+use dcc_mcp_gateway::capability::{CapabilityIndex, RefreshReason, SearchQuery, parse_slug};
+use dcc_mcp_gateway::capability_service::{
     call_service, describe_service, parse_search_payload, refresh_all_live_backends, search_service,
 };
-use dcc_mcp_http::gateway::sse_subscriber::SubscriberManager;
-use dcc_mcp_http::gateway::state::GatewayState;
+use dcc_mcp_gateway::sse_subscriber::SubscriberManager;
+use dcc_mcp_gateway::state::GatewayState;
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
 use dcc_mcp_transport::discovery::types::ServiceEntry;
 
@@ -64,14 +64,12 @@ fn make_state(registry: Arc<RwLock<FileRegistry>>) -> GatewayState {
         adapter_dcc: None,
         cursor_safe_tool_names: true,
         capability_index: Arc::new(CapabilityIndex::new()),
-        event_log: std::sync::Arc::new(dcc_mcp_http::gateway::event_log::EventLog::new()),
+        event_log: std::sync::Arc::new(dcc_mcp_gateway::event_log::EventLog::new()),
         middleware_chain: std::sync::Arc::new(
             dcc_mcp_gateway::gateway::middleware::MiddlewareChain::new(),
         ),
         #[cfg(feature = "prometheus")]
-        gateway_metrics: std::sync::Arc::new(
-            dcc_mcp_http::gateway::event_log::GatewayMetrics::new(),
-        ),
+        gateway_metrics: std::sync::Arc::new(dcc_mcp_gateway::event_log::GatewayMetrics::new()),
     }
 }
 
@@ -528,7 +526,7 @@ async fn slim_mode_blocks_direct_backend_tool_but_call_tool_still_works() {
     let entry = register_backend(&registry, "maya", port).await;
     refresh_all_live_backends(&state, RefreshReason::InstanceJoined).await;
 
-    let encoded = dcc_mcp_http::gateway::namespace::encode_tool_name_cursor_safe(
+    let encoded = dcc_mcp_gateway::namespace::encode_tool_name_cursor_safe(
         &entry.instance_id,
         "direct_probe",
     );

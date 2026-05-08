@@ -7,14 +7,14 @@ use super::*;
 
 #[test]
 fn register_batch_empty_slice_is_noop() {
-    let reg = ActionRegistry::new();
-    reg.register_batch(std::iter::empty::<ActionMeta>());
+    let reg = ToolRegistry::new();
+    reg.register_batch(std::iter::empty::<ToolMeta>());
     assert_eq!(reg.len(), 0);
 }
 
 #[test]
 fn register_batch_inserts_all_actions() {
-    let reg = ActionRegistry::new();
+    let reg = ToolRegistry::new();
     let actions = vec![
         make_action("action_a", "maya"),
         make_action("action_b", "maya"),
@@ -29,7 +29,7 @@ fn register_batch_inserts_all_actions() {
 
 #[test]
 fn register_batch_respects_dcc_scope() {
-    let reg = ActionRegistry::new();
+    let reg = ToolRegistry::new();
     reg.register_batch([
         make_action("op1", "maya"),
         make_action("op2", "blender"),
@@ -41,14 +41,14 @@ fn register_batch_respects_dcc_scope() {
 
 #[test]
 fn register_batch_overwrites_existing() {
-    let reg = ActionRegistry::new();
-    reg.register_action(ActionMeta {
+    let reg = ToolRegistry::new();
+    reg.register_action(ToolMeta {
         name: "duplicate".into(),
         description: "original".into(),
         dcc: "maya".into(),
         ..Default::default()
     });
-    reg.register_batch([ActionMeta {
+    reg.register_batch([ToolMeta {
         name: "duplicate".into(),
         description: "replaced".into(),
         dcc: "maya".into(),
@@ -64,20 +64,20 @@ fn register_batch_overwrites_existing() {
 
 #[test]
 fn unregister_returns_true_when_found() {
-    let reg = ActionRegistry::new();
+    let reg = ToolRegistry::new();
     reg.register_action(make_action("to_remove", "maya"));
     assert!(reg.unregister("to_remove", None));
 }
 
 #[test]
 fn unregister_returns_false_when_not_found() {
-    let reg = ActionRegistry::new();
+    let reg = ToolRegistry::new();
     assert!(!reg.unregister("nonexistent", None));
 }
 
 #[test]
 fn unregister_global_removes_from_all_dcc_maps() {
-    let reg = ActionRegistry::new();
+    let reg = ToolRegistry::new();
     reg.register_action(make_action("shared", "maya"));
     reg.register_action(make_action("shared", "blender"));
     // Global unregister — removes from both DCC maps.
@@ -89,7 +89,7 @@ fn unregister_global_removes_from_all_dcc_maps() {
 
 #[test]
 fn unregister_scoped_removes_only_target_dcc() {
-    let reg = ActionRegistry::new();
+    let reg = ToolRegistry::new();
     reg.register_action(make_action("op", "maya"));
     reg.register_action(make_action("op", "blender"));
     // Remove only from maya.
@@ -103,7 +103,7 @@ fn unregister_scoped_removes_only_target_dcc() {
 
 #[test]
 fn unregister_scoped_removes_global_when_last_dcc() {
-    let reg = ActionRegistry::new();
+    let reg = ToolRegistry::new();
     reg.register_action(make_action("only_maya", "maya"));
     // Only registered in one DCC — removing it should clear global too.
     assert!(reg.unregister("only_maya", Some("maya")));
@@ -113,7 +113,7 @@ fn unregister_scoped_removes_global_when_last_dcc() {
 
 #[test]
 fn unregister_scoped_nonexistent_dcc_returns_false() {
-    let reg = ActionRegistry::new();
+    let reg = ToolRegistry::new();
     reg.register_action(make_action("op", "maya"));
     assert!(!reg.unregister("op", Some("blender")));
     // Original still present.
@@ -122,7 +122,7 @@ fn unregister_scoped_nonexistent_dcc_returns_false() {
 
 #[test]
 fn unregister_idempotent_second_call_returns_false() {
-    let reg = ActionRegistry::new();
+    let reg = ToolRegistry::new();
     reg.register_action(make_action("once", "maya"));
     assert!(reg.unregister("once", None));
     assert!(!reg.unregister("once", None));

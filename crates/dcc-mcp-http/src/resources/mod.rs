@@ -51,7 +51,7 @@ use tokio::sync::broadcast;
 use self::producers::{ArtefactProducer, AuditProducer, CaptureProducer, SceneProducer};
 use self::skill_resources::{SkillResourceProducer, SkillResourceState};
 use self::types::uri_scheme;
-use crate::protocol::{McpResource, ReadResourceResult};
+use dcc_mcp_jsonrpc::{McpResource, ReadResourceResult};
 
 /// Thread-safe registry of resource producers and subscription state.
 ///

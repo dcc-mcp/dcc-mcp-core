@@ -217,7 +217,7 @@ def on_after_execute(event, **kwargs):
 # Subscribe to all "before_execute" events (wildcard)
 id1 = bus.subscribe("action.before_execute.*", on_before_execute)
 
-# Subscribe to a specific action
+# Subscribe to a specific tool
 id2 = bus.subscribe("action.after_execute.create_sphere", on_after_execute)
 
 # Unsubscribe

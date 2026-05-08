@@ -23,7 +23,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use base64::Engine as _;
-use dcc_mcp_actions::ActionRegistry;
+use dcc_mcp_actions::ToolRegistry;
 use dcc_mcp_http::{McpHttpConfig, McpHttpServer, McpServerHandle};
 use serde_json::{Value, json};
 
@@ -55,7 +55,7 @@ async fn spawn_backend_with_scene(
     registry_dir: &std::path::Path,
     initial_scene: Value,
 ) -> (McpServerHandle, dcc_mcp_http::ResourceRegistry) {
-    let action_registry = Arc::new(ActionRegistry::new());
+    let action_registry = Arc::new(ToolRegistry::new());
     let cfg = McpHttpConfig::default()
         .with_port(0)
         .with_name(format!("{dcc_type}-resources-e2e"))
@@ -376,7 +376,7 @@ async fn gateway_resources_read_preserves_blob_bytes_end_to_end() {
     raw.extend_from_slice(b"-trailer");
     let expected_b64 = base64::engine::general_purpose::STANDARD.encode(&raw);
 
-    let action_registry = Arc::new(ActionRegistry::new());
+    let action_registry = Arc::new(ToolRegistry::new());
     let cfg = McpHttpConfig::default()
         .with_port(0)
         .with_name("maya-blob-e2e")
@@ -776,7 +776,7 @@ async fn gateway_resources_list_changed_fires_when_backend_resource_set_changes(
 
     let registry_dir = tempfile::tempdir().unwrap();
     let gw_port = pick_free_port();
-    let action_registry = Arc::new(ActionRegistry::new());
+    let action_registry = Arc::new(ToolRegistry::new());
     let cfg = McpHttpConfig::default()
         .with_port(0)
         .with_name("maya-listchanged-e2e")

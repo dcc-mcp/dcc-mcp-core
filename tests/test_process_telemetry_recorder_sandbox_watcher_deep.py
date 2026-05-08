@@ -324,7 +324,7 @@ class TestTelemetryConfigInit:
 # ===========================================================================
 
 
-class TestActionRecorderConstruction:
+class TestToolRecorderConstruction:
     """ToolRecorder construction and initial state."""
 
     def test_construction_with_scope(self):
@@ -413,7 +413,7 @@ class TestRecordingGuard:
         assert rate == 0.0
 
 
-class TestActionMetricsFields:
+class TestToolMetricsFields:
     """ToolMetrics struct fields."""
 
     def test_action_name_field(self):
@@ -451,7 +451,7 @@ class TestActionMetricsFields:
         assert "act2" in names
 
 
-class TestActionRecorderReset:
+class TestToolRecorderReset:
     """ToolRecorder.reset() clears all accumulated metrics."""
 
     def test_reset_clears_all_metrics(self):

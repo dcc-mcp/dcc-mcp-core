@@ -5,7 +5,7 @@ use super::*;
 // Helper: build an app state that has skills in the catalog
 pub fn make_app_state_with_skills() -> AppState {
     use dcc_mcp_models::ToolDeclaration;
-    let registry = Arc::new(ActionRegistry::new());
+    let registry = Arc::new(ToolRegistry::new());
     let catalog = Arc::new(SkillCatalog::new(registry.clone()));
 
     // Add a skill with search_hint
@@ -46,7 +46,7 @@ pub fn make_app_state_with_skills() -> AppState {
     skill2.tags = vec!["devops".to_string()];
     catalog.add_skill(skill2);
 
-    let dispatcher = Arc::new(ActionDispatcher::new((*registry).clone()));
+    let dispatcher = Arc::new(ToolDispatcher::new((*registry).clone()));
     AppState {
         registry,
         dispatcher,

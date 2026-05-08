@@ -152,7 +152,7 @@ dispatcher = InProcessCallableDispatcher()
 executor = build_inprocess_executor(dispatcher)
 # Pass `executor` to McpHttpServer.set_in_process_executor / DccServerBase.register_inprocess_executor.
 
-# Core calls the executor with metadata from ActionMeta/tools.yaml:
+# Core calls the executor with metadata from ToolMeta/tools.yaml:
 executor(
     "/path/to/script.py",
     {"root": "/show/shot010"},

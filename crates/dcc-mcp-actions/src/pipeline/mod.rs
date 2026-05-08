@@ -1,20 +1,20 @@
 //! Action middleware pipeline — composable pre/post dispatch hooks.
 //!
-//! Provides a lightweight middleware chain that wraps [`ActionDispatcher`],
+//! Provides a lightweight middleware chain that wraps [`ToolDispatcher`],
 //! allowing cross-cutting concerns (logging, timing, rate-limiting, auditing)
 //! to be applied uniformly without modifying individual action handlers.
 //!
 //! # Architecture
 //!
 //! ```text
-//! ActionPipeline
+//! ToolPipeline
 //!   │
 //!   ├── middleware[0]: LoggingMiddleware   (before: log params, after: log result)
 //!   ├── middleware[1]: TimingMiddleware    (before: record start, after: record elapsed)
 //!   ├── middleware[2]: RateLimitMiddleware (before: check rate, after: noop)
 //!   └── middleware[N]: AuditMiddleware    (after: write audit record)
 //!   │
-//!   └── ActionDispatcher (actual handler invocation)
+//!   └── ToolDispatcher (actual handler invocation)
 //! ```
 //!
 //! Middleware runs in registration order for `before_dispatch`, and in
@@ -23,22 +23,22 @@
 //! # Example
 //!
 //! ```rust
-//! use dcc_mcp_actions::pipeline::{ActionPipeline, LoggingMiddleware, TimingMiddleware};
-//! use dcc_mcp_actions::dispatcher::ActionDispatcher;
-//! use dcc_mcp_actions::registry::{ActionMeta, ActionRegistry};
+//! use dcc_mcp_actions::pipeline::{ToolPipeline, LoggingMiddleware, TimingMiddleware};
+//! use dcc_mcp_actions::dispatcher::ToolDispatcher;
+//! use dcc_mcp_actions::registry::{ToolMeta, ToolRegistry};
 //! use serde_json::json;
 //!
-//! let registry = ActionRegistry::new();
-//! registry.register_action(ActionMeta {
+//! let registry = ToolRegistry::new();
+//! registry.register_action(ToolMeta {
 //!     name: "ping".into(),
 //!     dcc: "mock".into(),
 //!     ..Default::default()
 //! });
 //!
-//! let dispatcher = ActionDispatcher::new(registry);
+//! let dispatcher = ToolDispatcher::new(registry);
 //! dispatcher.register_handler("ping", |_| Ok(json!("pong")));
 //!
-//! let mut pipeline = ActionPipeline::new(dispatcher);
+//! let mut pipeline = ToolPipeline::new(dispatcher);
 //! pipeline.add_middleware(LoggingMiddleware::new());
 //! pipeline.add_middleware(TimingMiddleware::new());
 //!
@@ -66,7 +66,7 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use crate::dispatcher::{ActionDispatcher, DispatchError, DispatchResult};
+use crate::dispatcher::{DispatchError, DispatchResult, ToolDispatcher};
 
 // ── MiddlewareContext ─────────────────────────────────────────────────────────
 
@@ -141,21 +141,21 @@ pub trait ActionMiddleware: Send + Sync {
     }
 }
 
-// ── ActionPipeline ────────────────────────────────────────────────────────────
+// ── ToolPipeline ────────────────────────────────────────────────────────────
 
-/// A middleware-wrapped [`ActionDispatcher`].
+/// A middleware-wrapped [`ToolDispatcher`].
 ///
 /// Middleware runs in registration order for `before_dispatch`, and in
 /// reverse order for `after_dispatch`.
-pub struct ActionPipeline {
-    dispatcher: ActionDispatcher,
+pub struct ToolPipeline {
+    dispatcher: ToolDispatcher,
     middlewares: Vec<Arc<dyn ActionMiddleware>>,
 }
 
-impl ActionPipeline {
+impl ToolPipeline {
     /// Create a new pipeline wrapping the given dispatcher (no middleware by default).
     #[must_use]
-    pub fn new(dispatcher: ActionDispatcher) -> Self {
+    pub fn new(dispatcher: ToolDispatcher) -> Self {
         Self {
             dispatcher,
             middlewares: Vec::new(),
@@ -183,7 +183,7 @@ impl ActionPipeline {
     ///
     /// 1. Build a [`MiddlewareContext`] from `action_name` and `params`.
     /// 2. Run each middleware's `before_dispatch` in order; abort on first error.
-    /// 3. Invoke the underlying [`ActionDispatcher`].
+    /// 3. Invoke the underlying [`ToolDispatcher`].
     /// 4. Run each middleware's `after_dispatch` in **reverse** order.
     /// 5. Return the dispatch result.
     pub fn dispatch(
@@ -215,7 +215,7 @@ impl ActionPipeline {
 
     /// Access the underlying dispatcher.
     #[must_use]
-    pub fn dispatcher(&self) -> &ActionDispatcher {
+    pub fn dispatcher(&self) -> &ToolDispatcher {
         &self.dispatcher
     }
 }

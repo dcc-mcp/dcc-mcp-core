@@ -26,7 +26,7 @@ from dcc_mcp_core import shutdown_telemetry
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # ToolRecorder — basic creation
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-class TestActionRecorderCreate:
+class TestToolRecorderCreate:
     """ToolRecorder construction and basic API."""
 
     def test_create_with_scope(self):
@@ -56,7 +56,7 @@ class TestActionRecorderCreate:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # ToolRecorder — manual guard
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-class TestActionRecorderManualGuard:
+class TestToolRecorderManualGuard:
     """Manual start/finish guard pattern."""
 
     def test_single_success_invocation_count(self):
@@ -209,7 +209,7 @@ class TestActionRecorderManualGuard:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # ToolRecorder — context manager
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-class TestActionRecorderContextManager:
+class TestToolRecorderContextManager:
     """Context manager (with recorder.start(...) as guard) pattern."""
 
     def test_context_manager_success_increments(self):
@@ -244,7 +244,7 @@ class TestActionRecorderContextManager:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # ToolRecorder — all_metrics + reset
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-class TestActionRecorderAllMetricsReset:
+class TestToolRecorderAllMetricsReset:
     """all_metrics() list and reset() semantics."""
 
     def test_all_metrics_contains_all_actions(self):

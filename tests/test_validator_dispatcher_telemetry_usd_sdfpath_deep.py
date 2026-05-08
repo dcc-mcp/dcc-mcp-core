@@ -1,9 +1,9 @@
 """Deep coverage tests for ToolValidator, ToolDispatcher, TelemetryConfig, UsdStage/UsdPrim/VtValue, and SdfPath APIs.
 
 Groups:
-- TestActionValidatorSchemaTypes      — JSON schema type validation deep
-- TestActionValidatorFromRegistry     — from_action_registry integration
-- TestActionDispatcherDeep            — handler_names, remove, skip_empty_schema_validation
+- TestToolValidatorSchemaTypes      — JSON schema type validation deep
+- TestToolValidatorFromRegistry     — from_action_registry integration
+- TestToolDispatcherDeep            — handler_names, remove, skip_empty_schema_validation
 - TestTelemetryConfigBuilderChain     — builder methods, exporter types, init
 - TestUsdStageOpsDeep                 — traverse, list_prims, prims_of_type, remove, metrics
 - TestUsdPrimAttributeOps             — get/set attribute, attribute_names, summary, has_api
@@ -58,11 +58,11 @@ _EMPTY_SCHEMA = json.dumps({"type": "object", "properties": {}})
 
 
 # ===========================================================================
-# 1. TestActionValidatorSchemaTypes
+# 1. TestToolValidatorSchemaTypes
 # ===========================================================================
 
 
-class TestActionValidatorSchemaTypes:
+class TestToolValidatorSchemaTypes:
     """Validate every JSON-schema primitive type + error message format."""
 
     class TestHappyPath:
@@ -235,11 +235,11 @@ class TestActionValidatorSchemaTypes:
 
 
 # ===========================================================================
-# 2. TestActionValidatorFromRegistry
+# 2. TestToolValidatorFromRegistry
 # ===========================================================================
 
 
-class TestActionValidatorFromRegistry:
+class TestToolValidatorFromRegistry:
     """Validate ToolValidator.from_action_registry integration."""
 
     class TestHappyPath:
@@ -301,11 +301,11 @@ class TestActionValidatorFromRegistry:
 
 
 # ===========================================================================
-# 3. TestActionDispatcherDeep
+# 3. TestToolDispatcherDeep
 # ===========================================================================
 
 
-class TestActionDispatcherDeep:
+class TestToolDispatcherDeep:
     """Deep coverage of ToolDispatcher methods."""
 
     def _make_dispatcher(self) -> tuple[ToolDispatcher, ToolRegistry]:

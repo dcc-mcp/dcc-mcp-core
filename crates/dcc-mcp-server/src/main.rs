@@ -81,8 +81,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use clap::{Parser, Subcommand};
-use dcc_mcp_actions::{ActionDispatcher, ActionRegistry};
-use dcc_mcp_http::gateway::{GatewayConfig, GatewayRunner};
+use dcc_mcp_actions::{ToolDispatcher, ToolRegistry};
+use dcc_mcp_gateway::{GatewayConfig, GatewayRunner};
 use dcc_mcp_http::{McpHttpConfig, McpHttpServer};
 use dcc_mcp_logging::file_logging::prune_old_logs;
 use dcc_mcp_skills::SkillCatalog;
@@ -672,8 +672,8 @@ async fn main() -> anyhow::Result<()> {
 
     // ── Build registry + catalog ──────────────────────────────────────────
 
-    let action_registry = Arc::new(ActionRegistry::new());
-    let dispatcher = Arc::new(ActionDispatcher::new((*action_registry).clone()));
+    let action_registry = Arc::new(ToolRegistry::new());
+    let dispatcher = Arc::new(ToolDispatcher::new((*action_registry).clone()));
     let catalog = Arc::new(SkillCatalog::new_with_dispatcher(
         action_registry.clone(),
         dispatcher.clone(),
@@ -753,7 +753,7 @@ async fn main() -> anyhow::Result<()> {
             Some(args.app.clone())
         },
         cursor_safe_tool_names: args.gateway_cursor_safe_tool_names,
-        middleware_chain: dcc_mcp_http::gateway::middleware::MiddlewareChain::new(),
+        middleware_chain: dcc_mcp_gateway::middleware::MiddlewareChain::new(),
         admin_enabled: !args.no_admin,
         admin_path: args.admin_path.clone(),
     };

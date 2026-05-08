@@ -32,7 +32,7 @@ use crate::{
     config::{McpHttpConfig, ServerSpawnMode},
     server::{LiveMetaInner, McpHttpServer, McpServerHandle},
 };
-use dcc_mcp_actions::{ActionDispatcher, ActionRegistry};
+use dcc_mcp_actions::{ToolDispatcher, ToolRegistry};
 use dcc_mcp_skills::SkillCatalog;
 
 /// Build the Tokio runtime used by every PyO3 entry-point in this crate.

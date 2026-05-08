@@ -44,7 +44,7 @@ SkillCatalogSource  ToolInvoker  AuthGate  AuditSink
 每个协作者都是一个 **trait**，适配器（Maya/Blender/Houdini）可以替换自己的实现，而无需修改路由器。默认接线：
 
 - `SkillCatalog`（`dcc-mcp-skills`）作为目录来源
-- `ActionDispatcher`（`dcc-mcp-actions`）负责调用
+- `ToolDispatcher`（`dcc-mcp-actions`）负责调用
 - `AllowLocalhostGate` 负责认证（仅允许回环地址）
 - `NoopAuditSink` 负责审计
 
@@ -66,7 +66,7 @@ SkillCatalogSource  ToolInvoker  AuthGate  AuditSink
 ```rust
 use std::sync::Arc;
 use axum::Router;
-use dcc_mcp_actions::{ActionDispatcher, ActionRegistry};
+use dcc_mcp_actions::{ToolDispatcher, ToolRegistry};
 use dcc_mcp_http::{
     AllowLocalhostGate, BearerTokenGate, NoopAuditSink, SkillRestConfig,
     SkillRestService, StaticReadiness, build_skill_rest_router,
@@ -74,8 +74,8 @@ use dcc_mcp_http::{
 use dcc_mcp_skills::SkillCatalog;
 
 fn build_dcc_app(
-    registry: Arc<ActionRegistry>,
-    dispatcher: Arc<ActionDispatcher>,
+    registry: Arc<ToolRegistry>,
+    dispatcher: Arc<ToolDispatcher>,
 ) -> Router {
     let catalog = Arc::new(SkillCatalog::new_with_dispatcher(
         registry.clone(),

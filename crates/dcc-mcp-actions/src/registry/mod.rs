@@ -1,4 +1,4 @@
-//! ActionRegistry — thread-safe registry for DCC tools.
+//! ToolRegistry — thread-safe registry for DCC tools.
 
 #[cfg(feature = "python-bindings")]
 use pyo3::prelude::*;
@@ -32,7 +32,7 @@ mod meta;
 #[cfg(feature = "python-bindings")]
 mod python;
 
-pub use meta::ActionMeta;
+pub use meta::ToolMeta;
 
 /// Thread-safe Action registry.
 ///
@@ -43,20 +43,20 @@ pub use meta::ActionMeta;
     pyclass(name = "ToolRegistry", from_py_object)
 )]
 #[derive(Debug, Clone)]
-pub struct ActionRegistry {
-    /// Main registry: action_name → ActionMeta
-    actions: Arc<DashMap<String, ActionMeta>>,
-    /// DCC-specific registry: dcc_name → { action_name → ActionMeta }
-    dcc_actions: Arc<DashMap<String, DashMap<String, ActionMeta>>>,
+pub struct ToolRegistry {
+    /// Main registry: action_name → ToolMeta
+    actions: Arc<DashMap<String, ToolMeta>>,
+    /// DCC-specific registry: dcc_name → { action_name → ToolMeta }
+    dcc_actions: Arc<DashMap<String, DashMap<String, ToolMeta>>>,
 }
 
-impl Default for ActionRegistry {
+impl Default for ToolRegistry {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl ActionRegistry {
+impl ToolRegistry {
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -66,7 +66,7 @@ impl ActionRegistry {
     }
 
     /// Register an action with metadata.
-    pub fn register_action(&self, meta: ActionMeta) {
+    pub fn register_action(&self, meta: ToolMeta) {
         let name = meta.name.clone();
         let dcc = meta.dcc.clone();
         // Clone meta for the DCC map before moving it into `actions`.
@@ -82,7 +82,7 @@ impl ActionRegistry {
 
     /// Get action metadata by name.
     #[must_use]
-    pub fn get_action(&self, name: &str, dcc_name: Option<&str>) -> Option<ActionMeta> {
+    pub fn get_action(&self, name: &str, dcc_name: Option<&str>) -> Option<ToolMeta> {
         if let Some(dcc) = dcc_name {
             if let Some(dcc_map) = self.dcc_actions.get(dcc) {
                 return dcc_map.get(name).map(|r| r.value().clone());
@@ -109,7 +109,7 @@ impl ActionRegistry {
 
     /// Get all actions as metadata list.
     #[must_use]
-    pub fn list_actions(&self, dcc_name: Option<&str>) -> Vec<ActionMeta> {
+    pub fn list_actions(&self, dcc_name: Option<&str>) -> Vec<ToolMeta> {
         if let Some(dcc) = dcc_name {
             return self
                 .dcc_actions
@@ -127,15 +127,15 @@ impl ActionRegistry {
     /// - `tags`: action must contain **all** listed tags (empty vec = no tag filter)
     /// - `dcc_name`: scoped to a specific DCC (None = all DCCs)
     ///
-    /// Returns all matching `ActionMeta` entries.
+    /// Returns all matching `ToolMeta` entries.
     ///
     /// # Example
     ///
     /// ```rust
-    /// use dcc_mcp_actions::registry::{ActionMeta, ActionRegistry};
+    /// use dcc_mcp_actions::registry::{ToolMeta, ToolRegistry};
     ///
-    /// let reg = ActionRegistry::new();
-    /// reg.register_action(ActionMeta {
+    /// let reg = ToolRegistry::new();
+    /// reg.register_action(ToolMeta {
     ///     name: "create_sphere".into(),
     ///     category: "geometry".into(),
     ///     tags: vec!["create".into(), "mesh".into()],
@@ -153,7 +153,7 @@ impl ActionRegistry {
         category: Option<&str>,
         tags: &[&str],
         dcc_name: Option<&str>,
-    ) -> Vec<ActionMeta> {
+    ) -> Vec<ToolMeta> {
         self.list_actions(dcc_name)
             .into_iter()
             .filter(|meta| {
@@ -225,7 +225,7 @@ impl ActionRegistry {
     ///
     /// Equivalent to calling [`register_action`](Self::register_action) for each entry,
     /// but avoids repeated lock overhead for large batches.
-    pub fn register_batch(&self, metas: impl IntoIterator<Item = ActionMeta>) {
+    pub fn register_batch(&self, metas: impl IntoIterator<Item = ToolMeta>) {
         for meta in metas {
             self.register_action(meta);
         }
@@ -269,7 +269,7 @@ impl ActionRegistry {
 
     /// List all actions belonging to a specific skill.
     #[must_use]
-    pub fn list_actions_by_skill(&self, skill_name: &str) -> Vec<ActionMeta> {
+    pub fn list_actions_by_skill(&self, skill_name: &str) -> Vec<ToolMeta> {
         self.actions
             .iter()
             .filter(|entry| {
@@ -364,7 +364,7 @@ impl ActionRegistry {
     }
 
     /// List actions belonging to a specific group (all DCCs).
-    pub fn list_actions_in_group(&self, group: &str) -> Vec<ActionMeta> {
+    pub fn list_actions_in_group(&self, group: &str) -> Vec<ToolMeta> {
         self.actions
             .iter()
             .filter(|e| e.value().group == group)
@@ -373,7 +373,7 @@ impl ActionRegistry {
     }
 
     /// List currently enabled actions.
-    pub fn list_actions_enabled(&self, dcc_name: Option<&str>) -> Vec<ActionMeta> {
+    pub fn list_actions_enabled(&self, dcc_name: Option<&str>) -> Vec<ToolMeta> {
         self.list_actions(dcc_name)
             .into_iter()
             .filter(|m| m.enabled)
@@ -393,22 +393,22 @@ impl ActionRegistry {
     }
 }
 
-// ── impl Registry<ActionMeta> ────────────────────────────────────────────────
+// ── impl Registry<ToolMeta> ────────────────────────────────────────────────
 
-/// Satisfy the shared [`Registry<ActionMeta>`] contract.
+/// Satisfy the shared [`Registry<ToolMeta>`] contract.
 ///
 /// Delegates to the existing `register_action` / `get_action` / `list_actions`
 /// / `unregister` methods so all per-DCC indexing is preserved byte-for-byte.
-impl Registry<ActionMeta> for ActionRegistry {
-    fn register(&self, entry: ActionMeta) {
+impl Registry<ToolMeta> for ToolRegistry {
+    fn register(&self, entry: ToolMeta) {
         self.register_action(entry);
     }
 
-    fn get(&self, key: &str) -> Option<ActionMeta> {
+    fn get(&self, key: &str) -> Option<ToolMeta> {
         self.get_action(key, None)
     }
 
-    fn list(&self) -> Vec<ActionMeta> {
+    fn list(&self) -> Vec<ToolMeta> {
         self.list_actions(None)
     }
 
@@ -420,10 +420,10 @@ impl Registry<ActionMeta> for ActionRegistry {
         self.len()
     }
 
-    fn search(&self, query: &SearchQuery) -> Vec<ActionMeta> {
+    fn search(&self, query: &SearchQuery) -> Vec<ToolMeta> {
         use dcc_mcp_models::RegistryEntry as _;
         let q = query.query.to_ascii_lowercase();
-        let mut results: Vec<ActionMeta> = self
+        let mut results: Vec<ToolMeta> = self
             .actions
             .iter()
             .filter(|e| {

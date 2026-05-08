@@ -15,7 +15,7 @@ use dcc_mcp_skill_rest::StaticReadiness;
 fn make_state_with_probe() -> (AppState, Arc<StaticReadiness>) {
     let registry = Arc::new(make_registry());
     let catalog = Arc::new(SkillCatalog::new(registry.clone()));
-    let dispatcher = Arc::new(ActionDispatcher::new((*registry).clone()));
+    let dispatcher = Arc::new(ToolDispatcher::new((*registry).clone()));
     dispatcher.register_handler("get_scene_info", |_params| {
         Ok(serde_json::json!({"scene": "test_scene", "objects": 3}))
     });

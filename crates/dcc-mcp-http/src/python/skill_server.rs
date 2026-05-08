@@ -6,9 +6,9 @@ use super::*;
 ///
 /// Example::
 ///
-///     from dcc_mcp_core import ActionRegistry, McpHttpServer, McpHttpConfig
+///     from dcc_mcp_core import ToolRegistry, McpHttpServer, McpHttpConfig
 ///
-///     registry = ActionRegistry()
+///     registry = ToolRegistry()
 ///     registry.register("get_scene_info", description="Get scene info", category="scene")
 ///
 ///     server = McpHttpServer(registry, McpHttpConfig(port=8765))
@@ -20,8 +20,8 @@ use super::*;
 ///     handle.shutdown()
 #[pyclass(name = "McpHttpServer", skip_from_py_object)]
 pub struct PyMcpHttpServer {
-    pub(crate) registry: Arc<ActionRegistry>,
-    pub(crate) dispatcher: Arc<ActionDispatcher>,
+    pub(crate) registry: Arc<ToolRegistry>,
+    pub(crate) dispatcher: Arc<ToolDispatcher>,
     pub(crate) catalog: Arc<SkillCatalog>,
     pub(crate) config: McpHttpConfig,
     pub(crate) runtime: Arc<Runtime>,
@@ -61,17 +61,17 @@ impl PyMcpHttpServer {
     /// Create a new MCP HTTP server.
     ///
     /// Args:
-    ///     registry: An ``ActionRegistry`` with registered DCC actions.
+    ///     registry: An ``ToolRegistry`` with registered DCC actions.
     ///     config: A ``McpHttpConfig``. If omitted, defaults to port 8765.
     #[new]
     #[pyo3(signature = (registry, config=None))]
-    fn new(registry: &ActionRegistry, config: Option<&PyMcpHttpConfig>) -> PyResult<Self> {
+    fn new(registry: &ToolRegistry, config: Option<&PyMcpHttpConfig>) -> PyResult<Self> {
         let cfg = config.map(|c| c.inner.clone()).unwrap_or_default();
 
         let runtime = super::build_python_runtime()?;
 
         let reg = Arc::new(registry.clone());
-        let dispatcher = Arc::new(ActionDispatcher::new((*reg).clone()));
+        let dispatcher = Arc::new(ToolDispatcher::new((*reg).clone()));
         // Wire the catalog to the same dispatcher so load_skill auto-registers handlers
         let catalog = Arc::new(SkillCatalog::new_with_dispatcher(
             reg.clone(),
@@ -243,8 +243,8 @@ impl PyMcpHttpServer {
     ///         :class:`~dcc_mcp_core.host.DccDispatcher` so it executes
     ///         on the DCC main thread (issue #716). If the action is
     ///         already registered in the backing :class:`ToolRegistry`,
-    ///         the existing ``ActionMeta.thread_affinity`` is overwritten.
-    ///         If no ``ActionMeta`` exists yet, the kwarg is recorded as
+    ///         the existing ``ToolMeta.thread_affinity`` is overwritten.
+    ///         If no ``ToolMeta`` exists yet, the kwarg is recorded as
     ///         a best-effort — register the action first via
     ///         ``ToolRegistry.register(...)`` or let ``load_skill()``
     ///         create it.
@@ -273,7 +273,7 @@ impl PyMcpHttpServer {
         }
 
         // If the caller asked for a specific affinity, patch the existing
-        // ActionMeta in the registry so the sync `tools/call` path (#716)
+        // ToolMeta in the registry so the sync `tools/call` path (#716)
         // routes accordingly. Parse up front so an invalid string surfaces
         // before any Python-side state is mutated.
         if let Some(affinity_str) = thread_affinity {
@@ -283,12 +283,12 @@ impl PyMcpHttpServer {
                 ))
             })?;
             // Fetch-patch-reregister: `register_action` is an upsert and
-            // takes an owned `ActionMeta`, so cloning is the simplest way
+            // takes an owned `ToolMeta`, so cloning is the simplest way
             // to mutate a single field without racing concurrent writers.
             // If the action isn't registered yet, we silently skip —
             // the handler itself does not belong in the action registry,
             // and `load_skill()` / `ToolRegistry.register()` will install
-            // an `ActionMeta` with the correct affinity at the right moment.
+            // an `ToolMeta` with the correct affinity at the right moment.
             if let Some(mut meta) = self.registry.get_action(action_name, None) {
                 meta.thread_affinity = parsed;
                 self.registry.register_action(meta);
@@ -296,7 +296,7 @@ impl PyMcpHttpServer {
                 tracing::debug!(
                     action = action_name,
                     affinity = %parsed,
-                    "register_handler: no ActionMeta yet — affinity kwarg recorded as best-effort"
+                    "register_handler: no ToolMeta yet — affinity kwarg recorded as best-effort"
                 );
             }
         }
@@ -304,7 +304,7 @@ impl PyMcpHttpServer {
         // Store a Rust closure in the dispatcher that calls the Python callable.
         // The closure re-acquires the GIL via Python::attach (pyo3 0.28+)
         // and converts both params and return values through serde_json so the
-        // Python-side contract matches ActionDispatcher: dict/list/scalars in,
+        // Python-side contract matches ToolDispatcher: dict/list/scalars in,
         // JSON-serialisable values out.
         let handler_ref = handler.clone_ref(py);
         self.dispatcher
@@ -445,7 +445,7 @@ impl PyMcpHttpServer {
     /// ``register()`` calls on it will update the tools exposed via
     /// ``tools/list``. Must be populated **before** calling :meth:`start`.
     #[getter]
-    fn registry(&self) -> ActionRegistry {
+    fn registry(&self) -> ToolRegistry {
         (*self.registry).clone()
     }
 
@@ -520,7 +520,7 @@ impl PyMcpHttpServer {
         self.catalog.discover(extra_paths.as_deref(), dcc_name)
     }
 
-    /// Load a skill by name — registers its tools in the ActionRegistry.
+    /// Load a skill by name — registers its tools in the ToolRegistry.
     ///
     /// Returns the list of registered action names.
     /// Raises ``ValueError`` if the skill is not found.
@@ -530,7 +530,7 @@ impl PyMcpHttpServer {
             .map_err(pyo3::exceptions::PyValueError::new_err)
     }
 
-    /// Unload a skill — removes its tools from the ActionRegistry.
+    /// Unload a skill — removes its tools from the ToolRegistry.
     ///
     /// Returns the number of actions removed.
     /// Raises ``ValueError`` if the skill is not loaded.

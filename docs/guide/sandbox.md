@@ -163,7 +163,7 @@ for entry in log.entries():
 ### Filtering
 
 ```python
-# All entries for a specific action
+# All entries for a specific tool
 for entry in log.entries_for_action("get_scene_info"):
     print(entry.outcome)
 
@@ -292,7 +292,7 @@ except RuntimeError as e:
 policy = SandboxPolicy()
 policy.allow_actions([])  # Nothing allowed initially
 
-# Add specific actions as needed
+# Add specific tools as needed
 policy.allow_actions(["get_scene_info"])
 ```
 

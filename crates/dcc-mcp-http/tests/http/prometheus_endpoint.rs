@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use base64::Engine as _;
-use dcc_mcp_actions::{ActionDispatcher, ActionMeta, ActionRegistry};
+use dcc_mcp_actions::{ToolDispatcher, ToolMeta, ToolRegistry};
 use dcc_mcp_http::{McpHttpConfig, McpHttpServer};
 
 /// Wait until a TCP connect to the handle's bind address succeeds, or
@@ -29,15 +29,15 @@ async fn wait_reachable(addr: &str) -> bool {
 /// Helper: build a registry with one tool + handler, returning a fully
 /// wired server ready to `.start()`.
 fn make_server(config: McpHttpConfig) -> McpHttpServer {
-    let registry = Arc::new(ActionRegistry::new());
-    registry.register_action(ActionMeta {
+    let registry = Arc::new(ToolRegistry::new());
+    registry.register_action(ToolMeta {
         name: "ping".into(),
         description: "test ping tool".into(),
         category: "test".into(),
         version: "1.0.0".into(),
         ..Default::default()
     });
-    let dispatcher = Arc::new(ActionDispatcher::new((*registry).clone()));
+    let dispatcher = Arc::new(ToolDispatcher::new((*registry).clone()));
     dispatcher.register_handler("ping", |_args| Ok(serde_json::json!({"pong": true})));
     McpHttpServer::new(registry, config).with_dispatcher(dispatcher)
 }

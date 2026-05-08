@@ -12,17 +12,17 @@
 //! Two helpers are provided:
 //!
 //! - [`register_builtin_workflow_tools`] — register tool **metadata** in a
-//!   [`ActionRegistry`]. Safe to call before the executor exists.
+//!   [`ToolRegistry`]. Safe to call before the executor exists.
 //! - [`register_workflow_handlers`] — register functional handlers in a
-//!   [`ActionDispatcher`] bound to a [`WorkflowHost`]. Call after the
+//!   [`ToolDispatcher`] bound to a [`WorkflowHost`]. Call after the
 //!   executor is wired.
 //!
 //! The metadata and handler registration are intentionally split so
 //! `tools/list` can advertise the workflow surface even before a host is
 //! built (e.g. during early MCP capability negotiation).
 
-use dcc_mcp_actions::dispatcher::ActionDispatcher;
-use dcc_mcp_actions::{ActionMeta, ActionRegistry};
+use dcc_mcp_actions::dispatcher::ToolDispatcher;
+use dcc_mcp_actions::{ToolMeta, ToolRegistry};
 use dcc_mcp_models::ToolAnnotations;
 use serde_json::{Value, json};
 
@@ -54,7 +54,7 @@ pub mod names {
 /// `dcc_mcp_naming::validate_tool_name` at **compile-test time** via
 /// [`crate::tests`] — this function never panics at runtime on the names
 /// themselves.
-pub fn register_builtin_workflow_tools(registry: &ActionRegistry) {
+pub fn register_builtin_workflow_tools(registry: &ToolRegistry) {
     registry.register_action(meta_run());
     registry.register_action(meta_get_status());
     registry.register_action(meta_cancel());
@@ -63,7 +63,7 @@ pub fn register_builtin_workflow_tools(registry: &ActionRegistry) {
 }
 
 /// Register **functional** handlers for the three mutating workflow tools
-/// against a [`ActionDispatcher`] bound to a shared [`WorkflowHost`].
+/// against a [`ToolDispatcher`] bound to a shared [`WorkflowHost`].
 ///
 /// `workflows.lookup` is intentionally **not** wired here — it is a pure
 /// catalog read whose handler depends on having a [`crate::WorkflowCatalog`]
@@ -74,7 +74,7 @@ pub fn register_builtin_workflow_tools(registry: &ActionRegistry) {
 /// will succeed; invocations outside a runtime will surface as a
 /// `workflow start failed: ...` error on the `run` handler. Status/cancel
 /// handlers are safe to call from any thread.
-pub fn register_workflow_handlers(dispatcher: &ActionDispatcher, host: &WorkflowHost) {
+pub fn register_workflow_handlers(dispatcher: &ToolDispatcher, host: &WorkflowHost) {
     let h = host.clone();
     dispatcher.register_handler(names::RUN, move |args| run_handler(&h, args));
     let h = host.clone();
@@ -90,8 +90,8 @@ pub fn register_workflow_handlers(dispatcher: &ActionDispatcher, host: &Workflow
     }
 }
 
-fn meta_run() -> ActionMeta {
-    ActionMeta {
+fn meta_run() -> ToolMeta {
+    ToolMeta {
         name: names::RUN.to_string(),
         description:
             "Start a new workflow run. Accepts either an inline WorkflowSpec (YAML string \
@@ -135,8 +135,8 @@ fn meta_run() -> ActionMeta {
     }
 }
 
-fn meta_get_status() -> ActionMeta {
-    ActionMeta {
+fn meta_get_status() -> ToolMeta {
+    ToolMeta {
         name: names::GET_STATUS.to_string(),
         description: "Get aggregated status for a workflow run by workflow_id.".to_string(),
         category: "workflow".to_string(),
@@ -158,8 +158,8 @@ fn meta_get_status() -> ActionMeta {
     }
 }
 
-fn meta_cancel() -> ActionMeta {
-    ActionMeta {
+fn meta_cancel() -> ToolMeta {
+    ToolMeta {
         name: names::CANCEL.to_string(),
         description: "Cancel an in-flight workflow run by workflow_id (cascades to children)."
             .to_string(),
@@ -182,8 +182,8 @@ fn meta_cancel() -> ActionMeta {
     }
 }
 
-fn meta_lookup() -> ActionMeta {
-    ActionMeta {
+fn meta_lookup() -> ToolMeta {
+    ToolMeta {
         name: names::LOOKUP.to_string(),
         description: "List or search known workflows from the catalog. Read-only.".to_string(),
         category: "workflow".to_string(),
@@ -226,8 +226,8 @@ fn meta_lookup() -> ActionMeta {
     }
 }
 
-fn meta_resume() -> ActionMeta {
-    ActionMeta {
+fn meta_resume() -> ToolMeta {
+    ToolMeta {
         name: names::RESUME.to_string(),
         description:
             "Resume a previously-persisted workflow run from storage. Hydrates completed step \

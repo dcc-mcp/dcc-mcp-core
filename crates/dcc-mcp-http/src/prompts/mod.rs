@@ -70,7 +70,7 @@ use std::sync::Arc;
 use parking_lot::RwLock;
 
 use self::loader::load_prompts_from_reference;
-use crate::protocol::{GetPromptResult, McpPrompt, McpPromptContent, McpPromptMessage};
+use dcc_mcp_jsonrpc::{GetPromptResult, McpPrompt, McpPromptContent, McpPromptMessage};
 
 /// Thread-safe registry of prompts, rebuilt lazily on demand.
 ///

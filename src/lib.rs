@@ -126,7 +126,7 @@ fn register_models(m: &Bound<'_, PyModule>) -> PyResult<()> {
 fn register_actions(m: &Bound<'_, PyModule>) -> PyResult<()> {
     add_classes!(
         m,
-        dcc_mcp_actions::ActionRegistry,
+        dcc_mcp_actions::ToolRegistry,
         dcc_mcp_actions::EventBus,
         dcc_mcp_actions::SemVer,
         dcc_mcp_actions::versioned::PyVersionConstraint,
@@ -371,7 +371,7 @@ mod tests {
     #[test]
     fn test_workspace_crates_accessible() {
         let _ = dcc_mcp_models::ActionResultModelData::default();
-        let reg = dcc_mcp_actions::ActionRegistry::new();
+        let reg = dcc_mcp_actions::ToolRegistry::new();
         assert!(reg.is_empty());
         let monitor = dcc_mcp_process::ProcessMonitor::new();
         assert_eq!(monitor.tracked_count(), 0);

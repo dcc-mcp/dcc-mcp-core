@@ -11,7 +11,7 @@ use serde_json::Value;
 
 use super::state::AppState;
 use crate::handlers::refresh_roots_cache_for_session;
-use crate::protocol::{ElicitationCreateResult, JsonRpcResponse};
+use dcc_mcp_jsonrpc::{ElicitationCreateResult, JsonRpcResponse};
 
 /// Process a JSON-RPC notification (a message without an `id`).
 ///

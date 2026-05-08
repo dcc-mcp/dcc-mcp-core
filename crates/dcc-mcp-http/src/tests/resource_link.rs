@@ -4,7 +4,7 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 
 use crate::{handler::AppState, session::SessionManager};
-use dcc_mcp_actions::{ActionDispatcher, ActionMeta, ActionRegistry};
+use dcc_mcp_actions::{ToolDispatcher, ToolMeta, ToolRegistry};
 use dcc_mcp_skills::SkillCatalog;
 
 // ── ResourceLink (#243) — 2025-06-18 artifact surfacing ───────────────
@@ -16,8 +16,8 @@ use dcc_mcp_skills::SkillCatalog;
 
 fn make_app_state_with_artifact_handler() -> AppState {
     let registry = Arc::new({
-        let reg = ActionRegistry::new();
-        reg.register_action(ActionMeta {
+        let reg = ToolRegistry::new();
+        reg.register_action(ToolMeta {
             name: "playblast".into(),
             description: "Render a playblast".into(),
             category: "render".into(),
@@ -29,7 +29,7 @@ fn make_app_state_with_artifact_handler() -> AppState {
         reg
     });
     let catalog = Arc::new(SkillCatalog::new(registry.clone()));
-    let dispatcher = Arc::new(ActionDispatcher::new((*registry).clone()));
+    let dispatcher = Arc::new(ToolDispatcher::new((*registry).clone()));
     dispatcher.register_handler("playblast", |_params| {
         Ok(json!({
             "frame_count": 24,
@@ -197,8 +197,8 @@ async fn test_resource_link_suppressed_when_session_header_absent() {
 
 fn make_app_state_with_structured_handler() -> AppState {
     let registry = Arc::new({
-        let reg = ActionRegistry::new();
-        reg.register_action(ActionMeta {
+        let reg = ToolRegistry::new();
+        reg.register_action(ToolMeta {
             name: "list_selected_nodes".into(),
             description: "Return selected scene nodes".into(),
             category: "scene".into(),
@@ -217,7 +217,7 @@ fn make_app_state_with_structured_handler() -> AppState {
         });
         // Second tool that returns a plain string — must NOT get
         // structuredContent even on 2025-06-18.
-        reg.register_action(ActionMeta {
+        reg.register_action(ToolMeta {
             name: "greet".into(),
             description: "Plain-text hello".into(),
             category: "demo".into(),
@@ -228,7 +228,7 @@ fn make_app_state_with_structured_handler() -> AppState {
         reg
     });
     let catalog = Arc::new(SkillCatalog::new(registry.clone()));
-    let dispatcher = Arc::new(ActionDispatcher::new((*registry).clone()));
+    let dispatcher = Arc::new(ToolDispatcher::new((*registry).clone()));
     dispatcher.register_handler("list_selected_nodes", |_p| {
         Ok(json!({"nodes": ["|pSphere1", "|pCube1"], "count": 2}))
     });

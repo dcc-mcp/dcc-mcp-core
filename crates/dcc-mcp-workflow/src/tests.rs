@@ -1,6 +1,6 @@
 //! Unit tests for the workflow skeleton.
 
-use dcc_mcp_actions::ActionRegistry;
+use dcc_mcp_actions::ToolRegistry;
 use dcc_mcp_naming::validate_tool_name;
 
 use crate::catalog::{METADATA_KEY_WORKFLOWS, WorkflowCatalog};
@@ -162,7 +162,7 @@ fn builtin_tool_names_pass_sep986_validation() {
 
 #[test]
 fn register_builtin_tools_populates_registry() {
-    let reg = ActionRegistry::new();
+    let reg = ToolRegistry::new();
     register_builtin_workflow_tools(&reg);
     assert!(reg.get_action(tools::names::RUN, None).is_some());
     assert!(reg.get_action(tools::names::GET_STATUS, None).is_some());
@@ -172,7 +172,7 @@ fn register_builtin_tools_populates_registry() {
 
 #[test]
 fn builtin_tool_metadata_has_annotations() {
-    let reg = ActionRegistry::new();
+    let reg = ToolRegistry::new();
     register_builtin_workflow_tools(&reg);
     let run = reg.get_action(tools::names::RUN, None).unwrap();
     assert_eq!(run.annotations.destructive_hint, Some(true));
@@ -188,7 +188,7 @@ fn builtin_tool_metadata_has_annotations() {
 async fn register_workflow_handlers_wires_run_and_cancel() {
     use std::sync::Arc;
 
-    use dcc_mcp_actions::dispatcher::ActionDispatcher;
+    use dcc_mcp_actions::dispatcher::ToolDispatcher;
     use serde_json::json;
 
     use crate::callers::test_support::MockToolCaller;
@@ -201,9 +201,9 @@ async fn register_workflow_handlers_wires_run_and_cancel() {
     let executor = WorkflowExecutor::builder().tool_caller(caller).build();
     let host = WorkflowHost::new(executor);
 
-    let reg = ActionRegistry::new();
+    let reg = ToolRegistry::new();
     register_builtin_workflow_tools(&reg);
-    let dispatcher = ActionDispatcher::new(reg);
+    let dispatcher = ToolDispatcher::new(reg);
     register_workflow_handlers(&dispatcher, &host);
 
     let yaml = "name: t\nsteps:\n  - id: s1\n    tool: scene.echo\n    args: {x: 1}\n";

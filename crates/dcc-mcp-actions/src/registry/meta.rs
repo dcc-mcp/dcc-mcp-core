@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 /// Metadata about a registered Action (stored in Rust).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
-pub struct ActionMeta {
+pub struct ToolMeta {
     /// Unique action identifier.
     pub name: String,
     /// Human-readable action description.
@@ -105,7 +105,7 @@ fn default_enabled() -> bool {
     true
 }
 
-impl Default for ActionMeta {
+impl Default for ToolMeta {
     fn default() -> Self {
         Self {
             name: String::new(),
@@ -132,7 +132,7 @@ impl Default for ActionMeta {
 
 // ── RegistryEntry impl ───────────────────────────────────────────────────────
 
-impl RegistryEntry for ActionMeta {
+impl RegistryEntry for ToolMeta {
     /// The stable lookup key is the action's unique name.
     fn key(&self) -> String {
         self.name.clone()

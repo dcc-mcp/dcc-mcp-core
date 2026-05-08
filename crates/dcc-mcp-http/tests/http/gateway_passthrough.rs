@@ -14,10 +14,10 @@ use axum::{
 use serde_json::{Value, json};
 use tokio::sync::{RwLock, broadcast, watch};
 
-use dcc_mcp_actions::{ActionDispatcher, ActionMeta, ActionRegistry};
-use dcc_mcp_http::gateway::aggregator::route_tools_call;
-use dcc_mcp_http::gateway::sse_subscriber::SubscriberManager;
-use dcc_mcp_http::gateway::state::GatewayState;
+use dcc_mcp_actions::{ToolDispatcher, ToolMeta, ToolRegistry};
+use dcc_mcp_gateway::aggregator::route_tools_call;
+use dcc_mcp_gateway::sse_subscriber::SubscriberManager;
+use dcc_mcp_gateway::state::GatewayState;
 use dcc_mcp_http::{McpHttpConfig, McpHttpServer, McpServerHandle};
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
 use dcc_mcp_transport::discovery::types::ServiceEntry;
@@ -54,15 +54,13 @@ async fn make_state(
         adapter_version: None,
         adapter_dcc: None,
         cursor_safe_tool_names: true,
-        capability_index: Arc::new(dcc_mcp_http::gateway::capability::CapabilityIndex::new()),
-        event_log: std::sync::Arc::new(dcc_mcp_http::gateway::event_log::EventLog::new()),
+        capability_index: Arc::new(dcc_mcp_gateway::capability::CapabilityIndex::new()),
+        event_log: std::sync::Arc::new(dcc_mcp_gateway::event_log::EventLog::new()),
         middleware_chain: std::sync::Arc::new(
             dcc_mcp_gateway::gateway::middleware::MiddlewareChain::new(),
         ),
         #[cfg(feature = "prometheus")]
-        gateway_metrics: std::sync::Arc::new(
-            dcc_mcp_http::gateway::event_log::GatewayMetrics::new(),
-        ),
+        gateway_metrics: std::sync::Arc::new(dcc_mcp_gateway::event_log::GatewayMetrics::new()),
     };
     (state, registry, dir)
 }
@@ -71,15 +69,15 @@ async fn make_state(
 /// `tools/call`, optionally sleeping for `delay` first. `tools/list`
 /// returns a single `slow_tool` so the gateway's prefix-match succeeds.
 async fn spawn_pending_backend(delay: Duration) -> McpServerHandle {
-    let registry = Arc::new(ActionRegistry::new());
-    registry.register_action(ActionMeta {
+    let registry = Arc::new(ToolRegistry::new());
+    registry.register_action(ToolMeta {
         name: "slow_tool".into(),
         description: "slow".into(),
         category: "test".into(),
         version: "1.0.0".into(),
         ..Default::default()
     });
-    let dispatcher = Arc::new(ActionDispatcher::new((*registry).clone()));
+    let dispatcher = Arc::new(ToolDispatcher::new((*registry).clone()));
     dispatcher.register_handler("slow_tool", move |_params| {
         std::thread::sleep(delay);
         Ok(json!({

@@ -35,9 +35,9 @@ Common patterns:
 
 | Event Pattern | Description |
 |---------------|-------------|
-| `action.before_execute.{name}` | Before executing a specific action |
-| `action.after_execute.{name}` | After a specific action completes |
-| `action.error.{name}` | When a specific action raises an error |
+| `action.before_execute.{name}` | Before executing a specific tool |
+| `action.after_execute.{name}` | After a specific tool completes |
+| `action.error.{name}` | When a specific tool raises an error |
 
 ## Wildcard Subscriptions
 

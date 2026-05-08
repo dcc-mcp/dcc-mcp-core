@@ -1,4 +1,4 @@
-//! Serialization / serde round-trip tests for ActionMeta.
+//! Serialization / serde round-trip tests for ToolMeta.
 
 use super::*;
 
@@ -6,7 +6,7 @@ use super::*;
 
 #[test]
 fn test_action_meta_serde_round_trip() {
-    let meta = ActionMeta {
+    let meta = ToolMeta {
         name: "render_scene".into(),
         description: "Renders the active scene".into(),
         category: "rendering".into(),
@@ -27,13 +27,13 @@ fn test_action_meta_serde_round_trip() {
         next_tools: dcc_mcp_models::NextTools::default(),
     };
     let json = serde_json::to_string(&meta).unwrap();
-    let back: ActionMeta = serde_json::from_str(&json).unwrap();
+    let back: ToolMeta = serde_json::from_str(&json).unwrap();
     assert_eq!(meta, back);
 }
 
 #[test]
 fn test_action_meta_execution_defaults_to_sync() {
-    let meta = ActionMeta::default();
+    let meta = ToolMeta::default();
     assert_eq!(meta.execution, dcc_mcp_models::ExecutionMode::Sync);
     assert_eq!(meta.timeout_hint_secs, None);
 }
@@ -47,15 +47,15 @@ fn test_action_meta_execution_and_timeout_serde() {
         "execution": "async",
         "timeout_hint_secs": 600
     }"#;
-    let meta: ActionMeta = serde_json::from_str(json).unwrap();
+    let meta: ToolMeta = serde_json::from_str(json).unwrap();
     assert_eq!(meta.execution, dcc_mcp_models::ExecutionMode::Async);
     assert_eq!(meta.timeout_hint_secs, Some(600));
 }
 
 #[test]
 fn test_action_meta_default_serialization() {
-    let meta = ActionMeta::default();
+    let meta = ToolMeta::default();
     let json = serde_json::to_string(&meta).unwrap();
-    let back: ActionMeta = serde_json::from_str(&json).unwrap();
+    let back: ToolMeta = serde_json::from_str(&json).unwrap();
     assert_eq!(meta, back);
 }

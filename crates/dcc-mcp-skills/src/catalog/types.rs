@@ -22,7 +22,7 @@ where
 pub enum SkillState {
     /// Skill discovered but not loaded (tools not registered).
     Discovered,
-    /// Skill loaded — tools registered in ActionRegistry.
+    /// Skill loaded — tools registered in ToolRegistry.
     Loaded,
     /// Skill failed to load.
     Error(String),

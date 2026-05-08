@@ -40,7 +40,7 @@ impl PyWorkspaceRoots {
                     format!("file:///{normalised}")
                 }
             };
-            client_roots.push(crate::protocol::ClientRoot { uri, name: None });
+            client_roots.push(dcc_mcp_jsonrpc::ClientRoot { uri, name: None });
         }
         Self {
             inner: crate::workspace::WorkspaceRoots::from_client_roots(&client_roots),

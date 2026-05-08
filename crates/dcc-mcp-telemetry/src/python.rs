@@ -5,8 +5,8 @@
 //! | Python name | Rust type | Purpose |
 //! |-------------|-----------|---------|
 //! | `TelemetryConfig` | [`PyTelemetryConfig`] | Build and apply telemetry configuration |
-//! | `ToolRecorder` | [`PyActionRecorder`] | Record per-tool metrics |
-//! | `ToolMetrics` | [`PyActionMetrics`] | Read-only metrics snapshot |
+//! | `ToolRecorder` | [`PyToolRecorder`] | Record per-tool metrics |
+//! | `ToolMetrics` | [`PyToolMetrics`] | Read-only metrics snapshot |
 
 use pyo3::exceptions::PyRuntimeError;
 use pyo3::prelude::*;
@@ -14,22 +14,22 @@ use pyo3::prelude::*;
 use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pyfunction, gen_stub_pymethods};
 
 use crate::provider;
-use crate::recorder::ActionRecorder;
-use crate::types::{ActionMetrics, ExporterBackend, LogFormat, TelemetryConfig};
+use crate::recorder::ToolRecorder;
+use crate::types::{ExporterBackend, LogFormat, TelemetryConfig, ToolMetrics};
 
-// ── PyActionMetrics ───────────────────────────────────────────────────────────
+// ── PyToolMetrics ───────────────────────────────────────────────────────────
 
 /// Read-only snapshot of per-Action performance metrics.
 #[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[pyclass(name = "ToolMetrics", from_py_object)]
 #[derive(Clone)]
-pub struct PyActionMetrics {
-    inner: ActionMetrics,
+pub struct PyToolMetrics {
+    inner: ToolMetrics,
 }
 
 #[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
-impl PyActionMetrics {
+impl PyToolMetrics {
     /// Action name.
     #[getter]
     pub fn action_name(&self) -> &str {
@@ -218,16 +218,16 @@ impl PyTelemetryConfig {
     }
 }
 
-// ── PyActionRecorder ──────────────────────────────────────────────────────────
+// ── PyToolRecorder ──────────────────────────────────────────────────────────
 
 /// Records per-Action execution time and success/failure counters.
 ///
 /// # Example
 ///
 /// ```python
-/// from dcc_mcp_core import ActionRecorder
+/// from dcc_mcp_core import ToolRecorder
 ///
-/// recorder = ActionRecorder("my-scope")
+/// recorder = ToolRecorder("my-scope")
 ///
 /// guard = recorder.start("create_sphere", "maya")
 /// # ... do work ...
@@ -238,21 +238,21 @@ impl PyTelemetryConfig {
 /// ```
 #[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[pyclass(name = "ToolRecorder")]
-pub struct PyActionRecorder {
-    inner: ActionRecorder,
+pub struct PyToolRecorder {
+    inner: ToolRecorder,
 }
 
 #[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
-impl PyActionRecorder {
-    /// Create a new `ActionRecorder` for the given scope name.
+impl PyToolRecorder {
+    /// Create a new `ToolRecorder` for the given scope name.
     #[new]
     pub fn new(scope: &str) -> Self {
         // Safety: we need a 'static str for the recorder scope.
         // We leak it here — the number of scopes is small and bounded.
         let leaked: &'static str = Box::leak(scope.to_string().into_boxed_str());
-        PyActionRecorder {
-            inner: ActionRecorder::new(leaked),
+        PyToolRecorder {
+            inner: ToolRecorder::new(leaked),
         }
     }
 
@@ -269,18 +269,18 @@ impl PyActionRecorder {
     /// Get aggregated metrics for a specific action.
     ///
     /// Returns `None` if no data exists for this action.
-    pub fn metrics(&self, action_name: &str) -> Option<PyActionMetrics> {
+    pub fn metrics(&self, action_name: &str) -> Option<PyToolMetrics> {
         self.inner
             .metrics(action_name)
-            .map(|m| PyActionMetrics { inner: m })
+            .map(|m| PyToolMetrics { inner: m })
     }
 
     /// Get aggregated metrics for all recorded actions.
-    pub fn all_metrics(&self) -> Vec<PyActionMetrics> {
+    pub fn all_metrics(&self) -> Vec<PyToolMetrics> {
         self.inner
             .all_metrics()
             .into_iter()
-            .map(|m| PyActionMetrics { inner: m })
+            .map(|m| PyToolMetrics { inner: m })
             .collect()
     }
 
@@ -292,7 +292,7 @@ impl PyActionRecorder {
 
 // ── PyRecordingGuard ──────────────────────────────────────────────────────────
 
-/// Guard object returned by `ActionRecorder.start()`.
+/// Guard object returned by `ToolRecorder.start()`.
 ///
 /// Call `finish(success)` to record the result, or let it drop to record as failure.
 #[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
@@ -390,8 +390,8 @@ pub fn py_init_default_telemetry() -> PyResult<()> {
 /// Register all telemetry classes and functions on a Python module.
 pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyTelemetryConfig>()?;
-    m.add_class::<PyActionRecorder>()?;
-    m.add_class::<PyActionMetrics>()?;
+    m.add_class::<PyToolRecorder>()?;
+    m.add_class::<PyToolMetrics>()?;
     m.add_class::<PyRecordingGuard>()?;
     m.add_function(wrap_pyfunction!(py_is_telemetry_initialized, m)?)?;
     m.add_function(wrap_pyfunction!(py_shutdown_telemetry, m)?)?;

@@ -1,15 +1,15 @@
 //! PyO3 bindings for ToolValidator and ToolDispatcher.
 //!
 //! Exposed Python classes:
-//! - [`PyActionValidator`] — validates JSON params against a JSON Schema string.
-//! - [`PyActionDispatcher`] — routes action calls to Python callables with auto-validation.
+//! - [`PyToolValidator`] — validates JSON params against a JSON Schema string.
+//! - [`PyToolDispatcher`] — routes action calls to Python callables with auto-validation.
 //!
 //! ## Design note
 //!
-//! `PyActionDispatcher` maintains its own `handler_map: HashMap<String, PyObject>` in
-//! addition to the Rust-level `ActionDispatcher`.  When `dispatch()` is called:
+//! `PyToolDispatcher` maintains its own `handler_map: HashMap<String, PyObject>` in
+//! addition to the Rust-level `ToolDispatcher`.  When `dispatch()` is called:
 //! 1. Look up the Python handler in `handler_map`.
-//! 2. Perform schema validation via the Rust `ActionDispatcher` (bypass the handler call).
+//! 2. Perform schema validation via the Rust `ToolDispatcher` (bypass the handler call).
 //! 3. Call the Python handler directly in the Python GIL.
 //!
 //! This sidesteps the pyo3 0.28 restriction that `Python::with_gil` was removed;
@@ -28,11 +28,11 @@ use serde_json::Value;
 #[cfg(feature = "stub-gen")]
 use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pymethods};
 
-use crate::dispatcher::{ActionDispatcher, DispatchError};
-use crate::registry::{ActionMeta, ActionRegistry};
-use crate::validator::ActionValidator;
+use crate::dispatcher::{DispatchError, ToolDispatcher};
+use crate::registry::{ToolMeta, ToolRegistry};
+use crate::validator::ToolValidator;
 
-// ── PyActionValidator ─────────────────────────────────────────────────────────
+// ── PyToolValidator ─────────────────────────────────────────────────────────
 
 /// Validates JSON-encoded action parameters against a JSON Schema.
 ///
@@ -41,14 +41,14 @@ use crate::validator::ActionValidator;
 /// Example::
 ///
 ///     import json
-///     from dcc_mcp_core import ActionRegistry, ActionValidator
+///     from dcc_mcp_core import ToolRegistry, ToolValidator
 ///
 ///     schema = json.dumps({
 ///         "type": "object",
 ///         "required": ["radius"],
 ///         "properties": {"radius": {"type": "number", "minimum": 0.0}}
 ///     })
-///     v = ActionValidator.from_schema_json(schema)
+///     v = ToolValidator.from_schema_json(schema)
 ///     ok, errors = v.validate('{"radius": 1.0}')
 ///     assert ok
 ///     ok, errors = v.validate("{}")
@@ -56,13 +56,13 @@ use crate::validator::ActionValidator;
 ///
 #[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[pyclass(name = "ToolValidator")]
-pub struct PyActionValidator {
-    inner: ActionValidator,
+pub struct PyToolValidator {
+    inner: ToolValidator,
 }
 
 #[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
-impl PyActionValidator {
+impl PyToolValidator {
     /// Create a validator from a JSON Schema string.
     ///
     /// Raises:
@@ -72,29 +72,29 @@ impl PyActionValidator {
         let schema: Value = serde_json::from_str(schema_json)
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("invalid JSON: {e}")))?;
         Ok(Self {
-            inner: ActionValidator::from_schema(schema),
+            inner: ToolValidator::from_schema(schema),
         })
     }
 
-    /// Create a validator from an action in an :class:`ActionRegistry`.
+    /// Create a validator from an action in an :class:`ToolRegistry`.
     ///
     /// Raises:
     ///     KeyError: If the action is not found in the registry.
     #[staticmethod]
     #[pyo3(signature = (registry, action_name, dcc_name = None))]
     pub fn from_action_registry(
-        registry: &ActionRegistry,
+        registry: &ToolRegistry,
         action_name: &str,
         dcc_name: Option<&str>,
     ) -> PyResult<Self> {
-        let meta: Option<ActionMeta> = registry.get_action(action_name, dcc_name);
+        let meta: Option<ToolMeta> = registry.get_action(action_name, dcc_name);
         let meta = meta.ok_or_else(|| {
             pyo3::exceptions::PyKeyError::new_err(format!(
                 "action '{action_name}' not found in registry"
             ))
         })?;
         Ok(Self {
-            inner: ActionValidator::new(&meta),
+            inner: ToolValidator::new(&meta),
         })
     }
 
@@ -119,16 +119,16 @@ impl PyActionValidator {
     }
 }
 
-// ── PyActionDispatcher ────────────────────────────────────────────────────────
+// ── PyToolDispatcher ────────────────────────────────────────────────────────
 
 /// Routes action calls to registered Python callables with automatic validation.
 ///
 /// Example::
 ///
 ///     import json
-///     from dcc_mcp_core import ActionRegistry, ActionDispatcher
+///     from dcc_mcp_core import ToolRegistry, ToolDispatcher
 ///
-///     reg = ActionRegistry()
+///     reg = ToolRegistry()
 ///     reg.register(
 ///         "create_sphere",
 ///         input_schema=json.dumps({
@@ -137,7 +137,7 @@ impl PyActionValidator {
 ///             "properties": {"radius": {"type": "number", "minimum": 0.0}},
 ///         }),
 ///     )
-///     dispatcher = ActionDispatcher(reg)
+///     dispatcher = ToolDispatcher(reg)
 ///
 ///     def create_sphere(params):
 ///         return {"created": True, "radius": params["radius"]}
@@ -148,9 +148,9 @@ impl PyActionValidator {
 ///
 #[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[pyclass(name = "ToolDispatcher")]
-pub struct PyActionDispatcher {
+pub struct PyToolDispatcher {
     /// Rust dispatcher used for schema validation; handler calls are short-circuited.
-    inner: ActionDispatcher,
+    inner: ToolDispatcher,
     /// Map from action name → Python callable.
     handler_map: HashMap<String, Py<PyAny>>,
     /// Whether to skip validation when the action schema is empty.
@@ -159,12 +159,12 @@ pub struct PyActionDispatcher {
 
 #[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
-impl PyActionDispatcher {
+impl PyToolDispatcher {
     /// Create a new dispatcher backed by the given registry.
     #[new]
-    pub fn new(registry: &ActionRegistry) -> Self {
+    pub fn new(registry: &ToolRegistry) -> Self {
         Self {
-            inner: ActionDispatcher::new(registry.clone()),
+            inner: ToolDispatcher::new(registry.clone()),
             handler_map: HashMap::new(),
             skip_empty_schema_validation: true,
         }
@@ -306,11 +306,11 @@ impl PyActionDispatcher {
     }
 }
 
-// ── Internal helpers for PyActionPipeline ────────────────────────────────────
+// ── Internal helpers for PyToolPipeline ────────────────────────────────────
 
-impl PyActionDispatcher {
+impl PyToolDispatcher {
     /// Return a clone of the underlying Rust registry (for pipeline construction).
-    pub fn registry(&self) -> ActionRegistry {
+    pub fn registry(&self) -> ToolRegistry {
         self.inner.registry().clone()
     }
     /// Return a clone of the Python handler map (for pipeline dispatch).
@@ -329,10 +329,10 @@ impl PyActionDispatcher {
 
 // ── Registration helper ───────────────────────────────────────────────────────
 
-/// Register `PyActionValidator` and `PyActionDispatcher` on the given Python module.
+/// Register `PyToolValidator` and `PyToolDispatcher` on the given Python module.
 pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add_class::<PyActionValidator>()?;
-    m.add_class::<PyActionDispatcher>()?;
+    m.add_class::<PyToolValidator>()?;
+    m.add_class::<PyToolDispatcher>()?;
     Ok(())
 }
 
@@ -375,12 +375,12 @@ fn value_to_py(py: Python<'_>, value: &Value) -> PyResult<Py<PyAny>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::registry::ActionMeta;
+    use crate::registry::ToolMeta;
     use serde_json::json;
 
-    fn make_registry_with_schema(schema: Value) -> ActionRegistry {
-        let reg = ActionRegistry::new();
-        reg.register_action(ActionMeta {
+    fn make_registry_with_schema(schema: Value) -> ToolRegistry {
+        let reg = ToolRegistry::new();
+        reg.register_action(ToolMeta {
             name: "test_action".into(),
             dcc: "maya".into(),
             input_schema: schema,
@@ -389,20 +389,20 @@ mod tests {
         reg
     }
 
-    // ── ActionValidator (Rust) ────────────────────────────────────────────────
+    // ── ToolValidator (Rust) ────────────────────────────────────────────────
 
     #[test]
     fn test_validator_valid_schema() {
         let schema = json!({ "type": "object", "required": ["radius"],
             "properties": { "radius": { "type": "number", "minimum": 0.0 } } });
-        let v = ActionValidator::from_schema(schema);
+        let v = ToolValidator::from_schema(schema);
         assert!(v.validate_input(&json!({"radius": 1.0})).is_valid());
     }
 
     #[test]
     fn test_validator_missing_required() {
         let schema = json!({ "type": "object", "required": ["radius"] });
-        let v = ActionValidator::from_schema(schema);
+        let v = ToolValidator::from_schema(schema);
         let result = v.validate_input(&json!({}));
         assert!(!result.is_valid());
         assert!(result.errors[0].message.contains("radius"));
@@ -411,18 +411,18 @@ mod tests {
     #[test]
     fn test_validator_from_registry() {
         let reg = make_registry_with_schema(json!({ "type": "object" }));
-        let meta: Option<ActionMeta> = reg.get_action("test_action", None);
+        let meta: Option<ToolMeta> = reg.get_action("test_action", None);
         assert!(meta.is_some());
-        let v = ActionValidator::new(&meta.unwrap());
+        let v = ToolValidator::new(&meta.unwrap());
         assert!(v.validate_input(&json!({})).is_valid());
     }
 
-    // ── ActionDispatcher (Rust) ───────────────────────────────────────────────
+    // ── ToolDispatcher (Rust) ───────────────────────────────────────────────
 
     #[test]
     fn test_dispatcher_new_empty() {
-        let reg = ActionRegistry::new();
-        let d = ActionDispatcher::new(reg);
+        let reg = ToolRegistry::new();
+        let d = ToolDispatcher::new(reg);
         assert_eq!(d.handler_count(), 0);
         assert!(!d.has_handler("x"));
     }
@@ -430,7 +430,7 @@ mod tests {
     #[test]
     fn test_dispatcher_register_and_dispatch() {
         let reg = make_registry_with_schema(json!({}));
-        let d = ActionDispatcher::new(reg);
+        let d = ToolDispatcher::new(reg);
         d.register_handler("test_action", |_| Ok(json!({"ok": true})));
         assert!(d.has_handler("test_action"));
         let result = d.dispatch("test_action", json!({})).unwrap();
@@ -440,8 +440,8 @@ mod tests {
 
     #[test]
     fn test_dispatcher_handler_not_found() {
-        let reg = ActionRegistry::new();
-        let d = ActionDispatcher::new(reg);
+        let reg = ToolRegistry::new();
+        let d = ToolDispatcher::new(reg);
         let err = d.dispatch("missing", json!({})).unwrap_err();
         assert!(matches!(err, DispatchError::HandlerNotFound(_)));
     }
@@ -449,7 +449,7 @@ mod tests {
     #[test]
     fn test_dispatcher_validation_fails() {
         let reg = make_registry_with_schema(json!({ "type": "object", "required": ["x"] }));
-        let d = ActionDispatcher::new(reg);
+        let d = ToolDispatcher::new(reg);
         d.register_handler("test_action", |_| Ok(json!(null)));
         let err = d.dispatch("test_action", json!({})).unwrap_err();
         assert!(matches!(err, DispatchError::ValidationFailed(_)));
@@ -457,8 +457,8 @@ mod tests {
 
     #[test]
     fn test_dispatcher_remove_handler() {
-        let reg = ActionRegistry::new();
-        let d = ActionDispatcher::new(reg);
+        let reg = ToolRegistry::new();
+        let d = ToolDispatcher::new(reg);
         d.register_handler("a", |_| Ok(json!(null)));
         assert!(d.remove_handler("a"));
         assert!(!d.has_handler("a"));
@@ -467,8 +467,8 @@ mod tests {
 
     #[test]
     fn test_dispatcher_handler_names_sorted() {
-        let reg = ActionRegistry::new();
-        let d = ActionDispatcher::new(reg);
+        let reg = ToolRegistry::new();
+        let d = ToolDispatcher::new(reg);
         d.register_handler("z", |_| Ok(json!(null)));
         d.register_handler("a", |_| Ok(json!(null)));
         d.register_handler("m", |_| Ok(json!(null)));
@@ -477,8 +477,8 @@ mod tests {
 
     #[test]
     fn test_dispatcher_handler_error() {
-        let reg = ActionRegistry::new();
-        let d = ActionDispatcher::new(reg);
+        let reg = ToolRegistry::new();
+        let d = ToolDispatcher::new(reg);
         d.register_handler("failing", |_| Err("oops".into()));
         let err = d.dispatch("failing", json!({})).unwrap_err();
         assert!(matches!(err, DispatchError::HandlerError(_)));

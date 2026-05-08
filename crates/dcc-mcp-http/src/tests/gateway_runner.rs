@@ -2,7 +2,7 @@ use super::*;
 
 #[tokio::test]
 async fn test_gateway_runner_single_start() {
-    use crate::gateway::{GatewayConfig, GatewayRunner};
+    use dcc_mcp_gateway::{GatewayConfig, GatewayRunner};
 
     let dir = tempfile::tempdir().unwrap();
     let cfg = GatewayConfig {
@@ -20,7 +20,7 @@ async fn test_gateway_runner_single_start() {
 
 #[tokio::test]
 async fn test_gateway_port_competition() {
-    use crate::gateway::{GatewayConfig, GatewayRunner};
+    use dcc_mcp_gateway::{GatewayConfig, GatewayRunner};
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -63,7 +63,7 @@ async fn test_gateway_port_competition() {
 
 #[tokio::test]
 async fn test_gateway_runner_is_gateway_true_when_port_free() {
-    use crate::gateway::{GatewayConfig, GatewayRunner};
+    use dcc_mcp_gateway::{GatewayConfig, GatewayRunner};
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();

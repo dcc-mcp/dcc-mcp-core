@@ -56,7 +56,7 @@ handle = server.start()
 | `dcc_mcp_job_wait_seconds` | histogram | `tool` | 作业创建到首次执行之间的延迟。 |
 | `dcc_mcp_notifications_sent_total` | counter | `channel` (`sse`, `ws`) | 推送到客户端的 MCP 通知 (issue #326)。 |
 | `dcc_mcp_active_sessions` | gauge | — | 活跃的 MCP Streamable HTTP 会话。 |
-| `dcc_mcp_registered_tools` | gauge | — | 当前在 `ActionRegistry` 中注册的工具。 |
+| `dcc_mcp_registered_tools` | gauge | — | 当前在 `ToolRegistry` 中注册的工具。 |
 | `dcc_mcp_build_info` | gauge | `version`, `crate` | 始终为 `1`；标签标识运行中的二进制文件。 |
 
 Histogram 使用适合 DCC 工具调用的对数阶梯 bucket（1 ms → 30 s）。

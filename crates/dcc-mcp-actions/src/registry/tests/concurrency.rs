@@ -1,4 +1,4 @@
-//! Thread-safety / concurrency tests for ActionRegistry.
+//! Thread-safety / concurrency tests for ToolRegistry.
 
 use super::fixtures::make_action;
 use super::*;
@@ -10,13 +10,13 @@ fn test_registry_thread_safety() {
     use std::sync::Arc;
     use std::thread;
 
-    let reg = Arc::new(ActionRegistry::new());
+    let reg = Arc::new(ToolRegistry::new());
     let mut handles = vec![];
 
     for i in 0..10 {
         let reg = Arc::clone(&reg);
         handles.push(thread::spawn(move || {
-            reg.register_action(ActionMeta {
+            reg.register_action(ToolMeta {
                 name: format!("action_{i}"),
                 description: format!("Action {i}"),
                 dcc: "test".into(),
@@ -37,7 +37,7 @@ fn test_registry_concurrent_reads_while_writing() {
     use std::sync::Arc;
     use std::thread;
 
-    let reg = Arc::new(ActionRegistry::new());
+    let reg = Arc::new(ToolRegistry::new());
     // Pre-populate
     for i in 0..5 {
         reg.register_action(make_action(&format!("pre_{i}"), "maya"));

@@ -138,7 +138,7 @@ class TestTelemetryConfigBuilderChain:
         assert cfg.service_name == "complex-svc"
 
 
-class TestActionRecorderCreate:
+class TestToolRecorderCreate:
     """ToolRecorder construction."""
 
     def test_create_with_scope(self):
@@ -173,7 +173,7 @@ class TestActionRecorderCreate:
             r.metrics("nonexistent_action")
 
 
-class TestActionRecorderStartFinish:
+class TestToolRecorderStartFinish:
     """ToolRecorder start/finish cycle."""
 
     def test_start_returns_recording_guard(self):
@@ -253,7 +253,7 @@ class TestActionRecorderStartFinish:
         assert result is None or (hasattr(result, "invocation_count") and result.invocation_count == 0)
 
 
-class TestActionMetrics:
+class TestToolMetrics:
     """ToolMetrics fields and methods."""
 
     def test_action_name_field(self):
@@ -884,7 +884,7 @@ class TestEventBusSubscribePublish:
             eb.publish("evt", x=1)
 
 
-class TestActionPipelineMiddleware:
+class TestToolPipelineMiddleware:
     """ToolPipeline middleware: timing, audit, rate_limit, callable hooks."""
 
     def _make_pipeline(self, actions=None):
@@ -964,7 +964,7 @@ class TestActionPipelineMiddleware:
         assert pipe.handler_count() == 2
 
 
-class TestActionPipelineTiming:
+class TestToolPipelineTiming:
     """ToolPipeline timing middleware."""
 
     def test_timing_last_elapsed_ms_after_dispatch(self):
@@ -1017,7 +1017,7 @@ class TestActionPipelineTiming:
         assert timing.last_elapsed_ms("b") is not None
 
 
-class TestActionPipelineAudit:
+class TestToolPipelineAudit:
     """ToolPipeline audit middleware."""
 
     def test_audit_empty_before_dispatch(self):
@@ -1146,7 +1146,7 @@ class TestActionPipelineAudit:
         assert audit.record_count() == 7
 
 
-class TestActionPipelineRateLimit:
+class TestToolPipelineRateLimit:
     """ToolPipeline rate_limit middleware."""
 
     def test_rate_limit_max_calls_property(self):
@@ -1223,7 +1223,7 @@ class TestActionPipelineRateLimit:
             pipe.dispatch("op", "{}")  # 3rd call should be rejected
 
 
-class TestActionPipelineCallable:
+class TestToolPipelineCallable:
     """ToolPipeline add_callable hooks."""
 
     def test_before_hook_called(self):

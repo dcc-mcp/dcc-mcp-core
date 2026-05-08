@@ -136,7 +136,7 @@ pub async fn handle_tools_call_inner(
 /// Returns `None` when the probe reports ready, so the caller can
 /// continue with the normal dispatch path. When the probe is red,
 /// returns a `JsonRpcResponse` carrying error code
-/// [`BACKEND_NOT_READY`](crate::protocol::error_codes::BACKEND_NOT_READY)
+/// [`BACKEND_NOT_READY`](dcc_mcp_jsonrpc::error_codes::BACKEND_NOT_READY)
 /// with a structured `data` payload echoing the three-state report so
 /// clients can back off with context.
 fn readiness_gate(
@@ -157,7 +157,7 @@ fn readiness_gate(
     );
     Some(JsonRpcResponse::error_with_data(
         req.id.clone(),
-        crate::protocol::error_codes::BACKEND_NOT_READY,
+        dcc_mcp_jsonrpc::error_codes::BACKEND_NOT_READY,
         format!(
             "Backend is not ready yet: process={}, dispatcher={}, dcc={}. \
              Refusing to queue `tools/call` for `{tool_name}` — retry once \

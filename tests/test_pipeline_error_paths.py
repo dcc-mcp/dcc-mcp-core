@@ -57,7 +57,7 @@ def _pipeline_with_handler(name: str = "op", raise_exc: bool = False) -> tuple[T
 # ---------------------------------------------------------------------------
 
 
-class TestActionDispatcherErrors:
+class TestToolDispatcherErrors:
     def test_dispatch_no_handler_raises_key_error(self):
         """dispatch() must raise KeyError if no handler is registered."""
         _, d = _reg_dispatcher("noop")
@@ -152,7 +152,7 @@ class TestActionDispatcherErrors:
 # ---------------------------------------------------------------------------
 
 
-class TestActionPipelineErrors:
+class TestToolPipelineErrors:
     def test_dispatch_no_handler_raises(self):
         """Pipeline dispatch raises when no handler registered."""
         reg = ToolRegistry()

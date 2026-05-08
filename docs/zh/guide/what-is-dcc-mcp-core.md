@@ -45,7 +45,7 @@ flowchart LR
 
 **关键架构决策**：
 
-1. **MCP 表面最小化（#657/#674，PR A 落地）** —— 网关的 `tools/list` **永远**只返回发现+派发的基础工具集，不管连了多少 DCC。per-action 的后端工具通过 `search_tools` / `describe_tool` / `call_tool` 动态发现和调用，绝不在 `tools/list` 里扇出。
+1. **MCP 表面最小化（#657/#674，PR A 落地）** —— 网关的 `tools/list` **永远**只返回发现+派发的基础工具集，不管连了多少 DCC。per-tool 的后端工具通过 `search_tools` / `describe_tool` / `call_tool` 动态发现和调用，绝不在 `tools/list` 里扇出。
 2. **REST 是调用面** —— 每个 per-DCC 服务都暴露完整的 `/v1/*` REST API，网关也把同样形状作为汇聚面板暴露。任何语言、任何客户端都能直接调用，不需要 MCP 协议栈。
 3. **单一契约** —— 网关 MCP 的 `call_tool` 和 REST `POST /v1/call` 走同一条 `call_service` 代码路径，输入/输出 envelope 完全一致（由 OpenAPI snapshot 测试锁定）。
 4. **渐进式发现** —— Agent 按需付费：`search_skills` → `load_skill` → `search_tools` → `describe_tool` → `call_tool`。

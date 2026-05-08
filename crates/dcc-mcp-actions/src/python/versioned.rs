@@ -4,7 +4,7 @@ use pyo3::prelude::*;
 #[cfg(feature = "stub-gen")]
 use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pymethods};
 
-use crate::registry::ActionMeta;
+use crate::registry::ToolMeta;
 use crate::versioned::{SemVer, VersionConstraint, VersionedRegistry};
 
 #[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
@@ -114,7 +114,7 @@ impl VersionedRegistry {
         category: &str,
         tags: Option<Vec<String>>,
     ) {
-        self.register(ActionMeta {
+        self.register(ToolMeta {
             name,
             dcc,
             version,
@@ -206,10 +206,10 @@ impl VersionedRegistry {
     }
 }
 
-/// Build a Python dict from an [`ActionMeta`] while holding the GIL.
+/// Build a Python dict from an [`ToolMeta`] while holding the GIL.
 fn build_action_meta_dict<'py>(
     py: Python<'py>,
-    meta: &ActionMeta,
+    meta: &ToolMeta,
 ) -> PyResult<Bound<'py, pyo3::types::PyDict>> {
     use pyo3::types::PyDict;
     let d = PyDict::new(py);

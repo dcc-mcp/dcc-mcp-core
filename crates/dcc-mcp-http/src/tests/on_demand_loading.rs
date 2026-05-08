@@ -177,7 +177,7 @@ pub async fn test_load_skill_then_tools_list_has_real_tools_not_stub() {
         "__skill__git-tools stub should still be present (not loaded), got: {names:?}"
     );
 
-    // The real tools carry a non-trivial inputSchema (set by ActionMeta).
+    // The real tools carry a non-trivial inputSchema (set by ToolMeta).
     let bevel_tool = tools.iter().find(|t| t["name"] == "bevel").unwrap();
     // inputSchema must be at least `{"type": "object"}` — not null/absent.
     assert!(

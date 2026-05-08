@@ -25,7 +25,7 @@
 //! ```
 //!
 //! Every collaborator is a **trait** — defaults wire to the existing
-//! [`dcc_mcp_skills::SkillCatalog`] and [`dcc_mcp_actions::ActionDispatcher`]
+//! [`dcc_mcp_skills::SkillCatalog`] and [`dcc_mcp_actions::ToolDispatcher`]
 //! but adapters (Maya/Blender/Houdini) may swap in their own impls to
 //! enforce host-specific thread affinity, auth, or audit semantics
 //! (Open/Closed + DIP). The router layer depends only on the service

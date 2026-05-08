@@ -83,7 +83,7 @@ class TestTelemetryConfig:
 # ── ToolRecorder ────────────────────────────────────────────────────────────
 
 
-class TestActionRecorder:
+class TestToolRecorder:
     def test_create_recorder(self) -> None:
         recorder = dcc_mcp_core.ToolRecorder("test-scope")
         assert recorder is not None
@@ -154,7 +154,7 @@ class TestActionRecorder:
 # ── ToolMetrics ─────────────────────────────────────────────────────────────
 
 
-class TestActionMetrics:
+class TestToolMetrics:
     def _make_metrics(self, successes: int = 3, failures: int = 1) -> dcc_mcp_core.ToolMetrics:
         recorder = dcc_mcp_core.ToolRecorder("scope-metrics")
         for _ in range(successes):
@@ -276,7 +276,7 @@ class TestTelemetryFunctions:
 # ── ToolRecorder — multi-DCC, p95/p99, and advanced metrics ────────────────
 
 
-class TestActionRecorderAdvanced:
+class TestToolRecorderAdvanced:
     def test_multi_action_all_metrics_length(self) -> None:
         """all_metrics returns one entry per distinct action name."""
         recorder = dcc_mcp_core.ToolRecorder("multi-scope")

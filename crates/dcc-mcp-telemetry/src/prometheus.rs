@@ -3,7 +3,7 @@
 //! This module is compiled only when the `prometheus` Cargo feature is
 //! enabled — when disabled, **zero** Prometheus code is pulled into the
 //! wheel. The exporter sits on top of the existing in-memory state
-//! tracked by [`crate::recorder::ActionRecorder`] / [`ToolMetrics`] and
+//! tracked by [`crate::recorder::ToolRecorder`] / [`ToolMetrics`] and
 //! a small set of additional counters / gauges that callers (the HTTP
 //! server, the `JobManager`, the notification pipe) push into at the
 //! points where they already emit tracing events.
@@ -41,7 +41,7 @@ use prometheus::{
     Opts, Registry, TextEncoder,
 };
 
-use crate::recorder::ActionRecorder;
+use crate::recorder::ToolRecorder;
 
 /// The content-type every Prometheus-compatible scraper expects.
 pub const PROMETHEUS_CONTENT_TYPE: &str = "text/plain; version=0.0.4; charset=utf-8";
@@ -87,13 +87,13 @@ struct Inner {
     #[allow(dead_code)]
     build_info: GaugeVec,
 
-    /// Optional bridge into the existing ActionRecorder. When set, a
-    /// scrape will refresh Prometheus counters from ActionRecorder
+    /// Optional bridge into the existing ToolRecorder. When set, a
+    /// scrape will refresh Prometheus counters from ToolRecorder
     /// aggregate state for tools that the exporter has not yet seen
     /// directly (e.g. tools that recorded calls before the exporter was
     /// attached). Not a hard dependency — the exporter works fine with
-    /// it unset, and `ActionRecorder` works fine without the exporter.
-    recorder: Mutex<Option<ActionRecorder>>,
+    /// it unset, and `ToolRecorder` works fine without the exporter.
+    recorder: Mutex<Option<ToolRecorder>>,
 }
 
 impl PrometheusExporter {
@@ -192,7 +192,7 @@ impl PrometheusExporter {
 
         let registered_tools = IntGauge::with_opts(Opts::new(
             "dcc_mcp_registered_tools",
-            "Number of tools currently registered in the ActionRegistry.",
+            "Number of tools currently registered in the ToolRegistry.",
         ))
         .expect("static metric definition");
         registry
@@ -285,11 +285,11 @@ impl PrometheusExporter {
         }
     }
 
-    /// Attach an [`ActionRecorder`] so scrapes can reconcile any counts
+    /// Attach an [`ToolRecorder`] so scrapes can reconcile any counts
     /// that were recorded on the recorder before the exporter was
     /// attached. Optional — call sites that record directly via
     /// [`record_tool_call`](Self::record_tool_call) do not need this.
-    pub fn with_recorder(self, recorder: ActionRecorder) -> Self {
+    pub fn with_recorder(self, recorder: ToolRecorder) -> Self {
         *self.inner.recorder.lock() = Some(recorder);
         self
     }
@@ -598,7 +598,7 @@ mod tests {
 
     #[test]
     fn reconcile_from_recorder_back_fills_counter() {
-        let recorder = ActionRecorder::new("test-scope");
+        let recorder = ToolRecorder::new("test-scope");
         recorder.start("my_tool", "maya").finish(true);
         recorder.start("my_tool", "maya").finish(true);
         recorder.start("my_tool", "maya").finish(false);

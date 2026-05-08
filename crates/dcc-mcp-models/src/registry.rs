@@ -1,4 +1,4 @@
-//! Shared registry contract for ActionRegistry / SkillCatalog /
+//! Shared registry contract for ToolRegistry / SkillCatalog /
 //! WorkflowCatalog (issue #489).
 //!
 //! # Design
@@ -10,7 +10,7 @@
 //! - [`DefaultRegistry<V>`] — thread-safe `HashMap`-backed default impl for
 //!   use cases that don't need specialised secondary indexes.
 //!
-//! `SkillCatalog` and `ActionRegistry` keep their existing `DashMap` storage;
+//! `SkillCatalog` and `ToolRegistry` keep their existing `DashMap` storage;
 //! `WorkflowCatalog` keeps its `Vec` with interior mutability via
 //! `parking_lot::RwLock`. Each simply adds an `impl Registry<V>` block that
 //! delegates to the existing methods.

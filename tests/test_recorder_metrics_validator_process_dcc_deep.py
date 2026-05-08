@@ -27,11 +27,11 @@ from dcc_mcp_core import ToolMetrics
 from dcc_mcp_core import ToolRecorder
 
 # ---------------------------------------------------------------------------
-# TestActionRecorder
+# TestToolRecorder
 # ---------------------------------------------------------------------------
 
 
-class TestActionRecorder:
+class TestToolRecorder:
     """Tests for ToolRecorder."""
 
     class TestHappyPath:
@@ -134,11 +134,11 @@ class TestActionRecorder:
 
 
 # ---------------------------------------------------------------------------
-# TestActionMetrics
+# TestToolMetrics
 # ---------------------------------------------------------------------------
 
 
-class TestActionMetrics:
+class TestToolMetrics:
     """Tests for ToolMetrics returned by ToolRecorder."""
 
     class TestHappyPath:

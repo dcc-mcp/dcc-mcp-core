@@ -14,7 +14,7 @@ use crate::handlers::{
     action_meta_to_mcp_tool, build_core_tools, build_group_stub, build_lazy_action_tools,
     build_skill_stub, refresh_roots_cache_for_session,
 };
-use crate::protocol::{
+use dcc_mcp_jsonrpc::{
     DELTA_TOOLS_UPDATE_CAP, ElicitationCapability, InitializeResult, JsonRpcRequest,
     JsonRpcResponse, ListToolsResult, LoggingCapability, McpTool, PromptsCapability,
     ResourcesCapability, ServerCapabilities, ServerInfo, TOOLS_LIST_PAGE_SIZE, ToolsCapability,
@@ -231,7 +231,7 @@ pub(crate) async fn handle_tools_list(
         .as_deref()
         == Some("2025-06-18");
 
-    // 2. Loaded skill tools — full definitions from ActionRegistry.
+    // 2. Loaded skill tools — full definitions from ToolRegistry.
     //    Tools in inactive groups are collapsed into one ``__group__<name>``
     //    stub per group to keep ``tools/list`` compact (progressive exposure).
     let actions = state.registry.list_actions(None);
@@ -240,19 +240,19 @@ pub(crate) async fn handle_tools_list(
     // this instance. `bare_eligible` contains `(skill, action)` tuples for
     // every action whose bare name is unique across loaded skills.
     let bare_eligible: std::collections::HashSet<(String, String)> = if state.bare_tool_names {
-        let inputs: Vec<crate::gateway::namespace::BareNameInput<'_>> = actions
+        let inputs: Vec<dcc_mcp_gateway::namespace::BareNameInput<'_>> = actions
             .iter()
             .filter(|m| m.enabled)
             .filter_map(|m| {
                 m.skill_name
                     .as_deref()
-                    .map(|sn| crate::gateway::namespace::BareNameInput {
+                    .map(|sn| dcc_mcp_gateway::namespace::BareNameInput {
                         skill_name: sn,
                         action_name: m.name.as_str(),
                     })
             })
             .collect();
-        crate::gateway::namespace::resolve_bare_names(&inputs)
+        dcc_mcp_gateway::namespace::resolve_bare_names(&inputs)
     } else {
         std::collections::HashSet::new()
     };

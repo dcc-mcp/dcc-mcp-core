@@ -188,13 +188,13 @@ impl SkillCatalog {
         }
     }
 
-    /// Get a reference to the underlying ActionRegistry.
-    pub fn registry(&self) -> &Arc<ActionRegistry> {
+    /// Get a reference to the underlying ToolRegistry.
+    pub fn registry(&self) -> &Arc<ToolRegistry> {
         &self.registry
     }
 
     /// Get a reference to the attached dispatcher, if any.
-    pub fn dispatcher(&self) -> Option<&Arc<ActionDispatcher>> {
+    pub fn dispatcher(&self) -> Option<&Arc<ToolDispatcher>> {
         self.dispatcher.as_ref()
     }
 }

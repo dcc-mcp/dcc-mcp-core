@@ -15,11 +15,11 @@
 //! // primitives — see `dcc_mcp_gateway::gateway::{GatewayConfig,
 //! // GatewayRunner}` for the direct API.
 //! use dcc_mcp_http::{McpHttpConfig, McpHttpServer};
-//! use dcc_mcp_actions::ActionRegistry;
+//! use dcc_mcp_actions::ToolRegistry;
 //! use std::sync::Arc;
 //!
 //! # #[tokio::main] async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! let registry = Arc::new(ActionRegistry::new());
+//! let registry = Arc::new(ToolRegistry::new());
 //! let config = McpHttpConfig::new(0)
 //!     .with_name("maya")
 //!     .with_dcc_type("maya")

@@ -104,7 +104,7 @@ runnable example.
 ### Capability-Based Filtering
 
 Tools may declare the host-DCC capabilities they rely on at registration time.
-The registry stores the declaration on `ActionMeta.required_capabilities`; the
+The registry stores the declaration on `ToolMeta.required_capabilities`; the
 Gateway / adapter layer is responsible for hiding the tool from `tools/list`
 when the current session advertises none or a subset of those capabilities.
 

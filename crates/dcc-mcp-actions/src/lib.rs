@@ -1,4 +1,4 @@
-//! dcc-mcp-actions: ActionRegistry, EventBus, ActionDispatcher, ActionValidator, VersionedRegistry, ActionPipeline, ActionChain.
+//! dcc-mcp-actions: ToolRegistry, EventBus, ToolDispatcher, ToolValidator, VersionedRegistry, ToolPipeline, ActionChain.
 
 pub mod chain;
 pub mod dispatcher;
@@ -12,19 +12,14 @@ pub mod validator;
 pub mod versioned;
 
 pub use chain::{ActionChain, ChainResult, ChainStepResult, ErrorAction};
-pub use dispatcher::ActionDispatcher as ToolDispatcher;
-pub use dispatcher::{ActionDispatcher, DispatchError, DispatchResult, HandlerFn};
+pub use dispatcher::{DispatchError, DispatchResult, HandlerFn, ToolDispatcher};
 pub use events::EventBus;
-pub use pipeline::ActionPipeline as ToolPipeline;
 pub use pipeline::{
-    ActionMiddleware, ActionPipeline, AuditMiddleware, AuditRecord, LoggingMiddleware,
-    MiddlewareContext, RateLimitMiddleware, TimingMiddleware,
+    ActionMiddleware, AuditMiddleware, AuditRecord, LoggingMiddleware, MiddlewareContext,
+    RateLimitMiddleware, TimingMiddleware, ToolPipeline,
 };
-pub use registry::ActionMeta;
-pub use registry::ActionRegistry;
-pub use registry::ActionRegistry as ToolRegistry;
-pub use validator::ActionValidator as ToolValidator;
-pub use validator::{ActionValidator, ValidationError, ValidationResult};
+pub use registry::{ToolMeta, ToolRegistry};
+pub use validator::{ToolValidator, ValidationError, ValidationResult};
 pub use versioned::{
     CompatibilityRouter, SemVer, VersionConstraint, VersionParseError, VersionedRegistry,
 };

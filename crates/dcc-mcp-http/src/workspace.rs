@@ -32,7 +32,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::protocol::ClientRoot;
+use dcc_mcp_jsonrpc::ClientRoot;
 
 /// Error produced by [`WorkspaceRoots::resolve`].
 #[derive(Debug, Clone, PartialEq, Eq)]

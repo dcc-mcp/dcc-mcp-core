@@ -7,8 +7,8 @@ use tokio::sync::RwLock;
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
 use dcc_mcp_transport::discovery::types::ServiceEntry;
 
-use crate::gateway::router::build_gateway_router;
-use crate::gateway::state::GatewayState;
+use dcc_mcp_gateway::router::build_gateway_router;
+use dcc_mcp_gateway::state::GatewayState;
 
 fn make_gateway_state() -> GatewayState {
     let dir = tempfile::tempdir().unwrap();
@@ -32,16 +32,16 @@ fn make_gateway_state() -> GatewayState {
         protocol_version: Arc::new(RwLock::new(None)),
         resource_subscriptions: Arc::new(RwLock::new(std::collections::HashMap::new())),
         pending_calls: Arc::new(RwLock::new(std::collections::HashMap::new())),
-        subscriber: crate::gateway::sse_subscriber::SubscriberManager::default(),
+        subscriber: dcc_mcp_gateway::sse_subscriber::SubscriberManager::default(),
         allow_unknown_tools: false,
         adapter_version: None,
         adapter_dcc: None,
         cursor_safe_tool_names: true,
-        capability_index: std::sync::Arc::new(crate::gateway::capability::CapabilityIndex::new()),
-        event_log: std::sync::Arc::new(crate::gateway::event_log::EventLog::new()),
+        capability_index: std::sync::Arc::new(dcc_mcp_gateway::capability::CapabilityIndex::new()),
+        event_log: std::sync::Arc::new(dcc_mcp_gateway::event_log::EventLog::new()),
         #[cfg(feature = "prometheus")]
-        gateway_metrics: std::sync::Arc::new(crate::gateway::event_log::GatewayMetrics::new()),
-        middleware_chain: std::sync::Arc::new(crate::gateway::middleware::MiddlewareChain::new()),
+        gateway_metrics: std::sync::Arc::new(dcc_mcp_gateway::event_log::GatewayMetrics::new()),
+        middleware_chain: std::sync::Arc::new(dcc_mcp_gateway::middleware::MiddlewareChain::new()),
     }
 }
 

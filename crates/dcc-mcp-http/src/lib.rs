@@ -22,11 +22,11 @@
 //!
 //! ```rust,no_run
 //! use dcc_mcp_http::{McpHttpServer, McpHttpConfig};
-//! use dcc_mcp_actions::ActionRegistry;
+//! use dcc_mcp_actions::ToolRegistry;
 //! use std::sync::Arc;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let registry = Arc::new(ActionRegistry::new());
+//! let registry = Arc::new(ToolRegistry::new());
 //! let config = McpHttpConfig::new(8765);
 //!
 //! let server = McpHttpServer::new(registry, config);
@@ -43,18 +43,9 @@ pub mod config;
 pub mod dynamic_tools;
 pub mod error;
 pub mod executor;
-pub mod host_bridge;
-/// Re-export of [`dcc_mcp_gateway`] under the historical
-/// `dcc_mcp_http::gateway` path.
-///
-/// The multi-DCC gateway lives in its own crate now (it is the
-/// largest module by far — ~11k LoC across 53 files). Touching
-/// gateway internals no longer triggers a full rebuild of the
-/// embedded MCP HTTP server, and downstream binaries that don't
-/// participate in gateway election can avoid pulling it in.
-pub use dcc_mcp_gateway as gateway;
 pub mod handler;
 pub(crate) mod handlers;
+pub mod host_bridge;
 pub mod inflight;
 /// Re-export of [`dcc_mcp_job::job`] under the historical
 /// `dcc_mcp_http::job` path. The job tracker now lives in its own
@@ -68,26 +59,12 @@ pub use dcc_mcp_job::job_storage;
 pub mod notifications;
 pub mod output;
 pub mod payload;
-/// Re-export of [`dcc_mcp_jsonrpc`] under the historical
-/// `dcc_mcp_http::protocol` path.
-///
-/// The MCP wire types live in their own crate now; this alias keeps
-/// every existing `use crate::protocol::*` and downstream
-/// `dcc_mcp_http::protocol::*` import working without a code change.
-pub use dcc_mcp_jsonrpc as protocol;
 pub mod prompts;
 pub mod resource_link;
 pub mod resources;
 pub(crate) mod rest_providers;
 pub mod server;
 pub mod session;
-/// Re-export of [`dcc_mcp_skill_rest`] under the historical
-/// `dcc_mcp_http::skill_rest` path.
-///
-/// The per-DCC RESTful skill surface (#658, #660) lives in its own
-/// crate now; this alias keeps every existing import working without
-/// a code change.
-pub use dcc_mcp_skill_rest as skill_rest;
 pub mod workspace;
 
 #[cfg(feature = "prometheus")]
@@ -99,10 +76,16 @@ pub mod python;
 // Re-exports
 pub use bridge_registry::{BridgeContext, BridgeRegistry};
 pub use config::{McpHttpConfig, ServerSpawnMode};
+pub use dcc_mcp_gateway::{GatewayConfig, GatewayHandle, GatewayRunner};
+pub use dcc_mcp_skill_rest::{
+    AllowLocalhostGate, AuditEvent, AuditOutcome, AuditSink, AuthGate, BearerTokenGate,
+    NoopAuditSink, Principal, ReadinessProbe, ReadinessReport, ServiceError, ServiceErrorKind,
+    SkillRestConfig, SkillRestService, StaticReadiness, ToolInvoker, ToolSlug, VecAuditSink,
+    build_skill_rest_router,
+};
 pub use dynamic_tools::{DYNAMIC_TOOL_PREFIX, DynamicToolError, SessionDynamicTools, ToolSpec};
 pub use error::{HttpError, HttpResult};
 pub use executor::{DccExecutorHandle, DeferredExecutor, ExecutorQueueStats};
-pub use gateway::{GatewayConfig, GatewayHandle, GatewayRunner};
 pub use job::{Job, JobEvent, JobManager, JobProgress, JobStatus, JobSubscriber};
 #[cfg(feature = "job-persist-sqlite")]
 pub use job_storage::SqliteStorage;
@@ -119,12 +102,6 @@ pub use resources::{
 };
 pub use server::{McpHttpServer, McpServerHandle};
 pub use session::SessionManager;
-pub use skill_rest::{
-    AllowLocalhostGate, AuditEvent, AuditOutcome, AuditSink, AuthGate, BearerTokenGate,
-    NoopAuditSink, Principal, ReadinessProbe, ReadinessReport, ServiceError, ServiceErrorKind,
-    SkillRestConfig, SkillRestService, StaticReadiness, ToolInvoker, ToolSlug, VecAuditSink,
-    build_skill_rest_router,
-};
 pub use workspace::{WorkspaceResolveError, WorkspaceRoots};
 
 #[cfg(feature = "python-bindings")]

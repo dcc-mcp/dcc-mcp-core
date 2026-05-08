@@ -1,9 +1,9 @@
-//! Basic ActionPipeline tests.
+//! Basic ToolPipeline tests.
 
 use super::fixtures::make_pipeline_with_echo;
 use super::*;
 
-// ── ActionPipeline basics ────────────────────────────────────────────────
+// ── ToolPipeline basics ────────────────────────────────────────────────
 
 #[test]
 fn test_pipeline_no_middleware_dispatch() {

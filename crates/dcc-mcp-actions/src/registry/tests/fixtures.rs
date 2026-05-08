@@ -2,8 +2,8 @@
 
 use super::*;
 
-pub fn make_action(name: &str, dcc: &str) -> ActionMeta {
-    ActionMeta {
+pub fn make_action(name: &str, dcc: &str) -> ToolMeta {
+    ToolMeta {
         name: name.into(),
         description: format!("{name} description"),
         category: "geometry".into(),
@@ -14,8 +14,8 @@ pub fn make_action(name: &str, dcc: &str) -> ActionMeta {
     }
 }
 
-pub fn make_rich_action(name: &str, dcc: &str, category: &str, tags: Vec<&str>) -> ActionMeta {
-    ActionMeta {
+pub fn make_rich_action(name: &str, dcc: &str, category: &str, tags: Vec<&str>) -> ToolMeta {
+    ToolMeta {
         name: name.into(),
         description: format!("{name} desc"),
         category: category.into(),
@@ -26,8 +26,8 @@ pub fn make_rich_action(name: &str, dcc: &str, category: &str, tags: Vec<&str>) 
     }
 }
 
-pub fn populate_search_registry() -> ActionRegistry {
-    let reg = ActionRegistry::new();
+pub fn populate_search_registry() -> ToolRegistry {
+    let reg = ToolRegistry::new();
     reg.register_action(make_rich_action(
         "create_sphere",
         "maya",

@@ -44,7 +44,7 @@ use uuid::Uuid;
 
 use crate::approval::{ApprovalGate, ApprovalResponse};
 use crate::callers::{
-    ActionDispatcherCaller, NullRemoteCaller, SharedRemoteCaller, SharedToolCaller,
+    NullRemoteCaller, SharedRemoteCaller, SharedToolCaller, ToolDispatcherCaller,
 };
 use crate::context::{StepOutput, WorkflowContext};
 use crate::error::WorkflowError;

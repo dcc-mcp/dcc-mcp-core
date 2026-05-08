@@ -411,7 +411,7 @@ class TestPyProcessMonitorQuery:
 # ---------------------------------------------------------------------------
 
 
-class TestActionValidatorFromRegistry:
+class TestToolValidatorFromRegistry:
     def _make_registry_with_schema(self):
         schema = '{"type": "object", "properties": {"radius": {"type": "number"}}, "required": ["radius"]}'
         reg = ToolRegistry()

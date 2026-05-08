@@ -43,7 +43,7 @@ def _make_registry_dispatcher(name: str = "ping", schema: str = ""):
 # ---------------------------------------------------------------------------
 
 
-class TestActionDispatcherHappyPath:
+class TestToolDispatcherHappyPath:
     def test_dispatch_returns_output(self):
         _, d = _make_registry_dispatcher("echo")
         d.register_handler("echo", lambda p: p)
@@ -106,7 +106,7 @@ class TestActionDispatcherHappyPath:
 # ---------------------------------------------------------------------------
 
 
-class TestActionDispatcherSchemaValidation:
+class TestToolDispatcherSchemaValidation:
     def test_valid_params_schema_not_skipped(self):
         schema = json.dumps(
             {
@@ -151,7 +151,7 @@ class TestActionDispatcherSchemaValidation:
 # ---------------------------------------------------------------------------
 
 
-class TestActionDispatcherErrorPath:
+class TestToolDispatcherErrorPath:
     def test_dispatch_no_handler_raises_key_error(self):
         _, d = _make_registry_dispatcher("unregistered")
         with pytest.raises(KeyError):
@@ -178,7 +178,7 @@ class TestActionDispatcherErrorPath:
 # ---------------------------------------------------------------------------
 
 
-class TestActionDispatcherHandlerManagement:
+class TestToolDispatcherHandlerManagement:
     def test_register_handler_increments_count(self):
         _, d = _make_registry_dispatcher("a")
         assert d.handler_count() == 0
@@ -233,7 +233,7 @@ class TestActionDispatcherHandlerManagement:
 # ---------------------------------------------------------------------------
 
 
-class TestActionPipelineMiddlewareNames:
+class TestToolPipelineMiddlewareNames:
     def _make_pipeline(self) -> ToolPipeline:
         reg = ToolRegistry()
         reg.register("ping")
@@ -297,7 +297,7 @@ class TestActionPipelineMiddlewareNames:
 # ---------------------------------------------------------------------------
 
 
-class TestActionPipelineHandlerCount:
+class TestToolPipelineHandlerCount:
     def test_handler_count_initially_mirrors_dispatcher(self):
         reg = ToolRegistry()
         reg.register("a")
@@ -323,7 +323,7 @@ class TestActionPipelineHandlerCount:
 # ---------------------------------------------------------------------------
 
 
-class TestActionPipelineDispatchRoundTrip:
+class TestToolPipelineDispatchRoundTrip:
     def _setup(self):
         reg = ToolRegistry()
         reg.register("create_sphere")

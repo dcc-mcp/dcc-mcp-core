@@ -17,7 +17,7 @@ use crate::{
     inflight::InFlightRequests,
     session::SessionManager,
 };
-use dcc_mcp_actions::{ActionDispatcher, ActionRegistry};
+use dcc_mcp_actions::{ToolDispatcher, ToolRegistry};
 use dcc_mcp_skill_rest::ReadinessProbe;
 use dcc_mcp_skills::SkillCatalog;
 
@@ -68,7 +68,7 @@ pub struct McpServerHandle {
     /// `true` if this process won the gateway port competition.
     pub is_gateway: bool,
     // Keep the GatewayHandle alive so background tasks keep running.
-    _gateway: Option<crate::gateway::GatewayHandle>,
+    _gateway: Option<dcc_mcp_gateway::GatewayHandle>,
 }
 
 impl McpServerHandle {
@@ -149,8 +149,8 @@ pub(crate) fn build_resource_registry(
 }
 
 pub struct McpHttpServer {
-    registry: Arc<ActionRegistry>,
-    dispatcher: Arc<ActionDispatcher>,
+    registry: Arc<ToolRegistry>,
+    dispatcher: Arc<ToolDispatcher>,
     catalog: Option<Arc<SkillCatalog>>,
     config: McpHttpConfig,
     executor: Option<DccExecutorHandle>,
@@ -169,11 +169,11 @@ pub struct McpHttpServer {
 impl McpHttpServer {
     /// Create a new server with the given registry and config.
     ///
-    /// A `SkillCatalog` and `ActionDispatcher` are created automatically,
+    /// A `SkillCatalog` and `ToolDispatcher` are created automatically,
     /// both backed by the same registry. The catalog is pre-wired to the
     /// dispatcher so that `load_skill` auto-registers script handlers.
-    pub fn new(registry: Arc<ActionRegistry>, config: McpHttpConfig) -> Self {
-        let dispatcher = Arc::new(ActionDispatcher::new((*registry).clone()));
+    pub fn new(registry: Arc<ToolRegistry>, config: McpHttpConfig) -> Self {
+        let dispatcher = Arc::new(ToolDispatcher::new((*registry).clone()));
         let catalog = Arc::new(SkillCatalog::new_with_dispatcher(
             registry.clone(),
             dispatcher.clone(),
@@ -200,14 +200,14 @@ impl McpHttpServer {
 
     /// Create a server with an explicit SkillCatalog.
     pub fn with_catalog(
-        registry: Arc<ActionRegistry>,
+        registry: Arc<ToolRegistry>,
         catalog: Arc<SkillCatalog>,
         config: McpHttpConfig,
     ) -> Self {
         let dispatcher = catalog
             .dispatcher()
             .cloned()
-            .unwrap_or_else(|| Arc::new(ActionDispatcher::new((*registry).clone())));
+            .unwrap_or_else(|| Arc::new(ToolDispatcher::new((*registry).clone())));
         let resources = build_resource_registry(&config);
         let prompts = crate::prompts::PromptRegistry::new(config.features.enable_prompts);
         let live_meta: LiveMeta = Arc::new(RwLock::new(LiveMetaInner {
@@ -287,11 +287,11 @@ impl McpHttpServer {
         self
     }
 
-    /// Attach an [`ActionDispatcher`] with pre-registered handlers.
+    /// Attach an [`ToolDispatcher`] with pre-registered handlers.
     ///
     /// Use this when handlers are registered before starting the server.
-    /// The dispatcher should be backed by the same [`ActionRegistry`].
-    pub fn with_dispatcher(mut self, dispatcher: Arc<ActionDispatcher>) -> Self {
+    /// The dispatcher should be backed by the same [`ToolRegistry`].
+    pub fn with_dispatcher(mut self, dispatcher: Arc<ToolDispatcher>) -> Self {
         self.dispatcher = dispatcher;
         self
     }
@@ -618,7 +618,7 @@ impl McpHttpServer {
 /// Useful when embedding in Python via `block_on`.
 pub fn start_in_runtime(
     runtime: &tokio::runtime::Runtime,
-    registry: Arc<ActionRegistry>,
+    registry: Arc<ToolRegistry>,
     config: McpHttpConfig,
 ) -> HttpResult<McpServerHandle> {
     runtime.block_on(async { McpHttpServer::new(registry, config).start().await })

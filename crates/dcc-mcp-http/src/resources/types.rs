@@ -3,7 +3,7 @@
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 
-use crate::protocol::{McpResource, ResourceContents};
+use dcc_mcp_jsonrpc::{McpResource, ResourceContents};
 
 /// Content returned by a [`ResourceProducer`].
 pub enum ProducerContent {

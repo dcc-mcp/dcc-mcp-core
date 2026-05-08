@@ -18,7 +18,7 @@ use crate::handlers::{
     handle_resources_list, handle_resources_read, handle_resources_subscribe,
     handle_resources_unsubscribe, handle_tools_call,
 };
-use crate::protocol::{JsonRpcRequest, JsonRpcResponse, LOGGING_SET_LEVEL_METHOD};
+use dcc_mcp_jsonrpc::{JsonRpcRequest, JsonRpcResponse, LOGGING_SET_LEVEL_METHOD};
 
 /// Register every built-in MCP method into `router`.
 pub(crate) fn register_builtins(router: &MethodRouter) {

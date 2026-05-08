@@ -1,7 +1,7 @@
 use super::*;
 
 impl SkillCatalog {
-    /// Load a skill by name — registers its tools into ActionRegistry and,
+    /// Load a skill by name — registers its tools into ToolRegistry and,
     /// if a dispatcher is attached, auto-registers script execution handlers.
     pub fn load_skill(&self, skill_name: &str) -> Result<Vec<String>, String> {
         if self.loaded.contains(skill_name) {
@@ -47,7 +47,7 @@ impl SkillCatalog {
                 ));
             }
 
-            let meta = ActionMeta {
+            let meta = ToolMeta {
                 name: action_name.clone(),
                 description: if tool_decl.description.is_empty() {
                     format!("[{}] {}", metadata.name, metadata.description)
@@ -115,7 +115,7 @@ impl SkillCatalog {
                     .unwrap_or("unknown");
                 let action_name = format!("{}__{}", skill_base, stem.replace('-', "_"));
 
-                let meta = ActionMeta {
+                let meta = ToolMeta {
                     name: action_name.clone(),
                     description: format!("[{}] {}", metadata.name, metadata.description),
                     category: metadata.tags.first().cloned().unwrap_or_default(),
@@ -198,7 +198,7 @@ impl SkillCatalog {
         results
     }
 
-    /// Unload a skill — removes its tools from ActionRegistry and dispatcher.
+    /// Unload a skill — removes its tools from ToolRegistry and dispatcher.
     pub fn unload_skill(&self, skill_name: &str) -> Result<usize, String> {
         if !self.loaded.contains(skill_name) {
             return Err(format!("Skill '{skill_name}' is not loaded"));

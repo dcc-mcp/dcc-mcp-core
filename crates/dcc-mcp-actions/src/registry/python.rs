@@ -6,7 +6,7 @@ use pyo3_stub_gen_derive::gen_stub_pymethods;
 
 #[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
-impl ActionRegistry {
+impl ToolRegistry {
     #[new]
     fn py_new() -> Self {
         Self::new()
@@ -138,7 +138,7 @@ impl ActionRegistry {
             let output_schema =
                 parse_schema_or_default(output_schema_str.as_deref(), "output_schema", &name);
 
-            self.register_action(ActionMeta {
+            self.register_action(ToolMeta {
                 name,
                 description,
                 category,
@@ -206,7 +206,7 @@ impl ActionRegistry {
             ))
         })?;
 
-        self.register_action(ActionMeta {
+        self.register_action(ToolMeta {
             name,
             description,
             category,
@@ -371,7 +371,7 @@ fn parse_schema_or_default(
 }
 
 #[cfg(feature = "python-bindings")]
-fn action_meta_to_py(py: Python, meta: &ActionMeta) -> PyResult<Py<PyAny>> {
+fn action_meta_to_py(py: Python, meta: &ToolMeta) -> PyResult<Py<PyAny>> {
     let json_val = serde_json::to_value(meta)
         .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
     json_value_to_pyobject(py, &json_val)

@@ -71,7 +71,7 @@ recorder = ToolRecorder("my-service")
 | Method | Returns | Description |
 |--------|---------|-------------|
 | `start(action_name, dcc_name)` | `RecordingGuard` | Start timing a tool; returns a RAII guard |
-| `metrics(action_name)` | `ToolMetrics \| None` | Aggregated metrics for a specific action; `None` if no data |
+| `metrics(action_name)` | `ToolMetrics \| None` | Aggregated metrics for a specific tool; `None` if no data |
 | `all_metrics()` | `list[ToolMetrics]` | Aggregated metrics for all recorded actions |
 | `reset()` | `None` | Clear all in-memory statistics |
 
@@ -126,7 +126,7 @@ Read-only snapshot of per-tool performance metrics. Obtained from `ToolRecorder.
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `action_name` | `str` | Action this metric belongs to |
+| `action_name` | `str` | Tool this metric belongs to |
 | `invocation_count` | `int` | Total number of calls recorded |
 | `success_count` | `int` | Number of successful calls |
 | `failure_count` | `int` | Number of failed calls |

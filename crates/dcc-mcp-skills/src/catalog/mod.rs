@@ -2,14 +2,14 @@
 //!
 //! Manages a catalog of discovered skills and their load state. Skills are
 //! discovered via `SkillScanner`/`SkillWatcher`, and their tools are registered
-//! into `ActionRegistry` on demand via `load_skill` / `unload_skill`.
+//! into `ToolRegistry` on demand via `load_skill` / `unload_skill`.
 //!
 //! # Architecture
 //!
 //! ```text
 //! [SKILL.md files] --scan--> SkillEntry(Discovered) --load_skill--> SkillEntry(Loaded)
 //!                                    │                                    │
-//!                              search_skills()                     tools in ActionRegistry
+//!                              search_skills()                     tools in ToolRegistry
 //!                              list_skills()                     + tools/list_changed notification
 //!                              get_skill_info()
 //! ```
@@ -18,10 +18,10 @@
 //!
 //! ```no_run
 //! use dcc_mcp_skills::catalog::SkillCatalog;
-//! use dcc_mcp_actions::ActionRegistry;
+//! use dcc_mcp_actions::ToolRegistry;
 //! use std::sync::Arc;
 //!
-//! let registry = Arc::new(ActionRegistry::new());
+//! let registry = Arc::new(ToolRegistry::new());
 //! let catalog = SkillCatalog::new(registry);
 //!
 //! // Discover skills from standard paths
@@ -30,7 +30,7 @@
 //! // Search for skills
 //! let results = catalog.search_skills(Some("modeling"), &[], Some("maya"), None, None);
 //!
-//! // Load a skill — registers its tools in ActionRegistry
+//! // Load a skill — registers its tools in ToolRegistry
 //! let loaded = catalog.load_skill("modeling-bevel");
 //! ```
 
@@ -47,8 +47,8 @@ use pyo3_stub_gen_derive::gen_stub_pyclass;
 
 use dashmap::{DashMap, DashSet};
 use dcc_mcp_actions::{
-    ActionDispatcher,
-    registry::{ActionMeta, ActionRegistry},
+    ToolDispatcher,
+    registry::{ToolMeta, ToolRegistry},
 };
 use dcc_mcp_models::registry::{Registry, SearchQuery};
 use dcc_mcp_models::{RegistryEntry as _, SkillGroup, SkillMetadata, SkillScope};
@@ -93,10 +93,10 @@ pub struct SkillCatalog {
     pub(super) entries: DashMap<String, SkillEntry>,
     /// Set of skill names currently loaded.
     pub(super) loaded: DashSet<String>,
-    /// Reference to ActionRegistry for registering/unregistering tools.
-    pub(super) registry: Arc<ActionRegistry>,
+    /// Reference to ToolRegistry for registering/unregistering tools.
+    pub(super) registry: Arc<ToolRegistry>,
     /// Optional dispatcher for auto-registering script handlers on load.
-    pub(super) dispatcher: Option<Arc<ActionDispatcher>>,
+    pub(super) dispatcher: Option<Arc<ToolDispatcher>>,
     /// Optional in-process script executor.
     ///
     /// When set, skill scripts are run inside the current Python interpreter

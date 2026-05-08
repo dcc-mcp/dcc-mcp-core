@@ -1,7 +1,7 @@
 //! Action parameter validation against JSON Schema.
 //!
-//! Provides [`ActionValidator`] which validates a `serde_json::Value` payload
-//! against a JSON Schema stored in [`crate::registry::ActionMeta`].
+//! Provides [`ToolValidator`] which validates a `serde_json::Value` payload
+//! against a JSON Schema stored in [`crate::registry::ToolMeta`].
 //!
 //! ## Supported schema keywords
 //!
@@ -19,7 +19,7 @@
 use serde_json::Value;
 use std::fmt;
 
-use crate::registry::ActionMeta;
+use crate::registry::ToolMeta;
 
 // ── ValidationError ───────────────────────────────────────────────────────────
 
@@ -65,18 +65,18 @@ impl ValidationResult {
     }
 }
 
-// ── ActionValidator ───────────────────────────────────────────────────────────
+// ── ToolValidator ───────────────────────────────────────────────────────────
 
 /// Validates an Action's parameters against its JSON Schema.
 ///
 /// # Example
 ///
 /// ```no_run
-/// use dcc_mcp_actions::registry::ActionMeta;
-/// use dcc_mcp_actions::validator::ActionValidator;
+/// use dcc_mcp_actions::registry::ToolMeta;
+/// use dcc_mcp_actions::validator::ToolValidator;
 /// use serde_json::json;
 ///
-/// let meta = ActionMeta {
+/// let meta = ToolMeta {
 ///     name: "create_sphere".into(),
 ///     dcc: "maya".into(),
 ///     input_schema: json!({
@@ -90,20 +90,20 @@ impl ValidationResult {
 ///     ..Default::default()
 /// };
 ///
-/// let validator = ActionValidator::new(&meta);
+/// let validator = ToolValidator::new(&meta);
 /// assert!(validator.validate_input(&json!({"radius": 1.0})).is_valid());
 /// assert!(!validator.validate_input(&json!({"radius": -1.0})).is_valid());
 /// assert!(!validator.validate_input(&json!({})).is_valid()); // missing required
 /// ```
 #[derive(Debug, Clone)]
-pub struct ActionValidator {
+pub struct ToolValidator {
     schema: Value,
 }
 
-impl ActionValidator {
+impl ToolValidator {
     /// Create a validator from action metadata.
     #[must_use]
-    pub fn new(meta: &ActionMeta) -> Self {
+    pub fn new(meta: &ToolMeta) -> Self {
         Self {
             schema: meta.input_schema.clone(),
         }
