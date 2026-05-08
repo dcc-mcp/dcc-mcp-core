@@ -1,21 +1,42 @@
-//! Thin JSON-RPC client used by the gateway to talk to each backend DCC server.
+//! HTTP client used by the gateway to talk to each backend DCC server.
 //!
-//! Each backend is a full `McpHttpServer` listening on `http://{host}:{port}/mcp`.
-//! The gateway calls `tools/list` and `tools/call` on them to aggregate the
-//! facade-style unified MCP endpoint exposed by the gateway itself.
+//! ## Architecture after #818 phase 2
 //!
-//! Intentionally stateless and session-less: backends accept `tools/list` /
-//! `tools/call` without a prior `initialize` handshake (see `dispatch_request`
-//! in `handler.rs`), which keeps the client trivial and race-free under
-//! parallel fan-out.
+//! Backends are `McpHttpServer` instances listening on
+//! `http://{host}:{port}`.  The gateway historically spoke MCP JSON-RPC
+//! (`/mcp`) to them for every operation.  After #818 phase 2 every
+//! per-backend call goes through the per-DCC REST surface (`/v1/*`)
+//! instead:
+//!
+//! | Operation            | Was (MCP JSON-RPC)      | Now (REST)              |
+//! |----------------------|-------------------------|-------------------------|
+//! | list tools           | `tools/list`            | `GET  /v1/search`       |
+//! | call a tool          | `tools/call`            | `POST /v1/call`         |
+//! | list prompts         | `prompts/list`          | `GET  /v1/prompts`      |
+//! | render a prompt      | `prompts/get`           | `GET  /v1/prompts/{n}`  |
+//! | list resources       | `resources/list`        | `GET  /v1/resources`    |
+//! | read a resource      | `resources/read`        | `GET  /v1/resources/{u}`|
+//! | liveness             | `GET /health`           | `GET /health` (unchanged)|
+//! | readiness            | `GET /v1/readyz`        | `GET /v1/readyz` (unchanged)|
+//!
+//! The gateway MCP client face (`/mcp`) is **unchanged** — this file
+//! only affects how the gateway contacts *backends*.
+//!
+//! `subscribe_resource` (backed by the SSE subscriber pool) is retained
+//! until #818 phase 3 when `sse_subscriber.rs` is retired.
 
 use std::fmt;
 use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use dcc_mcp_jsonrpc::{JsonRpcRequestBuilder, JsonRpcResponse, McpPrompt, McpTool};
+// McpTool / McpPrompt are still used by callers of fetch_tools / fetch_prompts
+// (capability index, aggregator). The REST surface returns compatible JSON so
+// the deserialization path is unchanged.
+use dcc_mcp_jsonrpc::{McpPrompt, McpTool};
 use dcc_mcp_skill_rest::ReadinessReport;
+
+// ── URL helpers ────────────────────────────────────────────────────────
 
 /// Build the lightweight HTTP health URL that identifies a real MCP backend.
 pub(crate) fn health_url_from_mcp_url(mcp_url: &str) -> String {
@@ -37,6 +58,20 @@ pub(crate) fn readyz_url_from_mcp_url(mcp_url: &str) -> String {
         .strip_suffix("/mcp")
         .map(|base| format!("{base}/v1/readyz"))
         .unwrap_or_else(|| format!("{}/v1/readyz", mcp_url.trim_end_matches('/')))
+}
+
+/// Derive the per-DCC REST base path from the MCP endpoint URL.
+///
+/// `http://host:port/mcp` → `http://host:port`
+///
+/// This is the root onto which `/v1/{search,call,prompts,resources,...}`
+/// are appended.  Used by all REST-based backend calls (#818 phase 2).
+pub(crate) fn rest_base_from_mcp_url(mcp_url: &str) -> String {
+    mcp_url
+        .trim_end_matches('/')
+        .strip_suffix("/mcp")
+        .map(str::to_owned)
+        .unwrap_or_else(|| mcp_url.trim_end_matches('/').to_owned())
 }
 
 /// Outcome of the gateway's three-state readiness probe (#713).
@@ -248,13 +283,9 @@ pub(crate) async fn probe_mcp_health(
 
 /// Call a JSON-RPC method on a backend `/mcp` endpoint.
 ///
-/// Returns the raw `result` value on success, or an error string on transport
-/// / protocol failure. Timeouts are inherited from the `reqwest::Client`.
-///
-/// `request_id` lets the caller control the JSON-RPC `id` field.  When `None`
-/// a fresh gateway-local id is minted.  Supplying an explicit id is required
-/// for cancellation tracking (the gateway must know which backend request id
-/// to cancel).
+/// Retained for `subscribe_resource` and test helpers that still use
+/// MCP JSON-RPC directly. New code should use the REST helpers below.
+#[allow(dead_code)]
 pub async fn call_backend(
     client: &reqwest::Client,
     mcp_url: &str,
@@ -280,41 +311,168 @@ pub async fn call_backend(
     }
 
     let id = request_id.unwrap_or_else(uuid_like_id);
-    let req_body = JsonRpcRequestBuilder::new(id, method)
-        .with_optional_params(params)
-        .to_value();
+    let req_body = {
+        let mut body = json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": method,
+        });
+        if let Some(p) = params {
+            body["params"] = p;
+        }
+        body
+    };
 
     post_jsonrpc(client, mcp_url, req_body, None, timeout)
         .await
         .map_err(|e| e.to_string())
 }
 
-/// Fetch `tools/list` from a backend and return the deserialised [`McpTool`] list.
+// ── REST helpers (#818 phase 2) ───────────────────────────────────────
+
+/// Percent-encode a URI string for use as a URL path segment.
 ///
-/// Unlike [`fetch_tools`], this reports transport / protocol failures to callers
-/// that need deterministic errors for a specific backend.
+/// Encodes `:`, `/`, `?`, `#`, and other chars that would be
+/// misinterpreted in a URL path.  We avoid pulling in a full
+/// percent-encoding crate by covering the characters that appear in
+/// MCP resource URIs (`scheme://path`).
+fn percent_encode_uri(uri: &str) -> String {
+    let mut out = String::with_capacity(uri.len() * 2);
+    for b in uri.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char);
+            }
+            other => {
+                out.push('%');
+                out.push(char::from_digit((other >> 4) as u32, 16).unwrap_or('0'));
+                out.push(char::from_digit((other & 0xf) as u32, 16).unwrap_or('0'));
+            }
+        }
+    }
+    out
+}
+
+/// Issue a `GET` to a backend REST endpoint and return the parsed JSON body.
+///
+/// Does **not** perform a readiness probe — callers that route traffic
+/// to a backend have already verified it is ready.
+async fn rest_get(client: &reqwest::Client, url: &str, timeout: Duration) -> Result<Value, String> {
+    let resp = client
+        .get(url)
+        .timeout(timeout)
+        .header("accept", "application/json")
+        .send()
+        .await
+        .map_err(|e| format!("{url}: transport error: {e}"))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!("{url}: HTTP {status}: {body}"));
+    }
+
+    resp.json::<Value>()
+        .await
+        .map_err(|e| format!("{url}: invalid JSON response: {e}"))
+}
+
+/// Issue a `POST` to a backend REST endpoint with a JSON body and
+/// return the parsed JSON response body.
+async fn rest_post(
+    client: &reqwest::Client,
+    url: &str,
+    body: Value,
+    timeout: Duration,
+) -> Result<Value, String> {
+    let resp = client
+        .post(url)
+        .timeout(timeout)
+        .header("content-type", "application/json")
+        .header("accept", "application/json")
+        .body(body.to_string())
+        .send()
+        .await
+        .map_err(|e| format!("{url}: transport error: {e}"))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(format!("{url}: HTTP {status}: {body}"));
+    }
+
+    resp.json::<Value>()
+        .await
+        .map_err(|e| format!("{url}: invalid JSON response: {e}"))
+}
+
+/// Fetch tool list from a backend via `GET /v1/search?loaded_only=false&limit=5000`.
+///
+/// Maps each search hit to a [`McpTool`] so the capability index builder
+/// receives the same type it always has.  `input_schema` is a minimal
+/// `{"type":"object"}` — the builder only uses it to set `has_schema`,
+/// which correctly becomes `false` for tools without declared parameters.
+///
+/// The `action` field from the search hit (bare tool name such as
+/// `hello-world.greet`) is used as `McpTool.name` so the capability
+/// builder receives the same bare-name input it expects.  The `slug`
+/// field is ignored here — the builder recomputes the gateway-level
+/// slug itself via `tool_slug(dcc_type, instance_id, callable_id)`.
 pub async fn try_fetch_tools(
     client: &reqwest::Client,
     mcp_url: &str,
     timeout: Duration,
 ) -> Result<Vec<McpTool>, String> {
-    let val = call_backend(client, mcp_url, "tools/list", None, None, timeout).await?;
+    let base = rest_base_from_mcp_url(mcp_url);
+    let url = format!("{base}/v1/search?loaded_only=false&limit=5000");
+    let val = rest_get(client, &url, timeout).await?;
     Ok(val
-        .get("tools")
+        .get("hits")
         .and_then(Value::as_array)
         .map(|arr| {
             arr.iter()
-                .filter_map(|v| serde_json::from_value::<McpTool>(v.clone()).ok())
+                .filter_map(|v| {
+                    // Use `action` (bare tool name) as the McpTool name so
+                    // the capability builder's skill-extraction and slug-
+                    // computation logic works the same way it did with the
+                    // old `tools/list` JSON-RPC response.
+                    let action = v
+                        .get("action")
+                        .and_then(Value::as_str)
+                        .or_else(|| v.get("slug").and_then(Value::as_str))?
+                        .to_owned();
+                    let description = v
+                        .get("summary")
+                        .and_then(Value::as_str)
+                        .unwrap_or("")
+                        .to_owned();
+                    let has_schema = v
+                        .get("has_schema")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false);
+                    Some(McpTool {
+                        name: action,
+                        description,
+                        input_schema: if has_schema {
+                            json!({"type": "object", "properties": {}})
+                        } else {
+                            json!({"type": "object"})
+                        },
+                        output_schema: None,
+                        annotations: None,
+                        meta: None,
+                    })
+                })
                 .collect()
         })
         .unwrap_or_default())
 }
 
-/// Fetch `tools/list` from a backend and return the deserialised [`McpTool`] list.
+/// Fetch tool list from a backend; fail-soft on errors.
 ///
-/// On any failure returns an empty vector and logs a warning — callers aggregate
-/// tools across many backends and should not fail the whole fan-out because one
-/// instance is unreachable.
+/// On any failure returns an empty vector and logs a warning — callers
+/// aggregate tools across many backends and should not fail the whole
+/// fan-out because one instance is unreachable.
 pub async fn fetch_tools(
     client: &reqwest::Client,
     mcp_url: &str,
@@ -323,23 +481,24 @@ pub async fn fetch_tools(
     match try_fetch_tools(client, mcp_url, timeout).await {
         Ok(tools) => tools,
         Err(e) => {
-            tracing::warn!(mcp_url = %mcp_url, error = %e, "Backend tools/list failed");
+            tracing::warn!(mcp_url = %mcp_url, error = %e, "Backend GET /v1/search failed");
             Vec::new()
         }
     }
 }
 
-/// Fetch `prompts/list` from a backend and return the deserialised [`McpPrompt`] list.
+/// Fetch prompt list from a backend via `GET /v1/prompts`.
 ///
-/// Unlike [`fetch_prompts`], this reports transport / protocol failures to callers
-/// that need deterministic errors for a specific backend. Mirrors
-/// [`try_fetch_tools`] for the prompts primitive (issue #731).
+/// Unlike [`fetch_prompts`], this reports transport / protocol failures
+/// to callers that need deterministic errors for a specific backend.
 pub async fn try_fetch_prompts(
     client: &reqwest::Client,
     mcp_url: &str,
     timeout: Duration,
 ) -> Result<Vec<McpPrompt>, String> {
-    let val = call_backend(client, mcp_url, "prompts/list", None, None, timeout).await?;
+    let base = rest_base_from_mcp_url(mcp_url);
+    let url = format!("{base}/v1/prompts");
+    let val = rest_get(client, &url, timeout).await?;
     Ok(val
         .get("prompts")
         .and_then(Value::as_array)
@@ -351,11 +510,7 @@ pub async fn try_fetch_prompts(
         .unwrap_or_default())
 }
 
-/// Fetch `prompts/list` from a backend and return the deserialised [`McpPrompt`] list.
-///
-/// On any failure returns an empty vector and logs a warning — mirrors
-/// [`fetch_tools`] so the prompts aggregator can fan out fail-soft across
-/// every live backend (issue #731).
+/// Fetch prompt list from a backend; fail-soft on errors.
 pub async fn fetch_prompts(
     client: &reqwest::Client,
     mcp_url: &str,
@@ -364,22 +519,23 @@ pub async fn fetch_prompts(
     match try_fetch_prompts(client, mcp_url, timeout).await {
         Ok(prompts) => prompts,
         Err(e) => {
-            tracing::warn!(mcp_url = %mcp_url, error = %e, "Backend prompts/list failed");
+            tracing::warn!(mcp_url = %mcp_url, error = %e, "Backend GET /v1/prompts failed");
             Vec::new()
         }
     }
 }
 
-/// Fetch `resources/list` from a backend and return the raw `resources` array.
+/// Fetch resource list from a backend via `GET /v1/resources`.
 ///
-/// Unlike [`fetch_resources`], this reports transport / protocol failures to callers
-/// that need deterministic errors for a specific backend.
+/// Unlike [`fetch_resources`], this reports transport / protocol failures.
 pub async fn try_fetch_resources(
     client: &reqwest::Client,
     mcp_url: &str,
     timeout: Duration,
 ) -> Result<Vec<Value>, String> {
-    let val = call_backend(client, mcp_url, "resources/list", None, None, timeout).await?;
+    let base = rest_base_from_mcp_url(mcp_url);
+    let url = format!("{base}/v1/resources");
+    let val = rest_get(client, &url, timeout).await?;
     Ok(val
         .get("resources")
         .and_then(Value::as_array)
@@ -387,11 +543,7 @@ pub async fn try_fetch_resources(
         .unwrap_or_default())
 }
 
-/// Fetch `resources/list` from a backend and return the raw `resources` array.
-///
-/// On any failure returns an empty vector and logs a warning — callers aggregate
-/// resources across many backends and should not fail the whole fan-out because
-/// one instance is unreachable. Mirrors [`fetch_tools`] for resources.
+/// Fetch resource list from a backend; fail-soft on errors.
 pub async fn fetch_resources(
     client: &reqwest::Client,
     mcp_url: &str,
@@ -400,124 +552,83 @@ pub async fn fetch_resources(
     match try_fetch_resources(client, mcp_url, timeout).await {
         Ok(resources) => resources,
         Err(e) => {
-            tracing::warn!(mcp_url = %mcp_url, error = %e, "Backend resources/list failed");
+            tracing::warn!(mcp_url = %mcp_url, error = %e, "Backend GET /v1/resources failed");
             Vec::new()
         }
     }
 }
 
-/// Forward a `resources/read` to a backend and return the raw `result` JSON.
+/// Read one resource from a backend via `GET /v1/resources/{uri}`.
 ///
-/// The result is returned unchanged (including `contents[].blob` entries for
-/// binary mime-types), so byte-for-byte round-trip through the gateway is
-/// preserved.
+/// The result is returned unchanged (including `contents[].blob` for
+/// binary mime-types), so byte-for-byte round-trip through the gateway
+/// is preserved.
 pub async fn read_resource(
     client: &reqwest::Client,
     mcp_url: &str,
     uri: &str,
     timeout: Duration,
 ) -> Result<Value, String> {
-    call_backend(
-        client,
-        mcp_url,
-        "resources/read",
-        Some(json!({"uri": uri})),
-        None,
-        timeout,
-    )
-    .await
+    let base = rest_base_from_mcp_url(mcp_url);
+    let encoded = percent_encode_uri(uri);
+    let url = format!("{base}/v1/resources/{encoded}");
+    rest_get(client, &url, timeout).await
 }
 
-/// Forward a `resources/subscribe` (or `resources/unsubscribe` when `subscribe`
-/// is `false`) to a backend.
+/// Forward a `tools/call` to a backend via `POST /v1/call`.
 ///
-/// `session_id` is sent as `Mcp-Session-Id` so the backend binds the
-/// subscription to the gateway's long-lived SSE session — that is the
-/// only stream onto which the backend will push
-/// `notifications/resources/updated` for this URI (#732).
-///
-/// Returns the raw `result` JSON — typically `{}`.
-pub async fn subscribe_resource(
-    client: &reqwest::Client,
-    mcp_url: &str,
-    uri: &str,
-    subscribe: bool,
-    session_id: &str,
-    timeout: Duration,
-) -> Result<Value, String> {
-    let method = if subscribe {
-        "resources/subscribe"
-    } else {
-        "resources/unsubscribe"
-    };
-    let req_body = JsonRpcRequestBuilder::new(uuid_like_id(), method)
-        .with_optional_params(Some(json!({"uri": uri})))
-        .to_value();
-
-    post_jsonrpc(client, mcp_url, req_body, Some(session_id), timeout)
-        .await
-        .map_err(|e| e.to_string())
-}
-
-/// Forward a `tools/call` to a backend and return the raw result JSON.
-///
-/// `request_id` is forwarded as the JSON-RPC `id` so that the gateway can
-/// correlate a later `notifications/cancelled` with this backend call.
+/// `tool_name` is already in slug form (`<dcc>.<skill>.<action>`) —
+/// the REST surface maps it to `tool_slug` directly.  `request_id` is
+/// accepted for API compatibility but not forwarded (the REST surface
+/// does not use JSON-RPC request ids).
 pub async fn forward_tools_call(
     client: &reqwest::Client,
     mcp_url: &str,
     tool_name: &str,
     arguments: Option<Value>,
     meta: Option<Value>,
-    request_id: Option<String>,
+    _request_id: Option<String>,
     timeout: Duration,
 ) -> Result<Value, String> {
-    let mut params = json!({
-        "name": tool_name,
-        "arguments": arguments.unwrap_or(json!({}))
+    let base = rest_base_from_mcp_url(mcp_url);
+    let url = format!("{base}/v1/call");
+    let mut body = json!({
+        "tool_slug": tool_name,
+        "arguments": arguments.unwrap_or(json!({})),
     });
     if let Some(m) = meta {
-        params["_meta"] = m;
+        body["meta"] = m;
     }
-    call_backend(
-        client,
-        mcp_url,
-        "tools/call",
-        Some(params),
-        request_id,
-        timeout,
-    )
-    .await
+    rest_post(client, &url, body, timeout).await
 }
 
-/// Forward a `prompts/get` to a backend and return the raw result JSON
-/// (issue #731).
+/// Forward a `prompts/get` to a backend via `GET /v1/prompts/{name}`.
 ///
-/// `prompt_name` is the **backend-local** prompt name — callers must decode
-/// the gateway-prefixed wire name with [`super::namespace::decode_tool_name`]
-/// before invoking this helper, so the request that reaches the backend
-/// carries the same name the backend published in `prompts/list`.
+/// Arguments are not yet forwarded by the REST surface (phase 1a
+/// deferred them); if non-empty arguments are supplied a warning is
+/// logged and the request proceeds without them.
 pub async fn forward_prompts_get(
     client: &reqwest::Client,
     mcp_url: &str,
     prompt_name: &str,
     arguments: Option<Value>,
-    request_id: Option<String>,
+    _request_id: Option<String>,
     timeout: Duration,
 ) -> Result<Value, String> {
-    let mut params = json!({ "name": prompt_name });
-    if let Some(args) = arguments {
-        params["arguments"] = args;
+    if arguments
+        .as_ref()
+        .is_some_and(|a| !a.is_null() && a != &json!({}))
+    {
+        tracing::warn!(
+            mcp_url = %mcp_url,
+            prompt = %prompt_name,
+            "forward_prompts_get: arguments not yet forwarded by REST surface (#818 phase 1b follow-up)",
+        );
     }
-    call_backend(
-        client,
-        mcp_url,
-        "prompts/get",
-        Some(params),
-        request_id,
-        timeout,
-    )
-    .await
+    let base = rest_base_from_mcp_url(mcp_url);
+    let encoded = percent_encode_uri(prompt_name);
+    let url = format!("{base}/v1/prompts/{encoded}");
+    rest_get(client, &url, timeout).await
 }
 
 async fn post_jsonrpc(
@@ -564,23 +675,70 @@ async fn post_jsonrpc(
 }
 
 fn parse_jsonrpc_result(mcp_url: &str, text: &str) -> Result<Value, BackendCallError> {
-    let parsed: JsonRpcResponse =
-        serde_json::from_str(text).map_err(|e| BackendCallError::InvalidJson {
-            mcp_url: mcp_url.to_string(),
-            reason: e.to_string(),
-        })?;
+    let parsed: Value = serde_json::from_str(text).map_err(|e| BackendCallError::InvalidJson {
+        mcp_url: mcp_url.to_string(),
+        reason: e.to_string(),
+    })?;
 
-    if let Some(err) = parsed.error {
+    if let Some(err) = parsed.get("error") {
+        let code = err.get("code").and_then(Value::as_i64).unwrap_or(-1);
+        let message = err
+            .get("message")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown error")
+            .to_string();
         return Err(BackendCallError::Backend {
             mcp_url: mcp_url.to_string(),
-            code: err.code,
-            message: err.message,
+            code,
+            message,
         });
     }
 
-    parsed.result.ok_or_else(|| BackendCallError::EmptyResult {
-        mcp_url: mcp_url.to_string(),
-    })
+    parsed
+        .get("result")
+        .cloned()
+        .ok_or_else(|| BackendCallError::EmptyResult {
+            mcp_url: mcp_url.to_string(),
+        })
+}
+
+/// Forward a `resources/subscribe` (or `resources/unsubscribe` when `subscribe`
+/// is `false`) to a backend.
+///
+/// `session_id` is sent as `Mcp-Session-Id` so the backend binds the
+/// subscription to the gateway's long-lived SSE session — that is the
+/// only stream onto which the backend will push
+/// `notifications/resources/updated` for this URI (#732).
+///
+/// Retained until #818 phase 3 when `sse_subscriber.rs` is retired.
+/// Returns the raw `result` JSON — typically `{}`.
+pub async fn subscribe_resource(
+    client: &reqwest::Client,
+    mcp_url: &str,
+    uri: &str,
+    subscribe: bool,
+    session_id: &str,
+    timeout: Duration,
+) -> Result<Value, String> {
+    let method = if subscribe {
+        "resources/subscribe"
+    } else {
+        "resources/unsubscribe"
+    };
+    let id = uuid_like_id();
+    let req_body = {
+        let mut body = json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": method,
+        });
+        body["params"] = json!({"uri": uri});
+        body
+    };
+
+    post_jsonrpc(client, mcp_url, req_body, Some(session_id), timeout)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Short non-cryptographic unique ID for JSON-RPC request correlation.
@@ -847,13 +1005,19 @@ mod tests {
     /// error / empty-result / tools-list-extraction branches without spinning
     /// up a real HTTP server.
     fn parse_response_body(body: &str) -> Result<Value, String> {
-        let parsed: JsonRpcResponse =
+        let parsed: Value =
             serde_json::from_str(body).map_err(|e| format!("invalid JSON-RPC response: {e}"))?;
-        if let Some(err) = parsed.error {
-            return Err(format!("backend error {}: {}", err.code, err.message));
+        if let Some(err) = parsed.get("error") {
+            let code = err.get("code").and_then(Value::as_i64).unwrap_or(-1);
+            let msg = err
+                .get("message")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown");
+            return Err(format!("backend error {code}: {msg}"));
         }
         parsed
-            .result
+            .get("result")
+            .cloned()
             .ok_or_else(|| "empty JSON-RPC result".to_string())
     }
 
@@ -1128,53 +1292,45 @@ mod tests {
         let _ = stop.send(());
     }
 
-    // ── #732 integration tests: resources forwarding helpers ─────────────
+    // ── #732 / #818 integration tests: REST resource/prompt helpers ──────
 
-    /// Router that answers `/health` green plus a single JSON-RPC method
-    /// handler at `/mcp`. Keeps test routers compact.
-    fn healthy_mcp_router<H, Fut>(handler: H) -> axum::Router
-    where
-        H: Fn(axum::Json<Value>) -> Fut + Clone + Send + Sync + 'static,
-        Fut: std::future::Future<Output = axum::Json<Value>> + Send,
-    {
+    /// Helper that builds an axum router with REST endpoints for testing.
+    fn rest_backend_router() -> axum::Router {
+        use axum::extract::Path;
         axum::Router::new()
             .route(
                 "/health",
                 axum::routing::get(|| async { axum::Json(json!({"ok": true})) }),
             )
-            .route(
-                "/mcp",
-                axum::routing::post(move |body: axum::Json<Value>| {
-                    let handler = handler.clone();
-                    async move { handler(body).await }
-                }),
-            )
-    }
-
-    #[tokio::test]
-    async fn try_fetch_resources_returns_backend_resources() {
-        let app = healthy_mcp_router(|body: axum::Json<Value>| async move {
-            assert_eq!(
-                body.get("method").and_then(|m| m.as_str()),
-                Some("resources/list")
-            );
-            axum::Json(json!({
-                "jsonrpc": "2.0",
-                "id": body.get("id").cloned().unwrap_or(json!("gw-test")),
-                "result": {
+            .route("/v1/resources", axum::routing::get(|| async {
+                axum::Json(json!({
+                    "total": 2,
                     "resources": [
                         {"uri": "scene://current", "name": "Current scene", "mimeType": "application/json"},
                         {"uri": "capture://current_window", "name": "Window capture", "mimeType": "image/png"}
                     ]
-                }
+                }))
             }))
-        });
+            .route("/v1/resources/{uri}", axum::routing::get(|Path(uri): Path<String>| async move {
+                axum::Json(json!({
+                    "contents": [{
+                        "uri": uri,
+                        "mimeType": "image/png",
+                        "blob": "aGVsbG8sIHdvcmxkIQ==",
+                    }]
+                }))
+            }))
+    }
+
+    #[tokio::test]
+    async fn try_fetch_resources_returns_backend_resources() {
+        let app = rest_backend_router();
         let (mcp_url, stop) = spawn_fake_backend(app).await;
 
         let client = reqwest::Client::new();
         let resources = try_fetch_resources(&client, &mcp_url, Duration::from_secs(2))
             .await
-            .expect("resources/list must succeed");
+            .expect("GET /v1/resources must succeed");
         assert_eq!(resources.len(), 2);
         assert_eq!(resources[0]["uri"], json!("scene://current"));
         assert_eq!(resources[1]["mimeType"], json!("image/png"));
@@ -1183,15 +1339,11 @@ mod tests {
 
     #[tokio::test]
     async fn fetch_resources_returns_empty_on_error() {
-        // Backend responds with an error envelope — fail-soft contract
-        // says: swallow the error, log a warn, return empty vector.
-        let app = healthy_mcp_router(|body: axum::Json<Value>| async move {
-            axum::Json(json!({
-                "jsonrpc": "2.0",
-                "id": body.get("id").cloned().unwrap_or(json!("gw-test")),
-                "error": {"code": -32601, "message": "Method not found"}
-            }))
-        });
+        // Router with no `/v1/resources` route → 404 → fail-soft empty vector.
+        let app = axum::Router::new().route(
+            "/health",
+            axum::routing::get(|| async { axum::Json(json!({"ok": true})) }),
+        );
         let (mcp_url, stop) = spawn_fake_backend(app).await;
 
         let client = reqwest::Client::new();
@@ -1205,32 +1357,10 @@ mod tests {
 
     #[tokio::test]
     async fn read_resource_preserves_blob_bytes() {
-        // A capture://current_window response carries a base64 `blob` —
-        // the gateway must not corrupt it on the way through.
+        // `GET /v1/resources/{encoded_uri}` — gateway must not corrupt
+        // base64 blob data on the way through.
         const BLOB_B64: &str = "aGVsbG8sIHdvcmxkIQ=="; // "hello, world!"
-        let app = healthy_mcp_router(move |body: axum::Json<Value>| async move {
-            assert_eq!(
-                body.get("method").and_then(|m| m.as_str()),
-                Some("resources/read")
-            );
-            assert_eq!(
-                body.get("params")
-                    .and_then(|p| p.get("uri"))
-                    .and_then(|u| u.as_str()),
-                Some("capture://current_window")
-            );
-            axum::Json(json!({
-                "jsonrpc": "2.0",
-                "id": body.get("id").cloned().unwrap_or(json!("gw-test")),
-                "result": {
-                    "contents": [{
-                        "uri": "capture://current_window",
-                        "mimeType": "image/png",
-                        "blob": BLOB_B64,
-                    }]
-                }
-            }))
-        });
+        let app = rest_backend_router();
         let (mcp_url, stop) = spawn_fake_backend(app).await;
 
         let client = reqwest::Client::new();
@@ -1241,7 +1371,7 @@ mod tests {
             Duration::from_secs(2),
         )
         .await
-        .expect("resources/read must succeed");
+        .expect("GET /v1/resources/{uri} must succeed");
         let content = &result["contents"][0];
         assert_eq!(content["mimeType"], json!("image/png"));
         assert_eq!(content["blob"], json!(BLOB_B64));
@@ -1250,6 +1380,7 @@ mod tests {
 
     #[tokio::test]
     async fn subscribe_resource_forwards_subscribe_and_unsubscribe_methods() {
+        // subscribe_resource still uses MCP JSON-RPC (retained for phase 3).
         // Verify the helper uses the correct method name, payload, and
         // Mcp-Session-Id header for both subscribe and unsubscribe.
         let hits = Arc::new(parking_lot::Mutex::new(
@@ -1325,5 +1456,29 @@ mod tests {
             "Mcp-Session-Id must be forwarded on unsubscribe",
         );
         let _ = stop.send(());
+    }
+
+    #[test]
+    fn rest_base_from_mcp_url_strips_mcp_suffix() {
+        assert_eq!(
+            rest_base_from_mcp_url("http://127.0.0.1:64954/mcp"),
+            "http://127.0.0.1:64954"
+        );
+        assert_eq!(
+            rest_base_from_mcp_url("http://127.0.0.1:64954/mcp/"),
+            "http://127.0.0.1:64954"
+        );
+        assert_eq!(
+            rest_base_from_mcp_url("http://127.0.0.1:64954"),
+            "http://127.0.0.1:64954"
+        );
+    }
+
+    #[test]
+    fn percent_encode_uri_encodes_colons_and_slashes() {
+        let encoded = percent_encode_uri("capture://current_window");
+        assert!(!encoded.contains(':'), "colon must be encoded");
+        assert!(!encoded.contains('/'), "slash must be encoded");
+        assert!(encoded.contains('%'), "must have percent-encoded chars");
     }
 }

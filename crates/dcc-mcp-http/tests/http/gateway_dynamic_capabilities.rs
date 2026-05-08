@@ -93,7 +93,8 @@ async fn spawn_backend(spec: BackendSpec) -> (u16, Arc<tokio::sync::RwLock<u32>>
     let call_count = Arc::new(tokio::sync::RwLock::new(0u32));
     let call_count_clone = call_count.clone();
 
-    async fn handler(
+    // POST /mcp handler (legacy MCP surface, retained for subscribe_resource)
+    async fn mcp_handler(
         axum::extract::State(state): axum::extract::State<HandlerState>,
         Json(req): Json<Value>,
     ) -> Json<Value> {
@@ -151,6 +152,65 @@ async fn spawn_backend(spec: BackendSpec) -> (u16, Arc<tokio::sync::RwLock<u32>>
         }
     }
 
+    // GET /v1/search handler (#818 phase 2: gateway now uses REST for fetch_tools)
+    // A real backend's /v1/search does NOT include skill stubs or gateway-local
+    // tools — those are filtered by the per-DCC REST service layer.
+    async fn search_handler(
+        axum::extract::State(state): axum::extract::State<HandlerState>,
+    ) -> Json<Value> {
+        let hits: Vec<Value> = state
+            .tools
+            .iter()
+            .filter(|(name, _)| {
+                // Filter out skill stubs and gateway-local tools just as a
+                // real backend's /v1/search would.
+                !name.starts_with("__skill__")
+                    && *name != "list_skills"
+                    && *name != "load_skill"
+                    && *name != "unload_skill"
+                    && *name != "search_skills"
+                    && *name != "get_skill_info"
+            })
+            .map(|(name, desc)| {
+                json!({
+                    "slug": format!("maya.00000000.{name}"),
+                    "action": name,
+                    "skill": "core",
+                    "summary": desc,
+                    "tags": [],
+                    "has_schema": true,
+                    "instance_id": "00000000-0000-0000-0000-000000000000"
+                })
+            })
+            .collect();
+        Json(json!({ "total": hits.len(), "hits": hits }))
+    }
+
+    // POST /v1/call handler (#818 phase 2: gateway now uses REST for forward_tools_call)
+    async fn call_handler(
+        axum::extract::State(state): axum::extract::State<HandlerState>,
+        Json(req): Json<Value>,
+    ) -> Json<Value> {
+        let mut c = state.call_count.write().await;
+        *c += 1;
+        let received_slug = req
+            .get("tool_slug")
+            .and_then(|n| n.as_str())
+            .unwrap_or("")
+            .to_string();
+        let received_args = req.get("arguments").cloned().unwrap_or(Value::Null);
+        Json(json!({
+            "content": [{
+                "type": "text",
+                "text": format!("echo name={received_slug} args={received_args}")
+            }],
+            "structuredContent": {
+                "received_tool": received_slug,
+                "received_args": received_args,
+            }
+        }))
+    }
+
     #[derive(Clone)]
     struct HandlerState {
         tools: Vec<(&'static str, &'static str)>,
@@ -163,7 +223,9 @@ async fn spawn_backend(spec: BackendSpec) -> (u16, Arc<tokio::sync::RwLock<u32>>
     };
     let app = Router::new()
         .route("/health", get(|| async { "ok" }))
-        .route("/mcp", post(handler))
+        .route("/mcp", post(mcp_handler))
+        .route("/v1/search", get(search_handler))
+        .route("/v1/call", post(call_handler))
         .with_state(state);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -690,10 +752,13 @@ async fn capability_index_never_contains_skill_stubs_or_local_tools() {
             "skill stub leaked into capability index: {:?}",
             hit.record,
         );
-        assert_ne!(hit.record.backend_tool, "list_skills");
+        assert_ne!(
+            hit.record.backend_tool, "list_skills",
+            "gateway-local tool list_skills leaked: {:?}",
+            hit.record
+        );
     }
-    // The real action is reachable with its exact callable id — and its
-    // skill metadata is preserved so `search_tools(query="hello")` still matches.
+    // The real action is reachable with its exact callable id.
     assert!(
         hits.iter()
             .any(|h| h.record.backend_tool == "hello-world.greet"),

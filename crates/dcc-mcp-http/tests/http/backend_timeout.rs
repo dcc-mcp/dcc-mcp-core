@@ -89,7 +89,8 @@ async fn make_state(
 /// for `delay` before responding to `tools/list` with a single tool. Returns
 /// the bound port so the caller can register a `ServiceEntry` pointing at it.
 async fn spawn_slow_backend(delay: Duration) -> u16 {
-    async fn handler(
+    // POST /mcp handler (retained for subscribe_resource and legacy callers)
+    async fn mcp_handler(
         axum::extract::State(delay): axum::extract::State<Duration>,
         Json(req): Json<Value>,
     ) -> Json<Value> {
@@ -108,9 +109,29 @@ async fn spawn_slow_backend(delay: Duration) -> u16 {
         }))
     }
 
+    // GET /v1/search handler (used by fetch_tools after #818 phase 2)
+    async fn search_handler(
+        axum::extract::State(delay): axum::extract::State<Duration>,
+    ) -> Json<Value> {
+        tokio::time::sleep(delay).await;
+        Json(json!({
+            "total": 1,
+            "hits": [{
+                "slug": "maya.00000000.slow_tool",
+                "action": "slow_tool",
+                "skill": "core",
+                "summary": "slow",
+                "tags": [],
+                "has_schema": false,
+                "instance_id": "00000000-0000-0000-0000-000000000000"
+            }]
+        }))
+    }
+
     let app = Router::new()
         .route("/health", get(|| async { "ok" }))
-        .route("/mcp", post(handler))
+        .route("/mcp", post(mcp_handler))
+        .route("/v1/search", get(search_handler))
         .with_state(delay);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
