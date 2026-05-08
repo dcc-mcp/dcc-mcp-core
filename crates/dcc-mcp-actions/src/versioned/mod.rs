@@ -21,13 +21,13 @@
 //!
 //! ```rust
 //! use dcc_mcp_actions::versioned::{VersionedRegistry, VersionConstraint};
-//! use dcc_mcp_actions::registry::ActionMeta;
+//! use dcc_mcp_actions::registry::ToolMeta;
 //!
 //! let mut vr = VersionedRegistry::new();
 //!
-//! vr.register(ActionMeta { name: "create_sphere".into(), dcc: "maya".into(), version: "1.0.0".into(), ..Default::default() });
-//! vr.register(ActionMeta { name: "create_sphere".into(), dcc: "maya".into(), version: "1.2.0".into(), ..Default::default() });
-//! vr.register(ActionMeta { name: "create_sphere".into(), dcc: "maya".into(), version: "2.0.0".into(), ..Default::default() });
+//! vr.register(ToolMeta { name: "create_sphere".into(), dcc: "maya".into(), version: "1.0.0".into(), ..Default::default() });
+//! vr.register(ToolMeta { name: "create_sphere".into(), dcc: "maya".into(), version: "1.2.0".into(), ..Default::default() });
+//! vr.register(ToolMeta { name: "create_sphere".into(), dcc: "maya".into(), version: "2.0.0".into(), ..Default::default() });
 //!
 //! // Client targeting >=1.0, <2.0 → should get 1.2.0
 //! let router = vr.router();
@@ -45,7 +45,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "stub-gen")]
 use pyo3_stub_gen_derive::gen_stub_pyclass;
 
-use crate::registry::ActionMeta;
+use crate::registry::ToolMeta;
 
 // PyO3 bindings for SemVer / PyVersionConstraint / VersionedRegistry live in
 // `crate::python::versioned`.
@@ -272,8 +272,8 @@ type VersionKey = (String, String);
     pyo3::pyclass(name = "VersionedRegistry", from_py_object)
 )]
 pub struct VersionedRegistry {
-    /// `(action_name, dcc_name)` → sorted list of `(SemVer, ActionMeta)`
-    pub(crate) store: HashMap<VersionKey, Vec<(SemVer, ActionMeta)>>,
+    /// `(action_name, dcc_name)` → sorted list of `(SemVer, ToolMeta)`
+    pub(crate) store: HashMap<VersionKey, Vec<(SemVer, ToolMeta)>>,
 }
 
 impl VersionedRegistry {
@@ -288,7 +288,7 @@ impl VersionedRegistry {
     /// If the same `(name, dcc, version)` triple already exists it is overwritten
     /// in place, preserving the sort order. Otherwise the new entry is inserted and
     /// the list is re-sorted by version (ascending).
-    pub fn register(&mut self, meta: ActionMeta) {
+    pub fn register(&mut self, meta: ToolMeta) {
         let ver = SemVer::parse(&meta.version).unwrap_or(SemVer::new(0, 0, 0));
         let key: VersionKey = (meta.name.clone(), meta.dcc.clone());
         let entries = self.store.entry(key).or_default();
@@ -327,7 +327,7 @@ impl VersionedRegistry {
 
     /// Get a specific version of an action, or `None` if not registered.
     #[must_use]
-    pub fn get(&self, name: &str, dcc: &str, version: SemVer) -> Option<&ActionMeta> {
+    pub fn get(&self, name: &str, dcc: &str, version: SemVer) -> Option<&ToolMeta> {
         let key: VersionKey = (name.to_owned(), dcc.to_owned());
         self.store
             .get(&key)
@@ -336,7 +336,7 @@ impl VersionedRegistry {
 
     /// Get the latest (highest) version of an action.
     #[must_use]
-    pub fn latest(&self, name: &str, dcc: &str) -> Option<&ActionMeta> {
+    pub fn latest(&self, name: &str, dcc: &str) -> Option<&ToolMeta> {
         let key: VersionKey = (name.to_owned(), dcc.to_owned());
         self.store
             .get(&key)
@@ -366,7 +366,7 @@ impl VersionedRegistry {
 
 // ── CompatibilityRouter ──────────────────────────────────────────────────────────
 
-/// Routes a version constraint to the best-matching registered [`ActionMeta`].
+/// Routes a version constraint to the best-matching registered [`ToolMeta`].
 ///
 /// The resolution strategy is: among all versions that satisfy `constraint`, pick
 /// the **highest** one.  If no version satisfies the constraint, returns `None`.
@@ -385,7 +385,7 @@ impl<'a> CompatibilityRouter<'a> {
         name: &str,
         dcc: &str,
         constraint: &VersionConstraint,
-    ) -> Option<&'a ActionMeta> {
+    ) -> Option<&'a ToolMeta> {
         let key: VersionKey = (name.to_owned(), dcc.to_owned());
         self.registry.store.get(&key).and_then(|entries| {
             entries
@@ -402,7 +402,7 @@ impl<'a> CompatibilityRouter<'a> {
         name: &str,
         dcc: &str,
         constraint: &VersionConstraint,
-    ) -> Vec<&'a ActionMeta> {
+    ) -> Vec<&'a ToolMeta> {
         let key: VersionKey = (name.to_owned(), dcc.to_owned());
         self.registry
             .store

@@ -122,7 +122,7 @@ dcc-mcp-server ← dcc-mcp-http
 
 ### dcc-mcp-actions
 
-**Purpose**: Centralized action registry, validation, dispatch, and pipeline system.
+**Purpose**: Centralized tool registry, validation, dispatch, and pipeline system.
 
 **Key Components**:
 - `ToolRegistry` — Thread-safe registry: register/get/search/list/unregister tools
@@ -130,14 +130,14 @@ dcc-mcp-server ← dcc-mcp-http
 - `ToolValidator` — JSON Schema-based parameter validation
 - `ToolPipeline` — Middleware pipeline (logging, timing, audit, rate limiting)
 - `EventBus` — Pub/sub event system for DCC lifecycle events
-- `VersionedRegistry` — Multi-version action registry with SemVer constraint resolution
+- `VersionedRegistry` — Multi-version tool registry with SemVer constraint resolution
 
 **Key Traits**: None — actions are plain Python callables registered via `ToolDispatcher.register_handler()`
 
 **Dependencies**: `dcc-mcp-models`
 
 **Maintainer layout**:
-- `registry/mod.rs` keeps the core registry behavior, while `ActionMeta` and the Python binding shim live in focused sibling modules.
+- `registry/mod.rs` keeps the core registry behavior, while `ToolMeta` and the Python binding shim live in focused sibling modules.
 - `chain.rs` is a thin facade: step/result types, placeholder interpolation, the `ActionChain` fluent builder and executor, and unit tests each live in dedicated sibling modules (`chain_types.rs`, `chain_interpolate.rs`, `chain_exec.rs`, `chain_tests.rs`).
 - This separates Rust-side lookup/update semantics from PyO3 translation code and makes metadata evolution easier to review.
 
@@ -215,7 +215,7 @@ dcc-mcp-server ← dcc-mcp-http
 - `src/buffer.rs` is trimmed from 720 to 553 lines by moving the `#[cfg(test)] mod tests { ... }` block (61 integration-style tests across `test_create`, `test_open`, `test_gc`, `test_descriptor` submodules) into a sibling `buffer_tests.rs`. Mounted via `#[cfg(test)] #[path = "buffer_tests.rs"] mod tests;`. Production types (`SharedBuffer`, `BufferDescriptor`, `gc_orphans`) and all private helpers stay co-located to retain access to `SharedBuffer::inner` / `read_header` etc.
 
 **Maintainer layout (dcc-mcp-actions pipeline)**:
-- `src/pipeline/python.rs` becomes a 67-line facade that mounts four siblings via `#[path]`: `python_helpers` (`value_to_py`, `PyCallableHook`), `python_middleware` (`PyLoggingMiddleware`, `PyTimingMiddleware`, `PyAuditMiddleware`, `PyRateLimitMiddleware` — inner fields `pub(super)` so the pipeline can construct them), `python_shared` (`Shared{Timing,Audit,RateLimit}Middleware` `Arc` newtypes implementing `ActionMiddleware`), `python_pipeline` (`PyActionPipeline` — the Python-facing `ToolPipeline`). Every Python class is re-exported so `pipeline::python::{PyActionPipeline, PyLoggingMiddleware, …}` keeps working. The `Shared*` newtypes are re-exported under `#[cfg(test)]` so the existing `python_tests.rs` unit tests can reference `super::python::Shared*` unchanged.
+- `src/pipeline/python.rs` becomes a 67-line facade that mounts four siblings via `#[path]`: `python_helpers` (`value_to_py`, `PyCallableHook`), `python_middleware` (`PyLoggingMiddleware`, `PyTimingMiddleware`, `PyAuditMiddleware`, `PyRateLimitMiddleware` — inner fields `pub(super)` so the pipeline can construct them), `python_shared` (`Shared{Timing,Audit,RateLimit}Middleware` `Arc` newtypes implementing `ActionMiddleware`), `python_pipeline` (`PyToolPipeline` — the Python-facing `ToolPipeline`). Every Python class is re-exported so `pipeline::python::{PyToolPipeline, PyLoggingMiddleware, …}` keeps working. The `Shared*` newtypes are re-exported under `#[cfg(test)]` so the existing `python_tests.rs` unit tests can reference `super::python::Shared*` unchanged.
 
 **Maintainer layout (dcc-mcp-transport)**:
 - `src/discovery/file_registry.rs` keeps the `FileRegistry` struct and every `impl FileRegistry` method in place (private fields would otherwise require workarounds); the 298-line `#[cfg(test)] mod tests` block is extracted into `file_registry_tests.rs` and mounted via `#[cfg(test)] #[path = "file_registry_tests.rs"] mod tests;`. File drops from 759 to 463 lines with no behaviour change.

@@ -316,8 +316,8 @@ triggers (ANY of):
 
 1. Client sends `_meta.dcc.async = true` on the request.
 2. Client sends `_meta.progressToken` (MCP 2025-03-26 long-running hint).
-3. The tool's `ActionMeta` declares `execution: async` (#317).
-4. The tool's `ActionMeta` declares `timeout_hint_secs > 0` (#317).
+3. The tool's `ToolMeta` declares `execution: async` (#317).
+4. The tool's `ToolMeta` declares `timeout_hint_secs > 0` (#317).
 
 Response shape (standard `CallToolResult`, spec-compliant):
 
@@ -431,7 +431,7 @@ repr(bus)  # "EventBus(subscriptions=N)"
 
 ### VersionedRegistry
 
-Multi-version action registry allowing multiple versions of the same `(name, dcc)` pair.
+Multi-version tool registry allowing multiple versions of the same `(name, dcc)` pair.
 
 ```python
 from dcc_mcp_core import VersionedRegistry, VersionConstraint, SemVer
@@ -1773,7 +1773,7 @@ entry.outcome_detail  # str|None (error message or denial reason)
 
 ### ToolRecorder + RecordingGuard
 
-Per-action timing and success/failure counters.
+Per-tool timing and success/failure counters.
 
 ```python
 from dcc_mcp_core import ToolRecorder
@@ -1802,7 +1802,7 @@ recorder.reset()                             # clear in-memory stats
 
 ### ToolMetrics
 
-Read-only snapshot of per-action performance.
+Read-only snapshot of per-tool performance.
 
 ```python
 m = recorder.metrics("create_sphere")

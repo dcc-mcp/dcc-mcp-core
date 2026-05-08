@@ -119,7 +119,7 @@ server = McpHttpServer(
 |------|--------|------|
 | `start()` | `McpServerHandle` | 在后台线程启动服务器并返回句柄 |
 | `register_handler(action_name, handler)` | `None` | 注册 Python 可调用对象；处理器接收解码后的参数（通常是 `dict`） |
-| `has_handler(action_name)` | `bool` | 检查是否已注册 Action 处理器 |
+| `has_handler(action_name)` | `bool` | 检查是否已注册 Tool 处理器 |
 
 ### MCP 协议端点
 
@@ -376,7 +376,7 @@ print(handle.mcp_url())
 | -32603 | 内部错误 |
 | -32000 | Action 未找到 |
 | -32001 | Action 验证失败 |
-| -32002 | Action 处理器错误 |
+| -32002 | Tool 处理器错误 |
 
 ## 性能说明
 

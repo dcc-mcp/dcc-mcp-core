@@ -21,7 +21,7 @@ use super::dispatch::dispatch_request;
 use super::notifications::{handle_notification, handle_response_message};
 use super::state::AppState;
 use crate::handlers::{json_error_response, parse_body, parse_raw_values};
-use crate::protocol::{
+use dcc_mcp_jsonrpc::{
     self, JsonRpcBatch, JsonRpcMessage, JsonRpcResponse, MCP_SESSION_HEADER, format_sse_event,
 };
 
@@ -29,7 +29,7 @@ fn invalid_request_response(message: impl Into<String>) -> Response {
     json_error_response(
         StatusCode::OK,
         None,
-        protocol::error_codes::INVALID_REQUEST,
+        dcc_mcp_jsonrpc::error_codes::INVALID_REQUEST,
         message,
     )
 }
@@ -52,7 +52,7 @@ pub async fn handle_post(
             return json_error_response(
                 StatusCode::BAD_REQUEST,
                 None,
-                protocol::error_codes::PARSE_ERROR,
+                dcc_mcp_jsonrpc::error_codes::PARSE_ERROR,
                 format!("Parse error: {e}"),
             );
         }
@@ -81,7 +81,7 @@ pub async fn handle_post(
             return json_error_response(
                 StatusCode::BAD_REQUEST,
                 None,
-                protocol::error_codes::PARSE_ERROR,
+                dcc_mcp_jsonrpc::error_codes::PARSE_ERROR,
                 format!("Parse error: {e}"),
             );
         }

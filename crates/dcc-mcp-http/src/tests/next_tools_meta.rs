@@ -4,14 +4,14 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 
 use crate::{handler::AppState, session::SessionManager};
-use dcc_mcp_actions::{ActionDispatcher, ActionMeta, ActionRegistry};
+use dcc_mcp_actions::{ToolDispatcher, ToolMeta, ToolRegistry};
 use dcc_mcp_models::NextTools;
 use dcc_mcp_skills::SkillCatalog;
 
 fn make_state(next_tools: NextTools, with_handler: bool) -> AppState {
     let registry = Arc::new({
-        let reg = ActionRegistry::new();
-        reg.register_action(ActionMeta {
+        let reg = ToolRegistry::new();
+        reg.register_action(ToolMeta {
             name: "sample".into(),
             description: "sample tool".into(),
             dcc: "test_dcc".into(),
@@ -22,7 +22,7 @@ fn make_state(next_tools: NextTools, with_handler: bool) -> AppState {
         reg
     });
     let catalog = Arc::new(SkillCatalog::new(registry.clone()));
-    let dispatcher = Arc::new(ActionDispatcher::new((*registry).clone()));
+    let dispatcher = Arc::new(ToolDispatcher::new((*registry).clone()));
     if with_handler {
         dispatcher.register_handler("sample", |_p| Ok(json!({"ok": true})));
     } else {

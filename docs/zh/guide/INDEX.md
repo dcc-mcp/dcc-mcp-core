@@ -41,7 +41,7 @@
 | [remote-server.md](remote-server.md) | 云端托管 MCP Agent：认证、批处理、引导、富内容 |
 | [gateway.md](gateway.md) | 多 DCC 网关：聚合、工具路由 |
 | [gateway-election.md](gateway-election.md) | `DccGatewayElection` — 自动故障切换 |
-| [dcc-rest-skill-api.md](dcc-rest-skill-api.md) | 每个 DCC 的 RESTful 技能 API 接口（#658 / #660） |
+| [dcc-rest-skill-api.md](dcc-rest-skill-api.md) | 每个 DCC 的 REST 技能 API 接口（#658 / #660） |
 | [tunnel-relay.md](tunnel-relay.md) | 零配置远程 MCP 中继（`RelayServer` + tunnel agent） |
 | [production-deployment.md](production-deployment.md) | 生产部署检查清单：日志、健康探针、监控 |
 | [protocols.md](protocols.md) | MCP 协议类型与版本管理 |

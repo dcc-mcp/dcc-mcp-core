@@ -27,8 +27,8 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::job::{JobEvent, JobStatus};
-use crate::protocol::NotificationBuilder;
 use crate::session::SessionManager;
+use dcc_mcp_jsonrpc::NotificationBuilder;
 
 // ── Workflow types ───────────────────────────────────────────────────────
 

@@ -6,7 +6,7 @@ use parking_lot::RwLock;
 use serde::Deserialize;
 
 use super::types::{ProducerContent, ResourceError, ResourceProducer, ResourceResult};
-use crate::protocol::McpResource;
+use dcc_mcp_jsonrpc::McpResource;
 
 #[derive(Default)]
 pub(crate) struct SkillResourceState {

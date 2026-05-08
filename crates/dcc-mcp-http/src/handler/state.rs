@@ -54,10 +54,10 @@ use tokio::sync::oneshot;
 
 use crate::{
     bridge_registry::BridgeRegistry, executor::DccExecutorHandle, inflight::InFlightRequests,
-    prompts::PromptRegistry, protocol::ElicitationCreateResult, resources::ResourceRegistry,
-    session::SessionManager,
+    prompts::PromptRegistry, resources::ResourceRegistry, session::SessionManager,
 };
-use dcc_mcp_actions::{ActionDispatcher, ActionRegistry};
+use dcc_mcp_actions::{ToolDispatcher, ToolRegistry};
+use dcc_mcp_jsonrpc::ElicitationCreateResult;
 use dcc_mcp_skill_rest::{ReadinessProbe, StaticReadiness};
 use dcc_mcp_skills::SkillCatalog;
 
@@ -73,8 +73,8 @@ pub(crate) const ELICITATION_TIMEOUT: Duration = Duration::from_secs(60);
 /// Shared application state passed to all axum handlers.
 #[derive(Clone)]
 pub struct AppState {
-    pub registry: Arc<ActionRegistry>,
-    pub dispatcher: Arc<ActionDispatcher>,
+    pub registry: Arc<ToolRegistry>,
+    pub dispatcher: Arc<ToolDispatcher>,
     pub catalog: Arc<SkillCatalog>,
     pub sessions: SessionManager,
     pub executor: Option<DccExecutorHandle>,

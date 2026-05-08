@@ -13,7 +13,7 @@ fn test_additional_properties_false_rejects_extra() {
         "properties": { "name": { "type": "string" } },
         "additionalProperties": false
     }));
-    let v = ActionValidator::new(&meta);
+    let v = ToolValidator::new(&meta);
     assert!(v.validate_input(&json!({"name": "x"})).is_valid());
     let result = v.validate_input(&json!({"name": "x", "unknown": 1}));
     assert!(!result.is_valid());
@@ -27,7 +27,7 @@ fn test_additional_properties_true_allows_extra() {
         "properties": { "name": { "type": "string" } },
         "additionalProperties": true
     }));
-    let v = ActionValidator::new(&meta);
+    let v = ToolValidator::new(&meta);
     assert!(
         v.validate_input(&json!({"name": "x", "extra": 99}))
             .is_valid()
@@ -53,7 +53,7 @@ fn test_nested_object_validation() {
             }
         }
     }));
-    let v = ActionValidator::new(&meta);
+    let v = ToolValidator::new(&meta);
     assert!(
         v.validate_input(&json!({"position": {"x": 1.0, "y": 2.0, "z": 3.0}}))
             .is_valid()
@@ -69,7 +69,7 @@ fn test_nested_object_validation() {
 #[test]
 fn test_empty_schema_accepts_anything() {
     let meta = make_meta_with_schema(json!({}));
-    let v = ActionValidator::new(&meta);
+    let v = ToolValidator::new(&meta);
     assert!(v.validate_input(&json!(null)).is_valid());
     assert!(v.validate_input(&json!({"any": "thing"})).is_valid());
 }
@@ -80,7 +80,7 @@ fn test_empty_schema_accepts_anything() {
 fn test_additional_properties_false_no_properties_key() {
     // `additionalProperties: false` without a `properties` key —
     // no known properties means every key is "additional".
-    let v = ActionValidator::from_schema(json!({
+    let v = ToolValidator::from_schema(json!({
         "type": "object",
         "additionalProperties": false
     }));

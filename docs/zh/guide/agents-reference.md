@@ -39,7 +39,7 @@ result = dispatcher.dispatch("name", json_str)   # 返回 dict
 # {job_id, status: "pending"}：
 #   1. 请求携带 _meta.dcc.async = true
 #   2. 请求携带 _meta.progressToken
-#   3. 工具的 ActionMeta 声明 execution: async 或 timeout_hint_secs > 0
+#   3. 工具的 ToolMeta 声明 execution: async 或 timeout_hint_secs > 0
 # 否则分发给同步处理（与 #318 之前的行为字节一致）。
 body = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
     "name": "render_frames",
@@ -396,7 +396,7 @@ json_str = result.to_json()    # JSON 字符串
 - 不要硬编码 API 密钥、令牌或密码 — 使用环境变量
 - 不要在分支名中使用 `docs/` 前缀 — 会导致 `refs/heads/docs/...` 冲突
 - 不要在 `tools/call` 中硬编码旧式 `<skill>.<action>` 前缀形式 — 裸名自 v0.14.2 (#307) 起为默认
-- 不要在 Python 中引用 `ActionMeta.enabled` — 使用 `ToolRegistry.set_tool_enabled()` 代替
+- 不要在 Python 中引用 `ToolMeta.enabled` — 使用 `ToolRegistry.set_tool_enabled()` 代替
 - 不要对 `ToolResult` 使用 `json.dumps()` — 使用 `result.to_json()` 或 `serialize_result()`
 - 不要猜测工具名 — 使用 `search_skills(query)` 发现正确的工具。
 

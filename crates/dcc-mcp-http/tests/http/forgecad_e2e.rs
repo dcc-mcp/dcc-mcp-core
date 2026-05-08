@@ -8,7 +8,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use dcc_mcp_actions::{ActionDispatcher, ActionRegistry};
+use dcc_mcp_actions::{ToolDispatcher, ToolRegistry};
 use dcc_mcp_http::{McpHttpConfig, McpHttpServer};
 use dcc_mcp_skills::SkillCatalog;
 use serde_json::{Value, json};
@@ -107,8 +107,8 @@ async fn forgecad_skill_discovers_loads_and_calls_over_mcp_and_rest_http() {
     let tmp = tempfile::tempdir().unwrap();
     write_forgecad_skill(tmp.path());
 
-    let registry = Arc::new(ActionRegistry::new());
-    let dispatcher = Arc::new(ActionDispatcher::new((*registry).clone()));
+    let registry = Arc::new(ToolRegistry::new());
+    let dispatcher = Arc::new(ToolDispatcher::new((*registry).clone()));
     let catalog = Arc::new(SkillCatalog::new_with_dispatcher(
         registry.clone(),
         dispatcher.clone(),

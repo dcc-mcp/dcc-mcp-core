@@ -49,11 +49,11 @@ async fn call_search_tools(server: &TestServer, args: Value) -> Value {
 // so tests that target stub filtering do not also exercise the
 // skill-candidate branch.
 fn make_app_state_with_stub_named_actions() -> AppState {
-    use dcc_mcp_actions::ActionMeta;
+    use dcc_mcp_actions::ToolMeta;
 
-    let registry = Arc::new(ActionRegistry::new());
+    let registry = Arc::new(ToolRegistry::new());
     // Regular tool — expected to always appear.
-    registry.register_action(ActionMeta {
+    registry.register_action(ToolMeta {
         name: "create_sphere".into(),
         description: "Create a polygon sphere.".into(),
         category: "geometry".into(),
@@ -69,7 +69,7 @@ fn make_app_state_with_stub_named_actions() -> AppState {
         ..Default::default()
     });
     // Stub-named action — should only surface when include_stubs=true.
-    registry.register_action(ActionMeta {
+    registry.register_action(ToolMeta {
         name: "__skill__maya-bevel".into(),
         description: "Stub for the maya-bevel skill.".into(),
         category: "stubs".into(),
@@ -78,7 +78,7 @@ fn make_app_state_with_stub_named_actions() -> AppState {
         version: "1.0.0".into(),
         ..Default::default()
     });
-    registry.register_action(ActionMeta {
+    registry.register_action(ToolMeta {
         name: "__group__modeling".into(),
         description: "Stub for the modeling group (sphere).".into(),
         category: "stubs".into(),
@@ -89,7 +89,7 @@ fn make_app_state_with_stub_named_actions() -> AppState {
     });
 
     let catalog = Arc::new(dcc_mcp_skills::SkillCatalog::new(registry.clone()));
-    let dispatcher = Arc::new(dcc_mcp_actions::ActionDispatcher::new((*registry).clone()));
+    let dispatcher = Arc::new(dcc_mcp_actions::ToolDispatcher::new((*registry).clone()));
     AppState {
         registry,
         dispatcher,
@@ -299,7 +299,7 @@ pub async fn test_search_tools_no_results_envelope() {
 
 // ── 5. Stub synthesis from the catalog (regression for PR #681 e2e bug) ──
 
-/// Regression: stubs are **not** stored in `ActionRegistry`; they are
+/// Regression: stubs are **not** stored in `ToolRegistry`; they are
 /// synthesised on demand by `tools/list` for unloaded skills and
 /// inactive tool groups. When `include_stubs=true`, `search_tools` must
 /// walk the catalog itself and emit the same synthetic entries — mere

@@ -25,7 +25,7 @@ SkillCatalog(registry: ToolRegistry) -> SkillCatalog
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `registry` | `ToolRegistry` | Action registry for registering skill tools |
+| `registry` | `ToolRegistry` | Tool registry for registering skill tools |
 
 ### Methods
 

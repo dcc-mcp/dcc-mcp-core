@@ -136,7 +136,7 @@ The metrics server refreshes counts every 5 seconds:
 ### Scenario 1 — "One DCC server is missing from `tools/list`"
 
 Remember: the gateway `tools/list` only contains the discover + dispatch
-primitives. Per-action tools live on `search_tools` / `describe_tool`.
+primitives. Per-tool tools live on `search_tools` / `describe_tool`.
 What's missing is probably the **instance**, not its tools.
 
 ```bash
@@ -176,7 +176,7 @@ is safe.
 
 ### Scenario 3 — `tools/call` returned "Unknown gateway tool"
 
-**After PR A** the gateway no longer exposes per-action tools via
+**After PR A** the gateway no longer exposes per-tool tools via
 `tools/list`. Any tool name the gateway doesn't recognise — including
 the legacy `<skill>.<action>` / `i_<id8>__<escaped>` / `<id8>.<tool>`
 forms — now returns the redirect message:

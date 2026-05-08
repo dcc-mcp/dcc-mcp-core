@@ -30,10 +30,10 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use serde_json::Value;
 
-use crate::protocol::McpResource;
 use crate::resources::{
     ProducerContent, ResourceError, ResourceProducer, ResourceRegistry, ResourceResult,
 };
+use dcc_mcp_jsonrpc::McpResource;
 
 // ── PythonProducer ────────────────────────────────────────────────────────────
 

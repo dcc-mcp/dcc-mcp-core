@@ -14,7 +14,7 @@
 //! | [`notifier`]    | `WorkflowNotifier` trait (`$/dcc.workflowUpdated` abstraction) |
 //! | [`approval`]    | `Approve` step gate (`notifications/$/dcc.approveResponse`) |
 //! | [`idempotency`] | In-process idempotency cache |
-//! | [`callers`]     | `ToolCaller` / `RemoteCaller` abstractions + `ActionDispatcher` adapter |
+//! | [`callers`]     | `ToolCaller` / `RemoteCaller` abstractions + `ToolDispatcher` adapter |
 //! | [`executor`]    | `WorkflowExecutor` — runs every `StepKind` variant |
 //! | [`host`]        | `WorkflowHost` — shared executor + run registry coordinator |
 //! | [`job`]         | `WorkflowJob` — aggregated progress snapshot |
@@ -49,8 +49,8 @@ mod tests;
 
 pub use approval::{ApprovalGate, ApprovalResponse};
 pub use callers::{
-    ActionDispatcherCaller, NullRemoteCaller, RemoteCaller, SharedRemoteCaller, SharedToolCaller,
-    ToolCaller,
+    NullRemoteCaller, RemoteCaller, SharedRemoteCaller, SharedToolCaller, ToolCaller,
+    ToolDispatcherCaller,
 };
 pub use catalog::{WorkflowCatalog, WorkflowSummary};
 pub use context::{StepOutput, TemplateError, WorkflowContext};

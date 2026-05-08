@@ -2,14 +2,14 @@
 //!
 //! Every handler in [`super::router`] delegates here, so this file is
 //! the single place that knows how to turn a REST request into a
-//! validated dispatch against an [`ActionDispatcher`].
+//! validated dispatch against an [`ToolDispatcher`].
 //!
 //! Three traits satisfy the Dependency-Inversion rule:
 //!
 //! - [`SkillCatalogSource`] — anything that can *list* skills.
 //! - [`ToolInvoker`] — anything that can *invoke* one tool by name,
 //!   respecting execution metadata (main-thread vs subprocess). The
-//!   default impl is backed by the existing [`ActionDispatcher`] but
+//!   default impl is backed by the existing [`ToolDispatcher`] but
 //!   adapters may swap in a main-thread-marshalling version.
 //! - [`ContextProvider`] — exposes DCC scene/document state. Defaults
 //!   to [`crate::server::LiveMeta`]-style snapshots.
@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use utoipa::ToSchema;
 
-use dcc_mcp_actions::dispatcher::{ActionDispatcher, DispatchError};
+use dcc_mcp_actions::dispatcher::{DispatchError, ToolDispatcher};
 use dcc_mcp_models::SkillMetadata;
 use dcc_mcp_skills::SkillCatalog;
 
@@ -222,7 +222,7 @@ pub struct CatalogAction {
 
 /// Anything that can invoke a tool by name and return its output.
 ///
-/// The default [`DispatcherInvoker`] uses [`ActionDispatcher`]
+/// The default [`DispatcherInvoker`] uses [`ToolDispatcher`]
 /// synchronously. Embedders that marshal to a host main thread swap
 /// in their own impl here (e.g. Maya's `DccExecutorHandle`).
 pub trait ToolInvoker: Send + Sync {
@@ -375,7 +375,7 @@ impl PromptProvider for EmptyPromptProvider {
 
 // ── Default impls ─────────────────────────────────────────────────────
 
-/// Wraps [`SkillCatalog`] + [`ActionDispatcher`]. Thread-safe clone.
+/// Wraps [`SkillCatalog`] + [`ToolDispatcher`]. Thread-safe clone.
 #[derive(Clone)]
 pub struct CatalogSource {
     catalog: Arc<SkillCatalog>,
@@ -446,15 +446,15 @@ impl SkillCatalogSource for CatalogSource {
     }
 }
 
-/// Dispatches through [`ActionDispatcher::dispatch`]. Synchronous —
+/// Dispatches through [`ToolDispatcher::dispatch`]. Synchronous —
 /// the dispatcher itself is already non-blocking except for the
 /// handler.
 pub struct DispatcherInvoker {
-    dispatcher: Arc<ActionDispatcher>,
+    dispatcher: Arc<ToolDispatcher>,
 }
 
 impl DispatcherInvoker {
-    pub fn new(dispatcher: Arc<ActionDispatcher>) -> Self {
+    pub fn new(dispatcher: Arc<ToolDispatcher>) -> Self {
         Self { dispatcher }
     }
 }
@@ -508,7 +508,7 @@ impl SkillRestService {
     /// Build a service from the default concrete impls.
     pub fn from_catalog_and_dispatcher(
         catalog: Arc<SkillCatalog>,
-        dispatcher: Arc<ActionDispatcher>,
+        dispatcher: Arc<ToolDispatcher>,
     ) -> Self {
         let catalog_source = Arc::new(CatalogSource::new(catalog));
         let invoker = Arc::new(DispatcherInvoker::new(dispatcher));
@@ -927,7 +927,7 @@ mod tests {
     use std::sync::Mutex;
 
     /// In-memory test fake. Lets us drive the service without spinning
-    /// up a real SkillCatalog/ActionDispatcher — keeps unit tests
+    /// up a real SkillCatalog/ToolDispatcher — keeps unit tests
     /// dependency-free.
     #[derive(Default)]
     struct FakeCatalog {

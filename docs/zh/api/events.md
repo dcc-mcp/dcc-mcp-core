@@ -52,7 +52,7 @@ bus.unsubscribe("action.executed", sid)
 
 ## ToolRecorder
 
-记录每个 Action 的执行耗时与成功/失败计数。用于为代码中执行的任意 Action 收集性能遥测数据。
+记录每个 Tool 的执行耗时与成功/失败计数。用于为代码中执行的任意 Action 收集性能遥测数据。
 
 ### 构造函数
 
@@ -71,8 +71,8 @@ recorder = ToolRecorder("my-service")
 | 方法 | 返回值 | 说明 |
 |------|--------|------|
 | `start(action_name, dcc_name)` | `RecordingGuard` | 开始计时；返回 RAII 守卫对象 |
-| `metrics(action_name)` | `ToolMetrics \| None` | 指定 Action 的聚合指标；无数据时返回 `None` |
-| `all_metrics()` | `list[ToolMetrics]` | 所有已记录 Action 的聚合指标 |
+| `metrics(action_name)` | `ToolMetrics \| None` | 指定 Tool 的聚合指标；无数据时返回 `None` |
+| `all_metrics()` | `list[ToolMetrics]` | 所有已记录 Tool 的聚合指标 |
 | `reset()` | `None` | 清空所有内存统计数据 |
 
 ### 示例
@@ -120,13 +120,13 @@ if m:
 
 ## ToolMetrics
 
-单个 Action 的性能指标只读快照。通过 `ToolRecorder.metrics()` 或 `ToolRecorder.all_metrics()` 获取。
+单个 Tool 的性能指标只读快照。通过 `ToolRecorder.metrics()` 或 `ToolRecorder.all_metrics()` 获取。
 
 ### 属性
 
 | 属性 | 类型 | 说明 |
 |------|------|------|
-| `action_name` | `str` | 该指标所属的 Action 名称 |
+| `action_name` | `str` | 该指标所属的 Tool 名称 |
 | `invocation_count` | `int` | 总调用次数 |
 | `success_count` | `int` | 成功次数 |
 | `failure_count` | `int` | 失败次数 |

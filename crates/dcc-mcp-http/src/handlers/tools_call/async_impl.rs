@@ -1,6 +1,6 @@
 use super::*;
 
-use dcc_mcp_actions::ActionMeta;
+use dcc_mcp_actions::ToolMeta;
 
 pub(super) struct AsyncDispatchConfig {
     pub parent_job_id: Option<String>,
@@ -10,7 +10,7 @@ pub(super) struct AsyncDispatchConfig {
 
 pub(super) fn async_dispatch_config(
     params: &CallToolParams,
-    action_meta: &ActionMeta,
+    action_meta: &ToolMeta,
 ) -> Option<AsyncDispatchConfig> {
     let meta_dcc = params.meta.as_ref().and_then(|m| m.dcc.as_ref());
     let async_opt_in = meta_dcc.is_some_and(|dcc| dcc.r#async);
@@ -156,7 +156,7 @@ fn spawn_async_execution(
 }
 
 async fn run_async_execution_lane(
-    dispatcher: Arc<dcc_mcp_actions::ActionDispatcher>,
+    dispatcher: Arc<dcc_mcp_actions::ToolDispatcher>,
     executor: Option<crate::executor::DccExecutorHandle>,
     tool_name: String,
     call_params: Value,

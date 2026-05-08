@@ -22,10 +22,10 @@ impl WorkflowExecutorBuilder {
         self
     }
 
-    /// Convenience: wrap an [`dcc_mcp_actions::dispatcher::ActionDispatcher`]
+    /// Convenience: wrap an [`dcc_mcp_actions::dispatcher::ToolDispatcher`]
     /// as the local tool caller.
-    pub fn dispatcher(mut self, dispatcher: dcc_mcp_actions::dispatcher::ActionDispatcher) -> Self {
-        self.tool_caller = Some(Arc::new(ActionDispatcherCaller::new(dispatcher)));
+    pub fn dispatcher(mut self, dispatcher: dcc_mcp_actions::dispatcher::ToolDispatcher) -> Self {
+        self.tool_caller = Some(Arc::new(ToolDispatcherCaller::new(dispatcher)));
         self
     }
 

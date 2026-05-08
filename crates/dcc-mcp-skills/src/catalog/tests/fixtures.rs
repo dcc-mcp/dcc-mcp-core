@@ -6,9 +6,9 @@
 use super::*;
 use dcc_mcp_models::ToolDeclaration;
 
-/// Build a minimal, empty catalog backed by a fresh `ActionRegistry`.
+/// Build a minimal, empty catalog backed by a fresh `ToolRegistry`.
 pub fn make_test_catalog() -> SkillCatalog {
-    let registry = Arc::new(ActionRegistry::new());
+    let registry = Arc::new(ToolRegistry::new());
     SkillCatalog::new(registry)
 }
 
@@ -59,10 +59,10 @@ pub fn make_test_skill_with_hint(
     }
 }
 
-/// Build a catalog that also owns an `ActionDispatcher`.
-pub fn make_catalog_with_dispatcher() -> (SkillCatalog, Arc<ActionDispatcher>) {
-    let registry = Arc::new(ActionRegistry::new());
-    let dispatcher = Arc::new(ActionDispatcher::new((*registry).clone()));
+/// Build a catalog that also owns an `ToolDispatcher`.
+pub fn make_catalog_with_dispatcher() -> (SkillCatalog, Arc<ToolDispatcher>) {
+    let registry = Arc::new(ToolRegistry::new());
+    let dispatcher = Arc::new(ToolDispatcher::new((*registry).clone()));
     let catalog = SkillCatalog::new_with_dispatcher(registry, dispatcher.clone());
     (catalog, dispatcher)
 }

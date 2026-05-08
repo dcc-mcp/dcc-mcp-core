@@ -1,7 +1,7 @@
 use super::*;
 
 impl SkillCatalog {
-    /// Activate a tool group: enable every [`ActionMeta`] whose
+    /// Activate a tool group: enable every [`ToolMeta`] whose
     /// ``group`` field matches ``group_name``.
     ///
     /// Returns the number of actions whose ``enabled`` state changed.

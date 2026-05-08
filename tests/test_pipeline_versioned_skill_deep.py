@@ -58,7 +58,7 @@ def _make_pipeline_multi(*action_names):
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-class TestActionPipelineCreate:
+class TestToolPipelineCreate:
     def test_create(self):
         p, _ = _make_pipeline()
         assert p is not None
@@ -91,7 +91,7 @@ class TestActionPipelineCreate:
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-class TestActionPipelineDispatch:
+class TestToolPipelineDispatch:
     def test_dispatch_returns_dict(self):
         p, _ = _make_pipeline()
         result = p.dispatch("act", "{}")
@@ -164,7 +164,7 @@ class TestActionPipelineDispatch:
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-class TestActionPipelineAddTiming:
+class TestToolPipelineAddTiming:
     def test_add_timing_returns_timing_middleware(self):
         p, _ = _make_pipeline()
         t = p.add_timing()
@@ -233,7 +233,7 @@ class TestActionPipelineAddTiming:
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-class TestActionPipelineAddAudit:
+class TestToolPipelineAddAudit:
     def test_add_audit_returns_audit_middleware(self):
         p, _ = _make_pipeline()
         a = p.add_audit()
@@ -343,7 +343,7 @@ class TestActionPipelineAddAudit:
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-class TestActionPipelineAddRateLimit:
+class TestToolPipelineAddRateLimit:
     def test_add_rate_limit_returns_rate_limit_middleware(self):
         p, _ = _make_pipeline()
         rl = p.add_rate_limit(max_calls=5, window_ms=1000)
@@ -410,7 +410,7 @@ class TestActionPipelineAddRateLimit:
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-class TestActionPipelineAddCallable:
+class TestToolPipelineAddCallable:
     def test_before_fn_called(self):
         p, _ = _make_pipeline()
         calls = []
@@ -487,7 +487,7 @@ class TestActionPipelineAddCallable:
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-class TestActionPipelineAddLogging:
+class TestToolPipelineAddLogging:
     def test_add_logging_returns_none(self):
         p, _ = _make_pipeline()
         result = p.add_logging()
@@ -521,7 +521,7 @@ class TestActionPipelineAddLogging:
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-class TestActionPipelineCombinedMiddleware:
+class TestToolPipelineCombinedMiddleware:
     def test_all_middleware_added(self):
         p, _ = _make_pipeline()
         p.add_logging()

@@ -30,19 +30,19 @@ fn test_rate_limit_blocks_over_limit() {
 
 #[test]
 fn test_rate_limit_independent_per_action() {
-    let registry = ActionRegistry::new();
+    let registry = ToolRegistry::new();
     for name in &["action_a", "action_b"] {
-        registry.register_action(ActionMeta {
+        registry.register_action(ToolMeta {
             name: (*name).into(),
             dcc: "mock".into(),
             ..Default::default()
         });
     }
-    let dispatcher = ActionDispatcher::new(registry);
+    let dispatcher = ToolDispatcher::new(registry);
     dispatcher.register_handler("action_a", |_| Ok(json!("a")));
     dispatcher.register_handler("action_b", |_| Ok(json!("b")));
 
-    let mut pipeline = ActionPipeline::new(dispatcher);
+    let mut pipeline = ToolPipeline::new(dispatcher);
     pipeline.add_middleware(RateLimitMiddleware::new(1, Duration::from_secs(60)));
 
     pipeline.dispatch("action_a", json!({})).unwrap();

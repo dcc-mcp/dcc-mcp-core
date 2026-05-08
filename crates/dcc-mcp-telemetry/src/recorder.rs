@@ -1,4 +1,4 @@
-//! `ActionRecorder` — records per-Action execution timing and success/failure
+//! `ToolRecorder` — records per-Action execution timing and success/failure
 //! counters using OpenTelemetry metrics.
 //!
 //! This module is deliberately self-contained: it uses the *global* meter
@@ -16,7 +16,7 @@ use opentelemetry::metrics::{Counter, Histogram};
 use opentelemetry::{KeyValue, global};
 use tracing::instrument;
 
-use crate::types::{ActionMetrics, span_keys};
+use crate::types::{ToolMetrics, span_keys};
 
 // ── Duration store (in-memory) ────────────────────────────────────────────────
 
@@ -65,21 +65,21 @@ struct ActionState {
     durations: DurationStore,
 }
 
-// ── ActionRecorder ────────────────────────────────────────────────────────────
+// ── ToolRecorder ────────────────────────────────────────────────────────────
 
 /// Records Action execution metrics.
 ///
 /// # Usage
 ///
 /// ```text
-/// let recorder = ActionRecorder::new("dcc-mcp-core");
+/// let recorder = ToolRecorder::new("dcc-mcp-core");
 ///
 /// let guard = recorder.start("create_sphere", "maya");
 /// // ... execute action ...
 /// guard.finish(true, "maya");
 /// ```
 #[derive(Clone)]
-pub struct ActionRecorder {
+pub struct ToolRecorder {
     /// OpenTelemetry counter for action invocations.
     invocation_counter: Counter<u64>,
     /// OpenTelemetry counter for action successes.
@@ -92,11 +92,11 @@ pub struct ActionRecorder {
     state: Arc<Mutex<HashMap<String, ActionState>>>,
 }
 
-impl ActionRecorder {
-    /// Create a new `ActionRecorder` using the global meter.
+impl ToolRecorder {
+    /// Create a new `ToolRecorder` using the global meter.
     pub fn new(scope: &'static str) -> Self {
         let meter = global::meter(scope);
-        ActionRecorder {
+        ToolRecorder {
             invocation_counter: meter
                 .u64_counter("dcc_mcp.action.invocations")
                 .with_description("Total number of action invocations")
@@ -183,9 +183,9 @@ impl ActionRecorder {
     /// Get aggregated metrics for a specific action.
     ///
     /// Returns `None` if no invocations have been recorded for that action.
-    pub fn metrics(&self, action_name: &str) -> Option<ActionMetrics> {
+    pub fn metrics(&self, action_name: &str) -> Option<ToolMetrics> {
         let state = self.state.lock();
-        state.get(action_name).map(|s| ActionMetrics {
+        state.get(action_name).map(|s| ToolMetrics {
             action_name: action_name.to_string(),
             invocation_count: s.invocation_count,
             success_count: s.success_count,
@@ -197,11 +197,11 @@ impl ActionRecorder {
     }
 
     /// Get aggregated metrics for all recorded actions.
-    pub fn all_metrics(&self) -> Vec<ActionMetrics> {
+    pub fn all_metrics(&self) -> Vec<ToolMetrics> {
         let state = self.state.lock();
         state
             .iter()
-            .map(|(name, s)| ActionMetrics {
+            .map(|(name, s)| ToolMetrics {
                 action_name: name.clone(),
                 invocation_count: s.invocation_count,
                 success_count: s.success_count,
@@ -222,7 +222,7 @@ impl ActionRecorder {
 
 // ── RecordingGuard ────────────────────────────────────────────────────────────
 
-/// RAII guard returned by [`ActionRecorder::start`].
+/// RAII guard returned by [`ToolRecorder::start`].
 ///
 /// Call [`RecordingGuard::finish`] to record the result.
 /// If dropped without calling `finish`, the duration is recorded as a failure.
@@ -230,7 +230,7 @@ pub struct RecordingGuard {
     action_name: String,
     dcc_name: String,
     started_at: Instant,
-    recorder: ActionRecorder,
+    recorder: ToolRecorder,
 }
 
 impl RecordingGuard {
@@ -313,8 +313,8 @@ mod tests {
     mod test_recorder {
         use super::*;
 
-        fn make_recorder() -> ActionRecorder {
-            ActionRecorder::new("test-scope")
+        fn make_recorder() -> ToolRecorder {
+            ToolRecorder::new("test-scope")
         }
 
         #[test]

@@ -12,11 +12,11 @@
 //!
 //! ```no_run
 //! use dcc_mcp_skills::{SkillCatalog, manager::SkillsManager};
-//! use dcc_mcp_actions::ActionRegistry;
+//! use dcc_mcp_actions::ToolRegistry;
 //! use std::sync::Arc;
 //! use std::time::Duration;
 //!
-//! let registry = Arc::new(ActionRegistry::new());
+//! let registry = Arc::new(ToolRegistry::new());
 //! let catalog  = Arc::new(SkillCatalog::new(registry));
 //! let manager  = SkillsManager::new(catalog.clone());
 //!
@@ -216,11 +216,11 @@ impl SkillsManager {
     ///
     /// ```no_run
     /// use dcc_mcp_skills::{SkillCatalog, manager::SkillsManager, watcher::SkillWatcher};
-    /// use dcc_mcp_actions::ActionRegistry;
+    /// use dcc_mcp_actions::ToolRegistry;
     /// use std::sync::Arc;
     /// use std::time::Duration;
     ///
-    /// let registry = Arc::new(ActionRegistry::new());
+    /// let registry = Arc::new(ToolRegistry::new());
     /// let catalog  = Arc::new(SkillCatalog::new(registry));
     /// let manager  = Arc::new(SkillsManager::new(catalog));
     /// let mut watcher = SkillWatcher::new(Duration::from_millis(300)).unwrap();

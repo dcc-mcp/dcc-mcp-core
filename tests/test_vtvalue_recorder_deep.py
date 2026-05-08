@@ -170,7 +170,7 @@ class TestVtValueVec3f:
 # ---------------------------------------------------------------------------
 
 
-class TestActionRecorder:
+class TestToolRecorder:
     def test_start_returns_recording_guard(self):
         rec = ToolRecorder("test-scope")
         guard = rec.start("create_sphere", "maya")
@@ -344,7 +344,7 @@ class TestRecordingGuardContextManager:
 # ---------------------------------------------------------------------------
 
 
-class TestActionMetricsProperties:
+class TestToolMetricsProperties:
     def _make_metrics_for(self, action: str, count: int, success: bool = True) -> ToolMetrics:
         rec = ToolRecorder("scope")
         for _ in range(count):

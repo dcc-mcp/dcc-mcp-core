@@ -1,7 +1,7 @@
 use super::*;
 // ── Core discovery tools ──────────────────────────────────────────────
 pub fn make_app_state_with_skill() -> AppState {
-    let registry = Arc::new(ActionRegistry::new());
+    let registry = Arc::new(ToolRegistry::new());
     let catalog = Arc::new(SkillCatalog::new(registry.clone()));
 
     // Add a test skill to the catalog
@@ -35,7 +35,7 @@ pub fn make_app_state_with_skill() -> AppState {
 
     AppState {
         registry: registry.clone(),
-        dispatcher: Arc::new(ActionDispatcher::new((*registry).clone())),
+        dispatcher: Arc::new(ToolDispatcher::new((*registry).clone())),
         catalog,
         sessions: SessionManager::new(),
         executor: None,

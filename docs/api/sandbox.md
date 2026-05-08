@@ -163,7 +163,7 @@ Read-only view of the sandbox audit log.
 | `entries()` | `list[AuditEntry]` | All recorded entries |
 | `successes()` | `list[AuditEntry]` | Entries with outcome `"success"` |
 | `denials()` | `list[AuditEntry]` | Entries with outcome `"denied"` |
-| `entries_for_action(action)` | `list[AuditEntry]` | Entries for a specific action |
+| `entries_for_action(action)` | `list[AuditEntry]` | Entries for a specific tool |
 | `to_json()` | `str` | All entries serialized as a JSON array |
 | `__len__()` | `int` | Number of entries |
 

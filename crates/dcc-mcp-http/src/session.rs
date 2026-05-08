@@ -18,7 +18,7 @@ use tokio::sync::broadcast;
 use uuid::Uuid;
 
 use crate::dynamic_tools::SessionDynamicTools;
-use crate::protocol::{ClientRoot, McpTool};
+use dcc_mcp_jsonrpc::{ClientRoot, McpTool};
 
 /// Maximum number of recent log messages retained per session.
 const SESSION_LOG_BUFFER_CAP: usize = 200;
@@ -502,7 +502,7 @@ impl SessionManager {
     /// Build a `Vec<McpTool>` from the session's dynamic tools.
     ///
     /// Returns an empty vec if the session does not exist.
-    pub fn dynamic_tools_for_list(&self, session_id: &str) -> Vec<crate::protocol::McpTool> {
+    pub fn dynamic_tools_for_list(&self, session_id: &str) -> Vec<dcc_mcp_jsonrpc::McpTool> {
         self.sessions
             .get_mut(session_id)
             .map(|mut s| s.dynamic_tools.to_mcp_tools())

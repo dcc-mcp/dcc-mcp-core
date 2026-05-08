@@ -21,8 +21,8 @@ use axum::Router;
 use axum_test::TestServer;
 use serde_json::{Value, json};
 
-use dcc_mcp_actions::dispatcher::ActionDispatcher;
-use dcc_mcp_actions::registry::{ActionMeta, ActionRegistry};
+use dcc_mcp_actions::dispatcher::ToolDispatcher;
+use dcc_mcp_actions::registry::{ToolMeta, ToolRegistry};
 use dcc_mcp_models::SkillMetadata;
 use dcc_mcp_skills::SkillCatalog;
 
@@ -38,8 +38,8 @@ use super::service::SkillRestService;
 /// Registers one skill with one action, wires a dispatcher handler so
 /// `/v1/call` can actually invoke it, and returns the pieces every
 /// test uses.
-fn fixture_loaded_spheres() -> (SkillRestService, Arc<ActionRegistry>, Arc<ActionDispatcher>) {
-    let registry = Arc::new(ActionRegistry::new());
+fn fixture_loaded_spheres() -> (SkillRestService, Arc<ToolRegistry>, Arc<ToolDispatcher>) {
+    let registry = Arc::new(ToolRegistry::new());
 
     let schema = json!({
         "type": "object",
@@ -47,7 +47,7 @@ fn fixture_loaded_spheres() -> (SkillRestService, Arc<ActionRegistry>, Arc<Actio
         "required": ["radius"]
     });
 
-    registry.register_action(ActionMeta {
+    registry.register_action(ToolMeta {
         name: "create_sphere".into(),
         dcc: "maya".into(),
         description: "Create a polygon sphere".into(),
@@ -58,7 +58,7 @@ fn fixture_loaded_spheres() -> (SkillRestService, Arc<ActionRegistry>, Arc<Actio
         ..Default::default()
     });
 
-    let dispatcher = Arc::new(ActionDispatcher::new((*registry).clone()));
+    let dispatcher = Arc::new(ToolDispatcher::new((*registry).clone()));
     dispatcher.register_handler("create_sphere", |params: Value| {
         let radius = params.get("radius").and_then(Value::as_f64).unwrap_or(1.0);
         Ok(json!({"name": "pSphere1", "radius": radius}))
@@ -463,7 +463,7 @@ async fn every_success_emits_one_audit_event() {
 /// actions on each skill, for nine total. The handlers are wired so
 /// the entire flow — including /v1/call — works against the fixture.
 fn fixture_multi_skill() -> (SkillRestService, Arc<VecAuditSink>) {
-    let registry = Arc::new(ActionRegistry::new());
+    let registry = Arc::new(ToolRegistry::new());
 
     // Keep schema identical so we can focus on list/search/filter.
     let num_schema = json!({
@@ -474,7 +474,7 @@ fn fixture_multi_skill() -> (SkillRestService, Arc<VecAuditSink>) {
 
     // Maya · spheres (loaded) — 3 actions.
     for name in ["create_sphere", "scale_sphere", "delete_sphere"] {
-        registry.register_action(ActionMeta {
+        registry.register_action(ToolMeta {
             name: name.into(),
             dcc: "maya".into(),
             description: format!("Spheres toolkit: {name}"),
@@ -489,7 +489,7 @@ fn fixture_multi_skill() -> (SkillRestService, Arc<VecAuditSink>) {
     // Maya · lighting (loaded) — 3 actions. Shares one tag with
     // spheres (`scene`) and has its own (`light`).
     for name in ["create_light", "set_intensity", "delete_light"] {
-        registry.register_action(ActionMeta {
+        registry.register_action(ToolMeta {
             name: name.into(),
             dcc: "maya".into(),
             description: format!("Lighting toolkit: {name}"),
@@ -505,7 +505,7 @@ fn fixture_multi_skill() -> (SkillRestService, Arc<VecAuditSink>) {
     // out of /v1/search by default (loaded_only == true) and also
     // rejected by /v1/call with kind=skill-not-loaded.
     for name in ["add_bone", "weight_paint", "remove_bone"] {
-        registry.register_action(ActionMeta {
+        registry.register_action(ToolMeta {
             name: name.into(),
             dcc: "blender".into(),
             description: format!("Rigging toolkit: {name}"),
@@ -517,7 +517,7 @@ fn fixture_multi_skill() -> (SkillRestService, Arc<VecAuditSink>) {
         });
     }
 
-    let dispatcher = Arc::new(ActionDispatcher::new((*registry).clone()));
+    let dispatcher = Arc::new(ToolDispatcher::new((*registry).clone()));
     // Single generic handler — every action just echoes `n` so the
     // REST call path can succeed on any loaded slug.
     for action in [

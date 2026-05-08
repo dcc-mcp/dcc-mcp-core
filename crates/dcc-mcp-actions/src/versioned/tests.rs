@@ -190,8 +190,8 @@ mod test_constraints {
 mod test_versioned_registry {
     use super::*;
 
-    fn meta(name: &str, dcc: &str, version: &str) -> ActionMeta {
-        ActionMeta {
+    fn meta(name: &str, dcc: &str, version: &str) -> ToolMeta {
+        ToolMeta {
             name: name.into(),
             dcc: dcc.into(),
             version: version.into(),
@@ -315,8 +315,8 @@ mod test_versioned_registry {
 mod test_router {
     use super::*;
 
-    fn meta(name: &str, dcc: &str, version: &str) -> ActionMeta {
-        ActionMeta {
+    fn meta(name: &str, dcc: &str, version: &str) -> ToolMeta {
+        ToolMeta {
             name: name.into(),
             dcc: dcc.into(),
             version: version.into(),

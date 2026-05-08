@@ -1,15 +1,15 @@
 use std::sync::Arc;
 
 use crate::config::McpHttpConfig;
-use crate::gateway::{GatewayConfig, GatewayRunner, LiveSnapshot, MetadataProvider};
 use crate::server::{LiveMeta, LiveMetaInner};
+use dcc_mcp_gateway::{GatewayConfig, GatewayRunner, LiveSnapshot, MetadataProvider};
 use dcc_mcp_transport::discovery::types::ServiceEntry;
 
 pub(crate) async fn start_gateway_runner(
     config: &McpHttpConfig,
     port: u16,
     live_meta: &LiveMeta,
-) -> Option<crate::gateway::GatewayHandle> {
+) -> Option<dcc_mcp_gateway::GatewayHandle> {
     if config.gateway.gateway_port == 0 {
         return None;
     }

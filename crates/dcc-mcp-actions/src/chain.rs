@@ -17,15 +17,15 @@
 //!
 //! ```rust
 //! use dcc_mcp_actions::chain::ActionChain;
-//! use dcc_mcp_actions::dispatcher::{ActionDispatcher, DispatchError};
-//! use dcc_mcp_actions::registry::{ActionMeta, ActionRegistry};
+//! use dcc_mcp_actions::dispatcher::{ToolDispatcher, DispatchError};
+//! use dcc_mcp_actions::registry::{ToolMeta, ToolRegistry};
 //! use serde_json::{json, Value};
 //!
-//! let registry = ActionRegistry::new();
-//! registry.register_action(ActionMeta { name: "step_a".into(), dcc: "mock".into(), ..Default::default() });
-//! registry.register_action(ActionMeta { name: "step_b".into(), dcc: "mock".into(), ..Default::default() });
+//! let registry = ToolRegistry::new();
+//! registry.register_action(ToolMeta { name: "step_a".into(), dcc: "mock".into(), ..Default::default() });
+//! registry.register_action(ToolMeta { name: "step_b".into(), dcc: "mock".into(), ..Default::default() });
 //!
-//! let dispatcher = ActionDispatcher::new(registry);
+//! let dispatcher = ToolDispatcher::new(registry);
 //! dispatcher.register_handler("step_a", |_| Ok(json!({"result_a": 42})));
 //! dispatcher.register_handler("step_b", |params| Ok(json!({"got": params["result_a"]})));
 //!

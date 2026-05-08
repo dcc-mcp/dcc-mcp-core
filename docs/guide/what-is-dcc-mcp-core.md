@@ -45,7 +45,7 @@ flowchart LR
 
 **Architectural decisions that shape the whole repo**:
 
-1. **Minimal MCP surface (#657 / #674, landed in PR A)** — the gateway's `tools/list` *always* returns only the discovery + dispatch primitives, no matter how many DCCs are connected. Per-action backend tools are discovered and invoked through `search_tools` / `describe_tool` / `call_tool`; they never fan out into `tools/list`.
+1. **Minimal MCP surface (#657 / #674, landed in PR A)** — the gateway's `tools/list` *always* returns only the discovery + dispatch primitives, no matter how many DCCs are connected. Per-tool backend tools are discovered and invoked through `search_tools` / `describe_tool` / `call_tool`; they never fan out into `tools/list`.
 2. **REST is the invocation plane** — every per-DCC server exposes a full `/v1/*` REST surface, and the gateway mirrors it as an aggregating facade. Any language / any client integrates here without touching MCP.
 3. **Single contract** — the gateway MCP `call_tool` and the REST `POST /v1/call` share one `call_service` code path. Request/response envelopes are identical, locked down by an OpenAPI snapshot test.
 4. **Progressive discovery** — agents pay only for what they ask for: `search_skills` → `load_skill` → `search_tools` → `describe_tool` → `call_tool`.

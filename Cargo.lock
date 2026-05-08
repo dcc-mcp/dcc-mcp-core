@@ -1106,6 +1106,7 @@ dependencies = [
  "clap",
  "dcc-mcp-actions",
  "dcc-mcp-catalog",
+ "dcc-mcp-gateway",
  "dcc-mcp-http",
  "dcc-mcp-jsonrpc",
  "dcc-mcp-logging",

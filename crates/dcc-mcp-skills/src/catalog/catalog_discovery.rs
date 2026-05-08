@@ -2,7 +2,7 @@ use super::*;
 
 impl SkillCatalog {
     /// Create a new, empty catalog backed by the given registry.
-    pub fn new(registry: Arc<ActionRegistry>) -> Self {
+    pub fn new(registry: Arc<ToolRegistry>) -> Self {
         Self {
             entries: DashMap::new(),
             loaded: DashSet::new(),
@@ -15,8 +15,8 @@ impl SkillCatalog {
 
     /// Create a catalog with an attached dispatcher for Skills-First execution.
     pub fn new_with_dispatcher(
-        registry: Arc<ActionRegistry>,
-        dispatcher: Arc<ActionDispatcher>,
+        registry: Arc<ToolRegistry>,
+        dispatcher: Arc<ToolDispatcher>,
     ) -> Self {
         Self {
             entries: DashMap::new(),
@@ -29,7 +29,7 @@ impl SkillCatalog {
     }
 
     /// Attach a dispatcher after construction (builder-style).
-    pub fn with_dispatcher(mut self, dispatcher: Arc<ActionDispatcher>) -> Self {
+    pub fn with_dispatcher(mut self, dispatcher: Arc<ToolDispatcher>) -> Self {
         self.dispatcher = Some(dispatcher);
         self
     }

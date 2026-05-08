@@ -11,13 +11,13 @@ use crate::{
     server::McpHttpServer,
     session::{SessionLogLevel, SessionManager},
 };
-use dcc_mcp_actions::{ActionDispatcher, ActionMeta, ActionRegistry};
+use dcc_mcp_actions::{ToolDispatcher, ToolMeta, ToolRegistry};
 use dcc_mcp_models::{SkillMetadata, ToolDeclaration};
 use dcc_mcp_skills::SkillCatalog;
 
-fn make_registry() -> ActionRegistry {
-    let reg = ActionRegistry::new();
-    reg.register_action(ActionMeta {
+fn make_registry() -> ToolRegistry {
+    let reg = ToolRegistry::new();
+    reg.register_action(ToolMeta {
         name: "get_scene_info".into(),
         description: "Get current scene info".into(),
         category: "scene".into(),
@@ -26,7 +26,7 @@ fn make_registry() -> ActionRegistry {
         version: "1.0.0".into(),
         ..Default::default()
     });
-    reg.register_action(ActionMeta {
+    reg.register_action(ToolMeta {
         name: "list_objects".into(),
         description: "List all objects".into(),
         category: "scene".into(),
@@ -41,7 +41,7 @@ fn make_registry() -> ActionRegistry {
 fn make_app_state() -> AppState {
     let registry = Arc::new(make_registry());
     let catalog = Arc::new(SkillCatalog::new(registry.clone()));
-    let dispatcher = Arc::new(ActionDispatcher::new((*registry).clone()));
+    let dispatcher = Arc::new(ToolDispatcher::new((*registry).clone()));
     AppState {
         registry,
         dispatcher,

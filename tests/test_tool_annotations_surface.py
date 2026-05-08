@@ -167,7 +167,7 @@ def test_deferred_hint_parsed_and_routed_for_meta() -> None:
     assert ann.get("deferredHint") is True
 
     # End-to-end: load the skill through the catalog and verify the
-    # Rust-side ActionMeta carries the annotation (which is what the
+    # Rust-side ToolMeta carries the annotation (which is what the
     # HTTP handler reads when emitting tools/list).
     with tempfile.TemporaryDirectory() as tmp:
         skill_dir = Path(tmp) / "deferred"

@@ -26,8 +26,8 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
-use crate::protocol::format_sse_event;
 use crate::session::SessionManager;
+use dcc_mcp_jsonrpc::format_sse_event;
 
 /// Grace period before an in-flight tool call is hard-cancelled.
 ///

@@ -3,9 +3,9 @@ use super::*;
 // ── tools/list pagination ─────────────────────────────────────────────
 
 pub fn make_app_state_many_tools() -> AppState {
-    let registry = Arc::new(ActionRegistry::new());
+    let registry = Arc::new(ToolRegistry::new());
     for i in 0..40usize {
-        registry.register_action(ActionMeta {
+        registry.register_action(ToolMeta {
             name: format!("tool_{i:02}"),
             description: format!("Test tool {i}"),
             dcc: "test".into(),
@@ -14,7 +14,7 @@ pub fn make_app_state_many_tools() -> AppState {
         });
     }
     let catalog = Arc::new(SkillCatalog::new(registry.clone()));
-    let dispatcher = Arc::new(ActionDispatcher::new((*registry).clone()));
+    let dispatcher = Arc::new(ToolDispatcher::new((*registry).clone()));
     AppState {
         registry,
         dispatcher,
@@ -59,7 +59,7 @@ pub fn make_router_many_tools() -> axum::Router {
 
 #[tokio::test]
 pub async fn test_tools_list_pagination_first_page() {
-    use crate::protocol::TOOLS_LIST_PAGE_SIZE;
+    use dcc_mcp_jsonrpc::TOOLS_LIST_PAGE_SIZE;
     let server = TestServer::new(make_router_many_tools());
 
     let resp = server
@@ -87,7 +87,7 @@ pub async fn test_tools_list_pagination_first_page() {
 
 #[tokio::test]
 pub async fn test_tools_list_pagination_second_page() {
-    use crate::protocol::TOOLS_LIST_PAGE_SIZE;
+    use dcc_mcp_jsonrpc::TOOLS_LIST_PAGE_SIZE;
     let server = TestServer::new(make_router_many_tools());
 
     // Page 1

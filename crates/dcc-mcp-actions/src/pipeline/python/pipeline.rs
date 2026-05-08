@@ -1,4 +1,4 @@
-//! `PyActionPipeline` — middleware-wrapped ActionDispatcher exposed to Python.
+//! `PyToolPipeline` — middleware-wrapped ToolDispatcher exposed to Python.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -12,16 +12,16 @@ use serde_json::Value;
 #[cfg(feature = "stub-gen")]
 use pyo3_stub_gen_derive::{gen_stub_pyclass, gen_stub_pymethods};
 
-use crate::dispatcher::{ActionDispatcher, DispatchError};
+use crate::dispatcher::{DispatchError, ToolDispatcher};
 use crate::pipeline::{
-    ActionPipeline, AuditMiddleware, LoggingMiddleware, RateLimitMiddleware, TimingMiddleware,
+    AuditMiddleware, LoggingMiddleware, RateLimitMiddleware, TimingMiddleware, ToolPipeline,
 };
 
 use super::helpers::{PyCallableHook, value_to_py};
 use super::middleware::{PyAuditMiddleware, PyRateLimitMiddleware, PyTimingMiddleware};
 use super::shared::{SharedAuditMiddleware, SharedRateLimitMiddleware, SharedTimingMiddleware};
 
-/// Middleware-wrapped ActionDispatcher.
+/// Middleware-wrapped ToolDispatcher.
 ///
 /// Allows attaching cross-cutting concerns (logging, timing, audit, rate
 /// limiting) to action dispatch without modifying individual action handlers.
@@ -31,15 +31,15 @@ use super::shared::{SharedAuditMiddleware, SharedRateLimitMiddleware, SharedTimi
 ///
 /// ```python
 /// import json
-/// from dcc_mcp_core import ActionRegistry, ActionDispatcher, ActionPipeline
+/// from dcc_mcp_core import ToolRegistry, ToolDispatcher, ToolPipeline
 ///
-/// reg = ActionRegistry()
+/// reg = ToolRegistry()
 /// reg.register("ping", category="util")
 ///
-/// dispatcher = ActionDispatcher(reg)
+/// dispatcher = ToolDispatcher(reg)
 /// dispatcher.register_handler("ping", lambda params: "pong")
 ///
-/// pipeline = ActionPipeline(dispatcher)
+/// pipeline = ToolPipeline(dispatcher)
 /// pipeline.add_logging()
 /// pipeline.add_timing()
 ///
@@ -48,10 +48,10 @@ use super::shared::{SharedAuditMiddleware, SharedRateLimitMiddleware, SharedTimi
 /// ```
 #[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]
 #[pyclass(name = "ToolPipeline")]
-pub struct PyActionPipeline {
-    /// Rust-level pipeline wrapping an `ActionDispatcher`.
-    inner: ActionPipeline,
-    /// Python-level handler map (mirrors `PyActionDispatcher.handler_map`).
+pub struct PyToolPipeline {
+    /// Rust-level pipeline wrapping an `ToolDispatcher`.
+    inner: ToolPipeline,
+    /// Python-level handler map (mirrors `PyToolDispatcher.handler_map`).
     handler_map: HashMap<String, Py<PyAny>>,
     /// Python callable hooks (before/after) added via `add_callable()`.
     callable_hooks: Vec<PyCallableHook>,
@@ -63,26 +63,26 @@ pub struct PyActionPipeline {
 
 #[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
 #[pymethods]
-impl PyActionPipeline {
-    /// Create a pipeline wrapping the given ``ActionDispatcher``.
+impl PyToolPipeline {
+    /// Create a pipeline wrapping the given ``ToolDispatcher``.
     ///
     /// The dispatcher's handlers are copied; changes after construction are
     /// **not** reflected.  Register handlers before building the pipeline.
     ///
     /// Args:
-    ///     dispatcher: An :class:`ActionDispatcher` with handlers already registered.
+    ///     dispatcher: An :class:`ToolDispatcher` with handlers already registered.
     #[new]
-    pub fn new(dispatcher: &crate::python::PyActionDispatcher) -> Self {
-        // Extract the registry and handler map from the existing PyActionDispatcher
+    pub fn new(dispatcher: &crate::python::PyToolDispatcher) -> Self {
+        // Extract the registry and handler map from the existing PyToolDispatcher
         let registry = dispatcher.registry();
-        let rust_dispatcher = ActionDispatcher::new(registry);
-        // Copy handlers from PyActionDispatcher
+        let rust_dispatcher = ToolDispatcher::new(registry);
+        // Copy handlers from PyToolDispatcher
         let handler_map = dispatcher.handler_map_clone();
         for name in handler_map.keys() {
             rust_dispatcher.register_handler(name, |_| Ok(Value::Null));
         }
         Self {
-            inner: ActionPipeline::new(rust_dispatcher),
+            inner: ToolPipeline::new(rust_dispatcher),
             handler_map,
             callable_hooks: Vec::new(),
             middleware_count: 0,
@@ -290,7 +290,7 @@ impl PyActionPipeline {
 
     /// Register a Python callable as a handler for ``action_name``.
     ///
-    /// This mirrors ``ActionDispatcher.register_handler`` but operates on the
+    /// This mirrors ``ToolDispatcher.register_handler`` but operates on the
     /// pipeline's internal dispatcher.
     #[pyo3(signature = (action_name, handler))]
     pub fn register_handler(

@@ -13,13 +13,13 @@ use axum::{Json, Router, extract::Path, routing::get};
 use reqwest::StatusCode;
 use serde_json::{Value, json};
 
-use dcc_mcp_actions::{ActionDispatcher, ActionMeta, ActionRegistry};
-use dcc_mcp_http::gateway::middleware::{
+use dcc_mcp_actions::{ToolDispatcher, ToolMeta, ToolRegistry};
+use dcc_mcp_gateway::middleware::{
     AfterCallMiddleware, BeforeCallMiddleware, CallContext, CallResult, MiddlewareChain,
     MiddlewareError, RedactionMiddleware,
 };
-use dcc_mcp_http::gateway::openapi::{OpenApiMount, call_operation};
-use dcc_mcp_http::gateway::{GatewayConfig, GatewayRunner};
+use dcc_mcp_gateway::openapi::{OpenApiMount, call_operation};
+use dcc_mcp_gateway::{GatewayConfig, GatewayRunner};
 use dcc_mcp_http::{McpHttpConfig, McpHttpServer, McpServerHandle};
 use dcc_mcp_transport::discovery::types::ServiceEntry;
 
@@ -81,8 +81,8 @@ async fn spawn_dcc_backend(
     tool_name: &'static str,
     max_request_body_bytes: usize,
 ) -> McpServerHandle {
-    let registry = Arc::new(ActionRegistry::new());
-    registry.register_action(ActionMeta {
+    let registry = Arc::new(ToolRegistry::new());
+    registry.register_action(ToolMeta {
         name: tool_name.into(),
         description: format!("{dcc} operability acceptance tool"),
         category: "issue-775".into(),
@@ -98,7 +98,7 @@ async fn spawn_dcc_backend(
         ..Default::default()
     });
 
-    let dispatcher = Arc::new(ActionDispatcher::new((*registry).clone()));
+    let dispatcher = Arc::new(ToolDispatcher::new((*registry).clone()));
     dispatcher.register_handler(tool_name, move |params| {
         Ok(json!({
             "dcc": dcc,
@@ -136,7 +136,7 @@ async fn register_backend(
 async fn start_gateway(
     registry_dir: &std::path::Path,
     spy: MiddlewareSpy,
-) -> (dcc_mcp_http::gateway::GatewayHandle, String) {
+) -> (dcc_mcp_gateway::GatewayHandle, String) {
     let cfg = GatewayConfig {
         host: "127.0.0.1".to_string(),
         gateway_port: pick_free_port(),

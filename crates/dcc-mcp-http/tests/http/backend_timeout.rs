@@ -30,9 +30,9 @@ use axum::{
 use serde_json::{Value, json};
 use tokio::sync::{RwLock, broadcast, watch};
 
+use dcc_mcp_gateway::aggregator::{aggregate_tools_list, compute_tools_fingerprint};
+use dcc_mcp_gateway::state::GatewayState;
 use dcc_mcp_http::config::McpHttpConfig;
-use dcc_mcp_http::gateway::aggregator::{aggregate_tools_list, compute_tools_fingerprint};
-use dcc_mcp_http::gateway::state::GatewayState;
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
 use dcc_mcp_transport::discovery::types::ServiceEntry;
 
@@ -65,22 +65,18 @@ async fn make_state(
         protocol_version: Arc::new(RwLock::new(None)),
         resource_subscriptions: Arc::new(RwLock::new(std::collections::HashMap::new())),
         pending_calls: Arc::new(RwLock::new(std::collections::HashMap::new())),
-        subscriber: dcc_mcp_http::gateway::sse_subscriber::SubscriberManager::default(),
+        subscriber: dcc_mcp_gateway::sse_subscriber::SubscriberManager::default(),
         allow_unknown_tools: false,
         adapter_version: None,
         adapter_dcc: None,
         cursor_safe_tool_names: true,
-        capability_index: std::sync::Arc::new(
-            dcc_mcp_http::gateway::capability::CapabilityIndex::new(),
-        ),
-        event_log: std::sync::Arc::new(dcc_mcp_http::gateway::event_log::EventLog::new()),
+        capability_index: std::sync::Arc::new(dcc_mcp_gateway::capability::CapabilityIndex::new()),
+        event_log: std::sync::Arc::new(dcc_mcp_gateway::event_log::EventLog::new()),
         middleware_chain: std::sync::Arc::new(
             dcc_mcp_gateway::gateway::middleware::MiddlewareChain::new(),
         ),
         #[cfg(feature = "prometheus")]
-        gateway_metrics: std::sync::Arc::new(
-            dcc_mcp_http::gateway::event_log::GatewayMetrics::new(),
-        ),
+        gateway_metrics: std::sync::Arc::new(dcc_mcp_gateway::event_log::GatewayMetrics::new()),
     };
     (state, registry, dir)
 }

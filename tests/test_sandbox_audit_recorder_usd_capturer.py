@@ -328,7 +328,7 @@ class TestAuditEntryProperties:
 # ════════════════════════════════════════════════════════════════════════════
 
 
-class TestActionRecorderBasic:
+class TestToolRecorderBasic:
     """ToolRecorder creation and basic recording."""
 
     def test_no_metrics_before_recording(self) -> None:
@@ -367,7 +367,7 @@ class TestActionRecorderBasic:
         assert rec.metrics("ping").failure_count == 1
 
 
-class TestActionMetricsProperties:
+class TestToolMetricsProperties:
     """All properties of ToolMetrics."""
 
     def _make_metrics(self, successes: int = 2, failures: int = 1) -> dcc_mcp_core.ToolMetrics:
@@ -421,7 +421,7 @@ class TestActionMetricsProperties:
         assert "op" in repr(m)
 
 
-class TestActionRecorderAllMetrics:
+class TestToolRecorderAllMetrics:
     """ToolRecorder.all_metrics() and .reset()."""
 
     def test_all_metrics_lists_all_actions(self) -> None:

@@ -297,7 +297,7 @@ cargo build --workspace --features python-bindings 2>&1 | grep -E "error|warning
 | `SkillScope` / `SkillPolicy` ImportError | These are Rust-only types. Use discovery paths plus `metadata.dcc-mcp.*` policy keys, then inspect via `SkillMetadata` methods |
 | `DeferredExecutor` ImportError | Import directly: `from dcc_mcp_core._core import DeferredExecutor` |
 | Skill scripts not discovered | Check `DCC_MCP_SKILL_PATHS` env var and `dcc:` field in SKILL.md matches your filter |
-| `ActionMeta` AttributeError | Rust-only type. Use `ToolRegistry.set_tool_enabled()` and `list_tools_in_group()` instead |
+| `ToolMeta` AttributeError | Rust-only type. Use `ToolRegistry.set_tool_enabled()` and `list_tools_in_group()` instead |
 
 ### AI Agent Best Practices
 

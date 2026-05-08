@@ -33,7 +33,7 @@ def _recorder(scope: str = "test-scope") -> ToolRecorder:
 # ---------------------------------------------------------------------------
 
 
-class TestActionRecorderGuardFinish:
+class TestToolRecorderGuardFinish:
     def test_single_success_increments_invocation(self):
         r = _recorder()
         guard = r.start("op", "maya")
@@ -192,7 +192,7 @@ class TestRecordingGuardContextManager:
 # ---------------------------------------------------------------------------
 
 
-class TestActionRecorderAllMetricsReset:
+class TestToolRecorderAllMetricsReset:
     def test_all_metrics_empty_initially(self):
         r = _recorder()
         assert r.all_metrics() == []

@@ -39,7 +39,7 @@ use axum::{
 use futures::StreamExt;
 use serde_json::{Value, json};
 
-use dcc_mcp_http::gateway::{GatewayConfig, GatewayRunner};
+use dcc_mcp_gateway::{GatewayConfig, GatewayRunner};
 use dcc_mcp_transport::discovery::types::ServiceEntry;
 
 // ── Fake backend ────────────────────────────────────────────────────────────
@@ -201,7 +201,7 @@ fn pick_free_port() -> u16 {
 async fn start_gateway_winner(
     registry_dir: &std::path::Path,
     gw_port: u16,
-) -> (dcc_mcp_http::gateway::GatewayHandle, String) {
+) -> (dcc_mcp_gateway::GatewayHandle, String) {
     let cfg = GatewayConfig {
         host: "127.0.0.1".to_string(),
         gateway_port: gw_port,

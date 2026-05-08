@@ -218,11 +218,11 @@ class TestEventBus:
 
 
 # ===========================================================================
-# TestActionRecorder
+# TestToolRecorder
 # ===========================================================================
 
 
-class TestActionRecorder:
+class TestToolRecorder:
     """Tests for ToolRecorder + RecordingGuard + ToolMetrics."""
 
     class TestBasicRecording:

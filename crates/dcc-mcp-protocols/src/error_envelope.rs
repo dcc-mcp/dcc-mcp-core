@@ -11,7 +11,7 @@
 //! | Layer        | Meaning                                           |
 //! |--------------|---------------------------------------------------|
 //! | `gateway`    | MCP gateway routing (skill/group stubs, dispatch) |
-//! | `registry`   | Tool lookup in the [`ActionRegistry`]              |
+//! | `registry`   | Tool lookup in the [`ToolRegistry`]              |
 //! | `instance`   | Tool execution / handler invocation                |
 //! | `subprocess` | Subprocess or bridge communication failure         |
 //! | `dcc`        | DCC application returned an error                  |

@@ -263,7 +263,7 @@ class TestAuditEntry:
 # ===========================================================================
 
 
-class TestActionValidatorFromSchemaJson:
+class TestToolValidatorFromSchemaJson:
     """Tests for ToolValidator.from_schema_json factory."""
 
     def test_valid_object_passes(self):
@@ -350,7 +350,7 @@ class TestActionValidatorFromSchemaJson:
         assert all(isinstance(e, str) for e in errors)
 
 
-class TestActionValidatorFromActionRegistry:
+class TestToolValidatorFromToolRegistry:
     """Tests for ToolValidator.from_action_registry factory."""
 
     def _make_registry(self) -> ToolRegistry:

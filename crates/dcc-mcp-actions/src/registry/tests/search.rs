@@ -79,7 +79,7 @@ fn search_tag_not_found_returns_empty() {
 
 #[test]
 fn search_on_empty_registry_returns_empty() {
-    let reg = ActionRegistry::new();
+    let reg = ToolRegistry::new();
     let results = reg.search_actions(Some("geometry"), &["mesh"], Some("maya"));
     assert!(results.is_empty());
 }
@@ -104,14 +104,14 @@ fn get_categories_scoped_to_dcc() {
 
 #[test]
 fn get_categories_empty_registry_returns_empty() {
-    let reg = ActionRegistry::new();
+    let reg = ToolRegistry::new();
     assert!(reg.get_categories(None).is_empty());
 }
 
 #[test]
 fn get_categories_skips_blank_category() {
-    let reg = ActionRegistry::new();
-    reg.register_action(ActionMeta {
+    let reg = ToolRegistry::new();
+    reg.register_action(ToolMeta {
         name: "no_cat".into(),
         dcc: "maya".into(),
         category: String::new(), // blank category
@@ -151,7 +151,7 @@ fn get_tags_scoped_to_dcc() {
 
 #[test]
 fn get_tags_empty_registry_returns_empty() {
-    let reg = ActionRegistry::new();
+    let reg = ToolRegistry::new();
     assert!(reg.get_tags(None).is_empty());
 }
 

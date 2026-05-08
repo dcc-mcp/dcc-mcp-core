@@ -49,7 +49,7 @@ Each collaborator is a **trait** so adapters (Maya/Blender/Houdini) can swap
 in their own implementation without touching the router. Defaults wire to:
 
 - `SkillCatalog` (`dcc-mcp-skills`) for the catalog source,
-- `ActionDispatcher` (`dcc-mcp-actions`) for invocation,
+- `ToolDispatcher` (`dcc-mcp-actions`) for invocation,
 - `AllowLocalhostGate` for auth (loopback-only),
 - `NoopAuditSink` for audit.
 
@@ -85,7 +85,7 @@ is fetched on demand by `POST /v1/describe` with `include_schema: true`
 ```rust
 use std::sync::Arc;
 use axum::Router;
-use dcc_mcp_actions::{ActionDispatcher, ActionRegistry};
+use dcc_mcp_actions::{ToolDispatcher, ToolRegistry};
 use dcc_mcp_http::{
     AllowLocalhostGate, BearerTokenGate, NoopAuditSink, SkillRestConfig,
     SkillRestService, StaticReadiness, build_skill_rest_router,
@@ -93,8 +93,8 @@ use dcc_mcp_http::{
 use dcc_mcp_skills::SkillCatalog;
 
 fn build_dcc_app(
-    registry: Arc<ActionRegistry>,
-    dispatcher: Arc<ActionDispatcher>,
+    registry: Arc<ToolRegistry>,
+    dispatcher: Arc<ToolDispatcher>,
 ) -> Router {
     let catalog = Arc::new(SkillCatalog::new_with_dispatcher(
         registry.clone(),

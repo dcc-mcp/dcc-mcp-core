@@ -256,7 +256,7 @@ class TestPyCrashRecoveryPolicy:
 # ---------------------------------------------------------------------------
 
 
-class TestActionRecorder:
+class TestToolRecorder:
     """Tests for ToolRecorder and its context manager (RecordingGuard)."""
 
     class TestConstructor:
@@ -351,7 +351,7 @@ class TestActionRecorder:
                 r = repr(guard)
                 assert "active=true" in r
 
-    class TestActionMetrics:
+    class TestToolMetrics:
         def test_metrics_not_none_after_recording(self):
             rec = ToolRecorder("metrics_87")
             with rec.start("action", "maya"):

@@ -102,14 +102,14 @@ pub fn build_lazy_action_tools() -> Vec<McpTool> {
     ]
 }
 
-/// Convert an ActionMeta to an McpTool, respecting annotations from the skill.
+/// Convert an ToolMeta to an McpTool, respecting annotations from the skill.
 ///
 /// `include_output_schema` controls whether the action's declared
-/// [`ActionMeta::output_schema`] is surfaced as the MCP `outputSchema` field
+/// [`ToolMeta::output_schema`] is surfaced as the MCP `outputSchema` field
 /// (introduced in 2025-06-18). On older sessions this must be `false` so the
 /// field is never serialised.
 pub fn action_meta_to_mcp_tool(
-    meta: &dcc_mcp_actions::registry::ActionMeta,
+    meta: &dcc_mcp_actions::registry::ToolMeta,
     include_output_schema: bool,
     bare_eligible: &std::collections::HashSet<(String, String)>,
     declared_capabilities: &[String],
@@ -143,7 +143,7 @@ pub fn action_meta_to_mcp_tool(
         .map(|sn| {
             let key = (sn.to_string(), meta.name.clone());
             if bare_eligible.contains(&key) {
-                crate::gateway::namespace::extract_bare_tool_name(sn, &meta.name).to_string()
+                dcc_mcp_gateway::namespace::extract_bare_tool_name(sn, &meta.name).to_string()
             } else {
                 skill_tool_name(sn, &meta.name).unwrap_or_else(|| meta.name.clone())
             }
@@ -202,7 +202,7 @@ pub fn action_meta_to_mcp_tool(
 ///
 /// Returns `None` when there is nothing to emit.
 pub fn build_tool_meta(
-    meta: &dcc_mcp_actions::registry::ActionMeta,
+    meta: &dcc_mcp_actions::registry::ToolMeta,
     declared_capabilities: &[String],
     schema_is_incomplete: bool,
 ) -> Option<serde_json::Map<String, serde_json::Value>> {

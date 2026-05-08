@@ -32,7 +32,7 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::protocol::{McpTool, McpToolAnnotations};
+use dcc_mcp_jsonrpc::{McpTool, McpToolAnnotations};
 
 /// Default TTL for a dynamic tool if not specified in the spec.
 const DEFAULT_TOOL_TTL_SECS: u64 = 3600;

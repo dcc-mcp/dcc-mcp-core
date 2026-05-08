@@ -24,7 +24,7 @@ def _schema_required(*required, **properties) -> str:
     return json.dumps({"type": "object", "properties": properties, "required": list(required)})
 
 
-class TestActionValidatorFromSchemaJson:
+class TestToolValidatorFromSchemaJson:
     """Tests for ToolValidator.from_schema_json constructor."""
 
     def test_creates_validator_from_minimal_schema(self):
@@ -63,7 +63,7 @@ class TestActionValidatorFromSchemaJson:
         assert av is not None
 
 
-class TestActionValidatorFromActionRegistry:
+class TestToolValidatorFromToolRegistry:
     """Tests for ToolValidator.from_action_registry constructor."""
 
     def test_creates_validator_for_registered_action(self):
@@ -111,7 +111,7 @@ class TestActionValidatorFromActionRegistry:
         assert ok is True
 
 
-class TestActionValidatorValidateHappyPath:
+class TestToolValidatorValidateHappyPath:
     """Tests for ToolValidator.validate with valid inputs."""
 
     def test_valid_number_field(self):
@@ -187,7 +187,7 @@ class TestActionValidatorValidateHappyPath:
         assert ok is True
 
 
-class TestActionValidatorValidateErrorPaths:
+class TestToolValidatorValidateErrorPaths:
     """Tests for ToolValidator.validate with invalid inputs."""
 
     def test_missing_required_field_fails(self):
@@ -269,7 +269,7 @@ class TestActionValidatorValidateErrorPaths:
             av.validate("not json {{{")
 
 
-class TestActionValidatorSchemaTypes:
+class TestToolValidatorSchemaTypes:
     """Tests for various JSON Schema type combinations."""
 
     def test_array_type_schema(self):

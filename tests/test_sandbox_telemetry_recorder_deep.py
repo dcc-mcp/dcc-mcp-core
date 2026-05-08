@@ -720,7 +720,7 @@ class TestInputValidatorRequireNumber:
 # ---------------------------------------------------------------------------
 
 
-class TestActionRecorderCreate:
+class TestToolRecorderCreate:
     def test_create_with_scope(self):
         from dcc_mcp_core import ToolRecorder
 
@@ -819,7 +819,7 @@ class TestRecordingGuard:
         assert "houdini" in repr(guard)
 
 
-class TestActionRecorderMetrics:
+class TestToolRecorderMetrics:
     def test_metrics_after_recording(self):
         from dcc_mcp_core import ToolRecorder
 

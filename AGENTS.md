@@ -89,7 +89,7 @@ Gateway dynamic-capability / REST exposure:
 1. Discover: search_tools(query="keyword", dcc_type="maya") → get tool_slug
 2. Inspect: describe_tool(tool_slug) → read schema + annotations
 3. Execute: call_tool(tool_slug, arguments={...})
-4. The gateway never fans out per-action backend tools into tools/list.
+4. The gateway never fans out per-tool backend tools into tools/list.
 5. For non-MCP clients, use the matching /v1/search, /v1/describe, /v1/call REST endpoints.
 
 Gateway instance discovery:

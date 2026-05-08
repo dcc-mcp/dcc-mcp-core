@@ -3,7 +3,7 @@
 //! [`PyRateLimitMiddleware`].
 //!
 //! Inner fields are `pub(super)` so the sibling `python_pipeline` module can
-//! construct and return these wrappers from `PyActionPipeline::add_timing()`
+//! construct and return these wrappers from `PyToolPipeline::add_timing()`
 //! etc.
 
 use std::sync::Arc;
@@ -22,11 +22,11 @@ use crate::pipeline::{AuditMiddleware, LoggingMiddleware, RateLimitMiddleware, T
 /// Logging middleware — emits tracing log lines before/after each action.
 ///
 /// ```python
-/// from dcc_mcp_core import ActionRegistry, ActionDispatcher, ActionPipeline, LoggingMiddleware
+/// from dcc_mcp_core import ToolRegistry, ToolDispatcher, ToolPipeline, LoggingMiddleware
 ///
-/// reg = ActionRegistry()
-/// dispatcher = ActionDispatcher(reg)
-/// pipeline = ActionPipeline(dispatcher)
+/// reg = ToolRegistry()
+/// dispatcher = ToolDispatcher(reg)
+/// pipeline = ToolPipeline(dispatcher)
 /// pipeline.add_logging(log_params=True)
 /// ```
 #[cfg_attr(feature = "stub-gen", gen_stub_pyclass)]

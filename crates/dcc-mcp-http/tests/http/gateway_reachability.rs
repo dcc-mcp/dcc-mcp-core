@@ -18,7 +18,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use dcc_mcp_actions::ActionRegistry;
+use dcc_mcp_actions::ToolRegistry;
 use dcc_mcp_http::{McpHttpConfig, McpHttpServer, ServerSpawnMode};
 
 /// When `McpServerHandle` reports success, a plain TCP connect to its
@@ -27,7 +27,7 @@ use dcc_mcp_http::{McpHttpConfig, McpHttpServer, ServerSpawnMode};
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn instance_listener_is_reachable_when_handle_is_returned_ambient() {
     for round in 0..5 {
-        let registry = Arc::new(ActionRegistry::new());
+        let registry = Arc::new(ToolRegistry::new());
         let cfg = McpHttpConfig::default()
             .with_port(0)
             .with_name(format!("reach-test-{round}"))
@@ -65,7 +65,7 @@ async fn instance_listener_is_reachable_when_handle_is_returned_ambient() {
 #[tokio::test(flavor = "current_thread")]
 async fn instance_listener_is_reachable_when_handle_is_returned_dedicated() {
     for round in 0..5 {
-        let registry = Arc::new(ActionRegistry::new());
+        let registry = Arc::new(ToolRegistry::new());
         let cfg = McpHttpConfig::default()
             .with_port(0)
             .with_name(format!("reach-test-dedicated-{round}"))
@@ -101,7 +101,7 @@ async fn instance_listener_is_reachable_when_handle_is_returned_dedicated() {
 /// and leak the listener after shutdown.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn dropping_handle_releases_port() {
-    let registry = Arc::new(ActionRegistry::new());
+    let registry = Arc::new(ToolRegistry::new());
 
     // Bind the first server on port 0, capture the OS-assigned port,
     // shut it down, then ensure we can bind the same port immediately.
@@ -136,7 +136,7 @@ async fn dropping_handle_releases_port() {
         let cfg3 = McpHttpConfig::default()
             .with_port(0)
             .with_name("drop-release-test-3");
-        let h3 = McpHttpServer::new(Arc::new(ActionRegistry::new()), cfg3)
+        let h3 = McpHttpServer::new(Arc::new(ToolRegistry::new()), cfg3)
             .start()
             .await
             .expect("subsequent bind on port 0 must succeed");
@@ -155,7 +155,7 @@ async fn occupied_gateway_port_yields_plain_instance() {
     let squatter = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let squatter_port = squatter.local_addr().unwrap().port();
 
-    let registry = Arc::new(ActionRegistry::new());
+    let registry = Arc::new(ToolRegistry::new());
     let cfg = McpHttpConfig::default()
         .with_port(0)
         .with_name("plain-instance-test")

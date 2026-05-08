@@ -1,13 +1,13 @@
 """Deep tests for ToolPipeline concurrency, SkillWatcher multi-path, PyDccLauncher, and McpHttpConfig.
 
 Covers:
-- TestActionPipelineConcurrent: 20+ concurrent dispatch with threading
+- TestToolPipelineConcurrent: 20+ concurrent dispatch with threading
 - TestSkillWatcherMultiPath: multi-path watch/unwatch/reload combinations
 - TestSkillScannerCacheClearing: clear_cache / rescan behaviour
 - TestPyDccLauncherDeep: running_count/restart_count/launch/terminate/kill
 - TestMcpHttpConfigDeep: port/server_name/server_version/defaults
-- TestActionPipelineAddCallable: before_fn/after_fn callable hooks
-- TestActionPipelineRegisterHandler: pipeline.register_handler + dispatch
+- TestToolPipelineAddCallable: before_fn/after_fn callable hooks
+- TestToolPipelineRegisterHandler: pipeline.register_handler + dispatch
 """
 
 from __future__ import annotations
@@ -97,11 +97,11 @@ def _make_skill_dir(
 
 
 # ---------------------------------------------------------------------------
-# TestActionPipelineConcurrent
+# TestToolPipelineConcurrent
 # ---------------------------------------------------------------------------
 
 
-class TestActionPipelineConcurrent:
+class TestToolPipelineConcurrent:
     """Multi-thread concurrent dispatch tests for ToolPipeline."""
 
     def test_single_thread_basic_dispatch(self):
@@ -289,11 +289,11 @@ class TestActionPipelineConcurrent:
 
 
 # ---------------------------------------------------------------------------
-# TestActionPipelineAddCallable
+# TestToolPipelineAddCallable
 # ---------------------------------------------------------------------------
 
 
-class TestActionPipelineAddCallable:
+class TestToolPipelineAddCallable:
     """Tests for ToolPipeline.add_callable hook."""
 
     def test_add_callable_before_fn_called(self):
@@ -360,11 +360,11 @@ class TestActionPipelineAddCallable:
 
 
 # ---------------------------------------------------------------------------
-# TestActionPipelineRegisterHandler
+# TestToolPipelineRegisterHandler
 # ---------------------------------------------------------------------------
 
 
-class TestActionPipelineRegisterHandler:
+class TestToolPipelineRegisterHandler:
     """Tests for ToolPipeline.register_handler."""
 
     def test_register_handler_and_dispatch(self):
@@ -957,11 +957,11 @@ class TestMcpHttpConfigDeep:
 
 
 # ---------------------------------------------------------------------------
-# TestActionPipelineRateLimitDeep
+# TestToolPipelineRateLimitDeep
 # ---------------------------------------------------------------------------
 
 
-class TestActionPipelineRateLimitDeep:
+class TestToolPipelineRateLimitDeep:
     """Additional rate-limit edge-case tests."""
 
     def test_rate_limit_call_count_increments(self):

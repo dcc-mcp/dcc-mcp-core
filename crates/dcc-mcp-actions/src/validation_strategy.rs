@@ -1,4 +1,4 @@
-//! Strategy trait + built-in validators for [`ActionDispatcher`] (#493).
+//! Strategy trait + built-in validators for [`ToolDispatcher`] (#493).
 //!
 //! `dispatcher.dispatch()` previously interleaved handler lookup, the
 //! `enabled` flag check, schema-emptiness branching, and validator
@@ -13,8 +13,8 @@
 
 use serde_json::Value;
 
-use crate::registry::ActionMeta;
-use crate::validator::ActionValidator;
+use crate::registry::ToolMeta;
+use crate::validator::ToolValidator;
 
 /// Outcome returned by [`ValidationStrategy::validate`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,18 +55,18 @@ impl ValidationStrategy for NoOpValidator {
 /// construct (no clone of the schema) so `dispatch()` can build it on
 /// every call without measurable overhead.
 pub struct SchemaValidator<'a> {
-    meta: &'a ActionMeta,
+    meta: &'a ToolMeta,
 }
 
 impl<'a> SchemaValidator<'a> {
-    pub fn new(meta: &'a ActionMeta) -> Self {
+    pub fn new(meta: &'a ToolMeta) -> Self {
         Self { meta }
     }
 }
 
 impl ValidationStrategy for SchemaValidator<'_> {
     fn validate(&self, params: &Value) -> Result<ValidationOutcome, String> {
-        let validator = ActionValidator::new(self.meta);
+        let validator = ToolValidator::new(self.meta);
         let result = validator.validate_input(params);
         if result.is_valid() {
             Ok(ValidationOutcome::RAN)
@@ -86,7 +86,7 @@ impl ValidationStrategy for SchemaValidator<'_> {
 /// keep its body to one line (`strategy.validate(&params)?`) regardless
 /// of which flavour was selected.
 pub fn select_strategy<'a>(
-    meta: Option<&'a ActionMeta>,
+    meta: Option<&'a ToolMeta>,
     skip_empty_schema_validation: bool,
 ) -> Box<dyn ValidationStrategy + 'a> {
     let Some(meta) = meta else {
@@ -108,8 +108,8 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn meta_with_schema(schema: Value) -> ActionMeta {
-        ActionMeta {
+    fn meta_with_schema(schema: Value) -> ToolMeta {
+        ToolMeta {
             name: "x".into(),
             dcc: "maya".into(),
             input_schema: schema,

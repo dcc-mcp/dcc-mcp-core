@@ -17,7 +17,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use dcc_mcp_actions::{ActionDispatcher, ActionMeta, ActionRegistry};
+use dcc_mcp_actions::{ToolDispatcher, ToolMeta, ToolRegistry};
 use dcc_mcp_http::{DeferredExecutor, McpHttpConfig, McpHttpServer};
 use dcc_mcp_models::ThreadAffinity;
 
@@ -35,9 +35,9 @@ async fn wait_reachable(addr: &str) -> bool {
 /// Build a registry with two tools:
 /// - `any_tool`: declared `ThreadAffinity::Any`, returns `{"ok": true}`
 /// - `main_tool`: declared `ThreadAffinity::Main`, returns `{"ok": true}`
-fn make_registry_with_both_affinities() -> (Arc<ActionRegistry>, Arc<ActionDispatcher>) {
-    let registry = Arc::new(ActionRegistry::new());
-    registry.register_action(ActionMeta {
+fn make_registry_with_both_affinities() -> (Arc<ToolRegistry>, Arc<ToolDispatcher>) {
+    let registry = Arc::new(ToolRegistry::new());
+    registry.register_action(ToolMeta {
         name: "any_tool".into(),
         description: "pure compute — no DCC state, any thread is fine".into(),
         category: "test".into(),
@@ -45,7 +45,7 @@ fn make_registry_with_both_affinities() -> (Arc<ActionRegistry>, Arc<ActionDispa
         thread_affinity: ThreadAffinity::Any,
         ..Default::default()
     });
-    registry.register_action(ActionMeta {
+    registry.register_action(ToolMeta {
         name: "main_tool".into(),
         description: "mutates scene — must run on DCC main thread".into(),
         category: "test".into(),
@@ -53,7 +53,7 @@ fn make_registry_with_both_affinities() -> (Arc<ActionRegistry>, Arc<ActionDispa
         thread_affinity: ThreadAffinity::Main,
         ..Default::default()
     });
-    let dispatcher = Arc::new(ActionDispatcher::new((*registry).clone()));
+    let dispatcher = Arc::new(ToolDispatcher::new((*registry).clone()));
     dispatcher.register_handler("any_tool", |_args| Ok(serde_json::json!({"ok": true})));
     dispatcher.register_handler("main_tool", |_args| Ok(serde_json::json!({"ok": true})));
     (registry, dispatcher)

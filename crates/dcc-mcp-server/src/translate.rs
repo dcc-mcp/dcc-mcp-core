@@ -575,7 +575,7 @@ pub async fn run(args: TranslateArgs) -> anyhow::Result<()> {
 
     // ── Gateway registration ──────────────────────────────────────────────
     let gw_handle_opt = if !args.no_register {
-        use dcc_mcp_http::gateway::{GatewayConfig, GatewayRunner};
+        use dcc_mcp_gateway::{GatewayConfig, GatewayRunner};
 
         let registry_dir_path: Option<PathBuf> = args.registry_dir.as_deref().map(PathBuf::from);
 
@@ -597,7 +597,7 @@ pub async fn run(args: TranslateArgs) -> anyhow::Result<()> {
             adapter_version: None,
             adapter_dcc: Some(args.app_type.clone()),
             cursor_safe_tool_names: true,
-            middleware_chain: dcc_mcp_http::gateway::middleware::MiddlewareChain::new(),
+            middleware_chain: dcc_mcp_gateway::middleware::MiddlewareChain::new(),
             admin_enabled: !args.no_admin,
             admin_path: args.admin_path.clone(),
         };

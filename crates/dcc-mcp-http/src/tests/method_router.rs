@@ -8,7 +8,7 @@ use serde_json::json;
 use super::{make_app_state, make_router};
 use crate::handler::{HandlerFuture, MethodHandler};
 use crate::handler::{handle_delete, handle_get, handle_post};
-use crate::protocol::{JsonRpcRequest, JsonRpcResponse};
+use dcc_mcp_jsonrpc::{JsonRpcRequest, JsonRpcResponse};
 
 /// Custom handler that echoes its params back as `{ "echoed": ... }`.
 struct EchoHandler;

@@ -1,4 +1,4 @@
-//! Happy-path and edge-case tests for ActionRegistry basic operations.
+//! Happy-path and edge-case tests for ToolRegistry basic operations.
 
 use super::fixtures::make_action;
 use super::*;
@@ -7,7 +7,7 @@ use super::*;
 
 #[test]
 fn test_registry_register_and_get() {
-    let reg = ActionRegistry::new();
+    let reg = ToolRegistry::new();
     reg.register_action(make_action("create_sphere", "maya"));
 
     assert_eq!(reg.len(), 1);
@@ -18,14 +18,14 @@ fn test_registry_register_and_get() {
 
 #[test]
 fn test_registry_default_is_empty() {
-    let reg = ActionRegistry::default();
+    let reg = ToolRegistry::default();
     assert!(reg.is_empty());
     assert_eq!(reg.len(), 0);
 }
 
 #[test]
 fn test_registry_get_returns_correct_metadata() {
-    let reg = ActionRegistry::new();
+    let reg = ToolRegistry::new();
     reg.register_action(make_action("delete_mesh", "blender"));
 
     let meta = reg.get_action("delete_mesh", None).unwrap();
@@ -36,7 +36,7 @@ fn test_registry_get_returns_correct_metadata() {
 
 #[test]
 fn test_registry_list_actions_all() {
-    let reg = ActionRegistry::new();
+    let reg = ToolRegistry::new();
     reg.register_action(make_action("a1", "maya"));
     reg.register_action(make_action("a2", "maya"));
     reg.register_action(make_action("a3", "blender"));
@@ -47,7 +47,7 @@ fn test_registry_list_actions_all() {
 
 #[test]
 fn test_registry_list_actions_for_dcc() {
-    let reg = ActionRegistry::new();
+    let reg = ToolRegistry::new();
     reg.register_action(make_action("ma1", "maya"));
     reg.register_action(make_action("ma2", "maya"));
     reg.register_action(make_action("bl1", "blender"));
@@ -60,7 +60,7 @@ fn test_registry_list_actions_for_dcc() {
 
 #[test]
 fn test_registry_list_actions_for_dcc_names() {
-    let reg = ActionRegistry::new();
+    let reg = ToolRegistry::new();
     reg.register_action(make_action("x", "houdini"));
 
     let names = reg.list_actions_for_dcc("houdini");
@@ -69,7 +69,7 @@ fn test_registry_list_actions_for_dcc_names() {
 
 #[test]
 fn test_registry_get_all_dccs() {
-    let reg = ActionRegistry::new();
+    let reg = ToolRegistry::new();
     reg.register_action(make_action("a", "maya"));
     reg.register_action(make_action("b", "blender"));
     reg.register_action(make_action("c", "maya"));
@@ -83,21 +83,21 @@ fn test_registry_get_all_dccs() {
 
 #[test]
 fn test_registry_get_unknown_returns_none() {
-    let reg = ActionRegistry::new();
+    let reg = ToolRegistry::new();
     assert!(reg.get_action("nonexistent", None).is_none());
     assert!(reg.get_action("nonexistent", Some("maya")).is_none());
 }
 
 #[test]
 fn test_registry_get_action_wrong_dcc_returns_none() {
-    let reg = ActionRegistry::new();
+    let reg = ToolRegistry::new();
     reg.register_action(make_action("create_sphere", "maya"));
     assert!(reg.get_action("create_sphere", Some("blender")).is_none());
 }
 
 #[test]
 fn test_registry_list_for_unknown_dcc_empty() {
-    let reg = ActionRegistry::new();
+    let reg = ToolRegistry::new();
     reg.register_action(make_action("a", "maya"));
     assert!(reg.list_actions(Some("unknown_dcc")).is_empty());
     assert!(reg.list_actions_for_dcc("unknown_dcc").is_empty());
@@ -105,7 +105,7 @@ fn test_registry_list_for_unknown_dcc_empty() {
 
 #[test]
 fn test_registry_reset_clears_all() {
-    let reg = ActionRegistry::new();
+    let reg = ToolRegistry::new();
     reg.register_action(make_action("a", "maya"));
     reg.register_action(make_action("b", "blender"));
     assert_eq!(reg.len(), 2);
@@ -119,9 +119,9 @@ fn test_registry_reset_clears_all() {
 
 #[test]
 fn test_registry_overwrite_existing_action() {
-    let reg = ActionRegistry::new();
+    let reg = ToolRegistry::new();
     reg.register_action(make_action("my_action", "maya"));
-    let updated = ActionMeta {
+    let updated = ToolMeta {
         name: "my_action".into(),
         description: "updated description".into(),
         dcc: "maya".into(),
@@ -140,8 +140,8 @@ fn test_registry_overwrite_existing_action() {
 
 #[test]
 fn test_registry_tags_preserved() {
-    let reg = ActionRegistry::new();
-    reg.register_action(ActionMeta {
+    let reg = ToolRegistry::new();
+    reg.register_action(ToolMeta {
         name: "tagged_action".into(),
         dcc: "maya".into(),
         tags: vec!["sculpt".into(), "deform".into()],
@@ -153,8 +153,8 @@ fn test_registry_tags_preserved() {
 
 #[test]
 fn test_registry_source_file_optional() {
-    let reg = ActionRegistry::new();
-    reg.register_action(ActionMeta {
+    let reg = ToolRegistry::new();
+    reg.register_action(ToolMeta {
         name: "no_source".into(),
         dcc: "blender".into(),
         source_file: None,
@@ -163,7 +163,7 @@ fn test_registry_source_file_optional() {
     let meta = reg.get_action("no_source", None).unwrap();
     assert!(meta.source_file.is_none());
 
-    reg.register_action(ActionMeta {
+    reg.register_action(ToolMeta {
         name: "with_source".into(),
         dcc: "blender".into(),
         source_file: Some("/path/to/action.py".into()),

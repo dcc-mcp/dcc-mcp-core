@@ -203,7 +203,7 @@ Every `McpHttpServer` emits a fixed set of built-in tools in `tools/list` in add
 
 ### Lazy-actions fast-path (opt-in)
 
-Enabled via `McpHttpConfig.lazy_actions = True`. Replaces the per-action `tools/list` expansion with three meta-tools so the tool surface stays small regardless of how many actions are registered:
+Enabled via `McpHttpConfig.lazy_actions = True`. Replaces the per-tool `tools/list` expansion with three meta-tools so the tool surface stays small regardless of how many tools are registered:
 
 | Tool | Purpose |
 |------|---------|
@@ -653,8 +653,8 @@ Catalog size  ┌─────────────────────
 
 When an MCP agent loop calls `tools/list` repeatedly between sequential tool calls
 (e.g. "create sphere → assign material → add light → render"), each call
-rebuilds the full tool list from scratch — scanning the `ActionRegistry`,
-resolving bare names, converting every `ActionMeta` into an `McpTool`, and
+rebuilds the full tool list from scratch — scanning the `ToolRegistry`,
+resolving bare names, converting every `ToolMeta` into an `McpTool`, and
 fetching unloaded skill stubs. With 100+ registered tools, this per-request
 overhead becomes measurable.
 

@@ -29,9 +29,9 @@ from dcc_mcp_core import VtValue
 
 
 # ---------------------------------------------------------------------------
-# TestActionValidatorFromSchemaJson
+# TestToolValidatorFromSchemaJson
 # ---------------------------------------------------------------------------
-class TestActionValidatorFromSchemaJson:
+class TestToolValidatorFromSchemaJson:
     """ToolValidator.from_schema_json — schema construction and validate."""
 
     def test_returns_action_validator_instance(self) -> None:
@@ -154,9 +154,9 @@ class TestActionValidatorFromSchemaJson:
 
 
 # ---------------------------------------------------------------------------
-# TestActionValidatorFromActionRegistry
+# TestToolValidatorFromToolRegistry
 # ---------------------------------------------------------------------------
-class TestActionValidatorFromActionRegistry:
+class TestToolValidatorFromToolRegistry:
     """ToolValidator.from_action_registry — registry-backed construction."""
 
     def test_returns_validator_instance(self) -> None:

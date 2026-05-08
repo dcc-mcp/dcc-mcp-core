@@ -6,7 +6,7 @@
 //! - [`PyTimingMiddleware`]     — measures per-action latency (queryable from Python)
 //! - [`PyAuditMiddleware`]      — accumulates an in-memory audit log (queryable from Python)
 //! - [`PyRateLimitMiddleware`]  — fixed-window rate limiter per action name
-//! - [`PyActionPipeline`]       — middleware-wrapped ActionDispatcher
+//! - [`PyToolPipeline`]       — middleware-wrapped ToolDispatcher
 //!
 //! ## Design
 //!
@@ -14,8 +14,8 @@
 //! they are stored behind `Arc` so the pipeline and the Python handle share the
 //! same instance.
 //!
-//! `PyActionPipeline` reuses the `PyActionDispatcher` from `crate::python` for
-//! handler registration, then delegates through the Rust `ActionPipeline` for
+//! `PyToolPipeline` reuses the `PyToolDispatcher` from `crate::python` for
+//! handler registration, then delegates through the Rust `ToolPipeline` for
 //! middleware processing.
 //!
 //! ## Maintainer layout
@@ -29,7 +29,7 @@
 //! - [`shared`] — `SharedTimingMiddleware` / `SharedAuditMiddleware` /
 //!   `SharedRateLimitMiddleware` `Arc` newtypes that implement the
 //!   `ActionMiddleware` trait
-//! - [`pipeline`] — [`PyActionPipeline`] (the Python-facing `ToolPipeline`)
+//! - [`pipeline`] — [`PyToolPipeline`] (the Python-facing `ToolPipeline`)
 
 use pyo3::prelude::*;
 
@@ -44,7 +44,7 @@ mod tests;
 pub use middleware::{
     PyAuditMiddleware, PyLoggingMiddleware, PyRateLimitMiddleware, PyTimingMiddleware,
 };
-pub use pipeline::PyActionPipeline;
+pub use pipeline::PyToolPipeline;
 
 // Re-export the Shared* newtypes so the `python_tests.rs` module in this
 // crate can continue to reference `super::python::Shared*` unchanged.
@@ -58,6 +58,6 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyTimingMiddleware>()?;
     m.add_class::<PyAuditMiddleware>()?;
     m.add_class::<PyRateLimitMiddleware>()?;
-    m.add_class::<PyActionPipeline>()?;
+    m.add_class::<PyToolPipeline>()?;
     Ok(())
 }

@@ -18,25 +18,26 @@ pub(crate) use crate::{
     error::HttpError,
     inflight::{CancelToken, InFlightEntry, ProgressReporter},
     prompts::PromptError,
-    protocol::{
-        self, CallToolParams, CallToolResult, DELTA_TOOLS_METHOD, ElicitationCreateParams,
-        ElicitationCreateResult, GetPromptParams, JsonRpcBatch, JsonRpcMessage, JsonRpcRequest,
-        JsonRpcRequestBuilder, JsonRpcResponse, ListPromptsResult, ListResourcesResult,
-        LoggingSetLevelParams, McpTool, McpToolAnnotations, NotificationBuilder,
-        RESOURCE_NOT_ENABLED_ERROR, ReadResourceParams, SubscribeResourceParams,
-    },
     resources::ResourceError,
     session::{SessionLogLevel, SessionLogMessage, SessionManager},
+};
+pub(crate) use dcc_mcp_jsonrpc as protocol;
+pub(crate) use dcc_mcp_jsonrpc::{
+    CallToolParams, CallToolResult, DELTA_TOOLS_METHOD, ElicitationCreateParams,
+    ElicitationCreateResult, GetPromptParams, JsonRpcBatch, JsonRpcMessage, JsonRpcRequest,
+    JsonRpcRequestBuilder, JsonRpcResponse, ListPromptsResult, ListResourcesResult,
+    LoggingSetLevelParams, McpTool, McpToolAnnotations, NotificationBuilder,
+    RESOURCE_NOT_ENABLED_ERROR, ReadResourceParams, SubscribeResourceParams,
 };
 pub(crate) use dcc_mcp_models::SkillScope;
 pub(crate) use dcc_mcp_protocols::DccMcpError;
 pub(crate) use dcc_mcp_skills::catalog::SkillSummary;
 
-pub(crate) use crate::gateway::namespace::{
-    decode_skill_tool_name, extract_bare_tool_name, skill_tool_name,
-};
 pub(crate) use crate::handler::{
     AppState, CANCELLED_REQUEST_TTL, ELICITATION_TIMEOUT, ROOTS_REFRESH_TIMEOUT,
+};
+pub(crate) use dcc_mcp_gateway::namespace::{
+    decode_skill_tool_name, extract_bare_tool_name, skill_tool_name,
 };
 
 pub mod job_tools;

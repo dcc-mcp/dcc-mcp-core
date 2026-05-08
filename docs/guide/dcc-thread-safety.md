@@ -91,7 +91,7 @@ directly.
 
 Starting with issue #332, `McpHttpServer`'s **async dispatch path**
 (`async: true` or `async.mode: "fire_and_forget"` in a `tools/call`
-request) also respects `ActionMeta.thread_affinity`. Before #332, the
+request) also respects `ToolMeta.thread_affinity`. Before #332, the
 async branch unconditionally ran handlers on Tokio `spawn_blocking`
 workers, which was unsafe for tools that touch `maya.cmds`, `bpy.ops`,
 `hou.*`, or `pymxs.runtime`.
@@ -143,7 +143,7 @@ Key invariants:
 ### Sync-path parity (issue #716)
 
 The **sync** `tools/call` path follows the same rule as the async path:
-routing is driven by `ActionMeta.thread_affinity`, not by whether a
+routing is driven by `ToolMeta.thread_affinity`, not by whether a
 `DeferredExecutor` happens to be wired. Before #716 the sync branch
 always ran through the executor whenever one existed, so every
 `ThreadAffinity::Any` sync tool contended with `Main`-affined tools for

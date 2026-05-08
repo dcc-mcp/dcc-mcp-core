@@ -185,11 +185,11 @@ pub async fn handle_call_action(
 
 /// Look up an action by the id surfaced in `list_actions` (canonical
 /// `<skill>.<tool>` form or bare registry name), returning a cloned
-/// [`ActionMeta`] for downstream inspection.
+/// [`ToolMeta`] for downstream inspection.
 pub fn resolve_action_by_id(
-    registry: &dcc_mcp_actions::registry::ActionRegistry,
+    registry: &dcc_mcp_actions::registry::ToolRegistry,
     id: &str,
-) -> Option<dcc_mcp_actions::registry::ActionMeta> {
+) -> Option<dcc_mcp_actions::registry::ToolMeta> {
     // Fast path: direct registry hit (happens for bare action names).
     if let Some(m) = registry.get_action(id, None) {
         return Some(m);
@@ -317,7 +317,7 @@ pub fn json_error_response(
 pub async fn refresh_roots_cache_for_session(
     sessions: &SessionManager,
     session_id: &str,
-) -> Vec<crate::protocol::ClientRoot> {
+) -> Vec<dcc_mcp_jsonrpc::ClientRoot> {
     let event = JsonRpcRequestBuilder::new(format!("roots-refresh-{session_id}"), "roots/list")
         .with_params(json!({}))
         .as_sse_event();

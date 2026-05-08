@@ -260,7 +260,7 @@ class TestPySharedBufferClearAndOpen:
 # ─────────────────── ToolRegistry.search_actions combination filters ───────────────────
 
 
-class TestActionRegistrySearchActionsFilters:
+class TestToolRegistrySearchActionsFilters:
     """search_actions AND-filter combinations: category + tags + dcc_name."""
 
     def setup_method(self):

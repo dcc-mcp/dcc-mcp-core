@@ -4,7 +4,7 @@ use super::*;
 mod issue_317_tests {
     //! Issues #317 and #344 — `execution` / `timeout_hint_secs` / annotation plumbing.
     use super::*;
-    use dcc_mcp_actions::registry::ActionMeta;
+    use dcc_mcp_actions::registry::ToolMeta;
     use dcc_mcp_models::{ExecutionMode, ToolAnnotations};
 
     fn empty_eligible() -> std::collections::HashSet<(String, String)> {
@@ -20,7 +20,7 @@ mod issue_317_tests {
         // the `_meta.dcc.incompleteSchema` marker, which only surfaces
         // when the author skipped `inputSchema`; declare a real schema
         // here so this test stays focused on the annotations contract.
-        let meta = ActionMeta {
+        let meta = ToolMeta {
             name: "quick".into(),
             description: "Fast".into(),
             execution: ExecutionMode::Sync,
@@ -39,7 +39,7 @@ mod issue_317_tests {
     fn async_action_surfaces_deferred_hint_in_meta_only() {
         // deferred_hint MUST land in _meta["dcc.deferred_hint"] and NEVER
         // inside the spec `annotations` map (issue #344).
-        let meta = ActionMeta {
+        let meta = ToolMeta {
             name: "render".into(),
             description: "Render".into(),
             execution: ExecutionMode::Async,
@@ -68,7 +68,7 @@ mod issue_317_tests {
 
     #[test]
     fn timeout_hint_emitted_even_when_sync() {
-        let meta = ActionMeta {
+        let meta = ToolMeta {
             name: "measured".into(),
             description: "Sync with timeout hint".into(),
             execution: ExecutionMode::Sync,
@@ -93,7 +93,7 @@ mod issue_317_tests {
         // `tools/list` with spec-compliant camelCase keys. `deferred_hint`
         // from the declaration is routed into `_meta` and MUST NOT
         // contaminate the spec `annotations` map.
-        let meta = ActionMeta {
+        let meta = ToolMeta {
             name: "delete_keyframes".into(),
             description: "danger".into(),
             execution: ExecutionMode::Sync,
@@ -148,7 +148,7 @@ mod issue_317_tests {
     #[test]
     fn partial_annotations_only_emit_declared_keys() {
         // Undeclared hints are omitted entirely — not defaulted to false.
-        let meta = ActionMeta {
+        let meta = ToolMeta {
             name: "get_keyframes".into(),
             description: "read only".into(),
             annotations: ToolAnnotations {
@@ -179,7 +179,7 @@ mod issue_588_input_schema_marker {
     //! Issue #588 — surface `_meta.dcc.incompleteSchema` when the catalog
     //! had to fall back to the permissive `{"type": "object"}` placeholder.
     use super::*;
-    use dcc_mcp_actions::registry::ActionMeta;
+    use dcc_mcp_actions::registry::ToolMeta;
 
     fn empty_eligible() -> std::collections::HashSet<(String, String)> {
         std::collections::HashSet::new()
@@ -187,7 +187,7 @@ mod issue_588_input_schema_marker {
 
     #[test]
     fn null_input_schema_emits_incomplete_schema_marker_and_hint() {
-        let meta = ActionMeta {
+        let meta = ToolMeta {
             name: "execute_python".into(),
             description: "Run python in the host DCC".into(),
             input_schema: serde_json::Value::Null,
@@ -219,7 +219,7 @@ mod issue_588_input_schema_marker {
 
     #[test]
     fn declared_input_schema_skips_marker() {
-        let meta = ActionMeta {
+        let meta = ToolMeta {
             name: "create_sphere".into(),
             description: "Make a sphere".into(),
             input_schema: serde_json::json!({

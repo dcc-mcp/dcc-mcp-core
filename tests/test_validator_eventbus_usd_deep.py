@@ -56,7 +56,7 @@ def _empty_stage() -> UsdStage:
 # ===========================================================================
 
 
-class TestActionValidatorCreate:
+class TestToolValidatorCreate:
     def test_from_schema_json_creates_validator(self):
         schema = _make_schema(x={"type": "number"})
         v = ToolValidator.from_schema_json(schema)
@@ -89,7 +89,7 @@ class TestActionValidatorCreate:
             ToolValidator.from_action_registry(reg, "nonexistent")
 
 
-class TestActionValidatorHappyPath:
+class TestToolValidatorHappyPath:
     def test_validate_returns_tuple(self):
         v = ToolValidator.from_schema_json(_make_schema(x={"type": "number"}))
         result = v.validate(json.dumps({"x": 1.0}))
@@ -168,7 +168,7 @@ class TestActionValidatorHappyPath:
         assert ok is True
 
 
-class TestActionValidatorErrorPath:
+class TestToolValidatorErrorPath:
     def test_validate_missing_required_field(self):
         v = ToolValidator.from_schema_json(_make_required_schema(["x"], x={"type": "number"}))
         ok, errors = v.validate("{}")

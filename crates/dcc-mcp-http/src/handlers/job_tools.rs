@@ -203,7 +203,7 @@ pub async fn handle_search_tools(
 
     // ── 1b. Progressive-loading stubs (debug opt-in) ───────────────────
     //
-    // Stubs are *not* stored in the ActionRegistry — they are synthesised
+    // Stubs are *not* stored in the ToolRegistry — they are synthesised
     // on demand by `tools/list` for unloaded skills and inactive tool
     // groups. When `include_stubs=true`, mirror that synthesis here so
     // operators can verify the progressive-loading surface end-to-end
@@ -490,7 +490,7 @@ pub async fn handle_jobs_get_status(
     let envelope_value = Value::Object(envelope);
     let text = serde_json::to_string(&envelope_value)?;
     let tool_result = CallToolResult {
-        content: vec![crate::protocol::ToolContent::Text { text }],
+        content: vec![dcc_mcp_jsonrpc::ToolContent::Text { text }],
         structured_content: Some(envelope_value),
         is_error: false,
         meta: None,
@@ -529,7 +529,7 @@ pub async fn handle_jobs_cleanup(
     });
     let text = serde_json::to_string(&envelope)?;
     let tool_result = CallToolResult {
-        content: vec![crate::protocol::ToolContent::Text { text }],
+        content: vec![dcc_mcp_jsonrpc::ToolContent::Text { text }],
         structured_content: Some(envelope),
         is_error: false,
         meta: None,

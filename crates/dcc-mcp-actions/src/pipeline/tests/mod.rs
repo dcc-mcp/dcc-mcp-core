@@ -8,12 +8,12 @@ use parking_lot::Mutex;
 
 use serde_json::json;
 
-use crate::dispatcher::{ActionDispatcher, DispatchError, DispatchResult};
-use crate::registry::{ActionMeta, ActionRegistry};
+use crate::dispatcher::{DispatchError, DispatchResult, ToolDispatcher};
+use crate::registry::{ToolMeta, ToolRegistry};
 
 use super::{
-    ActionMiddleware, ActionPipeline, AuditMiddleware, LoggingMiddleware, MiddlewareContext,
-    RateLimitMiddleware, TimingMiddleware,
+    ActionMiddleware, AuditMiddleware, LoggingMiddleware, MiddlewareContext, RateLimitMiddleware,
+    TimingMiddleware, ToolPipeline,
 };
 
 mod audit;

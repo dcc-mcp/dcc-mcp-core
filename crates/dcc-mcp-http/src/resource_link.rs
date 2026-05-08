@@ -23,7 +23,7 @@ use std::path::Path;
 
 use serde_json::Value;
 
-use crate::protocol::ToolContent;
+use dcc_mcp_jsonrpc::ToolContent;
 
 /// Heuristic mapping from file extension to a common MIME type.
 ///

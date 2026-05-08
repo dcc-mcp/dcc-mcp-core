@@ -549,7 +549,7 @@ class TestInProcessExecutor:
         assert catalog.is_loaded("my-skill")
 
     def test_in_process_executor_receives_tool_execution_metadata(self, tmp_path: Path) -> None:
-        """Loaded skill tools pass ActionMeta affinity/execution into Python executors."""
+        """Loaded skill tools pass ToolMeta affinity/execution into Python executors."""
         skill_dir = tmp_path / "affinity-skill"
         (skill_dir / "scripts").mkdir(parents=True)
         (skill_dir / "SKILL.md").write_text(

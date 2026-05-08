@@ -246,7 +246,7 @@ pub mod span_keys {
 
 /// A snapshot of per-Action performance metrics.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ActionMetrics {
+pub struct ToolMetrics {
     /// Action name.
     pub action_name: String,
     /// Total number of invocations.
@@ -263,10 +263,10 @@ pub struct ActionMetrics {
     pub p99_duration_ms: f64,
 }
 
-impl ActionMetrics {
+impl ToolMetrics {
     /// Create an empty metrics snapshot for the given action.
     pub fn new(action_name: impl Into<String>) -> Self {
-        ActionMetrics {
+        ToolMetrics {
             action_name: action_name.into(),
             invocation_count: 0,
             success_count: 0,
@@ -390,7 +390,7 @@ mod tests {
 
         #[test]
         fn new_has_zero_counts() {
-            let m = ActionMetrics::new("create_sphere");
+            let m = ToolMetrics::new("create_sphere");
             assert_eq!(m.invocation_count, 0);
             assert_eq!(m.success_count, 0);
             assert_eq!(m.failure_count, 0);
@@ -398,13 +398,13 @@ mod tests {
 
         #[test]
         fn success_rate_zero_when_no_invocations() {
-            let m = ActionMetrics::new("x");
+            let m = ToolMetrics::new("x");
             assert_eq!(m.success_rate(), 0.0);
         }
 
         #[test]
         fn success_rate_full_when_all_succeed() {
-            let m = ActionMetrics {
+            let m = ToolMetrics {
                 action_name: "x".into(),
                 invocation_count: 10,
                 success_count: 10,
@@ -418,7 +418,7 @@ mod tests {
 
         #[test]
         fn success_rate_partial() {
-            let m = ActionMetrics {
+            let m = ToolMetrics {
                 action_name: "x".into(),
                 invocation_count: 4,
                 success_count: 3,

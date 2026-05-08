@@ -3,16 +3,16 @@
 use super::exec::ActionChain;
 use super::interpolate_impl::{context, interpolate};
 use super::types::ErrorAction;
-use crate::dispatcher::ActionDispatcher;
-use crate::registry::{ActionMeta, ActionRegistry};
+use crate::dispatcher::ToolDispatcher;
+use crate::registry::{ToolMeta, ToolRegistry};
 use serde_json::{Value, json};
 
-fn make_dispatcher() -> ActionDispatcher {
-    let reg = ActionRegistry::new();
-    ActionDispatcher::new(reg)
+fn make_dispatcher() -> ToolDispatcher {
+    let reg = ToolRegistry::new();
+    ToolDispatcher::new(reg)
 }
 
-fn register(dispatcher: &ActionDispatcher, name: &'static str, output: Value) {
+fn register(dispatcher: &ToolDispatcher, name: &'static str, output: Value) {
     dispatcher.register_handler(name, move |_| Ok(output.clone()));
 }
 
@@ -258,8 +258,8 @@ fn test_message_on_abort() {
 
 #[test]
 fn test_with_registered_action_metadata() {
-    let reg = ActionRegistry::new();
-    reg.register_action(ActionMeta {
+    let reg = ToolRegistry::new();
+    reg.register_action(ToolMeta {
         name: "validated".into(),
         dcc: "mock".into(),
         input_schema: serde_json::json!({
@@ -269,7 +269,7 @@ fn test_with_registered_action_metadata() {
         }),
         ..Default::default()
     });
-    let d = ActionDispatcher::new(reg);
+    let d = ToolDispatcher::new(reg);
     d.register_handler("validated", |p| {
         Ok(json!({"doubled": p["x"].as_f64().unwrap_or(0.0) * 2.0}))
     });

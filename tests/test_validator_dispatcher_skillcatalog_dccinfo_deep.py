@@ -39,7 +39,7 @@ from dcc_mcp_core import ToolValidator
 # ---------------------------------------------------------------------------
 
 
-class TestActionValidatorFromSchemaJson:
+class TestToolValidatorFromSchemaJson:
     """ToolValidator.from_schema_json construction and basic behaviour."""
 
     def _make_schema(self, required=None, props=None):
@@ -149,7 +149,7 @@ class TestActionValidatorFromSchemaJson:
 # ---------------------------------------------------------------------------
 
 
-class TestActionValidatorFromRegistry:
+class TestToolValidatorFromRegistry:
     """ToolValidator.from_action_registry construction."""
 
     def _reg_with_schema(self, name="sphere", schema_props=None):
@@ -210,7 +210,7 @@ class TestActionValidatorFromRegistry:
 # ---------------------------------------------------------------------------
 
 
-class TestActionDispatcherCreate:
+class TestToolDispatcherCreate:
     """ToolDispatcher construction and basic state."""
 
     def _make_reg_disp(self):
@@ -246,7 +246,7 @@ class TestActionDispatcherCreate:
         assert isinstance(disp.skip_empty_schema_validation, bool)
 
 
-class TestActionDispatcherHandlers:
+class TestToolDispatcherHandlers:
     """Register, remove, query handlers."""
 
     def _make(self, names=None):
@@ -336,7 +336,7 @@ class TestActionDispatcherHandlers:
         assert "validation_skipped" in result
 
 
-class TestActionDispatcherWithSchema:
+class TestToolDispatcherWithSchema:
     """Dispatcher with schema triggers real validation."""
 
     def _make_with_schema(self):

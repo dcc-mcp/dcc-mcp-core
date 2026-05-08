@@ -37,10 +37,10 @@ def make_dispatcher(schema: str = "{}") -> tuple[ToolRegistry, ToolDispatcher]:
     return reg, dispatcher
 
 
-# ── TestActionPipeline ────────────────────────────────────────────────────────
+# ── TestToolPipeline ────────────────────────────────────────────────────────
 
 
-class TestActionPipelineBasic:
+class TestToolPipelineBasic:
     """Basic construction and dispatch without middleware."""
 
     def test_construction(self):
@@ -441,10 +441,10 @@ class TestCallableMiddlewareEdgeCases:
         assert "ping" in called
 
 
-# ── TestActionDispatcherEdgeCases ─────────────────────────────────────────────
+# ── TestToolDispatcherEdgeCases ─────────────────────────────────────────────
 
 
-class TestActionDispatcherEdgeCases:
+class TestToolDispatcherEdgeCases:
     """Edge cases for ToolDispatcher: skip_empty_schema_validation, handler_names, etc."""
 
     def test_skip_empty_schema_validation_default_true(self):

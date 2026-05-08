@@ -1,7 +1,7 @@
 use axum::http::HeaderValue;
 use axum_test::TestServer;
-use dcc_mcp_actions::ActionDispatcher;
-use dcc_mcp_actions::registry::{ActionMeta, ActionRegistry};
+use dcc_mcp_actions::ToolDispatcher;
+use dcc_mcp_actions::registry::{ToolMeta, ToolRegistry};
 use dcc_mcp_skills::SkillCatalog;
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -14,8 +14,8 @@ use crate::session::SessionManager;
 /// exercise `call_action` end-to-end.
 fn make_state(lazy_actions: bool) -> AppState {
     let registry = Arc::new({
-        let reg = ActionRegistry::new();
-        reg.register_action(ActionMeta {
+        let reg = ToolRegistry::new();
+        reg.register_action(ToolMeta {
             name: "create_sphere".into(),
             description: "Create a sphere".into(),
             category: "geometry".into(),
@@ -28,7 +28,7 @@ fn make_state(lazy_actions: bool) -> AppState {
             }),
             ..Default::default()
         });
-        reg.register_action(ActionMeta {
+        reg.register_action(ToolMeta {
             name: "hello_world.greet".into(),
             description: "Say hi".into(),
             category: "demo".into(),
@@ -41,7 +41,7 @@ fn make_state(lazy_actions: bool) -> AppState {
         reg
     });
     let catalog = Arc::new(SkillCatalog::new(registry.clone()));
-    let dispatcher = Arc::new(ActionDispatcher::new((*registry).clone()));
+    let dispatcher = Arc::new(ToolDispatcher::new((*registry).clone()));
     dispatcher.register_handler("create_sphere", |p| {
         let r = p.get("radius").and_then(Value::as_f64).unwrap_or(1.0);
         Ok(json!({"name": "|pSphere1", "radius": r}))

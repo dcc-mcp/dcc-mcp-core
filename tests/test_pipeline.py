@@ -309,7 +309,7 @@ class TestMiddlewareContext:
         assert ctx.get("k") == 2
 
 
-class TestActionPipelineBasics:
+class TestToolPipelineBasics:
     def test_no_middleware_dispatch(self):
         pipeline, _ = make_pipeline("echo")
         result = pipeline.dispatch("echo", {"msg": "hello"})

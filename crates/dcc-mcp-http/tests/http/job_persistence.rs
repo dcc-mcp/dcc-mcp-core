@@ -9,7 +9,7 @@
 
 use std::sync::Arc;
 
-use dcc_mcp_actions::ActionRegistry;
+use dcc_mcp_actions::ToolRegistry;
 use dcc_mcp_http::config::JobRecoveryPolicy;
 use dcc_mcp_http::job::{JobManager, JobStatus};
 use dcc_mcp_http::job_storage::{JobFilter, JobStorage, SqliteStorage};
@@ -136,7 +136,7 @@ async fn server_start_with_drop_policy_marks_inflight_interrupted() {
         .with_job_storage_path(&db);
     assert_eq!(cfg.job_recovery, JobRecoveryPolicy::Drop, "default policy");
 
-    let registry = Arc::new(ActionRegistry::new());
+    let registry = Arc::new(ToolRegistry::new());
     let handle = McpHttpServer::new(registry, cfg)
         .start()
         .await
@@ -165,7 +165,7 @@ async fn server_start_with_requeue_policy_degrades_to_drop_today() {
     assert_eq!(cfg.job_recovery, JobRecoveryPolicy::Requeue);
     assert_eq!(cfg.job_recovery.as_str(), "requeue");
 
-    let registry = Arc::new(ActionRegistry::new());
+    let registry = Arc::new(ToolRegistry::new());
     let handle = McpHttpServer::new(registry, cfg)
         .start()
         .await

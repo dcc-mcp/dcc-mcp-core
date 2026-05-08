@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use super::spec::{PromptArgumentSpec, PromptSpec, PromptsSpec, WorkflowPromptRef};
-use crate::protocol::{McpPrompt, McpPromptArgument};
+use dcc_mcp_jsonrpc::{McpPrompt, McpPromptArgument};
 
 /// How a prompt was sourced — surfaced to downstream consumers for
 /// diagnostics / client hints. Never emitted on the wire.

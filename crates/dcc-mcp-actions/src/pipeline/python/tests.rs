@@ -1,6 +1,6 @@
 //! Tests for the PyO3 pipeline bindings (Rust-level).
 //!
-//! These tests exercise the Rust `ActionPipeline` through the same shared
+//! These tests exercise the Rust `ToolPipeline` through the same shared
 //! Arc wrappers used by the Python bindings, ensuring that middleware
 //! implementations behave correctly at the Rust layer.
 
@@ -9,25 +9,25 @@ use std::time::Duration;
 
 use serde_json::json;
 
-use crate::dispatcher::{ActionDispatcher, DispatchError};
+use crate::dispatcher::{DispatchError, ToolDispatcher};
 use crate::pipeline::{
-    ActionPipeline, AuditMiddleware, LoggingMiddleware, RateLimitMiddleware, TimingMiddleware,
+    AuditMiddleware, LoggingMiddleware, RateLimitMiddleware, TimingMiddleware, ToolPipeline,
 };
-use crate::registry::ActionMeta;
-use crate::registry::ActionRegistry;
+use crate::registry::ToolMeta;
+use crate::registry::ToolRegistry;
 
 use super::{SharedAuditMiddleware, SharedRateLimitMiddleware, SharedTimingMiddleware};
 
-fn make_pipeline() -> ActionPipeline {
-    let reg = ActionRegistry::new();
-    reg.register_action(ActionMeta {
+fn make_pipeline() -> ToolPipeline {
+    let reg = ToolRegistry::new();
+    reg.register_action(ToolMeta {
         name: "ping".into(),
         dcc: "mock".into(),
         ..Default::default()
     });
-    let dispatcher = ActionDispatcher::new(reg);
+    let dispatcher = ToolDispatcher::new(reg);
     dispatcher.register_handler("ping", |_| Ok(json!("pong")));
-    ActionPipeline::new(dispatcher)
+    ToolPipeline::new(dispatcher)
 }
 
 #[test]

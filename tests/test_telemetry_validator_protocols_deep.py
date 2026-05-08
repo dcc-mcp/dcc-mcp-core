@@ -91,11 +91,11 @@ class TestTelemetryConfig:
 
 
 # ---------------------------------------------------------------------------
-# TestActionValidator
+# TestToolValidator
 # ---------------------------------------------------------------------------
 
 
-class TestActionValidator:
+class TestToolValidator:
     def _make_validator(self, props: dict, required: list | None = None) -> dcc_mcp_core.ToolValidator:
         schema = {"type": "object", "properties": props}
         if required:
