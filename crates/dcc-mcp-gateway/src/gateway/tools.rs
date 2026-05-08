@@ -235,6 +235,10 @@ pub fn gateway_tool_defs() -> serde_json::Value {
                     "current_job_id": {"type": "string", "description": "Optional job id associated with the lease"},
                     "ttl_secs":       {"type": "integer", "minimum": 1, "description": "Lease TTL in seconds (default: 3600)"}
                 }
+            },
+            "annotations": {
+                "destructiveHint": false,
+                "openWorldHint": true
             }
         },
         {
@@ -247,6 +251,10 @@ pub fn gateway_tool_defs() -> serde_json::Value {
                     "instance_id": {"type": "string", "description": "UUID or unique prefix from list_dcc_instances"},
                     "lease_owner": {"type": "string", "description": "Optional owner guard; when provided it must match the active lease owner"}
                 }
+            },
+            "annotations": {
+                "destructiveHint": false,
+                "openWorldHint": true
             }
         },
         {
@@ -264,6 +272,10 @@ pub fn gateway_tool_defs() -> serde_json::Value {
                     "scene_hint": {"type": "string", "description": "Optional scene/document hint used as a soft boost."},
                     "limit":      {"type": "integer", "minimum": 0, "description": "Page size cap (default 25, max 100)."}
                 }
+            },
+            "annotations": {
+                "readOnlyHint": true,
+                "openWorldHint": true
             }
         },
         {
@@ -278,6 +290,10 @@ pub fn gateway_tool_defs() -> serde_json::Value {
                 "properties": {
                     "tool_slug": {"type": "string", "description": "Capability slug in the form `<dcc>.<id8>.<tool>`."}
                 }
+            },
+            "annotations": {
+                "readOnlyHint": true,
+                "openWorldHint": true
             }
         },
         {
@@ -294,7 +310,91 @@ pub fn gateway_tool_defs() -> serde_json::Value {
                     "arguments": {"type": "object", "description": "Tool arguments forwarded to the backend."},
                     "meta":      {"type": "object", "description": "Optional MCP `_meta` passthrough (e.g. `dcc.async`)."}
                 }
+            },
+            "annotations": {
+                "destructiveHint": true,
+                "openWorldHint": true,
+                "idempotentHint": false
             }
         }
     ])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::{Map, Value, json};
+
+    fn annotations_by_tool() -> Map<String, Value> {
+        gateway_tool_defs()
+            .as_array()
+            .expect("gateway_tool_defs returns an array")
+            .iter()
+            .map(|tool| {
+                let name = tool
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .expect("gateway tool has a name")
+                    .to_string();
+                let annotations = tool
+                    .get("annotations")
+                    .cloned()
+                    .expect("gateway tool has annotations");
+                (name, annotations)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn gateway_tool_defs_all_have_annotations() {
+        let annotations = annotations_by_tool();
+        assert_eq!(annotations.len(), 5);
+
+        for (name, value) in annotations {
+            let hints = value
+                .as_object()
+                .unwrap_or_else(|| panic!("{name} annotations must be an object"));
+            assert!(
+                [
+                    "readOnlyHint",
+                    "destructiveHint",
+                    "idempotentHint",
+                    "openWorldHint"
+                ]
+                .iter()
+                .any(|key| hints.contains_key(*key)),
+                "{name} annotations must include at least one MCP ToolAnnotations hint"
+            );
+        }
+    }
+
+    #[test]
+    fn gateway_tool_defs_use_expected_annotations() {
+        let annotations = annotations_by_tool();
+
+        assert_eq!(
+            annotations.get("acquire_dcc_instance"),
+            Some(&json!({"destructiveHint": false, "openWorldHint": true}))
+        );
+        assert_eq!(
+            annotations.get("release_dcc_instance"),
+            Some(&json!({"destructiveHint": false, "openWorldHint": true}))
+        );
+        assert_eq!(
+            annotations.get("search_tools"),
+            Some(&json!({"readOnlyHint": true, "openWorldHint": true}))
+        );
+        assert_eq!(
+            annotations.get("describe_tool"),
+            Some(&json!({"readOnlyHint": true, "openWorldHint": true}))
+        );
+        assert_eq!(
+            annotations.get("call_tool"),
+            Some(&json!({
+                "destructiveHint": true,
+                "openWorldHint": true,
+                "idempotentHint": false,
+            }))
+        );
+    }
 }
