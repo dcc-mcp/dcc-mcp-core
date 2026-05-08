@@ -305,10 +305,15 @@ async fn issue_775_gateway_operability_acceptance_maya_photoshop() {
     )
     .await;
     let backend_envelope: Value = serde_json::from_str(tool_text(&call)).expect("backend envelope");
-    let backend_text = backend_envelope["content"][0]["text"]
-        .as_str()
-        .expect("backend tool text");
-    let backend_payload: Value = serde_json::from_str(backend_text).expect("backend JSON payload");
+    // After #818 phase 2, forward_tools_call returns the raw CallOutcome from
+    // POST /v1/call. The backend handler's result is in the `output` field.
+    let backend_payload = backend_envelope.get("output").cloned().unwrap_or_else(|| {
+        // Fallback: old MCP content[0].text double-wrapping.
+        let text = backend_envelope["content"][0]["text"]
+            .as_str()
+            .unwrap_or("{}");
+        serde_json::from_str(text).unwrap_or_default()
+    });
     assert_eq!(backend_payload["dcc"], "photoshop");
     assert_eq!(
         backend_payload["received_args"]["asset_id"],
@@ -346,9 +351,12 @@ async fn issue_775_gateway_operability_acceptance_maya_photoshop() {
     )
     .await;
     let maya_envelope: Value = serde_json::from_str(tool_text(&maya_call)).expect("maya envelope");
-    let maya_payload: Value =
-        serde_json::from_str(maya_envelope["content"][0]["text"].as_str().unwrap())
-            .expect("maya JSON payload");
+    // After #818 phase 2, maya call returns CallOutcome with `output` containing
+    // the handler's result. See photoshop call above for explanation.
+    let maya_payload = maya_envelope.get("output").cloned().unwrap_or_else(|| {
+        let text = maya_envelope["content"][0]["text"].as_str().unwrap_or("{}");
+        serde_json::from_str(text).unwrap_or_default()
+    });
     assert_eq!(maya_payload["dcc"], "maya");
 
     // #771: the Photoshop DCC server enforces payload limits at the HTTP

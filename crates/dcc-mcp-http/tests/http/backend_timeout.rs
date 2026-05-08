@@ -109,7 +109,7 @@ async fn spawn_slow_backend(delay: Duration) -> u16 {
         }))
     }
 
-    // GET /v1/search handler (used by fetch_tools after #818 phase 2)
+    // POST /v1/search handler (used by fetch_tools after #818 phase 2)
     async fn search_handler(
         axum::extract::State(delay): axum::extract::State<Duration>,
     ) -> Json<Value> {
@@ -131,7 +131,7 @@ async fn spawn_slow_backend(delay: Duration) -> u16 {
     let app = Router::new()
         .route("/health", get(|| async { "ok" }))
         .route("/mcp", post(mcp_handler))
-        .route("/v1/search", get(search_handler))
+        .route("/v1/search", post(search_handler))
         .with_state(delay);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();

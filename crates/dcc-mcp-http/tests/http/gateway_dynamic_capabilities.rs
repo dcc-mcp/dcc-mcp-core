@@ -152,7 +152,7 @@ async fn spawn_backend(spec: BackendSpec) -> (u16, Arc<tokio::sync::RwLock<u32>>
         }
     }
 
-    // GET /v1/search handler (#818 phase 2: gateway now uses REST for fetch_tools)
+    // POST /v1/search handler (#818 phase 2: gateway now uses REST POST for fetch_tools)
     // A real backend's /v1/search does NOT include skill stubs or gateway-local
     // tools — those are filtered by the per-DCC REST service layer.
     async fn search_handler(
@@ -199,15 +199,18 @@ async fn spawn_backend(spec: BackendSpec) -> (u16, Arc<tokio::sync::RwLock<u32>>
             .unwrap_or("")
             .to_string();
         let received_args = req.get("arguments").cloned().unwrap_or(Value::Null);
+        // Return CallOutcome format (as a real /v1/call backend would).
+        // The output.structuredContent mirrors the old MCP response shape
+        // so existing test assertions on structuredContent remain valid.
         Json(json!({
-            "content": [{
-                "type": "text",
-                "text": format!("echo name={received_slug} args={received_args}")
-            }],
-            "structuredContent": {
-                "received_tool": received_slug,
-                "received_args": received_args,
-            }
+            "slug": received_slug,
+            "output": {
+                "structuredContent": {
+                    "received_tool": received_slug,
+                    "received_args": received_args,
+                }
+            },
+            "validation_skipped": true,
         }))
     }
 
@@ -224,7 +227,7 @@ async fn spawn_backend(spec: BackendSpec) -> (u16, Arc<tokio::sync::RwLock<u32>>
     let app = Router::new()
         .route("/health", get(|| async { "ok" }))
         .route("/mcp", post(mcp_handler))
-        .route("/v1/search", get(search_handler))
+        .route("/v1/search", post(search_handler))
         .route("/v1/call", post(call_handler))
         .with_state(state);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -354,7 +357,7 @@ async fn rest_search_describe_call_roundtrip() {
     let result = call_service(&state, &slug, json!({"radius": 2.0}), None)
         .await
         .expect("call_service must route successfully");
-    let echoed = result["structuredContent"]["received_tool"]
+    let echoed = result["output"]["structuredContent"]["received_tool"]
         .as_str()
         .unwrap_or_default();
     assert_eq!(
@@ -506,7 +509,7 @@ async fn mcp_call_tool_forwards_namespaced_callable_id() {
     assert!(!is_error, "MCP call_tool failed: {body}");
     let parsed: Value = serde_json::from_str(&body).expect("call_tool envelope is JSON");
     assert_eq!(
-        parsed["structuredContent"]["received_tool"].as_str(),
+        parsed["output"]["structuredContent"]["received_tool"].as_str(),
         Some("jobs.get_status"),
     );
     assert_eq!(*call_count.read().await, 1);
@@ -597,12 +600,12 @@ async fn mcp_call_tool_forwards_original_backend_tool_exactly_once() {
     assert!(!is_error, "MCP call_tool failed: {body}");
     let parsed: Value = serde_json::from_str(&body).expect("call_tool envelope is JSON");
     assert_eq!(
-        parsed["structuredContent"]["received_tool"].as_str(),
+        parsed["output"]["structuredContent"]["received_tool"].as_str(),
         Some("export_fbx"),
         "gateway must decode the slug back to the backend tool name",
     );
     assert_eq!(
-        parsed["structuredContent"]["received_args"],
+        parsed["output"]["structuredContent"]["received_args"],
         json!({"path": "/tmp/out.fbx"}),
     );
     // Exactly one backend `tools/call` round-trip: no wasted tokens.
@@ -649,7 +652,7 @@ async fn mcp_call_tool_retries_unknown_slug_after_refresh() {
     assert!(!is_error, "call_tool must recover after refresh: {body}");
     let parsed: Value = serde_json::from_str(&body).expect("envelope is JSON");
     assert_eq!(
-        parsed["structuredContent"]["received_tool"].as_str(),
+        parsed["output"]["structuredContent"]["received_tool"].as_str(),
         Some("late_action"),
     );
     // Exactly one backend call — the refresh is free (one extra

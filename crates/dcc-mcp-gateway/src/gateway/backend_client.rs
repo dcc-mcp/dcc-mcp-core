@@ -10,7 +10,7 @@
 //!
 //! | Operation            | Was (MCP JSON-RPC)      | Now (REST)              |
 //! |----------------------|-------------------------|-------------------------|
-//! | list tools           | `tools/list`            | `GET  /v1/search`       |
+//! | list tools           | `tools/list`            | `POST /v1/search`       |
 //! | call a tool          | `tools/call`            | `POST /v1/call`         |
 //! | list prompts         | `prompts/list`          | `GET  /v1/prompts`      |
 //! | render a prompt      | `prompts/get`           | `GET  /v1/prompts/{n}`  |
@@ -406,7 +406,7 @@ async fn rest_post(
         .map_err(|e| format!("{url}: invalid JSON response: {e}"))
 }
 
-/// Fetch tool list from a backend via `GET /v1/search?loaded_only=false&limit=5000`.
+/// Fetch tool list from a backend via `POST /v1/search` with `loaded_only=false`.
 ///
 /// Maps each search hit to a [`McpTool`] so the capability index builder
 /// receives the same type it always has.  `input_schema` is a minimal
@@ -424,8 +424,15 @@ pub async fn try_fetch_tools(
     timeout: Duration,
 ) -> Result<Vec<McpTool>, String> {
     let base = rest_base_from_mcp_url(mcp_url);
-    let url = format!("{base}/v1/search?loaded_only=false&limit=5000");
-    let val = rest_get(client, &url, timeout).await?;
+    let url = format!("{base}/v1/search");
+    // `/v1/search` is a POST endpoint; pass the filter params in the JSON body.
+    let val = rest_post(
+        client,
+        &url,
+        json!({"loaded_only": false, "limit": 5000}),
+        timeout,
+    )
+    .await?;
     Ok(val
         .get("hits")
         .and_then(Value::as_array)
