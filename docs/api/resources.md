@@ -54,8 +54,9 @@ modeled as an MCP resource instead of a tool:
 not enumerate every `gateway://instances/{id}` URI. Read the per-instance URI
 directly when you already know the id. The legacy gateway tools
 `list_dcc_instances`, `get_dcc_instance`, and `connect_to_dcc` were removed in
-#813 phase 1; entries already carry `mcp_url`, so no separate connect verb is
-required.
+PR #813 phase 1; entries already carry `mcp_url`, so no separate connect verb
+is required.
+
 
 ## Enabling / Disabling
 
