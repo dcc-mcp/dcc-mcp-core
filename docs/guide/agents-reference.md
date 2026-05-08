@@ -1,8 +1,9 @@
 # Agents Reference — Detailed Rules and Traps
 
 > This file is the detailed companion to `AGENTS.md`.
-> `AGENTS.md` is the navigation map (≤150 lines); this file holds the
-> expanded rules, code examples, and traps that agents need on demand.
+> `AGENTS.md` is the navigation map; this file holds the expanded rules,
+> code examples, and traps that agents need on demand.
+
 > Read `AGENTS.md` first, then follow links here when you need detail.
 
 ---

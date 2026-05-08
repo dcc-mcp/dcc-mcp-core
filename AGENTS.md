@@ -92,11 +92,19 @@ Gateway dynamic-capability / REST exposure:
 4. The gateway never fans out per-action backend tools into tools/list.
 5. For non-MCP clients, use the matching /v1/search, /v1/describe, /v1/call REST endpoints.
 
+Gateway instance discovery:
+1. Usually skip instance discovery and go straight to search_tools → describe_tool → call_tool.
+2. When you need a concrete DCC session or direct MCP URL, call resources/read with uri="gateway://instances".
+3. For one instance, read gateway://instances/{instance_id}; full UUID or unique prefix works.
+4. Do not call legacy list_dcc_instances / get_dcc_instance / connect_to_dcc; #813 removed them from tools/list.
+
 Gateway resources/prompts:
 1. List hand-off artefacts with resources/list; gateway-prefixed URIs identify the owning DCC instance.
-2. Read/subscribe with the exact URI returned by resources/list; do not strip `dcc://<type>/<id>` or backend-resource prefixes.
-3. Use prompts/list and prompts/get through the gateway when prompt templates are aggregated from multiple DCC instances.
-4. Subscribe only to URIs you plan to react to, and unsubscribe when done.
+2. resources/list includes the gateway://instances root pointer only; do not expect every gateway://instances/{id} URI to be enumerated.
+3. Read/subscribe with the exact URI returned by resources/list; do not strip `dcc://<type>/<id>` or backend-resource prefixes.
+4. Use prompts/list and prompts/get through the gateway when prompt templates are aggregated from multiple DCC instances.
+5. Subscribe only to URIs you plan to react to, and unsubscribe when done.
+
 ```
 
 ### Multi-DCC Guardrails
@@ -141,8 +149,10 @@ Gateway resources/prompts:
 | IPC | `IpcChannelAdapter` / `SocketServerAdapter` + `DccLinkFrame` |
 | Hand off files between tools | `FileRef` + `artefact_put_file()` / `artefact_get_bytes()` |
 | Multi-DCC gateway | `McpHttpConfig(gateway_port=9765)` |
+| Discover gateway DCC instances / direct MCP URLs | `resources/read uri="gateway://instances"` or `gateway://instances/{id}`; entries carry `mcp_url` and replace the removed `list_dcc_instances` / `get_dcc_instance` / `connect_to_dcc` tools |
 | Gateway dynamic capabilities | `search_tools` → `describe_tool` → `call_tool` or REST `/v1/search` → `/v1/describe` → `/v1/call` |
 | Gateway resources/prompts | `resources/list` / `resources/read` with exact gateway-returned URIs; `prompts/list` / `prompts/get` for aggregated backend prompt templates |
+
 | Persist project state | `DccProject.open/load(...)` + `register_project_tools(server, ...)` exposing `project.save/load/resume/status` |
 | Remote MCP relay (zero-config tunnel) | `RelayServer::start(RelayConfig, agent_bind, frontend_bind).await` — accepts agent registrations on `agent_bind`, multiplexes remote-client TCP from `frontend_bind` to the agent's local MCP server (issue #504) |
 | Enable WS frontend / `/tunnels` admin | `RelayServer::start_with(cfg, agent_bind, frontend_bind, OptionalBinds { ws_frontend, admin })` — opt-in WS upgrade endpoint at `/tunnel/<id>` and read-only `GET /tunnels` + `/healthz` |
