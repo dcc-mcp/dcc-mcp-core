@@ -247,9 +247,13 @@ class TestFacadeToolsAggregation:
         tools = _list_all_tools(facade_cluster["gateway_url"])
         names = {t["name"] for t in tools}
 
-        # Tier 1 — gateway discovery meta-tools.
-        for meta in ("list_dcc_instances", "get_dcc_instance", "connect_to_dcc"):
-            assert meta in names, f"missing meta-tool {meta!r}"
+        # Tier 1 — gateway discovery meta-tools were promoted to MCP resources
+        # in #813 phase 1+2. Verify they are absent from tools/list.
+        for removed in ("list_dcc_instances", "get_dcc_instance", "connect_to_dcc"):
+            assert removed not in names, (
+                f"meta-tool {removed!r} should have been removed from tools/list "
+                "(promoted to gateway://instances resource in #813)"
+            )
 
         # Tier 2 — skill-management tools (one canonical set gateway-side).
         for mgmt in ("list_skills", "search_skills", "get_skill_info", "load_skill", "unload_skill"):
@@ -296,16 +300,20 @@ class TestFacadeToolsAggregation:
 
 
 class TestFacadeDiscovery:
-    """The ``list_dcc_instances`` meta-tool returns the same set the facade aggregates."""
+    """The ``gateway://instances`` MCP resource exposes the same set the facade aggregates.
 
-    def test_list_dcc_instances_reports_both_backends(self, facade_cluster):
+    In #813 phase 1 the ``list_dcc_instances`` tool was removed and replaced by
+    the ``gateway://instances`` MCP resource (``resources/read`` method).
+    """
+
+    def test_gateway_instances_resource_reports_both_backends(self, facade_cluster):
         resp = _post_mcp(
             facade_cluster["gateway_url"],
-            "tools/call",
-            {"name": "list_dcc_instances", "arguments": {}},
+            "resources/read",
+            {"uri": "gateway://instances"},
         )
-        text = resp["result"]["content"][0]["text"]
+        text = resp["result"]["contents"][0]["text"]
         data = json.loads(text)
         dccs = {entry["dcc_type"] for entry in data.get("instances", [])}
-        assert "maya" in dccs, f"maya backend not visible through gateway: {dccs}"
-        assert "blender" in dccs, f"blender backend not visible through gateway: {dccs}"
+        assert "maya" in dccs, f"maya backend not visible through gateway://instances: {dccs}"
+        assert "blender" in dccs, f"blender backend not visible through gateway://instances: {dccs}"

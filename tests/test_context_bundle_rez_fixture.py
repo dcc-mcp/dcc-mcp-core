@@ -274,8 +274,9 @@ def test_rez_context_bundle_fixture_exposes_distinct_instance_metadata(tmp_path:
         time.sleep(2.2)
 
         gateway_url = f"http://127.0.0.1:{gateway_port}/mcp"
-        resp = _post_mcp(gateway_url, "tools/call", {"name": "list_dcc_instances", "arguments": {}})
-        instances = json.loads(resp["result"]["content"][0]["text"])["instances"]
+        # #813 phase 1: list_dcc_instances was replaced by the gateway://instances resource.
+        resp = _post_mcp(gateway_url, "resources/read", {"uri": "gateway://instances"})
+        instances = json.loads(resp["result"]["contents"][0]["text"])["instances"]
         by_task = {item["metadata"]["task"]: item for item in instances}
 
         assert by_task["animation"]["metadata"]["context_bundle"] == "show-a.seq010.shot020.animation"

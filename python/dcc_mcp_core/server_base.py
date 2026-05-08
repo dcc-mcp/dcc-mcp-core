@@ -966,7 +966,8 @@ class DccServerBase:
         ``documents`` with all open files and optionally ``display_name``).
 
         Changes propagate to ``FileRegistry`` on the next heartbeat tick
-        (≤ 5 s) so ``list_dcc_instances`` stays current without a restart.
+        (≤ 5 s) so the ``gateway://instances`` MCP resource stays current
+        without a gateway restart.
 
         Args:
             scene: Active/focused scene or document path.
