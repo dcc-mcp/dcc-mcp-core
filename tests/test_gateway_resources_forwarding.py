@@ -163,6 +163,8 @@ class TestResourcesListMerge:
                 continue
             if uri.startswith("resources://gateway/"):
                 continue  # gateway-internal event log, no instance prefix needed
+            if uri.startswith("gateway://"):
+                continue  # gateway-native resources (#813 phase 1+2): instances, diagnostics, catalog
             parts = _split_gateway_prefixed_uri(uri)
             assert parts is not None, f"backend URI {uri!r} is not prefixed with an 8-hex id"
 
