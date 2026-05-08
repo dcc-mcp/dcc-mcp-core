@@ -58,6 +58,22 @@ pub(crate) async fn skill_mgmt_dispatch(
                                 .unwrap_or_else(|| {
                                     serde_json::to_string_pretty(&result).unwrap_or_default()
                                 });
+                            if !is_error {
+                                crate::gateway::capability_service::refresh_all_live_backends(
+                                    gs,
+                                    crate::gateway::capability::RefreshReason::ToolsListChanged,
+                                )
+                                .await;
+                                if gs.events_tx.receiver_count() > 0 {
+                                    let notif = serde_json::to_string(&json!({
+                                        "jsonrpc": "2.0",
+                                        "method": "notifications/tools/list_changed",
+                                        "params": {}
+                                    }))
+                                    .unwrap_or_default();
+                                    let _ = gs.events_tx.send(notif);
+                                }
+                            }
                             (text, is_error)
                         }
                         Err(e) => (format!("Backend call failed: {e}"), true),

@@ -191,6 +191,8 @@ jobs:
         run: pip install --no-index --find-links dist dcc-mcp-core && pip install pytest pytest-cov
         shell: bash
       - name: Test with coverage
+        env:
+          MCP_LOG_LEVEL: warn
         run: vx just test-cov
       - name: Upload Python coverage to Codecov
         if: matrix.python-version == '3.13' && matrix.os == 'ubuntu-latest'

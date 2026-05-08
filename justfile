@@ -170,11 +170,11 @@ install-dev-deps:
 
 # Run Python test suite
 test:
-    pytest tests/ -v --tb=short
+    pytest tests/ -q --tb=short --show-capture=no
 
 # Run Python tests with coverage report
 test-cov:
-    pytest tests/ -v --cov=dcc_mcp_core --cov-report=term --cov-report=xml:coverage.xml
+    pytest tests/ -q --tb=short --show-capture=no --cov=dcc_mcp_core --cov-report=term --cov-report=xml:coverage.xml
 
 # Run mcporter MCP end-to-end tests (requires: npm install -g mcporter)
 test-e2e:
