@@ -210,55 +210,49 @@ async fn aggregate_tools_list_returns_only_minimal_gateway_surface() {
 /// Spawn a tiny axum server that answers both `tools/list` (empty) and
 /// `prompts/list` / `prompts/get` with canned fixtures.
 ///
+/// After #818 phase 2 the gateway contacts backends over REST (`/v1/*`),
+/// so the mock serves `GET /v1/prompts` and `GET /v1/prompts/{name}`.
+///
 /// The caller supplies the per-backend prompt name and a marker text
-/// that the `prompts/get` route echoes back so we can assert the
-/// request landed on the intended backend.
+/// that the `GET /v1/prompts/{name}` route echoes back so we can assert
+/// the request landed on the intended backend.
 async fn spawn_prompts_backend(
     prompt_name: &'static str,
     echo_text: &'static str,
 ) -> (String, tokio::sync::oneshot::Sender<()>) {
+    use axum::extract::Path;
     let app = axum::Router::new()
         .route(
             "/health",
             axum::routing::get(|| async { axum::Json(json!({"ok": true})) }),
         )
+        // GET /v1/prompts — list all prompts (REST, replaces prompts/list JSON-RPC)
         .route(
-            "/mcp",
-            axum::routing::post(move |body: axum::Json<Value>| async move {
-                let method = body.get("method").and_then(Value::as_str).unwrap_or("");
-                let id = body.get("id").cloned().unwrap_or(json!("gw-1"));
-                let result: Value = match method {
-                    "tools/list" => json!({"tools": []}),
-                    "prompts/list" => json!({
-                        "prompts": [{
-                            "name": prompt_name,
-                            "description": format!("Prompt from {echo_text}"),
-                            "arguments": [],
-                        }]
-                    }),
-                    "prompts/get" => {
-                        let requested = body
-                            .get("params")
-                            .and_then(|p| p.get("name"))
-                            .and_then(Value::as_str)
-                            .unwrap_or("");
-                        json!({
-                            "description": format!("Echo from {echo_text}"),
-                            "messages": [{
-                                "role": "user",
-                                "content": {
-                                    "type": "text",
-                                    "text": format!("{echo_text}:{requested}"),
-                                }
-                            }]
-                        })
-                    }
-                    _ => json!({}),
-                };
+            "/v1/prompts",
+            axum::routing::get(move || async move {
                 axum::Json(json!({
-                    "jsonrpc": "2.0",
-                    "id": id,
-                    "result": result,
+                    "total": 1,
+                    "prompts": [{
+                        "name": prompt_name,
+                        "description": format!("Prompt from {echo_text}"),
+                        "arguments": [],
+                    }]
+                }))
+            }),
+        )
+        // GET /v1/prompts/{name} — render a single prompt (REST, replaces prompts/get JSON-RPC)
+        .route(
+            "/v1/prompts/{name}",
+            axum::routing::get(move |Path(requested): Path<String>| async move {
+                axum::Json(json!({
+                    "description": format!("Echo from {echo_text}"),
+                    "messages": [{
+                        "role": "user",
+                        "content": {
+                            "type": "text",
+                            "text": format!("{echo_text}:{requested}"),
+                        }
+                    }]
                 }))
             }),
         );
@@ -541,27 +535,21 @@ async fn compute_prompts_fingerprint_changes_when_backend_prompt_set_mutates() {
             "/health",
             axum::routing::get(|| async { axum::Json(json!({"ok": true})) }),
         )
+        // REST endpoint replacing prompts/list JSON-RPC (#818 phase 2)
         .route(
-            "/mcp",
-            axum::routing::post(move |body: axum::Json<Value>| {
+            "/v1/prompts",
+            axum::routing::get(move || {
                 let state = state_clone.clone();
                 async move {
-                    let method = body.get("method").and_then(Value::as_str).unwrap_or("");
-                    let id = body.get("id").cloned().unwrap_or(json!("gw-1"));
-                    let result: Value = match method {
-                        "prompts/list" => {
-                            let name = *state.lock().unwrap();
-                            json!({
-                                "prompts": [{
-                                    "name": name,
-                                    "description": "dynamic",
-                                    "arguments": [],
-                                }]
-                            })
-                        }
-                        _ => json!({"tools": []}),
-                    };
-                    axum::Json(json!({"jsonrpc":"2.0","id":id,"result":result}))
+                    let name = *state.lock().unwrap();
+                    axum::Json(json!({
+                        "total": 1,
+                        "prompts": [{
+                            "name": name,
+                            "description": "dynamic",
+                            "arguments": [],
+                        }]
+                    }))
                 }
             }),
         );
@@ -629,7 +617,8 @@ async fn compute_prompts_fingerprint_changes_when_backend_prompt_set_mutates() {
 // ── #732: resources/list aggregation ──────────────────────────────────
 
 /// Spawn a fake backend that answers `/health` green and serves a canned
-/// `resources/list` payload. Returns `(port, shutdown_tx)`.
+/// `GET /v1/resources` payload (REST, replaces `resources/list` JSON-RPC
+/// after #818 phase 2). Returns `(port, shutdown_tx)`.
 async fn spawn_resources_backend(resources: Vec<Value>) -> (u16, tokio::sync::oneshot::Sender<()>) {
     let app = axum::Router::new()
         .route(
@@ -637,19 +626,16 @@ async fn spawn_resources_backend(resources: Vec<Value>) -> (u16, tokio::sync::on
             axum::routing::get(|| async { axum::Json(json!({"ok": true})) }),
         )
         .route(
-            "/mcp",
-            axum::routing::post({
+            "/v1/resources",
+            axum::routing::get({
                 let resources = resources.clone();
-                move |body: axum::Json<Value>| {
+                move || {
                     let resources = resources.clone();
                     async move {
-                        let method = body.get("method").and_then(|m| m.as_str()).unwrap_or("");
-                        let id = body.get("id").cloned().unwrap_or(json!("gw-test"));
-                        let result = match method {
-                            "resources/list" => json!({"resources": resources}),
-                            _ => json!({}),
-                        };
-                        axum::Json(json!({"jsonrpc": "2.0", "id": id, "result": result}))
+                        axum::Json(json!({
+                            "total": resources.len(),
+                            "resources": resources,
+                        }))
                     }
                 }
             }),
