@@ -169,7 +169,7 @@ pub struct CallRequest {
 }
 
 /// Successful invocation outcome.
-#[derive(Debug, Clone, Serialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct CallOutcome {
     pub slug: ToolSlug,
     #[schema(value_type = Object)]
@@ -312,12 +312,20 @@ pub struct PromptGetResponse {
 /// is a DIP boundary: the REST layer depends on the abstraction, not
 /// on the concrete `dcc-mcp-http::resources::*` types.
 pub trait ResourceProvider: Send + Sync {
-    /// List every available resource. Empty when the embedder did not
-    /// register any.
+    /// List every available resource.
     fn list(&self) -> Vec<ResourceListEntry>;
-    /// Read one resource by URI. `Err(NotFound)` when the URI is not
-    /// known; `Err(Internal)` on read failure.
+    /// Read one resource by URI.
     fn read(&self, uri: &str) -> Result<ResourceReadResponse, ServiceError>;
+    /// Subscribe to resource update events on `uri`.
+    ///
+    /// The default implementation returns an immediately-terminating empty
+    /// stream — embedders that do not implement push can leave this as-is.
+    fn subscribe(&self, uri: &str) -> Result<ResourceEventStream, ServiceError> {
+        let _ = uri;
+        // Return an empty stream that ends immediately.
+        let stream = futures::stream::empty();
+        Ok(Box::pin(stream))
+    }
 }
 
 /// Anything that can list MCP-style prompts and render one with
@@ -489,6 +497,7 @@ pub struct SkillRestService {
     invoker: Arc<dyn ToolInvoker>,
     resources: Arc<dyn ResourceProvider>,
     prompts: Arc<dyn PromptProvider>,
+    jobs: Arc<dyn JobController>,
     context: Arc<RwLock<ContextSnapshot>>,
 }
 
@@ -513,6 +522,7 @@ impl SkillRestService {
             invoker,
             resources: Arc::new(EmptyResourceProvider),
             prompts: Arc::new(EmptyPromptProvider),
+            jobs: Arc::new(EmptyJobController),
             context: Arc::new(RwLock::new(ContextSnapshot::default())),
         }
     }
@@ -532,6 +542,13 @@ impl SkillRestService {
         self
     }
 
+    /// Wire in a real [`JobController`] (#818 phase 1b).
+    #[must_use]
+    pub fn with_jobs(mut self, jobs: Arc<dyn JobController>) -> Self {
+        self.jobs = jobs;
+        self
+    }
+
     /// Read-only access to the resource provider for handlers.
     pub fn resources(&self) -> &dyn ResourceProvider {
         self.resources.as_ref()
@@ -540,6 +557,11 @@ impl SkillRestService {
     /// Read-only access to the prompt provider for handlers.
     pub fn prompts(&self) -> &dyn PromptProvider {
         self.prompts.as_ref()
+    }
+
+    /// Read-only access to the job controller for handlers.
+    pub fn jobs(&self) -> &dyn JobController {
+        self.jobs.as_ref()
     }
 
     /// Update the DCC context snapshot surfaced through `/v1/context`.
@@ -755,7 +777,117 @@ fn truncate(s: &str, n: usize) -> String {
     s.chars().take(n).collect::<String>() + "…"
 }
 
-// ── Unit tests (service-level, no HTTP) ──────────────────────────────
+// ── Job lifecycle & SSE streaming (#818 phase 1b) ─────────────────────
+//
+// These types + traits let the gateway phase 2 switch from MCP
+// `notifications/progress` to `GET /v1/jobs/{id}/events` SSE.
+//
+// Design:
+//   JobController (trait) — opaque handle to the embedder's job store.
+//   JobEvent (enum)       — the typed event variants written to the SSE stream.
+//   EventStream           — the concrete stream type handed to axum's Sse.
+//
+// DIP: service.rs owns the trait and the enum; dcc-mcp-http wires its
+// concrete dispatcher-backed implementation in phase 2. EmptyJobController
+// is the default, returning NotFound for every operation.
+
+use std::pin::Pin;
+
+use futures::Stream;
+
+/// One event emitted on the `GET /v1/jobs/{id}/events` SSE stream.
+///
+/// Serialised as `{ "type": "...", ... }` (kebab-case discriminant).
+/// Clients should ignore unknown types for forward compatibility.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum JobEvent {
+    /// Incremental progress update (before the result is available).
+    Progress {
+        /// Completion ratio `[0.0, 1.0]`. `None` when the total is
+        /// unknown.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        progress: Option<f64>,
+        /// Current step out of `total` steps, when known.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        total: Option<f64>,
+        /// Human-readable status message.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        message: Option<String>,
+    },
+    /// Partial output available before the tool has finished.
+    Partial {
+        /// Any JSON value — tool-specific payload.
+        content: Value,
+    },
+    /// Tool finished successfully.
+    Done { result: CallOutcome },
+    /// Tool finished with an error.
+    Error { error: ServiceError },
+}
+
+/// Pinned, Send + Sync stream of `JobEvent`s for axum's `Sse::new`.
+///
+/// `Infallible` error type follows the axum SSE convention: the
+/// stream itself never errors — any failure is modelled as a
+/// `JobEvent::Error` value.
+pub type EventStream =
+    Pin<Box<dyn Stream<Item = Result<JobEvent, std::convert::Infallible>> + Send + Sync + 'static>>;
+
+/// Anything that can track and surface running job events.
+///
+/// Default: [`EmptyJobController`].
+pub trait JobController: Send + Sync {
+    /// Subscribe to events for `job_id`. Returns a stream that yields
+    /// events until the job is done (terminal `Done` or `Error`) or the
+    /// subscription is dropped.
+    ///
+    /// Returns `Err(NotFound)` when the job id is not known.
+    fn subscribe(&self, job_id: &str) -> Result<EventStream, ServiceError>;
+
+    /// Cancel a running job. Returns `Ok(())` if the signal was sent,
+    /// `Err(NotFound)` if the job does not exist.
+    fn cancel(&self, job_id: &str) -> Result<(), ServiceError>;
+}
+
+/// Always returns `NotFound`. Suitable for embedders that do not yet
+/// expose async jobs through the REST surface.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct EmptyJobController;
+
+impl JobController for EmptyJobController {
+    fn subscribe(&self, job_id: &str) -> Result<EventStream, ServiceError> {
+        Err(ServiceError::new(
+            ServiceErrorKind::NotFound,
+            format!("job not found: {job_id}"),
+        ))
+    }
+    fn cancel(&self, job_id: &str) -> Result<(), ServiceError> {
+        Err(ServiceError::new(
+            ServiceErrorKind::NotFound,
+            format!("job not found: {job_id}"),
+        ))
+    }
+}
+
+// ── Resource event stream (#818 phase 1b) ────────────────────────────
+
+/// One event emitted on the `GET /v1/resources/{uri}/events` SSE stream.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum ResourceEvent {
+    /// The resource content has been updated. Clients should re-read.
+    Updated { uri: String },
+    /// The resource has been removed from the server.
+    Removed { uri: String },
+}
+
+/// Pinned stream for resource events.
+pub type ResourceEventStream = Pin<
+    Box<dyn Stream<Item = Result<ResourceEvent, std::convert::Infallible>> + Send + Sync + 'static>,
+>;
+
+// ── SkillRestService wires job controller ─────────────────────────────
 
 #[cfg(test)]
 mod tests {

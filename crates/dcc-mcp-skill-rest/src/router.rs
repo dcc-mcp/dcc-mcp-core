@@ -11,10 +11,14 @@ use axum::{
     Json, Router,
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
-    response::{Html, IntoResponse, Response},
-    routing::{get, post},
+    response::{
+        Html, IntoResponse, Response,
+        sse::{Event, KeepAlive, Sse},
+    },
+    routing::{delete, get, post},
 };
 use chrono::Utc;
+use futures::StreamExt;
 use serde_json::{Value, json};
 
 use super::audit::{AuditEvent, AuditOutcome, AuditSink, NoopAuditSink};
@@ -87,6 +91,10 @@ pub fn build_skill_rest_router(config: SkillRestConfig) -> Router {
         .route("/v1/resources/{uri}", get(handle_read_resource))
         .route("/v1/prompts", get(handle_list_prompts))
         .route("/v1/prompts/{name}", get(handle_get_prompt))
+        // ── #818 phase 1b — SSE streams & job cancel ──────────────
+        .route("/v1/resources/{uri}/events", get(handle_resource_events))
+        .route("/v1/jobs/{id}/events", get(handle_job_events))
+        .route("/v1/jobs/{id}", delete(handle_job_cancel))
         .with_state(config)
 }
 
@@ -592,6 +600,86 @@ async fn handle_get_prompt(
     }
 }
 
+// ── #818 phase 1b — SSE handlers ─────────────────────────────────────
+
+/// `GET /v1/resources/{uri}/events` — SSE stream for resource mutations.
+async fn handle_resource_events(
+    State(cfg): State<SkillRestConfig>,
+    Path(uri): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    use super::service::ResourceEventStream;
+
+    let rid = request_id(&headers);
+    match principal_or_error(&cfg, peer(&headers), &headers, &rid) {
+        Ok(_) => {}
+        Err(r) => return *r,
+    };
+
+    let stream: ResourceEventStream = match cfg.service.resources().subscribe(&uri) {
+        Ok(s) => s,
+        Err(err) => return service_error_to_response(err.with_request_id(rid)),
+    };
+
+    let sse_stream = stream.map(|item| {
+        item.map(|ev| {
+            let data = serde_json::to_string(&ev).unwrap_or_default();
+            Event::default().event("resource").data(data)
+        })
+    });
+
+    Sse::new(sse_stream)
+        .keep_alive(KeepAlive::default())
+        .into_response()
+}
+
+/// `GET /v1/jobs/{id}/events` — SSE stream for a running async job.
+async fn handle_job_events(
+    State(cfg): State<SkillRestConfig>,
+    Path(job_id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let rid = request_id(&headers);
+    match principal_or_error(&cfg, peer(&headers), &headers, &rid) {
+        Ok(_) => {}
+        Err(r) => return *r,
+    };
+
+    let stream = match cfg.service.jobs().subscribe(&job_id) {
+        Ok(s) => s,
+        Err(err) => return service_error_to_response(err.with_request_id(rid)),
+    };
+
+    let sse_stream = stream.map(|item| {
+        item.map(|ev| {
+            let data = serde_json::to_string(&ev).unwrap_or_default();
+            Event::default().event("job").data(data)
+        })
+    });
+
+    Sse::new(sse_stream)
+        .keep_alive(KeepAlive::default())
+        .into_response()
+}
+
+/// `DELETE /v1/jobs/{id}` — cancel a running async job.
+async fn handle_job_cancel(
+    State(cfg): State<SkillRestConfig>,
+    Path(job_id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let rid = request_id(&headers);
+    match principal_or_error(&cfg, peer(&headers), &headers, &rid) {
+        Ok(_) => {}
+        Err(r) => return *r,
+    };
+
+    match cfg.service.jobs().cancel(&job_id) {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(err) => service_error_to_response(err.with_request_id(rid)),
+    }
+}
+
 // ── utoipa path-doc stubs ────────────────────────────────────────────
 //
 // These `op_*` functions exist purely to carry `#[utoipa::path(...)]`
@@ -784,3 +872,45 @@ pub fn op_list_prompts() {}
 )]
 #[allow(dead_code)]
 pub fn op_get_prompt() {}
+
+#[utoipa::path(
+    get,
+    path = "/v1/resources/{uri}/events",
+    tag = "resources",
+    params(("uri" = String, Path, description = "URL-encoded MCP resource URI")),
+    responses(
+        (status = 200, description = "SSE stream of resource events (text/event-stream)"),
+        (status = 401, description = "unauthorized", body = ServiceError),
+        (status = 404, description = "URI not subscribed", body = ServiceError),
+    )
+)]
+#[allow(dead_code)]
+pub fn op_resource_events() {}
+
+#[utoipa::path(
+    get,
+    path = "/v1/jobs/{id}/events",
+    tag = "jobs",
+    params(("id" = String, Path, description = "Job ID returned by an async POST /v1/call")),
+    responses(
+        (status = 200, description = "SSE stream of job events (text/event-stream)"),
+        (status = 401, description = "unauthorized", body = ServiceError),
+        (status = 404, description = "job not found", body = ServiceError),
+    )
+)]
+#[allow(dead_code)]
+pub fn op_job_events() {}
+
+#[utoipa::path(
+    delete,
+    path = "/v1/jobs/{id}",
+    tag = "jobs",
+    params(("id" = String, Path, description = "Job ID to cancel")),
+    responses(
+        (status = 204, description = "job cancel signal sent"),
+        (status = 401, description = "unauthorized", body = ServiceError),
+        (status = 404, description = "job not found", body = ServiceError),
+    )
+)]
+#[allow(dead_code)]
+pub fn op_job_cancel() {}

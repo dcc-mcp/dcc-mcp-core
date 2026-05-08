@@ -933,3 +933,108 @@ async fn list_resources_with_custom_provider_returns_entries() {
     let resp = server.get("/v1/resources/scene%3A%2F%2Fmissing").await;
     resp.assert_status(axum::http::StatusCode::NOT_FOUND);
 }
+
+// ── #818 phase 1b — SSE endpoint smoke tests ─────────────────────────
+
+/// `GET /v1/resources/{uri}/events` returns 200 text/event-stream for
+/// the default `EmptyResourceProvider`. The default `subscribe`
+/// implementation returns an immediately-terminating empty stream —
+/// callers get a valid SSE response with no events (correct for
+/// embedders that have not wired real push yet).
+#[tokio::test]
+async fn resource_events_returns_sse_for_default_provider() {
+    let (svc, _reg, _disp) = fixture_loaded_spheres();
+    let (server, _audit) = build_server(svc);
+
+    let resp = server
+        .get("/v1/resources/scene%3A%2F%2Fcurrent/events")
+        .await;
+    resp.assert_status_ok();
+    assert!(
+        resp.header("content-type")
+            .to_str()
+            .unwrap_or("")
+            .contains("text/event-stream"),
+        "expected text/event-stream from default SSE endpoint"
+    );
+}
+
+/// `GET /v1/jobs/{id}/events` returns 404 for unknown job ids.
+#[tokio::test]
+async fn job_events_not_found_for_empty_controller() {
+    let (svc, _reg, _disp) = fixture_loaded_spheres();
+    let (server, _audit) = build_server(svc);
+
+    let resp = server.get("/v1/jobs/nonexistent-id/events").await;
+    resp.assert_status(axum::http::StatusCode::NOT_FOUND);
+    let body: Value = resp.json();
+    assert_eq!(body["kind"], "not-found");
+}
+
+/// `DELETE /v1/jobs/{id}` returns 404 for unknown jobs.
+#[tokio::test]
+async fn job_cancel_not_found_for_empty_controller() {
+    let (svc, _reg, _disp) = fixture_loaded_spheres();
+    let (server, _audit) = build_server(svc);
+
+    let resp = server.delete("/v1/jobs/nonexistent-id").await;
+    resp.assert_status(axum::http::StatusCode::NOT_FOUND);
+    let body: Value = resp.json();
+    assert_eq!(body["kind"], "not-found");
+}
+
+/// Wiring a `JobController` that streams one `Done` event returns
+/// `200 text/event-stream` and supports cancel.
+#[tokio::test]
+async fn job_events_with_real_controller_streams_and_cancels() {
+    use super::service::{CallOutcome, EventStream, JobController, JobEvent, ToolSlug};
+    use crate::errors::{ServiceError, ServiceErrorKind};
+    use futures::stream;
+
+    struct OneEventController;
+    impl JobController for OneEventController {
+        fn subscribe(&self, job_id: &str) -> Result<EventStream, ServiceError> {
+            if job_id == "known" {
+                let ev = JobEvent::Done {
+                    result: CallOutcome {
+                        slug: ToolSlug("maya.skill.action".into()),
+                        output: serde_json::json!({"ok": true}),
+                        validation_skipped: false,
+                    },
+                };
+                Ok(Box::pin(stream::once(async move { Ok(ev) })))
+            } else {
+                Err(ServiceError::new(
+                    ServiceErrorKind::NotFound,
+                    format!("job not found: {job_id}"),
+                ))
+            }
+        }
+        fn cancel(&self, _: &str) -> Result<(), ServiceError> {
+            Ok(())
+        }
+    }
+
+    let (svc, _reg, _disp) = fixture_loaded_spheres();
+    let svc = svc.with_jobs(Arc::new(OneEventController));
+    let (server, _audit) = build_server(svc);
+
+    // Known job → 200 text/event-stream.
+    let resp = server.get("/v1/jobs/known/events").await;
+    resp.assert_status_ok();
+    assert!(
+        resp.header("content-type")
+            .to_str()
+            .unwrap_or("")
+            .contains("text/event-stream"),
+        "expected text/event-stream"
+    );
+
+    // Unknown job → 404.
+    let resp = server.get("/v1/jobs/unknown/events").await;
+    resp.assert_status(axum::http::StatusCode::NOT_FOUND);
+
+    // Cancel always succeeds in mock.
+    let resp = server.delete("/v1/jobs/known").await;
+    resp.assert_status(axum::http::StatusCode::NO_CONTENT);
+}
