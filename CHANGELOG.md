@@ -11,6 +11,20 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.15.7](https://github.com/loonghao/dcc-mcp-core/compare/v0.15.6...v0.15.7) (2026-05-08)
+
+
+### Bug Fixes
+
+* **ci:** sync generated cargo metadata for bot PRs ([37101db](https://github.com/loonghao/dcc-mcp-core/commit/37101dbdd140c4af95fb0619ac5b605e32db7590))
+* **ci:** sync workspace-hack after tokio update ([14f5377](https://github.com/loonghao/dcc-mcp-core/commit/14f53770235418d9698e2c8974decabf67911350))
+* **gateway:** annotate gateway meta tools ([37cb668](https://github.com/loonghao/dcc-mcp-core/commit/37cb668896108c06dea558aea9a04ce46e62f266))
+
+
+### Code Refactoring
+
+* **types:** canonicalize tool terminology ([fcfd427](https://github.com/loonghao/dcc-mcp-core/commit/fcfd427797ad177ea991b54709a2dde70141d984))
+
 ## [0.15.6](https://github.com/loonghao/dcc-mcp-core/compare/v0.15.5...v0.15.6) (2026-05-08)
 
 
