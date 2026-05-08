@@ -27,12 +27,12 @@ pub(crate) async fn skill_mgmt_dispatch(
                         obj.remove("instance_id");
                     }
                     let url = format!("http://{}:{}/mcp", entry.host, entry.port);
-                    match forward_tools_call(
+                    let params = json!({"name": tool, "arguments": forward_args});
+                    match call_backend(
                         &gs.http_client,
                         &url,
-                        tool,
-                        Some(forward_args),
-                        None,
+                        "tools/call",
+                        Some(params),
                         None,
                         gs.backend_timeout,
                     )

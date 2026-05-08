@@ -49,7 +49,7 @@ use futures::future::join_all;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use super::backend_client::{call_backend, fetch_tools, forward_tools_call};
+use super::backend_client::{call_backend, fetch_tools};
 use super::namespace::{decode_tool_name, instance_short};
 use super::state::GatewayState;
 use super::tools::{
