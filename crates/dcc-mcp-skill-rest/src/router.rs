@@ -4,12 +4,13 @@
 //! service → wrap in a response. Keeping the adapters tiny means the
 //! SOLID service layer is the only thing tests exercise through axum.
 
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::{
     Json, Router,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{
         Html, IntoResponse, Response,
@@ -551,6 +552,7 @@ async fn handle_list_prompts(State(cfg): State<SkillRestConfig>, headers: Header
 async fn handle_get_prompt(
     State(cfg): State<SkillRestConfig>,
     Path(name): Path<String>,
+    Query(query): Query<HashMap<String, String>>,
     headers: HeaderMap,
 ) -> Response {
     let rid = request_id(&headers);
@@ -558,11 +560,30 @@ async fn handle_get_prompt(
         Ok(p) => p,
         Err(r) => return *r,
     };
-    // Arguments come as a flat JSON object via `?args=<base64-or-json>`
-    // — for the v1 cut we accept them as nothing (`{}`); a follow-up
-    // can extend this to a richer query-string contract once a real
-    // caller needs it.
-    let arguments = json!({});
+    let arguments = match query.get("args") {
+        Some(raw) => match serde_json::from_str::<Value>(raw) {
+            Ok(value @ Value::Object(_)) => value,
+            Ok(_) => {
+                return service_error_to_response(
+                    ServiceError::new(
+                        ServiceErrorKind::InvalidParams,
+                        "args must be a JSON object",
+                    )
+                    .with_request_id(rid),
+                );
+            }
+            Err(e) => {
+                return service_error_to_response(
+                    ServiceError::new(
+                        ServiceErrorKind::InvalidParams,
+                        format!("invalid args JSON: {e}"),
+                    )
+                    .with_request_id(rid),
+                );
+            }
+        },
+        None => json!({}),
+    };
     let started = std::time::Instant::now();
     match cfg.service.prompts().get(&name, &arguments) {
         Ok(payload) => {
