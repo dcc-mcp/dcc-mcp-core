@@ -611,9 +611,9 @@ pub async fn forward_tools_call(
 
 /// Forward a `prompts/get` to a backend via `GET /v1/prompts/{name}`.
 ///
-/// Arguments are not yet forwarded by the REST surface (phase 1a
-/// deferred them); if non-empty arguments are supplied a warning is
-/// logged and the request proceeds without them.
+/// Prompt arguments are encoded as a compact JSON object in the `args`
+/// query parameter so the REST hop preserves the MCP `prompts/get`
+/// contract without falling back to backend JSON-RPC.
 pub async fn forward_prompts_get(
     client: &reqwest::Client,
     mcp_url: &str,
@@ -622,19 +622,19 @@ pub async fn forward_prompts_get(
     _request_id: Option<String>,
     timeout: Duration,
 ) -> Result<Value, String> {
-    if arguments
-        .as_ref()
-        .is_some_and(|a| !a.is_null() && a != &json!({}))
-    {
-        tracing::warn!(
-            mcp_url = %mcp_url,
-            prompt = %prompt_name,
-            "forward_prompts_get: arguments not yet forwarded by REST surface (#818 phase 1b follow-up)",
-        );
-    }
     let base = rest_base_from_mcp_url(mcp_url);
     let encoded = percent_encode_uri(prompt_name);
-    let url = format!("{base}/v1/prompts/{encoded}");
+    let mut url = format!("{base}/v1/prompts/{encoded}");
+    if let Some(args) = arguments
+        .as_ref()
+        .filter(|a| !a.is_null() && **a != json!({}))
+    {
+        let encoded_args = serde_json::to_string(args)
+            .map(|raw| percent_encode_uri(&raw))
+            .map_err(|e| format!("failed to encode prompt arguments for {prompt_name}: {e}"))?;
+        url.push_str("?args=");
+        url.push_str(&encoded_args);
+    }
     rest_get(client, &url, timeout).await
 }
 

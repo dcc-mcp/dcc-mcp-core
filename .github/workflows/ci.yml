@@ -137,37 +137,15 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
-      # GitHub-hosted Linux and macOS runners can ship rustup proxy binaries
-      # that conflict when rust-toolchain.toml requests clippy/rustfmt during
-      # `vx just build`. Remove them before dtolnay/rust-toolchain/vx lets
-      # rustup install the requested components. Mirrors .github/actions/build-wheel.
-      - name: Remove pre-installed cargo component proxies
-        if: runner.os != 'Windows'
-        run: rm -f ~/.cargo/bin/cargo-clippy ~/.cargo/bin/cargo-fmt || true
-        shell: bash
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-python@v6
+      # Use the same composite wheel builder as release builds and py3.7 CI.
+      # It owns Rust/Python setup, Cargo cache, sccache, feature resolution,
+      # wheel-content validation, and artifact upload, avoiding duplicated
+      # setup/build logic in this workflow.
+      - uses: ./.github/actions/build-wheel
         with:
-          python-version: "3.14"
-      - uses: loonghao/vx@v0.8.36
-      - name: Install build tools
-        run: pip install maturin
-        shell: bash
-      - name: Build wheel
-        run: vx just build
-      - name: Check wheel contents
-        # Single validation step per wheel build: check-wheel-contents covers
-        # metadata + structure. The composite action at .github/actions/build-wheel
-        # runs the same check (action.yml:108). We intentionally do not run
-        # `twine check` here to avoid duplicate overlapping validation.
-        run: vx uvx --python 3.12 check-wheel-contents --ignore W004 dist/*.whl
-        shell: bash
-      - uses: actions/upload-artifact@v7
-        with:
-          name: wheel-${{ matrix.os }}
-          # `vx just build` outputs to `dist/` (see root justfile `build` recipe)
-          path: dist/*.whl
-          retention-days: 1
+          python-version: "3.11"
+          test-wheel: "false"
+          artifact-name: wheel-${{ matrix.os }}
 
   # ── Python tests: trimmed OS × Python matrix (7 cells, was 18) ──
   # Covers every supported Python version on ubuntu (cheapest) + endpoint
@@ -226,6 +204,8 @@ jobs:
           fail_ci_if_error: false
 
   # ── Python 3.7 build + test (non-abi3 wheel) ──
+  # Independent from rust-check: the composite action performs its own build
+  # and test, so waiting for the Rust matrix only lengthens the critical path.
   # Uses the same composite action as the release workflow so CI mirrors the
   # exact environment that caused the windows-py37 failure post-merge.
   # Previously this job used Python 3.14 as the active interpreter and called
@@ -235,7 +215,6 @@ jobs:
   # Note: Must use older OS runners where Python 3.7 is still available via setup-python
   build-wheel-py37:
     name: Build wheel (py3.7, ${{ matrix.os }})
-    needs: [rust-check]
     strategy:
       matrix:
         include:
@@ -254,7 +233,7 @@ jobs:
           maturin-extra-args: '-i python3.7'
           test-wheel: 'true'
           artifact-name: wheel-py37-${{ matrix.os }}
-          use-sccache: 'false'
+          use-sccache: 'true'
 
   # ── Lint Python source ──
   lint:
