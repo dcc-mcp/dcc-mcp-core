@@ -207,6 +207,15 @@ def _drain_for_notification(events: queue.Queue[dict], method: str, budget: floa
     return None
 
 
+def _drain_pending_events(events: queue.Queue[dict]) -> None:
+    """Drop notifications already queued before the action under test."""
+    while True:
+        try:
+            events.get_nowait()
+        except queue.Empty:
+            return
+
+
 # ── fixture ───────────────────────────────────────────────────────────────────
 
 
@@ -333,10 +342,11 @@ class TestGatewayLoadSkillSsePropagation:
                 pytest.fail(f"SSE subscription failed: {subscriber.error!r}")
 
             # Give the gateway one aggregator tick so the baseline
-            # fingerprint is committed — otherwise the very first
-            # transition (empty → non-empty) can collapse our notification
-            # into initial-state noise.
+            # fingerprint is committed, then discard any startup noise.
+            # Without the drain, Windows CI can consume an initial
+            # tools/list_changed frame as if it were caused by load_skill.
             time.sleep(AGGREGATOR_TICK_S + 0.5)
+            _drain_pending_events(events)
 
             # Trigger the load via the gateway (routes through to the
             # skill-enabled backend).
@@ -368,7 +378,7 @@ class TestGatewayLoadSkillSsePropagation:
             # Allow a brief retry window because the backend's action
             # catalog propagates to the search index within one watcher
             # tick.
-            deadline = time.time() + AGGREGATOR_TICK_S + 2.0
+            deadline = time.time() + SSE_NOTIFICATION_BUDGET_S
             found = False
             while time.time() < deadline and not found:
                 search_resp = _post_mcp(
