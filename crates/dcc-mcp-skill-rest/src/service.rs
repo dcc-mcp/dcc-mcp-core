@@ -163,7 +163,10 @@ pub struct DescribeResponse {
 #[derive(Debug, Clone, Deserialize, ToSchema)]
 pub struct CallRequest {
     pub tool_slug: ToolSlug,
-    #[serde(default)]
+    /// Action arguments. Accepts both `params` and `arguments` field
+    /// names for compatibility with the gateway REST layer (#818 phase 2)
+    /// which sends `arguments` to match the MCP `tools/call` convention.
+    #[serde(default, alias = "arguments")]
     #[schema(value_type = Object)]
     pub params: Value,
 }
@@ -715,40 +718,69 @@ impl SkillRestService {
     }
 
     fn resolve_slug(&self, slug: &ToolSlug) -> Result<CatalogAction, ServiceError> {
-        let parts = slug.parts().ok_or_else(|| {
-            ServiceError::new(
-                ServiceErrorKind::BadRequest,
-                format!(
-                    "invalid tool slug '{}' — expected '<dcc>.<skill>.<action>'",
-                    slug.0
-                ),
-            )
-        })?;
-        let (dcc, skill, action) = parts;
+        // Fast path: full `<dcc>.<skill>.<action>` slug.
+        if let Some((dcc, skill, action)) = slug.parts() {
+            let actions = self.catalog.list_actions();
+            let exact: Vec<CatalogAction> = actions
+                .iter()
+                .filter(|a| {
+                    a.dcc.eq_ignore_ascii_case(dcc)
+                        && a.skill_name.eq_ignore_ascii_case(skill)
+                        && a.action_name.eq_ignore_ascii_case(action)
+                })
+                .cloned()
+                .collect();
+            return match exact.len() {
+                1 => Ok(exact.into_iter().next().unwrap()),
+                0 => Err(ServiceError::new(
+                    ServiceErrorKind::UnknownSlug,
+                    format!("no action registered for slug '{}'", slug.0),
+                )
+                .with_hint("call /v1/search to list available tools")),
+                _ => Err(ServiceError::new(
+                    ServiceErrorKind::Ambiguous,
+                    format!("slug '{}' matches {} actions", slug.0, exact.len()),
+                )
+                .with_candidates(
+                    exact
+                        .iter()
+                        .map(|a| ToolSlug::build(&a.dcc, &a.skill_name, &a.action_name).0)
+                        .collect(),
+                )),
+            };
+        }
+
+        // Bare action name fallback (#818 phase 2): the gateway forwards
+        // `callable_id` (bare action name) from the capability record.
+        // Accept it so directly-registered actions (skill_name="core") remain
+        // callable without requiring the full slug format.
+        let action_name = slug.0.as_str();
         let actions = self.catalog.list_actions();
-        // Exact match first.
-        let exact: Vec<CatalogAction> = actions
+        let matching: Vec<CatalogAction> = actions
             .iter()
-            .filter(|a| {
-                a.dcc.eq_ignore_ascii_case(dcc)
-                    && a.skill_name.eq_ignore_ascii_case(skill)
-                    && a.action_name.eq_ignore_ascii_case(action)
-            })
+            .filter(|a| a.action_name.eq_ignore_ascii_case(action_name))
             .cloned()
             .collect();
-        match exact.len() {
-            1 => Ok(exact.into_iter().next().unwrap()),
+        match matching.len() {
+            1 => Ok(matching.into_iter().next().unwrap()),
             0 => Err(ServiceError::new(
-                ServiceErrorKind::UnknownSlug,
-                format!("no action registered for slug '{}'", slug.0),
-            )
-            .with_hint("call /v1/search to list available tools")),
+                ServiceErrorKind::BadRequest,
+                format!(
+                    "invalid tool slug '{}' — expected '<dcc>.<skill>.<action>' or bare action name",
+                    slug.0
+                ),
+            )),
             _ => Err(ServiceError::new(
                 ServiceErrorKind::Ambiguous,
-                format!("slug '{}' matches {} actions", slug.0, exact.len()),
+                format!(
+                    "bare action name '{}' is ambiguous across {} registered actions; \
+                     use the full '<dcc>.<skill>.<action>' slug",
+                    slug.0,
+                    matching.len()
+                ),
             )
             .with_candidates(
-                exact
+                matching
                     .iter()
                     .map(|a| ToolSlug::build(&a.dcc, &a.skill_name, &a.action_name).0)
                     .collect(),

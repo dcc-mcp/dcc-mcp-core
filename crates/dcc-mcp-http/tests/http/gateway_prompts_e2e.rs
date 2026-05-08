@@ -118,8 +118,51 @@ async fn spawn_fake_prompts_backend(
         Json(json!({"jsonrpc": "2.0", "id": id, "result": result}))
     }
 
+    // REST handlers for #818 phase 2 — gateway now fetches prompts via
+    // GET /v1/prompts instead of MCP prompts/list JSON-RPC.
+    async fn rest_list_prompts(
+        axum::extract::State(state): axum::extract::State<FakeBackendState>,
+    ) -> Json<Value> {
+        let name = *state.prompt_name.lock().unwrap();
+        Json(json!({
+            "total": 1,
+            "prompts": [{
+                "name": name,
+                "description": format!("prompt from {}", state.echo_marker),
+                "arguments": [],
+            }]
+        }))
+    }
+
+    async fn rest_get_prompt(
+        axum::extract::State(state): axum::extract::State<FakeBackendState>,
+        axum::extract::Path(name): axum::extract::Path<String>,
+    ) -> Json<Value> {
+        state
+            .get_hit
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        Json(json!({
+            "description": format!("{}:{}", state.echo_marker, name),
+            "messages": [{
+                "role": "user",
+                "content": {
+                    "type": "text",
+                    "text": format!("{}:{}", state.echo_marker, name),
+                }
+            }]
+        }))
+    }
+
     let app = Router::new()
         .route("/health", get(|| async { "ok" }))
+        .route(
+            "/v1/readyz",
+            get(|| async {
+                axum::Json(serde_json::json!({"process": true, "dispatcher": true, "dcc": true}))
+            }),
+        )
+        .route("/v1/prompts", get(rest_list_prompts))
+        .route("/v1/prompts/{name}", get(rest_get_prompt))
         .route("/mcp", post(handler))
         .with_state(state.clone());
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
