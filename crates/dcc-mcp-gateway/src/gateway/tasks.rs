@@ -493,6 +493,10 @@ pub(crate) async fn start_gateway_tasks(
     });
 
     // ── Gateway HTTP server ────────────────────────────────────────────────
+    // When `admin` feature is disabled the AuditMiddleware block is compiled
+    // out, so `gw_state` is never mutated.  With `admin` enabled the block
+    // below reassigns `gw_state.middleware_chain`, so `mut` is required.
+    #[cfg_attr(not(feature = "admin"), allow(unused_mut))]
     let mut gw_state = GatewayState {
         registry: registry.clone(),
         stale_timeout,
@@ -659,7 +663,7 @@ pub(crate) async fn start_gateway_tasks(
                 .await
             };
 
-            for (entry, outcome) in entries.iter().zip(probe_results.into_iter()) {
+            for (entry, outcome) in entries.iter().zip(probe_results) {
                 let key = format!("{}:{}", entry.dcc_type, entry.instance_id);
                 let id8 = entry.instance_id.to_string()[..8].to_string();
 
