@@ -57,7 +57,7 @@ impl BeforeCallMiddleware for QuotaMiddleware {
         let window = self.window;
 
         let result = {
-            let mut buckets = self.buckets.lock().unwrap();
+            let mut buckets = self.buckets.lock().unwrap_or_else(|e| e.into_inner());
             let now = Instant::now();
             let bucket = buckets.entry(key.clone()).or_insert(BucketState {
                 count: 0,

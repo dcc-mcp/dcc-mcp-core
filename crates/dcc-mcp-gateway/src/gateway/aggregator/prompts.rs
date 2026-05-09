@@ -115,7 +115,13 @@ pub async fn route_prompts_get(
             let instances = live_backends(gs).await;
             match instances.len() {
                 0 => return Err(PromptsGetError::NoLiveBackend),
-                1 => (instances.into_iter().next().unwrap(), name.to_string()),
+                1 => (
+                    instances
+                        .into_iter()
+                        .next()
+                        .expect("instances.len() == 1 guarantees a first element"),
+                    name.to_string(),
+                ),
                 _ => return Err(PromptsGetError::AmbiguousBareName(name.to_string())),
             }
         }
