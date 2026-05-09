@@ -164,11 +164,17 @@ pub struct ToolDeclaration {
     pub description: String,
 
     /// JSON Schema for input parameters (as serde_json::Value).
-    #[serde(default)]
+    ///
+    /// Accepts both `input_schema` (snake_case, canonical) and `inputSchema`
+    /// (camelCase, MCP spec style) in YAML/JSON so SKILL.md authors can use
+    /// either convention (issue #857).
+    #[serde(default, alias = "inputSchema")]
     pub input_schema: serde_json::Value,
 
     /// JSON Schema for output (as serde_json::Value).
-    #[serde(default, skip_serializing_if = "is_null_value")]
+    ///
+    /// Accepts both `output_schema` and `outputSchema` (issue #857).
+    #[serde(default, skip_serializing_if = "is_null_value", alias = "outputSchema")]
     pub output_schema: serde_json::Value,
 
     /// Whether this tool only reads data (no side effects).
@@ -342,8 +348,9 @@ impl<'de> serde::Deserialize<'de> for ToolDeclaration {
         struct Wire {
             name: String,
             description: String,
+            #[serde(default, alias = "inputSchema")]
             input_schema: serde_json::Value,
-            #[serde(default)]
+            #[serde(default, alias = "outputSchema")]
             output_schema: serde_json::Value,
             read_only: bool,
             destructive: bool,
