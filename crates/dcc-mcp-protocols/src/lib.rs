@@ -11,9 +11,10 @@ mod types;
 
 pub use adapters::{
     BoundingBox, CaptureResult, DccAdapter, DccCapabilities, DccConnection, DccError, DccErrorCode,
-    DccHierarchy, DccInfo, DccRenderCapture, DccResult, DccSceneInfo, DccSceneManager,
-    DccScriptEngine, DccSnapshot, DccTransform, FrameRange, ObjectTransform, RenderOutput,
-    SceneInfo, SceneNode, SceneObject, SceneStatistics, ScriptLanguage, ScriptResult,
+    DccFileIO, DccHierarchy, DccInfo, DccRenderCapture, DccResult, DccSceneInfo, DccSceneManager,
+    DccSceneQuery, DccScriptEngine, DccSelection, DccSnapshot, DccTransform, FrameRange,
+    ObjectTransform, RenderOutput, SceneInfo, SceneNode, SceneObject, SceneStatistics,
+    ScriptLanguage, ScriptResult,
 };
 pub use bridge::error_codes as bridge_error_codes;
 pub use bridge::{

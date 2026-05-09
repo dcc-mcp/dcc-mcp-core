@@ -2,9 +2,9 @@ use std::collections::HashMap;
 use std::sync::atomic::Ordering;
 
 use crate::adapters::{
-    DccAdapter, DccCapabilities, DccConnection, DccHierarchy, DccRenderCapture, DccResult,
-    DccSceneInfo, DccSceneManager, DccScriptEngine, DccSnapshot, DccTransform, SceneNode,
-    SceneObject,
+    DccAdapter, DccCapabilities, DccConnection, DccFileIO, DccHierarchy, DccRenderCapture,
+    DccResult, DccSceneInfo, DccSceneManager, DccSceneQuery, DccScriptEngine, DccSelection,
+    DccSnapshot, DccTransform, SceneNode, SceneObject,
 };
 
 use super::MockDccAdapter;
@@ -158,6 +158,18 @@ impl DccAdapter for MockDccAdapter {
     }
 
     fn as_scene_manager(&self) -> Option<&dyn DccSceneManager> {
+        Some(self)
+    }
+
+    fn as_scene_query(&self) -> Option<&dyn DccSceneQuery> {
+        Some(self)
+    }
+
+    fn as_file_io(&self) -> Option<&dyn DccFileIO> {
+        Some(self)
+    }
+
+    fn as_selection(&self) -> Option<&dyn DccSelection> {
         Some(self)
     }
 
