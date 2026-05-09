@@ -436,3 +436,89 @@ fn test_tool_declaration_next_tools_default_empty() {
     assert!(meta.tools[0].next_tools.on_success.is_empty());
     assert!(meta.tools[0].next_tools.on_failure.is_empty());
 }
+
+// ── issue #857: inputSchema/outputSchema camelCase alias ─────────────────────
+
+#[test]
+fn test_tool_declaration_input_schema_alias_camel_case() {
+    // inputSchema (camelCase) must deserialize into input_schema (issue #857)
+    let json = r#"{
+        "name": "test-skill",
+        "tools": [{
+            "name": "my_tool",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string"},
+                    "count": {"type": "integer"}
+                },
+                "required": ["path"]
+            }
+        }]
+    }"#;
+    let meta: SkillMetadata = serde_json::from_str(json).unwrap();
+    let schema = &meta.tools[0].input_schema;
+    assert_eq!(schema["type"], "object");
+    assert_eq!(schema["properties"]["path"]["type"], "string");
+    assert_eq!(schema["properties"]["count"]["type"], "integer");
+    assert_eq!(schema["required"][0], "path");
+}
+
+#[test]
+fn test_tool_declaration_input_schema_snake_case_still_works() {
+    // snake_case input_schema must still work (backward compatibility)
+    let json = r#"{
+        "name": "test-skill",
+        "tools": [{
+            "name": "my_tool",
+            "input_schema": {"type": "object", "properties": {}}
+        }]
+    }"#;
+    let meta: SkillMetadata = serde_json::from_str(json).unwrap();
+    assert_eq!(meta.tools[0].input_schema["type"], "object");
+}
+
+#[test]
+fn test_tool_declaration_output_schema_alias_camel_case() {
+    // outputSchema (camelCase) must deserialize into output_schema (issue #857)
+    let json = r#"{
+        "name": "test-skill",
+        "tools": [{
+            "name": "my_tool",
+            "outputSchema": {
+                "type": "object",
+                "properties": {
+                    "result": {"type": "string"}
+                }
+            }
+        }]
+    }"#;
+    let meta: SkillMetadata = serde_json::from_str(json).unwrap();
+    let schema = &meta.tools[0].output_schema;
+    assert_eq!(schema["type"], "object");
+    assert_eq!(schema["properties"]["result"]["type"], "string");
+}
+
+#[test]
+fn test_tool_declaration_output_schema_snake_case_still_works() {
+    // snake_case output_schema must still work (backward compatibility)
+    let json = r#"{
+        "name": "test-skill",
+        "tools": [{
+            "name": "my_tool",
+            "output_schema": {"type": "object"}
+        }]
+    }"#;
+    let meta: SkillMetadata = serde_json::from_str(json).unwrap();
+    assert_eq!(meta.tools[0].output_schema["type"], "object");
+}
+
+#[test]
+fn test_tool_declaration_schema_null_when_omitted() {
+    // When neither input_schema nor inputSchema is provided, field defaults to null
+    // (serde(default) + no alias match → Value::Null)
+    let json = r#"{"name": "s", "tools": [{"name": "t"}]}"#;
+    let meta: SkillMetadata = serde_json::from_str(json).unwrap();
+    assert!(meta.tools[0].input_schema.is_null());
+    assert!(meta.tools[0].output_schema.is_null());
+}
