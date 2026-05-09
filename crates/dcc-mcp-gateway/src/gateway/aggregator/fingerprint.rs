@@ -70,7 +70,7 @@ pub(crate) async fn compute_tools_fingerprint_with_own(
 
     let futs = instances.iter().map(|entry| async move {
         let url = format!("http://{}:{}/mcp", entry.host, entry.port);
-        let tools = fetch_tools(http_client, &url, backend_timeout).await;
+        let (tools, _unloaded) = fetch_tools(http_client, &url, backend_timeout).await;
         (entry.instance_id, tools)
     });
     let results = join_all(futs).await;

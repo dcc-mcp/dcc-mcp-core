@@ -772,3 +772,148 @@ async fn capability_index_never_contains_skill_stubs_or_local_tools() {
         Some("hello-world"),
     );
 }
+
+// -- Issue #858 - search_tools must surface tools from unloaded skills --------
+
+/// Spin up a backend that returns a mix of loaded and unloaded hits from
+/// `/v1/search`. The gateway must populate the capability index's unloaded
+/// slot and surface unloaded tools (with `loaded: false`) in `search_tools`.
+async fn spawn_backend_with_unloaded(
+    loaded: Vec<(&'static str, &'static str)>,
+    unloaded: Vec<(&'static str, &'static str, &'static str)>, // (skill, tool, summary)
+) -> u16 {
+    #[derive(Clone)]
+    struct State858 {
+        loaded: Vec<(&'static str, &'static str)>,
+        unloaded: Vec<(&'static str, &'static str, &'static str)>,
+    }
+
+    async fn search858(
+        axum::extract::State(st): axum::extract::State<State858>,
+    ) -> Json<Value> {
+        let mut hits: Vec<Value> = st
+            .loaded
+            .iter()
+            .map(|(name, desc)| {
+                json!({
+                    "slug": format!("maya.00000000.{name}"),
+                    "action": name,
+                    "skill": name.split('.').next().unwrap_or("core"),
+                    "summary": desc,
+                    "tags": [],
+                    "has_schema": false,
+                    "loaded": true,
+                    "instance_id": "00000000-0000-0000-0000-000000000000"
+                })
+            })
+            .collect();
+        for (skill, tool, summary) in &st.unloaded {
+            hits.push(json!({
+                "slug": format!("maya.00000000.{tool}"),
+                "action": tool,
+                "skill": skill,
+                "summary": summary,
+                "tags": [],
+                "has_schema": false,
+                "loaded": false,
+                "instance_id": "00000000-0000-0000-0000-000000000000"
+            }));
+        }
+        Json(json!({ "total": hits.len(), "hits": hits }))
+    }
+
+    let st = State858 { loaded, unloaded };
+    let app = Router::new()
+        .route("/health", get(|| async { "ok" }))
+        .route("/v1/search", post(search858))
+        .with_state(st);
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move { axum::serve(listener, app).await.ok() });
+    tokio::time::sleep(Duration::from_millis(30)).await;
+    port
+}
+
+/// Issue #858: search_tools returns tools from unloaded skills ranked by relevance.
+#[tokio::test]
+async fn search_tools_includes_unloaded_skill_tools() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let state = make_state(registry.clone());
+
+    let port = spawn_backend_with_unloaded(
+        vec![
+            ("project.save", "save the current scene"),
+            ("project.status", "project status"),
+        ],
+        vec![
+            ("maya-primitives", "maya-primitives.create_sphere", "Create a sphere primitive"),
+            ("maya-geometry", "maya-geometry.create_sphere", "Create a sphere geometry"),
+        ],
+    )
+    .await;
+
+    let entry = ServiceEntry::new("maya", "127.0.0.1", port);
+    { let reg = registry.read().await; reg.register(entry).unwrap(); }
+
+    refresh_all_live_backends(&state, RefreshReason::InstanceJoined).await;
+
+    let hits = search_service(
+        &state.capability_index,
+        &SearchQuery {
+            query: "create sphere primitive".into(),
+            dcc_type: Some("maya".into()),
+            ..Default::default()
+        },
+    );
+
+    let sphere_hits: Vec<_> = hits
+        .iter()
+        .filter(|h| h.record.backend_tool.contains("create_sphere"))
+        .collect();
+    assert!(
+        !sphere_hits.is_empty(),
+        "search_tools must surface unloaded create_sphere tools; got: {hits:?}",
+    );
+    for h in &sphere_hits {
+        assert!(!h.record.loaded, "unloaded sphere tool must have loaded=false: {:?}", h.record);
+    }
+}
+
+/// Issue #858: MCP search_tools unloaded hits carry next_step.load_skill.
+#[tokio::test]
+async fn search_tools_unloaded_hit_carries_next_step_load_skill() {
+    use dcc_mcp_gateway::tools::tool_search_tools;
+
+    let dir = tempfile::tempdir().unwrap();
+    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let state = make_state(registry.clone());
+
+    let port = spawn_backend_with_unloaded(
+        vec![("project.save", "save scene")],
+        vec![("maya-primitives", "maya-primitives.create_sphere", "Create sphere")],
+    )
+    .await;
+
+    let entry = ServiceEntry::new("maya", "127.0.0.1", port);
+    { let reg = registry.read().await; reg.register(entry).unwrap(); }
+
+    let raw = tool_search_tools(
+        &state,
+        &json!({"query": "create sphere", "dcc_type": "maya"}),
+    )
+    .await
+    .expect("tool_search_tools must not fail");
+
+    let resp: Value = serde_json::from_str(&raw).unwrap();
+    let hits = resp["hits"].as_array().unwrap();
+
+    let sphere_hit = hits
+        .iter()
+        .find(|h| h.get("backend_tool").and_then(Value::as_str).map(|n| n.contains("create_sphere")).unwrap_or(false))
+        .expect("create_sphere must appear in MCP search_tools response");
+
+    assert_eq!(sphere_hit["loaded"].as_bool(), Some(false), "unloaded hit must have loaded=false");
+    assert_eq!(sphere_hit["next_step"]["action"].as_str(), Some("load_skill"), "next_step.action = load_skill");
+    assert_eq!(sphere_hit["next_step"]["skill_name"].as_str(), Some("maya-primitives"), "next_step.skill_name");
+}

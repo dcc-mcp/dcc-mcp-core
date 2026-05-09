@@ -130,7 +130,7 @@ pub async fn describe_tool_full(
     let url = format!("http://{}:{}/mcp", entry.host, entry.port);
     drop(reg);
 
-    let tools = try_fetch_tools(&gs.http_client, &url, gs.backend_timeout)
+    let (tools, _unloaded) = try_fetch_tools(&gs.http_client, &url, gs.backend_timeout)
         .await
         .map_err(|e| {
             ServiceError::new(

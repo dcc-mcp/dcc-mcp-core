@@ -68,11 +68,18 @@ pub async fn call_backend(
 /// builder receives the same bare-name input it expects.  The `slug`
 /// field is ignored here — the builder recomputes the gateway-level
 /// slug itself via `tool_slug(dcc_type, instance_id, callable_id)`.
+///
+/// Returns `(loaded_tools, unloaded_hints)`.  `loaded_tools` feeds
+/// [`build_records_from_backend`] as before.  `unloaded_hints` contains
+/// `(skill_name, tool_name, summary)` triples for every hit where the
+/// backend returned `"loaded": false` — they become `CapabilityRecord`
+/// sentinel rows (instance `Uuid::nil()`) so `search_tools` can surface
+/// them with a `next_step: load_skill` hint even before the skill is loaded.
 pub async fn try_fetch_tools(
     client: &reqwest::Client,
     mcp_url: &str,
     timeout: Duration,
-) -> Result<Vec<McpTool>, String> {
+) -> Result<(Vec<McpTool>, Vec<(String, String, String)>), String> {
     let base = rest_base_from_mcp_url(mcp_url);
     let url = format!("{base}/v1/search");
     // `/v1/search` is a POST endpoint; pass the filter params in the JSON body.
@@ -83,46 +90,67 @@ pub async fn try_fetch_tools(
         timeout,
     )
     .await?;
-    Ok(val
-        .get("hits")
-        .and_then(Value::as_array)
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| {
-                    // Use `action` (bare tool name) as the McpTool name so
-                    // the capability builder's skill-extraction and slug-
-                    // computation logic works the same way it did with the
-                    // old `tools/list` JSON-RPC response.
-                    let action = v
-                        .get("action")
-                        .and_then(Value::as_str)
-                        .or_else(|| v.get("slug").and_then(Value::as_str))?
-                        .to_owned();
-                    let description = v
-                        .get("summary")
-                        .and_then(Value::as_str)
-                        .unwrap_or("")
-                        .to_owned();
-                    let has_schema = v
-                        .get("has_schema")
-                        .and_then(Value::as_bool)
-                        .unwrap_or(false);
-                    Some(McpTool {
-                        name: action,
-                        description,
-                        input_schema: if has_schema {
-                            json!({"type": "object", "properties": {}})
-                        } else {
-                            json!({"type": "object"})
-                        },
-                        output_schema: None,
-                        annotations: None,
-                        meta: None,
-                    })
-                })
-                .collect()
-        })
-        .unwrap_or_default())
+
+    let mut loaded_tools: Vec<McpTool> = Vec::new();
+    let mut unloaded_hints: Vec<(String, String, String)> = Vec::new();
+
+    if let Some(arr) = val.get("hits").and_then(Value::as_array) {
+        for v in arr {
+            // Use `action` (bare tool name) as the McpTool name so the
+            // capability builder's skill-extraction and slug-computation
+            // logic works the same way it did with the old `tools/list`
+            // JSON-RPC response.
+            let Some(action) = v
+                .get("action")
+                .and_then(Value::as_str)
+                .or_else(|| v.get("slug").and_then(Value::as_str))
+                .map(str::to_owned)
+            else {
+                continue;
+            };
+            let description = v
+                .get("summary")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_owned();
+            let has_schema = v
+                .get("has_schema")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            // `loaded` is `true` when the owning skill is active on this
+            // instance and `false` when the backend returned metadata for an
+            // unloaded skill.  Old backends that predate the field default to
+            // `true` (assume loaded) so the previous behaviour is preserved.
+            let loaded = v.get("loaded").and_then(Value::as_bool).unwrap_or(true);
+
+            if loaded {
+                loaded_tools.push(McpTool {
+                    name: action,
+                    description,
+                    input_schema: if has_schema {
+                        json!({"type": "object", "properties": {}})
+                    } else {
+                        json!({"type": "object"})
+                    },
+                    output_schema: None,
+                    annotations: None,
+                    meta: None,
+                });
+            } else {
+                // Collect the skill name for unloaded hint records.  The
+                // `skill` field on the search hit carries the owning skill
+                // name (e.g. `"maya-primitives"`).
+                let skill_name = v
+                    .get("skill")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_owned();
+                unloaded_hints.push((skill_name, action, description));
+            }
+        }
+    }
+
+    Ok((loaded_tools, unloaded_hints))
 }
 
 /// Fetch tool list from a backend; fail-soft on errors.
@@ -130,16 +158,19 @@ pub async fn try_fetch_tools(
 /// On any failure returns an empty vector and logs a warning — callers
 /// aggregate tools across many backends and should not fail the whole
 /// fan-out because one instance is unreachable.
+///
+/// Returns `(loaded_tools, unloaded_hints)`.  See [`try_fetch_tools`]
+/// for the semantics of each component.
 pub async fn fetch_tools(
     client: &reqwest::Client,
     mcp_url: &str,
     timeout: Duration,
-) -> Vec<McpTool> {
+) -> (Vec<McpTool>, Vec<(String, String, String)>) {
     match try_fetch_tools(client, mcp_url, timeout).await {
-        Ok(tools) => tools,
+        Ok(pair) => pair,
         Err(e) => {
             tracing::warn!(mcp_url = %mcp_url, error = %e, "Backend GET /v1/search failed");
-            Vec::new()
+            (Vec::new(), Vec::new())
         }
     }
 }
