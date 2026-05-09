@@ -84,6 +84,19 @@ pub struct GatewayConfig {
     /// Default: `"/admin"`. The gateway mounts all admin routes under
     /// this prefix.
     pub admin_path: String,
+
+    /// Interval in seconds between backend health-check probes (issue #854).
+    ///
+    /// Default: `5`. Override at runtime with
+    /// `DCC_MCP_GATEWAY_HEALTH_INTERVAL_SECS`.
+    pub health_check_interval_secs: u64,
+
+    /// Number of consecutive health-check failures before a backend is
+    /// auto-deregistered (issue #854).
+    ///
+    /// Default: `2`. Override at runtime with
+    /// `DCC_MCP_GATEWAY_HEALTH_FAILURES`.
+    pub health_check_failures: u32,
 }
 
 impl Default for GatewayConfig {
@@ -112,6 +125,8 @@ impl Default for GatewayConfig {
             middleware_chain: super::middleware::MiddlewareChain::new(),
             admin_enabled: true,
             admin_path: "/admin".to_string(),
+            health_check_interval_secs: 5,
+            health_check_failures: 2,
         }
     }
 }

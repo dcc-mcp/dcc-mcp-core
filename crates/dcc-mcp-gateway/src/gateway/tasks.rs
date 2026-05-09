@@ -46,6 +46,8 @@ pub(crate) async fn start_gateway_tasks(
     middleware_chain: crate::gateway::middleware::MiddlewareChain,
     #[cfg(feature = "admin")] admin_enabled: bool,
     #[cfg(feature = "admin")] admin_path: String,
+    health_check_interval_secs: u64,
+    health_check_failures: u32,
 ) -> Result<GatewayTasks, Box<dyn std::error::Error + Send + Sync>> {
     // ── Yield channel ─────────────────────────────────────────────────────
     let (yield_tx, mut yield_rx) = watch::channel(false);
@@ -594,11 +596,21 @@ pub(crate) async fn start_gateway_tasks(
     });
 
     // ── Periodic health-check task (issue #556) ───────────────────────────
-    // Every 30 s, attempt a lightweight `GET /health` against every registered
-    // instance. TCP reachability alone is not enough: Maya commandPort also
-    // accepts TCP bytes, but it is not an MCP HTTP backend and JSON-RPC POSTs to
-    // it can trigger a modal security dialog (#592). After 2 consecutive
-    // failures mark the row Unreachable; after 3 stale rounds auto-deregister.
+    // Probe every `health_check_interval_secs` (default 5 s, was 30 s — issue
+    // #854). TCP or HTTP liveness is checked against every registered backend.
+    // After `health_check_failures` consecutive failures (default 2) the
+    // backend is marked Unreachable; one more failure auto-deregisters it.
+    // Both values are also overridable at runtime via env vars:
+    //   DCC_MCP_GATEWAY_HEALTH_INTERVAL_SECS
+    //   DCC_MCP_GATEWAY_HEALTH_FAILURES
+    let effective_interval_secs = std::env::var("DCC_MCP_GATEWAY_HEALTH_INTERVAL_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(health_check_interval_secs);
+    let effective_failures = std::env::var("DCC_MCP_GATEWAY_HEALTH_FAILURES")
+        .ok()
+        .and_then(|v| v.parse::<u32>().ok())
+        .unwrap_or(health_check_failures);
     let reg_health = registry.clone();
     let health_http_client = http_client.clone();
     let health_own_host = own_host.clone();
@@ -607,7 +619,7 @@ pub(crate) async fn start_gateway_tasks(
     #[cfg(feature = "prometheus")]
     let health_metrics = gateway_metrics.clone();
     let health_check_handle = tokio::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_secs(30));
+        let mut interval = tokio::time::interval(Duration::from_secs(effective_interval_secs));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         // failure_count keyed by "dcc_type:instance_id"
         let mut failure_counts: std::collections::HashMap<String, u32> =
@@ -625,23 +637,33 @@ pub(crate) async fn start_gateway_tasks(
                     .collect::<Vec<_>>()
             };
 
-            for entry in entries {
-                let mcp_url = format!("http://{}:{}/mcp", entry.host, entry.port);
-                // #713: three-state probe — distinguishes a booting
-                // backend (process alive, `/v1/readyz` returns 503) from
-                // a process-dead one. Booting backends keep their row
-                // but get status Booting until readiness flips green.
-                let outcome = crate::gateway::backend_client::probe_mcp_readiness(
-                    &health_http_client,
-                    &mcp_url,
-                    Duration::from_secs(5),
-                )
-                .await;
+            // -- Concurrent probe all backends in parallel (issue #854) ------
+            // Probing sequentially was fine at 30 s intervals but at 5 s
+            // intervals with N dead backends (each timing out at 5 s) the
+            // sequential loop would take N*5 s per round, stalling eviction.
+            // futures::future::join_all fires all probes concurrently; the
+            // result-processing loop below is purely in-memory, never blocks.
+            let probe_results: Vec<_> = {
+                let client = &health_http_client;
+                futures::future::join_all(entries.iter().map(|e| {
+                    let url = format!("http://{}:{}/mcp", e.host, e.port);
+                    async move {
+                        crate::gateway::backend_client::probe_mcp_readiness(
+                            client,
+                            &url,
+                            Duration::from_secs(5),
+                        )
+                        .await
+                    }
+                }))
+                .await
+            };
 
+            for (entry, outcome) in entries.iter().zip(probe_results.into_iter()) {
                 let key = format!("{}:{}", entry.dcc_type, entry.instance_id);
                 let id8 = entry.instance_id.to_string()[..8].to_string();
 
-                // ── Ready ──────────────────────────────────────────
+                // ── Ready ──────────────────────────────────────────────────
                 if outcome.is_ready() {
                     let recovered_from_failure = failure_counts.remove(&key).is_some();
                     let was_not_available = !matches!(
@@ -662,16 +684,16 @@ pub(crate) async fn start_gateway_tasks(
                         );
                     }
                     // Only bump the Prometheus counter; do not flood the ring
-                    // buffer with a "ready" entry on every 30-second tick.
+                    // buffer with a ready entry on every 5-second tick.
                     #[cfg(feature = "prometheus")]
                     health_metrics.inc_probe("ready");
                     continue;
                 }
 
-                // ── Booting (alive but red) ────────────────────────
+                // ── Booting (alive but red) ──────────────────────────────────
                 // Issue #713: don't count a booting backend as a
                 // consecutive failure and don't deregister it. We
-                // just flip its status to Booting so `list_dcc_instances`
+                // just flip its status to Booting so list_dcc_instances
                 // and the aggregator can filter traffic away from it.
                 if outcome.is_alive() {
                     if !matches!(
@@ -705,17 +727,20 @@ pub(crate) async fn start_gateway_tasks(
                     continue;
                 }
 
-                // ── Unreachable ────────────────────────────────────
-                let count = failure_counts.entry(key.clone()).or_insert(0);
-                *count += 1;
+                // ── Unreachable ────────────────────────────────────────────────
+                let count = {
+                    let c = failure_counts.entry(key.clone()).or_insert(0);
+                    *c += 1;
+                    *c
+                };
                 tracing::warn!(
                     dcc_type = %entry.dcc_type,
                     instance_id = %entry.instance_id,
-                    consecutive_failures = *count,
+                    consecutive_failures = count,
                     "Health check failed"
                 );
 
-                if *count >= 2 {
+                if count >= effective_failures {
                     // Mark Unreachable so live_instances filters it out.
                     let r = reg_health.read().await;
                     let _ = r.update_status(
@@ -729,19 +754,21 @@ pub(crate) async fn start_gateway_tasks(
                         crate::gateway::event_log::EventKind::ProbeUnreachable,
                         &entry.dcc_type,
                         &id8,
-                        Some(format!("{} consecutive failures", *count)),
+                        Some(format!("{} consecutive failures", count)),
                     );
                 }
 
-                if *count >= 3 {
-                    // Auto-deregister after persistent unreachability.
+                if count > effective_failures {
+                    // Auto-deregister after one additional failure beyond the
+                    // unreachable threshold.
                     let r = reg_health.read().await;
                     let _ = r.deregister(&entry.key());
                     failure_counts.remove(&key);
                     tracing::info!(
                         dcc_type = %entry.dcc_type,
                         instance_id = %entry.instance_id,
-                        "Auto-deregistered after 3 consecutive health-check failures"
+                        consecutive_failures = count,
+                        "Auto-deregistered after consecutive health-check failures"
                     );
                     crate::gateway::event_log::record_event(
                         &health_event_log,
@@ -750,7 +777,7 @@ pub(crate) async fn start_gateway_tasks(
                         crate::gateway::event_log::EventKind::AutoDeregister,
                         &entry.dcc_type,
                         &id8,
-                        Some("3 consecutive health-check failures".into()),
+                        Some(format!("{} consecutive health-check failures", count)),
                     );
                 }
             }
