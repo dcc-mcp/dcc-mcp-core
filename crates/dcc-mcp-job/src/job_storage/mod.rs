@@ -26,6 +26,7 @@ pub mod sqlite;
 pub use sqlite::SqliteStorage;
 
 /// Error returned by every [`JobStorage`] operation.
+#[must_use]
 #[derive(Debug, Error)]
 pub enum JobStorageError {
     /// Lower-level I/O or backend error (SQLite, filesystem, …).

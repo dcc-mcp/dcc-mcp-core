@@ -5,6 +5,7 @@ use serde_json::Value;
 use super::spec::{OpenApiMount, OperationInfo};
 
 /// Error type for operation call failures.
+#[must_use]
 #[derive(Debug, thiserror::Error)]
 pub enum CallError {
     #[error("HTTP request failed: {0}")]

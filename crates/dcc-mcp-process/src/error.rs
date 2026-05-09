@@ -4,6 +4,7 @@ use dcc_mcp_models::DccMcpError;
 use thiserror::Error;
 
 /// Errors that can occur during DCC process operations.
+#[must_use]
 #[derive(Debug, Error)]
 pub enum ProcessError {
     /// The specified process was not found (by PID or name).

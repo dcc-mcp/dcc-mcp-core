@@ -3,6 +3,7 @@
 use thiserror::Error;
 
 /// Errors that a middleware can return to abort the call pipeline.
+#[must_use]
 #[derive(Debug, Error, Clone)]
 pub enum MiddlewareError {
     /// Quota limit exceeded (e.g. too many calls per minute).

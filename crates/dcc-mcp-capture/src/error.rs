@@ -3,6 +3,7 @@
 use thiserror::Error;
 
 /// All errors that can be produced by the capture subsystem.
+#[must_use]
 #[derive(Debug, Error)]
 pub enum CaptureError {
     /// The requested capture backend is not supported on this platform.
@@ -39,6 +40,7 @@ pub enum CaptureError {
 }
 
 /// Convenience alias for `Result<T, CaptureError>`.
+#[must_use]
 pub type CaptureResult<T> = Result<T, CaptureError>;
 
 // ── Conversions from platform error types ──────────────────────────────────

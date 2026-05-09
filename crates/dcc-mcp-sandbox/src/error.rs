@@ -3,6 +3,7 @@
 use thiserror::Error;
 
 /// Errors that can occur within the sandbox.
+#[must_use]
 #[derive(Debug, Error, Clone, PartialEq)]
 pub enum SandboxError {
     /// The script exceeded the configured execution time limit.

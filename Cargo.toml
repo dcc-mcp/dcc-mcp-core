@@ -121,6 +121,10 @@ jsonwebtoken = { version = "10.3", default-features = false, features = ["rust_c
 pyo3-stub-gen = "0.22"
 pyo3-stub-gen-derive = "0.22"
 
+[workspace.lints.clippy]
+# Warn when a Result / error value can be silently dropped (issue #844).
+must_use_candidate = "warn"
+
 # Root package — Python bindings entry point
 # Compiles to `_core.pyd` / `_core.so`, exposed as `dcc_mcp_core._core`
 [package]

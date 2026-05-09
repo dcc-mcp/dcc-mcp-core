@@ -446,7 +446,13 @@ def skill_exception(
     error_type = type(exc).__name__
     context["error_type"] = error_type
     if include_traceback:
-        context["traceback"] = traceback.format_exc()
+        # Use format_exception with explicit exc.__traceback__ so the full
+        # stack frames are preserved even when called across thread
+        # boundaries where sys.exc_info() may have already been cleared
+        # (e.g. through a DCC main-thread dispatcher). format_exc() relies
+        # on sys.exc_info() which is thread-local and can return
+        # (None, None, None) outside an active except block. (issue #860)
+        context["traceback"] = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
     if possible_solutions:
         context.setdefault("possible_solutions", possible_solutions)
     return {

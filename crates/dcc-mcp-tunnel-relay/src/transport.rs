@@ -67,6 +67,7 @@ where
 }
 
 /// Errors surfaced by the async frame I/O helpers.
+#[must_use]
 #[derive(Debug, thiserror::Error)]
 pub enum TransportError {
     /// Underlying socket I/O failed (closed, reset, write error).

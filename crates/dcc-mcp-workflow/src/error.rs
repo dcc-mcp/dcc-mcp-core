@@ -3,6 +3,7 @@
 use thiserror::Error;
 
 /// Validation failure when checking a [`crate::WorkflowSpec`].
+#[must_use]
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub enum ValidationError {
     /// The spec declares no steps.
@@ -78,6 +79,7 @@ pub enum ValidationError {
 }
 
 /// Top-level error type returned by workflow operations.
+#[must_use]
 #[derive(Debug, Error)]
 pub enum WorkflowError {
     /// YAML deserialisation failure.
@@ -109,6 +111,7 @@ impl From<std::io::Error> for WorkflowError {
 }
 
 /// Errors returned by [`crate::WorkflowExecutor::resume`] (issue #565).
+#[must_use]
 #[derive(Debug, Error)]
 pub enum WorkflowResumeError {
     /// No row found in `workflows` for this id.

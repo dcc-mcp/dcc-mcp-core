@@ -71,6 +71,7 @@ pub mod python;
 
 /// Error surfaced to the awaiting tokio future when a posted job cannot
 /// run to completion.
+#[must_use]
 #[derive(Debug, Error)]
 pub enum DispatchError {
     /// The dispatcher was already shut down when the job was posted, or

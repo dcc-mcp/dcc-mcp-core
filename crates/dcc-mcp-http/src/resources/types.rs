@@ -49,6 +49,7 @@ impl ProducerContent {
 }
 
 /// Error type returned by [`ResourceProducer::read`].
+#[must_use]
 #[derive(Debug, thiserror::Error)]
 pub enum ResourceError {
     #[error("resource not found: {0}")]

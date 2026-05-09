@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Error type surfaced by [`crate::prompts::PromptRegistry::get`].
+#[must_use]
 #[derive(Debug, thiserror::Error)]
 pub enum PromptError {
     #[error("prompt not found: {0}")]
