@@ -22,23 +22,44 @@ crates/dcc-mcp-host/src/lib.rs
 crates/dcc-mcp-skill-rest/src/service.rs
 crates/dcc-mcp-skill-rest/src/router.rs
 
-# Gateway capability search — tracked under #852
+# Gateway capability search and ranking — tracked under #852
 crates/dcc-mcp-gateway/src/gateway/capability/search.rs
+crates/dcc-mcp-gateway/src/gateway/capability/search_ranking.rs
 
-# dcc-mcp-server main entry — tracked under #848
+# Gateway OpenAPI spec — tracked under #852
+crates/dcc-mcp-gateway/src/gateway/openapi/spec.rs
+
+# dcc-mcp-server main entry and translation layer — tracked under #848
 crates/dcc-mcp-server/src/main.rs
+crates/dcc-mcp-server/src/translate.rs
 
-# HTTP python config bridge — tracked under #852
+# HTTP python config bridge and skill server — tracked under #852
 crates/dcc-mcp-http/src/python/config.rs
+crates/dcc-mcp-http/src/python/skill_server.rs
 
-# Workflow SQLite storage — tracked under #848
+# HTTP server module and executor — tracked under #852
+crates/dcc-mcp-http/src/server/mod.rs
+
+# Workflow SQLite storage and policy — tracked under #848
 crates/dcc-mcp-workflow/src/sqlite.rs
+crates/dcc-mcp-workflow/src/policy.rs
 
-# Transport file registry — tracked under #852
+# Transport file registry, Python types, and discovery types — tracked under #852
 crates/dcc-mcp-transport/src/discovery/file_registry.rs
+crates/dcc-mcp-transport/src/discovery/types.rs
+crates/dcc-mcp-transport/src/python/types.rs
 
 # HTTP executor — tracked under #852
 crates/dcc-mcp-http/src/executor.rs
+
+# Protocols Python data — tracked under #848
+crates/dcc-mcp-protocols/src/python/data/data_dcc.rs
+
+# Capture Python bindings — tracked under #848
+crates/dcc-mcp-capture/src/python.rs
+
+# Telemetry Prometheus exporter — tracked under #848
+crates/dcc-mcp-telemetry/src/prometheus.rs
 
 # issue #849 — python/dcc_mcp_core/__init__.py is an 856-line god module
 python/dcc_mcp_core/__init__.py
