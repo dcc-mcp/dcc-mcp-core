@@ -4,522 +4,475 @@ This package is powered by a Rust core via PyO3. The native extension module
 ``dcc_mcp_core._core`` is compiled by maturin and provides all public APIs.
 
 The pure-Python ``dcc_mcp_core.skill`` sub-module provides lightweight helpers
-for skill script authors — no compiled extension required:
-
-.. code-block:: python
+for skill script authors — no compiled extension required::
 
     from dcc_mcp_core.skill import skill_entry, skill_success, skill_error
+
+Public symbols are lazily imported from their source modules on first access
+so that ``import dcc_mcp_core`` does not eagerly pull the entire PyO3 surface
+(~30 MB of capture/process/sandbox machinery) into every importer's namespace.
+All symbols in ``__all__`` are still accessible via ``from dcc_mcp_core import X``.
 """
 
 # Import future modules
 from __future__ import annotations
 
-# Import local modules
+# Eagerly import _core so __version__ / __author__ are always available,
+# and so that ``dcc_mcp_core._core`` sub-module access still works.
 from dcc_mcp_core import _core
-
-# Naming validators (SEP-986)
-from dcc_mcp_core._core import ACTION_ID_RE
-from dcc_mcp_core._core import APP_AUTHOR
-from dcc_mcp_core._core import APP_NAME
-from dcc_mcp_core._core import DEFAULT_DCC
-from dcc_mcp_core._core import DEFAULT_LOG_FILE_PREFIX
-from dcc_mcp_core._core import DEFAULT_LOG_LEVEL
-from dcc_mcp_core._core import DEFAULT_LOG_MAX_FILES
-from dcc_mcp_core._core import DEFAULT_LOG_MAX_SIZE
-from dcc_mcp_core._core import DEFAULT_LOG_ROTATION
-from dcc_mcp_core._core import DEFAULT_MIME_TYPE
-from dcc_mcp_core._core import DEFAULT_VERSION
-from dcc_mcp_core._core import ENV_DISABLE_ACCUMULATED_SKILLS
-from dcc_mcp_core._core import ENV_LOG_DIR
-from dcc_mcp_core._core import ENV_LOG_FILE
-from dcc_mcp_core._core import ENV_LOG_FILE_PREFIX
-from dcc_mcp_core._core import ENV_LOG_LEVEL
-from dcc_mcp_core._core import ENV_LOG_MAX_FILES
-from dcc_mcp_core._core import ENV_LOG_MAX_SIZE
-from dcc_mcp_core._core import ENV_LOG_ROTATION
-from dcc_mcp_core._core import ENV_SKILL_PATHS
-from dcc_mcp_core._core import ENV_TEAM_SKILL_PATHS
-from dcc_mcp_core._core import ENV_USER_SKILL_PATHS
-from dcc_mcp_core._core import MAX_TOOL_NAME_LEN
-from dcc_mcp_core._core import SKILL_METADATA_DIR
-from dcc_mcp_core._core import SKILL_METADATA_FILE
-from dcc_mcp_core._core import SKILL_SCRIPTS_DIR
-from dcc_mcp_core._core import TOOL_NAME_RE
-
-# Sandbox
-from dcc_mcp_core._core import AuditEntry
-from dcc_mcp_core._core import AuditLog
-from dcc_mcp_core._core import AuditMiddleware
-from dcc_mcp_core._core import BooleanWrapper
-from dcc_mcp_core._core import BoundingBox
-from dcc_mcp_core._core import BridgeContext
-from dcc_mcp_core._core import BridgeRegistry
-from dcc_mcp_core._core import CaptureBackendKind
-from dcc_mcp_core._core import CaptureFrame
-from dcc_mcp_core._core import Capturer
-from dcc_mcp_core._core import CaptureResult
-from dcc_mcp_core._core import CaptureTarget
-from dcc_mcp_core._core import DccCapabilities
-from dcc_mcp_core._core import DccError
-from dcc_mcp_core._core import DccErrorCode
-from dcc_mcp_core._core import DccInfo
-from dcc_mcp_core._core import DccLinkFrame
-from dcc_mcp_core._core import EventBus
-from dcc_mcp_core._core import FileLoggingConfig
-
-# Artefact hand-off (issue #349)
-from dcc_mcp_core._core import FileRef
-from dcc_mcp_core._core import FloatWrapper
-from dcc_mcp_core._core import FrameRange
-from dcc_mcp_core._core import GracefulIpcChannelAdapter
-from dcc_mcp_core._core import GuiExecutableHint
-from dcc_mcp_core._core import InputValidator
-from dcc_mcp_core._core import IntWrapper
-from dcc_mcp_core._core import IpcChannelAdapter
-from dcc_mcp_core._core import LoggingMiddleware
-from dcc_mcp_core._core import McpHttpConfig
-from dcc_mcp_core._core import McpHttpServer
-from dcc_mcp_core._core import McpServerHandle
-from dcc_mcp_core._core import ObjectTransform
-
-# Re-export constants for convenient access (dcc_mcp_core.constants.* also works)
-from dcc_mcp_core.constants import CATEGORY_DIAGNOSTICS
-from dcc_mcp_core.constants import CATEGORY_DOCS
-from dcc_mcp_core.constants import CATEGORY_FEEDBACK
-from dcc_mcp_core.constants import CATEGORY_GENERAL
-from dcc_mcp_core.constants import CATEGORY_INTROSPECT
-from dcc_mcp_core.constants import CATEGORY_RECIPES
-from dcc_mcp_core.constants import CATEGORY_WORKFLOWS
-from dcc_mcp_core.constants import LAYER_DOMAIN
-from dcc_mcp_core.constants import LAYER_EXAMPLE
-from dcc_mcp_core.constants import LAYER_INFRASTRUCTURE
-from dcc_mcp_core.constants import LAYER_THIN_HARNESS
-from dcc_mcp_core.constants import METADATA_DCC_KEY
-from dcc_mcp_core.constants import METADATA_DCC_MCP
-from dcc_mcp_core.constants import METADATA_EXTERNAL_DEPS_KEY
-from dcc_mcp_core.constants import METADATA_GROUPS_KEY
-from dcc_mcp_core.constants import METADATA_LAYER_KEY
-from dcc_mcp_core.constants import METADATA_RECIPES_KEY
-from dcc_mcp_core.constants import METADATA_SEARCH_HINT_KEY
-from dcc_mcp_core.constants import METADATA_TAGS_KEY
-from dcc_mcp_core.constants import METADATA_TOOLS_KEY
-from dcc_mcp_core.constants import METADATA_VERSION_KEY
-from dcc_mcp_core.constants import METADATA_WORKFLOWS_KEY
-
-# DCC output capture — expose stdout/stderr/script-editor as output:// resource (issue #461).
-# Only present after the wheel is rebuilt with the new dcc-mcp-http code.
-try:
-    from dcc_mcp_core._core import OutputCapture  # type: ignore[attr-defined]
-except ImportError:  # pragma: no cover — pre-built wheel
-    OutputCapture = None  # type: ignore[assignment,misc]
-
-# ResourceRegistry PyO3 handle — let adapters push scene snapshots,
-# register custom producers, and wire output buffers (issue #730).
-# Only present after the wheel is rebuilt with the new dcc-mcp-http code.
-try:
-    from dcc_mcp_core._core import ResourceHandle  # type: ignore[attr-defined]
-except ImportError:  # pragma: no cover — pre-built wheel
-    ResourceHandle = None  # type: ignore[assignment,misc]
-
-# PromptRegistry PyO3 handle — register prompts from Python (issue #792).
-# Only present after the wheel is rebuilt with the new dcc-mcp-http code.
-try:
-    from dcc_mcp_core._core import PromptHandle  # type: ignore[attr-defined]
-except ImportError:  # pragma: no cover — pre-built wheel
-    PromptHandle = None  # type: ignore[assignment,misc]
-
-from dcc_mcp_core._core import PromptArgument
-from dcc_mcp_core._core import PromptDefinition
-
-# Shared memory
-from dcc_mcp_core._core import PyBufferPool
-
-# Process management
-from dcc_mcp_core._core import PyCrashRecoveryPolicy
-from dcc_mcp_core._core import PyDccLauncher
-from dcc_mcp_core._core import PyProcessMonitor
-from dcc_mcp_core._core import PyProcessWatcher
-from dcc_mcp_core._core import PyPumpedDispatcher
-from dcc_mcp_core._core import PySceneDataKind
-from dcc_mcp_core._core import PySharedBuffer
-from dcc_mcp_core._core import PySharedSceneBuffer
-from dcc_mcp_core._core import PyStandaloneDispatcher
-from dcc_mcp_core._core import RateLimitMiddleware
-
-# Readiness probe — DCC adapters flip this when the host is ready to
-# accept traffic (issue #713). Exposed so Python-side adapters can
-# construct their own probe and hand it to `McpHttpServer`.
-from dcc_mcp_core._core import ReadinessProbe
-from dcc_mcp_core._core import RecordingGuard
-from dcc_mcp_core._core import RenderOutput
-from dcc_mcp_core._core import ResourceAnnotations
-from dcc_mcp_core._core import ResourceDefinition
-from dcc_mcp_core._core import ResourceTemplateDefinition
-from dcc_mcp_core._core import SandboxContext
-from dcc_mcp_core._core import SandboxPolicy
-from dcc_mcp_core._core import SceneInfo
-from dcc_mcp_core._core import SceneNode
-from dcc_mcp_core._core import SceneObject
-from dcc_mcp_core._core import SceneStatistics
-from dcc_mcp_core._core import ScriptLanguage
-from dcc_mcp_core._core import ScriptResult
-
-# USD scene description
-from dcc_mcp_core._core import SdfPath
-
-# Action Version Management
-from dcc_mcp_core._core import SemVer
-
-# Serialization
-from dcc_mcp_core._core import SerializeFormat
-from dcc_mcp_core._core import ServiceEntry
-from dcc_mcp_core._core import ServiceStatus
-from dcc_mcp_core._core import SkillCatalog
-from dcc_mcp_core._core import SkillFeedback
-from dcc_mcp_core._core import SkillGroup
-from dcc_mcp_core._core import SkillMetadata
-from dcc_mcp_core._core import SkillScanner
-from dcc_mcp_core._core import SkillScope
-from dcc_mcp_core._core import SkillSummary
-from dcc_mcp_core._core import SkillValidationIssue
-from dcc_mcp_core._core import SkillValidationReport
-from dcc_mcp_core._core import SkillVersionEntry
-from dcc_mcp_core._core import SkillVersionManifest
-from dcc_mcp_core._core import SkillWatcher
-from dcc_mcp_core._core import SocketServerAdapter
-from dcc_mcp_core._core import StringWrapper
-from dcc_mcp_core._core import TelemetryConfig
-from dcc_mcp_core._core import TimingMiddleware
-from dcc_mcp_core._core import ToolAnnotations
-from dcc_mcp_core._core import ToolDeclaration
-from dcc_mcp_core._core import ToolDefinition
-
-# Dynamic tool registration — agent-defined ephemeral tools (issue #462).
-# Only present after the wheel is rebuilt with the new dcc-mcp-http code.
-try:
-    from dcc_mcp_core._core import ToolSpec  # type: ignore[attr-defined]
-except ImportError:  # pragma: no cover — pre-built wheel
-    ToolSpec = None  # type: ignore[assignment,misc]
-
-# Telemetry
-from dcc_mcp_core._core import ToolDispatcher
-from dcc_mcp_core._core import ToolMetrics
-from dcc_mcp_core._core import ToolPipeline
-from dcc_mcp_core._core import ToolRecorder
-from dcc_mcp_core._core import ToolRegistry
-from dcc_mcp_core._core import ToolResult
-from dcc_mcp_core._core import ToolValidator
-from dcc_mcp_core._core import TransportAddress
-from dcc_mcp_core._core import TransportScheme
-from dcc_mcp_core._core import UsdPrim
-from dcc_mcp_core._core import UsdStage
-from dcc_mcp_core._core import VersionConstraint
-from dcc_mcp_core._core import VersionedRegistry
-from dcc_mcp_core._core import VtValue
-from dcc_mcp_core._core import WindowFinder
-from dcc_mcp_core._core import WindowInfo
-from dcc_mcp_core._core import WorkspaceRoots
-from dcc_mcp_core._core import artefact_get_bytes
-from dcc_mcp_core._core import artefact_list
-from dcc_mcp_core._core import artefact_put_bytes
-from dcc_mcp_core._core import artefact_put_file
-from dcc_mcp_core._core import copy_skill_to_team_dir
-from dcc_mcp_core._core import copy_skill_to_user_dir
-from dcc_mcp_core._core import correct_python_executable
-from dcc_mcp_core._core import create_skill_server
-from dcc_mcp_core._core import deserialize_result
-from dcc_mcp_core._core import error_result
-from dcc_mcp_core._core import expand_transitive_dependencies
-from dcc_mcp_core._core import flush_logs
-from dcc_mcp_core._core import from_exception
-from dcc_mcp_core._core import gc_orphans
-from dcc_mcp_core._core import get_app_skill_paths_from_env
-from dcc_mcp_core._core import get_app_team_skill_paths_from_env
-from dcc_mcp_core._core import get_app_user_skill_paths_from_env
-from dcc_mcp_core._core import get_bridge_context
-from dcc_mcp_core._core import get_config_dir
-from dcc_mcp_core._core import get_data_dir
-from dcc_mcp_core._core import get_log_dir
-from dcc_mcp_core._core import get_platform_dir
-from dcc_mcp_core._core import get_skill_feedback
-from dcc_mcp_core._core import get_skill_paths_from_env
-from dcc_mcp_core._core import get_skill_version_manifest
-from dcc_mcp_core._core import get_skills_dir
-from dcc_mcp_core._core import get_team_skill_paths_from_env
-from dcc_mcp_core._core import get_team_skills_dir
-from dcc_mcp_core._core import get_tools_dir
-from dcc_mcp_core._core import get_user_skill_paths_from_env
-from dcc_mcp_core._core import get_user_skills_dir
-from dcc_mcp_core._core import init_file_logging
-from dcc_mcp_core._core import is_gui_executable
-from dcc_mcp_core._core import is_telemetry_initialized
-from dcc_mcp_core._core import json_dumps
-from dcc_mcp_core._core import json_loads
-from dcc_mcp_core._core import mpu_to_units
-from dcc_mcp_core._core import parse_skill_md
-from dcc_mcp_core._core import record_skill_feedback
-from dcc_mcp_core._core import register_bridge
-from dcc_mcp_core._core import resolve_dependencies
-from dcc_mcp_core._core import scan_and_load
-from dcc_mcp_core._core import scan_and_load_lenient
-from dcc_mcp_core._core import scan_and_load_strict
-from dcc_mcp_core._core import scan_and_load_team
-from dcc_mcp_core._core import scan_and_load_team_lenient
-from dcc_mcp_core._core import scan_and_load_user
-from dcc_mcp_core._core import scan_and_load_user_lenient
-from dcc_mcp_core._core import scan_skill_paths
-
-# USD bridge functions
-from dcc_mcp_core._core import scene_info_json_to_stage
-from dcc_mcp_core._core import serialize_result
-from dcc_mcp_core._core import shutdown_file_logging
-from dcc_mcp_core._core import shutdown_telemetry
-from dcc_mcp_core._core import stage_to_scene_info_json
-from dcc_mcp_core._core import success_result
-from dcc_mcp_core._core import units_to_mpu
-from dcc_mcp_core._core import unwrap_parameters
-from dcc_mcp_core._core import unwrap_value
-from dcc_mcp_core._core import validate_action_id
-from dcc_mcp_core._core import validate_action_result
-from dcc_mcp_core._core import validate_dependencies
-from dcc_mcp_core._core import validate_skill
-from dcc_mcp_core._core import validate_tool_name
-from dcc_mcp_core._core import wrap_value
-from dcc_mcp_core._core import yaml_dumps
-from dcc_mcp_core._core import yaml_loads
-
-# Workflow primitive — optional (Cargo `workflow` feature, issue #348 skeleton).
-# Step execution is stubbed; only WorkflowSpec/WorkflowStatus (parse+validate)
-# are Python-visible here.
-try:
-    from dcc_mcp_core._core import BackoffKind  # type: ignore[attr-defined]
-    from dcc_mcp_core._core import RetryPolicy  # type: ignore[attr-defined]
-    from dcc_mcp_core._core import StepPolicy  # type: ignore[attr-defined]
-    from dcc_mcp_core._core import WorkflowSpec  # type: ignore[attr-defined]
-    from dcc_mcp_core._core import WorkflowStatus  # type: ignore[attr-defined]
-    from dcc_mcp_core._core import WorkflowStep  # type: ignore[attr-defined]
-except ImportError:  # pragma: no cover — feature off
-    BackoffKind = None  # type: ignore[assignment,misc]
-    RetryPolicy = None  # type: ignore[assignment,misc]
-    StepPolicy = None  # type: ignore[assignment,misc]
-    WorkflowSpec = None  # type: ignore[assignment,misc]
-    WorkflowStatus = None  # type: ignore[assignment,misc]
-    WorkflowStep = None  # type: ignore[assignment,misc]
-
-# Scheduler subsystem — optional (Cargo `scheduler` feature, issue #352).
-# Only declarative types are Python-visible; the runtime service is
-# constructed from Rust inside the McpHttpServer.
-try:
-    from dcc_mcp_core._core import ScheduleSpec  # type: ignore[attr-defined]
-    from dcc_mcp_core._core import TriggerSpec  # type: ignore[attr-defined]
-    from dcc_mcp_core._core import hmac_sha256_hex  # type: ignore[attr-defined]
-    from dcc_mcp_core._core import parse_schedules_yaml  # type: ignore[attr-defined]
-    from dcc_mcp_core._core import verify_hub_signature_256  # type: ignore[attr-defined]
-except ImportError:  # pragma: no cover — feature off
-    ScheduleSpec = None  # type: ignore[assignment,misc]
-    TriggerSpec = None  # type: ignore[assignment,misc]
-    parse_schedules_yaml = None  # type: ignore[assignment,misc]
-    hmac_sha256_hex = None  # type: ignore[assignment,misc]
-    verify_hub_signature_256 = None  # type: ignore[assignment,misc]
-
-# Adapters (pure-Python, non-DccServerBase)
-# Cooperative cancellation (pure-Python, no _core dependency)
-from dcc_mcp_core._server import AdaptivePumpPolicy
-from dcc_mcp_core._server import AdaptivePumpStats
-from dcc_mcp_core._server import BaseDccCallableDispatcher
-from dcc_mcp_core._server import BaseDccCallableDispatcherFull
-from dcc_mcp_core._server import BaseDccPump
-from dcc_mcp_core._server import DeferredToolResult
-from dcc_mcp_core._server import HostExecutionBridge
-from dcc_mcp_core._server import InProcessCallableDispatcher
-from dcc_mcp_core._server import InProcessExecutionContext
-from dcc_mcp_core._server import JobEntry
-from dcc_mcp_core._server import JobOutcome
-from dcc_mcp_core._server import MinimalModeConfig
-from dcc_mcp_core._server import PendingEnvelope
-from dcc_mcp_core._server import current_callable_job
-from dcc_mcp_core._server.options import BridgeExecution
-from dcc_mcp_core._server.options import DccServerOptions
-from dcc_mcp_core._server.options import DiagnosticsOptions
-from dcc_mcp_core._server.options import DispatcherExecution
-from dcc_mcp_core._server.options import ExecutionOptions
-from dcc_mcp_core._server.options import GatewayOptions
-from dcc_mcp_core._server.options import InlineExecution
-from dcc_mcp_core._server.options import ObservabilityOptions
-from dcc_mcp_core.adapter_context import AdapterInstructionSet
-from dcc_mcp_core.adapter_context import DccContextSnapshot
-from dcc_mcp_core.adapter_context import DccToolsetProfile
-from dcc_mcp_core.adapter_context import ResponseShapePolicy
-from dcc_mcp_core.adapter_context import ToolsetProfileRegistry
-from dcc_mcp_core.adapter_context import VisualFeedbackPolicy
-from dcc_mcp_core.adapter_context import append_context_snapshot
-from dcc_mcp_core.adapter_context import build_visual_feedback_context
-from dcc_mcp_core.adapter_context import register_adapter_instruction_resources
-from dcc_mcp_core.adapter_context import shape_response
-from dcc_mcp_core.adapters import CAPABILITY_KEYS
-from dcc_mcp_core.adapters import WEBVIEW_DEFAULT_CAPABILITIES
-from dcc_mcp_core.adapters import WebViewAdapter
-from dcc_mcp_core.adapters import WebViewContext
-
-# Auth helpers: API key + CIMD OAuth (issue #408)
-from dcc_mcp_core.auth import ApiKeyConfig
-from dcc_mcp_core.auth import CimdDocument
-from dcc_mcp_core.auth import OAuthConfig
-from dcc_mcp_core.auth import TokenValidationError
-from dcc_mcp_core.auth import generate_api_key
-from dcc_mcp_core.auth import validate_bearer_token
-
-# Programmatic (batch) tool calling helpers (issue #406)
-from dcc_mcp_core.batch import EvalContext
-from dcc_mcp_core.batch import batch_dispatch
-
-# Pure-Python DCC adapter base classes (no _core dependency)
-from dcc_mcp_core.bridge import BridgeConnectionError
-from dcc_mcp_core.bridge import BridgeError
-from dcc_mcp_core.bridge import BridgeFallbackClient
-from dcc_mcp_core.bridge import BridgeRetryPolicy
-from dcc_mcp_core.bridge import BridgeRpcError
-from dcc_mcp_core.bridge import BridgeTimeoutError
-from dcc_mcp_core.bridge import BridgeTransportStrategy
-from dcc_mcp_core.bridge import DccBridge
-from dcc_mcp_core.bridge import ReverseBridgeRequest
-from dcc_mcp_core.bridge import ReverseBridgeSession
-from dcc_mcp_core.cancellation import CancelledError
-from dcc_mcp_core.cancellation import CancelToken
-from dcc_mcp_core.cancellation import JobHandle
-from dcc_mcp_core.cancellation import check_cancelled
-from dcc_mcp_core.cancellation import check_dcc_cancelled
-from dcc_mcp_core.cancellation import current_cancel_token
-from dcc_mcp_core.cancellation import current_job
-from dcc_mcp_core.cancellation import reset_cancel_token
-from dcc_mcp_core.cancellation import reset_current_job
-from dcc_mcp_core.cancellation import set_cancel_token
-from dcc_mcp_core.cancellation import set_current_job
-
-# Checkpoint/resume for long-running tool executions (issue #436)
-from dcc_mcp_core.checkpoint import CheckpointStore
-from dcc_mcp_core.checkpoint import checkpoint_every
-from dcc_mcp_core.checkpoint import clear_checkpoint
-from dcc_mcp_core.checkpoint import configure_checkpoint_store
-from dcc_mcp_core.checkpoint import get_checkpoint
-from dcc_mcp_core.checkpoint import list_checkpoints
-from dcc_mcp_core.checkpoint import register_checkpoint_tools
-from dcc_mcp_core.checkpoint import save_checkpoint
-
-# Code orchestration pattern — 2-tool DCC API surface (issue #411)
-from dcc_mcp_core.dcc_api_executor import DccApiCatalog
-from dcc_mcp_core.dcc_api_executor import DccApiExecutor
-from dcc_mcp_core.dcc_api_executor import register_dcc_api_executor
-
-# Pure-Python DCC server diagnostic helpers (no _core dependency)
-from dcc_mcp_core.dcc_server import register_diagnostic_handlers
-from dcc_mcp_core.dcc_server import register_diagnostic_mcp_tools
-
-# docs:// MCP resource provider (issue #435)
-from dcc_mcp_core.docs_resources import get_builtin_docs_uris
-from dcc_mcp_core.docs_resources import get_docs_content
-from dcc_mcp_core.docs_resources import register_docs_resource
-from dcc_mcp_core.docs_resources import register_docs_resources_from_dir
-from dcc_mcp_core.docs_resources import register_docs_server
-
-# MCP Elicitation support (issue #407)
-from dcc_mcp_core.elicitation import ElicitationMode
-from dcc_mcp_core.elicitation import ElicitationRequest
-from dcc_mcp_core.elicitation import ElicitationResponse
-from dcc_mcp_core.elicitation import FormElicitation
-from dcc_mcp_core.elicitation import UrlElicitation
-from dcc_mcp_core.elicitation import elicit_form
-from dcc_mcp_core.elicitation import elicit_form_sync
-from dcc_mcp_core.elicitation import elicit_url
-from dcc_mcp_core.factory import create_dcc_server
-from dcc_mcp_core.factory import get_server_instance
-from dcc_mcp_core.factory import make_start_stop
-from dcc_mcp_core.factory import start_embedded_dcc_server
-
-# Agent feedback + rationale utilities (issues #433, #434)
-from dcc_mcp_core.feedback import clear_feedback
-from dcc_mcp_core.feedback import extract_rationale
-from dcc_mcp_core.feedback import get_feedback_entries
-from dcc_mcp_core.feedback import make_rationale_meta
-from dcc_mcp_core.feedback import register_feedback_tool
-from dcc_mcp_core.gateway_election import DccGatewayElection
-from dcc_mcp_core.guardrails import DccBlockedCall
-from dcc_mcp_core.guardrails import DccGuardrailError
-from dcc_mcp_core.guardrails import DccWeakSandbox
-from dcc_mcp_core.hotreload import DccSkillHotReloader
-
-# Runtime namespace introspection tools (issue #426)
-from dcc_mcp_core.introspect import introspect_eval
-from dcc_mcp_core.introspect import introspect_list_module
-from dcc_mcp_core.introspect import introspect_search
-from dcc_mcp_core.introspect import introspect_signature
-from dcc_mcp_core.introspect import register_introspect_tools
-
-# Plugin manifest generation (issue #410)
-from dcc_mcp_core.plugin_manifest import PluginManifest
-from dcc_mcp_core.plugin_manifest import build_plugin_manifest
-from dcc_mcp_core.plugin_manifest import export_plugin_manifest
-from dcc_mcp_core.project import PROJECT_DIR_NAME
-from dcc_mcp_core.project import PROJECT_STATE_FILE
-from dcc_mcp_core.project import DccProject
-from dcc_mcp_core.project import ProjectState
-from dcc_mcp_core.project import register_project_tools
-
-# Recipes system: metadata.dcc-mcp.recipes + recipes__list/get tools (issue #428)
-from dcc_mcp_core.recipes import RecipeDefinition
-from dcc_mcp_core.recipes import find_recipe_entry
-from dcc_mcp_core.recipes import get_recipe_content
-from dcc_mcp_core.recipes import get_recipes_path
-from dcc_mcp_core.recipes import get_recipes_paths
-from dcc_mcp_core.recipes import list_recipe_entries
-from dcc_mcp_core.recipes import load_recipe_pack
-from dcc_mcp_core.recipes import parse_recipe_anchors
-from dcc_mcp_core.recipes import register_recipes_tools
-from dcc_mcp_core.recipes import validate_recipe_inputs
-
-# MCP Apps rich content (issue #409)
-from dcc_mcp_core.rich_content import RichContent
-from dcc_mcp_core.rich_content import RichContentKind
-from dcc_mcp_core.rich_content import attach_rich_content
-from dcc_mcp_core.rich_content import skill_success_with_chart
-from dcc_mcp_core.rich_content import skill_success_with_image
-from dcc_mcp_core.rich_content import skill_success_with_table
-
-# Zero-dep type → JSON Schema derivation (issue #242)
-from dcc_mcp_core.schema import derive_parameters_schema
-from dcc_mcp_core.schema import derive_schema
-from dcc_mcp_core.schema import schema_from_doc
-from dcc_mcp_core.schema import tool_spec_from_callable
-from dcc_mcp_core.script_execution import ScriptExecutionCapture
-from dcc_mcp_core.script_execution import ScriptExecutionParams
-from dcc_mcp_core.script_execution import ScriptExecutionResult
-from dcc_mcp_core.script_execution import ScriptExecutionSerializationError
-from dcc_mcp_core.script_execution import normalize_script_execution_params
-from dcc_mcp_core.server_base import DccServerBase
-
-# Pure-Python skill script helpers (no _core dependency)
-from dcc_mcp_core.skill import get_bundled_skill_paths
-from dcc_mcp_core.skill import get_bundled_skills_dir
-from dcc_mcp_core.skill import run_main
-from dcc_mcp_core.skill import skill_entry
-from dcc_mcp_core.skill import skill_error
-from dcc_mcp_core.skill import skill_error_with_trace
-from dcc_mcp_core.skill import skill_exception
-from dcc_mcp_core.skill import skill_success
-from dcc_mcp_core.skill import skill_warning
-
-# Cross-DCC verifier contract (issue #688)
-from dcc_mcp_core.verifier import SceneStats
-
-# YAML declarative workflow definitions (issue #439)
-from dcc_mcp_core.workflow_yaml import WorkflowTask
-from dcc_mcp_core.workflow_yaml import WorkflowYaml
-from dcc_mcp_core.workflow_yaml import get_workflow_path
-from dcc_mcp_core.workflow_yaml import load_workflow_yaml
-from dcc_mcp_core.workflow_yaml import register_workflow_yaml_tools
 
 __version__: str = getattr(_core, "__version__", "0.0.0-dev")
 __author__: str = getattr(_core, "__author__", "unknown")
+
+# ---------------------------------------------------------------------------
+# Lazy import map — every public symbol and its source module.
+#
+# Format: "SymbolName": "source.module.path"
+#
+# Optional symbols (those wrapped in try/except ImportError in the old code)
+# use the same format — __getattr__ returns None gracefully when the
+# attribute does not exist in the source module.
+# ---------------------------------------------------------------------------
+
+_LAZY: dict[str, str] = {
+    # ── Naming validators / constants (from _core) ────────────────────────
+    "ACTION_ID_RE": "dcc_mcp_core._core",
+    "APP_AUTHOR": "dcc_mcp_core._core",
+    "APP_NAME": "dcc_mcp_core._core",
+    "DEFAULT_DCC": "dcc_mcp_core._core",
+    "DEFAULT_LOG_FILE_PREFIX": "dcc_mcp_core._core",
+    "DEFAULT_LOG_LEVEL": "dcc_mcp_core._core",
+    "DEFAULT_LOG_MAX_FILES": "dcc_mcp_core._core",
+    "DEFAULT_LOG_MAX_SIZE": "dcc_mcp_core._core",
+    "DEFAULT_LOG_ROTATION": "dcc_mcp_core._core",
+    "DEFAULT_MIME_TYPE": "dcc_mcp_core._core",
+    "DEFAULT_VERSION": "dcc_mcp_core._core",
+    "ENV_DISABLE_ACCUMULATED_SKILLS": "dcc_mcp_core._core",
+    "ENV_LOG_DIR": "dcc_mcp_core._core",
+    "ENV_LOG_FILE": "dcc_mcp_core._core",
+    "ENV_LOG_FILE_PREFIX": "dcc_mcp_core._core",
+    "ENV_LOG_LEVEL": "dcc_mcp_core._core",
+    "ENV_LOG_MAX_FILES": "dcc_mcp_core._core",
+    "ENV_LOG_MAX_SIZE": "dcc_mcp_core._core",
+    "ENV_LOG_ROTATION": "dcc_mcp_core._core",
+    "ENV_SKILL_PATHS": "dcc_mcp_core._core",
+    "ENV_TEAM_SKILL_PATHS": "dcc_mcp_core._core",
+    "ENV_USER_SKILL_PATHS": "dcc_mcp_core._core",
+    "MAX_TOOL_NAME_LEN": "dcc_mcp_core._core",
+    "SKILL_METADATA_DIR": "dcc_mcp_core._core",
+    "SKILL_METADATA_FILE": "dcc_mcp_core._core",
+    "SKILL_SCRIPTS_DIR": "dcc_mcp_core._core",
+    "TOOL_NAME_RE": "dcc_mcp_core._core",
+    # ── Sandbox / audit / IPC (from _core) ───────────────────────────────
+    "AuditEntry": "dcc_mcp_core._core",
+    "AuditLog": "dcc_mcp_core._core",
+    "AuditMiddleware": "dcc_mcp_core._core",
+    "BooleanWrapper": "dcc_mcp_core._core",
+    "BoundingBox": "dcc_mcp_core._core",
+    "BridgeContext": "dcc_mcp_core._core",
+    "BridgeRegistry": "dcc_mcp_core._core",
+    "CaptureBackendKind": "dcc_mcp_core._core",
+    "CaptureFrame": "dcc_mcp_core._core",
+    "CaptureResult": "dcc_mcp_core._core",
+    "CaptureTarget": "dcc_mcp_core._core",
+    "Capturer": "dcc_mcp_core._core",
+    "DccCapabilities": "dcc_mcp_core._core",
+    "DccError": "dcc_mcp_core._core",
+    "DccErrorCode": "dcc_mcp_core._core",
+    "DccInfo": "dcc_mcp_core._core",
+    "DccLinkFrame": "dcc_mcp_core._core",
+    "EventBus": "dcc_mcp_core._core",
+    "FileLoggingConfig": "dcc_mcp_core._core",
+    "FileRef": "dcc_mcp_core._core",
+    "FloatWrapper": "dcc_mcp_core._core",
+    "FrameRange": "dcc_mcp_core._core",
+    "GracefulIpcChannelAdapter": "dcc_mcp_core._core",
+    "GuiExecutableHint": "dcc_mcp_core._core",
+    "InputValidator": "dcc_mcp_core._core",
+    "IntWrapper": "dcc_mcp_core._core",
+    "IpcChannelAdapter": "dcc_mcp_core._core",
+    "LoggingMiddleware": "dcc_mcp_core._core",
+    "McpHttpConfig": "dcc_mcp_core._core",
+    "McpHttpServer": "dcc_mcp_core._core",
+    "McpServerHandle": "dcc_mcp_core._core",
+    "ObjectTransform": "dcc_mcp_core._core",
+    "PromptArgument": "dcc_mcp_core._core",
+    "PromptDefinition": "dcc_mcp_core._core",
+    "PyBufferPool": "dcc_mcp_core._core",
+    "PyCrashRecoveryPolicy": "dcc_mcp_core._core",
+    "PyDccLauncher": "dcc_mcp_core._core",
+    "PyProcessMonitor": "dcc_mcp_core._core",
+    "PyProcessWatcher": "dcc_mcp_core._core",
+    "PyPumpedDispatcher": "dcc_mcp_core._core",
+    "PySceneDataKind": "dcc_mcp_core._core",
+    "PySharedBuffer": "dcc_mcp_core._core",
+    "PySharedSceneBuffer": "dcc_mcp_core._core",
+    "PyStandaloneDispatcher": "dcc_mcp_core._core",
+    "RateLimitMiddleware": "dcc_mcp_core._core",
+    "ReadinessProbe": "dcc_mcp_core._core",
+    "RecordingGuard": "dcc_mcp_core._core",
+    "RenderOutput": "dcc_mcp_core._core",
+    "ResourceAnnotations": "dcc_mcp_core._core",
+    "ResourceDefinition": "dcc_mcp_core._core",
+    "ResourceTemplateDefinition": "dcc_mcp_core._core",
+    "RetryPolicy": "dcc_mcp_core._core",
+    "SandboxContext": "dcc_mcp_core._core",
+    "SandboxPolicy": "dcc_mcp_core._core",
+    "SceneInfo": "dcc_mcp_core._core",
+    "SceneNode": "dcc_mcp_core._core",
+    "SceneObject": "dcc_mcp_core._core",
+    "SceneStatistics": "dcc_mcp_core._core",
+    "ScriptLanguage": "dcc_mcp_core._core",
+    "ScriptResult": "dcc_mcp_core._core",
+    "SdfPath": "dcc_mcp_core._core",
+    "SemVer": "dcc_mcp_core._core",
+    "SerializeFormat": "dcc_mcp_core._core",
+    "ServiceEntry": "dcc_mcp_core._core",
+    "ServiceStatus": "dcc_mcp_core._core",
+    "SkillCatalog": "dcc_mcp_core._core",
+    "SkillFeedback": "dcc_mcp_core._core",
+    "SkillGroup": "dcc_mcp_core._core",
+    "SkillMetadata": "dcc_mcp_core._core",
+    "SkillScanner": "dcc_mcp_core._core",
+    "SkillScope": "dcc_mcp_core._core",
+    "SkillSummary": "dcc_mcp_core._core",
+    "SkillValidationIssue": "dcc_mcp_core._core",
+    "SkillValidationReport": "dcc_mcp_core._core",
+    "SkillVersionEntry": "dcc_mcp_core._core",
+    "SkillVersionManifest": "dcc_mcp_core._core",
+    "SkillWatcher": "dcc_mcp_core._core",
+    "SocketServerAdapter": "dcc_mcp_core._core",
+    "StepPolicy": "dcc_mcp_core._core",
+    "StringWrapper": "dcc_mcp_core._core",
+    "TelemetryConfig": "dcc_mcp_core._core",
+    "TimingMiddleware": "dcc_mcp_core._core",
+    "ToolAnnotations": "dcc_mcp_core._core",
+    "ToolDeclaration": "dcc_mcp_core._core",
+    "ToolDefinition": "dcc_mcp_core._core",
+    "ToolDispatcher": "dcc_mcp_core._core",
+    "ToolMetrics": "dcc_mcp_core._core",
+    "ToolPipeline": "dcc_mcp_core._core",
+    "ToolRecorder": "dcc_mcp_core._core",
+    "ToolRegistry": "dcc_mcp_core._core",
+    "ToolResult": "dcc_mcp_core._core",
+    "ToolValidator": "dcc_mcp_core._core",
+    "TransportAddress": "dcc_mcp_core._core",
+    "TransportScheme": "dcc_mcp_core._core",
+    "UsdPrim": "dcc_mcp_core._core",
+    "UsdStage": "dcc_mcp_core._core",
+    "VersionConstraint": "dcc_mcp_core._core",
+    "VersionedRegistry": "dcc_mcp_core._core",
+    "VtValue": "dcc_mcp_core._core",
+    "WindowFinder": "dcc_mcp_core._core",
+    "WindowInfo": "dcc_mcp_core._core",
+    "WorkflowSpec": "dcc_mcp_core._core",
+    "WorkflowStatus": "dcc_mcp_core._core",
+    "WorkflowStep": "dcc_mcp_core._core",
+    "WorkspaceRoots": "dcc_mcp_core._core",
+    # Functions from _core
+    "artefact_get_bytes": "dcc_mcp_core._core",
+    "artefact_list": "dcc_mcp_core._core",
+    "artefact_put_bytes": "dcc_mcp_core._core",
+    "artefact_put_file": "dcc_mcp_core._core",
+    "copy_skill_to_team_dir": "dcc_mcp_core._core",
+    "copy_skill_to_user_dir": "dcc_mcp_core._core",
+    "correct_python_executable": "dcc_mcp_core._core",
+    "create_skill_server": "dcc_mcp_core._core",
+    "deserialize_result": "dcc_mcp_core._core",
+    "error_result": "dcc_mcp_core._core",
+    "expand_transitive_dependencies": "dcc_mcp_core._core",
+    "flush_logs": "dcc_mcp_core._core",
+    "from_exception": "dcc_mcp_core._core",
+    "gc_orphans": "dcc_mcp_core._core",
+    "get_app_skill_paths_from_env": "dcc_mcp_core._core",
+    "get_app_team_skill_paths_from_env": "dcc_mcp_core._core",
+    "get_app_user_skill_paths_from_env": "dcc_mcp_core._core",
+    "get_bridge_context": "dcc_mcp_core._core",
+    "get_config_dir": "dcc_mcp_core._core",
+    "get_data_dir": "dcc_mcp_core._core",
+    "get_log_dir": "dcc_mcp_core._core",
+    "get_platform_dir": "dcc_mcp_core._core",
+    "get_skill_feedback": "dcc_mcp_core._core",
+    "get_skill_paths_from_env": "dcc_mcp_core._core",
+    "get_skill_version_manifest": "dcc_mcp_core._core",
+    "get_skills_dir": "dcc_mcp_core._core",
+    "get_team_skill_paths_from_env": "dcc_mcp_core._core",
+    "get_team_skills_dir": "dcc_mcp_core._core",
+    "get_tools_dir": "dcc_mcp_core._core",
+    "get_user_skill_paths_from_env": "dcc_mcp_core._core",
+    "get_user_skills_dir": "dcc_mcp_core._core",
+    "hmac_sha256_hex": "dcc_mcp_core._core",
+    "init_file_logging": "dcc_mcp_core._core",
+    "is_gui_executable": "dcc_mcp_core._core",
+    "is_telemetry_initialized": "dcc_mcp_core._core",
+    "json_dumps": "dcc_mcp_core._core",
+    "json_loads": "dcc_mcp_core._core",
+    "mpu_to_units": "dcc_mcp_core._core",
+    "parse_schedules_yaml": "dcc_mcp_core._core",
+    "parse_skill_md": "dcc_mcp_core._core",
+    "record_skill_feedback": "dcc_mcp_core._core",
+    "register_bridge": "dcc_mcp_core._core",
+    "resolve_dependencies": "dcc_mcp_core._core",
+    "scan_and_load": "dcc_mcp_core._core",
+    "scan_and_load_lenient": "dcc_mcp_core._core",
+    "scan_and_load_strict": "dcc_mcp_core._core",
+    "scan_and_load_team": "dcc_mcp_core._core",
+    "scan_and_load_team_lenient": "dcc_mcp_core._core",
+    "scan_and_load_user": "dcc_mcp_core._core",
+    "scan_and_load_user_lenient": "dcc_mcp_core._core",
+    "scan_skill_paths": "dcc_mcp_core._core",
+    "scene_info_json_to_stage": "dcc_mcp_core._core",
+    "serialize_result": "dcc_mcp_core._core",
+    "shutdown_file_logging": "dcc_mcp_core._core",
+    "shutdown_telemetry": "dcc_mcp_core._core",
+    "stage_to_scene_info_json": "dcc_mcp_core._core",
+    "success_result": "dcc_mcp_core._core",
+    "units_to_mpu": "dcc_mcp_core._core",
+    "unwrap_parameters": "dcc_mcp_core._core",
+    "unwrap_value": "dcc_mcp_core._core",
+    "validate_action_id": "dcc_mcp_core._core",
+    "validate_action_result": "dcc_mcp_core._core",
+    "validate_dependencies": "dcc_mcp_core._core",
+    "validate_skill": "dcc_mcp_core._core",
+    "validate_tool_name": "dcc_mcp_core._core",
+    "verify_hub_signature_256": "dcc_mcp_core._core",
+    "wrap_value": "dcc_mcp_core._core",
+    "yaml_dumps": "dcc_mcp_core._core",
+    "yaml_loads": "dcc_mcp_core._core",
+    # ── Optional _core symbols (try/except ImportError in old code) ───────
+    # Returns None when the feature is not compiled in.
+    "BackoffKind": "dcc_mcp_core._core",
+    "OutputCapture": "dcc_mcp_core._core",
+    "PromptHandle": "dcc_mcp_core._core",
+    "ResourceHandle": "dcc_mcp_core._core",
+    "ScheduleSpec": "dcc_mcp_core._core",
+    "ToolSpec": "dcc_mcp_core._core",
+    "TriggerSpec": "dcc_mcp_core._core",
+    # ── _server collaborators ─────────────────────────────────────────────
+    "AdaptivePumpPolicy": "dcc_mcp_core._server",
+    "AdaptivePumpStats": "dcc_mcp_core._server",
+    "BaseDccCallableDispatcher": "dcc_mcp_core._server",
+    "BaseDccCallableDispatcherFull": "dcc_mcp_core._server",
+    "BaseDccPump": "dcc_mcp_core._server",
+    "DeferredToolResult": "dcc_mcp_core._server",
+    "HostExecutionBridge": "dcc_mcp_core._server",
+    "InProcessCallableDispatcher": "dcc_mcp_core._server",
+    "InProcessExecutionContext": "dcc_mcp_core._server",
+    "JobEntry": "dcc_mcp_core._server",
+    "JobOutcome": "dcc_mcp_core._server",
+    "MinimalModeConfig": "dcc_mcp_core._server",
+    "PendingEnvelope": "dcc_mcp_core._server",
+    "current_callable_job": "dcc_mcp_core._server",
+    # ── DccServerOptions (issue #850) ─────────────────────────────────────
+    "BridgeExecution": "dcc_mcp_core._server.options",
+    "DccServerOptions": "dcc_mcp_core._server.options",
+    "DiagnosticsOptions": "dcc_mcp_core._server.options",
+    "DispatcherExecution": "dcc_mcp_core._server.options",
+    "ExecutionOptions": "dcc_mcp_core._server.options",
+    "GatewayOptions": "dcc_mcp_core._server.options",
+    "InlineExecution": "dcc_mcp_core._server.options",
+    "ObservabilityOptions": "dcc_mcp_core._server.options",
+    # ── DccServerBase + factory ───────────────────────────────────────────
+    "DccServerBase": "dcc_mcp_core.server_base",
+    "create_dcc_server": "dcc_mcp_core.factory",
+    "get_server_instance": "dcc_mcp_core.factory",
+    "make_start_stop": "dcc_mcp_core.factory",
+    "start_embedded_dcc_server": "dcc_mcp_core.factory",
+    "DccGatewayElection": "dcc_mcp_core.gateway_election",
+    "DccSkillHotReloader": "dcc_mcp_core.hotreload",
+    # ── Pure-Python constants ─────────────────────────────────────────────
+    "CAPABILITY_KEYS": "dcc_mcp_core.adapters",
+    "WEBVIEW_DEFAULT_CAPABILITIES": "dcc_mcp_core.adapters",
+    "WebViewAdapter": "dcc_mcp_core.adapters",
+    "WebViewContext": "dcc_mcp_core.adapters",
+    "CATEGORY_DIAGNOSTICS": "dcc_mcp_core.constants",
+    "CATEGORY_DOCS": "dcc_mcp_core.constants",
+    "CATEGORY_FEEDBACK": "dcc_mcp_core.constants",
+    "CATEGORY_GENERAL": "dcc_mcp_core.constants",
+    "CATEGORY_INTROSPECT": "dcc_mcp_core.constants",
+    "CATEGORY_RECIPES": "dcc_mcp_core.constants",
+    "CATEGORY_WORKFLOWS": "dcc_mcp_core.constants",
+    "LAYER_DOMAIN": "dcc_mcp_core.constants",
+    "LAYER_EXAMPLE": "dcc_mcp_core.constants",
+    "LAYER_INFRASTRUCTURE": "dcc_mcp_core.constants",
+    "LAYER_THIN_HARNESS": "dcc_mcp_core.constants",
+    "METADATA_DCC_KEY": "dcc_mcp_core.constants",
+    "METADATA_DCC_MCP": "dcc_mcp_core.constants",
+    "METADATA_EXTERNAL_DEPS_KEY": "dcc_mcp_core.constants",
+    "METADATA_GROUPS_KEY": "dcc_mcp_core.constants",
+    "METADATA_LAYER_KEY": "dcc_mcp_core.constants",
+    "METADATA_RECIPES_KEY": "dcc_mcp_core.constants",
+    "METADATA_SEARCH_HINT_KEY": "dcc_mcp_core.constants",
+    "METADATA_TAGS_KEY": "dcc_mcp_core.constants",
+    "METADATA_TOOLS_KEY": "dcc_mcp_core.constants",
+    "METADATA_VERSION_KEY": "dcc_mcp_core.constants",
+    "METADATA_WORKFLOWS_KEY": "dcc_mcp_core.constants",
+    "PROJECT_DIR_NAME": "dcc_mcp_core.project",
+    "PROJECT_STATE_FILE": "dcc_mcp_core.project",
+    # ── Pure-Python sub-module symbols ────────────────────────────────────
+    "AdapterInstructionSet": "dcc_mcp_core.adapter_context",
+    "DccContextSnapshot": "dcc_mcp_core.adapter_context",
+    "DccToolsetProfile": "dcc_mcp_core.adapter_context",
+    "ResponseShapePolicy": "dcc_mcp_core.adapter_context",
+    "ToolsetProfileRegistry": "dcc_mcp_core.adapter_context",
+    "VisualFeedbackPolicy": "dcc_mcp_core.adapter_context",
+    "append_context_snapshot": "dcc_mcp_core.adapter_context",
+    "build_visual_feedback_context": "dcc_mcp_core.adapter_context",
+    "register_adapter_instruction_resources": "dcc_mcp_core.adapter_context",
+    "shape_response": "dcc_mcp_core.adapter_context",
+    "ApiKeyConfig": "dcc_mcp_core.auth",
+    "CimdDocument": "dcc_mcp_core.auth",
+    "OAuthConfig": "dcc_mcp_core.auth",
+    "TokenValidationError": "dcc_mcp_core.auth",
+    "generate_api_key": "dcc_mcp_core.auth",
+    "validate_bearer_token": "dcc_mcp_core.auth",
+    "EvalContext": "dcc_mcp_core.batch",
+    "batch_dispatch": "dcc_mcp_core.batch",
+    "BridgeConnectionError": "dcc_mcp_core.bridge",
+    "BridgeError": "dcc_mcp_core.bridge",
+    "BridgeFallbackClient": "dcc_mcp_core.bridge",
+    "BridgeRetryPolicy": "dcc_mcp_core.bridge",
+    "BridgeRpcError": "dcc_mcp_core.bridge",
+    "BridgeTimeoutError": "dcc_mcp_core.bridge",
+    "BridgeTransportStrategy": "dcc_mcp_core.bridge",
+    "DccBridge": "dcc_mcp_core.bridge",
+    "ReverseBridgeRequest": "dcc_mcp_core.bridge",
+    "ReverseBridgeSession": "dcc_mcp_core.bridge",
+    "CancelToken": "dcc_mcp_core.cancellation",
+    "CancelledError": "dcc_mcp_core.cancellation",
+    "JobHandle": "dcc_mcp_core.cancellation",
+    "check_cancelled": "dcc_mcp_core.cancellation",
+    "check_dcc_cancelled": "dcc_mcp_core.cancellation",
+    "current_cancel_token": "dcc_mcp_core.cancellation",
+    "current_job": "dcc_mcp_core.cancellation",
+    "reset_cancel_token": "dcc_mcp_core.cancellation",
+    "reset_current_job": "dcc_mcp_core.cancellation",
+    "set_cancel_token": "dcc_mcp_core.cancellation",
+    "set_current_job": "dcc_mcp_core.cancellation",
+    "CheckpointStore": "dcc_mcp_core.checkpoint",
+    "checkpoint_every": "dcc_mcp_core.checkpoint",
+    "clear_checkpoint": "dcc_mcp_core.checkpoint",
+    "configure_checkpoint_store": "dcc_mcp_core.checkpoint",
+    "get_checkpoint": "dcc_mcp_core.checkpoint",
+    "list_checkpoints": "dcc_mcp_core.checkpoint",
+    "register_checkpoint_tools": "dcc_mcp_core.checkpoint",
+    "save_checkpoint": "dcc_mcp_core.checkpoint",
+    "DccApiCatalog": "dcc_mcp_core.dcc_api_executor",
+    "DccApiExecutor": "dcc_mcp_core.dcc_api_executor",
+    "register_dcc_api_executor": "dcc_mcp_core.dcc_api_executor",
+    "register_diagnostic_handlers": "dcc_mcp_core.dcc_server",
+    "register_diagnostic_mcp_tools": "dcc_mcp_core.dcc_server",
+    "get_builtin_docs_uris": "dcc_mcp_core.docs_resources",
+    "get_docs_content": "dcc_mcp_core.docs_resources",
+    "register_docs_resource": "dcc_mcp_core.docs_resources",
+    "register_docs_resources_from_dir": "dcc_mcp_core.docs_resources",
+    "register_docs_server": "dcc_mcp_core.docs_resources",
+    "ElicitationMode": "dcc_mcp_core.elicitation",
+    "ElicitationRequest": "dcc_mcp_core.elicitation",
+    "ElicitationResponse": "dcc_mcp_core.elicitation",
+    "FormElicitation": "dcc_mcp_core.elicitation",
+    "UrlElicitation": "dcc_mcp_core.elicitation",
+    "elicit_form": "dcc_mcp_core.elicitation",
+    "elicit_form_sync": "dcc_mcp_core.elicitation",
+    "elicit_url": "dcc_mcp_core.elicitation",
+    "clear_feedback": "dcc_mcp_core.feedback",
+    "extract_rationale": "dcc_mcp_core.feedback",
+    "get_feedback_entries": "dcc_mcp_core.feedback",
+    "make_rationale_meta": "dcc_mcp_core.feedback",
+    "register_feedback_tool": "dcc_mcp_core.feedback",
+    "DccBlockedCall": "dcc_mcp_core.guardrails",
+    "DccGuardrailError": "dcc_mcp_core.guardrails",
+    "DccWeakSandbox": "dcc_mcp_core.guardrails",
+    "introspect_eval": "dcc_mcp_core.introspect",
+    "introspect_list_module": "dcc_mcp_core.introspect",
+    "introspect_search": "dcc_mcp_core.introspect",
+    "introspect_signature": "dcc_mcp_core.introspect",
+    "register_introspect_tools": "dcc_mcp_core.introspect",
+    "PluginManifest": "dcc_mcp_core.plugin_manifest",
+    "build_plugin_manifest": "dcc_mcp_core.plugin_manifest",
+    "export_plugin_manifest": "dcc_mcp_core.plugin_manifest",
+    "DccProject": "dcc_mcp_core.project",
+    "ProjectState": "dcc_mcp_core.project",
+    "register_project_tools": "dcc_mcp_core.project",
+    "RecipeDefinition": "dcc_mcp_core.recipes",
+    "find_recipe_entry": "dcc_mcp_core.recipes",
+    "get_recipe_content": "dcc_mcp_core.recipes",
+    "get_recipes_path": "dcc_mcp_core.recipes",
+    "get_recipes_paths": "dcc_mcp_core.recipes",
+    "list_recipe_entries": "dcc_mcp_core.recipes",
+    "load_recipe_pack": "dcc_mcp_core.recipes",
+    "parse_recipe_anchors": "dcc_mcp_core.recipes",
+    "register_recipes_tools": "dcc_mcp_core.recipes",
+    "validate_recipe_inputs": "dcc_mcp_core.recipes",
+    "RichContent": "dcc_mcp_core.rich_content",
+    "RichContentKind": "dcc_mcp_core.rich_content",
+    "attach_rich_content": "dcc_mcp_core.rich_content",
+    "skill_success_with_chart": "dcc_mcp_core.rich_content",
+    "skill_success_with_image": "dcc_mcp_core.rich_content",
+    "skill_success_with_table": "dcc_mcp_core.rich_content",
+    "derive_parameters_schema": "dcc_mcp_core.schema",
+    "derive_schema": "dcc_mcp_core.schema",
+    "schema_from_doc": "dcc_mcp_core.schema",
+    "tool_spec_from_callable": "dcc_mcp_core.schema",
+    "ScriptExecutionCapture": "dcc_mcp_core.script_execution",
+    "ScriptExecutionParams": "dcc_mcp_core.script_execution",
+    "ScriptExecutionResult": "dcc_mcp_core.script_execution",
+    "ScriptExecutionSerializationError": "dcc_mcp_core.script_execution",
+    "normalize_script_execution_params": "dcc_mcp_core.script_execution",
+    # skill helpers (pure-Python, used inside skill scripts)
+    "get_bundled_skill_paths": "dcc_mcp_core.skill",
+    "get_bundled_skills_dir": "dcc_mcp_core.skill",
+    "run_main": "dcc_mcp_core.skill",
+    "skill_entry": "dcc_mcp_core.skill",
+    "skill_error": "dcc_mcp_core.skill",
+    "skill_error_with_trace": "dcc_mcp_core.skill",
+    "skill_exception": "dcc_mcp_core.skill",
+    "skill_success": "dcc_mcp_core.skill",
+    "skill_warning": "dcc_mcp_core.skill",
+    "SceneStats": "dcc_mcp_core.verifier",
+    "WorkflowTask": "dcc_mcp_core.workflow_yaml",
+    "WorkflowYaml": "dcc_mcp_core.workflow_yaml",
+    "get_workflow_path": "dcc_mcp_core.workflow_yaml",
+    "load_workflow_yaml": "dcc_mcp_core.workflow_yaml",
+    "register_workflow_yaml_tools": "dcc_mcp_core.workflow_yaml",
+}
+
+# Optional symbols that may not exist in all wheel builds — return None instead of AttributeError.
+_OPTIONAL: frozenset[str] = frozenset(
+    {
+        "BackoffKind",
+        "OutputCapture",
+        "PromptHandle",
+        "ResourceHandle",
+        "ScheduleSpec",
+        "ToolSpec",
+        "TriggerSpec",
+    }
+)
+
+
+def __getattr__(name: str) -> object:
+    """Lazily import public symbols on first access.
+
+    This keeps ``import dcc_mcp_core`` lightweight — the ~30 MB PyO3
+    surface is only loaded when a symbol is actually used.
+    """
+    module_path = _LAZY.get(name)
+    if module_path is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+    import importlib
+
+    mod = importlib.import_module(module_path)
+    value = getattr(mod, name, None)
+
+    if value is None and name not in _OPTIONAL:
+        raise AttributeError(f"module {module_path!r} has no attribute {name!r}")
+
+    # Cache on the module object so subsequent accesses skip __getattr__.
+    globals()[name] = value
+    return value
+
 
 __all__ = [
     "ACTION_ID_RE",
@@ -708,7 +661,6 @@ __all__ = [
     "ScriptResult",
     "SdfPath",
     "SemVer",
-    # Serialization
     "SerializeFormat",
     "ServiceEntry",
     "ServiceStatus",
