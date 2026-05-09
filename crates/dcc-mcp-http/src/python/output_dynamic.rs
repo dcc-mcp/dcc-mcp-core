@@ -276,6 +276,24 @@ impl PyOutputCapture {
             self.inner.buffer.instance_id()
         )
     }
+
+    /// Pause or resume output buffering (issue #856).
+    ///
+    /// Call ``set_paused(True)`` before executing a skill script body so the
+    /// ``output://`` resource does not accumulate a mangled duplicate of the
+    /// output that ``ScriptExecutionCapture`` is already collecting cleanly
+    /// via ``sys.stdout`` replacement. Call ``set_paused(False)`` after the
+    /// script body returns so spontaneous Maya warnings between calls still
+    /// reach the resource.
+    fn set_paused(&self, paused: bool) {
+        self.inner.set_paused(paused);
+    }
+
+    /// Whether the buffer is currently paused.
+    #[getter]
+    fn paused(&self) -> bool {
+        self.inner.is_paused()
+    }
 }
 
 // ── Module registration ────────────────────────────────────────────────────────

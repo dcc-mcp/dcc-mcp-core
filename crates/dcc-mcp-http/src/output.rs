@@ -32,6 +32,7 @@
 
 use std::collections::VecDeque;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use parking_lot::RwLock;
@@ -115,6 +116,13 @@ struct OutputBufferInner {
     /// Fan-out broadcast for SSE subscribers.
     tx: broadcast::Sender<OutputEntry>,
     instance_id: String,
+    /// When `true`, `push()` calls are silently dropped (issue #856).
+    ///
+    /// Set via [`OutputBuffer::set_paused`] to suppress Maya Script Editor
+    /// output during `execute_python` so the `output://` buffer does not
+    /// accumulate a mangled duplicate of what `ScriptExecutionCapture` is
+    /// already capturing cleanly via `sys.stdout` replacement.
+    paused: AtomicBool,
 }
 
 impl OutputBuffer {
@@ -132,12 +140,18 @@ impl OutputBuffer {
                 capacity,
                 tx,
                 instance_id: instance_id.into(),
+                paused: AtomicBool::new(false),
             }),
         }
     }
 
     /// Push a new entry into the ring and notify all SSE subscribers.
+    ///
+    /// No-op when the buffer is paused (see [`OutputBuffer::set_paused`]).
     pub fn push(&self, entry: OutputEntry) {
+        if self.inner.paused.load(Ordering::Relaxed) {
+            return;
+        }
         {
             let mut ring = self.inner.ring.write();
             ring.push_back(entry.clone());
@@ -147,6 +161,22 @@ impl OutputBuffer {
         }
         // Best-effort fan-out — ignore errors if no subscribers.
         let _ = self.inner.tx.send(entry);
+    }
+
+    /// Pause or resume the buffer (issue #856).
+    ///
+    /// When paused, [`push`] calls are silently dropped so the `output://`
+    /// resource does not accumulate duplicates of output that a
+    /// `ScriptExecutionCapture` context is already capturing via
+    /// `sys.stdout` replacement. Spontaneous Maya warnings between calls
+    /// are unaffected because the executor resumes the buffer on exit.
+    pub fn set_paused(&self, paused: bool) {
+        self.inner.paused.store(paused, Ordering::Relaxed);
+    }
+
+    /// Whether the buffer is currently paused.
+    pub fn is_paused(&self) -> bool {
+        self.inner.paused.load(Ordering::Relaxed)
     }
 
     /// Convenience: push a stdout line.
@@ -326,6 +356,21 @@ impl OutputCapture {
     /// Drain all entries since `since_ns` (pass 0 for all).
     pub fn drain(&self, since_ns: u128) -> Vec<OutputEntry> {
         self.buffer.drain_since(since_ns)
+    }
+
+    /// Pause or resume the buffer (issue #856).
+    ///
+    /// When paused, [`OutputCapture::push`] calls are silently dropped.
+    /// Call with `paused = true` before executing a skill script and
+    /// `paused = false` after to prevent the `output://` resource from
+    /// accumulating a mangled duplicate alongside `ScriptExecutionCapture`.
+    pub fn set_paused(&self, paused: bool) {
+        self.buffer.set_paused(paused);
+    }
+
+    /// Whether the buffer is currently paused.
+    pub fn is_paused(&self) -> bool {
+        self.buffer.is_paused()
     }
 
     /// Get the MCP resource URI for this capture instance.
