@@ -1,10 +1,15 @@
 use std::sync::atomic::Ordering;
 
-use crate::adapters::{DccError, DccErrorCode, DccResult, DccSceneManager, SceneInfo, SceneObject};
+use crate::adapters::{
+    DccError, DccErrorCode, DccFileIO, DccResult, DccSceneQuery, DccSelection, SceneInfo,
+    SceneObject,
+};
 
 use super::MockDccAdapter;
 
-impl DccSceneManager for MockDccAdapter {
+// -- DccSceneQuery: read-only scene inspection --------------------------------
+
+impl DccSceneQuery for MockDccAdapter {
     fn get_scene_info(&self) -> DccResult<SceneInfo> {
         self.scene_manager_count.fetch_add(1, Ordering::Relaxed);
         self.require_connected("get_scene_info")?;
@@ -27,6 +32,29 @@ impl DccSceneManager for MockDccAdapter {
         Ok(filtered)
     }
 
+    fn set_visibility(&self, object_name: &str, visible: bool) -> DccResult<bool> {
+        self.scene_manager_count.fetch_add(1, Ordering::Relaxed);
+        self.require_connected("set_visibility")?;
+
+        let mut objects = self.objects.write();
+        for obj in objects.iter_mut() {
+            if obj.name == object_name || obj.long_name == object_name {
+                obj.visible = visible;
+                return Ok(visible);
+            }
+        }
+        Err(DccError {
+            code: DccErrorCode::InvalidInput,
+            message: format!("Object not found: {object_name}"),
+            details: None,
+            recoverable: false,
+        })
+    }
+}
+
+// -- DccFileIO: scene file lifecycle ------------------------------------------
+
+impl DccFileIO for MockDccAdapter {
     fn new_scene(&self, _save_prompt: bool) -> DccResult<SceneInfo> {
         self.scene_manager_count.fetch_add(1, Ordering::Relaxed);
         self.require_connected("new_scene")?;
@@ -82,7 +110,11 @@ impl DccSceneManager for MockDccAdapter {
         self.require_connected("export_file")?;
         Ok(file_path.to_string())
     }
+}
 
+// -- DccSelection: object selection management --------------------------------
+
+impl DccSelection for MockDccAdapter {
     fn get_selection(&self) -> DccResult<Vec<String>> {
         self.scene_manager_count.fetch_add(1, Ordering::Relaxed);
         self.require_connected("get_selection")?;
@@ -112,23 +144,5 @@ impl DccSceneManager for MockDccAdapter {
         *self.selection.write() = names.clone();
         Ok(names)
     }
-
-    fn set_visibility(&self, object_name: &str, visible: bool) -> DccResult<bool> {
-        self.scene_manager_count.fetch_add(1, Ordering::Relaxed);
-        self.require_connected("set_visibility")?;
-
-        let mut objects = self.objects.write();
-        for obj in objects.iter_mut() {
-            if obj.name == object_name || obj.long_name == object_name {
-                obj.visible = visible;
-                return Ok(visible);
-            }
-        }
-        Err(DccError {
-            code: DccErrorCode::InvalidInput,
-            message: format!("Object not found: {object_name}"),
-            details: None,
-            recoverable: false,
-        })
-    }
 }
+// DccSceneManager blanket impl in traits.rs satisfies DccSceneManager for MockDccAdapter.

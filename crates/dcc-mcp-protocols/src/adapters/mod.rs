@@ -6,8 +6,8 @@ pub mod traits;
 pub mod types;
 
 pub use traits::{
-    DccAdapter, DccConnection, DccHierarchy, DccRenderCapture, DccSceneInfo, DccSceneManager,
-    DccScriptEngine, DccSnapshot, DccTransform,
+    DccAdapter, DccConnection, DccFileIO, DccHierarchy, DccRenderCapture, DccSceneInfo,
+    DccSceneManager, DccSceneQuery, DccScriptEngine, DccSelection, DccSnapshot, DccTransform,
 };
 pub use types::{
     BoundingBox, BridgeKind, CaptureResult, DccCapabilities, DccError, DccErrorCode, DccInfo,

@@ -121,28 +121,42 @@ pub trait DccSnapshot: Send + Sync {
 
 // ── Cross-DCC Protocol Traits ──
 
-/// **SceneManagerTrait** — Universal scene and file management.
+/// **DccSceneQuery** — Read-only scene state inspection (3 methods, ISP sub-trait of `DccSceneManager`).
 ///
-/// Covers the operations common to all DCC tools and creative applications:
-/// Maya, Blender, 3dsMax, Unreal Engine, Unity, Photoshop, Figma.
-///
-/// # Implementation notes
-/// - `list_objects`: for 2D tools (Photoshop/Figma), this lists layers/nodes.
-/// - `open_file` / `save_file`: for Figma (read-only API), these may return `Unsupported`.
-/// - Selection is object-level (not component-level) to keep the interface minimal.
-pub trait DccSceneManager: Send + Sync {
+/// Provides queries that work whether or not a file-save surface is available,
+/// so headless or read-only adapters (e.g. a Figma viewer) can implement just
+/// this sub-trait without being forced to provide `DccFileIO` mutations.
+pub trait DccSceneQuery: Send + Sync {
     /// Get high-level information about the current scene/document.
     ///
     /// Returns metadata including file path, frame range, coordinate system, etc.
     fn get_scene_info(&self) -> DccResult<SceneInfo>;
 
-    /// List all top-level and descendant objects/layers in the scene.
+    /// List objects/layers in the scene, optionally filtered by type.
     ///
     /// # Arguments
-    /// * `object_type` — Optional filter (e.g. "mesh", "light", "camera").
-    ///   Pass `None` to list all objects.
+    /// * `object_type` — Optional filter (e.g. `"mesh"`, `"light"`, `"camera"`).
+    ///   Pass `None` to list all objects. For 2D tools (Photoshop/Figma) this
+    ///   lists layers/nodes.
     fn list_objects(&self, object_type: Option<&str>) -> DccResult<Vec<SceneObject>>;
 
+    /// Set the visibility of an object or layer.
+    ///
+    /// Grouped with scene-inspection rather than file-IO because visibility is
+    /// a display-state mutation that all adapters (including Figma) support.
+    ///
+    /// # Arguments
+    /// * `object_name` — Short or long name of the object.
+    /// * `visible` — Target visibility state.
+    fn set_visibility(&self, object_name: &str, visible: bool) -> DccResult<bool>;
+}
+
+/// **DccFileIO** — Scene file lifecycle: create, open, save, export (4 methods, ISP sub-trait of `DccSceneManager`).
+///
+/// Separated from `DccSceneQuery` so read-only adapters (e.g. a Figma viewer or
+/// a cloud renderer) can opt out of file mutations while still implementing scene
+/// inspection and selection.
+pub trait DccFileIO: Send + Sync {
     /// Create a new empty scene/document.
     ///
     /// # Arguments
@@ -166,11 +180,20 @@ pub trait DccSceneManager: Send + Sync {
     ///
     /// # Arguments
     /// * `file_path` — Output file path.
-    /// * `format` — Export format (e.g. "fbx", "obj", "usd", "png", "svg").
+    /// * `format` — Export format (e.g. `"fbx"`, `"obj"`, `"usd"`, `"png"`, `"svg"`).
     /// * `selection_only` — If `true`, export only selected objects/layers.
     fn export_file(&self, file_path: &str, format: &str, selection_only: bool)
     -> DccResult<String>;
+}
 
+/// **DccSelection** — Object selection management (3 methods, ISP sub-trait of `DccSceneManager`).
+///
+/// Separated from `DccSceneQuery` and `DccFileIO` so non-interactive or batch
+/// adapters (e.g. a headless render farm node) can skip selection support while
+/// still implementing the other two sub-traits.
+///
+/// Selection is object-level (not component/vertex-level) to keep the interface minimal.
+pub trait DccSelection: Send + Sync {
     /// Get the names of currently selected objects/layers.
     fn get_selection(&self) -> DccResult<Vec<String>>;
 
@@ -183,16 +206,43 @@ pub trait DccSceneManager: Send + Sync {
     /// Select all objects of a given type.
     ///
     /// # Arguments
-    /// * `object_type` — Type string (e.g. "mesh", "camera", "light").
+    /// * `object_type` — Type string (e.g. `"mesh"`, `"camera"`, `"light"`).
     fn select_by_type(&self, object_type: &str) -> DccResult<Vec<String>>;
-
-    /// Set the visibility of an object/layer.
-    ///
-    /// # Arguments
-    /// * `object_name` — Short or long name of the object.
-    /// * `visible` — Target visibility state.
-    fn set_visibility(&self, object_name: &str, visible: bool) -> DccResult<bool>;
 }
+
+/// **DccSceneManager** — Universal scene and file management (composite, ISP-compliant).
+///
+/// Covers the operations common to all DCC tools:
+/// Maya, Blender, 3dsMax, Unreal Engine, Unity, Photoshop, Figma.
+///
+/// This is a **composite super-trait** of the three focused sub-traits:
+/// [`DccSceneQuery`] + [`DccFileIO`] + [`DccSelection`].
+/// Any type that implements all three satisfies `DccSceneManager` automatically
+/// via the blanket impl below, so existing `impl DccSceneManager for T` becomes
+/// three smaller, independently testable `impl` blocks.
+///
+/// # Migration for adapter authors
+///
+/// Replace:
+/// ```rust,ignore
+/// impl DccSceneManager for MyAdapter { /* 10 methods */ }
+/// ```
+/// With three focused impls:
+/// ```rust,ignore
+/// impl DccSceneQuery  for MyAdapter { /* get_scene_info, list_objects, set_visibility */ }
+/// impl DccFileIO      for MyAdapter { /* new_scene, open_file, save_file, export_file */ }
+/// impl DccSelection   for MyAdapter { /* get_selection, set_selection, select_by_type */ }
+/// // DccSceneManager is satisfied automatically — no impl needed.
+/// ```
+pub trait DccSceneManager: DccSceneQuery + DccFileIO + DccSelection {}
+
+/// Blanket implementation: any type that implements all three focused sub-traits
+/// automatically satisfies the composite [`DccSceneManager`] bound.
+///
+/// This preserves backward-compatibility: `dyn DccSceneManager`,
+/// `impl DccSceneManager` parameter bounds, and `T: DccSceneManager` constraints
+/// all continue to work without any call-site changes.
+impl<T> DccSceneManager for T where T: DccSceneQuery + DccFileIO + DccSelection {}
 
 /// **DccTransformTrait** — Universal object transform (TRS) interface.
 ///
@@ -355,12 +405,10 @@ pub trait DccHierarchy: Send + Sync {
 /// Not all sub-traits are required — use the `capabilities()` method to
 /// advertise which features are available.
 ///
-/// In addition to the original four sub-traits, adapters can optionally expose
-/// the four cross-DCC protocol traits:
-/// - `DccSceneManager` — scene/file management, selection, visibility
-/// - `DccTransform` — object TRS transforms and bounding boxes
-/// - `DccRenderCapture` — viewport capture and scene rendering
-/// - `DccHierarchy` — parent/child hierarchy and grouping
+/// The cross-DCC protocol accessor methods (`as_scene_manager`, `as_transform`,
+/// `as_render_capture`, `as_hierarchy`, `as_scene_query`, `as_file_io`,
+/// `as_selection`) all default to `None` so adapters only override the
+/// ones they support.
 ///
 /// # Example
 ///
@@ -387,12 +435,8 @@ pub trait DccHierarchy: Send + Sync {
 ///     fn as_script_engine(&self) -> Option<&dyn DccScriptEngine> { None }
 ///     fn as_scene_info(&self) -> Option<&dyn DccSceneInfo> { None }
 ///     fn as_snapshot(&self) -> Option<&dyn DccSnapshot> { None }
-///
-///     // Cross-DCC protocol traits — all optional, return None by default
-///     fn as_scene_manager(&self) -> Option<&dyn DccSceneManager> { None }
-///     fn as_transform(&self) -> Option<&dyn DccTransform> { None }
-///     fn as_render_capture(&self) -> Option<&dyn DccRenderCapture> { None }
-///     fn as_hierarchy(&self) -> Option<&dyn DccHierarchy> { None }
+///     // as_scene_manager / as_scene_query / as_file_io / as_selection /
+///     // as_transform / as_render_capture / as_hierarchy all default to None.
 /// }
 /// ```
 pub trait DccAdapter: Send + Sync {
@@ -416,10 +460,38 @@ pub trait DccAdapter: Send + Sync {
 
     // ── Cross-DCC Protocol Accessors (optional, default to None) ──
 
-    /// Access the universal scene & file management interface.
+    /// Access the composite scene & file management interface.
+    ///
+    /// Returns `Some` when the adapter implements all of [`DccSceneQuery`],
+    /// [`DccFileIO`], and [`DccSelection`].
     ///
     /// Supported by: Maya, Blender, 3dsMax, Unreal Engine, Unity, Photoshop, Figma.
     fn as_scene_manager(&self) -> Option<&dyn DccSceneManager> {
+        None
+    }
+
+    /// Access the focused scene-inspection sub-trait.
+    ///
+    /// Returns `Some` for adapters that support read-only scene queries
+    /// (`get_scene_info`, `list_objects`, `set_visibility`) without
+    /// necessarily supporting file I/O or selection.
+    fn as_scene_query(&self) -> Option<&dyn DccSceneQuery> {
+        None
+    }
+
+    /// Access the focused file-lifecycle sub-trait.
+    ///
+    /// Returns `Some` for adapters that support scene file operations
+    /// (`new_scene`, `open_file`, `save_file`, `export_file`).
+    fn as_file_io(&self) -> Option<&dyn DccFileIO> {
+        None
+    }
+
+    /// Access the focused object-selection sub-trait.
+    ///
+    /// Returns `Some` for adapters that support selection management
+    /// (`get_selection`, `set_selection`, `select_by_type`).
+    fn as_selection(&self) -> Option<&dyn DccSelection> {
         None
     }
 
