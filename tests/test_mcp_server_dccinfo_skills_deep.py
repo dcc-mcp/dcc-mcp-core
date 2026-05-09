@@ -1162,3 +1162,99 @@ class TestAccumulatedSkills:
             assert feedback[1].success is True
 
             shutil.rmtree(dest, ignore_errors=True)
+
+
+# ── Issue #859 regression — bundled skills must expose non-zero tool_count ──
+
+
+class TestBundledSkillToolCount:
+    """Regression tests for issue #859.
+
+    dcc-diagnostics and every other bundled skill must report a non-zero
+    tool_count after discovery so that agents can learn about available tools
+    without loading the skill first.
+
+    Root cause: the bundled SKILL.md used the legacy flat metadata format
+    (``dcc-mcp.tools: tools.yaml``) instead of the nested form
+    (``dcc-mcp: {tools: tools.yaml}``).  The Rust loader dropped the
+    ``metadata.dcc-mcp.*`` flat form in 0.15, so ``tools.yaml`` was never
+    parsed, leaving ``tool_count == 0``.
+    """
+
+    def _make_catalog(self):
+        reg = ToolRegistry()
+        catalog = d.SkillCatalog(reg)
+        bundled_dir = d.get_bundled_skills_dir()
+        catalog.discover(extra_paths=[bundled_dir])
+        return catalog
+
+    def test_dcc_diagnostics_tool_count_nonzero(self):
+        """dcc-diagnostics must expose its 5 tools after discovery."""
+        catalog = self._make_catalog()
+        skills = catalog.list_skills()
+        diag = next((s for s in skills if s.name == "dcc-diagnostics"), None)
+        assert diag is not None, "dcc-diagnostics not found in bundled skills"
+        assert diag.tool_count > 0, (
+            f"dcc-diagnostics tool_count is {diag.tool_count} after discovery; "
+            "expected > 0. Check that SKILL.md uses the nested dcc-mcp: format."
+        )
+
+    def test_dcc_diagnostics_tool_names_include_error_report(self):
+        """error_report must be in the tool list — it is the primary entry point."""
+        catalog = self._make_catalog()
+        skills = catalog.list_skills()
+        diag = next((s for s in skills if s.name == "dcc-diagnostics"), None)
+        assert diag is not None
+        assert "error_report" in diag.tool_names, f"error_report missing from dcc-diagnostics tools: {diag.tool_names}"
+
+    def test_dcc_diagnostics_search_skills_tool_count_nonzero(self):
+        """search_skills must also return non-zero tool_count for dcc-diagnostics."""
+        catalog = self._make_catalog()
+        results = catalog.search_skills(query="diagnostics", limit=10)
+        diag = next((r for r in results if r.name == "dcc-diagnostics"), None)
+        assert diag is not None, "dcc-diagnostics not returned by search_skills"
+        assert diag.tool_count > 0, (
+            "search_skills returns tool_count=0 for dcc-diagnostics; SKILL.md metadata format is likely wrong."
+        )
+
+    def test_all_bundled_skills_with_tools_yaml_have_nonzero_tool_count(self):
+        """Every bundled skill that ships a tools.yaml must report tool_count > 0.
+
+        This is the CI lint from issue #859 acceptance criterion 2.
+        """
+        import re
+
+        bundled_dir = Path(d.get_bundled_skills_dir())
+        reg = ToolRegistry()
+        catalog = d.SkillCatalog(reg)
+        catalog.discover(extra_paths=[str(bundled_dir)])
+
+        # Find all bundled skills that reference a tools.yaml
+        skills_with_tools_yaml = []
+        for skill_dir in bundled_dir.iterdir():
+            if not skill_dir.is_dir():
+                continue
+            skill_md = skill_dir / "SKILL.md"
+            if not skill_md.exists():
+                continue
+            content = skill_md.read_text()
+            if "tools.yaml" in content:
+                skills_with_tools_yaml.append(skill_dir.name)
+
+        if not skills_with_tools_yaml:
+            pytest.skip("No bundled skills with tools.yaml found")
+
+        skills = catalog.list_skills()
+        skill_map = {s.name: s for s in skills}
+
+        failures = []
+        for name in skills_with_tools_yaml:
+            summary = skill_map.get(name)
+            if summary is None:
+                failures.append(f"{name}: not discovered at all")
+            elif summary.tool_count == 0:
+                failures.append(f"{name}: tool_count=0 (SKILL.md may use legacy flat metadata format)")
+
+        assert not failures, "Bundled skills with tools.yaml must have tool_count > 0 after discovery:\n" + "\n".join(
+            f"  - {f}" for f in failures
+        )
