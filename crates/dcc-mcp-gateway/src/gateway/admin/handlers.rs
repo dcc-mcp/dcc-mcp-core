@@ -172,3 +172,30 @@ pub async fn handle_admin_trace_detail(
         ),
     }
 }
+
+/// `GET /admin/api/stats?range=1h|24h|7d` — aggregated call statistics (Phase 3).
+///
+/// Computes on-demand from the [`TraceLog`] ring buffer: call count, success
+/// rate, latency percentiles, top-N tools, top-N instances, and hour-of-day
+/// distribution.  Returns `{"range":"...", "total_calls":N, ...}`.
+pub async fn handle_admin_stats(
+    State(s): State<AdminState>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> impl IntoResponse {
+    use crate::gateway::admin::stats::StatsRange;
+
+    let range_str = params.get("range").map(String::as_str).unwrap_or("all");
+    let range = StatsRange::from_str(range_str);
+
+    match &s.stats {
+        Some(agg) => {
+            let stats = agg.compute(range);
+            Json(serde_json::to_value(&stats).unwrap_or(json!({})))
+        }
+        None => Json(json!({
+            "error": "stats aggregator not available — admin feature may be disabled",
+            "range": range_str,
+            "total_calls": 0,
+        })),
+    }
+}

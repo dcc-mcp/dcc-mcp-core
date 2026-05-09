@@ -29,6 +29,7 @@
 
 mod html;
 pub mod state;
+pub mod stats;
 pub mod trace;
 
 #[cfg(feature = "admin")]
@@ -37,6 +38,7 @@ mod handlers;
 mod router;
 
 pub use state::{AdminAuditRecord, AdminAuditSink, AdminState, AuditLog, EventLog};
+pub use stats::{GatewayStats, LatencyStats, StatsAggregator, StatsRange, TopEntry};
 pub use trace::{DispatchTrace, TraceLog, TracePayload, TraceSpan};
 
 #[cfg(feature = "admin")]
