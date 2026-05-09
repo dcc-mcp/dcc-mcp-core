@@ -357,4 +357,75 @@ mod tests {
         assert_eq!(s_all.total_calls, 2);
         assert_eq!(s_1h.total_calls, 1);
     }
+
+    // ── Property-based tests (#846) ────────────────────────────────────────
+    //
+    // These verify the invariants ("laws") of pure helpers used by the
+    // stats aggregator.  Adding proptest as a dev-dependency seeds the
+    // toolchain so future LSP / trait-law tests can plug in cheaply
+    // (#846 acceptance gate).
+
+    use proptest::prelude::*;
+
+    proptest! {
+        /// Latency percentiles must be weakly monotone:
+        ///   min ≤ p50 ≤ p95 ≤ p99 ≤ max
+        /// for any non-empty input. The mean must lie in [min, max].
+        #[test]
+        fn prop_latency_percentiles_are_monotone(
+            mut samples in proptest::collection::vec(0u64..1_000_000, 1..256)
+        ) {
+            samples.sort_unstable();
+            let stats = compute_latency_stats(&samples);
+            prop_assert!(stats.min_ms <= stats.p50_ms);
+            prop_assert!(stats.p50_ms <= stats.p95_ms);
+            prop_assert!(stats.p95_ms <= stats.p99_ms);
+            prop_assert!(stats.p99_ms <= stats.max_ms);
+            prop_assert!(stats.mean_ms >= stats.min_ms as f64);
+            prop_assert!(stats.mean_ms <= stats.max_ms as f64);
+        }
+
+        /// `top_n` must:
+        ///   1. Return at most `n` entries.
+        ///   2. Be sorted by count descending (with name ascending as tiebreaker).
+        ///   3. Never invent entries — every returned name must exist in the input.
+        #[test]
+        fn prop_top_n_is_sorted_and_truncated(
+            entries in proptest::collection::hash_map("[a-z]{1,8}", 0usize..100, 0..32),
+            n in 0usize..16,
+        ) {
+            let input = entries.clone();
+            let result = top_n(entries, n);
+            prop_assert!(result.len() <= n);
+            for w in result.windows(2) {
+                let a = &w[0];
+                let b = &w[1];
+                // count desc, name asc on tie
+                if a.count == b.count {
+                    prop_assert!(a.name <= b.name);
+                } else {
+                    prop_assert!(a.count > b.count);
+                }
+            }
+            for entry in &result {
+                prop_assert_eq!(input.get(&entry.name), Some(&entry.count));
+            }
+        }
+
+        /// `top_n` is idempotent on length: feeding the result back in does
+        /// not grow it.
+        #[test]
+        fn prop_top_n_is_idempotent_on_length(
+            entries in proptest::collection::hash_map("[a-z]{1,4}", 0usize..50, 0..16),
+            n in 1usize..16,
+        ) {
+            let first = top_n(entries.clone(), n);
+            let second_input: HashMap<String, usize> = first
+                .iter()
+                .map(|e| (e.name.clone(), e.count))
+                .collect();
+            let second = top_n(second_input, n);
+            prop_assert_eq!(first.len(), second.len());
+        }
+    }
 }
