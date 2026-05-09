@@ -303,4 +303,69 @@ mod tests {
         );
         assert!(log.get("unknown").is_none());
     }
+
+    // ── Property-based tests (#846) ────────────────────────────────────────
+
+    use proptest::prelude::*;
+
+    fn arb_trace(idx: u32) -> DispatchTrace {
+        DispatchTrace {
+            request_id: format!("req-{idx}"),
+            method: "tools/call".into(),
+            tool_slug: None,
+            instance_id: None,
+            session_id: None,
+            dcc_type: None,
+            started_at: SystemTime::now(),
+            total_ms: idx as u64,
+            ok: true,
+            spans: vec![],
+            input: None,
+            output: None,
+        }
+    }
+
+    proptest! {
+        /// Ring-buffer law: after pushing `pushes` traces into a buffer of
+        /// capacity `capacity`, `recent(usize::MAX).len() == min(pushes, capacity)`.
+        /// Proves the buffer never exceeds capacity (memory bound) and never
+        /// drops more than necessary.
+        #[test]
+        fn prop_trace_log_capacity_is_respected(
+            capacity in 1usize..32,
+            pushes in 0u32..64,
+        ) {
+            let log = TraceLog::new(capacity);
+            for i in 0..pushes {
+                log.push(arb_trace(i));
+            }
+            let recent = log.recent(usize::MAX);
+            let expected = (pushes as usize).min(capacity);
+            prop_assert_eq!(recent.len(), expected);
+        }
+
+        /// Ring-buffer law: `recent(limit)` always returns ≤ `limit` items
+        /// and ≤ buffer occupancy. First item is the most recently pushed
+        /// trace (LIFO order).
+        #[test]
+        fn prop_trace_log_recent_returns_newest_first(
+            capacity in 1usize..16,
+            pushes in 1u32..32,
+            limit in 1usize..32,
+        ) {
+            let log = TraceLog::new(capacity);
+            for i in 0..pushes {
+                log.push(arb_trace(i));
+            }
+            let recent = log.recent(limit);
+            let bound = limit.min((pushes as usize).min(capacity));
+            prop_assert_eq!(recent.len(), bound);
+            if !recent.is_empty() {
+                prop_assert_eq!(
+                    &recent[0].request_id,
+                    &format!("req-{}", pushes - 1)
+                );
+            }
+        }
+    }
 }
