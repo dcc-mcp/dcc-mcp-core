@@ -111,9 +111,10 @@ whether to route, reconnect, or ask the user to restart a DCC instance.
 Each entry already carries `mcp_url`, so clients that have read this
 resource can connect directly. Optional URI query parameters
 (`?include_stale=false`, `?include_dead=true`) match the legacy tool
-flags. `tools/list` is assembled from the current registry on each call,
-so instances registered after gateway startup are picked up without a
-restart.
+flags. `resources/list` advertises only root pointers for gateway-native
+families; it does not enumerate every instance-specific URI. Backend
+capability indexes refresh on demand before `search_tools` / `describe_tool`,
+so instances registered after gateway startup are picked up without a restart.
 
 ### Optional Instance Pooling
 
@@ -172,8 +173,8 @@ unconditional surface:
 
 | Surface | What appears in `tools/list` | Agent workflow |
 |---------|------------------------------|----------------|
-| Gateway MCP | Fixed discover+dispatch primitives: `search_skills`, `load_skill`, `search_tools`, `describe_tool`, `call_tool`, pooling tools, diagnostics. The instance registry is exposed as the `gateway://instances` MCP resource (read via `resources/read`), not as tools — see #813 phase 1 | `resources/read uri=gateway://instances` (or skip it and go straight to `search_tools` → `describe_tool` → `call_tool`) |
-| Gateway REST | `/v1/search`, `/v1/describe`, `/v1/call`, `/v1/instances` | `POST /v1/search` → `/v1/describe` → `/v1/call` |
+| Gateway MCP | Fixed discover+dispatch primitives: `search_skills`, `load_skill`, `search_tools`, `describe_tool`, `call_tool`, and pooling tools. Instance registry, diagnostics, and catalog views are gateway-native resources (`gateway://instances`, `gateway://diagnostics/*`, `gateway://catalog`) read via `resources/read`, not tools | `resources/read uri=gateway://instances` (or skip it and go straight to `search_tools` → `describe_tool` → `call_tool`) |
+| Gateway REST | `/v1/search`, `/v1/describe`, `/v1/call`, `/v1/instances`, plus `/v1/resources*`, `/v1/prompts*`, and `/v1/jobs*` | `POST /v1/search` → `/v1/describe` → `/v1/call`; use resources/prompts/jobs routes for non-tool MCP primitives |
 | Direct per-DCC MCP | One DCC server's skills and loaded tools | `search_skills` → `load_skill` → tool call |
 
 The gateway capability index stores compact records keyed by
@@ -191,26 +192,34 @@ Use this dynamic-capability flow whenever an agent is connected to the gateway.
 Use the per-DCC Skills-First flow (`search_skills` → `load_skill` → tool call)
 when the agent is connected directly to one DCC server.
 
-## Resources and Prompts Aggregation (#731, #732)
+## Resources and Prompts Aggregation (#731, #732, #818)
 
 The gateway also forwards MCP resources and prompts so agents can exchange
 hand-off artefacts and prompt templates across all live DCC instances without
-opening per-backend sessions.
+opening per-backend sessions. Since #818 the gateway's backend hop is REST, not
+backend JSON-RPC: `GET /v1/resources`, `GET /v1/resources/{uri}`,
+`GET /v1/prompts`, and `GET /v1/prompts/{name}?args=<json>`.
 
 **Resources workflow:**
 
 1. Call `resources/list` on the gateway.
-2. Treat every returned URI as opaque. Gateway-owned management resources use
-   `dcc://<type>/<id>`; forwarded backend resources use
-   `<scheme>://<id8>/<rest>` so the gateway can route reads/subscriptions.
-3. Pass the exact URI returned by `resources/list` to `resources/read`,
+2. Treat every returned URI as opaque. Gateway-native resources use
+   `gateway://instances`, `gateway://diagnostics/*`, and `gateway://catalog`.
+   Forwarded backend resources use a gateway-routable prefix so reads and
+   subscriptions can find the owning backend.
+3. `resources/list` only emits root pointers for gateway-native families; it
+   does not enumerate every `gateway://instances/{id}` or
+   `gateway://catalog/{name}`. Read those single-entry URIs directly when you
+   already know the id/name.
+4. Pass the exact URI returned by `resources/list` to `resources/read`,
    `resources/subscribe`, or `resources/unsubscribe`. Do not strip the
    instance prefix or rebuild URIs manually.
 
 **Prompts workflow:** use `prompts/list` on the gateway to browse prompt
 templates from all live backends, then call `prompts/get` with the returned
-namespaced prompt name. Backend prompt changes are surfaced through
-`notifications/prompts/list_changed`.
+namespaced prompt name. Any MCP `arguments` object is forwarded through the REST
+`args` query parameter and rendered by the backend prompt provider. Backend
+prompt changes are surfaced through `notifications/prompts/list_changed`.
 
 ## Code pointers
 

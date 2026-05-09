@@ -134,7 +134,7 @@ vx just dev           # recommended — uses the project's canonical feature set
 
 ### Serve a DCC over MCP — Skills-First (recommended)
 
-`create_skill_server` wires up the full Skills-First entry point: `tools/list` returns six core tools plus one stub per unloaded skill. Agents call `search_skills` → `load_skill` to activate the tools they need, keeping the context window small.
+`create_skill_server` wires up the full Skills-First entry point: `tools/list` returns a small set of discovery/lifecycle tools plus one stub per unloaded skill. Agents call `search_skills` → `load_skill` to activate the tools they need, keeping the context window small.
 
 ```python
 from dcc_mcp_core import create_skill_server, McpHttpConfig
@@ -400,7 +400,7 @@ DCC adapters (e.g. `dcc-mcp-maya`) include the bundled skills by default. To opt
 
 **Progressive discovery** — dcc-mcp-core shrinks this to what the agent actually needs:
 
-1. **Skill stubs** — `tools/list` returns six meta-tools plus one stub per unloaded skill (`__skill__<name>`). Agents call `search_skills(query)` → `load_skill(name)` to activate the real tools.
+1. **Skill stubs** — direct per-DCC `tools/list` returns discovery/lifecycle meta-tools plus one stub per unloaded skill (`__skill__<name>`). Agents call `search_skills(query)` → `load_skill(name)` to activate the real tools; gateway `tools/list` stays bounded to discover/describe/call wrappers and uses `gateway://instances` / `gateway://diagnostics/*` resources for management views.
 2. **Instance awareness** — Each DCC registers its active documents, PID, display name, scope level.
 3. **Smart tool scoping** — Tools filter by DCC type, trust scope (Repo < User < System < Admin), product whitelist, and policy.
 4. **Session isolation** — An AI session is pinned to one DCC instance; it sees only that instance's tools.
@@ -417,7 +417,7 @@ With dcc-mcp-core (Skills-First):
 
 ```
 tools/list response (Maya session, nothing loaded yet):
-  6 core tools + 22 skill stubs = 28 entries
+  small core surface + 22 skill stubs
 → agent loads only the 3 skills it needs → ~30 tools in context
 ```
 

@@ -164,15 +164,16 @@ async fn handle_initialize(gs: &GatewayState, id: Value, req: &JsonRpcRequest) -
             "instructions":
                 "DCC-MCP Gateway — unified MCP endpoint across every live DCC.\n\
                  \n\
-                 tools/list returns:\n\
-                 • Gateway discovery and pooling meta-tools (list/get/connect/acquire/release DCC instance)\n\
-                 • 6 skill-management tools (list/find/search/get_info/load/unload_skill)\n\
-                 • Every backend tool, prefixed with an 8-char instance id\n\
+                 tools/list is intentionally bounded. It returns gateway discovery,\n\
+                 skill lifecycle, pooling, and dynamic capability wrapper tools; it\n\
+                 never fans out every backend action. Instance registry, diagnostics,\n\
+                 and catalog views are MCP resources such as gateway://instances,\n\
+                 gateway://diagnostics/*, and gateway://catalog.\n\
                  \n\
                  Workflow:\n\
-                 1. search_skills(query=...) — find relevant skills across every live DCC\n\
-                 2. load_skill(skill_name=..., instance_id=... when multiple instances exist)\n\
-                 3. Call the prefixed tool directly through this same endpoint\n\
+                 1. Optional: resources/read uri=gateway://instances to inspect live DCCs\n\
+                 2. search_skills(...) then load_skill(..., instance_id=... when needed)\n\
+                 3. search_tools(...) -> describe_tool(tool_slug=...) -> call_tool(tool_slug=..., arguments={...})\n\
                  \n\
                  Subscribe to GET /mcp (SSE) for push notifications."
         }

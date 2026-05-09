@@ -4,8 +4,8 @@ When multiple `dcc-mcp-server` processes run on one workstation (or you
 scale a gateway deployment across pods), they compete for the gateway
 role, maintain a shared service registry, probe each other for liveness,
 and evict dead peers. This page is the operator's playbook: how each
-mechanism is surfaced in logs / metrics / MCP tools, and how to debug the
-five recurring failure modes.
+mechanism is surfaced in logs, metrics, and gateway-native MCP resources, and
+how to debug the five recurring failure modes.
 
 ---
 
@@ -118,6 +118,25 @@ instance whose registry row survived a reboot).
 
 ---
 
+## Gateway-native diagnostics resources
+
+Gateway diagnostics are read-only MCP resources. They are not advertised as
+`tools/list` entries, so agents fetch only the diagnostic view they need:
+
+| URI | Use when |
+|---|---|
+| `gateway://diagnostics/process` | You need gateway process metadata plus live/stale/unhealthy instance counts. Add `?dcc_type=maya` to filter rows. |
+| `gateway://diagnostics/audit` | You need pending-call and resource-subscription counts. Backend audit history remains per-instance. |
+| `gateway://diagnostics/metrics` | You need the gateway-local tool count, live backend count, timeout settings, and `publishes_backend_tools=false`. |
+
+Example MCP read:
+
+```json
+{"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"gateway://diagnostics/process"}}
+```
+
+---
+
 ## Prometheus metrics
 
 Build with `cargo build --features prometheus` and mount `GET /metrics`.
@@ -176,7 +195,7 @@ is safe.
 
 ### Scenario 3 — `tools/call` returned "Unknown gateway tool"
 
-**After PR A** the gateway no longer exposes per-tool tools via
+Since v0.15 the gateway no longer exposes per-tool backend actions via
 `tools/list`. Any tool name the gateway doesn't recognise — including
 the legacy `<skill>.<action>` / `i_<id8>__<escaped>` / `<id8>.<tool>`
 forms — now returns the redirect message:
