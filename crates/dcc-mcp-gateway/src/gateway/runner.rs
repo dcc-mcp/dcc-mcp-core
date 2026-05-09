@@ -265,6 +265,8 @@ impl GatewayRunner {
                     self.config.admin_enabled,
                     #[cfg(feature = "admin")]
                     self.config.admin_path.clone(),
+                    self.config.health_check_interval_secs,
+                    self.config.health_check_failures,
                 )
                 .await
                 {
@@ -419,6 +421,8 @@ impl GatewayRunner {
         let admin_enabled = self.config.admin_enabled;
         #[cfg(feature = "admin")]
         let admin_path = self.config.admin_path.clone();
+        let health_check_interval_secs = self.config.health_check_interval_secs;
+        let health_check_failures = self.config.health_check_failures;
 
         let handle = tokio::spawn(async move {
             // ── Cooperative yield request ─────────────────────────────────
@@ -495,6 +499,8 @@ impl GatewayRunner {
                         admin_enabled,
                         #[cfg(feature = "admin")]
                         admin_path.clone(),
+                        health_check_interval_secs,
+                        health_check_failures,
                     )
                     .await
                     {
