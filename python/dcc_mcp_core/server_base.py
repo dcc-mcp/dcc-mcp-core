@@ -301,29 +301,6 @@ class DccServerBase:
         self._quit_hooks_ran: bool = False
         self._atexit_registered: bool = False
 
-    def __getattr__(self, name: str) -> Any:
-        """Lazily reconstruct collaborators for instances built via ``object.__new__``.
-
-        Some test doubles bypass ``__init__`` and only set the legacy
-        attributes (``_server``, ``_dcc_name``, ``_dcc_pid`` …). When such
-        an instance accesses ``_skill_client`` or ``_window_resolver``, build
-        a fresh collaborator on demand from those attributes and cache it.
-        """
-        if name == "_skill_client":
-            client = SkillQueryClient(self.__dict__["_server"], self.__dict__["_dcc_name"])
-            self.__dict__[name] = client
-            return client
-        if name == "_window_resolver":
-            resolver = WindowResolver(
-                dcc_name=self.__dict__["_dcc_name"],
-                dcc_pid=self.__dict__.get("_dcc_pid", 0),
-                dcc_window_handle=self.__dict__.get("_dcc_window_handle"),
-                dcc_window_title=self.__dict__.get("_dcc_window_title"),
-            )
-            self.__dict__[name] = resolver
-            return resolver
-        raise AttributeError(name)
-
     # ── adapter context helpers (#608, #609) ────────────────────────────────
 
     def register_adapter_instructions(self, instruction_set: Any) -> list[str]:

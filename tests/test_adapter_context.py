@@ -16,6 +16,7 @@ from dcc_mcp_core import append_context_snapshot
 from dcc_mcp_core import build_visual_feedback_context
 from dcc_mcp_core import register_adapter_instruction_resources
 from dcc_mcp_core import shape_response
+from dcc_mcp_core._testing import make_test_server
 from dcc_mcp_core.server_base import DccServerBase
 
 
@@ -121,10 +122,12 @@ def test_toolset_profile_registry_tracks_active_profiles() -> None:
 
 
 def test_dcc_server_base_snapshot_and_instruction_wrappers() -> None:
-    server = object.__new__(DccServerBase)
     fake = _FakeServer()
-    server._server = fake
-    server._snapshot_provider = lambda: DccContextSnapshot(dcc="maya", counts={"objects": 2})
+    server = make_test_server(
+        server=fake,
+        dcc_name="maya",
+        _snapshot_provider=lambda: DccContextSnapshot(dcc="maya", counts={"objects": 2}),
+    )
 
     enriched = server.append_context_snapshot({"success": True})
     assert enriched["context"]["snapshot"]["counts"]["objects"] == 2
