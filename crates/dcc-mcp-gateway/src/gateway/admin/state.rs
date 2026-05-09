@@ -15,12 +15,15 @@ use super::trace::{DispatchTrace, TraceLog};
 /// Minimal audit record that the admin UI consumes.
 #[derive(Debug, Clone)]
 pub struct AdminAuditRecord {
+    /// Wall-clock time when the call completed.
     pub timestamp: SystemTime,
     /// Tool slug or MCP method name.
     pub action: String,
     /// DCC type of the target backend (e.g. `"maya"`).
     pub dcc_type: Option<String>,
+    /// Whether the call succeeded (`true`) or returned an error (`false`).
     pub success: bool,
+    /// Error preview when `success == false`; otherwise `None`.
     pub error: Option<String>,
     /// Wall-clock call duration in milliseconds.
     pub duration_ms: Option<u64>,
@@ -41,6 +44,8 @@ pub struct AdminAuditSink {
 }
 
 impl AdminAuditSink {
+    /// Build a sink that pushes audit records into `log`, capped at `capacity`
+    /// entries (oldest evicted first).
     pub fn new(log: Arc<AuditLog>, capacity: usize) -> Self {
         Self {
             log,
@@ -105,17 +110,24 @@ impl AuditSink for AdminAuditSink {
 /// State injected into every admin handler via axum's `State` extractor.
 #[derive(Clone)]
 pub struct AdminState {
+    /// Live gateway state — registry, capability index, server metadata.
     pub gateway: GatewayState,
+    /// Audit log ring buffer — `None` until `with_audit_log` is called.
     pub audit_log: Option<Arc<AuditLog>>,
     /// Phase 2 trace log — `None` until `with_trace_log` is called.
     pub trace_log: Option<Arc<TraceLog>>,
     /// Phase 3 stats aggregator — `None` until `with_trace_log` is called.
     pub stats: Option<Arc<StatsAggregator>>,
+    /// Append-only event log shared with the gateway core.
     pub event_log: Arc<EventLog>,
+    /// Wall-clock time the gateway started, used for the Health card uptime.
     pub started_at: SystemTime,
 }
 
 impl AdminState {
+    /// Build an [`AdminState`] backed by the live `GatewayState`. Audit /
+    /// trace / stats logs default to `None`; attach them via the
+    /// `with_*` builders before mounting the admin router.
     pub fn new(gateway: GatewayState) -> Self {
         Self {
             gateway,
@@ -127,11 +139,15 @@ impl AdminState {
         }
     }
 
+    /// Attach the [`AuditLog`] that `GET /admin/api/calls` reads from.
     pub fn with_audit_log(mut self, log: Arc<AuditLog>) -> Self {
         self.audit_log = Some(log);
         self
     }
 
+    /// Attach the Phase 2 [`TraceLog`]. Implicitly bootstraps a
+    /// [`StatsAggregator`] (Phase 3) over the same log so the admin
+    /// router can serve `GET /admin/api/stats` without extra wiring.
     pub fn with_trace_log(mut self, log: Arc<TraceLog>) -> Self {
         // Phase 3: auto-create StatsAggregator when a TraceLog is attached.
         self.stats = Some(Arc::new(StatsAggregator::new(log.clone())));
@@ -139,6 +155,8 @@ impl AdminState {
         self
     }
 
+    /// Replace the default empty [`EventLog`] with one shared with the
+    /// gateway core (so `GET /admin/api/logs` surfaces gateway events).
     pub fn with_event_log(mut self, log: Arc<EventLog>) -> Self {
         self.event_log = log;
         self

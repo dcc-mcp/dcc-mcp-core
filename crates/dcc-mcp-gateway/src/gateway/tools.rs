@@ -115,13 +115,13 @@ pub async fn tool_search_tools(gs: &GatewayState, args: &Value) -> Result<String
         .into_iter()
         .map(|h| {
             let mut v = serde_json::to_value(&h).unwrap_or(Value::Null);
-            if !h.record.loaded {
-                if let Some(skill_name) = &h.record.skill_name {
-                    v["next_step"] = json!({
-                        "action": "load_skill",
-                        "skill_name": skill_name,
-                    });
-                }
+            if !h.record.loaded
+                && let Some(skill_name) = &h.record.skill_name
+            {
+                v["next_step"] = json!({
+                    "action": "load_skill",
+                    "skill_name": skill_name,
+                });
             }
             v
         })

@@ -48,7 +48,7 @@ pub use ops::{
 #[cfg(test)]
 mod tests {
     use super::error::BackendCallError;
-    use super::http::{parse_jsonrpc_result, post_jsonrpc, uuid_like_id};
+    use super::http::{post_jsonrpc, uuid_like_id};
     use super::urls::rest_base_from_mcp_url;
     use super::*;
 
