@@ -61,7 +61,6 @@ pub enum ShmError {
 }
 
 /// Convenience result alias.
-#[must_use]
 pub type ShmResult<T> = Result<T, ShmError>;
 
 // ── Tests ──────────────────────────────────────────────────────────────────

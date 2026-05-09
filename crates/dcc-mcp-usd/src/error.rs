@@ -44,7 +44,6 @@ pub enum UsdError {
 }
 
 /// Result alias for USD operations.
-#[must_use]
 pub type UsdResult<T> = Result<T, UsdError>;
 
 // ── Tests ──────────────────────────────────────────────────────────────────
