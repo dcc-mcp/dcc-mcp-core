@@ -46,6 +46,18 @@ impl MiddlewareChain {
         self.after.push(m);
     }
 
+    /// Insert a `BeforeCallMiddleware` at the **front** of the before-chain
+    /// so it runs before any previously-registered middlewares.
+    pub fn prepend_before(&mut self, m: Arc<dyn BeforeCallMiddleware>) {
+        self.before.insert(0, m);
+    }
+
+    /// Insert an `AfterCallMiddleware` at the **front** of the after-chain
+    /// so it runs before any previously-registered after middlewares.
+    pub fn prepend_after(&mut self, m: Arc<dyn AfterCallMiddleware>) {
+        self.after.insert(0, m);
+    }
+
     /// Run every `before` middleware in order.
     ///
     /// Stops and returns the first error encountered.

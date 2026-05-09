@@ -224,14 +224,18 @@ mod admin_tests {
             AdminAuditRecord {
                 timestamp: std::time::SystemTime::now(),
                 action: "tools/call:maya__open_scene".to_string(),
+                dcc_type: Some("maya".to_string()),
                 success: true,
                 error: None,
+                duration_ms: Some(42),
             },
             AdminAuditRecord {
                 timestamp: std::time::SystemTime::now(),
                 action: "tools/call:blender__render".to_string(),
+                dcc_type: Some("blender".to_string()),
                 success: false,
                 error: Some("timeout".to_string()),
+                duration_ms: None,
             },
         ]));
         let state = AdminState::new(make_gateway_state()).with_audit_log(audit_log);
@@ -251,6 +255,9 @@ mod admin_tests {
         assert_eq!(successes.len(), 1, "expected 1 successful call");
         assert_eq!(failures.len(), 1, "expected 1 failed call");
         assert!(failures[0]["error"].is_string());
+        // Verify new fields are populated
+        assert_eq!(successes[0]["dcc_type"], "maya");
+        assert_eq!(successes[0]["duration_ms"], 42);
     }
 
     #[tokio::test]
@@ -258,8 +265,10 @@ mod admin_tests {
         let audit_log: Arc<AuditLog> = Arc::new(parking_lot::Mutex::new(vec![AdminAuditRecord {
             timestamp: std::time::SystemTime::now(),
             action: "tools/call:photoshop__save".to_string(),
+            dcc_type: None,
             success: true,
             error: None,
+            duration_ms: Some(100),
         }]));
         let state = AdminState::new(make_gateway_state()).with_audit_log(audit_log);
         let (_, body) = body_json(build_admin_router(state), "/api/calls").await;

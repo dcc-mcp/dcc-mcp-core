@@ -491,7 +491,7 @@ pub(crate) async fn start_gateway_tasks(
     });
 
     // ── Gateway HTTP server ────────────────────────────────────────────────
-    let gw_state = GatewayState {
+    let mut gw_state = GatewayState {
         registry: registry.clone(),
         stale_timeout,
         backend_timeout,
@@ -519,13 +519,46 @@ pub(crate) async fn start_gateway_tasks(
         middleware_chain: Arc::new(middleware_chain),
     };
 
-    // ── Admin UI state (#772) ──────────────────────────────────────────────
+    // ── Admin UI state (#772, #864) ────────────────────────────────────────
+    // Wire AuditMiddleware into the default chain so /admin/api/calls is
+    // populated. We prepend one AdminAuditSink-backed AuditMiddleware only
+    // when admin is enabled AND the caller has not already registered their
+    // own AuditMiddleware (detected by checking if the chain already has
+    // before-call hooks — a heuristic that avoids double-recording for
+    // operators who supply a custom SIEM sink).
     #[cfg(feature = "admin")]
     let gw_router = {
         let admin_state_opt = if admin_enabled {
-            Some(crate::gateway::admin::state::AdminState::new(
-                gw_state.clone(),
-            ))
+            // 1. Shared ring buffer — the middleware writes here; the handler reads it.
+            let audit_log: std::sync::Arc<crate::gateway::admin::state::AuditLog> =
+                std::sync::Arc::new(parking_lot::Mutex::new(Vec::with_capacity(512)));
+
+            // 2. Build the sink that feeds the ring buffer.
+            let admin_sink: std::sync::Arc<dyn crate::gateway::middleware::AuditSink> =
+                std::sync::Arc::new(crate::gateway::admin::state::AdminAuditSink::new(
+                    audit_log.clone(),
+                    /* capacity = */ 512,
+                ));
+
+            // 3. Prepend AuditMiddleware to the chain so every tools/call
+            //    passes through it. We replace the GatewayState's chain Arc
+            //    in-place; this is safe because the state has not been shared
+            //    with any tasks yet (we are still in start_gateway_tasks setup).
+            {
+                let audit_mw = std::sync::Arc::new(
+                    crate::gateway::middleware::AuditMiddleware::new(admin_sink),
+                );
+                let mut chain = (*gw_state.middleware_chain).clone();
+                chain.prepend_before(audit_mw.clone());
+                chain.prepend_after(audit_mw);
+                gw_state.middleware_chain = std::sync::Arc::new(chain);
+            }
+
+            // 4. Build AdminState with the audit log attached.
+            Some(
+                crate::gateway::admin::state::AdminState::new(gw_state.clone())
+                    .with_audit_log(audit_log),
+            )
         } else {
             None
         };

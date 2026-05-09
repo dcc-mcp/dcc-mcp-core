@@ -27,6 +27,9 @@ pub struct AuditEntry {
     pub is_error: bool,
     /// Short snippet of the result text (first 256 chars).
     pub result_preview: String,
+    /// Wall-clock duration of the call in milliseconds, computed from the
+    /// `audit.start_time_ns` metadata stamp written by `before_call`.
+    pub duration_ms: Option<u64>,
 }
 
 /// Sink that receives completed [`AuditEntry`] records.
@@ -104,6 +107,19 @@ impl AfterCallMiddleware for AuditMiddleware {
         ctx: &'a CallContext,
         result: &'a mut CallResult,
     ) -> MiddlewareFuture<'a, ()> {
+        // Compute wall-clock duration from the start timestamp stamped by
+        // `before_call` into `ctx.metadata["audit.start_time_ns"]`.
+        let duration_ms = ctx
+            .metadata
+            .get("audit.start_time_ns")
+            .and_then(|s| s.parse::<u128>().ok())
+            .and_then(|start_ns| {
+                let now_ns = SystemTime::now()
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .ok()?
+                    .as_nanos();
+                Some(((now_ns.saturating_sub(start_ns)) / 1_000_000) as u64)
+            });
         let entry = AuditEntry {
             timestamp: SystemTime::now(),
             method: ctx.method.clone(),
@@ -114,6 +130,7 @@ impl AfterCallMiddleware for AuditMiddleware {
             request_id: ctx.request_id.clone(),
             is_error: result.is_error,
             result_preview: result.text.chars().take(256).collect(),
+            duration_ms,
         };
         let sink = self.sink.clone();
         Box::pin(async move {
