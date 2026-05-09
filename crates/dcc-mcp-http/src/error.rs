@@ -4,7 +4,6 @@ use dcc_mcp_models::DccMcpError;
 use thiserror::Error;
 
 /// Result type alias for HTTP server operations.
-#[must_use]
 pub type HttpResult<T> = Result<T, HttpError>;
 
 #[must_use]

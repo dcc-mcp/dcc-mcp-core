@@ -40,7 +40,6 @@ pub enum CaptureError {
 }
 
 /// Convenience alias for `Result<T, CaptureError>`.
-#[must_use]
 pub type CaptureResult<T> = Result<T, CaptureError>;
 
 // ── Conversions from platform error types ──────────────────────────────────

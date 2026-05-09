@@ -135,7 +135,6 @@ pub enum TransportError {
 }
 
 /// Result type alias for transport operations.
-#[must_use]
 pub type TransportResult<T> = Result<T, TransportError>;
 
 #[allow(dead_code)]
