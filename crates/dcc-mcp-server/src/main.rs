@@ -756,6 +756,8 @@ async fn main() -> anyhow::Result<()> {
         middleware_chain: dcc_mcp_gateway::middleware::MiddlewareChain::new(),
         admin_enabled: !args.no_admin,
         admin_path: args.admin_path.clone(),
+        health_check_interval_secs: 5,
+        health_check_failures: 2,
     };
 
     let runner = GatewayRunner::new(gateway_cfg)
