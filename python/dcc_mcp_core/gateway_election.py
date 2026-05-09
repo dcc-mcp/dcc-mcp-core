@@ -9,9 +9,9 @@ use :class:`DccGatewayElection` without writing their own election logic.
 
 Configuration via environment variables
 ----------------------------------------
-- ``DCC_MCP_GATEWAY_PROBE_INTERVAL`` — seconds between health probes (default 5)
+- ``DCC_MCP_GATEWAY_PROBE_INTERVAL`` — seconds between health probes (default 1)
 - ``DCC_MCP_GATEWAY_PROBE_TIMEOUT``  — timeout per probe in seconds (default 2)
-- ``DCC_MCP_GATEWAY_PROBE_FAILURES`` — consecutive failures before election (default 3)
+- ``DCC_MCP_GATEWAY_PROBE_FAILURES`` — consecutive failures before election (default 2)
 
 Usage example::
 
@@ -46,9 +46,9 @@ from typing import Callable
 
 logger = logging.getLogger(__name__)
 
-_PROBE_INTERVAL = int(os.environ.get("DCC_MCP_GATEWAY_PROBE_INTERVAL", "5"))
+_PROBE_INTERVAL = int(os.environ.get("DCC_MCP_GATEWAY_PROBE_INTERVAL", "1"))
 _PROBE_TIMEOUT = float(os.environ.get("DCC_MCP_GATEWAY_PROBE_TIMEOUT", "2"))
-_PROBE_FAILURES = int(os.environ.get("DCC_MCP_GATEWAY_PROBE_FAILURES", "3"))
+_PROBE_FAILURES = int(os.environ.get("DCC_MCP_GATEWAY_PROBE_FAILURES", "2"))
 _GATEWAY_HOST = "127.0.0.1"
 _DEFAULT_GATEWAY_PORT = 9765
 
@@ -273,21 +273,39 @@ class DccGatewayElection:
     def _is_port_free(self) -> bool:
         """Return ``True`` if nothing is currently listening on the gateway port.
 
-        Uses a short TCP ``connect_ex`` instead of an exclusive bind so the
-        port remains available for the real promotion path (which must do
-        its own bind). A non-zero error code means the connect failed, which
-        we treat as "nobody is listening".
+        Uses a real ``SO_REUSEADDR`` bind attempt rather than ``connect_ex``
+        to avoid the Windows TIME_WAIT false-negative (issue #855 Bug 3).
+
+        On Windows, after a process that owned the gateway port dies, the OS
+        keeps the socket in TIME_WAIT state for up to 4 minutes
+        (``TcpTimedWaitDelay``). A ``connect_ex`` call against that address
+        **succeeds** (the kernel still has the entry) even though nothing is
+        actively listening — ``connect_ex`` returns 0 which was previously
+        interpreted as "port busy → skip election".
+
+        Replacing it with a ``bind()`` attempt (with ``SO_REUSEADDR``) is the
+        canonical way to answer "is anyone else using this port right now?":
+
+        * ``bind()`` succeeds → port is genuinely free → return ``True``
+        * ``bind()`` raises ``OSError(EADDRINUSE)`` → something still holds
+          it → return ``False``
+
+        We close the socket immediately after the check so the promotion path
+        can do its own bind via the Rust ``GatewayRunner``.
         """
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
-            sock.settimeout(self._probe_timeout)
-            err = sock.connect_ex((self._gateway_host, self._gateway_port))
-            return err != 0
-        except OSError:
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            probe.bind((self._gateway_host, self._gateway_port))
+            # Port is free — close immediately so the real promotion path
+            # can bind it via GatewayRunner without EADDRINUSE.
             return True
+        except OSError:
+            # EADDRINUSE (or any bind error): something holds the port.
+            return False
         finally:
             with contextlib.suppress(Exception):
-                sock.close()
+                probe.close()
 
     def _upgrade_to_gateway(self) -> bool:
         """Perform the real promotion to gateway mode.
