@@ -29,6 +29,15 @@ from dcc_mcp_core._server.minimal_mode import MinimalModeConfig
 from dcc_mcp_core._server.observability import FileLoggingManager
 from dcc_mcp_core._server.observability import JobPersistenceManager
 from dcc_mcp_core._server.observability import TelemetryManager
+from dcc_mcp_core._server.options import BridgeExecution
+from dcc_mcp_core._server.options import DccServerOptions
+from dcc_mcp_core._server.options import DiagnosticsOptions
+from dcc_mcp_core._server.options import DispatcherExecution
+from dcc_mcp_core._server.options import ExecutionMode
+from dcc_mcp_core._server.options import ExecutionOptions
+from dcc_mcp_core._server.options import GatewayOptions
+from dcc_mcp_core._server.options import InlineExecution
+from dcc_mcp_core._server.options import ObservabilityOptions
 from dcc_mcp_core._server.skill_query import SkillQueryClient
 from dcc_mcp_core._server.window_resolver import WindowResolver
 
@@ -39,16 +48,25 @@ __all__ = [
     "BaseDccCallableDispatcher",
     "BaseDccCallableDispatcherFull",
     "BaseDccPump",
+    "BridgeExecution",
+    "DccServerOptions",
     "DeferredToolResult",
+    "DiagnosticsOptions",
+    "DispatcherExecution",
     "DrainStats",
+    "ExecutionMode",
+    "ExecutionOptions",
     "FileLoggingManager",
+    "GatewayOptions",
     "HostExecutionBridge",
     "InProcessCallableDispatcher",
     "InProcessExecutionContext",
+    "InlineExecution",
     "JobEntry",
     "JobOutcome",
     "JobPersistenceManager",
     "MinimalModeConfig",
+    "ObservabilityOptions",
     "PendingEnvelope",
     "PumpStats",
     "SkillQueryClient",

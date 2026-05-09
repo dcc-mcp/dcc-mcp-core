@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Any
 from typing import Callable
 from typing import Mapping
+from unittest.mock import MagicMock
+from unittest.mock import patch
 
 # Import third-party modules
 import pytest
@@ -451,12 +453,21 @@ def _patch_set_in_process_executor(server_base: Any, sink: list[Callable[..., An
     server_base._server = _Sink(server_base._server)
 
 
-def test_register_inprocess_executor_calls_underlying_setter() -> None:
+def test_register_inprocess_executor_calls_underlying_setter(tmp_path: Path) -> None:
     # Import local modules
-    from dcc_mcp_core import McpHttpConfig
+    from dcc_mcp_core._server.options import DccServerOptions
     from dcc_mcp_core.server_base import DccServerBase
 
-    base = DccServerBase("test_inproc_a", McpHttpConfig(port=0))
+    opts = DccServerOptions.from_env(
+        "test_inproc_a",
+        tmp_path,
+        port=0,
+        enable_file_logging=False,
+        enable_job_persistence=False,
+        enable_telemetry=False,
+    )
+    with patch("dcc_mcp_core.create_skill_server", return_value=MagicMock()):
+        base = DccServerBase(options=opts)
     captured: list[Callable[..., Any]] = []
     _patch_set_in_process_executor(base, captured)
 
@@ -467,10 +478,19 @@ def test_register_inprocess_executor_calls_underlying_setter() -> None:
 
 def test_register_inprocess_executor_with_dispatcher_routes(tmp_path: Path) -> None:
     # Import local modules
-    from dcc_mcp_core import McpHttpConfig
+    from dcc_mcp_core._server.options import DccServerOptions
     from dcc_mcp_core.server_base import DccServerBase
 
-    base = DccServerBase("test_inproc_b", McpHttpConfig(port=0))
+    opts = DccServerOptions.from_env(
+        "test_inproc_b",
+        tmp_path,
+        port=0,
+        enable_file_logging=False,
+        enable_job_persistence=False,
+        enable_telemetry=False,
+    )
+    with patch("dcc_mcp_core.create_skill_server", return_value=MagicMock()):
+        base = DccServerBase(options=opts)
     captured: list[Callable[..., Any]] = []
     _patch_set_in_process_executor(base, captured)
 
@@ -501,6 +521,7 @@ def test_dcc_server_base_constructor_registers_dispatcher_before_discovery(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Import local modules
+    from dcc_mcp_core._server.options import DccServerOptions
     from dcc_mcp_core.server_base import DccServerBase
 
     events: list[str] = []
@@ -521,7 +542,7 @@ def test_dcc_server_base_constructor_registers_dispatcher_before_discovery(
         def dispatch_callable(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
             return func(*args, **kwargs)
 
-    base = DccServerBase(
+    opts = DccServerOptions.from_env(
         "test_inproc_ctor",
         tmp_path,
         port=0,
@@ -530,6 +551,7 @@ def test_dcc_server_base_constructor_registers_dispatcher_before_discovery(
         enable_job_persistence=False,
         enable_telemetry=False,
     )
+    base = DccServerBase(options=opts)
     base.register_builtin_actions(include_bundled=False)
 
     assert events == ["set_in_process_executor", "discover"]
@@ -540,6 +562,7 @@ def test_dcc_server_base_constructor_registers_execution_bridge_before_discovery
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Import local modules
+    from dcc_mcp_core._server.options import DccServerOptions
     from dcc_mcp_core.server_base import DccServerBase
 
     events: list[str] = []
@@ -557,7 +580,7 @@ def test_dcc_server_base_constructor_registers_execution_bridge_before_discovery
     monkeypatch.setattr(dcc_mcp_core, "create_skill_server", lambda *_args, **_kwargs: fake_server)
 
     bridge = HostExecutionBridge()
-    base = DccServerBase(
+    opts = DccServerOptions.from_env(
         "test_host_bridge_ctor",
         tmp_path,
         port=0,
@@ -566,6 +589,7 @@ def test_dcc_server_base_constructor_registers_execution_bridge_before_discovery
         enable_job_persistence=False,
         enable_telemetry=False,
     )
+    base = DccServerBase(options=opts)
     base.register_builtin_actions(include_bundled=False)
 
     assert events == ["set_in_process_executor", "discover"]

@@ -58,6 +58,7 @@ from pathlib import Path
 import sys
 from typing import Any
 from typing import Callable
+import warnings
 import weakref
 
 # NOTE: dcc_mcp_core imports (McpHttpConfig, create_skill_server, get_*,
@@ -74,6 +75,9 @@ from dcc_mcp_core._server.inprocess_executor import HostExecutionBridge
 from dcc_mcp_core._server.inprocess_executor import build_inprocess_executor
 from dcc_mcp_core._server.minimal_mode import MinimalModeConfig
 from dcc_mcp_core._server.minimal_mode import apply_minimal_mode
+from dcc_mcp_core._server.options import DccServerOptions
+from dcc_mcp_core._server.options import _BridgeExecution
+from dcc_mcp_core._server.options import _DispatcherExecution
 from dcc_mcp_core.gateway_election import DccGatewayElection
 from dcc_mcp_core.hotreload import DccSkillHotReloader
 
@@ -87,61 +91,47 @@ class DccServerBase:
     All generic skill management, hot-reload, and gateway election logic is
     provided here so DCC adapters stay thin (~100 LOC each).
 
+    **Preferred construction** — pass a :class:`~dcc_mcp_core._server.options.DccServerOptions`
+    object so every cross-cutting concern is configured in one frozen value::
+
+        opts = DccServerOptions.from_env("blender", Path(__file__).parent / "skills")
+        server = DccServerBase(options=opts)
+
+    **Legacy construction** — the original 17-parameter signature still works
+    but emits a :class:`DeprecationWarning`.  It will be removed in a future
+    minor release after all known adapters have migrated::
+
+        server = DccServerBase(dcc_name="blender", builtin_skills_dir=..., port=8765)
+
     Args:
-        dcc_name: Short DCC identifier (``"maya"``, ``"blender"``, …).
-            Used for logging, env-var names, and gateway labels.
-        builtin_skills_dir: Path to the adapter's bundled ``skills/`` directory.
-            Typically ``Path(__file__).parent / "skills"``.
-        port: TCP port for the MCP HTTP server. ``0`` → OS picks a free port.
-        server_name: Name reported in the MCP ``initialize`` response.
-        server_version: Version reported in the MCP ``initialize`` response.
-            Defaults to the installed ``dcc_mcp_core`` package version.
-        gateway_port: Port for the multi-DCC first-wins gateway competition.
-            ``None`` reads ``DCC_MCP_GATEWAY_PORT`` env var; ``0`` disables gateway.
-        registry_dir: Directory for the shared ``FileRegistry`` JSON file.
-        dcc_version: DCC application version string for the gateway registry.
-        scene: Currently open scene file path for the gateway registry.
-        enable_gateway_failover: Enable automatic gateway failover / election.
-        dcc_pid: Process ID of the DCC application that owns this server.
-            Defaults to ``os.getpid()``. In bridge-mode adapters (e.g. Photoshop)
-            this MUST be set to the hosted DCC's PID, not the adapter's.
-        dcc_window_title: Substring of the DCC application window title used
-            to resolve the owner window for diagnostic screenshots.
-        dcc_window_handle: Pre-resolved native window handle (HWND on Windows,
-            XID on X11). When supplied, takes precedence over PID/title lookup.
-        enable_file_logging: Automatically initialise rolling file logging on
-            construction so that all ``tracing`` events (Rust) and Python
-            ``logging`` records are written to
-            ``<log_dir>/dcc-mcp-<dcc_name>.<pid>.<date>.log``.  Set
-            ``DCC_MCP_DISABLE_FILE_LOGGING=1`` env var to override at runtime.
-            Default ``True``.
-        enable_job_persistence: Persist tracked jobs to a SQLite database
-            inside the log directory so that tool-call history (including
-            failures) survives server restarts and is queryable via
-            ``diagnostics__audit_log`` / ``jobs.get_status``.  Requires the
-            ``job-persist-sqlite`` wheel feature; silently skipped when the
-            feature is absent.  Set ``DCC_MCP_DISABLE_JOB_PERSISTENCE=1`` to
-            override.  Default ``True``.
-        dispatcher: Optional host callable dispatcher installed immediately
-            after the inner ``McpHttpServer`` is created and before any
-            subsequent ``register_builtin_actions()`` / skill loading call.
-            Embedded adapters should pass their UI/main-thread dispatcher here
-            instead of attaching it after startup.
-        execution_bridge: Optional :class:`HostExecutionBridge` that owns
-            in-process script execution and direct host callable dispatch.
-            Prefer this for new adapters; ``dispatcher`` remains as the
-            lightweight compatibility shortcut.
-        enable_telemetry: Initialise in-process metrics collection via
-            ``TelemetryConfig`` so that ``diagnostics__tool_metrics`` returns
-            real latency and success-rate data.  Set
-            ``DCC_MCP_DISABLE_TELEMETRY=1`` to override.  Default ``True``.
+        options: A fully-configured :class:`~dcc_mcp_core._server.options.DccServerOptions`
+            instance.  When provided, all other keyword arguments are ignored.
+        dcc_name: **(Legacy)** Short DCC identifier.
+        builtin_skills_dir: **(Legacy)** Path to bundled skills directory.
+        port: **(Legacy)** TCP port for the MCP HTTP server.
+        server_name: **(Legacy)** Name in the MCP ``initialize`` response.
+        server_version: **(Legacy)** Version in the MCP ``initialize`` response.
+        gateway_port: **(Legacy)** Gateway competition port.
+        registry_dir: **(Legacy)** Directory for the shared FileRegistry JSON.
+        dcc_version: **(Legacy)** DCC application version string.
+        scene: **(Legacy)** Currently open scene file path.
+        enable_gateway_failover: **(Legacy)** Enable gateway failover.
+        dcc_pid: **(Legacy)** Process ID of the DCC application.
+        dcc_window_title: **(Legacy)** DCC window title substring.
+        dcc_window_handle: **(Legacy)** Pre-resolved native window handle.
+        dispatcher: **(Legacy)** Optional host callable dispatcher.
+        execution_bridge: **(Legacy)** Optional HostExecutionBridge.
+        enable_file_logging: **(Legacy)** Enable rolling file logging.
+        enable_job_persistence: **(Legacy)** Enable SQLite job history.
+        enable_telemetry: **(Legacy)** Enable in-process metrics.
+        snapshot_provider: **(Legacy)** Post-tool context snapshot callable.
 
     """
 
     def __init__(
         self,
-        dcc_name: str,
-        builtin_skills_dir: Path,
+        dcc_name: str | None = None,
+        builtin_skills_dir: Path | None = None,
         port: int = 8765,
         server_name: str | None = None,
         server_version: str | None = None,
@@ -151,6 +141,7 @@ class DccServerBase:
         scene: str | None = None,
         enable_gateway_failover: bool = True,
         *,
+        options: DccServerOptions | None = None,
         dcc_pid: int | None = None,
         dcc_window_title: str | None = None,
         dcc_window_handle: int | None = None,
@@ -161,118 +152,151 @@ class DccServerBase:
         enable_telemetry: bool = True,
         snapshot_provider: Any | None = None,
     ) -> None:
+        if options is not None:
+            # New path: all configuration is in the DccServerOptions object.
+            self._init_from_options(options)
+            return
+
+        # Legacy path — warn and build an options object from the flat kwargs.
+        if dcc_name is None or builtin_skills_dir is None:
+            raise TypeError("DccServerBase() requires either 'options' or both 'dcc_name' and 'builtin_skills_dir'")
+
+        warnings.warn(
+            "Passing individual keyword arguments to DccServerBase() is deprecated. "
+            "Use DccServerOptions.from_env() and pass 'options=...' instead. "
+            "The legacy signature will be removed in a future minor release.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
+        opts = DccServerOptions.from_env(
+            dcc_name,
+            builtin_skills_dir,
+            port=port,
+            server_name=server_name,
+            server_version=server_version,
+            gateway_port=gateway_port,
+            registry_dir=registry_dir,
+            dcc_version=dcc_version,
+            scene=scene,
+            enable_gateway_failover=enable_gateway_failover,
+            dcc_pid=dcc_pid,
+            dcc_window_title=dcc_window_title,
+            dcc_window_handle=dcc_window_handle,
+            dispatcher=dispatcher,
+            execution_bridge=execution_bridge,
+            enable_file_logging=enable_file_logging,
+            enable_job_persistence=enable_job_persistence,
+            enable_telemetry=enable_telemetry,
+            snapshot_provider=snapshot_provider,
+        )
+        self._init_from_options(opts)
+
+    def _init_from_options(self, options: DccServerOptions) -> None:
+        """Wire all collaborators from a fully-resolved :class:`DccServerOptions`.
+
+        This is the single real constructor path; ``__init__`` (both new and
+        legacy) delegates here after producing a ``DccServerOptions`` object.
+        """
         # Deferred: circular import — __init__.py imports DccServerBase from
         # this module, so we cannot import from dcc_mcp_core at module level.
         from dcc_mcp_core import McpHttpConfig
         from dcc_mcp_core import __version__ as _pkg_version
         from dcc_mcp_core import create_skill_server
 
-        self._dcc_name = dcc_name
-        self._builtin_skills_dir = builtin_skills_dir
+        self._options = options
+        self._dcc_name = options.dcc_name
+        self._builtin_skills_dir = options.builtin_skills_dir
         self._handle: Any | None = None
-        self._enable_gateway_failover = enable_gateway_failover
+        self._enable_gateway_failover = options.gateway.enable_failover
 
-        # Observability flags (env var can override at runtime). These mirror
-        # the collaborators' `enabled` state so external consumers and tests
-        # can introspect / patch them directly.
+        # Observability flags (env var can override at runtime).
+        obs = options.observability
         self._enable_file_logging: bool = (
-            enable_file_logging and os.environ.get("DCC_MCP_DISABLE_FILE_LOGGING", "0") != "1"
+            obs.enable_file_logging and os.environ.get("DCC_MCP_DISABLE_FILE_LOGGING", "0") != "1"
         )
         self._enable_job_persistence: bool = (
-            enable_job_persistence and os.environ.get("DCC_MCP_DISABLE_JOB_PERSISTENCE", "0") != "1"
+            obs.enable_job_persistence and os.environ.get("DCC_MCP_DISABLE_JOB_PERSISTENCE", "0") != "1"
         )
-        self._enable_telemetry: bool = enable_telemetry and os.environ.get("DCC_MCP_DISABLE_TELEMETRY", "0") != "1"
+        self._enable_telemetry: bool = obs.enable_telemetry and os.environ.get("DCC_MCP_DISABLE_TELEMETRY", "0") != "1"
 
-        # Instance-bound DCC diagnostic context (kept as direct attributes
-        # for backward compatibility — WindowResolver wraps them below).
-        self._dcc_pid: int = dcc_pid if dcc_pid is not None else os.getpid()
-        self._dcc_window_title: str | None = dcc_window_title
-        self._dcc_window_handle: int | None = dcc_window_handle
-        if dispatcher is not None and execution_bridge is not None:
-            raise ValueError("Pass either dispatcher or execution_bridge, not both")
-        self._execution_bridge: HostExecutionBridge | None = execution_bridge
-        self._dcc_dispatcher: BaseDccCallableDispatcher | None = (
-            execution_bridge.dispatcher if execution_bridge is not None else dispatcher
-        )
+        # DCC diagnostic context
+        diag = options.diagnostics
+        self._dcc_pid: int = diag.dcc_pid if diag.dcc_pid is not None else os.getpid()
+        self._dcc_window_title: str | None = diag.window_title
+        self._dcc_window_handle: int | None = diag.window_handle
+
+        # Resolve execution mode from the tagged union
+        exec_mode = options.execution.mode
+        if isinstance(exec_mode, _BridgeExecution):
+            self._execution_bridge: HostExecutionBridge | None = exec_mode.bridge
+            self._dcc_dispatcher: BaseDccCallableDispatcher | None = exec_mode.bridge.dispatcher
+        elif isinstance(exec_mode, _DispatcherExecution):
+            self._execution_bridge = None
+            self._dcc_dispatcher = exec_mode.dispatcher
+        else:  # InlineExecution
+            self._execution_bridge = None
+            self._dcc_dispatcher = None
+
         self._inprocess_executor_registered: bool = False
         self._cached_hwnd: int | None = None
 
-        # Resolve gateway port
-        effective_gateway_port: int = 0
-        if gateway_port is not None:
-            effective_gateway_port = gateway_port
-        else:
-            env_val = os.environ.get("DCC_MCP_GATEWAY_PORT", "")
-            if env_val.isdigit():
-                effective_gateway_port = int(env_val)
-
         # ── File logging ──────────────────────────────────────────────────────
-        # Start as early as possible so that config / skill-scan errors land in
-        # the log file, not just on stderr (which most DCCs swallow).
-        self._log_dir: str = self._init_file_logging(dcc_name)
+        self._log_dir: str = self._init_file_logging(options.dcc_name)
 
-        # Emit a single version banner so CI logs and user bug reports always
-        # identify the dcc-mcp-core release in use (pid/platform included to
-        # disambiguate multi-process DCCs like Maya + mayapy subprocesses).
         logger.info(
             "[%s] dcc-mcp-core %s (pid=%d, python=%s, platform=%s)",
-            dcc_name,
+            options.dcc_name,
             _pkg_version,
             self._dcc_pid,
             "{}.{}.{}".format(*sys.version_info[:3]),
             sys.platform,
         )
 
-        # Build McpHttpConfig — port must be passed at construction time (read-only after init)
+        # Build McpHttpConfig
+        gw = options.gateway
         self._config = McpHttpConfig(
-            port=port,
-            server_name=server_name or f"{dcc_name}-mcp",
-            server_version=server_version if server_version is not None else _pkg_version,
+            port=options.port,
+            server_name=options.server_name or f"{options.dcc_name}-mcp",
+            server_version=options.server_version if options.server_version is not None else _pkg_version,
         )
-        if effective_gateway_port > 0:
-            self._config.gateway_port = effective_gateway_port
-        # registry_dir: explicit param wins; fall back to DCC_MCP_REGISTRY_DIR env var
-        effective_registry_dir = registry_dir or os.environ.get("DCC_MCP_REGISTRY_DIR", "")
-        if effective_registry_dir:
-            self._config.registry_dir = effective_registry_dir
-        resolved_dcc_version = dcc_version if dcc_version is not None else self._version_string()
+        if gw.port is not None and gw.port > 0:
+            self._config.gateway_port = gw.port
+        if gw.registry_dir:
+            self._config.registry_dir = gw.registry_dir
+        resolved_dcc_version = gw.dcc_version if gw.dcc_version is not None else self._version_string()
         if resolved_dcc_version:
             self._config.dcc_version = resolved_dcc_version
-        if scene:
-            self._config.scene = scene
-        # Always stamp the DCC type so gateway registry knows which DCC this is
-        self._config.dcc_type = dcc_name
-        self._config.instance_metadata = self._context_metadata_from_env(dcc_name)
+        if gw.scene:
+            self._config.scene = gw.scene
+        self._config.dcc_type = options.dcc_name
+        self._config.instance_metadata = self._context_metadata_from_env(options.dcc_name)
 
         # ── Job persistence ───────────────────────────────────────────────────
-        # Wire a per-DCC SQLite database for job history so that tool-call
-        # failures (like the ones in the screenshots) are queryable after
-        # the fact via `diagnostics__audit_log` / `jobs.get_status`.
-        self._init_job_persistence(dcc_name)
+        self._init_job_persistence(options.dcc_name)
 
-        # Create the inner skill manager (registry + dispatcher + catalog)
-        self._server: Any = create_skill_server(dcc_name, self._config)
-        if execution_bridge is not None:
-            self.register_host_execution_bridge(execution_bridge)
-        elif dispatcher is not None:
-            self.register_inprocess_executor(dispatcher)
+        # Create the inner skill manager
+        self._server: Any = create_skill_server(options.dcc_name, self._config)
 
-        # Composed collaborators (#486) — constructed eagerly here, but the
-        # `_skill_client` / `_window_resolver` properties below also fall
-        # back to lazy construction so test doubles built via
-        # ``object.__new__`` (which skips this ``__init__``) still work.
-        self._skill_client = SkillQueryClient(self._server, dcc_name)
+        # Wire execution bridge / dispatcher
+        if isinstance(exec_mode, _BridgeExecution):
+            self.register_host_execution_bridge(exec_mode.bridge)
+        elif isinstance(exec_mode, _DispatcherExecution):
+            self.register_inprocess_executor(exec_mode.dispatcher)
+
+        # Composed collaborators
+        self._skill_client = SkillQueryClient(self._server, options.dcc_name)
         self._window_resolver = WindowResolver(
-            dcc_name=dcc_name,
+            dcc_name=options.dcc_name,
             dcc_pid=self._dcc_pid,
-            dcc_window_handle=dcc_window_handle,
-            dcc_window_title=dcc_window_title,
+            dcc_window_handle=diag.window_handle,
+            dcc_window_title=diag.window_title,
         )
 
         # Lazy-initialised helpers
         self._hot_reloader: Any | None = None
         self._gateway_election: Any | None = None
-        self._snapshot_provider: Any | None = snapshot_provider
+        self._snapshot_provider: Any | None = diag.snapshot_provider
         self._quit_hooks: list[Callable[[], Any]] = []
         self._quit_hooks_ran: bool = False
         self._atexit_registered: bool = False
