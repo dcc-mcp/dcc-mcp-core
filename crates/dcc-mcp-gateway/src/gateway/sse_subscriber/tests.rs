@@ -25,6 +25,24 @@ fn backoff_delay_grows_exponentially_and_caps() {
     assert!(d >= floor, "saturated backoff={d}ms below floor {floor}ms");
 }
 
+/// Regression test for issue #861 — the circuit opens once `attempt`
+/// reaches `CIRCUIT_OPEN_THRESHOLD` and the backoff stays at max (not below).
+#[test]
+fn backoff_delay_stays_bounded_at_threshold() {
+    let at_threshold = backoff_delay(CIRCUIT_OPEN_THRESHOLD);
+    let above_threshold = backoff_delay(CIRCUIT_OPEN_THRESHOLD + 100);
+    // Both must be capped at RECONNECT_MAX ± jitter.
+    let cap_with_jitter = (RECONNECT_MAX.as_millis() as f32 * 1.25) as u128;
+    assert!(
+        at_threshold.as_millis() <= cap_with_jitter,
+        "at threshold={at_threshold:?} exceeds cap"
+    );
+    assert!(
+        above_threshold.as_millis() <= cap_with_jitter,
+        "above threshold={above_threshold:?} exceeds cap"
+    );
+}
+
 #[test]
 fn progress_token_key_distinguishes_string_and_number_tokens() {
     let s = progress_token_key(&Value::String("abc".into()));
