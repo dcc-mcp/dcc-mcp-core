@@ -335,25 +335,24 @@ class TestDccServerBase:
 
     def _make_server(self, tmp_path, dcc_name="fake-dcc"):
         """Create a DccServerBase without calling the real __init__ (no Rust deps)."""
-        from dcc_mcp_core.server_base import DccServerBase
+        from dcc_mcp_core._testing import make_test_server
 
         skills_dir = tmp_path / "skills"
         skills_dir.mkdir(exist_ok=True)
 
-        # Bypass __init__ to avoid needing compiled _core
-        server = object.__new__(DccServerBase)
-        server._dcc_name = dcc_name
-        server._builtin_skills_dir = skills_dir
-        server._handle = None
-        server._enable_gateway_failover = False
-        server._hot_reloader = None
-        server._gateway_election = None
-        server._config = _FakeConfig()
-        server._server = _FakeDccServer()
-        server._enable_telemetry = False
-        server._enable_file_logging = False
-        server._enable_job_persistence = False
-        return server
+        return make_test_server(
+            server=_FakeDccServer(),
+            dcc_name=dcc_name,
+            _builtin_skills_dir=skills_dir,
+            _handle=None,
+            _enable_gateway_failover=False,
+            _hot_reloader=None,
+            _gateway_election=None,
+            _config=_FakeConfig(),
+            _enable_telemetry=False,
+            _enable_file_logging=False,
+            _enable_job_persistence=False,
+        )
 
     def test_initial_state(self, tmp_path):
         server = self._make_server(tmp_path)
