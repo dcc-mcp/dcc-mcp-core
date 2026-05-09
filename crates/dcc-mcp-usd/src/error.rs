@@ -3,6 +3,7 @@
 use thiserror::Error;
 
 /// Errors that can occur when working with USD scenes.
+#[must_use]
 #[derive(Debug, Error)]
 pub enum UsdError {
     /// A required prim path was not found in the stage.
@@ -43,6 +44,7 @@ pub enum UsdError {
 }
 
 /// Result alias for USD operations.
+#[must_use]
 pub type UsdResult<T> = Result<T, UsdError>;
 
 // ── Tests ──────────────────────────────────────────────────────────────────

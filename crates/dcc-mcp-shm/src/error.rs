@@ -4,6 +4,7 @@ use std::io;
 use thiserror::Error;
 
 /// All errors produced by this crate.
+#[must_use]
 #[derive(Debug, Error)]
 pub enum ShmError {
     /// The requested shared memory region name is already in use.
@@ -60,6 +61,7 @@ pub enum ShmError {
 }
 
 /// Convenience result alias.
+#[must_use]
 pub type ShmResult<T> = Result<T, ShmError>;
 
 // ── Tests ──────────────────────────────────────────────────────────────────

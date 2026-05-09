@@ -106,6 +106,7 @@ pub struct WorkflowStorage {
 }
 
 /// Errors returned by [`WorkflowStorage`].
+#[must_use]
 #[derive(Debug, thiserror::Error)]
 pub enum WorkflowStorageError {
     /// Wrapped `rusqlite` error.

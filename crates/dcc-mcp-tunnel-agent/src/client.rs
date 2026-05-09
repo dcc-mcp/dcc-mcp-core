@@ -179,6 +179,7 @@ async fn bridge_session(
 }
 
 /// Errors surfaced by [`run_once`].
+#[must_use]
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
     /// TCP dial to the relay or local backend failed.

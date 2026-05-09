@@ -3,6 +3,7 @@
 use thiserror::Error;
 
 /// Errors returned by the scheduler.
+#[must_use]
 #[derive(Debug, Error)]
 pub enum SchedulerError {
     /// YAML parse / IO failure while loading a `*.schedules.yaml` file.

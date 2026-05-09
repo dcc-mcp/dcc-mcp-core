@@ -1,6 +1,7 @@
 use thiserror::Error;
 
 /// Errors returned by the catalog loader.
+#[must_use]
 #[derive(Debug, Error)]
 pub enum CatalogError {
     #[error("catalog I/O error for '{0}': {1}")]

@@ -3,6 +3,7 @@
 use thiserror::Error;
 
 /// Errors that can occur during telemetry operations.
+#[must_use]
 #[derive(Debug, Error)]
 pub enum TelemetryError {
     /// The telemetry provider has not been initialized.

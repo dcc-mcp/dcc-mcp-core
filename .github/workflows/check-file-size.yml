@@ -1,0 +1,99 @@
+name: Check File Size
+
+# Enforce maximum file sizes to prevent god-objects from growing unchecked.
+# Files already above the limit are tracked as technical debt in their own
+# issues (#841 backend_client.rs, #849 __init__.py, etc.) and listed in
+# .github/file-size-exemptions.txt.  New files must stay within the limits.
+#
+# Limits (issue #842):
+#   - .rs files: 600 lines (test files excluded)
+#   - .py files: 400 lines (test files excluded)
+
+on:
+  pull_request:
+    paths:
+      - "**.rs"
+      - "**.py"
+  push:
+    branches:
+      - main
+
+jobs:
+  check-file-size:
+    name: File size gate
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check Rust file sizes
+        run: |
+          set -euo pipefail
+          MAX_RS=600
+          EXEMPTIONS=".github/file-size-exemptions.txt"
+          FAIL=0
+
+          while IFS= read -r -d '' file; do
+            lines=$(wc -l < "$file")
+            # Skip pure test files (files only containing #[cfg(test)] modules
+            # are typically under tests/ directories or named *_tests.rs)
+            base=$(basename "$file")
+            dir=$(dirname "$file")
+            if [[ "$dir" == */tests* ]] || [[ "$base" == *_tests.rs ]] || [[ "$base" == tests.rs ]]; then
+              continue
+            fi
+
+            if [ "$lines" -gt "$MAX_RS" ]; then
+              # Check if this file is in the exemptions list
+              if [ -f "$EXEMPTIONS" ] && grep -qF "$file" "$EXEMPTIONS"; then
+                echo "⚠️  EXEMPT  $file ($lines lines)"
+              else
+                echo "❌ FAIL    $file ($lines lines, max $MAX_RS)"
+                FAIL=1
+              fi
+            fi
+          done < <(find crates/ -name "*.rs" -print0)
+
+          if [ "$FAIL" -eq 1 ]; then
+            echo ""
+            echo "One or more Rust files exceed ${MAX_RS} lines."
+            echo "Either split the file (preferred) or add it to .github/file-size-exemptions.txt"
+            echo "with a comment linking to a tracking issue."
+            exit 1
+          fi
+          echo "✅ All Rust files are within the ${MAX_RS}-line limit."
+
+      - name: Check Python file sizes
+        run: |
+          set -euo pipefail
+          MAX_PY=400
+          EXEMPTIONS=".github/file-size-exemptions.txt"
+          FAIL=0
+
+          while IFS= read -r -d '' file; do
+            lines=$(wc -l < "$file")
+            # Skip test files
+            base=$(basename "$file")
+            dir=$(dirname "$file")
+            if [[ "$dir" == */tests* ]] || [[ "$base" == test_*.py ]] || [[ "$base" == *_test.py ]]; then
+              continue
+            fi
+
+            if [ "$lines" -gt "$MAX_PY" ]; then
+              if [ -f "$EXEMPTIONS" ] && grep -qF "$file" "$EXEMPTIONS"; then
+                echo "⚠️  EXEMPT  $file ($lines lines)"
+              else
+                echo "❌ FAIL    $file ($lines lines, max $MAX_PY)"
+                FAIL=1
+              fi
+            fi
+          done < <(find python/ -name "*.py" -print0)
+
+          if [ "$FAIL" -eq 1 ]; then
+            echo ""
+            echo "One or more Python files exceed ${MAX_PY} lines."
+            echo "Either split the file (preferred) or add it to .github/file-size-exemptions.txt"
+            echo "with a comment linking to a tracking issue."
+            exit 1
+          fi
+          echo "✅ All Python files are within the ${MAX_PY}-line limit."

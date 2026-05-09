@@ -205,6 +205,7 @@ impl Drop for ItemGuard {
 // ── Template rendering ───────────────────────────────────────────────────
 
 /// Template / path resolution errors.
+#[must_use]
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum TemplateError {
     /// Template reference could not be resolved against the context.

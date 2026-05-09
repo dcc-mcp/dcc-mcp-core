@@ -69,6 +69,7 @@ pub const DEFAULT_DCC: &str = "python";
 pub const DEFAULT_VERSION: &str = "1.0.0";
 
 /// Reasons a name can fail validation.
+#[must_use]
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum NamingError {
     /// Name is the empty string.

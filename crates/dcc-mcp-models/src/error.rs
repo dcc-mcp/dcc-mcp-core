@@ -23,6 +23,7 @@ use thiserror::Error;
 /// fine-grained errors. Crate-local errors should keep their own typed
 /// enums and convert *into* `DccMcpError` only when bubbling across a
 /// crate boundary.
+#[must_use]
 #[derive(Debug, Clone, PartialEq, Eq, Error, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "message")]
 pub enum DccMcpError {

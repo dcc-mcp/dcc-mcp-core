@@ -8,6 +8,7 @@ use thiserror::Error;
 /// transport handle, so the same type can describe failures observed by the
 /// agent (decoding the relay's reply) and by the relay (decoding the agent's
 /// register request).
+#[must_use]
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum ProtocolError {

@@ -15,6 +15,7 @@ use crate::scanner::SkillScanner;
 // ── Error type ──
 
 /// Errors that can occur during skill watching.
+#[must_use]
 #[derive(Debug, thiserror::Error)]
 pub enum WatcherError {
     /// A path could not be watched.

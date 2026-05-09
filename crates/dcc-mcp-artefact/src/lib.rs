@@ -169,6 +169,7 @@ pub struct ArtefactFilter {
 }
 
 /// Errors returned by [`ArtefactStore`] methods.
+#[must_use]
 #[derive(Debug, thiserror::Error)]
 pub enum ArtefactError {
     #[error("artefact not found: {0}")]

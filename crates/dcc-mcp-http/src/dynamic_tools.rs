@@ -235,6 +235,7 @@ impl SessionDynamicTools {
 
 // ── Errors ────────────────────────────────────────────────────────────────────
 
+#[must_use]
 #[derive(Debug, thiserror::Error)]
 pub enum DynamicToolError {
     #[error("tool name is empty or contains invalid characters (allowed: a-z A-Z 0-9 _ -)")]
