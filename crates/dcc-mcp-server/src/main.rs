@@ -736,28 +736,18 @@ async fn main() -> anyhow::Result<()> {
         server_name: args.server_name.clone(),
         server_version: env!("CARGO_PKG_VERSION").to_string(),
         registry_dir: registry_dir_path,
-        allow_unknown_tools: false,
-        challenger_timeout_secs: 120,
-        backend_timeout_ms: 10_000,
-        async_dispatch_timeout_ms: 60_000,
-        wait_terminal_timeout_ms: 600_000,
-        route_ttl_secs: 60 * 60 * 24,
-        max_routes_per_session: 1_000,
         // Issue maya#137: standalone server has no adapter package, so the
         // election treats it as the lowest tier and yields to any real
         // DCC adapter at equal crate version.
-        adapter_version: None,
         adapter_dcc: if args.app.is_empty() {
             None
         } else {
             Some(args.app.clone())
         },
         cursor_safe_tool_names: args.gateway_cursor_safe_tool_names,
-        middleware_chain: dcc_mcp_gateway::middleware::MiddlewareChain::new(),
         admin_enabled: !args.no_admin,
         admin_path: args.admin_path.clone(),
-        health_check_interval_secs: 5,
-        health_check_failures: 2,
+        ..GatewayConfig::default()
     };
 
     let runner = GatewayRunner::new(gateway_cfg)
