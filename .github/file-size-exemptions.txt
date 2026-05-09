@@ -8,6 +8,7 @@
 #
 # Limits enforced by .github/workflows/check-file-size.yml:
 #   Rust  : 1500 lines (test files excluded)
-#   Python:  400 lines (test files excluded)
-#
-# Currently no files exceed the limits — keep this file empty.
+#   Python: 1000 lines (test files excluded)
+
+# issue #849 — server_base.py is a 1162-line god module; tracked for split
+python/dcc_mcp_core/server_base.py
