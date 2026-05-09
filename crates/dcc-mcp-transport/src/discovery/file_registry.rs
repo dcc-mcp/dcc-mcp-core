@@ -52,6 +52,18 @@ pub struct FileRegistry {
     /// Last-seen modification time of services.json.
     /// Used to detect external writes (hot-reload).
     last_mtime: Mutex<Option<SystemTime>>,
+    /// Serialises concurrent in-process writers so they share a single
+    /// stable temp filename (`.tmp.<pid>.services.json`) instead of
+    /// generating a fresh `(pid, tid, seq)` path per write.
+    ///
+    /// A per-write unique filename is AV/EDR-pathological on Windows:
+    /// every new filename triggers a full minifilter altitude walk
+    /// (content scan + cloud reputation lookup on enterprise hosts),
+    /// causing multi-second stalls on the calling thread (issue #853).
+    /// Serialising writers within this process eliminates the need for
+    /// uniqueness in the temp path — cross-process races on the *target*
+    /// path are still handled by the rename retry loop.
+    write_lock: Mutex<()>,
 }
 
 impl FileRegistry {
@@ -71,6 +83,7 @@ impl FileRegistry {
             registry_dir,
             sentinel_handles: DashMap::new(),
             last_mtime: Mutex::new(None),
+            write_lock: Mutex::new(()),
         };
 
         // Load existing entries
@@ -648,7 +661,7 @@ impl FileRegistry {
         })?;
 
         let path = self.registry_file_path();
-        Self::write_atomic(&path, content)?;
+        self.write_atomic(&path, content)?;
 
         // Update cached mtime after write
         let _ = self.update_mtime();
@@ -658,37 +671,37 @@ impl FileRegistry {
 
     /// Atomically write `content` to `path` using a temp file + rename.
     ///
-    /// The original implementation of issue #554 used an exclusive
-    /// `share_mode(0)` advisory lock file plus a temp filename keyed only on
-    /// the process id. Both choices caused regressions: concurrent in-process
-    /// writers (sentinel heartbeat + multiple backend heartbeats) raced on
-    /// the same temp path, and the exclusive lock file made one of two
-    /// concurrent writers fail outright with `PermissionDenied` so the loser's
-    /// entry never reached `services.json`. The downstream symptom was the
-    /// gateway facade only seeing one of two backends in
-    /// `test_gateway_facade_aggregation` (issue #560 follow-up).
+    /// ## Design (issue #853)
     ///
-    /// The lock has been removed in favour of two cheaper, cross-platform
-    /// invariants that still satisfy the original "no half-written file"
-    /// requirement of #554:
+    /// The original implementation (issue #560) used a per-write unique temp
+    /// filename keyed on `(pid, tid, seq)` to allow multiple in-process
+    /// writers to proceed concurrently without sharing the temp path.
     ///
-    /// 1. The temp filename is unique per write — process id, thread id, and
-    ///    a process-wide monotonic counter — so two writers in the same
-    ///    process never share a temp path.
-    /// 2. The temp file is renamed onto the target with a small bounded retry
-    ///    loop, because Windows can return `PermissionDenied` /
-    ///    `AccessDenied` if a concurrent reader has the target file briefly
-    ///    open. POSIX `rename` is already atomic and never needs the retry,
-    ///    but the loop is harmless on other platforms.
-    fn write_atomic(path: &PathBuf, content: String) -> TransportResult<()> {
-        use std::sync::atomic::{AtomicU64, Ordering};
-        static COUNTER: AtomicU64 = AtomicU64::new(0);
+    /// On Windows that pattern is AV/EDR-pathological: every new filename
+    /// triggers the full minifilter altitude walk (content scan + cloud
+    /// reputation lookup on enterprise workstations), causing multi-second
+    /// stalls on the calling thread — observable as a frozen host UI during
+    /// plugin load.
+    ///
+    /// The fix serialises in-process writers via `write_lock` so only one
+    /// writer touches the temp file at a time, allowing the temp filename to
+    /// be stable (`.tmp.<pid>.services.json`) across writes. AV/EDR
+    /// minifilters fast-path the `CreateFile` on the second and subsequent
+    /// writes because they see the same file being modified, not a new one.
+    ///
+    /// Cross-process races on the *target* path are unchanged — the bounded
+    /// `fs::rename` retry loop handles those as before.
+    fn write_atomic(&self, path: &Path, content: String) -> TransportResult<()> {
+        // Serialise all in-process writers.  The lock is never held across
+        // an `await` (this is a sync fn) and is always released at the end
+        // of this scope, so poison recovery is all we need.
+        let _guard = self.write_lock.lock().unwrap_or_else(|e| e.into_inner());
 
         let dir = path.parent().unwrap_or_else(|| std::path::Path::new("."));
         let pid = std::process::id();
-        let tid = format!("{:?}", std::thread::current().id());
-        let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let temp_path = dir.join(format!(".tmp.{pid}.{tid}.{seq}.services.json"));
+        // Stable per-process temp name — AV/EDR minifilters see the same
+        // file being rewritten rather than a brand-new path each time.
+        let temp_path = dir.join(format!(".tmp.{pid}.services.json"));
 
         fs::write(&temp_path, content).map_err(|e| {
             TransportError::RegistryFile(format!(

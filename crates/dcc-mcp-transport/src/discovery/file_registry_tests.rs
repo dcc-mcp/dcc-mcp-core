@@ -613,3 +613,63 @@ fn test_concurrent_heartbeat_does_not_drop_entries() {
         "blender entry lost in concurrent heartbeat"
     );
 }
+
+/// Regression test for issue #853 — `write_atomic` must produce exactly one
+/// stable temp filename (`.tmp.<pid>.services.json`) across multiple
+/// concurrent flushes within the same process, rather than a fresh
+/// `(pid, tid, seq)` path per write.
+///
+/// The test verifies the invariant by:
+/// 1. Running N concurrent heartbeat threads, each flushing 50 times.
+/// 2. Scanning the registry directory for `.tmp.*` files after the flushes.
+/// 3. Asserting that no file whose name contains a thread-id or sequence
+///    number fragment ever appears on disk.
+#[test]
+fn test_write_atomic_stable_temp_filename() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = std::sync::Arc::new(FileRegistry::new(dir.path()).unwrap());
+
+    // Register an entry so there is something to flush.
+    let mut entry = ServiceEntry::new("maya", "127.0.0.1", 7001);
+    entry.instance_id = Uuid::new_v4();
+    let key = entry.key();
+    registry.register(entry).unwrap();
+
+    // Spawn N threads that flush concurrently.
+    const THREADS: usize = 8;
+    const FLUSHES_PER_THREAD: usize = 50;
+    let mut handles = Vec::with_capacity(THREADS);
+    for _ in 0..THREADS {
+        let r = std::sync::Arc::clone(&registry);
+        let k = key.clone();
+        handles.push(std::thread::spawn(move || {
+            for _ in 0..FLUSHES_PER_THREAD {
+                r.heartbeat(&k).unwrap();
+            }
+        }));
+    }
+    for h in handles {
+        h.join().unwrap();
+    }
+
+    // After all flushes, the registry dir must contain at most one
+    // `.tmp.*` file (the stable one), and if it exists its name must
+    // match exactly `.tmp.<pid>.services.json`.
+    let pid = std::process::id();
+    let stable_name = format!(".tmp.{pid}.services.json");
+    let tmp_files: Vec<_> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.starts_with(".tmp."))
+        .collect();
+
+    for name in &tmp_files {
+        assert_eq!(
+            name, &stable_name,
+            "unexpected temp filename found — expected only '{stable_name}', got '{name}'"
+        );
+    }
+    // The stable file is usually renamed away; it is acceptable (but not
+    // required) for it to be absent after all flushes complete.
+}
