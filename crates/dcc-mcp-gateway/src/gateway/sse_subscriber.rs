@@ -87,11 +87,27 @@ pub(crate) const PENDING_BUFFER_CAP: usize = 256;
 /// Initial reconnect delay after the backend SSE stream dies.
 pub(crate) const RECONNECT_INITIAL: Duration = Duration::from_millis(100);
 
-/// Ceiling on the reconnect delay.
-pub(crate) const RECONNECT_MAX: Duration = Duration::from_secs(10);
+/// Ceiling on the reconnect delay (issue #861: raised from 10 s to 60 s so
+/// a dead gateway generates at most 1 probe/minute per plain instance instead
+/// of 6 probes/minute — each probe triggers the OS minifilter chain).
+pub(crate) const RECONNECT_MAX: Duration = Duration::from_secs(60);
 
 /// Jitter multiplier applied to each reconnect delay (±25 %).
 pub(crate) const RECONNECT_JITTER: f32 = 0.25;
+
+/// Number of consecutive reconnect failures after which the circuit opens
+/// (issue #861). Once open the subscriber stops attempting reconnects until
+/// `CIRCUIT_RESET_INTERVAL` has elapsed with no new gateway signal.
+///
+/// At `RECONNECT_MAX = 60 s` and 12 failures the circuit opens after
+/// roughly 10 minutes of outage — long enough to survive a slow
+/// election / host wake-from-sleep without false positives, but short
+/// enough that a genuinely dead gateway stops burning minifilter quota.
+pub(crate) const CIRCUIT_OPEN_THRESHOLD: u32 = 12;
+
+/// How long the circuit stays open before attempting one probe to see
+/// if the gateway has come back (issue #861).
+pub(crate) const CIRCUIT_RESET_INTERVAL: Duration = Duration::from_secs(120);
 
 /// Idle/read timeout applied to the established backend SSE stream.
 ///

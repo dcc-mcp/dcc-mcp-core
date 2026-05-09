@@ -8,6 +8,45 @@ impl SubscriberManager {
     pub(super) async fn run_backend_loop(self, url: String, shared: Arc<BackendShared>) {
         let mut attempt: u32 = 0;
         loop {
+            // ── Circuit-breaker (issue #861) ───────────────────────────
+            // After CIRCUIT_OPEN_THRESHOLD consecutive failures the circuit
+            // opens: we stop the normal backoff loop and wait
+            // CIRCUIT_RESET_INTERVAL before probing once. This prevents the
+            // reconnect storm (N plain instances each hammering the dead
+            // gateway at RECONNECT_MAX cadence) that starves the survivors'
+            // UI threads on hosts with heavy minifilter chains.
+            if attempt >= CIRCUIT_OPEN_THRESHOLD {
+                tracing::warn!(
+                    backend = %url,
+                    attempts = attempt,
+                    reset_secs = CIRCUIT_RESET_INTERVAL.as_secs(),
+                    "gateway SSE: circuit open — pausing reconnect loop"
+                );
+                tokio::time::sleep(CIRCUIT_RESET_INTERVAL).await;
+                // Single probe attempt. On success reset the counter so the
+                // normal backoff loop takes over. On failure stay in the
+                // open state and wait another reset interval.
+                match self.handshake_session_id(&url).await {
+                    Ok(_) => {
+                        tracing::info!(
+                            backend = %url,
+                            "gateway SSE: circuit probe succeeded — resetting attempt counter"
+                        );
+                        attempt = 0;
+                        *shared.reconnect_attempts.lock() = 0;
+                        // Fall through to normal connect flow.
+                    }
+                    Err(_) => {
+                        tracing::debug!(
+                            backend = %url,
+                            "gateway SSE: circuit probe failed — staying open"
+                        );
+                        // Keep attempt at threshold so we loop back here.
+                        continue;
+                    }
+                }
+            }
+
             // #732: the backend fans `notifications/resources/updated`
             // per-session, so the gateway must hold a *real* session id
             // that exists in the backend's `SessionManager`. Only an
