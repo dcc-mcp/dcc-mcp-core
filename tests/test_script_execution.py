@@ -135,3 +135,62 @@ def test_from_exception_includes_traceback_and_captured_output() -> None:
     assert result["context"]["exception_type"] == "RuntimeError"
     assert result["context"]["exception_message"] == "boom"
     assert "Traceback" in result["context"]["traceback"]
+
+
+# ── issue #856 regression: output_capture pause/resume ────────────────────────
+
+
+class _FakeOutputCapture:
+    """Minimal test double for OutputCapture (the Rust PyO3 object)."""
+
+    def __init__(self) -> None:
+        self.paused = False
+        self.pause_calls: list[bool] = []
+
+    def set_paused(self, value: bool) -> None:
+        self.paused = value
+        self.pause_calls.append(value)
+
+
+def test_capture_pauses_output_capture_on_enter_resumes_on_exit() -> None:
+    """ScriptExecutionCapture must pause output_capture on enter and resume on exit."""
+    oc = _FakeOutputCapture()
+    with ScriptExecutionCapture(output_capture=oc):
+        assert oc.paused is True, "must be paused during script body"
+
+    assert oc.paused is False, "must be resumed after exit"
+    assert oc.pause_calls == [True, False]
+
+
+def test_capture_resumes_output_capture_on_exception() -> None:
+    """output_capture must be resumed even when the script body raises."""
+    oc = _FakeOutputCapture()
+    try:
+        with ScriptExecutionCapture(output_capture=oc):
+            raise RuntimeError("script error")
+    except RuntimeError:
+        pass
+
+    assert oc.paused is False, "must resume on exception exit"
+    assert oc.pause_calls == [True, False]
+
+
+def test_capture_without_output_capture_works_normally() -> None:
+    """Passing no output_capture must leave existing behaviour unchanged."""
+    with ScriptExecutionCapture() as cap:
+        print("hello")
+
+    assert cap.stdout == "hello\n"
+
+
+def test_capture_tolerates_set_paused_raising() -> None:
+    """A broken output_capture must not abort the script body."""
+
+    class _BrokenCapture:
+        def set_paused(self, _value: bool) -> None:
+            raise RuntimeError("broken")
+
+    with ScriptExecutionCapture(output_capture=_BrokenCapture()) as cap:
+        print("still works")
+
+    assert cap.stdout == "still works\n"

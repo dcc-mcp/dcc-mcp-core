@@ -108,10 +108,22 @@ class ScriptExecutionCapture(AbstractContextManager):
     ``tee=True`` keeps host-console visibility while still collecting output
     for the tool response. This mirrors DCC plugin expectations where artists
     should continue seeing script output in the native console.
+
+    ``output_capture`` accepts an ``OutputCapture`` (the Rust ``output://``
+    ring-buffer object). When supplied, ``ScriptExecutionCapture`` calls
+    ``output_capture.set_paused(True)`` on ``__enter__`` and
+    ``set_paused(False)`` on ``__exit__``, preventing the ``output://``
+    resource from accumulating a mangled duplicate of the output that this
+    context already captures cleanly via ``sys.stdout`` replacement
+    (issue #856).
+
+    The object only needs to expose a ``set_paused(bool)`` method; it does
+    not need to be the exact ``OutputCapture`` class so test doubles work.
     """
 
-    def __init__(self, *, tee: bool = False) -> None:
+    def __init__(self, *, tee: bool = False, output_capture: Any = None) -> None:
         self._tee = tee
+        self._output_capture = output_capture
         self._old_stdout: TextIO | None = None
         self._old_stderr: TextIO | None = None
         self._stdout_capture: _CaptureStream | None = None
@@ -124,6 +136,14 @@ class ScriptExecutionCapture(AbstractContextManager):
         self._stderr_capture = _CaptureStream(sys.stderr, tee=self._tee)
         sys.stdout = self._stdout_capture
         sys.stderr = self._stderr_capture
+        # Suspend the output:// ring buffer so Maya Script Editor output
+        # during this script body does not produce a mangled duplicate in
+        # the response envelope (issue #856).
+        if self._output_capture is not None:
+            try:
+                self._output_capture.set_paused(True)
+            except Exception:
+                pass
         return self
 
     def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
@@ -131,6 +151,13 @@ class ScriptExecutionCapture(AbstractContextManager):
             sys.stdout = self._old_stdout
         if self._old_stderr is not None:
             sys.stderr = self._old_stderr
+        # Always resume, even on exception, so spontaneous Maya warnings
+        # between calls keep reaching the output:// resource.
+        if self._output_capture is not None:
+            try:
+                self._output_capture.set_paused(False)
+            except Exception:
+                pass
 
     @property
     def stdout(self) -> str:
