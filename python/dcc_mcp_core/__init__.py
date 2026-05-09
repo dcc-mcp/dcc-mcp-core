@@ -338,6 +338,14 @@ from dcc_mcp_core._server import JobOutcome
 from dcc_mcp_core._server import MinimalModeConfig
 from dcc_mcp_core._server import PendingEnvelope
 from dcc_mcp_core._server import current_callable_job
+from dcc_mcp_core._server.options import BridgeExecution
+from dcc_mcp_core._server.options import DccServerOptions
+from dcc_mcp_core._server.options import DiagnosticsOptions
+from dcc_mcp_core._server.options import DispatcherExecution
+from dcc_mcp_core._server.options import ExecutionOptions
+from dcc_mcp_core._server.options import GatewayOptions
+from dcc_mcp_core._server.options import InlineExecution
+from dcc_mcp_core._server.options import ObservabilityOptions
 from dcc_mcp_core.adapter_context import AdapterInstructionSet
 from dcc_mcp_core.adapter_context import DccContextSnapshot
 from dcc_mcp_core.adapter_context import DccToolsetProfile
@@ -583,6 +591,7 @@ __all__ = [
     "BridgeConnectionError",
     "BridgeContext",
     "BridgeError",
+    "BridgeExecution",
     "BridgeFallbackClient",
     "BridgeRegistry",
     "BridgeRetryPolicy",
@@ -612,25 +621,31 @@ __all__ = [
     "DccLinkFrame",
     "DccProject",
     "DccServerBase",
+    "DccServerOptions",
     "DccSkillHotReloader",
     "DccToolsetProfile",
     "DccWeakSandbox",
     "DeferredToolResult",
+    "DiagnosticsOptions",
+    "DispatcherExecution",
     "ElicitationMode",
     "ElicitationRequest",
     "ElicitationResponse",
     "EvalContext",
     "EventBus",
+    "ExecutionOptions",
     "FileLoggingConfig",
     "FileRef",
     "FloatWrapper",
     "FormElicitation",
     "FrameRange",
+    "GatewayOptions",
     "GracefulIpcChannelAdapter",
     "GuiExecutableHint",
     "HostExecutionBridge",
     "InProcessCallableDispatcher",
     "InProcessExecutionContext",
+    "InlineExecution",
     "InputValidator",
     "IntWrapper",
     "IpcChannelAdapter",
@@ -644,6 +659,7 @@ __all__ = [
     "MinimalModeConfig",
     "OAuthConfig",
     "ObjectTransform",
+    "ObservabilityOptions",
     "OutputCapture",
     "PendingEnvelope",
     "PluginManifest",
