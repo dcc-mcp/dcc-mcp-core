@@ -126,7 +126,7 @@ vx just dev           # 推荐 —— 使用项目标准 feature 集合
 
 ### 将 DCC 暴露为 MCP 服务 —— Skills-First（推荐）
 
-`create_skill_server` 提供完整的 Skills-First 入口：`tools/list` 返回六个核心工具加每个未加载 skill 的 stub，Agent 通过 `search_skills` → `load_skill` 激活实际需要的工具，让上下文窗口保持精简。
+`create_skill_server` 提供完整的 Skills-First 入口：`tools/list` 返回少量发现/生命周期工具加每个未加载 skill 的 stub，Agent 通过 `search_skills` → `load_skill` 激活实际需要的工具，让上下文窗口保持精简。
 
 ```python
 from dcc_mcp_core import create_skill_server, McpHttpConfig
@@ -392,7 +392,7 @@ DCC 适配器（如 `dcc-mcp-maya`）默认包含内置 skills。关闭：`start
 
 **渐进式发现** —— dcc-mcp-core 把这个数字压到 Agent 实际需要的量级：
 
-1. **Skill stubs** —— `tools/list` 只返回六个元工具 + 每个未加载 skill 一个 stub（`__skill__<name>`）。Agent 调用 `search_skills(query)` → `load_skill(name)` 才激活真正的工具。
+1. **Skill stubs** —— 直连单个 DCC 时，`tools/list` 只返回发现/生命周期元工具 + 每个未加载 skill 一个 stub（`__skill__<name>`）。Agent 调用 `search_skills(query)` → `load_skill(name)` 才激活真正的工具；连接网关时，`tools/list` 保持为 search/describe/call 包装器，实例/诊断视图通过 `gateway://instances` / `gateway://diagnostics/*` resources 读取。
 2. **实例感知** —— 每个 DCC 注册活跃文档、PID、显示名、作用域。
 3. **工具作用域过滤** —— 按 DCC 类型、信任作用域（Repo < User < System < Admin）、产品白名单和策略过滤。
 4. **会话隔离** —— AI 会话固定到一个 DCC 实例，只看到该实例的工具。
@@ -409,7 +409,7 @@ dcc-mcp-core (Skills-First)：
 
 ```
 tools/list 响应（Maya 会话、尚未加载任何 skill）：
-  6 个核心工具 + 22 个 skill stub = 28 条
+  少量核心工具 + 22 个 skill stub
 → Agent 只加载需要的 3 个 skill → 上下文约 ~30 个工具
 ```
 

@@ -288,6 +288,12 @@ When multiple DCC instances start simultaneously, one automatically becomes the 
 | `/v1/search` | POST | Search compact backend capability records |
 | `/v1/describe` | POST | Fetch schema, annotations, and routing record for one `tool_slug` |
 | `/v1/call` | POST | Invoke one backend capability by `tool_slug` |
+| `/v1/resources` | GET | Aggregate gateway-native and backend MCP resources |
+| `/v1/resources/{uri}` | GET | Read one percent-encoded resource URI |
+| `/v1/prompts` | GET | Aggregate backend prompt templates |
+| `/v1/prompts/{name}` | GET | Render one prompt; `?args=<json>` forwards prompt arguments |
+| `/v1/jobs/{id}/events` | GET | SSE stream for one async job |
+| `/v1/jobs/{id}` | DELETE | Cancel one async job |
 | `/mcp/{instance_id}` | POST | Transparent proxy to a specific instance (low-level escape hatch) |
 | `/mcp/dcc/{dcc_type}` | POST | Proxy to the best instance of a DCC type |
 
@@ -299,9 +305,9 @@ When multiple DCC instances start simultaneously, one automatically becomes the 
 |------|-------|---------|
 | Skill management | `list_skills`, `search_skills`, `get_skill_info`, `load_skill`, `unload_skill` | Search/load skills across DCCs or target a specific instance via `instance_id` / `dcc` |
 | Dynamic capability wrappers | `search_tools`, `describe_tool`, `call_tool` | Discover compact backend records, fetch one schema, then invoke by `tool_slug` |
-| Operations | `acquire_dcc_instance`, `release_dcc_instance`, diagnostics tools | Pool warm instances and debug gateway health |
+| Operations | `acquire_dcc_instance`, `release_dcc_instance` | Pool warm instances; read gateway diagnostics/catalog/instances via MCP resources |
 
-Backend actions are addressed by `tool_slug` (`<dcc>.<id8>.<tool>`). Agents should not construct slugs by hand; obtain them from `search_tools` or `POST /v1/search`, then call `describe_tool` / `call_tool` or the equivalent REST endpoints.
+Gateway backend actions are addressed by `tool_slug` (`<dcc>.<id8>.<tool>`). Direct per-DCC REST uses `<dcc>.<skill>.<action>` without the instance id. Agents should not construct slugs by hand; obtain them from `search_tools` or `POST /v1/search`, then call `describe_tool` / `call_tool` or the equivalent REST endpoints.
 
 #### `gateway://instances` — DCC registry as an MCP resource (#813 phase 1)
 
@@ -575,7 +581,7 @@ you control how much of the schema surface is pushed into the agent's context.
 | Default (eager) | All tool definitions + schemas | High | ≤ 20 tools |
 | `lazy_actions = True` | 3 meta-tools only | Very low | Large static catalogs |
 | Skill stubs (default) | `__skill__<name>` stubs for unloaded skills | Low | Dynamic loading workflows |
-| `tools/search` (future) | Zero schemas on init; search → schema on demand | 85%+ reduction | Very large catalogs |
+| `search_tools` (direct server / gateway) | Compact search results; fetch schema with `describe_tool` on the gateway | Low | Large catalogs and multi-DCC gateways |
 
 ### 1. Default: Skill Stubs
 
@@ -625,18 +631,16 @@ cfg = McpHttpConfig(port=8765)
 cfg.lazy_tool_schemas = True  # omit inputSchema from tools/list (planned)
 ```
 
-### 4. `tools/search` endpoint (planned, issue #405)
+### 4. `search_tools` and gateway dynamic search
 
-> **Note**: A `tools/search` built-in tool is planned for a future release.
+Direct per-DCC servers expose `search_tools` for enabled tools, while the
+gateway exposes the dynamic wrapper trio `search_tools` → `describe_tool` →
+`call_tool`. Gateway search returns compact records only; `describe_tool` fetches
+one full schema on demand, keeping `tools/list` bounded even when many backends
+are live.
 
-The planned endpoint will:
-
-- Accept a natural language query
-- Return matching tool definitions (name + description + inputSchema) ranked by relevance
-- Keep the initial `tools/list` response minimal (names only, no schemas)
-
-Until this is available, use the existing `search_skills(query)` → `load_skill(name)`
-workflow which already provides skill-level search.
+For unloaded skills, keep using the Skills-First workflow:
+`search_skills(query)` → `load_skill(name)` → `search_tools` or direct tool call.
 
 ### Token Usage Decision Guide
 

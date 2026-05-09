@@ -308,8 +308,8 @@ Set `DccCapabilities(bridge_kind="http", bridge_endpoint="http://localhost:1234"
 
 ### How does on-demand skill discovery work?
 
-When `create_skill_server()` starts, it only **discovers** skills (reads SKILL.md files) — it does **not** load them. The `tools/list` response shows:
-1. 6 core discovery tools (always present)
+When `create_skill_server()` starts, it only **discovers** skills (reads SKILL.md files) — it does **not** load them. The direct per-DCC `tools/list` response shows:
+1. A small, always-on discovery/lifecycle surface (`search_skills`, `list_skills`, `get_skill_info`, `load_skill`, `unload_skill`, and related progressive-exposure helpers)
 2. Loaded skill tools with full schemas
 3. Unloaded skill stubs as `__skill__<name>` (name + one-line description only)
 

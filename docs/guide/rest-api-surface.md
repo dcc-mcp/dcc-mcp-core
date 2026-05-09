@@ -25,11 +25,19 @@ without touching the MCP protocol stack.
 | `GET` | `/v1/tools/{slug}` | Alias of `/v1/describe` (read-only lookup via URL). |
 | `POST` | `/v1/call` | **Invoke** a tool by slug. This is the canonical invocation plane. |
 | `GET` | `/v1/context` | Scene / document snapshot (per-DCC or gateway-aggregated). |
+| `GET` | `/v1/resources` | MCP-style resource list. |
+| `GET` | `/v1/resources/{uri}` | Read one percent-encoded resource URI. |
+| `GET` | `/v1/resources/{uri}/events` | Server-Sent Events for resource changes. |
+| `GET` | `/v1/prompts` | MCP-style prompt template list. |
+| `GET` | `/v1/prompts/{name}` | Render one prompt; pass JSON object arguments in `?args=...`. |
+| `GET` | `/v1/jobs/{id}/events` | Server-Sent Events for one async job. |
+| `DELETE` | `/v1/jobs/{id}` | Cancel one async job. |
 | `GET` | `/v1/openapi.json` | Auto-generated OpenAPI 3.x document for code-gen clients. |
 
-The gateway exposes the same paths as an aggregating facade: `POST /v1/call`
-on the gateway parses `<dcc>.<id8>.<action>` out of the slug and forwards to
-the owning per-DCC backend.
+The gateway exposes the same paths as an aggregating facade. Gateway capability
+slugs use `<dcc>.<id8>.<tool>` and are obtained from `POST /v1/search`; direct
+per-DCC REST slugs use `<dcc>.<skill>.<action>` and do not include an instance
+id prefix.
 
 ---
 
@@ -47,8 +55,9 @@ the owning per-DCC backend.
 
 | Field | Required | Notes |
 |---|---|---|
-| `tool_slug` | ✅ | `<dcc>.<id8>.<action>` three-part form. The 8-hex-char `id8` prefix disambiguates identical action names across multiple live DCC instances. Get valid slugs from `POST /v1/search` or `GET /v1/skills` — do **not** construct them by hand. |
+| `tool_slug` | ✅ | Gateway: `<dcc>.<id8>.<tool>`. Direct per-DCC REST: `<dcc>.<skill>.<action>`. Get valid slugs from `POST /v1/search` or `GET /v1/skills` — do **not** construct them by hand. |
 | `params` | ❌ | Tool-specific input. Defaults to `{}` so single-arg / no-arg calls stay ergonomic for cURL. The server validates this against the tool's JSON-Schema before dispatch. |
+| `arguments` | ❌ | Alias for `params`, accepted so gateway REST can preserve the MCP `tools/call` naming convention. |
 | `meta` | ❌ | MCP-style sidecar. Honored keys: `progressToken` (binds progress events to a client session), `dcc.async` (opt in to async dispatch), `dcc.wait_for_terminal` (block until terminal status). |
 
 ### Success response — `200 OK`
@@ -82,7 +91,7 @@ Error-kind vocabulary (HTTP status in parentheses):
 
 - `unknown-slug` (404) — no action matched; `candidates` may carry suggested slugs.
 - `ambiguous` (409) — slug matched multiple actions; `candidates` lists all of them.
-- `skill-not-loaded` (409) — slug is valid but the owning skill isn't loaded. Call `load_skill` first (via MCP or through the skill-management REST endpoints).
+- `skill-not-loaded` (409) — slug is valid but the owning skill isn't loaded. Call MCP `load_skill` first; on the gateway you may target a backend with `instance_id` or `dcc`.
 - `invalid-params` (400) — JSON-Schema validation failed against `params`.
 - `unauthorized` (401) — the `AuthGate` rejected the request. Defaults to localhost-only on per-DCC servers; install `BearerTokenGate` for remote access.
 - `not-ready` (503) — `/v1/readyz` is red; DCC is still starting up.
@@ -152,6 +161,27 @@ has changed.
 
 ---
 
+## Resources, prompts, and jobs over REST
+
+`GET /v1/resources` returns `{total, resources, request_id}` where each record
+mirrors MCP's resource definition shape. To read a resource, percent-encode the
+entire URI into the path segment:
+
+```bash
+curl -s 'http://127.0.0.1:8765/v1/resources/scene%3A%2F%2Fcurrent'
+```
+
+`GET /v1/prompts` returns `{total, prompts, request_id}`. Render one template
+with `GET /v1/prompts/{name}`; when the prompt declares arguments, pass a JSON
+object in the `args` query parameter. The gateway uses this same REST hop when
+serving MCP `prompts/get`, so prompt arguments are preserved end-to-end.
+
+Async jobs can be watched with `GET /v1/jobs/{id}/events` and cancelled with
+`DELETE /v1/jobs/{id}`. Resource subscriptions use
+`GET /v1/resources/{uri}/events`. Both event endpoints are Server-Sent Events.
+
+---
+
 ## Three-state readiness (`GET /v1/readyz`)
 
 | State | HTTP | Body | Meaning |
@@ -173,8 +203,9 @@ your dashboards.
 | Success body | `result.content[].text` (str JSON) | `{slug, output, validation_skipped, request_id}` | ✅ same underlying `CallOutcome` |
 | Error body | `result.content[].text` (str JSON) with `isError: true` | `{kind, message, hint?, request_id, candidates?}` | ✅ same `ServiceError`; MCP wraps it into the MCP `CallToolResult` shape |
 | `request_id` | `_meta.request_id` | top-level field | ✅ same value |
-| Cancellation | `notifications/cancelled` | close the HTTP connection | ✅ both reach the cooperative-cancellation path |
-| Progress events | `notifications/progress` bound via `_meta.progressToken` | Server-Sent Events on a long-poll (roadmap #604) | ⚠ MCP only for now |
+| Cancellation | `notifications/cancelled` | `DELETE /v1/jobs/{id}` for async jobs | ✅ both reach the cooperative-cancellation path |
+| Progress/job events | `notifications/progress` and `notifications/$/dcc.jobUpdated` | `GET /v1/jobs/{id}/events` SSE | ✅ job lifecycle is available over both transports |
+| Resource updates | `notifications/resources/updated` after `resources/subscribe` | `GET /v1/resources/{uri}/events` SSE | ✅ resource updates are available over both transports |
 
 The contract is locked down by OpenAPI snapshot tests in
 `crates/dcc-mcp-skill-rest/src/openapi.rs` (`call_request_schema_contract_is_stable`,

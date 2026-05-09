@@ -48,14 +48,22 @@ modeled as an MCP resource instead of a tool:
 | `gateway://instances?include_stale=false` | `application/json` | Same registry with stale-but-parseable rows hidden. |
 | `gateway://instances?include_dead=true` | `application/json` | Rawer registry view including rows whose owner process has exited. |
 | `gateway://instances/{instance_id}` | `application/json` | One instance selected by full UUID or unique prefix. |
+| `gateway://diagnostics/process` | `application/json` | Gateway process metadata plus live/stale/unhealthy instance counts; optional `?dcc_type=<type>` filter. |
+| `gateway://diagnostics/audit` | `application/json` | Pending-call and resource-subscription summary. Backend audit logs remain per-instance. |
+| `gateway://diagnostics/metrics` | `application/json` | Local gateway tool count, live backend count, timeout settings, and `publishes_backend_tools=false`. |
+| `gateway://catalog` | `application/json` | Public adapter/skill/plugin package index; optional `?query=<keyword>` filter. |
+| `gateway://catalog/{name}` | `application/json` | One public catalog entry selected by exact name. |
 | `resources://gateway/events` | `application/jsonl` | Gateway contention and election event ring buffer. |
 
-`resources/list` advertises only the `gateway://instances` root pointer; it does
-not enumerate every `gateway://instances/{id}` URI. Read the per-instance URI
-directly when you already know the id. The legacy gateway tools
-`list_dcc_instances`, `get_dcc_instance`, and `connect_to_dcc` were removed in
-PR #813 phase 1; entries already carry `mcp_url`, so no separate connect verb
-is required.
+`resources/list` advertises only root pointers for gateway-native families:
+`gateway://instances`, `gateway://diagnostics/process`,
+`gateway://diagnostics/audit`, `gateway://diagnostics/metrics`, and
+`gateway://catalog`. It does not enumerate every `gateway://instances/{id}` or
+`gateway://catalog/{name}` URI. Read a single-entry URI directly when you
+already know the id/name. The legacy gateway tools `list_dcc_instances`,
+`get_dcc_instance`, `connect_to_dcc`, `dcc_catalog__search`, and
+`dcc_catalog__describe` were removed; instance entries already carry `mcp_url`,
+so no separate connect verb is required.
 
 
 ## Enabling / Disabling

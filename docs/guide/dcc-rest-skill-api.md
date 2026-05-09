@@ -2,6 +2,7 @@
 
 > Issue refs: [#658](https://github.com/loonghao/dcc-mcp-core/issues/658) ·
 > [#660](https://github.com/loonghao/dcc-mcp-core/issues/660) ·
+> [#818](https://github.com/loonghao/dcc-mcp-core/issues/818) ·
 > umbrella [#657](https://github.com/loonghao/dcc-mcp-core/issues/657)
 
 The MCP gateway is **not** the only way to make a DCC's skills callable from
@@ -12,26 +13,35 @@ republishing every backend action as a separate MCP tool.
 
 ## Why
 
-| Problem with gateway-only exposure                      | How the per-DCC REST surface fixes it          |
-|---------------------------------------------------------|------------------------------------------------|
-| `tools/list` grows linearly with `instances × actions`  | The REST surface is bounded — 9 fixed routes  |
-| MCP tool names must match `[A-Za-z0-9_]+`               | REST slugs use `<dcc>.<skill>.<action>`        |
-| Non-MCP agents need a separate adapter to call DCC code | They `POST /v1/call` with a JSON body          |
-| No structured error class for "skill not loaded"        | `ServiceErrorKind::SkillNotLoaded` (kebab-case)|
+| Problem with gateway-only exposure                      | How the per-DCC REST surface fixes it                         |
+|---------------------------------------------------------|---------------------------------------------------------------|
+| `tools/list` grows linearly with `instances × actions`  | REST stays bounded: discovery, describe/call, resources, prompts, jobs |
+| MCP tool names must match `[A-Za-z0-9_]+`               | REST slugs use `<dcc>.<skill>.<action>` on per-DCC servers     |
+| Non-MCP agents need a separate adapter to call DCC code | They `POST /v1/call` with a JSON body                          |
+| MCP resources/prompts need JSON-RPC clients             | They can use `GET /v1/resources*` and `GET /v1/prompts*`       |
+| No structured error class for "skill not loaded"        | `ServiceErrorKind::SkillNotLoaded` (kebab-case)                |
 
 ## Routes
 
-| Method | Path                     | Purpose                                     |
-|--------|--------------------------|---------------------------------------------|
-| GET    | `/v1/healthz`           | Liveness                                    |
-| GET    | `/v1/readyz`            | Three-state readiness (process/dispatcher/dcc)|
-| GET    | `/v1/openapi.json`      | utoipa-generated OpenAPI 3.x contract       |
-| GET    | `/v1/skills`            | Loaded skills/actions                       |
-| POST   | `/v1/search`            | Compact keyword/tag/dcc/scope search        |
-| POST   | `/v1/describe`          | Schema + annotations for one slug           |
-| GET    | `/v1/tools/{slug}`      | Alias for describe                          |
-| POST   | `/v1/call`              | Invoke one tool by slug                     |
-| GET    | `/v1/context`           | Current DCC scene/document snapshot         |
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/v1/healthz` | Liveness |
+| GET | `/v1/readyz` | Three-state readiness (process/dispatcher/dcc) |
+| GET | `/v1/openapi.json` | utoipa-generated OpenAPI 3.x contract |
+| GET | `/docs` | Optional Scalar UI for the OpenAPI contract (`DCC_MCP_DOCS_UI=0` disables it) |
+| GET | `/v1/skills` | Loaded skills/actions |
+| POST | `/v1/search` | Compact keyword/tag/dcc/scope search |
+| POST | `/v1/describe` | Schema + annotations for one slug |
+| GET | `/v1/tools/{slug}` | Alias for describe |
+| POST | `/v1/call` | Invoke one tool by slug; accepts `params` and `arguments` |
+| GET | `/v1/context` | Current DCC scene/document snapshot |
+| GET | `/v1/resources` | MCP-style resource list |
+| GET | `/v1/resources/{uri}` | Read one percent-encoded resource URI |
+| GET | `/v1/resources/{uri}/events` | SSE stream for one resource's updates |
+| GET | `/v1/prompts` | MCP-style prompt template list |
+| GET | `/v1/prompts/{name}` | Render one prompt; pass JSON object args as `?args=...` |
+| GET | `/v1/jobs/{id}/events` | SSE stream for one async job |
+| DELETE | `/v1/jobs/{id}` | Cancel one async job |
 
 ## SOLID layering
 
@@ -39,10 +49,10 @@ republishing every backend action as a separate MCP tool.
 SkillRestRouter   ← axum thin adapter
        │
 SkillRestService  ← pure logic, no axum
-   │  │  │  │
-   ▼  ▼  ▼  ▼
-SkillCatalogSource  ToolInvoker  AuthGate  AuditSink
-   (trait)          (trait)      (trait)    (trait)
+   │  │  │  │  │  │  │
+   ▼  ▼  ▼  ▼  ▼  ▼  ▼
+SkillCatalogSource  ToolInvoker  ResourceProvider  PromptProvider  JobProvider  AuthGate  AuditSink
+   (trait)          (trait)      (trait)           (trait)         (trait)      (trait)  (trait)
 ```
 
 Each collaborator is a **trait** so adapters (Maya/Blender/Houdini) can swap
@@ -50,6 +60,8 @@ in their own implementation without touching the router. Defaults wire to:
 
 - `SkillCatalog` (`dcc-mcp-skills`) for the catalog source,
 - `ToolDispatcher` (`dcc-mcp-actions`) for invocation,
+- empty `ResourceProvider` / `PromptProvider` defaults that adapters can replace,
+- `JobProvider` for job event streams and cancellation,
 - `AllowLocalhostGate` for auth (loopback-only),
 - `NoopAuditSink` for audit.
 
@@ -120,8 +132,13 @@ curl -s localhost:8765/v1/describe \
   -d '{"tool_slug":"maya.spheres.create_sphere","include_schema":true}' \
   -H 'content-type: application/json'
 
-# 3. Invoke.
+# 3. Invoke. `arguments` is accepted as an alias for `params`.
 curl -s localhost:8765/v1/call \
-  -d '{"tool_slug":"maya.spheres.create_sphere","params":{"radius":1.5}}' \
+  -d '{"tool_slug":"maya.spheres.create_sphere","arguments":{"radius":1.5}}' \
   -H 'content-type: application/json'
+
+# 4. Read MCP resources / render prompts without JSON-RPC.
+curl -s localhost:8765/v1/resources
+curl -s 'localhost:8765/v1/resources/scene%3A%2F%2Fcurrent'
+curl -s 'localhost:8765/v1/prompts/create_plan?args=%7B%22task%22%3A%22model%20a%20prop%22%7D'
 ```

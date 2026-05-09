@@ -217,7 +217,7 @@ pub async fn tool_call_tool(
 
 // ── private helpers ────────────────────────────────────────────────────────
 
-/// Return the JSON schema for gateway discovery and diagnostics tools.
+/// Return the JSON schema for gateway discovery, pooling, and dynamic-capability tools.
 pub fn gateway_tool_defs() -> serde_json::Value {
     json!([
         {

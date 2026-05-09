@@ -838,8 +838,7 @@ registry.list_actions_enabled()                            # -> List[dict]
 registry.set_tool_enabled("maya_geometry__create_joint", True)
 ```
 
-**Via MCP tools** — `create_skill_server` / `McpHttpServer` register three
-group-control tools alongside the six skill-discovery tools:
+**Via MCP tools** — `create_skill_server` / `McpHttpServer` register group-control tools alongside the Skills-First discovery/lifecycle tools (`search_skills`, `list_skills`, `get_skill_info`, `load_skill`, `unload_skill`):
 
 | MCP tool | Description |
 |----------|-------------|
