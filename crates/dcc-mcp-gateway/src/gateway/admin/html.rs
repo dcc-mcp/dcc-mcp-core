@@ -37,6 +37,14 @@ tr:hover td{background:#1c2129}
 .health-card .value{font-size:18px;font-weight:bold;color:#c9d1d9}
 .health-card.ok{border-color:#238636}
 .health-card.warn{border-color:#9e6a03}
+.workers-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin-bottom:16px}
+.worker-card{background:#161b22;border:1px solid #30363d;border-radius:6px;padding:12px;font-size:11px;line-height:1.5}
+.worker-card.ok{border-color:#238636}
+.worker-card.stale{border-color:#9e6a03}
+.worker-card.err{border-color:#f85149}
+.worker-card .wname{font-size:13px;font-weight:bold;color:#c9d1d9;margin-bottom:6px;word-break:break-all}
+.worker-card .wkv{display:grid;grid-template-columns:80px 1fr;gap:2px 8px;color:#8b949e}
+.worker-card .wkv span:nth-child(2n){color:#c9d1d9;word-break:break-all}
 .log-line{font-size:11px;padding:3px 0;border-bottom:1px solid #21262d;word-break:break-all}
 .log-line:last-child{border-bottom:none}
 pre{white-space:pre-wrap;word-break:break-all}
@@ -49,6 +57,7 @@ pre{white-space:pre-wrap;word-break:break-all}
   <a href="#" class="nav-link" data-panel="instances">Instances</a>
   <a href="#" class="nav-link" data-panel="tools">Tools</a>
   <a href="#" class="nav-link" data-panel="calls">Calls</a>
+  <a href="#" class="nav-link" data-panel="workers">Workers</a>
   <a href="#" class="nav-link" data-panel="logs">Logs</a>
 </nav>
 <main>
@@ -88,6 +97,13 @@ pre{white-space:pre-wrap;word-break:break-all}
     </tr></thead>
     <tbody id="calls-body"></tbody></table>
     <button class="refresh-btn" onclick="fetchCalls()">Refresh</button>
+  </div>
+  <!-- Workers (Phase 4) -->
+  <div id="panel-workers" class="panel">
+    <h2>Workers</h2>
+    <div id="workers-status" class="status-bar">Loading…</div>
+    <div id="workers-grid" class="workers-grid"></div>
+    <button class="refresh-btn" onclick="fetchWorkers()">Refresh</button>
   </div>
   <!-- Logs -->
   <div id="panel-logs" class="panel">
@@ -242,11 +258,67 @@ async function fetchLogs() {
   }
 }
 
+function workerCardClass(w) {
+  if (w.stale) return 'stale';
+  const s = String(w.status || '').toLowerCase();
+  if (s.includes('available') || s.includes('busy') || s.includes('ready')) return 'ok';
+  return 'err';
+}
+
+function formatBytes(n) {
+  if (n == null) return '-';
+  const units = ['B','KB','MB','GB','TB'];
+  let i = 0; let v = Number(n);
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  return v.toFixed(1) + ' ' + units[i];
+}
+
+async function fetchWorkers() {
+  try {
+    const r = await fetch(BASE + '/workers');
+    const d = await r.json();
+    const rows = d.workers || [];
+    const sum = d.summary || {};
+    document.getElementById('workers-status').textContent =
+      rows.length + ' worker(s)' +
+      ' (live ' + (sum.live || 0) + ', stale ' + (sum.stale || 0) +
+      ', unhealthy ' + (sum.unhealthy || 0) + ') — ' +
+      new Date().toLocaleTimeString();
+    const grid = document.getElementById('workers-grid');
+    if (!rows.length) {
+      grid.innerHTML = '<p class="empty">No workers registered.</p>';
+      return;
+    }
+    grid.innerHTML = rows.map(w => {
+      const cls = workerCardClass(w);
+      const id = String(w.instance_id || '').slice(0,8);
+      const name = escHtml(w.display_name || (w.dcc_type + ' @ ' + (w.host||'') + ':' + (w.port||'')));
+      return '<div class="worker-card ' + cls + '">' +
+        '<div class="wname">' + name + ' <span style="color:#8b949e;font-weight:normal">' + escHtml(id) + '</span></div>' +
+        '<div class="wkv">' +
+          '<span>DCC</span><span>' + escHtml(w.dcc_type || '?') + '</span>' +
+          '<span>Status</span><span>' + badge(w.status, ['available','busy','ready'], ['stale','booting']) + '</span>' +
+          '<span>PID</span><span>' + escHtml(w.pid != null ? w.pid : '-') + '</span>' +
+          '<span>Uptime</span><span>' + formatUptime(w.uptime_secs) + '</span>' +
+          '<span>Version</span><span>' + escHtml(w.version || '-') + '</span>' +
+          '<span>Adapter</span><span>' + escHtml(w.adapter_version || '-') + '</span>' +
+          '<span>CPU%</span><span>' + (w.cpu_percent != null ? Number(w.cpu_percent).toFixed(1) : '—') + '</span>' +
+          '<span>Memory</span><span>' + formatBytes(w.memory_bytes) + '</span>' +
+          '<span>MCP URL</span><span>' + escHtml(w.mcp_url || '-') + '</span>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+  } catch(e) {
+    document.getElementById('workers-status').textContent = 'Error: ' + e.message;
+  }
+}
+
 function fetchPanel(panel) {
   if (panel === 'health') fetchHealth();
   else if (panel === 'instances') fetchInstances();
   else if (panel === 'tools') fetchTools();
   else if (panel === 'calls') fetchCalls();
+  else if (panel === 'workers') fetchWorkers();
   else if (panel === 'logs') fetchLogs();
 }
 

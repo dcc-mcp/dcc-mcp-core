@@ -5,7 +5,7 @@ use axum::{Router, routing};
 use super::handlers::{
     handle_admin_calls, handle_admin_health, handle_admin_instances, handle_admin_logs,
     handle_admin_stats, handle_admin_tools, handle_admin_trace_detail, handle_admin_traces,
-    handle_admin_ui,
+    handle_admin_ui, handle_admin_workers,
 };
 use super::state::AdminState;
 
@@ -22,6 +22,7 @@ use super::state::AdminState;
 /// - `GET  /api/traces`             → JSON recent dispatch traces (Phase 2)
 /// - `GET  /api/traces/{request_id}` → full trace waterfall for one call
 /// - `GET  /api/stats?range=1h|24h|7d` → aggregated call statistics (Phase 3)
+/// - `GET  /api/workers`            → per-instance worker cards (Phase 4)
 /// - `GET  /api/logs`               → JSON event log
 /// - `GET  /api/health`             → JSON health summary
 pub fn build_admin_router(state: AdminState) -> Router {
@@ -37,6 +38,7 @@ pub fn build_admin_router(state: AdminState) -> Router {
         )
         .route("/api/logs", routing::get(handle_admin_logs))
         .route("/api/stats", routing::get(handle_admin_stats))
+        .route("/api/workers", routing::get(handle_admin_workers))
         .route("/api/health", routing::get(handle_admin_health))
         .with_state(state)
 }

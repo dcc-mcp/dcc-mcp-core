@@ -438,4 +438,84 @@ mod admin_tests {
         // Unknown range should fall back to "all".
         assert!(body["range"] == "all" || body.get("error").is_some());
     }
+
+    // ── /api/workers (Phase 4) ────────────────────────────────────────────
+
+    fn make_service_entry(
+        dcc_type: &str,
+        host: &str,
+        port: u16,
+        pid: Option<u32>,
+    ) -> dcc_mcp_transport::discovery::types::ServiceEntry {
+        use dcc_mcp_transport::discovery::types::{ServiceEntry, ServiceStatus};
+        use std::time::SystemTime;
+        let now = SystemTime::now();
+        ServiceEntry {
+            dcc_type: dcc_type.into(),
+            instance_id: uuid::Uuid::new_v4(),
+            host: host.into(),
+            port,
+            transport_address: None,
+            version: Some("2024.0".into()),
+            adapter_version: Some("0.3.0".into()),
+            adapter_dcc: Some(dcc_type.into()),
+            scene: None,
+            documents: vec![],
+            pid,
+            sentinel_path: None,
+            display_name: Some(format!("{dcc_type}-test")),
+            status: ServiceStatus::Available,
+            registered_at: now,
+            last_heartbeat: now,
+            metadata: Default::default(),
+            extras: Default::default(),
+            capacity: 1,
+            lease_owner: None,
+            current_job_id: None,
+            lease_expires_at: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_admin_workers_returns_json_shape() {
+        let (status, body) = body_json(admin_router(), "/api/workers").await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body["workers"].is_array(), "expected workers array");
+        assert!(body["summary"].is_object(), "expected summary object");
+        assert_eq!(body["total"].as_u64(), Some(0));
+        assert_eq!(body["summary"]["live"].as_u64(), Some(0));
+        assert_eq!(body["summary"]["stale"].as_u64(), Some(0));
+    }
+
+    #[tokio::test]
+    async fn test_admin_workers_with_registered_instance() {
+        let gs = make_gateway_state();
+        // Inject one ServiceEntry into the registry.
+        {
+            let reg = gs.registry.write().await;
+            reg.register(make_service_entry("maya", "127.0.0.1", 18813, Some(4242)))
+                .unwrap();
+        }
+        let state = AdminState::new(gs);
+        let router = build_admin_router(state);
+        let (status, body) = body_json(router, "/api/workers").await;
+        assert_eq!(status, StatusCode::OK);
+        let workers = body["workers"].as_array().unwrap();
+        assert_eq!(workers.len(), 1, "expected 1 worker, got {workers:?}");
+        let w = &workers[0];
+        assert_eq!(w["dcc_type"], "maya");
+        assert_eq!(w["pid"], 4242);
+        assert_eq!(w["host"], "127.0.0.1");
+        assert_eq!(w["port"], 18813);
+        assert_eq!(w["mcp_url"], "http://127.0.0.1:18813/mcp");
+        assert_eq!(w["adapter_version"], "0.3.0");
+        // CPU/memory not yet wired — see workers.rs module docs.
+        assert!(w["cpu_percent"].is_null());
+        assert!(w["memory_bytes"].is_null());
+        assert!(w["uptime_secs"].as_u64().is_some());
+        // summary should reflect 1 live, 0 stale.
+        assert_eq!(body["total"].as_u64(), Some(1));
+        assert_eq!(body["summary"]["live"].as_u64(), Some(1));
+        assert_eq!(body["summary"]["stale"].as_u64(), Some(0));
+    }
 }
