@@ -132,3 +132,43 @@ pub async fn handle_admin_health(State(s): State<AdminState>) -> impl IntoRespon
         })),
     )
 }
+/// `GET /admin/api/traces?limit=200` — recent per-call dispatch traces (Phase 2).
+///
+/// Each trace includes a waterfall of [`TraceSpan`]s plus optionally the
+/// request / response payloads captured in `handle_tools_call`.
+/// Returns `{"total": N, "traces": [...]}`.  When no `TraceLog` is attached
+/// to the state, returns an empty array.
+pub async fn handle_admin_traces(
+    State(s): State<AdminState>,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> impl IntoResponse {
+    let limit = params
+        .get("limit")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(200)
+        .min(500);
+    let traces = match &s.trace_log {
+        Some(log) => log.recent(limit),
+        None => vec![],
+    };
+    Json(json!({ "total": traces.len(), "traces": traces }))
+}
+
+/// `GET /admin/api/traces/{request_id}` — full waterfall for one call.
+///
+/// Returns 404 when the trace is not in the ring buffer.
+pub async fn handle_admin_trace_detail(
+    State(s): State<AdminState>,
+    axum::extract::Path(request_id): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    match s.trace_log.as_ref().and_then(|log| log.get(&request_id)) {
+        Some(trace) => (
+            StatusCode::OK,
+            Json(serde_json::to_value(&trace).unwrap_or(json!({}))),
+        ),
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "error": "trace not found", "request_id": request_id })),
+        ),
+    }
+}

@@ -9,6 +9,8 @@ use serde_json::Value;
 use crate::gateway::middleware::{AuditEntry, AuditSink};
 use crate::gateway::state::GatewayState;
 
+use super::trace::{DispatchTrace, TraceLog};
+
 /// Minimal audit record that the admin UI consumes.
 #[derive(Debug, Clone)]
 pub struct AdminAuditRecord {
@@ -30,20 +32,26 @@ pub type EventLog = Mutex<Vec<Value>>;
 pub type AuditLog = Mutex<Vec<AdminAuditRecord>>;
 
 /// [`AuditSink`] that pushes completed entries into the admin UI ring buffer
-/// (issue #864).
-///
-/// `start_gateway_tasks` constructs this sink, wraps it in an
-/// [`AuditMiddleware`], prepends the middleware to the chain, and hands the
-/// same `Arc<AuditLog>` to [`AdminState::with_audit_log`] — closing the link
-/// between the middleware and the `/admin/api/calls` endpoint.
+/// and optionally a [`TraceLog`] for Phase 2 dispatch traces.
 pub struct AdminAuditSink {
     log: Arc<AuditLog>,
     capacity: usize,
+    trace_log: Option<Arc<TraceLog>>,
 }
 
 impl AdminAuditSink {
     pub fn new(log: Arc<AuditLog>, capacity: usize) -> Self {
-        Self { log, capacity }
+        Self {
+            log,
+            capacity,
+            trace_log: None,
+        }
+    }
+
+    /// Attach a trace log so `record()` also appends a [`DispatchTrace`].
+    pub fn with_trace_log(mut self, trace_log: Arc<TraceLog>) -> Self {
+        self.trace_log = Some(trace_log);
+        self
     }
 }
 
@@ -51,8 +59,11 @@ impl AuditSink for AdminAuditSink {
     fn record(&self, entry: AuditEntry) {
         let record = AdminAuditRecord {
             timestamp: entry.timestamp,
-            action: entry.tool_slug.unwrap_or_else(|| entry.method.clone()),
-            dcc_type: entry.dcc_type,
+            action: entry
+                .tool_slug
+                .clone()
+                .unwrap_or_else(|| entry.method.clone()),
+            dcc_type: entry.dcc_type.clone(),
             success: !entry.is_error,
             error: if entry.is_error {
                 Some(entry.result_preview.clone())
@@ -68,6 +79,25 @@ impl AuditSink for AdminAuditSink {
                 buf.remove(0);
             }
         }
+
+        // Phase 2: promote AuditEntry into a DispatchTrace when a trace log is attached.
+        if let Some(tl) = &self.trace_log {
+            let trace = DispatchTrace {
+                request_id: entry.request_id.clone(),
+                method: entry.method.clone(),
+                tool_slug: entry.tool_slug.clone(),
+                instance_id: entry.instance_id.clone(),
+                session_id: entry.session_id.clone(),
+                dcc_type: entry.dcc_type.clone(),
+                started_at: entry.timestamp,
+                total_ms: entry.duration_ms.unwrap_or(0),
+                ok: !entry.is_error,
+                spans: entry.trace_spans,
+                input: entry.input_payload,
+                output: entry.output_payload,
+            };
+            tl.push(trace);
+        }
     }
 }
 
@@ -76,6 +106,8 @@ impl AuditSink for AdminAuditSink {
 pub struct AdminState {
     pub gateway: GatewayState,
     pub audit_log: Option<Arc<AuditLog>>,
+    /// Phase 2 trace log — `None` until `with_trace_log` is called.
+    pub trace_log: Option<Arc<TraceLog>>,
     pub event_log: Arc<EventLog>,
     pub started_at: SystemTime,
 }
@@ -85,6 +117,7 @@ impl AdminState {
         Self {
             gateway,
             audit_log: None,
+            trace_log: None,
             event_log: Arc::new(Mutex::new(Vec::new())),
             started_at: SystemTime::now(),
         }
@@ -92,6 +125,11 @@ impl AdminState {
 
     pub fn with_audit_log(mut self, log: Arc<AuditLog>) -> Self {
         self.audit_log = Some(log);
+        self
+    }
+
+    pub fn with_trace_log(mut self, log: Arc<TraceLog>) -> Self {
+        self.trace_log = Some(log);
         self
     }
 

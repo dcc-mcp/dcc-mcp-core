@@ -249,6 +249,12 @@ async fn handle_tools_call(
         .with_tool_slug(tool)
         .with_session_id(session_id);
 
+    // Phase 2: capture input payload before middlewares may redact args.
+    {
+        use crate::gateway::admin::trace::{MAX_INPUT_BYTES, TracePayload};
+        ctx.input_payload = Some(TracePayload::from_value(&args, MAX_INPUT_BYTES));
+    }
+
     // Run before-middlewares; abort the call if any rejects.
     if !gs.middleware_chain.is_empty()
         && let Err(e) = gs.middleware_chain.run_before(&mut ctx).await
@@ -269,6 +275,12 @@ async fn handle_tools_call(
         ctx.args.clone()
     };
 
+    // Phase 2: backend.execute span
+    let dispatch_ns = std::time::SystemTime::now()
+        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0);
+
     let (text, is_error) = aggregator::route_tools_call(
         gs,
         tool,
@@ -278,6 +290,24 @@ async fn handle_tools_call(
         Some(session_id),
     )
     .await;
+
+    {
+        use crate::gateway::admin::trace::{MAX_OUTPUT_BYTES, TracePayload, TraceSpan};
+        let response_ns = std::time::SystemTime::now()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u64)
+            .unwrap_or(0);
+        ctx.push_span(
+            TraceSpan::new(
+                "backend.execute",
+                dispatch_ns,
+                response_ns.saturating_sub(dispatch_ns),
+            )
+            .with_attr("tool_slug", tool)
+            .with_attr("ok", !is_error),
+        );
+        ctx.output_payload = Some(TracePayload::from_str(&text, MAX_OUTPUT_BYTES));
+    }
 
     // ── Middleware: AfterCall ────────────────────────────────────────────
     let mut call_result = crate::gateway::middleware::CallResult::from_tuple(&text, is_error);

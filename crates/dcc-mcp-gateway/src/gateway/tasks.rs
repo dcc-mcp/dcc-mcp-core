@@ -539,17 +539,24 @@ pub(crate) async fn start_gateway_tasks(
             let audit_log: std::sync::Arc<crate::gateway::admin::state::AuditLog> =
                 std::sync::Arc::new(parking_lot::Mutex::new(Vec::with_capacity(512)));
 
-            // 2. Build the sink that feeds the ring buffer.
-            let admin_sink: std::sync::Arc<dyn crate::gateway::middleware::AuditSink> =
-                std::sync::Arc::new(crate::gateway::admin::state::AdminAuditSink::new(
-                    audit_log.clone(),
-                    /* capacity = */ 512,
+            // 2. Phase 2 trace log — ring buffer for per-call dispatch traces.
+            let trace_log: std::sync::Arc<crate::gateway::admin::trace::TraceLog> =
+                std::sync::Arc::new(crate::gateway::admin::trace::TraceLog::new(
+                    crate::gateway::admin::trace::TraceLog::DEFAULT_CAPACITY,
                 ));
 
-            // 3. Prepend AuditMiddleware to the chain so every tools/call
-            //    passes through it. We replace the GatewayState's chain Arc
-            //    in-place; this is safe because the state has not been shared
-            //    with any tasks yet (we are still in start_gateway_tasks setup).
+            // 3. Build the sink that feeds the audit ring buffer and the trace log.
+            let admin_sink: std::sync::Arc<dyn crate::gateway::middleware::AuditSink> =
+                std::sync::Arc::new(
+                    crate::gateway::admin::state::AdminAuditSink::new(
+                        audit_log.clone(),
+                        /* capacity = */ 512,
+                    )
+                    .with_trace_log(trace_log.clone()),
+                );
+
+            // 4. Prepend AuditMiddleware to the chain so every tools/call
+            //    passes through it.
             {
                 let audit_mw = std::sync::Arc::new(
                     crate::gateway::middleware::AuditMiddleware::new(admin_sink),
@@ -560,10 +567,11 @@ pub(crate) async fn start_gateway_tasks(
                 gw_state.middleware_chain = std::sync::Arc::new(chain);
             }
 
-            // 4. Build AdminState with the audit log attached.
+            // 5. Build AdminState with audit log and trace log attached.
             Some(
                 crate::gateway::admin::state::AdminState::new(gw_state.clone())
-                    .with_audit_log(audit_log),
+                    .with_audit_log(audit_log)
+                    .with_trace_log(trace_log),
             )
         } else {
             None
