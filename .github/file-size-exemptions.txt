@@ -5,76 +5,9 @@
 # When the refactor tracked in that issue is complete, remove the entry.
 #
 # Format: one file path per line (relative to repo root), comments with #
-
-# issue #841 — Split backend_client.rs (1491 lines) into modules
-crates/dcc-mcp-gateway/src/gateway/backend_client.rs
-
-# issue #852 — dcc-mcp-http crate needs domain/application/infrastructure split
-crates/dcc-mcp-http/src/config.rs
-
-# issue #839 — Split GatewayState god-object into focused structs
-crates/dcc-mcp-gateway/src/gateway/tasks.rs
-crates/dcc-mcp-gateway/src/gateway/state.rs
-
-# Large files in dcc-mcp-host and dcc-mcp-skill-rest — tracked as part of
-# the SOLID + Clean Architecture epic (#848)
-crates/dcc-mcp-host/src/lib.rs
-crates/dcc-mcp-skill-rest/src/service.rs
-crates/dcc-mcp-skill-rest/src/router.rs
-
-# Gateway capability search and ranking — tracked under #852
-crates/dcc-mcp-gateway/src/gateway/capability/search.rs
-crates/dcc-mcp-gateway/src/gateway/capability/search_ranking.rs
-
-# Gateway OpenAPI spec — tracked under #852
-crates/dcc-mcp-gateway/src/gateway/openapi/spec.rs
-
-# dcc-mcp-server main entry and translation layer — tracked under #848
-crates/dcc-mcp-server/src/main.rs
-crates/dcc-mcp-server/src/translate.rs
-
-# HTTP python config bridge and skill server — tracked under #852
-crates/dcc-mcp-http/src/python/config.rs
-crates/dcc-mcp-http/src/python/skill_server.rs
-
-# HTTP server module and executor — tracked under #852
-crates/dcc-mcp-http/src/server/mod.rs
-
-# Workflow SQLite storage and policy — tracked under #848
-crates/dcc-mcp-workflow/src/sqlite.rs
-crates/dcc-mcp-workflow/src/policy.rs
-
-# Transport file registry, Python types, and discovery types — tracked under #852
-crates/dcc-mcp-transport/src/discovery/file_registry.rs
-crates/dcc-mcp-transport/src/discovery/types.rs
-crates/dcc-mcp-transport/src/python/types.rs
-
-# HTTP executor — tracked under #852
-crates/dcc-mcp-http/src/executor.rs
-
-# Protocols Python data — tracked under #848
-crates/dcc-mcp-protocols/src/python/data/data_dcc.rs
-
-# Capture Python bindings — tracked under #848
-crates/dcc-mcp-capture/src/python.rs
-
-# Telemetry Prometheus exporter — tracked under #848
-crates/dcc-mcp-telemetry/src/prometheus.rs
-
-# issue #849 — python/dcc_mcp_core/__init__.py is an 856-line god module
-python/dcc_mcp_core/__init__.py
-
-# Large Python modules tracked under #848 / #849
-python/dcc_mcp_core/server_base.py
-python/dcc_mcp_core/recipes.py
-python/dcc_mcp_core/schema.py
-python/dcc_mcp_core/skill.py
-python/dcc_mcp_core/dcc_server.py
-python/dcc_mcp_core/bridge.py
-python/dcc_mcp_core/docs_resources.py
-python/dcc_mcp_core/workflow_yaml.py
-python/dcc_mcp_core/_server/inprocess_executor.py
-python/dcc_mcp_core/checkpoint.py
-python/dcc_mcp_core/project.py
-python/dcc_mcp_core/_server/callable_dispatcher.py
-python/dcc_mcp_core/introspect.py
+#
+# Limits enforced by .github/workflows/check-file-size.yml:
+#   Rust  : 1500 lines (test files excluded)
+#   Python:  400 lines (test files excluded)
+#
+# Currently no files exceed the limits — keep this file empty.

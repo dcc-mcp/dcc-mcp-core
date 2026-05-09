@@ -281,6 +281,74 @@ Full trap list + code examples → [`docs/guide/agents-reference.md`](docs/guide
 
 ---
 
+## File Size Policy
+
+CI enforces hard line-count limits (`.github/workflows/check-file-size.yml`):
+
+| Language | Limit | Test files |
+|----------|-------|------------|
+| Rust (`.rs`) | **1 500 lines** | excluded |
+| Python (`.py`) | **400 lines** | excluded |
+
+### When a file exceeds the limit
+
+Do **not** add it to `.github/file-size-exemptions.txt` unless it is pre-existing
+technical debt tracked in an open issue. **Split it instead.**
+
+#### Rust — Clean Architecture split
+
+A file that exceeds 1 500 lines almost always mixes multiple responsibilities.
+Split it along these boundaries:
+
+```
+crates/<name>/src/
+├── domain/        # pure business logic, no I/O, no framework deps
+│   ├── model.rs   # types, enums, value objects
+│   └── service.rs # domain services (no async unless domain-driven)
+├── application/   # orchestration, use-case handlers, coordinator structs
+│   └── handler.rs
+├── infra/         # I/O: file system, network, OS, external crates
+│   ├── store.rs
+│   └── transport.rs
+└── lib.rs         # re-exports only; no logic here
+```
+
+Rules:
+- One public type / one cohesive set of related functions per file.
+- `domain/` must not import from `infra/` or `application/`.
+- `application/` orchestrates `domain/` + `infra/`; no business rules.
+- Keep `impl` blocks with their type — do not scatter impls across files.
+- Remove code smells during the split: eliminate `unwrap`/`expect` outside
+  tests, replace god-structs with focused structs, break cyclic deps.
+
+#### Python — Clean Architecture split
+
+```
+python/dcc_mcp_core/<feature>/
+├── __init__.py    # public re-exports only
+├── _model.py      # dataclasses / TypedDicts / Pydantic models
+├── _service.py    # pure business logic
+└── _adapter.py    # I/O adapters (files, subprocesses, DCC bridges)
+```
+
+Rules:
+- Max one public class or one cohesive group of related pure functions per file.
+- No circular imports; domain layer must not import adapters.
+- Prefer composition over inheritance for adapter variations.
+
+#### Exemption process
+
+If a split is genuinely out-of-scope for the current PR:
+1. Open a tracking issue titled `[Refactor] Split <file> into modules`.
+2. Add one line to `.github/file-size-exemptions.txt`:
+   ```
+   # issue #NNN — <reason>
+   path/to/the/file.rs
+   ```
+3. The PR author is accountable for closing that issue within two sprints.
+
+---
+
 ## Repo Layout (What Lives Where)
 
 ```
