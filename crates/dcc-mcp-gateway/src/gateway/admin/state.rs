@@ -9,6 +9,7 @@ use serde_json::Value;
 use crate::gateway::middleware::{AuditEntry, AuditSink};
 use crate::gateway::state::GatewayState;
 
+use super::stats::StatsAggregator;
 use super::trace::{DispatchTrace, TraceLog};
 
 /// Minimal audit record that the admin UI consumes.
@@ -108,6 +109,8 @@ pub struct AdminState {
     pub audit_log: Option<Arc<AuditLog>>,
     /// Phase 2 trace log — `None` until `with_trace_log` is called.
     pub trace_log: Option<Arc<TraceLog>>,
+    /// Phase 3 stats aggregator — `None` until `with_trace_log` is called.
+    pub stats: Option<Arc<StatsAggregator>>,
     pub event_log: Arc<EventLog>,
     pub started_at: SystemTime,
 }
@@ -118,6 +121,7 @@ impl AdminState {
             gateway,
             audit_log: None,
             trace_log: None,
+            stats: None,
             event_log: Arc::new(Mutex::new(Vec::new())),
             started_at: SystemTime::now(),
         }
@@ -129,6 +133,8 @@ impl AdminState {
     }
 
     pub fn with_trace_log(mut self, log: Arc<TraceLog>) -> Self {
+        // Phase 3: auto-create StatsAggregator when a TraceLog is attached.
+        self.stats = Some(Arc::new(StatsAggregator::new(log.clone())));
         self.trace_log = Some(log);
         self
     }

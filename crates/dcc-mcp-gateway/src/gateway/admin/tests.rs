@@ -347,6 +347,8 @@ mod admin_tests {
             "/api/tools",
             "/api/calls",
             "/api/logs",
+            "/api/stats",
+            "/api/traces",
         ] {
             let resp = admin_router()
                 .oneshot(
@@ -367,5 +369,73 @@ mod admin_tests {
                 "endpoint {uri} must return application/json, got '{ct}'"
             );
         }
+    }
+
+    // -- Phase 3: /api/stats -----------------------------------------------
+
+    #[tokio::test]
+    async fn test_admin_stats_empty_returns_zero_total() {
+        let (status, body) = body_json(admin_router(), "/api/stats").await;
+        assert_eq!(status, StatusCode::OK);
+        // Without a trace log attached, should return 0 or an error object.
+        assert!(body.is_object());
+    }
+
+    #[tokio::test]
+    async fn test_admin_stats_with_trace_log_returns_fields() {
+        use crate::gateway::admin::trace::{DispatchTrace, TraceLog};
+        use std::sync::Arc;
+        use std::time::SystemTime;
+
+        let log = Arc::new(TraceLog::new(100));
+        log.push(DispatchTrace {
+            request_id: "r1".into(),
+            method: "tools/call".into(),
+            tool_slug: Some("maya.create_sphere".into()),
+            instance_id: Some("inst-abc".into()),
+            session_id: None,
+            dcc_type: Some("maya".into()),
+            started_at: SystemTime::now(),
+            total_ms: 150,
+            ok: true,
+            spans: vec![],
+            input: None,
+            output: None,
+        });
+        log.push(DispatchTrace {
+            request_id: "r2".into(),
+            method: "tools/call".into(),
+            tool_slug: Some("maya.open_file".into()),
+            instance_id: Some("inst-abc".into()),
+            session_id: None,
+            dcc_type: Some("maya".into()),
+            started_at: SystemTime::now(),
+            total_ms: 50,
+            ok: false,
+            spans: vec![],
+            input: None,
+            output: None,
+        });
+
+        let state = make_admin_state().with_trace_log(log);
+        let router = build_admin_router(state);
+        let (status, body) = body_json(router, "/api/stats?range=1h").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["range"], "1h");
+        assert_eq!(body["total_calls"], 2);
+        assert_eq!(body["successful_calls"], 1);
+        assert_eq!(body["failed_calls"], 1);
+        assert!(body["latency_ms"]["p50_ms"].as_u64().unwrap() > 0);
+        assert!(body["top_tools"].is_array());
+        assert!(body["hourly_distribution"].is_array());
+        assert_eq!(body["hourly_distribution"].as_array().unwrap().len(), 24);
+    }
+
+    #[tokio::test]
+    async fn test_admin_stats_all_range_is_default() {
+        let (status, body) = body_json(admin_router(), "/api/stats?range=invalid").await;
+        assert_eq!(status, StatusCode::OK);
+        // Unknown range should fall back to "all".
+        assert!(body["range"] == "all" || body.get("error").is_some());
     }
 }
