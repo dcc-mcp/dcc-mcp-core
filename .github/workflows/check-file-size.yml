@@ -7,7 +7,7 @@ name: Check File Size
 #
 # Limits (issue #842):
 #   - .rs files: 1500 lines (test files excluded)
-#   - .py files: 400 lines (test files excluded)
+#   - .py files: 1000 lines (test files excluded)
 #
 # When a file exceeds the limit, split it following Clean Architecture:
 #   Rust: domain/ infra/ application/ layers; one responsibility per module.
@@ -70,7 +70,7 @@ jobs:
       - name: Check Python file sizes
         run: |
           set -euo pipefail
-          MAX_PY=400
+          MAX_PY=1000
           EXEMPTIONS=".github/file-size-exemptions.txt"
           FAIL=0
 

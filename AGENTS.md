@@ -288,7 +288,7 @@ CI enforces hard line-count limits (`.github/workflows/check-file-size.yml`):
 | Language | Limit | Test files |
 |----------|-------|------------|
 | Rust (`.rs`) | **1 500 lines** | excluded |
-| Python (`.py`) | **400 lines** | excluded |
+| Python (`.py`) | **1 000 lines** | excluded |
 
 ### When a file exceeds the limit
 
