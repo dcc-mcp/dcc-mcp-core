@@ -39,6 +39,8 @@ pub(crate) async fn start_gateway_runner(
         middleware_chain: dcc_mcp_gateway::gateway::middleware::MiddlewareChain::new(),
         admin_enabled: config.gateway.admin_enabled,
         admin_path: config.gateway.admin_path.clone(),
+        health_check_interval_secs: 5,
+        health_check_failures: 2,
     };
 
     let runner = match GatewayRunner::new(gateway_config) {
