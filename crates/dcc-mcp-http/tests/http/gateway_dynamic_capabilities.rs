@@ -788,9 +788,7 @@ async fn spawn_backend_with_unloaded(
         unloaded: Vec<(&'static str, &'static str, &'static str)>,
     }
 
-    async fn search858(
-        axum::extract::State(st): axum::extract::State<State858>,
-    ) -> Json<Value> {
+    async fn search858(axum::extract::State(st): axum::extract::State<State858>) -> Json<Value> {
         let mut hits: Vec<Value> = st
             .loaded
             .iter()
@@ -847,14 +845,25 @@ async fn search_tools_includes_unloaded_skill_tools() {
             ("project.status", "project status"),
         ],
         vec![
-            ("maya-primitives", "maya-primitives.create_sphere", "Create a sphere primitive"),
-            ("maya-geometry", "maya-geometry.create_sphere", "Create a sphere geometry"),
+            (
+                "maya-primitives",
+                "maya-primitives.create_sphere",
+                "Create a sphere primitive",
+            ),
+            (
+                "maya-geometry",
+                "maya-geometry.create_sphere",
+                "Create a sphere geometry",
+            ),
         ],
     )
     .await;
 
     let entry = ServiceEntry::new("maya", "127.0.0.1", port);
-    { let reg = registry.read().await; reg.register(entry).unwrap(); }
+    {
+        let reg = registry.read().await;
+        reg.register(entry).unwrap();
+    }
 
     refresh_all_live_backends(&state, RefreshReason::InstanceJoined).await;
 
@@ -876,7 +885,11 @@ async fn search_tools_includes_unloaded_skill_tools() {
         "search_tools must surface unloaded create_sphere tools; got: {hits:?}",
     );
     for h in &sphere_hits {
-        assert!(!h.record.loaded, "unloaded sphere tool must have loaded=false: {:?}", h.record);
+        assert!(
+            !h.record.loaded,
+            "unloaded sphere tool must have loaded=false: {:?}",
+            h.record
+        );
     }
 }
 
@@ -891,12 +904,19 @@ async fn search_tools_unloaded_hit_carries_next_step_load_skill() {
 
     let port = spawn_backend_with_unloaded(
         vec![("project.save", "save scene")],
-        vec![("maya-primitives", "maya-primitives.create_sphere", "Create sphere")],
+        vec![(
+            "maya-primitives",
+            "maya-primitives.create_sphere",
+            "Create sphere",
+        )],
     )
     .await;
 
     let entry = ServiceEntry::new("maya", "127.0.0.1", port);
-    { let reg = registry.read().await; reg.register(entry).unwrap(); }
+    {
+        let reg = registry.read().await;
+        reg.register(entry).unwrap();
+    }
 
     let raw = tool_search_tools(
         &state,
@@ -910,10 +930,27 @@ async fn search_tools_unloaded_hit_carries_next_step_load_skill() {
 
     let sphere_hit = hits
         .iter()
-        .find(|h| h.get("backend_tool").and_then(Value::as_str).map(|n| n.contains("create_sphere")).unwrap_or(false))
+        .find(|h| {
+            h.get("backend_tool")
+                .and_then(Value::as_str)
+                .map(|n| n.contains("create_sphere"))
+                .unwrap_or(false)
+        })
         .expect("create_sphere must appear in MCP search_tools response");
 
-    assert_eq!(sphere_hit["loaded"].as_bool(), Some(false), "unloaded hit must have loaded=false");
-    assert_eq!(sphere_hit["next_step"]["action"].as_str(), Some("load_skill"), "next_step.action = load_skill");
-    assert_eq!(sphere_hit["next_step"]["skill_name"].as_str(), Some("maya-primitives"), "next_step.skill_name");
+    assert_eq!(
+        sphere_hit["loaded"].as_bool(),
+        Some(false),
+        "unloaded hit must have loaded=false"
+    );
+    assert_eq!(
+        sphere_hit["next_step"]["action"].as_str(),
+        Some("load_skill"),
+        "next_step.action = load_skill"
+    );
+    assert_eq!(
+        sphere_hit["next_step"]["skill_name"].as_str(),
+        Some("maya-primitives"),
+        "next_step.skill_name"
+    );
 }

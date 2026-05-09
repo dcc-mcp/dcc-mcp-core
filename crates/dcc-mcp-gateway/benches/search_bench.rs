@@ -12,10 +12,11 @@
 //! cargo bench -p dcc-mcp-gateway --bench search_bench
 //! ```
 
-use criterion::{BenchmarkId, Criterion, black_box, criterion_group, criterion_main};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use dcc_mcp_gateway::{
     ScorerFactory, SearchMode, StrategyExactScorer, StrategyFuzzyScorer, StrategyScorer,
 };
+use std::hint::black_box;
 
 // ---------------------------------------------------------------------------
 // Shared corpus

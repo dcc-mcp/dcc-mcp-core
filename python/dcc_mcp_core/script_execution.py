@@ -8,6 +8,7 @@ Those tools need the same stdout/stderr capture behaviour and the same
 from __future__ import annotations
 
 from collections.abc import Mapping
+import contextlib
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 import io
@@ -140,10 +141,8 @@ class ScriptExecutionCapture(AbstractContextManager):
         # during this script body does not produce a mangled duplicate in
         # the response envelope (issue #856).
         if self._output_capture is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._output_capture.set_paused(True)
-            except Exception:
-                pass
         return self
 
     def __exit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
@@ -154,10 +153,8 @@ class ScriptExecutionCapture(AbstractContextManager):
         # Always resume, even on exception, so spontaneous Maya warnings
         # between calls keep reaching the output:// resource.
         if self._output_capture is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._output_capture.set_paused(False)
-            except Exception:
-                pass
 
     @property
     def stdout(self) -> str:

@@ -1237,7 +1237,7 @@ class TestBundledSkillToolCount:
             skill_md = skill_dir / "SKILL.md"
             if not skill_md.exists():
                 continue
-            content = skill_md.read_text()
+            content = skill_md.read_text(encoding="utf-8")
             if "tools.yaml" in content:
                 skills_with_tools_yaml.append(skill_dir.name)
 

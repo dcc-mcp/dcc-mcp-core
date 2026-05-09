@@ -262,7 +262,7 @@ fn test_scene_query_only_works_independently() {
     let a = QueryOnlyAdapter;
     assert!(a.get_scene_info().is_ok());
     assert!(a.list_objects(None).is_ok());
-    assert_eq!(a.set_visibility("cube", true).unwrap(), true);
+    assert!(a.set_visibility("cube", true).unwrap());
 }
 
 /// DccSceneQuery method count stays at or below 7 (ISP acceptance criterion).
@@ -278,9 +278,7 @@ fn test_trait_method_counts_within_isp_limit() {
     //   DccAdapter:   10  (accessor-only composite, accepted)
     //
     // There is no runtime assertion here because Rust has no reflection for
-    // method counts. The comment acts as a policy anchor; keep it updated.
-    assert!(
-        true,
-        "Method count policy: each focused sub-trait <= 7 methods."
-    );
+    // method counts. The comment acts as a policy anchor; keep it updated
+    // whenever any sub-trait gains or loses a method.
+    const _POLICY: &str = "Method count policy: each focused sub-trait <= 7 methods.";
 }

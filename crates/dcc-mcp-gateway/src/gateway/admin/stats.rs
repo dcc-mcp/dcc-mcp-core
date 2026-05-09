@@ -36,6 +36,17 @@ pub enum StatsRange {
 }
 
 impl StatsRange {
+    /// Parse the `range` query string parameter from the admin UI.
+    ///
+    /// Recognises `"1h"`, `"24h"`, `"7d"`. Any other value (including
+    /// `"all"`, the empty string, or unknown strings) maps to
+    /// [`StatsRange::All`] — the handler intentionally falls back rather
+    /// than 400 so a typo in the UI does not break the page.
+    ///
+    /// Intentionally does not implement [`std::str::FromStr`]: the
+    /// "invalid input falls through to All" contract is incompatible
+    /// with `FromStr`'s fallible shape.
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         match s {
             "1h" => Self::Hour1,
