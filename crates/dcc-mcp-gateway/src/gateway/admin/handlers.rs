@@ -85,11 +85,11 @@ pub async fn handle_admin_calls(State(s): State<AdminState>) -> impl IntoRespons
                     json!({
                         "timestamp": ts,
                         "tool": r.action,
-                        "dcc_type": null,
+                        "dcc_type": r.dcc_type,
                         "status": if r.success { "ok" } else { "err" },
                         "success": r.success,
                         "error": r.error,
-                        "duration_ms": null,
+                        "duration_ms": r.duration_ms,
                     })
                 })
                 .collect::<Vec<_>>()
