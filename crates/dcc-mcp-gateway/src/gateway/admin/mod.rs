@@ -29,13 +29,15 @@
 
 mod html;
 pub mod state;
+pub mod trace;
 
 #[cfg(feature = "admin")]
 mod handlers;
 #[cfg(feature = "admin")]
 mod router;
 
-pub use state::{AdminAuditRecord, AdminState, AuditLog, EventLog};
+pub use state::{AdminAuditRecord, AdminAuditSink, AdminState, AuditLog, EventLog};
+pub use trace::{DispatchTrace, TraceLog, TracePayload, TraceSpan};
 
 #[cfg(feature = "admin")]
 pub use router::build_admin_router;

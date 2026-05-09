@@ -5,31 +5,27 @@ use std::time::SystemTime;
 
 use super::context::{CallContext, CallResult};
 use super::traits::{AfterCallMiddleware, BeforeCallMiddleware, MiddlewareFuture};
+use crate::gateway::admin::trace::{TracePayload, TraceSpan};
 
 /// A single audit record produced for each tool call.
 #[derive(Debug, Clone)]
 pub struct AuditEntry {
-    /// The ISO-8601 timestamp when the audit event was created.
     pub timestamp: SystemTime,
-    /// MCP method (e.g. `"tools/call"`).
     pub method: String,
-    /// Tool slug / name.
     pub tool_slug: Option<String>,
-    /// DCC type of the target backend.
     pub dcc_type: Option<String>,
-    /// Target instance ID.
     pub instance_id: Option<String>,
-    /// Session identifier.
     pub session_id: Option<String>,
-    /// Request ID (unique per call).
     pub request_id: String,
-    /// Whether the call produced an error.
     pub is_error: bool,
-    /// Short snippet of the result text (first 256 chars).
     pub result_preview: String,
-    /// Wall-clock duration of the call in milliseconds, computed from the
-    /// `audit.start_time_ns` metadata stamp written by `before_call`.
     pub duration_ms: Option<u64>,
+    /// Phase 2: waterfall of timing spans collected by the handler.
+    pub trace_spans: Vec<TraceSpan>,
+    /// Phase 2: captured input payload (bounded, pre-redacted).
+    pub input_payload: Option<TracePayload>,
+    /// Phase 2: captured output payload (bounded, pre-redacted).
+    pub output_payload: Option<TracePayload>,
 }
 
 /// Sink that receives completed [`AuditEntry`] records.
@@ -58,10 +54,6 @@ impl AuditSink for DefaultAuditSink {
 }
 
 /// Middleware that records each call via an [`AuditSink`].
-///
-/// - In `before_call`: captures the call context into `ctx.metadata` under
-///   `"audit.start_time_ns"` for latency tracking.
-/// - In `after_call`: writes the completed [`AuditEntry`] to the sink.
 pub struct AuditMiddleware {
     sink: Arc<dyn AuditSink>,
 }
@@ -75,12 +67,9 @@ impl Default for AuditMiddleware {
 }
 
 impl AuditMiddleware {
-    /// Create a middleware with the given audit sink.
     pub fn new(sink: Arc<dyn AuditSink>) -> Self {
         Self { sink }
     }
-
-    /// Create a middleware that writes to `tracing::info!`.
     pub fn with_default_sink() -> Self {
         Self::default()
     }
@@ -89,7 +78,6 @@ impl AuditMiddleware {
 impl BeforeCallMiddleware for AuditMiddleware {
     fn before_call<'a>(&'a self, ctx: &'a mut CallContext) -> MiddlewareFuture<'a, ()> {
         Box::pin(async move {
-            // Store epoch nanoseconds for post-call latency computation.
             let ns = SystemTime::now()
                 .duration_since(SystemTime::UNIX_EPOCH)
                 .map(|d| d.as_nanos())
@@ -107,8 +95,6 @@ impl AfterCallMiddleware for AuditMiddleware {
         ctx: &'a CallContext,
         result: &'a mut CallResult,
     ) -> MiddlewareFuture<'a, ()> {
-        // Compute wall-clock duration from the start timestamp stamped by
-        // `before_call` into `ctx.metadata["audit.start_time_ns"]`.
         let duration_ms = ctx
             .metadata
             .get("audit.start_time_ns")
@@ -131,6 +117,9 @@ impl AfterCallMiddleware for AuditMiddleware {
             is_error: result.is_error,
             result_preview: result.text.chars().take(256).collect(),
             duration_ms,
+            trace_spans: ctx.trace_spans.clone(),
+            input_payload: ctx.input_payload.clone(),
+            output_payload: ctx.output_payload.clone(),
         };
         let sink = self.sink.clone();
         Box::pin(async move {
