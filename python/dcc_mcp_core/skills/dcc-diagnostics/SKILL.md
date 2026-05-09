@@ -10,12 +10,13 @@ description: >-
   operations.
 license: MIT
 metadata:
-  dcc-mcp.dcc: python
-  dcc-mcp.version: "1.1.0"
-  dcc-mcp.layer: infrastructure
-  dcc-mcp.search-hint: "error report, error log, failure, debug, maya error, blender error, houdini error, tool failed, mcp tool execution failed, screenshot, capture, audit log, metrics, performance, process monitor, diagnostics, health check, observability, job failed, job history, log file"
-  dcc-mcp.tags: "diagnostics, observability, error, screenshot, audit, metrics, debug, infrastructure"
-  dcc-mcp.tools: tools.yaml
+  dcc-mcp:
+    dcc: python
+    version: "1.1.0"
+    layer: infrastructure
+    search-hint: "error report, error log, failure, debug, maya error, blender error, houdini error, tool failed, mcp tool execution failed, screenshot, capture, audit log, metrics, performance, process monitor, diagnostics, health check, observability, job failed, job history, log file"
+    tags: "diagnostics, observability, error, screenshot, audit, metrics, debug, infrastructure"
+    tools: tools.yaml
 ---
 
 # DCC Diagnostics
