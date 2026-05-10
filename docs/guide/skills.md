@@ -151,13 +151,22 @@ info = catalog.get_skill_info("maya-geometry")  # dict with full details or None
 
 ## ToolDeclaration
 
-A `ToolDeclaration` describes a single tool within a skill. Declare tools in the sibling `tools.yaml` file referenced by `metadata.dcc-mcp.tools`. Legacy top-level `tools:` frontmatter is rejected by the strict loader; migrate old skills to the sibling-file pattern:
+A `ToolDeclaration` describes a single tool within a skill. Declare tools in the sibling `tools.yaml` file referenced by `metadata.dcc-mcp.tools`. Legacy top-level `tools:` frontmatter is rejected by the strict loader; migrate old skills to the sibling-file pattern. Schema keys accept both dcc-mcp-core snake_case (`input_schema`, `output_schema`) and MCP-style camelCase (`inputSchema`, `outputSchema`) so authors can copy schemas from MCP tooling without renaming them:
 
 ```yaml
 tools:
   - name: create_sphere
     description: "Create a polygon sphere"
-    input_schema: '{"type":"object","properties":{"radius":{"type":"number"}}}'
+    inputSchema:
+      type: object
+      properties:
+        radius:
+          type: number
+    outputSchema:
+      type: object
+      properties:
+        name:
+          type: string
     read_only: false
     destructive: false
     idempotent: false
@@ -184,8 +193,8 @@ decl = ToolDeclaration(
 |-------|------|---------|-------------|
 | `name` | `str` | required | Tool name (unique within the skill) |
 | `description` | `str` | `""` | Human-readable description |
-| `input_schema` | `str` (JSON) | `None` | JSON Schema for input parameters |
-| `output_schema` | `str` (JSON) | `None` | JSON Schema for output |
+| `input_schema` | `str` (JSON) | `None` | JSON Schema for input parameters; YAML also accepts `inputSchema` |
+| `output_schema` | `str` (JSON) | `None` | JSON Schema for output; YAML also accepts `outputSchema` |
 | `read_only` | `bool` | `False` | Whether this tool only reads data |
 | `destructive` | `bool` | `False` | Whether this tool may cause destructive changes |
 | `idempotent` | `bool` | `False` | Whether calling with same args always produces same result |

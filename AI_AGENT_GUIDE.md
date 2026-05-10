@@ -100,6 +100,9 @@ Use MCP resources for files, scene artefacts, thumbnails, diagnostics, and other
 5. Prefer resources over ad-hoc local file paths in tool messages; resources are portable across DCC hosts and easier for agents to trace.
 6. For reusable prompt templates, call gateway `prompts/list` and then `prompts/get` with the returned namespaced prompt name.
 
+### Gateway Admin Observability
+
+When debugging routing, slow calls, or worker availability, use the elected gateway's read-only admin JSON APIs before guessing from logs: `GET /admin/api/instances`, `/tools`, `/calls`, `/traces`, `/stats?range=24h`, `/workers`, `/logs`, and `/health`. The HTML dashboard remains `GET /admin`; disable it with `--no-admin`, `DCC_MCP_NO_ADMIN=true`, or `cfg.admin_enabled = False`.
 
 ## 📚 Key Concepts You Must Understand
 
