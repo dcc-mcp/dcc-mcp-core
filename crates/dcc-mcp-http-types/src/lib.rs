@@ -27,6 +27,7 @@
 //! | [`error`]   | [`HttpError`] / [`HttpResult`] error taxonomy             |
 //! | [`config`]  | [`ServerSpawnMode`], [`JobRecoveryPolicy`], [`JobConfig`], [`WorkflowConfig`], [`TelemetryConfig`], [`FeatureFlags`], [`InstanceConfig`] |
 //! | [`output`]  | [`output::OutputStream`] and [`output::OutputEntry`] output capture wire types |
+//! | [`prompts`] | [`prompts::PromptSpec`], [`prompts::PromptsSpec`], and related prompt spec types |
 //!
 //! # Migration plan (issue #852)
 //!
@@ -48,6 +49,9 @@
 //! | [`config::InstanceConfig`]  |                                  |
 //! | [`output::OutputStream`]    |                                  |
 //! | [`output::OutputEntry`]     |                                  |
+//! | [`prompts::PromptError`]    |                                  |
+//! | [`prompts::PromptSpec`]     |                                  |
+//! | [`prompts::PromptsSpec`]    |                                  |
 //!
 //! Each new round of #852 PRs migrates one self-contained subsystem at a
 //! time and re-exports it from `dcc-mcp-http` to preserve the public API.
@@ -58,6 +62,7 @@
 pub mod config;
 pub mod error;
 pub mod output;
+pub mod prompts;
 
 use serde::{Deserialize, Serialize};
 
