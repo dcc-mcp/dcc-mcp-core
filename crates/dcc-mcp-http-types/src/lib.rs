@@ -26,6 +26,7 @@
 //! | crate root  | [`TruncationEnvelope`], [`SseChunkFrame`] + chunk helpers |
 //! | [`error`]   | [`HttpError`] / [`HttpResult`] error taxonomy             |
 //! | [`config`]  | [`ServerSpawnMode`], [`JobRecoveryPolicy`], [`JobConfig`], [`WorkflowConfig`], [`TelemetryConfig`], [`FeatureFlags`], [`InstanceConfig`] |
+//! | [`output`]  | [`output::OutputStream`] and [`output::OutputEntry`] output capture wire types |
 //!
 //! # Migration plan (issue #852)
 //!
@@ -45,6 +46,8 @@
 //! | [`config::TelemetryConfig`] |                                  |
 //! | [`config::FeatureFlags`]    |                                  |
 //! | [`config::InstanceConfig`]  |                                  |
+//! | [`output::OutputStream`]    |                                  |
+//! | [`output::OutputEntry`]     |                                  |
 //!
 //! Each new round of #852 PRs migrates one self-contained subsystem at a
 //! time and re-exports it from `dcc-mcp-http` to preserve the public API.
@@ -54,6 +57,7 @@
 
 pub mod config;
 pub mod error;
+pub mod output;
 
 use serde::{Deserialize, Serialize};
 
