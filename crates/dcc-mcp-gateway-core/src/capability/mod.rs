@@ -5,7 +5,7 @@
 //! | Submodule          | What lives here                                              |
 //! |--------------------|--------------------------------------------------------------|
 //! | [`record`]         | `CapabilityRecord`, slug encoding / parsing, validation      |
-//! | [`search`]         | `SearchQuery`, `SearchHit`, `SearchPage`, `SearchMode`       |
+//! | [`search`]         | `SearchQuery`, `SearchHit`, `SearchPage`, `SearchMode`, pure ranking |
 //! | [`search_ranking`] | `Scorer` / `StrategyScorer` traits + built-in implementations |
 //! | [`index`]          | `IndexSnapshot`, `InstanceFingerprint` — read-side snapshot  |
 //! | [`builder`]        | `BuildOutcome` — output of the per-instance record builder   |
@@ -16,11 +16,11 @@
 //! builder (which borrows backend `&[McpTool]`), and the
 //! `refresh_instance` lifecycle driver (which owns a `reqwest::Client`)
 //! all live in `dcc-mcp-gateway` because they carry runtime state the
-//! domain layer has no business holding. Only the *wire types* —
-//! query parameters, result rows, snapshot view, builder output, and
-//! refresh-reason classification — live here so any REST/admin
-//! client talking to the gateway can deserialise responses without
-//! pulling the full gateway crate.
+//! domain layer has no business holding. The *wire types* — query
+//! parameters, result rows, snapshot view, builder output, and
+//! refresh-reason classification — plus pure search ranking live here
+//! so any REST/admin client talking to the gateway can deserialise and
+//! rank responses without pulling the full gateway crate.
 //!
 //! The ranking strategies in [`search_ranking`] also live here even
 //! though they are behaviour rather than wire types: they are pure
@@ -43,7 +43,9 @@ pub use builder::BuildOutcome;
 pub use index::{IndexSnapshot, InstanceFingerprint};
 pub use record::{CapabilityRecord, SCHEMA_AVAILABLE, is_valid_dcc_bucket, parse_slug, tool_slug};
 pub use refresh::RefreshReason;
-pub use search::{DEFAULT_LIMIT, MAX_LIMIT, SearchHit, SearchMode, SearchPage, SearchQuery};
+pub use search::{
+    DEFAULT_LIMIT, MAX_LIMIT, SearchHit, SearchMode, SearchPage, SearchQuery, search, search_page,
+};
 pub use search_ranking::{
     ExactScorer, FuzzyScorer, Scorer, ScorerFactory, StrategyExactScorer, StrategyFuzzyScorer,
     StrategyScorer, SubstringScorer,

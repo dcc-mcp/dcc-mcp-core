@@ -1,30 +1,37 @@
-//! Wire types for capability search (`POST /v1/search`).
+//! Wire types and pure ranking functions for capability search (`POST /v1/search`).
 //!
-//! This module carries the **shape** of every search request /
-//! response exchanged on the REST and MCP surfaces, nothing else.
-//! The actual ranking loop that joins a [`SearchQuery`] against a
-//! live capability index lives in `dcc-mcp-gateway` because it
-//! needs the gateway-side `IndexSnapshot` and the pluggable
-//! [`Scorer`] trait — both of which depend on runtime state the
-//! domain layer has no business knowing about.
+//! This module carries both sides of the search contract:
+//!
+//! - the serialisable request / response shapes exchanged on REST and MCP
+//!   surfaces, and
+//! - the pure ranking loop that joins a [`SearchQuery`] against an immutable
+//!   [`IndexSnapshot`].
+//!
+//! Runtime-owned mutable state remains in `dcc-mcp-gateway`: `CapabilityIndex`
+//! owns locks and per-instance mutation, while this crate only sees snapshots.
+//! Moving the ranking function here keeps Clean Architecture dependency
+//! direction intact (gateway runtime → gateway-core domain) and guarantees that
+//! every consumer ranks the same snapshot identically.
 //!
 //! # Wire contract
 //!
-//! Every type here is `Serialize` + `Deserialize`. Field names,
+//! Every public type here is `Serialize` + `Deserialize`. Field names,
 //! defaults, and [`serde(rename_all)`] attributes are part of the
-//! `POST /v1/search` REST contract — adjust with care and bump the
-//! contract docs if you change the shape.
+//! `POST /v1/search` REST contract — adjust with care and bump the contract
+//! docs if you change the shape.
 //!
 //! # Pre-#659 compatibility
 //!
-//! [`SearchQuery`] fields default to values that preserve the
-//! pre-#659 behaviour, so existing clients that only set `query`
-//! keep working without re-serialising.
+//! [`SearchQuery`] fields default to values that preserve the pre-#659
+//! behaviour, so existing clients that only set `query` keep working without
+//! re-serialising.
 
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use super::index::IndexSnapshot;
 use super::record::CapabilityRecord;
+use super::search_ranking::{FuzzyScorer, Scorer, SubstringScorer};
 
 /// Which scoring strategy to use for a search.
 ///
@@ -122,9 +129,146 @@ pub struct SearchPage {
     pub limit: u32,
 }
 
+/// Rank `snapshot` against `query` and return the top-N hits for the first page.
+///
+/// Surfaces that need pagination should use [`search_page`] instead.
+#[must_use]
+pub fn search(snapshot: &IndexSnapshot, query: &SearchQuery) -> Vec<SearchHit> {
+    search_page(snapshot, query).hits
+}
+
+/// Paginated variant of [`search`].
+///
+/// Returns the ranked hits plus the total match count and echoed offset/limit
+/// so callers can paginate without re-issuing the query from scratch.
+#[must_use]
+pub fn search_page(snapshot: &IndexSnapshot, query: &SearchQuery) -> SearchPage {
+    let qnorm = query.query.trim().to_ascii_lowercase();
+    let dcc_filter = query.dcc_type.as_deref();
+    let instance_filter = query.instance_id;
+    let loaded_filter = query.loaded_only;
+    let tags_filter: Vec<String> = query
+        .tags
+        .iter()
+        .map(|t| t.trim().to_ascii_lowercase())
+        .filter(|t| !t.is_empty())
+        .collect();
+    let scene = query.scene_hint.as_deref().map(|s| s.to_ascii_lowercase());
+
+    // Phase 1: filter — these are strict drops, not score nudges.
+    let candidates: Vec<&CapabilityRecord> = snapshot
+        .records
+        .iter()
+        .filter(|r| dcc_filter.is_none_or(|f| r.dcc_type == f))
+        .filter(|r| instance_filter.is_none_or(|iid| r.instance_id == iid))
+        .filter(|r| loaded_filter != Some(true) || r.loaded)
+        .filter(|r| {
+            tags_filter
+                .iter()
+                .all(|t| r.tags.iter().any(|rt| rt.to_ascii_lowercase() == *t))
+        })
+        .collect();
+
+    // Phase 2: score. Construct exactly one scorer and reuse it across records.
+    let mut hits: Vec<SearchHit> = match query.mode {
+        SearchMode::Fuzzy => {
+            let mut scorer = FuzzyScorer::new();
+            rank(&candidates, &mut scorer, &qnorm, scene.as_deref())
+        }
+        SearchMode::Exact => {
+            let mut scorer = SubstringScorer;
+            rank(&candidates, &mut scorer, &qnorm, scene.as_deref())
+        }
+    };
+
+    hits.sort_by(|a, b| {
+        b.score
+            .cmp(&a.score)
+            // Tie-breaker: alphabetical slug so results stay stable across reruns.
+            .then_with(|| a.record.tool_slug.cmp(&b.record.tool_slug))
+    });
+
+    let total = hits.len() as u32;
+    let effective_limit = effective_limit(query.limit);
+    let offset = query.offset.unwrap_or(0).min(total);
+    let end = offset.saturating_add(effective_limit).min(total);
+    let page = if offset < total {
+        hits[offset as usize..end as usize].to_vec()
+    } else {
+        Vec::new()
+    };
+
+    SearchPage {
+        hits: page,
+        total,
+        offset,
+        limit: effective_limit,
+    }
+}
+
+fn rank<S: Scorer>(
+    candidates: &[&CapabilityRecord],
+    scorer: &mut S,
+    qnorm: &str,
+    scene: Option<&str>,
+) -> Vec<SearchHit> {
+    candidates
+        .iter()
+        .map(|r| SearchHit {
+            record: (*r).clone(),
+            score: scorer.score(r, qnorm, scene),
+        })
+        // Empty queries browse the whole catalogue; non-empty queries drop
+        // records with no match signal so token budget is not spent on noise.
+        .filter(|hit| qnorm.is_empty() || hit.score > 0)
+        .collect()
+}
+
+fn effective_limit(limit: Option<u32>) -> u32 {
+    match limit {
+        None => DEFAULT_LIMIT,
+        Some(0) => DEFAULT_LIMIT,
+        Some(n) => n.min(MAX_LIMIT),
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
     use super::*;
+    use crate::capability::record::tool_slug;
+
+    fn record(
+        dcc: &str,
+        iid: Uuid,
+        name: &str,
+        summary: &str,
+        tags: &[&str],
+        has_schema: bool,
+        loaded: bool,
+    ) -> CapabilityRecord {
+        CapabilityRecord::new(
+            tool_slug(dcc, &iid, name),
+            name.to_owned(),
+            name.to_owned(),
+            None,
+            summary,
+            tags.iter().map(|t| (*t).to_owned()).collect(),
+            dcc.to_owned(),
+            iid,
+            has_schema,
+            loaded,
+        )
+    }
+
+    fn snapshot(records: Vec<CapabilityRecord>) -> IndexSnapshot {
+        IndexSnapshot {
+            records: Arc::from(records),
+            fingerprints: HashMap::new(),
+        }
+    }
 
     #[test]
     fn search_mode_defaults_to_fuzzy() {
@@ -133,10 +277,6 @@ mod tests {
 
     #[test]
     fn search_mode_wire_is_snake_case() {
-        // Preserves the pre-#659 wire contract: the JSON form of the
-        // enum uses lowercase variant names. Regression guard so a
-        // future derive tweak cannot silently break downstream REST
-        // clients.
         assert_eq!(
             serde_json::to_string(&SearchMode::Fuzzy).unwrap(),
             "\"fuzzy\""
@@ -166,9 +306,6 @@ mod tests {
 
     #[test]
     fn search_query_accepts_query_only_body() {
-        // Existing clients that only set `query` must keep deserialising
-        // without re-shaping their JSON; this is the contract #659
-        // guaranteed and the types mirror it.
         let q: SearchQuery = serde_json::from_str(r#"{"query": "create sphere"}"#).unwrap();
         assert_eq!(q.query, "create sphere");
         assert_eq!(q.mode, SearchMode::Fuzzy);
@@ -176,10 +313,6 @@ mod tests {
 
     #[test]
     fn search_hit_flattens_record_into_row() {
-        // `#[serde(flatten)]` is part of the wire contract — the row
-        // must carry CapabilityRecord fields at the top level, not
-        // nested under a `record` key, or agents parsing the pre-#659
-        // shape would break.
         let hit = SearchHit {
             record: CapabilityRecord::new(
                 "maya.abcdef01.create_sphere".into(),
@@ -198,7 +331,6 @@ mod tests {
         let v: serde_json::Value = serde_json::to_value(&hit).unwrap();
         assert_eq!(v["tool_slug"], "maya.abcdef01.create_sphere");
         assert_eq!(v["score"], 42);
-        // A nested `record` object would be a wire break.
         assert!(v.get("record").is_none());
     }
 
@@ -219,11 +351,178 @@ mod tests {
 
     #[test]
     fn default_limit_and_max_limit_are_stable() {
-        // These values are part of the REST contract; tightening or
-        // loosening them silently would change client-visible
-        // behaviour. Pin them here so any change forces a conscious
-        // update of the contract docs.
         assert_eq!(DEFAULT_LIMIT, 25);
         assert_eq!(MAX_LIMIT, 100);
+    }
+
+    #[test]
+    fn empty_query_returns_all_records_within_limit() {
+        let iid = Uuid::from_u128(1);
+        let snap = snapshot(vec![record(
+            "maya",
+            iid,
+            "create_sphere",
+            "make a sphere",
+            &["geo"],
+            true,
+            true,
+        )]);
+
+        let hits = search(&snap, &SearchQuery::default());
+
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].record.backend_tool, "create_sphere");
+    }
+
+    #[test]
+    fn exact_mode_preserves_legacy_table() {
+        let a = Uuid::from_u128(1);
+        let b = Uuid::from_u128(2);
+        let snap = snapshot(vec![
+            record("maya", a, "sphere", "", &[], true, true),
+            record("maya", a, "create_sphere", "", &[], true, true),
+            record("maya", b, "open", "open a sphere scene", &[], false, false),
+        ]);
+
+        let hits = search(
+            &snap,
+            &SearchQuery {
+                query: "sphere".into(),
+                mode: SearchMode::Exact,
+                ..Default::default()
+            },
+        );
+
+        assert_eq!(hits[0].record.backend_tool, "sphere");
+        assert_eq!(hits[1].record.backend_tool, "create_sphere");
+        assert_eq!(hits[2].record.backend_tool, "open");
+    }
+
+    #[test]
+    fn filters_intersect_before_scoring() {
+        let maya_a = Uuid::from_u128(1);
+        let maya_b = Uuid::from_u128(2);
+        let blender_c = Uuid::from_u128(3);
+        let snap = snapshot(vec![
+            record("maya", maya_a, "read_scene", "", &["read-only"], true, true),
+            record(
+                "maya",
+                maya_b,
+                "write_scene",
+                "",
+                &["destructive"],
+                true,
+                true,
+            ),
+            record(
+                "blender",
+                blender_c,
+                "read_scene",
+                "",
+                &["read-only"],
+                false,
+                false,
+            ),
+        ]);
+
+        let hits = search(
+            &snap,
+            &SearchQuery {
+                query: "scene".into(),
+                dcc_type: Some("maya".into()),
+                tags: vec!["read-only".into()],
+                loaded_only: Some(true),
+                ..Default::default()
+            },
+        );
+
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].record.backend_tool, "read_scene");
+        assert_eq!(hits[0].record.dcc_type, "maya");
+    }
+
+    #[test]
+    fn fuzzy_mode_tolerates_single_character_typo() {
+        let iid = Uuid::from_u128(1);
+        let snap = snapshot(vec![record(
+            "maya",
+            iid,
+            "create_sphere",
+            "",
+            &[],
+            true,
+            true,
+        )]);
+
+        let hits = search(
+            &snap,
+            &SearchQuery {
+                query: "creat_spher".into(),
+                ..Default::default()
+            },
+        );
+
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].record.backend_tool, "create_sphere");
+    }
+
+    #[test]
+    fn pagination_returns_stable_slices() {
+        let iid = Uuid::from_u128(1);
+        let records: Vec<CapabilityRecord> = (0..75)
+            .map(|i| record("maya", iid, &format!("tool_{i:03}"), "", &[], false, false))
+            .collect();
+        let snap = snapshot(records);
+
+        let page_1 = search_page(
+            &snap,
+            &SearchQuery {
+                limit: Some(20),
+                offset: Some(0),
+                ..Default::default()
+            },
+        );
+        let page_2 = search_page(
+            &snap,
+            &SearchQuery {
+                limit: Some(20),
+                offset: Some(20),
+                ..Default::default()
+            },
+        );
+        let beyond = search_page(
+            &snap,
+            &SearchQuery {
+                limit: Some(20),
+                offset: Some(500),
+                ..Default::default()
+            },
+        );
+
+        assert_eq!(page_1.total, 75);
+        assert_eq!(page_2.total, 75);
+        assert_eq!(page_1.hits.len(), 20);
+        assert_eq!(page_2.hits.len(), 20);
+        assert!(beyond.hits.is_empty());
+        assert_eq!(beyond.total, 75);
+    }
+
+    #[test]
+    fn limit_is_clamped_to_max() {
+        let iid = Uuid::from_u128(1);
+        let records: Vec<CapabilityRecord> = (0..150)
+            .map(|i| record("maya", iid, &format!("t{i:03}"), "", &[], false, false))
+            .collect();
+        let snap = snapshot(records);
+
+        let hits = search(
+            &snap,
+            &SearchQuery {
+                limit: Some(9_999),
+                ..Default::default()
+            },
+        );
+
+        assert_eq!(hits.len(), MAX_LIMIT as usize);
     }
 }

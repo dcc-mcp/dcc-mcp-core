@@ -45,7 +45,7 @@
 //! * [`index`] — thread-safe `CapabilityIndex` store + swap.
 //! * [`builder`] — build a per-instance record set from backend
 //!   `tools/list` + `list_skills` responses.
-//! * [`search`] — `SearchQuery`, keyword scoring, ranking.
+//! * [`search`] — compatibility re-exports for domain search and ranking.
 //! * [`refresh`] — lifecycle: rebuild on instance join/leave, skill
 //!   load/unload, `tools/list_changed`.
 //!
