@@ -833,6 +833,7 @@ dependencies = [
  "criterion",
  "dashmap",
  "dcc-mcp-catalog",
+ "dcc-mcp-gateway-core",
  "dcc-mcp-jsonrpc",
  "dcc-mcp-naming",
  "dcc-mcp-skill-rest",
@@ -858,6 +859,14 @@ dependencies = [
  "tracing",
  "uuid",
  "workspace-hack",
+]
+
+[[package]]
+name = "dcc-mcp-gateway-core"
+version = "0.15.7"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

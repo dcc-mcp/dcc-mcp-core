@@ -12,6 +12,7 @@ members = [
     "crates/dcc-mcp-job",
     "crates/dcc-mcp-skill-rest",
     "crates/dcc-mcp-gateway",
+    "crates/dcc-mcp-gateway-core",
     "crates/dcc-mcp-logging",
     "crates/dcc-mcp-pybridge",
     "crates/dcc-mcp-pybridge-derive",
