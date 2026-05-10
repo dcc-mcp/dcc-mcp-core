@@ -19,6 +19,7 @@ workspace = true
 dcc-mcp-http-types = { path = "../dcc-mcp-http-types" }
 dcc-mcp-jsonrpc = { path = "../dcc-mcp-jsonrpc" }
 dcc-mcp-job = { path = "../dcc-mcp-job" }
+dcc-mcp-naming = { path = "../dcc-mcp-naming" }
 dcc-mcp-host = { path = "../dcc-mcp-host" }
 dcc-mcp-workflow = { path = "../dcc-mcp-workflow" }
 

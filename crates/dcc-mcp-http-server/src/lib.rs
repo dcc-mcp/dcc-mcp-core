@@ -9,7 +9,8 @@
 //! - MCP session state,
 //! - in-flight request cancellation / progress routing,
 //! - job and workflow notifications,
-//! - workspace root resolution.
+//! - workspace root resolution,
+//! - low-coupling handler helpers.
 //!
 //! The public `dcc-mcp-http` crate re-exports this surface from its historical
 //! module paths for source compatibility.
@@ -18,6 +19,7 @@
 
 pub mod dynamic_tools;
 pub mod executor;
+pub mod handlers;
 pub mod host_bridge;
 pub mod inflight;
 pub mod notifications;
@@ -31,6 +33,7 @@ pub use dynamic_tools::{
     handle_register_tool,
 };
 pub use executor::{DccExecutorHandle, DeferredExecutor, ExecutorQueueStats};
+pub use handlers::{build_core_tools, build_core_tools_inner};
 pub use host_bridge::{
     DEFAULT_BRIDGE_QUEUE_DEPTH, dispatcher_to_executor_handle,
     dispatcher_to_executor_handle_with_capacity,
