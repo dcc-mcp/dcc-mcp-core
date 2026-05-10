@@ -25,7 +25,7 @@
 //! |-------------|-----------------------------------------------------------|
 //! | crate root  | [`TruncationEnvelope`], [`SseChunkFrame`] + chunk helpers |
 //! | [`error`]   | [`HttpError`] / [`HttpResult`] error taxonomy             |
-//! | [`config`]  | [`ServerSpawnMode`], [`JobRecoveryPolicy`], [`JobConfig`], [`WorkflowConfig`] |
+//! | [`config`]  | [`ServerSpawnMode`], [`JobRecoveryPolicy`], [`JobConfig`], [`WorkflowConfig`], [`TelemetryConfig`], [`FeatureFlags`] |
 //!
 //! # Migration plan (issue #852)
 //!
@@ -39,9 +39,11 @@
 //! | [`format_chunked_sse`]      | `SessionConfig`                  |
 //! | [`error::HttpError`]        | `GatewayConfig`                  |
 //! | [`config::ServerSpawnMode`] | `QueueConfig`                    |
-//! | [`config::JobRecoveryPolicy`]| `TelemetryConfig`               |
-//! | [`config::JobConfig`]       | `FeatureFlags`                   |
+//! | [`config::JobRecoveryPolicy`]|                                 |
+//! | [`config::JobConfig`]       |                                  |
 //! | [`config::WorkflowConfig`]  |                                  |
+//! | [`config::TelemetryConfig`] |                                  |
+//! | [`config::FeatureFlags`]    |                                  |
 //!
 //! Each new round of #852 PRs migrates one self-contained subsystem at a
 //! time and re-exports it from `dcc-mcp-http` to preserve the public API.

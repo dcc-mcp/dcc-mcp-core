@@ -4,16 +4,15 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::path::PathBuf;
 
-// `ServerSpawnMode`, `JobRecoveryPolicy`, `JobConfig`, and
-// `WorkflowConfig` were migrated to `dcc-mcp-http-types::config`
-// (issue #852, parts 3 + 4) so external Rust tooling (CLI drivers,
-// config validators, adapter orchestrators) can depend on just the
-// value-type contract without dragging in axum / tokio / reqwest /
-// pyo3. Re-exported here so the historical
-// `crate::config::{ServerSpawnMode, JobRecoveryPolicy, JobConfig,
-//   WorkflowConfig}` paths keep compiling.
+// `ServerSpawnMode`, `JobRecoveryPolicy`, `JobConfig`,
+// `WorkflowConfig`, `TelemetryConfig`, and `FeatureFlags` were
+// migrated to `dcc-mcp-http-types::config` (issue #852, parts 3-5)
+// so external Rust tooling (CLI drivers, config validators, adapter
+// orchestrators) can depend on just the value-type contract without
+// dragging in axum / tokio / reqwest / pyo3. Re-exported here so the
+// historical `crate::config::*` paths keep compiling.
 pub use dcc_mcp_http_types::config::{
-    JobConfig, JobRecoveryPolicy, ServerSpawnMode, WorkflowConfig,
+    FeatureFlags, JobConfig, JobRecoveryPolicy, ServerSpawnMode, TelemetryConfig, WorkflowConfig,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -736,84 +735,9 @@ impl QueueConfig {
     }
 }
 
-/// Prometheus metrics configuration.
-#[derive(Debug, Clone, Default)]
-pub struct TelemetryConfig {
-    /// Enable the Prometheus `/metrics` endpoint (issue #331).
-    ///
-    /// Requires the `prometheus` Cargo feature on both `dcc-mcp-http`
-    /// and `dcc-mcp-telemetry`. When `true`, [`McpHttpServer::start`]
-    /// mounts a `GET /metrics` route on the same Axum router that
-    /// serves `/mcp`; the body is a standard Prometheus text-exposition
-    /// payload (`text/plain; version=0.0.4`).
-    ///
-    /// Defaults to `false`: the endpoint is opt-in, and when the
-    /// feature is compiled out this flag has no effect.
-    pub enable_prometheus: bool,
-
-    /// Optional HTTP Basic auth guard for `/metrics` (issue #331).
-    ///
-    /// When `Some((user, pass))`, scrapers must present a matching
-    /// `Authorization: Basic ...` header or the endpoint responds with
-    /// `401 Unauthorized`. When `None` (default), the endpoint is
-    /// unauthenticated — acceptable for localhost-only development but
-    /// strongly discouraged in production.
-    pub prometheus_basic_auth: Option<(String, String)>,
-}
-
-/// Opt-in capability switches.
-#[derive(Debug, Clone)]
-pub struct FeatureFlags {
-    /// Enable the opt-in lazy-actions meta-tools: ``list_actions``,
-    /// ``describe_action`` and ``call_action``.
-    ///
-    /// When `true`, `tools/list` additionally surfaces these three meta-tools
-    /// so agents with tight context budgets can drive an arbitrarily large
-    /// action catalog through a single page of 3 stubs instead of paging
-    /// through every loaded skill's tools. Default: `false`.
-    pub lazy_actions: bool,
-
-    /// Publish skill-scoped tools under their **bare action name** when no
-    /// collision exists on this instance (#307).
-    ///
-    /// When `true` (default), `tools/list` emits `execute_python` rather than
-    /// `maya-scripting.execute_python` whenever the bare name is unique
-    /// within the instance's loaded skills. Collisions fall back to the
-    /// full `<skill>.<action>` form, and `tools/call` accepts both shapes
-    /// for one release cycle.
-    pub bare_tool_names: bool,
-
-    /// Advertise the MCP Resources primitive (issue #350).
-    pub enable_resources: bool,
-
-    /// Advertise the MCP Prompts primitive (issues #351, #355).
-    pub enable_prompts: bool,
-
-    /// Expose `artefact://` resources (issue #349).
-    pub enable_artefact_resources: bool,
-
-    /// Emit the `notifications/$/dcc.jobUpdated` and
-    /// `notifications/$/dcc.workflowUpdated` SSE channels (issue #326).
-    pub enable_job_notifications: bool,
-
-    /// Best-effort safety net for Python callers that drop a
-    /// `McpServerHandle` without calling `shutdown()`.
-    pub shutdown_on_drop: bool,
-}
-
-impl Default for FeatureFlags {
-    fn default() -> Self {
-        Self {
-            lazy_actions: false,
-            bare_tool_names: true,
-            enable_resources: true,
-            enable_prompts: true,
-            enable_artefact_resources: false,
-            enable_job_notifications: true,
-            shutdown_on_drop: false,
-        }
-    }
-}
+// `TelemetryConfig` and `FeatureFlags` were migrated to
+// `dcc-mcp-http-types::config` (issue #852, part 5) — see the
+// `pub use` re-export at the top of this file.
 
 // `WorkflowConfig` and `JobConfig` were migrated to
 // `dcc-mcp-http-types::config` (issue #852, part 4) — see the
