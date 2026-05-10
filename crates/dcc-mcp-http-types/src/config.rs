@@ -7,9 +7,11 @@
 //! can depend on just the enumeration contract without dragging in
 //! `axum` / `tokio` / `reqwest` / `pyo3`.
 //!
-//! The full `McpHttpConfig` struct stays in `dcc-mcp-http::config`
-//! until its sub-struct split lands; this module captures just the
-//! self-contained enums for now.
+//! The full `McpHttpConfig` aggregate stays in `dcc-mcp-http::config`
+//! until every sub-struct has migrated; this module captures the
+//! self-contained pieces one at a time.
+
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
@@ -107,6 +109,61 @@ impl JobRecoveryPolicy {
     }
 }
 
+// ── JobConfig ──────────────────────────────────────────────────────────────
+
+/// Job persistence & recovery configuration.
+///
+/// One of the orthogonal sub-configs that compose `McpHttpConfig`
+/// (issue #852). Captured here as a pure value type so external
+/// tooling (config validators, CLI inspectors) can depend on the
+/// shape without pulling in the rest of the HTTP server crate.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JobConfig {
+    /// Path to a SQLite database file for persisting tracked jobs
+    /// (issue #328). `None` means in-memory storage.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job_storage_path: Option<PathBuf>,
+
+    /// What to do with rows the previous process left in `Pending` /
+    /// `Running` after a crash or restart (issue #567).
+    #[serde(default)]
+    pub job_recovery: JobRecoveryPolicy,
+}
+
+impl Default for JobConfig {
+    fn default() -> Self {
+        Self {
+            job_storage_path: None,
+            job_recovery: JobRecoveryPolicy::Drop,
+        }
+    }
+}
+
+// ── WorkflowConfig ─────────────────────────────────────────────────────────
+
+/// Workflow & scheduler configuration.
+///
+/// Captures the three opt-in switches that turn on the workflow
+/// (`workflows.*` MCP tools, issue #348) and scheduler (issue #352)
+/// subsystems. Both default to off so a pristine `McpHttpConfig`
+/// boots the minimal surface and operators opt into the heavier
+/// subsystems consciously.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct WorkflowConfig {
+    /// Enable the built-in `workflows.*` tools (issue #348).
+    #[serde(default)]
+    pub enable_workflows: bool,
+
+    /// Enable the cron + webhook scheduler subsystem (issue #352).
+    #[serde(default)]
+    pub enable_scheduler: bool,
+
+    /// Directory holding `*.schedules.yaml` files for the scheduler
+    /// subsystem (issue #352).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schedules_dir: Option<PathBuf>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -193,5 +250,91 @@ mod tests {
 
         let back: JobRecoveryPolicy = serde_json::from_str("\"requeue\"").unwrap();
         assert_eq!(back, JobRecoveryPolicy::Requeue);
+    }
+
+    // ── JobConfig ──────────────────────────────────────────────────────
+
+    #[test]
+    fn job_config_default_is_in_memory_with_drop_policy() {
+        let cfg = JobConfig::default();
+        assert!(cfg.job_storage_path.is_none());
+        assert_eq!(cfg.job_recovery, JobRecoveryPolicy::Drop);
+    }
+
+    #[test]
+    fn job_config_serialises_skip_none_storage() {
+        // `job_storage_path: None` is the default — keeping it out of
+        // the JSON serialisation keeps round-tripped configs compact
+        // and matches the CLI default (no `--job-storage-path` flag).
+        let cfg = JobConfig::default();
+        let s = serde_json::to_string(&cfg).unwrap();
+        assert!(!s.contains("job_storage_path"), "got: {s}");
+        assert!(s.contains("\"job_recovery\":\"drop\""), "got: {s}");
+    }
+
+    #[test]
+    fn job_config_round_trips_with_storage_path() {
+        let cfg = JobConfig {
+            job_storage_path: Some(PathBuf::from("/var/lib/dcc/jobs.sqlite")),
+            job_recovery: JobRecoveryPolicy::Requeue,
+        };
+        let s = serde_json::to_string(&cfg).unwrap();
+        let back: JobConfig = serde_json::from_str(&s).unwrap();
+        assert_eq!(back.job_storage_path, cfg.job_storage_path);
+        assert_eq!(back.job_recovery, cfg.job_recovery);
+    }
+
+    #[test]
+    fn job_config_accepts_minimal_body() {
+        // Operators frequently send a 2-key partial in env-var
+        // configs. Both fields default, so a `{}` body must still
+        // deserialise to the documented defaults — anything else
+        // would surprise CLI / Python plumbing.
+        let cfg: JobConfig = serde_json::from_str("{}").unwrap();
+        assert!(cfg.job_storage_path.is_none());
+        assert_eq!(cfg.job_recovery, JobRecoveryPolicy::Drop);
+    }
+
+    // ── WorkflowConfig ─────────────────────────────────────────────────
+
+    #[test]
+    fn workflow_config_default_disables_both_subsystems() {
+        // Pristine boot must surface only the minimal MCP tools, so
+        // both opt-in switches default to `false`. Operators flip
+        // them on consciously when they are ready to pay the
+        // workflow / scheduler runtime cost.
+        let cfg = WorkflowConfig::default();
+        assert!(!cfg.enable_workflows);
+        assert!(!cfg.enable_scheduler);
+        assert!(cfg.schedules_dir.is_none());
+    }
+
+    #[test]
+    fn workflow_config_round_trips() {
+        let cfg = WorkflowConfig {
+            enable_workflows: true,
+            enable_scheduler: true,
+            schedules_dir: Some(PathBuf::from("/etc/dcc/schedules")),
+        };
+        let s = serde_json::to_string(&cfg).unwrap();
+        let back: WorkflowConfig = serde_json::from_str(&s).unwrap();
+        assert_eq!(back.enable_workflows, cfg.enable_workflows);
+        assert_eq!(back.enable_scheduler, cfg.enable_scheduler);
+        assert_eq!(back.schedules_dir, cfg.schedules_dir);
+    }
+
+    #[test]
+    fn workflow_config_skip_none_schedules_dir() {
+        let cfg = WorkflowConfig::default();
+        let s = serde_json::to_string(&cfg).unwrap();
+        assert!(!s.contains("schedules_dir"), "got: {s}");
+    }
+
+    #[test]
+    fn workflow_config_accepts_minimal_body() {
+        let cfg: WorkflowConfig = serde_json::from_str("{}").unwrap();
+        assert!(!cfg.enable_workflows);
+        assert!(!cfg.enable_scheduler);
+        assert!(cfg.schedules_dir.is_none());
     }
 }

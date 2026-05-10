@@ -25,7 +25,7 @@
 //! |-------------|-----------------------------------------------------------|
 //! | crate root  | [`TruncationEnvelope`], [`SseChunkFrame`] + chunk helpers |
 //! | [`error`]   | [`HttpError`] / [`HttpResult`] error taxonomy             |
-//! | [`config`]  | [`ServerSpawnMode`], [`JobRecoveryPolicy`] config enums   |
+//! | [`config`]  | [`ServerSpawnMode`], [`JobRecoveryPolicy`], [`JobConfig`], [`WorkflowConfig`] |
 //!
 //! # Migration plan (issue #852)
 //!
@@ -33,13 +33,15 @@
 //!
 //! | Lives here now              | Stays in `dcc-mcp-http` for now |
 //! |-----------------------------|----------------------------------|
-//! | [`TruncationEnvelope`]      | `McpHttpConfig` (needs own split)|
-//! | [`SseChunkFrame`]           |                                  |
-//! | [`chunk_sse_data`]          |                                  |
-//! | [`format_chunked_sse`]      |                                  |
-//! | [`error::HttpError`]        |                                  |
-//! | [`config::ServerSpawnMode`] |                                  |
-//! | [`config::JobRecoveryPolicy`]|                                 |
+//! | [`TruncationEnvelope`]      | `McpHttpConfig` aggregate       |
+//! | [`SseChunkFrame`]           | `ServerConfig` (uses `IpAddr`)  |
+//! | [`chunk_sse_data`]          | `InstanceConfig`                 |
+//! | [`format_chunked_sse`]      | `SessionConfig`                  |
+//! | [`error::HttpError`]        | `GatewayConfig`                  |
+//! | [`config::ServerSpawnMode`] | `QueueConfig`                    |
+//! | [`config::JobRecoveryPolicy`]| `TelemetryConfig`               |
+//! | [`config::JobConfig`]       | `FeatureFlags`                   |
+//! | [`config::WorkflowConfig`]  |                                  |
 //!
 //! Each new round of #852 PRs migrates one self-contained subsystem at a
 //! time and re-exports it from `dcc-mcp-http` to preserve the public API.
