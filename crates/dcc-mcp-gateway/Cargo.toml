@@ -10,6 +10,7 @@ description = "Multi-DCC MCP gateway: aggregation, routing, capability index, RE
 
 [dependencies]
 # Internal
+dcc-mcp-gateway-core = { path = "../dcc-mcp-gateway-core" }
 dcc-mcp-jsonrpc = { path = "../dcc-mcp-jsonrpc" }
 dcc-mcp-naming = { path = "../dcc-mcp-naming" }
 dcc-mcp-transport = { path = "../dcc-mcp-transport" }

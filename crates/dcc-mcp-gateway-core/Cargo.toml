@@ -1,0 +1,28 @@
+[package]
+name = "dcc-mcp-gateway-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+description = "Domain layer for the DCC MCP gateway — pure types, no HTTP/IO."
+keywords = ["mcp", "gateway", "domain", "clean-architecture"]
+categories = ["api-bindings"]
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true, optional = true }
+
+[features]
+default = []
+# Opt-in `serde::{Serialize, Deserialize}` derives for the domain types.
+# Kept off by default so downstream infra crates can pull the domain layer
+# without paying for serde codegen when they do not need it.
+serde = ["dep:serde"]
+
+[dev-dependencies]
+serde_json = { workspace = true }

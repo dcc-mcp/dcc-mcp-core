@@ -55,11 +55,13 @@ use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntr
 use super::middleware::MiddlewareChain;
 
 /// A call that the gateway has forwarded to a backend and is still awaiting.
-#[derive(Debug, Clone)]
-pub struct PendingCall {
-    pub backend_url: String,
-    pub backend_request_id: String,
-}
+///
+/// Re-exported from [`dcc_mcp_gateway_core::PendingCall`] as part of the
+/// Clean-Architecture split (issue #845). The domain type lives in
+/// `dcc-mcp-gateway-core`; this re-export keeps the historical
+/// `crate::gateway::state::PendingCall` / `crate::gateway::PendingCall`
+/// path working for the ~30 files that already import it.
+pub use dcc_mcp_gateway_core::PendingCall;
 
 // ─── Sub-state structs (issue #839) ─────────────────────────────────────────
 //
