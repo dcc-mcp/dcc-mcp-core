@@ -33,67 +33,13 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use parking_lot::RwLock;
-use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 
 use crate::resources::{ProducerContent, ResourceError, ResourceProducer, ResourceResult};
+pub use dcc_mcp_http_types::output::{OutputEntry, OutputStream};
 use dcc_mcp_jsonrpc::McpResource;
-
-// ── OutputEntry ────────────────────────────────────────────────────────────────
-
-/// Which output stream an [`OutputEntry`] came from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum OutputStream {
-    Stdout,
-    Stderr,
-    ScriptEditor,
-}
-
-impl OutputStream {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Stdout => "stdout",
-            Self::Stderr => "stderr",
-            Self::ScriptEditor => "script_editor",
-        }
-    }
-}
-
-/// A single captured output line with metadata.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OutputEntry {
-    /// Unix epoch nanoseconds when the line was captured.
-    pub timestamp_ns: u128,
-    /// DCC instance identifier (matches the resource URI segment).
-    pub instance_id: String,
-    /// Which output channel this came from.
-    pub stream: OutputStream,
-    /// The captured text (may include newlines).
-    pub text: String,
-}
-
-impl OutputEntry {
-    pub fn new(
-        instance_id: impl Into<String>,
-        stream: OutputStream,
-        text: impl Into<String>,
-    ) -> Self {
-        let timestamp_ns = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
-        Self {
-            timestamp_ns,
-            instance_id: instance_id.into(),
-            stream,
-            text: text.into(),
-        }
-    }
-}
 
 // ── OutputBuffer ──────────────────────────────────────────────────────────────
 
@@ -407,8 +353,8 @@ mod tests {
         // round to the same nanosecond count and the `>= cutoff`
         // filter would include line1).
         std::thread::sleep(std::time::Duration::from_millis(20));
-        let cutoff = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
+        let cutoff = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
         std::thread::sleep(std::time::Duration::from_millis(20));
