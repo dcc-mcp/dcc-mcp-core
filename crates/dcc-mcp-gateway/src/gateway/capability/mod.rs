@@ -59,7 +59,6 @@ mod index;
 mod record;
 mod refresh;
 mod search;
-mod search_ranking;
 
 #[cfg(test)]
 mod tests;
@@ -71,7 +70,14 @@ pub use refresh::{RefreshReason, refresh_instance, remove_instance};
 pub use search::{
     DEFAULT_LIMIT, MAX_LIMIT, SearchHit, SearchMode, SearchPage, SearchQuery, search, search_page,
 };
-pub use search_ranking::{
+// Ranking strategies migrated to `dcc-mcp-gateway-core::capability::
+// search_ranking` (issue #845). Re-exported here so historical paths
+// (`crate::gateway::capability::FuzzyScorer`, …) and the
+// `dcc_mcp_gateway::{FuzzyScorer, ScorerFactory, …}` top-level
+// re-exports keep compiling unchanged. New code should prefer
+// importing from `dcc_mcp_gateway_core::capability::search_ranking`
+// directly.
+pub use dcc_mcp_gateway_core::capability::search_ranking::{
     ExactScorer, FuzzyScorer, Scorer, ScorerFactory, StrategyExactScorer, StrategyFuzzyScorer,
     StrategyScorer, SubstringScorer,
 };

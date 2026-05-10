@@ -41,8 +41,12 @@ http = "1.0"
 futures = "0.3"
 tokio-stream = { version = "0.1", features = ["sync", "tokio-util"] }
 
-# High-performance fuzzy matcher for the capability search layer (#659).
-nucleo-matcher = "0.3"
+# `nucleo-matcher` (the fuzzy engine backing the `FuzzyScorer` /
+# `StrategyFuzzyScorer` ranking strategies for #659) now lives in
+# `dcc-mcp-gateway-core`. Consuming it transitively here keeps the
+# gateway crate free of any direct fuzzy-matcher dependency while
+# preserving the historical `use dcc_mcp_gateway::ScorerFactory`
+# re-exports.
 
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
