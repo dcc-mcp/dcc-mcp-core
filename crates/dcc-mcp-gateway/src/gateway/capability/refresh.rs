@@ -6,6 +6,16 @@
 //! [`super::builder::build_records_from_backend`] and only adds the
 //! I/O — `fetch_tools` on demand, and tracing on lifecycle
 //! transitions.
+//!
+//! # Wire type relocation (issue #845)
+//!
+//! [`RefreshReason`] was migrated to
+//! [`dcc_mcp_gateway_core::capability::refresh`] so external Rust
+//! tooling (admin dashboards, CLI inspectors, log scrapers) can
+//! match on the reason without depending on this crate's tokio /
+//! reqwest footprint. Re-exported below to keep the historical
+//! `crate::gateway::capability::refresh::RefreshReason` path working
+//! unchanged.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -17,31 +27,7 @@ use crate::gateway::backend_client::fetch_tools;
 use super::builder::{BuildInput, build_records_from_backend};
 use super::index::CapabilityIndex;
 
-/// Why a refresh cycle is running. Surfaced through `tracing::info!`
-/// so operators can correlate an index update with the event that
-/// triggered it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RefreshReason {
-    /// Instance joined the registry for the first time.
-    InstanceJoined,
-    /// Instance is still live but sent a `tools/list_changed`
-    /// notification (typically because a skill loaded/unloaded).
-    ToolsListChanged,
-    /// Background periodic refresh — catches any change that did
-    /// not emit a push notification.
-    Periodic,
-}
-
-impl RefreshReason {
-    /// String label suitable for span tags.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::InstanceJoined => "instance_joined",
-            Self::ToolsListChanged => "tools_list_changed",
-            Self::Periodic => "periodic",
-        }
-    }
-}
+pub use dcc_mcp_gateway_core::capability::refresh::RefreshReason;
 
 /// Refresh one instance's slice of the index by fetching its current
 /// `tools/list` from `mcp_url`.
