@@ -29,6 +29,7 @@
 //! | [`output`]  | [`output::OutputStream`] and [`output::OutputEntry`] output capture wire types |
 //! | [`prompts`] | [`prompts::PromptSpec`], [`prompts::PromptsSpec`], and related prompt spec types |
 //! | [`resources`] | [`resources::ProducerContent`] / [`resources::ResourceError`] resource values |
+//! | [`session`] | [`session::SessionLogLevel`] / [`session::SessionLogMessage`] log values |
 //!
 //! # Migration plan (issue #852)
 //!
@@ -55,6 +56,8 @@
 //! | [`prompts::PromptsSpec`]    |                                  |
 //! | [`resources::ProducerContent`] |                                |
 //! | [`resources::ResourceError`] |                                  |
+//! | [`session::SessionLogLevel`] |                                  |
+//! | [`session::SessionLogMessage`] |                                |
 //!
 //! Each new round of #852 PRs migrates one self-contained subsystem at a
 //! time and re-exports it from `dcc-mcp-http` to preserve the public API.
@@ -67,6 +70,7 @@ pub mod error;
 pub mod output;
 pub mod prompts;
 pub mod resources;
+pub mod session;
 
 use serde::{Deserialize, Serialize};
 
