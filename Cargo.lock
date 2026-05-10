@@ -841,7 +841,6 @@ dependencies = [
  "dcc-mcp-transport",
  "futures",
  "http",
- "nucleo-matcher",
  "parking_lot",
  "prometheus",
  "proptest",
@@ -865,6 +864,7 @@ dependencies = [
 name = "dcc-mcp-gateway-core"
 version = "0.15.7"
 dependencies = [
+ "nucleo-matcher",
  "serde",
  "serde_json",
  "uuid",

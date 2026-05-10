@@ -23,7 +23,7 @@
 
 use super::index::IndexSnapshot;
 use super::record::CapabilityRecord;
-use super::search_ranking::{FuzzyScorer, Scorer, SubstringScorer};
+use dcc_mcp_gateway_core::capability::search_ranking::{FuzzyScorer, Scorer, SubstringScorer};
 
 // Wire types migrated to `dcc-mcp-gateway-core::capability::search`
 // (issue #845, part 3). Re-exported from the historical

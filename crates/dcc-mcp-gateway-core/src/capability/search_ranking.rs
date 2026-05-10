@@ -37,7 +37,7 @@
 //!   exercise search.
 //!
 //! Both internal scorers return scores on the **same scale** (`0` = no
-//! match, higher = better) so the zero-filter in [`super::search::search`]
+//! match, higher = better) so the zero-filter in the search loop
 //! stays valid for either strategy.
 //!
 //! [#659]: https://github.com/loonghao/dcc-mcp-core/issues/659
@@ -162,6 +162,7 @@ pub struct FuzzyScorer {
 impl FuzzyScorer {
     /// Build a scorer with nucleo's default configuration
     /// (case-insensitive, standard ASCII/Unicode rules).
+    #[must_use]
     pub fn new() -> Self {
         Self {
             matcher: Matcher::new(Config::DEFAULT),
@@ -321,7 +322,7 @@ pub type ExactScorer = SubstringScorer;
 /// # Example
 ///
 /// ```rust
-/// use dcc_mcp_gateway::StrategyScorer;
+/// use dcc_mcp_gateway_core::capability::search_ranking::StrategyScorer;
 ///
 /// struct PrefixScorer;
 ///
@@ -411,7 +412,8 @@ impl StrategyScorer for StrategyExactScorer {
 /// # Example
 ///
 /// ```rust
-/// use dcc_mcp_gateway::{ScorerFactory, SearchMode};
+/// use dcc_mcp_gateway_core::capability::search::SearchMode;
+/// use dcc_mcp_gateway_core::capability::search_ranking::ScorerFactory;
 ///
 /// let scorer = ScorerFactory::from_mode(SearchMode::Fuzzy);
 /// let s = scorer.score("sphere", "create_sphere");
@@ -426,6 +428,7 @@ impl ScorerFactory {
     /// |---------------------|--------------------------|
     /// | [`SearchMode::Fuzzy`] | [`StrategyFuzzyScorer`] |
     /// | [`SearchMode::Exact`] | [`StrategyExactScorer`] |
+    #[must_use]
     pub fn from_mode(mode: SearchMode) -> Box<dyn StrategyScorer> {
         match mode {
             SearchMode::Fuzzy => Box::new(StrategyFuzzyScorer),
@@ -444,6 +447,7 @@ impl ScorerFactory {
     ///
     /// Unknown tags fall back to [`StrategyFuzzyScorer`] so existing
     /// configurations that add a new tag do not silently break.
+    #[must_use]
     pub fn from_tag(tag: &str) -> Box<dyn StrategyScorer> {
         match tag.to_ascii_lowercase().as_str() {
             "exact" | "substring" => Box::new(StrategyExactScorer),
@@ -455,7 +459,7 @@ impl ScorerFactory {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gateway::capability::record::tool_slug;
+    use crate::capability::record::tool_slug;
     use uuid::Uuid;
 
     fn rec(
