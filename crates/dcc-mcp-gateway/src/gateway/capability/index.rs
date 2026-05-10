@@ -533,4 +533,170 @@ mod unit_tests {
         );
         assert_eq!(hits_all.len(), 2);
     }
+
+    // ── Property-based tests (#846) ────────────────────────────────────────
+    //
+    // These verify the registry-style "laws" called out in #846 for the
+    // CapabilityIndex, which is the gateway-side analogue of a Registry
+    // trait:
+    //
+    //   * upsert(id, recs) then fingerprint_for(id) returns Some(fp)
+    //   * remove(id) then fingerprint_for(id) returns None
+    //   * snapshot order is independent of upsert order
+    //   * total_records == sum of per-instance record counts
+    //
+    // Adding these property tests stakes a flag for the wider trait-law
+    // work; per-trait property tests for ValidationStrategy / DccAdapter
+    // depend on the trait splits in #843 and follow in later PRs.
+
+    use proptest::prelude::*;
+
+    /// Generate a `Uuid` from arbitrary bytes — a uniform sample of the
+    /// id space lets proptest cover the BTreeMap ordering without
+    /// special-casing low ids.
+    fn arb_uuid() -> impl Strategy<Value = Uuid> {
+        any::<u128>().prop_map(Uuid::from_u128)
+    }
+
+    /// Generate a `(dcc_type, tool_name)` pair using the same restricted
+    /// alphabet the `tool_slug` helper expects.
+    fn arb_tool() -> impl Strategy<Value = (String, String)> {
+        ("[a-z]{1,8}", "[a-z_][a-z0-9_]{0,15}").prop_map(|(d, t)| (d, t))
+    }
+
+    /// Build a deterministic vector of records for one instance.
+    fn arb_records(iid: Uuid) -> impl Strategy<Value = Vec<CapabilityRecord>> {
+        proptest::collection::vec(arb_tool(), 1..6).prop_map(move |tools| {
+            tools
+                .into_iter()
+                .map(|(dcc, tool)| rec(&dcc, iid, &tool, true))
+                .collect()
+        })
+    }
+
+    proptest! {
+        /// Registry law: `upsert(id, recs)` followed by
+        /// `fingerprint_for(id)` returns `Some(fp)`. Empty `recs`
+        /// is the documented "remove" path and is excluded by
+        /// generating non-empty vectors.
+        #[test]
+        fn prop_upsert_then_fingerprint_for_returns_some(
+            iid in arb_uuid(),
+            fp in any::<u64>(),
+        ) {
+            let idx = CapabilityIndex::new();
+            let recs = vec![rec("maya", iid, "t", true)];
+            let prev = idx.upsert_instance(iid, recs, InstanceFingerprint(fp));
+            prop_assert_eq!(prev, None);
+            prop_assert_eq!(idx.fingerprint_for(iid), Some(InstanceFingerprint(fp)));
+        }
+
+        /// Registry law: `remove(id)` followed by `fingerprint_for(id)`
+        /// returns `None`. Removing an absent id is a no-op (returns false).
+        #[test]
+        fn prop_remove_then_fingerprint_for_returns_none(
+            iid in arb_uuid(),
+            fp in any::<u64>(),
+        ) {
+            let idx = CapabilityIndex::new();
+            idx.upsert_instance(
+                iid,
+                vec![rec("maya", iid, "t", true)],
+                InstanceFingerprint(fp),
+            );
+            prop_assert!(idx.remove_instance(iid));
+            prop_assert_eq!(idx.fingerprint_for(iid), None);
+            // Removing a second time is a no-op.
+            prop_assert!(!idx.remove_instance(iid));
+        }
+
+        /// Registry law: `upsert(id, recs)` then `find_by_slug(slug)`
+        /// resolves every slug carried by `recs`.
+        #[test]
+        fn prop_upsert_then_find_by_slug_resolves_every_record(
+            iid in arb_uuid(),
+            recs in arb_uuid().prop_flat_map(arb_records),
+            fp in any::<u64>(),
+        ) {
+            let idx = CapabilityIndex::new();
+            // Re-key the records so they share `iid` (the strategy
+            // returned them keyed to its own internal uuid).
+            let recs: Vec<CapabilityRecord> = recs
+                .into_iter()
+                .map(|r| {
+                    let mut r2 = r.clone();
+                    r2.instance_id = iid;
+                    r2.tool_slug = tool_slug(&r2.dcc_type, &iid, &r2.backend_tool);
+                    r2
+                })
+                .collect();
+            let slugs: Vec<String> = recs.iter().map(|r| r.tool_slug.clone()).collect();
+            idx.upsert_instance(iid, recs, InstanceFingerprint(fp));
+            let snap = idx.snapshot();
+            for slug in &slugs {
+                prop_assert!(
+                    snap.find_by_slug(slug).is_some(),
+                    "slug {} must resolve after upsert",
+                    slug,
+                );
+            }
+        }
+
+        /// Snapshot order is a pure function of the slugs in the index —
+        /// independent of upsert order. Re-inserting the same instances
+        /// in reversed order must yield the same snapshot record sequence.
+        #[test]
+        fn prop_snapshot_order_is_independent_of_upsert_order(
+            ids in proptest::collection::vec(arb_uuid(), 1..5),
+        ) {
+            // Ensure unique ids — duplicates would shadow the second
+            // upsert and skew the comparison.
+            let mut uniq = ids.clone();
+            uniq.sort();
+            uniq.dedup();
+            prop_assume!(uniq.len() == ids.len());
+
+            let payloads: Vec<Vec<CapabilityRecord>> = ids
+                .iter()
+                .enumerate()
+                .map(|(n, id)| vec![rec("maya", *id, &format!("t{n}"), true)])
+                .collect();
+
+            let idx_a = CapabilityIndex::new();
+            for (id, recs) in ids.iter().zip(payloads.iter()) {
+                idx_a.upsert_instance(*id, recs.clone(), InstanceFingerprint(0));
+            }
+            let snap_a = idx_a.snapshot();
+
+            let idx_b = CapabilityIndex::new();
+            for (id, recs) in ids.iter().rev().zip(payloads.iter().rev()) {
+                idx_b.upsert_instance(*id, recs.clone(), InstanceFingerprint(0));
+            }
+            let snap_b = idx_b.snapshot();
+
+            let names_a: Vec<&str> = snap_a.records.iter().map(|r| r.tool_slug.as_str()).collect();
+            let names_b: Vec<&str> = snap_b.records.iter().map(|r| r.tool_slug.as_str()).collect();
+            prop_assert_eq!(names_a, names_b);
+        }
+
+        /// Accounting law: `total_records` equals the sum of per-instance
+        /// record counts after a sequence of upserts.
+        #[test]
+        fn prop_total_records_matches_sum_of_upsert_sizes(
+            sizes in proptest::collection::vec(1usize..6, 1..5),
+        ) {
+            let idx = CapabilityIndex::new();
+            let mut expected = 0;
+            for (n, k) in sizes.iter().enumerate() {
+                let id = Uuid::from_u128(0xa000_0000_0000_0000_0000_0000_0000_0000 + n as u128);
+                let recs: Vec<CapabilityRecord> = (0..*k)
+                    .map(|j| rec("maya", id, &format!("t{n}_{j}"), true))
+                    .collect();
+                expected += k;
+                idx.upsert_instance(id, recs, InstanceFingerprint(0));
+            }
+            prop_assert_eq!(idx.total_records(), expected);
+            prop_assert_eq!(idx.instance_count(), sizes.len());
+        }
+    }
 }
