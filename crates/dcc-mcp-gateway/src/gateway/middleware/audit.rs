@@ -8,17 +8,45 @@ use super::traits::{AfterCallMiddleware, BeforeCallMiddleware, MiddlewareFuture}
 use crate::gateway::admin::trace::{TracePayload, TraceSpan};
 
 /// A single audit record produced for each tool call.
+///
+/// One entry is emitted per `tools/call` after the dispatch handler
+/// has resolved the tool and produced a result. The fields mirror
+/// [`super::CallContext`] plus outcome metadata so downstream sinks
+/// (the admin Calls tab, structured `tracing::info!` logs, custom
+/// SIEM forwarders) can render a complete one-row view of the call.
 #[derive(Debug, Clone)]
 pub struct AuditEntry {
+    /// Wall-clock timestamp at which the audit record was sealed —
+    /// `SystemTime::now()` from the after-call hook, *not* the call
+    /// start (that is reflected via `duration_ms`).
     pub timestamp: SystemTime,
+    /// JSON-RPC method name (e.g. `"tools/call"`), copied verbatim
+    /// from the originating request.
     pub method: String,
+    /// Resolved capability slug, if the dispatch handler matched the
+    /// call to a `CapabilityRecord`. `None` for unresolved tools.
     pub tool_slug: Option<String>,
+    /// DCC type targeted by the call (`"maya"`, `"blender"`, …),
+    /// `None` for gateway-local tools.
     pub dcc_type: Option<String>,
+    /// Stringified instance UUID of the resolved backend.
     pub instance_id: Option<String>,
+    /// Originating MCP `Mcp-Session-Id` header, if any.
     pub session_id: Option<String>,
+    /// Stable request id used to correlate this entry with traces
+    /// and the client's JSON-RPC `id`.
     pub request_id: String,
+    /// `true` when the dispatch handler returned an MCP-level error
+    /// (`isError == true` or transport failure).
     pub is_error: bool,
+    /// First 256 chars of the response text — bounded so audit logs
+    /// stay cheap to ship and never leak full payloads. The full
+    /// response lives in `output_payload`.
     pub result_preview: String,
+    /// Total handler latency in milliseconds, derived from the
+    /// `audit.start_time_ns` metadata stamped by the before-call
+    /// hook. `None` when the before-call hook did not run (e.g. the
+    /// chain was short-circuited).
     pub duration_ms: Option<u64>,
     /// Phase 2: waterfall of timing spans collected by the handler.
     pub trace_spans: Vec<TraceSpan>,
@@ -29,7 +57,18 @@ pub struct AuditEntry {
 }
 
 /// Sink that receives completed [`AuditEntry`] records.
+///
+/// Implementations are wrapped in `Arc<dyn AuditSink>` and shared
+/// across every concurrent call, so they must be cheap to clone the
+/// trait object reference and free of synchronous I/O on the hot
+/// path. The default [`DefaultAuditSink`] just emits a `tracing::info!`
+/// log; the admin UI ships
+/// [`AdminAuditSink`](crate::gateway::admin::AdminAuditSink) which
+/// fans entries into a bounded ring buffer.
 pub trait AuditSink: Send + Sync {
+    /// Persist `entry`. Called from the after-call middleware hook;
+    /// the implementation must not block — long-running sinks should
+    /// hand off to a background task.
     fn record(&self, entry: AuditEntry);
 }
 
@@ -67,9 +106,16 @@ impl Default for AuditMiddleware {
 }
 
 impl AuditMiddleware {
+    /// Build an `AuditMiddleware` that hands every entry to `sink`.
+    /// Use this when the operator has a custom sink (admin ring
+    /// buffer, SIEM forwarder, …) — pass [`Arc::new(MySink)`] to
+    /// share the sink across the chain.
     pub fn new(sink: Arc<dyn AuditSink>) -> Self {
         Self { sink }
     }
+    /// Convenience for tests and minimal embeddings: build an
+    /// `AuditMiddleware` backed by [`DefaultAuditSink`], which logs
+    /// each entry via `tracing::info!`.
     pub fn with_default_sink() -> Self {
         Self::default()
     }
