@@ -73,6 +73,10 @@ When using `dcc-mcp-gateway` directly, compile with the `admin` Cargo feature. `
 | `GET /admin/api/instances` | `application/json` | Connected DCC instances |
 | `GET /admin/api/tools` | `application/json` | Registered MCP tools |
 | `GET /admin/api/calls` | `application/json` | Recent tool calls (requires `AuditMiddleware`) |
+| `GET /admin/api/traces` | `application/json` | Recent per-call dispatch traces; accepts `?limit=200` |
+| `GET /admin/api/traces/{request_id}` | `application/json` | Full waterfall for one recorded dispatch trace |
+| `GET /admin/api/stats?range=1h\|24h\|7d` | `application/json` | Aggregated call counts, success rate, latency, and top tools/instances |
+| `GET /admin/api/workers` | `application/json` | Per-instance worker cards from the live registry |
 | `GET /admin/api/logs` | `application/json` | Gateway contention events |
 | `GET /admin/api/health` | `application/json` | Service health summary |
 
@@ -103,6 +107,30 @@ When using `dcc-mcp-gateway` directly, compile with the `admin` Cargo feature. `
   ]
 }
 
+// GET /admin/api/traces?limit=200
+{
+  "total": 1,
+  "traces": [
+    { "request_id": "req-123", "tool": "maya__open_scene", "status": "ok", "spans": [] }
+  ]
+}
+
+// GET /admin/api/stats?range=24h
+{
+  "range": "24h",
+  "total_calls": 42,
+  "success_rate": 0.98,
+  "latency": { "p50_ms": 12, "p95_ms": 48 }
+}
+
+// GET /admin/api/workers
+{
+  "summary": { "live": 2, "stale": 0, "unhealthy": 0 },
+  "workers": [
+    { "instance_id": "a1b2c3d4-...", "dcc_type": "maya", "status": "available" }
+  ]
+}
+
 // GET /admin/api/logs
 {
   "total": 5,
@@ -127,15 +155,18 @@ GatewayConfig {
 }
 ```
 
-The `/admin/api/logs` feed is populated automatically from the `EventLog` ring buffer (gateway election/eviction/probe events from issue #766).
+The `/admin/api/logs` feed is populated automatically from the `EventLog` ring buffer (gateway election/eviction/probe events from issue #766). The `/admin/api/traces`, `/admin/api/stats`, and `/admin/api/workers` endpoints are populated from the dispatch `TraceLog`, `StatsAggregator`, and live gateway registry respectively.
 
 ## Dashboard Features
 
 The HTML dashboard includes:
-- **Left navigation**: Instances / Tools / Calls / Logs / Health panels
-- **Auto-refresh**: Each panel polls its JSON endpoint every 5 seconds
+- **Left navigation**: Instances / Tools / Calls / Workers / Logs panels
+- **Auto-refresh**: Panels poll their JSON endpoints every 5 seconds
+- **Worker cards**: Per-instance status, heartbeat, and routing metadata
 - **Dark theme**: Minimal inline CSS, no external fonts
 - **Responsive**: CSS grid layout
+
+The `health`, `traces`, and `stats` APIs are stable JSON surfaces even if the current inline HTML only renders a subset of them.
 
 ## Security Note
 

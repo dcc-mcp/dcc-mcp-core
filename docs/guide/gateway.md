@@ -145,11 +145,12 @@ Pooling is optional. Adapters that never call these tools keep the previous
 single-instance behavior: entries default to `capacity: 1`, no lease owner, and
 `status: "available"`.
 
-Before the gateway sends JSON-RPC to a backend, it verifies that the target
+Before the gateway routes REST traffic to a backend, it verifies that the target
 responds to `GET /v1/readyz` and falls back to `GET /health` only when the
 readiness surface is absent. This avoids treating non-MCP listeners such as Maya
-`commandPort` as routable backends; posting MCP JSON-RPC to commandPort can
-trigger Maya's modal commandPort security dialog and block the DCC main thread.
+`commandPort` as routable backends; posting MCP JSON-RPC to commandPort was a
+pre-#818 failure mode that could trigger Maya's modal commandPort security
+dialog and block the DCC main thread.
 
 Gateway-native diagnostics are always available as MCP **resources**
 (read via `resources/read`), even when no backend is routable:

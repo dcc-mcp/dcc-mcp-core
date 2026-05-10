@@ -177,7 +177,8 @@ dcc-mcp-server ← dcc-mcp-http
 **Dependencies**: `dcc-mcp-models`
 
 **Maintainer layout**:
-- `types.rs` is now a thin re-export surface; tool/resource/prompt models live in focused internal modules.
+- `types.rs` is now a thin re-export surface; tool/resource/prompt models live in focused internal modules (`types_tools.rs`, `types_resources.rs`, `types_prompts.rs`).
+- `DccSceneManager` is now the compatibility composite of focused ISP traits: `DccSceneQuery` (read-only scene inspection), `DccFileIO` (file lifecycle), and `DccSelection` (selection management). New adapters should implement only the focused traits they support; code that still needs the full surface can keep bounding on `DccSceneManager`.
 - `mock/config.rs` keeps the public `MockConfig` API while defaults, builder methods, and DCC presets live in separate implementation files.
 - `mock/adapter.rs` keeps shared state and helpers while trait implementations are split by capability (`connection`, `scene_manager`, `transform`, `hierarchy`, etc.).
 
