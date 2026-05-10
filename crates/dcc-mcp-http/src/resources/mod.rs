@@ -28,7 +28,7 @@
 //!
 //! | File | Responsibility |
 //! |------|----------------|
-//! | `resources_types.rs`     | `ProducerContent`, `ResourceError`, `ResourceResult`, `ResourceProducer` trait, `uri_scheme` helper |
+//! | `resources_types.rs`     | `ProducerContent` / `ResourceError` compatibility re-exports, `ResourceProducer` trait, `uri_scheme` helper |
 //! | `resources_producers.rs` | Built-in producers (`SceneProducer`, `CaptureProducer`, `AuditProducer`, `ArtefactProducer`) + `parse_audit_limit` |
 //! | `resources_tests.rs`     | Unit + `tokio::test` suite |
 
