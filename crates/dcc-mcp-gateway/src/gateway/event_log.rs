@@ -71,6 +71,8 @@ pub struct ContendEvent {
 }
 
 impl ContendEvent {
+    /// Construct a new event with the current UTC timestamp (millisecond
+    /// precision).
     pub fn new(
         event: EventKind,
         dcc_type: impl Into<String>,
@@ -101,6 +103,7 @@ impl EventLog {
     /// Maximum number of events kept in the ring buffer.
     pub const CAPACITY: usize = 1_000;
 
+    /// Create an empty ring buffer with capacity [`Self::CAPACITY`].
     pub fn new() -> Self {
         EventLog {
             inner: Mutex::new(VecDeque::with_capacity(Self::CAPACITY)),
@@ -211,14 +214,20 @@ impl GatewayMetrics {
         GatewayMetrics
     }
 
+    /// Increment the gateway-election outcome counter (e.g. `"won"`,
+    /// `"lost"`, `"abandoned"`).
     pub fn inc_election(&self, outcome: &str) {
         elections_counter().with_label_values(&[outcome]).inc();
     }
 
+    /// Increment the registry-eviction counter, labelled by reason
+    /// (e.g. `"stale"`, `"dead_pid"`, `"shutdown"`).
     pub fn inc_eviction(&self, reason: &str) {
         evictions_counter().with_label_values(&[reason]).inc();
     }
 
+    /// Increment the backend-probe outcome counter (e.g. `"healthy"`,
+    /// `"timeout"`, `"refused"`).
     pub fn inc_probe(&self, outcome: &str) {
         probes_counter().with_label_values(&[outcome]).inc();
     }
