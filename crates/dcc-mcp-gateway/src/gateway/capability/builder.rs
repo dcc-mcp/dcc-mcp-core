@@ -5,6 +5,17 @@
 //! here, so it can be unit-tested with synthesised JSON payloads
 //! without spinning up a real MCP backend. The REST/MCP fetch side
 //! lives in [`super::refresh`].
+//!
+//! # Wire type relocation (issue #845)
+//!
+//! [`BuildOutcome`] was migrated to
+//! [`dcc_mcp_gateway_core::capability::builder`] so diagnostics and
+//! tests can inspect builder output without depending on this
+//! crate's gateway-side runtime. The struct is intentionally inert
+//! (no methods), so moving it is a clean field-for-field migration.
+//! [`BuildInput`] stays here because it borrows
+//! `&[dcc_mcp_jsonrpc::McpTool]` — the type contract belongs in the
+//! crate that already depends on `dcc-mcp-jsonrpc`.
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -17,6 +28,8 @@ use dcc_mcp_jsonrpc::McpTool;
 
 use super::index::InstanceFingerprint;
 use super::record::{CapabilityRecord, SCHEMA_AVAILABLE, is_valid_dcc_bucket, tool_slug};
+
+pub use dcc_mcp_gateway_core::capability::builder::BuildOutcome;
 
 /// Everything the builder needs from a single live backend to emit
 /// one instance-worth of capability records.
@@ -33,20 +46,6 @@ pub struct BuildInput<'a> {
     pub dcc_type: &'a str,
     /// Raw `tools/list` response as an array of [`McpTool`].
     pub backend_tools: &'a [McpTool],
-}
-
-/// Output of [`build_records_from_backend`].
-#[derive(Debug, Clone, Default)]
-pub struct BuildOutcome {
-    /// Records ready to be stored in the index. Sorted by `tool_slug`
-    /// so the merge inside `CapabilityIndex::snapshot` stays cheap.
-    pub records: Vec<CapabilityRecord>,
-    /// Stable fingerprint of the input tool list; feed this straight
-    /// into [`crate::gateway::capability::CapabilityIndex::upsert_instance`].
-    pub fingerprint: InstanceFingerprint,
-    /// Number of input tools rejected (e.g. missing name, skill stub
-    /// filtered out). Diagnostics-only.
-    pub skipped: usize,
 }
 
 /// Build the instance slice from a backend `tools/list` response.
