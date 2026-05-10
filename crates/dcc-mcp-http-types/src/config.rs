@@ -164,6 +164,119 @@ pub struct WorkflowConfig {
     pub schedules_dir: Option<PathBuf>,
 }
 
+// ── TelemetryConfig ────────────────────────────────────────────────────────
+
+/// Prometheus metrics configuration.
+///
+/// One of the orthogonal sub-configs that compose `McpHttpConfig`
+/// (issue #852). The `prometheus` Cargo feature on `dcc-mcp-http`
+/// gates the actual `/metrics` endpoint; this struct only carries
+/// the user-facing knobs so external config validators can
+/// round-trip the shape.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TelemetryConfig {
+    /// Enable the Prometheus `/metrics` endpoint (issue #331).
+    ///
+    /// Requires the `prometheus` Cargo feature on both `dcc-mcp-http`
+    /// and `dcc-mcp-telemetry`. When `true`, the server mounts a
+    /// `GET /metrics` route on the same Axum router that serves
+    /// `/mcp`; the body is a standard Prometheus text-exposition
+    /// payload (`text/plain; version=0.0.4`).
+    ///
+    /// Defaults to `false`: the endpoint is opt-in, and when the
+    /// feature is compiled out this flag has no effect.
+    #[serde(default)]
+    pub enable_prometheus: bool,
+
+    /// Optional HTTP Basic auth guard for `/metrics` (issue #331).
+    ///
+    /// When `Some((user, pass))`, scrapers must present a matching
+    /// `Authorization: Basic ...` header or the endpoint responds
+    /// with `401 Unauthorized`. When `None` (default), the endpoint
+    /// is unauthenticated — acceptable for localhost-only
+    /// development but strongly discouraged in production.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prometheus_basic_auth: Option<(String, String)>,
+}
+
+// ── FeatureFlags ───────────────────────────────────────────────────────────
+
+/// Opt-in capability switches.
+///
+/// One of the orthogonal sub-configs that compose `McpHttpConfig`
+/// (issue #852). Each field is a single boolean knob; the defaults
+/// are split — some default `true` because they are the documented
+/// shape today (`bare_tool_names`, `enable_resources`, …) — so this
+/// struct intentionally provides a hand-written `Default` impl
+/// rather than `#[derive(Default)]`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FeatureFlags {
+    /// Enable the opt-in lazy-actions meta-tools: ``list_actions``,
+    /// ``describe_action`` and ``call_action``.
+    ///
+    /// When `true`, `tools/list` additionally surfaces these three
+    /// meta-tools so agents with tight context budgets can drive an
+    /// arbitrarily large action catalog through a single page of 3
+    /// stubs instead of paging through every loaded skill's tools.
+    /// Default: `false`.
+    #[serde(default)]
+    pub lazy_actions: bool,
+
+    /// Publish skill-scoped tools under their **bare action name**
+    /// when no collision exists on this instance (#307).
+    ///
+    /// When `true` (default), `tools/list` emits `execute_python`
+    /// rather than `maya-scripting.execute_python` whenever the bare
+    /// name is unique within the instance's loaded skills.
+    /// Collisions fall back to the full `<skill>.<action>` form, and
+    /// `tools/call` accepts both shapes for one release cycle.
+    #[serde(default = "default_true")]
+    pub bare_tool_names: bool,
+
+    /// Advertise the MCP Resources primitive (issue #350).
+    #[serde(default = "default_true")]
+    pub enable_resources: bool,
+
+    /// Advertise the MCP Prompts primitive (issues #351, #355).
+    #[serde(default = "default_true")]
+    pub enable_prompts: bool,
+
+    /// Expose `artefact://` resources (issue #349).
+    #[serde(default)]
+    pub enable_artefact_resources: bool,
+
+    /// Emit the `notifications/$/dcc.jobUpdated` and
+    /// `notifications/$/dcc.workflowUpdated` SSE channels (issue #326).
+    #[serde(default = "default_true")]
+    pub enable_job_notifications: bool,
+
+    /// Best-effort safety net for Python callers that drop a
+    /// `McpServerHandle` without calling `shutdown()`.
+    #[serde(default)]
+    pub shutdown_on_drop: bool,
+}
+
+impl Default for FeatureFlags {
+    fn default() -> Self {
+        Self {
+            lazy_actions: false,
+            bare_tool_names: true,
+            enable_resources: true,
+            enable_prompts: true,
+            enable_artefact_resources: false,
+            enable_job_notifications: true,
+            shutdown_on_drop: false,
+        }
+    }
+}
+
+/// Helper for `#[serde(default = ...)]` on the boolean fields whose
+/// pre-#852 default was `true`. The function form is required because
+/// serde's attribute parser does not accept inline literals here.
+fn default_true() -> bool {
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -336,5 +449,116 @@ mod tests {
         assert!(!cfg.enable_workflows);
         assert!(!cfg.enable_scheduler);
         assert!(cfg.schedules_dir.is_none());
+    }
+
+    // ── TelemetryConfig ────────────────────────────────────────────────
+
+    #[test]
+    fn telemetry_config_default_is_disabled_and_unauth() {
+        // Pristine boot must NOT expose `/metrics` and must NOT
+        // accept arbitrary scrapers — operators flip both knobs on
+        // consciously.
+        let cfg = TelemetryConfig::default();
+        assert!(!cfg.enable_prometheus);
+        assert!(cfg.prometheus_basic_auth.is_none());
+    }
+
+    #[test]
+    fn telemetry_config_round_trips_with_basic_auth() {
+        let cfg = TelemetryConfig {
+            enable_prometheus: true,
+            prometheus_basic_auth: Some(("scraper".into(), "s3cret".into())),
+        };
+        let s = serde_json::to_string(&cfg).unwrap();
+        let back: TelemetryConfig = serde_json::from_str(&s).unwrap();
+        assert!(back.enable_prometheus);
+        assert_eq!(
+            back.prometheus_basic_auth,
+            Some(("scraper".to_owned(), "s3cret".to_owned()))
+        );
+    }
+
+    #[test]
+    fn telemetry_config_skips_none_basic_auth() {
+        let cfg = TelemetryConfig::default();
+        let s = serde_json::to_string(&cfg).unwrap();
+        // Default config must not leak `prometheus_basic_auth: null`
+        // into the wire form — keeps env-var/config-file dumps tidy.
+        assert!(!s.contains("prometheus_basic_auth"), "got: {s}");
+    }
+
+    #[test]
+    fn telemetry_config_accepts_minimal_body() {
+        let cfg: TelemetryConfig = serde_json::from_str("{}").unwrap();
+        assert!(!cfg.enable_prometheus);
+        assert!(cfg.prometheus_basic_auth.is_none());
+    }
+
+    // ── FeatureFlags ───────────────────────────────────────────────────
+
+    /// Pin every default boolean of [`FeatureFlags`]. Most are `false`,
+    /// but `bare_tool_names`, `enable_resources`, `enable_prompts`,
+    /// and `enable_job_notifications` default to `true` because that
+    /// is the documented pre-#852 surface the wheel ships with.
+    /// A future change to any of these defaults must be conscious;
+    /// this test is the regression guard.
+    #[test]
+    fn feature_flags_default_matches_documented_pre_852_surface() {
+        let f = FeatureFlags::default();
+        assert!(!f.lazy_actions);
+        assert!(f.bare_tool_names);
+        assert!(f.enable_resources);
+        assert!(f.enable_prompts);
+        assert!(!f.enable_artefact_resources);
+        assert!(f.enable_job_notifications);
+        assert!(!f.shutdown_on_drop);
+    }
+
+    #[test]
+    fn feature_flags_round_trip() {
+        let f = FeatureFlags::default();
+        let s = serde_json::to_string(&f).unwrap();
+        let back: FeatureFlags = serde_json::from_str(&s).unwrap();
+        assert_eq!(back.lazy_actions, f.lazy_actions);
+        assert_eq!(back.bare_tool_names, f.bare_tool_names);
+        assert_eq!(back.enable_resources, f.enable_resources);
+        assert_eq!(back.enable_prompts, f.enable_prompts);
+        assert_eq!(back.enable_artefact_resources, f.enable_artefact_resources);
+        assert_eq!(back.enable_job_notifications, f.enable_job_notifications);
+        assert_eq!(back.shutdown_on_drop, f.shutdown_on_drop);
+    }
+
+    /// Critical contract: an empty `{}` body must deserialise into
+    /// the documented Default surface, NOT into "every flag is
+    /// `false`". The four `default = "default_true"` annotations
+    /// are what keep this guarantee — drop one and the wheel
+    /// silently regresses to a different `tools/list` shape.
+    #[test]
+    fn feature_flags_minimal_body_uses_per_field_defaults() {
+        let f: FeatureFlags = serde_json::from_str("{}").unwrap();
+        let d = FeatureFlags::default();
+        assert_eq!(f.lazy_actions, d.lazy_actions);
+        assert_eq!(f.bare_tool_names, d.bare_tool_names);
+        assert_eq!(f.enable_resources, d.enable_resources);
+        assert_eq!(f.enable_prompts, d.enable_prompts);
+        assert_eq!(f.enable_artefact_resources, d.enable_artefact_resources);
+        assert_eq!(f.enable_job_notifications, d.enable_job_notifications);
+        assert_eq!(f.shutdown_on_drop, d.shutdown_on_drop);
+    }
+
+    #[test]
+    fn feature_flags_partial_body_inherits_other_defaults() {
+        // Operators only flip `lazy_actions` on; every other knob
+        // must keep its documented default.
+        let f: FeatureFlags = serde_json::from_str(r#"{"lazy_actions": true}"#).unwrap();
+        assert!(f.lazy_actions);
+        // The defaults still hold for unmentioned fields:
+        assert!(f.bare_tool_names);
+        assert!(f.enable_resources);
+        assert!(f.enable_prompts);
+        assert!(f.enable_job_notifications);
+        // And the `false`-by-default ones stay `false`:
+        assert!(!f.enable_artefact_resources);
+        assert!(!f.shutdown_on_drop);
     }
 }
