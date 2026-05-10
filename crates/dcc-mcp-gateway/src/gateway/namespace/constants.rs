@@ -6,6 +6,14 @@
 
 use uuid::Uuid;
 
+/// Tools that are answered by the gateway itself (never fanned out
+/// to a backend).
+///
+/// Includes the skill management verbs (`list_skills`, `load_skill`,
+/// …) and the issue #655 dynamic-capability wrappers
+/// (`search_tools`, `describe_tool`, `call_tool`). The dispatch
+/// handler short-circuits on these names so the fan-out path can
+/// stay free of carve-outs.
 pub const GATEWAY_LOCAL_TOOLS: &[&str] = &[
     "acquire_dcc_instance",
     "release_dcc_instance",
@@ -35,6 +43,11 @@ pub const CORE_TOOL_NAMES: &[&str] = &[
     "search_tools",
 ];
 
+/// Length of the truncated instance UUID prefix used in encoded
+/// tool names (e.g. `maya.abcdef01.create_sphere`). 8 hex chars
+/// give 32 bits of entropy — enough to disambiguate among the
+/// dozens of instances a gateway will ever see live, while staying
+/// short enough to stay readable in log lines and error messages.
 pub const ID_PREFIX_LEN: usize = 8;
 
 /// Current, SEP-986-compliant gateway instance separator.
@@ -72,14 +85,20 @@ pub const CURSOR_SAFE_PREFIX: &str = "i_";
 /// `_H_`).
 pub const CURSOR_SAFE_SEP: &str = "__";
 
+/// `true` when `name` is a gateway-local tool that must never be
+/// forwarded to a backend (cf. [`GATEWAY_LOCAL_TOOLS`]).
 pub fn is_local_tool(name: &str) -> bool {
     GATEWAY_LOCAL_TOOLS.contains(&name)
 }
 
+/// `true` when `name` is a per-DCC core tool that keeps a bare name
+/// even after skill prefixing (cf. [`CORE_TOOL_NAMES`]).
 pub fn is_core_tool(name: &str) -> bool {
     CORE_TOOL_NAMES.contains(&name)
 }
 
+/// Truncate a UUID to its first [`ID_PREFIX_LEN`] hex chars — the
+/// canonical short form used inside encoded gateway tool names.
 pub fn instance_short(id: &Uuid) -> String {
     let mut s = id.simple().to_string();
     s.truncate(ID_PREFIX_LEN);

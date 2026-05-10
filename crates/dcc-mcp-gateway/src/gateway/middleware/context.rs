@@ -7,15 +7,48 @@ use std::time::SystemTime;
 use crate::gateway::admin::trace::{TracePayload, TraceSpan};
 
 /// Context for one gateway `tools/call` invocation.
+///
+/// Built by the gateway dispatch handler and passed through the
+/// [`super::MiddlewareChain`]. The context carries everything a
+/// before/after middleware needs to make routing, auditing, or
+/// admission decisions: the JSON-RPC method, the resolved tool
+/// (slug + DCC + instance), the originating session, and the raw
+/// argument value.
+///
+/// Middlewares may mutate `metadata` to pass small key/value hints to
+/// later stages, but the routing fields (`tool_slug`, `dcc_type`,
+/// `instance_id`) are owned by the dispatch handler and should not be
+/// rewritten by middleware.
 #[derive(Debug, Clone)]
 pub struct CallContext {
+    /// JSON-RPC method name as it arrived from the client (e.g.
+    /// `"tools/call"`). Preserved verbatim so audit sinks can
+    /// distinguish the dynamic-capability verbs from the legacy
+    /// `tools/list` fan-out.
     pub method: String,
+    /// Resolved capability slug (`<dcc>.<id8>.<tool>`) once the
+    /// dispatch handler has matched the call to a `CapabilityRecord`.
+    /// `None` for calls that never resolve (e.g. unknown tool).
     pub tool_slug: Option<String>,
+    /// DCC type of the resolved capability (e.g. `"maya"`). `None`
+    /// when the call does not target a backend (gateway-local tool).
     pub dcc_type: Option<String>,
+    /// Stringified instance UUID of the resolved backend, if any.
     pub instance_id: Option<String>,
+    /// MCP `Mcp-Session-Id` header. `None` for stateless callers
+    /// (REST clients) that did not negotiate a session.
     pub session_id: Option<String>,
+    /// Stable per-call identifier used to correlate trace spans,
+    /// audit records, and the client's JSON-RPC `id`.
     pub request_id: String,
+    /// Raw argument value as received from the client. Middlewares
+    /// must treat this as untrusted input and avoid logging it
+    /// verbatim — use [`input_payload`](Self::input_payload) which
+    /// has already been bounded and redacted.
     pub args: Value,
+    /// Free-form metadata carried between middleware stages. Use a
+    /// short, stable key (e.g. `"admission.reason"`) when emitting
+    /// audit signals.
     pub metadata: HashMap<String, String>,
     /// Phase 2: per-call dispatch trace spans, populated by the handler.
     pub trace_spans: Vec<TraceSpan>,
@@ -28,6 +61,13 @@ pub struct CallContext {
 }
 
 impl CallContext {
+    /// Construct a fresh `CallContext` for the given method and
+    /// request id, capturing `args` verbatim.
+    ///
+    /// All optional routing fields default to `None`; the dispatch
+    /// handler is expected to populate them as it resolves the tool.
+    /// `started_at` is set to `SystemTime::now()` so the trace
+    /// waterfall measures the full handler latency.
     pub fn new(method: impl Into<String>, request_id: impl Into<String>, args: Value) -> Self {
         Self {
             method: method.into(),
@@ -45,11 +85,13 @@ impl CallContext {
         }
     }
 
+    /// Builder: attach the resolved capability slug.
     pub fn with_tool_slug(mut self, slug: impl Into<String>) -> Self {
         self.tool_slug = Some(slug.into());
         self
     }
 
+    /// Builder: attach the originating MCP session id.
     pub fn with_session_id(mut self, id: impl Into<String>) -> Self {
         self.session_id = Some(id.into());
         self
@@ -62,13 +104,25 @@ impl CallContext {
 }
 
 /// Result of a gateway tool call, passed to [`super::AfterCallMiddleware`].
+///
+/// `text` mirrors the MCP `content[0].text` field of the response and
+/// `is_error` mirrors the JSON-RPC `isError` flag — together they let
+/// audit sinks render a one-line outcome without re-parsing the
+/// response envelope.
 #[derive(Debug, Clone)]
 pub struct CallResult {
+    /// Human-readable response body. Already bounded by the dispatch
+    /// handler so audit sinks can persist it without an extra cap.
     pub text: String,
+    /// `true` when the response was an MCP-level error
+    /// (`isError == true` or transport failure). Used by audit sinks
+    /// to colour-code outcomes without re-parsing `text`.
     pub is_error: bool,
 }
 
 impl CallResult {
+    /// Construct a `CallResult` from the handler's `(text, is_error)`
+    /// tuple — the canonical shape backends return today.
     pub fn from_tuple(text: impl Into<String>, is_error: bool) -> Self {
         Self {
             text: text.into(),
@@ -76,6 +130,8 @@ impl CallResult {
         }
     }
 
+    /// Convert back to the `(text, is_error)` tuple that the dispatch
+    /// handler ultimately serialises into the JSON-RPC response.
     pub fn into_tuple(self) -> (String, bool) {
         (self.text, self.is_error)
     }
