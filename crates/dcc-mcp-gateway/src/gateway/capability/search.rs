@@ -21,109 +21,20 @@
 //!
 //! [#659]: https://github.com/loonghao/dcc-mcp-core/issues/659
 
-use serde::{Deserialize, Serialize};
-use uuid::Uuid;
-
 use super::index::IndexSnapshot;
 use super::record::CapabilityRecord;
 use super::search_ranking::{FuzzyScorer, Scorer, SubstringScorer};
 
-/// Which scoring strategy to use for a search.
-///
-/// Defaults to [`SearchMode::Fuzzy`] — the pre-#659 `Exact` strategy
-/// stays addressable for callers (regression tests, deterministic
-/// surfaces) that explicitly want substring-only matching.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SearchMode {
-    /// Fuzzy matching with prefix/subsequence bonuses. Tolerates
-    /// typos and partial tokens — the right default for agents.
-    #[default]
-    Fuzzy,
-    /// Pre-#659 substring table. Exact or substring matches only,
-    /// no typo tolerance. Mainly useful for deterministic golden
-    /// tests and regression guards.
-    Exact,
-}
-
-/// Parameters accepted by `search_tools` / `POST /v1/search`.
-///
-/// Every new field defaults to a value that preserves the pre-#659
-/// behaviour, so existing clients that only set `query` keep working
-/// without re-serialising.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(default)]
-pub struct SearchQuery {
-    /// Free-text query matched against tool name, skill, summary,
-    /// and tags. Empty string disables keyword ranking and returns
-    /// the catalogue in deterministic order.
-    pub query: String,
-    /// Restrict results to a specific DCC bucket (`"maya"`, …).
-    pub dcc_type: Option<String>,
-    /// Restrict results to a single backend instance. Useful for
-    /// follow-up calls where the agent has already picked the
-    /// instance and wants instance-scoped autocomplete.
-    pub instance_id: Option<Uuid>,
-    /// Optional domain tags the caller wants to filter by — records
-    /// that do not carry every listed tag are dropped.
-    pub tags: Vec<String>,
-    /// When `Some(true)`, drop records whose owning skill is not
-    /// currently loaded (`has_schema == false`). The builder sets
-    /// `has_schema` from the backend `tools/list` response, so this
-    /// maps directly to "currently addressable" on the backend.
-    pub loaded_only: Option<bool>,
-    /// Optional scene / document hint; used as a soft boost rather
-    /// than a filter because agents often pass inaccurate hints.
-    pub scene_hint: Option<String>,
-    /// Cap on the number of hits returned. `0` means "fall back to
-    /// `DEFAULT_LIMIT`"; values > [`MAX_LIMIT`] are clamped.
-    pub limit: Option<u32>,
-    /// Number of hits to skip after ranking. Zero by default so
-    /// existing clients see the same first page they did pre-#659.
-    pub offset: Option<u32>,
-    /// Which scoring strategy to apply — defaults to fuzzy.
-    pub mode: SearchMode,
-}
-
-/// Default page size for `search_tools` — keeps the response token
-/// cost modest even when the caller forgets to pass `limit`.
-pub const DEFAULT_LIMIT: u32 = 25;
-/// Upper bound on the number of results returned in a single page.
-pub const MAX_LIMIT: u32 = 100;
-
-/// One result row in the search response. Same wire shape on REST
-/// and MCP surfaces.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SearchHit {
-    /// Capability being ranked.
-    #[serde(flatten)]
-    pub record: CapabilityRecord,
-    /// Score used for ranking. Informational — clients should treat
-    /// it as opaque and rely on the list order.
-    pub score: u32,
-}
-
-/// Paginated search response envelope (issue #659).
-///
-/// The wrapper lets callers discover how many records matched
-/// overall (for a progress bar, or to decide whether to ask for the
-/// next page) without shipping every hit on every call. Kept as a
-/// sibling type rather than replacing `Vec<SearchHit>` so existing
-/// callers that consume the list directly keep compiling against
-/// [`search`]; the paginated path uses [`search_page`] instead.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SearchPage {
-    /// Ranked, truncated hits for the requested page.
-    pub hits: Vec<SearchHit>,
-    /// Total number of records that matched the query after all
-    /// filters were applied, before pagination truncation.
-    pub total: u32,
-    /// Offset the caller asked for (echoed back so clients can
-    /// round-trip it into a "next page" request).
-    pub offset: u32,
-    /// Effective limit that was applied to produce `hits`.
-    pub limit: u32,
-}
+// Wire types migrated to `dcc-mcp-gateway-core::capability::search`
+// (issue #845, part 3). Re-exported from the historical
+// `crate::gateway::capability::search::*` path so the 9 files that
+// already consume `SearchQuery` / `SearchHit` / `SearchPage` /
+// `SearchMode` / `DEFAULT_LIMIT` / `MAX_LIMIT` keep compiling
+// unchanged. New code should prefer importing from
+// `dcc_mcp_gateway_core::capability::search` directly.
+pub use dcc_mcp_gateway_core::capability::search::{
+    DEFAULT_LIMIT, MAX_LIMIT, SearchHit, SearchMode, SearchPage, SearchQuery,
+};
 
 /// Rank `snapshot` against `query` and return the top-N hits for
 /// the first page (offset = 0). This keeps the pre-#659 call site
