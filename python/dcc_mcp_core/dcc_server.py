@@ -66,6 +66,20 @@ from dcc_mcp_core.result_envelope import ToolResult
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Module constants
+# ---------------------------------------------------------------------------
+
+#: Default JPEG quality for screenshot capture (0-100).
+DEFAULT_JPEG_QUALITY: int = 85
+
+#: Default screenshot capture timeout in milliseconds.
+DEFAULT_SCREENSHOT_TIMEOUT_MS: int = 5000
+
+#: Windows ``OpenProcess`` access right for querying process information.
+#: Equivalent to ``PROCESS_QUERY_LIMITED_INFORMATION`` (winnt.h 0x1000).
+_WIN_PROCESS_QUERY_LIMITED_INFORMATION: int = 0x1000
+
 # ── module-level shared state (one per process) ────────────────────────────
 # Populated by register_diagnostic_handlers().
 _sandbox_context: Any = None  # SandboxContext | None
@@ -242,9 +256,9 @@ def _handle_take_screenshot(params_json: str) -> str:
         params = {}
 
     fmt = params.get("format", "png")
-    quality = int(params.get("jpeg_quality", 85))
+    quality = int(params.get("jpeg_quality", DEFAULT_JPEG_QUALITY))
     scale = float(params.get("scale", 1.0))
-    timeout_ms = int(params.get("timeout_ms", 5000))
+    timeout_ms = int(params.get("timeout_ms", DEFAULT_SCREENSHOT_TIMEOUT_MS))
     full_screen = bool(params.get("full_screen", False))
     hwnd = params.get("window_handle") or _instance_context.get("dcc_window_handle")
     pid = params.get("process_id") or _instance_context.get("dcc_pid")
@@ -319,8 +333,7 @@ def _handle_process_status(params_json: str) -> str:
             if os.name == "nt":
                 import ctypes
 
-                PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-                handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, int(dcc_pid))
+                handle = ctypes.windll.kernel32.OpenProcess(_WIN_PROCESS_QUERY_LIMITED_INFORMATION, False, int(dcc_pid))
                 if handle:
                     ctypes.windll.kernel32.CloseHandle(handle)
                     alive = True
@@ -504,9 +517,9 @@ _SCREENSHOT_SCHEMA: dict = {
     "type": "object",
     "properties": {
         "format": {"type": "string", "enum": ["png", "jpeg", "raw_bgra"], "default": "png"},
-        "jpeg_quality": {"type": "integer", "minimum": 0, "maximum": 100, "default": 85},
+        "jpeg_quality": {"type": "integer", "minimum": 0, "maximum": 100, "default": DEFAULT_JPEG_QUALITY},
         "scale": {"type": "number", "minimum": 0.0, "maximum": 1.0, "default": 1.0},
-        "timeout_ms": {"type": "integer", "minimum": 100, "default": 5000},
+        "timeout_ms": {"type": "integer", "minimum": 100, "default": DEFAULT_SCREENSHOT_TIMEOUT_MS},
         "full_screen": {"type": "boolean", "default": False},
         "window_handle": {"type": "integer"},
         "window_title": {"type": "string"},
