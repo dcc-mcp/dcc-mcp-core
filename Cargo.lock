@@ -898,6 +898,7 @@ dependencies = [
  "dcc-mcp-capture",
  "dcc-mcp-gateway",
  "dcc-mcp-host",
+ "dcc-mcp-http-server",
  "dcc-mcp-http-types",
  "dcc-mcp-job",
  "dcc-mcp-jsonrpc",
@@ -931,6 +932,27 @@ dependencies = [
  "tokio-util",
  "tower",
  "tower-http",
+ "tracing",
+ "uuid",
+ "workspace-hack",
+]
+
+[[package]]
+name = "dcc-mcp-http-server"
+version = "0.15.7"
+dependencies = [
+ "dashmap",
+ "dcc-mcp-host",
+ "dcc-mcp-http-types",
+ "dcc-mcp-job",
+ "dcc-mcp-jsonrpc",
+ "dcc-mcp-workflow",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
  "tracing",
  "uuid",
  "workspace-hack",
