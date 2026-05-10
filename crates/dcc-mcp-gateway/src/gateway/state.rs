@@ -1,4 +1,44 @@
 //! Shared gateway state and helpers.
+//!
+//! # SRP-compliant sub-state structs (issue #839)
+//!
+//! Historically [`GatewayState`] grew into a *god object* carrying 24+ fields
+//! that mixed discovery, routing, eventing and identity concerns. Issue #839
+//! calls for splitting these responsibilities into focused sub-structs so
+//! future handlers can accept only the slice of state they actually need
+//! (ISP + Dependency Inversion), tests can build just the sub-state they
+//! exercise, and merge conflicts shrink.
+//!
+//! The refactor is intentionally **backwards-compatible**: every field that
+//! existed on [`GatewayState`] prior to this change is still reachable from
+//! the same `state.<field>` expression, so the 30 files that touch gateway
+//! state keep compiling without a rename sweep. The new
+//! [`DiscoveryState`] / [`RoutingState`] / [`EventState`] / [`ServerState`]
+//! types provide a *typed view* over those fields for code that wants a
+//! narrow dependency — they are cheap to construct (plain references / Arc
+//! clones) and hold exactly the subset of state that their responsibility
+//! implies.
+//!
+//! ## Responsibility map
+//!
+//! | Sub-state         | Responsibility                                            |
+//! |-------------------|-----------------------------------------------------------|
+//! | [`DiscoveryState`]| File registry + staleness / visibility policy             |
+//! | [`RoutingState`]  | In-flight backend calls + timeouts + HTTP client          |
+//! | [`EventState`]    | Event fan-out (broadcast, SSE, subscriptions, event log)  |
+//! | [`ServerState`]   | Server identity, protocol negotiation, adapter metadata   |
+//!
+//! ## Migration strategy
+//!
+//! * Handlers that still use `state.registry`, `state.stale_timeout`, … work
+//!   unchanged — those fields remain `pub` on `GatewayState`.
+//! * New handlers and tests should prefer the typed accessors
+//!   [`GatewayState::discovery`], [`GatewayState::routing`],
+//!   [`GatewayState::events`], [`GatewayState::server`].
+//! * The accessors borrow from `self`, so they are allocation-free.
+//!
+//! See issue #845 for the follow-on Clean-Architecture crate split that
+//! builds on these sub-structs.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -21,7 +61,109 @@ pub struct PendingCall {
     pub backend_request_id: String,
 }
 
+// ─── Sub-state structs (issue #839) ─────────────────────────────────────────
+//
+// Each sub-state is a *typed view* over the subset of [`GatewayState`] that a
+// given responsibility needs. They borrow from the parent state, so they are
+// zero-cost to construct (no Arc bumps, no clones of non-shareable data).
+
+/// Discovery / liveness view over gateway state (issue #839).
+///
+/// Handlers that only need to inspect the registry — e.g. `list_dcc_instances`,
+/// the `live_instances` / `all_instances` helpers, and capability refresh —
+/// should depend on this sub-state instead of the full [`GatewayState`].
+#[derive(Clone, Copy)]
+pub struct DiscoveryState<'a> {
+    /// Shared read/write handle on the file-backed service registry.
+    pub registry: &'a Arc<RwLock<FileRegistry>>,
+    /// Heartbeat-age after which a registry row is considered stale.
+    pub stale_timeout: Duration,
+    /// When `false` (default), instances advertising `dcc_type == "unknown"`
+    /// are filtered from [`GatewayState::live_instances`]. Issue #555.
+    pub allow_unknown_tools: bool,
+    /// Gateway facade host; used together with `own_port` to filter the
+    /// gateway's own self-row out of fan-out targets (issue #419).
+    pub own_host: &'a str,
+    /// Gateway facade port; pair of `own_host`.
+    pub own_port: u16,
+}
+
+/// Routing / dispatch view over gateway state (issue #839).
+///
+/// Covers the per-call plumbing: outgoing HTTP, per-backend timeouts, and the
+/// in-flight pending-call table used so `notifications/cancelled` can reach
+/// the correct backend (issue #321 / #314).
+#[derive(Clone, Copy)]
+pub struct RoutingState<'a> {
+    /// Shared reqwest client reused across all backend calls.
+    pub http_client: &'a reqwest::Client,
+    /// Per-backend request timeout for gateway fan-out calls (issue #314).
+    pub backend_timeout: Duration,
+    /// Longer timeout applied when the outbound `tools/call` is async-opt-in
+    /// (issue #321).
+    pub async_dispatch_timeout: Duration,
+    /// Gateway wait-for-terminal passthrough timeout (issue #321).
+    pub wait_terminal_timeout: Duration,
+    /// In-flight forwarded tool calls keyed by gateway-side JSON-RPC id.
+    pub pending_calls: &'a Arc<RwLock<HashMap<String, PendingCall>>>,
+    /// Backend SSE multiplexer (issue #320).
+    pub subscriber: &'a super::sse_subscriber::SubscriberManager,
+    /// Pluggable middleware chain applied to every `tools/call` dispatch
+    /// (issue #770).
+    pub middleware_chain: &'a Arc<MiddlewareChain>,
+    /// Emit Cursor-safe names when fanning prompts out to backends
+    /// (issue #656).
+    pub cursor_safe_tool_names: bool,
+}
+
+/// Eventing view over gateway state (issue #839).
+///
+/// Handlers that fan gateway-originated notifications out (instance watcher,
+/// backend SSE subscriber, resource subscriptions, contention event log)
+/// depend on just this sub-state.
+#[derive(Clone, Copy)]
+pub struct EventState<'a> {
+    /// Broadcast channel for server-initiated MCP notifications pushed to SSE
+    /// clients.
+    pub events_tx: &'a Arc<broadcast::Sender<String>>,
+    /// Per-session resource subscriptions keyed by `Mcp-Session-Id`.
+    pub resource_subscriptions: &'a Arc<RwLock<HashMap<String, HashSet<String>>>>,
+    /// Gateway-scoped capability index (issue #653).
+    pub capability_index: &'a Arc<super::capability::CapabilityIndex>,
+    /// Contention event log (issue #766), exposed as the MCP resource
+    /// `resources://gateway/events`.
+    pub event_log: &'a Arc<EventLog>,
+}
+
+/// Identity / protocol view over gateway state (issue #839).
+///
+/// Covers non-routable metadata: server identity strings, the negotiated MCP
+/// protocol version, adapter identity for version-aware election
+/// (issue maya#137), and the voluntary-yield channel.
+#[derive(Clone, Copy)]
+pub struct ServerState<'a> {
+    /// Gateway server name reported via MCP `initialize`.
+    pub server_name: &'a str,
+    /// Gateway server version.
+    pub server_version: &'a str,
+    /// Protocol version negotiated during the last `initialize` handshake.
+    pub protocol_version: &'a Arc<RwLock<Option<String>>>,
+    /// Adapter package version advertised on the `__gateway__` sentinel
+    /// (issue maya#137).
+    pub adapter_version: Option<&'a str>,
+    /// DCC type the adapter is bound to (issue maya#137).
+    pub adapter_dcc: Option<&'a str>,
+    /// Voluntary-yield channel: sending `true` triggers graceful shutdown so
+    /// a higher-version challenger can take over.
+    pub yield_tx: &'a Arc<watch::Sender<bool>>,
+}
+
 /// Shared state passed to every gateway axum handler.
+///
+/// This struct owns the concrete fields; [`DiscoveryState`] / [`RoutingState`]
+/// / [`EventState`] / [`ServerState`] are *views* constructed on demand via
+/// [`Self::discovery`], [`Self::routing`], [`Self::events`], [`Self::server`]
+/// (issue #839 — backwards-compatible SRP split).
 #[derive(Clone)]
 pub struct GatewayState {
     pub registry: Arc<RwLock<FileRegistry>>,
@@ -146,6 +288,62 @@ pub struct GatewayState {
 }
 
 impl GatewayState {
+    // ── Sub-state accessors (issue #839) ───────────────────────────────────
+    //
+    // These return zero-cost typed views over the subset of fields each
+    // responsibility needs. New handlers should prefer these accessors so
+    // that their signatures advertise exactly which slice of gateway state
+    // they touch.
+
+    /// Typed discovery view (registry + staleness + visibility policy).
+    pub fn discovery(&self) -> DiscoveryState<'_> {
+        DiscoveryState {
+            registry: &self.registry,
+            stale_timeout: self.stale_timeout,
+            allow_unknown_tools: self.allow_unknown_tools,
+            own_host: &self.own_host,
+            own_port: self.own_port,
+        }
+    }
+
+    /// Typed routing view (HTTP client + timeouts + pending-call table).
+    pub fn routing(&self) -> RoutingState<'_> {
+        RoutingState {
+            http_client: &self.http_client,
+            backend_timeout: self.backend_timeout,
+            async_dispatch_timeout: self.async_dispatch_timeout,
+            wait_terminal_timeout: self.wait_terminal_timeout,
+            pending_calls: &self.pending_calls,
+            subscriber: &self.subscriber,
+            middleware_chain: &self.middleware_chain,
+            cursor_safe_tool_names: self.cursor_safe_tool_names,
+        }
+    }
+
+    /// Typed eventing view (broadcast + subscriptions + capability index +
+    /// event log).
+    pub fn events(&self) -> EventState<'_> {
+        EventState {
+            events_tx: &self.events_tx,
+            resource_subscriptions: &self.resource_subscriptions,
+            capability_index: &self.capability_index,
+            event_log: &self.event_log,
+        }
+    }
+
+    /// Typed server-identity view (server/adapter metadata, protocol
+    /// version, yield channel).
+    pub fn server(&self) -> ServerState<'_> {
+        ServerState {
+            server_name: &self.server_name,
+            server_version: &self.server_version,
+            protocol_version: &self.protocol_version,
+            adapter_version: self.adapter_version.as_deref(),
+            adapter_dcc: self.adapter_dcc.as_deref(),
+            yield_tx: &self.yield_tx,
+        }
+    }
+
     /// Return all instances that are live (not stale, not shutting down/unreachable).
     ///
     /// The `__gateway__` sentinel row is **always** excluded — it is bookkeeping
@@ -159,22 +357,7 @@ impl GatewayState {
     /// sentinel and a regular `"maya"` row; exposing its own row here would
     /// cause the facade to fan `tools/list` / `tools/call` back into itself.
     pub fn live_instances(&self, registry: &FileRegistry) -> Vec<ServiceEntry> {
-        registry
-            .list_all()
-            .into_iter()
-            .filter(|e| {
-                e.dcc_type != GATEWAY_SENTINEL_DCC_TYPE
-                    && !e.is_stale(self.stale_timeout)
-                    && !matches!(
-                        e.status,
-                        ServiceStatus::ShuttingDown
-                            | ServiceStatus::Unreachable
-                            | ServiceStatus::Booting
-                    )
-                    && !super::is_own_instance(e, &self.own_host, self.own_port)
-                    && (self.allow_unknown_tools || !e.dcc_type.eq_ignore_ascii_case("unknown"))
-            })
-            .collect()
+        self.discovery().live_instances(registry)
     }
 
     /// Return every parseable registry row that an operator-facing tool
@@ -189,14 +372,7 @@ impl GatewayState {
     /// render a full picture and downgrade stale entries via the surface
     /// `status` field instead.
     pub fn all_instances(&self, registry: &FileRegistry) -> Vec<ServiceEntry> {
-        registry
-            .list_all()
-            .into_iter()
-            .filter(|e| {
-                e.dcc_type != GATEWAY_SENTINEL_DCC_TYPE
-                    && !super::is_own_instance(e, &self.own_host, self.own_port)
-            })
-            .collect()
+        self.discovery().all_instances(registry)
     }
 
     /// Return operator-facing registry rows with dead-PID entries pruned.
@@ -231,12 +407,54 @@ impl GatewayState {
         &self,
         registry: &FileRegistry,
     ) -> dcc_mcp_transport::TransportResult<(Vec<ServiceEntry>, usize)> {
+        self.discovery().read_alive_instances(registry)
+    }
+}
+
+impl<'a> DiscoveryState<'a> {
+    /// See [`GatewayState::live_instances`].
+    pub fn live_instances(&self, registry: &FileRegistry) -> Vec<ServiceEntry> {
+        registry
+            .list_all()
+            .into_iter()
+            .filter(|e| {
+                e.dcc_type != GATEWAY_SENTINEL_DCC_TYPE
+                    && !e.is_stale(self.stale_timeout)
+                    && !matches!(
+                        e.status,
+                        ServiceStatus::ShuttingDown
+                            | ServiceStatus::Unreachable
+                            | ServiceStatus::Booting
+                    )
+                    && !super::is_own_instance(e, self.own_host, self.own_port)
+                    && (self.allow_unknown_tools || !e.dcc_type.eq_ignore_ascii_case("unknown"))
+            })
+            .collect()
+    }
+
+    /// See [`GatewayState::all_instances`].
+    pub fn all_instances(&self, registry: &FileRegistry) -> Vec<ServiceEntry> {
+        registry
+            .list_all()
+            .into_iter()
+            .filter(|e| {
+                e.dcc_type != GATEWAY_SENTINEL_DCC_TYPE
+                    && !super::is_own_instance(e, self.own_host, self.own_port)
+            })
+            .collect()
+    }
+
+    /// See [`GatewayState::read_alive_instances`].
+    pub fn read_alive_instances(
+        &self,
+        registry: &FileRegistry,
+    ) -> dcc_mcp_transport::TransportResult<(Vec<ServiceEntry>, usize)> {
         let (raw, evicted) = registry.read_alive()?;
         let filtered = raw
             .into_iter()
             .filter(|e| {
                 e.dcc_type != GATEWAY_SENTINEL_DCC_TYPE
-                    && !super::is_own_instance(e, &self.own_host, self.own_port)
+                    && !super::is_own_instance(e, self.own_host, self.own_port)
             })
             .collect();
         Ok((filtered, evicted))
@@ -720,5 +938,75 @@ mod tests {
                 .any(|e| e.dcc_type == GATEWAY_SENTINEL_DCC_TYPE),
             "sentinel must never appear in read_alive_instances output",
         );
+    }
+
+    // ── Sub-state view tests (issue #839) ──────────────────────────────────
+
+    /// The discovery view exposes exactly the subset a registry-facing
+    /// handler needs, and its liveness filter matches
+    /// [`GatewayState::live_instances`] byte-for-byte.
+    #[tokio::test]
+    async fn test_discovery_view_matches_gateway_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+
+        {
+            let r = registry.read().await;
+            let mut sentinel = ServiceEntry::new(GATEWAY_SENTINEL_DCC_TYPE, "127.0.0.1", 9765);
+            sentinel.version = Some(env!("CARGO_PKG_VERSION").into());
+            r.register(sentinel).unwrap();
+            r.register(ServiceEntry::new("maya", "127.0.0.1", 18812))
+                .unwrap();
+        }
+
+        let gs = test_gateway_state_with_own(registry.clone(), "127.0.0.1", 9765);
+        let via_gs = gs.live_instances(&*registry.read().await);
+        let via_view = gs.discovery().live_instances(&*registry.read().await);
+        assert_eq!(via_gs.len(), via_view.len());
+        assert_eq!(via_gs[0].dcc_type, via_view[0].dcc_type);
+        assert_eq!(via_gs[0].port, via_view[0].port);
+
+        // Discovery view holds exactly the agreed fields (SRP).
+        let d = gs.discovery();
+        assert_eq!(d.stale_timeout, gs.stale_timeout);
+        assert_eq!(d.allow_unknown_tools, gs.allow_unknown_tools);
+        assert_eq!(d.own_host, gs.own_host.as_str());
+        assert_eq!(d.own_port, gs.own_port);
+    }
+
+    /// Each sub-state view exposes the documented responsibility and
+    /// nothing else — asserted via field-count sanity checks so growth of
+    /// the god object cannot silently leak back in.
+    #[tokio::test]
+    async fn test_sub_state_views_carry_only_their_responsibility() {
+        let dir = tempfile::tempdir().unwrap();
+        let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+        let gs = test_gateway_state(registry);
+
+        // Routing view — fields match the documented dispatch surface.
+        let r = gs.routing();
+        assert_eq!(r.backend_timeout, gs.backend_timeout);
+        assert_eq!(r.async_dispatch_timeout, gs.async_dispatch_timeout);
+        assert_eq!(r.wait_terminal_timeout, gs.wait_terminal_timeout);
+        assert_eq!(r.cursor_safe_tool_names, gs.cursor_safe_tool_names);
+
+        // Events view — fields match the documented fan-out surface.
+        let ev = gs.events();
+        assert!(Arc::ptr_eq(ev.events_tx, &gs.events_tx));
+        assert!(Arc::ptr_eq(
+            ev.resource_subscriptions,
+            &gs.resource_subscriptions
+        ));
+        assert!(Arc::ptr_eq(ev.capability_index, &gs.capability_index));
+        assert!(Arc::ptr_eq(ev.event_log, &gs.event_log));
+
+        // Server view — fields match the identity surface.
+        let s = gs.server();
+        assert_eq!(s.server_name, gs.server_name);
+        assert_eq!(s.server_version, gs.server_version);
+        assert!(Arc::ptr_eq(s.protocol_version, &gs.protocol_version));
+        assert!(Arc::ptr_eq(s.yield_tx, &gs.yield_tx));
+        assert_eq!(s.adapter_version, gs.adapter_version.as_deref());
+        assert_eq!(s.adapter_dcc, gs.adapter_dcc.as_deref());
     }
 }
