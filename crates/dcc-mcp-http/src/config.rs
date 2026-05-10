@@ -4,14 +4,17 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::path::PathBuf;
 
-// `ServerSpawnMode` and `JobRecoveryPolicy` were migrated to
-// `dcc-mcp-http-types::config` (issue #852, part 3) so external
-// Rust tooling (CLI drivers, config validators, adapter
-// orchestrators) can depend on just the enum contract without
-// dragging in axum / tokio / reqwest / pyo3. Re-exported here so
-// the historical `crate::config::{ServerSpawnMode, JobRecoveryPolicy}`
-// paths — and the 43 consumer sites they feed — keep compiling.
-pub use dcc_mcp_http_types::config::{JobRecoveryPolicy, ServerSpawnMode};
+// `ServerSpawnMode`, `JobRecoveryPolicy`, `JobConfig`, and
+// `WorkflowConfig` were migrated to `dcc-mcp-http-types::config`
+// (issue #852, parts 3 + 4) so external Rust tooling (CLI drivers,
+// config validators, adapter orchestrators) can depend on just the
+// value-type contract without dragging in axum / tokio / reqwest /
+// pyo3. Re-exported here so the historical
+// `crate::config::{ServerSpawnMode, JobRecoveryPolicy, JobConfig,
+//   WorkflowConfig}` paths keep compiling.
+pub use dcc_mcp_http_types::config::{
+    JobConfig, JobRecoveryPolicy, ServerSpawnMode, WorkflowConfig,
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Sub-config structs — one per orthogonal concern
@@ -812,40 +815,9 @@ impl Default for FeatureFlags {
     }
 }
 
-/// Workflow & scheduler configuration.
-#[derive(Debug, Clone, Default)]
-pub struct WorkflowConfig {
-    /// Enable the built-in `workflows.*` tools (issue #348).
-    pub enable_workflows: bool,
-
-    /// Enable the cron + webhook scheduler subsystem (issue #352).
-    pub enable_scheduler: bool,
-
-    /// Directory holding `*.schedules.yaml` files for the scheduler
-    /// subsystem (issue #352).
-    pub schedules_dir: Option<PathBuf>,
-}
-
-/// Job persistence & recovery configuration.
-#[derive(Debug, Clone)]
-pub struct JobConfig {
-    /// Path to a SQLite database file for persisting tracked jobs
-    /// (issue #328).
-    pub job_storage_path: Option<PathBuf>,
-
-    /// What to do with rows the previous process left in `Pending` /
-    /// `Running` after a crash or restart (issue #567).
-    pub job_recovery: JobRecoveryPolicy,
-}
-
-impl Default for JobConfig {
-    fn default() -> Self {
-        Self {
-            job_storage_path: None,
-            job_recovery: JobRecoveryPolicy::Drop,
-        }
-    }
-}
+// `WorkflowConfig` and `JobConfig` were migrated to
+// `dcc-mcp-http-types::config` (issue #852, part 4) — see the
+// `pub use` re-export at the top of this file.
 
 // ─────────────────────────────────────────────────────────────────────────────
 // McpHttpConfig — thin aggregate of the 9 sub-configs above.
