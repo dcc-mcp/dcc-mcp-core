@@ -220,8 +220,13 @@ pub fn encode_tool_name_cursor_safe(id: &Uuid, original: &str) -> String {
 /// Return `true` iff every byte of `s` is in the Cursor-safe alphabet
 /// `[A-Za-z0-9_]`. Used as a cheap guard in debug assertions and in
 /// tests — the stricter regex some MCP clients enforce.
+///
+/// Defined in `dcc_mcp_gateway_core::naming::is_cursor_safe_alphabet`;
+/// this thin wrapper preserves the historical
+/// `crate::gateway::namespace::is_cursor_safe_alphabet` path
+/// (issue #845).
 pub fn is_cursor_safe_alphabet(s: &str) -> bool {
-    !s.is_empty() && s.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+    dcc_mcp_gateway_core::naming::is_cursor_safe_alphabet(s)
 }
 
 /// Escape a backend tool name so it contains only `[A-Za-z0-9_]`.

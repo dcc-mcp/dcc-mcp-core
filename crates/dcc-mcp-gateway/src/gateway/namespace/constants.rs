@@ -6,6 +6,12 @@
 
 use uuid::Uuid;
 
+// Re-exported from `dcc-mcp-gateway-core::naming` (issue #845). The
+// prefix length is part of the slug encoding contract — kept here so
+// the historical `crate::gateway::namespace::ID_PREFIX_LEN` path keeps
+// working alongside the new `dcc_mcp_gateway_core::naming::ID_PREFIX_LEN`.
+pub use dcc_mcp_gateway_core::naming::ID_PREFIX_LEN;
+
 /// Tools that are answered by the gateway itself (never fanned out
 /// to a backend).
 ///
@@ -42,13 +48,6 @@ pub const CORE_TOOL_NAMES: &[&str] = &[
     "deactivate_tool_group",
     "search_tools",
 ];
-
-/// Length of the truncated instance UUID prefix used in encoded
-/// tool names (e.g. `maya.abcdef01.create_sphere`). 8 hex chars
-/// give 32 bits of entropy — enough to disambiguate among the
-/// dozens of instances a gateway will ever see live, while staying
-/// short enough to stay readable in log lines and error messages.
-pub const ID_PREFIX_LEN: usize = 8;
 
 /// Current, SEP-986-compliant gateway instance separator.
 pub const INSTANCE_SEP: &str = ".";
@@ -99,10 +98,12 @@ pub fn is_core_tool(name: &str) -> bool {
 
 /// Truncate a UUID to its first [`ID_PREFIX_LEN`] hex chars — the
 /// canonical short form used inside encoded gateway tool names.
+///
+/// Defined in `dcc_mcp_gateway_core::naming::instance_short`; this
+/// thin wrapper preserves the historical
+/// `crate::gateway::namespace::instance_short` path (issue #845).
 pub fn instance_short(id: &Uuid) -> String {
-    let mut s = id.simple().to_string();
-    s.truncate(ID_PREFIX_LEN);
-    s
+    dcc_mcp_gateway_core::naming::instance_short(id)
 }
 
 pub(crate) fn is_instance_prefix(s: &str) -> bool {
