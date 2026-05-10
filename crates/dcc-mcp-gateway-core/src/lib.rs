@@ -1,4 +1,4 @@
-//! Domain layer for the DCC MCP gateway (issue #845).
+//! Domain layer for the DCC MCP gateway (issues #845, #852).
 //!
 //! # Clean Architecture — layer 0 (domain)
 //!
@@ -19,28 +19,27 @@
 //! so existing call sites keep compiling. New domain types should be added
 //! here first, then re-exported.
 //!
-//! # What lives here (migration plan)
+//! # Module map
 //!
-//! This is the **first** landing zone — the follow-on PRs in the #845 chain
-//! move capability-index / registry / model types here one at a time. The
-//! current boundary line:
+//! | Module           | What lives here                                     |
+//! |------------------|-----------------------------------------------------|
+//! | crate root       | [`PendingCall`] (routing primitive)                 |
+//! | [`naming`]       | Pure UUID / alphabet helpers used by slug encoding  |
+//! | [`capability`]   | [`CapabilityRecord`] + slug encoding (REST wire)    |
 //!
-//! | Lives here now            | Stays in `dcc-mcp-gateway` for now  |
-//! |---------------------------|-------------------------------------|
-//! | [`PendingCall`]           | `CapabilityIndex` (#845 Part 2)    |
-//! |                           | `MiddlewareChain` (#770 follow-up)  |
-//! |                           | `EventLog` (needs serde split)      |
+//! # Migration plan
 //!
-//! Picking [`PendingCall`] as the seed type is deliberate: it is the
-//! smallest domain primitive with zero third-party dependencies, which lets
-//! us verify the dependency direction (`dcc-mcp-gateway` depends on
-//! `dcc-mcp-gateway-core`, never the other way) before larger types move.
-//!
-//! The `serde` feature is off by default; enable it when a downstream
-//! application / infrastructure crate needs to serialize domain types.
+//! Types move here from `dcc-mcp-gateway` one at a time so each move can
+//! be reviewed in isolation and the dependency direction verified. The
+//! gateway crate re-exports every relocated type to preserve the public
+//! API; downstream code that wants the smallest possible dependency
+//! surface should import directly from `dcc_mcp_gateway_core`.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
+
+pub mod capability;
+pub mod naming;
 
 /// A call that the gateway has forwarded to a backend and is still awaiting
 /// a response from.
@@ -62,8 +61,7 @@
 /// This is a pure value type: no `Arc`, no interior mutability, no
 /// dependency on the routing layer's transport choice. Infrastructure code
 /// owns the table that maps gateway ids to [`PendingCall`]s.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PendingCall {
     /// URL of the backend that is servicing this call.
     pub backend_url: String,
@@ -77,6 +75,7 @@ impl PendingCall {
     /// Prefer this over struct-literal construction in new code so that any
     /// future validation (URL well-formedness, id non-emptiness) has a
     /// single place to live.
+    #[must_use]
     pub fn new(backend_url: impl Into<String>, backend_request_id: impl Into<String>) -> Self {
         Self {
             backend_url: backend_url.into(),
@@ -105,7 +104,6 @@ mod tests {
         assert_ne!(a, c);
     }
 
-    #[cfg(feature = "serde")]
     #[test]
     fn pending_call_roundtrip_json() {
         let c = PendingCall::new("http://127.0.0.1:18812/mcp", "req-7");
