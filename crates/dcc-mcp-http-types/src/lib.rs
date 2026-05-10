@@ -25,18 +25,21 @@
 //! |-------------|-----------------------------------------------------------|
 //! | crate root  | [`TruncationEnvelope`], [`SseChunkFrame`] + chunk helpers |
 //! | [`error`]   | [`HttpError`] / [`HttpResult`] error taxonomy             |
+//! | [`config`]  | [`ServerSpawnMode`], [`JobRecoveryPolicy`] config enums   |
 //!
 //! # Migration plan (issue #852)
 //!
 //! The current boundary line:
 //!
-//! | Lives here now          | Stays in `dcc-mcp-http` for now       |
-//! |-------------------------|----------------------------------------|
-//! | [`TruncationEnvelope`]  | `McpHttpConfig` (needs own split)     |
-//! | [`SseChunkFrame`]       | `JobRecoveryPolicy` / `MinimalModeConfig` |
-//! | [`chunk_sse_data`]      |                                        |
-//! | [`format_chunked_sse`]  |                                        |
-//! | [`error::HttpError`]    |                                        |
+//! | Lives here now              | Stays in `dcc-mcp-http` for now |
+//! |-----------------------------|----------------------------------|
+//! | [`TruncationEnvelope`]      | `McpHttpConfig` (needs own split)|
+//! | [`SseChunkFrame`]           |                                  |
+//! | [`chunk_sse_data`]          |                                  |
+//! | [`format_chunked_sse`]      |                                  |
+//! | [`error::HttpError`]        |                                  |
+//! | [`config::ServerSpawnMode`] |                                  |
+//! | [`config::JobRecoveryPolicy`]|                                 |
 //!
 //! Each new round of #852 PRs migrates one self-contained subsystem at a
 //! time and re-exports it from `dcc-mcp-http` to preserve the public API.
@@ -44,6 +47,7 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+pub mod config;
 pub mod error;
 
 use serde::{Deserialize, Serialize};

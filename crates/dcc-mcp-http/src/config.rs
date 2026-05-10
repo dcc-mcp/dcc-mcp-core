@@ -4,88 +4,14 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::path::PathBuf;
 
-/// How the server and gateway HTTP listeners are driven.
-///
-/// Fixes **issue #303** — under PyO3-embedded interpreters (Maya on Windows),
-/// `tokio::spawn` onto a multi-threaded runtime that no longer has an active
-/// driver can cause background accept loops (specifically the gateway
-/// listener) to be starved of scheduling time. The per-instance listener
-/// survives because its accept loop is "warmed up" during the initial
-/// `block_on`, but the gateway listener — spawned via an extra `tokio::spawn`
-/// + `tokio::join!` layer — never gets its turn.
-///
-/// `ServerSpawnMode::Dedicated` avoids the failure mode entirely by running
-/// each HTTP listener on its own OS thread that owns a `current_thread`
-/// Tokio runtime. That thread is scheduled by the OS, not by a shared
-/// worker pool, and cannot be starved by a hanging block_on elsewhere.
-///
-/// | Mode | When to use | Behaviour |
-/// |------|-------------|-----------|
-/// | `Ambient`   | Standalone binary (`dcc-mcp-server`, library tests) | Spawns `axum::serve` onto the caller's Tokio runtime via `tokio::spawn`. |
-/// | `Dedicated` | Python bindings (`PyMcpHttpServer`) / embedded DCC hosts | Each listener gets its own OS thread + `current_thread` runtime. Immune to PyO3 worker starvation. |
-///
-/// Defaults: `Ambient`. The Python bindings override this to `Dedicated`
-/// automatically when constructing `McpHttpServer` via `PyMcpHttpServer`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum ServerSpawnMode {
-    /// Spawn listeners as background tasks on the caller's Tokio runtime.
-    /// Correct for `#[tokio::main]` binaries that keep a thread in the
-    /// runtime for the process lifetime.
-    #[default]
-    Ambient,
-
-    /// Spawn each listener on a dedicated OS thread with its own
-    /// `current_thread` runtime. Correct for PyO3-embedded interpreters
-    /// where the parent runtime's worker pool cannot be relied upon after
-    /// `block_on` returns.
-    Dedicated,
-}
-
-/// What [`McpHttpServer::start`](crate::McpHttpServer::start) does with rows
-/// that the previous process left in `Pending` / `Running` after a crash or
-/// restart (issue #567).
-///
-/// | Variant | Behaviour |
-/// |---------|-----------|
-/// | [`JobRecoveryPolicy::Drop`]    | Each in-flight row is rewritten to [`JobStatus::Interrupted`](crate::job::JobStatus::Interrupted) with `error = "server restart"`. Clients re-subscribing after reconnect see one clean terminal transition. **This is today's behaviour and the default.** |
-/// | [`JobRecoveryPolicy::Requeue`] | Reserved for a future release that persists the original tool arguments alongside the `jobs` row. Until that lands the variant is **accepted but treated as `Drop`** — the server logs a `WARN` at startup so operators know the requested policy is not yet active, but startup itself never fails. The accepted-but-degraded contract gives DCC adapters (`dcc-mcp-maya`, `dcc-mcp-houdini`) a stable knob to plumb through today without forcing a config-shape break when the real implementation lands. |
-///
-/// String form (used by the Python binding and the upcoming `--job-recovery`
-/// CLI flag): `"drop"` / `"requeue"`. Defaults to `Drop`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum JobRecoveryPolicy {
-    /// Rewrite every `Pending` / `Running` row to `Interrupted` on startup.
-    /// Always safe; never re-runs a partially-applied tool.
-    #[default]
-    Drop,
-    /// Reserved policy: would re-submit idempotent in-flight jobs from the
-    /// persisted spec. Accepted today but treated as [`Self::Drop`] with a
-    /// `WARN` log at startup until tool-arg persistence lands.
-    Requeue,
-}
-
-impl JobRecoveryPolicy {
-    /// Lower-case wire identifier used by docs, the Python binding, and the
-    /// `--job-recovery` CLI flag.
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Drop => "drop",
-            Self::Requeue => "requeue",
-        }
-    }
-
-    /// Parse the wire identifier. `&str` is matched case-insensitively to
-    /// be tolerant of env-var plumbing (`DCC_MCP_*_JOB_RECOVERY=Requeue`).
-    pub fn parse(value: &str) -> Result<Self, String> {
-        match value.trim().to_ascii_lowercase().as_str() {
-            "drop" => Ok(Self::Drop),
-            "requeue" => Ok(Self::Requeue),
-            other => Err(format!(
-                "unknown job_recovery policy {other:?}; expected \"drop\" or \"requeue\""
-            )),
-        }
-    }
-}
+// `ServerSpawnMode` and `JobRecoveryPolicy` were migrated to
+// `dcc-mcp-http-types::config` (issue #852, part 3) so external
+// Rust tooling (CLI drivers, config validators, adapter
+// orchestrators) can depend on just the enum contract without
+// dragging in axum / tokio / reqwest / pyo3. Re-exported here so
+// the historical `crate::config::{ServerSpawnMode, JobRecoveryPolicy}`
+// paths — and the 43 consumer sites they feed — keep compiling.
+pub use dcc_mcp_http_types::config::{JobRecoveryPolicy, ServerSpawnMode};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Sub-config structs — one per orthogonal concern
