@@ -5,14 +5,16 @@ use std::net::IpAddr;
 use std::path::PathBuf;
 
 // `ServerSpawnMode`, `JobRecoveryPolicy`, `JobConfig`,
-// `WorkflowConfig`, `TelemetryConfig`, and `FeatureFlags` were
-// migrated to `dcc-mcp-http-types::config` (issue #852, parts 3-5)
-// so external Rust tooling (CLI drivers, config validators, adapter
-// orchestrators) can depend on just the value-type contract without
-// dragging in axum / tokio / reqwest / pyo3. Re-exported here so the
-// historical `crate::config::*` paths keep compiling.
+// `WorkflowConfig`, `TelemetryConfig`, `FeatureFlags`, and
+// `InstanceConfig` were migrated to `dcc-mcp-http-types::config`
+// (issue #852, parts 3-6) so external Rust tooling (CLI drivers,
+// config validators, adapter orchestrators) can depend on just the
+// value-type contract without dragging in axum / tokio / reqwest /
+// pyo3. Re-exported here so the historical `crate::config::*`
+// paths keep compiling.
 pub use dcc_mcp_http_types::config::{
-    FeatureFlags, JobConfig, JobRecoveryPolicy, ServerSpawnMode, TelemetryConfig, WorkflowConfig,
+    FeatureFlags, InstanceConfig, JobConfig, JobRecoveryPolicy, ServerSpawnMode, TelemetryConfig,
+    WorkflowConfig,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -372,43 +374,9 @@ impl McpHttpConfig {
     }
 }
 
-/// DCC instance registration metadata.
-#[derive(Debug, Clone, Default)]
-pub struct InstanceConfig {
-    /// DCC application type (e.g. `"maya"`, `"blender"`). Reported in the
-    /// shared `FileRegistry` so the gateway can route by DCC type.
-    pub dcc_type: Option<String>,
-
-    /// DCC application version (e.g. `"2025.1"`).
-    pub dcc_version: Option<String>,
-
-    /// Currently open scene/file. Improves routing accuracy.
-    pub scene: Option<String>,
-
-    /// Arbitrary instance metadata recorded in FileRegistry.
-    ///
-    /// Rez/package launchers use this for context-bundle fields such as
-    /// `context_bundle`, `production_domain`, `context_kind`, `project`,
-    /// `task`, `toolset_profile`, and `package_provenance`.
-    pub instance_metadata: HashMap<String, String>,
-
-    /// Capabilities declared by the DCC adapter hosting this server (issue #354).
-    ///
-    /// Each tool may list [`required_capabilities`] in its sibling
-    /// `tools.yaml`; on `tools/call` the server intersects the tool's
-    /// requirements against this declared set. Missing capabilities
-    /// surface as a `-32001 capability_missing` MCP error. Tools with
-    /// unmet capabilities still appear in `tools/list` but carry
-    /// `_meta.dcc.missing_capabilities = [...]` so clients can filter.
-    ///
-    /// The list is freeform — conventionally lowercase dotted identifiers
-    /// like `"usd"`, `"scene.mutate"`, `"filesystem.read"`. Adapters hard-code
-    /// it at construction time; there is no runtime introspection of the DCC.
-    ///
-    /// Default: empty (no capabilities declared — any tool with declared
-    /// requirements will report them as missing).
-    pub declared_capabilities: Vec<String>,
-}
+// `InstanceConfig` was migrated to `dcc-mcp-http-types::config`
+// (issue #852, part 6) — see the `pub use` re-export at the top of
+// this file.
 
 /// Session lifecycle & tool-cache configuration.
 #[derive(Debug, Clone)]
