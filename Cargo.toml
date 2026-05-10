@@ -25,6 +25,7 @@ members = [
     "crates/dcc-mcp-capture",
     "crates/dcc-mcp-usd",
     "crates/dcc-mcp-http",
+    "crates/dcc-mcp-http-types",
     "crates/dcc-mcp-server",
     "crates/dcc-mcp-workflow",
     "crates/dcc-mcp-scheduler",
