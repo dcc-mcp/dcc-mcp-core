@@ -941,8 +941,10 @@ name = "dcc-mcp-http-types"
 version = "0.15.7"
 dependencies = [
  "base64",
+ "dcc-mcp-models",
  "serde",
  "serde_json",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
