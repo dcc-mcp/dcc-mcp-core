@@ -10,6 +10,16 @@
 //! The external callers never hold a lock guard across an `.await`
 //! point — every public method returns an owned snapshot or a closure
 //! result so the lock never escapes the call stack.
+//!
+//! # Read-side wire types (issue #845)
+//!
+//! [`InstanceFingerprint`] and [`IndexSnapshot`] were migrated to
+//! [`dcc_mcp_gateway_core::capability::index`] so external Rust
+//! tooling can consume the snapshot shape without depending on this
+//! crate's tokio / axum / parking_lot footprint. They are re-exported
+//! below to keep the historical
+//! `crate::gateway::capability::index::{InstanceFingerprint,
+//! IndexSnapshot}` paths working unchanged.
 
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -19,51 +29,7 @@ use uuid::Uuid;
 
 use super::record::CapabilityRecord;
 
-/// Stable fingerprint of one instance's contribution to the index.
-///
-/// The fingerprint is used by [`super::refresh`] to short-circuit
-/// rebuilds when the backend replied with the exact same
-/// `tools/list` shape as the previous refresh — in that case there is
-/// nothing to update and we can skip the full swap.
-///
-/// The representation is deliberately small: the builder computes a
-/// content hash of the backend's tool list, and the index stores just
-/// that hash so comparisons are O(1).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
-pub struct InstanceFingerprint(pub u64);
-
-/// Owned snapshot of the index returned to REST / MCP callers.
-///
-/// Cloning an `IndexSnapshot` is cheap: the backing `Arc<[...]>`
-/// shares the underlying allocation across every reader that took the
-/// snapshot within the same window, so a `search_tools` call handling
-/// a large `limit` does not pay for a deep copy.
-#[derive(Debug, Clone, Default)]
-pub struct IndexSnapshot {
-    /// All live capability records, ordered by `(dcc_type, slug)` for
-    /// a stable human-readable output — the builder places them in
-    /// that order on every swap so callers do not need to sort.
-    pub records: Arc<[CapabilityRecord]>,
-    /// Per-instance fingerprint seen at snapshot time. Included so
-    /// diagnostics can trace which `refresh_instance` cycles produced
-    /// which snapshot.
-    pub fingerprints: HashMap<Uuid, InstanceFingerprint>,
-}
-
-impl IndexSnapshot {
-    /// Convenience predicate for diagnostics.
-    pub fn is_empty(&self) -> bool {
-        self.records.is_empty()
-    }
-
-    /// Resolve a capability record by its slug in O(n). The index is
-    /// bounded (every live backend × ~tens of actions) so the linear
-    /// scan is the right default; a hash map would add per-refresh
-    /// cost without a proven win until indices exceed ~10 k records.
-    pub fn find_by_slug(&self, slug: &str) -> Option<&CapabilityRecord> {
-        self.records.iter().find(|r| r.tool_slug == slug)
-    }
-}
+pub use dcc_mcp_gateway_core::capability::index::{IndexSnapshot, InstanceFingerprint};
 
 /// The canonical gateway-scoped capability index.
 ///
