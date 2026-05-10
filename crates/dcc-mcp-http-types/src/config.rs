@@ -11,6 +11,7 @@
 //! until every sub-struct has migrated; this module captures the
 //! self-contained pieces one at a time.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -275,6 +276,61 @@ impl Default for FeatureFlags {
 /// serde's attribute parser does not accept inline literals here.
 fn default_true() -> bool {
     true
+}
+
+// ── InstanceConfig ─────────────────────────────────────────────────────────
+
+/// DCC instance registration metadata.
+///
+/// One of the orthogonal sub-configs that compose `McpHttpConfig`
+/// (issue #852). Reported into the shared `FileRegistry` so the
+/// gateway can route by DCC type / version / scene. Captured here
+/// as a pure value type — every field is plain string-shaped,
+/// nothing carries runtime state.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct InstanceConfig {
+    /// DCC application type (e.g. `"maya"`, `"blender"`). Reported in
+    /// the shared `FileRegistry` so the gateway can route by DCC
+    /// type.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dcc_type: Option<String>,
+
+    /// DCC application version (e.g. `"2025.1"`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dcc_version: Option<String>,
+
+    /// Currently open scene/file. Improves routing accuracy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scene: Option<String>,
+
+    /// Arbitrary instance metadata recorded in `FileRegistry`.
+    ///
+    /// Rez/package launchers use this for context-bundle fields such
+    /// as `context_bundle`, `production_domain`, `context_kind`,
+    /// `project`, `task`, `toolset_profile`, and `package_provenance`.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub instance_metadata: HashMap<String, String>,
+
+    /// Capabilities declared by the DCC adapter hosting this server
+    /// (issue #354).
+    ///
+    /// Each tool may list `required_capabilities` in its sibling
+    /// `tools.yaml`; on `tools/call` the server intersects the
+    /// tool's requirements against this declared set. Missing
+    /// capabilities surface as a `-32001 capability_missing` MCP
+    /// error. Tools with unmet capabilities still appear in
+    /// `tools/list` but carry `_meta.dcc.missing_capabilities = [...]`
+    /// so clients can filter.
+    ///
+    /// The list is freeform — conventionally lowercase dotted
+    /// identifiers like `"usd"`, `"scene.mutate"`,
+    /// `"filesystem.read"`. Adapters hard-code it at construction
+    /// time; there is no runtime introspection of the DCC.
+    ///
+    /// Default: empty (no capabilities declared — any tool with
+    /// declared requirements will report them as missing).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub declared_capabilities: Vec<String>,
 }
 
 #[cfg(test)]
@@ -560,5 +616,66 @@ mod tests {
         // And the `false`-by-default ones stay `false`:
         assert!(!f.enable_artefact_resources);
         assert!(!f.shutdown_on_drop);
+    }
+
+    // ── InstanceConfig ─────────────────────────────────────────────────
+
+    #[test]
+    fn instance_config_default_is_anonymous() {
+        // A pristine InstanceConfig must reveal nothing about the
+        // host adapter — every field is None / empty so that
+        // `FileRegistry` rows from a misconfigured launcher do not
+        // accidentally claim to be Maya / Blender / etc.
+        let cfg = InstanceConfig::default();
+        assert!(cfg.dcc_type.is_none());
+        assert!(cfg.dcc_version.is_none());
+        assert!(cfg.scene.is_none());
+        assert!(cfg.instance_metadata.is_empty());
+        assert!(cfg.declared_capabilities.is_empty());
+    }
+
+    #[test]
+    fn instance_config_round_trips() {
+        let mut metadata = HashMap::new();
+        metadata.insert("project".to_owned(), "shotpack".to_owned());
+        metadata.insert("task".to_owned(), "lighting".to_owned());
+
+        let cfg = InstanceConfig {
+            dcc_type: Some("maya".into()),
+            dcc_version: Some("2025.1".into()),
+            scene: Some("/tmp/scene.ma".into()),
+            instance_metadata: metadata.clone(),
+            declared_capabilities: vec!["usd".into(), "scene.mutate".into()],
+        };
+        let s = serde_json::to_string(&cfg).unwrap();
+        let back: InstanceConfig = serde_json::from_str(&s).unwrap();
+        assert_eq!(back.dcc_type, cfg.dcc_type);
+        assert_eq!(back.dcc_version, cfg.dcc_version);
+        assert_eq!(back.scene, cfg.scene);
+        assert_eq!(back.instance_metadata, metadata);
+        assert_eq!(back.declared_capabilities, cfg.declared_capabilities);
+    }
+
+    /// Every optional / collection field carries
+    /// `skip_serializing_if = ...` so a pristine `InstanceConfig`
+    /// serialises to the literal `"{}"`. Pin this so a future field
+    /// addition does not silently bloat config dumps with `null`s
+    /// and empty arrays.
+    #[test]
+    fn instance_config_default_serialises_empty_object() {
+        let cfg = InstanceConfig::default();
+        let s = serde_json::to_string(&cfg).unwrap();
+        assert_eq!(s, "{}", "default config must serialise to empty object");
+    }
+
+    #[test]
+    fn instance_config_accepts_minimal_body() {
+        // `{}` must deserialise to defaults. Operators routinely
+        // boot a server without any of these fields set, then patch
+        // the registry row in via subsequent calls; if `{}` failed
+        // to deserialise, the boot sequence would break.
+        let cfg: InstanceConfig = serde_json::from_str("{}").unwrap();
+        assert!(cfg.dcc_type.is_none());
+        assert!(cfg.declared_capabilities.is_empty());
     }
 }
