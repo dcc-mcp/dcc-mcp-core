@@ -18,6 +18,7 @@ use tokio::sync::broadcast;
 use uuid::Uuid;
 
 use crate::dynamic_tools::SessionDynamicTools;
+pub use dcc_mcp_http_types::session::{SessionLogLevel, SessionLogMessage};
 use dcc_mcp_jsonrpc::{ClientRoot, McpTool};
 
 /// Maximum number of recent log messages retained per session.
@@ -41,61 +42,6 @@ pub struct ToolListSnapshot {
     pub generation: u64,
     /// The total tool count (before pagination) at snapshot time.
     pub total: usize,
-}
-
-/// Session-scoped MCP logging threshold.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum SessionLogLevel {
-    Debug,
-    #[default]
-    Info,
-    Warning,
-    Error,
-}
-
-impl SessionLogLevel {
-    /// Parse MCP log level strings (case-insensitive).
-    pub fn parse(raw: &str) -> Option<Self> {
-        match raw.trim().to_ascii_lowercase().as_str() {
-            "debug" => Some(Self::Debug),
-            "info" => Some(Self::Info),
-            "warning" | "warn" => Some(Self::Warning),
-            "error" => Some(Self::Error),
-            _ => None,
-        }
-    }
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Debug => "debug",
-            Self::Info => "info",
-            Self::Warning => "warning",
-            Self::Error => "error",
-        }
-    }
-
-    /// Whether a message at `message_level` should be emitted under this threshold.
-    pub fn allows(self, message_level: SessionLogLevel) -> bool {
-        self.rank() <= message_level.rank()
-    }
-
-    fn rank(self) -> u8 {
-        match self {
-            Self::Debug => 10,
-            Self::Info => 20,
-            Self::Warning => 30,
-            Self::Error => 40,
-        }
-    }
-}
-
-/// A retained per-session log message for error correlation (`details.log_tail`).
-#[derive(Debug, Clone)]
-pub struct SessionLogMessage {
-    pub level: SessionLogLevel,
-    pub logger: String,
-    pub data: Value,
-    pub request_id: Option<String>,
 }
 
 /// A single MCP session.
