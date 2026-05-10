@@ -946,6 +946,7 @@ dependencies = [
  "dcc-mcp-http-types",
  "dcc-mcp-job",
  "dcc-mcp-jsonrpc",
+ "dcc-mcp-naming",
  "dcc-mcp-workflow",
  "parking_lot",
  "serde",

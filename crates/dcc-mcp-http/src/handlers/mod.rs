@@ -11,7 +11,7 @@ pub(crate) use axum::{
     response::{IntoResponse, Response},
 };
 pub(crate) use serde_json::{Value, json};
-pub(crate) use std::sync::{Arc, OnceLock};
+pub(crate) use std::sync::Arc;
 pub(crate) use tokio::sync::oneshot;
 
 pub(crate) use crate::{
