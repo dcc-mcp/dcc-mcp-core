@@ -511,6 +511,163 @@ _RECIPES_APPLY_DESCRIPTION = (
 )
 
 
+def _parse_recipe_params(params: Any) -> dict[str, Any]:
+    """Parse tool call params from a JSON string or dict.
+
+    All recipe tool handlers receive params in either form — this helper
+    normalises both to a plain ``dict`` so handlers stay concise.
+    """
+    if isinstance(params, str):
+        return json_loads(params) or {}
+    return dict(params or {})
+
+
+def _recipes_handle_list(skill_map: dict[str, Any], params: Any) -> Any:
+    """Handle ``recipes__list`` — list recipe entries for a skill."""
+    args = _parse_recipe_params(params)
+    skill_name = args.get("skill", "")
+    skill_md = skill_map.get(skill_name)
+    if skill_md is None:
+        return ToolResult(
+            success=False,
+            message=f"Skill '{skill_name}' not found.",
+            context={"skill": skill_name, "anchors": []},
+        ).to_dict()
+    rp = get_recipes_path(skill_md)
+    if not rp:
+        return ToolResult.ok(
+            f"Skill '{skill_name}' has no recipes file.",
+            skill=skill_name,
+            anchors=[],
+            recipes=[],
+            path=None,
+        ).to_dict()
+    entries = list_recipe_entries(skill_md)
+    anchors = [entry["name"] for entry in entries if entry.get("provenance", {}).get("format") == "markdown-anchor"]
+    return ToolResult.ok(
+        f"Found {len(entries)} recipes.",
+        skill=skill_name,
+        anchors=anchors,
+        recipes=entries,
+        paths=get_recipes_paths(skill_md),
+    ).to_dict()
+
+
+def _recipes_handle_get(skill_map: dict[str, Any], params: Any) -> Any:
+    """Handle ``recipes__get`` — fetch content of a specific recipe anchor."""
+    args = _parse_recipe_params(params)
+    skill_name = args.get("skill", "")
+    anchor = args.get("anchor", "")
+    skill_md = skill_map.get(skill_name)
+    if skill_md is None:
+        return ToolResult(success=False, message=f"Skill '{skill_name}' not found.").to_dict()
+    rp = get_recipes_path(skill_md)
+    if not rp:
+        return ToolResult(success=False, message=f"Skill '{skill_name}' has no recipes file.").to_dict()
+    recipe = find_recipe_entry(skill_md, anchor)
+    if recipe and recipe.get("provenance", {}).get("format") == "recipe-pack":
+        return ToolResult.ok(
+            f"Recipe '{anchor}'",
+            skill=skill_name,
+            anchor=anchor,
+            recipe=recipe,
+            content=json_dumps_pretty(recipe),
+        ).to_dict()
+    content_path = str(recipe.get("provenance", {}).get("path") or rp) if recipe else rp
+    content = get_recipe_content(content_path, anchor)
+    if content is None:
+        return ToolResult(
+            success=False,
+            message=f"Anchor '{anchor}' not found in {rp}.",
+            context={"available_anchors": [entry["name"] for entry in list_recipe_entries(skill_md)]},
+        ).to_dict()
+    return ToolResult.ok(
+        f"Recipe '{anchor}'",
+        skill=skill_name,
+        anchor=anchor,
+        content=content,
+    ).to_dict()
+
+
+def _recipes_handle_search(skills: list[Any], params: Any) -> Any:
+    """Handle ``recipes__search`` — full-text search across all loaded recipes."""
+    args = _parse_recipe_params(params)
+    query = str(args.get("query") or "").lower()
+    dcc_filter = str(args.get("dcc") or "").lower()
+    skill_filter = str(args.get("skill") or "")
+    matches: list[dict[str, Any]] = []
+    for skill in skills:
+        skill_name = str(getattr(skill, "name", "") or "")
+        if skill_filter and skill_name != skill_filter:
+            continue
+        for entry in list_recipe_entries(skill):
+            haystack = " ".join(
+                [
+                    entry.get("name", ""),
+                    entry.get("description", ""),
+                    str(entry.get("output_contract") or ""),
+                    " ".join(entry.get("toolset_profiles") or []),
+                ],
+            ).lower()
+            if query and query not in haystack:
+                continue
+            if dcc_filter and str(entry.get("dcc") or "").lower() != dcc_filter:
+                continue
+            matches.append(entry)
+    return ToolResult.ok(f"Found {len(matches)} matching recipes.", query=query, recipes=matches).to_dict()
+
+
+def _recipes_handle_validate(skill_map: dict[str, Any], params: Any) -> Any:
+    """Handle ``recipes__validate`` — validate tool inputs against a recipe contract."""
+    args = _parse_recipe_params(params)
+    skill_name = args.get("skill", "")
+    recipe_name = args.get("recipe", "")
+    inputs = args.get("inputs") or {}
+    skill_md = skill_map.get(skill_name)
+    if skill_md is None:
+        return ToolResult.not_found("Skill", skill_name).to_dict()
+    recipe = find_recipe_entry(skill_md, recipe_name)
+    if recipe is None:
+        return ToolResult.not_found("Recipe", recipe_name).to_dict()
+    errors = validate_recipe_inputs(recipe, inputs if isinstance(inputs, dict) else {})
+    return ToolResult.ok(
+        "Recipe inputs are valid." if not errors else "Recipe inputs are invalid.",
+        valid=not errors,
+        errors=errors,
+        recipe=recipe_name,
+        skill=skill_name,
+    ).to_dict()
+
+
+def _recipes_handle_apply(skill_map: dict[str, Any], params: Any) -> Any:
+    """Handle ``recipes__apply`` — return execution plan for a structured recipe pack."""
+    args = _parse_recipe_params(params)
+    skill_name = args.get("skill", "")
+    recipe_name = args.get("recipe", "")
+    inputs = args.get("inputs") or {}
+    skill_md = skill_map.get(skill_name)
+    if skill_md is None:
+        return ToolResult.not_found("Skill", skill_name).to_dict()
+    recipe = find_recipe_entry(skill_md, recipe_name)
+    if recipe is None:
+        return ToolResult.not_found("Recipe", recipe_name).to_dict()
+    if recipe.get("provenance", {}).get("format") != "recipe-pack":
+        return ToolResult.invalid_input("recipes__apply requires a structured YAML recipe pack entry.").to_dict()
+    errors = validate_recipe_inputs(recipe, inputs if isinstance(inputs, dict) else {})
+    if errors:
+        return ToolResult.invalid_input("Recipe inputs are invalid.", errors=errors).to_dict()
+    return ToolResult.ok(
+        f"Recipe '{recipe_name}' application plan ready.",
+        skill=skill_name,
+        recipe=recipe_name,
+        inputs=inputs,
+        target=args.get("target"),
+        steps=recipe.get("steps", []),
+        output_contract=recipe.get("output_contract"),
+        provenance=recipe.get("provenance", {}),
+    ).to_dict()
+
+
 def register_recipes_tools(
     server: Any,
     *,
@@ -548,176 +705,40 @@ def register_recipes_tools(
     """
     skill_map: dict[str, Any] = {getattr(s, "name", ""): s for s in skills}
 
-    def _handle_list(params: Any) -> Any:
-        args: dict[str, Any] = json_loads(params) if isinstance(params, str) else (params or {})
-        skill_name = args.get("skill", "")
-        skill_md = skill_map.get(skill_name)
-        if skill_md is None:
-            return ToolResult(
-                success=False,
-                message=f"Skill '{skill_name}' not found.",
-                context={"skill": skill_name, "anchors": []},
-            ).to_dict()
-        rp = get_recipes_path(skill_md)
-        if not rp:
-            return ToolResult.ok(
-                f"Skill '{skill_name}' has no recipes file.",
-                skill=skill_name,
-                anchors=[],
-                recipes=[],
-                path=None,
-            ).to_dict()
-        entries = list_recipe_entries(skill_md)
-        anchors = [entry["name"] for entry in entries if entry.get("provenance", {}).get("format") == "markdown-anchor"]
-        return ToolResult.ok(
-            f"Found {len(entries)} recipes.",
-            skill=skill_name,
-            anchors=anchors,
-            recipes=entries,
-            paths=get_recipes_paths(skill_md),
-        ).to_dict()
-
-    def _handle_get(params: Any) -> Any:
-        args: dict[str, Any] = json_loads(params) if isinstance(params, str) else (params or {})
-        skill_name = args.get("skill", "")
-        anchor = args.get("anchor", "")
-        skill_md = skill_map.get(skill_name)
-        if skill_md is None:
-            return ToolResult(success=False, message=f"Skill '{skill_name}' not found.").to_dict()
-        rp = get_recipes_path(skill_md)
-        if not rp:
-            return ToolResult(success=False, message=f"Skill '{skill_name}' has no recipes file.").to_dict()
-        recipe = find_recipe_entry(skill_md, anchor)
-        if recipe and recipe.get("provenance", {}).get("format") == "recipe-pack":
-            return ToolResult.ok(
-                f"Recipe '{anchor}'",
-                skill=skill_name,
-                anchor=anchor,
-                recipe=recipe,
-                content=json_dumps_pretty(recipe),
-            ).to_dict()
-        content_path = str(recipe.get("provenance", {}).get("path") or rp) if recipe else rp
-        content = get_recipe_content(content_path, anchor)
-        if content is None:
-            return ToolResult(
-                success=False,
-                message=f"Anchor '{anchor}' not found in {rp}.",
-                context={"available_anchors": [entry["name"] for entry in list_recipe_entries(skill_md)]},
-            ).to_dict()
-        return ToolResult.ok(
-            f"Recipe '{anchor}'",
-            skill=skill_name,
-            anchor=anchor,
-            content=content,
-        ).to_dict()
-
-    def _handle_search(params: Any) -> Any:
-        args: dict[str, Any] = json_loads(params) if isinstance(params, str) else (params or {})
-        query = str(args.get("query") or "").lower()
-        dcc_filter = str(args.get("dcc") or "").lower()
-        skill_filter = str(args.get("skill") or "")
-        matches: list[dict[str, Any]] = []
-        for skill in skills:
-            skill_name = str(getattr(skill, "name", "") or "")
-            if skill_filter and skill_name != skill_filter:
-                continue
-            for entry in list_recipe_entries(skill):
-                haystack = " ".join(
-                    [
-                        entry.get("name", ""),
-                        entry.get("description", ""),
-                        str(entry.get("output_contract") or ""),
-                        " ".join(entry.get("toolset_profiles") or []),
-                    ],
-                ).lower()
-                if query and query not in haystack:
-                    continue
-                if dcc_filter and str(entry.get("dcc") or "").lower() != dcc_filter:
-                    continue
-                matches.append(entry)
-        return ToolResult.ok(f"Found {len(matches)} matching recipes.", query=query, recipes=matches).to_dict()
-
-    def _handle_validate(params: Any) -> Any:
-        args: dict[str, Any] = json_loads(params) if isinstance(params, str) else (params or {})
-        skill_name = args.get("skill", "")
-        recipe_name = args.get("recipe", "")
-        inputs = args.get("inputs") or {}
-        skill_md = skill_map.get(skill_name)
-        if skill_md is None:
-            return ToolResult.not_found("Skill", skill_name).to_dict()
-        recipe = find_recipe_entry(skill_md, recipe_name)
-        if recipe is None:
-            return ToolResult.not_found("Recipe", recipe_name).to_dict()
-        errors = validate_recipe_inputs(recipe, inputs if isinstance(inputs, dict) else {})
-        return ToolResult.ok(
-            "Recipe inputs are valid." if not errors else "Recipe inputs are invalid.",
-            valid=not errors,
-            errors=errors,
-            recipe=recipe_name,
-            skill=skill_name,
-        ).to_dict()
-
-    def _handle_apply(params: Any) -> Any:
-        args: dict[str, Any] = json_loads(params) if isinstance(params, str) else (params or {})
-        skill_name = args.get("skill", "")
-        recipe_name = args.get("recipe", "")
-        inputs = args.get("inputs") or {}
-        skill_md = skill_map.get(skill_name)
-        if skill_md is None:
-            return ToolResult.not_found("Skill", skill_name).to_dict()
-        recipe = find_recipe_entry(skill_md, recipe_name)
-        if recipe is None:
-            return ToolResult.not_found("Recipe", recipe_name).to_dict()
-        if recipe.get("provenance", {}).get("format") != "recipe-pack":
-            return ToolResult.invalid_input("recipes__apply requires a structured YAML recipe pack entry.").to_dict()
-        errors = validate_recipe_inputs(recipe, inputs if isinstance(inputs, dict) else {})
-        if errors:
-            return ToolResult.invalid_input("Recipe inputs are invalid.", errors=errors).to_dict()
-        return ToolResult.ok(
-            f"Recipe '{recipe_name}' application plan ready.",
-            skill=skill_name,
-            recipe=recipe_name,
-            inputs=inputs,
-            target=args.get("target"),
-            steps=recipe.get("steps", []),
-            output_contract=recipe.get("output_contract"),
-            provenance=recipe.get("provenance", {}),
-        ).to_dict()
-
     specs = [
         ToolSpec(
             name="recipes__list",
             description=_RECIPES_LIST_DESCRIPTION,
             input_schema=_LIST_SCHEMA,
-            handler=_handle_list,
+            handler=lambda params: _recipes_handle_list(skill_map, params),
             category=CATEGORY_RECIPES,
         ),
         ToolSpec(
             name="recipes__get",
             description=_RECIPES_GET_DESCRIPTION,
             input_schema=_GET_SCHEMA,
-            handler=_handle_get,
+            handler=lambda params: _recipes_handle_get(skill_map, params),
             category=CATEGORY_RECIPES,
         ),
         ToolSpec(
             name="recipes__search",
             description=_RECIPES_SEARCH_DESCRIPTION,
             input_schema=_SEARCH_SCHEMA,
-            handler=_handle_search,
+            handler=lambda params: _recipes_handle_search(skills, params),
             category=CATEGORY_RECIPES,
         ),
         ToolSpec(
             name="recipes__validate",
             description=_RECIPES_VALIDATE_DESCRIPTION,
             input_schema=_VALIDATE_SCHEMA,
-            handler=_handle_validate,
+            handler=lambda params: _recipes_handle_validate(skill_map, params),
             category=CATEGORY_RECIPES,
         ),
         ToolSpec(
             name="recipes__apply",
             description=_RECIPES_APPLY_DESCRIPTION,
             input_schema=_APPLY_SCHEMA,
-            handler=_handle_apply,
+            handler=lambda params: _recipes_handle_apply(skill_map, params),
             category=CATEGORY_RECIPES,
         ),
     ]

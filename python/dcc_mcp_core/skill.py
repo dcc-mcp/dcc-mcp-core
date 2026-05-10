@@ -74,6 +74,14 @@ __all__ = [
 ]
 
 # ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+#: Maximum length of the ``underlying_call`` field in a raw trace block.
+#: Longer values are truncated to keep MCP payloads manageable.
+MAX_TRACE_CALL_LENGTH: int = 500
+
+# ---------------------------------------------------------------------------
 # Bundled skills directory helpers
 # ---------------------------------------------------------------------------
 
@@ -244,6 +252,41 @@ def skill_error(
     }
 
 
+def _build_raw_trace(
+    underlying_call: str | None,
+    recipe_hint: str | None,
+    introspect_hint: str | None,
+    tb: str | None,
+) -> dict[str, str]:
+    """Build the ``_meta.dcc.raw_trace`` payload from diagnostic inputs.
+
+    Returns an empty dict when none of the inputs are provided, which
+    signals the caller to omit the ``_meta`` key entirely.
+
+    Parameters
+    ----------
+    underlying_call:
+        Raw DCC API call string; truncated to :data:`MAX_TRACE_CALL_LENGTH`.
+    recipe_hint:
+        Path + anchor to a recipe that covers the failed call.
+    introspect_hint:
+        A ready-to-call ``dcc_introspect__*`` expression.
+    tb:
+        Full formatted traceback string (``traceback.format_exc()``).
+
+    """
+    raw_trace: dict[str, str] = {}
+    if underlying_call:
+        raw_trace["underlying_call"] = underlying_call[:MAX_TRACE_CALL_LENGTH]
+    if tb:
+        raw_trace["traceback"] = tb
+    if recipe_hint:
+        raw_trace["recipe_hint"] = recipe_hint
+    if introspect_hint:
+        raw_trace["introspect_hint"] = introspect_hint
+    return raw_trace
+
+
 def skill_error_with_trace(
     message: str,
     error: str,
@@ -276,7 +319,7 @@ def skill_error_with_trace(
     underlying_call:
         The raw DCC API call that failed (e.g.
         ``"maya.cmds.polySphere(name='mySphere', radius=-1.0)"``).
-        Truncated to 500 chars automatically.
+        Truncated to :data:`MAX_TRACE_CALL_LENGTH` chars automatically.
     recipe_hint:
         Path + optional anchor to a recipe that covers this call
         (e.g. ``"references/RECIPES.md#create_sphere"``).
@@ -335,16 +378,6 @@ def skill_error_with_trace(
     if possible_solutions:
         context.setdefault("possible_solutions", possible_solutions)
 
-    raw_trace: dict[str, str] = {}
-    if underlying_call:
-        raw_trace["underlying_call"] = underlying_call[:500]
-    if tb:
-        raw_trace["traceback"] = tb
-    if recipe_hint:
-        raw_trace["recipe_hint"] = recipe_hint
-    if introspect_hint:
-        raw_trace["introspect_hint"] = introspect_hint
-
     result: ResultDict = {
         "success": False,
         "message": message,
@@ -352,6 +385,7 @@ def skill_error_with_trace(
         "error": error,
         "context": context,
     }
+    raw_trace = _build_raw_trace(underlying_call, recipe_hint, introspect_hint, tb)
     if raw_trace:
         result["_meta"] = {"dcc.raw_trace": raw_trace}
     return result

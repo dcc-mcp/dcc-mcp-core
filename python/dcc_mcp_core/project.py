@@ -290,6 +290,112 @@ def _resolve_project_target(args: dict[str, Any], default_project: DccProject | 
     return default_project
 
 
+def _parse_project_params(params: Any) -> dict[str, Any]:
+    """Parse tool call params from a JSON string or dict.
+
+    Shared by all project tool handlers to normalise both input forms.
+    """
+    if isinstance(params, str):
+        return json_loads(params) or {}
+    return dict(params or {})
+
+
+def _project_handle_save(project: DccProject | None, params: Any) -> dict[str, Any]:
+    """Handle ``project.save`` — persist current project state to disk."""
+    args = _parse_project_params(params)
+    scene_path = args.get("scene_path")
+    if not scene_path and project is None:
+        return {
+            "success": False,
+            "message": "project.save requires scene_path (no default project bound).",
+            "context": {},
+        }
+    target = (
+        DccProject.open(Path(str(scene_path))) if scene_path else project  # type: ignore[assignment]
+    )
+    assert target is not None  # narrowed by guard above
+    target.save()
+    return {
+        "success": True,
+        "message": f"Project saved at {target.state_path}",
+        "context": {
+            "state": target.state.to_dict(),
+            "project_dir": str(target.project_dir),
+            "state_path": str(target.state_path),
+        },
+    }
+
+
+def _project_handle_load(params: Any) -> dict[str, Any]:
+    """Handle ``project.load`` — load project state from an existing project.json."""
+    args = _parse_project_params(params)
+    scene_path = args.get("scene_path")
+    project_dir = args.get("project_dir")
+    if not scene_path and not project_dir:
+        return {
+            "success": False,
+            "message": "project.load requires scene_path or project_dir.",
+            "context": {},
+        }
+    # Determine whether a project.json actually exists — do not auto-create.
+    raw = Path(str(project_dir if project_dir else scene_path))
+    candidate_dir = raw if raw.name == PROJECT_DIR_NAME else raw.parent / PROJECT_DIR_NAME
+    if not (candidate_dir / PROJECT_STATE_FILE).is_file():
+        return {
+            "success": False,
+            "message": f"No project.json found at {candidate_dir}.",
+            "context": {"project_dir": str(candidate_dir)},
+        }
+    target = DccProject.load(raw)
+    return {
+        "success": True,
+        "message": f"Project loaded from {target.state_path}",
+        "context": {
+            "state": target.state.to_dict(),
+            "project_dir": str(target.project_dir),
+            "state_path": str(target.state_path),
+        },
+    }
+
+
+def _project_handle_resume(project: DccProject | None, params: Any) -> dict[str, Any]:
+    """Handle ``project.resume`` — return session resume payload."""
+    args = _parse_project_params(params)
+    target = _resolve_project_target(args, project)
+    if target is None:
+        return {
+            "success": False,
+            "message": "project.resume requires scene_path or project_dir (no default bound).",
+            "context": {},
+        }
+    return {
+        "success": True,
+        "message": f"Resume payload for {target.state_path}",
+        "context": target.resume_session(),
+    }
+
+
+def _project_handle_status(project: DccProject | None, params: Any) -> dict[str, Any]:
+    """Handle ``project.status`` — return current project state."""
+    args = _parse_project_params(params)
+    target = _resolve_project_target(args, project)
+    if target is None:
+        return {
+            "success": False,
+            "message": "project.status requires scene_path or project_dir (no default bound).",
+            "context": {},
+        }
+    return {
+        "success": True,
+        "message": f"Project state for {target.state_path}",
+        "context": {
+            "state": target.state.to_dict(),
+            "project_dir": str(target.project_dir),
+            "state_path": str(target.state_path),
+        },
+    }
+
+
 def register_project_tools(
     server: Any,
     *,
@@ -323,104 +429,15 @@ def register_project_tools(
         logger.warning("register_project_tools: server.registry unavailable: %s", exc)
         return
 
-    def _parse(params: Any) -> dict[str, Any]:
-        if isinstance(params, str):
-            return json_loads(params) or {}
-        return dict(params or {})
-
-    def _handle_save(params: Any) -> dict[str, Any]:
-        args = _parse(params)
-        scene_path = args.get("scene_path")
-        if not scene_path and project is None:
-            return {
-                "success": False,
-                "message": "project.save requires scene_path (no default project bound).",
-                "context": {},
-            }
-        target = (
-            DccProject.open(Path(str(scene_path))) if scene_path else project  # type: ignore[assignment]
-        )
-        assert target is not None  # narrowed by guard above
-        target.save()
-        return {
-            "success": True,
-            "message": f"Project saved at {target.state_path}",
-            "context": {
-                "state": target.state.to_dict(),
-                "project_dir": str(target.project_dir),
-                "state_path": str(target.state_path),
-            },
-        }
-
-    def _handle_load(params: Any) -> dict[str, Any]:
-        args = _parse(params)
-        scene_path = args.get("scene_path")
-        project_dir = args.get("project_dir")
-        if not scene_path and not project_dir:
-            return {
-                "success": False,
-                "message": "project.load requires scene_path or project_dir.",
-                "context": {},
-            }
-        # Determine whether a project.json actually exists — do not auto-create.
-        raw = Path(str(project_dir if project_dir else scene_path))
-        candidate_dir = raw if raw.name == PROJECT_DIR_NAME else raw.parent / PROJECT_DIR_NAME
-        if not (candidate_dir / PROJECT_STATE_FILE).is_file():
-            return {
-                "success": False,
-                "message": f"No project.json found at {candidate_dir}.",
-                "context": {"project_dir": str(candidate_dir)},
-            }
-        target = DccProject.load(raw)
-        return {
-            "success": True,
-            "message": f"Project loaded from {target.state_path}",
-            "context": {
-                "state": target.state.to_dict(),
-                "project_dir": str(target.project_dir),
-                "state_path": str(target.state_path),
-            },
-        }
-
-    def _handle_resume(params: Any) -> dict[str, Any]:
-        args = _parse(params)
-        target = _resolve_project_target(args, project)
-        if target is None:
-            return {
-                "success": False,
-                "message": "project.resume requires scene_path or project_dir (no default bound).",
-                "context": {},
-            }
-        return {
-            "success": True,
-            "message": f"Resume payload for {target.state_path}",
-            "context": target.resume_session(),
-        }
-
-    def _handle_status(params: Any) -> dict[str, Any]:
-        args = _parse(params)
-        target = _resolve_project_target(args, project)
-        if target is None:
-            return {
-                "success": False,
-                "message": "project.status requires scene_path or project_dir (no default bound).",
-                "context": {},
-            }
-        return {
-            "success": True,
-            "message": f"Project state for {target.state_path}",
-            "context": {
-                "state": target.state.to_dict(),
-                "project_dir": str(target.project_dir),
-                "state_path": str(target.state_path),
-            },
-        }
-
     tools: list[tuple[str, str, dict[str, Any], Any]] = [
-        ("project.save", _PROJECT_SAVE_DESCRIPTION, _PROJECT_SAVE_SCHEMA, _handle_save),
-        ("project.load", _PROJECT_LOAD_DESCRIPTION, _PROJECT_LOAD_SCHEMA, _handle_load),
-        ("project.resume", _PROJECT_RESUME_DESCRIPTION, _PROJECT_RESUME_SCHEMA, _handle_resume),
-        ("project.status", _PROJECT_STATUS_DESCRIPTION, _PROJECT_STATUS_SCHEMA, _handle_status),
+        ("project.save", _PROJECT_SAVE_DESCRIPTION, _PROJECT_SAVE_SCHEMA,
+         lambda params: _project_handle_save(project, params)),
+        ("project.load", _PROJECT_LOAD_DESCRIPTION, _PROJECT_LOAD_SCHEMA,
+         _project_handle_load),
+        ("project.resume", _PROJECT_RESUME_DESCRIPTION, _PROJECT_RESUME_SCHEMA,
+         lambda params: _project_handle_resume(project, params)),
+        ("project.status", _PROJECT_STATUS_DESCRIPTION, _PROJECT_STATUS_SCHEMA,
+         lambda params: _project_handle_status(project, params)),
     ]
 
     for name, desc, schema, handler in tools:

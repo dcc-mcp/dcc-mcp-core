@@ -558,6 +558,52 @@ def _is_schema_object_type(tp: Any) -> bool:
     return bool(_is_typeddict(tp))
 
 
+def _resolve_input_schema(
+    handler: Callable[..., Any],
+    sig: inspect.Signature,
+    hints: dict[str, Any],
+) -> dict[str, Any]:
+    """Derive the ``inputSchema`` from *handler*'s signature.
+
+    When the handler has exactly one parameter whose type is a dataclass or
+    TypedDict, that type's schema is returned directly.  Otherwise, each
+    parameter becomes a property of a containing ``object`` schema.
+    """
+    real_params = [
+        p
+        for p in sig.parameters.values()
+        if p.name != "self" and p.kind not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
+    ]
+
+    if len(real_params) == 1:
+        only = real_params[0]
+        annotation = hints.get(only.name, only.annotation)
+        if annotation is not inspect.Parameter.empty and _is_schema_object_type(annotation):
+            return derive_schema(annotation)
+
+    return derive_parameters_schema(handler)
+
+
+def _resolve_output_schema(
+    sig: inspect.Signature,
+    hints: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Derive the ``outputSchema`` from *handler*'s return annotation.
+
+    Returns ``None`` when the return type is absent, ``None``, or not
+    representable as a JSON Schema — MCP treats ``outputSchema`` as optional.
+    """
+    return_annotation = hints.get("return", sig.return_annotation)
+    if return_annotation in (inspect.Parameter.empty, None, type(None)):
+        return None
+    try:
+        return derive_schema(return_annotation)
+    except TypeError:
+        # Unsupported return type — leave outputSchema unset rather than
+        # failing registration.
+        return None
+
+
 def tool_spec_from_callable(
     handler: Callable[..., Any],
     *,
@@ -623,31 +669,9 @@ def tool_spec_from_callable(
 
     sig = inspect.signature(handler)
     hints = _get_type_hints(handler, include_extras=True)
-    real_params = [
-        p
-        for p in sig.parameters.values()
-        if p.name != "self" and p.kind not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
-    ]
 
-    if len(real_params) == 1:
-        only = real_params[0]
-        annotation = hints.get(only.name, only.annotation)
-        if annotation is not inspect.Parameter.empty and _is_schema_object_type(annotation):
-            input_schema = derive_schema(annotation)
-        else:
-            input_schema = derive_parameters_schema(handler)
-    else:
-        input_schema = derive_parameters_schema(handler)
-
-    output_schema: dict[str, Any] | None = None
-    return_annotation = hints.get("return", sig.return_annotation)
-    if return_annotation not in (inspect.Parameter.empty, None, type(None)):
-        try:
-            output_schema = derive_schema(return_annotation)
-        except TypeError:
-            # Unsupported return type — leave outputSchema unset rather than
-            # failing registration. MCP treats outputSchema as optional.
-            output_schema = None
+    input_schema = _resolve_input_schema(handler, sig, hints)
+    output_schema = _resolve_output_schema(sig, hints)
 
     return ToolSpec(
         name=resolved_name,
