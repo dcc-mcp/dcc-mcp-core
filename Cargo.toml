@@ -26,6 +26,7 @@ members = [
     "crates/dcc-mcp-usd",
     "crates/dcc-mcp-http",
     "crates/dcc-mcp-http-types",
+    "crates/dcc-mcp-http-server",
     "crates/dcc-mcp-server",
     "crates/dcc-mcp-workflow",
     "crates/dcc-mcp-scheduler",
@@ -66,6 +67,7 @@ dcc-mcp-shm = { path = "crates/dcc-mcp-shm" }
 dcc-mcp-capture = { path = "crates/dcc-mcp-capture" }
 dcc-mcp-usd = { path = "crates/dcc-mcp-usd" }
 dcc-mcp-http = { path = "crates/dcc-mcp-http" }
+dcc-mcp-http-server = { path = "crates/dcc-mcp-http-server" }
 dcc-mcp-server = { path = "crates/dcc-mcp-server" }
 dcc-mcp-workflow = { path = "crates/dcc-mcp-workflow" }
 dcc-mcp-scheduler = { path = "crates/dcc-mcp-scheduler" }
