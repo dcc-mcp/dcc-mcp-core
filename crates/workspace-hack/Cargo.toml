@@ -23,6 +23,7 @@ crossbeam-utils = { version = "0.8.21" }
 digest-93f6ce9d446188ac = { package = "digest", version = "0.10.7", features = ["mac", "oid", "std"] }
 digest-a6292c17cd707f01 = { package = "digest", version = "0.11.2", features = ["alloc", "mac", "oid"] }
 either = { version = "1.15.0", features = ["use_std"] }
+form_urlencoded = { version = "1.2.2" }
 futures-channel = { version = "0.3.32", features = ["sink"] }
 futures-executor = { version = "0.3.32" }
 futures-sink = { version = "0.3.32" }
@@ -50,6 +51,7 @@ rand_chacha = { version = "0.9.0", default-features = false, features = ["std"] 
 rand_core = { version = "0.6.4", default-features = false, features = ["std"] }
 regex-automata = { version = "0.4.14", default-features = false, features = ["dfa-build", "dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal", "std", "unicode"] }
 regex-syntax = { version = "0.8.10" }
+reqwest = { version = "0.13.3", default-features = false, features = ["blocking", "json", "rustls", "stream"] }
 serde = { version = "1.0.228", features = ["alloc", "derive"] }
 serde_core = { version = "1.0.228", features = ["alloc"] }
 serde_json = { version = "1.0.149", features = ["raw_value"] }
@@ -82,6 +84,7 @@ crossbeam-utils = { version = "0.8.21" }
 digest-93f6ce9d446188ac = { package = "digest", version = "0.10.7", features = ["mac", "oid", "std"] }
 digest-a6292c17cd707f01 = { package = "digest", version = "0.11.2", features = ["alloc", "mac", "oid"] }
 either = { version = "1.15.0", features = ["use_std"] }
+form_urlencoded = { version = "1.2.2" }
 futures-channel = { version = "0.3.32", features = ["sink"] }
 futures-executor = { version = "0.3.32" }
 futures-sink = { version = "0.3.32" }
@@ -111,6 +114,7 @@ rand_chacha = { version = "0.9.0", default-features = false, features = ["std"] 
 rand_core = { version = "0.6.4", default-features = false, features = ["std"] }
 regex-automata = { version = "0.4.14", default-features = false, features = ["dfa-build", "dfa-onepass", "hybrid", "meta", "nfa-backtrack", "perf-inline", "perf-literal", "std", "unicode"] }
 regex-syntax = { version = "0.8.10" }
+reqwest = { version = "0.13.3", default-features = false, features = ["blocking", "json", "rustls", "stream"] }
 serde = { version = "1.0.228", features = ["alloc", "derive"] }
 serde_core = { version = "1.0.228", features = ["alloc"] }
 serde_json = { version = "1.0.149", features = ["raw_value"] }
