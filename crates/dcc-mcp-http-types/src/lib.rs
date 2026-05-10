@@ -19,26 +19,32 @@
 //! Consumers in `dcc-mcp-http` re-export these types under their historical
 //! paths so existing call sites keep compiling.
 //!
-//! # What lives here (migration plan)
+//! # Module map
 //!
-//! This is the **first** landing zone of the #852 chain. The current
-//! boundary line:
+//! | Module      | What lives here                                           |
+//! |-------------|-----------------------------------------------------------|
+//! | crate root  | [`TruncationEnvelope`], [`SseChunkFrame`] + chunk helpers |
+//! | [`error`]   | [`HttpError`] / [`HttpResult`] error taxonomy             |
+//!
+//! # Migration plan (issue #852)
+//!
+//! The current boundary line:
 //!
 //! | Lives here now          | Stays in `dcc-mcp-http` for now       |
 //! |-------------------------|----------------------------------------|
 //! | [`TruncationEnvelope`]  | `McpHttpConfig` (needs own split)     |
-//! | [`SseChunkFrame`]       | `HttpError` (depends on `DccMcpError`)|
-//! | [`chunk_sse_data`]      | `JobRecoveryPolicy` / `MinimalModeConfig` |
+//! | [`SseChunkFrame`]       | `JobRecoveryPolicy` / `MinimalModeConfig` |
+//! | [`chunk_sse_data`]      |                                        |
 //! | [`format_chunked_sse`]  |                                        |
+//! | [`error::HttpError`]    |                                        |
 //!
-//! Picking the payload-size / SSE-chunking layer as the seed is
-//! deliberate: they are the smallest, most self-contained wire types in
-//! `dcc-mcp-http`, with only `serde` + `base64` as third-party
-//! dependencies. Migrating them first verifies the direction of the
-//! dependency graph before larger types (`McpHttpConfig` especially) move.
+//! Each new round of #852 PRs migrates one self-contained subsystem at a
+//! time and re-exports it from `dcc-mcp-http` to preserve the public API.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
+
+pub mod error;
 
 use serde::{Deserialize, Serialize};
 

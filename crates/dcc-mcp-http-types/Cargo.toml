@@ -15,6 +15,14 @@ categories = ["api-bindings"]
 workspace = true
 
 [dependencies]
+# Internal — DccMcpError is the cross-crate error taxonomy that
+# HttpError bubbles into (issue #488). dcc-mcp-models is itself a
+# pure-types crate, so depending on it here keeps the dependency
+# direction inward.
+dcc-mcp-models = { path = "../dcc-mcp-models" }
+
+# Workspace shared
 serde = { workspace = true }
 base64 = { workspace = true }
 serde_json = { workspace = true }
+thiserror = { workspace = true }
