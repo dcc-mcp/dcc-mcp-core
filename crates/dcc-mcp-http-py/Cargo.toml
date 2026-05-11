@@ -18,6 +18,7 @@ workspace = true
 
 [dependencies]
 dcc-mcp-http = { path = "../dcc-mcp-http" }
+dcc-mcp-http-types = { path = "../dcc-mcp-http-types" }
 dcc-mcp-actions = { path = "../dcc-mcp-actions" }
 dcc-mcp-artefact = { path = "../dcc-mcp-artefact" }
 dcc-mcp-host = { path = "../dcc-mcp-host" }
