@@ -803,6 +803,7 @@ dependencies = [
  "dcc-mcp-capture",
  "dcc-mcp-host",
  "dcc-mcp-http",
+ "dcc-mcp-http-py",
  "dcc-mcp-logging",
  "dcc-mcp-models",
  "dcc-mcp-naming",
@@ -934,6 +935,17 @@ dependencies = [
  "tower-http",
  "tracing",
  "uuid",
+ "workspace-hack",
+]
+
+[[package]]
+name = "dcc-mcp-http-py"
+version = "0.15.7"
+dependencies = [
+ "dcc-mcp-http",
+ "pyo3",
+ "pyo3-stub-gen",
+ "pyo3-stub-gen-derive",
  "workspace-hack",
 ]
 

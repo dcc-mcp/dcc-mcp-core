@@ -301,7 +301,7 @@ fn register_usd(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
 #[cfg(feature = "python-bindings")]
 fn register_http(m: &Bound<'_, PyModule>) -> PyResult<()> {
-    dcc_mcp_http::python::register_classes(m)
+    dcc_mcp_http_py::register_classes(m)
 }
 
 #[cfg(feature = "python-bindings")]
