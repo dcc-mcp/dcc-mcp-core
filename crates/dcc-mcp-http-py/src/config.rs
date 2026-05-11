@@ -687,7 +687,7 @@ impl PyMcpHttpConfig {
     /// Lower-case wire identifier of the configured job-recovery policy (issue #567).
     #[setter]
     fn set_job_recovery(&mut self, policy: &str) -> PyResult<()> {
-        self.inner.job.job_recovery = crate::config::JobRecoveryPolicy::parse(policy)
+        self.inner.job.job_recovery = dcc_mcp_http::config::JobRecoveryPolicy::parse(policy)
             .map_err(pyo3::exceptions::PyValueError::new_err)?;
         Ok(())
     }
@@ -721,7 +721,7 @@ impl PyMcpHttpConfig {
 #[cfg(test)]
 mod drift_tests {
     use super::*;
-    use crate::config::McpHttpConfig;
+    use dcc_mcp_http::config::McpHttpConfig;
 
     fn default_cfg() -> PyMcpHttpConfig {
         PyMcpHttpConfig {

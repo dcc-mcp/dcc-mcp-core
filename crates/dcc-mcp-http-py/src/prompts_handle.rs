@@ -1,4 +1,4 @@
-//! PyO3 binding for [`crate::prompts::PromptRegistry`] (issue #792).
+//! PyO3 binding for [`dcc_mcp_http::prompts::PromptRegistry`] (issue #792).
 //!
 //! Exposes a minimal Python API to register and clear prompts on the
 //! `PromptRegistry` owned by the running `McpHttpServer`. Mirrors the
@@ -7,7 +7,7 @@
 //!
 //! # Surface
 //!
-//! Obtained via [`crate::python::PyMcpHttpServer::prompts`]:
+//! Obtained via [`crate::PyMcpHttpServer::prompts`]:
 //!
 //! ```python
 //! server = McpHttpServer(registry, McpHttpConfig(port=8765))
@@ -35,11 +35,11 @@ use std::collections::HashSet;
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 
-use crate::prompts::{PromptArgumentSpec, PromptEntry, PromptRegistry, PromptSource};
+use dcc_mcp_http::prompts::{PromptArgumentSpec, PromptEntry, PromptRegistry, PromptSource};
 
 /// Python-facing handle to the server's [`PromptRegistry`].
 ///
-/// Obtained via [`crate::python::PyMcpHttpServer::prompts`]. The
+/// Obtained via [`crate::PyMcpHttpServer::prompts`]. The
 /// underlying registry is shared with the running server, so the next
 /// `prompts/list` and `prompts/get` calls reflect registered prompts.
 #[pyclass(name = "PromptHandle", skip_from_py_object)]

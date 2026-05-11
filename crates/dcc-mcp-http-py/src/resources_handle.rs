@@ -1,4 +1,4 @@
-//! PyO3 binding for [`crate::resources::ResourceRegistry`] (issue #730).
+//! PyO3 binding for [`dcc_mcp_http::resources::ResourceRegistry`] (issue #730).
 //!
 //! Exposes the mutating surface of the Rust-side `ResourceRegistry` to
 //! Python adapters embedding `dcc-mcp-core` via PyO3. Without this
@@ -9,7 +9,7 @@
 //!
 //! # Surface
 //!
-//! Obtained via [`crate::python::PyMcpHttpServer::resources`]:
+//! Obtained via [`crate::PyMcpHttpServer::resources`]:
 //!
 //! ```python
 //! server = McpHttpServer(registry, McpHttpConfig(port=8765))
@@ -30,7 +30,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 use serde_json::Value;
 
-use crate::resources::{
+use dcc_mcp_http::resources::{
     ProducerContent, ResourceError, ResourceProducer, ResourceRegistry, ResourceResult,
 };
 use dcc_mcp_jsonrpc::McpResource;
@@ -176,7 +176,7 @@ fn decode_producer_return(bound: &Bound<'_, PyAny>, uri: &str) -> ResourceResult
 
 /// Python-facing handle to the server's [`ResourceRegistry`].
 ///
-/// Obtained via [`crate::python::PyMcpHttpServer::resources`]. The
+/// Obtained via [`crate::PyMcpHttpServer::resources`]. The
 /// underlying registry is shared with the running server, so mutations
 /// take effect immediately — `resources/list` and `resources/read`
 /// reflect new producers, scene snapshots, and output buffers without
@@ -527,12 +527,12 @@ mod tests {
 
             // Build a PyOutputCapture directly — its `new` is pub(crate),
             // which is visible from within this crate's test module.
-            let inner = crate::output::OutputCapture::with_capacity("unit-test-inst", 1000);
+            let inner = dcc_mcp_http::output::OutputCapture::with_capacity("unit-test-inst", 1000);
             inner.push("stdout", "hello");
-            let capture = super::super::output_dynamic::PyOutputCapture { inner };
+            let capture = crate::output_dynamic::PyOutputCapture { inner };
             // PyO3 method receives a `PyRef<PyOutputCapture>` — mirror that
             // by registering the class and round-tripping through a Py<_>.
-            let py_capture: Py<super::super::output_dynamic::PyOutputCapture> =
+            let py_capture: Py<crate::output_dynamic::PyOutputCapture> =
                 Py::new(py, capture).unwrap();
             handle.register_output_buffer(py_capture.borrow(py));
 

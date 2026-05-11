@@ -28,18 +28,19 @@ pub struct PyMcpHttpServer {
     /// Shared live metadata — written by Python via `update_scene()` /
     /// `update_gateway_metadata()`; propagated to FileRegistry each heartbeat.
     pub(crate) live_meta: Arc<RwLock<LiveMetaInner>>,
-    /// Shared [`crate::resources::ResourceRegistry`] (issue #730).
+    /// Shared [`dcc_mcp_http::resources::ResourceRegistry`] (issue #730).
     ///
     /// Built at construction time using the same
-    /// [`crate::server::build_resource_registry`] the server would
+    /// [`dcc_mcp_http::server::build_resource_registry`] the server would
     /// have used internally, so `server.resources()` returns the same
     /// registry that backs `/mcp` both before and after `start()`.
-    pub(crate) resources: crate::resources::ResourceRegistry,
+    pub(crate) resources: dcc_mcp_http::resources::ResourceRegistry,
     /// Optional DCC main-thread executor attached via
     /// [`PyMcpHttpServer::attach_dispatcher`]. Consumed exactly once
     /// by [`PyMcpHttpServer::start`]; further `attach_dispatcher`
     /// calls after start are rejected.
-    pub(crate) attached_executor: parking_lot::Mutex<Option<crate::executor::DccExecutorHandle>>,
+    pub(crate) attached_executor:
+        parking_lot::Mutex<Option<dcc_mcp_http::executor::DccExecutorHandle>>,
     /// Optional shared [`ReadinessProbe`] installed via
     /// [`PyMcpHttpServer::set_readiness_probe`] (issue #714). When
     /// present, it is wired into both the MCP `tools/call` gate and
@@ -47,13 +48,13 @@ pub struct PyMcpHttpServer {
     /// flip the bits on this one instance.
     pub(crate) readiness_probe:
         parking_lot::Mutex<Option<Arc<dyn dcc_mcp_skill_rest::ReadinessProbe>>>,
-    /// Shared [`crate::prompts::PromptRegistry`] (issue #792).
+    /// Shared [`dcc_mcp_http::prompts::PromptRegistry`] (issue #792).
     ///
     /// Built at construction time using the same `PromptRegistry::new`
     /// the server would use internally, so `server.prompts()` returns
     /// the same registry that backs `/mcp` both before and after
     /// `start()`.
-    pub(crate) prompts: crate::prompts::PromptRegistry,
+    pub(crate) prompts: dcc_mcp_http::prompts::PromptRegistry,
 }
 
 #[pymethods]
@@ -87,11 +88,11 @@ impl PyMcpHttpServer {
         // between this Python handle and the inner McpHttpServer when
         // start() runs. Using the canonical `build_resource_registry`
         // keeps artefact-store wiring consistent with the Rust path.
-        let resources = crate::server::build_resource_registry(&cfg);
+        let resources = dcc_mcp_http::server::build_resource_registry(&cfg);
         // Issue #792 — build the PromptRegistry up-front and share it
         // between this Python handle and the inner McpHttpServer when
         // start() runs.
-        let prompts = crate::prompts::PromptRegistry::new(cfg.features.enable_prompts);
+        let prompts = dcc_mcp_http::prompts::PromptRegistry::new(cfg.features.enable_prompts);
         Ok(Self {
             registry: reg,
             dispatcher,
@@ -150,7 +151,7 @@ impl PyMcpHttpServer {
             ));
         }
         let executor =
-            crate::host_bridge::dispatcher_to_executor_handle(shared, self.runtime.handle());
+            dcc_mcp_http::host_bridge::dispatcher_to_executor_handle(shared, self.runtime.handle());
         *slot = Some(executor);
         tracing::info!(
             "McpHttpServer: main-thread dispatcher attached — tools/call will \
@@ -454,7 +455,7 @@ impl PyMcpHttpServer {
     /// buffers (issue #730).
     ///
     /// The returned handle is a thin wrapper around the shared
-    /// [`crate::resources::ResourceRegistry`]: mutations take effect
+    /// [`dcc_mcp_http::resources::ResourceRegistry`]: mutations take effect
     /// immediately and are reflected in ``resources/list`` /
     /// ``resources/read`` both before and after :meth:`start`.
     ///

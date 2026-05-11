@@ -42,7 +42,7 @@ pub struct LiveMetaInner {
     pub display_name: Option<String>,
 }
 
-pub(crate) type LiveMeta = Arc<RwLock<LiveMetaInner>>;
+pub type LiveMeta = Arc<RwLock<LiveMetaInner>>;
 
 /// Handle returned by [`McpHttpServer::start`].
 ///
@@ -114,9 +114,7 @@ impl McpServerHandle {
 /// temp dir when no registry dir is configured). Wiring the Python
 /// helpers to the same store is the caller's responsibility — see
 /// `dcc_mcp_artefact::python::set_default_store` for that path.
-pub(crate) fn build_resource_registry(
-    config: &McpHttpConfig,
-) -> crate::resources::ResourceRegistry {
+pub fn build_resource_registry(config: &McpHttpConfig) -> crate::resources::ResourceRegistry {
     if config.features.enable_artefact_resources {
         let root = config
             .gateway
