@@ -11,6 +11,96 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.15.8](https://github.com/loonghao/dcc-mcp-core/compare/v0.15.7...v0.15.8) (2026-05-11)
+
+
+### Features
+
+* **admin:** Phase 2 per-call dispatch traces with payload capture ([#863](https://github.com/loonghao/dcc-mcp-core/issues/863)) ([b87c94a](https://github.com/loonghao/dcc-mcp-core/commit/b87c94a1ac67621b292cee5e02901e950f7dbea9))
+* **admin:** Phase 3 statistics dashboard — GET /admin/api/stats ([#863](https://github.com/loonghao/dcc-mcp-core/issues/863)) ([1178135](https://github.com/loonghao/dcc-mcp-core/commit/11781353a3e6d54f267234360e4365b7e69287cd))
+* **admin:** Phase 4 — per-instance Worker cards ([#863](https://github.com/loonghao/dcc-mcp-core/issues/863)) ([#883](https://github.com/loonghao/dcc-mcp-core/issues/883)) ([418686a](https://github.com/loonghao/dcc-mcp-core/commit/418686a219f39965d56dc4f8d967c74b161caf17))
+
+
+### Bug Fixes
+
+* **election:** faster failover + bind-based port probe for Windows TIME_WAIT ([#855](https://github.com/loonghao/dcc-mcp-core/issues/855)) ([002abbf](https://github.com/loonghao/dcc-mcp-core/commit/002abbf2eaf788e7f6699eb2536c449055fdab1d))
+* **errors:** add #[must_use] to all error types and Result aliases ([#844](https://github.com/loonghao/dcc-mcp-core/issues/844)) ([10cdf86](https://github.com/loonghao/dcc-mcp-core/commit/10cdf862ff8c1918b58852b21031a11369c3dfbe))
+* **errors:** remove #[must_use] from type aliases — not valid in Rust 1.95 ([f62acaf](https://github.com/loonghao/dcc-mcp-core/commit/f62acaf8c72b5094f9f880f0bfb3377d5385d589))
+* **gateway:** add circuit-breaker to SSE reconnect loop to stop reconnect storm ([#861](https://github.com/loonghao/dcc-mcp-core/issues/861)) ([34f9edc](https://github.com/loonghao/dcc-mcp-core/commit/34f9edc01cea5fc7b1b2c7393f0ba72defc0d33a))
+* **gateway:** fix clippy::unused_mut and useless_conversion in tasks.rs ([ab591b7](https://github.com/loonghao/dcc-mcp-core/commit/ab591b7bd55a57c8f2a32bd6f74ef78b4c61e71b))
+* **gateway:** reduce eviction window from ~60s to ~7s and probe concurrently ([#854](https://github.com/loonghao/dcc-mcp-core/issues/854)) ([fc95884](https://github.com/loonghao/dcc-mcp-core/commit/fc958848dba7d90c315fece09a81ee08215e04fe))
+* **gateway:** replace production unwrap() calls with safe alternatives ([#840](https://github.com/loonghao/dcc-mcp-core/issues/840)) ([f1f7a81](https://github.com/loonghao/dcc-mcp-core/commit/f1f7a8178e7655d691819a9e484811434a7e89d1))
+* **gateway:** surface unloaded-skill tools in search_tools ([#858](https://github.com/loonghao/dcc-mcp-core/issues/858)) ([4ab1647](https://github.com/loonghao/dcc-mcp-core/commit/4ab16474c4f7fccf58e4d148c2f49d3f607700fd))
+* **gateway:** wire AuditMiddleware into default chain — Admin UI Calls tab now populated ([#864](https://github.com/loonghao/dcc-mcp-core/issues/864)) ([#869](https://github.com/loonghao/dcc-mcp-core/issues/869)) ([24b3874](https://github.com/loonghao/dcc-mcp-core/commit/24b3874f1caf8081e67a990659bee94cc54ac0d1))
+* **http-py:** register WorkspaceRoots in _core ([#852](https://github.com/loonghao/dcc-mcp-core/issues/852)) ([#922](https://github.com/loonghao/dcc-mcp-core/issues/922)) ([3f0fc7d](https://github.com/loonghao/dcc-mcp-core/commit/3f0fc7df9a3696869ec8b02b90351c74a3ff81b9))
+* **http:** add missing health_check_interval_secs/failures fields to GatewayConfig ([#854](https://github.com/loonghao/dcc-mcp-core/issues/854)) ([49f4d6f](https://github.com/loonghao/dcc-mcp-core/commit/49f4d6f1bf876c9cde9e26101383938bc205383a))
+* **lint:** ruff fixes for DccServerOptions PR ([#850](https://github.com/loonghao/dcc-mcp-core/issues/850)) ([f9b9adc](https://github.com/loonghao/dcc-mcp-core/commit/f9b9adc1bacf84c5a28a89454eab1046a45e6676))
+* **models:** accept inputSchema/outputSchema camelCase in tools.yaml ([#857](https://github.com/loonghao/dcc-mcp-core/issues/857)) ([0b46f66](https://github.com/loonghao/dcc-mcp-core/commit/0b46f66f7dad8151e6b48bedc3ecca1e1142acfd))
+* **output:** pause OutputCapture during execute_python to stop stdout double-capture ([#856](https://github.com/loonghao/dcc-mcp-core/issues/856)) ([bb9786f](https://github.com/loonghao/dcc-mcp-core/commit/bb9786fe6094daff17a2dbdf96959794eac18749))
+* **server:** add missing health_check_interval_secs/failures to GatewayConfig ([#854](https://github.com/loonghao/dcc-mcp-core/issues/854)) ([1f9f0e1](https://github.com/loonghao/dcc-mcp-core/commit/1f9f0e13da3e3c4f2bf80e2ed53bfd0b58104223))
+* **skills:** migrate dcc-diagnostics SKILL.md to nested dcc-mcp: metadata format ([#859](https://github.com/loonghao/dcc-mcp-core/issues/859)) ([2120ed5](https://github.com/loonghao/dcc-mcp-core/commit/2120ed5064fdae718d184063fe909d0d1d4b7aa3))
+* **transport:** stable write_atomic temp filename eliminates AV/EDR churn on Windows ([#853](https://github.com/loonghao/dcc-mcp-core/issues/853)) ([b590e40](https://github.com/loonghao/dcc-mcp-core/commit/b590e40c9d2f3e45fe7bb1dfc43d52e2d2317aef))
+
+
+### Code Refactoring
+
+* **gateway:** introduce dcc-mcp-gateway-core domain crate ([#845](https://github.com/loonghao/dcc-mcp-core/issues/845)) ([#894](https://github.com/loonghao/dcc-mcp-core/issues/894)) ([d5c7981](https://github.com/loonghao/dcc-mcp-core/commit/d5c7981f0a34d07faefa9ba0ce024dcb261c3937))
+* **gateway:** introduce SRP sub-state views on GatewayState ([#839](https://github.com/loonghao/dcc-mcp-core/issues/839)) ([#893](https://github.com/loonghao/dcc-mcp-core/issues/893)) ([c7761d7](https://github.com/loonghao/dcc-mcp-core/commit/c7761d7b869956c9339ff7d37e8bacd91a0e9975))
+* **gateway:** migrate CapabilityRecord + slug helpers to gateway-core ([#845](https://github.com/loonghao/dcc-mcp-core/issues/845)) ([#896](https://github.com/loonghao/dcc-mcp-core/issues/896)) ([99eca5a](https://github.com/loonghao/dcc-mcp-core/commit/99eca5a580977d11aaa4c8898c9fc42bfaa70c3e))
+* **gateway:** migrate IndexSnapshot + InstanceFingerprint to gateway-core ([#845](https://github.com/loonghao/dcc-mcp-core/issues/845)) ([#900](https://github.com/loonghao/dcc-mcp-core/issues/900)) ([25d857b](https://github.com/loonghao/dcc-mcp-core/commit/25d857b0bc4c8dfc14401ced3558edc81705e20b))
+* **gateway:** migrate RefreshReason + BuildOutcome to gateway-core ([#845](https://github.com/loonghao/dcc-mcp-core/issues/845)) ([#903](https://github.com/loonghao/dcc-mcp-core/issues/903)) ([a8c92d4](https://github.com/loonghao/dcc-mcp-core/commit/a8c92d4c3e99ba4d5ec670bf27d72789d91b8cbd))
+* **gateway:** migrate search_ranking scorers to gateway-core ([#845](https://github.com/loonghao/dcc-mcp-core/issues/845)) ([#905](https://github.com/loonghao/dcc-mcp-core/issues/905)) ([a2c09e0](https://github.com/loonghao/dcc-mcp-core/commit/a2c09e0231d8ca40a97588a3f66e9b9239373b46))
+* **gateway:** migrate SearchQuery/Hit/Page/Mode wire types to gateway-core ([#845](https://github.com/loonghao/dcc-mcp-core/issues/845)) ([#898](https://github.com/loonghao/dcc-mcp-core/issues/898)) ([5d6d9a9](https://github.com/loonghao/dcc-mcp-core/commit/5d6d9a99696139fe00e7dbe1bd4dbfaf5844c53c))
+* **gateway:** move event wire types to core ([c575701](https://github.com/loonghao/dcc-mcp-core/commit/c575701860174fdde982c03be6c399930a145ccc))
+* **gateway:** move OpenAPI auth types to core ([0b4115a](https://github.com/loonghao/dcc-mcp-core/commit/0b4115a9c9c93affc6150d489907431974bdb6f1))
+* **gateway:** move resource URI domain helpers to core ([00ccf78](https://github.com/loonghao/dcc-mcp-core/commit/00ccf789aba42e1ec813b73790b6a82ebb5c7b2f))
+* **gateway:** move search ranking loop to gateway-core ([#845](https://github.com/loonghao/dcc-mcp-core/issues/845)) ([9bcc67f](https://github.com/loonghao/dcc-mcp-core/commit/9bcc67f91dbb89b78b470bdee56467f70e398a66))
+* **gateway:** split backend client tests ([bd0b4e7](https://github.com/loonghao/dcc-mcp-core/commit/bd0b4e78f69e4a78d5448c03d5a295db0431b246))
+* **gateway:** split backend_client.rs (1491 lines) into focused submodules ([#841](https://github.com/loonghao/dcc-mcp-core/issues/841)) ([#870](https://github.com/loonghao/dcc-mcp-core/issues/870)) ([72fa312](https://github.com/loonghao/dcc-mcp-core/commit/72fa3123d87d5291dbc0ecc28207f0f35c78fe13))
+* **gateway:** split state view modules ([b2fc838](https://github.com/loonghao/dcc-mcp-core/commit/b2fc838f1622cecb98f22b8c7942464b88f9cf7e))
+* **gateway:** split task supervisors ([546a2a6](https://github.com/loonghao/dcc-mcp-core/commit/546a2a617baa25083925adf7c6142a5397ad357a))
+* **http-py:** move remaining Python bindings from http crate ([#852](https://github.com/loonghao/dcc-mcp-core/issues/852)) ([#921](https://github.com/loonghao/dcc-mcp-core/issues/921)) ([613570e](https://github.com/loonghao/dcc-mcp-core/commit/613570e5580875586c331c987d6a2f46001de25e))
+* **http-py:** move WorkspaceRoots binding out of http crate ([#852](https://github.com/loonghao/dcc-mcp-core/issues/852)) ([#920](https://github.com/loonghao/dcc-mcp-core/issues/920)) ([8d54fe8](https://github.com/loonghao/dcc-mcp-core/commit/8d54fe8decabca6eee5f10d1636e22eed0ed6c23))
+* **http-py:** split config support modules ([f9ce1af](https://github.com/loonghao/dcc-mcp-core/commit/f9ce1af425afa03e2d3a1ecd8ee6f657e9ecc5b1))
+* **http-py:** use http-types for config bindings ([fadb318](https://github.com/loonghao/dcc-mcp-core/commit/fadb318f08f6035e286c07e317e874e8e31753d9))
+* **http-server:** split executor tests ([587911b](https://github.com/loonghao/dcc-mcp-core/commit/587911b4414d7918e15334b6d9089d67395e3263))
+* **http-types:** split config aggregate module ([13cf9b7](https://github.com/loonghao/dcc-mcp-core/commit/13cf9b75eabe20225d8c847fc8896566b49a6a4b))
+* **http-types:** split config value modules ([0054c79](https://github.com/loonghao/dcc-mcp-core/commit/0054c793cc54110ac152c0abcf04ef853382dd8d))
+* **http:** centralize ServerState construction ([#852](https://github.com/loonghao/dcc-mcp-core/issues/852)) ([#916](https://github.com/loonghao/dcc-mcp-core/issues/916)) ([3d36571](https://github.com/loonghao/dcc-mcp-core/commit/3d365713040e55827d65348468b4005ca95e7027))
+* **http:** extract server support crate ([#852](https://github.com/loonghao/dcc-mcp-core/issues/852)) ([6199573](https://github.com/loonghao/dcc-mcp-core/commit/6199573c17899066a156f3a801105c619bf8af18))
+* **http:** introduce dcc-mcp-http-types crate ([#852](https://github.com/loonghao/dcc-mcp-core/issues/852)) ([#895](https://github.com/loonghao/dcc-mcp-core/issues/895)) ([4ee7c2c](https://github.com/loonghao/dcc-mcp-core/commit/4ee7c2c71e4fef5c878ad77ae19cdcccebef33cd))
+* **http:** introduce http-py facade crate ([#852](https://github.com/loonghao/dcc-mcp-core/issues/852)) ([#919](https://github.com/loonghao/dcc-mcp-core/issues/919)) ([6cc6d7e](https://github.com/loonghao/dcc-mcp-core/commit/6cc6d7ecbab1c0502cdb5a9ca9af183cdee2a063))
+* **http:** migrate HttpError + HttpResult to dcc-mcp-http-types ([#852](https://github.com/loonghao/dcc-mcp-core/issues/852)) ([#897](https://github.com/loonghao/dcc-mcp-core/issues/897)) ([d31f74c](https://github.com/loonghao/dcc-mcp-core/commit/d31f74ce70cd864f00a81a9e47c0e777e5bea411))
+* **http:** migrate InstanceConfig to http-types ([#852](https://github.com/loonghao/dcc-mcp-core/issues/852)) ([05d5e8f](https://github.com/loonghao/dcc-mcp-core/commit/05d5e8f8e7edeecc0bc2c34347ed8b6a28300329))
+* **http:** migrate JobConfig + WorkflowConfig to http-types ([#852](https://github.com/loonghao/dcc-mcp-core/issues/852)) ([c408a04](https://github.com/loonghao/dcc-mcp-core/commit/c408a047ca8a4073bd0906cc6db91d8c3a43b2a5))
+* **http:** migrate output wire types to http-types ([#852](https://github.com/loonghao/dcc-mcp-core/issues/852)) ([05e4f77](https://github.com/loonghao/dcc-mcp-core/commit/05e4f773359e57af38fd6d14c5d5d253cd715d32))
+* **http:** migrate prompt spec types to http-types ([#852](https://github.com/loonghao/dcc-mcp-core/issues/852)) ([7a50be3](https://github.com/loonghao/dcc-mcp-core/commit/7a50be3a1b64a68224601c5d75e14f37fd3944f9))
+* **http:** migrate QueueConfig to http-types ([#852](https://github.com/loonghao/dcc-mcp-core/issues/852)) ([#917](https://github.com/loonghao/dcc-mcp-core/issues/917)) ([cd41557](https://github.com/loonghao/dcc-mcp-core/commit/cd41557e9aaee110b3349b04c0f71ef6ae2de1cf))
+* **http:** migrate resource value types to http-types ([#852](https://github.com/loonghao/dcc-mcp-core/issues/852)) ([d78d0d8](https://github.com/loonghao/dcc-mcp-core/commit/d78d0d84cbb535eb247de83375f10f8dfcae015c))
+* **http:** migrate server/session/gateway config to http-types ([#852](https://github.com/loonghao/dcc-mcp-core/issues/852)) ([#918](https://github.com/loonghao/dcc-mcp-core/issues/918)) ([82627a1](https://github.com/loonghao/dcc-mcp-core/commit/82627a1b09a481340ee9993e68154bf8d0ada1a9))
+* **http:** migrate ServerSpawnMode + JobRecoveryPolicy to http-types ([#852](https://github.com/loonghao/dcc-mcp-core/issues/852)) ([5737aed](https://github.com/loonghao/dcc-mcp-core/commit/5737aedbf6ace8833c39a510056facf80e899d90))
+* **http:** migrate session log types to http-types ([#852](https://github.com/loonghao/dcc-mcp-core/issues/852)) ([690f7ab](https://github.com/loonghao/dcc-mcp-core/commit/690f7ab95824c2a6f0451ab05af11f29c6a3b2ef))
+* **http:** migrate TelemetryConfig + FeatureFlags to http-types ([#852](https://github.com/loonghao/dcc-mcp-core/issues/852)) ([#902](https://github.com/loonghao/dcc-mcp-core/issues/902)) ([f4252c9](https://github.com/loonghao/dcc-mcp-core/commit/f4252c95c2c1c6564964a0d32903c6dc919d3124))
+* **http:** move AppState runtime fields into http-server ([#852](https://github.com/loonghao/dcc-mcp-core/issues/852)) ([#914](https://github.com/loonghao/dcc-mcp-core/issues/914)) ([6644465](https://github.com/loonghao/dcc-mcp-core/commit/6644465489c0e288601efa03a3caae7f632245ae))
+* **http:** move core tool builder to http-server ([#852](https://github.com/loonghao/dcc-mcp-core/issues/852)) ([75281d3](https://github.com/loonghao/dcc-mcp-core/commit/75281d33eef5e7ec548ee9b087a70c2cd131abef))
+* **http:** move dynamic tool spec to types ([7500bb4](https://github.com/loonghao/dcc-mcp-core/commit/7500bb4189677f316f6c967adb5e6071c9718497))
+* **http:** move McpHttpConfig aggregate to types ([a5d52d0](https://github.com/loonghao/dcc-mcp-core/commit/a5d52d0b88f874bd80af05ac31e8203457d65410))
+* **init:** replace eager imports with __getattr__ lazy loading ([#849](https://github.com/loonghao/dcc-mcp-core/issues/849)) ([c020e65](https://github.com/loonghao/dcc-mcp-core/commit/c020e6539189b8b885712d25092b113c78e11750))
+* **protocols:** split DccSceneManager into DccSceneQuery+DccFileIO+DccSelection ([#843](https://github.com/loonghao/dcc-mcp-core/issues/843)) ([5075d8c](https://github.com/loonghao/dcc-mcp-core/commit/5075d8cf5525c7965f784a9e5791f688fc4237ab))
+* **python:** apply SOLID + Clean Architecture improvements ([f99d168](https://github.com/loonghao/dcc-mcp-core/commit/f99d168bc7d8e5ea4406ac367ae26a1665214ac5))
+* **server_base:** drop test-double __getattr__ fallback, add _testing helper ([#851](https://github.com/loonghao/dcc-mcp-core/issues/851)) ([#882](https://github.com/loonghao/dcc-mcp-core/issues/882)) ([d514e7c](https://github.com/loonghao/dcc-mcp-core/commit/d514e7cc5297520f9b6d61f6d9847233c84cd21d))
+* **server:** collapse GatewayConfig literals to ..default() ([#854](https://github.com/loonghao/dcc-mcp-core/issues/854)) ([1735d20](https://github.com/loonghao/dcc-mcp-core/commit/1735d20ef0be4d9d1f9f2273100cbb53e01eaec5))
+
+
+### Documentation
+
+* **gateway:** document admin public API + fix pre-existing CI gates ([#847](https://github.com/loonghao/dcc-mcp-core/issues/847)) ([#887](https://github.com/loonghao/dcc-mcp-core/issues/887)) ([64b074b](https://github.com/loonghao/dcc-mcp-core/commit/64b074b23133313610e6e36f3c8a4162b36606ed))
+* **gateway:** document middleware/namespace/event_log public API ([#847](https://github.com/loonghao/dcc-mcp-core/issues/847)) ([047fd3e](https://github.com/loonghao/dcc-mcp-core/commit/047fd3eae22696dd057236a41edb3219a2dca158))
+* refresh agent-facing project guidance ([1105708](https://github.com/loonghao/dcc-mcp-core/commit/1105708398a5b5573eeec350682cc962e546e99c))
+* refresh interface architecture indexes ([53bd32c](https://github.com/loonghao/dcc-mcp-core/commit/53bd32c14c5117b82f791faeb12b3df30d9a1b70))
+* refresh REST gateway agent guidance ([073f2bc](https://github.com/loonghao/dcc-mcp-core/commit/073f2bc278555b0ec1abeaf443393d6fed5c3086))
+* refresh workspace architecture map ([7db5503](https://github.com/loonghao/dcc-mcp-core/commit/7db55034be4be7aa4b90672060d169e8f38bab25))
+
 ## [0.15.7](https://github.com/loonghao/dcc-mcp-core/compare/v0.15.6...v0.15.7) (2026-05-08)
 
 
