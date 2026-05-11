@@ -7,7 +7,7 @@ use std::sync::OnceLock;
 /// Global bridge context registry (for gateway mode).
 ///
 /// This singleton stores bridge connections that skill scripts can query.
-static BRIDGE_REGISTRY: OnceLock<crate::BridgeRegistry> = OnceLock::new();
+static BRIDGE_REGISTRY: OnceLock<dcc_mcp_http::BridgeRegistry> = OnceLock::new();
 
 // ── PyBridgeContext ──────────────────────────────────────────────────────
 
@@ -39,8 +39,8 @@ impl PyBridgeContext {
     }
 }
 
-impl From<crate::BridgeContext> for PyBridgeContext {
-    fn from(ctx: crate::BridgeContext) -> Self {
+impl From<dcc_mcp_http::BridgeContext> for PyBridgeContext {
+    fn from(ctx: dcc_mcp_http::BridgeContext) -> Self {
         Self {
             dcc_type: ctx.dcc_type,
             bridge_url: ctx.bridge_url,
@@ -76,7 +76,7 @@ impl From<crate::BridgeContext> for PyBridgeContext {
 #[pyclass(name = "BridgeRegistry", skip_from_py_object)]
 #[derive(Debug, Clone)]
 pub struct PyBridgeRegistry {
-    inner: crate::BridgeRegistry,
+    inner: dcc_mcp_http::BridgeRegistry,
 }
 
 #[pymethods]
@@ -84,7 +84,7 @@ impl PyBridgeRegistry {
     #[new]
     fn new() -> Self {
         Self {
-            inner: crate::BridgeRegistry::new(),
+            inner: dcc_mcp_http::BridgeRegistry::new(),
         }
     }
 
@@ -201,7 +201,7 @@ impl PyBridgeRegistry {
 #[pyfunction]
 #[pyo3(name = "get_bridge_context")]
 pub fn py_get_bridge_context(dcc_type: &str) -> Option<PyBridgeContext> {
-    let registry = BRIDGE_REGISTRY.get_or_init(crate::BridgeRegistry::new);
+    let registry = BRIDGE_REGISTRY.get_or_init(dcc_mcp_http::BridgeRegistry::new);
     registry.get(dcc_type).map(PyBridgeContext::from)
 }
 
@@ -226,7 +226,7 @@ pub fn py_get_bridge_context(dcc_type: &str) -> Option<PyBridgeContext> {
 #[pyfunction]
 #[pyo3(name = "register_bridge")]
 pub fn py_register_bridge(dcc_type: String, url: String) -> PyResult<()> {
-    let registry = BRIDGE_REGISTRY.get_or_init(crate::BridgeRegistry::new);
+    let registry = BRIDGE_REGISTRY.get_or_init(dcc_mcp_http::BridgeRegistry::new);
     registry
         .register(dcc_type, url)
         .map_err(pyo3::exceptions::PyValueError::new_err)
@@ -237,7 +237,7 @@ pub fn py_register_bridge(dcc_type: String, url: String) -> PyResult<()> {
 /// Called by bridge plugins to register their connection info.
 #[doc(hidden)]
 pub fn register_bridge_internal(dcc_type: String, url: String) -> Result<(), String> {
-    let registry = BRIDGE_REGISTRY.get_or_init(crate::BridgeRegistry::new);
+    let registry = BRIDGE_REGISTRY.get_or_init(dcc_mcp_http::BridgeRegistry::new);
     registry.register(dcc_type, url)
 }
 
@@ -372,8 +372,8 @@ pub fn py_create_skill_server(
         version: cfg.dcc_version().clone(),
         ..Default::default()
     }));
-    let resources = crate::server::build_resource_registry(&cfg);
-    let prompts = crate::prompts::PromptRegistry::new(cfg.features.enable_prompts);
+    let resources = dcc_mcp_http::server::build_resource_registry(&cfg);
+    let prompts = dcc_mcp_http::prompts::PromptRegistry::new(cfg.features.enable_prompts);
     Ok(PyMcpHttpServer {
         registry: reg,
         dispatcher,

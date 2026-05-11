@@ -70,9 +70,6 @@ pub mod workspace;
 #[cfg(feature = "prometheus")]
 pub mod metrics;
 
-#[cfg(feature = "python-bindings")]
-pub mod python;
-
 // Re-exports
 pub use bridge_registry::{BridgeContext, BridgeRegistry};
 pub use config::{McpHttpConfig, ServerSpawnMode};
@@ -103,9 +100,6 @@ pub use resources::{
 pub use server::{McpHttpServer, McpServerHandle};
 pub use session::SessionManager;
 pub use workspace::{WorkspaceResolveError, WorkspaceRoots};
-
-#[cfg(feature = "python-bindings")]
-pub use python::{PyMcpHttpConfig, PyMcpHttpServer, PyReadinessProbe, PyServerHandle};
 
 #[cfg(test)]
 mod tests;

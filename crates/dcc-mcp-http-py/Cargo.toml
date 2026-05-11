@@ -6,24 +6,48 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "PyO3 facade for the DCC MCP HTTP server Python bindings."
+description = "PyO3 bindings for the DCC MCP HTTP server."
 keywords = ["mcp", "http", "python", "pyo3"]
 categories = ["api-bindings"]
+
+[lib]
+doctest = false
 
 [lints]
 workspace = true
 
 [dependencies]
 dcc-mcp-http = { path = "../dcc-mcp-http" }
+dcc-mcp-actions = { path = "../dcc-mcp-actions" }
+dcc-mcp-artefact = { path = "../dcc-mcp-artefact" }
+dcc-mcp-host = { path = "../dcc-mcp-host" }
 dcc-mcp-jsonrpc = { path = "../dcc-mcp-jsonrpc" }
+dcc-mcp-models = { path = "../dcc-mcp-models" }
+dcc-mcp-pybridge = { path = "../dcc-mcp-pybridge" }
+dcc-mcp-skill-rest = { path = "../dcc-mcp-skill-rest" }
+dcc-mcp-skills = { path = "../dcc-mcp-skills" }
+parking_lot = { workspace = true }
 pyo3 = { workspace = true, optional = true }
 pyo3-stub-gen = { workspace = true, optional = true }
 pyo3-stub-gen-derive = { workspace = true, optional = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[dev-dependencies]
+pyo3 = { workspace = true, features = ["auto-initialize"] }
 
 [features]
 default = []
-python-bindings = ["dep:pyo3", "dcc-mcp-http/python-bindings"]
+python-bindings = [
+    "dep:pyo3",
+    "dcc-mcp-actions/python-bindings",
+    "dcc-mcp-artefact/python-bindings",
+    "dcc-mcp-host/python-bindings",
+    "dcc-mcp-pybridge/python-bindings",
+    "dcc-mcp-skills/python-bindings",
+]
 stub-gen = [
     "python-bindings",
     "dep:pyo3-stub-gen",
