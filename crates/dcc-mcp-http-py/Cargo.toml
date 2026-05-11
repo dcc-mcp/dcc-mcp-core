@@ -1,0 +1,33 @@
+[package]
+name = "dcc-mcp-http-py"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "PyO3 facade for the DCC MCP HTTP server Python bindings."
+keywords = ["mcp", "http", "python", "pyo3"]
+categories = ["api-bindings"]
+
+[lints]
+workspace = true
+
+[dependencies]
+dcc-mcp-http = { path = "../dcc-mcp-http" }
+pyo3 = { workspace = true, optional = true }
+pyo3-stub-gen = { workspace = true, optional = true }
+pyo3-stub-gen-derive = { workspace = true, optional = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[features]
+default = []
+python-bindings = ["dep:pyo3", "dcc-mcp-http/python-bindings"]
+stub-gen = [
+    "python-bindings",
+    "dep:pyo3-stub-gen",
+    "dep:pyo3-stub-gen-derive",
+    "dcc-mcp-http/stub-gen",
+]
+prometheus = ["dcc-mcp-http/prometheus"]
+job-persist-sqlite = ["dcc-mcp-http/job-persist-sqlite"]
