@@ -25,7 +25,7 @@
 //! |-------------|-----------------------------------------------------------|
 //! | crate root  | [`TruncationEnvelope`], [`SseChunkFrame`] + chunk helpers |
 //! | [`error`]   | [`HttpError`] / [`HttpResult`] error taxonomy             |
-//! | [`config`]  | [`ServerConfig`], [`SessionConfig`], [`GatewayConfig`], [`ServerSpawnMode`], [`JobRecoveryPolicy`], [`JobConfig`], [`WorkflowConfig`], [`TelemetryConfig`], [`FeatureFlags`], [`InstanceConfig`], [`QueueConfig`] |
+//! | [`config`]  | [`McpHttpConfig`], [`ServerConfig`], [`SessionConfig`], [`GatewayConfig`], [`ServerSpawnMode`], [`JobRecoveryPolicy`], [`JobConfig`], [`WorkflowConfig`], [`TelemetryConfig`], [`FeatureFlags`], [`InstanceConfig`], [`QueueConfig`] |
 //! | [`output`]  | [`output::OutputStream`] and [`output::OutputEntry`] output capture wire types |
 //! | [`prompts`] | [`prompts::PromptSpec`], [`prompts::PromptsSpec`], and related prompt spec types |
 //! | [`resources`] | [`resources::ProducerContent`] / [`resources::ResourceError`] resource values |
@@ -37,8 +37,8 @@
 //!
 //! | Lives here now              | Stays in `dcc-mcp-http` for now |
 //! |-----------------------------|----------------------------------|
-//! | [`TruncationEnvelope`]      | `McpHttpConfig` aggregate       |
-//! | [`SseChunkFrame`]           | `McpHttpConfig` aggregate       |
+//! | [`TruncationEnvelope`]      |                                  |
+//! | [`SseChunkFrame`]           |                                  |
 //! | [`chunk_sse_data`]          |                                  |
 //! | [`format_chunked_sse`]      |                                  |
 //! | [`error::HttpError`]        |                                  |
@@ -53,6 +53,7 @@
 //! | [`config::FeatureFlags`]    |                                  |
 //! | [`config::InstanceConfig`]  |                                  |
 //! | [`config::QueueConfig`]     |                                  |
+//! | [`config::McpHttpConfig`]   |                                  |
 //! | [`output::OutputStream`]    |                                  |
 //! | [`output::OutputEntry`]     |                                  |
 //! | [`prompts::PromptError`]    |                                  |
