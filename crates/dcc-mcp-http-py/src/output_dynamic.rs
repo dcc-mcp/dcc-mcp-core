@@ -4,8 +4,8 @@
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 
-use dcc_mcp_http::dynamic_tools::ToolSpec;
 use dcc_mcp_http::output::OutputCapture;
+use dcc_mcp_http_types::dynamic_tools::ToolSpec;
 
 // ── PyToolSpec ────────────────────────────────────────────────────────────────
 
