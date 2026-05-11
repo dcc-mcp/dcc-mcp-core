@@ -9,6 +9,8 @@
 //!
 //! ```text
 //! dcc-mcp-core (_core extension) → dcc-mcp-http-py → dcc-mcp-http
+//!                                        │
+//!                                        └── dcc-mcp-http-types (config/value surface)
 //! ```
 
 #![forbid(unsafe_code)]
@@ -57,10 +59,9 @@ pub use workspace::PyWorkspaceRoots;
 #[cfg(feature = "python-bindings")]
 use dcc_mcp_actions::{ToolDispatcher, ToolRegistry};
 #[cfg(feature = "python-bindings")]
-use dcc_mcp_http::{
-    config::{McpHttpConfig, ServerSpawnMode},
-    server::{LiveMetaInner, McpHttpServer, McpServerHandle},
-};
+use dcc_mcp_http::server::{LiveMetaInner, McpHttpServer, McpServerHandle};
+#[cfg(feature = "python-bindings")]
+use dcc_mcp_http_types::config::{McpHttpConfig, ServerSpawnMode};
 #[cfg(feature = "python-bindings")]
 use dcc_mcp_skills::SkillCatalog;
 #[cfg(feature = "python-bindings")]
