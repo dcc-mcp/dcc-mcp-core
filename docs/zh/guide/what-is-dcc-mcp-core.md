@@ -89,9 +89,10 @@ dcc-mcp-core/
 │   ├── dcc-mcp-workflow/            # YAML 声明式工作流
 │   ├── dcc-mcp-scheduler/           # cron / 定时器
 │   ├── dcc-mcp-artefact/            # 工具之间的文件/数据交接
-│   ├── dcc-mcp-http-types/          # 纯 HTTP 线协议/配置/值类型（#852）
+│   ├── dcc-mcp-http-types/          # 纯 HTTP 线协议/配置/值类型、McpHttpConfig（#852）
 │   ├── dcc-mcp-http-server/         # 可复用 HTTP runtime 支撑层（#852）
-│   ├── dcc-mcp-http/                # McpHttpServer, McpHttpConfig, PyO3 facade
+│   ├── dcc-mcp-http-py/             # HTTP API 的 PyO3 绑定边界（#852）
+│   ├── dcc-mcp-http/                # McpHttpServer facade + 兼容 re-export
 │   ├── dcc-mcp-skill-rest/          # per-DCC REST 路由(`/v1/*`)
 │   ├── dcc-mcp-gateway-core/        # 纯 gateway 领域/search/ranking 类型（#845）
 │   ├── dcc-mcp-gateway/             # 多实例网关 + 最小 MCP 表面

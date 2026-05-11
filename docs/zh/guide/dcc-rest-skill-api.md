@@ -67,7 +67,7 @@ SkillCatalogSource  ToolInvoker  AuthGate  AuditSink
 use std::sync::Arc;
 use axum::Router;
 use dcc_mcp_actions::{ToolDispatcher, ToolRegistry};
-use dcc_mcp_http::{
+use dcc_mcp_skill_rest::{
     AllowLocalhostGate, BearerTokenGate, NoopAuditSink, SkillRestConfig,
     SkillRestService, StaticReadiness, build_skill_rest_router,
 };

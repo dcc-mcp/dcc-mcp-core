@@ -19,8 +19,9 @@ dcc-mcp-core (workspace 根目录)
 ├── dcc-mcp-skill-rest   # Per-DCC /v1/* REST Skill API
 ├── dcc-mcp-gateway-core # 纯 gateway 领域/search/ranking 类型
 ├── dcc-mcp-gateway      # Multi-DCC 网关应用层和动态 wrappers
-├── dcc-mcp-http-types   # 纯 HTTP 线协议/配置/值类型
+├── dcc-mcp-http-types   # 纯 HTTP 线协议/配置/值类型、McpHttpConfig
 ├── dcc-mcp-http-server  # 可复用 HTTP runtime 支撑层
+├── dcc-mcp-http-py      # HTTP API 的 PyO3 绑定边界
 ├── dcc-mcp-transport    # IPC (ipckit), DccLinkFrame, IpcChannelAdapter, SocketServerAdapter
 ├── dcc-mcp-process      # PyDccLauncher, ProcessMonitor, ProcessWatcher, CrashRecovery
 ├── dcc-mcp-telemetry    # Tracing/recording: ToolRecorder, TelemetryConfig
@@ -28,7 +29,7 @@ dcc-mcp-core (workspace 根目录)
 ├── dcc-mcp-shm          # Shared memory: PySharedBuffer, PyBufferPool
 ├── dcc-mcp-capture      # Screen capture: Capturer, CaptureFrame
 ├── dcc-mcp-usd          # USD scene description: UsdStage, SdfPath, VtValue
-├── dcc-mcp-http         # Embedded MCP HTTP facade + Python bindings
+├── dcc-mcp-http         # Embedded MCP HTTP facade + 兼容 re-export
 ├── dcc-mcp-server       # 二进制入口点: dcc-mcp-server, gateway runner
 ├── dcc-mcp-logging      # 滚动文件日志
 ├── dcc-mcp-paths        # 平台路径辅助

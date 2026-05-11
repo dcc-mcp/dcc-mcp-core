@@ -59,9 +59,10 @@ dcc-mcp-core (workspace root)
 ├── dcc-mcp-skill-rest    # Per-DCC /v1/* REST skill API
 ├── dcc-mcp-gateway-core  # Pure gateway domain/search/ranking types
 ├── dcc-mcp-gateway       # Multi-DCC gateway app + dynamic wrappers
-├── dcc-mcp-http-types    # Pure HTTP wire/config/value types
+├── dcc-mcp-http-types    # Pure HTTP wire/config/value types, McpHttpConfig
 ├── dcc-mcp-http-server   # Reusable HTTP runtime support
-├── dcc-mcp-http          # Embedded MCP HTTP facade + Python bindings
+├── dcc-mcp-http-py       # PyO3 binding boundary for HTTP APIs
+├── dcc-mcp-http          # Embedded MCP HTTP facade + compatibility re-exports
 ├── dcc-mcp-server        # Binary entry point and gateway runner
 ├── dcc-mcp-logging       # Rolling file logging
 ├── dcc-mcp-paths         # Platform path helpers
@@ -368,11 +369,11 @@ dcc-mcp-server ← dcc-mcp-http
 
 ### dcc-mcp-http
 
-**Purpose**: MCP Streamable HTTP facade (2025-03-26 spec) for HTTP-based MCP clients. It owns axum routing, server startup, the `McpHttpConfig` aggregate, Python bindings, prompt/resource registries, and compatibility re-exports from the extracted crates.
+**Purpose**: MCP Streamable HTTP facade (2025-03-26 spec) for HTTP-based MCP clients. It owns axum routing, server startup, prompt/resource registries, gateway bootstrap, and compatibility re-exports from the extracted crates.
 
 **Key Components**:
 - `McpHttpServer` — background-thread HTTP server (axum/Tokio).
-- `McpHttpConfig` — thin aggregate over queue/gateway/session/telemetry/features/instance sub-configs.
+- `McpHttpConfig` — re-export of the `dcc-mcp-http-types::config` aggregate for compatibility; new Rust code can import it from `dcc-mcp-http-types` directly.
 - `McpServerHandle` — URL retrieval, `is_gateway` flag, and graceful shutdown.
 - `ResourceRegistry` and `PromptRegistry` — MCP `resources/*` and `prompts/*` implementation.
 - Gateway bootstrap — delegates dynamic gateway behavior to `dcc-mcp-gateway`.

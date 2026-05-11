@@ -92,7 +92,7 @@ config.job_recovery = "requeue"   # accepted, currently behaves as "drop" + WARN
 ```
 
 ```rust
-use dcc_mcp_http::config::{JobRecoveryPolicy, McpHttpConfig};
+use dcc_mcp_http_types::config::{JobRecoveryPolicy, McpHttpConfig};
 
 let cfg = McpHttpConfig::new(8765)
     .with_job_storage_path("/var/lib/dcc-mcp/jobs.sqlite3")
