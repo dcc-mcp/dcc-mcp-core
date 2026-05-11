@@ -15,7 +15,7 @@ pub(crate) fn spawn_session_eviction_task(
         let mut interval = tokio::time::interval(Duration::from_secs(60));
         loop {
             interval.tick().await;
-            sessions_bg.evict_stale(ttl);
+            let _ = sessions_bg.evict_stale(ttl);
         }
     });
 }

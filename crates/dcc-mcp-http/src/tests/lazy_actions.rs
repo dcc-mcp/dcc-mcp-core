@@ -115,7 +115,7 @@ async fn call(server: &TestServer, session_id: &str, body: Value) -> Value {
 async fn meta_tools_absent_when_disabled() {
     let (router, sessions) = make_router(false);
     let sid = sessions.create();
-    sessions.set_protocol_version(&sid, "2025-06-18");
+    let _ = sessions.set_protocol_version(&sid, "2025-06-18");
     let server = TestServer::new(router);
     let body = call(
         &server,
@@ -136,7 +136,7 @@ async fn meta_tools_absent_when_disabled() {
 async fn meta_tools_present_when_enabled() {
     let (router, sessions) = make_router(true);
     let sid = sessions.create();
-    sessions.set_protocol_version(&sid, "2025-06-18");
+    let _ = sessions.set_protocol_version(&sid, "2025-06-18");
     let server = TestServer::new(router);
     let body = call(
         &server,
@@ -157,7 +157,7 @@ async fn meta_tools_present_when_enabled() {
 async fn list_actions_omits_schema_body() {
     let (router, sessions) = make_router(true);
     let sid = sessions.create();
-    sessions.set_protocol_version(&sid, "2025-06-18");
+    let _ = sessions.set_protocol_version(&sid, "2025-06-18");
     let server = TestServer::new(router);
     let body = call(
         &server,
@@ -199,7 +199,7 @@ async fn list_actions_omits_schema_body() {
 async fn describe_action_matches_tools_list_schema() {
     let (router, sessions) = make_router(true);
     let sid = sessions.create();
-    sessions.set_protocol_version(&sid, "2025-06-18");
+    let _ = sessions.set_protocol_version(&sid, "2025-06-18");
     let server = TestServer::new(router);
 
     // Fetch the same action through `tools/list` for a reference.
@@ -272,7 +272,7 @@ async fn describe_action_rejects_unknown_id() {
 async fn call_action_dispatches_to_underlying_handler() {
     let (router, sessions) = make_router(true);
     let sid = sessions.create();
-    sessions.set_protocol_version(&sid, "2025-06-18");
+    let _ = sessions.set_protocol_version(&sid, "2025-06-18");
     let server = TestServer::new(router);
     let body = call(
         &server,

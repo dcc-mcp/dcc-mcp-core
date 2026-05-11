@@ -92,6 +92,7 @@ impl Default for McpSession {
 }
 
 impl McpSession {
+    #[must_use]
     pub fn new() -> Self {
         let id = Uuid::new_v4().to_string();
         let (sse_tx, _) = broadcast::channel(256);
@@ -117,6 +118,7 @@ impl McpSession {
     }
 
     /// Subscribe to SSE events for this session.
+    #[must_use]
     pub fn subscribe(&self) -> broadcast::Receiver<String> {
         self.sse_tx.subscribe()
     }
@@ -135,6 +137,7 @@ pub struct SessionManager {
 }
 
 impl SessionManager {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             sessions: Arc::new(DashMap::new()),
@@ -142,6 +145,7 @@ impl SessionManager {
     }
 
     /// Create a new session and return its ID.
+    #[must_use]
     pub fn create(&self) -> String {
         let session = McpSession::new();
         let id = session.id.clone();
@@ -151,6 +155,7 @@ impl SessionManager {
     }
 
     /// Mark a session as initialized.
+    #[must_use]
     pub fn mark_initialized(&self, session_id: &str) -> bool {
         if let Some(mut s) = self.sessions.get_mut(session_id) {
             s.initialized = true;
@@ -161,6 +166,7 @@ impl SessionManager {
     }
 
     /// Whether the session exists and is initialized.
+    #[must_use]
     pub fn is_initialized(&self, session_id: &str) -> bool {
         self.sessions
             .get(session_id)
@@ -171,6 +177,7 @@ impl SessionManager {
     /// Store the negotiated protocol version on a session.
     ///
     /// Called during `initialize` after version negotiation.
+    #[must_use]
     pub fn set_protocol_version(&self, session_id: &str, version: &str) -> bool {
         if let Some(mut s) = self.sessions.get_mut(session_id) {
             s.protocol_version = Some(version.to_owned());
@@ -181,6 +188,7 @@ impl SessionManager {
     }
 
     /// Retrieve the negotiated protocol version for a session.
+    #[must_use]
     pub fn get_protocol_version(&self, session_id: &str) -> Option<String> {
         self.sessions
             .get(session_id)
@@ -188,6 +196,7 @@ impl SessionManager {
     }
 
     /// Record whether the client opted into delta-tools notifications.
+    #[must_use]
     pub fn set_supports_delta_tools(&self, session_id: &str, enabled: bool) -> bool {
         if let Some(mut s) = self.sessions.get_mut(session_id) {
             s.supports_delta_tools = enabled;
@@ -198,6 +207,7 @@ impl SessionManager {
     }
 
     /// Whether the client for `session_id` opted into delta-tools notifications.
+    #[must_use]
     pub fn supports_delta_tools(&self, session_id: &str) -> bool {
         self.sessions
             .get(session_id)
@@ -206,6 +216,7 @@ impl SessionManager {
     }
 
     /// Update the session's MCP message log threshold.
+    #[must_use]
     pub fn set_log_level(&self, session_id: &str, level: SessionLogLevel) -> bool {
         if let Some(mut s) = self.sessions.get_mut(session_id) {
             s.log_level = level;
@@ -216,6 +227,7 @@ impl SessionManager {
     }
 
     /// Return the session's effective log threshold.
+    #[must_use]
     pub fn get_log_level(&self, session_id: &str) -> SessionLogLevel {
         self.sessions
             .get(session_id)
@@ -224,6 +236,7 @@ impl SessionManager {
     }
 
     /// Retain a log message for later `details.log_tail` correlation.
+    #[must_use]
     pub fn push_log_message(&self, session_id: &str, entry: SessionLogMessage) -> bool {
         if let Some(mut s) = self.sessions.get_mut(session_id) {
             s.recent_logs.push_back(entry);
@@ -237,6 +250,7 @@ impl SessionManager {
     }
 
     /// Return up to `limit` recent log entries correlated to `request_id`.
+    #[must_use]
     pub fn tail_logs_for_request(
         &self,
         session_id: &str,
@@ -270,6 +284,7 @@ impl SessionManager {
     }
 
     /// Record whether the client advertised roots capability.
+    #[must_use]
     pub fn set_supports_roots(&self, session_id: &str, enabled: bool) -> bool {
         if let Some(mut s) = self.sessions.get_mut(session_id) {
             s.supports_roots = enabled;
@@ -280,6 +295,7 @@ impl SessionManager {
     }
 
     /// Whether the client for `session_id` supports roots/list.
+    #[must_use]
     pub fn supports_roots(&self, session_id: &str) -> bool {
         self.sessions
             .get(session_id)
@@ -288,6 +304,7 @@ impl SessionManager {
     }
 
     /// Replace cached roots for the session.
+    #[must_use]
     pub fn set_client_roots(&self, session_id: &str, roots: Vec<ClientRoot>) -> bool {
         if let Some(mut s) = self.sessions.get_mut(session_id) {
             s.client_roots = roots;
@@ -298,6 +315,7 @@ impl SessionManager {
     }
 
     /// Get cached roots for a session.
+    #[must_use]
     pub fn get_client_roots(&self, session_id: &str) -> Vec<ClientRoot> {
         self.sessions
             .get(session_id)
@@ -313,6 +331,7 @@ impl SessionManager {
     /// The caller should also check whether `snapshot.generation` matches
     /// the current `AppState::registry_generation`; if not, the cache is
     /// stale and must be rebuilt.
+    #[must_use]
     pub fn get_tool_list_snapshot(&self, session_id: &str) -> Option<ToolListSnapshot> {
         self.sessions
             .get(session_id)
@@ -326,6 +345,7 @@ impl SessionManager {
     /// subsequent calls can detect staleness.
     ///
     /// Returns `false` if the session does not exist.
+    #[must_use]
     pub fn set_tool_list_snapshot(&self, session_id: &str, snapshot: ToolListSnapshot) -> bool {
         if let Some(mut s) = self.sessions.get_mut(session_id) {
             s.tool_list_snapshot = Some(snapshot);
@@ -338,6 +358,7 @@ impl SessionManager {
     /// Invalidate the `tools/list` cache for a specific session (issue #438).
     ///
     /// Returns `false` if the session does not exist.
+    #[must_use]
     pub fn invalidate_tool_list_snapshot(&self, session_id: &str) -> bool {
         if let Some(mut s) = self.sessions.get_mut(session_id) {
             s.tool_list_snapshot = None;
@@ -358,6 +379,7 @@ impl SessionManager {
     }
 
     /// Get an SSE subscriber for the session.
+    #[must_use]
     pub fn subscribe(&self, session_id: &str) -> Option<broadcast::Receiver<String>> {
         self.sessions.get(session_id).map(|s| s.subscribe())
     }
@@ -372,6 +394,7 @@ impl SessionManager {
     /// Refresh the last-active timestamp for `session_id`.
     ///
     /// Returns `false` if the session does not exist.
+    #[must_use]
     pub fn touch(&self, session_id: &str) -> bool {
         if let Some(mut s) = self.sessions.get_mut(session_id) {
             s.touch();
@@ -385,6 +408,7 @@ impl SessionManager {
     ///
     /// Called periodically by the background task in `McpHttpServer::start`.
     /// Returns the number of sessions removed.
+    #[must_use]
     pub fn evict_stale(&self, ttl: std::time::Duration) -> usize {
         let now = Instant::now();
         let stale: Vec<String> = self
@@ -405,6 +429,7 @@ impl SessionManager {
     }
 
     /// Remove and drop a session.
+    #[must_use]
     pub fn remove(&self, session_id: &str) -> bool {
         let removed = self.sessions.remove(session_id).is_some();
         if removed {
@@ -414,11 +439,13 @@ impl SessionManager {
     }
 
     /// Whether a session exists.
+    #[must_use]
     pub fn exists(&self, session_id: &str) -> bool {
         self.sessions.contains_key(session_id)
     }
 
     /// Total number of active sessions.
+    #[must_use]
     pub fn count(&self) -> usize {
         self.sessions.len()
     }
@@ -429,6 +456,7 @@ impl SessionManager {
     /// `tools/list_changed`) that fan out to every subscriber. The
     /// returned vector is owned so the caller can iterate without
     /// holding a shard lock.
+    #[must_use]
     pub fn all_ids(&self) -> Vec<String> {
         self.sessions.iter().map(|e| e.key().clone()).collect()
     }
@@ -436,6 +464,7 @@ impl SessionManager {
     /// Apply `f` to the session's [`SessionDynamicTools`] and return its result.
     ///
     /// Returns `None` if the session does not exist.
+    #[must_use]
     pub fn with_dynamic_tools_mut<F, T>(&self, session_id: &str, f: F) -> Option<T>
     where
         F: FnOnce(&mut crate::dynamic_tools::SessionDynamicTools) -> T,
@@ -448,6 +477,7 @@ impl SessionManager {
     /// Build a `Vec<McpTool>` from the session's dynamic tools.
     ///
     /// Returns an empty vec if the session does not exist.
+    #[must_use]
     pub fn dynamic_tools_for_list(&self, session_id: &str) -> Vec<dcc_mcp_jsonrpc::McpTool> {
         self.sessions
             .get_mut(session_id)

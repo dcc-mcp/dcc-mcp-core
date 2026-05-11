@@ -445,9 +445,9 @@ tools/list response (Maya session, nothing loaded yet):
 
 ---
 
-## Architecture Overview — 31 Workspace Members
+## Architecture Overview — 34 Workspace Members
 
-`dcc-mcp-core` is organised as a **Rust workspace of 31 members** (30 functional crates + `workspace-hack`), compiled into a single native Python extension (`_core`) via PyO3 / maturin. Selected crates:
+`dcc-mcp-core` is organised as a **Rust workspace of 34 members** (33 functional crates + `workspace-hack`), compiled into a single native Python extension (`_core`) via PyO3 / maturin. The root `Cargo.toml` is the source of truth for membership. Selected crates:
 
 | Crate | Responsibility | Key Types |
 |---|---|---|
@@ -459,7 +459,10 @@ tools/list response (Maya session, nothing loaded yet):
 | `dcc-mcp-jsonrpc` | MCP JSON-RPC wire types | `JsonRpcRequest`, `JsonRpcResponse`, notifications |
 | `dcc-mcp-job` | Async job tracking | `JobManager`, persistence traits |
 | `dcc-mcp-skill-rest` | Per-DCC REST skill API | `SkillRestService`, `SkillRestConfig`, `/v1/*` router |
-| `dcc-mcp-gateway` | Multi-DCC gateway | capability index, dynamic `search_tools` / `describe_tool` / `call_tool` |
+| `dcc-mcp-gateway-core` | Pure gateway domain layer | `CapabilityRecord`, `SearchQuery`, `SearchHit`, ranking scorers, slug helpers |
+| `dcc-mcp-gateway` | Multi-DCC gateway app/infra | registry probing, dynamic `search_tools` / `describe_tool` / `call_tool`, REST facade |
+| `dcc-mcp-http-types` | Pure HTTP wire/config/value types | `HttpError`, `JobConfig`, `InstanceConfig`, `PromptSpec`, `ProducerContent`, `SessionLogMessage` |
+| `dcc-mcp-http-server` | Reusable HTTP runtime support | core tool builders, executor, sessions, in-flight requests, notifications, workspace roots |
 | `dcc-mcp-catalog` | Public adapter catalog | catalog search / describe CLI and MCP tools |
 | `dcc-mcp-transport` | IPC communication | `DccLinkFrame`, `IpcChannelAdapter`, `GracefulIpcChannelAdapter`, `SocketServerAdapter`, `FileRegistry` |
 | `dcc-mcp-process` | Process management | `PyDccLauncher`, `PyProcessMonitor`, `PyProcessWatcher`, `PyCrashRecoveryPolicy`, `HostDispatcher` |
@@ -468,7 +471,7 @@ tools/list response (Maya session, nothing loaded yet):
 | `dcc-mcp-capture` | Screen capture | `Capturer`, `WindowFinder`, HWND / DXGI / X11 / Mock backends |
 | `dcc-mcp-telemetry` | Observability | `TelemetryConfig`, `ToolRecorder`, `ToolMetrics`, optional Prometheus |
 | `dcc-mcp-usd` | USD integration | `UsdStage`, `UsdPrim`, `scene_info_json_to_stage` |
-| `dcc-mcp-http` | MCP Streamable HTTP server | `McpHttpServer`, `McpHttpConfig`, `McpServerHandle`, gateway, job manager |
+| `dcc-mcp-http` | MCP Streamable HTTP facade | `McpHttpServer`, `McpHttpConfig`, `McpServerHandle`, PyO3 bindings, compatibility re-exports |
 | `dcc-mcp-server` | Binary entry point | `dcc-mcp-server` CLI, gateway runner |
 | `dcc-mcp-workflow` | Workflow engine (opt-in) | `WorkflowSpec`, `WorkflowExecutor`, `WorkflowHost`, `StepPolicy`, `RetryPolicy` |
 | `dcc-mcp-scheduler` | Cron + webhook scheduler (opt-in) | `ScheduleSpec`, `TriggerSpec`, `SchedulerService`, HMAC verification |

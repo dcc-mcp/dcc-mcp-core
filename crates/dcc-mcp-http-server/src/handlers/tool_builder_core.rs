@@ -20,11 +20,13 @@ use crate::dynamic_tools::{
 static CORE_TOOLS_CACHE: OnceLock<Vec<McpTool>> = OnceLock::new();
 
 /// Return the core discovery tools, building and caching them on the first call.
+#[must_use]
 pub fn build_core_tools() -> &'static [McpTool] {
     CORE_TOOLS_CACHE.get_or_init(build_core_tools_inner)
 }
 
 /// Inner builder — called exactly once per process lifetime.
+#[must_use]
 pub fn build_core_tools_inner() -> Vec<McpTool> {
     vec![
         McpTool {

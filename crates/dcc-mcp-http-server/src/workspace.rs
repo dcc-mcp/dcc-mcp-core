@@ -80,6 +80,7 @@ pub struct WorkspaceRoots {
 impl WorkspaceRoots {
     /// Build from a client-advertised list (the shape stored by the
     /// session manager).
+    #[must_use]
     pub fn from_client_roots(roots: &[ClientRoot]) -> Self {
         let mut local_roots = Vec::with_capacity(roots.len());
         let mut raw_uris = Vec::with_capacity(roots.len());
@@ -96,6 +97,7 @@ impl WorkspaceRoots {
     }
 
     /// Convenience constructor for tests / non-MCP callers.
+    #[must_use]
     pub fn from_file_paths<I, S>(paths: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -115,11 +117,13 @@ impl WorkspaceRoots {
     }
 
     /// All roots (as URI strings) in declaration order.
+    #[must_use]
     pub fn roots(&self) -> &[String] {
         &self.raw_uris
     }
 
     /// Local filesystem roots only (the subset usable as a join base).
+    #[must_use]
     pub fn local_roots(&self) -> &[PathBuf] {
         &self.local_roots
     }

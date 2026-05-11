@@ -168,7 +168,7 @@ meta = dcc_mcp_core.parse_skill_md(dirs[0])  # -> SkillMetadata or None
 
 ## Architecture
 
-Rust workspace (31 members: 30 functional crates + `workspace-hack`) with PyO3 bindings. All logic lives in Rust sub-crates; Python gets a single `dcc_mcp_core._core` extension module. The `dcc_mcp_core` package re-exports all ~275 public symbols from `_core` plus pure-Python helpers (DccServerBase, DccGatewayElection, DccSkillHotReloader, factory, skill helpers, ToolResult dataclass, constants).
+Rust workspace (34 members: 33 functional crates + `workspace-hack`; root `Cargo.toml` is source of truth) with PyO3 bindings. All logic lives in Rust sub-crates; Python gets a single `dcc_mcp_core._core` extension module. The `dcc_mcp_core` package re-exports all ~275 public symbols from `_core` plus pure-Python helpers (DccServerBase, DccGatewayElection, DccSkillHotReloader, factory, skill helpers, ToolResult dataclass, constants).
 
 ### dcc-mcp-http SOLID extraction (PR #667)
 
@@ -177,9 +177,12 @@ The historical god-crate `dcc-mcp-http` was decomposed into cohesive crates. New
 - **`dcc-mcp-jsonrpc`** — MCP 2025-03-26 Streamable HTTP wire types. Zero axum/tokio dependency, so standalone clients/CLIs can use it.
 - **`dcc-mcp-job`** — async job tracker + pluggable persistence. Owns the optional `job-persist-sqlite` feature; `dcc-mcp-http` forwards the flag.
 - **`dcc-mcp-skill-rest`** — per-DCC `/v1/*` REST skill API. Owns the `utoipa` OpenAPI generator.
-- **`dcc-mcp-gateway`** — multi-DCC gateway, capability index, dynamic-capability MCP wrappers (~11k LoC). Owns the `nucleo-matcher` fuzzy index. Touching gateway code no longer triggers a rebuild of the embedded server, and vice versa.
+- **`dcc-mcp-gateway-core`** — pure gateway domain types and algorithms (`CapabilityRecord`, search query/page/hit types, slug helpers, ranking scorers) with no HTTP or async runtime dependency.
+- **`dcc-mcp-gateway`** — multi-DCC gateway app/infrastructure: registry probing, REST facade, and dynamic-capability MCP wrappers. It depends inward on `dcc-mcp-gateway-core`.
+- **`dcc-mcp-http-types`** — pure HTTP wire/config/value types (`HttpError`, `JobConfig`, `InstanceConfig`, `TelemetryConfig`, `FeatureFlags`, prompt/resource/output/session values), re-exported by `dcc-mcp-http` for compatibility.
+- **`dcc-mcp-http-server`** — reusable runtime support for the embedded server (core tool builders, executor bridge, session state, in-flight cancellation/progress, notifications, workspace roots) without axum/PyO3.
 
-`dcc-mcp-http` remains the embedded MCP HTTP server core (handlers, server, session, config, executor, prompts, resources, dynamic_tools) and depends on the four extracted crates.
+`dcc-mcp-http` remains the embedded MCP HTTP server facade (axum routes, server startup, config aggregate, Python bindings, resource/prompt registries) and depends on the extracted crates.
 
 ```
 crates/
@@ -191,8 +194,11 @@ crates/
 ├── dcc-mcp-jsonrpc/        # JSON-RPC wire types and builders
 ├── dcc-mcp-job/            # Async job tracker + optional persistence
 ├── dcc-mcp-skill-rest/     # Per-DCC /v1/* REST skill API
-├── dcc-mcp-gateway/        # Multi-DCC gateway + dynamic capability index
-├── dcc-mcp-http/           # Embedded MCP Streamable HTTP server core
+├── dcc-mcp-gateway-core/   # Pure gateway domain/search/ranking types
+├── dcc-mcp-gateway/        # Multi-DCC gateway app + dynamic wrappers
+├── dcc-mcp-http-types/     # Pure HTTP wire/config/value types
+├── dcc-mcp-http-server/    # Reusable HTTP runtime support
+├── dcc-mcp-http/           # Embedded MCP HTTP facade + Python bindings
 ├── dcc-mcp-server/         # Binary entry point and gateway runner
 ├── dcc-mcp-logging/        # File logging + retention helpers
 ├── dcc-mcp-paths/          # Platform cache/config/data path helpers
@@ -1070,6 +1076,6 @@ MCP resource `resources://gateway/events`: JSONL ring buffer, last 1000 contenti
 | `McpHttpConfig.queue.max_response_content_bytes` | 1 MiB | `TruncationEnvelope` (`truncated`, `original_size`, `truncated_size`) |
 | `McpHttpConfig.queue.sse_chunk_size_bytes` | 64 KiB | Automatic SSE chunking |
 
-### McpHttpConfig Sub-configs (#764)
+### McpHttpConfig Sub-configs and HTTP type crates (#764 / #852)
 
-`McpHttpConfig` is now a thin aggregate. Access via view methods: `.queue_config()` → `QueueConfig`, `.gateway_config()` → `HttpGatewayConfig`, `.session_config()` → `SessionConfig`, `.telemetry_config()` → `HttpTelemetryConfig`.
+`McpHttpConfig` is a thin aggregate. Access via view methods: `.queue_config()` → `QueueConfig`, `.gateway_config()` → `HttpGatewayConfig`, `.session_config()` → `SessionConfig`, `.telemetry_config()` → `HttpTelemetryConfig`. Pure wire/config/value types that no longer need axum/PyO3 live in `dcc-mcp-http-types` and are re-exported from `dcc-mcp-http` for compatibility; reusable runtime support such as core tool builders, sessions, executors, in-flight request state, notifications, and workspace roots lives in `dcc-mcp-http-server`.

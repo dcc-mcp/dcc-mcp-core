@@ -437,9 +437,9 @@ tools/list 响应（Maya 会话、尚未加载任何 skill）：
 
 ---
 
-## 架构总览 —— 31 个 Workspace 成员
+## 架构总览 —— 34 个 Workspace 成员
 
-`dcc-mcp-core` 组织为 **31 个成员的 Rust workspace**（30 个功能 crate + `workspace-hack`），通过 PyO3 / maturin 编译为单个原生 Python 扩展（`_core`）。精选 crate：
+`dcc-mcp-core` 组织为 **34 个成员的 Rust workspace**（33 个功能 crate + `workspace-hack`），通过 PyO3 / maturin 编译为单个原生 Python 扩展（`_core`）。根 `Cargo.toml` 是 workspace 成员列表的唯一来源。精选 crate：
 
 | Crate | 职责 | 关键类型 |
 |---|---|---|
@@ -451,7 +451,10 @@ tools/list 响应（Maya 会话、尚未加载任何 skill）：
 | `dcc-mcp-jsonrpc` | MCP JSON-RPC 线协议 | `JsonRpcRequest`、`JsonRpcResponse`、notifications |
 | `dcc-mcp-job` | 异步 Job 追踪 | `JobManager`、持久化 trait |
 | `dcc-mcp-skill-rest` | per-DCC REST skill API | `SkillRestService`、`SkillRestConfig`、`/v1/*` router |
-| `dcc-mcp-gateway` | 多 DCC 网关 | 能力索引、动态 `search_tools` / `describe_tool` / `call_tool` |
+| `dcc-mcp-gateway-core` | 纯 gateway 领域层 | `CapabilityRecord`、`SearchQuery`、`SearchHit`、ranking scorers、slug helpers |
+| `dcc-mcp-gateway` | 多 DCC 网关应用/基础设施 | registry probe、动态 `search_tools` / `describe_tool` / `call_tool`、REST facade |
+| `dcc-mcp-http-types` | 纯 HTTP 线协议/配置/值类型 | `HttpError`、`JobConfig`、`InstanceConfig`、`PromptSpec`、`ProducerContent`、`SessionLogMessage` |
+| `dcc-mcp-http-server` | 可复用 HTTP 运行时支撑层 | core tool builders、executor、sessions、in-flight requests、notifications、workspace roots |
 | `dcc-mcp-catalog` | 公开适配器目录 | catalog search / describe CLI 与 MCP tools |
 | `dcc-mcp-transport` | IPC 通信 | `DccLinkFrame`、`IpcChannelAdapter`、`GracefulIpcChannelAdapter`、`SocketServerAdapter`、`FileRegistry` |
 | `dcc-mcp-process` | 进程管理 | `PyDccLauncher`、`PyProcessMonitor`、`PyProcessWatcher`、`PyCrashRecoveryPolicy`、`HostDispatcher` |
@@ -460,7 +463,7 @@ tools/list 响应（Maya 会话、尚未加载任何 skill）：
 | `dcc-mcp-capture` | 屏幕捕获 | `Capturer`、`WindowFinder`、HWND / DXGI / X11 / Mock 后端 |
 | `dcc-mcp-telemetry` | 可观测性 | `TelemetryConfig`、`ToolRecorder`、`ToolMetrics`、可选 Prometheus |
 | `dcc-mcp-usd` | USD 集成 | `UsdStage`、`UsdPrim`、`scene_info_json_to_stage` |
-| `dcc-mcp-http` | MCP Streamable HTTP 服务器 | `McpHttpServer`、`McpHttpConfig`、`McpServerHandle`、网关、job manager |
+| `dcc-mcp-http` | MCP Streamable HTTP facade | `McpHttpServer`、`McpHttpConfig`、`McpServerHandle`、PyO3 bindings、兼容重导出 |
 | `dcc-mcp-server` | 二进制入口 | `dcc-mcp-server` CLI、网关 runner |
 | `dcc-mcp-workflow` | 工作流引擎（可选） | `WorkflowSpec`、`WorkflowExecutor`、`WorkflowHost`、`StepPolicy`、`RetryPolicy` |
 | `dcc-mcp-scheduler` | Cron + Webhook 调度器（可选） | `ScheduleSpec`、`TriggerSpec`、`SchedulerService`、HMAC 校验 |

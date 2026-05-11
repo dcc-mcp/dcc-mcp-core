@@ -72,6 +72,7 @@ pub const DEFAULT_BRIDGE_QUEUE_DEPTH: usize = 16;
 /// used by the HTTP tools/call sync implementation.
 /// The HTTP layer's `decode_dispatch_output` unwraps this into a
 /// user-facing error without introducing a new error type.
+#[must_use]
 pub fn dispatcher_to_executor_handle(
     dispatcher: Arc<dyn DccDispatcher>,
     runtime: &Handle,
@@ -84,6 +85,7 @@ pub fn dispatcher_to_executor_handle(
 ///
 /// `capacity == 0` degrades gracefully to [`DEFAULT_BRIDGE_QUEUE_DEPTH`]
 /// so misconfigured env-vars cannot silently disable backpressure.
+#[must_use]
 pub fn dispatcher_to_executor_handle_with_capacity(
     dispatcher: Arc<dyn DccDispatcher>,
     runtime: &Handle,

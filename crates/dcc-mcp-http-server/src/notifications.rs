@@ -115,6 +115,7 @@ impl std::fmt::Debug for JobNotifier {
 
 impl JobNotifier {
     /// Create a new notifier bound to `sessions`.
+    #[must_use]
     pub fn new(sessions: SessionManager, job_updates_enabled: bool) -> Self {
         Self {
             sessions,
@@ -126,6 +127,7 @@ impl JobNotifier {
     }
 
     /// Whether `$/dcc.jobUpdated` emission is globally enabled.
+    #[must_use]
     pub fn job_updates_enabled(&self) -> bool {
         self.job_updates_enabled
     }
@@ -235,6 +237,7 @@ impl JobNotifier {
     ///
     /// Useful for tests that want to assert the payload shape without
     /// standing up a full session.
+    #[must_use]
     pub fn workflow_update_payload(upd: &WorkflowUpdate) -> Value {
         NotificationBuilder::new("notifications/$/dcc.workflowUpdated")
             .with_params(workflow_update_params(upd))

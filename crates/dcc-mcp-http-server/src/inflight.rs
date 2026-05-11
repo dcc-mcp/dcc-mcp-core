@@ -57,6 +57,7 @@ pub struct CancelToken(Arc<AtomicBool>);
 
 impl CancelToken {
     /// Create a new token (initially not cancelled).
+    #[must_use]
     pub fn new() -> Self {
         Self(Arc::new(AtomicBool::new(false)))
     }
@@ -67,6 +68,7 @@ impl CancelToken {
     }
 
     /// Return `true` if cancellation has been requested.
+    #[must_use]
     pub fn is_cancelled(&self) -> bool {
         self.0.load(Ordering::Acquire)
     }
@@ -109,6 +111,7 @@ impl ProgressReporter {
     /// Create a new reporter.
     ///
     /// If `token` is `None`, all `report()` calls are no-ops (backward compat).
+    #[must_use]
     pub fn new(
         token: Option<Value>,
         session_id: Option<String>,
@@ -183,6 +186,7 @@ pub struct InFlightEntry {
 }
 
 impl InFlightEntry {
+    #[must_use]
     pub fn new(cancel_token: CancelToken, progress: ProgressReporter) -> Self {
         Self {
             cancel_token,
@@ -203,6 +207,7 @@ pub struct InFlightRequests {
 }
 
 impl InFlightRequests {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             map: Arc::new(DashMap::new()),
@@ -215,6 +220,7 @@ impl InFlightRequests {
     }
 
     /// Remove a completed request and return its entry.
+    #[must_use]
     pub fn remove(&self, request_id: &str) -> Option<(String, InFlightEntry)> {
         self.map.remove(request_id)
     }
@@ -222,6 +228,7 @@ impl InFlightRequests {
     /// Set the cancel flag for an in-flight request.
     ///
     /// Returns `true` if the request was found and the flag was set.
+    #[must_use]
     pub fn request_cancel(&self, request_id: &str) -> bool {
         if let Some(entry) = self.map.get(request_id) {
             entry.cancel_token.cancel();
@@ -237,11 +244,13 @@ impl InFlightRequests {
     }
 
     /// Current count of in-flight requests.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.map.len()
     }
 
     /// `true` when there are no in-flight requests.
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.map.is_empty()
     }

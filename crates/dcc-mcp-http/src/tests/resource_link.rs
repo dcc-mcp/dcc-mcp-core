@@ -88,7 +88,7 @@ fn make_router_with_artifact_handler() -> (axum::Router, SessionManager) {
 async fn test_resource_link_emitted_on_2025_06_18_session() {
     let (router, sessions) = make_router_with_artifact_handler();
     let session_id = sessions.create();
-    sessions.set_protocol_version(&session_id, "2025-06-18");
+    let _ = sessions.set_protocol_version(&session_id, "2025-06-18");
 
     let server = TestServer::new(router);
     let resp = server
@@ -132,7 +132,7 @@ async fn test_resource_link_emitted_on_2025_06_18_session() {
 async fn test_resource_link_suppressed_on_2025_03_26_session() {
     let (router, sessions) = make_router_with_artifact_handler();
     let session_id = sessions.create();
-    sessions.set_protocol_version(&session_id, "2025-03-26");
+    let _ = sessions.set_protocol_version(&session_id, "2025-03-26");
 
     let server = TestServer::new(router);
     let resp = server
@@ -288,7 +288,7 @@ fn make_router_with_structured_handler() -> (axum::Router, SessionManager) {
 async fn test_output_schema_emitted_on_2025_06_18_tools_list() {
     let (router, sessions) = make_router_with_structured_handler();
     let session_id = sessions.create();
-    sessions.set_protocol_version(&session_id, "2025-06-18");
+    let _ = sessions.set_protocol_version(&session_id, "2025-06-18");
 
     let server = TestServer::new(router);
     let resp = server
@@ -335,7 +335,7 @@ async fn test_output_schema_emitted_on_2025_06_18_tools_list() {
 async fn test_output_schema_omitted_on_2025_03_26_tools_list() {
     let (router, sessions) = make_router_with_structured_handler();
     let session_id = sessions.create();
-    sessions.set_protocol_version(&session_id, "2025-03-26");
+    let _ = sessions.set_protocol_version(&session_id, "2025-03-26");
 
     let server = TestServer::new(router);
     let resp = server
@@ -367,7 +367,7 @@ async fn test_output_schema_omitted_on_2025_03_26_tools_list() {
 async fn test_structured_content_emitted_on_2025_06_18_call() {
     let (router, sessions) = make_router_with_structured_handler();
     let session_id = sessions.create();
-    sessions.set_protocol_version(&session_id, "2025-06-18");
+    let _ = sessions.set_protocol_version(&session_id, "2025-06-18");
 
     let server = TestServer::new(router);
     let resp = server
@@ -408,7 +408,7 @@ async fn test_structured_content_emitted_on_2025_06_18_call() {
 async fn test_structured_content_omitted_on_2025_03_26_call() {
     let (router, sessions) = make_router_with_structured_handler();
     let session_id = sessions.create();
-    sessions.set_protocol_version(&session_id, "2025-03-26");
+    let _ = sessions.set_protocol_version(&session_id, "2025-03-26");
 
     let server = TestServer::new(router);
     let resp = server
@@ -445,7 +445,7 @@ async fn test_structured_content_omitted_on_2025_03_26_call() {
 async fn test_structured_content_omitted_for_string_output() {
     let (router, sessions) = make_router_with_structured_handler();
     let session_id = sessions.create();
-    sessions.set_protocol_version(&session_id, "2025-06-18");
+    let _ = sessions.set_protocol_version(&session_id, "2025-06-18");
 
     let server = TestServer::new(router);
     let resp = server
