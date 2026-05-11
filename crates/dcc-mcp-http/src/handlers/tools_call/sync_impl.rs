@@ -26,7 +26,7 @@ pub(super) async fn dispatch_sync_tool_call(
     let progress_reporter = ProgressReporter::new(
         progress_token.clone(),
         session_id.map(str::to_owned),
-        state.sessions.clone(),
+        state.server.sessions.clone(),
         request_id.clone().unwrap_or_default(),
     );
     let tracked_job_id = register_sync_job_tracking(
@@ -57,7 +57,7 @@ pub(super) async fn dispatch_sync_tool_call(
     .await;
 
     if let Some(ref rid) = request_id {
-        state.in_flight.remove(rid);
+        state.server.in_flight.remove(rid);
     }
     update_tracked_job(state, tracked_job_id.as_deref(), &dispatch_outcome);
 
@@ -107,7 +107,7 @@ fn log_tool_call_received(
 ) {
     if let Some(session) = session_id {
         notify_message(
-            &state.sessions,
+            &state.server.sessions,
             session,
             SessionLogMessage {
                 level: SessionLogLevel::Debug,
@@ -131,16 +131,17 @@ fn register_sync_job_tracking(
 ) -> Option<String> {
     let tracking_session = session_id.map(str::to_owned);
     let session = tracking_session.as_deref()?;
-    if progress_token.is_none() && !state.job_notifier.job_updates_enabled() {
+    if progress_token.is_none() && !state.server.job_notifier.job_updates_enabled() {
         return None;
     }
-    state.job_notifier.subscribe_session(session);
-    let handle = state.jobs.create(tool_name.to_string());
+    state.server.job_notifier.subscribe_session(session);
+    let handle = state.server.jobs.create(tool_name.to_string());
     let job_id = handle.read().id.clone();
     state
+        .server
         .job_notifier
         .register_job(&job_id, session, progress_token);
-    state.jobs.start(&job_id);
+    state.server.jobs.start(&job_id);
     Some(job_id)
 }
 
@@ -153,7 +154,7 @@ fn register_in_flight(
 ) {
     if let Some(rid) = request_id {
         let entry = InFlightEntry::new(cancel_token, progress_reporter);
-        state.in_flight.insert(rid.clone(), entry);
+        state.server.in_flight.insert(rid.clone(), entry);
         tracing::debug!(
             request_id = %rid,
             has_progress_token,
@@ -172,6 +173,7 @@ fn early_cancelled_response(
     };
 
     let already_cancelled = state
+        .server
         .cancelled_requests
         .get(rid)
         .is_some_and(|timestamp| timestamp.elapsed() < CANCELLED_REQUEST_TTL);
@@ -179,8 +181,8 @@ fn early_cancelled_response(
         return Ok(None);
     }
 
-    state.in_flight.remove(rid);
-    state.cancelled_requests.remove(rid);
+    state.server.in_flight.remove(rid);
+    state.server.cancelled_requests.remove(rid);
     tracing::info!(request_id = %rid, "request cancelled before dispatch");
     Ok(Some(cancelled_response(state, req, rid, true)?))
 }
@@ -197,7 +199,7 @@ async fn execute_sync_dispatch(
     // even when we have one, or they fight `Main` tools for the same
     // single-slot queue. See `super::use_main_thread_route` for the shared
     // decision between sync and async paths.
-    let executor_present = state.executor.is_some();
+    let executor_present = state.server.executor.is_some();
     let on_main = super::use_main_thread_route(thread_affinity, executor_present);
 
     if matches!(thread_affinity, dcc_mcp_models::ThreadAffinity::Main) && !executor_present {
@@ -210,6 +212,7 @@ async fn execute_sync_dispatch(
 
     if on_main {
         let executor = state
+            .server
             .executor
             .as_ref()
             .expect("executor presence gated by use_main_thread_route");
@@ -233,7 +236,7 @@ async fn run_on_main_thread(
     call_params: Value,
     cancel_token: CancelToken,
 ) -> Result<Value, String> {
-    let dispatcher = state.dispatcher.clone();
+    let dispatcher = state.server.dispatcher.clone();
     executor
         .execute(Box::new(move || {
             if cancel_token.is_cancelled() {
@@ -259,7 +262,7 @@ async fn run_on_worker(
     call_params: Value,
     cancel_token: CancelToken,
 ) -> Result<Value, String> {
-    let dispatcher = state.dispatcher.clone();
+    let dispatcher = state.server.dispatcher.clone();
     let dispatch_cancel = cancel_token.clone();
     let dispatch_fut = tokio::task::spawn_blocking(move || {
         if dispatch_cancel.is_cancelled() {
@@ -304,13 +307,13 @@ fn update_tracked_job(
     };
     match dispatch_outcome {
         Ok(output) => {
-            state.jobs.complete(job_id, output.clone());
+            state.server.jobs.complete(job_id, output.clone());
         }
         Err(msg) if msg == "CANCELLED" => {
-            state.jobs.cancel(job_id);
+            state.server.jobs.cancel(job_id);
         }
         Err(msg) => {
-            state.jobs.fail(job_id, msg.clone());
+            state.server.jobs.fail(job_id, msg.clone());
         }
     }
 }
@@ -328,7 +331,7 @@ fn build_call_result(
             let rid = request_id.as_deref().unwrap_or("unknown");
             tracing::info!(request_id = %rid, "tool call cancelled cooperatively");
             if let Some(request_id) = request_id {
-                state.cancelled_requests.remove(request_id);
+                state.server.cancelled_requests.remove(request_id);
             }
             Ok(None)
         }
@@ -347,7 +350,7 @@ fn success_result(state: &AppState, session_id: Option<&str>, output: Value) -> 
     };
     let mut content = vec![protocol::ToolContent::Text { text }];
     let is_2025_06_18 = session_id
-        .and_then(|sid| state.sessions.get_protocol_version(sid))
+        .and_then(|sid| state.server.sessions.get_protocol_version(sid))
         .as_deref()
         == Some("2025-06-18");
 
@@ -393,7 +396,7 @@ fn error_result(
 ) -> CallToolResult {
     if let Some(session) = session_id {
         notify_message(
-            &state.sessions,
+            &state.server.sessions,
             session,
             SessionLogMessage {
                 level: SessionLogLevel::Error,
@@ -421,6 +424,7 @@ fn error_result(
 
     if let (Some(session), Some(request_id)) = (session_id, request_id.as_deref()) {
         let log_tail = state
+            .server
             .sessions
             .tail_logs_for_request(session, request_id, 20);
         if !log_tail.is_empty() {
@@ -448,6 +452,7 @@ fn suppress_cancelled_result(
     };
 
     let cancelled = state
+        .server
         .cancelled_requests
         .remove(rid)
         .is_some_and(|(_, recorded_at)| recorded_at.elapsed() < CANCELLED_REQUEST_TTL);
@@ -477,7 +482,7 @@ fn cancelled_response(
     before_dispatch: bool,
 ) -> Result<JsonRpcResponse, HttpError> {
     if !before_dispatch {
-        state.cancelled_requests.remove(request_id);
+        state.server.cancelled_requests.remove(request_id);
     }
     let message = if before_dispatch {
         format!("Request {request_id} was cancelled before dispatch.")

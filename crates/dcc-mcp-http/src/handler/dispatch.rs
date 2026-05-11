@@ -28,7 +28,7 @@ pub(crate) async fn dispatch_request(
 ) -> Result<JsonRpcResponse, HttpError> {
     // Refresh session TTL on every request so active sessions are not evicted.
     if let Some(id) = session_id {
-        state.sessions.touch(id);
+        state.server.sessions.touch(id);
     }
     // Pluggable method router (#492). Built-ins are pre-registered by
     // `AppState::default_method_router`; embedders may add custom
@@ -43,11 +43,11 @@ pub(crate) async fn handle_initialize(
 ) -> Result<JsonRpcResponse, HttpError> {
     // Create or mark session as initialized
     let sid = if let Some(id) = session_id {
-        state.sessions.mark_initialized(id);
+        state.server.sessions.mark_initialized(id);
         id.to_owned()
     } else {
-        let id = state.sessions.create();
-        state.sessions.mark_initialized(&id);
+        let id = state.server.sessions.create();
+        state.server.sessions.mark_initialized(&id);
         id
     };
 
@@ -61,7 +61,7 @@ pub(crate) async fn handle_initialize(
     let negotiated = negotiate_protocol_version(client_version);
 
     // Store the negotiated version on the session for later handlers.
-    state.sessions.set_protocol_version(&sid, negotiated);
+    state.server.sessions.set_protocol_version(&sid, negotiated);
 
     // Negotiate vendored delta-tools capability.
     let client_wants_delta = req
@@ -74,6 +74,7 @@ pub(crate) async fn handle_initialize(
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
     state
+        .server
         .sessions
         .set_supports_delta_tools(&sid, client_wants_delta);
 
@@ -85,10 +86,11 @@ pub(crate) async fn handle_initialize(
         .and_then(|c| c.get("roots"))
         .is_some();
     state
+        .server
         .sessions
         .set_supports_roots(&sid, client_supports_roots);
     if client_supports_roots {
-        let sessions = state.sessions.clone();
+        let sessions = state.server.sessions.clone();
         let sid_owned = sid.clone();
         tokio::spawn(async move {
             let _ = refresh_roots_cache_for_session(&sessions, &sid_owned).await;
@@ -107,7 +109,7 @@ pub(crate) async fn handle_initialize(
         None
     };
 
-    let resources_cap = if state.enable_resources {
+    let resources_cap = if state.server.enable_resources {
         Some(ResourcesCapability {
             subscribe: true,
             list_changed: true,
@@ -116,7 +118,7 @@ pub(crate) async fn handle_initialize(
         None
     };
 
-    let prompts_cap = if state.enable_prompts {
+    let prompts_cap = if state.server.enable_prompts {
         Some(PromptsCapability { list_changed: true })
     } else {
         None
@@ -133,8 +135,8 @@ pub(crate) async fn handle_initialize(
             experimental: experimental_caps,
         },
         server_info: ServerInfo {
-            name: state.server_name.clone(),
-            version: state.server_version.clone(),
+            name: state.server.server_name.clone(),
+            version: state.server.server_version.clone(),
         },
         instructions: Some(
             "Search skills with search_skills(query), load with load_skill(name). See get_skill_info or tools/list for details."
@@ -168,13 +170,13 @@ pub(crate) async fn handle_tools_list(
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
 
-    let current_gen = state.current_registry_generation();
+    let current_gen = state.server.current_registry_generation();
 
     // ── Fast path: return cached snapshot if available and still valid ──
-    if state.enable_tool_cache
+    if state.server.enable_tool_cache
         && !force_refresh
         && let Some(sid) = session_id
-        && let Some(snapshot) = state.sessions.get_tool_list_snapshot(sid)
+        && let Some(snapshot) = state.server.sessions.get_tool_list_snapshot(sid)
         && snapshot.generation == current_gen
     {
         // Cache hit — apply cursor pagination on the cached list
@@ -219,7 +221,7 @@ pub(crate) async fn handle_tools_list(
     //     let agents drive an arbitrarily large action catalog without paging
     //     through every skill's full schema. Opt-in via
     //     `McpHttpConfig::lazy_actions`.
-    if state.lazy_actions {
+    if state.server.lazy_actions {
         tools.extend(build_lazy_action_tools());
     }
 
@@ -227,19 +229,20 @@ pub(crate) async fn handle_tools_list(
     // 2025-03-26 we strip it so compliant clients never see a field they
     // cannot process.
     let include_output_schema = session_id
-        .and_then(|sid| state.sessions.get_protocol_version(sid))
+        .and_then(|sid| state.server.sessions.get_protocol_version(sid))
         .as_deref()
         == Some("2025-06-18");
 
     // 2. Loaded skill tools — full definitions from ToolRegistry.
     //    Tools in inactive groups are collapsed into one ``__group__<name>``
     //    stub per group to keep ``tools/list`` compact (progressive exposure).
-    let actions = state.registry.list_actions(None);
+    let actions = state.server.registry.list_actions(None);
 
     // #307 — decide which actions can publish under their **bare name** on
     // this instance. `bare_eligible` contains `(skill, action)` tuples for
     // every action whose bare name is unique across loaded skills.
-    let bare_eligible: std::collections::HashSet<(String, String)> = if state.bare_tool_names {
+    let bare_eligible: std::collections::HashSet<(String, String)> = if state.server.bare_tool_names
+    {
         let inputs: Vec<dcc_mcp_gateway::namespace::BareNameInput<'_>> = actions
             .iter()
             .filter(|m| m.enabled)
@@ -265,7 +268,7 @@ pub(crate) async fn handle_tools_list(
                 meta,
                 include_output_schema,
                 &bare_eligible,
-                state.declared_capabilities.as_ref(),
+                state.server.declared_capabilities.as_ref(),
             ));
         } else if !meta.group.is_empty() {
             inactive_groups
@@ -283,7 +286,7 @@ pub(crate) async fn handle_tools_list(
     //    without flooding the context with full input schemas.
     //    Format: name="__skill__<skill_name>", description summarises tools,
     //    input_schema is a minimal passthrough (use load_skill to get full tools).
-    let unloaded = state.catalog.list_skills(Some("unloaded"));
+    let unloaded = state.server.catalog.list_skills(Some("unloaded"));
     for summary in &unloaded {
         tools.push(build_skill_stub(summary));
     }
@@ -291,7 +294,7 @@ pub(crate) async fn handle_tools_list(
     let total = tools.len();
 
     // ── Store the snapshot for future cache hits (issue #438) ──
-    if state.enable_tool_cache
+    if state.server.enable_tool_cache
         && let Some(sid) = session_id
     {
         let snapshot = crate::session::ToolListSnapshot {
@@ -299,7 +302,7 @@ pub(crate) async fn handle_tools_list(
             generation: current_gen,
             total,
         };
-        state.sessions.set_tool_list_snapshot(sid, snapshot);
+        state.server.sessions.set_tool_list_snapshot(sid, snapshot);
     }
 
     // 4. Session-scoped dynamic tools (issue #462).
@@ -307,7 +310,7 @@ pub(crate) async fn handle_tools_list(
     //    they are session-specific and may change independently of the
     //    registry generation counter.
     if let Some(sid) = session_id {
-        let dynamic = state.sessions.dynamic_tools_for_list(sid);
+        let dynamic = state.server.sessions.dynamic_tools_for_list(sid);
         tools.extend(dynamic);
     }
 

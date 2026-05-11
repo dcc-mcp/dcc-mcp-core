@@ -55,7 +55,7 @@ pub(super) async fn resolve_tool_call(
 
     let call_params = params.arguments.clone().unwrap_or(json!({}));
     let resolved_name = resolve_action_name(state, &tool_name);
-    let action_meta = match state.registry.get_action(&resolved_name, None) {
+    let action_meta = match state.server.registry.get_action(&resolved_name, None) {
         Some(meta) => meta,
         None => {
             let envelope = DccMcpError::new(
@@ -114,13 +114,13 @@ async fn route_core_tool(
         "register_tool" => Some(handle_register_tool_call(state, req, session_id, params)?),
         "deregister_tool" => Some(handle_deregister_tool_call(state, req, session_id, params)?),
         "list_dynamic_tools" => Some(handle_list_dynamic_tools_call(state, req, session_id)?),
-        "list_actions" if state.lazy_actions => {
+        "list_actions" if state.server.lazy_actions => {
             Some(handle_list_actions(state, req, params).await?)
         }
-        "describe_action" if state.lazy_actions => {
+        "describe_action" if state.server.lazy_actions => {
             Some(handle_describe_action(state, req, params, session_id).await?)
         }
-        "call_action" if state.lazy_actions => {
+        "call_action" if state.server.lazy_actions => {
             Some(handle_call_action(state, req, params, session_id).await?)
         }
         _ => None,
@@ -168,18 +168,19 @@ fn handle_stub_tool(
 }
 
 fn resolve_action_name(state: &AppState, tool_name: &str) -> String {
-    if state.registry.get_action(tool_name, None).is_some() {
+    if state.server.registry.get_action(tool_name, None).is_some() {
         return tool_name.to_string();
     }
 
     if let Some((skill_part, bare_tool)) = decode_skill_tool_name(tool_name) {
         let matched = state
+            .server
             .registry
             .list_actions_by_skill(skill_part)
             .into_iter()
             .find(|m| extract_bare_tool_name(skill_part, &m.name) == bare_tool);
         if let Some(m) = matched {
-            if state.bare_tool_names {
+            if state.server.bare_tool_names {
                 dcc_mcp_gateway::namespace::warn_legacy_prefixed_once(tool_name);
             }
             return m.name;
@@ -187,14 +188,19 @@ fn resolve_action_name(state: &AppState, tool_name: &str) -> String {
         return tool_name.to_string();
     }
 
-    let matched = state.registry.list_actions(None).into_iter().find(|m| {
-        m.skill_name
-            .as_deref()
-            .map(|skill_name| extract_bare_tool_name(skill_name, &m.name) == tool_name)
-            .unwrap_or(false)
-    });
+    let matched = state
+        .server
+        .registry
+        .list_actions(None)
+        .into_iter()
+        .find(|m| {
+            m.skill_name
+                .as_deref()
+                .map(|skill_name| extract_bare_tool_name(skill_name, &m.name) == tool_name)
+                .unwrap_or(false)
+        });
     if let Some(meta) = matched {
-        if !state.bare_tool_names {
+        if !state.server.bare_tool_names {
             let canonical = skill_tool_name(meta.skill_name.as_deref().unwrap_or(""), &meta.name)
                 .unwrap_or_else(|| meta.name.clone());
             tracing::warn!(bare_name=%tool_name, "Deprecated bare name -- use {canonical}.");
@@ -224,6 +230,7 @@ fn route_dynamic_tool_call(
 
     // Fetch the ToolSpec for this tool from the session's registry.
     let spec: Option<crate::dynamic_tools::ToolSpec> = state
+        .server
         .sessions
         .with_dynamic_tools_mut(sid, |dyn_tools| {
             dyn_tools.get(tool_name).map(|e| e.spec.clone())
@@ -263,7 +270,7 @@ fn execute_dynamic_tool_code(
 ) -> Value {
     let wrapper_script = build_execution_wrapper(&spec.name, &spec.code, &call_args);
 
-    if state.executor.is_none() {
+    if state.server.executor.is_none() {
         // No DCC executor wired — return the generated script so the caller
         // can see what would be executed. Useful in testing / pure-HTTP mode.
         return json!({
@@ -343,9 +350,12 @@ fn handle_register_tool_call(
         }
     };
 
-    let result = state.sessions.with_dynamic_tools_mut(sid, |dyn_tools| {
-        crate::dynamic_tools::handle_register_tool(dyn_tools, &call_args)
-    });
+    let result = state
+        .server
+        .sessions
+        .with_dynamic_tools_mut(sid, |dyn_tools| {
+            crate::dynamic_tools::handle_register_tool(dyn_tools, &call_args)
+        });
 
     let result_value = result.unwrap_or_else(|| {
         json!({
@@ -378,9 +388,12 @@ fn handle_deregister_tool_call(
         }
     };
 
-    let result = state.sessions.with_dynamic_tools_mut(sid, |dyn_tools| {
-        crate::dynamic_tools::handle_deregister_tool(dyn_tools, &call_args)
-    });
+    let result = state
+        .server
+        .sessions
+        .with_dynamic_tools_mut(sid, |dyn_tools| {
+            crate::dynamic_tools::handle_deregister_tool(dyn_tools, &call_args)
+        });
 
     let result_value = result.unwrap_or_else(|| {
         json!({
@@ -411,9 +424,12 @@ fn handle_list_dynamic_tools_call(
         }
     };
 
-    let result = state.sessions.with_dynamic_tools_mut(sid, |dyn_tools| {
-        crate::dynamic_tools::handle_list_dynamic_tools(dyn_tools)
-    });
+    let result = state
+        .server
+        .sessions
+        .with_dynamic_tools_mut(sid, |dyn_tools| {
+            crate::dynamic_tools::handle_list_dynamic_tools(dyn_tools)
+        });
 
     let result_value = result.unwrap_or_else(|| {
         json!({
@@ -434,7 +450,7 @@ fn capability_gate(
 ) -> Option<JsonRpcResponse> {
     let missing = missing_capabilities(
         &action_meta.required_capabilities,
-        state.declared_capabilities.as_ref(),
+        state.server.declared_capabilities.as_ref(),
     );
     if missing.is_empty() {
         return None;
@@ -452,7 +468,7 @@ fn capability_gate(
         Some(serde_json::json!({
             "tool": resolved_name,
             "required_capabilities": action_meta.required_capabilities,
-            "declared_capabilities": state.declared_capabilities.as_ref(),
+            "declared_capabilities": state.server.declared_capabilities.as_ref(),
             "missing_capabilities": missing,
         })),
     ))

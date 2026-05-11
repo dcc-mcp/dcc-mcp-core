@@ -77,12 +77,12 @@ async fn custom_method_is_dispatched() {
 
 /// `resources/list` returns method-not-found when the capability is
 /// disabled — matches the previous fall-through behaviour where the
-/// dispatch `match` arm was guarded by `if state.enable_resources`.
+/// dispatch `match` arm was guarded by `if state.server.enable_resources`.
 #[tokio::test]
 async fn resources_disabled_returns_method_not_found() {
     use axum::{Router, routing};
     let mut state = make_app_state();
-    state.enable_resources = false;
+    state.server.enable_resources = false;
     let router = Router::new()
         .route(
             "/mcp",

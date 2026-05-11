@@ -70,14 +70,16 @@ pub async fn test_jobs_get_status_returns_full_envelope_for_terminal_job() {
     use crate::job::JobProgress;
 
     let state = make_app_state();
-    let parent = state.jobs.create("workflow.run");
+    let parent = state.server.jobs.create("workflow.run");
     let parent_id = parent.read().id.clone();
     let child = state
+        .server
         .jobs
         .create_with_parent("workflow.step", Some(parent_id.clone()));
     let child_id = child.read().id.clone();
-    state.jobs.start(&child_id).unwrap();
+    state.server.jobs.start(&child_id).unwrap();
     state
+        .server
         .jobs
         .update_progress(
             &child_id,
@@ -89,6 +91,7 @@ pub async fn test_jobs_get_status_returns_full_envelope_for_terminal_job() {
         )
         .unwrap();
     state
+        .server
         .jobs
         .complete(&child_id, json!({"ok": true, "value": 42}))
         .unwrap();
@@ -140,10 +143,10 @@ pub async fn test_jobs_get_status_returns_full_envelope_for_terminal_job() {
 #[tokio::test]
 pub async fn test_jobs_get_status_include_result_false_omits_result() {
     let state = make_app_state();
-    let job = state.jobs.create("t.x");
+    let job = state.server.jobs.create("t.x");
     let id = job.read().id.clone();
-    state.jobs.start(&id).unwrap();
-    state.jobs.complete(&id, json!({"v": 1})).unwrap();
+    state.server.jobs.start(&id).unwrap();
+    state.server.jobs.complete(&id, json!({"v": 1})).unwrap();
 
     let app = axum::Router::new()
         .route(
@@ -184,9 +187,9 @@ pub async fn test_jobs_get_status_include_result_false_omits_result() {
 #[tokio::test]
 pub async fn test_jobs_get_status_running_job_has_no_result_yet() {
     let state = make_app_state();
-    let job = state.jobs.create("t.slow");
+    let job = state.server.jobs.create("t.slow");
     let id = job.read().id.clone();
-    state.jobs.start(&id).unwrap();
+    state.server.jobs.start(&id).unwrap();
 
     let app = axum::Router::new()
         .route(

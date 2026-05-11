@@ -20,8 +20,12 @@ dcc-mcp-http-types = { path = "../dcc-mcp-http-types" }
 dcc-mcp-jsonrpc = { path = "../dcc-mcp-jsonrpc" }
 dcc-mcp-job = { path = "../dcc-mcp-job" }
 dcc-mcp-naming = { path = "../dcc-mcp-naming" }
+dcc-mcp-actions = { path = "../dcc-mcp-actions" }
+dcc-mcp-skills = { path = "../dcc-mcp-skills" }
+dcc-mcp-skill-rest = { path = "../dcc-mcp-skill-rest" }
 dcc-mcp-host = { path = "../dcc-mcp-host" }
 dcc-mcp-workflow = { path = "../dcc-mcp-workflow" }
+dcc-mcp-telemetry = { path = "../dcc-mcp-telemetry", optional = true }
 
 # Workspace shared
 serde = { workspace = true }
@@ -37,3 +41,7 @@ workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
+
+[features]
+default = []
+prometheus = ["dep:dcc-mcp-telemetry", "dcc-mcp-telemetry/prometheus"]

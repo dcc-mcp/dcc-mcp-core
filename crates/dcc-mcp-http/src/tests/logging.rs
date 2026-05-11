@@ -5,7 +5,7 @@ use super::*;
 #[tokio::test]
 pub async fn test_logging_set_level_updates_session_threshold() {
     let state = make_app_state();
-    let sessions = state.sessions.clone();
+    let sessions = state.server.sessions.clone();
     let server = TestServer::new(
         axum::Router::new()
             .route(
@@ -63,7 +63,7 @@ pub async fn test_logging_set_level_updates_session_threshold() {
 #[tokio::test]
 pub async fn test_logging_notifications_respect_session_threshold() {
     let state = make_app_state();
-    let sessions = state.sessions.clone();
+    let sessions = state.server.sessions.clone();
     let sid = sessions.create();
     sessions.set_protocol_version(&sid, "2025-06-18");
     let mut rx = sessions.subscribe(&sid).expect("session receiver");
@@ -179,7 +179,7 @@ pub async fn test_logging_notifications_respect_session_threshold() {
 #[tokio::test]
 pub async fn test_tools_call_error_includes_log_tail_for_request() {
     let state = make_app_state();
-    let sessions = state.sessions.clone();
+    let sessions = state.server.sessions.clone();
     let sid = sessions.create();
     sessions.set_protocol_version(&sid, "2025-06-18");
 

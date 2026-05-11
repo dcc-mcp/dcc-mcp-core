@@ -94,7 +94,7 @@ stub-gen = ["python-bindings", "dep:pyo3-stub-gen", "dep:pyo3-stub-gen-derive"]
 # Enable the Prometheus `/metrics` endpoint (issue #331). Pulls in the
 # matching `prometheus` feature of dcc-mcp-telemetry. Off by default so
 # zero Prometheus code compiles into the wheel when not requested.
-prometheus = ["dep:dcc-mcp-telemetry", "dcc-mcp-telemetry/prometheus", "dcc-mcp-gateway/prometheus"]
+prometheus = ["dep:dcc-mcp-telemetry", "dcc-mcp-telemetry/prometheus", "dcc-mcp-gateway/prometheus", "dcc-mcp-http-server/prometheus"]
 # Persist tracked Jobs in a SQLite database so they survive a server
 # restart (issue #328). Pulls in the bundled `rusqlite` driver via the
 # extracted `dcc-mcp-job` crate. Off by default — the wheel's default

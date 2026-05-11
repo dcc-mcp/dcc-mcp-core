@@ -19,23 +19,24 @@ pub async fn handle_activate_tool_group(
         ));
     }
 
-    let changed = state.catalog.activate_group(group);
-    state.bump_registry_generation(); // #438
+    let changed = state.server.catalog.activate_group(group);
+    state.server.bump_registry_generation(); // #438
     if let Some(sid) = session_id {
         let added: Vec<String> = state
+            .server
             .registry
             .list_actions_in_group(group)
             .iter()
             .map(|m| m.name.clone())
             .collect();
         let removed = vec![format!("__group__{group}")];
-        notify_tools_changed(&state.sessions, sid, &added, &removed);
+        notify_tools_changed(&state.server.sessions, sid, &added, &removed);
     }
     let payload = json!({
         "success": true,
         "group": group,
         "changed": changed,
-        "active_groups": state.catalog.active_groups(),
+        "active_groups": state.server.catalog.active_groups(),
     });
     Ok(JsonRpcResponse::success(
         req.id.clone(),
@@ -63,23 +64,24 @@ pub async fn handle_deactivate_tool_group(
         ));
     }
 
-    let changed = state.catalog.deactivate_group(group);
-    state.bump_registry_generation(); // #438
+    let changed = state.server.catalog.deactivate_group(group);
+    state.server.bump_registry_generation(); // #438
     if let Some(sid) = session_id {
         let removed: Vec<String> = state
+            .server
             .registry
             .list_actions_in_group(group)
             .iter()
             .map(|m| m.name.clone())
             .collect();
         let added = vec![format!("__group__{group}")];
-        notify_tools_changed(&state.sessions, sid, &added, &removed);
+        notify_tools_changed(&state.server.sessions, sid, &added, &removed);
     }
     let payload = json!({
         "success": true,
         "group": group,
         "changed": changed,
-        "active_groups": state.catalog.active_groups(),
+        "active_groups": state.server.catalog.active_groups(),
     });
     Ok(JsonRpcResponse::success(
         req.id.clone(),
@@ -160,7 +162,7 @@ pub async fn handle_search_tools(
 
     // ── 1. Loaded-tool hits ───────────────────────────────────────────
     let mut tool_hits: Vec<serde_json::Value> = Vec::new();
-    for meta in state.registry.list_actions(dcc) {
+    for meta in state.server.registry.list_actions(dcc) {
         if !include_disabled && !meta.enabled {
             continue;
         }
@@ -211,7 +213,7 @@ pub async fn handle_search_tools(
     if include_stubs && tool_hits.len() < limit {
         // Skill stubs: every non-loaded skill whose metadata matches the
         // query gets surfaced as `__skill__<name>`.
-        for summary in state.catalog.list_skills(Some("unloaded")) {
+        for summary in state.server.catalog.list_skills(Some("unloaded")) {
             if let Some(filter) = dcc
                 && !summary.dcc.eq_ignore_ascii_case(filter)
             {
@@ -253,7 +255,7 @@ pub async fn handle_search_tools(
         if tool_hits.len() < limit {
             let mut seen_groups: std::collections::HashSet<String> =
                 std::collections::HashSet::new();
-            for (skill, group, active) in state.catalog.list_groups() {
+            for (skill, group, active) in state.server.catalog.list_groups() {
                 if active {
                     continue;
                 }
@@ -287,14 +289,16 @@ pub async fn handle_search_tools(
     // ── 2. Unloaded-skill candidates ──────────────────────────────────
     let mut skill_candidates: Vec<serde_json::Value> = Vec::new();
     if include_unloaded_skills {
-        let candidates = state
-            .catalog
-            .search_skills(Some(query_raw), &[], dcc, None, Some(limit));
+        let candidates =
+            state
+                .server
+                .catalog
+                .search_skills(Some(query_raw), &[], dcc, None, Some(limit));
         for summary in candidates {
             if summary.loaded {
                 continue; // already surfaced through registry hits above
             }
-            let detail = state.catalog.get_skill_info(&summary.name);
+            let detail = state.server.catalog.get_skill_info(&summary.name);
             let matching_tools = detail
                 .as_ref()
                 .map(|d| {
@@ -420,7 +424,7 @@ pub async fn handle_jobs_get_status(
         );
     }
 
-    let Some(entry) = state.jobs.get(job_id) else {
+    let Some(entry) = state.server.jobs.get(job_id) else {
         return Ok(JsonRpcResponse::success(
             req.id.clone(),
             serde_json::to_value(CallToolResult::error(format!(
@@ -522,7 +526,7 @@ pub async fn handle_jobs_cleanup(
         .and_then(|a| a.get("older_than_hours"))
         .and_then(Value::as_u64)
         .unwrap_or(24);
-    let removed = state.jobs.cleanup_older_than_hours(older_than_hours);
+    let removed = state.server.jobs.cleanup_older_than_hours(older_than_hours);
     let envelope = serde_json::json!({
         "removed": removed,
         "older_than_hours": older_than_hours,

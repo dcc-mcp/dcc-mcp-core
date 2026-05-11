@@ -62,7 +62,7 @@ pub async fn handle_tools_call(
     let result = handle_tools_call_inner(state, req, session_id).await;
 
     #[cfg(feature = "prometheus")]
-    if let Some(exporter) = state.prometheus.as_ref() {
+    if let Some(exporter) = state.server.prometheus.as_ref() {
         let tool = prom_tool_name.as_deref().unwrap_or("<unknown>");
         let status = match &result {
             Ok(resp) => {

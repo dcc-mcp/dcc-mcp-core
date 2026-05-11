@@ -187,7 +187,7 @@ pub async fn handle_get(State(state): State<AppState>, headers: HeaderMap) -> Re
         .map(str::to_owned);
 
     let rx: broadcast::Receiver<String> = if let Some(id) = &session_id {
-        match state.sessions.subscribe(id) {
+        match state.server.sessions.subscribe(id) {
             Some(rx) => rx,
             None => {
                 return json_error_response(
@@ -203,8 +203,8 @@ pub async fn handle_get(State(state): State<AppState>, headers: HeaderMap) -> Re
         // if the session was concurrently dropped between create() and
         // subscribe(); fall back to a 500 error rather than panicking so a
         // future SessionManager refactor cannot silently take down the server.
-        let id = state.sessions.create();
-        match state.sessions.subscribe(&id) {
+        let id = state.server.sessions.create();
+        match state.server.sessions.subscribe(&id) {
             Some(rx) => rx,
             None => {
                 return json_error_response(
@@ -246,8 +246,8 @@ pub async fn handle_delete(State(state): State<AppState>, headers: HeaderMap) ->
         .and_then(|v| v.to_str().ok());
 
     match session_id {
-        Some(id) if state.sessions.remove(id) => {
-            if state.enable_resources {
+        Some(id) if state.server.sessions.remove(id) => {
+            if state.server.enable_resources {
                 state.resources.drop_session(id);
             }
             StatusCode::NO_CONTENT

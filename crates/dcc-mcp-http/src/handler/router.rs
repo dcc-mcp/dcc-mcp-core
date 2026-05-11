@@ -11,8 +11,8 @@
 //! - **Open/closed**: adding a new MCP method no longer requires editing
 //!   the dispatch.
 //! - **Capability gating lives with the handler**, not the router. Each
-//!   built-in wrapper checks `state.enable_resources` /
-//!   `state.enable_prompts` itself and surfaces `method_not_found` when
+//!   built-in wrapper checks `state.server.enable_resources` /
+//!   `state.server.enable_prompts` itself and surfaces `method_not_found` when
 //!   the capability is disabled — preserving the previous wire behaviour.
 //! - **Object-safe + dyn-compatible**: the trait returns a boxed future
 //!   so `Arc<dyn MethodHandler>` works on stable Rust without depending
