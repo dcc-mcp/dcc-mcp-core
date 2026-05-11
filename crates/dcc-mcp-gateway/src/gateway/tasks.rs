@@ -1,6 +1,12 @@
 use super::*;
 
-use dcc_mcp_transport::error::TransportResult;
+mod health;
+#[cfg(feature = "prometheus")]
+mod metrics;
+mod probe;
+
+use probe::probe_and_evict_dead_instances;
+pub(crate) use probe::self_probe_listener;
 
 /// Outcome of [`start_gateway_tasks`] for the ambient (shared-runtime) path.
 pub(crate) struct GatewayTasks {
@@ -608,229 +614,21 @@ pub(crate) async fn start_gateway_tasks(
     });
 
     // ── Periodic health-check task (issue #556) ───────────────────────────
-    // Probe every `health_check_interval_secs` (default 5 s, was 30 s — issue
-    // #854). TCP or HTTP liveness is checked against every registered backend.
-    // After `health_check_failures` consecutive failures (default 2) the
-    // backend is marked Unreachable; one more failure auto-deregisters it.
-    // Both values are also overridable at runtime via env vars:
-    //   DCC_MCP_GATEWAY_HEALTH_INTERVAL_SECS
-    //   DCC_MCP_GATEWAY_HEALTH_FAILURES
-    let effective_interval_secs = std::env::var("DCC_MCP_GATEWAY_HEALTH_INTERVAL_SECS")
-        .ok()
-        .and_then(|v| v.parse::<u64>().ok())
-        .unwrap_or(health_check_interval_secs);
-    let effective_failures = std::env::var("DCC_MCP_GATEWAY_HEALTH_FAILURES")
-        .ok()
-        .and_then(|v| v.parse::<u32>().ok())
-        .unwrap_or(health_check_failures);
-    let reg_health = registry.clone();
-    let health_http_client = http_client.clone();
-    let health_own_host = own_host.clone();
-    let health_own_port = own_port;
-    let health_event_log = contention_log.clone();
-    #[cfg(feature = "prometheus")]
-    let health_metrics = gateway_metrics.clone();
-    let health_check_handle = tokio::spawn(async move {
-        let mut interval = tokio::time::interval(Duration::from_secs(effective_interval_secs));
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        // failure_count keyed by "dcc_type:instance_id"
-        let mut failure_counts: std::collections::HashMap<String, u32> =
-            std::collections::HashMap::new();
-        loop {
-            interval.tick().await;
-            let entries = {
-                let r = reg_health.read().await;
-                r.list_all()
-                    .into_iter()
-                    .filter(|e| {
-                        e.dcc_type != GATEWAY_SENTINEL_DCC_TYPE
-                            && !is_own_instance(e, &health_own_host, health_own_port)
-                    })
-                    .collect::<Vec<_>>()
-            };
-
-            // -- Concurrent probe all backends in parallel (issue #854) ------
-            // Probing sequentially was fine at 30 s intervals but at 5 s
-            // intervals with N dead backends (each timing out at 5 s) the
-            // sequential loop would take N*5 s per round, stalling eviction.
-            // futures::future::join_all fires all probes concurrently; the
-            // result-processing loop below is purely in-memory, never blocks.
-            let probe_results: Vec<_> = {
-                let client = &health_http_client;
-                futures::future::join_all(entries.iter().map(|e| {
-                    let url = format!("http://{}:{}/mcp", e.host, e.port);
-                    async move {
-                        crate::gateway::backend_client::probe_mcp_readiness(
-                            client,
-                            &url,
-                            Duration::from_secs(5),
-                        )
-                        .await
-                    }
-                }))
-                .await
-            };
-
-            for (entry, outcome) in entries.iter().zip(probe_results) {
-                let key = format!("{}:{}", entry.dcc_type, entry.instance_id);
-                let id8 = entry.instance_id.to_string()[..8].to_string();
-
-                // ── Ready ──────────────────────────────────────────────────
-                if outcome.is_ready() {
-                    let recovered_from_failure = failure_counts.remove(&key).is_some();
-                    let was_not_available = !matches!(
-                        entry.status,
-                        dcc_mcp_transport::discovery::types::ServiceStatus::Available,
-                    );
-                    if recovered_from_failure || was_not_available {
-                        let r = reg_health.read().await;
-                        let _ = r.update_status(
-                            &entry.key(),
-                            dcc_mcp_transport::discovery::types::ServiceStatus::Available,
-                        );
-                        tracing::info!(
-                            dcc_type = %entry.dcc_type,
-                            instance_id = %entry.instance_id,
-                            previous_status = %entry.status,
-                            "Readiness probe green — marking Available"
-                        );
-                    }
-                    // Only bump the Prometheus counter; do not flood the ring
-                    // buffer with a ready entry on every 5-second tick.
-                    #[cfg(feature = "prometheus")]
-                    health_metrics.inc_probe("ready");
-                    continue;
-                }
-
-                // ── Booting (alive but red) ──────────────────────────────────
-                // Issue #713: don't count a booting backend as a
-                // consecutive failure and don't deregister it. We
-                // just flip its status to Booting so list_dcc_instances
-                // and the aggregator can filter traffic away from it.
-                if outcome.is_alive() {
-                    if !matches!(
-                        entry.status,
-                        dcc_mcp_transport::discovery::types::ServiceStatus::Booting,
-                    ) {
-                        let r = reg_health.read().await;
-                        let _ = r.update_status(
-                            &entry.key(),
-                            dcc_mcp_transport::discovery::types::ServiceStatus::Booting,
-                        );
-                        tracing::info!(
-                            dcc_type = %entry.dcc_type,
-                            instance_id = %entry.instance_id,
-                            previous_status = %entry.status,
-                            "Backend booting (GET /v1/readyz red) — marking Booting without deregister"
-                        );
-                        crate::gateway::event_log::record_event(
-                            &health_event_log,
-                            #[cfg(feature = "prometheus")]
-                            &health_metrics,
-                            crate::gateway::event_log::EventKind::ProbeBooting,
-                            &entry.dcc_type,
-                            &id8,
-                            None,
-                        );
-                    }
-                    // Clear any prior consecutive-failure tally: the
-                    // backend is alive, just not ready yet.
-                    failure_counts.remove(&key);
-                    continue;
-                }
-
-                // ── Unreachable ────────────────────────────────────────────────
-                let count = {
-                    let c = failure_counts.entry(key.clone()).or_insert(0);
-                    *c += 1;
-                    *c
-                };
-                tracing::warn!(
-                    dcc_type = %entry.dcc_type,
-                    instance_id = %entry.instance_id,
-                    consecutive_failures = count,
-                    "Health check failed"
-                );
-
-                if count >= effective_failures {
-                    // Mark Unreachable so live_instances filters it out.
-                    let r = reg_health.read().await;
-                    let _ = r.update_status(
-                        &entry.key(),
-                        dcc_mcp_transport::discovery::types::ServiceStatus::Unreachable,
-                    );
-                    crate::gateway::event_log::record_event(
-                        &health_event_log,
-                        #[cfg(feature = "prometheus")]
-                        &health_metrics,
-                        crate::gateway::event_log::EventKind::ProbeUnreachable,
-                        &entry.dcc_type,
-                        &id8,
-                        Some(format!("{} consecutive failures", count)),
-                    );
-                }
-
-                if count > effective_failures {
-                    // Auto-deregister after one additional failure beyond the
-                    // unreachable threshold.
-                    let r = reg_health.read().await;
-                    let _ = r.deregister(&entry.key());
-                    failure_counts.remove(&key);
-                    tracing::info!(
-                        dcc_type = %entry.dcc_type,
-                        instance_id = %entry.instance_id,
-                        consecutive_failures = count,
-                        "Auto-deregistered after consecutive health-check failures"
-                    );
-                    crate::gateway::event_log::record_event(
-                        &health_event_log,
-                        #[cfg(feature = "prometheus")]
-                        &health_metrics,
-                        crate::gateway::event_log::EventKind::AutoDeregister,
-                        &entry.dcc_type,
-                        &id8,
-                        Some(format!("{} consecutive health-check failures", count)),
-                    );
-                }
-            }
-        }
-    });
+    let health_check_handle = health::spawn_health_check_task(
+        registry.clone(),
+        http_client.clone(),
+        own_host.clone(),
+        own_port,
+        contention_log.clone(),
+        #[cfg(feature = "prometheus")]
+        gateway_metrics.clone(),
+        health_check_interval_secs,
+        health_check_failures,
+    );
 
     // ── Prometheus metrics updater (issue #559) ───────────────────────────
     #[cfg(feature = "prometheus")]
-    let metrics_handle = {
-        let reg_metrics = registry.clone();
-        let stale_timeout_metrics = stale_timeout;
-        tokio::spawn(async move {
-            let exporter = dcc_mcp_telemetry::PrometheusExporter::new();
-            let mut interval = tokio::time::interval(Duration::from_secs(5));
-            loop {
-                interval.tick().await;
-                let r = reg_metrics.read().await;
-                let all = r.list_all();
-                let active = all
-                    .iter()
-                    .filter(|e| {
-                        e.dcc_type != GATEWAY_SENTINEL_DCC_TYPE
-                            && !e.is_stale(stale_timeout_metrics)
-                            && !matches!(
-                                e.status,
-                                dcc_mcp_transport::discovery::types::ServiceStatus::ShuttingDown
-                                    | dcc_mcp_transport::discovery::types::ServiceStatus::Unreachable
-                            )
-                    })
-                    .count() as i64;
-                let stale = all
-                    .iter()
-                    .filter(|e| {
-                        e.dcc_type != GATEWAY_SENTINEL_DCC_TYPE && e.is_stale(stale_timeout_metrics)
-                    })
-                    .count() as i64;
-                exporter.set_instances_total("active", active);
-                exporter.set_instances_total("stale", stale);
-            }
-        })
-    };
+    let metrics_handle = metrics::spawn_metrics_updater(registry.clone(), stale_timeout);
 
     // Combine all tasks under one abort handle.
     #[cfg(feature = "prometheus")]
@@ -896,84 +694,4 @@ pub(crate) async fn start_gateway_tasks(
         supervisor: combined,
         yield_tx,
     })
-}
-
-/// Verify that the gateway accept-loop is actually running by connecting to it.
-///
-/// Retries a small number of times with short back-off to give the Tokio
-/// runtime a chance to schedule the `axum::serve` task — necessary under
-/// PyO3-embedded hosts where workers are slow to pick up newly spawned tasks
-/// (issue #303).
-/// On gateway startup, probe every registered instance's TCP port and
-/// deregister any that are unreachable. Complements `prune_dead_pids`
-/// which only checks PID liveness — a process may be alive but its MCP
-/// listener already shut down (issue #556).
-pub(crate) async fn probe_and_evict_dead_instances(
-    registry: &FileRegistry,
-    stale_timeout: Duration,
-    own_host: &str,
-    own_port: u16,
-) -> TransportResult<usize> {
-    let entries: Vec<_> = registry
-        .list_all()
-        .into_iter()
-        .filter(|e| {
-            e.dcc_type != GATEWAY_SENTINEL_DCC_TYPE
-                && !e.is_stale(stale_timeout)
-                && !is_own_instance(e, own_host, own_port)
-        })
-        .collect();
-
-    let mut evicted = 0usize;
-    for entry in entries {
-        let addr = format!("{}:{}", entry.host, entry.port);
-        let reachable = tokio::time::timeout(
-            Duration::from_secs(3),
-            tokio::net::TcpStream::connect(&addr),
-        )
-        .await
-        .is_ok_and(|r| r.is_ok());
-
-        if !reachable {
-            registry.deregister(&entry.key())?;
-            evicted += 1;
-            tracing::info!(
-                dcc_type = %entry.dcc_type,
-                instance_id = %entry.instance_id,
-                addr = %addr,
-                "Startup probe: instance unreachable — deregistered"
-            );
-        }
-    }
-    Ok(evicted)
-}
-
-pub(crate) async fn self_probe_listener(addr: std::net::SocketAddr) -> Result<(), std::io::Error> {
-    const MAX_ATTEMPTS: u32 = 10;
-    const ATTEMPT_TIMEOUT: Duration = Duration::from_millis(200);
-    const BACKOFF: Duration = Duration::from_millis(100);
-
-    let mut last_err: Option<std::io::Error> = None;
-    for attempt in 1..=MAX_ATTEMPTS {
-        match tokio::time::timeout(ATTEMPT_TIMEOUT, tokio::net::TcpStream::connect(addr)).await {
-            Ok(Ok(_stream)) => {
-                tracing::debug!(addr = %addr, attempt, "Gateway self-probe succeeded");
-                return Ok(());
-            }
-            Ok(Err(e)) => {
-                tracing::debug!(addr = %addr, attempt, error = %e, "Gateway self-probe: connect error");
-                last_err = Some(e);
-            }
-            Err(_) => {
-                tracing::debug!(addr = %addr, attempt, "Gateway self-probe: connect timed out");
-                last_err = Some(std::io::Error::new(
-                    std::io::ErrorKind::TimedOut,
-                    "self-probe connect timed out",
-                ));
-            }
-        }
-        tokio::time::sleep(BACKOFF).await;
-    }
-
-    Err(last_err.unwrap_or_else(|| std::io::Error::other("self-probe failed with no error")))
 }
