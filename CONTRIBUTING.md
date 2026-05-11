@@ -107,9 +107,10 @@ crates/                      # Rust workspace crates (core logic)
 ├── dcc-mcp-shm/             # PyBufferPool, PySharedBuffer, LZ4 compression
 ├── dcc-mcp-capture/         # Capturer, cross-platform backends
 ├── dcc-mcp-usd/             # UsdStage, UsdPrim, scene info bridge
-├── dcc-mcp-http-types/      # Pure HTTP wire/config/value types
+├── dcc-mcp-http-types/      # Pure HTTP wire/config/value types, McpHttpConfig
 ├── dcc-mcp-http-server/     # Reusable HTTP runtime support
-├── dcc-mcp-http/            # Embedded MCP HTTP facade + Python bindings
+├── dcc-mcp-http-py/         # PyO3 binding boundary for HTTP APIs
+├── dcc-mcp-http/            # Embedded MCP HTTP facade + compatibility re-exports
 ├── dcc-mcp-gateway-core/    # Pure gateway domain/search/ranking types
 ├── dcc-mcp-gateway/         # Multi-DCC gateway app + dynamic wrappers
 ├── dcc-mcp-skill-rest/      # Per-DCC /v1/* REST skill API

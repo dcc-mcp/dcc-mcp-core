@@ -182,7 +182,7 @@ The historical god-crate `dcc-mcp-http` was decomposed into cohesive crates. New
 - **`dcc-mcp-http-types`** — pure HTTP wire/config/value types (`HttpError`, `JobConfig`, `InstanceConfig`, `TelemetryConfig`, `FeatureFlags`, prompt/resource/output/session values), re-exported by `dcc-mcp-http` for compatibility.
 - **`dcc-mcp-http-server`** — reusable runtime support for the embedded server (core tool builders, executor bridge, session state, in-flight cancellation/progress, notifications, workspace roots) without axum/PyO3.
 
-`dcc-mcp-http` remains the embedded MCP HTTP server facade (axum routes, server startup, config aggregate, Python bindings, resource/prompt registries) and depends on the extracted crates.
+`dcc-mcp-http` remains the embedded MCP HTTP server facade (axum routes, server startup, resource/prompt registries, gateway bootstrap, and compatibility re-exports) and depends on the extracted crates. New Rust code should import pure config/value types, including `McpHttpConfig`, from `dcc-mcp-http-types`; the PyO3 HTTP binding boundary lives in `dcc-mcp-http-py`.
 
 ```
 crates/
@@ -196,9 +196,10 @@ crates/
 ├── dcc-mcp-skill-rest/     # Per-DCC /v1/* REST skill API
 ├── dcc-mcp-gateway-core/   # Pure gateway domain/search/ranking types
 ├── dcc-mcp-gateway/        # Multi-DCC gateway app + dynamic wrappers
-├── dcc-mcp-http-types/     # Pure HTTP wire/config/value types
+├── dcc-mcp-http-types/     # Pure HTTP wire/config/value types, McpHttpConfig
 ├── dcc-mcp-http-server/    # Reusable HTTP runtime support
-├── dcc-mcp-http/           # Embedded MCP HTTP facade + Python bindings
+├── dcc-mcp-http-py/        # PyO3 binding boundary for HTTP APIs
+├── dcc-mcp-http/           # Embedded MCP HTTP facade + compatibility re-exports
 ├── dcc-mcp-server/         # Binary entry point and gateway runner
 ├── dcc-mcp-logging/        # File logging + retention helpers
 ├── dcc-mcp-paths/          # Platform cache/config/data path helpers
@@ -1078,4 +1079,4 @@ MCP resource `resources://gateway/events`: JSONL ring buffer, last 1000 contenti
 
 ### McpHttpConfig Sub-configs and HTTP type crates (#764 / #852)
 
-`McpHttpConfig` is a thin aggregate. Access via view methods: `.queue_config()` → `QueueConfig`, `.gateway_config()` → `HttpGatewayConfig`, `.session_config()` → `SessionConfig`, `.telemetry_config()` → `HttpTelemetryConfig`. Pure wire/config/value types that no longer need axum/PyO3 live in `dcc-mcp-http-types` and are re-exported from `dcc-mcp-http` for compatibility; reusable runtime support such as core tool builders, sessions, executors, in-flight request state, notifications, and workspace roots lives in `dcc-mcp-http-server`.
+`McpHttpConfig` is a thin aggregate in `dcc-mcp-http-types::config`. Access cohesive sub-configs through public fields: `.server`, `.instance`, `.session`, `.gateway`, `.queue`, `.telemetry`, `.features`, `.workflow`, and `.job`; compatibility accessors/builders remain available. Pure wire/config/value types that no longer need axum/PyO3 live in `dcc-mcp-http-types` and are re-exported from `dcc-mcp-http` for compatibility; reusable runtime support such as core tool builders, sessions, executors, in-flight request state, notifications, and workspace roots lives in `dcc-mcp-http-server`; the PyO3 HTTP binding boundary lives in `dcc-mcp-http-py`.
