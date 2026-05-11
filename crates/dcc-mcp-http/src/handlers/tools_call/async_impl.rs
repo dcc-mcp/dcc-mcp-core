@@ -32,7 +32,7 @@ pub(super) fn async_dispatch_config(
 
 /// Async job dispatch path for `tools/call` (issue #318).
 ///
-/// Creates a [`crate::job::Job`] via `state.jobs`, spawns the actual tool
+/// Creates a [`crate::job::Job`] via `state.server.jobs`, spawns the actual tool
 /// execution on Tokio, and returns immediately with a spec-compliant
 /// `CallToolResult` envelope.
 #[allow(clippy::too_many_arguments)]
@@ -47,6 +47,7 @@ pub async fn dispatch_async_job(
     thread_affinity: dcc_mcp_models::ThreadAffinity,
 ) -> Result<JsonRpcResponse, HttpError> {
     let job_handle = state
+        .server
         .jobs
         .create_with_parent(resolved_name.clone(), parent_job_id.clone());
     let (job_id, cancel_token) = {
@@ -55,8 +56,9 @@ pub async fn dispatch_async_job(
     };
 
     if let Some(session) = session_id {
-        state.job_notifier.subscribe_session(session);
+        state.server.job_notifier.subscribe_session(session);
         state
+            .server
             .job_notifier
             .register_job(&job_id, session, progress_token.clone());
     }
@@ -92,9 +94,9 @@ fn spawn_async_execution(
     call_params: Value,
     thread_affinity: dcc_mcp_models::ThreadAffinity,
 ) {
-    let jobs = Arc::clone(&state.jobs);
-    let dispatcher = Arc::clone(&state.dispatcher);
-    let executor = state.executor.clone();
+    let jobs = Arc::clone(&state.server.jobs);
+    let dispatcher = Arc::clone(&state.server.dispatcher);
+    let executor = state.server.executor.clone();
     let spawn_job_id = job_id.clone();
     let spawn_name = resolved_name.clone();
     let spawn_params = call_params;

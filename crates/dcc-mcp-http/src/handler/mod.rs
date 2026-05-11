@@ -32,11 +32,13 @@ pub use state::AppState;
 // Re-exports below are a facade for in-crate call sites — even when the
 // current source has no direct consumer, downstream modules and tests
 // reach these symbols through `crate::handler::*`.
+pub(crate) use dcc_mcp_http_server::{
+    CANCELLED_REQUEST_TTL, ELICITATION_TIMEOUT, ROOTS_REFRESH_TIMEOUT,
+};
 #[allow(unused_imports)]
 pub(crate) use dispatch::{dispatch_request, handle_initialize, handle_tools_list};
 #[allow(unused_imports)]
 pub(crate) use notifications::handle_response_message;
-pub(crate) use state::{CANCELLED_REQUEST_TTL, ELICITATION_TIMEOUT, ROOTS_REFRESH_TIMEOUT};
 
 // Re-export every `handlers::*` item into `crate::handler` so existing
 // call sites that use `crate::handler::handle_tools_call` etc. keep

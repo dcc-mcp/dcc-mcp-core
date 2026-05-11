@@ -37,29 +37,32 @@ fn make_app_state_with_artifact_handler() -> AppState {
         }))
     });
     AppState {
-        registry,
-        dispatcher,
-        catalog,
-        sessions: SessionManager::new(),
-        executor: None,
+        server: dcc_mcp_http_server::ServerState {
+            sessions: SessionManager::new(),
+            executor: None,
+            server_name: "test-dcc".to_string(),
+            server_version: "0.1.0".to_string(),
+            cancelled_requests: std::sync::Arc::new(dashmap::DashMap::new()),
+            in_flight: crate::inflight::InFlightRequests::new(),
+            pending_elicitations: std::sync::Arc::new(dashmap::DashMap::new()),
+            lazy_actions: false,
+            bare_tool_names: true,
+            declared_capabilities: std::sync::Arc::new(Vec::new()),
+            jobs: std::sync::Arc::new(crate::job::JobManager::new()),
+            job_notifier: crate::notifications::JobNotifier::new(SessionManager::new(), true),
+            enable_resources: true,
+            enable_prompts: true,
+            registry_generation: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            enable_tool_cache: true,
+            #[cfg(feature = "prometheus")]
+            prometheus: None,
+            registry,
+            dispatcher,
+            catalog,
+        },
         bridge_registry: crate::BridgeRegistry::new(),
-        server_name: "test-dcc".to_string(),
-        server_version: "0.1.0".to_string(),
-        cancelled_requests: std::sync::Arc::new(dashmap::DashMap::new()),
-        in_flight: crate::inflight::InFlightRequests::new(),
-        pending_elicitations: std::sync::Arc::new(dashmap::DashMap::new()),
-        lazy_actions: false,
-
-        bare_tool_names: true,
-        declared_capabilities: std::sync::Arc::new(Vec::new()),
-        jobs: std::sync::Arc::new(crate::job::JobManager::new()),
-        job_notifier: crate::notifications::JobNotifier::new(SessionManager::new(), true),
         resources: crate::resources::ResourceRegistry::new(true, false),
-        enable_resources: true,
         prompts: crate::prompts::PromptRegistry::new(true),
-        enable_prompts: true,
-        registry_generation: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
-        enable_tool_cache: true,
         method_router: crate::handler::AppState::default_method_router(),
         readiness: crate::handler::AppState::default_readiness(),
     }
@@ -69,7 +72,7 @@ fn make_router_with_artifact_handler() -> (axum::Router, SessionManager) {
     use crate::handler::{handle_delete, handle_get, handle_post};
     use axum::{Router, routing};
     let state = make_app_state_with_artifact_handler();
-    let sessions = state.sessions.clone();
+    let sessions = state.server.sessions.clone();
     let router = Router::new()
         .route(
             "/mcp",
@@ -234,29 +237,32 @@ fn make_app_state_with_structured_handler() -> AppState {
     });
     dispatcher.register_handler("greet", |_p| Ok(json!("hi there")));
     AppState {
-        registry,
-        dispatcher,
-        catalog,
-        sessions: SessionManager::new(),
-        executor: None,
+        server: dcc_mcp_http_server::ServerState {
+            sessions: SessionManager::new(),
+            executor: None,
+            server_name: "test-dcc".to_string(),
+            server_version: "0.1.0".to_string(),
+            cancelled_requests: std::sync::Arc::new(dashmap::DashMap::new()),
+            in_flight: crate::inflight::InFlightRequests::new(),
+            pending_elicitations: std::sync::Arc::new(dashmap::DashMap::new()),
+            lazy_actions: false,
+            bare_tool_names: true,
+            declared_capabilities: std::sync::Arc::new(Vec::new()),
+            jobs: std::sync::Arc::new(crate::job::JobManager::new()),
+            job_notifier: crate::notifications::JobNotifier::new(SessionManager::new(), true),
+            enable_resources: true,
+            enable_prompts: true,
+            registry_generation: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            enable_tool_cache: true,
+            #[cfg(feature = "prometheus")]
+            prometheus: None,
+            registry,
+            dispatcher,
+            catalog,
+        },
         bridge_registry: crate::BridgeRegistry::new(),
-        server_name: "test-dcc".to_string(),
-        server_version: "0.1.0".to_string(),
-        cancelled_requests: std::sync::Arc::new(dashmap::DashMap::new()),
-        in_flight: crate::inflight::InFlightRequests::new(),
-        pending_elicitations: std::sync::Arc::new(dashmap::DashMap::new()),
-        lazy_actions: false,
-
-        bare_tool_names: true,
-        declared_capabilities: std::sync::Arc::new(Vec::new()),
-        jobs: std::sync::Arc::new(crate::job::JobManager::new()),
-        job_notifier: crate::notifications::JobNotifier::new(SessionManager::new(), true),
         resources: crate::resources::ResourceRegistry::new(true, false),
-        enable_resources: true,
         prompts: crate::prompts::PromptRegistry::new(true),
-        enable_prompts: true,
-        registry_generation: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
-        enable_tool_cache: true,
         method_router: crate::handler::AppState::default_method_router(),
         readiness: crate::handler::AppState::default_readiness(),
     }
@@ -266,7 +272,7 @@ fn make_router_with_structured_handler() -> (axum::Router, SessionManager) {
     use crate::handler::{handle_delete, handle_get, handle_post};
     use axum::{Router, routing};
     let state = make_app_state_with_structured_handler();
-    let sessions = state.sessions.clone();
+    let sessions = state.server.sessions.clone();
     let router = Router::new()
         .route(
             "/mcp",

@@ -32,8 +32,11 @@ pub(crate) async fn handle_notification(state: &AppState, method: &str, params: 
                 && !id.is_empty()
             {
                 tracing::info!(request_id = %id, "MCP request cancelled by client");
-                state.cancelled_requests.insert(id.clone(), Instant::now());
-                if state.in_flight.request_cancel(&id) {
+                state
+                    .server
+                    .cancelled_requests
+                    .insert(id.clone(), Instant::now());
+                if state.server.in_flight.request_cancel(&id) {
                     tracing::debug!(request_id = %id, "cancel flag set on in-flight request");
                 }
             }
@@ -49,7 +52,7 @@ pub(crate) async fn handle_notification(state: &AppState, method: &str, params: 
                 );
                 return;
             }
-            if !state.sessions.supports_roots(sid) {
+            if !state.server.sessions.supports_roots(sid) {
                 tracing::debug!(
                     session_id = sid,
                     "ignoring roots/list_changed for session without roots support"
@@ -57,7 +60,7 @@ pub(crate) async fn handle_notification(state: &AppState, method: &str, params: 
                 return;
             }
             let sid_owned = sid.to_string();
-            let sessions = state.sessions.clone();
+            let sessions = state.server.sessions.clone();
             tokio::spawn(async move {
                 let refreshed = refresh_roots_cache_for_session(&sessions, &sid_owned).await;
                 tracing::debug!(
@@ -87,7 +90,7 @@ pub(crate) fn handle_response_message(state: &AppState, resp: &JsonRpcResponse) 
     if id.is_empty() {
         return;
     }
-    let Some((_, tx)) = state.pending_elicitations.remove(&id) else {
+    let Some((_, tx)) = state.server.pending_elicitations.remove(&id) else {
         return;
     };
     let resolved = if let Some(result) = resp.result.clone() {

@@ -134,7 +134,11 @@ async fn server_start_with_drop_policy_marks_inflight_interrupted() {
         .with_port(0)
         .with_name("recovery-drop-test")
         .with_job_storage_path(&db);
-    assert_eq!(cfg.job_recovery, JobRecoveryPolicy::Drop, "default policy");
+    assert_eq!(
+        cfg.job_recovery(),
+        JobRecoveryPolicy::Drop,
+        "default policy"
+    );
 
     let registry = Arc::new(ToolRegistry::new());
     let handle = McpHttpServer::new(registry, cfg)
@@ -162,8 +166,8 @@ async fn server_start_with_requeue_policy_degrades_to_drop_today() {
         .with_name("recovery-requeue-test")
         .with_job_storage_path(&db)
         .with_job_recovery(JobRecoveryPolicy::Requeue);
-    assert_eq!(cfg.job_recovery, JobRecoveryPolicy::Requeue);
-    assert_eq!(cfg.job_recovery.as_str(), "requeue");
+    assert_eq!(cfg.job_recovery(), JobRecoveryPolicy::Requeue);
+    assert_eq!(cfg.job_recovery().as_str(), "requeue");
 
     let registry = Arc::new(ToolRegistry::new());
     let handle = McpHttpServer::new(registry, cfg)

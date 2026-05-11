@@ -48,9 +48,9 @@ pub async fn handle_list_roots(
         ));
     };
 
-    let roots = state.sessions.get_client_roots(session);
+    let roots = state.server.sessions.get_client_roots(session);
     let payload = json!({
-        "supports_roots": state.sessions.supports_roots(session),
+        "supports_roots": state.server.sessions.supports_roots(session),
         "count": roots.len(),
         "roots": roots,
     });

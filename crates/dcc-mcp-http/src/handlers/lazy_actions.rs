@@ -10,7 +10,7 @@ pub async fn handle_list_actions(
     let skill_filter = args.and_then(|a| a.get("skill")).and_then(Value::as_str);
 
     let mut items: Vec<Value> = Vec::new();
-    for meta in state.registry.list_actions(dcc) {
+    for meta in state.server.registry.list_actions(dcc) {
         if !meta.enabled {
             continue;
         }
@@ -69,7 +69,7 @@ pub async fn handle_describe_action(
     // Accept both the canonical skill-prefixed id (what `list_actions`
     // returns) and the bare registry name, so the agent can round-trip
     // through either `tools/list` or the fast-path.
-    let meta = resolve_action_by_id(&state.registry, &id);
+    let meta = resolve_action_by_id(&state.server.registry, &id);
 
     let Some(meta) = meta else {
         let envelope = DccMcpError::new(
@@ -87,7 +87,7 @@ pub async fn handle_describe_action(
     // Mirror the exact shape `tools/list` would have produced for this
     // action so agents can reuse a single parser.
     let include_output_schema = session_id
-        .and_then(|sid| state.sessions.get_protocol_version(sid))
+        .and_then(|sid| state.server.sessions.get_protocol_version(sid))
         .as_deref()
         == Some("2025-06-18");
     // `describe_action` is a single-action view — passing an empty
@@ -99,7 +99,7 @@ pub async fn handle_describe_action(
         &meta,
         include_output_schema,
         &bare_eligible_for_describe,
-        state.declared_capabilities.as_ref(),
+        state.server.declared_capabilities.as_ref(),
     );
     let payload = serde_json::to_value(tool)?;
 
@@ -116,7 +116,7 @@ pub async fn handle_describe_action(
 /// into a standard ``CallToolParams { name: id, arguments: args }`` shape
 /// and recurse into [`handle_tools_call`]. Because the recursion target
 /// rejects ``list_actions`` / ``describe_action`` / ``call_action`` names
-/// (the dispatch branch only matches when `state.lazy_actions` is true
+/// (the dispatch branch only matches when `state.server.lazy_actions` is true
 /// **and** the name is one of the three), we guard against infinite
 /// recursion by rejecting those three names explicitly.
 pub async fn handle_call_action(

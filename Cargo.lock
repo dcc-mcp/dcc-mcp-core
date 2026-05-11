@@ -942,11 +942,15 @@ name = "dcc-mcp-http-server"
 version = "0.15.7"
 dependencies = [
  "dashmap",
+ "dcc-mcp-actions",
  "dcc-mcp-host",
  "dcc-mcp-http-types",
  "dcc-mcp-job",
  "dcc-mcp-jsonrpc",
  "dcc-mcp-naming",
+ "dcc-mcp-skill-rest",
+ "dcc-mcp-skills",
+ "dcc-mcp-telemetry",
  "dcc-mcp-workflow",
  "parking_lot",
  "serde",

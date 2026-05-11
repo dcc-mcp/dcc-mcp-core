@@ -110,7 +110,7 @@ impl MethodHandler for ElicitationCreateHandler {
     }
 }
 
-// ── resources/* (gated on `state.enable_resources`) ────────────────────
+// ── resources/* (gated on `state.server.enable_resources`) ────────────────────
 
 pub(crate) struct ResourcesListHandler;
 impl MethodHandler for ResourcesListHandler {
@@ -121,7 +121,7 @@ impl MethodHandler for ResourcesListHandler {
         _session_id: Option<&'a str>,
     ) -> HandlerFuture<'a> {
         Box::pin(async move {
-            if !state.enable_resources {
+            if !state.server.enable_resources {
                 return capability_disabled(req);
             }
             handle_resources_list(state, req).await
@@ -138,7 +138,7 @@ impl MethodHandler for ResourcesReadHandler {
         _session_id: Option<&'a str>,
     ) -> HandlerFuture<'a> {
         Box::pin(async move {
-            if !state.enable_resources {
+            if !state.server.enable_resources {
                 return capability_disabled(req);
             }
             handle_resources_read(state, req).await
@@ -155,7 +155,7 @@ impl MethodHandler for ResourcesSubscribeHandler {
         session_id: Option<&'a str>,
     ) -> HandlerFuture<'a> {
         Box::pin(async move {
-            if !state.enable_resources {
+            if !state.server.enable_resources {
                 return capability_disabled(req);
             }
             handle_resources_subscribe(state, req, session_id).await
@@ -172,7 +172,7 @@ impl MethodHandler for ResourcesUnsubscribeHandler {
         session_id: Option<&'a str>,
     ) -> HandlerFuture<'a> {
         Box::pin(async move {
-            if !state.enable_resources {
+            if !state.server.enable_resources {
                 return capability_disabled(req);
             }
             handle_resources_unsubscribe(state, req, session_id).await
@@ -180,7 +180,7 @@ impl MethodHandler for ResourcesUnsubscribeHandler {
     }
 }
 
-// ── prompts/* (gated on `state.enable_prompts`) ────────────────────────
+// ── prompts/* (gated on `state.server.enable_prompts`) ────────────────────────
 
 pub(crate) struct PromptsListHandler;
 impl MethodHandler for PromptsListHandler {
@@ -191,7 +191,7 @@ impl MethodHandler for PromptsListHandler {
         _session_id: Option<&'a str>,
     ) -> HandlerFuture<'a> {
         Box::pin(async move {
-            if !state.enable_prompts {
+            if !state.server.enable_prompts {
                 return capability_disabled(req);
             }
             handle_prompts_list(state, req).await
@@ -208,7 +208,7 @@ impl MethodHandler for PromptsGetHandler {
         _session_id: Option<&'a str>,
     ) -> HandlerFuture<'a> {
         Box::pin(async move {
-            if !state.enable_prompts {
+            if !state.server.enable_prompts {
                 return capability_disabled(req);
             }
             handle_prompts_get(state, req).await

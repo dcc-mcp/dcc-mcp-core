@@ -388,6 +388,7 @@ pub async fn handle_search_skills(
     let query_opt = if query.is_empty() { None } else { Some(query) };
     let matches =
         state
+            .server
             .catalog
             .search_skills(query_opt, &tags, dcc_filter, scope_filter, Some(limit));
 

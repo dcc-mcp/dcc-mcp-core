@@ -6,7 +6,7 @@ pub async fn handle_resources_list(
     state: &AppState,
     req: &JsonRpcRequest,
 ) -> Result<JsonRpcResponse, HttpError> {
-    let catalog = state.catalog.clone();
+    let catalog = state.server.catalog.clone();
     state.resources.sync_skill_resources(|visit| {
         catalog.for_each_loaded_metadata(|md| visit(md));
     });
@@ -37,7 +37,7 @@ pub async fn handle_resources_read(
         ));
     };
 
-    let catalog = state.catalog.clone();
+    let catalog = state.server.catalog.clone();
     state.resources.sync_skill_resources(|visit| {
         catalog.for_each_loaded_metadata(|md| visit(md));
     });
@@ -123,7 +123,7 @@ pub async fn handle_prompts_list(
     state: &AppState,
     req: &JsonRpcRequest,
 ) -> Result<JsonRpcResponse, HttpError> {
-    let catalog = state.catalog.clone();
+    let catalog = state.server.catalog.clone();
     let prompts = state.prompts.list(|visit| {
         catalog.for_each_loaded_metadata(|md| visit(md));
     });
@@ -152,7 +152,7 @@ pub async fn handle_prompts_get(
             "Invalid prompts/get params (expected {name: string, arguments?: object})",
         ));
     };
-    let catalog = state.catalog.clone();
+    let catalog = state.server.catalog.clone();
     let lookup = state.prompts.get(&params.name, &params.arguments, |visit| {
         catalog.for_each_loaded_metadata(|md| visit(md));
     });
@@ -181,14 +181,14 @@ pub async fn handle_prompts_get(
 /// Emit `notifications/prompts/list_changed` to every session whose SSE
 /// stream is live. Called from skill load / unload paths.
 pub(crate) fn notify_prompts_list_changed_all(state: &AppState) {
-    if !state.enable_prompts {
+    if !state.server.enable_prompts {
         return;
     }
     let event = NotificationBuilder::new("notifications/prompts/list_changed")
         .with_empty_params()
         .as_sse_event();
-    for sid in state.sessions.all_ids() {
-        state.sessions.push_event(&sid, event.clone());
+    for sid in state.server.sessions.all_ids() {
+        state.server.sessions.push_event(&sid, event.clone());
     }
 }
 
@@ -225,7 +225,7 @@ pub async fn handle_logging_set_level(
         ));
     };
 
-    if !state.sessions.set_log_level(sid, level) {
+    if !state.server.sessions.set_log_level(sid, level) {
         return Ok(JsonRpcResponse::error(
             req.id.clone(),
             protocol::error_codes::INVALID_PARAMS,
@@ -235,7 +235,7 @@ pub async fn handle_logging_set_level(
 
     let request_id = request_id_to_string(req.id.as_ref());
     notify_message(
-        &state.sessions,
+        &state.server.sessions,
         sid,
         SessionLogMessage {
             level: SessionLogLevel::Info,
@@ -258,7 +258,7 @@ pub async fn handle_elicitation_create(
 ) -> Result<JsonRpcResponse, HttpError> {
     // Spec gate: only exposed on 2025-06-18 sessions.
     let is_2025_06_18 = session_id
-        .and_then(|sid| state.sessions.get_protocol_version(sid))
+        .and_then(|sid| state.server.sessions.get_protocol_version(sid))
         .as_deref()
         == Some("2025-06-18");
     if !is_2025_06_18 {
@@ -296,7 +296,7 @@ pub async fn handle_elicitation_create(
         .ok_or_else(|| HttpError::Internal("invalid elicitation/create params".to_string()))?;
 
     let (tx, rx) = oneshot::channel::<ElicitationCreateResult>();
-    state.pending_elicitations.insert(req_id.clone(), tx);
+    state.server.pending_elicitations.insert(req_id.clone(), tx);
 
     let event = NotificationBuilder::new("elicitation/create")
         .with_params(json!({
@@ -305,10 +305,10 @@ pub async fn handle_elicitation_create(
             "requestedSchema": params.requested_schema,
         }))
         .as_sse_event();
-    state.sessions.push_event(sid, event);
+    state.server.sessions.push_event(sid, event);
 
     let waited = tokio::time::timeout(ELICITATION_TIMEOUT, rx).await;
-    state.pending_elicitations.remove(&req_id);
+    state.server.pending_elicitations.remove(&req_id);
 
     let result = match waited {
         Ok(Ok(value)) => value,

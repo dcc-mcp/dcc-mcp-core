@@ -39,9 +39,9 @@ pub async fn test_initialize() {
 #[tokio::test]
 pub async fn test_list_roots_reports_cached_session_roots() {
     let state = make_app_state();
-    let sid = state.sessions.create();
-    state.sessions.set_supports_roots(&sid, true);
-    state.sessions.set_client_roots(
+    let sid = state.server.sessions.create();
+    state.server.sessions.set_supports_roots(&sid, true);
+    state.server.sessions.set_client_roots(
         &sid,
         vec![
             dcc_mcp_jsonrpc::ClientRoot {
@@ -123,9 +123,9 @@ pub async fn test_list_roots_reports_cached_session_roots() {
 #[tokio::test]
 pub async fn test_list_roots_returns_cached_roots() {
     let state = make_app_state();
-    let sid = state.sessions.create();
-    state.sessions.set_supports_roots(&sid, true);
-    state.sessions.set_client_roots(
+    let sid = state.server.sessions.create();
+    state.server.sessions.set_supports_roots(&sid, true);
+    state.server.sessions.set_client_roots(
         &sid,
         vec![dcc_mcp_jsonrpc::ClientRoot {
             uri: "file:///projects/demo".to_string(),

@@ -13,7 +13,7 @@ pub async fn handle_list_skills(
         .and_then(|a| a.get("status"))
         .and_then(Value::as_str);
 
-    let results = state.catalog.list_skills(status);
+    let results = state.server.catalog.list_skills(status);
 
     let text = serde_json::to_string_pretty(&json!({
         "skills": results,
@@ -48,7 +48,7 @@ pub async fn handle_get_skill_info(
         ));
     }
 
-    match state.catalog.get_skill_info(skill_name) {
+    match state.server.catalog.get_skill_info(skill_name) {
         Some(info) => {
             let text = serde_json::to_string_pretty(&info).unwrap_or_default();
             Ok(JsonRpcResponse::success(
@@ -118,8 +118,8 @@ pub async fn handle_load_skill(
     let mut already_loaded: Vec<String> = Vec::new();
 
     for name in &requested {
-        let was_loaded = state.catalog.is_loaded(name);
-        match state.catalog.load_skill(name) {
+        let was_loaded = state.server.catalog.is_loaded(name);
+        match state.server.catalog.load_skill(name) {
             Ok(tools) => {
                 all_registered_tools.extend(tools);
                 if was_loaded {
@@ -134,14 +134,14 @@ pub async fn handle_load_skill(
 
     // Only notify when a skill actually transitioned to loaded.
     if !newly_loaded.is_empty() {
-        state.bump_registry_generation(); // #438
+        state.server.bump_registry_generation(); // #438
         if let Some(sid) = session_id {
             let added = all_registered_tools.clone();
             let removed: Vec<String> = newly_loaded
                 .iter()
                 .map(|n| format!("__skill__{n}"))
                 .collect();
-            notify_tools_changed(&state.sessions, sid, &added, &removed);
+            notify_tools_changed(&state.server.sessions, sid, &added, &removed);
         }
         // Skill content changed — invalidate the prompt cache and
         // broadcast `notifications/prompts/list_changed` (issues
@@ -155,7 +155,7 @@ pub async fn handle_load_skill(
     // previously loaded skill; keeps the payload self-contained.
     let mut tool_schemas: Vec<Value> = Vec::new();
     for name in newly_loaded.iter().chain(already_loaded.iter()) {
-        for meta in state.catalog.registry().list_actions_by_skill(name) {
+        for meta in state.server.catalog.registry().list_actions_by_skill(name) {
             tool_schemas.push(json!({
                 "name":          meta.name,
                 "description":   meta.description,
@@ -226,18 +226,19 @@ pub async fn handle_unload_skill(
         ));
     }
 
-    match state.catalog.unload_skill(skill_name) {
+    match state.server.catalog.unload_skill(skill_name) {
         Ok(count) => {
-            state.bump_registry_generation(); // #438
+            state.server.bump_registry_generation(); // #438
             if let Some(sid) = session_id {
                 let removed: Vec<String> = state
+                    .server
                     .registry
                     .list_actions_by_skill(skill_name)
                     .iter()
                     .map(|m| m.name.clone())
                     .collect();
                 let added = vec![format!("__skill__{skill_name}")];
-                notify_tools_changed(&state.sessions, sid, &added, &removed);
+                notify_tools_changed(&state.server.sessions, sid, &added, &removed);
             }
             // Invalidate prompt cache and fire
             // `notifications/prompts/list_changed` (issues #351, #355).
