@@ -18,77 +18,10 @@
 use std::collections::VecDeque;
 use std::sync::Mutex;
 
-use serde::{Deserialize, Serialize};
-
-// ── Public event types ──────────────────────────────────────────────────────
-
-/// All contention-relevant event kinds the gateway can emit.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum EventKind {
-    /// This gateway instance won the port election.
-    ElectionWon,
-    /// This gateway yielded the port to a higher-version challenger.
-    VoluntaryYield,
-    /// A ghost entry (dead-PID or stale) was reaped from the registry.
-    GhostReaped,
-    /// A backend instance is still booting (readiness probe → 503).
-    ProbeBooting,
-    /// A backend instance is unreachable (readiness probe failed).
-    ProbeUnreachable,
-    /// A backend instance was auto-deregistered after consecutive probe failures.
-    AutoDeregister,
-}
-
-impl EventKind {
-    /// Return the string label used in the Prometheus `outcome`/`reason` label.
-    pub fn as_label(&self) -> &'static str {
-        match self {
-            EventKind::ElectionWon => "won",
-            EventKind::VoluntaryYield => "yielded",
-            EventKind::GhostReaped => "ghost",
-            EventKind::ProbeBooting => "booting",
-            EventKind::ProbeUnreachable => "unreachable",
-            EventKind::AutoDeregister => "probe_fail",
-        }
-    }
-}
-
-/// A single contention event stored in the ring buffer.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ContendEvent {
-    /// ISO-8601 UTC timestamp (millisecond precision).
-    pub timestamp: String,
-    /// Event kind.
-    pub event: EventKind,
-    /// DCC type involved (`"maya"`, `"blender"`, `"__gateway__"`, …).
-    pub dcc_type: String,
-    /// Short, human-readable instance identifier (first 8 hex chars of the UUID).
-    pub instance_id: String,
-    /// Optional human-readable context (e.g. challenger version, failure count).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub reason: Option<String>,
-}
-
-impl ContendEvent {
-    /// Construct a new event with the current UTC timestamp (millisecond
-    /// precision).
-    pub fn new(
-        event: EventKind,
-        dcc_type: impl Into<String>,
-        instance_id: impl Into<String>,
-        reason: Option<String>,
-    ) -> Self {
-        let ts = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
-        ContendEvent {
-            timestamp: ts,
-            event,
-            dcc_type: dcc_type.into(),
-            instance_id: instance_id.into(),
-            reason,
-        }
-    }
-}
+// `EventKind` and `ContendEvent` live in `dcc-mcp-gateway-core` (issue #845)
+// so admin clients can parse `resources://gateway/events` without depending on
+// the gateway runtime crate. Re-export them here for the historical path.
+pub use dcc_mcp_gateway_core::event::{ContendEvent, EventKind};
 
 // ── Ring buffer ─────────────────────────────────────────────────────────────
 
