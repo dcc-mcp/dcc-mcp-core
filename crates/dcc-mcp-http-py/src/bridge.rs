@@ -250,6 +250,7 @@ pub fn register_classes(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyServerHandle>()?;
     m.add_class::<PyBridgeContext>()?;
     m.add_class::<PyBridgeRegistry>()?;
+    m.add_class::<super::PyWorkspaceRoots>()?;
     // Shared readiness probe (issue #714) — adapters install one
     // `ReadinessProbe` and both `/mcp` and `/v1/call` consult it.
     m.add_class::<super::PyReadinessProbe>()?;
