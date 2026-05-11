@@ -865,6 +865,7 @@ dependencies = [
 name = "dcc-mcp-gateway-core"
 version = "0.15.7"
 dependencies = [
+ "chrono",
  "nucleo-matcher",
  "serde",
  "serde_json",
