@@ -27,6 +27,7 @@
 //! | [`naming`]       | Pure UUID / alphabet helpers used by slug encoding  |
 //! | [`resource_uri`] | Gateway resource URI prefix encode/decode helpers   |
 //! | [`event`]        | Gateway contention event wire records               |
+//! | [`openapi`]      | OpenAPI mount credential value types                |
 //! | [`capability`]   | [`CapabilityRecord`] + slug encoding (REST wire)    |
 //!
 //! # Migration plan
@@ -43,6 +44,7 @@
 pub mod capability;
 pub mod event;
 pub mod naming;
+pub mod openapi;
 pub mod resource_uri;
 
 /// A call that the gateway has forwarded to a backend and is still awaiting
