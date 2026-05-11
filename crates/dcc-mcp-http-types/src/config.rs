@@ -12,9 +12,72 @@
 //! self-contained pieces one at a time.
 
 use std::collections::HashMap;
+use std::net::IpAddr;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
+
+// ── ServerConfig ───────────────────────────────────────────────────────────
+
+/// Core server identity & transport configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ServerConfig {
+    /// Port to listen on. Default: 8765.
+    pub port: u16,
+
+    /// IP address to bind. Default: 127.0.0.1 (localhost only, per MCP security spec).
+    pub host: IpAddr,
+
+    /// MCP endpoint path. Default: `/mcp`.
+    pub endpoint_path: String,
+
+    /// Server name reported in MCP `initialize` response.
+    pub server_name: String,
+
+    /// Server version reported in MCP `initialize` response.
+    pub server_version: String,
+
+    /// Maximum concurrent SSE sessions. Default: 100.
+    pub max_sessions: usize,
+
+    /// Request timeout in milliseconds. Default: 30_000.
+    pub request_timeout_ms: u64,
+
+    /// Whether to enable CORS for browser-based MCP clients. Default: false.
+    pub enable_cors: bool,
+
+    /// How listener tasks (per-instance MCP endpoint and the optional
+    /// gateway) are driven. See [`ServerSpawnMode`] for the tradeoffs.
+    ///
+    /// Default: [`ServerSpawnMode::Ambient`]. PyO3-embedded users should
+    /// set this to [`ServerSpawnMode::Dedicated`] (the Python bindings do
+    /// so automatically). Fixes issue #303.
+    pub spawn_mode: ServerSpawnMode,
+
+    /// Maximum time to wait when self-probing a freshly bound listener to
+    /// confirm it is actually accepting connections before reporting
+    /// success. Applied per attempt; up to 5 attempts are made. Set to 0
+    /// to disable self-probing (not recommended). Default: 200.
+    pub self_probe_timeout_ms: u64,
+}
+
+impl Default for ServerConfig {
+    fn default() -> Self {
+        Self {
+            port: 8765,
+            host: IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
+            endpoint_path: "/mcp".to_string(),
+            server_name: "dcc-mcp".to_string(),
+            server_version: env!("CARGO_PKG_VERSION").to_string(),
+            max_sessions: 100,
+            request_timeout_ms: 30_000,
+            enable_cors: false,
+            spawn_mode: ServerSpawnMode::Ambient,
+            self_probe_timeout_ms: 200,
+        }
+    }
+}
 
 // ── ServerSpawnMode ────────────────────────────────────────────────────────
 
@@ -276,6 +339,165 @@ impl Default for FeatureFlags {
 /// serde's attribute parser does not accept inline literals here.
 fn default_true() -> bool {
     true
+}
+
+// ── SessionConfig / GatewayConfig ─────────────────────────────────────────
+
+/// Session lifecycle & tool-cache configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SessionConfig {
+    /// Idle session TTL in seconds. Sessions that have not received any
+    /// request within this window are automatically evicted by a background
+    /// task started by the HTTP server. Default: 3600 (1 hour).
+    /// Set to 0 to disable automatic eviction.
+    pub session_ttl_secs: u64,
+
+    /// Enable connection-scoped tool-list caching (issue #438).
+    ///
+    /// When `true` (default), `tools/list` stores a per-session snapshot
+    /// of the full tool list. On subsequent `tools/list` calls within the
+    /// same session, if the registry generation has not changed (no skill
+    /// load/unload, no group activation/deactivation), the cached
+    /// snapshot is returned directly — avoiding redundant registry scans,
+    /// bare-name resolution, and `McpTool` construction.
+    ///
+    /// The cache is automatically invalidated when:
+    /// - A skill is loaded or unloaded
+    /// - A tool group is activated or deactivated
+    /// - The session is evicted (TTL expiry)
+    /// - The client sends `tools/list` with `_meta.dcc.refresh = true`
+    ///
+    /// Set to `false` to disable caching (every `tools/list` call
+    /// rebuilds the full list from scratch).
+    pub enable_tool_cache: bool,
+}
+
+impl Default for SessionConfig {
+    fn default() -> Self {
+        Self {
+            session_ttl_secs: 3_600,
+            enable_tool_cache: true,
+        }
+    }
+}
+
+/// Gateway election, routing, and discovery configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct GatewayConfig {
+    /// Gateway port to compete for. First process to bind wins the gateway
+    /// and starts serving `/instances`, `/mcp`, `/mcp/{id}`, `/mcp/dcc/{type}`.
+    /// `0` disables the gateway entirely. Default: 0 (disabled).
+    pub gateway_port: u16,
+
+    /// Shared `FileRegistry` directory. `None` uses a system temp dir.
+    pub registry_dir: Option<PathBuf>,
+
+    /// Seconds without a heartbeat before an instance is considered stale.
+    /// Default: 30.
+    pub stale_timeout_secs: u64,
+
+    /// Heartbeat interval in seconds. `0` disables the heartbeat task.
+    /// Default: 5.
+    pub heartbeat_secs: u64,
+
+    /// Per-backend request timeout (milliseconds) used by the gateway when
+    /// fanning out `tools/list` / `tools/call` to live DCC instances.
+    ///
+    /// Default: `120_000` (120 seconds / 2 minutes). DCC scene operations
+    /// (mesh import, simulation bake, render, complex keyframe setup) regularly
+    /// take tens of seconds. The previous default of 10 s caused the gateway to
+    /// cancel legitimate tool calls while the backend was still working, logging
+    /// "tool call cancelled cooperatively" on the DCC side at exactly 10 s.
+    ///
+    /// For truly long-running operations (renders, heavy simulations) prefer
+    /// async dispatch (`_meta.dcc.async = true`) which returns a `job_id`
+    /// immediately and lets the client poll via `jobs.get_status`.
+    ///
+    /// Only the gateway fan-out uses this value — per-instance servers
+    /// bound to a DCC execute inline and are governed by
+    /// [`ServerConfig::request_timeout_ms`] instead. Fixes issue #314.
+    pub backend_timeout_ms: u64,
+
+    /// Per-backend request timeout (milliseconds) applied by the gateway
+    /// when the client has opted into **async dispatch** (issue #321).
+    pub gateway_async_dispatch_timeout_ms: u64,
+
+    /// Gateway timeout (milliseconds) for the opt-in wait-for-terminal
+    /// response-stitching mode (issue #321).
+    pub gateway_wait_terminal_timeout_ms: u64,
+
+    /// TTL (seconds) for the gateway's per-job routing cache (issue #322).
+    pub gateway_route_ttl_secs: u64,
+
+    /// Per-session ceiling on concurrent live routes in the gateway
+    /// routing cache (issue #322). `0` disables the cap.
+    pub gateway_max_routes_per_session: u64,
+
+    /// Emit Cursor-safe gateway prompt names (`i_<id8>__<escaped>`)
+    /// instead of the SEP-986 dotted form (`<id8>.<name>`).
+    ///
+    /// Default: `true`. The gateway no longer fans out backend tools
+    /// into `tools/list` — its MCP surface is converged to discovery +
+    /// dispatch primitives — but it still fans out `prompts/list` so
+    /// clients can address prompts across multiple DCCs. Cursor and
+    /// several other MCP clients only accept names matching
+    /// `^[A-Za-z0-9_]+$`, so the cursor-safe form stays the default.
+    /// Setting this to `false` emits the SEP-986 dotted form for
+    /// diagnostic parity with a single-instance server that publishes
+    /// dotted names directly.
+    pub gateway_cursor_safe_tool_names: bool,
+
+    /// Adapter package version (e.g. `dcc_mcp_maya = "0.3.0"`) recorded
+    /// on the `__gateway__` sentinel and used as the second tier of the
+    /// version-aware gateway election (issue maya#137).
+    pub adapter_version: Option<String>,
+
+    /// DCC type the adapter is bound to (e.g. `"maya"`). Drives the
+    /// third-tier "real DCC over generic standalone" tiebreaker in
+    /// gateway election (issue maya#137).
+    pub adapter_dcc: Option<String>,
+
+    /// Allow instances with `dcc_type == "unknown"` to expose their tools
+    /// via the gateway (issue #555).
+    ///
+    /// Default: `false`. When `false`, the gateway's `tools/list` and
+    /// `connect_to_dcc` ignore any instance whose `dcc_type` is
+    /// `"unknown"` (case-insensitive). Set to `true` only for development
+    /// or when intentionally running a standalone server without a real DCC.
+    pub allow_unknown_tools: bool,
+
+    /// Enable the read-only gateway admin dashboard.
+    ///
+    /// Default: `true`. Only the elected gateway process mounts this path,
+    /// so a multi-instance process group still exposes a single admin UI.
+    pub admin_enabled: bool,
+
+    /// URL prefix for the admin dashboard. Default: `"/admin"`.
+    pub admin_path: String,
+}
+
+impl Default for GatewayConfig {
+    fn default() -> Self {
+        Self {
+            gateway_port: 0,
+            registry_dir: None,
+            stale_timeout_secs: 30,
+            heartbeat_secs: 5,
+            backend_timeout_ms: 120_000,
+            gateway_async_dispatch_timeout_ms: 60_000,
+            gateway_wait_terminal_timeout_ms: 600_000,
+            gateway_route_ttl_secs: 60 * 60 * 24,
+            gateway_max_routes_per_session: 1_000,
+            gateway_cursor_safe_tool_names: true,
+            adapter_version: None,
+            adapter_dcc: None,
+            allow_unknown_tools: false,
+            admin_enabled: true,
+            admin_path: "/admin".to_string(),
+        }
+    }
 }
 
 // ── QueueConfig ────────────────────────────────────────────────────────────
