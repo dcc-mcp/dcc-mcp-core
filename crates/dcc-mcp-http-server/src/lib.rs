@@ -16,7 +16,6 @@
 //! module paths for source compatibility.
 
 #![forbid(unsafe_code)]
-#![allow(clippy::must_use_candidate)]
 
 pub mod dynamic_tools;
 pub mod executor;
@@ -46,6 +45,7 @@ pub use inflight::{
 pub use notifications::{JobNotifier, WorkflowProgress, WorkflowUpdate};
 pub use server_state::{
     CANCELLED_REQUEST_TTL, ELICITATION_TIMEOUT, ROOTS_REFRESH_TIMEOUT, ServerState,
+    ServerStateBuilder,
 };
 pub use session::{
     McpSession, SessionLogLevel, SessionLogMessage, SessionManager, ToolListSnapshot,

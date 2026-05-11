@@ -33,36 +33,8 @@ pub fn make_app_state_with_skill() -> AppState {
         ..Default::default()
     });
 
-    AppState {
-        server: dcc_mcp_http_server::ServerState {
-            registry: registry.clone(),
-            dispatcher: Arc::new(ToolDispatcher::new((*registry).clone())),
-            sessions: SessionManager::new(),
-            executor: None,
-            server_name: "test-dcc".to_string(),
-            server_version: "0.1.0".to_string(),
-            cancelled_requests: std::sync::Arc::new(dashmap::DashMap::new()),
-            in_flight: crate::inflight::InFlightRequests::new(),
-            pending_elicitations: std::sync::Arc::new(dashmap::DashMap::new()),
-            lazy_actions: false,
-            bare_tool_names: true,
-            declared_capabilities: std::sync::Arc::new(Vec::new()),
-            jobs: std::sync::Arc::new(crate::job::JobManager::new()),
-            job_notifier: crate::notifications::JobNotifier::new(SessionManager::new(), true),
-            enable_resources: true,
-            enable_prompts: true,
-            registry_generation: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
-            enable_tool_cache: true,
-            #[cfg(feature = "prometheus")]
-            prometheus: None,
-            catalog,
-        },
-        bridge_registry: crate::BridgeRegistry::new(),
-        resources: crate::resources::ResourceRegistry::new(true, false),
-        prompts: crate::prompts::PromptRegistry::new(true),
-        method_router: crate::handler::AppState::default_method_router(),
-        readiness: crate::handler::AppState::default_readiness(),
-    }
+    let dispatcher = Arc::new(ToolDispatcher::new((*registry).clone()));
+    make_app_state_from_parts(registry, dispatcher, catalog)
 }
 
 pub fn make_router_with_skill() -> axum::Router {

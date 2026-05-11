@@ -3,6 +3,7 @@ use axum_test::TestServer;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
+use super::make_app_state_from_parts;
 use crate::{handler::AppState, session::SessionManager};
 use dcc_mcp_actions::{ToolDispatcher, ToolMeta, ToolRegistry};
 use dcc_mcp_skills::SkillCatalog;
@@ -36,36 +37,7 @@ fn make_app_state_with_artifact_handler() -> AppState {
             "artifact_paths": ["/tmp/shot_010.mp4"]
         }))
     });
-    AppState {
-        server: dcc_mcp_http_server::ServerState {
-            sessions: SessionManager::new(),
-            executor: None,
-            server_name: "test-dcc".to_string(),
-            server_version: "0.1.0".to_string(),
-            cancelled_requests: std::sync::Arc::new(dashmap::DashMap::new()),
-            in_flight: crate::inflight::InFlightRequests::new(),
-            pending_elicitations: std::sync::Arc::new(dashmap::DashMap::new()),
-            lazy_actions: false,
-            bare_tool_names: true,
-            declared_capabilities: std::sync::Arc::new(Vec::new()),
-            jobs: std::sync::Arc::new(crate::job::JobManager::new()),
-            job_notifier: crate::notifications::JobNotifier::new(SessionManager::new(), true),
-            enable_resources: true,
-            enable_prompts: true,
-            registry_generation: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
-            enable_tool_cache: true,
-            #[cfg(feature = "prometheus")]
-            prometheus: None,
-            registry,
-            dispatcher,
-            catalog,
-        },
-        bridge_registry: crate::BridgeRegistry::new(),
-        resources: crate::resources::ResourceRegistry::new(true, false),
-        prompts: crate::prompts::PromptRegistry::new(true),
-        method_router: crate::handler::AppState::default_method_router(),
-        readiness: crate::handler::AppState::default_readiness(),
-    }
+    make_app_state_from_parts(registry, dispatcher, catalog)
 }
 
 fn make_router_with_artifact_handler() -> (axum::Router, SessionManager) {
@@ -236,36 +208,7 @@ fn make_app_state_with_structured_handler() -> AppState {
         Ok(json!({"nodes": ["|pSphere1", "|pCube1"], "count": 2}))
     });
     dispatcher.register_handler("greet", |_p| Ok(json!("hi there")));
-    AppState {
-        server: dcc_mcp_http_server::ServerState {
-            sessions: SessionManager::new(),
-            executor: None,
-            server_name: "test-dcc".to_string(),
-            server_version: "0.1.0".to_string(),
-            cancelled_requests: std::sync::Arc::new(dashmap::DashMap::new()),
-            in_flight: crate::inflight::InFlightRequests::new(),
-            pending_elicitations: std::sync::Arc::new(dashmap::DashMap::new()),
-            lazy_actions: false,
-            bare_tool_names: true,
-            declared_capabilities: std::sync::Arc::new(Vec::new()),
-            jobs: std::sync::Arc::new(crate::job::JobManager::new()),
-            job_notifier: crate::notifications::JobNotifier::new(SessionManager::new(), true),
-            enable_resources: true,
-            enable_prompts: true,
-            registry_generation: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
-            enable_tool_cache: true,
-            #[cfg(feature = "prometheus")]
-            prometheus: None,
-            registry,
-            dispatcher,
-            catalog,
-        },
-        bridge_registry: crate::BridgeRegistry::new(),
-        resources: crate::resources::ResourceRegistry::new(true, false),
-        prompts: crate::prompts::PromptRegistry::new(true),
-        method_router: crate::handler::AppState::default_method_router(),
-        readiness: crate::handler::AppState::default_readiness(),
-    }
+    make_app_state_from_parts(registry, dispatcher, catalog)
 }
 
 fn make_router_with_structured_handler() -> (axum::Router, SessionManager) {

@@ -14,7 +14,6 @@ use crate::{
     error::{HttpError, HttpResult},
     executor::DccExecutorHandle,
     handler::{AppState, handle_delete, handle_get, handle_post},
-    inflight::InFlightRequests,
     session::SessionManager,
 };
 use dcc_mcp_actions::{ToolDispatcher, ToolRegistry};
@@ -474,32 +473,28 @@ impl McpHttpServer {
         rest_config.server_version = self.config.server.server_version.clone();
         let rest_router = dcc_mcp_skill_rest::build_skill_rest_router(rest_config);
 
+        let server_state =
+            dcc_mcp_http_server::ServerState::builder(self.registry, self.dispatcher, catalog)
+                .with_sessions(sessions)
+                .with_executor(self.executor)
+                .with_server_identity(
+                    self.config.server.server_name.clone(),
+                    self.config.server.server_version.clone(),
+                )
+                .with_cancelled_requests(cancelled_requests)
+                .with_lazy_actions(self.config.features.lazy_actions)
+                .with_bare_tool_names(self.config.features.bare_tool_names)
+                .with_declared_capabilities(self.config.instance.declared_capabilities.clone())
+                .with_jobs(jobs)
+                .with_job_notifier(job_notifier)
+                .with_resources_enabled(self.config.features.enable_resources)
+                .with_prompts_enabled(self.config.features.enable_prompts)
+                .with_tool_cache_enabled(self.config.session.enable_tool_cache);
+        #[cfg(feature = "prometheus")]
+        let server_state = server_state.with_prometheus(prometheus.clone());
+
         let state = AppState {
-            server: dcc_mcp_http_server::ServerState {
-                registry: self.registry,
-                dispatcher: self.dispatcher,
-                catalog,
-                sessions,
-                executor: self.executor,
-                server_name: self.config.server.server_name.clone(),
-                server_version: self.config.server.server_version.clone(),
-                cancelled_requests,
-                in_flight: InFlightRequests::new(),
-                pending_elicitations: std::sync::Arc::new(dashmap::DashMap::new()),
-                lazy_actions: self.config.features.lazy_actions,
-                bare_tool_names: self.config.features.bare_tool_names,
-                declared_capabilities: std::sync::Arc::new(
-                    self.config.instance.declared_capabilities.clone(),
-                ),
-                jobs,
-                job_notifier,
-                enable_resources: self.config.features.enable_resources,
-                enable_prompts: self.config.features.enable_prompts,
-                registry_generation: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
-                enable_tool_cache: self.config.session.enable_tool_cache,
-                #[cfg(feature = "prometheus")]
-                prometheus: prometheus.clone(),
-            },
+            server: server_state.build(),
             bridge_registry: crate::BridgeRegistry::new(),
             resources,
             prompts,
