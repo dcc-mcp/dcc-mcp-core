@@ -19,6 +19,7 @@ workspace = true
 # returns CapabilityRecord arrays), so serde is a hard dependency.
 serde = { workspace = true }
 uuid = { workspace = true }
+chrono = { version = "0.4", features = ["serde"] }
 # Fuzzy matcher that backs the `FuzzyScorer` / `StrategyFuzzyScorer`
 # ranking strategies (issue #659). Pure CPU code with no async / IO
 # surface, so it keeps the "no HTTP, no runtime" domain-layer rule.

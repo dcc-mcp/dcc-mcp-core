@@ -26,6 +26,7 @@
 //! | crate root       | [`PendingCall`] (routing primitive)                 |
 //! | [`naming`]       | Pure UUID / alphabet helpers used by slug encoding  |
 //! | [`resource_uri`] | Gateway resource URI prefix encode/decode helpers   |
+//! | [`event`]        | Gateway contention event wire records               |
 //! | [`capability`]   | [`CapabilityRecord`] + slug encoding (REST wire)    |
 //!
 //! # Migration plan
@@ -40,6 +41,7 @@
 #![warn(missing_docs)]
 
 pub mod capability;
+pub mod event;
 pub mod naming;
 pub mod resource_uri;
 
