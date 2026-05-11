@@ -8,7 +8,6 @@ pub mod readiness;
 pub mod resources_handle;
 pub mod server;
 pub mod skill_server;
-pub mod workspace;
 
 pub use bridge::{
     PyBridgeContext, PyBridgeRegistry, py_create_skill_server, py_get_bridge_context,
@@ -21,7 +20,6 @@ pub use readiness::PyReadinessProbe;
 pub use resources_handle::PyResourceHandle;
 pub use server::PyServerHandle;
 pub use skill_server::PyMcpHttpServer;
-pub use workspace::PyWorkspaceRoots;
 
 use parking_lot::RwLock;
 use pyo3::prelude::*;

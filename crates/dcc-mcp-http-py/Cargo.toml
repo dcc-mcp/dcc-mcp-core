@@ -15,6 +15,7 @@ workspace = true
 
 [dependencies]
 dcc-mcp-http = { path = "../dcc-mcp-http" }
+dcc-mcp-jsonrpc = { path = "../dcc-mcp-jsonrpc" }
 pyo3 = { workspace = true, optional = true }
 pyo3-stub-gen = { workspace = true, optional = true }
 pyo3-stub-gen-derive = { workspace = true, optional = true }

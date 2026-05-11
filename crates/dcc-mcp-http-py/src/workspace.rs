@@ -1,6 +1,9 @@
 //! Typed `workspace://` URI resolver.
 
-use super::*;
+use pyo3::prelude::*;
+
+/// Re-exported Rust resolver backing the Python wrapper.
+use dcc_mcp_http::workspace::WorkspaceRoots;
 
 /// Typed `workspace://` URI resolver built from the client-advertised MCP
 /// roots (issue #354).
@@ -14,7 +17,7 @@ use super::*;
 #[pyclass(name = "WorkspaceRoots", skip_from_py_object)]
 #[derive(Clone, Default)]
 pub struct PyWorkspaceRoots {
-    pub(crate) inner: crate::workspace::WorkspaceRoots,
+    pub(crate) inner: WorkspaceRoots,
 }
 
 #[pymethods]
@@ -43,7 +46,7 @@ impl PyWorkspaceRoots {
             client_roots.push(dcc_mcp_jsonrpc::ClientRoot { uri, name: None });
         }
         Self {
-            inner: crate::workspace::WorkspaceRoots::from_client_roots(&client_roots),
+            inner: WorkspaceRoots::from_client_roots(&client_roots),
         }
     }
 
