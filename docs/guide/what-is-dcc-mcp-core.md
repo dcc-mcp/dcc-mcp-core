@@ -89,9 +89,10 @@ dcc-mcp-core/
 │   ├── dcc-mcp-workflow/            # YAML declarative workflows
 │   ├── dcc-mcp-scheduler/           # cron / timers
 │   ├── dcc-mcp-artefact/            # file/data hand-off between tools
-│   ├── dcc-mcp-http-types/          # pure HTTP wire/config/value types (#852)
+│   ├── dcc-mcp-http-types/          # pure HTTP wire/config/value types, McpHttpConfig (#852)
 │   ├── dcc-mcp-http-server/         # reusable HTTP runtime support (#852)
-│   ├── dcc-mcp-http/                # McpHttpServer, McpHttpConfig, PyO3 facade
+│   ├── dcc-mcp-http-py/             # PyO3 binding boundary for HTTP APIs (#852)
+│   ├── dcc-mcp-http/                # McpHttpServer facade + compatibility re-exports
 │   ├── dcc-mcp-skill-rest/          # per-DCC REST router (/v1/*)
 │   ├── dcc-mcp-gateway-core/        # pure gateway domain/search/ranking types (#845)
 │   ├── dcc-mcp-gateway/             # multi-instance gateway + minimal MCP surface

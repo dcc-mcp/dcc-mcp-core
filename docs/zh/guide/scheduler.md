@@ -146,8 +146,8 @@ cfg.schedules_dir = "/opt/dcc-mcp/schedules"
 或通过 builder：
 
 ```rust
-use dcc_mcp_http::config::McpHttpConfig;
-let cfg = McpHttpConfig::new()
+use dcc_mcp_http_types::config::McpHttpConfig;
+let cfg = McpHttpConfig::default()
     .with_scheduler("/opt/dcc-mcp/schedules");
 ```
 

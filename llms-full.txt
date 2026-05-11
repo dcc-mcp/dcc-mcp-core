@@ -75,7 +75,8 @@ crates/
 ├── dcc-mcp-gateway/      # Multi-DCC gateway app + dynamic wrappers
 ├── dcc-mcp-http-types/   # Pure HTTP wire/config/value types
 ├── dcc-mcp-http-server/  # Reusable HTTP runtime support
-├── dcc-mcp-http/         # Embedded MCP HTTP facade + Python bindings
+├── dcc-mcp-http-py/      # PyO3 binding boundary for HTTP APIs
+├── dcc-mcp-http/         # Embedded MCP HTTP facade + compatibility re-exports
 ├── dcc-mcp-transport/    # DccLink IPC adapters
 ├── dcc-mcp-process/      # PyDccLauncher, monitors, crash recovery
 ├── dcc-mcp-telemetry/    # TelemetryConfig, RecordingGuard, ToolMetrics, ToolRecorder
@@ -3233,7 +3234,4 @@ McpHttpConfig.queue.sse_chunk_size_bytes        // default 64 KiB → auto SSE c
 
 ### McpHttpConfig Sub-configs and HTTP type crates (#764 / #852)
 
-Rust `McpHttpConfig` is a thin aggregate with view methods:
-`.queue_config()`, `.gateway_config()`, `.session_config()`, `.telemetry_config()`.
-Python `PyMcpHttpConfig` field-level getters/setters are **unchanged**.
-Pure wire/config/value types that do not need axum/PyO3 live in `dcc-mcp-http-types` and remain re-exported from `dcc-mcp-http`; reusable runtime support (core tool builders, sessions, executors, in-flight request state, notifications, workspace roots) lives in `dcc-mcp-http-server`.
+Rust `McpHttpConfig` is a thin aggregate in `dcc-mcp-http-types::config` with public sub-config fields (`server`, `instance`, `session`, `gateway`, `queue`, `telemetry`, `features`, `workflow`, `job`) plus compatibility accessors/builders. Python `PyMcpHttpConfig` field-level getters/setters are **unchanged**. Pure wire/config/value types that do not need axum/PyO3 live in `dcc-mcp-http-types` and remain re-exported from `dcc-mcp-http`; reusable runtime support (core tool builders, sessions, executors, in-flight request state, notifications, workspace roots) lives in `dcc-mcp-http-server`; the PyO3 HTTP binding boundary lives in `dcc-mcp-http-py`.
