@@ -105,9 +105,7 @@ pub use session::SessionManager;
 pub use workspace::{WorkspaceResolveError, WorkspaceRoots};
 
 #[cfg(feature = "python-bindings")]
-pub use python::{
-    PyMcpHttpConfig, PyMcpHttpServer, PyReadinessProbe, PyServerHandle, PyWorkspaceRoots,
-};
+pub use python::{PyMcpHttpConfig, PyMcpHttpServer, PyReadinessProbe, PyServerHandle};
 
 #[cfg(test)]
 mod tests;
