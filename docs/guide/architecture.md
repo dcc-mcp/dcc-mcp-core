@@ -43,7 +43,7 @@ DCC-MCP-Core is a Rust workspace with Python bindings via PyO3. It provides:
 
 - **Zero third-party runtime dependencies** in the Rust core
 - **Optional Python bindings** via PyO3 for DCC integration
-- **31 workspace members** (30 functional crates + `workspace-hack`) for selective dependency usage; root `Cargo.toml` is the source of truth
+- **34 workspace members** (33 functional crates + `workspace-hack`) for selective dependency usage; root `Cargo.toml` is the source of truth
 
 ## Crate Structure
 
@@ -57,8 +57,11 @@ dcc-mcp-core (workspace root)
 ├── dcc-mcp-jsonrpc       # MCP 2025-03-26 JSON-RPC wire types
 ├── dcc-mcp-job           # Async job tracking + optional persistence
 ├── dcc-mcp-skill-rest    # Per-DCC /v1/* REST skill API
-├── dcc-mcp-gateway       # Multi-DCC gateway + dynamic capability index
-├── dcc-mcp-http          # Embedded MCP Streamable HTTP server core
+├── dcc-mcp-gateway-core  # Pure gateway domain/search/ranking types
+├── dcc-mcp-gateway       # Multi-DCC gateway app + dynamic wrappers
+├── dcc-mcp-http-types    # Pure HTTP wire/config/value types
+├── dcc-mcp-http-server   # Reusable HTTP runtime support
+├── dcc-mcp-http          # Embedded MCP HTTP facade + Python bindings
 ├── dcc-mcp-server        # Binary entry point and gateway runner
 ├── dcc-mcp-logging       # Rolling file logging
 ├── dcc-mcp-paths         # Platform path helpers
@@ -95,7 +98,15 @@ dcc-mcp-protocols ← dcc-mcp-models
        ↓
 dcc-mcp-transport ← dcc-mcp-protocols
        ↓
-dcc-mcp-http ← dcc-mcp-transport, dcc-mcp-protocols, dcc-mcp-actions, dcc-mcp-skills
+dcc-mcp-gateway-core ← pure gateway domain/search/ranking types
+       ↓
+dcc-mcp-gateway ← dcc-mcp-gateway-core, dcc-mcp-transport
+       ↓
+dcc-mcp-http-types ← pure HTTP wire/config/value types
+       ↓
+dcc-mcp-http-server ← dcc-mcp-http-types, dcc-mcp-jsonrpc, dcc-mcp-job, dcc-mcp-host
+       ↓
+dcc-mcp-http ← dcc-mcp-http-types, dcc-mcp-http-server, dcc-mcp-gateway, dcc-mcp-skill-rest
        ↓
 dcc-mcp-server ← dcc-mcp-http
 ```
@@ -306,44 +317,72 @@ dcc-mcp-server ← dcc-mcp-http
 
 **Dependencies**: `pxr-usd` (thin wrapper, no C++ runtime)
 
-### dcc-mcp-http
+### dcc-mcp-gateway-core
 
-**Purpose**: MCP Streamable HTTP server (2025-03-26 spec) for HTTP-based MCP clients, with optional gateway competition.
+**Purpose**: Pure gateway domain layer for capability records, slug helpers, search queries/pages/hits, and ranking/scoring. It has no HTTP, async runtime, file-registry, or `dcc-mcp-gateway` dependency.
 
 **Key Components**:
-- `McpHttpServer` — Background-thread HTTP server (axum/Tokio)
-- `McpHttpConfig` — Server configuration (port, CORS, request timeout, gateway fields)
-- `McpServerHandle` — Server handle with URL retrieval, `is_gateway` flag, and graceful shutdown
-- `GatewayRunner` — First-wins port competition orchestrator
-- `GatewayConfig` — Gateway configuration (port, stale timeout, heartbeat interval)
-- `GatewayHandle` — Handle indicating whether this process won the gateway port
-- `GatewayState` — Shared gateway state (registry, stale timeout, HTTP client for proxying)
+- `PendingCall` — gateway-to-backend cancellation correlation primitive.
+- `CapabilityRecord` — compact per-tool search/dispatch record.
+- `SearchQuery`, `SearchHit`, `SearchPage`, `SearchMode` — token-budgeted capability search contract.
+- `ExactScorer`, `FuzzyScorer`, `SubstringScorer`, `StrategyScorer` — pluggable ranking strategies.
 
-**McpHttpConfig Gateway Fields**:
-- `gateway_port` — Port to compete for (0 = disabled, default 0)
-- `registry_dir` — Shared FileRegistry directory
-- `stale_timeout_secs` — Seconds without heartbeat before instance is stale
-- `heartbeat_secs` — Heartbeat interval in seconds
-- `dcc_type` / `dcc_version` / `scene` — Instance metadata for gateway routing
+**Dependencies**: `serde`, `uuid`, `nucleo-matcher` only where the pure ranking strategy needs it.
 
-**SSE Support**: `GET /mcp` long-lived SSE stream for server-push events
+### dcc-mcp-gateway
+
+**Purpose**: Multi-DCC gateway application/infrastructure: registry probing, dynamic MCP wrappers, `/v1/*` REST facade, routing, diagnostics, and admin surface.
+
+**Key Components**:
+- `CapabilityIndex` + refresh tasks — build records from live per-DCC instances and evict stale ones.
+- `search_tools`, `describe_tool`, `call_tool` — fixed gateway MCP wrappers over the dynamic capability index.
+- Gateway REST facade — `POST /v1/search`, `/v1/describe`, `/v1/call`, plus diagnostics/resources/prompts aggregation.
+- Admin/dashboard support — read-only `/admin/api/*` inspection for instances, tools, calls, traces, stats, workers, logs, and health.
+
+**Dependencies**: `dcc-mcp-gateway-core`, `dcc-mcp-transport`, `dcc-mcp-skill-rest`, `reqwest`, `tokio`.
+
+### dcc-mcp-http-types
+
+**Purpose**: Pure HTTP wire/config/value types moved out of `dcc-mcp-http` for issue #852. It has no axum, tower, tokio runtime, reqwest, or PyO3 dependency.
+
+**Key Types**:
+- `HttpError` / `HttpResult` — shared HTTP error taxonomy.
+- `JobConfig`, `WorkflowConfig`, `TelemetryConfig`, `FeatureFlags`, `InstanceConfig` — server configuration value objects.
+- `PromptSpec`, `PromptsSpec`, `ProducerContent`, `ResourceError`, `OutputEntry`, `SessionLogMessage` — prompt/resource/output/session wire values.
+- `TruncationEnvelope`, `SseChunkFrame` — response-size and SSE chunking helpers.
+
+**Compatibility**: `dcc-mcp-http` re-exports these types under historical paths while callers migrate.
+
+### dcc-mcp-http-server
+
+**Purpose**: Reusable runtime support for the embedded MCP HTTP server without axum or PyO3.
+
+**Key Components**:
+- `build_core_tools` — constructs the fixed core MCP tool descriptors.
+- `DccExecutorHandle`, `DeferredExecutor` — host/main-thread execution bridge.
+- `McpSession`, `SessionManager`, `ToolListSnapshot` — session state and connection-scoped `tools/list` cache.
+- `InFlightRequests`, `CancelToken`, `ProgressReporter` — cancellation/progress routing.
+- `JobNotifier`, `WorkflowUpdate`, `WorkspaceRoots` — job/workflow notifications and root resolution.
+
+**Dependencies**: `dcc-mcp-http-types`, `dcc-mcp-jsonrpc`, `dcc-mcp-job`, `dcc-mcp-host`, `dcc-mcp-workflow`.
+
+### dcc-mcp-http
+
+**Purpose**: MCP Streamable HTTP facade (2025-03-26 spec) for HTTP-based MCP clients. It owns axum routing, server startup, the `McpHttpConfig` aggregate, Python bindings, prompt/resource registries, and compatibility re-exports from the extracted crates.
+
+**Key Components**:
+- `McpHttpServer` — background-thread HTTP server (axum/Tokio).
+- `McpHttpConfig` — thin aggregate over queue/gateway/session/telemetry/features/instance sub-configs.
+- `McpServerHandle` — URL retrieval, `is_gateway` flag, and graceful shutdown.
+- `ResourceRegistry` and `PromptRegistry` — MCP `resources/*` and `prompts/*` implementation.
+- Gateway bootstrap — delegates dynamic gateway behavior to `dcc-mcp-gateway`.
+
+**SSE Support**: `GET /mcp` long-lived SSE stream for server-push events.
 
 **Connection-Scoped Cache** (issue #438): Per-session `tools/list` snapshot stored on `McpSession`. On cache hit, avoids redundant registry scan, bare-name resolution, and `McpTool` construction. Invalidated when the `AppState::registry_generation` counter is bumped (skill load/unload, group activation/deactivation). Configurable via `McpHttpConfig.enable_tool_cache` (default `True`).
 
-**Dependencies**: `axum`, `tokio`, `reqwest`, `socket2`, `dcc-mcp-transport`, `dcc-mcp-protocols`, `dcc-mcp-actions`, `dcc-mcp-skills`
+**Dependencies**: `axum`, `tokio`, `reqwest`, `socket2`, `dcc-mcp-http-types`, `dcc-mcp-http-server`, `dcc-mcp-gateway`, `dcc-mcp-skill-rest`, `dcc-mcp-transport`, `dcc-mcp-protocols`, `dcc-mcp-actions`, `dcc-mcp-skills`.
 
-**Maintainer layout**:
-- `src/tests/gateway.rs` is a shared fixture module; gateway tests are split into focused submodules for REST, MCP methods, batch handling, session headers, subscriptions, runner competition, and pagination.
-- Legacy unreferenced `segment_*` test fragments were removed so the crate test tree mirrors real runtime responsibilities.
-- `src/handlers/tools_call.rs` is now a thin facade; request resolution, async job dispatch, sync execution, and result shaping live in focused helper modules.
-- `src/gateway/handlers.rs` is a routing facade; SSE, REST, MCP batch/request handling, notification forwarding, and instance proxying are split into dedicated files.
-- `src/server.rs` keeps the public server types and startup orchestration, while background tasks, gateway bootstrap, and listener spawn strategies live in dedicated implementation modules.
-- `src/job.rs` is a thin facade over the in-process async job tracker: `Job` / `JobStatus` / `JobProgress` / `JobEvent` data live in `job_types.rs`, the `JobManager` registry (transitions, persistence, subscriptions, GC) lives in `job_manager.rs`, and unit tests live in `job_tests.rs`.
-- `src/resources.rs` keeps the `ResourceRegistry` (producer wiring, subscription state, `notify_updated` fan-out); the `ResourceProducer` trait + content/error types live in `resources_types.rs`, the built-in producers (`scene://`, `capture://`, `audit://`, `artefact://`) live in `resources_producers.rs`, and unit tests live in `resources_tests.rs`.
-- `src/prompts.rs` keeps the `PromptRegistry` (lazy cache, skill-set invalidation, `list` / `get` surface); the YAML spec types + `PromptError` live in `prompts_spec.rs`, the `{{name}}` template engine lives in `prompts_template.rs`, the sibling-file / glob loader plus the workflow-derived prompt generator live in `prompts_loader.rs`, and unit tests live in `prompts_tests.rs`.
-- `src/protocol.rs` is a thin facade keeping protocol-version negotiation + session/method constants; every MCP message type is split by primitive: JSON-RPC envelope + error codes in `protocol_jsonrpc.rs`, lifecycle (`initialize` / capabilities / roots / logging / elicitation) in `protocol_lifecycle.rs`, tools (`tools/list` / `tools/call` / annotations / content) in `protocol_tools.rs`, resources (`resources/list|read|subscribe`) in `protocol_resources.rs`, prompts (`prompts/list|get`) in `protocol_prompts.rs`, and SSE formatter + cursor helpers in `protocol_sse.rs`.
-- `src/handler.rs` is a thin facade over the top-level axum handlers: shared `AppState` + cancellation/elicitation TTL constants live in `handler_state.rs`, the three HTTP verbs (`POST` / `GET` / `DELETE /mcp`) live in `handler_routes.rs`, notification and response-message routing (`notifications/cancelled`, `roots/list_changed`, elicitation correlation) live in `handler_notifications.rs`, and the JSON-RPC method router plus `initialize` / `tools/list` implementations live in `handler_dispatch.rs`. Per-method request handlers (`tools/call`, `resources/*`, `prompts/*`, `elicitation/create`, …) continue to live under `src/handlers/` and are re-exported through the facade so existing call sites keep using `crate::handler::*`.
-- `src/gateway/namespace.rs` is a thin facade over the tool-name namespace helpers: the canonical name lists (`GATEWAY_LOCAL_TOOLS`, `CORE_TOOL_NAMES`), SEP-986 separator constants, and the `is_local_tool` / `is_core_tool` / `instance_short` / `is_instance_prefix` predicates live in `namespace_constants.rs`; the encoder / decoder pair (`extract_bare_tool_name`, `skill_tool_name`, `decode_skill_tool_name`, `encode_tool_name`, `decode_tool_name`, `assert_gateway_tool_name`) lives in `namespace_encode.rs`; the #307 bare-name resolver (`BareNameInput`, `resolve_bare_names`) and the one-shot deprecation warn helpers (`warn_legacy_prefixed_once`, process-local dedupe state) live in `namespace_bare.rs`; unit tests live in `namespace_tests.rs`. The facade re-exports every public symbol so downstream modules and tests keep using `crate::gateway::namespace::*` unchanged.
 
 ### dcc-mcp-server
 

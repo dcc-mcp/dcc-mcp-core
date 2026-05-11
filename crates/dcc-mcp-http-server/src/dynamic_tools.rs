@@ -120,11 +120,13 @@ impl DynamicToolEntry {
         }
     }
 
+    #[must_use]
     pub fn is_expired(&self) -> bool {
         Instant::now() >= self.expires_at
     }
 
     /// Build the [`McpTool`] descriptor for `tools/list`.
+    #[must_use]
     pub fn to_mcp_tool(&self) -> McpTool {
         let input_schema = if let Some(props) = &self.spec.parameters {
             json!({
@@ -183,6 +185,7 @@ pub struct SessionDynamicTools {
 }
 
 impl SessionDynamicTools {
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -198,11 +201,13 @@ impl SessionDynamicTools {
     }
 
     /// Remove a tool by its assigned name. Returns `true` if found and removed.
+    #[must_use]
     pub fn deregister(&mut self, tool_name: &str) -> bool {
         self.tools.remove(tool_name).is_some()
     }
 
     /// Look up a tool by assigned name. Returns `None` if expired or not found.
+    #[must_use]
     pub fn get(&self, tool_name: &str) -> Option<&DynamicToolEntry> {
         self.tools.get(tool_name).filter(|e| !e.is_expired())
     }
@@ -218,16 +223,19 @@ impl SessionDynamicTools {
     }
 
     /// Build `McpTool` descriptors for all non-expired tools.
+    #[must_use]
     pub fn to_mcp_tools(&mut self) -> Vec<McpTool> {
         self.evict_expired();
         self.tools.values().map(|e| e.to_mcp_tool()).collect()
     }
 
     /// Number of registered (including possibly expired) tools.
+    #[must_use]
     pub fn len(&self) -> usize {
         self.tools.len()
     }
 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.tools.is_empty()
     }
@@ -293,6 +301,7 @@ fn generate_tool_name(base: &str) -> String {
 // ── MCP tool schema builders ──────────────────────────────────────────────────
 
 /// Build the static `register_tool` MCP tool descriptor.
+#[must_use]
 pub fn build_register_tool_descriptor() -> McpTool {
     McpTool {
         name: "register_tool".to_string(),
@@ -372,6 +381,7 @@ pub fn build_register_tool_descriptor() -> McpTool {
 }
 
 /// Build the static `deregister_tool` MCP tool descriptor.
+#[must_use]
 pub fn build_deregister_tool_descriptor() -> McpTool {
     McpTool {
         name: "deregister_tool".to_string(),
@@ -405,6 +415,7 @@ pub fn build_deregister_tool_descriptor() -> McpTool {
 }
 
 /// Build the static `list_dynamic_tools` MCP tool descriptor.
+#[must_use]
 pub fn build_list_dynamic_tools_descriptor() -> McpTool {
     McpTool {
         name: "list_dynamic_tools".to_string(),
@@ -433,6 +444,7 @@ pub fn build_list_dynamic_tools_descriptor() -> McpTool {
 // ── Handler implementations ────────────────────────────────────────────────────
 
 /// Handle `register_tool` call. Returns a JSON-serialisable result value.
+#[must_use]
 pub fn handle_register_tool(
     session_dynamic_tools: &mut SessionDynamicTools,
     params: &Value,
@@ -474,6 +486,7 @@ pub fn handle_register_tool(
 }
 
 /// Handle `deregister_tool` call.
+#[must_use]
 pub fn handle_deregister_tool(
     session_dynamic_tools: &mut SessionDynamicTools,
     params: &Value,
@@ -502,6 +515,7 @@ pub fn handle_deregister_tool(
 }
 
 /// Handle `list_dynamic_tools` call.
+#[must_use]
 pub fn handle_list_dynamic_tools(session_dynamic_tools: &mut SessionDynamicTools) -> Value {
     let tools: Vec<Value> = session_dynamic_tools
         .iter_active()

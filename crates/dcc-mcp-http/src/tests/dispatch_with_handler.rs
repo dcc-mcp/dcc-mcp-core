@@ -336,7 +336,7 @@ pub async fn test_deferred_executor_roundtrip() {
 
     // Simulate DCC main thread polling
     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    exec.poll_pending();
+    let _ = exec.poll_pending();
 
     let result = task_handle.await.unwrap();
     assert_eq!(result, "hello from main thread");

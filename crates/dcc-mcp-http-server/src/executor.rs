@@ -176,22 +176,26 @@ impl DccExecutorHandle {
 
     /// Current approximate queue depth (issue #715). Safe to call
     /// from any thread.
+    #[must_use]
     pub fn pending(&self) -> usize {
         self.stats.pending()
     }
 
     /// Configured channel capacity (issue #715).
+    #[must_use]
     pub fn capacity(&self) -> usize {
         self.stats.capacity
     }
 
     /// Wait-time of the oldest queued task (issue #715). `None` when
     /// the queue is empty.
+    #[must_use]
     pub fn oldest_submit_age(&self) -> Option<Duration> {
         self.stats.oldest_wait()
     }
 
     /// Observability snapshot for diagnostics (issue #715).
+    #[must_use]
     pub fn queue_stats(&self) -> ExecutorQueueStats {
         let (p50, p95, p99) = self.stats.percentiles();
         ExecutorQueueStats {
@@ -277,6 +281,7 @@ impl DccExecutorHandle {
     ///
     /// `tool_name` is purely for logging; pass the fully-qualified MCP tool
     /// name (`skill__action`).
+    #[must_use]
     pub fn submit_deferred(
         &self,
         tool_name: &str,
@@ -385,12 +390,14 @@ impl DeferredExecutor {
     ///
     /// The default send-timeout for backpressure is 2 s — use
     /// [`Self::with_send_timeout`] to override it.
+    #[must_use]
     pub fn new(queue_depth: usize) -> Self {
         Self::with_send_timeout(queue_depth, Duration::from_millis(2_000))
     }
 
     /// Create a new executor with a bounded queue depth and a custom
     /// send-timeout for the backpressure path (issue #715).
+    #[must_use]
     pub fn with_send_timeout(queue_depth: usize, send_timeout: Duration) -> Self {
         let (tx, rx) = mpsc::channel(queue_depth);
         let stats = ExecutorStats::new(queue_depth, send_timeout);
@@ -401,6 +408,7 @@ impl DeferredExecutor {
     }
 
     /// Get a cloneable handle for submitting tasks from Tokio workers.
+    #[must_use]
     pub fn handle(&self) -> DccExecutorHandle {
         self.handle.clone()
     }
@@ -408,6 +416,7 @@ impl DeferredExecutor {
     /// Process **all currently queued** tasks synchronously on the calling thread.
     ///
     /// Call this from your DCC event loop. Returns the number of tasks processed.
+    #[must_use]
     pub fn poll_pending(&mut self) -> usize {
         let mut count = 0;
         let stats = self.handle.stats.clone();
@@ -421,6 +430,7 @@ impl DeferredExecutor {
     }
 
     /// Process at most `max` tasks. Useful to bound latency per tick.
+    #[must_use]
     pub fn poll_pending_bounded(&mut self, max: usize) -> usize {
         let mut count = 0;
         let stats = self.handle.stats.clone();
@@ -446,11 +456,13 @@ pub struct InProcessExecutor;
 
 impl InProcessExecutor {
     /// Execute the task immediately on the current thread.
+    #[must_use]
     pub fn execute(&self, func: DccTaskFn) -> String {
         func()
     }
 
     /// Wrap as a [`DccExecutorHandle`] backed by a dedicated Tokio task.
+    #[must_use]
     pub fn into_handle(self) -> (DccExecutorHandle, Arc<tokio::task::JoinHandle<()>>) {
         let (tx, mut rx) = mpsc::channel::<DccTask>(256);
         let stats = ExecutorStats::new(256, Duration::from_millis(2_000));
@@ -481,7 +493,7 @@ mod tests {
         max_iterations: usize,
     ) {
         for _ in 0..max_iterations {
-            exec.poll_pending_bounded(8);
+            let _ = exec.poll_pending_bounded(8);
             if should_stop() {
                 return;
             }
@@ -545,7 +557,7 @@ mod tests {
         // that short-circuits. Either outcome is correct — what matters is
         // that the user closure never runs.
         tokio::time::sleep(Duration::from_millis(20)).await;
-        exec.poll_pending_bounded(8);
+        let _ = exec.poll_pending_bounded(8);
 
         // The oneshot either resolves with CANCELLED or is dropped.
         let res = tokio::time::timeout(Duration::from_millis(100), rx).await;
@@ -595,7 +607,7 @@ mod tests {
         });
         let mut out = None;
         for _ in 0..50 {
-            exec.poll_pending_bounded(8);
+            let _ = exec.poll_pending_bounded(8);
             if let Ok(o) = done_rx.try_recv() {
                 out = Some(o);
                 break;

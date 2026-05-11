@@ -132,13 +132,13 @@ pub fn test_session_evict_stale_does_not_touch_initialized_flag() {
     use std::time::Duration;
     let mgr = SessionManager::new();
     let id = mgr.create();
-    mgr.mark_initialized(&id);
+    let _ = mgr.mark_initialized(&id);
 
     // Sanity: session is initialized before eviction.
     assert!(mgr.is_initialized(&id));
 
     // Evict with generous TTL — session stays.
-    mgr.evict_stale(Duration::from_secs(3600));
+    let _ = mgr.evict_stale(Duration::from_secs(3600));
     assert!(mgr.exists(&id));
     assert!(mgr.is_initialized(&id));
 }
