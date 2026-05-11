@@ -4,6 +4,45 @@
 //! prompts, readiness, and method routing. This module owns the lower-level
 //! runtime fields used by many handlers: tool registries, session state,
 //! in-flight request tracking, job notification, and cache generation.
+//!
+//! ## Lock acquisition rules
+//!
+//! Several fields hold internal locks (`RwLock`, `Mutex`, `DashMap`).
+//! Handlers MUST follow these rules to avoid deadlocks and lock-order
+//! inversions:
+//!
+//! 1. **Acquisition order, outermost first**, when more than one lock is
+//!    held simultaneously:
+//!     1. `registry` / `catalog` / `prompts` / `resources` (long-lived
+//!        registries — read-heavy, may be held across an entire
+//!        `tools/list` build)
+//!     2. `sessions` (snapshots, subscribers — per-session granularity)
+//!     3. `jobs` / `bridge_registry` (per-request orchestration)
+//!     4. `cancelled_requests` / `pending_elicitations` / `in_flight`
+//!        (`DashMap` / sharded maps — never wrapped in a higher-level lock)
+//!
+//!    Do not invert this order. Acquiring `sessions` before `registry`
+//!    in one path while another path does the reverse will deadlock under
+//!    contention.
+//!
+//! 2. **Locks are released before notifying subscribers.** SSE / progress
+//!    notifications must be dispatched *after* dropping every lock they
+//!    do not strictly need — otherwise a slow subscriber stalls the
+//!    registry. Pattern: clone the data out of the lock, drop the guard,
+//!    then call `JobNotifier` / `SessionManager::publish`.
+//!
+//! 3. **Hot-path fields use `DashMap`** (`cancelled_requests`,
+//!    `pending_elicitations`) so reads / writes never require a global
+//!    lock. Do not refactor these into `Arc<RwLock<HashMap<…>>>` —
+//!    contention on the inner `RwLock` would serialise every active
+//!    SSE connection.
+//!
+//! 4. **`registry_generation`** is the canonical signal for cache
+//!    invalidation (issue #438). Bump it via
+//!    [`ServerState::bump_registry_generation`] after any mutation that
+//!    changes the visible tool surface; do *not* hold a registry lock
+//!    across the bump, because `invalidate_all_tool_list_snapshots`
+//!    re-enters `sessions`.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -77,6 +116,41 @@ pub struct ServerState {
 }
 
 impl ServerState {
+    /// Start building a [`ServerState`] from the three required registries.
+    #[must_use]
+    pub fn builder(
+        registry: Arc<ToolRegistry>,
+        dispatcher: Arc<ToolDispatcher>,
+        catalog: Arc<SkillCatalog>,
+    ) -> ServerStateBuilder {
+        let sessions = SessionManager::new();
+        ServerStateBuilder {
+            state: Self {
+                registry,
+                dispatcher,
+                catalog,
+                sessions: sessions.clone(),
+                executor: None,
+                server_name: "dcc-mcp-http".to_owned(),
+                server_version: env!("CARGO_PKG_VERSION").to_owned(),
+                cancelled_requests: Arc::new(DashMap::new()),
+                in_flight: InFlightRequests::new(),
+                pending_elicitations: Arc::new(DashMap::new()),
+                lazy_actions: false,
+                bare_tool_names: true,
+                declared_capabilities: Arc::new(Vec::new()),
+                jobs: Arc::new(JobManager::new()),
+                job_notifier: JobNotifier::new(sessions, true),
+                enable_resources: true,
+                enable_prompts: true,
+                registry_generation: Arc::new(AtomicU64::new(0)),
+                enable_tool_cache: true,
+                #[cfg(feature = "prometheus")]
+                prometheus: None,
+            },
+        }
+    }
+
     /// Remove cancellation entries older than [`CANCELLED_REQUEST_TTL`].
     pub fn purge_expired_cancellations(&self) {
         self.cancelled_requests
@@ -91,7 +165,125 @@ impl ServerState {
     }
 
     /// Read the current registry generation counter.
+    #[must_use]
     pub fn current_registry_generation(&self) -> u64 {
         self.registry_generation.load(Ordering::Relaxed)
+    }
+}
+
+/// Builder for [`ServerState`].
+#[derive(Clone)]
+pub struct ServerStateBuilder {
+    state: ServerState,
+}
+
+impl ServerStateBuilder {
+    /// Use an existing session manager.
+    #[must_use]
+    pub fn with_sessions(mut self, sessions: SessionManager) -> Self {
+        self.state.sessions = sessions;
+        self
+    }
+
+    /// Use an optional DCC main-thread executor.
+    #[must_use]
+    pub fn with_executor(mut self, executor: Option<DccExecutorHandle>) -> Self {
+        self.state.executor = executor;
+        self
+    }
+
+    /// Set the server identity surfaced in `initialize`.
+    #[must_use]
+    pub fn with_server_identity(
+        mut self,
+        server_name: impl Into<String>,
+        server_version: impl Into<String>,
+    ) -> Self {
+        self.state.server_name = server_name.into();
+        self.state.server_version = server_version.into();
+        self
+    }
+
+    /// Use an existing cancelled-request map.
+    #[must_use]
+    pub fn with_cancelled_requests(
+        mut self,
+        cancelled_requests: Arc<DashMap<String, Instant>>,
+    ) -> Self {
+        self.state.cancelled_requests = cancelled_requests;
+        self
+    }
+
+    /// Enable or disable lazy action meta-tools.
+    #[must_use]
+    pub fn with_lazy_actions(mut self, lazy_actions: bool) -> Self {
+        self.state.lazy_actions = lazy_actions;
+        self
+    }
+
+    /// Enable or disable bare tool names.
+    #[must_use]
+    pub fn with_bare_tool_names(mut self, bare_tool_names: bool) -> Self {
+        self.state.bare_tool_names = bare_tool_names;
+        self
+    }
+
+    /// Set capabilities declared by the hosting adapter.
+    #[must_use]
+    pub fn with_declared_capabilities(mut self, declared_capabilities: Vec<String>) -> Self {
+        self.state.declared_capabilities = Arc::new(declared_capabilities);
+        self
+    }
+
+    /// Use an existing job manager.
+    #[must_use]
+    pub fn with_jobs(mut self, jobs: Arc<JobManager>) -> Self {
+        self.state.jobs = jobs;
+        self
+    }
+
+    /// Use an existing job notifier.
+    #[must_use]
+    pub fn with_job_notifier(mut self, job_notifier: JobNotifier) -> Self {
+        self.state.job_notifier = job_notifier;
+        self
+    }
+
+    /// Enable or disable resource handling.
+    #[must_use]
+    pub fn with_resources_enabled(mut self, enable_resources: bool) -> Self {
+        self.state.enable_resources = enable_resources;
+        self
+    }
+
+    /// Enable or disable prompt handling.
+    #[must_use]
+    pub fn with_prompts_enabled(mut self, enable_prompts: bool) -> Self {
+        self.state.enable_prompts = enable_prompts;
+        self
+    }
+
+    /// Enable or disable per-session tool-list caching.
+    #[must_use]
+    pub fn with_tool_cache_enabled(mut self, enable_tool_cache: bool) -> Self {
+        self.state.enable_tool_cache = enable_tool_cache;
+        self
+    }
+
+    /// Use an existing Prometheus exporter.
+    #[cfg(feature = "prometheus")]
+    #[must_use]
+    pub fn with_prometheus(
+        mut self,
+        prometheus: Option<dcc_mcp_telemetry::PrometheusExporter>,
+    ) -> Self {
+        self.state.prometheus = prometheus;
+        self
+    }
+
+    /// Finish building the state.
+    #[must_use]
+    pub fn build(self) -> ServerState {
+        self.state
     }
 }
