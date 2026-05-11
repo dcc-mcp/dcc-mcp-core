@@ -25,6 +25,7 @@
 //! |------------------|-----------------------------------------------------|
 //! | crate root       | [`PendingCall`] (routing primitive)                 |
 //! | [`naming`]       | Pure UUID / alphabet helpers used by slug encoding  |
+//! | [`resource_uri`] | Gateway resource URI prefix encode/decode helpers   |
 //! | [`capability`]   | [`CapabilityRecord`] + slug encoding (REST wire)    |
 //!
 //! # Migration plan
@@ -40,6 +41,7 @@
 
 pub mod capability;
 pub mod naming;
+pub mod resource_uri;
 
 /// A call that the gateway has forwarded to a backend and is still awaiting
 /// a response from.
