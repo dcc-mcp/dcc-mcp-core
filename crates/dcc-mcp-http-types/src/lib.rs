@@ -26,6 +26,7 @@
 //! | crate root  | [`TruncationEnvelope`], [`SseChunkFrame`] + chunk helpers |
 //! | [`error`]   | [`HttpError`] / [`HttpResult`] error taxonomy             |
 //! | [`config`]  | [`McpHttpConfig`], [`ServerConfig`], [`SessionConfig`], [`GatewayConfig`], [`ServerSpawnMode`], [`JobRecoveryPolicy`], [`JobConfig`], [`WorkflowConfig`], [`TelemetryConfig`], [`FeatureFlags`], [`InstanceConfig`], [`QueueConfig`] |
+//! | [`dynamic_tools`] | [`dynamic_tools::ToolSpec`] dynamic-tool registration wire type |
 //! | [`output`]  | [`output::OutputStream`] and [`output::OutputEntry`] output capture wire types |
 //! | [`prompts`] | [`prompts::PromptSpec`], [`prompts::PromptsSpec`], and related prompt spec types |
 //! | [`resources`] | [`resources::ProducerContent`] / [`resources::ResourceError`] resource values |
@@ -54,6 +55,7 @@
 //! | [`config::InstanceConfig`]  |                                  |
 //! | [`config::QueueConfig`]     |                                  |
 //! | [`config::McpHttpConfig`]   |                                  |
+//! | [`dynamic_tools::ToolSpec`] |                                  |
 //! | [`output::OutputStream`]    |                                  |
 //! | [`output::OutputEntry`]     |                                  |
 //! | [`prompts::PromptError`]    |                                  |
@@ -71,6 +73,7 @@
 #![warn(missing_docs)]
 
 pub mod config;
+pub mod dynamic_tools;
 pub mod error;
 pub mod output;
 pub mod prompts;
