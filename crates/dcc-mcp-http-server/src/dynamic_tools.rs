@@ -29,7 +29,6 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use dcc_mcp_jsonrpc::{McpTool, McpToolAnnotations};
@@ -45,53 +44,7 @@ pub const DYNAMIC_TOOL_PREFIX: &str = "dyn__";
 
 // ── ToolSpec ─────────────────────────────────────────────────────────────────
 
-/// A session-scoped tool definition provided by an AI agent.
-///
-/// `ToolSpec` describes a tool's metadata and the code that should run when
-/// the tool is called. The server executes `code` inside the DCC's Python
-/// interpreter (or another interpreter matching `language`).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ToolSpec {
-    /// Human-readable tool name. Must be `[a-zA-Z0-9_-]+`, max 64 chars.
-    pub name: String,
-    /// What the tool does (≤500 chars for MCP compliance).
-    pub description: String,
-    /// The code body to execute. Receives `params` as a dict-like namespace.
-    pub code: String,
-    /// Execution language. Currently only `"python"` is supported.
-    #[serde(default = "default_language")]
-    pub language: String,
-    /// JSON Schema `properties` object for the tool's inputs (optional).
-    #[serde(default)]
-    pub parameters: Option<Value>,
-    /// If set, only run this tool when the server's DCC type matches (e.g. `"maya"`).
-    #[serde(default)]
-    pub dcc: Option<String>,
-    /// Hard execution timeout in seconds (default 30).
-    #[serde(default = "default_timeout")]
-    pub timeout_sec: u64,
-    /// Hint: does the tool avoid mutating scene state?
-    #[serde(default = "default_read_only")]
-    pub read_only_hint: bool,
-    /// Hint: does the tool make irreversible changes?
-    #[serde(default)]
-    pub destructive_hint: bool,
-    /// Optional TTL override for how long this tool lives (seconds).
-    #[serde(default)]
-    pub ttl_secs: Option<u64>,
-}
-
-fn default_language() -> String {
-    "python".to_string()
-}
-
-fn default_timeout() -> u64 {
-    30
-}
-
-fn default_read_only() -> bool {
-    true
-}
+pub use dcc_mcp_http_types::dynamic_tools::ToolSpec;
 
 // ── DynamicToolEntry ──────────────────────────────────────────────────────────
 
