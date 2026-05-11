@@ -25,7 +25,7 @@
 //! |-------------|-----------------------------------------------------------|
 //! | crate root  | [`TruncationEnvelope`], [`SseChunkFrame`] + chunk helpers |
 //! | [`error`]   | [`HttpError`] / [`HttpResult`] error taxonomy             |
-//! | [`config`]  | [`ServerSpawnMode`], [`JobRecoveryPolicy`], [`JobConfig`], [`WorkflowConfig`], [`TelemetryConfig`], [`FeatureFlags`], [`InstanceConfig`] |
+//! | [`config`]  | [`ServerSpawnMode`], [`JobRecoveryPolicy`], [`JobConfig`], [`WorkflowConfig`], [`TelemetryConfig`], [`FeatureFlags`], [`InstanceConfig`], [`QueueConfig`] |
 //! | [`output`]  | [`output::OutputStream`] and [`output::OutputEntry`] output capture wire types |
 //! | [`prompts`] | [`prompts::PromptSpec`], [`prompts::PromptsSpec`], and related prompt spec types |
 //! | [`resources`] | [`resources::ProducerContent`] / [`resources::ResourceError`] resource values |
@@ -41,7 +41,7 @@
 //! | [`SseChunkFrame`]           | `ServerConfig` (uses `IpAddr`)  |
 //! | [`chunk_sse_data`]          | `SessionConfig`                  |
 //! | [`format_chunked_sse`]      | `GatewayConfig`                  |
-//! | [`error::HttpError`]        | `QueueConfig`                    |
+//! | [`error::HttpError`]        |                                  |
 //! | [`config::ServerSpawnMode`] |                                  |
 //! | [`config::JobRecoveryPolicy`]|                                 |
 //! | [`config::JobConfig`]       |                                  |
@@ -49,6 +49,7 @@
 //! | [`config::TelemetryConfig`] |                                  |
 //! | [`config::FeatureFlags`]    |                                  |
 //! | [`config::InstanceConfig`]  |                                  |
+//! | [`config::QueueConfig`]     |                                  |
 //! | [`output::OutputStream`]    |                                  |
 //! | [`output::OutputEntry`]     |                                  |
 //! | [`prompts::PromptError`]    |                                  |
