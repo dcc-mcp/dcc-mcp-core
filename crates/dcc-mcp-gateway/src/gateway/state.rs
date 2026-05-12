@@ -332,7 +332,7 @@ impl GatewayState {
 /// when the row is still live, and the redundant `stale: bool` field is
 /// kept for clients that prefer to branch on a boolean.
 pub fn entry_to_json(e: &ServiceEntry, stale_timeout: Duration) -> Value {
-    let stale = e.is_stale(stale_timeout);
+    let stale = e.is_stale(stale_timeout) || e.status == ServiceStatus::Stale;
     let status = if stale {
         "stale".to_string()
     } else {
