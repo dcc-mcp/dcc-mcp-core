@@ -93,14 +93,28 @@ runs:
           vx just stubgen
         fi
 
+    # manylinux Docker builds do not have `vx` on PATH. Pre-bundle the Vite admin
+    # UI on the GitHub runner (vx + Node from vx.toml), then tell
+    # `crates/dcc-mcp-gateway/build.rs` to skip `vx npm` inside the container.
+    - name: Pre-build admin UI for manylinux Docker
+      shell: bash
+      run: |
+        set -eux
+        vx npm --prefix admin-ui ci
+        vx npm --prefix admin-ui run build
+        test -f crates/dcc-mcp-gateway/src/gateway/admin/generated/index.html
+
     - name: Build wheel
       uses: PyO3/maturin-action@v1
+      env:
+        DCC_MCP_ADMIN_UI_PREBUILT: "1"
       with:
         target: ${{ inputs.target }}
         args: ${{ steps.resolve-features.outputs.value }}
         rust-toolchain: ${{ inputs.rust-version }}
         sccache: ${{ inputs.use-sccache == 'true' }}
         manylinux: auto
+        docker-options: -e DCC_MCP_ADMIN_UI_PREBUILT=1
 
     - name: Check wheel contents
       shell: bash
