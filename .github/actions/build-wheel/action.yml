@@ -67,10 +67,6 @@ runs:
         key: rust-${{ runner.os }}
         shared-key: rust-${{ runner.os }}
 
-    - name: Build admin UI
-      shell: bash
-      run: vx just admin-build
-
     - name: Resolve features from justfile
       id: resolve-features
       shell: bash

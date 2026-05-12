@@ -45,14 +45,22 @@ print-wheel-features-py37:
     @echo "{{WHEEL_FEATURES_PY37}}"
 
 # ── Admin UI ──────────────────────────────────────────────────────────────────
+#
+# The Vite bundle is written to crates/dcc-mcp-gateway/src/gateway/admin/generated/
+# and is intentionally gitignored. It is rebuilt automatically whenever Cargo compiles
+# `dcc-mcp-gateway` with the `admin` feature (wheel builds, local `cargo check`, etc.);
+# `crates/dcc-mcp-gateway/build.rs` runs `vx npm ci` (if needed) and `vx npm run build`.
+#
+# Use these recipes when you iterate on JSX/CSS only and want fast rebuilds without
+# recompiling the whole Rust workspace.
 
-# Install admin UI dependencies from the committed lockfile
+# Install admin UI dependencies from the committed lockfile (Node from vx.toml via vx)
 admin-install:
-    npm --prefix admin-ui ci
+    vx npm --prefix admin-ui ci
 
 # Build the React admin UI into the Rust-embedded generated HTML
 admin-build: admin-install
-    npm --prefix admin-ui run build
+    vx npm --prefix admin-ui run build
 
 # ── Rust ──────────────────────────────────────────────────────────────────────
 
@@ -140,7 +148,6 @@ dev:
         . .venv/bin/activate; \
     fi
     pip install maturin 2>/dev/null || true
-    just admin-build
     just stubgen
     maturin develop --features {{DEV_FEATURES}}
 
@@ -151,13 +158,11 @@ dev:
         & .\.venv\Scripts\Activate.ps1; \
     }
     pip install maturin -q 2>$null
-    just admin-build
     just stubgen
     maturin develop --features {{DEV_FEATURES}}
 
 # Build abi3-py38 release wheel and install it
 install:
-    just admin-build
     just stubgen
     maturin build --release --out dist --features {{WHEEL_FEATURES}}
     pip install --force-reinstall --no-index --find-links dist dcc-mcp-core
@@ -166,14 +171,12 @@ install:
 # EXTRA is forwarded to maturin — used by CI to pass --sdist,
 # --find-interpreter, --target, etc. without duplicating feature flags.
 build *EXTRA:
-    just admin-build
     just stubgen
     maturin build --release --out dist --features {{WHEEL_FEATURES}} {{EXTRA}}
 
 # Build Python 3.7 wheel (non-abi3, for py37-specific CI jobs).
 # EXTRA is forwarded to maturin (e.g. `-i python3.7`, `--target x86_64`).
 build-py37 *EXTRA:
-    just admin-build
     just stubgen
     maturin build --release --out dist --features {{WHEEL_FEATURES_PY37}} {{EXTRA}}
 
@@ -239,7 +242,7 @@ lint-fix: fmt lint-py-fix
 # ── Aggregate targets (CI + local) ────────────────────────────────────────────
 
 # Pre-flight: Rust check + clippy + fmt + tests + docs — run before every commit
-preflight: admin-build check clippy fmt-check test-rust
+preflight: check clippy fmt-check test-rust
 
 # Full local CI pipeline: preflight → build wheel → Python tests → lint
 ci: preflight install test lint-py
