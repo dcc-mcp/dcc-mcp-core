@@ -27,17 +27,15 @@
 //! stricter alphabet by escaping `.` / `-` / `_` with the reversible
 //! `_D_` / `_H_` / `_U_` triples — see [`encode::escape_cursor_safe`].
 //!
-//! Decoder accepts four historical encodings during the one-version
-//! compatibility window. The three legacy forms emit a
-//! `tracing::warn!` so operators notice any client that has not rolled
-//! over yet.
+//! [`decode_tool_name`] accepts only the cursor-safe `i_<id8>__<escaped>`
+//! form (#656). Dotted `{id8}.{tool}` slugs remain valid in REST capability
+//! URLs and similar surfaces; they are not accepted by the MCP routing
+//! decoder.
 //!
 //! | Form | Status |
 //! |------|--------|
-//! | `i_{id8}__{escaped_tool}` | **Preferred** (#656) — current emitter, Cursor-safe |
-//! | `{id8}.{tool}` | Accepted during the #656 compatibility window — the pre-#656 SEP-986 form |
-//! | `{id8}/{tool}` | Deprecated — previous unreleased build, decoded + warned |
-//! | `{id8}__{tool}` | Legacy — pre-#258, decoded + warned |
+//! | `i_{id8}__{escaped_tool}` | **Wire form** for MCP `tools/call` and `prompts/get` routing |
+//! | `{id8}.{tool}` | Used in capability / REST slugs only — not decoded by [`decode_tool_name`] |
 //!
 //! ## Maintainer layout
 //!
@@ -55,9 +53,8 @@ mod resource_uri;
 
 pub use bare::{BareNameInput, resolve_bare_names, warn_legacy_prefixed_once};
 pub use constants::{
-    CORE_TOOL_NAMES, CURSOR_SAFE_PREFIX, CURSOR_SAFE_SEP, DEPRECATED_SLASH_SEP,
-    GATEWAY_LOCAL_TOOLS, ID_PREFIX_LEN, INSTANCE_SEP, LEGACY_NAMESPACE_SEP, SKILL_TOOL_SEP,
-    instance_short, is_core_tool, is_local_tool,
+    CORE_TOOL_NAMES, CURSOR_SAFE_PREFIX, CURSOR_SAFE_SEP, GATEWAY_LOCAL_TOOLS, ID_PREFIX_LEN,
+    INSTANCE_SEP, SKILL_TOOL_SEP, instance_short, is_core_tool, is_local_tool,
 };
 pub use encode::{
     assert_gateway_tool_name, decode_skill_tool_name, decode_tool_name, encode_tool_name,

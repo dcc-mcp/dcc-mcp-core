@@ -92,6 +92,10 @@ ignore = ["D203", "D213", "D107", "D105", "D102"]
 force-single-line = true
 force-sort-within-sections = true
 known-first-party = ["dcc_mcp_core"]
+# Import convention (enforced via ``ruff check`` rule **I**, not ``ruff format``):
+# stdlib → third-party → first-party, one import per line. Prefer module-level imports.
+# For symbols implemented in the PyO3 extension, import from ``dcc_mcp_core._core``
+# instead of ``from dcc_mcp_core import …`` so submodules avoid the lazy package facade.
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
@@ -103,6 +107,7 @@ quote-style = "double"
 indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "auto"
+# Import order is handled by isort under ``[tool.ruff.lint]`` (rule **I**), not the formatter.
 
 [tool.pytest.ini_options]
 minversion = "7.0"

@@ -46,10 +46,9 @@ Some DCCs may need to override:
 # Import future modules
 from __future__ import annotations
 
+# Import built-in modules
 import atexit
 import contextlib
-
-# Import built-in modules
 import logging
 import os
 from pathlib import Path
@@ -58,10 +57,14 @@ from typing import Any
 from typing import Callable
 import weakref
 
-# NOTE: dcc_mcp_core imports (McpHttpConfig, create_skill_server, get_*,
-# get_bundled_skill_paths) are deferred inside methods to avoid a circular
-# import: __init__.py imports DccServerBase from this module, so this module
-# cannot import from dcc_mcp_core at module level.
+# Import first-party modules — compiled symbols come from ``dcc_mcp_core._core`` so
+# this module never depends on the lazy ``dcc_mcp_core`` package facade during import.
+from dcc_mcp_core import _core
+from dcc_mcp_core._core import McpHttpConfig
+from dcc_mcp_core._core import create_skill_server
+from dcc_mcp_core._core import get_app_skill_paths_from_env
+from dcc_mcp_core._core import get_skill_paths_from_env
+from dcc_mcp_core._core import get_skills_dir
 from dcc_mcp_core._server import FileLoggingManager
 from dcc_mcp_core._server import JobPersistenceManager
 from dcc_mcp_core._server import SkillQueryClient
@@ -75,8 +78,16 @@ from dcc_mcp_core._server.minimal_mode import apply_minimal_mode
 from dcc_mcp_core._server.options import DccServerOptions
 from dcc_mcp_core._server.options import _BridgeExecution
 from dcc_mcp_core._server.options import _DispatcherExecution
+from dcc_mcp_core.adapter_context import append_context_snapshot
+from dcc_mcp_core.adapter_context import register_adapter_instruction_resources
+from dcc_mcp_core.dcc_server import register_diagnostic_handlers
+from dcc_mcp_core.dcc_server import register_diagnostic_mcp_tools
 from dcc_mcp_core.gateway_election import DccGatewayElection
 from dcc_mcp_core.hotreload import DccSkillHotReloader
+from dcc_mcp_core.plugin_manifest import build_plugin_manifest
+from dcc_mcp_core.skill import get_bundled_skill_paths
+
+_PKG_VERSION: str = getattr(_core, "__version__", "0.0.0-dev")
 
 logger = logging.getLogger(__name__)
 
@@ -107,12 +118,6 @@ class DccServerBase:
 
         This is the single real constructor path; ``__init__`` delegates here.
         """
-        # Deferred: circular import — __init__.py imports DccServerBase from
-        # this module, so we cannot import from dcc_mcp_core at module level.
-        from dcc_mcp_core import McpHttpConfig
-        from dcc_mcp_core import __version__ as _pkg_version
-        from dcc_mcp_core import create_skill_server
-
         self._options = options
         self._dcc_name = options.dcc_name
         self._builtin_skills_dir = options.builtin_skills_dir
@@ -156,7 +161,7 @@ class DccServerBase:
         logger.info(
             "[%s] dcc-mcp-core %s (pid=%d, python=%s, platform=%s)",
             options.dcc_name,
-            _pkg_version,
+            _PKG_VERSION,
             self._dcc_pid,
             "{}.{}.{}".format(*sys.version_info[:3]),
             sys.platform,
@@ -167,7 +172,7 @@ class DccServerBase:
         self._config = McpHttpConfig(
             port=options.port,
             server_name=options.server_name or f"{options.dcc_name}-mcp",
-            server_version=options.server_version if options.server_version is not None else _pkg_version,
+            server_version=options.server_version if options.server_version is not None else _PKG_VERSION,
         )
         if gw.port is not None and gw.port > 0:
             self._config.gateway_port = gw.port
@@ -214,8 +219,6 @@ class DccServerBase:
 
     def register_adapter_instructions(self, instruction_set: Any) -> list[str]:
         """Register standard adapter instruction/capability resources."""
-        from dcc_mcp_core.adapter_context import register_adapter_instruction_resources
-
         return register_adapter_instruction_resources(self._server, instruction_set)
 
     def set_context_snapshot_provider(self, provider: Any | None) -> None:
@@ -226,7 +229,6 @@ class DccServerBase:
         """Attach the configured post-tool context snapshot to a result envelope."""
         if self._snapshot_provider is None:
             return dict(result)
-        from dcc_mcp_core.adapter_context import append_context_snapshot
 
         return append_context_snapshot(result, self._snapshot_provider, policy=policy)
 
@@ -323,10 +325,6 @@ class DccServerBase:
             Ordered list of directory paths (strings).
 
         """
-        from dcc_mcp_core import get_app_skill_paths_from_env
-        from dcc_mcp_core import get_skill_paths_from_env
-        from dcc_mcp_core import get_skills_dir
-
         paths: list[str] = list(extra_paths or [])
 
         if self._builtin_skills_dir.is_dir():
@@ -337,8 +335,6 @@ class DccServerBase:
 
         if include_bundled:
             try:
-                from dcc_mcp_core.skill import get_bundled_skill_paths
-
                 paths.extend(get_bundled_skill_paths(include_bundled=True))
             except Exception as exc:
                 logger.debug("[%s] Could not load bundled skill paths: %s", self._dcc_name, exc)
@@ -769,9 +765,6 @@ class DccServerBase:
         # Register instance-bound diagnostic IPC handlers before the server
         # starts so skill subprocesses can call take_screenshot / audit_log.
         try:
-            from dcc_mcp_core.dcc_server import register_diagnostic_handlers
-            from dcc_mcp_core.dcc_server import register_diagnostic_mcp_tools
-
             register_diagnostic_handlers(
                 self._server,
                 dcc_name=self._dcc_name,
@@ -1056,14 +1049,11 @@ class DccServerBase:
                 f"{self._dcc_name}: Cannot generate plugin manifest — server is not running. Call server.start() first."
             )
 
-        from dcc_mcp_core import __version__ as _pkg_version
-        from dcc_mcp_core.plugin_manifest import build_plugin_manifest
-
         return build_plugin_manifest(
             dcc_name=self._dcc_name,
             mcp_url=self.mcp_url,
             skill_paths=self.collect_skill_search_paths(),
-            version=version or _pkg_version,
+            version=version or _PKG_VERSION,
             extra_mcp_servers=extra_mcp_servers,
         )
 
