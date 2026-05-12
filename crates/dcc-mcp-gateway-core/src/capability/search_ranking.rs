@@ -131,6 +131,81 @@ const EXACT_BONUS: u32 = 20;
 /// buckets which preserves the ordering while collapsing
 /// fingerprint-level jitter.
 const FUZZY_QUANTISE_DIVISOR: u32 = 32;
+const SHORT_QUERY_MAX_LEN: usize = 3;
+
+fn search_tokens(value: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    let mut prev_lower = false;
+
+    for ch in value.chars() {
+        if ch.is_ascii_alphanumeric() {
+            if prev_lower && ch.is_ascii_uppercase() && !current.is_empty() {
+                tokens.push(current.to_ascii_lowercase());
+                current.clear();
+            }
+            current.push(ch);
+            prev_lower = ch.is_ascii_lowercase() || ch.is_ascii_digit();
+        } else {
+            if !current.is_empty() {
+                tokens.push(current.to_ascii_lowercase());
+                current.clear();
+            }
+            prev_lower = false;
+        }
+    }
+
+    if !current.is_empty() {
+        tokens.push(current.to_ascii_lowercase());
+    }
+
+    tokens
+}
+
+fn token_match_score(query: &str, candidate: &str, exact: u32, prefix: u32, substring: u32) -> u32 {
+    if query.is_empty() || candidate.is_empty() {
+        return 0;
+    }
+
+    let candidate_lower = candidate.to_ascii_lowercase();
+    if candidate_lower == query {
+        return exact;
+    }
+    if candidate_lower.contains(query) {
+        return substring;
+    }
+
+    let query_tokens = search_tokens(query);
+    let candidate_tokens = search_tokens(candidate);
+    if query_tokens.is_empty() || candidate_tokens.is_empty() {
+        return 0;
+    }
+
+    let mut total = 0;
+    for qtok in &query_tokens {
+        let token_score = candidate_tokens
+            .iter()
+            .map(|ctok| {
+                if ctok == qtok {
+                    exact
+                } else if ctok.starts_with(qtok) {
+                    prefix
+                } else if ctok.contains(qtok) {
+                    substring
+                } else {
+                    0
+                }
+            })
+            .max()
+            .unwrap_or(0);
+        if token_score == 0 {
+            return 0;
+        }
+        total += token_score;
+    }
+
+    total
+}
 
 /// Fuzzy scorer built on top of `nucleo-matcher`.
 ///
@@ -227,6 +302,10 @@ impl Scorer for FuzzyScorer {
         let mut score: u32 = 0;
 
         if !q.is_empty() {
+            let deterministic = token_match_score(q, &r.backend_tool, 18, 12, 8)
+                + token_match_score(q, &r.summary, 8, 5, 3);
+            score += deterministic;
+
             let pattern = Self::compile_pattern(q);
             let tool_lower = r.backend_tool.to_ascii_lowercase();
             let exact_tool = tool_lower == q;
@@ -237,6 +316,10 @@ impl Scorer for FuzzyScorer {
                 score += EXACT_BONUS;
             } else if prefix_tool {
                 score += PREFIX_BONUS;
+            }
+
+            if q.len() <= SHORT_QUERY_MAX_LEN && deterministic == 0 {
+                return 0;
             }
 
             if let Some(skill) = r.skill_name.as_deref() {

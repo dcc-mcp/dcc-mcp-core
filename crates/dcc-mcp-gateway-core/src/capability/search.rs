@@ -467,6 +467,124 @@ mod tests {
     }
 
     #[test]
+    fn fuzzy_mode_finds_obvious_short_keywords() {
+        let iid = Uuid::from_u128(1);
+        let snap = snapshot(vec![
+            record(
+                "maya",
+                iid,
+                "maya_primitives__create_sphere",
+                "Create a polygon sphere",
+                &[],
+                true,
+                true,
+            ),
+            record(
+                "maya",
+                iid,
+                "maya_scene__execute_python",
+                "Execute Python in Maya",
+                &[],
+                true,
+                true,
+            ),
+            record(
+                "maya",
+                iid,
+                "maya_scene__group_objects",
+                "Group a list of objects under a new transform node",
+                &[],
+                true,
+                true,
+            ),
+            record(
+                "maya",
+                iid,
+                "maya_anim__bake_simulation",
+                "Bake animation simulation",
+                &[],
+                true,
+                true,
+            ),
+            record(
+                "maya",
+                iid,
+                "maya_io__import_scene",
+                "Import a scene file",
+                &[],
+                true,
+                true,
+            ),
+            record(
+                "maya",
+                iid,
+                "maya_geometry__export_fbx",
+                "Export selected geometry as FBX",
+                &[],
+                true,
+                true,
+            ),
+            record(
+                "maya",
+                iid,
+                "maya_viewport__playblast",
+                "Create a viewport playblast",
+                &[],
+                true,
+                true,
+            ),
+            record(
+                "maya",
+                iid,
+                "maya_scene__find_by_pattern",
+                "Find objects by name pattern",
+                &[],
+                true,
+                true,
+            ),
+        ]);
+
+        for query in [
+            "sphere",
+            "create_sphere",
+            "execute_python",
+            "group",
+            "bake",
+            "import",
+            "export",
+            "playblast",
+        ] {
+            let hits = search(
+                &snap,
+                &SearchQuery {
+                    query: query.into(),
+                    ..Default::default()
+                },
+            );
+            assert!(!hits.is_empty(), "expected at least one hit for {query:?}");
+        }
+
+        let fbx_hits = search(
+            &snap,
+            &SearchQuery {
+                query: "fbx".into(),
+                ..Default::default()
+            },
+        );
+        assert!(
+            fbx_hits
+                .iter()
+                .any(|hit| hit.record.backend_tool == "maya_geometry__export_fbx")
+        );
+        assert!(
+            fbx_hits
+                .iter()
+                .all(|hit| hit.record.backend_tool != "maya_scene__find_by_pattern"),
+            "fbx must not match unrelated find_by_pattern rows: {fbx_hits:?}"
+        );
+    }
+
+    #[test]
     fn pagination_returns_stable_slices() {
         let iid = Uuid::from_u128(1);
         let records: Vec<CapabilityRecord> = (0..75)
