@@ -96,7 +96,7 @@ Gateway dynamic-capability / REST exposure:
 Gateway instance discovery:
 1. Usually skip instance discovery and go straight to search_tools → describe_tool → call_tool.
 2. When you need a concrete DCC session or direct MCP URL, call resources/read with uri="gateway://instances".
-3. For one instance, read gateway://instances/{instance_id}; full UUID or unique prefix works.
+3. For one instance, read gateway://instances/{instance_id}; full UUID, `instance_short`, or any unique ≥4-char UUID prefix works across gateway tools and tool slugs.
 4. Do not call legacy list_dcc_instances / get_dcc_instance / connect_to_dcc; #813 removed them from tools/list.
 
 Gateway resources/prompts:
