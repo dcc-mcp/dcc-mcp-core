@@ -238,6 +238,10 @@ mod admin_tests {
         let audit_log: Arc<AuditLog> = Arc::new(parking_lot::Mutex::new(vec![
             AdminAuditRecord {
                 timestamp: std::time::SystemTime::now(),
+                request_id: "req-ok".to_string(),
+                method: Some("tools/call".to_string()),
+                instance_id: Some("maya-instance".to_string()),
+                session_id: Some("session-1".to_string()),
                 action: "tools/call:maya__open_scene".to_string(),
                 dcc_type: Some("maya".to_string()),
                 success: true,
@@ -246,6 +250,10 @@ mod admin_tests {
             },
             AdminAuditRecord {
                 timestamp: std::time::SystemTime::now(),
+                request_id: "req-fail".to_string(),
+                method: Some("tools/call".to_string()),
+                instance_id: Some("blender-instance".to_string()),
+                session_id: None,
                 action: "tools/call:blender__render".to_string(),
                 dcc_type: Some("blender".to_string()),
                 success: false,
@@ -273,12 +281,21 @@ mod admin_tests {
         // Verify new fields are populated
         assert_eq!(successes[0]["dcc_type"], "maya");
         assert_eq!(successes[0]["duration_ms"], 42);
+        assert_eq!(successes[0]["request_id"], "req-ok");
+        assert_eq!(successes[0]["method"], "tools/call");
+        assert_eq!(successes[0]["instance_id"], "maya-instance");
+        assert_eq!(successes[0]["session_id"], "session-1");
+        assert_eq!(failures[0]["request_id"], "req-fail");
     }
 
     #[tokio::test]
     async fn test_admin_calls_single_success_has_action_field() {
         let audit_log: Arc<AuditLog> = Arc::new(parking_lot::Mutex::new(vec![AdminAuditRecord {
             timestamp: std::time::SystemTime::now(),
+            request_id: "req-photoshop".to_string(),
+            method: Some("tools/call".to_string()),
+            instance_id: None,
+            session_id: None,
             action: "tools/call:photoshop__save".to_string(),
             dcc_type: None,
             success: true,

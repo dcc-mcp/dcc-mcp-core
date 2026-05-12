@@ -17,6 +17,14 @@ use super::trace::{DispatchTrace, TraceLog};
 pub struct AdminAuditRecord {
     /// Wall-clock time when the call completed.
     pub timestamp: SystemTime,
+    /// Stable request id used to correlate with traces.
+    pub request_id: String,
+    /// JSON-RPC / MCP method name.
+    pub method: Option<String>,
+    /// Target backend instance id, if resolved.
+    pub instance_id: Option<String>,
+    /// Originating MCP session id, if any.
+    pub session_id: Option<String>,
     /// Tool slug or MCP method name.
     pub action: String,
     /// DCC type of the target backend (e.g. `"maya"`).
@@ -65,6 +73,10 @@ impl AuditSink for AdminAuditSink {
     fn record(&self, entry: AuditEntry) {
         let record = AdminAuditRecord {
             timestamp: entry.timestamp,
+            request_id: entry.request_id.clone(),
+            method: Some(entry.method.clone()),
+            instance_id: entry.instance_id.clone(),
+            session_id: entry.session_id.clone(),
             action: entry
                 .tool_slug
                 .clone()
