@@ -180,6 +180,12 @@ test-cov:
 test-e2e:
     pytest tests/test_mcp_mcporter_e2e.py -v --tb=short
 
+# Replay a Verified Regression Suite trace (HTTP against gateway REST /v1/*).
+# Example: `just vrs-replay`
+# Example: `just vrs-replay BASE=http://127.0.0.1:9765 TRACE=tests/vrs/traces/maya-215-execute-python-regression.jsonl`
+vrs-replay BASE="http://127.0.0.1:9765" TRACE="tests/vrs/traces/gateway-smoke.jsonl":
+    python scripts/vrs_replay.py --base-url "{{BASE}}" --trace "{{TRACE}}"
+
 # ── Type stubs (pyo3-stub-gen) ───────────────────────────────────────────
 
 # Generate python/dcc_mcp_core/_core.pyi from annotated Rust code.
@@ -202,12 +208,12 @@ docs-check:
 
 # Lint Python source (ruff check only)
 lint-py:
-    ruff check python/dcc_mcp_core/ tests/ examples/
+    ruff check python/dcc_mcp_core/ tests/ examples/ scripts/vrs_replay.py
 
 # Auto-fix Python lint issues and format
 lint-py-fix:
-    ruff check --fix python/dcc_mcp_core/ tests/ examples/
-    ruff format python/dcc_mcp_core/ tests/ examples/
+    ruff check --fix python/dcc_mcp_core/ tests/ examples/ scripts/vrs_replay.py
+    ruff format python/dcc_mcp_core/ tests/ examples/ scripts/vrs_replay.py
 
 # Lint everything: Rust (clippy + fmt-check) + Python (ruff)
 lint: clippy fmt-check lint-py
