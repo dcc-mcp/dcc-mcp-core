@@ -164,7 +164,7 @@ vx just lint
 - 查看 [Skills 技能包](/zh/guide/skills) 的零代码脚本注册
 - 使用 [MCP HTTP 服务器](/zh/api/http) 暴露工具给 AI 客户端
 - 查看 [传输层](/zh/guide/transport) 的 DCC 通信
-- 了解 [架构设计](/zh/guide/architecture) — 34 个 workspace 成员的 Rust 工作区结构
+- 了解 [架构设计](/zh/guide/architecture) — 35 个 workspace 成员的 Rust 工作区结构
 - 学习 [技能作用域与策略](/zh/guide/skill-scopes-policies) — 基于信任的技能管理
 
 ## 使用 DccServerBase 构建 DCC 适配器
@@ -173,16 +173,17 @@ vx just lint
 
 ```python
 from pathlib import Path
-from dcc_mcp_core import DccServerBase
+from dcc_mcp_core import DccServerBase, DccServerOptions
 
 class BlenderMcpServer(DccServerBase):
     def __init__(self, port: int = 8765, **kwargs):
-        super().__init__(
-            dcc_name="blender",
-            builtin_skills_dir=Path(__file__).parent / "skills",
+        opts = DccServerOptions.from_env(
+            "blender",
+            Path(__file__).parent / "skills",
             port=port,
             **kwargs,
         )
+        super().__init__(options=opts)
 
     def _version_string(self) -> str:
         import bpy
