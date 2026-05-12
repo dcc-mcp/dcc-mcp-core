@@ -127,6 +127,7 @@ impl<'a> DiscoveryState<'a> {
                         ServiceStatus::ShuttingDown
                             | ServiceStatus::Unreachable
                             | ServiceStatus::Booting
+                            | ServiceStatus::Stale
                     )
                     && !crate::gateway::is_own_instance(e, self.own_host, self.own_port)
                     && (self.allow_unknown_tools || !e.dcc_type.eq_ignore_ascii_case("unknown"))

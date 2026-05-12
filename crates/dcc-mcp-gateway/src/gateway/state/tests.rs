@@ -1,5 +1,5 @@
 use super::*;
-use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry};
+use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceEntry, ServiceStatus};
 use std::sync::Arc;
 use tokio::sync::{RwLock, broadcast, watch};
 
@@ -142,6 +142,29 @@ async fn test_live_instances_self_row_localhost_aliases() {
     );
 }
 
+/// Issue #940: `ServiceStatus::Stale` is an immediate routing veto even
+/// before the heartbeat crosses `stale_timeout`.
+#[tokio::test]
+async fn test_live_instances_excludes_status_stale_immediately() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+
+    {
+        let r = registry.read().await;
+        let mut stale = ServiceEntry::new("maya", "127.0.0.1", 18812);
+        stale.status = ServiceStatus::Stale;
+        r.register(stale).unwrap();
+
+        let photoshop = ServiceEntry::new("photoshop", "127.0.0.1", 18813);
+        r.register(photoshop).unwrap();
+    }
+
+    let gs = test_gateway_state(registry.clone());
+    let live = gs.live_instances(&*registry.read().await);
+    assert_eq!(live.len(), 1, "only the non-stale row should remain");
+    assert_eq!(live[0].dcc_type, "photoshop");
+}
+
 /// Issue #555: instances with `dcc_type == "unknown"` must be hidden from
 /// `live_instances` when `allow_unknown_tools` is `false` (the default).
 #[tokio::test]
@@ -259,6 +282,16 @@ fn test_entry_to_json_status_stale_for_aged_row() {
     let json = entry_to_json(&e, Duration::from_secs(30));
     assert_eq!(json["status"].as_str(), Some("stale"));
     assert_eq!(json["stale"].as_bool(), Some(true));
+}
+
+#[test]
+fn test_entry_to_json_status_stale_for_marked_row() {
+    let mut e = ServiceEntry::new("maya", "127.0.0.1", 18812);
+    e.status = ServiceStatus::Stale;
+    let json = entry_to_json(&e, Duration::from_secs(30));
+    assert_eq!(json["status"].as_str(), Some("stale"));
+    assert_eq!(json["stale"].as_bool(), Some(true));
+    assert_eq!(json["pool"]["available"].as_bool(), Some(false));
 }
 
 #[test]
