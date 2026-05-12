@@ -1,0 +1,2 @@
+{"_vrs": {"version": 1}, "trace_id": "gateway-search-empty", "title": "POST /v1/search with improbable query returns 200 and zero hits"}
+{"id": "search_no_hits", "http": {"method": "POST", "path": "/v1/search", "json": {"query": "__vrs_improbable_token_no_hits__", "limit": 20}}, "expect": {"status": 200, "json_subset": {"total": 0, "hits": []}}}

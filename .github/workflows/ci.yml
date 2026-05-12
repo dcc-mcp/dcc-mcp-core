@@ -254,9 +254,12 @@ jobs:
       - name: Lint
         run: vx just lint-py
       - name: VRS replayer (dry-run trace validation)
+        shell: bash
         run: |
-          python scripts/vrs_replay.py --base-url http://127.0.0.1:1 --dry-run --trace tests/vrs/traces/gateway-smoke.jsonl
-          python scripts/vrs_replay.py --base-url http://127.0.0.1:1 --dry-run --trace tests/vrs/traces/maya-215-execute-python-regression.jsonl
+          set -euo pipefail
+          for f in tests/vrs/traces/*.jsonl; do
+            python scripts/vrs_replay.py --base-url http://127.0.0.1:1 --dry-run --trace "$f"
+          done
 
   # -- mcporter e2e: real MCP client (npx mcporter) vs live McpHttpServer --
   # Exercises the full HTTP stack from outside the process:
