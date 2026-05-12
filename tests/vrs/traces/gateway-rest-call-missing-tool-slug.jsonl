@@ -1,0 +1,2 @@
+{"_vrs": {"version": 1}, "trace_id": "gateway-call-missing-tool-slug", "title": "POST /v1/call without tool_slug returns 400 bad-request envelope"}
+{"id": "call_missing_slug", "http": {"method": "POST", "path": "/v1/call", "json": {"arguments": {}}}, "expect": {"status": 400, "json_subset": {"error": {"kind": "bad-request"}}}}
