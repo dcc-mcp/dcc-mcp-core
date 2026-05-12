@@ -1,0 +1,2 @@
+{"_vrs": {"version": 1}, "trace_id": "gateway-call-unknown-slug", "title": "POST /v1/call with unknown tool_slug returns 404 unknown-slug (after refresh retry)"}
+{"id": "call_unknown", "http": {"method": "POST", "path": "/v1/call", "json": {"tool_slug": "maya.abcdef01.__vrs_nonexistent_tool__", "arguments": {}}}, "expect": {"status": 404, "json_subset": {"error": {"kind": "unknown-slug"}}}}

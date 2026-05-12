@@ -66,6 +66,7 @@
 | Detailed rules | [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md) | Before writing code — traps, do/don't, code style |
 | Conceptual docs | [`docs/guide/INDEX.md`](docs/guide/INDEX.md) + `docs/api/` | Building a new adapter or skill — see INDEX.md for topic list |
 | Skill authoring | `skills/README.md` + `examples/skills/` | Creating or modifying skills |
+| Gateway REST regressions (VRS) | [`tests/vrs/README.md`](tests/vrs/README.md) + `scripts/vrs_replay.py` | After gateway `/v1/*` or live-adapter bugs — add a JSONL trace per regression |
 
 ---
 
@@ -272,6 +273,42 @@ Gateway resources/prompts:
 7. **Return `ToolResult` from Python tool handlers** → `ToolResult.ok("...", **ctx).to_dict()` (or `success_(...)`); `success`/`error` are dataclass *fields*, the factories are `success_`/`error_` / `ok`/`fail` (#487)
 
 Full trap list + code examples → [`docs/guide/agents-reference.md`](docs/guide/agents-reference.md)
+
+---
+
+## Verified Regression Suite (VRS) — gateway `/v1/*` replay
+
+Use this when a bug is only visible **through HTTP** (gateway election, routing, error envelopes, DCC adapter behaviour under load) and unit tests are not enough.
+
+### When to add a trace
+
+Whenever you close a regression that involves **gateway REST** or **per-DCC `/v1/*`** behaviour:
+
+1. Open or reference the GitHub issue in the trace header `trace_id` / PR description.
+2. Add `tests/vrs/traces/<issue-or-topic>-<short-slug>.jsonl` (one concern per file; keep steps ordered).
+3. Prefer `expect_any` when legitimate outcomes differ by transport (e.g. HTTP 200 with `output.success: false` vs 502 `backend-error`).
+4. For traces that need a live Maya (or any optional host), put a header `skip_preflight` so CI and agent runs **exit 0 skipped** when `POST /v1/search` shows no matching instance (see `maya-215-execute-python-regression.jsonl`).
+5. Extend [`tests/vrs/README.md`](tests/vrs/README.md) index table with: file name, required live DCC?, one-line purpose.
+
+### How to run
+
+```bash
+# Live gateway (default port 9765 in examples)
+just vrs-replay BASE=http://127.0.0.1:9765 TRACE=tests/vrs/traces/gateway-smoke.jsonl
+
+# Same, explicit script
+python scripts/vrs_replay.py --base-url http://127.0.0.1:9765 --trace tests/vrs/traces/<your-trace>.jsonl
+```
+
+Validate JSON step order and substitutions **without** a server:
+
+```bash
+python scripts/vrs_replay.py --base-url http://127.0.0.1:1 --dry-run --trace tests/vrs/traces/<your-trace>.jsonl
+```
+
+Optional: `VRS_HTTP_TIMEOUT_SECS` overrides per-request timeout (default `120`).
+
+Full step schema, `expect` / `capture` / `skip_preflight` → [`tests/vrs/README.md`](tests/vrs/README.md).
 
 ---
 

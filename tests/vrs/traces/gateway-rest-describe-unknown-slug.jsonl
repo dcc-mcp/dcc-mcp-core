@@ -1,0 +1,2 @@
+{"_vrs": {"version": 1}, "trace_id": "gateway-describe-unknown-slug", "title": "POST /v1/describe with well-formed but unknown slug returns 404 unknown-slug"}
+{"id": "describe_unknown", "http": {"method": "POST", "path": "/v1/describe", "json": {"tool_slug": "maya.abcdef01.__vrs_nonexistent_tool__"}}, "expect": {"status": 404, "json_subset": {"error": {"kind": "unknown-slug"}}}}
