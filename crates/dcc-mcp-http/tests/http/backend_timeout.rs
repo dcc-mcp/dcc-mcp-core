@@ -69,7 +69,6 @@ async fn make_state(
         allow_unknown_tools: false,
         adapter_version: None,
         adapter_dcc: None,
-        cursor_safe_tool_names: true,
         capability_index: std::sync::Arc::new(dcc_mcp_gateway::capability::CapabilityIndex::new()),
         event_log: std::sync::Arc::new(dcc_mcp_gateway::event_log::EventLog::new()),
         middleware_chain: std::sync::Arc::new(

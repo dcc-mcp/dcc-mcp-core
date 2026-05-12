@@ -35,7 +35,6 @@ pub(crate) async fn start_gateway_runner(
             .adapter_dcc
             .clone()
             .or_else(|| config.instance.dcc_type.clone()),
-        cursor_safe_tool_names: config.gateway.gateway_cursor_safe_tool_names,
         middleware_chain: dcc_mcp_gateway::gateway::middleware::MiddlewareChain::new(),
         admin_enabled: config.gateway.admin_enabled,
         admin_path: config.gateway.admin_path.clone(),

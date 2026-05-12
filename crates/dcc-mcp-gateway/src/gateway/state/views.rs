@@ -66,9 +66,6 @@ pub struct RoutingState<'a> {
     /// Pluggable middleware chain applied to every `tools/call` dispatch
     /// (issue #770).
     pub middleware_chain: &'a Arc<MiddlewareChain>,
-    /// Emit Cursor-safe names when fanning prompts out to backends
-    /// (issue #656).
-    pub cursor_safe_tool_names: bool,
 }
 
 /// Eventing view over gateway state (issue #839).

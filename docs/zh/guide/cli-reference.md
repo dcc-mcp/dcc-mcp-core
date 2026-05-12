@@ -43,7 +43,6 @@
 | `--gateway-port` | `DCC_MCP_GATEWAY_PORT` | `9765` | 要争的公认端口。`0` 完全关闭网关角色，因此也关闭 admin。 |
 | `--no-admin` | `DCC_MCP_NO_ADMIN` | `false` | 关闭获选网关上的只读 Admin UI。默认获选网关会开启 admin。 |
 | `--admin-path` | `DCC_MCP_ADMIN_PATH` | `/admin` | Admin UI 与其 JSON API 的 URL 前缀。 |
-| `--gateway-cursor-safe-tool-names` | `DCC_MCP_GATEWAY_CURSOR_SAFE_TOOL_NAMES` | `true` | 为扇出的**提示（prompts）**发出 cursor-safe 的 `i_<id8>__<escaped>` 名字（PR A 后网关不再扇出工具，只影响 prompts）。 |
 | `--registry-dir` | `DCC_MCP_REGISTRY_DIR` | 平台 temp | 共享 `FileRegistry` 目录。 |
 | `--stale-timeout-secs` | `DCC_MCP_STALE_TIMEOUT` | `30` | 没心跳后多少秒实例被判为过期。 |
 | `--app-version` | `DCC_MCP_APP_VERSION` | — | 应用版本（如 `"2024.2"`）；记入注册表。 |
@@ -55,6 +54,10 @@ Admin 审计/trace 持久化只通过环境变量配置：设置 `DCC_MCP_GATEWA
 > **PR A 已移除** —— `--gateway-tool-exposure` /
 > `DCC_MCP_GATEWAY_TOOL_EXPOSURE` 已删除。网关表面现在无条件最小化，详见
 > `docs/zh/guide/rest-api-surface.md`。
+>
+> **已移除** —— `--gateway-cursor-safe-tool-names` /
+> `DCC_MCP_GATEWAY_CURSOR_SAFE_TOOL_NAMES`。聚合网关的 `prompts/list` 始终使用
+> cursor-safe 的 `i_<id8>__<escaped>` 线格式（#656）。
 
 ### 文件日志旗标
 

@@ -280,7 +280,6 @@ mod tests {
             allow_unknown_tools: false,
             adapter_version: None,
             adapter_dcc: None,
-            cursor_safe_tool_names: true,
             capability_index: Arc::new(crate::gateway::capability::CapabilityIndex::new()),
             event_log: log,
             middleware_chain: std::sync::Arc::new(
