@@ -58,14 +58,18 @@ runs:
       with:
         toolchain: ${{ inputs.rust-version }}
 
-    - name: Install just
-      uses: extractions/setup-just@v4
+    - name: Install vx
+      uses: loonghao/vx@v0.8.36
 
     - name: Cache Cargo
       uses: Swatinem/rust-cache@v2
       with:
         key: rust-${{ runner.os }}
         shared-key: rust-${{ runner.os }}
+
+    - name: Build admin UI
+      shell: bash
+      run: vx just admin-build
 
     - name: Resolve features from justfile
       id: resolve-features
@@ -74,9 +78,9 @@ runs:
         # Single source of truth: the feature list lives in justfile.
         # Python 3.7 cannot use abi3-py38 (PyO3 requires interpreter >= 3.8).
         if [[ "${{ inputs.python-version }}" == "3.7" ]]; then
-          features=$(just print-wheel-features-py37)
+          features=$(vx just print-wheel-features-py37)
         else
-          features=$(just print-wheel-features)
+          features=$(vx just print-wheel-features)
         fi
         args="--release --out dist --features ${features} ${{ inputs.maturin-extra-args }}"
         echo "Resolved maturin args: ${args}"
@@ -90,7 +94,7 @@ runs:
         # For Python 3.7 builds we skip regeneration and use the committed stubs.
         # The abi3 (Python 3.11) build regenerates and commits the authoritative stubs.
         if [[ "${{ inputs.python-version }}" != "3.7" ]]; then
-          just stubgen
+          vx just stubgen
         fi
 
     - name: Build wheel
@@ -101,9 +105,6 @@ runs:
         rust-toolchain: ${{ inputs.rust-version }}
         sccache: ${{ inputs.use-sccache == 'true' }}
         manylinux: auto
-
-    - name: Install uv
-      uses: loonghao/vx@v0.8.36
 
     - name: Check wheel contents
       shell: bash

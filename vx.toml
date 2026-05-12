@@ -1,6 +1,7 @@
 [tools]
 just = "latest"
 maturin = "latest"
+node = "22"
 python = "3.12"
 rust = "1.90"
 uv = "latest"
@@ -10,6 +11,7 @@ cache_duration = "7d"
 auto_install = true
 
 [scripts]
+admin-build = "just admin-build"
 build = "just build"
 build-release = "cargo build --release"
 check = "just check"

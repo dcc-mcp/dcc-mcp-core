@@ -34,13 +34,11 @@ jobs:
       - uses: loonghao/vx@v0.8.36
       - uses: dtolnay/rust-toolchain@stable
       - name: Build wheel
-        run: |
-          pip install --upgrade pip maturin
-          maturin build --release --out dist
+        run: vx just build
         shell: bash
       - name: Install wheel + test deps
         run: pip install --no-index --find-links dist dcc-mcp-core && pip install pytest
         shell: bash
       - name: Test
-        run: pytest
+        run: vx just test
         shell: bash
