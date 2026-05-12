@@ -11,6 +11,32 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.15.9](https://github.com/loonghao/dcc-mcp-core/compare/v0.15.8...v0.15.9) (2026-05-12)
+
+
+### Features
+
+* add VRS HTTP trace replayer and CI validation ([50dfa58](https://github.com/loonghao/dcc-mcp-core/commit/50dfa58fbef3f46f9d378fa8112ad4f64d45e437))
+* **admin-ui:** add traces and stats panels ([#958](https://github.com/loonghao/dcc-mcp-core/issues/958)) ([263aa38](https://github.com/loonghao/dcc-mcp-core/commit/263aa38b8bce0753d80d1985b1d47d0175cd9372))
+* **admin-ui:** infer DCC for gateway calls ([#960](https://github.com/loonghao/dcc-mcp-core/issues/960)) ([56bb832](https://github.com/loonghao/dcc-mcp-core/commit/56bb8329fb1074878f420e333e99fdc180bbb782))
+* **admin-ui:** show call request ids and errors ([#959](https://github.com/loonghao/dcc-mcp-core/issues/959)) ([b5766ab](https://github.com/loonghao/dcc-mcp-core/commit/b5766abb6a49861c08944f4e2b8efe97e3dbd021))
+* **skills:** enforce thread affinity opt-in ([#957](https://github.com/loonghao/dcc-mcp-core/issues/957)) ([3dd7fbb](https://github.com/loonghao/dcc-mcp-core/commit/3dd7fbbeec48a387c630d8d1e25a1455553fa160))
+
+
+### Bug Fixes
+
+* **gateway:** exclude status-stale instances ([#951](https://github.com/loonghao/dcc-mcp-core/issues/951)) ([f049a00](https://github.com/loonghao/dcc-mcp-core/commit/f049a00e104f16ba13a24d94625980583583bb05))
+* **gateway:** find short capability queries ([#955](https://github.com/loonghao/dcc-mcp-core/issues/955)) ([17c6df7](https://github.com/loonghao/dcc-mcp-core/commit/17c6df7b3b9fedfcfbd40d83a62cb5997874c1c4))
+* **gateway:** share instance id resolution ([#956](https://github.com/loonghao/dcc-mcp-core/issues/956)) ([1948602](https://github.com/loonghao/dcc-mcp-core/commit/1948602882e3a6dc7e6499867e2b1b533f4d58c3))
+* **skills:** activate groups when loading skills ([#954](https://github.com/loonghao/dcc-mcp-core/issues/954)) ([1b913f5](https://github.com/loonghao/dcc-mcp-core/commit/1b913f5d0894589c0053d9630d8c3023cfd2efa9))
+* **transport:** expose stale service status to Python ([#953](https://github.com/loonghao/dcc-mcp-core/issues/953)) ([5697752](https://github.com/loonghao/dcc-mcp-core/commit/5697752ffd530769522863a7b92f56586b0a158a))
+
+
+### Documentation
+
+* expand VRS guidance and gateway REST trace catalog ([2b6b9f8](https://github.com/loonghao/dcc-mcp-core/commit/2b6b9f8ae1e99a3aab22cf952da3b6ad71be81bb))
+* refresh agent architecture indexes ([d1cf57f](https://github.com/loonghao/dcc-mcp-core/commit/d1cf57f44cc63f0bb5f2198c7dec3764e89e7e42))
+
 ## [0.15.8](https://github.com/loonghao/dcc-mcp-core/compare/v0.15.7...v0.15.8) (2026-05-11)
 
 
