@@ -541,25 +541,37 @@ pub(crate) async fn start_gateway_tasks(
     #[cfg(feature = "admin")]
     let gw_router = {
         let admin_state_opt = if admin_enabled {
+            let durable_store = crate::gateway::admin::state::DurableAuditStore::from_env();
+
             // 1. Shared ring buffer — the middleware writes here; the handler reads it.
             let audit_log: std::sync::Arc<crate::gateway::admin::state::AuditLog> =
                 std::sync::Arc::new(parking_lot::Mutex::new(Vec::with_capacity(512)));
+            if let Some(store) = &durable_store {
+                audit_log
+                    .lock()
+                    .extend(store.load_audit().into_iter().rev().take(512).rev());
+            }
 
             // 2. Phase 2 trace log — ring buffer for per-call dispatch traces.
             let trace_log: std::sync::Arc<crate::gateway::admin::trace::TraceLog> =
                 std::sync::Arc::new(crate::gateway::admin::trace::TraceLog::new(
                     crate::gateway::admin::trace::TraceLog::DEFAULT_CAPACITY,
                 ));
+            if let Some(store) = &durable_store {
+                trace_log.extend(store.load_traces());
+            }
 
             // 3. Build the sink that feeds the audit ring buffer and the trace log.
+            let mut admin_sink = crate::gateway::admin::state::AdminAuditSink::new(
+                audit_log.clone(),
+                /* capacity = */ 512,
+            )
+            .with_trace_log(trace_log.clone());
+            if let Some(store) = durable_store.clone() {
+                admin_sink = admin_sink.with_durable_store(store);
+            }
             let admin_sink: std::sync::Arc<dyn crate::gateway::middleware::AuditSink> =
-                std::sync::Arc::new(
-                    crate::gateway::admin::state::AdminAuditSink::new(
-                        audit_log.clone(),
-                        /* capacity = */ 512,
-                    )
-                    .with_trace_log(trace_log.clone()),
-                );
+                std::sync::Arc::new(admin_sink);
 
             // 4. Prepend AuditMiddleware to the chain so every tools/call
             //    passes through it.
