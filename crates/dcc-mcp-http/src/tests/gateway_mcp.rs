@@ -97,18 +97,20 @@ async fn test_gateway_mcp_tools_list_omits_removed_verbs() {
         "get_skill_info",
         "load_skill",
         "unload_skill",
+        "activate_tool_group",
+        "deactivate_tool_group",
     ] {
         assert!(
             names.contains(&skill_mgmt),
             "skill-management tool {skill_mgmt} should still be published: {names:?}",
         );
     }
-    // 5 dispatch verbs + 5 skill-management = 10 gateway meta-tools.
+    // 5 dispatch verbs + 7 skill-management = 12 gateway meta-tools.
     // Diagnostics + catalog moved to resources (#813 phase 2).
     assert_eq!(
         names.len(),
-        10,
-        "expected 10 gateway meta-tools (5 dispatch + 5 skill mgmt) after #813 phases 1+2, got: {names:?}",
+        12,
+        "expected 12 gateway meta-tools (5 dispatch + 7 skill mgmt) after #813 phases 1+2, got: {names:?}",
     );
 }
 

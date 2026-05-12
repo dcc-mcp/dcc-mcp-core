@@ -9,13 +9,15 @@ pub async fn handle_activate_tool_group(
     let group = params
         .arguments
         .as_ref()
-        .and_then(|a| a.get("group"))
+        .and_then(|a| a.get("group").or_else(|| a.get("group_name")))
         .and_then(Value::as_str)
         .unwrap_or_default();
     if group.is_empty() {
         return Ok(JsonRpcResponse::success(
             req.id.clone(),
-            serde_json::to_value(CallToolResult::error("Missing required parameter: group"))?,
+            serde_json::to_value(CallToolResult::error(
+                "Missing required parameter: group or group_name",
+            ))?,
         ));
     }
 
@@ -54,13 +56,15 @@ pub async fn handle_deactivate_tool_group(
     let group = params
         .arguments
         .as_ref()
-        .and_then(|a| a.get("group"))
+        .and_then(|a| a.get("group").or_else(|| a.get("group_name")))
         .and_then(Value::as_str)
         .unwrap_or_default();
     if group.is_empty() {
         return Ok(JsonRpcResponse::success(
             req.id.clone(),
-            serde_json::to_value(CallToolResult::error("Missing required parameter: group"))?,
+            serde_json::to_value(CallToolResult::error(
+                "Missing required parameter: group or group_name",
+            ))?,
         ));
     }
 
