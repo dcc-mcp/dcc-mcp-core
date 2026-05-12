@@ -18,13 +18,18 @@ pub(crate) async fn skill_mgmt_dispatch(
     let target_instance = args.get("instance_id").and_then(Value::as_str);
 
     match tool {
-        "load_skill" | "unload_skill" => {
+        "load_skill" | "unload_skill" | "activate_tool_group" | "deactivate_tool_group" => {
             match resolve_target(gs, target_instance, dcc_filter).await {
                 Ok(entry) => {
                     // Strip gateway-only routing keys before forwarding.
                     let mut forward_args = args.clone();
                     if let Some(obj) = forward_args.as_object_mut() {
                         obj.remove("instance_id");
+                        if let Some(group_name) = obj.get("group_name").cloned()
+                            && !obj.contains_key("group")
+                        {
+                            obj.insert("group".to_string(), group_name);
+                        }
                     }
                     let url = format!("http://{}:{}/mcp", entry.host, entry.port);
                     let params = json!({"name": tool, "arguments": forward_args});
@@ -236,7 +241,7 @@ fn call_tool_text(value: &Value) -> Option<&str> {
         .and_then(Value::as_str)
 }
 
-/// JSON-Schema definitions for the six skill-management tools the gateway
+/// JSON-Schema definitions for the skill-management tools the gateway
 /// exposes (matching the per-DCC server schemas but with gateway-specific
 /// routing parameters like `instance_id` and `dcc`).
 pub(crate) fn skill_management_tool_defs() -> Vec<Value> {
@@ -288,10 +293,11 @@ pub(crate) fn skill_management_tool_defs() -> Vec<Value> {
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "skill_name":  {"type": "string"},
-                    "skill_names": {"type": "array", "items": {"type": "string"}},
-                    "instance_id": {"type": "string", "description": "Target instance (full UUID or short prefix)"},
-                    "dcc":         {"type": "string", "description": "DCC type when only one instance of that type is live"}
+                    "skill_name":      {"type": "string"},
+                    "skill_names":     {"type": "array", "items": {"type": "string"}},
+                    "activate_groups": {"type": "boolean", "default": true, "description": "Cascade-activate all declared tool groups after loading. Set false for lazy activation."},
+                    "instance_id":     {"type": "string", "description": "Target instance (full UUID or short prefix)"},
+                    "dcc":             {"type": "string", "description": "DCC type when only one instance of that type is live"}
                 },
                 "required": ["skill_name"]
             }
@@ -307,6 +313,36 @@ pub(crate) fn skill_management_tool_defs() -> Vec<Value> {
                     "dcc":         {"type": "string"}
                 },
                 "required": ["skill_name"]
+            }
+        }),
+        json!({
+            "name": "activate_tool_group",
+            "description": "Activate a progressive tool group on a specific DCC instance.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "group_name":  {"type": "string"},
+                    "group":       {"type": "string", "description": "Alias of group_name"},
+                    "skill_name":  {"type": "string", "description": "Optional disambiguation for clients"},
+                    "instance_id": {"type": "string"},
+                    "dcc":         {"type": "string"}
+                },
+                "required": ["group_name"]
+            }
+        }),
+        json!({
+            "name": "deactivate_tool_group",
+            "description": "Deactivate a progressive tool group on a specific DCC instance.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "group_name":  {"type": "string"},
+                    "group":       {"type": "string", "description": "Alias of group_name"},
+                    "skill_name":  {"type": "string", "description": "Optional disambiguation for clients"},
+                    "instance_id": {"type": "string"},
+                    "dcc":         {"type": "string"}
+                },
+                "required": ["group_name"]
             }
         }),
     ]

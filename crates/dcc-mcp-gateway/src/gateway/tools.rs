@@ -111,7 +111,7 @@ pub async fn tool_search_tools(gs: &GatewayState, args: &Value) -> Result<String
 
     // Annotate unloaded hits with a structured `next_step` so agents
     // know they must call `load_skill` before invoking the tool.
-    let annotated: Vec<Value> = hits
+    let mut annotated: Vec<Value> = hits
         .into_iter()
         .map(|h| {
             let mut v = serde_json::to_value(&h).unwrap_or(Value::Null);
@@ -126,12 +126,56 @@ pub async fn tool_search_tools(gs: &GatewayState, args: &Value) -> Result<String
             v
         })
         .collect();
+    annotated.extend(local_gateway_tool_hits(&query.query));
 
     serde_json::to_string_pretty(&json!({
         "total": annotated.len(),
         "hits":  annotated,
     }))
     .map_err(|e| e.to_string())
+}
+
+fn local_gateway_tool_hits(query: &str) -> Vec<Value> {
+    let q = query.trim().to_ascii_lowercase();
+    let tools = [
+        (
+            "activate_tool_group",
+            "Activate a progressive tool group on a DCC instance after lazy loading.",
+        ),
+        (
+            "deactivate_tool_group",
+            "Deactivate a progressive tool group on a DCC instance.",
+        ),
+    ];
+
+    tools
+        .into_iter()
+        .filter(|(name, summary)| {
+            q.is_empty()
+                || name.contains(&q)
+                || summary.to_ascii_lowercase().contains(&q)
+                || q == "group"
+        })
+        .map(|(name, summary)| {
+            json!({
+                "tool_slug": format!("gateway.{name}"),
+                "backend_tool": name,
+                "callable_id": name,
+                "skill_name": null,
+                "summary": summary,
+                "tags": ["gateway", "group", "skill-management"],
+                "dcc_type": "gateway",
+                "instance_id": uuid::Uuid::nil(),
+                "has_schema": true,
+                "loaded": true,
+                "score": 100,
+                "next_step": {
+                    "action": "tools/call",
+                    "name": name,
+                },
+            })
+        })
+        .collect()
 }
 
 /// `describe_tool` — MCP wrapper around
@@ -362,6 +406,18 @@ mod tests {
                 (name, annotations)
             })
             .collect()
+    }
+
+    #[test]
+    fn local_gateway_tool_hits_find_group_management_tools() {
+        let hits = local_gateway_tool_hits("group");
+        let names: Vec<&str> = hits
+            .iter()
+            .filter_map(|hit| hit.get("backend_tool").and_then(Value::as_str))
+            .collect();
+
+        assert!(names.contains(&"activate_tool_group"));
+        assert!(names.contains(&"deactivate_tool_group"));
     }
 
     #[test]

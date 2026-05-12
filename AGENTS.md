@@ -81,7 +81,7 @@
 ```
 Per-DCC MCP server:
 1. Discover: search_skills(query="keyword") → find the right skill
-2. Activate: load_skill("skill-name") → expose the tools
+2. Activate: load_skill("skill-name") → expose the tools and cascade-activate declared tool groups by default
 3. Execute: call the specific tool with validated parameters
 4. Follow up: check next-tools.on-success for suggested next steps
 5. Debug on failure: use dcc_diagnostics__screenshot or audit_log

@@ -117,6 +117,7 @@ pub fn build_core_tools_inner() -> Vec<McpTool> {
                           When to use: Call after search_skills, list_skills, or get_skill_info has identified the skill you need. Idempotent — re-loading an already-loaded skill is a no-op.\n\n\
                           How to use:\n\
                           - Use skill_name for one skill, or skill_names for a batch in a single round-trip.\n\
+                          - By default, every declared tool group is activated so registered tools are immediately callable; set activate_groups=false to keep lazy group activation.\n\
                           - After success, call tools/list or the specific tool (e.g. maya_geometry__create_sphere) directly."
                 .to_string(),
             input_schema: json!({
@@ -130,6 +131,11 @@ pub fn build_core_tools_inner() -> Vec<McpTool> {
                         "type": "array",
                         "items": { "type": "string" },
                         "description": "Batch of skill names to load in one call."
+                    },
+                    "activate_groups": {
+                        "type": "boolean",
+                        "default": true,
+                        "description": "Cascade-activate all declared tool groups after loading. Set false for lazy activation."
                     }
                 }
             }),
@@ -233,12 +239,16 @@ pub fn build_core_tools_inner() -> Vec<McpTool> {
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "group": {
+                    "group_name": {
                         "type": "string",
                         "description": "Group name as shown in the __group__<name> stub."
+                    },
+                    "group": {
+                        "type": "string",
+                        "description": "Alias of group_name."
                     }
                 },
-                "required": ["group"]
+                "required": ["group_name"]
             }),
             output_schema: None,
             annotations: Some(McpToolAnnotations {
@@ -257,17 +267,21 @@ pub fn build_core_tools_inner() -> Vec<McpTool> {
                           When to use: Use to shrink the active tool surface once a sub-workflow is done, to stay within the client's token budget. Group tools remain on disk — only their visibility changes.\n\n\
                           How to use:\n\
                           - Idempotent; calling on an already-inactive group is a safe no-op.\n\
-                          - To bring the tools back, call activate_tool_group(group=...)."
+                          - To bring the tools back, call activate_tool_group(group_name=...)."
                 .to_string(),
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "group": {
+                    "group_name": {
                         "type": "string",
                         "description": "Group name previously passed to activate_tool_group."
+                    },
+                    "group": {
+                        "type": "string",
+                        "description": "Alias of group_name."
                     }
                 },
-                "required": ["group"]
+                "required": ["group_name"]
             }),
             output_schema: None,
             annotations: Some(McpToolAnnotations {
