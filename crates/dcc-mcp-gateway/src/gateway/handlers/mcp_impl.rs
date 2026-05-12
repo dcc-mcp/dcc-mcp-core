@@ -1,4 +1,5 @@
 use super::*;
+use crate::gateway::capability::parse_slug;
 
 /// Minimal JSON-RPC 2.0 request shape accepted by the gateway `/mcp` endpoint.
 #[derive(Debug, Deserialize)]
@@ -232,6 +233,11 @@ async fn handle_tools_call(
         .as_ref()
         .and_then(|params| params.get("_meta"))
         .cloned();
+    let resolved_slug = if tool == "call_tool" {
+        args.get("tool_slug").and_then(Value::as_str)
+    } else {
+        None
+    };
 
     {
         let mut pending = gs.pending_calls.write().await;
@@ -246,8 +252,17 @@ async fn handle_tools_call(
 
     // ── Middleware: BeforeCall ────────────────────────────────────────────
     let mut ctx = crate::gateway::middleware::CallContext::new("tools/call", id_str, args.clone())
-        .with_tool_slug(tool)
+        .with_tool_slug(resolved_slug.unwrap_or(tool))
         .with_session_id(session_id);
+    if let Some((dcc_type, instance_hint, _)) = resolved_slug.and_then(parse_slug) {
+        ctx = ctx.with_backend(dcc_type, instance_hint);
+    } else if let Some(dcc_type) = args
+        .get("dcc_type")
+        .or_else(|| args.get("dcc"))
+        .and_then(Value::as_str)
+    {
+        ctx.dcc_type = Some(dcc_type.to_string());
+    }
 
     // Phase 2: capture input payload before middlewares may redact args.
     {

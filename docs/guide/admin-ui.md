@@ -103,7 +103,17 @@ When using `dcc-mcp-gateway` directly, compile with the `admin` Cargo feature. `
 {
   "total": 42,
   "calls": [
-    { "tool": "maya__open_scene", "success": true, "timestamp": "2026-05-05T10:00:00Z" }
+    {
+      "request_id": "req-123",
+      "method": "tools/call",
+      "tool": "maya.abcdef01.maya__open_scene",
+      "dcc_type": "maya",
+      "instance_id": "abcdef01-2345-6789-abcd-ef0123456789",
+      "session_id": "session-1",
+      "success": false,
+      "error": "backend timeout",
+      "timestamp": "2026-05-05T10:00:00Z"
+    }
   ]
 }
 
@@ -160,13 +170,12 @@ The `/admin/api/logs` feed is populated automatically from the `EventLog` ring b
 ## Dashboard Features
 
 The HTML dashboard includes:
-- **Left navigation**: Instances / Tools / Calls / Workers / Logs panels
+- **Left navigation**: Instances / Tools / Calls / Traces / Stats / Workers / Logs panels
 - **Auto-refresh**: Panels poll their JSON endpoints every 5 seconds
 - **Worker cards**: Per-instance status, heartbeat, and routing metadata
+- **Calls table**: request ids, error previews, and trace-detail links; DCC is displayed from the resolved backend slug when available, otherwise from explicit call arguments such as `dcc` / `dcc_type`.
 - **Dark theme**: Minimal inline CSS, no external fonts
 - **Responsive**: CSS grid layout
-
-The `health`, `traces`, and `stats` APIs are stable JSON surfaces even if the current inline HTML only renders a subset of them.
 
 ## Security Note
 
