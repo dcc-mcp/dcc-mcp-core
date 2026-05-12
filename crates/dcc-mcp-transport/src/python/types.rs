@@ -49,6 +49,9 @@ pub enum PyServiceStatus {
     /// Introduced in dcc-mcp-core#713.
     #[pyo3(name = "BOOTING")]
     Booting,
+    /// Service has already been marked stale by a probe or registry owner.
+    #[pyo3(name = "STALE")]
+    Stale,
 }
 
 #[cfg_attr(feature = "stub-gen", gen_stub_pymethods)]
@@ -66,6 +69,7 @@ impl PyServiceStatus {
             Self::Unreachable => "UNREACHABLE",
             Self::ShuttingDown => "SHUTTING_DOWN",
             Self::Booting => "BOOTING",
+            Self::Stale => "STALE",
         }
     }
 }
@@ -79,6 +83,7 @@ impl From<ServiceStatus> for PyServiceStatus {
             ServiceStatus::Unreachable => PyServiceStatus::Unreachable,
             ServiceStatus::ShuttingDown => PyServiceStatus::ShuttingDown,
             ServiceStatus::Booting => PyServiceStatus::Booting,
+            ServiceStatus::Stale => PyServiceStatus::Stale,
         }
     }
 }
