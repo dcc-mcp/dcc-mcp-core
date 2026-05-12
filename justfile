@@ -138,28 +138,25 @@ demo-gateway-photoshop:
 
 # ── Python ────────────────────────────────────────────────────────────────────
 
-# Build and install wheel in dev/editable mode
+# Build and install wheel in dev/editable mode.
+# Always run maturin with *this repo's* .venv interpreter. If another project
+# (e.g. dcc-mcp-maya) left VIRTUAL_ENV active, the old recipe used that Python
+# and produced the wrong wheel ABI (e.g. cp312) for Maya's embedded runtime.
 [unix]
 dev:
     #!/usr/bin/env sh
     set -eu
-    if [ -z "${VIRTUAL_ENV:-}" ] && [ -z "${CONDA_PREFIX:-}" ] && [ -z "${CI:-}" ]; then \
-        if [ ! -d .venv ]; then python -m venv .venv; fi; \
-        . .venv/bin/activate; \
-    fi
-    pip install maturin 2>/dev/null || true
+    if [ ! -d .venv ]; then python -m venv .venv; fi
+    .venv/bin/python -m pip install maturin 2>/dev/null || true
     just stubgen
-    maturin develop --features {{DEV_FEATURES}}
+    .venv/bin/python -m maturin develop --features {{DEV_FEATURES}}
 
 [windows]
 dev:
-    if (-not $env:VIRTUAL_ENV -and -not $env:CONDA_PREFIX -and -not $env:CI) { \
-        if (-not (Test-Path .venv)) { python -m venv .venv }; \
-        & .\.venv\Scripts\Activate.ps1; \
-    }
-    pip install maturin -q 2>$null
+    if (-not (Test-Path .venv)) { python -m venv .venv }
+    & .\.venv\Scripts\python.exe -m pip install maturin -q 2>$null
     just stubgen
-    maturin develop --features {{DEV_FEATURES}}
+    & .\.venv\Scripts\python.exe -m maturin develop --features {{DEV_FEATURES}}
 
 # Build abi3-py38 release wheel and install it
 install:

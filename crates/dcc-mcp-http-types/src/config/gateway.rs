@@ -55,20 +55,6 @@ pub struct GatewayConfig {
     /// routing cache (issue #322). `0` disables the cap.
     pub gateway_max_routes_per_session: u64,
 
-    /// Emit Cursor-safe gateway prompt names (`i_<id8>__<escaped>`)
-    /// instead of the SEP-986 dotted form (`<id8>.<name>`).
-    ///
-    /// Default: `true`. The gateway no longer fans out backend tools
-    /// into `tools/list` — its MCP surface is converged to discovery +
-    /// dispatch primitives — but it still fans out `prompts/list` so
-    /// clients can address prompts across multiple DCCs. Cursor and
-    /// several other MCP clients only accept names matching
-    /// `^[A-Za-z0-9_]+$`, so the cursor-safe form stays the default.
-    /// Setting this to `false` emits the SEP-986 dotted form for
-    /// diagnostic parity with a single-instance server that publishes
-    /// dotted names directly.
-    pub gateway_cursor_safe_tool_names: bool,
-
     /// Adapter package version (e.g. `dcc_mcp_maya = "0.3.0"`) recorded
     /// on the `__gateway__` sentinel and used as the second tier of the
     /// version-aware gateway election (issue maya#137).
@@ -110,7 +96,6 @@ impl Default for GatewayConfig {
             gateway_wait_terminal_timeout_ms: 600_000,
             gateway_route_ttl_secs: 60 * 60 * 24,
             gateway_max_routes_per_session: 1_000,
-            gateway_cursor_safe_tool_names: true,
             adapter_version: None,
             adapter_dcc: None,
             allow_unknown_tools: false,

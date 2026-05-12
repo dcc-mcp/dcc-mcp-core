@@ -208,15 +208,6 @@ pub struct GatewayState {
     /// real-DCC vs `"unknown"` tiebreaker in gateway election
     /// (issue maya#137).
     pub adapter_dcc: Option<String>,
-    /// Emit Cursor-safe names (`i_<id8>__<escaped>`) when fanning prompts
-    /// out to backends (issue #656). Default: `true`.
-    ///
-    /// Tools no longer fan out to `tools/list` — the gateway exposes only
-    /// its discover+dispatch primitives there — but prompts still go
-    /// through the per-instance aggregator so clients that talk to
-    /// multiple DCCs keep a unique address per prompt. Kept `true` by
-    /// default so Cursor and other strict clients see every prompt.
-    pub cursor_safe_tool_names: bool,
 
     /// Gateway-scoped capability index (issue #653). Populated by the
     /// refresh loop and queried by the REST / MCP dynamic-capability
@@ -277,7 +268,6 @@ impl GatewayState {
             pending_calls: &self.pending_calls,
             subscriber: &self.subscriber,
             middleware_chain: &self.middleware_chain,
-            cursor_safe_tool_names: self.cursor_safe_tool_names,
         }
     }
 

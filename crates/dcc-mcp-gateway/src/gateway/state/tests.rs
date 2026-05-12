@@ -43,7 +43,6 @@ fn test_gateway_state_with_own_and_unknown(
         allow_unknown_tools,
         adapter_version: None,
         adapter_dcc: None,
-        cursor_safe_tool_names: true,
         capability_index: Arc::new(crate::gateway::capability::CapabilityIndex::new()),
         event_log: Arc::new(crate::gateway::event_log::EventLog::new()),
         #[cfg(feature = "prometheus")]
@@ -558,7 +557,6 @@ async fn test_sub_state_views_carry_only_their_responsibility() {
     assert_eq!(r.backend_timeout, gs.backend_timeout);
     assert_eq!(r.async_dispatch_timeout, gs.async_dispatch_timeout);
     assert_eq!(r.wait_terminal_timeout, gs.wait_terminal_timeout);
-    assert_eq!(r.cursor_safe_tool_names, gs.cursor_safe_tool_names);
 
     // Events view — fields match the documented fan-out surface.
     let ev = gs.events();

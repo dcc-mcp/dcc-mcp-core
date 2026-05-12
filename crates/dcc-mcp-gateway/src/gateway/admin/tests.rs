@@ -42,7 +42,6 @@ mod admin_tests {
             allow_unknown_tools: false,
             adapter_version: None,
             adapter_dcc: None,
-            cursor_safe_tool_names: true,
             capability_index: Arc::new(crate::gateway::capability::CapabilityIndex::new()),
             event_log: Arc::new(crate::gateway::event_log::EventLog::new()),
             #[cfg(feature = "prometheus")]

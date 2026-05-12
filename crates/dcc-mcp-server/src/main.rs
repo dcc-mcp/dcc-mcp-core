@@ -165,27 +165,6 @@ struct Args {
     #[arg(long, env = "DCC_MCP_ADMIN_PATH", default_value = "/admin")]
     admin_path: String,
 
-    /// Emit Cursor-safe gateway prompt names (`i_<id8>__<escaped>`) instead
-    /// of the pre-#656 SEP-986 dotted form (`<id8>.<name>`). Issue #656.
-    ///
-    /// The gateway MCP surface is minimal (`tools/list` only returns the
-    /// discover+dispatch primitives), so this flag only affects
-    /// `prompts/list` aggregation across multiple live DCC backends.
-    ///
-    /// When `true` (the default), every gateway-published prompt name
-    /// matches the stricter `^[A-Za-z0-9_]+$` regex enforced by Cursor
-    /// and several other MCP clients, which silently hide names
-    /// containing `.` or `-`. Set to `false` only when you need
-    /// diagnostic parity with a single-instance server that publishes
-    /// SEP-986 dotted names directly.
-    #[arg(
-        long,
-        env = "DCC_MCP_GATEWAY_CURSOR_SAFE_TOOL_NAMES",
-        default_value = "true",
-        action = clap::ArgAction::Set,
-    )]
-    gateway_cursor_safe_tool_names: bool,
-
     /// Directory for the shared FileRegistry (auto-created if missing).
     #[arg(long, env = "DCC_MCP_REGISTRY_DIR")]
     registry_dir: Option<String>,
@@ -744,7 +723,6 @@ async fn main() -> anyhow::Result<()> {
         } else {
             Some(args.app.clone())
         },
-        cursor_safe_tool_names: args.gateway_cursor_safe_tool_names,
         admin_enabled: !args.no_admin,
         admin_path: args.admin_path.clone(),
         ..GatewayConfig::default()

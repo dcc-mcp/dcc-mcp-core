@@ -259,7 +259,6 @@ impl GatewayRunner {
                     self.config.allow_unknown_tools,
                     own_adapter_version.clone(),
                     own_adapter_dcc.clone(),
-                    self.config.cursor_safe_tool_names,
                     self.config.middleware_chain.clone(),
                     #[cfg(feature = "admin")]
                     self.config.admin_enabled,
@@ -415,7 +414,6 @@ impl GatewayRunner {
         let allow_unknown_tools = self.config.allow_unknown_tools;
         let adapter_version = self.config.adapter_version.clone();
         let adapter_dcc = self.config.adapter_dcc.clone();
-        let cursor_safe_tool_names = self.config.cursor_safe_tool_names;
         let middleware_chain = self.config.middleware_chain.clone();
         #[cfg(feature = "admin")]
         let admin_enabled = self.config.admin_enabled;
@@ -493,7 +491,6 @@ impl GatewayRunner {
                         allow_unknown_tools,
                         adapter_version.clone(),
                         adapter_dcc.clone(),
-                        cursor_safe_tool_names,
                         middleware_chain.clone(),
                         #[cfg(feature = "admin")]
                         admin_enabled,

@@ -403,18 +403,6 @@ impl PyMcpHttpConfig {
         self.inner.gateway.gateway_max_routes_per_session = v;
     }
 
-    /// Whether the gateway emits Cursor-safe prompt names (#656).
-    #[getter]
-    fn gateway_cursor_safe_tool_names(&self) -> bool {
-        self.inner.gateway.gateway_cursor_safe_tool_names
-    }
-
-    /// Whether the gateway emits Cursor-safe prompt names (#656).
-    #[setter]
-    fn set_gateway_cursor_safe_tool_names(&mut self, v: bool) {
-        self.inner.gateway.gateway_cursor_safe_tool_names = v;
-    }
-
     /// Adapter package version for gateway election (issue maya#137).
     #[getter]
     fn adapter_version(&self) -> Option<String> {
