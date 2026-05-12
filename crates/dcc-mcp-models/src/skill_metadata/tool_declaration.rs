@@ -166,16 +166,14 @@ pub struct ToolDeclaration {
 
     /// JSON Schema for input parameters (as serde_json::Value).
     ///
-    /// Accepts both `input_schema` (snake_case, canonical) and `inputSchema`
-    /// (camelCase, MCP spec style) in YAML/JSON so SKILL.md authors can use
-    /// either convention (issue #857).
-    #[serde(default, alias = "inputSchema")]
+    /// YAML / JSON key is `input_schema` (snake_case).
+    #[serde(default)]
     pub input_schema: serde_json::Value,
 
     /// JSON Schema for output (as serde_json::Value).
     ///
-    /// Accepts both `output_schema` and `outputSchema` (issue #857).
-    #[serde(default, skip_serializing_if = "is_null_value", alias = "outputSchema")]
+    /// YAML / JSON key is `output_schema` (snake_case).
+    #[serde(default, skip_serializing_if = "is_null_value")]
     pub output_schema: serde_json::Value,
 
     /// Whether this tool only reads data (no side effects).
@@ -192,8 +190,8 @@ pub struct ToolDeclaration {
 
     /// Whether this declaration should be surfaced as deferred in discovery-oriented UIs.
     ///
-    /// Supports both `defer-loading` and `defer_loading` in SKILL.md frontmatter.
-    #[serde(default, rename = "defer-loading", alias = "defer_loading")]
+    /// YAML key is `defer-loading` (kebab-case).
+    #[serde(default, rename = "defer-loading")]
     pub defer_loading: bool,
 
     /// Explicit path to the script that implements this tool.
@@ -220,7 +218,7 @@ pub struct ToolDeclaration {
     ///       on-success: [validate_naming, inspect_usd]
     ///       on-failure: [dcc_diagnostics__screenshot, dcc_diagnostics__audit_log]
     /// ```
-    #[serde(default, rename = "next-tools", alias = "next_tools")]
+    #[serde(default, rename = "next-tools")]
     pub next_tools: NextTools,
 
     /// Tool group this declaration belongs to (progressive exposure).
@@ -362,17 +360,17 @@ impl<'de> serde::Deserialize<'de> for ToolDeclaration {
         struct Wire {
             name: String,
             description: String,
-            #[serde(default, alias = "inputSchema")]
+            #[serde(default)]
             input_schema: serde_json::Value,
-            #[serde(default, alias = "outputSchema")]
+            #[serde(default)]
             output_schema: serde_json::Value,
             read_only: bool,
             destructive: bool,
             idempotent: bool,
-            #[serde(rename = "defer-loading", alias = "defer_loading")]
+            #[serde(rename = "defer-loading")]
             defer_loading: bool,
             source_file: String,
-            #[serde(rename = "next-tools", alias = "next_tools")]
+            #[serde(rename = "next-tools")]
             next_tools: NextTools,
             group: String,
             execution: ExecutionMode,
@@ -493,11 +491,11 @@ impl<'de> serde::Deserialize<'de> for ToolDeclaration {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NextTools {
     /// Tool names to suggest after a successful invocation.
-    #[serde(default, rename = "on-success", alias = "on_success")]
+    #[serde(default, rename = "on-success")]
     pub on_success: Vec<String>,
 
     /// Tool names to suggest after a failed invocation.
-    #[serde(default, rename = "on-failure", alias = "on_failure")]
+    #[serde(default, rename = "on-failure")]
     pub on_failure: Vec<String>,
 }
 

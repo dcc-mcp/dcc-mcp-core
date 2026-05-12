@@ -50,7 +50,7 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use super::backend_client::{call_backend, fetch_tools};
-use super::namespace::{decode_tool_name, instance_short};
+use super::namespace::instance_short;
 use super::state::GatewayState;
 use super::tools::{
     gateway_tool_defs, tool_acquire_instance, tool_call_tool, tool_describe_tool,

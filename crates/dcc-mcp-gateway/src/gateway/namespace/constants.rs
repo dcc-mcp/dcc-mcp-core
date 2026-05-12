@@ -49,13 +49,10 @@ pub const CORE_TOOL_NAMES: &[&str] = &[
     "search_tools",
 ];
 
-/// Current, SEP-986-compliant gateway instance separator.
+/// SEP-986 gateway instance separator for dotted slugs (REST / capability
+/// records). MCP aggregation surfaces use [`super::encode::encode_tool_name_cursor_safe`]
+/// instead; [`super::encode::decode_tool_name`] only accepts the `i_` form.
 pub const INSTANCE_SEP: &str = ".";
-/// Deprecated separator from an unreleased build — still decoded for
-/// one-version backward compat, never emitted.
-pub const DEPRECATED_SLASH_SEP: &str = "/";
-/// Legacy pre-#258 separator — still decoded for backward compat.
-pub const LEGACY_NAMESPACE_SEP: &str = "__";
 /// Skill→tool separator (unchanged; already SEP-986-compliant).
 pub const SKILL_TOOL_SEP: &str = ".";
 

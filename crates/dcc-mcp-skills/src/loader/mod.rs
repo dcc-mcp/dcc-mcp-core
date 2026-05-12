@@ -193,7 +193,7 @@ fn apply_dcc_mcp_metadata_overrides(
             "tags" => {
                 meta.tags = parse_csv_or_list(&value);
             }
-            "search-hint" | "search_hint" => {
+            "search-hint" => {
                 if let Some(s) = value.as_str() {
                     meta.search_hint = s.to_string();
                 }
@@ -206,13 +206,13 @@ fn apply_dcc_mcp_metadata_overrides(
                 let policy = meta.policy.get_or_insert_with(Default::default);
                 policy.products = products;
             }
-            "allow-implicit-invocation" | "allow_implicit_invocation" => {
+            "allow-implicit-invocation" => {
                 if let Some(b) = parse_bool_yaml(&value) {
                     let policy = meta.policy.get_or_insert_with(Default::default);
                     policy.allow_implicit_invocation = Some(b);
                 }
             }
-            "external-deps" | "external_deps" => {
+            "external-deps" => {
                 if let Some(deps) = parse_external_deps_yaml(&value) {
                     meta.external_deps = Some(deps);
                 }

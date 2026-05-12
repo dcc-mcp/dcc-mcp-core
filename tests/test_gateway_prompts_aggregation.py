@@ -94,21 +94,21 @@ def _unescape_cursor_safe(escaped: str) -> str | None:
 
 
 def _split_gateway_prefixed(name: str) -> tuple[str, str] | None:
-    """Decode ``i_<id8>__<escaped>`` or legacy ``<id8>.<name>`` into (prefix, bare)."""
-    if name.startswith("i_"):
-        rest = name[2:]
-        sep_idx = rest.find("__")
-        if sep_idx == 8:
-            prefix = rest[:8]
-            escaped = rest[10:]
-            if all(ch in "0123456789abcdef" for ch in prefix):
-                decoded = _unescape_cursor_safe(escaped)
-                if decoded is not None:
-                    return prefix, decoded
-    prefix, sep, suffix = name.partition(".")
-    if sep and len(prefix) == 8 and all(ch in "0123456789abcdef" for ch in prefix):
-        return prefix, suffix
-    return None
+    """Decode ``i_<id8>__<escaped>`` into (prefix, bare)."""
+    if not name.startswith("i_"):
+        return None
+    rest = name[2:]
+    sep_idx = rest.find("__")
+    if sep_idx != 8:
+        return None
+    prefix = rest[:8]
+    escaped = rest[10:]
+    if not all(ch in "0123456789abcdef" for ch in prefix):
+        return None
+    decoded = _unescape_cursor_safe(escaped)
+    if decoded is None:
+        return None
+    return prefix, decoded
 
 
 def _start_backend(dcc: str, skill_parent: Path, registry_dir: Path, gw_port: int) -> object:
