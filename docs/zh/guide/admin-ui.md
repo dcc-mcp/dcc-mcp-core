@@ -1,6 +1,6 @@
 # 内置 Admin 仪表盘
 
-网关内置一个零构建、零依赖的 `/admin` Web 仪表盘（issue #772）。无需 `npm`，无需 CDN——一个内联 HTML 文件直接从二进制包中提供服务。
+网关内置一个零构建、零依赖的 `/admin` Web 仪表盘（issue #772）。无需 `npm`，无需 CDN——一个 HTML 文件通过 `include_str!` 打包进二进制。
 
 ## 启用方式与默认值
 
@@ -73,6 +73,10 @@ let config = GatewayConfig {
 | `GET /admin/api/instances` | `application/json` | 已连接的 DCC 实例 |
 | `GET /admin/api/tools` | `application/json` | 已注册的 MCP 工具 |
 | `GET /admin/api/calls` | `application/json` | 最近的工具调用（需要 `AuditMiddleware`） |
+| `GET /admin/api/traces` | `application/json` | 最近的逐调用 dispatch traces；支持 `?limit=200` |
+| `GET /admin/api/traces/{request_id}` | `application/json` | 某次调用的完整 waterfall trace |
+| `GET /admin/api/stats?range=1h\|24h\|7d` | `application/json` | 聚合调用数、成功率、延迟和 top tools/instances |
+| `GET /admin/api/workers` | `application/json` | 来自 live registry 的实例 worker 卡片 |
 | `GET /admin/api/logs` | `application/json` | 网关竞争事件 |
 | `GET /admin/api/health` | `application/json` | 服务健康摘要 |
 
@@ -99,7 +103,41 @@ let config = GatewayConfig {
 {
   "total": 42,
   "calls": [
-    { "tool": "maya__open_scene", "success": true, "timestamp": "2026-05-05T10:00:00Z" }
+    {
+      "request_id": "req-123",
+      "method": "tools/call",
+      "tool": "maya.abcdef01.maya__open_scene",
+      "dcc_type": "maya",
+      "instance_id": "abcdef01-2345-6789-abcd-ef0123456789",
+      "session_id": "session-1",
+      "success": false,
+      "error": "backend timeout",
+      "timestamp": "2026-05-05T10:00:00Z"
+    }
+  ]
+}
+
+// GET /admin/api/traces?limit=200
+{
+  "total": 1,
+  "traces": [
+    { "request_id": "req-123", "tool": "maya__open_scene", "status": "ok", "spans": [] }
+  ]
+}
+
+// GET /admin/api/stats?range=24h
+{
+  "range": "24h",
+  "total_calls": 42,
+  "success_rate": 0.98,
+  "latency": { "p50_ms": 12, "p95_ms": 48 }
+}
+
+// GET /admin/api/workers
+{
+  "summary": { "live": 2, "stale": 0, "unhealthy": 0 },
+  "workers": [
+    { "instance_id": "a1b2c3d4-...", "dcc_type": "maya", "status": "available" }
   ]
 }
 
@@ -127,13 +165,15 @@ GatewayConfig {
 }
 ```
 
-`/admin/api/logs` 数据源由 `EventLog` 环形缓冲区自动填充（网关选举/驱逐/探针事件，来自 issue #766）。
+`/admin/api/logs` 数据源由 `EventLog` 环形缓冲区自动填充（网关选举/驱逐/探针事件，来自 issue #766）。`/admin/api/traces`、`/admin/api/stats` 和 `/admin/api/workers` 分别来自 dispatch `TraceLog`、`StatsAggregator` 与 live gateway registry。
 
 ## 仪表盘功能
 
 HTML 仪表盘包含：
-- **左侧导航**：实例 / 工具 / 调用 / 日志 / 健康 面板
+- **左侧导航**：实例 / 工具 / 调用 / Traces / Stats / Workers / 日志面板
 - **自动刷新**：每个面板每 5 秒轮询对应 JSON 端点
+- **Worker 卡片**：按实例展示状态、心跳与路由元数据
+- **Calls 表格**：展示 request id、错误摘要与 trace detail 链接；DCC 优先从解析后的 backend slug 展示，其次使用调用参数中的 `dcc` / `dcc_type`
 - **深色主题**：极简内联 CSS，无外部字体
 - **响应式布局**：CSS grid 布局
 
