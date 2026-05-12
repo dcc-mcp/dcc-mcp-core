@@ -20,6 +20,7 @@ on:
       - "pyproject.toml"
       - "rust-toolchain.toml"
       - ".github/workflows/ci.yml"
+      - ".github/workflows/dcc-integration.yml"
       - ".github/actions/build-wheel/**"
   push:
     branches: [main]
@@ -37,6 +38,7 @@ on:
       - "pyproject.toml"
       - "rust-toolchain.toml"
       - ".github/workflows/ci.yml"
+      - ".github/workflows/dcc-integration.yml"
       - ".github/actions/build-wheel/**"
 
 permissions:
