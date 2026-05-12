@@ -80,6 +80,18 @@ fn test_tool_declaration_parses_required_capabilities() {
 }
 
 #[test]
+fn test_tool_declaration_parses_thread_affinity_enforcement() {
+    let json = r#"{
+            "name": "bake_simulation",
+            "affinity": "main",
+            "enforce_thread_affinity": true
+        }"#;
+    let decl: ToolDeclaration = serde_json::from_str(json).unwrap();
+    assert_eq!(decl.thread_affinity, ThreadAffinity::Main);
+    assert!(decl.enforce_thread_affinity);
+}
+
+#[test]
 fn test_agentskills_standard_fields() {
     let json = r#"{
             "name": "pdf-tools",

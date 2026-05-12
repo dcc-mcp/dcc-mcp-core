@@ -476,6 +476,17 @@ impl ToolInvoker for DispatcherInvoker {
                 format!("action '{action}' is disabled (group '{group}')"),
             )
             .with_hint("call load_skill / activate the owning tool group first")),
+            Err(DispatchError::ThreadAffinityViolation {
+                action,
+                declared,
+                actual,
+            }) => Err(ServiceError::new(
+                ServiceErrorKind::ThreadAffinityViolation,
+                format!(
+                    "THREAD_AFFINITY_VIOLATION: action '{action}' declared thread_affinity={declared} but ran on {actual}"
+                ),
+            )
+            .with_hint("check the action tools.yaml thread_affinity, or marshal through the host main-thread dispatcher")),
             Err(DispatchError::ValidationFailed(m)) => {
                 Err(ServiceError::new(ServiceErrorKind::InvalidParams, m))
             }

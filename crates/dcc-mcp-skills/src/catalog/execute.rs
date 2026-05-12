@@ -31,6 +31,7 @@ pub struct ScriptExecutionContext {
     pub action_name: String,
     pub skill_name: Option<String>,
     pub thread_affinity: ThreadAffinity,
+    pub enforce_thread_affinity: bool,
     pub execution: ExecutionMode,
     pub timeout_hint_secs: Option<u32>,
 }

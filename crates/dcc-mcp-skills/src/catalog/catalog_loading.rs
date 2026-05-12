@@ -104,6 +104,7 @@ impl SkillCatalog {
                 execution: tool_decl.execution,
                 timeout_hint_secs: tool_decl.timeout_hint_secs,
                 thread_affinity: tool_decl.thread_affinity,
+                enforce_thread_affinity: tool_decl.enforce_thread_affinity,
                 annotations: tool_decl.annotations.clone(),
                 next_tools: helpers::sanitize_next_tools(
                     &tool_decl.next_tools,
@@ -123,6 +124,7 @@ impl SkillCatalog {
                         action_name: action_name.clone(),
                         skill_name: Some(skill_name.to_string()),
                         thread_affinity: tool_decl.thread_affinity,
+                        enforce_thread_affinity: tool_decl.enforce_thread_affinity,
                         execution: tool_decl.execution,
                         timeout_hint_secs: tool_decl.timeout_hint_secs,
                     };
@@ -164,6 +166,7 @@ impl SkillCatalog {
                     execution: dcc_mcp_models::ExecutionMode::Sync,
                     timeout_hint_secs: None,
                     thread_affinity: dcc_mcp_models::ThreadAffinity::Any,
+                    enforce_thread_affinity: false,
                     annotations: dcc_mcp_models::ToolAnnotations::default(),
                     next_tools: dcc_mcp_models::NextTools::default(),
                 };
@@ -180,6 +183,7 @@ impl SkillCatalog {
                             action_name: action_name.clone(),
                             skill_name: Some(skill_name.to_string()),
                             thread_affinity: dcc_mcp_models::ThreadAffinity::Any,
+                            enforce_thread_affinity: false,
                             execution: dcc_mcp_models::ExecutionMode::Sync,
                             timeout_hint_secs: None,
                         };

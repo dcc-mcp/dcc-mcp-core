@@ -1,6 +1,7 @@
 use super::fixtures::{make_catalog_with_dispatcher, make_test_catalog, make_test_skill};
 use super::*;
-use dcc_mcp_models::{SkillGroup, ToolDeclaration};
+use dcc_mcp_actions::dispatcher::{DispatchError, with_thread_affinity};
+use dcc_mcp_models::{SkillGroup, ThreadAffinity, ToolDeclaration};
 
 #[test]
 fn test_catalog_new_is_empty() {
@@ -118,6 +119,33 @@ fn test_load_skill_can_leave_groups_inactive_when_requested() {
         !meta.enabled,
         "activate_groups=false should preserve laziness"
     );
+}
+
+#[test]
+fn test_load_skill_propagates_thread_affinity_enforcement() {
+    let (catalog, dispatcher) = make_catalog_with_dispatcher();
+    catalog.set_in_process_executor(|_, _, _| Ok(serde_json::json!({"ok": true})));
+    let mut skill = make_test_skill("main-thread", "maya", &[]);
+    skill.tools = vec![ToolDeclaration {
+        name: "execute_python".to_string(),
+        source_file: "scripts/execute_python.py".to_string(),
+        thread_affinity: ThreadAffinity::Main,
+        enforce_thread_affinity: true,
+        ..Default::default()
+    }];
+    catalog.add_skill(skill);
+    catalog.load_skill("main-thread").unwrap();
+
+    let err = dispatcher
+        .dispatch("main_thread__execute_python", serde_json::json!({}))
+        .expect_err("worker-thread dispatch must be rejected");
+    assert!(matches!(err, DispatchError::ThreadAffinityViolation { .. }));
+
+    let ok = with_thread_affinity(ThreadAffinity::Main, || {
+        dispatcher.dispatch("main_thread__execute_python", serde_json::json!({}))
+    })
+    .expect("main-thread dispatch should pass enforcement");
+    assert_eq!(ok.output, serde_json::json!({"ok": true}));
 }
 
 #[test]

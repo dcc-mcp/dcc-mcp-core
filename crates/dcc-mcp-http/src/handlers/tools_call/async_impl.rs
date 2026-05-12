@@ -172,8 +172,11 @@ async fn run_async_execution_lane(
         let response = executor.submit_deferred(
             &tool_name,
             cancel_token.clone(),
-            Box::new(
-                move || match dispatch.dispatch(&dispatch_name, dispatch_params) {
+            Box::new(move || {
+                match dcc_mcp_actions::with_thread_affinity(
+                    dcc_mcp_models::ThreadAffinity::Main,
+                    || dispatch.dispatch(&dispatch_name, dispatch_params),
+                ) {
                     Ok(result) => {
                         serde_json::to_string(&result.output).unwrap_or_else(|_| "null".into())
                     }
@@ -181,8 +184,8 @@ async fn run_async_execution_lane(
                         serde_json::to_string(&json!({"__dispatch_error": err.to_string()}))
                             .unwrap_or_default()
                     }
-                },
-            ),
+                }
+            }),
         );
 
         tokio::select! {
