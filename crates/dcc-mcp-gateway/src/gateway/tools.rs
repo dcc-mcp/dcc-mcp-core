@@ -3,7 +3,7 @@
 use serde_json::{Value, json};
 
 use super::state::{GatewayState, entry_to_json};
-use dcc_mcp_transport::discovery::types::{ServiceEntry, ServiceKey};
+use dcc_mcp_transport::discovery::types::ServiceKey;
 
 // ── tools ──────────────────────────────────────────────────────────────────
 
@@ -29,10 +29,20 @@ pub async fn tool_acquire_instance(gs: &GatewayState, args: &Value) -> Result<St
         .max(1);
 
     let reg = gs.registry.read().await;
+    let resolved_instance_id = if instance_id.is_some() {
+        Some(
+            gs.resolve_instance(&reg, instance_id, Some(dcc_type))
+                .map_err(|err| err.to_string())?
+                .instance_id
+                .to_string(),
+        )
+    } else {
+        None
+    };
     let Some(entry) = reg
         .acquire_lease(
             dcc_type,
-            instance_id,
+            resolved_instance_id.as_deref(),
             owner,
             current_job_id,
             Some(std::time::Duration::from_secs(ttl_secs)),
@@ -62,19 +72,9 @@ pub async fn tool_release_instance(gs: &GatewayState, args: &Value) -> Result<St
     let owner = args.get("lease_owner").and_then(|v| v.as_str());
 
     let reg = gs.registry.read().await;
-    let all = gs.all_instances(&reg);
-    let matches: Vec<&ServiceEntry> = all
-        .iter()
-        .filter(|e| {
-            let full = e.instance_id.to_string();
-            full == instance_id || full.starts_with(instance_id)
-        })
-        .collect();
-    let entry = match matches.as_slice() {
-        [] => return Err(format!("Instance '{instance_id}' not found")),
-        [entry] => *entry,
-        _ => return Err(format!("Instance prefix '{instance_id}' is ambiguous")),
-    };
+    let entry = gs
+        .resolve_instance(&reg, Some(instance_id), None)
+        .map_err(|err| err.to_string())?;
     let key = ServiceKey {
         dcc_type: entry.dcc_type.clone(),
         instance_id: entry.instance_id,

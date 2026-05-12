@@ -41,11 +41,13 @@
 //! builds on these sub-structs.
 
 use std::collections::{HashMap, HashSet};
+use std::fmt;
 use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::{Value, json};
 use tokio::sync::{RwLock, broadcast, watch};
+use uuid::Uuid;
 
 use super::event_log::EventLog;
 
@@ -65,6 +67,57 @@ pub use dcc_mcp_gateway_core::PendingCall;
 
 mod views;
 pub use views::{DiscoveryState, EventState, RoutingState, ServerState};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ResolveInstanceError {
+    PrefixTooShort {
+        prefix: String,
+        min_len: usize,
+    },
+    NoMatch {
+        hint: Option<String>,
+        dcc: Option<String>,
+    },
+    MultipleMatches {
+        candidates: Vec<String>,
+    },
+}
+
+impl fmt::Display for ResolveInstanceError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::PrefixTooShort { prefix, min_len } => write!(
+                f,
+                "prefix-too-short: instance_id prefix '{prefix}' is shorter than {min_len} characters"
+            ),
+            Self::NoMatch {
+                hint: Some(hint), ..
+            } => {
+                write!(
+                    f,
+                    "no-live-instance-match: no live instance matches instance_id='{hint}'"
+                )
+            }
+            Self::NoMatch {
+                hint: None,
+                dcc: Some(dcc),
+            } => {
+                write!(f, "no-live-instance-match: no live '{dcc}' instance")
+            }
+            Self::NoMatch {
+                hint: None,
+                dcc: None,
+            } => {
+                write!(f, "no-live-instance-match: no live DCC instances")
+            }
+            Self::MultipleMatches { candidates } => write!(
+                f,
+                "multiple-instances-match: specify instance_id; candidates=[{}]",
+                candidates.join(", ")
+            ),
+        }
+    }
+}
 
 /// Shared state passed to every gateway axum handler.
 ///
@@ -283,6 +336,68 @@ impl GatewayState {
         self.discovery().all_instances(registry)
     }
 
+    /// Resolve a user-provided instance hint against the shared live-instance view.
+    pub fn resolve_instance(
+        &self,
+        registry: &FileRegistry,
+        instance_hint: Option<&str>,
+        dcc_filter: Option<&str>,
+    ) -> Result<ServiceEntry, ResolveInstanceError> {
+        const MIN_PREFIX_LEN: usize = 4;
+
+        let candidates: Vec<ServiceEntry> = self
+            .live_instances(registry)
+            .into_iter()
+            .filter(|e| dcc_filter.is_none_or(|f| e.dcc_type.eq_ignore_ascii_case(f)))
+            .collect();
+
+        if let Some(raw_hint) = instance_hint.map(str::trim).filter(|hint| !hint.is_empty()) {
+            if let Ok(uuid) = Uuid::parse_str(raw_hint) {
+                return candidates
+                    .into_iter()
+                    .find(|e| e.instance_id == uuid)
+                    .ok_or_else(|| ResolveInstanceError::NoMatch {
+                        hint: Some(raw_hint.to_string()),
+                        dcc: dcc_filter.map(str::to_string),
+                    });
+            }
+
+            let hint = raw_hint.to_ascii_lowercase();
+            if hint.len() < MIN_PREFIX_LEN {
+                return Err(ResolveInstanceError::PrefixTooShort {
+                    prefix: raw_hint.to_string(),
+                    min_len: MIN_PREFIX_LEN,
+                });
+            }
+
+            let matches: Vec<ServiceEntry> = candidates
+                .into_iter()
+                .filter(|e| e.instance_id.simple().to_string().starts_with(&hint))
+                .collect();
+            return match matches.as_slice() {
+                [] => Err(ResolveInstanceError::NoMatch {
+                    hint: Some(raw_hint.to_string()),
+                    dcc: dcc_filter.map(str::to_string),
+                }),
+                [entry] => Ok(entry.clone()),
+                _ => Err(ResolveInstanceError::MultipleMatches {
+                    candidates: matches.iter().map(instance_candidate).collect(),
+                }),
+            };
+        }
+
+        match candidates.as_slice() {
+            [] => Err(ResolveInstanceError::NoMatch {
+                hint: None,
+                dcc: dcc_filter.map(str::to_string),
+            }),
+            [entry] => Ok(entry.clone()),
+            _ => Err(ResolveInstanceError::MultipleMatches {
+                candidates: candidates.iter().map(instance_candidate).collect(),
+            }),
+        }
+    }
+
     /// Return operator-facing registry rows with dead-PID entries pruned.
     ///
     /// Issue #719: before this method existed, `list_dcc_instances` could
@@ -317,6 +432,19 @@ impl GatewayState {
     ) -> dcc_mcp_transport::TransportResult<(Vec<ServiceEntry>, usize)> {
         self.discovery().read_alive_instances(registry)
     }
+}
+
+fn instance_candidate(entry: &ServiceEntry) -> String {
+    format!(
+        "{}:{}:{}",
+        entry.dcc_type,
+        entry.instance_id,
+        entry_to_short(&entry.instance_id),
+    )
+}
+
+fn entry_to_short(instance_id: &Uuid) -> String {
+    instance_id.simple().to_string()[..8].to_string()
 }
 
 /// Serialize a `ServiceEntry` to a JSON `Value` suitable for gateway responses.

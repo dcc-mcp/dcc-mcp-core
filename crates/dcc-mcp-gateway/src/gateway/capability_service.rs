@@ -18,6 +18,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use uuid::Uuid;
 
 use dcc_mcp_jsonrpc::McpTool;
 
@@ -77,17 +78,17 @@ pub fn describe_service(
     index: &CapabilityIndex,
     slug: &str,
 ) -> Result<CapabilityRecord, ServiceError> {
-    if parse_slug(slug).is_none() {
+    let Some((dcc, instance_hint, tool)) = parse_slug(slug) else {
         return Err(ServiceError::new(
             "unknown-slug",
-            format!("slug {slug:?} is not in the <dcc>.<id8>.<tool> form"),
+            format!("slug {slug:?} is not in the <dcc>.<instance-id-prefix>.<tool> form"),
         ));
-    }
+    };
     let snap = index.snapshot();
     let matches: Vec<&CapabilityRecord> = snap
         .records
         .iter()
-        .filter(|r| r.tool_slug == slug)
+        .filter(|r| record_matches_slug(r, dcc, instance_hint, tool))
         .collect();
     match matches.as_slice() {
         [] => Err(ServiceError::new(
@@ -107,6 +108,25 @@ pub fn describe_service(
             .with_candidates(candidates))
         }
     }
+}
+
+fn record_matches_slug(
+    record: &CapabilityRecord,
+    dcc: &str,
+    instance_hint: &str,
+    tool: &str,
+) -> bool {
+    if !record.dcc_type.eq_ignore_ascii_case(dcc) || record.callable_id != tool {
+        return false;
+    }
+    if let Ok(uuid) = Uuid::parse_str(instance_hint) {
+        return record.instance_id == uuid;
+    }
+    record
+        .instance_id
+        .simple()
+        .to_string()
+        .starts_with(&instance_hint.to_ascii_lowercase())
 }
 
 /// Resolve `slug` and return the exact backend tool definition for that
@@ -308,13 +328,26 @@ mod unit_tests {
     }
 
     #[test]
+    fn describe_accepts_full_uuid_slug() {
+        let idx = CapabilityIndex::new();
+        let iid = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
+        push(&idx, "maya", iid, "create_sphere", true);
+        let slug = format!("maya.{iid}.create_sphere");
+
+        let rec = describe_service(&idx, &slug).expect("full UUID slug should resolve");
+
+        assert_eq!(rec.instance_id, iid);
+        assert_eq!(rec.backend_tool, "create_sphere");
+    }
+
+    #[test]
     fn describe_rejects_malformed_slug() {
         let idx = CapabilityIndex::new();
         let err = describe_service(&idx, "not-a-slug").unwrap_err();
         assert_eq!(err.kind, "unknown-slug");
         // The malformed-slug error points at the expected shape so
         // the agent can fix its input instead of retrying blind.
-        assert!(err.message.contains("<dcc>.<id8>.<tool>"));
+        assert!(err.message.contains("<dcc>.<instance-id-prefix>.<tool>"));
     }
 
     #[test]

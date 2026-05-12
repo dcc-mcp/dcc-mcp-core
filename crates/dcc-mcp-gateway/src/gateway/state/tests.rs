@@ -165,6 +165,64 @@ async fn test_live_instances_excludes_status_stale_immediately() {
     assert_eq!(live[0].dcc_type, "photoshop");
 }
 
+#[tokio::test]
+async fn test_resolve_instance_accepts_short_and_unique_prefix() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let instance_id = uuid::Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
+
+    {
+        let r = registry.read().await;
+        let mut maya = ServiceEntry::new("maya", "127.0.0.1", 18812);
+        maya.instance_id = instance_id;
+        r.register(maya).unwrap();
+    }
+
+    let gs = test_gateway_state(registry.clone());
+    let reg = registry.read().await;
+    assert_eq!(
+        gs.resolve_instance(&reg, Some("abcdef01"), None)
+            .unwrap()
+            .instance_id,
+        instance_id
+    );
+    assert_eq!(
+        gs.resolve_instance(&reg, Some("abcd"), Some("maya"))
+            .unwrap()
+            .instance_id,
+        instance_id
+    );
+}
+
+#[tokio::test]
+async fn test_resolve_instance_rejects_short_and_ambiguous_prefixes() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+
+    {
+        let r = registry.read().await;
+        let mut a = ServiceEntry::new("maya", "127.0.0.1", 18812);
+        a.instance_id = uuid::Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
+        r.register(a).unwrap();
+        let mut b = ServiceEntry::new("maya", "127.0.0.1", 18813);
+        b.instance_id = uuid::Uuid::parse_str("abcdef9923456789abcdef0123456789").unwrap();
+        r.register(b).unwrap();
+    }
+
+    let gs = test_gateway_state(registry.clone());
+    let reg = registry.read().await;
+    let too_short = gs.resolve_instance(&reg, Some("ab"), None).unwrap_err();
+    assert!(matches!(
+        too_short,
+        ResolveInstanceError::PrefixTooShort { .. }
+    ));
+    let ambiguous = gs.resolve_instance(&reg, Some("abcdef"), None).unwrap_err();
+    assert!(matches!(
+        ambiguous,
+        ResolveInstanceError::MultipleMatches { .. }
+    ));
+}
+
 /// Issue #555: instances with `dcc_type == "unknown"` must be hidden from
 /// `live_instances` when `allow_unknown_tools` is `false` (the default).
 #[tokio::test]
