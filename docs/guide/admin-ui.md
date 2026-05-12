@@ -29,6 +29,8 @@ Equivalent env vars:
 | `DCC_MCP_GATEWAY_PORT` | `9765` | Gateway election port. `0` disables gateway/admin. |
 | `DCC_MCP_NO_ADMIN` | `false` | Disable the read-only Admin UI on the elected gateway. |
 | `DCC_MCP_ADMIN_PATH` | `/admin` | Admin URL prefix. |
+| `DCC_MCP_GATEWAY_AUDIT_DIR` | unset | Optional JSONL directory for durable `audit.jsonl` and `traces.jsonl`; unset keeps zero-disk in-memory behavior. |
+| `DCC_MCP_GATEWAY_AUDIT_MAX_ROWS` | `5000` | Max JSONL rows retained per durable file when persistence is enabled. |
 
 ### Python API
 
@@ -166,6 +168,8 @@ GatewayConfig {
 ```
 
 The `/admin/api/logs` feed is populated automatically from the `EventLog` ring buffer (gateway election/eviction/probe events from issue #766). The `/admin/api/traces`, `/admin/api/stats`, and `/admin/api/workers` endpoints are populated from the dispatch `TraceLog`, `StatsAggregator`, and live gateway registry respectively.
+
+Set `DCC_MCP_GATEWAY_AUDIT_DIR` to enable durable JSONL persistence. The gateway appends bounded admin call rows to `audit.jsonl` and dispatch traces to `traces.jsonl`, trims each file to `DCC_MCP_GATEWAY_AUDIT_MAX_ROWS` rows, and seeds the in-memory admin buffers from those files on restart. Payloads remain the same bounded/redacted `TracePayload` values used by the in-memory trace capture; persistence does not store unbounded raw request bodies.
 
 ## Dashboard Features
 
