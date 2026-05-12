@@ -229,7 +229,8 @@ attachment race where a main-thread skill is discovered before the adapter has
 registered its UI-thread bridge.
 
 For plugin entry points, prefer `HostExecutionBridge(dispatcher=...)` and pass
-it to `DccServerBase(..., execution_bridge=bridge)` before skill loading. The
+it via `DccServerOptions.from_env(..., execution_bridge=bridge)` then
+`DccServerBase(opts)` before skill loading. The
 bridge also exposes `dispatch_callable(...)` for dynamic host work, so skill
 scripts and direct callables share the same affinity metadata and structured
 error normalization. See [Server Factory API](../api/factory.md).
