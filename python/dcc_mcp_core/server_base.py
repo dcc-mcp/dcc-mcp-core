@@ -16,24 +16,22 @@ would otherwise copy-paste:
 
 Creating a DCC adapter
 -----------------------
-Subclass :class:`DccServerBase` and supply:
-
-1. ``dcc_name``             — short identifier, e.g. ``"blender"``
-2. ``builtin_skills_dir``   — ``Path`` to bundled skills shipped with the adapter
-
-Everything else is inherited::
+Subclass :class:`DccServerBase` and pass a :class:`~dcc_mcp_core._server.options.DccServerOptions`
+instance (typically from :meth:`DccServerOptions.from_env`). Everything else is inherited::
 
     from pathlib import Path
+
+    from dcc_mcp_core._server.options import DccServerOptions
     from dcc_mcp_core.server_base import DccServerBase
 
     class BlenderMcpServer(DccServerBase):
-        def __init__(self, port: int = 8765, **kwargs):
-            super().__init__(
-                dcc_name="blender",
-                builtin_skills_dir=Path(__file__).parent / "skills",
+        def __init__(self, port: int = 8765):
+            opts = DccServerOptions.from_env(
+                "blender",
+                Path(__file__).parent / "skills",
                 port=port,
-                **kwargs,
             )
+            super().__init__(opts)
 
     # That's it — all skill methods, hot-reload, gateway are ready.
 
@@ -58,7 +56,6 @@ from pathlib import Path
 import sys
 from typing import Any
 from typing import Callable
-import warnings
 import weakref
 
 # NOTE: dcc_mcp_core imports (McpHttpConfig, create_skill_server, get_*,
@@ -87,116 +84,28 @@ logger = logging.getLogger(__name__)
 class DccServerBase:
     """Base MCP server for any DCC application.
 
-    Sub-classes only need to supply ``dcc_name`` and ``builtin_skills_dir``.
-    All generic skill management, hot-reload, and gateway election logic is
-    provided here so DCC adapters stay thin (~100 LOC each).
+    Pass a :class:`~dcc_mcp_core._server.options.DccServerOptions` instance
+    (typically from :meth:`DccServerOptions.from_env`). All generic skill
+    management, hot-reload, and gateway election logic lives here so DCC
+    adapters stay thin.
 
-    **Preferred construction** — pass a :class:`~dcc_mcp_core._server.options.DccServerOptions`
-    object so every cross-cutting concern is configured in one frozen value::
+    Example::
 
         opts = DccServerOptions.from_env("blender", Path(__file__).parent / "skills")
-        server = DccServerBase(options=opts)
-
-    **Legacy construction** — the original 17-parameter signature still works
-    but emits a :class:`DeprecationWarning`.  It will be removed in a future
-    minor release after all known adapters have migrated::
-
-        server = DccServerBase(dcc_name="blender", builtin_skills_dir=..., port=8765)
+        server = DccServerBase(opts)
 
     Args:
-        options: A fully-configured :class:`~dcc_mcp_core._server.options.DccServerOptions`
-            instance.  When provided, all other keyword arguments are ignored.
-        dcc_name: **(Legacy)** Short DCC identifier.
-        builtin_skills_dir: **(Legacy)** Path to bundled skills directory.
-        port: **(Legacy)** TCP port for the MCP HTTP server.
-        server_name: **(Legacy)** Name in the MCP ``initialize`` response.
-        server_version: **(Legacy)** Version in the MCP ``initialize`` response.
-        gateway_port: **(Legacy)** Gateway competition port.
-        registry_dir: **(Legacy)** Directory for the shared FileRegistry JSON.
-        dcc_version: **(Legacy)** DCC application version string.
-        scene: **(Legacy)** Currently open scene file path.
-        enable_gateway_failover: **(Legacy)** Enable gateway failover.
-        dcc_pid: **(Legacy)** Process ID of the DCC application.
-        dcc_window_title: **(Legacy)** DCC window title substring.
-        dcc_window_handle: **(Legacy)** Pre-resolved native window handle.
-        dispatcher: **(Legacy)** Optional host callable dispatcher.
-        execution_bridge: **(Legacy)** Optional HostExecutionBridge.
-        enable_file_logging: **(Legacy)** Enable rolling file logging.
-        enable_job_persistence: **(Legacy)** Enable SQLite job history.
-        enable_telemetry: **(Legacy)** Enable in-process metrics.
-        snapshot_provider: **(Legacy)** Post-tool context snapshot callable.
+        options: Fully-configured :class:`~dcc_mcp_core._server.options.DccServerOptions`.
 
     """
 
-    def __init__(
-        self,
-        dcc_name: str | None = None,
-        builtin_skills_dir: Path | None = None,
-        port: int = 8765,
-        server_name: str | None = None,
-        server_version: str | None = None,
-        gateway_port: int | None = None,
-        registry_dir: str | None = None,
-        dcc_version: str | None = None,
-        scene: str | None = None,
-        enable_gateway_failover: bool = True,
-        *,
-        options: DccServerOptions | None = None,
-        dcc_pid: int | None = None,
-        dcc_window_title: str | None = None,
-        dcc_window_handle: int | None = None,
-        dispatcher: BaseDccCallableDispatcher | None = None,
-        execution_bridge: HostExecutionBridge | None = None,
-        enable_file_logging: bool = True,
-        enable_job_persistence: bool = True,
-        enable_telemetry: bool = True,
-        snapshot_provider: Any | None = None,
-    ) -> None:
-        if options is not None:
-            # New path: all configuration is in the DccServerOptions object.
-            self._init_from_options(options)
-            return
-
-        # Legacy path — warn and build an options object from the flat kwargs.
-        if dcc_name is None or builtin_skills_dir is None:
-            raise TypeError("DccServerBase() requires either 'options' or both 'dcc_name' and 'builtin_skills_dir'")
-
-        warnings.warn(
-            "Passing individual keyword arguments to DccServerBase() is deprecated. "
-            "Use DccServerOptions.from_env() and pass 'options=...' instead. "
-            "The legacy signature will be removed in a future minor release.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-
-        opts = DccServerOptions.from_env(
-            dcc_name,
-            builtin_skills_dir,
-            port=port,
-            server_name=server_name,
-            server_version=server_version,
-            gateway_port=gateway_port,
-            registry_dir=registry_dir,
-            dcc_version=dcc_version,
-            scene=scene,
-            enable_gateway_failover=enable_gateway_failover,
-            dcc_pid=dcc_pid,
-            dcc_window_title=dcc_window_title,
-            dcc_window_handle=dcc_window_handle,
-            dispatcher=dispatcher,
-            execution_bridge=execution_bridge,
-            enable_file_logging=enable_file_logging,
-            enable_job_persistence=enable_job_persistence,
-            enable_telemetry=enable_telemetry,
-            snapshot_provider=snapshot_provider,
-        )
-        self._init_from_options(opts)
+    def __init__(self, options: DccServerOptions) -> None:
+        self._init_from_options(options)
 
     def _init_from_options(self, options: DccServerOptions) -> None:
         """Wire all collaborators from a fully-resolved :class:`DccServerOptions`.
 
-        This is the single real constructor path; ``__init__`` (both new and
-        legacy) delegates here after producing a ``DccServerOptions`` object.
+        This is the single real constructor path; ``__init__`` delegates here.
         """
         # Deferred: circular import — __init__.py imports DccServerBase from
         # this module, so we cannot import from dcc_mcp_core at module level.
