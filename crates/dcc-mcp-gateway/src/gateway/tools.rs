@@ -72,6 +72,7 @@ pub async fn tool_release_instance(gs: &GatewayState, args: &Value) -> Result<St
     let owner = args.get("lease_owner").and_then(|v| v.as_str());
 
     let reg = gs.registry.read().await;
+
     let entry = gs
         .resolve_instance(&reg, Some(instance_id), None)
         .map_err(|err| err.to_string())?;
@@ -79,8 +80,55 @@ pub async fn tool_release_instance(gs: &GatewayState, args: &Value) -> Result<St
         dcc_type: entry.dcc_type.clone(),
         instance_id: entry.instance_id,
     };
+
+    let Some(row) = reg.get(&key) else {
+        return Err(serde_json::to_string_pretty(&json!({
+            "success": false,
+            "reason": "unknown_instance",
+            "message": format!("No FileRegistry row for instance_id {instance_id} after resolve"),
+        }))
+        .unwrap_or_else(|_| "unknown_instance".to_string()));
+    };
+
+    match row.lease_owner.as_deref() {
+        None => {
+            return Err(serde_json::to_string_pretty(&json!({
+                "success": false,
+                "reason": "no_active_lease",
+                "message": "This instance has no active pool lease in the shared registry.",
+                "hint": "Call acquire_dcc_instance first (same lease_owner string you plan to pass to release). release_dcc_instance only clears pool metadata in services.json — it does not close Maya or drop MCP connections.",
+                "instance_id": entry.instance_id.to_string(),
+                "instance": entry_to_json(&entry, gs.stale_timeout),
+            }))
+            .unwrap_or_else(|_| "no_active_lease".to_string()));
+        }
+        Some(current) => {
+            if let Some(expected) = owner
+                && expected != current
+            {
+                return Err(serde_json::to_string_pretty(&json!({
+                    "success": false,
+                    "reason": "lease_owner_mismatch",
+                    "message": format!(
+                        "lease_owner {expected:?} does not match the active lease holder {current:?}"
+                    ),
+                    "hint": "Omit lease_owner on release to clear any lease, or pass the exact string used in acquire_dcc_instance.",
+                    "instance_id": entry.instance_id.to_string(),
+                    "active_lease_owner": current,
+                }))
+                .unwrap_or_else(|_| "lease_owner_mismatch".to_string()));
+            }
+        }
+    }
+
     let Some(released) = reg.release_lease(&key, owner).map_err(|e| e.to_string())? else {
-        return Err("No matching active lease to release".to_string());
+        return Err(serde_json::to_string_pretty(&json!({
+            "success": false,
+            "reason": "release_rejected",
+            "message": "Registry refused to clear the lease after pre-flight checks — possible concurrent mutation; retry once.",
+            "instance_id": entry.instance_id.to_string(),
+        }))
+        .unwrap_or_else(|_| "release_rejected".to_string()));
     };
 
     serde_json::to_string_pretty(&json!({
@@ -458,7 +506,9 @@ pub fn gateway_tool_defs() -> serde_json::Value {
         },
         {
             "name": "release_dcc_instance",
-            "description": "Release a DCC instance lease acquired with acquire_dcc_instance.",
+            "description": "Clear a pool lease previously created by acquire_dcc_instance in the shared FileRegistry (services.json). \
+                Does not terminate the DCC process or disconnect MCP clients — it only flips registry metadata so another workflow can acquire the slot. \
+                Must match the same lease_owner string passed to acquire when that optional argument is used.",
             "inputSchema": {
                 "type": "object",
                 "required": ["instance_id"],
