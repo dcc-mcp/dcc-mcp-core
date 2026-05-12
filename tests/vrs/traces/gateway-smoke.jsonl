@@ -1,0 +1,3 @@
+{"_vrs": {"version": 1}, "trace_id": "gateway-smoke", "title": "Gateway liveness + empty search browse"}
+{"id": "healthz", "http": {"method": "GET", "path": "/v1/healthz"}, "expect": {"status": 200, "json_subset": {"ok": true}}}
+{"id": "search_browse", "http": {"method": "POST", "path": "/v1/search", "json": {"query": "", "limit": 5}}, "expect": {"status": 200, "body_contains": "\"hits\""}}
