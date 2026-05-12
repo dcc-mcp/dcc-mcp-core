@@ -83,6 +83,22 @@ pub struct SkillSummary {
     pub scope: String,
     /// `true` when this skill declares `allow_implicit_invocation: false`.
     pub implicit_invocation: bool,
+    /// Architectural layer from `metadata.dcc-mcp.layer`
+    /// (`"infrastructure"` / `"domain"` / `"example"`).
+    /// `None` when the skill does not declare one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layer: Option<String>,
+    /// Pipeline stage from `metadata.dcc-mcp.stage`. Free-form, owned by
+    /// each DCC adapter's vocabulary. `None` when the skill does not
+    /// declare one.
+    ///
+    /// Surfacing this on the summary lets adapters compute "skills in
+    /// stage X" queries (and minimal-mode presets) directly from
+    /// `list_skills()` / `search_skills()` without having to round-trip
+    /// through `get_skill_info()` or maintain an out-of-band hard-coded
+    /// shadow table.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stage: Option<String>,
 }
 
 /// Detailed information about a skill.

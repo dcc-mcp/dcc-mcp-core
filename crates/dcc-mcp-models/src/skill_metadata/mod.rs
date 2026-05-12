@@ -103,6 +103,7 @@ use serde_impl::{
         tools: Vec<crate::skill_metadata::ToolDeclaration> => [get(clone), set],
         groups: Vec<crate::skill_metadata::SkillGroup> => [get(clone), set],
         layer: Option<String> => [get(clone), set],
+        stage: Option<String> => [get(clone), set],
     ))
 )]
 pub struct SkillMetadata {
@@ -280,6 +281,15 @@ pub struct SkillMetadata {
     /// rules that govern description prefixes and `search-hint` partitioning.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub layer: Option<String>,
+
+    /// Pipeline stage tag for orchestration / minimal-mode presets.
+    ///
+    /// Set from `metadata.dcc-mcp.stage` in SKILL.md frontmatter. Free-form
+    /// string — each DCC adapter owns its own stage vocabulary (e.g. Maya:
+    /// `bootstrap` / `scene` / `authoring` / `interchange` / `pipeline`). Core
+    /// stays vocabulary-agnostic.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stage: Option<String>,
 
     /// Sibling-file reference for skill recipes (issue #466).
     ///

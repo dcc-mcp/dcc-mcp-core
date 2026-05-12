@@ -301,6 +301,7 @@ fn test_skill_metadata_serde_round_trip() {
         groups: Vec::new(),
         prompts_file: None,
         layer: Some("domain".to_string()),
+        stage: Some("authoring".to_string()),
         recipes_file: None,
         introspection_file: None,
     };
