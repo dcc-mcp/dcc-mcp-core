@@ -295,7 +295,7 @@ cargo build --workspace --features python-bindings 2>&1 | grep -E "error|warning
 | `ToolDispatcher.call()` not found | Use `.dispatch(name, json_str)` — there is no `.call()` method |
 | `McpHttpServer` tools not appearing | Register all tools BEFORE `server.start()` — the server reads the registry at startup |
 | `SkillScope` / `SkillPolicy` ImportError | These are Rust-only types. Use discovery paths plus `metadata.dcc-mcp.*` policy keys, then inspect via `SkillMetadata` methods |
-| `DeferredExecutor` ImportError | Import directly: `from dcc_mcp_core._core import DeferredExecutor` |
+| Main-thread dispatch confusion | Prefer `HostExecutionBridge` / `InProcessCallableDispatcher` via `DccServerOptions`; use low-level `DeferredExecutor` only with `/guide/dcc-thread-safety` |
 | Skill scripts not discovered | Check `DCC_MCP_SKILL_PATHS` env var and `dcc:` field in SKILL.md matches your filter |
 | `ToolMeta` AttributeError | Rust-only type. Use `ToolRegistry.set_tool_enabled()` and `list_tools_in_group()` instead |
 
@@ -333,16 +333,17 @@ Before registering a new tool, verify:
 
 ```python
 from pathlib import Path
-from dcc_mcp_core import DccServerBase
+from dcc_mcp_core import DccServerBase, DccServerOptions
 
 class BlenderMcpServer(DccServerBase):
     def __init__(self, port: int = 8765, **kwargs):
-        super().__init__(
-            dcc_name="blender",
-            builtin_skills_dir=Path(__file__).parent / "skills",
+        opts = DccServerOptions.from_env(
+            "blender",
+            Path(__file__).parent / "skills",
             port=port,
             **kwargs,
         )
+        super().__init__(options=opts)
 
     def _version_string(self) -> str:
         import bpy
@@ -373,7 +374,7 @@ Many DCCs (Maya, Blender, Houdini) require that API calls execute on the main th
 `DeferredExecutor` provides a task queue that the DCC event loop polls:
 
 ```python
-from dcc_mcp_core._core import DeferredExecutor  # not yet in public __init__
+from dcc_mcp_core._core import DeferredExecutor  # low-level bridge; prefer HostExecutionBridge for adapters
 
 # Create a queue (capacity = max pending tasks)
 executor = DeferredExecutor(capacity=16)

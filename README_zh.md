@@ -437,9 +437,9 @@ tools/list 响应（Maya 会话、尚未加载任何 skill）：
 
 ---
 
-## 架构总览 —— 34 个 Workspace 成员
+## 架构总览 —— 35 个 Workspace 成员
 
-`dcc-mcp-core` 组织为 **34 个成员的 Rust workspace**（33 个功能 crate + `workspace-hack`），通过 PyO3 / maturin 编译为单个原生 Python 扩展（`_core`）。根 `Cargo.toml` 是 workspace 成员列表的唯一来源。精选 crate：
+`dcc-mcp-core` 组织为 **35 个成员的 Rust workspace**（34 个功能 crate + `workspace-hack`），通过 PyO3 / maturin 编译为单个原生 Python 扩展（`_core`）。根 `Cargo.toml` 是 workspace 成员列表的唯一来源。精选 crate：
 
 | Crate | 职责 | 关键类型 |
 |---|---|---|

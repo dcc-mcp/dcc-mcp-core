@@ -445,9 +445,9 @@ tools/list response (Maya session, nothing loaded yet):
 
 ---
 
-## Architecture Overview — 34 Workspace Members
+## Architecture Overview — 35 Workspace Members
 
-`dcc-mcp-core` is organised as a **Rust workspace of 34 members** (33 functional crates + `workspace-hack`), compiled into a single native Python extension (`_core`) via PyO3 / maturin. The root `Cargo.toml` is the source of truth for membership. Selected crates:
+`dcc-mcp-core` is organised as a **Rust workspace of 35 members** (34 functional crates + `workspace-hack`), compiled into a single native Python extension (`_core`) via PyO3 / maturin. The root `Cargo.toml` is the source of truth for membership. Selected crates:
 
 | Crate | Responsibility | Key Types |
 |---|---|---|

@@ -2,7 +2,7 @@
 name: dcc-mcp-core
 description: "Foundation library for the DCC Model Context Protocol (MCP) ecosystem. Provides Rust-powered action management, skills system, IPC transport, MCP Streamable HTTP server (2025-03-26 spec, with 2025-06-18 and 2025-11-25 awareness), sandbox security, shared memory, screen capture, USD scene support, and telemetry for AI-assisted DCC workflows. Use when working with Maya, Blender, Houdini, 3ds Max, or any DCC MCP integration."
 allowed-tools: Bash Read Write Edit
-compatibility: "Python 3.7-3.13; Rust 1.85+ required to build from source; zero runtime Python dependencies"
+compatibility: "Python 3.7-3.13; Rust 1.95+ required to build from source; zero runtime Python dependencies"
 version: "0.15.8"  # x-release-please-version
 ---
 
@@ -21,7 +21,8 @@ The foundational library enabling AI assistants to interact with Digital Content
 | Connect to DCC | `IpcChannelAdapter.connect(name)` or `SocketServerAdapter(path)` | raw sockets |
 | Define MCP tool | `ToolDefinition` + `ToolAnnotations` | raw JSON |
 | Serve MCP over HTTP | `McpHttpServer(registry, McpHttpConfig(port=8765))` | raw HTTP server |
-| Build DCC adapter | `DccServerBase(dcc_name, builtin_skills_dir)` | copy-paste boilerplate |
+| Build DCC adapter | `DccServerOptions.from_env(...)` + `DccServerBase(options=opts)` | legacy 17-parameter constructor |
+| Main-thread DCC calls | `HostExecutionBridge` / dispatcher passed via `DccServerOptions` | private `_core` imports |
 | Enable skill hot-reload | `DccSkillHotReloader(dcc_name, server)` | custom file watchers |
 | Gateway failover | `DccGatewayElection(dcc_name, server)` | manual election logic |
 | Write skill scripts | `skill_entry` + `skill_success` / `skill_error` | manual JSON output |
@@ -135,16 +136,17 @@ finally:
 
 ```python
 from pathlib import Path
-from dcc_mcp_core.server_base import DccServerBase
+from dcc_mcp_core import DccServerBase, DccServerOptions
 
 class BlenderMcpServer(DccServerBase):
     def __init__(self, port: int = 8765, **kwargs):
-        super().__init__(
-            dcc_name="blender",
-            builtin_skills_dir=Path(__file__).parent / "skills",
+        opts = DccServerOptions.from_env(
+            "blender",
+            Path(__file__).parent / "skills",
             port=port,
             **kwargs,
         )
+        super().__init__(options=opts)
 
     def _version_string(self) -> str:
         import bpy
@@ -193,27 +195,19 @@ result = dispatcher.dispatch("create_sphere", json.dumps({"radius": 2.0}))
 # result == {"action": "create_sphere", "output": {"created": True, "r": 2.0}, "validation_skipped": False}
 ```
 
-### Pattern 8: DCC main-thread safety with DeferredExecutor
+### Pattern 8: DCC main-thread safety
 
 Most DCC applications (Maya, Blender, Houdini) require scene API calls on their **main thread**.
-McpHttpServer runs on Tokio worker threads — use `DeferredExecutor` to bridge:
+For Python adapters, prefer the public host bridge/dispatcher stack and pass it through `DccServerOptions` before skills are loaded. Low-level `DeferredExecutor` details are covered in `docs/guide/dcc-thread-safety.md`.
 
 ```python
-# DeferredExecutor is Rust-backed; import directly until added to public API
-from dcc_mcp_core._core import DeferredExecutor
-from dcc_mcp_core import ToolRegistry, McpHttpServer, McpHttpConfig
+from pathlib import Path
+from dcc_mcp_core import DccServerBase, DccServerOptions, HostExecutionBridge, InProcessCallableDispatcher
 
-executor = DeferredExecutor(queue_depth=64)
-# In DCC main event loop / timer callback:
-def poll():
-    executor.poll_pending()  # runs queued tasks on main thread
-
-# Maya: maya.utils.executeDeferred(poll)
-# Blender: bpy.app.timers.register(poll, persistent=True)
-# Houdini: hou.ui.addEventLoopCallback(poll)
-
-registry = ToolRegistry()
-server = McpHttpServer(registry, McpHttpConfig(port=0, server_name="maya-mcp"))
+dispatcher = InProcessCallableDispatcher()  # replace with the DCC UI-thread dispatcher
+bridge = HostExecutionBridge(dispatcher=dispatcher)
+opts = DccServerOptions.from_env("maya", Path("skills"), execution_bridge=bridge)
+server = DccServerBase(options=opts)
 handle = server.start()
 ```
 
@@ -245,9 +239,15 @@ cat > my-tool/SKILL.md << 'EOF'
 ---
 name: my-tool
 description: "My custom DCC automation tools. Use when automating scene setup or batch operations."
-tags: ["automation", "custom"]
-dcc: maya
-version: "1.0.0"
+compatibility: "python>=3.7"
+allowed-tools: "python"
+metadata:
+  dcc-mcp:
+    dcc: maya
+    version: "1.0.0"
+    layer: example
+    tags: ["automation", "custom"]
+    tools: tools.yaml
 ---
 
 # My Tool
@@ -255,7 +255,20 @@ version: "1.0.0"
 Automation scripts for Maya workflow optimization.
 EOF
 
-# 3. Add a script
+# 3. Add the sibling tool declaration referenced by metadata.dcc-mcp.tools
+cat > my-tool/tools.yaml << 'YEOF'
+tools:
+  - name: list_selected
+    description: List selected objects in the Maya scene.
+    input_schema:
+      type: object
+      properties: {}
+    read_only: true
+    idempotent: true
+    source_file: scripts/list_selected.py
+YEOF
+
+# 4. Add a script
 cat > my-tool/scripts/list_selected.py << 'PYEOF'
 #!/usr/bin/env python3
 """List selected objects in the Maya scene."""
@@ -265,7 +278,7 @@ result = {"selected": ["pSphere1", "pCube1"], "count": 2}
 print(json.dumps(result))
 PYEOF
 
-# 4. Use it
+# 5. Use it
 export DCC_MCP_SKILL_PATHS="$(pwd)/my-tool"
 python -c "
 from dcc_mcp_core import scan_and_load
@@ -281,17 +294,17 @@ print(f'Loaded: {[s.name for s in skills]}')
 ┌─────────────────────────────────────────────────────┐
 │                   Python Layer                       │
 │  dcc_mcp_core/__init__.py  →  _core (PyO3 cdyll)   │
-│  ~180 public symbols re-exported from Rust core      │
-│  + Pure-Python: DccServerBase, DccGatewayElection,  │
-│    DccSkillHotReloader, factory, skill helpers       │
+│  380+ public symbols re-exported from Rust core      │
+│  + Pure-Python: DccServerBase, DccServerOptions,     │
+│    gateway election, hot-reload, factory, helpers    │
 └──────────────────────┬──────────────────────────────┘
                        │ PyO3 bindings
 ┌──────────────────────▼──────────────────────────────┐
-│              Rust Core (15 Crates)                   │
-│                                                      │
-│  models → actions → skills → protocols              │
-│  transport → http → process → sandbox → telemetry   │
-│  shm → capture → usd → server → utils               │
+│        Rust Workspace (35 members total)             │
+│        34 functional crates + workspace-hack         │
+│  naming → models → actions → skills → protocols     │
+│  gateway/http-types/http-server/http-py/http         │
+│  host → transport → process → sandbox → telemetry   │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -305,9 +318,9 @@ print(f'Loaded: {[s.name for s in skills]}')
 | `DCC_MCP_REGISTRY_DIR` | Directory for FileRegistry JSON |
 | `MCP_LOG_LEVEL` | Log level override (`DEBUG`, `INFO`, `WARN`) |
 | `DCC_MCP_IPC_ADDRESS` | IPC endpoint address (auto-set by register_diagnostic_handlers) |
-| `DCC_MCP_GATEWAY_PROBE_INTERVAL` | Seconds between gateway health probes (default 5) |
+| `DCC_MCP_GATEWAY_PROBE_INTERVAL` | Seconds between gateway health probes (default 1) |
 | `DCC_MCP_GATEWAY_PROBE_TIMEOUT` | Timeout per probe in seconds (default 2) |
-| `DCC_MCP_GATEWAY_PROBE_FAILURES` | Consecutive failures before election (default 3) |
+| `DCC_MCP_GATEWAY_PROBE_FAILURES` | Consecutive failures before election (default 2) |
 
 ## Key Files in This Repository
 
@@ -317,9 +330,9 @@ print(f'Loaded: {[s.name for s in skills]}')
 | `docs/guide/agents-reference.md` | Detailed agent rules — traps, do/don't, code style, project-specific architecture |
 | `llms.txt` | Concise API reference for LLMs |
 | `llms-full.txt` | Comprehensive API reference with all examples |
-| `python/dcc_mcp_core/__init__.py` | Complete public API (~180 symbols, ground truth for imports) |
-| `python/dcc_mcp_core/_core.pyi` | Type stubs — authoritative parameter names |
-| `examples/skills/` | 11 complete skill package examples |
+| `python/dcc_mcp_core/__init__.py` | Complete public API (380+ symbols, ground truth for imports) |
+| `python/dcc_mcp_core/_core.pyi` | Generated type stubs — authoritative parameter names after a dev/stub build |
+| `examples/skills/` | 15 complete skill package examples |
 | `tests/` | Python integration tests (executable usage examples) |
 
 ## Supported DCC Software
@@ -350,7 +363,7 @@ The library currently implements **MCP 2025-03-26** (Streamable HTTP). The ecosy
 ## Common Pitfalls
 
 1. `scan_and_load` returns `(List[SkillMetadata], List[str])` — always unpack: `skills, skipped = scan_and_load(...)`
-2. `DeferredExecutor` not in public API yet — use `from dcc_mcp_core._core import DeferredExecutor`
+2. Prefer public `HostExecutionBridge` / dispatcher wiring; use `DeferredExecutor` only when following `docs/guide/dcc-thread-safety.md` low-level guidance
 3. Register ALL actions before `server.start()` — server reads from registry at startup only
 4. Use `IpcChannelAdapter` + `DccLinkFrame` for IPC (v0.14+) — `FramedChannel`/`connect_ipc` were removed in #251
 5. `ToolDispatcher(registry)` takes ONE arg — no `validator=` parameter
@@ -359,4 +372,4 @@ The library currently implements **MCP 2025-03-26** (Streamable HTTP). The ecosy
 8. `allowed-tools` in SKILL.md is space-separated string, not a list (agentskills.io spec)
 9. `DccServerBase` provides all skill/lifecycle/gateway/hot-reload methods — don't reimplement
 10. MCP 2025-06-18 removes JSON-RPC batching — do not implement batch calls manually
-11. `MCP-Protocol-Version` header is mandatory in 2025-06-18 — handled by McpHttpServer internally
+11. `MCP-Protocol-Version` header is mandatory in 2025-06-18 — handled by `McpHttpServer` internally
