@@ -202,12 +202,6 @@ impl McpHttpConfig {
     pub fn set_gateway_max_routes_per_session(&mut self, v: u64) {
         self.gateway.gateway_max_routes_per_session = v;
     }
-    pub fn gateway_cursor_safe_tool_names(&self) -> bool {
-        self.gateway.gateway_cursor_safe_tool_names
-    }
-    pub fn set_gateway_cursor_safe_tool_names(&mut self, v: bool) {
-        self.gateway.gateway_cursor_safe_tool_names = v;
-    }
     pub fn adapter_version(&self) -> Option<String> {
         self.gateway.adapter_version.clone()
     }
@@ -394,12 +388,6 @@ impl McpHttpConfig {
     /// servers (issue maya#137).
     pub fn with_adapter_dcc(mut self, dcc: impl Into<String>) -> Self {
         self.gateway.adapter_dcc = Some(dcc.into());
-        self
-    }
-
-    /// Builder: choose the gateway tool-name wire form (issue #656).
-    pub fn with_gateway_cursor_safe_tool_names(mut self, enabled: bool) -> Self {
-        self.gateway.gateway_cursor_safe_tool_names = enabled;
         self
     }
 

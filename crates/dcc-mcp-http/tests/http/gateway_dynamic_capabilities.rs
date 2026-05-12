@@ -62,7 +62,6 @@ fn make_state(registry: Arc<RwLock<FileRegistry>>) -> GatewayState {
         allow_unknown_tools: false,
         adapter_version: None,
         adapter_dcc: None,
-        cursor_safe_tool_names: true,
         capability_index: Arc::new(CapabilityIndex::new()),
         event_log: std::sync::Arc::new(dcc_mcp_gateway::event_log::EventLog::new()),
         middleware_chain: std::sync::Arc::new(

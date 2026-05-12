@@ -48,7 +48,6 @@ pub(crate) async fn start_gateway_tasks(
     allow_unknown_tools: bool,
     adapter_version: Option<String>,
     adapter_dcc: Option<String>,
-    cursor_safe_tool_names: bool,
     middleware_chain: crate::gateway::middleware::MiddlewareChain,
     #[cfg(feature = "admin")] admin_enabled: bool,
     #[cfg(feature = "admin")] admin_path: String,
@@ -523,7 +522,6 @@ pub(crate) async fn start_gateway_tasks(
         allow_unknown_tools,
         adapter_version,
         adapter_dcc,
-        cursor_safe_tool_names,
         capability_index: Arc::new(crate::gateway::capability::CapabilityIndex::new()),
         event_log: contention_log.clone(),
         #[cfg(feature = "prometheus")]

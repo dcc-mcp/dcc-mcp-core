@@ -65,7 +65,6 @@ fn all_mcp_http_config_fields_have_py_getters() {
     let _ = cfg.gateway_wait_terminal_timeout_ms();
     let _ = cfg.gateway_route_ttl_secs();
     let _ = cfg.gateway_max_routes_per_session();
-    let _ = cfg.gateway_cursor_safe_tool_names();
     let _ = cfg.adapter_version();
     let _ = cfg.adapter_dcc();
     let _ = cfg.allow_unknown_tools();

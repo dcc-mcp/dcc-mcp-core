@@ -56,19 +56,6 @@ pub struct GatewayConfig {
     /// third-tier real-DCC tiebreaker (issue maya#137).
     pub adapter_dcc: Option<String>,
 
-    /// Emit Cursor-safe names (`i_<id8>__<escaped>`) when fanning prompts
-    /// out to backends (issue #656). Default: `true`.
-    ///
-    /// Tools no longer fan out to `tools/list` — the gateway MCP surface
-    /// is converged to discovery + dispatch primitives — but prompts
-    /// still go through the per-instance aggregator so clients that talk
-    /// to multiple DCCs keep a unique address per prompt. Cursor and
-    /// other strict MCP clients filter out any name containing characters
-    /// outside `[A-Za-z0-9_]`, so the cursor-safe form stays the default.
-    /// Flip to `false` only to emit the SEP-986 dotted form for
-    /// diagnostic parity.
-    pub cursor_safe_tool_names: bool,
-
     /// Pre-registered middleware chain applied to every `tools/call` (issue #770).
     pub middleware_chain: super::middleware::MiddlewareChain,
 
@@ -118,10 +105,6 @@ impl Default for GatewayConfig {
             allow_unknown_tools: false,
             adapter_version: None,
             adapter_dcc: None,
-            // Default to Cursor-safe on because breakage with Cursor is
-            // silent (it just hides prompts from the agent with no
-            // visible error).
-            cursor_safe_tool_names: true,
             middleware_chain: super::middleware::MiddlewareChain::new(),
             admin_enabled: true,
             admin_path: "/admin".to_string(),

@@ -147,7 +147,6 @@ async fn aggregate_tools_list_returns_only_minimal_gateway_surface() {
         allow_unknown_tools: false,
         adapter_version: None,
         adapter_dcc: None,
-        cursor_safe_tool_names: true,
         capability_index: std::sync::Arc::new(crate::gateway::capability::CapabilityIndex::new()),
         event_log: std::sync::Arc::new(crate::gateway::event_log::EventLog::new()),
         #[cfg(feature = "prometheus")]
@@ -308,7 +307,6 @@ async fn make_gateway_state(
         allow_unknown_tools: false,
         adapter_version: None,
         adapter_dcc: None,
-        cursor_safe_tool_names: true,
         capability_index: std::sync::Arc::new(crate::gateway::capability::CapabilityIndex::new()),
         event_log: std::sync::Arc::new(crate::gateway::event_log::EventLog::new()),
         #[cfg(feature = "prometheus")]
@@ -711,7 +709,6 @@ async fn gateway_state_with_instances(
         allow_unknown_tools: false,
         adapter_version: None,
         adapter_dcc: None,
-        cursor_safe_tool_names: true,
         capability_index: std::sync::Arc::new(crate::gateway::capability::CapabilityIndex::new()),
         event_log: std::sync::Arc::new(crate::gateway::event_log::EventLog::new()),
         #[cfg(feature = "prometheus")]
