@@ -177,7 +177,7 @@ Gateway resources/prompts:
 | Progressive tool exposure | `SkillGroup` + `activate_tool_group()` |
 | Declarative progressive loading on startup | `MinimalModeConfig(skills=…, deactivate_groups=…)` → pass to `register_builtin_actions(minimal_mode=…)` (#525) |
 | Connection-scoped cache | `McpHttpConfig(enable_tool_cache=True)` — per-session `tools/list` snapshot (#438) |
-| Instance-bound diagnostics | `DccServerBase(..., dcc_pid=pid)` |
+| Instance-bound diagnostics | `DccServerOptions.from_env(..., dcc_pid=pid)` → `DccServerBase(opts)` |
 | Run code on DCC exit | `DccServerBase.register_quit_hook(callback)` — LIFO best-effort hooks run on `stop()`, context-manager exit, and atexit fallback (#747) |
 | Defensive Python handle cleanup | `McpHttpConfig(shutdown_on_drop=True)` or `with server.start() as handle:` — safety net for forgotten `handle.shutdown()` (#749) |
 | Remote auth | `ApiKeyConfig` / `OAuthConfig` / `validate_bearer_token` |

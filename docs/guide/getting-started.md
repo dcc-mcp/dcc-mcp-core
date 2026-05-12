@@ -225,14 +225,19 @@ handle = server.start()  # exposes diagnostics__screenshot / audit_log /
                          # this Maya instance only
 ```
 
-If the PID can change at runtime (e.g. the user relaunches Maya), pass a
-lazy `resolver` callable instead of `dcc_pid`:
+If the PID can change at runtime, consult your adapter for how it refreshes
+diagnostics bindings; ``dcc_pid`` on :class:`DccServerOptions` is resolved at
+construction time.
 
 ```python
-def current_maya_pid() -> int | None:
-    return _find_maya_pid()    # evaluated on every diagnostics call
+from pathlib import Path
 
-server = DccServerBase("maya", resolver=current_maya_pid, ...)
+from dcc_mcp_core import DccServerBase
+from dcc_mcp_core._server.options import DccServerOptions
+
+skills_dir = Path(__file__).parent / "skills"
+opts = DccServerOptions.from_env("maya", skills_dir, dcc_pid=12345)
+server = DccServerBase(opts)
 ```
 
 For low-level servers built around `McpHttpServer` directly, call
