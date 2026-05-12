@@ -435,7 +435,7 @@ function App() {
         )}
 
         {activePanel === 'traces' && (
-          <section className="panel active">
+          <section className="panel active" data-panel="traces">
             <h2>Traces</h2>
             <StatusLine text={updatedAt.traces} error={errors.traces} />
             <table>
@@ -462,7 +462,7 @@ function App() {
         )}
 
         {activePanel === 'stats' && (
-          <section className="panel active">
+          <section className="panel active" data-panel="stats">
             <h2>Stats</h2>
             <StatusLine text={updatedAt.stats} error={errors.stats} />
             <label className="range-label">
