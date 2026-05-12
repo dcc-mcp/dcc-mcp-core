@@ -45,6 +45,10 @@ pub enum ServiceStatus {
     /// dead backend — the row stays in the registry but no traffic
     /// should be routed to it until readiness flips green.
     Booting,
+    /// Service has already been marked stale by a probe or registry owner.
+    /// This is stronger than heartbeat age and must be treated as unroutable
+    /// immediately, even before the gateway's stale timeout elapses.
+    Stale,
 }
 
 impl std::fmt::Display for ServiceStatus {
@@ -55,6 +59,7 @@ impl std::fmt::Display for ServiceStatus {
             Self::Unreachable => write!(f, "unreachable"),
             Self::ShuttingDown => write!(f, "shutting_down"),
             Self::Booting => write!(f, "booting"),
+            Self::Stale => write!(f, "stale"),
         }
     }
 }
