@@ -174,8 +174,8 @@ unconditional surface:
 
 | Surface | What appears in `tools/list` | Agent workflow |
 |---------|------------------------------|----------------|
-| Gateway MCP | Fixed discover+dispatch primitives: `search_skills`, `load_skill`, `search_tools`, `describe_tool`, `call_tool`, and pooling tools. Instance registry, diagnostics, and catalog views are gateway-native resources (`gateway://instances`, `gateway://diagnostics/*`, `gateway://catalog`) read via `resources/read`, not tools | `resources/read uri=gateway://instances` (or skip it and go straight to `search_tools` → `describe_tool` → `call_tool`) |
-| Gateway REST | `/v1/search`, `/v1/describe`, `/v1/call`, `/v1/instances`, plus `/v1/resources*`, `/v1/prompts*`, and `/v1/jobs*` | `POST /v1/search` → `/v1/describe` → `/v1/call`; use resources/prompts/jobs routes for non-tool MCP primitives |
+| Gateway MCP | Fixed discover+dispatch primitives: `search_skills`, `load_skill`, `search_tools`, `describe_tool`, `call_tool`, `call_tools`, and pooling tools. Instance registry, diagnostics, and catalog views are gateway-native resources (`gateway://instances`, `gateway://diagnostics/*`, `gateway://catalog`) read via `resources/read`, not tools | `resources/read uri=gateway://instances` (or skip it and go straight to `search_tools` → `describe_tool` → `call_tool` / `call_tools`) |
+| Gateway REST | `/v1/search`, `/v1/describe`, `/v1/call`, `/v1/call_batch`, `/v1/instances`, plus `/v1/resources*`, `/v1/prompts*`, and `/v1/jobs*` | `POST /v1/search` → `/v1/describe` → `/v1/call` (or `POST /v1/call_batch` for ordered batches); use resources/prompts/jobs routes for non-tool MCP primitives |
 | Direct per-DCC MCP | One DCC server's skills and loaded tools | `search_skills` → `load_skill` → tool call |
 
 The gateway capability index stores compact records keyed by
@@ -188,6 +188,7 @@ MCP wrappers are cursor-safe and stable:
 | `search_tools` | Search compact capability records by query, DCC type, tags, instance, scene hint, and pagination options |
 | `describe_tool` | Fetch the full schema, annotations, and routing record for a selected `tool_slug` |
 | `call_tool` | Invoke the selected backend capability with validated arguments and optional MCP `_meta` |
+| `call_tools` | Ordered multi-invocation (max 25 items); optional `stop_on_error`. REST twin: `POST /v1/call_batch` |
 
 Use this dynamic-capability flow whenever an agent is connected to the gateway.
 Use the per-DCC Skills-First flow (`search_skills` → `load_skill` → tool call)

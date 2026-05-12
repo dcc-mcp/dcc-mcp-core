@@ -6,9 +6,9 @@ use tower_http::trace::TraceLayer;
 
 use super::handlers::{
     handle_gateway_get, handle_gateway_mcp, handle_gateway_yield, handle_health, handle_instances,
-    handle_proxy_dcc, handle_proxy_instance, handle_v1_call, handle_v1_context, handle_v1_describe,
-    handle_v1_describe_path, handle_v1_healthz, handle_v1_openapi, handle_v1_readyz,
-    handle_v1_search, handle_v1_skills,
+    handle_proxy_dcc, handle_proxy_instance, handle_v1_call, handle_v1_call_batch,
+    handle_v1_context, handle_v1_describe, handle_v1_describe_path, handle_v1_healthz,
+    handle_v1_openapi, handle_v1_readyz, handle_v1_search, handle_v1_skills,
 };
 use super::state::GatewayState;
 
@@ -28,6 +28,7 @@ use super::state::GatewayState;
 /// - `POST /v1/search`    — keyword + filter search over the capability index
 /// - `POST /v1/describe`  — resolve one capability slug
 /// - `POST /v1/call`      — invoke a backend action by slug
+/// - `POST /v1/call_batch` — ordered multi-invocation (same contract as MCP `call_tools`)
 ///
 /// Admin UI (#772, `admin` feature):
 /// - `GET  /admin`              — HTML dashboard
@@ -97,6 +98,7 @@ fn build_base_router(state: GatewayState) -> Router {
         .route("/v1/describe", routing::post(handle_v1_describe))
         .route("/v1/tools/{slug}", routing::get(handle_v1_describe_path))
         .route("/v1/call", routing::post(handle_v1_call))
+        .route("/v1/call_batch", routing::post(handle_v1_call_batch))
         .route("/v1/context", routing::get(handle_v1_context))
         .with_state(state)
 }

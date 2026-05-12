@@ -5,7 +5,7 @@
 //! * `aggregate_tools_list` — return the **minimal** gateway MCP surface
 //!   (discover + dispatch primitives). Backend per-action tools are
 //!   intentionally NOT published here — agents discover them through
-//!   `search_tools` / `describe_tool` / `call_tool` (routed into the
+//!   `search_tools` / `describe_tool` / `call_tool` / `call_tools` (routed into the
 //!   per-DCC REST `/v1/call`).
 //! * `route_tools_call` — dispatch a `tools/call` to the matching local
 //!   handler (meta-tools, skill management, or the dynamic dispatch
@@ -53,7 +53,7 @@ use super::backend_client::{call_backend, fetch_tools};
 use super::namespace::instance_short;
 use super::state::GatewayState;
 use super::tools::{
-    gateway_tool_defs, tool_acquire_instance, tool_call_tool, tool_describe_tool,
+    gateway_tool_defs, tool_acquire_instance, tool_call_tool, tool_call_tools, tool_describe_tool,
     tool_release_instance, tool_search_tools,
 };
 use dcc_mcp_jsonrpc::{TOOLS_LIST_PAGE_SIZE, decode_cursor, encode_cursor};

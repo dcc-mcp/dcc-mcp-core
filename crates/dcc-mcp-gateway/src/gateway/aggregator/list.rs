@@ -6,8 +6,8 @@ use super::*;
 /// returns only the discover+dispatch primitives (the "few basic MCP tools"
 /// listed in [`GATEWAY_LOCAL_TOOLS`]). Per-action backend tools are never
 /// fanned out here — agents discover them dynamically through `search_tools`
-/// / `describe_tool` and invoke them through `call_tool` (which routes to
-/// the per-DCC REST `POST /v1/call`). This keeps the agent-facing context
+/// / `describe_tool` and invoke them through `call_tool` or `call_tools` (which
+/// route to the per-DCC REST `POST /v1/call`). This keeps the agent-facing context
 /// bounded regardless of how many DCC instances are registered.
 ///
 /// Tool order:
