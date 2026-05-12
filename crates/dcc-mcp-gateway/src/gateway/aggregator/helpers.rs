@@ -23,10 +23,8 @@ pub(crate) async fn find_instance_by_prefix(
     gs: &GatewayState,
     prefix: &str,
 ) -> Option<ServiceEntry> {
-    live_backends(gs)
-        .await
-        .into_iter()
-        .find(|e| instance_short(&e.instance_id) == prefix)
+    let reg = gs.registry.read().await;
+    gs.resolve_instance(&reg, Some(prefix), None).ok()
 }
 
 pub(crate) async fn resolve_target(
@@ -34,36 +32,9 @@ pub(crate) async fn resolve_target(
     instance_id: Option<&str>,
     dcc_filter: Option<&str>,
 ) -> Result<ServiceEntry, String> {
-    let candidates = live_backends(gs).await;
-
-    // Exact or prefix match on instance_id.
-    if let Some(iid) = instance_id {
-        if let Some(e) = candidates.iter().find(|e| {
-            let full = e.instance_id.to_string();
-            full == iid || full.starts_with(iid) || instance_short(&e.instance_id) == iid
-        }) {
-            return Ok(e.clone());
-        }
-        return Err(format!("No live instance matches instance_id='{iid}'"));
-    }
-
-    // DCC-filtered auto-select when unambiguous.
-    let filtered: Vec<&ServiceEntry> = candidates
-        .iter()
-        .filter(|e| dcc_filter.is_none_or(|f| e.dcc_type.eq_ignore_ascii_case(f)))
-        .collect();
-
-    match filtered.len() {
-        0 => Err(match dcc_filter {
-            Some(d) => format!("No live '{d}' instance."),
-            None => "No live DCC instances.".to_string(),
-        }),
-        1 => Ok(filtered[0].clone()),
-        _ => Err(format!(
-            "Ambiguous target — {} instances live. Pass `instance_id` (or use `dcc` filter if only one of that type).",
-            filtered.len()
-        )),
-    }
+    let reg = gs.registry.read().await;
+    gs.resolve_instance(&reg, instance_id, dcc_filter)
+        .map_err(|err| err.to_string())
 }
 
 pub(crate) fn to_text_result(res: Result<String, String>) -> (String, bool) {

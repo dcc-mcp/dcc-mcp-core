@@ -66,7 +66,7 @@ pub fn tool_slug(dcc_type: &str, instance_id: &Uuid, backend_tool: &str) -> Stri
 /// Split a slug produced by [`tool_slug`] back into its components.
 ///
 /// Returns `None` if the input is not a three-segment slug with a
-/// recognisable 8-hex middle — that is the discipline callers rely on
+/// recognisable UUID/prefix middle — that is the discipline callers rely on
 /// to decide whether to route via the capability index at all.
 #[must_use]
 pub fn parse_slug(slug: &str) -> Option<(&str, &str, &str)> {
@@ -79,9 +79,16 @@ pub fn parse_slug(slug: &str) -> Option<(&str, &str, &str)> {
     if dcc.is_empty() || tool.is_empty() {
         return None;
     }
-    // id8 must look like an 8-char hex prefix; this is the guard that
-    // prevents `foo.bar.baz` from being mistaken for a capability slug.
-    if id8.len() != 8 || !id8.chars().all(|c| c.is_ascii_hexdigit()) {
+    // The instance segment accepts the canonical id8, any unique prefix
+    // (validated by the caller), or a full hyphenated UUID. Requiring at
+    // least 4 chars prevents `foo.bar.baz` from being mistaken for a
+    // capability slug while still allowing the shared resolver's prefix rule.
+    if id8.len() < 4 || id8.len() > 36 {
+        return None;
+    }
+    if id8.contains('-') {
+        Uuid::parse_str(id8).ok()?;
+    } else if !id8.chars().all(|c| c.is_ascii_hexdigit()) {
         return None;
     }
     Some((dcc, id8, tool))
@@ -285,8 +292,28 @@ mod unit_tests {
         // names registered without a gateway wrapper could be routed
         // into the dynamic-capability path.
         assert!(parse_slug("foo.bar.baz").is_none());
-        // 7 hex chars is still wrong — the id8 prefix is always 8.
-        assert!(parse_slug("maya.abcdef0.create_sphere").is_none());
+        // Prefixes shorter than the shared resolver minimum are rejected.
+        assert!(parse_slug("maya.abc.create_sphere").is_none());
+    }
+
+    #[test]
+    fn parse_slug_accepts_uuid_prefixes_and_full_uuid() {
+        assert_eq!(
+            parse_slug("maya.abcd.create_sphere").unwrap(),
+            ("maya", "abcd", "create_sphere")
+        );
+        assert_eq!(
+            parse_slug("maya.abcdef0123456789abcdef0123456789.create_sphere").unwrap(),
+            ("maya", "abcdef0123456789abcdef0123456789", "create_sphere")
+        );
+        assert_eq!(
+            parse_slug("maya.abcdef01-2345-6789-abcd-ef0123456789.create_sphere").unwrap(),
+            (
+                "maya",
+                "abcdef01-2345-6789-abcd-ef0123456789",
+                "create_sphere"
+            )
+        );
     }
 
     #[test]
