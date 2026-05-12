@@ -93,6 +93,13 @@ impl FileRegistry {
         Ok(registry)
     }
 
+    /// Reload from disk when `services.json` changed in another process (e.g. a
+    /// DCC heartbeat flush). Call this before mutating pool metadata so the
+    /// in-memory view matches the file gateway and adapters share.
+    pub fn refresh_from_disk(&self) -> TransportResult<()> {
+        self.reload_if_stale()
+    }
+
     /// Reload from file if another process has written to it since our last read (hot-reload).
     ///
     /// This is O(1) on the happy path: single `stat` syscall + mutex check.
@@ -323,6 +330,7 @@ impl FileRegistry {
         current_job_id: Option<String>,
         ttl: Option<Duration>,
     ) -> TransportResult<Option<ServiceEntry>> {
+        let _ = self.reload_if_stale();
         let owner = owner.into();
         let now = SystemTime::now();
         let expires_at = ttl.map(|duration| now + duration);
@@ -363,6 +371,7 @@ impl FileRegistry {
         key: &ServiceKey,
         owner: Option<&str>,
     ) -> TransportResult<Option<ServiceEntry>> {
+        let _ = self.reload_if_stale();
         let released = if let Some(mut entry) = self.services.get_mut(key) {
             let owner_matches =
                 owner.is_none_or(|expected| entry.value().lease_owner.as_deref() == Some(expected));
