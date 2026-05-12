@@ -47,34 +47,27 @@ fn encode_produces_sep986_compliant_names() {
 }
 
 #[test]
-fn encode_then_decode_roundtrips() {
+fn cursor_safe_encode_then_decode_roundtrips() {
     let id = Uuid::parse_str("abcdef0123456789abcdef0123456789").unwrap();
-    let enc = encode_tool_name(&id, "maya-animation.set_keyframe");
-    assert_eq!(enc, "abcdef01.maya-animation.set_keyframe");
+    let enc = encode_tool_name_cursor_safe(&id, "maya-animation.set_keyframe");
     let (p, o) = decode_tool_name(&enc).unwrap();
     assert_eq!(p, "abcdef01");
     assert_eq!(o, "maya-animation.set_keyframe");
 }
 
 #[test]
-fn decode_accepts_preferred_dot_form() {
-    let (p, n) = decode_tool_name("abcdef01.create_sphere").unwrap();
-    assert_eq!(p, "abcdef01");
-    assert_eq!(n, "create_sphere");
+fn decode_rejects_sep986_dot_prefixed_form() {
+    assert!(decode_tool_name("abcdef01.create_sphere").is_none());
 }
 
 #[test]
-fn decode_accepts_deprecated_slash_form() {
-    let (p, n) = decode_tool_name("abcdef01/create_sphere").unwrap();
-    assert_eq!(p, "abcdef01");
-    assert_eq!(n, "create_sphere");
+fn decode_rejects_deprecated_slash_form() {
+    assert!(decode_tool_name("abcdef01/create_sphere").is_none());
 }
 
 #[test]
-fn decode_accepts_legacy_double_underscore_form() {
-    let (p, n) = decode_tool_name("abcdef01__maya_geometry__create_sphere").unwrap();
-    assert_eq!(p, "abcdef01");
-    assert_eq!(n, "maya_geometry__create_sphere");
+fn decode_rejects_legacy_double_underscore_form() {
+    assert!(decode_tool_name("abcdef01__maya_geometry__create_sphere").is_none());
 }
 
 #[test]
@@ -205,10 +198,7 @@ fn cursor_safe_decode_rejects_malformed_escape_sequences() {
 #[test]
 fn cursor_safe_decode_falls_through_on_bad_payload() {
     // `i_abcdef01__` prefix matches the shape, but the payload `bad_`
-    // is not a valid escape sequence. The decoder must NOT route this
-    // as a cursor-safe name (that would silently drop the `_`) — it
-    // either falls through to legacy arms or returns None. Either way,
-    // the caller sees no phantom tool.
+    // is not a valid escape sequence — the decoder must return `None`.
     let decoded = decode_tool_name("i_abcdef01__bad_");
     assert!(
         decoded.is_none(),
@@ -217,23 +207,8 @@ fn cursor_safe_decode_falls_through_on_bad_payload() {
 }
 
 #[test]
-fn decode_prefers_cursor_safe_over_legacy_underscore() {
-    // Both arms split on `__`, so order matters. A cursor-safe name
-    // `i_abcdef01__foo` must NEVER be routed as a pre-#258 legacy name
-    // `(i, abcdef01__foo)` — the `i_` prefix guards the cursor-safe
-    // arm, so legacy prefixes that happen to be the byte `i` followed
-    // by an 8-hex-ish chunk don't count as legacy.
+fn cursor_safe_decode_does_not_confuse_instance_prefix_with_skill_slug() {
     let (p, o) = decode_tool_name("i_abcdef01__create_U_sphere").unwrap();
-    assert_eq!(p, "abcdef01");
-    assert_eq!(o, "create_sphere");
-}
-
-#[test]
-fn cursor_safe_pre_656_dot_form_still_decodes_during_compat_window() {
-    // Until every client has rolled over, the old SEP-986 dot form
-    // must keep working so agents that haven't upgraded don't see
-    // Unknown tool errors.
-    let (p, o) = decode_tool_name("abcdef01.create_sphere").unwrap();
     assert_eq!(p, "abcdef01");
     assert_eq!(o, "create_sphere");
 }

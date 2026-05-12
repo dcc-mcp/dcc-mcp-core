@@ -365,18 +365,17 @@ fn test_tool_declaration_next_tools() {
 }
 
 #[test]
-fn test_tool_declaration_next_tools_alias() {
-    // Test next_tools (underscore) alias
+fn test_tool_declaration_next_tools_snake_case_container_key_is_ignored() {
     let json = r#"{"name": "skill", "tools": [{
             "name": "my_tool",
             "next_tools": {
-                "on_success": ["tool_a"],
-                "on_failure": ["tool_b"]
+                "on-success": ["tool_a"],
+                "on-failure": ["tool_b"]
             }
         }]}"#;
     let meta: SkillMetadata = serde_json::from_str(json).unwrap();
-    assert_eq!(meta.tools[0].next_tools.on_success, vec!["tool_a"]);
-    assert_eq!(meta.tools[0].next_tools.on_failure, vec!["tool_b"]);
+    assert!(meta.tools[0].next_tools.on_success.is_empty());
+    assert!(meta.tools[0].next_tools.on_failure.is_empty());
 }
 
 // ── ExecutionMode (issue #317) ──────────────────────────────────────
@@ -449,31 +448,22 @@ fn test_tool_declaration_next_tools_default_empty() {
     assert!(meta.tools[0].next_tools.on_failure.is_empty());
 }
 
-// ── issue #857: inputSchema/outputSchema camelCase alias ─────────────────────
+// ── ToolDeclaration schema keys (strict YAML) ─────────────────────────────
 
 #[test]
-fn test_tool_declaration_input_schema_alias_camel_case() {
-    // inputSchema (camelCase) must deserialize into input_schema (issue #857)
+fn test_tool_declaration_rejects_input_schema_camel_case_key() {
     let json = r#"{
         "name": "test-skill",
         "tools": [{
             "name": "my_tool",
-            "inputSchema": {
-                "type": "object",
-                "properties": {
-                    "path": {"type": "string"},
-                    "count": {"type": "integer"}
-                },
-                "required": ["path"]
-            }
+            "inputSchema": {"type": "object"}
         }]
     }"#;
     let meta: SkillMetadata = serde_json::from_str(json).unwrap();
-    let schema = &meta.tools[0].input_schema;
-    assert_eq!(schema["type"], "object");
-    assert_eq!(schema["properties"]["path"]["type"], "string");
-    assert_eq!(schema["properties"]["count"]["type"], "integer");
-    assert_eq!(schema["required"][0], "path");
+    assert!(
+        meta.tools[0].input_schema.is_null(),
+        "inputSchema camelCase key must not populate input_schema; use input_schema",
+    );
 }
 
 #[test]
@@ -491,24 +481,19 @@ fn test_tool_declaration_input_schema_snake_case_still_works() {
 }
 
 #[test]
-fn test_tool_declaration_output_schema_alias_camel_case() {
-    // outputSchema (camelCase) must deserialize into output_schema (issue #857)
+fn test_tool_declaration_rejects_output_schema_camel_case_key() {
     let json = r#"{
         "name": "test-skill",
         "tools": [{
             "name": "my_tool",
-            "outputSchema": {
-                "type": "object",
-                "properties": {
-                    "result": {"type": "string"}
-                }
-            }
+            "outputSchema": {"type": "object"}
         }]
     }"#;
     let meta: SkillMetadata = serde_json::from_str(json).unwrap();
-    let schema = &meta.tools[0].output_schema;
-    assert_eq!(schema["type"], "object");
-    assert_eq!(schema["properties"]["result"]["type"], "string");
+    assert!(
+        meta.tools[0].output_schema.is_null(),
+        "outputSchema camelCase key must not populate output_schema; use output_schema",
+    );
 }
 
 #[test]
@@ -527,8 +512,7 @@ fn test_tool_declaration_output_schema_snake_case_still_works() {
 
 #[test]
 fn test_tool_declaration_schema_null_when_omitted() {
-    // When neither input_schema nor inputSchema is provided, field defaults to null
-    // (serde(default) + no alias match → Value::Null)
+    // When `input_schema` / `output_schema` are omitted, fields default to null
     let json = r#"{"name": "s", "tools": [{"name": "t"}]}"#;
     let meta: SkillMetadata = serde_json::from_str(json).unwrap();
     assert!(meta.tools[0].input_schema.is_null());

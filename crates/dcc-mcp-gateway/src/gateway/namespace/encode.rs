@@ -5,21 +5,20 @@
 //! * **Skill → tool** (`<skill>.<tool>`): [`extract_bare_tool_name`],
 //!   [`skill_tool_name`], [`decode_skill_tool_name`].
 //! * **Gateway instance prefix**: [`encode_tool_name`] (SEP-986 form
-//!   `{id8}.{tool}`), [`encode_tool_name_cursor_safe`] (client-safe form
-//!   `i_{id8}__{escaped_tool}`, issue #656), [`decode_tool_name`] (accepts
-//!   every form below), [`assert_gateway_tool_name`].
+//!   `{id8}.{tool}` — still valid for wire slugs where a client accepts `.`),
+//!   [`encode_tool_name_cursor_safe`] (client-safe form `i_{id8}__{escaped_tool}`,
+//!   issue #656), [`decode_tool_name`] (cursor-safe form only),
+//!   [`assert_gateway_tool_name`].
 //!
-//! Backward compatibility: [`decode_tool_name`] still accepts three
-//! deprecated separator forms (`.`, `/`, and `__`) — `.` is the SEP-986
-//! form that predates the Cursor-safe rollout but stays legal during the
-//! compatibility window; the other two emit a `tracing::warn!` every time
-//! they are decoded.
+//! [`decode_tool_name`] only recognises the cursor-safe `i_<id8>__<escaped>`
+//! wire form so routing stays aligned with what the gateway emits for MCP
+//! prompts and other aggregated surfaces.
 
 use uuid::Uuid;
 
 use super::constants::{
-    CURSOR_SAFE_PREFIX, CURSOR_SAFE_SEP, DEPRECATED_SLASH_SEP, INSTANCE_SEP, LEGACY_NAMESPACE_SEP,
-    SKILL_TOOL_SEP, instance_short, is_core_tool, is_instance_prefix, is_local_tool,
+    CURSOR_SAFE_PREFIX, CURSOR_SAFE_SEP, INSTANCE_SEP, SKILL_TOOL_SEP, instance_short,
+    is_core_tool, is_instance_prefix, is_local_tool,
 };
 
 /// Extract the bare tool name from an internal action name.
@@ -111,28 +110,17 @@ pub fn assert_gateway_tool_name(name: &str) -> Result<(), dcc_mcp_naming::Naming
 
 /// Decode a gateway-encoded tool name into `(id8, original)`.
 ///
-/// Accepts the Cursor-safe form `i_<id8>__<escaped>` introduced in #656,
-/// the SEP-986 `.` separator that predates it, plus two deprecated
-/// encodings for backward compat (`/` and `__`); the three non-preferred
-/// forms emit a `tracing::warn!` so operators notice leftover clients.
-///
-/// The returned `original` is always the **un-escaped** backend tool
-/// name, regardless of which wire form carried it. That way every
-/// caller (`route_tools_call`, diagnostics) can route the decoded name
-/// through the same lookup path without worrying about which client
-/// emitted it.
+/// Only accepts the cursor-safe form `i_<id8>__<escaped>` from issue #656.
+/// The returned `original` is the **un-escaped** backend tool name.
 pub fn decode_tool_name(prefixed: &str) -> Option<(String, String)> {
     if is_local_tool(prefixed) {
         return None;
     }
 
-    // 1. Preferred (#656): `i_{id8}__{escaped}`. When the shape matches
-    //    the cursor-safe wire form we commit to this arm: either the
-    //    payload unescapes cleanly and we return it, or the input is a
-    //    malformed cursor-safe name and we refuse to decode rather
-    //    than fall through to a legacy arm (which would happily
-    //    rewrite `i_abcdef01__bad_` into `(i, abcdef01__bad_)` and
-    //    silently route to the wrong tool).
+    // `i_{id8}__{escaped}`. When the shape matches the cursor-safe wire form
+    // we commit to this arm: either the payload unescapes cleanly and we
+    // return it, or the input is malformed and we return `None` rather than
+    // guessing.
     if let Some(rest) = prefixed.strip_prefix(CURSOR_SAFE_PREFIX)
         && let Some((p, escaped)) = rest.split_once(CURSOR_SAFE_SEP)
         && is_instance_prefix(p)
@@ -140,39 +128,6 @@ pub fn decode_tool_name(prefixed: &str) -> Option<(String, String)> {
         return unescape_cursor_safe(escaped).map(|u| (p.to_string(), u));
     }
 
-    // 2. SEP-986 dot form: `{id8}.{tool}`. Still legal during the
-    //    compatibility window so existing clients keep working while
-    //    rollout is in progress.
-    if let Some((p, r)) = prefixed.split_once(INSTANCE_SEP)
-        && is_instance_prefix(p)
-    {
-        return Some((p.to_string(), r.to_string()));
-    }
-
-    // 3. Deprecated: `{id8}/{tool}` — the unreleased format fixed in #261.
-    if let Some((p, r)) = prefixed.split_once(DEPRECATED_SLASH_SEP)
-        && is_instance_prefix(p)
-    {
-        tracing::warn!(
-            tool = prefixed,
-            "Deprecated `/` gateway separator (pre-#261). Use `i_{{id8}}__{{tool}}`."
-        );
-        return Some((p.to_string(), r.to_string()));
-    }
-
-    // 4. Legacy: `{id8}__{tool}` — pre-#258. Deliberately checked last:
-    //    the cursor-safe form also uses `__`, but its `i_` prefix
-    //    disambiguates it above; without that prefix the `__` arm is
-    //    only the pre-#258 shape.
-    if let Some((p, r)) = prefixed.split_once(LEGACY_NAMESPACE_SEP)
-        && is_instance_prefix(p)
-    {
-        tracing::warn!(
-            tool = prefixed,
-            "Deprecated `__` gateway separator (pre-#258). Use `i_{{id8}}__{{tool}}`."
-        );
-        return Some((p.to_string(), r.to_string()));
-    }
     None
 }
 

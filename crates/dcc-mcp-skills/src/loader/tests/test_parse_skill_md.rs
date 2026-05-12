@@ -66,18 +66,18 @@ fn parse_skill_fallback_name_from_dir() {
 }
 
 #[test]
-fn parse_skill_with_tool_defer_loading_aliases() {
+fn parse_skill_with_tool_defer_loading_kebab_case() {
     let fx = SkillTestFixture::with_body(
         "---\nname: deferred-skill\ndescription: defer\nmetadata:\n  dcc-mcp:\n    dcc: python\n    tools: tools.yaml\n---\n# Deferred\n",
     );
     fx.write_file(
         "tools.yaml",
-        "tools:\n  - name: slow_tool\n    defer-loading: true\n  - name: alias_tool\n    defer_loading: true\n",
+        "tools:\n  - name: slow_tool\n    defer-loading: true\n  - name: eager_tool\n    defer-loading: false\n",
     );
     let meta = parse_skill_md(fx.path()).unwrap();
     assert_eq!(meta.tools.len(), 2);
     assert!(meta.tools[0].defer_loading);
-    assert!(meta.tools[1].defer_loading);
+    assert!(!meta.tools[1].defer_loading);
 }
 
 #[test]

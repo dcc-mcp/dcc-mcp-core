@@ -5,8 +5,8 @@
 //!
 //! * [`aggregate_prompts_list`] fans `prompts/list` out to every live
 //!   backend, merges the results, and namespaces each entry with the
-//!   same `i_<id8>__<escaped>` / `<id8>.<name>` prefix scheme used for
-//!   tools so identical prompt names across multiple DCCs never clash.
+//!   same `i_<id8>__<escaped>` prefix scheme used for tools so identical
+//!   prompt names across multiple DCCs never clash.
 //! * [`route_prompts_get`] decodes a prefixed prompt name back to
 //!   `(id8, original)` and forwards `prompts/get` to the owning
 //!   backend.
@@ -18,16 +18,13 @@
 use super::*;
 
 use super::super::backend_client::{fetch_prompts, forward_prompts_get};
-use super::super::namespace::{encode_tool_name, encode_tool_name_cursor_safe};
+use super::super::namespace::{decode_tool_name, encode_tool_name_cursor_safe};
 
 /// Build the unified `prompts/list` result by aggregating every live backend.
 ///
-/// Each backend's prompts are emitted under the instance-prefixed form
-/// selected by [`GatewayState::cursor_safe_tool_names`]: the preferred
-/// cursor-safe `i_<id8>__<escaped>` name introduced in issue #656, or
-/// the legacy SEP-986 `<id8>.<name>` form for diagnostic parity. The
-/// wire-level namespace is intentionally shared with tool slugs so
-/// the same `decode_tool_name` helper can route both primitives.
+/// Each backend's prompts are emitted under the cursor-safe instance prefix
+/// `i_<id8>__<escaped>` (issue #656), matching MCP tool routing so the same
+/// [`decode_tool_name`] helper can resolve `prompts/get` targets.
 ///
 /// Backends that fail or are unreachable are skipped with a WARN log
 /// (see [`fetch_prompts`]) — one stale DCC must never 500 the whole
@@ -48,8 +45,6 @@ pub async fn aggregate_prompts_list(gs: &GatewayState) -> Value {
         .collect();
     let client = &gs.http_client;
     let backend_timeout = gs.backend_timeout;
-    let cursor_safe = gs.cursor_safe_tool_names;
-
     let futs = instances.iter().map(|entry| async move {
         let url = format!("http://{}:{}/mcp", entry.host, entry.port);
         let prompts = fetch_prompts(client, &url, backend_timeout).await;
@@ -60,11 +55,7 @@ pub async fn aggregate_prompts_list(gs: &GatewayState) -> Value {
     let mut prompts: Vec<Value> = Vec::new();
     for (iid, dcc_type, backend_prompts) in results {
         for mut prompt in backend_prompts {
-            let encoded = if cursor_safe {
-                encode_tool_name_cursor_safe(&iid, &prompt.name)
-            } else {
-                encode_tool_name(&iid, &prompt.name)
-            };
+            let encoded = encode_tool_name_cursor_safe(&iid, &prompt.name);
             prompt.name = encoded;
             let mut json_val = serde_json::to_value(&prompt).unwrap_or(Value::Null);
             if let Some(obj) = json_val.as_object_mut() {
@@ -90,8 +81,8 @@ pub async fn aggregate_prompts_list(gs: &GatewayState) -> Value {
 /// caller can wrap into a full response.
 ///
 /// Decoding mirrors [`super::call::route_tools_call`]: accepts the
-/// preferred cursor-safe form plus the legacy encodings exposed by
-/// [`decode_tool_name`]. With a single live backend, a bare
+/// cursor-safe `i_<id8>__<escaped>` form from [`decode_tool_name`]. With a
+/// single live backend, a bare
 /// (un-prefixed) prompt name is accepted as a convenience so clients
 /// can address an un-ambiguous target without going through
 /// `prompts/list` first.
