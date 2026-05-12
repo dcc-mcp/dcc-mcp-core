@@ -121,6 +121,11 @@ Gateway resources/prompts:
   the behavior crosses Rust/Python or downstream APIs. Use real-looking DCC
   examples from at least two host families where practical (for example Maya +
   Photoshop/ZBrush/custom), not only synthetic single-DCC fixtures.
+- Skill actions may opt into `enforce_thread_affinity: true`; then dispatch
+  rejects calls whose observed thread context does not match `thread_affinity`
+  with `THREAD_AFFINITY_VIOLATION`. Use this for audited main-thread-only DCC
+  API actions; host-side guards such as `@require_main_thread` still belong
+  inside action bodies for defense in depth.
 - For MCP/gateway changes, include an E2E-style validation path that exercises
   actual `tools/list` / `tools/call` / REST or gateway routing. If a real DCC is
   unavailable, use the closest executable/server path and state the gap in the

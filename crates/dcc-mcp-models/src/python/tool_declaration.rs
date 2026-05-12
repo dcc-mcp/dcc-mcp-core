@@ -40,7 +40,7 @@ impl SkillGroup {
 #[pymethods]
 impl ToolDeclaration {
     #[new]
-    #[pyo3(signature = (name, description="".to_string(), input_schema=None, output_schema=None, read_only=false, destructive=false, idempotent=false, defer_loading=false, source_file="".to_string(), group="".to_string(), execution="sync".to_string(), timeout_hint_secs=None, thread_affinity="any".to_string()))]
+    #[pyo3(signature = (name, description="".to_string(), input_schema=None, output_schema=None, read_only=false, destructive=false, idempotent=false, defer_loading=false, source_file="".to_string(), group="".to_string(), execution="sync".to_string(), timeout_hint_secs=None, thread_affinity="any".to_string(), enforce_thread_affinity=false))]
     #[allow(clippy::too_many_arguments)]
     fn new(
         name: String,
@@ -56,6 +56,7 @@ impl ToolDeclaration {
         execution: String,
         timeout_hint_secs: Option<u32>,
         thread_affinity: String,
+        enforce_thread_affinity: bool,
     ) -> pyo3::PyResult<Self> {
         let input_schema = input_schema
             .and_then(|schema| serde_json::from_str(&schema).ok())
@@ -80,6 +81,7 @@ impl ToolDeclaration {
             execution,
             timeout_hint_secs,
             thread_affinity,
+            enforce_thread_affinity,
             _deferred_guard: None,
             annotations: ToolAnnotations::default(),
             required_capabilities: Vec::new(),
@@ -88,8 +90,8 @@ impl ToolDeclaration {
 
     // ── Trivial accessors emitted by `#[derive(PyWrapper)]` (#528 M3.4) ─
     // `name`, `description`, `read_only`, `destructive`, `idempotent`,
-    // `defer_loading`, `source_file`, `group` (read+write), plus
-    // `timeout_hint_secs` (Option<u32>) and `required_capabilities`
+    // `defer_loading`, `source_file`, `group`, `enforce_thread_affinity`
+    // (read+write), plus `timeout_hint_secs` (Option<u32>) and `required_capabilities`
     // (Vec<String>). See `crate::skill_metadata::ToolDeclaration`'s
     // `#[py_wrapper(...)]` table for the canonical list.
 

@@ -31,6 +31,8 @@ pub enum ServiceErrorKind {
     /// Execution affinity violated — e.g. a main-thread-only tool was
     /// called without an executor available.
     AffinityViolation,
+    /// Runtime thread affinity enforcement rejected the call.
+    ThreadAffinityViolation,
     /// The underlying DCC or dispatcher is not ready yet.
     NotReady,
     /// Generic 404 — the addressed resource / prompt / object is not
@@ -53,7 +55,7 @@ impl ServiceErrorKind {
             Self::InvalidParams => 400,
             Self::Unauthorized => 401,
             Self::BadRequest => 400,
-            Self::AffinityViolation => 409,
+            Self::AffinityViolation | Self::ThreadAffinityViolation => 409,
             Self::NotReady => 503,
             Self::NotFound => 404,
             Self::BackendError => 502,

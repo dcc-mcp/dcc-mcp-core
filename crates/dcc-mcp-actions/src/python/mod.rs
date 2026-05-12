@@ -278,7 +278,8 @@ impl PyToolDispatcher {
                     // Stub always returns Ok(null), so this shouldn't happen
                     false
                 }
-                Err(err @ DispatchError::ActionDisabled { .. }) => {
+                Err(err @ DispatchError::ActionDisabled { .. })
+                | Err(err @ DispatchError::ThreadAffinityViolation { .. }) => {
                     return Err(pyo3::exceptions::PyPermissionError::new_err(
                         err.to_string(),
                     ));

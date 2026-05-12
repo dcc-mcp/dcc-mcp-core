@@ -113,12 +113,12 @@ pub fn build_core_tools_inner() -> Vec<McpTool> {
         },
         McpTool {
             name: "load_skill".to_string(),
-            description: "Loads one or more discovered skills and registers their tools, then emits a tools/list_changed notification.\n\n\
-                          When to use: Call after search_skills, list_skills, or get_skill_info has identified the skill you need. Idempotent — re-loading an already-loaded skill is a no-op.\n\n\
+            description: "Loads discovered skills, registers their tools, and emits tools/list_changed.\n\n\
+                          When to use: After search_skills/list_skills/get_skill_info identifies the skill. Idempotent for already-loaded skills.\n\n\
                           How to use:\n\
-                          - Use skill_name for one skill, or skill_names for a batch in a single round-trip.\n\
-                          - By default, every declared tool group is activated so registered tools are immediately callable; set activate_groups=false to keep lazy group activation.\n\
-                          - After success, call tools/list or the specific tool (e.g. maya_geometry__create_sphere) directly."
+                          - Pass skill_name or skill_names.\n\
+                          - Groups activate by default; set activate_groups=false for lazy group activation.\n\
+                          - After success, call tools/list or the specific tool directly."
                 .to_string(),
             input_schema: json!({
                 "type": "object",

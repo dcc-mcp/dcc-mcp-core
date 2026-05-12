@@ -132,6 +132,13 @@ impl ToolRegistry {
                     }
                 },
             };
+            let enforce_thread_affinity: bool = dict
+                .get_item("enforce_thread_affinity")
+                .ok()
+                .flatten()
+                .or_else(|| dict.get_item("enforce-thread-affinity").ok().flatten())
+                .and_then(|v| v.extract().ok())
+                .unwrap_or(false);
 
             let input_schema =
                 parse_schema_or_default(input_schema_str.as_deref(), "input_schema", &name);
@@ -155,6 +162,7 @@ impl ToolRegistry {
                 execution,
                 timeout_hint_secs,
                 thread_affinity,
+                enforce_thread_affinity,
                 annotations: ToolAnnotations::default(),
                 next_tools: NextTools::default(),
             });
@@ -168,7 +176,7 @@ impl ToolRegistry {
     }
 
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (name, description="".to_string(), category="".to_string(), tags=vec![], dcc=DEFAULT_DCC.to_string(), version=DEFAULT_VERSION.to_string(), input_schema=None, output_schema=None, source_file=None, skill_name=None, group="".to_string(), enabled=true, required_capabilities=None, execution="sync".to_string(), timeout_hint_secs=None, thread_affinity="any".to_string()))]
+    #[pyo3(signature = (name, description="".to_string(), category="".to_string(), tags=vec![], dcc=DEFAULT_DCC.to_string(), version=DEFAULT_VERSION.to_string(), input_schema=None, output_schema=None, source_file=None, skill_name=None, group="".to_string(), enabled=true, required_capabilities=None, execution="sync".to_string(), timeout_hint_secs=None, thread_affinity="any".to_string(), enforce_thread_affinity=false))]
     fn register(
         &self,
         name: String,
@@ -187,6 +195,7 @@ impl ToolRegistry {
         execution: String,
         timeout_hint_secs: Option<u32>,
         thread_affinity: String,
+        enforce_thread_affinity: bool,
     ) -> pyo3::PyResult<()> {
         let input_schema = parse_schema_or_default(input_schema.as_deref(), "input_schema", &name);
         let output_schema =
@@ -223,6 +232,7 @@ impl ToolRegistry {
             execution,
             timeout_hint_secs,
             thread_affinity,
+            enforce_thread_affinity,
             annotations: ToolAnnotations::default(),
             next_tools: NextTools::default(),
         });
