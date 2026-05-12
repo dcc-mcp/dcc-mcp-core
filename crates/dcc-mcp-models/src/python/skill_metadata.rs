@@ -71,6 +71,7 @@ impl SkillMetadata {
             groups: Vec::new(),
             prompts_file: None,
             layer: None,
+            stage: None,
             recipes_file: None,
             introspection_file: None,
         }
@@ -92,7 +93,7 @@ impl SkillMetadata {
     // `name`, `description`, `dcc`, `version`, `license`, `compatibility`,
     // `skill_path`, `search_hint` (String → &str + setter), `tags`,
     // `scripts`, `depends`, `metadata_files`, `allowed_tools`, `tools`,
-    // `groups`, `layer` (Vec<T> / Option<T> clone + setter).
+    // `groups`, `layer`, `stage` (Vec<T> / Option<T> clone + setter).
     // See `crate::skill_metadata::SkillMetadata`'s `#[py_wrapper(...)]`
     // table for the canonical list.
 

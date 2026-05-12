@@ -255,6 +255,18 @@ fn apply_dcc_mcp_metadata_overrides(
                     meta.layer = Some(s.to_string());
                 }
             }
+            "stage" => {
+                // Pipeline stage tag for orchestration / minimal-mode presets.
+                // Free-form string — each DCC adapter owns its own stage
+                // vocabulary (e.g. Maya: bootstrap / scene / authoring /
+                // interchange / pipeline). Core stays vocabulary-agnostic so
+                // adapters don't have to upstream every new stage.
+                if let Some(s) = value.as_str()
+                    && !s.is_empty()
+                {
+                    meta.stage = Some(s.to_string());
+                }
+            }
             "recipes" => {
                 // Sibling-file reference for pre-composed parameter templates
                 // (issue #466). Parsing is deferred; store the path for lazy loading.

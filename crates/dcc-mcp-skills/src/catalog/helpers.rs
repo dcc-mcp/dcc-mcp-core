@@ -44,6 +44,8 @@ pub fn skill_entry_to_summary(e: &SkillEntry) -> SkillSummary {
             .as_ref()
             .map(|p| p.is_implicit_invocation_allowed())
             .unwrap_or(true),
+        layer: e.metadata.layer.clone(),
+        stage: e.metadata.stage.clone(),
     }
 }
 
