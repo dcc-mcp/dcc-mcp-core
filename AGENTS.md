@@ -87,7 +87,7 @@ Per-DCC MCP server:
 5. Debug on failure: use dcc_diagnostics__screenshot or audit_log
 
 Gateway dynamic-capability / REST exposure:
-1. Discover: search_tools(query="keyword", dcc_type="maya") → get tool_slug
+1. Discover: search_tools(query="keyword", dcc_type="maya") → get tool_slug; names/summaries are tokenized, so underscores are optional (`create_sphere` and `sphere` both work)
 2. Inspect: describe_tool(tool_slug) → read schema + annotations
 3. Execute: call_tool(tool_slug, arguments={...})
 4. The gateway never fans out per-tool backend tools into tools/list.
