@@ -326,20 +326,28 @@ function App() {
 
   return (
     <div className="app-shell">
-      <nav>
-        <h1>DCC-MCP<br />Gateway</h1>
-        {PANELS.map((panel) => (
-          <button
-            key={panel.id}
-            className={panel.id === activePanel ? 'nav-link active' : 'nav-link'}
-            type="button"
-            onClick={() => setActivePanel(panel.id)}
-          >
-            {panel.label}
-          </button>
-        ))}
+      <nav className="side-rail" aria-label="Admin navigation">
+        <div className="brand-lockup">
+          <div className="brand-accent" aria-hidden="true" />
+          <div className="brand-text">
+            <h1>DCC-MCP Gateway</h1>
+            <p className="brand-tag">Admin console</p>
+          </div>
+        </div>
+        <div className="nav-links">
+          {PANELS.map((panel) => (
+            <button
+              key={panel.id}
+              className={panel.id === activePanel ? 'nav-link active' : 'nav-link'}
+              type="button"
+              onClick={() => setActivePanel(panel.id)}
+            >
+              {panel.label}
+            </button>
+          ))}
+        </div>
       </nav>
-      <main>
+      <main className="main-stage">
         {activePanel === 'health' && (
           <section className="panel active">
             <h2>Health</h2>
@@ -434,7 +442,11 @@ function App() {
               <thead><tr><th>Time</th><th>Request</th><th>Tool</th><th>Status</th><th>Total ms</th></tr></thead>
               <tbody>
                 {traces.length === 0 ? <EmptyRow columns={5}>No traces recorded.</EmptyRow> : traces.map((trace) => (
-                  <tr key={trace.request_id} onClick={() => void fetchTraceInto(trace.request_id, 'trace')}>
+                  <tr
+                    key={trace.request_id}
+                    className="trace-row"
+                    onClick={() => void fetchTraceInto(trace.request_id, 'trace')}
+                  >
                     <td>{formatTime(trace.timestamp)}</td>
                     <td>{trace.request_id}</td>
                     <td>{trace.tool}</td>
