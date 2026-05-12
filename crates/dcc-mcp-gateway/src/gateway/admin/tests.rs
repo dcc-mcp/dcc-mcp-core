@@ -286,6 +286,7 @@ mod admin_tests {
         assert_eq!(successes[0]["instance_id"], "maya-instance");
         assert_eq!(successes[0]["session_id"], "session-1");
         assert_eq!(failures[0]["request_id"], "req-fail");
+        assert_eq!(failures[0]["instance_id"], "blender-instance");
     }
 
     #[tokio::test]

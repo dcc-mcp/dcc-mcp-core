@@ -91,6 +91,17 @@ impl CallContext {
         self
     }
 
+    /// Builder: attach resolved backend routing metadata.
+    pub fn with_backend(
+        mut self,
+        dcc_type: impl Into<String>,
+        instance_id: impl Into<String>,
+    ) -> Self {
+        self.dcc_type = Some(dcc_type.into());
+        self.instance_id = Some(instance_id.into());
+        self
+    }
+
     /// Builder: attach the originating MCP session id.
     pub fn with_session_id(mut self, id: impl Into<String>) -> Self {
         self.session_id = Some(id.into());
