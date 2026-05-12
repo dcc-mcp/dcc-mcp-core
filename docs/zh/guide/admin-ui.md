@@ -29,6 +29,8 @@ dcc-mcp-server --admin-path /dcc-admin
 | `DCC_MCP_GATEWAY_PORT` | `9765` | 网关选举端口；`0` 表示禁用 gateway/admin。 |
 | `DCC_MCP_NO_ADMIN` | `false` | 禁用赢得选举的网关上的只读 Admin UI。 |
 | `DCC_MCP_ADMIN_PATH` | `/admin` | Admin URL 前缀。 |
+| `DCC_MCP_GATEWAY_AUDIT_DIR` | 未设置 | 可选 JSONL 持久化目录，写入 `audit.jsonl` 与 `traces.jsonl`；未设置时保持零落盘的内存行为。 |
+| `DCC_MCP_GATEWAY_AUDIT_MAX_ROWS` | `5000` | 启用持久化时，每个 JSONL 文件保留的最大行数。 |
 
 ### Python API
 
@@ -166,6 +168,8 @@ GatewayConfig {
 ```
 
 `/admin/api/logs` 数据源由 `EventLog` 环形缓冲区自动填充（网关选举/驱逐/探针事件，来自 issue #766）。`/admin/api/traces`、`/admin/api/stats` 和 `/admin/api/workers` 分别来自 dispatch `TraceLog`、`StatsAggregator` 与 live gateway registry。
+
+设置 `DCC_MCP_GATEWAY_AUDIT_DIR` 后会启用 JSONL 持久化。网关会将有界的 admin 调用行追加到 `audit.jsonl`，将 dispatch traces 追加到 `traces.jsonl`，按 `DCC_MCP_GATEWAY_AUDIT_MAX_ROWS` 裁剪每个文件，并在重启时用这些文件回填内存中的 admin 缓冲区。持久化内容仍使用内存 trace 捕获同一套有界/已脱敏 `TracePayload`，不会写入无界原始请求体。
 
 ## 仪表盘功能
 

@@ -204,6 +204,13 @@ impl TraceLog {
         }
     }
 
+    /// Seed the in-memory ring from durable storage.
+    pub fn extend(&self, traces: impl IntoIterator<Item = DispatchTrace>) {
+        for trace in traces {
+            self.push(trace);
+        }
+    }
+
     /// Append a completed trace, evicting the oldest entry if at capacity.
     pub fn push(&self, trace: DispatchTrace) {
         let mut buf = self.buf.lock();

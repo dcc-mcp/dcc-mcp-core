@@ -54,7 +54,9 @@ mod handlers;
 #[cfg(feature = "admin")]
 mod router;
 
-pub use state::{AdminAuditRecord, AdminAuditSink, AdminState, AuditLog, EventLog};
+pub use state::{
+    AdminAuditRecord, AdminAuditSink, AdminState, AuditLog, DurableAuditStore, EventLog,
+};
 pub use stats::{GatewayStats, LatencyStats, StatsAggregator, StatsRange, TopEntry};
 pub use trace::{DispatchTrace, TraceLog, TracePayload, TraceSpan};
 pub use workers::build_workers_payload;

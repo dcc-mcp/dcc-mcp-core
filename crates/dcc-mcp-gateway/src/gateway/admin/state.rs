@@ -1,10 +1,16 @@
 //! Shared state for the admin UI handlers.
 
+use std::fs;
+use std::fs::OpenOptions;
+use std::io::BufRead;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use parking_lot::Mutex;
-use serde_json::Value;
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
 
 use crate::gateway::middleware::{AuditEntry, AuditSink};
 use crate::gateway::state::GatewayState;
@@ -43,12 +49,167 @@ pub type EventLog = Mutex<Vec<Value>>;
 /// Append-only audit log shared with the admin UI.
 pub type AuditLog = Mutex<Vec<AdminAuditRecord>>;
 
+#[derive(Debug, Clone)]
+pub struct DurableAuditStore {
+    dir: Arc<PathBuf>,
+    max_rows: usize,
+    lock: Arc<Mutex<()>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PersistedAuditRecord {
+    timestamp_ms: u64,
+    request_id: String,
+    method: Option<String>,
+    instance_id: Option<String>,
+    session_id: Option<String>,
+    action: String,
+    dcc_type: Option<String>,
+    success: bool,
+    error: Option<String>,
+    duration_ms: Option<u64>,
+}
+
+impl DurableAuditStore {
+    pub const AUDIT_FILE: &'static str = "audit.jsonl";
+    pub const TRACE_FILE: &'static str = "traces.jsonl";
+    pub const DEFAULT_MAX_ROWS: usize = 5_000;
+
+    pub fn new(dir: impl Into<PathBuf>, max_rows: usize) -> std::io::Result<Self> {
+        let dir = dir.into();
+        fs::create_dir_all(&dir)?;
+        Ok(Self {
+            dir: Arc::new(dir),
+            max_rows: max_rows.max(1),
+            lock: Arc::new(Mutex::new(())),
+        })
+    }
+
+    pub fn from_env() -> Option<Self> {
+        let dir = std::env::var_os("DCC_MCP_GATEWAY_AUDIT_DIR")?;
+        let max_rows = std::env::var("DCC_MCP_GATEWAY_AUDIT_MAX_ROWS")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(Self::DEFAULT_MAX_ROWS);
+        Self::new(dir, max_rows).ok()
+    }
+
+    pub fn load_audit(&self) -> Vec<AdminAuditRecord> {
+        read_jsonl(&self.path(Self::AUDIT_FILE))
+            .into_iter()
+            .filter_map(|value| serde_json::from_value::<PersistedAuditRecord>(value).ok())
+            .map(AdminAuditRecord::from)
+            .collect()
+    }
+
+    pub fn load_traces(&self) -> Vec<DispatchTrace> {
+        read_jsonl(&self.path(Self::TRACE_FILE))
+            .into_iter()
+            .filter_map(|value| serde_json::from_value::<DispatchTrace>(value).ok())
+            .collect()
+    }
+
+    fn append_audit(&self, record: &AdminAuditRecord) {
+        let value = json!(PersistedAuditRecord::from(record));
+        self.append_value(Self::AUDIT_FILE, &value);
+    }
+
+    fn append_trace(&self, trace: &DispatchTrace) {
+        if let Ok(value) = serde_json::to_value(trace) {
+            self.append_value(Self::TRACE_FILE, &value);
+        }
+    }
+
+    fn append_value(&self, filename: &str, value: &Value) {
+        let _guard = self.lock.lock();
+        let path = self.path(filename);
+        let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&path) else {
+            return;
+        };
+        if serde_json::to_writer(&mut file, value).is_ok() {
+            let _ = file.write_all(b"\n");
+        }
+        self.trim_file(&path);
+    }
+
+    fn trim_file(&self, path: &Path) {
+        let Ok(file) = fs::File::open(path) else {
+            return;
+        };
+        let mut lines: Vec<String> = std::io::BufReader::new(file)
+            .lines()
+            .map_while(Result::ok)
+            .filter(|line| !line.trim().is_empty())
+            .collect();
+        if lines.len() <= self.max_rows {
+            return;
+        }
+        let keep_from = lines.len() - self.max_rows;
+        lines.drain(0..keep_from);
+        let _ = fs::write(path, lines.join("\n") + "\n");
+    }
+
+    fn path(&self, filename: &str) -> PathBuf {
+        self.dir.join(filename)
+    }
+}
+
+fn read_jsonl(path: &Path) -> Vec<Value> {
+    let Ok(file) = fs::File::open(path) else {
+        return Vec::new();
+    };
+    std::io::BufReader::new(file)
+        .lines()
+        .map_while(Result::ok)
+        .filter_map(|line| serde_json::from_str::<Value>(&line).ok())
+        .collect()
+}
+
+impl From<&AdminAuditRecord> for PersistedAuditRecord {
+    fn from(record: &AdminAuditRecord) -> Self {
+        Self {
+            timestamp_ms: record
+                .timestamp
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or(Duration::ZERO)
+                .as_millis() as u64,
+            request_id: record.request_id.clone(),
+            method: record.method.clone(),
+            instance_id: record.instance_id.clone(),
+            session_id: record.session_id.clone(),
+            action: record.action.clone(),
+            dcc_type: record.dcc_type.clone(),
+            success: record.success,
+            error: record.error.clone(),
+            duration_ms: record.duration_ms,
+        }
+    }
+}
+
+impl From<PersistedAuditRecord> for AdminAuditRecord {
+    fn from(record: PersistedAuditRecord) -> Self {
+        Self {
+            timestamp: UNIX_EPOCH + Duration::from_millis(record.timestamp_ms),
+            request_id: record.request_id,
+            method: record.method,
+            instance_id: record.instance_id,
+            session_id: record.session_id,
+            action: record.action,
+            dcc_type: record.dcc_type,
+            success: record.success,
+            error: record.error,
+            duration_ms: record.duration_ms,
+        }
+    }
+}
+
 /// [`AuditSink`] that pushes completed entries into the admin UI ring buffer
 /// and optionally a [`TraceLog`] for Phase 2 dispatch traces.
 pub struct AdminAuditSink {
     log: Arc<AuditLog>,
     capacity: usize,
     trace_log: Option<Arc<TraceLog>>,
+    durable_store: Option<DurableAuditStore>,
 }
 
 impl AdminAuditSink {
@@ -59,7 +220,14 @@ impl AdminAuditSink {
             log,
             capacity,
             trace_log: None,
+            durable_store: None,
         }
+    }
+
+    /// Attach a durable JSONL store so audit and trace rows survive restarts.
+    pub fn with_durable_store(mut self, store: DurableAuditStore) -> Self {
+        self.durable_store = Some(store);
+        self
     }
 
     /// Attach a trace log so `record()` also appends a [`DispatchTrace`].
@@ -90,6 +258,9 @@ impl AuditSink for AdminAuditSink {
             },
             duration_ms: entry.duration_ms,
         };
+        if let Some(store) = &self.durable_store {
+            store.append_audit(&record);
+        }
         let mut buf = self.log.lock();
         buf.push(record);
         if self.capacity > 0 {
@@ -114,8 +285,78 @@ impl AuditSink for AdminAuditSink {
                 input: entry.input_payload,
                 output: entry.output_payload,
             };
+            if let Some(store) = &self.durable_store {
+                store.append_trace(&trace);
+            }
             tl.push(trace);
         }
+    }
+}
+
+#[cfg(test)]
+mod durable_tests {
+    use super::*;
+
+    fn audit_record(id: &str) -> AdminAuditRecord {
+        AdminAuditRecord {
+            timestamp: UNIX_EPOCH + Duration::from_millis(1),
+            request_id: id.to_string(),
+            method: Some("tools/call".to_string()),
+            instance_id: Some("instance".to_string()),
+            session_id: Some("session".to_string()),
+            action: "maya.abcdef01.create_sphere".to_string(),
+            dcc_type: Some("maya".to_string()),
+            success: true,
+            error: None,
+            duration_ms: Some(7),
+        }
+    }
+
+    #[test]
+    fn durable_store_roundtrips_audit_and_traces() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = DurableAuditStore::new(dir.path(), 10).unwrap();
+        let audit = audit_record("req-1");
+        store.append_audit(&audit);
+        let trace = DispatchTrace {
+            request_id: "req-1".to_string(),
+            method: "tools/call".to_string(),
+            tool_slug: Some("maya.abcdef01.create_sphere".to_string()),
+            instance_id: Some("instance".to_string()),
+            session_id: Some("session".to_string()),
+            dcc_type: Some("maya".to_string()),
+            started_at: UNIX_EPOCH + Duration::from_millis(1),
+            total_ms: 7,
+            ok: true,
+            spans: Vec::new(),
+            input: None,
+            output: None,
+        };
+        store.append_trace(&trace);
+
+        let audits = store.load_audit();
+        assert_eq!(audits.len(), 1);
+        assert_eq!(audits[0].request_id, "req-1");
+        assert_eq!(audits[0].dcc_type.as_deref(), Some("maya"));
+        let traces = store.load_traces();
+        assert_eq!(traces.len(), 1);
+        assert_eq!(traces[0].request_id, "req-1");
+    }
+
+    #[test]
+    fn durable_store_trims_old_rows() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = DurableAuditStore::new(dir.path(), 2).unwrap();
+        for id in ["req-1", "req-2", "req-3"] {
+            store.append_audit(&audit_record(id));
+        }
+
+        let ids: Vec<String> = store
+            .load_audit()
+            .into_iter()
+            .map(|record| record.request_id)
+            .collect();
+        assert_eq!(ids, vec!["req-2", "req-3"]);
     }
 }
 
