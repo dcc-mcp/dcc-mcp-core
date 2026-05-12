@@ -84,6 +84,10 @@ pub async fn handle_admin_calls(State(s): State<AdminState>) -> impl IntoRespons
                         .unwrap_or_default();
                     json!({
                         "timestamp": ts,
+                        "request_id": r.request_id,
+                        "method": r.method,
+                        "instance_id": r.instance_id,
+                        "session_id": r.session_id,
                         "tool": r.action,
                         "dcc_type": r.dcc_type,
                         "status": if r.success { "ok" } else { "err" },
