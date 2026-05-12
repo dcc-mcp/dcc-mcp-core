@@ -175,6 +175,7 @@ async fn handle_initialize(gs: &GatewayState, id: Value, req: &JsonRpcRequest) -
                  1. Optional: resources/read uri=gateway://instances to inspect live DCCs\n\
                  2. search_skills(...) then load_skill(..., instance_id=... when needed)\n\
                  3. search_tools(...) -> describe_tool(tool_slug=...) -> call_tool(tool_slug=..., arguments={...})\n\
+                 4. Optional: call_tools({calls:[{tool_slug, arguments}, ...], stop_on_error?}) for ordered batches (max 25)\n\
                  \n\
                  Subscribe to GET /mcp (SSE) for push notifications."
         }
@@ -235,6 +236,12 @@ async fn handle_tools_call(
         .cloned();
     let resolved_slug = if tool == "call_tool" {
         args.get("tool_slug").and_then(Value::as_str)
+    } else if tool == "call_tools" {
+        args.get("calls")
+            .and_then(Value::as_array)
+            .and_then(|arr| arr.first())
+            .and_then(|obj| obj.get("tool_slug"))
+            .and_then(Value::as_str)
     } else {
         None
     };

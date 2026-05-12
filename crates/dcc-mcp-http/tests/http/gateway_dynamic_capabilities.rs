@@ -512,6 +512,57 @@ async fn mcp_call_tool_forwards_namespaced_callable_id() {
     assert_eq!(*call_count.read().await, 1);
 }
 
+/// `call_tools` must forward two indexed slugs through the same routing
+/// core as `call_tool` without requiring a second MCP HTTP round-trip.
+#[tokio::test]
+async fn mcp_call_tools_batch_routes_two_slugs() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = Arc::new(RwLock::new(FileRegistry::new(dir.path()).unwrap()));
+    let state = make_state(registry.clone());
+
+    let (port, call_count) = spawn_backend(BackendSpec {
+        tools: vec![("alpha_action", "Alpha"), ("beta_action", "Beta")],
+    })
+    .await;
+    register_backend(&registry, "maya", port).await;
+    refresh_all_live_backends(&state, RefreshReason::InstanceJoined).await;
+
+    let slug_a = search_service(
+        &state.capability_index,
+        &parse_search_payload(&json!({"query": "alpha"})),
+    )[0]
+    .record
+    .tool_slug
+    .clone();
+    let slug_b = search_service(
+        &state.capability_index,
+        &parse_search_payload(&json!({"query": "beta"})),
+    )[0]
+    .record
+    .tool_slug
+    .clone();
+
+    let (body, is_error) = route_tools_call(
+        &state,
+        "call_tools",
+        &json!({
+            "calls": [
+                {"tool_slug": slug_a, "arguments": {"x": 1}},
+                {"tool_slug": slug_b, "arguments": {"x": 2}},
+            ],
+        }),
+        None,
+        None,
+        None,
+    )
+    .await;
+    assert!(!is_error, "call_tools failed: {body}");
+    let parsed: Value = serde_json::from_str(&body).expect("JSON");
+    assert_eq!(parsed["success"], true);
+    assert_eq!(parsed["results"].as_array().map(|a| a.len()), Some(2));
+    assert_eq!(*call_count.read().await, 2);
+}
+
 #[tokio::test]
 async fn slim_mode_blocks_direct_backend_tool_but_call_tool_still_works() {
     let dir = tempfile::tempdir().unwrap();

@@ -7,7 +7,7 @@ use super::*;
 ///
 /// The gateway MCP surface is intentionally minimal: only meta-tools,
 /// skill-management tools, and the dynamic `search_tools` /
-/// `describe_tool` / `call_tool` wrappers are accepted here. Per-action
+/// `describe_tool` / `call_tool` / `call_tools` wrappers are accepted here. Per-action
 /// backend tools are not published in `tools/list`, so any other name is
 /// rejected with an error that points the caller at the canonical
 /// discovery path.
@@ -27,6 +27,7 @@ pub async fn route_tools_call(
         "search_tools" => return to_text_result(tool_search_tools(gs, args).await),
         "describe_tool" => return to_text_result(tool_describe_tool(gs, args).await),
         "call_tool" => return tool_call_tool(gs, args, meta).await,
+        "call_tools" => return tool_call_tools(gs, args, meta).await,
         _ => {}
     }
 
@@ -53,8 +54,9 @@ pub async fn route_tools_call(
         "Unknown gateway tool '{tool}'. The gateway MCP surface is intentionally \
          minimal — it only exposes discovery + dispatch primitives. Use \
          `search_tools` to find backend capabilities, `describe_tool` to get a \
-         schema, and `call_tool` to invoke one by slug. For direct HTTP access, \
-         each per-DCC server exposes the same tools via `POST /v1/call`."
+         schema, and `call_tool` (or `call_tools` for ordered batches) to invoke \
+         by slug. For direct HTTP access, each per-DCC server exposes `POST /v1/call`; \
+         the gateway also exposes `POST /v1/call_batch`."
     );
     (hint, true)
 }

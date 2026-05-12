@@ -139,6 +139,10 @@ fn local_gateway_tool_hits(query: &str) -> Vec<Value> {
     let q = query.trim().to_ascii_lowercase();
     let tools = [
         (
+            "call_tools",
+            "Invoke multiple backend DCC capabilities in one ordered batch (max 25); REST POST /v1/call_batch.",
+        ),
+        (
             "activate_tool_group",
             "Activate a progressive tool group on a DCC instance after lazy loading.",
         ),
@@ -155,15 +159,21 @@ fn local_gateway_tool_hits(query: &str) -> Vec<Value> {
                 || name.contains(&q)
                 || summary.to_ascii_lowercase().contains(&q)
                 || q == "group"
+                || (q.contains("batch") && *name == "call_tools")
         })
         .map(|(name, summary)| {
+            let tags = if name == "call_tools" {
+                vec!["gateway", "batch", "dispatch"]
+            } else {
+                vec!["gateway", "group", "skill-management"]
+            };
             json!({
                 "tool_slug": format!("gateway.{name}"),
                 "backend_tool": name,
                 "callable_id": name,
                 "skill_name": null,
                 "summary": summary,
-                "tags": ["gateway", "group", "skill-management"],
+                "tags": tags,
                 "dcc_type": "gateway",
                 "instance_id": uuid::Uuid::nil(),
                 "has_schema": true,
@@ -278,6 +288,148 @@ pub async fn tool_call_tool(
     }
 }
 
+/// Maximum number of backend invocations allowed in one `call_tools` /
+/// `POST /v1/call_batch` request (token + backend fairness guardrail).
+pub const MAX_CALL_TOOLS_BATCH: usize = 25;
+
+/// Shared implementation for MCP `call_tools` and REST `POST /v1/call_batch`.
+///
+/// Request shape: `{ "calls": [ { "tool_slug", "arguments"?, "meta"? }, ... ],
+/// "stop_on_error"?: bool }`. Each entry is routed through
+/// [`crate::gateway::capability_service::call_service`] with the same
+/// unknown-slug refresh-and-retry semantics as [`tool_call_tool`].
+///
+/// Returns `Ok(Value)` with `{ "success": bool, "results": [...] }` where each
+/// result item includes `index`, `tool_slug`, `ok`, and either `result` or
+/// `error` (structured service error JSON). Returns `Err(message)` for bad
+/// request shapes (missing `calls`, empty array, over limit).
+///
+/// `mcp_meta` is optional MCP `_meta` from the outer `tools/call` envelope,
+/// applied to each batch item when that item does not supply its own `meta`.
+pub async fn gateway_call_batch_inner(
+    gs: &GatewayState,
+    args: &Value,
+    mcp_meta: Option<&Value>,
+) -> Result<Value, String> {
+    let calls = args
+        .get("calls")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "missing required field: calls (non-empty array)".to_string())?;
+    if calls.is_empty() {
+        return Err("calls must be a non-empty array".to_string());
+    }
+    if calls.len() > MAX_CALL_TOOLS_BATCH {
+        return Err(format!(
+            "calls exceeds maximum batch size ({MAX_CALL_TOOLS_BATCH})"
+        ));
+    }
+    let stop_on_error = args
+        .get("stop_on_error")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+
+    let mut results: Vec<Value> = Vec::with_capacity(calls.len());
+    let mut all_ok = true;
+
+    for (idx, call) in calls.iter().enumerate() {
+        let Some(slug) = call.get("tool_slug").and_then(Value::as_str) else {
+            all_ok = false;
+            results.push(json!({
+                "index": idx,
+                "ok": false,
+                "error": {"kind": "bad-request", "message": "missing tool_slug on call item"},
+            }));
+            if stop_on_error {
+                break;
+            }
+            continue;
+        };
+        let arguments = call.get("arguments").cloned().unwrap_or_else(|| json!({}));
+        let forwarded_meta = call.get("meta").cloned().or_else(|| mcp_meta.cloned());
+
+        let single_outcome = async {
+            match crate::gateway::capability_service::call_service(
+                gs,
+                slug,
+                arguments.clone(),
+                forwarded_meta.clone(),
+            )
+            .await
+            {
+                Ok(result) => Ok(result),
+                Err(err) if err.kind == "unknown-slug" => {
+                    crate::gateway::capability_service::refresh_all_live_backends(
+                        gs,
+                        crate::gateway::capability::RefreshReason::Periodic,
+                    )
+                    .await;
+                    crate::gateway::capability_service::call_service(
+                        gs,
+                        slug,
+                        arguments,
+                        forwarded_meta,
+                    )
+                    .await
+                }
+                Err(err) => Err(err),
+            }
+        }
+        .await;
+
+        match single_outcome {
+            Ok(result) => {
+                results.push(json!({
+                    "index": idx,
+                    "tool_slug": slug,
+                    "ok": true,
+                    "result": result,
+                }));
+            }
+            Err(err) => {
+                all_ok = false;
+                let payload = crate::gateway::capability_service::service_error_to_json(&err);
+                results.push(json!({
+                    "index": idx,
+                    "tool_slug": slug,
+                    "ok": false,
+                    "error": payload,
+                }));
+                if stop_on_error {
+                    break;
+                }
+            }
+        }
+    }
+
+    Ok(json!({
+        "success": all_ok,
+        "stop_on_error": stop_on_error,
+        "results": results,
+    }))
+}
+
+/// `call_tools` — invoke multiple backend capabilities in one MCP round-trip.
+pub async fn tool_call_tools(
+    gs: &GatewayState,
+    args: &Value,
+    meta: Option<&Value>,
+) -> (String, bool) {
+    let _ = meta;
+    match gateway_call_batch_inner(gs, args, meta).await {
+        Ok(value) => {
+            let is_error = !value
+                .get("success")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            (
+                serde_json::to_string_pretty(&value).unwrap_or_else(|_| value.to_string()),
+                is_error,
+            )
+        }
+        Err(msg) => (msg, true),
+    }
+}
+
 // ── private helpers ────────────────────────────────────────────────────────
 
 /// Return the JSON schema for gateway discovery, pooling, and dynamic-capability tools.
@@ -325,7 +477,7 @@ pub fn gateway_tool_defs() -> serde_json::Value {
             "description": "Search dynamic DCC capabilities by keyword, DCC type, tags, or scene hint. \
                 Returns compact records (not full schemas) so token cost stays bounded even when \
                 many DCC instances are live. Use `describe_tool` to fetch one capability's schema, \
-                then `call_tool` to invoke it. Part of the REST-backed dynamic-capability API (#657).",
+                then `call_tool` or `call_tools` to invoke. Part of the REST-backed dynamic-capability API (#657).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -379,6 +531,45 @@ pub fn gateway_tool_defs() -> serde_json::Value {
                 "openWorldHint": true,
                 "idempotentHint": false
             }
+        },
+        {
+            "name": "call_tools",
+            "description": "Invoke multiple DCC actions in order within one MCP request. Each element \
+                of `calls` uses the same shape as `call_tool` (`tool_slug`, optional `arguments`, \
+                optional per-item `meta`). Optional `stop_on_error` (default false) aborts the \
+                remainder after the first failed item. Maximum batch size is 25. REST twin: \
+                `POST /v1/call_batch`.",
+            "inputSchema": {
+                "type": "object",
+                "required": ["calls"],
+                "properties": {
+                    "calls": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 25,
+                        "items": {
+                            "type": "object",
+                            "required": ["tool_slug"],
+                            "properties": {
+                                "tool_slug": {"type": "string"},
+                                "arguments": {"type": "object"},
+                                "meta": {"type": "object"}
+                            }
+                        },
+                        "description": "Ordered backend invocations (same routing as call_tool)."
+                    },
+                    "stop_on_error": {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "When true, stop after the first failed invocation."
+                    }
+                }
+            },
+            "annotations": {
+                "destructiveHint": true,
+                "openWorldHint": true,
+                "idempotentHint": false
+            }
         }
     ])
 }
@@ -423,7 +614,7 @@ mod tests {
     #[test]
     fn gateway_tool_defs_all_have_annotations() {
         let annotations = annotations_by_tool();
-        assert_eq!(annotations.len(), 5);
+        assert_eq!(annotations.len(), 6);
 
         for (name, value) in annotations {
             let hints = value
@@ -465,6 +656,14 @@ mod tests {
         );
         assert_eq!(
             annotations.get("call_tool"),
+            Some(&json!({
+                "destructiveHint": true,
+                "openWorldHint": true,
+                "idempotentHint": false,
+            }))
+        );
+        assert_eq!(
+            annotations.get("call_tools"),
             Some(&json!({
                 "destructiveHint": true,
                 "openWorldHint": true,

@@ -264,6 +264,27 @@ pub async fn handle_v1_call(State(gs): State<GatewayState>, Json(body): Json<Val
     }
 }
 
+/// `POST /v1/call_batch` — invoke multiple backend actions in order.
+///
+/// Request body: `{ "calls": [ { "tool_slug", "arguments"?, "meta"? }, ... ],
+/// "stop_on_error"?: bool }` — same semantics as MCP `call_tools`.
+pub async fn handle_v1_call_batch(
+    State(gs): State<GatewayState>,
+    Json(body): Json<Value>,
+) -> Response {
+    match crate::gateway::tools::gateway_call_batch_inner(&gs, &body, None).await {
+        Ok(value) => (StatusCode::OK, Json(value)).into_response(),
+        Err(message) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "success": false,
+                "error": {"kind": "bad-request", "message": message},
+            })),
+        )
+            .into_response(),
+    }
+}
+
 fn error_response(err: &ServiceError) -> (StatusCode, Json<Value>) {
     let status = match err.kind.as_str() {
         "unknown-slug" => StatusCode::NOT_FOUND,
