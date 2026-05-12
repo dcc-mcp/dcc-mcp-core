@@ -22,6 +22,11 @@
           "jsonpath": "$.project.version"
         },
         {
+          "type": "json",
+          "path": "admin-ui/package.json",
+          "jsonpath": "$.version"
+        },
+        {
           "type": "generic",
           "path": ".agents/skills/dcc-mcp-core/SKILL.md"
         },
