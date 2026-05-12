@@ -66,7 +66,7 @@ flowchart LR
 
 ## Architecture
 
-34-member Rust workspace (33 functional crates + `workspace-hack`; root `Cargo.toml` is the source of truth), compiled by maturin into a single Python extension `dcc_mcp_core._core`:
+35-member Rust workspace (34 functional crates + `workspace-hack`; root `Cargo.toml` is the source of truth), compiled by maturin into a single Python extension `dcc_mcp_core._core`:
 
 ```
 dcc-mcp-core/
@@ -104,6 +104,7 @@ dcc-mcp-core/
 │   ├── dcc-mcp-logging/             # file logging + rotation
 │   ├── dcc-mcp-paths/               # platform path helpers
 │   ├── dcc-mcp-pybridge/            # PyO3 utilities
+│   ├── dcc-mcp-pybridge-derive/     # derive macros for PyO3 bridge helpers
 │   ├── dcc-mcp-naming/              # SEP-986 tool-name validation
 │   └── workspace-hack/              # cargo-hakari feature unification
 └── python/

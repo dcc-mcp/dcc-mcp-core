@@ -159,7 +159,7 @@ active = catalog.active_groups()
 
 | Task | Use this API |
 |------|---------------|
-| **Expose DCC tools over MCP** | `DccServerBase` → subclass → `start()` |
+| **Expose DCC tools over MCP** | `DccServerOptions.from_env(...)` → `DccServerBase(options=opts)` → `start()` |
 | **Zero-code tool registration** | agentskills.io `SKILL.md` + `metadata.dcc-mcp.tools` pointing at sibling `tools.yaml` + `scripts/` |
 | **Return structured results** | `success_result()` / `error_result()` |
 | **Rich error with traceback** | `skill_error_with_trace()` |
