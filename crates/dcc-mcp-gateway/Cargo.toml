@@ -7,6 +7,7 @@ authors.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "Multi-DCC MCP gateway: aggregation, routing, capability index, REST/MCP dynamic-capability surface (#653/#654/#655) — extracted from dcc-mcp-http"
+build = "build.rs"
 
 [dependencies]
 # Internal

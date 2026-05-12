@@ -1,34 +1,6 @@
 /*
- * Warm ivory admin shell: serif headlines, humanist sans UI, monospace telemetry.
- * UI webfonts loaded as woff2 from a third-party CDN (see @font-face src URLs).
+ * Warm ivory admin shell with Google Fonts linked from admin-ui/index.html.
  */
-
-@font-face {
-  font-family: 'Gateway Sans';
-  src: url('https://cdn.prod.website-files.com/67ce28cfec624e2b733f8a52/69971a00a3295036497e1a28_AnthropicSans-Roman-Web.woff2')
-    format('woff2');
-  font-weight: 300 800;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Gateway Serif';
-  src: url('https://cdn.prod.website-files.com/67ce28cfec624e2b733f8a52/69971a1551eb6cda0d656e8a_AnthropicSerif-Roman-Web.woff2')
-    format('woff2');
-  font-weight: 300 800;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Gateway Mono';
-  src: url('https://cdn.prod.website-files.com/67ce28cfec624e2b733f8a52/69971a2e55d24d61bc045b1a_AnthropicMono-Roman-Web.woff2')
-    format('woff2');
-  font-weight: 300 800;
-  font-style: normal;
-  font-display: swap;
-}
 
 :root {
   --ivory-light: #faf9f5;
@@ -43,9 +15,9 @@
   --accent-warm: #c6613f;
   --border-faint: rgba(20, 20, 19, 0.1);
   --border-hover: rgba(20, 20, 19, 0.14);
-  --font-sans: 'Gateway Sans', system-ui, sans-serif;
-  --font-serif: 'Gateway Serif', georgia, 'Times New Roman', serif;
-  --font-mono: 'Gateway Mono', ui-monospace, monospace;
+  --font-sans: 'DM Sans', system-ui, sans-serif;
+  --font-serif: 'Libre Baskerville', georgia, 'Times New Roman', serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
   --radius: 0.5rem;
   --radius-lg: 1rem;
   --nav-width: 220px;
