@@ -467,7 +467,7 @@ def test_register_inprocess_executor_calls_underlying_setter(tmp_path: Path) -> 
         enable_telemetry=False,
     )
     with patch("dcc_mcp_core.create_skill_server", return_value=MagicMock()):
-        base = DccServerBase(options=opts)
+        base = DccServerBase(opts)
     captured: list[Callable[..., Any]] = []
     _patch_set_in_process_executor(base, captured)
 
@@ -490,7 +490,7 @@ def test_register_inprocess_executor_with_dispatcher_routes(tmp_path: Path) -> N
         enable_telemetry=False,
     )
     with patch("dcc_mcp_core.create_skill_server", return_value=MagicMock()):
-        base = DccServerBase(options=opts)
+        base = DccServerBase(opts)
     captured: list[Callable[..., Any]] = []
     _patch_set_in_process_executor(base, captured)
 
@@ -551,7 +551,7 @@ def test_dcc_server_base_constructor_registers_dispatcher_before_discovery(
         enable_job_persistence=False,
         enable_telemetry=False,
     )
-    base = DccServerBase(options=opts)
+    base = DccServerBase(opts)
     base.register_builtin_actions(include_bundled=False)
 
     assert events == ["set_in_process_executor", "discover"]
@@ -589,7 +589,7 @@ def test_dcc_server_base_constructor_registers_execution_bridge_before_discovery
         enable_job_persistence=False,
         enable_telemetry=False,
     )
-    base = DccServerBase(options=opts)
+    base = DccServerBase(opts)
     base.register_builtin_actions(include_bundled=False)
 
     assert events == ["set_in_process_executor", "discover"]

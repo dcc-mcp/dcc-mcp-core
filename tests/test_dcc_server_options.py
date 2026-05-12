@@ -3,8 +3,7 @@
 Verifies:
 - All env-var resolution is centralised in DccServerOptions.from_env.
 - dispatcher / execution_bridge mutual exclusion is enforced at build time.
-- Legacy 17-param DccServerBase signature still works but emits DeprecationWarning.
-- New options-based DccServerBase path works without warnings.
+- DccServerBase requires a DccServerOptions instance.
 """
 
 from __future__ import annotations
@@ -277,7 +276,7 @@ def _make_fake_dcc_mcp(config):
 
 
 class TestDccServerBaseOptionsPath:
-    """Verify the new options= path on DccServerBase doesn't emit DeprecationWarning."""
+    """Verify DccServerBase(options) does not emit DeprecationWarning."""
 
     def _make_server_via_options(self, tmp_path):
         import builtins
@@ -298,7 +297,7 @@ class TestDccServerBaseOptionsPath:
         with patch.object(builtins, "__import__", side_effect=fake_import):
             with warnings.catch_warnings(record=True) as w:
                 warnings.simplefilter("always")
-                server = DccServerBase(options=opts)
+                server = DccServerBase(opts)
                 dep_warnings = [x for x in w if issubclass(x.category, DeprecationWarning)]
         return server, dep_warnings
 
@@ -315,45 +314,11 @@ class TestDccServerBaseOptionsPath:
         assert isinstance(server._options, DccServerOptions)
 
 
-class TestDccServerBaseLegacyPath:
-    """Verify the legacy 17-param path still works but emits DeprecationWarning."""
+def test_dcc_server_base_requires_options_argument() -> None:
+    from dcc_mcp_core.server_base import DccServerBase
 
-    def _make_server_legacy(self, tmp_path):
-        import builtins
-
-        from dcc_mcp_core.server_base import DccServerBase
-
-        skills_dir = tmp_path / "skills"
-        skills_dir.mkdir(exist_ok=True)
-        fake_cfg = _FakeConfig()
-        real_import = __import__
-
-        def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
-            if name == "dcc_mcp_core" and fromlist:
-                return _make_fake_dcc_mcp(fake_cfg)
-            return real_import(name, globals, locals, fromlist, level)
-
-        with patch.object(builtins, "__import__", side_effect=fake_import):
-            with warnings.catch_warnings(record=True) as w:
-                warnings.simplefilter("always")
-                server = DccServerBase(dcc_name="houdini", builtin_skills_dir=skills_dir)
-                dep_warnings = [x for x in w if issubclass(x.category, DeprecationWarning)]
-        return server, dep_warnings
-
-    def test_legacy_path_emits_deprecation_warning(self, tmp_path):
-        _, dep_warnings = self._make_server_legacy(tmp_path)
-        assert len(dep_warnings) == 1
-        assert "DccServerOptions" in str(dep_warnings[0].message)
-
-    def test_legacy_path_still_works(self, tmp_path):
-        server, _ = self._make_server_legacy(tmp_path)
-        assert server._dcc_name == "houdini"
-
-    def test_legacy_missing_dcc_name_raises(self, tmp_path):
-        from dcc_mcp_core.server_base import DccServerBase
-
-        with pytest.raises(TypeError):
-            DccServerBase()
+    with pytest.raises(TypeError, match="options"):
+        DccServerBase()
 
 
 class TestDccServerBasePublicImport:
