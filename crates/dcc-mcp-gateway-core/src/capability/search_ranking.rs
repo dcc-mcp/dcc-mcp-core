@@ -131,7 +131,7 @@ const EXACT_BONUS: u32 = 20;
 /// buckets which preserves the ordering while collapsing
 /// fingerprint-level jitter.
 const FUZZY_QUANTISE_DIVISOR: u32 = 32;
-const SHORT_QUERY_MAX_LEN: usize = 3;
+const AMBIGUOUS_SHORT_QUERY_LEN: usize = 3;
 
 fn search_tokens(value: &str) -> Vec<String> {
     let mut tokens = Vec::new();
@@ -318,7 +318,7 @@ impl Scorer for FuzzyScorer {
                 score += PREFIX_BONUS;
             }
 
-            if q.len() <= SHORT_QUERY_MAX_LEN && deterministic == 0 {
+            if q.len() == AMBIGUOUS_SHORT_QUERY_LEN && deterministic == 0 {
                 return 0;
             }
 

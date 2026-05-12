@@ -44,11 +44,14 @@
 //! assert!(result.is_ok());
 //! ```
 
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
 use serde_json::Value;
+
+use dcc_mcp_models::ThreadAffinity;
 
 use crate::registry::{ToolMeta, ToolRegistry};
 use crate::validation_strategy::select_strategy;
@@ -60,6 +63,26 @@ use crate::validation_strategy::select_strategy;
 /// Receives the validated input `params` and returns either a JSON `Value`
 /// (success payload) or a descriptive error string.
 pub type HandlerFn = Arc<dyn Fn(Value) -> Result<Value, String> + Send + Sync>;
+
+thread_local! {
+    static CURRENT_THREAD_AFFINITY: Cell<ThreadAffinity> = const { Cell::new(ThreadAffinity::Any) };
+}
+
+/// Return the affinity declared for the current execution context.
+#[must_use]
+pub fn current_thread_affinity() -> ThreadAffinity {
+    CURRENT_THREAD_AFFINITY.with(Cell::get)
+}
+
+/// Run `f` while marking the current execution context with `affinity`.
+pub fn with_thread_affinity<R>(affinity: ThreadAffinity, f: impl FnOnce() -> R) -> R {
+    CURRENT_THREAD_AFFINITY.with(|cell| {
+        let previous = cell.replace(affinity);
+        let result = f();
+        cell.set(previous);
+        result
+    })
+}
 
 // ── DispatchError ─────────────────────────────────────────────────────────────
 
@@ -76,6 +99,13 @@ pub enum DispatchError {
     HandlerError(String),
     /// The action exists but is currently disabled (inactive tool group).
     ActionDisabled { action: String, group: String },
+    /// The action opted into runtime affinity enforcement and the observed
+    /// execution context does not match its declaration.
+    ThreadAffinityViolation {
+        action: String,
+        declared: ThreadAffinity,
+        actual: ThreadAffinity,
+    },
 }
 
 impl std::fmt::Display for DispatchError {
@@ -90,6 +120,14 @@ impl std::fmt::Display for DispatchError {
             Self::ActionDisabled { action, group } => write!(
                 f,
                 "action '{action}' is disabled (group '{group}' is inactive — call activate_tool_group first)"
+            ),
+            Self::ThreadAffinityViolation {
+                action,
+                declared,
+                actual,
+            } => write!(
+                f,
+                "THREAD_AFFINITY_VIOLATION: action '{action}' declared thread_affinity={declared} but ran on {actual}"
             ),
         }
     }
@@ -245,13 +283,23 @@ impl ToolDispatcher {
 
         // 2. Metadata + progressive-exposure gate.
         let meta_opt: Option<ToolMeta> = self.registry.get_action(action_name, None);
-        if let Some(meta) = &meta_opt
-            && !meta.enabled
-        {
-            return Err(DispatchError::ActionDisabled {
-                action: action_name.to_string(),
-                group: meta.group.clone(),
-            });
+        if let Some(meta) = &meta_opt {
+            if !meta.enabled {
+                return Err(DispatchError::ActionDisabled {
+                    action: action_name.to_string(),
+                    group: meta.group.clone(),
+                });
+            }
+            if meta.enforce_thread_affinity {
+                let actual = current_thread_affinity();
+                if actual != meta.thread_affinity {
+                    return Err(DispatchError::ThreadAffinityViolation {
+                        action: action_name.to_string(),
+                        declared: meta.thread_affinity,
+                        actual,
+                    });
+                }
+            }
         }
 
         // 3. Validation via pluggable strategy (#493).
@@ -347,6 +395,30 @@ mod tests {
             .unwrap();
         assert_eq!(result.action, "echo");
         assert_eq!(result.output, json!({"msg": "hello"}));
+    }
+
+    #[test]
+    fn test_dispatch_enforces_thread_affinity_when_opted_in() {
+        let reg = ToolRegistry::new();
+        reg.register_action(ToolMeta {
+            name: "main_only".into(),
+            dcc: "maya".into(),
+            thread_affinity: ThreadAffinity::Main,
+            enforce_thread_affinity: true,
+            ..Default::default()
+        });
+        let dispatcher = ToolDispatcher::new(reg);
+        dispatcher.register_handler("main_only", |_| Ok(json!({"ok": true})));
+
+        let err = dispatcher.dispatch("main_only", json!({})).unwrap_err();
+        assert!(matches!(err, DispatchError::ThreadAffinityViolation { .. }));
+        assert!(err.to_string().contains("THREAD_AFFINITY_VIOLATION"));
+
+        let result = with_thread_affinity(ThreadAffinity::Main, || {
+            dispatcher.dispatch("main_only", json!({}))
+        })
+        .unwrap();
+        assert_eq!(result.output, json!({"ok": true}));
     }
 
     #[test]

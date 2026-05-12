@@ -73,6 +73,9 @@ pub struct ToolMeta {
     /// main thread. `Any` (default) allows execution on a Tokio worker.
     #[serde(default, skip_serializing_if = "is_default_thread_affinity")]
     pub thread_affinity: ThreadAffinity,
+    /// Whether dispatch should verify actual thread affinity before invoking.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub enforce_thread_affinity: bool,
     /// MCP tool annotations declared by the skill author (issue #344).
     ///
     /// When present, each non-`None` hint is surfaced on the MCP
@@ -124,6 +127,7 @@ impl Default for ToolMeta {
             execution: ExecutionMode::Sync,
             timeout_hint_secs: None,
             thread_affinity: ThreadAffinity::Any,
+            enforce_thread_affinity: false,
             annotations: ToolAnnotations::default(),
             next_tools: NextTools::default(),
         }

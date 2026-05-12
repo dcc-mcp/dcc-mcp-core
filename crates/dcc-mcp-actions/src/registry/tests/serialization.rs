@@ -23,6 +23,7 @@ fn test_action_meta_serde_round_trip() {
         execution: dcc_mcp_models::ExecutionMode::Async,
         timeout_hint_secs: Some(900),
         thread_affinity: dcc_mcp_models::ThreadAffinity::Any,
+        enforce_thread_affinity: false,
         annotations: dcc_mcp_models::ToolAnnotations::default(),
         next_tools: dcc_mcp_models::NextTools::default(),
     };

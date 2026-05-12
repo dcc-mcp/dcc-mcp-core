@@ -245,7 +245,10 @@ async fn run_on_main_thread(
                 return serde_json::to_string(&json!({"__dispatch_error": "CANCELLED"}))
                     .unwrap_or_default();
             }
-            match dispatcher.dispatch(&resolved_name, call_params) {
+            match dcc_mcp_actions::with_thread_affinity(
+                dcc_mcp_models::ThreadAffinity::Main,
+                || dispatcher.dispatch(&resolved_name, call_params),
+            ) {
                 Ok(result) => {
                     serde_json::to_string(&result.output).unwrap_or_else(|_| "null".to_string())
                 }

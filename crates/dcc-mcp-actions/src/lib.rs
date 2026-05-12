@@ -12,7 +12,10 @@ pub mod validator;
 pub mod versioned;
 
 pub use chain::{ActionChain, ChainResult, ChainStepResult, ErrorAction};
-pub use dispatcher::{DispatchError, DispatchResult, HandlerFn, ToolDispatcher};
+pub use dispatcher::{
+    DispatchError, DispatchResult, HandlerFn, ToolDispatcher, current_thread_affinity,
+    with_thread_affinity,
+};
 pub use events::EventBus;
 pub use pipeline::{
     ActionMiddleware, AuditMiddleware, AuditRecord, LoggingMiddleware, MiddlewareContext,

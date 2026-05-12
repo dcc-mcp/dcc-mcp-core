@@ -151,6 +151,7 @@ impl ToolAnnotations {
         source_file: String => [get(by_str), set],
         group: String => [get(by_str), set],
         timeout_hint_secs: Option<u32> => [get, set],
+        enforce_thread_affinity: bool => [get, set],
         required_capabilities: Vec<String> => [get(clone), set],
     ))
 )]
@@ -262,9 +263,22 @@ pub struct ToolDeclaration {
         default,
         rename = "thread-affinity",
         alias = "thread_affinity",
+        alias = "affinity",
         skip_serializing_if = "is_default_affinity"
     )]
     pub thread_affinity: ThreadAffinity,
+
+    /// Enforce that runtime execution happens on the declared affinity thread.
+    ///
+    /// Defaults to `false` for compatibility. Studio skills can opt in once
+    /// their `thread_affinity` declarations have been audited.
+    #[serde(
+        default,
+        rename = "enforce_thread_affinity",
+        alias = "enforce-thread-affinity",
+        skip_serializing_if = "std::ops::Not::not"
+    )]
+    pub enforce_thread_affinity: bool,
 
     /// Reject the legacy user-level `deferred: true` flag with a clear error.
     ///
@@ -364,8 +378,14 @@ impl<'de> serde::Deserialize<'de> for ToolDeclaration {
             execution: ExecutionMode,
             #[serde(rename = "timeout_hint_secs", alias = "timeout-hint-secs")]
             timeout_hint_secs: Option<u32>,
-            #[serde(rename = "thread-affinity", alias = "thread_affinity")]
+            #[serde(
+                rename = "thread-affinity",
+                alias = "thread_affinity",
+                alias = "affinity"
+            )]
             thread_affinity: ThreadAffinity,
+            #[serde(rename = "enforce_thread_affinity", alias = "enforce-thread-affinity")]
+            enforce_thread_affinity: bool,
 
             /// Legacy user-level `deferred:` flag — rejected below.
             #[serde(rename = "deferred")]
@@ -461,6 +481,7 @@ impl<'de> serde::Deserialize<'de> for ToolDeclaration {
             execution: w.execution,
             timeout_hint_secs: w.timeout_hint_secs,
             thread_affinity: w.thread_affinity,
+            enforce_thread_affinity: w.enforce_thread_affinity,
             _deferred_guard: None,
             annotations,
             required_capabilities: w.required_capabilities,

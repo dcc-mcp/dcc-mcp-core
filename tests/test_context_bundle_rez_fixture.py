@@ -343,7 +343,11 @@ def test_rez_skill_surface_stays_stubbed_until_context_load() -> None:
         assert bad_payload["tool_count"] == 0
         assert _tool_names(url) == before
 
-        load_is_error, load_payload = _tool_call_json(url, "load_skill", {"skill_name": "film-animation-blocking"})
+        load_is_error, load_payload = _tool_call_json(
+            url,
+            "load_skill",
+            {"skill_name": "film-animation-blocking", "activate_groups": False},
+        )
         loaded = _tool_names(url)
         assert load_is_error is False
         assert load_payload["loaded"] is True
