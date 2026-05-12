@@ -25,6 +25,8 @@ docs/src/*
 docs/.vitepress/dist
 docs/.vitepress/cache
 docs/node_modules
+admin-ui/node_modules
+admin-ui/node_modules/
 /venv/
 /run_pycharm.bat
 /.nox/

@@ -326,7 +326,7 @@ async fn issue_775_gateway_operability_acceptance_maya_photoshop() {
             .lock()
             .unwrap()
             .iter()
-            .any(|entry| entry["tool"] == "call_tool"
+            .any(|entry| entry["tool"] == photoshop_slug
                 && entry["session"] == "issue-775-session"
                 && entry["args"]["arguments"]["api_key"] == "[REDACTED]"),
         "middleware before-call spy did not observe redacted gateway call",
@@ -336,7 +336,7 @@ async fn issue_775_gateway_operability_acceptance_maya_photoshop() {
             .lock()
             .unwrap()
             .iter()
-            .any(|entry| entry["tool"] == "call_tool" && entry["is_error"] == false),
+            .any(|entry| entry["tool"] == photoshop_slug && entry["is_error"] == false),
         "middleware after-call spy did not observe successful gateway call",
     );
 
