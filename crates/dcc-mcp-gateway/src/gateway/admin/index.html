@@ -91,9 +91,10 @@ pre{white-space:pre-wrap;word-break:break-all}
     <h2>Recent Calls</h2>
     <div id="calls-status" class="status-bar">Loading…</div>
     <table><thead><tr>
-      <th>Time</th><th>Request</th><th>Tool</th><th>DCC</th><th>Status</th><th>Error</th><th>ms</th>
+      <th>Time</th><th>Request</th><th>Tool</th><th>DCC</th><th>Status</th><th>Error</th><th>ms</th><th>Detail</th>
     </tr></thead>
     <tbody id="calls-body"></tbody></table>
+    <pre id="call-detail" class="empty">Select a call row for trace detail.</pre>
     <button class="refresh-btn" onclick="fetchCalls()">Refresh</button>
   </div>
   <!-- Traces -->
@@ -254,11 +255,12 @@ async function fetchCalls() {
     document.getElementById('calls-status').textContent =
       rows.length + ' call(s) — ' + new Date().toLocaleTimeString();
     const tbody = document.getElementById('calls-body');
-    if (!rows.length) { tbody.innerHTML = '<tr><td colspan="7" class="empty">No recent calls. AuditMiddleware may not be active.</td></tr>'; return; }
+    if (!rows.length) { tbody.innerHTML = '<tr><td colspan="8" class="empty">No recent calls. AuditMiddleware may not be active.</td></tr>'; return; }
     tbody.innerHTML = rows.map(c => {
       const rid = c.request_id || '';
       const shortRid = rid ? String(rid).slice(0,12) : '-';
       const reqCell = rid ? '<button class="refresh-btn" title="' + escHtml(rid) + '" onclick="fetchTraceDetail(\'' + escAttr(rid) + '\');show(\'traces\')">' + escHtml(shortRid) + '</button>' : '-';
+      const detailCell = rid ? '<button class="refresh-btn" onclick="fetchCallDetail(\'' + escAttr(rid) + '\')">Expand</button>' : '-';
       const err = c.error || '';
       return '<tr>' +
         '<td>' + fmtTime(c.timestamp) + '</td>' +
@@ -268,6 +270,7 @@ async function fetchCalls() {
         '<td>' + badge(c.status || (c.success ? 'ok' : 'err'), ['ok','success'], []) + '</td>' +
         '<td title="' + escHtml(err) + '">' + escHtml(err ? err.slice(0,80) : '-') + '</td>' +
         '<td>' + escHtml(c.duration_ms != null ? c.duration_ms : '-') + '</td>' +
+        '<td>' + detailCell + '</td>' +
       '</tr>';
     }).join('');
   } catch(e) {
@@ -300,13 +303,21 @@ async function fetchTraces() {
 }
 
 async function fetchTraceDetail(requestId) {
+  return fetchTraceInto(requestId, 'trace-detail');
+}
+
+async function fetchCallDetail(requestId) {
+  return fetchTraceInto(requestId, 'call-detail');
+}
+
+async function fetchTraceInto(requestId, targetId) {
   if (!requestId) return;
   try {
     const r = await fetch(BASE + '/traces/' + encodeURIComponent(requestId));
     const d = await r.json();
-    document.getElementById('trace-detail').textContent = JSON.stringify(d, null, 2);
+    document.getElementById(targetId).textContent = JSON.stringify(d, null, 2);
   } catch(e) {
-    document.getElementById('trace-detail').textContent = 'Error: ' + e.message;
+    document.getElementById(targetId).textContent = 'Error: ' + e.message;
   }
 }
 

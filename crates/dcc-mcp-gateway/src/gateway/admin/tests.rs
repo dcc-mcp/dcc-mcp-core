@@ -134,6 +134,8 @@ mod admin_tests {
             "data-panel=\"stats\"",
             "fetchTraces()",
             "fetchStats()",
+            "fetchCallDetail(",
+            "call-detail",
             "/traces?limit=200",
             "/stats?range=",
         ] {
