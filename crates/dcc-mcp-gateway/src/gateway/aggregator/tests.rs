@@ -184,6 +184,7 @@ async fn aggregate_tools_list_returns_only_minimal_gateway_surface() {
         "search_tools",
         "describe_tool",
         "call_tool",
+        "call_tools",
         "search_skills",
         "load_skill",
         "activate_tool_group",

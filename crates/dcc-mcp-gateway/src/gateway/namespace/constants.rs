@@ -35,6 +35,7 @@ pub const GATEWAY_LOCAL_TOOLS: &[&str] = &[
     "search_tools",
     "describe_tool",
     "call_tool",
+    "call_tools",
 ];
 
 /// Core per-DCC tools that keep bare names (no skill prefix).
