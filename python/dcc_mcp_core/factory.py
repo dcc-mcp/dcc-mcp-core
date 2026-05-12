@@ -9,17 +9,18 @@ Usage::
     # blender_adapter/server.py
     import threading
     from pathlib import Path
+    from dcc_mcp_core._server.options import DccServerOptions
     from dcc_mcp_core.server_base import DccServerBase
     from dcc_mcp_core.factory import create_dcc_server, make_start_stop
 
     class BlenderMcpServer(DccServerBase):
-        def __init__(self, port=8765, **kwargs):
-            super().__init__(
-                dcc_name="blender",
-                builtin_skills_dir=Path(__file__).parent / "skills",
+        def __init__(self, port: int = 8765):
+            opts = DccServerOptions.from_env(
+                "blender",
+                Path(__file__).parent / "skills",
                 port=port,
-                **kwargs,
             )
+            super().__init__(opts)
 
     # Recommended: use make_start_stop for zero-boilerplate adapters
     start_server, stop_server = make_start_stop(

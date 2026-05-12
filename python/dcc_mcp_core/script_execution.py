@@ -31,8 +31,6 @@ class ScriptExecutionParams:
 
     code: str
     timeout_secs: int | None = None
-    code_key: str = "code"
-    timeout_key: str | None = None
 
 
 def normalize_script_execution_params(
@@ -40,39 +38,27 @@ def normalize_script_execution_params(
     *,
     default_timeout_secs: int | None = None,
 ) -> ScriptExecutionParams:
-    """Normalize script execution parameter aliases.
-
-    Adapters can expose one stable implementation while clients pass the
-    source as ``code``, ``script``, or ``source`` and the timeout as either
-    ``timeout_secs`` or ``timeout``.
-    """
+    """Normalize script execution parameters to ``code`` and ``timeout_secs``."""
     if default_timeout_secs is not None and default_timeout_secs <= 0:
         raise ValueError("default_timeout_secs must be greater than zero")
 
-    code_key = next((key for key in ("code", "script", "source") if params.get(key) is not None), None)
-    if code_key is None:
-        raise ValueError("Missing required script source: pass one of code, script, or source")
+    if params.get("code") is None:
+        raise ValueError("Missing required 'code' string")
 
-    code = params[code_key]
+    code = params["code"]
     if not isinstance(code, str):
-        raise TypeError(f"{code_key} must be a string")
+        raise TypeError("code must be a string")
 
-    timeout_key = next((key for key in ("timeout_secs", "timeout") if params.get(key) is not None), None)
     timeout_secs = default_timeout_secs
-    if timeout_key is not None:
-        timeout_value = params[timeout_key]
+    if params.get("timeout_secs") is not None:
+        timeout_value = params["timeout_secs"]
         if isinstance(timeout_value, bool) or not isinstance(timeout_value, int):
-            raise TypeError(f"{timeout_key} must be an integer number of seconds")
+            raise TypeError("timeout_secs must be an integer number of seconds")
         if timeout_value <= 0:
-            raise ValueError(f"{timeout_key} must be greater than zero")
+            raise ValueError("timeout_secs must be greater than zero")
         timeout_secs = timeout_value
 
-    return ScriptExecutionParams(
-        code=code,
-        timeout_secs=timeout_secs,
-        code_key=code_key,
-        timeout_key=timeout_key,
-    )
+    return ScriptExecutionParams(code=code, timeout_secs=timeout_secs)
 
 
 class _CaptureStream(io.TextIOBase):

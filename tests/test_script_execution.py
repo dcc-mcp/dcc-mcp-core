@@ -24,38 +24,25 @@ def test_script_execution_helpers_are_exported() -> None:
     assert "normalize_script_execution_params" in dcc_mcp_core.__all__
 
 
-def test_normalize_script_execution_params_accepts_code_aliases() -> None:
+def test_normalize_script_execution_params_accepts_code() -> None:
     assert normalize_script_execution_params({"code": "print(1)"}).code == "print(1)"
 
-    script = normalize_script_execution_params({"script": "print(2)"})
-    assert script.code == "print(2)"
-    assert script.code_key == "script"
 
-    source = normalize_script_execution_params({"source": "print(3)"})
-    assert source.code == "print(3)"
-    assert source.code_key == "source"
-
-
-def test_normalize_script_execution_params_accepts_timeout_aliases() -> None:
-    timeout = normalize_script_execution_params({"code": "pass", "timeout": 5})
-    assert timeout.timeout_secs == 5
-    assert timeout.timeout_key == "timeout"
-
-    timeout_secs = normalize_script_execution_params({"code": "pass", "timeout_secs": 7})
-    assert timeout_secs.timeout_secs == 7
-    assert timeout_secs.timeout_key == "timeout_secs"
+def test_normalize_script_execution_params_timeout_secs() -> None:
+    p = normalize_script_execution_params({"code": "pass", "timeout_secs": 7})
+    assert p.timeout_secs == 7
 
     default = normalize_script_execution_params({"code": "pass"}, default_timeout_secs=30)
     assert default.timeout_secs == 30
 
 
 def test_normalize_script_execution_params_validates_input() -> None:
-    with pytest.raises(ValueError, match="code, script, or source"):
+    with pytest.raises(ValueError, match="Missing required 'code'"):
         normalize_script_execution_params({})
     with pytest.raises(TypeError, match="code must be a string"):
         normalize_script_execution_params({"code": 123})
     with pytest.raises(ValueError, match="greater than zero"):
-        normalize_script_execution_params({"code": "pass", "timeout": 0})
+        normalize_script_execution_params({"code": "pass", "timeout_secs": 0})
 
 
 def test_capture_collects_stdout_and_stderr() -> None:

@@ -10,11 +10,8 @@ from dcc_mcp_core import skill_success
 
 @skill_entry
 def execute_python(
-    code: str | None = None,
-    script: str | None = None,
-    source: str | None = None,
+    code: str,
     timeout_secs: int | None = None,
-    timeout: int | None = None,
 ) -> dict:
     """Execute a Python script string in the live DCC interpreter.
 
@@ -25,10 +22,7 @@ def execute_python(
 
     Args:
         code: Python source to execute.
-        script: Alias for ``code``.
-        source: Alias for ``code``.
         timeout_secs: Execution timeout hint in seconds.
-        timeout: Alias for ``timeout_secs``.
 
     Returns:
         skill_success with ``output`` key on success, skill_error on failure.
@@ -37,13 +31,7 @@ def execute_python(
     import traceback
 
     params = normalize_script_execution_params(
-        {
-            "code": code,
-            "script": script,
-            "source": source,
-            "timeout_secs": timeout_secs,
-            "timeout": timeout,
-        },
+        {"code": code, "timeout_secs": timeout_secs},
         default_timeout_secs=30,
     )
     local_ns: dict = {}

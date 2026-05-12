@@ -65,7 +65,8 @@ def _collect_log_section(log_dir: str, dcc_name: str | None, tail_lines: int) ->
         return {
             "available": False,
             "reason": f"Log directory not found: {log_dir!r}. "
-            "Enable file logging via DccServerBase(enable_file_logging=True).",
+            "Enable file logging via DccServerOptions.from_env(..., enable_file_logging=True) "
+            "and DccServerBase(opts).",
         }
 
     files = _find_log_files(log_dir, dcc_name)
@@ -97,7 +98,8 @@ def _collect_job_section(db_path: str, limit: int) -> dict:
     if not db_path:
         return {
             "available": False,
-            "reason": "Job persistence not configured. Enable via DccServerBase(enable_job_persistence=True).",
+            "reason": "Job persistence not configured. Enable via DccServerOptions.from_env(..., "
+            "enable_job_persistence=True) and DccServerBase(opts).",
         }
     if not Path(db_path).is_file():
         return {
@@ -241,12 +243,14 @@ def main() -> None:
         )
     if not log_section.get("available"):
         hints.append(
-            "File logging is not active — enable it with DccServerBase(enable_file_logging=True) "
+            "File logging is not active — enable it with DccServerOptions.from_env(..., "
+            "enable_file_logging=True) and DccServerBase(opts) "
             "to capture future errors. Set DCC_MCP_LOG_DIR to an accessible directory."
         )
     if not job_section.get("available"):
         hints.append(
-            "Job persistence is not active — enable it with DccServerBase(enable_job_persistence=True) "
+            "Job persistence is not active — enable it with DccServerOptions.from_env(..., "
+            "enable_job_persistence=True) and DccServerBase(opts) "
             "to record tool call history. Requires the job-persist-sqlite wheel feature."
         )
     if not hints:

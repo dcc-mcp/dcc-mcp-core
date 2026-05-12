@@ -57,7 +57,7 @@
 | Expose DCC tools over HTTP/MCP | `create_skill_server("maya", McpHttpConfig(port=8765))` — Skills-First setup; falls back to `McpHttpServer(registry, config)` for manual registry wiring |
 | Inspect gateway/admin observability | Open `GET /admin` on the elected gateway; JSON APIs: `/admin/api/{instances,tools,calls,traces,stats,workers,logs,health}`. Set `DCC_MCP_GATEWAY_AUDIT_DIR` to persist `audit.jsonl` and `traces.jsonl` across restarts. |
 | Register MCP prompts from Python (issue #792) | `handle = server.prompts(); handle.register_prompt(name, template, description=..., arguments=[...])` — `server.prompts()` returns `PromptHandle`; registration upserts in-place and appears in the next `prompts/list` / `prompts/get` |
-| Build a DCC adapter | `DccServerBase(dcc_name, builtin_skills_dir)` — skill/lifecycle/gateway/hot-reload inherited |
+| Build a DCC adapter | `opts = DccServerOptions.from_env("maya", Path(...)); DccServerBase(opts)` — skill/lifecycle/gateway/hot-reload inherited |
 | Drive a DCC main-thread dispatcher | `from dcc_mcp_core.host import HostAdapter, StandaloneHost, TickableDispatcher, QueueDispatcher, BlockingDispatcher`; `TickableDispatcher` is the public minimal protocol (`tick`, `shutdown`, `is_shutdown`) for adapter typing. Do not import private host protocols. |
 | Write skill scripts | `skill_entry` + `skill_success` / `skill_error` — zero-boilerplate skill authoring |
 | Control skill trust level | `SkillScope` (Repo < User < System < Admin) — higher scope shadows lower |
@@ -451,7 +451,7 @@ tools:
 
 ### Instance-Bound Diagnostics (`dcc_mcp_core`)
 
-- `DccServerBase(dcc_name, builtin_skills_dir, *, dcc_pid=None, dcc_window_title=None, dcc_window_handle=None, resolver=None)` — bind an adapter to a specific DCC instance; the four `diagnostics__*` tools target this DCC only
+- `DccServerOptions.from_env(..., dcc_pid=..., dcc_window_title=..., dcc_window_handle=...)` + `DccServerBase(opts)` — bind an adapter to a specific DCC instance; the four `diagnostics__*` tools target this DCC only
 - `register_diagnostic_mcp_tools(server, *, dcc_name, dcc_pid=None, dcc_window_handle=None, dcc_window_title=None, resolver=None)` — register `diagnostics__screenshot`, `diagnostics__audit_log`, `diagnostics__tool_metrics`, `diagnostics__process_status` on an `McpHttpServer` before `.start()`
 - IPC handlers (renamed in 0.14.0, no compat aliases): `get_audit_log`, `get_tool_metrics` (was `get_action_metrics`), `dispatch_tool` (was `dispatch_action`), `take_screenshot`
 - `register_diagnostic_handlers(...)` — the IPC-path equivalent (used by `DccServerBase.start()`)
