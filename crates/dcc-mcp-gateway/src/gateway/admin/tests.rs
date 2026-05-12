@@ -118,11 +118,26 @@ mod admin_tests {
     #[tokio::test]
     async fn test_admin_html_contains_api_references() {
         let (_, _, html) = body_html(admin_router(), "/").await;
-        for endpoint in &["instances", "tools", "health"] {
+        for endpoint in &["instances", "tools", "health", "traces", "stats"] {
             assert!(
                 html.contains(endpoint),
                 "HTML missing reference to '{endpoint}'"
             );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_admin_html_contains_traces_and_stats_panels() {
+        let (_, _, html) = body_html(admin_router(), "/").await;
+        for needle in [
+            "data-panel=\"traces\"",
+            "data-panel=\"stats\"",
+            "fetchTraces()",
+            "fetchStats()",
+            "/traces?limit=200",
+            "/stats?range=",
+        ] {
+            assert!(html.contains(needle), "HTML missing {needle}");
         }
     }
 

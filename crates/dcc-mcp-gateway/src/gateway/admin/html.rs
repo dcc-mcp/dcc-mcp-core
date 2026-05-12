@@ -57,6 +57,8 @@ pre{white-space:pre-wrap;word-break:break-all}
   <a href="#" class="nav-link" data-panel="instances">Instances</a>
   <a href="#" class="nav-link" data-panel="tools">Tools</a>
   <a href="#" class="nav-link" data-panel="calls">Calls</a>
+  <a href="#" class="nav-link" data-panel="traces">Traces</a>
+  <a href="#" class="nav-link" data-panel="stats">Stats</a>
   <a href="#" class="nav-link" data-panel="workers">Workers</a>
   <a href="#" class="nav-link" data-panel="logs">Logs</a>
 </nav>
@@ -97,6 +99,32 @@ pre{white-space:pre-wrap;word-break:break-all}
     </tr></thead>
     <tbody id="calls-body"></tbody></table>
     <button class="refresh-btn" onclick="fetchCalls()">Refresh</button>
+  </div>
+  <!-- Traces -->
+  <div id="panel-traces" class="panel">
+    <h2>Traces</h2>
+    <div id="traces-status" class="status-bar">Loading…</div>
+    <table><thead><tr>
+      <th>Time</th><th>Request</th><th>Tool</th><th>Status</th><th>Total ms</th>
+    </tr></thead>
+    <tbody id="traces-body"></tbody></table>
+    <pre id="trace-detail" class="empty">Select a trace row for detail.</pre>
+    <button class="refresh-btn" onclick="fetchTraces()">Refresh</button>
+  </div>
+  <!-- Stats -->
+  <div id="panel-stats" class="panel">
+    <h2>Stats</h2>
+    <div id="stats-status" class="status-bar">Loading…</div>
+    <label class="status-bar">Range
+      <select id="stats-range" onchange="fetchStats()">
+        <option value="1h">1h</option>
+        <option value="24h" selected>24h</option>
+        <option value="7d">7d</option>
+      </select>
+    </label>
+    <div id="stats-grid" class="health-grid"></div>
+    <div id="stats-body"></div>
+    <button class="refresh-btn" onclick="fetchStats()">Refresh</button>
   </div>
   <!-- Workers (Phase 4) -->
   <div id="panel-workers" class="panel">
@@ -140,6 +168,10 @@ function badge(val, ok_vals, warn_vals) {
 
 function escHtml(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function escAttr(s) {
+  return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/</g,'&lt;');
 }
 
 function fmtTime(ts) {
@@ -239,6 +271,60 @@ async function fetchCalls() {
   }
 }
 
+async function fetchTraces() {
+  try {
+    const r = await fetch(BASE + '/traces?limit=200');
+    const d = await r.json();
+    const rows = d.traces || [];
+    document.getElementById('traces-status').textContent =
+      rows.length + ' trace(s) — ' + new Date().toLocaleTimeString();
+    const tbody = document.getElementById('traces-body');
+    if (!rows.length) { tbody.innerHTML = '<tr><td colspan="5" class="empty">No traces recorded.</td></tr>'; return; }
+    tbody.innerHTML = rows.map(t => {
+      const rid = t.request_id || t.id || '';
+      return '<tr onclick="fetchTraceDetail(\'' + escAttr(rid) + '\')">' +
+        '<td>' + fmtTime(t.timestamp || t.started_at) + '</td>' +
+        '<td>' + escHtml(rid) + '</td>' +
+        '<td>' + escHtml(t.tool || t.tool_slug || t.action || '-') + '</td>' +
+        '<td>' + badge(t.status || (t.success ? 'ok' : 'err'), ['ok','success'], []) + '</td>' +
+        '<td>' + escHtml(t.total_ms != null ? t.total_ms : (t.duration_ms != null ? t.duration_ms : '-')) + '</td>' +
+      '</tr>';
+    }).join('');
+  } catch(e) {
+    document.getElementById('traces-status').textContent = 'Error: ' + e.message;
+  }
+}
+
+async function fetchTraceDetail(requestId) {
+  if (!requestId) return;
+  try {
+    const r = await fetch(BASE + '/traces/' + encodeURIComponent(requestId));
+    const d = await r.json();
+    document.getElementById('trace-detail').textContent = JSON.stringify(d, null, 2);
+  } catch(e) {
+    document.getElementById('trace-detail').textContent = 'Error: ' + e.message;
+  }
+}
+
+async function fetchStats() {
+  try {
+    const range = document.getElementById('stats-range').value || '24h';
+    const r = await fetch(BASE + '/stats?range=' + encodeURIComponent(range));
+    const d = await r.json();
+    document.getElementById('stats-status').textContent =
+      'Range ' + escHtml(d.range || range) + ' — ' + new Date().toLocaleTimeString();
+    document.getElementById('stats-grid').innerHTML = [
+      card('', 'Calls', escHtml(d.total_calls != null ? d.total_calls : 0)),
+      card('', 'Success %', escHtml(d.success_rate != null ? Number(d.success_rate).toFixed(1) : '0.0')),
+      card('', 'p50 ms', escHtml(d.p50_ms != null ? d.p50_ms : '-')),
+      card('', 'p95 ms', escHtml(d.p95_ms != null ? d.p95_ms : '-')),
+    ].join('');
+    document.getElementById('stats-body').innerHTML = '<pre>' + escHtml(JSON.stringify(d, null, 2)) + '</pre>';
+  } catch(e) {
+    document.getElementById('stats-status').textContent = 'Error: ' + e.message;
+  }
+}
+
 async function fetchLogs() {
   try {
     const r = await fetch(BASE + '/logs');
@@ -318,6 +404,8 @@ function fetchPanel(panel) {
   else if (panel === 'instances') fetchInstances();
   else if (panel === 'tools') fetchTools();
   else if (panel === 'calls') fetchCalls();
+  else if (panel === 'traces') fetchTraces();
+  else if (panel === 'stats') fetchStats();
   else if (panel === 'workers') fetchWorkers();
   else if (panel === 'logs') fetchLogs();
 }
