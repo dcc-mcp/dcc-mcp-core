@@ -13,10 +13,12 @@ fn skill_management_tool_defs_cover_all_six_tools() {
         "get_skill_info",
         "load_skill",
         "unload_skill",
+        "activate_tool_group",
+        "deactivate_tool_group",
     ] {
         assert!(names.contains(&expected), "missing tool def {expected}");
     }
-    assert_eq!(defs.len(), 5, "expected exactly 5 skill-management tools");
+    assert_eq!(defs.len(), 7, "expected exactly 7 skill-management tools");
 }
 
 #[test]
@@ -185,6 +187,8 @@ async fn aggregate_tools_list_returns_only_minimal_gateway_surface() {
         "call_tool",
         "search_skills",
         "load_skill",
+        "activate_tool_group",
+        "deactivate_tool_group",
     ] {
         assert!(
             names.contains(&expected),

@@ -100,6 +100,13 @@ pub async fn handle_load_skill(
         ));
     }
 
+    let activate_groups = params
+        .arguments
+        .as_ref()
+        .and_then(|a| a.get("activate_groups"))
+        .and_then(Value::as_bool)
+        .unwrap_or(true);
+
     // Collect the full set of requested skills, deduping `skill_name` vs the
     // `skill_names` array so callers passing both don't trigger the work twice.
     let mut requested: Vec<String> = Vec::new();
@@ -119,7 +126,11 @@ pub async fn handle_load_skill(
 
     for name in &requested {
         let was_loaded = state.server.catalog.is_loaded(name);
-        match state.server.catalog.load_skill(name) {
+        match state
+            .server
+            .catalog
+            .load_skill_with_options(name, activate_groups)
+        {
             Ok(tools) => {
                 all_registered_tools.extend(tools);
                 if was_loaded {

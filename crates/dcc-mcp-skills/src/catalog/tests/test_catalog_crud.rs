@@ -1,6 +1,6 @@
 use super::fixtures::{make_catalog_with_dispatcher, make_test_catalog, make_test_skill};
 use super::*;
-use dcc_mcp_models::ToolDeclaration;
+use dcc_mcp_models::{SkillGroup, ToolDeclaration};
 
 #[test]
 fn test_catalog_new_is_empty() {
@@ -54,6 +54,70 @@ fn test_load_skill_with_action_meta_skill_name() {
         .get_action("my_skill__tool1", None)
         .unwrap();
     assert_eq!(meta.skill_name, Some("my-skill".to_string()));
+}
+
+#[test]
+fn test_load_skill_activates_declared_groups_by_default() {
+    let catalog = make_test_catalog();
+    let mut skill = make_test_skill("maya-scene", "maya", &[]);
+    skill.groups = vec![SkillGroup {
+        name: "scene-management".to_string(),
+        default_active: false,
+        ..Default::default()
+    }];
+    skill.tools = vec![ToolDeclaration {
+        name: "new_scene".to_string(),
+        group: "scene-management".to_string(),
+        ..Default::default()
+    }];
+    catalog.add_skill(skill);
+
+    catalog.load_skill("maya-scene").unwrap();
+
+    let meta = catalog
+        .registry()
+        .get_action("maya_scene__new_scene", None)
+        .expect("grouped action registered");
+    assert!(
+        meta.enabled,
+        "load_skill should make grouped actions callable"
+    );
+    assert!(
+        catalog
+            .active_groups()
+            .contains(&"scene-management".to_string()),
+        "declared group should be active after default load"
+    );
+}
+
+#[test]
+fn test_load_skill_can_leave_groups_inactive_when_requested() {
+    let catalog = make_test_catalog();
+    let mut skill = make_test_skill("maya-scene", "maya", &[]);
+    skill.groups = vec![SkillGroup {
+        name: "scene-management".to_string(),
+        default_active: false,
+        ..Default::default()
+    }];
+    skill.tools = vec![ToolDeclaration {
+        name: "new_scene".to_string(),
+        group: "scene-management".to_string(),
+        ..Default::default()
+    }];
+    catalog.add_skill(skill);
+
+    catalog
+        .load_skill_with_options("maya-scene", false)
+        .expect("skill loads with inactive groups");
+
+    let meta = catalog
+        .registry()
+        .get_action("maya_scene__new_scene", None)
+        .expect("grouped action registered");
+    assert!(
+        !meta.enabled,
+        "activate_groups=false should preserve laziness"
+    );
 }
 
 #[test]

@@ -23,7 +23,7 @@
 ```
 1. DISCOVER: search_skills(query="keyword") → find the right skill
 2. CHECK: Read the skill's description and tools
-3. ACTIVATE: load_skill("skill-name") → expose the tools
+3. ACTIVATE: load_skill("skill-name") → expose the tools and cascade-activate declared tool groups by default
 4. EXECUTE: Call the specific tool with validated parameters
 5. FOLLOW UP: Check next-tools.on-success for suggested next steps
 6. DEBUG: On failure, use dcc_diagnostics__screenshot or audit_log
@@ -58,7 +58,7 @@
 | Drive a DCC main-thread dispatcher | `from dcc_mcp_core.host import HostAdapter, StandaloneHost, TickableDispatcher, QueueDispatcher, BlockingDispatcher`; `TickableDispatcher` is the public minimal protocol (`tick`, `shutdown`, `is_shutdown`) for adapter typing. Do not import private host protocols. |
 | Write skill scripts | `skill_entry` + `skill_success` / `skill_error` — zero-boilerplate skill authoring |
 | Control skill trust level | `SkillScope` (Repo < User < System < Admin) — higher scope shadows lower |
-| Progressive tool exposure | `SkillGroup` with `default_active` + `activate_tool_group()` |
+| Progressive tool exposure | `SkillGroup`; `load_skill()` activates groups by default, or use `load_skill(activate_groups=false)` + `activate_tool_group(group_name=...)` for lazy activation |
 | Remote-accessible MCP server (cloud agents) | `create_skill_server("maya", McpHttpConfig(host="0.0.0.0", port=8765, enable_cors=True))` — bind `0.0.0.0`, CORS on, Bearer auth via `cfg.api_key` |
 | Bearer-token / OAuth auth | `ApiKeyConfig`, `OAuthConfig`, `CimdDocument`, `validate_bearer_token(headers, expected_token=...)`, `generate_api_key()` |
 | Batch multiple tool calls server-side (issue #406) | `batch_dispatch(dispatcher, calls, aggregate="merge")` — returns `{total, succeeded, errors, merged}` |

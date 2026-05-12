@@ -33,7 +33,13 @@ pub async fn route_tools_call(
     // ── Skill-management tools ──────────────────────────────────────────
     if matches!(
         tool,
-        "list_skills" | "search_skills" | "get_skill_info" | "load_skill" | "unload_skill"
+        "list_skills"
+            | "search_skills"
+            | "get_skill_info"
+            | "load_skill"
+            | "unload_skill"
+            | "activate_tool_group"
+            | "deactivate_tool_group"
     ) {
         return skill_mgmt_dispatch(gs, tool, args).await;
     }

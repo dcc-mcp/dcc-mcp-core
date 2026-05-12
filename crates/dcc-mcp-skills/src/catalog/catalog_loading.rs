@@ -1,14 +1,41 @@
 use super::*;
 
+fn activate_skill_groups(catalog: &SkillCatalog, metadata: &SkillMetadata) {
+    for group in &metadata.groups {
+        if !group.name.is_empty() {
+            catalog.activate_group(&group.name);
+        }
+    }
+    for tool in &metadata.tools {
+        if !tool.group.is_empty() {
+            catalog.activate_group(&tool.group);
+        }
+    }
+}
+
 impl SkillCatalog {
     /// Load a skill by name — registers its tools into ToolRegistry and,
     /// if a dispatcher is attached, auto-registers script execution handlers.
     pub fn load_skill(&self, skill_name: &str) -> Result<Vec<String>, String> {
+        self.load_skill_with_options(skill_name, true)
+    }
+
+    /// Load a skill, optionally activating every declared tool group.
+    pub fn load_skill_with_options(
+        &self,
+        skill_name: &str,
+        activate_groups: bool,
+    ) -> Result<Vec<String>, String> {
         if self.loaded.contains(skill_name) {
             let actions = self
                 .entries
                 .get(skill_name)
-                .map(|entry| entry.registered_tools.clone())
+                .map(|entry| {
+                    if activate_groups {
+                        activate_skill_groups(self, &entry.metadata);
+                    }
+                    entry.registered_tools.clone()
+                })
                 .unwrap_or_default();
             return Ok(actions);
         }
@@ -24,9 +51,13 @@ impl SkillCatalog {
         let skill_base = metadata.name.replace('-', "_");
         let skill_path = std::path::Path::new(&metadata.skill_path);
 
-        for group in &metadata.groups {
-            if group.default_active {
-                self.active_groups.insert(group.name.clone());
+        if activate_groups {
+            activate_skill_groups(self, &metadata);
+        } else {
+            for group in &metadata.groups {
+                if group.default_active {
+                    self.active_groups.insert(group.name.clone());
+                }
             }
         }
 
@@ -67,7 +98,8 @@ impl SkillCatalog {
                 source_file: script_path.clone(),
                 skill_name: Some(skill_name.to_string()),
                 group: tool_decl.group.clone(),
-                enabled: group_default_active(&metadata.groups, &tool_decl.group),
+                enabled: activate_groups
+                    || group_default_active(&metadata.groups, &tool_decl.group),
                 required_capabilities: tool_decl.required_capabilities.clone(),
                 execution: tool_decl.execution,
                 timeout_hint_secs: tool_decl.timeout_hint_secs,
