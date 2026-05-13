@@ -67,3 +67,63 @@ impl fmt::Display for BackendCallError {
         }
     }
 }
+
+fn http_status_prometheus_kind(status_line: &str) -> &'static str {
+    let code = status_line
+        .split_whitespace()
+        .next()
+        .and_then(|s| s.parse::<u16>().ok());
+    match code {
+        Some(c) if (500..600).contains(&c) => "http_5xx",
+        Some(c) if (400..500).contains(&c) => "http_4xx",
+        Some(_) => "http_other",
+        None => "http_other",
+    }
+}
+
+impl BackendCallError {
+    /// Coarse label for `dcc_mcp_gateway_backend_errors_total{kind=…}`.
+    #[must_use]
+    pub(crate) fn prometheus_error_kind(&self) -> &'static str {
+        match self {
+            Self::Booting { .. } => "booting",
+            Self::Unreachable { .. } => "unreachable",
+            Self::Transport { reason, .. } => {
+                if reason.contains("circuit breaker") {
+                    "circuit_open"
+                } else {
+                    "transport"
+                }
+            }
+            Self::Http { status, .. } => http_status_prometheus_kind(status),
+            Self::ReadBody { .. } => "read_body",
+            Self::InvalidJson { .. } => "invalid_json",
+            Self::Backend { .. } => "jsonrpc_backend",
+            Self::EmptyResult { .. } => "empty_result",
+        }
+    }
+}
+
+/// Classify `rest_get` / `rest_post` `Err(String)` for Prometheus (same vocabulary as JSON-RPC).
+#[must_use]
+pub(crate) fn rest_error_prometheus_kind(err: &str) -> &'static str {
+    if err.contains("circuit breaker open") || err.contains("circuit breaker") {
+        return "circuit_open";
+    }
+    if err.contains("transport error") {
+        return "transport";
+    }
+    if let Some(idx) = err.find(": HTTP ") {
+        let tail = &err[idx + 7..];
+        if let Some(st) = tail.split_whitespace().next() {
+            return http_status_prometheus_kind(st);
+        }
+    }
+    if err.contains("invalid JSON response") {
+        return "invalid_json";
+    }
+    if err.contains("read body") {
+        return "read_body";
+    }
+    "other"
+}

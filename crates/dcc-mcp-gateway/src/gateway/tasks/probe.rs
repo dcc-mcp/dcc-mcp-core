@@ -3,11 +3,16 @@ use std::time::Duration;
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
 use dcc_mcp_transport::discovery::types::GATEWAY_SENTINEL_DCC_TYPE;
 use dcc_mcp_transport::error::TransportResult;
+use futures::future::join_all;
 
 /// On gateway startup, probe every registered instance's TCP port and
 /// deregister any that are unreachable. Complements `prune_dead_pids`
 /// which only checks PID liveness — a process may be alive but its MCP
 /// listener already shut down (issue #556).
+///
+/// Probes run **in parallel** so many DCC instances do not stretch gateway
+/// startup by `N × timeout` (sequential behaviour made 4+ instances flaky on
+/// busy hosts where each connect approached the deadline).
 pub(crate) async fn probe_and_evict_dead_instances(
     registry: &FileRegistry,
     stale_timeout: Duration,
@@ -24,22 +29,42 @@ pub(crate) async fn probe_and_evict_dead_instances(
         })
         .collect();
 
-    let mut evicted = 0usize;
-    for entry in entries {
-        let addr = format!("{}:{}", entry.host, entry.port);
-        let reachable = tokio::time::timeout(
-            Duration::from_secs(3),
-            tokio::net::TcpStream::connect(&addr),
-        )
-        .await
-        .is_ok_and(|r| r.is_ok());
+    if entries.is_empty() {
+        return Ok(0);
+    }
 
+    /// Tuned for many instances: accept completes quickly on healthy listeners;
+    /// unhealthy rows fail fast without holding the gateway boot for N×3s.
+    const CONNECT_TIMEOUT: Duration = Duration::from_millis(1500);
+
+    let futures: Vec<_> = entries
+        .into_iter()
+        .map(|entry| {
+            let key = entry.key();
+            let addr = format!("{}:{}", entry.host, entry.port);
+            let dcc_type = entry.dcc_type.clone();
+            let instance_id = entry.instance_id;
+            async move {
+                let reachable = tokio::time::timeout(
+                    CONNECT_TIMEOUT,
+                    tokio::net::TcpStream::connect(addr.as_str()),
+                )
+                .await
+                .is_ok_and(|r| r.is_ok());
+                (key, reachable, addr, dcc_type, instance_id)
+            }
+        })
+        .collect();
+
+    let outcomes = join_all(futures).await;
+    let mut evicted = 0usize;
+    for (key, reachable, addr, dcc_type, instance_id) in outcomes {
         if !reachable {
-            registry.deregister(&entry.key())?;
+            registry.deregister(&key)?;
             evicted += 1;
             tracing::info!(
-                dcc_type = %entry.dcc_type,
-                instance_id = %entry.instance_id,
+                dcc_type = %dcc_type,
+                instance_id = %instance_id,
                 addr = %addr,
                 "Startup probe: instance unreachable — deregistered"
             );

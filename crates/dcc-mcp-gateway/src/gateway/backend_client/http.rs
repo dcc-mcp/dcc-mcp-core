@@ -3,6 +3,9 @@ use std::time::Duration;
 use serde_json::Value;
 
 use super::error::BackendCallError;
+use super::urls::rest_base_from_mcp_url;
+use crate::gateway::metrics::record_gateway_backend_error_kind;
+use crate::gateway::resilience::{circuits, is_circuit_worthy_jsonrpc_error};
 
 /// Percent-encode a URI string for use as a URL path segment.
 ///
@@ -91,6 +94,16 @@ pub(super) async fn post_jsonrpc(
     session_id: Option<&str>,
     timeout: Duration,
 ) -> Result<Value, BackendCallError> {
+    let circuit_key = rest_base_from_mcp_url(mcp_url);
+    if let Err(reason) = circuits().check_open(&circuit_key) {
+        let err = BackendCallError::Transport {
+            mcp_url: mcp_url.to_string(),
+            reason,
+        };
+        record_gateway_backend_error_kind(err.prometheus_error_kind());
+        return Err(err);
+    }
+
     let mut request = client
         .post(mcp_url)
         .timeout(timeout)
@@ -101,30 +114,62 @@ pub(super) async fn post_jsonrpc(
         request = request.header("Mcp-Session-Id", session_id);
     }
 
-    let resp = request
-        .send()
-        .await
-        .map_err(|e| BackendCallError::Transport {
-            mcp_url: mcp_url.to_string(),
-            reason: e.to_string(),
-        })?;
+    let resp = match request.send().await {
+        Ok(r) => r,
+        Err(e) => {
+            circuits().on_transport_failure(&circuit_key);
+            let err = BackendCallError::Transport {
+                mcp_url: mcp_url.to_string(),
+                reason: e.to_string(),
+            };
+            record_gateway_backend_error_kind(err.prometheus_error_kind());
+            return Err(err);
+        }
+    };
 
     if !resp.status().is_success() {
         let status = resp.status().to_string();
         let body = resp.text().await.unwrap_or_default();
-        return Err(BackendCallError::Http {
+        let err = BackendCallError::Http {
             mcp_url: mcp_url.to_string(),
             status,
             body,
-        });
+        };
+        if is_circuit_worthy_jsonrpc_error(&err) {
+            circuits().on_transport_failure(&circuit_key);
+        } else {
+            circuits().on_success(&circuit_key);
+        }
+        record_gateway_backend_error_kind(err.prometheus_error_kind());
+        return Err(err);
     }
 
-    let text = resp.text().await.map_err(|e| BackendCallError::ReadBody {
-        mcp_url: mcp_url.to_string(),
-        reason: e.to_string(),
-    })?;
+    let text = match resp.text().await {
+        Ok(t) => t,
+        Err(e) => {
+            circuits().on_transport_failure(&circuit_key);
+            let err = BackendCallError::ReadBody {
+                mcp_url: mcp_url.to_string(),
+                reason: e.to_string(),
+            };
+            record_gateway_backend_error_kind(err.prometheus_error_kind());
+            return Err(err);
+        }
+    };
 
-    parse_jsonrpc_result(mcp_url, &text)
+    let out = parse_jsonrpc_result(mcp_url, &text);
+    match &out {
+        Ok(_) => circuits().on_success(&circuit_key),
+        Err(e) => {
+            if is_circuit_worthy_jsonrpc_error(e) {
+                circuits().on_transport_failure(&circuit_key);
+            } else {
+                circuits().on_success(&circuit_key);
+            }
+            record_gateway_backend_error_kind(e.prometheus_error_kind());
+        }
+    }
+    out
 }
 
 pub(super) fn parse_jsonrpc_result(mcp_url: &str, text: &str) -> Result<Value, BackendCallError> {

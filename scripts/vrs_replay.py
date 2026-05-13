@@ -9,7 +9,7 @@ Environment:
   VRS_HTTP_TIMEOUT_SECS — request timeout (default 120)
 
 Exit codes:
-  0 — all steps passed, or trace was skipped by skip_preflight (no live Maya).
+  0 — all steps passed, or trace was skipped by skip_preflight (e.g. no matching hosts).
   1 — a step failed or the trace file was invalid.
 """
 
@@ -141,7 +141,7 @@ def _run_skip_preflight(
     spec: Mapping[str, Any],
     timeout: float,
 ) -> bool:
-    """Return True if the trace should be skipped (e.g. no Maya in registry)."""
+    """Return True if the trace should be skipped (preflight `skip_when` matched)."""
     http = spec.get("http")
     if not isinstance(http, dict):
         return False
@@ -160,6 +160,16 @@ def _run_skip_preflight(
     if when.get("equals") is not None and val == when["equals"]:
         print(f"SKIP: skip_preflight matched ({ptr} == {val}). Trace not applicable.")
         return True
+    if when.get("less_than") is not None:
+        try:
+            thr = int(when["less_than"])
+            n = int(val)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            pass
+        else:
+            if n < thr:
+                print(f"SKIP: skip_preflight matched ({ptr} == {n} < less_than={thr}). Trace not applicable.")
+                return True
     return False
 
 

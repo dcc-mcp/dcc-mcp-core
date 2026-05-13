@@ -1,15 +1,19 @@
 //! Gateway axum router builder.
 
-use axum::{Router, routing};
+use axum::{Router, middleware, routing};
 use tower_http::cors::{Any, CorsLayer};
+use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::trace::TraceLayer;
 
 use super::handlers::{
     handle_gateway_get, handle_gateway_mcp, handle_gateway_yield, handle_health, handle_instances,
     handle_proxy_dcc, handle_proxy_instance, handle_v1_call, handle_v1_call_batch,
-    handle_v1_context, handle_v1_describe, handle_v1_describe_path, handle_v1_healthz,
-    handle_v1_openapi, handle_v1_readyz, handle_v1_search, handle_v1_skills,
+    handle_v1_context, handle_v1_dcc_instance_call, handle_v1_dcc_instance_describe,
+    handle_v1_describe, handle_v1_describe_path, handle_v1_healthz, handle_v1_openapi,
+    handle_v1_readyz, handle_v1_search, handle_v1_skills,
 };
+use super::http_limits::rate_limit_middleware;
+use super::resilience::gateway_limits;
 use super::state::GatewayState;
 
 /// Build the gateway `Router` with all discovery, SSE, REST, and proxy routes.
@@ -25,23 +29,33 @@ use super::state::GatewayState;
 ///
 /// Dynamic-capability REST API (#654, introduced by #657):
 /// - `GET  /v1/instances` — same payload as `/instances`
+/// - `GET  /v1/context` — aggregate snapshot plus `instances` (live rows, same shape as `/v1/instances`)
 /// - `POST /v1/search`    — keyword + filter search over the capability index
 /// - `POST /v1/describe`  — resolve one capability slug
 /// - `POST /v1/call`      — invoke a backend action by slug
+/// - `POST /v1/dcc/{dcc_type}/instances/{instance_id}/call` — same routing as `/v1/call`, but
+///   `dcc_type` + `instance_id` (UUID or ≥4-char hex prefix) come from the path and the JSON
+///   body carries `backend_tool` (+ optional `arguments` / `meta`) instead of a dotted `tool_slug`
+/// - `GET /v1/dcc/{dcc_type}/instances/{instance_id}/describe?backend_tool=...` — same payload as
+///   `GET /v1/tools/{slug}` after composing the dotted `tool_slug` (aliases `tool`, `action` query keys)
 /// - `POST /v1/call_batch` — ordered multi-invocation (same contract as MCP `call_tools`)
 ///
 /// Admin UI (#772, `admin` feature):
 /// - `GET  /admin`              — HTML dashboard
 /// - `GET  /admin/api/*`        — JSON API endpoints
 pub fn build_gateway_router(state: GatewayState) -> Router {
-    build_base_router(state)
-        .layer(TraceLayer::new_for_http())
-        .layer(
-            CorsLayer::new()
-                .allow_origin(Any)
-                .allow_methods(Any)
-                .allow_headers(Any),
-        )
+    let limits = gateway_limits();
+    let mut r = build_base_router(state);
+    r = r.layer(RequestBodyLimitLayer::new(limits.body_max_bytes));
+    if limits.rate_limit_per_minute_per_ip > 0 {
+        r = r.layer(middleware::from_fn(rate_limit_middleware));
+    }
+    r.layer(TraceLayer::new_for_http()).layer(
+        CorsLayer::new()
+            .allow_origin(Any)
+            .allow_methods(Any)
+            .allow_headers(Any),
+    )
 }
 
 /// Build the gateway router, optionally attaching the admin UI sub-router.
@@ -54,7 +68,12 @@ pub fn build_gateway_router_with_admin(
     #[cfg(feature = "admin")] admin_state: Option<super::admin::state::AdminState>,
     #[cfg(feature = "admin")] admin_path: &str,
 ) -> Router {
-    let router = build_base_router(state);
+    let limits = gateway_limits();
+    let mut router = build_base_router(state);
+    router = router.layer(RequestBodyLimitLayer::new(limits.body_max_bytes));
+    if limits.rate_limit_per_minute_per_ip > 0 {
+        router = router.layer(middleware::from_fn(rate_limit_middleware));
+    }
 
     // ── #772 admin UI (opt-in feature + runtime flag) ─────────────────────
     #[cfg(feature = "admin")]
@@ -97,6 +116,14 @@ fn build_base_router(state: GatewayState) -> Router {
         .route("/v1/search", routing::post(handle_v1_search))
         .route("/v1/describe", routing::post(handle_v1_describe))
         .route("/v1/tools/{slug}", routing::get(handle_v1_describe_path))
+        .route(
+            "/v1/dcc/{dcc_type}/instances/{instance_id}/call",
+            routing::post(handle_v1_dcc_instance_call),
+        )
+        .route(
+            "/v1/dcc/{dcc_type}/instances/{instance_id}/describe",
+            routing::get(handle_v1_dcc_instance_describe),
+        )
         .route("/v1/call", routing::post(handle_v1_call))
         .route("/v1/call_batch", routing::post(handle_v1_call_batch))
         .route("/v1/context", routing::get(handle_v1_context))

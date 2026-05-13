@@ -5,8 +5,8 @@
 //! | Submodule          | What lives here                                              |
 //! |--------------------|--------------------------------------------------------------|
 //! | [`record`]         | `CapabilityRecord`, slug encoding / parsing, validation      |
-//! | [`search`]         | `SearchQuery`, `SearchHit`, `SearchPage`, `SearchMode`, pure ranking |
-//! | [`search_ranking`] | `Scorer` / `StrategyScorer` traits + built-in implementations |
+//! | [`search`]         | `SearchQuery`, `SearchHit`, pagination — delegates to `dcc-mcp-gateway-search` |
+//! | [`search_ranking`] | Re-exports scorers / [`SearchRecord`] from `dcc-mcp-gateway-search` |
 //! | [`index`]          | `IndexSnapshot`, `InstanceFingerprint` — read-side snapshot  |
 //! | [`builder`]        | `BuildOutcome` — output of the per-instance record builder   |
 //! | [`refresh`]        | `RefreshReason` — why a refresh cycle is running             |
@@ -18,16 +18,13 @@
 //! all live in `dcc-mcp-gateway` because they carry runtime state the
 //! domain layer has no business holding. The *wire types* — query
 //! parameters, result rows, snapshot view, builder output, and
-//! refresh-reason classification — plus pure search ranking live here
-//! so any REST/admin client talking to the gateway can deserialise and
-//! rank responses without pulling the full gateway crate.
+//! refresh-reason classification — live here so any REST/admin client
+//! talking to the gateway can deserialise domain payloads without pulling
+//! the full gateway crate.
 //!
-//! The ranking strategies in [`search_ranking`] also live here even
-//! though they are behaviour rather than wire types: they are pure
-//! CPU code (no async, no IO, no runtime state) and are part of the
-//! search contract — the same query against the same snapshot must
-//! produce the same ordering for every consumer of the domain, not
-//! just the gateway binary.
+//! The ranking strategies ship in the standalone [`dcc_mcp_gateway_search`]
+//! crate so future search backends (BM25, embeddings, …) can evolve without
+//! pulling the full gateway-core surface.
 
 pub mod builder;
 pub mod index;
@@ -47,6 +44,6 @@ pub use search::{
     DEFAULT_LIMIT, MAX_LIMIT, SearchHit, SearchMode, SearchPage, SearchQuery, search, search_page,
 };
 pub use search_ranking::{
-    ExactScorer, FuzzyScorer, Scorer, ScorerFactory, StrategyExactScorer, StrategyFuzzyScorer,
-    StrategyScorer, SubstringScorer,
+    ExactScorer, FuzzyScorer, Scorer, ScorerFactory, SearchRecord, StrategyExactScorer,
+    StrategyFuzzyScorer, StrategyScorer, SubstringScorer,
 };

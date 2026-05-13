@@ -1,10 +1,18 @@
 use super::*;
 
 use crate::gateway::capability::RefreshReason;
+use crate::gateway::capability::tool_slug;
 use crate::gateway::capability_service::{
     ServiceError, call_service, describe_tool_full, parse_search_payload,
     refresh_all_live_backends, search_service, service_error_to_json,
 };
+
+#[derive(Debug, Deserialize)]
+pub struct DccInstanceDescribeQuery {
+    /// Backend tool / callable id (e.g. `maya_scripting__execute_python`).
+    #[serde(alias = "tool", alias = "action")]
+    backend_tool: String,
+}
 
 /// `GET /health` — simple liveness probe.
 pub async fn handle_health() -> impl IntoResponse {
@@ -128,11 +136,18 @@ pub async fn handle_v1_skills(State(gs): State<GatewayState>) -> impl IntoRespon
     )
 }
 
-/// `GET /v1/context` — aggregate gateway context snapshot.
+/// `GET /v1/context` — aggregate gateway context snapshot plus **live
+/// instance rows** (same shape as `GET /v1/instances`) so scripts can read
+/// `instance_id` / `mcp_url` before calling path-style `/v1/dcc/.../call`
+/// without a second HTTP round-trip.
 pub async fn handle_v1_context(State(gs): State<GatewayState>) -> impl IntoResponse {
     refresh_all_live_backends(&gs, RefreshReason::Periodic).await;
     let registry = gs.registry.read().await;
     let live_instances = gs.live_instances(&registry);
+    let instances: Vec<Value> = live_instances
+        .iter()
+        .map(|e| entry_to_json(e, gs.stale_timeout))
+        .collect();
     drop(registry);
     let records = gs.capability_index.snapshot().records;
     let loaded_skill_count = records
@@ -150,7 +165,8 @@ pub async fn handle_v1_context(State(gs): State<GatewayState>) -> impl IntoRespo
             "documents": [],
             "loaded_skill_count": loaded_skill_count,
             "action_count": records.len(),
-            "live_instance_count": live_instances.len(),
+            "live_instance_count": instances.len(),
+            "instances": instances,
         })),
     )
 }
@@ -230,6 +246,60 @@ async fn describe_slug_response(gs: &GatewayState, slug: &str) -> Response {
     }
 }
 
+/// `GET /v1/dcc/{dcc_type}/instances/{instance_id}/describe?backend_tool=...` —
+/// describe one capability without assembling a dotted `tool_slug`.
+///
+/// Query: **`backend_tool`** (required) — backend action name. Aliases: **`tool`**, **`action`**.
+///
+/// Response matches [`handle_v1_describe_path`] (`GET /v1/tools/{slug}`).
+pub async fn handle_v1_dcc_instance_describe(
+    State(gs): State<GatewayState>,
+    Path((dcc_type, instance_id)): Path<(String, String)>,
+    Query(q): Query<DccInstanceDescribeQuery>,
+) -> Response {
+    let backend_tool = q.backend_tool.trim();
+    if backend_tool.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(service_error_to_json(&ServiceError::new(
+                "bad-request",
+                "missing or empty required query parameter: backend_tool (aliases: tool, action)",
+            ))),
+        )
+            .into_response();
+    }
+
+    refresh_all_live_backends(&gs, RefreshReason::Periodic).await;
+
+    let registry = gs.registry.read().await;
+    let entry = match gs.resolve_instance(
+        &registry,
+        Some(instance_id.as_str()),
+        Some(dcc_type.as_str()),
+    ) {
+        Ok(e) => e,
+        Err(err) => {
+            drop(registry);
+            return resolve_instance_http_response(err).into_response();
+        }
+    };
+    drop(registry);
+
+    if !entry.dcc_type.eq_ignore_ascii_case(dcc_type.as_str()) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(service_error_to_json(&ServiceError::new(
+                "bad-request",
+                "path dcc_type does not match resolved registry row",
+            ))),
+        )
+            .into_response();
+    }
+
+    let slug = tool_slug(&entry.dcc_type, &entry.instance_id, backend_tool);
+    describe_slug_response(&gs, &slug).await
+}
+
 /// `POST /v1/call` — invoke a backend action by slug.
 ///
 /// Request body: `{"tool_slug": "...", "arguments": {...},
@@ -261,6 +331,113 @@ pub async fn handle_v1_call(State(gs): State<GatewayState>, Json(body): Json<Val
             }
         }
         Err(err) => error_response(&err).into_response(),
+    }
+}
+
+/// `POST /v1/dcc/{dcc_type}/instances/{instance_id}/call` — invoke one backend
+/// tool without assembling a dotted `tool_slug`.
+///
+/// Path: `dcc_type` must match the registry row; `instance_id` is a full UUID
+/// or a unique ≥4-character hex prefix (same rules as MCP routing).
+///
+/// JSON body: `{ "backend_tool": "<name>", "arguments"?: {...}, "meta"?: {...} }`.
+/// Accepts `tool` or `action` as an alias for `backend_tool`.
+///
+/// Semantics match [`handle_v1_call`] after composing
+/// `tool_slug(dcc, instance_uuid, backend_tool)`.
+pub async fn handle_v1_dcc_instance_call(
+    State(gs): State<GatewayState>,
+    Path((dcc_type, instance_id)): Path<(String, String)>,
+    Json(body): Json<Value>,
+) -> Response {
+    let backend_tool = body
+        .get("backend_tool")
+        .or_else(|| body.get("tool"))
+        .or_else(|| body.get("action"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let Some(backend_tool) = backend_tool else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(service_error_to_json(&ServiceError::new(
+                "bad-request",
+                "missing required field: backend_tool (accepted aliases: tool, action)",
+            ))),
+        )
+            .into_response();
+    };
+
+    refresh_all_live_backends(&gs, RefreshReason::Periodic).await;
+
+    let registry = gs.registry.read().await;
+    let entry = match gs.resolve_instance(
+        &registry,
+        Some(instance_id.as_str()),
+        Some(dcc_type.as_str()),
+    ) {
+        Ok(e) => e,
+        Err(err) => {
+            drop(registry);
+            return resolve_instance_http_response(err).into_response();
+        }
+    };
+    drop(registry);
+
+    if !entry.dcc_type.eq_ignore_ascii_case(dcc_type.as_str()) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(service_error_to_json(&ServiceError::new(
+                "bad-request",
+                "path dcc_type does not match resolved registry row",
+            ))),
+        )
+            .into_response();
+    }
+
+    let slug = tool_slug(&entry.dcc_type, &entry.instance_id, backend_tool);
+    let arguments = body.get("arguments").cloned().unwrap_or_else(|| json!({}));
+    let meta = body.get("meta").cloned();
+
+    match call_service(&gs, &slug, arguments.clone(), meta.clone()).await {
+        Ok(result) => (StatusCode::OK, Json(result)).into_response(),
+        Err(err) if err.kind == "unknown-slug" => {
+            refresh_all_live_backends(&gs, RefreshReason::Periodic).await;
+            match call_service(&gs, &slug, arguments, meta).await {
+                Ok(result) => (StatusCode::OK, Json(result)).into_response(),
+                Err(err2) => error_response(&err2).into_response(),
+            }
+        }
+        Err(err) => error_response(&err).into_response(),
+    }
+}
+
+fn resolve_instance_http_response(err: ResolveInstanceError) -> impl IntoResponse {
+    let refresh_hint = " After a DCC crash or reconnect the instance UUID usually changes — call \
+        GET /v1/instances (or resources/read gateway://instances), then search_tools / POST /v1/search \
+        again; do not reuse old tool_slug strings.";
+    match &err {
+        ResolveInstanceError::PrefixTooShort { .. } => (
+            StatusCode::BAD_REQUEST,
+            Json(service_error_to_json(&ServiceError::new(
+                "bad-request",
+                err.to_string(),
+            ))),
+        ),
+        ResolveInstanceError::NoMatch { .. } => (
+            StatusCode::NOT_FOUND,
+            Json(service_error_to_json(&ServiceError::new(
+                "instance-offline",
+                format!("{err}.{refresh_hint}"),
+            ))),
+        ),
+        ResolveInstanceError::MultipleMatches { .. } => (
+            StatusCode::CONFLICT,
+            Json(service_error_to_json(&ServiceError::new(
+                "ambiguous",
+                err.to_string(),
+            ))),
+        ),
     }
 }
 

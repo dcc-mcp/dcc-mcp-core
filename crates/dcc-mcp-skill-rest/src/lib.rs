@@ -40,6 +40,7 @@
 //! | POST   | `/v1/describe`            | Describe a single tool slug         |
 //! | GET    | `/v1/tools/{slug}`        | Alias of describe                   |
 //! | POST   | `/v1/call`                | Invoke a tool by slug               |
+//! | POST   | `/v1/dcc/{dcc_type}/call` | Invoke by `backend_tool` + DCC guard (no dotted slug) |
 //! | GET    | `/v1/context`             | Current DCC scene/document summary  |
 //! | GET    | `/v1/healthz`             | Liveness                            |
 //! | GET    | `/v1/readyz`              | Three-state readiness               |

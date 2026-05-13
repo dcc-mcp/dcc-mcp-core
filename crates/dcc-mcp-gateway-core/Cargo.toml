@@ -20,10 +20,7 @@ workspace = true
 serde = { workspace = true }
 uuid = { workspace = true }
 chrono = { version = "0.4", features = ["serde"] }
-# Fuzzy matcher that backs the `FuzzyScorer` / `StrategyFuzzyScorer`
-# ranking strategies (issue #659). Pure CPU code with no async / IO
-# surface, so it keeps the "no HTTP, no runtime" domain-layer rule.
-nucleo-matcher = "0.3"
+dcc-mcp-gateway-search = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }

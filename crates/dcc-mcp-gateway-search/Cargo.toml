@@ -1,0 +1,22 @@
+[package]
+name = "dcc-mcp-gateway-search"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Pure gateway capability search: query wire types, fuzzy/substring ranking, pagination — no gateway runtime deps."
+keywords = ["mcp", "gateway", "search", "fuzzy"]
+categories = ["text-processing"]
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true }
+uuid = { workspace = true }
+nucleo-matcher = "0.3"
+
+[dev-dependencies]
+serde_json = { workspace = true }

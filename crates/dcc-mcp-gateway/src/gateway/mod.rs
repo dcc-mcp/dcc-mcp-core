@@ -37,11 +37,13 @@ pub mod capability;
 pub mod capability_service;
 pub mod event_log;
 pub mod handlers;
+pub mod http_limits;
 pub mod middleware;
 pub mod namespace;
 pub mod native_resources;
 pub mod openapi;
 pub mod proxy;
+pub mod resilience;
 pub mod router;
 pub mod sse_subscriber;
 pub mod state;
@@ -49,13 +51,12 @@ pub mod tools;
 
 pub use middleware::MiddlewareChain;
 
-#[cfg(feature = "prometheus")]
 pub mod metrics;
 
 pub mod admin;
 
 pub use router::{build_gateway_router, build_gateway_router_with_admin};
-pub use state::{GatewayState, entry_to_json};
+pub use state::{GatewayState, ResolveInstanceError, entry_to_json};
 
 // Strategy-pattern seam for search scoring (issue #765).
 pub use capability::{

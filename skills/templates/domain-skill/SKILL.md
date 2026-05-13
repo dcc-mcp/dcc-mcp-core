@@ -23,6 +23,9 @@ metadata:
     tags: "maya, your-category, domain"
     tools: tools.yaml
     depends: "dcc-diagnostics"
+    # When you add references/*.md notes for agents, wire them explicitly:
+    # skill-reference-docs:
+    #   - "references/*.md"
 ---
 
 # my-domain-skill

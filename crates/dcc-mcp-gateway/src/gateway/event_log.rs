@@ -61,6 +61,12 @@ impl EventLog {
             .join("\n")
     }
 
+    /// Return the last `limit` events, newest first (for `/admin/api/logs`).
+    pub fn recent_events(&self, limit: usize) -> Vec<ContendEvent> {
+        let buf = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        buf.iter().rev().take(limit).cloned().collect()
+    }
+
     /// Number of events currently stored.
     pub fn len(&self) -> usize {
         self.inner.lock().unwrap_or_else(|e| e.into_inner()).len()

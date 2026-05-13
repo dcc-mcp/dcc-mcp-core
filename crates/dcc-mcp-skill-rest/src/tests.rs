@@ -421,6 +421,21 @@ async fn tools_path_alias_returns_same_as_describe() {
     assert_eq!(b1["input_schema"], b2["input_schema"]);
 }
 
+/// `POST /v1/dcc/{dcc_type}/call` routes by backend tool name without a dotted slug.
+#[tokio::test]
+async fn dcc_path_post_invokes_backend_tool() {
+    let (svc, _, _) = fixture_loaded_spheres();
+    let (server, _) = build_server(svc);
+    let resp = server
+        .post("/v1/dcc/maya/call")
+        .json(&json!({"backend_tool": "create_sphere", "arguments": {"radius": 3.0}}))
+        .await;
+    resp.assert_status_ok();
+    let body: Value = resp.json();
+    assert_eq!(body["slug"], "maya.spheres.create_sphere");
+    assert_eq!(body["output"]["radius"], 3.0);
+}
+
 /// Every successful request gets exactly one audit event with a
 /// success outcome and a non-empty request id.
 #[tokio::test]

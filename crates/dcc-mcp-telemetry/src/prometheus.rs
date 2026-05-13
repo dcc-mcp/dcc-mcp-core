@@ -31,6 +31,7 @@
 //! | `dcc_mcp_notifications_sent_total`  | counter   | `channel` |
 //! | `dcc_mcp_active_sessions`           | gauge     | — |
 //! | `dcc_mcp_registered_tools`          | gauge     | — |
+//! | `dcc_mcp_gateway_backend_errors_total` | counter | `kind` (gateway → backend hop) |
 //! | `dcc_mcp_build_info`                | gauge     | `version`, `crate` (always 1) |
 
 use std::sync::Arc;
@@ -83,6 +84,10 @@ struct Inner {
     tools_total: IntGaugeVec,
     request_duration_seconds: HistogramVec,
     requests_failed_total: IntCounterVec,
+
+    /// Gateway-only: backend hop failures by coarse error class (`transport`,
+    /// `http_5xx`, `jsonrpc_backend`, …). See `PrometheusExporter::record_gateway_backend_error`.
+    gateway_backend_errors_total: IntCounterVec,
 
     #[allow(dead_code)]
     build_info: GaugeVec,
@@ -264,6 +269,18 @@ impl PrometheusExporter {
             .register(Box::new(requests_failed_total.clone()))
             .expect("unique registration");
 
+        let gateway_backend_errors_total = IntCounterVec::new(
+            Opts::new(
+                "dcc_mcp_gateway_backend_errors_total",
+                "Gateway-to-backend call failures by error class (transport, HTTP class, JSON-RPC, …).",
+            ),
+            &["kind"],
+        )
+        .expect("static metric definition");
+        registry
+            .register(Box::new(gateway_backend_errors_total.clone()))
+            .expect("unique registration");
+
         Self {
             inner: Arc::new(Inner {
                 registry,
@@ -279,6 +296,7 @@ impl PrometheusExporter {
                 tools_total,
                 request_duration_seconds,
                 requests_failed_total,
+                gateway_backend_errors_total,
                 build_info,
                 recorder: Mutex::new(None),
             }),
@@ -296,10 +314,10 @@ impl PrometheusExporter {
 
     /// Record a completed tool call.
     ///
-    /// * `tool`     — fully-qualified tool name (matches what the MCP
-    ///                client called).
-    /// * `status`   — `"success"` or `"error"`. Any other value is
-    ///                passed through unchanged to Prometheus.
+    /// * `tool`    — fully-qualified tool name (matches what the MCP
+    ///   client called).
+    /// * `status`  — `"success"` or `"error"`. Any other value is
+    ///   passed through unchanged to Prometheus.
     /// * `duration` — wall-clock duration from dispatch to completion.
     pub fn record_tool_call(&self, tool: &str, status: &str, duration: std::time::Duration) {
         self.inner
@@ -389,6 +407,17 @@ impl PrometheusExporter {
         self.inner
             .requests_failed_total
             .with_label_values(&[method])
+            .inc();
+    }
+
+    /// Record a gateway → backend failure for `/metrics` (`dcc_mcp_gateway_backend_errors_total`).
+    ///
+    /// `kind` must stay a **small fixed vocabulary** (e.g. `transport`, `http_5xx`,
+    /// `jsonrpc_backend`) so scrapers do not suffer unbounded cardinality.
+    pub fn record_gateway_backend_error(&self, kind: &str) {
+        self.inner
+            .gateway_backend_errors_total
+            .with_label_values(&[kind])
             .inc();
     }
 
@@ -491,6 +520,7 @@ mod tests {
         exp.record_job_created("seed", "accepted");
         exp.observe_job_wait("seed", Duration::from_millis(1));
         exp.record_notification_sent("seed");
+        exp.record_gateway_backend_error("seed");
     }
 
     #[test]
@@ -508,6 +538,7 @@ mod tests {
             "dcc_mcp_notifications_sent_total",
             "dcc_mcp_active_sessions",
             "dcc_mcp_registered_tools",
+            "dcc_mcp_gateway_backend_errors_total",
             "dcc_mcp_build_info",
         ] {
             assert!(

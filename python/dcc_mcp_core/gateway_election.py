@@ -81,6 +81,12 @@ class DccGatewayElection:
             DCC-specific promotion path. :class:`DccServerBase` supplies a
             default implementation that re-runs the inner MCP server's
             gateway bind.
+
+            **Threading:** this class invokes ``_upgrade_to_gateway`` from its
+            daemon election thread. Embedded DCC adapters whose inner HTTP
+            stack must start/stop on the host UI thread (Maya, …) should
+            override ``_upgrade_to_gateway`` to marshal onto that thread before
+            calling ``super()._upgrade_to_gateway()``.
         gateway_host: Gateway bind address (default ``"127.0.0.1"``).
         gateway_port: Gateway port to compete for (default ``9765``).
         probe_interval: Seconds between health probes (default from env var).
@@ -216,7 +222,11 @@ class DccGatewayElection:
             except Exception as exc:
                 logger.error("[%s] Unexpected error in election loop: %s", self._dcc_name, exc)
 
-            self._stop_event.wait(self._probe_interval)
+            # Spread plain-instance GET /health probes across time so several
+            # DCCs on one workstation do not hit the gateway in lockstep (reduces
+            # burst load and connection churn when scaling past a few instances).
+            jitter_s = (id(self._server) % 15) * 0.03
+            self._stop_event.wait(self._probe_interval + jitter_s)
 
     def _probe_gateway(self) -> bool:
         """HTTP GET /health probe against the gateway endpoint.
