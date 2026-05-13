@@ -141,7 +141,7 @@ jobs:
   blender:
     name: Blender ${{ matrix.blender-version }}
     needs: [wheel-ready]
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.dcc == '' || github.event.inputs.dcc == 'all' || github.event.inputs.dcc == 'blender'
+    if: always() && needs.wheel-ready.result == 'success' && (github.event_name != 'workflow_dispatch' || inputs.dcc == '' || inputs.dcc == 'all' || inputs.dcc == 'blender')
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -199,7 +199,7 @@ jobs:
   openscad:
     name: OpenSCAD
     needs: [wheel-ready]
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.dcc == '' || github.event.inputs.dcc == 'all' || github.event.inputs.dcc == 'openscad'
+    if: always() && needs.wheel-ready.result == 'success' && (github.event_name != 'workflow_dispatch' || inputs.dcc == '' || inputs.dcc == 'all' || inputs.dcc == 'openscad')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -229,7 +229,7 @@ jobs:
   godot:
     name: Godot
     needs: [wheel-ready]
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.dcc == '' || github.event.inputs.dcc == 'all' || github.event.inputs.dcc == 'godot'
+    if: always() && needs.wheel-ready.result == 'success' && (github.event_name != 'workflow_dispatch' || inputs.dcc == '' || inputs.dcc == 'all' || inputs.dcc == 'godot')
     runs-on: ubuntu-latest
     env:
       GODOT_VERSION: "4.4.1"
@@ -265,7 +265,7 @@ jobs:
   cross-dcc:
     name: Cross-DCC Pipeline
     needs: [wheel-ready]
-    if: github.event_name != 'workflow_dispatch' || github.event.inputs.dcc == '' || github.event.inputs.dcc == 'all' || github.event.inputs.dcc == 'cross'
+    if: always() && needs.wheel-ready.result == 'success' && (github.event_name != 'workflow_dispatch' || inputs.dcc == '' || inputs.dcc == 'all' || inputs.dcc == 'cross')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
