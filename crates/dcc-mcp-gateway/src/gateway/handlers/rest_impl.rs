@@ -315,7 +315,20 @@ pub async fn handle_v1_call(State(gs): State<GatewayState>, Json(body): Json<Val
         )
             .into_response();
     };
-    let arguments = body.get("arguments").cloned().unwrap_or_else(|| json!({}));
+    let arguments =
+        match dcc_mcp_jsonrpc::coerce_tool_arguments_object(body.get("arguments").cloned()) {
+            Ok(v) => v,
+            Err(msg) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(service_error_to_json(&ServiceError::new(
+                        "bad-request",
+                        msg,
+                    ))),
+                )
+                    .into_response();
+            }
+        };
     let meta = body.get("meta").cloned();
 
     match call_service(&gs, slug, arguments.clone(), meta.clone()).await {
@@ -396,7 +409,20 @@ pub async fn handle_v1_dcc_instance_call(
     }
 
     let slug = tool_slug(&entry.dcc_type, &entry.instance_id, backend_tool);
-    let arguments = body.get("arguments").cloned().unwrap_or_else(|| json!({}));
+    let arguments =
+        match dcc_mcp_jsonrpc::coerce_tool_arguments_object(body.get("arguments").cloned()) {
+            Ok(v) => v,
+            Err(msg) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(service_error_to_json(&ServiceError::new(
+                        "bad-request",
+                        msg,
+                    ))),
+                )
+                    .into_response();
+            }
+        };
     let meta = body.get("meta").cloned();
 
     match call_service(&gs, &slug, arguments.clone(), meta.clone()).await {

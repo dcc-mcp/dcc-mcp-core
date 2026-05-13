@@ -536,7 +536,9 @@ def test_dcc_server_base_constructor_registers_dispatcher_before_discovery(
             return len(extra_paths)
 
     fake_server = _Server()
-    monkeypatch.setattr(dcc_mcp_core, "create_skill_server", lambda *_args, **_kwargs: fake_server)
+    import dcc_mcp_core.server_base as server_base
+
+    monkeypatch.setattr(server_base, "create_skill_server", lambda *_args, **_kwargs: fake_server)
 
     class _Dispatcher:
         def dispatch_callable(self, func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
@@ -577,7 +579,9 @@ def test_dcc_server_base_constructor_registers_execution_bridge_before_discovery
             return len(extra_paths)
 
     fake_server = _Server()
-    monkeypatch.setattr(dcc_mcp_core, "create_skill_server", lambda *_args, **_kwargs: fake_server)
+    import dcc_mcp_core.server_base as server_base
+
+    monkeypatch.setattr(server_base, "create_skill_server", lambda *_args, **_kwargs: fake_server)
 
     bridge = HostExecutionBridge()
     opts = DccServerOptions.from_env(

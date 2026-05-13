@@ -35,6 +35,22 @@ pub(super) async fn resolve_tool_call(
         }
     };
 
+    let arguments = match dcc_mcp_jsonrpc::coerce_tool_arguments_object(params.arguments.clone()) {
+        Ok(v) => v,
+        Err(msg) => {
+            return Ok(ToolCallResolution::Response(JsonRpcResponse::error(
+                req.id.clone(),
+                protocol::error_codes::INVALID_PARAMS,
+                msg,
+            )));
+        }
+    };
+    let params = CallToolParams {
+        name: params.name,
+        arguments: Some(arguments),
+        meta: params.meta,
+    };
+
     let tool_name = params.name.clone();
 
     if let Some(response) = route_core_tool(state, req, session_id, &params, &tool_name).await? {
