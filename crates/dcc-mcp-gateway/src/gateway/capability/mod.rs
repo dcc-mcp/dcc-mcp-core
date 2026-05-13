@@ -25,7 +25,8 @@
 //! * **MCP wrappers** (#655) — `search_tools`, `describe_tool`,
 //!   `call_tool` expose the index through a fixed MCP tool surface.
 //! * **REST APIs** (#654) — `POST /v1/search`, `POST /v1/describe`,
-//!   `POST /v1/call`, `GET /v1/instances` mirror the wrappers for
+//!   `POST /v1/call`, `GET /v1/dcc/{dcc}/instances/{id}/describe`,
+//!   `POST /v1/dcc/{dcc}/instances/{id}/call`, `GET /v1/instances` mirror the wrappers for
 //!   non-MCP clients.
 //! * **Slim/Rest tools/list** (#652) — in bounded modes the index is
 //!   the only capability surface; Tier 3 fan-out is skipped entirely.

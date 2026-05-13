@@ -55,8 +55,9 @@ pub async fn route_tools_call(
          minimal — it only exposes discovery + dispatch primitives. Use \
          `search_tools` to find backend capabilities, `describe_tool` to get a \
          schema, and `call_tool` (or `call_tools` for ordered batches) to invoke \
-         by slug. For direct HTTP access, each per-DCC server exposes `POST /v1/call`; \
-         the gateway also exposes `POST /v1/call_batch`."
+         by slug. For direct HTTP: each per-DCC server exposes `POST /v1/call` and \
+         `POST /v1/dcc/{{dcc_type}}/call`; the gateway adds `POST /v1/dcc/{{dcc_type}}/instances/{{instance_id}}/call` \
+         plus `POST /v1/call_batch`."
     );
     (hint, true)
 }

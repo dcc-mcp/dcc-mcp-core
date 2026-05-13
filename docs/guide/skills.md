@@ -2,6 +2,8 @@
 
 The Skills system registers scripts (Python, MEL, MaxScript, BAT, Shell, etc.) as MCP-discoverable tools with **zero Python glue code**. `SKILL.md` follows the agentskills.io V1.0 frontmatter shape; dcc-mcp-core extensions live under `metadata.dcc-mcp.*` and point to sibling files such as `tools.yaml` and `groups.yaml`. Keep extension data out of top-level `SKILL.md` keys so generic agentskills.io readers can still parse the package.
 
+For **adapter maintenance** (I/O tool copy, `recipes` / `skill-reference-docs`, gateway-friendly descriptions), use [skill-maintenance.md](skill-maintenance.md). In-tree reference skills: `python/dcc_mcp_core/skills/dcc-diagnostics`, `python/dcc_mcp_core/skills/workflow`.
+
 ## Quick Start
 
 ### 1. Create a Skill Directory

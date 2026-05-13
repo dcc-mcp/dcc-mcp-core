@@ -13,6 +13,7 @@ members = [
     "crates/dcc-mcp-skill-rest",
     "crates/dcc-mcp-gateway",
     "crates/dcc-mcp-gateway-core",
+    "crates/dcc-mcp-gateway-search",
     "crates/dcc-mcp-logging",
     "crates/dcc-mcp-pybridge",
     "crates/dcc-mcp-pybridge-derive",
@@ -79,6 +80,7 @@ dcc-mcp-tunnel-protocol = { path = "crates/dcc-mcp-tunnel-protocol" }
 dcc-mcp-tunnel-relay = { path = "crates/dcc-mcp-tunnel-relay" }
 dcc-mcp-tunnel-agent = { path = "crates/dcc-mcp-tunnel-agent" }
 dcc-mcp-catalog = { path = "crates/dcc-mcp-catalog" }
+dcc-mcp-gateway-search = { path = "crates/dcc-mcp-gateway-search" }
 
 # Shared dependencies (single version across workspace)
 pyo3 = { version = "0.28", features = ["multiple-pymethods"] }

@@ -6,25 +6,31 @@ use tokio::sync::RwLock;
 use dcc_mcp_transport::discovery::file_registry::FileRegistry;
 use dcc_mcp_transport::discovery::types::{GATEWAY_SENTINEL_DCC_TYPE, ServiceStatus};
 
+/// Configuration for the health-check task.
+pub(crate) struct HealthCheckConfig {
+    pub own_host: String,
+    pub own_port: u16,
+    pub health_check_interval_secs: u64,
+    pub health_check_failures: u32,
+    #[cfg(feature = "prometheus")]
+    pub metrics: Arc<crate::gateway::event_log::GatewayMetrics>,
+}
+
 /// Spawn the periodic backend health-check task (issues #556 / #854).
 pub(crate) fn spawn_health_check_task(
     registry: Arc<RwLock<FileRegistry>>,
     http_client: reqwest::Client,
-    own_host: String,
-    own_port: u16,
     event_log: Arc<crate::gateway::event_log::EventLog>,
-    #[cfg(feature = "prometheus")] metrics: Arc<crate::gateway::event_log::GatewayMetrics>,
-    health_check_interval_secs: u64,
-    health_check_failures: u32,
+    cfg: HealthCheckConfig,
 ) -> tokio::task::JoinHandle<()> {
     let effective_interval_secs = std::env::var("DCC_MCP_GATEWAY_HEALTH_INTERVAL_SECS")
         .ok()
         .and_then(|v| v.parse::<u64>().ok())
-        .unwrap_or(health_check_interval_secs);
+        .unwrap_or(cfg.health_check_interval_secs);
     let effective_failures = std::env::var("DCC_MCP_GATEWAY_HEALTH_FAILURES")
         .ok()
         .and_then(|v| v.parse::<u32>().ok())
-        .unwrap_or(health_check_failures);
+        .unwrap_or(cfg.health_check_failures);
 
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(effective_interval_secs));
@@ -39,7 +45,7 @@ pub(crate) fn spawn_health_check_task(
                     .into_iter()
                     .filter(|e| {
                         e.dcc_type != GATEWAY_SENTINEL_DCC_TYPE
-                            && !crate::gateway::is_own_instance(e, &own_host, own_port)
+                            && !crate::gateway::is_own_instance(e, &cfg.own_host, cfg.own_port)
                     })
                     .collect::<Vec<_>>()
             };
@@ -78,7 +84,7 @@ pub(crate) fn spawn_health_check_task(
                         );
                     }
                     #[cfg(feature = "prometheus")]
-                    metrics.inc_probe("ready");
+                    cfg.metrics.inc_probe("ready");
                     continue;
                 }
 
@@ -95,7 +101,7 @@ pub(crate) fn spawn_health_check_task(
                         crate::gateway::event_log::record_event(
                             &event_log,
                             #[cfg(feature = "prometheus")]
-                            &metrics,
+                            &cfg.metrics,
                             crate::gateway::event_log::EventKind::ProbeBooting,
                             &entry.dcc_type,
                             &id8,
@@ -124,7 +130,7 @@ pub(crate) fn spawn_health_check_task(
                     crate::gateway::event_log::record_event(
                         &event_log,
                         #[cfg(feature = "prometheus")]
-                        &metrics,
+                        &cfg.metrics,
                         crate::gateway::event_log::EventKind::ProbeUnreachable,
                         &entry.dcc_type,
                         &id8,
@@ -145,7 +151,7 @@ pub(crate) fn spawn_health_check_task(
                     crate::gateway::event_log::record_event(
                         &event_log,
                         #[cfg(feature = "prometheus")]
-                        &metrics,
+                        &cfg.metrics,
                         crate::gateway::event_log::EventKind::AutoDeregister,
                         &entry.dcc_type,
                         &id8,

@@ -2,6 +2,10 @@
 
 use super::*;
 
+use std::sync::Arc;
+
+use dcc_mcp_host::DccDispatcher;
+
 /// MCP Streamable HTTP server for embedding in DCC software.
 ///
 /// Example::
@@ -35,12 +39,12 @@ pub struct PyMcpHttpServer {
     /// have used internally, so `server.resources()` returns the same
     /// registry that backs `/mcp` both before and after `start()`.
     pub(crate) resources: dcc_mcp_http::resources::ResourceRegistry,
-    /// Optional DCC main-thread executor attached via
-    /// [`PyMcpHttpServer::attach_dispatcher`]. Consumed exactly once
-    /// by [`PyMcpHttpServer::start`]; further `attach_dispatcher`
-    /// calls after start are rejected.
-    pub(crate) attached_executor:
-        parking_lot::Mutex<Option<dcc_mcp_http::executor::DccExecutorHandle>>,
+    /// Optional DCC main-thread dispatcher attached via
+    /// [`PyMcpHttpServer::attach_dispatcher`]. Each [`PyMcpHttpServer::start`]
+    /// builds a fresh [`dcc_mcp_http::executor::DccExecutorHandle`] from this
+    /// so gateway promotion (`start` after `shutdown`) keeps routing
+    /// `tools/call` through the host queue.
+    pub(crate) attached_dispatcher: parking_lot::Mutex<Option<Arc<dyn DccDispatcher>>>,
     /// Optional shared [`ReadinessProbe`] installed via
     /// [`PyMcpHttpServer::set_readiness_probe`] (issue #714). When
     /// present, it is wired into both the MCP `tools/call` gate and
@@ -102,7 +106,7 @@ impl PyMcpHttpServer {
             live_meta,
             resources,
             prompts,
-            attached_executor: parking_lot::Mutex::new(None),
+            attached_dispatcher: parking_lot::Mutex::new(None),
             readiness_probe: parking_lot::Mutex::new(None),
         })
     }
@@ -115,8 +119,8 @@ impl PyMcpHttpServer {
     /// drains the dispatcher (typically the DCC main thread, or the
     /// :class:`~dcc_mcp_core.host.StandaloneHost` driver thread in tests).
     ///
-    /// Must be called **before** :meth:`start`. Re-attaching after the
-    /// server has started is rejected with :class:`RuntimeError` — hot
+    /// Must be called **before** the first :meth:`start`. Re-attaching after
+    /// the server has started is rejected with :class:`RuntimeError` — hot
     /// swap is out of scope for this API and belongs to a dedicated
     /// lifecycle method we may add later.
     ///
@@ -143,16 +147,14 @@ impl PyMcpHttpServer {
                 ));
             };
 
-        let mut slot = self.attached_executor.lock();
+        let mut slot = self.attached_dispatcher.lock();
         if slot.is_some() {
             return Err(pyo3::exceptions::PyRuntimeError::new_err(
                 "attach_dispatcher was already called on this McpHttpServer — \
                  build a fresh server to swap dispatchers",
             ));
         }
-        let executor =
-            dcc_mcp_http::host_bridge::dispatcher_to_executor_handle(shared, self.runtime.handle());
-        *slot = Some(executor);
+        *slot = Some(shared);
         tracing::info!(
             "McpHttpServer: main-thread dispatcher attached — tools/call will \
              route through DccDispatcher::post"
@@ -173,11 +175,16 @@ impl PyMcpHttpServer {
         .with_live_meta(self.live_meta.clone())
         .with_resources(self.resources.clone())
         .with_prompts(self.prompts.clone());
-        // If a dispatcher was attached, drain it into the server's
-        // main-thread executor slot. Consumed once — further
-        // attach_dispatcher calls after start will be rejected by
-        // the None-vs-Some check there.
-        if let Some(executor) = self.attached_executor.lock().take() {
+        // Rebuild the host-bridge executor on every start so gateway
+        // promotion (second `start()` after `shutdown`) still wires
+        // `with_executor` — the previous handle dropped the old bridge task.
+        if let Some(dispatcher) = self.attached_dispatcher.lock().as_ref().cloned() {
+            let depth = self.config.bridge_queue_depth();
+            let executor = dcc_mcp_http::host_bridge::dispatcher_to_executor_handle_with_capacity(
+                dispatcher,
+                self.runtime.handle(),
+                depth,
+            );
             server = server.with_executor(executor);
         }
         // Issue #714 — propagate the shared readiness probe into the

@@ -4,10 +4,91 @@ use serde_json::{Value, json};
 
 use dcc_mcp_jsonrpc::{McpPrompt, McpTool};
 
-use super::error::BackendCallError;
+use crate::gateway::metrics::record_gateway_backend_error_kind;
+use crate::gateway::resilience::{
+    circuits, is_circuit_worthy_rest_error, is_retryable_rest_error, jittered_backoff,
+    read_retry_max,
+};
+
+use super::error::{BackendCallError, rest_error_prometheus_kind};
 use super::http::{percent_encode_uri, post_jsonrpc, rest_get, rest_post, uuid_like_id};
 use super::probe::{ProbeOutcome, probe_mcp_readiness};
 use super::urls::rest_base_from_mcp_url;
+
+async fn rest_get_idempotent(
+    client: &reqwest::Client,
+    url: &str,
+    timeout: Duration,
+    backend_key: &str,
+) -> Result<Value, String> {
+    let max = read_retry_max();
+    for attempt in 0..=max {
+        if let Err(reason) = circuits().check_open(backend_key) {
+            let msg = format!("{url}: {reason}");
+            record_gateway_backend_error_kind(rest_error_prometheus_kind(&msg));
+            return Err(msg);
+        }
+        match rest_get(client, url, timeout).await {
+            Ok(v) => {
+                circuits().on_success(backend_key);
+                return Ok(v);
+            }
+            Err(e) => {
+                let will_retry = attempt < max && is_retryable_rest_error(&e);
+                if will_retry {
+                    jittered_backoff(attempt).await;
+                    continue;
+                }
+                if is_circuit_worthy_rest_error(&e) {
+                    circuits().on_transport_failure(backend_key);
+                } else {
+                    circuits().on_success(backend_key);
+                }
+                record_gateway_backend_error_kind(rest_error_prometheus_kind(&e));
+                return Err(e);
+            }
+        }
+    }
+    unreachable!()
+}
+
+async fn rest_post_idempotent(
+    client: &reqwest::Client,
+    url: &str,
+    body: Value,
+    timeout: Duration,
+    backend_key: &str,
+) -> Result<Value, String> {
+    let max = read_retry_max();
+    for attempt in 0..=max {
+        if let Err(reason) = circuits().check_open(backend_key) {
+            let msg = format!("{url}: {reason}");
+            record_gateway_backend_error_kind(rest_error_prometheus_kind(&msg));
+            return Err(msg);
+        }
+        match rest_post(client, url, body.clone(), timeout).await {
+            Ok(v) => {
+                circuits().on_success(backend_key);
+                return Ok(v);
+            }
+            Err(e) => {
+                let will_retry = attempt < max && is_retryable_rest_error(&e);
+                if will_retry {
+                    jittered_backoff(attempt).await;
+                    continue;
+                }
+                if is_circuit_worthy_rest_error(&e) {
+                    circuits().on_transport_failure(backend_key);
+                } else {
+                    circuits().on_success(backend_key);
+                }
+                record_gateway_backend_error_kind(rest_error_prometheus_kind(&e));
+                return Err(e);
+            }
+        }
+    }
+    unreachable!()
+}
 
 /// Call a JSON-RPC method on a backend `/mcp` endpoint.
 ///
@@ -81,13 +162,15 @@ pub async fn try_fetch_tools(
     timeout: Duration,
 ) -> Result<(Vec<McpTool>, Vec<(String, String, String)>), String> {
     let base = rest_base_from_mcp_url(mcp_url);
+    let key = base.as_str();
     let url = format!("{base}/v1/search");
     // `/v1/search` is a POST endpoint; pass the filter params in the JSON body.
-    let val = rest_post(
+    let val = rest_post_idempotent(
         client,
         &url,
         json!({"loaded_only": false, "limit": 5000}),
         timeout,
+        key,
     )
     .await?;
 
@@ -185,8 +268,9 @@ pub async fn try_fetch_prompts(
     timeout: Duration,
 ) -> Result<Vec<McpPrompt>, String> {
     let base = rest_base_from_mcp_url(mcp_url);
+    let key = base.as_str();
     let url = format!("{base}/v1/prompts");
-    let val = rest_get(client, &url, timeout).await?;
+    let val = rest_get_idempotent(client, &url, timeout, key).await?;
     Ok(val
         .get("prompts")
         .and_then(Value::as_array)
@@ -222,8 +306,9 @@ pub async fn try_fetch_resources(
     timeout: Duration,
 ) -> Result<Vec<Value>, String> {
     let base = rest_base_from_mcp_url(mcp_url);
+    let key = base.as_str();
     let url = format!("{base}/v1/resources");
-    let val = rest_get(client, &url, timeout).await?;
+    let val = rest_get_idempotent(client, &url, timeout, key).await?;
     Ok(val
         .get("resources")
         .and_then(Value::as_array)
@@ -258,9 +343,10 @@ pub async fn read_resource(
     timeout: Duration,
 ) -> Result<Value, String> {
     let base = rest_base_from_mcp_url(mcp_url);
+    let key = base.as_str();
     let encoded = percent_encode_uri(uri);
     let url = format!("{base}/v1/resources/{encoded}");
-    rest_get(client, &url, timeout).await
+    rest_get_idempotent(client, &url, timeout, key).await
 }
 
 /// Forward a `tools/call` to a backend via `POST /v1/call`.
@@ -279,6 +365,7 @@ pub async fn forward_tools_call(
     timeout: Duration,
 ) -> Result<Value, String> {
     let base = rest_base_from_mcp_url(mcp_url);
+    let key = base.as_str();
     let url = format!("{base}/v1/call");
     let mut body = json!({
         "tool_slug": tool_name,
@@ -287,7 +374,26 @@ pub async fn forward_tools_call(
     if let Some(m) = meta {
         body["meta"] = m;
     }
-    rest_post(client, &url, body, timeout).await
+    if let Err(reason) = circuits().check_open(key) {
+        let msg = format!("{mcp_url}: {reason}");
+        record_gateway_backend_error_kind(rest_error_prometheus_kind(&msg));
+        return Err(msg);
+    }
+    match rest_post(client, &url, body, timeout).await {
+        Ok(v) => {
+            circuits().on_success(key);
+            Ok(v)
+        }
+        Err(e) => {
+            if is_circuit_worthy_rest_error(&e) {
+                circuits().on_transport_failure(key);
+            } else {
+                circuits().on_success(key);
+            }
+            record_gateway_backend_error_kind(rest_error_prometheus_kind(&e));
+            Err(e)
+        }
+    }
 }
 
 /// Forward a `prompts/get` to a backend via `GET /v1/prompts/{name}`.
@@ -304,6 +410,7 @@ pub async fn forward_prompts_get(
     timeout: Duration,
 ) -> Result<Value, String> {
     let base = rest_base_from_mcp_url(mcp_url);
+    let key = base.as_str();
     let encoded = percent_encode_uri(prompt_name);
     let mut url = format!("{base}/v1/prompts/{encoded}");
     if let Some(args) = arguments
@@ -316,7 +423,7 @@ pub async fn forward_prompts_get(
         url.push_str("?args=");
         url.push_str(&encoded_args);
     }
-    rest_get(client, &url, timeout).await
+    rest_get_idempotent(client, &url, timeout, key).await
 }
 
 /// Forward a `resources/subscribe` (or `resources/unsubscribe` when `subscribe`

@@ -13,6 +13,7 @@
 //! - [`instances`] — `gateway://instances[/{id}]` (DCC registry)
 //! - [`diagnostics`] — `gateway://diagnostics/{process,audit,metrics}`
 //! - [`catalog`] — `gateway://catalog[/{name}]` (public package index)
+//! - [`agent_workflows`] — `gateway://docs/agent-workflows` (MCP + resources + prompts + describe_tool hints + efficiency)
 //!
 //! [`util`] holds shared parsing helpers (`parse_query`, `parse_bool`,
 //! `split_uri`).
@@ -35,6 +36,7 @@
 //!   list payload. Listing one entry per item would reproduce the very
 //!   fan-out the epic exists to remove.
 
+pub mod agent_workflows;
 pub mod catalog;
 pub mod diagnostics;
 pub mod instances;
@@ -48,12 +50,13 @@ use super::state::GatewayState;
 /// `aggregator::resources::aggregate_resources_list` to inject the
 /// gateway-native tier before backend resources are merged in.
 ///
-/// Order is stable: instances first, then diagnostics, then catalog.
+/// Order is stable: instances first, then diagnostics, then catalog, then docs.
 pub fn pointers_for_list() -> Vec<Value> {
-    let mut out = Vec::with_capacity(5);
+    let mut out = Vec::with_capacity(6);
     out.push(instances::pointer());
     out.extend(diagnostics::pointers());
     out.push(catalog::pointer());
+    out.push(agent_workflows::pointer());
     out
 }
 
@@ -66,6 +69,7 @@ pub enum Request {
     Instances(instances::Query),
     Diagnostics(diagnostics::Query),
     Catalog(catalog::Query),
+    AgentWorkflows,
 }
 
 impl Request {
@@ -83,6 +87,9 @@ impl Request {
         }
         if let Some(q) = catalog::parse(uri) {
             return Some(Self::Catalog(q));
+        }
+        if agent_workflows::parse(uri) {
+            return Some(Self::AgentWorkflows);
         }
         None
     }
@@ -104,6 +111,7 @@ impl Request {
             Self::Instances(q) => instances::build_payload(gs, q).await,
             Self::Diagnostics(q) => diagnostics::build_payload(gs, q, local_tool_count).await,
             Self::Catalog(q) => catalog::build_payload(q).await,
+            Self::AgentWorkflows => agent_workflows::build_payload().await,
         }
     }
 }
@@ -162,6 +170,15 @@ mod tests {
         assert!(uris.contains(&diagnostics::AUDIT_URI));
         assert!(uris.contains(&diagnostics::METRICS_URI));
         assert!(uris.contains(&catalog::ROOT_URI));
-        assert_eq!(ps.len(), 5);
+        assert!(uris.contains(&agent_workflows::ROOT_URI));
+        assert_eq!(ps.len(), 6);
+    }
+
+    #[test]
+    fn parse_dispatches_to_agent_workflows() {
+        assert!(matches!(
+            Request::parse(agent_workflows::ROOT_URI),
+            Some(Request::AgentWorkflows)
+        ));
     }
 }

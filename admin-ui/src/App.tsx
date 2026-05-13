@@ -8,6 +8,16 @@ type HealthPayload = {
   instances_total: number;
   uptime_secs: number;
   version: string;
+  rss_bytes?: number | null;
+  limits?: {
+    body_max_bytes: number;
+    rate_limit_per_minute_per_ip: number;
+    xff_trusted_depth: number;
+    read_retry_max: number;
+    circuit_failure_threshold: number;
+    circuit_open_secs: number;
+  };
+  circuits?: { tracked_backends: number; circuits_open: number };
 };
 
 type InstanceRow = {
@@ -23,6 +33,10 @@ type ToolRow = {
   slug: string;
   dcc_type: string;
   summary: string;
+  skill_name?: string | null;
+  name?: string;
+  instance_id?: string;
+  instance_prefix?: string;
 };
 
 type CallRow = {
@@ -34,6 +48,7 @@ type CallRow = {
   success: boolean;
   error: string | null;
   duration_ms: number | null;
+  instance_id?: string | null;
 };
 
 type TraceRow = {
@@ -43,14 +58,34 @@ type TraceRow = {
   status: string;
   success: boolean;
   total_ms: number | null;
+  instance_id?: string | null;
+  dcc_type?: string | null;
 };
+
+type LatencyBlock = {
+  min_ms?: number;
+  max_ms?: number;
+  mean_ms?: number;
+  p50_ms?: number;
+  p95_ms?: number;
+  p99_ms?: number;
+};
+
+type TopEntry = { name: string; count: number };
 
 type StatsPayload = {
   range: string;
   total_calls: number;
+  successful_calls?: number;
+  failed_calls?: number;
   success_rate: number;
-  p50_ms: number | null;
-  p95_ms: number | null;
+  p50_ms?: number | null;
+  p95_ms?: number | null;
+  latency_ms?: LatencyBlock;
+  top_tools?: TopEntry[];
+  top_instances?: TopEntry[];
+  hourly_distribution?: number[];
+  error?: string;
 };
 
 type WorkerRow = {
@@ -78,9 +113,20 @@ type LogRow = {
   timestamp: string;
   level: string;
   message: string;
+  source?: string;
+  event?: string;
+  dcc_type?: string;
+  instance_id?: string | null;
+  request_id?: string;
+  tool?: string;
+  success?: boolean;
+  detail?: string;
+  reason?: string | null;
 };
 
 const API_BASE = `${location.origin}/admin/api`;
+/** Abort hung admin fetches so the UI does not wait indefinitely on a wedged gateway. */
+const ADMIN_FETCH_TIMEOUT_MS = 25_000;
 const PANELS: { id: Panel; label: string }[] = [
   { id: 'health', label: 'Health' },
   { id: 'instances', label: 'Instances' },
@@ -92,12 +138,39 @@ const PANELS: { id: Panel; label: string }[] = [
   { id: 'logs', label: 'Logs' },
 ];
 
-async function apiJson<T>(path: string): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`);
-  if (!response.ok) {
-    throw new Error(`${response.status} ${response.statusText}`);
+function haystack(...parts: (string | number | null | undefined)[]): string {
+  return parts
+    .filter((p) => p != null && p !== '')
+    .map((p) => String(p))
+    .join(' ')
+    .toLowerCase();
+}
+
+function matchesListFilter(query: string, hay: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) {
+    return true;
   }
-  return response.json() as Promise<T>;
+  return hay.includes(q);
+}
+
+async function apiJson<T>(path: string): Promise<T> {
+  const ctrl = new AbortController();
+  const tid = window.setTimeout(() => ctrl.abort(), ADMIN_FETCH_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${API_BASE}${path}`, { signal: ctrl.signal });
+    if (!response.ok) {
+      throw new Error(`${response.status} ${response.statusText}`);
+    }
+    return (await response.json()) as T;
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new Error(`Request timed out after ${ADMIN_FETCH_TIMEOUT_MS / 1000}s`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(tid);
+  }
 }
 
 function formatTime(value: string | null | undefined): string {
@@ -167,6 +240,93 @@ function EmptyRow({ columns, children }: { columns: number; children: string }) 
   );
 }
 
+function toolGroupLabel(tool: ToolRow): string {
+  const p = tool.instance_prefix ?? '—';
+  return `${tool.dcc_type} · instance ${p}`;
+}
+
+function callGroupLabel(call: CallRow): string {
+  const id = call.instance_id;
+  if (typeof id === 'string' && id.length > 0) {
+    return `${call.dcc_type} · ${id.length > 8 ? id.slice(0, 8) : id}`;
+  }
+  return `${call.dcc_type} · unrouted`;
+}
+
+function traceGroupLabel(trace: TraceRow): string {
+  const id = trace.instance_id;
+  if (typeof id === 'string' && id.length > 0) {
+    const dcc = trace.dcc_type ?? '?';
+    return `${dcc} · ${id.length > 8 ? id.slice(0, 8) : id}`;
+  }
+  return `${trace.dcc_type ?? '?'} · unrouted`;
+}
+
+function logGroupLabel(log: LogRow): string {
+  const dcc = log.dcc_type ?? '?';
+  const raw = log.instance_id;
+  if (typeof raw === 'string' && raw.length > 0) {
+    return `${dcc} · ${raw.length > 8 ? raw.slice(0, 8) : raw}`;
+  }
+  return `${dcc} · gateway`;
+}
+
+function maxTopCount(items: TopEntry[]): number {
+  if (!items.length) {
+    return 1;
+  }
+  return Math.max(1, ...items.map((i) => i.count));
+}
+
+function StatBarList({ title, items }: { title: string; items: TopEntry[] }) {
+  const max = maxTopCount(items);
+  return (
+    <div className="chart-card">
+      <h3 className="chart-title">{title}</h3>
+      {!items.length ? <p className="empty">No data in this range.</p> : items.map((row) => (
+        <div className="hbar-row" key={`${title}-${row.name}`}>
+          <div className="hbar-label" title={row.name}>{row.name.length > 48 ? `${row.name.slice(0, 46)}…` : row.name}</div>
+          <div className="hbar-track">
+            <div className="hbar-fill" style={{ width: `${(row.count / max) * 100}%` }} />
+          </div>
+          <div className="hbar-count">{row.count}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function HourlyChart({ buckets }: { buckets: number[] }) {
+  if (!buckets.length) {
+    return null;
+  }
+  const max = Math.max(1, ...buckets);
+  return (
+    <div className="chart-card">
+      <h3 className="chart-title">Calls by hour (UTC)</h3>
+      <div className="hourly-chart" role="img" aria-label="Hourly call distribution">
+        {buckets.map((v, h) => (
+          <div key={h} className="hour-col" title={`${h}:00 UTC — ${v} call(s)`}>
+            <div className="hour-bar" style={{ height: `${(v / max) * 100}%` }} />
+            <span className="hour-tick">{h % 6 === 0 ? String(h) : ''}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function groupRows<T>(rows: T[], keyFn: (row: T) => string): Map<string, T[]> {
+  const map = new Map<string, T[]>();
+  for (const row of rows) {
+    const key = keyFn(row);
+    const bucket = map.get(key) ?? [];
+    bucket.push(row);
+    map.set(key, bucket);
+  }
+  return map;
+}
+
 function App() {
   const [activePanel, setActivePanel] = useState<Panel>('health');
   const [health, setHealth] = useState<HealthPayload | null>(null);
@@ -192,6 +352,145 @@ function App() {
     logs: 'Loading…',
   });
   const [errors, setErrors] = useState<Partial<Record<Panel, string>>>({});
+  const [listSearch, setListSearch] = useState('');
+
+  useEffect(() => {
+    setListSearch('');
+  }, [activePanel]);
+
+  const filteredInstances = useMemo(() => {
+    const q = listSearch.trim().toLowerCase();
+    if (!q) {
+      return instances;
+    }
+    return instances.filter((i) =>
+      matchesListFilter(
+        q,
+        haystack(i.id, i.dcc_type, i.status, i.host, String(i.port), i.scene ?? ''),
+      ),
+    );
+  }, [instances, listSearch]);
+
+  const filteredTools = useMemo(() => {
+    const q = listSearch.trim().toLowerCase();
+    if (!q) {
+      return tools;
+    }
+    return tools.filter((t) =>
+      matchesListFilter(
+        q,
+        haystack(t.slug, t.dcc_type, t.summary, t.instance_id, t.instance_prefix, t.skill_name ?? '', t.name ?? ''),
+      ),
+    );
+  }, [tools, listSearch]);
+
+  const filteredCalls = useMemo(() => {
+    const q = listSearch.trim().toLowerCase();
+    if (!q) {
+      return calls;
+    }
+    return calls.filter((c) =>
+      matchesListFilter(
+        q,
+        haystack(
+          c.timestamp,
+          c.request_id,
+          c.tool,
+          c.dcc_type,
+          c.status,
+          c.error ?? '',
+          String(c.duration_ms ?? ''),
+          c.instance_id ?? '',
+        ),
+      ),
+    );
+  }, [calls, listSearch]);
+
+  const filteredTraces = useMemo(() => {
+    const q = listSearch.trim().toLowerCase();
+    if (!q) {
+      return traces;
+    }
+    return traces.filter((t) =>
+      matchesListFilter(
+        q,
+        haystack(
+          t.timestamp,
+          t.request_id,
+          t.tool,
+          t.status,
+          String(t.total_ms ?? ''),
+          t.instance_id ?? '',
+          t.dcc_type ?? '',
+        ),
+      ),
+    );
+  }, [traces, listSearch]);
+
+  const filteredWorkers = useMemo(() => {
+    const q = listSearch.trim().toLowerCase();
+    if (!q) {
+      return workers;
+    }
+    return workers.filter((w) =>
+      matchesListFilter(
+        q,
+        haystack(
+          w.instance_id,
+          w.display_name,
+          w.dcc_type,
+          w.status,
+          w.mcp_url,
+          w.version ?? '',
+          w.adapter_version ?? '',
+          String(w.pid ?? ''),
+        ),
+      ),
+    );
+  }, [workers, listSearch]);
+
+  const filteredLogs = useMemo(() => {
+    const q = listSearch.trim().toLowerCase();
+    if (!q) {
+      return logs;
+    }
+    return logs.filter((l) =>
+      matchesListFilter(
+        q,
+        haystack(
+          l.timestamp,
+          l.level,
+          l.message,
+          l.source ?? '',
+          l.event != null ? String(l.event) : '',
+          l.dcc_type ?? '',
+          l.instance_id != null ? String(l.instance_id) : '',
+          l.request_id ?? '',
+          l.tool ?? '',
+          l.detail ?? '',
+          l.reason ?? '',
+        ),
+      ),
+    );
+  }, [logs, listSearch]);
+
+  const filteredTopTools = useMemo(() => {
+    const q = listSearch.trim().toLowerCase();
+    const rows = stats?.top_tools ?? [];
+    if (!q) {
+      return rows;
+    }
+    return rows.filter((r) => r.name.toLowerCase().includes(q));
+  }, [stats, listSearch]);
+
+  const filteredTopInstances = useMemo(() => {
+    const q = listSearch.trim().toLowerCase();
+    const rows = stats?.top_instances ?? [];
+    if (!q) {
+      return rows;
+    }
+    return rows.filter((r) => r.name.toLowerCase().includes(q));
+  }, [stats, listSearch]);
 
   const markUpdated = useCallback((panel: Panel, text: string) => {
     setUpdatedAt((current) => ({ ...current, [panel]: text }));
@@ -316,8 +615,6 @@ function App() {
     if (panel === 'logs') void fetchLogs();
   }, [fetchCalls, fetchHealth, fetchInstances, fetchLogs, fetchStats, fetchTools, fetchTraces, fetchWorkers]);
 
-  const statsJson = useMemo(() => JSON.stringify(stats, null, 2), [stats]);
-
   useEffect(() => {
     fetchPanel(activePanel);
     const timer = window.setInterval(() => fetchPanel(activePanel), 5000);
@@ -348,6 +645,29 @@ function App() {
         </div>
       </nav>
       <main className="main-stage">
+        {activePanel !== 'health' && (
+          <div className="list-search-wrap">
+            <input
+              type="search"
+              className="list-search-input"
+              placeholder={activePanel === 'stats' ? 'Filter top tools / instances…' : 'Search this panel…'}
+              value={listSearch}
+              onChange={(e) => setListSearch(e.target.value)}
+              aria-label="Filter current panel"
+            />
+            {listSearch.trim() ? (
+              <span className="list-search-meta">
+                {activePanel === 'instances' ? `${filteredInstances.length} / ${instances.length}` : ''}
+                {activePanel === 'tools' ? `${filteredTools.length} / ${tools.length}` : ''}
+                {activePanel === 'calls' ? `${filteredCalls.length} / ${calls.length}` : ''}
+                {activePanel === 'traces' ? `${filteredTraces.length} / ${traces.length}` : ''}
+                {activePanel === 'workers' ? `${filteredWorkers.length} / ${workers.length}` : ''}
+                {activePanel === 'logs' ? `${filteredLogs.length} / ${logs.length}` : ''}
+                {activePanel === 'stats' ? `charts: ${filteredTopTools.length} tools / ${filteredTopInstances.length} instances` : ''}
+              </span>
+            ) : null}
+          </div>
+        )}
         {activePanel === 'health' && (
           <section className="panel active">
             <h2>Health</h2>
@@ -357,6 +677,23 @@ function App() {
               <HealthCard label="Uptime" value={formatUptime(health?.uptime_secs)} />
               <HealthCard tone={health && health.instances_ready > 0 ? 'ok' : 'warn'} label="Ready" value={`${health?.instances_ready ?? 0} / ${health?.instances_total ?? 0}`} />
               <HealthCard label="Version" value={health?.version ?? '?'} />
+              <HealthCard label="RSS" value={formatBytes(health?.rss_bytes ?? undefined)} />
+              <HealthCard label="Body limit" value={health?.limits ? formatBytes(health.limits.body_max_bytes) : '?'} />
+              <HealthCard
+                label="Rate / min·IP"
+                value={health?.limits ? (health.limits.rate_limit_per_minute_per_ip === 0 ? 'off' : String(health.limits.rate_limit_per_minute_per_ip)) : '?'}
+              />
+              <HealthCard
+                label="XFF trusted depth"
+                value={health?.limits ? String(health.limits.xff_trusted_depth) : '?'}
+              />
+              <HealthCard label="Read retries (max)" value={health?.limits ? String(health.limits.read_retry_max) : '?'} />
+              <HealthCard label="Circuit thr / open s" value={health?.limits ? `${health.limits.circuit_failure_threshold} / ${health.limits.circuit_open_secs}s` : '?'} />
+              <HealthCard
+                tone={health?.circuits && health.circuits.circuits_open > 0 ? 'warn' : undefined}
+                label="Circuits (open / tracked)"
+                value={health?.circuits ? `${health.circuits.circuits_open} / ${health.circuits.tracked_backends}` : '?'}
+              />
             </div>
             <button className="refresh-btn" type="button" onClick={fetchHealth}>Refresh</button>
           </section>
@@ -369,7 +706,12 @@ function App() {
             <table>
               <thead><tr><th>ID</th><th>DCC</th><th>Status</th><th>Address</th><th>Scene</th></tr></thead>
               <tbody>
-                {instances.length === 0 ? <EmptyRow columns={5}>No instances registered.</EmptyRow> : instances.map((instance) => (
+                {instances.length === 0 ? (
+                  <EmptyRow columns={5}>No instances registered.</EmptyRow>
+                ) : filteredInstances.length === 0 ? (
+                  <EmptyRow columns={5}>No rows match your search.</EmptyRow>
+                ) : (
+                  filteredInstances.map((instance) => (
                   <tr key={instance.id}>
                     <td>{instance.id.slice(0, 8)}</td>
                     <td>{instance.dcc_type}</td>
@@ -377,7 +719,8 @@ function App() {
                     <td>{instance.host}:{instance.port}</td>
                     <td>{instance.scene ?? '-'}</td>
                   </tr>
-                ))}
+                  ))
+                )}
               </tbody>
             </table>
             <button className="refresh-btn" type="button" onClick={fetchInstances}>Refresh</button>
@@ -388,18 +731,29 @@ function App() {
           <section className="panel active">
             <h2>Tools</h2>
             <StatusLine text={updatedAt.tools} error={errors.tools} />
-            <table>
-              <thead><tr><th>Slug</th><th>DCC</th><th>Summary</th></tr></thead>
-              <tbody>
-                {tools.length === 0 ? <EmptyRow columns={3}>No tools registered.</EmptyRow> : tools.map((tool) => (
-                  <tr key={tool.slug}>
-                    <td>{tool.slug}</td>
-                    <td>{tool.dcc_type}</td>
-                    <td>{tool.summary.slice(0, 120)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            {tools.length === 0 ? <p className="empty">No tools registered.</p> : filteredTools.length === 0 ? (
+              <p className="empty">No tools match your search.</p>
+            ) : (
+              Array.from(groupRows(filteredTools, toolGroupLabel).entries())
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(([group, groupTools]) => (
+                <div key={group} className="group-block">
+                  <h3 className="group-title">{group}</h3>
+                  <p className="group-meta">{groupTools.length} tool(s)</p>
+                  <table>
+                    <thead><tr><th>Slug</th><th>DCC</th><th>Summary</th></tr></thead>
+                    <tbody>
+                      {groupTools.map((tool) => (
+                        <tr key={tool.slug}>
+                          <td>{tool.slug}</td>
+                          <td>{tool.dcc_type}</td>
+                          <td>{tool.summary.slice(0, 120)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )))}
             <button className="refresh-btn" type="button" onClick={fetchTools}>Refresh</button>
           </section>
         )}
@@ -408,27 +762,37 @@ function App() {
           <section className="panel active">
             <h2>Recent Calls</h2>
             <StatusLine text={updatedAt.calls} error={errors.calls} />
-            <table>
-              <thead><tr><th>Time</th><th>Request</th><th>Tool</th><th>DCC</th><th>Status</th><th>Error</th><th>ms</th><th>Detail</th></tr></thead>
-              <tbody>
-                {calls.length === 0 ? <EmptyRow columns={8}>No recent calls. AuditMiddleware may not be active.</EmptyRow> : calls.map((call) => (
-                  <tr key={call.request_id}>
-                    <td>{formatTime(call.timestamp)}</td>
-                    <td>
-                      <button className="refresh-btn" type="button" title={call.request_id} onClick={() => { setActivePanel('traces'); void fetchTraceInto(call.request_id, 'trace'); }}>
-                        {call.request_id.slice(0, 12)}
-                      </button>
-                    </td>
-                    <td>{call.tool}</td>
-                    <td>{call.dcc_type}</td>
-                    <td><StatusBadge value={call.status} /></td>
-                    <td title={call.error ?? ''}>{call.error ? call.error.slice(0, 80) : '-'}</td>
-                    <td>{call.duration_ms ?? '-'}</td>
-                    <td><button className="refresh-btn" type="button" onClick={() => void fetchTraceInto(call.request_id, 'call')}>Expand</button></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            {calls.length === 0 ? <p className="empty">No recent calls. AuditMiddleware may not be active.</p> : filteredCalls.length === 0 ? (
+              <p className="empty">No calls match your search.</p>
+            ) : (
+              Array.from(groupRows(filteredCalls, callGroupLabel).entries())
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(([group, groupCalls]) => (
+                <div key={group} className="group-block">
+                  <h3 className="group-title">{group}</h3>
+                  <table>
+                    <thead><tr><th>Time</th><th>Request</th><th>Tool</th><th>DCC</th><th>Status</th><th>Error</th><th>ms</th><th>Detail</th></tr></thead>
+                    <tbody>
+                      {groupCalls.map((call) => (
+                        <tr key={call.request_id}>
+                          <td>{formatTime(call.timestamp)}</td>
+                          <td>
+                            <button className="refresh-btn" type="button" title={call.request_id} onClick={() => { setActivePanel('traces'); void fetchTraceInto(call.request_id, 'trace'); }}>
+                              {call.request_id.slice(0, 12)}
+                            </button>
+                          </td>
+                          <td>{call.tool}</td>
+                          <td>{call.dcc_type}</td>
+                          <td><StatusBadge value={call.status} /></td>
+                          <td title={call.error ?? ''}>{call.error ? call.error.slice(0, 80) : '-'}</td>
+                          <td>{call.duration_ms ?? '-'}</td>
+                          <td><button className="refresh-btn" type="button" onClick={() => void fetchTraceInto(call.request_id, 'call')}>Expand</button></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )))}
             <pre className="empty">{callDetail}</pre>
             <button className="refresh-btn" type="button" onClick={fetchCalls}>Refresh</button>
           </section>
@@ -438,24 +802,34 @@ function App() {
           <section className="panel active" data-panel="traces">
             <h2>Traces</h2>
             <StatusLine text={updatedAt.traces} error={errors.traces} />
-            <table>
-              <thead><tr><th>Time</th><th>Request</th><th>Tool</th><th>Status</th><th>Total ms</th></tr></thead>
-              <tbody>
-                {traces.length === 0 ? <EmptyRow columns={5}>No traces recorded.</EmptyRow> : traces.map((trace) => (
-                  <tr
-                    key={trace.request_id}
-                    className="trace-row"
-                    onClick={() => void fetchTraceInto(trace.request_id, 'trace')}
-                  >
-                    <td>{formatTime(trace.timestamp)}</td>
-                    <td>{trace.request_id}</td>
-                    <td>{trace.tool}</td>
-                    <td><StatusBadge value={trace.status} /></td>
-                    <td>{trace.total_ms ?? '-'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            {traces.length === 0 ? <p className="empty">No traces recorded.</p> : filteredTraces.length === 0 ? (
+              <p className="empty">No traces match your search.</p>
+            ) : (
+              Array.from(groupRows(filteredTraces, traceGroupLabel).entries())
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(([group, groupTraces]) => (
+                <div key={group} className="group-block">
+                  <h3 className="group-title">{group}</h3>
+                  <table>
+                    <thead><tr><th>Time</th><th>Request</th><th>Tool</th><th>Status</th><th>Total ms</th></tr></thead>
+                    <tbody>
+                      {groupTraces.map((trace) => (
+                        <tr
+                          key={trace.request_id}
+                          className="trace-row"
+                          onClick={() => void fetchTraceInto(trace.request_id, 'trace')}
+                        >
+                          <td>{formatTime(trace.timestamp)}</td>
+                          <td>{trace.request_id}</td>
+                          <td>{trace.tool}</td>
+                          <td><StatusBadge value={trace.status} /></td>
+                          <td>{trace.total_ms ?? '-'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )))}
             <pre className="empty">{traceDetail}</pre>
             <button className="refresh-btn" type="button" onClick={fetchTraces}>Refresh</button>
           </section>
@@ -471,15 +845,21 @@ function App() {
                 <option value="1h">1h</option>
                 <option value="24h">24h</option>
                 <option value="7d">7d</option>
+                <option value="all">All (ring buffer)</option>
               </select>
             </label>
+            {stats?.error ? <p className="empty">{stats.error}</p> : null}
             <div className="health-grid">
               <HealthCard label="Calls" value={stats?.total_calls ?? 0} />
               <HealthCard label="Success %" value={stats ? stats.success_rate.toFixed(1) : '0.0'} />
-              <HealthCard label="p50 ms" value={stats?.p50_ms ?? '-'} />
-              <HealthCard label="p95 ms" value={stats?.p95_ms ?? '-'} />
+              <HealthCard label="p50 ms" value={stats?.latency_ms?.p50_ms ?? stats?.p50_ms ?? '-'} />
+              <HealthCard label="p95 ms" value={stats?.latency_ms?.p95_ms ?? stats?.p95_ms ?? '-'} />
             </div>
-            <pre>{statsJson}</pre>
+            <div className="stats-charts">
+              <StatBarList title="Top tools" items={filteredTopTools} />
+              <StatBarList title="Top instances" items={filteredTopInstances} />
+            </div>
+            {stats?.hourly_distribution?.length ? <HourlyChart buckets={stats.hourly_distribution} /> : null}
             <button className="refresh-btn" type="button" onClick={fetchStats}>Refresh</button>
           </section>
         )}
@@ -489,7 +869,10 @@ function App() {
             <h2>Workers</h2>
             <StatusLine text={updatedAt.workers} error={errors.workers} />
             <div className="workers-grid">
-              {workers.length === 0 ? <p className="empty">No workers registered.</p> : workers.map((worker) => (
+              {workers.length === 0 ? <p className="empty">No workers registered.</p> : filteredWorkers.length === 0 ? (
+                <p className="empty">No workers match your search.</p>
+              ) : (
+                filteredWorkers.map((worker) => (
                 <div key={worker.instance_id} className={`worker-card ${worker.stale ? 'stale' : statusClass(worker.status).replace('badge badge-', '')}`}>
                   <div className="wname">{worker.display_name} <span>{worker.instance_id.slice(0, 8)}</span></div>
                   <div className="wkv">
@@ -504,7 +887,8 @@ function App() {
                     <span>MCP URL</span><span>{worker.mcp_url}</span>
                   </div>
                 </div>
-              ))}
+                ))
+              )}
             </div>
             <div className="status-bar">Summary: live {workerSummary.live}, stale {workerSummary.stale}, unhealthy {workerSummary.unhealthy}</div>
             <button className="refresh-btn" type="button" onClick={fetchWorkers}>Refresh</button>
@@ -515,11 +899,33 @@ function App() {
           <section className="panel active">
             <h2>Event Log</h2>
             <StatusLine text={updatedAt.logs} error={errors.logs} />
-            {logs.length === 0 ? <p className="empty">No events recorded.</p> : logs.map((log) => (
-              <div key={`${log.timestamp}-${log.message}`} className="log-line">
-                <span className="muted">{formatTime(log.timestamp)}</span> <span className="warn-text">[{log.level}]</span> {log.message}
-              </div>
-            ))}
+            <p className="empty log-hint">
+              Contention events (election, probe, eviction) plus recent audited gateway calls, merged newest-first and grouped by DCC / instance prefix.
+            </p>
+            {logs.length === 0 ? <p className="empty">No events in buffer yet. Use the gateway (tool calls) or wait for registry / probe activity.</p> : filteredLogs.length === 0 ? (
+              <p className="empty">No log lines match your search.</p>
+            ) : (
+              Array.from(groupRows(filteredLogs, logGroupLabel).entries())
+              .sort(([a], [b]) => a.localeCompare(b))
+              .map(([group, groupLogs]) => (
+                <div key={group} className="group-block">
+                  <h3 className="group-title">{group}</h3>
+                  {groupLogs.map((log, idx) => (
+                    <div key={`${log.timestamp}-${log.request_id ?? ''}-${idx}`} className="log-line">
+                      <span className="source-pill" data-source={log.source ?? 'contention'}>{log.source ?? 'contention'}</span>
+                      {' '}
+                      <span className="muted">{formatTime(log.timestamp)}</span>
+                      {' '}
+                      <span className="warn-text">[{log.level}]</span>
+                      {' '}
+                      {log.event ? <span className="log-event">{String(log.event)}</span> : null}
+                      {' '}
+                      {log.message}
+                      {log.detail ? <span className="muted"> — {log.detail}</span> : null}
+                    </div>
+                  ))}
+                </div>
+              )))}
             <button className="refresh-btn" type="button" onClick={fetchLogs}>Refresh</button>
           </section>
         )}

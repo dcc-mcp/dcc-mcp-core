@@ -2,6 +2,10 @@
 
 Official skills and starter templates for the dcc-mcp-core ecosystem.
 
+**Ongoing maintenance:** see [docs/guide/skill-maintenance.md](../docs/guide/skill-maintenance.md)
+(in-repo reference packages: `python/dcc_mcp_core/skills/dcc-diagnostics`,
+`python/dcc_mcp_core/skills/workflow`).
+
 ## Bundled Skills
 
 | Skill | Description | Location |

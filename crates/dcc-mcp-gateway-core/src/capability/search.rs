@@ -1,235 +1,30 @@
-//! Wire types and pure ranking functions for capability search (`POST /v1/search`).
+//! Capability search adapter (issue #845 / split crate).
 //!
-//! This module carries both sides of the search contract:
-//!
-//! - the serialisable request / response shapes exchanged on REST and MCP
-//!   surfaces, and
-//! - the pure ranking loop that joins a [`SearchQuery`] against an immutable
-//!   [`IndexSnapshot`].
-//!
-//! Runtime-owned mutable state remains in `dcc-mcp-gateway`: `CapabilityIndex`
-//! owns locks and per-instance mutation, while this crate only sees snapshots.
-//! Moving the ranking function here keeps Clean Architecture dependency
-//! direction intact (gateway runtime → gateway-core domain) and guarantees that
-//! every consumer ranks the same snapshot identically.
-//!
-//! # Wire contract
-//!
-//! Every public type here is `Serialize` + `Deserialize`. Field names,
-//! defaults, and [`serde(rename_all)`] attributes are part of the
-//! `POST /v1/search` REST contract — adjust with care and bump the contract
-//! docs if you change the shape.
-//!
-//! # Pre-#659 compatibility
-//!
-//! [`SearchQuery`] fields default to values that preserve the pre-#659
-//! behaviour, so existing clients that only set `query` keep working without
-//! re-serialising.
-
-use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+//! Wire types and the pure ranking loop live in [`dcc_mcp_gateway_search`].
+//! This module wires [`IndexSnapshot`] + [`CapabilityRecord`] and preserves
+//! the historical `dcc_mcp_gateway_core::capability::search::*` import paths.
 
 use super::index::IndexSnapshot;
 use super::record::CapabilityRecord;
-use super::search_ranking::{FuzzyScorer, Scorer, SubstringScorer};
 
-/// Which scoring strategy to use for a search.
-///
-/// Defaults to [`SearchMode::Fuzzy`] — the pre-#659 `Exact` strategy
-/// stays addressable for callers (regression tests, deterministic
-/// surfaces) that explicitly want substring-only matching.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SearchMode {
-    /// Fuzzy matching with prefix/subsequence bonuses. Tolerates
-    /// typos and partial tokens — the right default for agents.
-    #[default]
-    Fuzzy,
-    /// Pre-#659 substring table. Exact or substring matches only,
-    /// no typo tolerance. Mainly useful for deterministic golden
-    /// tests and regression guards.
-    Exact,
-}
+pub use dcc_mcp_gateway_search::{DEFAULT_LIMIT, MAX_LIMIT, SearchMode, SearchQuery};
 
-/// Parameters accepted by `search_tools` / `POST /v1/search`.
-///
-/// Every new field defaults to a value that preserves the pre-#659
-/// behaviour, so existing clients that only set `query` keep working
-/// without re-serialising.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(default)]
-pub struct SearchQuery {
-    /// Free-text query matched against tool name, skill, summary,
-    /// and tags. Empty string disables keyword ranking and returns
-    /// the catalogue in deterministic order.
-    pub query: String,
-    /// Restrict results to a specific DCC bucket (`"maya"`, …).
-    pub dcc_type: Option<String>,
-    /// Restrict results to a single backend instance. Useful for
-    /// follow-up calls where the agent has already picked the
-    /// instance and wants instance-scoped autocomplete.
-    pub instance_id: Option<Uuid>,
-    /// Optional domain tags the caller wants to filter by — records
-    /// that do not carry every listed tag are dropped.
-    pub tags: Vec<String>,
-    /// When `Some(true)`, drop records whose owning skill is not
-    /// currently loaded (`has_schema == false`). The builder sets
-    /// `has_schema` from the backend `tools/list` response, so this
-    /// maps directly to "currently addressable" on the backend.
-    pub loaded_only: Option<bool>,
-    /// Optional scene / document hint; used as a soft boost rather
-    /// than a filter because agents often pass inaccurate hints.
-    pub scene_hint: Option<String>,
-    /// Cap on the number of hits returned. `0` means "fall back to
-    /// `DEFAULT_LIMIT`"; values > [`MAX_LIMIT`] are clamped.
-    pub limit: Option<u32>,
-    /// Number of hits to skip after ranking. Zero by default so
-    /// existing clients see the same first page they did pre-#659.
-    pub offset: Option<u32>,
-    /// Which scoring strategy to apply — defaults to fuzzy.
-    pub mode: SearchMode,
-}
+/// One result row (flattened [`CapabilityRecord`] + score).
+pub type SearchHit = dcc_mcp_gateway_search::SearchHit<CapabilityRecord>;
 
-/// Default page size for `search_tools` — keeps the response token
-/// cost modest even when the caller forgets to pass `limit`.
-pub const DEFAULT_LIMIT: u32 = 25;
-/// Upper bound on the number of results returned in a single page.
-pub const MAX_LIMIT: u32 = 100;
-
-/// One result row in the search response. Same wire shape on REST
-/// and MCP surfaces.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SearchHit {
-    /// Capability being ranked.
-    #[serde(flatten)]
-    pub record: CapabilityRecord,
-    /// Score used for ranking. Informational — clients should treat
-    /// it as opaque and rely on the list order.
-    pub score: u32,
-}
-
-/// Paginated search response envelope (issue #659).
-///
-/// The wrapper lets callers discover how many records matched
-/// overall (for a progress bar, or to decide whether to ask for the
-/// next page) without shipping every hit on every call. Kept as a
-/// sibling type rather than replacing `Vec<SearchHit>` so existing
-/// callers that consume the list directly keep compiling.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SearchPage {
-    /// Ranked, truncated hits for the requested page.
-    pub hits: Vec<SearchHit>,
-    /// Total number of records that matched the query after all
-    /// filters were applied, before pagination truncation.
-    pub total: u32,
-    /// Offset the caller asked for (echoed back so clients can
-    /// round-trip it into a "next page" request).
-    pub offset: u32,
-    /// Effective limit that was applied to produce `hits`.
-    pub limit: u32,
-}
+/// Paginated search response.
+pub type SearchPage = dcc_mcp_gateway_search::SearchPage<CapabilityRecord>;
 
 /// Rank `snapshot` against `query` and return the top-N hits for the first page.
-///
-/// Surfaces that need pagination should use [`search_page`] instead.
 #[must_use]
 pub fn search(snapshot: &IndexSnapshot, query: &SearchQuery) -> Vec<SearchHit> {
-    search_page(snapshot, query).hits
+    dcc_mcp_gateway_search::search(snapshot.records.as_ref(), query)
 }
 
 /// Paginated variant of [`search`].
-///
-/// Returns the ranked hits plus the total match count and echoed offset/limit
-/// so callers can paginate without re-issuing the query from scratch.
 #[must_use]
 pub fn search_page(snapshot: &IndexSnapshot, query: &SearchQuery) -> SearchPage {
-    let qnorm = query.query.trim().to_ascii_lowercase();
-    let dcc_filter = query.dcc_type.as_deref();
-    let instance_filter = query.instance_id;
-    let loaded_filter = query.loaded_only;
-    let tags_filter: Vec<String> = query
-        .tags
-        .iter()
-        .map(|t| t.trim().to_ascii_lowercase())
-        .filter(|t| !t.is_empty())
-        .collect();
-    let scene = query.scene_hint.as_deref().map(|s| s.to_ascii_lowercase());
-
-    // Phase 1: filter — these are strict drops, not score nudges.
-    let candidates: Vec<&CapabilityRecord> = snapshot
-        .records
-        .iter()
-        .filter(|r| dcc_filter.is_none_or(|f| r.dcc_type == f))
-        .filter(|r| instance_filter.is_none_or(|iid| r.instance_id == iid))
-        .filter(|r| loaded_filter != Some(true) || r.loaded)
-        .filter(|r| {
-            tags_filter
-                .iter()
-                .all(|t| r.tags.iter().any(|rt| rt.to_ascii_lowercase() == *t))
-        })
-        .collect();
-
-    // Phase 2: score. Construct exactly one scorer and reuse it across records.
-    let mut hits: Vec<SearchHit> = match query.mode {
-        SearchMode::Fuzzy => {
-            let mut scorer = FuzzyScorer::new();
-            rank(&candidates, &mut scorer, &qnorm, scene.as_deref())
-        }
-        SearchMode::Exact => {
-            let mut scorer = SubstringScorer;
-            rank(&candidates, &mut scorer, &qnorm, scene.as_deref())
-        }
-    };
-
-    hits.sort_by(|a, b| {
-        b.score
-            .cmp(&a.score)
-            // Tie-breaker: alphabetical slug so results stay stable across reruns.
-            .then_with(|| a.record.tool_slug.cmp(&b.record.tool_slug))
-    });
-
-    let total = hits.len() as u32;
-    let effective_limit = effective_limit(query.limit);
-    let offset = query.offset.unwrap_or(0).min(total);
-    let end = offset.saturating_add(effective_limit).min(total);
-    let page = if offset < total {
-        hits[offset as usize..end as usize].to_vec()
-    } else {
-        Vec::new()
-    };
-
-    SearchPage {
-        hits: page,
-        total,
-        offset,
-        limit: effective_limit,
-    }
-}
-
-fn rank<S: Scorer>(
-    candidates: &[&CapabilityRecord],
-    scorer: &mut S,
-    qnorm: &str,
-    scene: Option<&str>,
-) -> Vec<SearchHit> {
-    candidates
-        .iter()
-        .map(|r| SearchHit {
-            record: (*r).clone(),
-            score: scorer.score(r, qnorm, scene),
-        })
-        // Empty queries browse the whole catalogue; non-empty queries drop
-        // records with no match signal so token budget is not spent on noise.
-        .filter(|hit| qnorm.is_empty() || hit.score > 0)
-        .collect()
-}
-
-fn effective_limit(limit: Option<u32>) -> u32 {
-    match limit {
-        None => DEFAULT_LIMIT,
-        Some(0) => DEFAULT_LIMIT,
-        Some(n) => n.min(MAX_LIMIT),
-    }
+    dcc_mcp_gateway_search::search_page(snapshot.records.as_ref(), query)
 }
 
 #[cfg(test)]
@@ -239,6 +34,7 @@ mod tests {
 
     use super::*;
     use crate::capability::record::tool_slug;
+    use uuid::Uuid;
 
     fn record(
         dcc: &str,
@@ -297,8 +93,12 @@ mod tests {
         assert!(q.dcc_type.is_none());
         assert!(q.instance_id.is_none());
         assert!(q.tags.is_empty());
+        assert!(q.exclude_tags.is_empty());
         assert!(q.loaded_only.is_none());
         assert!(q.scene_hint.is_none());
+        assert!(q.min_score.is_none());
+        assert!(q.skill_hint.is_none());
+        assert!(q.or_queries.is_empty());
         assert!(q.limit.is_none());
         assert!(q.offset.is_none());
         assert_eq!(q.mode, SearchMode::Fuzzy);
@@ -309,6 +109,19 @@ mod tests {
         let q: SearchQuery = serde_json::from_str(r#"{"query": "create sphere"}"#).unwrap();
         assert_eq!(q.query, "create sphere");
         assert_eq!(q.mode, SearchMode::Fuzzy);
+    }
+
+    #[test]
+    fn search_query_deserializes_extended_search_fields() {
+        let q: SearchQuery = serde_json::from_str(
+            r#"{"query":"x","exclude_tags":["legacy"],"min_score":3,"skill_hint":"maya-geo","or_queries":["a","b"]}"#,
+        )
+        .unwrap();
+        assert_eq!(q.query, "x");
+        assert_eq!(q.exclude_tags, vec!["legacy"]);
+        assert_eq!(q.min_score, Some(3));
+        assert_eq!(q.skill_hint.as_deref(), Some("maya-geo"));
+        assert_eq!(q.or_queries, vec!["a", "b"]);
     }
 
     #[test]
@@ -581,6 +394,65 @@ mod tests {
                 .iter()
                 .all(|hit| hit.record.backend_tool != "maya_scene__find_by_pattern"),
             "fbx must not match unrelated find_by_pattern rows: {fbx_hits:?}"
+        );
+    }
+
+    #[test]
+    fn fuzzy_mode_natural_language_prose_query_surfaces_sphere_and_fbx() {
+        let iid = Uuid::from_u128(1);
+        let snap = snapshot(vec![
+            record(
+                "maya",
+                iid,
+                "maya_primitives__create_sphere",
+                "Create a polygon sphere.",
+                &["modeling"],
+                true,
+                true,
+            ),
+            record(
+                "maya",
+                iid,
+                "maya_geometry__export_fbx",
+                "Export the current Maya scene or selection to FBX.",
+                &["interchange"],
+                true,
+                true,
+            ),
+            record(
+                "maya",
+                iid,
+                "maya_scene__find_by_pattern",
+                "Find objects by name pattern",
+                &[],
+                true,
+                true,
+            ),
+        ]);
+
+        let hits = search(
+            &snap,
+            &SearchQuery {
+                query: "create poly sphere export fbx".into(),
+                dcc_type: Some("maya".into()),
+                ..Default::default()
+            },
+        );
+        assert!(
+            hits.len() >= 2,
+            "expected sphere + fbx tools from prose query; got {hits:?}"
+        );
+        let tools: Vec<&str> = hits
+            .iter()
+            .map(|h| h.record.backend_tool.as_str())
+            .collect();
+        assert!(
+            tools.contains(&"maya_primitives__create_sphere"),
+            "missing create_sphere in {tools:?}"
+        );
+        assert!(
+            tools.contains(&"maya_geometry__export_fbx"),
+            "missing export_fbx in {tools:?}"
         );
     }
 

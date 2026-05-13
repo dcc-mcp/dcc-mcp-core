@@ -43,16 +43,13 @@ pub struct AdminAuditRecord {
     pub duration_ms: Option<u64>,
 }
 
-/// Append-only ring buffer for gateway event log entries.
-pub type EventLog = Mutex<Vec<Value>>;
-
-/// Append-only audit log shared with the admin UI.
 pub type AuditLog = Mutex<Vec<AdminAuditRecord>>;
 
 #[derive(Debug, Clone)]
 pub struct DurableAuditStore {
     dir: Arc<PathBuf>,
     max_rows: usize,
+    max_bytes: u64,
     lock: Arc<Mutex<()>>,
 }
 
@@ -74,13 +71,16 @@ impl DurableAuditStore {
     pub const AUDIT_FILE: &'static str = "audit.jsonl";
     pub const TRACE_FILE: &'static str = "traces.jsonl";
     pub const DEFAULT_MAX_ROWS: usize = 5_000;
+    /// Default on-disk cap for each JSONL file (~50 MiB).
+    pub const DEFAULT_MAX_BYTES: u64 = 52_428_800;
 
-    pub fn new(dir: impl Into<PathBuf>, max_rows: usize) -> std::io::Result<Self> {
+    pub fn new(dir: impl Into<PathBuf>, max_rows: usize, max_bytes: u64) -> std::io::Result<Self> {
         let dir = dir.into();
         fs::create_dir_all(&dir)?;
         Ok(Self {
             dir: Arc::new(dir),
             max_rows: max_rows.max(1),
+            max_bytes: max_bytes.max(1024),
             lock: Arc::new(Mutex::new(())),
         })
     }
@@ -91,7 +91,12 @@ impl DurableAuditStore {
             .ok()
             .and_then(|v| v.parse::<usize>().ok())
             .unwrap_or(Self::DEFAULT_MAX_ROWS);
-        Self::new(dir, max_rows).ok()
+        let max_bytes = std::env::var("DCC_MCP_GATEWAY_AUDIT_MAX_BYTES")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(Self::DEFAULT_MAX_BYTES)
+            .max(1024);
+        Self::new(dir, max_rows, max_bytes).ok()
     }
 
     pub fn load_audit(&self) -> Vec<AdminAuditRecord> {
@@ -141,12 +146,39 @@ impl DurableAuditStore {
             .map_while(Result::ok)
             .filter(|line| !line.trim().is_empty())
             .collect();
-        if lines.len() <= self.max_rows {
-            return;
+        if lines.len() > self.max_rows {
+            let keep_from = lines.len() - self.max_rows;
+            lines.drain(0..keep_from);
+            let _ = fs::write(path, lines.join("\n") + "\n");
         }
-        let keep_from = lines.len() - self.max_rows;
-        lines.drain(0..keep_from);
-        let _ = fs::write(path, lines.join("\n") + "\n");
+        self.enforce_byte_budget(path);
+    }
+
+    /// Drop oldest lines until the JSONL file is under `max_bytes`.
+    fn enforce_byte_budget(&self, path: &Path) {
+        for _ in 0..32 {
+            let len = match fs::metadata(path) {
+                Ok(m) => m.len(),
+                Err(_) => return,
+            };
+            if len <= self.max_bytes {
+                return;
+            }
+            let Ok(file) = fs::File::open(path) else {
+                return;
+            };
+            let mut lines: Vec<String> = std::io::BufReader::new(file)
+                .lines()
+                .map_while(Result::ok)
+                .filter(|line| !line.trim().is_empty())
+                .collect();
+            if lines.len() <= 1 {
+                return;
+            }
+            let drop = (lines.len() / 2).max(1);
+            lines.drain(0..drop);
+            let _ = fs::write(path, lines.join("\n") + "\n");
+        }
     }
 
     fn path(&self, filename: &str) -> PathBuf {
@@ -315,7 +347,7 @@ mod durable_tests {
     #[test]
     fn durable_store_roundtrips_audit_and_traces() {
         let dir = tempfile::tempdir().unwrap();
-        let store = DurableAuditStore::new(dir.path(), 10).unwrap();
+        let store = DurableAuditStore::new(dir.path(), 10, 10_000_000).unwrap();
         let audit = audit_record("req-1");
         store.append_audit(&audit);
         let trace = DispatchTrace {
@@ -346,7 +378,7 @@ mod durable_tests {
     #[test]
     fn durable_store_trims_old_rows() {
         let dir = tempfile::tempdir().unwrap();
-        let store = DurableAuditStore::new(dir.path(), 2).unwrap();
+        let store = DurableAuditStore::new(dir.path(), 2, 10_000_000).unwrap();
         for id in ["req-1", "req-2", "req-3"] {
             store.append_audit(&audit_record(id));
         }
@@ -357,6 +389,21 @@ mod durable_tests {
             .map(|record| record.request_id)
             .collect();
         assert_eq!(ids, vec!["req-2", "req-3"]);
+    }
+
+    #[test]
+    fn durable_store_trims_when_over_byte_budget() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = DurableAuditStore::new(dir.path(), 100_000, 800).unwrap();
+        for i in 0..40 {
+            store.append_audit(&audit_record(&format!("req-{i:03}")));
+        }
+        let path = dir.path().join(DurableAuditStore::AUDIT_FILE);
+        let len = fs::metadata(&path).unwrap().len();
+        assert!(
+            len <= 2000,
+            "expected JSONL to shrink under byte budget, got {len} bytes"
+        );
     }
 }
 
@@ -371,8 +418,6 @@ pub struct AdminState {
     pub trace_log: Option<Arc<TraceLog>>,
     /// Phase 3 stats aggregator — `None` until `with_trace_log` is called.
     pub stats: Option<Arc<StatsAggregator>>,
-    /// Append-only event log shared with the gateway core.
-    pub event_log: Arc<EventLog>,
     /// Wall-clock time the gateway started, used for the Health card uptime.
     pub started_at: SystemTime,
 }
@@ -387,7 +432,6 @@ impl AdminState {
             audit_log: None,
             trace_log: None,
             stats: None,
-            event_log: Arc::new(Mutex::new(Vec::new())),
             started_at: SystemTime::now(),
         }
     }
@@ -405,13 +449,6 @@ impl AdminState {
         // Phase 3: auto-create StatsAggregator when a TraceLog is attached.
         self.stats = Some(Arc::new(StatsAggregator::new(log.clone())));
         self.trace_log = Some(log);
-        self
-    }
-
-    /// Replace the default empty [`EventLog`] with one shared with the
-    /// gateway core (so `GET /admin/api/logs` surfaces gateway events).
-    pub fn with_event_log(mut self, log: Arc<EventLog>) -> Self {
-        self.event_log = log;
         self
     }
 }

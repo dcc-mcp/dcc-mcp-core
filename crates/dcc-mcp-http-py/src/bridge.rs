@@ -384,7 +384,7 @@ pub fn py_create_skill_server(
         live_meta,
         resources,
         prompts,
-        attached_executor: parking_lot::Mutex::new(None),
+        attached_dispatcher: parking_lot::Mutex::new(None),
         readiness_probe: parking_lot::Mutex::new(None),
     })
 }

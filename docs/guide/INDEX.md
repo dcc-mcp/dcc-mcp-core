@@ -29,6 +29,7 @@ document without scanning every file.
 |----------|---------|
 | [agents-reference.md](agents-reference.md) | **Critical** — traps, do/don't, code style, full example list |
 | [skills.md](skills.md) | Skill system: scanning, loading, lifecycle |
+| [skill-maintenance.md](skill-maintenance.md) | Checklist for SKILL/tools/scripts + `recipes` / `skill-reference-docs` |
 | [thin-harness.md](thin-harness.md) | Thin-harness layer: `execute_python` + recipes pattern |
 | [mcp-skills-integration.md](mcp-skills-integration.md) | How skills integrate with the MCP HTTP server |
 | [skill-scopes-policies.md](skill-scopes-policies.md) | SkillScope (trust levels) and SkillPolicy |

@@ -1,23 +1,45 @@
 //! Prometheus `/metrics` endpoint wiring for the gateway (issue #559).
 //!
-//! This module is compiled only when the `prometheus` Cargo feature is enabled.
-//! It mounts a `GET /metrics` route on the gateway router and exposes
-//! gateway-specific gauges/counters in addition to the per-instance metrics.
+//! When the `prometheus` feature is enabled, this module mounts `GET /metrics`
+//! and keeps a process-wide [`PrometheusExporter`] handle so backend hops can
+//! increment `dcc_mcp_gateway_backend_errors_total` on the same registry.
+//!
+//! [`record_gateway_backend_error_kind`](record_gateway_backend_error_kind) is
+//! always available (no-op without the `prometheus` feature).
 
+#[cfg(feature = "prometheus")]
+use std::sync::{Arc, OnceLock};
+
+#[cfg(feature = "prometheus")]
 use axum::{Router, response::IntoResponse};
-use std::sync::Arc;
 
+#[cfg(feature = "prometheus")]
 use dcc_mcp_telemetry::PrometheusExporter;
 
+#[cfg(feature = "prometheus")]
+static GATEWAY_PROMETHEUS_EXPORTER: OnceLock<Arc<PrometheusExporter>> = OnceLock::new();
+
+/// Increment `dcc_mcp_gateway_backend_errors_total` when the `prometheus`
+/// feature is enabled.
+#[inline]
+pub fn record_gateway_backend_error_kind(kind: &str) {
+    #[cfg(feature = "prometheus")]
+    {
+        if let Some(exp) = GATEWAY_PROMETHEUS_EXPORTER.get() {
+            exp.record_gateway_backend_error(kind);
+        }
+    }
+    #[cfg(not(feature = "prometheus"))]
+    {
+        let _ = kind;
+    }
+}
+
 /// Attach the `/metrics` route to the gateway router.
-///
-/// The exporter is created fresh here; the caller can later clone it
-/// into background tasks that update gauges. The handler is a closure
-/// over an `Arc<PrometheusExporter>` so the route does not change the
-/// router's `S` (state) type — keeping the `Router<()>` shape that the
-/// rest of the gateway expects.
+#[cfg(feature = "prometheus")]
 pub fn attach_gateway_metrics_route(router: Router) -> Router {
     let exporter = Arc::new(PrometheusExporter::new());
+    let _ = GATEWAY_PROMETHEUS_EXPORTER.set(exporter.clone());
     router.route(
         "/metrics",
         axum::routing::get({
@@ -27,6 +49,7 @@ pub fn attach_gateway_metrics_route(router: Router) -> Router {
     )
 }
 
+#[cfg(feature = "prometheus")]
 async fn handle_gateway_metrics(exporter: Arc<PrometheusExporter>) -> impl IntoResponse {
     match exporter.render() {
         Ok(body) => {

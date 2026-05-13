@@ -1060,6 +1060,7 @@ dcc-mcp-server catalog describe --name dcc-mcp-maya-skills
 ```
 
 MCP resources (#813 phase 2): `resources/read uri=gateway://catalog?query=...`, `resources/read uri=gateway://catalog/{name}`.
+Gateway-native agent guide: `resources/read uri=gateway://docs/agent-workflows` (MCP + resources + prompts + describe_tool hints + efficiency; JSON envelope with markdown `document` field).
 Override catalog path: `DCC_MCP_CATALOG_PATH=/path/to/dcc-mcp-catalog.yml`.
 
 ### Gateway Observability (#766)

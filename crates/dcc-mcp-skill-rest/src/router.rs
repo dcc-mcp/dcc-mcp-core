@@ -86,6 +86,7 @@ pub fn build_skill_rest_router(config: SkillRestConfig) -> Router {
         .route("/v1/describe", post(handle_describe))
         .route("/v1/tools/{slug}", get(handle_describe_path))
         .route("/v1/call", post(handle_call))
+        .route("/v1/dcc/{dcc_type}/call", post(handle_dcc_backend_call))
         .route("/v1/context", get(handle_context))
         // ── #818 phase 1 — resources & prompts as REST ────────────
         .route("/v1/resources", get(handle_list_resources))
@@ -414,6 +415,101 @@ async fn handle_call(
                 &rid,
                 req.tool_slug.as_str(),
                 "POST /v1/call",
+                &principal.subject,
+                AuditOutcome::Failure(
+                    serde_json::to_value(err.kind)
+                        .ok()
+                        .and_then(|v| v.as_str().map(ToOwned::to_owned))
+                        .unwrap_or_else(|| "internal".into()),
+                ),
+                started,
+            );
+            service_error_to_response(err.with_request_id(rid))
+        }
+    }
+}
+
+async fn handle_dcc_backend_call(
+    State(cfg): State<SkillRestConfig>,
+    Path(dcc_type): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Response {
+    let rid = request_id(&headers);
+    let principal = match principal_or_error(&cfg, peer(&headers), &headers, &rid) {
+        Ok(p) => p,
+        Err(r) => return *r,
+    };
+    let backend_tool = body
+        .get("backend_tool")
+        .or_else(|| body.get("tool"))
+        .or_else(|| body.get("action"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let Some(backend_tool) = backend_tool else {
+        let err = ServiceError::new(
+            ServiceErrorKind::BadRequest,
+            "missing required field: backend_tool (aliases: tool, action)",
+        )
+        .with_request_id(&rid);
+        return service_error_to_response(err);
+    };
+    let params = body
+        .get("arguments")
+        .or_else(|| body.get("params"))
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+
+    let report = cfg.readiness.report();
+    if !report.is_ready() {
+        let err = ServiceError::new(ServiceErrorKind::NotReady, "DCC backend is not ready yet")
+            .with_request_id(&rid)
+            .with_hint(format!(
+                "readiness: process={}, dispatcher={}, dcc={}",
+                report.process, report.dispatcher, report.dcc
+            ));
+        emit_audit(
+            &cfg,
+            &rid,
+            backend_tool,
+            "POST /v1/dcc/{dcc_type}/call",
+            &principal.subject,
+            AuditOutcome::Failure("not-ready".into()),
+            std::time::Instant::now(),
+        );
+        return service_error_to_response(err);
+    }
+
+    let started = std::time::Instant::now();
+    match cfg
+        .service
+        .call_backend_tool_for_dcc(dcc_type.as_str(), backend_tool, params)
+    {
+        Ok(out) => {
+            emit_audit(
+                &cfg,
+                &rid,
+                backend_tool,
+                "POST /v1/dcc/{dcc_type}/call",
+                &principal.subject,
+                AuditOutcome::Success,
+                started,
+            );
+            let body = json!({
+                "slug": out.slug.0,
+                "output": out.output,
+                "validation_skipped": out.validation_skipped,
+                "request_id": rid,
+            });
+            (StatusCode::OK, Json(body)).into_response()
+        }
+        Err(err) => {
+            emit_audit(
+                &cfg,
+                &rid,
+                backend_tool,
+                "POST /v1/dcc/{dcc_type}/call",
                 &principal.subject,
                 AuditOutcome::Failure(
                     serde_json::to_value(err.kind)
@@ -825,6 +921,26 @@ pub fn op_describe_path() {}
 )]
 #[allow(dead_code)]
 pub fn op_call() {}
+
+#[utoipa::path(
+    post,
+    path = "/v1/dcc/{dcc_type}/call",
+    tag = "skills",
+    params(
+        ("dcc_type" = String, Path, description = "DCC bucket (must match the action's catalog dcc)"),
+    ),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, description = "successful invocation", body = CallOutcome),
+        (status = 400, description = "bad request", body = ServiceError),
+        (status = 401, description = "unauthorized", body = ServiceError),
+        (status = 404, description = "unknown action", body = ServiceError),
+        (status = 409, description = "skill not loaded / ambiguous", body = ServiceError),
+        (status = 503, description = "DCC not ready", body = ServiceError),
+    )
+)]
+#[allow(dead_code)]
+pub fn op_dcc_backend_call() {}
 
 #[utoipa::path(
     get,
