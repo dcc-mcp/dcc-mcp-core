@@ -2,6 +2,12 @@
 
 Thank you for your interest in contributing! This guide will help you get started.
 
+## Policies
+
+Please review our project policies before contributing:
+
+- **[Skill Ownership Policy](./docs/POLICY_SKILL_OWNERSHIP.md)** - Rules for skill package ownership and preventing schema duplication across bundled adapter skills.
+
 ## Quick Start
 
 ```bash
