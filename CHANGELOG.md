@@ -11,6 +11,55 @@
 - add cross-platform shell support to justfile
 - resolve isort issues and migrate CI to vx
 
+## [0.16.0](https://github.com/loonghao/dcc-mcp-core/compare/v0.15.9...v0.16.0) (2026-05-13)
+
+
+### ⚠ BREAKING CHANGES
+
+* Clients must use i_<id8>__<escaped> for gateway-prefixed MCP tool/prompt names. SKILL tools must use canonical YAML keys.
+
+### Features
+
+* **admin-ui:** expand call trace details ([#961](https://github.com/loonghao/dcc-mcp-core/issues/961)) ([0a2a888](https://github.com/loonghao/dcc-mcp-core/commit/0a2a8882e26f82af37a3af7c8b05cfb038df1315))
+* **admin-ui:** refresh embedded gateway console theme ([ed83dac](https://github.com/loonghao/dcc-mcp-core/commit/ed83daca724d049d92a859b7d5596f55e00a8a9f))
+* **admin:** add DCC-type icons + on-disk log rendering ([3c5146f](https://github.com/loonghao/dcc-mcp-core/commit/3c5146f720a4fb2b6c6afb17286b8f94ea19c96b)), closes [#963](https://github.com/loonghao/dcc-mcp-core/issues/963)
+* **admin:** add maya icon (autodesk.svg) to DCC_ICON_MAP ([e79bd55](https://github.com/loonghao/dcc-mcp-core/commit/e79bd558d197bd5fa625573d13e82976c667f179))
+* **admin:** persist audit traces as jsonl ([#964](https://github.com/loonghao/dcc-mcp-core/issues/964)) ([fac89f6](https://github.com/loonghao/dcc-mcp-core/commit/fac89f600830bbfb947079d8edde80ade31415b5))
+* **admin:** ship Vite/React admin SPA and wire release-please ([bc3d980](https://github.com/loonghao/dcc-mcp-core/commit/bc3d980da59e2835924f46230de6042b9dbeecdc))
+* core iteration - gateway search refactor + write_temp_file skill ([0d94c6d](https://github.com/loonghao/dcc-mcp-core/commit/0d94c6dbe4ce134586ba97ef30b9badb0110d629))
+* **gateway:** add call_tools MCP and POST /v1/call_batch ([3ade6b2](https://github.com/loonghao/dcc-mcp-core/commit/3ade6b2a08d44dabb2edae8b02cb0c4790fee3bc))
+
+
+### Bug Fixes
+
+* add canonical MCP wire crate ([689e5e3](https://github.com/loonghao/dcc-mcp-core/commit/689e5e3d69b6368ad3d0c28f698c6020c4c9c7cb))
+* **admin-ui:** add data-panel attrs so admin HTML passes gateway tests ([a18158d](https://github.com/loonghao/dcc-mcp-core/commit/a18158d156acb91472482cb465a7d289394bfcdf))
+* **admin:** generate embedded UI during cargo build ([dcf7496](https://github.com/loonghao/dcc-mcp-core/commit/dcf7496e00a387b4d1ec51873c745154f7379832))
+* **admin:** maya icon matching + default log dir in tests ([fd134cf](https://github.com/loonghao/dcc-mcp-core/commit/fd134cfac2e1fd69f9c788e4ab40b47e3fb09d60))
+* **ci:** manylinux wheel build without vx in Docker ([e0f7cf7](https://github.com/loonghao/dcc-mcp-core/commit/e0f7cf70d70d857cf61a6fa2c2e4510d204412cb))
+* **gateway:** include resilience modules and normalize tool arguments ([2a2ab1b](https://github.com/loonghao/dcc-mcp-core/commit/2a2ab1be28b45c876d88ef25bf53cf0cbfe81510))
+* **gateway:** refresh FileRegistry before pool lease mutations ([59eced9](https://github.com/loonghao/dcc-mcp-core/commit/59eced923d63f78aecaf204c4c55c74f54ba5252))
+* **gateway:** remove cursor-safe toggles; pin just dev to .venv ([a025899](https://github.com/loonghao/dcc-mcp-core/commit/a025899a4f08ba9f8268ea5956af7010c2e0b245))
+* **gateway:** repair GatewayState construction after Default removal ([e06063b](https://github.com/loonghao/dcc-mcp-core/commit/e06063b355f4d4b4d01618db6723cba063ccbbf6))
+* **models:** add SkillMetadata.stage for dcc-mcp.skills loader ([36b6ef0](https://github.com/loonghao/dcc-mcp-core/commit/36b6ef0ad231a08fbcb5fa0c1ec1e7d70eb5fef6))
+
+
+### Code Refactoring
+
+* **python:** remove legacy server compatibility paths ([ef385ed](https://github.com/loonghao/dcc-mcp-core/commit/ef385ed2f9b8329e13aceb12df8acdfa27d5fde2))
+* tighten gateway routing and skill YAML surface ([017fdeb](https://github.com/loonghao/dcc-mcp-core/commit/017fdeb96ba9ac2eb349ba158883a1e05ead9c6e))
+
+
+### Documentation
+
+* add skill ownership policy for bundled adapter skills ([200f810](https://github.com/loonghao/dcc-mcp-core/commit/200f810e382f29f1d2280412ff00005b66b39440)), closes [#967](https://github.com/loonghao/dcc-mcp-core/issues/967)
+* document gateway call_tool wrapper payloads and object-shaped arguments ([3a3bdb6](https://github.com/loonghao/dcc-mcp-core/commit/3a3bdb6423db0a896f8d3a0af1c1fa91b4739a7b))
+* document gateway call_tool wrapper payloads and object-shaped arguments ([f7b60e5](https://github.com/loonghao/dcc-mcp-core/commit/f7b60e5cd9fc789b1606a6cd60cf6775b8af2407)), closes [#968](https://github.com/loonghao/dcc-mcp-core/issues/968)
+* enforce skill ownership policy for bundled adapter skills ([f115d03](https://github.com/loonghao/dcc-mcp-core/commit/f115d03ad1a6416eceeb2a28d1cac0f52c9fdccb))
+* refresh gateway admin observability docs ([2c714b0](https://github.com/loonghao/dcc-mcp-core/commit/2c714b06fde6527b4828fa91b6506d662a4a4f3f))
+* remove legacy server construction references ([2988314](https://github.com/loonghao/dcc-mcp-core/commit/29883142b48a1e97c6c9aa523ed13d3a31dfb286))
+* **zh:** sync admin ui guide ([#962](https://github.com/loonghao/dcc-mcp-core/issues/962)) ([77a1165](https://github.com/loonghao/dcc-mcp-core/commit/77a1165128201e9e321bf9b1a72624d2f1653d93))
+
 ## [0.15.9](https://github.com/loonghao/dcc-mcp-core/compare/v0.15.8...v0.15.9) (2026-05-12)
 
 
