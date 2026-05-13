@@ -5,6 +5,8 @@ name: DCC Integration
 # relevant test file (split from the original test_integration_dcc.py).
 #
 # Triggered by:
+#   - pull_request: runs directly on PRs and builds its own wheel so the
+#     DCC jobs are visible as PR checks.
 #   - workflow_run after CI completes: reuses the Ubuntu wheel artifact
 #     from ci.yml's `build-wheel (ubuntu-latest)` job — no rebuild.
 #     Saves ~2-3 min of duplicate maturin work per PR.
@@ -13,6 +15,24 @@ name: DCC Integration
 #   - workflow_call: invoked by release.yml; builds its own wheel.
 
 on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "crates/**"
+      - "python/**"
+      - "scripts/**"
+      - "src/**"
+      - "tests/**"
+      - "examples/**"
+      - "skills/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "justfile"
+      - "pyproject.toml"
+      - "rust-toolchain.toml"
+      - ".github/workflows/ci.yml"
+      - ".github/workflows/dcc-integration.yml"
+      - ".github/actions/build-wheel/**"
   workflow_run:
     workflows: ["CI"]
     types: [completed]
@@ -121,7 +141,7 @@ jobs:
   blender:
     name: Blender ${{ matrix.blender-version }}
     needs: [wheel-ready]
-    if: github.event_name == 'workflow_run' || github.event_name == 'workflow_call' || github.event.inputs.dcc == '' || github.event.inputs.dcc == 'all' || github.event.inputs.dcc == 'blender'
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_run' || github.event_name == 'workflow_call' || github.event.inputs.dcc == '' || github.event.inputs.dcc == 'all' || github.event.inputs.dcc == 'blender'
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -179,7 +199,7 @@ jobs:
   openscad:
     name: OpenSCAD
     needs: [wheel-ready]
-    if: github.event_name == 'workflow_run' || github.event_name == 'workflow_call' || github.event.inputs.dcc == '' || github.event.inputs.dcc == 'all' || github.event.inputs.dcc == 'openscad'
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_run' || github.event_name == 'workflow_call' || github.event.inputs.dcc == '' || github.event.inputs.dcc == 'all' || github.event.inputs.dcc == 'openscad'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -209,7 +229,7 @@ jobs:
   godot:
     name: Godot
     needs: [wheel-ready]
-    if: github.event_name == 'workflow_run' || github.event_name == 'workflow_call' || github.event.inputs.dcc == '' || github.event.inputs.dcc == 'all' || github.event.inputs.dcc == 'godot'
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_run' || github.event_name == 'workflow_call' || github.event.inputs.dcc == '' || github.event.inputs.dcc == 'all' || github.event.inputs.dcc == 'godot'
     runs-on: ubuntu-latest
     env:
       GODOT_VERSION: "4.4.1"
@@ -245,7 +265,7 @@ jobs:
   cross-dcc:
     name: Cross-DCC Pipeline
     needs: [wheel-ready]
-    if: github.event_name == 'workflow_run' || github.event_name == 'workflow_call' || github.event.inputs.dcc == '' || github.event.inputs.dcc == 'all' || github.event.inputs.dcc == 'cross'
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_run' || github.event_name == 'workflow_call' || github.event.inputs.dcc == '' || github.event.inputs.dcc == 'all' || github.event.inputs.dcc == 'cross'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
