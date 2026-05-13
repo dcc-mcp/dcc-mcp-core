@@ -60,6 +60,125 @@ id prefix.
 | `arguments` | ❌ | Alias for `params`, accepted so gateway REST can preserve the MCP `tools/call` naming convention. |
 | `meta` | ❌ | MCP-style sidecar. Honored keys: `progressToken` (binds progress events to a client session), `dcc.async` (opt in to async dispatch), `dcc.wait_for_terminal` (block until terminal status). |
 
+
+### Wrapper payloads and object-shaped arguments
+
+When a **host** (Maya, Blender, Houdini…) or a **connector** (Zapier, n8n, a CI runner) wraps the gateway call surface, the inner payload passed to `call_tool` **MUST** remain a single JSON object with:
+
+1. **`tool_slug`** — a string (e.g. `"maya.a1b2c3d4.create_sphere"`)
+2. **`arguments`** — a JSON **object** `{}`, not a string
+3. **`meta`** (optional) — a JSON **object** `{}`
+
+#### ✅ Correct payload (object-shaped arguments)
+
+```json
+{
+  "tool_slug": "maya.a1b2c3d4.create_sphere",
+  "arguments": {
+    "radius": 2.0,
+    "segments": 32
+  },
+  "meta": {
+    "progressToken": "session-42"
+  }
+}
+```
+
+#### ❌ Incorrect payloads (common failure modes)
+
+**1. Stringified JSON blob instead of object**
+
+```json
+{
+  "tool_slug": "maya.a1b2c3d4.create_sphere",
+  "arguments": "{"radius": 2.0, "segments": 32}",  // ❌ STRING, not object
+  "meta": "{"progressToken": "session-42"}"             // ❌ STRING, not object
+}
+```
+
+**Error you'll see:**
+```
+Validation error: document root must be an object
+```
+
+**Why?** The server parses `arguments` as a JSON value. If it's a string, the server cannot validate it against the tool's JSON Schema. Always parse your arguments into an object **before** sending.
+
+**2. arguments is `null` or missing**
+
+```json
+{
+  "tool_slug": "maya.a1b2c3d4.create_sphere"  // ❌ missing `arguments`
+}
+```
+
+**Error you'll see:**
+```
+Validation error: missing field `arguments`
+```
+
+**Fix:** Always include `"arguments": {}` (empty object) if the tool takes no arguments.
+
+**3. Double-stringified payload (wrapper serializes twice)**
+
+```python
+# ❌ WRONG: serializing the entire payload twice
+import json
+payload = {
+    "tool_slug": "maya.a1b2c3d4.create_sphere",
+    "arguments": json.dumps({"radius": 2.0})  # becomes a string
+}
+requests.post(url, json=payload)  # serializes again → double-stringified
+```
+
+```python
+# ✅ CORRECT: pass objects directly
+import json
+payload = {
+    "tool_slug": "maya.a1b2c3d4.create_sphere",
+    "arguments": {"radius": 2.0}  # object, not string
+}
+requests.post(url, json=payload)  # serializes once → correct
+```
+
+#### Testing wrapper payloads end-to-end
+
+1. **Validate locally** with `jq` or a JSON schema validator:
+   ```bash
+   echo '$PAYLOAD' | jq .arguments  # must be an object `{}`, not a string
+   ```
+
+2. **Call `POST /v1/describe` first** to fetch the tool's schema, then validate your `arguments` against it.
+
+3. **Enable audit logging** (`DCC_MCP_GATEWAY_AUDIT_DIR`) and inspect the JSONL rows:
+   - `call.request.arguments` — must be an object, not a string.
+   - `call.error` — if present, check whether it mentions "document root must be an object".
+
+4. **Test with parsed objects in your wrapper**:
+   ```python
+   # ✅ GOOD: parse the JSON response before passing to the next layer
+   response = requests.post(url, json=payload)
+   result = response.json()  # parse once
+   process(result)              # pass parsed object
+   ```
+
+#### MCP `tools/call` equivalent
+
+When calling via MCP (not REST), the same rule applies:
+
+```jsonrpc
+{
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "name": "maya.a1b2c3d4.create_sphere",
+    "arguments": {"radius": 2.0, "segments": 32}  // ✅ object, not string
+  }
+}
+```
+
+**Remember:** `params.arguments` is **always** a JSON object `{}`, never a string.
+
+
 ### Success response — `200 OK`
 
 ```json
