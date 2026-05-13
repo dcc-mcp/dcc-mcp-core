@@ -1,0 +1,34 @@
+[package]
+name = "dcc-mcp-wire"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Canonical MCP/gateway wire serialization and argument validation for DCC-MCP."
+keywords = ["mcp", "wire", "serialization", "validation", "clean-architecture"]
+categories = ["api-bindings", "parsing"]
+
+[package.metadata.release]
+release = true
+
+[features]
+default = []
+python-bindings = ["pyo3"]
+stub-gen = ["python-bindings", "dep:pyo3-stub-gen", "dep:pyo3-stub-gen-derive"]
+
+[dependencies]
+# Internal — pure protocol types only; avoids circular imports.
+dcc-mcp-protocols = { path = "../dcc-mcp-protocols" }
+
+# Workspace shared
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+# Type-stub generation (opt-in via `stub-gen` feature).
+pyo3 = { workspace = true, optional = true }
+pyo3-stub-gen = { workspace = true, optional = true }
+pyo3-stub-gen-derive = { workspace = true, optional = true }
