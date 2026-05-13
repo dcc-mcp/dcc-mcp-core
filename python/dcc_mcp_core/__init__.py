@@ -421,6 +421,8 @@ _LAZY: dict[str, str] = {
     "ScriptExecutionResult": "dcc_mcp_core.script_execution",
     "ScriptExecutionSerializationError": "dcc_mcp_core.script_execution",
     "normalize_script_execution_params": "dcc_mcp_core.script_execution",
+    "normalize_tool_arguments": "dcc_mcp_core.host",
+    "normalize_tool_meta": "dcc_mcp_core.host",
     # skill helpers (pure-Python, used inside skill scripts)
     "get_bundled_skill_paths": "dcc_mcp_core.skill",
     "get_bundled_skills_dir": "dcc_mcp_core.skill",
@@ -803,6 +805,8 @@ __all__ = [
     "make_start_stop",
     "mpu_to_units",
     "normalize_script_execution_params",
+    "normalize_tool_arguments",
+    "normalize_tool_meta",
     "parse_recipe_anchors",
     "parse_schedules_yaml",
     "parse_skill_md",
