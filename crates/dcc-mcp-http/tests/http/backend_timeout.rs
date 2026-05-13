@@ -71,11 +71,10 @@ async fn make_state(
         adapter_dcc: None,
         capability_index: std::sync::Arc::new(dcc_mcp_gateway::capability::CapabilityIndex::new()),
         event_log: std::sync::Arc::new(dcc_mcp_gateway::event_log::EventLog::new()),
+        gateway_metrics: std::sync::Arc::new(dcc_mcp_gateway::event_log::GatewayMetrics::new()),
         middleware_chain: std::sync::Arc::new(
             dcc_mcp_gateway::gateway::middleware::MiddlewareChain::new(),
         ),
-        #[cfg(feature = "prometheus")]
-        gateway_metrics: std::sync::Arc::new(dcc_mcp_gateway::event_log::GatewayMetrics::new()),
     };
     (state, registry, dir)
 }

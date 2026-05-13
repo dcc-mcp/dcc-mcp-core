@@ -38,9 +38,8 @@ fn make_gateway_state() -> GatewayState {
         adapter_dcc: None,
         capability_index: std::sync::Arc::new(dcc_mcp_gateway::capability::CapabilityIndex::new()),
         event_log: std::sync::Arc::new(dcc_mcp_gateway::event_log::EventLog::new()),
-        #[cfg(feature = "prometheus")]
         gateway_metrics: std::sync::Arc::new(dcc_mcp_gateway::event_log::GatewayMetrics::new()),
-        middleware_chain: std::sync::Arc::new(dcc_mcp_gateway::middleware::MiddlewareChain::new()),
+        middleware_chain: std::sync::Arc::new(dcc_mcp_gateway::MiddlewareChain::new()),
     }
 }
 
