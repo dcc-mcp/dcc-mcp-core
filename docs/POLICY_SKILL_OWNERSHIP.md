@@ -144,5 +144,5 @@ Existing repositories with violations SHOULD:
 
 ## References
 
-- Related: [ADR-001: Skill Package Boundaries](./adr/001-skill-package-boundaries.md)
-- See also: [Skills System Design](./guide/skills-system.md)
+- Related: [ADR 003 — Thin-Harness Skill Authoring Pattern](./adr/003-thin-harness-skill-pattern.md)
+- See also: [Skills System](./guide/skills.md)
