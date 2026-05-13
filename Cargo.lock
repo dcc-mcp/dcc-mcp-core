@@ -1035,6 +1035,7 @@ name = "dcc-mcp-jsonrpc"
 version = "0.15.9"
 dependencies = [
  "dcc-mcp-protocols",
+ "dcc-mcp-wire",
  "serde",
  "serde_json",
  "workspace-hack",
@@ -1416,6 +1417,20 @@ dependencies = [
  "thiserror 2.0.18",
  "tracing",
  "uuid",
+ "workspace-hack",
+]
+
+[[package]]
+name = "dcc-mcp-wire"
+version = "0.15.9"
+dependencies = [
+ "dcc-mcp-protocols",
+ "pyo3",
+ "pyo3-stub-gen",
+ "pyo3-stub-gen-derive",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
  "workspace-hack",
 ]
 
