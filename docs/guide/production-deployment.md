@@ -78,6 +78,8 @@ The binary is configured entirely through CLI flags or environment variables
 | `DCC_MCP_LOG_DIR` | platform log dir | Where rotated logs are written |
 | `DCC_MCP_NO_ADMIN` | `false` | Disable the elected gateway's read-only `/admin` UI |
 | `DCC_MCP_ADMIN_PATH` | `/admin` | Admin UI URL prefix |
+| `DCC_MCP_GATEWAY_AUDIT_DIR` | — | Optional durable JSONL directory for admin call rows (`audit.jsonl`) and dispatch traces (`traces.jsonl`) |
+| `DCC_MCP_GATEWAY_AUDIT_MAX_ROWS` | `5000` | Max rows retained per durable admin JSONL file |
 
 ### Smoke Test
 
